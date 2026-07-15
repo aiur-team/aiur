@@ -287,6 +287,10 @@ defmodule Aiur.Orchestrator.PauseResume do
     {state, running_entry, issue_id, identifier} = prepare_pause_request(state, running_entry, issue)
 
     cond do
+      State.paused_running_entry?(running_entry) and pending_resume_request?(state, running_entry) and
+          is_binary(identifier) ->
+        submit_pause_request(state, running_entry, issue_id, identifier, pause_reason)
+
       State.paused_running_entry?(running_entry) ->
         adopt_existing_pause(state, running_entry, pause_reason)
 
@@ -969,6 +973,12 @@ defmodule Aiur.Orchestrator.PauseResume do
     end
   end
 
+  defp preflight_rejection(control, :pause, %{action: :resume}) do
+    if Map.get(control, :application_confirmation, :request_only) == :confirmed,
+      do: nil,
+      else: :unsupported
+  end
+
   defp preflight_rejection(control, :pause, _pending) do
     cond do
       Map.get(control, :status, :working) == :paused -> :already_in_state
@@ -1214,6 +1224,13 @@ defmodule Aiur.Orchestrator.PauseResume do
   defp pending_pause_request?(state, running_entry) do
     case ControlLifecycle.current_pending(state.control_lifecycle, issue_id(running_entry, Map.get(running_entry, :issue))) do
       %{action: :pause} -> true
+      _ -> false
+    end
+  end
+
+  defp pending_resume_request?(state, running_entry) do
+    case ControlLifecycle.current_pending(state.control_lifecycle, issue_id(running_entry, Map.get(running_entry, :issue))) do
+      %{action: :resume} -> true
       _ -> false
     end
   end

@@ -134,11 +134,19 @@ defmodule Aiur.OrchestratorControlRoutingTest do
       assert {:reply, {:ok, 73}, resume_pending_state} = PauseResume.request_control_call(state, issue_id, :resume, 73)
       assert_receive {:resume_agent, 73, 101}
 
-      assert {{:ok, :already_paused}, paused_state} =
+      assert {{:ok, pause_request_id}, paused_state} =
                PauseResume.request_pause(resume_pending_state, entry, entry.issue, :ci_wait)
 
+      assert pause_request_id != 73
+      assert_receive {:pause_agent, ^pause_request_id, 101}
+
       assert paused_state.running[issue_id].control.status == :paused
-      assert paused_state.running[issue_id].paused_reason == :ci_wait
+      assert paused_state.running[issue_id].paused_reason == :operator_pause
+
+      assert paused_state.running[issue_id].pending_pause_reason == %{
+               request_id: pause_request_id,
+               reason: :ci_wait
+             }
 
       assert %{status: :rejected, rejection: %{class: :superseded}} =
                paused_state.control_lifecycle.records[73]
@@ -148,6 +156,16 @@ defmodule Aiur.OrchestratorControlRoutingTest do
                  {:worker_control_state, issue_id, :working, %{request_id: 73, generation: 101}},
                  paused_state
                )
+
+      assert {:noreply, applied_pause_state} =
+               Orchestrator.handle_info(
+                 {:worker_control_state, issue_id, :paused, %{request_id: pause_request_id, generation: 101}},
+                 paused_state
+               )
+
+      assert applied_pause_state.running[issue_id].control.status == :paused
+      assert applied_pause_state.running[issue_id].paused_reason == :ci_wait
+      refute Map.has_key?(applied_pause_state.running[issue_id], :pending_pause_reason)
     end
 
     test "a newer request publishes the older pending request as superseded" do
