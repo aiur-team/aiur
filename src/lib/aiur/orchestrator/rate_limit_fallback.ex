@@ -365,13 +365,17 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
     issue_id = relabeled_issue.id
     worker_host = Map.get(running_entry, :worker_host)
     teardown = Keyword.get(opts, :teardown_fun, &RemoteControlMode.teardown_for_redispatch/3)
-    dispatch = Keyword.get(opts, :dispatch_fun, &Dispatcher.do_dispatch_issue/4)
+    dispatch = Keyword.get(opts, :dispatch_fun, &dispatch_prior_work/4)
 
     state = teardown.(state, running_entry, :rate_limit_fallback)
     state = %{state | running: Map.delete(state.running, issue_id)}
     state = dispatch.(state, relabeled_issue, nil, worker_host)
 
     ensure_redispatch_started(state, running_entry, relabeled_issue, worker_host, opts)
+  end
+
+  defp dispatch_prior_work(state, issue, attempt, worker_host) do
+    Dispatcher.do_dispatch_issue(state, issue, attempt, worker_host, prior_work: Config.agent_prior_work_continuation?())
   end
 
   defp ensure_redispatch_started(state, running_entry, issue, worker_host, opts) do

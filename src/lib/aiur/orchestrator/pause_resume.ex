@@ -444,7 +444,8 @@ defmodule Aiur.Orchestrator.PauseResume do
     # budget so the fresh task starts with a full window.
     state = Dispatcher.reset_thrash_budget(state, issue_id)
 
-    dispatched_state = Dispatcher.do_dispatch_issue(state, issue, nil, worker_host)
+    dispatched_state =
+      Dispatcher.do_dispatch_issue(state, issue, nil, worker_host, prior_work: Config.agent_prior_work_continuation?())
 
     case Map.get(dispatched_state.running, issue_id) do
       %{pid: pid} when is_pid(pid) ->

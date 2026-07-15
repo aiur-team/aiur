@@ -5,7 +5,7 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
   """
 
   alias Aiur.Claude.{RemoteControl, ReplAgent}
-  alias Aiur.CodingAgent
+  alias Aiur.{CodingAgent, Config}
   alias Aiur.HttpServer
   alias Aiur.Issue
   alias Aiur.Orchestrator
@@ -113,7 +113,7 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
 
         Logger.info("Remote Control promote; re-dispatching with model:remote: #{rc_log_context(running_entry)}")
 
-        {{:ok, :on}, Dispatcher.do_dispatch_issue(state, relabeled, nil, nil)}
+        {{:ok, :on}, redispatch_prior_work(state, relabeled)}
 
       {:error, reason} ->
         Logger.error("Remote Control promote label-add failed: #{rc_log_context(running_entry)} reason=#{inspect(reason)}")
@@ -145,7 +145,7 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
 
             Logger.info("Remote Control demote; re-dispatching as default backend: #{rc_log_context(running_entry)}")
 
-            {{:ok, :off}, Dispatcher.do_dispatch_issue(state, relabeled, nil, nil)}
+            {{:ok, :off}, redispatch_prior_work(state, relabeled)}
 
           {:error, reason} ->
             Logger.error("Remote Control demote label-remove failed: #{rc_log_context(running_entry)} reason=#{inspect(reason)}")
@@ -153,6 +153,10 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
             {{:error, {:rc_label_failed, reason}}, state}
         end
     end
+  end
+
+  defp redispatch_prior_work(state, issue) do
+    Dispatcher.do_dispatch_issue(state, issue, nil, nil, prior_work: Config.agent_prior_work_continuation?())
   end
 
   # Stop the current agent cleanly so the same issue can be re-dispatched under
