@@ -7,8 +7,15 @@ defmodule Aiur.AppServer.ProviderTurnLedger do
   app-server session so late frames cannot affect a later turn.
   """
 
+  require Logger
+
   @type store :: pid()
   @type anonymous_completion_guard_action :: :arm | :consume | :preserve
+
+  # The store is a private, owner-linked Agent whose state is required for
+  # safe session reuse. A scheduler delay must not turn into a false "fresh
+  # session" after Agent's default five-second call timeout.
+  @store_timeout :infinity
 
   @spec start_store() :: {:ok, store()} | {:error, term()}
   def start_store, do: Agent.start_link(fn -> default_guards() end)
@@ -25,9 +32,11 @@ defmodule Aiur.AppServer.ProviderTurnLedger do
 
   @spec guards(store() | nil) :: map()
   def guards(store) when is_pid(store) do
-    Agent.get(store, & &1)
+    Agent.get(store, & &1, @store_timeout)
   catch
-    :exit, _reason -> default_guards()
+    :exit, reason ->
+      log_store_unavailable(:read, reason)
+      unavailable_guards()
   end
 
   def guards(_store), do: default_guards()
@@ -217,15 +226,28 @@ defmodule Aiur.AppServer.ProviderTurnLedger do
 
   defp persist_guards(%{provider_turn_store: store} = state) when is_pid(store) do
     guards = Map.take(state, [:retired_turn_ids, :anonymous_completion_consumed?])
-    Agent.update(store, fn _previous -> guards end)
+    Agent.update(store, fn _previous -> guards end, @store_timeout)
     state
   catch
-    :exit, _reason -> state
+    :exit, reason ->
+      log_store_unavailable(:write, reason)
+      Map.put(state, :anonymous_completion_consumed?, true)
   end
 
   defp persist_guards(state), do: state
 
   defp default_guards do
     %{retired_turn_ids: MapSet.new(), anonymous_completion_consumed?: false}
+  end
+
+  defp unavailable_guards do
+    %{default_guards() | anonymous_completion_consumed?: true}
+  end
+
+  defp log_store_unavailable(operation, reason) do
+    Logger.warning(
+      "Provider turn ledger guard store unavailable during #{operation}; " <>
+        "preserving the anonymous completion barrier: #{inspect(reason)}"
+    )
   end
 end

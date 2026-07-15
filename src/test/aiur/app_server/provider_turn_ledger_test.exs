@@ -96,6 +96,59 @@ defmodule Aiur.AppServer.ProviderTurnLedgerTest do
     assert_receive {:DOWN, ^ref, :process, ^store, :killed}
   end
 
+  test "a fresh store starts without an anonymous completion guard" do
+    {:ok, store} = ProviderTurnLedger.start_store()
+    on_exit(fn -> ProviderTurnLedger.stop_store(store) end)
+
+    refute ProviderTurnLedger.start_turn(store).anonymous_completion_consumed?
+  end
+
+  test "an unavailable store fails closed while identified completion still converges" do
+    {:ok, store} = ProviderTurnLedger.start_store()
+    state = state(store, "turn-1")
+    :ok = ProviderTurnLedger.stop_store(store)
+
+    guarded_state = ProviderTurnLedger.start_turn(store)
+
+    completed_state =
+      ProviderTurnLedger.complete(
+        state,
+        %{"params" => %{"turn" => %{"id" => "turn-1", "status" => "completed"}}}
+      )
+
+    assert guarded_state.anonymous_completion_consumed?
+    assert completed_state.anonymous_completion_consumed?
+    assert completed_state.active_turn_ids == MapSet.new()
+    assert completed_state.retired_turn_ids == MapSet.new(["turn-1"])
+    assert completed_state.outstanding_turns == 0
+  end
+
+  test "a suspended private store waits for recovery instead of expiring its guard call" do
+    {:ok, store} = ProviderTurnLedger.start_store()
+    on_exit(fn -> ProviderTurnLedger.stop_store(store) end)
+    :ok = :sys.suspend(store)
+
+    task = Task.async(fn -> ProviderTurnLedger.start_turn(store) end)
+
+    assert Task.yield(task, 100) == nil
+    :ok = :sys.resume(store)
+    refute Task.await(task).anonymous_completion_consumed?
+  end
+
+  test "guard persistence waits for a suspended private store" do
+    {:ok, store} = ProviderTurnLedger.start_store()
+    on_exit(fn -> ProviderTurnLedger.stop_store(store) end)
+    state = state(store, "turn-1")
+    :ok = :sys.suspend(store)
+
+    task = Task.async(fn -> ProviderTurnLedger.complete_all(state) end)
+
+    assert Task.yield(task, 100) == nil
+    :ok = :sys.resume(store)
+    assert Task.await(task).anonymous_completion_consumed?
+    assert ProviderTurnLedger.guards(store).anonymous_completion_consumed?
+  end
+
   defp state(store, turn_id) do
     Map.merge(
       %{

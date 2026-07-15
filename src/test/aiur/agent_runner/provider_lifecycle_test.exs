@@ -162,7 +162,19 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
 
     send(task.pid, {:agent_queue_updated, issue.identifier, item.id, true})
     assert wait_for_path(late_marker)
-    assert Task.yield(task, 100) == nil
+
+    case Task.yield(task, 100) do
+      nil ->
+        :ok
+
+      task_result ->
+        queue_status = queue_item_status(orchestrator_pid, item.id)
+
+        flunk(
+          "queued turn completed early with result #{inspect(task_result)} " <>
+            "and queue status #{inspect(queue_status)}"
+        )
+    end
 
     File.touch!(release)
     assert Task.await(task, 15_000) == :ok
@@ -422,5 +434,15 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
     on_exit(fn -> File.rm_rf(root) end)
 
     {marker, release}
+  end
+
+  defp queue_item_status(orchestrator_pid, item_id) do
+    item =
+      orchestrator_pid
+      |> :sys.get_state()
+      |> Map.fetch!(:queue_store)
+      |> Aiur.AgentQueueStore.get(item_id)
+
+    if is_nil(item), do: :missing, else: item.status
   end
 end
