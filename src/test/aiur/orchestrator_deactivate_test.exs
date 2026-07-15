@@ -546,12 +546,28 @@ defmodule Aiur.OrchestratorDeactivateTest do
       identifier = "ci-dedup-#{System.unique_integer([:positive])}"
       topic = "ticket.#{identifier}.ci.failed"
       issue = %Issue{id: identifier, identifier: identifier, state: "ci-wait", title: "Deduplicate CI"}
+      {:ok, failure_order} = Agent.start_link(fn -> 0 end)
       :ok = Exchange.subscribe(topic)
 
       poll = fn ->
         CiLifecycle.poll_github_ci(empty_orchestrator_state(),
           ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
           ci_poller: fn [^identifier], _opts ->
+            failures =
+              Agent.get_and_update(failure_order, fn
+                0 ->
+                  {[
+                     %{name: "lint", result: "failure", excerpt: "lint failed"},
+                     %{name: "test", result: "timed_out", excerpt: "test timed out"}
+                   ], 1}
+
+                count ->
+                  {[
+                     %{name: "test", result: "timed_out", excerpt: "test timed out"},
+                     %{name: "lint", result: "failure", excerpt: "lint failed"}
+                   ], count + 1}
+              end)
+
             {:ok,
              %{
                results: [
@@ -560,7 +576,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
                    decision: :failed,
                    head_sha: "same-failed-head",
                    pr_number: 829,
-                   failures: [%{name: "lint", result: "failure", excerpt: "lint failed"}]
+                   failures: failures
                  }
                ],
                errors: []

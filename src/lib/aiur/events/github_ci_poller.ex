@@ -18,7 +18,8 @@ defmodule Aiur.Events.GithubCIPoller do
 
   @successful_conclusions ~w(success neutral skipped)
   @failed_statuses ~w(error failure)
-  @failed_conclusions ~w(action_required cancelled failure stale startup_failure timed_out)
+  @failed_conclusions ~w(action_required failure startup_failure timed_out)
+  @terminal_check_conclusions @successful_conclusions ++ @failed_conclusions
   @default_max_concurrency 4
   @default_target_timeout 60_000
 
@@ -209,6 +210,7 @@ defmodule Aiur.Events.GithubCIPoller do
         evaluate(check_runs, commit_status)
         |> enforce_base_repair_invalidation(target, observed_head_sha, check_runs, commit_status, opts)
         |> Map.merge(%{target: target, pr_number: pr_number, head_sha: observed_head_sha})
+        |> log_classification()
 
       {:ok, current_head_sha} ->
         %{
@@ -236,16 +238,24 @@ defmodule Aiur.Events.GithubCIPoller do
         failed_checks
       end
 
-    decision =
+    classification =
       cond do
-        failed_checks != [] -> :failed
-        incomplete_check_runs?(check_runs) -> :pending
-        incomplete_commit_statuses?(statuses) -> :pending
-        incomplete_combined_status?(commit_status) -> :pending
-        observed_ci_signal?(check_runs, statuses, commit_status) -> :passed
-        true -> :pending
+        incomplete_check_runs?(check_runs) -> {:pending, :check_runs_incomplete}
+        incomplete_commit_statuses?(statuses) -> {:pending, :commit_statuses_incomplete}
+        incomplete_combined_status?(commit_status) -> {:pending, :combined_status_incomplete}
+        failed_checks != [] -> {:failed, nil}
+        observed_ci_signal?(check_runs, statuses, commit_status) -> {:passed, nil}
+        true -> {:pending, :ci_not_observed}
       end
 
+    evaluation(classification, failed_checks)
+  end
+
+  defp evaluation({:pending, pending_reason}, failed_checks) do
+    %{decision: :pending, pending_reason: pending_reason, failures: failed_checks}
+  end
+
+  defp evaluation({decision, nil}, failed_checks) do
     %{decision: decision, failures: failed_checks}
   end
 
@@ -377,7 +387,7 @@ defmodule Aiur.Events.GithubCIPoller do
       status = Map.get(check_run, "status")
       conclusion = Map.get(check_run, "conclusion")
 
-      status != "completed" or conclusion not in @successful_conclusions
+      status != "completed" or conclusion not in @terminal_check_conclusions
     end)
   end
 
@@ -396,6 +406,17 @@ defmodule Aiur.Events.GithubCIPoller do
        do: check_runs != [] or statuses != [] or state in ["success" | @failed_statuses]
 
   defp observed_ci_signal?(check_runs, statuses, _commit_status), do: check_runs != [] or statuses != []
+
+  defp log_classification(result) do
+    Logger.debug(fn ->
+      "GithubCIPoller classified: issue=#{result.target} pr=#{result.pr_number} " <>
+        "head=#{result.head_sha} decision=#{result.decision} " <>
+        "pending_reason=#{inspect(Map.get(result, :pending_reason))} " <>
+        "failure_count=#{length(Map.get(result, :failures, []))}"
+    end)
+
+    result
+  end
 
   defp normalize_targets(targets) do
     targets
