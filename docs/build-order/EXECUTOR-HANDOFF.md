@@ -1799,6 +1799,36 @@ Terra; never dispatch Claude.
     arrives; preserve immediate event-driven action and the ten-minute capacity
     audit. This supersedes only decision 208's 120-second floor.
 
+219. #1180 exact head `281f138e` cleared fresh CI after two changing unrelated
+    suite flakes plus two independent exact-head reviews with no blocking
+    findings, then squash-merged to `main` as `03153ebf` at 01:34 PDT. The
+    Executor stopped the old daemon only after #1161 had pushed and completed
+    its active turn, fast-forwarded the root checkout, enabled
+    `prior_work_continuation: true` and `max_dispatches_per_ticket: 10` in the
+    dogfood config, rebuilt the release, and restarted once with the dashboard
+    retained on the configured Tailscale host and the 16-agent ceiling. The
+    dashboard returned the expected authenticated response, the warm base
+    refreshed to exact `03153ebf`, and the roster survived the restart.
+
+220. Live post-restart proof is positive but the recovery freeze remains. The
+    rebuilt daemon automatically relaunched #780 and #1161 from their preserved
+    workspaces, then resumed already-started #1162 as capacity ramped. #780
+    consumed the Executor's new issue comment through the GitHub event path
+    within one second and began integrating current main with its workpad and
+    branch intact; no manual message or label cycle was needed. #1032 is queued
+    in rework for its owner to refresh next. This proves startup continuation,
+    workspace preservation, Codex-only routing, and live issue-comment delivery
+    for active workers; it does not yet prove a completed idle worker wakes from
+    a new comment.
+
+221. #1181's first green CI and correctness review were valid at `3ac3f191`,
+    but #1180 advanced main before its adversarial review finished. The
+    Executor interrupted the stale review immediately to avoid token waste,
+    returned #780 to its owning worker with exact `03153ebf`, and requires a
+    fresh current-main head, CI, and dual review. Apply the same rule to #1161,
+    #1046, and every other recovery head: do not analyze an obsolete CI failure
+    or review code that no longer contains main.
+
 At 01:20 PDT the core graph remains 8/54 accepted while the recovery gate is
 frozen. Useful lanes are #1180's third CI test rerun, #1181's first CI, #1161's
 owned lint repair, and #1046's adjudicated merge-ready head; no new Build Order

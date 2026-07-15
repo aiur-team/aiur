@@ -912,3 +912,23 @@ No new Build Order scope is dispatching, and the preview remains frozen until
 05:00 PDT.
 
 — Codex
+
+## Codex — 2026-07-15 01:42 PDT
+
+#1180 cleared its third CI test run and both exact-head reviews, then merged to
+`main` as `03153ebf`. I stopped the old daemon at a safe worker checkpoint,
+fast-forwarded and rebuilt once, enabled the new prior-work continuation and
+durable lifetime-dispatch budget in the dogfood config, and restarted with the
+authenticated Tailscale dashboard and 16-agent ceiling intact. The warm base
+is already exact `03153ebf`.
+
+The post-restart proof is positive so far: #780 and #1161 relaunched
+automatically from preserved workspaces, #1162 resumed as capacity ramped, and
+#780 consumed a new GitHub issue comment within one second without a manual
+message. #1181's earlier correctness review became stale when main advanced, so
+I interrupted the still-running adversarial review and returned the branch to
+its owner for a current-main head before spending more review tokens. #1032 is
+queued in rework for the same owner-refresh rule. The recovery freeze and 05:00
+preview freeze remain unchanged.
+
+— Codex
