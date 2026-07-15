@@ -164,6 +164,29 @@ defmodule Aiur.ApplicationTest do
       end
     end
 
+    test "durable workspace ownership reconciles before runner tasks" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        specs = AiurApp.child_specs(opts)
+        task_supervisor = Enum.find_index(specs, &match?({Task.Supervisor, _}, &1))
+
+        ownership_registry =
+          Enum.find_index(specs, fn
+            {Registry, registry_opts} -> Keyword.get(registry_opts, :name) == Aiur.Workspace.Ownership.Registry
+            _other -> false
+          end)
+
+        ownership_store = Enum.find_index(specs, &(&1 == Aiur.Workspace.Ownership.Store))
+        ownership_reconciler = Enum.find_index(specs, &(&1 == Aiur.Workspace.Ownership.Reconciler))
+
+        assert ownership_store < ownership_registry
+        assert ownership_registry < ownership_reconciler
+        assert ownership_reconciler < task_supervisor
+      end
+    end
+
     test "TrackedSet owner starts before Orchestrator in both shapes" do
       for opts <- [
             [interactive_cli?: true, headless?: false, dashboard?: true],

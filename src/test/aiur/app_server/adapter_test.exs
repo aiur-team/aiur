@@ -358,6 +358,22 @@ defmodule Aiur.AppServer.AdapterTest do
     assert_receive {^port, {:data, {:eol, "ready"}}}, 1_000
   end
 
+  test "registers a spawned port before start_port returns" do
+    parent = self()
+
+    assert {:ok, port} =
+             Adapter.start_port(File.cwd!(), "sleep 600", fn spawned_port ->
+               send(parent, {:port_registered_at_spawn, spawned_port})
+               :ok
+             end)
+
+    try do
+      assert_received {:port_registered_at_spawn, ^port}
+    after
+      Port.close(port)
+    end
+  end
+
   test "start_port/2 caps schedulers for an agent-launched Mix VM" do
     mix = System.find_executable("mix") || flunk("mix executable unavailable")
     elixir = System.find_executable("elixir") || flunk("elixir executable unavailable")

@@ -8,6 +8,8 @@ defmodule Aiur.Init.TemplatesTest do
     assert Templates.aiurhooks_template() =~ "after_create:"
     assert Templates.aiurhooks_template() =~ "AIUR_TICKET_BRANCH"
     assert Templates.aiurhooks_template() =~ "origin/$AIUR_TICKET_BRANCH"
+    assert Templates.aiurhooks_template() =~ "Aiur must stage incomplete workspace reconstruction"
+    refute Templates.aiurhooks_template() =~ "find . -mindepth 1 -maxdepth 1 -exec rm -rf"
     assert Templates.prompt_file_template() =~ "{{REPO}}"
     prompt = Templates.prompt_file_template()
 

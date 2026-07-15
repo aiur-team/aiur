@@ -32,6 +32,8 @@ defmodule Aiur.Claude.ReplAgent do
           backend: String.t(),
           pane_id: String.t(),
           os_pid: integer() | nil,
+          process_group_id: integer() | nil,
+          process_group_identity: term(),
           workspace: Path.t(),
           transcript_path: Path.t() | nil,
           projects_dir: Path.t() | nil,
@@ -51,7 +53,7 @@ defmodule Aiur.Claude.ReplAgent do
   def start_session(workspace, opts \\ []) when is_binary(workspace),
     do: Launcher.start_session(workspace, opts)
 
-  @spec stop_session(session()) :: :ok
+  @spec stop_session(session()) :: :ok | {:ok, :cleanup_proven} | {:error, {:repl_cleanup_failed, term()}}
   @impl Aiur.CodingAgent.Backend
   defdelegate stop_session(session), to: Reaper
 

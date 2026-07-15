@@ -7,6 +7,7 @@ defmodule Aiur.AppServer.Adapter do
 
   alias Aiur.{AgentEnvironment, Config}
   alias Aiur.AppServer.{Messages, TurnLoop, TurnState}
+  alias Aiur.Claude.RemoteControl
   alias Aiur.Codex.DynamicTool
 
   @port_line_bytes 1_048_576
@@ -103,7 +104,11 @@ defmodule Aiur.AppServer.Adapter do
   defp pause_latched?(session), do: Aiur.PauseContainment.paused?(Map.get(session, :containment))
 
   @spec start_port(Path.t(), String.t()) :: {:ok, port()} | {:error, :bash_not_found}
-  def start_port(workspace, command) do
+  def start_port(workspace, command), do: start_port(workspace, command, fn _port -> :ok end)
+
+  @doc false
+  @spec start_port(Path.t(), String.t(), (port() -> term())) :: {:ok, port()} | {:error, :bash_not_found}
+  def start_port(workspace, command, on_port_started) when is_function(on_port_started, 1) do
     executable = System.find_executable("bash")
 
     if is_nil(executable) do
@@ -129,7 +134,34 @@ defmodule Aiur.AppServer.Adapter do
           ]
         )
 
-      {:ok, port}
+      # Invoke this while the spawn primitive still owns control. Callers use
+      # it to record the local process-group lease before any handshake or
+      # session setup can expose a live descendant to an abrupt runner death.
+      case on_port_started.(port) do
+        :ok ->
+          {:ok, port}
+
+        {:error, _reason} = error ->
+          terminate_uncontained_port(port)
+          error
+
+        _other ->
+          terminate_uncontained_port(port)
+          {:error, :workspace_ownership_lost}
+      end
+    end
+  end
+
+  defp terminate_uncontained_port(port) do
+    case :erlang.port_info(port, :os_pid) do
+      {:os_pid, os_pid} -> RemoteControl.graceful_kill_tree(os_pid)
+      _ -> :ok
+    end
+
+    try do
+      Port.close(port)
+    rescue
+      ArgumentError -> :ok
     end
   end
 

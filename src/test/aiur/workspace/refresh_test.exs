@@ -2,7 +2,7 @@ defmodule Aiur.Workspace.RefreshTest do
   use Aiur.TestSupport
 
   alias Aiur.Workflow
-  alias Aiur.Workspace.Refresh
+  alias Aiur.Workspace.{Ownership, Refresh}
 
   setup do
     test_root = Path.join(System.tmp_dir!(), "refresh_test_#{System.unique_integer([:positive])}")
@@ -29,7 +29,51 @@ defmodule Aiur.Workspace.RefreshTest do
     assert :ok = Refresh.run(workspace, issue_context, nil)
   end
 
+  test "run/3 stages a logs-only workspace before before_run and preserves prior logs", %{
+    workspace: workspace,
+    test_root: test_root
+  } do
+    log_path = Path.join([workspace, "logs", "agent.md"])
+    File.mkdir_p!(Path.dirname(log_path))
+    File.write!(log_path, "prior transcript\n")
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      workspace_root: test_root,
+      hook_before_run: "git init --quiet -b main && git config user.email t@example.com && git config user.name T && touch rebuilt && git add rebuilt && git commit --quiet -m rebuilt"
+    )
+
+    issue_context = %{issue_id: 1, issue_identifier: "test", issue_state: nil, issue_labels: [], pr_head_ref: nil}
+    assert :ok = Refresh.run(workspace, issue_context, nil)
+
+    assert File.exists?(Path.join(workspace, "rebuilt"))
+    assert File.read!(log_path) == "prior transcript\n"
+  end
+
+  test "run/3 refuses incomplete Git WIP before executing before_run", %{
+    workspace: workspace,
+    test_root: test_root
+  } do
+    {_output, 0} = System.cmd("git", ["init", "--quiet", workspace], stderr_to_stdout: true)
+    notes = Path.join(workspace, "notes.txt")
+    before_run_marker = Path.join(test_root, "before-run-ran")
+    File.write!(notes, "preserve this interrupted bootstrap\n")
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      workspace_root: test_root,
+      hook_before_run: "touch #{before_run_marker}"
+    )
+
+    issue_context = %{issue_id: 1, issue_identifier: "test", issue_state: nil, issue_labels: [], pr_head_ref: nil}
+
+    assert {:error, {:workspace_ambiguous, ^workspace, :invalid_git_checkout}} =
+             Refresh.run(workspace, issue_context, nil)
+
+    assert File.read!(notes) == "preserve this interrupted bootstrap\n"
+    refute File.exists?(before_run_marker)
+  end
+
   test "run/3 exit-65 on todo dispatch recreates workspace and re-runs before_run", %{workspace: workspace, test_root: test_root} do
+    init_repo!(workspace)
     sentinel = Path.join(workspace, "leftover-sentinel")
     File.write!(sentinel, "leftover")
 
@@ -44,6 +88,25 @@ defmodule Aiur.Workspace.RefreshTest do
     # Recreation happens: sentinel gone, before_run fails again → error propagates
     assert {:error, _} = Refresh.run(workspace, issue, nil)
     refute File.exists?(sentinel)
+  end
+
+  test "active ownership refuses stale-todo recreation without touching the workspace", %{workspace: workspace} do
+    ticket = "refresh-active-#{System.unique_integer([:positive])}"
+    sentinel = Path.join(workspace, "live-wip")
+    File.write!(sentinel, "keep\n")
+    error = {:error, {:workspace_hook_failed, "before_run", 65, ""}}
+    issue_context = %{issue_id: 1, issue_identifier: ticket, issue_state: "todo", issue_labels: [], pr_head_ref: nil}
+
+    assert {:ok, lease} = Ownership.claim(ticket)
+    assert {:ok, _active_lease} = Ownership.activate(lease)
+
+    on_exit(fn -> Ownership.release(lease) end)
+
+    assert {:error, {:workspace_owned, {:ok, %{generation: generation, phase: :active}}}} =
+             Refresh.maybe_recreate_stale_workspace(error, elem(error, 1), "exit 65", workspace, issue_context, nil)
+
+    assert generation == lease.generation
+    assert File.read!(sentinel) == "keep\n"
   end
 
   test "run/3 preserves an established ticket branch when recreation follows a title edit", %{

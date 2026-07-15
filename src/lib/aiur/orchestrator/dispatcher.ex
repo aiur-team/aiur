@@ -232,6 +232,15 @@ defmodule Aiur.Orchestrator.Dispatcher do
       {:ok, selected_issue} ->
         state = %{state | model_fallback_waiting: MapSet.delete(state.model_fallback_waiting, selected_issue.id)}
 
+        dispatch_after_workspace_wait_or_thrash_check(state, selected_issue, attempt, preferred_worker_host, opts)
+    end
+  end
+
+  defp dispatch_after_workspace_wait_or_thrash_check(state, selected_issue, attempt, preferred_worker_host, opts) do
+    workspace_ownership = state.dispatch_recovery.workspace_ownership
+
+    case Map.pop(workspace_ownership.ready, selected_issue.id) do
+      {nil, _ready} ->
         case check_thrash_budget(state, selected_issue.id, System.monotonic_time(:millisecond)) do
           {:trip, tripped_state} ->
             trip_thrash_breaker(tripped_state, selected_issue)
@@ -245,6 +254,25 @@ defmodule Aiur.Orchestrator.Dispatcher do
               opts
             )
         end
+
+      {envelope, ready} ->
+        workspace_ownership = %{
+          workspace_ownership
+          | ready: ready
+        }
+
+        state = put_in(state.dispatch_recovery.workspace_ownership, workspace_ownership)
+        envelope_attempt = Map.get(envelope, :retry_attempt, attempt) || attempt
+        envelope_host = Map.get(envelope, :worker_host, preferred_worker_host) || preferred_worker_host
+
+        envelope_opts =
+          Keyword.put(
+            opts,
+            :prior_work,
+            Map.get(envelope, :prior_work, Keyword.get(opts, :prior_work, false))
+          )
+
+        dispatch_to_worker(state, selected_issue, envelope_attempt, envelope_host, envelope_opts)
     end
   end
 
@@ -294,7 +322,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   defp redispatch_thrash_budget(state, issue_id, now_ms) do
-    previous = Map.get(state.codex_thrash_budget, issue_id)
+    previous = Map.get(thrash_budget(state), issue_id)
     entry = next_thrash_budget_entry(state, issue_id, now_ms)
 
     if active_trip?(previous, now_ms) or not is_nil(budget_trip_reason(entry)),
@@ -303,7 +331,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   defp admit_redispatch_thrash_budget(state, issue, now_ms, opts) do
-    previous = Map.get(state.codex_thrash_budget, issue.id)
+    previous = Map.get(thrash_budget(state), issue.id)
     trip = Keyword.get(opts, :trip_fun, &trip_thrash_breaker/2)
 
     if active_trip?(previous, now_ms) do
@@ -317,7 +345,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
         reason ->
           tripped = trip_budget_entry(previous, candidate, reason)
-          state = %{state | codex_thrash_budget: Map.put(state.codex_thrash_budget, issue.id, tripped)}
+          state = put_thrash_budget(state, Map.put(thrash_budget(state), issue.id, tripped))
           {:error, :thrash_circuit_open, trip.(state, issue)}
       end
     end
@@ -349,7 +377,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   @spec check_thrash_budget(State.t(), String.t(), integer()) ::
           {:ok, State.t()} | {:trip, State.t()}
   def check_thrash_budget(%State{} = state, issue_id, now_ms) do
-    previous = Map.get(state.codex_thrash_budget, issue_id)
+    previous = Map.get(thrash_budget(state), issue_id)
 
     if active_trip?(previous, now_ms) do
       {:trip, state}
@@ -365,18 +393,18 @@ defmodule Aiur.Orchestrator.Dispatcher do
       nil ->
         case persist_lifetime(entry, issue_id) do
           :ok ->
-            state = %{state | codex_thrash_budget: Map.put(state.codex_thrash_budget, issue_id, entry)}
+            state = put_thrash_budget(state, Map.put(thrash_budget(state), issue_id, entry))
             {:ok, state}
 
           {:error, _reason} ->
             tripped = trip_budget_entry(previous, entry, :lifetime)
-            state = %{state | codex_thrash_budget: Map.put(state.codex_thrash_budget, issue_id, tripped)}
+            state = put_thrash_budget(state, Map.put(thrash_budget(state), issue_id, tripped))
             {:trip, state}
         end
 
       reason ->
         tripped = trip_budget_entry(previous, entry, reason)
-        state = %{state | codex_thrash_budget: Map.put(state.codex_thrash_budget, issue_id, tripped)}
+        state = put_thrash_budget(state, Map.put(thrash_budget(state), issue_id, tripped))
         {:trip, state}
     end
   end
@@ -432,7 +460,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   defp next_thrash_budget_entry(state, issue_id, now_ms) do
     window_ms = Config.codex_thrash_window_seconds() * 1_000
-    previous = Map.get(state.codex_thrash_budget, issue_id)
+    previous = Map.get(thrash_budget(state), issue_id)
     lifetime = max(lifetime_of(previous), persisted_lifetime(issue_id)) + 1
 
     case previous do
@@ -479,13 +507,13 @@ defmodule Aiur.Orchestrator.Dispatcher do
   # refunding them would let a resume loop bypass the latch forever.
   @spec reset_thrash_budget(State.t(), String.t()) :: State.t()
   def reset_thrash_budget(%State{} = state, issue_id) do
-    case Map.get(state.codex_thrash_budget, issue_id) do
+    case Map.get(thrash_budget(state), issue_id) do
       %{lifetime: lifetime} when is_integer(lifetime) and lifetime > 0 ->
         entry = %{lifetime: lifetime}
-        %{state | codex_thrash_budget: Map.put(state.codex_thrash_budget, issue_id, entry)}
+        put_thrash_budget(state, Map.put(thrash_budget(state), issue_id, entry))
 
       _ ->
-        %{state | codex_thrash_budget: Map.delete(state.codex_thrash_budget, issue_id)}
+        put_thrash_budget(state, Map.delete(thrash_budget(state), issue_id))
     end
   end
 
@@ -630,7 +658,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   defp trip_thrash_breaker(%State{} = state, issue) do
     state = persist_lifetime_trip(state, issue, &Tracker.update_issue_state/2)
-    entry = Map.get(state.codex_thrash_budget, issue.id, %{})
+    entry = Map.get(thrash_budget(state), issue.id, %{})
 
     if Map.get(entry, :alert_emitted, false) do
       state
@@ -652,7 +680,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
       )
 
       updated_entry = Map.put(entry, :alert_emitted, true)
-      %{state | codex_thrash_budget: Map.put(state.codex_thrash_budget, issue.id, updated_entry)}
+      put_thrash_budget(state, Map.put(thrash_budget(state), issue.id, updated_entry))
     end
   end
 
@@ -661,19 +689,16 @@ defmodule Aiur.Orchestrator.Dispatcher do
           State.t()
   def persist_lifetime_trip(%State{} = state, %Issue{} = issue, update_state_fun)
       when is_function(update_state_fun, 2) do
-    entry = Map.get(state.codex_thrash_budget, issue.id, %{})
+    entry = Map.get(thrash_budget(state), issue.id, %{})
 
     if entry[:tripped] == :lifetime and entry[:durable_latch_applied] != true and
          is_binary(issue.identifier) do
       case update_state_fun.(issue.identifier, "error") do
         :ok ->
           updated_entry = Map.put(entry, :durable_latch_applied, true)
+          state = put_thrash_budget(state, Map.put(thrash_budget(state), issue.id, updated_entry))
 
-          %{
-            state
-            | codex_thrash_budget: Map.put(state.codex_thrash_budget, issue.id, updated_entry),
-              claimed: MapSet.delete(state.claimed, issue.id)
-          }
+          %{state | claimed: MapSet.delete(state.claimed, issue.id)}
 
         {:error, reason} ->
           Logger.error("Unable to persist lifetime dispatch latch: issue_id=#{issue.id} issue_identifier=#{issue.identifier} reason=#{inspect(reason)}")
@@ -684,6 +709,10 @@ defmodule Aiur.Orchestrator.Dispatcher do
       state
     end
   end
+
+  defp thrash_budget(state), do: state.dispatch_recovery.codex_thrash_budget
+
+  defp put_thrash_budget(state, budget), do: put_in(state.dispatch_recovery.codex_thrash_budget, budget)
 
   defp spawn_issue_on_worker_host(%State{} = state, issue, attempt, recipient, worker_host, opts) do
     runner = Keyword.get(opts, :runner, &AgentRunner.run/3)
