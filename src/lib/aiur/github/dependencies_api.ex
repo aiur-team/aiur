@@ -25,6 +25,13 @@ defmodule Aiur.GitHub.DependenciesApi do
     dependency_get(issue_number, "blocked_by", opts)
   end
 
+  @doc false
+  @spec fetch_blocked_by_with_meta(integer() | String.t(), keyword()) ::
+          {:ok, [map()], map()} | {:error, term()}
+  def fetch_blocked_by_with_meta(issue_number, opts \\ []) do
+    dependency_get_with_meta(issue_number, "blocked_by", opts)
+  end
+
   @doc """
   Fetches the issues `issue_number` is blocking.
   """
@@ -59,30 +66,64 @@ defmodule Aiur.GitHub.DependenciesApi do
   @spec dependency_get(integer() | String.t(), String.t(), keyword()) ::
           {:ok, [map()]} | {:error, term()}
   def dependency_get(issue_number, kind, opts) do
+    case dependency_get_with_meta(issue_number, kind, opts) do
+      {:ok, dependencies, _meta} -> {:ok, dependencies}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @spec dependency_get_with_meta(integer() | String.t(), String.t(), keyword()) ::
+          {:ok, [map()], map()} | {:error, term()}
+  def dependency_get_with_meta(issue_number, kind, opts) do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token() do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
 
       url =
-        "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/dependencies/#{kind}"
+        "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/dependencies/#{kind}?per_page=100"
 
-      case request_fun.(%{
-             method: :get,
-             url: url,
-             token: token,
-             api_version: @dependencies_api_version
-           }) do
-        {:ok, %{status: 200, body: body}} when is_list(body) ->
-          {:ok, body}
-
-        {:ok, %{status: _status} = response} ->
-          {:error, Errors.github_status_error(response)}
-
-        {:error, reason} ->
-          {:error, Errors.classify_error({:error, reason})}
-      end
+      fetch_dependency_pages(request_fun, token, url, [], empty_rate_meta())
     end
   end
+
+  defp fetch_dependency_pages(request_fun, token, url, acc, rate_meta) do
+    case request_fun.(%{
+           method: :get,
+           url: url,
+           token: token,
+           api_version: @dependencies_api_version
+         }) do
+      {:ok, %{status: 200, body: body} = response} when is_list(body) ->
+        next_url = Transport.parse_next_page_url(Map.get(response, :headers, []))
+        next_meta = merge_rate_meta(rate_meta, response)
+
+        case next_url do
+          nil -> {:ok, acc ++ body, next_meta}
+          next_url -> fetch_dependency_pages(request_fun, token, next_url, acc ++ body, next_meta)
+        end
+
+      {:ok, %{status: _status} = response} ->
+        {:error, Errors.github_status_error(response)}
+
+      {:error, reason} ->
+        {:error, Errors.classify_error({:error, reason})}
+    end
+  end
+
+  defp empty_rate_meta, do: %{remaining: nil, reset_at: nil}
+
+  defp merge_rate_meta(meta, response) do
+    remaining = Errors.rate_limit_remaining(response)
+
+    %{
+      remaining: min_remaining(meta.remaining, remaining),
+      reset_at: Errors.rate_limit_reset(response) || meta.reset_at
+    }
+  end
+
+  defp min_remaining(nil, remaining), do: remaining
+  defp min_remaining(remaining, nil), do: remaining
+  defp min_remaining(left, right), do: min(left, right)
 
   @spec dependency_mutate(integer() | String.t(), integer(), atom(), keyword()) ::
           {:ok, map() | :removed} | {:error, term()}

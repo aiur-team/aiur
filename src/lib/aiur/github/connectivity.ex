@@ -161,6 +161,9 @@ defmodule Aiur.GitHub.Connectivity do
       is_integer(detail[:poll_interval]) and detail[:poll_interval] > 0 ->
         cap_backoff(detail[:poll_interval] * 1_000)
 
+      reset_delay_ms(detail[:reset_at]) > 0 ->
+        cap_backoff(reset_delay_ms(detail[:reset_at]))
+
       true ->
         exponential(attempt)
     end
@@ -169,6 +172,18 @@ defmodule Aiur.GitHub.Connectivity do
   def backoff_ms(_classification, attempt, _detail), do: exponential(attempt)
 
   defp cap_backoff(delay_ms), do: min(delay_ms, @max_backoff_ms)
+
+  defp reset_delay_ms(reset_at) when is_binary(reset_at) do
+    case DateTime.from_iso8601(reset_at) do
+      {:ok, reset_at, _offset} ->
+        max(DateTime.diff(reset_at, DateTime.utc_now(), :millisecond), 0)
+
+      _ ->
+        0
+    end
+  end
+
+  defp reset_delay_ms(_reset_at), do: 0
 
   defp exponential(attempt) when is_integer(attempt) and attempt >= 1 do
     cap_backoff(@base_backoff_ms * 2 ** (attempt - 1))

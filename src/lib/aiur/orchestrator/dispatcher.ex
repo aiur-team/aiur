@@ -64,6 +64,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
     case Tracker.fetch_candidate_issues() do
       {:ok, issues} ->
+        state = TrackerHealth.note_tracker_fetch_success(state)
+
         state =
           state
           |> IssueSync.sync_polled_issue_state(issues)
@@ -78,7 +80,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
       {:error, reason} ->
         TrackerHealth.log_tracker_fetch_error(reason)
-        state
+        TrackerHealth.note_tracker_fetch_failure(state, reason)
     end
   end
 
@@ -151,21 +153,26 @@ defmodule Aiur.Orchestrator.Dispatcher do
       issues
       |> DispatchPolicy.sort_issues_for_dispatch()
       |> Enum.reduce({state, 0}, fn issue, {state_acc, startup_todo_index} ->
-        if DispatchPolicy.should_dispatch_issue?(issue, state_acc, active_states, terminal_states) do
-          next_state = dispatch_issue(state_acc, issue)
+        cond do
+          tracker_fetch_backoff_active?(state_acc) ->
+            {state_acc, startup_todo_index}
 
-          startup_todo_index =
-            maybe_schedule_startup_todo_alert(
-              state_acc,
-              next_state,
-              issue,
-              startup_todo_index,
-              initial_dispatch_cycle?
-            )
+          DispatchPolicy.should_dispatch_issue?(issue, state_acc, active_states, terminal_states) ->
+            next_state = dispatch_issue(state_acc, issue)
 
-          {next_state, startup_todo_index}
-        else
-          {state_acc, startup_todo_index}
+            startup_todo_index =
+              maybe_schedule_startup_todo_alert(
+                state_acc,
+                next_state,
+                issue,
+                startup_todo_index,
+                initial_dispatch_cycle?
+              )
+
+            {next_state, startup_todo_index}
+
+          true ->
+            {state_acc, startup_todo_index}
         end
       end)
 
@@ -195,7 +202,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
       {:error, reason} ->
         Logger.warning("Skipping dispatch; issue refresh failed for #{State.issue_context(issue)}: #{inspect(reason)}")
 
-        state
+        TrackerHealth.note_tracker_fetch_failure(state, reason)
     end
   end
 
@@ -350,6 +357,9 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   def revalidate_issue_for_dispatch(issue, _issue_fetcher, _terminal_states), do: {:ok, issue}
+
+  defp tracker_fetch_backoff_active?(%State{github_poll_delays: delays}) when is_map(delays),
+    do: Map.has_key?(delays, :tracker)
 
   @spec retry_dispatch_ready?(Issue.t(), State.t(), String.t() | nil) :: boolean()
   def retry_dispatch_ready?(%Issue{} = issue, %State{} = state, worker_host) do

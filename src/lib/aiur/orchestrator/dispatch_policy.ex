@@ -373,6 +373,14 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
   @spec todo_issue_blocked_by_non_terminal?(term(), MapSet.t()) :: boolean()
   def todo_issue_blocked_by_non_terminal?(
+        %Issue{state: issue_state, blocked_by_known?: false},
+        _terminal_states
+      )
+      when is_binary(issue_state) do
+    normalize_issue_state(issue_state) == "todo"
+  end
+
+  def todo_issue_blocked_by_non_terminal?(
         %Issue{state: issue_state, blocked_by: blockers},
         terminal_states
       )

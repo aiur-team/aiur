@@ -71,7 +71,8 @@ defmodule Aiur.GitHub.Errors do
        %{
          status: 403,
          retry_after: retry_after(response),
-         poll_interval: rate_limit_poll_interval(response)
+         poll_interval: rate_limit_poll_interval(response),
+         reset_at: rate_limit_reset(response)
        }}
     else
       {:github, :http, %{status: 403}}
@@ -83,7 +84,8 @@ defmodule Aiur.GitHub.Errors do
      %{
        status: 429,
        retry_after: retry_after(response),
-       poll_interval: rate_limit_poll_interval(response)
+       poll_interval: rate_limit_poll_interval(response),
+       reset_at: rate_limit_reset(response)
      }}
   end
 

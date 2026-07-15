@@ -41,6 +41,45 @@ defmodule Aiur.GitHub.DependenciesApiTest do
 
       assert {:ok, ^blockers} = DependenciesApi.fetch_blocked_by(5, request_fun: request_fun)
     end
+
+    test "requests 100 entries, follows Link pagination, and returns quota metadata" do
+      reset_at = DateTime.to_unix(~U[2026-01-01 00:01:00Z]) |> Integer.to_string()
+
+      request_fun = fn %{method: :get, url: url, api_version: api_version} ->
+        assert api_version == @dependencies_api_version
+
+        if String.contains?(url, "page=2") do
+          {:ok,
+           %{
+             status: 200,
+             headers: [
+               {"x-ratelimit-remaining", "998"},
+               {"x-ratelimit-reset", reset_at}
+             ],
+             body: [%{"number" => 102}]
+           }}
+        else
+          assert url =~ "/issues/5/dependencies/blocked_by?per_page=100"
+
+          next =
+            ~s(<https://api.github.com/repos/owner/repo/issues/5/dependencies/blocked_by?per_page=100&page=2>; rel="next")
+
+          {:ok,
+           %{
+             status: 200,
+             headers: [
+               {"link", next},
+               {"x-ratelimit-remaining", "999"},
+               {"x-ratelimit-reset", reset_at}
+             ],
+             body: [%{"number" => 101}]
+           }}
+        end
+      end
+
+      assert {:ok, [%{"number" => 101}, %{"number" => 102}], %{remaining: 998, reset_at: "2026-01-01T00:01:00Z"}} =
+               DependenciesApi.fetch_blocked_by_with_meta(5, request_fun: request_fun)
+    end
   end
 
   describe "fetch_blocking/2" do

@@ -7,6 +7,16 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, State}
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
 
+  defmodule FailingRefreshGitHubClient do
+    def fetch_issue_states_by_ids(issue_ids) do
+      if recipient = Application.get_env(:aiur, :dispatcher_test_refresh_recipient) do
+        send(recipient, {:dependency_refresh, issue_ids})
+      end
+
+      {:error, Application.fetch_env!(:aiur, :dispatcher_test_refresh_error)}
+    end
+  end
+
   setup do
     previous_meminfo = Application.get_env(:aiur, :meminfo_source_override)
     previous_loadavg = Application.get_env(:aiur, :loadavg_source_override)
@@ -437,6 +447,22 @@ defmodule Aiur.Orchestrator.DispatcherTest do
                Dispatcher.revalidate_issue_for_dispatch(issue, fetcher, terminal_states)
     end
 
+    test "returns {:skip, issue} when dependency state is unknown" do
+      issue = %Issue{
+        id: "id-1",
+        identifier: "repo#1",
+        title: "Work",
+        state: "todo",
+        blocked_by_known?: false
+      }
+
+      terminal_states = MapSet.new(["done"])
+      fetcher = fn _ids -> {:ok, [issue]} end
+
+      assert {:skip, ^issue} =
+               Dispatcher.revalidate_issue_for_dispatch(issue, fetcher, terminal_states)
+    end
+
     test "returns {:error, reason} when the fetcher fails" do
       issue = %Issue{id: "id-1", identifier: "repo#1", title: "Work", state: "todo"}
       terminal_states = MapSet.new(["done"])
@@ -449,6 +475,66 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     test "passes through non-Issue values unchanged" do
       assert {:ok, :not_an_issue} =
                Dispatcher.revalidate_issue_for_dispatch(:not_an_issue, nil, nil)
+    end
+  end
+
+  describe "dispatch_issue/4 dependency refresh failures" do
+    test "suppresses dispatch and records tracker backoff for typed GitHub failures" do
+      previous_client = Application.get_env(:aiur, :github_client_module)
+      previous_error = Application.get_env(:aiur, :dispatcher_test_refresh_error)
+      previous_recipient = Application.get_env(:aiur, :dispatcher_test_refresh_recipient)
+
+      on_exit(fn ->
+        restore_app_env(:github_client_module, previous_client)
+        restore_app_env(:dispatcher_test_refresh_error, previous_error)
+        restore_app_env(:dispatcher_test_refresh_recipient, previous_recipient)
+      end)
+
+      write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github")
+      Application.put_env(:aiur, :github_client_module, FailingRefreshGitHubClient)
+
+      issue = %Issue{id: "id-1", identifier: "1", title: "Work", state: "todo"}
+
+      failures = [
+        {{:github, :rate_limited, %{retry_after: 7}}, :rate_limited, 7_000},
+        {{:github, :http, %{status: 500}}, :http, 1_000},
+        {{:github, :timeout, %{reason: :dependency_hydration_deadline}}, :timeout, 1_000}
+      ]
+
+      Enum.each(failures, fn {reason, classification, expected_delay_ms} ->
+        Application.put_env(:aiur, :dispatcher_test_refresh_error, reason)
+
+        next_state = Dispatcher.dispatch_issue(%State{}, issue)
+
+        assert next_state.running == %{}
+        assert next_state.github_connectivity[:tracker] == {classification, 1}
+        assert next_state.github_poll_delays[:tracker] == expected_delay_ms
+      end)
+    end
+
+    test "stops revalidating later candidates once tracker backoff is active" do
+      previous_client = Application.get_env(:aiur, :github_client_module)
+      previous_error = Application.get_env(:aiur, :dispatcher_test_refresh_error)
+      previous_recipient = Application.get_env(:aiur, :dispatcher_test_refresh_recipient)
+
+      on_exit(fn ->
+        restore_app_env(:github_client_module, previous_client)
+        restore_app_env(:dispatcher_test_refresh_error, previous_error)
+        restore_app_env(:dispatcher_test_refresh_recipient, previous_recipient)
+      end)
+
+      write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github")
+      Application.put_env(:aiur, :github_client_module, FailingRefreshGitHubClient)
+      Application.put_env(:aiur, :dispatcher_test_refresh_error, {:github, :http, %{status: 500}})
+      Application.put_env(:aiur, :dispatcher_test_refresh_recipient, self())
+
+      state = %State{max_concurrent_agents: 2, effective_concurrent_agents: 2}
+      next_state = Dispatcher.choose_issues(state, [issue("1"), issue("2")])
+
+      assert next_state.running == %{}
+      assert next_state.github_poll_delays[:tracker] == 1_000
+      assert_receive {:dependency_refresh, [_issue_id]}
+      refute_receive {:dependency_refresh, [_issue_id]}, 100
     end
   end
 end

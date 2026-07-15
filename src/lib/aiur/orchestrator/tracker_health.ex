@@ -23,6 +23,16 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   end
 
   @doc false
+  @spec note_tracker_fetch_success(State.t()) :: State.t()
+  def note_tracker_fetch_success(%State{} = state) do
+    if Config.tracker_kind() == "github" do
+      note_github_connectivity_success(state, :tracker)
+    else
+      state
+    end
+  end
+
+  @doc false
   @spec note_github_connectivity_failure(State.t(), atom(), term()) :: State.t()
   def note_github_connectivity_failure(%State{} = state, source, reason) do
     classification = connectivity_classification(reason)
@@ -43,6 +53,16 @@ defmodule Aiur.Orchestrator.TrackerHealth do
       | github_connectivity: streaks,
         github_poll_delays: Map.put(state.github_poll_delays, source, backoff_ms)
     }
+  end
+
+  @doc false
+  @spec note_tracker_fetch_failure(State.t(), term()) :: State.t()
+  def note_tracker_fetch_failure(%State{} = state, reason) do
+    if Config.tracker_kind() == "github" do
+      note_github_connectivity_failure(state, :tracker, reason)
+    else
+      state
+    end
   end
 
   defp connectivity_classification({:github, classification, _detail}), do: classification

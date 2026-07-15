@@ -123,6 +123,12 @@ defmodule Aiur.Orchestrator.IssueSync do
              is_struct(terminal_states, MapSet) and is_function(mark_reconciled_fun, 1) and
              is_function(set_terminal_verification_pending_fun, 2) do
     previous_issues = state.last_polled_issues
+
+    issues =
+      Enum.map(issues, fn issue ->
+        preserve_known_blockers(Map.get(previous_issues, issue.id), issue)
+      end)
+
     current_issues = issues_by_id(issues)
 
     retained_issues =
@@ -372,6 +378,19 @@ defmodule Aiur.Orchestrator.IssueSync do
   catch
     _kind, _reason -> :ok
   end
+
+  defp preserve_known_blockers(
+         %Issue{blocked_by: previous_blockers},
+         %Issue{blocked_by_known?: false} = issue
+       )
+       when is_list(previous_blockers) do
+    %{issue | blocked_by: previous_blockers}
+  end
+
+  defp preserve_known_blockers(_previous_issue, issue), do: issue
+
+  defp emit_dependency_transition_events(%State{} = state, _previous_issue, %Issue{blocked_by_known?: false}),
+    do: state
 
   defp emit_dependency_transition_events(%State{} = state, previous_issue, %Issue{} = issue) do
     if is_nil(previous_issue) do

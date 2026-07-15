@@ -1,8 +1,9 @@
 defmodule Aiur.Orchestrator.IssueSyncTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.Events.SubscriptionStore
   alias Aiur.{Issue, TrackerIdentity}
-  alias Aiur.Orchestrator.{IssueSync, State}
+  alias Aiur.Orchestrator.{AutoSubscriptions, IssueSync, State}
 
   test "ignores a non-list poll result" do
     state = %State{last_polled_issues: %{"42" => %{id: "42"}}}
@@ -218,5 +219,40 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
         reason: nil
       }
     }
+  end
+
+  test "preserves known blockers and subscriptions while dependency data is unknown" do
+    suffix = System.unique_integer([:positive]) |> Integer.to_string()
+    blockee_id = "blockee-#{suffix}"
+    blocker_id = "blocker-#{suffix}"
+    :ok = AutoSubscriptions.subscribe_for_declared_blocker(blockee_id, blocker_id)
+
+    on_exit(fn -> SubscriptionStore.stop(blockee_id) end)
+    on_exit(fn -> SubscriptionStore.stop(blocker_id) end)
+
+    known = %Issue{
+      id: blockee_id,
+      identifier: blockee_id,
+      title: "Blocked work",
+      state: "todo",
+      blocked_by: [%{id: blocker_id, identifier: blocker_id, state: "in-progress"}]
+    }
+
+    unknown = %{known | blocked_by: [], blocked_by_known?: false}
+    state = %State{last_polled_issues: %{blockee_id => known}}
+
+    next_state = IssueSync.sync_polled_issue_state(state, [unknown])
+    preserved = next_state.last_polled_issues[blockee_id]
+
+    refute preserved.blocked_by_known?
+    assert preserved.blocked_by == known.blocked_by
+
+    topics =
+      blockee_id
+      |> SubscriptionStore.snapshot()
+      |> Map.fetch!(:subscribed_to)
+      |> Enum.map(& &1["topic"])
+
+    assert "ticket.#{blocker_id}.branch.push" in topics
   end
 end
