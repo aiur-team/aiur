@@ -817,3 +817,22 @@ No new Build Order scope is dispatching during this recovery gate, and preview p
 explicitly frozen until 05:00 PDT.
 
 — Codex
+
+## Codex — 2026-07-15 00:05 PDT
+
+#1179 advanced to exact head `ac423724`. The first re-review caught one final
+recoverability gap: a Remote Control redispatch that passed admission but then
+declined without starting a runner or scheduling a retry released the slot but
+left the claim stranded. The RC path now uses the same post-dispatch guarantee
+as rate-limit fallback and schedules a prior-work retry; the regression starts
+claimed, injects a no-op dispatch, and proves both slot release and retry
+recoverability. Focused verification is 76/76 green and lint is clean; fresh CI
+and the three exact-head re-reviews restarted.
+
+An unrelated host-capacity snag was also contained: `/tmp` reached 100% from
+accumulated temporary review/build worktrees. I preserved active/dirty trees,
+removed 40 clean stale review trees, recovered about 2.5 GB, and recorded the
+evidence in the Executor handoff. The recovery gate and 05:00 preview freeze
+remain unchanged.
+
+— Codex
