@@ -36,8 +36,16 @@ defmodule Aiur.DispatchBudgetStore do
   @doc false
   @spec path_for() :: Path.t()
   def path_for do
-    Application.get_env(:aiur, :dispatch_budget_store_path) ||
-      Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.dispatch-budgets.json")
+    case Application.get_env(:aiur, :dispatch_budget_store_path) do
+      path when is_binary(path) and path != "" ->
+        path
+
+      _ ->
+        case Paths.decision_state_dir() do
+          {:ok, state_dir} -> Path.join(state_dir, "dispatch-budgets.json")
+          {:error, reason} -> raise "dispatch budget state path unavailable: #{inspect(reason)}"
+        end
+    end
   end
 
   defp read_lifetimes do
@@ -46,5 +54,7 @@ defmodule Aiur.DispatchBudgetStore do
       {:ok, _other} -> {:error, :invalid_store}
       {:error, reason} -> {:error, reason}
     end
+  rescue
+    error -> {:error, error}
   end
 end

@@ -1,7 +1,7 @@
 defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.{Issue, Orchestrator}
+  alias Aiur.{DispatchBudgetStore, Issue, Orchestrator}
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Workflow
 
@@ -11,12 +11,16 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
   setup %{config: config} do
     previous = Application.get_env(:aiur, :workflow_file_path)
     previous_store = Application.get_env(:aiur, :dispatch_budget_store_path)
+    previous_state_dir = Application.get_env(:aiur, :decision_state_dir)
+    previous_log_file = Application.get_env(:aiur, :log_file)
     dir = Path.join(System.tmp_dir!(), "aiur-lifetime-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
     path = Path.join(dir, ".aiurconfig")
     File.write!(path, config)
     Workflow.set_workflow_file_path(path)
-    Application.put_env(:aiur, :dispatch_budget_store_path, Path.join(dir, "dispatch-budgets.json"))
+    Application.delete_env(:aiur, :dispatch_budget_store_path)
+    Application.put_env(:aiur, :decision_state_dir, Path.join(dir, "stable-state"))
+    Application.put_env(:aiur, :log_file, Path.join([dir, "session-one", "aiur.log"]))
 
     on_exit(fn ->
       File.rm_rf!(dir)
@@ -31,6 +35,18 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
         Application.delete_env(:aiur, :dispatch_budget_store_path)
       else
         Application.put_env(:aiur, :dispatch_budget_store_path, previous_store)
+      end
+
+      if is_nil(previous_state_dir) do
+        Application.delete_env(:aiur, :decision_state_dir)
+      else
+        Application.put_env(:aiur, :decision_state_dir, previous_state_dir)
+      end
+
+      if is_nil(previous_log_file) do
+        Application.delete_env(:aiur, :log_file)
+      else
+        Application.put_env(:aiur, :log_file, previous_log_file)
       end
     end)
 
@@ -100,9 +116,32 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
   @tag config: @enabled
   test "a daemon restart does not refund persisted lifetime dispatches" do
     _state = dispatch_n(%Orchestrator.State{}, 10)
+    stable_path = DispatchBudgetStore.path_for()
+    Application.put_env(:aiur, :log_file, Path.join([System.tmp_dir!(), "session-two", "aiur.log"]))
 
+    assert DispatchBudgetStore.path_for() == stable_path
     assert {:trip, restarted_state} = run(%Orchestrator.State{}, 11 * (@window_ms + 1))
     assert %{lifetime: 10, tripped: :lifetime} = restarted_state.codex_thrash_budget[@issue_id]
+  end
+
+  @tag config: @enabled
+  test "a corrupt durable budget fails closed" do
+    path = DispatchBudgetStore.path_for()
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, "{not-json")
+
+    assert {:trip, state} = run(%Orchestrator.State{}, 0)
+    assert %{lifetime: 10, tripped: :lifetime} = state.codex_thrash_budget[@issue_id]
+  end
+
+  @tag config: @enabled
+  test "an unreadable durable budget fails closed" do
+    unreadable_path = Path.join(Path.dirname(DispatchBudgetStore.path_for()), "is-a-directory")
+    File.mkdir_p!(unreadable_path)
+    Application.put_env(:aiur, :dispatch_budget_store_path, unreadable_path)
+
+    assert {:trip, state} = run(%Orchestrator.State{}, 0)
+    assert %{lifetime: 10, tripped: :lifetime} = state.codex_thrash_budget[@issue_id]
   end
 
   @tag config: @enabled
