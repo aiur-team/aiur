@@ -117,6 +117,30 @@ defmodule Aiur.UsageEnvelopeTest do
                  })
                )
     end
+
+    test "rejects non-UTF-8 opaque values before JSON serialization" do
+      invalid_utf8 = <<255>>
+
+      assert {:error, :invalid_source} =
+               UsageEnvelope.new(attributes(%{source: invalid_utf8}))
+
+      assert {:error, :invalid_attribution} =
+               UsageEnvelope.new(
+                 attributes(%{
+                   attribution: Map.put(attributes().attribution, :run_id, invalid_utf8)
+                 })
+               )
+
+      assert {:error, :invalid_account_generation_context} =
+               UsageEnvelope.new(
+                 attributes(%{
+                   account_generation: Map.put(attributes().account_generation, :generation, invalid_utf8)
+                 })
+               )
+
+      assert {:error, :invalid_relationship_revision} =
+               UsageEnvelope.new(attributes(%{relationship_revision: invalid_utf8}))
+    end
   end
 
   describe "ExactMoney.decode/1" do
@@ -160,6 +184,35 @@ defmodule Aiur.UsageEnvelopeTest do
 
       assert {:error, :money_too_large} =
                ExactMoney.decode(money_attrs(%{amount: String.duplicate("9", 129), unit: :major}))
+    end
+
+    test "requires canonical major amounts to be exact at their declared minor scale" do
+      canonical_minor = %{
+        amount: "1.23",
+        unit: :major,
+        source_representation: :minor,
+        minor_unit_scale: 2
+      }
+
+      assert {:ok, money} = ExactMoney.decode(money_attrs(canonical_minor))
+      assert money.source_representation == :minor
+      assert money.minor_unit_scale == 2
+
+      assert {:error, :inexact_minor_unit_amount} =
+               ExactMoney.decode(money_attrs(%{canonical_minor | amount: "1.234"}))
+    end
+
+    test "rejects non-UTF-8 money scalars before JSON serialization" do
+      invalid_utf8 = <<255>>
+
+      assert {:error, :invalid_money} =
+               ExactMoney.decode(money_attrs(%{source: invalid_utf8}))
+
+      assert {:error, :invalid_currency} =
+               ExactMoney.decode(money_attrs(%{currency: invalid_utf8}))
+
+      assert {:error, :invalid_money} =
+               ExactMoney.decode(money_attrs(%{amount: invalid_utf8}))
     end
   end
 

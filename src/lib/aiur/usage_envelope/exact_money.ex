@@ -82,6 +82,7 @@ defmodule Aiur.UsageEnvelope.ExactMoney do
            amount(value_of(value, :amount), amount_unit, value_of(value, :minor_unit_scale)),
          {:ok, scale} <-
            source_scale(source_representation, value_of(value, :minor_unit_scale), decoded_scale),
+         :ok <- exactly_representable?(amount, source_representation, scale),
          {:ok, measurement_kind} <- enum(value_of(value, :measurement_kind), @kinds, :invalid_money_measurement_kind),
          {:ok, counter_scope} <- enum(value_of(value, :counter_scope), @scopes, :invalid_money_counter_scope),
          {:ok, source} <- opaque(value_of(value, :source)),
@@ -148,6 +149,16 @@ defmodule Aiur.UsageEnvelope.ExactMoney do
     minor_unit_scale(scale)
   end
 
+  defp exactly_representable?(_amount, :major, nil), do: :ok
+
+  defp exactly_representable?(amount, :minor, scale) do
+    factor = Decimal.new(Integer.pow(10, scale))
+
+    if amount |> Decimal.mult(factor) |> Decimal.integer?(),
+      do: :ok,
+      else: {:error, :inexact_minor_unit_amount}
+  end
+
   defp exact_decimal(value) when is_float(value), do: {:error, :float_not_allowed}
 
   defp exact_decimal(%Decimal{} = value) do
@@ -168,7 +179,7 @@ defmodule Aiur.UsageEnvelope.ExactMoney do
   end
 
   defp exact_decimal(value) when is_binary(value) and byte_size(value) in 1..@max_amount_bytes do
-    if Regex.match?(~r/^\d+(?:\.\d+)?$/, value) do
+    if String.valid?(value) and Regex.match?(~r/^\d+(?:\.\d+)?$/, value) do
       {:ok, Decimal.new(value)}
     else
       {:error, :invalid_money}
@@ -198,13 +209,17 @@ defmodule Aiur.UsageEnvelope.ExactMoney do
   end
 
   defp currency(value) when is_binary(value) do
-    if Regex.match?(@currency, value), do: {:ok, value}, else: {:error, :invalid_currency}
+    if String.valid?(value) and Regex.match?(@currency, value),
+      do: {:ok, value},
+      else: {:error, :invalid_currency}
   end
 
   defp currency(_value), do: {:error, :invalid_currency}
 
   defp opaque(value) when is_binary(value) and byte_size(value) in 1..@max_scalar_bytes do
-    if value == String.trim(value), do: {:ok, value}, else: {:error, :invalid_money}
+    if String.valid?(value) and value == String.trim(value),
+      do: {:ok, value},
+      else: {:error, :invalid_money}
   end
 
   defp opaque(_value), do: {:error, :invalid_money}

@@ -155,6 +155,23 @@ defmodule Aiur.UsageEnvelope.RelationshipRegistryTest do
     assert {:error, :invalid_dimension_relationship} = RelationshipRegistry.new([cyclic])
   end
 
+  test "rejects non-UTF-8 relationship scalars before catalog registration" do
+    invalid_utf8 = <<255>>
+
+    assert {:error, :invalid_relationship_scalar} =
+             RelationshipRegistry.new([definition(%{source: invalid_utf8})])
+
+    assert {:error, :invalid_relationship_scalar} =
+             RelationshipRegistry.new([definition(%{revision: invalid_utf8})])
+
+    assert {:error, :invalid_relationship_scalar} =
+             RelationshipRegistry.new([
+               definition(%{
+                 dimensions: Map.put(subset_dimensions(), :input, {:mutually_exclusive, invalid_utf8})
+               })
+             ])
+  end
+
   property "subset dimensions never inflate canonical totals" do
     check all(
             input <- non_negative_integer(),

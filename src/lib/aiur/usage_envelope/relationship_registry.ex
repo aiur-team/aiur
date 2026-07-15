@@ -115,29 +115,9 @@ defmodule Aiur.UsageEnvelope.RelationshipRegistry do
     discrepancy = discrepancy(provider_total, derived_total)
 
     {canonical_total, status} =
-      cond do
-        authoritative? and is_integer(discrepancy) and discrepancy != 0 ->
-          {provider_total, :authoritative_discrepancy}
+      select_canonical_total(authoritative?, provider_total, derived_total, discrepancy)
 
-        authoritative? ->
-          {provider_total, :authoritative}
-
-        is_integer(derived_total) ->
-          {derived_total, if(discrepancy in [nil, 0], do: :derived, else: :derived_discrepancy)}
-
-        true ->
-          {nil, :unreconciled}
-      end
-
-    relationship_reasons =
-      [reason_or_nil(input), reason_or_nil(output)]
-      |> Enum.reject(&is_nil/1)
-
-    reasons =
-      relationship_reasons
-      |> maybe_append(envelope.update_kind == :partial, :partial_update)
-      |> maybe_append(is_integer(discrepancy) and discrepancy != 0, :provider_total_discrepancy)
-      |> Enum.uniq()
+    reasons = reconciliation_reasons(input, output, envelope.update_kind, discrepancy)
 
     %{
       canonical_total: canonical_total,
@@ -151,6 +131,30 @@ defmodule Aiur.UsageEnvelope.RelationshipRegistry do
       coverage_reasons: reasons,
       discrepancy: discrepancy
     }
+  end
+
+  defp select_canonical_total(true, provider_total, _derived_total, discrepancy)
+       when is_integer(discrepancy) and discrepancy != 0,
+       do: {provider_total, :authoritative_discrepancy}
+
+  defp select_canonical_total(true, provider_total, _derived_total, _discrepancy),
+    do: {provider_total, :authoritative}
+
+  defp select_canonical_total(false, _provider_total, derived_total, discrepancy)
+       when is_integer(derived_total) do
+    status = if discrepancy in [nil, 0], do: :derived, else: :derived_discrepancy
+    {derived_total, status}
+  end
+
+  defp select_canonical_total(false, _provider_total, _derived_total, _discrepancy),
+    do: {nil, :unreconciled}
+
+  defp reconciliation_reasons(input, output, update_kind, discrepancy) do
+    [reason_or_nil(input), reason_or_nil(output)]
+    |> Enum.reject(&is_nil/1)
+    |> maybe_append(update_kind == :partial, :partial_update)
+    |> maybe_append(is_integer(discrepancy) and discrepancy != 0, :provider_total_discrepancy)
+    |> Enum.uniq()
   end
 
   defp category_total(relationships, tokens, dimensions) do
@@ -394,7 +398,9 @@ defmodule Aiur.UsageEnvelope.RelationshipRegistry do
   defp enum(_value, _allowed, error), do: {:error, error}
 
   defp scalar(value) when is_binary(value) and byte_size(value) in 1..256 do
-    if value == String.trim(value), do: {:ok, value}, else: {:error, :invalid_relationship_scalar}
+    if String.valid?(value) and value == String.trim(value),
+      do: {:ok, value},
+      else: {:error, :invalid_relationship_scalar}
   end
 
   defp scalar(_value), do: {:error, :invalid_relationship_scalar}

@@ -135,7 +135,10 @@ defmodule Aiur.UsageEnvelope do
   ]
 
   @type token_dimension :: :input | :cached_input | :cache_creation_input | :output | :reasoning_output
-  @type token_values :: %{required(token_dimension()) => non_neg_integer() | nil, provider_reported_total: non_neg_integer() | nil}
+  @type token_values :: %{
+          required(token_dimension()) => non_neg_integer() | nil,
+          provider_reported_total: non_neg_integer() | nil
+        }
   @type t :: %__MODULE__{}
 
   @spec schema_version() :: pos_integer()
@@ -148,7 +151,8 @@ defmodule Aiur.UsageEnvelope do
   def new(attributes) when is_map(attributes) do
     with :ok <- only_keys?(attributes, @fields, :invalid_envelope_field),
          :ok <- required_schema_version(value_of(attributes, :schema_version, @version)),
-         {:ok, idempotency_key} <- opaque(value_of(attributes, :idempotency_key), :invalid_idempotency_key),
+         {:ok, idempotency_key} <-
+           opaque(value_of(attributes, :idempotency_key), :invalid_idempotency_key),
          {:ok, provider} <- enum(value_of(attributes, :provider), @providers, :invalid_provider),
          {:ok, source} <- opaque(value_of(attributes, :source), :invalid_source),
          {:ok, source_version} <- opaque(value_of(attributes, :source_version), :invalid_source_version),
@@ -157,25 +161,44 @@ defmodule Aiur.UsageEnvelope do
          {:ok, occurred_at} <- occurred_at(value_of(attributes, :occurred_at)),
          :ok <- pricing_date_input_matches(value_of(attributes, :pricing_effective_date), occurred_at),
          {:ok, ingested_at} <- utc_datetime(value_of(attributes, :ingested_at), :invalid_ingested_at),
-         {:ok, measurement_kind} <- enum(value_of(attributes, :measurement_kind), @measurement_kinds, :invalid_measurement_kind),
-         {:ok, counter_scope} <- enum(value_of(attributes, :counter_scope), @counter_scopes, :invalid_counter_scope),
+         {:ok, measurement_kind} <-
+           enum(
+             value_of(attributes, :measurement_kind),
+             @measurement_kinds,
+             :invalid_measurement_kind
+           ),
+         {:ok, counter_scope} <-
+           enum(value_of(attributes, :counter_scope), @counter_scopes, :invalid_counter_scope),
          {:ok, counter_epoch} <- opaque(value_of(attributes, :counter_epoch), :missing_counter_epoch),
          {:ok, update_kind} <- enum(value_of(attributes, :update_kind), @update_kinds, :invalid_update_kind),
          {:ok, attribution} <- attribution(value_of(attributes, :attribution)),
-         {:ok, agent_family} <- enum(value_of(attributes, :agent_family), @agent_families, :invalid_agent_family),
+         {:ok, agent_family} <-
+           enum(value_of(attributes, :agent_family), @agent_families, :invalid_agent_family),
          {:ok, backend} <- enum(value_of(attributes, :backend), @backends, :invalid_backend),
          {:ok, transport} <- enum(value_of(attributes, :transport), @transports, :invalid_transport),
          {:ok, auth_mode} <- enum(value_of(attributes, :auth_mode), @auth_modes, :invalid_auth_mode),
          {:ok, effort} <- optional_opaque_result(value_of(attributes, :effort), :invalid_effort),
-         {:ok, requested_model} <- optional_opaque_result(value_of(attributes, :requested_model), :invalid_requested_model),
-         {:ok, resolved_model} <- optional_opaque_result(value_of(attributes, :resolved_model), :invalid_resolved_model),
-         {:ok, account_generation} <- account_generation(value_of(attributes, :account_generation), provider, backend),
+         {:ok, requested_model} <-
+           optional_opaque_result(value_of(attributes, :requested_model), :invalid_requested_model),
+         {:ok, resolved_model} <-
+           optional_opaque_result(value_of(attributes, :resolved_model), :invalid_resolved_model),
+         {:ok, account_generation} <-
+           account_generation(value_of(attributes, :account_generation), provider, backend),
          :ok <- distinct_epoch(account_generation, counter_epoch),
          {:ok, tokens} <- tokens(value_of(attributes, :tokens, %{})),
-         {:ok, relationship_revision} <- opaque(value_of(attributes, :relationship_revision), :invalid_relationship_revision),
+         {:ok, relationship_revision} <-
+           opaque(
+             value_of(attributes, :relationship_revision),
+             :invalid_relationship_revision
+           ),
          {:ok, cost} <- ExactMoney.decode(value_of(attributes, :cost)),
          :ok <- measurement_present(tokens, cost),
-         {:ok, coverage_reasons} <- coverage_reasons(value_of(attributes, :coverage_reasons, []), occurred_at, account_generation) do
+         {:ok, coverage_reasons} <-
+           coverage_reasons(
+             value_of(attributes, :coverage_reasons, []),
+             occurred_at,
+             account_generation
+           ) do
       {:ok,
        %__MODULE__{
          schema_version: @version,
@@ -339,7 +362,9 @@ defmodule Aiur.UsageEnvelope do
   defp sequence(_value), do: {:error, :invalid_source_sequence}
 
   defp opaque(value, error) when is_binary(value) and byte_size(value) in 1..@max_opaque_bytes do
-    if value == String.trim(value), do: {:ok, value}, else: {:error, error}
+    if String.valid?(value) and value == String.trim(value),
+      do: {:ok, value},
+      else: {:error, error}
   end
 
   defp opaque(_value, error), do: {:error, error}
@@ -399,7 +424,16 @@ defmodule Aiur.UsageEnvelope do
          {:ok, health} <- enum(value_of(value, :health), @healths, :invalid_account_generation_context),
          {:ok, reason} <- account_reason(value_of(value, :reason)),
          :ok <- valid_account_state(generation, freshness, health, reason) do
-      {:ok, %{schema_version: 1, provider: account_provider, backend: account_backend, generation: generation, freshness: freshness, health: health, reason: reason}}
+      {:ok,
+       %{
+         schema_version: 1,
+         provider: account_provider,
+         backend: account_backend,
+         generation: generation,
+         freshness: freshness,
+         health: health,
+         reason: reason
+       }}
     else
       false -> {:error, :invalid_account_generation_context}
       {:error, _reason} = error -> error
@@ -421,21 +455,32 @@ defmodule Aiur.UsageEnvelope do
   defp valid_account_state(_generation, _freshness, _health, _reason),
     do: {:error, :invalid_account_generation_context}
 
-  defp distinct_epoch(%{generation: generation}, generation) when is_binary(generation), do: {:error, :account_generation_used_as_counter_epoch}
+  defp distinct_epoch(%{generation: generation}, generation) when is_binary(generation),
+    do: {:error, :account_generation_used_as_counter_epoch}
+
   defp distinct_epoch(_account_generation, _counter_epoch), do: :ok
 
   defp tokens(value) when is_map(value) do
     with :ok <- only_keys?(value, @token_fields, :invalid_tokens) do
-      Enum.reduce_while(@token_fields, {:ok, %{}}, fn key, {:ok, acc} ->
-        case token_value(value_of(value, key)) do
-          {:ok, normalized} -> {:cont, {:ok, Map.put(acc, key, normalized)}}
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
-      end)
+      normalize_tokens(value)
     end
   end
 
   defp tokens(_value), do: {:error, :invalid_tokens}
+
+  defp normalize_tokens(value) do
+    Enum.reduce_while(@token_fields, {:ok, %{}}, fn key, {:ok, acc} ->
+      normalize_token(value, key, acc)
+    end)
+  end
+
+  defp normalize_token(value, key, acc) do
+    case token_value(value_of(value, key)) do
+      {:ok, normalized} -> {:cont, {:ok, Map.put(acc, key, normalized)}}
+      {:error, reason} -> {:halt, {:error, reason}}
+    end
+  end
+
   defp token_value(nil), do: {:ok, nil}
   defp token_value(value) when is_integer(value) and value >= 0, do: {:ok, value}
   defp token_value(_value), do: {:error, :invalid_token_dimension}
