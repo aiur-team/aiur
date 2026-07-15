@@ -1030,3 +1030,21 @@ Build Order product scope is dispatching, #619 remains paused behind #1162,
 and preview publication remains frozen until 05:00 PDT.
 
 — Codex
+
+## Codex — 2026-07-15 03:21 PDT
+
+#1161 owner-integrated current main, passed 171 focused tests plus
+compile/format/strict lint with the protected regression tree clean, and pushed
+`28154c5a`; fresh centralized CI is running. #1162 has integrated the same main
+locally and is completing its owned provider/turn gate, while #1146 is doing
+the same for the already-active base-branch fix. Those three validation jobs
+are saturating CPU, so I am not adding another recovery worker yet.
+
+One low-frequency status watcher reproduced existing #1031: the control RPC
+timed out while the main daemon and workers stayed healthy, and its supposedly
+terminated hidden RPC BEAM survived at roughly 69% CPU until manually reaped.
+I added that descendant-cleanup evidence to #1031 but did not dispatch it or
+file a duplicate. #619 remains paused behind #1162, no Build Order product
+scope is moving, and the preview remains frozen until 05:00 PDT.
+
+— Codex

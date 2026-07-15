@@ -1948,13 +1948,30 @@ Terra; never dispatch Claude.
     base-branch recovery fix, so let it converge inside the frozen recovery
     set; use the label override for any hold that must survive a restart.
 
-At 03:05 PDT the core graph remains 8/54 accepted while the recovery gate is
+236. #1161 owner-integrated `83a5a11e`, passed 171 focused
+    workspace/provider/session tests plus compile/format/strict lint, retained
+    a zero-diff protected regression tree, and pushed coherent head `28154c5a`.
+    Fresh centralized CI is running. #1162 has integrated the same main locally
+    and is completing its owned provider/turn validation before one push.
+
+237. A low-frequency `aiurdev watch --changes --interval 60` call timed out
+    while the three recovery owners saturated CPU. The main daemon and workers
+    remained healthy, but the supposedly terminated hidden RPC BEAM survived
+    and consumed about 69% CPU until manually reaped. Existing priority-1 issue
+    #1031 owns synchronous control-RPC timeouts; its evidence now also requires
+    descendant/process-group cleanup. Do not dispatch #1031 while the current
+    validation jobs are using all CPU, and do not restart a healthy daemon for
+    this known control-helper failure.
+
+At 03:21 PDT the core graph remains 8/54 accepted while the recovery gate is
 frozen. #780/#1181 and #1032/#1046 are merged. Current main and the warm base
 are exact `83a5a11e`; the rebuilt daemon is running the new coordination
 runtime with the authenticated Tailscale dashboard and 16-agent ceiling.
-#1146, #1161, and #1162 are live owner-led recovery turns, with #1161/#1162
-refreshing onto the new main before review. Reopened #619 remains paused behind
-#1162.
+#1161 is in fresh centralized CI at `28154c5a`; #1146 and #1162 remain live
+owner-led current-main validation turns. Reopened #619 remains paused behind
+#1162. The host is CPU-saturated by the owned lint/test jobs, so three worker
+turns are the measured safe maximum at this instant rather than an arbitrary
+agent cap.
 No new
 Build Order scope is dispatching. BO-010 and the preserved paused/deactivated
 rows remain held; #1151 stays paused with preserved rework.
