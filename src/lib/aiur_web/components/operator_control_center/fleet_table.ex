@@ -34,7 +34,7 @@ defmodule AiurWeb.OperatorControlCenter.FleetTable do
               <th>Waiting</th>
               <th>Latest</th>
               <th>Elapsed</th>
-              <th>Decisions</th>
+              <th>Commands</th>
               <th><span class="sr-only">Actions</span></th>
             </tr>
           </thead>
@@ -64,7 +64,7 @@ defmodule AiurWeb.OperatorControlCenter.FleetTable do
                 <span :if={row[:last_event_at]} class="fleet-latest-meta mono">{row.last_event_at}</span>
               </td>
               <td class="mono num" data-label="Elapsed">{runtime(row, @now)}</td>
-              <td class="num" data-label="Decisions">
+              <td class="num" data-label="Commands">
                 <span :if={row.open_decision_count > 0} class="chip attention">! {row.open_decision_count}</span>
                 <span :if={row.open_decision_count == 0} class="muted">—</span>
               </td>
@@ -74,8 +74,8 @@ defmodule AiurWeb.OperatorControlCenter.FleetTable do
                     :if={decision_id = @decision_links[row.issue_identifier]}
                     patch={"/decisions/#{decision_id}"}
                     class="fleet-action decision"
-                    title="Open pending decision"
-                    aria-label="Open pending decision"
+                    title="Open pending Command"
+                    aria-label="Open pending Command"
                     onclick="event.stopPropagation()"
                   >!</.link>
                   <button

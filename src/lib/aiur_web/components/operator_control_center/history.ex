@@ -3,6 +3,8 @@ defmodule AiurWeb.OperatorControlCenter.History do
 
   use Phoenix.Component
 
+  alias AiurWeb.OperatorControlCenter.DecisionPath
+
   attr(:entries, :list, required: true)
   attr(:provider_health, :any, default: :ok)
 
@@ -10,12 +12,12 @@ defmodule AiurWeb.OperatorControlCenter.History do
   def history(assigns) do
     ~H"""
     <section class="recent-section" aria-labelledby="decision-history-title">
-      <p class="recent-subtitle" id="decision-history-title">Decision history</p>
+      <p class="recent-subtitle" id="decision-history-title">Command history</p>
       <div :if={@provider_health == :unavailable} class="empty-state compact">History provider is currently unavailable.</div>
       <div :if={@provider_health == :degraded} class="empty-state compact">
-        Decision history is degraded; showing the last validated prefix.
+        Command history is degraded; showing the last validated prefix.
       </div>
-      <div :if={@provider_health == :ok and @entries == []} class="empty-state compact">No decision actions have been recorded.</div>
+      <div :if={@provider_health == :ok and @entries == []} class="empty-state compact">No Command actions have been recorded.</div>
       <div class="history-list">
         <article :for={entry <- @entries} class="history-item">
           <span class="severity-rail"></span>
@@ -31,9 +33,11 @@ defmodule AiurWeb.OperatorControlCenter.History do
             <.result_chip label="dispatch" result={entry.dispatch_result} />
             <.result_chip label="ack" result={entry.acknowledgement_result} />
             <.result_chip label="revision" result={Map.get(entry, :revision_result)} />
+            <span :if={is_integer(confidence(entry))} class="chip super">{confidence(entry)}% confidence</span>
             <span :if={entry.revised?} class="chip super">Revised</span>
             <span :if={entry.follow_up_required and not entry.follow_up_handled} class="chip blocking">Follow-up required</span>
             <span :if={entry.follow_up_handled} class="chip good">Follow-up handled</span>
+            <.link patch={DecisionPath.detail(entry.decision_id, :all)} class="link-pill">Open Command</.link>
           </footer>
         </article>
       </div>
@@ -55,6 +59,14 @@ defmodule AiurWeb.OperatorControlCenter.History do
   defp result_tone(result) when result in [:no_longer_applicable, "no_longer_applicable"], do: "blocking"
   defp result_tone(result) when result in [:dispatched, "dispatched"], do: "good"
   defp result_tone(_result), do: "attention"
+
+  defp confidence(entry) do
+    confidence = entry |> Map.get(:supervisor_basis) |> map_value(:confidence)
+    if is_integer(confidence) and confidence in 0..100, do: confidence
+  end
+
+  defp map_value(map, key) when is_map(map), do: Map.get(map, key, Map.get(map, Atom.to_string(key)))
+  defp map_value(_map, _key), do: nil
 
   defp ticket_identifier(%{identifier: identifier}), do: identifier
   defp ticket_identifier(identifier) when is_binary(identifier), do: identifier

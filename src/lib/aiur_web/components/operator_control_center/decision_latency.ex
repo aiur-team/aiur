@@ -4,8 +4,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionLatency do
   use Phoenix.Component
 
   @intervals [
-    {:request_to_decision_ms, "Request to decision"},
-    {:decision_to_dispatch_ms, "Decision to dispatch"},
+    {:request_to_decision_ms, "Request to Command"},
+    {:decision_to_dispatch_ms, "Command to dispatch"},
     {:dispatch_to_delivery_ms, "Dispatch to delivery"},
     {:delivery_to_ack_ms, "Delivery to acknowledgement"},
     {:blocked_time_ms, "Blocked time"}
@@ -31,13 +31,13 @@ defmodule AiurWeb.OperatorControlCenter.DecisionLatency do
 
     ~H"""
     <section class="detail-block decision-latency" aria-labelledby="decision-latency-title">
-      <h4 id="decision-latency-title">Decision latency</h4>
+      <h4 id="decision-latency-title">Command latency</h4>
 
       <p :if={@status == :missing} class="empty-state compact">
-        No latency sample has been retained for this decision yet.
+        No latency sample has been retained for this Command yet.
       </p>
       <p :if={@status not in [:available, :missing]} class="empty-state compact" role="status">
-        Decision latency provider is unavailable.
+        Command latency provider is unavailable.
       </p>
 
       <div :if={@status == :available and is_map(@snapshot)}>
@@ -47,7 +47,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionLatency do
             <dd class="mono num">{value}</dd>
           </div>
         </dl>
-        <div class="decision-latency-facts" aria-label="Decision latency facts">
+        <div class="decision-latency-facts" aria-label="Command latency facts">
           <span class="chip">{actor_label(@actor)}</span>
           <span class="chip">{count_label(@reminder_count, "reminder")}</span>
           <span class="chip">{count_label(@attention_count, "attention")}</span>
