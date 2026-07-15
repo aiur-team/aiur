@@ -42,7 +42,9 @@ the work at a higher level._
   defines its `name`, `message`, and optional `sound` clips in one place.
 
 See [src/README.md](src/README.md#configuration) for the supported `.aiurconfig` options and
-adapter examples.
+adapter examples. Build Order's optional `build_order` settings configure one supervised,
+in-memory configured-repository ticket-detail cache; it starts empty after a restart and retains
+at most 100 sanitized ticket snapshots, independently of browser count.
 
 ## Running Aiur
 
