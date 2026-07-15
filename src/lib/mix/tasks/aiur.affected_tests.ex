@@ -32,6 +32,7 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
   end
 
   @doc false
+  @spec command({:full, String.t()} | {:scoped, [String.t()]}) :: [String.t()]
   def command({:full, reason}),
     do: ["# full suite recommended: #{reason}", "cd src && mise exec -- make ci"]
 
@@ -61,36 +62,46 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
   defp xref_dependents(root, changed) do
     sinks =
       changed
-      |> Enum.filter(&String.starts_with?(&1, "src/lib/"))
-      |> Enum.filter(&String.ends_with?(&1, ".ex"))
+      |> Enum.filter(fn path ->
+        String.starts_with?(path, "src/lib/") and String.ends_with?(path, ".ex")
+      end)
       |> Enum.map(&String.replace_prefix(&1, "src/", ""))
 
     if sinks == [] do
       {:ok, []}
     else
       ["compile", "export", "runtime"]
-      |> Enum.reduce_while({:ok, []}, fn label, {:ok, acc} ->
-        args =
-          ["xref", "graph", "--only-nodes", "--only-direct", "--label", label] ++
-            Enum.flat_map(sinks, &["--sink", &1])
-
-        case git_like_command(Path.join(root, "src"), "mix", args) do
-          {:ok, lines} ->
-            sources =
-              lines
-              |> Enum.filter(&String.starts_with?(&1, "lib/"))
-              |> Enum.map(&("src/" <> &1))
-
-            {:cont, {:ok, sources ++ acc}}
-
-          {:error, reason} ->
-            {:halt, {:error, "xref dependency expansion failed: #{reason}"}}
-        end
-      end)
+      |> Enum.reduce_while({:ok, []}, &reduce_xref_label(&1, &2, root, sinks))
       |> case do
         {:ok, sources} -> {:ok, Enum.uniq(sources)}
         error -> error
       end
+    end
+  end
+
+  defp reduce_xref_label(label, {:ok, acc}, root, sinks) do
+    case xref_sources_for_label(root, sinks, label) do
+      {:ok, sources} -> {:cont, {:ok, sources ++ acc}}
+      {:error, reason} -> {:halt, {:error, "xref dependency expansion failed: #{reason}"}}
+    end
+  end
+
+  defp xref_sources_for_label(root, sinks, label) do
+    args =
+      ["xref", "graph", "--only-nodes", "--only-direct", "--label", label] ++
+        Enum.flat_map(sinks, &["--sink", &1])
+
+    case git_like_command(Path.join(root, "src"), "mix", args) do
+      {:ok, lines} ->
+        sources =
+          lines
+          |> Enum.filter(&String.starts_with?(&1, "lib/"))
+          |> Enum.map(&("src/" <> &1))
+
+        {:ok, sources}
+
+      error ->
+        error
     end
   end
 

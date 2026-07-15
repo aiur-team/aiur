@@ -56,12 +56,10 @@ defmodule Aiur.AffectedTests do
       |> Enum.uniq()
       |> Enum.filter(exists?)
 
-    cond do
-      sources != [] and tests == [] ->
-        {:full, "no direct or xref-dependent tests were found for changed library sources"}
-
-      true ->
-        {:scoped, tests}
+    if sources != [] and tests == [] do
+      {:full, "no direct or xref-dependent tests were found for changed library sources"}
+    else
+      {:scoped, tests}
     end
   end
 
