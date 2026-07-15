@@ -157,7 +157,7 @@ defmodule Aiur.Workspace.Ownership.Guardian do
     provider =
       state.provider
       |> Kernel.||(%{})
-      |> Map.merge(Map.take(provider, [:process_group_id, :root_pid, :remote, :descendant_pids]))
+      |> merge_provider(provider)
       |> capture_provider_identities(state.process_identity_fun)
 
     if valid_provider?(provider) do
@@ -177,6 +177,31 @@ defmodule Aiur.Workspace.Ownership.Guardian do
     do: Enum.any?(pids, &(is_integer(&1) and &1 > 0))
 
   defp valid_provider?(_provider), do: false
+
+  # A provider can be reported more than once while its session is starting.
+  # Each process-tree result is only a point-in-time observation, so narrowing
+  # a later observation must not make an already observed descendant disposable.
+  defp merge_provider(previous, incoming) do
+    merged = Map.merge(previous, Map.take(incoming, [:process_group_id, :root_pid, :remote, :descendant_pids]))
+
+    if Map.has_key?(previous, :descendant_pids) or Map.has_key?(incoming, :descendant_pids) do
+      descendants =
+        [previous, incoming]
+        |> Enum.flat_map(&observed_descendant_pids/1)
+        |> Enum.uniq()
+
+      Map.put(merged, :descendant_pids, descendants)
+    else
+      merged
+    end
+  end
+
+  defp observed_descendant_pids(provider) do
+    case Map.get(provider, :descendant_pids) do
+      pids when is_list(pids) -> Enum.filter(pids, &(is_integer(&1) and &1 > 0))
+      _ -> []
+    end
+  end
 
   # A live provider with no verified containment is deliberately fail-closed.
   # The owner may have died between OS spawn and metadata inspection; releasing
@@ -207,6 +232,18 @@ defmodule Aiur.Workspace.Ownership.Guardian do
     end
   end
 
+  # A no-group snapshot cannot prove that an abruptly dead provider has no
+  # reparented or late children. Reap identities we did observe, but retain the
+  # generation once that snapshot is exhausted rather than reprovisioning its cwd.
+  defp maybe_release_or_reap(
+         %{
+           owner_dead?: true,
+           provider: %{root_pid: root_pid, descendant_pids: process_ids}
+         } = state
+       )
+       when is_integer(root_pid) and root_pid > 0 and is_list(process_ids),
+       do: maybe_reap_no_group_snapshot_or_retain(state)
+
   defp maybe_release_or_reap(%{provider: %{root_pid: root_pid, descendant_pids: process_ids}} = state)
        when is_integer(root_pid) and root_pid > 0 and is_list(process_ids),
        do: maybe_reap_descendants(state)
@@ -222,6 +259,13 @@ defmodule Aiur.Workspace.Ownership.Guardian do
       %{live: [], unverified?: false} -> release_guardian(state)
       %{live: [], unverified?: true} -> schedule_reap_retry(state)
       %{live: live_process_ids} -> start_reap(state, :processes, live_process_ids)
+    end
+  end
+
+  defp maybe_reap_no_group_snapshot_or_retain(state) do
+    case live_provider_processes(state) do
+      %{live: live_process_ids} when live_process_ids != [] -> start_reap(state, :processes, live_process_ids)
+      _ -> loop(update_phase(state, :reaping))
     end
   end
 
@@ -274,6 +318,17 @@ defmodule Aiur.Workspace.Ownership.Guardian do
   defp continue_after_reap(%{provider: %{process_group_id: group}} = state, :processes, _process_ids)
        when is_integer(group) and group > 0,
        do: continue_after_group_process_reap(state, group)
+
+  defp continue_after_reap(
+         %{
+           owner_dead?: true,
+           provider: %{root_pid: root_pid, descendant_pids: process_ids}
+         } = state,
+         :processes,
+         _process_ids
+       )
+       when is_integer(root_pid) and root_pid > 0 and is_list(process_ids),
+       do: maybe_reap_no_group_snapshot_or_retain(state)
 
   defp continue_after_reap(state, :processes, _process_ids) do
     case live_provider_processes(state) do

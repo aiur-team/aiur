@@ -280,7 +280,7 @@ defmodule Aiur.Workspace.OwnershipTest do
     refute Process.alive?(guardian)
   end
 
-  test "non-Codex containment reaps a recorded child after its root already died" do
+  test "brutal no-group death retains the lease after reaping a recorded child" do
     ticket = "ownership-recorded-child-#{System.unique_integer([:positive])}"
     root_pid = System.unique_integer([:positive])
     child_pid = System.unique_integer([:positive])
@@ -323,7 +323,80 @@ defmodule Aiur.Workspace.OwnershipTest do
     assert {:ok, %{phase: :reaping}} = Ownership.current(ticket)
 
     send(reaper, :finish_recorded_reap)
-    assert_eventually(fn -> Ownership.current(ticket) == :none end)
+    assert_eventually(fn -> match?({:ok, %{phase: :reaping}}, Ownership.current(ticket)) end)
+    assert {:error, {:workspace_owned, {:ok, %{phase: :reaping}}}} = Ownership.claim(ticket)
+  end
+
+  test "brutal no-group death retains a late unrecorded escaped child" do
+    ticket = "ownership-late-root-descendant-#{System.unique_integer([:positive])}"
+    root_pid = System.unique_integer([:positive])
+    late_child_pid = System.unique_integer([:positive])
+    parent = self()
+    {:ok, alive} = Agent.start_link(fn -> %{root_pid => false, late_child_pid => true} end)
+
+    on_exit(fn ->
+      if Process.alive?(alive), do: Agent.stop(alive)
+    end)
+
+    owner =
+      spawn(fn ->
+        {:ok, lease} =
+          Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry,
+            process_alive_fun: fn pid -> Agent.get(alive, &Map.fetch!(&1, pid)) end,
+            process_identity_fun: &test_process_identity/1
+          )
+
+        # The startup snapshot contains only the root. The late child is
+        # reparented before this guardian sees it.
+        :ok = Ownership.track_provider(lease, %{root_pid: root_pid, descendant_pids: [root_pid]})
+        send(parent, :late_root_descendant_tracked)
+        Process.sleep(:infinity)
+      end)
+
+    assert_receive :late_root_descendant_tracked, 2_000
+    Process.exit(owner, :kill)
+
+    assert_eventually(fn -> match?({:ok, %{phase: :reaping}}, Ownership.current(ticket)) end)
+    assert {:error, {:workspace_owned, {:ok, %{phase: :reaping}}}} = Ownership.claim(ticket)
+  end
+
+  test "narrower provider refresh retains every observed descendant" do
+    ticket = "ownership-descendant-union-#{System.unique_integer([:positive])}"
+    root_pid = System.unique_integer([:positive])
+    escaped_child_pid = System.unique_integer([:positive])
+    parent = self()
+    {:ok, alive} = Agent.start_link(fn -> %{root_pid => false, escaped_child_pid => true} end)
+
+    on_exit(fn ->
+      if Process.alive?(alive), do: Agent.stop(alive)
+    end)
+
+    process_reap = fn pid ->
+      send(parent, {:escaped_child_reap, self(), pid})
+
+      receive do
+        :finish_escaped_child_reap -> Agent.update(alive, &Map.put(&1, pid, false))
+      end
+
+      :ok
+    end
+
+    assert {:ok, lease} =
+             Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry,
+               process_alive_fun: fn pid -> Agent.get(alive, &Map.fetch!(&1, pid)) end,
+               process_identity_fun: &test_process_identity/1,
+               process_reap_fun: process_reap
+             )
+
+    :ok = Ownership.track_provider(lease, %{root_pid: root_pid, descendant_pids: [root_pid, escaped_child_pid]})
+    :ok = Ownership.track_provider(lease, %{root_pid: root_pid, descendant_pids: [root_pid]})
+
+    release = Task.async(fn -> Ownership.release_and_wait(lease) end)
+
+    assert_receive {:escaped_child_reap, reaper, ^escaped_child_pid}, 2_000
+    send(reaper, :finish_escaped_child_reap)
+    assert {:ok, %{phase: :released}} = Task.await(release, 2_000)
+    assert :none = Ownership.current(ticket)
   end
 
   test "reaps recorded descendants after a process group leader exits" do
