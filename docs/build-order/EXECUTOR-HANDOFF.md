@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-15 09:57 PDT)
+## Live Executor state (updated 2026-07-15 11:55 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -9,31 +9,37 @@ below this section is the binding contract; this section is the current live
 truth and supersedes stale pre-run wording later in the document.
 
 **State right now:** planning approval remains frozen at
-`4d8de9508206e08e314f2730cd916501a3b4cafd`; the complete graph is live at root
-#1084 with 54 members #1085–#1138 and 107 exact blocker relations. The historical
-receipt gate remains operator-overridden for this run. Aiur is deliberately
-stopped while the Executor and bounded background workers close the five
-already-started feature PRs; do not restart feature dispatch until those
-ownership branches land and the remaining graph is consolidated and audited.
-Current accepted `main` remains `47f87815`; exact `origin/develop` is now
-`80645369`. The completed direct-takeover stability set
-now includes configured-base recovery #1146, provider-turn completion #1162,
-terminal GitHub CI verdict handling #1151, and sandbox-safe build-gate leases
-#1154, plus workspace containment #1161. #1161 cleared the deterministic
-coverage floor at 85.02%, passed fresh centralized CI, and was the last active
-stability merge. #1141/DASH-018 is merged into `develop` at `80645369`; its
-single failed full-suite lane was classified as unrelated current-base timing
-flakes after the exact ProviderLifecycle test passed 28/28, the exact
-BuildGate test passed 10/10, and the full BuildGate file passed 60/60 at the CI
-seed. #1144/DASH-006 and #1168/BO-010 have each integrated that exact head and
-are in fresh exact-head CI at `ecc59aa7` and `e3373f36`, respectively. Their
-bounded reviews and focused gates are green; #1168 also has fresh exact-head
-Executor approval for its intentional two-line compile-time-path allowlist.
-#1160/DASH-004 and #1163/BO-016 are now active in parallel as direct bounded
-takeovers against current `develop`; preserve the useful DASH-004 WIP while
-excluding generated cache and restoring protected regression files from the
-base, and keep BO-016 within its existing seven-finding packet. Aiur remains
-stopped. The core program is 9/54 merged with 45 remaining.
+`4d8de9508206e08e314f2730cd916501a3b4cafd` and publication receipt
+`b8db1794c57ba01bd724cc44b8d4ee6de0b79cad`. The complete graph is live at root
+#1084 with exactly 54 members, 105 internal native blocker edges, and two
+external skill-blocker edges. The immutable files have been restored locally
+and both static validators are at 0 errors / 0 warnings.
+
+The direct-takeover drain is complete. DASH-004/#1160 merged to `develop` as
+`8322a205`; BO-010/#1168 merged as `99bf768e` after its exact-head guard,
+focused 40/40 ExUnit, 24/24 browser, packaged smoke, and protected two-line
+allowlist passed. Its only full-suite failures were the already-classified
+ProviderLifecycle and BuildGate base timing flakes. Executor convergence PR
+#1183 merged to `main@074b9538`, and that exact main tip is verified inside
+`develop@8ced97b8`. Aiur is deliberately stopped.
+
+DEC-015 in `11-execution-amendment.md` is now the binding execution overlay.
+It preserves the 54-member/105-edge baseline, applies current-`develop`
+freshness to every remaining contract, replaces the research draft's lane
+issues/labels/long-lived branches with five existing anchor owners, and records
+the complete early-ticket audit. BO-016/#1103 must be reopened to add the
+separate Pull-request destination; its existing edge blocks BO-018 naturally.
+Before that reopen there are 13 completed members; after it, 42 remain. Five
+old active-label rows are confirmed zero-code lifecycle residue and will be
+cleared rather than resumed.
+
+Do not restart Aiur until the immutable restoration and DEC-015 policy commit
+are pushed, the root/ticket amendment comments are materialized, the execution
+receipt validates against two stable GitHub snapshots, `develop` push CI is
+enabled, stale labels are reconciled, BO-016 is reopened, and the prewarm image
+is rebuilt from the resulting exact `develop` tip. The first safe fan-out is
+BO-003, BO-005, DASH-001, and DASH-008 with one writer per supervision/ingress
+seam. All workers remain Codex Sol/Terra; never dispatch Claude.
 
 ### Binding integration and promotion policy
 
@@ -78,10 +84,10 @@ current sequence is strict:
    preserve, or cleanly recut each branch against `develop` according to the
    cheapest safe path, and merge all of them into `develop` before dispatching
    another ticket.
-3. Apply Claude's researched Waves 5–10 consolidation in
-   `10-late-wave-consolidation.md`, reconciling it against what actually merged.
-   Update the canonical pack, live GitHub issue graph, dependencies, labels,
-   and preview; do not treat the research draft as self-executing authority.
+3. Apply the binding correction in `11-execution-amendment.md`; preserve
+   `10-late-wave-consolidation.md` as research provenance only. Keep the
+   canonical 54-member/105-edge graph, use existing lane anchors, and do not
+   create lane issues, lane labels, or stale long-lived branches.
 4. Audit every remaining ticket document, live issue body, dependency,
    implementation plan, ownership seam, and acceptance tail against the run's
    observed failures. In particular, remove avoidable sequential/shared-file

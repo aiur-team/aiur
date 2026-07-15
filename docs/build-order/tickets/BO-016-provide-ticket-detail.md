@@ -27,9 +27,8 @@
 ## Outcome
 
 A trusted issue in the configured GitHub repository can be loaded on demand
-into one bounded, sanitized, health-aware detail cache, including its safe
-canonical Issue URL and bounded same-repository linked pull-request references;
-a request for any other repository is rejected before provider I/O.
+into one bounded, sanitized, health-aware detail cache; a request for any other
+repository is rejected before provider I/O.
 
 ## Context and evidence
 
@@ -49,13 +48,7 @@ provider/cache behavior. BO-018 later renders it.
   nonfetchable-repository result suitable for BO-007/011 diagnostics.
 - Add a bounded GitHub read through existing authenticated transport for
   normalized title, bounded sanitized description, lifecycle outcome, safe
-  canonical Issue URL, timestamps, and explicitly approved detail facts.
-- Resolve a bounded set of GitHub-linked pull requests from authenticated
-  repository relationship data—never title/body scraping or branch-name
-  guessing. Normalize number, lifecycle/draft state, and a same-repository safe
-  canonical URL; identify a deterministic primary reference (open/draft first,
-  otherwise newest terminal reference) and preserve an explicit `not_linked`
-  state when no PR exists.
+  canonical URL, timestamps, and explicitly approved detail facts.
 - Preserve structured auth, permission, rate-limit, timeout, schema, not-found,
   validation, and repository-mismatch failures without raw responses/secrets.
 - Add one supervised on-demand cache with concurrent-demand coalescing, bounded
@@ -85,9 +78,6 @@ or Build Order root/member field.
   provider node identity. Mismatch rejects before I/O and cache lookup/write.
 - Successful snapshots are complete, bounded, sanitized, immutable, and tied
   to generation/observation time. Partial data is preserving failure.
-- Issue and pull-request URLs must match the exact configured GitHub repository.
-  Cross-repository, malformed, stale-generation, and untrusted relationship
-  references never become navigation capabilities.
 - Failed refresh changes health, not LKG content. Cold/restart without LKG is
   unavailable, never empty/fabricated detail.
 - Demand/retention are bounded independently of browsers. Identical concurrent
@@ -115,8 +105,6 @@ or Build Order root/member field.
 - Bounds/redaction tests cover malformed/oversized title/body/URL/error values
   and prove credentials, raw responses, private headers, local paths, and
   unapproved content never enter snapshots/evidence.
-- Relationship tests cover zero/one/many linked pull requests, deterministic
-  primary selection, and rejection of cross-repository or unsafe PR references.
 - Negative tests prove no graph-wide hydration, per-browser polling, other-repo
   I/O, relationship state, UI, or mutation handler.
 
@@ -146,9 +134,8 @@ or Build Order root/member field.
   redaction, supervision, and provider tests.
 - Safety: ticket-detail privacy/no-mutation boundary and application
   supervision tree.
-- Contracts: on-demand detail snapshot/health with safe Issue and linked-PR
-  references; reject-before-I/O repository boundary; complete/LKG/unavailable
-  semantics.
+- Contracts: on-demand detail snapshot/health; reject-before-I/O repository
+  boundary; complete/LKG/unavailable semantics.
 
 ## Sibling boundaries and open gates
 

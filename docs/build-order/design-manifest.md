@@ -2,17 +2,21 @@
 
 **Imported:** 2026-07-12
 
-**Refreshed:** 2026-07-13 — re-pulled the latest prototype from the Claude Design
-project (source etag `1783996988320902`). Headline change: a new **build-order
-summary** with complexity-weighted **phase-progress bars**. The **Analytics surface
-is intentionally excluded** per operator direction — the `assets/analytics.js` loader
-was removed and the asset is not vendored; the Analytics nav renders an empty
-placeholder (its render call is guarded on `window.AiurAnalytics`). Analytics is out
-of scope and must not be pulled into any ticket.
+**Execution refresh:** 2026-07-13 — re-pulled from the Claude Design project
+(source etag `1783996988320902`) and preserved as the distinct versioned file
+`prototype/Aiur Operator Control Center.2026-07-13-refresh.html`. It adds a
+build-order summary with complexity-weighted phase-progress bars. It does not
+replace immutable DESIGN-001 at the canonical path; DEC-015 authorizes BO-020
+to consume this versioned execution reference.
 
-> The **Confirmed prototype inventory** and **Known prototype/spec drift** sections
-> below predate this refresh and describe the earlier import — re-audit them against
-> the refreshed prototype before relying on them.
+The Analytics surface is intentionally excluded from the refresh: the
+`assets/analytics.js` loader is removed and the asset is not vendored; the
+Analytics navigation item is only an empty placeholder. Analytics is out of
+scope and must not be pulled into any ticket.
+
+> The **Confirmed prototype inventory** and **Known prototype/spec drift**
+> sections describe DESIGN-001. Apply their drift analysis to the refreshed
+> version only where DEC-015 explicitly carries it forward.
 
 **Import commit:** `777cbabbd8baa80482f409f23a71e6ece3787dc9`
 
@@ -28,7 +32,8 @@ choosing whichever is easier to implement.
 
 | File | SHA-256 |
 |---|---|
-| `prototype/Aiur Operator Control Center.html` | `0afe7e5e89de1b5de23bf278f7d02335969533fee81634008339169d87e6190e` |
+| `prototype/Aiur Operator Control Center.html` (immutable DESIGN-001) | `504239e1728342651b336f8b39559817a1b6381239e6647b52860a44032f0b38` |
+| `prototype/Aiur Operator Control Center.2026-07-13-refresh.html` (DEC-015 execution reference) | `0afe7e5e89de1b5de23bf278f7d02335969533fee81634008339169d87e6190e` |
 | `prototype/feature-constraints.md` | `49e068d4999d62197dbd1d5c0438db21a25cd1b5873fb959a58a7e0388c7829a` |
 | `prototype/README.md` | `f1f6e95194166edc779f0727a7e1a8571c5763a143c27156f105d9e79bea7cd8` |
 | `prototype/assets/aiur-logo.png` | `8a6ed8b69be413ba771bb003d7212ee3635a219e6d2abb7d18f64a40ad23fda0` |

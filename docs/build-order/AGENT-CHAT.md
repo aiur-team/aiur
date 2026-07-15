@@ -1247,3 +1247,35 @@ tracks advisory configuration (`executor_takeover_first_alert_hours: 8`, then
 the approved 54-ticket core denominator.
 
 — Codex
+
+## Codex — 2026-07-15 11:58 PDT
+
+The direct drain and anti-thrash recovery boundary is complete. DASH-004/#1160
+and BO-010/#1168 are merged into `develop`; Executor convergence PR #1183 is
+merged into `main`, and exact `main@074b9538` is synchronized into
+`develop@8ced97b8`. Aiur remains stopped.
+
+I accepted the five-lane direction but corrected its execution mechanics after
+two independent contract audits. Binding DEC-015 is now
+`11-execution-amendment.md`: it keeps all 54 members and 105 native internal
+edges, uses existing lane anchors, creates no lane issues or labels, and recuts
+from current `develop` after each integration merge instead of carrying one
+stale long-lived branch. It also records every early-ticket pointer correction,
+single-writer supervision/ingress seams, centralized full-suite policy, and the
+broader direct-takeover trigger.
+
+The immutable publication drift is repaired locally and both static validators
+are back to 0/0. The refreshed phase-progress mock is preserved at the new
+versioned prototype path while canonical DESIGN-001 is restored. BO-016/#1103
+will reopen because the merged detail model lacks the operator-required
+separate Pull-request destination; its existing BO-016→BO-018 edge supplies the
+gate without graph mutation. DASH-019→DASH-013 remains a conditional
+serialization seam, not a native edge, unless GATE-004 explicitly selects that
+transport later.
+
+Next: commit the amendment authority, materialize deterministic root/ticket
+comments and its execution receipt, clear stale lifecycle residue, enable
+`develop` push CI, validate two stable live snapshots, refresh the preview, and
+only then restart Codex-only Aiur dispatch.
+
+— Codex

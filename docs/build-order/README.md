@@ -1,11 +1,10 @@
 # Build Order Planning Pack
 
-> **Successor note (2026-07-13):** the shipped-dashboard delta was reopened
-> after new production screenshots/source evidence. Read
-> [PLANNING-HANDOFF.md](PLANNING-HANDOFF.md) before using the counts or
-> publication instructions below; the DASH-026..034 split has now been
-> propagated through the manifests, tickets, and requirements, and the
-> publication validation re-run remains pending.
+> **Execution note (2026-07-15):** the immutable publication is restored and
+> validates at zero errors. Read [DEC-015](11-execution-amendment.md) before
+> dispatch: it carries current-`develop` ownership, takeover, reopened CTA, and
+> five-lane execution rules without rewriting approved ticket bodies or the
+> native graph.
 
 Read this file first. This branch contains reviewed planning evidence and issue
 contracts. It does not implement Build Order, launch Aiur, or dispatch work.
@@ -30,16 +29,17 @@ sign-off happen once on the complete `develop` head before any promotion to
   20 BO tickets (73 points) plus 34 DASH tickets (111 points) — across five
   lanes (plan-graph, runtime, dashboard-ui, accounting, platform)
 - GitHub graph: 56 issues — 54 members plus the root and the skill-delivery
-  issue — with 107 native blocker edges
-- GitHub materialization: mechanically valid; two clean semantic passes and
-  final reconciliation remain pending
-- Dispatch: prohibited in this planning run; never add `agent:todo`
-- Execution gates: the researched baseline remains pinned at
-  `9849f32963c2a65367bce565b3f5ede3777c218f`; live feature integration now uses
-  `origin/develop`, which must always contain current `origin/main`; see
-  `EXECUTOR-HANDOFF.md` and `build-order.json`
-- Merge: do not merge this planning branch or the isolated skill branch while
-  the current dashboard run is active
+  issue — with 105 internal member edges and two external skill-blocker edges
+- GitHub materialization: immutable v3 publication restored and statically
+  valid; DEC-015 live comment/receipt reconciliation is in progress
+- Execution state at the amendment boundary: 13 members completed before the
+  required BO-016 CTA reopen; the reconciled run resumes with 42 remaining
+- Dispatch: prohibited until the DEC-015 receipt validates; never add
+  `agent:todo` during reconciliation
+- Integration: current `main@074b9538` is contained by
+  `develop@8ced97b8`; every feature head refreshes from current `develop`
+- Merge: planning PR #1064 targets `develop` after the execution receipt is
+  materialized and verified
 
 The opening estimate of roughly ten tickets was a sizing hypothesis. The final
 audit split configured-repository identity from event propagation; detail,
@@ -62,7 +62,9 @@ selected-order integration into independently verifiable work.
 8. [Auxiliary publication manifest](publication.json)
 9. [Validation report](validation-report.md)
 10. [Publication receipt](github-publication.md)
-11. [Executor handoff](EXECUTOR-HANDOFF.md)
+11. [Late-wave consolidation research](10-late-wave-consolidation.md)
+12. [Binding execution amendment](11-execution-amendment.md)
+13. [Executor handoff](EXECUTOR-HANDOFF.md)
 
 Supporting context: [research spike](00-research-spike.md),
 [decomposition patterns](01-decomposition-patterns.md),

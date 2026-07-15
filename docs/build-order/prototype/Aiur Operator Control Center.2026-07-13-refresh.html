@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
 <style>
 /* ============================================================
    AIUR OPERATOR CONTROL CENTER
@@ -393,6 +394,66 @@ html[data-theme="light"] .toggle-icon .moon { display: inline; }
 .techtree-empty .tt-title { font-size: 1.15rem; font-weight: 700; color: var(--fg); }
 .techtree-empty .tt-sub { max-width: 40ch; font-size: 0.9rem; line-height: 1.5; }
 
+/* ---------- Analytics page ---------- */
+.analytics-root { display: flex; flex-direction: column; gap: 1rem; }
+.an-kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 0.7rem; }
+.an-kpi { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow-sm); padding: 0.85rem 0.95rem; display: flex; flex-direction: column; gap: 0.15rem; }
+.an-kpi-label { font-family: "JetBrains Mono", monospace; font-size: 0.62rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+.an-kpi-val { font-family: "JetBrains Mono", monospace; font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; color: var(--fg); line-height: 1.05; }
+.an-kpi-sub { font-size: 0.72rem; color: var(--faint); }
+.an-kpi.block .an-kpi-val { color: var(--block-ink); }
+
+.an-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: start; }
+.an-card { padding: 1rem 1.1rem 0.8rem; display: flex; flex-direction: column; }
+.an-card.wide { grid-column: 1 / -1; }
+.an-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 0.7rem; }
+.an-card-title { margin: 0; font-size: 0.98rem; font-weight: 700; color: var(--fg); letter-spacing: -0.01em; }
+.an-card-sub { margin: 0.2rem 0 0; font-size: 0.78rem; line-height: 1.4; color: var(--muted); max-width: 62ch; }
+.an-chart { width: 100%; }
+.an-card.scroll .an-chart { max-height: 440px; overflow-y: auto; overflow-x: hidden; }
+.an-card.scroll .an-chart::-webkit-scrollbar { width: 8px; }
+.an-card.scroll .an-chart::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 8px; }
+
+.an-seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; flex: none; }
+.an-seg button { appearance: none; border: 0; background: transparent; color: var(--muted); font-family: "JetBrains Mono", monospace; font-size: 0.68rem; font-weight: 600; padding: 0.3rem 0.6rem; cursor: pointer; border-right: 1px solid var(--line); }
+.an-seg button:last-child { border-right: 0; }
+.an-seg button.on { background: var(--accent-soft); color: var(--accent-ink); }
+
+.an-legend { border-top: 1px solid var(--hairline); margin-top: 0.4rem; padding-top: 0.7rem; }
+.an-legend-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.55rem; }
+.an-legend-title { font-family: "JetBrains Mono", monospace; font-size: 0.66rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+.an-legend-acts { display: flex; gap: 0.35rem; }
+.an-lg-btn { appearance: none; border: 1px solid var(--line); background: transparent; color: var(--muted); font-family: "JetBrains Mono", monospace; font-size: 0.66rem; font-weight: 600; padding: 0.2rem 0.55rem; border-radius: 999px; cursor: pointer; }
+.an-lg-btn:hover { color: var(--fg); border-color: var(--line-strong); }
+.an-legend-groups { display: flex; flex-wrap: wrap; gap: 0.5rem 1.4rem; }
+.an-lg-group { display: flex; flex-direction: column; gap: 0.35rem; }
+.an-lg-gtitle { font-family: "JetBrains Mono", monospace; font-size: 0.64rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.an-lg-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; max-width: 340px; }
+.an-chip { display: inline-flex; align-items: center; gap: 0.3rem; border: 1px solid var(--line); background: var(--pill-bg); color: var(--faint); font-family: "JetBrains Mono", monospace; font-size: 0.68rem; font-weight: 600; padding: 0.16rem 0.42rem; border-radius: 7px; cursor: pointer; transition: opacity .12s, border-color .12s; }
+.an-chip i { width: 8px; height: 8px; border-radius: 2px; opacity: 0.35; flex: none; }
+.an-chip.on { color: var(--fg); border-color: var(--line-strong); }
+.an-chip.on i { opacity: 1; }
+.an-chip:hover { border-color: var(--accent-line); }
+
+.an-zoombar { display: none; align-items: center; gap: 0.6rem; padding: 0.5rem 0.85rem; border: 1px solid var(--accent-line); background: var(--accent-soft); border-radius: 999px; font-size: 0.8rem; color: var(--fg); align-self: flex-start; }
+.an-zoombar .an-zoom-ic { width: 15px; height: 15px; color: var(--accent-ink); flex: none; }
+.an-zoombar b { font-family: "JetBrains Mono", monospace; font-weight: 700; }
+.an-zoombar span { color: var(--muted); }
+.an-zoombar b { color: var(--fg); }
+.an-zoom-reset { appearance: none; border: 1px solid var(--accent-line); background: transparent; color: var(--accent-ink); font-family: "JetBrains Mono", monospace; font-size: 0.72rem; font-weight: 700; padding: 0.22rem 0.6rem; border-radius: 999px; cursor: pointer; }
+.an-zoom-reset:hover { background: var(--accent-soft); }
+.an-brush .overlay { cursor: crosshair; }
+
+@media (max-width: 1080px) {
+  .an-kpis { grid-template-columns: repeat(3, 1fr); }
+  .an-grid { grid-template-columns: 1fr; }
+  .an-card.wide { grid-column: auto; }
+}
+@media (max-width: 560px) {
+  .an-kpis { grid-template-columns: repeat(2, 1fr); }
+  .an-card-head { flex-direction: column; }
+}
+
 /* ---------- Build Order graph ---------- */
 .bo-card { display: flex; flex-direction: column; }
 .bo-header { align-items: center; }
@@ -406,6 +467,35 @@ html[data-theme="light"] .toggle-icon .moon { display: inline; }
 .bo-zbtn { display: inline-grid; place-items: center; min-width: 1.9rem; height: 1.9rem; padding: 0 0.5rem; border-radius: 8px; border: 1px solid var(--pill-bd); background: var(--pill-bg); color: var(--fg); cursor: pointer; font-family: "JetBrains Mono", monospace; font-size: 0.82rem; }
 .bo-zbtn:hover { border-color: var(--line-strong); }
 .bo-zval { font-family: "JetBrains Mono", monospace; font-size: 0.72rem; color: var(--muted); min-width: 3rem; text-align: center; }
+
+/* ---- build-order summary (stats + phase progress) ---- */
+.bo-summary { width: 100%; display: flex; flex-direction: column; gap: 1.1rem; }
+.bo-stats { display: flex; align-items: flex-start; gap: 2.4rem; flex-wrap: wrap; }
+.bo-prog { display: flex; align-items: flex-end; gap: 0.9rem; }
+.bo-prog-seg { min-width: 0; flex: 1 1 0; display: flex; flex-direction: column; gap: 0.32rem; }
+.bo-prog-top { display: flex; align-items: baseline; justify-content: space-between; gap: 0.4rem; }
+.bo-prog-top .p { font-family: "JetBrains Mono", monospace; font-size: 0.72rem; font-weight: 700; color: var(--fg); }
+.bo-prog-top .pt { font-family: "JetBrains Mono", monospace; font-size: 0.66rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---- build-order footer (legend + summary tables) ---- */
+.bo-footer { margin-top: 1.2rem; display: flex; flex-direction: column; gap: 1.2rem; }
+.bo-legend { display: flex; align-items: center; gap: 1.1rem; }
+.bo-tables { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: start; }
+.bo-tbl-card { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow-sm); padding: 1.05rem 1.15rem 0.4rem; }
+.bo-tbl-title { margin: 0 0 0.7rem; font-size: 0.98rem; font-weight: 700; color: var(--fg); letter-spacing: -0.01em; }
+.bo-tbl { width: 100%; border-collapse: collapse; }
+.bo-tbl th { text-align: left; font-family: "JetBrains Mono", monospace; font-size: 0.62rem; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); padding: 0 0.7rem 0.5rem 0; border-bottom: 1px solid var(--hairline); }
+.bo-tbl td { padding: 0.6rem 0.7rem 0.6rem 0; border-bottom: 1px solid var(--hairline); vertical-align: top; font-size: 0.82rem; color: var(--fg); }
+.bo-tbl tr:last-child td { border-bottom: 0; }
+.bo-tbl .c-key { font-family: "JetBrains Mono", monospace; font-weight: 700; white-space: nowrap; }
+.bo-tbl .c-num, .bo-tbl .c-pts { font-family: "JetBrains Mono", monospace; color: var(--muted); width: 2.4rem; }
+.bo-tbl .c-tix { line-height: 1.7; }
+.bo-tbl .bo-tref { font-family: "JetBrains Mono", monospace; font-size: 0.76rem; color: var(--muted); background: none; border: 0; padding: 0; cursor: pointer; }
+.bo-tbl .bo-tref:hover { color: var(--accent-ink); text-decoration: underline; }
+.bo-tbl .bo-tref.lead { color: var(--fg); font-weight: 700; }
+.bo-tbl .epic-dot { display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 3px; margin-right: 0.5rem; vertical-align: baseline; }
+@media (max-width: 820px) { .bo-tables { grid-template-columns: 1fr; } }
+
 
 .bo-viewport { position: relative; margin-top: 1rem; max-height: min(78vh, 760px); border: 1px solid var(--line); border-radius: 14px; background:
   radial-gradient(circle at center, color-mix(in srgb, var(--fg) 4%, transparent) 1px, transparent 1px) 0 0 / 22px 22px,
@@ -1172,10 +1262,9 @@ html[data-theme="light"] .vendor-tag.vendor-claude { color: #b25a17; }
           <span class="snav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="8" r="3"/><path d="M6 9v6"/><path d="M18 11a9 9 0 0 1-9 9"/></svg></span>
           <span class="snav-label">Build Order</span>
         </button>
-        <button class="snav is-soon" type="button" data-tab="analytics">
+        <button class="snav" type="button" data-tab="analytics">
           <span class="snav-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="5"/><rect x="12" y="8" width="3" height="9"/><rect x="17" y="5" width="3" height="12"/></svg></span>
           <span class="snav-label">Analytics</span>
-          <span class="snav-soon">Soon</span>
         </button>
       </nav>
     </aside>
@@ -1322,12 +1411,7 @@ html[data-theme="light"] .vendor-tag.vendor-claude { color: #b25a17; }
     <div class="panel" data-panel="techtree">
       <section class="section-card bo-card">
         <div class="section-header bo-header">
-          <div class="bo-tools">
-            <div class="bo-legend">
-              <span class="bo-leg"><span class="bo-leg-line solid"></span>Cleared</span>
-              <span class="bo-leg"><span class="bo-leg-line dashed"></span>Blocking</span>
-            </div>
-          </div>
+          <div class="bo-summary" id="bo-summary"></div>
         </div>
         <div class="bo-viewport" id="bo-viewport">
           <div class="bo-stage" id="bo-stage">
@@ -1338,18 +1422,13 @@ html[data-theme="light"] .vendor-tag.vendor-claude { color: #b25a17; }
             </div>
           </div>
         </div>
+        <div class="bo-footer" id="bo-footer"></div>
       </section>
     </div>
 
     <!-- ============ ANALYTICS PANEL ============ -->
     <div class="panel" data-panel="analytics">
-      <section class="section-card">
-        <div class="techtree-empty">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m7 14 3-4 3 3 4-6"/></svg>
-          <h3 style="margin:0;font-size:1.1rem;color:var(--fg);">Analytics coming soon</h3>
-          <p style="margin:0;max-width:34ch;">Throughput, cost-per-ticket, and cycle-time trends across the run will land here.</p>
-        </div>
-      </section>
+      <div id="analytics-root" class="analytics-root"></div>
     </div>
 
     </section>
@@ -3107,6 +3186,68 @@ html[data-theme="light"] .vendor-tag.vendor-claude { color: #b25a17; }
     if (f.blocked && (f.control === "Blocked" || f.control === "Waiting") || f.phaseKind === "blocked" || f.phaseKind === "unresponsive") return "blocked";
     return "running";
   }
+  function boProgHue(pct) { return (Math.max(0, Math.min(100, pct)) / 100 * 125).toFixed(0); }
+  function renderBoSummary() {
+    const host = $("#bo-summary"); if (!host) return;
+    const totalPts = fleet.reduce((s, f) => s + f.complexity, 0);
+    const segs = PHASES.map((ph) => {
+      const tix = fleet.filter((f) => f.phase === ph.n);
+      const pts = tix.reduce((s, f) => s + f.complexity, 0);
+      const done = Math.round(tix.reduce((s, f) => s + f.complexity * (f.pct / 100), 0));
+      const pct = pts ? Math.round(done / pts * 100) : 0;
+      return { ph, pts, done, pct };
+    }).filter((s) => s.pts > 0);
+    const stats = "";
+    const bar = '<div class="bo-prog">' + segs.map((s) => {
+      const hue = boProgHue(s.pct);
+      return '<div class="bo-prog-seg" style="flex:' + s.pts + ' 1 96px" title="' + s.ph.label + ' · ' + s.done + '/' + s.pts + ' pts · ' + s.pct + '% complete">' +
+        '<div class="bo-prog-top"><span class="p">' + s.ph.label.replace("Phase ", "P") + '</span><span class="pt">' + s.pct + '%</span></div>' +
+        '<div class="rs-meter"><i style="width:' + s.pct + '%;background:hsl(' + hue + ' 70% 46%)"></i></div>' +
+      '</div>';
+    }).join("") + '</div>';
+    host.innerHTML = stats + bar;
+  }
+  function boTicketRefs(list, leadId) {
+    return list.map((f) =>
+      '<button class="bo-tref' + (f.id === leadId ? ' lead' : '') + '" type="button" data-goto="' + f.id + '">' + f.num + '</button>'
+    ).join('<span style="color:var(--faint)">, </span>');
+  }
+  function renderBoFooter() {
+    const host = $("#bo-footer"); if (!host) return;
+    // per-phase rows
+    const phaseRows = PHASES.map((ph) => {
+      const tix = fleet.filter((f) => f.phase === ph.n).sort((a, b) => a.num - b.num);
+      if (!tix.length) return "";
+      const pts = tix.reduce((s, f) => s + f.complexity, 0);
+      const lead = tix.slice().sort((a, b) =>
+        fleet.filter((x) => (x.blockedBy || []).includes(b.id)).length -
+        fleet.filter((x) => (x.blockedBy || []).includes(a.id)).length
+      )[0];
+      return '<tr><td class="c-key">' + ph.label.replace("Phase ", "P") + '</td><td class="c-num">' + tix.length + '</td><td class="c-pts">' + pts + '</td><td class="c-tix">' + boTicketRefs(tix, lead.id) + '</td></tr>';
+    }).join("");
+    // per-epic rows
+    const epicRows = EPIC_ORDER.map((ek) => {
+      const e = EPICS[ek];
+      const tix = fleet.filter((f) => f.epic === ek).sort((a, b) => a.phase - b.phase || a.num - b.num);
+      const pts = tix.reduce((s, f) => s + f.complexity, 0);
+      const dot = '<span class="epic-dot" style="background:oklch(0.6 0.14 ' + e.hue + ')"></span>';
+      return '<tr><td class="c-key">' + dot + esc(e.label) + '</td><td class="c-num">' + tix.length + '</td><td class="c-pts">' + pts + '</td><td class="c-tix">' + boTicketRefs(tix, null) + '</td></tr>';
+    }).join("");
+    host.innerHTML =
+      '<div class="bo-legend">' +
+        '<span class="bo-leg"><span class="bo-leg-line solid"></span>Cleared</span>' +
+        '<span class="bo-leg"><span class="bo-leg-line dashed"></span>Blocking</span>' +
+      '</div>' +
+      '<div class="bo-tables">' +
+        '<div class="bo-tbl-card"><h3 class="bo-tbl-title">Tickets per phase</h3>' +
+          '<table class="bo-tbl"><thead><tr><th>Phase</th><th>#</th><th>Pts</th><th>Tickets</th></tr></thead><tbody>' + phaseRows + '</tbody></table></div>' +
+        '<div class="bo-tbl-card"><h3 class="bo-tbl-title">Tickets per epic</h3>' +
+          '<table class="bo-tbl"><thead><tr><th>Epic</th><th>#</th><th>Pts</th><th>Tickets</th></tr></thead><tbody>' + epicRows + '</tbody></table></div>' +
+      '</div>';
+    host.querySelectorAll(".bo-tref").forEach((b) => {
+      b.addEventListener("click", () => { const f = fleet.find((x) => x.id === b.dataset.goto); if (f) openTicketModal(f); });
+    });
+  }
   let boBuilt = false;
   function renderBuildOrder() {
     const lanes = $("#bo-lanes"), grid = $("#bo-grid");
@@ -3133,6 +3274,8 @@ html[data-theme="light"] .vendor-tag.vendor-claude { color: #b25a17; }
         n.addEventListener("mouseleave", boClearHighlight);
       });
       boBuilt = true;
+      renderBoSummary();
+      renderBoFooter();
     }
     requestAnimationFrame(drawBoEdges);
   }
@@ -3218,7 +3361,7 @@ html[data-theme="light"] .vendor-tag.vendor-claude { color: #b25a17; }
     fleet: { title: "Units", sub: "Every agent in the current run" },
     inbox: { title: "Commands", sub: "Decisions waiting on your call" },
     techtree: { title: "Build Order", sub: "Dependency graph across epics" },
-    analytics: { title: "Analytics", sub: "Coming soon" },
+    analytics: { title: "Analytics", sub: "Live run utilization" },
   };
   function switchTab(tab) {
     activeTab = tab;
@@ -3230,6 +3373,7 @@ html[data-theme="light"] .vendor-tag.vendor-claude { color: #b25a17; }
     const recent = $("#recent-card"); if (recent) recent.style.display = tab === "fleet" ? "" : "none";
     window.scrollTo({ top: 0, behavior: "smooth" });
     if (tab === "techtree") renderBuildOrder();
+    if (tab === "analytics" && window.AiurAnalytics) window.AiurAnalytics.render();
   }
   function updateTabCounts() {
     const fc = $("#tabcount-inbox"); if (fc) fc.textContent = filterCount("open");
@@ -3315,6 +3459,8 @@ html[data-theme="light"] .vendor-tag.vendor-claude { color: #b25a17; }
      ============================================================ */
   function init() {
     initTheme();
+    window.__aiurFleet = fleet;
+    window.__aiurOpenTicket = function (id) { var f = fleet.find(function (x) { return x.id === id; }); if (f) openTicketModal(f); };
 
     renderOverview();
     renderBanner();

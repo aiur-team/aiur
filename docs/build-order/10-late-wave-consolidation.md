@@ -1,5 +1,12 @@
 # 10 — Late-wave consolidation (Phases 5–10 → five parallel lanes)
 
+> **Research provenance only.** DEC-015 is enacted in
+> [`11-execution-amendment.md`](11-execution-amendment.md), which preserves the
+> five-lane mapping but supersedes this draft's inaccurate edge count and its
+> proposals for lane issues, lane labels, one unchanged long-lived branch,
+> greenfield browser infrastructure, and unverified shared-file claims. Follow
+> DEC-015 for dispatch and acceptance.
+
 Proposal answering the Executor's 2026-07-14 21:12 planning request. **Research-side only:**
 no issue, label, branch, or graph mutation. Accepted by the Executor (22:04) as the
 next-stage direction, and deliberately **unmaterialized until the anti-thrash recovery gate**
