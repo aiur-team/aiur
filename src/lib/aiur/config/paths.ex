@@ -64,6 +64,27 @@ defmodule Aiur.Config.Paths do
   end
 
   @doc """
+  Resolves the daemon-private current-run membership state directory.
+
+  Membership recovery is deliberately isolated beneath its own leaf so it
+  cannot be mistaken for, or replayed as, decision state. It shares the
+  same instance- and repository-qualified root selection as other daemon
+  private state.
+  """
+  @spec current_run_membership_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def current_run_membership_state_dir do
+    case Application.get_env(:aiur, :current_run_membership_state_dir) do
+      path when is_binary(path) and path != "" ->
+        {:ok, path}
+
+      _ ->
+        with {:ok, root} <- decision_state_dir() do
+          {:ok, Path.join(root, "current-run-membership")}
+        end
+    end
+  end
+
+  @doc """
   Returns the sanitized last segment of the tracker's project identity,
   or `"aiur"` if no identity is available. Safe to use as a filename
   prefix.
