@@ -146,7 +146,7 @@ that re-run planning, and on stuck/long sessions at top reasoning effort. See or
 
 ---
 
-- [ ] U3. **Deterministic affected-test selection script** (origin T5)
+- [x] U3. **Deterministic affected-test selection script** (origin T5)
 
 **Goal:** Replace the agent's per-turn "reason over the diff to pick tests" with a script that prints the exact scoped `mix test` command.
 
