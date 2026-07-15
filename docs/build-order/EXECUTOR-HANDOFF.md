@@ -52,6 +52,39 @@ dual-review instruction later in this handoff.
   restart when semantic drift or conflict repair costs more than reimplementing
   the ticket from its contract.
 
+### Binding execution sequence before Aiur restarts
+
+Do not restart Aiur merely because a worker slot is available. The operator's
+current sequence is strict:
+
+1. The Executor directly owns every already-started stability PR with bounded
+   background workers. Merge reusable fixes into `main`, then synchronize exact
+   current `main` into `develop` after each merge.
+2. The Executor directly owns every already-started BO/DASH PR. Refresh,
+   preserve, or cleanly recut each branch against `develop` according to the
+   cheapest safe path, and merge all of them into `develop` before dispatching
+   another ticket.
+3. Apply Claude's researched Waves 5–10 consolidation in
+   `10-late-wave-consolidation.md`, reconciling it against what actually merged.
+   Update the canonical pack, live GitHub issue graph, dependencies, labels,
+   and preview; do not treat the research draft as self-executing authority.
+4. Audit every remaining ticket document, live issue body, dependency,
+   implementation plan, ownership seam, and acceptance tail against the run's
+   observed failures. In particular, remove avoidable sequential/shared-file
+   churn; state current-`develop` ancestry and refresh/restart expectations;
+   assign shared files and supervision seams; front-load deterministic focused
+   tests; require one coherent self-review before PR handoff; and prevent CI,
+   review, comment-wake, finalization, and lifecycle gridlock. Preserve the
+   approved feature boundary—this audit improves contracts rather than adding
+   speculative tickets.
+5. Validate the revised pack and reconcile the exact live graph. Only then
+   restart `aiurdev` against `develop` with Codex Sol/Terra and dispatch the
+   consolidated remaining work.
+
+Intermediate Build Order PRs retain the speed-focused gate above. The audit is
+not permission to reinstate repeated dual-review cycles; material integration
+risk is accumulated for the one comprehensive `develop` promotion review.
+
 The recorded runtime session ceiling is 15 workers, governed by
 Aiur's effective-slot controller and shared build gates. The operator target is
 10–15+ useful agents whenever dependency width and measured
