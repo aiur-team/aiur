@@ -451,6 +451,32 @@ defmodule AiurWeb.DashboardLiveTest do
     assert html =~ "Backing off"
   end
 
+  test "renders the URL-backed shell with normal document navigation and named unavailable routes" do
+    fleet_payload = %{
+      generated_at: "2026-07-12T12:00:00Z",
+      counts: %{running: 0, retrying: 0, idle: 0},
+      running: [],
+      retrying: [],
+      idle: [],
+      agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+      rate_limits: nil
+    }
+
+    units = render_payload(fleet_payload)
+    commands = render_payload(fleet_payload, live_action: :decision)
+
+    assert length(Floki.find(Floki.parse_document!(units), ~s(nav[aria-label="Control Center routes"]))) == 2
+    assert length(Floki.find(Floki.parse_document!(units), ~s(a[aria-current="page"]))) == 2
+    assert units =~ ~s(<h1 id="route-title">Units</h1>)
+    assert units =~ ~s(href="/analytics")
+    refute units =~ ~s(href="/build-orders")
+    assert units =~ "Unavailable"
+    assert length(Floki.find(Floki.parse_document!(units), ~s([aria-disabled="true"]))) == 2
+
+    assert commands =~ ~s(<h1 id="route-title">Commands</h1>)
+    assert length(Floki.find(Floki.parse_document!(commands), ~s(a[aria-current="page"]))) == 2
+  end
+
   test "renders the approved decision surface with a stable escaped deep link" do
     fleet_payload = %{
       generated_at: "2026-07-12T12:00:00Z",

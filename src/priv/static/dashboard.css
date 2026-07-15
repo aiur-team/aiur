@@ -129,7 +129,6 @@ textarea:focus-visible,
 .ticket-id,
 .status-badge,
 .tool-btn,
-.control-tab,
 .chip,
 .filter-chip,
 .risk-tag,
@@ -160,14 +159,122 @@ textarea:focus-visible,
 }
 
 .app-shell {
-  max-width: 1320px;
-  margin: 0 auto;
-  padding: 1.1rem 1.15rem 4rem;
+  max-width: 1440px;
+  margin-inline: auto;
+  padding: 1rem 1.15rem;
 }
 
 .dashboard-shell {
   display: grid;
+  min-width: 0;
+  gap: 1.25rem;
+}
+
+.shell-sidebar {
+  display: grid;
+  align-self: start;
+  align-content: start;
+  gap: 1.5rem;
+  min-width: 0;
+}
+
+.shell-main,
+.shell-content {
+  display: grid;
+  min-width: 0;
   gap: 1rem;
+}
+
+.shell-nav {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.shell-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-width: 0;
+  min-height: 2.75rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  color: var(--muted);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.2;
+  text-decoration: none;
+}
+
+.shell-nav-item:hover {
+  border-color: var(--line);
+  color: var(--fg);
+  background: var(--pill-bg);
+}
+
+.shell-nav-item.is-active {
+  border-color: var(--line-strong);
+  color: var(--fg);
+  background: var(--surface-3);
+  box-shadow: inset 3px 0 var(--accent-line);
+}
+
+.shell-nav-item.is-unavailable {
+  cursor: not-allowed;
+  color: var(--faint);
+}
+
+.shell-nav-icon {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 1.25rem;
+  color: var(--accent-ink);
+  font-size: 1rem;
+}
+
+.shell-nav-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.shell-nav-state {
+  margin-left: auto;
+  color: var(--faint);
+  font-size: 0.6rem;
+  font-weight: 600;
+}
+
+.shell-nav-mobile {
+  display: none;
+}
+
+.route-context {
+  min-width: 0;
+}
+
+.route-eyebrow {
+  margin: 0;
+  color: var(--muted);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.route-context h1 {
+  margin: 0.25rem 0 0;
+  font-size: clamp(1.5rem, 3vw, 2.2rem);
+  letter-spacing: -0.04em;
+}
+
+.route-context > p:last-child {
+  max-width: 52rem;
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
 }
 
 .bo-layout-root {
@@ -384,11 +491,11 @@ textarea:focus-visible,
 
 .topbar {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
   flex-wrap: wrap;
-  padding: 0.15rem 0.35rem 0.6rem;
+  padding: 0.15rem 0.15rem 0.6rem;
 }
 
 .brand-mini {
@@ -679,39 +786,6 @@ textarea:focus-visible,
   background: var(--line);
 }
 
-.control-tabs {
-  display: flex;
-  width: max-content;
-  max-width: 100%;
-  gap: 0.3rem;
-  padding: 0.3rem;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--pill-bg);
-}
-
-.control-tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.48rem 1rem;
-  border-radius: 999px;
-  color: var(--muted);
-  font-size: 0.78rem;
-  font-weight: 600;
-}
-
-.control-tab:hover {
-  color: var(--fg);
-}
-
-.control-tab.is-active {
-  color: var(--fg);
-  background: var(--surface-3);
-  box-shadow: var(--shadow-sm);
-}
-
-.control-tab .count,
 .filter-chip .count {
   padding: 0.02rem 0.38rem;
   border: 1px solid var(--line);
@@ -719,12 +793,6 @@ textarea:focus-visible,
   background: var(--surface-2);
   color: var(--muted);
   font-size: 0.67rem;
-}
-
-.control-tab .count.attn {
-  border-color: var(--attention-line);
-  background: var(--attention-soft);
-  color: var(--attention-ink);
 }
 
 .control-panel {
@@ -2252,9 +2320,73 @@ textarea:focus-visible,
   }
 }
 
+@media (min-width: 960px) {
+  .dashboard-shell {
+    grid-template-columns: minmax(12rem, 15rem) minmax(0, 1fr);
+  }
+
+  .shell-sidebar {
+    position: sticky;
+    top: 1rem;
+  }
+}
+
+@media (max-width: 959px) {
+  .app-shell {
+    padding-block-end: calc(7rem + env(safe-area-inset-bottom));
+  }
+
+  .shell-sidebar {
+    display: none;
+  }
+
+  .shell-nav-mobile {
+    position: fixed;
+    z-index: 20;
+    right: max(0.65rem, env(safe-area-inset-right));
+    bottom: max(0.65rem, env(safe-area-inset-bottom));
+    left: max(0.65rem, env(safe-area-inset-left));
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.2rem;
+    padding: 0.3rem;
+    border: 1px solid var(--line-strong);
+    border-radius: 16px;
+    background: color-mix(in srgb, var(--surface) 94%, transparent);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .shell-nav-mobile .shell-nav-item {
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.2rem;
+    min-height: 2.75rem;
+    padding: 0.35rem 0.2rem;
+    text-align: center;
+  }
+
+  .shell-nav-mobile .shell-nav-icon {
+    width: auto;
+  }
+
+  .shell-nav-mobile .shell-nav-label {
+    font-size: clamp(0.55rem, 2vw, 0.68rem);
+  }
+
+  .shell-nav-mobile .shell-nav-state {
+    margin-left: 0;
+    font-size: clamp(0.43rem, 1.7vw, 0.55rem);
+    line-height: 1;
+  }
+
+  .shell-nav-mobile .shell-nav-item.is-active {
+    box-shadow: inset 0 -3px var(--accent-line);
+  }
+}
+
 @media (max-width: 760px) {
   .app-shell {
-    padding: 0.85rem 0.8rem 3rem;
+    padding-inline: 0.8rem;
   }
 
   .topbar {
@@ -2292,15 +2424,6 @@ textarea:focus-visible,
 
   .stat-divider {
     display: none;
-  }
-
-  .control-tabs {
-    width: 100%;
-  }
-
-  .control-tab {
-    flex: 1 1 50%;
-    justify-content: center;
   }
 
   .decision-card-head {
@@ -2356,7 +2479,7 @@ textarea:focus-visible,
 
 @media (max-width: 500px) {
   .app-shell {
-    padding: 0.65rem 0.65rem 2.5rem;
+    padding-inline: 0.65rem;
   }
 
   .fleet-table tr.fleet-row {
