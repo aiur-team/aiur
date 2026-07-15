@@ -90,7 +90,7 @@ that re-run planning, and on stuck/long sessions at top reasoning effort. See or
 
 ## Implementation Units
 
-- [ ] U1. **Rework-continuation prompt (no cold re-plan)** — *flagship*
+- [x] U1. **Rework-continuation prompt (no cold re-plan)** — *flagship*
 
 **Goal:** A cold rework dispatch gets a continuation-style turn-1 prompt that forbids re-running brainstorm/plan and orients from durable state, instead of the full cold prompt.
 
@@ -134,7 +134,8 @@ that re-run planning, and on stuck/long sessions at top reasoning effort. See or
 - Test: `src/test/aiur/orchestrator/agent_teardown_test.exs` (create/extend)
 
 **Approach:**
-- Identify the teardown/reap path taken when an agent completes into `human-review`; skip worktree removal for that terminal-into-review case while still releasing the agent slot. Gate rollout retention with a ceiling (config or constant) so `~/.codex` (already 11 GB+) can't grow unbounded.
+- **CORRECTION (found during impl):** the worktree is already NOT reaped on `human-review`. `agent_teardown.ex` `deactivate_running_issue/2` keeps the running entry and only frees the slot; only the terminal done/cancelled path (`terminate_running_issue/3` → `WorkspaceCleanup`) reaps. So the plan's original premise is void.
+- **Revised lever:** cold reworks happen because resume doesn't fire, not because the worktree is gone. Resume is driven by `SessionResume`/`SessionHandle` (`agent_runner/session_lifecycle.ex`, `session_resume.ex`): `opts[:resumed]` is set only when a persisted `SessionHandle` exists for the identifier+backend and `CodingAgent.resumable?` holds. The real work is: (a) ensure the `SessionHandle` (codex thread id) survives a `human-review → rework` re-dispatch, and (b) confirm the codex rollout under `$CODEX_HOME` isn't evicted before resume, adding a retention ceiling for disk safety. This is a deeper, live-dispatch change — re-scope before implementing.
 
 **Test scenarios:**
 - Happy path: agent completes with issue state `human-review` → worktree path still exists after teardown; slot released.
