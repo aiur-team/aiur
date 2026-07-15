@@ -277,6 +277,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
          :ok <- redispatch_worker_slot(state, selected_issue.id, preferred_worker_host) do
       {:ok, state}
     else
+      {:all_limited, candidates} -> {:error, {:all_limited, candidates}, state}
       {:error, reason, %State{} = rejected_state} -> {:error, reason, rejected_state}
       {:error, reason} -> {:error, reason, state}
     end
