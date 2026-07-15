@@ -260,7 +260,7 @@ footer{margin-top:26px;border-top:1px solid var(--line);padding-top:14px;font-fa
 <script>
 const RUN = {
   phase: 4,
-  updated: "2026-07-15 15:10 PDT",
+  updated: "2026-07-15 15:19 PDT",
   tickets: {
     "BO-004": {state:"merged", progress:100, issue:1086},
     "BO-008": {state:"merged", progress:100, issue:1087},
@@ -268,7 +268,7 @@ const RUN = {
     "DASH-017": {state:"merged", progress:100, issue:1089},
     "DASH-018": {state:"merged", progress:100, issue:1090},
     "BO-001": {state:"merged", progress:100, issue:1085},
-    "BO-016": {state:"reopened — separate Pull-request destination required", progress:0, issue:1103},
+    "BO-016": {state:"direct Executor worker live — separate Pull-request destination", progress:0, issue:1103, agent_live:true},
     "BO-017": {state:"merged", progress:100, issue:1104},
     "DASH-001": {state:"merged to develop", progress:100, issue:1108},
     "DASH-004": {state:"merged", progress:100, issue:1111},
@@ -280,6 +280,8 @@ const RUN = {
     "DASH-002": {state:"merged", progress:100, issue:1109},
     "DASH-026": {state:"dependency-ready; held behind active shared-file ownership", progress:0, issue:1130},
     "BO-003": {state:"merged to develop", progress:100, issue:1092},
+    "BO-006": {state:"direct Executor worker live", progress:0, issue:1094, agent_live:true},
+    "BO-007": {state:"direct Executor worker live", progress:0, issue:1095, agent_live:true},
     "DASH-008": {state:"merged to develop", progress:100, issue:1114},
     "ADHOC-1139": {state:"closed", progress:100, issue:1139},
     "ADHOC-1140": {state:"merged", progress:100, issue:1140},
@@ -300,6 +302,7 @@ const RUN = {
     "ADHOC-1178": {state:"deferred by operator", progress:0, issue:1178},
     "ADHOC-1182": {state:"later phase — no dispatch label", progress:0, issue:1182},
     "ADHOC-1185": {state:"merged to main and synchronized into develop", progress:100, issue:1185},
+    "ADHOC-1191": {state:"paused — force-build workaround active", progress:0, issue:1191},
     "ADHOC-780": {state:"merged", progress:100, issue:780}
   }
 };
@@ -326,6 +329,7 @@ const ADHOC_TICKETS = [
   {id:"ADHOC-1178",issue:1178,title:"Trial caveman output compression",issue_title:"#1178 — Trial caveman output compression, measure, likely drop",lane:"adhoc",cx:2,deps:[],pack:"all",phase:null,pickup_phase:null,adhoc:true},
   {id:"ADHOC-1182",issue:1182,title:"Add configurable Executor takeover alerts",issue_title:"BO: Add configurable Executor takeover alerts",lane:"adhoc",cx:3,deps:[],pack:"all",phase:8,pickup_phase:8,adhoc:true},
   {id:"ADHOC-1185",issue:1185,title:"Allow valid ownership receipts to survive restart",issue_title:"Bug: valid workspace-ownership receipt prevents Aiur restart",lane:"adhoc",cx:1,deps:[],pack:"all",phase:4,pickup_phase:4,adhoc:true},
+  {id:"ADHOC-1191",issue:1191,title:"Prevent stale mixed-BEAM aiurdev releases",issue_title:"Bug: aiurdev incremental rebuild can assemble a stale mixed-BEAM release",lane:"adhoc",cx:2,deps:[],pack:"all",phase:4,pickup_phase:4,adhoc:true},
   {id:"ADHOC-780",issue:780,title:"Fix remaining concurrent-flaky specs",issue_title:"#780 — Fix remaining concurrent-flaky specs",lane:"adhoc",cx:1,deps:[],pack:"all",phase:1,pickup_phase:1,adhoc:true}
 ];
 const TICKETS = [...CORE_TICKETS, ...ADHOC_TICKETS];
