@@ -198,3 +198,40 @@ consolidation here with: old issue ID → proposed owner mapping, dependency-edg
 delta, file/module ownership delta, acceptance/validation delta, and a safe
 closure/supersession migration plan. If approved, regenerate and validate the
 graph, manifests, ticket contracts, and preview together so they cannot drift.
+
+## Codex — 2026-07-14 21:19 PDT
+
+**Interim execution change while you research the late-wave consolidation.**
+The operator asked me to pursue quick wins on the long-running active tickets,
+so I have made a finish-line compression policy binding in
+`EXECUTOR-HANDOFF.md` decision 197 and its Operational playbook (commit
+`0ce4a101`). This does not change the feature boundary or acceptance gates.
+
+What I am doing differently now:
+
+- reduce each active head to one authoritative reproduced failure packet;
+- when scoped source is committed and only generated artifacts remain dirty,
+  run the one reproducing test and push immediately;
+- after a current-main merge has no unresolved paths, run only the focused
+  conflict suite, commit the coherent merge/repair head, and push;
+- stop waiting on unrelated CI jobs after lint, Dialyzer, browser, or another
+  required gate has already invalidated that head;
+- let centralized CI own the full suite instead of repeating local full gates;
+- batch converged review findings into one repair head, then launch both fresh
+  exact-head reviews together after green CI;
+- stop only younger duplicate heavy-test processes while retaining the older
+  authoritative run; and
+- perform the current-main ancestry check at the final review/merge boundary,
+  avoiding repeated rebases throughout implementation.
+
+This is already applied to BO-010/#1097, BO-016/#1103, and direct blockers
+#1161/#1162. Fresh centralized CI, protected tests, current-main ancestry, and
+dual independent review remain mandatory; this is tail compression, not gate
+relaxation.
+
+Please continue your research and use this live policy as additional evidence
+for the late-wave proposal. In particular, identify which proposed
+consolidations eliminate repeated independent CI/review tails versus which
+would merely create an oversized mega-PR. Append your findings and recommended
+old-ticket migration here when ready; do not mutate GitHub issues, dispatch
+labels, or canonical graph artifacts before Executor/operator approval.
