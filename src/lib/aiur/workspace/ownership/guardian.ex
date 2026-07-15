@@ -29,6 +29,7 @@ defmodule Aiur.Workspace.Ownership.Guardian do
           lease: lease,
           provider_expected?: false,
           provider: nil,
+          provider_cleanup_unknown?: false,
           waiters: MapSet.new(),
           release_waiters: [],
           reap_fun: Keyword.get(opts, :reap_fun, &RemoteControl.reap_process_group/2),
@@ -77,6 +78,11 @@ defmodule Aiur.Workspace.Ownership.Guardian do
         if reply_value == :ok,
           do: continue_after_provider_update(next),
           else: loop(next)
+
+      {:workspace_guardian_call, from, ref, {:mark_provider_cleanup_unknown, generation}} ->
+        {reply_value, next} = mark_provider_cleanup_unknown(state, generation)
+        reply(from, ref, reply_value)
+        loop(next)
 
       {:workspace_guardian_call, from, ref, {:track_process_group, generation, process_group_id}} ->
         {reply_value, next} = track_provider(state, generation, %{process_group_id: process_group_id})
@@ -169,6 +175,12 @@ defmodule Aiur.Workspace.Ownership.Guardian do
 
   defp track_provider(state, _generation, _provider), do: {{:error, :workspace_ownership_lost}, state}
 
+  defp mark_provider_cleanup_unknown(%{lease: %{generation: generation, phase: phase}} = state, generation)
+       when phase in [:provisioning, :active],
+       do: {:ok, %{state | provider_cleanup_unknown?: true}}
+
+  defp mark_provider_cleanup_unknown(state, _generation), do: {{:error, :workspace_ownership_lost}, state}
+
   defp valid_provider?(%{remote: true}), do: true
   defp valid_provider?(%{process_group_id: process_group_id}) when is_integer(process_group_id) and process_group_id > 0, do: true
   defp valid_provider?(%{root_pid: root_pid}) when is_integer(root_pid) and root_pid > 0, do: true
@@ -237,11 +249,12 @@ defmodule Aiur.Workspace.Ownership.Guardian do
   # generation once that snapshot is exhausted rather than reprovisioning its cwd.
   defp maybe_release_or_reap(
          %{
-           owner_dead?: true,
+           owner_dead?: owner_dead?,
+           provider_cleanup_unknown?: provider_cleanup_unknown?,
            provider: %{root_pid: root_pid, descendant_pids: process_ids}
          } = state
        )
-       when is_integer(root_pid) and root_pid > 0 and is_list(process_ids),
+       when (owner_dead? or provider_cleanup_unknown?) and is_integer(root_pid) and root_pid > 0 and is_list(process_ids),
        do: maybe_reap_no_group_snapshot_or_retain(state)
 
   defp maybe_release_or_reap(%{provider: %{root_pid: root_pid, descendant_pids: process_ids}} = state)
@@ -321,13 +334,14 @@ defmodule Aiur.Workspace.Ownership.Guardian do
 
   defp continue_after_reap(
          %{
-           owner_dead?: true,
+           owner_dead?: owner_dead?,
+           provider_cleanup_unknown?: provider_cleanup_unknown?,
            provider: %{root_pid: root_pid, descendant_pids: process_ids}
          } = state,
          :processes,
          _process_ids
        )
-       when is_integer(root_pid) and root_pid > 0 and is_list(process_ids),
+       when (owner_dead? or provider_cleanup_unknown?) and is_integer(root_pid) and root_pid > 0 and is_list(process_ids),
        do: maybe_reap_no_group_snapshot_or_retain(state)
 
   defp continue_after_reap(state, :processes, _process_ids) do

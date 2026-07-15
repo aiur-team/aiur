@@ -64,6 +64,20 @@ defmodule Aiur.Claude.Repl.ReaperTest do
       assert Reaper.stop_session(%{}) == :ok
       assert Reaper.stop_session(nil) == :ok
     end
+
+    test "reports cleanup unknown when tmux refuses the pane kill", %{tmux: tmux} do
+      session = %{tmux: tmux, pane_id: "%10", os_pid: nil, workspace: "/ws"}
+      task = Task.async(fn -> Reaper.stop_session(session) end)
+
+      assert_receive {:tmux_mock_out, "kill-pane -t %10"}, 1_000
+      respond_error(tmux, "permission denied\n")
+
+      assert_receive {:tmux_mock_out, "display-message -p -t %10 \#{pane_pid}"}, 1_000
+      respond(tmux, "5050\n")
+
+      assert {:error, {:repl_cleanup_failed, {:pane_kill_failed, _reason}}} =
+               Task.await(task, 2_000)
+    end
   end
 
   describe "reap_orphaned_panes/1" do

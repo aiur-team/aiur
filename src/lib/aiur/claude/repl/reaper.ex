@@ -24,14 +24,14 @@ defmodule Aiur.Claude.Repl.Reaper do
   Stop the REPL session: unregister reaper keys, kill pane, run graceful_kill_tree,
   verify pane + pid are gone, emit teardown perf event.
   """
-  @spec stop_session(map()) :: :ok
+  @spec stop_session(map()) :: :ok | {:error, {:repl_cleanup_failed, term()}}
   def stop_session(%{tmux: tmux, pane_id: pane_id} = session) do
     os_pid = Map.get(session, :os_pid)
 
     Aiur.ProcessReaper.unregister({:pane, pane_id})
     Aiur.ProcessReaper.unregister({:os_pid, os_pid})
 
-    Tmux.kill_pane(tmux, pane_id)
+    kill_result = Tmux.kill_pane(tmux, pane_id)
     RemoteControl.graceful_kill_tree(os_pid)
 
     pane_gone? = not match?({:ok, _}, Tmux.pane_pid(tmux, pane_id))
@@ -45,7 +45,7 @@ defmodule Aiur.Claude.Repl.Reaper do
       pid_gone: pid_gone?
     )
 
-    :ok
+    cleanup_result(kill_result, pane_gone?, pid_gone?)
   end
 
   def stop_session(_session), do: :ok
@@ -146,6 +146,17 @@ defmodule Aiur.Claude.Repl.Reaper do
   defp os_pid_gone?(pid) when is_integer(pid) do
     not match?({_, 0}, System.cmd("kill", ["-0", Integer.to_string(pid)], stderr_to_stdout: true))
   rescue
-    _ -> true
+    _ -> false
   end
+
+  defp cleanup_result(:ok, true, true), do: :ok
+
+  defp cleanup_result({:error, reason}, _pane_gone?, _pid_gone?),
+    do: {:error, {:repl_cleanup_failed, {:pane_kill_failed, reason}}}
+
+  defp cleanup_result(_kill_result, false, _pid_gone?),
+    do: {:error, {:repl_cleanup_failed, :pane_still_alive}}
+
+  defp cleanup_result(_kill_result, _pane_gone?, false),
+    do: {:error, {:repl_cleanup_failed, :provider_still_alive}}
 end

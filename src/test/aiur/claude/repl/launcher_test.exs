@@ -30,6 +30,9 @@ defmodule Aiur.Claude.Repl.LauncherTest do
 
       {:tmux_mock_out, "kill-pane -t " <> ^pane} ->
         respond(tmux, "")
+        assert_receive {:tmux_mock_out, pane_query}, 1_000
+        assert pane_query == "display-message -p -t #{pane} \#{pane_pid}"
+        respond_error(tmux, "no pane\n")
         assert {:error, :repl_not_ready} = Task.await(task, 2_000)
     after
       3_000 -> flunk("did not observe kill-pane within timeout")
@@ -89,6 +92,8 @@ defmodule Aiur.Claude.Repl.LauncherTest do
 
     assert_receive {:tmux_mock_out, "kill-pane -t %11"}, 1_000
     respond_error(tmux, "permission denied\n")
+    assert_receive {:tmux_mock_out, "display-message -p -t %11 \#{pane_pid}"}, 1_000
+    respond(tmux, "5050\n")
 
     assert {:error, {:repl_cleanup_failed, _reason}} = Task.await(task, 2_000)
   end
@@ -181,6 +186,8 @@ defmodule Aiur.Claude.Repl.LauncherTest do
     # Pane must be killed on RC-unavailable degrade
     assert_receive {:tmux_mock_out, "kill-pane -t %30"}, 1_000
     respond(tmux, "")
+    assert_receive {:tmux_mock_out, "display-message -p -t %30 \#{pane_pid}"}, 1_000
+    respond_error(tmux, "no pane\n")
 
     assert {:error, :remote_control_unavailable} = Task.await(task, 2_000)
   end

@@ -187,6 +187,11 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     :ok
   end
 
+  defp mark_provider_cleanup_unknown(ownership, {:repl_cleanup_failed, _reason}),
+    do: Ownership.mark_provider_cleanup_unknown(ownership)
+
+  defp mark_provider_cleanup_unknown(_ownership, _reason), do: :ok
+
   # These are the only errors whose producers prove that no backend process
   # exists. Keep this deliberately narrow: any error after a port or pane may
   # have escaped containment discovery, so its expectation must stay
@@ -227,6 +232,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
 
       {:error, reason} = error ->
         cancel_pre_spawn_provider_expectation(ownership, reason)
+        mark_provider_cleanup_unknown(ownership, reason)
         record_session_start_failure(issue, session_context, reason)
         error
     end
@@ -250,15 +256,33 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
           outcome: :success
         })
 
-        run_session_turn_loop(session, workspace, issue, codex_update_recipient, opts, worker_host, session_context)
+        run_session_turn_loop(
+          session,
+          workspace,
+          issue,
+          codex_update_recipient,
+          opts,
+          worker_host,
+          ownership,
+          session_context
+        )
 
       {:error, _reason} = error ->
-        CodingAgent.stop_session(session)
+        stop_session_with_ownership(session, ownership)
         error
     end
   end
 
-  defp run_session_turn_loop(session, workspace, issue, codex_update_recipient, opts, worker_host, session_context) do
+  defp run_session_turn_loop(
+         session,
+         workspace,
+         issue,
+         codex_update_recipient,
+         opts,
+         worker_host,
+         ownership,
+         session_context
+       ) do
     # Persist the live session handle so the next aiur restart can resume it.
     SessionResume.persist_session_handle(session, issue.identifier, worker_host)
     SessionResume.log_resume_outcome(issue, session, Keyword.get(session_context.session_opts, :resume_thread_id))
@@ -287,8 +311,26 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
       )
     after
       stop_display_tailer(display_tailer)
-      CodingAgent.stop_session(session)
+      stop_session_with_ownership(session, ownership)
     end
+  end
+
+  @doc false
+  @spec stop_session_with_ownership(map(), Ownership.lease() | nil, (map() -> term())) :: term()
+  def stop_session_with_ownership(session, ownership, stop_fun \\ &CodingAgent.stop_session/1)
+      when is_map(session) and is_function(stop_fun, 1) do
+    case stop_fun.(session) do
+      :ok ->
+        :ok
+
+      cleanup_failure ->
+        _ = Ownership.mark_provider_cleanup_unknown(ownership)
+        cleanup_failure
+    end
+  catch
+    kind, reason ->
+      _ = Ownership.mark_provider_cleanup_unknown(ownership)
+      :erlang.raise(kind, reason, __STACKTRACE__)
   end
 
   defp record_session_start_failure(issue, session_context, reason) do

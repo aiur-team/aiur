@@ -100,7 +100,7 @@ defmodule Aiur.Claude.Repl.Launcher do
 
         case notify_provider_started(ctx, os_pid) do
           :ok -> finish_start(ctx, pane_id, os_pid)
-          {:error, _reason} = error -> cleanup_uncontained_pane(ctx.tmux, pane_id, error)
+          {:error, _reason} = error -> cleanup_spawned_pane(ctx, pane_id, os_pid, error)
         end
 
       {:error, _reason} = err ->
@@ -121,10 +121,10 @@ defmodule Aiur.Claude.Repl.Launcher do
     callback.(provider)
   end
 
-  defp cleanup_uncontained_pane(tmux, pane_id, error) do
-    case Tmux.kill_pane(tmux, pane_id) do
+  defp cleanup_spawned_pane(ctx, pane_id, os_pid, error) do
+    case Reaper.stop_session(%{tmux: ctx.tmux, pane_id: pane_id, os_pid: os_pid, workspace: ctx.workspace}) do
       :ok -> error
-      {:error, reason} -> {:error, {:repl_cleanup_failed, reason}}
+      {:error, _reason} = cleanup_error -> cleanup_error
     end
   end
 
@@ -159,10 +159,7 @@ defmodule Aiur.Claude.Repl.Launcher do
         # Containment was registered as soon as the pane existed. Do not fall
         # back into the same workspace when tmux refuses its cleanup request:
         # the guardian must retain and reap that known root first.
-        case Tmux.kill_pane(tmux, pane_id) do
-          :ok -> err
-          {:error, reason} -> {:error, {:repl_cleanup_failed, reason}}
-        end
+        cleanup_spawned_pane(ctx, pane_id, os_pid, err)
     end
   end
 
@@ -180,15 +177,14 @@ defmodule Aiur.Claude.Repl.Launcher do
         {:ok, repl_session(ctx, pane_id, os_pid, url)}
 
       nil ->
-        case Tmux.kill_pane(ctx.tmux, pane_id) do
-          :ok ->
-            RemoteControl.graceful_kill_tree(os_pid)
+        case cleanup_spawned_pane(ctx, pane_id, os_pid, {:error, :remote_control_unavailable}) do
+          {:error, :remote_control_unavailable} = error ->
             Aiur.Perf.event(:repl_agent_rc_unavailable, workspace: ctx.workspace, pane_id: pane_id)
             Logger.warning("claude-repl remote-control did not attach; degrading to non-RC backend")
-            {:error, :remote_control_unavailable}
+            error
 
-          {:error, reason} ->
-            {:error, {:repl_cleanup_failed, reason}}
+          {:error, {:repl_cleanup_failed, _reason}} = cleanup_error ->
+            cleanup_error
         end
     end
   end

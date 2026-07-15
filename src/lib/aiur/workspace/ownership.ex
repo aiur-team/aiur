@@ -65,6 +65,14 @@ defmodule Aiur.Workspace.Ownership do
   def track_provider(nil, _provider), do: {:error, :workspace_ownership_lost}
   def track_provider(_lease, _provider), do: {:error, :workspace_ownership_lost}
 
+  @doc false
+  @spec mark_provider_cleanup_unknown(lease() | nil) :: :ok | {:error, :workspace_ownership_lost}
+  def mark_provider_cleanup_unknown(%{guardian: guardian, generation: generation}) when is_pid(guardian),
+    do: call(guardian, {:mark_provider_cleanup_unknown, generation})
+
+  def mark_provider_cleanup_unknown(nil), do: {:error, :workspace_ownership_lost}
+  def mark_provider_cleanup_unknown(_lease), do: {:error, :workspace_ownership_lost}
+
   @spec track_process_group(lease() | nil, integer()) :: :ok | {:error, :workspace_ownership_lost}
   def track_process_group(lease, process_group_id) when is_integer(process_group_id) and process_group_id > 0,
     do: track_provider(lease, %{process_group_id: process_group_id})
@@ -121,8 +129,15 @@ defmodule Aiur.Workspace.Ownership do
     end
   end
 
-  defp timeout_result({operation, _generation}) when operation in [:activate, :expect_provider, :cancel_provider_expectation, :track_provider],
-    do: {:error, :workspace_ownership_lost}
+  defp timeout_result({operation, _generation})
+       when operation in [
+              :activate,
+              :expect_provider,
+              :cancel_provider_expectation,
+              :track_provider,
+              :mark_provider_cleanup_unknown
+            ],
+       do: {:error, :workspace_ownership_lost}
 
   defp timeout_result({:release_and_wait, _generation}), do: {:error, :workspace_ownership_lost}
   defp timeout_result(_message), do: :ok

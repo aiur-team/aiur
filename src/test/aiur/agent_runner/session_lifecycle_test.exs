@@ -172,6 +172,105 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
       assert {:ok, retry_lease} = Ownership.claim(ticket)
       assert :ok = Ownership.release(retry_lease)
     end
+
+    test "failed REPL cleanup retains a late child during explicit release" do
+      ticket = "failed-repl-cleanup-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: ticket, selected_backend: "claude-repl"}
+      root_pid = System.unique_integer([:positive])
+      late_child_pid = System.unique_integer([:positive])
+      {:ok, alive} = Agent.start_link(fn -> %{root_pid => false, late_child_pid => true} end)
+
+      on_exit(fn ->
+        if Process.alive?(alive), do: Agent.stop(alive)
+      end)
+
+      assert {:ok, lease} =
+               Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry,
+                 process_alive_fun: fn pid -> Agent.get(alive, &Map.fetch!(&1, pid)) end,
+                 process_identity_fun: fn pid -> {:ok, {:test_process, pid}} end
+               )
+
+      assert {:ok, active_lease} = Ownership.activate(lease)
+
+      start_fun = fn _workspace, opts ->
+        # The readiness snapshot saw only the root; the child escaped before
+        # failed pane cleanup returned to the owning runner.
+        assert :ok = Keyword.fetch!(opts, :on_provider_started).(%{root_pid: root_pid, descendant_pids: [root_pid]})
+        {:error, {:repl_cleanup_failed, :permission_denied}}
+      end
+
+      assert {:error, {:repl_cleanup_failed, :permission_denied}} =
+               SessionLifecycle.run_session(
+                 "/workspaces/#{ticket}",
+                 issue,
+                 nil,
+                 [workspace_ownership: active_lease, session_start_fun: start_fun],
+                 nil
+               )
+
+      release = Task.async(fn -> Ownership.release_and_wait(active_lease) end)
+
+      assert_eventually(fn -> match?({:ok, %{phase: :reaping}}, Ownership.current(ticket)) end)
+      refute Task.yield(release, 50)
+      assert {:error, {:workspace_owned, {:ok, %{phase: :reaping}}}} = Ownership.claim(ticket)
+      Task.shutdown(release, :brutal_kill)
+    end
+
+    test "failed graceful cleanup cannot downgrade an explicit no-group release" do
+      ticket = "failed-session-cleanup-#{System.unique_integer([:positive])}"
+      root_pid = System.unique_integer([:positive])
+      late_child_pid = System.unique_integer([:positive])
+      {:ok, alive} = Agent.start_link(fn -> %{root_pid => false, late_child_pid => true} end)
+
+      on_exit(fn ->
+        if Process.alive?(alive), do: Agent.stop(alive)
+      end)
+
+      assert {:ok, lease} =
+               Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry,
+                 process_alive_fun: fn pid -> Agent.get(alive, &Map.fetch!(&1, pid)) end,
+                 process_identity_fun: fn pid -> {:ok, {:test_process, pid}} end
+               )
+
+      assert :ok = Ownership.track_provider(lease, %{root_pid: root_pid, descendant_pids: [root_pid]})
+
+      assert {:error, {:repl_cleanup_failed, :pane_still_alive}} =
+               SessionLifecycle.stop_session_with_ownership(
+                 %{backend: "claude-repl"},
+                 lease,
+                 fn _session -> {:error, {:repl_cleanup_failed, :pane_still_alive}} end
+               )
+
+      release = Task.async(fn -> Ownership.release_and_wait(lease) end)
+
+      assert_eventually(fn -> match?({:ok, %{phase: :reaping}}, Ownership.current(ticket)) end)
+      refute Task.yield(release, 50)
+      assert {:error, {:workspace_owned, {:ok, %{phase: :reaping}}}} = Ownership.claim(ticket)
+      Task.shutdown(release, :brutal_kill)
+    end
+
+    test "proven graceful cleanup preserves ordinary explicit release" do
+      ticket = "successful-session-cleanup-#{System.unique_integer([:positive])}"
+      root_pid = System.unique_integer([:positive])
+
+      assert {:ok, lease} =
+               Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry,
+                 process_alive_fun: fn ^root_pid -> false end,
+                 process_identity_fun: fn ^root_pid -> :gone end
+               )
+
+      assert :ok = Ownership.track_provider(lease, %{root_pid: root_pid, descendant_pids: [root_pid]})
+
+      assert :ok =
+               SessionLifecycle.stop_session_with_ownership(
+                 %{backend: "claude-repl"},
+                 lease,
+                 fn _session -> :ok end
+               )
+
+      assert {:ok, %{phase: :released}} = Ownership.release_and_wait(lease)
+      assert :none = Ownership.current(ticket)
+    end
   end
 
   describe "session accessors" do

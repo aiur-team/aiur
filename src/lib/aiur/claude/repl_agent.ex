@@ -51,7 +51,7 @@ defmodule Aiur.Claude.ReplAgent do
   def start_session(workspace, opts \\ []) when is_binary(workspace),
     do: Launcher.start_session(workspace, opts)
 
-  @spec stop_session(session()) :: :ok
+  @spec stop_session(session()) :: :ok | {:error, {:repl_cleanup_failed, term()}}
   @impl Aiur.CodingAgent.Backend
   defdelegate stop_session(session), to: Reaper
 

@@ -345,6 +345,8 @@ defmodule Aiur.Claude.ReplAgentTest do
     # An unattached RC pane must be torn down, not left leaking.
     assert_receive {:tmux_mock_out, "kill-pane -t %8"}, 1_000
     respond(tmux, "")
+    assert_receive {:tmux_mock_out, "display-message -p -t %8 \#{pane_pid}"}, 1_000
+    respond_error(tmux, "no pane\n")
 
     assert {:error, :remote_control_unavailable} = Task.await(task, 2_000)
   end
@@ -381,6 +383,9 @@ defmodule Aiur.Claude.ReplAgentTest do
 
       {:tmux_mock_out, "kill-pane -t " <> ^pane} ->
         respond(tmux, "")
+        assert_receive {:tmux_mock_out, pane_query}, 1_000
+        assert pane_query == "display-message -p -t #{pane} \#{pane_pid}"
+        respond_error(tmux, "no pane\n")
         assert {:error, :repl_not_ready} = Task.await(task, 2_000)
     after
       2_000 -> flunk("did not observe kill-pane within timeout")
