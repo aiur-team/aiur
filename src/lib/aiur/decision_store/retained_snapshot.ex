@@ -51,7 +51,8 @@ defmodule Aiur.DecisionStore.RetainedSnapshot do
   @spec legacy_page(%{String.t() => Decision.t()}, map(), term(), query(), non_neg_integer()) ::
           {:ok, map()} | {:error, :store_unavailable | :invalid_query}
   def legacy_page(current, index, health, %{limit: limit} = query, offset)
-      when is_map(current) and is_map(index) and is_integer(limit) and limit > 0 and is_integer(offset) and offset >= 0 do
+      when is_map(current) and is_map(index) and is_integer(limit) and limit > 0 and
+             is_integer(offset) and offset >= 0 do
     cond do
       not valid_query?(query) -> {:error, :invalid_query}
       not readable?(health) -> {:error, :store_unavailable}

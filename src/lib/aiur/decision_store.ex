@@ -2817,7 +2817,8 @@ defmodule Aiur.DecisionStore do
   end
 
   defp valid_legacy_page?(offset, limit)
-       when offset >= 0 and offset <= @maximum_legacy_page_offset and limit >= 1 and limit <= @maximum_legacy_page_limit,
+       when offset >= 0 and offset <= @maximum_legacy_page_offset and limit >= 1 and
+              limit <= @maximum_legacy_page_limit,
        do: :ok
 
   defp valid_legacy_page?(_offset, _limit), do: {:error, :invalid_query}

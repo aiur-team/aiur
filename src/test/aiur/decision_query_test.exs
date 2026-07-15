@@ -285,7 +285,16 @@ defmodule Aiur.DecisionQueryTest do
       end
       |> Enum.reverse()
 
-    query = %{limit: 25, cursor: nil, lifecycle: nil, search: nil, ticket: nil, authority: nil, blocking: nil, kind: nil}
+    query = %{
+      limit: 25,
+      cursor: nil,
+      lifecycle: nil,
+      search: nil,
+      ticket: nil,
+      authority: nil,
+      blocking: nil,
+      kind: nil
+    }
 
     assert {:ok, %{decisions: page, has_next?: false, total: 101, partial?: false, health: :writable}} =
              DecisionStore.retained_legacy_page(query, 0, 200, store)

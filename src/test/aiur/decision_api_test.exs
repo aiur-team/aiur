@@ -94,13 +94,13 @@ defmodule Aiur.DecisionApiTest do
     @impl true
     def init(opts) do
       current = Map.new(Keyword.fetch!(opts, :decisions), &{&1.decision_id, &1})
-      {:ok, %{current: current, index: Aiur.DecisionStore.RetainedSnapshot.build_index(current)}}
+      {:ok, %{current: current, index: RetainedSnapshot.build_index(current)}}
     end
 
     @impl true
     def handle_call({:retained_legacy_page, query, offset, limit}, _from, state) do
       reply =
-        Aiur.DecisionStore.RetainedSnapshot.legacy_page(
+        RetainedSnapshot.legacy_page(
           state.current,
           state.index,
           :writable,
