@@ -18,12 +18,32 @@ defmodule Aiur.Workspace.HooksTest do
 
     write_workflow_file!(Workflow.workflow_file_path(),
       workspace_root: test_root,
-      hook_after_create: "touch #{sentinel}"
+      hook_after_create: "touch hook-ran"
     )
 
     issue_context = %{issue_id: 1, issue_identifier: "test", issue_state: nil, issue_labels: [], pr_head_ref: nil}
     assert :ok = Hooks.run_after_create(workspace, issue_context, true, nil)
     assert File.exists?(sentinel)
+  end
+
+  test "run_after_create/4 stages logs-only reconstruction and preserves the prior event stream", %{
+    workspace: workspace,
+    test_root: test_root
+  } do
+    log_path = Path.join([workspace, "logs", "agent.ndjson"])
+    File.mkdir_p!(Path.dirname(log_path))
+    File.write!(log_path, "{\"event\":\"alert\"}\n")
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      workspace_root: test_root,
+      hook_after_create: "printf rebuilt > README.md"
+    )
+
+    issue_context = %{issue_id: 1, issue_identifier: "test", issue_state: nil, issue_labels: [], pr_head_ref: nil}
+    assert :ok = Hooks.run_after_create(workspace, issue_context, true, nil)
+
+    assert File.read!(Path.join(workspace, "README.md")) == "rebuilt"
+    assert File.read!(log_path) == "{\"event\":\"alert\"}\n"
   end
 
   test "run_after_create/4 with created? :materialized returns :ok and hook does NOT run", %{workspace: workspace, test_root: test_root} do

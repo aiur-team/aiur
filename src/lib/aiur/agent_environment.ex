@@ -44,8 +44,9 @@ defmodule Aiur.AgentEnvironment do
 
   @doc """
   Return Port-compatible env tuples (`{charlist_name, charlist_value}`) for
-  per-workspace `HEX_HOME` / `MIX_HOME` / `MISE_TRUSTED_CONFIG_PATHS`. The agent
-  inherits these so it does not redeclare them as inline prefixes on every
+  per-workspace `HEX_HOME` / `MIX_HOME` / `MISE_TRUSTED_CONFIG_PATHS` plus the
+  workflow's authoritative `AIUR_BASE_BRANCH`. The agent inherits these so it
+  does not redeclare them as inline prefixes on every
   `mix`/`mise` invocation (logs showed 48+ instances of agents inventing
   variant paths like `/tmp/aiur-100-hex`, `/tmp/aiur-hex`, `/tmp/hex-100`
   across one session — wasting 20-30s per agent on env+trust setup).
@@ -53,10 +54,13 @@ defmodule Aiur.AgentEnvironment do
   Returns an empty list when `workspace` is not a binary so callers can splat
   the result into Port.open env opts unconditionally.
   """
-  @spec workspace_env(any()) :: [{charlist(), charlist() | false}]
-  def workspace_env(workspace) when is_binary(workspace) do
+  @spec workspace_env(any(), keyword()) :: [{charlist(), charlist() | false}]
+  def workspace_env(workspace, opts \\ [])
+
+  def workspace_env(workspace, opts) when is_binary(workspace) do
     hex = Path.join(workspace, ".aiur-hex")
     mix = Path.join(workspace, ".aiur-mix")
+    base_branch = configured_base_branch(opts)
 
     unset_parent_logs =
       Enum.map(@parent_log_env_names, fn name ->
@@ -72,11 +76,15 @@ defmodule Aiur.AgentEnvironment do
         # `elixir/`). Mirrors `base_env/1` (#432); a hardcoded sub-path pointed at
         # a file that does not exist and left the real config untrusted (#440).
         {~c"MISE_TRUSTED_CONFIG_PATHS", String.to_charlist(workspace)},
+        # The tracker integration branch is authoritative for agent-created
+        # pull requests. Keep it in the actual child process environment so PR
+        # creation never falls back to the repository's different default.
+        {~c"AIUR_BASE_BRANCH", String.to_charlist(base_branch)},
         # Marker so any nested invocation of `scripts/aiurdev` from inside
         # an agent's workspace can detect it is running under an agent
         # and refuse destructive commands (`--test`, `--test3`, `stop`).
         # Without this, agents that try "manual CLI verification" by
-        # running `./scripts/aiurdev --test` reset the operator's sandbox
+        # running `./scripts/aiurdev --test` reset the Executor’s sandbox
         # tickets and kill the parent BEAM mid-run.
         {~c"AIUR_AGENT_WORKSPACE", String.to_charlist(workspace)}
       ] ++
@@ -90,17 +98,20 @@ defmodule Aiur.AgentEnvironment do
     unset_parent_logs ++ workspace_env
   end
 
-  def workspace_env(_), do: []
+  def workspace_env(_, _opts), do: []
 
   @doc """
   Shell-export prefix for the same vars `workspace_env/1` injects into
   Port.open env. Used by the SSH-launch path which has no `env:` option
   available — exports are inlined into the remote bash command instead.
   """
-  @spec workspace_env_export_prefix(any()) :: String.t()
-  def workspace_env_export_prefix(workspace) when is_binary(workspace) do
+  @spec workspace_env_export_prefix(any(), keyword()) :: String.t()
+  def workspace_env_export_prefix(workspace, opts \\ [])
+
+  def workspace_env_export_prefix(workspace, opts) when is_binary(workspace) do
     hex = Path.join(workspace, ".aiur-hex")
     mix = Path.join(workspace, ".aiur-mix")
+    base_branch = configured_base_branch(opts)
 
     # Trust the workspace ROOT (see `workspace_env/1`): the SSH-launch path needs
     # the same root-level trust so mise-provided tools resolve in the workspace.
@@ -108,10 +119,12 @@ defmodule Aiur.AgentEnvironment do
       mix_scheduler_env()
       |> Enum.map_join(" ", fn {name, value} -> "#{name}=#{Aiur.Shell.escape(value)}" end)
 
-    "export HEX_HOME=#{Aiur.Shell.escape(hex)} MIX_HOME=#{Aiur.Shell.escape(mix)} MISE_TRUSTED_CONFIG_PATHS=#{Aiur.Shell.escape(workspace)} #{scheduler_exports}"
+    "export HEX_HOME=#{Aiur.Shell.escape(hex)} MIX_HOME=#{Aiur.Shell.escape(mix)} " <>
+      "MISE_TRUSTED_CONFIG_PATHS=#{Aiur.Shell.escape(workspace)} " <>
+      "AIUR_BASE_BRANCH=#{Aiur.Shell.escape(base_branch)} #{scheduler_exports}"
   end
 
-  def workspace_env_export_prefix(_), do: ""
+  def workspace_env_export_prefix(_, _opts), do: ""
 
   @doc """
   `System.cmd`-compatible env tuples (binary key/value) that trust the prewarm
@@ -137,6 +150,13 @@ defmodule Aiur.AgentEnvironment do
       {"AIUR_AGENT_MIX_SCHEDULERS", Integer.to_string(cap)},
       {"ELIXIR_ERL_OPTIONS", scheduler_options(cap)}
     ]
+  end
+
+  defp configured_base_branch(opts) do
+    case Keyword.fetch(opts, :base_branch) do
+      {:ok, branch} when is_binary(branch) and branch != "" -> branch
+      _ -> Config.base_branch()
+    end
   end
 
   defp scheduler_options(cap) do

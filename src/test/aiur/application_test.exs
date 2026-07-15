@@ -32,18 +32,59 @@ defmodule Aiur.ApplicationTest do
     end
   end
 
-  describe "child_specs/1 headless gating" do
-    # The chat-pane machinery, the interactive CLI block, and the dashboard.
-    @ui_only [
+  describe "validate_dashboard_compatibility/2" do
+    test "allows no-dashboard when Remote Control is not configured" do
+      assert :ok =
+               AiurApp.validate_dashboard_compatibility(true,
+                 remote_control?: false,
+                 routing: %{1 => "codex", 2 => "claude:sonnet"}
+               )
+    end
+
+    test "rejects no-dashboard when global Remote Control is configured" do
+      assert {:error, message} =
+               AiurApp.validate_dashboard_compatibility(true,
+                 remote_control?: true,
+                 routing: %{}
+               )
+
+      assert message =~ "--no-dashboard cannot be used with Claude Remote Control"
+      assert message =~ "agent.remote_control"
+      assert message =~ "Remove --no-dashboard"
+    end
+
+    test "rejects no-dashboard when a complexity route forces Remote Control" do
+      assert {:error, message} =
+               AiurApp.validate_dashboard_compatibility(true,
+                 remote_control?: false,
+                 routing: %{5 => "claude:opus+remote"}
+               )
+
+      assert message =~ "agent.routing +remote"
+      assert message =~ "lifecycle hooks require Aiur.HttpServer"
+    end
+
+    test "dashboard-enabled launches bypass Remote Control compatibility checks" do
+      assert :ok =
+               AiurApp.validate_dashboard_compatibility(false,
+                 remote_control?: true,
+                 routing: %{5 => "claude+remote"}
+               )
+    end
+  end
+
+  describe "child_specs/1 run-shape gating" do
+    @terminal_only [
       Aiur.Tmux,
       Aiur.PaneManager,
       Aiur.Opencode.PrewarmSupervisor,
       Aiur.AgentList.App,
       Aiur.AgentList.Input,
       Aiur.LauncherWatchdog,
-      Aiur.Opencode.PaneSupervisor,
-      Aiur.HttpServer
+      Aiur.Opencode.PaneSupervisor
     ]
+
+    @dashboard [AiurWeb.ControlCenterCache, Aiur.HttpServer]
 
     # Agent backends kept in headless mode plus core infra both modes need.
     @always [
@@ -52,10 +93,13 @@ defmodule Aiur.ApplicationTest do
       Aiur.ProcessReaper,
       Aiur.PauseContainment,
       Aiur.AgentResourceGuard,
+      Aiur.AppServer.ToolCallLedger,
       Aiur.DecisionMetrics.Writer,
       Aiur.DecisionMetrics,
       Aiur.GitHub.CodeOwners,
       Aiur.RecentMergeStore,
+      Aiur.CurrentRunMembership.Store,
+      Aiur.CurrentRunMembership.Reconciler,
       Aiur.Opencode.SessionSupervisor,
       Aiur.Opencode.BridgeSupervisor,
       Aiur.Opencode.TokenRegistry
@@ -72,29 +116,35 @@ defmodule Aiur.ApplicationTest do
     test "interactive run starts the full UI stack" do
       mods = modules(AiurApp.child_specs(interactive_cli?: true, headless?: false, dashboard?: true))
 
-      for child <- @ui_only ++ @always, do: assert(child in mods, "expected #{inspect(child)}")
+      for child <- @terminal_only ++ @dashboard ++ @always, do: assert(child in mods, "expected #{inspect(child)}")
     end
 
-    test "headless run skips UI-only work but keeps agent backends" do
+    test "headless no-dashboard run keeps the lean background shape" do
       mods = modules(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false))
 
-      for child <- @ui_only, do: refute(child in mods, "headless should skip #{inspect(child)}")
+      for child <- @terminal_only ++ @dashboard, do: refute(child in mods, "lean background should skip #{inspect(child)}")
       for child <- @always, do: assert(child in mods, "headless still needs #{inspect(child)}")
     end
 
     test "headless boots measurably fewer children than interactive" do
       interactive = AiurApp.child_specs(interactive_cli?: true, headless?: false, dashboard?: true)
-      headless = AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false)
+      headless = AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: true)
 
       assert length(headless) < length(interactive)
     end
 
-    test "headless dashboard opt-in starts HttpServer without reviving panes" do
+    test "headless run starts the dashboard by default without reviving panes" do
       mods = modules(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: true))
 
-      assert Aiur.HttpServer in mods
-      refute Aiur.Opencode.PaneSupervisor in mods
-      refute Aiur.PaneManager in mods
+      for child <- @dashboard, do: assert(child in mods, "background should start #{inspect(child)}")
+      for child <- @terminal_only, do: refute(child in mods, "headless should skip #{inspect(child)}")
+    end
+
+    test "foreground no-dashboard run keeps terminal UI without an HTTP listener" do
+      mods = modules(AiurApp.child_specs(interactive_cli?: true, headless?: false, dashboard?: false))
+
+      for child <- @terminal_only, do: assert(child in mods, "foreground should start #{inspect(child)}")
+      for child <- @dashboard, do: refute(child in mods, "no-dashboard should skip #{inspect(child)}")
     end
 
     test "ProcessReaper and PauseContainment start before Task.Supervisor in both shapes" do
@@ -114,6 +164,29 @@ defmodule Aiur.ApplicationTest do
       end
     end
 
+    test "durable workspace ownership reconciles before runner tasks" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        specs = AiurApp.child_specs(opts)
+        task_supervisor = Enum.find_index(specs, &match?({Task.Supervisor, _}, &1))
+
+        ownership_registry =
+          Enum.find_index(specs, fn
+            {Registry, registry_opts} -> Keyword.get(registry_opts, :name) == Aiur.Workspace.Ownership.Registry
+            _other -> false
+          end)
+
+        ownership_store = Enum.find_index(specs, &(&1 == Aiur.Workspace.Ownership.Store))
+        ownership_reconciler = Enum.find_index(specs, &(&1 == Aiur.Workspace.Ownership.Reconciler))
+
+        assert ownership_store < ownership_registry
+        assert ownership_registry < ownership_reconciler
+        assert ownership_reconciler < task_supervisor
+      end
+    end
+
     test "TrackedSet owner starts before Orchestrator in both shapes" do
       for opts <- [
             [interactive_cli?: true, headless?: false, dashboard?: true],
@@ -123,6 +196,27 @@ defmodule Aiur.ApplicationTest do
         tracked_set = Enum.find_index(mods, &(&1 == Aiur.Orchestrator.TrackedSet))
         orchestrator = Enum.find_index(mods, &(&1 == Aiur.Orchestrator))
         assert tracked_set < orchestrator, "TrackedSet must precede Orchestrator for #{inspect(opts)}"
+      end
+    end
+
+    test "the shared test orchestrator starts without a poll cycle" do
+      specs = AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false)
+
+      assert {Aiur.Orchestrator, initial_poll?: false} in specs
+    end
+
+    test "current-run membership starts before the orchestrator and reconciles after it" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        mods = modules(AiurApp.child_specs(opts))
+        membership_store = Enum.find_index(mods, &(&1 == Aiur.CurrentRunMembership.Store))
+        orchestrator = Enum.find_index(mods, &(&1 == Aiur.Orchestrator))
+        reconciler = Enum.find_index(mods, &(&1 == Aiur.CurrentRunMembership.Reconciler))
+
+        assert membership_store < orchestrator, "membership store must precede Orchestrator for #{inspect(opts)}"
+        assert orchestrator < reconciler, "membership reconciler must follow Orchestrator for #{inspect(opts)}"
       end
     end
 
@@ -152,6 +246,20 @@ defmodule Aiur.ApplicationTest do
 
         assert merge_store < orchestrator,
                "RecentMergeStore must precede Orchestrator for #{inspect(opts)}"
+      end
+    end
+
+    test "branch ref persistence loads before the orchestrator" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        mods = modules(AiurApp.child_specs(opts))
+        ref_store = Enum.find_index(mods, &(&1 == Aiur.Events.BranchRefStore))
+        orchestrator = Enum.find_index(mods, &(&1 == Aiur.Orchestrator))
+
+        assert ref_store < orchestrator,
+               "BranchRefStore must precede Orchestrator for #{inspect(opts)}"
       end
     end
 

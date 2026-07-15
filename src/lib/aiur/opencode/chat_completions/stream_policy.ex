@@ -10,7 +10,7 @@ defmodule Aiur.Opencode.ChatCompletions.StreamPolicy do
   @watchdog_ms 600_000
   # Segmented turn streams: close the per-turn SSE at natural boundaries so
   # opencode flushes its TUI-local input queue between segments (typed
-  # operator text otherwise sits QUEUED for the whole turn). A continuation
+  # Executor text otherwise sits QUEUED for the whole turn). A continuation
   # marker (`__aiur_turn__:<parent>-s<N>`) posted just before the close
   # re-opens streaming for the rest of the turn. Threshold is app-env so
   # live tuning needs no code change.
@@ -23,7 +23,7 @@ defmodule Aiur.Opencode.ChatCompletions.StreamPolicy do
   # exactly one bridge process.
   @heartbeat_ms 15_000
   # An empty continuation segment (one that has streamed nothing yet) still
-  # idle-closes so queued operator input flushes during a long quiet claude-repl
+  # idle-closes so queued Executor input flushes during a long quiet claude-repl
   # thinking phase — but only after this many heartbeats of silence, so a slow
   # tool run with nothing to flush churns at most one marker per ~2 heartbeats.
   @empty_continuation_idle_factor 2
@@ -72,7 +72,7 @@ defmodule Aiur.Opencode.ChatCompletions.StreamPolicy do
     # threshold plus one heartbeat of silence. An empty continuation segment
     # waits a longer silence before flushing, so a slow quiet tool run doesn't
     # churn a marker every heartbeat — but it still eventually flushes typed
-    # operator input rather than stranding it for the whole thinking phase.
+    # Executor input rather than stranding it for the whole thinking phase.
     required_silence =
       if streamed? or seg_n == 0,
         do: heartbeat_ms,

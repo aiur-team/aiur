@@ -3,8 +3,9 @@ defmodule Aiur.DecisionStoreTest do
 
   import ExUnit.CaptureLog
 
-  alias Aiur.{AlertFeed, Boot, DecisionEvent, DecisionLog, DecisionPubSub, DecisionStore}
+  alias Aiur.{AlertFeed, Boot, DecisionEvent, DecisionHistory, DecisionLog, DecisionPubSub, DecisionStore}
   alias Aiur.Events.{Exchange, IdGenerator}
+  alias AiurWeb.ControlCenterPresenter
 
   @ticket %{identifier: "979", title: "OCC-1", url: "https://github.com/its-everdred/aiur/issues/979"}
   @source %{agent_id: "agent-1", session_id: "session-1", event_id: nil}
@@ -36,8 +37,144 @@ defmodule Aiur.DecisionStoreTest do
     pid
   end
 
+  test "dashboard projections stay bounded with 10k stored decisions", %{dir: dir} do
+    pid = start_store!(dir)
+
+    assert {:ok, %{decision: decision}} = request(pid, %{"question" => "Bound this history?", "blocking" => false})
+    %{audit_history: audit_history} = :sys.get_state(pid)
+    [event] = Map.fetch!(audit_history, decision.decision_id)
+
+    records =
+      Enum.map(1..10_000, fn index ->
+        decision_id = "dec-#{index}"
+        created_at = DateTime.add(event.data.created_at, index, :microsecond)
+
+        %{
+          event
+          | decision_id: decision_id,
+            data: %{event.data | decision_id: decision_id, created_at: created_at, source_created_at: created_at}
+        }
+      end)
+
+    current = Map.new(records, &{&1.decision_id, &1.data})
+
+    decision_index =
+      records
+      |> Enum.map(&decision_index_key(&1.data))
+      |> :gb_sets.from_list()
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | audit_history: Map.new(records, &{&1.decision_id, [&1]}),
+          current: current,
+          decision_index: decision_index,
+          recent_audit: records |> Enum.reverse() |> Enum.take(50)
+      }
+    end)
+
+    recent = DecisionStore.recent_audit_history(10_000, pid)
+
+    assert length(recent.records) == 50
+    assert Enum.map(recent.records, & &1.decision_id) == Enum.map(10_000..9_951//-1, &"dec-#{&1}")
+    assert map_size(recent.contexts) == 50
+    assert map_size(:sys.get_state(pid).audit_history) == 10_000
+
+    payload =
+      ControlCenterPresenter.state_payload(:unused, 10,
+        decision_store: pid,
+        fleet_fun: fn -> %{generated_at: nil, counts: %{}, analytics: nil} end,
+        history_fun: fn -> [] end,
+        recent_merges_fun: fn -> %{merges: [], health: :ready, reconciliation: %{}} end
+      )
+
+    assert length(payload.decisions) == 50
+
+    assert MapSet.new(payload.decisions, & &1.decision_id) ==
+             MapSet.new(10_000..9_951//-1, &"dec-#{&1}")
+  end
+
+  test "resolving a cached decision backfills the untouched 51st open decision", %{dir: dir} do
+    parent = self()
+
+    dispatcher = fn _decision, opts ->
+      send(parent, {:backfill_dispatch, opts[:attempt_id]})
+      {:ok, %{status: :accepted, item: %{id: 51}}}
+    end
+
+    pid = start_store!(dir, dispatcher: dispatcher, dispatch_delay_ms: 0)
+
+    assert {:ok, %{decision: cached}} =
+             request(pid, %{
+               "source_id" => "cached-blocker",
+               "question" => "Resolve this cached blocker?",
+               "blocking" => true,
+               "options" => [%{"id" => "ship", "label" => "Ship"}]
+             })
+
+    assert {:ok, %{action: action}} =
+             answer(pid, cached.decision_id, %{
+               "idempotency_key" => "cached-blocker-answer",
+               "expected_version" => 1,
+               "option_id" => "ship"
+             })
+
+    assert_receive {:backfill_dispatch, attempt_id}, 1_000
+    _queued = wait_for_decision(pid, cached.decision_id, &(&1.delivery_status == :queued))
+    assert {:ok, :accepted} = DecisionStore.record_delivery(correlated_queue_item(cached, action, attempt_id, 51), pid)
+
+    untouched =
+      for index <- 1..50 do
+        assert {:ok, %{decision: decision}} =
+                 request(pid, %{
+                   "source_id" => "untouched-#{index}",
+                   "question" => "Untouched open decision #{index}?",
+                   "blocking" => false
+                 })
+
+        decision
+      end
+
+    assert length(DecisionStore.recent_decisions(50, pid)) == 50
+    assert Enum.any?(DecisionStore.recent_decisions(50, pid), &(&1.decision_id == cached.decision_id))
+
+    lifecycle_payload = %{
+      "decision_id" => cached.decision_id,
+      "action_id" => action.action_id,
+      "expected_version" => 1
+    }
+
+    lifecycle_opts = [
+      ticket_identifier: "979",
+      actor: %{kind: :agent, id: "ticket-agent"},
+      source: %{agent_id: "codex", session_id: "session-1", invocation_id: "backfill-test"}
+    ]
+
+    assert {:ok, %{status: :accepted}} =
+             DecisionStore.agent_lifecycle(:acknowledged, lifecycle_payload, lifecycle_opts, pid)
+
+    assert {:ok, %{status: :accepted, decision_status: :resolved}} =
+             DecisionStore.agent_lifecycle(:resolved, lifecycle_payload, lifecycle_opts, pid)
+
+    projected_ids = MapSet.new(DecisionStore.recent_decisions(50, pid), & &1.decision_id)
+    refute MapSet.member?(projected_ids, cached.decision_id)
+    assert projected_ids == MapSet.new(untouched, & &1.decision_id)
+  end
+
   defp request(pid, payload, opts \\ []) do
     DecisionStore.request(payload, Keyword.merge([ticket: @ticket, source: @source], opts), pid)
+  end
+
+  defp decision_index_key(decision) do
+    urgency = %{low: 0, normal: 1, high: 2, critical: 3}
+
+    {
+      decision.decision_status == :resolved,
+      not decision.blocking,
+      -Map.fetch!(urgency, decision.urgency),
+      -DateTime.to_unix(decision.created_at, :microsecond),
+      decision.decision_id
+    }
   end
 
   defp project_attention(pid, payload, opts \\ []) do
@@ -114,6 +251,54 @@ defmodule Aiur.DecisionStoreTest do
                DecisionStore.audit_history(decision.decision_id, pid)
     end
 
+    test "returns a bounded recent audit window with only its projection contexts", %{dir: dir} do
+      pid = start_store!(dir, dispatch_delay_ms: 60_000)
+
+      assert {:ok, %{decision: contextual}} =
+               request(pid, %{
+                 "source_id" => "recent-audit-context",
+                 "question" => "Does a bounded lifecycle event retain its context?",
+                 "blocking" => true,
+                 "options" => [%{"id" => "yes", "label" => "Yes"}]
+               })
+
+      for index <- 1..55 do
+        assert {:ok, _result} =
+                 request(pid, %{
+                   "source_id" => "recent-audit-#{index}",
+                   "question" => "Recent decision #{index}?",
+                   "blocking" => false
+                 })
+      end
+
+      assert %{records: records, contexts: contexts, revisions: %{}} =
+               DecisionStore.recent_audit_history(5, pid)
+
+      assert Enum.map(records, & &1.data.source_id) ==
+               Enum.map(55..51//-1, &"recent-audit-#{&1}")
+
+      assert map_size(contexts) == 5
+      assert %{records: capped} = DecisionStore.recent_audit_history(500, pid)
+      assert length(capped) == 50
+      assert Enum.any?(DecisionStore.recent_decisions(50, pid), &(&1.decision_id == contextual.decision_id))
+
+      assert {:ok, _answer_result} =
+               answer(pid, contextual.decision_id, %{
+                 "idempotency_key" => "recent-audit-answer",
+                 "expected_version" => contextual.version,
+                 "option_id" => "yes"
+               })
+
+      assert [answered] = DecisionHistory.list(server: pid, limit: 1)
+      assert answered.change == :answered
+      assert answered.question == "Does a bounded lifecycle event retain its context?"
+
+      GenServer.stop(pid)
+      replayed = start_store!(dir, dispatch_delay_ms: 60_000)
+      assert [replayed_answer] = DecisionHistory.list(server: replayed, limit: 1)
+      assert replayed_answer.question == answered.question
+    end
+
     test "new request audit records carry the typed envelope and canonical run id", %{dir: dir} do
       pid = start_store!(dir)
       assert {:ok, %{decision: decision}} = request(pid, %{"question" => "Deploy now?", "blocking" => true})
@@ -127,7 +312,9 @@ defmodule Aiur.DecisionStoreTest do
 
       assert record["event_type"] == "requested"
       assert record["run_id"] == Boot.run_id()
-      assert is_integer(record["event_id"])
+      assert "decision-provenance-v1:" <> reserved_event_id = record["event_id"]
+      assert {reserved_id, ""} = Integer.parse(reserved_event_id)
+      assert reserved_id > 0
       assert record["data"]["decision_id"] == decision.decision_id
     end
 
@@ -292,7 +479,16 @@ defmodule Aiur.DecisionStoreTest do
       assert data.expected_version == 1
       assert data.decision.version == 2
 
-      assert_receive {:event, %{topic: "ticket.979.agent.decision.enriched"}}, 500
+      assert_receive {:event,
+                      %{
+                        "event_id" => "decision-provenance-v1:" <> reserved_event_id,
+                        topic: "ticket.979.agent.decision.enriched",
+                        id: cursor_event_id
+                      }},
+                     500
+
+      assert cursor_event_id > 0
+      assert reserved_event_id == Integer.to_string(cursor_event_id)
       assert_receive {:decision_changed, decision_id, 2}, 500
       assert decision_id == v1.decision_id
 
@@ -683,6 +879,178 @@ defmodule Aiur.DecisionStoreTest do
       assert replayed.content_hash == accepted.content_hash
       assert DecisionStore.all_history(pid2)[accepted.decision_id] == [replayed]
       assert DecisionStore.health(pid2) == :writable
+    end
+
+    test "trusted provenance remains attached to its accepted version after replay", %{dir: dir} do
+      pid1 = start_store!(dir)
+
+      provenance = %{
+        agent_family: "codex",
+        backend: "codex",
+        requested_model: "gpt-5.6-terra",
+        session_id: "thread-123",
+        attempt_id: "attempt-456",
+        source: "agent_runner"
+      }
+
+      assert {:ok, %{decision: accepted}} =
+               request(pid1, %{"question" => "Keep runtime facts?", "blocking" => true}, provenance: provenance)
+
+      GenServer.stop(pid1)
+      pid2 = start_store!(dir)
+
+      assert {:ok, replayed} = DecisionStore.get(accepted.decision_id, pid2)
+      assert replayed.provenance == accepted.provenance
+      assert {:ok, [^replayed]} = DecisionStore.history(accepted.decision_id, pid2)
+
+      assert [history] = DecisionHistory.list(server: pid2, limit: 1)
+      assert history.provenance["backend"] == "codex"
+      assert history.provenance["session_id"] == "thread-123"
+    end
+
+    test "replays trusted provenance and supervisor basis through the full revised lifecycle", %{dir: dir} do
+      parent = self()
+
+      dispatcher = fn _decision, opts ->
+        send(parent, {:provenance_lifecycle_attempt, opts[:attempt_id]})
+        {:ok, %{status: :accepted, item: %{id: 711}}}
+      end
+
+      for confidence <- [0, 50, 100] do
+        store_dir = Path.join(dir, "provenance-lifecycle-#{confidence}")
+        pid = start_store!(store_dir, dispatcher: dispatcher, dispatch_delay_ms: 0)
+
+        provenance = %{
+          agent_family: "codex",
+          backend: "codex",
+          requested_model: "gpt-5.6-terra",
+          resolved_model: "gpt-5.6-terra",
+          session_id: "thread-#{confidence}",
+          attempt_id: "attempt-#{confidence}",
+          source: "agent_runner"
+        }
+
+        assert {:ok, %{decision: accepted}} =
+                 request(
+                   pid,
+                   %{
+                     "question" => "Apply the approved architecture change?",
+                     "blocking" => true,
+                     "source_id" => "provenance-lifecycle-#{confidence}",
+                     "kind" => "architecture",
+                     "authority" => "supervisor_allowed",
+                     "reversibility" => "reversible",
+                     "options" => [%{"id" => "ship", "label" => "Ship it"}]
+                   },
+                   provenance: provenance
+                 )
+
+        supervisor_opts = [actor: %{kind: :supervisor, id: "supervising-agent"}, supervisor_basis: supervisor_basis(confidence)]
+
+        assert {:ok, %{action: answer}} =
+                 answer(
+                   pid,
+                   accepted.decision_id,
+                   %{"idempotency_key" => "provenance-answer-#{confidence}", "expected_version" => 1, "option_id" => "ship"},
+                   supervisor_opts
+                 )
+
+        assert_receive {:provenance_lifecycle_attempt, _initial_attempt_id}, 1_000
+        _queued = wait_for_decision(pid, accepted.decision_id, &(&1.delivery_status == :queued))
+
+        assert {:ok, %{action: revision}} =
+                 DecisionStore.revise(
+                   accepted.decision_id,
+                   %{
+                     "idempotency_key" => "provenance-revision-#{confidence}",
+                     "expected_version" => 1,
+                     "expected_action_id" => answer.action_id,
+                     "expected_revision_sequence" => 0,
+                     "option_id" => "ship",
+                     "rationale" => "Confirmed after the delivery check."
+                   },
+                   supervisor_opts,
+                   pid
+                 )
+
+        assert_receive {:provenance_lifecycle_attempt, revision_attempt_id}, 1_000
+
+        _queued =
+          wait_for_decision(pid, accepted.decision_id, fn decision ->
+            decision.delivery_status == :queued and decision.active_action_id == revision.action_id
+          end)
+
+        assert {:ok, :accepted} =
+                 DecisionStore.record_delivery(correlated_queue_item(accepted, revision, revision_attempt_id, 711), pid)
+
+        lifecycle_payload = %{
+          "decision_id" => accepted.decision_id,
+          "action_id" => revision.action_id,
+          "expected_version" => 1
+        }
+
+        lifecycle_opts = [
+          ticket_identifier: "979",
+          actor: %{kind: :agent, id: "ticket-agent"},
+          source: %{agent_id: "codex", session_id: "session-#{confidence}", invocation_id: "lifecycle-#{confidence}"}
+        ]
+
+        assert {:ok, %{status: :accepted, decision_status: :acknowledged}} =
+                 DecisionStore.agent_lifecycle(:acknowledged, lifecycle_payload, lifecycle_opts, pid)
+
+        assert {:ok, %{status: :accepted, decision_status: :resolved}} =
+                 DecisionStore.agent_lifecycle(:resolved, lifecycle_payload, lifecycle_opts, pid)
+
+        GenServer.stop(pid)
+        replayed_pid = start_store!(store_dir, dispatch_delay_ms: 60_000)
+
+        assert {:ok, replayed} = DecisionStore.get(accepted.decision_id, replayed_pid)
+        assert replayed.provenance == accepted.provenance
+        assert replayed.answer.supervisor_basis.confidence == confidence
+        assert List.last(replayed.revisions).answer.supervisor_basis.confidence == confidence
+        assert replayed.delivery_status == :delivered
+        assert replayed.decision_status == :resolved
+        assert replayed.acknowledgement.action_id == revision.action_id
+        assert replayed.resolution.action_id == revision.action_id
+
+        history = DecisionHistory.list(server: replayed_pid)
+
+        assert Enum.all?(history, &(&1.provenance["backend"] == "codex"))
+
+        assert Enum.any?(history, fn entry ->
+                 entry.change == :answered and entry.supervisor_basis["confidence"] == confidence
+               end)
+
+        assert Enum.any?(history, fn entry ->
+                 entry.change == :revised and entry.supervisor_basis["confidence"] == confidence
+               end)
+
+        assert Enum.any?(history, fn entry ->
+                 entry.dispatch_result == :delivered and entry.supervisor_basis["confidence"] == confidence
+               end)
+
+        assert Enum.any?(history, fn entry ->
+                 entry.acknowledgement_result == :acknowledged and entry.supervisor_basis["confidence"] == confidence
+               end)
+
+        assert Enum.any?(history, fn entry ->
+                 entry.acknowledgement_result == :resolved and entry.supervisor_basis["confidence"] == confidence
+               end)
+
+        limited_history = DecisionHistory.list(server: replayed_pid, limit: 50)
+
+        assert Enum.any?(limited_history, fn entry ->
+                 entry.action_id == answer.action_id and entry.dispatch_result == :dispatch_queued and
+                   entry.supervisor_basis["confidence"] == confidence
+               end)
+
+        assert Enum.any?(limited_history, fn entry ->
+                 entry.action_id == revision.action_id and entry.dispatch_result == :delivered and
+                   entry.supervisor_basis["confidence"] == confidence
+               end)
+
+        GenServer.stop(replayed_pid)
+      end
     end
 
     test "a decision with an artifact survives restart without being flagged as corrupt", %{dir: dir} do
@@ -1447,7 +1815,24 @@ defmodule Aiur.DecisionStoreTest do
       payload = %{"question" => "Deploy now?", "blocking" => true, "source_id" => "retry-1"}
       assert {:ok, %{status: :accepted, decision: decision}} = request(pid, payload)
 
-      assert_receive {:event, %{:topic => "ticket.979.agent.decision.requested", "question" => "Deploy now?"}}, 500
+      assert_receive {:event,
+                      %{
+                        "question" => "Deploy now?",
+                        topic: "ticket.979.agent.decision.requested",
+                        id: cursor_event_id
+                      }},
+                     500
+
+      assert cursor_event_id > 0
+
+      [persisted] =
+        dir
+        |> Path.join("decisions.ndjson")
+        |> File.read!()
+        |> String.split("\n", trim: true)
+        |> Enum.map(&Jason.decode!/1)
+
+      assert persisted["event_id"] == "decision-provenance-v1:" <> Integer.to_string(cursor_event_id)
       assert_receive {:decision_changed, decision_id, 1}, 500
       assert decision_id == decision.decision_id
     end
@@ -1472,6 +1857,21 @@ defmodule Aiur.DecisionStoreTest do
     }
   end
 
+  defp supervisor_basis(confidence) do
+    %{
+      confidence: confidence,
+      alternatives_considered: ["Wait"],
+      reversibility_belief: :reversible,
+      policy_basis: %{
+        authority: :supervisor_allowed,
+        kind: "architecture",
+        reversibility: :reversible,
+        checks: %{authority_delegable: true, kind_allowed: true, reversibility_allowed: true},
+        allow_non_reversible: false
+      }
+    }
+  end
+
   defp audit_type(%DecisionEvent{type: type}), do: type
   defp audit_type(%Aiur.Decision{}), do: :requested
 
@@ -1485,7 +1885,7 @@ defmodule Aiur.DecisionStoreTest do
         decision_version: action.decision_version,
         action_id: action.action_id,
         attempt_id: attempt_id,
-        actor: action.actor
+        actor: Map.get(action, :actor) || action |> Map.get(:answer, %{}) |> Map.get(:actor)
       }
     }
   end

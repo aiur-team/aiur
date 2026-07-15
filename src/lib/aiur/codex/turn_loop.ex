@@ -14,7 +14,7 @@ defmodule Aiur.Codex.TurnLoop do
 
     case TurnState.turn_completion_status(payload) do
       "interrupted" -> TurnState.continue_after_turn_interrupted(state, payload)
-      _ -> TurnState.continue_after_turn_completion(state)
+      _ -> TurnState.continue_after_turn_completion(state, payload)
     end
   end
 
@@ -27,6 +27,7 @@ defmodule Aiur.Codex.TurnLoop do
   def handle_method(session, state, %{"method" => "turn/cancelled", "params" => params} = payload, payload_string, _method) do
     emit_turn_event(state.on_message, :turn_cancelled, payload, payload_string, session.port, params)
     TurnState.fail_pending_operator_requests(state.pending_operator_requests, {:turn_cancelled, params})
+    _ = TurnState.retire_provider_work(state)
 
     if is_integer(state.pause_request_id) do
       {:paused,
@@ -79,7 +80,15 @@ defmodule Aiur.Codex.TurnLoop do
 
   defp handle_turn_method(%{port: port} = session, state, payload, payload_string, method) do
     on_message = state.on_message
+
     metadata = TurnEvents.metadata_from_message(port, payload)
+
+    execution_context = %{
+      workspace: Map.get(session, :workspace),
+      response_id: Map.get(payload, "id"),
+      tool_call_scope: tool_call_scope(state, session),
+      tool_call_thread_id: Map.get(session, :thread_id)
+    }
 
     case Approvals.maybe_handle_approval_request(
            port,
@@ -90,6 +99,7 @@ defmodule Aiur.Codex.TurnLoop do
            metadata,
            state.tool_executor,
            state.auto_approve_requests,
+           execution_context,
            pause_latched?(session, state)
          ) do
       :input_required ->
@@ -116,6 +126,9 @@ defmodule Aiur.Codex.TurnLoop do
 
         {:error, {:approval_required, payload}}
 
+      {:error, reason} ->
+        {:error, reason}
+
       :unhandled ->
         handle_unhandled_method(session, state, method, payload, payload_string, on_message, metadata)
     end
@@ -136,7 +149,7 @@ defmodule Aiur.Codex.TurnLoop do
   end
 
   # Surface error-class notifications at info level with the full payload
-  # so the operator log shows the actual codex failure (API rate limit,
+  # so the Executor log shows the actual codex failure (API rate limit,
   # auth error, bwrap sandbox refusal, etc.) instead of an opaque
   # `Codex notification: "error"` line that requires combing through
   # 1000s of lines of debug-tier `Ignoring message while waiting for
@@ -152,6 +165,8 @@ defmodule Aiur.Codex.TurnLoop do
       NotificationPolicy.codex_quota_exhausted?(method, payload) ->
         Logger.warning("Codex notification: #{inspect(method)} payload=#{inspect(payload)}; codex account usage quota exhausted — pausing agent instead of burning retries")
 
+        _ = TurnState.retire_provider_work(state)
+
         {:paused, NotificationPolicy.usage_limit_pause(payload, method)}
 
       NotificationPolicy.codex_error_method?(method) and NotificationPolicy.unretryable_codex_error?(payload) ->
@@ -161,15 +176,18 @@ defmodule Aiur.Codex.TurnLoop do
       NotificationPolicy.turn_started_method?(method) ->
         checkpoint = NotificationPolicy.checkpoint_for_method(method)
 
+        tracked_state =
+          state
+          |> Map.put(:turn_started?, true)
+          |> TurnState.register_provider_turn(get_in(payload, ["params", "turn"]) || %{})
+
         next_state =
-          session
-          |> OperatorDelivery.maybe_process_safe_checkpoint(%{state | turn_started?: true}, checkpoint)
+          OperatorDelivery.maybe_process_safe_checkpoint(session, tracked_state, checkpoint)
 
         {:continue, next_state}
 
-      state.turn_started? and NotificationPolicy.thread_idle_status?(method, payload) ->
-        Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}; treating idle status as turn completion")
-        TurnState.continue_after_turn_completion(state)
+      idle_after_turn_started?(state, method, payload) ->
+        handle_idle_notification(state, method, payload)
 
       NotificationPolicy.codex_error_method?(method) ->
         Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}")
@@ -182,4 +200,25 @@ defmodule Aiur.Codex.TurnLoop do
         {:continue, OperatorDelivery.maybe_process_safe_checkpoint(session, state, checkpoint)}
     end
   end
+
+  defp idle_after_turn_started?(state, method, payload) do
+    state.turn_started? and NotificationPolicy.thread_idle_status?(method, payload)
+  end
+
+  defp handle_idle_notification(%{interrupt_action: action} = state, method, payload)
+       when action in [:pause, :operator_message] do
+    Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}; reconciling interrupt handshake")
+    TurnState.observe_interrupt_idle(state, payload)
+  end
+
+  defp handle_idle_notification(state, method, payload) do
+    Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}; treating idle status as turn completion")
+    TurnState.complete_all_provider_turns(state)
+  end
+
+  defp tool_call_scope(%{issue_identifier: issue_identifier}, _session)
+       when is_binary(issue_identifier),
+       do: issue_identifier
+
+  defp tool_call_scope(_state, _session), do: nil
 end

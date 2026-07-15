@@ -25,6 +25,9 @@ defmodule Aiur.Claude.ReplAgentTest do
     send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n#{body}%error 1 1 0\n"})
   end
 
+  defp available_hook_settings(true, identifier) when is_binary(identifier),
+    do: "/tmp/aiur-test-hooks-#{identifier}.json"
+
   test "start_session spawns the REPL, awaits readiness, and returns a session", %{tmux: tmux} do
     # Normalize up front: start_session stores the expanded path, and on macOS
     # System.tmp_dir!/0 carries a trailing slash that Path.expand strips.
@@ -34,6 +37,7 @@ defmodule Aiur.Claude.ReplAgentTest do
       Task.async(fn ->
         ReplAgent.start_session(ws,
           tmux: tmux,
+          process_group_fun: fn pid -> pid end,
           model: "claude-opus-4-8",
           effort: "max",
           rc_name: "aiur-repl-test",
@@ -51,13 +55,13 @@ defmodule Aiur.Claude.ReplAgentTest do
     refute String.contains?(cmd, "--remote-control")
     respond(tmux, "%99\n")
 
-    # 2. await_ready captures the pane until the prompt glyph shows.
-    assert_receive {:tmux_mock_out, "capture-pane -p -t %99"}, 1_000
-    respond(tmux, "Welcome\n❯\n")
-
-    # 3. pane_pid resolves the OS pid.
+    # 2. pane_pid resolves the OS pid before the containment callback.
     assert_receive {:tmux_mock_out, "display-message -p -t %99 \#{pane_pid}"}, 1_000
     respond(tmux, "4242\n")
+
+    # 3. await_ready captures the pane until the prompt glyph shows.
+    assert_receive {:tmux_mock_out, "capture-pane -p -t %99"}, 1_000
+    respond(tmux, "Welcome\n❯\n")
 
     assert {:ok, session} = Task.await(task, 2_000)
     assert session.backend == "claude-repl"
@@ -112,6 +116,7 @@ defmodule Aiur.Claude.ReplAgentTest do
       Task.async(fn ->
         ReplAgent.start_session(ws,
           tmux: tmux,
+          process_group_fun: fn pid -> pid end,
           rc_name: "aiur-repl-test",
           window_name: "aiur-repl-test",
           projects_dir: projects_dir,
@@ -123,11 +128,11 @@ defmodule Aiur.Claude.ReplAgentTest do
     assert String.contains?(cmd, "--resume '#{sid}'")
     respond(tmux, "%55\n")
 
-    assert_receive {:tmux_mock_out, "capture-pane -p -t %55"}, 1_000
-    respond(tmux, "❯\n")
-
     assert_receive {:tmux_mock_out, "display-message -p -t %55 \#{pane_pid}"}, 1_000
     respond(tmux, "4242\n")
+
+    assert_receive {:tmux_mock_out, "capture-pane -p -t %55"}, 1_000
+    respond(tmux, "❯\n")
 
     assert {:ok, session} = Task.await(task, 2_000)
     assert session.resumed == true
@@ -141,6 +146,7 @@ defmodule Aiur.Claude.ReplAgentTest do
       Task.async(fn ->
         ReplAgent.start_session(ws,
           tmux: tmux,
+          process_group_fun: fn pid -> pid end,
           rc_name: "aiur-repl-test",
           window_name: "aiur-repl-test",
           projects_dir: "/nonexistent-projects-dir",
@@ -152,11 +158,11 @@ defmodule Aiur.Claude.ReplAgentTest do
     refute String.contains?(cmd, "--resume")
     respond(tmux, "%56\n")
 
-    assert_receive {:tmux_mock_out, "capture-pane -p -t %56"}, 1_000
-    respond(tmux, "❯\n")
-
     assert_receive {:tmux_mock_out, "display-message -p -t %56 \#{pane_pid}"}, 1_000
     respond(tmux, "4242\n")
+
+    assert_receive {:tmux_mock_out, "capture-pane -p -t %56"}, 1_000
+    respond(tmux, "❯\n")
 
     assert {:ok, session} = Task.await(task, 2_000)
     assert session.resumed == false
@@ -181,7 +187,10 @@ defmodule Aiur.Claude.ReplAgentTest do
       Task.async(fn ->
         ReplAgent.start_session(ws,
           tmux: tmux,
+          process_group_fun: fn pid -> pid end,
           remote_control: true,
+          identifier: "rc-resume",
+          hook_settings_fun: &available_hook_settings/2,
           rc_name: "aiur-rc-resume",
           window_name: "aiur-rc-resume",
           projects_dir: projects_dir,
@@ -194,11 +203,11 @@ defmodule Aiur.Claude.ReplAgentTest do
     assert String.contains?(cmd, "--resume '#{sid}'")
     respond(tmux, "%71\n")
 
-    assert_receive {:tmux_mock_out, "capture-pane -p -t %71"}, 1_000
-    respond(tmux, "❯\n")
-
     assert_receive {:tmux_mock_out, "display-message -p -t %71 \#{pane_pid}"}, 1_000
     respond(tmux, "10\n")
+
+    assert_receive {:tmux_mock_out, "capture-pane -p -t %71"}, 1_000
+    respond(tmux, "❯\n")
 
     # RC sessions scan the pane once ready for the `/remote-control … URL` banner.
     assert_receive {:tmux_mock_out, "capture-pane -p -t %71"}, 1_000
@@ -217,7 +226,10 @@ defmodule Aiur.Claude.ReplAgentTest do
       Task.async(fn ->
         ReplAgent.start_session(ws,
           tmux: tmux,
+          process_group_fun: fn pid -> pid end,
           remote_control: true,
+          identifier: "rc-command",
+          hook_settings_fun: &available_hook_settings/2,
           rc_name: "aiur-rc-test",
           window_name: "aiur-rc-test",
           projects_dir: "/nonexistent-projects-dir"
@@ -228,11 +240,11 @@ defmodule Aiur.Claude.ReplAgentTest do
     assert String.contains?(cmd, "--remote-control 'aiur-rc-test'")
     respond(tmux, "%7\n")
 
-    assert_receive {:tmux_mock_out, "capture-pane -p -t %7"}, 1_000
-    respond(tmux, "❯\n")
-
     assert_receive {:tmux_mock_out, "display-message -p -t %7 \#{pane_pid}"}, 1_000
     respond(tmux, "10\n")
+
+    assert_receive {:tmux_mock_out, "capture-pane -p -t %7"}, 1_000
+    respond(tmux, "❯\n")
 
     # RC sessions scan the pane once ready for the `/remote-control … URL` banner.
     assert_receive {:tmux_mock_out, "capture-pane -p -t %7"}, 1_000
@@ -257,7 +269,10 @@ defmodule Aiur.Claude.ReplAgentTest do
       Task.async(fn ->
         ReplAgent.start_session(ws,
           tmux: tmux,
+          process_group_fun: fn pid -> pid end,
           remote_control: true,
+          identifier: "rc-harvest",
+          hook_settings_fun: &available_hook_settings/2,
           rc_name: "aiur-rc-test",
           window_name: "aiur-rc-test",
           projects_dir: "/nonexistent-projects-dir"
@@ -268,11 +283,11 @@ defmodule Aiur.Claude.ReplAgentTest do
     assert String.contains?(cmd, "--remote-control 'aiur-rc-test'")
     respond(tmux, "%7\n")
 
-    assert_receive {:tmux_mock_out, "capture-pane -p -t %7"}, 1_000
-    respond(tmux, "❯\n")
-
     assert_receive {:tmux_mock_out, "display-message -p -t %7 \#{pane_pid}"}, 1_000
     respond(tmux, "10\n")
+
+    assert_receive {:tmux_mock_out, "capture-pane -p -t %7"}, 1_000
+    respond(tmux, "❯\n")
 
     # RC evidence scan: no banner URL, but the footer shows `/rc active`.
     assert_receive {:tmux_mock_out, "capture-pane -p -t %7"}, 1_000
@@ -306,7 +321,10 @@ defmodule Aiur.Claude.ReplAgentTest do
       Task.async(fn ->
         ReplAgent.start_session(ws,
           tmux: tmux,
+          process_group_fun: fn pid -> pid end,
           remote_control: true,
+          identifier: "rc-unavailable",
+          hook_settings_fun: &available_hook_settings/2,
           rc_name: "aiur-rc-test",
           window_name: "aiur-rc-test",
           # 0ms budget: the first banner-less capture exhausts it, so RC is
@@ -320,20 +338,24 @@ defmodule Aiur.Claude.ReplAgentTest do
     assert String.contains?(cmd, "--remote-control 'aiur-rc-test'")
     respond(tmux, "%8\n")
 
-    assert_receive {:tmux_mock_out, "capture-pane -p -t %8"}, 1_000
-    respond(tmux, "❯\n")
-
     assert_receive {:tmux_mock_out, "display-message -p -t %8 \#{pane_pid}"}, 1_000
     # A safe, certainly-dead pid so the degradation's graceful_kill is a no-op.
     respond(tmux, "2147480000\n")
+
+    assert_receive {:tmux_mock_out, "capture-pane -p -t %8"}, 1_000
+    respond(tmux, "❯\n")
 
     # RC banner scan finds no `claude.ai/code/session_…` URL.
     assert_receive {:tmux_mock_out, "capture-pane -p -t %8"}, 1_000
     respond(tmux, "❯\n")
 
     # An unattached RC pane must be torn down, not left leaking.
+    assert_receive {:tmux_mock_out, "display-message -p -t %8 \#{pane_pid}"}, 1_000
+    respond(tmux, "2147480000\n")
     assert_receive {:tmux_mock_out, "kill-pane -t %8"}, 1_000
     respond(tmux, "")
+    assert_receive {:tmux_mock_out, "display-message -p -t %8 \#{pane_pid}"}, 1_000
+    respond_error(tmux, "no pane\n")
 
     assert {:error, :remote_control_unavailable} = Task.await(task, 2_000)
   end
@@ -345,6 +367,7 @@ defmodule Aiur.Claude.ReplAgentTest do
       Task.async(fn ->
         ReplAgent.start_session(ws,
           tmux: tmux,
+          process_group_fun: fn pid -> pid end,
           window_name: "aiur-noready",
           ready_timeout_ms: 0,
           projects_dir: "/nonexistent-projects-dir"
@@ -368,8 +391,16 @@ defmodule Aiur.Claude.ReplAgentTest do
         respond(tmux, "still booting\n")
         drain_until_kill(tmux, pane, task)
 
+      {:tmux_mock_out, "display-message -p -t " <> pane_query} ->
+        assert pane_query == "#{pane} \#{pane_pid}"
+        respond(tmux, "5050\n")
+        drain_until_kill(tmux, pane, task)
+
       {:tmux_mock_out, "kill-pane -t " <> ^pane} ->
         respond(tmux, "")
+        assert_receive {:tmux_mock_out, pane_query}, 1_000
+        assert pane_query == "display-message -p -t #{pane} \#{pane_pid}"
+        respond_error(tmux, "no pane\n")
         assert {:error, :repl_not_ready} = Task.await(task, 2_000)
     after
       2_000 -> flunk("did not observe kill-pane within timeout")
@@ -383,6 +414,7 @@ defmodule Aiur.Claude.ReplAgentTest do
       Task.async(fn ->
         ReplAgent.start_session(ws,
           tmux: tmux,
+          process_group_fun: fn pid -> pid end,
           window_name: "aiur-fail",
           projects_dir: "/nonexistent-projects-dir"
         )
@@ -400,7 +432,9 @@ defmodule Aiur.Claude.ReplAgentTest do
     session = %{
       backend: "claude-repl",
       pane_id: "%88",
-      os_pid: nil,
+      os_pid: 2_147_480_000,
+      process_group_id: 2_147_480_000,
+      process_group_identity: :gone,
       workspace: System.tmp_dir!(),
       transcript_path: nil,
       model: nil,
@@ -411,6 +445,9 @@ defmodule Aiur.Claude.ReplAgentTest do
 
     task = Task.async(fn -> ReplAgent.stop_session(session) end)
 
+    assert_receive {:tmux_mock_out, "display-message -p -t %88 \#{pane_pid}"}, 1_000
+    respond_error(tmux, "can't find pane\n")
+
     assert_receive {:tmux_mock_out, "kill-pane -t %88"}, 1_000
     respond(tmux, "")
 
@@ -418,7 +455,7 @@ defmodule Aiur.Claude.ReplAgentTest do
     assert_receive {:tmux_mock_out, "display-message -p -t %88 \#{pane_pid}"}, 1_000
     respond_error(tmux, "can't find pane\n")
 
-    assert :ok = Task.await(task, 2_000)
+    assert {:ok, :cleanup_proven} = Task.await(task, 2_000)
   end
 
   # --------------------------------------------------------- reaper / sweep

@@ -56,13 +56,20 @@ defmodule Aiur.Codex.DynamicToolTest do
 
     assert Enum.any?(specs, fn
              %{
+               "description" => description,
                "inputSchema" => %{
-                 "properties" => %{"reason" => _, "needs_attention" => _, "severity" => _},
+                 "properties" => %{
+                   "reason" => %{"description" => reason_description},
+                   "needs_attention" => %{"description" => attention_description},
+                   "severity" => _
+                 },
                  "required" => ["name", "message", "reason", "needs_attention"]
                },
                "name" => "emit_alert"
              } ->
-               true
+               description =~ "Executor context" and
+                 reason_description =~ "Executor should relay" and
+                 attention_description =~ "Executor should look or act"
 
              _ ->
                false
@@ -666,7 +673,11 @@ defmodule Aiur.Codex.DynamicToolTest do
     end
 
     test "tool_specs advertises emit_event" do
-      assert Enum.any?(DynamicTool.tool_specs(), &(&1["name"] == "emit_event"))
+      assert Enum.any?(DynamicTool.tool_specs(), fn spec ->
+               spec["name"] == "emit_event" and
+                 spec["description"] =~ "other agents/the Executor" and
+                 spec["description"] =~ "Executor-facing audible alerts"
+             end)
     end
   end
 

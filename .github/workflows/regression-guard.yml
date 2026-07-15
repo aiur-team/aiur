@@ -75,7 +75,7 @@ jobs:
           run_dismissal_regression_tests() {
             if ! override_applied_after_push \
                 $'labeled\tits-everdred\t2026-07-11T12:00:01Z' "2026-07-11T12:00:00Z"; then
-              echo "::error::Regression guard self-test failed: newer operator reapproval was not preserved."
+              echo "::error::Regression guard self-test failed: newer Executor reapproval was not preserved."
               return 1
             fi
 
@@ -110,7 +110,7 @@ jobs:
           fi
 
           # This intentionally runs for every push, before inspecting PR content.
-          # Preserve an operator label applied after this push: both timestamps
+          # Preserve an Executor label applied after this push: both timestamps
           # are server-recorded and cannot be forged in a Git commit.
           latest_label_event="$(latest_override_label_event)"
 
@@ -118,7 +118,7 @@ jobs:
             case " ${OPERATOR_LABELERS} " in
               *" ${label_actor} "*)
                 echo "reapproval=true" >> "$GITHUB_OUTPUT"
-                echo "A newer operator regression-suite-change label was applied after this push; preserving it for the dependent guard."
+                echo "A newer Executor regression-suite-change label was applied after this push; preserving it for the dependent guard."
                 exit 0
                 ;;
             esac
@@ -135,7 +135,7 @@ jobs:
 
           gh api --method DELETE \
             "repos/${REPOSITORY}/issues/${PR_NUMBER}/labels/${OVERRIDE_LABEL}"
-          echo "Removed regression-suite-change after push; operator approval is required again."
+          echo "Removed regression-suite-change after push; Executor approval is required again."
 
   guard:
     needs: dismiss-regression-override-on-push
@@ -144,7 +144,7 @@ jobs:
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
-      - name: Fail if regression suite changed without operator approval
+      - name: Fail if regression suite changed without Executor approval
         env:
           DISMISS_RESULT: ${{ needs.dismiss-regression-override-on-push.result }}
           DISMISS_REAPPROVAL: ${{ needs.dismiss-regression-override-on-push.outputs.reapproval }}
@@ -237,7 +237,7 @@ jobs:
 
             if [ -z "$event_head_sha" ] || [ -z "$current_head_sha" ] ||
                 [ "$event_head_sha" != "$current_head_sha" ]; then
-              echo "::error::The guard event applies to ${event_head_sha:-an unknown head}, but the PR head is now ${current_head_sha:-unknown}. Wait for the latest head's guard run, then re-apply the operator label if approval is required."
+              echo "::error::The guard event applies to ${event_head_sha:-an unknown head}, but the PR head is now ${current_head_sha:-unknown}. Wait for the latest head's guard run, then re-apply the Executor label if approval is required."
               return 1
             fi
           }
@@ -262,14 +262,14 @@ jobs:
                 return 0
               fi
 
-              echo "::error::The regression-suite-change label survived a push. Re-apply the operator label after the current head is settled."
+              echo "::error::The regression-suite-change label survived a push. Re-apply the Executor label after the current head is settled."
               return 1
             fi
           }
 
           require_active_override_label() {
             local has_override_label="$1"
-            local approval_error="${2:-This PR modifies files under src/test/aiur/regression/ without the operator-applied regression-suite-change label. Characterization tests are read-only: a failing characterization test means your change is wrong. Revert the test edits, or have the operator apply the regression-suite-change label.}"
+            local approval_error="${2:-This PR modifies files under src/test/aiur/regression/ without the Executor-applied regression-suite-change label. Characterization tests are read-only: a failing characterization test means your change is wrong. Revert the test edits, or have the Executor apply the regression-suite-change label.}"
 
             if [ "$has_override_label" != "true" ]; then
               echo "::error::${approval_error}"
@@ -290,12 +290,12 @@ jobs:
             fi
 
             if [ "$event_action" = "synchronize" ] && [ "$dismiss_reapproval" = "true" ]; then
-              echo "This PR requires regression-suite approval and has a newer operator approval for the current head. Allowed."
+              echo "This PR requires regression-suite approval and has a newer Executor approval for the current head. Allowed."
               return 0
             fi
 
             if [ "$event_action" != "labeled" ] || [ "$event_label" != "$OVERRIDE_LABEL" ]; then
-              echo "::error::This PR needs a fresh regression-suite-change label from an operator after the latest push."
+              echo "::error::This PR needs a fresh regression-suite-change label from an Executor after the latest push."
               return 1
             fi
 
@@ -304,7 +304,7 @@ jobs:
                 echo "This PR requires regression-suite approval and was approved with regression-suite-change by ${event_labeler}. Allowed."
                 ;;
               *)
-                echo "::error::The regression-suite-change label was applied by '${event_labeler}', not an operator allowed to approve characterization test edits."
+                echo "::error::The regression-suite-change label was applied by '${event_labeler}', not an Executor allowed to approve characterization test edits."
                 return 1
                 ;;
             esac
@@ -382,14 +382,14 @@ jobs:
             if ! require_current_operator_approval \
                 "labeled" "$OVERRIDE_LABEL" "its-everdred" "head-before-push" "head-before-push" "" \
                 >/dev/null 2>&1; then
-              echo "::error::Regression guard self-test failed: operator label fixture was rejected."
+              echo "::error::Regression guard self-test failed: Executor label fixture was rejected."
               return 1
             fi
 
             if require_current_operator_approval \
                 "labeled" "$OVERRIDE_LABEL" "executor" "head-after-push" "head-after-push" "" \
                 >/dev/null 2>&1; then
-              echo "::error::Regression guard self-test failed: non-operator label fixture was approved."
+              echo "::error::Regression guard self-test failed: non-Executor label fixture was approved."
               return 1
             fi
 
@@ -400,7 +400,7 @@ jobs:
             if require_current_operator_approval \
                 "labeled" "$OVERRIDE_LABEL" "its-everdred" "head-before-push" "head-after-push" "" \
                 >/dev/null 2>&1; then
-              echo "::error::Regression guard self-test failed: stale operator approval fixture was approved."
+              echo "::error::Regression guard self-test failed: stale Executor approval fixture was approved."
               return 1
             fi
 
@@ -411,7 +411,7 @@ jobs:
 
             # The synchronizing dismissal job must clear that old label. The
             # guard first accepts the successful dismissal state, then rejects
-            # its missing label; an operator can subsequently approve the new
+            # its missing label; an Executor can subsequently approve the new
             # head through a fresh labeled event.
             if ! require_fresh_approval "synchronize" "success" "false" "" >/dev/null 2>&1 ||
                 require_active_override_label "false" >/dev/null 2>&1; then
@@ -459,12 +459,12 @@ jobs:
           fi
 
           if file_list_requires_approval "$listed_file_count" "$total_changed_files"; then
-            approval_error="GitHub returned ${listed_file_count:-an invalid number} file records for ${total_changed_files:-an unknown number} changed files (API limit: ${PR_FILE_API_LIMIT}), so the guard cannot prove that src/test/aiur/regression/ is untouched. Review the complete git diff outside the capped API/UI listing, then have the operator apply regression-suite-change if the change is intentional."
+            approval_error="GitHub returned ${listed_file_count:-an invalid number} file records for ${total_changed_files:-an unknown number} changed files (API limit: ${PR_FILE_API_LIMIT}), so the guard cannot prove that src/test/aiur/regression/ is untouched. Review the complete git diff outside the capped API/UI listing, then have the Executor apply regression-suite-change if the change is intentional."
             echo "::warning::${approval_error}"
           elif protected_changed_files "$changed_files"; then
-            approval_error="This PR modifies files under src/test/aiur/regression/ without the operator-applied regression-suite-change label. Characterization tests are read-only: a failing characterization test means your change is wrong. Revert the test edits, or have the operator apply the regression-suite-change label."
+            approval_error="This PR modifies files under src/test/aiur/regression/ without the Executor-applied regression-suite-change label. Characterization tests are read-only: a failing characterization test means your change is wrong. Revert the test edits, or have the Executor apply the regression-suite-change label."
           else
-            approval_error="GitHub's changed-file response contained an invalid JSON record, so the guard cannot prove that src/test/aiur/regression/ is untouched. Review the complete git diff, then have the operator apply regression-suite-change if the change is intentional."
+            approval_error="GitHub's changed-file response contained an invalid JSON record, so the guard cannot prove that src/test/aiur/regression/ is untouched. Review the complete git diff, then have the Executor apply regression-suite-change if the change is intentional."
             echo "::warning::${approval_error}"
           fi
 

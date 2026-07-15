@@ -60,6 +60,12 @@ defmodule Aiur.Workspace do
       | branch_name: Provisioner.resolve_branch_name(workspace, issue_context)
     }
 
+    # An event writer may have created a safe `logs/` tree before this
+    # generation owns the workspace. Unlike a fresh empty directory, that
+    # pre-existing state must be promoted to a usable checkout by after_create
+    # before it can receive an agent cwd.
+    verify_logs_only_bootstrap? = Provisioner.logs_only_workspace?(workspace, worker_host)
+
     with {:ok, workspace, created?} <-
            Provisioner.ensure_workspace(
              workspace,
@@ -68,13 +74,28 @@ defmodule Aiur.Workspace do
              issue_context.branch_name,
              lifecycle
            ),
-         :ok <- Hooks.run_after_create(workspace, issue_context, created?, worker_host),
+         :ok <- Provisioner.ensure_workspace_usable(workspace, worker_host, created?),
+         bootstrap? <- Provisioner.bootstrap_required?(workspace, worker_host, created?),
+         :ok <- Hooks.run_after_create(workspace, issue_context, bootstrap?, worker_host),
+         :ok <- verify_logs_only_bootstrap(workspace, worker_host, verify_logs_only_bootstrap?),
          :ok <- GitMetadata.ensure_agent_logs_excluded(workspace, worker_host),
          :ok <- Hooks.run_github_preflight(workspace, issue_context, worker_host) do
       Provisioner.maybe_install_agent_skills(workspace, worker_host)
-      {:ok, workspace}
+
+      with :ok <- Provisioner.mark_workspace_ready(workspace, worker_host) do
+        {:ok, workspace}
+      end
     end
   end
+
+  defp verify_logs_only_bootstrap(_workspace, _worker_host, false), do: :ok
+
+  # A pre-provisioning logs directory is safe only as input to the bootstrap
+  # hook. Recheck the promoted workspace before writing Aiur's completion
+  # marker so a successful but no-op hook can never turn logs-only content into
+  # a provider cwd.
+  defp verify_logs_only_bootstrap(workspace, worker_host, true),
+    do: Provisioner.ensure_workspace_usable(workspace, worker_host, false)
 
   @spec run_before_run_hook(Path.t(), map() | String.t() | nil, worker_host()) ::
           :ok | {:error, term()}

@@ -43,12 +43,12 @@ defmodule Aiur.PaneManager.ScreenGrab do
   end
 
   defp log_pane_grab(pane_id, label, {:error, reason}) do
-    # Once a Claude session restart (or a forced operator restart)
+    # Once a Claude session restart (or a forced Executor restart)
     # kills the tmux server but leaves the BEAM running, every 2s
     # tick produces three log lines — the warning from Tmux.command
     # plus the schedule + grab info pair. Demote to debug when the
     # server is gone so the log isn't flooded with the same dead-
-    # server message until the next operator reboot.
+    # server message until the next Executor reboot.
     if dead_tmux?(reason) do
       Logger.debug("aiur_screen_grab pane_id=#{pane_id} label=#{label} error=#{inspect(reason)}")
     else

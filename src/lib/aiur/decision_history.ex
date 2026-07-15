@@ -1,16 +1,16 @@
 defmodule Aiur.DecisionHistory do
   @moduledoc """
-  Read-only operator history projected from `Aiur.DecisionStore` records.
+  Read-only Executor history projected from `Aiur.DecisionStore` records.
 
   The store remains the only source of truth. This module gives dashboard and
-  API consumers one bounded, newest-first shape while preserving uncertainty:
+  API consumers one newest-first shape while preserving uncertainty:
   actor types are used only when a canonical record states them explicitly.
   OCC-1 request records have source-agent metadata but no separate mutation
   actor, so they are identified as ticket-agent activity rather than guessed to
   be human or supervising-agent decisions.
   """
 
-  alias Aiur.{Decision, DecisionEvent, DecisionRevision, DecisionStore}
+  alias Aiur.{Decision, DecisionDelegation, DecisionEvent, DecisionProvenance, DecisionRevision, DecisionStore}
 
   @default_limit 50
   @actor_types %{
@@ -41,10 +41,19 @@ defmodule Aiur.DecisionHistory do
   @spec list(keyword()) :: [map()]
   def list(opts \\ []) when is_list(opts) do
     server = Keyword.get(opts, :server, DecisionStore)
-    history_fun = Keyword.get(opts, :history_fun, fn -> DecisionStore.all_audit_history(server) end)
 
-    history_fun.()
-    |> from_histories(opts)
+    cond do
+      history_fun = Keyword.get(opts, :history_fun) ->
+        history_fun.() |> from_histories(opts)
+
+      Keyword.has_key?(opts, :limit) or Keyword.has_key?(opts, :recent_history_fun) ->
+        default_recent_fun = fn -> DecisionStore.recent_audit_history(limit(opts), server) end
+        recent_fun = Keyword.get(opts, :recent_history_fun, default_recent_fun)
+        recent_fun.() |> from_recent_audit(opts)
+
+      true ->
+        DecisionStore.all_audit_history(server) |> from_histories(opts)
+    end
   end
 
   @doc "Projects an already-read Decision history map without another store call."
@@ -53,11 +62,39 @@ defmodule Aiur.DecisionHistory do
     histories
     |> Enum.flat_map(fn {_decision_id, records} -> project_history(records) end)
     |> Enum.sort_by(&sort_key/1, :desc)
+    |> take_limit(opts)
+  end
+
+  @doc "Projects the DecisionStore's bounded audit window without reading the full audit map."
+  @spec from_recent_audit(map(), keyword()) :: [map()]
+  def from_recent_audit(recent, opts \\ []) when is_map(recent) and is_list(opts) do
+    records = Map.get(recent, :records, [])
+    contexts = Map.get(recent, :contexts, %{})
+    actions = Map.get(recent, :actions, Map.get(recent, :revisions, %{}))
+
+    records
+    |> Enum.flat_map(fn record ->
+      decision_id = record_decision_id(record)
+      decision_contexts = Map.get(contexts, decision_id, %{})
+      decision_actions = Map.get(actions, decision_id, %{})
+
+      isolated_projection(fn ->
+        project_history_record(record, decision_contexts, decision_actions)
+      end)
+    end)
+    |> Enum.sort_by(&sort_key/1, :desc)
     |> Enum.take(limit(opts))
   end
 
-  @doc "Projects one canonical history record into the operator-facing shape."
+  @doc "Projects one canonical history record into the Executor-facing shape."
   @spec project_record(map()) :: map()
+  def project_record(%DecisionEvent{type: :requested, data: %Decision{} = decision} = event) do
+    decision
+    |> project_record()
+    |> Map.put(:changed_at, DateTime.to_iso8601(event.occurred_at))
+    |> Map.put(:source_version, event.decision_version)
+  end
+
   def project_record(%DecisionEvent{} = event), do: project_event(event, %{}, %{})
 
   def project_record(record) when is_map(record) do
@@ -74,6 +111,7 @@ defmodule Aiur.DecisionHistory do
       decision_id: value(record, :decision_id),
       ticket: ticket(value(record, :ticket)),
       question: value(record, :question),
+      provenance: provenance(value(record, :provenance)),
       source_version: version,
       changed_at: changed_at(record, answer, revision, follow_up),
       change: change,
@@ -84,6 +122,7 @@ defmodule Aiur.DecisionHistory do
       revision_result: first_value([value(record, :revision_result), value(revision, :result)]),
       choice: choice(record, answer, revision_answer),
       rationale: first_value([value(record, :rationale), value(revision, :reason), value(answer, :rationale)]),
+      supervisor_basis: supervisor_basis(answer, revision_answer),
       dispatch_result: value(record, :dispatch_result),
       acknowledgement_result: value(record, :acknowledgement_result),
       revision_of: revision_of,
@@ -93,11 +132,16 @@ defmodule Aiur.DecisionHistory do
     }
   end
 
-  defp project_history(records) do
+  defp project_history(records) when is_list(records) do
     contexts = request_contexts(records)
-    revisions = revision_contexts(records)
-    Enum.map(records, &project_history_record(&1, contexts, revisions))
+    actions = action_contexts(records)
+
+    Enum.flat_map(records, fn record ->
+      isolated_projection(fn -> project_history_record(record, contexts, actions) end)
+    end)
   end
+
+  defp project_history(_records), do: []
 
   defp project_history_record(%DecisionEvent{type: :requested, data: %Decision{} = decision}, _contexts, _revisions),
     do: project_record(decision)
@@ -115,6 +159,7 @@ defmodule Aiur.DecisionHistory do
       decision_version: event.decision_version,
       ticket: context && context.ticket,
       question: context && context.question,
+      provenance: context && provenance(value(context, :provenance)),
       recorded_at: event.occurred_at,
       event_kind: event.type
     }
@@ -170,14 +215,18 @@ defmodule Aiur.DecisionHistory do
     })
   end
 
-  defp event_record(%DecisionEvent{type: type, data: data}, base, _revisions)
+  defp event_record(%DecisionEvent{type: type, data: data}, base, actions)
        when type in [:dispatch_queued, :delivered, :restored, :consumed, :failed] do
-    Map.merge(base, %{action_id: data.action_id, dispatch_result: type})
+    base
+    |> Map.merge(action_context(Map.get(actions, data.action_id)))
+    |> Map.merge(%{action_id: data.action_id, dispatch_result: type})
   end
 
-  defp event_record(%DecisionEvent{type: type, data: data}, base, _revisions)
+  defp event_record(%DecisionEvent{type: type, data: data}, base, actions)
        when type in [:acknowledged, :resolved] do
-    Map.merge(base, %{action_id: data.action_id, actor: data.actor, acknowledgement_result: type})
+    base
+    |> Map.merge(action_context(Map.get(actions, data.action_id)))
+    |> Map.merge(%{action_id: data.action_id, actor: data.actor, acknowledgement_result: type})
   end
 
   defp event_record(_event, base, _revisions), do: base
@@ -195,18 +244,38 @@ defmodule Aiur.DecisionHistory do
     end)
   end
 
-  defp revision_contexts(records) do
+  defp action_contexts(records) do
     Enum.reduce(records, %{}, fn
+      %DecisionEvent{type: :answer_recorded, data: %Aiur.DecisionAnswer{} = answer}, actions ->
+        Map.put(actions, answer.action_id, answer)
+
       %DecisionEvent{type: :revision_recorded, data: %DecisionRevision{} = revision}, revisions ->
         Map.put(revisions, revision.action_id, revision)
 
-      _record, revisions ->
-        revisions
+      _record, actions ->
+        actions
     end)
   end
 
+  defp action_context(%Aiur.DecisionAnswer{} = answer), do: %{answer: answer}
+  defp action_context(%DecisionRevision{} = revision), do: %{revision: revision}
+  defp action_context(_action), do: %{}
+
   defp latest_context(contexts) when map_size(contexts) == 0, do: nil
   defp latest_context(contexts), do: contexts |> Map.values() |> Enum.max_by(& &1.version)
+
+  defp isolated_projection(fun) do
+    [fun.()]
+  rescue
+    _error -> []
+  catch
+    _kind, _reason -> []
+  end
+
+  defp record_decision_id(%DecisionEvent{decision_id: decision_id}), do: decision_id
+  defp record_decision_id(%Decision{decision_id: decision_id}), do: decision_id
+  defp record_decision_id(record) when is_map(record), do: value(record, :decision_id)
+  defp record_decision_id(_record), do: nil
 
   defp actor(record, answer, revision) do
     revision_answer = map_value(revision, :answer)
@@ -243,7 +312,7 @@ defmodule Aiur.DecisionHistory do
 
   defp normalize_actor_type(_type), do: :unknown
 
-  defp actor_type_label(:human_operator), do: "Human operator"
+  defp actor_type_label(:human_operator), do: "Executor"
   defp actor_type_label(:supervising_agent), do: "Supervising agent"
   defp actor_type_label(:ticket_agent), do: "Ticket agent"
   defp actor_type_label(:system), do: "System"
@@ -341,6 +410,32 @@ defmodule Aiur.DecisionHistory do
       else: nil
   end
 
+  defp provenance(nil), do: nil
+
+  defp provenance(%DecisionProvenance{} = provenance), do: DecisionProvenance.to_json_safe(provenance)
+
+  defp provenance(raw) when is_map(raw) do
+    case DecisionProvenance.from_json_safe(raw) do
+      {:ok, provenance} -> DecisionProvenance.to_json_safe(provenance)
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp provenance(_raw), do: nil
+
+  defp supervisor_basis(answer, revision_answer) do
+    case first_value([value(answer, :supervisor_basis), value(revision_answer, :supervisor_basis)]) do
+      basis when is_map(basis) ->
+        case DecisionDelegation.validate_basis(basis) do
+          {:ok, normalized} -> DecisionDelegation.to_json_safe(normalized)
+          {:error, _reason} -> nil
+        end
+
+      _other ->
+        nil
+    end
+  end
+
   defp map_value(map, key) do
     case value(map, key) do
       value when is_map(value) -> value
@@ -387,6 +482,13 @@ defmodule Aiur.DecisionHistory do
 
   defp integer(value) when is_integer(value), do: value
   defp integer(_value), do: 0
+
+  defp take_limit(entries, opts) do
+    case Keyword.get(opts, :limit) do
+      limit when is_integer(limit) and limit >= 0 -> Enum.take(entries, limit)
+      _other -> entries
+    end
+  end
 
   defp limit(opts) do
     case Keyword.get(opts, :limit, @default_limit) do

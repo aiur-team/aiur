@@ -14,7 +14,7 @@ defmodule Aiur.DecisionStore do
   projection, and repairs `decisions.json` if it doesn't already match.
   Interior corruption puts the store into a read-only mode: existing
   reads keep serving the validated prefix, every mutation is rejected,
-  and one operator alert is emitted — never silently skipped.
+  and one Executor alert is emitted — never silently skipped.
 
   Version/dedup rules for a request against `decision_id`'s current
   state:
@@ -60,6 +60,8 @@ defmodule Aiur.DecisionStore do
   @default_dispatch_delay_ms 0
   @default_reconcile_delay_ms 250
   @default_retry_delays_ms [250, 1_000, 5_000]
+  @recent_audit_limit 50
+  @recent_decision_limit 50
   @transient_failure_classes ["orchestrator_unavailable", "orchestrator_timeout"]
   @revision_transient_failure_classes @transient_failure_classes ++
                                         ["target_agent_unavailable", "target_revalidation_failed"]
@@ -109,7 +111,7 @@ defmodule Aiur.DecisionStore do
   end
 
   @doc """
-  Durably accepts one operator answer before scheduling its correlated
+  Durably accepts one Executor answer before scheduling its correlated
   delivery. `opts[:actor]` is trusted runtime identity; actor fields in the
   payload are ignored.
   """
@@ -192,6 +194,13 @@ defmodule Aiur.DecisionStore do
     GenServer.call(server, :list)
   end
 
+  @doc "Returns a bounded dashboard window, prioritizing unresolved and blocking Decisions."
+  @spec recent_decisions(non_neg_integer(), GenServer.server()) :: [Decision.t()]
+  def recent_decisions(limit \\ @recent_decision_limit, server \\ __MODULE__)
+      when is_integer(limit) and limit >= 0 do
+    GenServer.call(server, {:recent_decisions, min(limit, @recent_decision_limit)})
+  end
+
   @spec history(String.t(), GenServer.server()) :: {:ok, [Decision.t()]} | {:error, :not_found}
   def history(decision_id, server \\ __MODULE__) when is_binary(decision_id) do
     GenServer.call(server, {:history, decision_id})
@@ -207,6 +216,18 @@ defmodule Aiur.DecisionStore do
   @spec all_audit_history(GenServer.server()) :: %{String.t() => [Decision.t() | DecisionEvent.t()]}
   def all_audit_history(server \\ __MODULE__) do
     GenServer.call(server, :all_audit_history)
+  end
+
+  @doc "Returns a bounded newest-first audit window with only the contexts needed to project it."
+  @spec recent_audit_history(non_neg_integer(), GenServer.server()) :: %{
+          records: [Decision.t() | DecisionEvent.t()],
+          contexts: map(),
+          actions: map(),
+          revisions: map()
+        }
+  def recent_audit_history(limit \\ @recent_audit_limit, server \\ __MODULE__)
+      when is_integer(limit) and limit >= 0 do
+    GenServer.call(server, {:recent_audit_history, min(limit, @recent_audit_limit)})
   end
 
   @doc "Complete ordered audit history, including request and lifecycle events."
@@ -236,20 +257,26 @@ defmodule Aiur.DecisionStore do
   end
 
   defp configure_dispatch(state, opts) do
+    revision_projector =
+      Keyword.get(opts, :revision_follow_up_projector, &DecisionRevisionDispatch.project_follow_up/2)
+
+    revision_resolver =
+      Keyword.get(opts, :revision_follow_up_resolver, &DecisionRevisionDispatch.resolve_follow_up/2)
+
     Map.merge(state, %{
       dispatcher: Keyword.get(opts, :dispatcher, &DecisionDispatch.dispatch/2),
       dispatch_delay_ms: Keyword.get(opts, :dispatch_delay_ms, @default_dispatch_delay_ms),
       reconcile_delay_ms: Keyword.get(opts, :reconcile_delay_ms, @default_reconcile_delay_ms),
       retry_delays_ms: Keyword.get(opts, :retry_delays_ms, @default_retry_delays_ms),
-      revision_follow_up_projector: Keyword.get(opts, :revision_follow_up_projector, &DecisionRevisionDispatch.project_follow_up/2),
-      revision_follow_up_resolver: Keyword.get(opts, :revision_follow_up_resolver, &DecisionRevisionDispatch.resolve_follow_up/2),
+      revision_follow_up_projector: revision_projector,
+      revision_follow_up_resolver: revision_resolver,
       event_id_reserver: Keyword.get(opts, :event_id_reserver, &IdGenerator.reserve_durable_id/0),
       dispatching: MapSet.new(),
       retry_counts: %{},
-      append_retry_counts: %{},
-      lifecycle_append_failures: MapSet.new(),
       projecting_revision_follow_ups: MapSet.new(),
       resolving_revision_follow_ups: MapSet.new(),
+      append_retry_counts: %{},
+      lifecycle_append_failures: MapSet.new(),
       dispatching_decisions: MapSet.new()
     })
   end
@@ -284,10 +311,12 @@ defmodule Aiur.DecisionStore do
           ndjson_path: ndjson_path,
           projection_path: projection_path,
           current: current,
+          decision_index: build_decision_index(current),
           # The store keeps histories newest-first so every accepted append is
           # O(1). The public history call reverses them back to audit order.
           history: reverse_histories(history),
           audit_history: audit_history,
+          recent_audit: records |> Enum.reverse() |> Enum.take(@recent_audit_limit),
           writable?: true,
           health: :writable
         }
@@ -302,12 +331,16 @@ defmodule Aiur.DecisionStore do
   defp apply_corruption(state, nil), do: state
 
   defp apply_corruption(state, {:corrupt, line, reason}) do
-    Logger.error("aiur_decision_store phase=corruption path=#{state.ndjson_path} line=#{line} reason=#{inspect(reason)}")
+    inspected_reason = inspect(reason)
+    path = state.ndjson_path
+
+    Logger.error("aiur_decision_store phase=corruption path=#{path} line=#{line} reason=#{inspected_reason}")
 
     _ =
       Alerts.emit_custom(
         "decision_store.corrupted",
-        "DecisionStore audit log corrupt at #{state.ndjson_path} line #{line} (#{inspect(reason)}); store is read-only.",
+        "DecisionStore audit log corrupt at #{path} line #{line} " <>
+          "(#{inspected_reason}); store is read-only.",
         needs_attention: true
       )
 
@@ -321,8 +354,10 @@ defmodule Aiur.DecisionStore do
       ndjson_path: ndjson_path,
       projection_path: nil,
       current: %{},
+      decision_index: :gb_sets.empty(),
       history: %{},
       audit_history: %{},
+      recent_audit: [],
       writable?: false,
       health: {:unavailable, reason}
     }
@@ -339,7 +374,8 @@ defmodule Aiur.DecisionStore do
         _ =
           Alerts.emit_custom(
             "decision_store.repair_failed",
-            "DecisionStore's decisions.json projection failed to write (#{inspect(reason)}); the audit record stays authoritative, but the store is read-only until repaired.",
+            "DecisionStore's decisions.json projection failed to write (#{inspect(reason)}); " <>
+              "the audit record stays authoritative, but the store is read-only until repaired.",
             needs_attention: true
           )
 
@@ -466,6 +502,11 @@ defmodule Aiur.DecisionStore do
     {:reply, Map.values(state.current), state}
   end
 
+  def handle_call({:recent_decisions, limit}, _from, state) do
+    decisions = take_indexed_decisions(state.decision_index, state.current, limit)
+    {:reply, decisions, state}
+  end
+
   def handle_call({:history, decision_id}, _from, state) do
     case Map.fetch(state.history, decision_id) do
       {:ok, history} -> {:reply, {:ok, Enum.reverse(history)}, state}
@@ -479,6 +520,11 @@ defmodule Aiur.DecisionStore do
 
   def handle_call(:all_audit_history, _from, state) do
     {:reply, state.audit_history, state}
+  end
+
+  def handle_call({:recent_audit_history, limit}, _from, state) do
+    records = Enum.take(state.recent_audit, limit)
+    {:reply, recent_audit_payload(state, records), state}
   end
 
   def handle_call({:audit_history, decision_id}, _from, state) do
@@ -939,12 +985,14 @@ defmodule Aiur.DecisionStore do
         %{
           state
           | current: Map.put(state.current, current.decision_id, updated),
+            decision_index: update_decision_index(state.decision_index, current, updated),
             history: Map.update(state.history, current.decision_id, [event.data.decision], &[event.data.decision | &1]),
-            audit_history: Map.update(state.audit_history, current.decision_id, [event], &(&1 ++ [event]))
+            audit_history: Map.update(state.audit_history, current.decision_id, [event], &(&1 ++ [event])),
+            recent_audit: remember_recent_audit(state.recent_audit, event)
         }
         |> repair_projection()
 
-      if next_state.writable?, do: notify_lifecycle(updated, event)
+      if next_state.writable?, do: notify_lifecycle(updated, event, event_id)
       {:reply, {:ok, %{status: :accepted, decision: updated}}, next_state}
     else
       {:error, :not_durable} -> {:reply, {:error, :event_id_not_durable}, state}
@@ -1205,8 +1253,15 @@ defmodule Aiur.DecisionStore do
         %{
           state
           | current: Map.put(state.current, decision.decision_id, current),
+            decision_index:
+              update_decision_index(
+                state.decision_index,
+                Map.get(state.current, decision.decision_id),
+                current
+              ),
             history: Map.update(state.history, decision.decision_id, [decision], &[decision | &1]),
-            audit_history: Map.update(state.audit_history, decision.decision_id, [event], &(&1 ++ [event]))
+            audit_history: Map.update(state.audit_history, decision.decision_id, [event], &(&1 ++ [event])),
+            recent_audit: remember_recent_audit(state.recent_audit, event)
         }
         |> repair_projection()
 
@@ -1248,7 +1303,9 @@ defmodule Aiur.DecisionStore do
       next_state = %{
         state
         | current: Map.put(state.current, decision.decision_id, updated),
-          audit_history: Map.update(state.audit_history, decision.decision_id, [event], &(&1 ++ [event]))
+          decision_index: update_decision_index(state.decision_index, decision, updated),
+          audit_history: Map.update(state.audit_history, decision.decision_id, [event], &(&1 ++ [event])),
+          recent_audit: remember_recent_audit(state.recent_audit, event)
       }
 
       {:ok, next_state, updated, event}
@@ -1292,11 +1349,13 @@ defmodule Aiur.DecisionStore do
     end
   end
 
-  defp notify_lifecycle(decision, event) do
+  defp notify_lifecycle(decision, event), do: notify_lifecycle(decision, event, event.event_id)
+
+  defp notify_lifecycle(decision, event, cursor_event_id) do
     topic = "ticket.#{decision.ticket.identifier}.agent.decision.#{lifecycle_slug(event.type)}"
 
     try do
-      Publisher.publish_persisted(topic, DecisionEvent.to_json_safe(event), event.event_id)
+      Publisher.publish_persisted(topic, DecisionEvent.to_json_safe(event), cursor_event_id)
     rescue
       error -> Logger.warning("aiur_decision_store phase=lifecycle_publisher_failed error=#{Exception.message(error)}")
     end
@@ -1344,12 +1403,13 @@ defmodule Aiur.DecisionStore do
     ticket_identifier = Keyword.get(opts, :ticket_identifier)
     actor = Keyword.get(opts, :actor)
     source = Keyword.get(opts, :source, %{})
+    event_data = %{action_id: action_id, actor: actor, source: source, detail: detail}
 
     with true <- (is_binary(decision_id) and decision_id != "") or {:error, :invalid_decision_id},
          true <- (is_binary(ticket_identifier) and ticket_identifier != "") or {:error, :invalid_ticket},
          true <- is_map(actor) or {:error, :invalid_actor},
          {:ok, candidate} <-
-           DecisionEvent.new(type, decision_id, expected_version, %{action_id: action_id, actor: actor, source: source, detail: detail},
+           DecisionEvent.new(type, decision_id, expected_version, event_data,
              event_id: "lifecycle-validation",
              run_id: "lifecycle-validation"
            ),
@@ -1673,12 +1733,16 @@ defmodule Aiur.DecisionStore do
     finalized =
       case ordered_events do
         [] -> next_state
-        events -> repair_and_notify_lifecycle(next_state, Enum.map(events, fn {_prior, updated, event} -> {updated, event} end))
+        events -> repair_and_notify_lifecycle(next_state, lifecycle_event_pairs(events))
       end
 
     Enum.reduce(ordered_events, finalized, fn {prior, updated, event}, state_acc ->
       maybe_project_delivery_attention(state_acc, prior, updated, type, event.data.action_id)
     end)
+  end
+
+  defp lifecycle_event_pairs(events) do
+    Enum.map(events, fn {_prior, updated, event} -> {updated, event} end)
   end
 
   defp duplicate_transport_transition?(attempt, :delivered, _reason),
@@ -1734,14 +1798,16 @@ defmodule Aiur.DecisionStore do
     reason_class =
       case List.last(Decision.active_dispatch_attempts(decision)) do
         %{failure_reason_class: reason_class} when is_binary(reason_class) -> reason_class
-        _other -> "delivery_failed"
+        _attempt -> "delivery_failed"
       end
 
     Alerts.emit_custom(
       failure_attention_topic(decision),
       "Decision answer delivery failed for #{decision.decision_id} (#{reason_class}).",
       issue: decision.ticket.identifier,
-      reason: "Decision #{decision.decision_id} action #{active_answer.action_id} remains actionable after #{reason_class}.",
+      reason:
+        "Decision #{decision.decision_id} action #{active_answer.action_id} " <>
+          "remains actionable after #{reason_class}.",
       needs_attention: true,
       severity: "warning"
     )
@@ -2115,7 +2181,9 @@ defmodule Aiur.DecisionStore do
 
   defp ensure_superseded_revision_follow_ups(state, decision) do
     decision.revision_follow_ups
-    |> Enum.filter(fn {action_id, follow_up} -> action_id != decision.active_action_id and is_nil(follow_up.handled_at) end)
+    |> Enum.filter(fn {action_id, follow_up} ->
+      action_id != decision.active_action_id and is_nil(follow_up.handled_at)
+    end)
     |> Enum.reduce(state, fn {action_id, follow_up}, state_acc ->
       current = Map.fetch!(state_acc.current, decision.decision_id)
 
@@ -2136,7 +2204,7 @@ defmodule Aiur.DecisionStore do
   defp settle_queue_result(state, decision, action_id, attempt_id, :retried, item) do
     restored_attempt_id = item_attempt_id(item) || attempt_id
 
-    case Enum.find(decision.dispatch_attempts, &(&1.attempt_id == restored_attempt_id and &1.queue_item_id == item.id)) do
+    case find_queue_attempt(decision, restored_attempt_id, item.id) do
       nil ->
         data = %{
           action_id: action_id,
@@ -2162,7 +2230,7 @@ defmodule Aiur.DecisionStore do
   defp settle_queue_result(state, decision, action_id, attempt_id, :duplicate, item) do
     accepted_attempt_id = item_attempt_id(item) || attempt_id
 
-    case Enum.find(decision.dispatch_attempts, &(&1.attempt_id == accepted_attempt_id and &1.queue_item_id == item.id)) do
+    case find_queue_attempt(decision, accepted_attempt_id, item.id) do
       nil -> settle_queue_acceptance(state, decision, action_id, accepted_attempt_id, item)
       attempt -> reconcile_existing_queue_snapshot(state, decision, attempt, item)
     end
@@ -2171,7 +2239,7 @@ defmodule Aiur.DecisionStore do
   defp settle_queue_result(state, decision, action_id, attempt_id, _status, item) do
     accepted_attempt_id = item_attempt_id(item) || attempt_id
 
-    case Enum.find(decision.dispatch_attempts, &(&1.attempt_id == accepted_attempt_id and &1.queue_item_id == item.id)) do
+    case find_queue_attempt(decision, accepted_attempt_id, item.id) do
       nil -> settle_queue_acceptance(state, decision, action_id, accepted_attempt_id, item)
       attempt -> reconcile_existing_queue_snapshot(state, decision, attempt, item)
     end
@@ -2182,6 +2250,12 @@ defmodule Aiur.DecisionStore do
       correlation when is_map(correlation) -> correlation_value(correlation, :attempt_id)
       _other -> nil
     end
+  end
+
+  defp find_queue_attempt(decision, attempt_id, queue_item_id) do
+    Enum.find(decision.dispatch_attempts, fn attempt ->
+      attempt.attempt_id == attempt_id and attempt.queue_item_id == queue_item_id
+    end)
   end
 
   defp revision_action?(decision, action_id) do
@@ -2215,7 +2289,8 @@ defmodule Aiur.DecisionStore do
   end
 
   defp reconcile_queue_snapshot(state, decision, %{status: :failed} = item, data) do
-    persist_snapshot_transitions(state, decision, Map.put(data, :reason_class, transport_failure_class(Map.get(item, :failure_reason))), [:failed])
+    reason_class = item |> Map.get(:failure_reason) |> transport_failure_class()
+    persist_snapshot_transitions(state, decision, Map.put(data, :reason_class, reason_class), [:failed])
   end
 
   defp reconcile_queue_snapshot(state, _decision, _item, _data), do: state
@@ -2292,7 +2367,9 @@ defmodule Aiur.DecisionStore do
           lifecycle_append_failure_topic(decision, action_id),
           "Decision delivery persistence is temporarily unavailable for #{decision.decision_id}.",
           issue: decision.ticket.identifier,
-          reason: "Decision #{decision.decision_id} action #{action_id} could not record #{type}; retry is bounded and the store remains available.",
+          reason:
+            "Decision #{decision.decision_id} action #{action_id} could not record #{type}; " <>
+              "retry is bounded and the store remains available.",
           needs_attention: true,
           severity: "warning"
         )
@@ -2325,7 +2402,9 @@ defmodule Aiur.DecisionStore do
           lifecycle_append_failure_topic(decision, action_id) <> ".resolved",
           "Decision delivery persistence recovered for #{decision.decision_id}.",
           issue: decision.ticket.identifier,
-          reason: "Decision #{decision.decision_id} action #{action_id} resumed durable lifecycle recording.",
+          reason:
+            "Decision #{decision.decision_id} action #{action_id} " <>
+              "resumed durable lifecycle recording.",
           needs_attention: false,
           severity: "info"
         )
@@ -2399,7 +2478,8 @@ defmodule Aiur.DecisionStore do
   defp dispatch_allowed?(%Decision{decision_status: status}, _retry_failed?, :recover_append), do: status != :resolved
 
   defp queue_reconcilable?(%Decision{decision_status: :decided} = decision) do
-    match?(%{status: status} when status in [:queued, :restored], List.last(Decision.active_dispatch_attempts(decision)))
+    attempts = Decision.active_dispatch_attempts(decision)
+    match?(%{status: status} when status in [:queued, :restored], List.last(attempts))
   end
 
   defp queue_reconcilable?(%Decision{}), do: false
@@ -2490,6 +2570,138 @@ defmodule Aiur.DecisionStore do
 
     :ok
   end
+
+  defp recent_audit_payload(state, records) do
+    Enum.reduce(records, %{records: records, contexts: %{}, actions: %{}, revisions: %{}}, fn record, payload ->
+      case audit_identity(record) do
+        {decision_id, version} ->
+          payload
+          |> put_audit_context(state, decision_id, version)
+          |> put_audit_action(state, decision_id, audit_action_id(record))
+
+        nil ->
+          payload
+      end
+    end)
+  end
+
+  defp put_audit_context(payload, state, decision_id, version) do
+    case request_version(state, decision_id, version) || Map.get(state.current, decision_id) do
+      %Decision{} = decision ->
+        context = %{
+          version: decision.version,
+          ticket: decision.ticket,
+          question: decision.question,
+          provenance: decision.provenance
+        }
+
+        contexts = Map.update(payload.contexts, decision_id, %{version => context}, &Map.put(&1, version, context))
+        %{payload | contexts: contexts}
+
+      _other ->
+        payload
+    end
+  end
+
+  defp put_audit_action(payload, _state, _decision_id, nil), do: payload
+
+  defp put_audit_action(payload, state, decision_id, action_id) do
+    action =
+      state.current
+      |> Map.get(decision_id)
+      |> case do
+        %Decision{answer: %DecisionAnswer{action_id: ^action_id} = answer} -> answer
+        %Decision{revisions: revisions} -> Enum.find(revisions, &(&1.action_id == action_id))
+        _other -> nil
+      end
+
+    case action do
+      %DecisionAnswer{} = answer ->
+        actions =
+          Map.update(payload.actions, decision_id, %{action_id => answer}, &Map.put(&1, action_id, answer))
+
+        %{payload | actions: actions}
+
+      %DecisionRevision{} = revision ->
+        actions =
+          Map.update(payload.actions, decision_id, %{action_id => revision}, &Map.put(&1, action_id, revision))
+
+        revisions =
+          Map.update(payload.revisions, decision_id, %{action_id => revision}, &Map.put(&1, action_id, revision))
+
+        %{payload | actions: actions, revisions: revisions}
+
+      _other ->
+        payload
+    end
+  end
+
+  defp audit_identity(%DecisionEvent{decision_id: decision_id, decision_version: version}),
+    do: {decision_id, version}
+
+  defp audit_identity(%Decision{decision_id: decision_id, version: version}), do: {decision_id, version}
+  defp audit_identity(_record), do: nil
+
+  defp audit_action_id(%DecisionEvent{data: %DecisionRevision{action_id: action_id}}), do: action_id
+  defp audit_action_id(%DecisionEvent{data: %{action_id: action_id}}), do: action_id
+  defp audit_action_id(_record), do: nil
+
+  defp remember_recent_audit(records, event), do: Enum.take([event | records], @recent_audit_limit)
+
+  defp build_decision_index(current) do
+    current
+    |> Map.values()
+    |> Enum.map(&recent_decision_sort_key/1)
+    |> :gb_sets.from_list()
+  end
+
+  defp update_decision_index(index, prior, %Decision{} = decision) do
+    updated_index = delete_decision_index(index, prior)
+    :gb_sets.add(recent_decision_sort_key(decision), updated_index)
+  end
+
+  defp delete_decision_index(index, %Decision{} = decision),
+    do: :gb_sets.delete_any(recent_decision_sort_key(decision), index)
+
+  defp delete_decision_index(index, _prior), do: index
+
+  defp take_indexed_decisions(index, current, limit),
+    do: take_indexed_decisions(:gb_sets.iterator(index), current, limit, [])
+
+  defp take_indexed_decisions(_iterator, _current, 0, decisions), do: Enum.reverse(decisions)
+
+  defp take_indexed_decisions(iterator, current, remaining, decisions) do
+    case :gb_sets.next(iterator) do
+      {{_resolved, _non_blocking, _urgency, _created_at, decision_id}, next_iterator} ->
+        take_indexed_decisions(
+          next_iterator,
+          current,
+          remaining - 1,
+          [Map.fetch!(current, decision_id) | decisions]
+        )
+
+      :none ->
+        Enum.reverse(decisions)
+    end
+  end
+
+  defp recent_decision_sort_key(%Decision{} = decision) do
+    {
+      decision.decision_status == :resolved,
+      not decision.blocking,
+      -urgency_rank(decision.urgency),
+      -datetime_sort_key(decision.created_at),
+      decision.decision_id
+    }
+  end
+
+  defp urgency_rank(:critical), do: 3
+  defp urgency_rank(:high), do: 2
+  defp urgency_rank(:normal), do: 1
+  defp urgency_rank(_urgency), do: 0
+
+  defp datetime_sort_key(%DateTime{} = datetime), do: DateTime.to_unix(datetime, :microsecond)
+  defp datetime_sort_key(_datetime), do: 0
 
   defp reverse_histories(histories) do
     Map.new(histories, fn {decision_id, history} -> {decision_id, Enum.reverse(history)} end)

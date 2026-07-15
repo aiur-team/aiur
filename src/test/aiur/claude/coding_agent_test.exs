@@ -8,7 +8,7 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
   alias Aiur.Issue
   alias Aiur.Workflow
 
-  test "spawned claude shell receives the AIUR_AGENT_WORKSPACE guard var" do
+  test "spawned claude shell receives workspace and configured base vars" do
     root = Path.join(System.tmp_dir!(), "aiur_claude_env_#{System.unique_integer([:positive])}")
     workspace = Path.join(root, "agent-1")
     File.mkdir_p!(workspace)
@@ -18,16 +18,17 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
     write_workflow_file!(Workflow.workflow_file_path(),
       agent_kind: "claude",
       workspace_root: root,
-      # The fake app-server records the guard var the spawned shell sees,
+      tracker_base_branch: "integration",
+      # The fake app-server records the workspace variables the spawned shell sees,
       # then idles so the initialize handshake reads back nothing and
       # start_session returns a timeout error. The marker is written first.
-      command: "printenv AIUR_AGENT_WORKSPACE > #{marker}; sleep 2",
+      command: "printenv AIUR_AGENT_WORKSPACE AIUR_BASE_BRANCH > #{marker}; sleep 2",
       agent_read_timeout_ms: 300
     )
 
     assert {:error, _reason} = ClaudeAgent.start_session(workspace)
     assert File.exists?(marker)
-    assert String.trim(File.read!(marker)) == workspace
+    assert String.split(File.read!(marker), "\n", trim: true) == [workspace, "integration"]
   end
 
   test "turn/start carries the configured model and completes a turn" do
@@ -126,6 +127,40 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
 
     assert get_in(response_frame, ["result", "success"]) == true
     assert get_in(response_frame, ["result", "output"]) == ~s({"ok":true})
+  end
+
+  @tag :tmp_dir
+  test "oversized tool calls spill through the Claude adapter", %{tmp_dir: tmp_dir} do
+    workspace = Path.join(tmp_dir, "agent-1")
+    File.mkdir_p!(workspace)
+    {_output, 0} = System.cmd("git", ["init", "-q"], cd: workspace)
+    frames = Path.join(workspace, "frames.jsonl")
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agent_kind: "claude",
+      workspace_root: tmp_dir,
+      command: fake_app_server_with_tool_call(frames)
+    )
+
+    issue = %{id: 1, identifier: "test:large-tool", title: "large-tool"}
+    output = String.duplicate("x", 110 * 1024)
+    tool_executor = fn _tool, _arguments -> %{"success" => true, "output" => output} end
+
+    assert {:ok, session} = ClaudeAgent.start_session(workspace)
+    assert {:ok, %{result: :turn_completed}} = ClaudeAgent.run_turn(session, "emit progress", issue, tool_executor: tool_executor)
+    ClaudeAgent.stop_session(session)
+
+    response_frame =
+      frames
+      |> File.read!()
+      |> String.split("\n", trim: true)
+      |> Enum.map(&Jason.decode!/1)
+      |> Enum.find(&(Map.get(&1, "id") == 101))
+
+    assert [path] =
+             Regex.run(~r/saved as JSON to (.+)\. Read the file/, get_in(response_frame, ["result", "output"]), capture: :all_but_first)
+
+    assert Jason.decode!(File.read!(path))["output"] == output
   end
 
   test "tool call failures and unsupported calls are reported" do

@@ -49,7 +49,7 @@ image seeds the workspace only; agents and opencode still run on the host.
 
 Aiur ships with a multi-pane CLI that shows every active agent at a glance, lets you open
 any agent in an opencode-backed chat pane, and send messages directly into a running
-session. A LiveView dashboard at `/` mirrors this surface read-only for browser-based operators;
+session. A LiveView dashboard at `/` mirrors this surface read-only for browser-based Executors;
 messaging and pausing agents stays in the CLI until a dashboard parity pass (set
 `observability.dashboard_writable: true` to re-enable the browser write controls early).
 
@@ -140,10 +140,15 @@ Discovery precedence: `./.aiur/config` → `./.aiurconfig` → `~/.aiur/config` 
 - **Trackers**: `linear`, `github`, `memory`
 - **Agents**: `codex`, `claude`
 
-For GitHub trackers, `github.trusted_accounts` can name operator accounts whose
+For GitHub trackers, `github.trusted_accounts` can name Executor accounts whose
 comments should reach agent event digests even when CODEOWNERS team expansion is
 unavailable. Keep it separate from `github.bot_account`: bot-account authors are
-filtered as self-loops, while trusted accounts are allowed human operators.
+filtered as self-loops, while trusted accounts are allowed human Executors.
+
+Build Order planning reads use finite `github.planning_root_limit`,
+`github.planning_page_budget`, and `github.planning_call_budget` safeguards.
+They default to `100`, `4`, and `4`; all values must be positive and may not
+exceed those hard limits, so a provider generation never silently truncates.
 
 Copy one of the starter pairs (config + prompt template) and edit it for your project:
 
@@ -171,7 +176,9 @@ on your `PATH`:
 | `aiurdev <path-to-.aiurconfig>` | Run an explicit config in the foreground |
 | `aiurdev --test` | Reset the first pinned sandbox ticket, then start an interactive smoke run |
 | `aiurdev --test3` | Reset the pinned 3-ticket blocker-chain sandbox, then start an interactive smoke run |
-| `aiurdev --bg` | Start a headless BEAM in one detached tmux lifetime session after the control RPC is ready |
+| `aiurdev --bg` | Start a detached headless BEAM with the web dashboard enabled |
+| `aiurdev --bg --no-dashboard` | Start a lean detached headless BEAM without the web dashboard |
+| `aiurdev --no-dashboard` | Start the foreground terminal UI without the web dashboard |
 | `aiurdev stop` | Stop the running session (BEAM + tmux) |
 | `aiurdev status` | Show active agents and their running/paused/idle state |
 | `aiurdev pause <id...>` / `pause --all` | Cooperatively pause agents by issue ID |
@@ -221,13 +228,27 @@ shows the override as `paused`.
 By default the engine injects `--host 127.0.0.1` on the run path so the dashboard
 stays local. Pass `--host` explicitly to opt out.
 
-Background mode is headless at the application layer: it skips the interactive
-agent-list pane, chat/prewarm panes, and dashboard unless the dashboard is
-explicitly opted in with a positive port. The launcher still uses one detached
-tmux session to own the BEAM lifetime and cleanup watchdog. If that session is
-already live, `aiurdev --bg` exits successfully with an "already running" hint;
-if the tmux session is stale and the control RPC is down, the launcher cleans it
-up before starting a fresh background run.
+Background mode is headless at the terminal layer: it skips the interactive
+agent-list and chat/prewarm panes while serving the web dashboard at the
+configured host and port. Detachment and dashboard availability are independent:
+add `--no-dashboard` for the lean background shape, or use `--no-dashboard` in
+foreground mode to keep the terminal UI without an HTTP listener. The launcher
+still uses one detached tmux session to own the BEAM lifetime and cleanup
+watchdog. If that session is already live, `aiurdev --bg` exits successfully
+with an "already running" hint; if the tmux session is stale and the control RPC
+is down, the launcher cleans it up before starting a fresh background run.
+
+Claude Remote Control lifecycle hooks post to `Aiur.HttpServer`, so a
+no-listener run cannot support configured Remote Control. Startup fails with a
+clear error when `--no-dashboard` is combined with `agent.remote_control: true`
+or an `agent.routing` value ending in `+remote`; remove the flag or disable that
+Remote Control configuration. Runtime `model:remote` dispatch and live
+promotion also fail fast if no listener is actually bound. Background startup
+prints the confirmed bound URL or an explicit listener-unavailable warning.
+
+Non-loopback dashboard binds retain the authentication guard: set both
+`AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD`, or Aiur refuses the
+dashboard bind while leaving the agent runtime available.
 
 Use `--port <N>` before the config path to override the dashboard/workflow port
 for one invocation:
@@ -235,6 +256,7 @@ for one invocation:
 ```bash
 aiurdev --port 4099
 aiurdev --port 4099 --bg
+aiurdev --port 4099 --bg --no-dashboard
 aiurdev --port 4102 ./.aiurconfig
 ```
 
@@ -244,7 +266,7 @@ be open before launch. If a pinned issue is closed, reset removes any detected
 labeling, and aborts with instructions to reopen the ticket or update
 `.aiur-test-tickets.json`. These manual test modes are blocked inside agent
 issue workspaces because they mutate pinned GitHub sandbox tickets; run them
-from the operator repo root or a dedicated isolated harness. Foreground startup
+from the Executor repo root or a dedicated isolated harness. Foreground startup
 prints the resolved tmux socket/session, which non-TTY drivers should use
 instead of hard-coded socket names.
 
@@ -287,7 +309,7 @@ for routes, payloads, retry semantics, and audit guarantees.
 
 `aiur --debug` (or config-level `debug: true`) starts daemon-owned run telemetry.
 The daemon continuously records resource samples for itself, locally attributable
-ticket process trees, and the operator process when it can be identified. It also
+ticket process trees, and the Executor process when it can be identified. It also
 records sanitized ticket lifecycle boundaries such as dispatch, workspace setup,
 implementation, build/test, PR/review, pause/resume, and rework. Debug-off runs do
 not start the telemetry writer or sampler and do not scan procfs or create a
@@ -343,6 +365,9 @@ path parameter and is never browser-cacheable.
   `dangerFullAccess` unless `turn_sandbox_policy` is explicitly configured.
 - `agent.max_turns` caps how many back-to-back backend turns Aiur runs in a single
   invocation when a turn completes but the issue is still active. Default: `20`.
+- `agent.max_turns_by_complexity` optionally overrides that cap for tickets with
+  `complexity:N` labels, for example `{1: 4, 2: 8, 3: 12}`. Missing levels and
+  unlabeled tickets continue to use `agent.max_turns`.
 - `agent.max_concurrent_agents` caps active workers only. Paused agents remain visible
   and can keep their panes open without consuming an active slot.
 - `agent.switch_model_on_ratelimit` is an opt-in ordered list of configured
@@ -351,7 +376,7 @@ path parameter and is never browser-cacheable.
   claims: a running agent stays on the backend it started with.
 - Aiur records rate-limit observations in `model-usage.json` next to the active
   workflow config. Each backend entry contains any reported `hourly`, `weekly`,
-  and `monthly` `{used, limit, reset_at}` windows plus `observed_at`; operators
+  and `monthly` `{used, limit, reset_at}` windows plus `observed_at`; Executors
   can inspect or remove this file while Aiur is stopped. Codex refreshes its
   authenticated account windows with `account/rateLimits/read` when a Codex
   session starts and also records streaming updates and runtime usage-limit
@@ -405,9 +430,27 @@ path parameter and is never browser-cacheable.
   while ordinary editing, Git, and model work continue. Set it to `0` to remove
   the concurrency cap; a configured memory floor or start stagger remains active
   independently.
+  Local Codex `workspaceWrite` turns add the canonical `~/.aiur/build-gate` metadata
+  directory to `writableRoots` without replacing configured, workspace, or writable Git
+  roots. Persistent lock inodes live in the host-prepared sibling
+  `~/.aiur/build-gate.locks`, which is deliberately excluded from turn-writable roots so
+  a sandbox cannot unlink or replace a held slot. Linux admission uses a lock-owning
+  subreaper, so sandbox-local PID/PGID values are diagnostic only and detached Mix
+  descendants keep their slot until they exit.
   Agent transcripts emit
   `aiur_build_gate` queue/acquire/release/timeout signals, and `aiur status` reports
   active or queued contention.
+- Gate coordination errors return status `125` without invoking Mix. Repair the path
+  named by the error (metadata or lock-directory type, ownership, permissions, missing
+  `flock`, or missing `python3` subreaper support) and
+  restart/re-dispatch the affected agents. `BUILD GATE DEGRADED` means legacy or
+  unreadable metadata needs attention. Stop/re-dispatch the old fleet, confirm no old
+  `mix compile` or `mix test` process is still running, then remove only the reported
+  legacy records and retry. Do not delete legacy records while old builds may still be
+  live. As a deliberate emergency opt-out, set `agent.max_concurrent_builds: 0`, set
+  `agent.build_start_stagger_seconds: 0`, omit `agent.min_free_memory_mb`, and
+  restart/re-dispatch. All three settings can enable the shared gate; this sequence
+  disables build admission entirely and removes its fleet safeguards.
 - `agent.build_start_stagger_seconds` optionally separates admitted local `mix compile`
   and `mix test` starts at their actual heavy-command boundary. It defaults to `0`
   (disabled); this repository's dogfood workflow uses `5`. The memory floor runs
@@ -446,6 +489,43 @@ make all
 
 `make e2e` runs a live end-to-end test against real Linear + Codex; it creates and tears
 down disposable resources and requires `LINEAR_API_KEY`.
+
+### Browser harness
+
+The deterministic browser, accessibility, and measurement harness lives in
+`src/browser/`. It starts a loopback-only synthetic LiveView fixture on an
+isolated port; it never uses a globally installed browser, production data, or
+external services.
+
+```bash
+cd src/browser
+npm ci
+npx playwright install chromium # one-time local browser download
+npm test
+```
+
+`npm test` runs the harness primitives followed by the LiveView smoke. The
+fixture requires a synthetic, HttpOnly session path for read-only or writable
+access; it never accepts or exposes production credentials. Failures retain
+sanitized Playwright traces and screenshots beneath `src/browser/.artifacts-run-*`;
+video and other unverified binary formats are deleted before CI upload.
+Successful runs remove only their run-owned artifact child. Set
+`AIUR_BROWSER_SCREENSHOTS=1` to retain configured smoke screenshots. To prove
+the failure-evidence path locally, run:
+
+```bash
+AIUR_BROWSER_KEEP_ARTIFACTS=1 npm run verify:failure-artifacts
+```
+
+That command deliberately fails one assertion, verifies a trace and screenshot
+were captured, proves a parent-process sentinel is absent from trace, URL, DOM,
+and screenshot evidence, and verifies port release before printing the retained
+temporary artifact directory for inspection. The CI job runs that proof and
+caches the downloaded Playwright browser using `src/browser/package-lock.json`
+as its cache key.
+Playwright Test 1.61.1 (Apache-2.0) and `@axe-core/playwright` 4.11.3
+(MPL-2.0) are pinned in that lockfile. The smoke's broad harness liveness check
+is not a product-performance budget; BO-014 owns those thresholds.
 
 ## Project layout
 

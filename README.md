@@ -89,7 +89,7 @@ through setup and ask which mode you want.
 - **Live run logs:** each workspace writes a human-readable `logs/agent.md` transcript, which the
   dashboard opens in a live-updating modal while a run is active, plus `logs/agent.ndjson`, a
   structured per-event JSON stream that feeds the attentions feed and records agent crash reasons.
-- **opencode chat panes:** the tmux CLI opens opencode-backed chat panes for live operator
+- **opencode chat panes:** the tmux CLI opens opencode-backed chat panes for live Executor
   input while Aiur keeps the Codex/Claude runtime and transcript as the source of truth.
 - **Dashboard auth and hosting:** the Phoenix dashboard supports Basic Auth and can be bound to a
   configured host/port for private operational access.

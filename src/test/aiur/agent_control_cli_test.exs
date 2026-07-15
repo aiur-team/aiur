@@ -368,13 +368,77 @@ defmodule Aiur.AgentControlCLITest do
 
   test "status reports active build-gate contention" do
     gate_dir = Path.join(System.tmp_dir!(), "aiur-build-gate-status-#{System.unique_integer([:positive])}")
+    lock_dir = BuildGate.lock_dir(gate_dir)
     previous = Application.get_env(:aiur, :build_gate_dir_override)
+    release_path = Path.join(gate_dir, "holder.release")
+    slot_lock = Path.join(lock_dir, "slot-1.lock")
+    slot_owner = Path.join(gate_dir, "slot-1.owner")
+    queue_path = Path.join(gate_dir, "queue/lease-v2-status")
+    metadata = "version=2\ntoken=status\npid=2\npgid=1\nphase=test\ncommand=test\n"
 
     Application.put_env(:aiur, :build_gate_dir_override, gate_dir)
-    File.mkdir_p!(Path.join(gate_dir, "slot-1"))
+    assert {:ok, _canonical_gate_dir} = BuildGate.prepare_writable_root(gate_dir: gate_dir, slots: 2)
     File.mkdir_p!(Path.join(gate_dir, "queue"))
-    File.write!(Path.join(gate_dir, "slot-1/owner"), "pid=#{System.pid()}\n")
-    File.write!(Path.join(gate_dir, "queue/#{System.pid()}"), "pid=#{System.pid()}\n")
+    File.write!(slot_owner, metadata)
+    File.write!(queue_path, metadata)
+
+    bash = System.find_executable("bash") || flunk("bash is required for build-gate status tests")
+
+    holder =
+      Port.open({:spawn_executable, String.to_charlist(bash)}, [
+        :binary,
+        :exit_status,
+        :stderr_to_stdout,
+        args: [
+          "-c",
+          ~S"""
+          exec 8<>"$1"
+          flock 8
+          exec 9<>"$2"
+          flock 9
+          printf 'ready\n'
+          while [[ ! -e $3 ]]; do sleep 0.05; done
+          """,
+          "build-gate-holder",
+          slot_lock,
+          queue_path,
+          release_path
+        ]
+      ])
+
+    assert_receive {^holder, {:data, "ready\n"}}, 2_000
+
+    on_exit(fn ->
+      File.touch!(release_path)
+      if Port.info(holder), do: Port.close(holder)
+
+      if is_nil(previous) do
+        Application.delete_env(:aiur, :build_gate_dir_override)
+      else
+        Application.put_env(:aiur, :build_gate_dir_override, previous)
+      end
+
+      File.rm_rf!(gate_dir)
+      File.rm_rf!(lock_dir)
+    end)
+
+    assert %{active: 1, queued: 1} = BuildGate.status()
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+    assert output =~ "BUILD GATE 1/2 active, 1 queued"
+    File.touch!(release_path)
+    assert_receive {^holder, {:exit_status, 0}}, 2_000
+  end
+
+  test "status reports actionable legacy build-gate degradation" do
+    gate_dir = Path.join(System.tmp_dir!(), "aiur-build-gate-legacy-#{System.unique_integer([:positive])}")
+    lock_dir = BuildGate.lock_dir(gate_dir)
+    previous = Application.get_env(:aiur, :build_gate_dir_override)
+    legacy_path = Path.join(gate_dir, "slot-1")
+
+    Application.put_env(:aiur, :build_gate_dir_override, gate_dir)
+    assert {:ok, _canonical_gate_dir} = BuildGate.prepare_writable_root(gate_dir: gate_dir, slots: 2)
+    File.write!(legacy_path, "pid=2\npgid=1\ncommand=test\n")
 
     on_exit(fn ->
       if is_nil(previous) do
@@ -384,12 +448,13 @@ defmodule Aiur.AgentControlCLITest do
       end
 
       File.rm_rf!(gate_dir)
+      File.rm_rf!(lock_dir)
     end)
 
-    assert %{active: 1, queued: 1} = BuildGate.status()
-
     output = capture_io(fn -> AgentControlCLI.status() end)
-    assert output =~ "BUILD GATE 1/2 active, 1 queued"
+    assert output =~ "BUILD GATE DEGRADED 0/2 active, 0 queued"
+    assert output =~ "reason=legacy_state path=#{legacy_path}"
+    assert output =~ "recovery=repair the configured build-gate directory"
   end
 
   test "status hides closed cached issues and deactivated runtime entries", %{orchestrator: pid} do
@@ -1153,8 +1218,8 @@ defmodule Aiur.AgentControlCLITest do
           "event" => "alert",
           "name" => "ticket.934.agent.attention.scope-question",
           "topic" => "ticket.934.agent.attention.scope-question",
-          "message" => "Operator decision required",
-          "reason" => "Operator decision required: Should this facade target change?",
+          "message" => "Executor decision required",
+          "reason" => "Executor decision required: Should this facade target change?",
           "severity" => "warning",
           "needs_attention" => true,
           "source_ticket_id" => "934",
@@ -1166,7 +1231,7 @@ defmodule Aiur.AgentControlCLITest do
 
       assert output =~ "ACTIONABLE"
       assert output =~ "#934"
-      assert output =~ "Operator decision required: Should this facade target change?"
+      assert output =~ "Executor decision required: Should this facade target change?"
     end
 
     test "resolved operator decisions leave the actionable section", %{watch_root: root} do
@@ -1179,8 +1244,8 @@ defmodule Aiur.AgentControlCLITest do
         "event" => "alert",
         "name" => "ticket.934.agent.attention.scope-question",
         "topic" => "ticket.934.agent.attention.scope-question",
-        "message" => "Operator decision required",
-        "reason" => "Operator decision required: Should this facade target change?",
+        "message" => "Executor decision required",
+        "reason" => "Executor decision required: Should this facade target change?",
         "severity" => "warning",
         "needs_attention" => true,
         "source_ticket_id" => "934",
@@ -1191,8 +1256,8 @@ defmodule Aiur.AgentControlCLITest do
         "event" => "alert",
         "name" => "ticket.934.agent.attention.scope-question.resolved",
         "topic" => "ticket.934.agent.attention.scope-question.resolved",
-        "message" => "Operator decision updated",
-        "reason" => "Operator decision resolved.",
+        "message" => "Executor decision updated",
+        "reason" => "Executor decision resolved.",
         "severity" => "info",
         "needs_attention" => false,
         "source_ticket_id" => "934",

@@ -142,6 +142,7 @@ defmodule Aiur.Orchestrator.StatusReport do
     capabilities = OM.issue_control_capabilities(state, metadata.identifier)
     work_state = get_in(metadata, [:control, :status]) || :working
     pause_reason = Map.get(metadata, :paused_reason)
+    started_at = Map.get(metadata, :started_at)
     stale_for_seconds = stale_for_seconds(metadata, now)
     open_decision_count = open_decision_count(metadata.identifier)
 
@@ -158,29 +159,30 @@ defmodule Aiur.Orchestrator.StatusReport do
     %{
       issue_id: issue_id,
       identifier: metadata.identifier,
+      tracker_identity: Issue.tracker_identity(metadata.issue),
       state: metadata.issue.state,
       tag: State.issue_tag(metadata.issue),
       title: Map.get(metadata.issue, :title),
       url: Map.get(metadata.issue, :url),
       worker_host: Map.get(metadata, :worker_host),
       workspace_path: Map.get(metadata, :workspace_path),
-      session_id: metadata.session_id,
-      codex_app_server_pid: metadata.codex_app_server_pid,
-      agent_input_tokens: metadata.agent_input_tokens,
-      agent_output_tokens: metadata.agent_output_tokens,
-      agent_total_tokens: metadata.agent_total_tokens,
+      session_id: Map.get(metadata, :session_id),
+      codex_app_server_pid: Map.get(metadata, :codex_app_server_pid),
+      agent_input_tokens: Map.get(metadata, :agent_input_tokens, 0),
+      agent_output_tokens: Map.get(metadata, :agent_output_tokens, 0),
+      agent_total_tokens: Map.get(metadata, :agent_total_tokens, 0),
       turn_count: Map.get(metadata, :turn_count, 0),
-      started_at: metadata.started_at,
-      last_codex_timestamp: metadata.last_codex_timestamp,
-      last_codex_message: metadata.last_codex_message,
-      last_codex_event: metadata.last_codex_event,
+      started_at: started_at,
+      last_codex_timestamp: Map.get(metadata, :last_codex_timestamp),
+      last_codex_message: Map.get(metadata, :last_codex_message),
+      last_codex_event: Map.get(metadata, :last_codex_event),
       work_state: work_state,
       pause_reason: pause_reason,
       tracker_paused: Issue.paused?(metadata.issue),
       queue_depth: capabilities.queue_depth,
       pending_operator_messages: OM.pending_operator_messages_for_issue(state, metadata.identifier),
       control: capabilities,
-      runtime_seconds: State.running_seconds(metadata.started_at, now),
+      runtime_seconds: State.running_seconds(started_at, now),
       stale_for_seconds: stale_for_seconds,
       waiting_reason: waiting_reason,
       open_decision_count: open_decision_count,
@@ -197,6 +199,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       attempt: attempt,
       due_in_ms: max(0, due_at_ms - now_ms),
       identifier: identifier,
+      tracker_identity: retry_snapshot_tracker_identity(retry, issue),
       state: issue && issue.state,
       tag: issue && State.issue_tag(issue),
       title: issue && issue.title,
@@ -211,26 +214,19 @@ defmodule Aiur.Orchestrator.StatusReport do
   end
 
   defp idle_snapshot(%State{} = state) do
-    running_identifiers =
-      state.running
-      |> Map.values()
-      |> MapSet.new(&Map.get(&1, :identifier))
+    running_issue_ids = MapSet.new(Map.keys(state.running))
 
     # Also exclude issues already shown in the retry-backoff bucket — they're
     # tracker-active (still in `last_polled_issues`) but not in `running`,
     # so without this they'd double up as a contradictory second row here.
-    retrying_identifiers =
-      state.retry_attempts
-      |> Map.values()
-      |> MapSet.new(&Map.get(&1, :identifier))
+    retrying_issue_ids = MapSet.new(Map.keys(state.retry_attempts))
 
-    excluded_identifiers = MapSet.union(running_identifiers, retrying_identifiers)
+    excluded_issue_ids = MapSet.union(running_issue_ids, retrying_issue_ids)
     terminal_states = DispatchPolicy.terminal_state_set()
 
     state.last_polled_issues
-    |> Map.values()
-    |> Enum.reject(fn issue -> MapSet.member?(excluded_identifiers, Map.get(issue, :identifier)) end)
-    |> Enum.map(&idle_issue_snapshot(state, &1, terminal_states))
+    |> Enum.reject(fn {issue_id, _issue} -> MapSet.member?(excluded_issue_ids, issue_id) end)
+    |> Enum.map(fn {_issue_id, issue} -> idle_issue_snapshot(state, issue, terminal_states) end)
   end
 
   defp idle_issue_snapshot(%State{} = state, %Issue{} = issue, terminal_states) do
@@ -241,6 +237,7 @@ defmodule Aiur.Orchestrator.StatusReport do
     %{
       issue_id: issue.id,
       identifier: identifier,
+      tracker_identity: Issue.tracker_identity(issue),
       state: issue.state,
       tag: State.issue_tag(issue),
       title: issue.title,
@@ -295,73 +292,69 @@ defmodule Aiur.Orchestrator.StatusReport do
   def running_summaries(state) do
     now = DateTime.utc_now()
 
-    running_by_identifier =
-      Map.new(state.running, fn {_id, entry} -> {Map.get(entry, :identifier), entry} end)
-
     polled_summaries =
       state.last_polled_issues
-      |> Map.values()
-      |> Enum.map(fn issue ->
-        identifier = Map.get(issue, :identifier) || ""
-        tag = State.issue_tag(issue)
-        title = Map.get(issue, :title)
-
-        case Map.get(running_by_identifier, identifier) do
-          nil ->
-            # Has an `agent:*` label but no Aiur slot is running it.
-            AgentEvents.agent_summary(identifier, :queued, 0, %{
-              tag: tag,
-              title: title,
-              work_state: idle_issue_work_state(issue),
-              pause_reason: idle_issue_pause_reason(issue)
-            })
-
-          entry ->
-            AgentEvents.agent_summary(identifier, :running, 0, %{
-              tag: tag,
-              title: title,
-              runtime_seconds: State.effective_runtime_seconds(entry, now),
-              turn_count: Map.get(entry, :turn_count, 0),
-              work_state: get_in(entry, [:control, :status]) || :working,
-              pause_reason: Map.get(entry, :paused_reason),
-              backend: entry_backend(entry),
-              model: entry_model(entry),
-              remote_control: RC.remote_control_summary(entry)
-            })
-        end
-      end)
-
-    polled_identifiers = MapSet.new(polled_summaries, fn s -> s.identifier end)
+      |> Enum.map(&polled_summary(&1, state, now))
 
     # Cover the narrow race where an agent is mid-dispatch and the
     # tracker poll hasn't refreshed yet — those issues live in
     # `state.running` but not in `last_polled_issues`.
     extra_running =
       state.running
-      |> Enum.flat_map(fn {_id, entry} ->
-        identifier = Map.get(entry, :identifier) || ""
-
-        if identifier == "" or MapSet.member?(polled_identifiers, identifier) do
-          []
-        else
-          [
-            AgentEvents.agent_summary(identifier, :running, 0, %{
-              tag: State.issue_tag(Map.get(entry, :issue)),
-              title: get_in(entry, [:issue, Access.key(:title)]),
-              runtime_seconds: State.effective_runtime_seconds(entry, now),
-              turn_count: Map.get(entry, :turn_count, 0),
-              work_state: get_in(entry, [:control, :status]) || :working,
-              pause_reason: Map.get(entry, :paused_reason),
-              backend: entry_backend(entry),
-              model: entry_model(entry),
-              remote_control: RC.remote_control_summary(entry)
-            })
-          ]
-        end
-      end)
+      |> Enum.flat_map(&unpolled_running_summary(&1, state.last_polled_issues, now))
 
     (polled_summaries ++ extra_running)
     |> Enum.reject(fn %{identifier: id} -> id == "" end)
+  end
+
+  defp polled_summary({issue_id, issue}, state, now) do
+    identifier = Map.get(issue, :identifier) || ""
+    tag = State.issue_tag(issue)
+    title = Map.get(issue, :title)
+
+    case Map.get(state.running, issue_id) do
+      nil -> queued_summary(identifier, issue, tag, title)
+      entry -> running_summary(identifier, entry, tag, title, now)
+    end
+  end
+
+  defp queued_summary(identifier, issue, tag, title) do
+    # Has an `agent:*` label but no Aiur slot is running it.
+    AgentEvents.agent_summary(identifier, :queued, 0, %{
+      tag: tag,
+      title: title,
+      tracker_identity: Issue.tracker_identity(issue),
+      work_state: idle_issue_work_state(issue),
+      pause_reason: idle_issue_pause_reason(issue)
+    })
+  end
+
+  defp unpolled_running_summary({issue_id, entry}, polled_issues, now) do
+    if Map.has_key?(polled_issues, issue_id) do
+      []
+    else
+      [running_summary(Map.get(entry, :identifier) || "", entry, now)]
+    end
+  end
+
+  defp running_summary(identifier, entry, now) do
+    issue = Map.get(entry, :issue)
+    running_summary(identifier, entry, State.issue_tag(issue), get_in(entry, [:issue, Access.key(:title)]), now)
+  end
+
+  defp running_summary(identifier, entry, tag, title, now) do
+    AgentEvents.agent_summary(identifier, :running, 0, %{
+      tag: tag,
+      title: title,
+      tracker_identity: Issue.tracker_identity(Map.get(entry, :issue)),
+      runtime_seconds: State.effective_runtime_seconds(entry, now),
+      turn_count: Map.get(entry, :turn_count, 0),
+      work_state: get_in(entry, [:control, :status]) || :working,
+      pause_reason: Map.get(entry, :paused_reason),
+      backend: entry_backend(entry),
+      model: entry_model(entry),
+      remote_control: RC.remote_control_summary(entry)
+    })
   end
 
   # Resolved backend string for a running entry, so the agent list can name
@@ -415,6 +408,7 @@ defmodule Aiur.Orchestrator.StatusReport do
     %{
       issue_id: issue_id,
       identifier: identifier,
+      tracker_identity: Issue.tracker_identity(issue),
       state: if(work_state == :paused, do: :paused, else: :running),
       work_state: work_state,
       tracker_state: Map.get(issue, :state),
@@ -434,16 +428,10 @@ defmodule Aiur.Orchestrator.StatusReport do
     }
   end
 
-  defp idle_statuses(%State{} = state, running_by_identifier) do
+  defp idle_statuses(%State{} = state, _running_by_identifier) do
     state.last_polled_issues
-    |> Map.values()
-    |> Enum.reject(&running_issue?(&1, running_by_identifier))
-    |> Enum.map(&idle_status(state, &1))
-  end
-
-  defp running_issue?(issue, running_by_identifier) do
-    identifier = Map.get(issue, :identifier)
-    is_binary(identifier) and Map.has_key?(running_by_identifier, identifier)
+    |> Enum.reject(fn {issue_id, _issue} -> Map.has_key?(state.running, issue_id) end)
+    |> Enum.map(fn {_issue_id, issue} -> idle_status(state, issue) end)
   end
 
   defp idle_status(%State{} = state, issue) do
@@ -452,6 +440,7 @@ defmodule Aiur.Orchestrator.StatusReport do
     %{
       issue_id: Map.get(issue, :id),
       identifier: identifier,
+      tracker_identity: Issue.tracker_identity(issue),
       state: :idle,
       tracker_state: Map.get(issue, :state),
       tracker_paused: Issue.paused?(issue),
@@ -475,6 +464,9 @@ defmodule Aiur.Orchestrator.StatusReport do
   end
 
   defp idle_queue_depth(_state, _identifier), do: 0
+
+  defp retry_snapshot_tracker_identity(retry, nil), do: Map.get(retry, :tracker_identity)
+  defp retry_snapshot_tracker_identity(_retry, issue), do: Issue.tracker_identity(issue)
 
   defp idle_issue_work_state(%Issue{} = issue) do
     if Issue.paused?(issue), do: :paused, else: :idle

@@ -45,7 +45,7 @@ production credentials stay in the human's own session.
 - Creates an isolated workspace for each selected issue.
 - Runs a coding agent with a repository-specific YAML config and prompt.
 - Coordinates multiple agents through dependency and lifecycle events.
-- Shows agent status, logs, progress, and operator chat in the CLI and dashboard.
+- Shows agent status, logs, progress, and Executor chat in the CLI and dashboard.
 
 ## Install
 
@@ -103,6 +103,6 @@ For a headless run, use `aiur --bg`. Useful controls include `aiur status`,
   for configuration, commands, tracker adapters, and troubleshooting.
 - Browse starter configs in the [workflow examples](https://github.com/its-everdred/aiur/tree/main/src/examples/workflows).
 - Install [opencode](https://opencode.ai) separately if you want Aiur's live
-  operator chat panes.
+  Executor chat panes.
 - Review the [project repository](https://github.com/its-everdred/aiur) and its
   safety warning before using Aiur with production code or credentials.

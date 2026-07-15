@@ -1,5 +1,9 @@
 # Claude design prompt — Aiur Operator Control Center (mock)
 
+> Historical design input. The shipped product is now the **Executor Control
+> Center**; legacy terminology below is preserved as part of the original mock
+> brief.
+
 > Paste everything below the line into Claude. It produces a self-contained, clickable HTML
 > mockup (an Artifact) of the new dashboard, populated with realistic example data. The mock's
 > URL becomes the design reference the implementation ticket productionizes into LiveView.

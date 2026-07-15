@@ -216,6 +216,178 @@ defmodule Aiur.Codex.ApprovalsTest do
         Port.close(port)
       end
     end
+
+    test "replays a completed tool result without duplicating its mutation after a closed port" do
+      retired_port = open_cat_port()
+      Port.close(retired_port)
+      replacement_port = open_cat_port()
+      ledger = start_supervised!({Aiur.AppServer.ToolCallLedger, name: nil})
+      scope = {:closed_port_replay, System.unique_integer([:positive])}
+      {:ok, executions} = Agent.start_link(fn -> 0 end)
+
+      params = %{
+        "tool" => "emit_event",
+        "callId" => "call-closed-port",
+        "threadId" => "thread-closed-port",
+        "turnId" => "turn-closed-port",
+        "arguments" => %{"name" => "progress.checkin"}
+      }
+
+      payload = %{"id" => 102, "method" => "item/tool/call", "params" => params}
+
+      tool_executor = fn _tool, _args ->
+        Agent.update(executions, &(&1 + 1))
+        %{"success" => true, "output" => "event published"}
+      end
+
+      try do
+        assert {:error, :port_closed} =
+                 Approvals.maybe_handle_approval_request(
+                   retired_port,
+                   "item/tool/call",
+                   payload,
+                   Jason.encode!(payload),
+                   fn _message -> :ok end,
+                   @metadata,
+                   tool_executor,
+                   false,
+                   %{tool_call_scope: scope, tool_call_ledger: ledger, response_id: 102},
+                   false
+                 )
+
+        assert :approved =
+                 Approvals.maybe_handle_approval_request(
+                   replacement_port,
+                   "item/tool/call",
+                   payload,
+                   Jason.encode!(payload),
+                   fn _message -> :ok end,
+                   @metadata,
+                   tool_executor,
+                   false,
+                   %{tool_call_scope: scope, tool_call_ledger: ledger, response_id: 102},
+                   false
+                 )
+
+        assert read_one_frame(replacement_port) == %{
+                 "id" => 102,
+                 "result" => %{"success" => true, "output" => "event published"}
+               }
+
+        assert Agent.get(executions, & &1) == 1
+      after
+        Port.close(replacement_port)
+      end
+    end
+
+    test "same call ID in different provider threads executes independently" do
+      port = open_cat_port()
+      ledger = start_supervised!({Aiur.AppServer.ToolCallLedger, name: nil})
+      scope = {:cross_thread, System.unique_integer([:positive])}
+      {:ok, executions} = Agent.start_link(fn -> 0 end)
+
+      tool_executor = fn _tool, arguments ->
+        Agent.update(executions, &(&1 + 1))
+        %{"success" => true, "output" => arguments["value"]}
+      end
+
+      try do
+        Enum.each([{"thread-a", "first", 201}, {"thread-b", "second", 202}], fn {thread_id, value, id} ->
+          params = %{
+            "tool" => "emit_event",
+            "callId" => "call-shared",
+            "threadId" => thread_id,
+            "arguments" => %{"value" => value}
+          }
+
+          payload = %{"id" => id, "method" => "item/tool/call", "params" => params}
+
+          assert :approved =
+                   Approvals.maybe_handle_approval_request(
+                     port,
+                     "item/tool/call",
+                     payload,
+                     Jason.encode!(payload),
+                     fn _message -> :ok end,
+                     @metadata,
+                     tool_executor,
+                     false,
+                     %{tool_call_scope: scope, tool_call_ledger: ledger, response_id: id},
+                     false
+                   )
+
+          assert read_one_frame(port)["result"]["output"] == value
+        end)
+
+        assert Agent.get(executions, & &1) == 2
+      after
+        Port.close(port)
+      end
+    end
+
+    test "same thread and call ID with conflicting payload fails closed" do
+      port = open_cat_port()
+      ledger = start_supervised!({Aiur.AppServer.ToolCallLedger, name: nil})
+      scope = {:conflicting_payload, System.unique_integer([:positive])}
+      {:ok, executions} = Agent.start_link(fn -> 0 end)
+
+      tool_executor = fn _tool, _arguments ->
+        Agent.update(executions, &(&1 + 1))
+        %{"success" => true, "output" => "mutated"}
+      end
+
+      try do
+        first_params = %{
+          "tool" => "emit_event",
+          "callId" => "call-conflict",
+          "threadId" => "thread-one",
+          "turnId" => "turn-one",
+          "arguments" => %{"value" => 1}
+        }
+
+        first_payload = %{"id" => 203, "method" => "item/tool/call", "params" => first_params}
+
+        assert :approved =
+                 Approvals.maybe_handle_approval_request(
+                   port,
+                   "item/tool/call",
+                   first_payload,
+                   Jason.encode!(first_payload),
+                   fn _message -> :ok end,
+                   @metadata,
+                   tool_executor,
+                   false,
+                   %{tool_call_scope: scope, tool_call_ledger: ledger, response_id: 203},
+                   false
+                 )
+
+        assert read_one_frame(port)["result"]["success"]
+
+        conflicting_params = put_in(first_params, ["arguments", "value"], 2)
+        conflicting_payload = %{"id" => 204, "method" => "item/tool/call", "params" => conflicting_params}
+
+        assert :approved =
+                 Approvals.maybe_handle_approval_request(
+                   port,
+                   "item/tool/call",
+                   conflicting_payload,
+                   Jason.encode!(conflicting_payload),
+                   fn _message -> :ok end,
+                   @metadata,
+                   tool_executor,
+                   false,
+                   %{tool_call_scope: scope, tool_call_ledger: ledger, response_id: 204},
+                   false
+                 )
+
+        result = read_one_frame(port)["result"]
+        refute result["success"]
+        assert result["output"] =~ "conflicting"
+        assert Agent.get(executions, & &1) == 1
+      after
+        Port.close(port)
+      end
+    end
   end
 
   describe "pause containment" do

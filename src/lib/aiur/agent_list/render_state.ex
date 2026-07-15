@@ -82,15 +82,12 @@ defmodule Aiur.AgentList.RenderState do
     end
   end
 
-  defp dashboard_url do
-    host = safe_call(fn -> Config.server_host() end)
-    port = safe_call(fn -> HttpServer.bound_port() end) || safe_call(fn -> Config.server_port() end)
-
-    cond do
-      not is_integer(port) -> nil
-      port <= 0 -> nil
-      is_binary(host) and host != "" -> "http://#{host}:#{port}/"
-      true -> "http://127.0.0.1:#{port}/"
+  @doc false
+  @spec dashboard_url((-> String.t() | nil)) :: String.t() | nil
+  def dashboard_url(base_url_fun \\ &HttpServer.base_url/0) do
+    case safe_call(base_url_fun) do
+      url when is_binary(url) -> url <> "/"
+      _ -> nil
     end
   end
 

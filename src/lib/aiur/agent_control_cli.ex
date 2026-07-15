@@ -12,7 +12,7 @@ defmodule Aiur.AgentControlCLI do
 
   # `aiur watch` remembers the last board it reported (per-row signature) in a
   # node-local persistent term so `--changes` can print only state-level deltas
-  # across one-shot RPC invocations. Updated at operator cadence (minutes), so
+  # across one-shot RPC invocations. Updated at Executor cadence (minutes), so
   # the persistent_term churn is negligible.
   @watch_baseline_key {__MODULE__, :watch_baseline}
   @watch_stuck_after_seconds 600
@@ -62,7 +62,7 @@ defmodule Aiur.AgentControlCLI do
   # from aiur's own state — the orchestrator status snapshot + the persisted
   # alert feed — with no GitHub round-trip. `mode: :full` prints every row;
   # `mode: :changes` (the default) prints only rows whose state-level signature
-  # changed since the previous call, keeping the periodic operator pull cheap.
+  # changed since the previous call, keeping the periodic Executor pull cheap.
   @spec watch(keyword()) :: :ok
   def watch(opts \\ []) do
     case Orchestrator.status() do
@@ -544,6 +544,21 @@ defmodule Aiur.AgentControlCLI do
 
   defp print_build_gate_status do
     case BuildGate.status() do
+      %{
+        enabled?: true,
+        capacity: capacity,
+        active: active,
+        queued: queued,
+        degraded?: true,
+        issues: [issue | remaining]
+      } ->
+        suffix = if remaining == [], do: "", else: " (+#{length(remaining)} more)"
+
+        IO.puts(
+          "BUILD GATE DEGRADED #{active}/#{capacity} active, #{queued} queued; " <>
+            "reason=#{issue.reason} path=#{issue.path}#{suffix}; recovery=#{issue.recovery}"
+        )
+
       %{enabled?: true, capacity: capacity, active: active, queued: queued} when active > 0 or queued > 0 ->
         IO.puts("BUILD GATE #{active}/#{capacity} active, #{queued} queued")
 

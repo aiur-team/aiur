@@ -25,7 +25,9 @@ defmodule Aiur.AgentList.Renderer.Markers do
                              :error,
                              "error",
                              :sleeping,
-                             "sleeping"
+                             "sleeping",
+                             :completed,
+                             "completed"
                            ] ++ @finished_work_states
 
   # Per-identifier marker, ordered most-ready-first:

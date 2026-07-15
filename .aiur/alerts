@@ -103,7 +103,7 @@ alerts:
       - "~/alerts/advisor/advisor-yes-executor.wav"
       - "~/alerts/templar/templar-yes-executor.wav"
   "ticket.*.agent.attention.*":
-    message: Operator decision required
+    message: Executor decision required
     sound:
       - "~/alerts/advisor/advisor-additional-pylons.wav"
   "ticket.*.agent.unpaused":

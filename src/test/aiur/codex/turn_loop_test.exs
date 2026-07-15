@@ -1,6 +1,7 @@
 defmodule Aiur.Codex.TurnLoopTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.AppServer.{ProviderTurnLedger, TurnState}
   alias Aiur.Codex.{CodingAgent, TurnLoop}
 
   describe "handle_method/5 terminal turn events" do
@@ -12,6 +13,49 @@ defmodule Aiur.Codex.TurnLoopTest do
                TurnLoop.handle_method(%{port: port}, base_state(), payload, Jason.encode!(payload), "turn/completed")
 
       assert_received {:event, :turn_completed}
+      close_port(port)
+    end
+
+    test "turn/completed retires exact provider IDs idempotently" do
+      port = open_cat_port()
+      state = %{base_state() | active_turn_ids: MapSet.new(["turn-1", "turn-2"]), outstanding_turns: 2}
+      parent_completed = turn_completed_payload("turn-1")
+
+      assert {:continue, state} =
+               TurnLoop.handle_method(
+                 %{port: port},
+                 state,
+                 parent_completed,
+                 Jason.encode!(parent_completed),
+                 "turn/completed"
+               )
+
+      assert state.active_turn_ids == MapSet.new(["turn-2"])
+      assert state.outstanding_turns == 1
+
+      assert {:continue, duplicate_state} =
+               TurnLoop.handle_method(
+                 %{port: port},
+                 state,
+                 parent_completed,
+                 Jason.encode!(parent_completed),
+                 "turn/completed"
+               )
+
+      assert duplicate_state.active_turn_ids == MapSet.new(["turn-2"])
+      assert duplicate_state.outstanding_turns == 1
+
+      child_completed = turn_completed_payload("turn-2")
+
+      assert {:ok, :turn_completed} =
+               TurnLoop.handle_method(
+                 %{port: port},
+                 duplicate_state,
+                 child_completed,
+                 Jason.encode!(child_completed),
+                 "turn/completed"
+               )
+
       close_port(port)
     end
 
@@ -72,6 +116,31 @@ defmodule Aiur.Codex.TurnLoopTest do
       assert_received {:event, :turn_cancelled}
       close_port(port)
     end
+
+    test "turn/cancelled retires active and accepted IDs before the resumed turn" do
+      {:ok, store} = ProviderTurnLedger.start_store()
+      on_exit(fn -> ProviderTurnLedger.stop_store(store) end)
+      port = open_cat_port()
+
+      state =
+        store
+        |> stored_turn_state("turn-old")
+        |> TurnState.record_accepted_provider_turn(%{"id" => "turn-accepted", "status" => "inProgress"})
+        |> Map.put(:pause_request_id, 56)
+
+      payload = %{"method" => "turn/cancelled", "params" => %{"reason" => "operator pause"}}
+
+      assert {:paused, %{request_id: 56}} =
+               TurnLoop.handle_method(%{port: port}, state, payload, Jason.encode!(payload), "turn/cancelled")
+
+      resumed = stored_turn_state(store, "turn-new")
+      resumed = TurnState.register_provider_turn(resumed, %{"id" => "turn-old", "status" => "inProgress"})
+      resumed = TurnState.register_provider_turn(resumed, %{"id" => "turn-accepted", "status" => "inProgress"})
+
+      assert resumed.active_turn_ids == MapSet.new(["turn-new"])
+      assert {:ok, :turn_completed} = TurnState.continue_after_turn_completion(resumed, turn_completed_payload("turn-new"))
+      close_port(port)
+    end
   end
 
   describe "handle_method/5 generic method routing" do
@@ -86,6 +155,60 @@ defmodule Aiur.Codex.TurnLoopTest do
       frame = read_one_frame(port)
       assert frame == %{"id" => 77, "result" => %{"success" => true, "output" => "ok"}}
       assert_received {:event, :tool_call_completed}
+      close_port(port)
+    end
+
+    test "a closed port makes a completed tool call terminal" do
+      port = open_cat_port()
+      close_port(port)
+      payload = %{"method" => "item/tool/call", "id" => 79, "params" => %{"tool" => "emit_event", "arguments" => %{}}}
+
+      state =
+        %{
+          base_state()
+          | tool_executor: fn "emit_event", %{} ->
+              send(self(), :tool_executed)
+              %{"success" => true, "output" => "event published"}
+            end
+        }
+
+      assert {:error, :port_closed} =
+               TurnLoop.handle_method(%{port: port}, state, payload, Jason.encode!(payload), "item/tool/call")
+
+      assert_receive :tool_executed
+      refute_received {:event, :tool_call_completed}
+    end
+
+    @tag :tmp_dir
+    test "auto-approved tool calls spill oversized results into the session workspace", %{tmp_dir: tmp_dir} do
+      {_output, 0} = System.cmd("git", ["init", "-q"], cd: tmp_dir)
+      port = open_cat_port()
+      output = String.duplicate("x", 100 * 1024 + 1)
+      payload = %{"method" => "item/tool/call", "id" => 78, "params" => %{"tool" => "aiur.echo", "arguments" => %{}}}
+      state = %{base_state() | tool_executor: fn "aiur.echo", %{} -> %{"success" => true, "output" => output} end}
+
+      assert {:continue, _state} =
+               TurnLoop.handle_method(%{port: port, workspace: tmp_dir}, state, payload, Jason.encode!(payload), "item/tool/call")
+
+      frame = read_one_frame(port)
+      assert get_in(frame, ["result", "success"])
+      assert [path] = Regex.run(~r/saved as JSON to (.+)\. Read the file/, get_in(frame, ["result", "output"]), capture: :all_but_first)
+      assert Jason.decode!(File.read!(path))["output"] == output
+      close_port(port)
+    end
+
+    test "ordinary event metadata does not expose the workspace" do
+      port = open_cat_port()
+      payload = %{"method" => "session/configured", "params" => %{}}
+      test_pid = self()
+      state = %{base_state() | on_message: fn message -> send(test_pid, {:full_event, message}) end}
+
+      assert {:continue, _state} =
+               TurnLoop.handle_method(%{port: port, workspace: "/secret/workspace"}, state, payload, Jason.encode!(payload), payload["method"])
+
+      assert_received {:full_event, message}
+      refute Map.has_key?(message, :workspace)
+      refute Map.has_key?(message, "workspace")
       close_port(port)
     end
 
@@ -142,6 +265,31 @@ defmodule Aiur.Codex.TurnLoopTest do
       close_port(port)
     end
 
+    test "quota exhaustion retires the failed provider turn before resume" do
+      {:ok, store} = ProviderTurnLedger.start_store()
+      on_exit(fn -> ProviderTurnLedger.stop_store(store) end)
+      port = open_cat_port()
+
+      payload = %{
+        "method" => "error",
+        "params" => %{
+          "willRetry" => false,
+          "codexErrorInfo" => "usageLimitExceeded",
+          "message" => "You've hit your usage limit."
+        }
+      }
+
+      assert {:paused, %{kind: :usage_limit_exhausted}} =
+               TurnLoop.handle_method(%{port: port}, stored_turn_state(store, "turn-old"), payload, Jason.encode!(payload), "error")
+
+      resumed = stored_turn_state(store, "turn-new")
+      resumed = TurnState.register_provider_turn(resumed, %{"id" => "turn-old", "status" => "inProgress"})
+
+      assert resumed.active_turn_ids == MapSet.new(["turn-new"])
+      assert {:ok, :turn_completed} = TurnState.continue_after_turn_completion(resumed, turn_completed_payload("turn-new"))
+      close_port(port)
+    end
+
     test "ordinary unretryable errors end the turn hard" do
       port = open_cat_port()
       payload = %{"method" => "error", "params" => %{"willRetry" => false, "message" => "bwrap refused"}}
@@ -154,7 +302,11 @@ defmodule Aiur.Codex.TurnLoopTest do
 
     test "turn started marks the state and processes a notification checkpoint" do
       port = open_cat_port()
-      payload = %{"method" => "turn/started", "params" => %{}}
+
+      payload = %{
+        "method" => "turn/started",
+        "params" => %{"turn" => %{"id" => "turn-2", "status" => "inProgress"}}
+      }
 
       state =
         base_state(fn checkpoint ->
@@ -162,9 +314,11 @@ defmodule Aiur.Codex.TurnLoopTest do
           :noop
         end)
 
-      assert {:continue, %{turn_started?: true}} =
+      assert {:continue, %{turn_started?: true} = next_state} =
                TurnLoop.handle_method(%{port: port}, state, payload, Jason.encode!(payload), "turn/started")
 
+      assert next_state.active_turn_ids == MapSet.new(["turn-1", "turn-2"])
+      assert next_state.outstanding_turns == 2
       assert_received {:checkpoint, %{kind: :notification, method: "turn/started"}}
       close_port(port)
     end
@@ -179,10 +333,82 @@ defmodule Aiur.Codex.TurnLoopTest do
       assert {:ok, :turn_completed} =
                TurnLoop.handle_method(
                  %{port: port},
-                 %{base_state() | turn_started?: true},
+                 %{
+                   base_state()
+                   | turn_started?: true,
+                     active_turn_ids: MapSet.new(["turn-1", "turn-2"]),
+                     outstanding_turns: 2
+                 },
                  payload,
                  Jason.encode!(payload),
                  payload["method"]
+               )
+
+      close_port(port)
+    end
+
+    test "idle waits for paired interrupted completion while pause is pending" do
+      port = open_cat_port()
+      idle = %{"method" => "thread/status/changed", "params" => %{"status" => %{"type" => "idle"}}}
+
+      state = %{
+        base_state()
+        | turn_started?: true,
+          pause_request_id: 7,
+          pending_interrupt_request_id: 42,
+          interrupt_action: :pause
+      }
+
+      assert {:continue, idle_state} =
+               TurnLoop.handle_method(%{port: port}, state, idle, Jason.encode!(idle), idle["method"])
+
+      assert Map.drop(idle_state, [:interrupt_idle_seen?, :interrupt_idle_payload]) ==
+               Map.drop(state, [:interrupt_idle_seen?, :interrupt_idle_payload])
+
+      assert idle_state.interrupt_idle_seen?
+
+      interrupted = turn_completed_payload("turn-1", "interrupted")
+
+      assert {:paused, %{request_id: 7, turn_id: "turn-1", details: ^interrupted}} =
+               TurnLoop.handle_method(
+                 %{port: port},
+                 idle_state,
+                 interrupted,
+                 Jason.encode!(interrupted),
+                 interrupted["method"]
+               )
+
+      close_port(port)
+    end
+
+    test "idle waits for paired interrupted completion for operator delivery" do
+      port = open_cat_port()
+      idle = %{"method" => "thread/status/changed", "params" => %{"status" => %{"type" => "idle"}}}
+
+      state = %{
+        base_state()
+        | turn_started?: true,
+          pending_interrupt_request_id: 43,
+          interrupt_action: :operator_message
+      }
+
+      assert {:continue, idle_state} =
+               TurnLoop.handle_method(%{port: port}, state, idle, Jason.encode!(idle), idle["method"])
+
+      assert Map.drop(idle_state, [:interrupt_idle_seen?, :interrupt_idle_payload]) ==
+               Map.drop(state, [:interrupt_idle_seen?, :interrupt_idle_payload])
+
+      assert idle_state.interrupt_idle_seen?
+
+      interrupted = turn_completed_payload("turn-1", "interrupted")
+
+      assert {:ok, :turn_interrupted_for_operator_message} =
+               TurnLoop.handle_method(
+                 %{port: port},
+                 idle_state,
+                 interrupted,
+                 Jason.encode!(interrupted),
+                 interrupted["method"]
                )
 
       close_port(port)
@@ -232,8 +458,29 @@ defmodule Aiur.Codex.TurnLoopTest do
       interrupt_action: nil,
       pause_request_id: nil,
       current_turn_id: "turn-1",
+      issue_identifier: "ISSUE-1",
       turn_started?: false,
+      active_turn_ids: MapSet.new(["turn-1"]),
+      accepted_turn_ids: MapSet.new(),
+      retired_turn_ids: MapSet.new(),
+      anonymous_completion_consumed?: false,
+      interrupt_acknowledged?: false,
+      interrupt_idle_seen?: false,
       backend: CodingAgent
+    }
+  end
+
+  defp stored_turn_state(store, turn_id) do
+    base_state()
+    |> Map.merge(ProviderTurnLedger.start_turn(store))
+    |> Map.put(:current_turn_id, turn_id)
+    |> TurnState.initialize_turn_tracking()
+  end
+
+  defp turn_completed_payload(turn_id, status \\ "completed") do
+    %{
+      "method" => "turn/completed",
+      "params" => %{"turn" => %{"id" => turn_id, "status" => status}}
     }
   end
 
