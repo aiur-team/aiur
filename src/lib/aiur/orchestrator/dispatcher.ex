@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   require Logger
 
-  alias Aiur.{AgentRunner, Alerts, CodingAgent, Config, Issue, RepoBase, Tracker}
+  alias Aiur.{AgentRunner, Alerts, CodingAgent, Config, DispatchBudgetStore, Issue, RepoBase, Tracker}
   alias Aiur.Orchestrator
 
   alias Aiur.Orchestrator.{
@@ -362,8 +362,16 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
     case budget_trip_reason(entry) do
       nil ->
-        state = %{state | codex_thrash_budget: Map.put(state.codex_thrash_budget, issue_id, entry)}
-        {:ok, state}
+        case persist_lifetime(entry, issue_id) do
+          :ok ->
+            state = %{state | codex_thrash_budget: Map.put(state.codex_thrash_budget, issue_id, entry)}
+            {:ok, state}
+
+          {:error, _reason} ->
+            tripped = trip_budget_entry(previous, entry, :lifetime)
+            state = %{state | codex_thrash_budget: Map.put(state.codex_thrash_budget, issue_id, tripped)}
+            {:trip, state}
+        end
 
       reason ->
         tripped = trip_budget_entry(previous, entry, reason)
@@ -380,7 +388,12 @@ defmodule Aiur.Orchestrator.Dispatcher do
     end
   end
 
-  defp active_trip?(%{tripped: :lifetime}, _now_ms), do: true
+  defp active_trip?(%{tripped: :lifetime, lifetime: lifetime}, _now_ms) do
+    case Config.agent_max_dispatches_per_ticket() do
+      max when is_integer(max) and max > 0 -> lifetime >= max
+      _ -> false
+    end
+  end
 
   defp active_trip?(%{tripped: :window, window_start_ms: start}, now_ms) do
     now_ms - start < Config.codex_thrash_window_seconds() * 1_000
@@ -419,7 +432,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   defp next_thrash_budget_entry(state, issue_id, now_ms) do
     window_ms = Config.codex_thrash_window_seconds() * 1_000
     previous = Map.get(state.codex_thrash_budget, issue_id)
-    lifetime = lifetime_of(previous) + 1
+    lifetime = max(lifetime_of(previous), persisted_lifetime(issue_id)) + 1
 
     case previous do
       %{window_start_ms: start, count: count} when now_ms - start < window_ms ->
@@ -432,6 +445,33 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   defp lifetime_of(%{lifetime: lifetime}) when is_integer(lifetime), do: lifetime
   defp lifetime_of(_entry), do: 0
+
+  defp persisted_lifetime(issue_id) do
+    case Config.agent_max_dispatches_per_ticket() do
+      max when is_integer(max) and max > 0 ->
+        case DispatchBudgetStore.lifetime(issue_id) do
+          {:ok, lifetime} ->
+            lifetime
+
+          {:error, reason} ->
+            Logger.error("Dispatch budget store read failed: issue_id=#{issue_id} reason=#{inspect(reason)}")
+            max
+        end
+
+      _ ->
+        0
+    end
+  end
+
+  defp persist_lifetime(entry, issue_id) do
+    case Config.agent_max_dispatches_per_ticket() do
+      max when is_integer(max) and max > 0 ->
+        DispatchBudgetStore.put_lifetime(issue_id, entry.lifetime)
+
+      _ ->
+        :ok
+    end
+  end
 
   # Clears the window so an operator resume can move the ticket again, but
   # deliberately preserves `lifetime`: the dispatches were really spent, and
@@ -695,6 +735,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
             agent_last_reported_output_tokens: 0,
             agent_last_reported_total_tokens: 0,
             turn_count: 0,
+            completed_turn_count: 0,
             control: default_running_control(issue),
             telemetry_attempt_id: lifecycle_attempt_id,
             retry_attempt: RetryEngine.normalize_retry_attempt(attempt),

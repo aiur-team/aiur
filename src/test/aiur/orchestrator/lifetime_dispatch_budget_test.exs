@@ -10,11 +10,13 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
 
   setup %{config: config} do
     previous = Application.get_env(:aiur, :workflow_file_path)
+    previous_store = Application.get_env(:aiur, :dispatch_budget_store_path)
     dir = Path.join(System.tmp_dir!(), "aiur-lifetime-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
     path = Path.join(dir, ".aiurconfig")
     File.write!(path, config)
     Workflow.set_workflow_file_path(path)
+    Application.put_env(:aiur, :dispatch_budget_store_path, Path.join(dir, "dispatch-budgets.json"))
 
     on_exit(fn ->
       File.rm_rf!(dir)
@@ -23,6 +25,12 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
         Workflow.clear_workflow_file_path()
       else
         Workflow.set_workflow_file_path(previous)
+      end
+
+      if is_nil(previous_store) do
+        Application.delete_env(:aiur, :dispatch_budget_store_path)
+      else
+        Application.put_env(:aiur, :dispatch_budget_store_path, previous_store)
       end
     end)
 
@@ -87,6 +95,14 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
 
     assert {:ok, state} = run(state, -576_460_751_000)
     assert %{count: 1, lifetime: 2, window_start_ms: -576_460_751_000} = state.codex_thrash_budget[@issue_id]
+  end
+
+  @tag config: @enabled
+  test "a daemon restart does not refund persisted lifetime dispatches" do
+    _state = dispatch_n(%Orchestrator.State{}, 10)
+
+    assert {:trip, restarted_state} = run(%Orchestrator.State{}, 11 * (@window_ms + 1))
+    assert %{lifetime: 10, tripped: :lifetime} = restarted_state.codex_thrash_budget[@issue_id]
   end
 
   @tag config: @enabled
