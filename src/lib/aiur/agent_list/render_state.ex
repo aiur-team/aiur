@@ -37,6 +37,10 @@ defmodule Aiur.AgentList.RenderState do
     |> Map.put(:open_attentions_by_id, Map.get(state, :open_attentions_by_id, %{}))
     |> Map.put(:progress_by_id, Map.get(state, :progress_by_id, %{}))
     |> Map.put(
+      :activity_status_by_identifier,
+      Map.get(state, :activity_status_by_identifier, %{})
+    )
+    |> Map.put(
       :warm_status_dark_mode?,
       Map.get(state, :warm_status_dark_mode?, true)
     )

@@ -8,7 +8,9 @@ defmodule Aiur.AgentList.StateTest do
     prewarm_active? prewarm_phase remote_control_hint write_fun pane_manager orchestrator tmux
     command_template rc_pane_borders visible_sessions poll_state debug_mode? attach_state
     started_slots fully_warmed_slots opened_panes agents_with_content latest_event_by_id
-    open_attentions_by_id progress_by_id phase_by_identifier warm_status_dark_mode?
+    open_attentions_by_id progress_by_id phase_by_identifier activity_status_by_identifier
+    ticket_activity_generation ticket_activity_by_identity ticket_activity_presented
+    ticket_activity_snapshot_fun ticket_activity_subscribe_fun warm_status_dark_mode?
     warmth_events perf_summary debug_events
   ]a
 

@@ -19,4 +19,9 @@ defmodule Aiur.AgentList.Renderer.CellsTest do
     assert Cells.phase_placeholder("1", layout, %{status: :queued}) =~ "Queueing agent…"
     assert Cells.spinner_frame(layout) == Cells.spinner_frame(layout)
   end
+
+  test "labels retained activity as stale" do
+    assert Cells.latest_event_message(%{message: "Progress 60%", stale?: true}) ==
+             "Stale: Progress 60%"
+  end
 end
