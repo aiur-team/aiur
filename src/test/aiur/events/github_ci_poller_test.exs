@@ -105,6 +105,89 @@ defmodule Aiur.Events.GithubCIPollerTest do
              )
   end
 
+  test "waits for every check before reporting the complete failure set" do
+    partial_snapshot = [
+      %{"name" => "lint", "status" => "completed", "conclusion" => "failure"},
+      %{"name" => "test", "status" => "in_progress", "conclusion" => nil},
+      %{"name" => "dialyzer", "status" => "queued", "conclusion" => nil}
+    ]
+
+    assert %{
+             decision: :pending,
+             pending_reason: :check_runs_incomplete,
+             failures: [%{name: "lint", result: "failure"}]
+           } = GithubCIPoller.evaluate_for_test(partial_snapshot, %{"statuses" => []})
+
+    terminal_snapshot = [
+      %{"name" => "dialyzer", "status" => "completed", "conclusion" => "success"},
+      %{"name" => "test", "status" => "completed", "conclusion" => "timed_out"},
+      %{"name" => "lint", "status" => "completed", "conclusion" => "failure"}
+    ]
+
+    assert %{
+             decision: :failed,
+             failures: [
+               %{name: "test", result: "timed_out"},
+               %{name: "lint", result: "failure"}
+             ]
+           } = GithubCIPoller.evaluate_for_test(terminal_snapshot, %{"statuses" => []})
+  end
+
+  test "treats cancelled and stale checks as replacement work instead of code failures" do
+    for conclusion <- ["cancelled", "stale"] do
+      assert %{
+               decision: :pending,
+               pending_reason: :check_runs_incomplete,
+               failures: []
+             } =
+               GithubCIPoller.evaluate_for_test(
+                 [%{"name" => "test", "status" => "completed", "conclusion" => conclusion}],
+                 %{"statuses" => []}
+               )
+    end
+  end
+
+  test "logs the exact head and pending classification for a partial snapshot" do
+    request_fun = fn %{url: url} ->
+      cond do
+        String.contains?(url, "/pulls?") ->
+          {:ok, %{status: 200, body: [%{"number" => 91, "head" => %{"sha" => "partial-head"}}]}}
+
+        String.contains?(url, "/check-runs?") ->
+          {:ok,
+           %{
+             status: 200,
+             body: %{
+               "check_runs" => [
+                 %{"name" => "lint", "status" => "completed", "conclusion" => "failure"},
+                 %{"name" => "test", "status" => "in_progress", "conclusion" => nil}
+               ]
+             }
+           }}
+
+        String.ends_with?(url, "/status") ->
+          {:ok, %{status: 200, body: %{"state" => "pending", "statuses" => []}}}
+      end
+    end
+
+    log =
+      capture_log([level: :debug], fn ->
+        assert {:ok,
+                %{
+                  results: [
+                    %{
+                      decision: :pending,
+                      pending_reason: :check_runs_incomplete,
+                      head_sha: "partial-head"
+                    }
+                  ]
+                }} = GithubCIPoller.poll(["91"], request_fun: request_fun)
+      end)
+
+    assert log =~ "head=partial-head decision=pending"
+    assert log =~ "pending_reason=:check_runs_incomplete"
+  end
+
   test "does not suppress a test-only check failure" do
     assert %{
              decision: :failed,
