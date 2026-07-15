@@ -25,7 +25,7 @@ defmodule Aiur.Codex.TurnLoop do
 
     case TurnState.turn_completion_status(payload) do
       "interrupted" -> TurnState.continue_after_turn_interrupted(state, payload)
-      _ -> TurnState.continue_after_turn_completion(state)
+      _ -> TurnState.continue_after_turn_completion(state, payload)
     end
   end
 
@@ -66,6 +66,8 @@ defmodule Aiur.Codex.TurnLoop do
       state.pending_operator_requests,
       {:turn_cancelled, params}
     )
+
+    _ = TurnState.retire_provider_work(state)
 
     if is_integer(state.pause_request_id) do
       {:paused,
@@ -133,7 +135,9 @@ defmodule Aiur.Codex.TurnLoop do
 
     execution_context = %{
       workspace: Map.get(session, :workspace),
-      response_id: Map.get(payload, "id")
+      response_id: Map.get(payload, "id"),
+      tool_call_scope: tool_call_scope(state, session),
+      tool_call_thread_id: Map.get(session, :thread_id)
     }
 
     case Approvals.maybe_handle_approval_request(
@@ -172,6 +176,9 @@ defmodule Aiur.Codex.TurnLoop do
 
         {:error, {:approval_required, payload}}
 
+      {:error, reason} ->
+        {:error, reason}
+
       :unhandled ->
         Notifications.handle_unhandled(
           session,
@@ -189,4 +196,10 @@ defmodule Aiur.Codex.TurnLoop do
     is_integer(state.pause_request_id) or
       Aiur.PauseContainment.paused?(Map.get(session, :containment))
   end
+
+  defp tool_call_scope(%{issue_identifier: issue_identifier}, _session)
+       when is_binary(issue_identifier),
+       do: issue_identifier
+
+  defp tool_call_scope(_state, _session), do: nil
 end

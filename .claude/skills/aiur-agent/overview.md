@@ -14,7 +14,7 @@ Subscribers bind **patterns** (`ticket.42.#`, `*.*.branch.push`). The exchange f
 
 Agents working on dependent tickets used to coordinate through the Executor (PR comments, manual messages) or by polling each other's branches. Both were slow and lossy. With events:
 
-- When ticket 1 lands `function_a`, a `ticket.1.branch.push` event fires. Ticket 2 (which declared #1 as a blocker) gets it instantly and can pull + integrate.
+- When ticket 1 lands `function_a`, it emits `ticket.1.agent.unblocked` to say the dependency is ready. Ticket 2 (which declared #1 as a blocker) resumes on that explicit signal, then uses the latest `ticket.1.branch.push` payload to fetch and inspect the validated ref.
 - When an agent has an architectural decision worth broadcasting, it emits `decision.<slug>` and any subscribed sibling agent sees it without rewriting their own work first.
 - When an agent gets stuck on a question only the Executor can answer, it opens an `attention.<slug>` — a ❗ appears in the agent list and the Executor can reply via the PR.
 

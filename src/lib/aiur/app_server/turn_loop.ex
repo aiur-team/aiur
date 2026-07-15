@@ -3,7 +3,7 @@ defmodule Aiur.AppServer.TurnLoop do
   Shared blocking receive loop for app-server turns.
   """
 
-  alias Aiur.AppServer.{Interrupts, Messages, OperatorDelivery, Rpc}
+  alias Aiur.AppServer.{Interrupts, Messages, OperatorDelivery, Rpc, TurnState}
 
   @spec receive_loop(map(), map()) :: term()
   def receive_loop(%{port: port} = session, state) do
@@ -20,7 +20,7 @@ defmodule Aiur.AppServer.TurnLoop do
         receive_loop(session, %{state | pending_line: state.pending_line <> to_string(chunk)})
 
       {^port, {:exit_status, status}} ->
-        {:error, {:port_exit, status}}
+        handle_port_exit(state, status)
 
       {:pause_agent, request_id} when is_integer(request_id) ->
         case Interrupts.handle_pause_request(session, state, request_id) do
@@ -71,9 +71,9 @@ defmodule Aiur.AppServer.TurnLoop do
     end
   end
 
-  defp handle_decoded_incoming(_session, state, %{"id" => request_id, "result" => _}, _payload_string, _port, _on_message)
+  defp handle_decoded_incoming(_session, state, %{"id" => request_id, "result" => _} = payload, _payload_string, _port, _on_message)
        when request_id == state.pending_interrupt_request_id do
-    {:continue, %{state | pending_interrupt_request_id: nil}}
+    TurnState.acknowledge_interrupt(state, payload)
   end
 
   defp handle_decoded_incoming(_session, state, %{"id" => request_id, "error" => error}, _payload_string, _port, _on_message)
@@ -109,4 +109,31 @@ defmodule Aiur.AppServer.TurnLoop do
 
     {:continue, state}
   end
+
+  defp resolve_pending_anonymous_completion(%{pending_anonymous_completion?: true} = state) do
+    payload = %{
+      "params" => %{
+        "turn" => %{
+          "id" => state.current_turn_id,
+          "status" => "completed"
+        }
+      }
+    }
+
+    state
+    |> Map.put(:pending_anonymous_completion?, false)
+    |> TurnState.continue_after_turn_completion(payload)
+  end
+
+  defp resolve_pending_anonymous_completion(_state), do: :none
+
+  defp handle_port_exit(state, 0) do
+    case resolve_pending_anonymous_completion(state) do
+      :none -> {:error, {:port_exit, 0}}
+      {:continue, _next_state} -> {:error, {:port_exit, 0}}
+      result -> result
+    end
+  end
+
+  defp handle_port_exit(_state, status), do: {:error, {:port_exit, status}}
 end

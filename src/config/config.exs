@@ -28,6 +28,11 @@ if config_env() == :test do
   config :aiur, :resolve_github_token_on_boot, false
   config :aiur, :workspace_github_preflight_enabled, false
 
+  # The shared app process exists only as infrastructure for unit tests. Named
+  # Orchestrators that exercise polling start themselves with the production
+  # default, but this singleton must not poll across sequential test boundaries.
+  config :aiur, :orchestrator_initial_poll?, false
+
   # Suite-global :log_file isolation. The :aiur app boots BEFORE
   # test/test_helper.exs runs (mix test starts apps first), and
   # Aiur.Events.IdGenerator persists <log_root>/<repo>.event_id during
@@ -49,6 +54,7 @@ if config_env() == :test do
   # during tests. Per-test overrides (Application.put_env in a test's own
   # setup) still win.
   config :aiur, :decision_state_dir, Path.join(test_log_root, "decisions")
+  config :aiur, :workspace_ownership_sync_fun, fn -> :ok end
 
   config :aiur, :server_host_override, "127.0.0.1"
   config :aiur, :server_port_override, 0

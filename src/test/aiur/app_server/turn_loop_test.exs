@@ -41,6 +41,54 @@ defmodule Aiur.AppServer.TurnLoopTest do
     assert TurnLoop.receive_loop(%{port: port}, state(%{timeout_ms: 1})) == {:error, :turn_timeout}
   end
 
+  test "port exit settles a guarded anonymous completion candidate" do
+    port = cat_port()
+
+    anonymous_completion = %{
+      "method" => "turn/completed",
+      "params" => %{"turn" => %{"status" => "completed"}}
+    }
+
+    send(self(), {port, {:data, {:eol, Jason.encode!(anonymous_completion)}}})
+    send(self(), {port, {:exit_status, 0}})
+
+    guarded_state =
+      state(%{
+        backend: Aiur.Codex.CodingAgent,
+        active_turn_ids: MapSet.new(["turn-1"]),
+        accepted_turn_ids: MapSet.new(),
+        retired_turn_ids: MapSet.new(),
+        anonymous_completion_consumed?: true,
+        pending_anonymous_completion?: false
+      })
+
+    assert TurnLoop.receive_loop(%{port: port}, guarded_state) == {:ok, :turn_completed}
+  end
+
+  test "nonzero port exit does not settle a guarded anonymous completion candidate" do
+    port = cat_port()
+
+    anonymous_completion = %{
+      "method" => "turn/completed",
+      "params" => %{"turn" => %{"status" => "completed"}}
+    }
+
+    send(self(), {port, {:data, {:eol, Jason.encode!(anonymous_completion)}}})
+    send(self(), {port, {:exit_status, 1}})
+
+    guarded_state =
+      state(%{
+        backend: Aiur.Codex.CodingAgent,
+        active_turn_ids: MapSet.new(["turn-1"]),
+        accepted_turn_ids: MapSet.new(),
+        retired_turn_ids: MapSet.new(),
+        anonymous_completion_consumed?: true,
+        pending_anonymous_completion?: false
+      })
+
+    assert TurnLoop.receive_loop(%{port: port}, guarded_state) == {:error, {:port_exit, 1}}
+  end
+
   test "pause_agent and deliver-now queue update interrupt the turn" do
     port = cat_port()
 

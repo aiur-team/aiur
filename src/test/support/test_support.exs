@@ -57,8 +57,10 @@ defmodule Aiur.TestSupport do
         # `max_restarts` and takes the whole `:aiur` app down — the #589 cascade.
         previous_workflow_file_path = Application.get_env(:aiur, :workflow_file_path)
         previous_log_file = Application.get_env(:aiur, :log_file)
+        previous_build_gate_dir = Application.get_env(:aiur, :build_gate_dir_override)
 
         File.mkdir_p!(workflow_root)
+        Application.put_env(:aiur, :build_gate_dir_override, Path.join(workflow_root, "build-gate"))
         workflow_file = Path.join(workflow_root, ".aiurconfig")
         write_workflow_file!(workflow_file)
         Workflow.set_workflow_file_path(workflow_file)
@@ -93,6 +95,11 @@ defmodule Aiur.TestSupport do
           case previous_log_file do
             nil -> Application.delete_env(:aiur, :log_file)
             path -> Application.put_env(:aiur, :log_file, path)
+          end
+
+          case previous_build_gate_dir do
+            nil -> Application.delete_env(:aiur, :build_gate_dir_override)
+            path -> Application.put_env(:aiur, :build_gate_dir_override, path)
           end
 
           Application.delete_env(:aiur, :server_port_override)
@@ -403,7 +410,8 @@ defmodule Aiur.TestSupport do
         "  active_states: #{yaml_value(tracker_active_states)}",
         "  terminal_states: #{yaml_value(tracker_terminal_states)}",
         "  base_branch: #{yaml_value(tracker_base_branch)}",
-        tracker_backend_yaml(tracker_kind, config)
+        tracker_github_yaml(tracker_kind, config),
+        tracker_linear_yaml(tracker_kind, config)
       ]
       |> Enum.reject(&(&1 in [nil, ""]))
       |> Enum.join("\n")
@@ -470,7 +478,7 @@ defmodule Aiur.TestSupport do
     {Enum.join(sections, "\n") <> "\n", prompt}
   end
 
-  defp tracker_backend_yaml("linear", config) do
+  defp tracker_linear_yaml("linear", config) do
     endpoint = Keyword.get(config, :tracker_endpoint)
     api_token = Keyword.get(config, :tracker_api_token)
     project_slug = Keyword.get(config, :tracker_project_slug)
@@ -486,14 +494,16 @@ defmodule Aiur.TestSupport do
     |> Enum.join("\n")
   end
 
-  defp tracker_backend_yaml("github", config) do
-    repo = Keyword.get(config, :tracker_repo)
-    label_prefix = Keyword.get(config, :tracker_label_prefix)
-    bot_account = Keyword.get(config, :tracker_bot_account)
-    trusted_accounts = Keyword.get(config, :tracker_trusted_accounts, [])
-    planning_root_limit = Keyword.get(config, :tracker_planning_root_limit)
-    planning_page_budget = Keyword.get(config, :tracker_planning_page_budget)
-    planning_call_budget = Keyword.get(config, :tracker_planning_call_budget)
+  defp tracker_linear_yaml(_kind, _config), do: nil
+
+  defp tracker_github_yaml(tracker_kind, config) do
+    repo = if tracker_kind == "github", do: Keyword.get(config, :tracker_repo)
+    label_prefix = if tracker_kind == "github", do: Keyword.get(config, :tracker_label_prefix)
+    bot_account = if tracker_kind == "github", do: Keyword.get(config, :tracker_bot_account)
+    trusted_accounts = if tracker_kind == "github", do: Keyword.get(config, :tracker_trusted_accounts, []), else: []
+    root_limit = Keyword.fetch!(config, :tracker_planning_root_limit)
+    page_budget = Keyword.fetch!(config, :tracker_planning_page_budget)
+    call_budget = Keyword.fetch!(config, :tracker_planning_call_budget)
 
     [
       "  github:",
@@ -501,17 +511,13 @@ defmodule Aiur.TestSupport do
       label_prefix && "    label_prefix: #{yaml_value(label_prefix)}",
       bot_account && "    bot_account: #{yaml_value(bot_account)}",
       trusted_accounts != [] && "    trusted_accounts: #{yaml_value(trusted_accounts)}",
-      "    planning_root_limit: #{yaml_value(planning_root_limit)}",
-      "    planning_page_budget: #{yaml_value(planning_page_budget)}",
-      "    planning_call_budget: #{yaml_value(planning_call_budget)}"
+      "    planning_root_limit: #{yaml_value(root_limit)}",
+      "    planning_page_budget: #{yaml_value(page_budget)}",
+      "    planning_call_budget: #{yaml_value(call_budget)}"
     ]
     |> Enum.reject(&(&1 in [nil, false, ""]))
     |> Enum.join("\n")
   end
-
-  defp tracker_backend_yaml("memory", _config), do: nil
-  defp tracker_backend_yaml(nil, _config), do: nil
-  defp tracker_backend_yaml(_kind, _config), do: nil
 
   defp opencode_yaml(command, bridge_port, bridge_host, serve_args, model_prefix) do
     [

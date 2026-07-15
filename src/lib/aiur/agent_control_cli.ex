@@ -544,6 +544,21 @@ defmodule Aiur.AgentControlCLI do
 
   defp print_build_gate_status do
     case BuildGate.status() do
+      %{
+        enabled?: true,
+        capacity: capacity,
+        active: active,
+        queued: queued,
+        degraded?: true,
+        issues: [issue | remaining]
+      } ->
+        suffix = if remaining == [], do: "", else: " (+#{length(remaining)} more)"
+
+        IO.puts(
+          "BUILD GATE DEGRADED #{active}/#{capacity} active, #{queued} queued; " <>
+            "reason=#{issue.reason} path=#{issue.path}#{suffix}; recovery=#{issue.recovery}"
+        )
+
       %{enabled?: true, capacity: capacity, active: active, queued: queued} when active > 0 or queued > 0 ->
         IO.puts("BUILD GATE #{active}/#{capacity} active, #{queued} queued")
 

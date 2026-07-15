@@ -61,6 +61,7 @@ defmodule Aiur.Codex.Notifications do
     cond do
       NotificationPolicy.codex_quota_exhausted?(method, payload) ->
         Logger.warning("Codex notification: #{inspect(method)} payload=#{inspect(payload)}; codex account usage quota exhausted — pausing agent instead of burning retries")
+        _ = TurnState.retire_provider_work(state)
         {:paused, NotificationPolicy.usage_limit_pause(payload, method)}
 
       NotificationPolicy.codex_error_method?(method) and NotificationPolicy.unretryable_codex_error?(payload) ->
@@ -69,12 +70,17 @@ defmodule Aiur.Codex.Notifications do
 
       NotificationPolicy.turn_started_method?(method) ->
         checkpoint = NotificationPolicy.checkpoint_for_method(method)
-        next_state = OperatorDelivery.maybe_process_safe_checkpoint(session, %{state | turn_started?: true}, checkpoint)
+
+        tracked_state =
+          state
+          |> Map.put(:turn_started?, true)
+          |> TurnState.register_provider_turn(get_in(payload, ["params", "turn"]) || %{})
+
+        next_state = OperatorDelivery.maybe_process_safe_checkpoint(session, tracked_state, checkpoint)
         {:continue, next_state}
 
-      state.turn_started? and NotificationPolicy.thread_idle_status?(method, payload) ->
-        Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}; treating idle status as turn completion")
-        TurnState.continue_after_turn_completion(state)
+      idle_after_turn_started?(state, method, payload) ->
+        handle_idle_notification(state, method, payload)
 
       NotificationPolicy.codex_error_method?(method) ->
         Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}")
@@ -89,5 +95,20 @@ defmodule Aiur.Codex.Notifications do
   defp continue_after_checkpoint(session, state, method) do
     checkpoint = NotificationPolicy.checkpoint_for_method(method)
     {:continue, OperatorDelivery.maybe_process_safe_checkpoint(session, state, checkpoint)}
+  end
+
+  defp idle_after_turn_started?(state, method, payload) do
+    state.turn_started? and NotificationPolicy.thread_idle_status?(method, payload)
+  end
+
+  defp handle_idle_notification(%{interrupt_action: action} = state, method, payload)
+       when action in [:pause, :operator_message] do
+    Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}; reconciling interrupt handshake")
+    TurnState.observe_interrupt_idle(state, payload)
+  end
+
+  defp handle_idle_notification(state, method, payload) do
+    Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}; treating idle status as turn completion")
+    TurnState.complete_all_provider_turns(state)
   end
 end

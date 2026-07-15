@@ -16,6 +16,7 @@ workspace:
   root: ~/code/aiur-workspaces
 hooks:
   after_create: |
+    # Aiur runs this in an empty atomic staging directory.
     git clone "$THIS_REPOSITORY_URL" .
   before_remove: |
     git status --short
