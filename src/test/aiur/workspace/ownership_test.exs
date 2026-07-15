@@ -389,6 +389,25 @@ defmodule Aiur.Workspace.OwnershipTest do
     refute_receive {:unexpected_root_reap, ^root_pid}, 100
   end
 
+  test "releases a gone root identity without signaling" do
+    ticket = "ownership-gone-root-#{System.unique_integer([:positive])}"
+    root_pid = System.unique_integer([:positive])
+    parent = self()
+
+    assert {:ok, lease} =
+             Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry,
+               root_alive_fun: fn ^root_pid -> false end,
+               process_identity_fun: fn ^root_pid -> :gone end,
+               root_reap_fun: fn pid -> send(parent, {:unexpected_root_reap, pid}) end
+             )
+
+    assert :ok = Ownership.track_provider(lease, %{root_pid: root_pid})
+
+    assert {:ok, %{phase: :released}} = Ownership.release_and_wait(lease)
+    assert :none = Ownership.current(ticket)
+    refute_receive {:unexpected_root_reap, ^root_pid}, 100
+  end
+
   test "release_and_wait returns only after final registry removal" do
     ticket = "ownership-final-release-#{System.unique_integer([:positive])}"
     root_pid = System.unique_integer([:positive])

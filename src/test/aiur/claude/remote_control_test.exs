@@ -47,6 +47,21 @@ defmodule Aiur.Claude.RemoteControlTest do
     end
   end
 
+  describe "process identity" do
+    test "binds a running process to its procfs birth and session" do
+      os_pid = System.pid() |> String.to_integer()
+
+      assert {:ok, {:procfs_birth_and_session, start_time, session}} = RemoteControl.process_identity(os_pid)
+      assert start_time =~ ~r/^\d+$/
+      assert session =~ ~r/^\d+$/
+    end
+
+    test "treats missing process identifiers as gone" do
+      assert RemoteControl.process_identity(nil) == :gone
+      assert RemoteControl.process_identity(0) == :gone
+    end
+  end
+
   describe "workspace_slug/1" do
     test "replaces every slash and dot with a dash" do
       assert RemoteControl.workspace_slug("/home/orangekid/code/aiur/workspaces/100") ==
