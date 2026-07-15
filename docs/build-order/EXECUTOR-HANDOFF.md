@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-14 21:18 PDT)
+## Live Executor state (updated 2026-07-14 23:58 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -13,7 +13,7 @@ truth and supersedes stale pre-run wording later in the document.
 #1084 with 54 members #1085–#1138 and 107 exact blocker relations. The historical
 receipt gate remains operator-overridden for this run. Aiur is running from the
 repository root against `main`; current accepted `main` is
-`d112b355`, including paused-label startup fix #1148, BO-009/#1096,
+`b9c8e140`, including paused-label startup fix #1148, BO-009/#1096,
 BO-002/#1091, quota-waste reduction PR #1176, DASH-002/#1109, the
 binding maximum-useful-concurrency Executor rule, and the hard ten-minute
 capacity audit. The core
@@ -1663,11 +1663,35 @@ Terra; never dispatch Claude.
     progress dataset now retains 1,130 normalized samples including this
     inaccurate 90% interval.
 
-At 21:50 PDT the core graph is 8/54 accepted. Three Codex implementation/rework
-workers are visibly executing (DASH-018, #1161, #1162), BO-016 is fully green
-in two independent reviews, and BO-010 is safely paused after the workspace
-lifecycle reproduction above. Preserved paused or deactivated rows await the
-operator-authorized restart; #1151 remains paused with preserved rework.
+206. At 23:57 PDT anti-thrash PR #1179 reached exact current-main head
+    `1bf65237596e2a39f499abd489990c7091c5f619` after the Executor closed the
+    final three class-complete review findings. Redispatch admission now
+    returns and retains a newly tripped lifetime-budget state through completed
+    runner replacement, a failed Remote Control replacement removes its
+    torn-down running-map entry before scheduling retry so it cannot consume
+    its own slot, and crash retry continuation is derived from actual runner
+    provenance rather than the global enable flag so a fresh zero-turn startup
+    failure remains a cold start. The focused gate is 95/95 green and the full
+    lint gate is clean; fresh CI and three independent exact-head re-reviews
+    are in progress. Do not merge until all are green and class-complete.
+
+207. At 23:54 PDT the Executor found `/tmp` at 100% while the main filesystem
+    still had roughly 3.2 TiB free. The saturation was accumulated temporary
+    review/build worktrees, not live ticket workspaces. The Executor preserved
+    every active or dirty tree, removed 40 clean stale review/land worktrees,
+    and recovered about 2.5 GB (`/tmp` 100% -> 85%). Treat recurrence as an
+    Executor-capacity signal because it can break reviews, builds, and agent
+    subprocesses; clean only positively identified stale/clean temporary
+    artifacts and record repeated evidence before promoting a new reliability
+    issue.
+
+At 23:58 PDT the core graph remains 8/54 accepted while the recovery gate is
+frozen. Five Codex implementation/rework workers are visibly executing
+(#1032, DASH-018, BO-016, #1161, and #1162); #1140 is also active with a green
+current-main PR that follows #1179 in the recovery priority. BO-010 is safely
+idle after the workspace lifecycle reproduction above. Preserved paused or
+deactivated rows await the operator-authorized restart; #1151 remains paused
+with preserved rework.
 #1093, #1108, #1111, #1123, and #1130 stay on workspace-race holds until #1161
 lands. The 21:50 phase preview preserves the latest successfully emitted core
 percentages and advances only review/CI states backed by GitHub evidence;
