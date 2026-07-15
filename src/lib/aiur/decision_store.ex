@@ -51,6 +51,8 @@ defmodule Aiur.DecisionStore do
     SecretRedactor
   }
 
+  alias Aiur.DecisionQuery.Params, as: DecisionQueryParams
+  alias Aiur.DecisionStore.RetainedSnapshot
   alias Aiur.Events.{IdGenerator, Publisher}
 
   @ndjson_filename "decisions.ndjson"
@@ -62,6 +64,8 @@ defmodule Aiur.DecisionStore do
   @default_retry_delays_ms [250, 1_000, 5_000]
   @recent_audit_limit 50
   @recent_decision_limit 50
+  @maximum_legacy_page_limit 200
+  @maximum_legacy_page_offset 1_000_000
   @transient_failure_classes ["orchestrator_unavailable", "orchestrator_timeout"]
   @revision_transient_failure_classes @transient_failure_classes ++
                                         ["target_agent_unavailable", "target_revalidation_failed"]
@@ -194,6 +198,43 @@ defmodule Aiur.DecisionStore do
     GenServer.call(server, :list)
   end
 
+  @doc "Returns one exact retained Decision and its health from one serialized store snapshot."
+  @spec retained_lookup(String.t(), GenServer.server()) ::
+          {:ok, %{decision: Decision.t() | nil, health: term()}} | {:error, :store_unavailable}
+  def retained_lookup(decision_id, server \\ __MODULE__) when is_binary(decision_id) do
+    GenServer.call(server, {:retained_lookup, decision_id})
+  end
+
+  @doc "Returns a bounded retained Decision page, available total metadata, and canonical counts atomically."
+  @spec retained_query(map(), GenServer.server()) :: {:ok, map()} | {:error, :store_unavailable | :invalid_query}
+  def retained_query(query, server \\ __MODULE__) when is_map(query) do
+    GenServer.call(server, {:retained_query, query})
+  end
+
+  @doc false
+  @spec retained_legacy_page(map(), non_neg_integer(), pos_integer(), GenServer.server()) ::
+          {:ok, map()} | {:error, :store_unavailable | :invalid_query}
+  def retained_legacy_page(query, offset, limit, server \\ __MODULE__)
+      when is_map(query) and is_integer(offset) and is_integer(limit) do
+    GenServer.call(server, {:retained_legacy_page, query, offset, limit})
+  end
+
+  @doc "Returns canonical retained open and blocking counts from one serialized store snapshot."
+  @spec retained_counts(GenServer.server()) ::
+          {:ok,
+           %{
+             counts: %{
+               open: non_neg_integer(),
+               blocking: non_neg_integer(),
+               total: non_neg_integer()
+             },
+             health: term()
+           }}
+          | {:error, :store_unavailable}
+  def retained_counts(server \\ __MODULE__) do
+    GenServer.call(server, :retained_counts)
+  end
+
   @doc "Returns a bounded dashboard window, prioritizing unresolved and blocking Decisions."
   @spec recent_decisions(non_neg_integer(), GenServer.server()) :: [Decision.t()]
   def recent_decisions(limit \\ @recent_decision_limit, server \\ __MODULE__)
@@ -312,6 +353,7 @@ defmodule Aiur.DecisionStore do
           projection_path: projection_path,
           current: current,
           decision_index: build_decision_index(current),
+          retained_index: RetainedSnapshot.build_index(current, history),
           # The store keeps histories newest-first so every accepted append is
           # O(1). The public history call reverses them back to audit order.
           history: reverse_histories(history),
@@ -355,6 +397,7 @@ defmodule Aiur.DecisionStore do
       projection_path: nil,
       current: %{},
       decision_index: :gb_sets.empty(),
+      retained_index: RetainedSnapshot.build_index(%{}),
       history: %{},
       audit_history: %{},
       recent_audit: [],
@@ -500,6 +543,53 @@ defmodule Aiur.DecisionStore do
 
   def handle_call(:list, _from, state) do
     {:reply, Map.values(state.current), state}
+  end
+
+  def handle_call({:retained_lookup, decision_id}, _from, state) do
+    {:reply, RetainedSnapshot.lookup(state.current, state.health, decision_id), state}
+  end
+
+  def handle_call({:retained_query, query}, _from, state) do
+    {ordering, query} = Map.pop(query, :ordering, :audit)
+
+    reply =
+      case DecisionQueryParams.parse(query) do
+        {:ok, normalized} ->
+          RetainedSnapshot.query(
+            state.current,
+            state.retained_index,
+            state.health,
+            Map.put(normalized, :ordering, ordering)
+          )
+
+        {:error, _reason} ->
+          {:error, :invalid_query}
+      end
+
+    {:reply, reply, state}
+  end
+
+  def handle_call({:retained_legacy_page, query, offset, limit}, _from, state) do
+    reply =
+      with :ok <- valid_legacy_page?(offset, limit),
+           {:ok, normalized} <- DecisionQueryParams.parse(legacy_query_params(query)),
+           true <- is_nil(normalized.cursor) do
+        RetainedSnapshot.legacy_page(
+          state.current,
+          state.retained_index,
+          state.health,
+          Map.merge(normalized, %{limit: limit, ordering: :current}),
+          offset
+        )
+      else
+        _invalid -> {:error, :invalid_query}
+      end
+
+    {:reply, reply, state}
+  end
+
+  def handle_call(:retained_counts, _from, state) do
+    {:reply, RetainedSnapshot.counts(state.retained_index, state.health), state}
   end
 
   def handle_call({:recent_decisions, limit}, _from, state) do
@@ -986,6 +1076,7 @@ defmodule Aiur.DecisionStore do
           state
           | current: Map.put(state.current, current.decision_id, updated),
             decision_index: update_decision_index(state.decision_index, current, updated),
+            retained_index: RetainedSnapshot.update_index(state.retained_index, current, updated),
             history: Map.update(state.history, current.decision_id, [event.data.decision], &[event.data.decision | &1]),
             audit_history: Map.update(state.audit_history, current.decision_id, [event], &(&1 ++ [event])),
             recent_audit: remember_recent_audit(state.recent_audit, event)
@@ -1259,6 +1350,12 @@ defmodule Aiur.DecisionStore do
                 Map.get(state.current, decision.decision_id),
                 current
               ),
+            retained_index:
+              RetainedSnapshot.update_index(
+                state.retained_index,
+                Map.get(state.current, decision.decision_id),
+                current
+              ),
             history: Map.update(state.history, decision.decision_id, [decision], &[decision | &1]),
             audit_history: Map.update(state.audit_history, decision.decision_id, [event], &(&1 ++ [event])),
             recent_audit: remember_recent_audit(state.recent_audit, event)
@@ -1304,6 +1401,7 @@ defmodule Aiur.DecisionStore do
         state
         | current: Map.put(state.current, decision.decision_id, updated),
           decision_index: update_decision_index(state.decision_index, decision, updated),
+          retained_index: RetainedSnapshot.update_index(state.retained_index, decision, updated),
           audit_history: Map.update(state.audit_history, decision.decision_id, [event], &(&1 ++ [event])),
           recent_audit: remember_recent_audit(state.recent_audit, event)
       }
@@ -2716,5 +2814,18 @@ defmodule Aiur.DecisionStore do
       limit when is_integer(limit) and limit > 0 -> limit
       _invalid -> @default_legacy_question_version_limit
     end
+  end
+
+  defp valid_legacy_page?(offset, limit)
+       when offset >= 0 and offset <= @maximum_legacy_page_offset and limit >= 1 and
+              limit <= @maximum_legacy_page_limit,
+       do: :ok
+
+  defp valid_legacy_page?(_offset, _limit), do: {:error, :invalid_query}
+
+  defp legacy_query_params(query) do
+    query
+    |> Map.drop([:limit, "limit", :ordering])
+    |> Map.put(:limit, 1)
   end
 end
