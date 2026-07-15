@@ -91,7 +91,11 @@ defmodule Aiur.CodingAgent.Backend do
   @callback run_turn(session(), String.t(), map(), keyword()) ::
               {:ok, map()} | {:paused, map()} | {:error, term()}
 
-  @doc "Tear the session down. Must be idempotent and never raise; an error means cleanup was not proven."
+  @doc """
+  Tear the session down. Must be idempotent and never raise. Plain `:ok` is a
+  best-effort stop; only `{:ok, :cleanup_proven}` authoritatively proves that
+  the provider and its descendants are gone.
+  """
   @callback stop_session(session()) :: :ok | {:ok, :cleanup_proven} | {:error, term()}
 
   @doc "Canonicalize a raw backend event map (usage, rate limits)."

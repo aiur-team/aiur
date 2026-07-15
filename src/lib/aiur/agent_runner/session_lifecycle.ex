@@ -335,6 +335,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
         :ok
 
       :ok ->
+        _ = Ownership.mark_provider_cleanup_unknown(ownership)
         :ok
 
       cleanup_failure ->

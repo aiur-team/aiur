@@ -5,6 +5,7 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
   alias Aiur.Config
   alias Aiur.Issue
   alias Aiur.Workspace.Ownership
+  alias Aiur.Workspace.Ownership.Store
 
   describe "remote_session_backend/2" do
     test "maps remote-control claude to claude-repl and passes other cases through" do
@@ -249,14 +250,20 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
       Task.shutdown(release, :brutal_kill)
     end
 
-    test "proven graceful cleanup preserves ordinary explicit release" do
-      ticket = "successful-session-cleanup-#{System.unique_integer([:positive])}"
+    test "plain cleanup success retains an unproven no-group provider" do
+      ticket = "unproven-session-cleanup-#{System.unique_integer([:positive])}"
       root_pid = System.unique_integer([:positive])
+      late_child_pid = System.unique_integer([:positive])
+      {:ok, alive} = Agent.start_link(fn -> %{root_pid => false, late_child_pid => true} end)
+
+      on_exit(fn ->
+        if Process.alive?(alive), do: Agent.stop(alive)
+      end)
 
       assert {:ok, lease} =
                Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry,
-                 process_alive_fun: fn ^root_pid -> false end,
-                 process_identity_fun: fn ^root_pid -> :gone end
+                 process_alive_fun: fn pid -> Agent.get(alive, &Map.fetch!(&1, pid)) end,
+                 process_identity_fun: fn pid -> {:ok, {:test_process, pid}} end
                )
 
       assert :ok = Ownership.track_provider(lease, %{root_pid: root_pid, descendant_pids: [root_pid]})
@@ -268,8 +275,13 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
                  fn _session -> :ok end
                )
 
-      assert {:ok, %{phase: :released}} = Ownership.release_and_wait(lease)
-      assert :none = Ownership.current(ticket)
+      release = Task.async(fn -> Ownership.release_and_wait(lease) end)
+
+      assert_eventually(fn -> match?({:ok, %{phase: :reaping}}, Ownership.current(ticket)) end)
+      refute Task.yield(release, 50)
+      assert {:ok, %{provider_cleanup: :failed}} = Store.get(ticket)
+      assert Agent.get(alive, &Map.fetch!(&1, late_child_pid))
+      Task.shutdown(release, :brutal_kill)
     end
 
     test "authoritative cleanup success overrides a transient identity probe" do
