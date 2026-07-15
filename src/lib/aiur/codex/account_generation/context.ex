@@ -20,10 +20,12 @@ defmodule Aiur.Codex.AccountGeneration.Context do
 
   @spec fetch(map()) :: {:ok, GenServer.server(), reference(), reference(), String.t()} | :error
   def fetch(%{account_generation_context: context} = session) when is_reference(context) do
-    with {:ok, %{binding: binding, authority: authority, topic: topic}} <- current(context) do
-      {:ok, Map.get(session, :account_generation_server, ProviderAccountGeneration), binding, authority, topic}
-    else
-      _ -> :error
+    case current(context) do
+      {:ok, %{binding: binding, authority: authority, topic: topic}} ->
+        {:ok, Map.get(session, :account_generation_server, ProviderAccountGeneration), binding, authority, topic}
+
+      :error ->
+        :error
     end
   end
 
