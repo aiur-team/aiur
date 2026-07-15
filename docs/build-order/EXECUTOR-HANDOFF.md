@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-15 08:14 PDT)
+## Live Executor state (updated 2026-07-15 09:20 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -14,21 +14,19 @@ truth and supersedes stale pre-run wording later in the document.
 receipt gate remains operator-overridden for this run. Aiur is deliberately
 stopped while the Executor and bounded background workers close the active
 stability PRs; do not restart feature dispatch until that stability lane is
-green. Current accepted `main` is `2ff16dff`; exact `origin/develop` is
+green. Current accepted `main` is `47f87815`; exact `origin/develop` is
 synchronized to the same commit. The completed direct-takeover stability set
 now includes configured-base recovery #1146, provider-turn completion #1162,
 terminal GitHub CI verdict handling #1151, and sandbox-safe build-gate leases
-#1154. #1154's exact command-lifetime repair passed its focused review and all
-owned gates; its sole centralized failure was an unrelated provider-lifecycle
-race that passed six consecutive focused reruns, so the documented flaky-suite
-admin merge rule was applied. Workspace containment #1161 has one remaining
-deterministic CI blocker: its replacement head measured 84.89% against the
-85.00% coverage floor. Its owner is adding only meaningful ticket-owned tests,
-then integrating `2ff16dff` and publishing one final current-main head. The
-five already-open Build Order
-PRs are classified as preserve/refresh (#1141, #1144, #1163, #1168) or bounded
-transplant (#1160); no feature branch is being mutated before the stability
-lane is green. The core program is 8/54 merged with 46 remaining.
+#1154, plus workspace containment #1161. #1161 cleared the deterministic
+coverage floor at 85.02%, passed fresh centralized CI, and was the last active
+stability merge. Direct feature takeovers are now running in parallel for
+#1141/DASH-018, #1144/DASH-006, and #1168/BO-010 against exact current
+`develop`; preserve/refresh is the audited cheapest safe path for all three.
+#1160/DASH-004 remains a bounded transplant and #1163/BO-016 remains a
+preserve/refresh, but both wait for #1141's shared lifecycle surface to land so
+they do not repeat the same conflict and stale-base churn. Aiur remains stopped.
+The core program is 8/54 merged with 46 remaining.
 
 ### Binding integration and promotion policy
 
