@@ -153,9 +153,8 @@ defmodule Aiur.Config.PathsTest do
 
       assert {:ok, path} = Paths.decision_state_dir()
       assert String.starts_with?(path, Path.expand(root) <> "/")
-      # The suite-wide test fixture (test/fixtures/test.aiurconfig) resolves
-      # tracker identity to "test-org/test-repo" — leaf "test-repo".
-      assert String.ends_with?(path, "/abc123/test-repo")
+      assert Path.basename(Path.dirname(path)) == "abc123"
+      assert Path.basename(path) == Paths.repo_name()
     end
 
     test "rejects an instance key that would escape the configured root" do
