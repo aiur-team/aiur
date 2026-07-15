@@ -1963,15 +1963,35 @@ Terra; never dispatch Claude.
     validation jobs are using all CPU, and do not restart a healthy daemon for
     this known control-helper failure.
 
-At 03:21 PDT the core graph remains 8/54 accepted while the recovery gate is
+238. The 03:28 hourly retrospective found two recorded wakes and two material
+    actions with no no-action repeats. The one avoidable burn was the
+    continuous control-RPC watcher under CPU saturation: it added load, timed
+    out, and left a helper to reap. Stop continuous control-RPC watches under
+    saturation; use local Git-head/log monitors plus GitHub/agent events, while
+    retaining the 180-second CI/review floor and ten-minute capacity audit.
+
+239. #1161 exact head `28154c5a` passed full CI, but its two fresh reviews
+    split MERGE_READY/HOLD. The HOLD is a valid P1: when the recorded
+    process-group leader identity becomes `:gone` while group liveness remains
+    true because descendants survive, the group clause resolves `:unknown` and
+    schedules retries forever; root/descendant fallback is unreachable while
+    `process_group_id` exists. The Executor returned one contained packet:
+    converge through identity-safe descendant evidence without signaling a
+    reused group, add an ordinary ownership test, and retain the immutable
+    regression tree. The trusted comment, rework label, and direct message did
+    not wake the completed worker, reproducing #619/#1162 again. Do not restart
+    mid-validation; wait for #1146/#1162 to reach a durable checkpoint, then
+    recycle once if #1161 remains wedged.
+
+At 03:36 PDT the core graph remains 8/54 accepted while the recovery gate is
 frozen. #780/#1181 and #1032/#1046 are merged. Current main and the warm base
 are exact `83a5a11e`; the rebuilt daemon is running the new coordination
 runtime with the authenticated Tailscale dashboard and 16-agent ceiling.
-#1161 is in fresh centralized CI at `28154c5a`; #1146 and #1162 remain live
-owner-led current-main validation turns. Reopened #619 remains paused behind
-#1162. The host is CPU-saturated by the owned lint/test jobs, so three worker
-turns are the measured safe maximum at this instant rather than an arbitrary
-agent cap.
+#1161 is in contained review rework at `28154c5a` but waiting on a lifecycle
+recycle; #1146 and #1162 remain live owner-led current-main validation turns.
+Reopened #619 remains paused behind #1162. The host is CPU-saturated by the
+owned lint/test jobs, so two live workers plus the queued rework are the
+measured safe maximum at this instant rather than an arbitrary agent cap.
 No new
 Build Order scope is dispatching. BO-010 and the preserved paused/deactivated
 rows remain held; #1151 stays paused with preserved rework.

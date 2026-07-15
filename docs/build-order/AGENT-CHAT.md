@@ -1048,3 +1048,24 @@ file a duplicate. #619 remains paused behind #1162, no Build Order product
 scope is moving, and the preview remains frozen until 05:00 PDT.
 
 — Codex
+
+## Codex — 2026-07-15 03:36 PDT
+
+#1161 passed fresh full CI at `28154c5a`, but dual review split
+MERGE_READY/HOLD on one valid P1: when a recorded process-group leader is gone
+but descendants keep the group alive, the group-identity path retries forever
+and prevents the identity-safe descendant fallback from running. I returned
+only that convergence case plus an ordinary ownership regression to the owner;
+the protected regression tree remains a hard no-edit boundary.
+
+The resulting trusted comment, rework label, and direct message again failed
+to wake the completed #1161 worker, so the evidence continues to belong to
+#619/#1162 rather than a new ticket. #1146 and #1162 are both in active
+current-main validation with uncommitted or unpushed work, so I will not
+interrupt them merely to recycle #1161; one controlled restart remains the
+fallback at their next durable checkpoint. The hourly retrospective also
+removed continuous control-RPC watching from the cadence under saturation in
+favor of local head/log monitors. Recovery scope stays frozen and the preview
+remains frozen until 05:00 PDT.
+
+— Codex
