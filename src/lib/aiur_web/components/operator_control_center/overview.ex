@@ -53,20 +53,22 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
   end
 
   attr(:decisions, :list, required: true)
+  attr(:retained_counts, :map, required: true)
 
   @spec decisions_banner(map()) :: Phoenix.LiveView.Rendered.t()
   def decisions_banner(assigns) do
-    blocking = Enum.count(assigns.decisions, &(&1.blocking and &1.lifecycle == :recorded))
-    open = Enum.count(assigns.decisions, &(&1.lifecycle == :recorded))
-    first = Enum.find(assigns.decisions, &(&1.lifecycle == :recorded))
-
-    assigns = assign(assigns, blocking: blocking, open: open, first: first)
+    assigns =
+      assigns
+      |> assign(:blocking, Map.get(assigns.retained_counts, :blocking))
+      |> assign(:open, Map.get(assigns.retained_counts, :open))
+      |> assign(:health, get_in(assigns.retained_counts, [:health, :status]))
 
     ~H"""
     <.link
-      :if={@first}
-      patch={"/decisions/#{@first.decision_id}"}
+      :if={is_integer(@open) and @open > 0}
+      patch="/decisions"
       class={["decisions-banner", @blocking > 0 && "blocking"]}
+      aria-label={"#{@open} open retained Decisions, #{@blocking} blocking"}
     >
       <span class="decision-banner-icon" aria-hidden="true">!</span>
       <span class="decision-banner-body">
@@ -75,6 +77,14 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
       </span>
       <span class="decision-banner-cta">Review decisions <span aria-hidden="true">→</span></span>
     </.link>
+    <div :if={!is_integer(@open)} class="readonly-banner" role="status" aria-live="polite">
+      <span aria-hidden="true">◉</span>
+      <span><b>Retained Decision counts unavailable.</b> The priority overview is still shown without a global count.</span>
+    </div>
+    <div :if={@health == :partial and is_integer(@open)} class="readonly-banner" role="status" aria-live="polite">
+      <span aria-hidden="true">◉</span>
+      <span><b>Partial retained Decision counts.</b> Counts cover the validated audit prefix only.</span>
+    </div>
     """
   end
 
@@ -109,7 +119,8 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
   end
 
   attr(:live_action, :atom, required: true)
-  attr(:decision_count, :integer, required: true)
+  attr(:decision_count, :any, required: true)
+  attr(:decision_count_health, :atom, default: :unavailable)
   attr(:fleet_count, :integer, required: true)
 
   @spec tabs(map()) :: Phoenix.LiveView.Rendered.t()
@@ -120,7 +131,13 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
         Fleet <span class="count num">{@fleet_count}</span>
       </.link>
       <.link patch="/decisions" class={["control-tab", @live_action in [:decisions, :decision] && "is-active"]}>
-        Decision inbox <span class={["count num", @decision_count > 0 && "attn"]}>{@decision_count}</span>
+        Decision inbox
+        <span
+          class={["count num", is_integer(@decision_count) and @decision_count > 0 && "attn"]}
+          aria-label={decision_count_label(@decision_count, @decision_count_health)}
+        >
+          {decision_count(@decision_count)}
+        </span>
       </.link>
     </nav>
     """
@@ -147,6 +164,13 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
     do: "#{open} awaiting input in total · answer the blocking decision first"
 
   defp banner_detail(_blocking, _open), do: "Nothing is blocking · answer at your pace to keep agents moving"
+
+  defp decision_count(count) when is_integer(count), do: count
+  defp decision_count(_count), do: "—"
+
+  defp decision_count_label(count, :partial) when is_integer(count), do: "#{count} open retained Decisions in the validated audit prefix"
+  defp decision_count_label(count, _health) when is_integer(count), do: "#{count} open retained Decisions"
+  defp decision_count_label(_count, _health), do: "Retained Decision count unavailable"
 
   defp active?(_filters, :all, all_active), do: all_active
   defp active?(filters, key, _all_active), do: MapSet.member?(filters, key)

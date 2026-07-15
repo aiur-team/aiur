@@ -172,15 +172,24 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert filtered_html =~ "AIUR-5"
   end
 
-  test "decision banner targets an open decision and hides when none await input" do
+  test "decision banner uses canonical retained counts and hides when none await input" do
     answered = %{decision_id: "dec-answered", blocking: true, lifecycle: :resolved}
     open = %{decision_id: "dec-open", blocking: false, lifecycle: :recorded}
 
-    html = render_component(&Overview.decisions_banner/1, %{decisions: [answered, open]})
-    empty_html = render_component(&Overview.decisions_banner/1, %{decisions: [answered]})
+    html =
+      render_component(&Overview.decisions_banner/1, %{
+        decisions: [answered, open],
+        retained_counts: %{open: 1, blocking: 0, health: %{status: :available}}
+      })
 
-    assert html =~ ~s(href="/decisions/dec-open")
-    refute html =~ ~s(href="/decisions/dec-answered")
+    empty_html =
+      render_component(&Overview.decisions_banner/1, %{
+        decisions: [answered],
+        retained_counts: %{open: 0, blocking: 0, health: %{status: :available}}
+      })
+
+    assert html =~ ~s(href="/decisions")
+    assert html =~ "1 decision is awaiting you"
     refute empty_html =~ "decisions-banner"
   end
 
@@ -204,6 +213,19 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
 
     assert html =~ "Decision history is degraded"
     refute html =~ "currently unavailable"
+  end
+
+  test "Decision inbox primary filter chips use canonical retained counts" do
+    html =
+      render_inbox(
+        [inbox_decision("dec-overview-only")],
+        :all,
+        %{total: 701, open: 503, blocking: 401}
+      )
+
+    assert html =~ ~r/All\s+<span class="count num">701<\/span>/
+    assert html =~ ~r/Open\s+<span class="count num">503<\/span>/
+    assert html =~ ~r/Blocking\s+<span class="count num">401<\/span>/
   end
 
   test "renders a writable canonical answer form with destructive confirmation" do
@@ -471,7 +493,15 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     Map.merge(defaults, Map.new(attrs))
   end
 
-  defp render_inbox(decisions, filter) do
+  defp render_inbox(decisions, filter, retained_counts \\ nil) do
+    retained_counts =
+      retained_counts ||
+        %{
+          total: length(decisions),
+          open: Enum.count(decisions, &(&1.decision_status == :open)),
+          blocking: Enum.count(decisions, &(&1.blocking and &1.decision_status == :open))
+        }
+
     render_component(&DecisionInbox.decision_inbox/1, %{
       decisions: decisions,
       selected_decision_id: nil,
@@ -480,7 +510,8 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
       history: [],
       action_states: %{},
       writable: false,
-      provider_health: :ok
+      provider_health: :ok,
+      retained_counts: retained_counts
     })
   end
 end
