@@ -36,7 +36,7 @@ defmodule Aiur.BuildOrder.Lifecycle do
   @moduledoc "Normalized GitHub issue lifecycle facts without dispatch state."
 
   @type state :: :open | :closed | :unknown
-  @type reason :: :completed | :not_planned | :duplicate | :reopened | :unknown
+  @type reason :: :completed | :not_planned | :duplicate | :reopened | :none | :unknown
   @type t :: %__MODULE__{state: state(), state_reason: reason()}
 
   defstruct state: :unknown, state_reason: :unknown
@@ -45,9 +45,21 @@ defmodule Aiur.BuildOrder.Lifecycle do
   def from_github(state, reason),
     do: %__MODULE__{state: normalize_state(state), state_reason: normalize_reason(reason)}
 
+  @spec valid?(term()) :: boolean()
+  def valid?(%__MODULE__{state: :open, state_reason: reason}) when reason in [:none, :reopened],
+    do: true
+
+  def valid?(%__MODULE__{state: :closed, state_reason: reason})
+      when reason in [:completed, :not_planned, :duplicate],
+      do: true
+
+  def valid?(_lifecycle), do: false
+
   defp normalize_state(value) when value in [:open, "OPEN", "open"], do: :open
   defp normalize_state(value) when value in [:closed, "CLOSED", "closed"], do: :closed
   defp normalize_state(_value), do: :unknown
+
+  defp normalize_reason(nil), do: :none
 
   defp normalize_reason(value) when value in [:completed, "COMPLETED", "completed"],
     do: :completed

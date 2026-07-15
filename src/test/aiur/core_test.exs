@@ -219,6 +219,27 @@ defmodule Aiur.CoreTest do
     end
   end
 
+  test "GitHub workflow examples load effective planning settings" do
+    original_workflow_path = Workflow.workflow_file_path()
+
+    try do
+      for path <- [
+            "examples/workflows/github-codex.aiurconfig",
+            "examples/workflows/github-claude.aiurconfig"
+          ] do
+        Workflow.set_workflow_file_path(Path.expand(path))
+        settings = Config.settings!()
+
+        assert settings.tracker.github.repo == "your-org/your-repo"
+        assert settings.tracker.github.planning_root_limit == 100
+        assert settings.tracker.github.planning_page_budget == 4
+        assert settings.tracker.github.planning_call_budget == 4
+      end
+    after
+      Workflow.set_workflow_file_path(original_workflow_path)
+    end
+  end
+
   test "checked-in Codex GitHub workflows preserve enough turn budget and handoff context" do
     workflow_paths = [
       "examples/workflows/github-codex.aiurconfig",
