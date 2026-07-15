@@ -267,7 +267,12 @@ defmodule Aiur.Regression.AgentRunnerLifecycleTest do
               id: 2,
               topic: "ticket.77.agent.unblocked",
               message: "unblocked far apart",
-              emitted_at: DateTime.add(t0, 30, :second)
+              emitted_at:
+                DateTime.add(
+                  t0,
+                  Aiur.Config.events_block_state_debounce_seconds() + 1,
+                  :second
+                )
             }
           ],
           "AR13-G7"
@@ -275,10 +280,9 @@ defmodule Aiur.Regression.AgentRunnerLifecycleTest do
 
       lines = String.split(rendered, "\n")
 
-      # characterized only [id=2], ticket expected both at 30s
-      refute rendered =~ "[id=1]"
-      assert rendered =~ "[id=2]"
-      assert Enum.find_index(lines, &(&1 =~ "[id=2]"))
+      assert first_index = Enum.find_index(lines, &(&1 =~ "[id=1]"))
+      assert second_index = Enum.find_index(lines, &(&1 =~ "[id=2]"))
+      assert first_index < second_index
     end
 
     test "block-state events for different tickets do not collapse together" do

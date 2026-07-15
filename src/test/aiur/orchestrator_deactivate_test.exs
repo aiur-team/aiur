@@ -10,7 +10,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
   alias Aiur.Opencode.ActiveTurns
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{CiLifecycle, CommandScan, CommentPolling, Dispatcher, DispatchPolicy, State}
-  alias Aiur.Orchestrator.{EventTopics, PrAnchored, PushRouting, Reconciler}
+  alias Aiur.Orchestrator.{EventTopics, PauseResume, PrAnchored, PushRouting, Reconciler}
   alias Aiur.Orchestrator.{RuntimeWatchdog, Slots}
   alias Aiur.SessionHandle
 
