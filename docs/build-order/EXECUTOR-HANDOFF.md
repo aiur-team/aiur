@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-14 20:09 PDT)
+## Live Executor state (updated 2026-07-14 20:15 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -1464,13 +1464,24 @@ Terra; never dispatch Claude.
     retrospective also tightened saturation handling: after one control-RPC
     timeout, use provider logs plus GitHub for the rest of that five-minute
     window instead of burning another RPC.
+191. Workspace-safety #1161 pushed current-main head `c519401b`. Build,
+    Dialyzer, browser, layout, and guards passed; CI lint found one long line
+    plus four bounded complexity/nesting findings in the repaired
+    `RemoteControl` and workspace guardian paths. The durable packet is issue
+    comment `4976510041`; a corrected direct message woke the same worker at
+    20:14 and it is mechanically repairing only those five findings. A direct
+    message and pause-preserving label cycle on DASH-006/#1088 did not create a
+    new provider turn even though both operations succeeded and the workspace
+    has no source WIP. That is additional production evidence for the existing
+    #1151 wake defect, not a new ticket; keep #1088's exact lint tail preserved
+    for the authorized restart.
 
-At 20:09 PDT the core graph is 8/54 accepted. Four Codex workers are visibly
+At 20:15 PDT the core graph is 8/54 accepted. Four Codex workers are visibly
 executing, one core row reports a completed turn, and preserved paused or
 deactivated rows await the post-optimization restart. #1103 remains queued,
 while #1151 is in explicit review-driven rework awaiting that restart.
 #1093, #1108, #1111, #1123, and #1130 stay on workspace-race holds until #1161
-lands. The 20:09 phase preview preserves the latest successfully emitted core
+lands. The 20:15 phase preview preserves the latest successfully emitted core
 percentages and advances only review/CI states backed by GitHub evidence;
 do not replace those estimates with guesses during review/rework. Host load
 remains volatile and was about 38 with roughly 21 GiB available at the 17:34
