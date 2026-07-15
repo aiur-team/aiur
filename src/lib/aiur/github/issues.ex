@@ -7,6 +7,11 @@ defmodule Aiur.GitHub.Issues do
   alias Aiur.{BuildOrder.Bounded, Config, GitHub, Issue, TrackerIdentity}
   alias Aiur.GitHub.{Errors, Labels, StatePolicy, Transport}
 
+  @max_issue_response_bytes 65_536
+
+  @spec max_issue_response_bytes() :: pos_integer()
+  def max_issue_response_bytes, do: @max_issue_response_bytes
+
   @spec fetch_candidate_issues(keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
   def fetch_candidate_issues(opts \\ []) do
     fetch_issues_by_states(Config.active_states(), opts)
@@ -29,11 +34,26 @@ defmodule Aiur.GitHub.Issues do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
       url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}"
 
-      case request_fun.(%{method: :get, url: url, token: token}) do
-        {:ok, %{status: 200, body: body}} when is_map(body) -> {:ok, body}
-        {:ok, %{status: 200}} -> {:error, :invalid_github_issue_response}
-        {:ok, %{status: _status} = response} -> {:error, Errors.github_status_error(response)}
-        {:error, reason} -> {:error, Errors.classify_error({:error, reason})}
+      case request_fun.(%{
+             method: :get,
+             url: url,
+             token: token,
+             max_response_bytes: @max_issue_response_bytes
+           }) do
+        {:ok, %{private: %{aiur_response_too_large: true}}} ->
+          {:error, :github_issue_response_too_large}
+
+        {:ok, %{status: 200, body: body}} when is_map(body) ->
+          {:ok, body}
+
+        {:ok, %{status: 200}} ->
+          {:error, :invalid_github_issue_response}
+
+        {:ok, %{status: _status} = response} ->
+          {:error, Errors.github_status_error(response)}
+
+        {:error, reason} ->
+          {:error, Errors.classify_error({:error, reason})}
       end
     end
   end

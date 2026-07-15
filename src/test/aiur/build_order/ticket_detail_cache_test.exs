@@ -513,7 +513,41 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
 
     refute Process.alive?(reader_pid)
     send(cache, {ref, {:ok, snapshot(identity, "late")}})
+    cache_barrier(cache)
     refute_receive {:ticket_detail_updated, %State{detail: %Snapshot{title: "late"}}}
+  end
+
+  test "fences an in-flight completion with one atomic configuration snapshot" do
+    parent = self()
+    identity = identity(42, "I42")
+    {:ok, configuration} = Agent.start_link(fn -> {@configured, 1} end)
+
+    {:ok, cache} =
+      start_cache(
+        configuration_snapshot: fn -> Agent.get(configuration, & &1) end,
+        reader: fn _identity ->
+          send(parent, {:reader_started, self()})
+
+          receive do
+            :finish -> {:ok, snapshot(identity, "stale-generation")}
+          end
+        end
+      )
+
+    assert :ok = TicketDetailCache.subscribe(cache, identity)
+    assert {:ok, %State{generation: 1, health: :unavailable}} = TicketDetailCache.request(cache, identity)
+    assert_receive {:reader_started, reader_pid}, 2_000
+    ref = inflight_ref(cache, identity)
+
+    Agent.update(configuration, fn _snapshot -> {@configured, 2} end)
+    send(cache, {ref, {:ok, snapshot(identity, "stale-generation")}})
+    cache_barrier(cache)
+
+    refute_receive {:ticket_detail_updated, %State{detail: %Snapshot{title: "stale-generation"}}}
+    refute Process.alive?(reader_pid)
+
+    assert {:ok, %State{health: :unavailable, detail: nil, generation: :unknown}} =
+             TicketDetailCache.current(cache, identity)
   end
 
   test "publishes structured credential-sanitized detail without the raw provider body" do
@@ -664,8 +698,11 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
       "mysql --password supersecret\n" <>
         "deploy --api-key anothersecret\n" <>
         "<password><![CDATA[xml-secret]]></password>\n" <>
-        "/etc /home /root /etc/passwd /home/alice /root/.ssh/id_ed25519\n" <>
-        "https://example.test/etc docs/etc"
+        "machine api.example login deploy password netrc-secret\n" <>
+        ~S({"\u0070assword":"escaped-name-secret"}) <>
+        "\n/etc /home /opt /root /usr /var /etc/passwd /home/alice /root/.ssh/id_ed25519\n" <>
+        "https://example.test/etc docs/etc\n" <>
+        "<password>unterminated-element-secret"
 
     {:ok, cache} =
       start_cache(
@@ -688,11 +725,18 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     assert description =~ "https://example.test/etc"
     assert description =~ "docs/etc"
 
-    for secret <- ["supersecret", "anothersecret", "xml-secret"] do
+    for secret <- [
+          "supersecret",
+          "anothersecret",
+          "xml-secret",
+          "netrc-secret",
+          "escaped-name-secret",
+          "unterminated-element-secret"
+        ] do
       refute description =~ secret
     end
 
-    refute Regex.match?(~r{(?<![A-Za-z0-9._/-])/(?:etc|home|root)(?![A-Za-z0-9._/-])}u, description)
+    refute Regex.match?(~r{(?<![A-Za-z0-9._/-])/(?:etc|home|opt|root|usr|var)(?![A-Za-z0-9._/-])}u, description)
   end
 
   test "survives task-supervisor outage, preserves LKG, and recovers on a later demand" do
@@ -816,6 +860,7 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     refute Process.alive?(reader_pid)
 
     send(cache, {ref, {:ok, snapshot(identity, "late")}})
+    cache_barrier(cache)
     refute_receive {:ticket_detail_updated, %State{detail: %Snapshot{title: "late"}}}
 
     assert {:ok, %State{health: :unavailable, failure: %Failure{kind: :timeout}}} =
@@ -878,6 +923,7 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
 
     refute Process.alive?(reader_pid)
     send(cache, {ref, {:ok, snapshot(identity, "late")}})
+    cache_barrier(cache)
     refute_receive {:ticket_detail_updated, %State{detail: %Snapshot{title: "late"}}}
   end
 
@@ -940,7 +986,10 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
                    2_000
 
     assert Process.alive?(cache)
+    reader_ref = Process.monitor(reader_pid)
     send(reader_pid, :finish)
+    assert_receive {:DOWN, ^reader_ref, :process, ^reader_pid, _reason}, 2_000
+    cache_barrier(cache)
     refute_receive {:ticket_detail_updated, %State{detail: %Snapshot{title: "late"}}}
   end
 
@@ -976,6 +1025,7 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     assert_receive {:reader_started, 2, second_reader}, 2_000
 
     send(cache, {first_ref, {:ok, snapshot(identity, "late")}})
+    cache_barrier(cache)
     refute_receive {:ticket_detail_updated, %State{detail: %Snapshot{title: "late"}}}
 
     send(second_reader, :finish)
@@ -1026,6 +1076,45 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
 
     assert {:ok, %State{health: :unavailable, detail: nil, generation: :unknown}} =
              TicketDetailCache.current(restarted, identity)
+  end
+
+  test "abnormal restart kills owned in-flight reads before replacement demand" do
+    parent = self()
+    identity = identity(42, "I42")
+    {:ok, task_supervisor} = Task.Supervisor.start_link()
+    {:ok, attempts} = Agent.start_link(fn -> 0 end)
+
+    cache_options = [
+      name: nil,
+      configured_repo: @configured,
+      task_supervisor: task_supervisor,
+      configuration_subscriber: fn _pid -> :ok end,
+      reader: fn _identity ->
+        attempt = Agent.get_and_update(attempts, fn value -> {value + 1, value + 1} end)
+        send(parent, {:reader_started, attempt, self()})
+
+        receive do
+          :finish -> {:ok, snapshot(identity, "generation-#{attempt}")}
+        end
+      end
+    ]
+
+    {:ok, supervisor} = Supervisor.start_link([{TicketDetailCache, cache_options}], strategy: :one_for_one)
+    cache = cache_child(supervisor)
+
+    assert {:ok, %State{health: :unavailable}} = TicketDetailCache.request(cache, identity)
+    assert_receive {:reader_started, 1, old_reader}, 2_000
+    old_reader_ref = Process.monitor(old_reader)
+
+    Process.exit(cache, :kill)
+    assert_receive {:DOWN, ^old_reader_ref, :process, ^old_reader, _reason}, 2_000
+
+    restarted = cache_child(supervisor)
+    refute restarted == cache
+    assert {:ok, %State{health: :unavailable}} = TicketDetailCache.request(restarted, identity)
+    assert_receive {:reader_started, 2, new_reader}, 2_000
+    refute Process.alive?(old_reader)
+    send(new_reader, :finish)
   end
 
   test "does not let direct startup options exceed cache hard bounds" do
@@ -1131,6 +1220,8 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     [{TicketDetailCache, cache, :worker, _modules}] = Supervisor.which_children(supervisor)
     cache
   end
+
+  defp cache_barrier(cache), do: :sys.get_state(cache)
 
   defp forward_detail_updates(parent) do
     receive do

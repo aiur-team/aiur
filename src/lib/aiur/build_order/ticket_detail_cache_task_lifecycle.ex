@@ -29,6 +29,7 @@ defmodule Aiur.BuildOrder.TicketDetailCache.TaskLifecycle do
               pid: task.pid,
               ref: task.ref,
               repository: repository,
+              configuration_generation: state.active_configuration_generation,
               timeout_ref: timeout_ref
             }
         }
@@ -135,12 +136,14 @@ defmodule Aiur.BuildOrder.TicketDetailCache.TaskLifecycle do
            ref: ^ref,
            generation: generation,
            repository: repository,
+           configuration_generation: configuration_generation,
            timeout_ref: timeout_ref
          }
        } = entry} ->
         Process.cancel_timer(timeout_ref)
 
-        if repository_matches_active?(repository, state.active_repository) do
+        if repository_matches_active?(repository, state.active_repository) and
+             configuration_generation == state.active_configuration_generation do
           entry = complete_entry(entry, result, state, generation)
           state = %{state | entries: Map.put(state.entries, key, entry)}
           {state, [Policy.state_for(entry, state)]}
@@ -155,13 +158,24 @@ defmodule Aiur.BuildOrder.TicketDetailCache.TaskLifecycle do
   end
 
   defp start_task(state, identity, repository) do
+    owner = self()
+
     {:ok,
      Task.Supervisor.async_nolink(state.task_supervisor, fn ->
-       read(state, identity, repository)
+       receive do
+         {:ticket_detail_cache_start, ^owner} -> read(state, identity, repository)
+       end
      end)}
+    |> link_and_start(owner)
   catch
     :exit, _reason -> :error
     :error, _reason -> :error
+  end
+
+  defp link_and_start({:ok, task}, owner) do
+    Process.link(task.pid)
+    send(task.pid, {:ticket_detail_cache_start, owner})
+    {:ok, task}
   end
 
   defp read(%{reader: reader}, identity, _repository) when is_function(reader, 1), do: reader.(identity)

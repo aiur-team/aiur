@@ -27,7 +27,7 @@ defmodule Aiur.BuildOrder.TicketDetail.Normalizer do
          {:ok, body} <- required_body(raw_issue),
          {:ok, description} <- description(body, description_limit(opts)),
          {:ok, url} <- configured_issue_url(raw_issue["html_url"], identity),
-         {:ok, lifecycle} <- lifecycle(raw_issue["state"], raw_issue["state_reason"]),
+         {:ok, lifecycle} <- required_lifecycle(raw_issue),
          {:ok, created_at} <- timestamp(raw_issue["created_at"]),
          {:ok, updated_at} <- timestamp(raw_issue["updated_at"]),
          {:ok, observed_at} <- observed_at(opts) do
@@ -59,6 +59,8 @@ defmodule Aiur.BuildOrder.TicketDetail.Normalizer do
     do: %Failure{kind: :rate_limited, retry_after: bounded_retry_after(detail[:retry_after])}
 
   def failure_from({:github, :timeout, _detail}), do: %Failure{kind: :timeout}
+  def failure_from(:missing_github_token), do: %Failure{kind: :auth}
+  def failure_from(:github_issue_response_too_large), do: %Failure{kind: :schema}
   def failure_from({:github, _kind, %{status: 404}}), do: %Failure{kind: :not_found}
   def failure_from({:github, _kind, %{status: 403}}), do: %Failure{kind: :permission}
   def failure_from({:github, _kind, _detail}), do: %Failure{kind: :transport}
@@ -139,10 +141,18 @@ defmodule Aiur.BuildOrder.TicketDetail.Normalizer do
     end
   end
 
-  defp lifecycle(state, reason) do
-    case Lifecycle.from_github(state, reason) do
-      %Lifecycle{state: :unknown} -> {:error, %Failure{kind: :validation}}
-      lifecycle -> {:ok, lifecycle}
+  defp required_lifecycle(raw_issue) do
+    with {:ok, state} <- Map.fetch(raw_issue, "state"),
+         {:ok, reason} <- Map.fetch(raw_issue, "state_reason") do
+      lifecycle = Lifecycle.from_github(state, reason)
+
+      if Lifecycle.valid?(lifecycle) do
+        {:ok, lifecycle}
+      else
+        {:error, %Failure{kind: :validation}}
+      end
+    else
+      :error -> :schema
     end
   end
 

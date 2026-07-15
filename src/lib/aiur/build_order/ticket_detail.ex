@@ -35,6 +35,10 @@ defmodule Aiur.BuildOrder.TicketDetail do
   @spec configured_repository(keyword()) :: {:ok, TrackerIdentity.repository()} | {:error, Failure.t()}
   defdelegate configured_repository(opts), to: Repository
 
+  @spec configured_repository_snapshot(keyword()) ::
+          {:ok, TrackerIdentity.repository(), pos_integer() | :unknown} | {:error, Failure.t()}
+  defdelegate configured_repository_snapshot(opts), to: Repository
+
   @spec fetchable_identity(TrackerIdentity.t(), keyword()) ::
           {:ok, TrackerIdentity.t(), TrackerIdentity.repository()} | {:error, Failure.t()}
   def fetchable_identity(identity, opts \\ []), do: Repository.fetchable_identity(identity, opts)

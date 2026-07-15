@@ -19,7 +19,10 @@ defmodule Aiur.BuildOrder.TicketDetailCache.Options do
       inflight_by_ref: %{},
       next_generation: 1,
       configured_repo: Keyword.get(opts, :configured_repo),
+      configuration_generation: Keyword.get(opts, :configuration_generation, 1),
+      configuration_snapshot: Keyword.get(opts, :configuration_snapshot),
       active_repository: :unknown,
+      active_configuration_generation: :unknown,
       freshness_ms: bounded_positive_option(opts, :freshness_ms, @default_freshness_ms, @max_freshness_ms),
       refresh_timeout_ms:
         bounded_positive_option(

@@ -193,6 +193,27 @@ defmodule Aiur.BuildOrder.TicketDetailTest do
                  {:ok, %{status: 200, body: invalid_lifecycle}}
                end
              )
+
+    for invalid_lifecycle <- [
+          Map.delete(issue(42, "I42"), "state"),
+          Map.delete(issue(42, "I42"), "state_reason"),
+          issue(42, "I42") |> Map.put("state", "open") |> Map.put("state_reason", "completed"),
+          issue(42, "I42") |> Map.put("state", "closed") |> Map.put("state_reason", nil)
+        ] do
+      complete_lifecycle? =
+        Map.has_key?(invalid_lifecycle, "state") and
+          Map.has_key?(invalid_lifecycle, "state_reason")
+
+      expected_kind = if complete_lifecycle?, do: :validation, else: :schema
+
+      assert {:error, %Failure{kind: ^expected_kind}} =
+               TicketDetail.fetch(identity,
+                 configured_repo: @configured,
+                 request_fun: fn _request ->
+                   {:ok, %{status: 200, body: invalid_lifecycle}}
+                 end
+               )
+    end
   end
 
   test "rejects pull-request payloads from the issue endpoint" do
@@ -427,8 +448,11 @@ defmodule Aiur.BuildOrder.TicketDetailTest do
       "mysql --password supersecret\n" <>
         "deploy --api-key anothersecret\n" <>
         "<password><![CDATA[xml-secret]]></password>\n" <>
-        "/etc /home /root /etc/passwd /home/alice /root/.ssh/id_ed25519\n" <>
-        "https://example.test/etc docs/etc"
+        "machine api.example login deploy password netrc-secret\n" <>
+        ~S({"\u0070assword":"escaped-name-secret"}) <>
+        "\n/etc /home /opt /root /usr /var /etc/passwd /home/alice /root/.ssh/id_ed25519\n" <>
+        "https://example.test/etc docs/etc\n" <>
+        "<password>unterminated-element-secret"
 
     assert {:ok, %Snapshot{description: description}} =
              TicketDetail.fetch(identity,
@@ -443,11 +467,73 @@ defmodule Aiur.BuildOrder.TicketDetailTest do
     assert description =~ "https://example.test/etc"
     assert description =~ "docs/etc"
 
-    for secret <- ["supersecret", "anothersecret", "xml-secret"] do
+    for secret <- [
+          "supersecret",
+          "anothersecret",
+          "xml-secret",
+          "netrc-secret",
+          "escaped-name-secret",
+          "unterminated-element-secret"
+        ] do
       refute description =~ secret
     end
 
-    refute Regex.match?(~r{(?<![A-Za-z0-9._/-])/(?:etc|home|root)(?![A-Za-z0-9._/-])}u, description)
+    refute Regex.match?(~r{(?<![A-Za-z0-9._/-])/(?:etc|home|opt|root|usr|var)(?![A-Za-z0-9._/-])}u, description)
+  end
+
+  test "maps missing production GitHub credentials to an auth failure" do
+    identity = identity(42, "I42")
+    previous_token = System.get_env("GITHUB_TOKEN")
+    previous_cached_token = :persistent_term.get(@token_cache_key, :unset)
+    :persistent_term.erase(@token_cache_key)
+    System.delete_env("GITHUB_TOKEN")
+
+    on_exit(fn ->
+      if previous_token, do: System.put_env("GITHUB_TOKEN", previous_token)
+
+      case previous_cached_token do
+        :unset -> :persistent_term.erase(@token_cache_key)
+        token -> :persistent_term.put(@token_cache_key, token)
+      end
+    end)
+
+    assert {:error, %Failure{kind: :auth}} =
+             TicketDetail.fetch(identity, configured_repo: @configured)
+  end
+
+  test "aborts an oversized GitHub response before JSON normalization" do
+    identity = identity(42, "I42")
+    previous_token = System.get_env("GITHUB_TOKEN")
+    previous_cached_token = :persistent_term.get(@token_cache_key, :unset)
+    previous_request_options = Application.get_env(:aiur, @transport_test_options_key, :unset)
+    :persistent_term.erase(@token_cache_key)
+    System.put_env("GITHUB_TOKEN", "configured-detail-token")
+    Application.put_env(:aiur, @transport_test_options_key, plug: {Req.Test, {__MODULE__, :oversized}})
+
+    on_exit(fn ->
+      if previous_token, do: System.put_env("GITHUB_TOKEN", previous_token), else: System.delete_env("GITHUB_TOKEN")
+
+      case previous_cached_token do
+        :unset -> :persistent_term.erase(@token_cache_key)
+        token -> :persistent_term.put(@token_cache_key, token)
+      end
+
+      case previous_request_options do
+        :unset -> Application.delete_env(:aiur, @transport_test_options_key)
+        options -> Application.put_env(:aiur, @transport_test_options_key, options)
+      end
+    end)
+
+    Req.Test.stub({__MODULE__, :oversized}, fn conn ->
+      body = issue(42, "I42") |> Map.put("body", String.duplicate("x", 70_000)) |> Jason.encode!()
+
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.send_resp(200, body)
+    end)
+
+    assert {:error, %Failure{kind: :schema}} =
+             TicketDetail.fetch(identity, configured_repo: @configured)
   end
 
   test "maps not-found and rate-limit errors without response content" do

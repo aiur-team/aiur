@@ -60,6 +60,12 @@ defmodule Aiur.BuildOrder.TicketDetail.Sanitizer do
     (?:\s*=\s*|\s+)
     (?:"(?:\\.|[^"])*"|'(?:\\.|[^'])*'|[^\s,;\]\}\r\n]+)
   /iux
+  @credential_whitespace_pattern ~r/
+    (?<![A-Za-z0-9_\/-])
+    #{@sensitive_key_pattern}
+    \s+
+    (?:"(?:\\.|[^"])*"|'(?:\\.|[^'])*'|[^\s,;\[\]\}\r\n]+)
+  /iux
   @credential_header_pair_pattern ~r/
     \[\s*
     (?:"|'|&quot;)?
@@ -127,6 +133,11 @@ defmodule Aiur.BuildOrder.TicketDetail.Sanitizer do
     |
     <[^>]*\b#{@sensitive_key_pattern}\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)[^>]*>
   }iux
+  @malformed_credential_element_pattern ~r{
+    <\s*(?:[A-Za-z][A-Za-z0-9:_-]*:)?
+    #{@sensitive_key_pattern}\b
+    (?:[^>]*>(?s:.*)|[^>]*?)\z
+  }iux
   @file_uri_pattern ~r{\bfile:(?://)?/[^\s"')\],\}]+}iu
   @unc_path_pattern ~r{
     (?<!:)(?<![A-Za-z0-9+.-])
@@ -134,7 +145,7 @@ defmodule Aiur.BuildOrder.TicketDetail.Sanitizer do
   }ux
   @sensitive_local_root_pattern ~r{
     (?<![A-Za-z0-9._/-])
-    /(?:etc|home|root|workspace|tmp)(?:/[A-Za-z0-9._@%+=,-]+)*
+    /(?:etc|home|opt|root|usr|var|workspace|tmp)(?:/[A-Za-z0-9._@%+=,-]+)*
     (?![A-Za-z0-9._/-])
   }ux
   @absolute_local_path_pattern ~r{
@@ -150,6 +161,7 @@ defmodule Aiur.BuildOrder.TicketDetail.Sanitizer do
         |> String.replace("\r\n", "\n")
         |> String.replace("\r", "\n")
         |> String.replace(~r/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u, "")
+        |> decode_structural_escapes()
         |> SecretRedactor.redact()
         |> redact_credentials()
         |> redact_local_paths()
@@ -170,11 +182,13 @@ defmodule Aiur.BuildOrder.TicketDetail.Sanitizer do
     value = Regex.replace(@escaped_structured_credential_pattern, value, "[REDACTED:credential]")
     value = Regex.replace(@entity_structured_credential_pattern, value, "[REDACTED:credential]")
     value = Regex.replace(@credential_element_pattern, value, "[REDACTED:credential]")
+    value = Regex.replace(@malformed_credential_element_pattern, value, "[REDACTED:credential]")
     value = Regex.replace(@curl_credential_header_pattern, value, "[REDACTED:credential]")
     value = Regex.replace(@escaped_credential_header_pair_pattern, value, "[REDACTED:credential]")
     value = Regex.replace(@credential_header_pair_pattern, value, "[REDACTED:credential]")
     value = Regex.replace(@structured_credential_pattern, value, "[REDACTED:credential]")
     value = Regex.replace(@credential_flag_pattern, value, "[REDACTED:credential]")
+    value = Regex.replace(@credential_whitespace_pattern, value, "[REDACTED:credential]")
     value = Regex.replace(@credential_assignment_pattern, value, "[REDACTED:credential]")
     value = Regex.replace(@credential_header_pattern, value, "[REDACTED:credential]")
     Regex.replace(@credential_pattern, value, "[REDACTED:credential]")
@@ -209,5 +223,32 @@ defmodule Aiur.BuildOrder.TicketDetail.Sanitizer do
     value = Regex.replace(@absolute_local_path_pattern, value, "[REDACTED:local_path]")
     value = Regex.replace(~r{~/[^\s"')\],\}]+}u, value, "[REDACTED:local_path]")
     Regex.replace(~r{[A-Za-z]:\\[^\s]+}u, value, "[REDACTED:local_path]")
+  end
+
+  defp decode_structural_escapes(value) do
+    value =
+      Regex.replace(~r/\\u00([0-7][0-9A-Fa-f])/u, value, fn match, hex ->
+        decode_ascii_escape(match, hex)
+      end)
+
+    Regex.replace(~r/&#(?:x([0-7][0-9A-Fa-f])|([0-9]{1,3}));/iu, value, fn match, hex, decimal ->
+      decode_entity(match, hex, decimal)
+    end)
+  end
+
+  defp decode_ascii_escape(match, hex) do
+    case String.to_integer(hex, 16) do
+      codepoint when codepoint in 32..126 -> <<codepoint>>
+      _ -> match
+    end
+  end
+
+  defp decode_entity(match, hex, _decimal) when hex != "", do: decode_ascii_escape(match, hex)
+
+  defp decode_entity(match, _hex, decimal) do
+    case Integer.parse(decimal) do
+      {codepoint, ""} when codepoint in 32..126 -> <<codepoint>>
+      _ -> match
+    end
   end
 end

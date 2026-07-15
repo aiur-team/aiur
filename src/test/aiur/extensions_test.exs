@@ -164,6 +164,9 @@ defmodule Aiur.ExtensionsTest do
       match?({:ok, %{prompt: "Second prompt"}}, Workflow.current())
     end)
 
+    assert {:ok, %{prompt: "Second prompt"}, ^generation} =
+             WorkflowStore.current_with_generation()
+
     File.write!(Workflow.workflow_file_path(), "tracker: [\n")
     assert {:error, _reason} = WorkflowStore.force_reload()
     assert {:ok, %{prompt: "Second prompt"}} = Workflow.current()
@@ -175,6 +178,7 @@ defmodule Aiur.ExtensionsTest do
 
     assert :ok = Supervisor.terminate_child(Aiur.Supervisor, WorkflowStore)
     assert {:ok, %{prompt: "Third prompt"}} = WorkflowStore.current()
+    assert {:ok, %{prompt: "Third prompt"}, :unknown} = WorkflowStore.current_with_generation()
     assert :ok = WorkflowStore.force_reload()
     assert :ok = ensure_workflow_store_running()
   end

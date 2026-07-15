@@ -43,6 +43,7 @@ defmodule Aiur.BuildOrder.TicketDetailCache do
 
   @impl true
   def init(opts) do
+    Process.flag(:trap_exit, true)
     state = Options.new(opts)
     subscribe_to_configuration(state)
     broadcast_reset(state)
@@ -84,11 +85,13 @@ defmodule Aiur.BuildOrder.TicketDetailCache do
     {:noreply, state}
   end
 
-  def handle_info({:workflow_config_updated, _generation}, state) do
-    {state, updates} = reconcile_for_message(state)
+  def handle_info({:workflow_config_updated, generation}, state) do
+    {state, updates} = reconcile_for_message(state, generation)
     broadcast_all(updates)
     {:noreply, state}
   end
+
+  def handle_info({:EXIT, _pid, _reason}, state), do: {:noreply, state}
 
   def handle_info(_message, state), do: {:noreply, state}
 
@@ -151,8 +154,8 @@ defmodule Aiur.BuildOrder.TicketDetailCache do
     {state, reconciliation_updates ++ timeout_updates}
   end
 
-  defp reconcile_for_message(state) do
-    case Configuration.reconcile(state) do
+  defp reconcile_for_message(state, notified_generation \\ nil) do
+    case Configuration.reconcile(state, notified_generation) do
       {:ok, _repository, state, updates} -> {state, updates}
       {:error, _failure, state, updates} -> {state, updates}
     end
