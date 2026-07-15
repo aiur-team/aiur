@@ -148,6 +148,11 @@ defmodule Aiur.GitHub.Client do
   def fetch_open_pull_request(pr_number, opts \\ []),
     do: PullRequests.fetch_open_pull_request(pr_number, opts)
 
+  @spec ensure_pull_request_base(map(), String.t(), keyword()) ::
+          {:ok, :unchanged | {:repaired, String.t()}} | {:error, term()}
+  def ensure_pull_request_base(pr, expected_base, opts \\ []),
+    do: PullRequests.ensure_base_branch(pr, expected_base, opts)
+
   @spec fetch_classified_pr_review_comments(String.t() | integer(), keyword()) ::
           {:ok, [map()]} | {:error, term()}
   def fetch_classified_pr_review_comments(pr_number, opts \\ []),

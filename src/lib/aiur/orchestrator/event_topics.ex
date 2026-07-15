@@ -25,16 +25,41 @@ defmodule Aiur.Orchestrator.EventTopics do
   defp route_classified(state, {:ci_passed, identifier}, _event),
     do: CiLifecycle.maybe_resume_for_ci_terminal(state, identifier, :passed)
 
-  defp route_classified(state, {:pause_request, identifier}, _event),
-    do: PushRouting.maybe_pause_on_request(state, identifier)
+  defp route_classified(state, {:pause_request, identifier}, event),
+    do: PushRouting.maybe_pause_on_request(state, identifier, event)
 
-  defp route_classified(state, {:branch_push, blocker_identifier}, %{topic: topic}),
-    do: PushRouting.maybe_resume_blockees_on_push(state, blocker_identifier, topic)
+  defp route_classified(state, {:agent_unblocked, blocker_identifier}, %{topic: topic} = event) do
+    cond do
+      provisional_unblock?(event) ->
+        state
+
+      metadata = PushRouting.validated_unblock_metadata(blocker_identifier, event) ->
+        PushRouting.maybe_resume_blockees_on_unblocked(state, blocker_identifier, topic, metadata)
+
+      true ->
+        state
+    end
+  end
+
+  defp route_classified(state, {:branch_push, blocker_identifier}, event),
+    do: PushRouting.record_blocker_branch_push(state, blocker_identifier, event)
 
   defp route_classified(state, {:system_branch_push, branch}, event),
     do: PushRouting.maybe_notify_agents_on_default_branch_push(state, branch, event)
 
   defp route_classified(state, :nomatch, _event), do: state
+
+  defp provisional_unblock?(event) do
+    Enum.any?(
+      [event, Map.get(event, :payload), Map.get(event, "payload")],
+      &temporary_stub?/1
+    )
+  end
+
+  defp temporary_stub?(value) when is_map(value),
+    do: Map.get(value, :temporary_stub) == true or Map.get(value, "temporary_stub") == true
+
+  defp temporary_stub?(_value), do: false
 
   @spec parse_pr_review_comment_topic(String.t()) :: {:ok, String.t()} | :nomatch
   def parse_pr_review_comment_topic(topic) do
@@ -92,6 +117,14 @@ defmodule Aiur.Orchestrator.EventTopics do
     end
   end
 
+  @spec parse_agent_unblocked_topic(String.t()) :: {:ok, String.t()} | :nomatch
+  def parse_agent_unblocked_topic(topic) do
+    case Regex.run(~r{\Aticket\.([^.]+)\.agent\.unblocked\z}, topic) do
+      [_, identifier] -> {:ok, identifier}
+      _ -> :nomatch
+    end
+  end
+
   @spec parse_system_branch_push_topic(String.t()) :: {:ok, String.t()} | :nomatch
   def parse_system_branch_push_topic(topic) do
     case Regex.run(~r{\Asystem\.([^.]+)\.branch\.push\z}, topic) do
@@ -112,6 +145,7 @@ defmodule Aiur.Orchestrator.EventTopics do
          :nomatch <- tag_topic(:ci_failed, parse_ci_failed_topic(topic)),
          :nomatch <- tag_topic(:ci_passed, parse_ci_passed_topic(topic)),
          :nomatch <- tag_topic(:pause_request, parse_pause_request_topic(topic)),
+         :nomatch <- tag_topic(:agent_unblocked, parse_agent_unblocked_topic(topic)),
          :nomatch <- tag_topic(:branch_push, parse_branch_push_topic(topic)) do
       tag_topic(:system_branch_push, parse_system_branch_push_topic(topic))
     end

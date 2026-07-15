@@ -7,6 +7,7 @@ defmodule Aiur.Claude.Repl.Command do
 
   require Logger
 
+  alias Aiur.AgentEnvironment
   alias Aiur.Claude.Config
   alias Aiur.Claude.HookSettings
   alias Aiur.Claude.RemoteControl
@@ -20,9 +21,10 @@ defmodule Aiur.Claude.Repl.Command do
           boolean(),
           String.t(),
           String.t() | nil,
-          String.t() | nil
+          String.t() | nil,
+          keyword()
         ) :: String.t()
-  def build_command(workspace, model, effort, rc?, rc_name, settings_path, resume_id) do
+  def build_command(workspace, model, effort, rc?, rc_name, settings_path, resume_id, opts \\ []) do
     flags =
       ["claude"]
       |> append_if(rc?, ["--remote-control", shell_escape(rc_name)])
@@ -33,7 +35,10 @@ defmodule Aiur.Claude.Repl.Command do
       |> append_if(is_binary(settings_path), ["--settings", shell_escape(settings_path || "")])
       |> Enum.join(" ")
 
-    "cd #{shell_escape(workspace)} && exec #{flags}"
+    environment = AgentEnvironment.workspace_env_export_prefix(workspace, Keyword.take(opts, [:base_branch]))
+
+    ["cd #{shell_escape(workspace)}", environment, "exec #{flags}"]
+    |> Enum.join(" && ")
   end
 
   # The claude session id to `--resume` on this spawn, or nil for a clean start.

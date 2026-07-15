@@ -22,6 +22,7 @@ workspace:
   root: ~/code/aiur-workspaces
 hooks:
   after_create: |
+    # Aiur runs this in an empty atomic staging directory.
     git clone "$THIS_REPOSITORY_URL" .
 agent:
   kind: claude

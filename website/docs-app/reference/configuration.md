@@ -58,7 +58,7 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 | `agent.kind` | string | claude | Default coding backend; an explicit value wins, otherwise a `claude:` section infers `claude`, a `codex:` section infers `codex`, and no backend section falls back to `claude`. |
 | `agent.remote_control` | boolean | false | Opts RC-capable backends into remote control. |
 | `agent.max_concurrent_agents` | integer | 10 | Global simultaneous-agent cap. |
-| `agent.max_concurrent_builds` | integer | 2 | Caps agent-launched Mix verification; 0 disables the gate. |
+| `agent.max_concurrent_builds` | integer | 2 | Caps local agent Mix verification; 0 deliberately disables the concurrency cap. |
 | `agent.build_start_stagger_seconds` | integer | 0 | Minimum spacing between local Mix build starts; 0 disables pacing. |
 | `agent.min_free_memory_mb` | integer or nil | nil | Linux `MemAvailable` floor shared by dispatch and the Mix build gate. |
 | `agent.max_concurrent_agents_by_state` | map | `%{}` | Per-state caps overriding the global cap. |
@@ -79,6 +79,18 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 | `agent.load_cooldown_seconds` | integer | 60 | Minimum interval between adaptive capacity reductions. |
 | `agent.synthetic_load_process_cap` | integer or nil | nil | Caps synthetic load processes; 0 disables the guard. |
 | `agent.mix_scheduler_cap` | integer or nil | nil | Caps schedulers in agent-launched Mix BEAMs; nil leaves them uncapped. |
+
+Enabled local Codex `workspaceWrite` turns preserve configured/workspace/Git roots and
+also grant the canonical shared build-gate metadata directory. Host-prepared lock inodes
+live in a sibling `.locks` directory that is excluded from turn-writable roots, preventing
+a sandbox from replacing a held slot. Gate coordination failures return status `125`
+without running Mix. Repair the reported metadata/lock directory, `flock`, or `python3`
+subreaper dependency and
+restart/re-dispatch agents. If `aiur status` reports `BUILD GATE DEGRADED`, first stop the
+old fleet and confirm no old Mix verification is live, then clear only the reported legacy
+records. To disable build admission completely, set `agent.max_concurrent_builds: 0`, set
+`agent.build_start_stagger_seconds: 0`, and omit `agent.min_free_memory_mb`. This explicit
+opt-out removes every build safeguard; it is never an automatic error fallback.
 
 ## agent.claude
 
