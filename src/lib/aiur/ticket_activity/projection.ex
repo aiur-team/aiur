@@ -209,9 +209,9 @@ defmodule Aiur.TicketActivity.Projection do
             percent: percent,
             source: source,
             provenance: safe_provenance(observation.provenance),
-            occurred_at: observation.occurred_at,
+            occurred_at: safe_timestamp(observation.occurred_at),
             observed_at: observation.observed_at,
-            event_id: observation.event_id,
+            event_id: safe_event_id(observation.event_id),
             order: order
           }
 
@@ -233,7 +233,7 @@ defmodule Aiur.TicketActivity.Projection do
               stage = %{
                 value: value,
                 observed_at: observation.observed_at,
-                event_id: observation.event_id,
+                event_id: safe_event_id(observation.event_id),
                 order: order
               }
 
@@ -245,7 +245,7 @@ defmodule Aiur.TicketActivity.Projection do
                  | stage: %{
                      value: nil,
                      observed_at: observation.observed_at,
-                     event_id: observation.event_id,
+                     event_id: safe_event_id(observation.event_id),
                      order: order
                    }
                }, true}
@@ -268,9 +268,9 @@ defmodule Aiur.TicketActivity.Projection do
         source: safe_source(observation.source),
         attributes: safe_attributes(observation.attributes),
         provenance: safe_provenance(observation.provenance),
-        occurred_at: observation.occurred_at,
+        occurred_at: safe_timestamp(observation.occurred_at),
         observed_at: observation.observed_at,
-        event_id: observation.event_id,
+        event_id: safe_event_id(observation.event_id),
         order: order
       }
 
@@ -296,9 +296,13 @@ defmodule Aiur.TicketActivity.Projection do
 
   defp progress(_observation), do: nil
 
-  defp stage(%TicketObservation{source: %{kind: :agent_alert}, attributes: attributes}) do
-    with stage when stage in [:brainstorm, :plan, :work, :review] <- Map.get(attributes, :stage),
-         transition when transition in [:start, :end] <- Map.get(attributes, :transition) do
+  defp stage(%TicketObservation{
+         source: %{kind: :agent_alert, name: source_name},
+         attributes: attributes
+       }) do
+    with {:ok, stage, transition} <- phase_source(source_name),
+         ^stage <- Map.get(attributes, :stage),
+         ^transition <- Map.get(attributes, :transition) do
       %{stage: stage, transition: transition}
     else
       _ -> nil
@@ -326,7 +330,7 @@ defmodule Aiur.TicketActivity.Projection do
   defp newer?(order, %{order: previous}), do: order > previous
 
   defp ordering(observation),
-    do: {DateTime.to_unix(observation.observed_at, :microsecond), observation.event_id || 0}
+    do: {DateTime.to_unix(observation.observed_at, :microsecond), safe_event_id(observation.event_id) || 0}
 
   defp newer_time(left, right),
     do: if(DateTime.compare(left, right) == :lt, do: right, else: left)
@@ -344,7 +348,7 @@ defmodule Aiur.TicketActivity.Projection do
       latest_evidence: evidence_snapshot(entry.latest_evidence),
       provenance: entry.provenance,
       observed_at: entry.last_observed_at,
-      retention: retention(state)
+      retention: entry.retention
     }
   end
 
@@ -399,10 +403,9 @@ defmodule Aiur.TicketActivity.Projection do
 
   defp safe_source(%{kind: :agent_alert, name: "alert"}), do: %{kind: :agent_alert, name: "alert"}
 
-  defp safe_source(%{kind: :agent_alert, name: "phase." <> rest}) do
-    case String.split(rest, ".", parts: 2) do
-      [stage, transition]
-      when stage in ["brainstorm", "plan", "work", "review"] and transition in ["start", "end"] ->
+  defp safe_source(%{kind: :agent_alert, name: name}) do
+    case phase_source(name) do
+      {:ok, stage, transition} ->
         %{kind: :agent_alert, name: "phase.#{stage}.#{transition}"}
 
       _ ->
@@ -458,6 +461,23 @@ defmodule Aiur.TicketActivity.Projection do
   end
 
   defp safe_provenance(_provenance), do: %{}
+
+  defp phase_source("phase." <> rest) do
+    case String.split(rest, ".", parts: 2) do
+      [stage, transition]
+      when stage in ["brainstorm", "plan", "work", "review"] and transition in ["start", "end"] ->
+        {:ok, String.to_existing_atom(stage), String.to_existing_atom(transition)}
+
+      _ ->
+        :error
+    end
+  end
+
+  defp phase_source(_name), do: :error
+  defp safe_timestamp(%DateTime{} = timestamp), do: timestamp
+  defp safe_timestamp(_timestamp), do: nil
+  defp safe_event_id(event_id) when is_integer(event_id) and event_id > 0, do: event_id
+  defp safe_event_id(_event_id), do: nil
 
   defp positive_opt(opts, key, default),
     do: if(is_integer(opts[key]) and opts[key] > 0, do: opts[key], else: default)

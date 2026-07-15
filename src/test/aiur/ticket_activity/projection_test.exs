@@ -185,10 +185,61 @@ defmodule Aiur.TicketActivity.ProjectionTest do
              Projection.snapshot(state, ticket, @now)
   end
 
+  test "does not classify a generic alert as an active stage" do
+    ticket = identity()
+
+    state =
+      Projection.new()
+      |> Projection.refresh_members([ticket], @now)
+      |> apply!(
+        observation(
+          ticket,
+          :agent_alert,
+          "phase.work.start",
+          %{stage: :work, transition: :start},
+          1
+        )
+      )
+      |> apply!(
+        observation(
+          ticket,
+          :agent_alert,
+          "alert",
+          %{stage: :plan, transition: :end, severity: "warning"},
+          2
+        )
+      )
+
+    assert %{
+             active_stage: :work,
+             latest_evidence: %{source: %{kind: :agent_alert, name: "alert"}}
+           } = Projection.snapshot(state, ticket, @now)
+  end
+
+  test "drops malformed timestamp and event metadata from public evidence" do
+    ticket = identity()
+
+    unsafe =
+      ticket
+      |> observation(:agent_event, "progress", %{percent: 40}, 1)
+      |> Map.put(:occurred_at, "secret token must not escape")
+      |> Map.put(:event_id, %{local_path: "/private/workspace"})
+
+    state = Projection.new() |> Projection.apply(unsafe) |> accepted!()
+    snapshot = Projection.snapshot(state, ticket, @now)
+
+    assert %{progress: %{occurred_at: nil, event_id: nil}} = snapshot
+    assert %{latest_evidence: %{occurred_at: nil, event_id: nil}} = snapshot
+    refute inspect(snapshot) =~ "secret token"
+    refute inspect(snapshot) =~ "/private/workspace"
+  end
+
   defp apply!(state, observation) do
     assert {:accepted, state} = Projection.apply(state, observation)
     state
   end
+
+  defp accepted!({:accepted, state}), do: state
 
   defp observation(identity, kind, name, attributes, seconds, provenance \\ %{}) do
     %TicketObservation{

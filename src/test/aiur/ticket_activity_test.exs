@@ -41,16 +41,21 @@ defmodule Aiur.TicketActivityTest do
     send(server, {:current_run_membership_changed, %{event: event}})
     send(server, {:event, %{ticket_observation: observation(ticket)}})
 
-    assert_receive {:ticket_activity_changed, %{snapshot: %{retention: %{current: 1, recent: 0}}}}, 500
+    assert_receive {:ticket_activity_changed, %{snapshot: %{retention: :current}, retention: %{current: 1, recent: 0}}},
+                   500
   end
 
   test "publishes the retention transition when membership arrives after activity", %{server: server} do
     ticket = identity()
     send(server, {:event, %{ticket_observation: observation(ticket)}})
-    assert_receive {:ticket_activity_changed, %{snapshot: %{retention: %{current: 0, recent: 1}}}}, 500
+
+    assert_receive {:ticket_activity_changed, %{snapshot: %{retention: :recent}, retention: %{current: 0, recent: 1}}},
+                   500
 
     send(server, {:current_run_membership_changed, %{event: %{identity: ticket}}})
-    assert_receive {:ticket_activity_changed, %{snapshot: %{retention: %{current: 1, recent: 0}}}}, 500
+
+    assert_receive {:ticket_activity_changed, %{snapshot: %{retention: :current}, retention: %{current: 1, recent: 0}}},
+                   500
   end
 
   test "consumes qualified observations from the real exchange" do
