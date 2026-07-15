@@ -53,7 +53,10 @@ defmodule Aiur.CurrentRunMembership.Store.Runtime do
       {:ok, key} ->
         pending_keys = update_pending_keys(state.terminal_verification_pending_keys, key, pending?)
 
-        if pending_keys == state.terminal_verification_pending_keys do
+        pending? = TerminalVerification.pending?(pending_keys)
+
+        if pending_keys == state.terminal_verification_pending_keys and
+             pending? == state.terminal_verification_pending? do
           {:ok, state}
         else
           persist_terminal_verification_pending(state, pending_keys)
@@ -191,7 +194,12 @@ defmodule Aiur.CurrentRunMembership.Store.Runtime do
         {:reply, {:ok, %{status: :accepted, generation: state.projection.generation}}, state}
 
       {:error, reason} ->
-        state = %{state | health: public_health({:degraded, {:journal_compaction_failed, reason}})}
+        state = %{
+          state
+          | health: public_health({:degraded, {:journal_compaction_failed, reason}}),
+            writable?: false
+        }
+
         notify(state, event)
         {:reply, {:ok, %{status: :accepted, generation: state.projection.generation}}, state}
     end

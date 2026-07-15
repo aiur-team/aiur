@@ -7,7 +7,7 @@ defmodule Aiur.CurrentRunMembership.Event.Codec do
   @lifecycles [:queued, :retrying, :allocated, :running, :paused, :waiting, :replaced, :completed, :cancelled]
   @sources [:status_report, :tracker]
   @record_keys ~w(checksum identity lifecycle observed_at run_id source version)
-  @identity_record_keys ~w(identifier kind owner provider_id reason repository status version)
+  @identity_record_keys ~w(database_id identifier kind owner provider_id reason repository status version)
   @max_identity_scalar_bytes 512
   @max_checksum_bytes 128
   @max_recovery_record_bytes 4_096
@@ -90,6 +90,7 @@ defmodule Aiur.CurrentRunMembership.Event.Codec do
       "owner" => identity.owner,
       "repository" => identity.repository,
       "provider_id" => identity.provider_id,
+      "database_id" => identity.database_id,
       "identifier" => identity.identifier,
       "reason" => identity.reason
     }
@@ -106,6 +107,7 @@ defmodule Aiur.CurrentRunMembership.Event.Codec do
          :ok <- valid_identity_scalar(identity.owner),
          :ok <- valid_identity_scalar(identity.repository),
          :ok <- valid_identity_scalar(identity.provider_id),
+         :ok <- valid_database_id(identity.database_id),
          :ok <- valid_identity_scalar(identity.identifier) do
       :ok
     else
@@ -120,6 +122,10 @@ defmodule Aiur.CurrentRunMembership.Event.Codec do
     do: :ok
 
   defp valid_identity_scalar(_value), do: {:error, :identity_too_large}
+
+  defp valid_database_id(nil), do: :ok
+  defp valid_database_id(value) when is_integer(value) and value > 0, do: :ok
+  defp valid_database_id(_value), do: {:error, :invalid_database_id}
 
   defp valid_checksum(value) when is_binary(value) and byte_size(value) in 1..@max_checksum_bytes, do: :ok
   defp valid_checksum(_value), do: {:error, :invalid_checksum}
@@ -168,11 +174,12 @@ defmodule Aiur.CurrentRunMembership.Event.Codec do
            "owner" => owner,
            "repository" => repository,
            "provider_id" => provider_id,
+           "database_id" => database_id,
            "identifier" => identifier,
            "reason" => nil
          } = identity
        ) do
-    if Enum.sort(Map.keys(identity)) == @identity_record_keys do
+    if Enum.sort(Map.keys(identity)) == @identity_record_keys and valid_database_id(database_id) == :ok do
       tracker_identity = %TrackerIdentity{
         version: 1,
         status: :joinable,
@@ -180,6 +187,7 @@ defmodule Aiur.CurrentRunMembership.Event.Codec do
         owner: owner,
         repository: repository,
         provider_id: provider_id,
+        database_id: database_id,
         identifier: identifier,
         reason: nil
       }

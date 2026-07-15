@@ -3,6 +3,7 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
 
   alias Aiur.{CurrentRunMembership, DecisionLog, TrackerIdentity}
   alias Aiur.CurrentRunMembership.{Event, Store}
+  alias Aiur.CurrentRunMembership.Store.TerminalVerification
 
   @run_id "membership-store-test"
   @now ~U[2026-07-14 12:00:00Z]
@@ -15,19 +16,27 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
 
   test "persists queue and terminal membership before publishing a restart-safe generation", %{dir: dir} do
     pid = start_store!(dir)
-    issue = identity()
+    issue = %{identity() | database_id: 84}
 
     assert {:ok, %{status: :accepted, generation: 1}} = observe(pid, issue, :queued)
     assert {:ok, %{status: :accepted, generation: 2}} = observe(pid, issue, :completed, 1)
     assert {:ok, %{status: :terminal, generation: 2}} = observe(pid, issue, :retrying, 2)
 
-    assert %{generation: 2, health: :healthy, members: [%{lifecycle: :completed, terminal?: true}]} =
+    assert %{
+             generation: 2,
+             health: :healthy,
+             members: [%{identity: ^issue, lifecycle: :completed, terminal?: true}]
+           } =
              Store.snapshot(server: pid)
 
     crash(pid)
     recovered = start_store!(dir)
 
-    assert %{generation: 2, health: :healthy, members: [%{lifecycle: :completed, terminal?: true}]} =
+    assert %{
+             generation: 2,
+             health: :healthy,
+             members: [%{identity: ^issue, lifecycle: :completed, terminal?: true}]
+           } =
              Store.snapshot(server: recovered)
   end
 
@@ -137,6 +146,38 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
 
     assert %{freshness: %{status: :unavailable, terminal_verification_pending?: true}} =
              Store.snapshot(server: recovered)
+  end
+
+  test "a successful clear repairs an acknowledged marker whose write reported failure", %{dir: dir} do
+    {:ok, writes} = Agent.start_link(fn -> 0 end)
+
+    marker_fun = fn path, run_id, pending_keys, sync_fun ->
+      case Agent.get_and_update(writes, fn count -> {count, count + 1} end) do
+        0 ->
+          assert :ok = TerminalVerification.write(path, run_id, pending_keys, sync_fun)
+          {:error, :acknowledgement_lost}
+
+        _ ->
+          TerminalVerification.write(path, run_id, pending_keys, sync_fun)
+      end
+    end
+
+    pid = start_store!(dir, @run_id, terminal_verification_marker_fun: marker_fun)
+
+    assert {:error, :terminal_verification_marker_failed} =
+             Store.set_terminal_verification_pending(identity(), true, pid)
+
+    assert [_marker] =
+             Path.wildcard(Path.join([dir, "runs", "*", "membership.terminal-verification.json"]))
+
+    assert :ok = Store.set_terminal_verification_pending(identity(), false, pid)
+    assert :ok = Store.mark_reconciled(:fresh, pid)
+
+    assert %{freshness: %{status: :fresh, terminal_verification_pending?: false}} =
+             Store.snapshot(server: pid)
+
+    assert [] ==
+             Path.wildcard(Path.join([dir, "runs", "*", "membership.terminal-verification.json"]))
   end
 
   test "resolving another terminal identity cannot clear an outstanding verification", %{dir: dir} do
@@ -455,6 +496,12 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
 
     assert {:ok, %{generation: 1}} = observe(pid, identity(), :queued)
     assert %{health: {:degraded, {:journal_compaction_failed, :compaction_failed}}} = Store.snapshot(server: pid)
+    journal = File.read!(journal_path(dir))
+
+    assert {:error, {:membership_unavailable, {:degraded, {:journal_compaction_failed, :compaction_failed}}}} =
+             observe(pid, identity("owner", "repo", "I-next", "43"), :queued, 1)
+
+    assert File.read!(journal_path(dir)) == journal
     stop(pid)
 
     recovered = start_store!(dir)

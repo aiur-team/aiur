@@ -108,6 +108,7 @@ defmodule Aiur.CurrentRunMembership.Event do
       event.identity.owner,
       event.identity.repository,
       event.identity.provider_id,
+      event.identity.database_id,
       event.identity.identifier,
       event.identity.reason,
       event.lifecycle,
