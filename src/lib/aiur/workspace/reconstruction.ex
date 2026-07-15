@@ -255,12 +255,20 @@ defmodule Aiur.Workspace.Reconstruction do
         {:error, reason}
 
       chunk when is_binary(chunk) ->
-        case write_fun.(output, chunk) do
+        case safe_log_write(write_fun, output, chunk) do
           :ok -> copy_log_chunks(input, output, write_fun)
           {:error, _reason} = error -> error
           other -> {:error, {:invalid_log_write_result, other}}
         end
     end
+  end
+
+  defp safe_log_write(write_fun, output, chunk) do
+    write_fun.(output, chunk)
+  rescue
+    error -> {:error, {:log_write_raised, error}}
+  catch
+    kind, reason -> {:error, {:log_write_threw, kind, reason}}
   end
 
   # Never follow a staged symlink while merging live diagnostics. Each parent

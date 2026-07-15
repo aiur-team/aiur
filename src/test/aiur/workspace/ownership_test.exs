@@ -198,6 +198,15 @@ defmodule Aiur.Workspace.OwnershipTest do
     Task.shutdown(cleanup, :brutal_kill)
   end
 
+  test "releases an exact-generation expectation cancelled before provider spawn" do
+    ticket = "ownership-cancelled-expectation-#{System.unique_integer([:positive])}"
+    assert {:ok, lease} = Ownership.claim(ticket)
+    assert :ok = Ownership.expect_provider(lease)
+    assert :ok = Ownership.cancel_provider_expectation(lease)
+    assert {:ok, %{phase: :released}} = Ownership.release_and_wait(lease)
+    assert :none = Ownership.current(ticket)
+  end
+
   test "rejects stale provider registration instead of acknowledging a lost lease" do
     ticket = "ownership-stale-provider-#{System.unique_integer([:positive])}"
     assert {:ok, lease} = Ownership.claim(ticket)
@@ -353,6 +362,49 @@ defmodule Aiur.Workspace.OwnershipTest do
 
     assert_eventually(fn -> Ownership.current(ticket) == :none end)
     refute_receive {:unexpected_group_reap, ^process_group_id}, 100
+  end
+
+  test "revalidates the captured group identity at the signal boundary" do
+    ticket = "ownership-reap-barrier-#{System.unique_integer([:positive])}"
+    process_group_id = System.unique_integer([:positive])
+    parent = self()
+    {:ok, identities} = Agent.start_link(fn -> :original end)
+
+    on_exit(fn -> if Process.alive?(identities), do: Agent.stop(identities) end)
+
+    identity_fun = fn ^process_group_id -> {:ok, Agent.get(identities, & &1)} end
+
+    owner =
+      spawn(fn ->
+        {:ok, lease} =
+          Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry,
+            group_alive_fun: fn ^process_group_id -> true end,
+            process_identity_fun: identity_fun,
+            reap_fun: fn group, expected_identity ->
+              send(parent, {:signal_barrier, self(), group, expected_identity})
+
+              receive do
+                :continue_signal ->
+                  if expected_identity == {:known, Agent.get(identities, & &1)},
+                    do: send(parent, {:unexpected_group_signal, group}),
+                    else: send(parent, {:reused_group_protected, group})
+              end
+            end
+          )
+
+        :ok = Ownership.track_process_group(lease, process_group_id)
+        send(parent, :barrier_group_tracked)
+        Process.sleep(:infinity)
+      end)
+
+    assert_receive :barrier_group_tracked, 2_000
+    Process.exit(owner, :kill)
+    assert_receive {:signal_barrier, reaper, ^process_group_id, {:known, :original}}, 2_000
+    Agent.update(identities, fn _ -> :replacement end)
+    send(reaper, :continue_signal)
+    assert_receive {:reused_group_protected, ^process_group_id}, 2_000
+    refute_receive {:unexpected_group_signal, ^process_group_id}, 100
+    assert_eventually(fn -> Ownership.current(ticket) == :none end)
   end
 
   test "does not reap a root process after its identifier is reused" do

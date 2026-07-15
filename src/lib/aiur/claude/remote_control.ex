@@ -363,6 +363,30 @@ defmodule Aiur.Claude.RemoteControl do
 
   def graceful_kill_process_group(_process_group_id), do: {:ok, :gone}
 
+  @doc false
+  @spec reap_process_group(nil | integer(), term()) :: {:ok, :gone | :reaped} | {:error, term()}
+  def reap_process_group(process_group_id, expected_identity),
+    do: reap_with_identity(process_group_id, expected_identity, &graceful_kill_process_group/1)
+
+  @doc false
+  @spec reap_process_tree(nil | integer(), term()) :: :ok | {:error, term()}
+  def reap_process_tree(os_pid, expected_identity),
+    do: reap_with_identity(os_pid, expected_identity, &graceful_kill_tree/1)
+
+  @doc false
+  @spec reap_process(nil | integer(), term()) :: :ok | {:error, term()}
+  def reap_process(os_pid, expected_identity),
+    do: reap_with_identity(os_pid, expected_identity, &graceful_kill/1)
+
+  defp reap_with_identity(identifier, {:known, expected_identity}, reap_fun) do
+    case process_identity(identifier) do
+      {:ok, ^expected_identity} -> reap_fun.(identifier)
+      _ -> {:error, :identity_changed}
+    end
+  end
+
+  defp reap_with_identity(_identifier, _expected_identity, _reap_fun), do: {:error, :identity_unverified}
+
   defp force_kill_process_group(process_group_id) do
     signal_process_group(process_group_id, "-KILL")
 

@@ -33,11 +33,11 @@ defmodule Aiur.Workspace.Ownership.Guardian do
           provider: nil,
           waiters: MapSet.new(),
           release_waiters: [],
-          reap_fun: Keyword.get(opts, :reap_fun, &RemoteControl.graceful_kill_process_group/1),
+          reap_fun: Keyword.get(opts, :reap_fun, &RemoteControl.reap_process_group/2),
           group_alive_fun: Keyword.get(opts, :group_alive_fun, &RemoteControl.process_group_alive?/1),
-          root_reap_fun: Keyword.get(opts, :root_reap_fun, &RemoteControl.graceful_kill_tree/1),
+          root_reap_fun: Keyword.get(opts, :root_reap_fun, &RemoteControl.reap_process_tree/2),
           root_alive_fun: Keyword.get(opts, :root_alive_fun, &RemoteControl.process_alive?/1),
-          process_reap_fun: Keyword.get(opts, :process_reap_fun, &RemoteControl.graceful_kill/1),
+          process_reap_fun: Keyword.get(opts, :process_reap_fun, &RemoteControl.reap_process/2),
           process_alive_fun: Keyword.get(opts, :process_alive_fun, &RemoteControl.process_alive?/1),
           process_identity_fun: Keyword.get(opts, :process_identity_fun, &RemoteControl.process_identity/1),
           telemetry_fun: Keyword.get(opts, :telemetry_fun, fn _lease, _boundary, _outcome -> :ok end),
@@ -67,6 +67,11 @@ defmodule Aiur.Workspace.Ownership.Guardian do
 
       {:workspace_guardian_call, from, ref, {:expect_provider, generation}} ->
         {reply_value, next} = expect_provider(state, generation)
+        reply(from, ref, reply_value)
+        loop(next)
+
+      {:workspace_guardian_call, from, ref, {:cancel_provider_expectation, generation}} ->
+        {reply_value, next} = cancel_provider_expectation(state, generation)
         reply(from, ref, reply_value)
         loop(next)
 
@@ -149,6 +154,11 @@ defmodule Aiur.Workspace.Ownership.Guardian do
        do: {:ok, %{state | provider_expected?: true}}
 
   defp expect_provider(state, _generation), do: {{:error, :workspace_ownership_lost}, state}
+
+  defp cancel_provider_expectation(%{lease: %{generation: generation}, provider: nil} = state, generation),
+    do: {:ok, %{state | provider_expected?: false}}
+
+  defp cancel_provider_expectation(state, _generation), do: {{:error, :workspace_ownership_lost}, state}
 
   defp track_provider(%{lease: %{generation: generation, phase: phase}} = state, generation, provider)
        when phase in [:provisioning, :active] and is_map(provider) do
@@ -237,9 +247,10 @@ defmodule Aiur.Workspace.Ownership.Guardian do
     state = update_phase(state, :reaping)
     guardian = self()
     reap_fun = reap_fun_for(state, kind)
+    expected_identity = reaping_identity(state, kind, identifier)
 
     spawn(fn ->
-      reap_identifier(reap_fun, identifier)
+      reap_identifier(reap_fun, identifier, expected_identity)
       send(guardian, {:workspace_guardian_reaped, kind, identifier})
     end)
 
@@ -333,14 +344,23 @@ defmodule Aiur.Workspace.Ownership.Guardian do
     _ -> {:error, :reap_failed}
   end
 
+  defp safe_reap(reap_fun, identifier, expected_identity) do
+    case :erlang.fun_info(reap_fun, :arity) do
+      {:arity, 2} -> reap_fun.(identifier, expected_identity)
+      _ -> safe_reap(reap_fun, identifier)
+    end
+  rescue
+    _ -> {:error, :reap_failed}
+  end
+
   defp reap_fun_for(state, :group), do: state.reap_fun
   defp reap_fun_for(state, :root), do: state.root_reap_fun
   defp reap_fun_for(state, :processes), do: state.process_reap_fun
 
-  defp reap_identifier(reap_fun, process_ids) when is_list(process_ids),
-    do: Enum.each(process_ids, &safe_reap(reap_fun, &1))
+  defp reap_identifier(reap_fun, process_ids, expected_identities) when is_list(process_ids),
+    do: Enum.each(process_ids, &safe_reap(reap_fun, &1, Map.get(expected_identities, &1, :unknown)))
 
-  defp reap_identifier(reap_fun, identifier), do: safe_reap(reap_fun, identifier)
+  defp reap_identifier(reap_fun, identifier, expected_identity), do: safe_reap(reap_fun, identifier, expected_identity)
 
   defp capture_provider_identities(provider, process_identity_fun) do
     Enum.reduce(provider_identifiers(provider), provider, fn {kind, identifier}, provider ->
@@ -382,10 +402,23 @@ defmodule Aiur.Workspace.Ownership.Guardian do
   end
 
   defp provider_identity_state(state, kind, identifier, alive_fun) do
-    expected_identity = state.provider |> Map.get(:process_identities, %{}) |> Map.get({kind, identifier})
+    expected_identity = provider_identity(state, kind, identifier)
 
     compare_provider_identity(expected_identity, state.process_identity_fun, alive_fun, identifier)
   end
+
+  defp provider_identity(%{provider: provider}, kind, identifier),
+    do: provider_identity(provider, kind, identifier)
+
+  defp provider_identity(provider, kind, identifier) when is_map(provider),
+    do: provider |> Map.get(:process_identities, %{}) |> Map.get({kind, identifier})
+
+  defp provider_identity(_provider, _kind, _identifier), do: :unknown
+
+  defp reaping_identity(state, :processes, identifiers) when is_list(identifiers),
+    do: Map.new(identifiers, &{&1, provider_identity(state, :process, &1)})
+
+  defp reaping_identity(state, kind, identifier), do: provider_identity(state, kind, identifier)
 
   defp compare_provider_identity({:known, expected}, process_identity_fun, alive_fun, identifier) do
     case capture_process_identity(process_identity_fun, identifier) do

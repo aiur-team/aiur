@@ -131,6 +131,30 @@ defmodule Aiur.Workspace.ReconstructionTest do
     assert File.ls!(root) == ["ticket"]
   end
 
+  test "rolls back the promoted workspace when a streamed log write raises", %{root: root, workspace: workspace} do
+    original_log = Path.join([workspace, "logs", "provider", "trace.log"])
+    original_readme = Path.join(workspace, "README.md")
+    File.mkdir_p!(Path.dirname(original_log))
+    File.write!(original_readme, "original\n")
+    File.write!(original_log, "before\n")
+
+    assert {:error, {:workspace_log_merge_failed, {:log_write_raised, %RuntimeError{}}}} =
+             Reconstruction.run(
+               workspace,
+               fn stage ->
+                 File.mkdir_p!(Path.join(stage, "logs"))
+                 File.write!(Path.join(stage, "README.md"), "replacement\n")
+                 File.write!(Path.join([stage, "logs", "trace.log"]), "after\n")
+                 :ok
+               end,
+               write_fun: fn _output, _data -> raise "simulated write failure" end
+             )
+
+    assert File.read!(original_readme) == "original\n"
+    assert File.read!(original_log) == "before\n"
+    assert File.ls!(root) == ["ticket"]
+  end
+
   test "rejects a staged logs symlink instead of following it during promotion", %{root: root, workspace: workspace} do
     source_log = Path.join([workspace, "logs", "agent.md"])
     outside = Path.join(root, "outside")

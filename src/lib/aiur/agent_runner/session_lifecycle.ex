@@ -164,6 +164,15 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     end
   end
 
+  defp cancel_pre_spawn_provider_expectation(ownership, reason) do
+    if pre_spawn_start_error?(reason), do: Ownership.cancel_provider_expectation(ownership)
+    :ok
+  end
+
+  defp pre_spawn_start_error?(:remote_control_requires_dashboard), do: true
+  defp pre_spawn_start_error?({:invalid_workspace_cwd, _, _, _}), do: true
+  defp pre_spawn_start_error?(_reason), do: false
+
   defp start_expected_session(
          workspace,
          issue,
@@ -187,6 +196,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
         )
 
       {:error, reason} = error ->
+        cancel_pre_spawn_provider_expectation(ownership, reason)
         record_session_start_failure(issue, session_context, reason)
         error
     end
