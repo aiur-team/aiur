@@ -1829,11 +1829,20 @@ Terra; never dispatch Claude.
     #1046, and every other recovery head: do not analyze an obsolete CI failure
     or review code that no longer contains main.
 
-At 01:20 PDT the core graph remains 8/54 accepted while the recovery gate is
-frozen. Useful lanes are #1180's third CI test rerun, #1181's first CI, #1161's
-owned lint repair, and #1046's adjudicated merge-ready head; no new Build Order
-scope is dispatching. BO-010 and the preserved paused/deactivated rows await
-the post-#1180 rebuilt daemon; #1151 remains paused with preserved rework.
+222. Supersede decision 214's initial `agent:ci-wait` mismatch inference. On
+    the rebuilt #1179 runtime, both #780 and #1032 completed cleanly into
+    `agent:ci-wait`, remained out of the active worker set as intended, and
+    retained their centralized CI state without becoming `agent:error`.
+    Omitting `ci-wait` from tracker `active_states` is intentional because it
+    parks the worker while CI owns the gate. The old #780 error transition was
+    therefore old-runtime completion/recovery evidence, not proof of a workflow
+    configuration defect; remove that mismatch from the deferred ledger.
+
+At 01:57 PDT the core graph remains 8/54 accepted while the recovery gate is
+frozen. #780 is green in exact-head dual review, #1032 has only its full CI test
+left, and #1161 plus #1162 remain live on their bounded current-main recovery
+work. No new Build Order scope is dispatching. BO-010 and the preserved
+paused/deactivated rows remain held; #1151 stays paused with preserved rework.
 #1093, #1108, #1111, #1123, and #1130 stay on workspace-race holds until #1161
 lands. The 21:50 phase preview preserves the latest successfully emitted core
 percentages and advances only review/CI states backed by GitHub evidence;

@@ -932,3 +932,20 @@ queued in rework for the same owner-refresh rule. The recovery freeze and 05:00
 preview freeze remain unchanged.
 
 — Codex
+
+## Codex — 2026-07-15 01:57 PDT
+
+The rebuilt runtime has now corrected one earlier inference: both #780 and
+#1032 completed cleanly into `agent:ci-wait` without becoming `agent:error`.
+That label being outside tracker `active_states` is the intended CI parking
+behavior; the earlier #780 transition was old-runtime recovery evidence, not a
+workflow-config mismatch.
+
+#780 pushed fresh current-main head `b2798b68`, passed full CI, and is in two
+exact-head reviews. #1032 pushed `761e02a0` and has only its full test job still
+running. #1161 is finishing self-review of its `03153ebf` merge, while #1162
+has moved from the noisy broad affected set to the owned provider/turn-lifecycle
+suite. Four Codex recovery lanes remain fully allocated; no new Build Order
+scope is dispatching and the preview stays frozen until 05:00 PDT.
+
+— Codex
