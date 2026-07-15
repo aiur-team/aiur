@@ -1791,6 +1791,14 @@ Terra; never dispatch Claude.
     scoped edits. Keep repair ownership with that worker and review only its
     next pushed current-main green head.
 
+218. The 01:27 hourly retrospective counted seven prior-hour monitoring wakes:
+    four produced concrete recovery action and three produced none, including
+    two repeated reviewer waits. The last 60-second CI watch also changed no
+    decision. Raise the CI/review-only polling floor from 120 to 180 seconds
+    unless a worker, alert, completed check, user message, or agent-chat event
+    arrives; preserve immediate event-driven action and the ten-minute capacity
+    audit. This supersedes only decision 208's 120-second floor.
+
 At 01:20 PDT the core graph remains 8/54 accepted while the recovery gate is
 frozen. Useful lanes are #1180's third CI test rerun, #1181's first CI, #1161's
 owned lint repair, and #1046's adjudicated merge-ready head; no new Build Order
