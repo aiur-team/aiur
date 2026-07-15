@@ -122,8 +122,8 @@ defmodule Aiur.GitHub.Transport do
       {:error, :invalid_graphql_response, _response} ->
         {:error, :invalid_graphql_response}
 
-      {:error, _reason, %{status: 200, body: %{"errors" => errors}} = response} when is_list(errors) ->
-        {:error, {:github_graphql_errors, errors, response}}
+      {:error, _reason, %{status: 200, body: %{"errors" => errors} = body}} when is_list(errors) ->
+        {:error, {:github_graphql_errors, errors, body}}
 
       {:error, {:github, _classification, _detail}, %{status: _status} = response} ->
         {:error, Errors.github_status_error(response)}
