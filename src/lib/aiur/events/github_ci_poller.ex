@@ -164,40 +164,42 @@ defmodule Aiur.Events.GithubCIPoller do
        ) do
     expected_base = expected_base_branch(opts)
 
-    with {:ok, current_head_sha} <- head_sha(current_pr) do
-      case ensure_pull_request_base(target, current_pr, current_head_sha, expected_base, opts) do
-        {:ok, :unchanged} ->
-          current_head_result(target, pr_number, current_pr, observed_head_sha, check_runs, commit_status, opts)
+    case head_sha(current_pr) do
+      {:ok, current_head_sha} ->
+        case ensure_pull_request_base(target, current_pr, current_head_sha, expected_base, opts) do
+          {:ok, :unchanged} ->
+            current_head_result(target, pr_number, current_pr, observed_head_sha, check_runs, commit_status, opts)
 
-        {:ok, {:unchanged, recovered_invalidation}} ->
-          opts = put_base_repair_invalidation(opts, target, recovered_invalidation)
+          {:ok, {:unchanged, recovered_invalidation}} ->
+            opts = put_base_repair_invalidation(opts, target, recovered_invalidation)
 
-          target
-          |> current_head_result(
-            pr_number,
-            current_pr,
-            observed_head_sha,
-            check_runs,
-            commit_status,
-            opts
-          )
-          |> Map.put(:base_repair_invalidation, recovered_invalidation)
+            target
+            |> current_head_result(
+              pr_number,
+              current_pr,
+              observed_head_sha,
+              check_runs,
+              commit_status,
+              opts
+            )
+            |> Map.put(:base_repair_invalidation, recovered_invalidation)
 
-        {:ok, {:repaired, invalidation}} ->
-          base_branch_repaired(target, pr_number, invalidation, expected_base)
+          {:ok, {:repaired, invalidation}} ->
+            base_branch_repaired(target, pr_number, invalidation, expected_base)
 
-        {:error, reason, invalidation} ->
-          base_branch_failure(
-            target,
-            pr_number,
-            current_head_sha,
-            expected_base,
-            reason,
-            invalidation
-          )
-      end
-    else
-      {:error, reason} -> poll_error(target, reason)
+          {:error, reason, invalidation} ->
+            base_branch_failure(
+              target,
+              pr_number,
+              current_head_sha,
+              expected_base,
+              reason,
+              invalidation
+            )
+        end
+
+      {:error, reason} ->
+        poll_error(target, reason)
     end
   end
 

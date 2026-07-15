@@ -92,18 +92,17 @@ defmodule Aiur.CIApprovalStore do
     try do
       :global.trans({__MODULE__, path}, fn ->
         with {:ok, normalized_invalidation} <- normalize_invalidation(invalidation),
-             {:ok, persisted} <- load_strict(path),
-             invalidations =
-               Map.put(persisted.base_repair_invalidations, target, normalized_invalidation),
-             :ok <-
-               write_strict(
-                 path,
-                 persisted.approved_heads,
-                 persisted.test_failure_heads,
-                 invalidations,
-                 opts
-               ) do
-          :ok
+             {:ok, persisted} <- load_strict(path) do
+          invalidations =
+            Map.put(persisted.base_repair_invalidations, target, normalized_invalidation)
+
+          write_strict(
+            path,
+            persisted.approved_heads,
+            persisted.test_failure_heads,
+            invalidations,
+            opts
+          )
         end
       end)
     rescue

@@ -472,29 +472,37 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
     case Map.get(invalidations, target) do
       %{repair_state: :repairing} ->
-        if Map.get(result, :base_repair_revalidated, false),
-          do: update_base_repair_invalidation(state, issue, nil),
-          else: state
+        reconcile_repairing_invalidation(state, issue, result)
 
       %{"repair_state" => "repairing"} ->
-        if Map.get(result, :base_repair_revalidated, false),
-          do: update_base_repair_invalidation(state, issue, nil),
-          else: state
+        reconcile_repairing_invalidation(state, issue, result)
 
       %{head_sha: invalidated_head} when is_binary(invalidated_head) ->
-        observed_head = Map.get(result, :head_sha)
-
-        if Map.get(result, :base_repair_revalidated, false) or
-             (is_binary(observed_head) and observed_head != invalidated_head) do
-          update_base_repair_invalidation(state, issue, nil)
-        else
-          state
-        end
+        reconcile_repaired_invalidation(state, issue, result, invalidated_head)
 
       _ ->
         state
     end
   end
+
+  defp reconcile_repairing_invalidation(state, issue, %{base_repair_revalidated: true}),
+    do: update_base_repair_invalidation(state, issue, nil)
+
+  defp reconcile_repairing_invalidation(state, _issue, _result), do: state
+
+  defp reconcile_repaired_invalidation(state, issue, result, invalidated_head) do
+    if base_repair_finished?(result, invalidated_head),
+      do: update_base_repair_invalidation(state, issue, nil),
+      else: state
+  end
+
+  defp base_repair_finished?(%{base_repair_revalidated: true}, _invalidated_head), do: true
+
+  defp base_repair_finished?(%{head_sha: observed_head}, invalidated_head)
+       when is_binary(observed_head),
+       do: observed_head != invalidated_head
+
+  defp base_repair_finished?(_result, _invalidated_head), do: false
 
   defp update_base_repair_invalidation(%State{} = state, %Issue{} = issue, invalidation) do
     case ci_target_for_issue(issue) do
