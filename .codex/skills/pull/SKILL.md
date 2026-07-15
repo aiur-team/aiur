@@ -1,10 +1,10 @@
 ---
 name: pull
 description:
-  Pull latest origin/main into the current local branch and resolve merge
-  conflicts (aka update-branch). Use when Codex needs to sync a feature branch
-  with origin, perform a merge-based update (not rebase), and guide conflict
-  resolution best practices.
+  Pull the configured integration branch into the current local branch and
+  resolve merge conflicts (aka update-branch). Use when Codex needs to sync a
+  feature branch with its intended base, perform a merge-based update (not
+  rebase), and guide conflict resolution best practices.
 ---
 
 # Pull
@@ -18,15 +18,20 @@ description:
 3. Confirm remotes and branches:
    - Ensure the `origin` remote exists.
    - Ensure the current branch is the one to receive the merge.
+   - In an Aiur agent workspace, require the injected `AIUR_BASE_BRANCH`; it is
+     the workflow's authoritative `tracker.base_branch` and must not be
+     replaced with the repository default.
+   - Outside Aiur, resolve the integration branch from `origin/HEAD` and stop
+     if it cannot be determined.
 4. Fetch latest refs:
-   - `git fetch origin`
+   - `git fetch origin "$AIUR_BASE_BRANCH"` in an Aiur workspace.
 5. Sync the remote feature branch first:
    - `git pull --ff-only origin $(git branch --show-current)`
    - This pulls branch updates made remotely (for example, a GitHub auto-commit)
-     before merging `origin/main`.
+     before merging the configured integration branch.
 6. Merge in order:
-   - Prefer `git -c merge.conflictstyle=zdiff3 merge origin/main` for clearer
-     conflict context.
+   - Prefer `git -c merge.conflictstyle=zdiff3 merge "origin/$AIUR_BASE_BRANCH"`
+     for clearer conflict context in an Aiur workspace.
 7. If conflicts appear, resolve them (see conflict guidance below), then:
    - `git add <files>`
    - `git commit` (or `git merge --continue` if the merge is paused)
@@ -34,6 +39,26 @@ description:
 9. Summarize the merge:
    - Call out the most challenging conflicts/files and how they were resolved.
    - Note any assumptions or follow-ups.
+
+## Command reference
+
+```sh
+integration_branch=${AIUR_BASE_BRANCH:-}
+
+if [ -z "$integration_branch" ]; then
+  integration_branch=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null)
+  integration_branch=${integration_branch#origin/}
+fi
+
+if [ -z "$integration_branch" ]; then
+  echo "Unable to resolve the configured integration branch." >&2
+  exit 1
+fi
+
+git fetch origin "$integration_branch"
+git pull --ff-only origin "$(git branch --show-current)"
+git -c merge.conflictstyle=zdiff3 merge "origin/$integration_branch"
+```
 
 ## Conflict Resolution Guidance (Best Practices)
 
@@ -59,7 +84,7 @@ description:
       unless the conflict clearly indicates a deliberate change.
   - Open files and understand intent on both sides before choosing a resolution.
 - Prefer minimal, intention-preserving edits:
-  - Keep behavior consistent with the branch’s purpose.
+  - Keep behavior consistent with the branch's purpose.
   - Avoid accidental deletions or silent behavior changes.
 - Resolve one file at a time and rerun tests after each logical batch.
 - Use `ours/theirs` only when you are certain one side should win entirely.

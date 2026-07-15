@@ -129,6 +129,7 @@ defmodule Aiur.Claude.Repl.LauncherTest do
           process_reaper: reaper,
           identifier: "930",
           model: "claude-sonnet-5",
+          base_branch: "integration",
           window_name: "aiur-repl-test",
           projects_dir: "/nonexistent"
         )
@@ -137,6 +138,7 @@ defmodule Aiur.Claude.Repl.LauncherTest do
     assert_receive {:tmux_mock_out, cmd}, 1_000
     assert String.starts_with?(cmd, "new-window")
     assert String.contains?(cmd, "exec claude")
+    assert String.contains?(cmd, "AIUR_BASE_BRANCH='integration'")
     refute String.contains?(cmd, "--remote-control")
     respond(tmux, "%20\n")
 
@@ -174,6 +176,7 @@ defmodule Aiur.Claude.Repl.LauncherTest do
           identifier: "930",
           hook_settings_fun: fn true, "930" -> "/tmp/aiur-hooks-930.json" end,
           rc_name: "aiur-rc-test",
+          base_branch: "integration",
           window_name: "aiur-rc-test",
           # 0ms URL capture budget so the first banner-less capture exhausts it
           url_capture_timeout_ms: 0,
@@ -183,6 +186,7 @@ defmodule Aiur.Claude.Repl.LauncherTest do
 
     assert_receive {:tmux_mock_out, cmd}, 1_000
     assert String.contains?(cmd, "--remote-control")
+    assert String.contains?(cmd, "AIUR_BASE_BRANCH='integration'")
     respond(tmux, "%30\n")
 
     assert_receive {:tmux_mock_out, "display-message -p -t %30 \#{pane_pid}"}, 1_000

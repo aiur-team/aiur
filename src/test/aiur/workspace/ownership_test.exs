@@ -77,8 +77,7 @@ defmodule Aiur.Workspace.OwnershipTest do
     monitor = Process.monitor(owner)
     Process.exit(owner, :kill)
     assert_receive {:DOWN, ^monitor, :process, ^owner, :killed}
-    _registry_state = :sys.get_state(Aiur.Workspace.Ownership.Registry)
-    assert :none = Ownership.current(ticket)
+    assert_eventually(fn -> Ownership.current(ticket) == :none end)
   end
 
   test "brutal runner death retains the lease until its tracked child group is reaped" do

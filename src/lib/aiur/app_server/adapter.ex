@@ -6,7 +6,7 @@ defmodule Aiur.AppServer.Adapter do
   require Logger
 
   alias Aiur.{AgentEnvironment, Config}
-  alias Aiur.AppServer.{Messages, TurnLoop}
+  alias Aiur.AppServer.{Messages, TurnLoop, TurnState}
   alias Aiur.Claude.RemoteControl
   alias Aiur.Codex.DynamicTool
 
@@ -19,7 +19,7 @@ defmodule Aiur.AppServer.Adapter do
               {:ok, String.t()} | {:error, term()}
   @callback loop_state_extras(session :: map()) :: map()
   @callback handle_interrupt_error(state :: map(), error :: term()) ::
-              {:continue, map()} | {:error, term()}
+              {:ok, :turn_completed} | {:paused, map()} | {:continue, map()} | {:error, term()}
   @callback handle_method(
               session :: map(),
               state :: map(),
@@ -89,6 +89,7 @@ defmodule Aiur.AppServer.Adapter do
             },
             backend.loop_state_extras(session)
           )
+          |> TurnState.initialize_turn_tracking()
 
         loop_result = TurnLoop.receive_loop(session, state)
         handle_turn_result(backend, issue, session_id, thread_id, turn_id, metadata, on_message, loop_result)
