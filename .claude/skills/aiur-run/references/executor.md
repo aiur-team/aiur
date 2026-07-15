@@ -87,24 +87,46 @@ The Executor continuously:
 6. captures newly discovered work and Aiur defects without losing provenance;
 7. leaves a durable decision and incident trail that another Executor can
    resume.
+8. reviews its own structured monitoring wake/outcome history once per hour,
+   records avoidable no-action checks and small evidence-based cadence/trigger
+   adjustments, and remains available without polling merely to appear active.
 
 ## Capacity policy
 
-The objective is progress against the bounded outcome, not the highest agent
-or ticket count.
+The objective is the fastest safe convergence on the bounded outcome. Achieve
+that by continuously maximizing useful parallelism, not by chasing an agent
+count detached from ready work.
 
-- Treat `set max-agents` as the session safety ceiling. When
+- Treat `set max-agents` as the session safety ceiling, not a steady-state
+  target below known capacity. When
   `agent.target_load_average` is enabled, let Aiur's AIMD controller adjust the
-  effective slots beneath that ceiling; raise the ceiling deliberately only
-  when ready critical-path work and host/review headroom remain.
+  effective slots beneath the recorded maximum ceiling. Keep that ceiling high
+  enough to admit every ready independent lane.
 - Manually ramp the ceiling as the primary controller only when AIMD is
-  disabled. Lower it for pressure, provider throttling, or review backlog that
-  load average does not capture.
-- Lower the cap when CPU saturation, memory pressure, file-descriptor errors,
-  repeated build contention, provider throttling, or declining review quality
-  appears.
+  disabled. Target sustained CPU utilization first, then memory, build
+  serialization, provider quota, review capacity, or dependency width as the
+  next limiting resource.
+- Lower the cap only when measured CPU saturation reduces throughput, memory or
+  file descriptors approach unsafe bounds, build contention stops useful
+  progress, providers throttle, or review quality declines. Record the exact
+  restoration threshold and re-raise the cap immediately when it clears; a
+  temporary reduction must not silently become the new normal.
 - Keep independent lanes occupied. Do not fill slots with tickets that are
   blocked, conflict on a contract/write surface, or cannot merge safely.
+- Count independent background review/rework lanes in the utilization plan.
+  CI-wait and human-review tickets do not consume implementation slots, but
+  their available reviewer lanes must be staffed.
+- At every observation, compare active useful work with the run's target and
+  maximum. If below target, name the exact blocker—dependency width, held
+  workspace, CI, review, quota, CPU, memory, or serialization—and work the
+  highest-fan-out unblocker. After each merge or gate transition, recompute and
+  dispatch the entire newly ready batch immediately.
+- Independently of event wakes and adaptive polling, run a hard ten-minute
+  capacity audit. Record useful implementation/review lanes separately from
+  CI-wait, paused, deactivated, completed, and dependency-blocked rows, plus
+  ceiling, CPU/load, available memory, build serialization, provider quota,
+  and review capacity. A below-target audit must name the limiting gate and
+  trigger the highest-leverage in-scope scheduling or recovery action.
 - Prefer runtime overrides to editing committed configuration during a run.
 - Record material cap changes and their observed reason.
 
@@ -193,6 +215,20 @@ A resumable handoff contains:
 - integration/acceptance owner and remaining evidence;
 - the last deliberate capacity setting and why.
 - the deferred findings ledger and ticket-creation circuit-breaker state.
+- the stable monitoring run ID, hourly retrospective log location, last
+  completed review, current adaptive cadence/trigger settings, and any repeated
+  notification gap reserved for terminal synthesis. Preserve the ID only
+  across handoffs of the same run; a later run receives a new ID.
+- the ten-minute capacity timer identity, latest audit path/timestamp, current
+  useful count versus target, and last below-target limiting gate/action.
+
+The one-hour retrospective is a hard cadence independent of ordinary wakeups.
+Review the preceding hour, not merely the latest poll. Classify each wake as
+useful/actionable or no-action/redundant, avoid overfitting isolated events, and
+record either one small adjustment or an explicit unchanged decision. At the
+run's capstone, convert only repeated, well-evidenced gaps into at most one or
+two deferred Aiur optimization issues under the existing publication authority;
+never let this instrumentation expand the active feature boundary.
 
 A successful run is terminal only when the agreed scope is implemented,
 independently reviewed, green against the current configured base, merged under

@@ -108,6 +108,7 @@ defmodule Aiur.Config.Schema.Agent do
     # "" disables it.
     field(:rate_limit_fallback, :string, default: "claude")
     field(:complexity_prompts, :map, default: %{})
+    field(:max_turns_by_complexity, :map, default: %{})
     # Backend-agnostic turn/stall timeouts (promoted from codex; claude-repl
     # already reads these via Config.agent_turn_timeout_ms/0).
     field(:turn_timeout_ms, :integer, default: 3_600_000)
@@ -160,6 +161,7 @@ defmodule Aiur.Config.Schema.Agent do
         :switch_model_on_ratelimit,
         :rate_limit_fallback,
         :complexity_prompts,
+        :max_turns_by_complexity,
         :turn_timeout_ms,
         :stall_timeout_ms,
         :max_agent_duration_minutes,
@@ -210,6 +212,8 @@ defmodule Aiur.Config.Schema.Agent do
     end)
     |> update_change(:complexity_prompts, &AgentValidation.normalize_complexity_prompts/1)
     |> AgentValidation.validate_complexity_prompts(:complexity_prompts)
+    |> update_change(:max_turns_by_complexity, &AgentValidation.normalize_max_turns_by_complexity/1)
+    |> AgentValidation.validate_max_turns_by_complexity(:max_turns_by_complexity)
     |> cast_embed(:claude, with: &Claude.changeset/2)
     |> cast_embed(:codex, with: &Codex.changeset/2)
   end

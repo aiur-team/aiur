@@ -6,13 +6,18 @@ tracker:
   terminal_states:
     - done
     - closed
-github:
-  repo: your-org/your-repo
-  label_prefix: agent
-  # Optional: trusted human Executor logins whose GitHub comments reach
-  # agent event digests even when CODEOWNERS team expansion is unavailable.
-  # trusted_accounts:
-  #   - your-github-login
+  github:
+    repo: your-org/your-repo
+    label_prefix: agent
+    # Optional: trusted human Executor logins whose GitHub comments reach
+    # agent event digests even when CODEOWNERS team expansion is unavailable.
+    # trusted_accounts:
+    #   - your-github-login
+    # Build Order planning graph safeguards; each must be a finite positive integer.
+    # Defaults accept exactly 100 roots/direct members across at most four pages/calls.
+    planning_root_limit: 100
+    planning_page_budget: 4
+    planning_call_budget: 4
 workspace:
   root: ~/code/aiur-workspaces
 hooks:
@@ -22,6 +27,7 @@ agent:
   kind: claude
   max_concurrent_agents: 5
   max_turns: 20
+  # max_turns_by_complexity: {1: 6, 2: 12, 3: 20}
 claude:
   command: aiur-claude
 prompt_file: github-claude.prompt.md

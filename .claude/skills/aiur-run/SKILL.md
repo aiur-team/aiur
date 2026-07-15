@@ -53,7 +53,10 @@ From the repository root:
 
    `--only` dequeues all other pending tickets and therefore requires explicit
    scope authority;
-4. choose a conservative starting cap and the recorded maximum;
+4. choose a measured starting cap and the recorded maximum. Keep the session
+   ceiling high enough to admit every ready independent lane; use AIMD/build
+   gates or explicit resource thresholds to regulate effective concurrency,
+   not an arbitrary low fixed cap;
 5. when `AIUR_CMD=scripts/aiurdev`, use `"$AIUR_CMD" build` if the local release
    needs an explicit clean checkpoint; ordinary local launches rebuild stale
    sources, and installed `aiur` has no shim-only `build` command.
@@ -105,15 +108,85 @@ The timer and alert path are additive: an urgent alert is handled immediately,
 while the cadence still provides a quiet-state floor. Do not depend on PR or
 agent-completion events as the only wake-up mechanism.
 
+### Ten-minute capacity audit — required
+
+Arm a hard capacity reminder every ten minutes, independent of the adaptive
+status cadence and event-driven wakes. At each tick, count only useful live
+implementation/rework and independent review lanes; record CI-wait, paused,
+deactivated, dependency-blocked, and completed rows separately. Capture the
+configured ceiling, current effective/live count, load versus CPU count,
+available memory, build serialization, provider quota, and review capacity.
+When useful concurrency is below the operator target, record the exact limiting
+gate and take the highest-leverage in-scope action immediately: dispatch ready
+work, staff review, recover a worker, or work the highest-fan-out unblocker.
+Never satisfy the reminder by waking blocked/CI tickets or promoting deferred
+P2/P3 scope merely to increase the count.
+
+The ten-minute audit is an internal scheduling control, not a requirement to
+send the user a redundant status message. Preserve its latest result and due
+time in the run's monitoring state so an Executor handoff cannot silently lose
+the timer.
+
+### Hourly monitoring retrospective — required
+
+Arm a second, hard one-hour cadence when monitoring starts. This is not another
+full status poll: once per hour, review the prior hour of the Executor's own
+structured wake/outcome log and identify observations that resulted in no
+action, duplicated a prior check, or could have been replaced by a specific
+Aiur/event-bus notification. Record useful versus no-action wake counts, the
+repeated reason signatures, and one small cadence/trigger adjustment or
+`unchanged` with rationale. Do not require clairvoyance and do not optimize one
+isolated miss; tune only from repeated evidence.
+
+Use the bundled helper when a native monitor does not already provide the same
+durable summary:
+
+```bash
+RETRO="<loaded-aiur-run-skill>/scripts/executor-retrospective.sh"
+export AIUR_EXECUTOR_RUN_ID="<stable-build-order-or-run-id>"
+"$RETRO" arm
+"$RETRO" observe action "reviewed-green-pr"
+"$RETRO" observe no-action "ci-still-pending"
+"$RETRO" due
+"$RETRO" summarize
+"$RETRO" record "<assessment>" "<adjustment-or-unchanged>"
+```
+
+Choose the stable run ID once and preserve it across Executor handoffs of that
+same run; never reuse it for a later run. Every event-driven or quiet audit must
+call `observe action|no-action <reason>` with a concise reason; otherwise the
+hourly review has no trustworthy denominator. Event-driven wakes remain
+immediate, and the ordinary adaptive quiet ceiling remains a safety floor. The
+hourly review is due even during a quiet run and must not be reset by routine
+wakes.
+
+At the terminal capstone, synthesize the retrospective history. Create at most
+one or two evidence-backed Aiur follow-ups for repeated notification gaps or
+avoidable polling classes, under the run's normal issue-authority and
+scope-growth rules. Do not file a ticket from a single no-action poll, and do
+not promote these optimizations into the active feature boundary unless they
+are direct P0/P1 blockers.
+
 ## 5. Drive the run
 
 On every observation:
 
 - act on the `ACTIONABLE` section before routine scheduling;
-- keep dependency-ready, conflict-free critical-path lanes occupied;
+- continuously push toward the maximum **useful** concurrency across workers,
+  independent reviewers, and merge/rework lanes. Keep every dependency-ready,
+  conflict-free lane occupied; when live concurrency is below the run target,
+  identify the exact limiting gate and prioritize removing it;
 - let default-on AIMD govern effective slots under the session ceiling; use
-  `"$AIUR_CMD" set max-agents <n>` to raise that ceiling deliberately or to
-  lower it for resource/review pressure AIMD does not capture;
+  `"$AIUR_CMD" set max-agents <n>` to keep the ceiling at the recorded maximum.
+  Lower it only for measured pressure AIMD/build gates do not capture, record a
+  restoration condition, and raise it again as soon as that condition clears;
+- use CPU saturation as a control target, then memory, build serialization,
+  provider quota, review capacity, and dependency width as successive
+  bottlenecks. Do not leave CPU/memory/provider headroom idle while independent
+  ready work or review work exists;
+- do not inflate utilization by waking `ci-wait`, human-review, dependency-
+  blocked, or conflict-bound tickets. Those are external gates, not idle worker
+  lanes. Instead fill reviewer capacity and staff the unblocker/fan-out spine;
 - classify discoveries before ticket creation, prefer contained rework, and
   freeze creation when promoted/created tickets outpace completions;
 - keep feature critical-path counts/ETA separate from the deferred reliability
@@ -128,6 +201,11 @@ As PRs become ready, reserve capacity for the required parallel review/rework
 loop defined in the Executor reference. Verify that review comments reach the
 owning worker through the event path. Merge only under the recorded policy and
 protect typed dependency/conflict ordering.
+
+After every merge, dependency change, CI completion, review result, or material
+load change, recompute ready width and the safe concurrency ceiling immediately.
+Dispatch the newly ready batch in the same observation; never wait for the next
+reporting tick merely to restore utilization.
 
 ## 6. Backstop and defects
 
