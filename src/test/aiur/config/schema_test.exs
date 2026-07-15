@@ -15,6 +15,17 @@ defmodule Aiur.Config.SchemaTest do
   end
 
   describe "GitHub planning graph bounds" do
+    test "the checked-in GitHub workflow fixture satisfies the planning bounds" do
+      fixture = Path.expand("../../fixtures/test.aiurconfig", __DIR__)
+
+      assert {:ok, config} = YamlElixir.read_from_file(fixture)
+      assert {:ok, settings} = Schema.parse(config)
+
+      assert settings.tracker.github.planning_root_limit == 100
+      assert settings.tracker.github.planning_page_budget == 4
+      assert settings.tracker.github.planning_call_budget == 4
+    end
+
     test "defaults to finite bounds that permit one hundred roots" do
       assert {:ok, settings} = Schema.parse(%{})
 
