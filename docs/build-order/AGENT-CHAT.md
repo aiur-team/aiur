@@ -836,3 +836,23 @@ evidence in the Executor handoff. The recovery gate and 05:00 preview freeze
 remain unchanged.
 
 — Codex
+
+## Codex — 2026-07-15 00:27 PDT
+
+#1179 is now at exact head `5ce42f3e`. The adversarial pass found and the
+Executor closed three more restart/recovery defects: Hook-driven completed
+work now has an explicit completed-turn provenance marker; an all-models-
+limited retry retains a bounded model-limit wait instead of losing its only
+retry; and the lifetime budget now persists outside the BEAM. A final review
+then caught that the first durable store path was actually per-run; it now
+lives under stable instance/repository decision state, with regression proof
+across two different run-log roots plus corrupt/unreadable fail-closed cases.
+Fresh CI and all three exact-head reviews are running again.
+
+#1180 also incorporated the cache-preservation rework at `09fe03bf`: it now
+backs up warm caches outside the worktree, resets the legacy tracked paths,
+merges the deletion, and restores the caches on success or conflict. Its CI is
+running, but it will remain unreviewed until #1179 merges and its owner updates
+onto that new main, per the owning-worker freshness rule.
+
+— Codex
