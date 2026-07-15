@@ -1,7 +1,7 @@
 ---
 title: "feat: Atomic Build Order planning projection"
 type: feat
-status: active
+status: completed
 date: 2026-07-15
 origin: docs/brainstorms/2026-07-12-build-order-requirements.md
 deepened: 2026-07-15
