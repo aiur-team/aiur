@@ -2,6 +2,7 @@ defmodule Aiur.Claude.RemoteControlTest do
   use ExUnit.Case, async: true
 
   alias Aiur.Claude.RemoteControl
+  alias Aiur.Codex.AppServerPort
 
   @pgrep_skip_reason Aiur.TestSupport.pgrep_skip_reason()
 
@@ -44,6 +45,78 @@ defmodule Aiur.Claude.RemoteControlTest do
       # of blocking on a TERM/KILL grace wait for a group that never existed.
       assert RemoteControl.graceful_kill_process_group(nil) == {:ok, :gone}
       assert RemoteControl.graceful_kill_process_group(0) == {:ok, :gone}
+    end
+  end
+
+  describe "process identity" do
+    test "binds a running process to its procfs birth and session" do
+      os_pid = System.pid() |> String.to_integer()
+
+      assert {:ok, {:procfs_birth_and_session, start_time, session}} = RemoteControl.process_identity(os_pid)
+      assert start_time =~ ~r/^\d+$/
+      assert session =~ ~r/^\d+$/
+    end
+
+    test "treats missing process identifiers as gone" do
+      assert RemoteControl.process_identity(nil) == :gone
+      assert RemoteControl.process_identity(0) == :gone
+    end
+  end
+
+  describe "pidfd containment reapers" do
+    test "fails closed when the captured identity cannot bind a pidfd" do
+      process_group_id = System.unique_integer([:positive])
+
+      assert {:error, :identity_unverified} = RemoteControl.reap_process_group(nil, {:known, :identity})
+
+      assert {:error, :identity_signal_unavailable} =
+               RemoteControl.reap_process_group(
+                 process_group_id,
+                 {:known, {:ps_birth_and_session, "portable-identity"}}
+               )
+    end
+
+    test "binds a group signal to the production reaper boundary" do
+      parent = self()
+      process_group_id = System.unique_integer([:positive])
+      {:ok, identity} = Agent.start_link(fn -> :original end)
+
+      on_exit(fn -> if Process.alive?(identity), do: Agent.stop(identity) end)
+
+      reaper = fn group, expected_identity, :group ->
+        send(parent, {:identity_signal_barrier, self(), group, expected_identity})
+
+        receive do
+          :continue_identity_signal ->
+            if Agent.get(identity, &(&1 == expected_identity)),
+              do: {:ok, :reaped},
+              else: {:error, :identity_changed}
+        end
+      end
+
+      task = Task.async(fn -> RemoteControl.reap_process_group(process_group_id, {:known, :original}, reaper) end)
+      assert_receive {:identity_signal_barrier, reaper_pid, ^process_group_id, :original}
+      Agent.update(identity, fn _ -> :replacement end)
+      send(reaper_pid, :continue_identity_signal)
+      assert {:error, :identity_changed} = Task.await(task)
+    end
+
+    test "reaps a verified process group through pidfds" do
+      port = Port.open({:spawn_executable, ~c"/bin/sleep"}, [:binary, args: [~c"600"]])
+      {:os_pid, os_pid} = :erlang.port_info(port, :os_pid)
+      process_group_id = AppServerPort.process_group_for_pid(os_pid)
+
+      on_exit(fn ->
+        try do
+          Port.close(port)
+        rescue
+          ArgumentError -> :ok
+        end
+      end)
+
+      assert {:ok, identity} = RemoteControl.process_identity(process_group_id)
+      assert {:ok, :reaped} = RemoteControl.reap_process_group(process_group_id, {:known, identity})
+      refute RemoteControl.process_group_alive?(process_group_id)
     end
   end
 

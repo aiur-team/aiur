@@ -4,6 +4,7 @@ defmodule Aiur.Config do
   legacy `.aiurconfig`).
   """
 
+  alias Aiur.BuildGate
   alias Aiur.Config.Schema
   alias Aiur.Config.Schema.AgentValidation
   alias Aiur.Workflow
@@ -21,6 +22,8 @@ defmodule Aiur.Config do
   No description provided.
   {% endif %}
   """
+
+  @default_base_branch "main"
 
   @type codex_runtime_settings :: %{
           approval_policy: String.t(),
@@ -75,6 +78,15 @@ defmodule Aiur.Config do
     settings!().tracker.kind
   end
 
+  @doc "The configured tracker integration branch, defaulting to `main`."
+  @spec base_branch() :: String.t()
+  def base_branch do
+    case settings() do
+      {:ok, %{tracker: %{base_branch: name}}} when is_binary(name) and name != "" -> name
+      _ -> @default_base_branch
+    end
+  end
+
   @spec agent_kind() :: String.t()
   def agent_kind do
     settings!().agent.kind || "codex"
@@ -115,6 +127,32 @@ defmodule Aiur.Config do
   @spec agent_remote_control?() :: boolean()
   def agent_remote_control? do
     settings!().agent.remote_control || false
+  end
+
+  @doc """
+  Lifetime cap on (re)dispatches for a single ticket, or 0 when disabled.
+  """
+  @spec agent_max_dispatches_per_ticket() :: non_neg_integer()
+  def agent_max_dispatches_per_ticket do
+    case settings() do
+      {:ok, settings} -> Map.get(settings.agent, :max_dispatches_per_ticket) || 0
+      _ -> 0
+    end
+  end
+
+  @doc """
+  Whether a recycled re-dispatch that could not resume its thread gets
+  continuation guidance instead of the cold-start prompt. Defaults to false, so
+  the dispatch path is unchanged until an operator opts in.
+  """
+  @spec agent_prior_work_continuation?() :: boolean()
+  def agent_prior_work_continuation? do
+    case settings() do
+      # Map.get, not dot access, so a config cached before this field existed
+      # returns false rather than raising after a schema upgrade.
+      {:ok, settings} -> Map.get(settings.agent, :prior_work_continuation) || false
+      _ -> false
+    end
   end
 
   @doc """
@@ -524,16 +562,67 @@ defmodule Aiur.Config do
   def codex_runtime_settings(workspace \\ nil, opts \\ []) do
     with {:ok, settings} <- settings(),
          {:ok, approval_policy} <-
-           validate_codex_approval_policy(settings.agent.codex.approval_policy) do
-      with {:ok, turn_sandbox_policy} <-
-             Schema.resolve_runtime_turn_sandbox_policy(settings, workspace, opts) do
-        {:ok,
-         %{
-           approval_policy: approval_policy,
-           thread_sandbox: settings.agent.codex.thread_sandbox,
-           turn_sandbox_policy: turn_sandbox_policy
-         }}
-      end
+           validate_codex_approval_policy(settings.agent.codex.approval_policy),
+         {:ok, turn_sandbox_policy} <- codex_runtime_turn_sandbox_policy(settings, workspace, opts) do
+      {:ok,
+       %{
+         approval_policy: approval_policy,
+         thread_sandbox: settings.agent.codex.thread_sandbox,
+         turn_sandbox_policy: turn_sandbox_policy
+       }}
+    end
+  end
+
+  defp codex_runtime_turn_sandbox_policy(settings, workspace, opts) do
+    with {:ok, turn_sandbox_policy} <-
+           Schema.resolve_runtime_turn_sandbox_policy(settings, workspace, opts) do
+      maybe_add_build_gate_root(turn_sandbox_policy, settings, workspace, opts)
+    end
+  end
+
+  defp maybe_add_build_gate_root(turn_sandbox_policy, settings, workspace, opts) do
+    gate_opts = [
+      slots: settings.agent.max_concurrent_builds,
+      stagger_seconds: settings.agent.build_start_stagger_seconds,
+      min_free_memory_mb: settings.agent.min_free_memory_mb
+    ]
+
+    cond do
+      Keyword.get(opts, :remote, false) ->
+        {:ok, turn_sandbox_policy}
+
+      not BuildGate.enabled?(gate_opts) ->
+        {:ok, turn_sandbox_policy}
+
+      not workspace_write_policy?(turn_sandbox_policy) ->
+        {:ok, turn_sandbox_policy}
+
+      true ->
+        with {:ok, additional_roots} <- additional_writable_roots(opts),
+             {:ok, effective_roots} <- policy_writable_roots(turn_sandbox_policy),
+             {:ok, gate_dir} <-
+               BuildGate.prepare_writable_root(Keyword.put(gate_opts, :writable_roots, effective_roots)) do
+          sandbox_opts = Keyword.put(opts, :additional_writable_roots, additional_roots ++ [gate_dir])
+          Schema.resolve_runtime_turn_sandbox_policy(settings, workspace, sandbox_opts)
+        end
+    end
+  end
+
+  defp workspace_write_policy?(policy) do
+    (Map.get(policy, "type") || Map.get(policy, :type)) == "workspaceWrite"
+  end
+
+  defp policy_writable_roots(policy) do
+    case Map.get(policy, "writableRoots") || Map.get(policy, :writableRoots) || [] do
+      roots when is_list(roots) -> {:ok, roots}
+      roots -> {:error, {:unsafe_turn_sandbox_policy, {:invalid_writable_roots, roots}}}
+    end
+  end
+
+  defp additional_writable_roots(opts) do
+    case Keyword.get(opts, :additional_writable_roots, []) do
+      roots when is_list(roots) -> {:ok, roots}
+      roots -> {:error, {:unsafe_turn_sandbox_policy, {:invalid_writable_roots, roots}}}
     end
   end
 

@@ -254,6 +254,13 @@ defmodule Aiur.Claude.RemoteControl do
   end
 
   @doc false
+  @spec process_tree(integer() | nil) :: [pos_integer()]
+  def process_tree(os_pid) when is_integer(os_pid) and os_pid > 0,
+    do: [os_pid | collect_descendants(os_pid)] |> Enum.uniq()
+
+  def process_tree(_os_pid), do: []
+
+  @doc false
   @spec process_group_alive?(nil | integer()) :: boolean()
   def process_group_alive?(process_group_id) when is_integer(process_group_id) and process_group_id > 0 do
     match?({_, 0}, System.cmd("kill", ["-0", "--", "-#{process_group_id}"], stderr_to_stdout: true))
@@ -268,6 +275,26 @@ defmodule Aiur.Claude.RemoteControl do
   def process_group_alive?(_process_group_id), do: false
 
   @doc false
+  @spec process_group_for_pid(integer() | String.t() | nil) :: integer() | nil
+  def process_group_for_pid(pid) when is_integer(pid) and pid > 0,
+    do: process_group_for_pid(Integer.to_string(pid))
+
+  def process_group_for_pid(pid) when is_binary(pid) do
+    case System.find_executable("ps") do
+      nil ->
+        nil
+
+      ps ->
+        case await_process_group_leader(ps, pid, 20) do
+          group when is_binary(group) -> String.to_integer(group)
+          _ -> nil
+        end
+    end
+  end
+
+  def process_group_for_pid(_pid), do: nil
+
+  @doc false
   @spec process_alive?(nil | integer()) :: boolean()
   def process_alive?(os_pid) when is_integer(os_pid) and os_pid > 0 do
     match?({_, 0}, System.cmd("kill", ["-0", Integer.to_string(os_pid)], stderr_to_stdout: true))
@@ -278,6 +305,63 @@ defmodule Aiur.Claude.RemoteControl do
   end
 
   def process_alive?(_os_pid), do: false
+
+  @doc false
+  @spec process_identity(nil | integer()) :: {:ok, term()} | :gone | :unknown
+  def process_identity(os_pid) when is_integer(os_pid) and os_pid > 0 do
+    case File.read("/proc/#{os_pid}/stat") do
+      {:ok, stat} -> procfs_process_identity(stat)
+      {:error, _reason} -> ps_process_identity(os_pid)
+    end
+  rescue
+    _ -> :unknown
+  end
+
+  def process_identity(_os_pid), do: :gone
+
+  defp procfs_process_identity(stat) do
+    case List.last(:binary.matches(stat, ")")) do
+      {closing_paren, _length} ->
+        stat
+        |> binary_part(closing_paren + 1, byte_size(stat) - closing_paren - 1)
+        |> String.split()
+        |> then(fn fields -> {Enum.at(fields, 3), Enum.at(fields, 19)} end)
+        |> procfs_fields_identity()
+
+      nil ->
+        :unknown
+    end
+  end
+
+  defp procfs_fields_identity({session, start_time})
+       when is_binary(session) and is_binary(start_time) and byte_size(session) > 0 and
+              byte_size(start_time) > 0,
+       do: {:ok, {:procfs_birth_and_session, start_time, session}}
+
+  defp procfs_fields_identity(_fields), do: :unknown
+
+  defp ps_process_identity(os_pid) do
+    case System.find_executable("ps") do
+      nil ->
+        :unknown
+
+      ps ->
+        ps
+        |> System.cmd(["-o", "lstart=", "-o", "sess=", "-p", Integer.to_string(os_pid)], stderr_to_stdout: true)
+        |> ps_process_result()
+    end
+  rescue
+    _ -> :unknown
+  end
+
+  defp ps_process_result({output, 0}) do
+    case String.trim(output) do
+      "" -> :gone
+      identity -> {:ok, {:ps_birth_and_session, identity}}
+    end
+  end
+
+  defp ps_process_result(_result), do: :gone
 
   @doc false
   @spec graceful_kill_process_group(nil | integer()) :: {:ok, :gone | :reaped} | {:error, :group_alive}
@@ -298,6 +382,73 @@ defmodule Aiur.Claude.RemoteControl do
   end
 
   def graceful_kill_process_group(_process_group_id), do: {:ok, :gone}
+
+  @doc false
+  @spec reap_process_group(nil | integer(), term()) :: {:ok, :gone | :reaped} | {:error, term()}
+  def reap_process_group(process_group_id, expected_identity),
+    do: reap_process_group(process_group_id, expected_identity, &pidfd_reap/3)
+
+  @doc false
+  @spec reap_process_group(nil | integer(), term(), (integer(), term(), :group -> term())) ::
+          {:ok, :gone | :reaped} | {:error, term()}
+  def reap_process_group(process_group_id, expected_identity, reaper) when is_function(reaper, 3),
+    do: reap_with_identity(process_group_id, expected_identity, :group, reaper)
+
+  @doc false
+  @spec reap_process_tree(nil | integer(), term()) :: :ok | {:error, term()}
+  def reap_process_tree(os_pid, expected_identity),
+    do: reap_process_tree(os_pid, expected_identity, &pidfd_reap/3)
+
+  @doc false
+  @spec reap_process_tree(nil | integer(), term(), (integer(), term(), :tree -> term())) :: :ok | {:error, term()}
+  def reap_process_tree(os_pid, expected_identity, reaper) when is_function(reaper, 3),
+    do: reap_with_identity(os_pid, expected_identity, :tree, reaper) |> tree_reap_result()
+
+  @doc false
+  @spec reap_process(nil | integer(), term()) :: :ok | {:error, term()}
+  def reap_process(os_pid, expected_identity),
+    do: reap_process(os_pid, expected_identity, &pidfd_reap/3)
+
+  @doc false
+  @spec reap_process(nil | integer(), term(), (integer(), term(), :process -> term())) :: :ok | {:error, term()}
+  def reap_process(os_pid, expected_identity, reaper) when is_function(reaper, 3),
+    do: reap_with_identity(os_pid, expected_identity, :process, reaper) |> tree_reap_result()
+
+  defp reap_with_identity(identifier, {:known, expected_identity}, kind, reaper)
+       when is_integer(identifier) and identifier > 0 do
+    reaper.(identifier, expected_identity, kind)
+  rescue
+    _ -> {:error, :identity_signal_failed}
+  end
+
+  defp reap_with_identity(_identifier, _expected_identity, _kind, _reaper), do: {:error, :identity_unverified}
+
+  defp tree_reap_result({:ok, _outcome}), do: :ok
+  defp tree_reap_result({:error, _reason} = error), do: error
+
+  # A process's number can be recycled after an ordinary procfs check. The
+  # helper opens a Linux pidfd before rechecking its procfs birth/session pair,
+  # then sends TERM/KILL only through that descriptor. Unsupported hosts fail
+  # closed: the guardian retains ownership rather than signalling a recycled
+  # PID or PGID.
+  defp pidfd_reap(identifier, {:procfs_birth_and_session, start_time, session}, kind) do
+    with python when is_binary(python) <- System.find_executable("python3"),
+         script when is_binary(script) <- pidfd_reaper_script(),
+         {_, 0} <- System.cmd(python, [script, Atom.to_string(kind), Integer.to_string(identifier), start_time, session], stderr_to_stdout: true) do
+      {:ok, :reaped}
+    else
+      _ -> {:error, :identity_signal_unavailable}
+    end
+  rescue
+    _ -> {:error, :identity_signal_unavailable}
+  end
+
+  defp pidfd_reap(_identifier, _expected_identity, _kind), do: {:error, :identity_signal_unavailable}
+
+  defp pidfd_reaper_script do
+    path = :aiur |> :code.priv_dir() |> to_string() |> Path.join("pidfd_reap.py")
+    if File.regular?(path), do: path
+  end
 
   defp force_kill_process_group(process_group_id) do
     signal_process_group(process_group_id, "-KILL")
@@ -352,6 +503,33 @@ defmodule Aiur.Claude.RemoteControl do
   defp await_exit(pid, budget_ms) do
     deadline = System.monotonic_time(:millisecond) + budget_ms
     do_await_exit(pid, deadline)
+  end
+
+  defp await_process_group_leader(ps, pid, attempts) do
+    process_group_id =
+      case System.cmd(ps, ["-o", "pgid=", "-p", pid], stderr_to_stdout: true) do
+        {out, 0} -> out |> String.trim() |> positive_pid_string()
+        _ -> nil
+      end
+
+    cond do
+      process_group_id == pid ->
+        pid
+
+      attempts <= 1 ->
+        nil
+
+      true ->
+        Process.sleep(10)
+        await_process_group_leader(ps, pid, attempts - 1)
+    end
+  end
+
+  defp positive_pid_string(value) do
+    case Integer.parse(value) do
+      {pid, ""} when pid > 0 -> Integer.to_string(pid)
+      _ -> nil
+    end
   end
 
   defp do_await_exit(pid, deadline) do

@@ -23,12 +23,14 @@ defmodule Aiur.AgentRunner.MessageHandler do
     lifecycle_opts =
       if Lifecycle.enabled?(lifecycle_opts) do
         Keyword.put_new(lifecycle_opts, :tracker, make_ref())
+      else
+        lifecycle_opts
       end
 
     fn message ->
       message = CodingAgent.normalize_event(message, backend)
       observe_lifecycle(issue, backend, message, lifecycle_opts)
-      observe_rate_limits(backend, message)
+      observe_rate_limits(backend, message, lifecycle_opts)
       AgentEventLog.write(workspace, worker_host, message)
       maybe_broadcast_transcript(issue, message, backend, turn_id)
       maybe_broadcast_turn_event(issue, message, turn_id)
@@ -49,8 +51,12 @@ defmodule Aiur.AgentRunner.MessageHandler do
 
   defp observe_lifecycle(_issue, _backend, _message, _lifecycle_opts), do: :ok
 
-  defp observe_rate_limits(backend, %{rate_limits: limits}) when is_map(limits), do: ModelAvailability.observe(backend, limits)
-  defp observe_rate_limits(_backend, _message), do: :ok
+  defp observe_rate_limits(backend, %{rate_limits: limits}, lifecycle_opts) when is_map(limits) do
+    observer = Keyword.get(lifecycle_opts, :rate_limit_observer, &ModelAvailability.observe/2)
+    observer.(backend, limits)
+  end
+
+  defp observe_rate_limits(_backend, _message, _lifecycle_opts), do: :ok
 
   defp maybe_broadcast_transcript(%Issue{identifier: identifier}, message, backend, turn_id)
        when is_binary(identifier) do

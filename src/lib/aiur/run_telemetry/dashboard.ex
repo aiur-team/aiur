@@ -360,7 +360,7 @@ defmodule Aiur.RunTelemetry.Dashboard do
       const data = JSON.parse(document.getElementById("aiur-data").textContent);
       const NS = "http://www.w3.org/2000/svg";
       const palette = ["#10a37f", "#2563a6", "#7157a8", "#d97706", "#be3d78", "#4f6b45", "#8b5e34"];
-      const phaseColors = {dispatch:"#5f6b7a", prewarm:"#2b78a0", workspace_setup:"#7157a8", agent_spinup:"#9764c7", implement:"#10a37f", build_test:"#d97706", pr_opened:"#2563a6", review_pause:"#9a6700", comment_received:"#be3d78", rework_start:"#b42318", agent_pause:"#7a5d00", agent_resume:"#087a60", pr_merged:"#202123"};
+      const phaseColors = {dispatch:"#5f6b7a", prewarm:"#2b78a0", workspace_setup:"#7157a8", workspace_ownership:"#5b4b8a", agent_spinup:"#9764c7", implement:"#10a37f", build_test:"#d97706", pr_opened:"#2563a6", review_pause:"#9a6700", comment_received:"#be3d78", rework_start:"#b42318", agent_pause:"#7a5d00", agent_resume:"#087a60", pr_merged:"#202123"};
       const metrics = [
         ["cpu_percent", "CPU", "%"], ["rss_bytes", "RSS", "bytes"], ["fd_count", "File descriptors", "count"],
         ["read_bytes_per_second", "Read I/O", "bytes/s"], ["write_bytes_per_second", "Write I/O", "bytes/s"],

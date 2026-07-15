@@ -266,12 +266,21 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       identifier = unique_identifier("ci-operator-paused")
       recorder = start_recorder()
       issue = issue(identifier, "ci-wait")
-      state = running_state(issue, recorder, :paused, paused_reason: :operator_pause)
+
+      state =
+        running_state(issue, recorder, :paused,
+          paused_reason: :operator_pause,
+          blocker_pause_generation: 1,
+          blocker_pause: %{blocker_identifier: "99", generation: 1},
+          pending_auto_resume: %{pause_generation: 1}
+        )
 
       next = CiLifecycle.pause_issue_for_ci_wait(state, issue)
       sync_recorder(recorder)
 
       assert next.running[identifier].paused_reason == :operator_pause
+      refute Map.has_key?(next.running[identifier], :blocker_pause)
+      refute Map.has_key?(next.running[identifier], :pending_auto_resume)
       assert next.ci_lifecycle.rewakes == %{}
       refute_received {:recorded, _position, _message}
     end

@@ -3,6 +3,7 @@ defmodule Aiur.Codex.EventNormalizer do
   Normalizes Codex event payloads into canonical usage and rate-limit keys.
   """
 
+  alias Aiur.Codex.RateLimits
   alias Aiur.Protocol.MapAccess
   alias Aiur.TokenUsage
 
@@ -113,7 +114,7 @@ defmodule Aiur.Codex.EventNormalizer do
         &Map.has_key?(payload, &1)
       )
 
-    has_id and has_buckets
+    (has_id and has_buckets) or RateLimits.safe?(payload)
   end
 
   defp rate_limits_map?(_), do: false

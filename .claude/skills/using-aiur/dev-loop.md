@@ -4,6 +4,13 @@
 
 The branch already exists when your workspace boots. Read it with `git branch --show-current` and push or open the PR against that exact ref. New tickets use the generated readable Aiur branch; existing legacy and PR-anchored heads remain unchanged. Do not rename it or reconstruct one from the issue number. The numeric `ticket.<N>.branch.push` event key remains stable even when the actual branch has a suffix.
 
+The agent environment also carries the active workflow's authoritative
+integration branch as `AIUR_BASE_BRANCH`. It comes from the configured
+`tracker.base_branch`, not GitHub's repository default or `origin/HEAD`. Require
+it to be nonempty, include the branch name in durable workpad/PR handoff notes,
+and pass it explicitly on every PR creation or retarget operation. Do not log
+the surrounding environment or machine-local configuration.
+
 **The workspace `.git` directory is writable from this sandbox. If a `git`
 command claims the index is read-only ("Could not write index", "Unable to
 lock", "cannot create FETCH_HEAD"), do NOT clone a recovery checkout into
@@ -17,10 +24,12 @@ index-write failure. Never `mktemp -d /tmp/...` for recovery and never push from
 `/tmp`.**
 
 **Integrating an upstream blocker's branch**: when
-`ticket.<blocker-id>.branch.push` arrives, fetch the actual validated ref carried
-by the event payload (or discover it with `scripts/resolve-ticket-branch <blocker-id>`)
+`ticket.<blocker-id>.agent.unblocked` arrives, use the latest
+`ticket.<blocker-id>.branch.push` payload to fetch the actual validated ref (or
+discover it with `scripts/resolve-ticket-branch <blocker-id>`)
 → commit your local WIP if any → merge that fetched ref → resolve any conflicts →
-continue. Do NOT `git stash` before the merge — committing WIP is just as safe
+continue. Never infer readiness from the branch push alone. Do NOT `git stash`
+before the merge — committing WIP is just as safe
 and avoids the index-write failure path entirely.
 
 Ticket branches are named `aiur/<id>-<slug>` for new tickets, with legacy
@@ -50,8 +59,13 @@ matching branch, and exits non-zero when no branch or more than one branch exist
    Claude, Codex, AI, models, or "generated with" in commit messages or PR
    descriptions — keep them plain and human.
 6. Push to the exact branch returned by `git branch --show-current`.
-7. **Open the PR as a draft** with that branch as `--head` (not ready for
-   review yet).
+7. **Open the PR as a draft** with that branch as `--head` and the authoritative
+   integration branch as `--base`: `gh pr create --draft --head "$branch"
+   --base "$AIUR_BASE_BRANCH" ...` (not ready for review yet). If a PR already
+   exists, read its `baseRefName` before CI handoff. Leave a matching base
+   unchanged; if it differs, PATCH only the PR's `base` through GitHub's pull
+   request REST endpoint, then re-fetch and verify `baseRefName`. Stop with the
+   observed branch, expected branch, and repair error if verification fails.
 8. **Own branch freshness before review:** fetch the PR's configured base and
    verify its current remote head is an ancestor of your exact branch head. If
    it is not, integrate or re-cut against it, resolve both textual conflicts

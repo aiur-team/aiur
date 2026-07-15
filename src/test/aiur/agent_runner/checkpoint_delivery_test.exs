@@ -192,6 +192,17 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
       assert_receive {:restore, 21}
     end
 
+    test "a late response for retired provider work restores the checkpoint item" do
+      item = %{category: :operator_message, id: 23, body: %{text: "cp"}}
+      orch = start_fake(checkpoint: {:ok, item})
+      handler = CheckpointDelivery.safe_checkpoint_handler(issue(), orch)
+
+      assert {:deliver_text, "cp", _success, failure} = handler.(:checkpoint)
+
+      failure.({:provider_turn_retired, "turn-old"})
+      assert_receive {:restore, 23}
+    end
+
     test "persists correlated checkpoint handoff before returning deliver_text" do
       item = correlated_item(22)
       orch = start_fake(checkpoint: {:ok, item})

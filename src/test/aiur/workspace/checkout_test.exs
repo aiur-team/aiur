@@ -4,39 +4,63 @@ defmodule Aiur.Workspace.CheckoutTest do
   alias Aiur.Workspace.Checkout
 
   setup do
-    tmp = Path.join(System.tmp_dir!(), "aiur-checkout-#{System.unique_integer([:positive])}")
-    File.mkdir_p!(tmp)
-    on_exit(fn -> File.rm_rf!(tmp) end)
-    {:ok, tmp: tmp}
+    root = Path.join(System.tmp_dir!(), "workspace-checkout-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(root)
+    on_exit(fn -> File.rm_rf(root) end)
+    %{root: root}
   end
 
-  test "current_branch returns the checked out branch and nil for a non git dir", %{tmp: tmp} do
-    repo = init_repo!(Path.join(tmp, "repo"))
-    non_git = Path.join(tmp, "non-git")
+  test "rejects an unborn or interrupted git init", %{root: root} do
+    workspace = Path.join(root, "unborn")
+    File.mkdir_p!(workspace)
+    git!(["init", "--quiet", workspace])
+
+    refute Checkout.valid_workspace?(workspace)
+  end
+
+  test "accepts a dirty checkout with a committed HEAD", %{root: root} do
+    workspace = init_repo!(Path.join(root, "dirty"))
+    File.write!(Path.join(workspace, "README.md"), "uncommitted WIP\n")
+
+    assert Checkout.valid_workspace?(workspace)
+  end
+
+  test "accepts a linked worktree with a committed HEAD", %{root: root} do
+    source = init_repo!(Path.join(root, "source"))
+    workspace = Path.join(root, "linked")
+    git!(["-C", source, "worktree", "add", "--quiet", "-b", "ticket-branch", workspace])
+
+    assert File.regular?(Path.join(workspace, ".git"))
+    assert Checkout.valid_workspace?(workspace)
+  end
+
+  test "current_branch returns the checked out branch and nil for a non git dir", %{root: root} do
+    repo = init_repo!(Path.join(root, "repo"))
+    non_git = Path.join(root, "non-git")
     File.mkdir_p!(non_git)
 
     assert Checkout.current_branch(repo) == "main"
     assert Checkout.current_branch(non_git) == nil
   end
 
-  test "checkout_fresh_branch falls back to copied HEAD when no remote is usable", %{tmp: tmp} do
-    repo = init_repo!(Path.join(tmp, "123"))
+  test "checkout_fresh_branch falls back to copied HEAD when no remote is usable", %{root: root} do
+    repo = init_repo!(Path.join(root, "123"))
 
     assert :ok = Checkout.checkout_fresh_branch(repo)
     assert Checkout.current_branch(repo) == "aiur/123"
   end
 
-  test "checkout_fresh_branch uses the supplied generated ticket branch", %{tmp: tmp} do
-    repo = init_repo!(Path.join(tmp, "123"))
+  test "checkout_fresh_branch uses the supplied generated ticket branch", %{root: root} do
+    repo = init_repo!(Path.join(root, "123"))
 
     assert :ok = Checkout.checkout_fresh_branch(repo, "aiur/123-add-new-test-cases")
     assert Checkout.current_branch(repo) == "aiur/123-add-new-test-cases"
   end
 
-  test "checkout_fresh_branch resumes an existing remote ticket branch", %{tmp: tmp} do
-    remote = Path.join(tmp, "remote.git")
-    source = Path.join(tmp, "source")
-    workspace = Path.join(tmp, "workspace")
+  test "checkout_fresh_branch resumes an existing remote ticket branch", %{root: root} do
+    remote = Path.join(root, "remote.git")
+    source = Path.join(root, "source")
+    workspace = Path.join(root, "workspace")
     branch = "aiur/123-fix-login"
 
     git!(["init", "--bare", "--quiet", "--initial-branch=main", remote])
@@ -55,26 +79,26 @@ defmodule Aiur.Workspace.CheckoutTest do
     assert File.read!(Path.join(workspace, "resume.txt")) == "remote ticket work\n"
   end
 
-  test "checkout_existing_pr_branch falls back to a local branch named the ref", %{tmp: tmp} do
-    repo = init_repo!(Path.join(tmp, "pr-77"))
+  test "checkout_existing_pr_branch falls back to a local branch named the ref", %{root: root} do
+    repo = init_repo!(Path.join(root, "pr-77"))
 
     assert :ok = Checkout.checkout_existing_pr_branch(repo, "feature/login")
     assert Checkout.current_branch(repo) == "feature/login"
   end
 
-  defp init_repo!(repo) do
-    File.mkdir_p!(repo)
-    git!(["init", "--quiet", "-b", "main", repo])
-    git!(["-C", repo, "config", "user.email", "t@example.com"])
-    git!(["-C", repo, "config", "user.name", "T"])
-    File.write!(Path.join(repo, "README.md"), "initial\n")
-    git!(["-C", repo, "add", "."])
-    git!(["-C", repo, "commit", "--quiet", "-m", "initial"])
-    repo
+  defp init_repo!(workspace) do
+    File.mkdir_p!(workspace)
+    git!(["init", "--quiet", "-b", "main", workspace])
+    git!(["-C", workspace, "config", "user.email", "test@example.com"])
+    git!(["-C", workspace, "config", "user.name", "Test"])
+    File.write!(Path.join(workspace, "README.md"), "initial\n")
+    git!(["-C", workspace, "add", "."])
+    git!(["-C", workspace, "commit", "--quiet", "-m", "initial"])
+    workspace
   end
 
   defp git!(args) do
-    {out, 0} = System.cmd("git", args, stderr_to_stdout: true)
-    out
+    {output, 0} = System.cmd("git", args, stderr_to_stdout: true)
+    output
   end
 end
