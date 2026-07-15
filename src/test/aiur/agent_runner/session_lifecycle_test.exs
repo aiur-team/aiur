@@ -92,6 +92,41 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
     end
   end
 
+  describe "authoritative no-provider startup failures" do
+    test "cancel the exact expectation so the run can release and retry" do
+      for {backend, reason} <- [
+            {"codex", {:invalid_workspace_cwd, :workspace_root, "/workspaces"}},
+            {"codex", {:invalid_workspace_cwd, :outside_workspace_root, "/outside", "/workspaces"}},
+            {"codex", :bash_not_found},
+            {"claude-repl", :no_tmux},
+            {"claude-repl", :no_tmux_executable},
+            {"claude-repl", :remote_control_requires_dashboard}
+          ] do
+        ticket = "no-provider-retry-#{System.unique_integer([:positive])}"
+        issue = %Issue{identifier: ticket, selected_backend: backend}
+        assert {:ok, lease} = Ownership.claim(ticket)
+        assert {:ok, active_lease} = Ownership.activate(lease)
+
+        start_fun = fn _workspace, _opts -> {:error, reason} end
+
+        assert {:error, ^reason} =
+                 SessionLifecycle.run_session(
+                   "/workspaces/#{ticket}",
+                   issue,
+                   nil,
+                   [workspace_ownership: active_lease, session_start_fun: start_fun],
+                   nil
+                 )
+
+        assert {:ok, %{phase: :released}} = Ownership.release_and_wait(active_lease)
+        assert :none = Ownership.current(ticket)
+
+        assert {:ok, retry_lease} = Ownership.claim(ticket)
+        assert :ok = Ownership.release(retry_lease)
+      end
+    end
+  end
+
   describe "session accessors" do
     test "session_backend/1 defaults to configured agent kind" do
       assert SessionLifecycle.session_workspace(%{workspace: "/ws"}) == "/ws"

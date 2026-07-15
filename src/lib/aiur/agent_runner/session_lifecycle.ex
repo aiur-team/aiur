@@ -155,7 +155,8 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
           opts,
           worker_host,
           Keyword.get(opts, :workspace_ownership),
-          session_context
+          session_context,
+          Keyword.get(opts, :session_start_fun, &CodingAgent.start_session/2)
         )
 
       {:error, reason} = error ->
@@ -169,7 +170,18 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     :ok
   end
 
-  defp pre_spawn_start_error?(:remote_control_requires_dashboard), do: true
+  # These are the only errors whose producers prove that no backend process
+  # exists. Keep this deliberately narrow: any error after a port or pane may
+  # have escaped containment discovery, so its expectation must stay
+  # fail-closed for the guardian to reap or prove it gone.
+  defp pre_spawn_start_error?(reason)
+       when reason in [:bash_not_found, :no_tmux, :no_tmux_executable, :remote_control_requires_dashboard],
+       do: true
+
+  # Codex and Claude reject their workspace root before invoking their spawn
+  # adapters. The local/root and remote-path variants intentionally carry
+  # different arities, so both belong to the authoritative no-spawn set.
+  defp pre_spawn_start_error?({:invalid_workspace_cwd, _, _}), do: true
   defp pre_spawn_start_error?({:invalid_workspace_cwd, _, _, _}), do: true
   defp pre_spawn_start_error?(_reason), do: false
 
@@ -180,9 +192,10 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
          opts,
          worker_host,
          ownership,
-         session_context
+         session_context,
+         start_fun
        ) do
-    case start_agent_session(workspace, session_context.session_opts) do
+    case start_agent_session(workspace, session_context.session_opts, start_fun) do
       {:ok, session} ->
         run_contained_session(
           session,

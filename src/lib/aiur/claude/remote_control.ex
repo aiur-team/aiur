@@ -366,26 +366,69 @@ defmodule Aiur.Claude.RemoteControl do
   @doc false
   @spec reap_process_group(nil | integer(), term()) :: {:ok, :gone | :reaped} | {:error, term()}
   def reap_process_group(process_group_id, expected_identity),
-    do: reap_with_identity(process_group_id, expected_identity, &graceful_kill_process_group/1)
+    do: reap_process_group(process_group_id, expected_identity, &pidfd_reap/3)
+
+  @doc false
+  @spec reap_process_group(nil | integer(), term(), (integer(), term(), :group -> term())) ::
+          {:ok, :gone | :reaped} | {:error, term()}
+  def reap_process_group(process_group_id, expected_identity, reaper) when is_function(reaper, 3),
+    do: reap_with_identity(process_group_id, expected_identity, :group, reaper)
 
   @doc false
   @spec reap_process_tree(nil | integer(), term()) :: :ok | {:error, term()}
   def reap_process_tree(os_pid, expected_identity),
-    do: reap_with_identity(os_pid, expected_identity, &graceful_kill_tree/1)
+    do: reap_process_tree(os_pid, expected_identity, &pidfd_reap/3)
+
+  @doc false
+  @spec reap_process_tree(nil | integer(), term(), (integer(), term(), :tree -> term())) :: :ok | {:error, term()}
+  def reap_process_tree(os_pid, expected_identity, reaper) when is_function(reaper, 3),
+    do: reap_with_identity(os_pid, expected_identity, :tree, reaper) |> tree_reap_result()
 
   @doc false
   @spec reap_process(nil | integer(), term()) :: :ok | {:error, term()}
   def reap_process(os_pid, expected_identity),
-    do: reap_with_identity(os_pid, expected_identity, &graceful_kill/1)
+    do: reap_process(os_pid, expected_identity, &pidfd_reap/3)
 
-  defp reap_with_identity(identifier, {:known, expected_identity}, reap_fun) do
-    case process_identity(identifier) do
-      {:ok, ^expected_identity} -> reap_fun.(identifier)
-      _ -> {:error, :identity_changed}
-    end
+  @doc false
+  @spec reap_process(nil | integer(), term(), (integer(), term(), :process -> term())) :: :ok | {:error, term()}
+  def reap_process(os_pid, expected_identity, reaper) when is_function(reaper, 3),
+    do: reap_with_identity(os_pid, expected_identity, :process, reaper) |> tree_reap_result()
+
+  defp reap_with_identity(identifier, {:known, expected_identity}, kind, reaper)
+       when is_integer(identifier) and identifier > 0 do
+    reaper.(identifier, expected_identity, kind)
+  rescue
+    _ -> {:error, :identity_signal_failed}
   end
 
-  defp reap_with_identity(_identifier, _expected_identity, _reap_fun), do: {:error, :identity_unverified}
+  defp reap_with_identity(_identifier, _expected_identity, _kind, _reaper), do: {:error, :identity_unverified}
+
+  defp tree_reap_result({:ok, _outcome}), do: :ok
+  defp tree_reap_result({:error, _reason} = error), do: error
+
+  # A process's number can be recycled after an ordinary procfs check. The
+  # helper opens a Linux pidfd before rechecking its procfs birth/session pair,
+  # then sends TERM/KILL only through that descriptor. Unsupported hosts fail
+  # closed: the guardian retains ownership rather than signalling a recycled
+  # PID or PGID.
+  defp pidfd_reap(identifier, {:procfs_birth_and_session, start_time, session}, kind) do
+    with python when is_binary(python) <- System.find_executable("python3"),
+         script when is_binary(script) <- pidfd_reaper_script(),
+         {_, 0} <- System.cmd(python, [script, Atom.to_string(kind), Integer.to_string(identifier), start_time, session], stderr_to_stdout: true) do
+      {:ok, :reaped}
+    else
+      _ -> {:error, :identity_signal_unavailable}
+    end
+  rescue
+    _ -> {:error, :identity_signal_unavailable}
+  end
+
+  defp pidfd_reap(_identifier, _expected_identity, _kind), do: {:error, :identity_signal_unavailable}
+
+  defp pidfd_reaper_script do
+    path = :aiur |> :code.priv_dir() |> to_string() |> Path.join("pidfd_reap.py")
+    if File.regular?(path), do: path
+  end
 
   defp force_kill_process_group(process_group_id) do
     signal_process_group(process_group_id, "-KILL")
