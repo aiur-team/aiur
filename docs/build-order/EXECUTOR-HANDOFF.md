@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-14 19:40 PDT)
+## Live Executor state (updated 2026-07-14 19:59 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -1437,13 +1437,24 @@ Terra; never dispatch Claude.
     sent the packet directly; the same Terra worker began a fresh provider turn
     at 19:53 PDT. This assisted label-plus-message recovery is not evidence that
     #1151's comment-only wake defect is fixed, and all findings remain on #1161.
+189. The 19:59 preview refresh is grounded in provider logs plus GitHub because
+    the daemon control RPC is timing out under scheduler saturation. #1090 is
+    genuinely live and self-reported 50% while repairing its five-item review
+    packet; #1161 is genuinely live with source edits underway on the three
+    exact-head findings; #1088 completed its turn but its unchanged PR head is
+    still red only on the known branch-owned lint findings; #1162 moved itself
+    to human review after its old exact head remained green, so its worker is
+    idle and the Executor still owes fresh dual exact-head adjudication. The
+    static preview now distinguishes those two live green cards from completed
+    or review-pending work. Do not restart the daemon until the operator closes
+    the optimization merge window.
 
-At 19:54 PDT the core graph is 8/54 accepted. Three Codex workers are visibly
+At 19:59 PDT the core graph is 8/54 accepted. Two Codex workers are visibly
 executing, one core row reports a completed turn, and preserved paused or
 deactivated rows await the post-optimization restart. #1103 remains queued,
 while #1151 is in explicit review-driven rework awaiting that restart.
 #1093, #1108, #1111, #1123, and #1130 stay on workspace-race holds until #1161
-lands. The 19:40 phase preview preserves the latest successfully emitted core
+lands. The 19:59 phase preview preserves the latest successfully emitted core
 percentages and advances only review/CI states backed by GitHub evidence;
 do not replace those estimates with guesses during review/rework. Host load
 remains volatile and was about 38 with roughly 21 GiB available at the 17:34
