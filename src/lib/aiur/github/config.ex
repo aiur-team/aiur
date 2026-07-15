@@ -91,6 +91,15 @@ defmodule Aiur.GitHub.Config do
     end
   end
 
+  @spec planning_root_limit() :: pos_integer()
+  def planning_root_limit, do: section_value("planning_root_limit")
+
+  @spec planning_page_budget() :: pos_integer()
+  def planning_page_budget, do: section_value("planning_page_budget")
+
+  @spec planning_call_budget() :: pos_integer()
+  def planning_call_budget, do: section_value("planning_call_budget")
+
   @doc """
   Returns the GitHub login that Aiur posts under (PR comments, dependency
   declarations, etc.). Read from `github.bot_account` in .aiurconfig.

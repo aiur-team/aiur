@@ -14,6 +14,48 @@ defmodule Aiur.Config.SchemaTest do
     end
   end
 
+  describe "GitHub planning graph bounds" do
+    test "defaults to finite bounds that permit one hundred roots" do
+      assert {:ok, settings} = Schema.parse(%{})
+
+      assert settings.tracker.github.planning_root_limit == 100
+      assert settings.tracker.github.planning_page_budget == 4
+      assert settings.tracker.github.planning_call_budget == 4
+    end
+
+    test "accepts lower positive planning graph bounds" do
+      assert {:ok, settings} =
+               Schema.parse(%{
+                 "tracker" => %{
+                   "github" => %{
+                     "planning_root_limit" => 25,
+                     "planning_page_budget" => 2,
+                     "planning_call_budget" => 3
+                   }
+                 }
+               })
+
+      assert settings.tracker.github.planning_root_limit == 25
+      assert settings.tracker.github.planning_page_budget == 2
+      assert settings.tracker.github.planning_call_budget == 3
+    end
+
+    test "rejects zero, negative, non-integer, and over-hard-limit planning graph bounds" do
+      invalid = [
+        {"planning_root_limit", [0, -1, 101, "infinite"]},
+        {"planning_page_budget", [0, -1, 5, "infinite"]},
+        {"planning_call_budget", [0, -1, 5, "infinite"]}
+      ]
+
+      for {field, values} <- invalid, value <- values do
+        assert {:error, {:invalid_workflow_config, message}} =
+                 Schema.parse(%{"tracker" => %{"github" => %{field => value}}})
+
+        assert message =~ "tracker.github.#{field}"
+      end
+    end
+  end
+
   describe "agent rate_limit_fallback" do
     test "defaults to claude" do
       assert {:ok, defaults} = Schema.parse(%{})

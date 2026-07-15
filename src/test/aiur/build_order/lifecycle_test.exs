@@ -24,6 +24,24 @@ defmodule Aiur.BuildOrder.LifecycleTest do
     end
   end
 
+  test "accepts only provider lifecycle facts that can form a complete graph" do
+    for {state, reason, valid?} <- [
+          {"OPEN", nil, true},
+          {"OPEN", "REOPENED", true},
+          {"OPEN", "UNRECOGNIZED", false},
+          {"CLOSED", "COMPLETED", true},
+          {"CLOSED", "NOT_PLANNED", true},
+          {"CLOSED", "DUPLICATE", true},
+          {"CLOSED", "REOPENED", false},
+          {"OPEN", "COMPLETED", false},
+          {"CLOSED", nil, false},
+          {"CLOSED", "UNRECOGNIZED", false},
+          {"UNRECOGNIZED", "COMPLETED", false}
+        ] do
+      assert Lifecycle.valid?(Lifecycle.from_github(state, reason)) == valid?
+    end
+  end
+
   test "missing, stale, and incomplete provider facts never clear an edge" do
     lifecycle = Lifecycle.from_github("CLOSED", "COMPLETED")
 
