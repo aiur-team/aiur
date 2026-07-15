@@ -4,7 +4,9 @@
 > validates at zero errors. Read [DEC-015](11-execution-amendment.md) before
 > dispatch: it carries current-`develop` ownership, takeover, reopened CTA, and
 > five-lane execution rules without rewriting approved ticket bodies or the
-> native graph.
+> native graph. The binding schedule is the
+> [current seven-wave execution plan](12-current-execution-waves.md); its
+> `phase:1`–`phase:7` labels supersede older phase hints for this run.
 
 Read this file first. This branch contains reviewed planning evidence and issue
 contracts. It does not implement Build Order, launch Aiur, or dispatch work.
@@ -67,7 +69,8 @@ selected-order integration into independently verifiable work.
 10. [Publication receipt](github-publication.md)
 11. [Late-wave consolidation research](10-late-wave-consolidation.md)
 12. [Binding execution amendment](11-execution-amendment.md)
-13. [Executor handoff](EXECUTOR-HANDOFF.md)
+13. [Current seven-wave execution plan](12-current-execution-waves.md)
+14. [Executor handoff](EXECUTOR-HANDOFF.md)
 
 Supporting context: [research spike](00-research-spike.md),
 [decomposition patterns](01-decomposition-patterns.md),
@@ -111,9 +114,9 @@ graph TD
 ```
 
 The diagram shows the BO spine; the canonical baseline renders all 54 members.
-Phase is presentation and rollout guidance, not a barrier. Native GitHub hard
-dependencies, ticket state, declared serialization conflicts and current
-capacity determine readiness. BO-003, BO-005, BO-016, BO-019, DASH-002,
+Execution wave is presentation and rollout guidance, not a barrier. Native
+GitHub hard dependencies, ticket state, declared serialization conflicts and
+current capacity determine readiness. BO-003, BO-005, BO-016, BO-019, DASH-002,
 DASH-009, DASH-012, DASH-018, DASH-019, DASH-024, DASH-025, and DASH-026
 declare symmetric serialization pairs on the central application-supervision
 bootstrap surface wherever hard dependencies do not already order them.

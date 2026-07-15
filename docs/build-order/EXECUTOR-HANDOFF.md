@@ -1,12 +1,32 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-15 15:19 PDT)
+## Live Executor state (updated 2026-07-15 15:56 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
 act as the fallback when an agent cannot finish its last mile. Everything
 below this section is the binding contract; this section is the current live
 truth and supersedes stale pre-run wording later in the document.
+
+**Seven-wave reconciliation stop:** the Executor incorrectly marked the
+consolidation gate complete after applying DEC-015's ownership overlay while
+leaving the materialized ticket phases and preview on different schedules.
+The operator stopped the run. Aiur and every direct worker were terminated;
+no new execution may start until
+[`12-current-execution-waves.md`](12-current-execution-waves.md) and
+[`execution-waves.json`](execution-waves.json) form an exact 54-ticket W1–W7
+partition, every GitHub member carries exactly the matching `phase:<wave>`
+label, and the preview renders that same partition with no legacy-history
+view. Native blocker edges remain the readiness authority. Preserve existing
+worker branches and PRs, but do not resume them until this reconciliation gate
+passes.
+
+BO-006/#1094 finished before the stop and was merged to `develop` as
+`2f48ac78` via PR #1192 before the reconciliation commit could stale its exact
+base. Build, lint, Dialyzer, browser, layout, and 259 focused AgentList tests
+passed. Its repository-wide job failed only the already-classified
+ProviderLifecycle timing and RepoEvents shared-supervisor teardown races, so
+the documented develop flake rule applied; the issue is closed `agent:done`.
 
 **State right now:** planning approval remains frozen at
 `4d8de9508206e08e314f2730cd916501a3b4cafd` and publication receipt
@@ -26,9 +46,10 @@ ProviderLifecycle and BuildGate base timing flakes. Executor convergence PR
 `a58b309a`; its execution receipt, issue graph, prewarm gate, and configured
 `develop` base all validated before dispatch.
 
-Aiur remains running headlessly in diagnostic mode so the dashboard stays
-available, but its Codex providers are quota-paused until the recorded weekly
-reset and must not be resumed early. DASH-001/#1108 merged to `develop` as
+Aiur is stopped for the seven-wave reconciliation gate. Before the stop it ran
+headlessly in diagnostic mode, but its Codex providers were quota-paused until
+the recorded weekly reset and were not resumed early. DASH-001/#1108 merged to
+`develop` as
 `f8b52beb`, BO-005/#1093 as `c7c4d7a8`, and DASH-008/#1114 as `e4955d80`; all
 three issues were manually marked `agent:done` and closed because a PR into the
 non-default `develop` branch does not apply its closing keyword. BO-003/#1092
@@ -43,13 +64,14 @@ fresh 100%-weekly-limit receipt through the recorded reset and cannot dispatch
 without violating the no-Claude constraint.
 
 The Executor therefore activated the bounded direct-takeover fallback rather
-than idling. Three conflict-safe Codex background workers now own BO-016/#1103,
-BO-007/#1095, and BO-006/#1094 from exact `origin/develop`; all three issues
-retain `agent:paused` alongside `agent:in-progress` so the live daemon cannot
-create duplicate writers. BO-016 owns the reopened distinct Issue/Pull-request
-destination seam, BO-007 advances the serial graph critical path, and BO-006
-advances the BO-015 acceptance path. Their intermediate PRs target `develop`
-and use the amendment's single self-review/current-base/focused-gate contract.
+than idling. Before the stop, three conflict-safe Codex background workers
+owned BO-016/#1103, BO-007/#1095, and BO-006/#1094 from exact
+`origin/develop`; all were interrupted and their work preserved. BO-016 owns
+the reopened distinct Issue/Pull-request destination seam, BO-007 advances the
+serial graph critical path, and BO-006 has now merged. BO-016 and BO-007 retain
+`agent:paused` alongside `agent:in-progress` so a restarted daemon cannot
+create duplicate writers until the Executor deliberately resumes or replaces
+them.
 
 The normal post-integration `aiurdev --bg` restart also exposed a separate P1
 dev-release coherence defect: its mtime-based incremental rebuild assembled a
