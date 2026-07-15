@@ -590,6 +590,7 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
         reader: fn requested_identity ->
           TicketDetail.fetch(requested_identity,
             configured_repo: @configured,
+            relationship_reader: &no_linked_pull_requests/2,
             request_fun: fn _request ->
               {:ok, %{status: 200, body: detail_issue(requested_identity, body)}}
             end
@@ -665,6 +666,7 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
         reader: fn requested_identity ->
           TicketDetail.fetch(requested_identity,
             configured_repo: @configured,
+            relationship_reader: &no_linked_pull_requests/2,
             request_fun: fn _request ->
               {:ok, %{status: 200, body: detail_issue(requested_identity, body)}}
             end
@@ -709,6 +711,7 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
         reader: fn requested_identity ->
           TicketDetail.fetch(requested_identity,
             configured_repo: @configured,
+            relationship_reader: &no_linked_pull_requests/2,
             request_fun: fn _request ->
               {:ok, %{status: 200, body: detail_issue(requested_identity, body)}}
             end
@@ -1189,6 +1192,9 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
       "updated_at" => "2026-07-02T11:00:00Z"
     }
   end
+
+  defp no_linked_pull_requests(_identity, _repository),
+    do: {:ok, %{nodes: [], truncated?: false}}
 
   defp inflight_ref(cache, identity) do
     %{entries: entries} = :sys.get_state(cache)

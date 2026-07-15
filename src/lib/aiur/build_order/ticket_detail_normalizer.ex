@@ -2,7 +2,7 @@ defmodule Aiur.BuildOrder.TicketDetail.Normalizer do
   @moduledoc false
 
   alias Aiur.BuildOrder.{Bounded, Lifecycle}
-  alias Aiur.BuildOrder.TicketDetail.{Failure, Sanitizer, Snapshot}
+  alias Aiur.BuildOrder.TicketDetail.{DestinationNormalizer, Failure, Sanitizer, Snapshot}
   alias Aiur.TrackerIdentity
 
   @default_max_description_bytes 16_384
@@ -27,6 +27,7 @@ defmodule Aiur.BuildOrder.TicketDetail.Normalizer do
          {:ok, body} <- required_body(raw_issue),
          {:ok, description} <- description(body, description_limit(opts)),
          {:ok, url} <- configured_issue_url(raw_issue["html_url"], identity),
+         {:ok, destinations} <- DestinationNormalizer.normalize(url, identity, Keyword.get(opts, :relationships)),
          {:ok, lifecycle} <- required_lifecycle(raw_issue),
          {:ok, created_at} <- timestamp(raw_issue["created_at"]),
          {:ok, updated_at} <- timestamp(raw_issue["updated_at"]),
@@ -38,6 +39,7 @@ defmodule Aiur.BuildOrder.TicketDetail.Normalizer do
          description: description,
          lifecycle: lifecycle,
          url: url,
+         destinations: destinations,
          created_at: created_at,
          updated_at: updated_at,
          observed_at: observed_at
@@ -61,6 +63,10 @@ defmodule Aiur.BuildOrder.TicketDetail.Normalizer do
   def failure_from({:github, :timeout, _detail}), do: %Failure{kind: :timeout}
   def failure_from(:missing_github_token), do: %Failure{kind: :auth}
   def failure_from(:github_issue_response_too_large), do: %Failure{kind: :schema}
+  def failure_from(:github_graphql_response_too_large), do: %Failure{kind: :schema}
+  def failure_from(:invalid_github_issue_relationships_response), do: %Failure{kind: :schema}
+  def failure_from(:github_issue_relationships_not_found), do: %Failure{kind: :not_found}
+  def failure_from(:provider_identity_mismatch), do: %Failure{kind: :provider_identity_mismatch}
   def failure_from({:github, _kind, %{status: 404}}), do: %Failure{kind: :not_found}
   def failure_from({:github, _kind, %{status: 403}}), do: %Failure{kind: :permission}
   def failure_from({:github, _kind, _detail}), do: %Failure{kind: :transport}
