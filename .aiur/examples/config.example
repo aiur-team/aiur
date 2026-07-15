@@ -92,6 +92,12 @@ alerts:
 # Restarting Aiur clears this cache; consumers receive unavailable state until a new read succeeds.
 # build_order:
 #   ticket_detail_freshness_ms: 30000       # 1..300000; reuse a healthy detail during this window
+#   graph_catalog_refresh_ms: 60000         # daemon-owned root-catalog reconciliation interval
+#   graph_selected_refresh_ms: 15000        # refresh interval while a selected root has demand
+#   graph_demand_refresh_ms: 5000           # selection/reconnect threshold; must not exceed selected refresh
+#   graph_refresh_timeout_ms: 30000         # bounded provider task timeout
+#   graph_max_selected_roots: 32            # in-memory retained LKG roots; lost on daemon restart
+#   graph_max_inflight: 4                    # provider refreshes shared by all connected consumers
 #   ticket_detail_max_entries: 32            # 1..100; retained ticket identities, independent of browser count
 #   ticket_detail_max_description_bytes: 16384 # 1..16384; bounded sanitized provider description
 

@@ -22,6 +22,12 @@ build_order:
   # One supervised, in-memory configured-repository ticket-detail cache.
   # Restart clears retained detail; selected tickets reload on demand.
   ticket_detail_freshness_ms: 30000
+  graph_catalog_refresh_ms: 60000
+  graph_selected_refresh_ms: 15000
+  graph_demand_refresh_ms: 5000
+  graph_refresh_timeout_ms: 30000
+  graph_max_selected_roots: 32
+  graph_max_inflight: 4
   ticket_detail_max_entries: 32
   ticket_detail_max_description_bytes: 16384
 workspace:

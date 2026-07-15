@@ -134,14 +134,31 @@ Build Order planning reads use finite `github.planning_root_limit`,
 They default to `100`, `4`, and `4`; all values must be positive and may not
 exceed those hard limits, so a provider generation never silently truncates.
 
-The optional root-level `build_order` section configures one supervised,
-in-memory cache for configured-repository ticket detail. It defaults to a
-30-second freshness window, 32 retained identities, and 16,384 sanitized
-description bytes. `ticket_detail_freshness_ms` accepts `1..300000`,
+The optional root-level `build_order` section configures two supervised,
+in-memory configured-repository stores. Ticket detail defaults to a 30-second
+freshness window, 32 retained identities, and 16,384 sanitized description
+bytes. `ticket_detail_freshness_ms` accepts `1..300000`,
 `ticket_detail_max_entries` accepts `1..100`, and
-`ticket_detail_max_description_bytes` accepts `1..16384`. Restarting Aiur
-clears the cache; detail remains unavailable until a new on-demand read
-succeeds.
+`ticket_detail_max_description_bytes` accepts `1..16384`.
+
+The planning graph projection owns provider polling independently of connected
+browsers. Its public settings and inclusive bounds are:
+
+- `graph_catalog_refresh_ms`: default `60000`, range `1..3600000`.
+- `graph_selected_refresh_ms`: default `15000`, range `1..300000`, while a
+  selected root has active demand.
+- `graph_demand_refresh_ms`: default `5000`, range `1..300000`; it must not
+  exceed `graph_selected_refresh_ms`.
+- `graph_refresh_timeout_ms`: default `30000`, range `1..120000`.
+- `graph_max_selected_roots`: default `32`, range `1..100` retained
+  last-known-good roots.
+- `graph_max_inflight`: default `4`, range `1..16` provider refreshes shared by
+  all consumers.
+
+Restarting Aiur clears ticket detail and every catalog or selected-root graph
+generation. Each store reports unavailable after restart until a new complete
+provider read succeeds; no stale graph generation is reconstructed or exposed
+as an empty graph.
 
 Copy one of the starter pairs (config + prompt template) and edit it for your project:
 
