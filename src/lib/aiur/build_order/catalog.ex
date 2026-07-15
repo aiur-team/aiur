@@ -73,9 +73,10 @@ defmodule Aiur.BuildOrder.Catalog do
   end
 
   defp same_identity?(%TrackerIdentity{} = left, %TrackerIdentity{} = right) do
-    TrackerIdentity.joinable?(left) and TrackerIdentity.joinable?(right) and
-      {left.kind, left.owner, left.repository, left.provider_id} ==
-        {right.kind, right.owner, right.repository, right.provider_id}
+    case {TrackerIdentity.github_key(left), TrackerIdentity.github_key(right)} do
+      {{:github, _, _, _} = left_key, {:github, _, _, _} = right_key} -> left_key == right_key
+      _ -> false
+    end
   end
 
   defp same_identity?(_left, _right), do: false
