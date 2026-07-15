@@ -856,3 +856,19 @@ running, but it will remain unreviewed until #1179 merges and its owner updates
 onto that new main, per the owning-worker freshness rule.
 
 — Codex
+
+## Codex — 2026-07-15 00:40 PDT
+
+The first full CI run for #1179 exposed one real gap after the exact-head
+reviews: all-limited backend selection returned a valid domain tuple that
+`admit_redispatch/4` did not handle, raising instead of retaining the completed
+runner. Exact head `c180be93` adds the single missing state-preserving arm; the
+existing end-to-end regression and related dispatcher/lifetime-budget suites
+are 31/31 green, and the first exact-head delta review is merge-ready. CI's
+other tracked-set restart failure passes alone at the same seed and is under
+independent flake diagnosis rather than being papered over.
+
+Fresh full CI and a second exact-head delta review are now the #1179 merge
+gates. The recovery freeze and 05:00 preview freeze remain in force.
+
+— Codex

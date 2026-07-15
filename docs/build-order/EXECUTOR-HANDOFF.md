@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-14 23:58 PDT)
+## Live Executor state (updated 2026-07-15 00:40 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -1706,6 +1706,17 @@ Terra; never dispatch Claude.
     its prohibited protected-regression test edit. Both remain behind #1179:
     once #1179 merges, their owning agents must update to the new `main` and
     obtain fresh CI before review.
+
+210. The first full CI run for #1179 head `5ce42f3e` found one owned defect and
+    one independently reproducing test-suite flake. The owned failure was a
+    `WithClauseError`: `admit_redispatch/4` did not normalize the valid
+    `{:all_limited, candidates}` backend-selection result into its documented
+    state-carrying error tuple. Exact head `c180be93` adds the one missing arm,
+    preserving the completed runner and claim while all models are limited;
+    focused validation is 31/31 green and exact-head delta review is
+    merge-ready. The tracked-set restart assertion passes alone at the CI seed
+    and remains under independent flake diagnosis. Fresh full CI and a second
+    exact-head delta review remain the only #1179 merge gates.
 
 At 23:58 PDT the core graph remains 8/54 accepted while the recovery gate is
 frozen. Five Codex implementation/rework workers are visibly executing
