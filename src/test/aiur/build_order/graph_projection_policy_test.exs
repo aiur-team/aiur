@@ -2,24 +2,61 @@ defmodule Aiur.BuildOrder.GraphProjection.PolicyTest do
   use ExUnit.Case, async: true
 
   alias Aiur.BuildOrder.{Catalog, ProviderHealth, ProviderResult, RootSummary, SelectedRoot}
-  alias Aiur.BuildOrder.GraphProjection.Policy
+  alias Aiur.BuildOrder.GraphProjection.{Options, Policy}
   alias Aiur.TrackerIdentity
 
   @repository {"owner", "repo"}
   @now ~U[2026-07-15 12:00:00Z]
 
-  test "freshness boundaries become due at the exact configured interval" do
-    entry = %{last_success_ms: 1_000}
+  test "default catalog, selected, and demand freshness become due at exact boundaries" do
+    baseline_ms = 1_000
+    policy = Options.new(clock_ms: fn -> baseline_ms end).policy
+    entry = %{last_success_ms: baseline_ms}
 
-    refute Policy.due?(entry, 60_999, 60_000)
-    assert Policy.due?(entry, 61_000, 60_000)
-    assert Policy.due?(entry, 61_001, 60_000)
+    assert policy.catalog_refresh_ms == 60_000
+    assert policy.selected_refresh_ms == 15_000
+    assert policy.demand_refresh_ms == 5_000
 
-    refute Policy.due?(entry, 15_999, 15_000)
-    assert Policy.due?(entry, 16_000, 15_000)
+    for interval <- [
+          policy.catalog_refresh_ms,
+          policy.selected_refresh_ms,
+          policy.demand_refresh_ms
+        ] do
+      refute Policy.due?(entry, baseline_ms + interval - 1, interval)
+      assert Policy.due?(entry, baseline_ms + interval, interval)
+      assert Policy.due?(entry, baseline_ms + interval + 1, interval)
+    end
+  end
 
-    refute Policy.due?(entry, 5_999, 5_000)
-    assert Policy.due?(entry, 6_000, 5_000)
+  test "configured refresh interval preserves the same deterministic boundary" do
+    baseline_ms = 10_000
+    configured_ms = 120_000
+
+    policy =
+      Options.policy_options(
+        catalog_refresh_ms: configured_ms,
+        selected_refresh_ms: 30_000,
+        demand_refresh_ms: 10_000
+      )
+
+    entry = %{last_success_ms: baseline_ms}
+
+    assert policy.catalog_refresh_ms == configured_ms
+    refute Policy.due?(entry, baseline_ms + configured_ms - 1, configured_ms)
+    assert Policy.due?(entry, baseline_ms + configured_ms, configured_ms)
+    assert Policy.due?(entry, baseline_ms + configured_ms + 1, configured_ms)
+  end
+
+  test "demand refresh falls back when it exceeds selected refresh" do
+    policy =
+      Options.policy_options(
+        selected_refresh_ms: 10_000,
+        demand_refresh_ms: 10_001
+      )
+
+    assert policy.selected_refresh_ms == 10_000
+    assert policy.demand_refresh_ms == 5_000
+    assert policy.demand_refresh_ms <= policy.selected_refresh_ms
   end
 
   test "only complete matching candidates pass the atomic publication gate" do

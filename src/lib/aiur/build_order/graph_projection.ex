@@ -43,16 +43,12 @@ defmodule Aiur.BuildOrder.GraphProjection do
 
   @spec subscribe_catalog(GenServer.server()) :: :ok | {:error, term()}
   def subscribe_catalog(server \\ __MODULE__) do
-    with {:ok, topic} <- GenServer.call(server, :catalog_topic),
-         :ok <- Phoenix.PubSub.subscribe(Aiur.PubSub, topic),
-         do: Phoenix.PubSub.subscribe(Aiur.PubSub, @reset_topic)
+    subscribe_scope(fn -> GenServer.call(server, :catalog_topic) end)
   end
 
   @spec subscribe_selected(GenServer.server(), TrackerIdentity.t()) :: :ok | {:error, Failure.t() | term()}
   def subscribe_selected(server \\ __MODULE__, identity) do
-    with {:ok, topic} <- GenServer.call(server, {:selected_topic, identity}),
-         :ok <- Phoenix.PubSub.subscribe(Aiur.PubSub, topic),
-         do: Phoenix.PubSub.subscribe(Aiur.PubSub, @reset_topic)
+    subscribe_scope(fn -> GenServer.call(server, {:selected_topic, identity}) end)
   end
 
   @spec catalog_topic(TrackerIdentity.repository()) :: String.t()
@@ -133,9 +129,10 @@ defmodule Aiur.BuildOrder.GraphProjection do
     {state, events} = reconcile(state)
     broadcast_all(state, events)
 
-    case state.active_repository do
-      {_, _} = repository -> {:reply, {:ok, Policy.catalog_topic(repository)}, state}
-      _repository -> {:reply, {:error, %Failure{kind: :configuration}}, state}
+    if configuration_ready?(state) do
+      {:reply, {:ok, Policy.catalog_topic(state.active_repository)}, state}
+    else
+      {:reply, {:error, %Failure{kind: :configuration}}, state}
     end
   end
 
@@ -166,10 +163,11 @@ defmodule Aiur.BuildOrder.GraphProjection do
   end
 
   def handle_info({ref, result}, state) when is_reference(ref) do
+    {state, reconcile_events} = reconcile(state)
     Process.demonitor(ref, [:flush])
     {state, events} = complete_task(state, ref, result)
     {state, admitted_events} = admit_pending(state)
-    broadcast_all(state, events ++ admitted_events)
+    broadcast_all(state, reconcile_events ++ events ++ admitted_events)
     {:noreply, state}
   end
 
@@ -179,9 +177,10 @@ defmodule Aiur.BuildOrder.GraphProjection do
         {:noreply, remove_demand_by_monitor(state, ref, pid)}
 
       Map.has_key?(state.inflight_by_ref, ref) ->
+        {state, reconcile_events} = reconcile(state)
         {state, events} = complete_task(state, ref, {:error, :transport})
         {state, admitted_events} = admit_pending(state)
-        broadcast_all(state, events ++ admitted_events)
+        broadcast_all(state, reconcile_events ++ events ++ admitted_events)
         {:noreply, state}
 
       true ->
@@ -190,16 +189,19 @@ defmodule Aiur.BuildOrder.GraphProjection do
   end
 
   def handle_info({:graph_projection_timeout, ref, attempt}, state) do
+    {state, reconcile_events} = reconcile(state)
+
     case Map.get(state.inflight_by_ref, ref) do
       %{attempt: ^attempt} = inflight ->
         Process.demonitor(ref, [:flush])
         TaskLifecycle.terminate(inflight, state.task_supervisor)
         {state, events} = complete_task(state, ref, {:error, :timeout})
         {state, admitted_events} = admit_pending(state)
-        broadcast_all(state, events ++ admitted_events)
+        broadcast_all(state, reconcile_events ++ events ++ admitted_events)
         {:noreply, state}
 
       _inflight ->
+        broadcast_all(state, reconcile_events)
         {:noreply, state}
     end
   end
@@ -208,12 +210,14 @@ defmodule Aiur.BuildOrder.GraphProjection do
     case scope_entry(state, scope) do
       %{timer_token: ^token} = entry ->
         state = put_scope_entry(state, %{entry | timer: nil}, scope)
+        {state, reconcile_events} = reconcile(state)
 
         if active_scope?(state, scope) do
           {state, events} = request_scope(state, scope)
-          broadcast_all(state, events)
+          broadcast_all(state, reconcile_events ++ events)
           {:noreply, state}
         else
+          broadcast_all(state, reconcile_events)
           {:noreply, state}
         end
 
@@ -339,6 +343,9 @@ defmodule Aiur.BuildOrder.GraphProjection do
   end
 
   defp restore_entry_configuration_health(entry), do: entry
+
+  defp authorize_root(%{catalog: %{health: %{failure: :configuration}}}, _identity),
+    do: {:error, %Failure{kind: :configuration}}
 
   defp authorize_root(%{active_repository: {_, _} = repository}, identity) do
     case Settings.requested_root(identity, repository) do
@@ -490,7 +497,7 @@ defmodule Aiur.BuildOrder.GraphProjection do
     if demand_refresh_due?(entry, state) do
       request_scope(state, entry.scope)
     else
-      {schedule_from_success(state, entry.scope), []}
+      {schedule_active_scope(state, entry.scope), []}
     end
   end
 
@@ -509,6 +516,9 @@ defmodule Aiur.BuildOrder.GraphProjection do
     entry = scope_entry(state, scope)
 
     cond do
+      not configuration_ready?(state) ->
+        {state, []}
+
       is_nil(entry) ->
         {state, []}
 
@@ -544,7 +554,8 @@ defmodule Aiur.BuildOrder.GraphProjection do
           timeout_ref: timeout_ref,
           scope: scope,
           attempt: attempt,
-          authority_generation: state.authority_generation
+          authority_generation: state.authority_generation,
+          configuration_generation: state.active_configuration_generation
         }
 
         entry = %{entry | inflight: inflight}
@@ -588,11 +599,24 @@ defmodule Aiur.BuildOrder.GraphProjection do
   defp complete_scope(state, scope, inflight, result) do
     case scope_entry(state, scope) do
       %{inflight: %{ref: ref}} = entry
-      when ref == inflight.ref and inflight.authority_generation == state.authority_generation ->
+      when ref == inflight.ref and inflight.authority_generation == state.authority_generation and
+             inflight.configuration_generation == state.active_configuration_generation ->
         case Policy.complete_candidate(result, scope, state.active_repository) do
           {:ok, candidate} -> complete_success(state, entry, scope, candidate)
           {:error, failure, provider_result} -> complete_failure(state, entry, scope, failure, provider_result)
         end
+
+      _entry ->
+        discard_obsolete_completion(state, scope, inflight.ref)
+    end
+  end
+
+  defp discard_obsolete_completion(state, scope, ref) do
+    case scope_entry(state, scope) do
+      %{inflight: %{ref: ^ref}} = entry ->
+        entry = %{entry | inflight: nil, health: %{entry.health | refreshing?: false}}
+        state = put_scope_entry(state, entry, scope)
+        request_scope(state, scope)
 
       _entry ->
         {state, []}
@@ -612,7 +636,7 @@ defmodule Aiur.BuildOrder.GraphProjection do
     scheduled? = active_scope?(state, scope)
     delay = Policy.retry_delay_ms(entry.health.retry_count, scope_interval(state, scope), provider_result, now)
     next_retry_at = DateTime.add(now, delay, :millisecond)
-    entry = Policy.apply_failure(entry, failure, now, next_retry_at, scheduled?)
+    entry = Policy.apply_failure(entry, failure, now, next_retry_at, true)
     state = put_scope_entry(state, entry, scope)
     state = if(scheduled?, do: schedule_scope(state, scope, delay), else: state)
     {state, [{:health, snapshot_for_entry(scope_entry(state, scope), state)}]}
@@ -651,6 +675,26 @@ defmodule Aiur.BuildOrder.GraphProjection do
     end
   end
 
+  defp schedule_active_scope(state, scope) do
+    entry = scope_entry(state, scope)
+
+    cond do
+      not configuration_ready?(state) or is_nil(entry) or not active_scope?(state, scope) or
+        not is_nil(entry.inflight) or not is_nil(entry.timer) ->
+        state
+
+      is_nil(entry.health.next_retry_at) ->
+        schedule_from_success(state, scope)
+
+      retry_due?(entry, state) ->
+        schedule_scope(state, scope, 0)
+
+      true ->
+        delay = max(0, DateTime.diff(entry.health.next_retry_at, now(state), :millisecond))
+        schedule_scope(state, scope, delay)
+    end
+  end
+
   defp schedule_scope(state, scope, delay) do
     entry = scope_entry(state, scope)
     entry = cancel_entry_schedule(entry)
@@ -664,10 +708,10 @@ defmodule Aiur.BuildOrder.GraphProjection do
   end
 
   defp reschedule_active_scopes(state) do
-    state = state |> cancel_all_timers() |> schedule_from_success(:catalog)
+    state = state |> cancel_all_timers() |> schedule_active_scope(:catalog)
 
     Enum.reduce(state.selected, state, fn {_key, entry}, state ->
-      if MapSet.size(entry.demanders) > 0, do: schedule_from_success(state, entry.scope), else: state
+      if MapSet.size(entry.demanders) > 0, do: schedule_active_scope(state, entry.scope), else: state
     end)
   end
 
@@ -795,6 +839,20 @@ defmodule Aiur.BuildOrder.GraphProjection do
   catch
     _kind, _reason -> :ok
   end
+
+  defp subscribe_scope(topic_fun) do
+    with :ok <- Phoenix.PubSub.subscribe(Aiur.PubSub, @reset_topic),
+         {:ok, topic} <- topic_fun.(),
+         :ok <- Phoenix.PubSub.subscribe(Aiur.PubSub, topic) do
+      :ok
+    end
+  end
+
+  defp configuration_ready?(%{active_repository: {_, _}, authority_fingerprint: fingerprint, catalog: catalog}) do
+    fingerprint != :unknown and catalog.health.failure != :configuration
+  end
+
+  defp configuration_ready?(_state), do: false
 
   defp now(state), do: state.now.()
   defp now_ms(state), do: state.clock_ms.()

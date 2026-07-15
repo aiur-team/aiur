@@ -41,10 +41,12 @@ the work at a higher level._
 - **Optional alert sounds:** users can edit the checked-in `.aiur/alerts` file, where each alert
   defines its `name`, `message`, and optional `sound` clips in one place.
 
-See [src/README.md](src/README.md#configuration) for the supported `.aiurconfig` options and
-adapter examples. Build Order's optional `build_order` settings configure one supervised,
-in-memory configured-repository ticket-detail cache; it starts empty after a restart and retains
-at most 100 sanitized ticket snapshots, independently of browser count.
+See [src/README.md](src/README.md#config) for the supported `.aiurconfig` options and
+adapter examples. Build Order's optional `build_order` settings configure a supervised,
+in-memory configured-repository ticket-detail cache and planning graph projection. The
+projection owns catalog and demanded-root refreshes independently of browser count, with
+bounded retained roots and provider work. Restart clears both stores: ticket detail and graph
+snapshots remain unavailable until new complete provider reads succeed.
 
 ## Running Aiur
 
