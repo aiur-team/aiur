@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-14 20:25 PDT)
+## Live Executor state (updated 2026-07-14 20:30 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -1494,13 +1494,28 @@ Terra; never dispatch Claude.
     `agent:rework`. Do not resume #1088 until #1161 lands and the authorized
     restart runs the repaired workspace lifecycle. #1161's lint repair head
     `b5c14d71` has every fresh CI gate green except the still-running full test.
+194. #1161 head `b5c14d71` finished CI with every functional/static gate green;
+    the sole failure was total coverage 84.95% against 85.00%. This directly
+    blocks the workspace fix, so the Executor kept it contained in #1161 and
+    routed issue comment `4976581861` for narrow deterministic coverage of the
+    newly extracted identity/guardian branches. The worker resumed at 20:30.
+195. BO-003's first verified Sol startup raced the old daemon's workspace
+    replacement and terminated with `invalid cwd: No such file or directory`.
+    The guarded hook rebuilt a valid checkout, but cleanup removed that checkout
+    again before the resumed worker could start; the uncommitted plan file was
+    lost while the durable workpad/provider transcript remained. After one
+    attempted valid-checkout resume exposed the second removal, the Executor
+    stopped cycling the ticket and applied `agent:paused` while preserving
+    `agent:rework` and the Sol label. This is direct #1161 evidence. Do not
+    resume BO-003 or DASH-006 again until #1161 is merged and the authorized
+    daemon restart applies the fix.
 
-At 20:25 PDT the core graph is 8/54 accepted. Three Codex workers are visibly
+At 20:30 PDT the core graph is 8/54 accepted. Three Codex workers are visibly
 executing, one core row reports a completed turn, and preserved paused or
 deactivated rows await the post-optimization restart. #1103 remains queued,
 while #1151 is in explicit review-driven rework awaiting that restart.
 #1093, #1108, #1111, #1123, and #1130 stay on workspace-race holds until #1161
-lands. The 20:25 phase preview preserves the latest successfully emitted core
+lands. The 20:30 phase preview preserves the latest successfully emitted core
 percentages and advances only review/CI states backed by GitHub evidence;
 do not replace those estimates with guesses during review/rework. Host load
 remains volatile and was about 38 with roughly 21 GiB available at the 17:34
