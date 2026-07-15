@@ -72,7 +72,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   @spec run_session(Path.t(), Issue.t(), pid() | nil, keyword(), worker_host()) ::
           :ok | {:completed, Issue.t()} | {:error, term()}
   def run_session(workspace, issue, codex_update_recipient, opts, worker_host) do
-    max_turns = Keyword.get(opts, :max_turns, Config.settings!().agent.max_turns)
+    max_turns = Keyword.get(opts, :max_turns, Config.agent_max_turns_for(issue))
     issue_state_fetcher = Keyword.get(opts, :issue_state_fetcher, &Tracker.fetch_issue_states_by_ids/1)
     orchestrator = Keyword.get(opts, :orchestrator, Aiur.Orchestrator)
 
