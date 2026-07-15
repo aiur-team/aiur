@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "build_order_id": "its-everdred/aiur:build-order-dashboard",
+  "target_ref": "refs/heads/develop",
+  "wave_label_prefix": "phase:",
+  "readiness_authority": "native_blocked_by_edges",
+  "waves": {
+    "1": [
+      "BO-004",
+      "BO-008",
+      "DASH-006",
+      "DASH-017",
+      "DASH-018"
+    ],
+    "2": [
+      "BO-001",
+      "BO-016",
+      "BO-017",
+      "DASH-001",
+      "DASH-004",
+      "DASH-012",
+      "DASH-019"
+    ],
+    "3": [
+      "BO-002",
+      "BO-005",
+      "BO-009",
+      "DASH-002",
+      "DASH-007",
+      "DASH-008",
+      "DASH-013",
+      "DASH-020",
+      "DASH-021",
+      "DASH-026"
+    ],
+    "4": [
+      "BO-003",
+      "BO-006",
+      "BO-010",
+      "BO-019",
+      "DASH-009",
+      "DASH-010",
+      "DASH-011",
+      "DASH-016",
+      "DASH-029"
+    ],
+    "5": [
+      "BO-007",
+      "BO-018",
+      "DASH-014",
+      "DASH-024",
+      "DASH-025",
+      "DASH-030",
+      "DASH-032"
+    ],
+    "6": [
+      "BO-011",
+      "BO-012",
+      "BO-013",
+      "BO-014",
+      "BO-020",
+      "DASH-003",
+      "DASH-005",
+      "DASH-015",
+      "DASH-022",
+      "DASH-023",
+      "DASH-027",
+      "DASH-028",
+      "DASH-031",
+      "DASH-034"
+    ],
+    "7": [
+      "DASH-033",
+      "BO-015"
+    ]
+  }
+}

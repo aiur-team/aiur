@@ -114,8 +114,8 @@ button{font-family:inherit}
   background:radial-gradient(circle at center,color-mix(in srgb,var(--fg) 4%,transparent) 1px,transparent 1px) 0 0/22px 22px,var(--surface-2)}
 .bo-viewport.grabbing{cursor:grabbing}
 .bo-scale{transform-origin:0 0;width:max-content;min-width:100%}
-.bo-stage{position:relative;width:1320px;padding:0 1.2rem 1.4rem}
-.bo-lanes,.bo-grid{display:grid;grid-template-columns:58px repeat(6,minmax(145px,1fr));gap:0 14px}
+.bo-stage{position:relative;width:1120px;padding:0 .8rem 1rem}
+.bo-lanes,.bo-grid{display:grid;grid-template-columns:50px repeat(6,minmax(130px,1fr));gap:0 10px}
 .bo-lanes{position:sticky;top:0;z-index:5;padding:.9rem 0 .7rem;background:color-mix(in srgb,var(--surface-2) 92%,transparent);backdrop-filter:blur(3px)}
 .bo-lane{min-width:0;display:flex;align-items:center;gap:.5rem;padding:.5rem .7rem;border-radius:10px;border:1px solid var(--line);background:var(--surface);font-weight:700;font-size:.9rem}
 .bo-lane-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.78rem}
@@ -133,8 +133,8 @@ button{font-family:inherit}
 .bo-phase{grid-column:1;position:sticky;left:0;z-index:4;display:flex;flex-direction:column;justify-content:flex-start;align-items:flex-start;padding:1rem .5rem 0 0;background:color-mix(in srgb,var(--surface-2) 92%,transparent)}
 .bo-phase-n{font-weight:700;font-size:.82rem}
 .bo-phase-note{font-family:var(--mono);font-size:.62rem;color:var(--muted);letter-spacing:.03em}
-.bo-cell{display:flex;flex-wrap:wrap;gap:.7rem;padding:1rem 0 1.3rem;justify-content:center;align-content:flex-start}
-.bo-cell>.bo-node{flex:0 1 calc(50% - .35rem)}
+.bo-cell{display:flex;flex-wrap:wrap;gap:.55rem;padding:.75rem 0 .9rem;justify-content:center;align-content:flex-start}
+.bo-cell>.bo-node{flex:1 1 100%;min-width:0}
 .bo-node{position:relative;z-index:2;display:flex;flex-direction:column;gap:.4rem;padding:.65rem .7rem;border-radius:12px;border:1px solid var(--line-strong);background:var(--surface);box-shadow:var(--shadow-sm);cursor:pointer;text-align:left;color:var(--fg);
   transition:border-color .15s ease,box-shadow .15s ease,transform .15s ease,opacity .2s ease}
 .bo-node:hover{border-color:var(--accent-line);box-shadow:0 8px 22px color-mix(in srgb,var(--accent) 16%,transparent);transform:translateY(-1px)}
@@ -199,6 +199,8 @@ button{font-family:inherit}
 .sum-tbl td.mono,.sum-tbl td:first-child{font-family:var(--mono);white-space:nowrap}
 .sum-tbl .ids{font-family:var(--mono);font-size:.62rem;color:var(--muted);line-height:1.6}
 .sum-tbl .ids b{color:var(--attn-ink);font-weight:700}
+.sum-ticket{padding:0;border:0;background:none;color:inherit;font:inherit;cursor:pointer;text-decoration:underline;text-decoration-color:transparent;text-underline-offset:2px}
+.sum-ticket:hover,.sum-ticket:focus-visible{color:var(--accent-ink);text-decoration-color:currentColor;outline:none}
 .bar-cell{display:flex;align-items:center;gap:.5rem}
 .bar-cell i{height:8px;border-radius:4px;background:var(--accent);opacity:.75;display:inline-block}
 
@@ -224,7 +226,7 @@ footer{margin-top:26px;border-top:1px solid var(--line);padding-top:14px;font-fa
       <div class="hd-mark">A</div>
       <div>
         <h1>Build Order — plan preview</h1>
-        <div class="sub">its-everdred/aiur : aiur-dashboard-program · 54 core members + 19 ad hoc · plan v1 · researched @ 9849f329</div>
+        <div class="sub">its-everdred/aiur : aiur-dashboard-program · 54 core members + 21 ad hoc · plan v1 · researched @ 9849f329</div>
       </div>
     </div>
     <div style="display:flex;align-items:center;gap:.8rem">
@@ -237,17 +239,17 @@ footer{margin-top:26px;border-top:1px solid var(--line);padding-top:14px;font-fa
 
   <div class="kpis" id="kpis"></div>
 
-  <div class="prog-head">Core phase progress <b>· complexity-weighted completion per dependency wave; ad hoc work is tracked separately</b></div>
-  <div class="bo-prog" id="phaseProg" aria-label="Phase progress"></div>
+  <div class="prog-head">Core execution-wave progress <b>· complexity-weighted completion; ad hoc work is tracked separately</b></div>
+  <div class="bo-prog" id="phaseProg" aria-label="Execution wave progress"></div>
 
   <section class="bo-card" id="graph-all"></section>
 
   <footer>
-    Data: docs/build-order/build-order.json (branch build-order-research), one consolidated Build Order per operator direction 2026-07-13.
-    Rows are dependency waves (longest blocker path); dashed edges are still blocking and solid green edges have cleared after merge.
+    Data: docs/build-order/build-order.json plus the binding docs/build-order/execution-waves.json schedule, one consolidated Build Order per operator direction.
+    Rows are the seven authorized execution waves; W5–W7 are the consolidated execution tail. Dashed edges are still blocking and solid green edges have cleared after merge.
     Green card background + border means an Aiur agent is live on that ticket. Solid grey cards are merged or closed and remain selectable; dashed blue cards are dependency-ready but not running.
-    Core epics are plan-graph / runtime / dashboard-ui / accounting / platform. The Ad Hoc epic tracks tickets created during execution without changing the approved 54-ticket denominator; phase is assigned when a ticket is picked up.
-    The per-phase and per-epic breakdowns are part of the real page design — owned by ticket BO-020.
+    Core epics are plan-graph / runtime / dashboard-ui / accounting / platform. The Ad Hoc epic tracks tickets created during execution without changing the approved 54-ticket denominator; completed and deferred Ad Hoc cards stay compact in the selectable summary tables.
+    The per-wave and per-epic breakdowns are part of the real page design — owned by ticket BO-020.
     Click any card for details · drag to pan · buttons to zoom.
   </footer>
 </div>
@@ -260,7 +262,7 @@ footer{margin-top:26px;border-top:1px solid var(--line);padding-top:14px;font-fa
 <script>
 const RUN = {
   phase: 4,
-  updated: "2026-07-15 15:19 PDT",
+  updated: "2026-07-15 15:56 PDT",
   tickets: {
     "BO-004": {state:"merged", progress:100, issue:1086},
     "BO-008": {state:"merged", progress:100, issue:1087},
@@ -268,7 +270,7 @@ const RUN = {
     "DASH-017": {state:"merged", progress:100, issue:1089},
     "DASH-018": {state:"merged", progress:100, issue:1090},
     "BO-001": {state:"merged", progress:100, issue:1085},
-    "BO-016": {state:"direct Executor worker live — separate Pull-request destination", progress:0, issue:1103, agent_live:true},
+    "BO-016": {state:"paused for seven-wave reconciliation — work preserved", progress:70, issue:1103},
     "BO-017": {state:"merged", progress:100, issue:1104},
     "DASH-001": {state:"merged to develop", progress:100, issue:1108},
     "DASH-004": {state:"merged", progress:100, issue:1111},
@@ -280,8 +282,8 @@ const RUN = {
     "DASH-002": {state:"merged", progress:100, issue:1109},
     "DASH-026": {state:"dependency-ready; held behind active shared-file ownership", progress:0, issue:1130},
     "BO-003": {state:"merged to develop", progress:100, issue:1092},
-    "BO-006": {state:"direct Executor worker live", progress:0, issue:1094, agent_live:true},
-    "BO-007": {state:"direct Executor worker live", progress:0, issue:1095, agent_live:true},
+    "BO-006": {state:"merged to develop", progress:100, issue:1094},
+    "BO-007": {state:"paused for seven-wave reconciliation — work preserved", progress:80, issue:1095},
     "DASH-008": {state:"merged to develop", progress:100, issue:1114},
     "ADHOC-1139": {state:"closed", progress:100, issue:1139},
     "ADHOC-1140": {state:"merged", progress:100, issue:1140},
@@ -333,8 +335,17 @@ const ADHOC_TICKETS = [
   {id:"ADHOC-780",issue:780,title:"Fix remaining concurrent-flaky specs",issue_title:"#780 — Fix remaining concurrent-flaky specs",lane:"adhoc",cx:1,deps:[],pack:"all",phase:1,pickup_phase:1,adhoc:true}
 ];
 const TICKETS = [...CORE_TICKETS, ...ADHOC_TICKETS];
+const EXECUTION_PHASES = {
+  "BO-007":5,"BO-018":5,"DASH-014":5,"DASH-024":5,"DASH-025":5,"DASH-030":5,"DASH-032":5,
+  "BO-011":6,"BO-012":6,"BO-013":6,"BO-014":6,"BO-020":6,"DASH-023":6,
+  "DASH-003":6,"DASH-005":6,"DASH-015":6,"DASH-022":6,"DASH-027":6,"DASH-028":6,"DASH-031":6,"DASH-034":6,
+  "DASH-033":7,"BO-015":7,"ADHOC-1182":7
+};
+TICKETS.forEach(ticket => {
+  if (Object.prototype.hasOwnProperty.call(EXECUTION_PHASES, ticket.id)) ticket.phase = EXECUTION_PHASES[ticket.id];
+});
 const ISSUE_BY_ID = {"BO-001":1085,"BO-004":1086,"BO-008":1087,"DASH-006":1088,"DASH-017":1089,"DASH-018":1090,"BO-002":1091,"BO-003":1092,"BO-005":1093,"BO-006":1094,"BO-007":1095,"BO-009":1096,"BO-010":1097,"BO-011":1098,"BO-012":1099,"BO-013":1100,"BO-014":1101,"BO-015":1102,"BO-016":1103,"BO-017":1104,"BO-018":1105,"BO-019":1106,"BO-020":1107,"DASH-001":1108,"DASH-002":1109,"DASH-003":1110,"DASH-004":1111,"DASH-005":1112,"DASH-007":1113,"DASH-008":1114,"DASH-009":1115,"DASH-010":1116,"DASH-011":1117,"DASH-012":1118,"DASH-013":1119,"DASH-014":1120,"DASH-015":1121,"DASH-016":1122,"DASH-019":1123,"DASH-020":1124,"DASH-021":1125,"DASH-022":1126,"DASH-023":1127,"DASH-024":1128,"DASH-025":1129,"DASH-026":1130,"DASH-027":1131,"DASH-028":1132,"DASH-029":1133,"DASH-030":1134,"DASH-031":1135,"DASH-032":1136,"DASH-033":1137,"DASH-034":1138};
-const PR_BY_ISSUE = {780:1181,1085:1155,1086:1143,1087:1145,1088:1144,1089:1159,1090:1141,1091:1157,1092:1190,1093:1187,1096:1158,1097:1168,1103:1163,1104:1156,1108:1188,1109:1167,1111:1160,1114:1189,1139:1065,1140:1180,1146:1174,1148:1173,1151:1153,1154:1172,1161:1166,1162:1165,1177:1176,1185:1186};
+const PR_BY_ISSUE = {780:1181,1085:1155,1086:1143,1087:1145,1088:1144,1089:1159,1090:1141,1091:1157,1092:1190,1093:1187,1094:1192,1096:1158,1097:1168,1103:1163,1104:1156,1108:1188,1109:1167,1111:1160,1114:1189,1139:1065,1140:1180,1146:1174,1148:1173,1151:1153,1154:1172,1161:1166,1162:1165,1177:1176,1185:1186};
 const LANES = ["plan-graph","runtime","dashboard-ui","accounting","platform","adhoc"];
 const LANE_LABEL = {"plan-graph":"Plan graph","runtime":"Runtime","dashboard-ui":"Dashboard UI","accounting":"Accounting","platform":"Platform","adhoc":"Ad Hoc"};
 const ICONS = {
@@ -355,13 +366,23 @@ TICKETS.forEach(t => t.deps.forEach(d => { (dependents[d] = dependents[d] || [])
 function packTickets(pack){ return TICKETS.filter(t => t.pack === pack); }
 function phaseOrder(phase){ return phase == null ? Number.MAX_SAFE_INTEGER : phase; }
 function phaseLabel(phase, prefix="W"){ return phase == null ? "TBD" : `${prefix}${phase}`; }
-function isCompleted(run){ return !!run && (run.state === "merged" || run.state.startsWith("closed")); }
+function isCompleted(run){ return !!run && (run.state.startsWith("merged") || run.state.startsWith("closed")); }
 function hasLiveAgent(run){ return run?.agent_live === true; }
+function visibleInSpatial(ticket){
+  if (!ticket.adhoc) return true;
+  const run = RUN.tickets[ticket.id];
+  return !!run && !isCompleted(run) && !run.state.includes("deferred");
+}
+function ticketRef(ticket){
+  const label = ticket.adhoc ? `#${ticket.issue}` : ticket.id;
+  return `<button class="sum-ticket" data-go="${ticket.id}">${ticket.critical ? `<b>${label}</b>` : label}</button>`;
+}
 
 function buildGraph(rootEl, pack, title, cap){
   const T = packTickets(pack);
-  const phases = [...new Set(T.map(t=>t.phase))].sort((a,b)=>phaseOrder(a)-phaseOrder(b));
-  const laneCounts = {}; T.forEach(t=>laneCounts[t.lane]=(laneCounts[t.lane]||0)+1);
+  const spatialTickets = T.filter(visibleInSpatial);
+  const phases = [...new Set(spatialTickets.map(t=>t.phase))].sort((a,b)=>phaseOrder(a)-phaseOrder(b));
+  const laneCounts = {}; spatialTickets.forEach(t=>laneCounts[t.lane]=(laneCounts[t.lane]||0)+1);
 
   let html = `
   <div class="bo-header">
@@ -392,12 +413,12 @@ function buildGraph(rootEl, pack, title, cap){
       <div class="bo-grid">`;
 
   for (const ph of phases){
-    const inPhase = T.filter(t=>t.phase===ph);
+    const inPhase = spatialTickets.filter(t=>t.phase===ph);
     html += `<div class="bo-phase"><span class="bo-phase-n">${phaseLabel(ph)}</span><span class="bo-phase-note">${ph == null ? "not picked" : `${inPhase.length} tkt`}</span></div>`;
     for (const lane of LANES){
       const cell = inPhase.filter(t=>t.lane===lane);
       html += `<div class="bo-cell">` + cell.map(t=>{
-        const ready = t.deps.every(d=>RUN.tickets[d]?.state==="merged");
+        const ready = t.deps.every(d=>isCompleted(RUN.tickets[d]));
         const live = RUN.tickets[t.id];
         const completed = isCompleted(live);
         const active = !completed && hasLiveAgent(live);
@@ -417,17 +438,18 @@ function buildGraph(rootEl, pack, title, cap){
   }
   html += `</div></div></div></div></div>`;
 
-  // per-phase + per-lane summary
+  // per-execution-wave + per-lane summary
   html += `<div class="sum">
-    <div class="sum-card"><h3>Tickets per phase (dependency wave)</h3><table class="sum-tbl">
+    <div class="sum-card"><h3>Tickets per execution wave</h3><table class="sum-tbl">
       <tr><th>Wave</th><th>#</th><th>Pts</th><th></th><th>Tickets</th></tr>`;
-  const maxN = Math.max(...phases.map(p=>T.filter(t=>t.phase===p).length));
-  for (const ph of phases){
+  const summaryPhases = [...new Set(T.map(t=>t.phase))].sort((a,b)=>phaseOrder(a)-phaseOrder(b));
+  const maxN = Math.max(...summaryPhases.map(p=>T.filter(t=>t.phase===p).length));
+  for (const ph of summaryPhases){
     const P = T.filter(t=>t.phase===ph);
     const pts = P.reduce((s,t)=>s+(t.cx||0),0);
     html += `<tr><td>${phaseLabel(ph,"P")}</td><td class="mono">${P.length}</td><td class="mono">${pts || "—"}</td>
       <td style="width:90px"><span class="bar-cell"><i style="width:${Math.round(P.length/maxN*80)}px"></i></span></td>
-      <td class="ids">${P.map(t=>t.critical?`<b>${t.id}</b>`:t.adhoc?`#${t.issue}`:t.id).join(", ")}</td></tr>`;
+      <td class="ids">${P.map(ticketRef).join(", ")}</td></tr>`;
   }
   html += `</table></div>
     <div class="sum-card"><h3>Tickets per epic</h3><table class="sum-tbl">
@@ -437,7 +459,7 @@ function buildGraph(rootEl, pack, title, cap){
     if (!P.length) continue;
     const points = P.reduce((s,t)=>s+(t.cx||0),0);
     html += `<tr><td>${LANE_LABEL[lane]}</td><td class="mono">${P.length}</td><td class="mono">${points || "—"}</td>
-      <td class="ids">${P.map(t=>t.adhoc?`#${t.issue}`:t.id).join(", ")}</td></tr>`;
+      <td class="ids">${P.map(ticketRef).join(", ")}</td></tr>`;
   }
   html += `</table></div></div>`;
 
@@ -467,7 +489,7 @@ function drawEdges(rootEl, pack){
       const x1 = s.x + sEl.offsetWidth/2, y1 = s.y + sEl.offsetHeight;
       const x2 = e.x + tEl.offsetWidth/2, y2 = e.y;
       const dy = Math.max(24,(y2-y1)*0.45);
-      const cleared = RUN.tickets[d]?.state==="merged" ? " cleared" : "";
+      const cleared = isCompleted(RUN.tickets[d]) ? " cleared" : "";
       paths += `<path class="bo-edge${cleared}" data-from="${d}" data-to="${t.id}" d="M ${x1} ${y1} C ${x1} ${y1+dy}, ${x2} ${y2-dy}, ${x2} ${y2}"/>
                 <circle class="bo-edge-dot" data-from="${d}" data-to="${t.id}" cx="${x2}" cy="${y2}" r="2.6"/>`;
     }
@@ -519,6 +541,9 @@ function wireGraph(rootEl, pack){
     });
     n.addEventListener("click",()=>openDrawer(n.dataset.id));
   });
+  rootEl.querySelectorAll(".sum-ticket[data-go]").forEach(button=>{
+    button.addEventListener("click",()=>openDrawer(button.dataset.go));
+  });
 
   drawEdges(rootEl, pack);
   new ResizeObserver(()=>drawEdges(rootEl, pack)).observe(rootEl.querySelector(".bo-grid"));
@@ -539,7 +564,7 @@ function openDrawer(id){
     <h3>${t.issue_title}</h3>
     <div class="row">
       <span class="pill">${LANE_LABEL[t.lane]} epic</span>
-      <span class="pill">${t.phase == null ? "phase assigned at pickup" : `phase ${t.phase}`}</span>
+      <span class="pill">${t.phase == null ? "wave assigned at pickup" : `execution wave ${t.phase}`}</span>
       <span class="pill">complexity ${t.cx == null ? "unassigned" : t.cx}</span>
       ${live?`<span class="pill${stateClass}">${live.progress}% · ${live.state}</span>`:""}
       ${t.critical?'<span class="pill" style="color:var(--attn-ink);border-color:var(--attn-line);background:var(--attn-soft)">critical path</span>':""}
@@ -556,7 +581,7 @@ function openDrawer(id){
         : '<span class="source-link unavailable" aria-disabled="true"><span>Pull request</span><span>not opened</span></span>'}
     </div>
     <h4>Ticket document</h4>
-    <div class="did" style="line-height:1.5">${t.adhoc ? `phase is frozen when the ticket is picked up` : `docs/build-order/${t.document}<br>+ implementation pointers: docs/build-order/08-implementation-pointers.md §${t.id}`}</div>`;
+    <div class="did" style="line-height:1.5">${t.adhoc ? `execution wave is frozen when the ticket is picked up` : `docs/build-order/${t.document}<br>+ implementation pointers: docs/build-order/08-implementation-pointers.md §${t.id}`}</div>`;
   drawer.classList.add("open");
   document.querySelectorAll(".bo-node.sel").forEach(m=>m.classList.remove("sel"));
   document.getElementById("node-"+id)?.classList.add("sel");
@@ -576,14 +601,15 @@ document.addEventListener("keydown",e=>{ if(e.key==="Escape") drawer.classList.r
   const coreRun = T.map(t=>RUN.tickets[t.id]).filter(Boolean);
   const allRun = Object.values(RUN.tickets);
   const working = allRun.filter(hasLiveAgent);
-  const ci = allRun.filter(t=>/(CI|review)/i.test(t.state) && t.state!=="merged");
-  const merged = coreRun.filter(t=>t.state==="merged");
+  const ci = allRun.filter(t=>/\b(CI|review)\b/i.test(t.state) && !isCompleted(t));
+  const merged = coreRun.filter(isCompleted);
   const paused = allRun.filter(t=>t.state.includes("paused"));
   const activeCore = coreRun.length-merged.length;
   const aggregate = Math.round(coreRun.reduce((sum,t)=>sum+t.progress,0)/coreRun.length);
   const phaseState = `${working.length} active/rework${ci.length ? ` · ${ci.length} CI/review` : ""} · ${merged.length} core merged`;
+  const runKicker = working.length ? `Wave ${RUN.phase} live` : "Execution paused";
   document.getElementById("runSnapshot").innerHTML = `
-    <div class="run-primary"><span class="run-kicker">Phase ${RUN.phase} live</span><span class="run-copy">${phaseState} · ${aggregate}% average agent check-in progress</span></div>
+    <div class="run-primary"><span class="run-kicker">${runKicker}</span><span class="run-copy">${phaseState} · ${aggregate}% average agent check-in progress</span></div>
     <div class="run-meta"><span>${paused.length} paused · ${ADHOC_TICKETS.length} ad hoc tracked outside the core denominator</span><span>snapshot ${RUN.updated}</span></div>`;
   document.getElementById("kpis").innerHTML = [
     ["good", activeCore, "started core tickets not yet merged"],
@@ -596,7 +622,7 @@ document.addEventListener("keydown",e=>{ if(e.key==="Escape") drawer.classList.r
   ].map(([c,n,l])=>`<div class="kpi ${c}"><div class="n">${n}</div><div class="l">${l}</div></div>`).join("");
 })();
 
-/* phase-progress loading bars — complexity-weighted % complete per dependency wave,
+/* execution-wave progress bars — complexity-weighted completion,
    red→green hue (mirrors the OCC prototype's build-order summary phase progress) */
 (function(){
   const T = CORE_TICKETS;
