@@ -3,12 +3,41 @@
 Aiur (AI Unit Runtime) runs autonomous coding agents against work in a
 project tracker. It gives each selected issue an isolated workspace, launches
 Codex or Claude to implement the work, and keeps the run moving through review
-and terminal states. A CLI shows the active agents and provides live chat;
-Aiur also has a read-only web dashboard for observing a run.
+and terminal states. A CLI and TUI show the active agents and provide live
+chat; Aiur also has a web dashboard for observing a run.
 
 Aiur is prototype software for trusted environments. It bypasses agent
-permission prompts, so review its configuration and supervise its use before
-running it on real repositories.
+permission prompts inside each isolated workspace, so review its configuration
+and supervise its use before running it on real repositories. Work reaches the
+repository only through the Executor's review gates and merge policy; agents do
+not self-merge.
+
+## Operating model
+
+Every Aiur run has an **Executor**: the operator of the run. That is either the
+human, driving the CLI directly, or the human's coding agent, operating Aiur on
+their behalf while they stay in conversation with it. Both modes are
+first-class and supported by design.
+
+- **Human-driven.** A person runs `aiur`, watches the CLI/TUI/dashboard, answers
+  agents, and applies merge policy themselves.
+- **Agent-driven.** A coding agent (Claude Code, Codex) operates Aiur as the
+  Executor — launching, monitoring, recovering stuck agents, coordinating PR
+  review — while the human converses with that agent in parallel. The repository
+  bundles skills for this: `.claude/skills/aiur-intro` (what Aiur is, install,
+  choosing a mode), `.claude/skills/aiur-run` (operate a run end to end as its
+  Executor), and `.claude/skills/aiur-monitor` (status board and alert feed).
+
+Mixing is common: the agent runs the code-to-PR stretch while operations needing
+production credentials stay in the human's own session.
+
+## What Aiur is not
+
+- Not a passive observer of agent sessions started elsewhere. Aiur owns the runs
+  it dispatches; it does not attach to an external Claude Code or Codex session.
+- Not agent-only. The CLI, TUI, and dashboard are fully human-drivable.
+- Not a replacement for the user's assistant. It is typically its counterpart.
+- Not a hosted service. Aiur runs on the user's machine, tracker, and tokens.
 
 ## What Aiur does
 
