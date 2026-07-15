@@ -134,7 +134,7 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
     {late_marker, release} = lifecycle_barrier("operator-interrupt-late")
     paths = prepare_case("operator-interrupt", operator_interrupt_script(ready, late_marker, release))
     orchestrator_name = Module.concat(__MODULE__, :OperatorInterruptOrchestrator)
-    {:ok, orchestrator_pid} = Orchestrator.start_link(name: orchestrator_name)
+    {:ok, orchestrator_pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
     issue = issue("MT-OPERATOR-INTERRUPT")
 
     on_exit(fn ->

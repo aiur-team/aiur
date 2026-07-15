@@ -19,15 +19,8 @@ defmodule Aiur.AppServer.TurnLoop do
       {^port, {:data, {:noeol, chunk}}} ->
         receive_loop(session, %{state | pending_line: state.pending_line <> to_string(chunk)})
 
-      {^port, {:exit_status, 0}} ->
-        case resolve_pending_anonymous_completion(state) do
-          :none -> {:error, {:port_exit, 0}}
-          {:continue, _next_state} -> {:error, {:port_exit, 0}}
-          result -> result
-        end
-
       {^port, {:exit_status, status}} ->
-        {:error, {:port_exit, status}}
+        handle_port_exit(state, status)
 
       {:pause_agent, request_id} when is_integer(request_id) ->
         case Interrupts.handle_pause_request(session, state, request_id) do
@@ -129,4 +122,14 @@ defmodule Aiur.AppServer.TurnLoop do
   end
 
   defp resolve_pending_anonymous_completion(_state), do: :none
+
+  defp handle_port_exit(state, 0) do
+    case resolve_pending_anonymous_completion(state) do
+      :none -> {:error, {:port_exit, 0}}
+      {:continue, _next_state} -> {:error, {:port_exit, 0}}
+      result -> result
+    end
+  end
+
+  defp handle_port_exit(_state, status), do: {:error, {:port_exit, status}}
 end
