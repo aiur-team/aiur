@@ -4,7 +4,7 @@ defmodule Aiur.BuildOrder.TicketDetail.Repository do
   alias Aiur.BuildOrder.Bounded
   alias Aiur.BuildOrder.TicketDetail.Failure
   alias Aiur.{GitHub, TrackerIdentity, WorkflowStore}
-  alias Aiur.GitHub.Issues
+  alias Aiur.GitHub.{IssueRelationships, Issues}
 
   @spec configured_repository(keyword()) :: {:ok, TrackerIdentity.repository()} | {:error, Failure.t()}
   def configured_repository(opts) do
@@ -50,6 +50,15 @@ defmodule Aiur.BuildOrder.TicketDetail.Repository do
       |> Keyword.put(:repository, configured_repository)
 
     Issues.fetch_issue_raw(identity.identifier, issue_opts)
+  end
+
+  @spec fetch_linked_pull_requests(TrackerIdentity.t(), TrackerIdentity.repository(), keyword()) ::
+          {:ok, %{nodes: [map()], truncated?: boolean()}} | {:error, term()}
+  def fetch_linked_pull_requests(identity, configured_repository, opts) do
+    case Keyword.get(opts, :relationship_reader) do
+      reader when is_function(reader, 2) -> reader.(identity, configured_repository)
+      _reader -> IssueRelationships.fetch_linked_pull_requests(identity, configured_repository, opts)
+    end
   end
 
   @spec same_repository?(TrackerIdentity.repository(), TrackerIdentity.repository()) :: boolean()
