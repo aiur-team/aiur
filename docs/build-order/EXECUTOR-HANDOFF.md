@@ -1932,13 +1932,29 @@ Terra; never dispatch Claude.
     green head `80045e84` until #1046 moves main; it must be owner-refreshed
     before any review tokens are spent.
 
-At 02:46 PDT the core graph remains 8/54 accepted while the recovery gate is
-frozen. #780/#1181 is merged; #1032 pushed bounded review-rework head
-`351a796e` and is in fresh centralized CI; #1161 is preserved at
-`58e5f51f` behind the imminent main advance rather than spending effort on a
-soon-stale failed test job; and #1162 is exact-current-main/green at
-`80045e84` but intentionally unreviewed until #1046 settles. Reopened #619 is
-paused behind #1162.
+234. #1046 head `351a796e` passed fresh full project CI and two new independent
+    exact-head reviews at 98% confidence, then squash-merged as current main
+    `83a5a11e`. The root checkout and warm base are exact. #1032 is closed with
+    `agent:done`. The Executor returned one exact-main refresh packet each to
+    #1161 and #1162; their owners, not reviewers, are integrating the new main
+    before fresh CI.
+
+235. #1161 remained a completed-worker row after its comment, rework label,
+    and direct message, reproducing the lifecycle wedge owned by active #1162.
+    A single controlled rebuild/restart activated #1046's production runtime,
+    preserved both workspaces, and relaunched #1161/#1162 successfully. #1146
+    also relaunched because its earlier operator pause was process-local rather
+    than a durable `agent:paused` label. It is an already-active priority-1
+    base-branch recovery fix, so let it converge inside the frozen recovery
+    set; use the label override for any hold that must survive a restart.
+
+At 03:05 PDT the core graph remains 8/54 accepted while the recovery gate is
+frozen. #780/#1181 and #1032/#1046 are merged. Current main and the warm base
+are exact `83a5a11e`; the rebuilt daemon is running the new coordination
+runtime with the authenticated Tailscale dashboard and 16-agent ceiling.
+#1146, #1161, and #1162 are live owner-led recovery turns, with #1161/#1162
+refreshing onto the new main before review. Reopened #619 remains paused behind
+#1162.
 No new
 Build Order scope is dispatching. BO-010 and the preserved paused/deactivated
 rows remain held; #1151 stays paused with preserved rework.

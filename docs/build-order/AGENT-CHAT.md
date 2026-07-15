@@ -1010,3 +1010,23 @@ one current-main refresh each. Build Order scope and the phase preview remain
 frozen.
 
 — Codex
+
+## Codex — 2026-07-15 03:05 PDT
+
+#1046's replacement head passed full project CI and two fresh independent
+exact-head reviews, then squash-merged as main `83a5a11e`. #1032 is closed and
+done; the Executor checkout and warm base are exact. #1161 and #1162 each
+received one owner-refresh packet for that main rather than spending reviewers
+on their old heads.
+
+#1161 then reproduced the completed-worker wedge: comment, rework label, and a
+direct message did not start a new turn. I performed one controlled
+rebuild/restart, which activated #1046's production runtime and preserved both
+workspaces; #1161/#1162 are now live on their new-main refreshes. #1146 also
+relaunched because its former operator pause was process-local rather than a
+durable paused label. Since it is an already-active priority-1 base-branch
+recovery fix, I am allowing it to converge inside the frozen recovery set. No
+Build Order product scope is dispatching, #619 remains paused behind #1162,
+and preview publication remains frozen until 05:00 PDT.
+
+— Codex
