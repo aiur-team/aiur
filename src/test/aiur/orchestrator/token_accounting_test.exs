@@ -17,6 +17,40 @@ defmodule Aiur.Orchestrator.TokenAccountingTest do
     assert updated.agent_input_tokens == 7
     assert updated.agent_output_tokens == 0
     assert updated.agent_total_tokens == 0
+    assert updated.completed_turn_count == 1
+  end
+
+  test "tracks completed turns independently from session starts" do
+    now = DateTime.utc_now()
+
+    entry = %{
+      agent_input_tokens: 0,
+      agent_output_tokens: 0,
+      agent_total_tokens: 0,
+      session_id: nil,
+      turn_count: 0,
+      completed_turn_count: 0
+    }
+
+    {started, _delta} =
+      TokenAccounting.integrate_codex_update(entry, %{
+        event: :session_started,
+        timestamp: now,
+        session_id: "session-1"
+      })
+
+    assert started.turn_count == 1
+    assert started.completed_turn_count == 0
+
+    {completed, _delta} =
+      TokenAccounting.integrate_codex_update(started, %{
+        event: :turn_completed,
+        timestamp: now,
+        session_id: "session-1"
+      })
+
+    assert completed.turn_count == 1
+    assert completed.completed_turn_count == 1
   end
 
   test "prefers cumulative usage and preserves highwater deltas" do

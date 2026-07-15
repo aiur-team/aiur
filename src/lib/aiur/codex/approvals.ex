@@ -4,7 +4,7 @@ defmodule Aiur.Codex.Approvals do
   """
 
   alias Aiur.AgentRunner.ToolExecutor
-  alias Aiur.AppServer.Messages
+  alias Aiur.AppServer.{Messages, ToolCallIdentity, ToolCallLedger}
   alias Aiur.Codex.{Rpc, UserInputAnswers}
 
   # credo:disable-for-this-file Credo.Check.Refactor.FunctionArity
@@ -20,7 +20,7 @@ defmodule Aiur.Codex.Approvals do
           boolean(),
           map(),
           boolean()
-        ) :: :approved | :approval_required | :input_required | :unhandled
+        ) :: :approved | :approval_required | :input_required | :unhandled | {:error, :port_closed}
   def maybe_handle_approval_request(
         port,
         method,
@@ -62,7 +62,7 @@ defmodule Aiur.Codex.Approvals do
           (term(), term() -> term()),
           boolean(),
           boolean()
-        ) :: :approved | :approval_required | :input_required | :unhandled
+        ) :: :approved | :approval_required | :input_required | :unhandled | {:error, :port_closed}
   def maybe_handle_approval_request(port, method, %{"id" => id} = payload, payload_string, on_message, metadata, _tool_executor, _auto_approve_requests, true) do
     deny_for_pause(port, method, id, payload, payload_string, on_message, metadata)
   end
@@ -191,23 +191,23 @@ defmodule Aiur.Codex.Approvals do
           map(),
           (term(), term() -> term()),
           boolean()
-        ) :: :approved | :approval_required | :input_required | :unhandled
+        ) :: :approved | :approval_required | :input_required | :unhandled | {:error, :port_closed}
   def maybe_handle_approval_request(port, method, payload, payload_string, on_message, metadata, tool_executor, auto_approve_requests) do
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     maybe_handle_approval_request(port, method, payload, payload_string, on_message, metadata, tool_executor, auto_approve_requests, false)
   end
 
   defp approve_or_require(port, id, decision, payload, payload_string, on_message, metadata, true) do
-    Rpc.send_message(port, %{"id" => id, "result" => %{"decision" => decision}})
+    with :ok <- send_response(port, %{"id" => id, "result" => %{"decision" => decision}}) do
+      Messages.emit_message(
+        on_message,
+        :approval_auto_approved,
+        %{payload: payload, raw: payload_string, decision: decision},
+        metadata
+      )
 
-    Messages.emit_message(
-      on_message,
-      :approval_auto_approved,
-      %{payload: payload, raw: payload_string, decision: decision},
-      metadata
-    )
-
-    :approved
+      :approved
+    end
   end
 
   defp approve_or_require(_port, _id, _decision, _payload, _payload_string, _on_message, _metadata, false) do
@@ -217,38 +217,40 @@ defmodule Aiur.Codex.Approvals do
   defp handle_tool_call(port, id, params, payload, payload_string, on_message, metadata, tool_executor, context) do
     tool_name = Messages.tool_call_name(params)
     arguments = Messages.tool_call_arguments(params)
+    call_id = Messages.tool_call_id(params, nil)
+    invocation_id = call_id || id
 
     result =
-      tool_executor
-      |> ToolExecutor.execute(tool_name, arguments, Messages.tool_call_id(params, id))
-      |> Messages.normalize_tool_result(context)
+      context
+      |> execute_tool_call(params, tool_name, arguments, invocation_id, tool_executor)
+      |> normalize_ledger_outcome()
 
-    Rpc.send_message(port, %{"id" => id, "result" => result})
+    with :ok <- send_response(port, %{"id" => id, "result" => result}) do
+      event =
+        case result do
+          %{"success" => true} -> :tool_call_completed
+          _ when is_nil(tool_name) -> :unsupported_tool_call
+          _ -> :tool_call_failed
+        end
 
-    event =
-      case result do
-        %{"success" => true} -> :tool_call_completed
-        _ when is_nil(tool_name) -> :unsupported_tool_call
-        _ -> :tool_call_failed
-      end
-
-    Messages.emit_message(on_message, event, %{payload: payload, raw: payload_string}, metadata)
-    :approved
+      Messages.emit_message(on_message, event, %{payload: payload, raw: payload_string}, metadata)
+      :approved
+    end
   end
 
   defp maybe_auto_answer_tool_request_user_input(port, id, params, payload, payload_string, on_message, metadata, true) do
     case UserInputAnswers.approval_answers(params) do
       {:ok, answers, decision} ->
-        Rpc.send_message(port, %{"id" => id, "result" => %{"answers" => answers}})
+        with :ok <- send_response(port, %{"id" => id, "result" => %{"answers" => answers}}) do
+          Messages.emit_message(
+            on_message,
+            :approval_auto_approved,
+            %{payload: payload, raw: payload_string, decision: decision},
+            metadata
+          )
 
-        Messages.emit_message(
-          on_message,
-          :approval_auto_approved,
-          %{payload: payload, raw: payload_string, decision: decision},
-          metadata
-        )
-
-        :approved
+          :approved
+        end
 
       :error ->
         reply_with_non_interactive_tool_input_answer(port, id, params, payload, payload_string, on_message, metadata)
@@ -262,16 +264,16 @@ defmodule Aiur.Codex.Approvals do
   defp reply_with_non_interactive_tool_input_answer(port, id, params, payload, payload_string, on_message, metadata) do
     case UserInputAnswers.unavailable_answers(params) do
       {:ok, answers} ->
-        Rpc.send_message(port, %{"id" => id, "result" => %{"answers" => answers}})
+        with :ok <- send_response(port, %{"id" => id, "result" => %{"answers" => answers}}) do
+          Messages.emit_message(
+            on_message,
+            :tool_input_auto_answered,
+            %{payload: payload, raw: payload_string, answer: UserInputAnswers.non_interactive_answer()},
+            metadata
+          )
 
-        Messages.emit_message(
-          on_message,
-          :tool_input_auto_answered,
-          %{payload: payload, raw: payload_string, answer: UserInputAnswers.non_interactive_answer()},
-          metadata
-        )
-
-        :approved
+          :approved
+        end
 
       :error ->
         :input_required
@@ -279,14 +281,76 @@ defmodule Aiur.Codex.Approvals do
   end
 
   defp deny_for_pause(port, "item/tool/call", id, payload, payload_string, on_message, metadata) do
-    Rpc.send_message(port, %{"id" => id, "result" => %{"success" => false, "output" => "Agent pause is in progress; tool execution is unavailable."}})
-    Messages.emit_message(on_message, :tool_call_failed, %{payload: payload, raw: payload_string}, metadata)
-    :approved
+    with :ok <-
+           send_response(port, %{"id" => id, "result" => %{"success" => false, "output" => "Agent pause is in progress; tool execution is unavailable."}}) do
+      Messages.emit_message(on_message, :tool_call_failed, %{payload: payload, raw: payload_string}, metadata)
+      :approved
+    end
   end
 
   defp deny_for_pause(port, _method, id, payload, payload_string, on_message, metadata) do
-    Rpc.send_message(port, %{"id" => id, "result" => %{"decision" => "declined"}})
-    Messages.emit_message(on_message, :approval_required, %{payload: payload, raw: payload_string}, metadata)
-    :approved
+    with :ok <- send_response(port, %{"id" => id, "result" => %{"decision" => "declined"}}) do
+      Messages.emit_message(on_message, :approval_required, %{payload: payload, raw: payload_string}, metadata)
+      :approved
+    end
   end
+
+  defp send_response(port, payload) do
+    Rpc.send_message(port, payload)
+    :ok
+  rescue
+    ArgumentError -> {:error, :port_closed}
+  end
+
+  defp tool_call_scope(%{tool_call_scope: scope}), do: scope
+  defp tool_call_scope(_context), do: nil
+
+  defp execute_tool_call(context, params, tool_name, arguments, invocation_id, tool_executor) do
+    execute = fn ->
+      tool_executor
+      |> ToolExecutor.execute(tool_name, arguments, invocation_id)
+      |> Messages.normalize_tool_result(context)
+    end
+
+    case ToolCallIdentity.resolve(
+           tool_call_scope(context),
+           params,
+           tool_name,
+           arguments,
+           tool_call_thread_id(context)
+         ) do
+      :untracked ->
+        execute.()
+
+      {:ok, identity, fingerprint} ->
+        ToolCallLedger.execute(identity, fingerprint, execute, tool_call_ledger(context))
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp normalize_ledger_outcome({:error, :conflicting_invocation}) do
+    %{"success" => false, "output" => "Refusing conflicting reuse of a dynamic tool call identity."}
+  end
+
+  defp normalize_ledger_outcome({:error, :outcome_uncertain}) do
+    %{"success" => false, "output" => "Dynamic tool outcome is uncertain; refusing to execute it again."}
+  end
+
+  defp normalize_ledger_outcome({:error, :missing_thread_identity}) do
+    %{"success" => false, "output" => "Dynamic tool call is missing a stable provider thread identity."}
+  end
+
+  defp normalize_ledger_outcome({:error, reason}) do
+    %{"success" => false, "output" => "Dynamic tool ledger unavailable: #{inspect(reason)}"}
+  end
+
+  defp normalize_ledger_outcome(result), do: result
+
+  defp tool_call_thread_id(%{tool_call_thread_id: thread_id}), do: thread_id
+  defp tool_call_thread_id(_context), do: nil
+
+  defp tool_call_ledger(%{tool_call_ledger: server}), do: server
+  defp tool_call_ledger(_context), do: ToolCallLedger
 end
