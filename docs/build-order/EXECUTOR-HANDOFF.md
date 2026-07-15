@@ -1896,11 +1896,33 @@ Terra; never dispatch Claude.
     wake policy, 180-second CI/review-only floor, and ten-minute capacity audit
     unchanged for the next hour.
 
-At 02:30 PDT the core graph remains 8/54 accepted while the recovery gate is
+230. Supersede decision 227's optimistic automatic-wake proof. The trusted
+    #1032 issue comment emitted at 02:29:32 and was consumed one second later,
+    but the label-driven completed-idle turn started without that event body,
+    inspected only PR review threads, and restored `agent:human-review`
+    unchanged. The consumed comment was injected only at 02:34:10 after a
+    direct-message fallback forced a later turn; a stale prior turn then won a
+    label race and deactivated that delivery before work began. After the prior
+    turn fully ended, the Executor reasserted `agent:rework` and sent one final
+    bounded message; #1032 is now acting on the contained finding. Event
+    publication/consumption is healthy, but comment consumption is not atomic
+    with the wake turn or lifecycle transition.
+
+231. This failure matches existing issue #619's acceptance contract—consumed
+    comments must wake an idle agent into a turn that reads and acts on them—so
+    the Executor reopened #619 instead of filing a duplicate. It now carries
+    the exact 02:29–02:34 evidence, priority 1, Terra routing, and
+    `agent:paused`. Keep it paused until #1162 lands because both fixes may
+    touch completed-worker/turn delivery; then dispatch it as recovery work
+    before reopening the Build Order product graph.
+
+At 02:38 PDT the core graph remains 8/54 accepted while the recovery gate is
 frozen. #780/#1181 is merged; #1032 is in bounded review rework at
-`70b6bc08`; #1161 is closing the single lint finding after focused tests; and
+`70b6bc08`; #1161 pushed exact current-main head `58e5f51f` with a clean
+protected-regression delta and is in centralized CI; and
 #1162 is exact-current-main/green at `80045e84` but intentionally unreviewed
-until the older recovery lane settles. No new
+until the older recovery lane settles. Reopened #619 is paused behind #1162.
+No new
 Build Order scope is dispatching. BO-010 and the preserved paused/deactivated
 rows remain held; #1151 stays paused with preserved rework.
 #1093, #1108, #1111, #1123, and #1130 stay on workspace-race holds until #1161
