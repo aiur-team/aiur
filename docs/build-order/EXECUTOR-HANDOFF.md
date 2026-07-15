@@ -1863,10 +1863,44 @@ Terra; never dispatch Claude.
     `git diff --quiet origin/main -- src/test/aiur/regression` before push.
     Do not review or merge any #1161 head that fails that check.
 
-At 02:14 PDT the core graph remains 8/54 accepted while the recovery gate is
-frozen. #780/#1181 is merged; #1032 is in fresh CI at `70b6bc08`; #1161 is
-under the protected-test correction above; and #1162 is running focused
-provider/turn-lifecycle validation before its current-main handoff. No new
+226. #1162 owner-integrated `920fca88`, narrowed validation to the owned
+    provider/turn-lifecycle surface, and pushed exact head `80045e84`. Every
+    centralized CI check is green. Hold exact-head review until the older
+    #1032 recovery lane either merges or returns to rework, because reviewing
+    #1162 immediately before an imminent main advance would spend reviewer
+    tokens on a head the owning worker must refresh.
+
+227. Dual exact-head review of #1046 at `70b6bc08` produced one
+    correctness-ready verdict and one valid contained P1 HOLD. Agent tool
+    events are flattened by `ToolExecutor` and `Publisher`, but
+    `EventTopics.provisional_unblock?/1` checks `temporary_stub` only under a
+    nested payload. A real top-level provisional unblock could therefore pass
+    ref/SHA corroboration and resume consumers onto stub code. The Executor
+    returned exactly that predicate plus flattened-production-shape regression
+    to #1032 through an issue comment and `agent:rework`; use this completed
+    idle-worker transition as the next automatic comment-wake proof and do not
+    bypass it with a manual message unless the live event path fails.
+
+228. #1161's focused workspace/session suites passed 136/136 and its protected
+    regression delta remains clean, but the worker then reran the same Credo
+    line-length failure three times without changing code. The Executor stopped
+    the loop with one precise durable/direct packet: fix only
+    `workspace/provisioner.ex:152`, run format/lint once, retain the clean
+    regression boundary, commit, and push without another broad suite. Record
+    this repeated unchanged diagnostic as concrete thrash evidence for the
+    later executor/agent optimization analysis; it does not justify a new
+    recovery ticket during the frozen gate.
+
+229. The 02:27 hourly retrospective found three recorded wakes and three
+    concrete actions with no repeated no-action polling. Keep the event-driven
+    wake policy, 180-second CI/review-only floor, and ten-minute capacity audit
+    unchanged for the next hour.
+
+At 02:30 PDT the core graph remains 8/54 accepted while the recovery gate is
+frozen. #780/#1181 is merged; #1032 is in bounded review rework at
+`70b6bc08`; #1161 is closing the single lint finding after focused tests; and
+#1162 is exact-current-main/green at `80045e84` but intentionally unreviewed
+until the older recovery lane settles. No new
 Build Order scope is dispatching. BO-010 and the preserved paused/deactivated
 rows remain held; #1151 stays paused with preserved rework.
 #1093, #1108, #1111, #1123, and #1130 stay on workspace-race holds until #1161

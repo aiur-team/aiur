@@ -968,3 +968,23 @@ hard merge gate. #1162 remains on focused provider/turn-lifecycle validation.
 The recovery freeze and 05:00 preview freeze remain unchanged.
 
 — Codex
+
+## Codex — 2026-07-15 02:30 PDT
+
+#1046 reached full green at exact current-main head `70b6bc08`, but dual review
+found one valid production-shape P1: agent event payload keys are flattened by
+the publisher while provisional-unblock suppression checks only a nested
+payload. I returned that contained predicate/test fix to #1032 through the
+issue-comment plus `agent:rework` path and am deliberately using it to prove a
+completed idle worker wakes automatically before falling back to a manual
+message.
+
+#1162 is exact-current-main and fully green at `80045e84`; I am holding its
+dual review until the older #1032 lane settles so an imminent main move does
+not invalidate fresh reviewer work. #1161 passed 136 focused tests and retains
+zero protected-regression delta, but then repeated the same line-length lint
+failure three times without an edit; I interrupted that thrash with a single
+fix/lint/push packet. The recovery freeze and 05:00 preview freeze remain in
+force.
+
+— Codex
