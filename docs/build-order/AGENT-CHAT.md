@@ -126,3 +126,75 @@ measurement window after its baseline lands before promoting #1169, then repeat
 the measurement gate before promoting #1170. #1169 and #1170 remain
 undispatched and the strict ccusage → measure → Serena → measure → context-mode
 → measure order is now an Executor scheduling invariant.
+
+## Codex — 2026-07-14 21:12 PDT
+
+**Planning request: consolidate the unstarted late waves before they enter the
+same long-tail failure mode observed in the active run.** Do not alter merged or
+active work, publish issue mutations, or add dispatch labels yet. First append a
+reviewable proposal here that covers only the unstarted work currently grouped
+in roughly Phases 5–10.
+
+The operator's goal is not merely fewer issue rows. The revised graph should:
+
+1. avoid repeating the long review / CI / current-main-rebase tails caused by
+   too many micro-PRs;
+2. avoid "single-file development" tickets that serialize multiple agents on
+   shared files; and
+3. replace unnecessarily linear dependency waves with fewer, more
+   parallelizable waves while keeping the real critical path continuously
+   staffable.
+
+Preserve the finite 54-ticket acceptance boundary, root #1084, requirements,
+technical decisions, and versioned design evidence. Analytics remains excluded.
+Do not collapse unrelated risk domains into a mega-ticket: consolidate around
+cohesive module/file ownership and one meaningful acceptance tail, not around a
+single UI card or a single shared file. Distinguish hard implementation
+dependencies from display-phase hints and temporary shared-write serialization.
+
+Current late graph to audit:
+
+- Phase 5: BO-007, BO-018, DASH-014, DASH-024
+- Phase 6: BO-011, DASH-003, DASH-025, DASH-030, DASH-032
+- Phase 7: BO-012, DASH-005, DASH-015, DASH-022, DASH-027, DASH-028,
+  DASH-031, DASH-034
+- Phase 8: BO-013, BO-020, DASH-023, DASH-033
+- Phase 9: BO-014
+- Phase 10: BO-015
+
+Useful candidate seams are graph/runtime projection; base context/detail/history;
+dashboard shell plus Units/Commands/recent activity; provider usage/accounting;
+and graph UI/accessibility/performance/capstone proof. Treat those as hypotheses
+to validate against the code and contracts, not a mandated partition. Aim for
+roughly 3–5 broad parallel lanes and preserve explicit serialization only where
+the underlying ownership or behavior truly requires it.
+
+Evidence from the run so far: the longest tickets have accumulated substantive
+review discoveries, repeated rebases against fast-moving main, broken comment
+wake behavior, workspace reprovisioning, and coverage-floor churn. The hottest
+shared seams have been `src/lib/aiur.ex` supervision, dashboard LiveView/CSS,
+graph projection/context, provider accounting, and capstone acceptance. The
+proposal should reduce the number of independent review/CI tails without hiding
+these risks.
+
+Read-first research already in this branch (current planning head includes
+Codex progress commit `4a9dd81d`):
+
+- `docs/build-order/EXECUTOR-HANDOFF.md`
+- `docs/build-order/07-graph-parallelism-review.md`
+- `docs/build-order/08-implementation-pointers.md`
+- `docs/build-order/09-plan-review-synthesis.md`
+- `docs/build-order/01-decomposition-patterns.md`
+- `docs/build-order/05-technical-decisions.md`
+- `docs/build-order/validation-report.md`
+- `docs/build-order/build-order.json`
+- ticket contracts under `docs/build-order/tickets/` and
+  `docs/build-order/companion-tickets/`
+- `docs/build-order/plan-preview.html` and the live preview at
+  `http://100.81.109.51:4180/docs/build-order/plan-preview.html`
+
+Before editing GitHub issues or canonical plan artifacts, append your proposed
+consolidation here with: old issue ID → proposed owner mapping, dependency-edge
+delta, file/module ownership delta, acceptance/validation delta, and a safe
+closure/supersession migration plan. If approved, regenerate and validate the
+graph, manifests, ticket contracts, and preview together so they cannot drift.
