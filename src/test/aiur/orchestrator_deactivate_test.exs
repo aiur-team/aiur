@@ -59,17 +59,21 @@ defmodule Aiur.OrchestratorDeactivateTest do
     def fetch_candidate_issues, do: {:ok, []}
 
     def update_issue_state(issue_id, state_name) do
-      recipient = Application.get_env(:aiur, :flaky_rework_recipient)
-      pid = Application.fetch_env!(:aiur, :flaky_rework_agent)
+      if self() == Application.get_env(:aiur, :flaky_rework_owner) do
+        recipient = Application.get_env(:aiur, :flaky_rework_recipient)
+        pid = Application.fetch_env!(:aiur, :flaky_rework_agent)
 
-      if is_pid(recipient) do
-        send(recipient, {:flaky_rework_update, issue_id, state_name})
+        if is_pid(recipient) do
+          send(recipient, {:flaky_rework_update, issue_id, state_name})
+        end
+
+        Agent.get_and_update(pid, fn
+          [result | rest] -> {result, rest}
+          [] -> {:ok, []}
+        end)
+      else
+        {:error, :unexpected_test_caller}
       end
-
-      Agent.get_and_update(pid, fn
-        [result | rest] -> {result, rest}
-        [] -> {:ok, []}
-      end)
     end
   end
 
@@ -366,7 +370,82 @@ defmodule Aiur.OrchestratorDeactivateTest do
     test "approval store fails closed for valid JSON with malformed lifecycle fields" do
       File.write!(CIApprovalStore.path_for(), ~s({"approved_heads":null,"test_failure_heads":["not-a-map"]}))
 
-      assert CIApprovalStore.load() == %{approved_heads: %{}, test_failure_heads: %{}}
+      assert CIApprovalStore.load() == %{
+               approved_heads: %{},
+               test_failure_heads: %{},
+               base_repair_invalidations: %{}
+             }
+    end
+
+    test "persists base repair invalidation and supplies it to later CI polls" do
+      identifier = "ci-base-repair"
+      issue = %Issue{id: identifier, identifier: identifier, state: "ci-wait", title: "Retarget CI"}
+
+      invalidation = %{
+        head_sha: "repaired-head",
+        repaired_at: 1_784_070_000,
+        repair_state: :repaired
+      }
+
+      state =
+        CiLifecycle.poll_github_ci(empty_orchestrator_state(),
+          ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
+          ci_poller: fn [^identifier], opts ->
+            assert Keyword.get(opts, :base_repair_invalidations) == %{}
+
+            {:ok,
+             %{
+               results: [
+                 %{
+                   target: identifier,
+                   decision: :failed,
+                   head_sha: "repaired-head",
+                   pr_number: 1174,
+                   base_repair_invalidation: invalidation,
+                   failures: [%{name: "pull request base branch", result: "repaired"}]
+                 }
+               ],
+               errors: []
+             }}
+          end
+        )
+
+      assert state.ci_lifecycle.base_repair_invalidations == %{identifier => invalidation}
+
+      assert %{
+               base_repair_invalidations: %{^identifier => ^invalidation}
+             } = persisted = CIApprovalStore.load()
+
+      restarted_state = %{
+        empty_orchestrator_state()
+        | ci_lifecycle:
+            persisted
+            |> Map.put(:poll_cache, %{})
+            |> Map.put(:rewakes, %{})
+      }
+
+      state =
+        CiLifecycle.poll_github_ci(restarted_state,
+          ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
+          ci_poller: fn [^identifier], opts ->
+            assert Keyword.fetch!(opts, :base_repair_invalidations) == %{identifier => invalidation}
+
+            {:ok,
+             %{
+               results: [
+                 %{
+                   target: identifier,
+                   decision: :pending,
+                   head_sha: "repaired-head",
+                   pending_reason: :base_repair_ci_revalidation_required
+                 }
+               ],
+               errors: []
+             }}
+          end
+        )
+
+      assert state.ci_lifecycle.base_repair_invalidations == %{identifier => invalidation}
     end
 
     test "failing CI changes the ticket to rework before publishing a sanitized wake event" do
@@ -694,7 +773,12 @@ defmodule Aiur.OrchestratorDeactivateTest do
       assert state.ci_lifecycle.approved_heads == %{}
       assert state.ci_lifecycle.test_failure_heads == %{}
       assert state.ci_lifecycle.poll_cache == %{}
-      assert CIApprovalStore.load() == %{approved_heads: %{}, test_failure_heads: %{}}
+
+      assert CIApprovalStore.load() == %{
+               approved_heads: %{},
+               test_failure_heads: %{},
+               base_repair_invalidations: %{}
+             }
     end
 
     test "CI failure topic parser accepts only ticket-local failure events" do
@@ -3045,6 +3129,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       previous_github_client = Application.get_env(:aiur, :github_client_module)
       previous_recipient = Application.get_env(:aiur, :flaky_rework_recipient)
       previous_agent = Application.get_env(:aiur, :flaky_rework_agent)
+      previous_owner = Application.get_env(:aiur, :flaky_rework_owner)
       previous_delay = Application.get_env(:aiur, :comment_rework_retry_delay_ms)
       previous_max = Application.get_env(:aiur, :comment_rework_max_attempts)
       {:ok, agent} = Agent.start_link(fn -> [{:error, {:github_api_status, 502}}, :ok] end)
@@ -3058,11 +3143,18 @@ defmodule Aiur.OrchestratorDeactivateTest do
           tracker_terminal_states: ["done", "cancelled", "canceled"]
         )
 
-        Application.put_env(:aiur, :github_client_module, FlakyReworkGitHubClient)
         Application.put_env(:aiur, :flaky_rework_recipient, self())
         Application.put_env(:aiur, :flaky_rework_agent, agent)
+        Application.put_env(:aiur, :flaky_rework_owner, self())
+        Application.put_env(:aiur, :github_client_module, FlakyReworkGitHubClient)
         Application.put_env(:aiur, :comment_rework_retry_delay_ms, 1)
         Application.put_env(:aiur, :comment_rework_max_attempts, 3)
+
+        assert {:error, :unexpected_test_caller} =
+                 Task.async(fn ->
+                   FlakyReworkGitHubClient.update_issue_state("unrelated", "rework")
+                 end)
+                 |> Task.await()
 
         state = %Orchestrator.State{
           running: %{},
@@ -3121,6 +3213,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         restore_application_env(:github_client_module, previous_github_client)
         restore_application_env(:flaky_rework_recipient, previous_recipient)
         restore_application_env(:flaky_rework_agent, previous_agent)
+        restore_application_env(:flaky_rework_owner, previous_owner)
         restore_application_env(:comment_rework_retry_delay_ms, previous_delay)
         restore_application_env(:comment_rework_max_attempts, previous_max)
 

@@ -1893,7 +1893,7 @@ defmodule Aiur.CoreTest do
           *'"method":"turn/start"'*)
             turn_count=$((turn_count + 1))
             printf '{"id":3,"result":{"turn":{"id":"turn-cont-%s"}}}\\n' "$turn_count"
-            printf '%s\\n' '{"method":"turn/completed"}'
+            printf '{"method":"turn/completed","params":{"turn":{"id":"turn-cont-%s","status":"completed"}}}\\n' "$turn_count"
             ;;
         esac
       done
@@ -2020,12 +2020,12 @@ defmodule Aiur.CoreTest do
             ;;
           4)
             printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-queue-1"}}}'
-            printf '%s\\n' '{"method":"turn/completed"}'
+            printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-queue-1","status":"completed"}}}'
             ;;
           *)
             if printf '%s' "$line" | grep -q '"method":"turn/start"'; then
               printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-queue-2"}}}'
-              printf '%s\\n' '{"method":"turn/completed"}'
+              printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-queue-2","status":"completed"}}}'
             fi
             ;;
         esac
@@ -2100,11 +2100,274 @@ defmodule Aiur.CoreTest do
     end
   end
 
-  test "agent runner interrupts an active turn and drains the operator message as the next turn" do
+  test "completed Codex runner replacement drains queued rework once" do
+    # The memory tracker fixture is process-global. Suspend the supervised
+    # orchestrator from independently dispatching it beside this named one.
+    default_orchestrator = Process.whereis(Orchestrator)
+
+    if is_pid(default_orchestrator) do
+      :ok = :sys.suspend(default_orchestrator, 30_000)
+
+      on_exit(fn ->
+        if Process.alive?(default_orchestrator), do: :ok = :sys.resume(default_orchestrator)
+      end)
+    end
+
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-agent-runner-interrupt-operator-#{System.unique_integer([:positive])}"
+        "aiur-elixir-completed-codex-replacement-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      template_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "workspaces")
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex.trace")
+      rework_started = Path.join(test_root, "rework.started")
+      port_exit_once = Path.join(test_root, "port-exit.once")
+      port_exit_release = Path.join(test_root, "port-exit.release")
+      rework_replayed = Path.join(test_root, "rework.replayed")
+      rework_release = Path.join(test_root, "rework.release")
+
+      File.mkdir_p!(template_repo)
+      File.write!(Path.join(template_repo, "README.md"), "# test")
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      trace_file="$SYMP_TEST_CODEX_TRACE"
+      turn_start_count=0
+
+      while IFS= read -r line; do
+        printf 'JSON:%s\\n' "$line" >> "$trace_file"
+
+        case "$line" in
+          *'"method":"initialize"'*)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          *'"method":"initialized"'*)
+            ;;
+          *'"method":"thread/start"'*)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-replacement"}}}'
+            ;;
+          *'"method":"thread/resume"'*)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-replacement"}}}'
+            ;;
+          *'"method":"turn/start"'*)
+            turn_start_count=$((turn_start_count + 1))
+            request_id=$(printf '%s' "$line" | sed -n 's/.*"id":\\([0-9][0-9]*\\).*/\\1/p')
+
+            if printf '%s' "$line" | grep -q 'repair from replacement'; then
+              printf '{"id":%s,"result":{"turn":{"id":"turn-replacement-rework","status":"inProgress"}}}\\n' "$request_id"
+
+              if [ ! -f "#{port_exit_once}" ]; then
+                touch "#{port_exit_once}"
+                touch "#{rework_started}"
+                while [ ! -f "#{port_exit_release}" ]; do sleep 0.01; done
+                exit 9
+              else
+                touch "#{rework_replayed}"
+                while [ ! -f "#{rework_release}" ]; do sleep 0.01; done
+                printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-replacement-rework","status":"completed"}}}'
+              fi
+            else
+              printf '{"id":%s,"result":{"turn":{"id":"turn-replacement-main","status":"inProgress"}}}\\n' "$request_id"
+              printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-replacement-main","status":"completed"}}}'
+            fi
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+      System.put_env("SYMP_TEST_CODEX_TRACE", trace_file)
+
+      issue = %Issue{
+        id: "issue-completed-codex-replacement",
+        identifier: "MT-CODEX-REPLACEMENT",
+        title: "Drain rework on replacement",
+        description: "The completed Codex worker must be replaceable",
+        state: "rework",
+        url: "https://example.org/issues/MT-CODEX-REPLACEMENT",
+        labels: [],
+        selected_backend: "codex"
+      }
+
+      Application.put_env(:aiur, :memory_tracker_issues, [issue])
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        tracker_active_states: ["in-progress", "rework"],
+        tracker_terminal_states: ["done", "cancelled", "canceled"],
+        workspace_root: workspace_root,
+        hook_after_create: "cp #{Path.join(template_repo, "README.md")} README.md",
+        codex_command: "#{codex_binary} app-server",
+        max_turns: 1
+      )
+
+      orchestrator_name = Module.concat(__MODULE__, :CompletedCodexReplacementOrchestrator)
+      {:ok, orchestrator_pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
+      initial_state = :sys.get_state(orchestrator_pid)
+
+      assert is_nil(initial_state.tick_timer_ref)
+      assert is_nil(initial_state.tick_token)
+      assert is_nil(initial_state.next_poll_due_at_ms)
+
+      {:ok, old_worker} = Task.Supervisor.start_child(Aiur.TaskSupervisor, fn -> Process.sleep(:infinity) end)
+      old_ref = Process.monitor(old_worker)
+
+      on_exit(fn ->
+        File.touch(port_exit_release)
+        File.touch(rework_release)
+        System.delete_env("SYMP_TEST_CODEX_TRACE")
+        if Process.alive?(orchestrator_pid), do: Process.exit(orchestrator_pid, :normal)
+        if Process.alive?(old_worker), do: Process.exit(old_worker, :kill)
+      end)
+
+      :sys.replace_state(orchestrator_pid, fn state ->
+        if is_reference(state.tick_timer_ref), do: Process.cancel_timer(state.tick_timer_ref)
+
+        old_entry = %{
+          pid: old_worker,
+          ref: old_ref,
+          identifier: issue.identifier,
+          issue: issue,
+          worker_host: nil,
+          workspace_path: nil,
+          session_id: "old-generation",
+          last_codex_message: nil,
+          last_codex_timestamp: nil,
+          last_codex_event: nil,
+          codex_app_server_pid: nil,
+          codex_process_group_id: nil,
+          repl_pane_id: nil,
+          repl_os_pid: nil,
+          headless_os_pid: nil,
+          agent_input_tokens: 0,
+          agent_output_tokens: 0,
+          agent_total_tokens: 0,
+          agent_last_reported_input_tokens: 0,
+          agent_last_reported_output_tokens: 0,
+          agent_last_reported_total_tokens: 0,
+          turn_count: 1,
+          control: %{can_interrupt: true, safe_checkpoints: [:notification], status: :working},
+          retry_attempt: 0,
+          started_at: DateTime.utc_now()
+        }
+
+        %{
+          state
+          | session_max_concurrent_agents: 1,
+            running: %{issue.id => old_entry},
+            claimed: MapSet.put(state.claimed, issue.id),
+            tick_timer_ref: nil,
+            tick_token: make_ref(),
+            next_poll_due_at_ms: nil,
+            poll_check_in_progress: false
+        }
+      end)
+
+      send(orchestrator_pid, {:worker_control_state, issue.id, :completed})
+
+      assert %{active: 0} = Orchestrator.max_concurrent_agents(orchestrator_name)
+
+      assert {:ok, item_id} =
+               Orchestrator.send_operator_message(orchestrator_name, issue.identifier, %{
+                 kind: :text,
+                 body: "repair from replacement"
+               })
+
+      refute Process.alive?(old_worker)
+
+      replacement = :sys.get_state(orchestrator_pid).running[issue.id]
+      assert is_pid(replacement.pid)
+      assert Process.alive?(replacement.pid)
+      assert replacement.pid != old_worker
+      assert is_reference(replacement.ref)
+      assert replacement.ref != old_ref
+      replacement_pid = replacement.pid
+      completion_ref = Process.monitor(replacement_pid)
+
+      assert wait_for_path(rework_started, 15_000)
+
+      in_flight = :sys.get_state(orchestrator_pid)
+      assert in_flight.running[issue.id].pid == replacement.pid
+      assert in_flight.queue_store.items[item_id].status == :delivered
+      assert in_flight.queue_store.items[item_id].delivery_attempts == 1
+
+      send(orchestrator_pid, {:DOWN, old_ref, :process, old_worker, :normal})
+      assert :sys.get_state(orchestrator_pid).running[issue.id].pid == replacement.pid
+
+      File.touch!(port_exit_release)
+
+      assert_receive {:DOWN, ^completion_ref, :process, ^replacement_pid, :normal},
+                     15_000
+
+      assert wait_for_path(rework_replayed, 15_000)
+
+      replay_generation = :sys.get_state(orchestrator_pid).running[issue.id]
+      assert is_pid(replay_generation.pid)
+      assert Process.alive?(replay_generation.pid)
+      assert replay_generation.pid != replacement_pid
+      replay_pid = replay_generation.pid
+      replay_ref = Process.monitor(replay_pid)
+
+      replay_in_flight = :sys.get_state(orchestrator_pid)
+      assert replay_in_flight.queue_store.items[item_id].status == :delivered
+      assert replay_in_flight.queue_store.items[item_id].delivery_attempts == 2
+
+      File.touch!(rework_release)
+
+      assert_receive {:DOWN, ^replay_ref, :process, ^replay_pid, :normal},
+                     15_000
+
+      finished = :sys.get_state(orchestrator_pid)
+      assert finished.queue_store.items[item_id].status == :consumed
+      assert finished.queue_store.items[item_id].delivery_attempts == 2
+      assert Map.get(finished.queue_store.pending_ids_by_target, issue.identifier, []) == []
+
+      turn_texts =
+        trace_file
+        |> File.read!()
+        |> String.split("\n", trim: true)
+        |> Enum.filter(&String.starts_with?(&1, "JSON:"))
+        |> Enum.map(&String.trim_leading(&1, "JSON:"))
+        |> Enum.map(&Jason.decode!/1)
+        |> Enum.filter(&(&1["method"] == "turn/start"))
+        |> Enum.map(fn payload ->
+          get_in(payload, ["params", "input"])
+          |> Enum.map_join("\n", &Map.get(&1, "text", ""))
+        end)
+
+      assert length(turn_texts) == 4
+      assert Enum.at(turn_texts, 0) =~ "You are an agent for this repository."
+      assert Enum.at(turn_texts, 1) == "repair from replacement"
+      assert Enum.at(turn_texts, 2) =~ "Continuation guidance"
+      assert Enum.at(turn_texts, 3) == "repair from replacement"
+    after
+      File.touch(Path.join(test_root, "port-exit.release"))
+      File.touch(Path.join(test_root, "rework.release"))
+      System.delete_env("SYMP_TEST_CODEX_TRACE")
+      Application.delete_env(:aiur, :memory_tracker_issues)
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "agent runner drains an interrupting operator message after interrupted completion" do
+    assert_agent_runner_interrupt_operator(:interrupted_completion)
+  end
+
+  test "agent runner drains an interrupting operator message after response-only no-active-turn" do
+    assert_agent_runner_interrupt_operator(:no_active_turn)
+  end
+
+  defp assert_agent_runner_interrupt_operator(interrupt_outcome) do
+    outcome_name = Atom.to_string(interrupt_outcome)
+
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-elixir-agent-runner-interrupt-operator-#{outcome_name}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -2152,8 +2415,7 @@ defmodule Aiur.CoreTest do
             ;;
           *'"method":"turn/interrupt"'*)
             request_id=$(printf '%s' "$line" | sed -n 's/.*"id":\\([0-9][0-9]*\\).*/\\1/p')
-            printf '{"id":%s,"result":{}}\\n' "$request_id"
-            printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"status":"interrupted"}}}'
+      #{operator_interrupt_frames(interrupt_outcome)}
             ;;
         esac
       done
@@ -2171,16 +2433,24 @@ defmodule Aiur.CoreTest do
         max_turns: 2
       )
 
-      orchestrator_name = Module.concat(__MODULE__, :InterruptOperatorOrchestrator)
+      orchestrator_name =
+        Module.concat(
+          __MODULE__,
+          "InterruptOperator#{Macro.camelize(outcome_name)}Orchestrator"
+        )
+
       {:ok, orchestrator_pid} = Orchestrator.start_link(name: orchestrator_name)
 
       on_exit(fn ->
         if Process.alive?(orchestrator_pid), do: Process.exit(orchestrator_pid, :normal)
       end)
 
+      issue_id = "issue-interrupt-operator-#{outcome_name}"
+      identifier = "MT-INTERRUPT-OPERATOR-#{String.upcase(outcome_name)}"
+
       issue = %Issue{
-        id: "issue-interrupt-operator",
-        identifier: "MT-253",
+        id: issue_id,
+        identifier: identifier,
         title: "Interrupt with operator message",
         description: "Stop the active turn and deliver the operator input next",
         state: "In Progress",
@@ -2200,11 +2470,11 @@ defmodule Aiur.CoreTest do
           )
         end)
 
-      assert_receive {:codex_worker_update, "issue-interrupt-operator", %{event: :session_started}}, 5_000
+      assert_receive {:codex_worker_update, ^issue_id, %{event: :session_started}}, 5_000
 
       :sys.replace_state(orchestrator_pid, fn state ->
         {queue_store, item} =
-          Aiur.AgentQueue.operator_message("MT-253", "stop and answer this", delivery_policy: :interrupt)
+          Aiur.AgentQueue.operator_message(identifier, "stop and answer this", delivery_policy: :interrupt)
           |> then(&Aiur.AgentQueueStore.enqueue(state.queue_store, &1))
 
         send(test_pid, {:queued_request_id, item.id})
@@ -2212,7 +2482,7 @@ defmodule Aiur.CoreTest do
       end)
 
       assert_receive {:queued_request_id, request_id}
-      send(task.pid, {:agent_queue_updated, "MT-253", request_id, true})
+      send(task.pid, {:agent_queue_updated, identifier, request_id, true})
 
       assert {:ok, :ok} = Task.yield(task, 15_000)
 
@@ -2237,11 +2507,24 @@ defmodule Aiur.CoreTest do
       assert length(turn_texts) == 2
       assert Enum.at(turn_texts, 0) =~ "You are an agent for this repository."
       assert Enum.at(turn_texts, 1) == "stop and answer this"
-      assert :empty == OperatorMessages.claim_next_queue_item(orchestrator_name, "MT-253")
+      assert :empty == OperatorMessages.claim_next_queue_item(orchestrator_name, identifier)
     after
       System.delete_env("SYMP_TEST_CODEX_TRACE")
       File.rm_rf(test_root)
     end
+  end
+
+  defp operator_interrupt_frames(:interrupted_completion) do
+    """
+            printf '{"id":%s,"result":{}}\\n' "$request_id"
+            printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"status":"interrupted"}}}'
+    """
+  end
+
+  defp operator_interrupt_frames(:no_active_turn) do
+    """
+            printf '{"id":%s,"error":{"code":-32600,"message":"no active turn"}}\\n' "$request_id"
+    """
   end
 
   test "agent runner delivers queued operator messages from a sub-turn checkpoint" do
@@ -2287,13 +2570,13 @@ defmodule Aiur.CoreTest do
           *'"method":"turn/start"'*)
             if [ "$first_turn_started" -eq 0 ]; then
               first_turn_started=1
-              printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-checkpoint-main"}}}'
+              request_id=$(printf '%s' "$line" | sed -n 's/.*"id":\\([0-9][0-9]*\\).*/\\1/p')
+              printf '{"id":%s,"result":{"turn":{"id":"turn-checkpoint-main"}}}\\n' "$request_id"
               printf '%s\\n' '{"method":"turn/plan/updated","params":{"plan":[{"step":"keep going"}]}}'
             else
               request_id=$(printf '%s' "$line" | sed -n 's/.*"id":\\([0-9][0-9]*\\).*/\\1/p')
-              printf '{"id":%s,"result":{"turn":{"id":"turn-checkpoint-followup"}}}\\n' "$request_id"
-              printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
-              printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
+              printf '{"id":%s,"result":{"turn":{"id":"turn-accepted-steering","status":"inProgress"}}}\\n' "$request_id"
+              printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-checkpoint-main","status":"completed"}}}'
               exit 0
             fi
             ;;
@@ -2663,6 +2946,166 @@ defmodule Aiur.CoreTest do
     end
   end
 
+  test "agent runner remains paused when idle precedes a no-active-turn interrupt response" do
+    assert_agent_runner_pause_no_active_turn(:idle_first)
+  end
+
+  test "agent runner remains paused when a no-active-turn interrupt response precedes idle" do
+    assert_agent_runner_pause_no_active_turn(:response_first)
+  end
+
+  test "agent runner remains paused when no idle follows a no-active-turn interrupt response" do
+    assert_agent_runner_pause_no_active_turn(:response_only)
+  end
+
+  defp assert_agent_runner_pause_no_active_turn(event_order) do
+    order_name = Atom.to_string(event_order)
+
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-elixir-agent-runner-pause-no-active-turn-#{order_name}-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      template_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "workspaces")
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex.trace")
+
+      File.mkdir_p!(template_repo)
+      File.write!(Path.join(template_repo, "README.md"), "# test")
+      System.cmd("git", ["-C", template_repo, "init", "-b", "main"])
+      System.cmd("git", ["-C", template_repo, "config", "user.name", "Test User"])
+      System.cmd("git", ["-C", template_repo, "config", "user.email", "test@example.com"])
+      System.cmd("git", ["-C", template_repo, "add", "README.md"])
+      System.cmd("git", ["-C", template_repo, "commit", "-m", "initial"])
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      trace_file="${SYMP_TEST_CODEX_TRACE:-/tmp/codex.trace}"
+
+      while IFS= read -r line; do
+        printf 'JSON:%s\\n' "$line" >> "$trace_file"
+
+        case "$line" in
+          *'"method":"initialize"'*)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          *'"method":"initialized"'*)
+            ;;
+          *'"method":"thread/start"'*)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-pause-no-active"}}}'
+            ;;
+          *'"method":"turn/start"'*)
+            request_id=$(printf '%s' "$line" | sed -n 's/.*"id":\\([0-9][0-9]*\\).*/\\1/p')
+            printf '{"id":%s,"result":{"turn":{"id":"turn-main"}}}\\n' "$request_id"
+            printf '%s\\n' '{"method":"turn/started","params":{"turn":{"id":"turn-main","status":"inProgress"}}}'
+            ;;
+          *'"method":"turn/interrupt"'*)
+            request_id=$(printf '%s' "$line" | sed -n 's/.*"id":\\([0-9][0-9]*\\).*/\\1/p')
+      #{no_active_turn_interrupt_frames(event_order)}
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+      System.put_env("SYMP_TEST_CODEX_TRACE", trace_file)
+
+      on_exit(fn -> System.delete_env("SYMP_TEST_CODEX_TRACE") end)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        hook_after_create: "cp #{Path.join(template_repo, "README.md")} README.md",
+        codex_command: "#{codex_binary} app-server",
+        max_turns: 2
+      )
+
+      orchestrator_name =
+        Module.concat(
+          __MODULE__,
+          "PauseNoActiveTurn#{Macro.camelize(order_name)}Orchestrator"
+        )
+
+      {:ok, orchestrator_pid} = Orchestrator.start_link(name: orchestrator_name)
+
+      on_exit(fn ->
+        if Process.alive?(orchestrator_pid), do: Process.exit(orchestrator_pid, :normal)
+      end)
+
+      issue_id = "issue-pause-no-active-turn-#{order_name}"
+
+      issue = %Issue{
+        id: issue_id,
+        identifier: "MT-PAUSE-NO-ACTIVE-#{String.upcase(order_name)}",
+        title: "Preserve pause at a completed turn boundary",
+        description: "do not continue after Codex reports no active turn",
+        state: "In Progress",
+        url: "https://example.org/issues/MT-PAUSE-NO-ACTIVE",
+        labels: []
+      }
+
+      test_pid = self()
+
+      task =
+        Task.async(fn ->
+          AgentRunner.run(
+            issue,
+            test_pid,
+            orchestrator: orchestrator_name,
+            issue_state_fetcher: fn [_issue_id] -> {:ok, [%{issue | state: "Done"}]} end
+          )
+        end)
+
+      assert_receive {:codex_worker_update, ^issue_id,
+                      %{
+                        event: :notification,
+                        payload: %{"method" => "turn/started"}
+                      }},
+                     15_000
+
+      send(task.pid, {:pause_agent, 93})
+
+      assert_receive {:worker_control_state, ^issue_id, :paused, %{request_id: 93, turn_id: "turn-main"}},
+                     5_000
+
+      refute Task.yield(task, 100)
+
+      trace = File.read!(trace_file)
+      assert length(Regex.scan(~r/"method":"turn\/start"/, trace)) == 1
+
+      send(task.pid, {:resume_agent, 94})
+      assert {:ok, :ok} = Task.yield(task, 5_000)
+
+      trace = File.read!(trace_file)
+      assert length(Regex.scan(~r/"method":"turn\/start"/, trace)) == 1
+    after
+      System.delete_env("SYMP_TEST_CODEX_TRACE")
+      File.rm_rf(test_root)
+    end
+  end
+
+  defp no_active_turn_interrupt_frames(:idle_first) do
+    """
+            printf '%s\\n' '{"method":"thread/status/changed","params":{"status":{"type":"idle"}}}'
+            printf '{"id":%s,"error":{"code":-32600,"message":"no active turn"}}\\n' "$request_id"
+    """
+  end
+
+  defp no_active_turn_interrupt_frames(:response_first) do
+    """
+            printf '{"id":%s,"error":{"code":-32600,"message":"no active turn"}}\\n' "$request_id"
+            printf '%s\\n' '{"method":"thread/status/changed","params":{"status":{"type":"idle"}}}'
+    """
+  end
+
+  defp no_active_turn_interrupt_frames(:response_only) do
+    """
+            printf '{"id":%s,"error":{"code":-32600,"message":"no active turn"}}\\n' "$request_id"
+    """
+  end
+
   test "agent runner processes restored and newly-queued operator input on explicit resume after pause" do
     test_root =
       Path.join(
@@ -2719,7 +3162,7 @@ defmodule Aiur.CoreTest do
                 ;;
               4)
                 printf '{"id":%s,"result":{"turn":{"id":"turn-def"}}}\\n' "$request_id"
-                printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
+                printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-def","status":"completed"}}}'
                 exit 0
                 ;;
             esac
@@ -2877,7 +3320,7 @@ defmodule Aiur.CoreTest do
             ;;
           5)
             printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-max-2"}}}'
-            printf '%s\\n' '{"method":"turn/completed"}'
+            printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-max-2","status":"completed"}}}'
             ;;
         esac
       done

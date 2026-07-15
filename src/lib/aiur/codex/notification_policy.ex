@@ -50,13 +50,25 @@ defmodule Aiur.Codex.NotificationPolicy do
   # crashing the agent when a fresh task receives an Executor-queue update
   # before its first codex turn has spawned (FI-CDX-035).
   @spec no_active_turn_error?(term()) :: boolean()
-  def no_active_turn_error?(%{"code" => -32_600}), do: true
-
-  def no_active_turn_error?(%{"message" => message}) when is_binary(message) do
-    String.contains?(message, "no active turn")
+  def no_active_turn_error?(error) when is_map(error) do
+    no_active_turn_text?(Map.get(error, "message")) or
+      no_active_turn_data?(Map.get(error, "data"))
   end
 
   def no_active_turn_error?(_), do: false
+
+  defp no_active_turn_data?(data) when is_map(data) do
+    no_active_turn_text?(Map.get(data, "message")) or
+      no_active_turn_text?(Map.get(data, "detail"))
+  end
+
+  defp no_active_turn_data?(data), do: no_active_turn_text?(data)
+
+  defp no_active_turn_text?(text) when is_binary(text) do
+    text |> String.downcase() |> String.contains?("no active turn")
+  end
+
+  defp no_active_turn_text?(_text), do: false
 
   # The flag can ride on the notification root or inside `params`, and
   # codex has used both camelCase and snake_case across versions, so
