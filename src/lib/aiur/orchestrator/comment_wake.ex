@@ -12,11 +12,11 @@ defmodule Aiur.Orchestrator.CommentWake do
   alias Aiur.CurrentRunMembership
   alias Aiur.Events.UniversalSubscriptions
   alias Aiur.Issue
-  alias Aiur.Tracker
-  alias Aiur.TrackerIdentity
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, PrAnchored, State}
   alias Aiur.RunTelemetry.Lifecycle
+  alias Aiur.Tracker
+  alias Aiur.TrackerIdentity
 
   @comment_rework_retry_delay_ms 2_000
   @comment_rework_max_attempts 5
