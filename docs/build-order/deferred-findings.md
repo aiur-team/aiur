@@ -84,3 +84,38 @@ critical-path capacity, or prevent completion.
 - Why non-blocking: DASH-001 preserves current capability; no accepted request
   replaces it.
 - Future disposition: Separate analytics requirements/design run.
+
+## DF-009 — Restart continuation for remote workers
+
+- Severity: P2 reliability
+- Evidence: final adversarial review of anti-thrash PR #1179 at `5ce42f3e`.
+- Affected component: startup dispatch provenance and remote session recovery
+- Why non-blocking: the current run uses local Codex Sol/Terra workers, and
+  #1179 now preserves completed/prior-work provenance for every in-daemon
+  recycle and retry path.
+- Future disposition: define a durable, host-independent prior-work receipt for
+  active remote tickets before enabling remote-worker restart recovery.
+
+## DF-010 — Dispatch-budget store repair UX
+
+- Severity: P2 operability
+- Evidence: #1179 intentionally fails every affected dispatch closed when its
+  stable budget JSON is corrupt or unreadable.
+- Affected component: durable dispatch-budget inspection and operator reset
+- Why non-blocking: fail-closed prevents quota thrash and corruption is not
+  present in the live run; manual repair or disabling the opt-in latch remains
+  available.
+- Future disposition: after live use, consider an authenticated diagnostic and
+  explicit repair/reset command rather than silently deleting safety state.
+
+## DF-011 — Temporary review-worktree garbage collection
+
+- Severity: P2 operational optimization
+- Evidence: at 23:54 PDT `/tmp` reached 100%; removing 40 positively clean,
+  stale review/land worktrees recovered about 2.5 GB without touching live or
+  dirty ticket state.
+- Affected component: Executor review worktree lifecycle and capacity alerts
+- Why non-blocking: the immediate saturation is contained and the main disk is
+  healthy.
+- Future disposition: collect recurrence evidence, then add bounded age/clean-
+  state GC plus a pre-saturation alert; never auto-delete dirty or active trees.

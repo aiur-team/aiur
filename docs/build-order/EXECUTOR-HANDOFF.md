@@ -1663,17 +1663,21 @@ Terra; never dispatch Claude.
     progress dataset now retains 1,130 normalized samples including this
     inaccurate 90% interval.
 
-206. At 23:57 PDT anti-thrash PR #1179 reached exact current-main head
-    `1bf65237596e2a39f499abd489990c7091c5f619` after the Executor closed the
-    final three class-complete review findings. Redispatch admission now
+206. At 00:27 PDT anti-thrash PR #1179 reached exact current-main head
+    `5ce42f3ea91e59768e0a58e2660abe8e7c31863b` after the Executor closed the
+    full class-complete review set. Redispatch admission now
     returns and retains a newly tripped lifetime-budget state through completed
     runner replacement, a failed Remote Control replacement removes its
     torn-down running-map entry before scheduling retry so it cannot consume
     its own slot, and crash retry continuation is derived from actual runner
     provenance rather than the global enable flag so a fresh zero-turn startup
-    failure remains a cold start. The focused gate is 95/95 green and the full
-    lint gate is clean; fresh CI and three independent exact-head re-reviews
-    are in progress. Do not merge until all are green and class-complete.
+    failure remains a cold start. Completed Hook turns now carry explicit
+    provenance; an all-models-limited active retry retains a non-exhausting
+    bounded wait instead of losing its only retry; lifetime spend persists in
+    stable instance/repository state across run-log and BEAM restarts; and
+    missing, corrupt, or unreadable durable state fails closed. Three
+    independent exact-head reviews are merge-ready with no P1 findings and the
+    focused/lint gates are clean; fresh CI is the sole remaining merge gate.
 
 207. At 23:54 PDT the Executor found `/tmp` at 100% while the main filesystem
     still had roughly 3.2 TiB free. The saturation was accumulated temporary
@@ -1684,6 +1688,24 @@ Terra; never dispatch Claude.
     subprocesses; clean only positively identified stale/clean temporary
     artifacts and record repeated evidence before promoting a new reliability
     issue.
+
+208. The 00:26 hard hourly monitoring retrospective found that material
+    recovery work dominated, but repeated short reviewer waits and CI-only
+    checks returned no new decision. Retain immediate event-driven wakes for
+    worker, alert, capacity, chat, and user changes; when review or CI is the
+    sole remaining gate, never run consecutive checks and wait at least 120
+    seconds unless a real event arrives. This is a small evidence-based cadence
+    adjustment, not a reduction in Executor duties.
+
+209. #1140 pushed current-main head `09fe03bf` after the Executor rejected its
+    first merge-only cache repair for deleting the rewritten warm caches. The
+    new hook backs up both package-manager cache trees outside the worktree,
+    resets only the legacy tracked paths, merges the base deletion, and restores
+    ignored warm contents on success and conflict; fresh CI is running. #1032
+    pushed current-main head `03b291a1` with functional CI green after reverting
+    its prohibited protected-regression test edit. Both remain behind #1179:
+    once #1179 merges, their owning agents must update to the new `main` and
+    obtain fresh CI before review.
 
 At 23:58 PDT the core graph remains 8/54 accepted while the recovery gate is
 frozen. Five Codex implementation/rework workers are visibly executing
