@@ -80,7 +80,8 @@ The Executor continuously:
 2. watches agent state, activity age, alerts, host capacity, review state, and
    integration risk;
 3. diagnoses stuck or misbehaving agents and attempts the least invasive
-   recovery first;
+   recovery first, then assumes ownership when bounded recovery is not restoring
+   material convergence and takeover authority exists;
 4. verifies the owning worker has produced a current-base, fresh-CI head before
    arranging independent review, then returns actionable findings through the
    tracker/event path workers consume;
@@ -146,14 +147,60 @@ ticket it will not pick up:
 4. pause/resume an existing worker; when process state is broken, stop and
    relaunch the run because there is no per-worker restart control;
 5. route a reproducible Aiur defect under the bug policy below;
-6. take over the affected ticket/lane only when it remains blocked after
-   recovery because a catastrophic Aiur failure prevents the worker from
-   continuing, takeover is the best option, and self-fix authority was
-   granted. Stale-base integration, conflicts, lint, and review repair remain
-   the owning worker's work.
+6. take over the affected ticket/lane when bounded recovery has not restored
+   material progress, the PR has lost a live owner, the same failure cycle is
+   repeating, or the Executor reasonably judges direct ownership to be the
+   faster and safer route to the finite acceptance boundary, provided self-fix
+   or takeover authority was granted.
 
 Prefer restoring workers over doing their work. The Executor is a backstop,
-not the default implementation lane.
+not the default implementation lane. A catastrophic Aiur failure is sufficient
+for takeover but is not required; sustained non-convergence is also sufficient.
+
+## Convergence escalation and takeover
+
+Do not measure progress solely by whether a worker process is alive. Inspect
+long-running tickets and PRs for delivery progress, particularly when the code
+was implemented quickly but review, rework, CI, or integration has consumed
+most of the ticket lifetime.
+
+Escalation signals include:
+
+- multiple worker starts, cold dispatches, `max_turns` recycles, pause/resume
+  loops, or a completed-but-claimed entry with no continuation;
+- an open PR with no live owner, a frozen head, or repeated turns without a
+  commit, test result, resolved finding, or reduced diff;
+- repeated comment-triggered review-to-rework transitions, exact-head reviews
+  that continually mint new blocking findings, or fragmented reviewer packets;
+- repeated integrations of a moving base, recurring conflicts on the same hot
+  files, or a branch that repeatedly becomes stale before review begins;
+- recurring CI/lint/Dialyzer failures without a shrinking authoritative failure
+  set, including a non-latching thrash alert or failed wake/continuation path;
+- elapsed delivery time that is disproportionate to the observed implementation
+  work and no evidence-backed completion trajectory.
+
+When one or more signals appear:
+
+1. inspect the issue and PR timelines, commits, checks, review comments, base
+   ancestry, live agent state, restart count, workpad, and agent logs;
+2. identify the single current blocker and send one consolidated P0/P1 failure
+   or update/re-cut packet to the owner;
+3. allow one bounded recovery cycle when the owner is live and the repair is
+   economical, while defining the material progress that must occur;
+4. if the worker repeats the same cycle, makes no material progress, becomes
+   unowned, or direct completion is now reasonably safer/faster, stop duplicate
+   writers and take over under the recorded authority;
+5. use an isolated worktree, preserve the existing branch/workspace, retain the
+   original acceptance boundary, defer non-blocking nits, establish one
+   current-base head, run focused validation plus the required central gate,
+   and merge under the recorded policy;
+6. record the evidence, attempted recovery, takeover reason, and outcome in the
+   durable handoff so future runs can improve their triggers.
+
+This is a judgment rule, not a rigid elapsed-time gate. Do not wait for a
+catastrophic crash or an arbitrary age threshold when the evidence already
+shows that delegation is not converging. Conversely, do not take over merely
+because the first ordinary repair is inconvenient.
 
 ## Pull-request review loop
 
@@ -166,8 +213,9 @@ review-ready state only when all of these are true:
 
 If any condition fails, send one bounded update/re-cut directive to the owning
 ticket and let its agent fetch, integrate or re-cut, resolve semantic drift,
-validate, and push. Do not assign reviewers and do not update old code on the
-agent's behalf. Once all conditions hold:
+validate, and push. Do not assign reviewers against the stale head. If the
+bounded attempt does not materially converge, apply the takeover rule above
+instead of issuing the same directive indefinitely. Once all conditions hold:
 
 1. reserve or rebalance capacity for multiple independent background reviewers;
 2. use `ce-code-review` when Compound Engineering is available, adding the
