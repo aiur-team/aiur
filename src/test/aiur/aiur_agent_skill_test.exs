@@ -23,7 +23,7 @@ defmodule Aiur.AiurAgentSkillTest do
     attention-and-resolve.md
     stub-then-fetch.md
   )
-  @codex_exposed_aiur_skills ~w(aiur-agent aiur-build aiur-debug aiur-monitor aiur-run design-import using-aiur)
+  @codex_exposed_aiur_skills ~w(aiur-agent aiur-build aiur-debug aiur-intro aiur-monitor aiur-run design-import using-aiur)
   @claude_executor_only_skills ~w(release)
 
   test "Claude backend surface: canonical skill dir exists with a SKILL.md" do

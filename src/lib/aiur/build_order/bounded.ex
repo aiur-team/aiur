@@ -52,6 +52,27 @@ defmodule Aiur.BuildOrder.Bounded do
 
   def github_issue_url_for(_value, _identity), do: :error
 
+  @spec github_pull_request_url_for(term(), term(), term()) :: {:ok, String.t()} | :error
+  def github_pull_request_url_for(value, %{owner: owner, repository: repository}, number) do
+    with {:ok, identifier} <- pull_request_identifier(number),
+         {:ok, url} <- github_url(value),
+         {:ok, reference} <- github_issue_reference(url),
+         true <- reference.kind == "pull",
+         true <- same_repository?(reference, %{owner: owner, repository: repository}),
+         true <- reference.identifier == identifier do
+      {:ok, url}
+    else
+      _ -> :error
+    end
+  end
+
+  def github_pull_request_url_for(_value, _identity, _number), do: :error
+
+  defp pull_request_identifier(number) when is_integer(number) and number > 0,
+    do: github_issue_identifier(Integer.to_string(number))
+
+  defp pull_request_identifier(number), do: github_issue_identifier(number)
+
   @spec github_issue_reference(term()) ::
           {:ok, %{owner: String.t(), repository: String.t(), kind: String.t(), identifier: String.t()}} | :error
   def github_issue_reference(value) do
