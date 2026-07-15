@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-14 19:59 PDT)
+## Live Executor state (updated 2026-07-14 20:09 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -1448,20 +1448,35 @@ Terra; never dispatch Claude.
     static preview now distinguishes those two live green cards from completed
     or review-pending work. Do not restart the daemon until the operator closes
     the optimization merge window.
+190. At the 20:05 capacity boundary CPU briefly fell to roughly 50% with 24 GiB
+    available. BO-003/#1092 is the next serial critical-path member, BO-002 is
+    merged, and its supervision serialization set is not active, so the
+    Executor added `agent:todo`; Aiur picked it up at 20:09 without a restart.
+    Dual review of #1162 exact head `24f0c80c` independently rejected it with
+    four unique P1 defects: real `{:port_exit, status}` loses queued rework,
+    cancel/quota pauses fail to retire old provider IDs, generic JSON-RPC
+    `-32600` is over-classified as no-active-turn, and closed-port dynamic-tool
+    recovery can replay a side effect. The same head also conflicts with
+    accepted `main` `d112b355`. The consolidated packet is issue comment
+    `4976480407`; the Executor moved the ticket back to rework and sent it
+    directly, and the existing Sol worker resumed at 20:09. Four useful Codex
+    workers are now live: #1090, #1092, #1161, and #1162. The hourly monitoring
+    retrospective also tightened saturation handling: after one control-RPC
+    timeout, use provider logs plus GitHub for the rest of that five-minute
+    window instead of burning another RPC.
 
-At 19:59 PDT the core graph is 8/54 accepted. Two Codex workers are visibly
+At 20:09 PDT the core graph is 8/54 accepted. Four Codex workers are visibly
 executing, one core row reports a completed turn, and preserved paused or
 deactivated rows await the post-optimization restart. #1103 remains queued,
 while #1151 is in explicit review-driven rework awaiting that restart.
 #1093, #1108, #1111, #1123, and #1130 stay on workspace-race holds until #1161
-lands. The 19:59 phase preview preserves the latest successfully emitted core
+lands. The 20:09 phase preview preserves the latest successfully emitted core
 percentages and advances only review/CI states backed by GitHub evidence;
 do not replace those estimates with guesses during review/rework. Host load
 remains volatile and was about 38 with roughly 21 GiB available at the 17:34
 snapshot; current CPU is saturated with roughly 22 GiB available, so prefer
-logs/GitHub evidence after a control-RPC timeout. BO-003 is
-the only additional core ticket safely dependency-ready outside the held/gated
-set. Treat completed turns, stale bases, and green builds with unmet acceptance
+logs/GitHub evidence after a control-RPC timeout. BO-003 is now live on the
+serial critical path. Treat completed turns, stale bases, and green builds with unmet acceptance
 criteria as pending Executor work, not merge-ready truth.
 
 **Read-first map for this run:** `README.md` (pack index) →
