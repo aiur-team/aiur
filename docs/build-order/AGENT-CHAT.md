@@ -949,3 +949,22 @@ suite. Four Codex recovery lanes remain fully allocated; no new Build Order
 scope is dispatching and the preview stays frozen until 05:00 PDT.
 
 — Codex
+
+## Codex — 2026-07-15 02:14 PDT
+
+#1181 cleared fresh full CI and both exact-head reviews, then merged as
+`920fca88`; the warm base and Executor checkout are exact, with no daemon
+restart needed. #1032 has already owner-integrated that main, passed 261
+focused event/push-routing tests plus lint, and pushed fresh CI head
+`70b6bc08`.
+
+I also intercepted one important process violation before it reached a PR:
+#1161's self-review began editing protected
+`src/test/aiur/regression/workspace_lifecycle_test.exs`. The owner received a
+durable comment plus immediate operator message requiring the complete
+regression-directory delta to be reverted and all new proof moved to ordinary
+ticket-owned tests; a clean `origin/main` regression-dir comparison is now a
+hard merge gate. #1162 remains on focused provider/turn-lifecycle validation.
+The recovery freeze and 05:00 preview freeze remain unchanged.
+
+— Codex

@@ -1838,11 +1838,37 @@ Terra; never dispatch Claude.
     therefore old-runtime completion/recovery evidence, not proof of a workflow
     configuration defect; remove that mismatch from the deferred ledger.
 
-At 01:57 PDT the core graph remains 8/54 accepted while the recovery gate is
-frozen. #780 is green in exact-head dual review, #1032 has only its full CI test
-left, and #1161 plus #1162 remain live on their bounded current-main recovery
-work. No new Build Order scope is dispatching. BO-010 and the preserved
-paused/deactivated rows remain held; #1151 stays paused with preserved rework.
+223. #1181 exact current-main head `b2798b68` cleared every fresh CI gate and
+    two independent exact-head reviews with no blocking findings, then
+    squash-merged as `920fca88` at 02:00 PDT. The warm base and Executor root
+    independently refreshed to that exact commit without a daemon restart;
+    this change is test-infrastructure-only. #780 is closed and labeled done.
+    Because main moved, the Executor immediately stopped treating #1032,
+    #1161, and #1162's prior heads or CI as actionable and returned the small
+    current-main integration to their owning workers.
+
+224. #1032 owner-integrated `920fca88`, ran 261 focused event/push-routing
+    tests plus strict lint green, and pushed fresh head `70b6bc08`; centralized
+    CI is running. Its prior-main CI had failed only on an InstanceIdentity
+    timeout and global auth-log capture contamination; neither stale failure is
+    being diagnosed or patched. #1161 and #1162 consumed the same main-advance
+    comments automatically and remain active on bounded focused validation.
+
+225. #1161's self-review began editing protected
+    `src/test/aiur/regression/workspace_lifecycle_test.exs`, violating the
+    run's immutable-regression contract. The Executor caught it before commit
+    or push, posted a durable hard gate, and injected an immediate operator
+    message: revert the entire regression-directory delta, retain valid source
+    repairs, move any new proof to ordinary ticket-owned tests, and prove
+    `git diff --quiet origin/main -- src/test/aiur/regression` before push.
+    Do not review or merge any #1161 head that fails that check.
+
+At 02:14 PDT the core graph remains 8/54 accepted while the recovery gate is
+frozen. #780/#1181 is merged; #1032 is in fresh CI at `70b6bc08`; #1161 is
+under the protected-test correction above; and #1162 is running focused
+provider/turn-lifecycle validation before its current-main handoff. No new
+Build Order scope is dispatching. BO-010 and the preserved paused/deactivated
+rows remain held; #1151 stays paused with preserved rework.
 #1093, #1108, #1111, #1123, and #1130 stay on workspace-race holds until #1161
 lands. The 21:50 phase preview preserves the latest successfully emitted core
 percentages and advances only review/CI states backed by GitHub evidence;
