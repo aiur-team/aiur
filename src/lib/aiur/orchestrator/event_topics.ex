@@ -50,9 +50,16 @@ defmodule Aiur.Orchestrator.EventTopics do
   defp route_classified(state, :nomatch, _event), do: state
 
   defp provisional_unblock?(event) do
-    payload = Map.get(event, :payload) || Map.get(event, "payload") || %{}
-    Map.get(payload, :temporary_stub) == true or Map.get(payload, "temporary_stub") == true
+    Enum.any?(
+      [event, Map.get(event, :payload), Map.get(event, "payload")],
+      &temporary_stub?/1
+    )
   end
+
+  defp temporary_stub?(value) when is_map(value),
+    do: Map.get(value, :temporary_stub) == true or Map.get(value, "temporary_stub") == true
+
+  defp temporary_stub?(_value), do: false
 
   @spec parse_pr_review_comment_topic(String.t()) :: {:ok, String.t()} | :nomatch
   def parse_pr_review_comment_topic(topic) do

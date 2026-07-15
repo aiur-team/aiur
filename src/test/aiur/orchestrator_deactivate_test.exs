@@ -5479,14 +5479,16 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       state = %Orchestrator.State{
         running: %{
-          issue_id => %{
-            pid: fake_pid,
-            ref: nil,
-            identifier: identifier,
-            issue: %Issue{id: issue_id, state: "in-progress", identifier: identifier},
-            started_at: DateTime.utc_now(),
-            control: %{status: :paused}
-          }
+          issue_id =>
+            %{
+              pid: fake_pid,
+              ref: nil,
+              identifier: identifier,
+              issue: %Issue{id: issue_id, state: "in-progress", identifier: identifier},
+              started_at: DateTime.utc_now(),
+              control: %{status: :paused}
+            }
+            |> Map.merge(blocker_pause_fields())
         },
         claimed: MapSet.new([issue_id]),
         codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
@@ -5494,10 +5496,13 @@ defmodule Aiur.OrchestratorDeactivateTest do
         max_concurrent_agents: 6
       }
 
+      :ok = BranchRefStore.record(blocker_ref(), blocker_sha())
+
       events = [
-        %{topic: "ticket.99.agent.unblocked", payload: %{temporary_stub: true}},
-        %{topic: "ticket.99.agent.unblocked", payload: %{"temporary_stub" => true}},
-        %{"payload" => %{"temporary_stub" => true}, topic: "ticket.99.agent.unblocked"}
+        %{topic: "ticket.99.agent.unblocked", temporary_stub: true, ref: blocker_ref(), sha: blocker_sha()},
+        %{"temporary_stub" => true, "ref" => blocker_ref(), "sha" => blocker_sha(), topic: "ticket.99.agent.unblocked"},
+        %{topic: "ticket.99.agent.unblocked", payload: %{temporary_stub: true, ref: blocker_ref(), sha: blocker_sha()}},
+        %{"payload" => %{"temporary_stub" => true, "ref" => blocker_ref(), "sha" => blocker_sha()}, topic: "ticket.99.agent.unblocked"}
       ]
 
       for event <- events do
