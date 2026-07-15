@@ -265,6 +265,23 @@ defmodule Aiur.Orchestrator.Dispatcher do
     end
   end
 
+  @doc false
+  @spec admit_redispatch(State.t(), Issue.t(), String.t() | nil, keyword()) ::
+          {:ok, State.t()} | {:error, term(), State.t()}
+  def admit_redispatch(%State{} = state, %Issue{} = issue, preferred_worker_host, opts \\ []) do
+    now_ms = Keyword.get(opts, :now_ms, System.monotonic_time(:millisecond))
+
+    with {:ok, selected_issue} <- redispatch_backend(issue),
+         :ok <- known_redispatch_backend(selected_issue),
+         {:ok, state} <- admit_redispatch_thrash_budget(state, selected_issue, now_ms, opts),
+         :ok <- redispatch_worker_slot(state, selected_issue.id, preferred_worker_host) do
+      {:ok, state}
+    else
+      {:error, reason, %State{} = rejected_state} -> {:error, reason, rejected_state}
+      {:error, reason} -> {:error, reason, state}
+    end
+  end
+
   defp redispatch_backend(issue), do: CodingAgent.select_for_dispatch(issue)
 
   defp known_redispatch_backend(issue) do
@@ -282,6 +299,27 @@ defmodule Aiur.Orchestrator.Dispatcher do
     if active_trip?(previous, now_ms) or not is_nil(budget_trip_reason(entry)),
       do: {:error, :thrash_circuit_open},
       else: :ok
+  end
+
+  defp admit_redispatch_thrash_budget(state, issue, now_ms, opts) do
+    previous = Map.get(state.codex_thrash_budget, issue.id)
+    trip = Keyword.get(opts, :trip_fun, &trip_thrash_breaker/2)
+
+    if active_trip?(previous, now_ms) do
+      {:error, :thrash_circuit_open, trip.(state, issue)}
+    else
+      candidate = next_thrash_budget_entry(state, issue.id, now_ms)
+
+      case budget_trip_reason(candidate) do
+        nil ->
+          {:ok, state}
+
+        reason ->
+          tripped = trip_budget_entry(previous, candidate, reason)
+          state = %{state | codex_thrash_budget: Map.put(state.codex_thrash_budget, issue.id, tripped)}
+          {:error, :thrash_circuit_open, trip.(state, issue)}
+      end
+    end
   end
 
   # A backend swap replaces the issue's existing host slot. Exclude that entry
@@ -589,7 +627,12 @@ defmodule Aiur.Orchestrator.Dispatcher do
       case update_state_fun.(issue.identifier, "error") do
         :ok ->
           updated_entry = Map.put(entry, :durable_latch_applied, true)
-          %{state | codex_thrash_budget: Map.put(state.codex_thrash_budget, issue.id, updated_entry)}
+
+          %{
+            state
+            | codex_thrash_budget: Map.put(state.codex_thrash_budget, issue.id, updated_entry),
+              claimed: MapSet.delete(state.claimed, issue.id)
+          }
 
         {:error, reason} ->
           Logger.error("Unable to persist lifetime dispatch latch: issue_id=#{issue.id} issue_identifier=#{issue.identifier} reason=#{inspect(reason)}")

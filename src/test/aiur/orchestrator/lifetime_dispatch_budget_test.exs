@@ -106,6 +106,30 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
   end
 
   @tag config: @enabled
+  test "stateful redispatch admission returns the committed lifetime trip" do
+    issue = %Issue{id: @issue_id, identifier: "repo#lifetime", selected_backend: "claude"}
+
+    state = %Orchestrator.State{
+      codex_thrash_budget: %{
+        @issue_id => %{window_start_ms: 0, count: 1, lifetime: 10}
+      }
+    }
+
+    trip = fn tripped_state, _issue ->
+      update_in(tripped_state.codex_thrash_budget[@issue_id], &Map.put(&1, :trip_observed, true))
+    end
+
+    assert {:error, :thrash_circuit_open, rejected_state} =
+             Dispatcher.admit_redispatch(state, issue, nil,
+               now_ms: @window_ms + 1,
+               trip_fun: trip
+             )
+
+    assert %{tripped: :lifetime, trip_observed: true} =
+             rejected_state.codex_thrash_budget[@issue_id]
+  end
+
+  @tag config: @enabled
   test "a lifetime trip is durably moved to error exactly once" do
     issue = %Issue{id: @issue_id, identifier: "repo#lifetime"}
     state = dispatch_n(%Orchestrator.State{}, 10)

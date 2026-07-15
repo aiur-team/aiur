@@ -70,7 +70,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
                 identifier: running_entry.identifier,
                 tracker_identity: Issue.tracker_identity(Map.get(running_entry, :issue)),
                 delay_type: :continuation,
-                prior_work: Config.agent_prior_work_continuation?(),
+                prior_work: prior_work_for_retry?(running_entry),
                 worker_host: Map.get(running_entry, :worker_host),
                 workspace_path: Map.get(running_entry, :workspace_path)
               })
@@ -85,7 +85,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
                 identifier: running_entry.identifier,
                 tracker_identity: Issue.tracker_identity(Map.get(running_entry, :issue)),
                 error: "agent exited: #{inspect(reason)}",
-                prior_work: Config.agent_prior_work_continuation?(),
+                prior_work: prior_work_for_retry?(running_entry),
                 worker_host: Map.get(running_entry, :worker_host),
                 workspace_path: Map.get(running_entry, :workspace_path)
               })
@@ -118,6 +118,17 @@ defmodule Aiur.Orchestrator.RetryEngine do
         retry_attempts: Map.delete(state.retry_attempts, issue_id)
     }
   end
+
+  @doc false
+  @spec prior_work_for_retry?(map(), boolean()) :: boolean()
+  def prior_work_for_retry?(running_entry, continuation_enabled? \\ Config.agent_prior_work_continuation?())
+      when is_map(running_entry) and is_boolean(continuation_enabled?) do
+    continuation_enabled? and
+      (Map.get(running_entry, :prior_work, false) == true or
+         positive_turn_count?(Map.get(running_entry, :turn_count)))
+  end
+
+  defp positive_turn_count?(turn_count), do: is_integer(turn_count) and turn_count > 0
 
   @doc false
   @spec preserve_running_issue_on_external_error(State.t(), Issue.t()) :: State.t()

@@ -207,7 +207,7 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
         identifier: identifier,
         tracker_identity: Issue.tracker_identity(Map.get(running_entry, :issue)),
         error: "stalled for #{elapsed_ms}ms without codex activity",
-        prior_work: Config.agent_prior_work_continuation?(),
+        prior_work: RetryEngine.prior_work_for_retry?(running_entry),
         worker_host: Map.get(running_entry, :worker_host),
         workspace_path: Map.get(running_entry, :workspace_path)
       })

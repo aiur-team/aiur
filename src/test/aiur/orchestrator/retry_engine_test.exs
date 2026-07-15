@@ -389,4 +389,16 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
       assert Map.has_key?(next_state.retry_attempts, issue.id)
     end
   end
+
+  describe "prior_work_for_retry?/2" do
+    test "does not turn a fresh zero-turn launch failure into prior work" do
+      refute RetryEngine.prior_work_for_retry?(%{prior_work: false, turn_count: 0}, true)
+    end
+
+    test "preserves explicit recycle provenance and completed work" do
+      assert RetryEngine.prior_work_for_retry?(%{prior_work: true, turn_count: 0}, true)
+      assert RetryEngine.prior_work_for_retry?(%{prior_work: false, turn_count: 1}, true)
+      refute RetryEngine.prior_work_for_retry?(%{prior_work: true, turn_count: 1}, false)
+    end
+  end
 end

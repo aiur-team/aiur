@@ -91,22 +91,24 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
         label = CodingAgent.remote_control_alias_label()
         relabeled = add_issue_label(issue, label)
 
-        case redispatch_ready(state, relabeled, opts) do
-          :ok ->
-            promote_trusted_workspace(state, running_entry, relabeled, label, workspace)
+        case redispatch_admission(state, relabeled, opts) do
+          {:ok, admitted_state} ->
+            promote_trusted_workspace(admitted_state, running_entry, relabeled, label, workspace, opts)
 
-          {:error, reason} ->
-            {{:error, reason}, state}
+          {:error, reason, rejected_state} ->
+            {{:error, reason}, rejected_state}
         end
     end
   end
 
   # Trust the workspace before tearing down the current agent. If trust fails
   # RC cannot attach, so abort with the current agent intact.
-  defp promote_trusted_workspace(state, running_entry, relabeled, label, workspace) do
-    case RemoteControl.ensure_workspace_trusted(workspace, remote_control_trust_opts()) do
+  defp promote_trusted_workspace(state, running_entry, relabeled, label, workspace, opts) do
+    trust = Keyword.get(opts, :trust_fun, &RemoteControl.ensure_workspace_trusted/2)
+
+    case trust.(workspace, remote_control_trust_opts()) do
       :ok ->
-        do_promote_to_remote(state, running_entry, relabeled, label)
+        do_promote_to_remote(state, running_entry, relabeled, label, opts)
 
       {:error, reason} ->
         Logger.error("Remote Control promote trust failed: #{rc_log_context(running_entry)} workspace=#{workspace} reason=#{inspect(reason)}")
@@ -115,14 +117,18 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
     end
   end
 
-  defp do_promote_to_remote(state, running_entry, relabeled, label) do
-    case Tracker.add_label(Map.get(running_entry, :identifier), label) do
+  defp do_promote_to_remote(state, running_entry, relabeled, label, opts) do
+    add_label = Keyword.get(opts, :add_label_fun, &Tracker.add_label/2)
+
+    case add_label.(Map.get(running_entry, :identifier), label) do
       :ok ->
-        state = teardown_for_redispatch(state, running_entry)
+        teardown = Keyword.get(opts, :teardown_fun, &teardown_for_redispatch/2)
+        state = teardown.(state, running_entry)
+        state = drop_redispatch_entry(state, relabeled.id)
 
         Logger.info("Remote Control promote; re-dispatching with model:remote: #{rc_log_context(running_entry)}")
 
-        {{:ok, :on}, redispatch_prior_work(state, relabeled)}
+        {{:ok, :on}, redispatch_prior_work(state, relabeled, opts)}
 
       {:error, reason} ->
         Logger.error("Remote Control promote label-add failed: #{rc_log_context(running_entry)} reason=#{inspect(reason)}")
@@ -148,24 +154,28 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
         label = CodingAgent.remote_control_alias_label()
         relabeled = remove_issue_label(issue, label)
 
-        case redispatch_ready(state, relabeled, opts) do
-          :ok ->
-            remove_remote_label_and_redispatch(state, running_entry, relabeled, label)
+        case redispatch_admission(state, relabeled, opts) do
+          {:ok, admitted_state} ->
+            remove_remote_label_and_redispatch(admitted_state, running_entry, relabeled, label, opts)
 
-          {:error, reason} ->
-            {{:error, reason}, state}
+          {:error, reason, rejected_state} ->
+            {{:error, reason}, rejected_state}
         end
     end
   end
 
-  defp remove_remote_label_and_redispatch(state, running_entry, relabeled, label) do
-    case Tracker.remove_label(Map.get(running_entry, :identifier), label) do
+  defp remove_remote_label_and_redispatch(state, running_entry, relabeled, label, opts) do
+    remove_label = Keyword.get(opts, :remove_label_fun, &Tracker.remove_label/2)
+
+    case remove_label.(Map.get(running_entry, :identifier), label) do
       :ok ->
-        state = teardown_for_redispatch(state, running_entry)
+        teardown = Keyword.get(opts, :teardown_fun, &teardown_for_redispatch/2)
+        state = teardown.(state, running_entry)
+        state = drop_redispatch_entry(state, relabeled.id)
 
         Logger.info("Remote Control demote; re-dispatching as default backend: #{rc_log_context(running_entry)}")
 
-        {{:ok, :off}, redispatch_prior_work(state, relabeled)}
+        {{:ok, :off}, redispatch_prior_work(state, relabeled, opts)}
 
       {:error, reason} ->
         Logger.error("Remote Control demote label-remove failed: #{rc_log_context(running_entry)} reason=#{inspect(reason)}")
@@ -174,14 +184,24 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
     end
   end
 
-  defp redispatch_prior_work(state, issue) do
-    Dispatcher.do_dispatch_issue(state, issue, nil, nil, prior_work: Config.agent_prior_work_continuation?())
+  defp redispatch_prior_work(state, issue, opts) do
+    dispatch = Keyword.get(opts, :dispatch_fun, &Dispatcher.do_dispatch_issue/5)
+    dispatch.(state, issue, nil, nil, prior_work: Config.agent_prior_work_continuation?())
   end
 
-  defp redispatch_ready(state, issue, opts) do
-    ready = Keyword.get(opts, :dispatch_ready_fun, &Dispatcher.redispatch_ready?/3)
-    ready.(state, issue, nil)
+  defp redispatch_admission(state, issue, opts) do
+    ready = Keyword.get(opts, :dispatch_ready_fun, &Dispatcher.admit_redispatch/3)
+
+    case ready.(state, issue, nil) do
+      {:ok, admitted_state} -> {:ok, admitted_state}
+      :ok -> {:ok, state}
+      {:error, reason, rejected_state} -> {:error, reason, rejected_state}
+      {:error, reason} -> {:error, reason, state}
+    end
   end
+
+  defp drop_redispatch_entry(state, issue_id),
+    do: %{state | running: Map.delete(state.running, issue_id)}
 
   # Stop the current agent cleanly so the same issue can be re-dispatched under
   # a different backend. Mirrors `terminate_running_issue/3`'s task-teardown

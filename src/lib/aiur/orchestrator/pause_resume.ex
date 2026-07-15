@@ -300,7 +300,9 @@ defmodule Aiur.Orchestrator.PauseResume do
     end
   end
 
-  defp dispatch_completed_replacement(state, running_entry, issue) do
+  @doc false
+  @spec dispatch_completed_replacement(State.t(), map(), Issue.t(), keyword()) :: State.t()
+  def dispatch_completed_replacement(state, running_entry, issue, opts \\ []) do
     running_entry = normalize_completed_entry(running_entry, issue)
 
     state =
@@ -310,11 +312,19 @@ defmodule Aiur.Orchestrator.PauseResume do
 
     worker_host = Map.get(running_entry, :worker_host)
 
-    with true <- Slots.dispatch_slots_available?(issue, state),
-         :ok <- Dispatcher.redispatch_ready?(state, issue, worker_host) do
-      replace_completed_entry(state, running_entry, issue, worker_host)
+    if Slots.dispatch_slots_available?(issue, state) do
+      admit = Keyword.get(opts, :admit_fun, &Dispatcher.admit_redispatch/3)
+      replace = Keyword.get(opts, :replace_fun, &replace_completed_entry/4)
+
+      case admit.(state, issue, worker_host) do
+        {:ok, admitted_state} ->
+          replace.(admitted_state, running_entry, issue, worker_host)
+
+        {:error, _reason, rejected_state} ->
+          rejected_state
+      end
     else
-      _declined -> state
+      state
     end
   end
 

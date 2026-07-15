@@ -67,6 +67,26 @@ defmodule Aiur.Orchestrator.RemoteControlModeTest do
              )
   end
 
+  test "failed promotion redispatch does not leave the torn-down entry consuming a slot" do
+    issue = %Issue{id: "1", identifier: "repo#1", labels: ["model:codex"]}
+    entry = running_entry(issue)
+    state = %Aiur.Orchestrator.State{running: %{issue.id => entry}}
+
+    assert {{:ok, :on}, next_state} =
+             RemoteControlMode.set_remote_control_reply(state, issue.identifier, true,
+               dashboard_url_fun: fn -> "http://localhost:4000" end,
+               dispatch_ready_fun: fn admitted_state, _relabeled, nil ->
+                 {:ok, admitted_state}
+               end,
+               trust_fun: fn _workspace, _opts -> :ok end,
+               add_label_fun: fn _identifier, _label -> :ok end,
+               teardown_fun: fn current_state, _running_entry -> current_state end,
+               dispatch_fun: fn dispatch_state, _issue, nil, nil, _opts -> dispatch_state end
+             )
+
+    refute Map.has_key?(next_state.running, issue.id)
+  end
+
   defp running_entry(issue) do
     %{
       identifier: issue.identifier,
