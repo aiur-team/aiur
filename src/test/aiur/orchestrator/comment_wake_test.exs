@@ -1,6 +1,7 @@
 defmodule Aiur.Orchestrator.CommentWakeTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.{Issue, TrackerIdentity}
   alias Aiur.Orchestrator.{CommentWake, State}
 
   defp base_state do
@@ -109,5 +110,56 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       result = CommentWake.mark_pr_merged_issue_done(state, "nonexistent-123")
       assert result == state
     end
+
+    test "records completed membership before terminating a merged running issue" do
+      issue = %Issue{
+        id: "issue-pr-merged",
+        identifier: "42",
+        state: "in-progress",
+        tracker_identity: tracker_identity("42")
+      }
+
+      state = %{
+        base_state()
+        | running: %{
+            issue.id => %{pid: nil, ref: nil, identifier: issue.identifier, issue: issue}
+          },
+          claimed: MapSet.new([issue.id])
+      }
+
+      parent = self()
+      identity = issue.tracker_identity
+
+      result =
+        CommentWake.mark_pr_merged_issue_done(state, issue.identifier,
+          update_issue_state_fun: fn _identifier, "done" -> :ok end,
+          clear_session_handle_fun: fn _identifier -> :ok end,
+          observe_membership_fun: fn identity, lifecycle ->
+            send(parent, {:membership_recorded, identity, lifecycle})
+            :ok
+          end,
+          set_terminal_verification_pending_fun: fn _identity, _pending? -> :ok end,
+          terminate_running_issue_fun: fn current_state, issue_id, true ->
+            assert_receive {:membership_recorded, ^identity, :completed}
+            %{current_state | running: Map.delete(current_state.running, issue_id), claimed: MapSet.new()}
+          end
+        )
+
+      refute Map.has_key?(result.running, issue.id)
+      refute MapSet.member?(result.claimed, issue.id)
+    end
+  end
+
+  defp tracker_identity(identifier) do
+    %TrackerIdentity{
+      version: 1,
+      status: :joinable,
+      kind: :github,
+      owner: "owner",
+      repository: "repository",
+      provider_id: "I-#{identifier}",
+      identifier: identifier,
+      reason: nil
+    }
   end
 end

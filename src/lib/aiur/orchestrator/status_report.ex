@@ -142,6 +142,7 @@ defmodule Aiur.Orchestrator.StatusReport do
     capabilities = OM.issue_control_capabilities(state, metadata.identifier)
     work_state = get_in(metadata, [:control, :status]) || :working
     pause_reason = Map.get(metadata, :paused_reason)
+    started_at = Map.get(metadata, :started_at)
     stale_for_seconds = stale_for_seconds(metadata, now)
     open_decision_count = open_decision_count(metadata.identifier)
 
@@ -165,23 +166,23 @@ defmodule Aiur.Orchestrator.StatusReport do
       url: Map.get(metadata.issue, :url),
       worker_host: Map.get(metadata, :worker_host),
       workspace_path: Map.get(metadata, :workspace_path),
-      session_id: metadata.session_id,
-      codex_app_server_pid: metadata.codex_app_server_pid,
-      agent_input_tokens: metadata.agent_input_tokens,
-      agent_output_tokens: metadata.agent_output_tokens,
-      agent_total_tokens: metadata.agent_total_tokens,
+      session_id: Map.get(metadata, :session_id),
+      codex_app_server_pid: Map.get(metadata, :codex_app_server_pid),
+      agent_input_tokens: Map.get(metadata, :agent_input_tokens, 0),
+      agent_output_tokens: Map.get(metadata, :agent_output_tokens, 0),
+      agent_total_tokens: Map.get(metadata, :agent_total_tokens, 0),
       turn_count: Map.get(metadata, :turn_count, 0),
-      started_at: metadata.started_at,
-      last_codex_timestamp: metadata.last_codex_timestamp,
-      last_codex_message: metadata.last_codex_message,
-      last_codex_event: metadata.last_codex_event,
+      started_at: started_at,
+      last_codex_timestamp: Map.get(metadata, :last_codex_timestamp),
+      last_codex_message: Map.get(metadata, :last_codex_message),
+      last_codex_event: Map.get(metadata, :last_codex_event),
       work_state: work_state,
       pause_reason: pause_reason,
       tracker_paused: Issue.paused?(metadata.issue),
       queue_depth: capabilities.queue_depth,
       pending_operator_messages: OM.pending_operator_messages_for_issue(state, metadata.identifier),
       control: capabilities,
-      runtime_seconds: State.running_seconds(metadata.started_at, now),
+      runtime_seconds: State.running_seconds(started_at, now),
       stale_for_seconds: stale_for_seconds,
       waiting_reason: waiting_reason,
       open_decision_count: open_decision_count,

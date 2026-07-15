@@ -11,6 +11,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
       refute RetryEngine.failure_retry?(%{delay_type: :continuation})
       refute RetryEngine.failure_retry?(%{delay_type: :capacity_wait})
       refute RetryEngine.failure_retry?(%{delay_type: :precondition})
+      refute RetryEngine.failure_retry?(%{delay_type: :terminal_verification})
     end
 
     test "returns true for failure-counted retries" do
@@ -438,6 +439,122 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
       assert result.running[issue_id].marker == :preserved
       assert result.running[issue_id].control.status == :working
       assert result.claimed == state.claimed
+    end
+  end
+
+  describe "handle_retry_issue_lookup/6" do
+    test "fetches and records a terminal retry ticket when active candidates omit it" do
+      terminal = %Issue{
+        id: "issue-terminal",
+        identifier: "27",
+        state: "done",
+        tracker_identity: tracker_identity("27")
+      }
+
+      state = %State{claimed: MapSet.new([terminal.id])}
+      parent = self()
+      identity = terminal.tracker_identity
+
+      assert {:ok, ^terminal} =
+               RetryEngine.fetch_retry_issue([], terminal.id, fn ["issue-terminal"] ->
+                 {:ok, [terminal]}
+               end)
+
+      assert {:noreply, next_state} =
+               RetryEngine.handle_retry_issue_lookup(
+                 terminal,
+                 state,
+                 terminal.id,
+                 1,
+                 %{worker_host: nil},
+                 terminal_states: MapSet.new(["done"]),
+                 observe_membership_fun: fn identity, lifecycle ->
+                   send(parent, {:membership_recorded, identity, lifecycle})
+                   :ok
+                 end,
+                 set_terminal_verification_pending_fun: fn _identity, _pending? -> :ok end,
+                 cleanup_terminal_issue_artifacts_fun: fn _identifier, _worker_host ->
+                   assert_receive {:membership_recorded, ^identity, :completed}
+                   :ok
+                 end
+               )
+
+      refute MapSet.member?(next_state.claimed, terminal.id)
+    end
+
+    test "reports a failed by-id retry lookup instead of releasing the claim" do
+      assert {:error, :temporarily_unavailable} =
+               RetryEngine.fetch_retry_issue([], "issue-terminal", fn ["issue-terminal"] ->
+                 {:error, :temporarily_unavailable}
+               end)
+    end
+
+    test "records terminal membership before cleanup and claim release" do
+      issue = %Issue{
+        id: "issue-terminal",
+        identifier: "27",
+        state: "done",
+        tracker_identity: tracker_identity("27")
+      }
+
+      state = %State{claimed: MapSet.new([issue.id])}
+      parent = self()
+      identity = issue.tracker_identity
+
+      assert {:noreply, next_state} =
+               RetryEngine.handle_retry_issue_lookup(
+                 issue,
+                 state,
+                 issue.id,
+                 1,
+                 %{worker_host: nil},
+                 terminal_states: MapSet.new(["done"]),
+                 observe_membership_fun: fn identity, lifecycle ->
+                   send(parent, {:membership_recorded, identity, lifecycle})
+                   :ok
+                 end,
+                 cleanup_terminal_issue_artifacts_fun: fn _identifier, _worker_host ->
+                   assert_receive {:membership_recorded, ^identity, :completed}
+                   :ok
+                 end
+               )
+
+      refute MapSet.member?(next_state.claimed, issue.id)
+    end
+
+    test "retains a terminal retry claim when membership persistence fails" do
+      issue = %Issue{
+        id: "issue-terminal",
+        identifier: "27",
+        state: "done",
+        tracker_identity: tracker_identity("27")
+      }
+
+      parent = self()
+      state = %State{claimed: MapSet.new([issue.id])}
+
+      assert {:noreply, next_state} =
+               RetryEngine.handle_retry_issue_lookup(
+                 issue,
+                 state,
+                 issue.id,
+                 1,
+                 %{worker_host: nil},
+                 terminal_states: MapSet.new(["done"]),
+                 observe_membership_fun: fn _identity, _lifecycle -> {:error, :disk_full} end,
+                 mark_reconciled_fun: fn status -> send(parent, {:freshness, status}) end,
+                 set_terminal_verification_pending_fun: fn _identity, pending? ->
+                   send(parent, {:terminal_verification_pending, pending?})
+                 end,
+                 cleanup_terminal_issue_artifacts_fun: fn _identifier, _worker_host ->
+                   flunk("must not clean up before terminal membership persists")
+                 end
+               )
+
+      assert_receive {:freshness, :unavailable}
+      assert_receive {:terminal_verification_pending, true}
+      assert MapSet.member?(next_state.claimed, issue.id)
+      assert Map.has_key?(next_state.retry_attempts, issue.id)
     end
   end
 end
