@@ -297,7 +297,14 @@ defmodule Aiur.ProviderAccountGenerationTest do
 
   test "retiring final bindings prevents resurrection and bounds retained tombstones" do
     name = :provider_account_generation_tombstone_recovery_test
-    {:ok, owner} = ProviderAccountGeneration.start_link(name: name, mint: sequence_mint(self()), tombstone_limit: 2, clock: fn -> @clock end)
+
+    {:ok, owner} =
+      ProviderAccountGeneration.start_link(
+        name: name,
+        mint: sequence_mint(self()),
+        tombstone_limit: 2,
+        clock: fn -> @clock end
+      )
 
     on_exit(fn -> stop_named_owner(name) end)
 
@@ -335,7 +342,14 @@ defmodule Aiur.ProviderAccountGenerationTest do
     refute Map.has_key?(tombstones, {:codex, :app_server, oldest.binding})
 
     GenServer.stop(owner)
-    {:ok, replacement_owner} = ProviderAccountGeneration.start_link(name: name, mint: sequence_mint(self()), tombstone_limit: 2, clock: fn -> @clock end)
+
+    {:ok, replacement_owner} =
+      ProviderAccountGeneration.start_link(
+        name: name,
+        mint: sequence_mint(self()),
+        tombstone_limit: 2,
+        clock: fn -> @clock end
+      )
 
     assert {:error, :owner_unavailable} =
              ProviderAccountGeneration.recover_binding(replacement_owner, :codex, :app_server, oldest)
@@ -401,7 +415,8 @@ defmodule Aiur.ProviderAccountGenerationTest do
   test "recovery rejects a caller-invented binding capability", %{owner: owner} do
     invented = %{binding: make_ref(), authority: make_ref(), topic: "provider-account-generation:invented"}
 
-    assert {:error, :owner_unavailable} = ProviderAccountGeneration.recover_binding(owner, :codex, :app_server, invented)
+    assert {:error, :owner_unavailable} =
+             ProviderAccountGeneration.recover_binding(owner, :codex, :app_server, invented)
 
     assert {:ok, %{generation: nil, reason: :owner_unavailable}} =
              ProviderAccountGeneration.bind(owner, :codex, :app_server, invented,

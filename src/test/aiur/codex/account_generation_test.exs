@@ -346,7 +346,8 @@ defmodule Aiur.Codex.AccountGenerationTest do
 
     assert {:redacted, _} = AccountGeneration.handle_notification(session, "account/updated", %{"params" => %{"authMode" => "chatgpt"}})
 
-    assert_receive {:provider_account_generation_changed, %{change: :rotated, generation: replacement_generation}}, 2_000
+    assert_receive {:provider_account_generation_changed, %{change: :rotated, generation: replacement_generation}},
+                   2_000
 
     refute replacement_generation == first_generation
   end

@@ -13,9 +13,9 @@ defmodule Aiur.Codex.CodingAgent do
     Handshake,
     Interrupts,
     OperatorDelivery,
+    SessionLifecycle,
     TurnEvents,
-    TurnLoop,
-    SessionLifecycle
+    TurnLoop
   }
 
   alias Aiur.Config

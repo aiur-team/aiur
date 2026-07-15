@@ -19,16 +19,15 @@ defmodule Aiur.Codex.AccountGeneration.Context do
   end
 
   @spec fetch(map()) :: {:ok, GenServer.server(), reference(), reference(), String.t()} | :error
-  def fetch(session) do
-    with {:ok, context} <- Map.fetch(session, :account_generation_context),
-         true <- is_reference(context),
-         {:ok, %{binding: binding, authority: authority, topic: topic}} <- current(context),
-         true <- is_reference(binding) and is_reference(authority) and is_binary(topic) do
+  def fetch(%{account_generation_context: context} = session) when is_reference(context) do
+    with {:ok, %{binding: binding, authority: authority, topic: topic}} <- current(context) do
       {:ok, Map.get(session, :account_generation_server, ProviderAccountGeneration), binding, authority, topic}
     else
       _ -> :error
     end
   end
+
+  def fetch(_session), do: :error
 
   @spec clear(map()) :: :ok
   def clear(%{account_generation_context: context}) when is_reference(context) do

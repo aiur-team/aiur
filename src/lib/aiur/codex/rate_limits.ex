@@ -43,34 +43,33 @@ defmodule Aiur.Codex.RateLimits do
   end
 
   defp add_buckets(safe_limits, rate_limits) do
-    Enum.reduce(["primary", "secondary", "hourly", "weekly", "monthly"], safe_limits, fn bucket, acc ->
-      case get(rate_limits, bucket) do
-        {:ok, value} when is_map(value) ->
-          case value |> safe_fields(@bucket_fields, &safe_bucket_value?/2) |> present_or_nil() do
-            nil -> acc
-            safe_bucket -> Map.put(acc, bucket, safe_bucket)
-          end
+    Enum.reduce(["primary", "secondary", "hourly", "weekly", "monthly"], safe_limits, &add_bucket(&2, &1, rate_limits))
+  end
 
-        _ ->
-          acc
-      end
-    end)
+  defp add_bucket(acc, bucket, rate_limits) do
+    with {:ok, value} when is_map(value) <- get(rate_limits, bucket),
+         safe_bucket when not is_nil(safe_bucket) <-
+           value |> safe_fields(@bucket_fields, &safe_bucket_value?/2) |> present_or_nil() do
+      Map.put(acc, bucket, safe_bucket)
+    else
+      _ -> acc
+    end
   end
 
   defp safe_fields(values, fields, valid?) do
     Enum.reduce(fields, %{}, fn {name, atom_name}, acc ->
-      case get(values, name, atom_name) do
-        {:ok, value} ->
-          case valid?.(name, value) do
-            {:ok, safe_value} -> Map.put(acc, name, safe_value)
-            :error -> acc
-          end
-
-        :error ->
-          acc
-      end
+      put_safe_field(acc, name, get(values, name, atom_name), valid?)
     end)
   end
+
+  defp put_safe_field(acc, name, {:ok, value}, valid?) do
+    case valid?.(name, value) do
+      {:ok, safe_value} -> Map.put(acc, name, safe_value)
+      :error -> acc
+    end
+  end
+
+  defp put_safe_field(acc, _name, :error, _valid?), do: acc
 
   defp safe_top_level_value?("limited", value) when is_boolean(value), do: {:ok, value}
   defp safe_top_level_value?("limited", _value), do: :error

@@ -1,8 +1,8 @@
 defmodule Aiur.Codex.AccountGeneration do
   @moduledoc false
 
+  alias Aiur.Codex.{AccountGeneration.Context, RateLimits}
   alias Aiur.ProviderAccountGeneration
-  alias Aiur.Codex.{RateLimits, AccountGeneration.Context}
 
   @account_updated "account/updated"
   @token_refresh "account/chatgptAuthTokens/refresh"
@@ -118,15 +118,13 @@ defmodule Aiur.Codex.AccountGeneration do
     :ok
   end
 
-  defp recover_retained_binding(server, binding, authority, topic) when is_binary(topic) do
+  defp recover_retained_binding(server, binding, authority, topic) do
     ProviderAccountGeneration.recover_binding(server, :codex, :app_server, %{
       binding: binding,
       authority: authority,
       topic: topic
     })
   end
-
-  defp recover_retained_binding(_server, _binding, _authority, _topic), do: :ok
 
   defp account_updated_auth_mode(%{"params" => %{"authMode" => nil}}), do: :logout
 

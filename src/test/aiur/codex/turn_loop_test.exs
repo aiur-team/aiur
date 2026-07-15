@@ -3,9 +3,9 @@ defmodule Aiur.Codex.TurnLoopTest do
 
   import ExUnit.CaptureLog
 
-  alias Aiur.{Issue, ModelAvailability, ProviderAccountGeneration}
   alias Aiur.AgentRunner.MessageHandler
   alias Aiur.Codex.{AccountGeneration, CodingAgent, TurnLoop}
+  alias Aiur.{Issue, ModelAvailability, ProviderAccountGeneration}
 
   describe "handle_method/5 terminal turn events" do
     test "turn/completed emits before completing the turn" do

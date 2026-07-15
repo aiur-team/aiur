@@ -37,25 +37,28 @@ defmodule Aiur.AppServer.Rpc.SensitiveResponses do
   def discard?(port, data) when is_port(port) do
     case take_partial(port) do
       :none ->
-        case response_id(data) do
-          {:ok, request_id} ->
-            if MapSet.member?(ids(), {port, request_id}) do
-              ids() |> MapSet.delete({port, request_id}) |> put_ids()
-              true
-            else
-              false
-            end
-
-          :not_a_response ->
-            false
-
-          :malformed ->
-            malformed_sensitive_response?(port, data)
-        end
+        discard_response(port, data)
 
       {:ok, request_id} ->
         ids() |> MapSet.delete({port, request_id}) |> put_ids()
         true
+    end
+  end
+
+  defp discard_response(port, data) do
+    case response_id(data) do
+      {:ok, request_id} -> discard_retained_response?(port, request_id)
+      :not_a_response -> false
+      :malformed -> malformed_sensitive_response?(port, data)
+    end
+  end
+
+  defp discard_retained_response?(port, request_id) do
+    if MapSet.member?(ids(), {port, request_id}) do
+      ids() |> MapSet.delete({port, request_id}) |> put_ids()
+      true
+    else
+      false
     end
   end
 

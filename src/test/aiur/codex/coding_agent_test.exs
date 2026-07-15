@@ -2,7 +2,7 @@ defmodule Aiur.Codex.CodingAgentTest do
   use ExUnit.Case, async: true
 
   alias Aiur.AppServer.Rpc, as: AppServerRpc
-  alias Aiur.Codex.{CodingAgent, Frames, Handshake}
+  alias Aiur.Codex.{AccountGeneration, CodingAgent, Frames, Handshake}
   alias Aiur.Codex.Rpc, as: CodexRpc
   alias Aiur.ProviderAccountGeneration
 
@@ -188,7 +188,7 @@ defmodule Aiur.Codex.CodingAgentTest do
         )
 
       {:ok, owner} = ProviderAccountGeneration.start_link(name: nil)
-      account_generation = Aiur.Codex.AccountGeneration.new_binding(owner)
+      account_generation = AccountGeneration.new_binding(owner)
       test_pid = self()
 
       session = %{
@@ -206,7 +206,12 @@ defmodule Aiur.Codex.CodingAgentTest do
       }
 
       assert {:ok, %{result: :turn_completed}} =
-               CodingAgent.run_turn(session, "prompt", %{id: "gid-pre-turn", identifier: "DASH-018", title: "test"}, on_message: fn message -> send(test_pid, {:turn_message, message}) end)
+               CodingAgent.run_turn(
+                 session,
+                 "prompt",
+                 %{id: "gid-pre-turn", identifier: "DASH-018", title: "test"},
+                 on_message: fn message -> send(test_pid, {:turn_message, message}) end
+               )
 
       assert_receive {:turn_message,
                       notification = %{

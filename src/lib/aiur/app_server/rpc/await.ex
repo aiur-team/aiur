@@ -8,10 +8,26 @@ defmodule Aiur.AppServer.Rpc.Await do
   def response(port, request_id, timeout_ms, pending_line, backend_label, on_notification, sensitive_response?) do
     receive do
       {^port, {:data, {:eol, chunk}}} ->
-        handle_eol(port, request_id, timeout_ms, pending_line <> to_string(chunk), backend_label, on_notification, sensitive_response?)
+        handle_eol(
+          port,
+          request_id,
+          timeout_ms,
+          pending_line <> to_string(chunk),
+          backend_label,
+          on_notification,
+          sensitive_response?
+        )
 
       {^port, {:data, {:noeol, chunk}}} ->
-        response(port, request_id, timeout_ms, pending_line <> to_string(chunk), backend_label, on_notification, sensitive_response?)
+        response(
+          port,
+          request_id,
+          timeout_ms,
+          pending_line <> to_string(chunk),
+          backend_label,
+          on_notification,
+          sensitive_response?
+        )
 
       {^port, {:exit_status, status}} ->
         {:error, {:port_exit, status}}
@@ -26,7 +42,15 @@ defmodule Aiur.AppServer.Rpc.Await do
       log_discarded_sensitive_response(complete_line, backend_label)
       response(port, request_id, timeout_ms, "", backend_label, on_notification, sensitive_response?)
     else
-      Rpc.handle_response(port, request_id, complete_line, timeout_ms, backend_label, on_notification, sensitive_response?)
+      Rpc.handle_response(
+        port,
+        request_id,
+        complete_line,
+        timeout_ms,
+        backend_label,
+        on_notification,
+        sensitive_response?
+      )
     end
   end
 
