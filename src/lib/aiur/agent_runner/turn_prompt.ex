@@ -9,10 +9,10 @@ defmodule Aiur.AgentRunner.TurnPrompt do
   @doc false
   @spec build_turn_prompt(Issue.t(), keyword(), pos_integer(), pos_integer() | nil) :: String.t()
   def build_turn_prompt(issue, opts, 1, _max_turns) do
-    if Keyword.get(opts, :resumed, false) do
-      resumed_turn_prompt()
-    else
-      PromptBuilder.build_prompt(issue, opts)
+    cond do
+      Keyword.get(opts, :resumed, false) -> resumed_turn_prompt()
+      rework_state?(issue.state) -> rework_turn_prompt()
+      true -> PromptBuilder.build_prompt(issue, opts)
     end
   end
 
@@ -46,4 +46,31 @@ defmodule Aiur.AgentRunner.TurnPrompt do
     - Do not end the turn while the issue stays active unless you are truly blocked.
     """
   end
+
+  # First-turn prompt for a ticket dispatched cold in `rework`. The prior run
+  # already brainstormed, planned, and implemented this ticket; it is back only
+  # to address review feedback. When the codex thread is resumable the caller
+  # takes the `:resumed` branch above (full prior context intact); this branch
+  # is the cold-rework case, where replaying the full cold-start prompt would
+  # re-run brainstorm/plan the ticket has already done — the biggest quota sink.
+  defp rework_turn_prompt do
+    """
+    Continuation guidance (this issue is in rework):
+
+    - This ticket was already brainstormed, planned, and implemented in a prior run; it is back in `rework` only to address review feedback. Do NOT re-run ce-brainstorm or ce-plan and do not restart the ticket from scratch.
+    - Read the existing `## Agent Workpad` and the unresolved PR review feedback, then make the specific changes the review asks for.
+    - Reconcile against the current workspace and workpad state before acting; a few things may have changed since the prior run.
+    - You may revise the prior plan only if the review makes that approach wrong — and if you do, record why in the `## Agent Workpad` before changing course.
+    - If manual `scripts/aiurdev --test` / `--test3` is blocked inside this agent workspace, stop that verification path and report it; do not retry from `/tmp`, a copied harness, or another clone.
+    - Do not end the turn while the issue stays active unless you are truly blocked.
+    """
+  end
+
+  @spec rework_state?(term()) :: boolean()
+  defp rework_state?(state) when is_binary(state) do
+    normalized = String.downcase(state)
+    normalized == "rework" or normalized == "agent:rework"
+  end
+
+  defp rework_state?(_state), do: false
 end
