@@ -79,11 +79,17 @@ When you start working on a ticket, Aiur automatically subscribes you to:
 - `system.<default-branch>.branch.push` — pushes to the repo's default branch
 - (After `aiur_declare_blocker(N)`:) a useful subset of `ticket.N.*` events — the blocker's progress, decisions, branch pushes, and unblock signals
 
-For a declared blocker, `ticket.N.branch.push` is an action cue. Load
-`stub-then-fetch.md`, fetch the actual validated ref from the event payload (never a guessed `origin/aiur/N`; use `scripts/resolve-ticket-branch N` when no event ref is available), inspect the pushed diff/exports, and
-stack on the branch when it contains the needed API. Treat an irrelevant push and
-a usable push differently: record the concrete inspected reason if it is still
-unusable; remove any temporary stub and rebase/merge when it is usable.
+For a declared blocker, `ticket.N.agent.unblocked` is the readiness signal that
+resumes a parked consumer through the mid-turn checkpoint drain. Load
+`stub-then-fetch.md`, then use the latest `ticket.N.branch.push` payload only to
+fetch and inspect its validated ref (never a guessed `origin/aiur/N`; use
+`scripts/resolve-ticket-branch N` when no event ref is available). Do not infer
+readiness from `branch.push` alone. Record the concrete inspected reason if the
+explicitly-unblocked dependency is still unusable; otherwise remove any
+temporary stub and stack on the blocker branch.
+
+`blocked` and `unblocked` are required single-attempt, fire-and-forget emissions:
+enqueue each once and continue without waiting, polling, or retrying.
 
 So you only need explicit `aiur_subscribe` for **watch use cases** — e.g., tracking a sibling ticket that isn't a blocker.
 

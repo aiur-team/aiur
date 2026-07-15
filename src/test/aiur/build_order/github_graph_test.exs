@@ -1118,56 +1118,83 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
              GitHubGraph.fetch_catalog(base_opts(malformed_extension_catalog))
   end
 
-  test "the Client facade retains graph contracts and body-free queries" do
-    configured_repository = {"test-org", "test-repo"}
-    root = root(1, "test-org", "test-repo")
+  describe "public repository authority" do
+    setup do
+      previous_workflow_file_path = Application.get_env(:aiur, :workflow_file_path)
+      fixture = Path.expand("../../fixtures/test.aiurconfig", __DIR__)
 
-    request_fun = fn %{body: %{"query" => query}} ->
-      refute query =~ "body"
-      selected_response(root, [], 0)
+      Application.put_env(:aiur, :workflow_file_path, fixture)
+      Aiur.WorkflowStore.force_reload()
+
+      on_exit(fn ->
+        case previous_workflow_file_path do
+          nil -> Application.delete_env(:aiur, :workflow_file_path)
+          path -> Application.put_env(:aiur, :workflow_file_path, path)
+        end
+
+        if Process.whereis(Aiur.WorkflowStore) do
+          try do
+            Aiur.WorkflowStore.force_reload()
+          catch
+            :exit, _reason -> :ok
+          end
+        end
+      end)
+
+      :ok
     end
 
-    assert {:ok, %{candidate: %{root: %{identity: selected_identity}}}} =
-             Client.fetch_build_order_selected_root(identity(root, configured_repository), public_opts(request_fun))
+    test "the Client facade retains graph contracts and body-free queries" do
+      configured_repository = {"test-org", "test-repo"}
+      root = root(1, "test-org", "test-repo")
 
-    assert selected_identity == identity(root, configured_repository)
+      request_fun = fn %{body: %{"query" => query}} ->
+        refute query =~ "body"
+        selected_response(root, [], 0)
+      end
 
-    catalog_request_fun = fn %{body: %{"query" => query}} ->
-      refute query =~ "body"
-      catalog_response([], 0)
+      assert {:ok, %{candidate: %{root: %{identity: selected_identity}}}} =
+               Client.fetch_build_order_selected_root(identity(root, configured_repository), public_opts(request_fun))
+
+      assert selected_identity == identity(root, configured_repository)
+
+      catalog_request_fun = fn %{body: %{"query" => query}} ->
+        refute query =~ "body"
+        catalog_response([], 0)
+      end
+
+      assert {:ok, %{candidate: %{entries: []}}} =
+               Client.fetch_build_order_catalog(public_opts(catalog_request_fun))
     end
 
-    assert {:ok, %{candidate: %{entries: []}}} =
-             Client.fetch_build_order_catalog(public_opts(catalog_request_fun))
-  end
+    test "public graph reads derive their authority from validated configuration" do
+      foreign_request = fn _request -> flunk("foreign authority must not reach GitHub") end
 
-  test "public graph reads derive their authority from validated configuration" do
-    foreign_request = fn _request -> flunk("foreign authority must not reach GitHub") end
-
-    assert {:error, %{error: :invalid_planning_authority, calls: 0, pages: 0}} =
-             ProductionGraph.fetch_catalog(repository: {"foreign-owner", "foreign-repo"}, request_fun: foreign_request)
-
-    for invalid_bound <- [[root_limit: 1], [page_budget: 1], [call_budget: 1]] do
       assert {:error, %{error: :invalid_planning_authority, calls: 0, pages: 0}} =
-               ProductionGraph.fetch_catalog(Keyword.put(invalid_bound, :request_fun, foreign_request))
+               ProductionGraph.fetch_catalog(repository: {"foreign-owner", "foreign-repo"}, request_fun: foreign_request)
+
+      for invalid_bound <- [[root_limit: 1], [page_budget: 1], [call_budget: 1]] do
+        assert {:error, %{error: :invalid_planning_authority, calls: 0, pages: 0}} =
+                 ProductionGraph.fetch_catalog(Keyword.put(invalid_bound, :request_fun, foreign_request))
+      end
+
+      root = root(1, "test-org", "test-repo")
+
+      configured_request = fn %{body: %{"variables" => variables}} ->
+        assert variables["owner"] == "test-org"
+        assert variables["repo"] == "test-repo"
+        catalog_response([root], 1)
+      end
+
+      assert {:ok, %{candidate: %{entries: [_entry]}}} =
+               ProductionGraph.fetch_catalog(
+                 repository: {"TEST-ORG", "TEST-REPO"},
+                 root_limit: 100,
+                 page_budget: 4,
+                 call_budget: 4,
+                 request_fun: configured_request
+               )
     end
-
-    root = root(1, "test-org", "test-repo")
-
-    configured_request = fn %{body: %{"variables" => variables}} ->
-      assert variables["owner"] == "test-org"
-      assert variables["repo"] == "test-repo"
-      catalog_response([root], 1)
-    end
-
-    assert {:ok, %{candidate: %{entries: [_entry]}}} =
-             ProductionGraph.fetch_catalog(
-               repository: {"TEST-ORG", "TEST-REPO"},
-               root_limit: 100,
-               page_budget: 4,
-               call_budget: 4,
-               request_fun: configured_request
-             )
   end
 
   defp base_opts(response_or_request_fun, overrides \\ []) do

@@ -136,8 +136,8 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
       # pause.request because it declared a blocker and has nothing to
       # do until the blocker emits. The stall watchdog must not
       # interpret deliberate idleness as a stuck codex stream. The
-      # auto-resume hook in handle_info({:event, ...}) will reawaken
-      # the entry when its blocker pushes; if no push ever arrives, an
+      # explicit-unblocked auto-resume hook in handle_info({:event, ...})
+      # will reawaken the entry when its blocker emits readiness. If no signal
       # Executor-driven resume (label flip or chat) is the path
       # forward, not a restart that throws away the agent's workpad.
       State.paused_running_entry?(running_entry) ->

@@ -226,6 +226,20 @@ defmodule Aiur.ApplicationTest do
       end
     end
 
+    test "branch ref persistence loads before the orchestrator" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        mods = modules(AiurApp.child_specs(opts))
+        ref_store = Enum.find_index(mods, &(&1 == Aiur.Events.BranchRefStore))
+        orchestrator = Enum.find_index(mods, &(&1 == Aiur.Orchestrator))
+
+        assert ref_store < orchestrator,
+               "BranchRefStore must precede Orchestrator for #{inspect(opts)}"
+      end
+    end
+
     test "debug mode inserts telemetry after Exchange and before Publisher in both shapes" do
       for opts <- [
             [interactive_cli?: true, headless?: false, dashboard?: true, debug?: true],
