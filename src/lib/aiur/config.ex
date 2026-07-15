@@ -266,6 +266,21 @@ defmodule Aiur.Config do
     ]
   end
 
+  @doc false
+  @spec build_order_graph_projection_options() :: keyword()
+  def build_order_graph_projection_options do
+    build_order = settings!().build_order
+
+    [
+      catalog_refresh_ms: build_order.graph_catalog_refresh_ms,
+      selected_refresh_ms: build_order.graph_selected_refresh_ms,
+      demand_refresh_ms: build_order.graph_demand_refresh_ms,
+      refresh_timeout_ms: build_order.graph_refresh_timeout_ms,
+      max_selected_roots: build_order.graph_max_selected_roots,
+      max_inflight: build_order.graph_max_inflight
+    ]
+  end
+
   @spec workspace_hooks() :: map()
   def workspace_hooks do
     hooks = settings!().hooks

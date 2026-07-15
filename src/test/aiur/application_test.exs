@@ -94,6 +94,7 @@ defmodule Aiur.ApplicationTest do
       Aiur.PauseContainment,
       Aiur.AgentResourceGuard,
       Aiur.BuildOrder.TicketDetailCache,
+      Aiur.BuildOrder.GraphProjection,
       Aiur.AppServer.ToolCallLedger,
       Aiur.ProviderAccountGeneration,
       Aiur.DecisionMetrics.Writer,
@@ -178,6 +179,21 @@ defmodule Aiur.ApplicationTest do
 
         assert task_supervisor < detail_cache, "Task.Supervisor must precede ticket detail cache for #{inspect(opts)}"
         assert workflow_store < detail_cache, "WorkflowStore must precede ticket detail cache for #{inspect(opts)}"
+      end
+    end
+
+    test "graph projection starts after its task and workflow dependencies" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        mods = modules(AiurApp.child_specs(opts))
+        task_supervisor = Enum.find_index(mods, &(&1 == Task.Supervisor))
+        workflow_store = Enum.find_index(mods, &(&1 == Aiur.WorkflowStore))
+        projection = Enum.find_index(mods, &(&1 == Aiur.BuildOrder.GraphProjection))
+
+        assert task_supervisor < projection, "Task.Supervisor must precede graph projection for #{inspect(opts)}"
+        assert workflow_store < projection, "WorkflowStore must precede graph projection for #{inspect(opts)}"
       end
     end
 
