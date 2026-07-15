@@ -6,7 +6,7 @@ defmodule AiurWeb.DashboardLive do
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
   alias Aiur.{AgentChat, DecisionPubSub}
-  alias AiurWeb.{ControlCenterPresenter, Endpoint, ObservabilityPubSub}
+  alias AiurWeb.{Endpoint, ObservabilityPubSub}
 
   alias AiurWeb.OperatorControlCenter.{
     AgentLogModal,
@@ -26,7 +26,7 @@ defmodule AiurWeb.DashboardLive do
   @decision_events DecisionEvents.events()
 
   @impl true
-  def mount(params, _session, socket) do
+  def mount(_params, _session, socket) do
     connected = connected?(socket)
 
     if connected do
@@ -48,7 +48,10 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:writable, dashboard_writable?())
       |> assign(:decision_filter, :all)
       |> assign(:fleet_filters, FleetFilters.default())
-      |> assign_selected_decision(params["decision_id"])
+      |> assign(:selected_decision_id, nil)
+      |> assign(:selected_decision, nil)
+      |> assign(:selected_decision_status, :none)
+      |> assign(:selected_decision_health, nil)
       |> PayloadLoader.mark_loaded()
 
     if connected, do: schedule_runtime_tick()
@@ -174,25 +177,36 @@ defmodule AiurWeb.DashboardLive do
 
   @impl true
   def render(assigns) do
+    assigns =
+      assigns
+      |> Map.put_new(:selected_decision_health, nil)
+      |> Map.put_new(:retained_counts, Map.get(assigns.payload, :retained_counts, unavailable_retained_counts()))
+
     ~H"""
     <section class="dashboard-shell">
       <Overview.topbar now={@now} tracker_kind={tracker_kind()} agent_kind={agent_kind()} />
       <Overview.readonly_banner writable={@writable} />
-      <Overview.decisions_banner decisions={@payload.decisions} />
+      <Overview.decisions_banner decisions={@payload.decisions} retained_counts={@retained_counts} />
       <Overview.tabs
         live_action={@live_action || :index}
-        decision_count={length(@payload.decisions)}
+        decision_count={Map.get(@retained_counts, :open)}
+        decision_count_health={get_in(@retained_counts, [:health, :status])}
         fleet_count={fleet_count(@payload.fleet)}
       />
       <Overview.error error={@payload.fleet[:error]} />
 
       <div :if={@live_action in [:decisions, :decision]} class="control-panel">
+        <div :if={not is_nil(@selected_decision) and partial_detail?(@selected_decision_health)} class="readonly-banner" role="status" aria-live="polite">
+          <span aria-hidden="true">◉</span>
+          <span><b>Partial retained Decision data.</b> This detail was recovered from the validated audit prefix.</span>
+        </div>
         <div :if={@live_action == :decision and is_nil(@selected_decision)} class="error-card" role="alert">
-          <h2>Decision not found</h2>
-          <p>No current decision matches <span class="mono">{@selected_decision_id}</span>.</p>
+          <h2>{selected_decision_error_title(@selected_decision_status)}</h2>
+          <p>{selected_decision_error_message(@selected_decision_status, @selected_decision_id)}</p>
         </div>
         <DecisionInbox.decision_inbox
           decisions={@payload.decisions}
+          selected_decision={@selected_decision}
           selected_decision_id={@selected_decision_id}
           filter={@decision_filter}
           now={@now}
@@ -200,6 +214,7 @@ defmodule AiurWeb.DashboardLive do
           action_states={@decision_actions}
           writable={@writable}
           provider_health={@payload.provider_health.decisions}
+          retained_counts={@retained_counts}
         />
       </div>
 
@@ -256,13 +271,68 @@ defmodule AiurWeb.DashboardLive do
   end
 
   defp assign_selected_decision(socket, decision_id) do
-    selected =
-      case ControlCenterPresenter.find_decision(socket.assigns.payload, decision_id) do
-        {:ok, decision} -> decision
-        :error -> nil
+    {selected, status, health} =
+      case PayloadLoader.detail(decision_id) do
+        :none -> {nil, :none, nil}
+        {:ok, %{decision: decision, health: health}} -> {decision, :available, health}
+        {:error, :not_found} -> {nil, :not_found, nil}
+        {:error, {:indeterminate, health}} -> {nil, :indeterminate, health}
+        {:error, {:invalid_decision_id, _reason}} -> {nil, :not_found, nil}
+        {:error, _reason} -> {nil, :unavailable, nil}
       end
 
-    socket |> assign(:selected_decision_id, decision_id) |> assign(:selected_decision, selected)
+    socket
+    |> clear_stale_action_state(selected)
+    |> assign(:selected_decision_id, decision_id)
+    |> assign(:selected_decision, selected)
+    |> assign(:selected_decision_status, status)
+    |> assign(:selected_decision_health, health)
+  end
+
+  defp selected_decision_error_title(:unavailable), do: "Decision unavailable"
+  defp selected_decision_error_title(:indeterminate), do: "Decision presence unknown"
+  defp selected_decision_error_title(_status), do: "Decision not found"
+
+  defp selected_decision_error_message(:unavailable, decision_id),
+    do: "Retained Decision data is currently unavailable for #{decision_id}. The overview remains available."
+
+  defp selected_decision_error_message(:indeterminate, decision_id),
+    do: "#{decision_id} may exist beyond the validated audit prefix, so it cannot be reported as absent. The overview remains available."
+
+  defp selected_decision_error_message(_status, decision_id),
+    do: "No retained decision matches #{decision_id}."
+
+  defp partial_detail?(%{status: :partial}), do: true
+  defp partial_detail?(_health), do: false
+
+  defp clear_stale_action_state(socket, nil), do: socket
+
+  defp clear_stale_action_state(socket, %{decision_id: decision_id} = selected) do
+    identity = decision_identity(selected)
+
+    case Map.get(socket.assigns.decision_actions, decision_id) do
+      nil ->
+        socket
+
+      %{decision_identity: ^identity} ->
+        socket
+
+      _state ->
+        assign(socket, :decision_actions, Map.delete(socket.assigns.decision_actions, decision_id))
+    end
+  end
+
+  defp decision_identity(decision) do
+    {Map.get(decision, :version), Map.get(decision, :active_action_id)}
+  end
+
+  defp unavailable_retained_counts do
+    %{
+      open: nil,
+      blocking: nil,
+      total: nil,
+      health: %{status: :unavailable, label: "Retained Decision counts unavailable"}
+    }
   end
 
   defp normalize_filter(filter) when is_atom(filter) and filter in @decision_filters, do: filter

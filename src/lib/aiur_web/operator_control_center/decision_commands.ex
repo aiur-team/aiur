@@ -7,7 +7,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   import Phoenix.Component, only: [assign: 3]
 
   alias Aiur.DecisionStore
-  alias AiurWeb.{ControlCenterPresenter, Endpoint}
+  alias AiurWeb.Endpoint
   alias Phoenix.LiveView.Socket
 
   @type reload_fun :: (Socket.t() -> Socket.t())
@@ -15,7 +15,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   @spec change(Socket.t(), String.t(), map()) :: Socket.t()
   def change(socket, decision_id, form) do
     case selected_open_decision(socket, decision_id) do
-      {:ok, _decision} -> put_form(socket, decision_id, form)
+      {:ok, decision} -> put_form(socket, decision_id, form, decision)
       :error -> socket
     end
   end
@@ -23,10 +23,9 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   @spec record_answer(Socket.t(), String.t(), map(), reload_fun()) :: Socket.t()
   def record_answer(socket, decision_id, form, reload_fun) when is_function(reload_fun, 1) do
     form = normalize_form(form)
-    socket = put_form(socket, decision_id, form)
 
     case selected_open_decision(socket, decision_id) do
-      {:ok, decision} -> submit_answer(socket, decision, form, reload_fun)
+      {:ok, decision} -> socket |> put_form(decision_id, form, decision) |> submit_answer(decision, form, reload_fun)
       :error -> put_error(reload_fun.(socket), decision_id, "This decision is no longer open.")
     end
   end
@@ -42,12 +41,18 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
 
   @spec retry_delivery(Socket.t(), String.t(), String.t(), reload_fun()) :: Socket.t()
   def retry_delivery(socket, decision_id, action_id, reload_fun) when is_function(reload_fun, 1) do
-    result = safe_retry_dispatch(decision_id, action_id)
-    socket = reload_fun.(socket)
+    case selected_decision(socket, decision_id) do
+      {:ok, _decision} ->
+        result = safe_retry_dispatch(decision_id, action_id)
+        socket = reload_fun.(socket)
 
-    case result do
-      {:ok, status} -> put_notice(socket, decision_id, retry_notice(status))
-      {:error, reason} -> put_error(socket, decision_id, command_error(reason))
+        case result do
+          {:ok, status} -> put_notice(socket, decision_id, retry_notice(status))
+          {:error, reason} -> put_error(socket, decision_id, command_error(reason))
+        end
+
+      :error ->
+        put_error(reload_fun.(socket), decision_id, "This decision detail is no longer available.")
     end
   end
 
@@ -78,12 +83,21 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
     end
   end
 
-  defp selected_open_decision(socket, decision_id) do
-    case ControlCenterPresenter.find_decision(socket.assigns.payload, decision_id) do
-      {:ok, %{decision_status: :open} = decision} -> {:ok, decision}
-      _result -> :error
-    end
-  end
+  defp selected_open_decision(
+         %{assigns: %{selected_decision: %{decision_id: decision_id, decision_status: :open} = decision}},
+         decision_id
+       ),
+       do: {:ok, decision}
+
+  defp selected_open_decision(_socket, _decision_id), do: :error
+
+  defp selected_decision(
+         %{assigns: %{selected_decision: %{decision_id: decision_id} = decision}},
+         decision_id
+       ),
+       do: {:ok, decision}
+
+  defp selected_decision(_socket, _decision_id), do: :error
 
   defp normalize_form(form) when is_map(form) do
     Map.take(form, ["choice", "custom_response", "rationale", "confirmed"])
@@ -167,9 +181,10 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
     end
   end
 
-  defp put_form(socket, decision_id, form) do
+  defp put_form(socket, decision_id, form, decision) do
     update_state(socket, decision_id, fn state ->
       state
+      |> Map.put(:decision_identity, decision_identity(decision))
       |> Map.put(:form, normalize_form(form))
       |> Map.delete(:error)
       |> Map.delete(:notice)
@@ -197,6 +212,10 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
 
   defp put_state(socket, decision_id, state) do
     assign(socket, :decision_actions, Map.put(socket.assigns.decision_actions, decision_id, state))
+  end
+
+  defp decision_identity(decision) do
+    {Map.get(decision, :version), Map.get(decision, :active_action_id)}
   end
 
   defp answer_notice(%{status: :duplicate}),
