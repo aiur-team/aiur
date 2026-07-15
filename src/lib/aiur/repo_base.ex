@@ -25,7 +25,6 @@ defmodule Aiur.RepoBase do
   alias Aiur.Config
 
   @built_marker ".aiur-base-built"
-  @default_branch "main"
 
   ## ---- Public API ----
 
@@ -61,12 +60,7 @@ defmodule Aiur.RepoBase do
   back to `"main"` when unset, empty, or the config cannot be loaded.
   """
   @spec base_branch() :: String.t()
-  def base_branch do
-    case Config.settings() do
-      {:ok, %{tracker: %{base_branch: name}}} when is_binary(name) and name != "" -> name
-      _ -> @default_branch
-    end
-  end
+  def base_branch, do: Config.base_branch()
 
   ## ---- Synchronous core (no GenServer; exercised directly in tests) ----
 

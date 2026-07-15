@@ -7,7 +7,15 @@ defmodule Aiur.Claude.Repl.CommandTest do
   describe "build_command/7" do
     test "produces cd <ws> && exec claude shape" do
       cmd = Command.build_command("/ws/foo", nil, nil, false, "rc-name", nil, nil)
-      assert String.starts_with?(cmd, "cd '/ws/foo' && exec claude")
+      assert String.starts_with?(cmd, "cd '/ws/foo' && export ")
+      assert cmd =~ " && exec claude"
+    end
+
+    test "exports the authoritative base branch into the tmux-backed process" do
+      cmd = Command.build_command("/ws/foo", nil, nil, false, "rc-name", nil, nil, base_branch: "integration")
+
+      assert cmd =~ "AIUR_BASE_BRANCH='integration'"
+      assert cmd =~ " && exec claude"
     end
 
     test "flag order: --remote-control, --resume, --permission-mode (always), --model, --effort, --settings" do
@@ -40,6 +48,11 @@ defmodule Aiur.Claude.Repl.CommandTest do
     test "single-quote shell escaping of a value containing a single quote" do
       cmd = Command.build_command("/tmp/foo's path", nil, nil, false, "rc", nil, nil)
       assert String.contains?(cmd, "'/tmp/foo'\\''s path'")
+    end
+
+    test "single-quote shell escaping of the configured base branch" do
+      cmd = Command.build_command("/ws", nil, nil, false, "rc", nil, nil, base_branch: "release's-next")
+      assert cmd =~ "AIUR_BASE_BRANCH='release'\"'\"'s-next'"
     end
 
     test "omits --model when nil" do
