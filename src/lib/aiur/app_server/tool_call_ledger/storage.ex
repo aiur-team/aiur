@@ -33,9 +33,8 @@ defmodule Aiur.AppServer.ToolCallLedger.Storage do
   def put(:memory, _key, _entry), do: :ok
 
   def put({:dets, table_name}, key, entry) do
-    with :ok <- :dets.insert(table_name, {key, entry}),
-         :ok <- :dets.sync(table_name) do
-      :ok
+    with :ok <- :dets.insert(table_name, {key, entry}) do
+      :dets.sync(table_name)
     end
   catch
     kind, reason -> {:error, {kind, reason}}
