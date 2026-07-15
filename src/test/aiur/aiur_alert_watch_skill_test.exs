@@ -212,6 +212,7 @@ defmodule Aiur.AiurAlertWatchSkillTest do
 
     assert resolution["operator_decision"] == true
     assert resolution["decision_key"] == "ticket.934.agent.attention.operator-decision"
+    assert resolution["reason"] == "Executor decision resolved."
     assert resolution["notification_results"] == "not-applicable"
   end
 
@@ -222,7 +223,7 @@ defmodule Aiur.AiurAlertWatchSkillTest do
       ~s({"event":"alert","timestamp":"2026-07-10T10:00:00Z","reason":"Should wave five own the facade target?","severity":"warning","needs_attention":true,"source_ticket_id":"934","topic":"ticket.934.agent.attention.operator-decision"})
 
     resolved =
-      ~s({"event":"alert","timestamp":"2026-07-10T10:01:00Z","reason":"Operator decision resolved.","severity":"info","needs_attention":false,"source_ticket_id":"934","topic":"ticket.934.agent.attention.operator-decision.resolved"})
+      ~s({"event":"alert","timestamp":"2026-07-10T10:01:00Z","reason":"Executor decision resolved.","severity":"info","needs_attention":false,"source_ticket_id":"934","topic":"ticket.934.agent.attention.operator-decision.resolved"})
 
     File.write!(ndjson, open <> "\n", [:append])
     [replayed] = run(config, home) |> alert_lines()

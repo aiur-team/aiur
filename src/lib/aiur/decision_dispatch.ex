@@ -16,7 +16,7 @@ defmodule Aiur.DecisionDispatch do
   @spec max_message_chars() :: pos_integer()
   def max_message_chars, do: @max_message_chars
 
-  @doc "Send an answered Decision through the correlated operator-message path."
+  @doc "Send an answered Decision through the correlated Executor-message path."
   @spec dispatch(Decision.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def dispatch(decision, opts \\ [])
 
@@ -57,7 +57,7 @@ defmodule Aiur.DecisionDispatch do
   @spec render(Decision.t()) :: String.t()
   def render(%Decision{answer: %DecisionAnswer{} = answer} = decision) do
     header = """
-    Durable operator answer for ticket #{decision.ticket.identifier}
+    Durable Executor answer for ticket #{decision.ticket.identifier}
     Decision: #{decision.decision_id}
     Request version: #{answer.decision_version}
     Action: #{answer.action_id}

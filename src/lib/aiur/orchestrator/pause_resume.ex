@@ -5,6 +5,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   """
 
   alias Aiur.{Config, Issue, Tracker}
+  alias Aiur.Orchestrator.AgentTeardown
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.OperatorMessages
@@ -46,11 +47,15 @@ defmodule Aiur.Orchestrator.PauseResume do
     {:reply, reply, state}
   end
 
-  @spec resume_issue(State.t(), String.t()) :: {{:ok, :resumed} | {:error, term()}, State.t()}
+  @spec resume_issue(State.t(), String.t()) ::
+          {{:ok, :resumed | :started} | {:error, term()}, State.t()}
   def resume_issue(%State{} = state, issue_identifier) do
     case State.find_running_by_identifier(state.running, issue_identifier) do
       running_entry when is_map(running_entry) ->
         cond do
+          State.completed_provenance?(running_entry) ->
+            restart_completed_provenance_issue(state, running_entry)
+
           State.deactivated_running_entry?(running_entry) ->
             reactivate_issue(state, running_entry)
 
@@ -71,6 +76,12 @@ defmodule Aiur.Orchestrator.PauseResume do
     case Map.get(state.running, issue.id) do
       nil ->
         RetryEngine.release_issue_claim(state, issue.id)
+
+      %{completed_provenance: true} = running_entry ->
+        pause_completed_issue_for_label_override(state, running_entry, issue)
+
+      %{control: %{status: :completed}} = running_entry ->
+        pause_completed_issue_for_label_override(state, running_entry, issue)
 
       %{control: %{status: status}} = running_entry when status in [:deactivated, :paused] ->
         Reconciler.refresh_running_entry_issue(state, issue, running_entry)
@@ -117,19 +128,23 @@ defmodule Aiur.Orchestrator.PauseResume do
   def resume_label_overridden_issue(%State{} = state, running_entry),
     do: resume_paused_issue(state, running_entry)
 
-  @spec recover_startup_pause_overrides(State.t(), [term()]) :: [term()]
-  def recover_startup_pause_overrides(
-        %State{initial_dispatch_cycle: true} = state,
-        issues
-      )
-      when is_list(issues) do
-    Enum.map(issues, fn
-      %Issue{} = issue -> recover_startup_pause_override(state, issue)
-      issue -> issue
-    end)
-  end
+  defp pause_completed_issue_for_label_override(state, running_entry, issue) do
+    if State.paused_running_entry?(running_entry) and
+         Map.get(running_entry, :paused_reason) == :label_override do
+      Reconciler.refresh_running_entry_issue(state, issue, running_entry)
+    else
+      state = Reconciler.refresh_running_entry_issue(state, issue, running_entry)
+      state = AgentTeardown.deactivate_running_issue(state, issue.id)
+      parked_entry = Map.fetch!(state.running, issue.id)
 
-  def recover_startup_pause_overrides(_state, issues), do: issues
+      parked_entry =
+        parked_entry
+        |> Map.put(:issue, issue)
+        |> Map.put(:paused_reason, :label_override)
+
+      transition_control_status(state, parked_entry, :paused, "label_override.completed")
+    end
+  end
 
   # Wake a `:deactivated` running entry: flip its control status to
   # `:working`, re-add the id to the publisher tracked set, and spawn
@@ -138,7 +153,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   # entry has no live pid to send a resume-control message to.
   #
   # Capacity check: returns `{:error, :max_concurrent_agents_reached}`
-  # without flipping state when all slots are full. The operator can
+  # without flipping state when all slots are full. The Executor can
   # retry once a slot opens (a working agent flips to `:deactivated`
   # or merges its PR). No `pending_reactivation` flag — the existing
   # `max_concurrent_agents` gate is the natural backpressure.
@@ -167,12 +182,13 @@ defmodule Aiur.Orchestrator.PauseResume do
     end
   end
 
-  # Operator pause from the list/CLI. Optimistically flip the entry to `:paused`
+  # Executor pause from the list/CLI. Optimistically flip the entry to `:paused`
   # (mirrors `maybe_pause_on_request` and the Ctrl+C path) so the row reflects
   # the pause immediately — even mid-spin-up, before the worker reaches a
   # checkpoint — then queue the cooperative `{:pause_agent}` control message.
   defp pause_running_or_inactive(state, running_entry, issue_identifier) do
-    if State.deactivated_running_entry?(running_entry) do
+    if State.deactivated_running_entry?(running_entry) or
+         State.completed_provenance?(running_entry) do
       {{:error, :already_inactive}, state}
     else
       reply = send_pause_control_message(state, issue_identifier)
@@ -189,7 +205,7 @@ defmodule Aiur.Orchestrator.PauseResume do
     end)
   end
 
-  @spec handle_worker_control_state(State.t(), String.t(), :paused | :working, map()) ::
+  @spec handle_worker_control_state(State.t(), String.t(), :completed | :paused | :working, map()) ::
           {:noreply, State.t()}
   def handle_worker_control_state(%State{running: running} = state, issue_id, status, pause_payload) do
     case Map.get(running, issue_id) do
@@ -244,6 +260,162 @@ defmodule Aiur.Orchestrator.PauseResume do
     end
   end
 
+  @doc false
+  @spec replace_completed_issue(State.t(), map(), Issue.t()) :: State.t()
+  def replace_completed_issue(%State{} = state, running_entry, %Issue{} = issue) do
+    if State.completed_provenance?(running_entry) do
+      revalidate_completed_replacement(state, running_entry, issue)
+    else
+      state
+    end
+  end
+
+  defp normalize_completed_entry(running_entry, issue) do
+    running_entry
+    |> Map.put(:issue, issue)
+    |> Map.put(:completed_provenance, true)
+    |> Map.delete(:paused_reason)
+    |> put_in([:control, :status], :completed)
+  end
+
+  defp revalidate_completed_replacement(state, running_entry, issue) do
+    case Dispatcher.revalidate_issue_for_dispatch(
+           issue,
+           &Tracker.fetch_issue_states_by_ids/1,
+           DispatchPolicy.terminal_state_set()
+         ) do
+      {:ok, refreshed_issue} ->
+        dispatch_completed_replacement(state, running_entry, refreshed_issue)
+
+      {:skip, %Issue{} = refreshed_issue} ->
+        Reconciler.refresh_running_entry_issue(state, refreshed_issue, running_entry)
+
+      {:skip, :missing} ->
+        state
+
+      {:error, reason} ->
+        Logger.warning("Completed runner replacement skipped; issue refresh failed: #{State.issue_context(issue)} reason=#{inspect(reason)}")
+
+        state
+    end
+  end
+
+  defp dispatch_completed_replacement(state, running_entry, issue) do
+    running_entry = normalize_completed_entry(running_entry, issue)
+
+    state =
+      state
+      |> Map.update!(:running, &Map.put(&1, issue.id, running_entry))
+      |> Aiur.Orchestrator.cancel_ci_wait_rewake(issue.id)
+
+    worker_host = Map.get(running_entry, :worker_host)
+
+    with true <- Slots.dispatch_slots_available?(issue, state),
+         :ok <- Dispatcher.redispatch_ready?(state, issue, worker_host) do
+      replace_completed_entry(state, running_entry, issue, worker_host)
+    else
+      _declined -> state
+    end
+  end
+
+  defp replace_completed_entry(state, running_entry, issue, worker_host) do
+    replace_admitted_completed_entry(
+      state,
+      running_entry,
+      issue,
+      worker_host,
+      &Dispatcher.do_dispatch_issue/4
+    )
+  end
+
+  @doc false
+  @spec replace_admitted_completed_entry(State.t(), map(), Issue.t(), String.t() | nil, function()) ::
+          State.t()
+  def replace_admitted_completed_entry(
+        state,
+        running_entry,
+        issue,
+        worker_host,
+        dispatch_fun
+      )
+      when is_function(dispatch_fun, 4) do
+    issue_id = issue.id
+
+    Logger.info("Replacing completed runner: issue_id=#{issue_id} issue_identifier=#{issue.identifier}")
+
+    _ = Aiur.PauseContainment.release_target(issue.identifier || issue.id)
+
+    next_state =
+      state
+      |> AgentTeardown.terminate_running_issue(issue_id, false)
+      |> dispatch_fun.(issue, nil, worker_host)
+
+    if live_replacement?(next_state, issue_id) do
+      next_state
+    else
+      restore_completed_entry(next_state, running_entry, issue)
+    end
+  end
+
+  defp live_replacement?(state, issue_id) do
+    case Map.get(state.running, issue_id) do
+      %{pid: pid, ref: ref, control: %{status: :working}} ->
+        is_pid(pid) and Process.alive?(pid) and is_reference(ref)
+
+      _ ->
+        false
+    end
+  end
+
+  defp restore_completed_entry(state, running_entry, issue) do
+    issue_id = issue.id
+
+    completed_entry =
+      running_entry
+      |> Map.put(:issue, issue)
+      |> Map.put(:pid, nil)
+      |> Map.put(:ref, nil)
+      |> Map.put(:completed_provenance, true)
+      |> Map.put(:completion_totals_recorded, true)
+      |> put_in([:control, :status], :completed)
+
+    %{
+      state
+      | running: Map.put(state.running, issue_id, completed_entry),
+        claimed: MapSet.put(state.claimed, issue_id),
+        retry_attempts: Map.delete(state.retry_attempts, issue_id)
+    }
+  end
+
+  defp restart_completed_issue(state, running_entry) do
+    issue = Map.fetch!(running_entry, :issue)
+    next_state = replace_completed_issue(state, running_entry, issue)
+
+    if live_replacement?(next_state, issue.id) do
+      {{:ok, :started}, next_state}
+    else
+      {{:error, :redispatch_deferred}, next_state}
+    end
+  end
+
+  defp restart_completed_provenance_issue(
+         state,
+         %{paused_reason: :label_override} = running_entry
+       ) do
+    case clear_pause_override(running_entry) do
+      {:ok, cleared_entry} ->
+        issue_id = get_in(cleared_entry, [:issue, Access.key(:id)])
+        state = %{state | running: Map.put(state.running, issue_id, cleared_entry)}
+        restart_completed_issue(state, cleared_entry)
+
+      {:error, reason} ->
+        {{:error, {:pause_override_clear_failed, reason}}, state}
+    end
+  end
+
+  defp restart_completed_provenance_issue(state, running_entry),
+    do: restart_completed_issue(state, running_entry)
+
   defp do_reactivate(%State{} = state, running_entry) do
     issue_id = get_in(running_entry, [:issue, Access.key(:id)])
     existing_control = Map.get(running_entry, :control, %{})
@@ -259,7 +431,7 @@ defmodule Aiur.Orchestrator.PauseResume do
 
     Logger.info("Reactivating deactivated issue: identifier=#{Map.get(running_entry, :identifier)}; spawning fresh agent task")
 
-    # Reactivation is a deliberate operator restart; clear the thrash
+    # Reactivation is a deliberate Executor restart; clear the thrash
     # budget so the fresh task starts with a full window.
     state = Dispatcher.reset_thrash_budget(state, issue_id)
 
@@ -277,19 +449,19 @@ defmodule Aiur.Orchestrator.PauseResume do
         # `select_worker_host/2`, the thrash breaker, or Task.Supervisor can
         # decline a dispatch after the entry is optimistically made `:working`.
         # Restore the parked entry so the tracker still shows it as needing a
-        # wake and the comment path can emit its durable operator alert.
+        # wake and the comment path can emit its durable Executor alert.
         restored_state = %{dispatched_state | running: Map.put(dispatched_state.running, issue_id, running_entry)}
         {{:error, :dispatch_not_started}, TrackedSet.refresh(restored_state)}
     end
   end
 
-  # `operator?` distinguishes a deliberate operator resume (label flip,
+  # `operator?` distinguishes a deliberate Executor resume (label flip,
   # chat reply) from an automated/blocker auto-resume. It only matters
-  # for a duration-capped pause: an operator resume is "check in, keep
+  # for a duration-capped pause: an Executor resume is "check in, keep
   # going" and earns a fresh budget; an automated resume must PRESERVE
   # the cumulative overrun so a runaway is still bounded (see
-  # `reset_duration_clock_if_capped/4`). Defaults to operator so the
-  # operator-facing callers stay unchanged.
+  # `reset_duration_clock_if_capped/4`). Defaults to Executor so the
+  # Executor-facing callers stay unchanged.
   @doc false
   @spec resume_paused_issue(State.t(), map(), boolean()) :: {{:ok, :resumed} | {:error, term()}, State.t()}
   def resume_paused_issue(%State{} = state, running_entry, operator? \\ true) do
@@ -329,7 +501,7 @@ defmodule Aiur.Orchestrator.PauseResume do
         # any codex notification could refresh the field.
         state = update_in(state.running, &reset_last_codex_timestamp(&1, issue_id, now))
         # A duration-capped pause froze the entry after its *active*
-        # runtime already exceeded `max_agent_duration`. An OPERATOR resume
+        # runtime already exceeded `max_agent_duration`. An Executor resume
         # is a deliberate "check in, keep going," so reset `started_at` to
         # NOW for a fresh budget (a plain thaw only excludes the paused
         # interval, leaving `running_seconds` over the cap, which the next
@@ -343,7 +515,7 @@ defmodule Aiur.Orchestrator.PauseResume do
         state =
           update_in(state.running, &reset_duration_clock_if_capped(&1, issue_id, now, operator?))
 
-        # An operator-driven resume is a deliberate restart, so clear any
+        # An Executor-driven resume is a deliberate restart, so clear any
         # thrash budget the entry accrued before it paused — otherwise a
         # long-paused blockee could resume already over its window.
         state = Dispatcher.reset_thrash_budget(state, issue_id)
@@ -404,7 +576,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   # and so the overrun check re-stamps it fresh if the agent overruns again.
   #
   # `operator?: true` ALSO restarts the duration baseline (`started_at` ->
-  # now) so an operator resume hands the agent a full fresh budget.
+  # now) so an Executor resume hands the agent a full fresh budget.
   #
   # `operator?: false` PRESERVES `started_at` (the cumulative overrun) so an
   # automated/blocker auto-resume cannot silently reset the budget: the
@@ -496,8 +668,8 @@ defmodule Aiur.Orchestrator.PauseResume do
       is_nil(issue) ->
         {{:error, :no_running_agent}, state}
 
-      # Manual start (operator pressed space on a queued ticket): paused
-      # agents are excluded from the cap so the operator can fill a free
+      # Manual start (Executor pressed space on a queued ticket): paused
+      # agents are excluded from the cap so the Executor can fill a free
       # active slot even when a paused agent is parked in `running`.
       State.active_running_count(state.running) >= Slots.max_concurrent_agent_limit(state) ->
         {{:error, :max_concurrent_agents_reached}, state}
@@ -518,27 +690,6 @@ defmodule Aiur.Orchestrator.PauseResume do
         else
           {{:error, :dispatch_failed}, next_state}
         end
-    end
-  end
-
-  defp recover_startup_pause_override(%State{} = state, %Issue{} = issue) do
-    active_states = DispatchPolicy.active_state_set()
-
-    if Issue.paused?(issue) and
-         DispatchPolicy.active_issue_state?(issue.state, active_states) and
-         not Map.has_key?(state.running, issue.id) do
-      case clear_pause_override(issue) do
-        {:ok, cleared_issue} ->
-          Logger.info("Recovered stale pause override on startup: #{State.issue_context(issue)}")
-          cleared_issue
-
-        {:error, reason} ->
-          Logger.warning("Startup pause override recovery deferred: #{State.issue_context(issue)} reason=#{inspect(reason)}")
-
-          issue
-      end
-    else
-      issue
     end
   end
 

@@ -14,7 +14,7 @@ defmodule Aiur.Claude.HookEvents do
   broadcasts it on a per-agent `Phoenix.PubSub` topic that the agent's `run_turn`
   process subscribes to:
 
-    * `UserPromptSubmit` — claude accepted input (turn start / operator-message receipt)
+    * `UserPromptSubmit` — claude accepted input (turn start / Executor-message receipt)
     * `PostToolUse`      — a tool finished (live progress + liveness heartbeat)
     * `Stop`             — the turn completed; carries `last_assistant_message`
     * `StopFailure`      — the turn failed at the API boundary; carries a structured error category

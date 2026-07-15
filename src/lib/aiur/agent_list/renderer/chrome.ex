@@ -134,7 +134,7 @@ defmodule Aiur.AgentList.Renderer.Chrome do
   @spec bottom_border(term()) :: term()
   def bottom_border(inner_width) do
     # Inject a "newest" label at the far-left of the bottom border so
-    # the operator can read the timeline direction in the events log:
+    # the Executor can read the timeline direction in the events log:
     #   `╰─ newest ──...──╯`
     # The label sits between the `╰` corner and the trailing fill. When
     # the box is too narrow (`< 14` cols) for label + chrome, fall back

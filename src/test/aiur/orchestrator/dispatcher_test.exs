@@ -3,7 +3,9 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
   import ExUnit.CaptureLog
 
+  alias Aiur.AgentRunner.{SessionLifecycle, ToolExecutor}
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, State}
+  alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
 
   setup do
     previous_meminfo = Application.get_env(:aiur, :meminfo_source_override)
@@ -191,6 +193,109 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     end
   end
 
+  describe "dispatch attempt provenance" do
+    test "telemetry-disabled dispatch options reach accepted Decision provenance" do
+      identifier = "dispatcher-decision-#{System.unique_integer([:positive])}"
+      issue = %Issue{id: identifier, identifier: identifier, state: "todo", selected_backend: "codex"}
+      test_pid = self()
+
+      refute TelemetryLifecycle.enabled?()
+
+      runner = fn dispatched_issue, recipient, opts ->
+        send(test_pid, {:agent_runner_run, dispatched_issue, recipient, opts})
+        :ok
+      end
+
+      state = %State{max_concurrent_agents: 1, effective_concurrent_agents: 1}
+
+      next_state = Dispatcher.do_dispatch_issue(state, issue, nil, nil, runner: runner)
+
+      assert_receive {:agent_runner_run, ^issue, _recipient, runner_opts}
+      assert attempt_id = Keyword.fetch!(runner_opts, :telemetry_attempt_id)
+      assert is_binary(attempt_id)
+      assert get_in(next_state.running, [issue.id, :telemetry_attempt_id]) == attempt_id
+
+      start_fun = fn _workspace, _opts -> {:ok, %{model: "gpt-5.6-terra", thread_id: "thread-dispatch"}} end
+
+      {_session_backend, _remote_control?, session_opts} =
+        SessionLifecycle.resolve_session_options(issue, runner_opts, nil)
+
+      assert Keyword.fetch!(session_opts, :attempt_id) == attempt_id
+
+      assert {:ok, session} =
+               SessionLifecycle.start_agent_session(
+                 "/ws",
+                 session_opts,
+                 start_fun
+               )
+
+      executor = ToolExecutor.build(issue, nil, nil, session)
+
+      assert executor.("emit_event", %{
+               "name" => "decision.requested",
+               "message" => "Keep the dispatch attempt?",
+               "payload" => %{"blocking" => true}
+             })["success"] == true
+
+      [decision] = Aiur.DecisionStore.list() |> Enum.filter(&(&1.ticket.identifier == identifier))
+      assert decision.provenance.attempt_id == attempt_id
+    end
+
+    test "identifier-less dispatch hashes the stable issue ID for its attempt identity" do
+      issue_id = "memory-dispatch-#{System.unique_integer([:positive])}"
+      issue = %Issue{id: issue_id, identifier: nil, state: "todo", selected_backend: "codex"}
+      test_pid = self()
+
+      refute TelemetryLifecycle.enabled?()
+
+      runner = fn dispatched_issue, recipient, opts ->
+        send(test_pid, {:agent_runner_run, dispatched_issue, recipient, opts})
+        :ok
+      end
+
+      state = %State{max_concurrent_agents: 1, effective_concurrent_agents: 1}
+
+      next_state = Dispatcher.do_dispatch_issue(state, issue, nil, nil, runner: runner)
+
+      assert_receive {:agent_runner_run, ^issue, _recipient, runner_opts}
+      assert attempt_id = Keyword.fetch!(runner_opts, :telemetry_attempt_id)
+      expected_ticket = "ticket-" <> (:crypto.hash(:sha256, issue_id) |> Base.encode16(case: :lower))
+
+      assert String.starts_with?(attempt_id, "#{expected_ticket}:")
+      refute String.contains?(attempt_id, issue_id)
+      assert get_in(next_state.running, [issue.id, :telemetry_attempt_id]) == attempt_id
+    end
+
+    test "unsafe, empty, and overlong tracker identifiers reach durable Decision provenance" do
+      cases = [
+        {"unsafe", "repo#1 ticket/123"},
+        {"empty", ""},
+        {"overlong", String.duplicate("tracker-identifier-", 20)}
+      ]
+
+      attempt_tickets =
+        Enum.map(cases, fn {label, identifier} ->
+          issue_id = "memory-#{label}-#{System.unique_integer([:positive])}"
+          issue = %Issue{id: issue_id, identifier: identifier, state: "todo", selected_backend: "codex"}
+
+          {attempt_id, decision} = dispatch_decision!(issue)
+          dispatch_identity = if identifier == "", do: issue_id, else: identifier
+          expected_ticket = "ticket-" <> (:crypto.hash(:sha256, dispatch_identity) |> Base.encode16(case: :lower))
+
+          assert decision.provenance.attempt_id == attempt_id
+          assert byte_size(attempt_id) <= 256
+          assert [^expected_ticket, suffix] = String.split(attempt_id, ":", parts: 2)
+          assert suffix =~ ~r/\A[A-Za-z0-9_-]+\z/
+
+          if identifier != "", do: refute(String.contains?(attempt_id, identifier))
+
+          expected_ticket
+        end)
+
+      assert length(Enum.uniq(attempt_tickets)) == length(attempt_tickets)
+    end
+  end
+
   describe "redispatch_ready?/4" do
     test "treats the current issue's worker slot as a transferable reservation" do
       write_workflow_file!(Workflow.workflow_file_path(),
@@ -256,6 +361,49 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   end
 
   defp issue(id), do: %Issue{id: id, identifier: "repo##{id}", title: id, state: "todo"}
+
+  defp dispatch_decision!(issue) do
+    test_pid = self()
+
+    runner = fn dispatched_issue, recipient, opts ->
+      send(test_pid, {:agent_runner_run, dispatched_issue, recipient, opts})
+      :ok
+    end
+
+    next_state =
+      Dispatcher.do_dispatch_issue(
+        %State{max_concurrent_agents: 1, effective_concurrent_agents: 1},
+        issue,
+        nil,
+        nil,
+        runner: runner
+      )
+
+    assert_receive {:agent_runner_run, ^issue, _recipient, runner_opts}
+    attempt_id = Keyword.fetch!(runner_opts, :telemetry_attempt_id)
+    assert get_in(next_state.running, [issue.id, :telemetry_attempt_id]) == attempt_id
+
+    {_session_backend, _remote_control?, session_opts} =
+      SessionLifecycle.resolve_session_options(issue, runner_opts, nil)
+
+    assert {:ok, session} =
+             SessionLifecycle.start_agent_session(
+               "/ws",
+               session_opts,
+               fn _workspace, _opts -> {:ok, %{model: "gpt-5.6-terra", thread_id: "thread-dispatch"}} end
+             )
+
+    executor = ToolExecutor.build(issue, nil, nil, session)
+
+    assert executor.("emit_event", %{
+             "name" => "decision.requested",
+             "message" => "Keep the dispatch attempt?",
+             "payload" => %{"blocking" => true}
+           })["success"] == true
+
+    [decision] = Aiur.DecisionStore.list() |> Enum.filter(&(&1.ticket.identifier == issue.id))
+    {attempt_id, decision}
+  end
 
   defp running_entry(id) do
     %{issue: issue(id), control: %{status: :working}, worker_host: nil}

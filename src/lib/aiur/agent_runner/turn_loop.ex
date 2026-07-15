@@ -25,7 +25,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
           worker_host(),
           pos_integer(),
           pos_integer() | nil
-        ) :: :ok | {:error, term()}
+        ) :: :ok | {:completed, Issue.t()} | {:error, term()}
   # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
   def run_turns(
         app_session,
@@ -88,7 +88,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
         on_message: message_handler,
         on_safe_checkpoint: safe_checkpoint_handler,
         on_operator_message: CheckpointDelivery.operator_immediate_handler(issue, orchestrator),
-        tool_executor: ToolExecutor.build(issue, workspace, worker_host, app_session)
+        tool_executor: ToolExecutor.build(issue, workspace, worker_host, app_session, attempt_id: lifecycle_attempt_id)
       )
 
     record_implementation_end(issue, lifecycle_attempt_id, operation_id, turn_number, result)
@@ -116,7 +116,8 @@ defmodule Aiur.AgentRunner.TurnLoop do
                  issue,
                  message_handler,
                  orchestrator,
-                 codex_update_recipient
+                 codex_update_recipient,
+                 opts
                ) do
           finalize_turn_completion(turn_context, app_session, turn_session)
         end
@@ -219,23 +220,29 @@ defmodule Aiur.AgentRunner.TurnLoop do
 
         Logger.info("Reached agent.max_turns for #{Aiur.AgentRunner.issue_context(refreshed_issue)} with issue still active; returning control to orchestrator")
 
-        :ok
+        return_completed(turn_context, refreshed_issue)
 
       {:done, refreshed_issue} ->
         Logger.info("aiur_autonomous_loop phase=done elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} reason=issue_inactive")
 
-        :ok
+        return_completed(turn_context, refreshed_issue)
 
       {:error, reason} ->
         {:error, reason}
     end
   end
 
+  @doc false
+  @spec return_completed(map(), Issue.t()) :: {:completed, Issue.t()}
+  def return_completed(turn_context, %Issue{} = issue) when is_map(turn_context),
+    do: {:completed, issue}
+
   defp wait_for_resume(turn_context, app_session, message_handler) do
     %{
       issue: issue,
       orchestrator: orchestrator,
-      codex_update_recipient: codex_update_recipient
+      codex_update_recipient: codex_update_recipient,
+      opts: opts
     } = turn_context
 
     with :ok <-
@@ -244,33 +251,42 @@ defmodule Aiur.AgentRunner.TurnLoop do
              issue,
              message_handler,
              orchestrator,
-             codex_update_recipient
+             codex_update_recipient,
+             opts
            ) do
-      case continue_with_issue?(issue, turn_context.issue_state_fetcher) do
-        {:continue, refreshed_issue}
-        when is_nil(turn_context.max_turns) or turn_context.turn_number < turn_context.max_turns ->
-          Logger.info(
-            "aiur_autonomous_loop phase=recurse elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} turn=#{turn_context.turn_number + 1}/#{max_turns_display(turn_context.max_turns)} reason=resume"
-          )
+      continue_after_resume(turn_context, app_session)
+    end
+  end
 
-          continue_issue_turn(
-            %{turn_context | issue: refreshed_issue, turn_number: turn_context.turn_number + 1},
-            app_session
-          )
+  @doc false
+  @spec continue_after_resume(map(), map()) :: :ok | {:completed, Issue.t()} | {:error, term()}
+  def continue_after_resume(turn_context, app_session) do
+    issue = turn_context.issue
 
-        {:continue, refreshed_issue} ->
-          Logger.info("aiur_autonomous_loop phase=max_turns_reached elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} reason=resume")
+    case continue_with_issue?(issue, turn_context.issue_state_fetcher) do
+      {:continue, refreshed_issue}
+      when is_nil(turn_context.max_turns) or turn_context.turn_number < turn_context.max_turns ->
+        Logger.info(
+          "aiur_autonomous_loop phase=recurse elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} turn=#{turn_context.turn_number + 1}/#{max_turns_display(turn_context.max_turns)} reason=resume"
+        )
 
-          :ok
+        continue_issue_turn(
+          %{turn_context | issue: refreshed_issue, turn_number: turn_context.turn_number + 1},
+          app_session
+        )
 
-        {:done, refreshed_issue} ->
-          Logger.info("aiur_autonomous_loop phase=done elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} reason=resume_inactive")
+      {:continue, refreshed_issue} ->
+        Logger.info("aiur_autonomous_loop phase=max_turns_reached elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} reason=resume")
 
-          :ok
+        return_completed(turn_context, refreshed_issue)
 
-        {:error, reason} ->
-          {:error, reason}
-      end
+      {:done, refreshed_issue} ->
+        Logger.info("aiur_autonomous_loop phase=done elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} reason=resume_inactive")
+
+        return_completed(turn_context, refreshed_issue)
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

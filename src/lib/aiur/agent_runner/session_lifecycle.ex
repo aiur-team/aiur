@@ -69,45 +69,22 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
 
   defp headless_os_pid(_session), do: nil
   @doc false
-  @spec run_session(Path.t(), Issue.t(), pid() | nil, keyword(), worker_host()) :: :ok | {:error, term()}
+  @spec run_session(Path.t(), Issue.t(), pid() | nil, keyword(), worker_host()) ::
+          :ok | {:completed, Issue.t()} | {:error, term()}
   def run_session(workspace, issue, codex_update_recipient, opts, worker_host) do
-    max_turns = Keyword.get(opts, :max_turns, Config.settings!().agent.max_turns)
+    max_turns = Keyword.get(opts, :max_turns, Config.agent_max_turns_for(issue))
     issue_state_fetcher = Keyword.get(opts, :issue_state_fetcher, &Tracker.fetch_issue_states_by_ids/1)
     orchestrator = Keyword.get(opts, :orchestrator, Aiur.Orchestrator)
 
-    backend = CodingAgent.backend_for(issue)
-    model = CodingAgent.model_for(issue)
-    effort = CodingAgent.effort_for(issue)
-
-    rc? =
-      (CodingAgent.remote_control_forced?(issue) or CodingAgent.routing_remote?(issue) or
-         Config.agent_remote_control?()) and CodingAgent.remote_control?(backend)
-
-    session_backend = remote_session_backend(backend, rc?)
+    {session_backend, rc?, session_opts} = resolve_session_options(issue, opts, worker_host)
+    model = Keyword.fetch!(session_opts, :model)
+    effort = Keyword.fetch!(session_opts, :effort)
 
     Logger.info("Resolved backend for #{Aiur.AgentRunner.issue_context(issue)} backend=#{session_backend} model=#{inspect(model)} effort=#{inspect(effort)} remote_control=#{rc?}")
 
     maybe_trust_remote_control_workspace(workspace, rc?, worker_host, fn ws ->
       Aiur.Orchestrator.ensure_remote_control_trust(orchestrator, ws)
     end)
-
-    # Rejoin the prior agent thread across an aiur restart instead of cold-
-    # starting a fresh conversation that re-discovers the work (issue #378).
-    # Only a resumable, local backend with a persisted handle qualifies; any
-    # miss degrades silently to a clean start.
-    resume_thread_id = SessionResume.load_resume_thread_id(session_backend, worker_host, issue.identifier)
-
-    session_opts =
-      [
-        backend: session_backend,
-        model: model,
-        effort: effort,
-        worker_host: worker_host,
-        remote_control: rc?,
-        identifier: issue.identifier
-      ]
-      |> maybe_put_rc_name(rc?, issue)
-      |> SessionResume.maybe_put_resume_thread_id(resume_thread_id)
 
     lifecycle_attempt_id = Keyword.get(opts, :telemetry_attempt_id)
 
@@ -129,7 +106,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
         # Persist the live session handle so the next aiur restart can resume it.
         SessionResume.persist_session_handle(session, issue.identifier, worker_host)
 
-        SessionResume.log_resume_outcome(issue, session, resume_thread_id)
+        SessionResume.log_resume_outcome(issue, session, Keyword.get(session_opts, :resume_thread_id))
 
         report_repl_session(codex_update_recipient, issue, session)
         report_pause_containment(codex_update_recipient, issue, session)
@@ -169,6 +146,42 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
 
         error
     end
+  end
+
+  @doc false
+  @spec resolve_session_options(Issue.t(), keyword(), worker_host()) ::
+          {String.t(), boolean(), keyword()}
+  def resolve_session_options(issue, opts, worker_host) do
+    backend = CodingAgent.backend_for(issue)
+    model = CodingAgent.model_for(issue)
+    effort = CodingAgent.effort_for(issue)
+
+    rc? =
+      (CodingAgent.remote_control_forced?(issue) or CodingAgent.routing_remote?(issue) or
+         Config.agent_remote_control?()) and CodingAgent.remote_control?(backend)
+
+    session_backend = remote_session_backend(backend, rc?)
+
+    # Rejoin the prior agent thread across an aiur restart instead of cold-
+    # starting a fresh conversation that re-discovers the work (issue #378).
+    # Only a resumable, local backend with a persisted handle qualifies; any
+    # miss degrades silently to a clean start.
+    resume_thread_id = SessionResume.load_resume_thread_id(session_backend, worker_host, issue.identifier)
+
+    session_opts =
+      [
+        backend: session_backend,
+        model: model,
+        effort: effort,
+        worker_host: worker_host,
+        remote_control: rc?,
+        identifier: issue.identifier,
+        attempt_id: Keyword.get(opts, :telemetry_attempt_id)
+      ]
+      |> maybe_put_rc_name(rc?, issue)
+      |> SessionResume.maybe_put_resume_thread_id(resume_thread_id)
+
+    {session_backend, rc?, session_opts}
   end
 
   # Mirror the full claude transcript into the opencode pane for an RC claude-repl
@@ -227,7 +240,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     :exit, _ -> :ok
   end
 
-  # The `--remote-control <name>` string is what the operator sees as the
+  # The `--remote-control <name>` string is what the Executor sees as the
   # chat title in the Claude app / mobile, so derive it from the issue
   # ("Aiur: Actions #99 - Title") rather than the opaque `aiur-repl-<pid>-<n>`
   # window name. Only set when RC is active; headless and RC-off REPL sessions
@@ -267,7 +280,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   end
 
   def maybe_trust_remote_control_workspace(_workspace, _rc?, _worker_host, _trust_fun), do: :ok
-  # Operator-facing RC chat title: `Aiur: <Repo> #<ID> - <title>`, e.g.
+  # Executor-facing RC chat title: `Aiur: <Repo> #<ID> - <title>`, e.g.
   # `Aiur: Actions #7 - CLI: ENS namespace`. The repo name is the capitalized
   # short name of the configured tracker repo (`its-applekid/actions` ->
   # `Actions`); when the tracker exposes no repo it is omitted, leaving
@@ -315,10 +328,14 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   @spec start_agent_session(Path.t(), keyword(), fun()) :: {:ok, map()} | {:error, term()}
   def start_agent_session(workspace, opts, start_fun \\ &CodingAgent.start_session/2) do
     backend = Keyword.fetch!(opts, :backend)
+    adapter_opts = Keyword.delete(opts, :attempt_id)
 
-    case start_fun.(workspace, opts) do
+    case start_fun.(workspace, adapter_opts) do
       {:ok, session} ->
-        {:ok, Map.put(session, :backend, backend)}
+        {:ok, tag_session(session, backend, opts)}
+
+      {:error, :remote_control_requires_dashboard} = error ->
+        error
 
       {:error, reason} = error ->
         case CodingAgent.fallback_backend(backend) do
@@ -334,12 +351,22 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     Logger.warning("#{backend} start_session failed (#{inspect(reason)}); falling back to #{fallback}")
 
     fallback_opts = opts |> Keyword.put(:backend, fallback) |> Keyword.delete(:remote_control)
+    adapter_opts = Keyword.delete(fallback_opts, :attempt_id)
 
-    case start_fun.(workspace, fallback_opts) do
-      {:ok, session} -> {:ok, Map.put(session, :backend, fallback)}
+    case start_fun.(workspace, adapter_opts) do
+      {:ok, session} -> {:ok, tag_session(session, fallback, fallback_opts)}
       {:error, _} = error -> error
     end
   end
+
+  defp tag_session(session, backend, opts) do
+    session
+    |> Map.put(:backend, backend)
+    |> maybe_put_attempt_id(Keyword.get(opts, :attempt_id))
+  end
+
+  defp maybe_put_attempt_id(session, attempt_id) when is_binary(attempt_id), do: Map.put(session, :attempt_id, attempt_id)
+  defp maybe_put_attempt_id(session, _attempt_id), do: session
 
   @doc false
   @spec session_workspace(map()) :: Path.t() | nil

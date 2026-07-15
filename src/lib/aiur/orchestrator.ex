@@ -82,7 +82,7 @@ defmodule Aiur.Orchestrator do
   end
 
   def handle_info({:worker_control_state, issue_id, status}, state)
-      when is_binary(issue_id) and status in [:paused, :working] do
+      when is_binary(issue_id) and status in [:completed, :paused, :working] do
     PauseResume.handle_worker_control_state(state, issue_id, status, %{})
   end
 

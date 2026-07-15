@@ -58,7 +58,7 @@ defmodule Aiur.CodingAgent.Backend do
   One registry entry in `Aiur.CodingAgent.backends/0`. Required keys
   exist on every backend; optional keys are declared capabilities:
 
-    * `:immediate_delivery` — operator messages pass straight through
+    * `:immediate_delivery` — Executor messages pass straight through
       to the live process instead of holding at a checkpoint.
     * `:remote_transport` — the backend an RC-promoted session
       actually runs on (remote control physically runs on the
@@ -69,6 +69,7 @@ defmodule Aiur.CodingAgent.Backend do
   @type capabilities :: %{
           required(:adapter) => module(),
           required(:transcript) => module(),
+          required(:family) => String.t(),
           required(:can_interrupt) => boolean(),
           required(:safe_checkpoints) => [atom()],
           required(:remote_control) => boolean(),
@@ -85,7 +86,7 @@ defmodule Aiur.CodingAgent.Backend do
 
   @doc """
   Run one prompt turn. `{:paused, map()}` covers quota exhaustion and
-  operator pause; the runner treats it as suspend, never failure.
+  Executor pause; the runner treats it as suspend, never failure.
   """
   @callback run_turn(session(), String.t(), map(), keyword()) ::
               {:ok, map()} | {:paused, map()} | {:error, term()}
@@ -96,7 +97,7 @@ defmodule Aiur.CodingAgent.Backend do
   @doc "Canonicalize a raw backend event map (usage, rate limits)."
   @callback normalize_event(map()) :: map()
 
-  @doc "Deliver an operator message into the live session."
+  @doc "Deliver an Executor message into the live session."
   @callback send_operator_message(session(), CodingAgent.operator_payload()) ::
               {:ok, request_id :: integer()} | {:error, term()}
 

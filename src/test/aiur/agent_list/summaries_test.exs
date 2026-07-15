@@ -23,6 +23,7 @@ defmodule Aiur.AgentList.SummariesTest do
       %{identifier: "abc", status: :running, work_state: :working},
       %{identifier: "paused", status: :running, work_state: :paused},
       %{identifier: "sleep", status: :running, work_state: :sleeping},
+      %{identifier: "completed", status: :running, work_state: :completed},
       %{identifier: "error", status: :running, work_state: :error},
       %{identifier: "done", status: :running, work_state: :deactivated}
     ]
@@ -33,6 +34,7 @@ defmodule Aiur.AgentList.SummariesTest do
              "abc",
              "paused",
              "sleep",
+             "completed",
              "done",
              "error",
              "other",
@@ -48,6 +50,10 @@ defmodule Aiur.AgentList.SummariesTest do
     assert Summaries.deactivated?(%{work_state: :deactivated})
     assert Summaries.deactivated?(%{work_state: "deactivated"})
     refute Summaries.deactivated?(%{work_state: :working})
+
+    assert Summaries.completed?(%{work_state: :completed})
+    assert Summaries.completed?(%{work_state: "completed"})
+    refute Summaries.completed?(%{work_state: :working})
   end
 
   test "remote_control_on? is true only for launching and on" do
@@ -61,6 +67,7 @@ defmodule Aiur.AgentList.SummariesTest do
     summaries = [
       %{status: :running, work_state: :working},
       %{status: :running, work_state: :paused},
+      %{status: :running, work_state: :completed},
       %{status: :queued, work_state: :working}
     ]
 
@@ -72,12 +79,13 @@ defmodule Aiur.AgentList.SummariesTest do
       %{identifier: "work", status: :running, work_state: :working},
       %{identifier: "paused", status: :running, work_state: :paused},
       %{identifier: "done", status: :running, work_state: :deactivated},
+      %{identifier: "completed", status: :running, work_state: :completed},
       %{identifier: nil, status: :running, work_state: :working},
       %{identifier: "queued", status: :queued, work_state: :working}
     ]
 
     assert Summaries.id_sets(summaries) == %{
-             visible_ids: ["work", "paused", "done"],
+             visible_ids: ["work", "paused", "done", "completed"],
              slot_ids: ["work"],
              retain_ids: ["paused"]
            }

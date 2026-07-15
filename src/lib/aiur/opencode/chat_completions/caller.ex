@@ -68,7 +68,7 @@ defmodule Aiur.Opencode.ChatCompletions.Caller do
       _ ->
         # Always-on: a nil writer disables segmentation for this stream, so
         # opencode never gets a segment-close to flush its TUI-local input
-        # queue — typed operator text then sits QUEUED for the whole turn.
+        # queue — typed Executor text then sits QUEUED for the whole turn.
         # Surfacing it at info makes a stuck-codex-input repro diagnosable.
         Logger.info("opencode_bridge segment_writer_unresolved identifier=#{identifier}")
         nil
