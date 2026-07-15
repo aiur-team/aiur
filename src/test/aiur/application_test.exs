@@ -103,6 +103,7 @@ defmodule Aiur.ApplicationTest do
       Aiur.RecentMergeStore,
       Aiur.CurrentRunMembership.Store,
       Aiur.CurrentRunMembership.Reconciler,
+      Aiur.TicketActivity,
       Aiur.Opencode.SessionSupervisor,
       Aiur.Opencode.BridgeSupervisor,
       Aiur.Opencode.TokenRegistry
@@ -250,6 +251,21 @@ defmodule Aiur.ApplicationTest do
 
         assert membership_store < orchestrator, "membership store must precede Orchestrator for #{inspect(opts)}"
         assert orchestrator < reconciler, "membership reconciler must follow Orchestrator for #{inspect(opts)}"
+      end
+    end
+
+    test "ticket activity is supervised before the orchestrator in every run shape" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        mods = modules(AiurApp.child_specs(opts))
+        membership_store = Enum.find_index(mods, &(&1 == Aiur.CurrentRunMembership.Store))
+        activity = Enum.find_index(mods, &(&1 == Aiur.TicketActivity))
+        orchestrator = Enum.find_index(mods, &(&1 == Aiur.Orchestrator))
+
+        assert membership_store < activity
+        assert activity < orchestrator
       end
     end
 

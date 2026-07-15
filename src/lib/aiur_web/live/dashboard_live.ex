@@ -10,6 +10,7 @@ defmodule AiurWeb.DashboardLive do
 
   alias AiurWeb.OperatorControlCenter.{
     AgentLogModal,
+    DashboardShell,
     DecisionEvents,
     DecisionInbox,
     DecisionPath,
@@ -18,7 +19,8 @@ defmodule AiurWeb.DashboardLive do
     History,
     Overview,
     PayloadLoader,
-    RecentOutcomes
+    RecentOutcomes,
+    RouteRegistry
   }
 
   @runtime_tick_ms 1_000
@@ -52,6 +54,7 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:selected_decision, nil)
       |> assign(:selected_decision_status, :none)
       |> assign(:selected_decision_health, nil)
+      |> assign(:current_route, RouteRegistry.current_route(Map.get(socket.assigns, :live_action)))
       |> PayloadLoader.mark_loaded()
 
     if connected, do: schedule_runtime_tick()
@@ -64,6 +67,7 @@ defmodule AiurWeb.DashboardLive do
     {:noreply,
      socket
      |> assign(:decision_filter, normalize_filter(params["filter"]))
+     |> assign(:current_route, RouteRegistry.current_route(Map.get(socket.assigns, :live_action)))
      |> assign_selected_decision(params["decision_id"])}
   end
 
@@ -181,18 +185,18 @@ defmodule AiurWeb.DashboardLive do
       assigns
       |> Map.put_new(:selected_decision_health, nil)
       |> Map.put_new(:retained_counts, Map.get(assigns.payload, :retained_counts, unavailable_retained_counts()))
+      |> Map.put_new(:current_route, RouteRegistry.current_route(Map.get(assigns, :live_action)))
 
     ~H"""
-    <section class="dashboard-shell">
-      <Overview.topbar now={@now} tracker_kind={tracker_kind()} agent_kind={agent_kind()} />
+    <DashboardShell.dashboard_shell
+      route={@current_route}
+      routes={RouteRegistry.routes(@payload.analytics)}
+      now={@now}
+      tracker_kind={tracker_kind()}
+      agent_kind={agent_kind()}
+    >
       <Overview.readonly_banner writable={@writable} />
       <Overview.decisions_banner decisions={@payload.decisions} retained_counts={@retained_counts} />
-      <Overview.tabs
-        live_action={@live_action || :index}
-        decision_count={Map.get(@retained_counts, :open)}
-        decision_count_health={get_in(@retained_counts, [:health, :status])}
-        fleet_count={fleet_count(@payload.fleet)}
-      />
       <Overview.error error={@payload.fleet[:error]} />
 
       <div :if={@live_action in [:decisions, :decision]} class="control-panel">
@@ -250,7 +254,7 @@ defmodule AiurWeb.DashboardLive do
         drafts={@drafts}
         errors={@chat_errors}
       />
-    </section>
+    </DashboardShell.dashboard_shell>
     """
   end
 
@@ -357,11 +361,6 @@ defmodule AiurWeb.DashboardLive do
 
   defp tracker_kind, do: to_string(Aiur.Config.tracker_kind())
   defp agent_kind, do: to_string(Aiur.Config.agent_kind())
-
-  defp fleet_count(fleet) do
-    counts = Map.get(fleet, :counts, %{})
-    Map.get(counts, :running, 0) + Map.get(counts, :retrying, 0) + Map.get(counts, :idle, 0)
-  end
 
   defp schedule_runtime_tick, do: Process.send_after(self(), :runtime_tick, @runtime_tick_ms)
 
