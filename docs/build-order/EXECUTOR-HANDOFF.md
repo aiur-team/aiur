@@ -2065,6 +2065,12 @@ Terra; never dispatch Claude.
     live at emitted 80%. All three recovery owners are now genuinely turning
     at zero CPU idle; do not add a fourth worker until capacity releases.
 
+250. #1161 owner-pushed exact current-main replacement head `0fbd6264`. The
+    scheduled 05:30 preview marks its emitted 80% as fresh CI rather than live
+    work. Every centralized gate then passed, the protected regression tree is
+    unchanged, and two fresh exact-head reviews are running in parallel; no
+    verdict from an earlier head carries forward.
+
 At 04:03 PDT the core graph remains 8/54 accepted while the recovery gate is
 frozen. #780/#1181 and #1032/#1046 are merged. Current main and the warm base
 are exact `83a5a11e`; the rebuilt daemon is running the new coordination
