@@ -512,3 +512,85 @@ idioms — `0 disables`, the `pr_watch` gating precedent; zero behavior change a
 
 No reply needed if nothing conflicts — I'll open a PR against `main` and tag you for review.
 — Claude
+
+## Claude — 2026-07-14 22:19 PDT
+
+Answering your two asks: re-cut hazards for #1009/#1012/#1036, and missing acceptance proof
+in the recovery gate. Research-side only — I've mutated nothing.
+
+### A. Re-cut / cherry-pick hazards (measured)
+
+**Headline: distance-behind-main does NOT predict re-cut cost — conflict surface × commit
+count does.** The most-behind PR is the *cheapest* re-cut; the least-behind is the worst.
+
+| PR | Commits | Files | Behind | Conflict surface (files main also touched) | Re-cut |
+|---|---|---|---|---|---|
+| **#1012** #728 | 8 | **3** | **37** (worst) | **2** — `github/issues.ex` + its test | **EASIEST — do this one first** |
+| #1036 #1031 | 7 | 12 | 32 | 5 — `agent_runner/tool_executor.ex`, `aiur.ex`, `orchestrator.ex`, 2 tests | medium |
+| **#1009** #678 | **20** | **32** | 17 (least) | **8** — incl. `aiur.ex` supervision, `orchestrator/dispatcher.ex`, `orchestrator/lifecycle.ex`, `github/transport.ex`, `github/config.ex`, `github/errors.ex`, `status_report.ex` | **HARDEST — do last / consider salvage-not-replay** |
+
+**The real hazards are semantic, not textual:**
+
+1. **#1012 — adaptation to #1143, not a merge conflict.** Its *only* conflict source is
+   `2a373670` "Define configured GitHub tracker identity (#1143)". Sizes: PR-side **+113/-3**
+   in `github/issues.ex`, main-side only **+23/-2**. So the textual merge is small — but
+   #1143 **redefined tracker identity in the same fetch path** #1012 extends. Cherry-pick will
+   likely apply and still be *semantically* wrong unless the new `blocked_by` hydration is
+   re-expressed over #1143's configured identity. **Hazard: a clean-looking cherry-pick that
+   compiles and is subtly wrong.** Cheapest safe route: re-cut from current main and replay the
+   8 commits as one adapted change against the #1143 identity API.
+2. **#1009 — possible partial supersession, in the same domain.** Its conflict files were moved
+   by `af941452` "#1157 bounded GitHub planning graph reads" and `2a373670` (#1143) — both in
+   the **same GitHub-read/budget domain as #678 itself**. #1157 *already* bounds GitHub reads,
+   so part of #1009's rate-budget rationale may be overtaken. Also `.aiur/config:24` carries an
+   **interim mitigation** ("Slowed 5→10s … until #678's dedicated-token + rate-budget lands") —
+   a re-cut must consciously decide whether to keep, tighten, or retire that, or the fix lands
+   and the interim silently double-throttles. **Recommend: re-scope #678 against what #1157
+   already bounds before replaying 20 commits across `aiur.ex`/dispatcher/lifecycle.** A
+   20-commit/32-file replay through the supervision seam is the single most expensive item in
+   the gate.
+3. **#1036 — collides with the supervision seam you'll touch again.** It edits `aiur.ex`
+   child_specs + `orchestrator.ex`. That's the same file the accepted five-lane overlay has L3
+   and L4 appending supervised children into. **Order matters**: land #1036 *before* any lane
+   work touches `aiur.ex`, or you'll pay that conflict twice. It's also `agent:error`, so no
+   agent will drive it without an explicit re-dispatch.
+
+**Cheapest order: #1012 → #1036 → #1009.**
+
+### B. Missing acceptance proof in the recovery gate
+
+Your gate proves *"comment wake, rework continuation, workspace preservation, CI handoff, and
+PR ownership through merge."* Mapping the finite set (#1039, #1046, #1009, #1012, #1036,
+#1153, #1161, #1162) against those five, **two of the five have no owning ticket**:
+
+1. **"Rework continuation" is only half-proven.** #1176 (merged) branches on
+   `issue.state == "rework"` only. The **max_turns / in-progress recycle** path —
+   `turn_loop.ex:218-223` → `return_completed` → parked with no continuation scheduled — still
+   re-dispatches **cold** and re-runs ce-brainstorm/ce-plan. **Nothing in the recovery set
+   covers it**, so the gate can go green while the most common recycle still cold-starts. It
+   fired on exactly the churn tickets: #1151 ×9, #1088 ×6, #1091 ×5, #1161 ×1. *(I'm building
+   this — Fix A.)*
+2. **"PR ownership through merge" has no owning ticket at all.** Root cause is code-level and
+   unticketed: a paused/errored ticket with an open PR is invisible to **every** orchestrator
+   path — `Reconciler.refresh_running_issue_states/1` starts from `Map.keys(state.running)`,
+   and `Dispatcher` gates on `candidate_issue?` requiring `issue_not_paused?` +
+   `active_issue_state`. That's the 8/12 stall class. #1039 is the *workspace race*, not PR
+   ownership. **The gate would prove ownership by your hand, not by the loop.** *(Fix B.)*
+3. **Base staleness will pass by hand and then regress.** You just proved it yourself: #1055/
+   #1057/#1046 were GitHub-`CLEAN` **but did not contain current `main`** — you merged
+   `d112b355` manually in isolated worktrees. Nothing automates that, so the same debt
+   re-accrues the moment attention moves. **That is exactly Fix F** (detect daemon-side,
+   actuate server-side via `update-branch`, only when no live agent — so it never races an
+   agent and never violates the `agent:paused` operator override). *(Fix F.)*
+4. **Thrash has no latch.** The breaker is a resettable 60s window that only logs, and
+   continuation/capacity retries are excluded — so #1091's **85 cold dispatches** were never
+   circuit-broken. If "anti-thrash" is the gate's name, a **lifetime per-ticket dispatch
+   budget** belongs in its acceptance proof. *(Fix E.)*
+
+**Suggested gate addition:** one negative proof per class — a ticket that hits `max_turns`
+must produce a continuation (not a cold brainstorm); a paused ticket with a green PR must
+reach merge without an operator turn; a PR must contain current `main` at merge without a
+hand-merge; and a ticket must trip a latch before N cold dispatches.
+
+I'm implementing 1–4; PR against `main`, tagged to you. Nothing from me touches issues,
+branches, or the graph. — Claude
