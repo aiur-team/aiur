@@ -25,6 +25,7 @@ defmodule Aiur.AgentChatBroadcastTest do
     if is_pid(original), do: Process.unregister(name)
 
     {:ok, fake} = FakeOrchestrator.start_link(reply)
+    Process.unlink(fake)
     Process.register(fake, name)
 
     cleanup = fn before_restore -> cleanup_fake_orchestrator(name, fake, original, before_restore) end
@@ -39,6 +40,8 @@ defmodule Aiur.AgentChatBroadcastTest do
     catch
       :exit, :noproc -> :ok
       :exit, {:noproc, _} -> :ok
+      :exit, :shutdown -> :ok
+      :exit, {:shutdown, _} -> :ok
     end
 
     before_restore.()
@@ -53,11 +56,12 @@ defmodule Aiur.AgentChatBroadcastTest do
   end
 
   test "send/2 broadcasts a user-role transcript event when the orchestrator accepts the message" do
-    _fake = with_fake_orchestrator({:ok, 42})
+    {fake, _cleanup} = with_fake_orchestrator({:ok, 42})
     :ok = AgentPubSub.subscribe_agent("MT-CHATBC")
 
     assert {:ok, 42} = AgentChat.send("MT-CHATBC", "hello there")
     assert_receive {:transcript_event, %{role: :user, body: "hello there"}}, 500
+    refute fake in elem(Process.info(self(), :links), 1)
   end
 
   test "send/2 logs a warning and returns the error tuple when the orchestrator rejects" do
