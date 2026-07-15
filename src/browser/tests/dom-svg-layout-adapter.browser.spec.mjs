@@ -138,11 +138,21 @@ test('production adapter falls back on client startup and malformed geometry whi
   const startupContext = await browser.newContext({ httpCredentials: dashboardCredentials })
   await startupContext.addInitScript(() => {
     window.__aiurClientStartupAttempts = 0
+    window.__aiurBrowserLayoutHookOptions = () => ({
+      document: { documentElement: document.documentElement, fonts: new EventTarget() },
+      clientFactory: (urls) => window.__aiurBrowserLayoutClientFactory(urls),
+      createResizeObserver() {
+        return { observe() {}, disconnect() {} }
+      },
+      createMutationObserver() {
+        return { observe() {}, disconnect() {} }
+      }
+    })
     window.__aiurBrowserLayoutClientFactory = () => {
       window.__aiurClientStartupAttempts += 1
       if (window.__aiurClientStartupAttempts === 1) return Promise.reject(new Error('worker_start_failed'))
 
-      return {
+      const client = {
         dispose() {},
         layout(request) {
           return Promise.resolve({
@@ -150,14 +160,18 @@ test('production adapter falls back on client startup and malformed geometry whi
             version: 1,
             requestId: request.requestId,
             generation: request.generation,
-            nodes: request.nodes.map((node, index) => ({ ...node, x: index * 10, y: index * 10 })),
+            nodes: request.nodes.map((node, index) => ({ ...node, x: index * 10 + 1, y: index * 10 + 1 })),
             edges: request.edges.map((edge) => ({
               id: edge.id,
-              sections: [{ startPoint: { x: 0, y: 0 }, bendPoints: [], endPoint: { x: 10, y: 10 } }]
+              sections: [{ startPoint: { x: 1, y: 1 }, bendPoints: [], endPoint: { x: 10, y: 10 } }]
             }))
           })
         }
       }
+
+      return new Promise((resolve) => {
+        window.__aiurResolveStartupClient = () => resolve(client)
+      })
     }
   })
   const startupPage = await startupContext.newPage()
@@ -188,6 +202,8 @@ test('production adapter falls back on client startup and malformed geometry whi
     await expect(startupRoot.locator('[data-layout-node]')).toHaveCount(20)
     await expect(startupRoot.getByRole('heading', { name: 'Dependency summary' })).toBeVisible()
     await startupPage.locator('#live-update').click()
+    await expect.poll(() => startupPage.evaluate(() => typeof window.__aiurResolveStartupClient)).toBe('function')
+    await startupPage.evaluate(() => window.__aiurResolveStartupClient())
     await expect(startupRoot).toHaveAttribute('data-layout-health', 'ready')
     expect(await startupPage.evaluate(() => window.__aiurClientStartupAttempts)).toBe(2)
 
