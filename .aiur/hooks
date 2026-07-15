@@ -70,8 +70,8 @@ before_run: |
     trap - 0
   else
     git fetch origin
-    if ! git diff --quiet -- . ':(exclude).aiur-hex' ':(exclude)logs' ||
-       ! git diff --cached --quiet -- . ':(exclude).aiur-hex' ':(exclude)logs'; then
+    if ! git diff --quiet -- . ':(exclude).aiur-hex/**' ':(exclude).aiur-mix/**' ':(exclude)logs' ||
+       ! git diff --cached --quiet -- . ':(exclude).aiur-hex/**' ':(exclude).aiur-mix/**' ':(exclude)logs'; then
       # Tracked changes are present. Signal the refusal with exit 65.
       # The Elixir side keys on that status code: a fresh todo dispatch
       # recreates the stale leftover clean; a live/resumed agent's uncommitted
@@ -81,6 +81,34 @@ before_run: |
       echo "Refusing to refresh workspace from origin/$base_branch because tracked source changes are present." >&2
       echo "Leaving uncommitted work in place; skipping the origin/$base_branch refresh for this run." >&2
       exit 65
+    fi
+    # Ticket branches created before package caches became runtime-only can
+    # still track these files. Preserve the complete warm caches outside the
+    # worktree while their tracked paths are reset and the base deletion is
+    # merged, then restore them as ignored runtime state. The exit trap also
+    # restores them if checkout or merge fails.
+    cache_backup="$(mktemp -d "/tmp/aiur-workspace-caches.XXXXXX")"
+    restore_caches() {
+      if [ -n "$cache_backup" ] && [ -d "$cache_backup" ]; then
+        rm -rf ./.aiur-hex ./.aiur-mix
+        for cache_dir in .aiur-hex .aiur-mix; do
+          if [ -e "$cache_backup/$cache_dir" ]; then
+            cp -a "$cache_backup/$cache_dir" ./
+          fi
+        done
+        rm -rf "$cache_backup"
+        cache_backup=""
+      fi
+    }
+    for cache_dir in .aiur-hex .aiur-mix; do
+      if [ -e "$cache_dir" ]; then
+        cp -a "$cache_dir" "$cache_backup"/
+      fi
+    done
+    trap restore_caches 0
+    if ! git diff --quiet HEAD -- .aiur-hex .aiur-mix; then
+      git diff --name-only -z HEAD -- .aiur-hex .aiur-mix |
+        git restore --source=HEAD --staged --worktree --pathspec-from-file=- --pathspec-file-nul
     fi
     current_branch="$(git branch --show-current)"
     if [ "$current_branch" != "$AIUR_TICKET_BRANCH" ]; then
@@ -93,6 +121,8 @@ before_run: |
       fi
     fi
     git merge --no-edit "origin/$base_branch"
+    restore_caches
+    trap - 0
   fi
   mkdir -p ./.aiur-hex ./.aiur-mix
   if [ -f mise.toml ]; then
