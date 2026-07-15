@@ -70,6 +70,63 @@ defmodule Aiur.Workspace.OwnershipReconcilerTest do
     assert :ok = Ownership.release(replacement, second_registry_name)
   end
 
+  test "a corrupt receipt store fails closed instead of discarding ownership" do
+    root = Path.join(System.tmp_dir!(), "ownership-corrupt-#{System.unique_integer([:positive])}")
+    store_name = Module.concat(__MODULE__, :CorruptStore)
+
+    on_exit(fn -> File.rm_rf(root) end)
+
+    File.mkdir_p!(root)
+    File.write!(Path.join(root, "workspace-ownership.receipts"), :erlang.term_to_binary(:wrong_format))
+    Process.flag(:trap_exit, true)
+
+    assert {:error, {:workspace_ownership_store_unavailable, :invalid_receipt_store}} =
+             Store.start_link(name: store_name, state_dir: root, sync_fun: fn -> :ok end)
+  end
+
+  test "receipt operations report store loss instead of crashing callers" do
+    root = Path.join(System.tmp_dir!(), "ownership-store-loss-#{System.unique_integer([:positive])}")
+    store_name = Module.concat(__MODULE__, :StoppedStore)
+
+    on_exit(fn -> File.rm_rf(root) end)
+
+    {:ok, store} = Store.start_link(name: store_name, state_dir: root, sync_fun: fn -> :ok end)
+    assert :ok = Store.delete("missing-ticket", store)
+    :ok = GenServer.stop(store)
+
+    assert {:error, {:store_unavailable, _reason}} = Store.put("ticket", %{phase: :active}, store)
+    assert {:error, {:store_unavailable, _reason}} = Store.delete("ticket", store)
+    assert {:error, {:store_unavailable, _reason}} = Store.get("ticket", store)
+    assert {:error, {:store_unavailable, _reason}} = Store.all(store)
+  end
+
+  test "a claim is rejected when its ownership receipt cannot be made durable" do
+    root = Path.join(System.tmp_dir!(), "ownership-sync-failure-#{System.unique_integer([:positive])}")
+    ticket = "ownership-sync-failure-ticket-#{System.unique_integer([:positive])}"
+    store_name = Module.concat(__MODULE__, :FailingStore)
+    {:ok, sync_calls} = Agent.start_link(fn -> 0 end)
+
+    on_exit(fn ->
+      File.rm_rf(root)
+      if Process.alive?(sync_calls), do: Agent.stop(sync_calls)
+    end)
+
+    sync_fun = fn ->
+      Agent.get_and_update(sync_calls, fn
+        0 -> {:ok, 1}
+        count -> {{:error, :disk_full}, count + 1}
+      end)
+    end
+
+    {:ok, store} = Store.start_link(name: store_name, state_dir: root, sync_fun: sync_fun)
+
+    assert {:error, {:workspace_ownership_unavailable, {:persist_failed, :disk_full}}} =
+             Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry, store: store)
+
+    assert :none = Ownership.current(ticket)
+    assert {:ok, %{}} = Store.all(store)
+  end
+
   defp assert_eventually(fun, attempts \\ 80) do
     if fun.() do
       :ok

@@ -163,6 +163,39 @@ defmodule Aiur.Claude.Repl.ReaperTest do
       assert {:error, {:repl_cleanup_failed, :pane_still_alive}} =
                Task.await(task, 2_000)
     end
+
+    test "reports cleanup unknown while the process group remains alive", %{tmux: tmux} do
+      process_group_id = 2_147_480_000
+
+      session = %{
+        tmux: tmux,
+        pane_id: "%12",
+        os_pid: process_group_id,
+        process_group_id: process_group_id,
+        process_group_identity: {:known, :original},
+        workspace: "/ws"
+      }
+
+      task =
+        Task.async(fn ->
+          Reaper.stop_session(session,
+            group_alive_fun: fn ^process_group_id -> true end,
+            group_cleanup_fun: fn ^process_group_id, {:known, :original}, false ->
+              {:error, :signal_refused}
+            end
+          )
+        end)
+
+      assert_receive {:tmux_mock_out, "display-message -p -t %12 \#{pane_pid}"}, 1_000
+      respond_error(tmux, "no pane\n")
+      assert_receive {:tmux_mock_out, "kill-pane -t %12"}, 1_000
+      respond(tmux, "")
+      assert_receive {:tmux_mock_out, "display-message -p -t %12 \#{pane_pid}"}, 1_000
+      respond_error(tmux, "no pane\n")
+
+      assert {:error, {:repl_cleanup_failed, :process_group_still_alive}} =
+               Task.await(task, 2_000)
+    end
   end
 
   describe "reap_orphaned_panes/1" do
