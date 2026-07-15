@@ -298,6 +298,18 @@ defmodule Aiur.AiurAgentSkillTest do
     assert repo_prompt =~ "leave a correct base unchanged"
   end
 
+  test "Codex pull recovery merges the configured integration branch" do
+    pull_skill =
+      @repo_root
+      |> Path.join(".codex/skills/pull/SKILL.md")
+      |> File.read!()
+      |> one_line()
+
+    assert pull_skill =~ "AIUR_BASE_BRANCH"
+    assert pull_skill =~ ~s(merge "origin/$integration_branch")
+    refute pull_skill =~ "merge origin/main"
+  end
+
   test "agent workflow hands final PR CI to ci-wait without a polling turn" do
     dev_loop = one_line(File.read!(Path.join(@repo_root, ".claude/skills/using-aiur/dev-loop.md")))
     turn_workflow = one_line(File.read!(Path.join(@repo_root, ".claude/skills/using-aiur/turn-workflow.md")))

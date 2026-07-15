@@ -10,7 +10,7 @@ defmodule Aiur.Events.GithubCIPoller do
 
   require Logger
 
-  alias Aiur.Config
+  alias Aiur.{CIApprovalStore, Config}
   alias Aiur.GitHub.Client
 
   @type target :: String.t() | integer()
@@ -100,15 +100,15 @@ defmodule Aiur.Events.GithubCIPoller do
          {:ok, head_sha} <- head_sha(pr) do
       expected_base = expected_base_branch(opts)
 
-      case Client.ensure_pull_request_base(pr, expected_base, opts) do
+      case ensure_pull_request_base(target, pr, head_sha, expected_base, opts) do
         {:ok, :unchanged} ->
           poll_open_pull_request_ci(target, pr_number, head_sha, opts)
 
-        {:ok, :repaired} ->
-          base_branch_repaired(target, pr_number, head_sha, expected_base, opts)
+        {:ok, {:repaired, invalidation}} ->
+          base_branch_repaired(target, pr_number, invalidation, expected_base)
 
-        {:error, reason} ->
-          base_branch_failure(target, pr_number, head_sha, expected_base, reason)
+        {:error, reason, invalidation} ->
+          base_branch_failure(target, pr_number, head_sha, expected_base, reason, invalidation)
       end
     else
       {:error, reason} -> poll_error(target, reason)
@@ -157,15 +157,26 @@ defmodule Aiur.Events.GithubCIPoller do
        ) do
     expected_base = expected_base_branch(opts)
 
-    case Client.ensure_pull_request_base(current_pr, expected_base, opts) do
-      {:ok, :unchanged} ->
-        current_head_result(target, pr_number, current_pr, observed_head_sha, check_runs, commit_status, opts)
+    with {:ok, current_head_sha} <- head_sha(current_pr) do
+      case ensure_pull_request_base(target, current_pr, current_head_sha, expected_base, opts) do
+        {:ok, :unchanged} ->
+          current_head_result(target, pr_number, current_pr, observed_head_sha, check_runs, commit_status, opts)
 
-      {:ok, :repaired} ->
-        base_branch_repaired(target, pr_number, observed_head_sha, expected_base, opts)
+        {:ok, {:repaired, invalidation}} ->
+          base_branch_repaired(target, pr_number, invalidation, expected_base)
 
-      {:error, reason} ->
-        base_branch_failure(target, pr_number, observed_head_sha, expected_base, reason)
+        {:error, reason, invalidation} ->
+          base_branch_failure(
+            target,
+            pr_number,
+            current_head_sha,
+            expected_base,
+            reason,
+            invalidation
+          )
+      end
+    else
+      {:error, reason} -> poll_error(target, reason)
     end
   end
 
@@ -219,18 +230,33 @@ defmodule Aiur.Events.GithubCIPoller do
     invalidations = Keyword.get(opts, :base_repair_invalidations, %{})
 
     case Map.get(invalidations, to_string(target)) do
+      %{repair_state: :repairing, repaired_at: repaired_at} when is_integer(repaired_at) ->
+        apply_base_repair_invalidation(result, check_runs, commit_status, repaired_at)
+
+      %{"repair_state" => "repairing", "repaired_at" => repaired_at}
+      when is_integer(repaired_at) ->
+        apply_base_repair_invalidation(result, check_runs, commit_status, repaired_at)
+
       %{head_sha: ^head_sha, repaired_at: repaired_at} when is_integer(repaired_at) ->
-        if result.decision in [:passed, :failed] and post_repair_ci?(check_runs, commit_status, repaired_at) do
-          Map.put(result, :base_repair_revalidated, true)
-        else
-          result
-          |> Map.put(:decision, :pending)
-          |> Map.put(:failures, [])
-          |> Map.put(:pending_reason, :base_repair_ci_revalidation_required)
-        end
+        apply_base_repair_invalidation(result, check_runs, commit_status, repaired_at)
+
+      %{"head_sha" => ^head_sha, "repaired_at" => repaired_at}
+      when is_integer(repaired_at) ->
+        apply_base_repair_invalidation(result, check_runs, commit_status, repaired_at)
 
       _ ->
         result
+    end
+  end
+
+  defp apply_base_repair_invalidation(result, check_runs, commit_status, repaired_at) do
+    if result.decision in [:passed, :failed] and post_repair_ci?(check_runs, commit_status, repaired_at) do
+      Map.put(result, :base_repair_revalidated, true)
+    else
+      result
+      |> Map.put(:decision, :pending)
+      |> Map.put(:failures, [])
+      |> Map.put(:pending_reason, :base_repair_ci_revalidation_required)
     end
   end
 
@@ -353,12 +379,88 @@ defmodule Aiur.Events.GithubCIPoller do
     end
   end
 
-  defp base_branch_failure(target, pr_number, head_sha, expected_base, reason) do
+  defp ensure_pull_request_base(target, pr, head_sha, expected_base, opts) do
+    repaired_at = system_time_seconds(opts)
+
+    repairing = %{
+      head_sha: head_sha,
+      repaired_at: repaired_at,
+      repair_state: :repairing
+    }
+
+    ensure_opts =
+      Keyword.put(opts, :before_base_repair_fun, fn ->
+        journal_base_repair(target, repairing, opts)
+      end)
+
+    case Client.ensure_pull_request_base(pr, expected_base, ensure_opts) do
+      {:ok, :unchanged} ->
+        {:ok, :unchanged}
+
+      {:ok, {:repaired, confirmed_head_sha}} ->
+        confirmed = %{
+          head_sha: confirmed_head_sha,
+          repaired_at: repaired_at,
+          repair_state: :repaired
+        }
+
+        case journal_base_repair(target, confirmed, opts) do
+          :ok ->
+            {:ok, {:repaired, confirmed}}
+
+          {:error, reason} ->
+            {:error,
+             repair_error(
+               pr,
+               expected_base,
+               {:confirmed_head_journal_failed, confirmed_head_sha, reason}
+             ), repairing}
+        end
+
+      {:error, {:pull_request_base_repair_failed, %{repair_journaled: true}} = reason} ->
+        {:error, reason, repairing}
+
+      {:error, reason} ->
+        {:error, reason, nil}
+    end
+  end
+
+  defp journal_base_repair(target, invalidation, opts) do
+    journal_fun =
+      Keyword.get(opts, :base_repair_journal_fun, fn target, marker ->
+        CIApprovalStore.journal_base_repair(target, marker)
+      end)
+
+    try do
+      case journal_fun.(to_string(target), invalidation) do
+        :ok -> :ok
+        {:error, reason} -> {:error, reason}
+        other -> {:error, {:unexpected_base_repair_journal_result, other}}
+      end
+    rescue
+      error -> {:error, {:base_repair_journal_failed, Exception.message(error)}}
+    catch
+      kind, reason -> {:error, {:base_repair_journal_failed, {kind, reason}}}
+    end
+  end
+
+  defp repair_error(pr, expected_base, reason) do
+    {:pull_request_base_repair_failed,
+     %{
+       pr_number: Map.get(pr, "number"),
+       current_base: get_in(pr, ["base", "ref"]),
+       expected_base: expected_base,
+       reason: reason,
+       repair_journaled: true
+     }}
+  end
+
+  defp base_branch_failure(target, pr_number, head_sha, expected_base, reason, invalidation) do
     excerpt = base_branch_failure_message(pr_number, expected_base, reason)
 
     Logger.warning("GithubCIPoller rejected pull request base: issue=#{target} reason=#{inspect(reason)}")
 
-    %{
+    result = %{
       target: target,
       pr_number: pr_number,
       head_sha: head_sha,
@@ -372,11 +474,13 @@ defmodule Aiur.Events.GithubCIPoller do
         }
       ]
     }
+
+    if is_map(invalidation),
+      do: Map.put(result, :base_repair_invalidation, invalidation),
+      else: result
   end
 
-  defp base_branch_repaired(target, pr_number, head_sha, expected_base, opts) do
-    repaired_at = system_time_seconds(opts)
-
+  defp base_branch_repaired(target, pr_number, invalidation, expected_base) do
     Logger.warning(
       "GithubCIPoller repaired pull request base: issue=#{target} pr=#{pr_number} " <>
         "expected_base=#{inspect(expected_base)} action=ci_revalidation_required"
@@ -385,9 +489,9 @@ defmodule Aiur.Events.GithubCIPoller do
     %{
       target: target,
       pr_number: pr_number,
-      head_sha: head_sha,
+      head_sha: invalidation.head_sha,
       decision: :failed,
-      base_repair_invalidation: %{head_sha: head_sha, repaired_at: repaired_at},
+      base_repair_invalidation: invalidation,
       failures: [
         %{
           name: "pull request base branch",

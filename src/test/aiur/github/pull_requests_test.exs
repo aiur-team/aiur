@@ -87,7 +87,8 @@ defmodule Aiur.GitHub.PullRequestsTest do
            body: %{
              "number" => 1144,
              "draft" => true,
-             "base" => %{"ref" => "main"}
+             "base" => %{"ref" => "main"},
+             "head" => %{"sha" => "confirmed-head"}
            }
          }}
       end
@@ -98,8 +99,32 @@ defmodule Aiur.GitHub.PullRequestsTest do
         "base" => %{"ref" => "v2"}
       }
 
-      assert {:ok, :repaired} =
-               PullRequests.ensure_base_branch(pr, "main", request_fun: request_fun)
+      assert {:ok, {:repaired, "confirmed-head"}} =
+               PullRequests.ensure_base_branch(pr, "main",
+                 request_fun: request_fun,
+                 before_base_repair_fun: fn -> :ok end
+               )
+    end
+
+    test "does not mutate GitHub when the pre-repair journal fails" do
+      request_fun = fn _request -> flunk("PATCH must not run without a durable journal") end
+
+      pr = %{
+        "number" => 1144,
+        "draft" => true,
+        "base" => %{"ref" => "v2"}
+      }
+
+      assert {:error,
+              {:pull_request_base_repair_failed,
+               %{
+                 repair_journaled: false,
+                 reason: {:base_repair_journal_failed, :disk_full}
+               }}} =
+               PullRequests.ensure_base_branch(pr, "main",
+                 request_fun: request_fun,
+                 before_base_repair_fun: fn -> {:error, :disk_full} end
+               )
     end
 
     test "returns observed and expected bases when repair fails" do
@@ -120,7 +145,11 @@ defmodule Aiur.GitHub.PullRequestsTest do
                  current_base: "v2",
                  expected_base: "main",
                  reason: {:github, :http, %{status: 422}}
-               }}} = PullRequests.ensure_base_branch(pr, "main", request_fun: request_fun)
+               }}} =
+               PullRequests.ensure_base_branch(pr, "main",
+                 request_fun: request_fun,
+                 before_base_repair_fun: fn -> :ok end
+               )
     end
   end
 

@@ -339,6 +339,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       {:ok, %{results: results, errors: errors}} when is_list(results) and is_list(errors) ->
         state =
           state
+          |> merge_journaled_base_repairs()
           |> note_ci_poll_connectivity(targets, errors)
           |> log_ci_poll_errors(errors)
 
@@ -386,6 +387,24 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     Enum.reduce(results, state, fn result, state_acc ->
       apply_ci_poll_result_for_target(state_acc, result, issues_by_target)
     end)
+  end
+
+  # Repair markers are journaled from concurrent poll tasks before GitHub is
+  # mutated. Merge the durable ledger back into the GenServer snapshot before
+  # any result transition can persist the lifecycle-wide document; otherwise
+  # the first result could overwrite another task's already-durable marker.
+  defp merge_journaled_base_repairs(%State{} = state) do
+    persisted = CIApprovalStore.load()
+    current = Map.get(state.ci_lifecycle, :base_repair_invalidations, %{})
+    journaled = Map.get(persisted, :base_repair_invalidations, %{})
+    merged = Map.merge(current, journaled)
+
+    if merged == current do
+      state
+    else
+      ci_lifecycle = Map.put(state.ci_lifecycle, :base_repair_invalidations, merged)
+      %{state | ci_lifecycle: ci_lifecycle}
+    end
   end
 
   defp apply_ci_poll_result_for_target(state, result, issues_by_target) do
@@ -439,10 +458,12 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   defp reconcile_base_repair_invalidation(
          %State{} = state,
          %Issue{} = issue,
-         %{base_repair_invalidation: %{head_sha: head_sha, repaired_at: repaired_at}}
+         %{
+           base_repair_invalidation: %{head_sha: head_sha, repaired_at: repaired_at} = invalidation
+         }
        )
        when is_binary(head_sha) and is_integer(repaired_at) do
-    update_base_repair_invalidation(state, issue, %{head_sha: head_sha, repaired_at: repaired_at})
+    update_base_repair_invalidation(state, issue, invalidation)
   end
 
   defp reconcile_base_repair_invalidation(%State{} = state, %Issue{} = issue, result) do
@@ -450,6 +471,16 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     invalidations = Map.get(state.ci_lifecycle, :base_repair_invalidations, %{})
 
     case Map.get(invalidations, target) do
+      %{repair_state: :repairing} ->
+        if Map.get(result, :base_repair_revalidated, false),
+          do: update_base_repair_invalidation(state, issue, nil),
+          else: state
+
+      %{"repair_state" => "repairing"} ->
+        if Map.get(result, :base_repair_revalidated, false),
+          do: update_base_repair_invalidation(state, issue, nil),
+          else: state
+
       %{head_sha: invalidated_head} when is_binary(invalidated_head) ->
         observed_head = Map.get(result, :head_sha)
 

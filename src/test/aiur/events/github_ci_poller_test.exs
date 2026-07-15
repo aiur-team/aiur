@@ -1,12 +1,18 @@
 defmodule Aiur.Events.GithubCIPollerTest do
   use Aiur.TestSupport
 
+  alias Aiur.{CIApprovalStore, Workflow}
   alias Aiur.Events.GithubCIPoller
-  alias Aiur.Workflow
 
   setup do
     previous_token = System.get_env("GITHUB_TOKEN")
+    previous_store_path = Application.get_env(:aiur, :ci_approval_store_path)
+
+    store_path =
+      Path.join(System.tmp_dir!(), "github_ci_poller_#{System.unique_integer([:positive])}.json")
+
     System.put_env("GITHUB_TOKEN", "test-gh-token")
+    Application.put_env(:aiur, :ci_approval_store_path, store_path)
 
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_kind: "github",
@@ -14,7 +20,16 @@ defmodule Aiur.Events.GithubCIPollerTest do
       tracker_label_prefix: "agent"
     )
 
-    on_exit(fn -> restore_env("GITHUB_TOKEN", previous_token) end)
+    on_exit(fn ->
+      restore_env("GITHUB_TOKEN", previous_token)
+
+      if is_nil(previous_store_path),
+        do: Application.delete_env(:aiur, :ci_approval_store_path),
+        else: Application.put_env(:aiur, :ci_approval_store_path, previous_store_path)
+
+      File.rm(store_path)
+    end)
+
     :ok
   end
 
@@ -285,7 +300,15 @@ defmodule Aiur.Events.GithubCIPollerTest do
 
         request.method == :patch ->
           send(parent, {:base_repaired_during_observation, request.body})
-          {:ok, %{status: 200, body: %{"base" => %{"ref" => "main"}}}}
+
+          {:ok,
+           %{
+             status: 200,
+             body: %{
+               "base" => %{"ref" => "main"},
+               "head" => %{"sha" => "head-79"}
+             }
+           }}
       end
     end
 
@@ -343,7 +366,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
              GithubCIPoller.poll(["88"], request_fun: request_fun)
   end
 
-  test "repairs configured main on a pre-existing draft targeting repository default v2" do
+  test "journals before repair and invalidates the confirmed response head after a concurrent push" do
     parent = self()
 
     request_fun = fn
@@ -357,7 +380,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
              %{
                "number" => 1144,
                "draft" => true,
-               "head" => %{"sha" => "head-1144"},
+               "head" => %{"sha" => "head-before-concurrent-push"},
                "base" => %{"ref" => "v2"}
              }
            ]
@@ -366,13 +389,23 @@ defmodule Aiur.Events.GithubCIPollerTest do
       %{method: :patch, url: url, body: body} ->
         send(parent, {:base_repaired, url, body})
 
+        assert %{
+                 base_repair_invalidations: %{
+                   "1146" => %{
+                     head_sha: "head-before-concurrent-push",
+                     repair_state: :repairing
+                   }
+                 }
+               } = CIApprovalStore.load()
+
         {:ok,
          %{
            status: 200,
            body: %{
              "number" => 1144,
              "draft" => true,
-             "base" => %{"ref" => "main"}
+             "base" => %{"ref" => "main"},
+             "head" => %{"sha" => "head-after-concurrent-push"}
            }
          }}
     end
@@ -384,6 +417,11 @@ defmodule Aiur.Events.GithubCIPollerTest do
                 %{
                   decision: :failed,
                   pr_number: 1144,
+                  head_sha: "head-after-concurrent-push",
+                  base_repair_invalidation: %{
+                    head_sha: "head-after-concurrent-push",
+                    repair_state: :repaired
+                  },
                   failures: [
                     %{
                       name: "pull request base branch",
@@ -399,6 +437,15 @@ defmodule Aiur.Events.GithubCIPollerTest do
     assert String.ends_with?(url, "/repos/owner/repo/pulls/1144")
     assert excerpt =~ "CI recorded before the repair is not valid"
     assert excerpt =~ "baseRefName"
+
+    assert %{
+             base_repair_invalidations: %{
+               "1146" => %{
+                 head_sha: "head-after-concurrent-push",
+                 repair_state: :repaired
+               }
+             }
+           } = CIApprovalStore.load()
   end
 
   test "keeps a repaired unchanged head invalid across later polls until fresh CI exists" do
@@ -424,7 +471,15 @@ defmodule Aiur.Events.GithubCIPollerTest do
 
         request.method == :patch ->
           Agent.update(base, fn _ -> "main" end)
-          {:ok, %{status: 200, body: %{"base" => %{"ref" => "main"}}}}
+
+          {:ok,
+           %{
+             status: 200,
+             body: %{
+               "base" => %{"ref" => "main"},
+               "head" => %{"sha" => "unchanged-head"}
+             }
+           }}
 
         String.contains?(request.url, "/check-runs?") ->
           started_at =
@@ -501,6 +556,168 @@ defmodule Aiur.Events.GithubCIPollerTest do
                request_fun: request_fun,
                base_branch: "main",
                base_repair_invalidations: invalidations
+             )
+  end
+
+  test "does not PATCH when the pre-repair journal cannot be written" do
+    parent = self()
+
+    request_fun = fn
+      %{method: :get} ->
+        {:ok,
+         %{
+           status: 200,
+           body: [
+             %{
+               "number" => 1144,
+               "head" => %{"sha" => "journal-failure-head"},
+               "base" => %{"ref" => "v2"}
+             }
+           ]
+         }}
+
+      %{method: :patch} ->
+        send(parent, :unexpected_patch)
+        flunk("GitHub must not be mutated after a journal write failure")
+    end
+
+    journal_fun = fn target, marker ->
+      CIApprovalStore.journal_base_repair(target, marker, write_fun: fn _path, _payload -> raise "disk full" end)
+    end
+
+    assert {:ok,
+            %{
+              results: [
+                %{
+                  decision: :failed,
+                  failures: [%{result: "repair_failed", excerpt: excerpt}]
+                }
+              ]
+            }} =
+             GithubCIPoller.poll(["1146"],
+               request_fun: request_fun,
+               base_branch: "main",
+               base_repair_journal_fun: journal_fun
+             )
+
+    refute_receive :unexpected_patch
+    assert excerpt =~ "journal"
+    assert CIApprovalStore.load().base_repair_invalidations == %{}
+  end
+
+  test "a crash after PATCH leaves a durable fail-closed repairing marker" do
+    {:ok, journal_calls} = Agent.start_link(fn -> 0 end)
+
+    journal_fun = fn target, marker ->
+      case Agent.get_and_update(journal_calls, &{&1, &1 + 1}) do
+        0 -> CIApprovalStore.journal_base_repair(target, marker)
+        1 -> {:error, :simulated_crash_before_confirmed_head_persist}
+      end
+    end
+
+    request_fun = fn
+      %{method: :get, url: url} ->
+        assert String.contains?(url, "/pulls?")
+
+        {:ok,
+         %{
+           status: 200,
+           body: [
+             %{
+               "number" => 1144,
+               "head" => %{"sha" => "pre-patch-head"},
+               "base" => %{"ref" => "v2"}
+             }
+           ]
+         }}
+
+      %{method: :patch} ->
+        {:ok,
+         %{
+           status: 200,
+           body: %{
+             "base" => %{"ref" => "main"},
+             "head" => %{"sha" => "concurrent-head"}
+           }
+         }}
+    end
+
+    assert {:ok,
+            %{
+              results: [
+                %{
+                  decision: :failed,
+                  base_repair_invalidation: %{
+                    head_sha: "pre-patch-head",
+                    repair_state: :repairing
+                  }
+                }
+              ]
+            }} =
+             GithubCIPoller.poll(["1146"],
+               request_fun: request_fun,
+               base_branch: "main",
+               base_repair_journal_fun: journal_fun
+             )
+
+    assert %{
+             base_repair_invalidations: %{
+               "1146" => %{
+                 head_sha: "pre-patch-head",
+                 repair_state: :repairing
+               }
+             }
+           } = CIApprovalStore.load()
+
+    stale_ci_request_fun = fn %{method: :get, url: url} ->
+      cond do
+        String.contains?(url, "/pulls?") ->
+          {:ok,
+           %{
+             status: 200,
+             body: [
+               %{
+                 "number" => 1144,
+                 "head" => %{"sha" => "concurrent-head"},
+                 "base" => %{"ref" => "main"}
+               }
+             ]
+           }}
+
+        String.contains?(url, "/check-runs?") ->
+          {:ok,
+           %{
+             status: 200,
+             body: %{
+               "check_runs" => [
+                 %{
+                   "status" => "completed",
+                   "conclusion" => "success",
+                   "started_at" => "2026-07-15T00:00:00Z"
+                 }
+               ]
+             }
+           }}
+
+        String.ends_with?(url, "/status") ->
+          {:ok, %{status: 200, body: %{"state" => "success", "statuses" => []}}}
+      end
+    end
+
+    assert {:ok,
+            %{
+              results: [
+                %{
+                  decision: :pending,
+                  head_sha: "concurrent-head",
+                  pending_reason: :base_repair_ci_revalidation_required
+                }
+              ]
+            }} =
+             GithubCIPoller.poll(["1146"],
+               request_fun: stale_ci_request_fun,
+               base_branch: "main",
+               base_repair_invalidations: CIApprovalStore.load().base_repair_invalidations
              )
   end
 

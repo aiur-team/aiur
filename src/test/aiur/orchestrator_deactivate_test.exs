@@ -376,7 +376,12 @@ defmodule Aiur.OrchestratorDeactivateTest do
     test "persists base repair invalidation and supplies it to later CI polls" do
       identifier = "ci-base-repair"
       issue = %Issue{id: identifier, identifier: identifier, state: "ci-wait", title: "Retarget CI"}
-      invalidation = %{head_sha: "repaired-head", repaired_at: 1_784_070_000}
+
+      invalidation = %{
+        head_sha: "repaired-head",
+        repaired_at: 1_784_070_000,
+        repair_state: :repaired
+      }
 
       state =
         CiLifecycle.poll_github_ci(empty_orchestrator_state(),

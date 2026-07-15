@@ -245,7 +245,7 @@ defmodule Aiur.GitHub.PullRequests do
   CI handoff.
   """
   @spec ensure_base_branch(map(), String.t(), keyword()) ::
-          {:ok, :unchanged | :repaired} | {:error, term()}
+          {:ok, :unchanged | {:repaired, String.t()}} | {:error, term()}
   def ensure_base_branch(pr, expected_base, opts \\ [])
 
   def ensure_base_branch(
@@ -281,7 +281,8 @@ defmodule Aiur.GitHub.PullRequests do
     )
 
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
+         {:ok, token} <- Transport.require_token(opts),
+         :ok <- journal_before_base_repair(opts) do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
       url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls/#{pr_number}"
 
@@ -293,19 +294,50 @@ defmodule Aiur.GitHub.PullRequests do
       })
       |> handle_base_repair_response(pr_number, current_base, expected_base)
     else
+      {:error, {:base_repair_journal_failed, _reason} = reason} ->
+        base_repair_error(pr_number, current_base, expected_base, reason, false)
+
       {:error, reason} ->
-        base_repair_error(pr_number, current_base, expected_base, reason)
+        base_repair_error(pr_number, current_base, expected_base, reason, false)
+    end
+  end
+
+  defp journal_before_base_repair(opts) do
+    case Keyword.fetch(opts, :before_base_repair_fun) do
+      {:ok, journal_fun} when is_function(journal_fun, 0) ->
+        try do
+          case journal_fun.() do
+            :ok -> :ok
+            {:error, reason} -> {:error, {:base_repair_journal_failed, reason}}
+            other -> {:error, {:base_repair_journal_failed, {:unexpected_result, other}}}
+          end
+        rescue
+          error -> {:error, {:base_repair_journal_failed, Exception.message(error)}}
+        catch
+          kind, reason -> {:error, {:base_repair_journal_failed, {kind, reason}}}
+        end
+
+      _ ->
+        {:error, {:base_repair_journal_failed, :journal_callback_required}}
     end
   end
 
   defp handle_base_repair_response(
-         {:ok, %{status: 200, body: %{"base" => %{"ref" => expected_base}}}},
+         {:ok,
+          %{
+            status: 200,
+            body: %{
+              "base" => %{"ref" => expected_base},
+              "head" => %{"sha" => confirmed_head_sha}
+            }
+          }},
          pr_number,
          _current_base,
          expected_base
-       ) do
+       )
+       when is_binary(confirmed_head_sha) and confirmed_head_sha != "" do
     Logger.info("Pull request base repaired: pr=#{pr_number} base=#{inspect(expected_base)} action=repaired")
-    {:ok, :repaired}
+    {:ok, {:repaired, confirmed_head_sha}}
   end
 
   defp handle_base_repair_response(
@@ -318,7 +350,12 @@ defmodule Aiur.GitHub.PullRequests do
       pr_number,
       current_base,
       expected_base,
-      {:repair_not_confirmed, get_in(body, ["base", "ref"])}
+      {:repair_not_confirmed,
+       %{
+         base: get_in(body, ["base", "ref"]),
+         head_sha: get_in(body, ["head", "sha"])
+       }},
+      true
     )
   end
 
@@ -328,7 +365,13 @@ defmodule Aiur.GitHub.PullRequests do
          current_base,
          expected_base
        ) do
-    base_repair_error(pr_number, current_base, expected_base, Errors.github_status_error(response))
+    base_repair_error(
+      pr_number,
+      current_base,
+      expected_base,
+      Errors.github_status_error(response),
+      true
+    )
   end
 
   defp handle_base_repair_response({:error, reason}, pr_number, current_base, expected_base) do
@@ -336,18 +379,20 @@ defmodule Aiur.GitHub.PullRequests do
       pr_number,
       current_base,
       expected_base,
-      Errors.classify_error({:error, reason})
+      Errors.classify_error({:error, reason}),
+      true
     )
   end
 
-  defp base_repair_error(pr_number, current_base, expected_base, reason) do
+  defp base_repair_error(pr_number, current_base, expected_base, reason, repair_journaled) do
     {:error,
      {:pull_request_base_repair_failed,
       %{
         pr_number: pr_number,
         current_base: current_base,
         expected_base: expected_base,
-        reason: reason
+        reason: reason,
+        repair_journaled: repair_journaled
       }}}
   end
 
