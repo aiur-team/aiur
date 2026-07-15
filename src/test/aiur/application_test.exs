@@ -98,6 +98,8 @@ defmodule Aiur.ApplicationTest do
       Aiur.DecisionMetrics,
       Aiur.GitHub.CodeOwners,
       Aiur.RecentMergeStore,
+      Aiur.CurrentRunMembership.Store,
+      Aiur.CurrentRunMembership.Reconciler,
       Aiur.Opencode.SessionSupervisor,
       Aiur.Opencode.BridgeSupervisor,
       Aiur.Opencode.TokenRegistry
@@ -171,6 +173,21 @@ defmodule Aiur.ApplicationTest do
         tracked_set = Enum.find_index(mods, &(&1 == Aiur.Orchestrator.TrackedSet))
         orchestrator = Enum.find_index(mods, &(&1 == Aiur.Orchestrator))
         assert tracked_set < orchestrator, "TrackedSet must precede Orchestrator for #{inspect(opts)}"
+      end
+    end
+
+    test "current-run membership starts before the orchestrator and reconciles after it" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        mods = modules(AiurApp.child_specs(opts))
+        membership_store = Enum.find_index(mods, &(&1 == Aiur.CurrentRunMembership.Store))
+        orchestrator = Enum.find_index(mods, &(&1 == Aiur.Orchestrator))
+        reconciler = Enum.find_index(mods, &(&1 == Aiur.CurrentRunMembership.Reconciler))
+
+        assert membership_store < orchestrator, "membership store must precede Orchestrator for #{inspect(opts)}"
+        assert orchestrator < reconciler, "membership reconciler must follow Orchestrator for #{inspect(opts)}"
       end
     end
 
