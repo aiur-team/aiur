@@ -559,6 +559,28 @@ defmodule Aiur.BuildGateTest do
   end
 
   @tag @linux_only
+  test "admission timeout does not cap an admitted Mix command lifetime", context do
+    started_at = System.monotonic_time(:millisecond)
+
+    assert {output, 17} =
+             run_bash(
+               "mix compile",
+               Map.merge(context, %{
+                 timeout_seconds: 1,
+                 sleep_seconds: 2,
+                 mix_exit_status: 17,
+                 started_path: ""
+               })
+             )
+
+    assert System.monotonic_time(:millisecond) - started_at >= 1_500
+    assert output =~ "aiur_build_gate acquired slot=1 command=compile"
+    assert output =~ "aiur_build_gate released slot=1 status=17"
+    refute File.exists?(Path.join(context.gate_dir, "slot-1.owner"))
+    assert {_output, 0} = run_bash("mix compile", Map.put(context, :started_path, ""))
+  end
+
+  @tag @linux_only
   test "substituted FIFO holder metadata fails closed without blocking", context do
     mktemp = System.find_executable("mktemp") || flunk("mktemp is required")
     write_controlled_mktemp!(Path.join(context.bin_dir, "mktemp"), mktemp)

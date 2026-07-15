@@ -449,9 +449,9 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
   aiur_build_gate_hold_linux_lease() {
     local python_binary=$1 ready_path=$2 started_path=$3 command_pid_path=$4
     local command_ready_path=$5 status_path=$6 status_ack_path=$7 owner_path=$8 token=$9
-    local parent_pid=${10} agent_pgid=${11} slot_fd=${12} timeout_seconds=${13}
+    local parent_pid=${10} agent_pgid=${11} slot_fd=${12} handshake_seconds=${13} ack_seconds=${14}
     local holder_script
-    shift 13
+    shift 14
 
     # A Linux subreaper becomes the parent of daemonized Mix descendants. It
     # owns the slot descriptor, reports the direct command status promptly,
@@ -460,7 +460,7 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
 
     exec "$python_binary" "$holder_script" "$ready_path" "$started_path" "$command_pid_path" \
       "$command_ready_path" "$status_path" "$status_ack_path" "$owner_path" "$token" \
-      "$parent_pid" "$agent_pgid" "$slot_fd" "$timeout_seconds" "$@"
+      "$parent_pid" "$agent_pgid" "$slot_fd" "$handshake_seconds" "$ack_seconds" "$@"
   }
 
   aiur_build_gate_wait_for_holder_value() {
@@ -500,9 +500,9 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
   }
 
   aiur_build_gate_wait_for_command_status() {
-    local status_path=$1 holder_pid=$2 deadline=$3 status result
+    local status_path=$1 holder_pid=$2 status result
 
-    while ((SECONDS <= deadline)); do
+    while true; do
       if status=$(aiur_build_gate_read_regular "$status_path" 2>/dev/null) &&
         [[ $status =~ ^[0-9]+\ [01]$ ]]; then
         printf '%s\n' "$status"
@@ -891,7 +891,7 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
     local command_pid_file="" command_ready_file="" command_status_file="" command_status_ack_file=""
     local holder_ready_file="" holder_started_file=""
     local command_pgid holder_pid parent_pid python_binary retained status
-    local deadline handshake_deadline holder_deadline holder_timeout_seconds slot slot_lock slot_owner slot_fd lock_result owner_pid owner_pgid token result pacing_result
+    local deadline handshake_deadline holder_handshake_seconds=2 holder_ack_seconds=5 slot slot_lock slot_owner slot_fd lock_result owner_pid owner_pgid token result pacing_result
     local available_memory_mb memory_deferred=0 memory_unavailable_logged=0
 
     # Keep descriptor allocation local to this subshell and independent of an
@@ -1136,16 +1136,13 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
           fi
 
           parent_pid=${BASHPID:-$$}
-          holder_timeout_seconds=$timeout_seconds
-          ((holder_timeout_seconds < 5)) && holder_timeout_seconds=5
-          holder_deadline=$((SECONDS + holder_timeout_seconds))
-          handshake_deadline=$((SECONDS + 2))
-          ((handshake_deadline > holder_deadline)) && handshake_deadline=$holder_deadline
+          handshake_deadline=$((SECONDS + holder_handshake_seconds))
 
           aiur_build_gate_hold_linux_lease \
             "$python_binary" "$holder_ready_file" "$holder_started_file" \
             "$command_pid_file" "$command_ready_file" "$command_status_file" "$command_status_ack_file" \
-            "$slot_owner" "$token" "$parent_pid" "$owner_pgid" "$slot_fd" "$holder_timeout_seconds" \
+            "$slot_owner" "$token" "$parent_pid" "$owner_pgid" "$slot_fd" \
+            "$holder_handshake_seconds" "$holder_ack_seconds" \
             "$executable" "$@" &
           holder_pid=$!
 
@@ -1226,7 +1223,7 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
           fi
 
           if ! status=$(
-            aiur_build_gate_wait_for_command_status "$command_status_file" "$holder_pid" "$holder_deadline"
+            aiur_build_gate_wait_for_command_status "$command_status_file" "$holder_pid"
           ); then
             aiur_build_gate_stop_holder "$holder_pid"
             rm -f "$command_pid_file" "$command_ready_file" "$command_status_file" "$command_status_ack_file" \

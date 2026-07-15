@@ -29,13 +29,14 @@ def main() -> int:
         parent_pid,
         agent_pgid,
         lease_fd,
-        timeout_seconds,
+        handshake_seconds,
+        ack_seconds,
         *command,
     ) = sys.argv[1:]
 
     parent_pid_int = int(parent_pid)
     agent_pgid_int = int(agent_pgid)
-    deadline = time.monotonic() + max(1, int(timeout_seconds))
+    handshake_deadline = time.monotonic() + max(1, int(handshake_seconds))
     process = None
 
     try:
@@ -44,12 +45,12 @@ def main() -> int:
         wait_start_delay()
         raise_if_cancelled()
         write_reserved_regular(started_path, "started\n")
-        wait_until_ready(ready_path, "ready\n", parent_pid_int, deadline)
+        wait_until_ready(ready_path, "ready\n", parent_pid_int, handshake_deadline)
 
         process = subprocess.Popen(command, close_fds=True, start_new_session=True)
         write_reserved_regular(command_pid_path, f"{process.pid}\n")
 
-        wait_until_ready(command_ready_path, "ready\n", parent_pid_int, deadline)
+        wait_until_ready(command_ready_path, "ready\n", parent_pid_int, handshake_deadline)
 
         if os.environ.get("AIUR_BUILD_GATE_HOLDER_FAIL_AFTER_POPEN") == "1":
             raise RuntimeError("injected post-Popen holder failure")
@@ -62,7 +63,8 @@ def main() -> int:
 
         retained = reap_exited_children()
         write_reserved_regular(status_path, f"{result} {int(retained)}\n")
-        wait_for_status_ack(status_ack_path, token, parent_pid_int, deadline)
+        ack_deadline = time.monotonic() + max(1, int(ack_seconds))
+        wait_for_status_ack(status_ack_path, token, parent_pid_int, ack_deadline)
         reap_remaining_children(agent_pgid_int)
         remove_owned_metadata(owner_path, token)
         cleanup_paths(
