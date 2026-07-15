@@ -70,6 +70,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
                 identifier: running_entry.identifier,
                 tracker_identity: Issue.tracker_identity(Map.get(running_entry, :issue)),
                 delay_type: :continuation,
+                prior_work: prior_work_for_retry?(running_entry),
                 worker_host: Map.get(running_entry, :worker_host),
                 workspace_path: Map.get(running_entry, :workspace_path)
               })
@@ -84,6 +85,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
                 identifier: running_entry.identifier,
                 tracker_identity: Issue.tracker_identity(Map.get(running_entry, :issue)),
                 error: "agent exited: #{inspect(reason)}",
+                prior_work: prior_work_for_retry?(running_entry),
                 worker_host: Map.get(running_entry, :worker_host),
                 workspace_path: Map.get(running_entry, :workspace_path)
               })
@@ -116,6 +118,17 @@ defmodule Aiur.Orchestrator.RetryEngine do
         retry_attempts: Map.delete(state.retry_attempts, issue_id)
     }
   end
+
+  @doc false
+  @spec prior_work_for_retry?(map(), boolean()) :: boolean()
+  def prior_work_for_retry?(running_entry, continuation_enabled? \\ Config.agent_prior_work_continuation?())
+      when is_map(running_entry) and is_boolean(continuation_enabled?) do
+    continuation_enabled? and
+      (Map.get(running_entry, :prior_work, false) == true or
+         positive_turn_count?(Map.get(running_entry, :completed_turn_count)))
+  end
+
+  defp positive_turn_count?(turn_count), do: is_integer(turn_count) and turn_count > 0
 
   @doc false
   @spec preserve_running_issue_on_external_error(State.t(), Issue.t()) :: State.t()
@@ -155,6 +168,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
     worker_host = pick_retry_worker_host(previous_retry, metadata)
     workspace_path = pick_retry_workspace_path(previous_retry, metadata)
     tracker_identity = pick_retry_tracker_identity(previous_retry, metadata)
+    prior_work? = pick_retry_prior_work(previous_retry, metadata)
     old_timer = Map.get(previous_retry, :timer_ref)
     retry_poll_failures = pick_retry_poll_failures(previous_retry, metadata)
 
@@ -226,6 +240,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
               identifier: identifier,
               error: error,
               retry_poll_failures: retry_poll_failures,
+              prior_work: prior_work?,
               worker_host: worker_host,
               workspace_path: workspace_path,
               tracker_identity: tracker_identity,
@@ -237,7 +252,13 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
   @spec failure_retry?(map()) :: boolean()
   def failure_retry?(metadata) when is_map(metadata) do
-    Map.get(metadata, :delay_type) not in [:continuation, :capacity_wait, :precondition, :terminal_verification]
+    Map.get(metadata, :delay_type) not in [
+      :continuation,
+      :capacity_wait,
+      :model_limit_wait,
+      :precondition,
+      :terminal_verification
+    ]
   end
 
   @spec pop_retry_attempt_state(State.t(), String.t(), reference()) ::
@@ -250,6 +271,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
           identifier: Map.get(retry_entry, :identifier),
           error: Map.get(retry_entry, :error),
           retry_poll_failures: Map.get(retry_entry, :retry_poll_failures),
+          prior_work: Map.get(retry_entry, :prior_work, false),
           worker_host: Map.get(retry_entry, :worker_host),
           workspace_path: Map.get(retry_entry, :workspace_path),
           tracker_identity: Map.get(retry_entry, :tracker_identity),
@@ -322,6 +344,10 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
   def retry_delay(_attempt, %{delay_type: :capacity_wait}) do
     @continuation_retry_delay_ms
+  end
+
+  def retry_delay(_attempt, %{delay_type: :model_limit_wait}) do
+    max(Config.poll_interval_seconds() * 1_000, 10_000)
   end
 
   def retry_delay(_attempt, %{
@@ -489,7 +515,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
         )
 
       Orchestrator.retry_candidate_issue?(issue, terminal_states) ->
-        handle_active_retry(state, issue, attempt, metadata)
+        handle_active_retry(state, issue, attempt, metadata, opts)
 
       true ->
         Logger.debug("Issue left active states, removing claim issue_id=#{issue_id} issue_identifier=#{issue.identifier}")
@@ -624,11 +650,17 @@ defmodule Aiur.Orchestrator.RetryEngine do
     {:noreply, schedule_terminal_verification_retry(state, issue, issue_id, attempt, metadata)}
   end
 
-  defp handle_active_retry(state, issue, attempt, metadata) do
+  defp handle_active_retry(state, issue, attempt, metadata, opts) do
     if Orchestrator.retry_candidate_issue?(issue, DispatchPolicy.terminal_state_set()) and
          Slots.dispatch_slots_available?(issue, state) and
          Slots.worker_slots_available?(state, metadata[:worker_host]) do
-      {:noreply, Dispatcher.dispatch_issue(state, issue, attempt, metadata[:worker_host])}
+      dispatch = Keyword.get(opts, :dispatch_fun, &Dispatcher.dispatch_issue/5)
+      prior_work? = Keyword.get(opts, :prior_work?, metadata[:prior_work] == true)
+
+      next_state =
+        dispatch.(state, issue, attempt, metadata[:worker_host], prior_work: prior_work?)
+
+      {:noreply, ensure_active_retry_started(next_state, issue, attempt, metadata, opts)}
     else
       Logger.debug("No available slots for retrying #{State.issue_context(issue)}; retrying again")
 
@@ -646,6 +678,33 @@ defmodule Aiur.Orchestrator.RetryEngine do
        )}
     end
   end
+
+  defp ensure_active_retry_started(state, issue, attempt, metadata, opts) do
+    if live_running_entry?(Map.get(state.running, issue.id)) or
+         Map.has_key?(state.retry_attempts, issue.id) do
+      state
+    else
+      schedule_retry = Keyword.get(opts, :schedule_retry_fun, &schedule_issue_retry/4)
+
+      delay_type =
+        if MapSet.member?(state.model_fallback_waiting, issue.id),
+          do: :model_limit_wait,
+          else: :capacity_wait
+
+      schedule_retry.(state, issue.id, attempt, %{
+        identifier: issue.identifier,
+        tracker_identity: Issue.tracker_identity(issue),
+        error: "retry dispatch did not start",
+        delay_type: delay_type,
+        prior_work: metadata[:prior_work] == true,
+        worker_host: metadata[:worker_host],
+        workspace_path: metadata[:workspace_path]
+      })
+    end
+  end
+
+  defp live_running_entry?(%{pid: pid}) when is_pid(pid), do: true
+  defp live_running_entry?(_entry), do: false
 
   defp schedule_terminal_verification_retry(state, issue, issue_id, attempt, metadata) do
     schedule_issue_retry(
@@ -720,6 +779,10 @@ defmodule Aiur.Orchestrator.RetryEngine do
     else
       Map.get(previous_retry, :tracker_identity)
     end
+  end
+
+  defp pick_retry_prior_work(previous_retry, metadata) do
+    Map.get(metadata, :prior_work, Map.get(previous_retry, :prior_work, false)) == true
   end
 
   defp find_issue_by_id(issues, issue_id) when is_binary(issue_id) do

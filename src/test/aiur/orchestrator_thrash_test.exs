@@ -10,6 +10,21 @@ defmodule Aiur.OrchestratorThrashTest do
 
   defp run(state, now_ms), do: Dispatcher.check_thrash_budget(state, @issue_id, now_ms)
 
+  describe "lifetime dispatch budget" do
+    test "disabled by default: lapsed windows reset forever (today's behavior)" do
+      # This is how #1091 reached 85 cold dispatches: the per-window counter
+      # resets on every lapsed window, so a structurally-churning ticket is
+      # never circuit-broken. Locked here so the default stays a no-op.
+      state =
+        Enum.reduce(1..30, %Orchestrator.State{}, fn i, state ->
+          assert {:ok, state} = run(state, i * (@window_ms + 1))
+          state
+        end)
+
+      assert {:ok, _state} = run(state, 31 * (@window_ms + 1))
+    end
+  end
+
   describe "codex thrash budget" do
     test "allows up to the per-window max, then trips" do
       # Six dispatches inside one window stay healthy; the seventh trips.
