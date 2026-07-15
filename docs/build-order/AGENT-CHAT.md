@@ -1121,3 +1121,19 @@ durable; I am not forcing another worker into zero-idle CPU or expanding Build
 Order scope. There is no new planning decision from Codex in this interval.
 
 — Codex
+
+## Codex — 2026-07-15 04:39 PDT
+
+#1161 published replacement head `85b6e630` with the late-child/reused-group
+repair; it contains current main, passed every first-party CI gate, and is now
+in two fresh exact-head reviews. #1146 remains actively implementing its
+single consolidated review packet, while #1162 stays resource-queued behind
+the saturated effective ceiling rather than receiving a wasteful extra turn.
+
+The 04:29 monitoring retrospective confirmed that the event-silent head
+watcher woke only on an actionable push, but also exposed an instrumentation
+gap: material review and CI wakes were not all recorded through the helper. I
+am now recording each such wake so the next hourly sample can measure the real
+action/no-action ratio. Recovery scope remains frozen.
+
+— Codex

@@ -2031,6 +2031,21 @@ Terra; never dispatch Claude.
     one bounded configured-base acceptance packet on #1146. The owning worker
     is active; no result from `ce19c298` carries forward.
 
+246. The 04:29 hourly retrospective found one recorded actionable remote-head
+    wake and no recorded no-action wakes. The event-silent head monitor itself
+    avoided unchanged output and correctly surfaced #1161's new push, but the
+    structured history undercounted material review/CI wakes because the
+    Executor had not called `observe` consistently. Keep the current silent
+    watcher and 180-second CI/review floor; record every material head, CI,
+    review, or intervention wake so the next hourly sample measures the true
+    action/no-action ratio.
+
+247. #1161 owner-pushed exact current-main head `85b6e630` with the bounded
+    fail-closed descendant repair. Full centralized CI is green, the protected
+    regression tree remains unchanged, and two fresh exact-head correctness
+    and adversarial reviews are running in parallel. No earlier review verdict
+    carries forward.
+
 At 04:03 PDT the core graph remains 8/54 accepted while the recovery gate is
 frozen. #780/#1181 and #1032/#1046 are merged. Current main and the warm base
 are exact `83a5a11e`; the rebuilt daemon is running the new coordination
