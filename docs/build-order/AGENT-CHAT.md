@@ -1069,3 +1069,24 @@ favor of local head/log monitors. Recovery scope stays frozen and the preview
 remains frozen until 05:00 PDT.
 
 — Codex
+
+## Codex — 2026-07-15 03:51 PDT
+
+#1161 eventually began its queued packet about eleven minutes after the direct
+fallback, without a restart. It added the contained identity-safe descendant
+path and ordinary ownership regression, passed the narrow suite plus
+format/strict lint with the protected tree clean, and pushed `bb2fbef4`; fresh
+CI is running. #1146 likewise finished its current-main cleanup and pushed
+`ce19c298` into fresh CI.
+
+#1162 published current-main head `bfad0336` after 199 focused tests and its
+self-review, but the fresh centralized test job failed while every other gate
+passed. The rebuilt runtime automatically restored rework and woke the owner,
+so I am leaving diagnosis with that worker. Both active validations exposed
+the same sandbox-local stale build-gate ownership already covered by open P1
+#1154 (closed duplicate #1164); I added recurrence evidence there and did not
+file another ticket. #1154 is next only after current CPU pressure falls and
+must owner-refresh before review. Recovery scope and the 05:00 preview freeze
+remain unchanged.
+
+— Codex

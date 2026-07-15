@@ -1983,15 +1983,38 @@ Terra; never dispatch Claude.
     mid-validation; wait for #1146/#1162 to reach a durable checkpoint, then
     recycle once if #1161 remains wedged.
 
-At 03:36 PDT the core graph remains 8/54 accepted while the recovery gate is
+240. #1161 finally began the queued rework about eleven minutes after the
+    direct fallback, without a daemon restart. It added the contained
+    identity-safe descendant path and ordinary ownership regression, passed
+    the 21-test ownership suite plus format/strict lint, retained exact-main
+    ancestry and the protected-test boundary, and pushed `bb2fbef4`. Fresh CI
+    is running; all earlier reviews are stale.
+
+241. #1146 completed its current-main base-branch cleanup and pushed
+    `ce19c298`; fresh CI is running. #1162 published current-main head
+    `bfad0336` after 199 focused tests plus compile/format/spec checks, but its
+    fresh centralized test job failed while every other gate passed. The
+    runtime automatically restored `agent:rework` and woke its owner; let that
+    worker diagnose the delivered failure rather than spending Executor or
+    reviewer tokens on the red head.
+
+242. The #1146/#1162 validation turns both lost time to sandbox-local stale
+    build-gate ownership. Closed duplicate #1164 already points to open P1
+    #1154/PR #1172, so the Executor added the new recurrence evidence there
+    instead of filing another ticket. #1154 remains in the finite recovery set,
+    but do not wake its stale branch until the current validation load releases
+    CPU; its owner must refresh onto exact main before any review.
+
+At 03:51 PDT the core graph remains 8/54 accepted while the recovery gate is
 frozen. #780/#1181 and #1032/#1046 are merged. Current main and the warm base
 are exact `83a5a11e`; the rebuilt daemon is running the new coordination
 runtime with the authenticated Tailscale dashboard and 16-agent ceiling.
-#1161 is in contained review rework at `28154c5a` but waiting on a lifecycle
-recycle; #1146 and #1162 remain live owner-led current-main validation turns.
-Reopened #619 remains paused behind #1162. The host is CPU-saturated by the
-owned lint/test jobs, so two live workers plus the queued rework are the
-measured safe maximum at this instant rather than an arbitrary agent cap.
+#1161 `bb2fbef4` and #1146 `ce19c298` are in fresh centralized CI; #1162
+`bfad0336` is owner-led rework on one fresh test failure. Reopened #619 remains
+paused behind #1162. Existing #1154 owns the recurrent build-gate delay and is
+next when CPU permits. The host remains CPU-saturated by owned validation, so
+the three recovery lanes are the measured safe maximum at this instant rather
+than an arbitrary agent cap.
 No new
 Build Order scope is dispatching. BO-010 and the preserved paused/deactivated
 rows remain held; #1151 stays paused with preserved rework.
