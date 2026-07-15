@@ -6,46 +6,62 @@ defmodule Aiur.AffectedTests do
 
   Paths are repo-relative as `git diff --name-only` emits them (e.g.
   `src/lib/aiur/foo.ex`). A changed `src/lib/**/X.ex` maps to its sibling
-  `src/test/**/X_test.exs`; a changed `*_test.exs` maps to itself. Library
-  changes also request `mix test --stale`, which includes tests that reference
-  changed modules even when they are not sibling-named. Changes that neither
-  strategy can safely capture — test support, Gettext `.po` files,
-  `mix.exs`/`mix.lock`, and runtime config — force the full suite.
+  `src/test/**/X_test.exs`; a changed `*_test.exs` maps to itself. The caller may
+  add direct xref dependents via `:dependent_sources`, and those source paths
+  are mapped the same way. Changes that cannot be classified safely — including
+  test support, executable/build files, Gettext `.po` files, `mix.exs`/`mix.lock`,
+  and runtime config — force the full suite.
   """
 
   @type path :: String.t()
 
   @doc """
-  Map changed repo-relative paths to `{:scoped, test_files, stale?}` or
-  `{:full, reason}`. `stale?` tells the caller to use `mix test --stale` rather
-  than trusting sibling-file mapping alone.
+  Map changed repo-relative paths to `{:scoped, test_files}` or `{:full, reason}`.
 
   Options:
     * `:exists?` — predicate deciding whether a mapped test file is real
       (defaults to `File.exists?/1` joined under `:base_dir`).
     * `:base_dir` — repo root used by the default `:exists?` (defaults to `"."`).
+    * `:dependent_sources` — repo-relative library sources found through xref.
   """
-  @spec select([path], keyword()) :: {:scoped, [path], boolean()} | {:full, String.t()}
+  @spec select([path], keyword()) :: {:scoped, [path]} | {:full, String.t()}
   def select(changed, opts \\ []) do
     base = Keyword.get(opts, :base_dir, ".")
     exists? = Keyword.get(opts, :exists?, fn p -> File.exists?(Path.join(base, p)) end)
+    dependent_sources = Keyword.get(opts, :dependent_sources, [])
     changed = Enum.uniq(changed)
+    unknown = Enum.reject(changed, &recognized?/1)
 
     cond do
       changed == [] ->
-        {:scoped, [], false}
+        {:scoped, []}
 
       Enum.any?(changed, &forces_full?/1) ->
         {:full, "changed files include test support / gettext / mix / config paths that a scoped run cannot capture"}
 
-      true ->
-        tests =
-          changed
-          |> Enum.flat_map(&test_candidates/1)
-          |> Enum.uniq()
-          |> Enum.filter(exists?)
+      unknown != [] ->
+        {:full, "changed files cannot be classified safely: #{Enum.join(unknown, ", ")}"}
 
-        {:scoped, tests, Enum.any?(changed, &library_source?/1)}
+      true ->
+        scoped_tests(changed, dependent_sources, exists?)
+    end
+  end
+
+  defp scoped_tests(changed, dependent_sources, exists?) do
+    sources = Enum.filter(changed, &library_source?/1)
+
+    tests =
+      (changed ++ dependent_sources)
+      |> Enum.flat_map(&test_candidates/1)
+      |> Enum.uniq()
+      |> Enum.filter(exists?)
+
+    cond do
+      sources != [] and tests == [] ->
+        {:full, "no direct or xref-dependent tests were found for changed library sources"}
+
+      true ->
+        {:scoped, tests}
     end
   end
 
@@ -67,6 +83,17 @@ defmodule Aiur.AffectedTests do
   @spec library_source?(path) :: boolean()
   defp library_source?("src/lib/" <> rest), do: String.ends_with?(rest, ".ex")
   defp library_source?(_path), do: false
+
+  defp recognized?(path) do
+    library_source?(path) or
+      (String.starts_with?(path, "src/test/") and String.ends_with?(path, "_test.exs")) or
+      documentation?(path) or
+      forces_full?(path)
+  end
+
+  defp documentation?(path) do
+    String.starts_with?(path, "docs/") or String.ends_with?(path, ".md")
+  end
 
   @spec forces_full?(path) :: boolean()
   defp forces_full?(path) do

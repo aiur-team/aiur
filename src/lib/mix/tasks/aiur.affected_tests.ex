@@ -20,27 +20,24 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
     root = repo_root()
 
     with {:ok, base} <- requested_or_default_base(root, args),
-         {:ok, changed} <- changed_files(root, base) do
-      print_selection(Aiur.AffectedTests.select(changed, base_dir: root))
+         {:ok, changed} <- changed_files(root, base),
+         {:ok, dependents} <- xref_dependents(root, changed) do
+      changed
+      |> Aiur.AffectedTests.select(base_dir: root, dependent_sources: dependents)
+      |> command()
+      |> Enum.each(fn line -> Mix.shell().info(line) end)
     else
       {:error, reason} -> Mix.raise("Cannot select affected tests safely: #{reason}")
     end
   end
 
-  defp print_selection({:full, reason}) do
-    Mix.shell().info("# full suite recommended: #{reason}")
-    Mix.shell().info("make ci")
-  end
+  @doc false
+  def command({:full, reason}),
+    do: ["# full suite recommended: #{reason}", "cd src && mise exec -- make ci"]
 
-  defp print_selection({:scoped, _tests, true}) do
-    Mix.shell().info("cd src && mise exec -- mix test --max-cases 4 --stale")
-  end
+  def command({:scoped, []}), do: ["# no affected test files detected for the documentation-only change"]
 
-  defp print_selection({:scoped, [], false}) do
-    Mix.shell().info("# no affected test files detected for the changed source")
-  end
-
-  defp print_selection({:scoped, tests, false}) do
+  def command({:scoped, tests}) do
     mix_paths =
       Enum.map(tests, fn path ->
         path
@@ -48,7 +45,7 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
         |> shell_quote()
       end)
 
-    Mix.shell().info("cd src && mise exec -- mix test --max-cases 4 " <> Enum.join(mix_paths, " "))
+    ["cd src && mise exec -- mix test --max-cases 4 " <> Enum.join(mix_paths, " ")]
   end
 
   defp shell_quote(value), do: "'" <> String.replace(value, "'", "'\"'\"'") <> "'"
@@ -58,6 +55,42 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
          {:ok, working} <- git(root, ["diff", "--name-only", "--"]),
          {:ok, untracked} <- git(root, ["ls-files", "--others", "--exclude-standard"]) do
       {:ok, Enum.uniq(committed ++ working ++ untracked)}
+    end
+  end
+
+  defp xref_dependents(root, changed) do
+    sinks =
+      changed
+      |> Enum.filter(&String.starts_with?(&1, "src/lib/"))
+      |> Enum.filter(&String.ends_with?(&1, ".ex"))
+      |> Enum.map(&String.replace_prefix(&1, "src/", ""))
+
+    if sinks == [] do
+      {:ok, []}
+    else
+      ["compile", "export", "runtime"]
+      |> Enum.reduce_while({:ok, []}, fn label, {:ok, acc} ->
+        args =
+          ["xref", "graph", "--only-nodes", "--only-direct", "--label", label] ++
+            Enum.flat_map(sinks, &["--sink", &1])
+
+        case git_like_command(Path.join(root, "src"), "mix", args) do
+          {:ok, lines} ->
+            sources =
+              lines
+              |> Enum.filter(&String.starts_with?(&1, "lib/"))
+              |> Enum.map(&("src/" <> &1))
+
+            {:cont, {:ok, sources ++ acc}}
+
+          {:error, reason} ->
+            {:halt, {:error, "xref dependency expansion failed: #{reason}"}}
+        end
+      end)
+      |> case do
+        {:ok, sources} -> {:ok, Enum.uniq(sources)}
+        error -> error
+      end
     end
   end
 
@@ -72,9 +105,13 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
   end
 
   defp git(root, args) do
-    case System.cmd("git", args, cd: root, stderr_to_stdout: true) do
+    git_like_command(root, "git", args)
+  end
+
+  defp git_like_command(root, executable, args) do
+    case System.cmd(executable, args, cd: root, stderr_to_stdout: true) do
       {out, 0} -> {:ok, String.split(out, "\n", trim: true)}
-      {out, status} -> {:error, "git #{Enum.join(args, " ")} failed (#{status}): #{String.trim(out)}"}
+      {out, status} -> {:error, "#{executable} #{Enum.join(args, " ")} failed (#{status}): #{String.trim(out)}"}
     end
   end
 

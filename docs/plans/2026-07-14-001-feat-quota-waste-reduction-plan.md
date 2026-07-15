@@ -165,7 +165,7 @@ that re-run planning, and on stuck/long sessions at top reasoning effort. See or
 - Test: `src/test/aiur/scripts/affected_tests_test.exs` OR a shell test under `scripts/` (choose per repo convention)
 
 **Approach:**
-- Map changed `src/lib/aiur/X.ex` → `src/test/aiur/X_test.exs` (near-1:1 convention), expand dependents via `mix xref graph --sink`, union with `mix test --stale`, emit `mix test --max-cases 4 <files>`. Document the validated blind spots (Gettext `.po` needs `@external_resource`; `Application.get_env` runtime config) so `make ci` remains the authoritative full gate.
+- Map changed `src/lib/aiur/X.ex` → `src/test/aiur/X_test.exs` (near-1:1 convention), expand direct dependents via `mix xref graph --sink`, and emit `mix test --max-cases 4 <files>`. Validation showed the first `mix test --stale` run executes the entire suite and fresh issue workspaces have no stale manifest, so it is deliberately not used. Unknown executable/build files and validated blind spots (Gettext `.po`, test support, mix/config) fail closed to the root-runnable full gate.
 
 **Execution note:** Validate `--stale` behavior against this repo's Gettext + `Application.get_env` usage before trusting scoped selection (origin deferred question).
 
