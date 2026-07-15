@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-14 20:15 PDT)
+## Live Executor state (updated 2026-07-14 20:20 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -1475,13 +1475,21 @@ Terra; never dispatch Claude.
     has no source WIP. That is additional production evidence for the existing
     #1151 wake defect, not a new ticket; keep #1088's exact lint tail preserved
     for the authorized restart.
+192. BO-003/#1092's initial Terra provider ended unretryably at 20:18 with
+    `Selected model is at capacity`; its plan/workpad and workspace were
+    preserved. The Executor changed the issue's model label to Sol, transitioned
+    the completed generation from in-progress to rework, and sent one explicit
+    continuation. Aiur began a new turn at 20:19. The old daemon instantiated
+    that immediate replacement with its prior Terra routing snapshot, which is
+    still operator-compliant but may encounter the same capacity gate; retain
+    the Sol label for the next clean generation and do not discard BO-003 WIP.
 
-At 20:15 PDT the core graph is 8/54 accepted. Four Codex workers are visibly
+At 20:20 PDT the core graph is 8/54 accepted. Four Codex workers are visibly
 executing, one core row reports a completed turn, and preserved paused or
 deactivated rows await the post-optimization restart. #1103 remains queued,
 while #1151 is in explicit review-driven rework awaiting that restart.
 #1093, #1108, #1111, #1123, and #1130 stay on workspace-race holds until #1161
-lands. The 20:15 phase preview preserves the latest successfully emitted core
+lands. The 20:20 phase preview preserves the latest successfully emitted core
 percentages and advances only review/CI states backed by GitHub evidence;
 do not replace those estimates with guesses during review/rework. Host load
 remains volatile and was about 38 with roughly 21 GiB available at the 17:34
