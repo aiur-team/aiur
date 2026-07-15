@@ -40,6 +40,9 @@ warnings across 54 members, 105 internal edges, two external skill edges,
 issue bodies, mappings, routing labels, lifecycle partitions, and all 43
 comments. The final pre-run work is to land planning PR #1064 on current
 `develop`, verify its CI, and rebuild prewarm from that exact integration tip.
+Shared GATE-001/GATE-002 evidence is recorded on root #1084 in
+https://github.com/its-everdred/aiur/issues/1084#issuecomment-4984606240;
+GATE-003 and GATE-004 remain ticket-specific blockers.
 
 All restart prerequisites through the live execution receipt, `develop` push
 CI, lifecycle reconciliation, and BO-016 reopen are complete. Do not restart

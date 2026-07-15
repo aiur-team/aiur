@@ -37,6 +37,8 @@ sign-off happen once on the complete `develop` head before any promotion to
   required BO-016 CTA reopen; 12 are complete now and 42 remain
 - Dispatch: the receipt gate is clear; dispatch remains paused only until this
   pack lands on `develop` and the exact resulting prewarm image is verified
+- Shared gates: GATE-001/GATE-002 are recorded on root #1084; ticket-specific
+  GATE-003/GATE-004 remain in force
 - Integration: current `main@e058917b` is contained by
   `develop@c099f36b`; every feature head refreshes from current `develop`
 - Merge: planning PR #1064 contains current `develop` and is the next staging
