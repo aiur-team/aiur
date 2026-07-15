@@ -1611,6 +1611,16 @@ Terra; never dispatch Claude.
     ownership overlay is accepted as the next-stage direction but cannot be
     materialized or dispatched before this anti-thrash gate passes.
 
+202. At 22:10 PDT the operator made branch freshness an owning-worker
+    responsibility and prohibited spending Executor or reviewer effort on
+    substantially stale code. A ticket's agent must keep its branch current,
+    including adapting or re-cutting its implementation when main has changed
+    semantically. The Executor routes that work back to the owning ticket and
+    does not merge main, repair stale conflicts, or modernize old code on the
+    worker's behalf. Exact-head review begins only after the worker presents a
+    head containing current main with fresh CI. The manual refreshes recorded
+    in decision 201 predate this directive and are not precedent.
+
 At 21:50 PDT the core graph is 8/54 accepted. Three Codex implementation/rework
 workers are visibly executing (DASH-018, #1161, #1162), BO-016 is fully green
 in two independent reviews, and BO-010 is safely paused after the workspace
@@ -1851,19 +1861,22 @@ wave; the full version lives at
   push becomes a no-op.
 - **Compress the finish line:** identify the single authoritative failure per
   head and send one exact packet. A branch with committed scoped source and
-  only generated dirt should push after the reproducing test; a resolved
-  current-main merge should run its focused conflict suite and push; an
+  only generated dirt should push after the reproducing test; the owning
+  worker must resolve a current-main merge or re-cut, run its focused conflict
+  suite, and push; an
   already-invalid CI head should not wait for unrelated jobs. Centralized CI
   owns the full gate, and two independent exact-head reviews start together
-  only after that gate passes. Do not run duplicate local full suites, do not
+  only after the worker's head contains current main and that gate passes. Do
+  not run duplicate local full suites, do not
   repeatedly merge a moving `main` during implementation, and do not split a
   converged review packet into serial mini-heads. The final ancestry check,
   fresh CI, and dual review remain mandatory.
-- **Hand-fix the last mile in a worktree:** when nudges fail on lint/dialyzer
-  or a small must-fix, take over — always in a fresh `git worktree`, never
-  the main working tree (it holds the live `.aiur/config`) and never a live
-  agent's workspace mid-edit. Verify Elixir edits with
-  `Code.string_to_quoted!/1` and run `make lint` before pushing.
+- **Keep repair ownership with the ticket:** return lint, Dialyzer, stale-base,
+  and review findings to the owning worker as one bounded packet. Do not spend
+  Executor or reviewer tokens updating old code. Manual takeover is reserved
+  for a catastrophic Aiur failure that prevents the agent from continuing and
+  is demonstrably cheaper to repair directly; use an isolated worktree and
+  preserve the worker branch and workspace.
 - **Restarts are branch-safe:** the checkout logic re-fetches an existing
   remote ticket branch, so recycling a wedged worker (bloated thread,
   CI-poll loop) loses only the unproductive turn, never committed work.
