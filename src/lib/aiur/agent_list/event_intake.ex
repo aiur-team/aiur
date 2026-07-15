@@ -8,6 +8,8 @@ defmodule Aiur.AgentList.EventIntake do
   # growth if the Executor leaves --debug on for hours.
   @debug_event_cap 200
 
+  alias Aiur.TicketActivity.Reducer
+
   @spec fold(map(), map()) :: map()
   def fold(state, entry) do
     state =
@@ -113,7 +115,7 @@ defmodule Aiur.AgentList.EventIntake do
   defp maybe_push_progress(state, id, percent, source) do
     existing = Map.get(state.progress_by_id, id, [])
 
-    if accept_progress?(source, percent, existing) do
+    if Reducer.accept_progress?(source, percent, head_percent(existing), false) do
       now_ms = System.monotonic_time(:millisecond)
       updated = Aiur.ProgressTracker.record(existing, percent, now_ms)
       %{state | progress_by_id: Map.put(state.progress_by_id, id, updated)}
@@ -121,9 +123,6 @@ defmodule Aiur.AgentList.EventIntake do
       state
     end
   end
-
-  defp accept_progress?(:checkin, _percent, _samples), do: true
-  defp accept_progress?(:phase, percent, samples), do: percent >= head_percent(samples)
 
   defp head_percent([{percent, _ts} | _]) when is_integer(percent), do: percent
   defp head_percent(_), do: 0
@@ -144,14 +143,10 @@ defmodule Aiur.AgentList.EventIntake do
   defp record_phase(state, %{kind: :publish, topic: topic}) when is_binary(topic) do
     case parse_phase_topic(topic) do
       {:ok, id, phase, :start} ->
-        %{state | phase_by_identifier: Map.put(state.phase_by_identifier, id, phase)}
+        update_phase(state, id, phase, :start)
 
       {:ok, id, phase, :end} ->
-        if Map.get(state.phase_by_identifier, id) == phase do
-          %{state | phase_by_identifier: Map.delete(state.phase_by_identifier, id)}
-        else
-          state
-        end
+        update_phase(state, id, phase, :end)
 
       :error ->
         state
@@ -174,4 +169,12 @@ defmodule Aiur.AgentList.EventIntake do
 
   defp edge_atom("start"), do: :start
   defp edge_atom("end"), do: :end
+
+  defp update_phase(state, id, phase, edge) do
+    case Reducer.transition_stage(Map.get(state.phase_by_identifier, id), phase, edge) do
+      {:set, value} -> %{state | phase_by_identifier: Map.put(state.phase_by_identifier, id, value)}
+      :clear -> %{state | phase_by_identifier: Map.delete(state.phase_by_identifier, id)}
+      :keep -> state
+    end
+  end
 end
