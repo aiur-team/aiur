@@ -94,6 +94,7 @@ defmodule Aiur.ApplicationTest do
       Aiur.PauseContainment,
       Aiur.AgentResourceGuard,
       Aiur.AppServer.ToolCallLedger,
+      Aiur.ProviderAccountGeneration,
       Aiur.DecisionMetrics.Writer,
       Aiur.DecisionMetrics,
       Aiur.GitHub.CodeOwners,
