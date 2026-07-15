@@ -26,5 +26,23 @@
     }
   };
 
-  window.BrowserHarnessHooks = { BrowserHarness };
+  const DomSvgLayout = window.AiurDomSvgLayout?.createLiveViewHook
+    ? window.AiurDomSvgLayout.createLiveViewHook(() => {
+        if (typeof window.__aiurBrowserLayoutHookOptions === "function") {
+          return window.__aiurBrowserLayoutHookOptions();
+        }
+
+        return typeof window.__aiurBrowserLayoutClientFactory === "function"
+          ? { clientFactory: window.__aiurBrowserLayoutClientFactory }
+          : {};
+      })
+    : {
+        mounted() {
+          this.el.classList.remove("is-layout-ready");
+          this.el.classList.add("is-layout-fallback");
+          this.el.dataset.layoutHealth = "fallback";
+        }
+      };
+
+  window.BrowserHarnessHooks = { BrowserHarness, DomSvgLayout };
 })();

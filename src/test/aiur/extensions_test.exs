@@ -920,18 +920,38 @@ defmodule Aiur.ExtensionsTest do
 
     html = html_response(get(build_conn(), "/"), 200)
     assert html =~ "/dashboard.css"
+    assert html =~ "/aiur-dom-svg-layout-loader.js"
     assert html =~ "/vendor/phoenix_html/phoenix_html.js"
     assert html =~ "/vendor/phoenix/phoenix.js"
     assert html =~ "/vendor/phoenix_live_view/phoenix_live_view.js"
     refute html =~ "/assets/app.js"
     refute html =~ "<style>"
 
-    dashboard_css = response(get(build_conn(), "/dashboard.css"), 200)
+    dashboard_css_conn = get(build_conn(), "/dashboard.css")
+    dashboard_css = response(dashboard_css_conn, 200)
     assert dashboard_css =~ ":root {"
     assert dashboard_css =~ ".status-badge-live"
     assert dashboard_css =~ "[data-phx-main].phx-connected .status-badge-live"
     assert dashboard_css =~ "[data-phx-main].phx-connected .status-badge-offline"
     assert dashboard_css =~ ".live-button[data-live=\"false\"]"
+    assert Plug.Conn.get_resp_header(dashboard_css_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
+
+    adapter_conn = get(build_conn(), "/aiur-dom-svg-layout-adapter.js")
+    adapter = response(adapter_conn, 200)
+    assert adapter =~ "createDomSvgLayoutHook"
+    assert Plug.Conn.get_resp_header(adapter_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
+
+    for module <- ["lifecycle.js", "measurement.js", "protocol.js", "renderer.js"] do
+      conn = get(build_conn(), "/aiur-dom-svg-layout/#{module}")
+      assert response(conn, 200) != ""
+      assert Plug.Conn.get_resp_header(conn, "cache-control") == ["private, max-age=0, must-revalidate"]
+    end
+
+    assert response(get(build_conn(), "/aiur-dom-svg-layout/not-a-module.js"), 404) == "Not Found"
+
+    loader_conn = get(build_conn(), "/aiur-dom-svg-layout-loader.js")
+    assert response(loader_conn, 200) =~ "createLiveViewHook"
+    assert Plug.Conn.get_resp_header(loader_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
 
     logo = get(build_conn(), "/aiur-logo.png")
     assert response(logo, 200) == File.read!(Path.expand("../../../website/public/assets/aiur-logo.png", __DIR__))

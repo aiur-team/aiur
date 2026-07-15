@@ -837,13 +837,15 @@ test('worker rejects malformed engine identities and denied subresources with re
   recoveryPage.on('pageerror', (error) => recoveryErrors.push(error.message))
 
   try {
+    await openFixture(recoveryPage)
+    await expect(recoveryPage.locator('#fixture-build-order-graph')).toHaveAttribute('data-layout-health', 'ready')
+
     await recoveryContext.route(urls.engine, (route) => {
       engineRequests += 1
       return engineRequests === 1
         ? route.fulfill({ status: 404, contentType: 'application/javascript', body: '' })
         : route.continue()
     })
-    await openFixture(recoveryPage)
 
     const result = await recoveryPage.evaluate(async (payload) => {
       const { createLayoutWorkerClient } = await import(payload.urls.client)

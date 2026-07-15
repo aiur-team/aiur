@@ -87,6 +87,9 @@ defmodule AiurWeb.Router do
     pipe_through(:dashboard_auth)
 
     get("/dashboard.css", StaticAssetController, :dashboard_css)
+    get("/aiur-dom-svg-layout-adapter.js", StaticAssetController, :dom_svg_layout_adapter)
+    get("/aiur-dom-svg-layout-loader.js", StaticAssetController, :dom_svg_layout_loader)
+    get("/aiur-dom-svg-layout/:module", StaticAssetController, :dom_svg_layout_module)
     get("/aiur-logo.png", StaticAssetController, :aiur_logo)
     get("/vendor/phoenix_html/phoenix_html.js", StaticAssetController, :phoenix_html_js)
     get("/vendor/phoenix/phoenix.js", StaticAssetController, :phoenix_js)

@@ -14,19 +14,45 @@ function releaseArgument(argv) {
   return path.resolve(argv[1])
 }
 
-function findVendor(release) {
+function findAiurApplication(release) {
   const applications = path.join(release, 'lib')
   if (!existsSync(applications)) fail(`release lib directory is missing: ${applications}`)
 
   const aiurApplication = readdirSync(applications).find((entry) => entry.startsWith('aiur-'))
   if (!aiurApplication) fail('release does not contain an aiur application directory')
 
-  const vendor = path.join(applications, aiurApplication, 'priv', 'static', 'vendor', 'elk', '0.11.1')
+  return path.join(applications, aiurApplication)
+}
+
+function findVendor(aiurApplication) {
+  const vendor = path.join(aiurApplication, 'priv', 'static', 'vendor', 'elk', '0.11.1')
   if (!existsSync(vendor)) fail('release does not contain the ELK vendor directory')
   return vendor
 }
 
-function readAssets(vendor) {
+function readStaticAssets(aiurApplication) {
+  const staticRoot = path.join(aiurApplication, 'priv', 'static')
+  const modules = [
+    ['/dashboard.css', 'dashboard.css', 'text/css'],
+    ['/aiur-dom-svg-layout-loader.js', 'aiur-dom-svg-layout-loader.js', 'application/javascript'],
+    ['/aiur-dom-svg-layout-adapter.js', 'aiur-dom-svg-layout-adapter.js', 'application/javascript'],
+    ['/aiur-dom-svg-layout/lifecycle.js', 'aiur-dom-svg-layout/lifecycle.js', 'application/javascript'],
+    ['/aiur-dom-svg-layout/measurement.js', 'aiur-dom-svg-layout/measurement.js', 'application/javascript'],
+    ['/aiur-dom-svg-layout/protocol.js', 'aiur-dom-svg-layout/protocol.js', 'application/javascript'],
+    ['/aiur-dom-svg-layout/renderer.js', 'aiur-dom-svg-layout/renderer.js', 'application/javascript']
+  ]
+
+  const assets = new Map()
+  for (const [url, file, contentType] of modules) {
+    const source = path.join(staticRoot, file)
+    if (!existsSync(source)) fail(`release does not contain ${file}`)
+    assets.set(url, { body: readFileSync(source), contentType })
+  }
+
+  return assets
+}
+
+function readAssets(vendor, staticAssets) {
   const manifest = JSON.parse(readFileSync(path.join(vendor, 'manifest.json'), 'utf8'))
   const expected = {
     engine: { revision: 'elk-0.11.1', file: 'elk-worker.min.js' },
@@ -34,7 +60,7 @@ function readAssets(vendor) {
     client: { revision: 'client-v1', file: 'aiur-layout-client.js' }
   }
 
-  const assets = new Map()
+  const assets = new Map(staticAssets)
   for (const [name, spec] of Object.entries(expected)) {
     const asset = manifest.assets?.[name]
     if (!asset || asset.file !== spec.file || !/^[a-f0-9]{64}$/.test(asset.sha256 ?? '')) fail(`${name} has an invalid manifest record`)
@@ -67,7 +93,8 @@ async function listen(server) {
 }
 
 const release = releaseArgument(process.argv.slice(2))
-const { assets, manifest } = readAssets(findVendor(release))
+const aiurApplication = findAiurApplication(release)
+const { assets, manifest } = readAssets(findVendor(aiurApplication), readStaticAssets(aiurApplication))
 const workerUrl = manifest.assets.worker.url
 const engineUrl = manifest.assets.engine.url
 const clientUrl = manifest.assets.client.url
@@ -78,27 +105,81 @@ const server = createServer((request, response) => {
 
   if (requestUrl.pathname === '/') {
     response.writeHead(200, { 'content-security-policy': csp, 'content-type': 'text/html; charset=utf-8' })
-    response.end('<!doctype html><meta charset="utf-8"><script type="module" src="/smoke.mjs"></script>')
+    response.end(`<!doctype html>
+      <meta charset="utf-8">
+      <link rel="stylesheet" href="/dashboard.css">
+      <section
+        id="packaged-layout-root"
+        class="bo-layout-root is-layout-fallback"
+        data-layout-root-id="packaged-layout-root"
+        data-layout-provider-generation="1"
+        data-layout-dom-generation="1"
+        data-layout-client-url="${clientUrl}"
+        data-layout-worker-url="${workerUrl}"
+        data-layout-engine-url="${engineUrl}"
+        data-layout-adapter-url="/aiur-dom-svg-layout-adapter.js"
+        data-layout-health="fallback"
+      >
+        <div class="bo-layout-cards" data-layout-cards>
+          <article class="bo-layout-card" data-layout-node data-layout-node-id="node-0" data-layout-lane="0" data-layout-phase="0"><header data-layout-card-header><h2>First card</h2></header></article>
+          <article class="bo-layout-card" data-layout-node data-layout-node-id="node-1" data-layout-lane="1" data-layout-phase="1"><header data-layout-card-header><h2>Second card</h2></header></article>
+        </div>
+        <svg class="bo-layout-edges" data-layout-edges aria-hidden="true" focusable="false"></svg>
+        <section class="bo-layout-dependency-summary"><h2>Dependency summary</h2><ul data-layout-dependency-summary><li data-layout-edge data-layout-edge-id="edge-0" data-layout-edge-source="node-0" data-layout-edge-target="node-1" data-layout-edge-state="blocking">node-0 blocks node-1</li></ul></section>
+      </section>
+      <script type="module" src="/smoke.mjs"></script>`)
     return
   }
 
   if (requestUrl.pathname === '/smoke.mjs') {
     response.writeHead(200, { 'content-security-policy': csp, 'content-type': 'application/javascript; charset=utf-8' })
-    response.end(`import { createLayoutWorkerClient } from ${JSON.stringify(clientUrl)};
-window.runPackagedLayout = async () => {
-  const client = createLayoutWorkerClient({ workerUrl: ${JSON.stringify(workerUrl)}, engineUrl: ${JSON.stringify(engineUrl)} });
-  const response = await client.layout({
-    type: 'layout', version: 1, requestId: 'request_1_2', generation: 1,
-    nodes: [
-      { id: 'node_0', width: 120, height: 48, lane: 0, phase: 0 },
-      { id: 'node_1', width: 120, height: 48, lane: 1, phase: 1 }
-    ],
-    edges: [{ id: 'edge_0', source: 'node_0', target: 'node_1' }],
-    constraints: { lanes: [{ index: 0 }, { index: 1 }], phases: [{ index: 0 }, { index: 1 }] },
-    options: { direction: 'RIGHT', edgeRouting: 'ORTHOGONAL', randomSeed: 1, thoroughness: 1 }
+    response.end(`import '/aiur-dom-svg-layout-loader.js';
+
+const root = document.querySelector('#packaged-layout-root');
+const context = { el: root };
+const hook = window.AiurDomSvgLayout.createLiveViewHook();
+
+function waitForHealth(health) {
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => reject(new Error('layout did not become ' + health)), 5_000);
+    const observe = () => {
+      if (root.dataset.layoutHealth === health) {
+        window.clearTimeout(timeout);
+        observer.disconnect();
+        resolve();
+      }
+    };
+    const observer = new MutationObserver(observe);
+    observer.observe(root, { attributes: true, attributeFilter: ['data-layout-health'] });
+    observe();
   });
-  client.dispose();
-  return response;
+}
+
+window.runPackagedLayout = async () => {
+  hook.mounted.call(context);
+  await waitForHealth('ready');
+  const svg = root.querySelector('[data-layout-edges]');
+  const ready = {
+    health: root.dataset.layoutHealth,
+    paths: svg.querySelectorAll('path[data-layout-edge-path]').length,
+    viewBox: svg.getAttribute('viewBox')
+  };
+
+  root.dataset.layoutClientUrl = '';
+  hook.beforeUpdate.call(context);
+  hook.updated.call(context);
+  await waitForHealth('fallback');
+  return {
+    ready,
+    fallback: {
+      health: root.dataset.layoutHealth,
+      paths: svg.querySelectorAll('path[data-layout-edge-path]').length,
+      summary: root.querySelectorAll('[data-layout-dependency-summary] li').length,
+      viewBox: svg.getAttribute('viewBox'),
+      width: svg.getAttribute('width'),
+      height: svg.getAttribute('height')
+    }
+  };
 };`)
     return
   }
@@ -133,12 +214,17 @@ try {
   })
 
   const page = await context.newPage()
+  const pageErrors = []
+  page.on('pageerror', (error) => pageErrors.push(error.message))
   const response = await page.goto(origin, { waitUntil: 'networkidle' })
   if (response?.status() !== 200) fail(`offline smoke index returned ${response?.status() ?? 'no response'}`)
 
   const result = await page.evaluate(() => window.runPackagedLayout())
-  if (result?.type !== 'result' || result?.nodes?.length !== 2 || result?.edges?.length !== 1) fail('packaged worker did not return bounded geometry')
+  if (result?.ready?.health !== 'ready' || result?.ready?.paths !== 1 || !result?.ready?.viewBox) fail('assembled adapter did not render packaged worker geometry')
+  if (result?.fallback?.health !== 'fallback' || result?.fallback?.paths !== 0 || result?.fallback?.summary !== 1) fail('assembled adapter did not preserve semantic fallback')
+  if (result?.fallback?.viewBox || result?.fallback?.width || result?.fallback?.height) fail('assembled adapter retained stale SVG dimensions after fallback')
   if (remoteRequests.length > 0) fail(`offline smoke attempted remote URLs: ${remoteRequests.join(', ')}`)
+  if (pageErrors.length > 0) fail(`strict-CSP smoke reported page errors: ${pageErrors.join(', ')}`)
 
   process.stdout.write(`${release}\n`)
 } finally {

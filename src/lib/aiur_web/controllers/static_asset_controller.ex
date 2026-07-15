@@ -9,7 +9,16 @@ defmodule AiurWeb.StaticAssetController do
   alias Plug.Conn
 
   @spec dashboard_css(Conn.t(), map()) :: Conn.t()
-  def dashboard_css(conn, _params), do: serve(conn, "/dashboard.css")
+  def dashboard_css(conn, _params), do: serve(conn, "/dashboard.css", revalidate?: true)
+
+  @spec dom_svg_layout_adapter(Conn.t(), map()) :: Conn.t()
+  def dom_svg_layout_adapter(conn, _params), do: serve(conn, "/aiur-dom-svg-layout-adapter.js", revalidate?: true)
+
+  @spec dom_svg_layout_module(Conn.t(), map()) :: Conn.t()
+  def dom_svg_layout_module(conn, %{"module" => module}), do: serve(conn, "/aiur-dom-svg-layout/#{module}", revalidate?: true)
+
+  @spec dom_svg_layout_loader(Conn.t(), map()) :: Conn.t()
+  def dom_svg_layout_loader(conn, _params), do: serve(conn, "/aiur-dom-svg-layout-loader.js", revalidate?: true)
 
   @spec aiur_logo(Conn.t(), map()) :: Conn.t()
   def aiur_logo(conn, _params), do: serve(conn, "/aiur-logo.png")
@@ -42,6 +51,10 @@ defmodule AiurWeb.StaticAssetController do
   end
 
   defp cache_control(options) do
+    if Keyword.get(options, :revalidate?, false), do: "private, max-age=0, must-revalidate", else: cache_control_with_lifetime(options)
+  end
+
+  defp cache_control_with_lifetime(options) do
     visibility = if Keyword.get(options, :private?, false), do: "private", else: "public"
     immutable = if Keyword.get(options, :immutable?, false), do: ", immutable", else: ""
     "#{visibility}, max-age=31536000#{immutable}"
