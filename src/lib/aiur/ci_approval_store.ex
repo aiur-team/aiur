@@ -88,7 +88,11 @@ defmodule Aiur.CIApprovalStore do
       head_sha = map_value(invalidation, :head_sha)
       repaired_at = map_value(invalidation, :repaired_at)
 
-      if is_binary(target) and is_binary(head_sha) and head_sha != "" and is_integer(repaired_at) and repaired_at >= 0 do
+      valid? =
+        is_binary(target) and is_binary(head_sha) and head_sha != "" and
+          is_integer(repaired_at) and repaired_at >= 0
+
+      if valid? do
         Map.put(acc, target, %{head_sha: head_sha, repaired_at: repaired_at})
       else
         acc

@@ -127,6 +127,9 @@ defmodule Aiur.PromptBuilderTest do
          base_branch: integration
          github:
            repo: owner/repo
+           planning_root_limit: 100
+           planning_page_budget: 4
+           planning_call_budget: 4
        agent:
          kind: codex
        """
