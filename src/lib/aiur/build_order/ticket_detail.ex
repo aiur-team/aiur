@@ -24,7 +24,8 @@ defmodule Aiur.BuildOrder.TicketDetail do
   def fetch(identity, opts \\ []) do
     with {:ok, identity, configured_repository} <- fetchable_identity(identity, opts),
          {:ok, raw_issue} <- Repository.fetch_issue(identity, configured_repository, opts),
-         {:ok, snapshot} <- snapshot(identity, raw_issue, opts) do
+         {:ok, relationships} <- Repository.fetch_linked_pull_requests(identity, configured_repository, opts),
+         {:ok, snapshot} <- snapshot(identity, raw_issue, Keyword.put(opts, :relationships, relationships)) do
       {:ok, snapshot}
     else
       {:error, %Failure{} = failure} -> {:error, failure}

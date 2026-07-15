@@ -6,6 +6,22 @@ PRs, and lets you watch and chat with each agent in real time.
 > [!WARNING]
 > Aiur is prototype software intended for evaluation only and is presented as-is.
 
+## Who operates a run
+
+Every run has an **Executor**: the operator of the run. That is either **you**, driving the
+CLI directly, or **your coding agent**, operating Aiur on your behalf while you stay in
+conversation with it. Both are first-class.
+
+The control surface below — `message`, `pause`, `resume`, `watch --changes --interval`, the
+machine-token Supervisor Decision API — is usable by a human at a terminal or by a
+programmatic operator. Nothing here assumes a human is the one typing.
+
+If you want your agent to be the Executor, ask it to "run aiur"; the repository bundles
+[`aiur-run`](../.claude/skills/aiur-run/SKILL.md) and
+[`aiur-monitor`](../.claude/skills/aiur-monitor/SKILL.md) for exactly that, and
+[`aiur-intro`](../.claude/skills/aiur-intro/SKILL.md) to help you choose. See
+[README § Who drives Aiur?](../README.md#who-drives-aiur) for the fuller picture.
+
 ## How it works
 
 1. **Polls a tracker** (Linear, GitHub Issues, or in-memory) for candidate work.

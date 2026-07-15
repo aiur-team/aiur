@@ -64,11 +64,13 @@ defmodule Aiur.GitHub.Transport do
   end
 
   def default_request_fun(%{method: :post, url: url, token: token, body: body} = req) do
-    Req.post(url,
-      headers: github_headers(token, req),
-      json: body,
-      connect_options: [timeout: 30_000]
-    )
+    options =
+      token
+      |> github_headers(req)
+      |> request_options(req)
+      |> Keyword.put(:json, body)
+
+    Req.post(url, options)
   end
 
   def default_request_fun(%{method: :patch, url: url, token: token, body: body} = req) do
@@ -133,9 +135,10 @@ defmodule Aiur.GitHub.Transport do
     ]
   end
 
-  @spec github_graphql(function(), String.t(), String.t(), map()) :: {:ok, map()} | {:error, term()}
-  def github_graphql(request_fun, token, query, variables) do
-    case github_graphql_response(request_fun, token, query, variables) do
+  @spec github_graphql(function(), String.t(), String.t(), map(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def github_graphql(request_fun, token, query, variables, opts \\ []) do
+    case github_graphql_response(request_fun, token, query, variables, opts) do
       {:ok, body, _response} ->
         {:ok, body}
 
@@ -153,17 +156,31 @@ defmodule Aiur.GitHub.Transport do
     end
   end
 
-  @spec github_graphql_response(function(), String.t(), String.t(), map()) ::
+  @spec github_graphql_response(function(), String.t(), String.t(), map(), keyword()) ::
           {:ok, map(), map()} | {:error, term(), map() | nil}
-  def github_graphql_response(request_fun, token, query, variables) do
+  def github_graphql_response(request_fun, token, query, variables, opts \\ []) do
     body = %{"query" => query, "variables" => variables}
-    request = %{method: :post, url: @graphql_url, token: token, body: body}
+
+    request =
+      %{method: :post, url: @graphql_url, token: token, body: body}
+      |> maybe_put_max_response_bytes(opts)
+
     validate_graphql_response(request_fun.(request))
+  end
+
+  defp maybe_put_max_response_bytes(request, opts) do
+    case Keyword.get(opts, :max_response_bytes) do
+      limit when is_integer(limit) and limit > 0 -> Map.put(request, :max_response_bytes, limit)
+      _limit -> request
+    end
   end
 
   defp validate_graphql_response({:ok, response}), do: validate_graphql_http_response(response)
   defp validate_graphql_response({:error, reason}), do: {:error, Errors.classify_error({:error, reason}), nil}
   defp validate_graphql_response(_response), do: {:error, :invalid_graphql_response, nil}
+
+  defp validate_graphql_http_response(%{private: %{aiur_response_too_large: true}} = response),
+    do: {:error, :github_graphql_response_too_large, response}
 
   defp validate_graphql_http_response(%{status: 200} = response), do: validate_graphql_success(response)
 

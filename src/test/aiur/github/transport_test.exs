@@ -117,6 +117,25 @@ defmodule Aiur.GitHub.TransportTest do
     assert Transport.header(headers, "x-ratelimit-remaining") == "99"
   end
 
+  test "carries and classifies a GraphQL response ceiling" do
+    response = %{
+      status: 200,
+      private: %{aiur_response_too_large: true},
+      body: ""
+    }
+
+    request_fun = fn request ->
+      assert request.max_response_bytes == 32_768
+      {:ok, response}
+    end
+
+    assert {:error, :github_graphql_response_too_large, ^response} =
+             Transport.github_graphql_response(request_fun, "token", "query", %{}, max_response_bytes: 32_768)
+
+    assert {:error, :github_graphql_response_too_large} =
+             Transport.github_graphql(request_fun, "token", "query", %{}, max_response_bytes: 32_768)
+  end
+
   test "rejects malformed HTTP-200 GraphQL envelopes" do
     for response <- [
           %{status: 200, body: "unexpected scalar"},
