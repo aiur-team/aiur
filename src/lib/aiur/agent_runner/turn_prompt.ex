@@ -11,7 +11,7 @@ defmodule Aiur.AgentRunner.TurnPrompt do
   def build_turn_prompt(issue, opts, 1, _max_turns) do
     cond do
       Keyword.get(opts, :resumed, false) -> resumed_turn_prompt()
-      rework_state?(issue.state) -> rework_turn_prompt()
+      rework_state?(issue.state) -> rework_turn_prompt(issue, opts)
       true -> PromptBuilder.build_prompt(issue, opts)
     end
   end
@@ -51,10 +51,11 @@ defmodule Aiur.AgentRunner.TurnPrompt do
   # already brainstormed, planned, and implemented this ticket; it is back only
   # to address review feedback. When the codex thread is resumable the caller
   # takes the `:resumed` branch above (full prior context intact); this branch
-  # is the cold-rework case, where replaying the full cold-start prompt would
-  # re-run brainstorm/plan the ticket has already done — the biggest quota sink.
-  defp rework_turn_prompt do
-    """
+  # is the cold-rework case. Keep the normal prompt's ticket identity and
+  # operating contract, but put explicit continuation guidance first so the
+  # agent does not repeat brainstorm/plan work.
+  defp rework_turn_prompt(issue, opts) do
+    continuation = """
     Continuation guidance (this issue is in rework):
 
     - This ticket was already brainstormed, planned, and implemented in a prior run; it is back in `rework` only to address review feedback. Do NOT re-run ce-brainstorm or ce-plan and do not restart the ticket from scratch.
@@ -64,6 +65,10 @@ defmodule Aiur.AgentRunner.TurnPrompt do
     - If manual `scripts/aiurdev --test` / `--test3` is blocked inside this agent workspace, stop that verification path and report it; do not retry from `/tmp`, a copied harness, or another clone.
     - Do not end the turn while the issue stays active unless you are truly blocked.
     """
+
+    continuation <>
+      "\nTicket operating contract and context follow. Use them for identity, lifecycle, and repository rules; the continuation guidance above supersedes their generic cold-start phase order.\n\n" <>
+      PromptBuilder.build_prompt(issue, opts)
   end
 
   @spec rework_state?(term()) :: boolean()

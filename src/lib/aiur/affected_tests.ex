@@ -6,23 +6,26 @@ defmodule Aiur.AffectedTests do
 
   Paths are repo-relative as `git diff --name-only` emits them (e.g.
   `src/lib/aiur/foo.ex`). A changed `src/lib/**/X.ex` maps to its sibling
-  `src/test/**/X_test.exs`; a changed `*_test.exs` maps to itself. Changes that
-  a module→test mapping (or `mix test --stale`) cannot capture — Gettext `.po`
-  files, `mix.exs`/`mix.lock`, and `config/` (including `Application.get_env`
-  runtime config) — force the full suite instead of a lossy scoped run.
+  `src/test/**/X_test.exs`; a changed `*_test.exs` maps to itself. Library
+  changes also request `mix test --stale`, which includes tests that reference
+  changed modules even when they are not sibling-named. Changes that neither
+  strategy can safely capture — test support, Gettext `.po` files,
+  `mix.exs`/`mix.lock`, and runtime config — force the full suite.
   """
 
   @type path :: String.t()
 
   @doc """
-  Map changed repo-relative paths to `{:scoped, test_files}` or `{:full, reason}`.
+  Map changed repo-relative paths to `{:scoped, test_files, stale?}` or
+  `{:full, reason}`. `stale?` tells the caller to use `mix test --stale` rather
+  than trusting sibling-file mapping alone.
 
   Options:
     * `:exists?` — predicate deciding whether a mapped test file is real
       (defaults to `File.exists?/1` joined under `:base_dir`).
     * `:base_dir` — repo root used by the default `:exists?` (defaults to `"."`).
   """
-  @spec select([path], keyword()) :: {:scoped, [path]} | {:full, String.t()}
+  @spec select([path], keyword()) :: {:scoped, [path], boolean()} | {:full, String.t()}
   def select(changed, opts \\ []) do
     base = Keyword.get(opts, :base_dir, ".")
     exists? = Keyword.get(opts, :exists?, fn p -> File.exists?(Path.join(base, p)) end)
@@ -30,10 +33,10 @@ defmodule Aiur.AffectedTests do
 
     cond do
       changed == [] ->
-        {:scoped, []}
+        {:scoped, [], false}
 
       Enum.any?(changed, &forces_full?/1) ->
-        {:full, "changed files include gettext / mix / config paths that a scoped module->test run cannot capture"}
+        {:full, "changed files include test support / gettext / mix / config paths that a scoped run cannot capture"}
 
       true ->
         tests =
@@ -42,7 +45,7 @@ defmodule Aiur.AffectedTests do
           |> Enum.uniq()
           |> Enum.filter(exists?)
 
-        {:scoped, tests}
+        {:scoped, tests, Enum.any?(changed, &library_source?/1)}
     end
   end
 
@@ -61,6 +64,10 @@ defmodule Aiur.AffectedTests do
 
   defp test_candidates(_path), do: []
 
+  @spec library_source?(path) :: boolean()
+  defp library_source?("src/lib/" <> rest), do: String.ends_with?(rest, ".ex")
+  defp library_source?(_path), do: false
+
   @spec forces_full?(path) :: boolean()
   defp forces_full?(path) do
     String.ends_with?(path, ".po") or
@@ -68,6 +75,7 @@ defmodule Aiur.AffectedTests do
       String.ends_with?(path, "mix.exs") or
       String.ends_with?(path, "mix.lock") or
       String.starts_with?(path, "src/config/") or
-      String.starts_with?(path, "config/")
+      String.starts_with?(path, "config/") or
+      (String.starts_with?(path, "src/test/") and not String.ends_with?(path, "_test.exs"))
   end
 end

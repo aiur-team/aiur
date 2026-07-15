@@ -21,17 +21,25 @@ defmodule Aiur.AgentRunner.TurnPromptTest do
       refute prompt =~ issue.title
     end
 
-    test "turn one cold rework uses rework continuation guidance, not a cold restart" do
-      issue = %Issue{id: "1091", identifier: "1091", title: "Fetch planning graph", state: "rework"}
+    test "turn one cold rework keeps the ticket contract without restarting discovery" do
+      issue = %Issue{
+        id: "1091",
+        identifier: "1091",
+        title: "Fetch planning graph",
+        description: "Render the dependency graph",
+        state: "rework"
+      }
 
       prompt = TurnPrompt.build_turn_prompt(issue, [], 1, nil)
 
       assert prompt =~ "rework"
       assert prompt =~ "Agent Workpad"
       assert prompt =~ "review feedback"
-      # rework continuation must not re-run planning or restate the full cold task
+      assert prompt =~ "## Shared Agent Instructions"
+      assert prompt =~ issue.title
+      assert prompt =~ issue.description
+      assert prompt =~ "generic cold-start phase order"
       refute prompt == PromptBuilder.build_prompt(issue, [])
-      refute prompt =~ issue.title
     end
 
     test "turn one resumed rework still uses restart continuation guidance" do
