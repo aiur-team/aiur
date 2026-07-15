@@ -9,7 +9,9 @@ defmodule Aiur.TicketActivity do
 
   use GenServer
 
-  alias Aiur.{CurrentRunMembership, Events.Exchange, TicketActivity.Projection, TicketObservation, TrackerIdentity}
+  alias Aiur.{CurrentRunMembership, TicketObservation, TrackerIdentity}
+  alias Aiur.Events.Exchange
+  alias Aiur.TicketActivity.Projection
 
   @pubsub Aiur.PubSub
   @topic "ticket-activity:changed"
@@ -61,8 +63,13 @@ defmodule Aiur.TicketActivity do
   end
 
   @impl true
-  def handle_call({:snapshot, identity, now}, _from, state), do: {:reply, Projection.snapshot(state.projection, identity, now), state}
-  def handle_call({:snapshots, now}, _from, state), do: {:reply, Projection.snapshots(state.projection, now), state}
+  def handle_call({:snapshot, identity, now}, _from, state) do
+    {:reply, Projection.snapshot(state.projection, identity, now), state}
+  end
+
+  def handle_call({:snapshots, now}, _from, state) do
+    {:reply, Projection.snapshots(state.projection, now), state}
+  end
 
   @impl true
   def handle_info({:event, %{ticket_observation: %TicketObservation{} = observation}}, state) do
@@ -78,20 +85,21 @@ defmodule Aiur.TicketActivity do
   end
 
   def handle_info({:current_run_membership_changed, %{event: event}}, state) do
-    next_state = refresh_member(state, identity_from(event))
-    if Projection.generation(next_state.projection) != Projection.generation(state.projection), do: broadcast_changed(identity_from(event), next_state.projection, next_state.now_fun.())
+    identity = identity_from(event)
+    next_state = refresh_member(state, identity)
+    broadcast_if_changed(identity, state, next_state)
     {:noreply, next_state}
   end
 
   def handle_info({:current_run_membership_health_changed, _payload}, state) do
     next_state = refresh_membership_snapshot(state)
-    if Projection.generation(next_state.projection) != Projection.generation(state.projection), do: broadcast_changed(nil, next_state.projection, next_state.now_fun.())
+    broadcast_if_changed(nil, state, next_state)
     {:noreply, next_state}
   end
 
   def handle_info(:prune, state) do
     projection = Projection.prune(state.projection, state.now_fun.())
-    if Projection.generation(projection) != Projection.generation(state.projection), do: broadcast_changed(nil, projection, state.now_fun.())
+    broadcast_if_changed(nil, state, %{state | projection: projection})
     schedule_prune(state.prune_interval_ms)
     {:noreply, %{state | projection: projection}}
   end
@@ -102,7 +110,11 @@ defmodule Aiur.TicketActivity do
     if TrackerIdentity.joinable?(identity) do
       current_members = Map.put(state.current_members, TrackerIdentity.github_key(identity), identity)
       identities = Map.values(current_members)
-      %{state | current_members: current_members, projection: Projection.refresh_members(state.projection, identities, state.now_fun.())}
+
+      projection =
+        Projection.refresh_members(state.projection, identities, state.now_fun.())
+
+      %{state | current_members: current_members, projection: projection}
     else
       state
     end
@@ -111,13 +123,19 @@ defmodule Aiur.TicketActivity do
   defp refresh_membership_snapshot(state) do
     members = current_members(state.membership_snapshot_fun)
     identities = Map.new(members, &{TrackerIdentity.github_key(&1), &1})
-    %{state | current_members: identities, projection: Projection.refresh_members(state.projection, members, state.now_fun.())}
+    projection = Projection.refresh_members(state.projection, members, state.now_fun.())
+    %{state | current_members: identities, projection: projection}
   end
 
   defp current_members(fun) do
     case fun.() do
-      %{members: members} when is_list(members) -> Enum.map(members, &member_identity/1) |> Enum.filter(&TrackerIdentity.joinable?/1)
-      _ -> []
+      %{members: members} when is_list(members) ->
+        members
+        |> Enum.map(&member_identity/1)
+        |> Enum.filter(&TrackerIdentity.joinable?/1)
+
+      _ ->
+        []
     end
   rescue
     _ -> []
@@ -130,14 +148,29 @@ defmodule Aiur.TicketActivity do
   defp identity_from(%{identity: identity}), do: identity
   defp identity_from(_event), do: nil
 
+  defp broadcast_if_changed(identity, previous, current) do
+    if Projection.generation(current.projection) != Projection.generation(previous.projection) do
+      broadcast_changed(identity, current.projection, current.now_fun.())
+    end
+  end
+
   defp broadcast_changed(identity, projection, now) do
     if is_pid(Process.whereis(@pubsub)) do
-      snapshot = if is_struct(identity, TrackerIdentity), do: Projection.snapshot(projection, identity, now)
+      snapshot =
+        if is_struct(identity, TrackerIdentity),
+          do: Projection.snapshot(projection, identity, now)
+
+      payload = %{
+        generation: Projection.generation(projection),
+        identity: identity,
+        snapshot: snapshot,
+        retention: Projection.snapshots(projection, now).retention
+      }
 
       Phoenix.PubSub.broadcast(
         @pubsub,
         @topic,
-        {:ticket_activity_changed, %{generation: Projection.generation(projection), identity: identity, snapshot: snapshot, retention: Projection.snapshots(projection, now).retention}}
+        {:ticket_activity_changed, payload}
       )
     end
 
@@ -146,5 +179,7 @@ defmodule Aiur.TicketActivity do
 
   defp schedule_prune(interval), do: Process.send_after(self(), :prune, interval)
   defp now(opts), do: Keyword.get(opts, :now, DateTime.utc_now())
-  defp positive_opt(opts, key, default), do: if(is_integer(opts[key]) and opts[key] > 0, do: opts[key], else: default)
+
+  defp positive_opt(opts, key, default),
+    do: if(is_integer(opts[key]) and opts[key] > 0, do: opts[key], else: default)
 end

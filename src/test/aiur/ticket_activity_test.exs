@@ -1,6 +1,7 @@
 defmodule Aiur.TicketActivityTest do
   use ExUnit.Case, async: false
 
+  alias Aiur.Events.Exchange
   alias Aiur.{TicketActivity, TicketObservation, TrackerIdentity}
 
   setup do
@@ -74,7 +75,7 @@ defmodule Aiur.TicketActivityTest do
       if Process.alive?(server), do: GenServer.stop(server)
     end)
 
-    Aiur.Events.Exchange.publish("ticket.42.agent.progress", event)
+    Exchange.publish("ticket.42.agent.progress", event)
 
     assert_receive {:ticket_activity_changed, %{identity: ^ticket, snapshot: %{progress: %{percent: 40}}}}, 500
     assert {:ok, %{progress: %{percent: 40}}} = TicketActivity.snapshot(ticket, server: server)

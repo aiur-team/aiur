@@ -15,19 +15,13 @@ defmodule Aiur.TicketActivity.Projection do
           required(:first_observed_at) => DateTime.t(),
           required(:last_observed_at) => DateTime.t(),
           required(:latest_evidence) => map() | nil,
+          required(:progress_order) => tuple() | nil,
+          required(:stage_order) => tuple() | nil,
           optional(:progress) => map(),
           optional(:stage) => map()
         }
 
-  @type t :: %__MODULE__{
-          entries: %{optional(tuple()) => entry()},
-          current_keys: MapSet.t(),
-          generation: non_neg_integer(),
-          retention_ms: pos_integer(),
-          stale_after_ms: pos_integer(),
-          max_recent: pos_integer(),
-          diagnostics: map()
-        }
+  @opaque t :: %__MODULE__{}
 
   defstruct entries: %{},
             current_keys: MapSet.new(),
@@ -186,7 +180,9 @@ defmodule Aiur.TicketActivity.Projection do
       provenance: safe_provenance(observation.provenance),
       latest_evidence: nil,
       progress: nil,
-      stage: nil
+      progress_order: nil,
+      stage: nil,
+      stage_order: nil
     }
   end
 
@@ -196,70 +192,88 @@ defmodule Aiur.TicketActivity.Projection do
         {entry, false}
 
       %{percent: percent, source: source} ->
-        current = entry.progress
-
-        if newer?(order, current) and
-             Reducer.accept_progress?(
-               source,
-               percent,
-               current_percent(current),
-               provenance_changed?(current, observation)
-             ) do
-          progress = %{
-            percent: percent,
-            source: source,
-            provenance: safe_provenance(observation.provenance),
-            occurred_at: safe_timestamp(observation.occurred_at),
-            observed_at: observation.observed_at,
-            event_id: safe_event_id(observation.event_id),
-            order: order
-          }
-
-          {%{entry | progress: progress, provenance: progress.provenance}, true}
-        else
-          {entry, false}
-        end
+        fold_ordered_progress(entry, observation, order, percent, source)
     end
+  end
+
+  defp fold_ordered_progress(entry, observation, order, percent, source) do
+    if newer_order?(order, entry.progress_order) do
+      entry = %{entry | progress_order: order}
+      apply_progress(entry, observation, order, percent, source)
+    else
+      {entry, false}
+    end
+  end
+
+  defp apply_progress(entry, observation, order, percent, source) do
+    current = entry.progress
+
+    if Reducer.accept_progress?(
+         source,
+         percent,
+         current_percent(current),
+         provenance_changed?(current, observation)
+       ) do
+      progress = progress_value(observation, order, percent, source)
+      {%{entry | progress: progress, provenance: progress.provenance}, true}
+    else
+      {entry, true}
+    end
+  end
+
+  defp progress_value(observation, order, percent, source) do
+    %{
+      percent: percent,
+      source: source,
+      provenance: safe_provenance(observation.provenance),
+      occurred_at: safe_timestamp(observation.occurred_at),
+      observed_at: observation.observed_at,
+      event_id: safe_event_id(observation.event_id),
+      order: order
+    }
   end
 
   defp fold_stage(entry, observation, order) do
     case stage(observation) do
       %{stage: stage, transition: transition} when not is_nil(stage) ->
-        if newer?(order, entry.stage) do
-          current = entry.stage && entry.stage.value
-
-          case Reducer.transition_stage(current, stage, transition) do
-            {:set, value} ->
-              stage = %{
-                value: value,
-                observed_at: observation.observed_at,
-                event_id: safe_event_id(observation.event_id),
-                order: order
-              }
-
-              {%{entry | stage: stage}, true}
-
-            :clear ->
-              {%{
-                 entry
-                 | stage: %{
-                     value: nil,
-                     observed_at: observation.observed_at,
-                     event_id: safe_event_id(observation.event_id),
-                     order: order
-                   }
-               }, true}
-
-            :keep ->
-              {entry, false}
-          end
-        else
-          {entry, false}
-        end
+        fold_ordered_stage(entry, observation, order, stage, transition)
 
       _ ->
         {entry, false}
     end
+  end
+
+  defp fold_ordered_stage(entry, observation, order, stage, transition) do
+    if newer_order?(order, entry.stage_order) do
+      entry = %{entry | stage_order: order}
+      apply_stage(entry, observation, order, stage, transition)
+    else
+      {entry, false}
+    end
+  end
+
+  defp apply_stage(entry, observation, order, stage, transition) do
+    current = entry.stage && entry.stage.value
+
+    case Reducer.transition_stage(current, stage, transition) do
+      {:set, value} ->
+        {%{entry | stage: stage_value(observation, order, value)}, true}
+
+      :clear ->
+        {%{entry | stage: stage_value(observation, order, nil)}, true}
+
+      :keep ->
+        {entry, true}
+    end
+  end
+
+  defp stage_value(observation, order, value) do
+    %{
+      value: value,
+      observed_at: observation.observed_at,
+      event_id: safe_event_id(observation.event_id),
+      order: order
+    }
   end
 
   defp fold_evidence(entry, observation, order) do
@@ -328,6 +342,8 @@ defmodule Aiur.TicketActivity.Projection do
 
   defp newer?(_order, nil), do: true
   defp newer?(order, %{order: previous}), do: order > previous
+  defp newer_order?(_order, nil), do: true
+  defp newer_order?(order, previous), do: order > previous
 
   defp ordering(observation),
     do: {DateTime.to_unix(observation.observed_at, :microsecond), safe_event_id(observation.event_id) || 0}
@@ -342,9 +358,10 @@ defmodule Aiur.TicketActivity.Projection do
   defp snapshot_entry(entry, state, now) do
     %{
       identity: entry.identity,
-      status: freshness(entry, state, now),
+      status: freshness(entry.last_observed_at, state, now),
       active_stage: entry.stage && entry.stage.value,
-      progress: progress_snapshot(entry.progress),
+      stage: stage_snapshot(entry.stage, state, now),
+      progress: progress_snapshot(entry.progress, state, now),
       latest_evidence: evidence_snapshot(entry.latest_evidence),
       provenance: entry.provenance,
       observed_at: entry.last_observed_at,
@@ -352,12 +369,22 @@ defmodule Aiur.TicketActivity.Projection do
     }
   end
 
-  defp progress_snapshot(nil), do: %{status: :unknown}
+  defp progress_snapshot(nil, _state, _now), do: %{status: :unknown}
 
-  defp progress_snapshot(progress) do
+  defp progress_snapshot(progress, state, now) do
     progress
     |> Map.drop([:order])
     |> Map.put(:status, :known)
+    |> Map.put(:freshness, freshness(progress.observed_at, state, now))
+  end
+
+  defp stage_snapshot(nil, _state, _now), do: %{status: :unknown}
+
+  defp stage_snapshot(stage, state, now) do
+    stage
+    |> Map.drop([:order])
+    |> Map.put(:status, :known)
+    |> Map.put(:freshness, freshness(stage.observed_at, state, now))
   end
 
   defp evidence_snapshot(nil), do: %{status: :unknown}
@@ -368,8 +395,8 @@ defmodule Aiur.TicketActivity.Projection do
     |> Map.put(:status, :known)
   end
 
-  defp freshness(entry, state, now) do
-    if DateTime.diff(now, entry.last_observed_at, :millisecond) > state.stale_after_ms,
+  defp freshness(observed_at, state, now) do
+    if DateTime.diff(now, observed_at, :millisecond) > state.stale_after_ms,
       do: :stale,
       else: :fresh
   end
@@ -450,9 +477,7 @@ defmodule Aiur.TicketActivity.Projection do
           Map.put(acc, key, value)
 
         value when is_binary(value) and byte_size(value) <= @max_opaque_bytes ->
-          if Regex.match?(~r/^[A-Za-z0-9._:-]+$/, value) and SecretRedactor.redact(value) == value,
-            do: Map.put(acc, key, value),
-            else: acc
+          put_safe_opaque(acc, key, value)
 
         _ ->
           acc
@@ -461,6 +486,13 @@ defmodule Aiur.TicketActivity.Projection do
   end
 
   defp safe_provenance(_provenance), do: %{}
+
+  defp put_safe_opaque(acc, key, value) do
+    if Regex.match?(~r/^[A-Za-z0-9._:-]+$/, value) and
+         SecretRedactor.redact(value) == value,
+       do: Map.put(acc, key, value),
+       else: acc
+  end
 
   defp phase_source("phase." <> rest) do
     case String.split(rest, ".", parts: 2) do

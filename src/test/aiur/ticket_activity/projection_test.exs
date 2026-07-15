@@ -78,6 +78,64 @@ defmodule Aiur.TicketActivity.ProjectionTest do
     assert %{active_stage: nil} = Projection.snapshot(state, ticket, @now)
   end
 
+  test "advances the stage watermark when a newer transition is semantically rejected" do
+    ticket = identity()
+
+    state =
+      Projection.new()
+      |> Projection.refresh_members([ticket], @now)
+      |> apply!(
+        observation(
+          ticket,
+          :agent_alert,
+          "phase.work.start",
+          %{stage: :work, transition: :start},
+          1
+        )
+      )
+      |> apply!(
+        observation(
+          ticket,
+          :agent_alert,
+          "phase.plan.end",
+          %{stage: :plan, transition: :end},
+          3
+        )
+      )
+
+    assert {:ignored, :duplicate, state} =
+             Projection.apply(
+               state,
+               observation(
+                 ticket,
+                 :agent_alert,
+                 "phase.plan.start",
+                 %{stage: :plan, transition: :start},
+                 2
+               )
+             )
+
+    assert %{active_stage: :work} = Projection.snapshot(state, ticket, @now)
+  end
+
+  test "advances the progress watermark when a newer value is ratcheted away" do
+    ticket = identity()
+
+    state =
+      Projection.new()
+      |> Projection.refresh_members([ticket], @now)
+      |> apply!(observation(ticket, :agent_event, "progress.phase", %{percent: 80}, 1))
+      |> apply!(observation(ticket, :agent_event, "progress.phase", %{percent: 60}, 3))
+
+    assert {:ignored, :duplicate, state} =
+             Projection.apply(
+               state,
+               observation(ticket, :agent_event, "progress.checkin", %{percent: 20}, 2)
+             )
+
+    assert %{progress: %{percent: 80}} = Projection.snapshot(state, ticket, @now)
+  end
+
   test "allows a newer attempt to reset progress without treating a new source event as a new attempt" do
     ticket = identity()
 
@@ -163,6 +221,40 @@ defmodule Aiur.TicketActivity.ProjectionTest do
 
     assert %{status: :stale, progress: %{percent: 40}} =
              Projection.snapshot(state, ticket, DateTime.add(@now, 3, :second))
+  end
+
+  test "reports progress and stage freshness from their own observation times" do
+    ticket = identity()
+
+    state =
+      Projection.new(stale_after_ms: 1_000)
+      |> Projection.refresh_members([ticket], @now)
+      |> apply!(observation(ticket, :agent_event, "progress", %{percent: 40}, 1))
+      |> apply!(
+        observation(
+          ticket,
+          :agent_alert,
+          "phase.work.start",
+          %{stage: :work, transition: :start},
+          1
+        )
+      )
+      |> apply!(
+        observation(
+          ticket,
+          :agent_alert,
+          "alert",
+          %{needs_attention: true, severity: "warning"},
+          4
+        )
+      )
+
+    assert %{
+             status: :fresh,
+             active_stage: :work,
+             progress: %{status: :known, freshness: :stale},
+             stage: %{status: :known, freshness: :stale, value: :work}
+           } = Projection.snapshot(state, ticket, DateTime.add(@now, 5, :second))
   end
 
   test "normalizes unsupported source metadata before exposing safe evidence" do
