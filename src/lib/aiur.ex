@@ -166,7 +166,7 @@ defmodule Aiur.Application do
       Aiur.OperatorWaitLog,
       Aiur.Orchestrator.TrackedSet,
       Aiur.CurrentRunMembership.Store,
-      Aiur.Orchestrator,
+      {Aiur.Orchestrator, initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
       Aiur.CurrentRunMembership.Reconciler,
       Aiur.Events.LsRemoteTicker,
       Aiur.ProgressCheckin.Worker,
