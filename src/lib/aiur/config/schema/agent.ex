@@ -80,6 +80,11 @@ defmodule Aiur.Config.Schema.Agent do
     # resolved backend is RC-capable. This default is the single flip point
     # for always-remote: change `false` here and every dispatch attaches RC.
     field(:remote_control, :boolean, default: false)
+    # When true, a re-dispatch of a ticket the orchestrator already ran (a
+    # max_turns recycle or completed-entry replacement) whose codex thread could
+    # not be resumed gets continuation guidance instead of the cold-start prompt,
+    # so it does not re-run brainstorm/plan over work that already exists.
+    field(:prior_work_continuation, :boolean, default: false)
     field(:max_concurrent_agents, :integer, default: 10)
     # Fleet-wide cap for agent-launched `mix compile` / `mix test` commands.
     # 0 deliberately disables the gate for Executors who need unrestricted
@@ -149,6 +154,7 @@ defmodule Aiur.Config.Schema.Agent do
       [
         :kind,
         :remote_control,
+        :prior_work_continuation,
         :max_concurrent_agents,
         :max_concurrent_builds,
         :build_start_stagger_seconds,

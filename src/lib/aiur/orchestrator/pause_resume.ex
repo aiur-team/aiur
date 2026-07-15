@@ -318,13 +318,22 @@ defmodule Aiur.Orchestrator.PauseResume do
     end
   end
 
+  # This is the single funnel every recycle re-dispatch goes through: the runner
+  # reached its completed boundary (max_turns, or a replacement) while the issue
+  # was still active, so the ticket already has a branch, workspace, and workpad.
+  # Flag it as prior work so a thread that cannot be resumed continues from that
+  # handoff instead of cold-starting brainstorm/plan over existing work.
   defp replace_completed_entry(state, running_entry, issue, worker_host) do
+    prior_work? = Config.agent_prior_work_continuation?()
+
     replace_admitted_completed_entry(
       state,
       running_entry,
       issue,
       worker_host,
-      &Dispatcher.do_dispatch_issue/4
+      fn dispatch_state, dispatch_issue, attempt, host ->
+        Dispatcher.do_dispatch_issue(dispatch_state, dispatch_issue, attempt, host, prior_work: prior_work?)
+      end
     )
   end
 

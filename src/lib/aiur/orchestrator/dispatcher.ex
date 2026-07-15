@@ -235,7 +235,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
               selected_issue,
               attempt,
               preferred_worker_host,
-              Keyword.get(opts, :runner, &AgentRunner.run/3)
+              opts
             )
         end
     end
@@ -454,7 +454,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
        ),
        do: index
 
-  defp dispatch_to_worker(%State{} = state, issue, attempt, preferred_worker_host, runner) do
+  defp dispatch_to_worker(%State{} = state, issue, attempt, preferred_worker_host, opts) do
     recipient = self()
 
     case Slots.select_worker_host(state, preferred_worker_host) do
@@ -464,7 +464,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
         state
 
       worker_host ->
-        spawn_issue_on_worker_host(state, issue, attempt, recipient, worker_host, runner)
+        spawn_issue_on_worker_host(state, issue, attempt, recipient, worker_host, opts)
     end
   end
 
@@ -483,7 +483,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
     state
   end
 
-  defp spawn_issue_on_worker_host(%State{} = state, issue, attempt, recipient, worker_host, runner) do
+  defp spawn_issue_on_worker_host(%State{} = state, issue, attempt, recipient, worker_host, opts) do
+    runner = Keyword.get(opts, :runner, &AgentRunner.run/3)
     lifecycle_attempt_id = TelemetryLifecycle.new_attempt_id(dispatch_attempt_ticket(issue))
 
     if TelemetryLifecycle.enabled?() do
@@ -498,6 +499,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     case Task.Supervisor.start_child(Aiur.TaskSupervisor, fn ->
            runner.(issue, recipient,
              attempt: attempt,
+             prior_work: Keyword.get(opts, :prior_work, false),
              telemetry_attempt_id: lifecycle_attempt_id,
              worker_host: worker_host,
              orchestrator: recipient
