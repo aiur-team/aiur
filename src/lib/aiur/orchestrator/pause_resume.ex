@@ -323,8 +323,9 @@ defmodule Aiur.Orchestrator.PauseResume do
   defp legacy_control_entry?(running_entry) do
     control = Map.get(running_entry, :control, %{})
 
-    not (Map.has_key?(control, :generation) and Map.has_key?(control, :version) and
-           Map.has_key?(control, :application_confirmation))
+    Map.has_key?(control, :can_interrupt) and
+      not (Map.has_key?(control, :generation) and Map.has_key?(control, :version) and
+             Map.has_key?(control, :application_confirmation))
   end
 
   defp legacy_pause_request(state, running_entry, identifier, pause_reason) do
