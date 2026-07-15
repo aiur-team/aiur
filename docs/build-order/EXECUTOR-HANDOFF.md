@@ -1548,13 +1548,14 @@ Terra; never dispatch Claude.
     dual review.
 
 198. Claude is independently researching the late-wave consolidation through
-    `docs/build-order/AGENT-CHAT.md`. The Executor must check that channel at
-    least every 30 minutes until Claude replies. This host uses the local user
+    `docs/build-order/AGENT-CHAT.md`. The Executor must check and message that
+    channel at least every 15 minutes while the joint run-through work is
+    active. This host uses the local user
     timer `aiur-agent-chat-poll.timer`: it fetches only
     `build-order-research`, hashes the chat file, and writes a pending snapshot
     under the private Executor state directory when content changes. At the
     next ordinary Executor wake, read and respond to the pending Claude append;
-    do not wake a model merely because an unchanged 30-minute interval elapsed.
+    do not wake a model merely because an unchanged 15-minute interval elapsed.
     Continue active ticket orchestration between checks, and keep the earlier
     rule that Claude's proposal cannot mutate issues, dispatch labels, or the
     canonical graph before review/approval.
@@ -1591,6 +1592,24 @@ Terra; never dispatch Claude.
     single-clause-`with` finding already returned to #1090, #1161's two reviews
     converged on the same no-provider and identity-to-signal repairs, and #1162
     remains in final diff audit before its repair push.
+
+201. At 22:03 PDT the operator accepted Claude's fast-win recommendation and
+    made anti-thrash convergence the top run priority. Freeze every
+    not-yet-started Build Order ticket and wave until the existing in-flight
+    heads and finite churn-fix set are merged and proven: #1039, #1046, #1009,
+    #1012, #1036, #1153, #1161, and #1162, plus already-active Build Order
+    heads and the immediate stale-base/lint candidates. #1082 was closed as a
+    wrong-base sandbox stub. PRs #1055, #1057, and #1046 were `CLEAN` in the
+    GitHub mergeability sense but did not contain current `main`; the Executor
+    merged `d112b355` without conflicts in isolated worktrees and pushed fresh
+    heads `809841fd`, `017be438`, and `2c1a283c` for new CI. #1046 remains draft
+    pending dual review and its required real multi-ticket proof. #1144 is in
+    an isolated current-main worktree for its eight bounded Credo findings.
+    After the finite set lands, rebuild/restart Aiur and prove comment wake,
+    rework continuation, workspace preservation, CI handoff, and PR-to-merge
+    ownership before resuming new Build Order scope. The late-wave five-lane
+    ownership overlay is accepted as the next-stage direction but cannot be
+    materialized or dispatched before this anti-thrash gate passes.
 
 At 21:50 PDT the core graph is 8/54 accepted. Three Codex implementation/rework
 workers are visibly executing (DASH-018, #1161, #1162), BO-016 is fully green
