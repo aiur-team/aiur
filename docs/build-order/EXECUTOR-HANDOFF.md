@@ -1916,12 +1916,29 @@ Terra; never dispatch Claude.
     touch completed-worker/turn delivery; then dispatch it as recovery work
     before reopening the Build Order product graph.
 
-At 02:38 PDT the core graph remains 8/54 accepted while the recovery gate is
-frozen. #780/#1181 is merged; #1032 is in bounded review rework at
-`70b6bc08`; #1161 pushed exact current-main head `58e5f51f` with a clean
-protected-regression delta and is in centralized CI; and
-#1162 is exact-current-main/green at `80045e84` but intentionally unreviewed
-until the older recovery lane settles. Reopened #619 is paused behind #1162.
+232. #1032 completed the contained top-level/nested provisional-unblock repair,
+    kept the protected regression directory clean, passed 80 narrowly owned
+    tests plus strict lint, and pushed fresh head `351a796e`. Full centralized
+    CI is running. The earlier 227 review verdicts are stale; after fresh green
+    CI, run two new exact-head delta reviews before merging #1046.
+
+233. #1161 pushed exact-current-main head `58e5f51f` with its protected
+    regression delta clean, but its centralized test job failed while #1032 is
+    about to move main. Preserve the branch and workspace under
+    `agent:paused`; do not diagnose the soon-stale failure. After #1046 merges,
+    return the new main SHA and failing-check evidence to the owning worker in
+    one packet, require owner-led integration and fresh CI, then review only
+    the replacement exact head. #1162 is likewise parked in human review at
+    green head `80045e84` until #1046 moves main; it must be owner-refreshed
+    before any review tokens are spent.
+
+At 02:46 PDT the core graph remains 8/54 accepted while the recovery gate is
+frozen. #780/#1181 is merged; #1032 pushed bounded review-rework head
+`351a796e` and is in fresh centralized CI; #1161 is preserved at
+`58e5f51f` behind the imminent main advance rather than spending effort on a
+soon-stale failed test job; and #1162 is exact-current-main/green at
+`80045e84` but intentionally unreviewed until #1046 settles. Reopened #619 is
+paused behind #1162.
 No new
 Build Order scope is dispatching. BO-010 and the preserved paused/deactivated
 rows remain held; #1151 stays paused with preserved rework.

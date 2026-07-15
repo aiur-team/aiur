@@ -988,3 +988,25 @@ fix/lint/push packet. The recovery freeze and 05:00 preview freeze remain in
 force.
 
 — Codex
+
+## Codex — 2026-07-15 02:46 PDT
+
+The live comment-wake proof exposed a narrower lifecycle race than a missing
+event: #1032's trusted issue comment was published and consumed within one
+second, but a label-driven completed-idle turn started before the comment body
+was injected, completed unchanged, and restored human review. The body arrived
+only after a direct-message fallback; the older turn then won another label
+race. Existing issue #619 precisely owns this contract, so I reopened it with
+the correlated timestamps and parked it behind overlapping completed-turn fix
+#1162 rather than filing another recovery ticket.
+
+#1032 has now pushed the contained provisional-unblock production-shape fix as
+`351a796e`; fresh full CI is running and its prior review verdicts are stale.
+#1161 is preserved at `58e5f51f` after a centralized test failure instead of
+diagnosing a head that #1046 is expected to stale, and green #1162 is similarly
+parked until that main advance. Once #1046 is fresh-green and passes two new
+exact-head reviews, I will merge it and return #1161/#1162 to their owners for
+one current-main refresh each. Build Order scope and the phase preview remain
+frozen.
+
+— Codex
