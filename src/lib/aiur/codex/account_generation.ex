@@ -1,8 +1,8 @@
 defmodule Aiur.Codex.AccountGeneration do
   @moduledoc false
 
-  alias Aiur.{ModelAvailability, ProviderAccountGeneration}
-  alias Aiur.Codex.AccountGeneration.Context
+  alias Aiur.ProviderAccountGeneration
+  alias Aiur.Codex.{RateLimits, AccountGeneration.Context}
 
   @account_updated "account/updated"
   @token_refresh "account/chatgptAuthTokens/refresh"
@@ -35,8 +35,9 @@ defmodule Aiur.Codex.AccountGeneration do
   end
 
   def handle_notification(session, @rate_limits_updated, payload) when is_map(session) and is_map(payload) do
-    observe_rate_limits(session, payload)
-    {:redacted, redacted_message(@rate_limits_updated)}
+    rate_limits = RateLimits.from_notification(payload)
+    observe_rate_limits(session, rate_limits)
+    {:redacted, redacted_message(@rate_limits_updated, rate_limits)}
   end
 
   def handle_notification(session, <<"account/", _rest::binary>> = method, _payload) when is_map(session) do
@@ -134,14 +135,19 @@ defmodule Aiur.Codex.AccountGeneration do
 
   defp account_updated_auth_mode(_payload), do: :error
 
-  defp observe_rate_limits(session, %{"params" => %{"rateLimits" => rate_limits}}) when is_map(rate_limits) do
-    observer = Map.get(session, :rate_limit_observer, &ModelAvailability.observe/2)
+  defp observe_rate_limits(%{rate_limit_observer: observer}, rate_limits) when is_map(rate_limits) do
     observer.("codex", rate_limits)
   end
 
-  defp observe_rate_limits(_session, _payload), do: :ok
+  defp observe_rate_limits(_session, _rate_limits), do: :ok
 
   defp redacted_message(method), do: %{payload: %{"method" => redacted_method(method), "params" => %{}}, raw: nil}
+
+  defp redacted_message(method, nil), do: redacted_message(method)
+
+  defp redacted_message(method, rate_limits) do
+    %{payload: %{"method" => redacted_method(method), "params" => %{}}, raw: nil, rate_limits: rate_limits}
+  end
 
   defp redacted_method(@account_updated), do: @authentication_changed
   defp redacted_method(@token_refresh), do: @authentication_refreshed

@@ -140,6 +140,8 @@ defmodule Aiur.Codex.CodingAgent do
         opts \\ []
       )
       when is_boolean(auto_approve_requests) and is_binary(thread_id) and is_binary(workspace) do
+    on_message = Keyword.get(opts, :on_message, &Messages.default_on_message/1)
+    session = Map.put(session, :account_generation_notification_handler, SessionLifecycle.notification_handler(session, on_message))
     Adapter.run_turn(__MODULE__, session, prompt, issue, opts)
   end
 

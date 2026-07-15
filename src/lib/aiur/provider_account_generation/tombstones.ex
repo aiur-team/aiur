@@ -1,17 +1,24 @@
 defmodule Aiur.ProviderAccountGeneration.Tombstones do
   @moduledoc false
 
-  alias Aiur.ProviderAccountGeneration.{Monitor, Snapshot}
+  alias Aiur.ProviderAccountGeneration.{Continuity, Monitor, Snapshot}
 
   @spec retire(map(), tuple(), map()) :: map()
   def retire(state, key, snapshot) do
     {entry, entries} = Map.pop(state.entries, key)
     Monitor.clear(entry)
+    :ok = Continuity.forget(state.continuity, key)
 
     tombstones = Map.put(state.tombstones, key, snapshot)
     order = [key | Enum.reject(state.tombstone_order, &(&1 == key))]
     {tombstones, order} = trim(tombstones, order, state.tombstone_limit)
-    %{state | entries: entries, tombstones: tombstones, tombstone_order: order}
+
+    %{
+      state
+      | entries: entries,
+        tombstones: tombstones,
+        tombstone_order: order
+    }
   end
 
   @spec retire_monitored(map(), reference()) :: {[{String.t(), map(), atom()}], map()}

@@ -121,6 +121,15 @@ defmodule Aiur.ProviderAccountGenerationTest do
 
     assert continued.generation == first.generation
     assert ProviderAccountGeneration.lookup(owner, :codex, :app_server, first_binding).reason == :continuity_lost
+
+    assert {:ok, %{generation: nil, reason: :owner_unavailable}} =
+             ProviderAccountGeneration.bind(owner, :codex, :app_server, first_binding,
+               source: :codex_app_server,
+               auth_mode: "chatgpt"
+             )
+
+    assert {:error, :owner_unavailable} =
+             ProviderAccountGeneration.recover_binding(owner, :codex, :app_server, first_binding)
   end
 
   test "a mode change rotates one binding only after trusted evidence changes", %{owner: owner} do
@@ -264,6 +273,9 @@ defmodule Aiur.ProviderAccountGenerationTest do
     assert %{change: :invalidated, reason: :continuity_lost, generation: nil} = invalidated
     assert ProviderAccountGeneration.lookup(owner, :codex, :app_server, old_binding).reason == :continuity_lost
     assert ProviderAccountGeneration.lookup(owner, :codex, :app_server, new_binding) == replacement
+
+    assert {:ok, %{generation: nil, reason: :owner_unavailable}} =
+             ProviderAccountGeneration.bind(owner, :codex, :app_server, old_binding, source: :codex_app_server)
   end
 
   test "invalidation preserves the known reason for later lookup", %{owner: owner} do
@@ -284,33 +296,55 @@ defmodule Aiur.ProviderAccountGenerationTest do
   end
 
   test "retiring final bindings prevents resurrection and bounds retained tombstones" do
-    owner = start_owner(mint: sequence_mint(self()), tombstone_limit: 2, clock: fn -> @clock end)
+    name = :provider_account_generation_tombstone_recovery_test
+    {:ok, owner} = ProviderAccountGeneration.start_link(name: name, mint: sequence_mint(self()), tombstone_limit: 2, clock: fn -> @clock end)
 
-    Enum.each(1..3, fn _index ->
-      binding = issued_binding(owner)
+    on_exit(fn -> stop_named_owner(name) end)
 
-      assert {:ok, %{generation: generation}} =
-               ProviderAccountGeneration.bind(owner, :codex, :app_server, binding,
-                 source: :codex_app_server,
-                 auth_mode: "chatgpt"
-               )
+    bindings =
+      Enum.map(1..3, fn _index ->
+        binding = issued_binding(owner)
 
-      assert is_binary(generation)
+        assert {:ok, %{generation: generation}} =
+                 ProviderAccountGeneration.bind(owner, :codex, :app_server, binding,
+                   source: :codex_app_server,
+                   auth_mode: "chatgpt"
+                 )
 
-      assert {:ok, %{generation: nil, reason: :continuity_lost}} =
-               ProviderAccountGeneration.retire(owner, :codex, :app_server, binding,
-                 source: :codex_app_server,
-                 reason: :continuity_lost
-               )
+        assert is_binary(generation)
 
-      assert {:error, :owner_unavailable} =
-               ProviderAccountGeneration.recover_binding(owner, :codex, :app_server, binding)
-    end)
+        assert {:ok, %{generation: nil, reason: :continuity_lost}} =
+                 ProviderAccountGeneration.retire(owner, :codex, :app_server, binding,
+                   source: :codex_app_server,
+                   reason: :continuity_lost
+                 )
+
+        assert {:error, :owner_unavailable} =
+                 ProviderAccountGeneration.recover_binding(owner, :codex, :app_server, binding)
+
+        binding
+      end)
+
+    [oldest | _recent] = bindings
 
     assert %{entries: entries, tombstones: tombstones, tombstone_order: tombstone_order} = :sys.get_state(owner)
+
     assert entries == %{}
     assert map_size(tombstones) == 2
     assert length(tombstone_order) == 2
+    refute Map.has_key?(tombstones, {:codex, :app_server, oldest.binding})
+
+    GenServer.stop(owner)
+    {:ok, replacement_owner} = ProviderAccountGeneration.start_link(name: name, mint: sequence_mint(self()), tombstone_limit: 2, clock: fn -> @clock end)
+
+    assert {:error, :owner_unavailable} =
+             ProviderAccountGeneration.recover_binding(replacement_owner, :codex, :app_server, oldest)
+
+    assert {:ok, %{generation: nil, reason: :owner_unavailable}} =
+             ProviderAccountGeneration.bind(replacement_owner, :codex, :app_server, oldest,
+               source: :codex_app_server,
+               auth_mode: "chatgpt"
+             )
   end
 
   test "subscription topics are exact-binding capabilities", %{owner: owner} do
@@ -364,6 +398,71 @@ defmodule Aiur.ProviderAccountGenerationTest do
              :sys.get_state(replacement_owner)
   end
 
+  test "recovery rejects a caller-invented binding capability", %{owner: owner} do
+    invented = %{binding: make_ref(), authority: make_ref(), topic: "provider-account-generation:invented"}
+
+    assert {:error, :owner_unavailable} = ProviderAccountGeneration.recover_binding(owner, :codex, :app_server, invented)
+
+    assert {:ok, %{generation: nil, reason: :owner_unavailable}} =
+             ProviderAccountGeneration.bind(owner, :codex, :app_server, invented,
+               source: :codex_app_server,
+               auth_mode: "chatgpt"
+             )
+
+    assert %{entries: %{}} = :sys.get_state(owner)
+  end
+
+  test "recovery requires the exact retained topic" do
+    name = :provider_account_generation_exact_topic_recovery_test
+    {:ok, owner} = ProviderAccountGeneration.start_link(name: name, mint: sequence_mint(self()))
+
+    on_exit(fn -> stop_named_owner(name) end)
+
+    binding = issued_binding(owner)
+    GenServer.stop(owner)
+    {:ok, replacement_owner} = ProviderAccountGeneration.start_link(name: name, mint: sequence_mint(self()))
+
+    assert {:error, :owner_unavailable} =
+             ProviderAccountGeneration.recover_binding(
+               replacement_owner,
+               :codex,
+               :app_server,
+               %{binding | topic: "provider-account-generation:wrong-topic"}
+             )
+
+    assert :ok = ProviderAccountGeneration.recover_binding(replacement_owner, :codex, :app_server, binding)
+  end
+
+  test "an owner restart rejects a capability after its lifecycle holder exits" do
+    name = :provider_account_generation_dead_holder_recovery_test
+    {:ok, owner} = ProviderAccountGeneration.start_link(name: name, mint: sequence_mint(self()))
+
+    on_exit(fn -> stop_named_owner(name) end)
+
+    parent = self()
+
+    holder =
+      spawn(fn ->
+        assert {:ok, binding} = ProviderAccountGeneration.issue_binding(owner, :codex, :app_server)
+        send(parent, {:issued_from_holder, binding})
+        receive do: (:stop -> :ok)
+      end)
+
+    assert_receive {:issued_from_holder, binding}, 2_000
+    GenServer.stop(owner)
+
+    monitor = Process.monitor(holder)
+    send(holder, :stop)
+    assert_receive {:DOWN, ^monitor, :process, ^holder, :normal}, 2_000
+
+    {:ok, replacement_owner} = ProviderAccountGeneration.start_link(name: name, mint: sequence_mint(self()))
+
+    assert {:error, :owner_unavailable} =
+             ProviderAccountGeneration.recover_binding(replacement_owner, :codex, :app_server, binding)
+
+    assert %{entries: %{}} = :sys.get_state(replacement_owner)
+  end
+
   test "an owning process dying invalidates and publishes its former binding", %{owner: owner} do
     binding = issued_binding(owner)
     parent = self()
@@ -393,6 +492,30 @@ defmodule Aiur.ProviderAccountGenerationTest do
     assert %{entries: entries, tombstones: tombstones} = :sys.get_state(owner)
     assert entries == %{}
     assert %{generation: nil, reason: :continuity_lost} = tombstones[{:codex, :app_server, binding_ref}]
+  end
+
+  test "an issued binding retires when its owner dies before the first observation", %{owner: owner} do
+    parent = self()
+
+    worker =
+      spawn(fn ->
+        assert {:ok, binding} = ProviderAccountGeneration.issue_binding(owner, :codex, :app_server)
+        send(parent, {:issued_from_worker, binding})
+        Process.sleep(:infinity)
+      end)
+
+    assert_receive {:issued_from_worker, binding}, 2_000
+    monitor = Process.monitor(worker)
+    Process.exit(worker, :kill)
+
+    assert_receive {:DOWN, ^monitor, :process, ^worker, :killed}, 2_000
+
+    assert %{entries: entries, tombstones: tombstones} = :sys.get_state(owner)
+    assert entries == %{}
+    assert %{generation: nil, reason: :never_observed} = tombstones[{:codex, :app_server, binding.binding}]
+
+    assert {:error, :owner_unavailable} =
+             ProviderAccountGeneration.recover_binding(owner, :codex, :app_server, binding)
   end
 
   test "owner outages fail open as an explicit unknown snapshot", %{owner: owner} do

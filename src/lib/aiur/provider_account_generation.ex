@@ -102,7 +102,7 @@ defmodule Aiur.ProviderAccountGeneration do
            safe_call(server, {:subscription_topic, provider, backend, binding}, {:error, :owner_unavailable}) do
       case Process.whereis(@pubsub) do
         pid when is_pid(pid) -> Phoenix.PubSub.subscribe(@pubsub, topic)
-        _ -> :ok
+        _ -> {:error, :subscription_unavailable}
       end
     end
   end

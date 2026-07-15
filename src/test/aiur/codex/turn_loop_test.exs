@@ -3,8 +3,9 @@ defmodule Aiur.Codex.TurnLoopTest do
 
   import ExUnit.CaptureLog
 
+  alias Aiur.{Issue, ModelAvailability, ProviderAccountGeneration}
+  alias Aiur.AgentRunner.MessageHandler
   alias Aiur.Codex.{AccountGeneration, CodingAgent, TurnLoop}
-  alias Aiur.ProviderAccountGeneration
 
   describe "handle_method/5 terminal turn events" do
     test "turn/completed emits before completing the turn" do
@@ -316,6 +317,127 @@ defmodule Aiur.Codex.TurnLoopTest do
 
       assert is_binary(ProviderAccountGeneration.lookup(owner, :codex, :app_server, binding).generation)
 
+      close_port(port)
+    end
+
+    @tag :tmp_dir
+    test "rate-limit notifications reach availability through a privacy-reduced event without rotation", %{tmp_dir: tmp_dir} do
+      port = open_cat_port()
+      owner = start_owner(clock: fn -> ~U[2026-07-13 12:00:00Z] end)
+      account_generation = AccountGeneration.new_binding(owner)
+
+      assert {:ok, original} =
+               ProviderAccountGeneration.bind(owner, :codex, :app_server, account_generation,
+                 source: :codex_app_server,
+                 auth_mode: "chatgpt"
+               )
+
+      path = Path.join(tmp_dir, "model-usage.json")
+
+      handler =
+        MessageHandler.build(self(), %Issue{id: "gid-rate-limit", identifier: nil}, nil, nil, "codex", nil,
+          rate_limit_observer: fn backend, limits -> ModelAvailability.observe(backend, limits, path: path) end
+        )
+
+      reset_at = DateTime.add(DateTime.utc_now(), 3_600, :second) |> DateTime.to_iso8601()
+      secret = "person@example.test credential=super-secret"
+      reset_secret = "reset-token=super-secret"
+
+      payload = %{
+        "method" => "account/rateLimits/updated",
+        "params" => %{
+          "rateLimits" => %{
+            "primary" => %{
+              "usedPercent" => 100,
+              "windowDurationMins" => 60,
+              "resetsAt" => reset_at,
+              "resetAt" => reset_secret,
+              "email" => secret
+            },
+            "limit_id" => secret
+          }
+        }
+      }
+
+      state = %{base_state() | on_message: handler}
+
+      assert {:continue, _state} =
+               TurnLoop.handle_method(
+                 %{
+                   port: port,
+                   account_generation_binding: account_generation.binding,
+                   account_generation_authority: account_generation.authority,
+                   account_generation_context: account_generation.context,
+                   account_generation_server: owner
+                 },
+                 state,
+                 payload,
+                 Jason.encode!(payload),
+                 payload["method"]
+               )
+
+      safe_limits = %{
+        "primary" => %{
+          "usedPercent" => 100,
+          "windowDurationMins" => 60,
+          "resetsAt" => reset_at
+        }
+      }
+
+      assert_receive {:codex_worker_update, "gid-rate-limit", message}, 2_000
+      assert message.payload == %{"method" => "provider_account/rate_limits_changed", "params" => %{}}
+      assert message.rate_limits == safe_limits
+      refute inspect(message) =~ secret
+      refute inspect(message) =~ reset_secret
+      refute ModelAvailability.available?("codex", path: path)
+
+      assert ProviderAccountGeneration.lookup(owner, :codex, :app_server, account_generation.binding) == original
+      close_port(port)
+    end
+
+    @tag :tmp_dir
+    test "an explicit unlimited rate-limit notification clears availability", %{tmp_dir: tmp_dir} do
+      port = open_cat_port()
+      owner = start_owner(clock: fn -> ~U[2026-07-13 12:00:00Z] end)
+      account_generation = AccountGeneration.new_binding(owner)
+      path = Path.join(tmp_dir, "model-usage.json")
+
+      handler =
+        MessageHandler.build(self(), %Issue{id: "gid-rate-limit-recovery", identifier: nil}, nil, nil, "codex", nil,
+          rate_limit_observer: fn backend, limits -> ModelAvailability.observe(backend, limits, path: path) end
+        )
+
+      session = %{
+        port: port,
+        account_generation_binding: account_generation.binding,
+        account_generation_authority: account_generation.authority,
+        account_generation_context: account_generation.context,
+        account_generation_server: owner
+      }
+
+      limited = %{
+        "method" => "account/rateLimits/updated",
+        "params" => %{
+          "rateLimits" => %{
+            "limited" => true,
+            "resetAt" => DateTime.add(DateTime.utc_now(), 3_600, :second) |> DateTime.to_iso8601()
+          }
+        }
+      }
+
+      assert {:continue, _state} =
+               TurnLoop.handle_method(session, %{base_state() | on_message: handler}, limited, Jason.encode!(limited), limited["method"])
+
+      assert_receive {:codex_worker_update, "gid-rate-limit-recovery", %{rate_limits: %{"limited" => true}}}, 2_000
+      refute ModelAvailability.available?("codex", path: path)
+
+      unlimited = %{"method" => "account/rateLimits/updated", "params" => %{"rateLimits" => %{"limited" => false}}}
+
+      assert {:continue, _state} =
+               TurnLoop.handle_method(session, %{base_state() | on_message: handler}, unlimited, Jason.encode!(unlimited), unlimited["method"])
+
+      assert_receive {:codex_worker_update, "gid-rate-limit-recovery", %{rate_limits: %{"limited" => false}}}, 2_000
+      assert ModelAvailability.available?("codex", path: path)
       close_port(port)
     end
 

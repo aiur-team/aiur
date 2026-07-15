@@ -115,7 +115,12 @@ defmodule Aiur.Codex.AccountGenerationTest do
 
     rate_limits = %{"primary" => %{"usedPercent" => 100}}
 
-    assert {:redacted, %{payload: %{"method" => "provider_account/rate_limits_changed", "params" => %{}}, raw: nil}} =
+    assert {:redacted,
+            %{
+              payload: %{"method" => "provider_account/rate_limits_changed", "params" => %{}},
+              raw: nil,
+              rate_limits: ^rate_limits
+            }} =
              AccountGeneration.handle_notification(session, "account/rateLimits/updated", %{
                "params" => %{"rateLimits" => rate_limits}
              })

@@ -5,7 +5,7 @@ defmodule Aiur.AppServer.Rpc do
 
   require Logger
 
-  alias Aiur.AppServer.Rpc.{SensitiveResponses, Stream}
+  alias Aiur.AppServer.Rpc.{Await, SensitiveResponses, Stream}
 
   @spec send_line(port(), map()) :: true
   def send_line(port, message) do
@@ -18,6 +18,10 @@ defmodule Aiur.AppServer.Rpc do
   @doc false
   @spec retain_late_sensitive_response(port(), integer()) :: :ok
   defdelegate retain_late_sensitive_response(port, request_id), to: SensitiveResponses, as: :retain
+
+  @doc false
+  @spec retain_late_sensitive_response(port(), integer(), boolean()) :: :ok
+  defdelegate retain_late_sensitive_response(port, request_id, partial_line?), to: SensitiveResponses, as: :retain
 
   @doc false
   @spec clear_late_sensitive_responses(port()) :: :ok
@@ -59,53 +63,7 @@ defmodule Aiur.AppServer.Rpc do
           {:ok, map()} | {:error, term()}
   def with_timeout_response(port, request_id, timeout_ms, pending_line, backend_label, on_notification, sensitive_response?)
       when is_function(on_notification, 1) and is_boolean(sensitive_response?) do
-    receive do
-      {^port, {:data, {:eol, chunk}}} ->
-        complete_line = pending_line <> to_string(chunk)
-
-        if discard_late_sensitive_response?(port, complete_line) do
-          with_timeout_response(
-            port,
-            request_id,
-            timeout_ms,
-            "",
-            backend_label,
-            on_notification,
-            sensitive_response?
-          )
-        else
-          handle_response(
-            port,
-            request_id,
-            complete_line,
-            timeout_ms,
-            backend_label,
-            on_notification,
-            sensitive_response?
-          )
-        end
-
-      {^port, {:data, {:noeol, chunk}}} ->
-        with_timeout_response(
-          port,
-          request_id,
-          timeout_ms,
-          pending_line <> to_string(chunk),
-          backend_label,
-          on_notification,
-          sensitive_response?
-        )
-
-      {^port, {:exit_status, status}} ->
-        {:error, {:port_exit, status}}
-    after
-      timeout_ms ->
-        if sensitive_response? do
-          retain_late_sensitive_response(port, request_id)
-        end
-
-        {:error, :response_timeout}
-    end
+    Await.response(port, request_id, timeout_ms, pending_line, backend_label, on_notification, sensitive_response?)
   end
 
   @spec handle_response(port(), integer(), binary(), non_neg_integer(), String.t()) ::

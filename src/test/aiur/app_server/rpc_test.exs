@@ -70,7 +70,7 @@ defmodule Aiur.AppServer.RpcTest do
       end
 
       assert {:ok, %{"ok" => true}} = Rpc.with_timeout_response(port, 42, 1_000, "", "Test", handler)
-      assert_receive {:routed_lifecycle, "account/updated", "chatgpt"}
+      assert_receive {:routed_lifecycle, "account/updated", "chatgpt"}, 2_000
     end
 
     test "returns timeout and port exit errors" do
@@ -125,6 +125,76 @@ defmodule Aiur.AppServer.RpcTest do
                Rpc.with_timeout_response(port, 5, 10, "", "Test", fn _payload -> :ignore end, true)
 
       log = capture_log(fn -> assert {:ok, %{"ok" => true}} = Rpc.with_timeout_response(port, 6, 1_000, "", "Test") end)
+      assert log =~ "Test sensitive response stream output redacted"
+      refute log =~ secret
+    end
+
+    test "quarantines a sensitive response whose id arrived before its timeout" do
+      secret = "person@example.test credential=super-secret"
+
+      port =
+        script_port("""
+        sleep 0.05
+        printf '%s\\n' '#{secret}"}}'
+        printf '%s\\n' '{"id":6,"result":{"ok":true}}'
+        """)
+
+      on_exit(fn -> Rpc.clear_late_sensitive_responses(port) end)
+
+      assert {:error, :response_timeout} =
+               Rpc.with_timeout_response(port, 5, 10, ~s({"id":5,"result":{"account":"), "Test", fn _payload -> :ignore end, true)
+
+      log = capture_log(fn -> assert {:ok, %{"ok" => true}} = Rpc.with_timeout_response(port, 6, 1_000, "", "Test") end)
+      assert log =~ "Test sensitive response stream output redacted"
+      refute log =~ secret
+    end
+
+    test "quarantines malformed output without an id while a sensitive response is late" do
+      secret = "person@example.test credential=super-secret"
+
+      port =
+        script_port("""
+        sleep 0.05
+        printf '%s\\n' '#{secret}'
+        printf '%s\\n' '{"id":6,"result":{"ok":true}}'
+        """)
+
+      on_exit(fn -> Rpc.clear_late_sensitive_responses(port) end)
+
+      assert {:error, :response_timeout} =
+               Rpc.with_timeout_response(port, 5, 10, "", "Test", fn _payload -> :ignore end, true)
+
+      log = capture_log(fn -> assert {:ok, %{"ok" => true}} = Rpc.with_timeout_response(port, 6, 1_000, "", "Test") end)
+      assert log =~ "Test sensitive response stream output redacted"
+      refute log =~ secret
+    end
+
+    test "does not route a late sensitive response with a notification-shaped result" do
+      secret = "person@example.test credential=super-secret"
+
+      port =
+        script_port("""
+        sleep 0.05
+        printf '%s\\n' '{"method":"account/updated","result":{"email":"#{secret}"}}'
+        printf '%s\\n' '{"id":6,"result":{"ok":true}}'
+        """)
+
+      on_exit(fn -> Rpc.clear_late_sensitive_responses(port) end)
+      test_pid = self()
+
+      assert {:error, :response_timeout} =
+               Rpc.with_timeout_response(port, 5, 10, "", "Test", fn _payload -> :ignore end, true)
+
+      log =
+        capture_log(fn ->
+          assert {:ok, %{"ok" => true}} =
+                   Rpc.with_timeout_response(port, 6, 1_000, "", "Test", fn payload ->
+                     send(test_pid, {:unexpected_notification, payload})
+                     :handled
+                   end)
+        end)
+
+      refute_receive {:unexpected_notification, _payload}
       refute log =~ secret
     end
 

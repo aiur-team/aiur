@@ -19,15 +19,15 @@ defmodule Aiur.ProviderAccountGeneration.Owner do
   @impl true
   def handle_call({:lookup, provider, backend, binding}, _from, state), do: {:reply, State.lookup(state, provider, backend, binding), state}
 
-  def handle_call({:issue_binding, provider, backend}, _from, state) do
-    case State.issue(state, provider, backend) do
+  def handle_call({:issue_binding, provider, backend}, from, state) do
+    case State.issue(state, provider, backend, caller_pid(from)) do
       {:ok, binding, state} -> {:reply, {:ok, binding}, state}
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
 
-  def handle_call({:recover_binding, provider, backend, binding, authority, topic}, _from, state) do
-    case State.recover(state, provider, backend, binding, authority, topic) do
+  def handle_call({:recover_binding, provider, backend, binding, authority, topic}, from, state) do
+    case State.recover(state, provider, backend, binding, authority, topic, caller_pid(from)) do
       {:ok, changes, state} ->
         Events.broadcast(changes)
         {:reply, :ok, state}

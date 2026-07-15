@@ -44,7 +44,7 @@ defmodule Aiur.ProviderAccountGeneration.Lifecycle do
         continue_known(state, entry_key, provider, backend, previous_binding, opts, owner_pid)
 
       is_reference(previous_binding) and previous_binding != binding ->
-        {snapshot, change, topic, state} = invalidate(state, provider, backend, previous_binding, %{source: Map.fetch!(opts, :source), reason: :continuity_lost}, owner_pid)
+        {snapshot, change, topic, state} = supersede(state, provider, backend, previous_binding, opts, owner_pid)
         {current, changes, state} = create_known(state, entry_key, provider, backend, opts, owner_pid, :bound)
         {current, add_change(changes, change, topic, snapshot), state}
 
@@ -58,8 +58,7 @@ defmodule Aiur.ProviderAccountGeneration.Lifecycle do
 
     case Registry.entry(state, previous_key) do
       %{snapshot: %{generation: generation}} when is_binary(generation) ->
-        {previous, change, topic, state} =
-          invalidate(state, provider, backend, previous_binding, %{source: Map.fetch!(opts, :source), reason: :continuity_lost}, owner_pid)
+        {previous, change, topic, state} = supersede(state, provider, backend, previous_binding, opts, owner_pid)
 
         {snapshot, changes, state} =
           create_known(state, entry_key, provider, backend, opts, owner_pid, :continued, generation)
@@ -83,6 +82,20 @@ defmodule Aiur.ProviderAccountGeneration.Lifecycle do
     snapshot = Snapshot.known(provider, backend, state.mint.(), Map.fetch!(opts, :source), state.clock.())
     updated = entry |> Map.put(:snapshot, snapshot) |> Monitor.owner(owner_pid)
     {snapshot, [{updated.topic, snapshot, change}], Registry.put(state, entry_key, updated)}
+  end
+
+  defp supersede(state, provider, backend, binding, opts, owner_pid) do
+    {snapshot, change, topic, state} =
+      invalidate(
+        state,
+        provider,
+        backend,
+        binding,
+        %{source: Map.fetch!(opts, :source), reason: :continuity_lost},
+        owner_pid
+      )
+
+    {snapshot, change, topic, Registry.retire(state, Registry.key(provider, backend, binding), snapshot)}
   end
 
   defp add_change(changes, nil, _topic, _snapshot), do: changes

@@ -158,6 +158,68 @@ defmodule Aiur.Codex.CodingAgentTest do
     end
   end
 
+  describe "pre-turn lifecycle notifications" do
+    test "uses run_turn's current message handler for a rate-limit notification" do
+      secret = "person@example.test credential=super-secret"
+
+      port =
+        Port.open(
+          {:spawn_executable, String.to_charlist(System.find_executable("bash"))},
+          [
+            :binary,
+            :exit_status,
+            :stderr_to_stdout,
+            args: [
+              ~c"-lc",
+              String.to_charlist("""
+              while IFS= read -r line; do
+                case "$line" in
+                  *'"id":3'*)
+                    printf '%s\\n' '{"method":"account/rateLimits/updated","params":{"rateLimits":{"limited":false,"email":"#{secret}"}}}'
+                    printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
+                    printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
+                    exit 0 ;;
+                esac
+              done
+              """)
+            ],
+            line: 64_000
+          ]
+        )
+
+      {:ok, owner} = ProviderAccountGeneration.start_link(name: nil)
+      account_generation = Aiur.Codex.AccountGeneration.new_binding(owner)
+      test_pid = self()
+
+      session = %{
+        port: port,
+        metadata: %{},
+        auto_approve_requests: false,
+        thread_id: "thread-1",
+        workspace: "/ws",
+        approval_policy: "never",
+        turn_sandbox_policy: %{},
+        account_generation_binding: account_generation.binding,
+        account_generation_authority: account_generation.authority,
+        account_generation_context: account_generation.context,
+        account_generation_server: owner
+      }
+
+      assert {:ok, %{result: :turn_completed}} =
+               CodingAgent.run_turn(session, "prompt", %{id: "gid-pre-turn", identifier: "DASH-018", title: "test"}, on_message: fn message -> send(test_pid, {:turn_message, message}) end)
+
+      assert_receive {:turn_message,
+                      notification = %{
+                        event: :notification,
+                        payload: %{"method" => "provider_account/rate_limits_changed"},
+                        rate_limits: %{"limited" => false}
+                      }},
+                     2_000
+
+      refute inspect(notification) =~ secret
+    end
+  end
+
   describe "send_thread_init/2 graceful degradation" do
     test "a closed app-server port yields {:error, :port_closed} instead of raising" do
       # A dead app-server makes Port.command raise ArgumentError; the resume path

@@ -2,17 +2,19 @@ defmodule Aiur.Codex.AccountGeneration.Context do
   @moduledoc false
 
   alias Aiur.ProviderAccountGeneration
+  alias Aiur.ProviderAccountGeneration.Continuity
 
   @spec new_binding(GenServer.server()) :: map()
   def new_binding(server) do
     binding =
       case ProviderAccountGeneration.issue_binding(server, :codex, :app_server) do
         {:ok, binding} -> binding
-        {:error, _reason} -> %{binding: make_ref(), authority: make_ref(), topic: mint_topic()}
+        {:error, _reason} -> Continuity.issue(server, :codex, :app_server)
       end
 
     context = make_ref()
     Process.put(context_key(context), binding)
+    Process.put(server_key(context), server)
     Map.put(binding, :context, context)
   end
 
@@ -30,6 +32,7 @@ defmodule Aiur.Codex.AccountGeneration.Context do
 
   @spec clear(map()) :: :ok
   def clear(%{account_generation_context: context}) when is_reference(context) do
+    forget_continuity(context)
     Process.put(context_key(context), :cleared)
     :ok
   end
@@ -47,6 +50,13 @@ defmodule Aiur.Codex.AccountGeneration.Context do
     end
   end
 
+  defp forget_continuity(context) do
+    with {:ok, %{binding: binding}} <- current(context),
+         server <- Process.get(server_key(context), ProviderAccountGeneration) do
+      Continuity.forget(Continuity.service_id(server), {:codex, :app_server, binding})
+    end
+  end
+
   defp context_key(context), do: {Aiur.Codex.AccountGeneration, :binding_context, context}
-  defp mint_topic, do: Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
+  defp server_key(context), do: {Aiur.Codex.AccountGeneration, :binding_context_server, context}
 end

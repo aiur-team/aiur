@@ -1,19 +1,21 @@
 defmodule Aiur.ProviderAccountGeneration.Registry do
   @moduledoc false
 
-  alias Aiur.ProviderAccountGeneration.{Snapshot, Tombstones}
+  alias Aiur.ProviderAccountGeneration.{Continuity, Monitor, Snapshot, Tombstones}
 
-  @spec issue(map(), atom(), atom()) :: {:ok, map(), map()} | {:error, :owner_unavailable}
-  def issue(state, provider, backend) do
+  @spec issue(map(), atom(), atom(), pid()) :: {:ok, map(), map()} | {:error, :owner_unavailable}
+  def issue(state, provider, backend, owner_pid) when is_pid(owner_pid) do
     binding = make_ref()
     authority = make_ref()
     {entry, state} = ensure(state, provider, backend, binding)
-    state = put(state, key(provider, backend, binding), %{entry | authority: authority})
+    entry = entry |> Map.put(:authority, authority) |> Monitor.owner(owner_pid)
+    state = put(state, key(provider, backend, binding), entry)
+    :ok = Continuity.retain(state.continuity, key(provider, backend, binding), authority, entry.topic, owner_pid)
     {:ok, %{binding: binding, authority: authority, topic: entry.topic}, state}
   end
 
-  @spec recover(map(), atom(), atom(), reference(), reference(), String.t()) :: {:ok, list(), map()} | :error
-  def recover(state, provider, backend, binding, authority, topic) do
+  @spec recover(map(), atom(), atom(), reference(), reference(), String.t(), pid()) :: {:ok, list(), map()} | :error
+  def recover(state, provider, backend, binding, authority, topic, owner_pid) when is_pid(owner_pid) do
     entry_key = key(provider, backend, binding)
 
     cond do
@@ -21,11 +23,15 @@ defmodule Aiur.ProviderAccountGeneration.Registry do
         :error
 
       entry = Map.get(state.entries, entry_key) ->
-        recover_existing(state, entry_key, authority, topic, entry)
+        recover_existing(state, entry_key, authority, topic, owner_pid, entry)
+
+      Continuity.recover?(state.continuity, entry_key, authority, topic) ->
+        entry = new_entry(provider, backend, topic, authority) |> Monitor.owner(owner_pid)
+        :ok = Continuity.retain(state.continuity, entry_key, authority, topic, owner_pid)
+        {:ok, [{topic, entry.snapshot, :recovered}], put(state, entry_key, entry)}
 
       true ->
-        entry = new_entry(provider, backend, topic, authority)
-        {:ok, [{topic, entry.snapshot, :recovered}], put(state, entry_key, entry)}
+        :error
     end
   end
 
@@ -87,15 +93,18 @@ defmodule Aiur.ProviderAccountGeneration.Registry do
   @spec retire(map(), tuple(), map()) :: map()
   defdelegate retire(state, entry_key, snapshot), to: Tombstones
 
-  defp recover_existing(state, entry_key, authority, topic, %{authority: nil} = entry) do
-    recovered = %{entry | authority: authority, topic: topic}
+  defp recover_existing(state, entry_key, authority, topic, owner_pid, %{authority: nil, topic: topic} = entry) do
+    recovered = entry |> Map.merge(%{authority: authority, topic: topic}) |> Monitor.owner(owner_pid)
+    :ok = Continuity.retain(state.continuity, entry_key, authority, topic, owner_pid)
     {:ok, [{topic, recovered.snapshot, :recovered}], put(state, entry_key, recovered)}
   end
 
-  defp recover_existing(state, _entry_key, authority, _topic, %{authority: entry_authority}) when entry_authority == authority,
-    do: {:ok, [], state}
+  defp recover_existing(state, entry_key, authority, topic, owner_pid, %{authority: authority, topic: topic} = entry) do
+    :ok = Continuity.retain(state.continuity, entry_key, authority, topic, owner_pid)
+    {:ok, [], put(state, entry_key, Monitor.owner(entry, owner_pid))}
+  end
 
-  defp recover_existing(_state, _entry_key, _authority, _topic, _entry), do: :error
+  defp recover_existing(_state, _entry_key, _authority, _topic, _owner_pid, _entry), do: :error
 
   defp authorized_previous?(state, provider, backend, opts) do
     case Map.get(opts, :previous_binding) do

@@ -1,7 +1,7 @@
 defmodule Aiur.ProviderAccountGeneration.State do
   @moduledoc false
 
-  alias Aiur.ProviderAccountGeneration.{Lifecycle, Registry, Snapshot, Tombstones, Validation}
+  alias Aiur.ProviderAccountGeneration.{Continuity, Lifecycle, Registry, Snapshot, Tombstones, Validation}
 
   @spec new(keyword()) :: map()
   def new(opts) do
@@ -9,6 +9,7 @@ defmodule Aiur.ProviderAccountGeneration.State do
       entries: %{},
       tombstones: %{},
       tombstone_order: [],
+      continuity: Continuity.service_id(Keyword.get(opts, :name, Aiur.ProviderAccountGeneration)),
       tombstone_limit: max(Keyword.get(opts, :tombstone_limit, 256), 0),
       mint: Keyword.get(opts, :mint, &mint_generation/0),
       topic_mint: Keyword.get(opts, :topic_mint, &mint_topic/0),
@@ -19,14 +20,18 @@ defmodule Aiur.ProviderAccountGeneration.State do
   @spec lookup(map(), atom(), atom(), reference()) :: map()
   defdelegate lookup(state, provider, backend, binding), to: Registry
 
-  @spec issue(map(), atom(), atom()) :: {:ok, map(), map()} | {:error, :owner_unavailable}
-  def issue(state, provider, backend) do
-    if Validation.scope?(provider, backend), do: Registry.issue(state, provider, backend), else: {:error, :owner_unavailable}
+  @spec issue(map(), atom(), atom(), pid()) :: {:ok, map(), map()} | {:error, :owner_unavailable}
+  def issue(state, provider, backend, owner_pid) when is_pid(owner_pid) do
+    if Validation.scope?(provider, backend),
+      do: Registry.issue(state, provider, backend, owner_pid),
+      else: {:error, :owner_unavailable}
   end
 
-  @spec recover(map(), atom(), atom(), reference(), reference(), String.t()) :: {:ok, list(), map()} | :error
-  def recover(state, provider, backend, binding, authority, topic) do
-    if Validation.scope?(provider, backend), do: Registry.recover(state, provider, backend, binding, authority, topic), else: :error
+  @spec recover(map(), atom(), atom(), reference(), reference(), String.t(), pid()) :: {:ok, list(), map()} | :error
+  def recover(state, provider, backend, binding, authority, topic, owner_pid) when is_pid(owner_pid) do
+    if Validation.scope?(provider, backend),
+      do: Registry.recover(state, provider, backend, binding, authority, topic, owner_pid),
+      else: :error
   end
 
   @spec subscription(map(), atom(), atom(), reference()) :: {:ok, String.t()} | {:error, atom()}
