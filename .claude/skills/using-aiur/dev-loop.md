@@ -24,10 +24,12 @@ index-write failure. Never `mktemp -d /tmp/...` for recovery and never push from
 `/tmp`.**
 
 **Integrating an upstream blocker's branch**: when
-`ticket.<blocker-id>.branch.push` arrives, fetch the actual validated ref carried
-by the event payload (or discover it with `scripts/resolve-ticket-branch <blocker-id>`)
+`ticket.<blocker-id>.agent.unblocked` arrives, use the latest
+`ticket.<blocker-id>.branch.push` payload to fetch the actual validated ref (or
+discover it with `scripts/resolve-ticket-branch <blocker-id>`)
 → commit your local WIP if any → merge that fetched ref → resolve any conflicts →
-continue. Do NOT `git stash` before the merge — committing WIP is just as safe
+continue. Never infer readiness from the branch push alone. Do NOT `git stash`
+before the merge — committing WIP is just as safe
 and avoids the index-write failure path entirely.
 
 Ticket branches are named `aiur/<id>-<slug>` for new tickets, with legacy

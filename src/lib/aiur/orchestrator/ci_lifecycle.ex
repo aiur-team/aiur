@@ -124,11 +124,15 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
       %{control: %{status: :paused}, paused_reason: :ci_wait} = running_entry ->
         state
-        |> Reconciler.refresh_running_entry_issue(issue, running_entry)
+        |> PauseResume.transition_control_status(
+          Map.put(running_entry, :issue, issue),
+          :paused,
+          "ci_wait"
+        )
         |> arm_ci_wait_rewake(issue)
 
       %{control: %{status: :paused}} = running_entry ->
-        Reconciler.refresh_running_entry_issue(state, issue, running_entry)
+        pause_already_paused_for_ci_wait(state, issue, running_entry)
 
       running_entry when is_map(running_entry) ->
         identifier = Map.get(running_entry, :identifier, issue.identifier || issue.id)
@@ -148,6 +152,22 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
       _ ->
         state
+    end
+  end
+
+  defp pause_already_paused_for_ci_wait(state, issue, running_entry) do
+    running_entry = Map.put(running_entry, :issue, issue)
+
+    if Map.get(running_entry, :paused_reason) == :blocker_dependency do
+      state
+      |> PauseResume.transition_control_status(
+        Map.put(running_entry, :paused_reason, :ci_wait),
+        :paused,
+        "ci_wait"
+      )
+      |> arm_ci_wait_rewake(issue)
+    else
+      PauseResume.transition_control_status(state, running_entry, :paused, "ci_wait_suppressed")
     end
   end
 

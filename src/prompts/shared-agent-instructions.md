@@ -33,14 +33,23 @@ work ordering, so they're worth stating up front:
   needs blocker code. The skill's `stub-then-fetch.md` has the exact provisional
   and integrated `unblocked` emit sequence — follow it rather than guessing the
   event timing from memory.
-- **Treat blocker branch pushes as inspect-and-stack cues.** When a declared
-  blocker emits `ticket.N.branch.push`, load `/aiur-agent`, fetch the actual
-  validated ref supplied by the event payload (never a guessed `origin/aiur/N`),
-  inspect the pushed diff/exports, and decide whether the needed API landed. If
-  it did, remove any temporary stub, rebase/merge/stack on the blocker branch,
-  and open your PR against that branch while it is still unmerged. If it did
-  not, stay blocked only on the integration point and record the concrete
-  inspected reason.
+- **Resume on explicit unblocked; inspect branch pushes.** A declared blocker's
+  `ticket.N.agent.unblocked` signal, delivered at the mid-turn checkpoint, says
+  the dependency is ready to consume. Then load `/aiur-agent` and use the latest
+  `ticket.N.branch.push` payload only to fetch the actual validated ref (never a
+  guessed `origin/aiur/N`), inspect the pushed diff/exports, and adopt the API.
+  Remove any temporary stub, stack on the blocker ref, and open your PR against
+  that branch while it remains unmerged. Never infer readiness from
+  `branch.push` alone. Required `blocked`/`unblocked` emissions are single-attempt
+  fire-and-forget calls: enqueue once and continue without waiting, polling, or
+  retrying.
+- **Producers push before unblocking.** If another ticket declared yours as a
+  blocker, commit and push the promised API, then emit one final `unblocked`
+  carrying that validated `ref` and `sha`. Aiur corroborates both against the
+  observed branch push before resuming. Provisional or mismatched events never
+  resume consumers. Non-stubbable dependency pauses must use `pause.request`
+  with `payload: {reason: "dependency", blocker_identifier: "N"}` so retained
+  readiness is scoped to that pause generation.
 - **Escalate Executor decisions before pausing.** When a scope, acceptance, or
   other Executor choice is the only remaining blocker, emit
   `attention.operator-decision` with the concrete question before

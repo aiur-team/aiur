@@ -175,6 +175,12 @@ defmodule Aiur.ApplicationTest do
       end
     end
 
+    test "the shared test orchestrator starts without a poll cycle" do
+      specs = AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false)
+
+      assert {Aiur.Orchestrator, initial_poll?: false} in specs
+    end
+
     test "current-run membership starts before the orchestrator and reconciles after it" do
       for opts <- [
             [interactive_cli?: true, headless?: false, dashboard?: true],
@@ -216,6 +222,20 @@ defmodule Aiur.ApplicationTest do
 
         assert merge_store < orchestrator,
                "RecentMergeStore must precede Orchestrator for #{inspect(opts)}"
+      end
+    end
+
+    test "branch ref persistence loads before the orchestrator" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        mods = modules(AiurApp.child_specs(opts))
+        ref_store = Enum.find_index(mods, &(&1 == Aiur.Events.BranchRefStore))
+        orchestrator = Enum.find_index(mods, &(&1 == Aiur.Orchestrator))
+
+        assert ref_store < orchestrator,
+               "BranchRefStore must precede Orchestrator for #{inspect(opts)}"
       end
     end
 
