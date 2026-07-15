@@ -25,6 +25,7 @@ from validation_git_approved_source import approved_text, exact_approved_commit
 class ApprovedIssueExpectations:
     bodies: dict[str, dict[str, Any]]
     titles: dict[str, str]
+    rendered_bodies: dict[str, str] | None = None
 
 
 def render_approved_build_order(
@@ -78,6 +79,7 @@ def render_approved_build_order(
         return None
     expectations: dict[str, dict[str, Any]] = {}
     titles: dict[str, str] = {}
+    rendered_bodies: dict[str, str] = {}
     documents_frozen = True
     root_source = approved_text(root, approved, root_path, "approved root document", report)
     if root_source is not None:
@@ -89,6 +91,7 @@ def render_approved_build_order(
             "approved root document",
         )
         if body is not None:
+            rendered_bodies[root_id] = body
             documents_frozen &= _current_matches(
                 root, root_path, body, "current root document", report,
             )
@@ -125,6 +128,7 @@ def render_approved_build_order(
         )
         if body is None:
             continue
+        rendered_bodies[ticket_id] = body
         evidence = inspect_issue_body(
             body, repository, ticket_id, plan_version, approved, report,
             f"approved {ticket_id} body",
@@ -138,7 +142,10 @@ def render_approved_build_order(
     if set(titles) != expected_ids:
         report.error("approved title rendering must exactly cover root and tickets")
         return None
-    return ApprovedIssueExpectations(expectations, titles) if documents_frozen else None
+    return (
+        ApprovedIssueExpectations(expectations, titles, rendered_bodies)
+        if documents_frozen else None
+    )
 
 
 def _tickets(data: dict[str, Any]) -> dict[str, dict[str, Any]]:
