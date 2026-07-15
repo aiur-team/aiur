@@ -83,9 +83,29 @@ before_run: |
       exit 65
     fi
     # Ticket branches created before package caches became runtime-only can
-    # still track these files. Reset only their generated cache changes so a
-    # base-branch commit that deletes them can merge; ignored untracked cache
-    # entries and dependency build output remain available for reuse.
+    # still track these files. Preserve the complete warm caches outside the
+    # worktree while their tracked paths are reset and the base deletion is
+    # merged, then restore them as ignored runtime state. The exit trap also
+    # restores them if checkout or merge fails.
+    cache_backup="$(mktemp -d "/tmp/aiur-workspace-caches.XXXXXX")"
+    restore_caches() {
+      if [ -n "$cache_backup" ] && [ -d "$cache_backup" ]; then
+        rm -rf ./.aiur-hex ./.aiur-mix
+        for cache_dir in .aiur-hex .aiur-mix; do
+          if [ -e "$cache_backup/$cache_dir" ]; then
+            cp -a "$cache_backup/$cache_dir" ./
+          fi
+        done
+        rm -rf "$cache_backup"
+        cache_backup=""
+      fi
+    }
+    for cache_dir in .aiur-hex .aiur-mix; do
+      if [ -e "$cache_dir" ]; then
+        cp -a "$cache_dir" "$cache_backup"/
+      fi
+    done
+    trap restore_caches 0
     if ! git diff --quiet HEAD -- .aiur-hex .aiur-mix; then
       git diff --name-only -z HEAD -- .aiur-hex .aiur-mix |
         git restore --source=HEAD --staged --worktree --pathspec-from-file=- --pathspec-file-nul
@@ -101,6 +121,8 @@ before_run: |
       fi
     fi
     git merge --no-edit "origin/$base_branch"
+    restore_caches
+    trap - 0
   fi
   mkdir -p ./.aiur-hex ./.aiur-mix
   if [ -f mise.toml ]; then

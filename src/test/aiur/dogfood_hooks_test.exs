@@ -179,14 +179,7 @@ defmodule Aiur.DogfoodHooksTest do
   end
 
   test "before_run merges the base branch that stops tracking rewritten package caches", context do
-    for path <- [".aiur-hex/cache.ets", ".aiur-mix/archives/hex.ez"] do
-      full_path = Path.join(context.seed, path)
-      File.mkdir_p!(Path.dirname(full_path))
-      File.write!(full_path, "legacy package cache\n")
-      git!(["-C", context.seed, "add", "--force", path])
-    end
-
-    git!(["-C", context.seed, "commit", "--quiet", "-m", "track legacy package caches"])
+    commit_legacy_package_caches!(context.seed)
     git!(["-C", context.seed, "push", "--quiet", "origin", configured_base()])
 
     workspace = Path.join(context.test_root, "legacy-package-cache")
@@ -205,10 +198,7 @@ defmodule Aiur.DogfoodHooksTest do
     File.mkdir_p!(Path.dirname(reused_package))
     File.write!(reused_package, "reusable package cache\n")
 
-    git!(["-C", context.seed, "rm", "-r", ".aiur-hex", ".aiur-mix"])
-    File.write!(Path.join(context.seed, ".gitignore"), "/.aiur-hex/\n/.aiur-mix/\n")
-    git!(["-C", context.seed, "add", ".gitignore"])
-    git!(["-C", context.seed, "commit", "--quiet", "-m", "stop tracking package caches"])
+    commit_package_cache_deletion!(context.seed)
     git!(["-C", context.seed, "push", "--quiet", "origin", configured_base()])
     base_head = String.trim(git!(["-C", context.seed, "rev-parse", "HEAD"]))
 
@@ -218,11 +208,47 @@ defmodule Aiur.DogfoodHooksTest do
              System.cmd("git", ["-C", workspace, "merge-base", "--is-ancestor", base_head, "HEAD"], stderr_to_stdout: true)
 
     assert File.read!(Path.join(workspace, "TICKET.md")) == "intentional ticket work\n"
+    assert File.read!(Path.join(workspace, ".aiur-hex/cache.ets")) == "rewritten hex cache\n"
+    assert File.read!(Path.join(workspace, ".aiur-mix/archives/hex.ez")) == "rewritten mix cache\n"
     assert File.read!(reused_package) == "reusable package cache\n"
     assert git!(["-C", workspace, "ls-files", ".aiur-hex", ".aiur-mix"]) == ""
-    refute File.exists?(Path.join(workspace, ".aiur-hex/cache.ets"))
-    refute File.exists?(Path.join(workspace, ".aiur-mix/archives/hex.ez"))
+
+    for path <- [".aiur-hex/cache.ets", ".aiur-mix/archives/hex.ez", ".aiur-hex/packages/hexpm/reused.tar"] do
+      assert {_output, 0} = System.cmd("git", ["-C", workspace, "check-ignore", "--quiet", path])
+    end
+
     assert String.trim(git!(["-C", workspace, "status", "--short"])) == ""
+  end
+
+  test "before_run restores rewritten package caches when the base merge fails", context do
+    commit_legacy_package_caches!(context.seed)
+    git!(["-C", context.seed, "push", "--quiet", "origin", configured_base()])
+
+    workspace = Path.join(context.test_root, "failed-cache-transition")
+    File.mkdir_p!(workspace)
+    assert_hook_ok!("after_create", workspace, context.origin)
+    git!(["-C", workspace, "config", "user.name", "Test User"])
+    git!(["-C", workspace, "config", "user.email", "test@example.com"])
+
+    File.write!(Path.join(workspace, "README.md"), "ticket branch conflict\n")
+    git!(["-C", workspace, "commit", "--quiet", "-am", "ticket branch conflict"])
+    File.write!(Path.join(workspace, ".aiur-hex/cache.ets"), "rewritten hex cache\n")
+    File.write!(Path.join(workspace, ".aiur-mix/archives/hex.ez"), "rewritten mix cache\n")
+    reused_package = Path.join(workspace, ".aiur-hex/packages/hexpm/reused.tar")
+    File.mkdir_p!(Path.dirname(reused_package))
+    File.write!(reused_package, "reusable package cache\n")
+
+    File.write!(Path.join(context.seed, "README.md"), "base branch conflict\n")
+    git!(["-C", context.seed, "add", "README.md"])
+    commit_package_cache_deletion!(context.seed)
+    git!(["-C", context.seed, "push", "--quiet", "origin", configured_base()])
+
+    assert {output, status} = run_hook("before_run", workspace, context.origin)
+    refute status == 0
+    assert output =~ "CONFLICT"
+    assert File.read!(Path.join(workspace, ".aiur-hex/cache.ets")) == "rewritten hex cache\n"
+    assert File.read!(Path.join(workspace, ".aiur-mix/archives/hex.ez")) == "rewritten mix cache\n"
+    assert File.read!(reused_package) == "reusable package cache\n"
   end
 
   test "before_run refuses to overwrite tracked WIP", context do
@@ -236,6 +262,24 @@ defmodule Aiur.DogfoodHooksTest do
     assert output =~ "origin/#{configured_base()}"
     assert File.read!(Path.join(workspace, "README.md")) == "agent WIP\n"
     assert current_branch!(workspace) == ticket_branch()
+  end
+
+  defp commit_legacy_package_caches!(repo) do
+    for path <- [".aiur-hex/cache.ets", ".aiur-mix/archives/hex.ez"] do
+      full_path = Path.join(repo, path)
+      File.mkdir_p!(Path.dirname(full_path))
+      File.write!(full_path, "legacy package cache\n")
+      git!(["-C", repo, "add", "--force", path])
+    end
+
+    git!(["-C", repo, "commit", "--quiet", "-m", "track legacy package caches"])
+  end
+
+  defp commit_package_cache_deletion!(repo) do
+    git!(["-C", repo, "rm", "-r", ".aiur-hex", ".aiur-mix"])
+    File.write!(Path.join(repo, ".gitignore"), "/.aiur-hex/\n/.aiur-mix/\n")
+    git!(["-C", repo, "add", ".gitignore"])
+    git!(["-C", repo, "commit", "--quiet", "-m", "stop tracking package caches"])
   end
 
   defp create_origin!(test_root) do
