@@ -1,7 +1,7 @@
 defmodule Aiur.AppServer.TurnStateTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.AppServer.TurnState
+  alias Aiur.AppServer.{ProviderTurnLedger, TurnState}
 
   test "continue_after_turn_completion decrements outstanding turns with zero floor" do
     assert {:continue, %{outstanding_turns: 1}} =
@@ -176,6 +176,37 @@ defmodule Aiur.AppServer.TurnStateTest do
              TurnState.continue_after_turn_interrupted(state(), payload)
   end
 
+  test "identified interrupt completion guards one late anonymous frame" do
+    {:ok, store} = ProviderTurnLedger.start_store()
+    on_exit(fn -> ProviderTurnLedger.stop_store(store) end)
+
+    interrupted = %{
+      "method" => "turn/completed",
+      "params" => %{"turn" => %{"id" => "turn-1", "status" => "interrupted"}}
+    }
+
+    interrupted_state =
+      tracked_state(%{interrupt_action: :operator_message, provider_turn_store: store})
+
+    assert {:ok, :turn_interrupted_for_operator_message} =
+             TurnState.continue_after_turn_interrupted(interrupted_state, interrupted)
+
+    next_state =
+      tracked_state(%{
+        active_turn_ids: MapSet.new(["turn-2"]),
+        current_turn_id: "turn-2",
+        provider_turn_store: store
+      })
+      |> Map.merge(ProviderTurnLedger.guards(store))
+
+    assert {:continue, next_state} = TurnState.continue_after_turn_completion(next_state, %{})
+    assert next_state.active_turn_ids == MapSet.new(["turn-2"])
+    refute next_state.anonymous_completion_consumed?
+
+    assert {:ok, :turn_completed} = TurnState.continue_after_turn_completion(next_state, %{})
+    assert ProviderTurnLedger.guards(store).retired_turn_ids == MapSet.new(["turn-1", "turn-2"])
+  end
+
   test "turn_completion_status defaults to completed" do
     assert TurnState.turn_completion_status(%{}) == "completed"
     assert TurnState.turn_completion_status(%{"turn" => %{"status" => "interrupted"}}) == "interrupted"
@@ -206,7 +237,8 @@ defmodule Aiur.AppServer.TurnStateTest do
         active_turn_ids: MapSet.new(["turn-1"]),
         accepted_turn_ids: MapSet.new(),
         retired_turn_ids: MapSet.new(),
-        anonymous_completion_consumed?: false
+        anonymous_completion_consumed?: false,
+        pending_anonymous_completion?: false
       }),
       overrides
     )

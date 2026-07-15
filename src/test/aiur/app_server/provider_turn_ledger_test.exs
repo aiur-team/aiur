@@ -25,11 +25,15 @@ defmodule Aiur.AppServer.ProviderTurnLedgerTest do
 
     first_state = ProviderTurnLedger.complete(state(store, "turn-1"), %{})
     second_state = ProviderTurnLedger.complete(state(store, "turn-2"), %{})
+    completed_state = ProviderTurnLedger.complete(second_state, %{})
 
     assert first_state.active_turn_ids == MapSet.new()
     assert second_state.active_turn_ids == MapSet.new(["turn-2"])
-    assert second_state.anonymous_completion_consumed?
+    refute second_state.anonymous_completion_consumed?
     assert second_state.outstanding_turns == 1
+    assert completed_state.active_turn_ids == MapSet.new()
+    assert completed_state.anonymous_completion_consumed?
+    assert completed_state.outstanding_turns == 0
   end
 
   test "aggregate completion consumes the anonymous fallback before the next turn" do
@@ -38,10 +42,13 @@ defmodule Aiur.AppServer.ProviderTurnLedgerTest do
 
     ProviderTurnLedger.complete_all(state(store, "turn-1"))
     second_state = ProviderTurnLedger.complete(state(store, "turn-2"), %{})
+    completed_state = ProviderTurnLedger.complete(second_state, %{})
 
     assert second_state.active_turn_ids == MapSet.new(["turn-2"])
-    assert second_state.anonymous_completion_consumed?
+    refute second_state.anonymous_completion_consumed?
     assert second_state.outstanding_turns == 1
+    assert completed_state.active_turn_ids == MapSet.new()
+    assert completed_state.outstanding_turns == 0
   end
 
   test "aggregate retirement consumes the anonymous fallback before the next turn" do
@@ -50,10 +57,26 @@ defmodule Aiur.AppServer.ProviderTurnLedgerTest do
 
     ProviderTurnLedger.retire_all(state(store, "turn-1"))
     second_state = ProviderTurnLedger.complete(state(store, "turn-2"), %{})
+    completed_state = ProviderTurnLedger.complete(second_state, %{})
 
     assert second_state.active_turn_ids == MapSet.new(["turn-2"])
-    assert second_state.anonymous_completion_consumed?
+    refute second_state.anonymous_completion_consumed?
     assert second_state.outstanding_turns == 1
+    assert completed_state.active_turn_ids == MapSet.new()
+    assert completed_state.outstanding_turns == 0
+  end
+
+  test "an observed anonymous terminal frame does not arm a later-turn guard" do
+    {:ok, store} = ProviderTurnLedger.start_store()
+    on_exit(fn -> ProviderTurnLedger.stop_store(store) end)
+
+    retired_state = ProviderTurnLedger.retire_all(state(store, "turn-1"), :consume)
+    next_state = ProviderTurnLedger.complete(state(store, "turn-2"), %{})
+
+    refute retired_state.anonymous_completion_consumed?
+    assert next_state.active_turn_ids == MapSet.new()
+    assert next_state.anonymous_completion_consumed?
+    assert next_state.outstanding_turns == 0
   end
 
   test "the store exits with an abnormally retired session owner" do

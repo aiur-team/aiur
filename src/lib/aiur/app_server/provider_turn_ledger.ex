@@ -8,6 +8,7 @@ defmodule Aiur.AppServer.ProviderTurnLedger do
   """
 
   @type store :: pid()
+  @type anonymous_completion_guard_action :: :arm | :consume | :preserve
 
   @spec start_store() :: {:ok, store()} | {:error, term()}
   def start_store, do: Agent.start_link(fn -> default_guards() end)
@@ -37,6 +38,7 @@ defmodule Aiur.AppServer.ProviderTurnLedger do
     |> Map.merge(%{
       active_turn_ids: MapSet.new(),
       accepted_turn_ids: MapSet.new(),
+      pending_anonymous_completion?: false,
       provider_turn_store: store
     })
   end
@@ -103,43 +105,71 @@ defmodule Aiur.AppServer.ProviderTurnLedger do
 
   @spec complete_all(map()) :: map()
   def complete_all(state) do
-    %{
-      state
-      | accepted_turn_ids: MapSet.new(),
-        anonymous_completion_consumed?: true,
-        retired_turn_ids:
-          state.retired_turn_ids
-          |> MapSet.union(state.active_turn_ids)
-          |> MapSet.union(state.accepted_turn_ids)
-    }
+    retired_turn_ids =
+      state.retired_turn_ids
+      |> MapSet.union(state.active_turn_ids)
+      |> MapSet.union(state.accepted_turn_ids)
+
+    state
+    |> Map.merge(%{
+      accepted_turn_ids: MapSet.new(),
+      anonymous_completion_consumed?: true,
+      pending_anonymous_completion?: false,
+      retired_turn_ids: retired_turn_ids
+    })
     |> put_active_turn_ids(MapSet.new())
     |> persist_guards()
   end
 
   @spec retire_all(map()) :: map()
-  def retire_all(state) do
-    %{
-      state
-      | active_turn_ids: MapSet.new(),
-        accepted_turn_ids: MapSet.new(),
-        anonymous_completion_consumed?: true,
-        retired_turn_ids:
-          state.retired_turn_ids
-          |> MapSet.union(state.active_turn_ids)
-          |> MapSet.union(state.accepted_turn_ids),
-        outstanding_turns: 0
-    }
+  def retire_all(state), do: retire_all(state, :arm)
+
+  @spec retire_all(map(), anonymous_completion_guard_action()) :: map()
+  def retire_all(state, guard_action) do
+    retired_turn_ids =
+      state.retired_turn_ids
+      |> MapSet.union(state.active_turn_ids)
+      |> MapSet.union(state.accepted_turn_ids)
+
+    state
+    |> Map.merge(%{
+      active_turn_ids: MapSet.new(),
+      accepted_turn_ids: MapSet.new(),
+      anonymous_completion_consumed?: apply_guard_action(state, guard_action),
+      pending_anonymous_completion?: false,
+      retired_turn_ids: retired_turn_ids,
+      outstanding_turns: 0
+    })
     |> persist_guards()
   end
 
   defp retire_completion(state, turn_id) when is_binary(turn_id) do
-    {retire_identified(state, turn_id), turn_id}
+    next_state = retire_identified(state, turn_id)
+
+    if turn_id == state.current_turn_id do
+      {Map.put(next_state, :pending_anonymous_completion?, false), turn_id}
+    else
+      {next_state, turn_id}
+    end
   end
 
-  defp retire_completion(%{anonymous_completion_consumed?: true} = state, nil), do: {state, nil}
+  defp retire_completion(%{anonymous_completion_consumed?: true} = state, nil) do
+    # The persisted guard owns one ambiguous late frame from the retired
+    # generation. Keep that frame as a candidate until an idle or port-exit
+    # boundary confirms that the active provider work is also terminal.
+    next_state =
+      state
+      |> Map.put(:anonymous_completion_consumed?, false)
+      |> Map.put(:pending_anonymous_completion?, true)
+
+    {next_state, nil}
+  end
 
   defp retire_completion(state, nil) do
-    consumed_state = %{state | anonymous_completion_consumed?: true}
+    consumed_state =
+      state
+      |> Map.put(:anonymous_completion_consumed?, true)
+      |> Map.put(:pending_anonymous_completion?, false)
 
     if MapSet.member?(state.active_turn_ids, state.current_turn_id) do
       {retire_identified(consumed_state, state.current_turn_id), state.current_turn_id}
@@ -173,6 +203,12 @@ defmodule Aiur.AppServer.ProviderTurnLedger do
 
   defp active_turn?(%{"status" => status}) when is_binary(status), do: status == "inProgress"
   defp active_turn?(_turn), do: true
+
+  defp apply_guard_action(_state, :arm), do: true
+  defp apply_guard_action(_state, :consume), do: false
+
+  defp apply_guard_action(%{anonymous_completion_consumed?: consumed?}, :preserve),
+    do: consumed?
 
   @spec put_active_turn_ids(map(), MapSet.t()) :: map()
   defp put_active_turn_ids(state, active_turn_ids) do

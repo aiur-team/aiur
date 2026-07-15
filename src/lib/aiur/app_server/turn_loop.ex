@@ -19,6 +19,13 @@ defmodule Aiur.AppServer.TurnLoop do
       {^port, {:data, {:noeol, chunk}}} ->
         receive_loop(session, %{state | pending_line: state.pending_line <> to_string(chunk)})
 
+      {^port, {:exit_status, 0}} ->
+        case resolve_pending_anonymous_completion(state) do
+          :none -> {:error, {:port_exit, 0}}
+          {:continue, _next_state} -> {:error, {:port_exit, 0}}
+          result -> result
+        end
+
       {^port, {:exit_status, status}} ->
         {:error, {:port_exit, status}}
 
@@ -105,4 +112,21 @@ defmodule Aiur.AppServer.TurnLoop do
 
     {:continue, state}
   end
+
+  defp resolve_pending_anonymous_completion(%{pending_anonymous_completion?: true} = state) do
+    payload = %{
+      "params" => %{
+        "turn" => %{
+          "id" => state.current_turn_id,
+          "status" => "completed"
+        }
+      }
+    }
+
+    state
+    |> Map.put(:pending_anonymous_completion?, false)
+    |> TurnState.continue_after_turn_completion(payload)
+  end
+
+  defp resolve_pending_anonymous_completion(_state), do: :none
 end

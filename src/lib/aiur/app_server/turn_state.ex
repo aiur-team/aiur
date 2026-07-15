@@ -83,19 +83,39 @@ defmodule Aiur.AppServer.TurnState do
   def complete_all_provider_turns(state), do: continue_after_turn_completion(state)
 
   @doc false
+  @type anonymous_completion_guard_action :: :arm | :consume | :preserve
+
   @spec retire_provider_work(map()) :: map()
-  def retire_provider_work(%{accepted_turn_ids: %MapSet{}} = state) do
-    ProviderTurnLedger.retire_all(state)
+  def retire_provider_work(state), do: retire_provider_work(state, :arm)
+
+  @spec retire_provider_work(map(), anonymous_completion_guard_action()) :: map()
+  def retire_provider_work(%{accepted_turn_ids: %MapSet{}} = state, guard_action) do
+    ProviderTurnLedger.retire_all(state, guard_action)
   end
 
-  def retire_provider_work(state) do
+  def retire_provider_work(state, _guard_action) do
     %{state | outstanding_turns: max(state.outstanding_turns - 1, 0)}
   end
 
   @spec continue_after_turn_interrupted(map(), map()) ::
           {:paused, map()} | {:ok, :turn_interrupted_for_operator_message} | {:error, term()}
   def continue_after_turn_interrupted(state, payload) do
-    next_state = state |> retire_provider_work() |> Map.put(:pending_interrupt_request_id, nil)
+    continue_after_turn_interrupted(
+      state,
+      payload,
+      anonymous_completion_guard_after_interrupt(payload)
+    )
+  end
+
+  @doc false
+  @spec continue_after_turn_interrupted(map(), map(), anonymous_completion_guard_action()) ::
+          {:paused, map()} | {:ok, :turn_interrupted_for_operator_message} | {:error, term()}
+  def continue_after_turn_interrupted(state, payload, guard_action) do
+    next_state =
+      state
+      |> retire_provider_work(guard_action)
+      |> Map.put(:pending_interrupt_request_id, nil)
+
     fail_pending_operator_requests(next_state.pending_operator_requests, {:turn_interrupted, payload})
 
     cond do
@@ -170,6 +190,14 @@ defmodule Aiur.AppServer.TurnState do
   defp provider_turn_id(%{"params" => %{"turn" => %{"id" => turn_id}}}) when is_binary(turn_id), do: turn_id
   defp provider_turn_id(%{"turn" => %{"id" => turn_id}}) when is_binary(turn_id), do: turn_id
   defp provider_turn_id(_payload), do: nil
+
+  defp anonymous_completion_guard_after_interrupt(%{"method" => "turn/completed"} = payload) do
+    # An ID-less completion is the anonymous terminal frame itself. An exact
+    # completion can still be followed by one late anonymous companion.
+    if is_binary(provider_turn_id(payload)), do: :arm, else: :consume
+  end
+
+  defp anonymous_completion_guard_after_interrupt(_payload), do: :arm
 
   defp retire_legacy_provider_turn(active_turn_ids, turn_id) when is_binary(turn_id) do
     MapSet.delete(active_turn_ids, turn_id)

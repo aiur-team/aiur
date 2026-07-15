@@ -31,10 +31,14 @@ defmodule Aiur.Codex.Interrupts do
        when action in [:pause, :operator_message] do
     next_state = %{state | pending_interrupt_request_id: nil}
 
-    TurnState.continue_after_turn_interrupted(next_state, %{
-      "error" => error,
-      "status" => "interrupted"
-    })
+    TurnState.continue_after_turn_interrupted(
+      next_state,
+      %{
+        "error" => error,
+        "status" => "interrupted"
+      },
+      :preserve
+    )
   end
 
   defp continue_after_no_active_turn(state, _error) do
