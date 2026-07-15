@@ -143,6 +143,35 @@ defmodule Aiur.Config.Schema.AgentValidation do
   end
 
   @doc false
+  @spec normalize_max_turns_by_complexity(nil | map()) :: map()
+  def normalize_max_turns_by_complexity(nil), do: %{}
+
+  def normalize_max_turns_by_complexity(caps) when is_map(caps) do
+    Enum.reduce(caps, %{}, fn {level, cap}, acc ->
+      Map.put(acc, normalize_routing_level(level), cap)
+    end)
+  end
+
+  @doc false
+  @spec validate_max_turns_by_complexity(Ecto.Changeset.t(), atom()) :: Ecto.Changeset.t()
+  def validate_max_turns_by_complexity(changeset, field) do
+    validate_change(changeset, field, fn ^field, caps ->
+      Enum.flat_map(caps, fn {level, cap} ->
+        cond do
+          not is_integer(level) or level <= 0 ->
+            [{field, "complexity levels must be positive integers"}]
+
+          not is_integer(cap) or cap <= 0 ->
+            [{field, "max_turns_by_complexity values must be positive integers"}]
+
+          true ->
+            []
+        end
+      end)
+    end)
+  end
+
+  @doc false
   @spec normalize_routing_level(integer() | String.t() | term()) :: integer() | term()
   def normalize_routing_level(level) when is_integer(level), do: level
 
