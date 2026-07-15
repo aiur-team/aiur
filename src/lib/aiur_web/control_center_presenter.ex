@@ -59,7 +59,7 @@ defmodule AiurWeb.ControlCenterPresenter do
   def compose(fleet, decisions, history, recent_merges, decision_latency, decision_latency_health)
       when is_map(fleet) and is_list(decisions) and is_list(history) and is_map(recent_merges) and
              is_map(decision_latency) do
-    decision_rows = decisions |> DecisionPresenter.rows() |> attach_latency(decision_latency, decision_latency_health)
+    decision_rows = decisions |> DecisionPresenter.rows() |> DecisionPresenter.attach_latency(decision_latency, decision_latency_health)
     recent_outcomes = normalize_recent_outcomes(recent_merges)
 
     %{
@@ -101,19 +101,6 @@ defmodule AiurWeb.ControlCenterPresenter do
       queued_or_retrying: Map.get(counts, :idle, 0) + Map.get(counts, :retrying, 0),
       recent_repository_merges: length(recent_outcomes)
     }
-  end
-
-  defp attach_latency(decisions, snapshots, :ok) do
-    Enum.map(decisions, fn decision ->
-      case Map.get(snapshots, decision.decision_id) do
-        snapshot when is_map(snapshot) -> Map.put(decision, :latency, %{status: :available, snapshot: snapshot})
-        _missing -> Map.put(decision, :latency, %{status: :missing, snapshot: nil})
-      end
-    end)
-  end
-
-  defp attach_latency(decisions, _snapshots, health) do
-    Enum.map(decisions, &Map.put(&1, :latency, %{status: health, snapshot: nil}))
   end
 
   defp history_row(entry) do

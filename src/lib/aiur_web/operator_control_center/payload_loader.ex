@@ -4,6 +4,7 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
   import Phoenix.Component, only: [assign: 3]
 
   alias AiurWeb.{ControlCenterCache, ControlCenterPresenter, Endpoint}
+  alias AiurWeb.OperatorControlCenter.DecisionProvider
 
   @reload_debounce_ms 50
   @reload_min_interval_ms 400
@@ -17,6 +18,20 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
       server -> fetch_cached(server, mode, providers)
     end
   end
+
+  @spec detail(String.t() | nil) :: {:ok, map()} | {:error, term()} | :none
+  def detail(nil), do: :none
+
+  def detail(decision_id) when is_binary(decision_id) do
+    {_orchestrator, decision_store, decision_metrics, _recent_merge_store, _snapshot_timeout_ms} = providers()
+
+    DecisionProvider.detail(decision_id,
+      decision_store: decision_store,
+      decision_metrics: decision_metrics
+    )
+  end
+
+  def detail(_decision_id), do: {:error, :not_found}
 
   @spec mark_loaded(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   def mark_loaded(socket) do
@@ -51,11 +66,18 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
   end
 
   defp load_uncached({orchestrator, decision_store, decision_metrics, recent_merge_store, snapshot_timeout_ms}) do
-    ControlCenterPresenter.state_payload(orchestrator, snapshot_timeout_ms,
-      decision_store: decision_store,
-      decision_metrics: decision_metrics,
-      recent_merge_store: recent_merge_store
-    )
+    payload =
+      ControlCenterPresenter.state_payload(orchestrator, snapshot_timeout_ms,
+        decision_store: decision_store,
+        decision_metrics: decision_metrics,
+        recent_merge_store: recent_merge_store
+      )
+
+    retained_counts = retained_counts(decision_store)
+
+    payload
+    |> Map.put(:retained_counts, retained_counts)
+    |> update_in([:provider_health], &Map.put(&1, :retained_counts, retained_counts.health.status))
   end
 
   defp providers do
@@ -99,6 +121,30 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
       timer when is_function(timer, 3) -> timer.(self(), :reload_payload, delay_ms)
       _other -> Process.send_after(self(), :reload_payload, delay_ms)
     end
+  end
+
+  defp retained_counts(decision_store) do
+    {:ok, counts} = DecisionProvider.counts(decision_store: decision_store)
+    counts
+  rescue
+    _error -> unavailable_retained_counts()
+  catch
+    :exit, _reason -> unavailable_retained_counts()
+  end
+
+  defp unavailable_retained_counts do
+    %{
+      open: nil,
+      blocking: nil,
+      total: nil,
+      scope: %{kind: :retained, label: "All retained decisions"},
+      health: %{
+        status: :unavailable,
+        partial?: true,
+        reason: :retained_store_unavailable,
+        label: "Retained Decision counts unavailable"
+      }
+    }
   end
 
   defp now_ms, do: System.monotonic_time(:millisecond)
