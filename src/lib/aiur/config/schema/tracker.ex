@@ -20,6 +20,12 @@ defmodule Aiur.Config.Schema.Github do
 
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(schema, attrs) do
+    attrs =
+      attrs
+      |> Map.put_new("planning_root_limit", @max_planning_root_limit)
+      |> Map.put_new("planning_page_budget", @max_planning_page_budget)
+      |> Map.put_new("planning_call_budget", @max_planning_call_budget)
+
     schema
     |> cast(
       attrs,

@@ -23,6 +23,20 @@ defmodule Aiur.Config.SchemaTest do
       assert settings.tracker.github.planning_call_budget == 4
     end
 
+    test "retains planning defaults for a partial GitHub configuration" do
+      assert {:ok, settings} =
+               Schema.parse(%{
+                 "tracker" => %{
+                   "kind" => "github",
+                   "github" => %{"repo" => "test-org/test-repo"}
+                 }
+               })
+
+      assert settings.tracker.github.planning_root_limit == 100
+      assert settings.tracker.github.planning_page_budget == 4
+      assert settings.tracker.github.planning_call_budget == 4
+    end
+
     test "accepts lower positive planning graph bounds" do
       assert {:ok, settings} =
                Schema.parse(%{
