@@ -95,15 +95,13 @@ defmodule Aiur.AppServer.ToolCallLedger do
   end
 
   defp execute_claim(server, key, token, fun) do
-    try do
-      result = fun.()
-      :ok = GenServer.call(server, {:complete, key, token, result}, :infinity)
-      result
-    catch
-      kind, reason ->
-        _ = GenServer.call(server, {:abandon, key, token}, :infinity)
-        :erlang.raise(kind, reason, __STACKTRACE__)
-    end
+    result = fun.()
+    :ok = GenServer.call(server, {:complete, key, token, result}, :infinity)
+    result
+  catch
+    kind, reason ->
+      _ = GenServer.call(server, {:abandon, key, token}, :infinity)
+      :erlang.raise(kind, reason, __STACKTRACE__)
   end
 
   defp abandon_claim(state, key, token) do
