@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-15 15:10 PDT)
+## Live Executor state (updated 2026-07-15 15:19 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -36,8 +36,29 @@ then merged through direct Executor PR #1190 as `93d3a049` and was likewise
 marked done and closed. Its exact final head passed browser, packaged-layout,
 build, strict-lint, Dialyzer, and guard CI plus 72/72 integrated affected tests
 and bounded exact-head review. The pre-dispatch drain is complete at
-`develop@93d3a049`; later Build Order dispatch may resume only after the live
-daemon is rebuilt from this tip and the Codex account is no longer quota-paused.
+`develop@93d3a049`. The committed handoff/preview snapshot advances the live
+branch to `develop@89609a92`. Aiur has been force-rebuilt from that exact tip
+and is healthy at the Tailscale dashboard listener, but its Codex backend has a
+fresh 100%-weekly-limit receipt through the recorded reset and cannot dispatch
+without violating the no-Claude constraint.
+
+The Executor therefore activated the bounded direct-takeover fallback rather
+than idling. Three conflict-safe Codex background workers now own BO-016/#1103,
+BO-007/#1095, and BO-006/#1094 from exact `origin/develop`; all three issues
+retain `agent:paused` alongside `agent:in-progress` so the live daemon cannot
+create duplicate writers. BO-016 owns the reopened distinct Issue/Pull-request
+destination seam, BO-007 advances the serial graph critical path, and BO-006
+advances the BO-015 acceptance path. Their intermediate PRs target `develop`
+and use the amendment's single self-review/current-base/focused-gate contract.
+
+The normal post-integration `aiurdev --bg` restart also exposed a separate P1
+dev-release coherence defect: its mtime-based incremental rebuild assembled a
+new `Aiur.Config` consumer with an old `Aiur.Config.Schema.BuildOrder` BEAM,
+then crashed on the missing `graph_catalog_refresh_ms` field. A supported
+`scripts/aiurdev build` force compile repaired the release and the same launch
+succeeded. Duplicate search found no matching issue, so generic Ad Hoc #1191
+records the deterministic regression/fix for `main`; it is paused because the
+workaround is active and it must not consume current feature capacity.
 
 Exact-head reviews are convergence gates, not open-ended review cycles. PR
 #1187 fixed the two reproduced activity-ordering defects and deterministic
