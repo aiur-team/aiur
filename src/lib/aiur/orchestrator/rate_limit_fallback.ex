@@ -375,7 +375,8 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
   end
 
   defp dispatch_prior_work(state, issue, attempt, worker_host) do
-    Dispatcher.do_dispatch_issue(state, issue, attempt, worker_host, prior_work: Config.agent_prior_work_continuation?())
+    prior_work? = Config.agent_prior_work_continuation?()
+    Dispatcher.do_dispatch_issue(state, issue, attempt, worker_host, prior_work: prior_work?)
   end
 
   defp ensure_redispatch_started(state, running_entry, issue, worker_host, opts) do
