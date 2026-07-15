@@ -147,7 +147,8 @@ defmodule Aiur.Orchestrator.DispatcherTest do
         end)
 
       assert result == :trip
-      assert get_in(state.codex_thrash_budget, [issue_id, :count]) == 7
+      assert get_in(state.codex_thrash_budget, [issue_id, :count]) == 6
+      assert get_in(state.codex_thrash_budget, [issue_id, :tripped]) == :window
     end
 
     test "resets the window when enough time has lapsed" do
