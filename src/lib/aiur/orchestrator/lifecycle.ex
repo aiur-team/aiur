@@ -40,7 +40,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
   end
 
   @spec init(keyword(), (term() -> boolean())) :: {:ok, State.t()}
-  def init(_opts, tracked_issue?) when is_function(tracked_issue?, 1) do
+  def init(opts, tracked_issue?) when is_function(tracked_issue?, 1) do
     # Trap exits so the supervisor's orderly shutdown lands in `terminate/2`,
     # which reaps every running agent's process tree (see `terminate/2`).
     Process.flag(:trap_exit, true)
@@ -77,7 +77,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
     install_event_tracked_fn(tracked_issue?)
     subscribe_to_orchestrator_topics()
 
-    {:ok, schedule_tick(state, 0)}
+    {:ok, schedule_initial_tick(state, Keyword.get(opts, :initial_poll?, true))}
   end
 
   # On whole-app shutdown the supervisor brutally kills the AgentRunner
@@ -151,6 +151,9 @@ defmodule Aiur.Orchestrator.Lifecycle do
         next_poll_due_at_ms: System.monotonic_time(:millisecond) + delay_ms
     }
   end
+
+  defp schedule_initial_tick(state, false), do: %{state | next_poll_due_at_ms: nil}
+  defp schedule_initial_tick(state, _initial_poll?), do: schedule_tick(state, 0)
 
   @spec schedule_poll_cycle_start() :: :ok
   def schedule_poll_cycle_start do
