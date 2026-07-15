@@ -98,11 +98,20 @@ defmodule Aiur.Workspace.Ownership.Store do
         {:ok, dir}
 
       _ ->
-        case Application.get_env(:aiur, :workspace_ownership_state_dir) do
-          dir when is_binary(dir) and dir != "" -> {:ok, dir}
-          _ -> with {:ok, root} <- Paths.decision_state_dir(), do: {:ok, Path.join(root, "workspace-ownership")}
-        end
+        configured_state_dir()
     end
+  end
+
+  defp configured_state_dir do
+    case Application.get_env(:aiur, :workspace_ownership_state_dir) do
+      dir when is_binary(dir) and dir != "" -> {:ok, dir}
+      _ -> default_state_dir()
+    end
+  end
+
+  defp default_state_dir do
+    with {:ok, root} <- Paths.decision_state_dir(),
+         do: {:ok, Path.join(root, "workspace-ownership")}
   end
 
   defp load(path) do

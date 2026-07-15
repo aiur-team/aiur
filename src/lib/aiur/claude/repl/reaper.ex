@@ -38,7 +38,15 @@ defmodule Aiur.Claude.Repl.Reaper do
     group_alive_fun = Keyword.get(opts, :group_alive_fun, &RemoteControl.process_group_alive?/1)
     group_cleanup_fun = Keyword.get(opts, :group_cleanup_fun, &cleanup_process_group/3)
 
-    group_result = cleanup_process_group(process_group_id, process_group_identity, pane_proven?, group_alive_fun, group_cleanup_fun)
+    group_result =
+      cleanup_process_group(
+        process_group_id,
+        process_group_identity,
+        pane_proven?,
+        group_alive_fun,
+        group_cleanup_fun
+      )
+
     kill_result = Tmux.kill_pane(tmux, pane_id)
     RemoteControl.graceful_kill_tree(os_pid)
 
