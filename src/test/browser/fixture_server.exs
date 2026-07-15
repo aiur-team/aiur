@@ -6,7 +6,7 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
   def app(assigns) do
     ~H"""
     <!DOCTYPE html>
-    <html lang="en">
+    <html lang="en" data-theme="dark">
       <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -33,6 +33,22 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
         <script>
           window.addEventListener("DOMContentLoaded", function () {
             var csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content");
+            window.BrowserHarnessHooks.ThemeToggle = {
+              mounted: function () {
+                this.onClick = () => {
+                  var current = document.documentElement.dataset.theme === "light" ? "light" : "dark";
+                  var next = current === "light" ? "dark" : "light";
+                  document.documentElement.dataset.theme = next;
+                  this.el.setAttribute("aria-label", "Switch to " + current + " theme");
+                };
+
+                this.el.addEventListener("click", this.onClick);
+              },
+              destroyed: function () {
+                this.el.removeEventListener("click", this.onClick);
+              }
+            };
+
             window.liveSocket = new window.LiveView.LiveSocket("/live", window.Phoenix.Socket, {
               hooks: window.BrowserHarnessHooks,
               params: {_csrf_token: csrfToken}
@@ -46,6 +62,57 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
       </body>
     </html>
     """
+  end
+end
+
+defmodule Aiur.BrowserHarness.RouteShellLive do
+  use Phoenix.LiveView, layout: {Aiur.BrowserHarness.FixtureLayout, :app}
+
+  alias AiurWeb.OperatorControlCenter.{DashboardShell, RouteRegistry}
+
+  @impl true
+  def mount(_params, _session, socket) do
+    {:ok,
+     socket
+     |> assign(:analytics, analytics(%{}))
+     |> assign(:current_route, RouteRegistry.current_route(socket.assigns.live_action))}
+  end
+
+  @impl true
+  def handle_params(params, _uri, socket) do
+    {:noreply,
+     socket
+     |> assign(:analytics, analytics(params))
+     |> assign(:current_route, RouteRegistry.current_route(socket.assigns.live_action))}
+  end
+
+  @impl true
+  def render(assigns) do
+    ~H"""
+    <main class="app-shell">
+      <DashboardShell.dashboard_shell
+        route={@current_route}
+        routes={RouteRegistry.routes(@analytics)}
+        now={~U[2026-07-15 12:00:00Z]}
+        tracker_kind="fixture"
+        agent_kind="fixture"
+      >
+        <section class="section-card" aria-labelledby="route-shell-fixture-title">
+          <h2 id="route-shell-fixture-title">Route shell fixture</h2>
+          <p>This authenticated LiveView fixture verifies the shared route shell without inventing operational data.</p>
+          <button id="route-shell-action" type="button">Reachable action</button>
+        </section>
+      </DashboardShell.dashboard_shell>
+    </main>
+    """
+  end
+
+  defp analytics(%{"analytics" => "unavailable"}) do
+    %{available?: false, path: nil, message: "Telemetry analytics are unavailable in this fixture."}
+  end
+
+  defp analytics(_params) do
+    %{available?: true, path: "/analytics", message: "Open fixture analytics."}
   end
 end
 
@@ -305,6 +372,11 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     pipe_through([:browser, :fixture_access])
 
     live("/fixture", Aiur.BrowserHarness.FixtureLive, :index)
+    live("/", Aiur.BrowserHarness.RouteShellLive, :index)
+    live("/decisions", Aiur.BrowserHarness.RouteShellLive, :decisions)
+    live("/decisions/:decision_id", Aiur.BrowserHarness.RouteShellLive, :decision)
+    get("/dashboard.css", AiurWeb.StaticAssetController, :dashboard_css)
+    get("/aiur-logo.png", AiurWeb.StaticAssetController, :aiur_logo)
   end
 
   # Route vendor assets through the production router so browser tests exercise

@@ -14,32 +14,6 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
     {:all, "Total", "faint"}
   ]
 
-  attr(:now, :any, required: true)
-  attr(:tracker_kind, :string, required: true)
-  attr(:agent_kind, :string, required: true)
-
-  @spec topbar(map()) :: Phoenix.LiveView.Rendered.t()
-  def topbar(assigns) do
-    ~H"""
-    <header class="topbar">
-      <a class="brand-mini" href="/" aria-label="Aiur Executor Control Center">
-        <img class="brand-mini-logo" src="/aiur-logo.png" alt="" />
-        <span class="brand-wordmark"><b>aiur</b> / Executor Control Center</span>
-      </a>
-      <div class="toolbar">
-        <span class="status-badge status-badge-live"><span class="status-badge-dot"></span>Live</span>
-        <span class="status-badge status-badge-offline"><span class="status-badge-dot"></span>Offline</span>
-        <span class="status-badge"><span class="status-key">ITS</span> {@tracker_kind}</span>
-        <span class="status-badge"><span class="status-key">Agent</span> {@agent_kind}</span>
-        <time class="status-badge mono num" datetime={datetime_value(@now)}>{clock_value(@now)}</time>
-        <button id="theme-toggle" class="tool-btn" type="button" phx-hook="ThemeToggle" aria-label="Toggle color theme">
-          <span class="theme-icon" aria-hidden="true">◐</span>Theme
-        </button>
-      </div>
-    </header>
-    """
-  end
-
   attr(:writable, :boolean, required: true)
 
   @spec readonly_banner(map()) :: Phoenix.LiveView.Rendered.t()
@@ -118,31 +92,6 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
     """
   end
 
-  attr(:live_action, :atom, required: true)
-  attr(:decision_count, :any, required: true)
-  attr(:decision_count_health, :atom, default: :unavailable)
-  attr(:fleet_count, :integer, required: true)
-
-  @spec tabs(map()) :: Phoenix.LiveView.Rendered.t()
-  def tabs(assigns) do
-    ~H"""
-    <nav class="control-tabs" aria-label="Control Center surfaces">
-      <.link patch="/" class={["control-tab", @live_action == :index && "is-active"]}>
-        Fleet <span class="count num">{@fleet_count}</span>
-      </.link>
-      <.link patch="/decisions" class={["control-tab", @live_action in [:decisions, :decision] && "is-active"]}>
-        Decision inbox
-        <span
-          class={["count num", is_integer(@decision_count) and @decision_count > 0 && "attn"]}
-          aria-label={decision_count_label(@decision_count, @decision_count_health)}
-        >
-          {decision_count(@decision_count)}
-        </span>
-      </.link>
-    </nav>
-    """
-  end
-
   attr(:error, :map, required: true)
 
   @spec error(map()) :: Phoenix.LiveView.Rendered.t()
@@ -165,18 +114,6 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
 
   defp banner_detail(_blocking, _open), do: "Nothing is blocking · answer at your pace to keep agents moving"
 
-  defp decision_count(count) when is_integer(count), do: count
-  defp decision_count(_count), do: "—"
-
-  defp decision_count_label(count, :partial) when is_integer(count), do: "#{count} open retained Decisions in the validated audit prefix"
-  defp decision_count_label(count, _health) when is_integer(count), do: "#{count} open retained Decisions"
-  defp decision_count_label(_count, _health), do: "Retained Decision count unavailable"
-
   defp active?(_filters, :all, all_active), do: all_active
   defp active?(filters, key, _all_active), do: MapSet.member?(filters, key)
-
-  defp clock_value(%DateTime{} = now), do: Calendar.strftime(now, "%H:%M:%S")
-  defp clock_value(_now), do: "--:--:--"
-  defp datetime_value(%DateTime{} = now), do: DateTime.to_iso8601(now)
-  defp datetime_value(_now), do: nil
 end
