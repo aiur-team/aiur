@@ -118,6 +118,17 @@ defmodule Aiur.Config do
   end
 
   @doc """
+  Lifetime cap on (re)dispatches for a single ticket, or 0 when disabled.
+  """
+  @spec agent_max_dispatches_per_ticket() :: non_neg_integer()
+  def agent_max_dispatches_per_ticket do
+    case settings() do
+      {:ok, settings} -> Map.get(settings.agent, :max_dispatches_per_ticket) || 0
+      _ -> 0
+    end
+  end
+
+  @doc """
   Whether a recycled re-dispatch that could not resume its thread gets
   continuation guidance instead of the cold-start prompt. Defaults to false, so
   the dispatch path is unchanged until an operator opts in.

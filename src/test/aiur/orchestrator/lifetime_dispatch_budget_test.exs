@@ -1,0 +1,87 @@
+defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
+  use ExUnit.Case, async: false
+
+  alias Aiur.Orchestrator
+  alias Aiur.Orchestrator.Dispatcher
+  alias Aiur.Workflow
+
+  @issue_id "issue-lifetime"
+  @window_ms 60 * 1_000
+
+  setup %{config: config} do
+    previous = Application.get_env(:aiur, :workflow_file_path)
+    dir = Path.join(System.tmp_dir!(), "aiur-lifetime-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    path = Path.join(dir, ".aiurconfig")
+    File.write!(path, config)
+    Workflow.set_workflow_file_path(path)
+
+    on_exit(fn ->
+      File.rm_rf!(dir)
+
+      if is_nil(previous) do
+        Workflow.clear_workflow_file_path()
+      else
+        Workflow.set_workflow_file_path(previous)
+      end
+    end)
+
+    :ok
+  end
+
+  defp run(state, now_ms), do: Dispatcher.check_thrash_budget(state, @issue_id, now_ms)
+
+  # Each dispatch sits in its own lapsed window, so the per-window breaker never
+  # trips — exactly the #1091 shape (85 cold dispatches, none circuit-broken).
+  defp dispatch_n(state, n) do
+    Enum.reduce(1..n, state, fn i, acc ->
+      {:ok, next} = run(acc, i * (@window_ms + 1))
+      next
+    end)
+  end
+
+  @enabled """
+  tracker:
+    kind: memory
+  agent:
+    kind: codex
+    max_dispatches_per_ticket: 10
+  """
+
+  @tag config: @enabled
+  test "latches after the lifetime budget even though every window lapses" do
+    state = dispatch_n(%Orchestrator.State{}, 10)
+
+    assert {:trip, _state} = run(state, 11 * (@window_ms + 1))
+  end
+
+  @tag config: @enabled
+  test "stays healthy below the lifetime budget" do
+    state = dispatch_n(%Orchestrator.State{}, 8)
+
+    assert {:ok, _state} = run(state, 9 * (@window_ms + 1))
+  end
+
+  @tag config: @enabled
+  test "an operator reset does not refund the lifetime budget" do
+    state = dispatch_n(%Orchestrator.State{}, 10)
+
+    # Operator resume clears the window so the ticket can move again, but the
+    # lifetime spend is real — otherwise a resume loop refunds it forever.
+    state = Dispatcher.reset_thrash_budget(state, @issue_id)
+
+    assert {:trip, _state} = run(state, 99 * (@window_ms + 1))
+  end
+
+  @tag config: """
+       tracker:
+         kind: memory
+       agent:
+         kind: codex
+       """
+  test "unset budget disables the latch (default is a no-op)" do
+    state = dispatch_n(%Orchestrator.State{}, 30)
+
+    assert {:ok, _state} = run(state, 31 * (@window_ms + 1))
+  end
+end

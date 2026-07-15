@@ -85,6 +85,10 @@ defmodule Aiur.Config.Schema.Agent do
     # not be resumed gets continuation guidance instead of the cold-start prompt,
     # so it does not re-run brainstorm/plan over work that already exists.
     field(:prior_work_continuation, :boolean, default: false)
+    # Lifetime cap on (re)dispatches for one ticket. The per-window thrash
+    # breaker resets whenever its window lapses, so a slowly-churning ticket is
+    # never circuit-broken. 0 disables the latch.
+    field(:max_dispatches_per_ticket, :integer, default: 0)
     field(:max_concurrent_agents, :integer, default: 10)
     # Fleet-wide cap for agent-launched `mix compile` / `mix test` commands.
     # 0 deliberately disables the gate for Executors who need unrestricted
@@ -155,6 +159,7 @@ defmodule Aiur.Config.Schema.Agent do
         :kind,
         :remote_control,
         :prior_work_continuation,
+        :max_dispatches_per_ticket,
         :max_concurrent_agents,
         :max_concurrent_builds,
         :build_start_stagger_seconds,
@@ -186,6 +191,7 @@ defmodule Aiur.Config.Schema.Agent do
     |> validate_number(:build_start_stagger_seconds, greater_than_or_equal_to: 0)
     |> validate_number(:min_free_memory_mb, greater_than: 0)
     |> validate_number(:max_turns, greater_than: 0)
+    |> validate_number(:max_dispatches_per_ticket, greater_than_or_equal_to: 0)
     |> validate_number(:max_retry_attempts, greater_than: 0)
     |> validate_number(:max_retry_backoff_ms, greater_than: 0)
     |> validate_number(:turn_timeout_ms, greater_than: 0)

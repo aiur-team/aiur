@@ -305,28 +305,57 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
     state = %{state | codex_thrash_budget: Map.put(state.codex_thrash_budget, issue_id, entry)}
 
-    if entry.count > Config.codex_thrash_max_per_window() do
+    if entry.count > Config.codex_thrash_max_per_window() or lifetime_exhausted?(entry) do
       {:trip, state}
     else
       {:ok, state}
     end
   end
 
-  defp next_thrash_budget_entry(state, issue_id, now_ms) do
-    window_ms = Config.codex_thrash_window_seconds() * 1_000
-
-    case Map.get(state.codex_thrash_budget, issue_id) do
-      %{window_start_ms: start, count: count} when now_ms - start < window_ms ->
-        %{window_start_ms: start, count: count + 1}
-
-      _ ->
-        %{window_start_ms: now_ms, count: 1}
+  # The window counter resets on every lapsed window, so a ticket that churns
+  # slowly (a dispatch every few minutes) never trips it — that is how a single
+  # ticket accumulated 85 cold dispatches. `lifetime` counts every dispatch for
+  # the issue regardless of window, and survives `reset_thrash_budget/2`, so a
+  # structurally-stuck ticket latches instead of burning quota forever.
+  # `0` (the default) disables the latch, matching the repo's existing
+  # "0 disables it" idiom.
+  defp lifetime_exhausted?(%{lifetime: lifetime}) do
+    case Config.agent_max_dispatches_per_ticket() do
+      max when is_integer(max) and max > 0 -> lifetime > max
+      _ -> false
     end
   end
 
+  defp next_thrash_budget_entry(state, issue_id, now_ms) do
+    window_ms = Config.codex_thrash_window_seconds() * 1_000
+    previous = Map.get(state.codex_thrash_budget, issue_id)
+    lifetime = lifetime_of(previous) + 1
+
+    case previous do
+      %{window_start_ms: start, count: count} when now_ms - start < window_ms ->
+        %{window_start_ms: start, count: count + 1, lifetime: lifetime}
+
+      _ ->
+        %{window_start_ms: now_ms, count: 1, lifetime: lifetime}
+    end
+  end
+
+  defp lifetime_of(%{lifetime: lifetime}) when is_integer(lifetime), do: lifetime
+  defp lifetime_of(_entry), do: 0
+
+  # Clears the window so an operator resume can move the ticket again, but
+  # deliberately preserves `lifetime`: the dispatches were really spent, and
+  # refunding them would let a resume loop bypass the latch forever.
   @spec reset_thrash_budget(State.t(), String.t()) :: State.t()
   def reset_thrash_budget(%State{} = state, issue_id) do
-    %{state | codex_thrash_budget: Map.delete(state.codex_thrash_budget, issue_id)}
+    case Map.get(state.codex_thrash_budget, issue_id) do
+      %{lifetime: lifetime} when is_integer(lifetime) and lifetime > 0 ->
+        entry = %{window_start_ms: 0, count: 0, lifetime: lifetime}
+        %{state | codex_thrash_budget: Map.put(state.codex_thrash_budget, issue_id, entry)}
+
+      _ ->
+        %{state | codex_thrash_budget: Map.delete(state.codex_thrash_budget, issue_id)}
+    end
   end
 
   @spec revalidate_issue_for_dispatch(Issue.t(), function(), MapSet.t()) ::
