@@ -13,11 +13,12 @@ defmodule Aiur.WorkflowStore do
   @poll_interval_ms 1_000
   @reload_attempts 3
   @reload_retry_delay_ms 50
+  @configuration_topic "workflow_store:configuration"
 
   defmodule State do
     @moduledoc false
 
-    defstruct [:path, :stamp, :workflow]
+    defstruct [:path, :stamp, :workflow, generation: 1]
   end
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -36,6 +37,18 @@ defmodule Aiur.WorkflowStore do
     end
   end
 
+  @spec current_with_generation() ::
+          {:ok, Workflow.loaded_workflow(), pos_integer() | :unknown} | {:error, term()}
+  def current_with_generation do
+    case Process.whereis(__MODULE__) do
+      pid when is_pid(pid) ->
+        current_with_generation_from(pid)
+
+      _ ->
+        with {:ok, workflow} <- Workflow.load(), do: {:ok, workflow, :unknown}
+    end
+  end
+
   defp current_from(pid) do
     GenServer.call(pid, :current)
   catch
@@ -44,6 +57,17 @@ defmodule Aiur.WorkflowStore do
 
     :exit, {{:shutdown, _reason}, {GenServer, :call, [^pid, :current, _timeout]}} ->
       Workflow.load()
+  end
+
+  defp current_with_generation_from(pid) do
+    GenServer.call(pid, :current_with_generation)
+  catch
+    :exit, {reason, {GenServer, :call, [^pid, :current_with_generation, _timeout]}}
+    when reason in [:normal, :noproc, :shutdown] ->
+      with {:ok, workflow} <- Workflow.load(), do: {:ok, workflow, :unknown}
+
+    :exit, {{:shutdown, _reason}, {GenServer, :call, [^pid, :current_with_generation, _timeout]}} ->
+      with {:ok, workflow} <- Workflow.load(), do: {:ok, workflow, :unknown}
   end
 
   @spec force_reload() :: :ok | {:error, term()}
@@ -60,10 +84,14 @@ defmodule Aiur.WorkflowStore do
     end
   end
 
+  @spec subscribe(pid()) :: :ok | {:error, term()}
+  def subscribe(_pid \\ self()), do: Phoenix.PubSub.subscribe(Aiur.PubSub, @configuration_topic)
+
   @impl true
   def init(_opts) do
     case load_state(Workflow.workflow_file_path()) do
       {:ok, state} ->
+        broadcast_configuration(state)
         schedule_poll()
         {:ok, state}
 
@@ -80,6 +108,16 @@ defmodule Aiur.WorkflowStore do
 
       {:error, _reason, new_state} ->
         {:reply, {:ok, new_state.workflow}, new_state}
+    end
+  end
+
+  def handle_call(:current_with_generation, _from, %State{} = state) do
+    case reload_state(state) do
+      {:ok, new_state} ->
+        {:reply, {:ok, new_state.workflow, new_state.generation}, new_state}
+
+      {:error, _reason, new_state} ->
+        {:reply, {:ok, new_state.workflow, new_state.generation}, new_state}
     end
   end
 
@@ -120,6 +158,8 @@ defmodule Aiur.WorkflowStore do
   defp reload_path(path, state) do
     case load_state(path) do
       {:ok, new_state} ->
+        new_state = advance_generation(new_state, state)
+        broadcast_configuration(new_state)
         {:ok, new_state}
 
       {:error, reason} ->
@@ -195,5 +235,15 @@ defmodule Aiur.WorkflowStore do
 
   defp log_reload_error(path, reason) do
     Logger.error("Failed to reload workflow path=#{path} reason=#{inspect(reason)}; keeping last known good configuration")
+  end
+
+  defp advance_generation(new_state, state) do
+    %{new_state | generation: state.generation + 1}
+  end
+
+  defp broadcast_configuration(%State{generation: generation}) do
+    if Process.whereis(Aiur.PubSub) do
+      Phoenix.PubSub.broadcast(Aiur.PubSub, @configuration_topic, {:workflow_config_updated, generation})
+    end
   end
 end

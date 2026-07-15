@@ -18,25 +18,29 @@ defmodule Aiur.AgentEventLog do
 
   require Logger
 
+  alias Aiur.Workspace.Reconstruction
+
   @spec write(String.t() | nil, String.t() | nil, map()) :: :ok
   def write(_workspace, worker_host, _message) when is_binary(worker_host), do: :ok
 
   def write(workspace, nil, message) when is_binary(workspace) and is_map(message) do
-    log_dir = Path.join(workspace, "logs")
-    ndjson_path = Path.join(log_dir, "agent.ndjson")
-    markdown_path = Path.join(log_dir, "agent.md")
-    record = json_safe(message)
-    encoded_record = Jason.encode!(record)
+    Reconstruction.with_log_lock(workspace, fn ->
+      log_dir = Path.join(workspace, "logs")
+      ndjson_path = Path.join(log_dir, "agent.ndjson")
+      markdown_path = Path.join(log_dir, "agent.md")
+      record = json_safe(message)
+      encoded_record = Jason.encode!(record)
 
-    with :ok <- File.mkdir_p(log_dir),
-         :ok <- File.write(ndjson_path, encoded_record <> "\n", [:append]),
-         :ok <- File.write(markdown_path, markdown_entry(record, encoded_record), [:append]) do
-      :ok
-    else
-      {:error, reason} ->
-        Logger.debug("Failed writing agent log workspace=#{workspace} reason=#{inspect(reason)}")
+      with :ok <- File.mkdir_p(log_dir),
+           :ok <- File.write(ndjson_path, encoded_record <> "\n", [:append]),
+           :ok <- File.write(markdown_path, markdown_entry(record, encoded_record), [:append]) do
         :ok
-    end
+      else
+        {:error, reason} ->
+          Logger.debug("Failed writing agent log workspace=#{workspace} reason=#{inspect(reason)}")
+          :ok
+      end
+    end)
   rescue
     error ->
       Logger.debug("Failed writing agent log workspace=#{workspace} error=#{Exception.message(error)}")

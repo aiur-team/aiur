@@ -64,8 +64,10 @@ defmodule Aiur.CodingAgent do
       "codex" => %{
         adapter: Aiur.Codex.CodingAgent,
         transcript: Aiur.Codex.Transcript,
+        family: "codex",
         can_interrupt: true,
         safe_checkpoints: [:notification, :tool_result],
+        control_application_confirmation: :confirmed,
         remote_control: false,
         # The codex app-server can rejoin a prior thread across an aiur restart
         # via `thread/resume` against its on-disk rollout, so a respawned
@@ -85,8 +87,10 @@ defmodule Aiur.CodingAgent do
       "claude" => %{
         adapter: Aiur.Claude.CodingAgent,
         transcript: Aiur.Claude.Transcript,
+        family: "claude",
         can_interrupt: true,
         safe_checkpoints: [:notification],
+        control_application_confirmation: :confirmed,
         remote_control: true,
         # Remote control physically runs on the persistent-REPL transport,
         # so an RC-promoted claude issue dispatches claude-repl (carrying
@@ -109,6 +113,7 @@ defmodule Aiur.CodingAgent do
       "claude-repl" => %{
         adapter: Aiur.Claude.ReplAgent,
         transcript: Aiur.Claude.Transcript,
+        family: "claude",
         # Executor messages are typed straight into the live pane and the
         # agent's native input queue folds them in, so there is no
         # checkpoint to hold at — `safe_checkpoints` stays empty and
@@ -118,6 +123,7 @@ defmodule Aiur.CodingAgent do
         can_interrupt: true,
         safe_checkpoints: [],
         immediate_delivery: true,
+        control_application_confirmation: :confirmed,
         remote_control: true,
         # A tmux/RC start failure must never strand an issue: a failed
         # claude-repl spawn falls back once to the headless claude
@@ -144,6 +150,15 @@ defmodule Aiur.CodingAgent do
   @doc "Known backend keys, derived from the registry."
   @spec known_backends() :: [backend()]
   def known_backends, do: Map.keys(backends())
+
+  @doc "Stable agent family for trusted Decision provenance, if the backend is known."
+  @spec family_for(backend()) :: String.t() | nil
+  def family_for(backend) do
+    case Map.fetch(backends(), backend) do
+      {:ok, entry} -> Map.get(entry, :family)
+      :error -> nil
+    end
+  end
 
   @doc """
   The valid reasoning-effort values for a backend, derived from the
@@ -407,6 +422,15 @@ defmodule Aiur.CodingAgent do
   @spec can_interrupt?(backend()) :: boolean()
   def can_interrupt?(backend), do: fetch_backend!(backend).can_interrupt
 
+  @doc "Whether the backend can emit correlated worker-application evidence for unit controls."
+  @spec control_application_confirmation(backend()) :: :confirmed | :request_only | :unsupported
+  def control_application_confirmation(backend) do
+    case Map.fetch(backends(), backend) do
+      {:ok, entry} -> Map.get(entry, :control_application_confirmation, :request_only)
+      :error -> :unsupported
+    end
+  end
+
   @doc "Delivery-policy default: which checkpoint kinds are safe to deliver on."
   @spec safe_checkpoints(backend()) :: [atom()]
   def safe_checkpoints(backend), do: fetch_backend!(backend).safe_checkpoints
@@ -557,7 +581,7 @@ defmodule Aiur.CodingAgent do
   def run_turn(session, prompt, issue, opts \\ []),
     do: adapter_for_session(session).run_turn(session, prompt, issue, opts)
 
-  @spec stop_session(map()) :: :ok
+  @spec stop_session(map()) :: :ok | {:ok, :cleanup_proven} | {:error, term()}
   def stop_session(session), do: adapter_for_session(session).stop_session(session)
 
   @spec normalize_event(map()) :: map()

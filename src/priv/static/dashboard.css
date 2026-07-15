@@ -170,6 +170,218 @@ textarea:focus-visible,
   gap: 1rem;
 }
 
+.bo-layout-root {
+  position: relative;
+  isolation: isolate;
+  min-width: 0;
+  overflow: auto;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.bo-layout-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.85rem;
+}
+
+.bo-layout-heading h2,
+.bo-layout-lane-heading,
+.bo-layout-dependency-summary h3 {
+  margin: 0;
+}
+
+.bo-layout-heading p,
+.bo-layout-card-id,
+.bo-layout-card-meta,
+.bo-layout-edge-state {
+  color: var(--muted);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.68rem;
+}
+
+.bo-layout-heading p {
+  margin: 0;
+  text-align: right;
+}
+
+.bo-layout-cards {
+  position: relative;
+  min-width: min-content;
+}
+
+.bo-layout-lane {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 18rem));
+  gap: 0.7rem;
+  margin-top: 1rem;
+}
+
+.bo-layout-lane-heading {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.bo-layout-card {
+  min-width: 14rem;
+  padding: 0.85rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--surface-2);
+  box-shadow: var(--shadow-sm);
+}
+
+.bo-layout-card header {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.bo-layout-card h4,
+.bo-layout-card p {
+  margin: 0;
+}
+
+.bo-layout-card h4 {
+  color: var(--fg);
+  font-size: 0.9rem;
+}
+
+.bo-layout-card > p:not(.bo-layout-card-meta) {
+  margin-top: 0.6rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.bo-layout-card-meta {
+  margin-top: 0.65rem !important;
+}
+
+.bo-layout-edges {
+  position: absolute;
+  z-index: 0;
+  top: 3.55rem;
+  left: 1rem;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.bo-layout-edge {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.bo-layout-edge.is-cleared {
+  stroke: var(--good);
+  stroke-dasharray: none;
+}
+
+.bo-layout-edge-marker.is-cleared {
+  fill: var(--good);
+}
+
+.bo-layout-edge.is-blocking {
+  stroke: var(--blocking);
+  stroke-dasharray: 11 4;
+}
+
+.bo-layout-edge-marker.is-blocking {
+  fill: var(--blocking);
+}
+
+.bo-layout-edge.is-terminal_unsatisfied {
+  stroke: var(--attention);
+  stroke-dasharray: 7 4;
+}
+
+.bo-layout-edge-marker.is-terminal_unsatisfied {
+  fill: var(--attention);
+}
+
+.bo-layout-edge.is-unknown {
+  stroke: var(--muted);
+  stroke-dasharray: 3 4;
+}
+
+.bo-layout-edge-marker.is-unknown {
+  fill: var(--muted);
+}
+
+.bo-layout-edge.is-cyclic {
+  stroke: var(--super);
+  stroke-dasharray: 2 3;
+}
+
+.bo-layout-edge-marker.is-cyclic {
+  fill: var(--super);
+}
+
+.bo-layout-dependency-summary {
+  margin-top: 1rem;
+  color: var(--muted);
+}
+
+.bo-layout-dependency-summary ul {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0.5rem 0 0;
+  padding-left: 1.25rem;
+}
+
+.bo-layout-edge-state {
+  display: inline-block;
+  margin-left: 0.35rem;
+  color: var(--muted);
+}
+
+.bo-layout-root.is-layout-ready .bo-layout-heading,
+.bo-layout-root.is-layout-ready .bo-layout-dependency-summary,
+.bo-layout-root.is-layout-ready .bo-layout-lane-heading {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.bo-layout-root.is-layout-ready .bo-layout-lane {
+  display: contents;
+}
+
+.bo-layout-root.is-layout-ready .bo-layout-edges {
+  top: 1rem;
+}
+
+.bo-layout-root.is-layout-ready .bo-layout-card {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  left: 0;
+  width: var(--bo-layout-width, min(18rem, calc(100vw - 4rem)));
+  height: var(--bo-layout-height, auto);
+  transform: translate3d(var(--bo-layout-x), var(--bo-layout-y), 0);
+  transition: transform 120ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bo-layout-root.is-layout-ready .bo-layout-card {
+    transition: none;
+  }
+}
+
 .topbar {
   display: flex;
   align-items: center;

@@ -6,8 +6,7 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
 
   require Logger
 
-  alias Aiur.Config
-  alias Aiur.Orchestrator
+  alias Aiur.{Config, Issue}
   alias Aiur.Orchestrator.{AgentTeardown, PauseResume, RetryEngine, State}
 
   @spec apply_overrun_check(State.t(), non_neg_integer()) :: State.t()
@@ -70,13 +69,9 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
       State.running_seconds(Map.get(running_entry, :started_at), now) > max_seconds
   end
 
-  # Mirror the Executor-pause path: queue the cooperative `{:pause_agent}`
-  # control message so the worker parks at its next turn boundary, then
-  # flip control status to `:paused`. Stamping `paused_reason` makes the
-  # pause attributable to the duration cap (distinct from a manual or
-  # blocker pause), and reusing the `:paused` state means slot accounting
-  # (`paused_running_count`/`available_slots`) and the resume paths treat
-  # it identically to a manual pause for free.
+  # Route a cooperative pause through the control lifecycle. The duration
+  # cap becomes authoritative only after matching worker evidence confirms
+  # that the worker actually parked.
   @doc false
   @spec maybe_pause_overrunning_entry(State.t(), term(), map(), DateTime.t(), non_neg_integer()) :: State.t()
   def maybe_pause_overrunning_entry(state, issue_id, running_entry, now, max_seconds) do
@@ -86,10 +81,15 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
 
       Logger.warning("orchestrator.pause issue_id=#{issue_id} issue_identifier=#{identifier} cause=max_agent_duration running_seconds=#{seconds} cap_seconds=#{max_seconds}")
 
-      _ = PauseResume.send_pause_control_message(state, identifier)
+      {_reply, state} =
+        PauseResume.request_pause(
+          state,
+          running_entry,
+          Map.get(running_entry, :issue),
+          :max_agent_duration
+        )
 
-      paused_entry = Map.put(running_entry, :paused_reason, :max_agent_duration)
-      Orchestrator.transition_control_status(state, paused_entry, :paused, "max_agent_duration")
+      state
     else
       state
     end
@@ -136,8 +136,8 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
       # pause.request because it declared a blocker and has nothing to
       # do until the blocker emits. The stall watchdog must not
       # interpret deliberate idleness as a stuck codex stream. The
-      # auto-resume hook in handle_info({:event, ...}) will reawaken
-      # the entry when its blocker pushes; if no push ever arrives, an
+      # explicit-unblocked auto-resume hook in handle_info({:event, ...})
+      # will reawaken the entry when its blocker emits readiness. If no signal
       # Executor-driven resume (label flip or chat) is the path
       # forward, not a restart that throws away the agent's workpad.
       State.paused_running_entry?(running_entry) ->
@@ -205,7 +205,11 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
       |> AgentTeardown.terminate_running_issue(issue_id, false)
       |> RetryEngine.schedule_issue_retry(issue_id, next_attempt, %{
         identifier: identifier,
-        error: "stalled for #{elapsed_ms}ms without codex activity"
+        tracker_identity: Issue.tracker_identity(Map.get(running_entry, :issue)),
+        error: "stalled for #{elapsed_ms}ms without codex activity",
+        prior_work: RetryEngine.prior_work_for_retry?(running_entry),
+        worker_host: Map.get(running_entry, :worker_host),
+        workspace_path: Map.get(running_entry, :workspace_path)
       })
     else
       state

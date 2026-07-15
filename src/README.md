@@ -129,6 +129,20 @@ comments should reach agent event digests even when CODEOWNERS team expansion is
 unavailable. Keep it separate from `github.bot_account`: bot-account authors are
 filtered as self-loops, while trusted accounts are allowed human Executors.
 
+Build Order planning reads use finite `github.planning_root_limit`,
+`github.planning_page_budget`, and `github.planning_call_budget` safeguards.
+They default to `100`, `4`, and `4`; all values must be positive and may not
+exceed those hard limits, so a provider generation never silently truncates.
+
+The optional root-level `build_order` section configures one supervised,
+in-memory cache for configured-repository ticket detail. It defaults to a
+30-second freshness window, 32 retained identities, and 16,384 sanitized
+description bytes. `ticket_detail_freshness_ms` accepts `1..300000`,
+`ticket_detail_max_entries` accepts `1..100`, and
+`ticket_detail_max_description_bytes` accepts `1..16384`. Restarting Aiur
+clears the cache; detail remains unavailable until a new on-demand read
+succeeds.
+
 Copy one of the starter pairs (config + prompt template) and edit it for your project:
 
 - [examples/workflows/linear-codex.aiurconfig](examples/workflows/linear-codex.aiurconfig)
@@ -344,6 +358,9 @@ path parameter and is never browser-cacheable.
   `dangerFullAccess` unless `turn_sandbox_policy` is explicitly configured.
 - `agent.max_turns` caps how many back-to-back backend turns Aiur runs in a single
   invocation when a turn completes but the issue is still active. Default: `20`.
+- `agent.max_turns_by_complexity` optionally overrides that cap for tickets with
+  `complexity:N` labels, for example `{1: 4, 2: 8, 3: 12}`. Missing levels and
+  unlabeled tickets continue to use `agent.max_turns`.
 - `agent.max_concurrent_agents` caps active workers only. Paused agents remain visible
   and can keep their panes open without consuming an active slot.
 - `agent.switch_model_on_ratelimit` is an opt-in ordered list of configured
@@ -406,9 +423,27 @@ path parameter and is never browser-cacheable.
   while ordinary editing, Git, and model work continue. Set it to `0` to remove
   the concurrency cap; a configured memory floor or start stagger remains active
   independently.
+  Local Codex `workspaceWrite` turns add the canonical `~/.aiur/build-gate` metadata
+  directory to `writableRoots` without replacing configured, workspace, or writable Git
+  roots. Persistent lock inodes live in the host-prepared sibling
+  `~/.aiur/build-gate.locks`, which is deliberately excluded from turn-writable roots so
+  a sandbox cannot unlink or replace a held slot. Linux admission uses a lock-owning
+  subreaper, so sandbox-local PID/PGID values are diagnostic only and detached Mix
+  descendants keep their slot until they exit.
   Agent transcripts emit
   `aiur_build_gate` queue/acquire/release/timeout signals, and `aiur status` reports
   active or queued contention.
+- Gate coordination errors return status `125` without invoking Mix. Repair the path
+  named by the error (metadata or lock-directory type, ownership, permissions, missing
+  `flock`, or missing `python3` subreaper support) and
+  restart/re-dispatch the affected agents. `BUILD GATE DEGRADED` means legacy or
+  unreadable metadata needs attention. Stop/re-dispatch the old fleet, confirm no old
+  `mix compile` or `mix test` process is still running, then remove only the reported
+  legacy records and retry. Do not delete legacy records while old builds may still be
+  live. As a deliberate emergency opt-out, set `agent.max_concurrent_builds: 0`, set
+  `agent.build_start_stagger_seconds: 0`, omit `agent.min_free_memory_mb`, and
+  restart/re-dispatch. All three settings can enable the shared gate; this sequence
+  disables build admission entirely and removes its fleet safeguards.
 - `agent.build_start_stagger_seconds` optionally separates admitted local `mix compile`
   and `mix test` starts at their actual heavy-command boundary. It defaults to `0`
   (disabled); this repository's dogfood workflow uses `5`. The memory floor runs
@@ -447,6 +482,43 @@ make all
 
 `make e2e` runs a live end-to-end test against real Linear + Codex; it creates and tears
 down disposable resources and requires `LINEAR_API_KEY`.
+
+### Browser harness
+
+The deterministic browser, accessibility, and measurement harness lives in
+`src/browser/`. It starts a loopback-only synthetic LiveView fixture on an
+isolated port; it never uses a globally installed browser, production data, or
+external services.
+
+```bash
+cd src/browser
+npm ci
+npx playwright install chromium # one-time local browser download
+npm test
+```
+
+`npm test` runs the harness primitives followed by the LiveView smoke. The
+fixture requires a synthetic, HttpOnly session path for read-only or writable
+access; it never accepts or exposes production credentials. Failures retain
+sanitized Playwright traces and screenshots beneath `src/browser/.artifacts-run-*`;
+video and other unverified binary formats are deleted before CI upload.
+Successful runs remove only their run-owned artifact child. Set
+`AIUR_BROWSER_SCREENSHOTS=1` to retain configured smoke screenshots. To prove
+the failure-evidence path locally, run:
+
+```bash
+AIUR_BROWSER_KEEP_ARTIFACTS=1 npm run verify:failure-artifacts
+```
+
+That command deliberately fails one assertion, verifies a trace and screenshot
+were captured, proves a parent-process sentinel is absent from trace, URL, DOM,
+and screenshot evidence, and verifies port release before printing the retained
+temporary artifact directory for inspection. The CI job runs that proof and
+caches the downloaded Playwright browser using `src/browser/package-lock.json`
+as its cache key.
+Playwright Test 1.61.1 (Apache-2.0) and `@axe-core/playwright` 4.11.3
+(MPL-2.0) are pinned in that lockfile. The smoke's broad harness liveness check
+is not a product-performance budget; BO-014 owns those thresholds.
 
 ## Project layout
 

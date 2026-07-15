@@ -60,6 +60,143 @@ defmodule AiurWeb.DashboardLiveTest do
     end
   end
 
+  defmodule CountingDetailStore do
+    use GenServer
+
+    def start_link(opts) do
+      GenServer.start_link(__MODULE__, opts, name: Keyword.fetch!(opts, :name))
+    end
+
+    def retained_lookup_count(server), do: GenServer.call(server, :retained_lookup_count)
+
+    @impl true
+    def init(opts) do
+      {:ok, %{store: Keyword.fetch!(opts, :store), retained_lookup_count: 0}}
+    end
+
+    @impl true
+    def handle_call(:retained_lookup_count, _from, state) do
+      {:reply, state.retained_lookup_count, state}
+    end
+
+    def handle_call({:retained_lookup, _decision_id} = request, _from, state) do
+      reply = GenServer.call(state.store, request)
+      {:reply, reply, %{state | retained_lookup_count: state.retained_lookup_count + 1}}
+    end
+
+    def handle_call(request, _from, state) do
+      {:reply, GenServer.call(state.store, request), state}
+    end
+  end
+
+  defmodule VersionedDetailStore do
+    use GenServer
+
+    def start_link(opts) do
+      GenServer.start_link(__MODULE__, opts, name: Keyword.fetch!(opts, :name))
+    end
+
+    @impl true
+    def init(opts) do
+      {:ok,
+       %{
+         overview: Keyword.fetch!(opts, :overview),
+         detail: Keyword.fetch!(opts, :detail),
+         report: Keyword.fetch!(opts, :report)
+       }}
+    end
+
+    @impl true
+    def handle_call({:recent_decisions, _limit}, _from, state), do: {:reply, [state.overview], state}
+
+    def handle_call({:retained_lookup, decision_id}, _from, %{detail: %{decision_id: decision_id} = detail} = state) do
+      {:reply, {:ok, %{decision: detail, health: :writable}}, state}
+    end
+
+    def handle_call({:retained_lookup, _decision_id}, _from, state) do
+      {:reply, {:ok, %{decision: nil, health: :writable}}, state}
+    end
+
+    def handle_call({:replace_detail, detail}, _from, state) do
+      {:reply, :ok, %{state | detail: detail}}
+    end
+
+    def handle_call(:retained_counts, _from, state) do
+      open? = state.detail.decision_status == :open
+
+      counts = %{
+        total: 1,
+        open: if(open?, do: 1, else: 0),
+        blocking: if(open? and state.detail.blocking, do: 1, else: 0)
+      }
+
+      {:reply, {:ok, %{counts: counts, health: :writable}}, state}
+    end
+
+    def handle_call({:answer, decision_id, payload, opts}, _from, state) do
+      send(state.report, {:versioned_detail_answer, decision_id, payload, opts})
+      {:reply, {:ok, %{status: :accepted}}, state}
+    end
+
+    def handle_call({:revise, decision_id, payload, opts}, _from, state) do
+      send(state.report, {:versioned_detail_revision, decision_id, payload, opts})
+      {:reply, {:ok, %{status: :accepted}}, state}
+    end
+  end
+
+  defmodule StaleDetailStore do
+    use GenServer
+
+    def start_link(opts) do
+      GenServer.start_link(__MODULE__, opts, name: Keyword.fetch!(opts, :name))
+    end
+
+    @impl true
+    def init(opts) do
+      {:ok,
+       %{
+         overview: Keyword.fetch!(opts, :overview),
+         detail_status: Keyword.fetch!(opts, :detail_status),
+         report: Keyword.fetch!(opts, :report)
+       }}
+    end
+
+    @impl true
+    def handle_call({:recent_decisions, _limit}, _from, state), do: {:reply, [state.overview], state}
+
+    def handle_call({:set_detail_status, detail_status}, _from, state) do
+      {:reply, :ok, %{state | detail_status: detail_status}}
+    end
+
+    def handle_call({:retained_lookup, _decision_id}, _from, %{detail_status: :unavailable} = state) do
+      {:reply, {:error, :store_unavailable}, state}
+    end
+
+    def handle_call({:retained_lookup, _decision_id}, _from, %{detail_status: :indeterminate} = state) do
+      {:reply, {:ok, %{decision: nil, health: {:corrupt, 1, :test_partial}}}, state}
+    end
+
+    def handle_call({:recent_audit_history, _limit}, _from, state) do
+      {:reply, %{records: [], contexts: %{}, revisions: %{}}, state}
+    end
+
+    def handle_call(:retained_counts, _from, state) do
+      {:reply, {:ok, %{counts: %{total: 1, open: 1, blocking: true}, health: :writable}}, state}
+    end
+
+    def handle_call({:answer, decision_id, payload, opts}, _from, state) do
+      send(state.report, {:stale_detail_answer, decision_id, payload, opts})
+      {:reply, {:ok, %{status: :accepted}}, state}
+    end
+
+    def handle_call({:revise, decision_id, payload, opts}, _from, state) do
+      send(state.report, {:stale_detail_revision, decision_id, payload, opts})
+      {:reply, {:ok, %{status: :accepted}}, state}
+    end
+
+    def handle_call(_request, _from, state), do: {:reply, {:error, :store_unavailable}, state}
+  end
+
   defmodule QueueOrchestrator do
     use GenServer
 
@@ -98,12 +235,30 @@ defmodule AiurWeb.DashboardLiveTest do
     end
 
     @impl true
+    def handle_call(:health, _from, state), do: {:reply, :writable, state}
+    def handle_call({:get, decision_id}, _from, %{decision: %{decision_id: decision_id} = decision} = state), do: {:reply, {:ok, decision}, state}
+    def handle_call({:get, _decision_id}, _from, state), do: {:reply, {:error, :not_found}, state}
+
+    def handle_call(
+          {:retained_lookup, decision_id},
+          _from,
+          %{decision: %{decision_id: decision_id} = decision} = state
+        ),
+        do: {:reply, {:ok, %{decision: decision, health: :writable}}, state}
+
+    def handle_call({:retained_lookup, _decision_id}, _from, state),
+      do: {:reply, {:ok, %{decision: nil, health: :writable}}, state}
+
     def handle_call(:list, _from, state), do: {:reply, [state.decision], state}
     def handle_call({:recent_decisions, _limit}, _from, state), do: {:reply, [state.decision], state}
     def handle_call(:all_history, _from, state), do: {:reply, %{state.decision.decision_id => [state.decision]}, state}
 
     def handle_call(:all_audit_history, _from, state) do
       {:reply, %{state.decision.decision_id => [state.decision]}, state}
+    end
+
+    def handle_call(:retained_counts, _from, state) do
+      {:reply, retained_counts(state.decision), state}
     end
 
     def handle_call({:recent_audit_history, _limit}, _from, state) do
@@ -113,6 +268,20 @@ defmodule AiurWeb.DashboardLiveTest do
     def handle_call({:answer, decision_id, payload, opts}, _from, state) do
       send(state.report, {:dashboard_answer_attempt, decision_id, payload, opts})
       {:reply, {:error, {:conflict, {:stale_version, 1, 2}}}, state}
+    end
+
+    defp retained_counts(decision) do
+      open? = decision.decision_status == :open
+
+      {:ok,
+       %{
+         counts: %{
+           total: 1,
+           open: if(open?, do: 1, else: 0),
+           blocking: if(open? and decision.blocking, do: 1, else: 0)
+         },
+         health: :writable
+       }}
     end
   end
 
@@ -129,12 +298,30 @@ defmodule AiurWeb.DashboardLiveTest do
     end
 
     @impl true
+    def handle_call(:health, _from, state), do: {:reply, :writable, state}
+    def handle_call({:get, decision_id}, _from, %{decision: %{decision_id: decision_id} = decision} = state), do: {:reply, {:ok, decision}, state}
+    def handle_call({:get, _decision_id}, _from, state), do: {:reply, {:error, :not_found}, state}
+
+    def handle_call(
+          {:retained_lookup, decision_id},
+          _from,
+          %{decision: %{decision_id: decision_id} = decision} = state
+        ),
+        do: {:reply, {:ok, %{decision: decision, health: :writable}}, state}
+
+    def handle_call({:retained_lookup, _decision_id}, _from, state),
+      do: {:reply, {:ok, %{decision: nil, health: :writable}}, state}
+
     def handle_call(:list, _from, state), do: {:reply, [state.decision], state}
     def handle_call({:recent_decisions, _limit}, _from, state), do: {:reply, [state.decision], state}
     def handle_call(:all_history, _from, state), do: {:reply, %{state.decision.decision_id => [state.decision]}, state}
 
     def handle_call(:all_audit_history, _from, state) do
       {:reply, %{state.decision.decision_id => [state.decision]}, state}
+    end
+
+    def handle_call(:retained_counts, _from, state) do
+      {:reply, retained_counts(state.decision), state}
     end
 
     def handle_call({:recent_audit_history, _limit}, _from, state) do
@@ -144,6 +331,20 @@ defmodule AiurWeb.DashboardLiveTest do
     def handle_call({:revise, decision_id, payload, opts}, _from, state) do
       send(state.report, {:dashboard_revision_attempt, decision_id, payload, opts})
       {:reply, {:error, {:conflict, {:stale_action, "new-active-action"}}}, state}
+    end
+
+    defp retained_counts(decision) do
+      open? = decision.decision_status == :open
+
+      {:ok,
+       %{
+         counts: %{
+           total: 1,
+           open: if(open?, do: 1, else: 0),
+           blocking: if(open? and decision.blocking, do: 1, else: 0)
+         },
+         health: :writable
+       }}
     end
   end
 
@@ -173,7 +374,9 @@ defmodule AiurWeb.DashboardLiveTest do
       decision_filter: :all,
       fleet_filters: FleetFilters.default(),
       selected_decision_id: selected_decision_id,
-      selected_decision: selected_decision
+      selected_decision: selected_decision,
+      selected_decision_status: Keyword.get(opts, :selected_decision_status, if(selected_decision, do: :available, else: :not_found)),
+      selected_decision_health: Keyword.get(opts, :selected_decision_health)
     }
 
     assigns
@@ -322,6 +525,83 @@ defmodule AiurWeb.DashboardLiveTest do
     assert detail_html =~ "&lt;script&gt;alert(&#39;no&#39;)&lt;/script&gt;"
     refute detail_html =~ "<script>alert('no')</script>"
     assert detail_html =~ "Read-only mode · mutation controls are hidden."
+  end
+
+  test "renders canonical retained counts and warns when retained detail data is partial" do
+    fleet_payload = %{
+      generated_at: "2026-07-12T12:00:00Z",
+      counts: %{running: 0, retrying: 0, idle: 0},
+      running: [],
+      retrying: [],
+      idle: [],
+      agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+      rate_limits: nil
+    }
+
+    decision = dashboard_decision("dec-partial-retained")
+
+    merge_snapshot = %{
+      merges: [],
+      health: :ready,
+      reconciliation: %{status: :complete, partial?: false}
+    }
+
+    payload =
+      fleet_payload
+      |> ControlCenterPresenter.compose([decision], [], merge_snapshot)
+      |> Map.put(:retained_counts, %{
+        open: 73,
+        blocking: 4,
+        scope: %{kind: :retained, label: "All retained decisions"},
+        health: %{status: :partial, partial?: true, label: "Partial retained Decision data"}
+      })
+
+    html =
+      render_payload(fleet_payload,
+        payload: payload,
+        live_action: :decision,
+        selected_decision_id: decision.decision_id,
+        selected_decision_health: %{status: :partial, partial?: true}
+      )
+
+    assert html =~ "4 decisions are blocking agents"
+    assert html =~ "73 awaiting input in total"
+    assert html =~ "Partial retained Decision counts"
+    assert html =~ "Partial retained Decision data"
+  end
+
+  test "does not report a missing Decision as absent when retained replay is partial" do
+    fleet_payload = %{
+      generated_at: "2026-07-12T12:00:00Z",
+      counts: %{running: 0, retrying: 0, idle: 0},
+      running: [],
+      retrying: [],
+      idle: [],
+      agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+      rate_limits: nil
+    }
+
+    payload =
+      ControlCenterPresenter.state_payload(
+        :unused,
+        1,
+        fleet_fun: fn -> fleet_payload end,
+        decisions_fun: fn -> [] end
+      )
+
+    html =
+      render_payload(fleet_payload,
+        payload: payload,
+        live_action: :decision,
+        selected_decision_id: "dec-maybe-retained",
+        selected_decision_status: :indeterminate,
+        selected_decision_health: %{status: :partial, partial?: true}
+      )
+
+    assert html =~ "Decision presence unknown"
+    assert html =~ "may exist beyond the validated audit prefix"
+    refute html =~ "No retained decision matches"
+    refute html =~ "This detail was recovered from the validated audit prefix"
   end
 
   test "renders durable decision history, honest merge provenance, and the analytics link during a snapshot outage" do
@@ -535,6 +815,667 @@ defmodule AiurWeb.DashboardLiveTest do
     |> render_click()
 
     assert_patch(view, "/decisions?filter=blocking")
+  end
+
+  test "a direct Decision URL resolves a retained record outside the 50-item overview" do
+    orchestrator_name = Module.concat(__MODULE__, :RetainedDetailOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :RetainedDetailStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 507}}}
+      end)
+
+    oldest = request_dashboard_decision(store, "retained-oldest", "reversible", now: ~U[2026-07-13 08:00:00Z])
+
+    for index <- 1..50 do
+      request_dashboard_decision(
+        store,
+        "retained-newer-#{index}",
+        "reversible",
+        now: DateTime.add(oldest.created_at, index, :second)
+      )
+    end
+
+    refute Enum.any?(DecisionStore.recent_decisions(50, store), &(&1.decision_id == oldest.decision_id))
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name
+    )
+
+    {:ok, _view, html} = live(build_conn(), "/decisions/#{oldest.decision_id}")
+    assert html =~ oldest.decision_id
+    assert html =~ "Should the dashboard ship this change?"
+    refute html =~ "Decision not found"
+  end
+
+  test "a selected retained Decision remains visible when the stale URL filter excludes its lifecycle" do
+    orchestrator_name = Module.concat(__MODULE__, :ResolvedSelectionOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :ResolvedSelectionStore)
+    detail_store_name = Module.concat(__MODULE__, :ResolvedSelectionDetailStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 5_078}}}
+      end)
+
+    overview = request_dashboard_decision(store, "resolved-selected-filter")
+
+    resolved =
+      store
+      |> replace_dashboard_decision(overview,
+        question: "This retained decision is resolved.",
+        reversibility: "reversible",
+        option_label: "No further action"
+      )
+      |> Map.put(:decision_status, :resolved)
+
+    start_versioned_detail_store(detail_store_name, overview, resolved)
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: detail_store_name,
+      control_center_cache: false
+    )
+
+    {:ok, _view, html} = live(build_conn(), "/decisions/#{resolved.decision_id}?filter=open")
+    assert html =~ "This retained decision is resolved."
+    assert html =~ "Resolved"
+    refute html =~ "No decisions match this filter."
+  end
+
+  test "unavailable or indeterminate detail excludes the matching stale overview row and rejects answers" do
+    orchestrator_name = Module.concat(__MODULE__, :StaleAnswerOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :StaleAnswerStore)
+    detail_store_name = Module.concat(__MODULE__, :StaleAnswerDetailStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 5_081}}}
+      end)
+
+    overview = request_dashboard_decision(store, "stale-detail-answer")
+    start_stale_detail_store(detail_store_name, overview, :unavailable)
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: detail_store_name,
+      control_center_cache: false,
+      dashboard_writable: true
+    )
+
+    for detail_status <- [:unavailable, :indeterminate] do
+      assert :ok = GenServer.call(detail_store_name, {:set_detail_status, detail_status})
+
+      {:ok, view, html} = live(build_conn(), "/decisions/#{overview.decision_id}")
+      assert html =~ if(detail_status == :unavailable, do: "Decision unavailable", else: "Decision presence unknown")
+      refute html =~ "Should the dashboard ship this change?"
+      refute html =~ ~s(phx-submit="answer-decision")
+
+      _html =
+        render_submit(view, "answer-decision", %{
+          "decision_id" => overview.decision_id,
+          "answer" => %{"choice" => "option:ship", "rationale" => "Must not use stale overview data"}
+        })
+
+      decision_id = overview.decision_id
+      refute_receive {:stale_detail_answer, ^decision_id, _payload, _opts}
+    end
+  end
+
+  test "unavailable or indeterminate detail excludes the matching stale overview row and rejects revisions" do
+    orchestrator_name = Module.concat(__MODULE__, :StaleRevisionOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :StaleRevisionStore)
+    detail_store_name = Module.concat(__MODULE__, :StaleRevisionDetailStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 5_082}}}
+      end)
+
+    requested = request_dashboard_decision(store, "stale-detail-revision")
+
+    assert {:ok, _accepted} =
+             DecisionStore.answer(
+               requested.decision_id,
+               %{
+                 "idempotency_key" => "stale-detail-answer",
+                 "expected_version" => requested.version,
+                 "option_id" => "ship"
+               },
+               [actor: %{kind: :operator, id: "test"}],
+               store
+             )
+
+    assert {:ok, overview} = DecisionStore.get(requested.decision_id, store)
+    start_stale_detail_store(detail_store_name, overview, :unavailable)
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: detail_store_name,
+      control_center_cache: false,
+      dashboard_writable: true
+    )
+
+    for detail_status <- [:unavailable, :indeterminate] do
+      assert :ok = GenServer.call(detail_store_name, {:set_detail_status, detail_status})
+
+      {:ok, view, html} = live(build_conn(), "/decisions/#{overview.decision_id}")
+      assert html =~ if(detail_status == :unavailable, do: "Decision unavailable", else: "Decision presence unknown")
+      refute html =~ "Should the dashboard ship this change?"
+      refute html =~ ~s(phx-submit="revise-decision")
+
+      _html =
+        render_submit(view, "revise-decision", %{
+          "decision_id" => overview.decision_id,
+          "revision" => %{
+            "choice" => "custom",
+            "custom_response" => "Must not use stale overview data",
+            "reason" => "The exact retained detail is unavailable"
+          }
+        })
+
+      decision_id = overview.decision_id
+      refute_receive {:stale_detail_revision, ^decision_id, _payload, _opts}
+    end
+  end
+
+  test "a writable answer uses selected retained detail outside the overview window" do
+    orchestrator_name = Module.concat(__MODULE__, :OutsideWindowAnswerOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :OutsideWindowAnswerStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 5_072}}}
+      end)
+
+    decision = request_dashboard_decision(store, "outside-window-answer", "reversible", now: ~U[2026-07-13 08:00:00Z])
+    add_newer_dashboard_decisions(store, decision, "outside-window-answer-newer")
+
+    refute Enum.any?(DecisionStore.recent_decisions(50, store), &(&1.decision_id == decision.decision_id))
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name,
+      control_center_cache: false,
+      dashboard_writable: true
+    )
+
+    {:ok, view, html} = live(build_conn(), "/decisions/#{decision.decision_id}")
+    assert html =~ "Answer this decision"
+
+    html =
+      render_submit(view, "answer-decision", %{
+        "decision_id" => decision.decision_id,
+        "answer" => %{"choice" => "option:ship", "rationale" => "The retained detail remains authoritative"}
+      })
+
+    assert html =~ "Answer recorded"
+
+    assert eventually(fn ->
+             {:ok, current} = DecisionStore.get(decision.decision_id, store)
+             not is_nil(current.answer)
+           end)
+  end
+
+  test "a writable revision uses selected retained detail outside the overview window" do
+    orchestrator_name = Module.concat(__MODULE__, :OutsideWindowRevisionOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :OutsideWindowRevisionStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 5_073}}}
+      end)
+
+    decision = request_dashboard_decision(store, "outside-window-revision", "reversible", now: ~U[2026-07-13 08:00:00Z])
+
+    assert {:ok, _accepted} =
+             DecisionStore.answer(
+               decision.decision_id,
+               %{"idempotency_key" => "outside-window-original", "expected_version" => decision.version, "option_id" => "ship"},
+               [actor: %{kind: :operator, id: "test"}],
+               store
+             )
+
+    add_newer_dashboard_decisions(store, decision, "outside-window-revision-newer")
+    refute Enum.any?(DecisionStore.recent_decisions(50, store), &(&1.decision_id == decision.decision_id))
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name,
+      control_center_cache: false,
+      dashboard_writable: true
+    )
+
+    {:ok, view, html} = live(build_conn(), "/decisions/#{decision.decision_id}")
+    assert html =~ "Revise decision"
+
+    html =
+      render_submit(view, "revise-decision", %{
+        "decision_id" => decision.decision_id,
+        "revision" => %{
+          "choice" => "custom",
+          "custom_response" => "Hold for the retained evidence",
+          "reason" => "The overview window advanced"
+        }
+      })
+
+    assert html =~ "Revision recorded"
+
+    assert eventually(fn ->
+             {:ok, current} = DecisionStore.get(decision.decision_id, store)
+             current.revision_sequence == 1
+           end)
+  end
+
+  test "an answer keeps the selected retained detail when a concurrent overview refresh omits it" do
+    orchestrator_name = Module.concat(__MODULE__, :StalePayloadAnswerOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :StalePayloadAnswerStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 5_074}}}
+      end)
+
+    decision = request_dashboard_decision(store, "stale-payload-answer", "reversible", now: ~U[2026-07-13 08:00:00Z])
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name,
+      control_center_cache: false,
+      dashboard_writable: true
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/decisions/#{decision.decision_id}")
+    add_newer_dashboard_decisions(store, decision, "stale-payload-answer-newer")
+    refute Enum.any?(DecisionStore.recent_decisions(50, store), &(&1.decision_id == decision.decision_id))
+    assert reload_view(view) =~ "Answer this decision"
+
+    html =
+      render_submit(view, "answer-decision", %{
+        "decision_id" => decision.decision_id,
+        "answer" => %{"choice" => "option:ship", "rationale" => "The direct selection remains current"}
+      })
+
+    assert html =~ "Answer recorded"
+  end
+
+  test "a revision keeps the selected retained detail when a concurrent overview refresh omits it" do
+    orchestrator_name = Module.concat(__MODULE__, :StalePayloadRevisionOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :StalePayloadRevisionStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 5_075}}}
+      end)
+
+    decision = request_dashboard_decision(store, "stale-payload-revision", "reversible", now: ~U[2026-07-13 08:00:00Z])
+
+    assert {:ok, _accepted} =
+             DecisionStore.answer(
+               decision.decision_id,
+               %{"idempotency_key" => "stale-payload-original", "expected_version" => decision.version, "option_id" => "ship"},
+               [actor: %{kind: :operator, id: "test"}],
+               store
+             )
+
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name,
+      control_center_cache: false,
+      dashboard_writable: true
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/decisions/#{decision.decision_id}")
+    add_newer_dashboard_decisions(store, decision, "stale-payload-revision-newer")
+    refute Enum.any?(DecisionStore.recent_decisions(50, store), &(&1.decision_id == decision.decision_id))
+    assert reload_view(view) =~ "Revise decision"
+
+    html =
+      render_submit(view, "revise-decision", %{
+        "decision_id" => decision.decision_id,
+        "revision" => %{
+          "choice" => "custom",
+          "custom_response" => "Retain the safer correction",
+          "reason" => "The overview changed while this detail stayed selected"
+        }
+      })
+
+    assert html =~ "Revision recorded"
+  end
+
+  test "an answer uses the rendered retained version when the overview has an older same-ID row" do
+    orchestrator_name = Module.concat(__MODULE__, :VersionedAnswerOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :VersionedAnswerStore)
+    detail_store_name = Module.concat(__MODULE__, :VersionedAnswerDetailStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 5_076}}}
+      end)
+
+    overview = request_dashboard_decision(store, "versioned-answer")
+
+    detail =
+      replace_dashboard_decision(store, overview,
+        question: "Destroy the active release?",
+        reversibility: "irreversible",
+        option_label: "Destroy the active release"
+      )
+
+    start_versioned_detail_store(detail_store_name, overview, detail)
+
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: detail_store_name,
+      control_center_cache: false,
+      dashboard_writable: true
+    )
+
+    {:ok, view, html} = live(build_conn(), "/decisions/#{detail.decision_id}")
+    assert html =~ "Destroy the active release?"
+    assert html =~ "Destroy the active release"
+    assert html =~ "I understand this decision is irreversible or destructive."
+    refute html =~ "Should the dashboard ship this change?"
+
+    html =
+      render_submit(view, "answer-decision", %{
+        "decision_id" => detail.decision_id,
+        "answer" => %{
+          "choice" => "option:ship",
+          "confirmed" => "true",
+          "rationale" => "The current retained detail is destructive"
+        }
+      })
+
+    assert html =~ "Answer recorded"
+
+    assert_receive {:versioned_detail_answer, decision_id, payload, _opts}
+    assert decision_id == detail.decision_id
+    assert payload["expected_version"] == detail.version
+  end
+
+  test "a revision uses the rendered retained version when the overview has an older same-ID row" do
+    orchestrator_name = Module.concat(__MODULE__, :VersionedRevisionOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :VersionedRevisionStore)
+    detail_store_name = Module.concat(__MODULE__, :VersionedRevisionDetailStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 5_077}}}
+      end)
+
+    overview = request_dashboard_decision(store, "versioned-revision")
+
+    assert {:ok, _accepted} =
+             DecisionStore.answer(
+               overview.decision_id,
+               %{
+                 "idempotency_key" => "versioned-revision-original",
+                 "expected_version" => overview.version,
+                 "option_id" => "ship"
+               },
+               [actor: %{kind: :operator, id: "test"}],
+               store
+             )
+
+    detail =
+      replace_dashboard_decision(store, overview,
+        question: "Destroy the active release after review?",
+        reversibility: "irreversible",
+        option_label: "Destroy the reviewed release"
+      )
+
+    start_versioned_detail_store(detail_store_name, overview, detail)
+
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: detail_store_name,
+      control_center_cache: false,
+      dashboard_writable: true
+    )
+
+    {:ok, view, html} = live(build_conn(), "/decisions/#{detail.decision_id}")
+    assert html =~ "Destroy the active release after review?"
+    assert html =~ "Destroy the reviewed release"
+    assert html =~ "I understand this revised direction is irreversible or destructive."
+    refute html =~ "Should the dashboard ship this change?"
+
+    html =
+      render_submit(view, "revise-decision", %{
+        "decision_id" => detail.decision_id,
+        "revision" => %{
+          "choice" => "option:ship",
+          "confirmed" => "true",
+          "reason" => "The retained version changes the operation"
+        }
+      })
+
+    assert html =~ "Revision recorded"
+
+    assert_receive {:versioned_detail_revision, decision_id, payload, _opts}
+    assert decision_id == detail.decision_id
+    assert payload["expected_version"] == detail.version
+    assert payload["expected_action_id"] == detail.active_action_id
+  end
+
+  test "a retained version refresh clears an answer draft and confirmation" do
+    orchestrator_name = Module.concat(__MODULE__, :AnswerRefreshOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :AnswerRefreshStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 5_079}}}
+      end)
+
+    initial = request_dashboard_decision(store, "answer-refresh", "irreversible")
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name,
+      control_center_cache: false,
+      control_center_reload_timer: fn pid, message, _delay -> send(pid, message) end,
+      dashboard_writable: true
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/decisions/#{initial.decision_id}")
+
+    draft_html =
+      render_change(view, "decision-action-change", %{
+        "decision_id" => initial.decision_id,
+        "answer" => %{
+          "choice" => "option:ship",
+          "confirmed" => "true",
+          "rationale" => "Draft from the old retained version"
+        }
+      })
+
+    assert draft_html =~ "Draft from the old retained version"
+    assert draft_html =~ ~s(name="answer[confirmed]" value="true" checked)
+
+    refreshed =
+      replace_dashboard_decision(store, initial,
+        question: "Destroy the refreshed answer target?",
+        reversibility: "irreversible",
+        option_label: "Destroy the refreshed target"
+      )
+
+    assert eventually(fn -> render(view) =~ "Destroy the refreshed answer target?" end, 80)
+    refreshed_html = render(view)
+    assert refreshed_html =~ "Destroy the refreshed answer target?"
+    refute refreshed_html =~ "Draft from the old retained version"
+    refute refreshed_html =~ ~s(name="answer[confirmed]" value="true" checked)
+
+    html =
+      render_submit(view, "answer-decision", %{
+        "decision_id" => refreshed.decision_id,
+        "answer" => %{
+          "choice" => "option:ship",
+          "confirmed" => "true",
+          "rationale" => "Confirmed after the retained refresh"
+        }
+      })
+
+    assert html =~ "Answer recorded"
+
+    assert eventually(fn ->
+             {:ok, current} = DecisionStore.get(refreshed.decision_id, store)
+             not is_nil(current.answer)
+           end)
+  end
+
+  test "a retained version refresh clears a revision draft and confirmation" do
+    orchestrator_name = Module.concat(__MODULE__, :RevisionRefreshOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :RevisionRefreshStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 5_080}}}
+      end)
+
+    overview = request_dashboard_decision(store, "revision-refresh", "irreversible")
+
+    assert {:ok, _accepted} =
+             DecisionStore.answer(
+               overview.decision_id,
+               %{
+                 "idempotency_key" => "revision-refresh-original",
+                 "expected_version" => overview.version,
+                 "option_id" => "ship"
+               },
+               [actor: %{kind: :operator, id: "test"}],
+               store
+             )
+
+    {:ok, initial} = DecisionStore.get(overview.decision_id, store)
+
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name,
+      control_center_cache: false,
+      control_center_reload_timer: fn pid, message, _delay -> send(pid, message) end,
+      dashboard_writable: true
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/decisions/#{initial.decision_id}")
+
+    draft_html =
+      render_change(view, "decision-revision-change", %{
+        "decision_id" => initial.decision_id,
+        "revision" => %{
+          "choice" => "option:ship",
+          "confirmed" => "true",
+          "reason" => "Draft from the old active action"
+        }
+      })
+
+    assert draft_html =~ "Draft from the old active action"
+    assert draft_html =~ ~s(name="revision[confirmed]" value="true" checked)
+
+    refreshed =
+      store
+      |> replace_dashboard_decision(initial,
+        question: "Destroy the refreshed revision target?",
+        reversibility: "irreversible",
+        option_label: "Destroy the refreshed revision target"
+      )
+
+    assert eventually(fn -> render(view) =~ "Destroy the refreshed revision target?" end, 80)
+    refreshed_html = render(view)
+    assert refreshed_html =~ "Destroy the refreshed revision target?"
+    refute refreshed_html =~ "Draft from the old active action"
+    refute refreshed_html =~ ~s(name="revision[confirmed]" value="true" checked)
+
+    html =
+      render_submit(view, "revise-decision", %{
+        "decision_id" => refreshed.decision_id,
+        "revision" => %{
+          "choice" => "option:ship",
+          "confirmed" => "true",
+          "reason" => "Confirmed after the retained refresh"
+        }
+      })
+
+    assert html =~ "Revision recorded"
+
+    assert eventually(fn ->
+             {:ok, current} = DecisionStore.get(refreshed.decision_id, store)
+             current.revision_sequence == 1
+           end)
+  end
+
+  test "a direct Decision route resolves once for each LiveView parameter pass" do
+    orchestrator_name = Module.concat(__MODULE__, :DirectRouteOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :DirectRouteStore)
+    counting_store_name = Module.concat(__MODULE__, :DirectRouteCountingStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 5_071}}}
+      end)
+
+    decision = request_dashboard_decision(store, "direct-route")
+
+    start_supervised!({CountingDetailStore, name: counting_store_name, store: decision_store_name})
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: counting_store_name
+    )
+
+    {:ok, _view, _html} = live(build_conn(), "/decisions/#{decision.decision_id}")
+
+    assert CountingDetailStore.retained_lookup_count(counting_store_name) == 2
+  end
+
+  test "a missing Decision URL stays distinct from a retained-store outage" do
+    orchestrator_name = Module.concat(__MODULE__, :MissingRetainedDetailOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :MissingRetainedDetailStore)
+
+    start_decision_store(decision_store_name, fn _decision, _opts -> {:ok, %{status: :accepted, item: %{id: 508}}} end)
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name
+    )
+
+    {:ok, _view, html} = live(build_conn(), "/decisions/dec-retained-missing")
+    assert html =~ "Decision not found"
+    assert html =~ "No retained decision matches dec-retained-missing."
+    refute html =~ "Decision unavailable"
   end
 
   test "malformed filter and agent-log events do not crash the dashboard" do
@@ -1830,7 +2771,7 @@ defmodule AiurWeb.DashboardLiveTest do
     start_supervised!({DecisionStore, Keyword.merge(defaults, opts)})
   end
 
-  defp request_dashboard_decision(store, source_id, reversibility \\ "reversible") do
+  defp request_dashboard_decision(store, source_id, reversibility \\ "reversible", opts \\ []) do
     assert {:ok, %{decision: decision}} =
              DecisionStore.request(
                %{
@@ -1848,18 +2789,68 @@ defmodule AiurWeb.DashboardLiveTest do
                  ],
                  "recommendation" => %{"option_id" => "ship", "reason" => "Checks are green"}
                },
-               [
-                 ticket: %{
-                   identifier: "AIUR-987",
-                   title: "Operator Control Center",
-                   url: "https://example.test/issues/987"
-                 },
-                 source: %{agent_id: "agent-987", session_id: "session-987", event_id: "event-#{source_id}"}
-               ],
+               Keyword.merge(
+                 [
+                   ticket: %{
+                     identifier: "AIUR-987",
+                     title: "Operator Control Center",
+                     url: "https://example.test/issues/987"
+                   },
+                   source: %{agent_id: "agent-987", session_id: "session-987", event_id: "event-#{source_id}"}
+                 ],
+                 opts
+               ),
                store
              )
 
     decision
+  end
+
+  defp add_newer_dashboard_decisions(store, decision, source_prefix) do
+    for index <- 1..50 do
+      request_dashboard_decision(
+        store,
+        "#{source_prefix}-#{index}",
+        "reversible",
+        now: DateTime.add(decision.created_at, index, :second)
+      )
+    end
+  end
+
+  defp replace_dashboard_decision(store, decision, attrs) do
+    assert {:ok, %{decision: replacement}} =
+             DecisionStore.request(
+               %{
+                 "source_id" => decision.source_id,
+                 "version" => decision.version + 1,
+                 "question" => Keyword.fetch!(attrs, :question),
+                 "blocking" => true,
+                 "urgency" => "critical",
+                 "reversibility" => Keyword.fetch!(attrs, :reversibility),
+                 "options" => [
+                   %{
+                     "id" => "ship",
+                     "label" => Keyword.fetch!(attrs, :option_label),
+                     "description" => "The option ID is intentionally reused with a different meaning"
+                   }
+                 ],
+                 "recommendation" => %{"option_id" => "ship", "reason" => "Current retained evidence"}
+               },
+               [ticket: decision.ticket, source: decision.source],
+               store
+             )
+
+    replacement
+  end
+
+  defp start_versioned_detail_store(name, overview, detail) do
+    opts = [name: name, overview: overview, detail: detail, report: self()]
+    start_supervised!({VersionedDetailStore, opts})
+  end
+
+  defp start_stale_detail_store(name, overview, detail_status) do
+    opts = [name: name, overview: overview, detail_status: detail_status, report: self()]
+    start_supervised!({StaleDetailStore, opts})
   end
 
   defp dashboard_decision(decision_id) do

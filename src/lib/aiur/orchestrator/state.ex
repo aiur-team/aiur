@@ -4,7 +4,12 @@ defmodule Aiur.Orchestrator.State do
   """
 
   alias Aiur.{AgentQueueStore, Issue}
-  alias Aiur.Orchestrator.{PauseResume, StatusReport}
+  alias Aiur.Orchestrator.{ControlLifecycle, PauseResume, StatusReport}
+
+  @default_dispatch_recovery %{
+    workspace_ownership: %{waits: %{}, ready: %{}},
+    codex_thrash_budget: %{}
+  }
 
   @type t :: %__MODULE__{
           poll_interval_ms: integer() | nil,
@@ -25,6 +30,7 @@ defmodule Aiur.Orchestrator.State do
           ci_lifecycle: %{
             approved_heads: map(),
             test_failure_heads: map(),
+            base_repair_invalidations: map(),
             poll_cache: map(),
             rewakes: map()
           },
@@ -32,8 +38,11 @@ defmodule Aiur.Orchestrator.State do
           running: map(),
           completed: MapSet.t(),
           claimed: MapSet.t(),
+          dispatch_recovery: %{
+            workspace_ownership: %{waits: map(), ready: map()},
+            codex_thrash_budget: map()
+          },
           retry_attempts: map(),
-          codex_thrash_budget: map(),
           model_fallback_waiting: MapSet.t(),
           agent_totals: map() | nil,
           agent_rate_limits: map() | nil,
@@ -45,9 +54,13 @@ defmodule Aiur.Orchestrator.State do
           github_comment_issue_updated_at: map(),
           github_command_scan_since: String.t() | nil,
           github_connectivity: map(),
-          github_poll_delays: map()
+          github_poll_delays: map(),
+          control_lifecycle: ControlLifecycle.t()
         }
 
+  # The Orchestrator is the single owner of the correlated control lifecycle;
+  # keeping that aggregate here avoids a second process/state authority.
+  # credo:disable-for-next-line Credo.Check.Warning.StructFieldAmount
   defstruct [
     :poll_interval_ms,
     :max_concurrent_agents,
@@ -61,13 +74,19 @@ defmodule Aiur.Orchestrator.State do
     load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil},
     queue_store: AgentQueueStore.new(),
     last_polled_issues: %{},
-    ci_lifecycle: %{approved_heads: %{}, test_failure_heads: %{}, poll_cache: %{}, rewakes: %{}},
+    ci_lifecycle: %{
+      approved_heads: %{},
+      test_failure_heads: %{},
+      base_repair_invalidations: %{},
+      poll_cache: %{},
+      rewakes: %{}
+    },
     todo_over_capacity_alert_active: false,
     running: %{},
     completed: MapSet.new(),
     claimed: MapSet.new(),
+    dispatch_recovery: @default_dispatch_recovery,
     retry_attempts: %{},
-    codex_thrash_budget: %{},
     model_fallback_waiting: MapSet.new(),
     agent_totals: nil,
     agent_rate_limits: nil,
@@ -79,7 +98,8 @@ defmodule Aiur.Orchestrator.State do
     github_comment_issue_updated_at: %{},
     github_command_scan_since: nil,
     github_connectivity: %{},
-    github_poll_delays: %{}
+    github_poll_delays: %{},
+    control_lifecycle: %ControlLifecycle{}
   ]
 
   @spec handle_worker_runtime_info(t(), String.t(), map()) :: {:noreply, t()}

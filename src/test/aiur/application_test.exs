@@ -93,10 +93,15 @@ defmodule Aiur.ApplicationTest do
       Aiur.ProcessReaper,
       Aiur.PauseContainment,
       Aiur.AgentResourceGuard,
+      Aiur.BuildOrder.TicketDetailCache,
+      Aiur.AppServer.ToolCallLedger,
+      Aiur.ProviderAccountGeneration,
       Aiur.DecisionMetrics.Writer,
       Aiur.DecisionMetrics,
       Aiur.GitHub.CodeOwners,
       Aiur.RecentMergeStore,
+      Aiur.CurrentRunMembership.Store,
+      Aiur.CurrentRunMembership.Reconciler,
       Aiur.Opencode.SessionSupervisor,
       Aiur.Opencode.BridgeSupervisor,
       Aiur.Opencode.TokenRegistry
@@ -161,6 +166,44 @@ defmodule Aiur.ApplicationTest do
       end
     end
 
+    test "ticket-detail cache starts after its task and workflow dependencies" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        mods = modules(AiurApp.child_specs(opts))
+        task_supervisor = Enum.find_index(mods, &(&1 == Task.Supervisor))
+        workflow_store = Enum.find_index(mods, &(&1 == Aiur.WorkflowStore))
+        detail_cache = Enum.find_index(mods, &(&1 == Aiur.BuildOrder.TicketDetailCache))
+
+        assert task_supervisor < detail_cache, "Task.Supervisor must precede ticket detail cache for #{inspect(opts)}"
+        assert workflow_store < detail_cache, "WorkflowStore must precede ticket detail cache for #{inspect(opts)}"
+      end
+    end
+
+    test "durable workspace ownership reconciles before runner tasks" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        specs = AiurApp.child_specs(opts)
+        task_supervisor = Enum.find_index(specs, &match?({Task.Supervisor, _}, &1))
+
+        ownership_registry =
+          Enum.find_index(specs, fn
+            {Registry, registry_opts} -> Keyword.get(registry_opts, :name) == Aiur.Workspace.Ownership.Registry
+            _other -> false
+          end)
+
+        ownership_store = Enum.find_index(specs, &(&1 == Aiur.Workspace.Ownership.Store))
+        ownership_reconciler = Enum.find_index(specs, &(&1 == Aiur.Workspace.Ownership.Reconciler))
+
+        assert ownership_store < ownership_registry
+        assert ownership_registry < ownership_reconciler
+        assert ownership_reconciler < task_supervisor
+      end
+    end
+
     test "TrackedSet owner starts before Orchestrator in both shapes" do
       for opts <- [
             [interactive_cli?: true, headless?: false, dashboard?: true],
@@ -170,6 +213,27 @@ defmodule Aiur.ApplicationTest do
         tracked_set = Enum.find_index(mods, &(&1 == Aiur.Orchestrator.TrackedSet))
         orchestrator = Enum.find_index(mods, &(&1 == Aiur.Orchestrator))
         assert tracked_set < orchestrator, "TrackedSet must precede Orchestrator for #{inspect(opts)}"
+      end
+    end
+
+    test "the shared test orchestrator starts without a poll cycle" do
+      specs = AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false)
+
+      assert {Aiur.Orchestrator, initial_poll?: false} in specs
+    end
+
+    test "current-run membership starts before the orchestrator and reconciles after it" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        mods = modules(AiurApp.child_specs(opts))
+        membership_store = Enum.find_index(mods, &(&1 == Aiur.CurrentRunMembership.Store))
+        orchestrator = Enum.find_index(mods, &(&1 == Aiur.Orchestrator))
+        reconciler = Enum.find_index(mods, &(&1 == Aiur.CurrentRunMembership.Reconciler))
+
+        assert membership_store < orchestrator, "membership store must precede Orchestrator for #{inspect(opts)}"
+        assert orchestrator < reconciler, "membership reconciler must follow Orchestrator for #{inspect(opts)}"
       end
     end
 
@@ -199,6 +263,20 @@ defmodule Aiur.ApplicationTest do
 
         assert merge_store < orchestrator,
                "RecentMergeStore must precede Orchestrator for #{inspect(opts)}"
+      end
+    end
+
+    test "branch ref persistence loads before the orchestrator" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        mods = modules(AiurApp.child_specs(opts))
+        ref_store = Enum.find_index(mods, &(&1 == Aiur.Events.BranchRefStore))
+        orchestrator = Enum.find_index(mods, &(&1 == Aiur.Orchestrator))
+
+        assert ref_store < orchestrator,
+               "BranchRefStore must precede Orchestrator for #{inspect(opts)}"
       end
     end
 

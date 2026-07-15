@@ -4,6 +4,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
   import Phoenix.LiveViewTest, only: [render_component: 2]
 
   alias AiurWeb.OperatorControlCenter.{
+    BuildOrderGraph,
     DecisionAction,
     DecisionDetail,
     DecisionInbox,
@@ -15,6 +16,47 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     LifecycleComponents,
     Overview
   }
+
+  test "renders semantic graph cards and preserves every dependency state in the fallback summary" do
+    html =
+      render_component(&BuildOrderGraph.build_order_graph/1, %{
+        id: "build-order-graph",
+        root_id: "root-1",
+        provider_generation: 4,
+        dom_generation: 8,
+        layout_assets: %{client: "/client.js", worker: "/worker.js", engine: "/engine.js"},
+        nodes: [
+          %{id: "BO-010", title: "DOM and SVG layout", summary: "Keep cards semantic.", lane: 0, phase: 3},
+          %{id: "BO-012", title: "Graph markup", lane: 1, phase: 4}
+        ],
+        edges: [
+          %{id: "edge-cleared", source: "BO-010", target: "BO-012", state: :cleared},
+          %{id: "edge-blocking", source: "BO-012", target: "BO-010", state: :blocking},
+          %{id: "edge-terminal", source: "BO-010", target: "BO-404", state: :terminal_unsatisfied},
+          %{id: "edge-unknown", source: "BO-404", target: "BO-010", state: :unknown},
+          %{id: "edge-cycle", source: "BO-012", target: "BO-012", state: :cyclic}
+        ]
+      })
+
+    assert html =~ ~s(phx-hook="DomSvgLayout")
+    assert html =~ ~s(data-layout-root-id="root-1")
+    assert html =~ ~s(data-layout-provider-generation="4")
+    assert html =~ ~s(data-layout-dom-generation="8")
+    assert html =~ ~s(data-layout-adapter-url="/aiur-dom-svg-layout-adapter.js")
+    assert html =~ ~s(data-layout-node-id="BO-010")
+    assert html =~ ~s(data-layout-card-header)
+    assert html =~ ~s(aria-hidden="true")
+    assert html =~ "Cleared"
+    assert html =~ "Blocking"
+    assert html =~ "Terminal unsatisfied"
+    assert html =~ "Unknown"
+    assert html =~ "Cyclic"
+    assert html =~ "is clear of"
+    assert html =~ "leaves terminally unsatisfied"
+    assert html =~ "has an unknown dependency relation to"
+    assert html =~ "is cyclic with"
+    assert html =~ "Using readable document-flow layout."
+  end
 
   test "renders delivery failure and supersession as explicit lifecycle overrides" do
     failed = render_component(&LifecycleComponents.lifecycle_stepper/1, %{lifecycle: :delivery_failed})
@@ -172,15 +214,24 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert filtered_html =~ "AIUR-5"
   end
 
-  test "decision banner targets an open decision and hides when none await input" do
+  test "decision banner uses canonical retained counts and hides when none await input" do
     answered = %{decision_id: "dec-answered", blocking: true, lifecycle: :resolved}
     open = %{decision_id: "dec-open", blocking: false, lifecycle: :recorded}
 
-    html = render_component(&Overview.decisions_banner/1, %{decisions: [answered, open]})
-    empty_html = render_component(&Overview.decisions_banner/1, %{decisions: [answered]})
+    html =
+      render_component(&Overview.decisions_banner/1, %{
+        decisions: [answered, open],
+        retained_counts: %{open: 1, blocking: 0, health: %{status: :available}}
+      })
 
-    assert html =~ ~s(href="/decisions/dec-open")
-    refute html =~ ~s(href="/decisions/dec-answered")
+    empty_html =
+      render_component(&Overview.decisions_banner/1, %{
+        decisions: [answered],
+        retained_counts: %{open: 0, blocking: 0, health: %{status: :available}}
+      })
+
+    assert html =~ ~s(href="/decisions")
+    assert html =~ "1 decision is awaiting you"
     refute empty_html =~ "decisions-banner"
   end
 
@@ -204,6 +255,19 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
 
     assert html =~ "Decision history is degraded"
     refute html =~ "currently unavailable"
+  end
+
+  test "Decision inbox primary filter chips use canonical retained counts" do
+    html =
+      render_inbox(
+        [inbox_decision("dec-overview-only")],
+        :all,
+        %{total: 701, open: 503, blocking: 401}
+      )
+
+    assert html =~ ~r/All\s+<span class="count num">701<\/span>/
+    assert html =~ ~r/Open\s+<span class="count num">503<\/span>/
+    assert html =~ ~r/Blocking\s+<span class="count num">401<\/span>/
   end
 
   test "renders a writable canonical answer form with destructive confirmation" do
@@ -471,7 +535,15 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     Map.merge(defaults, Map.new(attrs))
   end
 
-  defp render_inbox(decisions, filter) do
+  defp render_inbox(decisions, filter, retained_counts \\ nil) do
+    retained_counts =
+      retained_counts ||
+        %{
+          total: length(decisions),
+          open: Enum.count(decisions, &(&1.decision_status == :open)),
+          blocking: Enum.count(decisions, &(&1.blocking and &1.decision_status == :open))
+        }
+
     render_component(&DecisionInbox.decision_inbox/1, %{
       decisions: decisions,
       selected_decision_id: nil,
@@ -480,7 +552,8 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
       history: [],
       action_states: %{},
       writable: false,
-      provider_health: :ok
+      provider_health: :ok,
+      retained_counts: retained_counts
     })
   end
 end

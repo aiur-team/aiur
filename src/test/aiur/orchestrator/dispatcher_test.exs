@@ -3,7 +3,9 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
   import ExUnit.CaptureLog
 
+  alias Aiur.AgentRunner.{SessionLifecycle, ToolExecutor}
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, State}
+  alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
 
   setup do
     previous_meminfo = Application.get_env(:aiur, :meminfo_source_override)
@@ -20,6 +22,15 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
     :ok
   end
+
+  defp dispatch_recovery(codex_thrash_budget) do
+    %{
+      workspace_ownership: %{waits: %{}, ready: %{}},
+      codex_thrash_budget: codex_thrash_budget
+    }
+  end
+
+  defp thrash_budget(state), do: state.dispatch_recovery.codex_thrash_budget
 
   describe "CPU headroom recovery integration" do
     test "a second CPU sample re-ramps and consumes restored slots in the same poll" do
@@ -132,7 +143,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
   describe "check_thrash_budget/3" do
     test "counts dispatches within window and trips over the threshold" do
-      state = %State{codex_thrash_budget: %{}}
+      state = %State{}
       issue_id = "issue-1"
       now_ms = 0
       # Default threshold is 6; 7 calls should trip
@@ -145,49 +156,189 @@ defmodule Aiur.Orchestrator.DispatcherTest do
         end)
 
       assert result == :trip
-      assert get_in(state.codex_thrash_budget, [issue_id, :count]) == 7
+      assert get_in(thrash_budget(state), [issue_id, :count]) == 6
+      assert get_in(thrash_budget(state), [issue_id, :tripped]) == :window
     end
 
     test "resets the window when enough time has lapsed" do
       state = %State{
-        codex_thrash_budget: %{
-          "issue-1" => %{window_start_ms: 0, count: 10}
-        }
+        dispatch_recovery: dispatch_recovery(%{"issue-1" => %{window_start_ms: 0, count: 10}})
       }
 
       # 61_000ms > default 60-second window
       assert {:ok, next_state} =
                Dispatcher.check_thrash_budget(state, "issue-1", 61_000)
 
-      assert get_in(next_state.codex_thrash_budget, ["issue-1", :count]) == 1
-      assert get_in(next_state.codex_thrash_budget, ["issue-1", :window_start_ms]) == 61_000
+      assert get_in(thrash_budget(next_state), ["issue-1", :count]) == 1
+      assert get_in(thrash_budget(next_state), ["issue-1", :window_start_ms]) == 61_000
     end
 
     test "accumulates count within the same window" do
       state = %State{
-        codex_thrash_budget: %{
-          "issue-1" => %{window_start_ms: 0, count: 2}
-        }
+        dispatch_recovery: dispatch_recovery(%{"issue-1" => %{window_start_ms: 0, count: 2}})
       }
 
       assert {:ok, next_state} = Dispatcher.check_thrash_budget(state, "issue-1", 1_000)
-      assert get_in(next_state.codex_thrash_budget, ["issue-1", :count]) == 3
+      assert get_in(thrash_budget(next_state), ["issue-1", :count]) == 3
     end
   end
 
   describe "reset_thrash_budget/2" do
     test "removes the entry for the given issue_id" do
       state = %State{
-        codex_thrash_budget: %{
-          "issue-1" => %{window_start_ms: 0, count: 5},
-          "issue-2" => %{window_start_ms: 0, count: 1}
-        }
+        dispatch_recovery:
+          dispatch_recovery(%{
+            "issue-1" => %{window_start_ms: 0, count: 5},
+            "issue-2" => %{window_start_ms: 0, count: 1}
+          })
       }
 
       result = Dispatcher.reset_thrash_budget(state, "issue-1")
 
-      refute Map.has_key?(result.codex_thrash_budget, "issue-1")
-      assert Map.has_key?(result.codex_thrash_budget, "issue-2")
+      refute Map.has_key?(thrash_budget(result), "issue-1")
+      assert Map.has_key?(thrash_budget(result), "issue-2")
+    end
+  end
+
+  describe "dispatch attempt provenance" do
+    test "consumes the ownership wakeup envelope when redispatching" do
+      issue = %Issue{id: "ownership-envelope", identifier: "repo#ownership-envelope", state: "todo", selected_backend: "codex"}
+      test_pid = self()
+      write_workflow_file!(Workflow.workflow_file_path(), worker_ssh_hosts: ["worker-a"])
+
+      runner = fn dispatched_issue, recipient, opts ->
+        send(test_pid, {:agent_runner_run, dispatched_issue, recipient, opts})
+        :ok
+      end
+
+      state = %State{
+        max_concurrent_agents: 1,
+        effective_concurrent_agents: 1,
+        dispatch_recovery: %{
+          workspace_ownership: %{
+            waits: %{},
+            ready: %{
+              issue.id => %{
+                issue_id: issue.id,
+                worker_host: "worker-a",
+                retry_attempt: 3,
+                prior_work: true,
+                tracker_identity: "repo#ownership-envelope"
+              }
+            }
+          },
+          codex_thrash_budget: %{}
+        }
+      }
+
+      next_state = Dispatcher.do_dispatch_issue(state, issue, nil, nil, runner: runner)
+
+      assert_receive {:agent_runner_run, ^issue, _recipient, runner_opts}
+      assert Keyword.fetch!(runner_opts, :worker_host) == "worker-a"
+      assert Keyword.fetch!(runner_opts, :attempt) == 3
+      assert Keyword.fetch!(runner_opts, :prior_work) == true
+      assert next_state.dispatch_recovery.workspace_ownership.ready == %{}
+    end
+
+    test "telemetry-disabled dispatch options reach accepted Decision provenance" do
+      identifier = "dispatcher-decision-#{System.unique_integer([:positive])}"
+      issue = %Issue{id: identifier, identifier: identifier, state: "todo", selected_backend: "codex"}
+      test_pid = self()
+
+      refute TelemetryLifecycle.enabled?()
+
+      runner = fn dispatched_issue, recipient, opts ->
+        send(test_pid, {:agent_runner_run, dispatched_issue, recipient, opts})
+        :ok
+      end
+
+      state = %State{max_concurrent_agents: 1, effective_concurrent_agents: 1}
+
+      next_state = Dispatcher.do_dispatch_issue(state, issue, nil, nil, runner: runner)
+
+      assert_receive {:agent_runner_run, ^issue, _recipient, runner_opts}
+      assert attempt_id = Keyword.fetch!(runner_opts, :telemetry_attempt_id)
+      assert is_binary(attempt_id)
+      assert get_in(next_state.running, [issue.id, :telemetry_attempt_id]) == attempt_id
+
+      start_fun = fn _workspace, _opts -> {:ok, %{model: "gpt-5.6-terra", thread_id: "thread-dispatch"}} end
+
+      {_session_backend, _remote_control?, session_opts} =
+        SessionLifecycle.resolve_session_options(issue, runner_opts, nil)
+
+      assert Keyword.fetch!(session_opts, :attempt_id) == attempt_id
+
+      assert {:ok, session} =
+               SessionLifecycle.start_agent_session(
+                 "/ws",
+                 session_opts,
+                 start_fun
+               )
+
+      executor = ToolExecutor.build(issue, nil, nil, session)
+
+      assert executor.("emit_event", %{
+               "name" => "decision.requested",
+               "message" => "Keep the dispatch attempt?",
+               "payload" => %{"blocking" => true}
+             })["success"] == true
+
+      [decision] = Aiur.DecisionStore.list() |> Enum.filter(&(&1.ticket.identifier == identifier))
+      assert decision.provenance.attempt_id == attempt_id
+    end
+
+    test "identifier-less dispatch hashes the stable issue ID for its attempt identity" do
+      issue_id = "memory-dispatch-#{System.unique_integer([:positive])}"
+      issue = %Issue{id: issue_id, identifier: nil, state: "todo", selected_backend: "codex"}
+      test_pid = self()
+
+      refute TelemetryLifecycle.enabled?()
+
+      runner = fn dispatched_issue, recipient, opts ->
+        send(test_pid, {:agent_runner_run, dispatched_issue, recipient, opts})
+        :ok
+      end
+
+      state = %State{max_concurrent_agents: 1, effective_concurrent_agents: 1}
+
+      next_state = Dispatcher.do_dispatch_issue(state, issue, nil, nil, runner: runner)
+
+      assert_receive {:agent_runner_run, ^issue, _recipient, runner_opts}
+      assert attempt_id = Keyword.fetch!(runner_opts, :telemetry_attempt_id)
+      expected_ticket = "ticket-" <> (:crypto.hash(:sha256, issue_id) |> Base.encode16(case: :lower))
+
+      assert String.starts_with?(attempt_id, "#{expected_ticket}:")
+      refute String.contains?(attempt_id, issue_id)
+      assert get_in(next_state.running, [issue.id, :telemetry_attempt_id]) == attempt_id
+    end
+
+    test "unsafe, empty, and overlong tracker identifiers reach durable Decision provenance" do
+      cases = [
+        {"unsafe", "repo#1 ticket/123"},
+        {"empty", ""},
+        {"overlong", String.duplicate("tracker-identifier-", 20)}
+      ]
+
+      attempt_tickets =
+        Enum.map(cases, fn {label, identifier} ->
+          issue_id = "memory-#{label}-#{System.unique_integer([:positive])}"
+          issue = %Issue{id: issue_id, identifier: identifier, state: "todo", selected_backend: "codex"}
+
+          {attempt_id, decision} = dispatch_decision!(issue)
+          dispatch_identity = if identifier == "", do: issue_id, else: identifier
+          expected_ticket = "ticket-" <> (:crypto.hash(:sha256, dispatch_identity) |> Base.encode16(case: :lower))
+
+          assert decision.provenance.attempt_id == attempt_id
+          assert byte_size(attempt_id) <= 256
+          assert [^expected_ticket, suffix] = String.split(attempt_id, ":", parts: 2)
+          assert suffix =~ ~r/\A[A-Za-z0-9_-]+\z/
+
+          if identifier != "", do: refute(String.contains?(attempt_id, identifier))
+
+          expected_ticket
+        end)
+
+      assert length(Enum.uniq(attempt_tickets)) == length(attempt_tickets)
     end
   end
 
@@ -211,22 +362,20 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       }
 
       assert :ok = Dispatcher.redispatch_ready?(state, issue, "worker-a", now_ms: 1_000)
-      assert state.codex_thrash_budget == %{}
+      assert thrash_budget(state) == %{}
     end
 
     test "rejects a swap before teardown when the next restart would trip thrash protection" do
       issue = %Issue{id: "issue-1", identifier: "repo#1", selected_backend: "claude"}
 
       state = %State{
-        codex_thrash_budget: %{
-          issue.id => %{window_start_ms: 0, count: 6}
-        }
+        dispatch_recovery: dispatch_recovery(%{issue.id => %{window_start_ms: 0, count: 6}})
       }
 
       assert {:error, :thrash_circuit_open} =
                Dispatcher.redispatch_ready?(state, issue, nil, now_ms: 1_000)
 
-      assert get_in(state.codex_thrash_budget, [issue.id, :count]) == 6
+      assert get_in(thrash_budget(state), [issue.id, :count]) == 6
     end
 
     test "does not silently migrate a remote workspace when its worker is unavailable" do
@@ -256,6 +405,49 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   end
 
   defp issue(id), do: %Issue{id: id, identifier: "repo##{id}", title: id, state: "todo"}
+
+  defp dispatch_decision!(issue) do
+    test_pid = self()
+
+    runner = fn dispatched_issue, recipient, opts ->
+      send(test_pid, {:agent_runner_run, dispatched_issue, recipient, opts})
+      :ok
+    end
+
+    next_state =
+      Dispatcher.do_dispatch_issue(
+        %State{max_concurrent_agents: 1, effective_concurrent_agents: 1},
+        issue,
+        nil,
+        nil,
+        runner: runner
+      )
+
+    assert_receive {:agent_runner_run, ^issue, _recipient, runner_opts}
+    attempt_id = Keyword.fetch!(runner_opts, :telemetry_attempt_id)
+    assert get_in(next_state.running, [issue.id, :telemetry_attempt_id]) == attempt_id
+
+    {_session_backend, _remote_control?, session_opts} =
+      SessionLifecycle.resolve_session_options(issue, runner_opts, nil)
+
+    assert {:ok, session} =
+             SessionLifecycle.start_agent_session(
+               "/ws",
+               session_opts,
+               fn _workspace, _opts -> {:ok, %{model: "gpt-5.6-terra", thread_id: "thread-dispatch"}} end
+             )
+
+    executor = ToolExecutor.build(issue, nil, nil, session)
+
+    assert executor.("emit_event", %{
+             "name" => "decision.requested",
+             "message" => "Keep the dispatch attempt?",
+             "payload" => %{"blocking" => true}
+           })["success"] == true
+
+    [decision] = Aiur.DecisionStore.list() |> Enum.filter(&(&1.ticket.identifier == issue.id))
+    {attempt_id, decision}
+  end
 
   defp running_entry(id) do
     %{issue: issue(id), control: %{status: :working}, worker_host: nil}

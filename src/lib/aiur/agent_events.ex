@@ -65,18 +65,24 @@ defmodule Aiur.AgentEvents do
           optional(:work_state) => atom() | String.t(),
           optional(:pause_reason) => atom() | String.t(),
           optional(:tracker_paused) => boolean(),
+          optional(:tracker_identity) => Aiur.TrackerIdentity.t(),
           optional(:backend) => String.t(),
           optional(:model) => String.t()
         }
 
   @type transcript_message :: {:transcript_event, transcript_event()}
   @type alert_message :: {:alert, alert_event()}
+  @type control_lifecycle_message :: {:control_lifecycle, map()}
   @type running_change_message :: {:running_changed, [agent_summary()]}
   @type status_change_message :: {:status_changed, %{identifier: agent_identifier(), status: atom()}}
 
   @typedoc "Any message that may be received on a Aiur agent topic."
   @type message ::
-          transcript_message() | alert_message() | running_change_message() | status_change_message()
+          transcript_message()
+          | alert_message()
+          | control_lifecycle_message()
+          | running_change_message()
+          | status_change_message()
 
   @doc """
   Canonical short tag name for a transcript role. Used by the
@@ -148,7 +154,8 @@ defmodule Aiur.AgentEvents do
   @doc """
   Build an `agent_summary` map and merge in the optional `extras`
   fields (`:tag`, `:title`, `:runtime_seconds`, `:turn_count`,
-  `:work_state`, `:pause_reason`, `:tracker_paused`, `:backend`, `:model`).
+  `:work_state`, `:pause_reason`, `:tracker_paused`, `:tracker_identity`,
+  `:backend`, `:model`).
   Extras with `nil` values are
   filtered so callers can unconditionally pass `Map.get(entry, :title)`
   (or an unpinned `CodingAgent.model_for/1`) without polluting the

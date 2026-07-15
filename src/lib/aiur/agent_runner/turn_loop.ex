@@ -88,12 +88,13 @@ defmodule Aiur.AgentRunner.TurnLoop do
         on_message: message_handler,
         on_safe_checkpoint: safe_checkpoint_handler,
         on_operator_message: CheckpointDelivery.operator_immediate_handler(issue, orchestrator),
-        tool_executor: ToolExecutor.build(issue, workspace, worker_host, app_session)
+        tool_executor: ToolExecutor.build(issue, workspace, worker_host, app_session, attempt_id: lifecycle_attempt_id)
       )
 
     record_implementation_end(issue, lifecycle_attempt_id, operation_id, turn_number, result)
 
     TurnStreams.close(issue, aiur_turn_id, turn_done_reason(result))
+    backend = SessionLifecycle.session_backend(app_session)
 
     case result do
       {:ok, turn_session} ->
@@ -116,7 +117,8 @@ defmodule Aiur.AgentRunner.TurnLoop do
                  issue,
                  message_handler,
                  orchestrator,
-                 codex_update_recipient
+                 codex_update_recipient,
+                 opts
                ) do
           finalize_turn_completion(turn_context, app_session, turn_session)
         end
@@ -142,6 +144,24 @@ defmodule Aiur.AgentRunner.TurnLoop do
         Aiur.AgentRunner.write_pause_log(workspace, worker_host)
         MessageHandler.send_control_state(codex_update_recipient, issue, :paused, pause_payload)
         wait_for_resume(turn_context, app_session, message_handler)
+
+      {:error, :port_closed} = error when backend == "codex" ->
+        best_effort_queue_bookkeeping(
+          Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier),
+          :restore,
+          issue
+        )
+
+        error
+
+      {:error, {:port_exit, _status}} = error when backend == "codex" ->
+        best_effort_queue_bookkeeping(
+          Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier),
+          :restore,
+          issue
+        )
+
+        error
 
       {:error, reason} ->
         TurnAlerts.maybe_emit_more_tokens_alert(issue, workspace, worker_host, reason)
@@ -240,7 +260,8 @@ defmodule Aiur.AgentRunner.TurnLoop do
     %{
       issue: issue,
       orchestrator: orchestrator,
-      codex_update_recipient: codex_update_recipient
+      codex_update_recipient: codex_update_recipient,
+      opts: opts
     } = turn_context
 
     with :ok <-
@@ -249,7 +270,8 @@ defmodule Aiur.AgentRunner.TurnLoop do
              issue,
              message_handler,
              orchestrator,
-             codex_update_recipient
+             codex_update_recipient,
+             opts
            ) do
       continue_after_resume(turn_context, app_session)
     end

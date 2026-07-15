@@ -60,7 +60,7 @@ defmodule Aiur.GitHub.Transport do
         etag -> [{"If-None-Match", etag} | github_headers(token, req)]
       end
 
-    Req.get(url, headers: headers, connect_options: [timeout: 30_000])
+    Req.get(url, request_options(headers, req))
   end
 
   def default_request_fun(%{method: :post, url: url, token: token, body: body} = req) do
@@ -83,6 +83,39 @@ defmodule Aiur.GitHub.Transport do
     Req.delete(url, headers: github_headers(token, req), connect_options: [timeout: 30_000])
   end
 
+  defp request_options(headers, req) do
+    options = Application.get_env(:aiur, :github_transport_test_options, [])
+    options = if is_list(options) and Keyword.keyword?(options), do: options, else: []
+
+    options
+    |> Keyword.merge(headers: headers, connect_options: [timeout: 30_000])
+    |> maybe_bound_response(req)
+  end
+
+  defp maybe_bound_response(options, %{max_response_bytes: limit})
+       when is_integer(limit) and limit > 0 do
+    Keyword.put(options, :into, bounded_response_collector(limit))
+  end
+
+  defp maybe_bound_response(options, _req), do: options
+
+  defp bounded_response_collector(limit) do
+    fn {:data, data}, {request, response} ->
+      body = [response.body, data] |> IO.iodata_to_binary()
+
+      if byte_size(body) <= limit do
+        {:cont, {request, %{response | body: body}}}
+      else
+        response =
+          response
+          |> Map.put(:body, "")
+          |> Req.Response.put_private(:aiur_response_too_large, true)
+
+        {:halt, {request, response}}
+      end
+    end
+  end
+
   @spec github_headers(String.t(), map()) :: [{String.t(), String.t()}]
   def github_headers(token, %{api_version: version}) when is_binary(version) do
     [
@@ -102,22 +135,57 @@ defmodule Aiur.GitHub.Transport do
 
   @spec github_graphql(function(), String.t(), String.t(), map()) :: {:ok, map()} | {:error, term()}
   def github_graphql(request_fun, token, query, variables) do
-    body = %{"query" => query, "variables" => variables}
+    case github_graphql_response(request_fun, token, query, variables) do
+      {:ok, body, _response} ->
+        {:ok, body}
 
-    case request_fun.(%{method: :post, url: @graphql_url, token: token, body: body}) do
-      {:ok, %{status: 200, body: %{"errors" => errors}}} ->
+      {:error, :invalid_graphql_response, _response} ->
+        {:error, :invalid_graphql_response}
+
+      {:error, _reason, %{status: 200, body: %{"errors" => errors}}} when is_list(errors) ->
         {:error, {:github_graphql_errors, errors}}
 
-      {:ok, %{status: 200, body: response}} when is_map(response) ->
-        {:ok, response}
-
-      {:ok, %{status: _status} = response} ->
+      {:error, {:github, _classification, _detail}, %{status: _status} = response} ->
         {:error, Errors.github_status_error(response)}
 
-      {:error, reason} ->
-        {:error, Errors.classify_error({:error, reason})}
+      {:error, reason, _response} ->
+        {:error, reason}
     end
   end
+
+  @spec github_graphql_response(function(), String.t(), String.t(), map()) ::
+          {:ok, map(), map()} | {:error, term(), map() | nil}
+  def github_graphql_response(request_fun, token, query, variables) do
+    body = %{"query" => query, "variables" => variables}
+    request = %{method: :post, url: @graphql_url, token: token, body: body}
+    validate_graphql_response(request_fun.(request))
+  end
+
+  defp validate_graphql_response({:ok, response}), do: validate_graphql_http_response(response)
+  defp validate_graphql_response({:error, reason}), do: {:error, Errors.classify_error({:error, reason}), nil}
+  defp validate_graphql_response(_response), do: {:error, :invalid_graphql_response, nil}
+
+  defp validate_graphql_http_response(%{status: 200} = response), do: validate_graphql_success(response)
+
+  defp validate_graphql_http_response(%{status: status} = response)
+       when is_integer(status) and status in 100..599 do
+    {:error, Errors.github_graph_status_error(response), response}
+  end
+
+  defp validate_graphql_http_response(%{} = response), do: {:error, :invalid_graphql_response, response}
+  defp validate_graphql_http_response(_response), do: {:error, :invalid_graphql_response, nil}
+
+  defp validate_graphql_success(%{body: %{"errors" => errors}} = response) do
+    if valid_graphql_errors?(errors),
+      do: {:error, Errors.graphql_error(response), response},
+      else: {:error, :invalid_graphql_response, response}
+  end
+
+  defp validate_graphql_success(%{body: body} = response) when is_map(body), do: {:ok, body, response}
+  defp validate_graphql_success(response), do: {:error, :invalid_graphql_response, response}
+
+  defp valid_graphql_errors?(errors) when is_list(errors) and errors != [], do: Enum.all?(errors, &is_map/1)
+  defp valid_graphql_errors?(_errors), do: false
 
   @spec fetch_json_list(function(), String.t(), String.t()) :: {:ok, [term()]} | {:error, term()}
   def fetch_json_list(request_fun, token, url) do
@@ -166,7 +234,7 @@ defmodule Aiur.GitHub.Transport do
   def maybe_put_query(query, _key, nil), do: query
   def maybe_put_query(query, key, value), do: Map.put(query, key, value)
 
-  @spec header(list() | map(), String.t()) :: term() | nil
+  @spec header(term(), String.t()) :: term() | nil
   def header(headers, name) when is_list(headers) do
     name_down = String.downcase(name)
 
@@ -190,6 +258,8 @@ defmodule Aiur.GitHub.Transport do
       end
     end)
   end
+
+  def header(_headers, _name), do: nil
 
   @spec poll_interval(list() | map()) :: pos_integer()
   def poll_interval(headers) do

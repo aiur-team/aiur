@@ -10,6 +10,7 @@ defmodule Aiur.AgentRunner do
   alias Aiur.AgentRunner.{SessionLifecycle, SessionResume, TurnLoop, TurnPrompt, TurnStreams}
   alias Aiur.Opencode.ApiClient
   alias Aiur.RunTelemetry.Lifecycle
+  alias Aiur.Workspace.Ownership
 
   @type worker_host :: String.t() | nil
 
@@ -30,7 +31,7 @@ defmodule Aiur.AgentRunner do
         :ok
 
       {:error, reason} ->
-        if transient_run_error?(reason) do
+        if transient_run_error?(reason, CodingAgent.backend_for(issue)) do
           Logger.warning("Agent run interrupted by transient condition for #{issue_context(issue)}: #{inspect(reason)}; exiting cleanly to re-dispatch with a fresh session")
           :ok
         else
@@ -53,11 +54,26 @@ defmodule Aiur.AgentRunner do
   # way: a single paste that the pane could not confirm (RC input contention,
   # a slow render) must not tear down an otherwise-healthy agent and crash the
   # run. Re-dispatch with a fresh pane instead of hard-failing.
+  #
+  # A retired Codex app-server port (`:port_closed` or `{:port_exit, status}`)
+  # means the current generation cannot finish its response. Its delivered
+  # queue work is restored before this reaches the runner, so a clean exit lets
+  # the orchestrator replace the generation and drain that work exactly once.
   @doc false
   @spec transient_run_error?(term()) :: boolean()
   def transient_run_error?(:repl_gone), do: true
   def transient_run_error?(:prompt_not_delivered), do: true
+  def transient_run_error?(:port_closed), do: true
+  def transient_run_error?({:port_exit, status}) when is_integer(status), do: true
   def transient_run_error?(_reason), do: false
+
+  @doc false
+  @spec transient_run_error?(term(), String.t()) :: boolean()
+  def transient_run_error?(:port_closed, "codex"), do: true
+  def transient_run_error?(:port_closed, _backend), do: false
+  def transient_run_error?({:port_exit, status}, "codex") when is_integer(status), do: true
+  def transient_run_error?({:port_exit, status}, _backend) when is_integer(status), do: false
+  def transient_run_error?(reason, _backend), do: transient_run_error?(reason)
 
   defp run_on_worker_host(issue, codex_update_recipient, opts, worker_host) do
     Logger.info("Starting worker attempt for #{issue_context(issue)} worker_host=#{worker_host_for_log(worker_host)}")
@@ -75,11 +91,53 @@ defmodule Aiur.AgentRunner do
 
     lifecycle = %{ticket: issue.identifier, attempt_id: attempt_id}
 
+    telemetry_fun = fn ownership, boundary, outcome ->
+      record_workspace_ownership(issue, opts, boundary, outcome, ownership)
+    end
+
+    case Ownership.claim(issue.identifier, Aiur.Workspace.Ownership.Registry, telemetry_fun: telemetry_fun) do
+      {:ok, ownership} ->
+        try do
+          run_owned_worker_attempt(ownership, issue, codex_update_recipient, opts, worker_host, lifecycle)
+        after
+          # The release request is intentionally distinct from the terminal
+          # ownership boundary. A guardian may still be reaping a provider;
+          # declaring the workspace free before registry removal would make
+          # lifecycle telemetry lie about the generation that owns the cwd.
+          case Ownership.release_and_wait(ownership) do
+            {:ok, _released_ownership} ->
+              :ok
+
+            {:error, reason} ->
+              Logger.warning("workspace ownership remains contained after release request issue=#{issue.identifier} reason=#{inspect(reason)}")
+          end
+        end
+
+      {:error, {:workspace_owned, owner}} ->
+        record_workspace_ownership_conflict(issue, opts, owner)
+        record_workspace_setup_end(issue, opts, :contended, :workspace_owned)
+
+        wait =
+          if is_pid(codex_update_recipient) do
+            Ownership.wait_for_release(issue.identifier, codex_update_recipient)
+          else
+            :waiting
+          end
+
+        notify_workspace_contention(codex_update_recipient, issue, owner, wait)
+        :ok
+
+      {:error, {:workspace_ownership_unavailable, reason}} ->
+        record_workspace_setup_end(issue, opts, :failed, :workspace_ownership_unavailable)
+        {:error, {:workspace_ownership_unavailable, reason}}
+    end
+  end
+
+  defp run_owned_worker_attempt(ownership, issue, codex_update_recipient, opts, worker_host, lifecycle) do
     case Workspace.create_for_issue(issue, worker_host, lifecycle: lifecycle) do
       {:ok, workspace} ->
         MessageHandler.send_worker_runtime_info(codex_update_recipient, issue, worker_host, workspace)
-
-        run_worker_attempt(workspace, issue, codex_update_recipient, opts, worker_host)
+        run_worker_attempt(ownership, workspace, issue, codex_update_recipient, opts, worker_host)
 
       {:error, reason} ->
         record_workspace_setup_end(issue, opts, :failed, reason)
@@ -87,35 +145,21 @@ defmodule Aiur.AgentRunner do
     end
   end
 
-  defp run_worker_attempt(workspace, issue, codex_update_recipient, opts, worker_host) do
-    case run_worker_attempt_once(workspace, issue, codex_update_recipient, opts, worker_host) do
+  defp run_worker_attempt(ownership, workspace, issue, codex_update_recipient, opts, worker_host) do
+    case run_worker_attempt_once(ownership, workspace, issue, codex_update_recipient, opts, worker_host) do
       :resume_after_before_run_pause ->
         opts = begin_workspace_setup_retry(issue, opts)
-        run_worker_attempt(workspace, issue, codex_update_recipient, opts, worker_host)
+        run_worker_attempt(ownership, workspace, issue, codex_update_recipient, opts, worker_host)
 
       result ->
         result
     end
   end
 
-  defp run_worker_attempt_once(workspace, issue, codex_update_recipient, opts, worker_host) do
+  defp run_worker_attempt_once(ownership, workspace, issue, codex_update_recipient, opts, worker_host) do
     result =
       try do
-        case Workspace.run_before_run_hook(workspace, issue, worker_host) do
-          :ok ->
-            record_workspace_setup_end(issue, opts, :success, nil)
-            :ok = BootstrapDigest.maybe_attach_universal_subscriptions(issue)
-            :ok = BootstrapDigest.maybe_enqueue_bootstrap_digest(issue)
-            SessionLifecycle.run_session(workspace, issue, codex_update_recipient, opts, worker_host)
-
-          {:error, {:workspace_hook_failed, "before_run", status, output} = reason} ->
-            record_workspace_setup_end(issue, opts, :failed, status)
-            {:before_run_failed, status, output, reason}
-
-          {:error, reason} ->
-            record_workspace_setup_end(issue, opts, :failed, reason)
-            {:error, reason}
-        end
+        run_after_before_run(ownership, workspace, issue, codex_update_recipient, opts, worker_host)
       after
         Workspace.run_after_run_hook(workspace, issue, worker_host)
       end
@@ -129,6 +173,42 @@ defmodule Aiur.AgentRunner do
 
       other ->
         other
+    end
+  end
+
+  defp run_after_before_run(ownership, workspace, issue, codex_update_recipient, opts, worker_host) do
+    case Workspace.run_before_run_hook(workspace, issue, worker_host) do
+      :ok ->
+        run_owned_session(ownership, workspace, issue, codex_update_recipient, opts, worker_host)
+
+      {:error, {:workspace_hook_failed, "before_run", status, output} = reason} ->
+        record_workspace_setup_end(issue, opts, :failed, status)
+        {:before_run_failed, status, output, reason}
+
+      {:error, reason} ->
+        record_workspace_setup_end(issue, opts, :failed, reason)
+        {:error, reason}
+    end
+  end
+
+  defp run_owned_session(ownership, workspace, issue, codex_update_recipient, opts, worker_host) do
+    case Ownership.activate(ownership) do
+      {:ok, active_ownership} ->
+        record_workspace_setup_end(issue, opts, :success, nil)
+        :ok = BootstrapDigest.maybe_attach_universal_subscriptions(issue)
+        :ok = BootstrapDigest.maybe_enqueue_bootstrap_digest(issue)
+
+        SessionLifecycle.run_session(
+          workspace,
+          issue,
+          codex_update_recipient,
+          Keyword.put(opts, :workspace_ownership, active_ownership),
+          worker_host
+        )
+
+      {:error, reason} ->
+        record_workspace_setup_end(issue, opts, :failed, reason)
+        {:error, reason}
     end
   end
 
@@ -156,6 +236,42 @@ defmodule Aiur.AgentRunner do
     )
   end
 
+  defp record_workspace_ownership(issue, opts, boundary, outcome, ownership) do
+    metadata =
+      ownership
+      |> Ownership.telemetry_metadata()
+      |> Map.put(:outcome, outcome)
+
+    Lifecycle.record(
+      issue.identifier,
+      Keyword.get(opts, :telemetry_attempt_id),
+      :workspace_ownership,
+      boundary,
+      metadata
+    )
+  end
+
+  defp record_workspace_ownership_conflict(issue, opts, {:ok, ownership}) do
+    record_workspace_ownership(issue, opts, :point, :contended, ownership)
+  end
+
+  defp record_workspace_ownership_conflict(issue, opts, :none) do
+    Lifecycle.record(
+      issue.identifier,
+      Keyword.get(opts, :telemetry_attempt_id),
+      :workspace_ownership,
+      :point,
+      %{outcome: :contended}
+    )
+  end
+
+  defp notify_workspace_contention(recipient, issue, owner, wait) when is_pid(recipient) do
+    send(recipient, {:workspace_setup_contended, issue.id, issue.identifier, owner, wait})
+    :ok
+  end
+
+  defp notify_workspace_contention(_recipient, _issue, _owner, _wait), do: :ok
+
   defp begin_workspace_setup_retry(issue, opts) do
     operation_id = "workspace:#{System.unique_integer([:positive, :monotonic])}"
 
@@ -180,10 +296,31 @@ defmodule Aiur.AgentRunner do
 
   defp wait_for_before_run_resume(issue, codex_update_recipient, reason) do
     receive do
+      {:pause_agent, request_id, generation} when is_integer(request_id) and is_integer(generation) ->
+        Logger.info("Agent already paused before run for #{issue_context(issue)} request_id=#{request_id}")
+
+        MessageHandler.send_control_state(codex_update_recipient, issue, :paused, %{
+          kind: :before_run_failure,
+          request_id: request_id,
+          generation: generation
+        })
+
+        wait_for_before_run_resume(issue, codex_update_recipient, reason)
+
       {:pause_agent, request_id} when is_integer(request_id) ->
         Logger.info("Agent already paused before run for #{issue_context(issue)} request_id=#{request_id}")
         MessageHandler.send_control_state(codex_update_recipient, issue, :paused, %{kind: :before_run_failure})
         wait_for_before_run_resume(issue, codex_update_recipient, reason)
+
+      {:resume_agent, request_id, generation} when is_integer(request_id) and is_integer(generation) ->
+        Logger.info("Resuming agent after before_run failure for #{issue_context(issue)} request_id=#{request_id}")
+
+        MessageHandler.send_control_state(codex_update_recipient, issue, :working, %{
+          request_id: request_id,
+          generation: generation
+        })
+
+        :resume_after_before_run_pause
 
       {:resume_agent, request_id} when is_integer(request_id) ->
         Logger.info("Resuming agent after before_run failure for #{issue_context(issue)} request_id=#{request_id}")
