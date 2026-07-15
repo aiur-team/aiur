@@ -155,6 +155,7 @@ defmodule Aiur.Application do
       {Task.Supervisor, name: Aiur.TaskSupervisor},
       Aiur.WorkflowStore,
       Aiur.RepoBase,
+      {Aiur.BuildOrder.TicketDetailCache, runtime_config?: true},
       Aiur.Events.IdGenerator,
       Aiur.Events.Exchange,
       Aiur.Events.BranchRefStore,

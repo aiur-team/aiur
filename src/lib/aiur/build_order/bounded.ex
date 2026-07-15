@@ -3,6 +3,7 @@ defmodule Aiur.BuildOrder.Bounded do
 
   @max_title_bytes 512
   @max_url_bytes 2048
+  @max_github_issue_identifier_bytes 19
 
   @spec title(term()) :: {:ok, String.t()} | :error
   def title(value), do: text(value, @max_title_bytes)
@@ -13,6 +14,17 @@ defmodule Aiur.BuildOrder.Bounded do
          %URI{} = uri <- URI.parse(value),
          true <- safe_github_uri?(uri) do
       {:ok, URI.to_string(uri)}
+    else
+      _ -> :error
+    end
+  end
+
+  @doc "Validates the canonical positive issue number used in a GitHub request path."
+  @spec github_issue_identifier(term()) :: {:ok, String.t()} | :error
+  def github_issue_identifier(value) do
+    with {:ok, identifier} <- text(value, @max_github_issue_identifier_bytes),
+         true <- positive_number?(identifier) do
+      {:ok, identifier}
     else
       _ -> :error
     end
@@ -47,6 +59,34 @@ defmodule Aiur.BuildOrder.Bounded do
          %URI{path: path} <- URI.parse(url),
          [owner, repository, kind, number] <- String.split(path, "/", trim: true) do
       {:ok, %{owner: owner, repository: repository, kind: kind, identifier: number}}
+    else
+      _ -> :error
+    end
+  end
+
+  @doc """
+  Validates one owner or repository component used to construct a GitHub URL.
+
+  These values are interpolated into outbound provider requests, so whitespace,
+  URL delimiters, and traversal-shaped components fail closed.
+  """
+  @spec github_repository_component(term()) :: {:ok, String.t()} | :error
+  def github_repository_component(value) do
+    with {:ok, component} <- text(value, 100),
+         true <- valid_path_part?(component) do
+      {:ok, component}
+    else
+      _ -> :error
+    end
+  end
+
+  @doc "Validates the owner and repository together before provider I/O."
+  @spec github_repository_components(term(), term()) ::
+          {:ok, {String.t(), String.t()}} | :error
+  def github_repository_components(owner, repository) do
+    with {:ok, owner} <- github_repository_component(owner),
+         {:ok, repository} <- github_repository_component(repository) do
+      {:ok, {owner, repository}}
     else
       _ -> :error
     end
@@ -101,6 +141,6 @@ defmodule Aiur.BuildOrder.Bounded do
 
   defp github_issue_path?(_path), do: false
 
-  defp valid_path_part?(part), do: Regex.match?(~r/^[A-Za-z0-9_.-]{1,100}$/, part)
+  defp valid_path_part?(part), do: part not in [".", ".."] and Regex.match?(~r/^[A-Za-z0-9_.-]{1,100}$/, part)
   defp positive_number?(value), do: Regex.match?(~r/^[1-9][0-9]{0,18}$/, value)
 end

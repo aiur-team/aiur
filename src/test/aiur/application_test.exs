@@ -93,6 +93,7 @@ defmodule Aiur.ApplicationTest do
       Aiur.ProcessReaper,
       Aiur.PauseContainment,
       Aiur.AgentResourceGuard,
+      Aiur.BuildOrder.TicketDetailCache,
       Aiur.AppServer.ToolCallLedger,
       Aiur.ProviderAccountGeneration,
       Aiur.DecisionMetrics.Writer,
@@ -162,6 +163,21 @@ defmodule Aiur.ApplicationTest do
         task_sup = Enum.find_index(mods, &(&1 == Task.Supervisor))
         assert reaper < task_sup, "ProcessReaper must precede Task.Supervisor for #{inspect(opts)}"
         assert containment < task_sup, "PauseContainment must precede Task.Supervisor for #{inspect(opts)}"
+      end
+    end
+
+    test "ticket-detail cache starts after its task and workflow dependencies" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        mods = modules(AiurApp.child_specs(opts))
+        task_supervisor = Enum.find_index(mods, &(&1 == Task.Supervisor))
+        workflow_store = Enum.find_index(mods, &(&1 == Aiur.WorkflowStore))
+        detail_cache = Enum.find_index(mods, &(&1 == Aiur.BuildOrder.TicketDetailCache))
+
+        assert task_supervisor < detail_cache, "Task.Supervisor must precede ticket detail cache for #{inspect(opts)}"
+        assert workflow_store < detail_cache, "WorkflowStore must precede ticket detail cache for #{inspect(opts)}"
       end
     end
 

@@ -254,6 +254,18 @@ defmodule Aiur.Config do
     settings!().max_log_history_mb
   end
 
+  @doc false
+  @spec build_order_ticket_detail_cache_options() :: keyword()
+  def build_order_ticket_detail_cache_options do
+    build_order = settings!().build_order
+
+    [
+      freshness_ms: build_order.ticket_detail_freshness_ms,
+      max_entries: build_order.ticket_detail_max_entries,
+      max_description_bytes: build_order.ticket_detail_max_description_bytes
+    ]
+  end
+
   @spec workspace_hooks() :: map()
   def workspace_hooks do
     hooks = settings!().hooks
