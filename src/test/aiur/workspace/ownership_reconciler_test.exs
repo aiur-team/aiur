@@ -84,6 +84,94 @@ defmodule Aiur.Workspace.OwnershipReconcilerTest do
              Store.start_link(name: store_name, state_dir: root, sync_fun: fn -> :ok end)
   end
 
+  test "a v1 receipt reloads in a fresh BEAM before receipt atoms are loaded" do
+    root = Path.join(System.tmp_dir!(), "ownership-fresh-beam-#{System.unique_integer([:positive])}")
+
+    on_exit(fn -> File.rm_rf(root) end)
+
+    writer = """
+    root = System.fetch_env!("RECEIPT_DIR")
+    File.mkdir_p!(root)
+
+    receipts = %{
+      "fresh-beam-ticket" => %{
+        ticket: "fresh-beam-ticket",
+        generation: 42,
+        owner_id: "workspace:42",
+        phase: :active,
+        provider_expected?: true,
+        provider: %{
+          process_group_id: 12_345,
+          root_pid: 12_346,
+          descendant_pids: [12_347],
+          remote: false,
+          process_identities: %{
+            {:group, 12_345} => {:known, {:procfs_birth_and_session, "100", "200"}},
+            {:root, 12_346} => {:known, {:ps_birth_and_session, "Mon Jan 1 00:00:00 2026 200"}},
+            {:process, 12_347} => :unknown
+          }
+        },
+        provider_cleanup: :unresolved
+      }
+    }
+
+    contents = :erlang.term_to_binary({:aiur_workspace_ownership_receipts, 1, receipts})
+    File.write!(Path.join(root, "workspace-ownership.receipts"), contents)
+    """
+
+    assert {_output, 0} = fresh_beam(writer, root)
+
+    reader = """
+    root = System.fetch_env!("RECEIPT_DIR")
+
+    try do
+      String.to_existing_atom("procfs_birth_and_session")
+      raise "receipt atom was unexpectedly primed"
+    rescue
+      ArgumentError -> :ok
+    end
+
+    store_module = Module.concat(["Aiur", "Workspace", "Ownership", "Store"])
+
+    {:ok, store} =
+      apply(store_module, :start_link, [
+        [
+          name: nil,
+          state_dir: root,
+          sync_fun: fn -> :ok end
+        ]
+      ])
+
+    {:ok, receipts} = apply(store_module, :all, [store])
+    true = map_size(receipts) == 1
+    IO.puts("receipt-loaded")
+    """
+
+    assert {output, 0} = fresh_beam(reader, root, project_code?: true)
+    assert output =~ "receipt-loaded"
+  end
+
+  test "malformed bytes and unsupported receipt versions fail closed" do
+    root = Path.join(System.tmp_dir!(), "ownership-invalid-#{System.unique_integer([:positive])}")
+    path = Path.join(root, "workspace-ownership.receipts")
+
+    on_exit(fn -> File.rm_rf(root) end)
+
+    File.mkdir_p!(root)
+    Process.flag(:trap_exit, true)
+
+    File.write!(path, <<131, 104>>)
+
+    assert {:error, {:workspace_ownership_store_unavailable, :invalid_receipt_store}} =
+             Store.start_link(name: nil, state_dir: root, sync_fun: fn -> :ok end)
+
+    unsupported = :erlang.term_to_binary({:aiur_workspace_ownership_receipts, 2, %{}})
+    File.write!(path, unsupported)
+
+    assert {:error, {:workspace_ownership_store_unavailable, :invalid_receipt_store}} =
+             Store.start_link(name: nil, state_dir: root, sync_fun: fn -> :ok end)
+  end
+
   test "receipt operations report store loss instead of crashing callers" do
     root = Path.join(System.tmp_dir!(), "ownership-store-loss-#{System.unique_integer([:positive])}")
     store_name = Module.concat(__MODULE__, :StoppedStore)
@@ -135,5 +223,22 @@ defmodule Aiur.Workspace.OwnershipReconcilerTest do
       Process.sleep(25)
       assert_eventually(fun, attempts - 1)
     end
+  end
+
+  defp fresh_beam(code, root, opts \\ []) do
+    executable = System.find_executable("elixir") || raise "elixir executable not found"
+    timeout = System.find_executable("timeout") || raise "timeout executable not found"
+
+    code_paths =
+      if Keyword.get(opts, :project_code?, false) do
+        ["-pa", Application.app_dir(:aiur, "ebin")]
+      else
+        []
+      end
+
+    System.cmd(timeout, ["15", executable] ++ code_paths ++ ["-e", code],
+      env: [{"RECEIPT_DIR", root}, {"ERL_FLAGS", "+S 1:1"}],
+      stderr_to_stdout: true
+    )
   end
 end

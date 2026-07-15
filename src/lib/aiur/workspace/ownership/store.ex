@@ -10,6 +10,40 @@ defmodule Aiur.Workspace.Ownership.Store do
   @format :aiur_workspace_ownership_receipts
   @version 1
 
+  # Safe external-term decoding refuses to create atoms. Keep the finite v1
+  # receipt vocabulary in this module so a fresh VM can decode receipts that
+  # were written before Guardian or RemoteControl have been loaded.
+  @v1_receipt_atoms [
+    :ticket,
+    :generation,
+    :owner_id,
+    :phase,
+    :provider_expected?,
+    :provider,
+    :provider_cleanup,
+    :provisioning,
+    :active,
+    :reaping,
+    :released,
+    :not_started,
+    :unresolved,
+    :failed,
+    :succeeded,
+    :process_group_id,
+    :root_pid,
+    :remote,
+    :descendant_pids,
+    :process_identities,
+    :group,
+    :root,
+    :process,
+    :known,
+    :gone,
+    :unknown,
+    :procfs_birth_and_session,
+    :ps_birth_and_session
+  ]
+
   @type receipt :: map()
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -123,12 +157,18 @@ defmodule Aiur.Workspace.Ownership.Store do
   end
 
   defp decode(binary) do
+    preload_v1_receipt_atoms()
+
     case :erlang.binary_to_term(binary, [:safe]) do
       {@format, @version, receipts} when is_map(receipts) -> {:ok, receipts, false}
       _other -> {:error, :invalid_receipt_store}
     end
   rescue
     _ -> {:error, :invalid_receipt_store}
+  end
+
+  defp preload_v1_receipt_atoms do
+    Enum.each(@v1_receipt_atoms, &Atom.to_string/1)
   end
 
   defp maybe_initialize(_path, _receipts, false, _sync_fun), do: :ok
