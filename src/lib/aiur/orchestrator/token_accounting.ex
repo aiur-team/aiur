@@ -50,6 +50,7 @@ defmodule Aiur.Orchestrator.TokenAccounting do
     last_reported_output = Map.get(running_entry, :agent_last_reported_output_tokens, 0)
     last_reported_total = Map.get(running_entry, :agent_last_reported_total_tokens, 0)
     turn_count = Map.get(running_entry, :turn_count, 0)
+    completed_turn_count = Map.get(running_entry, :completed_turn_count, 0)
 
     {
       Map.merge(running_entry, %{
@@ -64,7 +65,8 @@ defmodule Aiur.Orchestrator.TokenAccounting do
         agent_last_reported_input_tokens: max(last_reported_input, token_delta.input_reported),
         agent_last_reported_output_tokens: max(last_reported_output, token_delta.output_reported),
         agent_last_reported_total_tokens: max(last_reported_total, token_delta.total_reported),
-        turn_count: turn_count_for_update(turn_count, running_entry.session_id, update)
+        turn_count: turn_count_for_update(turn_count, running_entry.session_id, update),
+        completed_turn_count: completed_turn_count_for_update(completed_turn_count, update)
       }),
       token_delta
     }
@@ -105,6 +107,15 @@ defmodule Aiur.Orchestrator.TokenAccounting do
        do: existing_count
 
   defp turn_count_for_update(_existing_count, _existing_session_id, _update), do: 0
+
+  defp completed_turn_count_for_update(existing_count, %{event: :turn_completed})
+       when is_integer(existing_count),
+       do: existing_count + 1
+
+  defp completed_turn_count_for_update(existing_count, _update) when is_integer(existing_count),
+    do: existing_count
+
+  defp completed_turn_count_for_update(_existing_count, _update), do: 0
 
   defp summarize_codex_update(update) do
     %{

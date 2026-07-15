@@ -2611,6 +2611,29 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert {:complexity_prompts, {"complexity prompt values must be strings", []}} in bad.errors
   end
 
+  test "max_turns_by_complexity normalizes string levels and rejects bad levels/values" do
+    assert AgentValidation.normalize_max_turns_by_complexity(nil) == %{}
+
+    assert AgentValidation.normalize_max_turns_by_complexity(%{"1" => 3, 5 => 12}) ==
+             %{1 => 3, 5 => 12}
+
+    good =
+      {%{}, %{max_turns_by_complexity: :map}}
+      |> Changeset.cast(%{max_turns_by_complexity: %{1 => 3}}, [:max_turns_by_complexity])
+      |> AgentValidation.validate_max_turns_by_complexity(:max_turns_by_complexity)
+
+    assert good.errors == []
+
+    bad =
+      {%{}, %{max_turns_by_complexity: :map}}
+      |> Changeset.cast(%{max_turns_by_complexity: %{0 => 3, 4 => 0}}, [:max_turns_by_complexity])
+      |> AgentValidation.validate_max_turns_by_complexity(:max_turns_by_complexity)
+
+    assert {:max_turns_by_complexity, {"complexity levels must be positive integers", []}} in bad.errors
+
+    assert {:max_turns_by_complexity, {"max_turns_by_complexity values must be positive integers", []}} in bad.errors
+  end
+
   test "schema parse normalizes policy keys and env-backed fallbacks" do
     missing_workspace_env = "SYMP_MISSING_WORKSPACE_#{System.unique_integer([:positive])}"
     empty_secret_env = "SYMP_EMPTY_SECRET_#{System.unique_integer([:positive])}"

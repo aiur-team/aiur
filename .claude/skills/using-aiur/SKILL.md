@@ -33,8 +33,11 @@ what you're doing — you don't need all four every turn.
 - The workspace's checked-out branch is authoritative. New tickets use the generated readable Aiur branch; existing legacy and PR-anchored heads remain unchanged. Never reconstruct a branch from the issue number.
 - Every PR description starts with `Closes #<issue>`. Commit messages are short
   (3–7 words), plain, and human — never mention AI, Claude, Codex, or models.
-- You may be notified that main has updated; use your discretion on whether and
-  when to pull/rebase it into your branch.
+- Branch freshness is your responsibility. Before handing the PR to CI or
+  human review, and again after rework, fetch its configured base and ensure
+  the current remote base head is an ancestor of your exact PR head. Integrate
+  or re-cut and resolve semantic drift yourself; the Executor and reviewers do
+  not update stale code for you.
 
 ## What stays in the per-turn prompt (not here)
 

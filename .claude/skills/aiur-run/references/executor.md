@@ -81,8 +81,9 @@ The Executor continuously:
    integration risk;
 3. diagnoses stuck or misbehaving agents and attempts the least invasive
    recovery first;
-4. arranges independent review for pull requests and returns actionable
-   findings through the tracker/event path workers consume;
+4. verifies the owning worker has produced a current-base, fresh-CI head before
+   arranging independent review, then returns actionable findings through the
+   tracker/event path workers consume;
 5. protects merge ordering, required checks, and feature-level acceptance;
 6. captures newly discovered work and Aiur defects without losing provenance;
 7. leaves a durable decision and incident trail that another Executor can
@@ -145,15 +146,28 @@ ticket it will not pick up:
 4. pause/resume an existing worker; when process state is broken, stop and
    relaunch the run because there is no per-worker restart control;
 5. route a reproducible Aiur defect under the bug policy below;
-6. take over the affected ticket/lane when it remains blocked after recovery,
-   takeover is the best option, and self-fix authority was granted.
+6. take over the affected ticket/lane only when it remains blocked after
+   recovery because a catastrophic Aiur failure prevents the worker from
+   continuing, takeover is the best option, and self-fix authority was
+   granted. Stale-base integration, conflicts, lint, and review repair remain
+   the owning worker's work.
 
 Prefer restoring workers over doing their work. The Executor is a backstop,
 not the default implementation lane.
 
 ## Pull-request review loop
 
-When a pull request reaches review-ready state:
+Branch freshness is an owning-worker responsibility. A pull request reaches
+review-ready state only when all of these are true:
+
+- its `baseRefName` is the configured integration branch;
+- the current remote base head is an ancestor of the exact PR head;
+- fresh CI for that exact head has passed the required gate.
+
+If any condition fails, send one bounded update/re-cut directive to the owning
+ticket and let its agent fetch, integrate or re-cut, resolve semantic drift,
+validate, and push. Do not assign reviewers and do not update old code on the
+agent's behalf. Once all conditions hold:
 
 1. reserve or rebalance capacity for multiple independent background reviewers;
 2. use `ce-code-review` when Compound Engineering is available, adding the
@@ -164,7 +178,8 @@ When a pull request reaches review-ready state:
    ticket only for an independent P0/P1 feature blocker;
 5. confirm the event bus or tracker transition wakes the owning agent and that
    it acknowledges the rework;
-6. rerun targeted review after fixes, then apply the recorded merge policy.
+6. require the worker to restore the same branch-freshness and CI gate after
+   fixes, rerun targeted review, then apply the recorded merge policy.
 
 If tooling or an explicit resource limit prevents parallel review, record the
 degraded review and compensate before merge. Do not equate green CI with
