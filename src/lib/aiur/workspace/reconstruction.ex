@@ -10,9 +10,14 @@ defmodule Aiur.Workspace.Reconstruction do
   def log_copy_chunk_size, do: @log_copy_chunk_size
 
   @spec run(Path.t(), (Path.t() -> :ok | {:error, term()})) :: :ok | {:error, term()}
-  def run(workspace, prepare) when is_binary(workspace) and is_function(prepare, 1) do
+  def run(workspace, prepare), do: run(workspace, prepare, [])
+
+  @doc false
+  @spec run(Path.t(), (Path.t() -> :ok | {:error, term()}), keyword()) :: :ok | {:error, term()}
+  def run(workspace, prepare, opts) when is_binary(workspace) and is_function(prepare, 1) and is_list(opts) do
     stage_root = sibling_path(workspace, "stage")
     stage = Path.join(stage_root, Path.basename(workspace))
+    write_fun = Keyword.get(opts, :write_fun, &IO.binwrite/2)
 
     try do
       File.mkdir_p!(Path.dirname(workspace))
@@ -20,7 +25,7 @@ defmodule Aiur.Workspace.Reconstruction do
       File.mkdir_p!(stage)
 
       case prepare.(stage) do
-        :ok -> promote(stage, stage_root, workspace)
+        :ok -> promote(stage, stage_root, workspace, write_fun)
         {:error, _reason} = error -> cleanup_stage(stage_root, error)
         other -> cleanup_stage(stage_root, {:error, {:invalid_reconstruction_result, other}})
       end
@@ -71,28 +76,28 @@ defmodule Aiur.Workspace.Reconstruction do
     end
   end
 
-  defp promote(stage, stage_root, workspace) do
+  defp promote(stage, stage_root, workspace, write_fun) do
     with_log_lock(workspace, fn ->
       backup = sibling_path(workspace, "previous")
       File.rm_rf!(backup)
 
-      result = promote_stage(stage, workspace, backup)
+      result = promote_stage(stage, workspace, backup, write_fun)
       File.rm_rf!(stage_root)
       result
     end)
   end
 
-  defp promote_stage(stage, workspace, backup) do
+  defp promote_stage(stage, workspace, backup, write_fun) do
     case move_current_workspace(workspace, backup) do
-      :ok -> rename_staged_workspace(stage, workspace, backup)
+      :ok -> rename_staged_workspace(stage, workspace, backup, write_fun)
       {:error, reason} -> {:error, {:workspace_backup_failed, reason}}
     end
   end
 
-  defp rename_staged_workspace(stage, workspace, backup) do
+  defp rename_staged_workspace(stage, workspace, backup, write_fun) do
     case File.rename(stage, workspace) do
       :ok ->
-        finish_promotion(backup, workspace)
+        finish_promotion(backup, workspace, write_fun)
 
       {:error, reason} ->
         restore_current_workspace(backup, workspace)
@@ -114,8 +119,8 @@ defmodule Aiur.Workspace.Reconstruction do
     :ok
   end
 
-  defp finish_promotion(backup, workspace) do
-    case merge_logs(backup, workspace) do
+  defp finish_promotion(backup, workspace, write_fun) do
+    case merge_logs(backup, workspace, write_fun) do
       :ok ->
         File.rm_rf!(backup)
         :ok
@@ -139,7 +144,7 @@ defmodule Aiur.Workspace.Reconstruction do
   # Promotion preserves the complete safe logs subtree, not just the two
   # AgentEventLog files. Providers can leave diagnostic traces beside them;
   # dropping those files makes interrupted-workspace recovery lossy.
-  defp merge_logs(previous_workspace, workspace) do
+  defp merge_logs(previous_workspace, workspace, write_fun) do
     previous_logs = Path.join(previous_workspace, "logs")
 
     case File.lstat(previous_logs) do
@@ -147,7 +152,7 @@ defmodule Aiur.Workspace.Reconstruction do
         :ok
 
       {:ok, %File.Stat{type: :directory}} ->
-        merge_log_tree(previous_logs, Path.join(workspace, "logs"), workspace)
+        merge_log_tree(previous_logs, Path.join(workspace, "logs"), workspace, write_fun)
 
       {:ok, _stat} ->
         {:error, :unsafe_log_tree}
@@ -157,42 +162,42 @@ defmodule Aiur.Workspace.Reconstruction do
     end
   end
 
-  defp merge_log_tree(previous, destination, workspace) do
+  defp merge_log_tree(previous, destination, workspace, write_fun) do
     with {:ok, entries} <- File.ls(previous),
          :ok <- ensure_safe_log_directory(destination, workspace) do
-      merge_log_entries(entries, previous, destination, workspace)
+      merge_log_entries(entries, previous, destination, workspace, write_fun)
     end
   end
 
-  defp merge_log_entries(entries, previous, destination, workspace) do
+  defp merge_log_entries(entries, previous, destination, workspace, write_fun) do
     Enum.reduce_while(entries, :ok, fn entry, :ok ->
-      case merge_log_entry(Path.join(previous, entry), Path.join(destination, entry), workspace) do
+      case merge_log_entry(Path.join(previous, entry), Path.join(destination, entry), workspace, write_fun) do
         :ok -> {:cont, :ok}
         {:error, _reason} = error -> {:halt, error}
       end
     end)
   end
 
-  defp merge_log_entry(source, target, workspace) do
+  defp merge_log_entry(source, target, workspace, write_fun) do
     case File.lstat(source) do
-      {:ok, %File.Stat{type: :regular}} -> append_previous_log(source, target, workspace)
-      {:ok, %File.Stat{type: :directory}} -> merge_log_tree(source, target, workspace)
+      {:ok, %File.Stat{type: :regular}} -> append_previous_log(source, target, workspace, write_fun)
+      {:ok, %File.Stat{type: :directory}} -> merge_log_tree(source, target, workspace, write_fun)
       {:ok, _stat} -> {:error, :unsafe_log_entry}
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp append_previous_log(previous, destination, workspace) do
+  defp append_previous_log(previous, destination, workspace, write_fun) do
     with :ok <- ensure_safe_log_directory(Path.dirname(destination), workspace) do
-      atomically_merge_log_files(previous, destination)
+      atomically_merge_log_files(previous, destination, write_fun)
     end
   end
 
-  defp atomically_merge_log_files(previous, destination) do
+  defp atomically_merge_log_files(previous, destination, write_fun) do
     temporary = log_merge_path(destination)
 
     try do
-      case write_merged_log(temporary, previous, destination) do
+      case write_merged_log(temporary, previous, destination, write_fun) do
         :ok -> File.rename(temporary, destination)
         {:error, _reason} = error -> error
       end
@@ -201,12 +206,12 @@ defmodule Aiur.Workspace.Reconstruction do
     end
   end
 
-  defp write_merged_log(temporary, previous, destination) do
+  defp write_merged_log(temporary, previous, destination, write_fun) do
     case File.open(temporary, [:write, :binary, :exclusive]) do
       {:ok, output} ->
         try do
-          case stream_regular_file(previous, output) do
-            :ok -> stream_optional_regular_file(destination, output)
+          case stream_regular_file(previous, output, write_fun) do
+            :ok -> stream_optional_regular_file(destination, output, write_fun)
             {:error, _reason} = error -> error
           end
         after
@@ -218,20 +223,20 @@ defmodule Aiur.Workspace.Reconstruction do
     end
   end
 
-  defp stream_optional_regular_file(path, output) do
+  defp stream_optional_regular_file(path, output, write_fun) do
     case File.lstat(path) do
-      {:ok, %File.Stat{type: :regular}} -> stream_regular_file(path, output)
+      {:ok, %File.Stat{type: :regular}} -> stream_regular_file(path, output, write_fun)
       {:error, :enoent} -> :ok
       {:ok, _stat} -> {:error, :unsafe_log_destination}
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp stream_regular_file(path, output) do
+  defp stream_regular_file(path, output, write_fun) do
     case File.open(path, [:read, :binary]) do
       {:ok, input} ->
         try do
-          copy_log_chunks(input, output)
+          copy_log_chunks(input, output, write_fun)
         after
           File.close(input)
         end
@@ -241,7 +246,7 @@ defmodule Aiur.Workspace.Reconstruction do
     end
   end
 
-  defp copy_log_chunks(input, output) do
+  defp copy_log_chunks(input, output, write_fun) do
     case IO.binread(input, @log_copy_chunk_size) do
       :eof ->
         :ok
@@ -250,8 +255,11 @@ defmodule Aiur.Workspace.Reconstruction do
         {:error, reason}
 
       chunk when is_binary(chunk) ->
-        :ok = IO.binwrite(output, chunk)
-        copy_log_chunks(input, output)
+        case write_fun.(output, chunk) do
+          :ok -> copy_log_chunks(input, output, write_fun)
+          {:error, _reason} = error -> error
+          other -> {:error, {:invalid_log_write_result, other}}
+        end
     end
   end
 

@@ -287,6 +287,60 @@ defmodule Aiur.Claude.RemoteControl do
   def process_alive?(_os_pid), do: false
 
   @doc false
+  @spec process_identity(nil | integer()) :: {:ok, term()} | :gone | :unknown
+  def process_identity(os_pid) when is_integer(os_pid) and os_pid > 0 do
+    case File.read("/proc/#{os_pid}/stat") do
+      {:ok, stat} -> procfs_process_identity(stat)
+      {:error, _reason} -> ps_process_identity(os_pid)
+    end
+  rescue
+    _ -> :unknown
+  end
+
+  def process_identity(_os_pid), do: :gone
+
+  defp procfs_process_identity(stat) do
+    case List.last(:binary.matches(stat, ")")) do
+      {closing_paren, _length} ->
+        stat
+        |> binary_part(closing_paren + 1, byte_size(stat) - closing_paren - 1)
+        |> String.split()
+        |> then(fn fields -> {Enum.at(fields, 3), Enum.at(fields, 19)} end)
+        |> case do
+          {session, start_time} when is_binary(session) and is_binary(start_time) and byte_size(session) > 0 and byte_size(start_time) > 0 ->
+            {:ok, {:procfs_birth_and_session, start_time, session}}
+
+          _ ->
+            :unknown
+        end
+
+      nil ->
+        :unknown
+    end
+  end
+
+  defp ps_process_identity(os_pid) do
+    case System.find_executable("ps") do
+      nil ->
+        :unknown
+
+      ps ->
+        case System.cmd(ps, ["-o", "lstart=", "-o", "sess=", "-p", Integer.to_string(os_pid)], stderr_to_stdout: true) do
+          {output, 0} ->
+            case String.trim(output) do
+              "" -> :gone
+              identity -> {:ok, {:ps_birth_and_session, identity}}
+            end
+
+          _ ->
+            :gone
+        end
+    end
+  rescue
+    _ -> :unknown
+  end
+
+  @doc false
   @spec graceful_kill_process_group(nil | integer()) :: {:ok, :gone | :reaped} | {:error, :group_alive}
   def graceful_kill_process_group(process_group_id) when is_integer(process_group_id) and process_group_id > 0 do
     if process_group_alive?(process_group_id) do

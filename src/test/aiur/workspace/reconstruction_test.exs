@@ -93,6 +93,44 @@ defmodule Aiur.Workspace.ReconstructionTest do
     assert File.ls!(Path.dirname(workspace)) == [Path.basename(workspace)]
   end
 
+  test "rolls back the promoted workspace when a streamed log write fails", %{root: root, workspace: workspace} do
+    original_log = Path.join([workspace, "logs", "provider", "large.trace"])
+    original_readme = Path.join(workspace, "README.md")
+    chunk = Reconstruction.log_copy_chunk_size()
+    File.mkdir_p!(Path.dirname(original_log))
+    File.write!(original_readme, "original\n")
+    File.write!(original_log, String.duplicate("before\n", div(chunk, 7) + 2))
+    {:ok, writes} = Agent.start_link(fn -> 0 end)
+
+    on_exit(fn ->
+      if Process.alive?(writes), do: Agent.stop(writes)
+    end)
+
+    write_fun = fn output, data ->
+      case Agent.get_and_update(writes, fn count -> {count, count + 1} end) do
+        0 -> IO.binwrite(output, data)
+        _ -> {:error, :simulated_midstream_write_failure}
+      end
+    end
+
+    assert {:error, {:workspace_log_merge_failed, :simulated_midstream_write_failure}} =
+             Reconstruction.run(
+               workspace,
+               fn stage ->
+                 staged_log = Path.join([stage, "logs", "provider", "large.trace"])
+                 File.mkdir_p!(Path.dirname(staged_log))
+                 File.write!(Path.join(stage, "README.md"), "replacement\n")
+                 File.write!(staged_log, "after\n")
+                 :ok
+               end,
+               write_fun: write_fun
+             )
+
+    assert File.read!(original_readme) == "original\n"
+    assert File.read!(original_log) =~ "before\n"
+    assert File.ls!(root) == ["ticket"]
+  end
+
   test "rejects a staged logs symlink instead of following it during promotion", %{root: root, workspace: workspace} do
     source_log = Path.join([workspace, "logs", "agent.md"])
     outside = Path.join(root, "outside")

@@ -34,6 +34,7 @@ defmodule Aiur.Workspace.OwnershipTest do
     assert {:ok, lease} =
              Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry,
                group_alive_fun: fn group -> group == process_group_id and Agent.get(group_alive, & &1) end,
+               process_identity_fun: &test_process_identity/1,
                reap_fun: fn group ->
                  send(parent, {:telemetry_reap, self(), group})
 
@@ -104,7 +105,13 @@ defmodule Aiur.Workspace.OwnershipTest do
 
     owner =
       spawn(fn ->
-        {:ok, lease} = Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry, reap_fun: reap, group_alive_fun: group_alive?)
+        {:ok, lease} =
+          Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry,
+            reap_fun: reap,
+            group_alive_fun: group_alive?,
+            process_identity_fun: &test_process_identity/1
+          )
+
         {:ok, active_lease} = Ownership.activate(lease)
         :ok = Ownership.track_process_group(active_lease, process_group_id)
         send(parent, {:tracked_child, active_lease})
@@ -178,6 +185,19 @@ defmodule Aiur.Workspace.OwnershipTest do
     assert {:error, {:workspace_owned, {:ok, %{phase: :reaping}}}} = Ownership.claim(ticket)
   end
 
+  test "release_and_wait retains an expected provider when containment and cleanup are unavailable" do
+    ticket = "ownership-unidentified-provider-#{System.unique_integer([:positive])}"
+    assert {:ok, lease} = Ownership.claim(ticket)
+    assert :ok = Ownership.expect_provider(lease)
+
+    cleanup = Task.async(fn -> Ownership.release_and_wait(lease) end)
+
+    assert_eventually(fn -> match?({:ok, %{phase: :reaping}}, Ownership.current(ticket)) end)
+    refute Task.yield(cleanup, 100)
+    assert {:error, {:workspace_owned, {:ok, %{phase: :reaping}}}} = Ownership.claim(ticket)
+    Task.shutdown(cleanup, :brutal_kill)
+  end
+
   test "rejects stale provider registration instead of acknowledging a lost lease" do
     ticket = "ownership-stale-provider-#{System.unique_integer([:positive])}"
     assert {:ok, lease} = Ownership.claim(ticket)
@@ -231,6 +251,7 @@ defmodule Aiur.Workspace.OwnershipTest do
         {:ok, lease} =
           Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry,
             root_alive_fun: fn pid -> pid == root_pid and Agent.get(child_alive, & &1) end,
+            process_identity_fun: &test_process_identity/1,
             root_reap_fun: fn pid ->
               send(parent, {:root_reap_started, self(), pid})
 
@@ -282,6 +303,7 @@ defmodule Aiur.Workspace.OwnershipTest do
         {:ok, lease} =
           Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry,
             process_alive_fun: process_alive?,
+            process_identity_fun: &test_process_identity/1,
             process_reap_fun: process_reap
           )
 
@@ -299,6 +321,74 @@ defmodule Aiur.Workspace.OwnershipTest do
     assert_eventually(fn -> Ownership.current(ticket) == :none end)
   end
 
+  test "does not reap a process group after its identifier is reused" do
+    ticket = "ownership-reused-group-#{System.unique_integer([:positive])}"
+    process_group_id = System.unique_integer([:positive])
+    parent = self()
+    {:ok, identities} = Agent.start_link(fn -> %{process_group_id => :original} end)
+
+    on_exit(fn ->
+      if Process.alive?(identities), do: Agent.stop(identities)
+    end)
+
+    identity_fun = fn pid -> {:ok, Agent.get(identities, &Map.fetch!(&1, pid))} end
+
+    owner =
+      spawn(fn ->
+        {:ok, lease} =
+          Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry,
+            group_alive_fun: fn ^process_group_id -> true end,
+            process_identity_fun: identity_fun,
+            reap_fun: fn group -> send(parent, {:unexpected_group_reap, group}) end
+          )
+
+        :ok = Ownership.track_process_group(lease, process_group_id)
+        send(parent, :reused_group_tracked)
+        Process.sleep(:infinity)
+      end)
+
+    assert_receive :reused_group_tracked, 2_000
+    Agent.update(identities, &Map.put(&1, process_group_id, :replacement))
+    Process.exit(owner, :kill)
+
+    assert_eventually(fn -> Ownership.current(ticket) == :none end)
+    refute_receive {:unexpected_group_reap, ^process_group_id}, 100
+  end
+
+  test "does not reap a root process after its identifier is reused" do
+    ticket = "ownership-reused-root-#{System.unique_integer([:positive])}"
+    root_pid = System.unique_integer([:positive])
+    parent = self()
+    {:ok, identities} = Agent.start_link(fn -> %{root_pid => :original} end)
+
+    on_exit(fn ->
+      if Process.alive?(identities), do: Agent.stop(identities)
+    end)
+
+    identity_fun = fn pid -> {:ok, Agent.get(identities, &Map.fetch!(&1, pid))} end
+
+    owner =
+      spawn(fn ->
+        {:ok, lease} =
+          Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry,
+            root_alive_fun: fn ^root_pid -> true end,
+            process_identity_fun: identity_fun,
+            root_reap_fun: fn pid -> send(parent, {:unexpected_root_reap, pid}) end
+          )
+
+        :ok = Ownership.track_provider(lease, %{root_pid: root_pid})
+        send(parent, :reused_root_tracked)
+        Process.sleep(:infinity)
+      end)
+
+    assert_receive :reused_root_tracked, 2_000
+    Agent.update(identities, &Map.put(&1, root_pid, :replacement))
+    Process.exit(owner, :kill)
+
+    assert_eventually(fn -> Ownership.current(ticket) == :none end)
+    refute_receive {:unexpected_root_reap, ^root_pid}, 100
+  end
+
   test "release_and_wait returns only after final registry removal" do
     ticket = "ownership-final-release-#{System.unique_integer([:positive])}"
     root_pid = System.unique_integer([:positive])
@@ -310,6 +400,7 @@ defmodule Aiur.Workspace.OwnershipTest do
     assert {:ok, lease} =
              Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry,
                root_alive_fun: fn pid -> pid == root_pid and Agent.get(child_alive, & &1) end,
+               process_identity_fun: &test_process_identity/1,
                root_reap_fun: fn pid ->
                  send(parent, {:final_reap_started, self(), pid})
 
@@ -340,6 +431,8 @@ defmodule Aiur.Workspace.OwnershipTest do
     end
   end
 
+  defp test_process_identity(pid), do: {:ok, {:test_process, pid}}
+
   test "brutal death during session startup reaps the group registered at spawn" do
     ticket = "ownership-startup-#{System.unique_integer([:positive])}"
     process_group_id = System.unique_integer([:positive])
@@ -367,7 +460,8 @@ defmodule Aiur.Workspace.OwnershipTest do
         {:ok, lease} =
           Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry,
             reap_fun: reap,
-            group_alive_fun: group_alive?
+            group_alive_fun: group_alive?,
+            process_identity_fun: &test_process_identity/1
           )
 
         send(parent, {:startup_lease, lease})

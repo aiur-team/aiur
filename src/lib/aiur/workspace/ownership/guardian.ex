@@ -39,6 +39,7 @@ defmodule Aiur.Workspace.Ownership.Guardian do
           root_alive_fun: Keyword.get(opts, :root_alive_fun, &RemoteControl.process_alive?/1),
           process_reap_fun: Keyword.get(opts, :process_reap_fun, &RemoteControl.graceful_kill/1),
           process_alive_fun: Keyword.get(opts, :process_alive_fun, &RemoteControl.process_alive?/1),
+          process_identity_fun: Keyword.get(opts, :process_identity_fun, &RemoteControl.process_identity/1),
           telemetry_fun: Keyword.get(opts, :telemetry_fun, fn _lease, _boundary, _outcome -> :ok end),
           reaping?: false,
           remote_reap_attempts: 0,
@@ -151,7 +152,11 @@ defmodule Aiur.Workspace.Ownership.Guardian do
 
   defp track_provider(%{lease: %{generation: generation, phase: phase}} = state, generation, provider)
        when phase in [:provisioning, :active] and is_map(provider) do
-    provider = Map.merge(state.provider || %{}, Map.take(provider, [:process_group_id, :root_pid, :remote, :descendant_pids]))
+    provider =
+      state.provider
+      |> Kernel.||(%{})
+      |> Map.merge(Map.take(provider, [:process_group_id, :root_pid, :remote, :descendant_pids]))
+      |> capture_provider_identities(state.process_identity_fun)
 
     if valid_provider?(provider) do
       {:ok, %{state | provider_expected?: true, provider: provider}}
@@ -174,9 +179,6 @@ defmodule Aiur.Workspace.Ownership.Guardian do
   # A live provider with no verified containment is deliberately fail-closed.
   # The owner may have died between OS spawn and metadata inspection; releasing
   # here would allow a retry to replace the provider's cwd underneath it.
-  defp maybe_release_or_reap(%{provider: nil, provider_expected?: true, release_requested?: true} = state),
-    do: release_guardian(state)
-
   defp maybe_release_or_reap(%{provider: nil, provider_expected?: true} = state) do
     loop(update_phase(state, :reaping))
   end
@@ -198,7 +200,11 @@ defmodule Aiur.Workspace.Ownership.Guardian do
 
   defp maybe_release_or_reap(%{provider: %{process_group_id: group}} = state)
        when is_integer(group) and group > 0 do
-    if state.group_alive_fun.(group), do: start_reap(state, :group, group), else: release_guardian(state)
+    case provider_identity_state(state, :group, group, state.group_alive_fun) do
+      :live -> start_reap(state, :group, group)
+      status when status in [:gone, :reused] -> release_guardian(state)
+      :unknown -> schedule_reap_retry(state)
+    end
   end
 
   defp maybe_release_or_reap(%{provider: %{root_pid: root_pid}} = state)
@@ -206,12 +212,17 @@ defmodule Aiur.Workspace.Ownership.Guardian do
     case Map.get(state.provider, :descendant_pids) do
       process_ids when is_list(process_ids) ->
         case live_provider_processes(state) do
-          [] -> release_guardian(state)
-          live_process_ids -> start_reap(state, :processes, live_process_ids)
+          %{live: [], unverified?: false} -> release_guardian(state)
+          %{live: [], unverified?: true} -> schedule_reap_retry(state)
+          %{live: live_process_ids} -> start_reap(state, :processes, live_process_ids)
         end
 
       _ ->
-        if state.root_alive_fun.(root_pid), do: start_reap(state, :root, root_pid), else: release_guardian(state)
+        case provider_identity_state(state, :root, root_pid, state.root_alive_fun) do
+          :live -> start_reap(state, :root, root_pid)
+          status when status in [:gone, :reused] -> release_guardian(state)
+          :unknown -> schedule_reap_retry(state)
+        end
     end
   end
 
@@ -231,15 +242,24 @@ defmodule Aiur.Workspace.Ownership.Guardian do
   end
 
   defp continue_after_reap(state, :group, group) do
-    if state.group_alive_fun.(group), do: schedule_reap_retry(state), else: release_guardian(state)
+    case provider_identity_state(state, :group, group, state.group_alive_fun) do
+      status when status in [:gone, :reused] -> release_guardian(state)
+      _ -> schedule_reap_retry(state)
+    end
   end
 
   defp continue_after_reap(state, :processes, _process_ids) do
-    if live_provider_processes(state) == [], do: release_guardian(state), else: schedule_reap_retry(state)
+    case live_provider_processes(state) do
+      %{live: [], unverified?: false} -> release_guardian(state)
+      _ -> schedule_reap_retry(state)
+    end
   end
 
   defp continue_after_reap(state, :root, root_pid) do
-    if state.root_alive_fun.(root_pid), do: schedule_reap_retry(state), else: release_guardian(state)
+    case provider_identity_state(state, :root, root_pid, state.root_alive_fun) do
+      status when status in [:gone, :reused] -> release_guardian(state)
+      _ -> schedule_reap_retry(state)
+    end
   end
 
   defp continue_after_reap(state, _kind, _identifier), do: loop(state)
@@ -317,16 +337,95 @@ defmodule Aiur.Workspace.Ownership.Guardian do
 
   defp reap_identifier(reap_fun, identifier), do: safe_reap(reap_fun, identifier)
 
-  defp live_provider_processes(%{provider: provider} = state) do
-    provider
-    |> Map.get(:descendant_pids, [])
-    |> Kernel.++(root_process(provider))
-    |> Enum.uniq()
-    |> Enum.filter(&(is_integer(&1) and &1 > 0 and state.process_alive_fun.(&1)))
+  defp capture_provider_identities(provider, process_identity_fun) do
+    Enum.reduce(provider_identifiers(provider), provider, fn {kind, identifier}, provider ->
+      identities = Map.get(provider, :process_identities, %{})
+      key = {kind, identifier}
+
+      if Map.has_key?(identities, key) do
+        provider
+      else
+        Map.put(provider, :process_identities, Map.put(identities, key, capture_process_identity(process_identity_fun, identifier)))
+      end
+    end)
   end
 
-  defp root_process(%{root_pid: root_pid}) when is_integer(root_pid) and root_pid > 0, do: [root_pid]
-  defp root_process(_provider), do: []
+  defp provider_identifiers(provider) do
+    groups = identifier_entries(:group, Map.get(provider, :process_group_id))
+    roots = identifier_entries(:root, Map.get(provider, :root_pid))
+
+    processes =
+      provider
+      |> Map.get(:descendant_pids, [])
+      |> Enum.filter(&(is_integer(&1) and &1 > 0))
+      |> Enum.map(&{:process, &1})
+
+    groups ++ roots ++ processes
+  end
+
+  defp identifier_entries(kind, identifier) when is_integer(identifier) and identifier > 0, do: [{kind, identifier}]
+  defp identifier_entries(_kind, _identifier), do: []
+
+  defp capture_process_identity(process_identity_fun, identifier) do
+    case process_identity_fun.(identifier) do
+      {:ok, identity} -> {:known, identity}
+      :gone -> :gone
+      _ -> :unknown
+    end
+  rescue
+    _ -> :unknown
+  end
+
+  defp provider_identity_state(state, kind, identifier, alive_fun) do
+    expected = state.provider |> Map.get(:process_identities, %{}) |> Map.get({kind, identifier})
+
+    case expected do
+      {:known, identity} ->
+        case capture_process_identity(state.process_identity_fun, identifier) do
+          {:known, ^identity} -> if safely_alive?(alive_fun, identifier), do: :live, else: :gone
+          {:known, _other_identity} -> :reused
+          :gone -> if safely_alive?(alive_fun, identifier), do: :unknown, else: :gone
+          :unknown -> :unknown
+        end
+
+      :gone ->
+        if safely_alive?(alive_fun, identifier), do: :unknown, else: :gone
+
+      _ ->
+        :unknown
+    end
+  end
+
+  defp safely_alive?(alive_fun, identifier) do
+    alive_fun.(identifier)
+  rescue
+    _ -> true
+  end
+
+  defp live_provider_processes(%{provider: provider} = state) do
+    provider
+    |> provider_process_identifiers()
+    |> Enum.reduce(%{live: [], unverified?: false}, fn {kind, identifier}, result ->
+      case provider_identity_state(state, kind, identifier, state.process_alive_fun) do
+        :live -> %{result | live: [identifier | result.live]}
+        :unknown -> %{result | unverified?: true}
+        _ -> result
+      end
+    end)
+    |> Map.update!(:live, &Enum.uniq/1)
+  end
+
+  defp provider_process_identifiers(provider) do
+    roots = identifier_entries(:root, Map.get(provider, :root_pid))
+
+    processes =
+      provider
+      |> Map.get(:descendant_pids, [])
+      |> Enum.filter(&(is_integer(&1) and &1 > 0))
+      |> Enum.map(&{:process, &1})
+
+    Enum.uniq_by(roots ++ processes, fn {_kind, identifier} -> identifier end)
+  end
 
   defp reply(pid, ref, result), do: send(pid, {:workspace_guardian_reply, ref, result})
 end
