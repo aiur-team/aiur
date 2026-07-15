@@ -1,0 +1,347 @@
+{
+  "schema_version": 1,
+  "amendment_id": "DEC-015",
+  "build_order_id": "its-everdred/aiur:build-order-dashboard",
+  "plan_version": 1,
+  "publication_receipt_commit": "b8db1794c57ba01bd724cc44b8d4ee6de0b79cad",
+  "recorded_at": "2026-07-15T19:02:45Z",
+  "policy_authority": {
+    "commit": "c6a8bafe3b777ba1781e8a786a71ae87ddf873d9",
+    "document": "11-execution-amendment.md",
+    "document_sha256": "82c16972ae4c4777b2820780ddb006fb4c4b00c193875c44f8458342fb8d71c5"
+  },
+  "baseline": {
+    "member_count": 54,
+    "dependency_edge_count": 105,
+    "member_ids_sha256": "f8ea55d2c600ece7a4f09b2d264a47b33b4bfd564ded089cf6c959b3deece9f6",
+    "dependency_edges_sha256": "07ac5dd8fa9fb28b2bfd89d7f0b363fd9f738d3a95425640bec7b08de87d0a3b",
+    "ticket_github_mappings_sha256": "d93ada2652581418e7299412c301e4db21e8350158ca5cdd8102668654eef974"
+  },
+  "policy": {
+    "target_ref": "refs/heads/develop",
+    "exact_current_target_head_required": true,
+    "refresh_after_every_integration_merge": true,
+    "sync_main_after_generic_merge": true,
+    "review_unit": "lane-integration-head",
+    "bounded_rework_attempts": 1,
+    "executor_takeover_on_nonprogress": true,
+    "preserve_agent_acceptance": true,
+    "collapse_lane_merge_and_manual_gates": true,
+    "close_members_individually_on_evidence": true
+  },
+  "lanes": {
+    "L1": [
+      "BO-007",
+      "BO-011",
+      "BO-012",
+      "BO-013",
+      "BO-014",
+      "BO-020",
+      "DASH-023"
+    ],
+    "L2": [
+      "BO-018",
+      "DASH-003",
+      "DASH-005",
+      "DASH-015",
+      "DASH-022",
+      "DASH-027",
+      "DASH-028",
+      "DASH-031",
+      "DASH-034"
+    ],
+    "L3": [
+      "DASH-014",
+      "DASH-032"
+    ],
+    "L4": [
+      "DASH-024",
+      "DASH-025",
+      "DASH-030"
+    ],
+    "L5": [
+      "DASH-033",
+      "BO-015"
+    ]
+  },
+  "lane_mapping_sha256": "5082c48efb2a41f5935f0b6c6ba20a05304c1c20edd3ed049c58b86704a6fdcd",
+  "affected_ticket_ids": [
+    "BO-003",
+    "BO-005",
+    "BO-006",
+    "BO-007",
+    "BO-011",
+    "BO-012",
+    "BO-013",
+    "BO-014",
+    "BO-015",
+    "BO-016",
+    "BO-018",
+    "BO-019",
+    "BO-020",
+    "DASH-001",
+    "DASH-003",
+    "DASH-005",
+    "DASH-007",
+    "DASH-008",
+    "DASH-009",
+    "DASH-010",
+    "DASH-011",
+    "DASH-012",
+    "DASH-013",
+    "DASH-014",
+    "DASH-015",
+    "DASH-016",
+    "DASH-019",
+    "DASH-020",
+    "DASH-021",
+    "DASH-022",
+    "DASH-023",
+    "DASH-024",
+    "DASH-025",
+    "DASH-026",
+    "DASH-027",
+    "DASH-028",
+    "DASH-029",
+    "DASH-030",
+    "DASH-031",
+    "DASH-032",
+    "DASH-033",
+    "DASH-034"
+  ],
+  "completed_before_amendment_ticket_ids": [
+    "BO-001",
+    "BO-002",
+    "BO-004",
+    "BO-008",
+    "BO-009",
+    "BO-010",
+    "BO-017",
+    "DASH-002",
+    "DASH-004",
+    "DASH-006",
+    "DASH-017",
+    "DASH-018"
+  ],
+  "authorized_comment_authors": [
+    "its-everdred"
+  ],
+  "decision_sha256": "c3268afdf6b11c65d6585a892ee8a67499bdc8ec98ad8b38e9c6d7b405b1a17d",
+  "authorization_comment": {
+    "url": "https://github.com/its-everdred/aiur/issues/1084#issuecomment-4984300993",
+    "body_sha256": "737929e5f3f96794584543a62865210ed3c7e76bbec8849e62069ce42b49bf9c",
+    "author_login": "its-everdred"
+  },
+  "ticket_amendment_comments": {
+    "BO-003": {
+      "url": "https://github.com/its-everdred/aiur/issues/1092#issuecomment-4984354842",
+      "body_sha256": "f43a84593cbad5414a89ad5d4bd54475ea43b974c230767d42f25e3f935d84c6",
+      "author_login": "its-everdred"
+    },
+    "BO-005": {
+      "url": "https://github.com/its-everdred/aiur/issues/1093#issuecomment-4984355082",
+      "body_sha256": "6df747255db2703429494a4ed4610a68ef64de098cb56152f068d149946a233e",
+      "author_login": "its-everdred"
+    },
+    "BO-006": {
+      "url": "https://github.com/its-everdred/aiur/issues/1094#issuecomment-4984355317",
+      "body_sha256": "1114c7fdad7f01239d7b103963c6f11839ef43d971bbaeb5ca3b514640e7bee5",
+      "author_login": "its-everdred"
+    },
+    "BO-007": {
+      "url": "https://github.com/its-everdred/aiur/issues/1095#issuecomment-4984355563",
+      "body_sha256": "51543dd47ada848ca41854dd6eebd2bc2769bcd6a85210a919646669526f27b1",
+      "author_login": "its-everdred"
+    },
+    "BO-011": {
+      "url": "https://github.com/its-everdred/aiur/issues/1098#issuecomment-4984355804",
+      "body_sha256": "e69b984336a85a557abdb3cdf3c8de57708701fb25adb2a52cabdb1a195992af",
+      "author_login": "its-everdred"
+    },
+    "BO-016": {
+      "url": "https://github.com/its-everdred/aiur/issues/1103#issuecomment-4984356036",
+      "body_sha256": "59582b2e49b67532898bc4cef25a6bb05bdde96d9c358e8a52ee60bbe93fa345",
+      "author_login": "its-everdred"
+    },
+    "BO-019": {
+      "url": "https://github.com/its-everdred/aiur/issues/1106#issuecomment-4984356263",
+      "body_sha256": "b623ad84c84e17c69fffb98be6d0345e3633b41460fe4ac9d545ff60a5085a41",
+      "author_login": "its-everdred"
+    },
+    "BO-018": {
+      "url": "https://github.com/its-everdred/aiur/issues/1105#issuecomment-4984356517",
+      "body_sha256": "e91c9ebae0b0c6615aacc0ac673775ac95f8021a1e4aae36c2dda3398792f6fc",
+      "author_login": "its-everdred"
+    },
+    "BO-012": {
+      "url": "https://github.com/its-everdred/aiur/issues/1099#issuecomment-4984356769",
+      "body_sha256": "53aee062dcc0a0ddcedf519eb2a66be5bf665b35d3cf00e6304fc110a808cbce",
+      "author_login": "its-everdred"
+    },
+    "BO-013": {
+      "url": "https://github.com/its-everdred/aiur/issues/1100#issuecomment-4984356979",
+      "body_sha256": "a0a71aba5fa0605a94714be423479202b891f8581f54dc6c2b97dd17c3c24152",
+      "author_login": "its-everdred"
+    },
+    "BO-014": {
+      "url": "https://github.com/its-everdred/aiur/issues/1101#issuecomment-4984357187",
+      "body_sha256": "7718f6a91602bcf729278edf5cadb10e28160655c3e552169c069495e4eef6e2",
+      "author_login": "its-everdred"
+    },
+    "BO-015": {
+      "url": "https://github.com/its-everdred/aiur/issues/1102#issuecomment-4984357418",
+      "body_sha256": "de4a79125f5021bfdf015212a76c053f92e86ade10f950ee591590ec67b34ac6",
+      "author_login": "its-everdred"
+    },
+    "BO-020": {
+      "url": "https://github.com/its-everdred/aiur/issues/1107#issuecomment-4984357623",
+      "body_sha256": "b68fb519d5ccb1fc4e1cf901f0cbe78ce0297a12d3062eaff60c2a979ec8bf78",
+      "author_login": "its-everdred"
+    },
+    "DASH-001": {
+      "url": "https://github.com/its-everdred/aiur/issues/1108#issuecomment-4984357824",
+      "body_sha256": "a28a0e55ffb7bce0922d1ad8e9e628a79d60d5b788c934c1be5c3f343a481b26",
+      "author_login": "its-everdred"
+    },
+    "DASH-003": {
+      "url": "https://github.com/its-everdred/aiur/issues/1110#issuecomment-4984358065",
+      "body_sha256": "fd4f27fc49eb8bdb253f212faa2c87e4d8950d5a0374375f4a521d6a745325fa",
+      "author_login": "its-everdred"
+    },
+    "DASH-005": {
+      "url": "https://github.com/its-everdred/aiur/issues/1112#issuecomment-4984358308",
+      "body_sha256": "cb848603d6fec5c23cf8bd96bfd15894eefff66012f277ad742366948af96ab4",
+      "author_login": "its-everdred"
+    },
+    "DASH-007": {
+      "url": "https://github.com/its-everdred/aiur/issues/1113#issuecomment-4984358520",
+      "body_sha256": "3bfe0b47627dd4bcc188a2d6288521f6eea67227f004feecb6653487548f0bb9",
+      "author_login": "its-everdred"
+    },
+    "DASH-008": {
+      "url": "https://github.com/its-everdred/aiur/issues/1114#issuecomment-4984358739",
+      "body_sha256": "e215b25ea3268a5de0c543df9cd89e388ff7d8cbf85e11882474791053a27d7a",
+      "author_login": "its-everdred"
+    },
+    "DASH-009": {
+      "url": "https://github.com/its-everdred/aiur/issues/1115#issuecomment-4984358981",
+      "body_sha256": "59ab2a4b6cade0378b81489d6c8ac50cf762d06b4290be93a185e1e1e0bdb884",
+      "author_login": "its-everdred"
+    },
+    "DASH-010": {
+      "url": "https://github.com/its-everdred/aiur/issues/1116#issuecomment-4984359213",
+      "body_sha256": "3b21c86419755e6be78f9377a843d4752c749a11dbb3ccb0936abfdb2239c2c2",
+      "author_login": "its-everdred"
+    },
+    "DASH-011": {
+      "url": "https://github.com/its-everdred/aiur/issues/1117#issuecomment-4984359440",
+      "body_sha256": "52ea8c2a51c14779d0df10041247f7222eddb902496cb2447fdcccffd1d5e927",
+      "author_login": "its-everdred"
+    },
+    "DASH-012": {
+      "url": "https://github.com/its-everdred/aiur/issues/1118#issuecomment-4984359668",
+      "body_sha256": "f1fc09922fdeaea1587bf02c9957c5bfaad34b6e83c33c410e46e2e489704058",
+      "author_login": "its-everdred"
+    },
+    "DASH-013": {
+      "url": "https://github.com/its-everdred/aiur/issues/1119#issuecomment-4984359907",
+      "body_sha256": "3b66493d519034b6c2dbb43739d567ef54684f4004551683d50257e2f202226a",
+      "author_login": "its-everdred"
+    },
+    "DASH-014": {
+      "url": "https://github.com/its-everdred/aiur/issues/1120#issuecomment-4984360169",
+      "body_sha256": "760ef9cc5c5c9536b66a5be72a52a941b2e2766f4b16afe3e684409b24fde97f",
+      "author_login": "its-everdred"
+    },
+    "DASH-015": {
+      "url": "https://github.com/its-everdred/aiur/issues/1121#issuecomment-4984360416",
+      "body_sha256": "78b8b91386cc955c9a7f1081fcde5655f1d07130a0238b7874c938d0978f8ae5",
+      "author_login": "its-everdred"
+    },
+    "DASH-016": {
+      "url": "https://github.com/its-everdred/aiur/issues/1122#issuecomment-4984360637",
+      "body_sha256": "57387f6535ca9a9d59d25a3ffc312b662852b424cd167b69fa1fafd076ac785f",
+      "author_login": "its-everdred"
+    },
+    "DASH-019": {
+      "url": "https://github.com/its-everdred/aiur/issues/1123#issuecomment-4984360855",
+      "body_sha256": "9ab3181f345f9bf3bf415e31618de5d2783864e7e62711f254e8dba409eac67a",
+      "author_login": "its-everdred"
+    },
+    "DASH-020": {
+      "url": "https://github.com/its-everdred/aiur/issues/1124#issuecomment-4984361064",
+      "body_sha256": "8ab8aeee4b648053fafbf20f830744c6f07cc92aea2a8e47402f450527ecf433",
+      "author_login": "its-everdred"
+    },
+    "DASH-021": {
+      "url": "https://github.com/its-everdred/aiur/issues/1125#issuecomment-4984361300",
+      "body_sha256": "f222b66f3c1c8d0c3b6256a3ff32dcb0ed14684cce2143eb3f24e41c08bbffd3",
+      "author_login": "its-everdred"
+    },
+    "DASH-022": {
+      "url": "https://github.com/its-everdred/aiur/issues/1126#issuecomment-4984361580",
+      "body_sha256": "1018907558fe00c8923744795bbd2f27832ce6937878d434d0559803379928c9",
+      "author_login": "its-everdred"
+    },
+    "DASH-023": {
+      "url": "https://github.com/its-everdred/aiur/issues/1127#issuecomment-4984361823",
+      "body_sha256": "a33bc0ab69b06ce7e52c53c3fd3d8a3d7d458ab478ef265f1ff51de9a26fa4c2",
+      "author_login": "its-everdred"
+    },
+    "DASH-024": {
+      "url": "https://github.com/its-everdred/aiur/issues/1128#issuecomment-4984362070",
+      "body_sha256": "0b48ef363aa27b71b98b9bfc5d779a1311c21a65e9f9d87e45941a3dec35d68b",
+      "author_login": "its-everdred"
+    },
+    "DASH-025": {
+      "url": "https://github.com/its-everdred/aiur/issues/1129#issuecomment-4984362279",
+      "body_sha256": "1af09818493d9dd44af0cc7da1763fc4a78996cb4948d69c75cb17767b66d884",
+      "author_login": "its-everdred"
+    },
+    "DASH-026": {
+      "url": "https://github.com/its-everdred/aiur/issues/1130#issuecomment-4984362534",
+      "body_sha256": "a1938d32c2bd8ccddbb1a94e69b15a97c26fd6415429a2c677aef3cf0785fe9f",
+      "author_login": "its-everdred"
+    },
+    "DASH-027": {
+      "url": "https://github.com/its-everdred/aiur/issues/1131#issuecomment-4984362773",
+      "body_sha256": "2a3fa28e0da0d13261eb9df535dcc8b57d0856bff578b12c26052b2491fa68a9",
+      "author_login": "its-everdred"
+    },
+    "DASH-028": {
+      "url": "https://github.com/its-everdred/aiur/issues/1132#issuecomment-4984363053",
+      "body_sha256": "fb707dbc4b25371d92bb0fe4eec9a9f4d9db7dcaebebb322e4b0d45b20ffeb31",
+      "author_login": "its-everdred"
+    },
+    "DASH-029": {
+      "url": "https://github.com/its-everdred/aiur/issues/1133#issuecomment-4984363308",
+      "body_sha256": "8c9a1da79a4481af367209af501ffdb58537fd4ebcc64cf51f39cd783ba507d6",
+      "author_login": "its-everdred"
+    },
+    "DASH-030": {
+      "url": "https://github.com/its-everdred/aiur/issues/1134#issuecomment-4984363557",
+      "body_sha256": "7ba730dfd856fc5765c524493f9c59cb19f59f0e0d3dec5773eb6e82b5ec6172",
+      "author_login": "its-everdred"
+    },
+    "DASH-031": {
+      "url": "https://github.com/its-everdred/aiur/issues/1135#issuecomment-4984363794",
+      "body_sha256": "e5ca0583515a55f9dedd398474ca7e4388d132a6066bd15a90a65c3a7ce17d08",
+      "author_login": "its-everdred"
+    },
+    "DASH-032": {
+      "url": "https://github.com/its-everdred/aiur/issues/1136#issuecomment-4984364036",
+      "body_sha256": "ea74a7e5663af49049f8ba0410bace31dfdb8cd4dfa4c84d18a83e7d25dcaf9a",
+      "author_login": "its-everdred"
+    },
+    "DASH-033": {
+      "url": "https://github.com/its-everdred/aiur/issues/1137#issuecomment-4984364270",
+      "body_sha256": "d06c2c37ff01faec6dfa935810fcd44d265a49c53370b79a96a4fb91179796ab",
+      "author_login": "its-everdred"
+    },
+    "DASH-034": {
+      "url": "https://github.com/its-everdred/aiur/issues/1138#issuecomment-4984364471",
+      "body_sha256": "be0e8399dfef8f3f81bff91b5c0b49be328d200940aba9179f95d7ef8e4c1c58",
+      "author_login": "its-everdred"
+    }
+  }
+}
