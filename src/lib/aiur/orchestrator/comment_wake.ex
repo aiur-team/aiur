@@ -12,8 +12,8 @@ defmodule Aiur.Orchestrator.CommentWake do
   alias Aiur.CurrentRunMembership
   alias Aiur.Events.UniversalSubscriptions
   alias Aiur.Issue
-  alias Aiur.Tracker
   alias Aiur.TrackerIdentity
+  alias Aiur.Tracker
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, PrAnchored, State}
   alias Aiur.RunTelemetry.Lifecycle

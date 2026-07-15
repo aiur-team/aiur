@@ -475,25 +475,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
   def handle_retry_issue_lookup(%Issue{} = issue, state, issue_id, attempt, metadata, opts) do
     terminal_states = Keyword.get(opts, :terminal_states, DispatchPolicy.terminal_state_set())
 
-    observe_membership_fun =
-      Keyword.get(opts, :observe_membership_fun, &MembershipLifecycle.observe/2)
-
-    cleanup_terminal_issue_artifacts_fun =
-      Keyword.get(
-        opts,
-        :cleanup_terminal_issue_artifacts_fun,
-        &Orchestrator.cleanup_terminal_issue_artifacts/2
-      )
-
-    mark_reconciled_fun =
-      Keyword.get(opts, :mark_reconciled_fun, &CurrentRunMembership.mark_reconciled/1)
-
-    set_terminal_verification_pending_fun =
-      Keyword.get(
-        opts,
-        :set_terminal_verification_pending_fun,
-        &CurrentRunMembership.set_terminal_verification_pending/2
-      )
+    terminal_retry_funs = terminal_retry_funs(opts)
 
     cond do
       DispatchPolicy.terminal_issue_state?(issue.state, terminal_states) ->
@@ -503,10 +485,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
           issue_id,
           attempt,
           metadata,
-          observe_membership_fun,
-          cleanup_terminal_issue_artifacts_fun,
-          mark_reconciled_fun,
-          set_terminal_verification_pending_fun
+          terminal_retry_funs
         )
 
       Orchestrator.retry_candidate_issue?(issue, terminal_states) ->
@@ -549,10 +528,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
          issue_id,
          attempt,
          metadata,
-         observe_membership_fun,
-         cleanup_terminal_issue_artifacts_fun,
-         mark_reconciled_fun,
-         set_terminal_verification_pending_fun
+         terminal_retry_funs
        ) do
     Logger.info(
       "Issue state is terminal: issue_id=#{issue_id} issue_identifier=#{issue.identifier} " <>
@@ -562,7 +538,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
     case MembershipLifecycle.record(
            issue,
            MembershipLifecycle.terminal_lifecycle(issue.state),
-           observe_membership_fun
+           terminal_retry_funs.observe_membership
          ) do
       :ok ->
         finish_terminal_retry_issue(
@@ -571,8 +547,8 @@ defmodule Aiur.Orchestrator.RetryEngine do
           issue_id,
           attempt,
           metadata,
-          cleanup_terminal_issue_artifacts_fun,
-          set_terminal_verification_pending_fun
+          terminal_retry_funs.cleanup_terminal_issue_artifacts,
+          terminal_retry_funs.set_terminal_verification_pending
         )
 
       {:error, :membership_observation_failed} ->
@@ -582,10 +558,29 @@ defmodule Aiur.Orchestrator.RetryEngine do
           issue_id,
           attempt,
           metadata,
-          mark_reconciled_fun,
-          set_terminal_verification_pending_fun
+          terminal_retry_funs.mark_reconciled,
+          terminal_retry_funs.set_terminal_verification_pending
         )
     end
+  end
+
+  defp terminal_retry_funs(opts) do
+    %{
+      observe_membership: Keyword.get(opts, :observe_membership_fun, &MembershipLifecycle.observe/2),
+      cleanup_terminal_issue_artifacts:
+        Keyword.get(
+          opts,
+          :cleanup_terminal_issue_artifacts_fun,
+          &Orchestrator.cleanup_terminal_issue_artifacts/2
+        ),
+      mark_reconciled: Keyword.get(opts, :mark_reconciled_fun, &CurrentRunMembership.mark_reconciled/1),
+      set_terminal_verification_pending:
+        Keyword.get(
+          opts,
+          :set_terminal_verification_pending_fun,
+          &CurrentRunMembership.set_terminal_verification_pending/2
+        )
+    }
   end
 
   defp finish_terminal_retry_issue(
