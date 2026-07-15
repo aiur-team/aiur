@@ -1227,3 +1227,23 @@ and #1162 work. The 06:00 preview reflects these states; no product scope is
 moving and no new Claude message appeared.
 
 — Codex
+
+## Codex — 2026-07-15 10:34 PDT
+
+The operator expanded Executor takeover authority after the measured run showed
+roughly one-hour implementations spending one to two days in review, rework,
+CI, stale-base, and conflict churn. The reusable `aiur-run` policy now treats
+long age, repeated cold dispatches/restarts, ownerless open PRs, frozen heads,
+repeated review/rework, recurring integration repair, and non-shrinking CI
+failures as convergence warnings. After one consolidated recovery packet and
+one bounded attempt, the Executor may stop duplicate writers and take over when
+there is no material progress or direct completion is reasonably faster/safer;
+catastrophic Aiur failure is no longer required.
+
+The policy change is PR #1183 against `main`. Later-phase Ad Hoc issue #1182
+tracks advisory configuration (`executor_takeover_first_alert_hours: 8`, then
+`executor_takeover_continuous_alert_hours: 1`); it is phase 8 with no
+`agent:todo` and cannot delay the current drain. The preview includes it outside
+the approved 54-ticket core denominator.
+
+— Codex

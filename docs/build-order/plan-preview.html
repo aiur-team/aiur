@@ -260,23 +260,23 @@ footer{margin-top:26px;border-top:1px solid var(--line);padding-top:14px;font-fa
 <script>
 const RUN = {
   phase: 1,
-  updated: "2026-07-15 09:57 PDT",
+  updated: "2026-07-15 10:34 PDT",
   tickets: {
     "BO-004": {state:"merged", progress:100, issue:1086},
     "BO-008": {state:"merged", progress:100, issue:1087},
-    "DASH-006": {state:"refreshed on current develop; exact-head CI", progress:98, issue:1088},
+    "DASH-006": {state:"merged", progress:100, issue:1088},
     "DASH-017": {state:"merged", progress:100, issue:1089},
     "DASH-018": {state:"merged", progress:100, issue:1090},
     "BO-001": {state:"merged", progress:100, issue:1085},
-    "BO-016": {state:"direct bounded takeover active", progress:90, issue:1103, agent_live:true},
+    "BO-016": {state:"current develop; exact-head CI triage", progress:95, issue:1103},
     "BO-017": {state:"merged", progress:100, issue:1104},
     "DASH-001": {state:"direct takeover queued after stability", progress:0, issue:1108},
-    "DASH-004": {state:"direct bounded takeover active", progress:90, issue:1111, agent_live:true},
+    "DASH-004": {state:"bounded P1 takeover fix in progress", progress:92, issue:1111, agent_live:true},
     "DASH-019": {state:"direct takeover queued after stability", progress:0, issue:1123},
     "BO-002": {state:"merged", progress:100, issue:1091},
     "BO-005": {state:"direct takeover queued after stability", progress:0, issue:1093},
     "BO-009": {state:"merged", progress:100, issue:1096},
-    "BO-010": {state:"refreshed on current develop; exact-head CI", progress:98, issue:1097},
+    "BO-010": {state:"current develop; exact-head CI triage", progress:95, issue:1097},
     "DASH-002": {state:"merged", progress:100, issue:1109},
     "DASH-026": {state:"direct takeover queued after stability", progress:0, issue:1130},
     "BO-003": {state:"direct takeover queued after stability", progress:10, issue:1092},
@@ -297,6 +297,7 @@ const RUN = {
     "ADHOC-1171": {state:"closed — baseline captured; measurement active", progress:100, issue:1171},
     "ADHOC-1177": {state:"closed — quota-waste reductions merged", progress:100, issue:1177},
     "ADHOC-1178": {state:"deferred by operator", progress:0, issue:1178},
+    "ADHOC-1182": {state:"later phase — no dispatch label", progress:0, issue:1182},
     "ADHOC-780": {state:"merged", progress:100, issue:780}
   }
 };
@@ -321,6 +322,7 @@ const ADHOC_TICKETS = [
   {id:"ADHOC-1171",issue:1171,title:"Install ccusage and capture the Claude plus Codex baseline",issue_title:"#1171 — Token usage: install ccusage and capture the Claude plus Codex baseline",lane:"adhoc",cx:1,deps:[],pack:"all",phase:1,pickup_phase:1,adhoc:true},
   {id:"ADHOC-1177",issue:1177,title:"Ship initial quota-waste reductions",issue_title:"#1177 — Ship initial quota-waste reductions",lane:"adhoc",cx:null,deps:[],pack:"all",phase:1,pickup_phase:1,adhoc:true},
   {id:"ADHOC-1178",issue:1178,title:"Trial caveman output compression",issue_title:"#1178 — Trial caveman output compression, measure, likely drop",lane:"adhoc",cx:2,deps:[],pack:"all",phase:null,pickup_phase:null,adhoc:true},
+  {id:"ADHOC-1182",issue:1182,title:"Add configurable Executor takeover alerts",issue_title:"BO: Add configurable Executor takeover alerts",lane:"adhoc",cx:3,deps:[],pack:"all",phase:8,pickup_phase:8,adhoc:true},
   {id:"ADHOC-780",issue:780,title:"Fix remaining concurrent-flaky specs",issue_title:"#780 — Fix remaining concurrent-flaky specs",lane:"adhoc",cx:1,deps:[],pack:"all",phase:1,pickup_phase:1,adhoc:true}
 ];
 const TICKETS = [...CORE_TICKETS, ...ADHOC_TICKETS];

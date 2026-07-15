@@ -2441,12 +2441,16 @@ wave; the full version lives at
   repeatedly merge a moving `main` during implementation, and do not split a
   converged review packet into serial mini-heads. The final ancestry check,
   fresh CI, and dual review remain mandatory.
-- **Keep repair ownership with the ticket:** return lint, Dialyzer, stale-base,
-  and review findings to the owning worker as one bounded packet. Do not spend
-  Executor or reviewer tokens updating old code. Manual takeover is reserved
-  for a catastrophic Aiur failure that prevents the agent from continuing and
-  is demonstrably cheaper to repair directly; use an isolated worktree and
-  preserve the worker branch and workspace.
+- **Escalate ownership when convergence fails:** return the first lint,
+  Dialyzer, stale-base, conflict, or review repair to the owning worker as one
+  bounded packet. Then inspect long-running tickets, repeated cold dispatches
+  or restarts, ownerless open PRs, frozen heads, repeated review/rework cycles,
+  recurring base/conflict repair, and non-shrinking CI failures. If one bounded
+  recovery cycle does not produce material progress, the owner disappears, or
+  direct completion is reasonably faster and safer, stop duplicate writers and
+  take over under the recorded authority. Catastrophic Aiur failure is not
+  required. Use an isolated worktree, preserve the worker branch/workspace and
+  acceptance boundary, defer nits, and record the evidence and outcome.
 - **Restarts are branch-safe:** the checkout logic re-fetches an existing
   remote ticket branch, so recycling a wedged worker (bloated thread,
   CI-poll loop) loses only the unproductive turn, never committed work.
@@ -2471,9 +2475,15 @@ wave; the full version lives at
 ## Recovery and Aiur defects
 
 Monitor workers, alerts, Commands, PRs, reviews, CI and machine capacity. First
-message/retry or return the owning worker to rework. Take over a critical ticket
-only when an Aiur defect or hard operational failure makes that the economical
-backstop.
+message/retry or return the owning worker one consolidated recovery packet.
+Take over a critical ticket when that bounded recovery does not restore
+material progress, the PR loses its live owner, the same cycle repeats, or an
+evidence-backed Executor judgment finds takeover to be the economical path.
+
+Later-phase Ad Hoc issue #1182 adds advisory configuration for this watch:
+`executor_takeover_first_alert_hours: 8` followed by recurring
+`executor_takeover_continuous_alert_hours: 1` prompts. It has no `agent:todo`
+and cannot delay the current started-PR drain or Build Order acceptance.
 
 With debug authorization, file a sanitized Aiur issue for a reproducible Aiur
 failure. Without it, ask the user first. Always remove credentials, tokens,
