@@ -257,6 +257,10 @@ defmodule AiurWeb.DashboardLiveTest do
       {:reply, %{state.decision.decision_id => [state.decision]}, state}
     end
 
+    def handle_call(:retained_counts, _from, state) do
+      {:reply, retained_counts(state.decision), state}
+    end
+
     def handle_call({:recent_audit_history, _limit}, _from, state) do
       {:reply, %{records: [state.decision], contexts: %{}, revisions: %{}}, state}
     end
@@ -264,6 +268,20 @@ defmodule AiurWeb.DashboardLiveTest do
     def handle_call({:answer, decision_id, payload, opts}, _from, state) do
       send(state.report, {:dashboard_answer_attempt, decision_id, payload, opts})
       {:reply, {:error, {:conflict, {:stale_version, 1, 2}}}, state}
+    end
+
+    defp retained_counts(decision) do
+      open? = decision.decision_status == :open
+
+      {:ok,
+       %{
+         counts: %{
+           total: 1,
+           open: if(open?, do: 1, else: 0),
+           blocking: if(open? and decision.blocking, do: 1, else: 0)
+         },
+         health: :writable
+       }}
     end
   end
 
@@ -302,6 +320,10 @@ defmodule AiurWeb.DashboardLiveTest do
       {:reply, %{state.decision.decision_id => [state.decision]}, state}
     end
 
+    def handle_call(:retained_counts, _from, state) do
+      {:reply, retained_counts(state.decision), state}
+    end
+
     def handle_call({:recent_audit_history, _limit}, _from, state) do
       {:reply, %{records: [state.decision], contexts: %{}, revisions: %{}}, state}
     end
@@ -309,6 +331,20 @@ defmodule AiurWeb.DashboardLiveTest do
     def handle_call({:revise, decision_id, payload, opts}, _from, state) do
       send(state.report, {:dashboard_revision_attempt, decision_id, payload, opts})
       {:reply, {:error, {:conflict, {:stale_action, "new-active-action"}}}, state}
+    end
+
+    defp retained_counts(decision) do
+      open? = decision.decision_status == :open
+
+      {:ok,
+       %{
+         counts: %{
+           total: 1,
+           open: if(open?, do: 1, else: 0),
+           blocking: if(open? and decision.blocking, do: 1, else: 0)
+         },
+         health: :writable
+       }}
     end
   end
 
