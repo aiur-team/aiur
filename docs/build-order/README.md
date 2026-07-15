@@ -30,16 +30,17 @@ sign-off happen once on the complete `develop` head before any promotion to
   lanes (plan-graph, runtime, dashboard-ui, accounting, platform)
 - GitHub graph: 56 issues — 54 members plus the root and the skill-delivery
   issue — with 105 internal member edges and two external skill-blocker edges
-- GitHub materialization: immutable v3 publication restored and statically
-  valid; DEC-015 live comment/receipt reconciliation is in progress
+- GitHub materialization: immutable v3 publication restored; DEC-015 root plus
+  42 ticket comments are sealed at `c83f1438` and two identical live snapshots
+  validate at zero errors / zero warnings
 - Execution state at the amendment boundary: 13 members completed before the
-  required BO-016 CTA reopen; the reconciled run resumes with 42 remaining
-- Dispatch: prohibited until the DEC-015 receipt validates; never add
-  `agent:todo` during reconciliation
-- Integration: current `main@074b9538` is contained by
-  `develop@8ced97b8`; every feature head refreshes from current `develop`
-- Merge: planning PR #1064 targets `develop` after the execution receipt is
-  materialized and verified
+  required BO-016 CTA reopen; 12 are complete now and 42 remain
+- Dispatch: the receipt gate is clear; dispatch remains paused only until this
+  pack lands on `develop` and the exact resulting prewarm image is verified
+- Integration: current `main@e058917b` is contained by
+  `develop@c099f36b`; every feature head refreshes from current `develop`
+- Merge: planning PR #1064 contains current `develop` and is the next staging
+  integration gate
 
 The opening estimate of roughly ten tickets was a sizing hypothesis. The final
 audit split configured-repository identity from event propagation; detail,

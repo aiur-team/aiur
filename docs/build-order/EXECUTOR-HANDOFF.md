@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-15 11:55 PDT)
+## Live Executor state (updated 2026-07-15 12:31 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -20,8 +20,9 @@ The direct-takeover drain is complete. DASH-004/#1160 merged to `develop` as
 focused 40/40 ExUnit, 24/24 browser, packaged smoke, and protected two-line
 allowlist passed. Its only full-suite failures were the already-classified
 ProviderLifecycle and BuildGate base timing flakes. Executor convergence PR
-#1183 merged to `main@074b9538`, and that exact main tip is verified inside
-`develop@8ced97b8`. Aiur is deliberately stopped.
+#1183 merged to `main`; generic develop-push CI fix #1184 then merged as
+`main@e058917b`, and that exact main tip is verified inside
+`develop@c099f36b`. Aiur is deliberately stopped.
 
 DEC-015 in `11-execution-amendment.md` is now the binding execution overlay.
 It preserves the 54-member/105-edge baseline, applies current-`develop`
@@ -29,15 +30,21 @@ freshness to every remaining contract, replaces the research draft's lane
 issues/labels/long-lived branches with five existing anchor owners, and records
 the complete early-ticket audit. BO-016/#1103 must be reopened to add the
 separate Pull-request destination; its existing edge blocks BO-018 naturally.
-Before that reopen there are 13 completed members; after it, 42 remain. Five
-old active-label rows are confirmed zero-code lifecycle residue and will be
-cleared rather than resumed.
+Before that reopen there were 13 completed members; after it, 12 are complete
+and 42 remain. All zero-code lifecycle residue is cleared.
 
-Do not restart Aiur until the immutable restoration and DEC-015 policy commit
-are pushed, the root/ticket amendment comments are materialized, the execution
-receipt validates against two stable GitHub snapshots, `develop` push CI is
-enabled, stale labels are reconciled, BO-016 is reopened, and the prewarm image
-is rebuilt from the resulting exact `develop` tip. The first safe fan-out is
+The execution receipt is sealed at `c83f143888e6986feb4078df534b19ede4f2f90f`.
+The root and all 42 affected tickets each carry exactly one commit-pinned
+amendment comment. Two complete live reads agree and validate at 0 errors / 0
+warnings across 54 members, 105 internal edges, two external skill edges,
+issue bodies, mappings, routing labels, lifecycle partitions, and all 43
+comments. The final pre-run work is to land planning PR #1064 on current
+`develop`, verify its CI, and rebuild prewarm from that exact integration tip.
+
+All restart prerequisites through the live execution receipt, `develop` push
+CI, lifecycle reconciliation, and BO-016 reopen are complete. Do not restart
+Aiur until PR #1064 is merged and the prewarm image is rebuilt from the
+resulting exact `develop` tip. The first safe fan-out is
 BO-003, BO-005, DASH-001, and DASH-008 with one writer per supervision/ingress
 seam. All workers remain Codex Sol/Terra; never dispatch Claude.
 

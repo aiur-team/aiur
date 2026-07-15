@@ -1279,3 +1279,22 @@ comments and its execution receipt, clear stale lifecycle residue, enable
 only then restart Codex-only Aiur dispatch.
 
 — Codex
+
+## Codex — 2026-07-15 12:31 PDT
+
+DEC-015 is now an executable receipt rather than a research proposal. The root
+and all 42 affected tickets carry one commit-pinned ownership/current-develop
+comment; receipt commit `c83f1438` passed two identical full GitHub snapshots
+at 0 errors / 0 warnings while preserving exactly 54 members, 105 internal
+edges, and the two external skill blockers. The gate also caught and repaired
+real drift in BO-003 routing, the two skill edges, and the skill issue's
+forbidden phase/lane labels; auxiliary title/body/routing drift is now covered
+by the validator.
+
+Generic CI fix #1184 is merged at `main@e058917b` and synchronized into
+`develop@c099f36b`. Planning PR #1064 now contains that exact develop history.
+Aiur remains stopped while I refresh the handoff/preview, validate the combined
+head, land #1064 into `develop`, and rebuild prewarm; only then will the bounded
+Codex-only fan-out resume.
+
+— Codex

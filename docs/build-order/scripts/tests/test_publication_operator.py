@@ -854,13 +854,10 @@ class ApprovedRenderingTests(unittest.TestCase):
 
     def test_repository_pack_exports_all_exact_bodies_and_titles(self) -> None:
         root = Path(__file__).resolve().parents[4]
-        result = subprocess_result = None
-        import subprocess
-        subprocess_result = subprocess.run(
-            ["git", "-C", str(root), "rev-parse", "HEAD"],
-            check=True, capture_output=True, text=True,
+        publication = json.loads(
+            (root / "docs/build-order/publication.json").read_text(encoding="utf-8")
         )
-        approved = subprocess_result.stdout.strip()
+        approved = publication["approved_planning_commit"]
         ctx = build_context(
             root / "docs/build-order/build-order.json",
             root / "docs/build-order/publication.json",
@@ -872,15 +869,14 @@ class ApprovedRenderingTests(unittest.TestCase):
         self.assertTrue(all(approved in spec.body for spec in ctx.specs.values()))
 
     def test_receipt_builder_emits_core_v3_and_auxiliary_v2_from_fresh_evidence(self) -> None:
-        import subprocess
         from publication_comment import pending_comment_evidence
         from publication_common import Report
 
         root = Path(__file__).resolve().parents[4]
-        approved = subprocess.run(
-            ["git", "-C", str(root), "rev-parse", "HEAD"],
-            check=True, capture_output=True, text=True,
-        ).stdout.strip()
+        publication = json.loads(
+            (root / "docs/build-order/publication.json").read_text(encoding="utf-8")
+        )
+        approved = publication["approved_planning_commit"]
         ctx = build_context(
             root / "docs/build-order/build-order.json",
             root / "docs/build-order/publication.json",
