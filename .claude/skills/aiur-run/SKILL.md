@@ -192,12 +192,23 @@ On every observation:
 - keep feature critical-path counts/ETA separate from the deferred reliability
   and optimization ledger;
 - follow the recovery ladder for stale, looping, or feedback-blind agents;
+- keep branch freshness with the owning worker. When a PR does not contain the
+  current configured integration base, route one explicit update/re-cut packet
+  to that ticket's agent; do not spend Executor or reviewer effort modernizing
+  or reviewing the stale head;
 - treat `ci-wait` as an automatic gate unless evidence shows the poller failed;
 - use `"$AIUR_CMD" message <id> <text>`, `pause`, and `resume` as the least
   invasive controls;
 - preserve decisions and incidents in the durable handoff/workpad.
 
-As PRs become ready, reserve capacity for the required parallel review/rework
+A PR becomes review-ready only when its configured base is correct, that base's
+current remote head is an ancestor of the PR head, and fresh CI has run on that
+exact head. The owning worker is responsible for fetching, integrating or
+re-cutting against the current base, resolving semantic drift, and rerunning
+validation. Until those facts hold, route the freshness work to the worker and
+do not start background review or update the branch as Executor.
+
+Once the gate holds, reserve capacity for the required parallel review/rework
 loop defined in the Executor reference. Verify that review comments reach the
 owning worker through the event path. Merge only under the recorded policy and
 protect typed dependency/conflict ordering.
@@ -209,9 +220,12 @@ reporting tick merely to restore utilization.
 
 ## 6. Backstop and defects
 
-Prioritize unblocking Aiur workers. Take over an affected ticket/lane or patch
-Aiur directly only when its recovery ladder is exhausted, takeover is the best
-authorized option, and self-fix authority exists; other lanes may keep moving.
+Prioritize unblocking Aiur workers. Do not use takeover merely because a branch
+is stale, conflicted, or needs routine lint/review repair; those remain owning-
+worker responsibilities. Take over an affected ticket/lane or patch Aiur
+directly only when its recovery ladder is exhausted, a catastrophic Aiur
+failure prevents the worker from continuing, takeover is the best authorized
+option, and self-fix authority exists; other lanes may keep moving.
 
 For Aiur crashes, leaked processes, missed comments, dispatch failures, or
 broken controls, follow the reference's sanitization and consent policy:

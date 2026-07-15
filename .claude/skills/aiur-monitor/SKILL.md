@@ -84,8 +84,12 @@ ladder:
 `Aiur.Events.GithubCiPoller` owns continuous CI polling while the worker is
 paused and its slot is released. Do not keep or wake a worker turn just to poll
 `gh pr checks`; a terminal event or configured fallback wakes the next action.
-A PR-ready ticket does require the Executor's configured parallel review/rework
-flow.
+A PR is review-ready only after its owning worker has put the exact head on the
+configured integration base, made the current remote base an ancestor of that
+head, and passed fresh CI. If it is stale, report a worker update/re-cut action;
+do not count it as available review capacity and do not have the Executor or
+reviewers update its code. A genuinely ready ticket requires the Executor's
+configured parallel review/rework flow.
 
 ## Capacity signal
 
