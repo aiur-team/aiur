@@ -1559,12 +1559,32 @@ Terra; never dispatch Claude.
     rule that Claude's proposal cannot mutate issues, dispatch labels, or the
     canonical graph before review/approval.
 
-At 20:52 PDT the core graph is 8/54 accepted. Five Codex workers are visibly
-executing: DASH-018, BO-010, BO-016, #1161, and #1162. Preserved paused or
-deactivated rows await the post-optimization restart; #1151 remains in
-explicit review-driven rework awaiting that restart.
+199. At 21:37 PDT BO-010/#1097 completed two independent reviews at exact head
+    `38066c09`: the adversarial/reliability review passed, while the
+    correctness review reproduced one contained P2 contract failure. Valid
+    semantic phases `>= 100` are accepted by the Build Order domain but are
+    rejected by the adapter's worker-index bound, forcing
+    `measurement_invalid` fallback. The Executor returned one packet on the
+    owning issue: dense-rank semantic phase/lane values for worker input while
+    retaining original DOM/display truth, with phase-100 and sparse-large-phase
+    coverage. The GitHub issue comment did not appear in the completed
+    worker's log or start a new turn within two minutes despite the ticket
+    already carrying `agent:rework`; an explicit `aiurdev message 1097` was
+    required. Preserve this timestamped reproduction as evidence for the
+    existing comment-wake/self-comment work in #1151 rather than filing a new
+    Build Order ticket. The hourly monitoring retrospective was also recorded:
+    the measured wake produced concrete review, CI, capacity, and routing
+    action, so event-driven/ten-minute/30-minute cadences remain unchanged.
+
+At 21:37 PDT the core graph is 8/54 accepted. Five Codex workers are visibly
+executing or have bounded continuation queued: DASH-018, BO-010, BO-016,
+#1161, and #1162. DASH-018 is repairing its static/lifecycle CI packet,
+BO-016 is validating the six-line lint repair, #1161 has only its centralized
+test job outstanding, and #1162 has focused lifecycle/ledger regressions green
+inside the workspace. Preserved paused or deactivated rows await the
+operator-authorized restart; #1151 remains paused with preserved rework.
 #1093, #1108, #1111, #1123, and #1130 stay on workspace-race holds until #1161
-lands. The 20:52 phase preview preserves the latest successfully emitted core
+lands. The 21:37 phase preview preserves the latest successfully emitted core
 percentages and advances only review/CI states backed by GitHub evidence;
 do not replace those estimates with guesses during review/rework. Host load
 remains volatile; current memory has roughly 23 GiB available and the build
