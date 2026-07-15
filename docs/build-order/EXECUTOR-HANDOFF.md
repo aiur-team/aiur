@@ -2023,6 +2023,14 @@ Terra; never dispatch Claude.
     the owner through both the durable issue comment and direct agent message;
     do not review until a coherent replacement head passes centralized CI.
 
+245. #1146 exact head `ce19c298` passed full CI, but both fresh reviews held it.
+    Retarget invalidation must be durably journaled before the external GitHub
+    PATCH, must invalidate the confirmed response head when a concurrent push
+    races the repair, and the recovery pull skill must merge
+    `origin/$AIUR_BASE_BRANCH` rather than hard-coded `origin/main`. These are
+    one bounded configured-base acceptance packet on #1146. The owning worker
+    is active; no result from `ce19c298` carries forward.
+
 At 04:03 PDT the core graph remains 8/54 accepted while the recovery gate is
 frozen. #780/#1181 and #1032/#1046 are merged. Current main and the warm base
 are exact `83a5a11e`; the rebuilt daemon is running the new coordination
