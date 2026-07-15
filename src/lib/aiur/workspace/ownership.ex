@@ -6,7 +6,7 @@ defmodule Aiur.Workspace.Ownership do
   stays thin so callers cannot bypass generation checks or release ordering.
   """
 
-  alias Aiur.Workspace.Ownership.{Guardian, Waiter}
+  alias Aiur.Workspace.Ownership.{Guardian, Store, Waiter}
 
   @registry Aiur.Workspace.Ownership.Registry
   @guardian_call_timeout 5_000
@@ -21,13 +21,44 @@ defmodule Aiur.Workspace.Ownership do
         }
   @type registry :: pid() | atom()
 
-  @spec claim(String.t(), registry()) :: {:ok, lease()} | {:error, {:workspace_owned, {:ok, lease()} | :none}}
+  @spec claim(String.t(), registry()) ::
+          {:ok, lease()}
+          | {:error, {:workspace_owned, {:ok, lease()} | :none}}
+          | {:error, {:workspace_ownership_unavailable, term()}}
   def claim(ticket, registry \\ @registry), do: claim(ticket, registry, [])
 
   @doc false
   @spec claim(String.t(), registry(), keyword()) ::
-          {:ok, lease()} | {:error, {:workspace_owned, {:ok, lease()} | :none}}
+          {:ok, lease()}
+          | {:error, {:workspace_owned, {:ok, lease()} | :none}}
+          | {:error, {:workspace_ownership_unavailable, term()}}
   def claim(ticket, registry, opts) when is_binary(ticket) and is_list(opts) do
+    store = Keyword.get(opts, :store, Store)
+
+    case current(ticket, registry) do
+      {:ok, _lease} = owner ->
+        {:error, {:workspace_owned, owner}}
+
+      :none ->
+        claim_after_receipt_check(ticket, registry, store, Keyword.put(opts, :store, store))
+    end
+  end
+
+  defp claim_after_receipt_check(ticket, registry, store, opts) do
+    case Store.get(ticket, store) do
+      {:ok, nil} ->
+        start_guardian(ticket, registry, opts)
+
+      {:ok, receipt} ->
+        _ = Guardian.restore(receipt, registry, opts)
+        {:error, {:workspace_owned, current(ticket, registry)}}
+
+      {:error, reason} ->
+        {:error, {:workspace_ownership_unavailable, reason}}
+    end
+  end
+
+  defp start_guardian(ticket, registry, opts) do
     guardian = Guardian.start(self(), ticket, System.unique_integer([:positive, :monotonic]), registry, opts)
 
     receive do
@@ -72,6 +103,14 @@ defmodule Aiur.Workspace.Ownership do
 
   def mark_provider_cleanup_unknown(nil), do: {:error, :workspace_ownership_lost}
   def mark_provider_cleanup_unknown(_lease), do: {:error, :workspace_ownership_lost}
+
+  @doc false
+  @spec mark_provider_cleanup_succeeded(lease() | nil) :: :ok | {:error, :workspace_ownership_lost}
+  def mark_provider_cleanup_succeeded(%{guardian: guardian, generation: generation}) when is_pid(guardian),
+    do: call(guardian, {:mark_provider_cleanup_succeeded, generation})
+
+  def mark_provider_cleanup_succeeded(nil), do: {:error, :workspace_ownership_lost}
+  def mark_provider_cleanup_succeeded(_lease), do: {:error, :workspace_ownership_lost}
 
   @spec track_process_group(lease() | nil, integer()) :: :ok | {:error, :workspace_ownership_lost}
   def track_process_group(lease, process_group_id) when is_integer(process_group_id) and process_group_id > 0,
@@ -135,7 +174,8 @@ defmodule Aiur.Workspace.Ownership do
               :expect_provider,
               :cancel_provider_expectation,
               :track_provider,
-              :mark_provider_cleanup_unknown
+              :mark_provider_cleanup_unknown,
+              :mark_provider_cleanup_succeeded
             ],
        do: {:error, :workspace_ownership_lost}
 

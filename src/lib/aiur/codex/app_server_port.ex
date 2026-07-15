@@ -138,22 +138,7 @@ defmodule Aiur.Codex.AppServerPort do
 
   @doc false
   @spec process_group_for_pid(integer() | String.t() | nil) :: integer() | nil
-  def process_group_for_pid(pid) when is_integer(pid) and pid > 0, do: process_group_for_pid(Integer.to_string(pid))
-
-  def process_group_for_pid(pid) when is_binary(pid) do
-    case process_group_id(pid) do
-      value when is_binary(value) ->
-        case Integer.parse(value) do
-          {group, ""} when group > 0 -> group
-          _ -> nil
-        end
-
-      _ ->
-        nil
-    end
-  end
-
-  def process_group_for_pid(_pid), do: nil
+  defdelegate process_group_for_pid(pid), to: RemoteControl
 
   @spec stop_port(port()) :: :ok
   def stop_port(port) when is_port(port) do
@@ -227,8 +212,8 @@ defmodule Aiur.Codex.AppServerPort do
   defp maybe_put_local_process_group(metadata, nil) do
     case metadata[:codex_app_server_pid] do
       pid when is_binary(pid) ->
-        case process_group_id(pid) do
-          ^pid -> Map.put(metadata, :agent_process_group_id, pid)
+        case process_group_for_pid(pid) do
+          group when is_integer(group) -> Map.put(metadata, :agent_process_group_id, Integer.to_string(group))
           _ -> metadata
         end
 
@@ -299,41 +284,4 @@ defmodule Aiur.Codex.AppServerPort do
     do: Map.put(provider, :descendant_pids, RemoteControl.process_tree(root_pid))
 
   defp maybe_put_provider_processes(provider, _worker_host), do: provider
-
-  defp process_group_id(pid) do
-    case System.find_executable("ps") do
-      nil -> nil
-      ps -> await_process_group_leader(ps, pid, 20)
-    end
-  end
-
-  # The port is its own group leader from spawn, so `ps` normally returns the
-  # matching pgid on the first read. Retry briefly only to ride out a transient
-  # `ps` read rather than disabling containment for the whole session.
-  defp await_process_group_leader(ps, pid, attempts) do
-    process_group_id =
-      case System.cmd(ps, ["-o", "pgid=", "-p", pid], stderr_to_stdout: true) do
-        {out, 0} -> out |> String.trim() |> positive_pid_string()
-        _ -> nil
-      end
-
-    cond do
-      process_group_id == pid ->
-        pid
-
-      attempts <= 1 ->
-        process_group_id
-
-      true ->
-        Process.sleep(10)
-        await_process_group_leader(ps, pid, attempts - 1)
-    end
-  end
-
-  defp positive_pid_string(value) do
-    case Integer.parse(value) do
-      {pid, ""} when pid > 0 -> Integer.to_string(pid)
-      _ -> nil
-    end
-  end
 end

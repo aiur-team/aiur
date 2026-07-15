@@ -54,6 +54,7 @@ if config_env() == :test do
   # during tests. Per-test overrides (Application.put_env in a test's own
   # setup) still win.
   config :aiur, :decision_state_dir, Path.join(test_log_root, "decisions")
+  config :aiur, :workspace_ownership_sync_fun, fn -> :ok end
 
   config :aiur, :server_host_override, "127.0.0.1"
   config :aiur, :server_port_override, 0

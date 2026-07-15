@@ -92,7 +92,7 @@ defmodule Aiur.CodingAgent.Backend do
               {:ok, map()} | {:paused, map()} | {:error, term()}
 
   @doc "Tear the session down. Must be idempotent and never raise; an error means cleanup was not proven."
-  @callback stop_session(session()) :: :ok | {:error, term()}
+  @callback stop_session(session()) :: :ok | {:ok, :cleanup_proven} | {:error, term()}
 
   @doc "Canonicalize a raw backend event map (usage, rate limits)."
   @callback normalize_event(map()) :: map()

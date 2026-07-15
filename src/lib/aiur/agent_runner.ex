@@ -111,6 +111,10 @@ defmodule Aiur.AgentRunner do
 
         notify_workspace_contention(codex_update_recipient, issue, owner, wait)
         :ok
+
+      {:error, {:workspace_ownership_unavailable, reason}} ->
+        record_workspace_setup_end(issue, opts, :failed, :workspace_ownership_unavailable)
+        {:error, {:workspace_ownership_unavailable, reason}}
     end
   end
 

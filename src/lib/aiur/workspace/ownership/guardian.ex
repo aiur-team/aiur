@@ -3,12 +3,27 @@ defmodule Aiur.Workspace.Ownership.Guardian do
 
   alias Aiur.Claude.RemoteControl
   alias Aiur.Workspace.Ownership
+  alias Aiur.Workspace.Ownership.Store
 
   @reap_retry_ms 1_000
 
   @spec start(pid(), String.t(), pos_integer(), pid() | atom(), keyword()) :: pid()
   def start(owner, ticket, generation, registry, opts) do
     spawn(fn -> init(owner, ticket, generation, registry, opts) end)
+  end
+
+  @spec restore(map(), pid() | atom(), keyword()) :: {:ok, Ownership.lease()} | {:error, term()}
+  def restore(receipt, registry, opts) when is_map(receipt) and is_list(opts) do
+    caller = self()
+    guardian = spawn(fn -> init_restored(caller, receipt, registry, opts) end)
+
+    receive do
+      {:workspace_guardian_restored, ^guardian, result} -> result
+    after
+      5_000 ->
+        Process.exit(guardian, :kill)
+        {:error, :workspace_reconciliation_timeout}
+    end
   end
 
   defp init(owner, ticket, generation, registry, opts) do
@@ -22,36 +37,78 @@ defmodule Aiur.Workspace.Ownership.Guardian do
 
     case Registry.register(registry, ticket, lease) do
       {:ok, _value} ->
-        state = %{
-          owner_ref: Process.monitor(owner),
-          owner_dead?: false,
-          registry: registry,
-          lease: lease,
-          provider_expected?: false,
-          provider: nil,
-          provider_cleanup_unknown?: false,
-          waiters: MapSet.new(),
-          release_waiters: [],
-          reap_fun: Keyword.get(opts, :reap_fun, &RemoteControl.reap_process_group/2),
-          group_alive_fun: Keyword.get(opts, :group_alive_fun, &RemoteControl.process_group_alive?/1),
-          root_reap_fun: Keyword.get(opts, :root_reap_fun, &RemoteControl.reap_process_tree/2),
-          root_alive_fun: Keyword.get(opts, :root_alive_fun, &RemoteControl.process_alive?/1),
-          process_reap_fun: Keyword.get(opts, :process_reap_fun, &RemoteControl.reap_process/2),
-          process_alive_fun: Keyword.get(opts, :process_alive_fun, &RemoteControl.process_alive?/1),
-          process_identity_fun: Keyword.get(opts, :process_identity_fun, &RemoteControl.process_identity/1),
-          telemetry_fun: Keyword.get(opts, :telemetry_fun, fn _lease, _boundary, _outcome -> :ok end),
-          reaping?: false,
-          release_requested?: false
-        }
+        state =
+          runtime_state(
+            registry,
+            lease,
+            Process.monitor(owner),
+            false,
+            %{provider_expected?: false, provider: nil, provider_cleanup: :not_started},
+            opts
+          )
 
-        emit_telemetry(state, :start, :claimed)
-        send(owner, {:workspace_guardian_claimed, self(), {:ok, lease}})
-        loop(state)
+        case persist_state(state) do
+          :ok ->
+            emit_telemetry(state, :start, :claimed)
+            send(owner, {:workspace_guardian_claimed, self(), {:ok, lease}})
+            loop(state)
+
+          {:error, reason} ->
+            Registry.unregister(registry, ticket)
+            send(owner, {:workspace_guardian_claimed, self(), {:error, {:workspace_ownership_unavailable, reason}}})
+        end
 
       {:error, {:already_registered, _pid}} ->
         result = {:error, {:workspace_owned, Ownership.current(ticket, registry)}}
         send(owner, {:workspace_guardian_claimed, self(), result})
     end
+  end
+
+  defp init_restored(caller, receipt, registry, opts) do
+    lease = %{
+      ticket: Map.fetch!(receipt, :ticket),
+      generation: Map.fetch!(receipt, :generation),
+      owner_id: Map.fetch!(receipt, :owner_id),
+      phase: :reaping,
+      guardian: self()
+    }
+
+    case Registry.register(registry, lease.ticket, lease) do
+      {:ok, _value} ->
+        state = runtime_state(registry, lease, nil, true, receipt, opts)
+        send(caller, {:workspace_guardian_restored, self(), {:ok, lease}})
+        maybe_release_or_reap(state)
+
+      {:error, {:already_registered, _pid}} ->
+        send(caller, {:workspace_guardian_restored, self(), {:error, {:workspace_owned, Ownership.current(lease.ticket, registry)}}})
+    end
+  rescue
+    error -> send(caller, {:workspace_guardian_restored, self(), {:error, {:invalid_workspace_receipt, error}}})
+  end
+
+  defp runtime_state(registry, lease, owner_ref, owner_dead?, receipt, opts) do
+    %{
+      owner_ref: owner_ref,
+      owner_dead?: owner_dead?,
+      registry: registry,
+      store: Keyword.get(opts, :store, Store),
+      lease: lease,
+      provider_expected?: Map.get(receipt, :provider_expected?, false),
+      provider: Map.get(receipt, :provider),
+      provider_cleanup: Map.get(receipt, :provider_cleanup, :unresolved),
+      waiters: MapSet.new(),
+      release_waiters: [],
+      reap_fun: Keyword.get(opts, :reap_fun, &RemoteControl.reap_process_group/2),
+      group_alive_fun: Keyword.get(opts, :group_alive_fun, &RemoteControl.process_group_alive?/1),
+      root_reap_fun: Keyword.get(opts, :root_reap_fun, &RemoteControl.reap_process_tree/2),
+      root_alive_fun: Keyword.get(opts, :root_alive_fun, &RemoteControl.process_alive?/1),
+      process_reap_fun: Keyword.get(opts, :process_reap_fun, &RemoteControl.reap_process/2),
+      process_alive_fun: Keyword.get(opts, :process_alive_fun, &RemoteControl.process_alive?/1),
+      process_identity_fun: Keyword.get(opts, :process_identity_fun, &RemoteControl.process_identity/1),
+      telemetry_fun: Keyword.get(opts, :telemetry_fun, fn _lease, _boundary, _outcome -> :ok end),
+      reaping?: false,
+      release_requested?: false
+    }
   end
 
   defp loop(state) do
@@ -81,6 +138,11 @@ defmodule Aiur.Workspace.Ownership.Guardian do
 
       {:workspace_guardian_call, from, ref, {:mark_provider_cleanup_unknown, generation}} ->
         {reply_value, next} = mark_provider_cleanup_unknown(state, generation)
+        reply(from, ref, reply_value)
+        loop(next)
+
+      {:workspace_guardian_call, from, ref, {:mark_provider_cleanup_succeeded, generation}} ->
+        {reply_value, next} = mark_provider_cleanup_succeeded(state, generation)
         reply(from, ref, reply_value)
         loop(next)
 
@@ -137,8 +199,15 @@ defmodule Aiur.Workspace.Ownership.Guardian do
     case Registry.update_value(state.registry, state.lease.ticket, &Map.put(&1, :phase, :active)) do
       {%{generation: ^generation} = lease, _previous} ->
         next = %{state | lease: lease}
-        emit_telemetry(next, :point, :active)
-        {{:ok, lease}, next}
+
+        case persist_state(next) do
+          :ok ->
+            emit_telemetry(next, :point, :active)
+            {{:ok, lease}, next}
+
+          {:error, _reason} ->
+            {{:error, :workspace_ownership_lost}, next}
+        end
 
       _ ->
         {{:error, :workspace_ownership_lost}, state}
@@ -148,13 +217,14 @@ defmodule Aiur.Workspace.Ownership.Guardian do
   defp activate(state, _generation), do: {{:error, :workspace_ownership_lost}, state}
 
   defp expect_provider(%{lease: %{generation: generation, phase: phase}} = state, generation)
-       when phase in [:provisioning, :active],
-       do: {:ok, %{state | provider_expected?: true}}
+       when phase in [:provisioning, :active] do
+    persist_update(state, %{state | provider_expected?: true, provider_cleanup: :unresolved})
+  end
 
   defp expect_provider(state, _generation), do: {{:error, :workspace_ownership_lost}, state}
 
   defp cancel_provider_expectation(%{lease: %{generation: generation}, provider: nil} = state, generation),
-    do: {:ok, %{state | provider_expected?: false}}
+    do: persist_update(state, %{state | provider_expected?: false, provider_cleanup: :not_started})
 
   defp cancel_provider_expectation(state, _generation), do: {{:error, :workspace_ownership_lost}, state}
 
@@ -167,7 +237,7 @@ defmodule Aiur.Workspace.Ownership.Guardian do
       |> capture_provider_identities(state.process_identity_fun)
 
     if valid_provider?(provider) do
-      {:ok, %{state | provider_expected?: true, provider: provider}}
+      persist_update(state, %{state | provider_expected?: true, provider: provider})
     else
       {{:error, :workspace_ownership_lost}, state}
     end
@@ -176,10 +246,29 @@ defmodule Aiur.Workspace.Ownership.Guardian do
   defp track_provider(state, _generation, _provider), do: {{:error, :workspace_ownership_lost}, state}
 
   defp mark_provider_cleanup_unknown(%{lease: %{generation: generation, phase: phase}} = state, generation)
-       when phase in [:provisioning, :active],
-       do: {:ok, %{state | provider_cleanup_unknown?: true}}
+       when phase in [:provisioning, :active] do
+    next =
+      if state.provider_cleanup == :succeeded,
+        do: state,
+        else: %{state | provider_cleanup: :failed}
+
+    persist_update(state, next)
+  end
 
   defp mark_provider_cleanup_unknown(state, _generation), do: {{:error, :workspace_ownership_lost}, state}
+
+  defp mark_provider_cleanup_succeeded(%{lease: %{generation: generation, phase: phase}} = state, generation)
+       when phase in [:provisioning, :active],
+       do: persist_update(state, %{state | provider_cleanup: :succeeded})
+
+  defp mark_provider_cleanup_succeeded(state, _generation), do: {{:error, :workspace_ownership_lost}, state}
+
+  defp persist_update(_previous, next) do
+    case persist_state(next) do
+      :ok -> {:ok, next}
+      {:error, _reason} -> {{:error, :workspace_ownership_lost}, next}
+    end
+  end
 
   defp valid_provider?(%{remote: true}), do: true
   defp valid_provider?(%{process_group_id: process_group_id}) when is_integer(process_group_id) and process_group_id > 0, do: true
@@ -218,6 +307,9 @@ defmodule Aiur.Workspace.Ownership.Guardian do
   # A live provider with no verified containment is deliberately fail-closed.
   # The owner may have died between OS spawn and metadata inspection; releasing
   # here would allow a retry to replace the provider's cwd underneath it.
+  defp maybe_release_or_reap(%{provider_cleanup: :succeeded} = state),
+    do: release_guardian(state)
+
   defp maybe_release_or_reap(%{provider: nil, provider_expected?: true} = state) do
     loop(update_phase(state, :reaping))
   end
@@ -250,11 +342,12 @@ defmodule Aiur.Workspace.Ownership.Guardian do
   defp maybe_release_or_reap(
          %{
            owner_dead?: owner_dead?,
-           provider_cleanup_unknown?: provider_cleanup_unknown?,
+           provider_cleanup: provider_cleanup,
            provider: %{root_pid: root_pid, descendant_pids: process_ids}
          } = state
        )
-       when (owner_dead? or provider_cleanup_unknown?) and is_integer(root_pid) and root_pid > 0 and is_list(process_ids),
+       when (owner_dead? or provider_cleanup == :failed) and is_integer(root_pid) and root_pid > 0 and
+              is_list(process_ids),
        do: maybe_reap_no_group_snapshot_or_retain(state)
 
   defp maybe_release_or_reap(%{provider: %{root_pid: root_pid, descendant_pids: process_ids}} = state)
@@ -335,13 +428,14 @@ defmodule Aiur.Workspace.Ownership.Guardian do
   defp continue_after_reap(
          %{
            owner_dead?: owner_dead?,
-           provider_cleanup_unknown?: provider_cleanup_unknown?,
+           provider_cleanup: provider_cleanup,
            provider: %{root_pid: root_pid, descendant_pids: process_ids}
          } = state,
          :processes,
          _process_ids
        )
-       when (owner_dead? or provider_cleanup_unknown?) and is_integer(root_pid) and root_pid > 0 and is_list(process_ids),
+       when (owner_dead? or provider_cleanup == :failed) and is_integer(root_pid) and root_pid > 0 and
+              is_list(process_ids),
        do: maybe_reap_no_group_snapshot_or_retain(state)
 
   defp continue_after_reap(state, :processes, _process_ids) do
@@ -374,26 +468,33 @@ defmodule Aiur.Workspace.Ownership.Guardian do
   end
 
   defp release_guardian(state) do
-    final_lease = %{state.lease | phase: :released}
-    Registry.unregister(state.registry, state.lease.ticket)
-    emit_telemetry(%{state | lease: final_lease}, :end, :released)
+    case Store.delete(state.lease.ticket, state.store) do
+      :ok ->
+        final_lease = %{state.lease | phase: :released}
+        Registry.unregister(state.registry, state.lease.ticket)
+        emit_telemetry(%{state | lease: final_lease}, :end, :released)
 
-    Enum.each(state.waiters, fn waiter ->
-      send(waiter, {:workspace_ownership_available, state.lease.ticket, self(), state.lease.generation})
-    end)
+        Enum.each(state.waiters, fn waiter ->
+          send(waiter, {:workspace_ownership_available, state.lease.ticket, self(), state.lease.generation})
+        end)
 
-    Enum.each(state.release_waiters, fn
-      {from, ref, :release} -> reply(from, ref, :ok)
-      {from, ref, :await} -> reply(from, ref, {:ok, final_lease})
-    end)
+        Enum.each(state.release_waiters, fn
+          {from, ref, :release} -> reply(from, ref, :ok)
+          {from, ref, :await} -> reply(from, ref, {:ok, final_lease})
+        end)
 
-    :ok
+        :ok
+
+      {:error, _reason} ->
+        schedule_reap_retry(update_phase(state, :reaping))
+    end
   end
 
   defp update_phase(state, phase) do
     case Registry.update_value(state.registry, state.lease.ticket, &Map.put(&1, :phase, phase)) do
       {%{} = lease, _previous} ->
         next = %{state | lease: lease}
+        _ = persist_state(next)
 
         if phase == :reaping and state.lease.phase != :reaping do
           emit_telemetry(next, :point, :reaping)
@@ -408,6 +509,22 @@ defmodule Aiur.Workspace.Ownership.Guardian do
 
   defp request_release(state, waiter) do
     %{state | release_requested?: true, release_waiters: [waiter | state.release_waiters]}
+  end
+
+  defp persist_state(state) do
+    Store.put(state.lease.ticket, receipt(state), state.store)
+  end
+
+  defp receipt(state) do
+    %{
+      ticket: state.lease.ticket,
+      generation: state.lease.generation,
+      owner_id: state.lease.owner_id,
+      phase: state.lease.phase,
+      provider_expected?: state.provider_expected?,
+      provider: state.provider,
+      provider_cleanup: state.provider_cleanup
+    }
   end
 
   defp emit_telemetry(state, boundary, outcome) do

@@ -45,11 +45,59 @@ defmodule Aiur.Claude.Repl.ReaperTest do
   end
 
   describe "stop_session/1" do
-    test "unregisters, kills pane, returns :ok for a session map", %{tmux: tmux} do
+    test "proves cleanup only after the pane's whole process group is gone", %{tmux: tmux} do
+      parent = self()
+      {:ok, group_alive} = Agent.start_link(fn -> true end)
+
+      on_exit(fn -> if Process.alive?(group_alive), do: Agent.stop(group_alive) end)
+
+      session = %{
+        tmux: tmux,
+        pane_id: "%8",
+        os_pid: 2_147_480_000,
+        process_group_id: 2_147_480_000,
+        process_group_identity: {:known, :original},
+        workspace: "/ws"
+      }
+
+      task =
+        Task.async(fn ->
+          Reaper.stop_session(session,
+            group_cleanup_fun: fn group, identity, pane_proven? ->
+              send(parent, {:group_cleanup, group, identity, pane_proven?})
+              Agent.update(group_alive, fn _ -> false end)
+              {:ok, :reaped}
+            end,
+            group_alive_fun: fn _group -> Agent.get(group_alive, & &1) end
+          )
+        end)
+
+      assert_receive {:tmux_mock_out, "display-message -p -t %8 \#{pane_pid}"}, 1_000
+      respond(tmux, "2147480000\n")
+      assert_receive {:group_cleanup, 2_147_480_000, {:known, :original}, true}, 1_000
+
+      assert_receive {:tmux_mock_out, "kill-pane -t %8"}, 1_000
+      respond(tmux, "")
+      assert_receive {:tmux_mock_out, "display-message -p -t %8 \#{pane_pid}"}, 1_000
+      respond_error(tmux, "no pane\n")
+
+      assert {:ok, :cleanup_proven} = Task.await(task, 2_000)
+    end
+
+    test "unregisters, kills pane, and proves cleanup for a contained session", %{tmux: tmux} do
       # Use a safely-dead pid so graceful_kill_tree is a no-op
-      session = %{tmux: tmux, pane_id: "%9", os_pid: 2_147_480_000, workspace: "/ws"}
+      session = %{
+        tmux: tmux,
+        pane_id: "%9",
+        os_pid: 2_147_480_000,
+        process_group_id: 2_147_480_000,
+        workspace: "/ws"
+      }
+
       task = Task.async(fn -> Reaper.stop_session(session) end)
 
+      assert_receive {:tmux_mock_out, "display-message -p -t %9 \#{pane_pid}"}, 1_000
+      respond_error(tmux, "no pane\n")
       assert_receive {:tmux_mock_out, "kill-pane -t %9"}, 1_000
       respond(tmux, "")
 
@@ -57,7 +105,42 @@ defmodule Aiur.Claude.Repl.ReaperTest do
       assert_receive {:tmux_mock_out, "display-message -p -t %9 \#{pane_pid}"}, 1_000
       respond_error(tmux, "no pane\n")
 
-      assert Task.await(task, 2_000) == :ok
+      assert Task.await(task, 2_000) == {:ok, :cleanup_proven}
+    end
+
+    test "trusts observed absence when the group signal races with process exit", %{tmux: tmux} do
+      {:ok, group_probes} = Agent.start_link(fn -> [true, false] end)
+      on_exit(fn -> if Process.alive?(group_probes), do: Agent.stop(group_probes) end)
+
+      session = %{
+        tmux: tmux,
+        pane_id: "%11",
+        os_pid: 2_147_480_000,
+        process_group_id: 2_147_480_000,
+        process_group_identity: {:known, :original},
+        workspace: "/ws"
+      }
+
+      task =
+        Task.async(fn ->
+          Reaper.stop_session(session,
+            group_alive_fun: fn _group ->
+              Agent.get_and_update(group_probes, fn [result | rest] -> {result, rest} end)
+            end,
+            group_cleanup_fun: fn _group, _identity, _pane_proven? ->
+              {:error, :signal_raced_with_exit}
+            end
+          )
+        end)
+
+      assert_receive {:tmux_mock_out, "display-message -p -t %11 \#{pane_pid}"}, 1_000
+      respond_error(tmux, "no pane\n")
+      assert_receive {:tmux_mock_out, "kill-pane -t %11"}, 1_000
+      respond_error(tmux, "no pane\n")
+      assert_receive {:tmux_mock_out, "display-message -p -t %11 \#{pane_pid}"}, 1_000
+      respond_error(tmux, "no pane\n")
+
+      assert Task.await(task, 2_000) == {:ok, :cleanup_proven}
     end
 
     test "returns :ok for an invalid session map" do
@@ -69,13 +152,15 @@ defmodule Aiur.Claude.Repl.ReaperTest do
       session = %{tmux: tmux, pane_id: "%10", os_pid: nil, workspace: "/ws"}
       task = Task.async(fn -> Reaper.stop_session(session) end)
 
+      assert_receive {:tmux_mock_out, "display-message -p -t %10 \#{pane_pid}"}, 1_000
+      respond(tmux, "5050\n")
       assert_receive {:tmux_mock_out, "kill-pane -t %10"}, 1_000
       respond_error(tmux, "permission denied\n")
 
       assert_receive {:tmux_mock_out, "display-message -p -t %10 \#{pane_pid}"}, 1_000
       respond(tmux, "5050\n")
 
-      assert {:error, {:repl_cleanup_failed, {:pane_kill_failed, _reason}}} =
+      assert {:error, {:repl_cleanup_failed, :pane_still_alive}} =
                Task.await(task, 2_000)
     end
   end

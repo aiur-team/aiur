@@ -28,6 +28,11 @@ defmodule Aiur.Claude.Repl.LauncherTest do
         respond(tmux, "still booting\n")
         drain_until_kill(tmux, pane, task)
 
+      {:tmux_mock_out, "display-message -p -t " <> pane_query} ->
+        assert pane_query == "#{pane} \#{pane_pid}"
+        respond(tmux, "5050\n")
+        drain_until_kill(tmux, pane, task)
+
       {:tmux_mock_out, "kill-pane -t " <> ^pane} ->
         respond(tmux, "")
         assert_receive {:tmux_mock_out, pane_query}, 1_000
@@ -46,6 +51,7 @@ defmodule Aiur.Claude.Repl.LauncherTest do
       Task.async(fn ->
         Launcher.start_session(ws,
           tmux: tmux,
+          process_group_fun: fn pid -> pid end,
           window_name: "aiur-repl-test",
           ready_timeout_ms: 0,
           projects_dir: "/nonexistent"
@@ -70,6 +76,7 @@ defmodule Aiur.Claude.Repl.LauncherTest do
       Task.async(fn ->
         Launcher.start_session(ws,
           tmux: tmux,
+          process_group_fun: fn pid -> pid end,
           window_name: "aiur-repl-test",
           ready_timeout_ms: 0,
           projects_dir: "/nonexistent",
@@ -90,6 +97,8 @@ defmodule Aiur.Claude.Repl.LauncherTest do
     assert_receive {:tmux_mock_out, "capture-pane -p -t %11"}, 1_000
     respond(tmux, "still booting\n")
 
+    assert_receive {:tmux_mock_out, "display-message -p -t %11 \#{pane_pid}"}, 1_000
+    respond(tmux, "5050\n")
     assert_receive {:tmux_mock_out, "kill-pane -t %11"}, 1_000
     respond_error(tmux, "permission denied\n")
     assert_receive {:tmux_mock_out, "display-message -p -t %11 \#{pane_pid}"}, 1_000
@@ -116,6 +125,7 @@ defmodule Aiur.Claude.Repl.LauncherTest do
       Task.async(fn ->
         Launcher.start_session(ws,
           tmux: tmux,
+          process_group_fun: fn 5050 -> 5050 end,
           process_reaper: reaper,
           identifier: "930",
           model: "claude-sonnet-5",
@@ -140,6 +150,7 @@ defmodule Aiur.Claude.Repl.LauncherTest do
     assert session.backend == "claude-repl"
     assert session.pane_id == "%20"
     assert session.os_pid == 5050
+    assert session.process_group_id == 5050
     assert session.workspace == ws
     assert session.remote_control == false
     assert session.session_url == nil
@@ -158,6 +169,7 @@ defmodule Aiur.Claude.Repl.LauncherTest do
       Task.async(fn ->
         Launcher.start_session(ws,
           tmux: tmux,
+          process_group_fun: fn pid -> pid end,
           remote_control: true,
           identifier: "930",
           hook_settings_fun: fn true, "930" -> "/tmp/aiur-hooks-930.json" end,
@@ -184,6 +196,8 @@ defmodule Aiur.Claude.Repl.LauncherTest do
     respond(tmux, "❯\n")
 
     # Pane must be killed on RC-unavailable degrade
+    assert_receive {:tmux_mock_out, "display-message -p -t %30 \#{pane_pid}"}, 1_000
+    respond(tmux, "2147480000\n")
     assert_receive {:tmux_mock_out, "kill-pane -t %30"}, 1_000
     respond(tmux, "")
     assert_receive {:tmux_mock_out, "display-message -p -t %30 \#{pane_pid}"}, 1_000

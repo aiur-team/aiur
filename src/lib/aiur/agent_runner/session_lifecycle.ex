@@ -100,6 +100,15 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     fn provider -> Ownership.track_provider(ownership, provider) end
   end
 
+  defp workspace_cleanup_tracker(nil), do: fn _outcome -> :ok end
+
+  defp workspace_cleanup_tracker(ownership) do
+    fn
+      :succeeded -> Ownership.mark_provider_cleanup_succeeded(ownership)
+      _outcome -> Ownership.mark_provider_cleanup_unknown(ownership)
+    end
+  end
+
   @doc false
   @spec run_session(Path.t(), Issue.t(), pid() | nil, keyword(), worker_host()) ::
           :ok | {:completed, Issue.t()} | {:error, term()}
@@ -117,6 +126,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
         workspace_process_group_tracker(Keyword.get(opts, :workspace_ownership))
       )
       |> Keyword.put(:on_provider_started, workspace_provider_tracker(Keyword.get(opts, :workspace_ownership)))
+      |> Keyword.put(:on_provider_cleanup, workspace_cleanup_tracker(Keyword.get(opts, :workspace_ownership)))
 
     model = Keyword.fetch!(session_opts, :model)
     effort = Keyword.fetch!(session_opts, :effort)
@@ -320,6 +330,10 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   def stop_session_with_ownership(session, ownership, stop_fun \\ &CodingAgent.stop_session/1)
       when is_map(session) and is_function(stop_fun, 1) do
     case stop_fun.(session) do
+      {:ok, :cleanup_proven} ->
+        _ = Ownership.mark_provider_cleanup_succeeded(ownership)
+        :ok
+
       :ok ->
         :ok
 

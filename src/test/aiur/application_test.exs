@@ -163,7 +163,7 @@ defmodule Aiur.ApplicationTest do
       end
     end
 
-    test "workspace ownership registry starts before runner tasks" do
+    test "durable workspace ownership reconciles before runner tasks" do
       for opts <- [
             [interactive_cli?: true, headless?: false, dashboard?: true],
             [interactive_cli?: false, headless?: true, dashboard?: false]
@@ -177,7 +177,12 @@ defmodule Aiur.ApplicationTest do
             _other -> false
           end)
 
-        assert ownership_registry < task_supervisor
+        ownership_store = Enum.find_index(specs, &(&1 == Aiur.Workspace.Ownership.Store))
+        ownership_reconciler = Enum.find_index(specs, &(&1 == Aiur.Workspace.Ownership.Reconciler))
+
+        assert ownership_store < ownership_registry
+        assert ownership_registry < ownership_reconciler
+        assert ownership_reconciler < task_supervisor
       end
     end
 

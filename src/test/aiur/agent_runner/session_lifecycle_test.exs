@@ -271,6 +271,29 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
       assert {:ok, %{phase: :released}} = Ownership.release_and_wait(lease)
       assert :none = Ownership.current(ticket)
     end
+
+    test "authoritative cleanup success overrides a transient identity probe" do
+      ticket = "successful-session-cleanup-unknown-#{System.unique_integer([:positive])}"
+      process_group_id = System.unique_integer([:positive])
+
+      assert {:ok, lease} =
+               Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry,
+                 group_alive_fun: fn ^process_group_id -> true end,
+                 process_identity_fun: fn ^process_group_id -> :unknown end
+               )
+
+      assert :ok = Ownership.track_process_group(lease, process_group_id)
+
+      assert :ok =
+               SessionLifecycle.stop_session_with_ownership(
+                 %{backend: "claude-repl"},
+                 lease,
+                 fn _session -> {:ok, :cleanup_proven} end
+               )
+
+      assert {:ok, %{phase: :released}} = Ownership.release_and_wait(lease)
+      assert :none = Ownership.current(ticket)
+    end
   end
 
   describe "session accessors" do

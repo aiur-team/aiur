@@ -275,6 +275,26 @@ defmodule Aiur.Claude.RemoteControl do
   def process_group_alive?(_process_group_id), do: false
 
   @doc false
+  @spec process_group_for_pid(integer() | String.t() | nil) :: integer() | nil
+  def process_group_for_pid(pid) when is_integer(pid) and pid > 0,
+    do: process_group_for_pid(Integer.to_string(pid))
+
+  def process_group_for_pid(pid) when is_binary(pid) do
+    case System.find_executable("ps") do
+      nil ->
+        nil
+
+      ps ->
+        case await_process_group_leader(ps, pid, 20) do
+          group when is_binary(group) -> String.to_integer(group)
+          _ -> nil
+        end
+    end
+  end
+
+  def process_group_for_pid(_pid), do: nil
+
+  @doc false
   @spec process_alive?(nil | integer()) :: boolean()
   def process_alive?(os_pid) when is_integer(os_pid) and os_pid > 0 do
     match?({_, 0}, System.cmd("kill", ["-0", Integer.to_string(os_pid)], stderr_to_stdout: true))
@@ -483,6 +503,33 @@ defmodule Aiur.Claude.RemoteControl do
   defp await_exit(pid, budget_ms) do
     deadline = System.monotonic_time(:millisecond) + budget_ms
     do_await_exit(pid, deadline)
+  end
+
+  defp await_process_group_leader(ps, pid, attempts) do
+    process_group_id =
+      case System.cmd(ps, ["-o", "pgid=", "-p", pid], stderr_to_stdout: true) do
+        {out, 0} -> out |> String.trim() |> positive_pid_string()
+        _ -> nil
+      end
+
+    cond do
+      process_group_id == pid ->
+        pid
+
+      attempts <= 1 ->
+        nil
+
+      true ->
+        Process.sleep(10)
+        await_process_group_leader(ps, pid, attempts - 1)
+    end
+  end
+
+  defp positive_pid_string(value) do
+    case Integer.parse(value) do
+      {pid, ""} when pid > 0 -> Integer.to_string(pid)
+      _ -> nil
+    end
   end
 
   defp do_await_exit(pid, deadline) do
