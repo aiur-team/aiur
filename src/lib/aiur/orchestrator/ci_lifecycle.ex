@@ -131,20 +131,9 @@ defmodule Aiur.Orchestrator.CiLifecycle do
         Reconciler.refresh_running_entry_issue(state, issue, running_entry)
 
       running_entry when is_map(running_entry) ->
-        identifier = Map.get(running_entry, :identifier, issue.identifier || issue.id)
-
         Logger.info("CI wait detected: #{State.issue_context(issue)}; pausing active agent")
-
-        _ = PauseResume.send_pause_control_message(state, identifier)
-
-        running_entry =
-          running_entry
-          |> Map.put(:issue, issue)
-          |> Map.put(:paused_reason, :ci_wait)
-
-        state
-        |> PauseResume.transition_control_status(running_entry, :paused, "ci_wait")
-        |> arm_ci_wait_rewake(issue)
+        {_reply, state} = PauseResume.request_pause(state, running_entry, issue, :ci_wait)
+        arm_ci_wait_rewake(state, issue)
 
       _ ->
         state

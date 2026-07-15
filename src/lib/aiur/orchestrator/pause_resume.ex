@@ -5,6 +5,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   """
 
   alias Aiur.{AgentPubSub, Config, Issue, Tracker}
+  alias Aiur.Events.IdGenerator
   alias Aiur.Orchestrator.AgentTeardown
   alias Aiur.Orchestrator.{ControlLifecycle, ControlLifecycleStore}
   alias Aiur.Orchestrator.Dispatcher
@@ -64,7 +65,8 @@ defmodule Aiur.Orchestrator.PauseResume do
     {:reply, reply, state}
   end
 
-  @spec request_control_call(State.t(), String.t(), :pause | :resume, pos_integer()) :: {:reply, {:ok, pos_integer()} | {:error, term()}, State.t()}
+  @spec request_control_call(State.t(), String.t(), :pause | :resume, pos_integer()) ::
+          {:reply, {:ok, pos_integer()} | {:error, term()}, State.t()}
   def request_control_call(%State{} = state, issue_identifier, action, request_id)
       when is_binary(issue_identifier) and action in [:pause, :resume] and is_integer(request_id) and request_id > 0 do
     case State.find_running_by_identifier(state.running, issue_identifier) do
@@ -115,14 +117,16 @@ defmodule Aiur.Orchestrator.PauseResume do
     else
       state = %{state | control_lifecycle: lifecycle} |> persist_control_lifecycle()
 
-      Enum.each(expired, fn request ->
-        case Map.get(state.running, request.issue_id) do
-          %{identifier: identifier} when is_binary(identifier) -> publish_control_lifecycle(identifier, request)
-          _ -> :ok
-        end
-      end)
+      Enum.each(expired, &publish_expired_control(state, &1))
 
       state
+    end
+  end
+
+  defp publish_expired_control(state, request) do
+    case Map.get(state.running, request.issue_id) do
+      %{identifier: identifier} when is_binary(identifier) -> publish_control_lifecycle(identifier, request)
+      _ -> :ok
     end
   end
 
@@ -137,6 +141,9 @@ defmodule Aiur.Orchestrator.PauseResume do
 
           State.deactivated_running_entry?(running_entry) ->
             reactivate_issue(state, running_entry)
+
+          pending_pause_request?(state, running_entry) ->
+            resume_pending_pause(state, running_entry)
 
           State.paused_running_entry?(running_entry) ->
             resume_label_overridden_issue(state, running_entry)
@@ -166,18 +173,9 @@ defmodule Aiur.Orchestrator.PauseResume do
         Reconciler.refresh_running_entry_issue(state, issue, running_entry)
 
       running_entry when is_map(running_entry) ->
-        identifier = Map.get(running_entry, :identifier, issue.identifier || issue.id)
-
         Logger.info("Issue pause override detected: #{State.issue_context(issue)}; pausing active agent")
-
-        _ = send_pause_control_message(state, identifier)
-
-        running_entry =
-          running_entry
-          |> Map.put(:issue, issue)
-          |> Map.put(:paused_reason, :label_override)
-
-        transition_control_status(state, running_entry, :paused, "label_override")
+        {_reply, state} = request_pause(state, running_entry, issue, :label_override)
+        state
 
       _ ->
         state
@@ -271,22 +269,66 @@ defmodule Aiur.Orchestrator.PauseResume do
         pause_running_or_inactive(state, running_entry, issue_identifier)
 
       _ ->
-        {send_pause_control_message(state, issue_identifier), state}
+        {{:error, :no_running_agent}, state}
     end
   end
 
   # A control admission means the request reached the expected live worker; it
   # is deliberately not a status transition. Only the worker's correlated
   # acknowledgement below may move this entry to `:paused`.
-  defp pause_running_or_inactive(state, running_entry, issue_identifier) do
+  defp pause_running_or_inactive(state, running_entry, _issue_identifier) do
     if State.deactivated_running_entry?(running_entry) or
          State.completed_provenance?(running_entry) do
       {{:error, :already_inactive}, state}
     else
-      submit_control_request(state, running_entry, issue_identifier, :pause, :operator)
+      request_pause(state, running_entry, Map.get(running_entry, :issue), :operator_pause)
     end
   end
 
+  @doc false
+  @spec request_pause(State.t(), map(), Issue.t() | nil, atom()) :: {term(), State.t()}
+  def request_pause(%State{} = state, running_entry, issue, pause_reason)
+      when is_map(running_entry) and is_atom(pause_reason) do
+    {state, running_entry, issue_id, identifier} = prepare_pause_request(state, running_entry, issue)
+
+    case matching_pending_pause(state, running_entry, pause_reason) do
+      %{request_id: request_id} ->
+        {{:ok, request_id}, state}
+
+      nil when is_binary(identifier) ->
+        submit_pause_request(state, running_entry, issue_id, identifier, pause_reason)
+
+      nil ->
+        {{:error, :invalid_identifier}, state}
+    end
+  end
+
+  defp prepare_pause_request(state, running_entry, supplied_issue) do
+    issue = supplied_issue || Map.get(running_entry, :issue)
+    issue_id = issue_id(running_entry, issue)
+    identifier = Map.get(running_entry, :identifier) || issue_identifier(issue)
+    running_entry = replace_running_issue(running_entry, issue)
+    state = put_running_entry(state, issue_id, running_entry)
+    {state, running_entry, issue_id, identifier}
+  end
+
+  defp replace_running_issue(running_entry, %Issue{} = issue), do: Map.put(running_entry, :issue, issue)
+  defp replace_running_issue(running_entry, _issue), do: running_entry
+
+  defp submit_pause_request(state, running_entry, issue_id, identifier, pause_reason) do
+    requester = pause_requester(pause_reason)
+    {reply, state} = submit_control_request(state, running_entry, identifier, :pause, requester)
+    remember_pause_request(reply, state, issue_id, pause_reason)
+  end
+
+  defp remember_pause_request({:ok, request_id}, state, issue_id, pause_reason) do
+    {{:ok, request_id}, put_pending_pause_reason(state, issue_id, request_id, pause_reason)}
+  end
+
+  defp remember_pause_request(reply, state, _issue_id, _pause_reason), do: {reply, state}
+
+  # The raw message path remains for the rate-limit fallback's separate
+  # checkpoint protocol. All ordinary pause causes use `request_pause/4`.
   @doc false
   @spec send_pause_control_message(State.t(), String.t()) :: term()
   def send_pause_control_message(state, issue_identifier) do
@@ -295,6 +337,7 @@ defmodule Aiur.Orchestrator.PauseResume do
     end)
   end
 
+  @doc false
   @spec handle_worker_control_state(State.t(), String.t(), :completed | :paused | :working, map()) ::
           {:noreply, State.t()}
   def handle_worker_control_state(%State{running: running} = state, issue_id, status, pause_payload) do
@@ -329,6 +372,7 @@ defmodule Aiur.Orchestrator.PauseResume do
       |> State.apply_pause_runtime_clock(previous_status, status, DateTime.utc_now())
       |> maybe_put_worker_pause_reason(status, pause_reason)
       |> maybe_clear_control_owned_pause(request, status)
+      |> maybe_clear_pending_pause_reason(request, status)
 
     maybe_log_worker_pause(status, updated_running_entry, pause_reason)
     record_control_transition(updated_running_entry, previous_status, status, transition_cause)
@@ -348,32 +392,50 @@ defmodule Aiur.Orchestrator.PauseResume do
         {:ignored, state}
 
       request ->
-        cond do
-          request.issue_id != get_in(running_entry, [:issue, Access.key(:id)]) ->
+        case control_evidence_outcome(running_entry, status, request) do
+          :ignored ->
             {:ignored, state}
 
-          not action_matches_status?(request.action, status) ->
-            {:ignored, state}
+          {:rejected, class} ->
+            reject_stale_control_evidence(state, running_entry, request, class)
 
-          control_rejection = control_rejection_class(running_entry, request) ->
-            reject_stale_control_evidence(state, running_entry, request, control_rejection)
-
-          true ->
-            case ControlLifecycle.apply(state.control_lifecycle, request_id, generation, now: DateTime.utc_now()) do
-              {:ok, applied, lifecycle} ->
-                state = %{state | control_lifecycle: lifecycle} |> persist_control_lifecycle()
-                publish_control_lifecycle(Map.get(running_entry, :identifier), applied)
-                {:applied, applied, state}
-
-              {:ignored, lifecycle} ->
-                {:ignored, %{state | control_lifecycle: lifecycle}}
-            end
+          :applicable ->
+            apply_control_request(state, running_entry, request_id, generation)
         end
     end
   end
 
   defp apply_control_evidence(state, _running_entry, _status, %{request_id: _request_id, generation: _generation}), do: {:ignored, state}
   defp apply_control_evidence(state, _running_entry, _status, _payload), do: {:unrelated, state}
+
+  defp control_evidence_outcome(running_entry, status, request) do
+    cond do
+      request.issue_id != get_in(running_entry, [:issue, Access.key(:id)]) -> :ignored
+      not action_matches_status?(request.action, status) -> :ignored
+      not control_confirms_application?(running_entry) -> :ignored
+      class = control_rejection_class(running_entry, request) -> {:rejected, class}
+      true -> :applicable
+    end
+  end
+
+  defp control_confirms_application?(running_entry) do
+    running_entry
+    |> Map.get(:control, %{})
+    |> Map.get(:application_confirmation, :request_only)
+    |> Kernel.==(:confirmed)
+  end
+
+  defp apply_control_request(state, running_entry, request_id, generation) do
+    case ControlLifecycle.apply(state.control_lifecycle, request_id, generation, now: DateTime.utc_now()) do
+      {:ok, applied, lifecycle} ->
+        state = %{state | control_lifecycle: lifecycle} |> persist_control_lifecycle()
+        publish_control_lifecycle(Map.get(running_entry, :identifier), applied)
+        {:applied, applied, state}
+
+      {:ignored, lifecycle} ->
+        {:ignored, %{state | control_lifecycle: lifecycle}}
+    end
+  end
 
   defp control_rejection_class(running_entry, request) do
     control = Map.get(running_entry, :control, %{})
@@ -443,7 +505,14 @@ defmodule Aiur.Orchestrator.PauseResume do
   end
 
   defp maybe_clear_control_owned_pause(running_entry, %{action: :resume}, :working) do
-    if Map.get(running_entry, :paused_reason) in [:operator_pause, :pause_containment] do
+    if Map.get(running_entry, :paused_reason) in [
+         :agent_pause_request,
+         :ci_wait,
+         :input_required,
+         :label_override,
+         :operator_pause,
+         :pause_containment
+       ] do
       Map.delete(running_entry, :paused_reason)
     else
       running_entry
@@ -451,6 +520,18 @@ defmodule Aiur.Orchestrator.PauseResume do
   end
 
   defp maybe_clear_control_owned_pause(running_entry, _request, _status), do: running_entry
+
+  defp maybe_clear_pending_pause_reason(running_entry, %{action: :pause, request_id: request_id}, :paused) do
+    case Map.get(running_entry, :pending_pause_reason) do
+      %{request_id: ^request_id} -> Map.delete(running_entry, :pending_pause_reason)
+      _ -> running_entry
+    end
+  end
+
+  defp maybe_clear_pending_pause_reason(running_entry, %{action: :resume}, :working),
+    do: Map.delete(running_entry, :pending_pause_reason)
+
+  defp maybe_clear_pending_pause_reason(running_entry, _request, _status), do: running_entry
 
   defp control_transition_cause(%{action: :resume, requester: :operator}, :working, _pause_reason),
     do: :operator_resume
@@ -768,21 +849,17 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   defp submit_control_request(%State{} = state, running_entry, issue_identifier, action, requester, request_id \\ nil)
        when action in [:pause, :resume] and is_binary(issue_identifier) and is_atom(requester) do
-    request_id = request_id || :erlang.unique_integer([:positive])
+    case control_request_id(request_id) do
+      {:ok, assigned_request_id} ->
+        submit_control_request_with_id(state, running_entry, issue_identifier, action, requester, assigned_request_id)
 
-    case ControlLifecycle.get(state.control_lifecycle, request_id) do
-      nil -> submit_new_control_request(state, running_entry, issue_identifier, action, requester, request_id)
-      request -> retry_control_request(state, running_entry, action, requester, request)
+      {:error, reason} ->
+        {{:error, reason}, state}
     end
   end
 
-  defp retry_control_request(state, running_entry, action, requester, request) do
-    if request.issue_id == get_in(running_entry, [:issue, Access.key(:id)]) and request.action == action and request.requester == requester do
-      {retry_control_reply(request), state}
-    else
-      {{:error, :control_request_conflict}, state}
-    end
-  end
+  defp control_request_id(nil), do: next_control_request_id()
+  defp control_request_id(request_id), do: {:ok, request_id}
 
   defp retry_control_reply(%{status: status, request_id: request_id}) when status in [:requested, :accepted, :applied],
     do: {:ok, request_id}
@@ -792,7 +869,7 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   defp retry_control_reply(%{status: :expired, expiry: expiry}), do: {:error, {:control_expired, expiry}}
 
-  defp submit_new_control_request(%State{} = state, running_entry, issue_identifier, action, requester, request_id) do
+  defp submit_control_request_with_id(%State{} = state, running_entry, issue_identifier, action, requester, request_id) do
     control = Map.get(running_entry, :control, %{})
 
     attrs = %{
@@ -806,16 +883,28 @@ defmodule Aiur.Orchestrator.PauseResume do
       requester: requester
     }
 
-    case preflight_rejection(control, action) do
-      nil ->
-        admit_and_route_control_request(state, issue_identifier, action, attrs)
+    pending = ControlLifecycle.current_pending(state.control_lifecycle, attrs.issue_id)
 
-      class ->
-        admit_and_reject_control_request(state, issue_identifier, attrs, class)
+    case ControlLifecycle.request(state.control_lifecycle, attrs, now: DateTime.utc_now()) do
+      {:duplicate, request, lifecycle} ->
+        {retry_control_reply(request), %{state | control_lifecycle: lifecycle}}
+
+      {:error, _rejection, lifecycle} ->
+        {{:error, :control_request_conflict}, %{state | control_lifecycle: lifecycle}}
+
+      {:ok, request, lifecycle} ->
+        state = %{state | control_lifecycle: lifecycle} |> persist_control_lifecycle()
+        publish_superseded_control_lifecycle(issue_identifier, pending, lifecycle)
+        publish_control_lifecycle(issue_identifier, request)
+
+        case preflight_rejection(control, action, pending) do
+          nil -> route_admitted_control_request(state, issue_identifier, request)
+          class -> reject_admitted_control_request(state, issue_identifier, request, class)
+        end
     end
   end
 
-  defp preflight_rejection(control, :pause) do
+  defp preflight_rejection(control, :pause, _pending) do
     cond do
       Map.get(control, :status, :working) == :paused -> :already_in_state
       Map.get(control, :status, :working) not in [:working, :paused] -> :not_eligible
@@ -824,7 +913,13 @@ defmodule Aiur.Orchestrator.PauseResume do
     end
   end
 
-  defp preflight_rejection(control, :resume) do
+  defp preflight_rejection(control, :resume, %{action: :pause}) do
+    if Map.get(control, :application_confirmation, :request_only) == :confirmed,
+      do: nil,
+      else: :unsupported
+  end
+
+  defp preflight_rejection(control, :resume, _pending) do
     cond do
       Map.get(control, :status, :working) == :working -> :already_in_state
       Map.get(control, :status, :working) not in [:working, :paused] -> :not_eligible
@@ -833,73 +928,59 @@ defmodule Aiur.Orchestrator.PauseResume do
     end
   end
 
-  defp admit_and_reject_control_request(state, issue_identifier, attrs, class) do
-    pending = ControlLifecycle.current_pending(state.control_lifecycle, attrs.issue_id)
-
-    case ControlLifecycle.request(state.control_lifecycle, attrs, now: DateTime.utc_now()) do
-      {:ok, requested, lifecycle} ->
+  defp reject_admitted_control_request(state, issue_identifier, request, class) do
+    case ControlLifecycle.reject(state.control_lifecycle, request.request_id, class, now: DateTime.utc_now()) do
+      {:ok, rejected, lifecycle} ->
         state = %{state | control_lifecycle: lifecycle} |> persist_control_lifecycle()
-        publish_superseded_control_lifecycle(issue_identifier, pending, lifecycle)
-        publish_control_lifecycle(issue_identifier, requested)
+        publish_control_lifecycle(issue_identifier, rejected)
+        {{:error, {:control_rejected, rejected.rejection}}, state}
 
-        case ControlLifecycle.reject(state.control_lifecycle, requested.request_id, class, now: DateTime.utc_now()) do
-          {:ok, rejected, lifecycle} ->
-            state = %{state | control_lifecycle: lifecycle} |> persist_control_lifecycle()
-            publish_control_lifecycle(issue_identifier, rejected)
-            {{:error, {:control_rejected, rejected.rejection}}, state}
-
-          {:ignored, lifecycle} ->
-            {{:error, {:control_rejected, %{class: class}}}, %{state | control_lifecycle: lifecycle}}
-        end
-
-      {:duplicate, request, lifecycle} ->
-        {retry_control_reply(request), %{state | control_lifecycle: lifecycle}}
-
-      {:error, rejection, lifecycle} ->
-        {{:error, {:control_rejected, rejection}}, %{state | control_lifecycle: lifecycle} |> persist_control_lifecycle()}
+      {:ignored, lifecycle} ->
+        {{:error, {:control_rejected, %{class: class}}}, %{state | control_lifecycle: lifecycle}}
     end
   end
 
-  defp admit_and_route_control_request(state, issue_identifier, action, attrs) do
-    pending = ControlLifecycle.current_pending(state.control_lifecycle, attrs.issue_id)
+  defp route_admitted_control_request(state, issue_identifier, request) do
+    case OperatorMessages.send_running_control_message(state, issue_identifier, request.request_id, fn _request_id ->
+           control_message(request.action, request)
+         end) do
+      {:ok, request_id} ->
+        accept_admitted_control_request(state, issue_identifier, request, request_id)
 
-    case ControlLifecycle.request(state.control_lifecycle, attrs, now: DateTime.utc_now()) do
-      {:ok, request, lifecycle} ->
-        state = %{state | control_lifecycle: lifecycle} |> persist_control_lifecycle()
-        publish_superseded_control_lifecycle(issue_identifier, pending, lifecycle)
-        publish_control_lifecycle(issue_identifier, request)
+      {:error, reason} ->
+        state = reject_routing_failure(state, request.request_id, reason)
 
-        case OperatorMessages.send_running_control_message(state, issue_identifier, request.request_id, fn _request_id ->
-               control_message(action, request)
-             end) do
-          {:ok, request_id} ->
-            case ControlLifecycle.accept(state.control_lifecycle, request_id, request.generation, now: DateTime.utc_now()) do
-              {:ok, accepted, lifecycle} ->
-                if action == :pause, do: Aiur.PauseContainment.arm(issue_identifier)
-                publish_control_lifecycle(issue_identifier, accepted)
-                {{:ok, request_id}, %{state | control_lifecycle: lifecycle} |> persist_control_lifecycle()}
-
-              {:ignored, lifecycle} ->
-                {{:error, :stale_generation}, %{state | control_lifecycle: lifecycle} |> persist_control_lifecycle()}
-            end
-
-          {:error, reason} ->
-            state = reject_routing_failure(state, request.request_id, reason)
-
-            case ControlLifecycle.get(state.control_lifecycle, request.request_id) do
-              nil -> :ok
-              rejected -> publish_control_lifecycle(issue_identifier, rejected)
-            end
-
-            {{:error, reason}, state}
+        case ControlLifecycle.get(state.control_lifecycle, request.request_id) do
+          nil -> :ok
+          rejected -> publish_control_lifecycle(issue_identifier, rejected)
         end
 
-      {:duplicate, request, lifecycle} ->
-        {{:ok, request.request_id}, %{state | control_lifecycle: lifecycle}}
-
-      {:error, rejection, lifecycle} ->
-        {{:error, {:control_rejected, rejection}}, %{state | control_lifecycle: lifecycle} |> persist_control_lifecycle()}
+        {{:error, reason}, state}
     end
+  end
+
+  defp accept_admitted_control_request(state, issue_identifier, request, request_id) do
+    case ControlLifecycle.accept(state.control_lifecycle, request_id, request.generation, now: DateTime.utc_now()) do
+      {:ok, accepted, lifecycle} ->
+        arm_pause_containment(request, issue_identifier)
+        publish_control_lifecycle(issue_identifier, accepted)
+        {{:ok, request_id}, %{state | control_lifecycle: lifecycle} |> persist_control_lifecycle()}
+
+      {:ignored, lifecycle} ->
+        {{:error, :stale_generation}, %{state | control_lifecycle: lifecycle} |> persist_control_lifecycle()}
+    end
+  end
+
+  defp arm_pause_containment(%{action: :pause}, issue_identifier), do: Aiur.PauseContainment.arm(issue_identifier)
+  defp arm_pause_containment(_request, _issue_identifier), do: :ok
+
+  defp next_control_request_id do
+    case IdGenerator.reserve_durable_id() do
+      {:ok, request_id} -> {:ok, request_id}
+      {:error, :not_durable} -> {:error, :control_id_unavailable}
+    end
+  catch
+    :exit, _ -> {:error, :control_id_unavailable}
   end
 
   defp control_message(:pause, request) do
@@ -1038,7 +1119,8 @@ defmodule Aiur.Orchestrator.PauseResume do
   defp maybe_auto_resume_spurious_worker_pause(state, _running_entry, _status), do: state
 
   defp worker_pause_reason(running_entry, pause_payload, request) do
-    Map.get(running_entry, :paused_reason) ||
+    pending_pause_reason(running_entry, request) ||
+      Map.get(running_entry, :paused_reason) ||
       Map.get(pause_payload, :kind) ||
       Map.get(pause_payload, "kind") ||
       request_pause_reason(request, pause_payload)
@@ -1063,6 +1145,74 @@ defmodule Aiur.Orchestrator.PauseResume do
   end
 
   defp maybe_log_worker_pause(_status, _running_entry, _pause_reason), do: :ok
+
+  defp pending_pause_request?(state, running_entry) do
+    case ControlLifecycle.current_pending(state.control_lifecycle, issue_id(running_entry, Map.get(running_entry, :issue))) do
+      %{action: :pause} -> true
+      _ -> false
+    end
+  end
+
+  defp resume_pending_pause(state, running_entry) do
+    case submit_resume_control_request(state, running_entry, :operator) do
+      {{:ok, _request_id}, state} ->
+        {{:ok, :resumed}, state}
+
+      {error, state} ->
+        {error, state}
+    end
+  end
+
+  defp matching_pending_pause(state, running_entry, pause_reason) do
+    with issue_id when not is_nil(issue_id) <- issue_id(running_entry, Map.get(running_entry, :issue)),
+         %{action: :pause} = request <- ControlLifecycle.current_pending(state.control_lifecycle, issue_id),
+         %{request_id: request_id, reason: ^pause_reason} <- Map.get(running_entry, :pending_pause_reason),
+         true <- request.request_id == request_id do
+      request
+    else
+      _ -> nil
+    end
+  end
+
+  defp put_pending_pause_reason(state, issue_id, request_id, pause_reason)
+       when not is_nil(issue_id) do
+    update_in(state.running, fn running ->
+      case Map.get(running, issue_id) do
+        entry when is_map(entry) ->
+          Map.put(running, issue_id, Map.put(entry, :pending_pause_reason, %{request_id: request_id, reason: pause_reason}))
+
+        _ ->
+          running
+      end
+    end)
+  end
+
+  defp put_pending_pause_reason(state, _issue_id, _request_id, _pause_reason), do: state
+
+  defp pending_pause_reason(running_entry, %{action: :pause, request_id: request_id}) do
+    case Map.get(running_entry, :pending_pause_reason) do
+      %{request_id: ^request_id, reason: reason} -> reason
+      _ -> nil
+    end
+  end
+
+  defp pending_pause_reason(_running_entry, _request), do: nil
+
+  defp pause_requester(:operator_pause), do: :operator
+  defp pause_requester(:agent_pause_request), do: :automatic
+  defp pause_requester(_pause_reason), do: :system
+
+  defp issue_id(_running_entry, %Issue{id: issue_id}) when not is_nil(issue_id), do: issue_id
+  defp issue_id(running_entry, _issue), do: get_in(running_entry, [:issue, Access.key(:id)])
+
+  defp issue_identifier(%Issue{identifier: identifier}) when is_binary(identifier), do: identifier
+  defp issue_identifier(_issue), do: nil
+
+  defp put_running_entry(state, issue_id, running_entry) when not is_nil(issue_id) do
+    %{state | running: Map.put(state.running, issue_id, running_entry)}
+  end
+
+  defp put_running_entry(state, _issue_id, _running_entry), do: state
 
   defp resume_queued_issue(%State{} = state, issue_identifier) do
     issue =

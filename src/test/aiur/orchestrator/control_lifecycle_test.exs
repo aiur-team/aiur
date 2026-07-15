@@ -1,8 +1,8 @@
 defmodule Aiur.Orchestrator.ControlLifecycleTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.TrackerIdentity
   alias Aiur.Orchestrator.ControlLifecycle
+  alias Aiur.TrackerIdentity
 
   @now ~U[2026-07-13 12:00:00Z]
 

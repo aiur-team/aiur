@@ -1,8 +1,8 @@
 defmodule Aiur.OrchestratorInterruptTest do
   use Aiur.TestSupport
 
-  alias Aiur.TrackerIdentity
   alias Aiur.Opencode.ActiveTurns
+  alias Aiur.TrackerIdentity
 
   defp running_entry(identifier, extra \\ %{}) do
     Map.merge(

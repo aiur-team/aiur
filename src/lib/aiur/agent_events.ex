@@ -78,7 +78,11 @@ defmodule Aiur.AgentEvents do
 
   @typedoc "Any message that may be received on a Aiur agent topic."
   @type message ::
-          transcript_message() | alert_message() | control_lifecycle_message() | running_change_message() | status_change_message()
+          transcript_message()
+          | alert_message()
+          | control_lifecycle_message()
+          | running_change_message()
+          | status_change_message()
 
   @doc """
   Canonical short tag name for a transcript role. Used by the

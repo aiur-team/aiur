@@ -12,7 +12,12 @@ defmodule Aiur.Orchestrator.ControlLifecycleStoreTest do
     Application.put_env(:aiur, :control_lifecycle_store_path, path)
 
     on_exit(fn ->
-      if is_nil(previous), do: Application.delete_env(:aiur, :control_lifecycle_store_path), else: Application.put_env(:aiur, :control_lifecycle_store_path, previous)
+      if is_nil(previous) do
+        Application.delete_env(:aiur, :control_lifecycle_store_path)
+      else
+        Application.put_env(:aiur, :control_lifecycle_store_path, previous)
+      end
+
       File.rm(path)
     end)
 

@@ -1,8 +1,8 @@
 defmodule Aiur.Orchestrator.LifecycleTest do
   use Aiur.TestSupport
 
-  alias Aiur.TrackerIdentity
   alias Aiur.Orchestrator.{ControlLifecycle, Lifecycle, State, TrackedSet}
+  alias Aiur.TrackerIdentity
 
   test "schedule_tick replaces the timer with a new token" do
     old_token = make_ref()

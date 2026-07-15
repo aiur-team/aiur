@@ -10,11 +10,7 @@ defmodule Aiur.AppServer.TurnLoop do
     receive do
       {^port, {:data, {:eol, chunk}}} ->
         complete_line = state.pending_line <> to_string(chunk)
-
-        case handle_incoming(session, %{state | pending_line: ""}, complete_line) do
-          {:continue, next_state} -> receive_loop(session, next_state)
-          result -> result
-        end
+        continue_or_return(session, handle_incoming(session, %{state | pending_line: ""}, complete_line))
 
       {^port, {:data, {:noeol, chunk}}} ->
         receive_loop(session, %{state | pending_line: state.pending_line <> to_string(chunk)})
@@ -23,23 +19,17 @@ defmodule Aiur.AppServer.TurnLoop do
         {:error, {:port_exit, status}}
 
       {:pause_agent, request_id, generation} when is_integer(request_id) and is_integer(generation) ->
-        case Interrupts.handle_pause_request(session, state, %{request_id: request_id, generation: generation}) do
-          {:continue, next_state} -> receive_loop(session, next_state)
-          result -> result
-        end
+        continue_or_return(
+          session,
+          Interrupts.handle_pause_request(session, state, %{request_id: request_id, generation: generation})
+        )
 
       {:pause_agent, request_id} when is_integer(request_id) ->
-        case Interrupts.handle_pause_request(session, state, request_id) do
-          {:continue, next_state} -> receive_loop(session, next_state)
-          result -> result
-        end
+        continue_or_return(session, Interrupts.handle_pause_request(session, state, request_id))
 
       {:agent_queue_updated, issue_identifier, _item_id, true}
       when issue_identifier == state.issue_identifier ->
-        case Interrupts.handle_operator_queue_update(session, state) do
-          {:continue, next_state} -> receive_loop(session, next_state)
-          result -> result
-        end
+        continue_or_return(session, Interrupts.handle_operator_queue_update(session, state))
 
       {:agent_queue_updated, issue_identifier, _item_id, _deliver_now}
       when issue_identifier == state.issue_identifier ->
@@ -59,6 +49,9 @@ defmodule Aiur.AppServer.TurnLoop do
         {:error, :turn_timeout}
     end
   end
+
+  defp continue_or_return(session, {:continue, next_state}), do: receive_loop(session, next_state)
+  defp continue_or_return(_session, result), do: result
 
   defp handle_incoming(%{port: port} = session, state, data) do
     on_message = state.on_message

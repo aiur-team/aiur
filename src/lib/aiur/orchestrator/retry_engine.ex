@@ -13,9 +13,9 @@ defmodule Aiur.Orchestrator.RetryEngine do
   alias Aiur.Orchestrator.Dispatcher
 
   alias Aiur.Orchestrator.{
-    DispatchPolicy,
     ControlLifecycle,
     ControlLifecycleStore,
+    DispatchPolicy,
     Reconciler,
     Slots,
     State,

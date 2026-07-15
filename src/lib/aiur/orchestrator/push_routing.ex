@@ -10,7 +10,7 @@ defmodule Aiur.Orchestrator.PushRouting do
   alias Aiur.Config
   alias Aiur.Events.SubscriptionStore
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.{PauseResume, State}
 
   @spec mark_sleeping(String.t()) :: :ok
   def mark_sleeping(issue_identifier), do: mark_sleeping(Aiur.Orchestrator, issue_identifier)
@@ -42,15 +42,15 @@ defmodule Aiur.Orchestrator.PushRouting do
             state
 
           true ->
-            # Queue the pause control message; ignore the reply because
-            # we're about to transition the entry's status optimistically
-            # in transition_control_status. The worker confirmation
-            # arrives later via :worker_control_state :paused and the
-            # already-equal status short-circuit drops the duplicate
-            # transition cleanly.
-            _ = Orchestrator.send_pause_control_message(state, identifier)
-            running_entry = Map.put(running_entry, :paused_reason, :agent_pause_request)
-            Orchestrator.transition_control_status(state, running_entry, :paused, "agent.pause.request")
+            {_reply, state} =
+              PauseResume.request_pause(
+                state,
+                running_entry,
+                Map.get(running_entry, :issue),
+                :agent_pause_request
+              )
+
+            state
         end
 
       _ ->

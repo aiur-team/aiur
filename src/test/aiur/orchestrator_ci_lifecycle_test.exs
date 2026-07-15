@@ -1,7 +1,7 @@
 defmodule Aiur.OrchestratorCILifecycleTest do
   use Aiur.TestSupport
 
-  alias Aiur.{AgentQueueStore, CIApprovalStore}
+  alias Aiur.{AgentQueueStore, CIApprovalStore, TrackerIdentity}
   alias Aiur.Events.Exchange
   alias Aiur.Orchestrator.{CiLifecycle, State}
 
@@ -87,7 +87,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       assert is_reference(timer_ref)
     end
 
-    test "pending CI writes ci-wait before pausing a live human-review runner" do
+    test "pending CI writes ci-wait and waits for live-runner pause evidence" do
       identifier = unique_identifier("ci-pending")
       recorder = start_recorder()
 
@@ -99,16 +99,17 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       sync_recorder(recorder)
 
       assert_received {:recorded, 1, {:tracker_update, ^identifier, "ci-wait"}}
-      assert_received {:recorded, 2, {:pause_agent, request_id}}
+      assert_received {:recorded, 2, {:pause_agent, request_id, _generation}}
       assert is_integer(request_id)
 
       entry = Map.fetch!(next.running, identifier)
 
       assert entry.issue.state == "ci-wait"
-      assert entry.control.status == :paused
+      assert entry.control.status == :working
       assert entry.control.can_interrupt
-      assert entry.paused_reason == :ci_wait
-      assert %DateTime{} = entry.paused_at
+      assert entry.pending_pause_reason == %{request_id: request_id, reason: :ci_wait}
+      refute Map.has_key?(entry, :paused_reason)
+      refute Map.has_key?(entry, :paused_at)
       assert entry.started_at == started_at
       assert MapSet.member?(next.claimed, identifier)
       assert Process.alive?(recorder)
@@ -185,10 +186,11 @@ defmodule Aiur.OrchestratorCILifecycleTest do
                         }}}
 
       assert_received {:recorded, 3, {:agent_queue_updated, ^identifier, _item_id, false}}
-      assert_received {:recorded, 4, {:resume_agent, _request_id}}
+      assert_received {:recorded, 4, {:resume_agent, _request_id, 101}}
 
       assert next.running[identifier].issue.state == "in-progress"
-      assert next.running[identifier].control.status == :working
+      assert next.running[identifier].control.status == :paused
+      assert next.running[identifier].paused_reason == :ci_wait
       assert next.ci_lifecycle.approved_heads == %{identifier => "approved-head"}
       assert CIApprovalStore.load().approved_heads == %{identifier => "approved-head"}
       refute Map.has_key?(next.ci_lifecycle.rewakes, identifier)
@@ -225,10 +227,11 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       assert_received {:recorded, 1, {:tracker_update, ^identifier, "rework"}}
       assert_received {:recorded, 2, {:event, %{topic: ^topic}}}
       assert_received {:recorded, 3, {:agent_queue_updated, ^identifier, _item_id, false}}
-      assert_received {:recorded, 4, {:resume_agent, _request_id}}
+      assert_received {:recorded, 4, {:resume_agent, _request_id, 101}}
 
       assert next.running[identifier].issue.state == "rework"
-      assert next.running[identifier].control.status == :working
+      assert next.running[identifier].control.status == :paused
+      assert next.running[identifier].paused_reason == :ci_wait
       refute Map.has_key?(next.ci_lifecycle.rewakes, identifier)
 
       assert [%{body: %{events: [event]}}] = AgentQueueStore.list_pending(next.queue_store, identifier)
@@ -296,11 +299,12 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       assert_received {:recorded, 1, {:tracker_update, ^identifier, "in-progress"}}
       assert_received {:recorded, 2, {:agent_queue_updated, ^identifier, _item_id, false}}
-      assert_received {:recorded, 3, {:resume_agent, request_id}}
+      assert_received {:recorded, 3, {:resume_agent, request_id, 101}}
       assert is_integer(request_id)
 
       assert next.running[identifier].issue.state == "in-progress"
-      assert next.running[identifier].control.status == :working
+      assert next.running[identifier].control.status == :paused
+      assert next.running[identifier].paused_reason == :ci_wait
       refute Map.has_key?(next.ci_lifecycle.rewakes, identifier)
 
       assert [%{body: %{events: [event]}}] = AgentQueueStore.list_pending(next.queue_store, identifier)
@@ -457,7 +461,10 @@ defmodule Aiur.OrchestratorCILifecycleTest do
         control: %{
           status: status,
           can_interrupt: true,
-          safe_checkpoints: [:notification]
+          safe_checkpoints: [:notification],
+          application_confirmation: :confirmed,
+          generation: 101,
+          version: 0
         }
       }
       |> Map.merge(Map.new(attrs))
@@ -475,7 +482,17 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       id: identifier,
       identifier: identifier,
       state: state,
-      title: "Characterize CI lifecycle"
+      title: "Characterize CI lifecycle",
+      tracker_identity: %TrackerIdentity{
+        version: 1,
+        status: :joinable,
+        kind: :github,
+        owner: "its-everdred",
+        repository: "aiur",
+        provider_id: "I_kwDO#{identifier}",
+        identifier: "101",
+        reason: nil
+      }
     }
   end
 

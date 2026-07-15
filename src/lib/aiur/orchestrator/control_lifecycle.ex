@@ -16,6 +16,17 @@ defmodule Aiur.Orchestrator.ControlLifecycle do
   @actions [:pause, :resume]
   @requesters [:operator, :automatic, :system]
   @expected_statuses [:working, :paused, :sleeping, :completed, :deactivated]
+  @rejection_classes [
+    :not_found,
+    :not_eligible,
+    :unsupported,
+    :stale_generation,
+    :worker_unavailable,
+    :already_in_state,
+    :control_failed,
+    :superseded
+  ]
+  @expiry_reasons [:timeout, :daemon_restart, :generation_loss, :worker_unavailable]
 
   @type status :: :requested | :accepted | :applied | :rejected | :expired
 
@@ -332,34 +343,70 @@ defmodule Aiur.Orchestrator.ControlLifecycle do
   end
 
   defp validate_request(attrs) do
-    cond do
-      not valid_request_id?(Map.get(attrs, :request_id)) ->
-        {:error, rejection(:control_failed, "request ID must be a non-empty string or positive integer")}
+    attrs
+    |> request_validations()
+    |> Enum.find(:ok, &match?({:error, _}, &1))
+  end
 
-      not valid_issue_id?(Map.get(attrs, :issue_id)) ->
-        {:error, rejection(:not_found, "unit identifier is required")}
+  defp request_validations(attrs) do
+    [
+      validate_request_id(attrs),
+      validate_issue_id(attrs),
+      validate_tracker_identity(attrs),
+      validate_action(attrs),
+      validate_generation(attrs),
+      validate_expected_status(attrs),
+      validate_expected_version(attrs),
+      validate_requester(attrs)
+    ]
+  end
 
-      not TrackerIdentity.joinable?(Map.get(attrs, :tracker_identity)) ->
-        {:error, rejection(:not_eligible, "unit does not have a joinable repository-qualified identity")}
+  defp validate_request_id(attrs) do
+    if valid_request_id?(Map.get(attrs, :request_id)),
+      do: :ok,
+      else: {:error, rejection(:control_failed, "request ID must be a non-empty string or positive integer")}
+  end
 
-      Map.get(attrs, :action) not in [:pause, :resume] ->
-        {:error, rejection(:unsupported, "control action must be pause or resume")}
+  defp validate_issue_id(attrs) do
+    if valid_issue_id?(Map.get(attrs, :issue_id)),
+      do: :ok,
+      else: {:error, rejection(:not_found, "unit identifier is required")}
+  end
 
-      not valid_generation?(Map.get(attrs, :generation)) ->
-        {:error, rejection(:stale_generation, "worker generation is required")}
+  defp validate_tracker_identity(attrs) do
+    if TrackerIdentity.joinable?(Map.get(attrs, :tracker_identity)),
+      do: :ok,
+      else: {:error, rejection(:not_eligible, "unit does not have a joinable repository-qualified identity")}
+  end
 
-      not is_atom(Map.get(attrs, :expected_status)) ->
-        {:error, rejection(:control_failed, "expected authoritative status is required")}
+  defp validate_action(attrs) do
+    if Map.get(attrs, :action) in @actions,
+      do: :ok,
+      else: {:error, rejection(:unsupported, "control action must be pause or resume")}
+  end
 
-      not is_integer(Map.get(attrs, :expected_version)) or Map.get(attrs, :expected_version) < 0 ->
-        {:error, rejection(:control_failed, "expected authoritative version must be a non-negative integer")}
+  defp validate_generation(attrs) do
+    if valid_generation?(Map.get(attrs, :generation)),
+      do: :ok,
+      else: {:error, rejection(:stale_generation, "worker generation is required")}
+  end
 
-      not is_atom(Map.get(attrs, :requester)) ->
-        {:error, rejection(:control_failed, "requester class is required")}
+  defp validate_expected_status(attrs) do
+    if is_atom(Map.get(attrs, :expected_status)),
+      do: :ok,
+      else: {:error, rejection(:control_failed, "expected authoritative status is required")}
+  end
 
-      true ->
-        :ok
-    end
+  defp validate_expected_version(attrs) do
+    if valid_expected_version?(Map.get(attrs, :expected_version)),
+      do: :ok,
+      else: {:error, rejection(:control_failed, "expected authoritative version must be a non-negative integer")}
+  end
+
+  defp validate_requester(attrs) do
+    if Map.get(attrs, :requester) in @requesters,
+      do: :ok,
+      else: {:error, rejection(:control_failed, "requester class is required")}
   end
 
   defp build_request(attrs, now) do
@@ -474,7 +521,8 @@ defmodule Aiur.Orchestrator.ControlLifecycle do
          generation <- persisted_value(raw, :generation),
          true <- valid_generation?(generation),
          {:ok, expected_status} <- persisted_atom(persisted_value(raw, :expected_status), @expected_statuses),
-         expected_version when is_integer(expected_version) and expected_version >= 0 <- persisted_value(raw, :expected_version),
+         expected_version <- persisted_value(raw, :expected_version),
+         true <- valid_expected_version?(expected_version),
          {:ok, requester} <- persisted_atom(persisted_value(raw, :requester), @requesters),
          {:ok, status} <- persisted_atom(persisted_value(raw, :status), @statuses),
          {:ok, requested_at} <- restore_datetime(persisted_value(raw, :requested_at)) do
@@ -506,7 +554,12 @@ defmodule Aiur.Orchestrator.ControlLifecycle do
 
   defp put_restored_request(lifecycle, request) do
     history_ids = Map.update(lifecycle.history_ids, request.issue_id, [request.request_id], &(&1 ++ [request.request_id]))
-    lifecycle = %{lifecycle | records: Map.put(lifecycle.records, request.request_id, request), history_ids: history_ids}
+
+    lifecycle = %{
+      lifecycle
+      | records: Map.put(lifecycle.records, request.request_id, request),
+        history_ids: history_ids
+    }
 
     if request.status in @pending_statuses do
       put_in(lifecycle.pending[request.issue_id], request.request_id)
@@ -565,8 +618,7 @@ defmodule Aiur.Orchestrator.ControlLifecycle do
   defp restore_rejection(nil), do: nil
 
   defp restore_rejection(raw) when is_map(raw) do
-    with {:ok, class} <-
-           persisted_atom(persisted_value(raw, :class), [:not_found, :not_eligible, :unsupported, :stale_generation, :worker_unavailable, :already_in_state, :control_failed, :superseded]),
+    with {:ok, class} <- persisted_atom(persisted_value(raw, :class), @rejection_classes),
          message when is_binary(message) <- persisted_value(raw, :message) do
       %{class: class, message: message}
     else
@@ -579,7 +631,7 @@ defmodule Aiur.Orchestrator.ControlLifecycle do
   defp restore_expiry(nil), do: nil
 
   defp restore_expiry(raw) when is_map(raw) do
-    with {:ok, reason} <- persisted_atom(persisted_value(raw, :reason), [:timeout, :daemon_restart, :generation_loss, :worker_unavailable]),
+    with {:ok, reason} <- persisted_atom(persisted_value(raw, :reason), @expiry_reasons),
          {:ok, at} <- restore_datetime(persisted_value(raw, :at)) do
       %{reason: reason, at: at}
     else
@@ -617,6 +669,7 @@ defmodule Aiur.Orchestrator.ControlLifecycle do
   defp valid_request_id?(value), do: (is_binary(value) and value != "") or (is_integer(value) and value > 0)
   defp valid_issue_id?(value), do: not is_nil(value)
   defp valid_generation?(value), do: (is_binary(value) and value != "") or (is_integer(value) and value >= 0)
+  defp valid_expected_version?(value), do: is_integer(value) and value >= 0
 
   defp rejection(class, message), do: %{class: class, message: message}
 

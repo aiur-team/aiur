@@ -28,15 +28,17 @@ defmodule Aiur.Codex.TurnLoop do
     emit_turn_event(state.on_message, :turn_cancelled, payload, payload_string, session.port, params)
     TurnState.fail_pending_operator_requests(state.pending_operator_requests, {:turn_cancelled, params})
 
-    if not is_nil(state.pause_request_id) do
-      {:paused,
-       %{
-         control: state.pause_request_id,
-         turn_id: state.current_turn_id,
-         details: params
-       }}
-    else
-      {:error, {:turn_cancelled, params}}
+    case state.pause_request_id do
+      nil ->
+        {:error, {:turn_cancelled, params}}
+
+      request_id ->
+        {:paused,
+         %{
+           control: request_id,
+           turn_id: state.current_turn_id,
+           details: params
+         }}
     end
   end
 
