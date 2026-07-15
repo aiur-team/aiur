@@ -203,7 +203,7 @@ defmodule Aiur.Workspace.Ownership.Guardian do
     case provider_identity_state(state, :group, group, state.group_alive_fun) do
       :live -> start_reap(state, :group, group)
       status when status in [:gone, :reused] -> release_guardian(state)
-      :unknown -> schedule_reap_retry(state)
+      :unknown -> maybe_reap_gone_group_leader_descendants(state, group)
     end
   end
 
@@ -222,6 +222,14 @@ defmodule Aiur.Workspace.Ownership.Guardian do
       %{live: [], unverified?: false} -> release_guardian(state)
       %{live: [], unverified?: true} -> schedule_reap_retry(state)
       %{live: live_process_ids} -> start_reap(state, :processes, live_process_ids)
+    end
+  end
+
+  defp maybe_reap_gone_group_leader_descendants(state, group) do
+    if group_leader_gone?(state, group) and has_recorded_descendants?(state.provider) do
+      maybe_reap_descendants(state)
+    else
+      schedule_reap_retry(state)
     end
   end
 
@@ -380,6 +388,13 @@ defmodule Aiur.Workspace.Ownership.Guardian do
   rescue
     _ -> :unknown
   end
+
+  defp group_leader_gone?(state, group), do: capture_process_identity(state.process_identity_fun, group) == :gone
+
+  defp has_recorded_descendants?(%{descendant_pids: process_ids}) when is_list(process_ids),
+    do: Enum.any?(process_ids, &(is_integer(&1) and &1 > 0))
+
+  defp has_recorded_descendants?(_provider), do: false
 
   defp provider_identity_state(state, kind, identifier, alive_fun) do
     expected_identity = provider_identity(state, kind, identifier)

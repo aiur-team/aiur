@@ -326,6 +326,57 @@ defmodule Aiur.Workspace.OwnershipTest do
     assert_eventually(fn -> Ownership.current(ticket) == :none end)
   end
 
+  test "reaps recorded descendants after a process group leader exits" do
+    ticket = "ownership-gone-group-leader-#{System.unique_integer([:positive])}"
+    process_group_id = System.unique_integer([:positive])
+    child_pid = System.unique_integer([:positive])
+    parent = self()
+    {:ok, child_alive} = Agent.start_link(fn -> true end)
+
+    on_exit(fn ->
+      if Process.alive?(child_alive), do: Agent.stop(child_alive)
+    end)
+
+    owner =
+      spawn(fn ->
+        {:ok, lease} =
+          Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry,
+            group_alive_fun: fn ^process_group_id -> true end,
+            process_alive_fun: fn ^child_pid -> Agent.get(child_alive, & &1) end,
+            process_identity_fun: fn
+              ^process_group_id -> :gone
+              ^child_pid -> {:ok, :recorded_child}
+            end,
+            reap_fun: fn group -> send(parent, {:unexpected_group_reap, group}) end,
+            process_reap_fun: fn pid, identity ->
+              send(parent, {:recorded_descendant_reap, self(), pid, identity})
+
+              receive do
+                :finish_recorded_descendant_reap -> Agent.update(child_alive, fn _ -> false end)
+              end
+            end
+          )
+
+        :ok =
+          Ownership.track_provider(lease, %{
+            process_group_id: process_group_id,
+            descendant_pids: [child_pid]
+          })
+
+        send(parent, :gone_group_leader_tracked)
+        Process.sleep(:infinity)
+      end)
+
+    assert_receive :gone_group_leader_tracked, 2_000
+    Process.exit(owner, :kill)
+
+    assert_receive {:recorded_descendant_reap, reaper, ^child_pid, {:known, :recorded_child}}, 500
+    refute_receive {:unexpected_group_reap, ^process_group_id}, 0
+
+    send(reaper, :finish_recorded_descendant_reap)
+    assert_eventually(fn -> Ownership.current(ticket) == :none end)
+  end
+
   test "does not reap a process group after its identifier is reused" do
     ticket = "ownership-reused-group-#{System.unique_integer([:positive])}"
     process_group_id = System.unique_integer([:positive])
