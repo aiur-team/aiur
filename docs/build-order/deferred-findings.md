@@ -119,3 +119,18 @@ critical-path capacity, or prevent completion.
   healthy.
 - Future disposition: collect recurrence evidence, then add bounded age/clean-
   state GC plus a pre-saturation alert; never auto-delete dirty or active trees.
+
+## DF-012 — Control helper exits after a successful roster response
+
+- Severity: P2 operator-efficiency bug
+- Evidence: `aiurdev agents` printed the complete roster and
+  `__AIUR_CONTROL_EXIT__:0`, but its helper process did not terminate before the
+  ten-second launcher timeout; SIGTERM then produced an Elixir shutdown error
+  and a misleading scheduler-saturation warning.
+- Affected component: shared launcher control-RPC helper lifecycle
+- Why non-blocking: the target daemon stayed alive, later control responses and
+  tracker dispatch continued, and logs/process inspection provide a safe
+  monitoring fallback.
+- Future disposition: reproduce after the recovery restart, then make the
+  helper exit immediately after the framed success marker and distinguish a
+  target RPC timeout from helper-shutdown latency.

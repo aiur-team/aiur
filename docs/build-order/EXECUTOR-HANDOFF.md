@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-15 00:40 PDT)
+## Live Executor state (updated 2026-07-15 00:57 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -1717,6 +1717,38 @@ Terra; never dispatch Claude.
     merge-ready. The tracked-set restart assertion passes alone at the CI seed
     and remains under independent flake diagnosis. Fresh full CI and a second
     exact-head delta review remain the only #1179 merge gates.
+
+211. #1179 cleared fresh full CI plus two independent exact-head delta reviews
+    and squash-merged to `main` as `200a82d3` at 00:48 PDT. The warm base
+    independently refreshed to that exact commit. The unrelated tracked-set
+    restart flake reproduced on both the PR and prior `main`; it is the
+    incompletely fixed existing #780, so the Executor reopened #780 as a P1 Ad
+    Hoc recovery item instead of multiplying tickets. Its old `aiur/780`
+    branch had already merged through PR #785 but could not merge modern main;
+    after verifying that history, the Executor deleted the stale remote branch,
+    archived the old workspace intact, resumed the paused worker, and proved a
+    fresh current-main branch `aiur/780-fix-remaining-concurrent-flaky` is now
+    active.
+
+212. #1180's completed pre-#1179 worker session accepted an operator message
+    but did not consume it, which is the recycle gap the still-unloaded #1179
+    binary fixes. Rather than restart twice, the Executor performed only the
+    bounded ownership fallback: merged exact `200a82d3` into the otherwise
+    clean branch, ran all 12 focused hook regressions green, and pushed fresh
+    head `281f138e` to centralized CI. After #1180 passes exact-head review and
+    merges, rebuild/restart once with both recovery fixes, enable the opt-in
+    continuation and lifetime budget settings, and prove live recovery before
+    lifting the feature-scope freeze. A comment-only wake probe on #1032 became
+    observable only after the Executor also injected a manual message, so it
+    is inconclusive and must not be recorded as positive or negative proof.
+
+213. The `aiurdev agents` control helper can print a complete roster and the
+    internal success marker, then fail to exit before the outer ten-second
+    timeout; the launcher kills that helper and falsely warns that the daemon
+    may be scheduler-saturated. A direct CPU sample showed the daemon mostly
+    idle after the transient spike. Record the repeated false timeout as
+    deferred DF-012; use logs/process evidence between state changes and do
+    not restart a healthy daemon from this warning alone.
 
 At 23:58 PDT the core graph remains 8/54 accepted while the recovery gate is
 frozen. Five Codex implementation/rework workers are visibly executing

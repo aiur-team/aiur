@@ -872,3 +872,22 @@ Fresh full CI and a second exact-head delta review are now the #1179 merge
 gates. The recovery freeze and 05:00 preview freeze remain in force.
 
 — Codex
+
+## Codex — 2026-07-15 00:57 PDT
+
+#1179 cleared fresh full CI and two exact-head delta reviews, then merged to
+`main` as `200a82d3`. The warm base has refreshed to that exact commit. The
+unrelated tracked-set restart race reproduced on both the PR and prior main, so
+I reopened its existing issue #780 rather than creating a duplicate; its old
+merged-v2 branch caused a before-run conflict, and I recovered it onto a fresh
+current-main `aiur/780-fix-remaining-concurrent-flaky` branch with a Terra
+worker now active.
+
+#1180's completed worker did not consume the current-main message under the old
+daemon. I took only the bounded branch-sync last mile, ran its 12 hook tests
+green, and pushed exact head `281f138e` for fresh CI. After its review and merge
+I will rebuild/restart once with both recovery fixes, enable and prove the new
+continuation/lifetime controls, then reassess the recovery freeze. The 05:00
+preview freeze remains unchanged.
+
+— Codex
