@@ -70,8 +70,8 @@ before_run: |
     trap - 0
   else
     git fetch origin
-    if ! git diff --quiet -- . ':(exclude).aiur-hex' ':(exclude)logs' ||
-       ! git diff --cached --quiet -- . ':(exclude).aiur-hex' ':(exclude)logs'; then
+    if ! git diff --quiet -- . ':(exclude).aiur-hex/**' ':(exclude).aiur-mix/**' ':(exclude)logs' ||
+       ! git diff --cached --quiet -- . ':(exclude).aiur-hex/**' ':(exclude).aiur-mix/**' ':(exclude)logs'; then
       # Tracked changes are present. Signal the refusal with exit 65.
       # The Elixir side keys on that status code: a fresh todo dispatch
       # recreates the stale leftover clean; a live/resumed agent's uncommitted

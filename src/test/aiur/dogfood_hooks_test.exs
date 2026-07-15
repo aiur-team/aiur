@@ -2,12 +2,15 @@ defmodule Aiur.DogfoodHooksTest do
   use ExUnit.Case, async: true
 
   @hooks_path Path.expand("../../../.aiur/hooks", __DIR__)
+  @repo_root Path.expand("../../..", __DIR__)
   @config_path Path.expand("../../../.aiur/config", __DIR__)
+  @gitignore_path Path.expand("../../../.gitignore", __DIR__)
   @prompt_path Path.expand("../../../.aiur/prompt.md", __DIR__)
   @contributing_path Path.expand("../../../CONTRIBUTING.md", __DIR__)
 
   @external_resource @hooks_path
   @external_resource @config_path
+  @external_resource @gitignore_path
   @external_resource @prompt_path
   @external_resource @contributing_path
 
@@ -37,6 +40,16 @@ defmodule Aiur.DogfoodHooksTest do
     contributing = File.read!(@contributing_path)
     assert contributing =~ "PRs target the canonical `#{dogfood_base}` branch"
     refute contributing =~ ~r/PRs target[^\n]*`v2`/
+  end
+
+  test "per-workspace package-manager caches are ignored and untracked" do
+    for path <- [".aiur-hex/cache.ets", ".aiur-mix/archives/hex.ez"] do
+      assert {_output, 0} =
+               System.cmd("git", ["-C", @repo_root, "check-ignore", "--quiet", path], stderr_to_stdout: true)
+    end
+
+    assert {"", 0} =
+             System.cmd("git", ["-C", @repo_root, "ls-files", ".aiur-hex", ".aiur-mix"], stderr_to_stdout: true)
   end
 
   test "checked-in hooks checkout and merge the configured base branch", context do
@@ -163,6 +176,31 @@ defmodule Aiur.DogfoodHooksTest do
     assert output =~ "origin/#{configured_base()}"
     assert current_branch!(workspace) == "main"
     assert File.read!(Path.join(workspace, "README.md")) == "agent WIP\n"
+  end
+
+  test "before_run ignores legacy tracked package cache mutations", context do
+    workspace = Path.join(context.test_root, "legacy-package-cache")
+    File.mkdir_p!(workspace)
+    assert_hook_ok!("after_create", workspace, context.origin)
+    git!(["-C", workspace, "config", "user.name", "Test User"])
+    git!(["-C", workspace, "config", "user.email", "test@example.com"])
+
+    for path <- [".aiur-hex/cache.ets", ".aiur-mix/archives/hex.ez"] do
+      full_path = Path.join(workspace, path)
+      File.mkdir_p!(Path.dirname(full_path))
+      File.write!(full_path, "warm cache\n")
+      git!(["-C", workspace, "add", "--force", path])
+    end
+
+    git!(["-C", workspace, "commit", "--quiet", "-m", "legacy package caches"])
+    File.write!(Path.join(workspace, ".aiur-hex/cache.ets"), "rewritten hex cache\n")
+    File.write!(Path.join(workspace, ".aiur-mix/archives/hex.ez"), "rewritten mix cache\n")
+
+    assert_hook_ok!("before_run", workspace, context.origin)
+
+    status = git!(["-C", workspace, "status", "--short"])
+    assert status =~ ".aiur-hex/cache.ets"
+    assert status =~ ".aiur-mix/archives/hex.ez"
   end
 
   test "before_run refuses to overwrite tracked WIP", context do
