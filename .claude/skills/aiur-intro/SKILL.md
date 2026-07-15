@@ -113,12 +113,13 @@ of those — it is the single best predictor of whether runs land.
 Aiur is an unstable engineering preview for trusted environments. It **bypasses agent
 permission prompts** — state that plainly, and state what bounds it:
 
-- Workers run permission-free **inside an isolated workspace**, not against the operator's
-  machine or main checkout.
-- Work reaches the repo through the Executor's **review gates and merge policy** — the
-  run's terminal states are supervised, and agents do not self-merge.
-- The blast radius is the workspace and the token spend; the human sets the acceptance
-  boundary.
+- Every worker gets a dedicated workspace and checkout, but that separation is **not a
+  security boundary**. Depending on the configured backend sandbox policy, a
+  permission-free agent may access host resources outside its workspace.
+- Aiur's intended workflow routes changes through the Executor's **review gates and merge
+  policy** rather than having agents self-merge.
+- The human chooses the backend sandbox policy, credentials, token budget, review gates,
+  and other controls that determine the real blast radius.
 
 That is the same warning the README carries, with the part that makes it survivable. Do
 not soften it, and do not present it without the bound — either one misleads.

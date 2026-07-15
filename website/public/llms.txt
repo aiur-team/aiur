@@ -7,10 +7,11 @@ and terminal states. A CLI and TUI show the active agents and provide live
 chat; Aiur also has a web dashboard for observing a run.
 
 Aiur is prototype software for trusted environments. It bypasses agent
-permission prompts inside each isolated workspace, so review its configuration
-and supervise its use before running it on real repositories. Work reaches the
-repository only through the Executor's review gates and merge policy; agents do
-not self-merge.
+permission prompts. Each worker gets a dedicated workspace and checkout, but
+that separation is not by itself a security boundary; the configured backend
+sandbox policy determines whether an agent can access host resources outside
+its workspace. Aiur's intended workflow routes changes through the Executor's
+review gates and merge policy rather than having agents self-merge.
 
 ## Operating model
 

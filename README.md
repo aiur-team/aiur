@@ -5,9 +5,10 @@
 > environments only. It **bypasses all agent permission prompts** and has very few efficiency
 > optimizations. Suggested for simple tasks under supervision.
 >
-> Workers run permission-free *inside an isolated workspace*, not against your machine or your
-> main checkout, and work reaches your repo only through the Executor's review gates and merge
-> policy — agents do not self-merge. That bounds the blast radius; it does not eliminate it.
+> Each worker gets a dedicated workspace and checkout, but that separation is not by itself a
+> security boundary. Depending on the configured backend sandbox policy, a permission-free agent
+> may access host resources outside its workspace. Aiur's intended workflow routes changes through
+> the Executor's review gates and merge policy rather than having agents self-merge.
 >
 > Provided "as is", without warranty of any kind. You assume all risk for any cost, token
 > spend, data loss, or damage from running it. See [LICENSE](LICENSE).
