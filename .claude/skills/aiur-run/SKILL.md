@@ -194,8 +194,9 @@ On every observation:
 - follow the recovery ladder for stale, looping, or feedback-blind agents;
 - keep branch freshness with the owning worker. When a PR does not contain the
   current configured integration base, route one explicit update/re-cut packet
-  to that ticket's agent; do not spend Executor or reviewer effort modernizing
-  or reviewing the stale head;
+  to that ticket's agent before review. If that bounded recovery repeats without
+  material progress, apply the convergence escalation below instead of leaving
+  the PR in an ownership vacuum or another identical loop;
 - treat `ci-wait` as an automatic gate unless evidence shows the poller failed;
 - use `"$AIUR_CMD" message <id> <text>`, `pause`, and `resume` as the least
   invasive controls;
@@ -205,8 +206,40 @@ A PR becomes review-ready only when its configured base is correct, that base's
 current remote head is an ancestor of the PR head, and fresh CI has run on that
 exact head. The owning worker is responsible for fetching, integrating or
 re-cutting against the current base, resolving semantic drift, and rerunning
-validation. Until those facts hold, route the freshness work to the worker and
-do not start background review or update the branch as Executor.
+validation on the first bounded recovery attempt. Until those facts hold, do
+not start background review. Do not keep returning an unchanged failure to an
+agent that is no longer converging; inspect and escalate ownership instead.
+
+### Convergence watch and takeover
+
+Continuously inspect unusually old active tickets and pull requests, especially
+when observed implementation time is small relative to elapsed delivery time.
+Treat these as warning signals, not as reasons to wait for a fixed timer:
+
+- repeated worker starts, cold dispatches, `max_turns` recycles, or resume loops;
+- an open PR with no live owning agent, a frozen head, or no material git progress;
+- repeated review-to-rework or comment-triggered wake cycles on substantially
+  the same change;
+- repeated stale-base merges, conflict repair, or exact-head review invalidation;
+- recurring CI, lint, or Dialyzer failures that do not produce a shrinking,
+  authoritative failure set;
+- a thrash/stall alert that does not latch, a completed-but-claimed worker, or
+  another lifecycle state that leaves the PR stranded.
+
+On a warning signal, inspect the issue/PR history, agent logs, restart count,
+commit timeline, base ancestry, checks, comments, and current live owner. Send
+one consolidated P0/P1 failure or update/re-cut packet and allow one bounded
+recovery attempt when that is still economical. If the agent repeats the same
+cycle, makes no material progress, becomes unowned, or the Executor reasonably
+believes continued delegation is increasing delivery risk or cost, take
+leadership under the recorded self-fix/takeover authority. The Executor may
+pause the duplicate worker and directly finish, re-cut, validate, push, review,
+and merge the ticket in an isolated worktree. Catastrophic Aiur failure is not
+required.
+
+Preserve the original branch/workspace, keep the ticket's acceptance boundary,
+defer non-blocking nits, and record the evidence and reason for takeover. The
+purpose is fast, safe convergence—not making the Executor the default worker.
 
 Once the gate holds, reserve capacity for the required parallel review/rework
 loop defined in the Executor reference. Verify that review comments reach the
@@ -220,12 +253,14 @@ reporting tick merely to restore utilization.
 
 ## 6. Backstop and defects
 
-Prioritize unblocking Aiur workers. Do not use takeover merely because a branch
-is stale, conflicted, or needs routine lint/review repair; those remain owning-
-worker responsibilities. Take over an affected ticket/lane or patch Aiur
-directly only when its recovery ladder is exhausted, a catastrophic Aiur
-failure prevents the worker from continuing, takeover is the best authorized
-option, and self-fix authority exists; other lanes may keep moving.
+Prioritize restoring productive Aiur workers, but do not preserve nominal
+worker ownership while delivery is demonstrably failing to converge. A single
+ordinary stale-base, conflict, lint, or review repair remains the owning
+worker's first responsibility. Repeated cycles, loss of a live owner, prolonged
+no-progress age, or a reasonable evidence-backed judgment that takeover is now
+the faster and safer path permit the Executor to take over under recorded
+self-fix/takeover authority. Follow the convergence watch above, stop duplicate
+writers, and keep other independent lanes moving.
 
 For Aiur crashes, leaked processes, missed comments, dispatch failures, or
 broken controls, follow the reference's sanitization and consent policy:
