@@ -5165,6 +5165,168 @@ defmodule Aiur.OrchestratorDeactivateTest do
       assert PushRouting.apply_agent_unblocked(resumed, "99") == resumed
     end
 
+    test "unblock stays durable until every subscribed consumer reaches its matching pause", %{
+      identifier: identifier,
+      fake_pid: fake_pid
+    } do
+      late_identifier = "LATE-BLOCKEE-#{System.unique_integer([:positive])}"
+      :ok = SubscriptionStore.attach(late_identifier)
+
+      on_exit(fn -> SubscriptionStore.stop(late_identifier) end)
+
+      for blockee <- [identifier, late_identifier] do
+        :ok =
+          SubscriptionStore.add_subscription(
+            blockee,
+            "ticket.99.agent.unblocked",
+            "blocker:auto"
+          )
+      end
+
+      first_issue_id = "issue-first-blockee"
+      late_issue_id = "issue-late-blockee"
+
+      first_entry = %{
+        pid: fake_pid,
+        ref: nil,
+        identifier: identifier,
+        issue: %Issue{id: first_issue_id, state: "in-progress", identifier: identifier},
+        started_at: DateTime.utc_now(),
+        control: %{status: :paused}
+      }
+
+      late_pid = spawn_link(fn -> fake_agent_loop() end)
+
+      late_entry = %{
+        pid: late_pid,
+        ref: nil,
+        identifier: late_identifier,
+        issue: %Issue{id: late_issue_id, state: "in-progress", identifier: late_identifier},
+        started_at: DateTime.utc_now(),
+        control: %{status: :working}
+      }
+
+      state = %Orchestrator.State{
+        running: %{
+          first_issue_id => Map.merge(first_entry, blocker_pause_fields()),
+          late_issue_id => late_entry
+        },
+        claimed: MapSet.new([first_issue_id, late_issue_id]),
+        max_concurrent_agents: 6
+      }
+
+      :ok = BranchRefStore.record(blocker_ref(), blocker_sha())
+
+      after_unblock =
+        EventTopics.route(state, %{
+          topic: "ticket.99.agent.unblocked",
+          payload: %{ref: blocker_ref(), sha: blocker_sha()}
+        })
+
+      assert get_in(after_unblock.running, [first_issue_id, :control, :status]) == :working
+      assert get_in(after_unblock.running, [late_issue_id, :control, :status]) == :working
+
+      assert BranchRefStore.ready_unblock("99") == %{
+               ref: blocker_ref(),
+               sha: blocker_sha()
+             }
+
+      after_late_pause =
+        EventTopics.route(after_unblock, %{
+          topic: "ticket.#{late_identifier}.agent.pause.request",
+          payload: %{reason: "dependency", blocker_identifier: "99"}
+        })
+
+      assert get_in(after_late_pause.running, [late_issue_id, :control, :status]) == :paused
+
+      reconciled = PushRouting.reconcile_pending_auto_resumes(after_late_pause)
+
+      assert get_in(reconciled.running, [late_issue_id, :control, :status]) == :working
+      assert BranchRefStore.ready_unblock("99") == nil
+    end
+
+    test "unblock stays durable for a declared consumer that has not started yet", %{
+      identifier: identifier,
+      fake_pid: fake_pid
+    } do
+      late_identifier = "DECLARED-BLOCKEE-#{System.unique_integer([:positive])}"
+      late_issue_id = "issue-declared-blockee"
+      :ok = SubscriptionStore.attach(late_identifier)
+
+      on_exit(fn -> SubscriptionStore.stop(late_identifier) end)
+
+      for blockee <- [identifier, late_identifier] do
+        :ok =
+          SubscriptionStore.add_subscription(
+            blockee,
+            "ticket.99.agent.unblocked",
+            "blocker:auto"
+          )
+      end
+
+      first_issue_id = "issue-running-blockee"
+
+      first_entry =
+        %{
+          pid: fake_pid,
+          ref: nil,
+          identifier: identifier,
+          issue: %Issue{id: first_issue_id, state: "in-progress", identifier: identifier},
+          started_at: DateTime.utc_now(),
+          control: %{status: :paused}
+        }
+        |> Map.merge(blocker_pause_fields())
+
+      declared_issue = %Issue{
+        id: late_issue_id,
+        identifier: late_identifier,
+        state: "in-progress",
+        blocked_by: [%{id: "blocker-issue", identifier: "99", state: "in-progress"}]
+      }
+
+      state = %Orchestrator.State{
+        running: %{first_issue_id => first_entry},
+        last_polled_issues: %{late_issue_id => declared_issue},
+        claimed: MapSet.new([first_issue_id]),
+        max_concurrent_agents: 6
+      }
+
+      :ok = BranchRefStore.record(blocker_ref(), blocker_sha())
+
+      after_unblock =
+        EventTopics.route(state, %{
+          topic: "ticket.99.agent.unblocked",
+          payload: %{ref: blocker_ref(), sha: blocker_sha()}
+        })
+
+      assert get_in(after_unblock.running, [first_issue_id, :control, :status]) == :working
+      assert BranchRefStore.ready_unblock("99") == %{ref: blocker_ref(), sha: blocker_sha()}
+
+      late_pid = spawn_link(fn -> fake_agent_loop() end)
+
+      late_entry =
+        %{
+          pid: late_pid,
+          ref: nil,
+          identifier: late_identifier,
+          issue: declared_issue,
+          started_at: DateTime.utc_now(),
+          control: %{status: :paused}
+        }
+        |> Map.merge(blocker_pause_fields())
+
+      started = %{
+        after_unblock
+        | running: Map.put(after_unblock.running, late_issue_id, late_entry),
+          claimed: MapSet.put(after_unblock.claimed, late_issue_id)
+      }
+
+      reconciled = PushRouting.reconcile_pending_auto_resumes(started)
+
+      assert get_in(reconciled.running, [late_issue_id, :control, :status]) == :working
+      assert BranchRefStore.ready_unblock("99") == nil
+    end
+
     test "final unblock requires canonical ref and SHA corroborated by branch push", %{
       identifier: identifier,
       fake_pid: fake_pid

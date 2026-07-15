@@ -12,6 +12,7 @@ defmodule Aiur.Orchestrator.PushRouting do
   alias Aiur.Events.GithubKeys
   alias Aiur.Events.SubscriptionStore
   alias Aiur.Orchestrator
+  alias Aiur.Orchestrator.IssueSync
   alias Aiur.Orchestrator.State
 
   @spec mark_sleeping(String.t()) :: :ok
@@ -147,10 +148,10 @@ defmodule Aiur.Orchestrator.PushRouting do
   end
 
   defp resume_and_maybe_ack_unblock(state, blocker_identifier, topic, metadata, unblock_key) do
-    candidate_ids = matching_candidate_ids(state, blocker_identifier)
+    recipient_identifiers = relevant_recipient_identifiers(state, blocker_identifier, topic)
     next = resume_matching_running_entries(state, blocker_identifier, topic, unblock_key)
 
-    if candidate_ids != [] and Enum.all?(candidate_ids, &consumed_unblock?(next.running[&1], unblock_key)) do
+    if recipients_consumed?(next, recipient_identifiers, unblock_key) do
       if BranchRefStore.acknowledge_unblock(metadata.ref, metadata.sha) == :error do
         Logger.warning("Final unblock acknowledgement remains pending after persistence failure: blocker=#{blocker_identifier} ref=#{metadata.ref} sha=#{metadata.sha}")
       end
@@ -159,12 +160,60 @@ defmodule Aiur.Orchestrator.PushRouting do
     next
   end
 
-  defp matching_candidate_ids(state, blocker_identifier) do
-    for {issue_id, entry} <- state.running,
-        is_map(entry),
-        not State.deactivated_running_entry?(entry),
-        match?({:ok, _generation}, matching_blocker_pause_generation(entry, blocker_identifier)),
-        do: issue_id
+  defp relevant_recipient_identifiers(state, blocker_identifier, topic) do
+    state
+    |> running_recipient_identifiers(blocker_identifier, topic)
+    |> MapSet.union(declared_recipient_identifiers(state, blocker_identifier))
+    |> MapSet.to_list()
+  end
+
+  defp running_recipient_identifiers(state, blocker_identifier, topic) do
+    Enum.reduce(state.running, MapSet.new(), fn {_issue_id, entry}, recipients ->
+      if relevant_running_recipient?(entry, blocker_identifier, topic),
+        do: MapSet.put(recipients, Map.get(entry, :identifier)),
+        else: recipients
+    end)
+  end
+
+  defp relevant_running_recipient?(entry, blocker_identifier, topic) when is_map(entry) do
+    identifier = Map.get(entry, :identifier)
+
+    is_binary(identifier) and identifier != to_string(blocker_identifier) and
+      not State.deactivated_running_entry?(entry) and
+      (subscribed_to_topic?(identifier, topic) or
+         match?({:ok, _generation}, matching_blocker_pause_generation(entry, blocker_identifier)))
+  end
+
+  defp relevant_running_recipient?(_entry, _blocker_identifier, _topic), do: false
+
+  defp declared_recipient_identifiers(state, blocker_identifier) do
+    Enum.reduce(state.last_polled_issues, MapSet.new(), fn {_issue_id, issue}, recipients ->
+      identifier = Map.get(issue, :identifier)
+
+      if is_binary(identifier) and declares_blocker?(issue, blocker_identifier),
+        do: MapSet.put(recipients, Map.get(issue, :identifier)),
+        else: recipients
+    end)
+  end
+
+  defp declares_blocker?(issue, blocker_identifier) do
+    issue
+    |> IssueSync.blocker_map()
+    |> Map.values()
+    |> Enum.any?(&(blocker_identifier(&1) == to_string(blocker_identifier)))
+  end
+
+  defp blocker_identifier(blocker),
+    do: Map.get(blocker, :identifier) || Map.get(blocker, "identifier")
+
+  defp recipients_consumed?(_state, [], _unblock_key), do: false
+
+  defp recipients_consumed?(state, recipient_identifiers, unblock_key) do
+    Enum.all?(recipient_identifiers, fn identifier ->
+      state.running
+      |> State.find_running_by_identifier(identifier)
+      |> consumed_unblock?(unblock_key)
+    end)
   end
 
   defp resume_matching_running_entries(state, blocker_identifier, topic, unblock_key) do
@@ -382,11 +431,13 @@ defmodule Aiur.Orchestrator.PushRouting do
     end
   end
 
-  defp consumed_unblock?(entry, unblock_key) do
+  defp consumed_unblock?(entry, unblock_key) when is_map(entry) do
     entry
     |> Map.get(:consumed_unblocks, MapSet.new())
     |> MapSet.member?(unblock_key)
   end
+
+  defp consumed_unblock?(_entry, _unblock_key), do: false
 
   defp mark_unblock_consumed(state, identifier, unblock_key) do
     case State.find_running_by_identifier(state.running, identifier) do
