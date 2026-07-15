@@ -444,7 +444,7 @@ defmodule AiurWeb.BuildOrderPresenter do
       lifecycle: member.lifecycle,
       readiness: readiness,
       execution_state: Map.get(execution, :work_state, :unknown),
-      agent_stage: Map.get(activity, :active_stage, :unknown),
+      agent_stage: current_activity_stage(activity),
       progress: activity_progress(activity),
       lane: plan.lane,
       phase: plan.phase,
@@ -454,8 +454,21 @@ defmodule AiurWeb.BuildOrderPresenter do
     }
   end
 
-  defp activity_progress(%{progress: %{status: :known, percent: percent}}) when percent in 0..100,
-    do: percent
+  defp current_activity_stage(%{
+         status: :fresh,
+         stage: %{status: :known, freshness: :fresh, value: stage}
+       })
+       when stage in @safe_stages,
+       do: stage
+
+  defp current_activity_stage(_activity), do: :unknown
+
+  defp activity_progress(%{
+         status: :fresh,
+         progress: %{status: :known, freshness: :fresh, percent: percent}
+       })
+       when percent in 0..100,
+       do: percent
 
   defp activity_progress(_activity), do: :unknown
 

@@ -292,9 +292,32 @@ defmodule AiurWeb.BuildOrderPresenterTest do
 
     assert model.execution_health == :unavailable
     assert node(model, 1).activity.status == :stale
+    assert node(model, 1).activity.progress.percent == 90
+    assert node(model, 1).card.progress == :unknown
+    assert node(model, 1).card.agent_stage == :unknown
     assert node(model, 2).activity.status == :unknown
     assert node(model, 1).execution.status == :unknown
     assert node(model, 1).health.execution == :unavailable
+  end
+
+  test "field-level stale activity does not project current-looking card facts" do
+    stale_fields =
+      activity(identity(1), 90, :review)
+      |> put_in([:progress, :freshness], :stale)
+      |> put_in([:stage, :freshness], :stale)
+
+    model =
+      BuildOrderPresenter.present(
+        snapshot([member(1)]),
+        status_snapshot(),
+        activity_snapshot([stale_fields])
+      )
+
+    assert node(model, 1).activity.status == :fresh
+    assert node(model, 1).activity.progress.freshness == :stale
+    assert node(model, 1).activity.stage.freshness == :stale
+    assert node(model, 1).card.progress == :unknown
+    assert node(model, 1).card.agent_stage == :unknown
   end
 
   test "distinguishes empty, stale LKG, unavailable, and structural-invalid graphs" do
