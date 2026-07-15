@@ -72,9 +72,8 @@ matching branch, and exits non-zero when no branch or more than one branch exist
     returns the dispatch slot while this runner is paused.
 14. On a delivered terminal CI event:
     - **Passed:** fetch the configured base once. If its current remote head is
-      still an ancestor of the tested PR head, trust the delivered result
-      without re-polling, mark the PR ready for review, emit the required 100%
-      progress sample, and
+      still an ancestor of the tested PR head, trust the delivered result without re-polling,
+      mark the PR ready for review, emit the required 100% progress sample, and
       add `agent:human-review`. If the base moved, integrate it yourself,
       validate, push, and return to `agent:ci-wait` for fresh exact-head CI.
     - **Failed:** use the delivered failed-check names and excerpt, keep or move
