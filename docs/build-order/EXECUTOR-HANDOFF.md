@@ -1426,8 +1426,19 @@ Terra; never dispatch Claude.
     occupied despite roughly 22 GiB available, so do not admit BO-003 merely to
     inflate the row count; repair useful paused/completed work after the
     authorized rebuild/restart.
+188. Workspace-safety #1161 was refreshed onto `d112b355` by an isolated
+    Executor merge and pushed as exact head `388fce7e`; fresh build, lint,
+    Dialyzer, browser, layout, and guard checks passed before dual review found
+    three contained gaps: an expected but unidentified live provider could be
+    explicitly released, a streamed write exception could bypass workspace
+    promotion rollback, and later signaling did not bind numeric PID/PGID reuse
+    to process birth identity. The consolidated packet is issue comment
+    `4976385385`. The Executor changed the ticket from CI wait to rework and
+    sent the packet directly; the same Terra worker began a fresh provider turn
+    at 19:53 PDT. This assisted label-plus-message recovery is not evidence that
+    #1151's comment-only wake defect is fixed, and all findings remain on #1161.
 
-At 19:40 PDT the core graph is 8/54 accepted. Two Codex workers are visibly
+At 19:54 PDT the core graph is 8/54 accepted. Three Codex workers are visibly
 executing, one core row reports a completed turn, and preserved paused or
 deactivated rows await the post-optimization restart. #1103 remains queued,
 while #1151 is in explicit review-driven rework awaiting that restart.
