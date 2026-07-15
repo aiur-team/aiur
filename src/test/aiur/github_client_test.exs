@@ -1900,6 +1900,33 @@ defmodule Aiur.GitHub.ClientTest do
     end
   end
 
+  describe "Build Order planning graph reads" do
+    test "delegates catalog reads to the separate bounded planning adapter" do
+      request_fun = fn %{method: :post, body: body} ->
+        assert body["query"] =~ "AiurBuildOrderCatalog"
+
+        {:ok,
+         %{
+           status: 200,
+           body: %{
+             "data" => %{
+               "repository" => %{
+                 "issues" => %{
+                   "nodes" => [],
+                   "totalCount" => 0,
+                   "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil}
+                 }
+               }
+             }
+           }
+         }}
+      end
+
+      assert {:ok, %{candidate: %{entries: []}, calls: 1, pages: 1}} =
+               Client.fetch_build_order_catalog(request_fun: request_fun)
+    end
+  end
+
   defp codeowners_repo!(content) do
     repo_root =
       Path.join(
