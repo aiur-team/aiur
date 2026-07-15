@@ -72,6 +72,11 @@ The installed command is `aiur`. In a clone of the Aiur repo itself, use the loc
 `scripts/aiurdev` instead — set `AIUR_CMD=scripts/aiurdev` for a development checkout,
 `AIUR_CMD=aiur` for a consumer repo.
 
+The npm package installs the CLI, not the repo-local coding-agent skills. This skill is
+already available if you are reading it; for a different Executor agent, make
+`.claude/skills` (and the shared `.codex/skills` links) available from a source checkout or
+through that agent's supported skill-install mechanism.
+
 `iarc` is an operator alias for `aiur`; IAR and AYR are common spellings of the name.
 
 ## 4. First run
@@ -101,7 +106,10 @@ Then label the issues you want worked with `agent:todo` and start:
 ```bash
 aiur                # foreground
 aiur --bg           # headless
-aiur status | pause | resume | stop
+aiur status
+aiur pause
+aiur resume
+aiur stop
 ```
 
 Aiur works best in codebases with clear setup instructions, automated validation, and

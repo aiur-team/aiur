@@ -20,14 +20,16 @@ human, driving the CLI directly, or the human's coding agent, operating Aiur on
 their behalf while they stay in conversation with it. Both modes are
 first-class and supported by design.
 
-- **Human-driven.** A person runs `aiur`, watches the CLI/TUI/dashboard, answers
-  agents, and applies merge policy themselves.
+- **Human-driven.** A person runs `aiur`, uses the CLI/TUI to answer agents and
+  apply merge policy, and observes the run in the dashboard. The dashboard is
+  read-only by default; configured writable mode adds its supported controls.
 - **Agent-driven.** A coding agent (Claude Code, Codex) operates Aiur as the
   Executor — launching, monitoring, recovering stuck agents, coordinating PR
   review — while the human converses with that agent in parallel. The repository
-  bundles skills for this: `.claude/skills/aiur-intro` (what Aiur is, install,
+  source repository bundles skills for this: `.claude/skills/aiur-intro` (what Aiur is, install,
   choosing a mode), `.claude/skills/aiur-run` (operate a run end to end as its
   Executor), and `.claude/skills/aiur-monitor` (status board and alert feed).
+  The npm CLI package does not install those repo-local coding-agent skills.
 
 Mixing is common: the agent runs the code-to-PR stretch while operations needing
 production credentials stay in the human's own session.
@@ -36,7 +38,8 @@ production credentials stay in the human's own session.
 
 - Not a passive observer of agent sessions started elsewhere. Aiur owns the runs
   it dispatches; it does not attach to an external Claude Code or Codex session.
-- Not agent-only. The CLI, TUI, and dashboard are fully human-drivable.
+- Not agent-only. Humans can drive the CLI/TUI; the dashboard is read-only by
+  default and exposes supported controls when writable mode is configured.
 - Not a replacement for the user's assistant. It is typically its counterpart.
 - Not a hosted service. Aiur runs on the user's machine, tracker, and tokens.
 

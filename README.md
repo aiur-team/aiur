@@ -32,12 +32,12 @@ the work at a higher level._
 
 Either you or your agent — the **Executor** role is the same either way.
 
-- **You drive it.** Run `aiur` in your terminal and act as the Executor yourself: watch the CLI
-  or dashboard, answer agents, apply merge policy. The CLI, TUI, and dashboard are fully
-  human-drivable.
-- **Your agent drives it.** Ask your coding agent to "run aiur" and it operates the run as the
-  Executor — launching, monitoring the fleet, recovering stuck agents, coordinating PR review —
-  while you keep talking to your agent in parallel. The bundled skills below take it from there.
+- **You drive it.** Run `aiur` in your terminal and act as the Executor yourself: use the CLI/TUI
+  to answer agents and apply merge policy, and observe the run in the dashboard. The dashboard is
+  read-only by default; configured writable mode adds its supported controls.
+- **Your agent drives it.** Give your coding agent the repo-local skills below, then ask it to
+  "run aiur." It operates the run as the Executor — launching, monitoring the fleet, recovering
+  stuck agents, coordinating PR review — while you keep talking to your agent in parallel.
 
 Many operators mix the two: the agent runs the code-to-PR stretch, and anything needing
 production credentials stays in the human's own session.
@@ -50,14 +50,15 @@ in parallel, or you can drive Aiur directly yourself.
 
 ## Do I have to use an agent to use Aiur?
 
-No. The CLI, TUI, and dashboard are fully usable by a human on their own. Agent-operated mode is
-an option, not a requirement.
+No. A human can control the run through the CLI/TUI and observe it in the dashboard without using
+an agent as Executor. Agent-operated mode is an option, not a requirement.
 
 ## What Aiur is not
 
 - **Not a passive observer** of external agent sessions. Aiur runs the agents it manages; it does
   not attach to a Claude Code or Codex session you started yourself.
-- **Not agent-only.** The CLI, TUI, and dashboard are fully human-drivable.
+- **Not agent-only.** Humans can drive the CLI/TUI directly; the dashboard is read-only by default
+  and exposes supported controls when writable mode is configured.
 - **Not a replacement for your assistant.** It is typically its counterpart: your agent can be the
   Executor and keep talking to you while runs proceed.
 - **Not a hosted service.** Aiur runs on your machine, against your tracker, with your tokens.
@@ -65,8 +66,13 @@ an option, not a requirement.
 
 ## Using Aiur with a coding agent
 
-Using Claude Code or Codex? You can drive Aiur yourself, or ask your agent to "run aiur" — the
-bundled Executor skills take it from there:
+Using Claude Code or Codex? You can drive Aiur yourself, or make the repository's Executor skills
+available to your agent and ask it to "run aiur":
+
+> The npm package installs the `aiur` CLI; it does not install these coding-agent skills. They are
+> bundled in this source repository under `.claude/skills` (with shared Codex links under
+> `.codex/skills`). Use a source checkout or your agent's supported skill-install mechanism to
+> make them available to the agent that will be Executor.
 
 | Skill | What it does |
 |-------|--------------|
@@ -76,8 +82,8 @@ bundled Executor skills take it from there:
 | [`using-aiur`](.claude/skills/using-aiur/SKILL.md) | The operating manual for an Aiur agent working a ticket |
 | [`aiur-agent`](.claude/skills/aiur-agent/SKILL.md) | Cross-ticket events: emit, subscribe, blockers, attentions |
 
-Ask your agent *"what is aiur?"* or *"how do I install aiur?"* and `aiur-intro` will walk you
-through setup and ask which mode you want.
+Once `aiur-intro` is available to your agent, ask *"what is aiur?"* or *"how do I install aiur?"*
+and it will walk you through setup and ask which mode you want.
 
 ## Additional Capabilities
 
@@ -122,8 +128,9 @@ aiur                            # foreground; `aiur --bg` for headless
 
 Useful controls: `aiur status`, `aiur pause`, `aiur resume`, `aiur stop`.
 
-That is the human-driven path. To have your coding agent operate the run instead, ask it to
-"run aiur" — see [Using Aiur with a coding agent](#using-aiur-with-a-coding-agent).
+That is the human-driven path. To have your coding agent operate the run instead, first make the
+repo-local Executor skills available to it, then ask it to "run aiur" — see
+[Using Aiur with a coding agent](#using-aiur-with-a-coding-agent).
 
 See [src/README.md](src/README.md) for setup, configuration, and the `aiur` command
 reference (foreground, background, and `stop` modes on Linux and macOS).
