@@ -204,6 +204,42 @@ def compare_execution_snapshot(
         skill_live = auxiliary[skill_id]
         if skill_live.get("mapping") != wanted_skill_mapping:
             report.error("live execution skill blocker mapping drifted")
+        expected_skill_titles = (
+            publication_receipt.get("observed_issue_titles")
+            if isinstance(publication_receipt, dict) else None
+        )
+        expected_skill_bodies = (
+            publication_receipt.get("observed_body_evidence")
+            if isinstance(publication_receipt, dict) else None
+        )
+        expected_skill_labels = (
+            publication_receipt.get("observed_labels")
+            if isinstance(publication_receipt, dict) else None
+        )
+        expected_skill_title = (
+            expected_skill_titles.get(skill_id)
+            if isinstance(expected_skill_titles, dict) else None
+        )
+        expected_skill_body = (
+            expected_skill_bodies.get(skill_id)
+            if isinstance(expected_skill_bodies, dict) else None
+        )
+        expected_skill_body_sha = (
+            expected_skill_body.get("body_sha256")
+            if isinstance(expected_skill_body, dict) else None
+        )
+        expected_skill_routing = (
+            expected_skill_labels.get(skill_id)
+            if isinstance(expected_skill_labels, dict) else None
+        )
+        if skill_live.get("title") != expected_skill_title:
+            report.error("live execution skill blocker title drifted")
+        if skill_live.get("body_sha256") != expected_skill_body_sha:
+            report.error("live execution skill blocker body drifted")
+        if _static_routing(skill_live.get("labels")) != _static_routing(
+            expected_skill_routing
+        ):
+            report.error("live execution skill blocker routing labels drifted")
         if not _valid_execution_state(
             skill_live.get("state"), skill_live.get("state_reason")
         ):

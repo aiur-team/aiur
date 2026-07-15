@@ -181,11 +181,17 @@ def snapshot(auth: ReceiptAuthority, value: dict) -> ExecutionSnapshot:
     }
     skill_id = publication["skill_issue"]["logical_id"]
     skill_mapping = publication["github_reconciliation"]["issue_mappings"][skill_id]
+    skill_receipt = publication["github_reconciliation"]
     return ExecutionSnapshot(
         issues=tuple(sorted(issues.items())),
         auxiliary_issues=((skill_id, json.dumps(
             {
                 "mapping": skill_mapping,
+                "title": skill_receipt["observed_issue_titles"][skill_id],
+                "body_sha256": skill_receipt["observed_body_evidence"][skill_id][
+                    "body_sha256"
+                ],
+                "labels": skill_receipt["observed_labels"][skill_id],
                 "state": "OPEN",
                 "state_reason": None,
                 "locked": False,
@@ -377,6 +383,21 @@ class ExecutionAmendmentLiveTests(unittest.TestCase):
         object.__setattr__(snap, "comments", tuple(sorted(comments.items())))
         self.assertIn(
             "exactly one amendment marker", "\n".join(self.compare(snap).errors)
+        )
+
+    def test_skill_blocker_static_routing_drift_fails_closed(self) -> None:
+        snap = copy.deepcopy(self.snapshot)
+        logical_id, encoded = snap.auxiliary_issues[0]
+        row = json.loads(encoded)
+        row["labels"] = ["human:todo", "phase:1"]
+        object.__setattr__(
+            snap,
+            "auxiliary_issues",
+            ((logical_id, json.dumps(row, sort_keys=True, separators=(",", ":"))),),
+        )
+        self.assertIn(
+            "skill blocker routing labels drifted",
+            "\n".join(self.compare(snap).errors),
         )
 
     def test_double_read_must_be_stable(self) -> None:
