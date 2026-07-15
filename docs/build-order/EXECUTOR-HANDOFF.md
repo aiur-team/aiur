@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-14 20:52 PDT)
+## Live Executor state (updated 2026-07-14 21:18 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -1525,6 +1525,28 @@ Terra; never dispatch Claude.
     restart remains held until the operator closes the optimization merge
     window.
 
+197. At 21:18 PDT the operator required explicit finish-line compression for
+    long-running tickets. The Executor applied four binding tactics rather
+    than adding code or scope: (a) when the scoped repair is committed and the
+    only dirt is generated workspace output, run the one reproducing test and
+    push immediately—central CI owns the full suite; (b) when a current-main
+    merge has no unresolved paths, finish only the focused conflict suite,
+    commit the coherent merge/repair head, and push without another local full
+    gate; (c) extract terminal lint/Dialyzer/browser failures into one exact
+    packet and return it immediately instead of waiting on unrelated jobs for
+    an already-invalid head; and (d) batch all converged review findings into
+    one repair head, then run dual exact-head review in parallel only after
+    fresh CI. Never overlap duplicate full-suite commands in one workspace;
+    keep the older authoritative process and stop only the younger duplicate.
+    Apply the stale-base ancestry check once at the final review/merge boundary
+    rather than repeatedly rebasing a branch during implementation. The
+    Executor sent this finish-line contract to BO-010/#1097 (committed browser
+    repair `38066c09`), BO-016/#1103 (resolved merge plus focused catalog/config
+    gate), and the two direct blockers #1161/#1162 (focused reproduction and
+    one coherent repair head). These tactics shorten validation/review tails;
+    they do not weaken acceptance, protected tests, full centralized CI, or
+    dual review.
+
 At 20:52 PDT the core graph is 8/54 accepted. Five Codex workers are visibly
 executing: DASH-018, BO-010, BO-016, #1161, and #1162. Preserved paused or
 deactivated rows await the post-optimization restart; #1151 remains in
@@ -1762,6 +1784,16 @@ wave; the full version lives at
 - **Finalization wedge:** a worker that committed but never pushes gets its
   work pushed by you from its workspace once the tree is clean; its own later
   push becomes a no-op.
+- **Compress the finish line:** identify the single authoritative failure per
+  head and send one exact packet. A branch with committed scoped source and
+  only generated dirt should push after the reproducing test; a resolved
+  current-main merge should run its focused conflict suite and push; an
+  already-invalid CI head should not wait for unrelated jobs. Centralized CI
+  owns the full gate, and two independent exact-head reviews start together
+  only after that gate passes. Do not run duplicate local full suites, do not
+  repeatedly merge a moving `main` during implementation, and do not split a
+  converged review packet into serial mini-heads. The final ancestry check,
+  fresh CI, and dual review remain mandatory.
 - **Hand-fix the last mile in a worktree:** when nudges fail on lint/dialyzer
   or a small must-fix, take over — always in a fresh `git worktree`, never
   the main working tree (it holds the live `.aiur/config`) and never a live
