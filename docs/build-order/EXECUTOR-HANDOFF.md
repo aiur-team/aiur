@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-14 20:30 PDT)
+## Live Executor state (updated 2026-07-14 20:52 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -1509,19 +1509,34 @@ Terra; never dispatch Claude.
     `agent:rework` and the Sol label. This is direct #1161 evidence. Do not
     resume BO-003 or DASH-006 again until #1161 is merged and the authorized
     daemon restart applies the fix.
+196. #1161's targeted-coverage worktree accidentally launched the identical
+    full coverage command twice, 69 seconds apart, and both commands reported
+    acquiring build-gate slot 2. The Executor terminated only the younger
+    duplicate process group, told the worker to retain the older authoritative
+    run, and did not promote this optimization evidence into feature scope.
+    The authoritative suite finished at 84.93%, still 0.07 points below the
+    floor, so #1161 remains live on a narrow coverage tail. Freed CPU made a
+    safe same-workspace continuation possible for BO-010/#1097 and
+    BO-016/#1103 without restart or reprovisioning. Direct decisions told
+    BO-010 to validate and push its current-main merge and BO-016 to preserve
+    both sides of its existing `catalog_test.exs` conflict. Both workers woke;
+    BO-010's latest check-in is 90%, BO-016 restarted its rework estimate at
+    20%, and five useful Codex workers are now visibly executing. The daemon
+    restart remains held until the operator closes the optimization merge
+    window.
 
-At 20:30 PDT the core graph is 8/54 accepted. Three Codex workers are visibly
-executing, one core row reports a completed turn, and preserved paused or
-deactivated rows await the post-optimization restart. #1103 remains queued,
-while #1151 is in explicit review-driven rework awaiting that restart.
+At 20:52 PDT the core graph is 8/54 accepted. Five Codex workers are visibly
+executing: DASH-018, BO-010, BO-016, #1161, and #1162. Preserved paused or
+deactivated rows await the post-optimization restart; #1151 remains in
+explicit review-driven rework awaiting that restart.
 #1093, #1108, #1111, #1123, and #1130 stay on workspace-race holds until #1161
-lands. The 20:30 phase preview preserves the latest successfully emitted core
+lands. The 20:52 phase preview preserves the latest successfully emitted core
 percentages and advances only review/CI states backed by GitHub evidence;
 do not replace those estimates with guesses during review/rework. Host load
-remains volatile and was about 38 with roughly 21 GiB available at the 17:34
-snapshot; current CPU is saturated with roughly 22 GiB available, so prefer
-logs/GitHub evidence after a control-RPC timeout. BO-003 is now live on the
-serial critical path. Treat completed turns, stale bases, and green builds with unmet acceptance
+remains volatile; current memory has roughly 23 GiB available and the build
+gate is again active as the five workers converge. Prefer logs/GitHub evidence
+after a control-RPC timeout. BO-003 remains preserved on the serial critical
+path behind #1161. Treat completed turns, stale bases, and green builds with unmet acceptance
 criteria as pending Executor work, not merge-ready truth.
 
 **Read-first map for this run:** `README.md` (pack index) →
