@@ -2,14 +2,11 @@ defmodule Aiur.DecisionStore.RetainedSnapshot.Query do
   @moduledoc false
 
   alias Aiur.Decision
-  alias Aiur.DecisionStore.RetainedIndex
-
-  @lifecycle_statuses [:open, :decided, :acknowledged, :resolved]
-  @maximum_candidate_reads 1_000
+  alias Aiur.DecisionStore.RetainedSnapshot.QueryPlan
 
   @spec run(%{String.t() => Decision.t()}, map(), map()) :: map()
   def run(current, index, query) do
-    %{candidate: candidate, matcher: matcher, max_reads: max_reads, total: total} = plan(index, query)
+    %{candidate: candidate, matcher: matcher, max_reads: max_reads, total: total} = QueryPlan.build(index, query)
     snapshot = collect(candidate, current, query, matcher, max_reads, empty_snapshot())
 
     %{
@@ -20,32 +17,6 @@ defmodule Aiur.DecisionStore.RetainedSnapshot.Query do
       partial?: snapshot.capped?,
       partial_reason: if(snapshot.capped?, do: :retained_query_scan_capped)
     }
-  end
-
-  defp plan(index, query) do
-    candidate = candidate(index, query)
-
-    %{
-      candidate: candidate,
-      matcher: &query_match?(&1, query),
-      max_reads: if(scan_limited?(query), do: @maximum_candidate_reads, else: :infinity),
-      total: if(scan_limited?(query), do: nil, else: :gb_sets.size(candidate))
-    }
-  end
-
-  defp candidate(index, %{ticket: ticket} = query) when is_binary(ticket),
-    do: RetainedIndex.ticket(index, ticket, ordering(query))
-
-  defp candidate(index, %{search: search} = query) when is_binary(search),
-    do: RetainedIndex.search(index, search, ordering(query))
-
-  defp candidate(index, %{lifecycle: lifecycle} = query) when lifecycle in @lifecycle_statuses,
-    do: RetainedIndex.lifecycle(index, lifecycle, ordering(query))
-
-  defp candidate(index, query), do: RetainedIndex.all(index, ordering(query))
-
-  defp scan_limited?(query) do
-    Enum.any?([:ticket, :search, :authority, :blocking, :kind], &(not is_nil(Map.get(query, &1))))
   end
 
   defp collect(candidate, current, query, matcher, max_reads, snapshot) do
@@ -114,37 +85,6 @@ defmodule Aiur.DecisionStore.RetainedSnapshot.Query do
       {_key, _next_iterator} -> %{snapshot | capped?: true}
     end
   end
-
-  defp query_match?(decision, query) do
-    lifecycle_match?(decision, Map.get(query, :lifecycle)) and
-      ticket_match?(decision, Map.get(query, :ticket)) and
-      search_match?(decision, Map.get(query, :search)) and
-      optional_match?(decision.authority, Map.get(query, :authority)) and
-      optional_match?(decision.blocking, Map.get(query, :blocking)) and
-      kind_match?(decision.kind, Map.get(query, :kind))
-  end
-
-  defp ticket_match?(_decision, nil), do: true
-  defp ticket_match?(decision, ticket), do: exact_match?(ticket_identifier(decision), ticket)
-  defp search_match?(_decision, nil), do: true
-
-  defp search_match?(decision, search) do
-    starts_with?(decision.decision_id, search) or starts_with?(ticket_identifier(decision), search)
-  end
-
-  defp optional_match?(_actual, nil), do: true
-  defp optional_match?(actual, expected), do: actual == expected
-  defp kind_match?(_actual, nil), do: true
-  defp kind_match?(nil, _expected), do: false
-  defp kind_match?(actual, expected), do: String.downcase(String.trim(actual)) == expected
-  defp lifecycle_match?(_decision, nil), do: true
-  defp lifecycle_match?(decision, lifecycle), do: decision.decision_status == lifecycle
-  defp starts_with?(nil, _prefix), do: false
-  defp starts_with?(value, prefix), do: String.starts_with?(String.downcase(value), String.downcase(prefix))
-  defp exact_match?(nil, _expected), do: false
-  defp exact_match?(value, expected), do: String.downcase(value) == String.downcase(expected)
-  defp ticket_identifier(%Decision{ticket: ticket}), do: ticket && Map.get(ticket, :identifier)
-  defp ordering(query), do: Map.get(query, :ordering, :audit)
 
   defp total_for(nil, %{exhausted?: true, matches: matches}, %{cursor: nil}), do: matches
   defp total_for(nil, _snapshot, _query), do: nil

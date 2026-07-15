@@ -278,6 +278,21 @@ defmodule Aiur.DecisionQueryTest do
     assert Process.alive?(store)
   end
 
+  test "legacy retained pages keep a single current-order snapshot beyond cursor limits", %{store: store} do
+    decisions =
+      for index <- 0..100 do
+        request!(store, "legacy-page-#{index}", DateTime.add(~U[2026-07-13 08:00:00Z], index, :second))
+      end
+      |> Enum.reverse()
+
+    query = %{limit: 25, cursor: nil, lifecycle: nil, search: nil, ticket: nil, authority: nil, blocking: nil, kind: nil}
+
+    assert {:ok, %{decisions: page, has_next?: false, total: 101, partial?: false, health: :writable}} =
+             DecisionStore.retained_legacy_page(query, 0, 200, store)
+
+    assert Enum.map(page, & &1.decision_id) == Enum.map(decisions, & &1.decision_id)
+  end
+
   test "retained snapshots read only the indexed page candidate window", %{store: store} do
     oldest = request!(store, "indexed-oldest", ~U[2026-07-13 08:00:00Z])
     middle = request!(store, "indexed-middle", ~U[2026-07-13 08:01:00Z])

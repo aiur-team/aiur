@@ -29,7 +29,7 @@ defmodule Aiur.DecisionApi.LegacyPagination do
 
   defp offset_list(params, store) do
     with {:ok, request} <- legacy_request(params),
-         {:ok, page} <- collect(request.query, store, request, nil, []) do
+         {:ok, page} <- DecisionQuery.legacy_page(request.query, request.offset, request.limit, store: store) do
       {:ok, legacy_page(page, request)}
     end
   end
@@ -39,33 +39,7 @@ defmodule Aiur.DecisionApi.LegacyPagination do
          {:ok, limit} <- bounded_integer(Map.get(params, "limit"), @default_limit, 1, @maximum_limit, :limit),
          {:ok, offset} <- bounded_integer(Map.get(params, "offset"), 0, 0, @maximum_offset, :offset),
          {:ok, query} <- DecisionQuery.Params.parse(Map.take(params, ["authority", "blocking", "kind", "ticket"])) do
-      {:ok, %{limit: limit, offset: offset, remaining_offset: offset, query: query}}
-    end
-  end
-
-  defp collect(query, store, %{remaining_offset: offset, limit: limit} = request, cursor, decisions) do
-    remaining = limit - length(decisions)
-    page_limit = min(100, max(1, offset + remaining))
-
-    params =
-      query
-      |> Map.put(:limit, page_limit)
-      |> maybe_put_cursor(cursor)
-
-    with {:ok, page} <- DecisionQuery.list(params, store: store, ordering: :current) do
-      {skipped, visible} = Enum.split(page.decisions, min(offset, length(page.decisions)))
-      decisions = decisions ++ Enum.take(visible, remaining)
-      request = %{request | remaining_offset: offset - length(skipped)}
-
-      continue_or_finish(page, query, store, request, cursor, decisions)
-    end
-  end
-
-  defp continue_or_finish(page, query, store, request, _cursor, decisions) do
-    if page.partial_results? or length(decisions) >= request.limit or is_nil(page.pagination.next_cursor) do
-      {:ok, %{page | decisions: decisions}}
-    else
-      collect(query, store, request, page.pagination.next_cursor, decisions)
+      {:ok, %{limit: limit, offset: offset, query: query}}
     end
   end
 
@@ -83,9 +57,6 @@ defmodule Aiur.DecisionApi.LegacyPagination do
 
     %{page | pagination: pagination}
   end
-
-  defp maybe_put_cursor(params, nil), do: params
-  defp maybe_put_cursor(params, cursor), do: Map.put(params, :cursor, cursor)
 
   defp reject_cursor_only_filters(params) do
     case Enum.find(["lifecycle", "search"], &Map.has_key?(params, &1)) do

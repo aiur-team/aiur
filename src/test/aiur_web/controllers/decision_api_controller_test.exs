@@ -31,11 +31,21 @@ defmodule AiurWeb.DecisionApiControllerTest do
     assert opts[:actor] == @actor
     assert opts[:store] == :fake_store
 
-    Process.put({FakeDecisionApi, :get}, {:ok, %{"decision_id" => "dec_known"}})
+    Process.put(
+      {FakeDecisionApi, :get},
+      {:ok,
+       %{
+         "decision_id" => "dec_known",
+         "scope" => %{"kind" => "retained", "label" => "All retained decisions"},
+         "health" => %{"status" => "partial", "partial" => true, "reason" => "retained_store_partial"}
+       }}
+    )
+
     get_conn = DecisionApiController.show(api_conn(:get), %{"decision_id" => "dec_known"})
 
     assert get_conn.status == 200
     assert Jason.decode!(get_conn.resp_body)["decision_id"] == "dec_known"
+    assert Jason.decode!(get_conn.resp_body)["health"]["status"] == "partial"
     assert_receive {:decision_api_called, :get, ["dec_known", _opts]}
   end
 
@@ -52,6 +62,27 @@ defmodule AiurWeb.DecisionApiControllerTest do
     assert response.status == 200
 
     assert_receive {:decision_api_called, :list, [%{"limit" => "200", "offset" => "50", "ticket" => "1088"}, _opts]}
+  end
+
+  test "partial retained data never reports a missing Decision as absent" do
+    Process.put(
+      {FakeDecisionApi, :get},
+      {:error, {:indeterminate, %{status: :partial, partial?: true, reason: :retained_store_partial, label: "Partial retained Decision data"}}}
+    )
+
+    response = DecisionApiController.show(api_conn(:get), %{"decision_id" => "dec_unknown"})
+    body = Jason.decode!(response.resp_body)
+
+    assert response.status == 503
+    assert body["error"]["code"] == "decision_presence_indeterminate"
+    assert body["scope"] == %{"kind" => "retained", "label" => "All retained decisions"}
+
+    assert body["health"] == %{
+             "status" => "partial",
+             "partial" => true,
+             "reason" => "retained_store_partial",
+             "label" => "Partial retained Decision data"
+           }
   end
 
   test "mutations keep the path identity authoritative and preserve service status" do

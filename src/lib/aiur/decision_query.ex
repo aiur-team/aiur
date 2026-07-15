@@ -54,6 +54,23 @@ defmodule Aiur.DecisionQuery do
 
   def list(_params, _opts), do: {:error, {:invalid_query, {:params, :invalid_type}}}
 
+  @doc false
+  @spec legacy_page(map(), non_neg_integer(), pos_integer(), keyword()) :: {:ok, map()} | {:error, {:invalid_query, term()}}
+  def legacy_page(query, offset, limit, opts \\ [])
+
+  def legacy_page(query, offset, limit, opts)
+      when is_map(query) and is_integer(offset) and offset >= 0 and is_integer(limit) and limit > 0 and is_list(opts) do
+    query = Map.merge(query, %{cursor: nil, limit: limit, ordering: :current})
+
+    case StoreReader.read_legacy_page(query, offset, limit, store(opts)) do
+      {:ok, snapshot, health} -> {:ok, retained_page(snapshot, query, health)}
+      {:error, :store_unavailable} -> {:ok, unavailable_page(query)}
+      {:error, :invalid_query} -> {:error, {:invalid_query, :legacy_page}}
+    end
+  end
+
+  def legacy_page(_query, _offset, _limit, _opts), do: {:error, {:invalid_query, :legacy_page}}
+
   @doc "Returns canonical retained open and blocking counts with retention health."
   @spec counts(keyword()) :: {:ok, map()}
   def counts(opts \\ []) when is_list(opts) do

@@ -32,6 +32,22 @@ defmodule Aiur.DecisionQuery.StoreReader do
     end
   end
 
+  @spec read_legacy_page(map(), non_neg_integer(), pos_integer(), GenServer.server()) ::
+          {:ok, map(), health()} | {:error, :invalid_query | :store_unavailable}
+  def read_legacy_page(query, offset, limit, store) do
+    case safe_store_call(fn -> DecisionStore.retained_legacy_page(query, offset, limit, store) end) do
+      {:ok, %{decisions: decisions, counts: counts, health: store_health} = snapshot}
+      when is_list(decisions) and is_map(counts) ->
+        {:ok, Map.drop(snapshot, [:health]), health(store_health)}
+
+      {:error, :invalid_query} ->
+        {:error, :invalid_query}
+
+      _unavailable ->
+        {:error, :store_unavailable}
+    end
+  end
+
   @spec read_counts(GenServer.server()) :: {:ok, map(), health()} | {:error, :store_unavailable}
   def read_counts(store) do
     case safe_store_call(fn -> DecisionStore.retained_counts(store) end) do

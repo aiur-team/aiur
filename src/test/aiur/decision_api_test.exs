@@ -3,6 +3,7 @@ defmodule Aiur.DecisionApiTest do
 
   alias Aiur.{DecisionApi, DecisionDelegation, DecisionStore}
   alias Aiur.DecisionStore.RetainedSnapshot
+  alias AiurWeb.OperatorControlCenter.DecisionPresenter
 
   @ticket %{identifier: "984", title: "OCC-7", url: "https://github.com/its-everdred/aiur/issues/984"}
   @source %{agent_id: "agent-1", session_id: "session-1", event_id: nil}
@@ -36,6 +37,23 @@ defmodule Aiur.DecisionApiTest do
         }}, state}
     end
 
+    def handle_call({:retained_legacy_page, _query, _offset, _limit}, _from, %{decision: decision} = state) do
+      send(state.report, {:retained_api_read, :legacy_page})
+
+      {:reply,
+       {:ok,
+        %{
+          decisions: [decision],
+          has_next?: false,
+          next_key: nil,
+          total: 1,
+          partial?: false,
+          partial_reason: nil,
+          counts: %{open: 1, blocking: if(decision.blocking, do: 1, else: 0), total: 1},
+          health: :writable
+        }}, state}
+    end
+
     def handle_call({:retained_lookup, decision_id}, _from, %{decision: decision} = state) do
       send(state.report, {:retained_api_read, :lookup})
       found = if decision_id == decision.decision_id, do: decision
@@ -45,6 +63,52 @@ defmodule Aiur.DecisionApiTest do
     def handle_call(request, _from, state) do
       send(state.report, {:unexpected_store_read, request})
       {:reply, {:error, :unsupported}, state}
+    end
+  end
+
+  defmodule MutableLegacySnapshotStore do
+    use GenServer
+
+    def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
+
+    @impl true
+    def init(opts), do: {:ok, %{snapshot: Keyword.fetch!(opts, :snapshot), mutated: Keyword.fetch!(opts, :mutated), report: Keyword.fetch!(opts, :report)}}
+
+    @impl true
+    def handle_call({:retained_legacy_page, _query, _offset, _limit}, _from, state) do
+      send(state.report, :legacy_snapshot_read)
+      {:reply, {:ok, state.snapshot}, %{state | snapshot: state.mutated}}
+    end
+
+    def handle_call(request, _from, state) do
+      send(state.report, {:split_snapshot_read, request})
+      {:reply, {:error, :unsupported}, state}
+    end
+  end
+
+  defmodule SnapshotLegacyStore do
+    use GenServer
+
+    def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
+
+    @impl true
+    def init(opts) do
+      current = Map.new(Keyword.fetch!(opts, :decisions), &{&1.decision_id, &1})
+      {:ok, %{current: current, index: Aiur.DecisionStore.RetainedSnapshot.build_index(current)}}
+    end
+
+    @impl true
+    def handle_call({:retained_legacy_page, query, offset, limit}, _from, state) do
+      reply =
+        Aiur.DecisionStore.RetainedSnapshot.legacy_page(
+          state.current,
+          state.index,
+          :writable,
+          Map.put(query, :limit, limit),
+          offset
+        )
+
+      {:reply, reply, state}
     end
   end
 
@@ -126,9 +190,22 @@ defmodule Aiur.DecisionApiTest do
             title: "OCC-7",
             url: "https://operator:credential@example.test/issues/984?capability=private#fragment"
           },
-          source: %{agent_id: "account@example.test", session_id: "session-private", event_id: "event-private"},
-          artifacts: [%{kind: :url, value: "https://example.test/evidence?capability=private#fragment"}],
-          provenance: %{session_id: "session-private", capability_url: "https://example.test?token=private"},
+          source: %{agent_id: "agent-1", session_id: "session-private", event_id: "event-private"},
+          artifacts: [
+            %{kind: :url, value: "https://example.test/evidence"},
+            %{kind: :url, value: "https://example.test/evidence?capability=private#fragment"}
+          ],
+          provenance: %{
+            schema_version: 1,
+            agent_family: "codex",
+            backend: nil,
+            requested_model: "model-safe",
+            resolved_model: "model-safe",
+            attempt_id: "attempt-safe",
+            source: "supervisor",
+            session_id: "session-private",
+            capability_url: "https://example.test?token=private"
+          },
           legacy_attention: %{session_id: "session-private"}
       }
 
@@ -138,11 +215,25 @@ defmodule Aiur.DecisionApiTest do
 
     assert {:ok, %{"decisions" => [listed]}} = DecisionApi.list(%{}, store: store, policy: @policy)
     assert {:ok, fetched} = DecisionApi.get(decision.decision_id, store: store, policy: @policy)
+    assert {:ok, current} = DecisionStore.get(decision.decision_id, store)
+    [presented] = DecisionPresenter.rows([current])
+
+    assert fetched["ticket"] == %{"identifier" => presented.ticket.identifier, "title" => presented.ticket.title, "url" => presented.ticket.url}
+    assert fetched["source"]["agent_id"] == presented.source.agent_id
+    assert fetched["artifacts"] == Enum.map(presented.artifacts, &%{"kind" => Atom.to_string(&1.kind), "value" => &1.value})
+
+    assert Map.reject(fetched["provenance"], fn {_key, value} -> is_nil(value) end) ==
+             presented.provenance
+             |> Map.new(fn {key, value} -> {Atom.to_string(key), value} end)
+             |> Map.reject(fn {_key, value} -> is_nil(value) end)
+
+    assert Map.has_key?(presented.provenance, :backend)
+    assert presented.provenance.backend == nil
 
     for projection <- [listed, fetched] do
       assert projection["ticket"]["url"] == nil
-      assert projection["source"] == %{"agent_id" => nil}
-      assert projection["artifacts"] == []
+      assert projection["source"] == %{"agent_id" => "agent-1"}
+      assert projection["artifacts"] == [%{"kind" => "url", "value" => "https://example.test/evidence"}]
       refute Map.has_key?(projection, "source_id")
       refute Map.has_key?(projection, "content_hash")
       refute Map.has_key?(projection, "legacy_attention")
@@ -276,6 +367,69 @@ defmodule Aiur.DecisionApiTest do
     assert Enum.map(decisions, & &1["decision_id"]) == [updated.decision_id, middle.decision_id]
   end
 
+  test "filtered legacy offsets remain reachable beyond the bounded cursor scan", %{store: store} do
+    seed = request!(store, "architecture", :supervisor_preferred, source_id: "legacy-filtered-seed")
+    base_time = ~U[2026-07-12 10:00:00Z]
+
+    decisions =
+      for index <- 0..1_100 do
+        %{seed | decision_id: "dec_legacy_filtered_#{index}", created_at: DateTime.add(base_time, index * 2, :second)}
+      end
+      |> Enum.sort_by(&{DateTime.to_unix(&1.created_at, :microsecond), &1.decision_id}, :desc)
+
+    nonmatching =
+      for index <- 0..100 do
+        %{
+          seed
+          | decision_id: "dec_legacy_nonmatching_#{index}",
+            authority: :human_required,
+            created_at: DateTime.add(base_time, index * 20 + 1, :second)
+        }
+      end
+
+    {:ok, legacy_store} = SnapshotLegacyStore.start_link(decisions: decisions ++ nonmatching)
+
+    on_exit(fn ->
+      if Process.alive?(legacy_store), do: GenServer.stop(legacy_store)
+    end)
+
+    assert {:ok, first_page} =
+             DecisionApi.list(
+               %{"authority" => "supervisor_preferred", "limit" => 200, "offset" => 900},
+               store: legacy_store,
+               policy: @policy
+             )
+
+    assert first_page["partial_results"] == false
+    assert first_page["pagination"]["next_offset"] == 1_100
+
+    assert Enum.map(first_page["decisions"], & &1["decision_id"]) ==
+             decisions |> Enum.drop(900) |> Enum.take(200) |> Enum.map(& &1.decision_id)
+
+    assert {:ok, final_page} =
+             DecisionApi.list(
+               %{"authority" => "supervisor_preferred", "limit" => 200, "offset" => 1_100},
+               store: legacy_store,
+               policy: @policy
+             )
+
+    assert final_page["partial_results"] == false
+
+    assert final_page["pagination"] == %{
+             "limit" => 200,
+             "offset" => 1_100,
+             "next_offset" => nil,
+             "cursor" => nil,
+             "next_cursor" => nil,
+             "total" => 1_101,
+             "partial_reason" => nil,
+             "label" => "Final retained Decision page of up to 200"
+           }
+
+    assert Enum.map(final_page["decisions"], & &1["decision_id"]) ==
+             decisions |> Enum.drop(1_100) |> Enum.map(& &1.decision_id)
+  end
+
   test "malformed or unknown list parameters fail rather than broadening the result", %{store: store} do
     request!(store, "architecture", :supervisor_allowed, source_id: "one")
 
@@ -345,9 +499,35 @@ defmodule Aiur.DecisionApiTest do
              DecisionApi.get(decision.decision_id, store: retained_store, policy: @policy)
 
     assert fetched["decision_id"] == decision.decision_id
-    assert_receive {:retained_api_read, :query}
+    assert_receive {:retained_api_read, :legacy_page}
     assert_receive {:retained_api_read, :lookup}
     refute_receive {:unexpected_store_read, _request}
+  end
+
+  test "legacy offset pages use one retained snapshot across the cursor-page boundary", %{store: store} do
+    decisions =
+      for index <- 0..100 do
+        request!(store, "architecture", :supervisor_allowed,
+          source_id: "legacy-snapshot-#{index}",
+          now: DateTime.add(~U[2026-07-12 10:00:00Z], index, :second)
+        )
+      end
+      |> Enum.reverse()
+
+    snapshot = retained_snapshot(decisions)
+    mutated = retained_snapshot([request!(store, "architecture", :supervisor_allowed, source_id: "legacy-later", now: ~U[2026-07-12 11:00:00Z]) | decisions])
+    {:ok, legacy_store} = MutableLegacySnapshotStore.start_link(snapshot: snapshot, mutated: mutated, report: self())
+
+    on_exit(fn ->
+      if Process.alive?(legacy_store), do: GenServer.stop(legacy_store)
+    end)
+
+    assert {:ok, %{"decisions" => rows, "pagination" => %{"total" => 101, "next_offset" => nil}}} =
+             DecisionApi.list(%{"limit" => 200}, store: legacy_store, policy: @policy)
+
+    assert Enum.map(rows, & &1["decision_id"]) == Enum.map(decisions, & &1.decision_id)
+    assert_receive :legacy_snapshot_read
+    refute_receive {:split_snapshot_read, _request}
   end
 
   test "get returns one canonical projection and preserves not-found", %{store: store} do
@@ -356,12 +536,36 @@ defmodule Aiur.DecisionApiTest do
     assert {:ok, encoded} = DecisionApi.get(decision.decision_id, store: store, policy: @policy)
     assert encoded["decision_id"] == decision.decision_id
     assert encoded["supervisor_policy"]["allowed"]
+    assert encoded["scope"] == %{"kind" => "retained", "label" => "All retained decisions"}
+
+    assert encoded["health"] == %{
+             "status" => "available",
+             "partial" => false,
+             "reason" => nil,
+             "label" => "Complete retained Decision data"
+           }
 
     assert {:error, :not_found} = DecisionApi.get("dec_missing", store: store, policy: @policy)
     assert {:error, {:invalid_decision_id, :missing}} = DecisionApi.get("   ", store: store, policy: @policy)
 
     assert {:error, {:invalid_decision_id, :too_long}} =
              DecisionApi.get(String.duplicate("a", 257), store: store, policy: @policy)
+  end
+
+  test "get preserves retained scope and partial health", %{store: store} do
+    decision = request!(store, "architecture", :supervisor_allowed, source_id: "partial-detail")
+    :sys.replace_state(store, &Map.put(&1, :health, {:corrupt, 2, :invalid_record}))
+
+    assert {:ok, payload} = DecisionApi.get(decision.decision_id, store: store, policy: @policy)
+    assert payload["decision_id"] == decision.decision_id
+    assert payload["scope"] == %{"kind" => "retained", "label" => "All retained decisions"}
+
+    assert payload["health"] == %{
+             "status" => "partial",
+             "partial" => true,
+             "reason" => "retained_store_partial",
+             "label" => "Partial retained Decision data"
+           }
   end
 
   test "enrich delegates a constrained attributed version to the canonical store", %{store: store} do
@@ -745,5 +949,18 @@ defmodule Aiur.DecisionApiTest do
              DecisionStore.request(payload, [ticket: @ticket, source: @source, now: now], store)
 
     decision
+  end
+
+  defp retained_snapshot(decisions) do
+    %{
+      decisions: decisions,
+      has_next?: false,
+      next_key: nil,
+      total: length(decisions),
+      partial?: false,
+      partial_reason: nil,
+      counts: %{open: length(decisions), blocking: Enum.count(decisions, & &1.blocking), total: length(decisions)},
+      health: :writable
+    }
   end
 end

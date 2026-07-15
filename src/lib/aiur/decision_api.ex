@@ -47,8 +47,11 @@ defmodule Aiur.DecisionApi do
   @spec get(String.t(), keyword()) :: {:ok, map()} | {:error, read_error()}
   def get(decision_id, opts \\ []) when is_list(opts) do
     case DecisionQuery.get(decision_id, store: Keyword.get(opts, :store, DecisionStore)) do
-      {:ok, %{decision: decision}} -> {:ok, encode_decision(decision, policy(opts))}
-      {:error, reason} -> {:error, reason}
+      {:ok, %{decision: decision} = result} ->
+        {:ok, Map.merge(encode_decision(decision, policy(opts)), encode_read_metadata(result))}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -328,16 +331,6 @@ defmodule Aiur.DecisionApi do
   defp encode_retained_page(page, policy) do
     %{
       "decisions" => Enum.map(page.decisions, &encode_decision(&1, policy)),
-      "scope" => %{
-        "kind" => Atom.to_string(page.scope.kind),
-        "label" => page.scope.label
-      },
-      "health" => %{
-        "status" => Atom.to_string(page.health.status),
-        "partial" => page.health.partial?,
-        "reason" => atom_or_nil(page.health.reason),
-        "label" => page.health.label
-      },
       "partial_results" => page.partial_results?,
       "partial_reason" => atom_or_nil(page.partial_reason),
       "pagination" => %{
@@ -352,6 +345,22 @@ defmodule Aiur.DecisionApi do
       },
       "filters" => Map.new(page.filters, fn {key, value} -> {Atom.to_string(key), atom_or_nil(value)} end),
       "counts" => Map.new(page.counts, fn {key, value} -> {Atom.to_string(key), value} end)
+    }
+    |> Map.merge(encode_read_metadata(page))
+  end
+
+  defp encode_read_metadata(%{scope: scope, health: health}) do
+    %{
+      "scope" => %{
+        "kind" => Atom.to_string(scope.kind),
+        "label" => scope.label
+      },
+      "health" => %{
+        "status" => Atom.to_string(health.status),
+        "partial" => health.partial?,
+        "reason" => atom_or_nil(health.reason),
+        "label" => health.label
+      }
     }
   end
 

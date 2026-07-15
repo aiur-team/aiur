@@ -110,6 +110,10 @@ an incomplete page as a complete global result. Both reads reuse
 `DecisionProjection`'s redacted request and lifecycle JSON; there is no
 API-specific copy of canonical state.
 
+Successful exact `GET /api/v1/decisions/:decision_id` responses also include
+retained scope and health metadata. A Decision found in a validated corrupt
+prefix is returned with partial health rather than being presented as complete.
+
 ## Enrich
 
 An enrichment body contains `expected_version` plus one or more of:
@@ -216,11 +220,16 @@ trackers, dispatch a message, open/resolve a reminder, or retry around OCC-8.
 | `405` | `method_not_allowed` | Known Decision route, unsupported method |
 | `409` | `decision_conflict` | Stale or idempotency/action correlation conflict |
 | `503` | `decision_service_unavailable` | Canonical DecisionStore unavailable |
+| `503` | `decision_presence_indeterminate` | Retained data is partial, so a requested Decision cannot be proven absent |
 
 Errors never include inspected exceptions, credentials, payloads, or raw
 downstream terms. Clients should refresh after a conflict. They may retry an
 unchanged logical action with the same idempotency/correlation values; they
 must use a new key for changed content.
+
+An indeterminate detail response includes retained scope and partial-health
+metadata. It is distinct from a `decision_not_found` response and does not
+claim that a partially replayed store is unavailable.
 
 ## Audit and recovery invariants
 

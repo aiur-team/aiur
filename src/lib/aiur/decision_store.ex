@@ -64,6 +64,8 @@ defmodule Aiur.DecisionStore do
   @default_retry_delays_ms [250, 1_000, 5_000]
   @recent_audit_limit 50
   @recent_decision_limit 50
+  @maximum_legacy_page_limit 200
+  @maximum_legacy_page_offset 1_000_000
   @transient_failure_classes ["orchestrator_unavailable", "orchestrator_timeout"]
   @revision_transient_failure_classes @transient_failure_classes ++
                                         ["target_agent_unavailable", "target_revalidation_failed"]
@@ -207,6 +209,14 @@ defmodule Aiur.DecisionStore do
   @spec retained_query(map(), GenServer.server()) :: {:ok, map()} | {:error, :store_unavailable | :invalid_query}
   def retained_query(query, server \\ __MODULE__) when is_map(query) do
     GenServer.call(server, {:retained_query, query})
+  end
+
+  @doc false
+  @spec retained_legacy_page(map(), non_neg_integer(), pos_integer(), GenServer.server()) ::
+          {:ok, map()} | {:error, :store_unavailable | :invalid_query}
+  def retained_legacy_page(query, offset, limit, server \\ __MODULE__)
+      when is_map(query) and is_integer(offset) and is_integer(limit) do
+    GenServer.call(server, {:retained_legacy_page, query, offset, limit})
   end
 
   @doc "Returns canonical retained open and blocking counts from one serialized store snapshot."
@@ -554,6 +564,25 @@ defmodule Aiur.DecisionStore do
 
         {:error, _reason} ->
           {:error, :invalid_query}
+      end
+
+    {:reply, reply, state}
+  end
+
+  def handle_call({:retained_legacy_page, query, offset, limit}, _from, state) do
+    reply =
+      with :ok <- valid_legacy_page?(offset, limit),
+           {:ok, normalized} <- DecisionQueryParams.parse(legacy_query_params(query)),
+           true <- is_nil(normalized.cursor) do
+        RetainedSnapshot.legacy_page(
+          state.current,
+          state.retained_index,
+          state.health,
+          Map.merge(normalized, %{limit: limit, ordering: :current}),
+          offset
+        )
+      else
+        _invalid -> {:error, :invalid_query}
       end
 
     {:reply, reply, state}
@@ -2785,5 +2814,17 @@ defmodule Aiur.DecisionStore do
       limit when is_integer(limit) and limit > 0 -> limit
       _invalid -> @default_legacy_question_version_limit
     end
+  end
+
+  defp valid_legacy_page?(offset, limit)
+       when offset >= 0 and offset <= @maximum_legacy_page_offset and limit >= 1 and limit <= @maximum_legacy_page_limit,
+       do: :ok
+
+  defp valid_legacy_page?(_offset, _limit), do: {:error, :invalid_query}
+
+  defp legacy_query_params(query) do
+    query
+    |> Map.drop([:limit, "limit", :ordering])
+    |> Map.put(:limit, 1)
   end
 end

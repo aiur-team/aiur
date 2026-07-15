@@ -6,8 +6,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
   display-only summary and never advances either canonical axis.
   """
 
-  alias Aiur.Decision
-  alias AiurWeb.OperatorControlCenter.DecisionSanitizer
+  alias Aiur.{Decision, DecisionSanitizer}
 
   @urgency_rank %{low: 0, normal: 1, high: 2, critical: 3}
 

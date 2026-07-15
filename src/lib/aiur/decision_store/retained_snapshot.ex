@@ -3,7 +3,7 @@ defmodule Aiur.DecisionStore.RetainedSnapshot do
 
   alias Aiur.Decision
   alias Aiur.DecisionStore.RetainedIndex
-  alias Aiur.DecisionStore.RetainedSnapshot.Query
+  alias Aiur.DecisionStore.RetainedSnapshot.{LegacyPage, Query}
 
   @lifecycle_statuses [:open, :decided, :acknowledged, :resolved]
 
@@ -48,6 +48,19 @@ defmodule Aiur.DecisionStore.RetainedSnapshot do
 
   def query(_current, _index, _health, _query), do: {:error, :invalid_query}
 
+  @spec legacy_page(%{String.t() => Decision.t()}, map(), term(), query(), non_neg_integer()) ::
+          {:ok, map()} | {:error, :store_unavailable | :invalid_query}
+  def legacy_page(current, index, health, %{limit: limit} = query, offset)
+      when is_map(current) and is_map(index) and is_integer(limit) and limit > 0 and is_integer(offset) and offset >= 0 do
+    cond do
+      not valid_query?(query) -> {:error, :invalid_query}
+      not readable?(health) -> {:error, :store_unavailable}
+      true -> legacy_snapshot(current, index, health, query, offset)
+    end
+  end
+
+  def legacy_page(_current, _index, _health, _query, _offset), do: {:error, :invalid_query}
+
   @spec counts(map(), term()) :: {:ok, %{counts: map(), health: term()}} | {:error, :store_unavailable}
   def counts(index, health) when is_map(index) do
     if readable?(health) do
@@ -61,6 +74,22 @@ defmodule Aiur.DecisionStore.RetainedSnapshot do
 
   defp query_snapshot(current, index, health, query) do
     snapshot = Query.run(current, index, query)
+
+    {:ok,
+     %{
+       decisions: snapshot.decisions,
+       next_key: snapshot.next_key,
+       has_next?: snapshot.has_next?,
+       total: snapshot.total,
+       partial?: snapshot.partial?,
+       partial_reason: snapshot.partial_reason,
+       counts: RetainedIndex.canonical_counts(index),
+       health: health
+     }}
+  end
+
+  defp legacy_snapshot(current, index, health, query, offset) do
+    snapshot = LegacyPage.run(current, index, query, offset)
 
     {:ok,
      %{
