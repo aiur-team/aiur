@@ -41,6 +41,18 @@ defmodule Aiur.AgentList.Selection do
     end
   end
 
+  @spec preserve_row(map(), map()) :: map()
+  def preserve_row(previous, next) do
+    with :agents <- previous.selection_focus,
+         selected when not is_nil(selected) <- Enum.at(previous.summaries, previous.selection_index),
+         selected_key when not is_nil(selected_key) <- row_key(selected),
+         index when is_integer(index) <- Enum.find_index(next.summaries, &(row_key(&1) == selected_key)) do
+      %{next | selection_index: index}
+    else
+      _ -> clamp_selection(next)
+    end
+  end
+
   # When leaving the chip, ↓ lands on the first row and ↑ on the last.
   defp chip_entry_index(_count, delta) when delta > 0, do: 0
   defp chip_entry_index(count, _delta), do: count - 1
@@ -50,4 +62,15 @@ defmodule Aiur.AgentList.Selection do
   defp at_edge?(%{selection_index: 0}, _count, delta) when delta < 0, do: true
   defp at_edge?(%{selection_index: idx}, count, delta) when delta > 0 and idx == count - 1, do: true
   defp at_edge?(_state, _count, _delta), do: false
+
+  defp row_key(%{tracker_identity: identity}) do
+    case Aiur.TrackerIdentity.github_key(identity) do
+      nil -> fallback_row_key(identity)
+      key -> key
+    end
+  end
+
+  defp row_key(summary), do: fallback_row_key(summary)
+  defp fallback_row_key(%{identifier: identifier}) when not is_nil(identifier), do: {:identifier, to_string(identifier)}
+  defp fallback_row_key(_summary), do: nil
 end

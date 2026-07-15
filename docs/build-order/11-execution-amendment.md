@@ -8,6 +8,14 @@ only. This amendment does not add, remove, supersede, or rename a feature
 ticket. The approved publication remains the immutable authority for ticket
 bodies and the native dependency graph.
 
+**Current schedule:** the operator subsequently required the materialized
+schedule to match the consolidation before execution. The binding partition is
+now [`12-current-execution-waves.md`](12-current-execution-waves.md) and
+[`execution-waves.json`](execution-waves.json): exactly seven execution waves,
+materialized as `phase:1` through `phase:7`. Those labels replace the older
+phase hints for current operations without changing ticket bodies, membership,
+or native dependency edges.
+
 ## Immutable baseline
 
 This amendment is layered on publication receipt
@@ -61,9 +69,9 @@ Additional binding rules:
    default. Long-running, repeatedly restarted, ownerless, non-shrinking, or
    stale-base work may be taken over directly under the Executor policy landed
    by PR #1183; catastrophic Aiur failure is not required.
-6. Phase is presentation metadata. Dispatch critical-path work first, then
-   earlier ready work, and only use a deeper-phase ticket when all higher-value
-   work is genuinely blocked and the file/seam budget permits it.
+6. Execution wave is presentation metadata. Dispatch critical-path work first,
+   then earlier ready work, and only use a deeper-wave ticket when all
+   higher-value work is genuinely blocked and the file/seam budget permits it.
 7. Generic stability fixes land in `main`; immediately merge that exact tip
    into `develop`. Feature review and dispatch stop while `main` is not an
    ancestor of `develop`.

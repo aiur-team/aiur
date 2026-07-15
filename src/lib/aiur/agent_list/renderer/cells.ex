@@ -214,6 +214,7 @@ defmodule Aiur.AgentList.Renderer.Cells do
 
   @spec latest_event_message(term()) :: term()
   def latest_event_message(nil), do: ""
+  def latest_event_message(%{message: msg, stale?: true}) when is_binary(msg), do: "Stale: " <> msg
   def latest_event_message(%{message: msg}) when is_binary(msg), do: msg
   def latest_event_message(%{"message" => msg}) when is_binary(msg), do: msg
   def latest_event_message(_), do: ""
