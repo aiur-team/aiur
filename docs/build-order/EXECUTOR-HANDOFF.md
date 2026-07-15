@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-15 09:20 PDT)
+## Live Executor state (updated 2026-07-15 09:57 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -12,21 +12,28 @@ truth and supersedes stale pre-run wording later in the document.
 `4d8de9508206e08e314f2730cd916501a3b4cafd`; the complete graph is live at root
 #1084 with 54 members #1085–#1138 and 107 exact blocker relations. The historical
 receipt gate remains operator-overridden for this run. Aiur is deliberately
-stopped while the Executor and bounded background workers close the active
-stability PRs; do not restart feature dispatch until that stability lane is
-green. Current accepted `main` is `47f87815`; exact `origin/develop` is
-synchronized to the same commit. The completed direct-takeover stability set
+stopped while the Executor and bounded background workers close the five
+already-started feature PRs; do not restart feature dispatch until those
+ownership branches land and the remaining graph is consolidated and audited.
+Current accepted `main` remains `47f87815`; exact `origin/develop` is now
+`80645369`. The completed direct-takeover stability set
 now includes configured-base recovery #1146, provider-turn completion #1162,
 terminal GitHub CI verdict handling #1151, and sandbox-safe build-gate leases
 #1154, plus workspace containment #1161. #1161 cleared the deterministic
 coverage floor at 85.02%, passed fresh centralized CI, and was the last active
-stability merge. Direct feature takeovers are now running in parallel for
-#1141/DASH-018, #1144/DASH-006, and #1168/BO-010 against exact current
-`develop`; preserve/refresh is the audited cheapest safe path for all three.
-#1160/DASH-004 remains a bounded transplant and #1163/BO-016 remains a
-preserve/refresh, but both wait for #1141's shared lifecycle surface to land so
-they do not repeat the same conflict and stale-base churn. Aiur remains stopped.
-The core program is 8/54 merged with 46 remaining.
+stability merge. #1141/DASH-018 is merged into `develop` at `80645369`; its
+single failed full-suite lane was classified as unrelated current-base timing
+flakes after the exact ProviderLifecycle test passed 28/28, the exact
+BuildGate test passed 10/10, and the full BuildGate file passed 60/60 at the CI
+seed. #1144/DASH-006 and #1168/BO-010 have each integrated that exact head and
+are in fresh exact-head CI at `ecc59aa7` and `e3373f36`, respectively. Their
+bounded reviews and focused gates are green; #1168 also has fresh exact-head
+Executor approval for its intentional two-line compile-time-path allowlist.
+#1160/DASH-004 and #1163/BO-016 are now active in parallel as direct bounded
+takeovers against current `develop`; preserve the useful DASH-004 WIP while
+excluding generated cache and restoring protected regression files from the
+base, and keep BO-016 within its existing seven-finding packet. Aiur remains
+stopped. The core program is 9/54 merged with 45 remaining.
 
 ### Binding integration and promotion policy
 
