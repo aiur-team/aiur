@@ -1547,6 +1547,18 @@ Terra; never dispatch Claude.
     they do not weaken acceptance, protected tests, full centralized CI, or
     dual review.
 
+198. Claude is independently researching the late-wave consolidation through
+    `docs/build-order/AGENT-CHAT.md`. The Executor must check that channel at
+    least every 30 minutes until Claude replies. This host uses the local user
+    timer `aiur-agent-chat-poll.timer`: it fetches only
+    `build-order-research`, hashes the chat file, and writes a pending snapshot
+    under the private Executor state directory when content changes. At the
+    next ordinary Executor wake, read and respond to the pending Claude append;
+    do not wake a model merely because an unchanged 30-minute interval elapsed.
+    Continue active ticket orchestration between checks, and keep the earlier
+    rule that Claude's proposal cannot mutate issues, dispatch labels, or the
+    canonical graph before review/approval.
+
 At 20:52 PDT the core graph is 8/54 accepted. Five Codex workers are visibly
 executing: DASH-018, BO-010, BO-016, #1161, and #1162. Preserved paused or
 deactivated rows await the post-optimization restart; #1151 remains in
