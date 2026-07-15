@@ -43,7 +43,10 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     refute_receive {:reader_started, _reader_pid}
     send(reader_pid, :finish)
 
-    assert_receive {:ticket_detail_updated, %State{health: :healthy, generation: 1, detail: %Snapshot{title: "first"}}}, 2_000
+    assert_receive(
+      {:ticket_detail_updated, %State{health: :healthy, generation: 1, detail: %Snapshot{title: "first"}}},
+      2_000
+    )
 
     assert {:ok, %State{health: :healthy, generation: 1, detail: %Snapshot{title: "first"}}} =
              TicketDetailCache.current(cache, identity)
@@ -114,10 +117,18 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
 
     assert :ok = TicketDetailCache.subscribe(cache, identity)
     assert {:ok, %State{generation: 1, health: :unavailable}} = TicketDetailCache.request(cache, identity)
-    assert_receive {:ticket_detail_updated, %State{generation: 1, health: :unavailable, detail: nil}}, 2_000
+
+    assert_receive(
+      {:ticket_detail_updated, %State{generation: 1, health: :unavailable, detail: nil}},
+      2_000
+    )
 
     assert {:ok, %State{generation: 2, health: :unavailable}} = TicketDetailCache.request(cache, identity)
-    assert_receive {:ticket_detail_updated, %State{generation: 2, health: :healthy, detail: %Snapshot{title: "recovered"}}}, 2_000
+
+    assert_receive(
+      {:ticket_detail_updated, %State{generation: 2, health: :healthy, detail: %Snapshot{title: "recovered"}}},
+      2_000
+    )
   end
 
   test "bounds retention by evicting completed least-recently-used entries" do
@@ -262,7 +273,11 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
 
     assert :ok = TicketDetailCache.subscribe(cache, identity)
     assert {:ok, %State{generation: 1, health: :unavailable}} = TicketDetailCache.request(cache, identity)
-    assert_receive {:ticket_detail_updated, %State{generation: 1, health: :healthy, detail: %Snapshot{title: "first"}}}, 2_000
+
+    assert_receive(
+      {:ticket_detail_updated, %State{generation: 1, health: :healthy, detail: %Snapshot{title: "first"}}},
+      2_000
+    )
 
     Agent.update(clock, fn _ -> 2 end)
 
@@ -699,7 +714,11 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
 
     assert :ok = TicketDetailCache.subscribe(cache, identity)
     assert {:ok, %State{generation: 1, health: :unavailable}} = TicketDetailCache.request(cache, identity)
-    assert_receive {:ticket_detail_updated, %State{generation: 1, health: :healthy, detail: %Snapshot{title: "first"}}}, 2_000
+
+    assert_receive(
+      {:ticket_detail_updated, %State{generation: 1, health: :healthy, detail: %Snapshot{title: "first"}}},
+      2_000
+    )
 
     :ok = GenServer.stop(failed_supervisor)
     Agent.update(clock, fn _ -> 2 end)
@@ -831,7 +850,11 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
 
     assert :ok = TicketDetailCache.subscribe(cache, identity)
     assert {:ok, %State{generation: 1, health: :unavailable}} = TicketDetailCache.request(cache, identity)
-    assert_receive {:ticket_detail_updated, %State{generation: 1, health: :healthy, detail: %Snapshot{title: "first"}}}, 2_000
+
+    assert_receive(
+      {:ticket_detail_updated, %State{generation: 1, health: :healthy, detail: %Snapshot{title: "first"}}},
+      2_000
+    )
 
     Agent.update(clock, fn _ -> 2 end)
 
@@ -887,7 +910,11 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
 
     assert :ok = TicketDetailCache.subscribe(cache, identity)
     assert {:ok, %State{generation: 1, health: :unavailable}} = TicketDetailCache.request(cache, identity)
-    assert_receive {:ticket_detail_updated, %State{generation: 1, health: :healthy, detail: %Snapshot{title: "first"}}}, 2_000
+
+    assert_receive(
+      {:ticket_detail_updated, %State{generation: 1, health: :healthy, detail: %Snapshot{title: "first"}}},
+      2_000
+    )
 
     Agent.update(clock, fn _ -> 2 end)
 
