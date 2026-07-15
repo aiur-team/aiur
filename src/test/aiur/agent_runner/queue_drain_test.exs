@@ -284,5 +284,25 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
       assert_receive {:queue_item_failed, ^identifier, {:port_exit, 9}}
       refute_receive {:queue_item_restored, ^identifier}
     end
+
+    test "Claude closed ports retain the existing failed-delivery behavior" do
+      identifier = "QD-claude-port-closed-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      item = %{category: :operator_message, id: 4, body: %{text: "do not replay"}}
+      {:ok, orchestrator} = FakeQueueOrchestrator.start_link(item, self())
+
+      assert {:error, :port_closed} =
+               QueueDrain.drain_operator_messages(
+                 %{backend: "claude", thread_id: "claude-thread"},
+                 issue,
+                 fn _message -> :ok end,
+                 orchestrator,
+                 nil,
+                 run_turn: fn _session, _text, _issue, _opts -> {:error, :port_closed} end
+               )
+
+      assert_receive {:queue_item_failed, ^identifier, :port_closed}
+      refute_receive {:queue_item_restored, ^identifier}
+    end
   end
 end

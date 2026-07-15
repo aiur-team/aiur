@@ -545,7 +545,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
 
         :ok
 
-      {:error, :port_closed} = error ->
+      {:error, :port_closed} = error when backend == "codex" ->
         :ok = Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier)
         error
 

@@ -203,6 +203,57 @@ defmodule Aiur.AppServer.AdapterTest do
     assert_receive {:accepted, "turn-1"}
   end
 
+  test "run_turn exits after two operator deliveries and provider idle/completed" do
+    port = cat_port()
+    parent = self()
+
+    pending_operator_requests =
+      Map.merge(
+        pending_operator_request(80, parent),
+        pending_operator_request(81, parent)
+      )
+
+    Process.put(
+      {CodexLifecycleBackend, :pending_operator_requests},
+      pending_operator_requests
+    )
+
+    response = fn request_id, turn_id ->
+      %{
+        "id" => request_id,
+        "result" => %{"turn" => %{"id" => turn_id, "status" => "inProgress"}}
+      }
+    end
+
+    started = fn turn_id ->
+      %{
+        "method" => "turn/started",
+        "params" => %{"turn" => %{"id" => turn_id, "status" => "inProgress"}}
+      }
+    end
+
+    idle = %{
+      "method" => "thread/status/changed",
+      "params" => %{"status" => %{"type" => "idle"}}
+    }
+
+    send_frames(port, [
+      response.(80, "turn-child-1"),
+      response.(81, "turn-child-2"),
+      started.("turn-child-1"),
+      started.("turn-child-2"),
+      idle,
+      turn_completed("turn-1")
+    ])
+
+    assert {:ok, %{result: :turn_completed}} =
+             Adapter.run_turn(CodexLifecycleBackend, session(port), "prompt", issue(), [])
+
+    assert_receive {:accepted, "turn-child-1"}
+    assert_receive {:accepted, "turn-child-2"}
+    refute_receive {:failed, _reason}
+  end
+
   test "run_turn rejects late response and start registration for a retired ID" do
     port = cat_port()
     parent = self()

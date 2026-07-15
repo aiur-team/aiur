@@ -145,7 +145,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
         MessageHandler.send_control_state(codex_update_recipient, issue, :paused, pause_payload)
         wait_for_resume(turn_context, app_session, message_handler)
 
-      {:error, :port_closed} = error ->
+      {:error, :port_closed} = error when backend == "codex" ->
         best_effort_queue_bookkeeping(
           Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier),
           :restore,

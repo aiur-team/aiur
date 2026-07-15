@@ -68,6 +68,8 @@ defmodule Aiur.AgentRunner do
 
   @doc false
   @spec transient_run_error?(term(), String.t()) :: boolean()
+  def transient_run_error?(:port_closed, "codex"), do: true
+  def transient_run_error?(:port_closed, _backend), do: false
   def transient_run_error?({:port_exit, status}, "codex") when is_integer(status), do: true
   def transient_run_error?({:port_exit, status}, _backend) when is_integer(status), do: false
   def transient_run_error?(reason, _backend), do: transient_run_error?(reason)
