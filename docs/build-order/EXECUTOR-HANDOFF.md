@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-15 07:48 PDT)
+## Live Executor state (updated 2026-07-15 07:59 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -17,12 +17,17 @@ stability PRs; do not restart feature dispatch until that stability lane is
 green. Current accepted `main` is `65912898`; exact `origin/develop` is
 synchronized to the same commit. The completed direct-takeover stability set
 now includes configured-base recovery #1146, provider-turn completion #1162,
-and terminal GitHub CI verdict handling #1151. Workspace containment #1161
-and sandbox-safe build-gate leases #1154 are integrating that newest `main`
-and must produce new exact-head CI before either can merge. A read-only audit
-is classifying the five already-open Build Order PRs for preserve, transplant,
-or clean restart; no feature branch is being mutated before the stability lane
-is green. The core program is 8/54 merged with 46 remaining.
+and terminal GitHub CI verdict handling #1151. Workspace containment #1161 and
+sandbox-safe build-gate leases #1154 both integrated that newest `main`, but
+one focused exact-head review found one bounded P1 in each: #1161 could
+release/delete its durable no-group receipt beneath a late reparented child,
+while #1154 reused its admission timeout as an execution deadline for an
+already-admitted Mix command. Both exact reproductions are routed to their
+owners as frozen one-finding packets; neither PR may merge without the focused
+regression, replacement head, and fresh CI. The five already-open Build Order
+PRs are classified as preserve/refresh (#1141, #1144, #1163, #1168) or bounded
+transplant (#1160); no feature branch is being mutated before the stability
+lane is green. The core program is 8/54 merged with 46 remaining.
 
 ### Binding integration and promotion policy
 
