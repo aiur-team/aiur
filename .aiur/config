@@ -1,6 +1,6 @@
 tracker:
   kind: github
-  base_branch: main
+  base_branch: develop
   active_states:
     - todo
     - in-progress
@@ -14,6 +14,10 @@ tracker:
     repo: its-everdred/aiur
     label_prefix: agent
     bot_account: its-applekid
+    # Finite Build Order planning-graph safeguards. Defaults accept exactly 100 roots/members.
+    planning_root_limit: 100
+    planning_page_budget: 4
+    planning_call_budget: 4
 polling:
   interval_seconds: 5
 max_vertical_panes: 3

@@ -17,7 +17,7 @@ defmodule Aiur.BuildOrder.SelectedRoot do
   @spec new(term(), term(), term()) :: t()
   def new(root, members, provider) when is_list(members) do
     overflow? = length(members) > @max_members
-    {members, malformed?} = members |> Enum.take(@max_members) |> split_members()
+    {members, malformed?} = members |> Enum.take(@max_members) |> members()
 
     diagnostics =
       overflow_diagnostic(overflow?) ++ malformed_diagnostic(malformed?)
@@ -58,11 +58,9 @@ defmodule Aiur.BuildOrder.SelectedRoot do
   defp provider_health(%ProviderHealth{} = provider), do: provider
   defp provider_health(_provider), do: %ProviderHealth{}
 
-  defp split_members(members) do
-    {valid, invalid} =
-      Enum.split_with(members, &(match?(%Member{}, &1) and Member.structurally_valid?(&1)))
-
-    {valid, invalid != []}
+  defp members(members) do
+    {records, malformed} = Enum.split_with(members, &match?(%Member{}, &1))
+    {records, malformed != [] or Enum.any?(records, &(not Member.structurally_valid?(&1)))}
   end
 
   defp overflow_diagnostic(true), do: [Diagnostic.new(:member_overflow)]

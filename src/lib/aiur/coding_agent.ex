@@ -581,7 +581,7 @@ defmodule Aiur.CodingAgent do
   def run_turn(session, prompt, issue, opts \\ []),
     do: adapter_for_session(session).run_turn(session, prompt, issue, opts)
 
-  @spec stop_session(map()) :: :ok
+  @spec stop_session(map()) :: :ok | {:ok, :cleanup_proven} | {:error, term()}
   def stop_session(session), do: adapter_for_session(session).stop_session(session)
 
   @spec normalize_event(map()) :: map()

@@ -169,8 +169,16 @@ defmodule Aiur.Orchestrator.PauseResume do
       %{control: %{status: :completed}} = running_entry ->
         pause_completed_issue_for_label_override(state, running_entry, issue)
 
-      %{control: %{status: status}} = running_entry when status in [:deactivated, :paused] ->
+      %{control: %{status: :deactivated}} = running_entry ->
         Reconciler.refresh_running_entry_issue(state, issue, running_entry)
+
+      %{control: %{status: :paused}} = running_entry ->
+        running_entry =
+          running_entry
+          |> Map.put(:issue, issue)
+          |> Map.put(:paused_reason, :label_override)
+
+        transition_control_status(state, running_entry, :paused, "label_override")
 
       running_entry when is_map(running_entry) ->
         Logger.info("Issue pause override detected: #{State.issue_context(issue)}; pausing active agent")
@@ -222,20 +230,6 @@ defmodule Aiur.Orchestrator.PauseResume do
       transition_control_status(state, parked_entry, :paused, "label_override.completed")
     end
   end
-
-  @spec recover_startup_pause_overrides(State.t(), [term()]) :: [term()]
-  def recover_startup_pause_overrides(
-        %State{initial_dispatch_cycle: true} = state,
-        issues
-      )
-      when is_list(issues) do
-    Enum.map(issues, fn
-      %Issue{} = issue -> recover_startup_pause_override(state, issue)
-      issue -> issue
-    end)
-  end
-
-  def recover_startup_pause_overrides(_state, issues), do: issues
 
   # Wake a `:deactivated` running entry: flip its control status to
   # `:working`, re-add the id to the publisher tracked set, and spawn
@@ -553,13 +547,14 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   @spec transition_control_status(State.t(), map(), atom(), String.t()) :: State.t()
   def transition_control_status(%State{} = state, running_entry, new_status, reason) do
+    running_entry = normalize_pause_context(running_entry, new_status)
     issue_id = get_in(running_entry, [:issue, Access.key(:id)])
     identifier = Map.get(running_entry, :identifier)
     existing = Map.get(running_entry, :control, %{})
     old_status = Map.get(existing, :status, :working)
 
     if old_status == new_status do
-      state
+      %{state | running: Map.put(state.running, issue_id, running_entry)}
     else
       Logger.info("Control status: identifier=#{identifier} #{old_status} -> #{new_status} reason=#{reason}")
 
@@ -577,6 +572,18 @@ defmodule Aiur.Orchestrator.PauseResume do
       next_state
     end
   end
+
+  defp normalize_pause_context(running_entry, :paused) do
+    if Map.get(running_entry, :paused_reason) == :blocker_dependency do
+      running_entry
+    else
+      running_entry
+      |> Map.delete(:blocker_pause)
+      |> Map.delete(:pending_auto_resume)
+    end
+  end
+
+  defp normalize_pause_context(running_entry, _status), do: running_entry
 
   @doc false
   @spec replace_completed_issue(State.t(), map(), Issue.t()) :: State.t()
@@ -618,7 +625,9 @@ defmodule Aiur.Orchestrator.PauseResume do
     end
   end
 
-  defp dispatch_completed_replacement(state, running_entry, issue) do
+  @doc false
+  @spec dispatch_completed_replacement(State.t(), map(), Issue.t(), keyword()) :: State.t()
+  def dispatch_completed_replacement(state, running_entry, issue, opts \\ []) do
     running_entry = normalize_completed_entry(running_entry, issue)
 
     state =
@@ -628,21 +637,38 @@ defmodule Aiur.Orchestrator.PauseResume do
 
     worker_host = Map.get(running_entry, :worker_host)
 
-    with true <- Slots.dispatch_slots_available?(issue, state),
-         :ok <- Dispatcher.redispatch_ready?(state, issue, worker_host) do
-      replace_completed_entry(state, running_entry, issue, worker_host)
+    if Slots.dispatch_slots_available?(issue, state) do
+      admit = Keyword.get(opts, :admit_fun, &Dispatcher.admit_redispatch/3)
+      replace = Keyword.get(opts, :replace_fun, &replace_completed_entry/4)
+
+      case admit.(state, issue, worker_host) do
+        {:ok, admitted_state} ->
+          replace.(admitted_state, running_entry, issue, worker_host)
+
+        {:error, _reason, rejected_state} ->
+          rejected_state
+      end
     else
-      _declined -> state
+      state
     end
   end
 
+  # This is the single funnel every recycle re-dispatch goes through: the runner
+  # reached its completed boundary (max_turns, or a replacement) while the issue
+  # was still active, so the ticket already has a branch, workspace, and workpad.
+  # Flag it as prior work so a thread that cannot be resumed continues from that
+  # handoff instead of cold-starting brainstorm/plan over existing work.
   defp replace_completed_entry(state, running_entry, issue, worker_host) do
+    prior_work? = Config.agent_prior_work_continuation?()
+
     replace_admitted_completed_entry(
       state,
       running_entry,
       issue,
       worker_host,
-      &Dispatcher.do_dispatch_issue/4
+      fn dispatch_state, dispatch_issue, attempt, host ->
+        Dispatcher.do_dispatch_issue(dispatch_state, dispatch_issue, attempt, host, prior_work: prior_work?)
+      end
     )
   end
 
@@ -753,7 +779,8 @@ defmodule Aiur.Orchestrator.PauseResume do
     # budget so the fresh task starts with a full window.
     state = Dispatcher.reset_thrash_budget(state, issue_id)
 
-    dispatched_state = Dispatcher.do_dispatch_issue(state, issue, nil, worker_host)
+    dispatched_state =
+      Dispatcher.do_dispatch_issue(state, issue, nil, worker_host, prior_work: Config.agent_prior_work_continuation?())
 
     case Map.get(dispatched_state.running, issue_id) do
       %{pid: pid} when is_pid(pid) ->
@@ -1071,8 +1098,8 @@ defmodule Aiur.Orchestrator.PauseResume do
   # automated/blocker auto-resume cannot silently reset the budget: the
   # entry resumes already over the cap and the next overrun tick re-pauses
   # it, which is the runaway safety net — a wedged duration-capped agent
-  # that keeps getting auto-resumed on blocker pushes stays bounded instead
-  # of running forever.
+  # that keeps getting auto-resumed on blocker unblocked signals stays bounded
+  # instead of running forever.
   #
   # Label-override pauses have no special duration semantics; resuming just
   # clears their attribution marker after the normal pause-clock thaw.
@@ -1249,27 +1276,6 @@ defmodule Aiur.Orchestrator.PauseResume do
         else
           {{:error, :dispatch_failed}, next_state}
         end
-    end
-  end
-
-  defp recover_startup_pause_override(%State{} = state, %Issue{} = issue) do
-    active_states = DispatchPolicy.active_state_set()
-
-    if Issue.paused?(issue) and
-         DispatchPolicy.active_issue_state?(issue.state, active_states) and
-         not Map.has_key?(state.running, issue.id) do
-      case clear_pause_override(issue) do
-        {:ok, cleared_issue} ->
-          Logger.info("Recovered stale pause override on startup: #{State.issue_context(issue)}")
-          cleared_issue
-
-        {:error, reason} ->
-          Logger.warning("Startup pause override recovery deferred: #{State.issue_context(issue)} reason=#{inspect(reason)}")
-
-          issue
-      end
-    else
-      issue
     end
   end
 

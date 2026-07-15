@@ -129,6 +129,11 @@ comments should reach agent event digests even when CODEOWNERS team expansion is
 unavailable. Keep it separate from `github.bot_account`: bot-account authors are
 filtered as self-loops, while trusted accounts are allowed human Executors.
 
+Build Order planning reads use finite `github.planning_root_limit`,
+`github.planning_page_budget`, and `github.planning_call_budget` safeguards.
+They default to `100`, `4`, and `4`; all values must be positive and may not
+exceed those hard limits, so a provider generation never silently truncates.
+
 Copy one of the starter pairs (config + prompt template) and edit it for your project:
 
 - [examples/workflows/linear-codex.aiurconfig](examples/workflows/linear-codex.aiurconfig)
@@ -344,6 +349,9 @@ path parameter and is never browser-cacheable.
   `dangerFullAccess` unless `turn_sandbox_policy` is explicitly configured.
 - `agent.max_turns` caps how many back-to-back backend turns Aiur runs in a single
   invocation when a turn completes but the issue is still active. Default: `20`.
+- `agent.max_turns_by_complexity` optionally overrides that cap for tickets with
+  `complexity:N` labels, for example `{1: 4, 2: 8, 3: 12}`. Missing levels and
+  unlabeled tickets continue to use `agent.max_turns`.
 - `agent.max_concurrent_agents` caps active workers only. Paused agents remain visible
   and can keep their panes open without consuming an active slot.
 - `agent.switch_model_on_ratelimit` is an opt-in ordered list of configured
@@ -406,9 +414,27 @@ path parameter and is never browser-cacheable.
   while ordinary editing, Git, and model work continue. Set it to `0` to remove
   the concurrency cap; a configured memory floor or start stagger remains active
   independently.
+  Local Codex `workspaceWrite` turns add the canonical `~/.aiur/build-gate` metadata
+  directory to `writableRoots` without replacing configured, workspace, or writable Git
+  roots. Persistent lock inodes live in the host-prepared sibling
+  `~/.aiur/build-gate.locks`, which is deliberately excluded from turn-writable roots so
+  a sandbox cannot unlink or replace a held slot. Linux admission uses a lock-owning
+  subreaper, so sandbox-local PID/PGID values are diagnostic only and detached Mix
+  descendants keep their slot until they exit.
   Agent transcripts emit
   `aiur_build_gate` queue/acquire/release/timeout signals, and `aiur status` reports
   active or queued contention.
+- Gate coordination errors return status `125` without invoking Mix. Repair the path
+  named by the error (metadata or lock-directory type, ownership, permissions, missing
+  `flock`, or missing `python3` subreaper support) and
+  restart/re-dispatch the affected agents. `BUILD GATE DEGRADED` means legacy or
+  unreadable metadata needs attention. Stop/re-dispatch the old fleet, confirm no old
+  `mix compile` or `mix test` process is still running, then remove only the reported
+  legacy records and retry. Do not delete legacy records while old builds may still be
+  live. As a deliberate emergency opt-out, set `agent.max_concurrent_builds: 0`, set
+  `agent.build_start_stagger_seconds: 0`, omit `agent.min_free_memory_mb`, and
+  restart/re-dispatch. All three settings can enable the shared gate; this sequence
+  disables build admission entirely and removes its fleet safeguards.
 - `agent.build_start_stagger_seconds` optionally separates admitted local `mix compile`
   and `mix test` starts at their actual heavy-command boundary. It defaults to `0`
   (disabled); this repository's dogfood workflow uses `5`. The memory floor runs

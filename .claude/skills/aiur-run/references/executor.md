@@ -81,8 +81,9 @@ The Executor continuously:
    integration risk;
 3. diagnoses stuck or misbehaving agents and attempts the least invasive
    recovery first;
-4. arranges independent review for pull requests and returns actionable
-   findings through the tracker/event path workers consume;
+4. verifies the owning worker has produced a current-base, fresh-CI head before
+   arranging independent review, then returns actionable findings through the
+   tracker/event path workers consume;
 5. protects merge ordering, required checks, and feature-level acceptance;
 6. captures newly discovered work and Aiur defects without losing provenance;
 7. leaves a durable decision and incident trail that another Executor can
@@ -93,21 +94,40 @@ The Executor continuously:
 
 ## Capacity policy
 
-The objective is progress against the bounded outcome, not the highest agent
-or ticket count.
+The objective is the fastest safe convergence on the bounded outcome. Achieve
+that by continuously maximizing useful parallelism, not by chasing an agent
+count detached from ready work.
 
-- Treat `set max-agents` as the session safety ceiling. When
+- Treat `set max-agents` as the session safety ceiling, not a steady-state
+  target below known capacity. When
   `agent.target_load_average` is enabled, let Aiur's AIMD controller adjust the
-  effective slots beneath that ceiling; raise the ceiling deliberately only
-  when ready critical-path work and host/review headroom remain.
+  effective slots beneath the recorded maximum ceiling. Keep that ceiling high
+  enough to admit every ready independent lane.
 - Manually ramp the ceiling as the primary controller only when AIMD is
-  disabled. Lower it for pressure, provider throttling, or review backlog that
-  load average does not capture.
-- Lower the cap when CPU saturation, memory pressure, file-descriptor errors,
-  repeated build contention, provider throttling, or declining review quality
-  appears.
+  disabled. Target sustained CPU utilization first, then memory, build
+  serialization, provider quota, review capacity, or dependency width as the
+  next limiting resource.
+- Lower the cap only when measured CPU saturation reduces throughput, memory or
+  file descriptors approach unsafe bounds, build contention stops useful
+  progress, providers throttle, or review quality declines. Record the exact
+  restoration threshold and re-raise the cap immediately when it clears; a
+  temporary reduction must not silently become the new normal.
 - Keep independent lanes occupied. Do not fill slots with tickets that are
   blocked, conflict on a contract/write surface, or cannot merge safely.
+- Count independent background review/rework lanes in the utilization plan.
+  CI-wait and human-review tickets do not consume implementation slots, but
+  their available reviewer lanes must be staffed.
+- At every observation, compare active useful work with the run's target and
+  maximum. If below target, name the exact blocker—dependency width, held
+  workspace, CI, review, quota, CPU, memory, or serialization—and work the
+  highest-fan-out unblocker. After each merge or gate transition, recompute and
+  dispatch the entire newly ready batch immediately.
+- Independently of event wakes and adaptive polling, run a hard ten-minute
+  capacity audit. Record useful implementation/review lanes separately from
+  CI-wait, paused, deactivated, completed, and dependency-blocked rows, plus
+  ceiling, CPU/load, available memory, build serialization, provider quota,
+  and review capacity. A below-target audit must name the limiting gate and
+  trigger the highest-leverage in-scope scheduling or recovery action.
 - Prefer runtime overrides to editing committed configuration during a run.
 - Record material cap changes and their observed reason.
 
@@ -126,15 +146,28 @@ ticket it will not pick up:
 4. pause/resume an existing worker; when process state is broken, stop and
    relaunch the run because there is no per-worker restart control;
 5. route a reproducible Aiur defect under the bug policy below;
-6. take over the affected ticket/lane when it remains blocked after recovery,
-   takeover is the best option, and self-fix authority was granted.
+6. take over the affected ticket/lane only when it remains blocked after
+   recovery because a catastrophic Aiur failure prevents the worker from
+   continuing, takeover is the best option, and self-fix authority was
+   granted. Stale-base integration, conflicts, lint, and review repair remain
+   the owning worker's work.
 
 Prefer restoring workers over doing their work. The Executor is a backstop,
 not the default implementation lane.
 
 ## Pull-request review loop
 
-When a pull request reaches review-ready state:
+Branch freshness is an owning-worker responsibility. A pull request reaches
+review-ready state only when all of these are true:
+
+- its `baseRefName` is the configured integration branch;
+- the current remote base head is an ancestor of the exact PR head;
+- fresh CI for that exact head has passed the required gate.
+
+If any condition fails, send one bounded update/re-cut directive to the owning
+ticket and let its agent fetch, integrate or re-cut, resolve semantic drift,
+validate, and push. Do not assign reviewers and do not update old code on the
+agent's behalf. Once all conditions hold:
 
 1. reserve or rebalance capacity for multiple independent background reviewers;
 2. use `ce-code-review` when Compound Engineering is available, adding the
@@ -145,7 +178,8 @@ When a pull request reaches review-ready state:
    ticket only for an independent P0/P1 feature blocker;
 5. confirm the event bus or tracker transition wakes the owning agent and that
    it acknowledges the rework;
-6. rerun targeted review after fixes, then apply the recorded merge policy.
+6. require the worker to restore the same branch-freshness and CI gate after
+   fixes, rerun targeted review, then apply the recorded merge policy.
 
 If tooling or an explicit resource limit prevents parallel review, record the
 degraded review and compensate before merge. Do not equate green CI with
@@ -200,6 +234,8 @@ A resumable handoff contains:
   completed review, current adaptive cadence/trigger settings, and any repeated
   notification gap reserved for terminal synthesis. Preserve the ID only
   across handoffs of the same run; a later run receives a new ID.
+- the ten-minute capacity timer identity, latest audit path/timestamp, current
+  useful count versus target, and last below-target limiting gate/action.
 
 The one-hour retrospective is a hard cadence independent of ordinary wakeups.
 Review the preceding hour, not merely the latest poll. Classify each wake as

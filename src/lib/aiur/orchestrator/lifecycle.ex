@@ -23,6 +23,17 @@ defmodule Aiur.Orchestrator.Lifecycle do
 
   @poll_transition_render_delay_ms 20
   @control_ack_timeout_ms 30_000
+  @orchestrator_topics [
+    "ticket.*.pr.review_comment",
+    "ticket.*.issue.commented",
+    "ticket.*.pr.merged",
+    "ticket.*.ci.failed",
+    "ticket.*.ci.passed",
+    "ticket.*.agent.pause.request",
+    "ticket.*.agent.unblocked",
+    "ticket.*.branch.push",
+    "system.*.branch.push"
+  ]
   @empty_agent_totals %{
     input_tokens: 0,
     output_tokens: 0,
@@ -43,7 +54,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
   end
 
   @spec init(keyword(), (term() -> boolean())) :: {:ok, State.t()}
-  def init(_opts, tracked_issue?) when is_function(tracked_issue?, 1) do
+  def init(opts, tracked_issue?) when is_function(tracked_issue?, 1) do
     # Trap exits so the supervisor's orderly shutdown lands in `terminate/2`,
     # which reaps every running agent's process tree (see `terminate/2`).
     Process.flag(:trap_exit, true)
@@ -87,7 +98,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
     install_event_tracked_fn(tracked_issue?)
     subscribe_to_orchestrator_topics()
 
-    {:ok, schedule_tick(state, 0)}
+    {:ok, schedule_initial_tick(state, Keyword.get(opts, :initial_poll?, true))}
   end
 
   # On whole-app shutdown the supervisor brutally kills the AgentRunner
@@ -163,6 +174,9 @@ defmodule Aiur.Orchestrator.Lifecycle do
     }
   end
 
+  defp schedule_initial_tick(state, false), do: %{state | next_poll_due_at_ms: nil}
+  defp schedule_initial_tick(state, _initial_poll?), do: schedule_tick(state, 0)
+
   @spec schedule_poll_cycle_start() :: :ok
   def schedule_poll_cycle_start do
     :timer.send_after(@poll_transition_render_delay_ms, self(), :run_poll_cycle)
@@ -193,16 +207,13 @@ defmodule Aiur.Orchestrator.Lifecycle do
   # before the first tick is seeded.
   defp subscribe_to_orchestrator_topics do
     if Process.whereis(Exchange) do
-      Exchange.subscribe("ticket.*.pr.review_comment")
-      Exchange.subscribe("ticket.*.issue.commented")
-      Exchange.subscribe("ticket.*.pr.merged")
-      Exchange.subscribe("ticket.*.ci.failed")
-      Exchange.subscribe("ticket.*.ci.passed")
-      Exchange.subscribe("ticket.*.agent.pause.request")
-      Exchange.subscribe("ticket.*.branch.push")
-      Exchange.subscribe("system.*.branch.push")
+      Enum.each(@orchestrator_topics, &Exchange.subscribe/1)
     end
 
     :ok
   end
+
+  @doc false
+  @spec orchestrator_topics() :: [String.t()]
+  def orchestrator_topics, do: @orchestrator_topics
 end

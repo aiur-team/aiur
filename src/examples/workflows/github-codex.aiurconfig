@@ -10,13 +10,18 @@ tracker:
     - done
     - cancelled
     - canceled
-github:
-  repo: your-org/your-repo
-  label_prefix: agent
-  # Optional: trusted human Executor logins whose GitHub comments reach
-  # agent event digests even when CODEOWNERS team expansion is unavailable.
-  # trusted_accounts:
-  #   - your-github-login
+  github:
+    repo: your-org/your-repo
+    label_prefix: agent
+    # Optional: trusted human Executor logins whose GitHub comments reach
+    # agent event digests even when CODEOWNERS team expansion is unavailable.
+    # trusted_accounts:
+    #   - your-github-login
+    # Build Order planning graph safeguards; each must be a finite positive integer.
+    # Defaults accept exactly 100 roots/direct members across at most four pages/calls.
+    planning_root_limit: 100
+    planning_page_budget: 4
+    planning_call_budget: 4
 polling:
   interval_seconds: 30
 server:
@@ -26,6 +31,7 @@ workspace:
   root: ~/code/aiur-workspaces
 hooks:
   after_create: |
+    # Aiur runs this in an empty atomic staging directory.
     git clone "$THIS_REPOSITORY_URL" .
     issue_id="$(basename "$PWD")"
     git checkout -b "aiur/${issue_id}" origin/main
@@ -35,6 +41,7 @@ agent:
   kind: codex
   max_concurrent_agents: 2
   max_turns: 12
+  # max_turns_by_complexity: {1: 4, 2: 8, 3: 12}
   # Optional: route per issue by its `complexity:N` label. Unlisted levels and
   # unlabeled issues fall back to `kind`; a `model:<backend>` issue label
   # overrides both. (Requires a `claude:` block for the routed backend.)

@@ -57,6 +57,31 @@ defmodule Aiur.Orchestrator do
       when is_binary(issue_id) and is_map(runtime_info),
       do: State.handle_worker_runtime_info(state, issue_id, runtime_info)
 
+  def handle_info({:workspace_setup_contended, issue_id, identifier, owner, wait}, state)
+      when is_binary(issue_id) and is_binary(identifier) do
+    state = RetryEngine.wait_for_workspace_ownership(state, issue_id, identifier, owner, wait)
+    StatusReport.notify_dashboard(state)
+    {:noreply, state}
+  end
+
+  def handle_info({:workspace_ownership_available, identifier, guardian, generation}, state)
+      when is_binary(identifier) and is_pid(guardian) and is_integer(generation) and generation > 0 do
+    state = RetryEngine.release_workspace_wait(state, identifier, guardian, generation)
+    {:noreply, Lifecycle.schedule_tick(state, 0)}
+  end
+
+  # A waiter that observed the registry empty has no guardian generation to
+  # bind. Its observation is safe only as a fresh availability probe; any
+  # subsequent owner will make the redispatch contend and subscribe again.
+  def handle_info({:workspace_ownership_available, identifier, :none, nil}, state) when is_binary(identifier) do
+    state = RetryEngine.release_workspace_wait(state, identifier)
+    {:noreply, Lifecycle.schedule_tick(state, 0)}
+  end
+
+  # Never let a pre-generation waiter from an older process release a current
+  # wait row. A guardian-bound waiter emits the four-element message above.
+  def handle_info({:workspace_ownership_available, _identifier}, state), do: {:noreply, state}
+
   def handle_info({:repl_session_runtime, issue_id, info}, state)
       when is_binary(issue_id) and is_map(info),
       do: State.handle_repl_session_runtime(state, issue_id, info)

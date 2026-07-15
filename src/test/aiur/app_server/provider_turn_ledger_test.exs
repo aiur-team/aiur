@@ -1,0 +1,164 @@
+defmodule Aiur.AppServer.ProviderTurnLedgerTest do
+  use ExUnit.Case, async: true
+
+  alias Aiur.AppServer.ProviderTurnLedger
+
+  test "retired IDs survive an Aiur turn boundary on a reused provider session" do
+    {:ok, store} = ProviderTurnLedger.start_store()
+    on_exit(fn -> ProviderTurnLedger.stop_store(store) end)
+
+    first_state = state(store, "turn-1")
+    completed = %{"params" => %{"turn" => %{"id" => "turn-1"}}}
+    ProviderTurnLedger.complete(first_state, completed)
+
+    second_state = state(store, "turn-2")
+    second_state = ProviderTurnLedger.register(second_state, %{"id" => "turn-1"})
+
+    assert second_state.active_turn_ids == MapSet.new(["turn-2"])
+    assert second_state.retired_turn_ids == MapSet.new(["turn-1"])
+    assert second_state.outstanding_turns == 1
+  end
+
+  test "the anonymous completion guard survives an Aiur turn boundary" do
+    {:ok, store} = ProviderTurnLedger.start_store()
+    on_exit(fn -> ProviderTurnLedger.stop_store(store) end)
+
+    first_state = ProviderTurnLedger.complete(state(store, "turn-1"), %{})
+    second_state = ProviderTurnLedger.complete(state(store, "turn-2"), %{})
+    completed_state = ProviderTurnLedger.complete(second_state, %{})
+
+    assert first_state.active_turn_ids == MapSet.new()
+    assert second_state.active_turn_ids == MapSet.new(["turn-2"])
+    refute second_state.anonymous_completion_consumed?
+    assert second_state.outstanding_turns == 1
+    assert completed_state.active_turn_ids == MapSet.new()
+    assert completed_state.anonymous_completion_consumed?
+    assert completed_state.outstanding_turns == 0
+  end
+
+  test "aggregate completion consumes the anonymous fallback before the next turn" do
+    {:ok, store} = ProviderTurnLedger.start_store()
+    on_exit(fn -> ProviderTurnLedger.stop_store(store) end)
+
+    ProviderTurnLedger.complete_all(state(store, "turn-1"))
+    second_state = ProviderTurnLedger.complete(state(store, "turn-2"), %{})
+    completed_state = ProviderTurnLedger.complete(second_state, %{})
+
+    assert second_state.active_turn_ids == MapSet.new(["turn-2"])
+    refute second_state.anonymous_completion_consumed?
+    assert second_state.outstanding_turns == 1
+    assert completed_state.active_turn_ids == MapSet.new()
+    assert completed_state.outstanding_turns == 0
+  end
+
+  test "aggregate retirement consumes the anonymous fallback before the next turn" do
+    {:ok, store} = ProviderTurnLedger.start_store()
+    on_exit(fn -> ProviderTurnLedger.stop_store(store) end)
+
+    ProviderTurnLedger.retire_all(state(store, "turn-1"))
+    second_state = ProviderTurnLedger.complete(state(store, "turn-2"), %{})
+    completed_state = ProviderTurnLedger.complete(second_state, %{})
+
+    assert second_state.active_turn_ids == MapSet.new(["turn-2"])
+    refute second_state.anonymous_completion_consumed?
+    assert second_state.outstanding_turns == 1
+    assert completed_state.active_turn_ids == MapSet.new()
+    assert completed_state.outstanding_turns == 0
+  end
+
+  test "an observed anonymous terminal frame does not arm a later-turn guard" do
+    {:ok, store} = ProviderTurnLedger.start_store()
+    on_exit(fn -> ProviderTurnLedger.stop_store(store) end)
+
+    retired_state = ProviderTurnLedger.retire_all(state(store, "turn-1"), :consume)
+    next_state = ProviderTurnLedger.complete(state(store, "turn-2"), %{})
+
+    refute retired_state.anonymous_completion_consumed?
+    assert next_state.active_turn_ids == MapSet.new()
+    assert next_state.anonymous_completion_consumed?
+    assert next_state.outstanding_turns == 0
+  end
+
+  test "the store exits with an abnormally retired session owner" do
+    parent = self()
+
+    owner =
+      spawn(fn ->
+        {:ok, store} = ProviderTurnLedger.start_store()
+        send(parent, {:store, store})
+        Process.sleep(:infinity)
+      end)
+
+    assert_receive {:store, store}
+    ref = Process.monitor(store)
+    Process.exit(owner, :kill)
+
+    assert_receive {:DOWN, ^ref, :process, ^store, :killed}
+  end
+
+  test "a fresh store starts without an anonymous completion guard" do
+    {:ok, store} = ProviderTurnLedger.start_store()
+    on_exit(fn -> ProviderTurnLedger.stop_store(store) end)
+
+    refute ProviderTurnLedger.start_turn(store).anonymous_completion_consumed?
+  end
+
+  test "an unavailable store fails closed while identified completion still converges" do
+    {:ok, store} = ProviderTurnLedger.start_store()
+    state = state(store, "turn-1")
+    :ok = ProviderTurnLedger.stop_store(store)
+
+    guarded_state = ProviderTurnLedger.start_turn(store)
+
+    completed_state =
+      ProviderTurnLedger.complete(
+        state,
+        %{"params" => %{"turn" => %{"id" => "turn-1", "status" => "completed"}}}
+      )
+
+    assert guarded_state.anonymous_completion_consumed?
+    assert completed_state.anonymous_completion_consumed?
+    assert completed_state.active_turn_ids == MapSet.new()
+    assert completed_state.retired_turn_ids == MapSet.new(["turn-1"])
+    assert completed_state.outstanding_turns == 0
+  end
+
+  test "a suspended private store waits for recovery instead of expiring its guard call" do
+    {:ok, store} = ProviderTurnLedger.start_store()
+    on_exit(fn -> ProviderTurnLedger.stop_store(store) end)
+    :ok = :sys.suspend(store)
+
+    task = Task.async(fn -> ProviderTurnLedger.start_turn(store) end)
+
+    assert Task.yield(task, 100) == nil
+    :ok = :sys.resume(store)
+    refute Task.await(task).anonymous_completion_consumed?
+  end
+
+  test "guard persistence waits for a suspended private store" do
+    {:ok, store} = ProviderTurnLedger.start_store()
+    on_exit(fn -> ProviderTurnLedger.stop_store(store) end)
+    state = state(store, "turn-1")
+    :ok = :sys.suspend(store)
+
+    task = Task.async(fn -> ProviderTurnLedger.complete_all(state) end)
+
+    assert Task.yield(task, 100) == nil
+    :ok = :sys.resume(store)
+    assert Task.await(task).anonymous_completion_consumed?
+    assert ProviderTurnLedger.guards(store).anonymous_completion_consumed?
+  end
+
+  defp state(store, turn_id) do
+    Map.merge(
+      %{
+        active_turn_ids: MapSet.new([turn_id]),
+        accepted_turn_ids: MapSet.new(),
+        current_turn_id: turn_id,
+        outstanding_turns: 1,
+        provider_turn_store: store
+      },
+      ProviderTurnLedger.guards(store)
+    )
+  end
+end
