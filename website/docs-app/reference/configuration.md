@@ -81,8 +81,10 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 | `agent.mix_scheduler_cap` | integer or nil | nil | Caps schedulers in agent-launched Mix BEAMs; nil leaves them uncapped. |
 
 Enabled local Codex `workspaceWrite` turns preserve configured/workspace/Git roots and
-also grant the canonical shared build-gate directory. Gate coordination failures return
-status `125` without running Mix. Repair the reported directory, `flock`, or `python3`
+also grant the canonical shared build-gate metadata directory. Host-prepared lock inodes
+live in a sibling `.locks` directory that is excluded from turn-writable roots, preventing
+a sandbox from replacing a held slot. Gate coordination failures return status `125`
+without running Mix. Repair the reported metadata/lock directory, `flock`, or `python3`
 subreaper dependency and
 restart/re-dispatch agents. If `aiur status` reports `BUILD GATE DEGRADED`, first stop the
 old fleet and confirm no old Mix verification is live, then clear only the reported legacy

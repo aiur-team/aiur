@@ -522,7 +522,7 @@ defmodule Aiur.Config do
 
       true ->
         with {:ok, additional_roots} <- additional_writable_roots(opts),
-             {:ok, gate_dir} <- BuildGate.prepare_writable_root() do
+             {:ok, gate_dir} <- BuildGate.prepare_writable_root(gate_opts) do
           sandbox_opts = Keyword.put(opts, :additional_writable_roots, additional_roots ++ [gate_dir])
           Schema.resolve_runtime_turn_sandbox_policy(settings, workspace, sandbox_opts)
         end

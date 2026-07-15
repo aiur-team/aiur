@@ -2850,6 +2850,10 @@ defmodule Aiur.WorkspaceAndConfigTest do
            ]
 
     assert File.dir?(gate_dir)
+    refute Aiur.BuildGate.lock_dir(gate_dir) in runtime_settings.turn_sandbox_policy["writableRoots"]
+    assert File.regular?(Path.join(Aiur.BuildGate.lock_dir(gate_dir), "slot-1.lock"))
+    assert File.regular?(Path.join(Aiur.BuildGate.lock_dir(gate_dir), "slot-2.lock"))
+    assert File.regular?(Path.join(Aiur.BuildGate.lock_dir(gate_dir), "phase-start.lock"))
 
     invalid_gate_path = Path.join(test_root, "not-a-directory")
     File.write!(invalid_gate_path, "regular file")

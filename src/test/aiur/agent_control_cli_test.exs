@@ -368,15 +368,16 @@ defmodule Aiur.AgentControlCLITest do
 
   test "status reports active build-gate contention" do
     gate_dir = Path.join(System.tmp_dir!(), "aiur-build-gate-status-#{System.unique_integer([:positive])}")
+    lock_dir = BuildGate.lock_dir(gate_dir)
     previous = Application.get_env(:aiur, :build_gate_dir_override)
     release_path = Path.join(gate_dir, "holder.release")
-    slot_lock = Path.join(gate_dir, "locks/slot-1.lock")
+    slot_lock = Path.join(lock_dir, "slot-1.lock")
     slot_owner = Path.join(gate_dir, "slot-1.owner")
     queue_path = Path.join(gate_dir, "queue/lease-v2-status")
     metadata = "version=2\ntoken=status\npid=2\npgid=1\nphase=test\ncommand=test\n"
 
     Application.put_env(:aiur, :build_gate_dir_override, gate_dir)
-    File.mkdir_p!(Path.join(gate_dir, "locks"))
+    assert {:ok, _canonical_gate_dir} = BuildGate.prepare_writable_root(gate_dir: gate_dir, slots: 2)
     File.mkdir_p!(Path.join(gate_dir, "queue"))
     File.write!(slot_owner, metadata)
     File.write!(queue_path, metadata)
@@ -418,6 +419,7 @@ defmodule Aiur.AgentControlCLITest do
       end
 
       File.rm_rf!(gate_dir)
+      File.rm_rf!(lock_dir)
     end)
 
     assert %{active: 1, queued: 1} = BuildGate.status()
@@ -430,11 +432,12 @@ defmodule Aiur.AgentControlCLITest do
 
   test "status reports actionable legacy build-gate degradation" do
     gate_dir = Path.join(System.tmp_dir!(), "aiur-build-gate-legacy-#{System.unique_integer([:positive])}")
+    lock_dir = BuildGate.lock_dir(gate_dir)
     previous = Application.get_env(:aiur, :build_gate_dir_override)
     legacy_path = Path.join(gate_dir, "slot-1")
 
     Application.put_env(:aiur, :build_gate_dir_override, gate_dir)
-    File.mkdir_p!(gate_dir)
+    assert {:ok, _canonical_gate_dir} = BuildGate.prepare_writable_root(gate_dir: gate_dir, slots: 2)
     File.write!(legacy_path, "pid=2\npgid=1\ncommand=test\n")
 
     on_exit(fn ->
@@ -445,6 +448,7 @@ defmodule Aiur.AgentControlCLITest do
       end
 
       File.rm_rf!(gate_dir)
+      File.rm_rf!(lock_dir)
     end)
 
     output = capture_io(fn -> AgentControlCLI.status() end)

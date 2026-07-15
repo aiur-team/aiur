@@ -406,16 +406,19 @@ path parameter and is never browser-cacheable.
   while ordinary editing, Git, and model work continue. Set it to `0` to remove
   the concurrency cap; a configured memory floor or start stagger remains active
   independently.
-  Local Codex `workspaceWrite` turns add the canonical `~/.aiur/build-gate` directory
-  to `writableRoots` without replacing configured, workspace, or writable Git roots.
-  Linux admission uses a lock-owning subreaper, so sandbox-local PID/PGID values are
-  diagnostic only and detached Mix descendants keep their slot until they exit.
+  Local Codex `workspaceWrite` turns add the canonical `~/.aiur/build-gate` metadata
+  directory to `writableRoots` without replacing configured, workspace, or writable Git
+  roots. Persistent lock inodes live in the host-prepared sibling
+  `~/.aiur/build-gate.locks`, which is deliberately excluded from turn-writable roots so
+  a sandbox cannot unlink or replace a held slot. Linux admission uses a lock-owning
+  subreaper, so sandbox-local PID/PGID values are diagnostic only and detached Mix
+  descendants keep their slot until they exit.
   Agent transcripts emit
   `aiur_build_gate` queue/acquire/release/timeout signals, and `aiur status` reports
   active or queued contention.
 - Gate coordination errors return status `125` without invoking Mix. Repair the path
-  named by the error (directory type, ownership, permissions, missing `flock`, or missing
-  `python3` subreaper support) and
+  named by the error (metadata or lock-directory type, ownership, permissions, missing
+  `flock`, or missing `python3` subreaper support) and
   restart/re-dispatch the affected agents. `BUILD GATE DEGRADED` means legacy or
   unreadable metadata needs attention. Stop/re-dispatch the old fleet, confirm no old
   `mix compile` or `mix test` process is still running, then remove only the reported

@@ -31,9 +31,19 @@ defmodule Aiur.BuildGate do
     min_free_memory_mb = Keyword.get_lazy(opts, :min_free_memory_mb, &Config.min_free_memory_mb/0)
 
     if enabled?(slots: slots, stagger_seconds: stagger_seconds, min_free_memory_mb: min_free_memory_mb) do
+      gate_dir = Keyword.get(opts, :gate_dir, gate_dir())
+      lock_dir = Keyword.get(opts, :lock_dir, lock_dir(gate_dir))
+
+      # AgentEnvironment builds this environment on the host for every backend.
+      # Prepare immutable lock inodes there, before a sandbox receives only the
+      # writable metadata root. A preparation failure remains fail-closed in the
+      # shell hook, which reports the missing/unreadable lock path.
+      _ = prepare_lock_namespace(lock_dir, slots)
+
       [
         {"BASH_ENV", Keyword.get(opts, :hook_path, hook_path())},
-        {"AIUR_BUILD_GATE_DIR", Keyword.get(opts, :gate_dir, gate_dir())},
+        {"AIUR_BUILD_GATE_DIR", gate_dir},
+        {"AIUR_BUILD_GATE_LOCK_DIR", lock_dir},
         {"AIUR_BUILD_GATE_SLOTS", Integer.to_string(slots)},
         {"AIUR_BUILD_START_STAGGER_SECONDS", Integer.to_string(stagger_seconds)},
         {"AIUR_BUILD_GATE_TIMEOUT_SECONDS", Integer.to_string(Keyword.get(opts, :timeout_seconds, @default_timeout_seconds))}
@@ -49,6 +59,12 @@ defmodule Aiur.BuildGate do
       path when is_binary(path) and path != "" -> Path.expand(path)
       _ -> Path.join(System.user_home!(), ".aiur/build-gate")
     end
+  end
+
+  @doc "Host-owned lock namespace kept outside the sandbox-writable gate root."
+  @spec lock_dir(Path.t()) :: Path.t()
+  def lock_dir(gate_dir \\ gate_dir()) when is_binary(gate_dir) do
+    Path.expand(gate_dir) <> ".locks"
   end
 
   @spec hook_path() :: Path.t()
@@ -75,10 +91,14 @@ defmodule Aiur.BuildGate do
   @spec prepare_writable_root(keyword()) :: {:ok, Path.t()} | {:error, term()}
   def prepare_writable_root(opts \\ []) do
     gate_dir = opts |> Keyword.get(:gate_dir, gate_dir()) |> Path.expand()
+    lock_dir = opts |> Keyword.get(:lock_dir, lock_dir(gate_dir)) |> Path.expand()
+    slots = Keyword.get_lazy(opts, :slots, &Config.max_concurrent_builds/0)
 
     with :ok <- prepare_directory(gate_dir),
          {:ok, canonical_gate_dir} <- canonicalize_gate_dir(gate_dir),
-         :ok <- probe_writable(canonical_gate_dir) do
+         :ok <- probe_writable(canonical_gate_dir),
+         {:ok, canonical_lock_dir} <- prepare_lock_namespace(lock_dir, slots),
+         :ok <- validate_lock_namespace(canonical_gate_dir, canonical_lock_dir) do
       {:ok, canonical_gate_dir}
     end
   end
@@ -93,7 +113,7 @@ defmodule Aiur.BuildGate do
       gate_dir = Keyword.get(opts, :gate_dir, gate_dir())
 
       if linux_lock_strategy?(opts) do
-        linux_status(gate_dir, capacity)
+        linux_status(gate_dir, Keyword.get(opts, :lock_dir, lock_dir(gate_dir)), capacity)
       else
         %{
           enabled?: true,
@@ -107,7 +127,7 @@ defmodule Aiur.BuildGate do
     end
   end
 
-  defp linux_status(gate_dir, capacity) do
+  defp linux_status(gate_dir, lock_dir, capacity) do
     base = %{enabled?: true, capacity: capacity, active: 0, queued: 0}
 
     cond do
@@ -118,17 +138,16 @@ defmodule Aiur.BuildGate do
         degraded(base, [status_issue(:gate_directory_invalid, gate_dir)])
 
       true ->
-        do_linux_status(base, gate_dir, capacity)
+        do_linux_status(base, gate_dir, lock_dir, capacity)
     end
   end
 
-  defp do_linux_status(base, gate_dir, capacity) do
+  defp do_linux_status(base, gate_dir, lock_dir, capacity) do
     with flock when is_binary(flock) <- System.find_executable("flock"),
-         shell when is_binary(shell) <- System.find_executable("sh"),
-         :ok <- File.mkdir_p(Path.join(gate_dir, "locks")) do
-      {active, slot_issues} = linux_active_count(gate_dir, capacity, shell, flock)
+         shell when is_binary(shell) <- System.find_executable("sh") do
+      {active, slot_issues} = linux_active_count(gate_dir, lock_dir, capacity, shell, flock)
       {queued, queue_issues} = linux_queue_count(gate_dir, shell, flock)
-      phase_issues = cleanup_phase_metadata(gate_dir, shell, flock)
+      phase_issues = cleanup_phase_metadata(gate_dir, lock_dir, shell, flock)
       issues = legacy_issues(gate_dir) ++ slot_issues ++ queue_issues ++ phase_issues
 
       base
@@ -136,15 +155,15 @@ defmodule Aiur.BuildGate do
       |> degraded(issues)
     else
       nil -> degraded(base, [status_issue(:flock_unavailable, gate_dir)])
-      {:error, reason} -> degraded(base, [status_issue(:gate_directory_unwritable, gate_dir, reason)])
     end
   end
 
-  defp linux_active_count(_gate_dir, capacity, _shell, _flock) when capacity <= 0, do: {0, []}
+  defp linux_active_count(_gate_dir, _lock_dir, capacity, _shell, _flock) when capacity <= 0,
+    do: {0, []}
 
-  defp linux_active_count(gate_dir, capacity, shell, flock) do
+  defp linux_active_count(gate_dir, lock_dir, capacity, shell, flock) do
     Enum.reduce(1..capacity, {0, []}, fn slot, {active, issues} ->
-      lock_path = Path.join(gate_dir, "locks/slot-#{slot}.lock")
+      lock_path = Path.join(lock_dir, "slot-#{slot}.lock")
       owner_path = Path.join(gate_dir, "slot-#{slot}.owner")
 
       case probe_lock(lock_path, owner_path, shell, flock) do
@@ -184,8 +203,8 @@ defmodule Aiur.BuildGate do
     end
   end
 
-  defp cleanup_phase_metadata(gate_dir, shell, flock) do
-    lock_path = Path.join(gate_dir, "locks/phase-start.lock")
+  defp cleanup_phase_metadata(gate_dir, lock_dir, shell, flock) do
+    lock_path = Path.join(lock_dir, "phase-start.lock")
     owner_path = Path.join(gate_dir, "phase-start.owner")
 
     if File.exists?(lock_path) or File.exists?(owner_path) do
@@ -201,7 +220,7 @@ defmodule Aiur.BuildGate do
 
   defp probe_lock(lock_path, cleanup_path, shell, flock) do
     script = ~S"""
-    exec 9<>"$1" || exit 76
+    exec 9<"$1" || exit 76
     "$2" -n -E 75 9 || exit $?
     rm -f -- "$3" || exit 77
     """
@@ -377,6 +396,59 @@ defmodule Aiur.BuildGate do
     case File.mkdir_p(gate_dir) do
       :ok -> :ok
       {:error, reason} -> unavailable(gate_dir, :create_directory, reason)
+    end
+  end
+
+  defp prepare_lock_namespace(lock_dir, slots) do
+    with :ok <- prepare_directory(lock_dir),
+         {:ok, canonical_lock_dir} <- canonicalize_gate_dir(lock_dir),
+         :ok <- probe_writable(canonical_lock_dir),
+         :ok <- ensure_lock_files(canonical_lock_dir, slots) do
+      {:ok, canonical_lock_dir}
+    end
+  end
+
+  defp ensure_lock_files(lock_dir, slots) do
+    slot_paths =
+      if is_integer(slots) and slots > 0 do
+        Enum.map(1..slots, &Path.join(lock_dir, "slot-#{&1}.lock"))
+      else
+        []
+      end
+
+    Enum.reduce_while([Path.join(lock_dir, "phase-start.lock") | slot_paths], :ok, fn path, :ok ->
+      case ensure_regular_lock_file(path) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, unavailable(path, :prepare_lock_file, reason)}
+      end
+    end)
+  end
+
+  defp ensure_regular_lock_file(path) do
+    case File.lstat(path) do
+      {:ok, %File.Stat{type: :regular}} ->
+        :ok
+
+      {:ok, %File.Stat{type: type}} ->
+        {:error, {:not_regular, type}}
+
+      {:error, :enoent} ->
+        case File.open(path, [:write, :exclusive]) do
+          {:ok, io_device} -> File.close(io_device)
+          {:error, :eexist} -> ensure_regular_lock_file(path)
+          {:error, reason} -> {:error, reason}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp validate_lock_namespace(gate_dir, lock_dir) do
+    if lock_dir == gate_dir or String.starts_with?(lock_dir <> "/", gate_dir <> "/") do
+      unavailable(lock_dir, :separate_lock_namespace, :inside_writable_gate_root)
+    else
+      :ok
     end
   end
 

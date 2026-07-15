@@ -76,7 +76,7 @@ defmodule Aiur.AppServerTest do
     end
   end
 
-  test "app server augments explicit workspaceWrite policies and passes other policies through" do
+  test "app server augments workspaceWrite policies without exposing the lock namespace" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -173,7 +173,8 @@ defmodule Aiur.AppServerTest do
                    |> Jason.decode!()
                    |> then(fn payload ->
                      payload["method"] == "turn/start" &&
-                       get_in(payload, ["params", "sandboxPolicy"]) == expected_policy
+                       get_in(payload, ["params", "sandboxPolicy"]) == expected_policy &&
+                       lock_namespace_excluded?(get_in(payload, ["params", "sandboxPolicy"]))
                    end)
                  else
                    false
@@ -1432,6 +1433,12 @@ defmodule Aiur.AppServerTest do
   end
 
   defp expected_runtime_policy(policy, _workspace), do: policy
+
+  defp lock_namespace_excluded?(%{"type" => "workspaceWrite", "writableRoots" => roots}) do
+    Aiur.BuildGate.lock_dir() not in roots
+  end
+
+  defp lock_namespace_excluded?(_policy), do: true
 
   defp add_expected_root(root, policy) do
     Map.update(policy, "writableRoots", [root], &append_expected_root(&1, root))
