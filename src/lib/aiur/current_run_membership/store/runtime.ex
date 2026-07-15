@@ -228,7 +228,8 @@ defmodule Aiur.CurrentRunMembership.Store.Runtime do
           state
           | terminal_verification_pending_keys: pending_keys,
             terminal_verification_pending?: TerminalVerification.pending?(pending_keys),
-            terminal_verification_marker_dirty?: false
+            terminal_verification_marker_dirty?: false,
+            health: repaired_terminal_verification_health(state.health)
         }
 
         notify(state, nil)
@@ -244,7 +245,8 @@ defmodule Aiur.CurrentRunMembership.Store.Runtime do
   end
 
   defp terminal_verification_marker_failed(state, reason) do
-    health = public_health({:degraded, {:terminal_verification_marker_failed, reason}})
+    marker_health = public_health({:degraded, {:terminal_verification_marker_failed, reason}})
+    health = terminal_verification_failure_health(state.health, marker_health)
 
     state = %{
       state
@@ -256,6 +258,21 @@ defmodule Aiur.CurrentRunMembership.Store.Runtime do
     notify(state, nil)
     {:error, :terminal_verification_marker_failed, state}
   end
+
+  defp terminal_verification_failure_health(:healthy, marker_health), do: marker_health
+
+  defp terminal_verification_failure_health(
+         {:degraded, {:terminal_verification_marker_failed, _reason}},
+         marker_health
+       ),
+       do: marker_health
+
+  defp terminal_verification_failure_health(health, _marker_health), do: health
+
+  defp repaired_terminal_verification_health({:degraded, {:terminal_verification_marker_failed, _reason}}),
+    do: :healthy
+
+  defp repaired_terminal_verification_health(health), do: health
 
   defp snapshot_limit(limit) when is_integer(limit) and limit > 0, do: min(limit, @max_snapshot_limit)
   defp snapshot_limit(_), do: @max_snapshot_limit

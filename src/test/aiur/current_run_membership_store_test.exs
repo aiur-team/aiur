@@ -174,6 +174,10 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
     assert Agent.get(writes, & &1) == 2
     assert :ok = Store.set_terminal_verification_pending(second, false, pid)
     assert Agent.get(writes, & &1) == 3
+
+    assert %{health: :healthy, freshness: %{terminal_verification_pending?: true}} =
+             Store.snapshot(server: pid)
+
     stop(pid)
 
     recovered = start_store!(dir)
@@ -187,6 +191,35 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
 
     assert %{freshness: %{status: :fresh, terminal_verification_pending?: false}} =
              Store.snapshot(server: recovered)
+  end
+
+  test "terminal marker repair preserves unrelated degraded health", %{dir: dir} do
+    {:ok, writes} = Agent.start_link(fn -> 0 end)
+
+    marker_fun = fn path, run_id, pending_keys, sync_fun ->
+      case Agent.get_and_update(writes, fn count -> {count, count + 1} end) do
+        0 ->
+          assert :ok = TerminalVerification.write(path, run_id, pending_keys, sync_fun)
+          {:error, :acknowledgement_lost}
+
+        _ ->
+          TerminalVerification.write(path, run_id, pending_keys, sync_fun)
+      end
+    end
+
+    pid =
+      start_store!(dir, @run_id,
+        cleanup_fun: fn _runs_dir, _active_leaf -> {:error, :permission_denied} end,
+        terminal_verification_marker_fun: marker_fun
+      )
+
+    assert {:error, :terminal_verification_marker_failed} =
+             Store.set_terminal_verification_pending(identity(), true, pid)
+
+    assert :ok = Store.set_terminal_verification_pending(identity(), true, pid)
+
+    assert %{health: {:degraded, {:cleanup_failed, :permission_denied}}} =
+             Store.snapshot(server: pid)
   end
 
   test "resolving another terminal identity cannot clear an outstanding verification", %{dir: dir} do
