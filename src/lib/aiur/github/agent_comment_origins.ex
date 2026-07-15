@@ -314,9 +314,7 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
   defp remember_pending_comment(ticket, operation_id, comment, error) do
     with {:ok, comment_id} <- comment_id(comment) do
       with_ticket_state(ticket, fn path, ticket, state ->
-        pending = remember_pending_comment_ids(state.pending, operation_id, comment_id)
-
-        with :ok <- write_state(path, ticket, %{state | pending: pending}), do: error
+        persist_pending_comment(path, ticket, state, operation_id, comment_id, error)
       end)
     end
   rescue
@@ -386,9 +384,19 @@ defmodule Aiur.GitHub.AgentCommentOrigins do
     with {:ok, path} <- path_for(),
          {:ok, ticket} <- normalize_ticket(ticket) do
       Store.with_ticket_lock(path, ticket, fn ->
-        with {:ok, state} <- load_state(path, ticket), do: operation.(path, ticket, state)
+        run_ticket_state_operation(path, ticket, operation)
       end)
     end
+  end
+
+  defp run_ticket_state_operation(path, ticket, operation) do
+    with {:ok, state} <- load_state(path, ticket), do: operation.(path, ticket, state)
+  end
+
+  defp persist_pending_comment(path, ticket, state, operation_id, comment_id, error) do
+    pending = remember_pending_comment_ids(state.pending, operation_id, comment_id)
+
+    with :ok <- write_state(path, ticket, %{state | pending: pending}), do: error
   end
 
   defp remember_pending_comment_ids(pending, operation_id, comment_id) do
