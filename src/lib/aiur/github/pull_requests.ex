@@ -275,7 +275,10 @@ defmodule Aiur.GitHub.PullRequests do
   end
 
   defp repair_base_branch(pr_number, current_base, expected_base, opts) do
-    Logger.warning("Pull request base mismatch: pr=#{pr_number} current=#{inspect(current_base)} expected=#{inspect(expected_base)} action=repair")
+    Logger.warning(
+      "Pull request base mismatch: pr=#{pr_number} current=#{inspect(current_base)} " <>
+        "expected=#{inspect(expected_base)} action=repair"
+    )
 
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token(opts) do

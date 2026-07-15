@@ -46,7 +46,10 @@ defmodule Aiur.PromptBuilder do
     """
     ## Authoritative integration branch
 
-    This workflow's configured `tracker.base_branch` is `#{base_branch}`. The agent process exposes the same value as `AIUR_BASE_BRANCH`; it is authoritative even when the repository default differs. Create pull requests with `--base "$AIUR_BASE_BRANCH"`, never from `origin/HEAD`, and verify an existing pull request's base before CI handoff.
+    This workflow's configured `tracker.base_branch` is `#{base_branch}`. The agent process exposes the same value as
+    `AIUR_BASE_BRANCH`; it is authoritative even when the repository default differs. Create pull requests with
+    `--base "$AIUR_BASE_BRANCH"`, never from `origin/HEAD`, and verify an existing pull request's base before CI
+    handoff.
 
     """
   end

@@ -25,10 +25,13 @@ defmodule Aiur.CIApprovalStore do
   def load do
     case JsonStore.read(path_for(), %{}) do
       {:ok, %{} = persisted} ->
+        invalidations = Map.get(persisted, "base_repair_invalidations", %{})
+        base_repair_invalidations = normalize_base_repair_invalidations(invalidations)
+
         %{
           approved_heads: normalize(Map.get(persisted, "approved_heads", %{})),
           test_failure_heads: normalize(Map.get(persisted, "test_failure_heads", %{})),
-          base_repair_invalidations: normalize_base_repair_invalidations(Map.get(persisted, "base_repair_invalidations", %{}))
+          base_repair_invalidations: base_repair_invalidations
         }
 
       {:ok, _other} ->

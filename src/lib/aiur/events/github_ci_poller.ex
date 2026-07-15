@@ -420,7 +420,8 @@ defmodule Aiur.Events.GithubCIPoller do
 
   defp base_branch_failure_message(pr_number, expected_base, reason) do
     "Pull request ##{pr_number} base could not be verified against configured tracker.base_branch " <>
-      "#{inspect(expected_base)}: #{inspect(reason)}. Verify baseRefName or retarget only the PR base before retrying CI."
+      "#{inspect(expected_base)}: #{inspect(reason)}. " <>
+      "Verify baseRefName or retarget only the PR base before retrying CI."
   end
 
   defp positive_integer(value) when is_integer(value) and value > 0, do: {:ok, value}
