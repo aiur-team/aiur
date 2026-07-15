@@ -2195,7 +2195,7 @@ defmodule Aiur.CoreTest do
       )
 
       orchestrator_name = Module.concat(__MODULE__, :CompletedCodexReplacementOrchestrator)
-      {:ok, orchestrator_pid} = Orchestrator.start_link(name: orchestrator_name, schedule_initial_poll?: false)
+      {:ok, orchestrator_pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
       initial_state = :sys.get_state(orchestrator_pid)
 
       assert is_nil(initial_state.tick_timer_ref)

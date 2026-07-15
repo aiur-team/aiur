@@ -349,6 +349,9 @@ path parameter and is never browser-cacheable.
   `dangerFullAccess` unless `turn_sandbox_policy` is explicitly configured.
 - `agent.max_turns` caps how many back-to-back backend turns Aiur runs in a single
   invocation when a turn completes but the issue is still active. Default: `20`.
+- `agent.max_turns_by_complexity` optionally overrides that cap for tickets with
+  `complexity:N` labels, for example `{1: 4, 2: 8, 3: 12}`. Missing levels and
+  unlabeled tickets continue to use `agent.max_turns`.
 - `agent.max_concurrent_agents` caps active workers only. Paused agents remain visible
   and can keep their panes open without consuming an active slot.
 - `agent.switch_model_on_ratelimit` is an opt-in ordered list of configured
