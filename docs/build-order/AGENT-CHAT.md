@@ -891,3 +891,24 @@ continuation/lifetime controls, then reassess the recovery freeze. The 05:00
 preview freeze remains unchanged.
 
 — Codex
+
+## Codex — 2026-07-15 01:20 PDT
+
+The recovery gate is still frozen, but four bounded lanes are moving. Reopened
+#780 reproduced and fixed the tracked-set restart race without sleeps/retries;
+draft PR #1181 is in its first CI at exact current-main head `3ac3f191`.
+#1161's current-main head is functionally green and its owner is repairing the
+sole Credo finding by nesting cohesive dispatch/recovery state rather than
+weakening lint.
+
+#1180 remains blocked only by changing unrelated suite flakes: its first test
+job hit the known DecisionAttention timing race, the rerun hit a different
+queued-resume lifecycle failure, and a third failed-job-only rerun is running.
+#1046's disputed durable-queue review finding was independently adjudicated
+invalid because durable settlement and historical late subscribers are outside
+that ticket's explicit contract; the PR is ready again, while generic
+cursor/queue restart durability is deferred and cannot delay the recovery fix.
+No new Build Order scope is dispatching, and the preview remains frozen until
+05:00 PDT.
+
+— Codex

@@ -1750,13 +1750,52 @@ Terra; never dispatch Claude.
     deferred DF-012; use logs/process evidence between state changes and do
     not restart a healthy daemon from this warning alone.
 
-At 23:58 PDT the core graph remains 8/54 accepted while the recovery gate is
-frozen. Five Codex implementation/rework workers are visibly executing
-(#1032, DASH-018, BO-016, #1161, and #1162); #1140 is also active with a green
-current-main PR that follows #1179 in the recovery priority. BO-010 is safely
-idle after the workspace lifecycle reproduction above. Preserved paused or
-deactivated rows await the operator-authorized restart; #1151 remains paused
-with preserved rework.
+214. Reopened #780 reproduced the tracked-set restart race at the exact CI
+    seed, then fixed it without sleeps or retries by starting only the shared
+    test-suite Orchestrator with `initial_poll?: false`; production and named
+    Orchestrators retain the immediate-poll default. Exact head `3ac3f191`
+    passed the coverage-instrumented reproduction 20/20 plus 37 focused tests
+    and opened draft PR #1181 on current `main`. When the worker moved the
+    issue to `agent:ci-wait`, the old daemon instead exposed `agent:error` even
+    though the turn completed cleanly and CI started. Preserve this as
+    deferred recovery evidence: the checked-in `using-aiur` skill requires
+    `agent:ci-wait`, but this dogfood workflow's `active_states` omits
+    `ci-wait`. Manually shepherd #1181; do not expand the recovery gate to fix
+    that lifecycle mismatch tonight.
+
+215. #1180 exact head `281f138e` remains functionally clean, but two
+    consecutive full-suite test jobs failed in different unrelated lifecycle
+    tests: the first was the known 100 ms DecisionAttention startup race; the
+    failed-job rerun then returned `{:error, :dispatch_failed}` from the
+    queued-idle `OrchestratorLifecycleTest`. That branch touches only cache
+    hook behavior. The latter focused test passed 13 consecutive exact-head
+    runs before ExUnit's repeat harness itself hit a separate named-process
+    cleanup race. A third failed-job-only CI rerun is in flight; do not request
+    speculative product edits for changing unrelated flakes.
+
+216. Dual review of #1046 disagreed on whether final-unblock acknowledgement
+    must wait for durable queue settlement. A focused third adjudicator traced
+    exact head `1c6161a3` and rejected the blocker at 92% confidence: the
+    branch's contract is successful live-worker resume for consumers relevant
+    when readiness arrives; durable generic queue settlement is explicitly
+    out of scope, the cursor/queue restart gap predates the PR, and late
+    subscribers intentionally exclude historical events. The Executor
+    restored #1046 to ready-for-review with no rework. Record generic
+    SubscriptionStore cursor/AgentQueue restart durability as deferred DF-013;
+    it cannot delay this bounded coordination recovery fix.
+
+217. #1161's current-main recovery head `f324fc18` is green on every CI gate
+    except Credo's 31-field struct limit. The owning worker received the exact
+    packet and is extracting the cohesive dispatch/recovery fields into nested
+    state rather than disabling or raising the rule; its worktree has active
+    scoped edits. Keep repair ownership with that worker and review only its
+    next pushed current-main green head.
+
+At 01:20 PDT the core graph remains 8/54 accepted while the recovery gate is
+frozen. Useful lanes are #1180's third CI test rerun, #1181's first CI, #1161's
+owned lint repair, and #1046's adjudicated merge-ready head; no new Build Order
+scope is dispatching. BO-010 and the preserved paused/deactivated rows await
+the post-#1180 rebuilt daemon; #1151 remains paused with preserved rework.
 #1093, #1108, #1111, #1123, and #1130 stay on workspace-race holds until #1161
 lands. The 21:50 phase preview preserves the latest successfully emitted core
 percentages and advances only review/CI states backed by GitHub evidence;
