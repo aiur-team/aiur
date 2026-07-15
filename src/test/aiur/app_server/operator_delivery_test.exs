@@ -57,7 +57,7 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
     assert_receive {:message, %{event: :other_message, backend: :stub}}
   end
 
-  test "claimed turn-started response invokes success and increments outstanding turns" do
+  test "claimed turn-started response invokes success without marking accepted work active" do
     parent = self()
 
     pending = %{
@@ -78,10 +78,116 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
     assert {:continue, next_state} =
              OperatorDelivery.handle_pending_operator_response(session(), state, payload, "{}", 99)
 
-    assert next_state.outstanding_turns == 2
+    assert next_state.outstanding_turns == 1
+    assert next_state.active_turn_ids == MapSet.new(["turn-1"])
+    assert next_state.accepted_turn_ids == MapSet.new(["turn-2"])
     assert next_state.pending_operator_requests == %{}
     assert_receive {:success, "turn-2"}
     assert_receive {:message, %{event: :operator_turn_started}}
+  end
+
+  test "claimed Codex responses track unique accepted provider turns" do
+    pending = %{
+      98 => %{on_success: fn _ -> :ok end, on_failure: fn _ -> :ok end},
+      99 => %{on_success: fn _ -> :ok end, on_failure: fn _ -> :ok end}
+    }
+
+    state =
+      state(%{
+        active_turn_ids: MapSet.new(["turn-1"]),
+        pending_operator_requests: pending
+      })
+
+    payload = %{"result" => %{"turn" => %{"id" => "turn-2", "status" => "inProgress"}}}
+
+    assert {:continue, state} =
+             OperatorDelivery.handle_pending_operator_response(session(), state, payload, "{}", 98)
+
+    assert {:continue, state} =
+             OperatorDelivery.handle_pending_operator_response(session(), state, payload, "{}", 99)
+
+    assert state.active_turn_ids == MapSet.new(["turn-1"])
+    assert state.accepted_turn_ids == MapSet.new(["turn-2"])
+    assert state.outstanding_turns == 1
+  end
+
+  test "claimed legacy backend response preserves counter-based turn accounting" do
+    pending = %{
+      99 => %{on_success: fn _ -> :ok end, on_failure: fn _ -> :ok end}
+    }
+
+    state =
+      state(%{pending_operator_requests: pending})
+      |> Map.drop([:active_turn_ids, :accepted_turn_ids, :retired_turn_ids])
+
+    payload = %{"result" => %{"turn" => %{"id" => "turn-2", "status" => "inProgress"}}}
+
+    assert {:continue, state} =
+             OperatorDelivery.handle_pending_operator_response(session(), state, payload, "{}", 99)
+
+    assert state.outstanding_turns == 2
+  end
+
+  test "claimed terminal Codex response does not create active work" do
+    pending = %{
+      99 => %{on_success: fn _ -> :ok end, on_failure: fn _ -> :ok end}
+    }
+
+    state =
+      state(%{
+        active_turn_ids: MapSet.new(["turn-1"]),
+        pending_operator_requests: pending
+      })
+
+    payload = %{"result" => %{"turn" => %{"id" => "turn-2", "status" => "completed"}}}
+
+    assert {:continue, state} =
+             OperatorDelivery.handle_pending_operator_response(session(), state, payload, "{}", 99)
+
+    assert state.active_turn_ids == MapSet.new(["turn-1"])
+    assert state.accepted_turn_ids == MapSet.new()
+    assert state.retired_turn_ids == MapSet.new(["turn-2"])
+    assert state.outstanding_turns == 1
+  end
+
+  test "claimed terminal Codex response retires matching active work and finishes" do
+    pending = %{
+      99 => %{on_success: fn _ -> :ok end, on_failure: fn _ -> :ok end}
+    }
+
+    state = state(%{pending_operator_requests: pending})
+    payload = %{"result" => %{"turn" => %{"id" => "turn-1", "status" => "completed"}}}
+
+    assert {:ok, :turn_completed} =
+             OperatorDelivery.handle_pending_operator_response(session(), state, payload, "{}", 99)
+  end
+
+  test "claimed response for a retired provider turn invokes failure instead of success" do
+    parent = self()
+
+    pending = %{
+      99 => %{
+        on_success: fn _ -> send(parent, :succeeded) end,
+        on_failure: fn reason -> send(parent, {:failed, reason}) end
+      }
+    }
+
+    state =
+      state(%{
+        pending_operator_requests: pending,
+        retired_turn_ids: MapSet.new(["turn-retired"])
+      })
+
+    payload = %{"result" => %{"turn" => %{"id" => "turn-retired", "status" => "inProgress"}}}
+
+    assert {:continue, state} =
+             OperatorDelivery.handle_pending_operator_response(session(), state, payload, "{}", 99)
+
+    assert state.pending_operator_requests == %{}
+    assert state.active_turn_ids == MapSet.new(["turn-1"])
+    assert state.accepted_turn_ids == MapSet.new()
+    assert_receive {:failed, {:provider_turn_retired, "turn-retired"}}
+    refute_receive :succeeded
   end
 
   defp session(overrides \\ %{}) do
@@ -95,7 +201,10 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
         on_message: fn _ -> :ok end,
         on_safe_checkpoint: fn _ -> :noop end,
         pending_operator_requests: %{},
-        outstanding_turns: 1
+        outstanding_turns: 1,
+        active_turn_ids: MapSet.new(["turn-1"]),
+        accepted_turn_ids: MapSet.new(),
+        retired_turn_ids: MapSet.new()
       },
       overrides
     )
