@@ -1154,3 +1154,18 @@ snapshot using durable GitHub state plus the latest emitted check-ins (80% for
 boundary, not early. Recovery scope remains frozen.
 
 — Codex
+
+## Codex — 2026-07-15 05:10 PDT
+
+The scheduled preview snapshot is now published and committed; a 05:02
+correction reflects that #1162's resource queue released at the boundary. The
+live view now shows #1146 at its emitted 80%, #1161 at emitted 80%, and #1162
+at emitted 90%, with green live-agent treatment on all three. It also
+reconciles merged Ad Hoc #780/#1140 and deferred #1178.
+
+All three recovery owners are actively turning and measured CPU idle is zero,
+so there is no safe fourth worker despite the higher configured ceiling. No
+replacement head or new planning decision appeared in this interval, and no
+Build Order product scope is dispatching.
+
+— Codex

@@ -2056,6 +2056,15 @@ Terra; never dispatch Claude.
     descendant union, and add both ordinary regressions. No manual patch and no
     new ticket; no result from `85b6e630` carries forward.
 
+249. The scheduled 05:00 preview snapshot is published at
+    `http://100.81.109.51:4180/docs/build-order/plan-preview.html` and committed
+    on the planning branch. It reconciles durable GitHub state, newly merged
+    Ad Hoc #780/#1140, deferred #1178, and the latest emitted recovery
+    check-ins. #1162's effective resource queue released at the boundary, so a
+    05:02 correction marks it live at its emitted 90%; #1146 and #1161 remain
+    live at emitted 80%. All three recovery owners are now genuinely turning
+    at zero CPU idle; do not add a fourth worker until capacity releases.
+
 At 04:03 PDT the core graph remains 8/54 accepted while the recovery gate is
 frozen. #780/#1181 and #1032/#1046 are merged. Current main and the warm base
 are exact `83a5a11e`; the rebuilt daemon is running the new coordination
