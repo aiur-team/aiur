@@ -294,8 +294,18 @@ defmodule Aiur.Orchestrator.PauseResume do
       State.paused_running_entry?(running_entry) ->
         adopt_existing_pause(state, running_entry, pause_reason)
 
+      true ->
+        route_pause_request(state, running_entry, issue_id, identifier, pause_reason)
+    end
+  end
+
+  defp route_pause_request(state, running_entry, issue_id, identifier, pause_reason) do
+    cond do
       pending = matching_pending_pause(state, running_entry, pause_reason) ->
         {{:ok, pending.request_id}, state}
+
+      legacy_control_entry?(running_entry) and is_binary(identifier) ->
+        legacy_pause_request(state, running_entry, identifier, pause_reason)
 
       is_binary(identifier) ->
         submit_pause_request(state, running_entry, issue_id, identifier, pause_reason)
@@ -303,6 +313,24 @@ defmodule Aiur.Orchestrator.PauseResume do
       true ->
         {{:error, :invalid_identifier}, state}
     end
+  end
+
+  # Entries created before the correlated protocol do not have the generation,
+  # version, and confirmation fields required to make an application claim.
+  # Preserve their existing best-effort control behavior without fabricating a
+  # lifecycle identity. Dispatcher-created entries always take the correlated
+  # path below.
+  defp legacy_control_entry?(running_entry) do
+    control = Map.get(running_entry, :control, %{})
+
+    not (Map.has_key?(control, :generation) and Map.has_key?(control, :version) and
+           Map.has_key?(control, :application_confirmation))
+  end
+
+  defp legacy_pause_request(state, running_entry, identifier, pause_reason) do
+    reply = send_pause_control_message(state, identifier)
+    paused_entry = Map.put(running_entry, :paused_reason, pause_reason)
+    {reply, transition_control_status(state, paused_entry, :paused, Atom.to_string(pause_reason))}
   end
 
   defp adopt_existing_pause(state, running_entry, pause_reason) do
@@ -871,14 +899,53 @@ defmodule Aiur.Orchestrator.PauseResume do
   end
 
   defp send_resume_control_message(%State{} = state, running_entry, operator?) do
-    requester = if operator?, do: :operator, else: :automatic
+    if legacy_control_entry?(running_entry) do
+      send_legacy_resume_control_message(state, running_entry, operator?)
+    else
+      requester = if operator?, do: :operator, else: :automatic
 
-    case submit_resume_control_request(state, running_entry, requester) do
-      {{:ok, _request_id}, state} ->
+      case submit_resume_control_request(state, running_entry, requester) do
+        {{:ok, _request_id}, state} ->
+          {{:ok, :resumed}, state}
+
+        {error, state} ->
+          {error, state}
+      end
+    end
+  end
+
+  defp send_legacy_resume_control_message(%State{} = state, running_entry, operator?) do
+    case OperatorMessages.send_running_control_message(state, Map.get(running_entry, :identifier), fn request_id ->
+           {:resume_agent, request_id}
+         end) do
+      {:ok, _request_id} ->
+        issue_id = get_in(running_entry, [:issue, Access.key(:id)])
+        previous_status = get_in(running_entry, [:control, :status]) || :working
+        now = DateTime.utc_now()
+
+        state = put_running_control_status(state, issue_id, :working)
+        state = update_in(state.running, &State.thaw_pause_clock(&1, issue_id, previous_status, now))
+        state = update_in(state.running, &reset_last_codex_timestamp(&1, issue_id, now))
+        state = update_in(state.running, &reset_duration_clock_if_capped(&1, issue_id, now, operator?))
+        state = update_in(state.running, &clear_legacy_pause_reason(&1, issue_id))
+        state = Dispatcher.reset_thrash_budget(state, issue_id)
+
+        updated_entry = Map.get(state.running, issue_id, running_entry)
+        resume_cause = if operator?, do: :operator_resume, else: :automatic_resume
+        record_control_transition(updated_entry, previous_status, :working, resume_cause)
+        OperatorMessages.maybe_emit_agent_control_alert(previous_status, :working, updated_entry)
+
         {{:ok, :resumed}, state}
 
-      {error, state} ->
+      {:error, _reason} = error ->
         {error, state}
+    end
+  end
+
+  defp clear_legacy_pause_reason(running, issue_id) do
+    case Map.get(running, issue_id) do
+      entry when is_map(entry) -> Map.put(running, issue_id, Map.delete(entry, :paused_reason))
+      _ -> running
     end
   end
 

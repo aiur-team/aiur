@@ -74,12 +74,7 @@ defmodule Aiur.Codex.TurnLoop do
         {:error, {:turn_cancelled, params}}
 
       request_id ->
-        {:paused,
-         %{
-           control: request_id,
-           turn_id: state.current_turn_id,
-           details: params
-         }}
+        {:paused, TurnState.pause_result_payload(request_id, state.current_turn_id, params)}
     end
   end
 

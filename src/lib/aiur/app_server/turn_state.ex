@@ -120,12 +120,7 @@ defmodule Aiur.AppServer.TurnState do
 
     cond do
       not is_nil(state.pause_request_id) ->
-        {:paused,
-         %{
-           control: state.pause_request_id,
-           turn_id: state.current_turn_id,
-           details: payload
-         }}
+        {:paused, pause_result_payload(state.pause_request_id, state.current_turn_id, payload)}
 
       state.interrupt_action == :operator_message ->
         {:ok, :turn_interrupted_for_operator_message}
@@ -133,6 +128,17 @@ defmodule Aiur.AppServer.TurnState do
       true ->
         {:error, {:turn_interrupted, payload}}
     end
+  end
+
+  @doc false
+  @spec pause_result_payload(map() | term(), term(), term()) :: map()
+  def pause_result_payload(%{request_id: request_id, generation: generation} = control, turn_id, details)
+      when is_integer(request_id) and is_integer(generation) do
+    %{control: control, turn_id: turn_id, details: details}
+  end
+
+  def pause_result_payload(request_id, turn_id, details) do
+    %{request_id: request_id, turn_id: turn_id, details: details}
   end
 
   @doc false
