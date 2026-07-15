@@ -41,16 +41,10 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
   end
 
   test "duplicate anonymous completion cannot finish the next real runner turn" do
-    marker = Path.join(System.tmp_dir!(), "aiur-anonymous-seen-#{System.unique_integer([:positive])}")
-    release = marker <> ".release"
+    {marker, release} = lifecycle_barrier("anonymous-seen")
     paths = prepare_case("anonymous", anonymous_script(marker, release))
     issue = issue("MT-ANONYMOUS")
     opts = two_turn_opts(issue)
-
-    on_exit(fn ->
-      File.rm(marker)
-      File.rm(release)
-    end)
 
     task = Task.async(fn -> AgentRunner.run(issue, nil, opts) end)
 
@@ -418,13 +412,14 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
   end
 
   defp lifecycle_barrier(name) do
-    marker = Path.join(System.tmp_dir!(), "aiur-#{name}-#{System.unique_integer([:positive])}")
-    release = marker <> ".release"
+    root = Path.join(System.tmp_dir!(), "aiur-#{name}-#{System.unique_integer([:positive])}")
+    marker = Path.join(root, "reached")
+    release = Path.join(root, "release")
 
-    on_exit(fn ->
-      File.rm(marker)
-      File.rm(release)
-    end)
+    File.rm_rf!(root)
+    File.mkdir_p!(root)
+
+    on_exit(fn -> File.rm_rf(root) end)
 
     {marker, release}
   end
