@@ -40,6 +40,10 @@ defmodule Aiur.GitHub.Issues do
              token: token,
              max_response_bytes: @max_issue_response_bytes
            }) do
+        {:ok, %{private: %{aiur_response_too_large: true}, status: status} = response}
+        when status != 200 ->
+          {:error, Errors.github_status_error(response)}
+
         {:ok, %{private: %{aiur_response_too_large: true}}} ->
           {:error, :github_issue_response_too_large}
 
