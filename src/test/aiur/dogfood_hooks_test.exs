@@ -178,29 +178,51 @@ defmodule Aiur.DogfoodHooksTest do
     assert File.read!(Path.join(workspace, "README.md")) == "agent WIP\n"
   end
 
-  test "before_run ignores legacy tracked package cache mutations", context do
+  test "before_run merges the base branch that stops tracking rewritten package caches", context do
+    for path <- [".aiur-hex/cache.ets", ".aiur-mix/archives/hex.ez"] do
+      full_path = Path.join(context.seed, path)
+      File.mkdir_p!(Path.dirname(full_path))
+      File.write!(full_path, "legacy package cache\n")
+      git!(["-C", context.seed, "add", "--force", path])
+    end
+
+    git!(["-C", context.seed, "commit", "--quiet", "-m", "track legacy package caches"])
+    git!(["-C", context.seed, "push", "--quiet", "origin", configured_base()])
+
     workspace = Path.join(context.test_root, "legacy-package-cache")
     File.mkdir_p!(workspace)
     assert_hook_ok!("after_create", workspace, context.origin)
     git!(["-C", workspace, "config", "user.name", "Test User"])
     git!(["-C", workspace, "config", "user.email", "test@example.com"])
 
-    for path <- [".aiur-hex/cache.ets", ".aiur-mix/archives/hex.ez"] do
-      full_path = Path.join(workspace, path)
-      File.mkdir_p!(Path.dirname(full_path))
-      File.write!(full_path, "warm cache\n")
-      git!(["-C", workspace, "add", "--force", path])
-    end
+    File.write!(Path.join(workspace, "TICKET.md"), "intentional ticket work\n")
+    git!(["-C", workspace, "add", "TICKET.md"])
+    git!(["-C", workspace, "commit", "--quiet", "-m", "intentional ticket work"])
 
-    git!(["-C", workspace, "commit", "--quiet", "-m", "legacy package caches"])
     File.write!(Path.join(workspace, ".aiur-hex/cache.ets"), "rewritten hex cache\n")
     File.write!(Path.join(workspace, ".aiur-mix/archives/hex.ez"), "rewritten mix cache\n")
+    reused_package = Path.join(workspace, ".aiur-hex/packages/hexpm/reused.tar")
+    File.mkdir_p!(Path.dirname(reused_package))
+    File.write!(reused_package, "reusable package cache\n")
+
+    git!(["-C", context.seed, "rm", "-r", ".aiur-hex", ".aiur-mix"])
+    File.write!(Path.join(context.seed, ".gitignore"), "/.aiur-hex/\n/.aiur-mix/\n")
+    git!(["-C", context.seed, "add", ".gitignore"])
+    git!(["-C", context.seed, "commit", "--quiet", "-m", "stop tracking package caches"])
+    git!(["-C", context.seed, "push", "--quiet", "origin", configured_base()])
+    base_head = String.trim(git!(["-C", context.seed, "rev-parse", "HEAD"]))
 
     assert_hook_ok!("before_run", workspace, context.origin)
 
-    status = git!(["-C", workspace, "status", "--short"])
-    assert status =~ ".aiur-hex/cache.ets"
-    assert status =~ ".aiur-mix/archives/hex.ez"
+    assert {_, 0} =
+             System.cmd("git", ["-C", workspace, "merge-base", "--is-ancestor", base_head, "HEAD"], stderr_to_stdout: true)
+
+    assert File.read!(Path.join(workspace, "TICKET.md")) == "intentional ticket work\n"
+    assert File.read!(reused_package) == "reusable package cache\n"
+    assert git!(["-C", workspace, "ls-files", ".aiur-hex", ".aiur-mix"]) == ""
+    refute File.exists?(Path.join(workspace, ".aiur-hex/cache.ets"))
+    refute File.exists?(Path.join(workspace, ".aiur-mix/archives/hex.ez"))
+    assert String.trim(git!(["-C", workspace, "status", "--short"])) == ""
   end
 
   test "before_run refuses to overwrite tracked WIP", context do
