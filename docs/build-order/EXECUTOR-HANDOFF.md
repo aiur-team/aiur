@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-14 17:55 PDT)
+## Live Executor state (updated 2026-07-14 17:58 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -1405,6 +1405,14 @@ Terra; never dispatch Claude.
     active compilation while CPU is saturated; BO-003 stays the one genuinely
     dependency-ready core ticket and should be admitted immediately after the
     restart/review pressure clears.
+186. The 17:58 hard hourly retrospective recorded three action-producing wakes
+    (#1151 repair/rework routing, green-P1 review staffing, and handoff/preview
+    refresh) and three no-action checks. Two consecutive reviewer waits repeated
+    the known `reviewers-still-running` token-burn class; one localhost preview
+    probe was invalid because the static server intentionally binds only to the
+    declared Tailscale address. Permit at most one 60-second reviewer wait per
+    five-minute reporting boundary, never back-to-back, and probe the declared
+    Tailscale preview URL rather than localhost.
 
 At 17:55 PDT the core graph is 7/54 accepted. Eight Codex worker sessions are
 live; #1103 is priority-queued behind measured CPU/build pressure, while #1151
