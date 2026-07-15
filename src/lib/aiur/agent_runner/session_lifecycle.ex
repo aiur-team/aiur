@@ -88,9 +88,13 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
 
   defp process_group_id(_session), do: nil
 
+  defp workspace_process_group_tracker(nil), do: fn _process_group_id -> :ok end
+
   defp workspace_process_group_tracker(ownership) do
     fn process_group_id -> Ownership.track_process_group(ownership, process_group_id) end
   end
+
+  defp workspace_provider_tracker(nil), do: fn _provider -> :ok end
 
   defp workspace_provider_tracker(ownership) do
     fn provider -> Ownership.track_provider(ownership, provider) end
@@ -146,18 +150,31 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     # runner dies in the tiny interval before backend metadata arrives, the
     # guardian remains fail-closed rather than replacing the live provider's
     # workspace underneath it.
-    case Ownership.expect_provider(Keyword.get(opts, :workspace_ownership)) do
-      :ok ->
+    with_expected_provider(
+      Keyword.get(opts, :workspace_ownership),
+      fn ownership ->
         start_expected_session(
           workspace,
           issue,
           codex_update_recipient,
           opts,
           worker_host,
-          Keyword.get(opts, :workspace_ownership),
+          ownership,
           session_context,
           Keyword.get(opts, :session_start_fun, &CodingAgent.start_session/2)
         )
+      end,
+      issue,
+      session_context
+    )
+  end
+
+  defp with_expected_provider(nil, start, _issue, _session_context), do: start.(nil)
+
+  defp with_expected_provider(ownership, start, issue, session_context) do
+    case Ownership.expect_provider(ownership) do
+      :ok ->
+        start.(ownership)
 
       {:error, reason} = error ->
         record_session_start_failure(issue, session_context, reason)
@@ -289,6 +306,8 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   @doc false
   @spec track_session_containment(Ownership.lease() | nil, map(), worker_host()) ::
           :ok | {:error, :workspace_ownership_lost}
+  def track_session_containment(nil, _session, _worker_host), do: :ok
+
   def track_session_containment(ownership, session, worker_host) do
     with :ok <- track_session_process_group(ownership, process_group_id(session)) do
       Ownership.track_provider(ownership, session_provider(session, worker_host))

@@ -93,6 +93,20 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
   end
 
   describe "authoritative no-provider startup failures" do
+    test "preserves the legacy no-lease session API" do
+      issue = %Issue{identifier: "legacy-no-lease", selected_backend: "codex"}
+      start_fun = fn _workspace, _opts -> {:error, :bash_not_found} end
+
+      assert {:error, :bash_not_found} =
+               SessionLifecycle.run_session(
+                 "/workspaces/legacy-no-lease",
+                 issue,
+                 nil,
+                 [session_start_fun: start_fun],
+                 nil
+               )
+    end
+
     test "cancel the exact expectation so the run can release and retry" do
       for {backend, reason} <- [
             {"codex", {:invalid_workspace_cwd, :workspace_root, "/workspaces"}},
@@ -188,11 +202,10 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
       end
     end
 
-    test "refuses a session when its workspace lease is absent" do
+    test "allows legacy sessions with no workspace lease" do
       session = %{backend: "claude", metadata: %{claude_app_server_pid: "424242"}}
 
-      assert {:error, :workspace_ownership_lost} =
-               SessionLifecycle.track_session_containment(nil, session, nil)
+      assert :ok = SessionLifecycle.track_session_containment(nil, session, nil)
     end
   end
 

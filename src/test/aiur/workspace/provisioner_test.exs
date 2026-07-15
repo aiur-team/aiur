@@ -123,7 +123,7 @@ defmodule Aiur.Workspace.ProvisionerTest do
     assert File.read!(notes) == "preserve this work\\n"
   end
 
-  test "successful provisioning records the completion proof for a non-Git hook" do
+  test "refuses an after_create hook that leaves a logs-only workspace non-Git" do
     test_root = Path.join(System.tmp_dir!(), "prov_completion_#{System.unique_integer([:positive])}")
     workspace_root = Path.join(test_root, "workspaces")
 
@@ -135,10 +135,17 @@ defmodule Aiur.Workspace.ProvisionerTest do
       hook_after_create: "printf initialized > README.md"
     )
 
-    assert {:ok, workspace} = Workspace.create_for_issue("PROOF-1")
-    assert File.regular?(Provisioner.workspace_ready_marker_path(workspace))
-    assert {:ok, ^workspace} = Workspace.create_for_issue("PROOF-1")
+    workspace = Workspace.workspace_path_under(workspace_root, "PROOF-1")
+    log_path = Path.join([workspace, "logs", "agent.ndjson"])
+    File.mkdir_p!(Path.dirname(log_path))
+    File.write!(log_path, "{\"event\":\"startup\"}\n")
+
+    assert {:error, {:workspace_ambiguous, ^workspace, :unproven_contents}} =
+             Workspace.create_for_issue("PROOF-1")
+
+    refute File.regular?(Provisioner.workspace_ready_marker_path(workspace))
     assert File.read!(Path.join(workspace, "README.md")) == "initialized"
+    assert File.read!(log_path) == "{\"event\":\"startup\"}\n"
   end
 
   test "ensure_workspace/5 marks a logs-only directory for initial provisioning" do
@@ -151,6 +158,30 @@ defmodule Aiur.Workspace.ProvisionerTest do
 
     assert {:ok, ^workspace, true} =
              Provisioner.ensure_workspace(workspace, nil, nil, "aiur/123-workspace-recovery", nil)
+
+    assert File.read!(log_path) == "preserve this transcript\n"
+  end
+
+  test "remote setup refuses a logs-only workspace before a provider can receive its cwd" do
+    test_root = Path.join(System.tmp_dir!(), "prov_remote_logs_#{System.unique_integer([:positive])}")
+    workspace = Path.join(test_root, "workspace")
+    log_path = Path.join([workspace, "logs", "agent.md"])
+    fake_ssh = Path.join(test_root, "ssh")
+    previous_path = System.get_env("PATH")
+
+    on_exit(fn ->
+      restore_env("PATH", previous_path)
+      File.rm_rf!(test_root)
+    end)
+
+    File.mkdir_p!(Path.dirname(log_path))
+    File.write!(log_path, "preserve this transcript\n")
+    File.write!(fake_ssh, "#!/bin/sh\nshift 2\nexec sh -lc \"$1\"\n")
+    File.chmod!(fake_ssh, 0o755)
+    System.put_env("PATH", test_root <> ":" <> (previous_path || ""))
+
+    assert {:error, {:workspace_prepare_failed, "worker-1", 65, _output}} =
+             Provisioner.ensure_workspace(workspace, "worker-1")
 
     assert File.read!(log_path) == "preserve this transcript\n"
   end

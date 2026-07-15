@@ -10,6 +10,7 @@ defmodule Aiur.Workspace.Provisioner do
   alias Aiur.Workspace.{Checkout, Context, Materialize, Reconstruction, Remote}
 
   @remote_workspace_marker "__AIUR_WORKSPACE__"
+  @remote_workspace_ready_marker "__AIUR_WORKSPACE_READY__"
   @workspace_ready_marker ".claude/.aiur-workspace-ready"
 
   @doc false
@@ -148,27 +149,11 @@ defmodule Aiur.Workspace.Provisioner do
   end
 
   def ensure_workspace(workspace, worker_host) when is_binary(worker_host) do
-    script =
-      [
-        "set -eu",
-        Remote.remote_shell_assign("workspace", workspace),
-        "if [ -d \"$workspace\" ]; then",
-        "  created=0",
-        "elif [ -e \"$workspace\" ]; then",
-        "  rm -rf \"$workspace\"",
-        "  mkdir -p \"$workspace\"",
-        "  created=1",
-        "else",
-        "  mkdir -p \"$workspace\"",
-        "  created=1",
-        "fi",
-        "cd \"$workspace\"",
-        "printf '%s\\t%s\\t%s\\n' '#{@remote_workspace_marker}' \"$created\" \"$(pwd -P)\""
-      ]
-      |> Enum.reject(&(&1 == ""))
-      |> Enum.join("\n")
-
-    case Remote.run_remote_command(worker_host, script, Config.settings!().hooks.timeout_ms) do
+    case Remote.run_remote_command(
+           worker_host,
+           remote_workspace_prepare_script(workspace),
+           Config.settings!().hooks.timeout_ms
+         ) do
       {:ok, {output, 0}} ->
         parse_remote_workspace_output(output)
 
@@ -191,6 +176,19 @@ defmodule Aiur.Workspace.Provisioner do
     do: workspace_readiness(workspace) == :bootstrap
 
   def incomplete_workspace?(_workspace), do: true
+
+  @doc false
+  @spec logs_only_workspace?(Path.t(), worker_host()) :: boolean()
+  def logs_only_workspace?(workspace, nil) when is_binary(workspace) do
+    case File.ls(workspace) do
+      {:ok, ["logs"]} -> safe_logs_tree?(Path.join(workspace, "logs")) == :ok
+      _ -> false
+    end
+  end
+
+  # Remote preparation rejects unproven non-empty directories before hooks
+  # run, so this local-only check need not attempt a second SSH inspection.
+  def logs_only_workspace?(_workspace, worker_host) when is_binary(worker_host), do: false
 
   @doc false
   @spec workspace_readiness(Path.t()) :: :ready | :bootstrap | {:error, term()}
@@ -229,7 +227,13 @@ defmodule Aiur.Workspace.Provisioner do
     end
   end
 
-  def ensure_workspace_usable(_workspace, worker_host, false) when is_binary(worker_host), do: :ok
+  def ensure_workspace_usable(workspace, worker_host, false) when is_binary(worker_host) do
+    case remote_workspace_readiness(workspace, worker_host) do
+      :ready -> :ok
+      :bootstrap -> {:error, {:workspace_ambiguous, workspace, :unproven_contents}}
+      {:error, _reason} = error -> error
+    end
+  end
 
   @doc false
   @spec workspace_ready_marker_path(Path.t()) :: Path.t()
@@ -489,6 +493,76 @@ defmodule Aiur.Workspace.Provisioner do
       {:ok, %File.Stat{type: :directory}} -> safe_logs_tree?(path)
       {:ok, _stat} -> {:error, :unsafe_log_entry}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # Remote hooks run in place, so an existing non-empty non-checkout cannot be
+  # safely staged or atomically promoted from this BEAM. Refuse it before the
+  # hook or provider starts; empty paths are still first-time bootstraps, and
+  # prior explicit completion markers retain the configured non-Git behavior.
+  defp remote_workspace_prepare_script(workspace) do
+    [
+      "set -eu",
+      Remote.remote_shell_assign("workspace", workspace),
+      "if [ -d \"$workspace\" ]; then",
+      "  current=\"$(cd \"$workspace\" && pwd -P)\"",
+      "  git_top=\"$(git -C \"$workspace\" rev-parse --show-toplevel 2>/dev/null || true)\"",
+      "  if [ \"$git_top\" = \"$current\" ] && git -C \"$workspace\" rev-parse --verify HEAD >/dev/null 2>&1; then",
+      "    created=0",
+      "  elif [ -f \"$workspace/.claude/.aiur-workspace-ready\" ]; then",
+      "    created=0",
+      "  elif [ -z \"$(find \"$workspace\" -mindepth 1 -maxdepth 1 -print -quit)\" ]; then",
+      "    created=1",
+      "  else",
+      "    printf '%s\\t%s\\n' '#{@remote_workspace_marker}' incomplete \"$current\"",
+      "    exit 65",
+      "  fi",
+      "elif [ -e \"$workspace\" ]; then",
+      "  rm -rf \"$workspace\"",
+      "  mkdir -p \"$workspace\"",
+      "  created=1",
+      "else",
+      "  mkdir -p \"$workspace\"",
+      "  created=1",
+      "fi",
+      "cd \"$workspace\"",
+      "printf '%s\\t%s\\t%s\\n' '#{@remote_workspace_marker}' \"$created\" \"$(pwd -P)\""
+    ]
+    |> Enum.join("\n")
+  end
+
+  defp remote_workspace_readiness(workspace, worker_host) do
+    script =
+      [
+        "set -eu",
+        Remote.remote_shell_assign("workspace", workspace),
+        "current=\"$(cd \"$workspace\" && pwd -P)\"",
+        "git_top=\"$(git -C \"$workspace\" rev-parse --show-toplevel 2>/dev/null || true)\"",
+        "if [ -f \"$workspace/.claude/.aiur-workspace-ready\" ] || {",
+        "  [ \"$git_top\" = \"$current\" ] &&",
+        "  git -C \"$workspace\" rev-parse --verify HEAD >/dev/null 2>&1;",
+        "}; then",
+        "  printf '%s\\n' '#{@remote_workspace_ready_marker}'",
+        "else",
+        "  exit 65",
+        "fi"
+      ]
+      |> Enum.join("\n")
+
+    case Remote.run_remote_command(worker_host, script, Config.settings!().hooks.timeout_ms) do
+      {:ok, {output, 0}} when is_binary(output) ->
+        if String.contains?(output, @remote_workspace_ready_marker),
+          do: :ready,
+          else: {:error, {:workspace_prepare_failed, :invalid_output, output}}
+
+      {:ok, {_output, 65}} ->
+        :bootstrap
+
+      {:ok, {output, status}} ->
+        {:error, {:workspace_prepare_failed, worker_host, status, output}}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

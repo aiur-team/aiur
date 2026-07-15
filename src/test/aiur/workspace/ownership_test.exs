@@ -221,17 +221,14 @@ defmodule Aiur.Workspace.OwnershipTest do
     assert :ok = Ownership.release(lease)
   end
 
-  test "remote ownership recovers after bounded reaping when its owner dies" do
+  test "remote ownership remains fail-closed when its owner dies" do
     ticket = "ownership-remote-recovery-#{System.unique_integer([:positive])}"
     parent = self()
 
     owner =
       spawn(fn ->
         {:ok, lease} =
-          Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry,
-            remote_reap_retry_ms: 50,
-            remote_reap_max_attempts: 2
-          )
+          Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry)
 
         :ok = Ownership.track_provider(lease, %{remote: true})
         send(parent, {:remote_provider_tracked, lease})
@@ -242,9 +239,8 @@ defmodule Aiur.Workspace.OwnershipTest do
     Process.exit(owner, :kill)
 
     assert_eventually(fn -> match?({:ok, %{phase: :reaping}}, Ownership.current(ticket)) end)
-    assert_eventually(fn -> Ownership.current(ticket) == :none end)
-    assert {:ok, replacement} = Ownership.claim(ticket)
-    assert :ok = Ownership.release(replacement)
+    Process.sleep(150)
+    assert {:error, {:workspace_owned, {:ok, %{phase: :reaping}}}} = Ownership.claim(ticket)
   end
 
   test "non-Codex root process containment reaps before releasing" do
