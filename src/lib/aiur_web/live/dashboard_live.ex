@@ -190,7 +190,7 @@ defmodule AiurWeb.DashboardLive do
     ~H"""
     <DashboardShell.dashboard_shell
       route={@current_route}
-      routes={RouteRegistry.routes()}
+      routes={RouteRegistry.routes(@payload.analytics)}
       now={@now}
       tracker_kind={tracker_kind()}
       agent_kind={agent_kind()}

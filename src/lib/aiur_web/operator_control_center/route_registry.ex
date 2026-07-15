@@ -36,20 +36,22 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
       id: :analytics,
       label: "Analytics",
       icon: "↗",
-      description: "Authenticated run telemetry analysis.",
+      description: "Telemetry analytics are unavailable.",
       path: "/analytics",
       type: :document,
-      availability: :available,
+      availability: :unavailable,
       active_actions: []
     }
   ]
 
-  @spec routes() :: [map()]
-  def routes, do: @routes
+  @spec routes(map()) :: [map()]
+  def routes(analytics) when is_map(analytics) do
+    Enum.map(@routes, &resolve_runtime_availability(&1, analytics))
+  end
 
-  @spec route(atom()) :: {:ok, map()} | :error
-  def route(id) when is_atom(id) do
-    case Enum.find(@routes, &(&1.id == id)) do
+  @spec route(atom(), map()) :: {:ok, map()} | :error
+  def route(id, analytics) when is_atom(id) and is_map(analytics) do
+    case Enum.find(routes(analytics), &(&1.id == id)) do
       nil -> :error
       route -> {:ok, route}
     end
@@ -71,4 +73,15 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
 
   @spec document?(map()) :: boolean()
   def document?(route) when is_map(route), do: route.type == :document
+
+  defp resolve_runtime_availability(%{id: :analytics} = route, analytics) do
+    route
+    |> Map.put(:availability, analytics_availability(analytics))
+    |> Map.put(:description, Map.get(analytics, :message) || route.description)
+  end
+
+  defp resolve_runtime_availability(route, _analytics), do: route
+
+  defp analytics_availability(%{available?: true}), do: :available
+  defp analytics_availability(_analytics), do: :unavailable
 end

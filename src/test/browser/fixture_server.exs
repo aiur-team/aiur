@@ -72,12 +72,18 @@ defmodule Aiur.BrowserHarness.RouteShellLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, assign(socket, :current_route, RouteRegistry.current_route(socket.assigns.live_action))}
+    {:ok,
+     socket
+     |> assign(:analytics, analytics(%{}))
+     |> assign(:current_route, RouteRegistry.current_route(socket.assigns.live_action))}
   end
 
   @impl true
-  def handle_params(_params, _uri, socket) do
-    {:noreply, assign(socket, :current_route, RouteRegistry.current_route(socket.assigns.live_action))}
+  def handle_params(params, _uri, socket) do
+    {:noreply,
+     socket
+     |> assign(:analytics, analytics(params))
+     |> assign(:current_route, RouteRegistry.current_route(socket.assigns.live_action))}
   end
 
   @impl true
@@ -86,7 +92,7 @@ defmodule Aiur.BrowserHarness.RouteShellLive do
     <main class="app-shell">
       <DashboardShell.dashboard_shell
         route={@current_route}
-        routes={RouteRegistry.routes()}
+        routes={RouteRegistry.routes(@analytics)}
         now={~U[2026-07-15 12:00:00Z]}
         tracker_kind="fixture"
         agent_kind="fixture"
@@ -99,6 +105,14 @@ defmodule Aiur.BrowserHarness.RouteShellLive do
       </DashboardShell.dashboard_shell>
     </main>
     """
+  end
+
+  defp analytics(%{"analytics" => "unavailable"}) do
+    %{available?: false, path: nil, message: "Telemetry analytics are unavailable in this fixture."}
+  end
+
+  defp analytics(_params) do
+    %{available?: true, path: "/analytics", message: "Open fixture analytics."}
   end
 end
 

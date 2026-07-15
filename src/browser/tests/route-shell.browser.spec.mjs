@@ -15,6 +15,10 @@ test('route shell keeps navigation URL-backed, accessible, and unclipped across 
 
     try {
       await openFixture(page)
+      await page.goto('/?analytics=unavailable')
+      await expect(page.getByRole('link', { name: 'Analytics' })).toHaveCount(0)
+      await expect(page.locator('.shell-nav-item.is-unavailable', { hasText: 'Analytics' }).first()).toHaveAttribute('aria-disabled', 'true')
+
       await page.goto('/')
 
       await expect(page.getByRole('heading', { name: 'Units' })).toBeVisible()
