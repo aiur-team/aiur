@@ -10,6 +10,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
     test "returns false for non-counting delay types" do
       refute RetryEngine.failure_retry?(%{delay_type: :continuation})
       refute RetryEngine.failure_retry?(%{delay_type: :capacity_wait})
+      refute RetryEngine.failure_retry?(%{delay_type: :model_limit_wait})
       refute RetryEngine.failure_retry?(%{delay_type: :precondition})
       refute RetryEngine.failure_retry?(%{delay_type: :terminal_verification})
     end
@@ -29,6 +30,10 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
     test "capacity_wait uses fixed delay regardless of attempt" do
       assert RetryEngine.retry_delay(1, %{delay_type: :capacity_wait}) == 1_000
       assert RetryEngine.retry_delay(5, %{delay_type: :capacity_wait}) == 1_000
+    end
+
+    test "model_limit_wait uses a bounded polling delay" do
+      assert RetryEngine.retry_delay(1, %{delay_type: :model_limit_wait}) >= 10_000
     end
 
     test "failure attempts use exponential backoff" do
@@ -226,8 +231,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
       state = %State{
         claimed: MapSet.new([issue_id]),
         dispatch_recovery: %{
-          workspace_ownership: %{waits: %{}, ready: %{}},
-          codex_thrash_budget: %{}
+          workspace_ownership: %{waits: %{}, ready: %{}}
         }
       }
 
@@ -263,8 +267,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
       state = %State{
         claimed: MapSet.new([issue_id]),
         dispatch_recovery: %{
-          workspace_ownership: %{waits: %{}, ready: %{}},
-          codex_thrash_budget: %{}
+          workspace_ownership: %{waits: %{}, ready: %{}}
         }
       }
 
@@ -308,6 +311,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
             ref: ref,
             identifier: identifier,
             worker_host: "worker-a",
+            prior_work: true,
             workspace_path: "/workspaces/ownership"
           }
         },
@@ -317,9 +321,9 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
           issue_id => %{timer_ref: timer_ref, retry_token: retry_token, attempt: 1}
         },
         dispatch_recovery: %{
-          workspace_ownership: %{waits: %{}, ready: %{}},
-          codex_thrash_budget: %{issue_id => %{window_start_ms: 0, count: 4}}
-        }
+          workspace_ownership: %{waits: %{}, ready: %{}}
+        },
+        codex_thrash_budget: %{issue_id => %{window_start_ms: 0, count: 4}}
       }
 
       waiting =
@@ -339,15 +343,17 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
       assert waiting.dispatch_recovery.workspace_ownership.waits[identifier].owner ==
                {:ok, owner_lease}
 
-      assert waiting.dispatch_recovery.codex_thrash_budget == state.dispatch_recovery.codex_thrash_budget
+      assert waiting.dispatch_recovery.workspace_ownership.waits[identifier].prior_work
+      assert waiting.codex_thrash_budget == state.codex_thrash_budget
 
       ready = RetryEngine.release_workspace_wait(waiting, identifier)
       refute MapSet.member?(ready.claimed, issue_id)
       assert Map.has_key?(ready.dispatch_recovery.workspace_ownership.ready, issue_id)
       assert ready.dispatch_recovery.workspace_ownership.ready[issue_id].worker_host == "worker-a"
       assert ready.dispatch_recovery.workspace_ownership.ready[issue_id].retry_attempt == 1
+      assert ready.dispatch_recovery.workspace_ownership.ready[issue_id].prior_work
       assert ready.dispatch_recovery.workspace_ownership.ready[issue_id].workspace_path == "/workspaces/ownership"
-      assert ready.dispatch_recovery.codex_thrash_budget == state.dispatch_recovery.codex_thrash_budget
+      assert ready.codex_thrash_budget == state.codex_thrash_budget
 
       Process.exit(runner, :kill)
       assert_receive {:DOWN, ^exit_ref, :process, ^runner, :killed}, 2_000
@@ -372,7 +378,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
           }
         },
         claimed: MapSet.new([issue_id]),
-        dispatch_recovery: %{workspace_ownership: %{waits: %{}, ready: %{}}, codex_thrash_budget: %{}}
+        dispatch_recovery: %{workspace_ownership: %{waits: %{}, ready: %{}}}
       }
 
       ref = state.running[issue_id].ref
@@ -443,6 +449,74 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
   end
 
   describe "handle_retry_issue_lookup/6" do
+    test "preserves prior-work continuation through an active retry dispatch" do
+      issue = %Issue{id: "issue-active", identifier: "27", title: "Active retry", state: "In Progress"}
+      state = %State{max_concurrent_agents: 1, effective_concurrent_agents: 1}
+      parent = self()
+
+      assert {:noreply, next_state} =
+               RetryEngine.handle_retry_issue_lookup(
+                 issue,
+                 state,
+                 issue.id,
+                 2,
+                 %{worker_host: nil, prior_work: true},
+                 terminal_states: MapSet.new(["done"]),
+                 dispatch_fun: fn current_state, ^issue, 2, nil, dispatch_opts ->
+                   send(parent, {:retry_dispatch_opts, dispatch_opts})
+
+                   %{
+                     current_state
+                     | running: Map.put(current_state.running, issue.id, %{pid: parent})
+                   }
+                 end
+               )
+
+      assert_receive {:retry_dispatch_opts, dispatch_opts}
+      assert dispatch_opts[:prior_work] == true
+      assert get_in(next_state.running, [issue.id, :pid]) == parent
+    end
+
+    test "reschedules when an active retry dispatch starts neither a runner nor a retry" do
+      issue = %Issue{id: "issue-limited", identifier: "27", title: "Limited retry", state: "In Progress"}
+
+      state = %State{
+        claimed: MapSet.new([issue.id]),
+        max_concurrent_agents: 1,
+        effective_concurrent_agents: 1
+      }
+
+      assert {:noreply, next_state} =
+               RetryEngine.handle_retry_issue_lookup(
+                 issue,
+                 state,
+                 issue.id,
+                 2,
+                 %{worker_host: nil, workspace_path: "/tmp/issue-limited", prior_work: true},
+                 terminal_states: MapSet.new(["done"]),
+                 dispatch_fun: fn current_state, ^issue, 2, nil, _dispatch_opts ->
+                   %{
+                     current_state
+                     | model_fallback_waiting: MapSet.put(current_state.model_fallback_waiting, issue.id)
+                   }
+                 end,
+                 schedule_retry_fun: fn retry_state, issue_id, attempt, metadata ->
+                   assert attempt == 2
+                   assert metadata.delay_type == :model_limit_wait
+                   assert metadata.prior_work == true
+
+                   %{
+                     retry_state
+                     | retry_attempts: Map.put(retry_state.retry_attempts, issue_id, metadata)
+                   }
+                 end
+               )
+
+      assert MapSet.member?(next_state.claimed, issue.id)
+      assert MapSet.member?(next_state.model_fallback_waiting, issue.id)
+      assert Map.has_key?(next_state.retry_attempts, issue.id)
+    end
+
     test "fetches and records a terminal retry ticket when active candidates omit it" do
       terminal = %Issue{
         id: "issue-terminal",
@@ -555,6 +629,18 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
       assert_receive {:terminal_verification_pending, true}
       assert MapSet.member?(next_state.claimed, issue.id)
       assert Map.has_key?(next_state.retry_attempts, issue.id)
+    end
+  end
+
+  describe "prior_work_for_retry?/2" do
+    test "does not turn a fresh zero-turn launch failure into prior work" do
+      refute RetryEngine.prior_work_for_retry?(%{prior_work: false, completed_turn_count: 0}, true)
+    end
+
+    test "preserves explicit recycle provenance and completed work" do
+      assert RetryEngine.prior_work_for_retry?(%{prior_work: true, completed_turn_count: 0}, true)
+      assert RetryEngine.prior_work_for_retry?(%{prior_work: false, completed_turn_count: 1}, true)
+      refute RetryEngine.prior_work_for_retry?(%{prior_work: true, completed_turn_count: 1}, false)
     end
   end
 end

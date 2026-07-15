@@ -2826,16 +2826,15 @@ defmodule Aiur.OrchestratorStatusTest do
     configure_completed_revalidation!([issue], max_concurrent_agents: 3)
     {state, parked_entry, worker, item_ids} = tracker_completed_retention_fixture(issue)
 
-    state =
-      put_in(
-        state.dispatch_recovery.codex_thrash_budget,
-        %{
+    state = %{
+      state
+      | codex_thrash_budget: %{
           issue.id => %{
             window_start_ms: System.monotonic_time(:millisecond),
             count: 100
           }
         }
-      )
+    }
 
     next = Reconciler.maybe_reactivate_or_refresh(state, issue)
 
