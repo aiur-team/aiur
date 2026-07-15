@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-14 16:30 PDT)
+## Live Executor state (updated 2026-07-14 17:10 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -13,10 +13,11 @@ truth and supersedes stale pre-run wording later in the document.
 #1084 with 54 members #1085–#1138 and 107 exact blocker relations. The historical
 receipt gate remains operator-overridden for this run. Aiur is running from the
 repository root against `main`; current accepted `main` is
-`6be98db8`, including paused-label startup fix #1148, BO-009/#1096, the
+`af941452`, including paused-label startup fix #1148, BO-009/#1096,
+BO-002/#1091, the
 binding maximum-useful-concurrency Executor rule, and the hard ten-minute
 capacity audit. The core
-program is 6/54 merged with 48 remaining.
+program is 7/54 merged with 47 remaining.
 
 The recorded runtime session ceiling is 15 workers, governed by
 Aiur's effective-slot controller and shared build gates. The operator target is
@@ -1328,18 +1329,56 @@ Terra; never dispatch Claude.
     preserved rework state; scheduler saturation can delay the control RPC, so
     confirm daemon health and avoid restarting the healthy fleet merely for a
     transient timeout.
+177. BO-002/#1091 passed fresh current-main CI and two clean independent
+    exact-head reviews, then squash-merged at 16:47 PDT as current `main`
+    `af941452`. The core graph is now 7/54 merged with 47 remaining. BO-003 is
+    dependency-ready but cannot dispatch until the current build/load gate
+    clears and its new workspace is proven to include this merge.
+178. A controlled 16:31 restart replaced stale completed runners without
+    losing branch or worktree state. Eight Codex worker sessions are now live
+    (#1088, #1090, #1097, #1109, #1146, #1154, #1161, #1162); memory remains
+    healthy, but the 12-core host is build/daemon saturated, so #1151 and #1103
+    stay priority-queued despite a configured ceiling of 15. A lingering
+    `aiurdev watch --full --interval 1` observer and eleven 8–22-hour-old
+    `opencode serve` children rooted in deleted test directories were
+    terminated without touching the daemon or ticket workers. Do not use the
+    full watcher as a one-shot status command, and recheck deleted-test process
+    leakage at the next capacity audit rather than filing optimization work
+    during this phase.
+179. Dual exact-head review returned DASH-018/#1090 to contained rework in
+    comment `4975225617`: durable superseded-binding revocation, live
+    rate-limit ingestion, issued-entry leases, malformed-diagnostic privacy,
+    and module-size cleanup. Dual review also returned BO-016/#1103 to contained
+    rework in comment `4975315545`: CLI/CDATA credential redaction, singleton
+    path redaction, the shared strict repository validator, fleet-safe receive
+    timeouts, public config docs, and the exact PR template. Both heads also
+    require current-main refresh and fresh CI/re-review; no follow-up issues
+    were created.
+180. #1151 reproduced its own bug again. Operator comment `4975200402` was
+    accepted at 23:53:56Z but did not enter the durable ticket log for several
+    tracker intervals, while deploy/CI events did. A targeted pause-to-rework
+    transition finally emitted and consumed both missing trusted comments, but
+    the delayed pause addition overtook its earlier removal and left runtime
+    state paused even though GitHub showed only `agent:rework`. Use a confirmed
+    two-stage pause barrier for pre-fix recovery and keep #1151 first in the
+    admission queue; after it merges, the binding proof is trusted comment ID
+    -> durable event -> fresh provider turn -> repair activity with no label
+    recycling, message injection, or Executor restart.
+181. The warm prebuild checkout has not eagerly advanced from `6be98db8` to
+    `af941452`, so do not report that the prebuild itself updates after every
+    merge. This exact stale-base class was fixed by #567/PR #571 at the
+    materialization boundary: a newly created workspace fetches the configured
+    live remote tip before branching even when the warm clone is stale. Before
+    admitting BO-003, verify both that materialization includes `af941452` and
+    that the warm marker is rebuilt if the warm base refresh does run; reopen
+    #567 only if a newly materialized workspace actually branches from the
+    stale commit.
 
-At 15:10 PDT the core graph is 6/54 accepted. Every currently
-dependency-ready implementation/rework lane is active, in terminal-CI handoff,
-or staffed for exact review. The configured and live ceiling is 15. Five
-workers were actively turning at the previous snapshot; seven are now
-genuinely turning, #1162 is in fresh CI, and three independent review lanes are
-staffed. The remaining shortfall is the #1161
-workspace gate, current CI/review tails, and measured build pressure rather than
-an intentional low cap.
-#1090, #1093, #1108, #1111, #1123, and #1130 stay on workspace-race holds
-until #1161 lands.
-The 14:42 phase preview uses the latest successfully emitted agent percentages;
+At 17:10 PDT the core graph is 7/54 accepted. Eight Codex worker sessions are
+live; #1151 and #1103 are priority-queued behind measured CPU/build pressure,
+not an intentional low cap. #1093, #1108, #1111, #1123, and #1130 stay on
+workspace-race holds until #1161 lands. The 17:09 phase preview uses the latest
+successfully emitted agent percentages;
 do not replace those estimates with guesses during review/rework. Host load
 remains volatile and reached 35 with roughly 21 GiB available at the 14:41
 snapshot; prefer logs/GitHub evidence after a control-RPC
