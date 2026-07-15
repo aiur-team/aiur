@@ -148,12 +148,12 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
              Store.snapshot(server: recovered)
   end
 
-  test "a successful clear repairs an acknowledged marker whose write reported failure", %{dir: dir} do
+  test "a successful retry repairs a multi-key marker after acknowledgement loss", %{dir: dir} do
     {:ok, writes} = Agent.start_link(fn -> 0 end)
 
     marker_fun = fn path, run_id, pending_keys, sync_fun ->
       case Agent.get_and_update(writes, fn count -> {count, count + 1} end) do
-        0 ->
+        1 ->
           assert :ok = TerminalVerification.write(path, run_id, pending_keys, sync_fun)
           {:error, :acknowledgement_lost}
 
@@ -163,21 +163,30 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
     end
 
     pid = start_store!(dir, @run_id, terminal_verification_marker_fun: marker_fun)
+    first = identity("owner", "repo", "I-first", "1")
+    second = identity("owner", "repo", "I-second", "2")
+
+    assert :ok = Store.set_terminal_verification_pending(first, true, pid)
 
     assert {:error, :terminal_verification_marker_failed} =
-             Store.set_terminal_verification_pending(identity(), true, pid)
+             Store.set_terminal_verification_pending(second, true, pid)
 
-    assert [_marker] =
-             Path.wildcard(Path.join([dir, "runs", "*", "membership.terminal-verification.json"]))
+    assert Agent.get(writes, & &1) == 2
+    assert :ok = Store.set_terminal_verification_pending(second, false, pid)
+    assert Agent.get(writes, & &1) == 3
+    stop(pid)
 
-    assert :ok = Store.set_terminal_verification_pending(identity(), false, pid)
-    assert :ok = Store.mark_reconciled(:fresh, pid)
+    recovered = start_store!(dir)
+    assert :ok = Store.mark_reconciled(:fresh, recovered)
+
+    assert %{freshness: %{status: :unavailable, terminal_verification_pending?: true}} =
+             Store.snapshot(server: recovered)
+
+    assert :ok = Store.set_terminal_verification_pending(first, false, recovered)
+    assert :ok = Store.mark_reconciled(:fresh, recovered)
 
     assert %{freshness: %{status: :fresh, terminal_verification_pending?: false}} =
-             Store.snapshot(server: pid)
-
-    assert [] ==
-             Path.wildcard(Path.join([dir, "runs", "*", "membership.terminal-verification.json"]))
+             Store.snapshot(server: recovered)
   end
 
   test "resolving another terminal identity cannot clear an outstanding verification", %{dir: dir} do

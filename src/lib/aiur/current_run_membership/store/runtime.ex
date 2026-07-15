@@ -55,7 +55,8 @@ defmodule Aiur.CurrentRunMembership.Store.Runtime do
 
         pending? = TerminalVerification.pending?(pending_keys)
 
-        if pending_keys == state.terminal_verification_pending_keys and
+        if not state.terminal_verification_marker_dirty? and
+             pending_keys == state.terminal_verification_pending_keys and
              pending? == state.terminal_verification_pending? do
           {:ok, state}
         else
@@ -226,7 +227,8 @@ defmodule Aiur.CurrentRunMembership.Store.Runtime do
         state = %{
           state
           | terminal_verification_pending_keys: pending_keys,
-            terminal_verification_pending?: TerminalVerification.pending?(pending_keys)
+            terminal_verification_pending?: TerminalVerification.pending?(pending_keys),
+            terminal_verification_marker_dirty?: false
         }
 
         notify(state, nil)
@@ -243,7 +245,14 @@ defmodule Aiur.CurrentRunMembership.Store.Runtime do
 
   defp terminal_verification_marker_failed(state, reason) do
     health = public_health({:degraded, {:terminal_verification_marker_failed, reason}})
-    state = %{state | health: health, terminal_verification_pending?: true}
+
+    state = %{
+      state
+      | health: health,
+        terminal_verification_pending?: true,
+        terminal_verification_marker_dirty?: true
+    }
+
     notify(state, nil)
     {:error, :terminal_verification_marker_failed, state}
   end

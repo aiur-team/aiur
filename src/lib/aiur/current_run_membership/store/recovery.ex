@@ -61,6 +61,7 @@ defmodule Aiur.CurrentRunMembership.Store.Recovery do
       clock: persistence.clock,
       recovered_at: persistence.clock.(),
       reconciliation: %{status: :unavailable, reconciled_at: nil},
+      terminal_verification_marker_dirty?: false,
       terminal_verification_pending?: false,
       terminal_verification_pending_keys: MapSet.new(),
       terminal_verification_path: nil,
@@ -104,6 +105,7 @@ defmodule Aiur.CurrentRunMembership.Store.Recovery do
       clock: persistence.clock,
       recovered_at: persistence.clock.(),
       reconciliation: Runtime.initial_reconciliation(projection),
+      terminal_verification_marker_dirty?: false,
       terminal_verification_pending?: terminal_verification_pending?(terminal_verification),
       terminal_verification_pending_keys: pending_keys,
       writable?:
