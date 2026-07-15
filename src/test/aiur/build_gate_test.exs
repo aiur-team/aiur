@@ -63,7 +63,7 @@ defmodule Aiur.BuildGateTest do
     File.write!(Path.join(gate_dir, "queue/stale"), "pid=999999999\n")
 
     assert %{enabled?: true, capacity: 2, active: 1, queued: 1} =
-             BuildGate.status(gate_dir: gate_dir, capacity: 2, strategy: :pid)
+             build_gate_status(gate_dir: gate_dir, capacity: 2, strategy: :pid)
   end
 
   test "reports a slot with a dead owner and live process group as active", %{gate_dir: gate_dir} do
@@ -71,12 +71,12 @@ defmodule Aiur.BuildGateTest do
     {pgid, 0} = System.cmd("ps", ["-o", "pgid=", "-p", System.pid()])
     File.write!(slot_path, "pid=999999999\npgid=#{String.trim(pgid)}\ncommand=test\n")
 
-    assert %{active: 1} = BuildGate.status(gate_dir: gate_dir, capacity: 1, strategy: :pid)
+    assert %{active: 1} = build_gate_status(gate_dir: gate_dir, capacity: 1, strategy: :pid)
   end
 
   test "reports disabled status without inspecting a gate directory" do
     assert %{enabled?: false, capacity: 0, active: 0, queued: 0} =
-             BuildGate.status(
+             build_gate_status(
                gate_dir: "/missing",
                capacity: 0,
                stagger_seconds: 0,
@@ -89,7 +89,7 @@ defmodule Aiur.BuildGateTest do
     File.write!(Path.join(gate_dir, "queue/#{System.pid()}"), "pid=#{System.pid()}\n")
 
     assert %{enabled?: true, capacity: 0, active: 0, queued: 1} =
-             BuildGate.status(
+             build_gate_status(
                gate_dir: gate_dir,
                capacity: 0,
                stagger_seconds: 5,
@@ -213,7 +213,7 @@ defmodule Aiur.BuildGateTest do
     [queue_file] = wait_for_wildcard!(Path.join(context.gate_dir, "queue/lease-v2-*"))
     assert File.read!(Path.join(context.gate_dir, "slot-1.owner")) =~ "pid=2\n"
     assert File.read!(queue_file) =~ "pid=2\n"
-    assert %{active: 1, queued: 1} = BuildGate.status(gate_dir: context.gate_dir, capacity: 1)
+    assert %{active: 1, queued: 1} = build_gate_status(gate_dir: context.gate_dir, capacity: 1)
     assert Task.yield(second, 100) == nil
 
     assert {_output, 0} = Task.await(first, 5_000)
@@ -236,7 +236,7 @@ defmodule Aiur.BuildGateTest do
     File.write!(queue_path, metadata)
 
     assert %{enabled?: true, capacity: 1, active: 0, queued: 0} =
-             BuildGate.status(gate_dir: context.gate_dir, capacity: 1)
+             build_gate_status(gate_dir: context.gate_dir, capacity: 1)
 
     refute File.exists?(owner_path)
     refute File.exists?(phase_owner_path)
@@ -252,7 +252,7 @@ defmodule Aiur.BuildGateTest do
 
     status =
       Task.async(fn ->
-        BuildGate.status(
+        build_gate_status(
           gate_dir: context.gate_dir,
           capacity: 1,
           strategy: :linux_lock
@@ -284,7 +284,7 @@ defmodule Aiur.BuildGateTest do
              queued: 0,
              degraded?: true,
              issues: [%{path: ^legacy_path, reason: :legacy_state}]
-           } = BuildGate.status(gate_dir: context.gate_dir, capacity: 1)
+           } = build_gate_status(gate_dir: context.gate_dir, capacity: 1)
   end
 
   @tag @linux_only
@@ -342,7 +342,14 @@ defmodule Aiur.BuildGateTest do
     mix_pid = context.mix_pid_path |> File.read!() |> String.trim() |> String.to_integer()
 
     name = Module.concat(__MODULE__, "GateContainment#{System.unique_integer([:positive])}")
-    {:ok, _pid} = PauseContainment.start_link(name: name, grace_ms: 60_000)
+
+    {:ok, _pid} =
+      PauseContainment.start_link(
+        name: name,
+        grace_ms: 60_000,
+        event_fun: fn _stage, _payload -> :ok end
+      )
+
     assert {:ok, handle} = PauseContainment.register(name, "repo#1154", root_pid, root_pid)
     assert {:ok, ^handle} = PauseContainment.arm(name, "repo#1154")
 
@@ -499,7 +506,7 @@ defmodule Aiur.BuildGateTest do
 
     assert output =~ "aiur_build_gate released slot=1 status=17"
     refute File.exists?(Path.join(context.gate_dir, "slot-1.owner"))
-    assert %{active: 0, queued: 0} = BuildGate.status(gate_dir: context.gate_dir, capacity: 1)
+    assert %{active: 0, queued: 0} = build_gate_status(gate_dir: context.gate_dir, capacity: 1)
   end
 
   test "preflight reports a real read-only Linux gate root" do
@@ -507,7 +514,7 @@ defmodule Aiur.BuildGateTest do
       gate_dir = Path.join("/sys/kernel", "aiur-build-gate-#{System.unique_integer([:positive])}")
 
       assert {:error, {:build_gate_unavailable, details}} =
-               BuildGate.prepare_writable_root(gate_dir: gate_dir)
+               BuildGate.prepare_writable_root(gate_dir: gate_dir, slots: 2)
 
       assert %{operation: :create_directory, path: ^gate_dir, reason: reason, recovery: recovery} = details
 
@@ -951,7 +958,7 @@ defmodule Aiur.BuildGateTest do
     wait_for_file!(Path.join(context.gate_dir, "phase-start.owner"))
 
     assert %{enabled?: true, capacity: 2, active: 1, queued: 0} =
-             BuildGate.status(gate_dir: context.gate_dir, capacity: 2)
+             build_gate_status(gate_dir: context.gate_dir, capacity: 2)
 
     assert {output, 0} = Task.await(waiting, 7_000)
     assert output =~ "aiur_perf phase_stagger_hold surface=build phase=compile"
@@ -1000,6 +1007,10 @@ defmodule Aiur.BuildGateTest do
 
   defp run_bash(command, context) do
     System.cmd("bash", ["-c", command], env: build_gate_env(context), stderr_to_stdout: true)
+  end
+
+  defp build_gate_status(opts) do
+    BuildGate.status(Keyword.merge([stagger_seconds: 0, min_free_memory_mb: nil], opts))
   end
 
   defp build_gate_env(%{bin_dir: bin_dir, gate_dir: gate_dir, log_path: log_path} = context) do
