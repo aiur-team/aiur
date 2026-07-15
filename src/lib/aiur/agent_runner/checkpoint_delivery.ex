@@ -135,6 +135,10 @@ defmodule Aiur.AgentRunner.CheckpointDelivery do
     Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item_id)
   end
 
+  defp handle_checkpoint_delivery_failure(_issue, orchestrator, item_id, {:provider_turn_retired, _turn_id}) do
+    Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item_id)
+  end
+
   defp handle_checkpoint_delivery_failure(issue, orchestrator, item_id, reason) do
     Logger.info("Queued item delivery failed for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{item_id} decision=mark_failed reason=#{inspect(reason)}")
     Aiur.Orchestrator.mark_queue_item_failed(orchestrator, item_id, reason)
