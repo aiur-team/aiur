@@ -322,8 +322,7 @@ defmodule Aiur.Workspace.Ownership.Guardian do
     |> Map.get(:descendant_pids, [])
     |> Kernel.++(root_process(provider))
     |> Enum.uniq()
-    |> Enum.filter(&(is_integer(&1) and &1 > 0))
-    |> Enum.filter(&state.process_alive_fun.(&1))
+    |> Enum.filter(&(is_integer(&1) and &1 > 0 and state.process_alive_fun.(&1)))
   end
 
   defp root_process(%{root_pid: root_pid}) when is_integer(root_pid) and root_pid > 0, do: [root_pid]

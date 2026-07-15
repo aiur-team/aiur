@@ -132,81 +132,132 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
       remote: is_binary(worker_host)
     })
 
+    session_context = %{
+      lifecycle_attempt_id: lifecycle_attempt_id,
+      max_turns: max_turns,
+      session_backend: session_backend,
+      session_opts: session_opts,
+      rc?: rc?,
+      issue_state_fetcher: issue_state_fetcher,
+      orchestrator: orchestrator
+    }
+
     # Claim a provisional provider before opening a port or tmux pane. If this
     # runner dies in the tiny interval before backend metadata arrives, the
     # guardian remains fail-closed rather than replacing the live provider's
     # workspace underneath it.
     case Ownership.expect_provider(Keyword.get(opts, :workspace_ownership)) do
       :ok ->
-        case start_agent_session(workspace, session_opts) do
-          {:ok, session} ->
-            case track_session_containment(Keyword.get(opts, :workspace_ownership), session, worker_host) do
-              :ok ->
-                Lifecycle.record(issue.identifier, lifecycle_attempt_id, :agent_spinup, :end, %{
-                  operation_id: "session",
-                  backend: session_backend,
-                  outcome: :success
-                })
-
-                # Persist the live session handle so the next aiur restart can resume it.
-                SessionResume.persist_session_handle(session, issue.identifier, worker_host)
-
-                SessionResume.log_resume_outcome(issue, session, Keyword.get(session_opts, :resume_thread_id))
-
-                report_repl_session(codex_update_recipient, issue, session)
-                report_pause_containment(codex_update_recipient, issue, session)
-
-                display_tailer = maybe_start_display_tailer(session, issue, rc?)
-
-                # A resumed thread already carries the original task + full prior turn
-                # history, so its first turn must continue rather than replay the
-                # heavyweight cold-start prompt — mirroring the in-process turn N+1 flow.
-                opts = Keyword.put(opts, :resumed, SessionResume.session_resumed?(session))
-
-                try do
-                  TurnLoop.run_turns(
-                    session,
-                    workspace,
-                    issue,
-                    codex_update_recipient,
-                    opts,
-                    issue_state_fetcher,
-                    orchestrator,
-                    worker_host,
-                    1,
-                    max_turns
-                  )
-                after
-                  stop_display_tailer(display_tailer)
-                  CodingAgent.stop_session(session)
-                end
-
-              {:error, _reason} = error ->
-                CodingAgent.stop_session(session)
-                error
-            end
-
-          {:error, reason} = error ->
-            Lifecycle.record(issue.identifier, lifecycle_attempt_id, :agent_spinup, :end, %{
-              operation_id: "session",
-              backend: session_backend,
-              outcome: :failed,
-              reason_class: Lifecycle.reason_class(reason)
-            })
-
-            error
-        end
+        start_expected_session(
+          workspace,
+          issue,
+          codex_update_recipient,
+          opts,
+          worker_host,
+          Keyword.get(opts, :workspace_ownership),
+          session_context
+        )
 
       {:error, reason} = error ->
-        Lifecycle.record(issue.identifier, lifecycle_attempt_id, :agent_spinup, :end, %{
-          operation_id: "session",
-          backend: session_backend,
-          outcome: :failed,
-          reason_class: Lifecycle.reason_class(reason)
-        })
-
+        record_session_start_failure(issue, session_context, reason)
         error
     end
+  end
+
+  defp start_expected_session(
+         workspace,
+         issue,
+         codex_update_recipient,
+         opts,
+         worker_host,
+         ownership,
+         session_context
+       ) do
+    case start_agent_session(workspace, session_context.session_opts) do
+      {:ok, session} ->
+        run_contained_session(
+          session,
+          workspace,
+          issue,
+          codex_update_recipient,
+          opts,
+          worker_host,
+          ownership,
+          session_context
+        )
+
+      {:error, reason} = error ->
+        record_session_start_failure(issue, session_context, reason)
+        error
+    end
+  end
+
+  defp run_contained_session(
+         session,
+         workspace,
+         issue,
+         codex_update_recipient,
+         opts,
+         worker_host,
+         ownership,
+         session_context
+       ) do
+    case track_session_containment(ownership, session, worker_host) do
+      :ok ->
+        Lifecycle.record(issue.identifier, session_context.lifecycle_attempt_id, :agent_spinup, :end, %{
+          operation_id: "session",
+          backend: session_context.session_backend,
+          outcome: :success
+        })
+
+        run_session_turn_loop(session, workspace, issue, codex_update_recipient, opts, worker_host, session_context)
+
+      {:error, _reason} = error ->
+        CodingAgent.stop_session(session)
+        error
+    end
+  end
+
+  defp run_session_turn_loop(session, workspace, issue, codex_update_recipient, opts, worker_host, session_context) do
+    # Persist the live session handle so the next aiur restart can resume it.
+    SessionResume.persist_session_handle(session, issue.identifier, worker_host)
+    SessionResume.log_resume_outcome(issue, session, Keyword.get(session_context.session_opts, :resume_thread_id))
+    report_repl_session(codex_update_recipient, issue, session)
+    report_pause_containment(codex_update_recipient, issue, session)
+
+    display_tailer = maybe_start_display_tailer(session, issue, session_context.rc?)
+
+    # A resumed thread already carries the original task + full prior turn
+    # history, so its first turn must continue rather than replay the
+    # heavyweight cold-start prompt — mirroring the in-process turn N+1 flow.
+    opts = Keyword.put(opts, :resumed, SessionResume.session_resumed?(session))
+
+    try do
+      TurnLoop.run_turns(
+        session,
+        workspace,
+        issue,
+        codex_update_recipient,
+        opts,
+        session_context.issue_state_fetcher,
+        session_context.orchestrator,
+        worker_host,
+        1,
+        session_context.max_turns
+      )
+    after
+      stop_display_tailer(display_tailer)
+      CodingAgent.stop_session(session)
+    end
+  end
+
+  defp record_session_start_failure(issue, session_context, reason) do
+    Lifecycle.record(issue.identifier, session_context.lifecycle_attempt_id, :agent_spinup, :end, %{
+      operation_id: "session",
+      backend: session_context.session_backend,
+      outcome: :failed,
+      reason_class: Lifecycle.reason_class(reason)
+    })
   end
 
   # A missing local process group is expected for remote workers, headless

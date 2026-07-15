@@ -43,7 +43,15 @@ defmodule Aiur.Workspace.OwnershipRunnerTest do
 
     second = Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn -> AgentRunner.run(issue, test_pid) end)
 
-    assert_receive {:workspace_setup_contended, ^issue_id, ^identifier, {:ok, %{phase: :provisioning}}, {:waiting, guardian, generation}}, 5_000
+    assert_receive {
+                     :workspace_setup_contended,
+                     ^issue_id,
+                     ^identifier,
+                     {:ok, %{phase: :provisioning}},
+                     {:waiting, guardian, generation}
+                   },
+                   5_000
+
     assert {:ok, :ok} = Task.yield(second, 2_000)
     assert File.read!(after_create_trace) == "created\n"
     assert {^device_inode, 0} = System.cmd("stat", ["-c", "%d:%i", workspace], stderr_to_stdout: true)
@@ -111,7 +119,15 @@ defmodule Aiur.Workspace.OwnershipRunnerTest do
 
     second = Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn -> AgentRunner.run(issue, test_pid) end)
 
-    assert_receive {:workspace_setup_contended, ^issue_id, ^identifier, {:ok, _owner}, {:waiting, _guardian, _generation}}, 5_000
+    assert_receive {
+                     :workspace_setup_contended,
+                     ^issue_id,
+                     ^identifier,
+                     {:ok, _owner},
+                     {:waiting, _guardian, _generation}
+                   },
+                   5_000
+
     assert {:ok, :ok} = Task.yield(second, 2_000)
 
     assert {current_inode, 0} =
