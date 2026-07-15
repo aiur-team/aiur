@@ -2101,22 +2101,17 @@ defmodule Aiur.CoreTest do
   end
 
   test "completed Codex runner replacement drains queued rework once" do
-    # The memory tracker fixture is process-global. Stop the supervised
+    # The memory tracker fixture is process-global. Suspend the supervised
     # orchestrator from independently dispatching it beside this named one.
     default_orchestrator = Process.whereis(Orchestrator)
 
     if is_pid(default_orchestrator) do
-      assert :ok = Supervisor.terminate_child(Aiur.Supervisor, Orchestrator)
-    end
+      :ok = :sys.suspend(default_orchestrator, 30_000)
 
-    on_exit(fn ->
-      if is_nil(Process.whereis(Orchestrator)) do
-        case Supervisor.restart_child(Aiur.Supervisor, Orchestrator) do
-          {:ok, _pid} -> :ok
-          {:error, {:already_started, _pid}} -> :ok
-        end
-      end
-    end)
+      on_exit(fn ->
+        if Process.alive?(default_orchestrator), do: :ok = :sys.resume(default_orchestrator)
+      end)
+    end
 
     test_root =
       Path.join(
