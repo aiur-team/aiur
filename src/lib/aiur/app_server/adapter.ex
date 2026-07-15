@@ -5,8 +5,8 @@ defmodule Aiur.AppServer.Adapter do
 
   require Logger
 
-  alias Aiur.AppServer.{Messages, TurnLoop}
   alias Aiur.{AgentEnvironment, Config}
+  alias Aiur.AppServer.{Messages, TurnLoop}
   alias Aiur.Claude.RemoteControl
   alias Aiur.Codex.DynamicTool
 

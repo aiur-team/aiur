@@ -198,7 +198,7 @@ defmodule Aiur.Workspace.Ownership.Guardian do
 
   defp maybe_release_or_reap(%{provider: %{process_group_id: group}} = state)
        when is_integer(group) and group > 0 do
-    if state.group_alive_fun.(group), do: start_reap(state, :group, group), else: release_guardian(state)
+    if alive?(state.group_alive_fun, group), do: start_reap(state, :group, group), else: release_guardian(state)
   end
 
   defp maybe_release_or_reap(%{provider: %{root_pid: root_pid}} = state)
@@ -211,7 +211,7 @@ defmodule Aiur.Workspace.Ownership.Guardian do
         end
 
       _ ->
-        if state.root_alive_fun.(root_pid), do: start_reap(state, :root, root_pid), else: release_guardian(state)
+        if alive?(state.root_alive_fun, root_pid), do: start_reap(state, :root, root_pid), else: release_guardian(state)
     end
   end
 
@@ -231,7 +231,7 @@ defmodule Aiur.Workspace.Ownership.Guardian do
   end
 
   defp continue_after_reap(state, :group, group) do
-    if state.group_alive_fun.(group), do: schedule_reap_retry(state), else: release_guardian(state)
+    if alive?(state.group_alive_fun, group), do: schedule_reap_retry(state), else: release_guardian(state)
   end
 
   defp continue_after_reap(state, :processes, _process_ids) do
@@ -239,7 +239,7 @@ defmodule Aiur.Workspace.Ownership.Guardian do
   end
 
   defp continue_after_reap(state, :root, root_pid) do
-    if state.root_alive_fun.(root_pid), do: schedule_reap_retry(state), else: release_guardian(state)
+    if alive?(state.root_alive_fun, root_pid), do: schedule_reap_retry(state), else: release_guardian(state)
   end
 
   defp continue_after_reap(state, _kind, _identifier), do: loop(state)
@@ -322,8 +322,13 @@ defmodule Aiur.Workspace.Ownership.Guardian do
     |> Map.get(:descendant_pids, [])
     |> Kernel.++(root_process(provider))
     |> Enum.uniq()
-    |> Enum.filter(&(is_integer(&1) and &1 > 0 and state.process_alive_fun.(&1)))
+    |> Enum.filter(&(is_integer(&1) and &1 > 0 and alive?(state.process_alive_fun, &1)))
   end
+
+  # Containment probes must have a boolean boundary even when a test or adapter
+  # injects its own probe. This keeps `if` and `Enum.filter` from consuming an
+  # arbitrary callback return and makes a false probe the only release signal.
+  defp alive?(alive_fun, identifier) when is_function(alive_fun, 1), do: alive_fun.(identifier) == true
 
   defp root_process(%{root_pid: root_pid}) when is_integer(root_pid) and root_pid > 0, do: [root_pid]
   defp root_process(_provider), do: []
