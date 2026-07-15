@@ -93,6 +93,16 @@ defmodule Aiur.DecisionDelegationTest do
     end
   end
 
+  test "preserves integer confidence endpoints without introducing a second scale" do
+    for confidence <- [0, 100] do
+      assert {:ok, delegation} =
+               DecisionDelegation.normalize(decision(), Map.put(valid_payload(), "confidence", confidence), @policy)
+
+      assert delegation.basis.confidence == confidence
+      assert DecisionDelegation.to_json_safe(delegation.basis)["confidence"] == confidence
+    end
+  end
+
   test "redacts and bounds rationale and alternatives" do
     decision = decision()
     secret = "ghp_" <> String.duplicate("A", 36)

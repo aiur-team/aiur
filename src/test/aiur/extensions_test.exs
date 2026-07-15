@@ -647,6 +647,86 @@ defmodule Aiur.ExtensionsTest do
            } = json_response(get(build_conn(), "/api/v1/MT-IDLE"), 200)
   end
 
+  test "observability API preserves tracker identity in status and issue snapshots" do
+    identity = %Aiur.TrackerIdentity{
+      version: 1,
+      status: :joinable,
+      kind: :github,
+      owner: "owner",
+      repository: "repo",
+      provider_id: "I_kwDOHTTP",
+      identifier: "MT-HTTP"
+    }
+
+    snapshot =
+      update_in(static_snapshot(), [:running], fn [running] ->
+        [Map.put(running, :tracker_identity, identity)]
+      end)
+
+    orchestrator_name = Module.concat(__MODULE__, :TrackerIdentityObservabilityApiOrchestrator)
+    {:ok, _pid} = StaticOrchestrator.start_link(name: orchestrator_name, snapshot: snapshot)
+    start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 50)
+
+    assert %{
+             "running" => [
+               %{
+                 "tracker_identity" => %{
+                   "version" => 1,
+                   "status" => "joinable",
+                   "kind" => "github",
+                   "owner" => "owner",
+                   "repository" => "repo",
+                   "provider_id" => "I_kwDOHTTP",
+                   "identifier" => "MT-HTTP"
+                 }
+               }
+             ]
+           } = json_response(get(build_conn(), "/api/v1/state"), 200)
+
+    assert %{
+             "tracker_identity" => %{"provider_id" => "I_kwDOHTTP"},
+             "running" => %{"tracker_identity" => %{"provider_id" => "I_kwDOHTTP"}}
+           } = json_response(get(build_conn(), "/api/v1/MT-HTTP"), 200)
+  end
+
+  test "observability API rejects ambiguous identifier snapshots before exposing nested identity" do
+    first_identity = %Aiur.TrackerIdentity{
+      version: 1,
+      status: :joinable,
+      kind: :github,
+      owner: "owner",
+      repository: "repo-one",
+      provider_id: "I_kwDOFirst",
+      identifier: "42"
+    }
+
+    second_identity = %{first_identity | repository: "repo-two", provider_id: "I_kwDOSecond"}
+
+    snapshot =
+      update_in(static_snapshot(), [:running], fn [running] ->
+        first = Map.merge(running, %{identifier: "42", tracker_identity: first_identity})
+
+        second =
+          Map.merge(running, %{
+            issue_id: "issue-http-second",
+            identifier: "42",
+            session_id: "thread-http-second",
+            workspace_path: "/workspace/repo-two/42",
+            tracker_identity: second_identity
+          })
+
+        [first, second]
+      end)
+
+    orchestrator_name = Module.concat(__MODULE__, :AmbiguousIdentityObservabilityApiOrchestrator)
+    {:ok, _pid} = StaticOrchestrator.start_link(name: orchestrator_name, snapshot: snapshot)
+    start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 50)
+
+    assert json_response(get(build_conn(), "/api/v1/42"), 404) == %{
+             "error" => %{"code" => "issue_not_found", "message" => "Issue not found"}
+           }
+  end
+
   test "read-only dashboard blocks agent-write endpoints but keeps reads working" do
     snapshot = static_snapshot()
     orchestrator_name = Module.concat(__MODULE__, :ReadOnlyOrchestrator)
@@ -829,6 +909,27 @@ defmodule Aiur.ExtensionsTest do
       response(get(build_conn(), "/vendor/phoenix_live_view/phoenix_live_view.js"), 200)
 
     assert live_view_js =~ "var LiveView = (() => {"
+
+    layout_urls = AiurWeb.StaticAssets.layout_asset_urls()
+
+    assert layout_urls.engine =~ ~r/^\/vendor\/layout\/elk-0\.11\.1\/[a-f0-9]{64}\/elk-worker\.min\.js$/
+    assert layout_urls.worker =~ ~r/^\/vendor\/layout\/worker-v1\/[a-f0-9]{64}\/aiur-layout-worker\.js$/
+    assert layout_urls.client =~ ~r/^\/vendor\/layout\/client-v1\/[a-f0-9]{64}\/aiur-layout-client\.js$/
+
+    for url <- Map.values(layout_urls) do
+      conn = get(build_conn(), url)
+      assert response(conn, 200) != ""
+      assert Plug.Conn.get_resp_header(conn, "content-type") == ["application/javascript; charset=utf-8"]
+      assert Plug.Conn.get_resp_header(conn, "cache-control") == ["private, max-age=31536000, immutable"]
+    end
+
+    assert response(get(build_conn(), "/vendor/layout/worker-v1/not-a-digest/aiur-layout-worker.js"), 404) == "Not Found"
+
+    for private_asset <- ["LICENSE.md", "PROVENANCE.md", "SOURCE.md"] do
+      private_asset_url = String.replace(layout_urls.worker, "aiur-layout-worker.js", private_asset)
+      assert response(get(build_conn(), private_asset_url), 404) == "Not Found"
+    end
+
     assert html =~ "AgentLogPanel"
     assert html =~ "hooks: Hooks"
   end

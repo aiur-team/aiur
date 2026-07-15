@@ -1,7 +1,7 @@
 defmodule Aiur.DecisionHistoryTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.DecisionHistory
+  alias Aiur.{DecisionEvent, DecisionHistory, DecisionValidation}
 
   test "projects every version newest first with honest source actors" do
     histories = %{
@@ -83,6 +83,81 @@ defmodule Aiur.DecisionHistoryTest do
     assert is_nil(entry.dispatch_result)
     assert is_nil(entry.acknowledgement_result)
     refute entry.revised?
+  end
+
+  test "exposes only canonical trusted provenance and keeps legacy records unknown" do
+    provenance = %{
+      "schema_version" => 1,
+      "source" => "agent_runner",
+      "captured_at" => "2026-07-13T12:00:00Z",
+      "agent_family" => "codex",
+      "backend" => "codex",
+      "requested_model" => "gpt-5.6-terra",
+      "session_id" => "thread-123",
+      "attempt_id" => "attempt-456"
+    }
+
+    assert DecisionHistory.project_record(record(%{provenance: provenance})).provenance == provenance
+    assert DecisionHistory.project_record(record()).provenance == nil
+
+    unsafe = Map.put(provenance, "raw_session", %{"prompt" => "secret"})
+    assert DecisionHistory.project_record(record(%{provenance: unsafe})).provenance == nil
+  end
+
+  test "projects provenance from a standalone requested event" do
+    provenance = %{backend: "codex", session_id: "thread-123", source: "agent_runner"}
+
+    assert {:ok, decision} =
+             DecisionValidation.normalize(
+               %{"question" => "Keep provenance?", "blocking" => true, "source_id" => "history-provenance"},
+               ticket: %{identifier: "979", title: "OCC-1", url: "https://github.com/its-everdred/aiur/issues/979"},
+               source: %{agent_id: "agent-1", session_id: "session-1", event_id: "evt-1"},
+               provenance: provenance,
+               now: ~U[2026-07-13 12:00:00Z]
+             )
+
+    assert {:ok, event} =
+             DecisionEvent.new(:requested, decision.decision_id, decision.version, decision,
+               event_id: 901,
+               run_id: "run-history-provenance",
+               now: ~U[2026-07-13 12:01:00Z]
+             )
+
+    entry = DecisionHistory.project_record(event)
+
+    assert entry.provenance["backend"] == "codex"
+    assert entry.provenance["session_id"] == "thread-123"
+    assert entry.changed_at == "2026-07-13T12:01:00Z"
+  end
+
+  test "retains the existing integer supervisor basis independently of provenance" do
+    basis = %{
+      confidence: 0,
+      alternatives_considered: ["Wait"],
+      reversibility_belief: :reversible,
+      policy_basis: %{
+        authority: :supervisor_allowed,
+        kind: "architecture",
+        reversibility: :reversible,
+        checks: %{authority_delegable: true, kind_allowed: true, reversibility_allowed: true},
+        allow_non_reversible: false
+      }
+    }
+
+    entry =
+      record(%{
+        answer: %{supervisor_basis: basis},
+        provenance: %{
+          "schema_version" => 1,
+          "source" => "agent_runner",
+          "captured_at" => "2026-07-13T12:00:00Z",
+          "backend" => "codex"
+        }
+      })
+      |> DecisionHistory.project_record()
+
+    assert entry.supervisor_basis["confidence"] == 0
+    assert entry.provenance["backend"] == "codex"
   end
 
   test "returns the full history by default" do

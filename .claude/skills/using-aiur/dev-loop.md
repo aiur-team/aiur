@@ -54,22 +54,31 @@ matching branch, and exits non-zero when no branch or more than one branch exist
 6. Push to the exact branch returned by `git branch --show-current`.
 7. **Open the PR as a draft** with that branch as `--head` (not ready for
    review yet).
-8. **Self-review the draft PR with `ce-code-review`** against the diff you just
+8. **Own branch freshness before review:** fetch the PR's configured base and
+   verify its current remote head is an ancestor of your exact branch head. If
+   it is not, integrate or re-cut against it, resolve both textual conflicts
+   and semantic drift, rerun the scoped gate, and push. Do not hand stale code
+   to the Executor or reviewers to update.
+9. **Self-review the draft PR with `ce-code-review`** against the diff you just
    pushed.
-9. Implement any issues `ce-code-review` surfaces (commit + push the fixes).
-10. Re-run the scoped local pre-PR verification gate after review fixes if any
+10. Implement any issues `ce-code-review` surfaces (commit + push the fixes).
+11. Re-run the scoped local pre-PR verification gate after review fixes if any
     code, tests, prompt, skill, or config files changed.
-11. If you still believe the work is complete and correct and only CI remains,
+12. Recheck current-base ancestry after fixes. If the base moved, integrate it,
+    rerun the scoped gate, and push before continuing.
+13. If you still believe the work is complete and correct and only CI remains,
     keep the PR as a draft, add the `agent:ci-wait` label, and end the turn. Do
     not loop on `gh pr checks` + sleep: the daemon polls CI centrally and
     returns the dispatch slot while this runner is paused.
-12. On a delivered terminal CI event:
-    - **Passed:** trust the delivered result without re-polling, mark the PR ready
-      for review, emit the required 100% progress sample, and add
-      `agent:human-review`.
+14. On a delivered terminal CI event:
+    - **Passed:** fetch the configured base once. If its current remote head is
+      still an ancestor of the tested PR head, trust the delivered result,
+      mark the PR ready for review, emit the required 100% progress sample, and
+      add `agent:human-review`. If the base moved, integrate it yourself,
+      validate, push, and return to `agent:ci-wait` for fresh exact-head CI.
     - **Failed:** use the delivered failed-check names and excerpt, keep or move
       the ticket in `agent:rework`, and begin the repair loop.
-13. On a CI re-wake timeout, run `gh pr checks` exactly once. If CI is terminal,
+15. On a CI re-wake timeout, run `gh pr checks` exactly once. If CI is terminal,
     follow the pass or failure path; if it is still pending, return to
     `agent:ci-wait` and end the turn without polling again.
 

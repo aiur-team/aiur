@@ -3,17 +3,50 @@ defmodule Aiur.Config.Schema.Github do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @max_planning_root_limit 100
+  @max_planning_page_budget 4
+  @max_planning_call_budget 4
+
   @primary_key false
   embedded_schema do
     field(:repo, :string)
     field(:label_prefix, :string, default: "agent")
     field(:bot_account, :string)
     field(:trusted_accounts, {:array, :string}, default: [])
+    field(:planning_root_limit, :integer, default: @max_planning_root_limit)
+    field(:planning_page_budget, :integer, default: @max_planning_page_budget)
+    field(:planning_call_budget, :integer, default: @max_planning_call_budget)
   end
 
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(schema, attrs) do
-    cast(schema, attrs, [:repo, :label_prefix, :bot_account, :trusted_accounts], empty_values: [])
+    schema
+    |> cast(
+      attrs,
+      [
+        :repo,
+        :label_prefix,
+        :bot_account,
+        :trusted_accounts,
+        :planning_root_limit,
+        :planning_page_budget,
+        :planning_call_budget
+      ],
+      empty_values: []
+    )
+    |> validate_required([:planning_root_limit, :planning_page_budget, :planning_call_budget])
+    |> validate_number(:planning_root_limit,
+      greater_than: 0,
+      less_than_or_equal_to: @max_planning_root_limit
+    )
+    |> validate_number(:planning_page_budget,
+      greater_than: 0,
+      less_than_or_equal_to: @max_planning_page_budget
+    )
+    |> validate_number(:planning_call_budget,
+      greater_than: 0,
+      less_than_or_equal_to: @max_planning_call_budget
+    )
   end
 end
 

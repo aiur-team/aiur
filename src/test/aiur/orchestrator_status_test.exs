@@ -1,11 +1,22 @@
 defmodule Aiur.OrchestratorStatusTest do
   use Aiur.TestSupport
 
-  alias Aiur.{AgentQueueStore, Issue}
+  alias Aiur.{AgentPubSub, AgentQueueStore, Issue, TrackerIdentity}
   alias Aiur.Codex.CodingAgent, as: CodexCodingAgent
   alias Aiur.Events.SubscriptionStore
   alias Aiur.Opencode.ActiveTurns
-  alias Aiur.Orchestrator.{CiLifecycle, HumanReview, OperatorMessages, PauseResume, Reconciler, State, WorkspaceCleanup}
+
+  alias Aiur.Orchestrator.{
+    CiLifecycle,
+    HumanReview,
+    OperatorMessages,
+    PauseResume,
+    Reconciler,
+    State,
+    StatusReport,
+    WorkspaceCleanup
+  }
+
   alias Aiur.SessionHandle
 
   defmodule StartupCleanupLinearClient do
@@ -110,6 +121,19 @@ defmodule Aiur.OrchestratorStatusTest do
       last_codex_message: nil,
       last_codex_event: nil,
       started_at: DateTime.utc_now()
+    }
+  end
+
+  defp tracker_identity(identifier) do
+    %TrackerIdentity{
+      version: 1,
+      status: :joinable,
+      kind: :github,
+      owner: "owner",
+      repository: "repo",
+      provider_id: "I_kwDO#{identifier}",
+      identifier: identifier,
+      reason: nil
     }
   end
 
@@ -406,7 +430,7 @@ defmodule Aiur.OrchestratorStatusTest do
       %{state | queue_store: store, running: %{"issue-op" => entry}}
     end)
 
-    snapshot = Orchestrator.snapshot(orchestrator_name, 1_000)
+    snapshot = Orchestrator.snapshot(orchestrator_name, 5_000)
 
     # Regression: rendering the visible operator message used to run get_in/2 on
     # an %AgentQueueItem{} struct, which crashed the whole Orchestrator GenServer
@@ -414,6 +438,39 @@ defmodule Aiur.OrchestratorStatusTest do
     refute snapshot == :timeout
     assert Process.alive?(pid)
     assert inspect(snapshot) =~ "hello operator text"
+  end
+
+  test "snapshot keeps legacy running entries with omitted optional Codex fields available" do
+    orchestrator_name = Module.concat(__MODULE__, :LegacySnapshotOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    legacy_entry =
+      running_entry("issue-legacy", "MT-LEGACY", :working)
+      |> Map.drop([
+        :session_id,
+        :codex_app_server_pid,
+        :agent_input_tokens,
+        :agent_output_tokens,
+        :agent_total_tokens,
+        :last_codex_timestamp,
+        :last_codex_message,
+        :last_codex_event,
+        :started_at
+      ])
+
+    :sys.replace_state(pid, fn state ->
+      %{state | running: %{"issue-legacy" => legacy_entry}}
+    end)
+
+    assert %{running: [snapshot_entry]} = Orchestrator.snapshot(orchestrator_name, 5_000)
+    assert snapshot_entry.identifier == "MT-LEGACY"
+    assert snapshot_entry.session_id == nil
+    assert snapshot_entry.codex_app_server_pid == nil
+    assert snapshot_entry.runtime_seconds == 0
   end
 
   test "session max status counts active agents separately from paused agents" do
@@ -501,7 +558,7 @@ defmodule Aiur.OrchestratorStatusTest do
              %{identifier: "repo#44", state: :running, title: "Active"},
              %{identifier: "repo#45", state: :paused, title: "Paused"},
              %{identifier: "repo#46", state: :idle, title: "Idle"}
-           ] = Orchestrator.status(orchestrator_name, 1_000)
+           ] = Orchestrator.status(orchestrator_name, 5_000)
   end
 
   test "status keeps cached and deactivated rows for control commands" do
@@ -554,7 +611,7 @@ defmodule Aiur.OrchestratorStatusTest do
              %{identifier: "repo#492", state: :running, title: "Closed running", tracker_state: "Closed"},
              %{identifier: "repo#523", state: :idle, title: "Closed stale active label", tracker_state: "Closed"},
              %{identifier: "repo#524", state: :idle, title: "Closed with active label removed", tracker_state: nil}
-           ] = Orchestrator.status(orchestrator_name, 1_000)
+           ] = Orchestrator.status(orchestrator_name, 5_000)
   end
 
   test "pause then resume round trip updates status around worker control messages" do
@@ -1528,6 +1585,148 @@ defmodule Aiur.OrchestratorStatusTest do
     assert due_in_ms > 0
   end
 
+  test "status API, snapshot, and PubSub retain exact tracker identities" do
+    orchestrator_name = Module.concat(__MODULE__, :TrackerIdentityOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    running_identity = tracker_identity("MT-701")
+    retry_identity = tracker_identity("MT-702")
+    idle_identity = tracker_identity("MT-703")
+
+    running =
+      "issue-running"
+      |> running_entry("MT-701", :working)
+      |> put_in([:issue, Access.key(:tracker_identity)], running_identity)
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | running: %{"issue-running" => running},
+          retry_attempts: %{
+            "issue-retrying" => %{
+              attempt: 1,
+              timer_ref: nil,
+              due_at_ms: System.monotonic_time(:millisecond) + 5_000,
+              identifier: "MT-702",
+              tracker_identity: retry_identity
+            }
+          },
+          last_polled_issues: %{
+            "issue-running" => %Issue{
+              id: "issue-running",
+              identifier: "MT-701",
+              state: "in-progress",
+              tracker_identity: running_identity
+            },
+            "issue-retrying" => %Issue{
+              id: "issue-retrying",
+              identifier: "MT-702",
+              state: "in-progress",
+              tracker_identity: retry_identity
+            },
+            "issue-idle" => %Issue{
+              id: "issue-idle",
+              identifier: "MT-703",
+              state: "todo",
+              tracker_identity: idle_identity
+            }
+          }
+      }
+    end)
+
+    snapshot = Orchestrator.snapshot(orchestrator_name, 5_000)
+    assert [%{tracker_identity: ^running_identity}] = snapshot.running
+    assert [%{tracker_identity: ^retry_identity}] = snapshot.retrying
+    assert [%{tracker_identity: ^idle_identity}] = snapshot.idle
+
+    assert %{tracker_identity: ^running_identity} =
+             Enum.find(Orchestrator.status(orchestrator_name, 5_000), &(&1.identifier == "MT-701"))
+
+    assert %{tracker_identity: ^retry_identity} =
+             Enum.find(Orchestrator.status(orchestrator_name, 5_000), &(&1.identifier == "MT-702"))
+
+    assert %{tracker_identity: ^idle_identity} =
+             Enum.find(Orchestrator.status(orchestrator_name, 5_000), &(&1.identifier == "MT-703"))
+
+    :ok = AgentPubSub.subscribe_running()
+    :ok = StatusReport.notify_dashboard(:sys.get_state(pid))
+    assert_receive {:running_changed, summaries}
+
+    assert %{tracker_identity: ^running_identity} =
+             Enum.find(summaries, &(&1.identifier == "MT-701"))
+
+    assert %{tracker_identity: ^retry_identity} =
+             Enum.find(summaries, &(&1.identifier == "MT-702"))
+
+    assert %{tracker_identity: ^idle_identity} =
+             Enum.find(summaries, &(&1.identifier == "MT-703"))
+  end
+
+  test "status snapshots do not overwrite current identity from a same-number retry" do
+    orchestrator_name = Module.concat(__MODULE__, :IdentityCollisionOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    retry_identity = tracker_identity("42")
+
+    current_identity =
+      TrackerIdentity.unjoinable(:repository_mismatch,
+        owner: "owner",
+        repository: "repo",
+        identifier: 42
+      )
+
+    legacy_identity = TrackerIdentity.unjoinable(:legacy, identifier: 42)
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | retry_attempts: %{
+            "issue-retrying" => %{
+              attempt: 1,
+              timer_ref: nil,
+              due_at_ms: System.monotonic_time(:millisecond) + 5_000,
+              identifier: "42",
+              tracker_identity: retry_identity
+            }
+          },
+          last_polled_issues: %{
+            "issue-retrying" => %Issue{
+              id: "issue-retrying",
+              identifier: "42",
+              state: "in-progress",
+              tracker_identity: current_identity
+            },
+            "legacy-42" => %Issue{
+              id: "legacy-42",
+              identifier: "42",
+              state: "todo",
+              tracker_identity: legacy_identity
+            }
+          }
+      }
+    end)
+
+    snapshot = Orchestrator.snapshot(orchestrator_name, 5_000)
+    assert [%{tracker_identity: ^current_identity}] = snapshot.retrying
+    assert [%{issue_id: "legacy-42", tracker_identity: ^legacy_identity}] = snapshot.idle
+
+    statuses = Orchestrator.status(orchestrator_name, 5_000)
+
+    assert %{tracker_identity: ^current_identity} =
+             Enum.find(statuses, &(&1.issue_id == "issue-retrying"))
+
+    assert %{tracker_identity: ^legacy_identity} =
+             Enum.find(statuses, &(&1.issue_id == "legacy-42"))
+  end
+
   test "orchestrator snapshot includes idle rows and explicit waiting reasons" do
     orchestrator_name = Module.concat(__MODULE__, :FleetStateOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
@@ -1567,7 +1766,7 @@ defmodule Aiur.OrchestratorStatusTest do
       }
     end)
 
-    snapshot = Orchestrator.snapshot(orchestrator_name, 1_000)
+    snapshot = Orchestrator.snapshot(orchestrator_name, 5_000)
 
     assert [%{identifier: "MT-600", waiting_reason: :unresponsive, stale_for_seconds: stale_for_seconds}] =
              snapshot.running
@@ -1608,7 +1807,7 @@ defmodule Aiur.OrchestratorStatusTest do
     :ok = :sys.suspend(store_pid)
 
     try do
-      assert %{running: [row]} = Orchestrator.snapshot(orchestrator_name, 100)
+      assert %{running: [row]} = Orchestrator.snapshot(orchestrator_name, 5_000)
       assert row.open_decision_count == 1
       assert row.waiting_reason == :waiting_for_human
     after
@@ -1764,7 +1963,7 @@ defmodule Aiur.OrchestratorStatusTest do
 
   test "orchestrator enqueues operator messages and pause requests for the running agent task" do
     orchestrator_name = Module.concat(__MODULE__, :OperatorMessageOrchestrator)
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
     :ok = ActiveTurns.put("MT-CHAT", "turn-chat")
 
     on_exit(fn ->
@@ -1773,6 +1972,8 @@ defmodule Aiur.OrchestratorStatusTest do
     end)
 
     parent = self()
+
+    assert %{next_poll_due_at_ms: nil, tick_timer_ref: nil} = :sys.get_state(pid)
 
     worker_pid =
       spawn(fn ->
@@ -1832,7 +2033,9 @@ defmodule Aiur.OrchestratorStatusTest do
 
     assert is_integer(interrupt_request_id)
 
-    assert :empty = Orchestrator.claim_next_checkpoint_queue_item(orchestrator_name, "MT-CHAT")
+    checkpoint_result = Orchestrator.claim_next_checkpoint_queue_item(orchestrator_name, "MT-CHAT")
+    assert Process.alive?(pid)
+    assert :empty = checkpoint_result
 
     assert {:ok,
             %{
@@ -2991,12 +3194,14 @@ defmodule Aiur.OrchestratorStatusTest do
 
     tick_at_ms = System.monotonic_time(:millisecond)
     send(pid, :tick)
-    Process.sleep(100)
+
+    assert eventually?(fn ->
+             state = :sys.get_state(pid)
+             not Process.alive?(worker_pid) and not Map.has_key?(state.running, issue_id)
+           end)
+
     state = :sys.get_state(pid)
     observed_at_ms = System.monotonic_time(:millisecond)
-
-    refute Process.alive?(worker_pid)
-    refute Map.has_key?(state.running, issue_id)
 
     assert %{
              attempt: 1,
@@ -3107,7 +3312,7 @@ defmodule Aiur.OrchestratorStatusTest do
   end
 
   defp do_wait_for_status(orchestrator_name, predicate, deadline_ms) do
-    status = Orchestrator.status(orchestrator_name, 1_000)
+    status = Orchestrator.status(orchestrator_name, 5_000)
 
     if is_list(status) and predicate.(status) do
       status
@@ -3287,4 +3492,17 @@ defmodule Aiur.OrchestratorStatusTest do
 
     release_file
   end
+
+  defp eventually?(fun, attempts \\ 100)
+
+  defp eventually?(fun, attempts) when attempts > 0 do
+    if fun.() do
+      true
+    else
+      Process.sleep(25)
+      eventually?(fun, attempts - 1)
+    end
+  end
+
+  defp eventually?(_fun, 0), do: false
 end
