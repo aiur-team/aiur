@@ -369,6 +369,79 @@ test('adapter accepts bounded maximum graph inputs beyond a 4096px document cont
   }
 })
 
+test('adapter dense-ranks sparse semantic lane and phase values for worker layout', async ({ browser }) => {
+  const context = await browser.newContext({ httpCredentials: dashboardCredentials })
+  const page = await context.newPage()
+
+  try {
+    await openFixture(page)
+
+    const result = await page.evaluate(async () => {
+      const { measureLayout } = await import('/aiur-dom-svg-layout/measurement.js')
+      const root = document.createElement('section')
+      root.dataset.layoutRootId = 'sparse-semantic-root'
+      root.dataset.layoutProviderGeneration = '1'
+      root.dataset.layoutDomGeneration = '1'
+      root.getBoundingClientRect = () => ({ width: 800, height: 600 })
+
+      const cards = document.createElement('div')
+      cards.dataset.layoutCards = ''
+      root.append(cards)
+
+      const semantics = [
+        { lane: 5_000, phase: 100 },
+        { lane: 100, phase: 500_000 },
+        { lane: 5_000, phase: 9_000 }
+      ]
+
+      semantics.forEach(({ lane, phase }, index) => {
+        const card = document.createElement('article')
+        card.dataset.layoutNode = ''
+        card.dataset.layoutNodeId = `sparse-node-${index}`
+        card.dataset.layoutLane = String(lane)
+        card.dataset.layoutPhase = String(phase)
+        card.getBoundingClientRect = () => ({ width: 160, height: 64 })
+
+        const header = document.createElement('header')
+        header.dataset.layoutCardHeader = ''
+        header.getBoundingClientRect = () => ({ width: 160, height: 24 })
+        card.append(header)
+        cards.append(card)
+      })
+
+      const measured = measureLayout(root, { clientEpoch: 1, layoutGeneration: 1, measurementVersion: 1 })
+
+      return {
+        constraints: measured?.request.constraints,
+        domSemantics: Array.from(cards.children, (card) => ({
+          lane: card.dataset.layoutLane,
+          phase: card.dataset.layoutPhase
+        })),
+        workerNodes: measured?.request.nodes.map(({ lane, phase }) => ({ lane, phase }))
+      }
+    })
+
+    expect(result).toEqual({
+      constraints: {
+        lanes: [{ index: 0 }, { index: 1 }],
+        phases: [{ index: 0 }, { index: 1 }, { index: 2 }]
+      },
+      domSemantics: [
+        { lane: '5000', phase: '100' },
+        { lane: '100', phase: '500000' },
+        { lane: '5000', phase: '9000' }
+      ],
+      workerNodes: [
+        { lane: 1, phase: 0 },
+        { lane: 0, phase: 2 },
+        { lane: 1, phase: 1 }
+      ]
+    })
+  } finally {
+    await context.close()
+  }
+})
+
 test('adapter discards late worker responses after root replacement and a LiveView graph update', async ({ browser }) => {
   const context = await browser.newContext({ httpCredentials: dashboardCredentials })
   await context.addInitScript(() => {

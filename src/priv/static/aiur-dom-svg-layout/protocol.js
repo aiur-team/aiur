@@ -111,7 +111,7 @@ export function edgeState(value) {
 
 export function nonNegativeInteger(value) {
   const parsed = Number(value)
-  return Number.isInteger(parsed) && parsed >= 0 && parsed < MAX_NODES ? parsed : null
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null
 }
 
 export function positiveInteger(value) {

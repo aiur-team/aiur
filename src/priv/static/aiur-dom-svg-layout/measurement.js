@@ -55,6 +55,7 @@ export function measureLayout(element, { clientEpoch, layoutGeneration, measurem
       nodes.push({ id: workerId, width: measuredDimension(cardRect.width), height: measuredDimension(cardRect.height), lane, phase })
     }
 
+    const rankedNodes = denseRankNodes(nodes)
     const edgeElements = Array.from(element.querySelectorAll("[data-layout-edge]"))
     if (edgeElements.length > MAX_EDGES) return null
 
@@ -79,11 +80,11 @@ export function measureLayout(element, { clientEpoch, layoutGeneration, measurem
       version: 1,
       requestId: `request_${layoutGeneration}_${nodes.length}`,
       generation: layoutGeneration,
-      nodes,
+      nodes: rankedNodes,
       edges,
       constraints: {
-        lanes: constraintIndexes(nodes, "lane"),
-        phases: constraintIndexes(nodes, "phase")
+        lanes: constraintIndexes(rankedNodes, "lane"),
+        phases: constraintIndexes(rankedNodes, "phase")
       },
       options: {
         direction: "RIGHT",
@@ -97,6 +98,22 @@ export function measureLayout(element, { clientEpoch, layoutGeneration, measurem
 
     return { cardsByWorkerId, context, edgeRecords, request }
   })
+}
+
+function denseRankNodes(nodes) {
+  const laneRanks = denseRanks(nodes, "lane")
+  const phaseRanks = denseRanks(nodes, "phase")
+
+  return nodes.map((node) => ({
+    ...node,
+    lane: laneRanks.get(node.lane),
+    phase: phaseRanks.get(node.phase)
+  }))
+}
+
+function denseRanks(nodes, key) {
+  const semanticValues = [...new Set(nodes.map((node) => node[key]))].sort((left, right) => left - right)
+  return new Map(semanticValues.map((value, rank) => [value, rank]))
 }
 
 export function readRootContext(element, measurementVersion) {
