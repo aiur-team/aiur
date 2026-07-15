@@ -79,6 +79,23 @@ defmodule Aiur.HttpServer do
     :exit, _reason -> nil
   end
 
+  @doc "Return the dashboard URL only when the HTTP listener is actually bound."
+  @spec base_url() :: String.t() | nil
+  def base_url do
+    case bound_port() do
+      port when is_integer(port) and port > 0 ->
+        host = Config.server_host()
+        "http://#{display_host(host)}:#{port}"
+
+      _ ->
+        nil
+    end
+  rescue
+    _error -> nil
+  catch
+    :exit, _reason -> nil
+  end
+
   # Require basic-auth credentials for writable dashboards on every host, and
   # for read-only dashboards exposed beyond loopback. Returns `:ok` to proceed,
   # or a sentinel that disables the dashboard after logging remediation.
@@ -119,7 +136,7 @@ defmodule Aiur.HttpServer do
   # and the whole BEAM goes down on startup (#442). Probe the bind first and
   # degrade to no-dashboard (`:ignore`) instead: the node keeps running agents,
   # only this instance's dashboard is unavailable. The `Logger.warning` line is
-  # the operator's only signal, so it names the port + remediation.
+  # the Executor’s only signal, so it names the port + remediation.
   #
   # Port 0 is ephemeral (the OS assigns a free port), so it never collides —
   # skip the probe. The probe mirrors Bandit's bind (`reuseaddr: true`) so a
@@ -156,7 +173,7 @@ defmodule Aiur.HttpServer do
   defp loopback?(@loopback_v6), do: true
   defp loopback?(_), do: false
 
-  # Read-only unless the operator opted into dashboard writes. Fail closed if
+  # Read-only unless the Executor opted into dashboard writes. Fail closed if
   # config can't be resolved — an observe-only dashboard is the safe default.
   defp dashboard_writable? do
     Config.dashboard_writable?()
@@ -197,6 +214,10 @@ defmodule Aiur.HttpServer do
   defp normalize_host(host) when host in ["", nil], do: "127.0.0.1"
   defp normalize_host(host) when is_binary(host), do: host
   defp normalize_host(host), do: to_string(host)
+
+  defp display_host(host) when host in ["0.0.0.0", "::", "", nil], do: "127.0.0.1"
+  defp display_host(host) when is_binary(host), do: host
+  defp display_host(host), do: to_string(host)
 
   defp secret_key_base do
     Base.encode64(:crypto.strong_rand_bytes(@secret_key_bytes), padding: false)

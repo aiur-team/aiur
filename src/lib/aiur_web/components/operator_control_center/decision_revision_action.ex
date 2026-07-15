@@ -144,7 +144,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionRevisionAction do
 
       <div :if={@pending_follow_up} class="decision-follow-up">
         <div>
-          <span class="decision-answer-label">Operator follow-up required</span>
+          <span class="decision-answer-label">Executor follow-up required</span>
           <strong>Target no longer active</strong>
           <p>{@pending_follow_up.question}</p>
         </div>

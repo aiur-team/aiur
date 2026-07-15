@@ -106,6 +106,8 @@ defmodule Aiur.AgentEventsTest do
       assert AgentEvents.state_emoji("error") == "🔴"
       assert AgentEvents.state_emoji(:done) == "🏁"
       assert AgentEvents.state_emoji("done") == "🏁"
+      assert AgentEvents.state_emoji(:completed) == "⏹️"
+      assert AgentEvents.state_emoji("completed") == "⏹️"
       assert AgentEvents.state_emoji(:sleeping) == "💤"
       assert AgentEvents.state_emoji("sleeping") == "💤"
     end

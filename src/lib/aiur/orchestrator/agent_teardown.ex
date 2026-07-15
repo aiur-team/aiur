@@ -62,7 +62,7 @@ defmodule Aiur.Orchestrator.AgentTeardown do
         # bypassing the normal `close_aiur_turn_streams` path; without
         # the explicit close the bridge streams stay subscribed at the
         # old `aiur_turn_id` and miss every event the next-dispatched
-        # agent emits. The operator sees an empty chat pane until the
+        # agent emits. The Executor sees an empty chat pane until the
         # 10-minute watchdog fires.
         close_active_chat_streams(identifier, terminate_reason(cleanup_workspace))
 
@@ -109,6 +109,13 @@ defmodule Aiur.Orchestrator.AgentTeardown do
       %{pid: pid, ref: ref, identifier: identifier} = running_entry ->
         Logger.info("Issue deactivated (human-review): issue_id=#{issue_id} identifier=#{identifier}; keeping running entry, freeing slot")
 
+        completed_provenance? = State.completed_provenance?(running_entry)
+
+        state =
+          if completed_provenance?,
+            do: TokenAccounting.record_session_completion_totals(state, running_entry),
+            else: state
+
         # Close any open chat-completion SSE streams for this identifier
         # BEFORE killing the task. `terminate_task/1` brutally kills the
         # AgentRunner, bypassing the normal `close_aiur_turn_streams`
@@ -137,6 +144,7 @@ defmodule Aiur.Orchestrator.AgentTeardown do
           |> Map.put(:pid, nil)
           |> Map.put(:ref, nil)
           |> Map.put(:control, Map.put(existing_control, :status, :deactivated))
+          |> maybe_preserve_completed_provenance(completed_provenance?)
 
         new_state = %{
           state
@@ -164,6 +172,14 @@ defmodule Aiur.Orchestrator.AgentTeardown do
   end
 
   def terminate_task(_pid), do: :ok
+
+  defp maybe_preserve_completed_provenance(entry, true) do
+    entry
+    |> Map.put(:completed_provenance, true)
+    |> Map.put(:completion_totals_recorded, true)
+  end
+
+  defp maybe_preserve_completed_provenance(entry, false), do: entry
 
   # Kill the persistent-REPL pane + claude OS pid tracked on the running
   # entry. Idempotent and tolerant of a half-dead session (pane gone but

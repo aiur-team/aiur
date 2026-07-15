@@ -1,181 +1,248 @@
 ---
 name: aiur-run
-description: "Launch and babysit a background (--bg) aiur dogfood run end-to-end — pre-flight config + build + prewarm, launch detached, then monitor agents/CPU/FD/prewarm and drive pause/resume/stop. Use when asked to 'run IAR', 'run aiur', 'iarc run', 'launch aiurdev', 'start the dogfood loop', or kick agents off on the agent:todo backlog."
+description: "Launch and operate an Aiur run end to end as its Executor: establish authority, protect a finite acceptance boundary, launch and monitor, maximize safe critical-path parallelism, recover agents, coordinate PR review/rework, apply merge policy, and handle Aiur defects. Use for 'run aiur', 'run IAR/AYR', 'iarc run', 'run the aiur loop', '/aiur-loop', 'improve this repo with aiur', 'execute this Build Order', or a persistent Aiur goal."
 ---
 
-# Run aiur in --bg mode
+# Run Aiur as the Executor
 
-Operator playbook for running a background aiur run myself: launch it detached, keep it
-healthy, and drive the controls. Pairs with the `aiur-monitor` skill — that one owns the
-per-agent status read; this one owns launch + lifecycle.
+Use this skill when the agent owns the whole Aiur run, not merely its launch.
+It replaces the former `aiur-loop` workflow. Read the canonical
+[Executor role](references/executor.md) before acting, then use `aiur-monitor`
+for status reads and the recurring observation loop.
 
-`iarc` is an operator alias for `aiur` in this repo. Treat `/iarc run` as this
-same aiur background-run playbook.
+`iarc` is an Executor alias for `aiur`; IAR and AYR are common spellings. Treat
+their run requests as this workflow.
 
-## Mental model
+## 1. Establish the run contract
 
-- `scripts/aiurdev` is the dev shim: it rebuilds the local `mix release` when stale, then
-  `exec`s the shared engine (`packaging/npm/aiur-cli/libexec/aiur-engine.sh`). Subcommands
-  (`--bg`, `stop`, `pause`, `status`, `watch`, `message`) are passed straight through to the engine.
-- `aiur --bg` runs the BEAM headless in a **detached tmux session**. Identity is
-  per-instance-keyed (#431): node/tmux/socket are keyed by the repo root, so a second aiur
-  from a different root coexists instead of reaping this one.
-- The orchestrator dispatches agents for tickets matching the `agent:` label prefix + the
-  tracker's active states (`.aiur/config`). `complexity:N` routes the backend (4–5 → claude).
-- **Prewarm** (the CPU-saver): one shared base of latest main is built+compiled at
-  `~/.aiur/repo/<owner>/<name>`, and each agent workspace is materialized from it via
-  copy-on-write — no per-agent cold clone+build. The eager gate **holds dispatch until the
-  base is `:ready`**, so agents wait for the warm base rather than 10× cold-cloning.
+Identify the working repository and read its `AGENTS.md`, `CONTRIBUTING.md`,
+Aiur config, and Executor handoff. Record the authority envelope from the
+Executor reference: scope, issue creation/comment, review, merge, self-fix,
+concurrency, cadence, debug mode, and terminal condition. Record external issue
+mutation authority separately from debug mode; one never implies the other.
 
-## 1. Pre-flight
+The handoff must identify the finite feature boundary, critical path, required
+documentation/cleanup, required end-to-end proof, and deferred-findings ledger.
+If those are absent, establish them before launch.
 
-1. **No nested tmux** — aiurdev refuses if `$TMUX` is set. Run from a bare terminal.
-2. **Pull main** — `git -C <repo> pull origin main` so the build + prewarm base carry the
-   latest merged fixes.
-3. **Check for a live instance** — `pgrep -f 'rel/aiur/.*beam'`. For the operator's own run,
-   stop a stale one first: `aiurdev stop`.
-4. **Set concurrency in `.aiur/config`** (no `--max-agents` flag yet — see #449):
-   - `agent.max_concurrent_agents` — the ceiling (operator default ≤ 10).
-   - `pre_warmed_sessions` — the warm-pool / first-open latency dial. It controls how many
-     opencode serves boot eagerly at startup, not how many agents can run. Keep it at the
-     number of instant-open chat panes you actually want; cold slots grow on demand up to the
-     larger of the pane-grid capacity and `agent.max_concurrent_agents`.
-   - Never `aiurdev init --force` — it clobbers `.aiur/config`.
-5. **Backlog ready** — `gh issue list --label agent:todo --state open` should be non-empty.
+Ask only for a material permission that is neither stated nor safely
+discoverable. Never infer merge, destructive-change, or external issue-creation
+authority.
 
-## 2. Build the latest release
+If a Build Order handoff exists, verify its approved plan version and GitHub
+selector. Query GitHub and Aiur for current state; do not trust a hand-written
+status table in the planning branch.
 
-`cd <repo> && aiurdev build` force-rebuilds the release from the working tree
-(`aiurdev build --deps` wipes `_build/dev` for a clean dep rebuild). A bare `aiurdev` only
-rebuilds when stale.
+## 2. Preflight
 
-## 3. Launch (detached, logged)
+Set `AIUR_CMD=scripts/aiurdev` in an Aiur development checkout and
+`AIUR_CMD=aiur` in a consumer repository. Use that command boundary throughout;
+consumer repositories do not contain the development shim.
 
-Run it backgrounded and **always pass `--debug`** — the verbose logs under `~/.aiur/logs` are how
-you monitor agents and diagnose snags (firehose/token failures, workspace-hook errors, stalls):
+From the repository root:
 
-```
-aiurdev --bg --debug    # --debug = AIUR_DEBUG=1 (verbose); logs land under ~/.aiur/logs
-```
+1. confirm auth, config discovery, tracker state slugs, workspace hooks, and the
+   base branch required by the repository;
+2. run `"$AIUR_CMD" status` and resolve an existing session deliberately;
+3. inspect the scoped queue and native blockers before dispatch; if explicit
+   IDs are in scope, queue them separately before launch:
 
-Never use `--test` / `--test3` for a real run — those reset the sandbox tickets.
+   ```bash
+   "$AIUR_CMD" --todo <ids...> [--only]
+   ```
 
-## 4. Verify prewarm (do this every launch)
+   `--only` dequeues all other pending tickets and therefore requires explicit
+   scope authority;
+4. choose a measured starting cap and the recorded maximum. Keep the session
+   ceiling high enough to admit every ready independent lane; use AIMD/build
+   gates or explicit resource thresholds to regulate effective concurrency,
+   not an arbitrary low fixed cap;
+5. when `AIUR_CMD=scripts/aiurdev`, use `"$AIUR_CMD" build` if the local release
+   needs an explicit clean checkpoint; ordinary local launches rebuild stale
+   sources, and installed `aiur` has no shim-only `build` command.
 
-The base builds/refreshes via `Aiur.RepoBase` on first dispatch, held by the eager gate.
-Confirm it actually worked:
+Do not use `--test` or `--test3` for a real run. Those are destructive sandbox
+harnesses. Do not run from nested tmux.
 
-- Base current: `~/.aiur/repo/<owner>/<name>/.aiur-base-built` exists with `_build` + `deps`.
-- Log reaches `prewarm:phase … :ready` — `grep -i prewarm <log>`. A failure logs
-  `prewarm base unavailable: …` loudly (#441).
-- Workspaces appear quickly under `workspace.root` (CoW materialize), not after a per-agent
-  build. If agents are each cold-cloning/building → prewarm is broken; stop and fix before
-  10 concurrent builds melt the box.
+## 3. Launch
 
-## 5. Monitor — REQUIRED: ASK the cadence, then arm it immediately on launch
+Use the repository shim while developing Aiur and the installed `aiur` command
+in consumer repositories. Equivalent background forms are:
 
-**REQUIRED SUB-SKILL: `aiur-monitor`.** Launch is not "done" when the BEAM is up — it's done
-when the status cadence is running. **Arming the recurring timer is part of "launch is not done":
-an un-armed cadence (relying on event/completion notifications instead of an armed `/loop` or
-equivalent recurring wake) is a failed launch** — see `aiur-monitor`'s "How to enforce the cadence."
-
-**REQUIRED pre-flight/launch step — ASK the cadence once.** Before (or at) launch, **ASK the
-operator their preferred status-table update cadence** — use **AskUserQuestion**, offer 5 / 10 /
-15 min, and **default to 5 minutes** if they don't specify. **Record the chosen interval for the
-whole session**; that single answer drives the auto-cadence and you never re-ask it.
-
-Immediately after a verified launch (step 4 confirms prewarm), you **MUST** hand off to
-`aiur-monitor` and start its **auto-cadence at the operator's chosen interval**: post a fresh
-board (run `aiurdev watch`) every `<chosen>` minutes (the `/loop <chosen>m` interval;
-"approximately" is not license to stretch it past the chosen interval), automatically, until the
-run reaches a terminal state or the operator says stop. This is not optional and the operator
-should **NEVER** have to ask for the next update — see `aiur-monitor`'s "Monitoring cadence" for
-the required rule, the board format, and the alert relay. (5 min is the recommended default; the
-operator picks the value once via the ask above.)
-
-**Update format (required — two status tables + Decisions).** Every cadence tick is posted as
-**two markdown status tables plus `## Decisions`**, not prose: **Table 1** the full refactor
-roadmap (`Ticket | Description | Phase | Status`, one row per ticket through the end — merged ✅ /
-active 🔵 / upcoming ⬜, contiguous done runs collapsible), **Table 2** the
-optimization/bottleneck backlog (`# | Description | Status`, flagging the current top blocker),
-and the decision ledger (`Ticket | Decision | Rationale | Mode`). `aiur-monitor`'s progress-update
-format is the full spec. Short shape:
-
-```
-## Table 1 — Refactor tickets
-| Ticket | Description | Phase | Status |
-|---|---|---|---|
-| T-001–T-021 | Phase 1 safety-net + Phase 2 core seams | 1–2 | ✅ all merged |
-| T-024 | orchestrator: comment/PR paths | 3 | 🔵 #851 todo |
-| T-025 | orchestrator: sync subscriptions | 3 | ⬜ upcoming |
-| T-036 | runner: streams slim | 3 | 🔵 #879 in-progress |
-
-## Table 2 — Optimization / bottleneck tickets
-| # | Description | Status |
-|---|---|---|
-| #856 | Daemon hardening (scheduler cap + crash-dump) | ✅ merged |
-| #884 | Restore v2 coverage ≥85% | 🔴 in-progress — BLOCKS ALL MERGES |
-| #877 | Close the CI feedback loop | 🔵 in-progress |
-| #873 | Agents skip local credo (lint = #1 CPU) | 🟡 staged in prompt |
-
-## Decisions
-| Ticket | Decision | Rationale | Mode |
-|---|---|---|---|
-| #921 | Route the green PR before the later wave | Reversible critical-path ordering | auto |
-| #934 | Ask whether to cut the attention command | Changes accepted product scope | escalated |
+```bash
+"$AIUR_CMD" run --bg --debug --max-agents <n>
+"$AIUR_CMD" --bg --debug --max-agents <n>
 ```
 
-Use **MEDIUM autonomy** while babysitting: decide reversible / operational unblocks such as merge
-ordering within granted authority, rework routing, error recovery, and mechanical scope reads.
-Escalate product behavior, architecture, scope cuts, destructive or irreversible actions, and
-anything outside granted authority. Record every decision in the ledger before acting or pushing;
-an escalation always notifies every active operator surface as well as being logged.
+Include `--debug` only when authorized. It controls evidence capture and never
+authorizes filing or commenting on an issue; those mutations require separately
+recorded authority. Do not combine the separate `--todo` command with launch
+options.
 
-- **Agents** — start the cadence now by arming the loop at the chosen interval:
-  `/loop <chosen>m /aiur-monitor` (e.g. `/loop 5m /aiur-monitor` for the default). There is no
-  self-ticking fallback — if you do not arm `/loop`, no further updates will fire, which is the
-  failure this step exists to prevent. Don't skip a tick when nothing changed — post the board
-  anyway, noting steady-state (`aiurdev watch --changes` prints `(no changes)` — relay that).
-- **Alerts / wake-on-attention** — arm `aiur-monitor`'s real-time alert relay now: start
-  `watch-alerts.sh` once via the **Monitor tool** (`persistent: true`) while the cadence timer stays
-  armed. Every `needs_attention:true` Monitor event re-invokes the operator in seconds instead of
-  waiting for the next tick; post each alert in chat (`#<ticket> · <name> · <reason>`). Before
-  arming it, record the active operator backend from the operator session (not `agent.kind`, which
-  routes workers) and whether that session has a Remote Control URL. For every
-  `operator_decision:true` line, `aiur-monitor` must first update the durable `### Decisions` log
-  and then notify every active surface: Claude native push, Codex native push or the configured
-  shared Aiur device-notification fallback, plus the RC notification path when RC is active.
-  `aiurdev watch`'s `ACTIONABLE` section remains the periodic floor. See `aiur-monitor`'s
-  "Operator-decision escalation: log, then fan out".
-- **CPU/FD** — watch `top`/`ps` for CPU; `grep -i emfile <log>` (#409 — FD exhaustion at high
-  concurrency). If CPU pegs or `:emfile` appears → lower `pre_warmed_sessions` /
-  `max_concurrent_agents` and relaunch.
-- **Stuck agents** — repeated "Operator check-in" with no progress, or broken progress bars →
-  investigate; file `agent:todo` or grab it.
+Verify `status`, then use a full monitor snapshot to confirm the orchestrator,
+queue, alerts, and first dispatch. Background mode is intentionally headless;
+observe it through the control commands, not TUI panes.
 
-## 6. Controls
+Before increasing the session ceiling, verify the configured repo prewarm is
+ready or intentionally disabled. A prewarm error can fall back to cold workspace
+builds; reduce concurrency before that fan-out.
 
-- **Pause / resume** (to work agents between other tasks): `aiurdev pause --all` /
-  `aiurdev resume --all`. (#438: a masked rpc error can read as "no running node" — cross-check
-  with `aiurdev status`.)
-- **Status** — `aiurdev status`.
-- **Message an agent** — `aiurdev message …`.
-- **Stop** — `aiurdev stop` reaps the BEAM, tmux session, and agent sockets.
+## 4. Arm monitoring immediately
 
-## 7. Review + merge agent PRs
+Use `aiur-monitor` after launch. First run:
 
-As agents open PRs, review green/red (or `/code-review`), merge the good ones, and route any
-issues found as `agent:todo` (preferred) or self-fix via the CE loop when not agent-safe.
+```bash
+"$AIUR_CMD" watch --full
+"$AIUR_CMD" alerts --needs-attention
+```
 
-When a ticket id must be turned back into a branch ref, use
-`scripts/resolve-ticket-branch <id>`. It resolves both `aiur/<id>-<slug>` and
-legacy `aiur/<id>` branches and fails loudly if the remote has no unique match;
-do not build `origin/aiur/<id>` directly.
+Then arm the platform's recurring/monitor mechanism at the recorded cadence.
+Claude may use its recurring loop facility; Codex should use its persistent
+goal/monitor continuation; a shell operator can use:
 
-## Known issues to watch
+```bash
+"$AIUR_CMD" watch --changes --interval <seconds>
+```
 
-- **#409** — OS-process/FD footprint / `:emfile` at high concurrency. Keep concurrency in check.
-- **#438** — control rpc masks real errors as "no running node." Verify with `status`.
-- **#449** — `--bg` boots UI-only work (panes, dashboard, chat backfill) and lacks a
-  `--max-agents` flag + a built-in status command. Until then, set agents via config and use
-  `aiur-monitor`.
+The timer and alert path are additive: an urgent alert is handled immediately,
+while the cadence still provides a quiet-state floor. Do not depend on PR or
+agent-completion events as the only wake-up mechanism.
+
+### Ten-minute capacity audit — required
+
+Arm a hard capacity reminder every ten minutes, independent of the adaptive
+status cadence and event-driven wakes. At each tick, count only useful live
+implementation/rework and independent review lanes; record CI-wait, paused,
+deactivated, dependency-blocked, and completed rows separately. Capture the
+configured ceiling, current effective/live count, load versus CPU count,
+available memory, build serialization, provider quota, and review capacity.
+When useful concurrency is below the operator target, record the exact limiting
+gate and take the highest-leverage in-scope action immediately: dispatch ready
+work, staff review, recover a worker, or work the highest-fan-out unblocker.
+Never satisfy the reminder by waking blocked/CI tickets or promoting deferred
+P2/P3 scope merely to increase the count.
+
+The ten-minute audit is an internal scheduling control, not a requirement to
+send the user a redundant status message. Preserve its latest result and due
+time in the run's monitoring state so an Executor handoff cannot silently lose
+the timer.
+
+### Hourly monitoring retrospective — required
+
+Arm a second, hard one-hour cadence when monitoring starts. This is not another
+full status poll: once per hour, review the prior hour of the Executor's own
+structured wake/outcome log and identify observations that resulted in no
+action, duplicated a prior check, or could have been replaced by a specific
+Aiur/event-bus notification. Record useful versus no-action wake counts, the
+repeated reason signatures, and one small cadence/trigger adjustment or
+`unchanged` with rationale. Do not require clairvoyance and do not optimize one
+isolated miss; tune only from repeated evidence.
+
+Use the bundled helper when a native monitor does not already provide the same
+durable summary:
+
+```bash
+RETRO="<loaded-aiur-run-skill>/scripts/executor-retrospective.sh"
+export AIUR_EXECUTOR_RUN_ID="<stable-build-order-or-run-id>"
+"$RETRO" arm
+"$RETRO" observe action "reviewed-green-pr"
+"$RETRO" observe no-action "ci-still-pending"
+"$RETRO" due
+"$RETRO" summarize
+"$RETRO" record "<assessment>" "<adjustment-or-unchanged>"
+```
+
+Choose the stable run ID once and preserve it across Executor handoffs of that
+same run; never reuse it for a later run. Every event-driven or quiet audit must
+call `observe action|no-action <reason>` with a concise reason; otherwise the
+hourly review has no trustworthy denominator. Event-driven wakes remain
+immediate, and the ordinary adaptive quiet ceiling remains a safety floor. The
+hourly review is due even during a quiet run and must not be reset by routine
+wakes.
+
+At the terminal capstone, synthesize the retrospective history. Create at most
+one or two evidence-backed Aiur follow-ups for repeated notification gaps or
+avoidable polling classes, under the run's normal issue-authority and
+scope-growth rules. Do not file a ticket from a single no-action poll, and do
+not promote these optimizations into the active feature boundary unless they
+are direct P0/P1 blockers.
+
+## 5. Drive the run
+
+On every observation:
+
+- act on the `ACTIONABLE` section before routine scheduling;
+- continuously push toward the maximum **useful** concurrency across workers,
+  independent reviewers, and merge/rework lanes. Keep every dependency-ready,
+  conflict-free lane occupied; when live concurrency is below the run target,
+  identify the exact limiting gate and prioritize removing it;
+- let default-on AIMD govern effective slots under the session ceiling; use
+  `"$AIUR_CMD" set max-agents <n>` to keep the ceiling at the recorded maximum.
+  Lower it only for measured pressure AIMD/build gates do not capture, record a
+  restoration condition, and raise it again as soon as that condition clears;
+- use CPU saturation as a control target, then memory, build serialization,
+  provider quota, review capacity, and dependency width as successive
+  bottlenecks. Do not leave CPU/memory/provider headroom idle while independent
+  ready work or review work exists;
+- do not inflate utilization by waking `ci-wait`, human-review, dependency-
+  blocked, or conflict-bound tickets. Those are external gates, not idle worker
+  lanes. Instead fill reviewer capacity and staff the unblocker/fan-out spine;
+- classify discoveries before ticket creation, prefer contained rework, and
+  freeze creation when promoted/created tickets outpace completions;
+- keep feature critical-path counts/ETA separate from the deferred reliability
+  and optimization ledger;
+- follow the recovery ladder for stale, looping, or feedback-blind agents;
+- treat `ci-wait` as an automatic gate unless evidence shows the poller failed;
+- use `"$AIUR_CMD" message <id> <text>`, `pause`, and `resume` as the least
+  invasive controls;
+- preserve decisions and incidents in the durable handoff/workpad.
+
+As PRs become ready, reserve capacity for the required parallel review/rework
+loop defined in the Executor reference. Verify that review comments reach the
+owning worker through the event path. Merge only under the recorded policy and
+protect typed dependency/conflict ordering.
+
+After every merge, dependency change, CI completion, review result, or material
+load change, recompute ready width and the safe concurrency ceiling immediately.
+Dispatch the newly ready batch in the same observation; never wait for the next
+reporting tick merely to restore utilization.
+
+## 6. Backstop and defects
+
+Prioritize unblocking Aiur workers. Take over an affected ticket/lane or patch
+Aiur directly only when its recovery ladder is exhausted, takeover is the best
+authorized option, and self-fix authority exists; other lanes may keep moving.
+
+For Aiur crashes, leaked processes, missed comments, dispatch failures, or
+broken controls, follow the reference's sanitization and consent policy:
+
+- with separately recorded external issue mutation authority: check for
+  duplicates, then file or comment with sanitized evidence;
+- without that authority: prepare the sanitized draft and ask before filing or
+  commenting.
+
+Always remove secrets and privacy-sensitive context, regardless of debug mode.
+
+## 7. Rebuild, resume, and stop
+
+Use deliberate rebuild checkpoints after merges that must enter the worker
+base. Stop the current session cleanly, update the base under the repository's
+branch policy, rebuild, and resume only the remaining live GitHub scope.
+
+Before context exhaustion, update the durable handoff and create a three-to-five
+sentence goal describing the Executor role, authority, Build Order selector,
+terminal condition, and immediate next actions. A replacement Executor starts
+by querying live GitHub/Aiur state.
+
+The true terminal condition requires the bounded feature to be implemented and
+reviewed, integrated with green evidence on the current base, merged under the
+recorded policy, documented, and proven through its named end-to-end workflow.
+Deferred non-blockers do not extend that boundary. Then—or on an explicit human
+stop—run:
+
+```bash
+"$AIUR_CMD" stop
+```
+
+Confirm the control plane and background processes are gone. A leak is an Aiur
+bug and follows the same reporting policy.

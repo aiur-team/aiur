@@ -131,6 +131,34 @@ defmodule Aiur.Config do
     end
   end
 
+  @doc """
+  Per-complexity turn-cap map, keyed by complexity level. `%{}` when unset.
+  """
+  @spec agent_max_turns_by_complexity() :: %{pos_integer() => pos_integer()}
+  def agent_max_turns_by_complexity do
+    case settings() do
+      # Map.get (not dot access) so a config cached before this field existed
+      # returns %{} rather than raising KeyError after a schema upgrade.
+      {:ok, settings} -> Map.get(settings.agent, :max_turns_by_complexity) || %{}
+      _ -> %{}
+    end
+  end
+
+  @doc """
+  Effective turn cap for an issue: the `agent.max_turns_by_complexity` entry for
+  the issue's `complexity:N` level when present, otherwise the flat
+  `agent.max_turns`.
+  """
+  @spec agent_max_turns_for(Aiur.Issue.t()) :: pos_integer() | nil
+  def agent_max_turns_for(%Aiur.Issue{} = issue) do
+    with level when is_integer(level) <- Aiur.CodingAgent.complexity_level(issue),
+         cap when is_integer(cap) <- Map.get(agent_max_turns_by_complexity(), level) do
+      cap
+    else
+      _ -> agent_max_turns()
+    end
+  end
+
   @spec active_states() :: [String.t()]
   def active_states do
     settings!().tracker.active_states
@@ -340,7 +368,7 @@ defmodule Aiur.Config do
   @doc """
   Maximum known synthetic load-generator descendants allowed per agent process
   tree. `nil` in config derives from available schedulers; `0` disables the
-  guard for operators that prefer manual containment.
+  guard for Executors that prefer manual containment.
   """
   @spec synthetic_load_process_cap() :: non_neg_integer()
   def synthetic_load_process_cap do
@@ -442,7 +470,7 @@ defmodule Aiur.Config do
     settings!().observability.dashboard_enabled
   end
 
-  # Whether the dashboard may drive agents (operator chat, pause). Read-only by
+  # Whether the dashboard may drive agents (Executor chat, pause). Read-only by
   # default until a deliberate dashboard parity pass — see issue #371.
   @spec dashboard_writable?() :: boolean()
   def dashboard_writable? do

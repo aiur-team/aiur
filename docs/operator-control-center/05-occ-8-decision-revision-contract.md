@@ -7,7 +7,7 @@
 durable answer-delivery contract. OCC-2 may project the follow-up attention but
 is not an OCC-8 correctness dependency.
 
-This contract defines what a revision means after an operator or supervising
+This contract defines what a revision means after an Executor or supervising
 agent has already answered a Decision. A revision is a new append-only action,
 not a rewrite of the original answer and not evidence that any prior effect was
 reversed.
@@ -73,7 +73,7 @@ to describe delivery, acknowledgement, and resolution for the active action.
 | `rejected` | Validation or optimistic-correlation checks failed; nothing was appended or dispatched. | Refresh and show the current request/revision/action correlation. |
 | `recorded` | The revision intent is durable; target inspection or dispatch is pending/retrying. | “Revision recorded; follow-up pending.” |
 | `dispatched` | A correlated corrective follow-up was accepted by the queue path. | “Revision recorded; follow-up queued.” |
-| `no_longer_applicable` | A fresh target lookup found the ticket missing/terminal, or a correlated target report later established non-applicability. | “Target no longer active; operator follow-up required.” |
+| `no_longer_applicable` | A fresh target lookup found the ticket missing/terminal, or a correlated target report later established non-applicability. | “Target no longer active; Executor follow-up required.” |
 
 Queue delivery, consumption, agent turn completion, branch changes, and elapsed
 time do not change `recorded` into “rolled back,” “reverted,” “undone,” or

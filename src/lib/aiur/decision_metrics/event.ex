@@ -98,8 +98,14 @@ defmodule Aiur.DecisionMetrics.Event do
 
   defp stage_alias(label), do: Map.get(@stage_aliases, normalize_label(label))
 
-  defp trusted_stage?(stage, event) when stage in [:requested, :revised] do
+  defp trusted_stage?(:requested, event) do
     canonical_event?(event) or
+      match?({:ok, %Decision{}}, DecisionProjection.decode_request_record(event))
+  end
+
+  defp trusted_stage?(:revised, event) do
+    canonical_event?(event) or
+      match?({:ok, %DecisionEvent{type: :revision_recorded}}, DecisionEvent.from_json_safe(event)) or
       match?({:ok, %Decision{}}, DecisionProjection.decode_request_record(event))
   end
 

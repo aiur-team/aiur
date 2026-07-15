@@ -3,18 +3,18 @@ defmodule Aiur.LauncherWatchdog do
   Self-halt safety net for the detached release BEAM.
 
   The interactive BEAM runs inside a detached tmux session, so when the
-  operator closes their terminal the tmux server keeps the pane — and the
+  Executor closes their terminal the tmux server keeps the pane — and the
   BEAM — alive. The BEAM's own signal handlers never fire (its controlling
-  terminal is the persistent tmux pane, not the operator's window), and if
+  terminal is the persistent tmux pane, not the Executor’s window), and if
   the bash trap in `scripts/aiurdev` is bypassed (the wrapper is SIGKILLed,
   or the terminal app tears its process group down hard) nothing tells the
   BEAM to stop. The agents keep working and burning tokens with no UI
   attached.
 
   This watchdog polls the launcher wrapper's OS pid, passed in via
-  `AIUR_LAUNCHER_PID`. That wrapper's lifetime equals the operator's UI
+  `AIUR_LAUNCHER_PID`. That wrapper's lifetime equals the Executor’s UI
   session: it runs `tmux attach` in the foreground and exits the moment the
-  operator detaches or closes the window. When the pid disappears the
+  Executor detaches or closes the window. When the pid disappears the
   watchdog drives the full `Aiur.Shutdown.shutdown/1` chokepoint so opencode
   sessions are deleted and workspace agents are reaped — the agents actually
   stop.

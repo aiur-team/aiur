@@ -164,9 +164,9 @@ defmodule Aiur.AgentRunner.MessageHandler do
   def send_worker_runtime_info(_recipient, _issue, _worker_host, _workspace), do: :ok
 
   @doc false
-  @spec send_control_state(pid() | nil, Issue.t(), :paused | :working | term()) :: :ok
+  @spec send_control_state(pid() | nil, Issue.t(), :completed | :paused | :working | term()) :: :ok
   def send_control_state(recipient, %Issue{id: issue_id}, status)
-      when is_pid(recipient) and is_binary(issue_id) and status in [:paused, :working] do
+      when is_pid(recipient) and is_binary(issue_id) and status in [:completed, :paused, :working] do
     send(recipient, {:worker_control_state, issue_id, status})
     :ok
   end

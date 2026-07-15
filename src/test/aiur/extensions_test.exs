@@ -101,6 +101,23 @@ defmodule Aiur.ExtensionsTest do
     def init(decisions), do: {:ok, decisions}
     def handle_call(:list, _from, decisions), do: {:reply, decisions, decisions}
     def handle_call({:recent_decisions, limit}, _from, decisions), do: {:reply, Enum.take(decisions, limit), decisions}
+
+    def handle_call({:recent_audit_history, _limit}, _from, decisions) do
+      {:reply, %{records: [], contexts: %{}, revisions: %{}}, decisions}
+    end
+
+    def handle_call(:all_audit_history, _from, decisions), do: {:reply, %{}, decisions}
+  end
+
+  defmodule StaticPayloadProvider do
+    use GenServer
+
+    def start_link(responses), do: GenServer.start_link(__MODULE__, Map.new(responses))
+    def init(responses), do: {:ok, responses}
+
+    def handle_call(request, _from, responses) do
+      {:reply, Map.fetch!(responses, request), responses}
+    end
   end
 
   setup do
@@ -630,6 +647,86 @@ defmodule Aiur.ExtensionsTest do
            } = json_response(get(build_conn(), "/api/v1/MT-IDLE"), 200)
   end
 
+  test "observability API preserves tracker identity in status and issue snapshots" do
+    identity = %Aiur.TrackerIdentity{
+      version: 1,
+      status: :joinable,
+      kind: :github,
+      owner: "owner",
+      repository: "repo",
+      provider_id: "I_kwDOHTTP",
+      identifier: "MT-HTTP"
+    }
+
+    snapshot =
+      update_in(static_snapshot(), [:running], fn [running] ->
+        [Map.put(running, :tracker_identity, identity)]
+      end)
+
+    orchestrator_name = Module.concat(__MODULE__, :TrackerIdentityObservabilityApiOrchestrator)
+    {:ok, _pid} = StaticOrchestrator.start_link(name: orchestrator_name, snapshot: snapshot)
+    start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 50)
+
+    assert %{
+             "running" => [
+               %{
+                 "tracker_identity" => %{
+                   "version" => 1,
+                   "status" => "joinable",
+                   "kind" => "github",
+                   "owner" => "owner",
+                   "repository" => "repo",
+                   "provider_id" => "I_kwDOHTTP",
+                   "identifier" => "MT-HTTP"
+                 }
+               }
+             ]
+           } = json_response(get(build_conn(), "/api/v1/state"), 200)
+
+    assert %{
+             "tracker_identity" => %{"provider_id" => "I_kwDOHTTP"},
+             "running" => %{"tracker_identity" => %{"provider_id" => "I_kwDOHTTP"}}
+           } = json_response(get(build_conn(), "/api/v1/MT-HTTP"), 200)
+  end
+
+  test "observability API rejects ambiguous identifier snapshots before exposing nested identity" do
+    first_identity = %Aiur.TrackerIdentity{
+      version: 1,
+      status: :joinable,
+      kind: :github,
+      owner: "owner",
+      repository: "repo-one",
+      provider_id: "I_kwDOFirst",
+      identifier: "42"
+    }
+
+    second_identity = %{first_identity | repository: "repo-two", provider_id: "I_kwDOSecond"}
+
+    snapshot =
+      update_in(static_snapshot(), [:running], fn [running] ->
+        first = Map.merge(running, %{identifier: "42", tracker_identity: first_identity})
+
+        second =
+          Map.merge(running, %{
+            issue_id: "issue-http-second",
+            identifier: "42",
+            session_id: "thread-http-second",
+            workspace_path: "/workspace/repo-two/42",
+            tracker_identity: second_identity
+          })
+
+        [first, second]
+      end)
+
+    orchestrator_name = Module.concat(__MODULE__, :AmbiguousIdentityObservabilityApiOrchestrator)
+    {:ok, _pid} = StaticOrchestrator.start_link(name: orchestrator_name, snapshot: snapshot)
+    start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 50)
+
+    assert json_response(get(build_conn(), "/api/v1/42"), 404) == %{
+             "error" => %{"code" => "issue_not_found", "message" => "Issue not found"}
+           }
+  end
+
   test "read-only dashboard blocks agent-write endpoints but keeps reads working" do
     snapshot = static_snapshot()
     orchestrator_name = Module.concat(__MODULE__, :ReadOnlyOrchestrator)
@@ -812,6 +909,27 @@ defmodule Aiur.ExtensionsTest do
       response(get(build_conn(), "/vendor/phoenix_live_view/phoenix_live_view.js"), 200)
 
     assert live_view_js =~ "var LiveView = (() => {"
+
+    layout_urls = AiurWeb.StaticAssets.layout_asset_urls()
+
+    assert layout_urls.engine =~ ~r/^\/vendor\/layout\/elk-0\.11\.1\/[a-f0-9]{64}\/elk-worker\.min\.js$/
+    assert layout_urls.worker =~ ~r/^\/vendor\/layout\/worker-v1\/[a-f0-9]{64}\/aiur-layout-worker\.js$/
+    assert layout_urls.client =~ ~r/^\/vendor\/layout\/client-v1\/[a-f0-9]{64}\/aiur-layout-client\.js$/
+
+    for url <- Map.values(layout_urls) do
+      conn = get(build_conn(), url)
+      assert response(conn, 200) != ""
+      assert Plug.Conn.get_resp_header(conn, "content-type") == ["application/javascript; charset=utf-8"]
+      assert Plug.Conn.get_resp_header(conn, "cache-control") == ["private, max-age=31536000, immutable"]
+    end
+
+    assert response(get(build_conn(), "/vendor/layout/worker-v1/not-a-digest/aiur-layout-worker.js"), 404) == "Not Found"
+
+    for private_asset <- ["LICENSE.md", "PROVENANCE.md", "SOURCE.md"] do
+      private_asset_url = String.replace(layout_urls.worker, "aiur-layout-worker.js", private_asset)
+      assert response(get(build_conn(), private_asset_url), 404) == "Not Found"
+    end
+
     assert html =~ "AgentLogPanel"
     assert html =~ "hooks: Hooks"
   end
@@ -870,7 +988,7 @@ defmodule Aiur.ExtensionsTest do
     start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 50)
 
     {:ok, view, html} = live(build_conn(), "/")
-    assert html =~ "Operator Control Center"
+    assert html =~ "Executor Control Center"
     assert html =~ "MT-HTTP"
     assert html =~ "MT-RETRY"
     assert html =~ "rendered"
@@ -986,23 +1104,57 @@ defmodule Aiur.ExtensionsTest do
         |> Map.put(:urgency, :low)
       end)
 
-    start_supervised!({StaticOrchestrator, name: orchestrator_name, snapshot: snapshot})
-    start_supervised!({StaticDecisionStore, name: decision_store_name, decisions: [decision | unrelated]})
+    orchestrator = start_supervised!({StaticOrchestrator, name: orchestrator_name, snapshot: snapshot})
+
+    decision_store =
+      start_supervised!({StaticDecisionStore, name: decision_store_name, decisions: [decision | unrelated]})
+
+    cache = start_supervised!({AiurWeb.ControlCenterCache, name: nil})
+
+    decision_metrics =
+      start_static_payload_provider(:decision_route_metrics, snapshots: %{})
+
+    recent_merges =
+      start_static_payload_provider(
+        :decision_route_recent_merges,
+        snapshot: %{
+          merges: [],
+          health: :writable,
+          reconciliation: %{status: :complete, partial?: false, pages_fetched: 0}
+        }
+      )
 
     start_test_endpoint(
-      orchestrator: orchestrator_name,
+      orchestrator: orchestrator,
       snapshot_timeout_ms: 50,
-      decision_store: decision_store_name,
+      decision_store: decision_store,
+      decision_metrics: decision_metrics,
+      recent_merge_store: recent_merges,
+      control_center_cache: cache,
       dashboard_writable: false
     )
 
+    providers = %{
+      orchestrator: orchestrator,
+      decision_store: decision_store,
+      decision_metrics: decision_metrics,
+      recent_merge_store: recent_merges,
+      control_center_cache: cache
+    }
+
     {:ok, inbox_view, inbox_html} = live(build_conn(), "/decisions")
     assert inbox_html =~ "Decision inbox"
-    assert has_element?(inbox_view, ~s(a[href="/decisions/decision-live-route"]))
+
+    assert has_element?(inbox_view, ~s(a[href="/decisions/decision-live-route"])),
+           dashboard_route_diagnostic(inbox_html, providers)
+
     refute has_element?(inbox_view, ~s(a[href="/decisions/unrelated-decision-50"]))
 
     {:ok, detail_view, detail_html} = live(build_conn(), "/decisions/decision-live-route")
-    assert has_element?(detail_view, "#decision-detail-decision-live-route")
+
+    assert has_element?(detail_view, "#decision-detail-decision-live-route"),
+           dashboard_route_diagnostic(detail_html, providers)
+
     assert detail_html =~ "Should this real projected decision ship?"
     assert detail_html =~ "&lt;script&gt;never execute&lt;/script&gt;"
     assert detail_html =~ "Read-only mode · mutation controls are hidden."
@@ -1011,6 +1163,10 @@ defmodule Aiur.ExtensionsTest do
     {:ok, _missing_view, missing_html} = live(build_conn(), "/decisions/not-present")
     assert missing_html =~ "Decision not found"
     assert missing_html =~ "not-present"
+
+    lifecycle_diagnostic = dashboard_route_diagnostic(missing_html, providers)
+    assert Process.alive?(decision_store), lifecycle_diagnostic
+    assert GenServer.whereis(decision_store_name) == decision_store, lifecycle_diagnostic
   end
 
   test "read-only dashboard liveview hides chat controls and no-ops write events" do
@@ -1103,6 +1259,7 @@ defmodule Aiur.ExtensionsTest do
 
     port = wait_for_bound_port()
     assert port == HttpServer.bound_port()
+    assert HttpServer.base_url() == "http://127.0.0.1:#{port}"
 
     unauthenticated_response = Req.get!("http://127.0.0.1:#{port}/api/v1/state")
     assert unauthenticated_response.status == 401
@@ -1174,6 +1331,11 @@ defmodule Aiur.ExtensionsTest do
   end
 
   defp start_test_endpoint(overrides) do
+    control_center_cache =
+      Keyword.get_lazy(overrides, :control_center_cache, fn ->
+        start_supervised!({AiurWeb.ControlCenterCache, name: nil})
+      end)
+
     endpoint_config =
       :aiur
       |> Application.get_env(AiurWeb.Endpoint, [])
@@ -1181,12 +1343,42 @@ defmodule Aiur.ExtensionsTest do
         server: false,
         secret_key_base: String.duplicate("s", 64),
         dashboard_writable: true,
-        dashboard_auth_required: false
+        dashboard_auth_required: false,
+        control_center_cache: control_center_cache
       )
       |> Keyword.merge(overrides)
 
     Application.put_env(:aiur, AiurWeb.Endpoint, endpoint_config)
     start_supervised!({AiurWeb.Endpoint, []})
+  end
+
+  defp start_static_payload_provider(id, responses) do
+    {StaticPayloadProvider, responses}
+    |> Supervisor.child_spec(id: {StaticPayloadProvider, id})
+    |> start_supervised!()
+  end
+
+  defp dashboard_route_diagnostic(html, providers) do
+    payload =
+      AiurWeb.ControlCenterPresenter.state_payload(providers.orchestrator, 50,
+        decision_store: providers.decision_store,
+        decision_metrics: providers.decision_metrics,
+        recent_merge_store: providers.recent_merge_store
+      )
+
+    provider_status =
+      Map.new(providers, fn {name, server} ->
+        pid = GenServer.whereis(server)
+        {name, %{server: inspect(server), pid: inspect(pid), alive?: is_pid(pid) and Process.alive?(pid)}}
+      end)
+
+    """
+    Expected the stable Decision route from isolated providers.
+    provider_status=#{inspect(provider_status, pretty: true)}
+    payload_health=#{inspect(payload.provider_health, pretty: true)}
+    payload_decision_ids=#{inspect(Enum.map(payload.decisions, & &1.decision_id))}
+    rendered_html=#{html}
+    """
   end
 
   defp restore_endpoint_config(nil), do: Application.delete_env(:aiur, AiurWeb.Endpoint)

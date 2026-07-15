@@ -6,7 +6,8 @@ const root = document.documentElement;
 
 // theme — restore saved choice, toggle + persist
 const saved = localStorage.getItem("aiur-theme");
-if (saved) root.setAttribute("data-theme", saved);
+if (saved === "dark" || saved === "light") root.setAttribute("data-theme", saved);
+localStorage.setItem("aiur-theme", root.getAttribute("data-theme") ?? "dark");
 
 const field = createFlowField();
 

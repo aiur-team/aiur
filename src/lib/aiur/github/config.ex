@@ -23,6 +23,22 @@ defmodule Aiur.GitHub.Config do
     end
   end
 
+  @doc """
+  Returns only the repository explicitly configured in `tracker.github.repo`.
+
+  Unlike `repo/0`, this never falls back to the current checkout's git remote;
+  callers using it are establishing a trusted cross-repository identity.
+  """
+  @spec configured_repo() ::
+          {:ok, {String.t(), String.t()}}
+          | {:error, :missing_configured_repository | :invalid_configured_repository}
+  def configured_repo do
+    case section_value("repo") do
+      value when is_binary(value) -> parse_configured_repo(value)
+      _ -> {:error, :missing_configured_repository}
+    end
+  end
+
   @spec token() :: String.t() | nil
   def token do
     case :persistent_term.get({__MODULE__, :resolved_token}, :unset) do
@@ -74,6 +90,15 @@ defmodule Aiur.GitHub.Config do
         @default_label_prefix
     end
   end
+
+  @spec planning_root_limit() :: pos_integer()
+  def planning_root_limit, do: section_value("planning_root_limit")
+
+  @spec planning_page_budget() :: pos_integer()
+  def planning_page_budget, do: section_value("planning_page_budget")
+
+  @spec planning_call_budget() :: pos_integer()
+  def planning_call_budget, do: section_value("planning_call_budget")
 
   @doc """
   Returns the GitHub login that Aiur posts under (PR comments, dependency
@@ -167,6 +192,13 @@ defmodule Aiur.GitHub.Config do
     Aiur.Config.settings!().tracker.github
     |> Map.from_struct()
     |> Map.get(String.to_existing_atom(key))
+  end
+
+  defp parse_configured_repo(value) do
+    case String.split(String.trim(value), "/") do
+      [owner, repo] when owner != "" and repo != "" -> {:ok, {owner, repo}}
+      _ -> {:error, :invalid_configured_repository}
+    end
   end
 
   # Query the gh keyring with the env tokens CLEARED so gh returns the stored

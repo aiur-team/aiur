@@ -6,7 +6,7 @@
 [`03-occ-1-decision-contract.md`](./03-occ-1-decision-contract.md)
 
 This adapter keeps the pre-OCC attention protocol working while projecting its
-operator questions into the canonical Decision audit. It extends existing
+Executor questions into the canonical Decision audit. It extends existing
 owners: `Aiur.DecisionAttention` coordinates live projection and reminders,
 `Aiur.AlertFeed` supplies startup candidates, and `Aiur.DecisionStore` remains
 the only canonical writer.
@@ -71,7 +71,7 @@ For a live legacy signal whose Decision projection succeeds, ordering is:
 A DecisionStore validation, health, append, or projection failure skips the
 alert/open-attention side effects and is logged, but it cannot suppress the
 original generic event: that event still publishes on its unchanged topic so a
-blocked agent remains visible to the operator. The tool reports success when
+blocked agent remains visible to the Executor. The tool reports success when
 that compatibility event publishes, without claiming a Decision correlation.
 If generic publication fails after durable acceptance, the Decision remains
 canonical and recoverable; the caller still receives the existing publication

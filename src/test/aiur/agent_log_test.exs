@@ -674,9 +674,9 @@ defmodule Aiur.AgentLogTest do
     end
 
     test "JSON without method prefers last_message when present" do
-      content = entry("worker_paused", %{"last_message" => "Agent paused by operator."})
+      content = entry("worker_paused", %{"last_message" => "Agent paused by Executor."})
 
-      assert [%{role: "system", title: "Worker Paused", body: "Agent paused by operator."}] =
+      assert [%{role: "system", title: "Worker Paused", body: "Agent paused by Executor."}] =
                AgentLog.parse(content)
     end
 

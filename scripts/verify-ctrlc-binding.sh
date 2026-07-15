@@ -3,7 +3,7 @@
 #
 # The binding for a non-agent-list pane must route Ctrl+C through the
 # `@aiur_ctrlc` helper (which talks to Aiur for the 3-state decision), NOT
-# raw `kill-pane` the pane out from under a queued operator message.
+# raw `kill-pane` the pane out from under a queued Executor message.
 #
 # A subtle escaping bug once made the binding reference the helper via a
 # `h=...; $h` shell variable. tmux re-parses the double-quoted run-shell

@@ -1,6 +1,6 @@
 defmodule Aiur.Opencode.ChatCompletions.OperatorDispatch do
   @moduledoc """
-  Route an operator text message to the agent and close the SSE.
+  Route an Executor text message to the agent and close the SSE.
 
   Validates the request body, authorizes the caller, dispatches the
   message to `AgentChat`, and returns the conn with the SSE closed. All
@@ -36,7 +36,7 @@ defmodule Aiur.Opencode.ChatCompletions.OperatorDispatch do
 
     case normalized do
       "" ->
-        # Opencode wrapped a synthetic reminder with no operator content
+        # Opencode wrapped a synthetic reminder with no Executor content
         # (e.g. its own cwd-change / file-open scaffolding) — nothing for
         # the agent. Ack cleanly without forwarding.
         {:ok, :noop}
@@ -55,7 +55,7 @@ defmodule Aiur.Opencode.ChatCompletions.OperatorDispatch do
   defp route_turn(conn, identifier, sanitized, _),
     do: non_stream_turn(conn, identifier, sanitized)
 
-  # The operator-message SSE no longer waits for the agent to reply. As
+  # The Executor-message SSE no longer waits for the agent to reply. As
   # soon as `AgentChat.send` accepts the message (either delivers via
   # `:interrupt` or queues via `:queue_next`), we close the SSE with
   # `finish_reason: "stop"` so opencode-attach clears the `QUEUED`
@@ -97,14 +97,14 @@ defmodule Aiur.Opencode.ChatCompletions.OperatorDispatch do
     end
   end
 
-  # Durable, greppable operator-path trace. The next live `--test3` repro
+  # Durable, greppable Executor-path trace. The next live `--test3` repro
   # greps `opencode_bridge operator_text` to pin delivery-vs-drop: the BUG
-  # signature is `wrapped=true dropped=true` — a genuine (non-blank) operator
+  # signature is `wrapped=true dropped=true` — a genuine (non-blank) Executor
   # message was present but normalize forwarded nothing, so `send_operator/3`
   # noops it and the agent never sees it (issue #332). `wrapped=false` covers
   # both raw text and opencode's own scaffolding-only reminders (and an
   # empty-bodied wrapper, which is not a message), so none raise a false alarm.
-  # Bytes (not content) keep the operator's words out of the logs.
+  # Bytes (not content) keep the Executor’s words out of the logs.
   defp log_operator_text(identifier, raw, normalized) do
     trace = OperatorText.trace(raw, normalized)
 

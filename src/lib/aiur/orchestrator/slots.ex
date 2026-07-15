@@ -203,7 +203,7 @@ defmodule Aiur.Orchestrator.Slots do
     }
   end
 
-  # Deliberate/operator pauses keep their slot reserved so the polling loop
+  # Deliberate/Executor pauses keep their slot reserved so the polling loop
   # cannot auto-claim replacement work. CI-wait is the exception: the daemon
   # owns that wait, so the parked runner releases normal dispatch capacity.
   @spec available_slots(State.t()) :: non_neg_integer()
