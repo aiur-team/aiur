@@ -1,7 +1,7 @@
 defmodule Aiur.AppServer.TurnLoopTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.AppServer.TurnLoop
+  alias Aiur.AppServer.{Rpc, TurnLoop}
 
   defmodule StubBackend do
     def send_frame(_port, frame) do
@@ -134,6 +134,50 @@ defmodule Aiur.AppServer.TurnLoopTest do
 
     assert TurnLoop.receive_loop(%{port: port}, state) == {:ok, :done}
     refute_receive :wrong
+  end
+
+  test "drops late sensitive response data before the turn loop can emit it" do
+    port = cat_port()
+    raw_identity = "person@example.test credential=super-secret"
+    parent = self()
+
+    Rpc.retain_late_sensitive_response(port, 5)
+    on_exit(fn -> Rpc.clear_late_sensitive_responses(port) end)
+
+    late_response =
+      Jason.encode!(%{
+        "id" => 5,
+        "result" => %{"account" => %{"email" => raw_identity, "planType" => "plus"}}
+      })
+
+    send(self(), {port, {:data, {:eol, late_response}}})
+    send(self(), {port, {:data, {:eol, Jason.encode!(%{"method" => "done"})}}})
+
+    state = state(%{on_message: fn message -> send(parent, {:event, message}) end})
+
+    assert TurnLoop.receive_loop(%{port: port}, state) ==
+             {:ok, :done}
+
+    refute_receive {:event, _event}
+  end
+
+  test "keeps malformed late sensitive stream data out of turn-loop events" do
+    port = cat_port()
+    raw_identity = "person@example.test credential=super-secret"
+    parent = self()
+
+    Rpc.retain_late_sensitive_response(port, 5)
+    on_exit(fn -> Rpc.clear_late_sensitive_responses(port) end)
+
+    send(self(), {port, {:data, {:eol, "malformed delayed account=#{raw_identity}"}}})
+    send(self(), {port, {:data, {:eol, Jason.encode!(%{"method" => "done"})}}})
+
+    state = state(%{on_message: fn message -> send(parent, {:event, message}) end, timeout_ms: 1})
+
+    assert TurnLoop.receive_loop(%{port: port}, state) == {:ok, :done}
+
+    refute_receive {:malformed, _payload}
+    refute_receive {:event, _event}
   end
 
   defp cat_port do
