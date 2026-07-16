@@ -69,7 +69,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert failed =~ "Resolved"
     refute failed =~ "rolled back"
 
-    assert superseded =~ "Superseded — replaced by a newer decision"
+    assert superseded =~ "Superseded — replaced by a newer Command"
     refute superseded =~ "Resolved"
   end
 
@@ -164,13 +164,13 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
         now: ~U[2026-07-12 13:00:00Z]
       })
 
-    assert html =~ ~s(aria-label="Open pending decision")
+    assert html =~ ~s(aria-label="Open pending Command")
     assert html =~ ~s(aria-label="Read agent conversation")
     assert html =~ ~s(aria-label="Open tracker ticket")
     assert html =~ ~s(data-label="Ticket")
     assert html =~ ~s(data-label="Latest")
     assert html =~ ~s(data-label="Elapsed")
-    assert html =~ ~s(data-label="Decisions")
+    assert html =~ ~s(data-label="Commands")
   end
 
   test "filters real fleet states cumulatively with the latest responsive overview" do
@@ -231,7 +231,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
       })
 
     assert html =~ ~s(href="/decisions")
-    assert html =~ "1 decision is awaiting you"
+    assert html =~ "1 Command is awaiting you"
     refute empty_html =~ "decisions-banner"
   end
 
@@ -253,11 +253,11 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
   test "distinguishes degraded decision history from an unavailable provider" do
     html = render_component(&History.history/1, %{entries: [], provider_health: :degraded})
 
-    assert html =~ "Decision history is degraded"
+    assert html =~ "Command history is degraded"
     refute html =~ "currently unavailable"
   end
 
-  test "Decision inbox primary filter chips use canonical retained counts" do
+  test "Commands inbox exposes only the four primary filters with canonical retained counts" do
     html =
       render_inbox(
         [inbox_decision("dec-overview-only")],
@@ -268,6 +268,11 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert html =~ ~r/All\s+<span class="count num">701<\/span>/
     assert html =~ ~r/Open\s+<span class="count num">503<\/span>/
     assert html =~ ~r/Blocking\s+<span class="count num">401<\/span>/
+    assert html =~ "Commands inbox"
+    assert html =~ "Resolved"
+    refute html =~ ~r/>Undelivered\s+<span class="count num">/
+    refute html =~ ~r/>Supervisor\s+<span class="count num">/
+    refute html =~ ~r/>Superseded\s+<span class="count num">/
   end
 
   test "renders a writable canonical answer form with destructive confirmation" do
@@ -278,7 +283,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert html =~ ~s(phx-submit="answer-decision")
     assert html =~ ~s(name="answer[choice]")
     assert html =~ "Persisted before dispatch"
-    assert html =~ "I understand this decision is irreversible or destructive."
+    assert html =~ "I understand this Command is irreversible or destructive."
     assert html =~ "Record answer"
   end
 
@@ -333,9 +338,9 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     html = render_component(&DecisionLatency.decision_latency/1, %{latency: latency})
 
     assert html =~ ~s(aria-labelledby="decision-latency-title")
-    assert html =~ "Request to decision"
+    assert html =~ "Request to Command"
     assert html =~ "250 ms"
-    assert html =~ "Decision to dispatch"
+    assert html =~ "Command to dispatch"
     assert html =~ "1.5 s"
     assert html =~ "Dispatch to delivery"
     assert html =~ "Pending"
@@ -354,9 +359,9 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
         latency: %{status: :unavailable, snapshot: nil}
       })
 
-    assert missing =~ "No latency sample has been retained for this decision yet."
+    assert missing =~ "No latency sample has been retained for this Command yet."
     refute missing =~ "provider is unavailable"
-    assert unavailable =~ "Decision latency provider is unavailable."
+    assert unavailable =~ "Command latency provider is unavailable."
   end
 
   test "renders an append-only revision chain and gates its parent follow-up" do
@@ -424,7 +429,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     refute readonly =~ ~s(phx-submit="handle-revision-follow-up")
   end
 
-  test "filters canonical undelivered, supervisor, resolved, and superseded states" do
+  test "keeps every secondary lifecycle state visible under the primary All filter" do
     operator_answer = action_answer(:operator)
     supervisor_answer = action_answer(:supervisor)
 
@@ -458,20 +463,82 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
       )
     ]
 
-    undelivered = render_inbox(decisions, :undelivered)
-    supervisor = render_inbox(decisions, :supervisor)
+    all = render_inbox(decisions, :all)
     resolved = render_inbox(decisions, :resolved)
-    superseded = render_inbox(decisions, :superseded)
 
-    assert undelivered =~ "Question dec-undelivered"
-    refute undelivered =~ "Question dec-supervisor"
-    assert supervisor =~ "Question dec-supervisor"
-    refute supervisor =~ "Question dec-undelivered"
+    assert all =~ "Question dec-undelivered"
+    assert all =~ "Question dec-supervisor"
+    assert all =~ "Question dec-superseded"
+    assert all =~ "Dispatch pending"
+    assert all =~ "Supervisor answer"
+    assert all =~ "Superseded"
     assert resolved =~ "Question dec-resolved"
     refute resolved =~ "Question dec-superseded"
-    assert superseded =~ "Question dec-superseded"
-    assert superseded =~ "Undelivered"
-    assert superseded =~ "Supervisor"
+  end
+
+  test "renders trusted provenance, exact confidence, and bounded option previews without prose inference" do
+    decision =
+      inbox_decision("dec-provenance",
+        options: [
+          %{id: "one", label: "First option", description: "One", risk: "low"},
+          %{id: "two", label: "Second option", description: "Two", risk: "medium"},
+          %{id: "three", label: "Hidden third option", description: "Three", risk: "high"}
+        ],
+        answer:
+          action_answer(:supervisor)
+          |> Map.put(:selected_option_id, "two")
+          |> Map.put(:supervisor_basis, %{confidence: 0}),
+        provenance: %{
+          agent_family: "codex",
+          backend: "codex",
+          requested_model: "requested-model",
+          resolved_model: "resolved-model"
+        }
+      )
+
+    html = render_inbox([decision], :all)
+
+    assert html =~ "codex · resolved-model"
+    assert html =~ "0% confidence"
+    assert html =~ "Selected · Second option"
+    assert html =~ "First option"
+    assert html =~ "Second option"
+    refute html =~ "Hidden third option"
+  end
+
+  test "Command detail renders canonical runtime provenance and exact supervisor confidence" do
+    answer = action_answer(:supervisor) |> Map.put(:supervisor_basis, %{"confidence" => 37})
+
+    decision =
+      inbox_decision("dec-detail-provenance",
+        answer: answer,
+        decision_status: :decided,
+        delivery_status: :queued,
+        lifecycle: :dispatch_pending,
+        provenance: %{
+          agent_family: "codex",
+          backend: "codex-app-server",
+          requested_model: "gpt-requested",
+          resolved_model: "gpt-resolved",
+          attempt_id: "attempt-37",
+          captured_at: ~U[2026-07-12 13:00:00Z]
+        }
+      )
+
+    html =
+      render_component(&DecisionDetail.decision_detail/1, %{
+        decision: decision,
+        history: [],
+        writable: false
+      })
+
+    assert html =~ "Command metadata"
+    assert html =~ "Supervisor confidence"
+    assert html =~ "37%"
+    assert html =~ "codex-app-server"
+    assert html =~ "gpt-resolved"
+    assert html =~ "attempt-37"
+    refute html =~ "Runtime provenance was not recorded"
   end
 
   defp action_decision(attrs) do
