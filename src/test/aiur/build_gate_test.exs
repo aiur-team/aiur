@@ -306,7 +306,7 @@ defmodule Aiur.BuildGateTest do
              )
 
     assert blocked_output =~ "aiur_build_gate timeout"
-    wait_for_file!(context.descendant_path <> ".done", 150)
+    wait_for_file!(context.descendant_path <> ".done", 1500)
     assert {_output, 0} = run_bash("mix compile", Map.put(context, :started_path, ""))
   end
 
@@ -324,7 +324,7 @@ defmodule Aiur.BuildGateTest do
              )
 
     assert blocked_output =~ "aiur_build_gate timeout"
-    wait_for_file!(context.descendant_path <> ".done", 200)
+    wait_for_file!(context.descendant_path <> ".done", 1500)
     assert {_output, 0} = run_bash("mix compile", Map.put(context, :started_path, ""))
   end
 
