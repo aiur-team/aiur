@@ -6,7 +6,17 @@ defmodule Aiur.AgentRunner.MessageHandler do
   subscribers, and reports worker state to the orchestrator recipient.
   """
 
-  alias Aiur.{AgentEventLog, AgentEvents, AgentPubSub, CodingAgent, Issue, LiveConversation, ModelAvailability, TrackerIdentity}
+  alias Aiur.{
+    AgentEventLog,
+    AgentEvents,
+    AgentPubSub,
+    CodingAgent,
+    Issue,
+    LiveConversation,
+    ModelAvailability,
+    TrackerIdentity
+  }
+
   alias Aiur.Protocol.MapAccess
   alias Aiur.RunTelemetry.Lifecycle
 
@@ -210,7 +220,10 @@ defmodule Aiur.AgentRunner.MessageHandler do
 
   def send_control_state(_recipient, _issue, _status, _payload), do: :ok
 
-  defp normalize_control_payload(status, %{control: %{request_id: request_id, generation: generation} = control} = payload)
+  defp normalize_control_payload(
+         status,
+         %{control: %{request_id: request_id, generation: generation} = control} = payload
+       )
        when is_integer(request_id) and is_integer(generation) do
     payload
     |> Map.delete(:control)

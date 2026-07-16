@@ -56,28 +56,33 @@ defmodule Aiur.LiveConversation do
   end
 
   @impl true
-  def init(opts), do: {:ok, %{clock: Keyword.get(opts, :clock, &DateTime.utc_now/0), snapshots: %{}, pending_notifications: %{}}}
+  def init(opts),
+    do: {:ok, %{clock: Keyword.get(opts, :clock, &DateTime.utc_now/0), snapshots: %{}, pending_notifications: %{}}}
 
   @impl true
   def handle_call({:activate, source}, _from, state) do
-    with {:ok, key, source} <- canonical_source(source) do
-      snapshot = Map.get(state.snapshots, key, fresh_snapshot(source, state.clock.()))
-      state = put_snapshot(state, key, snapshot)
-      {:reply, {:ok, public(snapshot)}, state}
-    else
-      _ -> {:reply, {:error, :invalid_source}, state}
+    case canonical_source(source) do
+      {:ok, key, source} ->
+        snapshot = Map.get(state.snapshots, key, fresh_snapshot(source, state.clock.()))
+        state = put_snapshot(state, key, snapshot)
+        {:reply, {:ok, public(snapshot)}, state}
+
+      _ ->
+        {:reply, {:error, :invalid_source}, state}
     end
   end
 
   def handle_call({:observe, source, event}, _from, state) do
-    with {:ok, key, source} <- canonical_source(source) do
-      snapshot = Map.get(state.snapshots, key, fresh_snapshot(source, state.clock.()))
-      {snapshot, changed?} = apply_event(snapshot, event, state.clock)
-      state = put_snapshot(state, key, snapshot)
-      state = if changed?, do: schedule_notification(state, key, source), else: state
-      {:reply, {:ok, public(snapshot)}, state}
-    else
-      _ -> {:reply, {:error, :invalid_source}, state}
+    case canonical_source(source) do
+      {:ok, key, source} ->
+        snapshot = Map.get(state.snapshots, key, fresh_snapshot(source, state.clock.()))
+        {snapshot, changed?} = apply_event(snapshot, event, state.clock)
+        state = put_snapshot(state, key, snapshot)
+        state = if changed?, do: schedule_notification(state, key, source), else: state
+        {:reply, {:ok, public(snapshot)}, state}
+
+      _ ->
+        {:reply, {:error, :invalid_source}, state}
     end
   end
 
@@ -92,7 +97,14 @@ defmodule Aiur.LiveConversation do
         {:reply, public(snapshot), state}
 
       _ ->
-        {:reply, %{version: @version, state: :unavailable, messages: [], diagnostic_counts: %{invalid_source: 1}}, state}
+        unavailable = %{
+          version: @version,
+          state: :unavailable,
+          messages: [],
+          diagnostic_counts: %{invalid_source: 1}
+        }
+
+        {:reply, unavailable, state}
     end
   end
 
@@ -109,18 +121,21 @@ defmodule Aiur.LiveConversation do
   end
 
   defp change_state(source, state, next_state) do
-    with {:ok, key, source} <- canonical_source(source) do
-      snapshot = Map.get(state.snapshots, key, fresh_snapshot(source, state.clock.()))
-      snapshot = %{snapshot | state: next_state, observed_at: state.clock.()}
-      state = put_snapshot(state, key, snapshot)
-      state = schedule_notification(state, key, source)
-      {:reply, {:ok, public(snapshot)}, state}
-    else
-      _ -> {:reply, {:error, :invalid_source}, state}
+    case canonical_source(source) do
+      {:ok, key, source} ->
+        snapshot = Map.get(state.snapshots, key, fresh_snapshot(source, state.clock.()))
+        snapshot = %{snapshot | state: next_state, observed_at: state.clock.()}
+        state = put_snapshot(state, key, snapshot)
+        state = schedule_notification(state, key, source)
+        {:reply, {:ok, public(snapshot)}, state}
+
+      _ ->
+        {:reply, {:error, :invalid_source}, state}
     end
   end
 
-  defp apply_event(%{state: state} = snapshot, _event, _clock) when state in [:ended, :unavailable], do: {snapshot, false}
+  defp apply_event(%{state: state} = snapshot, _event, _clock) when state in [:ended, :unavailable],
+    do: {snapshot, false}
 
   defp apply_event(snapshot, event, clock) do
     case normalize(event, clock.()) do
@@ -140,14 +155,13 @@ defmodule Aiur.LiveConversation do
     normalized_message(:assistant, body, Map.merge(event, %{msg_id: id, delivery: delivery_for(kind)}), observed_at)
   end
 
-  defp normalize(%{role: role, body: body} = event, observed_at) when role in [:assistant, :user, :system, :tool] and is_binary(body) do
+  defp normalize(%{role: role, body: body} = event, observed_at)
+       when role in [:assistant, :user, :system, :tool] and is_binary(body) do
     payload = Map.get(event, :payload) || %{}
 
-    cond do
-      role == :tool and Map.get(payload, :safe_summary) != true -> {:drop, :unsafe_tool}
-      role == :system and Map.get(payload, :safe_summary) != true -> {:drop, :unsafe_system}
-      role == :user and prompt_like?(body) -> {:drop, :prompt}
-      true -> normalized_message(role, body, event, observed_at)
+    case drop_reason(role, body, payload) do
+      {:drop, reason} -> {:drop, reason}
+      :keep -> normalized_message(role, body, event, observed_at)
     end
   end
 
@@ -169,8 +183,28 @@ defmodule Aiur.LiveConversation do
 
   defp normalize(_event, _observed_at), do: {:drop, :unknown_kind}
 
+  # Unsafe tool/system output and prompt-like user text never reach the
+  # projection; everything else normalizes into a bounded message.
+  defp drop_reason(:tool, _body, payload) do
+    if Map.get(payload, :safe_summary) == true, do: :keep, else: {:drop, :unsafe_tool}
+  end
+
+  defp drop_reason(:system, _body, payload) do
+    if Map.get(payload, :safe_summary) == true, do: :keep, else: {:drop, :unsafe_system}
+  end
+
+  defp drop_reason(:user, body, _payload) do
+    if prompt_like?(body), do: {:drop, :prompt}, else: :keep
+  end
+
+  defp drop_reason(_role, _body, _payload), do: :keep
+
   defp normalized_message(role, body, event, observed_at) do
-    body = if(Map.get(event, :delivery) == :partial, do: sanitize_fragment(body, @body_limit), else: sanitize(body, @body_limit))
+    body =
+      if(Map.get(event, :delivery) == :partial,
+        do: sanitize_fragment(body, @body_limit),
+        else: sanitize(body, @body_limit)
+      )
 
     if body == "" do
       {:drop, :empty}
@@ -201,8 +235,19 @@ defmodule Aiur.LiveConversation do
         {snapshot, false}
 
       %{message_index: index, body: prior_body} ->
-        messages = List.update_at(snapshot.messages, index, fn prior -> %{prior | body: sanitize(prior_body <> message.body, @body_limit), observed_at: message.observed_at} end)
-        snapshot = %{snapshot | messages: messages, seen: Map.put(snapshot.seen, id, %{message_index: index, body: prior_body <> message.body}), state: :live, observed_at: message.observed_at}
+        messages =
+          List.update_at(snapshot.messages, index, fn prior ->
+            %{prior | body: sanitize(prior_body <> message.body, @body_limit), observed_at: message.observed_at}
+          end)
+
+        snapshot = %{
+          snapshot
+          | messages: messages,
+            seen: Map.put(snapshot.seen, id, %{message_index: index, body: prior_body <> message.body}),
+            state: :live,
+            observed_at: message.observed_at
+        }
+
         {snapshot, true}
 
       nil ->
@@ -217,7 +262,15 @@ defmodule Aiur.LiveConversation do
 
       %{message_index: index} ->
         messages = List.replace_at(snapshot.messages, index, message)
-        snapshot = %{snapshot | messages: messages, seen: Map.put(snapshot.seen, id, :completed), state: :live, observed_at: message.observed_at}
+
+        snapshot = %{
+          snapshot
+          | messages: messages,
+            seen: Map.put(snapshot.seen, id, :completed),
+            state: :live,
+            observed_at: message.observed_at
+        }
+
         {snapshot, true}
 
       nil ->
@@ -229,7 +282,11 @@ defmodule Aiur.LiveConversation do
     messages = (snapshot.messages ++ [message]) |> Enum.sort_by(& &1.order)
 
     seen =
-      messages |> Enum.with_index() |> Map.new(fn {%{id: id, delivery: delivery, body: body}, index} -> {id, if(delivery == :completed, do: :completed, else: %{message_index: index, body: body})} end)
+      messages
+      |> Enum.with_index()
+      |> Map.new(fn {%{id: id, delivery: delivery, body: body}, index} ->
+        {id, if(delivery == :completed, do: :completed, else: %{message_index: index, body: body})}
+      end)
 
     snapshot = %{snapshot | messages: messages, seen: seen, state: :live, observed_at: message.observed_at}
     retain(snapshot)
@@ -239,12 +296,23 @@ defmodule Aiur.LiveConversation do
     {messages, evicted} = trim_messages(snapshot.messages, 0)
 
     seen =
-      messages |> Enum.with_index() |> Map.new(fn {%{id: id, delivery: delivery, body: body}, index} -> {id, if(delivery == :completed, do: :completed, else: %{message_index: index, body: body})} end)
+      messages
+      |> Enum.with_index()
+      |> Map.new(fn {%{id: id, delivery: delivery, body: body}, index} ->
+        {id, if(delivery == :completed, do: :completed, else: %{message_index: index, body: body})}
+      end)
 
-    %{snapshot | messages: messages, seen: seen, evicted_count: snapshot.evicted_count + evicted, truncated?: snapshot.truncated? or evicted > 0}
+    %{
+      snapshot
+      | messages: messages,
+        seen: seen,
+        evicted_count: snapshot.evicted_count + evicted,
+        truncated?: snapshot.truncated? or evicted > 0
+    }
   end
 
-  defp trim_messages(messages, evicted) when length(messages) > @message_limit, do: trim_messages(tl(messages), evicted + 1)
+  defp trim_messages(messages, evicted) when length(messages) > @message_limit,
+    do: trim_messages(tl(messages), evicted + 1)
 
   defp trim_messages([_ | rest] = messages, evicted) do
     if snapshot_bytes(messages) > @snapshot_byte_limit,
@@ -257,7 +325,17 @@ defmodule Aiur.LiveConversation do
   defp snapshot_bytes(messages), do: messages |> :erlang.term_to_binary() |> byte_size()
 
   defp fresh_snapshot(source, now) do
-    %{version: @version, source: source, state: :known_empty, messages: [], seen: %{}, observed_at: now, diagnostic_counts: %{}, truncated?: false, evicted_count: 0}
+    %{
+      version: @version,
+      source: source,
+      state: :known_empty,
+      messages: [],
+      seen: %{},
+      observed_at: now,
+      diagnostic_counts: %{},
+      truncated?: false,
+      evicted_count: 0
+    }
   end
 
   defp restart_unknown_snapshot(source, now), do: %{fresh_snapshot(source, now) | state: :restart_unknown}
@@ -277,7 +355,16 @@ defmodule Aiur.LiveConversation do
       identity_key ->
         run_id = Map.get(source, :run_id, Boot.run_id())
         session_id = Map.get(source, :session_id)
-        normalized = %{identity: identity, run_id: run_id, attempt_id: to_string(attempt_id), session_id: session_id, backend: backend, worker_generation: generation}
+
+        normalized = %{
+          identity: identity,
+          run_id: run_id,
+          attempt_id: to_string(attempt_id),
+          session_id: session_id,
+          backend: backend,
+          worker_generation: generation
+        }
+
         {:ok, {identity_key, run_id, to_string(attempt_id), session_id, backend, generation}, normalized}
     end
   end
@@ -312,7 +399,8 @@ defmodule Aiur.LiveConversation do
   defp delivery_for(:assistant_delta), do: :partial
   defp delivery_for(:assistant_completed), do: :completed
 
-  defp prompt_like?(body), do: String.contains?(body, ["Shared Agent Instructions", "## Workspace setup", "Issue:\n\n", "Description:\n\n"])
+  defp prompt_like?(body),
+    do: String.contains?(body, ["Shared Agent Instructions", "## Workspace setup", "Issue:\n\n", "Description:\n\n"])
 
   defp date_time(%DateTime{} = value), do: value
 
@@ -337,7 +425,10 @@ defmodule Aiur.LiveConversation do
   end
 
   defp topic_for(source), do: @topic <> ":" <> Integer.to_string(:erlang.phash2(inspect(source)))
-  defp broadcast(source, snapshot), do: Phoenix.PubSub.broadcast(Aiur.PubSub, topic_for(source), {:live_conversation_changed, snapshot})
+
+  defp broadcast(source, snapshot),
+    do: Phoenix.PubSub.broadcast(Aiur.PubSub, topic_for(source), {:live_conversation_changed, snapshot})
+
   defp server(opts), do: Keyword.get(opts, :server, __MODULE__)
   defp call(message, opts), do: GenServer.call(server(opts), message)
 end
