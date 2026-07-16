@@ -3,7 +3,6 @@ defmodule AiurWeb.StaticAssets do
 
   @dashboard_css_path Path.expand("../../priv/static/dashboard.css", __DIR__)
   @dom_svg_layout_adapter_path Path.expand("../../priv/static/aiur-dom-svg-layout-adapter.js", __DIR__)
-  @ticket_context_dialog_hook_path Path.expand("../../priv/static/ticket-context-dialog-hook.js", __DIR__)
   @phoenix_html_js_path Application.app_dir(:phoenix_html, "priv/static/phoenix_html.js")
   @phoenix_js_path Application.app_dir(:phoenix, "priv/static/phoenix.js")
   @phoenix_live_view_js_path Application.app_dir(:phoenix_live_view, "priv/static/phoenix_live_view.js")
@@ -23,16 +22,18 @@ defmodule AiurWeb.StaticAssets do
     "/aiur-dom-svg-layout/renderer.js" => "priv/static/aiur-dom-svg-layout/renderer.js"
   }
 
+  @runtime_static_assets %{
+    "/ticket-context-dialog-hook.js" => {"application/javascript", "priv/static/ticket-context-dialog-hook.js"}
+  }
+
   @external_resource @dashboard_css_path
   @external_resource @dom_svg_layout_adapter_path
-  @external_resource @ticket_context_dialog_hook_path
   @external_resource @phoenix_html_js_path
   @external_resource @phoenix_js_path
   @external_resource @phoenix_live_view_js_path
 
   @dashboard_css File.read!(@dashboard_css_path)
   @dom_svg_layout_adapter File.read!(@dom_svg_layout_adapter_path)
-  @ticket_context_dialog_hook File.read!(@ticket_context_dialog_hook_path)
   @phoenix_html_js File.read!(@phoenix_html_js_path)
   @phoenix_js File.read!(@phoenix_js_path)
   @phoenix_live_view_js File.read!(@phoenix_live_view_js_path)
@@ -40,7 +41,6 @@ defmodule AiurWeb.StaticAssets do
   @assets %{
     "/dashboard.css" => {"text/css", @dashboard_css},
     "/aiur-dom-svg-layout-adapter.js" => {"application/javascript", @dom_svg_layout_adapter},
-    "/ticket-context-dialog-hook.js" => {"application/javascript", @ticket_context_dialog_hook},
     "/vendor/phoenix_html/phoenix_html.js" => {"application/javascript", @phoenix_html_js},
     "/vendor/phoenix/phoenix.js" => {"application/javascript", @phoenix_js},
     "/vendor/phoenix_live_view/phoenix_live_view.js" => {"application/javascript", @phoenix_live_view_js}
@@ -71,15 +71,22 @@ defmodule AiurWeb.StaticAssets do
   end
 
   def fetch(path) when is_binary(path) do
+    case Map.fetch(@runtime_static_assets, path) do
+      {:ok, {content_type, asset_path}} -> read_static_asset(content_type, asset_path)
+      :error -> fetch_dom_svg_layout_module(path)
+    end
+  end
+
+  defp fetch_dom_svg_layout_module(path) do
     case Map.fetch(@dom_svg_layout_modules, path) do
-      {:ok, asset_path} -> read_static_module(asset_path)
+      {:ok, asset_path} -> read_static_asset("application/javascript", asset_path)
       :error -> fetch_embedded_or_layout_asset(path)
     end
   end
 
-  defp read_static_module(asset_path) do
+  defp read_static_asset(content_type, asset_path) do
     case File.read(Application.app_dir(:aiur, asset_path)) do
-      {:ok, body} -> {:ok, "application/javascript", body}
+      {:ok, body} -> {:ok, content_type, body}
       {:error, _reason} -> :error
     end
   end

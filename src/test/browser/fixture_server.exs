@@ -325,9 +325,26 @@ defmodule Aiur.BrowserHarness.TicketContextLive do
       title: "Configured ticket",
       description: "A bounded description for the browser fixture.",
       lifecycle: %{state: :open, reason: :none},
-      detail: %{state: :available, observed_at: @observed_at, last_success_at: @observed_at, last_attempt_at: @observed_at},
-      history: %{state: :available, freshness: :fresh, observed_at: @observed_at, source_health: %{activity: :available, history: :available}},
-      progress: %{status: :known, percent: 40, source: :checkin, occurred_at: @observed_at, observed_at: @observed_at, provenance: %{run_id: "fixture"}},
+      detail: %{
+        state: :available,
+        observed_at: @observed_at,
+        last_success_at: @observed_at,
+        last_attempt_at: @observed_at
+      },
+      history: %{
+        state: :available,
+        freshness: :fresh,
+        observed_at: @observed_at,
+        source_health: %{activity: :available, history: :available}
+      },
+      progress: %{
+        status: :known,
+        percent: 40,
+        source: :checkin,
+        occurred_at: @observed_at,
+        observed_at: @observed_at,
+        provenance: %{run_id: "fixture"}
+      },
       latest_evidence: %{
         status: :known,
         source: %{kind: :agent_event, name: "progress.checkin"},
@@ -336,13 +353,35 @@ defmodule Aiur.BrowserHarness.TicketContextLive do
         provenance: %{}
       },
       logs: %{
-        entries: [%LogEntry{kind: :progress, label: "Progress updated", source: :exchange, occurred_at: @observed_at, observed_at: @observed_at}],
+        entries: [
+          %LogEntry{
+            kind: :progress,
+            label: "Progress updated",
+            source: :exchange,
+            occurred_at: @observed_at,
+            observed_at: @observed_at
+          }
+        ],
         truncated?: false,
         observed_at: @observed_at
       },
       capabilities: [
-        %Capability{kind: :github, variant: :issue, label: "Issue", href: "https://github.com/owner/repo/issues/42", available?: true, external?: true},
-        %Capability{kind: :github, variant: :pull_request, label: "Pull request", available?: false, external?: false, reason: "Pull request has not been opened."},
+        %Capability{
+          kind: :github,
+          variant: :issue,
+          label: "Issue",
+          href: "https://github.com/owner/repo/issues/42",
+          available?: true,
+          external?: true
+        },
+        %Capability{
+          kind: :github,
+          variant: :pull_request,
+          label: "Pull request",
+          available?: false,
+          external?: false,
+          reason: "Pull request has not been opened."
+        },
         %Capability{kind: :chat, label: "Chat", href: "/fixture", available?: true, external?: false},
         %Capability{kind: :commands, label: "Commands", available?: false, external?: false, reason: "Commands are unavailable."}
       ]

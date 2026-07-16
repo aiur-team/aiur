@@ -103,6 +103,7 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
   @max_title_bytes 512
   @max_logs 100
   @max_capabilities 4
+  @history_states [:available, :known_empty, :missing_source, :restart_unknown, :stale, :unavailable]
   @phase_labels [
     "Brainstorm started",
     "Brainstorm completed",
@@ -214,8 +215,9 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
     }
   end
 
-  defp history_view(_history, _matches?),
-    do: %{state: :unavailable, freshness: :unknown, observed_at: nil, source_health: %{activity: :unavailable, history: :unavailable}}
+  defp history_view(_history, _matches?) do
+    %{state: :unavailable, freshness: :unknown, observed_at: nil, source_health: unavailable_source_health()}
+  end
 
   defp progress_view(%TicketHistory.Snapshot{progress: progress}, true) when is_map(progress) do
     %{
@@ -256,11 +258,30 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
 
   defp logs_view(_history, _matches?), do: %{entries: [], truncated?: false, observed_at: nil}
 
-  defp log_entry(%Entry{} = entry), do: normalized_log_entry(entry.kind, entry.source, entry.label, entry.occurred_at, entry.observed_at)
+  defp log_entry(%Entry{} = entry) do
+    normalized_log_entry(
+      entry.kind,
+      entry.source,
+      entry.label,
+      entry.occurred_at,
+      entry.observed_at
+    )
+  end
+
   defp log_entry(_entry), do: []
 
   defp normalized_log_entry(kind, source, label, occurred_at, observed_at)
-       when kind in [:agent_attention, :agent_decision, :agent_lifecycle, :branch, :continuous_integration, :issue, :phase, :progress, :pull_request] and
+       when kind in [
+              :agent_attention,
+              :agent_decision,
+              :agent_lifecycle,
+              :branch,
+              :continuous_integration,
+              :issue,
+              :phase,
+              :progress,
+              :pull_request
+            ] and
               source in [:exchange, :issue_log] and is_struct(observed_at, DateTime) do
     [
       %LogEntry{
@@ -291,25 +312,25 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
   def normalize_capabilities(capabilities, identity) when is_list(capabilities) do
     {normalized, _seen} =
       Enum.reduce(capabilities, {[], MapSet.new()}, fn capability, {result, seen} ->
-        case normalize_capability(capability, identity) do
-          nil ->
-            {result, seen}
-
-          %Capability{} = capability ->
-            key = {capability.kind, capability.label}
-
-            if MapSet.member?(seen, key) or length(result) == @max_capabilities do
-              {result, seen}
-            else
-              {[capability | result], MapSet.put(seen, key)}
-            end
-        end
+        add_capability(normalize_capability(capability, identity), result, seen)
       end)
 
     Enum.reverse(normalized)
   end
 
   def normalize_capabilities(_capabilities, _identity), do: []
+
+  defp add_capability(nil, result, seen), do: {result, seen}
+
+  defp add_capability(%Capability{} = capability, result, seen) do
+    key = {capability.kind, capability.label}
+
+    if MapSet.member?(seen, key) or length(result) == @max_capabilities do
+      {result, seen}
+    else
+      {[capability | result], MapSet.put(seen, key)}
+    end
+  end
 
   @doc false
   @spec normalize_view(View.t() | term()) :: View.t()
@@ -335,7 +356,10 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
   def normalize_view(_view), do: unavailable_view()
 
   defp normalized_lifecycle(lifecycle) when is_map(lifecycle) do
-    %{state: lifecycle_state(map_value(lifecycle, :state)), reason: lifecycle_reason(map_value(lifecycle, :reason))}
+    %{
+      state: lifecycle_state(map_value(lifecycle, :state)),
+      reason: lifecycle_reason(map_value(lifecycle, :reason))
+    }
   end
 
   defp normalized_lifecycle(_lifecycle), do: %{state: :unknown, reason: :unknown}
@@ -349,7 +373,9 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
     }
   end
 
-  defp normalized_detail(_detail), do: %{state: :unavailable, observed_at: nil, last_success_at: nil, last_attempt_at: nil}
+  defp normalized_detail(_detail) do
+    %{state: :unavailable, observed_at: nil, last_success_at: nil, last_attempt_at: nil}
+  end
 
   defp normalized_history(history) when is_map(history) do
     %{
@@ -360,8 +386,9 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
     }
   end
 
-  defp normalized_history(_history),
-    do: %{state: :unavailable, freshness: :unknown, observed_at: nil, source_health: %{activity: :unavailable, history: :unavailable}}
+  defp normalized_history(_history) do
+    %{state: :unavailable, freshness: :unknown, observed_at: nil, source_health: unavailable_source_health()}
+  end
 
   defp normalized_progress(progress) when is_map(progress) do
     %{
@@ -403,7 +430,14 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
   defp normalized_logs(_logs), do: %{entries: [], truncated?: false, observed_at: nil}
 
   defp normalized_view_log_entry(%LogEntry{} = entry),
-    do: normalized_log_entry(entry.kind, entry.source, entry.label, entry.occurred_at, entry.observed_at)
+    do:
+      normalized_log_entry(
+        entry.kind,
+        entry.source,
+        entry.label,
+        entry.occurred_at,
+        entry.observed_at
+      )
 
   defp normalized_view_log_entry(_entry), do: []
 
@@ -424,9 +458,23 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
     available? = map_value(capability, :available?) == true
     number = positive_integer(map_value(capability, :number))
 
-    case available_href(kind, map_value(capability, :variant), map_value(capability, :href), identity, capability) do
+    case available_href(
+           kind,
+           map_value(capability, :variant),
+           map_value(capability, :href),
+           identity,
+           capability
+         ) do
       {:ok, href, external?} when available? ->
-        %Capability{kind: kind, variant: variant, number: number, label: label, href: href, available?: true, external?: external?}
+        %Capability{
+          kind: kind,
+          variant: variant,
+          number: number,
+          label: label,
+          href: href,
+          available?: true,
+          external?: external?
+        }
 
       _ ->
         %Capability{
@@ -453,7 +501,10 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
   end
 
   defp available_href(:github, :pull_request, href, identity, capability) do
-    with {:ok, href} <- Bounded.github_pull_request_url_for(href, identity, map_value(capability, :number)), do: {:ok, href, true}
+    with {:ok, href} <-
+           Bounded.github_pull_request_url_for(href, identity, map_value(capability, :number)) do
+      {:ok, href, true}
+    end
   end
 
   defp available_href(kind, _variant, href, _identity, _capability) when kind in [:chat, :commands] and is_binary(href) do
@@ -494,19 +545,20 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
   defp identifier(%TrackerIdentity{identifier: identifier}) when is_binary(identifier), do: identifier
   defp identifier(_identity), do: nil
 
-  defp history_state(state) when state in [:available, :known_empty, :missing_source, :restart_unknown, :stale, :unavailable], do: state
+  defp history_state(state) when state in @history_states, do: state
   defp history_state(_state), do: :unavailable
   defp freshness(value) when value in [:fresh, :stale, :unknown], do: value
   defp freshness(_value), do: :unknown
 
   defp source_health(source_health) when is_map(source_health) do
     %{
-      activity: map_value(source_health, :activity, [:available, :known_empty, :missing_source, :restart_unknown, :stale, :unavailable], :unavailable),
-      history: map_value(source_health, :history, [:available, :known_empty, :missing_source, :restart_unknown, :stale, :unavailable], :unavailable)
+      activity: map_value(source_health, :activity, @history_states, :unavailable),
+      history: map_value(source_health, :history, @history_states, :unavailable)
     }
   end
 
-  defp source_health(_source_health), do: %{activity: :unavailable, history: :unavailable}
+  defp source_health(_source_health), do: unavailable_source_health()
+  defp unavailable_source_health, do: %{activity: :unavailable, history: :unavailable}
   defp percent(value) when is_integer(value) and value in 0..100, do: value
   defp percent(_value), do: nil
   defp positive_integer(value) when is_integer(value) and value > 0, do: value
@@ -606,7 +658,12 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
       description: nil,
       lifecycle: %{state: :unknown, reason: :unknown},
       detail: %{state: :unavailable, observed_at: nil, last_success_at: nil, last_attempt_at: nil},
-      history: %{state: :unavailable, freshness: :unknown, observed_at: nil, source_health: %{activity: :unavailable, history: :unavailable}},
+      history: %{
+        state: :unavailable,
+        freshness: :unknown,
+        observed_at: nil,
+        source_health: unavailable_source_health()
+      },
       progress: %{status: :unknown, percent: nil, source: nil, occurred_at: nil, observed_at: nil, provenance: %{}},
       latest_evidence: %{status: :unknown, source: nil, occurred_at: nil, observed_at: nil, provenance: %{}},
       logs: %{entries: [], truncated?: false, observed_at: nil},

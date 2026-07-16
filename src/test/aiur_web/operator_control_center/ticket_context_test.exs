@@ -151,14 +151,26 @@ defmodule AiurWeb.OperatorControlCenter.TicketContextTest do
       title: "Configured ticket",
       description: "A bounded description",
       lifecycle: %{state: :open, reason: :none},
-      detail: %{state: detail_state, observed_at: @observed_at, last_success_at: @observed_at, last_attempt_at: @observed_at},
+      detail: %{
+        state: detail_state,
+        observed_at: @observed_at,
+        last_success_at: @observed_at,
+        last_attempt_at: @observed_at
+      },
       history: %{
         state: history_state,
         freshness: if(history_state == :stale, do: :stale, else: :fresh),
         observed_at: @observed_at,
         source_health: %{activity: :available, history: :available}
       },
-      progress: %{status: :known, percent: 40, source: :checkin, occurred_at: @observed_at, observed_at: @observed_at, provenance: %{run_id: "run-42"}},
+      progress: %{
+        status: :known,
+        percent: 40,
+        source: :checkin,
+        occurred_at: @observed_at,
+        observed_at: @observed_at,
+        provenance: %{run_id: "run-42"}
+      },
       latest_evidence: %{
         status: :known,
         source: %{kind: :agent_event, name: "progress.checkin"},
@@ -167,7 +179,15 @@ defmodule AiurWeb.OperatorControlCenter.TicketContextTest do
         provenance: %{}
       },
       logs: %{
-        entries: [%LogEntry{kind: :progress, label: "Progress updated", source: :exchange, occurred_at: @observed_at, observed_at: @observed_at}],
+        entries: [
+          %LogEntry{
+            kind: :progress,
+            label: "Progress updated",
+            source: :exchange,
+            occurred_at: @observed_at,
+            observed_at: @observed_at
+          }
+        ],
         truncated?: true,
         observed_at: @observed_at
       },

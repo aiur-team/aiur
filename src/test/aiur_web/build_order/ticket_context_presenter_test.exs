@@ -64,7 +64,15 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenterTest do
     for {detail, expected_detail} <- [
           {%State{identity: identity, generation: 1, health: :healthy, detail: nil}, :missing},
           {%State{identity: identity, generation: 1, health: :stale, detail: snapshot(identity)}, :stale},
-          {%State{identity: identity, generation: 1, health: :unavailable, failure: %Failure{kind: :permission}}, :unavailable}
+          {
+            %State{
+              identity: identity,
+              generation: 1,
+              health: :unavailable,
+              failure: %Failure{kind: :permission}
+            },
+            :unavailable
+          }
         ] do
       assert TicketContextPresenter.present(detail, history(identity), []).detail.state == expected_detail
     end
