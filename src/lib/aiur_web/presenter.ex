@@ -31,8 +31,7 @@ defmodule AiurWeb.Presenter do
           running: Enum.map(snapshot.running, &running_entry_payload/1),
           retrying: Enum.map(snapshot.retrying, &retry_entry_payload/1),
           idle: Enum.map(idle, &idle_entry_payload/1),
-          agent_totals: snapshot.agent_totals,
-          rate_limits: snapshot.rate_limits
+          agent_totals: public_agent_totals(snapshot.agent_totals)
         }
 
       :timeout ->
@@ -298,12 +297,7 @@ defmodule AiurWeb.Presenter do
       waiting_reason: Map.get(entry, :waiting_reason, :active),
       open_decision_count: Map.get(entry, :open_decision_count, 0),
       ci: ci_payload(Map.get(entry, :ci_result)),
-      review: review_status(entry.state),
-      tokens: %{
-        input_tokens: entry.agent_input_tokens,
-        output_tokens: entry.agent_output_tokens,
-        total_tokens: entry.agent_total_tokens
-      }
+      review: review_status(entry.state)
     }
     |> maybe_put_tracker_identity(entry)
   end
@@ -412,15 +406,15 @@ defmodule AiurWeb.Presenter do
       waiting_reason: Map.get(running, :waiting_reason, :active),
       open_decision_count: Map.get(running, :open_decision_count, 0),
       ci: ci_payload(Map.get(running, :ci_result)),
-      review: review_status(running.state),
-      tokens: %{
-        input_tokens: running.agent_input_tokens,
-        output_tokens: running.agent_output_tokens,
-        total_tokens: running.agent_total_tokens
-      }
+      review: review_status(running.state)
     }
     |> maybe_put_tracker_identity(running)
   end
+
+  defp public_agent_totals(totals) when is_map(totals),
+    do: %{seconds_running: Map.get(totals, :seconds_running, 0)}
+
+  defp public_agent_totals(_totals), do: %{seconds_running: 0}
 
   defp retry_issue_payload(retry) do
     %{

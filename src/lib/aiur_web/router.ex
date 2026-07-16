@@ -16,6 +16,7 @@ defmodule AiurWeb.Router do
 
   pipeline :browser do
     plug(:fetch_session)
+    plug(AiurWeb.FinancialDataAccess, :persist_session)
     plug(:fetch_live_flash)
     plug(:put_root_layout, html: {AiurWeb.Layouts, :root})
     plug(:protect_from_forgery)
@@ -100,9 +101,11 @@ defmodule AiurWeb.Router do
   scope "/", AiurWeb do
     pipe_through([:dashboard_auth, :browser])
 
-    live("/", DashboardLive, :index)
-    live("/decisions", DashboardLive, :decisions)
-    live("/decisions/:decision_id", DashboardLive, :decision)
+    live_session :dashboard, on_mount: AiurWeb.FinancialDataAccess do
+      live("/", DashboardLive, :index)
+      live("/decisions", DashboardLive, :decisions)
+      live("/decisions/:decision_id", DashboardLive, :decision)
+    end
   end
 
   scope "/", AiurWeb do
@@ -149,26 +152,7 @@ defmodule AiurWeb.Router do
 
   @doc false
   @spec dashboard_basic_auth(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
-  def dashboard_basic_auth(conn, opts) do
-    username = System.get_env("AIUR_DASHBOARD_USERNAME")
-    password = System.get_env("AIUR_DASHBOARD_PASSWORD")
-    auth_required? = Keyword.get_lazy(opts, :required?, &dashboard_auth_required?/0)
-
-    cond do
-      present?(username) and present?(password) ->
-        Plug.BasicAuth.basic_auth(conn, username: username, password: password, realm: "Aiur")
-
-      auth_required? ->
-        conn
-        |> Plug.BasicAuth.request_basic_auth(realm: "Aiur")
-        |> Plug.Conn.halt()
-
-      true ->
-        conn
-    end
-  end
-
-  defp present?(value), do: is_binary(value) and String.trim(value) != ""
+  def dashboard_basic_auth(conn, opts), do: AiurWeb.FinancialDataAccess.authenticate_request(conn, opts)
 
   # Origin/Referer allowlist. Parses exact origins and accepts the configured
   # dashboard host or loopback equivalents Executors typically use.
@@ -200,12 +184,6 @@ defmodule AiurWeb.Router do
 
   defp dashboard_writable? do
     AiurWeb.Endpoint.config(:dashboard_writable) == true
-  rescue
-    _ -> false
-  end
-
-  defp dashboard_auth_required? do
-    AiurWeb.Endpoint.config(:dashboard_auth_required) == true
   rescue
     _ -> false
   end

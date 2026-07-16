@@ -84,7 +84,7 @@ defmodule Aiur.ApplicationTest do
       Aiur.Opencode.PaneSupervisor
     ]
 
-    @dashboard [AiurWeb.ControlCenterCache, Aiur.HttpServer]
+    @dashboard [AiurWeb.ControlCenterCache, AiurWeb.FinancialData.Supervisor, Aiur.HttpServer]
 
     # Agent backends kept in headless mode plus core infra both modes need.
     @always [
@@ -97,6 +97,7 @@ defmodule Aiur.ApplicationTest do
       Aiur.BuildOrder.GraphProjection,
       Aiur.AppServer.ToolCallLedger,
       Aiur.ProviderAccountGeneration,
+      Aiur.ProviderMeters.Store,
       Aiur.DecisionMetrics.Writer,
       Aiur.DecisionMetrics,
       Aiur.GitHub.CodeOwners,
@@ -104,6 +105,7 @@ defmodule Aiur.ApplicationTest do
       Aiur.CurrentRunMembership.Store,
       Aiur.CurrentRunMembership.Reconciler,
       Aiur.TicketActivity,
+      Aiur.BuildOrder.TicketHistoryProvider,
       Aiur.Opencode.SessionSupervisor,
       Aiur.Opencode.BridgeSupervisor,
       Aiur.Opencode.TokenRegistry
@@ -166,6 +168,21 @@ defmodule Aiur.ApplicationTest do
         assert reaper < task_sup, "ProcessReaper must precede Task.Supervisor for #{inspect(opts)}"
         assert containment < task_sup, "PauseContainment must precede Task.Supervisor for #{inspect(opts)}"
       end
+    end
+
+    test "ticket history starts after its activity and configured-detail authorities" do
+      modules =
+        AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false)
+        |> modules()
+
+      detail = Enum.find_index(modules, &(&1 == Aiur.BuildOrder.TicketDetailCache))
+      activity = Enum.find_index(modules, &(&1 == Aiur.TicketActivity))
+      history = Enum.find_index(modules, &(&1 == Aiur.BuildOrder.TicketHistoryProvider))
+      orchestrator = Enum.find_index(modules, &(&1 == Aiur.Orchestrator))
+
+      assert detail < history
+      assert activity < history
+      assert history < orchestrator
     end
 
     test "ticket-detail cache starts after its task and workflow dependencies" do
@@ -251,6 +268,19 @@ defmodule Aiur.ApplicationTest do
 
         assert membership_store < orchestrator, "membership store must precede Orchestrator for #{inspect(opts)}"
         assert orchestrator < reconciler, "membership reconciler must follow Orchestrator for #{inspect(opts)}"
+      end
+    end
+
+    test "provider meters start immediately after the generation owner in every run shape" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        mods = modules(AiurApp.child_specs(opts))
+        owner = Enum.find_index(mods, &(&1 == Aiur.ProviderAccountGeneration))
+        meters = Enum.find_index(mods, &(&1 == Aiur.ProviderMeters.Store))
+
+        assert meters == owner + 1, "provider meters must immediately follow their generation owner for #{inspect(opts)}"
       end
     end
 

@@ -163,6 +163,7 @@ defmodule Aiur.Application do
       if(debug?, do: Aiur.RunTelemetry.Supervisor),
       Aiur.Events.Publisher,
       Aiur.ProviderAccountGeneration,
+      Aiur.ProviderMeters.Store,
       Aiur.DecisionStore,
       {Aiur.DecisionMetrics.Writer, path: Aiur.DecisionMetrics.metrics_file()},
       Aiur.DecisionMetrics,
@@ -175,6 +176,7 @@ defmodule Aiur.Application do
       Aiur.Orchestrator.TrackedSet,
       Aiur.CurrentRunMembership.Store,
       Aiur.TicketActivity,
+      {Aiur.BuildOrder.TicketHistoryProvider, runtime_config?: true},
       {Aiur.Orchestrator, initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
       Aiur.CurrentRunMembership.Reconciler,
       Aiur.Events.LsRemoteTicker,
@@ -183,6 +185,7 @@ defmodule Aiur.Application do
       # Dashboard supervision is independent of terminal attachment/headless
       # mode. Aiur.HttpServer retains its own bind and credential guards.
       if(dashboard?, do: AiurWeb.ControlCenterCache),
+      if(dashboard?, do: AiurWeb.FinancialData.Supervisor),
       if(dashboard?, do: Aiur.HttpServer),
       Aiur.Opencode.TokenRegistry,
       Aiur.Opencode.ActiveTurns,

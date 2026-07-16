@@ -414,7 +414,10 @@ defmodule Aiur.BrowserHarness.FixtureServer do
 
     {:ok, _} =
       Supervisor.start_link(
-        [{Phoenix.PubSub, name: Aiur.BrowserHarness.FixturePubSub}],
+        [
+          {Phoenix.PubSub, name: Aiur.BrowserHarness.FixturePubSub},
+          AiurWeb.FinancialDataAccess.Generation
+        ],
         strategy: :one_for_one
       )
 

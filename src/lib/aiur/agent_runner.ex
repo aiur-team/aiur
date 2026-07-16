@@ -447,6 +447,7 @@ defmodule Aiur.AgentRunner do
   defp worker_host_for_log(nil), do: "local"
   defp worker_host_for_log(worker_host), do: worker_host
 
+  defp maybe_attach_issue_log(%Issue{tracker_identity: %Aiur.TrackerIdentity{} = identity}), do: IssueLog.attach(identity)
   defp maybe_attach_issue_log(%Issue{identifier: identifier}) when is_binary(identifier), do: IssueLog.attach(identifier)
   defp maybe_attach_issue_log(%{identifier: identifier}) when is_binary(identifier), do: IssueLog.attach(identifier)
   defp maybe_attach_issue_log(_), do: :ok
