@@ -3,20 +3,40 @@ defmodule Aiur.Usage.PriceTableTest do
   use ExUnitProperties
 
   alias Aiur.Usage.PriceTable
+  alias Aiur.Usage.PriceTable.Data
 
-  test "resolves reviewed prices on inclusive occurrence boundaries" do
+  @expected_rates [
+    {:codex, "gpt-5.6-sol", "5.00", "0.50", "6.25", "30.00"},
+    {:codex, "gpt-5.6-terra", "2.50", "0.25", "3.125", "15.00"},
+    {:codex, "gpt-5.6-luna", "1.00", "0.10", "1.25", "6.00"},
+    {:claude, "claude-opus-4-8", "5.00", "0.50", "6.25", "25.00"},
+    {:claude, "claude-sonnet-4-6", "3.00", "0.30", "3.75", "15.00"},
+    {:claude, "claude-haiku-4-5", "1.00", "0.10", "1.25", "5.00"}
+  ]
+
+  test "resolves every reviewed model dimension on its inclusive boundary" do
     assert {:ok, catalog} = PriceTable.default()
+    assert length(catalog.entries) == 30
 
-    assert {:ok, price} =
-             PriceTable.lookup(catalog, query(:codex, "gpt-5.6-terra", :cached_input))
+    for {provider, model, input, cached, creation, output} <- @expected_rates,
+        {dimension, expected} <- [
+          input: input,
+          cached_input: cached,
+          cache_creation_input: creation,
+          output: output,
+          reasoning_output: output
+        ] do
+      assert {:ok, price} = PriceTable.lookup(catalog, query(provider, model, dimension))
+      assert Decimal.equal?(price.price, Decimal.new(expected))
+      assert price.token_unit == 1_000_000
+      assert price.effective_date == ~D[2026-07-15]
+      assert price.expires_before == nil
+      assert price.source_reviewed_at == ~D[2026-07-15]
+      assert price.source_url == source_url(provider)
+      assert price.price_revision == price_revision(provider)
+    end
 
-    assert Decimal.equal?(price.price, Decimal.new("0.25"))
-    assert price.token_unit == 1_000_000
-    assert price.effective_date == ~D[2026-07-15]
-    assert price.expires_before == nil
-    assert price.price_revision == "openai-standard-global-2026-07-15"
-    assert price.source_reviewed_at == ~D[2026-07-15]
-    assert price.source_url == "https://developers.openai.com/api/docs/pricing"
+    assert catalog.revision == Data.catalog_revision()
   end
 
   test "selects old and new revisions solely from the occurrence date" do
@@ -166,4 +186,10 @@ defmodule Aiur.Usage.PriceTableTest do
 
   defp relationship_revision(:codex), do: "codex-app-server-2026-07"
   defp relationship_revision(:claude), do: "claude-remote-control-2026-07"
+
+  defp price_revision(:codex), do: "openai-standard-global-2026-07-15"
+  defp price_revision(:claude), do: "anthropic-standard-global-2026-07-15"
+
+  defp source_url(:codex), do: "https://developers.openai.com/api/docs/pricing"
+  defp source_url(:claude), do: "https://platform.claude.com/docs/en/about-claude/pricing"
 end
