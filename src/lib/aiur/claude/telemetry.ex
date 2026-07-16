@@ -40,10 +40,6 @@ defmodule Aiur.Claude.Telemetry do
   @spec health(GenServer.server()) :: map()
   def health(server \\ __MODULE__), do: GenServer.call(server, :health)
 
-  @doc "Returns the loopback URL when the independent receiver is available."
-  @spec endpoint(GenServer.server()) :: String.t() | nil
-  def endpoint(server \\ __MODULE__), do: GenServer.call(server, :endpoint)
-
   @doc """
   Establish a fresh producer generation before an owned Claude process starts.
 
@@ -155,15 +151,12 @@ defmodule Aiur.Claude.Telemetry do
     {:reply,
      %{
        status: if(is_integer(state.port), do: :ready, else: :unavailable),
-       endpoint: endpoint_from_port(state.port),
        source_versions: [@source_version],
        active_generations: map_size(state.capabilities),
        accepted: state.accepted,
        rejections: state.rejections
      }, state}
   end
-
-  def handle_call(:endpoint, _from, state), do: {:reply, endpoint_from_port(state.port), state}
 
   def handle_call({:prepare_launch, request}, _from, state) do
     with :ok <- validate_launch_request(request, state),

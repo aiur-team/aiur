@@ -110,7 +110,7 @@ defmodule Aiur.Claude.TelemetryTest do
   test "a partial loopback client times out without taking down the receiver", %{server: server, issue: issue} do
     launch = launch(server, issue)
     authorization = authorization(launch)
-    %URI{port: port} = URI.parse(Telemetry.endpoint(server))
+    %URI{port: port} = URI.parse(endpoint(launch))
 
     {:ok, socket} = :gen_tcp.connect({127, 0, 0, 1}, port, [:binary, active: false])
 
@@ -162,6 +162,7 @@ defmodule Aiur.Claude.TelemetryTest do
     capability = authorization(launch)
 
     refute inspect(:sys.get_status(server)) =~ capability
+    refute Map.has_key?(Telemetry.health(server), :endpoint)
   end
 
   @tag capability_mint: :deterministic
@@ -198,6 +199,12 @@ defmodule Aiur.Claude.TelemetryTest do
   defp authorization(%{env: env}) do
     {_, authorization} = Enum.find(env, fn {key, _value} -> key == "OTEL_EXPORTER_OTLP_LOGS_HEADERS" end)
     String.replace_prefix(authorization, "Authorization=", "")
+  end
+
+  defp endpoint(%{env: env}) do
+    env
+    |> Map.new()
+    |> Map.fetch!("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT")
   end
 
   defp submit(server, authorization, body) when is_map(body), do: submit(server, authorization, Jason.encode!(body))
