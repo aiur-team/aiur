@@ -150,12 +150,20 @@ Build Order planning reads use finite `github.planning_root_limit`,
 They default to `100`, `4`, and `4`; all values must be positive and may not
 exceed those hard limits, so a provider generation never silently truncates.
 
-The optional root-level `build_order` section configures two supervised,
+The optional root-level `build_order` section configures three supervised,
 in-memory configured-repository stores. Ticket detail defaults to a 30-second
 freshness window, 32 retained identities, and 16,384 sanitized description
 bytes. `ticket_detail_freshness_ms` accepts `1..300000`,
 `ticket_detail_max_entries` accepts `1..100`, and
 `ticket_detail_max_description_bytes` accepts `1..16384`.
+
+Recent ticket history retains only allowlisted, sanitized event metadata from
+the typed IssueLog and Exchange seams; it never stores agent transcripts or
+workspace paths. `ticket_history_limit` defaults to `50` and accepts `1..100`;
+`ticket_history_max_identities` defaults to `100` and accepts `1..100`; and
+`ticket_history_stale_after_ms` defaults to `60000` and accepts `1..300000`.
+History snapshots are in-memory and restart as unavailable until fresh typed
+evidence is observed.
 
 The planning graph projection owns provider polling independently of connected
 browsers. Its public settings and inclusive bounds are:
