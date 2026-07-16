@@ -1620,7 +1620,14 @@ run_release_rpc_with_timeout() {
   else
     status=$?
   fi
-  kill "$watchdog_pid" 2>/dev/null || true
+  if [ -f "$timeout_file" ]; then
+    # The timeout watchdog owns descendant cleanup. Once it has marked the
+    # timeout, let it finish its TERM/KILL sequence; cancelling it here can
+    # strand descendants that ignored TERM after the root process exits.
+    :
+  else
+    kill "$watchdog_pid" 2>/dev/null || true
+  fi
   wait "$watchdog_pid" 2>/dev/null || true
 
   AIUR_CONTROL_RPC_OUTPUT="$(cat "$output_file" 2>/dev/null || true)"
