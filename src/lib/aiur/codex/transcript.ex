@@ -26,7 +26,7 @@ defmodule Aiur.Codex.Transcript do
     effective_turn_id = codex_turn_id(message) || fallback_turn_id
     timestamp = timestamp_for(message)
 
-    case assistant_delta_from_codex(message) do
+    case assistant_delta_from_codex(message, effective_turn_id) do
       {:ok, event} ->
         {:ok, event}
 
@@ -95,7 +95,7 @@ defmodule Aiur.Codex.Transcript do
     end
   end
 
-  defp assistant_delta_from_codex(message) do
+  defp assistant_delta_from_codex(message, turn_id) do
     with "item/agentMessage/delta" <- notification_method(message),
          params when is_map(params) <- notification_params(message),
          id when is_binary(id) and id != "" <- get(params, :itemId),
@@ -104,7 +104,7 @@ defmodule Aiur.Codex.Transcript do
         AgentEvents.transcript_event(:assistant, delta,
           timestamp: timestamp_for(message),
           msg_id: id,
-          turn_id: codex_turn_id(message)
+          turn_id: turn_id
         )
         |> Map.put(:kind, :assistant_delta)
         |> Map.put(:id, id)

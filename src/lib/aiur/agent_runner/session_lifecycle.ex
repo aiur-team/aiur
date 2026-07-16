@@ -307,23 +307,20 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     opts = Keyword.put(opts, :resumed, SessionResume.session_resumed?(session))
 
     try do
-      result =
-        TurnLoop.run_turns(
-          session,
-          workspace,
-          issue,
-          codex_update_recipient,
-          opts,
-          session_context.issue_state_fetcher,
-          session_context.orchestrator,
-          worker_host,
-          1,
-          session_context.max_turns
-        )
-
-      MessageHandler.end_live_conversation(issue, session_context.session_backend, opts)
-      result
+      TurnLoop.run_turns(
+        session,
+        workspace,
+        issue,
+        codex_update_recipient,
+        opts,
+        session_context.issue_state_fetcher,
+        session_context.orchestrator,
+        worker_host,
+        1,
+        session_context.max_turns
+      )
     after
+      MessageHandler.end_live_conversation(issue, session_context.session_backend, opts)
       stop_display_tailer(display_tailer)
       stop_session_with_ownership(session, ownership)
     end

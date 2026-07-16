@@ -34,6 +34,17 @@ defmodule Aiur.Codex.TranscriptTest do
                Transcript.extract(message, "fallback")
     end
 
+    test "agentMessage delta falls back to the aiur turn id" do
+      message = %{
+        payload: %{
+          method: "item/agentMessage/delta",
+          params: %{itemId: "msg_1", delta: "partial"}
+        }
+      }
+
+      assert {:ok, %{turn_id: "fallback"}} = Transcript.extract(message, "fallback")
+    end
+
     test "commandExecution item/completed → :command with clean payload (no $ prefix, real output)" do
       message = %{
         payload: %{

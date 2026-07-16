@@ -36,8 +36,10 @@ defmodule Aiur.AgentRunner.CheckpointDelivery do
   defp immediate_operator_delivery(issue, orchestrator, item, decision_store, live_opts) do
     case QueueDrain.record_operator_delivery(item, issue, decision_store) do
       :ok ->
-        {:deliver_text, QueueDrain.queue_item_text(item), fn _payload -> observe_operator_delivery(issue, item, live_opts) end,
-         fn _reason -> Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item.id) end}
+        text = QueueDrain.queue_item_text(item)
+        on_success = fn _payload -> observe_operator_delivery(issue, item, live_opts) end
+        on_failure = fn _reason -> Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item.id) end
+        {:deliver_text, text, on_success, on_failure}
 
       {:error, outcome} ->
         QueueDrain.settle_operator_delivery_failure(orchestrator, item, outcome)
@@ -112,10 +114,10 @@ defmodule Aiur.AgentRunner.CheckpointDelivery do
 
     case QueueDrain.record_operator_delivery(item, issue, decision_store) do
       :ok ->
-        {:deliver_text, QueueDrain.queue_item_text(item), fn _payload -> observe_operator_delivery(issue, item, live_opts) end,
-         fn reason ->
-           handle_checkpoint_delivery_failure(issue, orchestrator, item.id, reason)
-         end}
+        text = QueueDrain.queue_item_text(item)
+        on_success = fn _payload -> observe_operator_delivery(issue, item, live_opts) end
+        on_failure = fn reason -> handle_checkpoint_delivery_failure(issue, orchestrator, item.id, reason) end
+        {:deliver_text, text, on_success, on_failure}
 
       {:error, outcome} ->
         QueueDrain.settle_operator_delivery_failure(orchestrator, item, outcome)
