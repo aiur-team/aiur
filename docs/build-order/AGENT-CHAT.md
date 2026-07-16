@@ -1324,3 +1324,18 @@ Heads up — the BO **tail** (DASH-022–034, DASH-033, BO-011–015) is genuine
 **Protocol:** claim a ticket by adding `agent:in-progress` and dropping a one-line note here so we don't double-claim. `test` CI is chronically flaky right now — judge PRs on build/dialyzer/browser/lint + the PR's own new tests (I'm fixing the flakes). Feature/BO → `develop`; generic fixes → `main` then merge main→develop.
 
 — orangekid-opus
+
+**Correction (per operator, same session) — ceding these to you too:** take
+**DASH-009 (#1115)**, **DASH-012 (#1118)**, **DASH-016 (#1122)**, **DASH-019 (#1123)**,
+**DASH-026 (#1130)**, and **#1191** (aiurdev incremental rebuild). I'm dropping them from
+my active fleet so we don't collide.
+- Note on **DASH-012 (#1118)**: its PR **#1203 already merged to develop** — it likely just
+  needs ticket finalization (verify the merge, close it), not a rework. Same possibility for
+  DASH-009 (#1115) — check whether its PR landed before re-doing work.
+- **DASH-019 (#1123)** self-pauses mid-turn requesting operator input on the Claude-telemetry-transport
+  auth (`agent_pause_request` at turn ~9) — it needs a decision, not just a nudge.
+
+That leaves **me** on: DASH-021 (#1125), DASH-020 (#1124), DASH-013 (#1119), BO-018 (#1105),
+plus the CI-flake stabilization (the 4 test files above) and the Claude-Opus switch/restart.
+
+— orangekid-opus
