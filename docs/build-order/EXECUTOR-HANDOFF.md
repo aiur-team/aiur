@@ -1,5 +1,100 @@
 # Build Order Executor Handoff
 
+## Live Executor state (updated 2026-07-16 11:05 PDT — macbook-fable)
+
+This entry is the current live truth for the **macbook-fable** (macOS, git
+`its-applekid`) fleet and supersedes older entries for that machine only. The
+orangekid-opus machine records its own state; see `AGENT-CHAT.md` for the
+cross-machine partition.
+
+**Fleet PAUSED at operator direction (2026-07-16 ~11:00 PDT)** pending a backend
+switch to Codex. `aiurdev pause --all` applied; the daemon stays up.
+
+### Backend switch: workspace/session ownership (verified, not assumed)
+
+An agent backend switch is **workspace-safe**. The two identities are keyed
+differently:
+
+- **Workspace is backend-agnostic.** `Workspace.workspace_path_under/2` resolves
+  `Layout.issue_workspace_path(root, Layout.safe_identifier(identifier))` — the
+  path derives from the *issue identifier only*. No backend, model, or provider
+  appears in it. Codex and Claude agents for the same ticket therefore use the
+  identical checkout, branch, commits, uncommitted tree, and Agent Workpad.
+- **Provider session is backend-scoped.** `SessionLifecycle` resolves resume via
+  `SessionResume.load_resume_thread_id(session_backend, worker_host,
+  issue.identifier)`. Changing the backend changes the lookup key, so no prior
+  thread resolves and the replacement agent **cold-starts on the preserved
+  workspace**. This is a clean miss, not corruption: a Codex agent can never
+  attach to a Claude thread or vice versa.
+
+**Net churn cost of a switch = the provider conversation context only.** All file
+work survives. Recovery of that context is the ordinary prior-work continuation
+path: the workpad handoff plus committed state. Minimize rework by having each
+worker commit/push a checkpoint and update its workpad *before* the switch; the
+replacement agent then resumes from durable evidence rather than re-deriving.
+
+### Work at risk at pause time: none
+
+Every ticket in the macbook-fable set had **zero unpushed commits** when paused:
+
+| Ticket | Branch | Dirty | Unpushed |
+|---|---|---:|---:|
+| #960 | `aiur/960-flake-coretest-capture-log` | 1 | 0 |
+| #1122 | `aiur/1122-bo-dash-016-project` | 0 | 0 |
+| #1123 | `aiur/1123-bo-dash-019-authenticate` | 0 | 0 |
+| #1130 | `aiur/1130-bo-dash-026-project` | 1 | 0 |
+| #1149 | `aiur/1149-test-isolate-global-log` | 1 | 0 |
+| #1030 | `aiur/1030-bug-workspace-bootstrap-race` | 748 | 0 |
+
+#1030's 748 dirty paths are deleted tracked `.aiur-hex/*` cache entries — the
+known per-workspace Hex-cache defect (#1140), not agent work. The switch can
+proceed immediately with no checkpoint drain.
+
+### macbook-fable configuration
+
+`.aiur/config` on `develop` is already `agent.kind: codex` with Codex 5.6
+routing (luna/terra/sol by complexity); **no config change is required on this
+machine** for a Codex fleet. The machine-local sandbox `writableRoots` block for
+macOS paths is deliberately an *uncommitted working-tree edit* — it was
+accidentally committed once and reverted; never commit it (nonexistent roots
+break build-gate canonicalization on the other OS). A machine-local override
+file is the durable fix.
+
+### Blocking external condition
+
+The `its-applekid` `GITHUB_TOKEN` REST quota is **exhausted until 18:18Z
+(11:18 PDT)**. Aiur prefers `GITHUB_TOKEN` over `gh` keyring auth, so the tracker
+went blind and the orchestrator released worker claims
+(`orchestrator.retry_poll.exhausted` on #960/#1123). Do not restart into that
+window expecting dispatch; resume after reset, or refresh/unset the token and
+restart so the daemon inherits the fixed environment.
+
+### Delivered this session
+
+- **#728 root-caused and fixed.** The engine already advertised `dynamicTools`
+  on `thread/start` and handled `item/tool/call`; published `aiur-claude@1.0.0`
+  silently dropped both. Sibling `claude-app-server` PR #1 (in-process MCP
+  bridge) and PR #2 (rename `symphony-claude` → `aiur-claude`, v1.1.0, bin fix)
+  are merged; `aiur-claude@1.1.0` is installed on this machine. npm publish
+  awaits the operator's OTP. Remaining aiur-repo work: an adapter min-version
+  nudge in `agent_cli.ex`.
+- **GATE-003 ratified** by the operator; resolution receipt on #1123.
+- **DASH-012/#1118 verified merged** (PR #1203, ancestor of `develop`) and closed.
+- Open PRs awaiting CI/merge: #1202 (#1122), #1211 (#960), #1213 (#1149).
+
+### Operational defects observed (workarounds active, evidence held)
+
+1. **Dispatcher fan-out is inert without kick events.** After launch the daemon
+   admits one worker and then stalls with free slots, low load, clean queue, and
+   a ready prewarm base. `aiurdev resume <id>` / `--todo <id>` reliably admits
+   each lane. Never leave a clean rework/todo row idle.
+2. **Slot accounting leaks.** `no available orchestrator slots` retry storms
+   (253+ occurrences) persisted while `set max-agents` reported only 1–2 active;
+   deactivated-but-claimed entries hold slots. A daemon restart clears it.
+3. **Startup label-strip has a worse variant than #1148.** Startup stripped
+   *every* `agent:*` label from #1125 (not merely `agent:paused`). Re-verify
+   ticket labels immediately after any restart.
+
 ## Live Executor state (updated 2026-07-15 21:33 PDT)
 
 This entry is the current live truth and supersedes the 2026-07-15 15:56 PDT entry

@@ -64,10 +64,6 @@ agent:
         - /home/applekid/code/aiur-workspaces
         - /home/orangekid/code/aiur-workspaces
         - /tmp
-        # local-only (macbook-fable): DO NOT COMMIT — machine-specific containment
-        - /Users/kevinweaver/code/aiur-workspaces
-        - /Users/kevinweaver/.aiur/build-gate
-        - /private/tmp
       networkAccess: true
 opencode:
   command: opencode
