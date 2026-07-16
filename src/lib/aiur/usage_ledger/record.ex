@@ -99,16 +99,19 @@ defmodule Aiur.UsageLedger.Record do
     with :ok <- only_keys(value, expected, :invalid_ledger_delta),
          true <- Map.keys(stringify_keys(value)) |> Enum.sort() == Enum.sort(expected) do
       tokens = Map.new(@token_fields, fn field -> {field, value_of(value, field)} end)
-
-      if Enum.all?(tokens, fn {_field, amount} -> is_nil(amount) or (is_integer(amount) and amount >= 0) end),
-        do: {:ok, tokens},
-        else: {:error, :invalid_ledger_delta}
+      validate_tokens(tokens)
     else
       _ -> {:error, :invalid_ledger_delta}
     end
   end
 
   defp decode_tokens(_value), do: {:error, :invalid_ledger_delta}
+
+  defp validate_tokens(tokens) do
+    if Enum.all?(tokens, fn {_field, amount} -> is_nil(amount) or (is_integer(amount) and amount >= 0) end),
+      do: {:ok, tokens},
+      else: {:error, :invalid_ledger_delta}
+  end
 
   defp coverage_reasons(values, envelope) when is_list(values) do
     expected = Enum.map(envelope.coverage_reasons, &Atom.to_string/1)

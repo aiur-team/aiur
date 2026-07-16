@@ -4,7 +4,12 @@ defmodule Aiur.UsageLedger.Recovery do
   alias Aiur.{Config, DecisionLog, Fs}
   alias Aiur.UsageLedger.{Checkpoint, CounterPolicy, Paths, Record}
 
-  @default_limits %{max_record_bytes: 32_768, max_segment_bytes: 16_777_216, max_checkpoint_bytes: 1_048_576, max_idempotency_entries: 50_000}
+  @default_limits %{
+    max_record_bytes: 32_768,
+    max_segment_bytes: 16_777_216,
+    max_checkpoint_bytes: 1_048_576,
+    max_idempotency_entries: 50_000
+  }
 
   @spec options(keyword()) :: map()
   def options(opts) do
@@ -105,19 +110,22 @@ defmodule Aiur.UsageLedger.Recovery do
     records
     |> Enum.drop(position)
     |> Enum.reduce_while({:ok, policy}, fn record, {:ok, current} ->
-      case CounterPolicy.apply(current, record.envelope) do
-        {:ok, %{state: next, delta: delta}} ->
-          if Record.matches_delta?(record, delta),
-            do: {:cont, {:ok, next}},
-            else: {:halt, {:error, :record_delta_mismatch}}
-
-        {:duplicate, _state} ->
-          {:halt, {:error, :duplicate_canonical_record}}
-
-        {:error, reason, _state} ->
-          {:halt, {:error, reason}}
-      end
+      replay_record(record, current)
     end)
+  end
+
+  defp replay_record(record, policy) do
+    case CounterPolicy.apply(policy, record.envelope) do
+      {:ok, %{state: next, delta: delta}} -> replay_delta(record, next, delta)
+      {:duplicate, _state} -> {:halt, {:error, :duplicate_canonical_record}}
+      {:error, reason, _state} -> {:halt, {:error, reason}}
+    end
+  end
+
+  defp replay_delta(record, policy, delta) do
+    if Record.matches_delta?(record, delta),
+      do: {:cont, {:ok, policy}},
+      else: {:halt, {:error, :record_delta_mismatch}}
   end
 
   defp consecutive_positions(records) do
@@ -258,16 +266,20 @@ defmodule Aiur.UsageLedger.Recovery do
         :healthy
 
       {:ok, %File.Stat{type: :regular, size: size}} when size <= max_bytes ->
-        case File.read(path) do
-          {:ok, contents} -> if(:binary.last(contents) == ?\n, do: :healthy, else: :torn)
-          {:error, _reason} -> {:error, :unreadable}
-        end
+        read_tail_status(path)
 
       {:ok, _stat} ->
         {:error, :unreadable}
 
       {:error, _reason} ->
         {:error, :unreadable}
+    end
+  end
+
+  defp read_tail_status(path) do
+    case File.read(path) do
+      {:ok, contents} -> if(:binary.last(contents) == ?\n, do: :healthy, else: :torn)
+      {:error, _reason} -> {:error, :unreadable}
     end
   end
 

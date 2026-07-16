@@ -2,7 +2,7 @@ defmodule Aiur.UsageLedger.RecoveryTest do
   use ExUnit.Case, async: false
 
   alias Aiur.DecisionLog
-  alias Aiur.UsageLedger.{CounterPolicy, Paths, Record, Recovery}
+  alias Aiur.UsageLedger.{Checkpoint, CounterPolicy, Paths, Record, Recovery}
   import Aiur.TestSupport.UsageLedger, only: [envelope: 1]
 
   setup do
@@ -21,7 +21,7 @@ defmodule Aiur.UsageLedger.RecoveryTest do
     assert state.writable?
     assert state.position == 1
     assert state.policy.idempotency == MapSet.new([CounterPolicy.idempotency_key(record.envelope)])
-    assert {:ok, rebuilt_checkpoint} = Aiur.UsageLedger.Checkpoint.load(paths.checkpoint_path)
+    assert {:ok, rebuilt_checkpoint} = Checkpoint.load(paths.checkpoint_path)
     assert rebuilt_checkpoint.position == 1
     assert rebuilt_checkpoint.generation == 1
     assert [replayed] = state.records
@@ -84,8 +84,8 @@ defmodule Aiur.UsageLedger.RecoveryTest do
     record = canonical_record(1)
     :ok = DecisionLog.append(paths.segment_path, Record.encode(record))
 
-    checkpoint = Aiur.UsageLedger.Checkpoint.record(1, 1, CounterPolicy.new())
-    :ok = Aiur.UsageLedger.Checkpoint.write(paths.checkpoint_path, checkpoint)
+    checkpoint = Checkpoint.record(1, 1, CounterPolicy.new())
+    :ok = Checkpoint.write(paths.checkpoint_path, checkpoint)
 
     forged = record |> Record.encode() |> put_in(["delta", "tokens", "input"], 9) |> Jason.encode!() |> then(&(&1 <> "\n"))
     :ok = File.write(paths.segment_path, forged)
@@ -100,8 +100,8 @@ defmodule Aiur.UsageLedger.RecoveryTest do
     record = canonical_record(1)
     :ok = DecisionLog.append(paths.segment_path, Record.encode(record))
 
-    checkpoint = Aiur.UsageLedger.Checkpoint.record(1, 9, CounterPolicy.new())
-    :ok = Aiur.UsageLedger.Checkpoint.write(paths.checkpoint_path, checkpoint)
+    checkpoint = Checkpoint.record(1, 9, CounterPolicy.new())
+    :ok = Checkpoint.write(paths.checkpoint_path, checkpoint)
 
     assert {:ok, state} = Recovery.boot(root, persistence)
     assert state.health == {:degraded, :checkpoint_corrupt}

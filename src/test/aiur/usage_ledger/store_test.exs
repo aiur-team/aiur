@@ -54,7 +54,7 @@ defmodule Aiur.UsageLedger.StoreTest do
   test "acknowledges only after append and checkpoint, then survives restart without re-adding cumulative input", %{root: root, name: name} do
     {:ok, pid} = start_store(root, name)
     :ok = subscribe(name, self())
-    first = envelope(%{tokens: %{input: 10, cached_input: nil, cache_creation_input: nil, output: nil, reasoning_output: nil, provider_reported_total: nil}})
+    first = envelope(%{tokens: token_values(10)})
 
     assert {:ok, acknowledgement} = append(name, first)
     assert acknowledgement.position == 1
@@ -124,7 +124,7 @@ defmodule Aiur.UsageLedger.StoreTest do
         idempotency_key: "codex:evt-18",
         source_event_id: "evt-18",
         source_sequence: 18,
-        tokens: %{input: 11, cached_input: nil, cache_creation_input: nil, output: nil, reasoning_output: nil, provider_reported_total: nil},
+        tokens: token_values(11),
         cost: money("1.10", :absolute)
       })
 
@@ -160,4 +160,15 @@ defmodule Aiur.UsageLedger.StoreTest do
   defp scan(server), do: GenServer.call(server, {:scan, []})
   defp health(server), do: GenServer.call(server, :health)
   defp subscribe(server, pid), do: GenServer.call(server, {:subscribe, pid})
+
+  defp token_values(input) do
+    %{
+      input: input,
+      cached_input: nil,
+      cache_creation_input: nil,
+      output: nil,
+      reasoning_output: nil,
+      provider_reported_total: nil
+    }
+  end
 end

@@ -110,7 +110,7 @@ defmodule Aiur.UsageLedger.CounterPolicyTest do
         idempotency_key: "codex:evt-18",
         source_event_id: "evt-18",
         source_sequence: 18,
-        account_generation: %{provider: :codex, backend: :app_server, generation: "generation-b", freshness: :current, health: :healthy, reason: nil},
+        account_generation: account_generation("generation-b"),
         tokens: %{input: 2}
       )
 
@@ -227,15 +227,8 @@ defmodule Aiur.UsageLedger.CounterPolicyTest do
       auth_mode: :chatgpt,
       requested_model: "gpt-5.6-terra",
       resolved_model: "gpt-5.6-terra",
-      account_generation: %{
-        provider: :codex,
-        backend: :app_server,
-        generation: "generation-a",
-        freshness: :current,
-        health: :healthy,
-        reason: nil
-      },
-      tokens: %{input: 10, cached_input: nil, cache_creation_input: nil, output: nil, reasoning_output: nil, provider_reported_total: nil},
+      account_generation: account_generation("generation-a"),
+      tokens: token_values(10),
       relationship_revision: "codex-app-server-2026-07",
       cost: money("1.00", :absolute)
     }
@@ -253,6 +246,28 @@ defmodule Aiur.UsageLedger.CounterPolicyTest do
       counter_scope: :thread,
       source: "provider-cost",
       source_version: "2026-07"
+    }
+  end
+
+  defp account_generation(generation) do
+    %{
+      provider: :codex,
+      backend: :app_server,
+      generation: generation,
+      freshness: :current,
+      health: :healthy,
+      reason: nil
+    }
+  end
+
+  defp token_values(input) do
+    %{
+      input: input,
+      cached_input: nil,
+      cache_creation_input: nil,
+      output: nil,
+      reasoning_output: nil,
+      provider_reported_total: nil
     }
   end
 end

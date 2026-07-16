@@ -5,13 +5,20 @@ defmodule Aiur.UsageLedger.CounterPolicy do
 
   @token_fields UsageEnvelope.token_dimensions() ++ [:provider_reported_total]
 
-  defstruct idempotency: MapSet.new(), absolute: %{}, streams: %{}, coverage: %{lower: nil, upper: nil, status: :empty}
+  defstruct idempotency: MapSet.new(),
+            absolute: %{},
+            streams: %{},
+            coverage: %{lower: nil, upper: nil, status: :empty}
 
   @type state :: %__MODULE__{
-          idempotency: MapSet.t(String.t()),
-          absolute: %{optional(String.t()) => %{value: non_neg_integer() | Decimal.t(), source_sequence: non_neg_integer()}},
+          idempotency: MapSet.t(),
+          absolute: map(),
           streams: %{optional(String.t()) => :absolute | :delta},
-          coverage: %{lower: non_neg_integer() | nil, upper: non_neg_integer() | nil, status: :empty | :unknown | :partial | :full}
+          coverage: %{
+            lower: non_neg_integer() | nil,
+            upper: non_neg_integer() | nil,
+            status: :empty | :unknown | :partial | :full
+          }
         }
 
   @spec new() :: state()
@@ -350,7 +357,9 @@ defmodule Aiur.UsageLedger.CounterPolicy do
   defp streams(_values), do: {:error, :invalid_ledger_checkpoint}
 
   defp stream_entry(key, kind, result) do
-    if checkpoint_key?(key), do: {:cont, {:ok, Map.put(result, key, kind)}}, else: {:halt, {:error, :invalid_ledger_checkpoint}}
+    if checkpoint_key?(key),
+      do: {:cont, {:ok, Map.put(result, key, kind)}},
+      else: {:halt, {:error, :invalid_ledger_checkpoint}}
   end
 
   defp coverage(values) when is_map(values) do
@@ -358,7 +367,7 @@ defmodule Aiur.UsageLedger.CounterPolicy do
     upper = value_of(values, :upper)
     status = value_of(values, :status)
 
-    if only_keys(values, ["lower", "upper", "status"]) == :ok and (is_nil(lower) or is_integer(lower)) and (is_nil(upper) or is_integer(upper)) and status in ["empty", "unknown", "partial", "full"] do
+    if valid_coverage?(values, lower, upper, status) do
       {:ok, %{lower: lower, upper: upper, status: String.to_existing_atom(status)}}
     else
       {:error, :invalid_ledger_checkpoint}
@@ -366,6 +375,13 @@ defmodule Aiur.UsageLedger.CounterPolicy do
   end
 
   defp coverage(_values), do: {:error, :invalid_ledger_checkpoint}
+
+  defp valid_coverage?(values, lower, upper, status) do
+    only_keys(values, ["lower", "upper", "status"]) == :ok and
+      (is_nil(lower) or is_integer(lower)) and
+      (is_nil(upper) or is_integer(upper)) and
+      status in ["empty", "unknown", "partial", "full"]
+  end
 
   defp only_keys(value, expected) do
     if value |> Map.keys() |> Enum.map(&to_string/1) |> Enum.sort() == Enum.sort(expected), do: :ok, else: {:error, :invalid_ledger_checkpoint}

@@ -66,9 +66,20 @@ defmodule Aiur.TestSupport.UsageLedger do
         health: :healthy,
         reason: nil
       },
-      tokens: %{input: 10, cached_input: nil, cache_creation_input: nil, output: nil, reasoning_output: nil, provider_reported_total: nil},
+      tokens: token_values(10),
       relationship_revision: "codex-app-server-2026-07",
       cost: money("1.00")
+    }
+  end
+
+  defp token_values(input) do
+    %{
+      input: input,
+      cached_input: nil,
+      cache_creation_input: nil,
+      output: nil,
+      reasoning_output: nil,
+      provider_reported_total: nil
     }
   end
 end
