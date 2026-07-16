@@ -18,7 +18,7 @@ defmodule Aiur.Init.AgentCli do
   @min_claude_version "1.1.0"
 
   @no_tools_warning "claude agents will run without Aiur coordination tools " <>
-                      "(aiur_declare_blocker, aiur_emit_alert, aiur_subscribe)"
+                      "(aiur_declare_blocker, emit_alert, aiur_subscribe)"
 
   # 1.1.0 isn't on npm yet; name the git fallback so the hint actually resolves.
   @upgrade_hint "upgrade it with: npm install -g aiur-claude@#{@min_claude_version} " <>
