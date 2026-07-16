@@ -1481,7 +1481,12 @@ defmodule Aiur.WorkspaceAndConfigTest do
                  )
       end)
 
-    assert auth_log == ""
+    # Regression for #1149. `capture_log/1` captures the global Logger, so any
+    # background process logging during the window (e.g. GithubCommentsPoller's
+    # "target refresh skipped" warning) lands in `auth_log` too. Assert that the
+    # client stayed quiet about *this* request rather than that nothing at all
+    # logged — an emptiness check fails on unrelated concurrent output.
+    refute auth_log =~ "Linear GraphQL request failed"
 
     outage_log =
       ExUnit.CaptureLog.capture_log(fn ->
