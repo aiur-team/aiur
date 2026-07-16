@@ -1,5 +1,44 @@
 # Build Order Executor Handoff
 
+## Live Executor state (updated 2026-07-15 21:33 PDT)
+
+This entry is the current live truth and supersedes the 2026-07-15 15:56 PDT entry
+below (whose seven-wave reconciliation stop was resolved — work resumed and merged
+past it, e.g. #1192–#1197).
+
+**Operator handoff → Claude.** A Codex operator had been driving this wave; per
+operator direction control passed to a single **Claude Executor**. The prior Codex
+operator process and all stale workers were terminated (fresh-restart below).
+
+**Fresh restart on `develop` (2026-07-15 21:33 PDT).** The previous daemon had
+wedged — up ~35 min at ~140% CPU with zero dispatch and control-RPC timeouts, on a
+saturated box (load 22 on 12 cores, mostly the fleet's own mix-VMs plus an 11h Codex
+operator). Per operator direction the Executor: (1) killed every old aiur, codex, and
+opencode process and an orphaned `make coverage` build; (2) rebuilt the release from
+the `develop` head (`cbfcdd5a`, #1197) with `aiurdev build`; (3) relaunched detached
+(`aiurdev --bg --debug`) as node `aiur-orangekid-0f62c25cdf`, dashboard
+`127.0.0.1:4000`. Build-Order tickets re-dispatch on the fresh build once prewarm
+reaches `:ready`. **Operate this instance with `aiurdev` from
+`/home/orangekid/github/aiur-runtime-develop`.**
+
+**Standing build/rebuild procedure (operator directive).** Always run `aiurdev build`
+from the `develop` branch checkout, and **rebuild after every few merged PRs**, so the
+running daemon dogfoods merged code and picks up new features. After a rebuild+restart,
+verify prewarm rebuilds to the new base head before newly-ready dispatch begins.
+
+**Backend routing (operator directive — supersedes "never dispatch Claude").** Codex
+remains the backend for the current wave. `agent.rate_limit_fallback: claude` is **ON**
+(set explicitly; it is also the release default): a running Codex agent that hits a
+usage limit auto-reroutes to headless Claude and reverts at a safe turn boundary once
+Codex recovers (`Aiur.Orchestrator.RateLimitFallback`). This intentionally relaxes the
+earlier "All providers are Codex Sol or Terra; never dispatch Claude" wording — Claude
+is now the sanctioned usage-limit fallback, not a default backend.
+
+**Merge policy (reaffirmed; see "Binding integration and promotion policy").**
+General/reusable improvements merge to `main`, then `main` is merged into `develop`
+(invariant: `origin/main` is an ancestor of `origin/develop`). Build-Order work merges
+to `develop`. `tracker.base_branch: develop`.
+
 ## Live Executor state (updated 2026-07-15 15:56 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
