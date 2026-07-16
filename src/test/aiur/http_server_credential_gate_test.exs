@@ -8,6 +8,10 @@ defmodule Aiur.HttpServerCredentialGateTest do
   setup do
     prev_user = System.get_env("AIUR_DASHBOARD_USERNAME")
     prev_pass = System.get_env("AIUR_DASHBOARD_PASSWORD")
+    # A passing credential gate lets HttpServer.start_link mutate the shared
+    # endpoint application env (dashboard_auth_required, bind config, ...).
+    # Capture and restore it so those writes never leak into later tests.
+    prev_endpoint = Application.get_env(:aiur, AiurWeb.Endpoint)
     System.delete_env("AIUR_DASHBOARD_USERNAME")
     System.delete_env("AIUR_DASHBOARD_PASSWORD")
 
@@ -18,6 +22,11 @@ defmodule Aiur.HttpServerCredentialGateTest do
 
       restore.("AIUR_DASHBOARD_USERNAME", prev_user)
       restore.("AIUR_DASHBOARD_PASSWORD", prev_pass)
+
+      case prev_endpoint do
+        nil -> Application.delete_env(:aiur, AiurWeb.Endpoint)
+        config -> Application.put_env(:aiur, AiurWeb.Endpoint, config)
+      end
     end)
 
     :ok
