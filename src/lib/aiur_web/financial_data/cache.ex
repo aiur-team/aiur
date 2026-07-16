@@ -4,8 +4,8 @@ defmodule AiurWeb.FinancialData.Cache do
   use GenServer
 
   alias AiurWeb.FinancialDataAccess
+  alias AiurWeb.FinancialData.Cache.Pending
 
-  @max_entries 8
   @authentication_required {:error, :authentication_required}
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -29,54 +29,63 @@ defmodule AiurWeb.FinancialData.Cache do
     GenServer.call(server, {:fetch, context, identity, source, key, max_age_ms, loader}, :infinity)
   end
 
+  @spec evict_stale_configuration(GenServer.server()) :: :ok
+  def evict_stale_configuration(server) do
+    GenServer.call(server, :evict_stale_configuration)
+  catch
+    :exit, _reason -> :ok
+  end
+
   @impl true
-  def init(state), do: {:ok, state}
+  def init(state) do
+    {:ok, worker_supervisor} = Task.Supervisor.start_link()
+    :ok = FinancialDataAccess.subscribe_to_configuration_changes(self())
+    {:ok, state |> Map.put(:worker_supervisor, worker_supervisor) |> Pending.initialize()}
+  end
+
+  @impl true
+  def terminate(_reason, state) do
+    _ = Pending.clear(state)
+
+    if Process.alive?(state.worker_supervisor) do
+      Process.unlink(state.worker_supervisor)
+      Supervisor.stop(state.worker_supervisor, :shutdown)
+    end
+
+    :ok
+  end
 
   @impl true
   def handle_call(
         {:fetch, context, identity, source, key, max_age_ms, loader},
-        {caller_pid, _tag},
+        from,
         state
       ) do
     case FinancialDataAccess.identity(context) do
       {:ok, ^identity} ->
-        state
-        |> prune_stale_configuration()
-        |> fetch_authorized(context, identity, source, key, max_age_ms, caller_pid, loader)
+        state = prune_stale_configuration(state)
+        fetch_authorized(state, context, identity, source, key, max_age_ms, from, loader)
 
       _denied ->
         {:reply, @authentication_required, state}
     end
   end
 
-  defp fetch_authorized(state, context, identity, source, key, max_age_ms, caller_pid, loader) do
-    case FinancialDataAccess.identity(context) do
-      {:ok, ^identity} ->
-        cache_key = cache_key(identity, source, key)
-        now_ms = System.monotonic_time(:millisecond)
-
-        case get_in(state, [:entries, cache_key]) do
-          %{loaded_at_ms: loaded_at_ms, payload: payload}
-          when now_ms - loaded_at_ms < max_age_ms ->
-            deliver_cached(state, context, identity, payload)
-
-          _missing_or_expired ->
-            load_and_maybe_cache(state, cache_key, context, identity, caller_pid, loader)
-        end
-
-      _denied ->
-        {:reply, @authentication_required, state}
-    end
+  def handle_call(:evict_stale_configuration, _from, state) do
+    {:reply, :ok, prune_stale_configuration(state)}
   end
 
-  defp load_and_maybe_cache(state, cache_key, context, identity, caller_pid, loader) do
-    case safe_load(loader) do
-      {:ok, payload} ->
-        finalize_loaded(state, cache_key, context, identity, caller_pid, payload)
+  @impl true
+  def handle_info({FinancialDataAccess, :configuration_changed, _generation}, state) do
+    {:noreply, state |> Map.put(:entries, %{}) |> Pending.clear()}
+  end
 
-      :error ->
-        {:reply, {:error, :provider_unavailable}, state}
-    end
+  def handle_info({:financial_data_loaded, load_ref, result}, state) do
+    {:noreply, Pending.resolve_loaded(state, load_ref, result)}
+  end
+
+  def handle_info({:DOWN, monitor, :process, _pid, _reason}, state) do
+    {:noreply, Pending.resolve_down(state, monitor)}
   end
 
   defp deliver_cached(state, context, identity, payload) do
@@ -86,29 +95,17 @@ defmodule AiurWeb.FinancialData.Cache do
     end
   end
 
-  defp finalize_loaded(state, cache_key, context, identity, caller_pid, payload) do
-    with {:ok, ^identity} <- FinancialDataAccess.identity(context),
-         true <- is_pid(caller_pid) and Process.alive?(caller_pid) do
-      entry = %{
-        loaded_at_ms: System.monotonic_time(:millisecond),
-        load_order: System.unique_integer([:monotonic, :positive]),
-        payload: payload
-      }
+  defp fetch_authorized(state, context, identity, source, key, max_age_ms, from, loader) do
+    cache_key = cache_key(identity, source, key)
+    now_ms = System.monotonic_time(:millisecond)
 
-      entries = state.entries |> Map.put(cache_key, entry) |> bound_entries()
-      {:reply, {:ok, payload}, %{state | entries: entries}}
-    else
-      _stale_or_disconnected ->
-        {:reply, @authentication_required, prune_stale_configuration(state)}
+    case get_in(state, [:entries, cache_key]) do
+      %{loaded_at_ms: loaded_at_ms, payload: payload} when now_ms - loaded_at_ms < max_age_ms ->
+        deliver_cached(state, context, identity, payload)
+
+      _missing_or_expired ->
+        Pending.enqueue(state, cache_key, context, identity, from, loader)
     end
-  end
-
-  defp safe_load(loader) do
-    {:ok, loader.()}
-  rescue
-    _error -> :error
-  catch
-    _kind, _reason -> :error
   end
 
   defp prune_stale_configuration(state) do
@@ -127,18 +124,11 @@ defmodule AiurWeb.FinancialData.Cache do
           true
       end)
 
-    %{state | entries: entries}
+    state
+    |> Map.put(:entries, entries)
+    |> Pending.drop_stale(current_generation)
   end
 
   defp cache_key({configuration_generation, connection_generation}, source, key),
     do: {configuration_generation, connection_generation, source, key}
-
-  defp bound_entries(entries) when map_size(entries) <= @max_entries, do: entries
-
-  defp bound_entries(entries) do
-    entries
-    |> Enum.sort_by(fn {_key, entry} -> entry.load_order end, :desc)
-    |> Enum.take(@max_entries)
-    |> Map.new()
-  end
 end

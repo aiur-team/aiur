@@ -11,7 +11,7 @@ defmodule AiurWeb.FinancialDataAccess do
 
   import Plug.Conn
 
-  alias AiurWeb.FinancialDataAccess.Proof
+  alias AiurWeb.FinancialDataAccess.{Generation, Proof}
 
   @behaviour Plug
 
@@ -123,6 +123,10 @@ defmodule AiurWeb.FinancialDataAccess do
   @doc false
   @spec current_configuration_generation() :: {:ok, String.t()} | {:error, :authentication_required}
   def current_configuration_generation, do: Proof.current_configuration_generation(@version)
+
+  @doc false
+  @spec subscribe_to_configuration_changes(pid()) :: :ok
+  def subscribe_to_configuration_changes(listener \\ self()), do: Generation.subscribe(listener)
 
   @doc "Stable, accessible, and value-free contract for locked consumers."
   @spec locked_capability() :: map()

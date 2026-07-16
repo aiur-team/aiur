@@ -2,7 +2,7 @@ defmodule AiurWeb.FinancialDataAccess.Proof do
   @moduledoc false
 
   alias AiurWeb.Endpoint
-  alias AiurWeb.FinancialDataAccess.Context
+  alias AiurWeb.FinancialDataAccess.{Context, Generation}
 
   @authentication_required {:error, :authentication_required}
 
@@ -17,21 +17,29 @@ defmodule AiurWeb.FinancialDataAccess.Proof do
 
     cond do
       present?(username) and present?(password) and present?(secret) ->
-        generation = keyed_digest(secret, "financial-data-config", {version, username, password, required?})
+        fingerprint = keyed_digest(secret, "financial-data-config", {version, username, password, required?})
 
-        {:ok,
-         %{
-           generation: generation,
-           password: password,
-           required?: required?,
-           secret: secret,
-           username: username
-         }}
+        case Generation.current(fingerprint) do
+          {:ok, generation} ->
+            {:ok,
+             %{
+               generation: generation,
+               password: password,
+               required?: required?,
+               secret: secret,
+               username: username
+             }}
+
+          :error ->
+            @authentication_required
+        end
 
       required? ->
+        :ok = Generation.invalidate()
         {:error, :authentication_required}
 
       true ->
+        :ok = Generation.invalidate()
         {:error, :authentication_not_configured}
     end
   end
@@ -95,7 +103,10 @@ defmodule AiurWeb.FinancialDataAccess.Proof do
     end
   end
 
-  def identity(_context, _version), do: @authentication_required
+  def identity(_context, version) do
+    _ = current_configuration_generation(version)
+    @authentication_required
+  end
 
   @spec current_configuration_generation(pos_integer()) ::
           {:ok, String.t()} | {:error, :authentication_required}

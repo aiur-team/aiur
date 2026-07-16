@@ -79,7 +79,7 @@ defmodule AiurWeb.FinancialDataTest do
     assert :counters.get(counter, 1) == 2
   end
 
-  test "the cache is bounded and an authorized configuration change synchronously evicts stale facts", %{cache: cache} do
+  test "the cache is bounded and a configuration change synchronously evicts stale facts", %{cache: cache} do
     sentinel = protected_payload()
 
     for index <- 1..12 do
@@ -105,7 +105,9 @@ defmodule AiurWeb.FinancialDataTest do
     assert {:error, :authentication_required} =
              FinancialData.fetch(cache, nil, :provider_meter, :account, 60_000, fn -> sentinel end)
 
-    assert :sys.get_state(cache).entries == prior_entries
+    refute :sys.get_state(cache).entries == prior_entries
+    assert :sys.get_state(cache).entries == %{}
+    refute inspect(:sys.get_state(cache)) =~ sentinel.account
 
     assert {:ok, %{account: "CURRENT-GENERATION"}} =
              FinancialData.fetch_provider_meter(
@@ -119,7 +121,7 @@ defmodule AiurWeb.FinancialDataTest do
     refute inspect(:sys.get_state(cache)) =~ sentinel.account
   end
 
-  test "configuration loss while a provider is loading discards the result before cache or reply", %{cache: cache} do
+  test "configuration loss cancels an in-flight provider worker before cache or reply", %{cache: cache} do
     context = access_context()
     test_process = self()
     sentinel = protected_payload()
@@ -137,11 +139,16 @@ defmodule AiurWeb.FinancialDataTest do
         FinancialData.fetch(cache, context, :provider_meter, :account, 60_000, loader)
       end)
 
-    assert_receive {:protected_loader_started, ^cache}, 2_000
+    assert_receive {:protected_loader_started, loader_pid}, 2_000
+    loader_ref = Process.monitor(loader_pid)
     System.put_env("AIUR_DASHBOARD_PASSWORD", "rotated-secret")
-    send(cache, :release_protected_loader)
 
-    assert {:error, :authentication_required} = Task.await(task)
+    assert {:error, :authentication_required} =
+             FinancialData.fetch(cache, nil, :provider_meter, :account, 60_000, fn -> sentinel end)
+
+    assert {:ok, {:error, :authentication_required}} = Task.yield(task, 2_000)
+    assert_receive {:DOWN, ^loader_ref, :process, ^loader_pid, :shutdown}, 2_000
+    :sys.get_state(cache)
     refute inspect(:sys.get_state(cache)) =~ sentinel.account
   end
 
@@ -180,13 +187,80 @@ defmodule AiurWeb.FinancialDataTest do
       end)
 
     caller_ref = Process.monitor(caller)
-    assert_receive {:disconnect_loader_started, ^cache}, 2_000
+    assert_receive {:disconnect_loader_started, loader_pid}, 2_000
+    loader_ref = Process.monitor(loader_pid)
     Process.exit(caller, :kill)
     assert_receive {:DOWN, ^caller_ref, :process, ^caller, :killed}, 2_000
-    send(cache, :release_disconnect_loader)
+    send(loader_pid, :release_disconnect_loader)
+    assert_receive {:DOWN, ^loader_ref, :process, ^loader_pid, :normal}, 2_000
     :sys.get_state(cache)
 
     refute inspect(:sys.get_state(cache)) =~ sentinel.account
+  end
+
+  test "pending provider loads are bounded before invoking another provider", %{cache: cache} do
+    context = access_context()
+    test_process = self()
+
+    loader = fn ->
+      send(test_process, {:pending_provider_started, self()})
+
+      receive do
+        :release_pending_provider -> protected_payload()
+      end
+    end
+
+    tasks =
+      for index <- 1..8 do
+        Task.async(fn ->
+          FinancialData.fetch(cache, context, :provider_meter, {:account, index}, 60_000, loader)
+        end)
+      end
+
+    for _index <- 1..8 do
+      assert_receive {:pending_provider_started, _loader_pid}, 2_000
+    end
+
+    assert {:error, :provider_unavailable} =
+             FinancialData.fetch(cache, context, :provider_meter, :overflow, 60_000, fn ->
+               send(test_process, :overflow_provider_invoked)
+               protected_payload()
+             end)
+
+    refute_receive :overflow_provider_invoked, 0
+    System.put_env("AIUR_DASHBOARD_PASSWORD", "rotated-secret")
+
+    assert {:error, :authentication_required} =
+             FinancialData.fetch(cache, nil, :provider_meter, :account, 60_000, fn -> protected_payload() end)
+
+    for task <- tasks do
+      assert {:ok, {:error, :authentication_required}} = Task.yield(task, 2_000)
+    end
+  end
+
+  test "stopping the cache terminates in-flight provider workers", %{cache: cache} do
+    context = access_context()
+    test_process = self()
+
+    loader = fn ->
+      send(test_process, {:shutdown_loader_started, self()})
+
+      receive do
+        :release_shutdown_loader -> protected_payload()
+      end
+    end
+
+    task =
+      Task.async(fn ->
+        FinancialData.fetch(cache, context, :provider_meter, :account, 60_000, loader)
+      end)
+
+    assert_receive {:shutdown_loader_started, loader_pid}, 2_000
+    loader_ref = Process.monitor(loader_pid)
+    :ok = GenServer.stop(cache)
+
+    assert_receive {:DOWN, ^loader_ref, :process, ^loader_pid, :shutdown}, 2_000
+    assert {:ok, {:error, :authentication_required}} = Task.yield(task, 2_000)
   end
 
   test "protected PubSub is payload-free and stale queued updates cannot reload", %{cache: cache} do
@@ -209,7 +283,6 @@ defmodule AiurWeb.FinancialDataTest do
                &protected_payload/0
              )
 
-    cached_entries = :sys.get_state(cache).entries
     System.put_env("AIUR_DASHBOARD_PASSWORD", "rotated-secret")
 
     assert {:error, :authentication_required} =
@@ -227,10 +300,87 @@ defmodule AiurWeb.FinancialDataTest do
              )
 
     refute_receive :stale_update_invoked_provider, 0
-    assert :sys.get_state(cache).entries == cached_entries
+    assert :sys.get_state(cache).entries == %{}
+    refute inspect(:sys.get_state(cache)) =~ protected_payload().account
 
     assert :ok = FinancialData.broadcast_update()
     refute_receive {FinancialData, :updated, _new_generation}, 0
+  end
+
+  test "a protected update for one authenticated session cannot reload another session", %{cache: cache} do
+    first_context = access_context()
+    second_context = access_context()
+    test_process = self()
+
+    assert :ok = FinancialData.subscribe(first_context)
+    assert :ok = FinancialData.broadcast_update()
+    assert_receive {FinancialData, :updated, _identity} = first_message, 2_000
+
+    assert {:error, :authentication_required} =
+             FinancialData.reload(
+               cache,
+               second_context,
+               first_message,
+               :provider_meter,
+               :account,
+               0,
+               fn ->
+                 send(test_process, :cross_session_update_invoked_provider)
+                 protected_payload()
+               end
+             )
+
+    refute_receive :cross_session_update_invoked_provider, 0
+  end
+
+  test "protected update topics are isolated by authenticated session" do
+    test_process = self()
+    first_context = access_context()
+    second_context = access_context()
+
+    assert {:ok, first_identity} = FinancialDataAccess.identity(first_context)
+    assert {:ok, second_identity} = FinancialDataAccess.identity(second_context)
+
+    first_subscriber = subscribe_for_update(test_process, :first, first_context)
+    second_subscriber = subscribe_for_update(test_process, :second, second_context)
+
+    assert_receive {:protected_subscriber_ready, :first, ^first_subscriber}, 2_000
+    assert_receive {:protected_subscriber_ready, :second, ^second_subscriber}, 2_000
+
+    assert :ok = FinancialData.broadcast_update()
+
+    assert_receive {:protected_update, :first, {FinancialData, :updated, ^first_identity} = first_message}, 2_000
+    assert_receive {:protected_update, :second, {FinancialData, :updated, ^second_identity} = second_message}, 2_000
+    refute first_message == second_message
+  end
+
+  test "repeated subscriptions from one process receive one protected update" do
+    context = access_context()
+
+    assert :ok = FinancialData.subscribe(context)
+    assert :ok = FinancialData.subscribe(context)
+    assert :ok = FinancialData.broadcast_update()
+
+    assert_receive {FinancialData, :updated, _identity}, 2_000
+    refute_receive {FinancialData, :updated, _identity}, 0
+  end
+
+  test "denied reads stay content-free when the cache is unavailable", %{cache: cache} do
+    test_process = self()
+    Process.exit(cache, :kill)
+
+    loader = fn ->
+      send(test_process, :unavailable_cache_invoked_provider)
+      protected_payload()
+    end
+
+    assert {:error, :authentication_required} =
+             FinancialData.fetch(cache, nil, :provider_meter, :account, 60_000, loader)
+
+    assert {:error, :authentication_required} =
+             FinancialData.reload(cache, nil, :queued_update, :provider_meter, :account, 60_000, loader)
+
+    refute_receive :unavailable_cache_invoked_provider, 0
   end
 
   test "denied subscriptions and terminated subscribers receive no protected update", %{cache: cache} do
@@ -272,6 +422,18 @@ defmodule AiurWeb.FinancialDataTest do
     marker = get_session(conn, FinancialDataAccess.session_key())
     {:ok, context} = FinancialDataAccess.context_from_session(%{FinancialDataAccess.session_key() => marker})
     context
+  end
+
+  defp subscribe_for_update(test_process, label, context) do
+    spawn(fn ->
+      assert :ok = FinancialData.subscribe(context)
+      send(test_process, {:protected_subscriber_ready, label, self()})
+
+      receive do
+        {FinancialData, :updated, _identity} = message ->
+          send(test_process, {:protected_update, label, message})
+      end
+    end)
   end
 
   defp protected_payload do

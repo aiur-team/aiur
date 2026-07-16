@@ -171,6 +171,24 @@ defmodule AiurWeb.FinancialDataAccessTest do
     assert {:error, :authentication_required} = FinancialDataAccess.authorize(rotated)
   end
 
+  test "an authentication configuration generation never becomes valid again after an A to B to A replay" do
+    configure_credentials("operator", "first-secret")
+    configure_endpoint(dashboard_auth_required: true)
+
+    original = access_context("operator", "first-secret")
+    assert :ok = FinancialDataAccess.authorize(original)
+
+    System.put_env("AIUR_DASHBOARD_PASSWORD", "rotated-secret")
+    assert {:error, :authentication_required} = FinancialDataAccess.authorize(original)
+
+    System.put_env("AIUR_DASHBOARD_PASSWORD", "first-secret")
+    assert {:error, :authentication_required} = FinancialDataAccess.authorize(original)
+
+    replacement = access_context("operator", "first-secret")
+    assert :ok = FinancialDataAccess.authorize(replacement)
+    refute replacement.configuration_generation == original.configuration_generation
+  end
+
   test "username and endpoint signing-key changes revoke existing proof material" do
     configure_credentials("operator", "secret")
     configure_endpoint(dashboard_auth_required: true)

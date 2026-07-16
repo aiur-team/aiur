@@ -7,11 +7,12 @@ defmodule AiurWeb.FinancialData do
   both the authentication configuration and the individual connection.
   """
 
-  alias AiurWeb.FinancialData.Cache
+  alias AiurWeb.FinancialData.{Cache, SubscriptionAuthority}
   alias AiurWeb.FinancialDataAccess
 
   @pubsub Aiur.PubSub
   @topic_prefix "observability:financial:"
+  @subscription_identity_key {__MODULE__, :subscription_identity}
   @allowed_sources [:usage_grouping, :provider_meter]
   @authentication_required {:error, :authentication_required}
 
@@ -44,6 +45,7 @@ defmodule AiurWeb.FinancialData do
         end
 
       {:error, :authentication_required} = error ->
+        :ok = Cache.evict_stale_configuration(server)
         error
     end
   end
@@ -73,26 +75,26 @@ defmodule AiurWeb.FinancialData do
   @doc "Subscribes an authenticated connection to payload-free protected updates."
   @spec subscribe(FinancialDataAccess.Context.t() | nil) :: :ok | {:error, term()}
   def subscribe(context) do
-    with {:ok, {configuration_generation, _connection_generation}} <-
-           FinancialDataAccess.identity(context),
-         true <- is_pid(Process.whereis(@pubsub)) do
-      Phoenix.PubSub.subscribe(@pubsub, topic(configuration_generation))
+    with :ok <- FinancialDataAccess.authorize(context),
+         true <- is_pid(Process.whereis(@pubsub)),
+         {:ok, identity} <- SubscriptionAuthority.subscribe(context) do
+      replace_subscription(identity)
     else
       false -> {:error, :unavailable}
       {:error, :authentication_required} = error -> error
+      {:error, :unavailable} = error -> error
     end
   end
 
-  @doc "Broadcasts a payload-free update only for the current auth generation."
+  @doc "Broadcasts payload-free updates to each currently authorized connection."
   @spec broadcast_update() :: :ok
   def broadcast_update do
     with {:ok, configuration_generation} <- FinancialDataAccess.current_configuration_generation(),
-         pid when is_pid(pid) <- Process.whereis(@pubsub) do
-      Phoenix.PubSub.broadcast(
-        @pubsub,
-        topic(configuration_generation),
-        {__MODULE__, :updated, configuration_generation}
-      )
+         pid when is_pid(pid) <- Process.whereis(@pubsub),
+         {:ok, identities} <- SubscriptionAuthority.authorized_identities() do
+      Enum.each(identities, fn {^configuration_generation, _connection_generation} = identity ->
+        Phoenix.PubSub.broadcast(@pubsub, topic(identity), {__MODULE__, :updated, identity})
+      end)
     else
       _unavailable_or_locked -> :ok
     end
@@ -110,14 +112,15 @@ defmodule AiurWeb.FinancialData do
         ) :: {:ok, term()} | {:error, term()}
   def reload(server, context, message, source, key, max_age_ms, loader) do
     case FinancialDataAccess.identity(context) do
-      {:ok, {configuration_generation, _connection_generation}} ->
-        if message == {__MODULE__, :updated, configuration_generation} do
+      {:ok, identity} ->
+        if message == {__MODULE__, :updated, identity} do
           fetch(server, context, source, key, max_age_ms, loader)
         else
           @authentication_required
         end
 
       _stale_or_denied ->
+        :ok = Cache.evict_stale_configuration(server)
         @authentication_required
     end
   end
@@ -125,5 +128,26 @@ defmodule AiurWeb.FinancialData do
   defp validate_source(source) when source in @allowed_sources, do: :ok
   defp validate_source(_source), do: {:error, :unsupported_financial_source}
 
-  defp topic(configuration_generation), do: @topic_prefix <> configuration_generation
+  defp topic({configuration_generation, connection_generation}),
+    do: @topic_prefix <> configuration_generation <> ":" <> connection_generation
+
+  defp replace_subscription(identity) do
+    case Process.get(@subscription_identity_key) do
+      {configuration_generation, connection_generation}
+      when is_binary(configuration_generation) and is_binary(connection_generation) ->
+        :ok = Phoenix.PubSub.unsubscribe(@pubsub, topic({configuration_generation, connection_generation}))
+
+      _other ->
+        :ok
+    end
+
+    case Phoenix.PubSub.subscribe(@pubsub, topic(identity)) do
+      :ok ->
+        Process.put(@subscription_identity_key, identity)
+        :ok
+
+      error ->
+        error
+    end
+  end
 end
