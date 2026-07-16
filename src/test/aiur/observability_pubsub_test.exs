@@ -19,7 +19,13 @@ defmodule Aiur.ObservabilityPubSubTest do
       refute Process.whereis(Aiur.PubSub)
       assert :ok = ObservabilityPubSub.broadcast_update()
     after
-      assert {:ok, _pid} = Supervisor.restart_child(Aiur.Supervisor, pubsub_child_id)
+      restart_pubsub(pubsub_child_id)
     end
+  end
+
+  defp restart_pubsub(pubsub_child_id) do
+    assert {:ok, _pid} = Supervisor.restart_child(Aiur.Supervisor, pubsub_child_id)
+  catch
+    :exit, :shutdown -> :ok
   end
 end

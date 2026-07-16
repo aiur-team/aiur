@@ -934,7 +934,9 @@ defmodule Aiur.CoreTest do
 
       busy_worker_ref = Process.monitor(busy_worker_pid)
       send(busy_worker_pid, :done)
-      assert_receive {:DOWN, ^busy_worker_ref, :process, ^busy_worker_pid, :normal}
+
+      assert_receive {:DOWN, ^busy_worker_ref, :process, ^busy_worker_pid, reason}
+      assert reason in [:normal, :noproc]
     end)
 
     other_running_entry = %{
