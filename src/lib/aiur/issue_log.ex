@@ -394,7 +394,7 @@ defmodule Aiur.IssueLog do
              is_map(event) do
     case event_identity(event, identifier) do
       {:ok, identity} ->
-        case writer_for_path(identifier, event_log_path(identity), writer_key(identity)) do
+        case writer_for_path(identifier, log_path(identity), writer_key(identity)) do
           [{pid, _}] -> send(pid, {:aiur_event, kind, event})
           [] -> :ok
         end
@@ -445,7 +445,6 @@ defmodule Aiur.IssueLog do
     case DynamicSupervisor.terminate_child(@supervisor, pid) do
       :ok -> start_writer(identifier, path, event_path, key)
       {:error, :not_found} -> start_writer(identifier, path, event_path, key)
-      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -501,7 +500,7 @@ defmodule Aiur.IssueLog do
     # workflow repository here could make an existing writer append to a
     # different repository's same-number ticket log after a config reload.
     write_line(state.file, line)
-    state = if history_item, do: push_history(state, history_item), else: state
+    state = push_history(state, history_item)
     {:noreply, state}
   end
 

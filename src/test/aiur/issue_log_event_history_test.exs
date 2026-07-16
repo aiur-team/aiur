@@ -143,7 +143,7 @@ defmodule Aiur.IssueLogEventHistoryTest do
   end
 
   test "transcript text cannot forge a structured event", %{identifier: id} do
-    identity = identity(identifier: id)
+    identity = identity(identifier: System.unique_integer([:positive]) |> Integer.to_string())
     transcript_path = Aiur.IssueLog.log_path(identity)
     File.mkdir_p!(Path.dirname(transcript_path))
 
@@ -158,13 +158,16 @@ defmodule Aiur.IssueLogEventHistoryTest do
 
     File.write!(event_path, "2026-07-15T12:00:02Z [event:emit] id=7 ticket.#{id}.pr.opened: daemon marker\n")
 
-    assert {:ok, [%{id: 7, topic: "ticket.#{id}.pr.opened"}]} = Aiur.IssueLog.event_history(identity)
+    expected_topic = "ticket.#{id}.pr.opened"
+    assert {:ok, [%{id: 7, topic: ^expected_topic}]} = Aiur.IssueLog.event_history(identity)
   end
 
   test "a live legacy writer remains isolated after the configured repository changes" do
     identifier = System.unique_integer([:positive]) |> Integer.to_string()
     first_identity = identity(owner: "owner", repository: "first", identifier: identifier)
     second_identity = identity(owner: "owner", repository: "second", identifier: identifier)
+    assert TrackerIdentity.joinable?(first_identity)
+    assert TrackerIdentity.joinable?(second_identity)
 
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_kind: "github",

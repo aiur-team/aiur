@@ -54,7 +54,8 @@ defmodule Aiur.BuildOrder.TicketHistoryProviderTest do
   end
 
   test "marks source truncation only after history exceeds the hard maximum" do
-    exact_limit = start_provider(history_limit: 100, history_fun: fn _, _ -> for id <- 1..100, do: history_event(id) end)
+    exact_limit =
+      start_provider(history_limit: 100, history_fun: fn _, _ -> for id <- 1..100, do: history_event(id) end)
 
     assert {:ok, %{entries: exact_entries, truncated?: false}} =
              TicketHistoryProvider.request(exact_limit, identity())
