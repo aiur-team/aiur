@@ -39,6 +39,7 @@ defmodule Aiur.CoordinationTasksTest do
     assert_receive {:started, first}
     assert :pending = CoordinationTasks.enqueue(:queued, fn -> send(test_pid, :queued_ran) end, name)
     assert {:error, :coordination_overloaded} = CoordinationTasks.enqueue(:extra, fn -> :ok end, name)
+    assert {:error, :coordination_overloaded} = CoordinationTasks.run(:extra, fn -> :ok end, name)
 
     send(first, :release)
     assert_receive :queued_ran
@@ -49,10 +50,81 @@ defmodule Aiur.CoordinationTasksTest do
   test "absence and restart loss return coordination unavailable" do
     name = unique_name("Absent")
     assert {:error, :coordination_unavailable} = CoordinationTasks.enqueue(:key, fn -> :ok end, name, [], 20)
+    assert {:error, :coordination_unavailable} = CoordinationTasks.run(:key, fn -> :ok end, name, [], 20)
 
     pid = start_supervised!({CoordinationTasks, name: name})
     Process.exit(pid, :kill)
     assert {:error, :coordination_unavailable} = CoordinationTasks.enqueue(:key, fn -> :ok end, name, [], 20)
+  end
+
+  test "timed out admission is indeterminate and expired work never executes" do
+    name = unique_name("AdmissionTimeout")
+    pid = start_supervised!({CoordinationTasks, name: name})
+    test_pid = self()
+
+    :ok = :sys.suspend(pid)
+
+    call =
+      Task.async(fn ->
+        CoordinationTasks.enqueue(:key, fn -> send(test_pid, :late_execution) end, name, [], 20)
+      end)
+
+    assert {:error, :coordination_indeterminate} = Task.await(call, 100)
+    :ok = :sys.resume(pid)
+    refute_receive :late_execution, 50
+  end
+
+  test "run waits behind the keyed lane and returns the operation result" do
+    name = unique_name("Awaited")
+    start_supervised!({CoordinationTasks, name: name})
+    test_pid = self()
+
+    assert :pending = CoordinationTasks.enqueue(:key, blocking_operation(test_pid), name)
+    assert_receive {:started, first}
+
+    call =
+      Task.async(fn ->
+        CoordinationTasks.run(
+          :key,
+          fn ->
+            send(test_pid, :awaited_started)
+            {:ok, :removed}
+          end,
+          name
+        )
+      end)
+
+    refute_receive :awaited_started, 20
+    send(first, :release)
+    assert_receive :awaited_started
+    assert {:ok, :removed} = Task.await(call)
+  end
+
+  test "coordinator restart terminates active work before reopening its key" do
+    name = unique_name("Restart")
+    {:ok, supervisor} = Supervisor.start_link([{CoordinationTasks, name: name}], strategy: :one_for_one)
+    on_exit(fn -> Process.exit(supervisor, :shutdown) end)
+
+    coordinator = Process.whereis(name)
+    test_pid = self()
+
+    assert :pending = CoordinationTasks.enqueue(:key, blocking_operation(test_pid), name)
+    assert_receive {:started, first}
+    first_ref = Process.monitor(first)
+
+    Process.exit(coordinator, :kill)
+    restarted = wait_for_restart(name, coordinator)
+    assert is_pid(restarted)
+
+    assert :pending =
+             CoordinationTasks.enqueue(
+               :key,
+               fn -> send(test_pid, {:after_restart, Process.alive?(first)}) end,
+               name
+             )
+
+    assert_receive {:after_restart, false}
+    assert_receive {:DOWN, ^first_ref, :process, ^first, _reason}, 200
   end
 
   test "timed out work releases its keyed lane" do
@@ -100,6 +172,21 @@ defmodule Aiur.CoordinationTasksTest do
     fn ->
       send(test_pid, {:started, self()})
       receive do: (:release -> :ok)
+    end
+  end
+
+  defp wait_for_restart(name, old_pid, attempts \\ 50)
+
+  defp wait_for_restart(_name, _old_pid, 0), do: nil
+
+  defp wait_for_restart(name, old_pid, attempts) do
+    case Process.whereis(name) do
+      pid when is_pid(pid) and pid != old_pid ->
+        pid
+
+      _ ->
+        Process.sleep(5)
+        wait_for_restart(name, old_pid, attempts - 1)
     end
   end
 

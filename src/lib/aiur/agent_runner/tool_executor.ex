@@ -45,6 +45,10 @@ defmodule Aiur.AgentRunner.ToolExecutor do
         Keyword.get(opts, :coordination_enqueuer, fn key, operation, enqueue_opts ->
           CoordinationTasks.enqueue(key, operation, CoordinationTasks, enqueue_opts)
         end),
+      run:
+        Keyword.get(opts, :coordination_runner, fn key, operation, run_opts ->
+          CoordinationTasks.run(key, operation, CoordinationTasks, run_opts)
+        end),
       declare_dependency: Keyword.get(opts, :dependency_declarer, &IssueDependencies.declare/2),
       unblock_dependency: Keyword.get(opts, :dependency_unblocker, &IssueDependencies.unblock/2),
       dependency_present: Keyword.get(opts, :dependency_present, &IssueDependencies.declared?/2),
@@ -150,8 +154,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
         {:error, :no_issue_number}
 
       current ->
-        admit(
-          coordination.enqueue,
+        coordination.run.(
           dependency_key(current, blocker_number),
           fn -> coordination.unblock_dependency.(current, blocker_number) end,
           operation_timeout: :infinity
@@ -332,6 +335,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
     %{app_session: app_session, attempt_id: attempt_id, event_handlers: handlers, issue: issue} = context
     source = trusted_source(app_session)
     provenance = observation_provenance(app_session, attempt_id)
+    occurred_at = DateTime.utc_now()
 
     operation = fn ->
       decision_projection =
@@ -354,7 +358,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
              identity: Issue.tracker_identity(issue),
              observation_source: %{kind: :agent_event, name: name},
              observation_provenance: provenance,
-             occurred_at: DateTime.utc_now()
+             occurred_at: occurred_at
            ) do
         {:ok, _id, _subscribers} ->
           sync_decision_resolution(issue, name, payload, handlers.attention_resolver)

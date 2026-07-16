@@ -47,8 +47,9 @@ Coordination tool calls currently inherit the latency of several shared disk-bac
 
 ## Key Technical Decisions
 
-- Use a dedicated supervised GenServer as a non-blocking admission mailbox; `GenServer.cast/2` does not wait for the worker's current downstream operation.
-- Start each admitted operation under the existing task supervisor so a slow dependency does not serialize later coordination jobs and task failures do not crash the queue.
+- Use a bounded `GenServer.call/3` admission protocol with a monotonic deadline. A caller reports `pending` only after acceptance; an expired or ambiguous admission returns an explicit indeterminate error instead of inviting a blind retry.
+- Serialize admitted operations by coordination key while allowing bounded concurrency across independent keys. Start linked task-supervisor workers so a coordinator restart cannot reopen a key while its prior worker is still mutating state.
+- Keep ordinary blocker declarations and events admission-only, but let explicit unblock await its same-key operation and return the dependency adapter's terminal result.
 - Inject the enqueue function into `ToolExecutor.build/5` tests, following the module's existing dependency-injection pattern.
 
 ---
@@ -68,7 +69,7 @@ Coordination tool calls currently inherit the latency of several shared disk-bac
 - Modify: `src/lib/aiur.ex`
 - Test: `src/test/aiur/coordination_tasks_test.exs`
 
-**Approach:** Keep admission as a cast to a dedicated process. Have that process start linked-supervisor-owned tasks and log admission failures without propagating them back into completed RPCs.
+**Approach:** Admit work through a short bounded call carrying a monotonic deadline. Reject requests that expire before the coordinator handles them, serialize accepted work by key, and execute it in linked task-supervisor workers. Distinguish an admission timeout from definite unavailability so callers do not retry an operation that may already have been accepted.
 
 **Test scenarios:**
 - Happy path: enqueue a function that blocks, assert enqueue returns before release, then release it and observe completion.
@@ -105,7 +106,8 @@ Coordination tool calls currently inherit the latency of several shared disk-bac
 | Risk | Mitigation |
 |------|------------|
 | An async task fails after the RPC reports pending | Log failures with operation context; preserve existing idempotency so callers need not retry blindly. |
-| Queue process stalls while starting a task | Cast admission still returns; each accepted operation is isolated under the task supervisor. |
+| Queue admission stalls long enough to make acceptance ambiguous | Return a distinct indeterminate error with no-retry guidance; reject the request if its deadline expires before handling. |
+| Queue process restarts while a keyed operation is active | Link workers to the coordinator so its supervisor terminates the old worker before the restarted coordinator can reopen the key. |
 | Tests assume immediate event visibility | Update only tool-boundary tests to await eventual delivery; direct publisher tests remain synchronous. |
 
 ---

@@ -99,13 +99,53 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
           coordination_enqueuer: fn key, operation, opts ->
             send(test_pid, {:enqueued, key, operation, opts})
             :pending
-          end
+          end,
+          coordination_runner: fn key, operation, opts ->
+            send(test_pid, {:ran, key, operation, opts})
+            operation.()
+          end,
+          dependency_unblocker: fn _current, _blocker -> {:ok, :removed} end
         )
 
       assert executor.("aiur_declare_blocker", %{"issue_number" => 999})["success"]
-      assert executor.("aiur_unblock", %{"issue_number" => 999})["success"]
+
+      response = executor.("aiur_unblock", %{"issue_number" => 999})
+      assert response["success"]
+      assert Jason.decode!(response["output"])["result"] == "removed"
+
       assert_receive {:enqueued, key, _declare, [operation_timeout: :infinity]}
-      assert_receive {:enqueued, ^key, _unblock, [operation_timeout: :infinity]}
+      assert_receive {:ran, ^key, _unblock, [operation_timeout: :infinity]}
+    end
+
+    test "unblock preserves terminal success and error results" do
+      issue = %Issue{identifier: "1031"}
+
+      for {dependency_result, expected} <- [
+            {{:ok, :removed}, {:ok, "removed"}},
+            {{:ok, :not_present}, {:ok, "not_present"}},
+            {{:error, :rate_limited}, {:error, "API budget"}},
+            {{:error, :permission_denied}, {:error, "Issues:write"}},
+            {{:error, :dependency_still_present}, {:error, "dependency_still_present"}},
+            {{:error, {:postcondition_check_failed, :timeout}}, {:error, "postcondition_check_failed"}}
+          ] do
+        executor =
+          ToolExecutor.build(issue, nil, nil, %{},
+            coordination_runner: fn _key, operation, _opts -> operation.() end,
+            dependency_unblocker: fn _current, _blocker -> dependency_result end
+          )
+
+        response = executor.("aiur_unblock", %{"issue_number" => 999})
+
+        case expected do
+          {:ok, result} ->
+            assert response["success"]
+            assert Jason.decode!(response["output"])["result"] == result
+
+          {:error, detail} ->
+            refute response["success"]
+            assert Jason.encode!(Jason.decode!(response["output"])) =~ detail
+        end
+      end
     end
 
     test "does not report pending when coordination admission fails" do
@@ -119,6 +159,17 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
         assert response["success"] == false
         assert Jason.decode!(response["output"])["error"]["reason"] =~ Atom.to_string(reason)
       end
+
+      executor =
+        ToolExecutor.build(issue, nil, nil, %{},
+          coordination_enqueuer: fn _key, _operation, _opts ->
+            {:error, :coordination_indeterminate}
+          end
+        )
+
+      response = executor.("aiur_declare_blocker", %{"issue_number" => 999})
+      refute response["success"]
+      assert Jason.decode!(response["output"])["error"]["message"] =~ "Do not retry"
     end
 
     test "coordination timeout does not kill an admitted dependency mutation" do
@@ -259,6 +310,9 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
           coordination_enqueuer: fn key, operation, opts ->
             Aiur.CoordinationTasks.enqueue(key, operation, name, opts)
           end,
+          coordination_runner: fn key, operation, opts ->
+            Aiur.CoordinationTasks.run(key, operation, name, opts)
+          end,
           blocker_subscriber: fn _current, _blocker -> :ok end,
           dependency_declarer: fn _current, _blocker ->
             send(test_pid, {:declare_started, self()})
@@ -277,9 +331,16 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
 
       assert executor.("aiur_declare_blocker", %{"issue_number" => 999})["success"]
       assert_receive {:declare_started, worker}
-      assert executor.("aiur_unblock", %{"issue_number" => 999})["success"]
+
+      unblock = Task.async(fn -> executor.("aiur_unblock", %{"issue_number" => 999}) end)
+
+      assert nil == Task.yield(unblock, 20)
       assert Agent.get(state, & &1) == :initial
       send(worker, :release)
+
+      response = Task.await(unblock)
+      assert response["success"]
+      assert Jason.decode!(response["output"])["result"] == "removed"
       assert_eventually(fn -> Agent.get(state, & &1) == :unblocked end)
     end
   end
@@ -402,6 +463,34 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert observation.provenance.session_id == "session-observation"
       assert observation.provenance.source_event_id == "tool-observation"
       refute Jason.encode!(observation) =~ "private"
+    end
+
+    test "queued events capture occurrence time at admission" do
+      identifier = "TE-chronology-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      test_pid = self()
+
+      executor =
+        ToolExecutor.build(issue, nil, nil, %{},
+          coordination_enqueuer: fn _key, operation, _opts ->
+            send(test_pid, {:captured_event_operation, operation})
+            :pending
+          end
+        )
+
+      :ok = Exchange.subscribe("ticket.#{identifier}.agent.progress")
+
+      response = executor.("emit_event", %{"name" => "progress", "message" => "queued"})
+      admitted_at = DateTime.utc_now()
+
+      assert response["success"]
+      assert_receive {:captured_event_operation, operation}
+      Process.sleep(20)
+      operation.()
+
+      assert_receive {:event, %{ticket_observation: observation}}, 200
+      assert DateTime.compare(observation.occurred_at, admitted_at) in [:lt, :eq]
+      assert DateTime.compare(observation.observed_at, admitted_at) in [:gt, :eq]
     end
 
     test "progress check-ins and phase updates preserve retry provenance without changing identity" do

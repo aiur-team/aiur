@@ -17,9 +17,17 @@ Validates that `name` is in the allowlist (`event-taxonomy.md`). Returns:
   "ok": true,
   "name": "progress.tests-green",
   "message": "All 47 tests green on aiur/42",
-  "result": { "id": 4287, "topic": "ticket.42.agent.progress.tests-green" }
+  "result": {
+    "status": "pending",
+    "topic": "ticket.42.agent.progress.tests-green"
+  }
 }
 ```
+
+`pending` means Aiur accepted the event for keyed background processing. No
+event ID exists at admission time; publication assigns it later. A terminal
+background failure is written to the ticket/daemon logs and does not rewrite
+the already-returned tool response.
 
 Or, on failure:
 

@@ -269,6 +269,14 @@ defmodule Aiur.Codex.DynamicTool.Errors do
       "error" => %{"message" => "Aiur's GitHub token lacks Issues:write scope for this repo."}
     }
 
+  def payload(:coordination_indeterminate),
+    do: %{
+      "error" => %{
+        "message" => "Coordination admission timed out and may already have been accepted. Do not retry until authoritative state is checked.",
+        "reason" => "coordination_indeterminate"
+      }
+    }
+
   def payload(:custom_event_quota_exceeded) do
     %{
       "error" => %{
