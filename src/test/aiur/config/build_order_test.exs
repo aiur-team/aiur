@@ -9,6 +9,9 @@ defmodule Aiur.Config.BuildOrderTest do
     assert settings.build_order.ticket_detail_freshness_ms == 30_000
     assert settings.build_order.ticket_detail_max_entries == 32
     assert settings.build_order.ticket_detail_max_description_bytes == 16_384
+    assert settings.build_order.ticket_history_limit == 50
+    assert settings.build_order.ticket_history_max_identities == 100
+    assert settings.build_order.ticket_history_stale_after_ms == 60_000
     assert settings.build_order.graph_catalog_refresh_ms == 60_000
     assert settings.build_order.graph_selected_refresh_ms == 15_000
     assert settings.build_order.graph_demand_refresh_ms == 5_000
@@ -24,6 +27,9 @@ defmodule Aiur.Config.BuildOrderTest do
                  "ticket_detail_freshness_ms" => 10_000,
                  "ticket_detail_max_entries" => 12,
                  "ticket_detail_max_description_bytes" => 4_096,
+                 "ticket_history_limit" => 12,
+                 "ticket_history_max_identities" => 24,
+                 "ticket_history_stale_after_ms" => 120_000,
                  "graph_catalog_refresh_ms" => 120_000,
                  "graph_selected_refresh_ms" => 30_000,
                  "graph_demand_refresh_ms" => 10_000,
@@ -36,6 +42,9 @@ defmodule Aiur.Config.BuildOrderTest do
     assert settings.build_order.ticket_detail_freshness_ms == 10_000
     assert settings.build_order.ticket_detail_max_entries == 12
     assert settings.build_order.ticket_detail_max_description_bytes == 4_096
+    assert settings.build_order.ticket_history_limit == 12
+    assert settings.build_order.ticket_history_max_identities == 24
+    assert settings.build_order.ticket_history_stale_after_ms == 120_000
     assert settings.build_order.graph_catalog_refresh_ms == 120_000
     assert settings.build_order.graph_selected_refresh_ms == 30_000
     assert settings.build_order.graph_demand_refresh_ms == 10_000
@@ -49,6 +58,10 @@ defmodule Aiur.Config.BuildOrderTest do
           %{"ticket_detail_freshness_ms" => 300_001},
           %{"ticket_detail_max_entries" => 101},
           %{"ticket_detail_max_description_bytes" => 16_385},
+          %{"ticket_history_limit" => 101},
+          %{"ticket_history_max_identities" => 101},
+          %{"ticket_history_stale_after_ms" => 300_001},
+          %{"ticket_history_limit" => 0},
           %{"ticket_detail_freshness_ms" => 0}
         ] do
       assert {:error, {:invalid_workflow_config, message}} = Schema.parse(%{"build_order" => attrs})

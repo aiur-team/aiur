@@ -175,6 +175,7 @@ defmodule Aiur.Application do
       Aiur.Orchestrator.TrackedSet,
       Aiur.CurrentRunMembership.Store,
       Aiur.TicketActivity,
+      {Aiur.BuildOrder.TicketHistoryProvider, runtime_config?: true},
       {Aiur.Orchestrator, initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
       Aiur.CurrentRunMembership.Reconciler,
       Aiur.Events.LsRemoteTicker,

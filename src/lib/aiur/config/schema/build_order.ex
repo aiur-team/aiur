@@ -11,6 +11,9 @@ defmodule Aiur.Config.Schema.BuildOrder do
     field(:ticket_detail_freshness_ms, :integer, default: 30_000)
     field(:ticket_detail_max_entries, :integer, default: 32)
     field(:ticket_detail_max_description_bytes, :integer, default: 16_384)
+    field(:ticket_history_limit, :integer, default: 50)
+    field(:ticket_history_max_identities, :integer, default: 100)
+    field(:ticket_history_stale_after_ms, :integer, default: 60_000)
     field(:graph_catalog_refresh_ms, :integer, default: 60_000)
     field(:graph_selected_refresh_ms, :integer, default: 15_000)
     field(:graph_demand_refresh_ms, :integer, default: 5_000)
@@ -28,6 +31,9 @@ defmodule Aiur.Config.Schema.BuildOrder do
         :ticket_detail_freshness_ms,
         :ticket_detail_max_entries,
         :ticket_detail_max_description_bytes,
+        :ticket_history_limit,
+        :ticket_history_max_identities,
+        :ticket_history_stale_after_ms,
         :graph_catalog_refresh_ms,
         :graph_selected_refresh_ms,
         :graph_demand_refresh_ms,
@@ -40,6 +46,9 @@ defmodule Aiur.Config.Schema.BuildOrder do
     |> validate_number(:ticket_detail_freshness_ms, greater_than: 0, less_than_or_equal_to: 300_000)
     |> validate_number(:ticket_detail_max_entries, greater_than: 0, less_than_or_equal_to: 100)
     |> validate_number(:ticket_detail_max_description_bytes, greater_than: 0, less_than_or_equal_to: 16_384)
+    |> validate_number(:ticket_history_limit, greater_than: 0, less_than_or_equal_to: 100)
+    |> validate_number(:ticket_history_max_identities, greater_than: 0, less_than_or_equal_to: 100)
+    |> validate_number(:ticket_history_stale_after_ms, greater_than: 0, less_than_or_equal_to: 300_000)
     |> validate_number(:graph_catalog_refresh_ms, greater_than: 0, less_than_or_equal_to: 3_600_000)
     |> validate_number(:graph_selected_refresh_ms, greater_than: 0, less_than_or_equal_to: 300_000)
     |> validate_number(:graph_demand_refresh_ms, greater_than: 0, less_than_or_equal_to: 300_000)
