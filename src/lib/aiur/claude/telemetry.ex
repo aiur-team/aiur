@@ -115,6 +115,7 @@ defmodule Aiur.Claude.Telemetry do
     GenServer.cast(server, {:reject, reason})
   end
 
+  @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
   end
@@ -187,9 +188,6 @@ defmodule Aiur.Claude.Telemetry do
       {:reply, {:ok, %{id: launch_id, env: launch_env(state.port, capability), source_version: @source_version}}, next}
     else
       {:error, reason} ->
-        {:reply, {:error, reason}, count_rejection(state, reason)}
-
-      reason when is_atom(reason) ->
         {:reply, {:error, reason}, count_rejection(state, reason)}
     end
   end
