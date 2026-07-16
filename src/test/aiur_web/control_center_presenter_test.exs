@@ -69,6 +69,22 @@ defmodule AiurWeb.ControlCenterPresenterTest do
     assert payload.fleet.running != []
   end
 
+  test "the unavailable fleet contract contains no synthetic financial facts" do
+    payload =
+      ControlCenterPresenter.state_payload(:unused, 10,
+        fleet_fun: fn -> exit(:fleet_down) end,
+        decisions_fun: fn -> [] end,
+        history_fun: fn -> [] end,
+        recent_merges_fun: fn ->
+          %{merges: [], health: :ready, reconciliation: %{status: :complete, partial?: false}}
+        end,
+        decision_metrics_fun: fn -> %{} end
+      )
+
+    assert payload.fleet.agent_totals == %{seconds_running: 0}
+    refute Map.has_key?(payload.fleet, :rate_limits)
+  end
+
   test "associates canonical latency by exact decision id and distinguishes missing samples" do
     decisions = [
       decision("dec-with-latency", blocking: true, urgency: :critical),
