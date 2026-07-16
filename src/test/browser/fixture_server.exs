@@ -28,6 +28,7 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
         <script defer src="/assets/phoenix.js"></script>
         <script defer src="/assets/phoenix_live_view.js"></script>
         <script defer src="/aiur-dom-svg-layout-loader.js"></script>
+        <script defer src="/assets/ticket-context-dialog-hook.js"></script>
         <script defer src="/assets/browser_harness.js"></script>
         <link rel="stylesheet" href="/dashboard.css" />
         <script>
@@ -48,6 +49,10 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
                 this.el.removeEventListener("click", this.onClick);
               }
             };
+
+            if (window.AiurTicketContextDialogHook) {
+              window.BrowserHarnessHooks.TicketContextDialog = window.AiurTicketContextDialogHook;
+            }
 
             window.liveSocket = new window.LiveView.LiveSocket("/live", window.Phoenix.Socket, {
               hooks: window.BrowserHarnessHooks,
@@ -280,6 +285,83 @@ defmodule Aiur.BrowserHarness.FixtureLive do
   defp layout_assets(:worker), do: nil
 end
 
+defmodule Aiur.BrowserHarness.TicketContextLive do
+  use Phoenix.LiveView, layout: {Aiur.BrowserHarness.FixtureLayout, :app}
+
+  alias Aiur.TrackerIdentity
+  alias AiurWeb.BuildOrder.TicketContextPresenter.{Capability, LogEntry, View}
+  alias AiurWeb.OperatorControlCenter.TicketContext
+
+  @observed_at ~U[2026-07-16 12:00:00Z]
+
+  @impl true
+  def mount(_params, _session, socket), do: {:ok, assign(socket, :open?, true)}
+
+  @impl true
+  def handle_event("close-ticket-context", _params, socket), do: {:noreply, assign(socket, :open?, false)}
+  def handle_event("open-ticket-context", _params, socket), do: {:noreply, assign(socket, :open?, true)}
+
+  @impl true
+  def render(assigns) do
+    ~H"""
+    <main class="app-shell" data-ticket-context-fixture="true">
+      <TicketContext.ticket_context
+        :if={@open?}
+        id="fixture-ticket-context"
+        context={context()}
+        close_event="close-ticket-context"
+      />
+      <p :if={!@open?} id="ticket-context-closed" role="status">Ticket context closed.</p>
+      <button :if={!@open?} type="button" phx-click="open-ticket-context">Open ticket context</button>
+    </main>
+    """
+  end
+
+  defp context do
+    %View{
+      identity: identity(),
+      repository: "owner/repo",
+      identifier: "42",
+      title: "Configured ticket",
+      description: "A bounded description for the browser fixture.",
+      lifecycle: %{state: :open, reason: :none},
+      detail: %{state: :available, observed_at: @observed_at, last_success_at: @observed_at, last_attempt_at: @observed_at},
+      history: %{state: :available, freshness: :fresh, observed_at: @observed_at, source_health: %{activity: :available, history: :available}},
+      progress: %{status: :known, percent: 40, source: :checkin, occurred_at: @observed_at, observed_at: @observed_at, provenance: %{run_id: "fixture"}},
+      latest_evidence: %{
+        status: :known,
+        source: %{kind: :agent_event, name: "progress.checkin"},
+        occurred_at: @observed_at,
+        observed_at: @observed_at,
+        provenance: %{}
+      },
+      logs: %{
+        entries: [%LogEntry{kind: :progress, label: "Progress updated", source: :exchange, occurred_at: @observed_at, observed_at: @observed_at}],
+        truncated?: false,
+        observed_at: @observed_at
+      },
+      capabilities: [
+        %Capability{kind: :github, variant: :issue, label: "Issue", href: "https://github.com/owner/repo/issues/42", available?: true, external?: true},
+        %Capability{kind: :github, variant: :pull_request, label: "Pull request", available?: false, external?: false, reason: "Pull request has not been opened."},
+        %Capability{kind: :chat, label: "Chat", href: "/fixture", available?: true, external?: false},
+        %Capability{kind: :commands, label: "Commands", available?: false, external?: false, reason: "Commands are unavailable."}
+      ]
+    }
+  end
+
+  defp identity do
+    %TrackerIdentity{
+      status: :joinable,
+      kind: :github,
+      owner: "owner",
+      repository: "repo",
+      provider_id: "I42",
+      identifier: "42",
+      reason: nil
+    }
+  end
+end
+
 defmodule Aiur.BrowserHarness.FixtureAuth do
   use Phoenix.Controller, formats: []
 
@@ -319,6 +401,7 @@ defmodule Aiur.BrowserHarness.FixtureAssets do
   def phoenix_html(conn, _params), do: serve_embedded(conn, "/vendor/phoenix_html/phoenix_html.js")
   def phoenix(conn, _params), do: serve_embedded(conn, "/vendor/phoenix/phoenix.js")
   def phoenix_live_view(conn, _params), do: serve_embedded(conn, "/vendor/phoenix_live_view/phoenix_live_view.js")
+  def ticket_context_dialog_hook(conn, _params), do: serve_embedded(conn, "/ticket-context-dialog-hook.js")
   def harness(conn, _params), do: serve_file(conn, "browser_harness.js")
   def worker(conn, _params), do: serve_file(conn, "browser_worker.js")
 
@@ -358,6 +441,7 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     get("/assets/phoenix_html.js", Aiur.BrowserHarness.FixtureAssets, :phoenix_html)
     get("/assets/phoenix.js", Aiur.BrowserHarness.FixtureAssets, :phoenix)
     get("/assets/phoenix_live_view.js", Aiur.BrowserHarness.FixtureAssets, :phoenix_live_view)
+    get("/assets/ticket-context-dialog-hook.js", Aiur.BrowserHarness.FixtureAssets, :ticket_context_dialog_hook)
     get("/assets/browser_harness.js", Aiur.BrowserHarness.FixtureAssets, :harness)
     get("/assets/browser_worker.js", Aiur.BrowserHarness.FixtureAssets, :worker)
   end
@@ -372,6 +456,7 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     pipe_through([:browser, :fixture_access])
 
     live("/fixture", Aiur.BrowserHarness.FixtureLive, :index)
+    live("/ticket-context", Aiur.BrowserHarness.TicketContextLive, :index)
     live("/", Aiur.BrowserHarness.RouteShellLive, :index)
     live("/decisions", Aiur.BrowserHarness.RouteShellLive, :decisions)
     live("/decisions/:decision_id", Aiur.BrowserHarness.RouteShellLive, :decision)

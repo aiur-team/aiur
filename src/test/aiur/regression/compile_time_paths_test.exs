@@ -56,6 +56,8 @@ defmodule Aiur.Regression.CompileTimePathsTest do
       "@external_resource @dashboard_css_path",
       "@dom_svg_layout_adapter_path Path.expand(\"../../priv/static/aiur-dom-svg-layout-adapter.js\", __DIR__)",
       "@external_resource @dom_svg_layout_adapter_path",
+      "@ticket_context_dialog_hook_path Path.expand(\"../../priv/static/ticket-context-dialog-hook.js\", __DIR__)",
+      "@external_resource @ticket_context_dialog_hook_path",
       "@external_resource @phoenix_html_js_path",
       "@external_resource @phoenix_js_path",
       "@external_resource @phoenix_live_view_js_path"
