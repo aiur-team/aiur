@@ -205,6 +205,9 @@ defmodule Aiur.Codex.CodingAgentTest do
         account_generation_server: owner
       }
 
+      assert {:redacted, _} =
+               AccountGeneration.handle_notification(session, "account/updated", %{"params" => %{"authMode" => "chatgpt"}})
+
       assert {:ok, %{result: :turn_completed}} =
                CodingAgent.run_turn(
                  session,

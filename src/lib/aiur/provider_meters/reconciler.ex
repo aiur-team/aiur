@@ -101,7 +101,7 @@ defmodule Aiur.ProviderMeters.Reconciler do
         source_version: update.source_version,
         window_tombstones: tombstones,
         windows: windows,
-        health: healthy(update)
+        health: patch_health(snapshot.health, update)
     }
   end
 
@@ -175,6 +175,13 @@ defmodule Aiur.ProviderMeters.Reconciler do
   defp healthy(update) do
     %{state: :healthy, failure: nil, last_observed_at: update.observed_at, last_source_version: update.source_version}
   end
+
+  # A sparse provider update may refresh individual facts, but it cannot prove
+  # the generation has recovered from a prior adapter failure. Only a valid
+  # full snapshot (or a new account generation) clears that same-generation
+  # LKG failure state.
+  defp patch_health(%{failure: nil}, update), do: healthy(update)
+  defp patch_health(health, _update), do: health
 
   defp different_identity?(snapshot, update) do
     snapshot.provider != update.provider or
