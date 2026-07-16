@@ -97,6 +97,7 @@ defmodule Aiur.ApplicationTest do
       Aiur.BuildOrder.GraphProjection,
       Aiur.AppServer.ToolCallLedger,
       Aiur.ProviderAccountGeneration,
+      Aiur.ProviderMeters.Store,
       Aiur.DecisionMetrics.Writer,
       Aiur.DecisionMetrics,
       Aiur.GitHub.CodeOwners,
@@ -267,6 +268,19 @@ defmodule Aiur.ApplicationTest do
 
         assert membership_store < orchestrator, "membership store must precede Orchestrator for #{inspect(opts)}"
         assert orchestrator < reconciler, "membership reconciler must follow Orchestrator for #{inspect(opts)}"
+      end
+    end
+
+    test "provider meters start immediately after the generation owner in every run shape" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        mods = modules(AiurApp.child_specs(opts))
+        owner = Enum.find_index(mods, &(&1 == Aiur.ProviderAccountGeneration))
+        meters = Enum.find_index(mods, &(&1 == Aiur.ProviderMeters.Store))
+
+        assert meters == owner + 1, "provider meters must immediately follow their generation owner for #{inspect(opts)}"
       end
     end
 
