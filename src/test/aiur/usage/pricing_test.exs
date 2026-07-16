@@ -126,7 +126,29 @@ defmodule Aiur.Usage.PricingTest do
 
     rejected = resolve(contradiction, registry, table)
     assert rejected.api_equivalent_estimate == nil
+    assert rejected.raw_tokens == contradiction.tokens
+    assert rejected.token_reconciliation.provider_total == 130
     assert :contradictory_relationship in rejected.coverage_reasons
+  end
+
+  test "retains raw evidence for unknown relationships and invalid catalogs" do
+    unknown_definition =
+      Fixture.codex_definition(%{
+        dimensions: Map.put(Fixture.codex_definition().dimensions, :cached_input, :unknown)
+      })
+
+    envelope = Fixture.codex_envelope!()
+    unknown = resolve(envelope, Fixture.registry!([unknown_definition]))
+
+    assert unknown.api_equivalent_estimate == nil
+    assert unknown.raw_tokens == envelope.tokens
+    assert unknown.token_reconciliation.provider_total == 130
+    assert :unknown_relationship in unknown.coverage_reasons
+
+    invalid = resolve(envelope, %{version: 1, entries: :invalid})
+    assert invalid.api_equivalent_estimate == nil
+    assert invalid.raw_tokens == envelope.tokens
+    assert :invalid_relationship_catalog in invalid.coverage_reasons
   end
 
   test "fails closed for unknown joins, partial evidence, and invalid arithmetic" do

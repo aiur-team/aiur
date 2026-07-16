@@ -7,15 +7,9 @@ defmodule Aiur.Usage.Pricing do
   converted to a guessed estimate or monetary zero.
   """
 
-  alias Aiur.Usage.{PriceTable, Pricing.Components}
+  alias Aiur.Usage.{PriceTable, Pricing.Components, Pricing.Result}
   alias Aiur.UsageEnvelope
-  alias Aiur.UsageEnvelope.{ExactMoney, RelationshipRegistry}
-
-  @version 1
-  @subscription_disclosure %{
-    marker: "*",
-    copy_key: "usage.api_equivalent_estimate.subscription_disclosure"
-  }
+  alias Aiur.UsageEnvelope.RelationshipRegistry
 
   @type result :: map()
 
@@ -35,28 +29,7 @@ defmodule Aiur.Usage.Pricing do
       envelope.coverage_reasons ++
         reconciliation.coverage_reasons ++ relationship_reasons ++ pricing_reasons
 
-    {:ok,
-     %{
-       schema_version: @version,
-       provider: envelope.provider,
-       resolved_model: envelope.resolved_model,
-       relationship_revision: envelope.relationship_revision,
-       pricing_effective_date: envelope.pricing_effective_date,
-       requested_currency: currency,
-       price_table_revision: Map.get(price_table, :revision),
-       account_generation: envelope.account_generation.generation,
-       tier_join_key: tier_join_key(envelope),
-       raw_tokens: envelope.tokens,
-       token_reconciliation: reconciliation,
-       token_coverage: reconciliation.coverage,
-       provider_reported_estimate: provider_estimate(envelope.cost),
-       api_equivalent_estimate: api_estimate,
-       api_equivalent_coverage: coverage(api_estimate),
-       api_equivalent_coverage_label: coverage(api_estimate) |> coverage_label(),
-       subscription_estimate_disclosure: disclosure(envelope.auth_mode),
-       coverage_reasons: Enum.uniq(reasons),
-       coverage_reason_labels: reasons |> Enum.uniq() |> Enum.map(&reason_label/1)
-     }}
+    {:ok, Result.build(envelope, price_table, currency, reconciliation, api_estimate, reasons)}
   end
 
   def resolve(_envelope, _registry, _price_table, _options), do: {:error, :invalid_envelope}
@@ -91,7 +64,7 @@ defmodule Aiur.Usage.Pricing do
     with :ok <- pricing_preconditions(envelope, reconciliation, definition),
          {:ok, components} <- Components.build(definition, envelope.tokens),
          {:ok, priced} <- price_components(components, envelope, price_table, currency) do
-      {build_api_estimate(priced, price_table, currency, envelope.auth_mode), []}
+      {Result.api_estimate(priced, price_table, currency, envelope.auth_mode), []}
     else
       {:error, reason} -> {nil, [reason]}
     end
@@ -165,62 +138,5 @@ defmodule Aiur.Usage.Pricing do
     |> Map.put(:source_url, price.source_url)
     |> Map.put(:source_reviewed_at, price.source_reviewed_at)
     |> Map.put(:pricing_scope, price.pricing_scope)
-  end
-
-  defp build_api_estimate(components, price_table, currency, auth_mode) do
-    amount = Enum.reduce(components, Decimal.new(0), &Decimal.add(&1.amount, &2))
-
-    %{
-      basis: :api_equivalent_estimate,
-      basis_label: "API-equivalent estimate",
-      amount: amount,
-      amount_decimal: Decimal.to_string(amount, :normal),
-      currency: currency,
-      coverage: :full,
-      coverage_label: coverage_label(:full),
-      price_table_revision: price_table.revision,
-      price_revisions: components |> Enum.map(& &1.price_revision) |> Enum.uniq() |> Enum.sort(),
-      components: components,
-      disclosure: disclosure(auth_mode)
-    }
-  end
-
-  defp provider_estimate(nil), do: nil
-
-  defp provider_estimate(%ExactMoney{} = money) do
-    %{
-      basis: :provider_reported_estimate,
-      basis_label: "Provider-reported estimate",
-      amount: money.amount,
-      amount_decimal: Decimal.to_string(money.amount, :normal),
-      currency: money.currency,
-      coverage: money.coverage,
-      coverage_label: coverage_label(money.coverage),
-      coverage_reason: money.unknown_reason,
-      source: money.source,
-      source_version: money.source_version,
-      measurement_kind: money.measurement_kind,
-      counter_scope: money.counter_scope
-    }
-  end
-
-  defp tier_join_key(%{account_generation: %{generation: generation}} = envelope)
-       when is_binary(generation),
-       do: {envelope.provider, envelope.backend, generation}
-
-  defp tier_join_key(_envelope), do: nil
-
-  defp disclosure(:chatgpt), do: @subscription_disclosure
-  defp disclosure(_auth_mode), do: nil
-
-  defp coverage(nil), do: :unknown
-  defp coverage(_estimate), do: :full
-
-  defp coverage_label(:full), do: "Known"
-  defp coverage_label(:partial), do: "Partial"
-  defp coverage_label(:unknown), do: "Unknown"
-
-  defp reason_label(reason) do
-    reason |> Atom.to_string() |> String.replace("_", " ") |> String.capitalize()
   end
 end

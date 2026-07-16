@@ -13,6 +13,7 @@ defmodule Aiur.Usage.PriceTableTest do
     {:claude, "claude-sonnet-4-6", "3.00", "0.30", "3.75", "15.00"},
     {:claude, "claude-haiku-4-5", "1.00", "0.10", "1.25", "5.00"}
   ]
+  @dimensions [:input, :cached_input, :cache_creation_input, :output, :reasoning_output]
 
   test "resolves every reviewed model dimension on its inclusive boundary" do
     assert {:ok, catalog} = PriceTable.default()
@@ -37,6 +38,13 @@ defmodule Aiur.Usage.PriceTableTest do
     end
 
     assert catalog.revision == Data.catalog_revision()
+
+    assert Enum.map(catalog.entries, &{&1.provider, &1.resolved_model, &1.token_dimension}) ==
+             for(
+               {provider, model, _input, _cached, _creation, _output} <- @expected_rates,
+               dimension <- @dimensions,
+               do: {provider, model, dimension}
+             )
   end
 
   test "selects old and new revisions solely from the occurrence date" do

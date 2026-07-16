@@ -11,6 +11,7 @@ defmodule Aiur.Usage.PriceTable.Data do
   @reviewed_at ~D[2026-07-15]
   @token_unit 1_000_000
   @pricing_scope "standard_global_direct_non_batch"
+  @dimensions [:input, :cached_input, :cache_creation_input, :output, :reasoning_output]
 
   @openai_source "https://developers.openai.com/api/docs/pricing"
   @openai_revision "openai-standard-global-2026-07-15"
@@ -47,16 +48,14 @@ defmodule Aiur.Usage.PriceTable.Data do
 
   defp model_entries(provider, models, relationship, revision, source) do
     Enum.flat_map(models, fn {model, rates} ->
-      rates
-      |> Map.put(:reasoning_output, rates.output)
-      |> Enum.map(fn {dimension, price} ->
+      Enum.map(@dimensions, fn dimension ->
         %{
           provider: provider,
           resolved_model: model,
           token_dimension: dimension,
           relationship_revision: relationship,
           currency: "USD",
-          price: price,
+          price: rate(rates, dimension),
           token_unit: @token_unit,
           effective_date: @effective_date,
           price_revision: revision,
@@ -67,4 +66,7 @@ defmodule Aiur.Usage.PriceTable.Data do
       end)
     end)
   end
+
+  defp rate(rates, :reasoning_output), do: rates.output
+  defp rate(rates, dimension), do: Map.fetch!(rates, dimension)
 end
