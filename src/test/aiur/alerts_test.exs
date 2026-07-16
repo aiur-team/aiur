@@ -1,7 +1,8 @@
 defmodule Aiur.AlertsTest do
   use Aiur.TestSupport
 
-  alias Aiur.{AgentLog, Alerts, Orchestrator}
+  alias Aiur.{AgentLog, Alerts, Orchestrator, TrackerIdentity}
+  alias Aiur.Events.Exchange
   alias Aiur.Orchestrator.IssueSync
 
   test "emit_system writes a structured alert entry and selects a configured sound" do
@@ -216,7 +217,7 @@ defmodule Aiur.AlertsTest do
             String.contains?(log, "\"needs_attention\":true") and
             String.contains?(log, "\"severity\":\"warning\"") and
             String.contains?(log, "\"name\":\"ticket.MT-ALERT-5.agent.unpaused\"") and
-            String.contains?(log, "\"reason\":\"Agent resumed; no operator action is needed.\"") and
+            String.contains?(log, "\"reason\":\"Agent resumed; no Executor action is needed.\"") and
             String.contains?(log, "\"needs_attention\":false")
         else
           false
@@ -563,6 +564,34 @@ defmodule Aiur.AlertsTest do
   end
 
   describe "emit_custom/2 and identifier helpers" do
+    test "custom stage alerts publish a joinable, typed observation" do
+      identifier = "MT-OBSERVATION-#{System.unique_integer([:positive])}"
+      topic = "ticket.#{identifier}.agent.phase.work.start"
+
+      {:ok, identity} =
+        TrackerIdentity.from_github(
+          %{"node_id" => "I_kwDOAlertObservation", "number" => 42},
+          {"owner", "repo"},
+          {"owner", "repo"}
+        )
+
+      :ok = Exchange.subscribe(topic)
+
+      assert :ok =
+               Alerts.emit_custom(topic, "private status",
+                 observation_identity: identity,
+                 observation_source: %{kind: :agent_alert, name: "phase.work.start"},
+                 observation_provenance: %{run_id: "run-alert", session_id: "session-alert"},
+                 occurred_at: "2026-07-13T12:00:00Z"
+               )
+
+      assert_receive {:event, %{ticket_observation: observation}}, 2_000
+      assert observation.status == :joinable
+      assert observation.attributes == %{stage: :work, transition: :start}
+      assert observation.provenance == %{run_id: "run-alert", session_id: "session-alert"}
+      refute Jason.encode!(observation) =~ "private status"
+    end
+
     test "emit_custom/2 forwards to /3 and emits with no extra opts" do
       assert :ok = Alerts.emit_custom("my.test." <> Integer.to_string(System.unique_integer([:positive])), "Custom message")
     end

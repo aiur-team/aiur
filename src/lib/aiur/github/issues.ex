@@ -4,8 +4,13 @@ defmodule Aiur.GitHub.Issues do
   """
 
   require Logger
-  alias Aiur.{Config, GitHub, Issue}
+  alias Aiur.{BuildOrder.Bounded, Config, GitHub, Issue, TrackerIdentity}
   alias Aiur.GitHub.{Errors, Labels, StatePolicy, Transport}
+
+  @max_issue_response_bytes 65_536
+
+  @spec max_issue_response_bytes() :: pos_integer()
+  def max_issue_response_bytes, do: @max_issue_response_bytes
 
   @spec fetch_candidate_issues(keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
   def fetch_candidate_issues(opts \\ []) do
@@ -24,16 +29,58 @@ defmodule Aiur.GitHub.Issues do
 
   @spec fetch_issue_raw(integer() | String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def fetch_issue_raw(issue_number, opts \\ []) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token() do
+    with {:ok, {owner, repo}} <- raw_repository(opts),
+         {:ok, token} <- Transport.require_token(opts) do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
       url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}"
 
-      case request_fun.(%{method: :get, url: url, token: token}) do
-        {:ok, %{status: 200, body: body}} when is_map(body) -> {:ok, body}
-        {:ok, %{status: _status} = response} -> {:error, Errors.github_status_error(response)}
-        {:error, reason} -> {:error, Errors.classify_error({:error, reason})}
+      case request_fun.(%{
+             method: :get,
+             url: url,
+             token: token,
+             max_response_bytes: @max_issue_response_bytes
+           }) do
+        {:ok, %{private: %{aiur_response_too_large: true}, status: status} = response}
+        when status != 200 ->
+          {:error, Errors.github_status_error(response)}
+
+        {:ok, %{private: %{aiur_response_too_large: true}}} ->
+          {:error, :github_issue_response_too_large}
+
+        {:ok, %{status: 200, body: body}} when is_map(body) ->
+          {:ok, body}
+
+        {:ok, %{status: 200}} ->
+          {:error, :invalid_github_issue_response}
+
+        {:ok, %{status: _status} = response} ->
+          {:error, Errors.github_status_error(response)}
+
+        {:error, reason} ->
+          {:error, Errors.classify_error({:error, reason})}
       end
+    end
+  end
+
+  defp raw_repository(opts) do
+    case Keyword.fetch(opts, :repository) do
+      {:ok, {owner, repo}} ->
+        repository_components(owner, repo)
+
+      {:ok, _invalid_repository} ->
+        {:error, :invalid_github_repository}
+
+      :error ->
+        with {:ok, {owner, repo}} <- Transport.parse_repo() do
+          repository_components(owner, repo)
+        end
+    end
+  end
+
+  defp repository_components(owner, repo) do
+    case Bounded.github_repository_components(owner, repo) do
+      {:ok, repository} -> {:ok, repository}
+      :error -> {:error, :invalid_github_repository}
     end
   end
 
@@ -180,7 +227,7 @@ defmodule Aiur.GitHub.Issues do
   end
 
   @spec normalize_issue(map(), String.t(), String.t(), String.t()) :: Issue.t()
-  def normalize_issue(gh_issue, _owner, _repo, prefix) when is_map(gh_issue) do
+  def normalize_issue(gh_issue, owner, repo, prefix) when is_map(gh_issue) do
     number = gh_issue["number"]
     labels = gh_issue["labels"] || []
     label_names = Enum.map(labels, &(&1["name"] || ""))
@@ -188,6 +235,7 @@ defmodule Aiur.GitHub.Issues do
     %Issue{
       id: to_string(number),
       identifier: to_string(number),
+      tracker_identity: tracker_identity(gh_issue, owner, repo),
       title: gh_issue["title"],
       description: gh_issue["body"],
       priority: extract_priority(label_names),
@@ -265,4 +313,24 @@ defmodule Aiur.GitHub.Issues do
     do: String.downcase(String.trim(label))
 
   defp normalize_label_name(_label), do: ""
+
+  defp tracker_identity(gh_issue, owner, repo) do
+    case GitHub.Config.configured_repo() do
+      {:ok, {configured_owner, configured_repo}} ->
+        case TrackerIdentity.from_github(gh_issue, {configured_owner, configured_repo}, {owner, repo}) do
+          {:ok, identity} ->
+            identity
+
+          {:error, reason} ->
+            TrackerIdentity.unjoinable(reason,
+              owner: configured_owner,
+              repository: configured_repo,
+              identifier: Map.get(gh_issue, "number")
+            )
+        end
+
+      {:error, reason} ->
+        TrackerIdentity.unjoinable(reason, identifier: Map.get(gh_issue, "number"))
+    end
+  end
 end

@@ -4,9 +4,11 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
   import Phoenix.LiveViewTest, only: [render_component: 2]
 
   alias AiurWeb.OperatorControlCenter.{
+    BuildOrderGraph,
     DecisionAction,
     DecisionDetail,
     DecisionInbox,
+    DecisionLatency,
     DecisionRevisionAction,
     FleetFilters,
     FleetTable,
@@ -14,6 +16,47 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     LifecycleComponents,
     Overview
   }
+
+  test "renders semantic graph cards and preserves every dependency state in the fallback summary" do
+    html =
+      render_component(&BuildOrderGraph.build_order_graph/1, %{
+        id: "build-order-graph",
+        root_id: "root-1",
+        provider_generation: 4,
+        dom_generation: 8,
+        layout_assets: %{client: "/client.js", worker: "/worker.js", engine: "/engine.js"},
+        nodes: [
+          %{id: "BO-010", title: "DOM and SVG layout", summary: "Keep cards semantic.", lane: 0, phase: 3},
+          %{id: "BO-012", title: "Graph markup", lane: 1, phase: 4}
+        ],
+        edges: [
+          %{id: "edge-cleared", source: "BO-010", target: "BO-012", state: :cleared},
+          %{id: "edge-blocking", source: "BO-012", target: "BO-010", state: :blocking},
+          %{id: "edge-terminal", source: "BO-010", target: "BO-404", state: :terminal_unsatisfied},
+          %{id: "edge-unknown", source: "BO-404", target: "BO-010", state: :unknown},
+          %{id: "edge-cycle", source: "BO-012", target: "BO-012", state: :cyclic}
+        ]
+      })
+
+    assert html =~ ~s(phx-hook="DomSvgLayout")
+    assert html =~ ~s(data-layout-root-id="root-1")
+    assert html =~ ~s(data-layout-provider-generation="4")
+    assert html =~ ~s(data-layout-dom-generation="8")
+    assert html =~ ~s(data-layout-adapter-url="/aiur-dom-svg-layout-adapter.js")
+    assert html =~ ~s(data-layout-node-id="BO-010")
+    assert html =~ ~s(data-layout-card-header)
+    assert html =~ ~s(aria-hidden="true")
+    assert html =~ "Cleared"
+    assert html =~ "Blocking"
+    assert html =~ "Terminal unsatisfied"
+    assert html =~ "Unknown"
+    assert html =~ "Cyclic"
+    assert html =~ "is clear of"
+    assert html =~ "leaves terminally unsatisfied"
+    assert html =~ "has an unknown dependency relation to"
+    assert html =~ "is cyclic with"
+    assert html =~ "Using readable document-flow layout."
+  end
 
   test "renders delivery failure and supersession as explicit lifecycle overrides" do
     failed = render_component(&LifecycleComponents.lifecycle_stepper/1, %{lifecycle: :delivery_failed})
@@ -26,7 +69,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert failed =~ "Resolved"
     refute failed =~ "rolled back"
 
-    assert superseded =~ "Superseded — replaced by a newer decision"
+    assert superseded =~ "Superseded — replaced by a newer Command"
     refute superseded =~ "Resolved"
   end
 
@@ -73,7 +116,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
       question: "What should happen after the target became terminal?",
       changed_at: ~U[2026-07-12 13:00:00Z],
       change: :follow_up_required,
-      actor: %{type: :human_operator, id: "operator", label: "Human operator"},
+      actor: %{type: :human_operator, id: "operator", label: "Executor"},
       choice: nil,
       rationale: "The revision could not be dispatched.",
       dispatch_result: :failed,
@@ -86,7 +129,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
 
     html = render_component(&History.history/1, %{entries: [entry], provider_health: :ok})
 
-    assert html =~ "Human operator"
+    assert html =~ "Executor"
     assert html =~ "Follow-up required"
     assert html =~ "dispatch: Failed"
     assert html =~ "revision: No longer applicable"
@@ -121,13 +164,13 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
         now: ~U[2026-07-12 13:00:00Z]
       })
 
-    assert html =~ ~s(aria-label="Open pending decision")
+    assert html =~ ~s(aria-label="Open pending Command")
     assert html =~ ~s(aria-label="Read agent conversation")
     assert html =~ ~s(aria-label="Open tracker ticket")
     assert html =~ ~s(data-label="Ticket")
     assert html =~ ~s(data-label="Latest")
     assert html =~ ~s(data-label="Elapsed")
-    assert html =~ ~s(data-label="Decisions")
+    assert html =~ ~s(data-label="Commands")
   end
 
   test "filters real fleet states cumulatively with the latest responsive overview" do
@@ -171,15 +214,24 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert filtered_html =~ "AIUR-5"
   end
 
-  test "decision banner targets an open decision and hides when none await input" do
+  test "decision banner uses canonical retained counts and hides when none await input" do
     answered = %{decision_id: "dec-answered", blocking: true, lifecycle: :resolved}
     open = %{decision_id: "dec-open", blocking: false, lifecycle: :recorded}
 
-    html = render_component(&Overview.decisions_banner/1, %{decisions: [answered, open]})
-    empty_html = render_component(&Overview.decisions_banner/1, %{decisions: [answered]})
+    html =
+      render_component(&Overview.decisions_banner/1, %{
+        decisions: [answered, open],
+        retained_counts: %{open: 1, blocking: 0, health: %{status: :available}}
+      })
 
-    assert html =~ ~s(href="/decisions/dec-open")
-    refute html =~ ~s(href="/decisions/dec-answered")
+    empty_html =
+      render_component(&Overview.decisions_banner/1, %{
+        decisions: [answered],
+        retained_counts: %{open: 0, blocking: 0, health: %{status: :available}}
+      })
+
+    assert html =~ ~s(href="/decisions")
+    assert html =~ "1 Command is awaiting you"
     refute empty_html =~ "decisions-banner"
   end
 
@@ -201,8 +253,26 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
   test "distinguishes degraded decision history from an unavailable provider" do
     html = render_component(&History.history/1, %{entries: [], provider_health: :degraded})
 
-    assert html =~ "Decision history is degraded"
+    assert html =~ "Command history is degraded"
     refute html =~ "currently unavailable"
+  end
+
+  test "Commands inbox exposes only the four primary filters with canonical retained counts" do
+    html =
+      render_inbox(
+        [inbox_decision("dec-overview-only")],
+        :all,
+        %{total: 701, open: 503, blocking: 401}
+      )
+
+    assert html =~ ~r/All\s+<span class="count num">701<\/span>/
+    assert html =~ ~r/Open\s+<span class="count num">503<\/span>/
+    assert html =~ ~r/Blocking\s+<span class="count num">401<\/span>/
+    assert html =~ "Commands inbox"
+    assert html =~ "Resolved"
+    refute html =~ ~r/>Undelivered\s+<span class="count num">/
+    refute html =~ ~r/>Supervisor\s+<span class="count num">/
+    refute html =~ ~r/>Superseded\s+<span class="count num">/
   end
 
   test "renders a writable canonical answer form with destructive confirmation" do
@@ -213,7 +283,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert html =~ ~s(phx-submit="answer-decision")
     assert html =~ ~s(name="answer[choice]")
     assert html =~ "Persisted before dispatch"
-    assert html =~ "I understand this decision is irreversible or destructive."
+    assert html =~ "I understand this Command is irreversible or destructive."
     assert html =~ "Record answer"
   end
 
@@ -247,6 +317,51 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert writable =~ "Target agent unavailable"
     refute readonly =~ ~s(phx-click="retry-decision")
     refute readonly =~ ~s(phx-submit="answer-decision")
+  end
+
+  test "renders canonical OCC-9 latency with accessible labels and honest pending fields" do
+    latency = %{
+      status: :available,
+      snapshot: %{
+        request_to_decision_ms: 250,
+        decision_to_dispatch_ms: 1_500,
+        dispatch_to_delivery_ms: nil,
+        delivery_to_ack_ms: nil,
+        blocked_time_ms: 1_750,
+        reminder_count: 2,
+        attention_count: 3,
+        actor: "human",
+        revised: true
+      }
+    }
+
+    html = render_component(&DecisionLatency.decision_latency/1, %{latency: latency})
+
+    assert html =~ ~s(aria-labelledby="decision-latency-title")
+    assert html =~ "Request to Command"
+    assert html =~ "250 ms"
+    assert html =~ "Command to dispatch"
+    assert html =~ "1.5 s"
+    assert html =~ "Dispatch to delivery"
+    assert html =~ "Pending"
+    assert html =~ "Blocked time"
+    assert html =~ "2 reminders"
+    assert html =~ "3 attentions"
+    assert html =~ "Human"
+    assert html =~ "Revised"
+  end
+
+  test "distinguishes a missing latency sample from an unavailable provider" do
+    missing = render_component(&DecisionLatency.decision_latency/1, %{latency: %{status: :missing, snapshot: nil}})
+
+    unavailable =
+      render_component(&DecisionLatency.decision_latency/1, %{
+        latency: %{status: :unavailable, snapshot: nil}
+      })
+
+    assert missing =~ "No latency sample has been retained for this Command yet."
+    refute missing =~ "provider is unavailable"
+    assert unavailable =~ "Command latency provider is unavailable."
   end
 
   test "renders an append-only revision chain and gates its parent follow-up" do
@@ -305,16 +420,16 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert writable =~ "Hold the rollout"
     assert writable =~ "No longer applicable"
     assert writable =~ "does not claim earlier effects were rolled back"
-    assert writable =~ "Operator follow-up required"
+    assert writable =~ "Executor follow-up required"
     assert writable =~ ~s(phx-submit="revise-decision")
     assert writable =~ ~s(phx-submit="handle-revision-follow-up")
     assert readonly =~ "Original answer · preserved"
-    assert readonly =~ "Operator follow-up required"
+    assert readonly =~ "Executor follow-up required"
     refute readonly =~ ~s(phx-submit="revise-decision")
     refute readonly =~ ~s(phx-submit="handle-revision-follow-up")
   end
 
-  test "filters canonical undelivered, supervisor, resolved, and superseded states" do
+  test "keeps every secondary lifecycle state visible under the primary All filter" do
     operator_answer = action_answer(:operator)
     supervisor_answer = action_answer(:supervisor)
 
@@ -348,20 +463,82 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
       )
     ]
 
-    undelivered = render_inbox(decisions, :undelivered)
-    supervisor = render_inbox(decisions, :supervisor)
+    all = render_inbox(decisions, :all)
     resolved = render_inbox(decisions, :resolved)
-    superseded = render_inbox(decisions, :superseded)
 
-    assert undelivered =~ "Question dec-undelivered"
-    refute undelivered =~ "Question dec-supervisor"
-    assert supervisor =~ "Question dec-supervisor"
-    refute supervisor =~ "Question dec-undelivered"
+    assert all =~ "Question dec-undelivered"
+    assert all =~ "Question dec-supervisor"
+    assert all =~ "Question dec-superseded"
+    assert all =~ "Dispatch pending"
+    assert all =~ "Supervisor answer"
+    assert all =~ "Superseded"
     assert resolved =~ "Question dec-resolved"
     refute resolved =~ "Question dec-superseded"
-    assert superseded =~ "Question dec-superseded"
-    assert superseded =~ "Undelivered"
-    assert superseded =~ "Supervisor"
+  end
+
+  test "renders trusted provenance, exact confidence, and bounded option previews without prose inference" do
+    decision =
+      inbox_decision("dec-provenance",
+        options: [
+          %{id: "one", label: "First option", description: "One", risk: "low"},
+          %{id: "two", label: "Second option", description: "Two", risk: "medium"},
+          %{id: "three", label: "Hidden third option", description: "Three", risk: "high"}
+        ],
+        answer:
+          action_answer(:supervisor)
+          |> Map.put(:selected_option_id, "two")
+          |> Map.put(:supervisor_basis, %{confidence: 0}),
+        provenance: %{
+          agent_family: "codex",
+          backend: "codex",
+          requested_model: "requested-model",
+          resolved_model: "resolved-model"
+        }
+      )
+
+    html = render_inbox([decision], :all)
+
+    assert html =~ "codex · resolved-model"
+    assert html =~ "0% confidence"
+    assert html =~ "Selected · Second option"
+    assert html =~ "First option"
+    assert html =~ "Second option"
+    refute html =~ "Hidden third option"
+  end
+
+  test "Command detail renders canonical runtime provenance and exact supervisor confidence" do
+    answer = action_answer(:supervisor) |> Map.put(:supervisor_basis, %{"confidence" => 37})
+
+    decision =
+      inbox_decision("dec-detail-provenance",
+        answer: answer,
+        decision_status: :decided,
+        delivery_status: :queued,
+        lifecycle: :dispatch_pending,
+        provenance: %{
+          agent_family: "codex",
+          backend: "codex-app-server",
+          requested_model: "gpt-requested",
+          resolved_model: "gpt-resolved",
+          attempt_id: "attempt-37",
+          captured_at: ~U[2026-07-12 13:00:00Z]
+        }
+      )
+
+    html =
+      render_component(&DecisionDetail.decision_detail/1, %{
+        decision: decision,
+        history: [],
+        writable: false
+      })
+
+    assert html =~ "Command metadata"
+    assert html =~ "Supervisor confidence"
+    assert html =~ "37%"
+    assert html =~ "codex-app-server"
+    assert html =~ "gpt-resolved"
+    assert html =~ "attempt-37"
+    refute html =~ "Runtime provenance was not recorded"
   end
 
   defp action_decision(attrs) do
@@ -425,7 +602,15 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     Map.merge(defaults, Map.new(attrs))
   end
 
-  defp render_inbox(decisions, filter) do
+  defp render_inbox(decisions, filter, retained_counts \\ nil) do
+    retained_counts =
+      retained_counts ||
+        %{
+          total: length(decisions),
+          open: Enum.count(decisions, &(&1.decision_status == :open)),
+          blocking: Enum.count(decisions, &(&1.blocking and &1.decision_status == :open))
+        }
+
     render_component(&DecisionInbox.decision_inbox/1, %{
       decisions: decisions,
       selected_decision_id: nil,
@@ -434,7 +619,8 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
       history: [],
       action_states: %{},
       writable: false,
-      provider_health: :ok
+      provider_health: :ok,
+      retained_counts: retained_counts
     })
   end
 end

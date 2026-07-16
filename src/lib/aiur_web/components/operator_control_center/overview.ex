@@ -14,32 +14,6 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
     {:all, "Total", "faint"}
   ]
 
-  attr(:now, :any, required: true)
-  attr(:tracker_kind, :string, required: true)
-  attr(:agent_kind, :string, required: true)
-
-  @spec topbar(map()) :: Phoenix.LiveView.Rendered.t()
-  def topbar(assigns) do
-    ~H"""
-    <header class="topbar">
-      <a class="brand-mini" href="/" aria-label="Aiur Operator Control Center">
-        <img class="brand-mini-logo" src="/aiur-logo.png" alt="" />
-        <span class="brand-wordmark"><b>aiur</b> / operator control</span>
-      </a>
-      <div class="toolbar">
-        <span class="status-badge status-badge-live"><span class="status-badge-dot"></span>Live</span>
-        <span class="status-badge status-badge-offline"><span class="status-badge-dot"></span>Offline</span>
-        <span class="status-badge"><span class="status-key">ITS</span> {@tracker_kind}</span>
-        <span class="status-badge"><span class="status-key">Agent</span> {@agent_kind}</span>
-        <time class="status-badge mono num" datetime={datetime_value(@now)}>{clock_value(@now)}</time>
-        <button id="theme-toggle" class="tool-btn" type="button" phx-hook="ThemeToggle" aria-label="Toggle color theme">
-          <span class="theme-icon" aria-hidden="true">◐</span>Theme
-        </button>
-      </div>
-    </header>
-    """
-  end
-
   attr(:writable, :boolean, required: true)
 
   @spec readonly_banner(map()) :: Phoenix.LiveView.Rendered.t()
@@ -47,34 +21,44 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
     ~H"""
     <div :if={!@writable} class="readonly-banner" role="status">
       <span aria-hidden="true">◉</span>
-      <span><b>Read-only dashboard.</b> Decision, message, and pause controls are hidden.</span>
+      <span><b>Read-only dashboard.</b> Command, message, and pause controls are hidden.</span>
     </div>
     """
   end
 
   attr(:decisions, :list, required: true)
+  attr(:retained_counts, :map, required: true)
 
   @spec decisions_banner(map()) :: Phoenix.LiveView.Rendered.t()
   def decisions_banner(assigns) do
-    blocking = Enum.count(assigns.decisions, &(&1.blocking and &1.lifecycle == :recorded))
-    open = Enum.count(assigns.decisions, &(&1.lifecycle == :recorded))
-    first = Enum.find(assigns.decisions, &(&1.lifecycle == :recorded))
-
-    assigns = assign(assigns, blocking: blocking, open: open, first: first)
+    assigns =
+      assigns
+      |> assign(:blocking, Map.get(assigns.retained_counts, :blocking))
+      |> assign(:open, Map.get(assigns.retained_counts, :open))
+      |> assign(:health, get_in(assigns.retained_counts, [:health, :status]))
 
     ~H"""
     <.link
-      :if={@first}
-      patch={"/decisions/#{@first.decision_id}"}
+      :if={is_integer(@open) and @open > 0}
+      patch="/decisions"
       class={["decisions-banner", @blocking > 0 && "blocking"]}
+      aria-label={"#{@open} open retained Commands, #{@blocking} blocking"}
     >
       <span class="decision-banner-icon" aria-hidden="true">!</span>
       <span class="decision-banner-body">
         <strong>{banner_title(@blocking, @open)}</strong>
         <span>{banner_detail(@blocking, @open)}</span>
       </span>
-      <span class="decision-banner-cta">Review decisions <span aria-hidden="true">→</span></span>
+      <span class="decision-banner-cta">Review Commands <span aria-hidden="true">→</span></span>
     </.link>
+    <div :if={!is_integer(@open)} class="readonly-banner" role="status" aria-live="polite">
+      <span aria-hidden="true">◉</span>
+      <span><b>Retained Command counts unavailable.</b> The priority overview is still shown without a global count.</span>
+    </div>
+    <div :if={@health == :partial and is_integer(@open)} class="readonly-banner" role="status" aria-live="polite">
+      <span aria-hidden="true">◉</span>
+      <span><b>Partial retained Command counts.</b> Counts cover the validated audit prefix only.</span>
+    </div>
     """
   end
 
@@ -108,24 +92,6 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
     """
   end
 
-  attr(:live_action, :atom, required: true)
-  attr(:decision_count, :integer, required: true)
-  attr(:fleet_count, :integer, required: true)
-
-  @spec tabs(map()) :: Phoenix.LiveView.Rendered.t()
-  def tabs(assigns) do
-    ~H"""
-    <nav class="control-tabs" aria-label="Control Center surfaces">
-      <.link patch="/" class={["control-tab", @live_action == :index && "is-active"]}>
-        Fleet <span class="count num">{@fleet_count}</span>
-      </.link>
-      <.link patch="/decisions" class={["control-tab", @live_action in [:decisions, :decision] && "is-active"]}>
-        Decision inbox <span class={["count num", @decision_count > 0 && "attn"]}>{@decision_count}</span>
-      </.link>
-    </nav>
-    """
-  end
-
   attr(:error, :map, required: true)
 
   @spec error(map()) :: Phoenix.LiveView.Rendered.t()
@@ -138,21 +104,16 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
     """
   end
 
-  defp banner_title(1, _open), do: "1 decision is blocking an agent"
-  defp banner_title(blocking, _open) when blocking > 1, do: "#{blocking} decisions are blocking agents"
-  defp banner_title(_blocking, 1), do: "1 decision is awaiting you"
-  defp banner_title(_blocking, open), do: "#{open} decisions are awaiting you"
+  defp banner_title(1, _open), do: "1 Command is blocking an agent"
+  defp banner_title(blocking, _open) when blocking > 1, do: "#{blocking} Commands are blocking agents"
+  defp banner_title(_blocking, 1), do: "1 Command is awaiting you"
+  defp banner_title(_blocking, open), do: "#{open} Commands are awaiting you"
 
   defp banner_detail(blocking, open) when blocking > 0,
-    do: "#{open} awaiting input in total · answer the blocking decision first"
+    do: "#{open} awaiting input in total · answer the blocking Command first"
 
   defp banner_detail(_blocking, _open), do: "Nothing is blocking · answer at your pace to keep agents moving"
 
   defp active?(_filters, :all, all_active), do: all_active
   defp active?(filters, key, _all_active), do: MapSet.member?(filters, key)
-
-  defp clock_value(%DateTime{} = now), do: Calendar.strftime(now, "%H:%M:%S")
-  defp clock_value(_now), do: "--:--:--"
-  defp datetime_value(%DateTime{} = now), do: DateTime.to_iso8601(now)
-  defp datetime_value(_now), do: nil
 end

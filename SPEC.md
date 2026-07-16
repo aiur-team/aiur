@@ -29,7 +29,7 @@ The service solves four operational problems:
 - It provides enough observability to operate and debug multiple concurrent agent runs.
 
 Implementations are expected to document their trust and safety posture explicitly. This
-specification does not require a single approval, sandbox, or operator-confirmation policy; some
+specification does not require a single approval, sandbox, or Executor-confirmation policy; some
 implementations target trusted environments with a high-trust configuration, while others require
 stricter approvals or sandboxing.
 
@@ -51,7 +51,7 @@ Important boundary:
 - Stop active runs when issue state changes make them ineligible.
 - Recover from transient failures with exponential backoff.
 - Load runtime behavior from a repository-owned `.aiurconfig` contract.
-- Expose operator-visible observability (at minimum structured logs).
+- Expose Executor-visible observability (at minimum structured logs).
 - Support tracker/filesystem-driven restart recovery without requiring a persistent database; exact
   in-memory scheduler state is not restored. An implementation MAY persist a durable per-issue
   coding-agent session handle and, on restart, resume the prior agent thread — continuing its
@@ -67,7 +67,7 @@ Important boundary:
 - Built-in business logic for how to edit tickets, PRs, or comments. (That logic lives in the
   workflow prompt and agent tooling.)
 - Mandating strong sandbox controls beyond what the coding agent and host OS provide.
-- Mandating a single default approval, sandbox, or operator-confirmation posture for all
+- Mandating a single default approval, sandbox, or Executor-confirmation posture for all
   implementations.
 
 ## 3. System Overview
@@ -110,7 +110,7 @@ Important boundary:
 
 7. `Status Surface` (OPTIONAL)
    - Presents human-readable runtime status (for example terminal output, dashboard, or other
-     operator-facing view).
+     Executor-facing view).
    - An implementation MAY use a third-party terminal chat UI as a status/input surface. In the
      Elixir implementation, opencode is used only as the pane chat frontend; Aiur remains the
      orchestrator and agent runtime owner and retains the canonical transcript.
@@ -140,7 +140,7 @@ Aiur is easiest to port when kept in these layers:
    - API calls and normalization for tracker data.
 
 6. `Observability Layer` (logs + OPTIONAL status surface)
-   - Operator visibility into orchestrator and agent behavior.
+   - Executor visibility into orchestrator and agent behavior.
 
 ### 3.3 External Dependencies
 
@@ -440,6 +440,16 @@ Fields:
 - `max_concurrent_agents` (integer)
   - Default: `10`
   - Changes SHOULD be re-applied at runtime and affect subsequent dispatch decisions.
+- `max_concurrent_builds` (non-negative integer)
+  - Default: `2`.
+  - Caps agent-launched `mix compile` and `mix test` commands across local workspaces for
+    the current OS user. `0` deliberately disables this concurrency cap.
+  - When enabled, implementations MUST fail a gated Mix command without invoking Mix if
+    the shared gate directory or lease mechanism is unavailable. The failure MUST be
+    bounded and identify how to repair or deliberately disable the gate.
+  - Linux lease liveness MUST NOT depend on sandbox-local PID/PGID values. Those values
+    MAY be retained as diagnostics, but shared ownership and reclamation require a
+    host-stable primitive.
 - `max_turns` (positive integer)
   - Default: `20`
   - Limits the number of coding-agent turns within one worker session.
@@ -485,9 +495,11 @@ fields locally if they want stricter startup checks.
 - `turn_sandbox_policy` (Codex `SandboxPolicy` value)
   - Default: implementation-defined.
   - When the value is a Codex `workspaceWrite` policy, implementations MUST add the
-    runtime issue workspace to `writableRoots` before starting a turn. Existing roots
-    are preserved. This keeps agent-visible Git metadata writable even when the
-    workflow config supplies extra explicit roots.
+    runtime issue workspace to `writableRoots` before starting a turn. When the local
+    build gate is enabled, implementations MUST also prepare and add its canonical
+    shared directory. Existing roots and writable Git metadata roots are preserved.
+    This keeps both agent-visible Git metadata and shared leases writable even when
+    the workflow config supplies extra explicit roots.
   - Non-`workspaceWrite` policy types are passed through unchanged.
 - `turn_timeout_ms` (integer)
   - Default: `3600000` (1 hour)
@@ -598,7 +610,7 @@ Dynamic reload is REQUIRED:
 - Implementations SHOULD also re-validate/reload defensively during runtime operations (for example
   before dispatch) in case filesystem watch events are missed.
 - Invalid reloads MUST NOT crash the service; keep operating with the last known good effective
-  configuration and emit an operator-visible error.
+  configuration and emit an Executor-visible error.
 
 ### 6.3 Dispatch Preflight Validation
 
@@ -609,13 +621,13 @@ behavior.
 Startup validation:
 
 - Validate configuration before starting the scheduling loop.
-- If startup validation fails, fail startup and emit an operator-visible error.
+- If startup validation fails, fail startup and emit an Executor-visible error.
 
 Per-tick dispatch validation:
 
 - Re-validate before each dispatch cycle.
 - If validation fails, skip dispatch for that tick, keep reconciliation active, and emit an
-  operator-visible error.
+  Executor-visible error.
 
 Validation checks:
 
@@ -748,7 +760,7 @@ Distinct terminal reasons are important because retry logic and logs differ.
     outside the normal polling path, such as a GitHub pull request merge event for the issue branch.
   - When that signal proves the issue is complete, the orchestrator SHOULD transition the issue to a
     terminal state and release any retained running entry.
-  - Benign operator or monitor comments that merely report a successful review SHOULD NOT be treated
+  - Benign Executor or monitor comments that merely report a successful review SHOULD NOT be treated
     as rework-triggering feedback.
 
 - `Trusted External Comment Event`
@@ -1117,10 +1129,10 @@ Approval, sandbox, and user-input behavior is implementation-defined.
 
 Policy requirements:
 
-- Each implementation MUST document its chosen approval, sandbox, and operator-confirmation
+- Each implementation MUST document its chosen approval, sandbox, and Executor-confirmation
   posture.
 - Approval requests and user-input-required events MUST NOT leave a run stalled indefinitely. An
-  implementation MAY either satisfy them, surface them to an operator, auto-resolve them, or
+  implementation MAY either satisfy them, surface them to an Executor, auto-resolve them, or
   fail the run according to its documented policy.
 
 Example high-trust behavior:
@@ -1183,8 +1195,8 @@ User-input-required policy:
 
 - Implementations MUST document how targeted-protocol user-input-required signals are handled.
 - A run MUST NOT stall indefinitely waiting for user input.
-- A conforming implementation MAY fail the run, surface the request to an operator, satisfy it
-  through an approved operator channel, or auto-resolve it according to its documented policy.
+- A conforming implementation MAY fail the run, surface the request to an Executor, satisfy it
+  through an approved Executor channel, or auto-resolve it according to its documented policy.
 - The example high-trust behavior above fails user-input-required turns immediately.
 
 ### 10.6 Timeouts and Error Mapping
@@ -1361,10 +1373,10 @@ The spec does not prescribe where logs are written (stderr, file, remote sink, e
 
 Requirements:
 
-- Operators MUST be able to see startup/validation/dispatch failures without attaching a debugger.
+- Executors MUST be able to see startup/validation/dispatch failures without attaching a debugger.
 - Implementations MAY write to one or more sinks.
 - If a configured log sink fails, the service SHOULD continue running when possible and emit an
-  operator-visible warning through any remaining sink.
+  Executor-visible warning through any remaining sink.
 
 ### 13.3 Runtime Snapshot / Monitoring Interface (OPTIONAL but RECOMMENDED)
 
@@ -1680,9 +1692,9 @@ After restart:
   - fresh polling of active issues
   - re-dispatching eligible work
 
-### 14.4 Operator Intervention Points
+### 14.4 Executor Intervention Points
 
-Operators can control behavior by:
+Executors can control behavior by:
 
 - Editing `.aiurconfig` (runtime settings) or its referenced `prompt_file:` (prompt).
 - `.aiurconfig` and `prompt_file:` changes are detected and re-applied automatically without restart
@@ -1703,7 +1715,7 @@ Operational safety requirements:
 
 - Implementations SHOULD state clearly whether they are intended for trusted environments, more
   restrictive environments, or both.
-- Implementations SHOULD state clearly whether they rely on auto-approved actions, operator
+- Implementations SHOULD state clearly whether they rely on auto-approved actions, Executor
   approvals, stricter sandboxing, or some combination of those controls.
 - Workspace isolation and path validation are important baseline controls, but they are not a
   substitute for whatever approval and sandbox policy an implementation chooses.
@@ -2029,7 +2041,7 @@ Unless otherwise noted, Sections 17.1 through 17.7 are `Core Conformance`. Bulle
   - cwd default is `.aiurconfig` when no explicit runtime path is provided
 - Config file and `prompt_file:` changes are detected and trigger re-read/re-apply without restart
 - Invalid reload keeps last known good effective configuration and emits an
-  operator-visible error
+  Executor-visible error
 - Missing `.aiurconfig` returns typed error
 - Non-map YAML returns typed error
 - Missing or unreadable `prompt_file:` returns typed error
@@ -2120,7 +2132,7 @@ Unless otherwise noted, Sections 17.1 through 17.7 are `Core Conformance`. Bulle
 
 ### 17.6 Observability
 
-- Validation failures are operator-visible
+- Validation failures are Executor-visible
 - Structured logging includes issue/session context fields
 - Logging sink failures do not crash orchestration
 - Token/rate-limit aggregation remains correct across repeated agent updates
@@ -2178,7 +2190,7 @@ Use the same validation profiles as Section 17:
 - Reconciliation that stops runs on terminal/non-active tracker states
 - Workspace cleanup for terminal issues (startup sweep + active transition)
 - Structured logs with `issue_id`, `issue_identifier`, and `session_id`
-- Operator-visible observability (structured logs; OPTIONAL snapshot/status surface)
+- Executor-visible observability (structured logs; OPTIONAL snapshot/status surface)
 
 ### 18.2 RECOMMENDED Extensions (Not REQUIRED for Conformance)
 
@@ -2259,5 +2271,5 @@ Extension config:
   - A dead or overloaded host SHOULD reduce available capacity, not cause duplicate execution or an
     accidental fallback to local work.
 - Cleanup and observability:
-  - Operators need to know which host owns a run, where its workspace lives, and whether cleanup
+  - Executors need to know which host owns a run, where its workspace lives, and whether cleanup
     happened on the right machine.

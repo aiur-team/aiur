@@ -1,8 +1,8 @@
 defmodule Aiur.AgentRunner.ToolExecutorTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
-  alias Aiur.AgentRunner.ToolExecutor
-  alias Aiur.{DecisionStore, Issue}
+  alias Aiur.AgentRunner.{SessionLifecycle, ToolExecutor}
+  alias Aiur.{Boot, DecisionStore, Issue, TrackerIdentity}
   alias Aiur.Events.{Exchange, SubscriptionStore}
 
   describe "build/3" do
@@ -376,6 +376,188 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert event["name"] == "unblocked"
     end
 
+    test "progress events carry the trusted issue identity and safe invocation provenance" do
+      identifier = "TE-observation-#{System.unique_integer([:positive])}"
+
+      {:ok, identity} =
+        TrackerIdentity.from_github(
+          %{"node_id" => "I_kwDOObservation", "number" => 42},
+          {"owner", "repo"},
+          {"owner", "repo"}
+        )
+
+      # Keep :id nil so this focused producer test is independent of the
+      # shared Publisher tracked-set fixture; the BO-004 identity is explicit.
+      issue = %{identifier: identifier, tracker_identity: identity}
+      executor = ToolExecutor.build(issue, nil, nil, %{thread_id: "session-observation"}, attempt_id: 1)
+      :ok = Exchange.subscribe("ticket.#{identifier}.agent.progress")
+
+      ToolExecutor.execute(executor, "emit_event", %{"name" => "progress", "message" => "private", "payload" => %{"percent" => 50}}, "tool-observation")
+
+      assert_receive {:event, %{ticket_observation: observation}}, 2_000
+      assert observation.status == :joinable
+      assert observation.tracker_identity == identity
+      assert observation.attributes == %{percent: 50}
+      assert observation.provenance.attempt == 1
+      assert observation.provenance.session_id == "session-observation"
+      assert observation.provenance.source_event_id == "tool-observation"
+      refute Jason.encode!(observation) =~ "private"
+    end
+
+    test "progress check-ins and phase updates preserve retry provenance without changing identity" do
+      identifier = "TE-observation-retry-#{System.unique_integer([:positive])}"
+
+      {:ok, identity} =
+        TrackerIdentity.from_github(
+          %{"node_id" => "I_kwDOObservationRetry", "number" => 42},
+          {"owner", "repo"},
+          {"owner", "repo"}
+        )
+
+      issue = %{identifier: identifier, tracker_identity: identity}
+
+      publish = fn name, session_id, attempt, invocation_id ->
+        topic = "ticket.#{identifier}.agent.#{name}"
+        executor = ToolExecutor.build(issue, nil, nil, %{thread_id: session_id}, attempt_id: attempt)
+        :ok = Exchange.subscribe(topic)
+
+        ToolExecutor.execute(
+          executor,
+          "emit_event",
+          %{"name" => name, "message" => "private", "payload" => %{"percent" => 60}},
+          invocation_id
+        )
+
+        assert_receive {:event, %{ticket_observation: observation}}, 2_000
+        assert observation.status == :joinable
+        assert observation.attributes == %{percent: 60}
+        observation
+      end
+
+      first = publish.("progress.checkin", "session-first", 1, "tool-first")
+      retry = publish.("progress.phase", "session-retry", 2, "tool-retry")
+
+      assert first.tracker_identity == retry.tracker_identity
+      assert first.provenance.attempt == 1
+      assert retry.provenance.attempt == 2
+      assert first.provenance.session_id == "session-first"
+      assert retry.provenance.session_id == "session-retry"
+      assert first.provenance.source_event_id == "tool-first"
+      assert retry.provenance.source_event_id == "tool-retry"
+    end
+
+    test "producer observations retain identity across a Boot restart" do
+      identifier = "TE-observation-restart-#{System.unique_integer([:positive])}"
+
+      {:ok, identity} =
+        TrackerIdentity.from_github(
+          %{"node_id" => "I_kwDOObservationRestart", "number" => 42},
+          {"owner", "repo"},
+          {"owner", "repo"}
+        )
+
+      topic = "ticket.#{identifier}.agent.progress.checkin"
+      issue = %{identifier: identifier, tracker_identity: identity}
+      :ok = Exchange.subscribe(topic)
+
+      publish = fn session_id, attempt, invocation_id ->
+        executor = ToolExecutor.build(issue, nil, nil, %{thread_id: session_id}, attempt_id: attempt)
+
+        ToolExecutor.execute(
+          executor,
+          "emit_event",
+          %{"name" => "progress.checkin", "message" => "private", "payload" => %{"percent" => 60}},
+          invocation_id
+        )
+
+        assert_receive {:event, %{ticket_observation: observation}}, 2_000
+        observation
+      end
+
+      first = publish.("session-before-restart", 1, "tool-before-restart")
+      assert :ok = Boot.remark()
+      restarted = publish.("session-after-restart", 2, "tool-after-restart")
+
+      assert first.tracker_identity == restarted.tracker_identity
+      refute first.provenance.run_id == restarted.provenance.run_id
+      assert first.provenance.attempt == 1
+      assert restarted.provenance.attempt == 2
+      assert first.provenance.session_id == "session-before-restart"
+      assert restarted.provenance.session_id == "session-after-restart"
+    end
+
+    test "alerts attach typed stage and safe evidence observations with retry provenance" do
+      identifier = "TE-observation-alert-#{System.unique_integer([:positive])}"
+
+      {:ok, identity} =
+        TrackerIdentity.from_github(
+          %{"node_id" => "I_kwDOObservationAlert", "number" => 42},
+          {"owner", "repo"},
+          {"owner", "repo"}
+        )
+
+      # Alerts pass an Issue struct's identifier through the Publisher's
+      # contamination filter. A map keeps this focused adapter test independent
+      # of the shared tracked-set fixture while retaining trusted identity.
+      issue = %{identifier: identifier, tracker_identity: identity}
+      executor = ToolExecutor.build(issue, nil, nil, %{thread_id: "session-alert"}, attempt_id: 3)
+
+      for {name, expected_attributes} <- [
+            {"phase.review.end", %{stage: :review, transition: :end}},
+            {"evidence.safe", %{needs_attention: true, severity: "warning"}}
+          ] do
+        topic = "ticket.#{identifier}.agent.#{name}"
+        :ok = Exchange.subscribe(topic)
+
+        assert ToolExecutor.execute(
+                 executor,
+                 "emit_alert",
+                 %{
+                   "name" => name,
+                   "message" => "private evidence",
+                   "reason" => "private reason",
+                   "needs_attention" => true,
+                   "severity" => "warning"
+                 },
+                 "alert-#{name}"
+               )["success"] == true
+
+        assert_receive {:event, %{ticket_observation: observation}}, 2_000
+        assert observation.status == :joinable
+        assert observation.attributes == expected_attributes
+        assert observation.provenance.attempt == 3
+        assert observation.provenance.session_id == "session-alert"
+        assert observation.provenance.source_event_id == "alert-#{name}"
+        refute Jason.encode!(observation) =~ "private"
+      end
+    end
+
+    test "event and alert producers leave missing trusted identity unattributed" do
+      identifier = "TE-observation-unattributed-#{System.unique_integer([:positive])}"
+      issue = %{identifier: identifier}
+      executor = ToolExecutor.build(issue, nil, nil, %{thread_id: "session-unattributed"}, attempt_id: 1)
+
+      :ok = Exchange.subscribe("ticket.#{identifier}.agent.progress.checkin")
+      ToolExecutor.execute(executor, "emit_event", %{"name" => "progress.checkin", "message" => "private", "payload" => %{"percent" => 50}}, "event-unattributed")
+      assert_receive {:event, %{ticket_observation: %{status: :unattributed}}}, 2_000
+
+      :ok = Exchange.subscribe("ticket.#{identifier}.agent.evidence.safe")
+
+      assert ToolExecutor.execute(
+               executor,
+               "emit_alert",
+               %{
+                 "name" => "evidence.safe",
+                 "message" => "private",
+                 "reason" => "private",
+                 "needs_attention" => false
+               },
+               "alert-unattributed"
+             )["success"] == true
+
+      assert_receive {:event, %{ticket_observation: %{status: :unattributed}}}, 2_000
+    end
+
     test "attention events create and resolve a durable decision attention" do
       identifier = "TE-attention-#{System.unique_integer([:positive])}"
       issue = %Issue{identifier: identifier}
@@ -559,6 +741,108 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert decision.ticket.identifier == identifier
       assert decision.source.agent_id == "codex"
       assert decision.source.session_id == "thread-abc"
+    end
+
+    test "captures only trusted runtime/session provenance" do
+      identifier = "TE-decision-provenance-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+
+      executor =
+        ToolExecutor.build(issue, nil, nil, %{
+          backend: "codex",
+          model: "gpt-5.6-terra",
+          thread_id: "thread-abc",
+          attempt_id: "attempt-123",
+          account: "operator@example.com",
+          raw_session: %{prompt: "do not persist", credential: "secret"},
+          capability_url: "https://capability.example/token"
+        })
+
+      executor.("emit_event", %{
+        "name" => "decision.requested",
+        "message" => "Use the trusted session?",
+        "payload" => %{
+          "blocking" => true,
+          "provenance" => %{
+            "backend" => "forged",
+            "requested_model" => "forged-model",
+            "session_id" => "forged-session",
+            "account" => "operator@example.com",
+            "raw_session" => %{"prompt" => "do not persist"},
+            "capability_url" => "https://capability.example/token"
+          }
+        }
+      })
+
+      [decision] = Aiur.DecisionStore.list() |> Enum.filter(&(&1.ticket.identifier == identifier))
+      assert decision.provenance.agent_family == "codex"
+      assert decision.provenance.backend == "codex"
+      assert decision.provenance.requested_model == "gpt-5.6-terra"
+      assert decision.provenance.session_id == "thread-abc"
+      assert decision.provenance.attempt_id == "attempt-123"
+      assert decision.provenance.resolved_model == nil
+
+      assert Aiur.DecisionProvenance.to_json_safe(decision.provenance)
+             |> Map.keys()
+             |> Enum.sort() ==
+               [
+                 "agent_family",
+                 "attempt_id",
+                 "backend",
+                 "captured_at",
+                 "requested_model",
+                 "schema_version",
+                 "session_id",
+                 "source"
+               ]
+    end
+
+    test "leaves provenance unknown when runner context is unavailable" do
+      identifier = "TE-decision-provenance-unknown-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      executor = ToolExecutor.build(issue, nil, nil, %{})
+
+      executor.("emit_event", %{
+        "name" => "decision.requested",
+        "message" => "Accept without runtime context?",
+        "payload" => %{"blocking" => true}
+      })
+
+      [decision] = Aiur.DecisionStore.list() |> Enum.filter(&(&1.ticket.identifier == identifier))
+      assert decision.provenance == nil
+    end
+
+    test "captures the actual fallback backend rather than the failed transport" do
+      identifier = "TE-decision-provenance-fallback-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+
+      start_fun = fn _workspace, opts ->
+        case Keyword.fetch!(opts, :backend) do
+          "claude-repl" -> {:error, :repl_not_ready}
+          "claude" -> {:ok, %{model: "sonnet", thread_id: "thread-fallback"}}
+        end
+      end
+
+      assert {:ok, session} =
+               SessionLifecycle.start_agent_session(
+                 "/ws",
+                 [backend: "claude-repl", model: "sonnet", attempt_id: "attempt-fallback"],
+                 start_fun
+               )
+
+      executor = ToolExecutor.build(issue, nil, nil, session)
+
+      executor.("emit_event", %{
+        "name" => "decision.requested",
+        "message" => "Use the active backend?",
+        "payload" => %{"blocking" => true}
+      })
+
+      [decision] = Aiur.DecisionStore.list() |> Enum.filter(&(&1.ticket.identifier == identifier))
+      assert decision.provenance.agent_family == "claude"
+      assert decision.provenance.backend == "claude"
+      assert decision.provenance.requested_model == "sonnet"
+      assert decision.provenance.attempt_id == "attempt-fallback"
     end
 
     test "an omitted payload question falls back to the tool message" do

@@ -120,7 +120,7 @@ defmodule Aiur.Claude.Repl.HookTurn do
           {:claude_hook, _id, _event} ->
             await_hook_turn(loop, reset_deadline(loop), acc)
 
-          # An operator message landed mid-turn. The REPL accepts input while the
+          # An Executor message landed mid-turn. The REPL accepts input while the
           # agent works; type it straight in so claude's native queue folds it.
           {:agent_queue_updated, _identifier, _item_id, true} ->
             Logger.info("repl_hook_turn operator_immediate identifier=#{loop.identifier}")
@@ -133,18 +133,15 @@ defmodule Aiur.Claude.Repl.HookTurn do
           {:agent_queue_updated, _identifier, _item_id} ->
             await_hook_turn(loop, deadline, acc)
 
-          # Pause request: interrupt the live REPL turn (Ctrl+C to the pane) and
-          # park as paused. Claude does not fire a terminal hook for user interrupts.
+          # Pause request: interrupt the live REPL turn (Ctrl+C to the pane).
+          # A tmux delivery failure is not pause evidence; returning an error
+          # lets the orchestrator expire the correlated request instead of
+          # recording a pause while the REPL may still be working.
+          {:pause_agent, request_id, generation} when is_integer(request_id) and is_integer(generation) ->
+            interrupt_for_pause(loop.session, %{request_id: request_id, generation: generation, kind: :operator_pause})
+
           {:pause_agent, request_id} when is_integer(request_id) ->
-            case OperatorInject.interrupt(loop.session) do
-              :ok ->
-                :ok
-
-              {:error, reason} ->
-                Logger.warning("repl_pause interrupt_failed reason=#{inspect(reason)}")
-            end
-
-            {:paused, %{request_id: request_id}}
+            interrupt_for_pause(loop.session, %{request_id: request_id})
         after
           loop.poll_ms ->
             await_hook_turn(loop, deadline, acc)
@@ -153,6 +150,17 @@ defmodule Aiur.Claude.Repl.HookTurn do
   end
 
   defp reset_deadline(loop), do: System.monotonic_time(:millisecond) + loop.timeout_ms
+
+  defp interrupt_for_pause(session, payload) do
+    case OperatorInject.interrupt(session) do
+      :ok ->
+        {:paused, payload}
+
+      {:error, reason} ->
+        Logger.warning("repl_pause interrupt_failed reason=#{inspect(reason)}")
+        {:error, {:pause_interrupt_failed, reason}}
+    end
+  end
 
   defp merge_session(acc, %{session_id: sid}) when is_binary(sid), do: %{acc | session_id: sid}
   defp merge_session(acc, _event), do: acc

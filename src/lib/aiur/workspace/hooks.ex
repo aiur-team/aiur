@@ -6,31 +6,33 @@ defmodule Aiur.Workspace.Hooks do
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Tracker, as: GitHubTracker
-  alias Aiur.Workspace.{Context, Remote}
+  alias Aiur.Workspace.{Context, Reconstruction, Remote}
 
   @spec run_after_create(Path.t(), map(), boolean() | :materialized, String.t() | nil) ::
           :ok | {:error, term()}
   def run_after_create(workspace, issue_context, created?, worker_host) do
     hooks = Config.settings!().hooks
 
-    case created? do
-      true ->
-        case hooks.after_create do
-          nil ->
-            :ok
+    run_after_create_hook(hooks.after_create, workspace, issue_context, created?, worker_host)
+  end
 
-          command ->
-            run_hook(command, workspace, issue_context, "after_create", worker_host)
-        end
+  # Materialized from the warm base — aiur already populated + branched the
+  # workspace, so the cold-clone after_create hook must NOT run.
+  defp run_after_create_hook(_command, _workspace, _issue_context, created?, _worker_host)
+       when created? != true,
+       do: :ok
 
-      # Materialized from the warm base — aiur already populated + branched the
-      # workspace, so the cold-clone after_create hook must NOT run.
-      :materialized ->
-        :ok
+  defp run_after_create_hook(nil, _workspace, _issue_context, true, _worker_host), do: :ok
 
-      false ->
-        :ok
-    end
+  defp run_after_create_hook(command, workspace, issue_context, true, nil) do
+    Reconstruction.run(workspace, fn stage ->
+      run_hook(command, stage, issue_context, "after_create", nil)
+    end)
+  end
+
+  defp run_after_create_hook(command, workspace, issue_context, true, worker_host)
+       when is_binary(worker_host) do
+    run_hook(command, workspace, issue_context, "after_create", worker_host)
   end
 
   @spec run_after_run(Path.t(), map() | String.t() | nil, String.t() | nil) :: :ok
@@ -57,9 +59,9 @@ defmodule Aiur.Workspace.Hooks do
     Logger.info("Running workspace hook hook=#{hook_name} #{Context.log_context(issue_context)} workspace=#{workspace} worker_host=local")
 
     # Scrub Erlang distribution env before running the hook command.
-    # Without this, the operator's ERL_AFLAGS / RELEASE_NODE /
+    # Without this, the Executor’s ERL_AFLAGS / RELEASE_NODE /
     # RELEASE_COOKIE propagate into the hook, and any `mix` call in
-    # the hook tries to start an Erlang node with the operator's
+    # the hook tries to start an Erlang node with the Executor’s
     # name and fails instantly:
     #   `Protocol 'inet_tcp': the name aiur-orangekid@127.0.0.1
     #    seems to be in use by another Erlang node`

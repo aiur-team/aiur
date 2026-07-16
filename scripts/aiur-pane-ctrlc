@@ -7,7 +7,7 @@
 # The whole point is safe degradation: if Aiur is unreachable, the URL is
 # unset, or anything else goes wrong, we fall back to plain `kill-pane`,
 # which is exactly the pre-bridge behaviour. The 3-state UX is a pure
-# enhancement layered on top — a failure here never strands the operator
+# enhancement layered on top — a failure here never strands the Executor
 # with a pane they cannot close.
 #
 # Args:
@@ -63,7 +63,7 @@ hide_pane() {
 [ -z "$pane_id" ] && exit 0
 
 # Loopback dashboards bind without auth; only attach credentials when the
-# operator has explicitly configured them for a non-loopback bind.
+# Executor has explicitly configured them for a non-loopback bind.
 auth_args=""
 if [ -n "${AIUR_DASHBOARD_USERNAME:-}" ] && [ -n "${AIUR_DASHBOARD_PASSWORD:-}" ]; then
   auth_args="--user ${AIUR_DASHBOARD_USERNAME}:${AIUR_DASHBOARD_PASSWORD}"
@@ -92,7 +92,7 @@ response="$(
 curl_status=$?
 
 # Curl failed: distinguish "aiur busy" from "aiur unreachable" so a slow
-# call never costs the operator their live pane. Exit 28 is a timeout —
+# call never costs the Executor their live pane. Exit 28 is a timeout —
 # the dashboard is alive and the interrupt is almost certainly still
 # being processed server-side, so KEEP THE PANE OPEN (killing it here is
 # what broke the opencode pipe, tripped :repl_gone, and re-dispatched a
@@ -109,7 +109,7 @@ if [ "$curl_status" -ne 0 ]; then
 fi
 
 # opencode owns the interrupt for codex/opencode agents: forward its native
-# interrupt key (Esc) to the pane so it drains its queued operator message and
+# interrupt key (Esc) to the pane so it drains its queued Executor message and
 # keeps working. Aiur mutates no state on this reply; the keystroke is the
 # whole effect. Pane stays open.
 case "$response" in
@@ -121,9 +121,9 @@ case "$response" in
 esac
 
 # The agent handled the keypress (interrupted its REPL turn or paused). Leave
-# the pane open so the operator stays in the conversation.
+# the pane open so the Executor stays in the conversation.
 case "$response" in
-  *interrupted* | *paused*)
+  *interrupted* | *pause_requested* | *paused*)
     log_ctrlc "action=keep_open response=${response}"
     exit 0
     ;;

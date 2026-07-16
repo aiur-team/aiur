@@ -19,6 +19,10 @@ defmodule Aiur.Claude.Repl.HookTurnTest do
     send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n#{body}%end 1 1 0\n"})
   end
 
+  defp respond_error(tmux, body) do
+    send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n#{body}%error 1 1 0\n"})
+  end
+
   defp hook_session(tmux, identifier) do
     %{
       backend: "claude-repl",
@@ -81,6 +85,22 @@ defmodule Aiur.Claude.Repl.HookTurnTest do
 
     assert {:paused, payload} = Task.await(task, 3_000)
     assert payload.request_id == 42
+  end
+
+  test "a failed pause interrupt returns an error rather than a paused acknowledgement", %{tmux: tmux} do
+    identifier = "HT-PAUSE-FAIL-#{System.unique_integer([:positive])}"
+    session = hook_session(tmux, identifier)
+    task = Task.async(fn -> HookTurn.run(session, "work", poll_interval_ms: 10) end)
+
+    expect_prompt_submit(tmux)
+    send(task.pid, {:pause_agent, 43})
+
+    assert_receive {:tmux_mock_out, "display-message" <> _}, 1_000
+    respond(tmux, "4242\n")
+    assert_receive {:tmux_mock_out, "send-keys -t %50 C-c"}, 1_000
+    respond_error(tmux, "no such pane\n")
+
+    assert {:error, {:pause_interrupt_failed, _reason}} = Task.await(task, 3_000)
   end
 
   test "fully silent session returns {:error, :turn_timeout} after backstop", %{tmux: tmux} do

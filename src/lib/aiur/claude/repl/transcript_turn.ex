@@ -192,19 +192,27 @@ defmodule Aiur.Claude.Repl.TranscriptTurn do
           {:agent_queue_updated, _identifier, _item_id} ->
             await_turn(session, tailer, turn_id, deadline, poll_ms, on_operator, pause_confirm_ms)
 
-          # A failed interrupt still parks — the operator asked for a pause.
+          # A tmux delivery failure is not pause evidence. Do not report an
+          # applied pause while the REPL may still be working.
+          {:pause_agent, request_id, generation} when is_integer(request_id) and is_integer(generation) ->
+            interrupt_and_confirm_pause(
+              session,
+              tailer,
+              turn_id,
+              pause_confirm_ms,
+              poll_ms,
+              %{request_id: request_id, generation: generation, kind: :operator_pause}
+            )
+
           {:pause_agent, request_id} when is_integer(request_id) ->
-            case OperatorInject.interrupt(session) do
-              :ok ->
-                :ok
-
-              {:error, reason} ->
-                Logger.warning("repl_pause interrupt_failed turn_id=#{turn_id} reason=#{inspect(reason)}")
-            end
-
-            confirm_deadline = System.monotonic_time(:millisecond) + pause_confirm_ms
-            await_pause_confirm(tailer, turn_id, confirm_deadline, poll_ms)
-            {:paused, %{request_id: request_id}}
+            interrupt_and_confirm_pause(
+              session,
+              tailer,
+              turn_id,
+              pause_confirm_ms,
+              poll_ms,
+              %{request_id: request_id}
+            )
         after
           0 ->
             Process.sleep(poll_ms)
@@ -213,7 +221,26 @@ defmodule Aiur.Claude.Repl.TranscriptTurn do
     end
   end
 
-  # Expiry parks anyway — never `{:error, :turn_timeout}` (see @pause_confirm_ms).
+  defp confirm_pause(tailer, turn_id, pause_confirm_ms, poll_ms, payload) do
+    confirm_deadline = System.monotonic_time(:millisecond) + pause_confirm_ms
+
+    case await_pause_confirm(tailer, turn_id, confirm_deadline, poll_ms) do
+      :confirmed -> {:paused, payload}
+      :timeout -> {:error, :pause_confirmation_timeout}
+    end
+  end
+
+  defp interrupt_and_confirm_pause(session, tailer, turn_id, pause_confirm_ms, poll_ms, payload) do
+    case OperatorInject.interrupt(session) do
+      :ok ->
+        confirm_pause(tailer, turn_id, pause_confirm_ms, poll_ms, payload)
+
+      {:error, reason} ->
+        Logger.warning("repl_pause interrupt_failed turn_id=#{turn_id} reason=#{inspect(reason)}")
+        {:error, {:pause_interrupt_failed, reason}}
+    end
+  end
+
   defp await_pause_confirm(tailer, turn_id, deadline, poll_ms) do
     if System.monotonic_time(:millisecond) >= deadline do
       Logger.warning("repl_pause pause_confirm_timeout turn_id=#{turn_id}")
@@ -222,7 +249,7 @@ defmodule Aiur.Claude.Repl.TranscriptTurn do
       TranscriptTailer.poll(tailer)
 
       receive do
-        {:turn_end, ^turn_id, _reason} -> :ok
+        {:turn_end, ^turn_id, _reason} -> :confirmed
       after
         0 ->
           Process.sleep(poll_ms)

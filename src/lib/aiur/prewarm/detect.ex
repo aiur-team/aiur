@@ -14,7 +14,7 @@ defmodule Aiur.Prewarm.Detect do
   `:none` when nothing is detected. JS/TS workspaces are a first-class base case:
   install at the workspace root, then run the workspace/orchestrator build.
   Neither `:none` nor `{:ambiguous, _}` ever guesses — both fall back to the
-  agent-prompt path; `{:ambiguous, _}` carries the candidates so the operator is
+  agent-prompt path; `{:ambiguous, _}` carries the candidates so the Executor is
   told what was found rather than "couldn't detect".
   """
 
@@ -69,7 +69,7 @@ defmodule Aiur.Prewarm.Detect do
     end
   end
 
-  # Reduce the ambiguous candidate list to the {language, build_root} the operator
+  # Reduce the ambiguous candidate list to the {language, build_root} the Executor
   # needs to choose between, sorted for a stable disclosure.
   defp candidate_roots(candidates, root) do
     candidates

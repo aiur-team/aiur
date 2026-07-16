@@ -16,7 +16,7 @@ defmodule AiurWeb.Layouts do
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="csrf-token" content={@csrf_token} />
-        <title>Aiur Operator Control Center</title>
+        <title>Aiur Executor Control Center</title>
         <script>
           (function () {
             try {
@@ -30,6 +30,7 @@ defmodule AiurWeb.Layouts do
         <script defer src="/vendor/phoenix_html/phoenix_html.js"></script>
         <script defer src="/vendor/phoenix/phoenix.js"></script>
         <script defer src="/vendor/phoenix_live_view/phoenix_live_view.js"></script>
+        <script defer src="/aiur-dom-svg-layout-loader.js"></script>
         <script>
           window.addEventListener("DOMContentLoaded", function () {
             var csrfToken = document
@@ -106,6 +107,10 @@ defmodule AiurWeb.Layouts do
                 this.el.removeEventListener("click", this.onClick);
               }
             };
+
+            if (window.AiurDomSvgLayout) {
+              Hooks.DomSvgLayout = window.AiurDomSvgLayout.createLiveViewHook();
+            }
 
             var liveSocket = new window.LiveView.LiveSocket("/live", window.Phoenix.Socket, {
               hooks: Hooks,

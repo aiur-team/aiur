@@ -206,6 +206,13 @@ defmodule Aiur.CodingAgentTest do
       assert CodingAgent.transcript_module("claude-repl") == Aiur.Claude.Transcript
     end
 
+    test "family_for keeps transport names separate from agent family" do
+      assert CodingAgent.family_for("codex") == "codex"
+      assert CodingAgent.family_for("claude") == "claude"
+      assert CodingAgent.family_for("claude-repl") == "claude"
+      assert CodingAgent.family_for("unknown") == nil
+    end
+
     test "delivery-policy defaults come from the registry" do
       assert CodingAgent.can_interrupt?("codex")
       assert CodingAgent.safe_checkpoints("codex") == [:notification, :tool_result]
@@ -214,6 +221,13 @@ defmodule Aiur.CodingAgentTest do
       # an out-of-band interrupt, so it advertises the capability.
       assert CodingAgent.can_interrupt?("claude-repl")
       assert CodingAgent.safe_checkpoints("claude-repl") == []
+    end
+
+    test "control confirmation is declared by each supported backend" do
+      assert CodingAgent.control_application_confirmation("codex") == :confirmed
+      assert CodingAgent.control_application_confirmation("claude") == :confirmed
+      assert CodingAgent.control_application_confirmation("claude-repl") == :confirmed
+      assert CodingAgent.control_application_confirmation("unknown") == :unsupported
     end
 
     test "effort vocabulary comes from the registry" do

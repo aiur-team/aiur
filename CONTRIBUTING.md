@@ -107,7 +107,7 @@ mix dialyzer
   policy module"). Small, focused commits.
 - **Never mention AI, models, or tools** in a commit message or a PR
   description.
-- **During the refactor, PRs target the `v2` integration branch**, not
-  `main`. A PR description starts with `Closes #<issue-number>` and follows
+- **PRs target the canonical `develop` branch.** A PR description starts with
+  `Closes #<issue-number>` and follows
   `.github/pull_request_template.md` exactly (validate with
   `mix pr_body.check --file <path>` from `src/`).

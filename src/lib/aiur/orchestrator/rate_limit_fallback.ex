@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
   `agent.rate_limit_fallback` (default `"claude"`).
 
   A durable `model:claude` label drives existing backend routing, while a
-  second marker records Aiur's ownership so operator-authored overrides remain
+  second marker records Aiur's ownership so Executor-authored overrides remain
   untouched. Headless Claude does not replace codex's resumable session handle,
   and redispatch preserves worker affinity, allowing the original rollout to
   resume after recovery or an Aiur restart.
@@ -188,14 +188,14 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
     context = transition_context(state, running_entry, issue, relabeled, opts)
 
     if fallback_backend_ready?(fallback_backend, running_entry, opts) do
-      case redispatch_ready(state, relabeled, running_entry, opts) do
-        :ok ->
-          engage_after_preflight(context, fallback_backend, marker_label)
+      case redispatch_admission(state, relabeled, running_entry, opts) do
+        {:ok, admitted_state} ->
+          engage_after_preflight(%{context | state: admitted_state}, fallback_backend, marker_label)
 
-        {:error, reason} ->
+        {:error, reason, rejected_state} ->
           Logger.info("Rate-limit fallback engage deferred: #{log_context(running_entry, issue)} reason=#{inspect(reason)}")
 
-          {state, false}
+          {rejected_state, false}
       end
     else
       Logger.warning("Rate-limit fallback engage deferred; backend unavailable: #{log_context(running_entry, issue)} backend=#{fallback_backend}")
@@ -209,12 +209,12 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
     relabeled = revert_issue(issue, marker_label)
     context = transition_context(state, running_entry, issue, relabeled, opts)
 
-    case redispatch_ready(state, relabeled, running_entry, opts) do
-      :ok ->
-        revert_after_preflight(context, marker_label)
+    case redispatch_admission(state, relabeled, running_entry, opts) do
+      {:ok, admitted_state} ->
+        revert_after_preflight(%{context | state: admitted_state}, marker_label)
 
-      {:error, reason} ->
-        maybe_resume_deferred_revert(state, running_entry, reason, opts)
+      {:error, reason, rejected_state} ->
+        maybe_resume_deferred_revert(rejected_state, running_entry, reason, opts)
     end
   end
 
@@ -223,21 +223,27 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
     relabeled = revert_issue(issue, marker_label)
     pause = Keyword.get(opts, :pause_fun, &PauseResume.send_pause_control_message/2)
 
-    with :ok <- redispatch_ready(state, relabeled, running_entry, opts),
-         {:ok, _request_id} <- pause.(state, Map.get(running_entry, :identifier)) do
-      pending_entry =
-        running_entry
-        |> Map.put(:rate_limit_fallback_revert_pending, true)
-        |> Map.put(:paused_reason, @recovery_pause_reason)
+    case redispatch_admission(state, relabeled, running_entry, opts) do
+      {:ok, admitted_state} ->
+        case pause.(admitted_state, Map.get(running_entry, :identifier)) do
+          {:ok, _request_id} ->
+            pending_entry =
+              running_entry
+              |> Map.put(:rate_limit_fallback_revert_pending, true)
+              |> Map.put(:paused_reason, @recovery_pause_reason)
 
-      Logger.info("Codex recovery confirmed; requesting fallback pause checkpoint: #{log_context(running_entry, issue)}")
+            Logger.info("Codex recovery confirmed; requesting fallback pause checkpoint: #{log_context(running_entry, issue)}")
 
-      {put_running_entry(state, issue.id, pending_entry), true}
-    else
-      {:error, reason} ->
-        Logger.info("Rate-limit fallback recovery checkpoint deferred: #{log_context(running_entry, issue)} reason=#{inspect(reason)}")
+            {put_running_entry(admitted_state, issue.id, pending_entry), true}
 
-        {state, false}
+          {:error, reason} ->
+            log_recovery_checkpoint_deferred(running_entry, issue, reason)
+            {admitted_state, false}
+        end
+
+      {:error, reason, rejected_state} ->
+        log_recovery_checkpoint_deferred(running_entry, issue, reason)
+        {rejected_state, false}
     end
   end
 
@@ -365,13 +371,18 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
     issue_id = relabeled_issue.id
     worker_host = Map.get(running_entry, :worker_host)
     teardown = Keyword.get(opts, :teardown_fun, &RemoteControlMode.teardown_for_redispatch/3)
-    dispatch = Keyword.get(opts, :dispatch_fun, &Dispatcher.do_dispatch_issue/4)
+    dispatch = Keyword.get(opts, :dispatch_fun, &dispatch_prior_work/4)
 
     state = teardown.(state, running_entry, :rate_limit_fallback)
     state = %{state | running: Map.delete(state.running, issue_id)}
     state = dispatch.(state, relabeled_issue, nil, worker_host)
 
     ensure_redispatch_started(state, running_entry, relabeled_issue, worker_host, opts)
+  end
+
+  defp dispatch_prior_work(state, issue, attempt, worker_host) do
+    prior_work? = Config.agent_prior_work_continuation?()
+    Dispatcher.do_dispatch_issue(state, issue, attempt, worker_host, prior_work: prior_work?)
   end
 
   defp ensure_redispatch_started(state, running_entry, issue, worker_host, opts) do
@@ -384,7 +395,9 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
 
       schedule_retry.(state, issue.id, next_attempt, %{
         identifier: issue.identifier,
+        tracker_identity: Issue.tracker_identity(issue),
         error: "backend redispatch did not start",
+        prior_work: Config.agent_prior_work_continuation?(),
         worker_host: worker_host,
         workspace_path: Map.get(running_entry, :workspace_path)
       })
@@ -394,9 +407,19 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
   defp live_running_entry?(%{pid: pid}) when is_pid(pid), do: true
   defp live_running_entry?(_entry), do: false
 
-  defp redispatch_ready(state, issue, running_entry, opts) do
-    ready = Keyword.get(opts, :dispatch_ready_fun, &Dispatcher.redispatch_ready?/3)
-    ready.(state, issue, Map.get(running_entry, :worker_host))
+  defp redispatch_admission(state, issue, running_entry, opts) do
+    ready = Keyword.get(opts, :dispatch_ready_fun, &Dispatcher.admit_redispatch/3)
+
+    case ready.(state, issue, Map.get(running_entry, :worker_host)) do
+      {:ok, admitted_state} -> {:ok, admitted_state}
+      :ok -> {:ok, state}
+      {:error, reason, rejected_state} -> {:error, reason, rejected_state}
+      {:error, reason} -> {:error, reason, state}
+    end
+  end
+
+  defp log_recovery_checkpoint_deferred(running_entry, issue, reason) do
+    Logger.info("Rate-limit fallback recovery checkpoint deferred: #{log_context(running_entry, issue)} reason=#{inspect(reason)}")
   end
 
   defp fallback_backend_ready?(backend, running_entry, opts) do

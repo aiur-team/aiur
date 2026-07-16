@@ -9,9 +9,11 @@ defmodule Aiur.Orchestrator.StateTest do
       assert State.active_running_entry?(%{control: %{status: :working}})
       refute State.active_running_entry?(%{control: %{status: :paused}})
       refute State.active_running_entry?(%{control: %{status: :deactivated}})
+      refute State.active_running_entry?(%{control: %{status: :completed}})
 
       assert State.paused_running_entry?(%{control: %{status: :paused}})
       assert State.sleeping_running_entry?(%{control: %{status: :sleeping}})
+      assert State.completed_running_entry?(%{control: %{status: :completed}})
       assert State.deactivated_running_entry?(%{control: %{status: :deactivated}})
     end
 
@@ -20,6 +22,7 @@ defmodule Aiur.Orchestrator.StateTest do
         "active" => %{control: %{status: :working}},
         "sleeping" => %{control: %{status: :sleeping}},
         "paused" => %{control: %{status: :paused}},
+        "completed" => %{control: %{status: :completed}},
         "deactivated" => %{control: %{status: :deactivated}}
       }
 

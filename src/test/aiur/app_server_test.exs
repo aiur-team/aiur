@@ -76,7 +76,7 @@ defmodule Aiur.AppServerTest do
     end
   end
 
-  test "app server augments explicit workspaceWrite policies and passes other policies through" do
+  test "app server augments workspaceWrite policies without exposing the lock namespace" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -173,7 +173,8 @@ defmodule Aiur.AppServerTest do
                    |> Jason.decode!()
                    |> then(fn payload ->
                      payload["method"] == "turn/start" &&
-                       get_in(payload, ["params", "sandboxPolicy"]) == expected_policy
+                       get_in(payload, ["params", "sandboxPolicy"]) == expected_policy &&
+                       lock_namespace_excluded?(get_in(payload, ["params", "sandboxPolicy"]))
                    end)
                  else
                    false
@@ -406,6 +407,14 @@ defmodule Aiur.AppServerTest do
 
       trace = File.read!(trace_file)
       lines = String.split(trace, "\n", trim: true)
+
+      refute Enum.any?(lines, fn line ->
+               String.starts_with?(line, "JSON:") and
+                 line
+                 |> String.trim_leading("JSON:")
+                 |> Jason.decode!()
+                 |> Map.get("method") == "account/read"
+             end)
 
       assert Enum.any?(lines, fn line ->
                if String.starts_with?(line, "JSON:") do
@@ -649,14 +658,14 @@ defmodule Aiur.AppServerTest do
       assert_received {:app_server_message,
                        %{
                          event: :tool_input_auto_answered,
-                         answer: "This is a non-interactive session. Operator input is unavailable."
+                         answer: "This is a non-interactive session. Executor input is unavailable."
                        }}
     after
       File.rm_rf(test_root)
     end
   end
 
-  test "app server sends a generic non-interactive answer for option-based tool input prompts" do
+  test "app server continues after an optional account/read endpoint rejects the request" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -691,7 +700,7 @@ defmodule Aiur.AppServerTest do
 
         case \"$count\" in
           1)
-            printf '%s\\n' '{\"id\":1,\"result\":{}}'
+            printf '%s\\n' '{\"id\":1,\"result\":{\"codexHome\":\"/tmp/codex\"}}'
             ;;
           2)
             ;;
@@ -699,10 +708,16 @@ defmodule Aiur.AppServerTest do
             printf '%s\\n' '{\"id\":2,\"result\":{\"thread\":{\"id\":\"thread-719\"}}}'
             ;;
           4)
+            printf '%s\\n' '{\"id\":4,\"result\":{\"rateLimits\":{\"primary\":{\"usedPercent\":0}}}}'
+            ;;
+          5)
+            printf '%s\\n' '{\"id\":5,\"error\":{\"code\":-32601,\"message\":\"unsupported\"}}'
+            ;;
+          6)
             printf '%s\\n' '{\"id\":3,\"result\":{\"turn\":{\"id\":\"turn-719\"}}}'
             printf '%s\\n' '{\"id\":112,\"method\":\"item/tool/requestUserInput\",\"params\":{\"itemId\":\"call-719\",\"questions\":[{\"header\":\"Choose an action\",\"id\":\"options-719\",\"isOther\":false,\"isSecret\":false,\"options\":[{\"description\":\"Use the default behavior.\",\"label\":\"Use default\"},{\"description\":\"Skip this step.\",\"label\":\"Skip\"}],\"question\":\"How should I proceed?\"}],\"threadId\":\"thread-719\",\"turnId\":\"turn-719\"}}'
             ;;
-          5)
+          7)
             printf '%s\\n' '{\"method\":\"turn/completed\"}'
             exit 0
             ;;
@@ -737,6 +752,14 @@ defmodule Aiur.AppServerTest do
       lines = String.split(trace, "\n", trim: true)
 
       assert Enum.any?(lines, fn line ->
+               String.starts_with?(line, "JSON:") and
+                 line
+                 |> String.trim_leading("JSON:")
+                 |> Jason.decode!()
+                 |> Map.get("method") == "account/read"
+             end)
+
+      assert Enum.any?(lines, fn line ->
                if String.starts_with?(line, "JSON:") do
                  payload =
                    line
@@ -745,12 +768,71 @@ defmodule Aiur.AppServerTest do
 
                  payload["id"] == 112 and
                    get_in(payload, ["result", "answers", "options-719", "answers"]) == [
-                     "This is a non-interactive session. Operator input is unavailable."
+                     "This is a non-interactive session. Executor input is unavailable."
                    ]
                else
                  false
                end
              end)
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "failed thread startup invalidates a lifecycle binding observed during the handshake" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-elixir-account-generation-startup-failure-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-720")
+      codex_binary = Path.join(test_root, "fake-codex")
+      File.mkdir_p!(workspace)
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      count=0
+      while IFS= read -r _line; do
+        count=$((count + 1))
+
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\\n' '{"method":"account/updated","params":{"authMode":"chatgpt","email":"person@example.test"}}'
+            printf '%s\\n' '{"id":2,"error":{"code":-32000,"message":"thread unavailable"}}'
+            exit 0
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        command: "#{codex_binary} app-server"
+      )
+
+      {:ok, owner} = Aiur.ProviderAccountGeneration.start_link(name: nil)
+
+      assert {:error, _reason} =
+               AppServer.start_session(workspace, account_generation_server: owner)
+
+      assert %{entries: entries, tombstones: tombstones} = :sys.get_state(owner)
+      assert entries == %{}
+
+      assert [{{:codex, :app_server, binding}, %{generation: nil, reason: :continuity_lost}}] =
+               Map.to_list(tombstones)
+
+      assert %{generation: nil, reason: :continuity_lost} =
+               Aiur.ProviderAccountGeneration.lookup(owner, :codex, :app_server, binding)
     after
       File.rm_rf(test_root)
     end
@@ -1428,10 +1510,20 @@ defmodule Aiur.AppServerTest do
   end
 
   defp expected_runtime_policy(%{"type" => "workspaceWrite"} = policy, workspace) do
-    Map.update(policy, "writableRoots", [workspace], fn roots ->
-      if workspace in roots, do: roots, else: roots ++ [workspace]
-    end)
+    Enum.reduce([workspace, Aiur.BuildGate.gate_dir()], policy, &add_expected_root/2)
   end
 
   defp expected_runtime_policy(policy, _workspace), do: policy
+
+  defp lock_namespace_excluded?(%{"type" => "workspaceWrite", "writableRoots" => roots}) do
+    Aiur.BuildGate.lock_dir() not in roots
+  end
+
+  defp lock_namespace_excluded?(_policy), do: true
+
+  defp add_expected_root(root, policy) do
+    Map.update(policy, "writableRoots", [root], &append_expected_root(&1, root))
+  end
+
+  defp append_expected_root(roots, root), do: if(root in roots, do: roots, else: roots ++ [root])
 end

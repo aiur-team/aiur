@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   require Logger
 
-  alias Aiur.{AgentRunner, Alerts, CodingAgent, Config, Issue, RepoBase, Tracker}
+  alias Aiur.{AgentRunner, Alerts, CodingAgent, Config, DispatchBudgetStore, Issue, RepoBase, Tracker}
   alias Aiur.Orchestrator
 
   alias Aiur.Orchestrator.{
@@ -16,7 +16,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
     DispatchPolicy,
     IssueSync,
     Lifecycle,
-    PauseResume,
     PrAnchored,
     Reconciler,
     Slots,
@@ -65,8 +64,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
     case Tracker.fetch_candidate_issues() do
       {:ok, issues} ->
-        issues = PauseResume.recover_startup_pause_overrides(state, issues)
-
         state =
           state
           |> IssueSync.sync_polled_issue_state(issues)
@@ -177,13 +174,20 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   @spec dispatch_issue(State.t(), term(), term(), term()) :: State.t()
   def dispatch_issue(%State{} = state, issue, attempt \\ nil, preferred_worker_host \\ nil) do
+    dispatch_issue(state, issue, attempt, preferred_worker_host, [])
+  end
+
+  @doc false
+  @spec dispatch_issue(State.t(), term(), term(), term(), keyword()) :: State.t()
+  def dispatch_issue(%State{} = state, issue, attempt, preferred_worker_host, opts)
+      when is_list(opts) do
     case revalidate_issue_for_dispatch(
            issue,
            &Tracker.fetch_issue_states_by_ids/1,
            DispatchPolicy.terminal_state_set()
          ) do
       {:ok, %Issue{} = refreshed_issue} ->
-        do_dispatch_issue(state, refreshed_issue, attempt, preferred_worker_host)
+        do_dispatch_issue(state, refreshed_issue, attempt, preferred_worker_host, opts)
 
       {:skip, :missing} ->
         Logger.info("Skipping dispatch; issue no longer active or visible: #{State.issue_context(issue)}")
@@ -204,6 +208,12 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   @spec do_dispatch_issue(State.t(), term(), term(), term()) :: State.t()
   def do_dispatch_issue(%State{} = state, issue, attempt, preferred_worker_host) do
+    do_dispatch_issue(state, issue, attempt, preferred_worker_host, [])
+  end
+
+  @doc false
+  @spec do_dispatch_issue(State.t(), term(), term(), term(), keyword()) :: State.t()
+  def do_dispatch_issue(%State{} = state, issue, attempt, preferred_worker_host, opts) when is_list(opts) do
     case CodingAgent.select_for_dispatch(issue) do
       {:all_limited, candidates} ->
         if MapSet.member?(state.model_fallback_waiting, issue.id) do
@@ -222,10 +232,47 @@ defmodule Aiur.Orchestrator.Dispatcher do
       {:ok, selected_issue} ->
         state = %{state | model_fallback_waiting: MapSet.delete(state.model_fallback_waiting, selected_issue.id)}
 
+        dispatch_after_workspace_wait_or_thrash_check(state, selected_issue, attempt, preferred_worker_host, opts)
+    end
+  end
+
+  defp dispatch_after_workspace_wait_or_thrash_check(state, selected_issue, attempt, preferred_worker_host, opts) do
+    workspace_ownership = state.dispatch_recovery.workspace_ownership
+
+    case Map.pop(workspace_ownership.ready, selected_issue.id) do
+      {nil, _ready} ->
         case check_thrash_budget(state, selected_issue.id, System.monotonic_time(:millisecond)) do
-          {:trip, tripped_state} -> trip_thrash_breaker(tripped_state, selected_issue)
-          {:ok, budgeted_state} -> dispatch_to_worker(budgeted_state, selected_issue, attempt, preferred_worker_host)
+          {:trip, tripped_state} ->
+            trip_thrash_breaker(tripped_state, selected_issue)
+
+          {:ok, budgeted_state} ->
+            dispatch_to_worker(
+              budgeted_state,
+              selected_issue,
+              attempt,
+              preferred_worker_host,
+              opts
+            )
         end
+
+      {envelope, ready} ->
+        workspace_ownership = %{
+          workspace_ownership
+          | ready: ready
+        }
+
+        state = put_in(state.dispatch_recovery.workspace_ownership, workspace_ownership)
+        envelope_attempt = Map.get(envelope, :retry_attempt, attempt) || attempt
+        envelope_host = Map.get(envelope, :worker_host, preferred_worker_host) || preferred_worker_host
+
+        envelope_opts =
+          Keyword.put(
+            opts,
+            :prior_work,
+            Map.get(envelope, :prior_work, Keyword.get(opts, :prior_work, false))
+          )
+
+        dispatch_to_worker(state, selected_issue, envelope_attempt, envelope_host, envelope_opts)
     end
   end
 
@@ -246,6 +293,24 @@ defmodule Aiur.Orchestrator.Dispatcher do
     end
   end
 
+  @doc false
+  @spec admit_redispatch(State.t(), Issue.t(), String.t() | nil, keyword()) ::
+          {:ok, State.t()} | {:error, term(), State.t()}
+  def admit_redispatch(%State{} = state, %Issue{} = issue, preferred_worker_host, opts \\ []) do
+    now_ms = Keyword.get(opts, :now_ms, System.monotonic_time(:millisecond))
+
+    with {:ok, selected_issue} <- redispatch_backend(issue),
+         :ok <- known_redispatch_backend(selected_issue),
+         {:ok, state} <- admit_redispatch_thrash_budget(state, selected_issue, now_ms, opts),
+         :ok <- redispatch_worker_slot(state, selected_issue.id, preferred_worker_host) do
+      {:ok, state}
+    else
+      {:all_limited, candidates} -> {:error, {:all_limited, candidates}, state}
+      {:error, reason, %State{} = rejected_state} -> {:error, reason, rejected_state}
+      {:error, reason} -> {:error, reason, state}
+    end
+  end
+
   defp redispatch_backend(issue), do: CodingAgent.select_for_dispatch(issue)
 
   defp known_redispatch_backend(issue) do
@@ -257,10 +322,33 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   defp redispatch_thrash_budget(state, issue_id, now_ms) do
-    if next_thrash_budget_entry(state, issue_id, now_ms).count >
-         Config.codex_thrash_max_per_window(),
-       do: {:error, :thrash_circuit_open},
-       else: :ok
+    previous = Map.get(thrash_budget(state), issue_id)
+    entry = next_thrash_budget_entry(state, issue_id, now_ms)
+
+    if active_trip?(previous, now_ms) or not is_nil(budget_trip_reason(entry)),
+      do: {:error, :thrash_circuit_open},
+      else: :ok
+  end
+
+  defp admit_redispatch_thrash_budget(state, issue, now_ms, opts) do
+    previous = Map.get(thrash_budget(state), issue.id)
+    trip = Keyword.get(opts, :trip_fun, &trip_thrash_breaker/2)
+
+    if active_trip?(previous, now_ms) do
+      {:error, :thrash_circuit_open, trip.(state, issue)}
+    else
+      candidate = next_thrash_budget_entry(state, issue.id, now_ms)
+
+      case budget_trip_reason(candidate) do
+        nil ->
+          {:ok, state}
+
+        reason ->
+          tripped = trip_budget_entry(previous, candidate, reason)
+          state = put_thrash_budget(state, Map.put(thrash_budget(state), issue.id, tripped))
+          {:error, :thrash_circuit_open, trip.(state, issue)}
+      end
+    end
   end
 
   # A backend swap replaces the issue's existing host slot. Exclude that entry
@@ -289,32 +377,144 @@ defmodule Aiur.Orchestrator.Dispatcher do
   @spec check_thrash_budget(State.t(), String.t(), integer()) ::
           {:ok, State.t()} | {:trip, State.t()}
   def check_thrash_budget(%State{} = state, issue_id, now_ms) do
-    entry = next_thrash_budget_entry(state, issue_id, now_ms)
+    previous = Map.get(thrash_budget(state), issue_id)
 
-    state = %{state | codex_thrash_budget: Map.put(state.codex_thrash_budget, issue_id, entry)}
-
-    if entry.count > Config.codex_thrash_max_per_window() do
+    if active_trip?(previous, now_ms) do
       {:trip, state}
     else
-      {:ok, state}
+      admit_next_thrash_budget(state, issue_id, previous, now_ms)
+    end
+  end
+
+  defp admit_next_thrash_budget(state, issue_id, previous, now_ms) do
+    entry = next_thrash_budget_entry(state, issue_id, now_ms)
+
+    case budget_trip_reason(entry) do
+      nil ->
+        case persist_lifetime(entry, issue_id) do
+          :ok ->
+            state = put_thrash_budget(state, Map.put(thrash_budget(state), issue_id, entry))
+            {:ok, state}
+
+          {:error, _reason} ->
+            tripped = trip_budget_entry(previous, entry, :lifetime)
+            state = put_thrash_budget(state, Map.put(thrash_budget(state), issue_id, tripped))
+            {:trip, state}
+        end
+
+      reason ->
+        tripped = trip_budget_entry(previous, entry, reason)
+        state = put_thrash_budget(state, Map.put(thrash_budget(state), issue_id, tripped))
+        {:trip, state}
+    end
+  end
+
+  defp budget_trip_reason(entry) do
+    cond do
+      entry.count > Config.codex_thrash_max_per_window() -> :window
+      lifetime_exhausted?(entry) -> :lifetime
+      true -> nil
+    end
+  end
+
+  defp active_trip?(%{tripped: :lifetime, lifetime: lifetime}, _now_ms) do
+    case Config.agent_max_dispatches_per_ticket() do
+      max when is_integer(max) and max > 0 -> lifetime >= max
+      _ -> false
+    end
+  end
+
+  defp active_trip?(%{tripped: :window, window_start_ms: start}, now_ms) do
+    now_ms - start < Config.codex_thrash_window_seconds() * 1_000
+  end
+
+  defp active_trip?(_entry, _now_ms), do: false
+
+  defp trip_budget_entry(previous, candidate, reason) do
+    spent =
+      previous ||
+        %{
+          window_start_ms: candidate.window_start_ms,
+          count: max(candidate.count - 1, 0),
+          lifetime: max(candidate.lifetime - 1, 0)
+        }
+
+    spent
+    |> Map.put(:tripped, reason)
+    |> Map.put(:alert_emitted, false)
+  end
+
+  # The window counter resets on every lapsed window, so a ticket that churns
+  # slowly (a dispatch every few minutes) never trips it — that is how a single
+  # ticket accumulated 85 cold dispatches. `lifetime` counts every dispatch for
+  # the issue regardless of window, and survives `reset_thrash_budget/2`, so a
+  # structurally-stuck ticket latches instead of burning quota forever.
+  # `0` (the default) disables the latch, matching the repo's existing
+  # "0 disables it" idiom.
+  defp lifetime_exhausted?(%{lifetime: lifetime}) do
+    case Config.agent_max_dispatches_per_ticket() do
+      max when is_integer(max) and max > 0 -> lifetime > max
+      _ -> false
     end
   end
 
   defp next_thrash_budget_entry(state, issue_id, now_ms) do
     window_ms = Config.codex_thrash_window_seconds() * 1_000
+    previous = Map.get(thrash_budget(state), issue_id)
+    lifetime = max(lifetime_of(previous), persisted_lifetime(issue_id)) + 1
 
-    case Map.get(state.codex_thrash_budget, issue_id) do
+    case previous do
       %{window_start_ms: start, count: count} when now_ms - start < window_ms ->
-        %{window_start_ms: start, count: count + 1}
+        %{window_start_ms: start, count: count + 1, lifetime: lifetime}
 
       _ ->
-        %{window_start_ms: now_ms, count: 1}
+        %{window_start_ms: now_ms, count: 1, lifetime: lifetime}
     end
   end
 
+  defp lifetime_of(%{lifetime: lifetime}) when is_integer(lifetime), do: lifetime
+  defp lifetime_of(_entry), do: 0
+
+  defp persisted_lifetime(issue_id) do
+    case Config.agent_max_dispatches_per_ticket() do
+      max when is_integer(max) and max > 0 ->
+        case DispatchBudgetStore.lifetime(issue_id) do
+          {:ok, lifetime} ->
+            lifetime
+
+          {:error, reason} ->
+            Logger.error("Dispatch budget store read failed: issue_id=#{issue_id} reason=#{inspect(reason)}")
+            max
+        end
+
+      _ ->
+        0
+    end
+  end
+
+  defp persist_lifetime(entry, issue_id) do
+    case Config.agent_max_dispatches_per_ticket() do
+      max when is_integer(max) and max > 0 ->
+        DispatchBudgetStore.put_lifetime(issue_id, entry.lifetime)
+
+      _ ->
+        :ok
+    end
+  end
+
+  # Clears the window so an operator resume can move the ticket again, but
+  # deliberately preserves `lifetime`: the dispatches were really spent, and
+  # refunding them would let a resume loop bypass the latch forever.
   @spec reset_thrash_budget(State.t(), String.t()) :: State.t()
   def reset_thrash_budget(%State{} = state, issue_id) do
-    %{state | codex_thrash_budget: Map.delete(state.codex_thrash_budget, issue_id)}
+    case Map.get(thrash_budget(state), issue_id) do
+      %{lifetime: lifetime} when is_integer(lifetime) and lifetime > 0 ->
+        entry = %{lifetime: lifetime}
+        put_thrash_budget(state, Map.put(thrash_budget(state), issue_id, entry))
+
+      _ ->
+        put_thrash_budget(state, Map.delete(thrash_budget(state), issue_id))
+    end
   end
 
   @spec revalidate_issue_for_dispatch(Issue.t(), function(), MapSet.t()) ::
@@ -442,7 +642,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
        ),
        do: index
 
-  defp dispatch_to_worker(%State{} = state, issue, attempt, preferred_worker_host) do
+  defp dispatch_to_worker(%State{} = state, issue, attempt, preferred_worker_host, opts) do
     recipient = self()
 
     case Slots.select_worker_host(state, preferred_worker_host) do
@@ -452,31 +652,74 @@ defmodule Aiur.Orchestrator.Dispatcher do
         state
 
       worker_host ->
-        spawn_issue_on_worker_host(state, issue, attempt, recipient, worker_host)
+        spawn_issue_on_worker_host(state, issue, attempt, recipient, worker_host, opts)
     end
   end
 
   defp trip_thrash_breaker(%State{} = state, issue) do
-    count = get_in(state.codex_thrash_budget, [issue.id, :count]) || 0
+    state = persist_lifetime_trip(state, issue, &Tracker.update_issue_state/2)
+    entry = Map.get(thrash_budget(state), issue.id, %{})
 
-    Logger.warning("Codex thrash detected: issue_id=#{issue.id} issue_identifier=#{issue.identifier} restarts=#{count} window_seconds=#{Config.codex_thrash_window_seconds()}; skipping dispatch")
+    if Map.get(entry, :alert_emitted, false) do
+      state
+    else
+      count = Map.get(entry, :count, 0)
+      lifetime = Map.get(entry, :lifetime, 0)
+      reason = Map.get(entry, :tripped, :window)
+      lifetime_max = Config.agent_max_dispatches_per_ticket()
 
-    Alerts.emit_system("ticket.#{issue.identifier}.agent.thrash_circuit_open",
-      issue: issue.identifier,
-      reason: "Codex restart loop exceeded the configured thrash limit; dispatch was skipped.",
-      needs_attention: true,
-      severity: "warning"
-    )
+      Logger.warning(
+        "Codex thrash detected: issue_id=#{issue.id} issue_identifier=#{issue.identifier} reason=#{reason} restarts=#{count} lifetime=#{lifetime} lifetime_max=#{lifetime_max} window_seconds=#{Config.codex_thrash_window_seconds()}; skipping dispatch"
+      )
 
-    state
+      Alerts.emit_system("ticket.#{issue.identifier}.agent.thrash_circuit_open",
+        issue: issue.identifier,
+        reason: "Codex dispatch circuit opened (#{reason}); window restarts=#{count}, lifetime dispatches=#{lifetime}/#{lifetime_max}.",
+        needs_attention: true,
+        severity: "warning"
+      )
+
+      updated_entry = Map.put(entry, :alert_emitted, true)
+      put_thrash_budget(state, Map.put(thrash_budget(state), issue.id, updated_entry))
+    end
   end
 
-  defp spawn_issue_on_worker_host(%State{} = state, issue, attempt, recipient, worker_host) do
-    lifecycle_attempt_id =
-      if TelemetryLifecycle.enabled?(),
-        do: TelemetryLifecycle.new_attempt_id(issue.identifier)
+  @doc false
+  @spec persist_lifetime_trip(State.t(), Issue.t(), (String.t(), String.t() -> :ok | {:error, term()})) ::
+          State.t()
+  def persist_lifetime_trip(%State{} = state, %Issue{} = issue, update_state_fun)
+      when is_function(update_state_fun, 2) do
+    entry = Map.get(thrash_budget(state), issue.id, %{})
 
-    if lifecycle_attempt_id do
+    if entry[:tripped] == :lifetime and entry[:durable_latch_applied] != true and
+         is_binary(issue.identifier) do
+      case update_state_fun.(issue.identifier, "error") do
+        :ok ->
+          updated_entry = Map.put(entry, :durable_latch_applied, true)
+          state = put_thrash_budget(state, Map.put(thrash_budget(state), issue.id, updated_entry))
+
+          %{state | claimed: MapSet.delete(state.claimed, issue.id)}
+
+        {:error, reason} ->
+          Logger.error("Unable to persist lifetime dispatch latch: issue_id=#{issue.id} issue_identifier=#{issue.identifier} reason=#{inspect(reason)}")
+
+          state
+      end
+    else
+      state
+    end
+  end
+
+  defp thrash_budget(state), do: state.dispatch_recovery.codex_thrash_budget
+
+  defp put_thrash_budget(state, budget), do: put_in(state.dispatch_recovery.codex_thrash_budget, budget)
+
+  defp spawn_issue_on_worker_host(%State{} = state, issue, attempt, recipient, worker_host, opts) do
+    runner = Keyword.get(opts, :runner, &AgentRunner.run/3)
+    worker_generation = System.unique_integer([:positive, :monotonic])
+    lifecycle_attempt_id = TelemetryLifecycle.new_attempt_id(dispatch_attempt_ticket(issue))
+
+    if TelemetryLifecycle.enabled?() do
       TelemetryLifecycle.record(issue.identifier, lifecycle_attempt_id, :dispatch, :point, %{
         outcome: :requested,
         worker_host: worker_host,
@@ -486,11 +729,13 @@ defmodule Aiur.Orchestrator.Dispatcher do
     end
 
     case Task.Supervisor.start_child(Aiur.TaskSupervisor, fn ->
-           AgentRunner.run(issue, recipient,
+           runner.(issue, recipient,
              attempt: attempt,
+             prior_work: Keyword.get(opts, :prior_work, false),
              telemetry_attempt_id: lifecycle_attempt_id,
              worker_host: worker_host,
-             orchestrator: recipient
+             orchestrator: recipient,
+             worker_generation: worker_generation
            )
          end) do
       {:ok, pid} ->
@@ -522,9 +767,11 @@ defmodule Aiur.Orchestrator.Dispatcher do
             agent_last_reported_output_tokens: 0,
             agent_last_reported_total_tokens: 0,
             turn_count: 0,
-            control: default_running_control(issue),
+            completed_turn_count: 0,
+            control: default_running_control(issue, worker_generation),
             telemetry_attempt_id: lifecycle_attempt_id,
             retry_attempt: RetryEngine.normalize_retry_attempt(attempt),
+            prior_work: Keyword.get(opts, :prior_work, false),
             started_at: DateTime.utc_now()
           })
 
@@ -541,10 +788,30 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
         RetryEngine.schedule_issue_retry(state, issue.id, next_attempt, %{
           identifier: issue.identifier,
+          tracker_identity: Issue.tracker_identity(issue),
           error: "failed to spawn agent: #{inspect(reason)}",
+          prior_work: Keyword.get(opts, :prior_work, false),
           worker_host: worker_host
         })
     end
+  end
+
+  defp dispatch_attempt_ticket(%Issue{} = issue) do
+    case dispatch_attempt_identity(issue) do
+      identity when is_binary(identity) ->
+        "ticket-" <> (:crypto.hash(:sha256, identity) |> Base.encode16(case: :lower))
+
+      nil ->
+        "ticket-" <> (10 |> :crypto.strong_rand_bytes() |> Base.url_encode64(padding: false))
+    end
+  end
+
+  # Attempt IDs are retained in Decision provenance, whose identity fields are
+  # deliberately bounded and exclude arbitrary tracker payload. Hash the stable
+  # tracker identity so accepted Decisions keep a collision-resistant correlator
+  # without persisting a raw identifier such as `repo#1` or an overlong value.
+  defp dispatch_attempt_identity(%Issue{identifier: identifier, id: issue_id}) do
+    Enum.find([identifier, issue_id], &(is_binary(&1) and &1 != ""))
   end
 
   defp record_rework_resume(%Issue{} = issue, attempt_id) do
@@ -559,13 +826,16 @@ defmodule Aiur.Orchestrator.Dispatcher do
     end
   end
 
-  defp default_running_control(%Issue{} = issue) do
+  defp default_running_control(%Issue{} = issue, worker_generation) when is_integer(worker_generation) do
     backend = CodingAgent.backend_for(issue)
 
     %{
       can_interrupt: CodingAgent.can_interrupt?(backend),
       safe_checkpoints: CodingAgent.safe_checkpoints(backend),
       immediate_delivery: CodingAgent.immediate_delivery?(backend),
+      application_confirmation: CodingAgent.control_application_confirmation(backend),
+      generation: worker_generation,
+      version: 0,
       status: :working
     }
   end

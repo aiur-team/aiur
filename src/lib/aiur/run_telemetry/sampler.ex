@@ -1,6 +1,6 @@
 defmodule Aiur.RunTelemetry.Sampler do
   @moduledoc """
-  Periodically samples mutually exclusive daemon, ticket, and operator trees.
+  Periodically samples mutually exclusive daemon, ticket, and Executor trees.
 
   Scans run in a monitored worker so the GenServer stays responsive. A cadence
   tick that arrives while a prior scan is running is recorded and skipped

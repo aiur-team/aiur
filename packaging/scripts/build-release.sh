@@ -15,10 +15,11 @@ mix_env="${MIX_ENV:-prod}"
 
 cd "$elixir_dir"
 
-# Resolve how to invoke mix. CI toolchains (setup-beam) put mix on PATH
-# directly; local dev provides it through mise.
-if command -v mix >/dev/null 2>&1; then
-  mix=(mix)
+# Resolve how to invoke mix. CI toolchains (setup-beam) put a binary on PATH;
+# local dev provides it through mise. `command -v` also matches shell functions,
+# which are not available to this standalone build script.
+if mix_path="$(type -P mix 2>/dev/null)" && [ -n "$mix_path" ]; then
+  mix=("$mix_path")
 elif command -v mise >/dev/null 2>&1; then
   mix=(mise exec -- mix)
 else

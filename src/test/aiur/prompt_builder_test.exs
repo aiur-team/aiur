@@ -1,6 +1,8 @@
 defmodule Aiur.PromptBuilderTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias Aiur.Issue
   alias Aiur.PromptBuilder
   alias Aiur.Workflow
@@ -100,7 +102,7 @@ defmodule Aiur.PromptBuilderTest do
     # deliberately NOT part of /aiur-agent — guard against an over-zealous slim
     # that strips it along with the cross-ticket vocabulary.
     assert String.contains?(prompt, "Progress emits")
-    assert String.contains?(prompt, "Operator check-ins")
+    assert String.contains?(prompt, "Executor check-ins")
   end
 
   @tag config: @config
@@ -109,7 +111,7 @@ defmodule Aiur.PromptBuilderTest do
 
     assert String.contains?(prompt, "manual --test runs are blocked inside agent")
     assert String.contains?(prompt, "Do not retry by copying the repo to")
-    assert String.contains?(prompt, "Operator-root manual test runs are allowed")
+    assert String.contains?(prompt, "Executor-root manual test runs are allowed")
   end
 
   @tag config: @config
@@ -117,6 +119,28 @@ defmodule Aiur.PromptBuilderTest do
     prompt = PromptBuilder.build_prompt(issue([]))
 
     assert String.contains?(prompt, "using-aiur")
+  end
+
+  @tag config: """
+       tracker:
+         kind: github
+         base_branch: integration
+         github:
+           repo: owner/repo
+           planning_root_limit: 100
+           planning_page_budget: 4
+           planning_call_budget: 4
+       agent:
+         kind: codex
+       """
+  test "identifies the configured integration branch as authoritative" do
+    {prompt, log} = with_log(fn -> PromptBuilder.build_prompt(issue([])) end)
+
+    assert prompt =~ "configured `tracker.base_branch` is `integration`"
+    assert prompt =~ ~s(--base "$AIUR_BASE_BRANCH")
+    assert prompt =~ "never from `origin/HEAD`"
+    assert log =~ "Authoritative integration branch"
+    assert log =~ ~s(tracker.base_branch="integration")
   end
 
   @tag config: @config

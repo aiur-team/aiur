@@ -64,8 +64,10 @@ defmodule Aiur.CodingAgent do
       "codex" => %{
         adapter: Aiur.Codex.CodingAgent,
         transcript: Aiur.Codex.Transcript,
+        family: "codex",
         can_interrupt: true,
         safe_checkpoints: [:notification, :tool_result],
+        control_application_confirmation: :confirmed,
         remote_control: false,
         # The codex app-server can rejoin a prior thread across an aiur restart
         # via `thread/resume` against its on-disk rollout, so a respawned
@@ -85,8 +87,10 @@ defmodule Aiur.CodingAgent do
       "claude" => %{
         adapter: Aiur.Claude.CodingAgent,
         transcript: Aiur.Claude.Transcript,
+        family: "claude",
         can_interrupt: true,
         safe_checkpoints: [:notification],
+        control_application_confirmation: :confirmed,
         remote_control: true,
         # Remote control physically runs on the persistent-REPL transport,
         # so an RC-promoted claude issue dispatches claude-repl (carrying
@@ -109,7 +113,8 @@ defmodule Aiur.CodingAgent do
       "claude-repl" => %{
         adapter: Aiur.Claude.ReplAgent,
         transcript: Aiur.Claude.Transcript,
-        # Operator messages are typed straight into the live pane and the
+        family: "claude",
+        # Executor messages are typed straight into the live pane and the
         # agent's native input queue folds them in, so there is no
         # checkpoint to hold at — `safe_checkpoints` stays empty and
         # delivery is immediate. Interrupt is the explicit out-of-band
@@ -118,6 +123,7 @@ defmodule Aiur.CodingAgent do
         can_interrupt: true,
         safe_checkpoints: [],
         immediate_delivery: true,
+        control_application_confirmation: :confirmed,
         remote_control: true,
         # A tmux/RC start failure must never strand an issue: a failed
         # claude-repl spawn falls back once to the headless claude
@@ -144,6 +150,15 @@ defmodule Aiur.CodingAgent do
   @doc "Known backend keys, derived from the registry."
   @spec known_backends() :: [backend()]
   def known_backends, do: Map.keys(backends())
+
+  @doc "Stable agent family for trusted Decision provenance, if the backend is known."
+  @spec family_for(backend()) :: String.t() | nil
+  def family_for(backend) do
+    case Map.fetch(backends(), backend) do
+      {:ok, entry} -> Map.get(entry, :family)
+      :error -> nil
+    end
+  end
 
   @doc """
   The valid reasoning-effort values for a backend, derived from the
@@ -403,9 +418,18 @@ defmodule Aiur.CodingAgent do
   @spec transcript_module(backend()) :: module()
   def transcript_module(backend), do: fetch_backend!(backend).transcript
 
-  @doc "Delivery-policy default: whether the backend supports operator interrupts."
+  @doc "Delivery-policy default: whether the backend supports Executor interrupts."
   @spec can_interrupt?(backend()) :: boolean()
   def can_interrupt?(backend), do: fetch_backend!(backend).can_interrupt
+
+  @doc "Whether the backend can emit correlated worker-application evidence for unit controls."
+  @spec control_application_confirmation(backend()) :: :confirmed | :request_only | :unsupported
+  def control_application_confirmation(backend) do
+    case Map.fetch(backends(), backend) do
+      {:ok, entry} -> Map.get(entry, :control_application_confirmation, :request_only)
+      :error -> :unsupported
+    end
+  end
 
   @doc "Delivery-policy default: which checkpoint kinds are safe to deliver on."
   @spec safe_checkpoints(backend()) :: [atom()]
@@ -522,7 +546,7 @@ defmodule Aiur.CodingAgent do
   end
 
   @doc """
-  The canonical operator-facing label that forces remote control on for an
+  The canonical Executor-facing label that forces remote control on for an
   issue (`model:remote`). Added/removed by the AgentList `r` key to
   promote/demote a running agent; it is the durable source of truth for
   remote-ness across re-dispatches.
@@ -531,7 +555,7 @@ defmodule Aiur.CodingAgent do
   def remote_control_alias_label, do: "model:remote"
 
   @doc """
-  Whether the backend takes operator messages immediately (pass-through to
+  Whether the backend takes Executor messages immediately (pass-through to
   the live process) instead of holding them at a `:checkpoint`. True only
   for the persistent-REPL backend, whose native input queue accepts a
   message mid-turn. Unknown backends are not immediate-delivery.
@@ -557,7 +581,7 @@ defmodule Aiur.CodingAgent do
   def run_turn(session, prompt, issue, opts \\ []),
     do: adapter_for_session(session).run_turn(session, prompt, issue, opts)
 
-  @spec stop_session(map()) :: :ok
+  @spec stop_session(map()) :: :ok | {:ok, :cleanup_proven} | {:error, term()}
   def stop_session(session), do: adapter_for_session(session).stop_session(session)
 
   @spec normalize_event(map()) :: map()
