@@ -23,8 +23,8 @@ tracker:
     planning_page_budget: 4
     planning_call_budget: 4
 build_order:
-  # One supervised, in-memory configured-repository ticket-detail cache.
-  # Restart clears retained detail; selected tickets reload on demand.
+  # Supervised configured-repository detail and sanitized typed-history providers.
+  # Restart clears retained snapshots; selected tickets reload on demand.
   ticket_detail_freshness_ms: 30000
   graph_catalog_refresh_ms: 60000
   graph_selected_refresh_ms: 15000
@@ -34,6 +34,9 @@ build_order:
   graph_max_inflight: 4
   ticket_detail_max_entries: 32
   ticket_detail_max_description_bytes: 16384
+  ticket_history_limit: 50
+  ticket_history_max_identities: 100
+  ticket_history_stale_after_ms: 60000
 polling:
   interval_seconds: 30
 server:
