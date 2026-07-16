@@ -5,7 +5,9 @@ defmodule AiurWeb.OperatorControlCenter.UnitsURLTest do
   alias AiurWeb.OperatorControlCenter.{UnitsPolicy, UnitsURL}
 
   test "canonical encoding orders the version, non-default scope, then conditions" do
-    assert UnitsURL.encode(%{scope: :all, conditions: MapSet.new([:paused, :active])}) == "v=1&scope=all&conditions=active%2Cpaused"
+    selection = %{scope: :all, conditions: MapSet.new([:paused, :active])}
+
+    assert UnitsURL.encode(selection) == "v=1&scope=all&conditions=active%2Cpaused"
     assert UnitsURL.encode(UnitsURL.default_selection()) == "v=1"
   end
 

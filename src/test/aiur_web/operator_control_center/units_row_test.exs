@@ -12,13 +12,23 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRowTest do
       UnitsRow.snapshot(%{
         membership: membership([member(alpha), member(beta)], {:degraded, :journal_corrupt}),
         status: %{
-          running: [status(alpha, title: "Status title", resolved_model: "gpt-5.6", workspace_path: "/private/workspace")],
+          running: [
+            status(alpha,
+              title: "Status title",
+              resolved_model: "gpt-5.6",
+              workspace_path: "/private/workspace"
+            )
+          ],
           retrying: [],
           idle: []
         },
         activity: %{
           entries: [
-            %{identity: alpha, progress: %{status: :known, percent: 40, source: :checkin, freshness: :stale}, latest_evidence: %{status: :known, source: :agent_event}}
+            %{
+              identity: alpha,
+              progress: %{status: :known, percent: 40, source: :checkin, freshness: :stale},
+              latest_evidence: %{status: :known, source: :agent_event}
+            }
           ]
         },
         decisions: %{entries: [%{identity: alpha, open_count: 2}, %{identity: beta, open_count: 1}]},
@@ -81,7 +91,11 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRowTest do
     snapshot =
       UnitsRow.snapshot(%{
         membership: membership([member(ticket)]),
-        status: %{running: [status(ticket, work_state: :completed, waiting_reason: :awaiting_dispatch)], retrying: [], idle: []},
+        status: %{
+          running: [status(ticket, work_state: :completed, waiting_reason: :awaiting_dispatch)],
+          retrying: [],
+          idle: []
+        },
         activity: %{entries: []},
         decisions: %{entries: []},
         issue_facts: %{entries: [facts(ticket, "Replacement", "https://github.com/acme/alpha/issues/9")]}
@@ -166,7 +180,9 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRowTest do
     }
   end
 
-  defp membership(members, health \\ :healthy), do: %{generation: 4, health: health, freshness: %{status: :fresh}, members: members}
+  defp membership(members, health \\ :healthy) do
+    %{generation: 4, health: health, freshness: %{status: :fresh}, members: members}
+  end
 
   defp member(identity, attrs \\ []) do
     %{
@@ -183,7 +199,12 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRowTest do
       tracker_identity: identity,
       state: Keyword.get(attrs, :state, "in-progress"),
       title: Keyword.get(attrs, :title, "Status ticket"),
-      url: Keyword.get(attrs, :url, "https://github.com/#{identity.owner}/#{identity.repository}/issues/#{identity.identifier}"),
+      url:
+        Keyword.get(
+          attrs,
+          :url,
+          "https://github.com/#{identity.owner}/#{identity.repository}/issues/#{identity.identifier}"
+        ),
       work_state: Keyword.get(attrs, :work_state, :working),
       waiting_reason: Keyword.get(attrs, :waiting_reason, :active),
       resolved_model: Keyword.get(attrs, :resolved_model),

@@ -13,7 +13,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPolicy do
 
   @type scope :: :live | :unfinished | :all | :none
   @type condition :: :active | :alert | :paused | :stuck | :queued | :finished
-  @type selection :: %{scope: scope(), conditions: MapSet.t(condition())}
+  @type selection :: %{scope: scope(), conditions: MapSet.t()}
 
   @spec scopes() :: [scope()]
   def scopes, do: @scopes
@@ -126,7 +126,6 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPolicy do
         :pause -> Map.get(row, :pause_reason)
         :stuck -> Map.get(row, :stuck_reason)
         :waiting -> Map.get(row, :waiting_reason)
-        :blocking -> Map.get(row, :blocking_reason)
       end
 
     get_in(row, [:reasons, name]) || direct || if(name == :waiting, do: get_in(row, [:runtime, :waiting_reason]))
@@ -147,8 +146,18 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPolicy do
 
   defp normalize_scope(_scope), do: :live
 
-  defp normalize_conditions(%MapSet{} = conditions), do: conditions |> MapSet.to_list() |> normalize_conditions()
-  defp normalize_conditions(conditions) when is_list(conditions), do: conditions |> Enum.map(&normalize_condition/1) |> Enum.reject(&is_nil/1) |> MapSet.new()
+  defp normalize_conditions(%MapSet{} = conditions) do
+    conditions
+    |> MapSet.to_list()
+    |> normalize_conditions()
+  end
+
+  defp normalize_conditions(conditions) when is_list(conditions) do
+    conditions
+    |> Enum.map(&normalize_condition/1)
+    |> Enum.reject(&is_nil/1)
+    |> MapSet.new()
+  end
 
   defp normalize_conditions(conditions) when is_binary(conditions) do
     conditions |> String.split(",", trim: true) |> normalize_conditions()

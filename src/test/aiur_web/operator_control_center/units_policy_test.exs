@@ -14,14 +14,34 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPolicyTest do
   end
 
   test "conditions overlap and chip counts are calculated before OR refinement" do
-    alert_paused = active_row(reasons: %{alert: :open_command, pause: :executor}, runtime: %{bucket: :running, work_state: :paused})
-    alert_stuck = active_row(reasons: %{alert: :open_command, stuck: :unresponsive}, runtime: %{bucket: :running, work_state: :working, waiting_reason: :unresponsive})
+    alert_paused =
+      active_row(
+        reasons: %{alert: :open_command, pause: :executor},
+        runtime: %{bucket: :running, work_state: :paused}
+      )
+
+    alert_stuck =
+      active_row(
+        reasons: %{alert: :open_command, stuck: :unresponsive},
+        runtime: %{bucket: :running, work_state: :working, waiting_reason: :unresponsive}
+      )
+
     dependency_waiting = queued_row(reasons: %{waiting: :waiting_for_dependency, blocking: :waiting_for_dependency})
     rows = [alert_paused, alert_stuck, dependency_waiting, finished_row()]
     selection = %{scope: :all, conditions: MapSet.new([:alert, :paused])}
 
     assert UnitsPolicy.filter(rows, selection) == [alert_paused, alert_stuck]
-    assert UnitsPolicy.counts(rows, selection) == %{scope: 4, active: 1, alert: 2, paused: 1, stuck: 1, queued: 1, finished: 1}
+
+    assert UnitsPolicy.counts(rows, selection) == %{
+             scope: 4,
+             active: 1,
+             alert: 2,
+             paused: 1,
+             stuck: 1,
+             queued: 1,
+             finished: 1
+           }
+
     assert UnitsPolicy.condition?(:queued, dependency_waiting)
     assert UnitsPolicy.condition?(:stuck, alert_stuck)
   end
@@ -55,7 +75,11 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPolicyTest do
   property "single-condition filtering and counts share the same predicate" do
     rows = [active_row(), queued_row(), finished_row(), unknown_row()]
 
-    check all(scope <- member_of(UnitsPolicy.scopes()), condition <- member_of(UnitsPolicy.conditions()), max_runs: 20) do
+    check all(
+            scope <- member_of(UnitsPolicy.scopes()),
+            condition <- member_of(UnitsPolicy.conditions()),
+            max_runs: 20
+          ) do
       selection = %{scope: scope, conditions: MapSet.new([condition])}
       counts = UnitsPolicy.counts(rows, selection)
 
