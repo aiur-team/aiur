@@ -97,6 +97,7 @@ defmodule Aiur.ApplicationTest do
       Aiur.BuildOrder.GraphProjection,
       Aiur.AppServer.ToolCallLedger,
       Aiur.ProviderAccountGeneration,
+      Aiur.UsageLedger.Store,
       Aiur.DecisionMetrics.Writer,
       Aiur.DecisionMetrics,
       Aiur.GitHub.CodeOwners,
@@ -251,6 +252,21 @@ defmodule Aiur.ApplicationTest do
 
         assert membership_store < orchestrator, "membership store must precede Orchestrator for #{inspect(opts)}"
         assert orchestrator < reconciler, "membership reconciler must follow Orchestrator for #{inspect(opts)}"
+      end
+    end
+
+    test "usage ledger starts after account generation and before the orchestrator" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        mods = modules(AiurApp.child_specs(opts))
+        generation = Enum.find_index(mods, &(&1 == Aiur.ProviderAccountGeneration))
+        ledger = Enum.find_index(mods, &(&1 == Aiur.UsageLedger.Store))
+        orchestrator = Enum.find_index(mods, &(&1 == Aiur.Orchestrator))
+
+        assert generation < ledger, "account generation must precede usage ledger for #{inspect(opts)}"
+        assert ledger < orchestrator, "usage ledger must precede orchestrator for #{inspect(opts)}"
       end
     end
 
