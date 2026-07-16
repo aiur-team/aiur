@@ -1,5 +1,5 @@
 defmodule Aiur.Orchestrator.ReconcilerTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Aiur.Issue
   alias Aiur.Orchestrator.Reconciler
@@ -155,7 +155,7 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
       # The parked agent is blocked in AgentRunner.wait_for_before_run_resume/3;
       # a transient hook failure must self-heal by delivering the resume signal
       # to its live pid, not sit paused forever.
-      assert_received {:resume_agent, _request_id}
+      assert_receive {:resume_agent, _request_id}
       assert get_in(result.running, ["issue-brf", :control, :status]) == :working
     end
 
