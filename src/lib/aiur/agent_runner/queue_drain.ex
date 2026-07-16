@@ -523,7 +523,9 @@ defmodule Aiur.AgentRunner.QueueDrain do
         workspace,
         worker_host,
         backend,
-        turn_id
+        turn_id,
+        attempt_id: Keyword.get(opts, :telemetry_attempt_id),
+        worker_generation: Keyword.get(opts, :worker_generation)
       )
 
     safe_checkpoint_handler = CheckpointDelivery.safe_checkpoint_handler(issue, orchestrator)
