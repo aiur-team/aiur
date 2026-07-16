@@ -166,7 +166,7 @@ defmodule ScriptsAiurdevTest do
             : > _build/dev/rel/aiur/releases/0.0.3/start_clean.boot
             : > _build/dev/rel/aiur/releases/0.0.3/vm.args
             : > _build/dev/rel/aiur/releases/0.0.3/sys.config
-            if [ -f _build/dev/lib/aiur/ebin/schema.beam ] && [ -f src/generation ]; then
+            if [ -f _build/dev/lib/aiur/ebin/schema.beam ] && [ -f _build/dev/lib/aiur/ebin/consumer.beam ]; then
               cp _build/dev/lib/aiur/ebin/schema.beam _build/dev/rel/aiur/lib/aiur-0.0.3/ebin/schema.beam
               cp _build/dev/lib/aiur/ebin/consumer.beam _build/dev/rel/aiur/lib/aiur-0.0.3/ebin/consumer.beam
             fi
@@ -502,6 +502,7 @@ defmodule ScriptsAiurdevTest do
     File.mkdir_p!(Path.join([src, "_build", "dev", "lib", "aiur", "ebin"]))
     File.mkdir_p!(release_app)
     File.write!(Path.join([src, "_build", "dev", "lib", "aiur", "ebin", "schema.beam"]), "generation-1")
+    File.write!(Path.join([src, "_build", "dev", "lib", "aiur", "ebin", "consumer.beam"]), "generation-1")
     File.write!(Path.join(release_app, "schema.beam"), "generation-1")
     File.write!(Path.join(release_app, "consumer.beam"), "generation-1")
     File.write!(Path.join(src, "generation"), "generation-2")
@@ -522,6 +523,8 @@ defmodule ScriptsAiurdevTest do
     assert File.read!(compile_log) =~ "compile exec -- mix compile --force"
     assert File.read!(Path.join([src, "_build", "dev", "lib", "aiur", "ebin", "schema.beam"])) == "generation-2"
     assert File.read!(Path.join([src, "_build", "dev", "lib", "aiur", "ebin", "consumer.beam"])) == "generation-2"
+    assert File.read!(Path.join(release_app, "schema.beam")) == "generation-2"
+    assert File.read!(Path.join(release_app, "consumer.beam")) == "generation-2"
   end
 
   test "failed rebuild removes the incomplete release and exits nonzero" do
