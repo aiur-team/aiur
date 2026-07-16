@@ -44,7 +44,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionRevisionAction do
       <header class="decision-action-header">
         <div>
           <p class="section-eyebrow">Append-only correction</p>
-          <h4 id={"decision-revision-title-#{@decision.decision_id}"}>Revise decision</h4>
+          <h4 id={"decision-revision-title-#{@decision.decision_id}"}>Revise Command</h4>
         </div>
         <span class="chip super">Revision {@decision.revision_sequence}</span>
       </header>
@@ -133,7 +133,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionRevisionAction do
             value="true"
             checked={Map.get(@form, "confirmed") == "true"}
           />
-          <span>I understand this revised direction is irreversible or destructive.</span>
+          <span>I understand this revised Command is irreversible or destructive.</span>
         </label>
 
         <footer class="decision-action-footer">

@@ -33,6 +33,18 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
 
   def detail(_decision_id), do: {:error, :not_found}
 
+  @spec decisions(map()) :: {:ok, map()} | {:error, term()}
+  def decisions(params) when is_map(params) do
+    {_orchestrator, decision_store, decision_metrics, _recent_merge_store, _snapshot_timeout_ms} = providers()
+
+    DecisionProvider.list(params,
+      decision_store: decision_store,
+      decision_metrics: decision_metrics
+    )
+  end
+
+  def decisions(_params), do: {:error, {:invalid_query, {:params, :invalid_type}}}
+
   @spec mark_loaded(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   def mark_loaded(socket) do
     socket

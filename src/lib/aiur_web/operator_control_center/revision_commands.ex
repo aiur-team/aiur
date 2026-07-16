@@ -31,7 +31,7 @@ defmodule AiurWeb.OperatorControlCenter.RevisionCommands do
         |> submit_revision(decision, form, reload_fun)
 
       :error ->
-        put_revision_error(reload_fun.(socket), decision_id, "This decision no longer has an active answer.")
+        put_revision_error(reload_fun.(socket), decision_id, "This Command no longer has an active answer.")
     end
   end
 
@@ -55,7 +55,7 @@ defmodule AiurWeb.OperatorControlCenter.RevisionCommands do
         put_follow_up_error(socket, decision_id, "Record how the follow-up was handled before closing it.")
 
       selected_decision(socket, decision_id) == :error ->
-        put_follow_up_error(reload_fun.(socket), decision_id, "This decision detail is no longer available.")
+        put_follow_up_error(reload_fun.(socket), decision_id, "This Command detail is no longer available.")
 
       true ->
         result = safe_handle_follow_up(decision_id, action_id, detail)
@@ -135,7 +135,7 @@ defmodule AiurWeb.OperatorControlCenter.RevisionCommands do
 
   defp revision_reason(form) do
     case form |> Map.get("reason") |> trim_string() do
-      "" -> {:error, "Explain why this decision is being revised."}
+      "" -> {:error, "Explain why this Command is being revised."}
       reason -> {:ok, reason}
     end
   end
@@ -260,7 +260,7 @@ defmodule AiurWeb.OperatorControlCenter.RevisionCommands do
     do: "The revision sequence changed. Review the refreshed state before trying again."
 
   defp command_error({:conflict, {:stale_version, _expected, current}}),
-    do: "This decision changed to version #{current}. Review the refreshed state before revising."
+    do: "This Command changed to version #{current}. Review the refreshed state before revising."
 
   defp command_error({:conflict, {:idempotency_conflict, _action_id}}),
     do: "This revision token was already used with different content. Refresh before trying again."
@@ -268,10 +268,10 @@ defmodule AiurWeb.OperatorControlCenter.RevisionCommands do
   defp command_error({:revision_invalid, {:answer_invalid, {:option_id, :unknown}}}),
     do: "That revision option is no longer available."
 
-  defp command_error({:store_unavailable, _reason}), do: "Decision storage is read-only or unavailable."
-  defp command_error(:store_unavailable), do: "Decision storage is currently unavailable."
+  defp command_error({:store_unavailable, _reason}), do: "Command storage is read-only or unavailable."
+  defp command_error(:store_unavailable), do: "Command storage is currently unavailable."
   defp command_error(:follow_up_not_required), do: "This revision follow-up is no longer open."
-  defp command_error(:not_found), do: "This decision no longer exists."
+  defp command_error(:not_found), do: "This Command no longer exists."
   defp command_error(_reason), do: "The revision command was rejected. Canonical state was refreshed."
 
   defp trim_string(value) when is_binary(value), do: String.trim(value)
