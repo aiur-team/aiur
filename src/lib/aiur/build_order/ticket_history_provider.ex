@@ -87,10 +87,13 @@ defmodule Aiur.BuildOrder.TicketHistoryProvider do
       activity_snapshot_fun: options.activity_snapshot_fun,
       activity_snapshots_fun: options.activity_snapshots_fun,
       repository_snapshot_fun: options.repository_snapshot_fun,
+      exchange_subscribe_fun: options.exchange_subscribe_fun,
+      exchange_pid_fun: options.exchange_pid_fun,
+      exchange_monitor: nil,
       reset_epoch: options.reset_epoch
     }
 
-    _ = safely(options.exchange_subscribe_fun)
+    state = subscribe_exchange(state)
     _ = safely(options.activity_subscribe_fun)
     _ = safely(fn -> options.configuration_subscribe_fun.(self()) end)
 
@@ -196,6 +199,13 @@ defmodule Aiur.BuildOrder.TicketHistoryProvider do
     end
   end
 
+  def handle_info({:DOWN, ref, :process, _pid, _reason}, %{exchange_monitor: ref} = state) do
+    schedule_exchange_retry()
+    {:noreply, %{state | exchange_monitor: nil}}
+  end
+
+  def handle_info(:resubscribe_exchange, state), do: {:noreply, subscribe_exchange(state)}
+
   def handle_info(_message, state), do: {:noreply, state}
 
   defp handle_current(identity, state) do
@@ -255,7 +265,7 @@ defmodule Aiur.BuildOrder.TicketHistoryProvider do
   end
 
   defp history(identity, state) do
-    opts = [kinds: [:emit, :emit_alert, :self], limit: Normalizer.hard_limit()]
+    opts = [kinds: [:emit, :emit_alert, :self], limit: Normalizer.hard_limit() + 1]
 
     case safely(fn -> state.history_fun.(identity, opts) end) do
       {:ok, {:error, :missing_source}} ->
@@ -276,7 +286,7 @@ defmodule Aiur.BuildOrder.TicketHistoryProvider do
   end
 
   defp normalize_history(raw_events, identity, state) do
-    source_truncated? = length(raw_events) >= Normalizer.hard_limit()
+    source_truncated? = length(raw_events) > Normalizer.hard_limit()
 
     entries =
       raw_events
@@ -566,6 +576,35 @@ defmodule Aiur.BuildOrder.TicketHistoryProvider do
       Phoenix.PubSub.broadcast(Aiur.PubSub, reset_topic(), {:ticket_history_reset, state.reset_epoch})
     end
   end
+
+  defp subscribe_exchange(state) do
+    case safely(state.exchange_subscribe_fun) do
+      {:ok, :ok} ->
+        monitor_exchange(state)
+
+      _ ->
+        schedule_exchange_retry()
+        state
+    end
+  end
+
+  defp monitor_exchange(state) do
+    case safely(state.exchange_pid_fun) do
+      {:ok, pid} when is_pid(pid) ->
+        if Process.alive?(pid) do
+          %{state | exchange_monitor: Process.monitor(pid)}
+        else
+          schedule_exchange_retry()
+          state
+        end
+
+      _ ->
+        schedule_exchange_retry()
+        state
+    end
+  end
+
+  defp schedule_exchange_retry, do: Process.send_after(self(), :resubscribe_exchange, 100)
 
   defp safely(fun) when is_function(fun, 0) do
     {:ok, fun.()}

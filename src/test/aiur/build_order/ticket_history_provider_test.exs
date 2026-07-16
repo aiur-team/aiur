@@ -28,7 +28,7 @@ defmodule Aiur.BuildOrder.TicketHistoryProviderTest do
 
     assert {:ok, %Snapshot{} = snapshot} = TicketHistoryProvider.request(server, identity())
     assert_receive {:history_query, %{identifier: "42"}, opts}
-    assert opts[:limit] == 100
+    assert opts[:limit] == 101
     assert opts[:kinds] == [:emit, :emit_alert, :self]
     assert snapshot.health == :available
     assert snapshot.progress.percent == 40
@@ -51,6 +51,23 @@ defmodule Aiur.BuildOrder.TicketHistoryProviderTest do
 
     assert {:ok, %{entries: fallback_entries}} = TicketHistoryProvider.request(fallback, identity())
     assert length(fallback_entries) == 8
+  end
+
+  test "marks source truncation only after history exceeds the hard maximum" do
+    exact_limit = start_provider(history_limit: 100, history_fun: fn _, _ -> for id <- 1..100, do: history_event(id) end)
+
+    assert {:ok, %{entries: exact_entries, truncated?: false}} =
+             TicketHistoryProvider.request(exact_limit, identity())
+
+    assert length(exact_entries) == 100
+
+    overflow_limit =
+      start_provider(history_limit: 100, history_fun: fn _, _ -> for id <- 1..101, do: history_event(id) end)
+
+    assert {:ok, %{entries: overflow_entries, truncated?: true}} =
+             TicketHistoryProvider.request(overflow_limit, identity())
+
+    assert Enum.map(overflow_entries, & &1.event_id) == Enum.to_list(101..2//-1)
   end
 
   test "distinguishes all source-health states without inventing empty activity" do
@@ -91,7 +108,7 @@ defmodule Aiur.BuildOrder.TicketHistoryProviderTest do
           activity_snapshot_fun: fn _ -> {:ok, activity()} end
         )
 
-      path = Aiur.IssueLog.log_path(identity())
+      path = Aiur.IssueLog.event_log_path(identity())
 
       assert {:ok, %{health: :missing_source, source_health: %{history: :missing_source}}} =
                TicketHistoryProvider.request(server, identity())
@@ -114,7 +131,7 @@ defmodule Aiur.BuildOrder.TicketHistoryProviderTest do
     with_log_root(fn ->
       alice = identity(owner: "alice", repository: "project")
       bob = identity(owner: "bob", repository: "project")
-      alice_path = Aiur.IssueLog.log_path(alice)
+      alice_path = Aiur.IssueLog.event_log_path(alice)
 
       File.mkdir_p!(Path.dirname(alice_path))
       File.write!(alice_path, history_line(9))
@@ -355,6 +372,47 @@ defmodule Aiur.BuildOrder.TicketHistoryProviderTest do
              TicketHistoryProvider.current(server, next_identity)
   end
 
+  test "re-subscribes after the Exchange process restarts" do
+    test_pid = self()
+
+    first_exchange =
+      spawn(fn ->
+        receive do
+          :stop -> :ok
+        end
+      end)
+
+    {:ok, exchange} = Agent.start_link(fn -> first_exchange end)
+
+    on_exit(fn ->
+      if Process.alive?(exchange), do: Agent.stop(exchange)
+    end)
+
+    _server =
+      start_provider(
+        exchange_subscribe_fun: fn ->
+          send(test_pid, :exchange_subscribed)
+          :ok
+        end,
+        exchange_pid_fun: fn -> Agent.get(exchange, & &1) end
+      )
+
+    assert_receive :exchange_subscribed
+
+    second_exchange =
+      spawn(fn ->
+        receive do
+          :stop -> :ok
+        end
+      end)
+
+    Agent.update(exchange, fn _ -> second_exchange end)
+    Process.exit(first_exchange, :kill)
+
+    assert_receive :exchange_subscribed, 2_000
+    Process.exit(second_exchange, :kill)
+  end
+
   defp request_health(opts) do
     history = Keyword.fetch!(opts, :history)
     activity = Keyword.fetch!(opts, :activity)
@@ -377,6 +435,7 @@ defmodule Aiur.BuildOrder.TicketHistoryProviderTest do
       name: nil,
       configured_repo: {"owner", "repo"},
       exchange_subscribe_fun: fn -> :ok end,
+      exchange_pid_fun: fn -> nil end,
       activity_subscribe_fun: fn -> :ok end,
       configuration_subscribe_fun: fn _pid -> :ok end,
       activity_snapshots_fun: fn -> %{entries: []} end,

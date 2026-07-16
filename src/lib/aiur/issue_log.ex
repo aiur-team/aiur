@@ -15,7 +15,7 @@ defmodule Aiur.IssueLog do
   use GenServer
   require Logger
 
-  alias Aiur.{AgentEvents, AgentPubSub, TrackerIdentity}
+  alias Aiur.{AgentEvents, AgentPubSub, TicketObservation, TrackerIdentity}
   alias Aiur.Config.Paths
   alias Aiur.GitHub.Config, as: GitHubConfig
 
@@ -23,8 +23,10 @@ defmodule Aiur.IssueLog do
 
   @spec child_spec(term()) :: Supervisor.child_spec()
   def child_spec(opts) do
+    identifier = Keyword.fetch!(opts, :identifier)
+
     %{
-      id: opts[:identifier],
+      id: Keyword.get(opts, :writer_key, writer_key(identifier)),
       start: {__MODULE__, :start_link, [opts]},
       restart: :transient
     }
@@ -35,22 +37,24 @@ defmodule Aiur.IssueLog do
 
   @doc """
   Ensure a writer is running for `identifier`. Returns `:ok` on success;
-  if a writer is already running for this identifier the call is a
-  no-op.
+  writers are scoped by the configured repository and ticket identifier.
   """
-  @spec attach(AgentEvents.agent_identifier()) :: :ok
-  def attach(identifier) when is_binary(identifier) do
-    case start_writer(identifier) do
-      {:ok, _pid} ->
-        :ok
-
-      {:error, {:already_started, _pid}} ->
-        :ok
-
-      {:error, reason} ->
-        Logger.warning("IssueLog.attach(#{identifier}) failed: #{inspect(reason)}")
-        :ok
+  @spec attach(AgentEvents.agent_identifier() | TrackerIdentity.t()) :: :ok
+  def attach(%TrackerIdentity{} = identity) do
+    if TrackerIdentity.joinable?(identity) do
+      attach_writer(
+        identity.identifier,
+        log_path(identity),
+        event_log_path(identity),
+        writer_key(identity)
+      )
+    else
+      :ok
     end
+  end
+
+  def attach(identifier) when is_binary(identifier) do
+    attach_writer(identifier, log_path(identifier), event_log_path(identifier), writer_key(identifier))
   end
 
   @doc """
@@ -61,7 +65,7 @@ defmodule Aiur.IssueLog do
   """
   @spec history(AgentEvents.agent_identifier(), pos_integer()) :: [map()]
   def history(identifier, limit \\ @history_limit) when is_binary(identifier) do
-    case Registry.lookup(Aiur.IssueLog.Registry, identifier) do
+    case writer_for_path(identifier, log_path(identifier), writer_key(identifier)) do
       [{pid, _}] -> GenServer.call(pid, {:history, limit}, 1_000)
       [] -> []
     end
@@ -112,7 +116,7 @@ defmodule Aiur.IssueLog do
   def event_history(identifier_or_identity, opts \\ [])
 
   def event_history(identifier, opts) when is_binary(identifier) do
-    case read_event_history(log_path(identifier), opts) do
+    case read_event_history(event_log_path(identifier), opts) do
       {:ok, events} -> events
       {:error, _reason} -> []
     end
@@ -120,7 +124,7 @@ defmodule Aiur.IssueLog do
 
   def event_history(%TrackerIdentity{} = identity, opts) do
     if TrackerIdentity.joinable?(identity) do
-      read_event_history(log_path(identity), opts)
+      read_event_history(event_log_path(identity), opts)
     else
       {:error, :invalid_identity}
     end
@@ -240,13 +244,29 @@ defmodule Aiur.IssueLog do
   """
   @spec log_path(AgentEvents.agent_identifier() | TrackerIdentity.t()) :: String.t()
   def log_path(identifier) when is_binary(identifier) do
-    Path.join(log_root_dir(), "#{configured_repository_scope()}.#{sanitize(identifier)}.log")
+    issue_log_path(configured_repository_scope(), identifier, ".log")
   end
 
   def log_path(%TrackerIdentity{} = identity) do
     case TrackerIdentity.github_key(identity) do
       {:github, owner, repository, _provider_id} ->
-        Path.join(log_root_dir(), "#{repository_scope(owner, repository)}.#{sanitize(identity.identifier)}.log")
+        issue_log_path(repository_scope(owner, repository), identity.identifier, ".log")
+
+      nil ->
+        raise ArgumentError, "IssueLog path requires a joinable tracker identity"
+    end
+  end
+
+  @doc false
+  @spec event_log_path(AgentEvents.agent_identifier() | TrackerIdentity.t()) :: String.t()
+  def event_log_path(identifier) when is_binary(identifier) do
+    issue_log_path(configured_repository_scope(), identifier, ".events.log")
+  end
+
+  def event_log_path(%TrackerIdentity{} = identity) do
+    case TrackerIdentity.github_key(identity) do
+      {:github, owner, repository, _provider_id} ->
+        issue_log_path(repository_scope(owner, repository), identity.identifier, ".events.log")
 
       nil ->
         raise ArgumentError, "IssueLog path requires a joinable tracker identity"
@@ -256,19 +276,40 @@ defmodule Aiur.IssueLog do
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
     identifier = Keyword.fetch!(opts, :identifier)
-    GenServer.start_link(__MODULE__, identifier, name: via(identifier))
+    writer_key = Keyword.get(opts, :writer_key, writer_key(identifier))
+    GenServer.start_link(__MODULE__, opts, name: via(writer_key))
   end
 
   @impl true
-  def init(identifier) do
-    path = log_path(identifier)
+  def init(opts) do
+    identifier = Keyword.fetch!(opts, :identifier)
+    path = Keyword.get(opts, :path, log_path(identifier))
+    event_path = Keyword.get(opts, :event_path, event_log_path(identifier))
     :ok = File.mkdir_p(Path.dirname(path))
 
     case File.open(path, [:append, :utf8]) do
       {:ok, file} ->
-        :ok = AgentPubSub.subscribe_agent(identifier)
-        Logger.debug("IssueLog attached identifier=#{identifier} path=#{path}")
-        {:ok, %{identifier: identifier, file: file, path: path, history: :queue.new(), history_size: 0}}
+        case File.open(event_path, [:append, :utf8]) do
+          {:ok, event_file} ->
+            :ok = AgentPubSub.subscribe_agent(identifier)
+            Logger.debug("IssueLog attached identifier=#{identifier} path=#{path}")
+
+            {:ok,
+             %{
+               identifier: identifier,
+               file: file,
+               event_file: event_file,
+               path: path,
+               event_path: event_path,
+               history: :queue.new(),
+               history_size: 0
+             }}
+
+          {:error, reason} ->
+            _ = File.close(file)
+            Logger.warning("IssueLog event open failed identifier=#{identifier} path=#{event_path} reason=#{inspect(reason)}")
+            {:stop, reason}
+        end
 
       {:error, reason} ->
         Logger.warning("IssueLog open failed identifier=#{identifier} path=#{path} reason=#{inspect(reason)}")
@@ -278,8 +319,9 @@ defmodule Aiur.IssueLog do
   end
 
   @impl true
-  def terminate(_reason, %{file: file}) when not is_nil(file) do
+  def terminate(_reason, %{file: file, event_file: event_file}) when not is_nil(file) do
     _ = File.close(file)
+    _ = File.close(event_file)
     :ok
   end
 
@@ -299,6 +341,8 @@ defmodule Aiur.IssueLog do
 
     {:reply, items, state}
   end
+
+  def handle_call(:path, _from, state), do: {:reply, state.path, state}
 
   @impl true
   def handle_info({:transcript_event, %{role: _role, body: _body} = event}, state) do
@@ -330,7 +374,7 @@ defmodule Aiur.IssueLog do
 
   def handle_info({:aiur_event, kind, event}, state)
       when kind in [:emit, :emit_alert, :consumed, :self] do
-    write_and_continue(state, format_event_marker(kind, event))
+    write_event_and_continue(state, format_event_marker(kind, event))
   end
 
   def handle_info(_other, state), do: {:noreply, state}
@@ -348,12 +392,80 @@ defmodule Aiur.IssueLog do
   def record_event(identifier, kind, event)
       when is_binary(identifier) and kind in [:emit, :emit_alert, :consumed, :self] and
              is_map(event) do
-    case Registry.lookup(Aiur.IssueLog.Registry, identifier) do
-      [{pid, _}] -> send(pid, {:aiur_event, kind, event})
-      [] -> :ok
+    case event_identity(event, identifier) do
+      {:ok, identity} ->
+        case writer_for_path(identifier, event_log_path(identity), writer_key(identity)) do
+          [{pid, _}] -> send(pid, {:aiur_event, kind, event})
+          [] -> :ok
+        end
+
+      :error ->
+        :ok
     end
 
     :ok
+  end
+
+  defp attach_writer(identifier, path, event_path, key) do
+    case ensure_writer(identifier, path, event_path, key) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("IssueLog.attach(#{identifier}) failed: #{inspect(reason)}")
+        :ok
+    end
+  end
+
+  defp event_identity(%{ticket_observation: %TicketObservation{} = observation}, identifier) do
+    identity = observation.tracker_identity
+
+    if observation.status == :joinable and TrackerIdentity.joinable?(identity) and identity.identifier == identifier,
+      do: {:ok, identity},
+      else: :error
+  end
+
+  defp event_identity(_event, _identifier), do: :error
+
+  defp ensure_writer(identifier, path, event_path, key) do
+    case Registry.lookup(Aiur.IssueLog.Registry, key) do
+      [] ->
+        start_writer(identifier, path, event_path, key)
+
+      [{pid, _}] ->
+        if writer_path(pid) == path do
+          :ok
+        else
+          replace_writer(identifier, pid, path, event_path, key)
+        end
+    end
+  end
+
+  defp replace_writer(identifier, pid, path, event_path, key) do
+    case DynamicSupervisor.terminate_child(@supervisor, pid) do
+      :ok -> start_writer(identifier, path, event_path, key)
+      {:error, :not_found} -> start_writer(identifier, path, event_path, key)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp start_writer(identifier, path, event_path, key) do
+    DynamicSupervisor.start_child(
+      @supervisor,
+      {__MODULE__, identifier: identifier, path: path, event_path: event_path, writer_key: key}
+    )
+    |> normalize_start_result()
+  end
+
+  defp normalize_start_result({:ok, _pid}), do: :ok
+  defp normalize_start_result({:error, {:already_started, _pid}}), do: :ok
+  defp normalize_start_result({:error, reason}), do: {:error, reason}
+
+  defp writer_for_path(_identifier, path, key) do
+    case Registry.lookup(Aiur.IssueLog.Registry, key) do
+      [{pid, _}] = writer -> if writer_path(pid) == path, do: writer, else: []
+      _ -> []
+    end
   end
 
   defp push_history(state, item) do
@@ -368,50 +480,35 @@ defmodule Aiur.IssueLog do
     end
   end
 
-  # ---------- helpers ------------------------------------------------------
-
-  defp start_writer(identifier) do
-    DynamicSupervisor.start_child(
-      @supervisor,
-      {__MODULE__, identifier: identifier}
-    )
+  defp writer_path(pid) do
+    GenServer.call(pid, :path, 1_000)
+  catch
+    :exit, _ -> nil
   end
 
-  defp via(identifier), do: {:via, Registry, {Aiur.IssueLog.Registry, identifier}}
+  defp writer_key(identifier) when is_binary(identifier),
+    do: {:issue_log, configured_repository_scope(), identifier}
 
-  defp write_and_continue(state, line, history_item \\ nil) do
-    case ensure_current_file(state) do
-      {:ok, state} ->
-        write_line(state.file, line)
-        state = if history_item, do: push_history(state, history_item), else: state
-        {:noreply, state}
-
-      {:error, reason, state} ->
-        Logger.warning("IssueLog reopen failed identifier=#{state.identifier} path=#{log_path(state.identifier)} reason=#{inspect(reason)}")
-
-        {:stop, {:log_reopen_failed, reason}, state}
-    end
+  defp writer_key(%TrackerIdentity{} = identity) do
+    {:github, owner, repository, _provider_id} = TrackerIdentity.github_key(identity)
+    {:issue_log, repository_scope(owner, repository), identity.identifier}
   end
 
-  defp ensure_current_file(state) do
-    path = log_path(state.identifier)
+  defp via(key), do: {:via, Registry, {Aiur.IssueLog.Registry, key}}
 
-    if path == state.path do
-      {:ok, state}
-    else
-      open_replacement_file(state, path)
-    end
+  defp write_and_continue(state, line, history_item) do
+    # A writer's target is fixed when it starts. Re-resolving the mutable
+    # workflow repository here could make an existing writer append to a
+    # different repository's same-number ticket log after a config reload.
+    write_line(state.file, line)
+    state = if history_item, do: push_history(state, history_item), else: state
+    {:noreply, state}
   end
 
-  defp open_replacement_file(state, path) do
-    with :ok <- File.mkdir_p(Path.dirname(path)),
-         {:ok, file} <- File.open(path, [:append, :utf8]) do
-      _ = File.close(state.file)
-      Logger.debug("IssueLog repository path changed identifier=#{state.identifier} path=#{path}")
-      {:ok, %{state | file: file, path: path}}
-    else
-      {:error, reason} -> {:error, reason, state}
-    end
+  defp write_event_and_continue(state, line) do
+    write_line(state.file, line)
+    write_line(state.event_file, line)
+    {:noreply, state}
   end
 
   defp write_line(file, line) do
@@ -508,6 +605,10 @@ defmodule Aiur.IssueLog do
   defp repository_scope(owner, repository) do
     encoded = Base.url_encode64("#{String.downcase(owner)}/#{String.downcase(repository)}", padding: false)
     "github-" <> encoded
+  end
+
+  defp issue_log_path(scope, identifier, suffix) do
+    Path.join(log_root_dir(), "#{scope}.#{sanitize(identifier)}#{suffix}")
   end
 
   defp repo_name, do: Paths.repo_name()
