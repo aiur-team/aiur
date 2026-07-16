@@ -3,7 +3,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   require Logger
   alias Aiur.{AgentPubSub, CodingAgent, Config, Issue, Tracker}
   alias Aiur.AgentRunner.{SessionResume, TurnLoop}
-  alias Aiur.Claude.{DisplayTailer, RemoteControl}
+  alias Aiur.Claude.{DisplayTailer, RemoteControl, Telemetry}
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Workspace.Ownership
   @type worker_host :: String.t() | nil
@@ -227,7 +227,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
          session_context,
          start_fun
        ) do
-    case start_agent_session(workspace, session_context.session_opts, start_fun) do
+    case start_with_telemetry(workspace, issue, worker_host, ownership, session_context.session_opts, start_fun) do
       {:ok, session} ->
         run_contained_session(
           session,
@@ -246,6 +246,54 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
         record_session_start_failure(issue, session_context, reason)
         error
     end
+  end
+
+  defp start_with_telemetry(workspace, issue, worker_host, ownership, session_opts, start_fun) do
+    case prepare_telemetry_launch(issue, worker_host, ownership, session_opts) do
+      {:ok, telemetry_launch} ->
+        case start_agent_session(workspace, with_telemetry_launch_opts(session_opts, telemetry_launch), start_fun) do
+          {:ok, session} ->
+            revoke_unclaimed_telemetry_launch(session, telemetry_launch)
+            {:ok, session}
+
+          {:error, _reason} = error ->
+            _ = Telemetry.revoke(telemetry_launch)
+            error
+        end
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp prepare_telemetry_launch(_issue, _worker_host, nil, _session_opts), do: {:ok, nil}
+
+  defp prepare_telemetry_launch(issue, worker_host, ownership, session_opts) do
+    if Keyword.get(session_opts, :backend) in ["claude", "claude-repl"] do
+      Telemetry.prepare_launch(issue,
+        attempt_id: Keyword.get(session_opts, :attempt_id),
+        workspace_ownership: ownership,
+        backend: Keyword.get(session_opts, :backend),
+        worker_host: worker_host
+      )
+    else
+      {:ok, nil}
+    end
+  end
+
+  defp with_telemetry_launch_opts(session_opts, nil), do: session_opts
+  defp with_telemetry_launch_opts(session_opts, telemetry_launch), do: Keyword.put(session_opts, :telemetry_launch, telemetry_launch)
+
+  defp revoke_unclaimed_telemetry_launch(_session, nil), do: :ok
+
+  defp revoke_unclaimed_telemetry_launch(%{telemetry_launch: %{id: id}}, %{id: id}) when is_reference(id), do: :ok
+
+  defp revoke_unclaimed_telemetry_launch(_session, telemetry_launch) do
+    # A REPL can fall back to the headless adapter after a failed pane spawn.
+    # Never reuse a capability whose trusted backend correlation says REPL for
+    # that replacement process; the fallback remains visibly uncovered until a
+    # fresh, correctly correlated launch is prepared.
+    Telemetry.revoke(telemetry_launch)
   end
 
   defp run_contained_session(
@@ -329,18 +377,22 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   @spec stop_session_with_ownership(map(), Ownership.lease() | nil, (map() -> term())) :: term()
   def stop_session_with_ownership(session, ownership, stop_fun \\ &CodingAgent.stop_session/1)
       when is_map(session) and is_function(stop_fun, 1) do
-    case stop_fun.(session) do
-      {:ok, :cleanup_proven} ->
-        _ = Ownership.mark_provider_cleanup_succeeded(ownership)
-        :ok
+    try do
+      case stop_fun.(session) do
+        {:ok, :cleanup_proven} ->
+          _ = Ownership.mark_provider_cleanup_succeeded(ownership)
+          :ok
 
-      :ok ->
-        _ = Ownership.mark_provider_cleanup_unknown(ownership)
-        :ok
+        :ok ->
+          _ = Ownership.mark_provider_cleanup_unknown(ownership)
+          :ok
 
-      cleanup_failure ->
-        _ = Ownership.mark_provider_cleanup_unknown(ownership)
-        cleanup_failure
+        cleanup_failure ->
+          _ = Ownership.mark_provider_cleanup_unknown(ownership)
+          cleanup_failure
+      end
+    after
+      Telemetry.revoke(Map.get(session, :telemetry_launch))
     end
   catch
     kind, reason ->
@@ -615,7 +667,10 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
 
     Logger.warning("#{backend} start_session failed (#{inspect(reason)}); falling back to #{fallback}")
 
-    fallback_opts = opts |> Keyword.put(:backend, fallback) |> Keyword.delete(:remote_control)
+    {telemetry_launch, fallback_opts} = Keyword.pop(opts, :telemetry_launch)
+    _ = Telemetry.revoke(telemetry_launch)
+
+    fallback_opts = fallback_opts |> Keyword.put(:backend, fallback) |> Keyword.delete(:remote_control)
     adapter_opts = Keyword.delete(fallback_opts, :attempt_id)
 
     case start_fun.(workspace, adapter_opts) do
@@ -628,10 +683,13 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     session
     |> Map.put(:backend, backend)
     |> maybe_put_attempt_id(Keyword.get(opts, :attempt_id))
+    |> maybe_put_telemetry_launch_session(Keyword.get(opts, :telemetry_launch))
   end
 
   defp maybe_put_attempt_id(session, attempt_id) when is_binary(attempt_id), do: Map.put(session, :attempt_id, attempt_id)
   defp maybe_put_attempt_id(session, _attempt_id), do: session
+  defp maybe_put_telemetry_launch_session(session, %{id: id}) when is_reference(id), do: Map.put(session, :telemetry_launch, %{id: id})
+  defp maybe_put_telemetry_launch_session(session, _launch), do: session
 
   @doc false
   @spec session_workspace(map()) :: Path.t() | nil

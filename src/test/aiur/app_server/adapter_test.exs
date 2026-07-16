@@ -358,6 +358,18 @@ defmodule Aiur.AppServer.AdapterTest do
     assert_receive {^port, {:data, {:eol, "ready"}}}, 1_000
   end
 
+  test "start_port/4 accepts string-valued launch environment" do
+    assert {:ok, port} =
+             Adapter.start_port(
+               File.cwd!(),
+               "printf '%s\\n' \"$CLAUDE_CODE_ENABLE_TELEMETRY\"",
+               fn _port -> :ok end,
+               env: [{"CLAUDE_CODE_ENABLE_TELEMETRY", "1"}]
+             )
+
+    assert_receive {^port, {:data, {:eol, "1"}}}, 1_000
+  end
+
   test "registers a spawned port before start_port returns" do
     parent = self()
 

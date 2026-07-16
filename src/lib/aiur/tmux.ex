@@ -132,6 +132,21 @@ defmodule Aiur.Tmux do
   end
 
   @doc """
+  Create a hidden window with launch-only environment values without logging
+  them. This is the capability-bearing REPL spawn path; callers must never put
+  those values in `command_to_run`.
+  """
+  @spec new_hidden_window_with_env(GenServer.server(), String.t(), String.t(), [{String.t(), String.t() | false}]) ::
+          {:ok, String.t()} | {:error, term()}
+  def new_hidden_window_with_env(server \\ __MODULE__, window_name, command_to_run, env)
+      when is_binary(window_name) and is_binary(command_to_run) and is_list(env) do
+    GenServer.call(server, {:new_hidden_window_with_env, window_name, command_to_run, env}, 10_000)
+  catch
+    :exit, {:noproc, _} -> {:error, :no_tmux}
+    :exit, {:timeout, _} -> {:error, :timeout}
+  end
+
+  @doc """
   Move `source_pane` into `target_window`. Preserves the running
   process and the pane id — verified against tmux 3.5a on aiur's
   isolated socket.
@@ -508,6 +523,10 @@ defmodule Aiur.Tmux do
 
   def handle_call({:new_hidden_window, window_name, command_to_run}, _from, state) do
     {:reply, Layout.new_hidden_window(state, window_name, command_to_run), state}
+  end
+
+  def handle_call({:new_hidden_window_with_env, window_name, command_to_run, env}, _from, state) do
+    {:reply, Layout.new_hidden_window_with_env(state, window_name, command_to_run, env), state}
   end
 
   def handle_call({:join_pane, source_pane, target_window}, _from, state) do
