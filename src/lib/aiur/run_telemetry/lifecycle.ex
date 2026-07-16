@@ -13,7 +13,7 @@ defmodule Aiur.RunTelemetry.Lifecycle do
   alias Aiur.RunTelemetry
 
   @events ~w(
-    dispatch prewarm workspace_setup agent_spinup implement build_test
+    dispatch prewarm workspace_setup workspace_ownership agent_spinup implement build_test
     pr_opened pr_merged review_pause comment_received rework_start
     agent_pause agent_resume
   )
@@ -38,7 +38,10 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     :reason_class,
     :turn_number,
     :remote,
-    :retry_attempt
+    :retry_attempt,
+    :workspace_owner,
+    :workspace_generation,
+    :workspace_phase
   ]
 
   @doc "Creates an opaque identity for one dispatched worker attempt."

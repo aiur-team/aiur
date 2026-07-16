@@ -2,6 +2,7 @@ defmodule Aiur.AgentRunner.EventsDigestTest do
   use ExUnit.Case, async: true
 
   alias Aiur.AgentRunner.EventsDigest
+  alias Aiur.Config
 
   describe "event_field/2" do
     test "retrieves atom key from atom-keyed map" do
@@ -161,26 +162,51 @@ defmodule Aiur.AgentRunner.EventsDigestTest do
     end
 
     test "keeps both events when their timestamps fall outside the debounce window" do
+      timestamp = ~U[2026-01-01 00:00:00Z]
+      outside_window = Config.events_block_state_debounce_seconds() + 1
+
       earlier = %{
         id: 1,
         topic: "ticket.T-1.agent.blocked",
         message: "old block",
-        emitted_at: ~U[2026-01-01 00:00:00Z]
+        emitted_at: timestamp
       }
 
       later = %{
         id: 2,
         topic: "ticket.T-1.agent.unblocked",
         message: "new unblock",
-        emitted_at: ~U[2026-01-01 01:00:00Z]
+        emitted_at: DateTime.add(timestamp, outside_window, :second)
       }
 
       result = EventsDigest.render([earlier, later], "T-1")
 
-      # An hour apart is far outside the (default 10s) debounce window, so
-      # both survive.
       assert result =~ "old block"
       assert result =~ "new unblock"
+    end
+
+    test "coalesces block-state events at the exact debounce boundary" do
+      timestamp = ~U[2026-01-01 00:00:00Z]
+      window = Config.events_block_state_debounce_seconds()
+
+      earlier = %{
+        id: 1,
+        topic: "ticket.T-1.agent.blocked",
+        message: "boundary block",
+        emitted_at: timestamp
+      }
+
+      later = %{
+        id: 2,
+        topic: "ticket.T-1.agent.unblocked",
+        message: "boundary unblock",
+        emitted_at: DateTime.add(timestamp, window, :second)
+      }
+
+      result = EventsDigest.render([earlier, later], "T-1")
+
+      refute result =~ "boundary block"
+      assert result =~ "boundary unblock"
     end
 
     test "coalesces block-state events whose timestamps fall inside the debounce window" do

@@ -19,6 +19,9 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
       assert EventTopics.classify_event_topic("ticket.42.agent.pause.request") ==
                {:pause_request, "42"}
 
+      assert EventTopics.classify_event_topic("ticket.42.agent.unblocked") ==
+               {:agent_unblocked, "42"}
+
       assert EventTopics.classify_event_topic("ticket.42.branch.push") == {:branch_push, "42"}
 
       assert EventTopics.classify_event_topic("system.main.branch.push") ==
@@ -39,6 +42,7 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
         &EventTopics.parse_ci_failed_topic/1,
         &EventTopics.parse_ci_passed_topic/1,
         &EventTopics.parse_pause_request_topic/1,
+        &EventTopics.parse_agent_unblocked_topic/1,
         &EventTopics.parse_branch_push_topic/1
       ]
 

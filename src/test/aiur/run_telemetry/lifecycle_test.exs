@@ -33,6 +33,32 @@ defmodule Aiur.RunTelemetry.LifecycleTest do
     assert opts[:timestamp] == ~U[2026-07-11 12:00:00Z]
   end
 
+  test "records workspace ownership without leaking process details" do
+    recorder = recorder(self())
+
+    assert :ok =
+             Lifecycle.record(
+               "930",
+               "930:attempt",
+               :workspace_ownership,
+               :start,
+               %{
+                 workspace_owner: "workspace:7",
+                 workspace_generation: 7,
+                 workspace_phase: :provisioning,
+                 raw_pid: "<0.123.0>"
+               },
+               recorder: recorder
+             )
+
+    assert_receive {:recorded, :lifecycle, attributes, _opts}
+    assert attributes.event == "workspace_ownership"
+    assert attributes.workspace_owner == "workspace:7"
+    assert attributes.workspace_generation == 7
+    assert attributes.workspace_phase == "provisioning"
+    refute Map.has_key?(attributes, :raw_pid)
+  end
+
   test "correlates Codex build/test starts and completions without storing commands" do
     recorder = recorder(self())
     tracker = make_ref()

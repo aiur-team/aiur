@@ -9,7 +9,6 @@ defmodule Aiur.Orchestrator.PushRoutingTest do
       completed: MapSet.new(),
       claimed: MapSet.new(),
       retry_attempts: %{},
-      codex_thrash_budget: %{},
       queue_store: nil,
       last_polled_issues: %{},
       todo_over_capacity_alert_active: false,

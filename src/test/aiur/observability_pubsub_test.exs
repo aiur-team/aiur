@@ -12,17 +12,14 @@ defmodule Aiur.ObservabilityPubSubTest do
   test "broadcast_update is a no-op when pubsub is unavailable" do
     pubsub_child_id = Phoenix.PubSub.Supervisor
 
-    on_exit(fn ->
-      if Process.whereis(Aiur.PubSub) == nil do
-        assert {:ok, _pid} =
-                 Supervisor.restart_child(Aiur.Supervisor, pubsub_child_id)
-      end
-    end)
-
     assert is_pid(Process.whereis(Aiur.PubSub))
     assert :ok = Supervisor.terminate_child(Aiur.Supervisor, pubsub_child_id)
-    refute Process.whereis(Aiur.PubSub)
 
-    assert :ok = ObservabilityPubSub.broadcast_update()
+    try do
+      refute Process.whereis(Aiur.PubSub)
+      assert :ok = ObservabilityPubSub.broadcast_update()
+    after
+      assert {:ok, _pid} = Supervisor.restart_child(Aiur.Supervisor, pubsub_child_id)
+    end
   end
 end
