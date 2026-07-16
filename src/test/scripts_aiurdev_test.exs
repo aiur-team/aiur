@@ -141,6 +141,14 @@ defmodule ScriptsAiurdevTest do
         case "${4:-}" in
           deps.get|compile)
             mkdir -p deps _build
+            if [ "${4:-}" = "compile" ] && [ -n "${AIUR_FAKE_MISE_COMPILE_LOG:-}" ]; then
+              echo "compile $*" >> "$AIUR_FAKE_MISE_COMPILE_LOG"
+            fi
+            if [ "${4:-}" = "compile" ]; then
+              mkdir -p _build/dev/lib/aiur/ebin
+              printf 'generation-2' > _build/dev/lib/aiur/ebin/schema.beam
+              printf 'generation-2' > _build/dev/lib/aiur/ebin/consumer.beam
+            fi
             ;;
           release)
             if [ -n "${AIUR_FAKE_MISE_RELEASE_LOG:-}" ]; then
@@ -149,7 +157,7 @@ defmodule ScriptsAiurdevTest do
             if [ -n "${AIUR_FAKE_MISE_RELEASE_SLEEP:-}" ]; then
               sleep "$AIUR_FAKE_MISE_RELEASE_SLEEP"
             fi
-            mkdir -p bin _build/dev/rel/aiur/bin _build/dev/rel/aiur/releases/0.0.3 _build/dev/rel/aiur/erts-16.4/bin
+            mkdir -p bin _build/dev/rel/aiur/bin _build/dev/rel/aiur/lib/aiur-0.0.3/ebin _build/dev/rel/aiur/releases/0.0.3 _build/dev/rel/aiur/erts-16.4/bin
             echo '#!/usr/bin/env bash' > bin/aiur
             echo '#!/usr/bin/env bash' > _build/dev/rel/aiur/bin/aiur
             echo '#!/usr/bin/env bash' > _build/dev/rel/aiur/erts-16.4/bin/epmd
@@ -158,6 +166,10 @@ defmodule ScriptsAiurdevTest do
             : > _build/dev/rel/aiur/releases/0.0.3/start_clean.boot
             : > _build/dev/rel/aiur/releases/0.0.3/vm.args
             : > _build/dev/rel/aiur/releases/0.0.3/sys.config
+            if [ -f _build/dev/lib/aiur/ebin/schema.beam ] && [ -f _build/dev/lib/aiur/ebin/consumer.beam ]; then
+              cp _build/dev/lib/aiur/ebin/schema.beam _build/dev/rel/aiur/lib/aiur-0.0.3/ebin/schema.beam
+              cp _build/dev/lib/aiur/ebin/consumer.beam _build/dev/rel/aiur/lib/aiur-0.0.3/ebin/consumer.beam
+            fi
             if [ "${AIUR_FAKE_MISE_FAIL_RELEASE:-}" = "1" ]; then
               exit 9
             fi
@@ -477,6 +489,42 @@ defmodule ScriptsAiurdevTest do
     assert out =~ "rebuilding"
     assert out =~ "ENGINE_ARGS: --bg"
     assert File.exists?(log), "run paths should still invoke mix release when sources are stale"
+  end
+
+  test "stale rebuild compiles schema and consumer as one generation" do
+    root = fake_repo()
+    mise = fake_mise()
+    src = Path.join(root, "src")
+    compile_log = Path.join(root, "compile.log")
+    release_app = Path.join([src, "_build", "dev", "rel", "aiur", "lib", "aiur-0.0.3", "ebin"])
+
+    seed_ready_release(root)
+    File.mkdir_p!(Path.join([src, "_build", "dev", "lib", "aiur", "ebin"]))
+    File.mkdir_p!(release_app)
+    File.write!(Path.join([src, "_build", "dev", "lib", "aiur", "ebin", "schema.beam"]), "generation-1")
+    File.write!(Path.join([src, "_build", "dev", "lib", "aiur", "ebin", "consumer.beam"]), "generation-1")
+    File.write!(Path.join(release_app, "schema.beam"), "generation-1")
+    File.write!(Path.join(release_app, "consumer.beam"), "generation-1")
+    File.write!(Path.join(src, "generation"), "generation-2")
+    File.mkdir_p!(Path.join(src, "lib"))
+    File.write!(Path.join([src, "lib", "generation.ex"]), "# generation-2")
+    File.touch!(Path.join([src, "bin", "aiur"]), {{2020, 1, 1}, {0, 0, 0}})
+    File.touch!(Path.join([src, "lib", "generation.ex"]), {{2030, 1, 1}, {0, 0, 0}})
+
+    {out, 0} =
+      run_shim(["--bg"], [
+        {"AIUR_REPO_ROOT", root},
+        {"AIUR_MISE_BIN", mise},
+        {"AIUR_FAKE_MISE_COMPILE_LOG", compile_log},
+        {"TMUX", nil}
+      ])
+
+    assert out =~ "ENGINE_ARGS: --bg"
+    assert File.read!(compile_log) =~ "compile exec -- mix compile --force"
+    assert File.read!(Path.join([src, "_build", "dev", "lib", "aiur", "ebin", "schema.beam"])) == "generation-2"
+    assert File.read!(Path.join([src, "_build", "dev", "lib", "aiur", "ebin", "consumer.beam"])) == "generation-2"
+    assert File.read!(Path.join(release_app, "schema.beam")) == "generation-2"
+    assert File.read!(Path.join(release_app, "consumer.beam")) == "generation-2"
   end
 
   test "failed rebuild removes the incomplete release and exits nonzero" do
