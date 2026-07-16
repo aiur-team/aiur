@@ -3,8 +3,8 @@ defmodule AiurWeb.FinancialData.Cache do
 
   use GenServer
 
-  alias AiurWeb.FinancialDataAccess
   alias AiurWeb.FinancialData.Cache.Pending
+  alias AiurWeb.FinancialDataAccess
 
   @authentication_required {:error, :authentication_required}
 

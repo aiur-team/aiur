@@ -5,31 +5,28 @@ defmodule AiurWeb.FinancialData.Cache.Pending do
 
   @authentication_required {:error, :authentication_required}
   @max_entries 8
-  @max_pending @max_entries
-  @max_waiters_per_load @max_entries
 
   @type state :: map()
   @type identity :: FinancialDataAccess.identity()
-  @type loader :: (-> term())
 
   @spec initialize(state()) :: state()
   def initialize(state), do: Map.merge(%{pending: %{}, pending_loads: %{}, pending_monitors: %{}}, state)
 
-  @spec enqueue(state(), term(), FinancialDataAccess.Context.t(), identity(), GenServer.from(), loader()) ::
+  @spec enqueue(state(), term(), FinancialDataAccess.Context.t(), identity(), GenServer.from(), (-> term())) ::
           {:noreply, state()} | {:reply, {:error, :provider_unavailable}, state()}
   def enqueue(state, cache_key, context, identity, from, loader) do
     waiter = %{context: context, from: from, identity: identity, pid: caller_pid(from)}
 
     case Map.fetch(state.pending, cache_key) do
       {:ok, pending} ->
-        if length(pending.waiters) >= @max_waiters_per_load do
+        if length(pending.waiters) >= @max_entries do
           {:reply, {:error, :provider_unavailable}, state}
         else
           pending = %{pending | waiters: [waiter | pending.waiters]}
           {:noreply, put_in(state, [:pending, cache_key], pending)}
         end
 
-      :error when map_size(state.pending) >= @max_pending ->
+      :error when map_size(state.pending) >= @max_entries ->
         {:reply, {:error, :provider_unavailable}, state}
 
       :error ->
@@ -38,13 +35,7 @@ defmodule AiurWeb.FinancialData.Cache.Pending do
 
         {:ok, pid} =
           Task.Supervisor.start_child(state.worker_supervisor, fn ->
-            result =
-              case FinancialDataAccess.identity(context) do
-                {:ok, ^identity} -> safe_load(loader)
-                _stale_or_denied -> :denied
-              end
-
-            send(cache, {:financial_data_loaded, load_ref, result})
+            load_worker(cache, load_ref, context, identity, loader)
           end)
 
         monitor = Process.monitor(pid)
@@ -177,6 +168,15 @@ defmodule AiurWeb.FinancialData.Cache.Pending do
 
   defp stop_worker(%{pid: pid}) when is_pid(pid) do
     if Process.alive?(pid), do: Process.exit(pid, :shutdown)
+  end
+
+  defp load_worker(cache, load_ref, context, identity, loader), do: send(cache, {:financial_data_loaded, load_ref, load_result(context, identity, loader)})
+
+  defp load_result(context, identity, loader) do
+    case FinancialDataAccess.identity(context) do
+      {:ok, ^identity} -> safe_load(loader)
+      _stale_or_denied -> :denied
+    end
   end
 
   defp caller_pid({pid, _tag}) when is_pid(pid), do: pid

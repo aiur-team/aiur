@@ -55,15 +55,11 @@ defmodule AiurWeb.FinancialData.SubscriptionAuthority do
   def handle_call(:authorized_identities, _from, state) do
     {identities, state} =
       Enum.reduce(state.subscribers, {MapSet.new(), state}, fn {subscriber, %{context: context, identity: identity}}, {identities, state} ->
-        case FinancialDataAccess.identity(context) do
-          {:ok, ^identity} ->
-            if Process.alive?(subscriber) do
-              {MapSet.put(identities, identity), state}
-            else
-              {identities, remove_subscriber(state, subscriber)}
-            end
+        case current_identity(subscriber, context, identity) do
+          {:ok, identity} ->
+            {MapSet.put(identities, identity), state}
 
-          _stale_or_disconnected ->
+          :remove ->
             {identities, remove_subscriber(state, subscriber)}
         end
       end)
@@ -99,6 +95,13 @@ defmodule AiurWeb.FinancialData.SubscriptionAuthority do
 
       {nil, _subscribers} ->
         state
+    end
+  end
+
+  defp current_identity(subscriber, context, identity) do
+    case FinancialDataAccess.identity(context) do
+      {:ok, ^identity} -> if is_pid(subscriber) and Process.alive?(subscriber), do: {:ok, identity}, else: :remove
+      _stale_or_disconnected -> :remove
     end
   end
 end
