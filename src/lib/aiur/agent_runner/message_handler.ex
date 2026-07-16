@@ -6,7 +6,7 @@ defmodule Aiur.AgentRunner.MessageHandler do
   subscribers, and reports worker state to the orchestrator recipient.
   """
 
-  alias Aiur.{AgentEventLog, AgentEvents, AgentPubSub, CodingAgent, Issue, ModelAvailability}
+  alias Aiur.{AgentEventLog, AgentEvents, AgentPubSub, CodingAgent, Issue, LiveConversation, ModelAvailability, TrackerIdentity}
   alias Aiur.Protocol.MapAccess
   alias Aiur.RunTelemetry.Lifecycle
 
@@ -33,6 +33,7 @@ defmodule Aiur.AgentRunner.MessageHandler do
       observe_rate_limits(backend, message, lifecycle_opts)
       AgentEventLog.write(workspace, worker_host, message)
       maybe_broadcast_transcript(issue, message, backend, turn_id)
+      maybe_observe_live_conversation(issue, message, backend, turn_id, lifecycle_opts)
       maybe_broadcast_turn_event(issue, message, turn_id)
       send_codex_update(recipient, issue, message)
     end
@@ -67,6 +68,25 @@ defmodule Aiur.AgentRunner.MessageHandler do
   end
 
   defp maybe_broadcast_transcript(_issue, _message, _backend, _turn_id), do: :ok
+
+  # This sits beside, rather than behind, the existing pane transcript. The
+  # pane is intentionally rich (reasoning, commands, tool I/O); the dashboard
+  # projection admits only its own conservative allowlist.
+  defp maybe_observe_live_conversation(%Issue{} = issue, message, backend, turn_id, opts) do
+    with %TrackerIdentity{} = identity <- Issue.tracker_identity(issue),
+         true <- TrackerIdentity.joinable?(identity),
+         generation when is_integer(generation) and generation > 0 <- Keyword.get(opts, :worker_generation),
+         attempt_id when not is_nil(attempt_id) <- Keyword.get(opts, :attempt_id),
+         {:ok, event} <- transcript_event_from(message, backend, turn_id) do
+      source = %{identity: identity, attempt_id: attempt_id, backend: backend, worker_generation: generation}
+      _ = LiveConversation.activate(source)
+      _ = LiveConversation.observe(source, event)
+    else
+      _ -> :ok
+    end
+  end
+
+  defp maybe_observe_live_conversation(_issue, _message, _backend, _turn_id, _opts), do: :ok
 
   defp maybe_broadcast_turn_event(%Issue{identifier: identifier}, message, turn_id)
        when is_binary(identifier) and is_binary(turn_id) do
