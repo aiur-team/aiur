@@ -5,21 +5,24 @@ defmodule Aiur.Usage.PriceTableTest do
   alias Aiur.Usage.PriceTable
   alias Aiur.Usage.PriceTable.Data
 
-  @expected_rates [
-    {:codex, "gpt-5.6-sol", "5.00", "0.50", "6.25", "30.00"},
-    {:codex, "gpt-5.6-terra", "2.50", "0.25", "3.125", "15.00"},
-    {:codex, "gpt-5.6-luna", "1.00", "0.10", "1.25", "6.00"},
-    {:claude, "claude-opus-4-8", "5.00", "0.50", "6.25", "25.00"},
-    {:claude, "claude-sonnet-4-6", "3.00", "0.30", "3.75", "15.00"},
-    {:claude, "claude-haiku-4-5", "1.00", "0.10", "1.25", "5.00"}
+  @codex_rates [
+    {"gpt-5.6-sol", :short_context, "5.00", "0.50", "6.25", "30.00"},
+    {"gpt-5.6-sol", :long_context, "10.00", "1.00", "12.50", "45.00"},
+    {"gpt-5.6-terra", :short_context, "2.50", "0.25", "3.125", "15.00"},
+    {"gpt-5.6-terra", :long_context, "5.00", "0.50", "6.25", "22.50"},
+    {"gpt-5.6-luna", :short_context, "1.00", "0.10", "1.25", "6.00"},
+    {"gpt-5.6-luna", :long_context, "2.00", "0.20", "2.50", "9.00"}
   ]
-  @dimensions [:input, :cached_input, :cache_creation_input, :output, :reasoning_output]
-
+  @claude_rates [
+    {"claude-opus-4-8", "5.00", "0.50", "6.25", "10.00", "25.00"},
+    {"claude-sonnet-4-6", "3.00", "0.30", "3.75", "6.00", "15.00"},
+    {"claude-haiku-4-5", "1.00", "0.10", "1.25", "2.00", "5.00"}
+  ]
   test "resolves every reviewed model dimension on its inclusive boundary" do
     assert {:ok, catalog} = PriceTable.default()
-    assert length(catalog.entries) == 30
+    assert length(catalog.entries) == 48
 
-    for {provider, model, input, cached, creation, output} <- @expected_rates,
+    for {model, context_tier, input, cached, creation, output} <- @codex_rates,
         {dimension, expected} <- [
           input: input,
           cached_input: cached,
@@ -27,24 +30,46 @@ defmodule Aiur.Usage.PriceTableTest do
           output: output,
           reasoning_output: output
         ] do
-      assert {:ok, price} = PriceTable.lookup(catalog, query(provider, model, dimension))
+      assert {:ok, price} =
+               PriceTable.lookup(
+                 catalog,
+                 query(:codex, model, dimension, context_tier, :not_applicable)
+               )
+
       assert Decimal.equal?(price.price, Decimal.new(expected))
       assert price.token_unit == 1_000_000
       assert price.effective_date == ~D[2026-07-15]
       assert price.expires_before == nil
       assert price.source_reviewed_at == ~D[2026-07-15]
-      assert price.source_url == source_url(provider)
-      assert price.price_revision == price_revision(provider)
+      assert price.source_url == source_url(:codex)
+      assert price.price_revision == price_revision(:codex)
+      assert price.context_tier == context_tier
+      assert price.cache_write_duration == :not_applicable
+    end
+
+    for {model, input, cached, five_minute_creation, one_hour_creation, output} <- @claude_rates,
+        {dimension, duration, expected} <- [
+          {:input, :not_applicable, input},
+          {:cached_input, :not_applicable, cached},
+          {:cache_creation_input, :five_minutes, five_minute_creation},
+          {:cache_creation_input, :one_hour, one_hour_creation},
+          {:output, :not_applicable, output},
+          {:reasoning_output, :not_applicable, output}
+        ] do
+      assert {:ok, price} =
+               PriceTable.lookup(
+                 catalog,
+                 query(:claude, model, dimension, :not_applicable, duration)
+               )
+
+      assert Decimal.equal?(price.price, Decimal.new(expected))
+      assert price.context_tier == :not_applicable
+      assert price.cache_write_duration == duration
+      assert price.source_url == source_url(:claude)
+      assert price.price_revision == price_revision(:claude)
     end
 
     assert catalog.revision == Data.catalog_revision()
-
-    assert Enum.map(catalog.entries, &{&1.provider, &1.resolved_model, &1.token_dimension}) ==
-             for(
-               {provider, model, _input, _cached, _creation, _output} <- @expected_rates,
-               dimension <- @dimensions,
-               do: {provider, model, dimension}
-             )
   end
 
   test "selects old and new revisions solely from the occurrence date" do
@@ -89,6 +114,26 @@ defmodule Aiur.Usage.PriceTableTest do
 
     assert {:error, :invalid_price_source} =
              PriceTable.new("table-1", [entry(%{source_url: "http://example.com/pricing"})])
+
+    assert {:error, :invalid_price_context_tier} =
+             PriceTable.new("table-1", [entry(%{context_tier: :not_applicable})])
+
+    assert {:error, :invalid_cache_write_duration} =
+             PriceTable.new("table-1", [
+               entry(%{
+                 provider: :claude,
+                 context_tier: :not_applicable,
+                 cache_write_duration: :five_minutes
+               })
+             ])
+
+    assert {:error, :invalid_price_context_tier} =
+             PriceTable.new("table-1", [
+               entry(%{
+                 provider: :claude,
+                 context_tier: :short_context
+               })
+             ])
   end
 
   test "never crosses an exact pricing join dimension" do
@@ -108,6 +153,12 @@ defmodule Aiur.Usage.PriceTableTest do
 
     assert {:error, :unknown_price_dimension} =
              PriceTable.lookup(catalog, query(%{token_dimension: :output}))
+
+    assert {:error, :unknown_price_context_tier} =
+             PriceTable.lookup(catalog, query(%{context_tier: :long_context}))
+
+    assert {:error, :unknown_cache_write_duration} =
+             PriceTable.lookup(catalog, query(%{cache_write_duration: :five_minutes}))
 
     assert {:error, :price_not_yet_effective} =
              PriceTable.lookup(catalog, query(~D[2026-07-14]))
@@ -157,18 +208,22 @@ defmodule Aiur.Usage.PriceTableTest do
         token_dimension: :input,
         relationship_revision: "codex-app-server-2026-07",
         currency: "USD",
+        context_tier: :short_context,
+        cache_write_duration: :not_applicable,
         pricing_effective_date: ~D[2026-07-15]
       },
       overrides
     )
   end
 
-  defp query(provider, model, dimension) do
+  defp query(provider, model, dimension, context_tier, cache_write_duration) do
     query(%{
       provider: provider,
       resolved_model: model,
       token_dimension: dimension,
-      relationship_revision: relationship_revision(provider)
+      relationship_revision: relationship_revision(provider),
+      context_tier: context_tier,
+      cache_write_duration: cache_write_duration
     })
   end
 
@@ -180,6 +235,8 @@ defmodule Aiur.Usage.PriceTableTest do
         token_dimension: :input,
         relationship_revision: "codex-app-server-2026-07",
         currency: "USD",
+        context_tier: :short_context,
+        cache_write_duration: :not_applicable,
         price: "2.50",
         token_unit: 1_000_000,
         effective_date: ~D[2026-07-15],

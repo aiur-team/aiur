@@ -11,8 +11,16 @@ defmodule Aiur.Usage.Pricing.Result do
     copy_key: "usage.api_equivalent_estimate.subscription_disclosure"
   }
 
-  @spec build(UsageEnvelope.t(), PriceTable.catalog(), String.t() | nil, map(), map() | nil, [atom()]) :: map()
-  def build(envelope, price_table, currency, reconciliation, api_estimate, reasons) do
+  @spec build(
+          UsageEnvelope.t(),
+          PriceTable.catalog(),
+          String.t() | nil,
+          map(),
+          map(),
+          map() | nil,
+          [atom()]
+        ) :: map()
+  def build(envelope, price_table, currency, pricing_dimensions, reconciliation, api_estimate, reasons) do
     reasons = Enum.uniq(reasons)
 
     %{
@@ -22,6 +30,8 @@ defmodule Aiur.Usage.Pricing.Result do
       relationship_revision: envelope.relationship_revision,
       pricing_effective_date: envelope.pricing_effective_date,
       requested_currency: currency,
+      pricing_context_tier: pricing_dimensions.context_tier,
+      cache_write_duration: pricing_dimensions.cache_write_duration,
       price_table_revision: Map.get(price_table, :revision),
       account_generation: envelope.account_generation.generation,
       tier_join_key: tier_join_key(envelope),
@@ -42,19 +52,26 @@ defmodule Aiur.Usage.Pricing.Result do
   def api_estimate(components, price_table, currency, auth_mode) do
     amount = Enum.reduce(components, Decimal.new(0), &Decimal.add(&1.amount, &2))
 
-    %{
-      basis: :api_equivalent_estimate,
-      basis_label: "API-equivalent estimate",
+    price_metadata(components, price_table, currency, auth_mode)
+    |> Map.merge(%{
       amount: amount,
       amount_decimal: Decimal.to_string(amount, :normal),
-      currency: currency,
       coverage: :full,
       coverage_label: coverage_label(:full),
-      price_table_revision: price_table.revision,
-      price_revisions: components |> Enum.map(& &1.price_revision) |> Enum.uniq() |> Enum.sort(),
-      components: components,
-      disclosure: disclosure(auth_mode)
-    }
+      missing_components: []
+    })
+  end
+
+  @spec partial_api_estimate([map()], [map()], PriceTable.catalog(), String.t(), atom()) :: map()
+  def partial_api_estimate(components, missing, price_table, currency, auth_mode) do
+    price_metadata(components, price_table, currency, auth_mode)
+    |> Map.merge(%{
+      amount: nil,
+      amount_decimal: nil,
+      coverage: :partial,
+      coverage_label: coverage_label(:partial),
+      missing_components: missing
+    })
   end
 
   defp provider_estimate(nil), do: nil
@@ -85,8 +102,20 @@ defmodule Aiur.Usage.Pricing.Result do
   defp disclosure(:chatgpt), do: @subscription_disclosure
   defp disclosure(_auth_mode), do: nil
 
+  defp price_metadata(components, price_table, currency, auth_mode) do
+    %{
+      basis: :api_equivalent_estimate,
+      basis_label: "API-equivalent estimate",
+      currency: currency,
+      price_table_revision: price_table.revision,
+      price_revisions: components |> Enum.map(& &1.price_revision) |> Enum.uniq() |> Enum.sort(),
+      components: components,
+      disclosure: disclosure(auth_mode)
+    }
+  end
+
   defp coverage(nil), do: :unknown
-  defp coverage(_estimate), do: :full
+  defp coverage(%{coverage: coverage}) when coverage in [:full, :partial], do: coverage
 
   defp coverage_label(:full), do: "Known"
   defp coverage_label(:partial), do: "Partial"

@@ -32,7 +32,8 @@ defmodule Aiur.Usage.PricingPropertyTest do
                  envelope,
                  Fixture.registry!(),
                  Fixture.default_price_table!(),
-                 currency: "USD"
+                 currency: "USD",
+                 context_tier: :short_context
                )
 
       estimate = result.api_equivalent_estimate

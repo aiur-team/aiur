@@ -16,6 +16,8 @@ defmodule Aiur.Usage.PriceTable do
           token_dimension: atom(),
           relationship_revision: String.t(),
           currency: String.t(),
+          context_tier: :short_context | :long_context | :not_applicable,
+          cache_write_duration: :five_minutes | :one_hour | :not_applicable,
           price: Decimal.t(),
           token_unit: pos_integer(),
           effective_date: Date.t(),
@@ -53,6 +55,12 @@ defmodule Aiur.Usage.PriceTable do
       {:resolved_model, value_of(query, :resolved_model), :unknown_price_model},
       {:currency, value_of(query, :currency), :unsupported_price_currency},
       {:relationship_revision, value_of(query, :relationship_revision), :unknown_price_relationship_revision},
+      {:context_tier, value_of(query, :context_tier), :unknown_price_context_tier},
+      {
+        :cache_write_duration,
+        value_of(query, :cache_write_duration),
+        :unknown_cache_write_duration
+      },
       {:token_dimension, value_of(query, :token_dimension), :unknown_price_dimension}
     ]
 

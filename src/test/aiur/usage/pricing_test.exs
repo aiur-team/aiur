@@ -32,6 +32,25 @@ defmodule Aiur.Usage.PricingTest do
     assert components.cached_input.resolved_model == "claude-opus-4-8"
     assert components.cached_input.relationship_revision == "claude-remote-control-2026-07"
     assert components.cached_input.price_revision == "anthropic-standard-global-2026-07-15"
+    assert components.cache_creation_input.cache_write_duration == :five_minutes
+    assert result.pricing_context_tier == :not_applicable
+    assert result.cache_write_duration == :five_minutes
+  end
+
+  test "selects exact Codex context and Claude cache-write rates" do
+    short_context = resolve(Fixture.codex_envelope!())
+    long_context = resolve(Fixture.codex_envelope!(), context_tier: :long_context)
+
+    assert short_context.api_equivalent_estimate.amount_decimal == "0.00061625"
+    assert long_context.api_equivalent_estimate.amount_decimal == "0.0010075"
+    assert long_context.pricing_context_tier == :long_context
+
+    five_minutes = resolve(Fixture.claude_envelope!())
+    one_hour = resolve(Fixture.claude_envelope!(), cache_write_duration: :one_hour)
+
+    assert five_minutes.api_equivalent_estimate.amount_decimal == "0.0009475"
+    assert one_hour.api_equivalent_estimate.amount_decimal == "0.00106"
+    assert one_hour.cache_write_duration == :one_hour
   end
 
   test "prices Codex subset children and only the parent remainder" do
@@ -188,17 +207,81 @@ defmodule Aiur.Usage.PricingTest do
     refute result.coverage_reasons == []
   end
 
-  test "requires an exact price for every billable component" do
+  test "fails closed when provider pricing scope is absent or unsupported" do
+    for {envelope, options, reason} <- [
+          {Fixture.codex_envelope!(), [currency: "USD"], :missing_context_tier},
+          {
+            Fixture.codex_envelope!(),
+            [currency: "USD", context_tier: :unbounded],
+            :unsupported_context_tier
+          },
+          {
+            Fixture.codex_envelope!(),
+            [
+              currency: "USD",
+              context_tier: :short_context,
+              cache_write_duration: :five_minutes
+            ],
+            :unsupported_cache_write_duration
+          },
+          {Fixture.claude_envelope!(), [currency: "USD"], :missing_cache_write_duration},
+          {
+            Fixture.claude_envelope!(),
+            [
+              currency: "USD",
+              context_tier: :short_context,
+              cache_write_duration: :five_minutes
+            ],
+            :unsupported_context_tier
+          },
+          {
+            Fixture.claude_envelope!(),
+            [currency: "USD", cache_write_duration: :session],
+            :unsupported_cache_write_duration
+          }
+        ] do
+      assert {:ok, result} =
+               Pricing.resolve(envelope, Fixture.registry!(), Fixture.default_price_table!(), options)
+
+      assert result.api_equivalent_estimate == nil
+      assert result.api_equivalent_coverage == :unknown
+      assert reason in result.coverage_reasons
+
+      if reason == :missing_context_tier do
+        assert result.pricing_context_tier == nil
+      end
+
+      if reason == :missing_cache_write_duration do
+        assert result.cache_write_duration == nil
+      end
+    end
+  end
+
+  test "retains priced components but withholds a total for partial price coverage" do
     entries =
       Enum.reject(Data.entries(), fn entry ->
         entry.provider == :codex and entry.resolved_model == "gpt-5.6-terra" and
-          entry.token_dimension == :output
+          entry.token_dimension == :output and entry.context_tier == :short_context
       end)
 
     assert {:ok, sparse_table} = PriceTable.new("sparse-test-table", entries)
 
     result = resolve(Fixture.codex_envelope!(), Fixture.registry!(), sparse_table)
-    assert result.api_equivalent_estimate == nil
+    assert result.api_equivalent_coverage == :partial
+    assert result.api_equivalent_estimate.coverage == :partial
+    assert result.api_equivalent_estimate.amount == nil
+    assert result.api_equivalent_estimate.amount_decimal == nil
+    assert length(result.api_equivalent_estimate.components) == 4
+
+    assert result.api_equivalent_estimate.missing_components == [
+             %{
+               token_dimension: :output,
+               tokens: 20,
+               relationship: :additive,
+               reason: :unknown_price_dimension
+             }
+           ]
+
     assert :unknown_price_dimension in result.coverage_reasons
   end
 
@@ -229,8 +312,16 @@ defmodule Aiur.Usage.PricingTest do
     assert :unknown_account_generation in result.coverage_reasons
   end
 
-  defp resolve(envelope),
-    do: resolve(envelope, Fixture.registry!(), Fixture.default_price_table!(), "USD")
+  defp resolve(envelope), do: resolve(envelope, pricing_options(envelope))
+
+  defp resolve(envelope, options) when is_list(options) do
+    options = Keyword.merge(pricing_options(envelope), options)
+
+    assert {:ok, result} =
+             Pricing.resolve(envelope, Fixture.registry!(), Fixture.default_price_table!(), options)
+
+    result
+  end
 
   defp resolve(envelope, registry),
     do: resolve(envelope, registry, Fixture.default_price_table!(), "USD")
@@ -238,9 +329,16 @@ defmodule Aiur.Usage.PricingTest do
   defp resolve(envelope, registry, table), do: resolve(envelope, registry, table, "USD")
 
   defp resolve(envelope, registry, table, currency) do
-    assert {:ok, result} = Pricing.resolve(envelope, registry, table, currency: currency)
+    options = Keyword.put(pricing_options(envelope), :currency, currency)
+    assert {:ok, result} = Pricing.resolve(envelope, registry, table, options)
     result
   end
+
+  defp pricing_options(%{provider: :codex}),
+    do: [currency: "USD", context_tier: :short_context]
+
+  defp pricing_options(%{provider: :claude}),
+    do: [currency: "USD", cache_write_duration: :five_minutes]
 
   defp codex_tokens(overrides) do
     Map.merge(

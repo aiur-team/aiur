@@ -1,14 +1,20 @@
 defmodule Aiur.Usage.PriceTable.Validator do
   @moduledoc false
 
+  alias Aiur.Usage.PriceTable.ProviderDimensions
+
   @providers [:codex, :claude]
   @dimensions [:input, :cached_input, :cache_creation_input, :output, :reasoning_output]
+  @context_tiers [:short_context, :long_context, :not_applicable]
+  @cache_write_durations [:five_minutes, :one_hour, :not_applicable]
   @fields [
     :provider,
     :resolved_model,
     :token_dimension,
     :relationship_revision,
     :currency,
+    :context_tier,
+    :cache_write_duration,
     :price,
     :token_unit,
     :effective_date,
@@ -52,6 +58,15 @@ defmodule Aiur.Usage.PriceTable.Validator do
          {:ok, dimension} <- enum(value_of(value, :token_dimension), @dimensions, :invalid_price_dimension),
          {:ok, relationship} <- scalar(value_of(value, :relationship_revision), :invalid_price_relationship_revision),
          {:ok, currency} <- currency(value_of(value, :currency)),
+         {:ok, context_tier} <-
+           enum(value_of(value, :context_tier), @context_tiers, :invalid_price_context_tier),
+         {:ok, cache_write_duration} <-
+           enum(
+             value_of(value, :cache_write_duration),
+             @cache_write_durations,
+             :invalid_cache_write_duration
+           ),
+         :ok <- ProviderDimensions.validate(provider, dimension, context_tier, cache_write_duration),
          {:ok, price} <- price(value_of(value, :price)),
          {:ok, unit} <- token_unit(value_of(value, :token_unit)),
          {:ok, effective_date} <- date(value_of(value, :effective_date), :invalid_price_effective_date),
@@ -66,6 +81,8 @@ defmodule Aiur.Usage.PriceTable.Validator do
          token_dimension: dimension,
          relationship_revision: relationship,
          currency: currency,
+         context_tier: context_tier,
+         cache_write_duration: cache_write_duration,
          price: price,
          token_unit: unit,
          effective_date: effective_date,
@@ -98,7 +115,15 @@ defmodule Aiur.Usage.PriceTable.Validator do
   end
 
   defp series_key(entry) do
-    {entry.provider, entry.resolved_model, entry.token_dimension, entry.relationship_revision, entry.currency}
+    {
+      entry.provider,
+      entry.resolved_model,
+      entry.token_dimension,
+      entry.relationship_revision,
+      entry.currency,
+      entry.context_tier,
+      entry.cache_write_duration
+    }
   end
 
   defp revision_metadata(entry) do

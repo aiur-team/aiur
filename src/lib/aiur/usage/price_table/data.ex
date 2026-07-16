@@ -17,56 +17,99 @@ defmodule Aiur.Usage.PriceTable.Data do
   @openai_revision "openai-standard-global-2026-07-15"
   @openai_relationship "codex-app-server-2026-07"
   @openai_models [
-    {"gpt-5.6-sol", %{input: "5.00", cached_input: "0.50", cache_creation_input: "6.25", output: "30.00"}},
-    {"gpt-5.6-terra", %{input: "2.50", cached_input: "0.25", cache_creation_input: "3.125", output: "15.00"}},
-    {"gpt-5.6-luna", %{input: "1.00", cached_input: "0.10", cache_creation_input: "1.25", output: "6.00"}}
+    {"gpt-5.6-sol",
+     [
+       short_context: %{input: "5.00", cached_input: "0.50", cache_creation_input: "6.25", output: "30.00"},
+       long_context: %{input: "10.00", cached_input: "1.00", cache_creation_input: "12.50", output: "45.00"}
+     ]},
+    {"gpt-5.6-terra",
+     [
+       short_context: %{input: "2.50", cached_input: "0.25", cache_creation_input: "3.125", output: "15.00"},
+       long_context: %{input: "5.00", cached_input: "0.50", cache_creation_input: "6.25", output: "22.50"}
+     ]},
+    {"gpt-5.6-luna",
+     [
+       short_context: %{input: "1.00", cached_input: "0.10", cache_creation_input: "1.25", output: "6.00"},
+       long_context: %{input: "2.00", cached_input: "0.20", cache_creation_input: "2.50", output: "9.00"}
+     ]}
   ]
 
   @anthropic_source "https://platform.claude.com/docs/en/about-claude/pricing"
   @anthropic_revision "anthropic-standard-global-2026-07-15"
   @anthropic_relationship "claude-remote-control-2026-07"
   @anthropic_models [
-    {"claude-opus-4-8", %{input: "5.00", cached_input: "0.50", cache_creation_input: "6.25", output: "25.00"}},
-    {"claude-sonnet-4-6", %{input: "3.00", cached_input: "0.30", cache_creation_input: "3.75", output: "15.00"}},
-    {"claude-haiku-4-5", %{input: "1.00", cached_input: "0.10", cache_creation_input: "1.25", output: "5.00"}}
+    {"claude-opus-4-8", %{input: "5.00", cached_input: "0.50", five_minutes: "6.25", one_hour: "10.00", output: "25.00"}},
+    {"claude-sonnet-4-6", %{input: "3.00", cached_input: "0.30", five_minutes: "3.75", one_hour: "6.00", output: "15.00"}},
+    {"claude-haiku-4-5", %{input: "1.00", cached_input: "0.10", five_minutes: "1.25", one_hour: "2.00", output: "5.00"}}
   ]
 
   @spec catalog_revision() :: String.t()
   def catalog_revision, do: @catalog_revision
 
   @spec entries() :: [map()]
-  def entries do
-    model_entries(:codex, @openai_models, @openai_relationship, @openai_revision, @openai_source) ++
-      model_entries(
-        :claude,
-        @anthropic_models,
-        @anthropic_relationship,
-        @anthropic_revision,
-        @anthropic_source
-      )
+  def entries, do: openai_entries() ++ anthropic_entries()
+
+  defp openai_entries do
+    for {model, contexts} <- @openai_models,
+        {context_tier, rates} <- contexts,
+        dimension <- @dimensions do
+      entry(:codex, model, dimension, rate(rates, dimension), %{
+        context_tier: context_tier,
+        cache_write_duration: :not_applicable
+      })
+    end
   end
 
-  defp model_entries(provider, models, relationship, revision, source) do
-    Enum.flat_map(models, fn {model, rates} ->
-      Enum.map(@dimensions, fn dimension ->
-        %{
-          provider: provider,
-          resolved_model: model,
-          token_dimension: dimension,
-          relationship_revision: relationship,
-          currency: "USD",
-          price: rate(rates, dimension),
-          token_unit: @token_unit,
-          effective_date: @effective_date,
-          price_revision: revision,
-          source_url: source,
-          source_reviewed_at: @reviewed_at,
-          pricing_scope: @pricing_scope
-        }
-      end)
-    end)
+  defp anthropic_entries do
+    for {model, rates} <- @anthropic_models,
+        {dimension, duration, price} <- anthropic_rates(rates) do
+      entry(:claude, model, dimension, price, %{
+        context_tier: :not_applicable,
+        cache_write_duration: duration
+      })
+    end
+  end
+
+  defp anthropic_rates(rates) do
+    [
+      {:input, :not_applicable, rates.input},
+      {:cached_input, :not_applicable, rates.cached_input},
+      {:cache_creation_input, :five_minutes, rates.five_minutes},
+      {:cache_creation_input, :one_hour, rates.one_hour},
+      {:output, :not_applicable, rates.output},
+      {:reasoning_output, :not_applicable, rates.output}
+    ]
+  end
+
+  defp entry(provider, model, dimension, price, dimensions) do
+    Map.merge(
+      %{
+        provider: provider,
+        resolved_model: model,
+        token_dimension: dimension,
+        relationship_revision: relationship_revision(provider),
+        currency: "USD",
+        price: price,
+        token_unit: @token_unit,
+        effective_date: @effective_date,
+        price_revision: price_revision(provider),
+        source_url: source(provider),
+        source_reviewed_at: @reviewed_at,
+        pricing_scope: @pricing_scope
+      },
+      dimensions
+    )
   end
 
   defp rate(rates, :reasoning_output), do: rates.output
   defp rate(rates, dimension), do: Map.fetch!(rates, dimension)
+
+  defp relationship_revision(:codex), do: @openai_relationship
+  defp relationship_revision(:claude), do: @anthropic_relationship
+
+  defp price_revision(:codex), do: @openai_revision
+  defp price_revision(:claude), do: @anthropic_revision
+
+  defp source(:codex), do: @openai_source
+  defp source(:claude), do: @anthropic_source
 end

@@ -103,6 +103,8 @@ defmodule Aiur.Usage.PricingFixture do
             token_dimension: dimension,
             relationship_revision: relationship_revision,
             currency: "USD",
+            context_tier: :short_context,
+            cache_write_duration: :not_applicable,
             price: "1.00",
             token_unit: 1_000_000,
             effective_date: ~D[2026-07-15],
