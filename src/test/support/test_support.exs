@@ -82,7 +82,7 @@ defmodule Aiur.TestSupport do
         # through it, so a sibling never calls into a torn-down store — the #780
         # `WorkspaceAndConfigTest` flake: `GenServer.call(WorkflowStore, :current)`
         # exiting `:shutdown`. Then reload it onto this test's config path.
-        Aiur.TestSupport.ensure_workflow_store_running()
+        Aiur.TestSupport.ensure_runtime_children_running()
         if Process.whereis(Aiur.WorkflowStore), do: Aiur.WorkflowStore.force_reload()
         stop_default_http_server()
 
@@ -206,10 +206,19 @@ defmodule Aiur.TestSupport do
   end
 
   def stop_default_http_server do
-    if is_nil(Process.whereis(Aiur.Supervisor)) do
-      :ok
-    else
-      stop_default_http_server_child()
+    case Process.whereis(Aiur.Supervisor) do
+      supervisor when is_pid(supervisor) ->
+        case stop_default_http_server_child() do
+          :ok ->
+            :ok
+
+          :supervisor_unavailable ->
+            await_supervisor_shutdown(supervisor)
+            ensure_aiur_supervisor_running()
+        end
+
+      nil ->
+        ensure_aiur_supervisor_running()
     end
   end
 
@@ -230,6 +239,28 @@ defmodule Aiur.TestSupport do
       _ ->
         :ok
     end
+  catch
+    :exit, _reason -> :supervisor_unavailable
+  end
+
+  defp await_supervisor_shutdown(supervisor) do
+    ref = Process.monitor(supervisor)
+
+    receive do
+      {:DOWN, ^ref, :process, ^supervisor, _reason} -> :ok
+    after
+      100 -> Process.demonitor(ref, [:flush])
+    end
+  end
+
+  @doc """
+  Restores the shared application children that ordinary tests rely on after a
+  sibling intentionally stopped one for an unavailable-service case.
+  """
+  def ensure_runtime_children_running do
+    ensure_aiur_supervisor_running()
+    ensure_pubsub_running()
+    ensure_workflow_store_running()
   end
 
   @doc """
@@ -245,6 +276,29 @@ defmodule Aiur.TestSupport do
     case Process.whereis(Aiur.WorkflowStore) do
       pid when is_pid(pid) -> :ok
       nil -> restart_workflow_store()
+    end
+  end
+
+  defp ensure_pubsub_running(retries \\ 1) do
+    case Process.whereis(Aiur.PubSub) do
+      pid when is_pid(pid) ->
+        :ok
+
+      nil ->
+        case restart_pubsub_child() do
+          {:ok, pid} when is_pid(pid) ->
+            :ok
+
+          {:error, {:already_started, pid}} when is_pid(pid) ->
+            :ok
+
+          :supervisor_unavailable when retries > 0 ->
+            ensure_aiur_supervisor_running()
+            ensure_pubsub_running(retries - 1)
+
+          _ ->
+            if Process.whereis(Aiur.PubSub), do: :ok, else: :error
+        end
     end
   end
 
@@ -282,21 +336,62 @@ defmodule Aiur.TestSupport do
   defp restart_workflow_store_child do
     Supervisor.restart_child(Aiur.Supervisor, Aiur.WorkflowStore)
   catch
-    :exit, :noproc -> :supervisor_unavailable
-    :exit, {:noproc, _details} -> :supervisor_unavailable
+    :exit, _reason -> :supervisor_unavailable
   end
 
-  defp ensure_aiur_supervisor_running do
+  defp restart_pubsub_child do
+    Supervisor.restart_child(Aiur.Supervisor, Phoenix.PubSub.Supervisor)
+  catch
+    :exit, _reason -> :supervisor_unavailable
+  end
+
+  defp ensure_aiur_supervisor_running(retries \\ 10) do
     case Process.whereis(Aiur.Supervisor) do
       pid when is_pid(pid) ->
-        :ok
+        if supervisor_accepting_calls?(pid) do
+          :ok
+        else
+          await_supervisor_shutdown(pid)
+          restart_aiur_application(retries)
+        end
 
       nil ->
-        case Application.ensure_all_started(:aiur) do
-          {:ok, _apps} -> :ok
-          {:error, {:already_started, _app}} -> :ok
-        end
+        restart_aiur_application(retries)
     end
+  end
+
+  defp restart_aiur_application(retries) do
+    case Application.ensure_all_started(:aiur) do
+      {:ok, _apps} -> await_aiur_supervisor(retries)
+      {:error, {:already_started, _app}} -> await_aiur_supervisor(retries)
+      {:error, {:aiur, {:already_started, _app}}} -> await_aiur_supervisor(retries)
+      {:error, _reason} -> await_aiur_supervisor(retries)
+    end
+  end
+
+  defp await_aiur_supervisor(0), do: :error
+
+  defp await_aiur_supervisor(retries) do
+    case Process.whereis(Aiur.Supervisor) do
+      supervisor when is_pid(supervisor) ->
+        if supervisor_accepting_calls?(supervisor) do
+          :ok
+        else
+          await_supervisor_shutdown(supervisor)
+          await_aiur_supervisor(retries - 1)
+        end
+
+      nil ->
+        Process.sleep(10)
+        await_aiur_supervisor(retries - 1)
+    end
+  end
+
+  defp supervisor_accepting_calls?(supervisor) do
+    Supervisor.which_children(supervisor)
+    true
+  catch
+    :exit, _reason -> false
   end
 
   defp workflow_content(overrides) do

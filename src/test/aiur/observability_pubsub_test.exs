@@ -20,6 +20,7 @@ defmodule Aiur.ObservabilityPubSubTest do
       assert :ok = ObservabilityPubSub.broadcast_update()
     after
       assert {:ok, _pid} = Supervisor.restart_child(Aiur.Supervisor, pubsub_child_id)
+      assert is_pid(Process.whereis(Aiur.PubSub))
     end
   end
 end
