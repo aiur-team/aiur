@@ -13,8 +13,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Fields do
 
   @spec replacement_boundary?(map() | term()) :: boolean()
   def replacement_boundary?(status_row) do
-    Value.get(status_row, :work_state) == :completed and
-      Value.get(status_row, :waiting_reason) == :awaiting_dispatch
+    Value.get(status_row, :work_state) == :completed
   end
 
   @spec sourced_value(map() | term(), map() | term(), [atom()]) :: {term(), atom()}

@@ -101,10 +101,11 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPolicy do
   end
 
   defp paused?(row) do
-    Map.get(row, :tracker_paused?) == true or
-      get_in(row, [:runtime, :tracker_paused?]) == true or
-      present?(reason(row, :pause)) or
-      work_state(row) in [:paused, :sleeping]
+    not replacement_boundary?(row) and
+      (Map.get(row, :tracker_paused?) == true or
+         get_in(row, [:runtime, :tracker_paused?]) == true or
+         present?(reason(row, :pause)) or
+         work_state(row) in [:paused, :sleeping])
   end
 
   defp stuck?(row), do: reason(row, :stuck) in @stuck_reasons or waiting_reason(row) in @stuck_reasons

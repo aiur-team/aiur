@@ -60,7 +60,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPolicyTest do
       lifecycle: :waiting,
       terminal?: false,
       replacement_boundary?: true,
-      runtime: %{bucket: :running, work_state: :completed, waiting_reason: :awaiting_dispatch},
+      runtime: %{bucket: :running, work_state: :completed, waiting_reason: :awaiting_dispatch, tracker_paused?: true},
       reasons: %{waiting: :awaiting_dispatch},
       open_command_count: 0
     }
