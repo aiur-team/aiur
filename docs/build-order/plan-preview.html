@@ -230,7 +230,7 @@ footer{margin-top:26px;border-top:1px solid var(--line);padding-top:14px;font-fa
       </div>
     </div>
     <div style="display:flex;align-items:center;gap:.8rem">
-      <div class="hd-note">~18 core tickets merged to develop. Fleet backend switched to headless Claude Opus 4.8 (2026-07-16). CI test-suite stabilization in progress (fixing stale-base + isolation flakes). Per-ticket states below may lag pending ticket-finalization reconciliation. Static preview — shipped page binds to live GitHub + Aiur state.</div>
+      <div class="hd-note">~18 core tickets merged to develop. Fleet switching to headless Claude Opus 4.8 (activates on next daemon restart). CI test-suite stabilization near-done: 3 of 4 develop-red flakes fixed + staged, resolving the last (codeowners), then one push greens the test job. orangekid-opus fleet: DASH-021 merged (#1200); DASH-020 / DASH-013 / BO-018 queued for the Claude restart. Static preview — binds to live GitHub + Aiur state.</div>
       <button class="theme-btn" id="themeBtn" aria-label="Toggle theme">◐ theme</button>
     </div>
   </div>
@@ -262,7 +262,7 @@ footer{margin-top:26px;border-top:1px solid var(--line);padding-top:14px;font-fa
 <script>
 const RUN = {
   phase: 4,
-  updated: "2026-07-16 06:57 PDT",
+  updated: "2026-07-16 07:29 PDT",
   tickets: {
     "BO-004": {state:"merged", progress:100, issue:1086},
     "BO-008": {state:"merged", progress:100, issue:1087},
