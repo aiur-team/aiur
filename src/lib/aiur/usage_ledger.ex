@@ -7,7 +7,11 @@ defmodule Aiur.UsageLedger do
   record and its counter/idempotency checkpoint durable.
   """
 
+  use Supervisor
+
   alias Aiur.UsageEnvelope
+
+  @backend_key {__MODULE__, :backend}
 
   @type acknowledgement :: %{
           required(:position) => pos_integer(),
@@ -35,9 +39,21 @@ defmodule Aiur.UsageLedger do
   @callback subscribe(pid()) :: :ok
   @callback child_spec(keyword()) :: Supervisor.child_spec()
 
-  @doc false
-  @spec child_spec(keyword()) :: Supervisor.child_spec()
-  def child_spec(opts), do: Supervisor.child_spec(backend(), opts)
+  @spec start_link(keyword()) :: Supervisor.on_start()
+  def start_link(opts \\ []), do: Supervisor.start_link(__MODULE__, opts, name: __MODULE__)
+
+  @impl Supervisor
+  def init(opts) do
+    backend = configured_backend()
+    :persistent_term.put(@backend_key, backend)
+
+    child =
+      backend
+      |> Supervisor.child_spec(opts)
+      |> Map.put(:id, backend)
+
+    Supervisor.init([child], strategy: :one_for_one)
+  end
 
   @doc """
   Appends through the configured backend. The file-backed store is the
@@ -69,5 +85,11 @@ defmodule Aiur.UsageLedger do
   @spec subscribe(pid()) :: :ok
   def subscribe(pid \\ self()) when is_pid(pid), do: backend().subscribe(pid)
 
-  defp backend, do: Application.get_env(:aiur, :usage_ledger_backend, Aiur.UsageLedger.Store)
+  defp backend do
+    if Process.whereis(__MODULE__),
+      do: :persistent_term.get(@backend_key),
+      else: configured_backend()
+  end
+
+  defp configured_backend, do: Application.get_env(:aiur, :usage_ledger_backend, Aiur.UsageLedger.Store)
 end

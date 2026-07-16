@@ -29,7 +29,19 @@ defmodule Aiur.UsageLedger.StoreTest do
     def subscribe(_pid), do: :ok
 
     @impl true
-    def child_spec(_opts), do: %{id: __MODULE__, start: {Task, :start_link, [fn -> :ok end]}}
+    def child_spec(_opts),
+      do: %{
+        id: __MODULE__,
+        start:
+          {Task, :start_link,
+           [
+             fn ->
+               receive do
+                 :stop -> :ok
+               end
+             end
+           ]}
+      }
   end
 
   setup do
@@ -59,7 +71,7 @@ defmodule Aiur.UsageLedger.StoreTest do
     GenServer.stop(restarted)
   end
 
-  test "routes public operations through the configured behavior backend" do
+  test "prevents runtime configuration from redirecting the supervised backend" do
     previous = Application.get_env(:aiur, :usage_ledger_backend)
     Application.put_env(:aiur, :usage_ledger_backend, BackendStub)
 
@@ -69,13 +81,9 @@ defmodule Aiur.UsageLedger.StoreTest do
         else: Application.delete_env(:aiur, :usage_ledger_backend)
     end)
 
-    assert {:ok, %{position: 7, generation: 11}} = UsageLedger.append(envelope(%{}))
-    assert {:ok, []} = UsageLedger.scan()
+    assert 0 = UsageLedger.generation()
     assert :healthy = UsageLedger.health()
-    assert 11 = UsageLedger.generation()
-    assert %{status: :full} = UsageLedger.coverage()
-    assert :ok = UsageLedger.subscribe(self())
-    assert %{id: BackendStub} = UsageLedger.child_spec([])
+    assert %{status: :empty} = UsageLedger.coverage()
   end
 
   test "never acknowledges or publishes an injected append/checkpoint failure", %{root: root, name: name} do
