@@ -5,7 +5,7 @@ defmodule Aiur.Codex.CodingAgent do
   @behaviour Aiur.AppServer.Adapter
 
   require Logger
-  alias Aiur.AppServer.{Adapter, Rpc}
+  alias Aiur.AppServer.{Adapter, InterruptHandshake, ProviderTurnLedger, Rpc}
 
   alias Aiur.Codex.{
     AppServerPort,
@@ -28,7 +28,8 @@ defmodule Aiur.Codex.CodingAgent do
           turn_sandbox_policy: map(),
           thread_id: String.t(),
           resumed: boolean(),
-          workspace: Path.t()
+          workspace: Path.t(),
+          provider_turn_store: pid()
         }
   @dialyzer {:nowarn_function, run: 4}
   @spec run(Path.t(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
@@ -52,16 +53,24 @@ defmodule Aiur.Codex.CodingAgent do
     model = Keyword.get(opts, :model)
     effort = Keyword.get(opts, :effort)
     resume_thread_id = Keyword.get(opts, :resume_thread_id)
-
+    on_process_group_started = Keyword.get(opts, :on_process_group_started, fn _process_group_id -> :ok end)
+    on_provider_started = Keyword.get(opts, :on_provider_started, fn _provider -> :ok end)
     identifier = Keyword.get(opts, :identifier)
 
     with {:ok, expanded_workspace} <- AppServerPort.validate_workspace_cwd(workspace, worker_host),
-         {:ok, port} <- AppServerPort.start_port(expanded_workspace, worker_host, model, effort) do
+         {:ok, port} <-
+           AppServerPort.start_port(
+             expanded_workspace,
+             worker_host,
+             model,
+             effort,
+             on_process_group_started,
+             on_provider_started
+           ) do
       metadata = AppServerPort.port_metadata(port, worker_host)
       containment = register_pause_containment(identifier, metadata, expanded_workspace)
 
-      # Local spawns run bash -lc "codex … app-server"; a remote spawn's
-      # local pid is the ssh client, so the cmdline guard expects that.
+      # Local spawns wrap Codex in bash; remote spawns expose ssh as the local pid.
       reaper_comm = if is_binary(worker_host), do: "ssh", else: "codex"
 
       Aiur.ProcessReaper.register(:agent, {:os_pid, metadata[:codex_app_server_pid]},
@@ -74,7 +83,8 @@ defmodule Aiur.Codex.CodingAgent do
 
       with {:ok, session_policies} <- session_policies(expanded_workspace, worker_host),
            {:ok, thread_id, resumed?, rate_limits_supported?} <-
-             Handshake.establish_with_rate_limits(port, expanded_workspace, session_policies, resume_thread_id) do
+             Handshake.establish_with_rate_limits(port, expanded_workspace, session_policies, resume_thread_id),
+           {:ok, provider_turn_store} <- ProviderTurnLedger.start_store() do
         maybe_observe_rate_limits(port, rate_limits_supported?)
 
         {:ok,
@@ -90,7 +100,8 @@ defmodule Aiur.Codex.CodingAgent do
            workspace: expanded_workspace,
            containment: containment,
            worker_host: worker_host,
-           model: model
+           model: model,
+           provider_turn_store: provider_turn_store
          }}
       else
         {:error, reason} ->
@@ -119,6 +130,7 @@ defmodule Aiur.Codex.CodingAgent do
   @impl Aiur.CodingAgent.Backend
   def stop_session(%{port: port} = session) when is_port(port) do
     AppServerPort.stop_port(port)
+    ProviderTurnLedger.stop_store(Map.get(session, :provider_turn_store))
     PauseContainment.unregister(Map.get(session, :containment))
   end
 
@@ -142,7 +154,6 @@ defmodule Aiur.Codex.CodingAgent do
 
   defp maybe_observe_rate_limits(port, true), do: observe_rate_limits(port)
   defp maybe_observe_rate_limits(_port, false), do: :ok
-
   @impl Aiur.AppServer.Adapter
   @doc false
   def start_turn(session, prompt, issue), do: Handshake.start_turn(session, prompt, issue)
@@ -151,7 +162,13 @@ defmodule Aiur.Codex.CodingAgent do
   def backend_label, do: "Codex"
   @impl Aiur.AppServer.Adapter
   @doc false
-  def loop_state_extras(session), do: %{auto_approve_requests: session.auto_approve_requests, turn_started?: false}
+  def loop_state_extras(session) do
+    Map.get(session, :provider_turn_store)
+    |> ProviderTurnLedger.start_turn()
+    |> Map.merge(InterruptHandshake.initial_state())
+    |> Map.merge(%{auto_approve_requests: session.auto_approve_requests, turn_started?: false})
+  end
+
   @impl Aiur.AppServer.Adapter
   @doc false
   def handle_interrupt_error(state, error), do: Interrupts.handle_interrupt_error(state, error)

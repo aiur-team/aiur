@@ -23,7 +23,7 @@ defmodule Aiur.AiurAgentSkillTest do
     attention-and-resolve.md
     stub-then-fetch.md
   )
-  @codex_exposed_aiur_skills ~w(aiur-agent aiur-build aiur-debug aiur-monitor aiur-run design-import using-aiur)
+  @codex_exposed_aiur_skills ~w(aiur-agent aiur-build aiur-debug aiur-intro aiur-monitor aiur-run design-import using-aiur)
   @claude_executor_only_skills ~w(release)
 
   test "Claude backend surface: canonical skill dir exists with a SKILL.md" do
@@ -136,9 +136,9 @@ defmodule Aiur.AiurAgentSkillTest do
     assert shared_prompt =~ "not a stop signal"
     assert shared_prompt =~ "Only park the specific integration point"
     assert shared_prompt =~ "inspect the pushed diff/exports"
-    assert shared_prompt =~ "remove any temporary stub"
+    assert shared_prompt =~ "Remove any temporary stub"
     assert shared_prompt =~ "open your PR against that branch"
-    assert shared_prompt =~ "actual validated ref supplied by the event payload"
+    assert shared_prompt =~ "latest `ticket.N.branch.push` payload only to fetch the actual validated ref"
 
     assert stub_doc =~ "not a reason to park the whole ticket"
     assert stub_doc =~ "Do not reimplement ticket N's helper"
@@ -148,11 +148,27 @@ defmodule Aiur.AiurAgentSkillTest do
     assert stub_doc =~ "If the branch push is irrelevant or unusable"
     assert stub_doc =~ "Stubs are local-only scaffolding"
     assert stub_doc =~ "Stop working on the dependent code only"
-    assert emit_doc =~ "ticket.N.branch.push"
-    assert emit_doc =~ "fetch the actual validated ref"
-    assert emit_doc =~ "inspect the pushed diff/exports"
-    assert repo_prompt =~ "fetch and diff the actual validated ref"
-    assert repo_prompt =~ "remove temporary stubs before pushing"
+    assert stub_doc =~ "Required: emit `blocked` once"
+    assert stub_doc =~ "Required: emit `unblocked` again"
+    assert stub_doc =~ "commit and push the dependency before emitting readiness"
+    assert stub_doc =~ "same validated `ref` and `sha`"
+    assert stub_doc =~ "matching validated branch-push"
+    assert stub_doc =~ "local pause generation"
+    assert stub_doc =~ ~s|reason: "dependency", blocker_identifier: "N"|
+    assert stub_doc =~ "publish the integrated commit before announcing readiness"
+    assert stub_doc =~ "When you produce a dependency"
+    assert stub_doc =~ "responsible for the readiness signal"
+    assert stub_doc =~ "single-attempt fire-and-forget"
+    assert stub_doc =~ "never infer readiness from the push alone"
+    assert emit_doc =~ "ticket.N.agent.unblocked"
+    assert emit_doc =~ "mid-turn checkpoint drain"
+    assert emit_doc =~ "Do not infer readiness from `branch.push` alone"
+    assert emit_doc =~ "required single-attempt, fire-and-forget emissions"
+    assert shared_prompt =~ "Resume on explicit unblocked; inspect branch pushes"
+    assert shared_prompt =~ "Never infer readiness from `branch.push` alone"
+    assert repo_prompt =~ "explicit signal as readiness to consume"
+    assert repo_prompt =~ "Never infer readiness from `branch.push` alone"
+    assert repo_prompt =~ "remove temporary stubs"
     assert taxonomy =~ "keep unrelated prep moving"
   end
 
@@ -262,6 +278,36 @@ defmodule Aiur.AiurAgentSkillTest do
     assert repo_prompt =~ "authoritative full lint and full test suite through `make ci`"
     assert repo_prompt =~ "Do not gate PR-opening on a clean full-suite `mix test` run"
     assert repo_prompt =~ "Fix failures in this scoped gate"
+  end
+
+  test "agent PR guidance uses and verifies the configured integration branch" do
+    dev_loop = one_line(File.read!(Path.join(@repo_root, ".claude/skills/using-aiur/dev-loop.md")))
+    repo_prompt = one_line(File.read!(Path.join(@repo_root, ".aiur/prompt.md")))
+
+    for source <- [dev_loop, repo_prompt] do
+      assert source =~ "AIUR_BASE_BRANCH"
+      assert source =~ "tracker.base_branch"
+      assert source =~ "origin/HEAD"
+      assert source =~ "baseRefName"
+      assert source =~ "machine-local configuration"
+    end
+
+    assert dev_loop =~ ~s(gh pr create --draft --head "$branch" --base "$AIUR_BASE_BRANCH")
+    assert dev_loop =~ "PATCH only the PR's `base`"
+    assert repo_prompt =~ ~s(open a PR with `--base "$AIUR_BASE_BRANCH"`)
+    assert repo_prompt =~ "leave a correct base unchanged"
+  end
+
+  test "Codex pull recovery merges the configured integration branch" do
+    pull_skill =
+      @repo_root
+      |> Path.join(".codex/skills/pull/SKILL.md")
+      |> File.read!()
+      |> one_line()
+
+    assert pull_skill =~ "AIUR_BASE_BRANCH"
+    assert pull_skill =~ ~s(merge "origin/$integration_branch")
+    refute pull_skill =~ "merge origin/main"
   end
 
   test "agent workflow hands final PR CI to ci-wait without a polling turn" do
