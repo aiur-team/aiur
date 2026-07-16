@@ -112,7 +112,19 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
     conn = call(conn(:get, "/api/v1/state"))
 
     assert conn.status == 200
-    assert conn.resp_body |> Jason.decode!() |> get_in(["decision_history", "entries"]) |> length() == 51
+    payload = Jason.decode!(conn.resp_body)
+
+    assert payload |> get_in(["decision_history", "entries"]) |> length() == 51
+    refute Map.has_key?(payload, "rate_limits")
+
+    case Map.get(payload, "agent_totals") do
+      nil -> :ok
+      totals -> assert Map.keys(totals) == ["seconds_running"]
+    end
+
+    for row <- Map.get(payload, "running", []) do
+      refute Map.has_key?(row, "tokens")
+    end
   end
 
   defp install_decision_history!(count) do

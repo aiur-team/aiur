@@ -58,6 +58,11 @@ defmodule AiurWeb.PresenterTest do
       "issue-ci-wait"
       |> running_entry("MT-700", :paused, "ci-wait")
       |> Map.put(:paused_reason, :ci_wait)
+      |> Map.merge(%{
+        agent_input_tokens: 910_011,
+        agent_output_tokens: 910_012,
+        agent_total_tokens: 910_023
+      })
       |> put_in([:issue, Access.key(:tracker_identity)], tracker_identity("MT-700"))
 
     retry_identity = tracker_identity("MT-701")
@@ -67,6 +72,15 @@ defmodule AiurWeb.PresenterTest do
       %{
         state
         | running: %{"issue-ci-wait" => ci_wait_entry},
+          agent_totals: %{
+            input_tokens: 920_011,
+            output_tokens: 920_012,
+            total_tokens: 920_023,
+            seconds_running: 73
+          },
+          agent_rate_limits: %{
+            primary: %{remaining_percent: 93, resets_at: "reset-financial-sentinel"}
+          },
           retry_attempts: %{
             "mt-701" => %{
               attempt: 1,
@@ -106,8 +120,11 @@ defmodule AiurWeb.PresenterTest do
     payload = Presenter.state_payload(orchestrator_name, 1_000)
 
     assert payload.counts == %{running: 1, retrying: 1, idle: 1}
+    assert payload.agent_totals == %{seconds_running: 73}
+    refute Map.has_key?(payload, :rate_limits)
 
     assert [running_row] = payload.running
+    refute Map.has_key?(running_row, :tokens)
     assert running_row.issue_identifier == "MT-700"
     assert running_row.title == "Row MT-700"
     assert running_row.url == "https://example.test/issues/MT-700"
@@ -120,6 +137,10 @@ defmodule AiurWeb.PresenterTest do
     assert running_row.open_decision_count == 0
     assert is_integer(running_row.stale_for_seconds)
     assert running_row.tracker_identity == tracker_identity("MT-700")
+
+    assert {:ok, issue_payload} = Presenter.issue_payload("MT-700", orchestrator_name, 1_000)
+    refute Map.has_key?(issue_payload.running, :tokens)
+    assert issue_payload.running.waiting_reason == :waiting_for_ci
 
     assert [retry_row] = payload.retrying
     assert retry_row.state == "rework"
