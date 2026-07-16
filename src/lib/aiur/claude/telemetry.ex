@@ -455,21 +455,38 @@ defmodule Aiur.Claude.Telemetry do
         state
 
       {capability, launch_ids} ->
-        case Map.pop(state.capabilities, capability) do
-          {nil, _capabilities} ->
-            %{state | launch_ids: launch_ids}
-
-          {entry, capabilities} ->
-            if is_reference(entry.owner_monitor), do: Process.demonitor(entry.owner_monitor, [:flush])
-
-            requests =
-              state.requests
-              |> Enum.reject(fn {_request_id, request_capability} -> request_capability == capability end)
-              |> Map.new()
-
-            %{state | capabilities: capabilities, launch_ids: launch_ids, requests: requests}
-        end
+        revoke_capability(state, capability, launch_ids)
     end
+  end
+
+  defp revoke_capability(state, capability, launch_ids) do
+    case Map.pop(state.capabilities, capability) do
+      {nil, _capabilities} ->
+        %{state | launch_ids: launch_ids}
+
+      {entry, capabilities} ->
+        revoke_capability_entry(state, capability, launch_ids, entry, capabilities)
+    end
+  end
+
+  defp revoke_capability_entry(state, capability, launch_ids, entry, capabilities) do
+    demonitor_owner(entry.owner_monitor)
+
+    %{
+      state
+      | capabilities: capabilities,
+        launch_ids: launch_ids,
+        requests: drop_capability_requests(state.requests, capability)
+    }
+  end
+
+  defp demonitor_owner(monitor) when is_reference(monitor), do: Process.demonitor(monitor, [:flush])
+  defp demonitor_owner(_monitor), do: :ok
+
+  defp drop_capability_requests(requests, capability) do
+    requests
+    |> Enum.reject(fn {_request_id, request_capability} -> request_capability == capability end)
+    |> Map.new()
   end
 
   defp count_rejection(state, reason) do
@@ -506,7 +523,11 @@ defmodule Aiur.Claude.Telemetry do
   defp mint_capability(%{capability_fun: fun, capabilities: capabilities}) when is_function(fun, 0) do
     case fun.() do
       capability when is_binary(capability) ->
-        if valid_capability?(capability) and not is_map_key(capabilities, capability), do: {:ok, capability}, else: {:error, :capability_unavailable}
+        if valid_capability?(capability) and not is_map_key(capabilities, capability) do
+          {:ok, capability}
+        else
+          {:error, :capability_unavailable}
+        end
 
       _ ->
         {:error, :capability_unavailable}

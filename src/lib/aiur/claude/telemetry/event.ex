@@ -8,6 +8,8 @@ defmodule Aiur.Claude.Telemetry.Event do
   @max_attribute_key_bytes 96
   @max_attribute_value_bytes 256
 
+  alias Aiur.Claude.Telemetry
+
   @allowed_attributes ~w(
     event.name
     session.id
@@ -33,9 +35,8 @@ defmodule Aiur.Claude.Telemetry.Event do
   def from_otlp(%{"resourceLogs" => resource_logs}, correlation) when is_map(correlation) do
     with {:ok, resource_logs} <- bounded_list(resource_logs, @max_resource_logs),
          {:ok, records} <- records(resource_logs),
-         {:ok, records} <- api_requests(records),
-         {:ok, events} <- normalize_records(records, correlation) do
-      {:ok, events}
+         {:ok, records} <- api_requests(records) do
+      normalize_records(records, correlation)
     end
   end
 
@@ -45,21 +46,27 @@ defmodule Aiur.Claude.Telemetry.Event do
   def replay_key(%{source_version: version, correlation: %{session_id: session_id}, identity: identity}), do: {version, session_id, identity}
 
   defp records(resource_logs) do
-    Enum.reduce_while(resource_logs, {:ok, []}, fn resource_log, {:ok, acc} ->
-      with {:ok, resource_attributes} <- attributes_at(resource_log, "resource"),
-           {:ok, scope_logs} <- bounded_list(Map.get(resource_log, "scopeLogs"), @max_scope_logs),
-           {:ok, next} <- scope_records(scope_logs, resource_attributes) do
-        records = acc ++ next
+    Enum.reduce_while(resource_logs, {:ok, []}, &append_resource_records/2)
+  end
 
-        if length(records) <= @max_log_records do
-          {:cont, {:ok, records}}
-        else
-          {:halt, {:error, :attribute_limit}}
-        end
-      else
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
+  defp append_resource_records(resource_log, {:ok, acc}) do
+    with {:ok, resource_attributes} <- attributes_at(resource_log, "resource"),
+         {:ok, scope_logs} <- bounded_list(Map.get(resource_log, "scopeLogs"), @max_scope_logs),
+         {:ok, next} <- scope_records(scope_logs, resource_attributes) do
+      append_records(acc, next)
+    else
+      {:error, reason} -> {:halt, {:error, reason}}
+    end
+  end
+
+  defp append_records(acc, next) do
+    records = acc ++ next
+
+    if length(records) <= @max_log_records do
+      {:cont, {:ok, records}}
+    else
+      {:halt, {:error, :attribute_limit}}
+    end
   end
 
   defp scope_records(scope_logs, resource_attributes) do
@@ -76,10 +83,12 @@ defmodule Aiur.Claude.Telemetry.Event do
 
   defp record_entries(log_records, parent_attributes) do
     Enum.reduce_while(log_records, {:ok, []}, fn record, {:ok, acc} ->
-      with {:ok, attributes} <- attributes_at(record, nil) do
-        {:cont, {:ok, [%{record: record, attributes: parent_attributes ++ attributes} | acc]}}
-      else
-        {:error, reason} -> {:halt, {:error, reason}}
+      case attributes_at(record, nil) do
+        {:ok, attributes} ->
+          {:cont, {:ok, [%{record: record, attributes: parent_attributes ++ attributes} | acc]}}
+
+        {:error, reason} ->
+          {:halt, {:error, reason}}
       end
     end)
     |> case do
@@ -106,7 +115,7 @@ defmodule Aiur.Claude.Telemetry.Event do
 
         event = %{
           event: :api_request,
-          source_version: Aiur.Claude.Telemetry.source_version(),
+          source_version: Telemetry.source_version(),
           transport: :otlp_http_json,
           identity: identity,
           correlation: Map.put(correlation, :session_id, session_id),
@@ -126,14 +135,18 @@ defmodule Aiur.Claude.Telemetry.Event do
 
   defp normalize_attributes(%{attributes: attributes}) do
     with :ok <- attribute_count(attributes) do
-      Enum.reduce_while(attributes, {:ok, %{}}, fn attribute, {:ok, acc} ->
-        case normalized_attribute(attribute) do
-          :drop -> {:cont, {:ok, acc}}
-          {:ok, {key, value}} -> {:cont, {:ok, Map.put(acc, key, value)}}
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
-      end)
+      normalize_attribute_list(attributes)
     end
+  end
+
+  defp normalize_attribute_list(attributes) do
+    Enum.reduce_while(attributes, {:ok, %{}}, fn attribute, {:ok, acc} ->
+      case normalized_attribute(attribute) do
+        :drop -> {:cont, {:ok, acc}}
+        {:ok, {key, value}} -> {:cont, {:ok, Map.put(acc, key, value)}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
   end
 
   defp required_attributes(attributes) do

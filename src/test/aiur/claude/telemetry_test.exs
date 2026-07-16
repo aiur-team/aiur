@@ -5,9 +5,8 @@ defmodule Aiur.Claude.TelemetryTest do
   import Plug.Conn
   import Plug.Test
 
+  alias Aiur.Claude.{Telemetry, Telemetry.Receiver}
   alias Aiur.{Issue, TrackerIdentity}
-  alias Aiur.Claude.Telemetry
-  alias Aiur.Claude.Telemetry.Receiver
 
   @deterministic_capability Base.url_encode64(:binary.copy(<<7>>, 32), padding: false)
 

@@ -150,7 +150,11 @@ defmodule Aiur.Claude.CodingAgent do
   end
 
   defp start_port(workspace, on_provider_started, _telemetry_launch) do
-    Adapter.start_port(workspace, Aiur.Claude.Config.command(), fn port -> on_provider_started.(provider_metadata(port)) end)
+    Adapter.start_port(
+      workspace,
+      Aiur.Claude.Config.command(),
+      fn port -> on_provider_started.(provider_metadata(port)) end
+    )
   end
 
   defp provider_metadata(port) do

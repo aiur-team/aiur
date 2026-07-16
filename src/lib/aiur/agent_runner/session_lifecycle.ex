@@ -3,7 +3,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   require Logger
   alias Aiur.{AgentPubSub, CodingAgent, Config, Issue, Tracker}
   alias Aiur.AgentRunner.{SessionResume, TurnLoop}
-  alias Aiur.Claude.{DisplayTailer, RemoteControl}
+  alias Aiur.Claude.{DisplayTailer, RemoteControl, Telemetry}
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Workspace.Ownership
   @type worker_host :: String.t() | nil
@@ -257,7 +257,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
             {:ok, session}
 
           {:error, _reason} = error ->
-            _ = Aiur.Claude.Telemetry.revoke(telemetry_launch)
+            _ = Telemetry.revoke(telemetry_launch)
             error
         end
 
@@ -270,7 +270,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
 
   defp prepare_telemetry_launch(issue, worker_host, ownership, session_opts) do
     if Keyword.get(session_opts, :backend) in ["claude", "claude-repl"] do
-      Aiur.Claude.Telemetry.prepare_launch(issue,
+      Telemetry.prepare_launch(issue,
         attempt_id: Keyword.get(session_opts, :attempt_id),
         workspace_ownership: ownership,
         backend: Keyword.get(session_opts, :backend),
@@ -293,7 +293,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     # Never reuse a capability whose trusted backend correlation says REPL for
     # that replacement process; the fallback remains visibly uncovered until a
     # fresh, correctly correlated launch is prepared.
-    Aiur.Claude.Telemetry.revoke(telemetry_launch)
+    Telemetry.revoke(telemetry_launch)
   end
 
   defp run_contained_session(
@@ -392,7 +392,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
           cleanup_failure
       end
     after
-      Aiur.Claude.Telemetry.revoke(Map.get(session, :telemetry_launch))
+      Telemetry.revoke(Map.get(session, :telemetry_launch))
     end
   catch
     kind, reason ->
@@ -668,7 +668,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     Logger.warning("#{backend} start_session failed (#{inspect(reason)}); falling back to #{fallback}")
 
     {telemetry_launch, fallback_opts} = Keyword.pop(opts, :telemetry_launch)
-    _ = Aiur.Claude.Telemetry.revoke(telemetry_launch)
+    _ = Telemetry.revoke(telemetry_launch)
 
     fallback_opts = fallback_opts |> Keyword.put(:backend, fallback) |> Keyword.delete(:remote_control)
     adapter_opts = Keyword.delete(fallback_opts, :attempt_id)
