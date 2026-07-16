@@ -144,7 +144,10 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
         pid: self(),
         identifier: "issue-brf",
         issue: issue,
-        control: %{status: :paused},
+        # `can_interrupt` (without the modern confirm fields) selects the
+        # synchronous control path, which delivers `{:resume_agent, request_id}`
+        # to the live pid and flips the entry to :working in the same step.
+        control: %{status: :paused, can_interrupt: true},
         paused_reason: :before_run_failure
       }
 
@@ -166,7 +169,7 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
         pid: self(),
         identifier: "issue-brf-loop",
         issue: issue,
-        control: %{status: :paused},
+        control: %{status: :paused, can_interrupt: true},
         paused_reason: :before_run_failure
       }
 
