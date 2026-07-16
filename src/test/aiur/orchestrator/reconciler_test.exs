@@ -195,7 +195,7 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
 
       resume_signals = drain_resume_agent_messages()
 
-      assert length(resume_signals) >= 1,
+      assert resume_signals != [],
              "a transient failure must get at least one automatic recovery attempt"
 
       # A persistent merge conflict must not resume on every poll forever; the
