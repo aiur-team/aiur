@@ -29,8 +29,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
           <p class="section-eyebrow">Durable command</p>
           <h4 id={"decision-action-title-#{@decision.decision_id}"}>{action_title(@decision)}</h4>
         </div>
-        <div class="decision-axis" aria-label="Canonical decision and delivery state">
-          <span class={axis_chip(@decision.decision_status)}>Decision · {humanize(@decision.decision_status)}</span>
+        <div class="decision-axis" aria-label="Canonical Command and delivery state">
+          <span class={axis_chip(@decision.decision_status)}>Command · {humanize(@decision.decision_status)}</span>
           <span class={axis_chip(@decision.delivery_status)}>Delivery · {humanize(@decision.delivery_status)}</span>
         </div>
       </header>
@@ -88,7 +88,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
             rows="4"
             maxlength="4000"
             required
-            placeholder="State the decision clearly…"
+            placeholder="State the Command response clearly…"
           >{Map.get(@form, "custom_response", "")}</textarea>
         </label>
 
@@ -104,7 +104,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
             value="true"
             checked={Map.get(@form, "confirmed") == "true"}
           />
-          <span>I understand this decision is irreversible or destructive.</span>
+          <span>I understand this Command is irreversible or destructive.</span>
         </label>
 
         <footer class="decision-action-footer">
@@ -151,7 +151,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
     "option:#{option_id}"
   end
 
-  defp action_title(%{decision_status: :open}), do: "Answer this decision"
+  defp action_title(%{decision_status: :open}), do: "Answer this Command"
   defp action_title(_decision), do: "Answer lifecycle"
 
   defp answer_label(%{answer: %{selected_option_id: option_id}} = decision) when is_binary(option_id) do

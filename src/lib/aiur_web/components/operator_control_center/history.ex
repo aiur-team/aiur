@@ -3,6 +3,8 @@ defmodule AiurWeb.OperatorControlCenter.History do
 
   use Phoenix.Component
 
+  alias AiurWeb.OperatorControlCenter.DecisionPath
+
   attr(:entries, :list, required: true)
   attr(:provider_health, :any, default: :ok)
 
@@ -10,12 +12,12 @@ defmodule AiurWeb.OperatorControlCenter.History do
   def history(assigns) do
     ~H"""
     <section class="recent-section" aria-labelledby="decision-history-title">
-      <p class="recent-subtitle" id="decision-history-title">Decision history</p>
+      <p class="recent-subtitle" id="decision-history-title">Command history</p>
       <div :if={@provider_health == :unavailable} class="empty-state compact">History provider is currently unavailable.</div>
       <div :if={@provider_health == :degraded} class="empty-state compact">
-        Decision history is degraded; showing the last validated prefix.
+        Command history is degraded; showing the last validated prefix.
       </div>
-      <div :if={@provider_health == :ok and @entries == []} class="empty-state compact">No decision actions have been recorded.</div>
+      <div :if={@provider_health == :ok and @entries == []} class="empty-state compact">No Command actions have been recorded.</div>
       <div class="history-list">
         <article :for={entry <- @entries} class="history-item">
           <span class="severity-rail"></span>
@@ -31,9 +33,18 @@ defmodule AiurWeb.OperatorControlCenter.History do
             <.result_chip label="dispatch" result={entry.dispatch_result} />
             <.result_chip label="ack" result={entry.acknowledgement_result} />
             <.result_chip label="revision" result={Map.get(entry, :revision_result)} />
+            <span :if={is_integer(confidence(entry))} class="chip super">{confidence(entry)}% confidence</span>
+            <span :if={provenance_label(entry)} class="chip mono">{provenance_label(entry)}</span>
+            <span :if={identifier(Map.get(entry, :superseded_by))} class="chip attention">
+              Superseded by <span class="mono">{identifier(Map.get(entry, :superseded_by))}</span>
+            </span>
+            <span :if={identifier(Map.get(entry, :revision_of))} class="chip super">
+              Supersedes <span class="mono">{identifier(Map.get(entry, :revision_of))}</span>
+            </span>
             <span :if={entry.revised?} class="chip super">Revised</span>
             <span :if={entry.follow_up_required and not entry.follow_up_handled} class="chip blocking">Follow-up required</span>
             <span :if={entry.follow_up_handled} class="chip good">Follow-up handled</span>
+            <.link patch={DecisionPath.detail(entry.decision_id, :all)} class="link-pill">Open Command</.link>
           </footer>
         </article>
       </div>
@@ -55,6 +66,36 @@ defmodule AiurWeb.OperatorControlCenter.History do
   defp result_tone(result) when result in [:no_longer_applicable, "no_longer_applicable"], do: "blocking"
   defp result_tone(result) when result in [:dispatched, "dispatched"], do: "good"
   defp result_tone(_result), do: "attention"
+
+  defp confidence(entry) do
+    confidence = entry |> Map.get(:supervisor_basis) |> map_value(:confidence)
+    if is_integer(confidence) and confidence in 0..100, do: confidence
+  end
+
+  defp provenance_label(entry) do
+    provenance = Map.get(entry, :provenance)
+    backend = map_value(provenance, :backend) || map_value(provenance, :agent_family)
+    model = map_value(provenance, :resolved_model) || map_value(provenance, :requested_model)
+
+    case {identifier(backend), identifier(model)} do
+      {backend, model} when is_binary(backend) and is_binary(model) -> "#{backend} · #{model}"
+      {backend, nil} when is_binary(backend) -> backend
+      {nil, model} when is_binary(model) -> model
+      _unknown -> nil
+    end
+  end
+
+  defp identifier(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      value -> value
+    end
+  end
+
+  defp identifier(_value), do: nil
+
+  defp map_value(map, key) when is_map(map), do: Map.get(map, key, Map.get(map, Atom.to_string(key)))
+  defp map_value(_map, _key), do: nil
 
   defp ticket_identifier(%{identifier: identifier}), do: identifier
   defp ticket_identifier(identifier) when is_binary(identifier), do: identifier

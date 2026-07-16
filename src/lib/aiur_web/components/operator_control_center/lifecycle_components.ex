@@ -37,14 +37,14 @@ defmodule AiurWeb.OperatorControlCenter.LifecycleComponents do
       assigns = assign(assigns, :lifecycle, lifecycle)
 
       ~H"""
-      <p class="lifecycle-standalone superseded">↻ Superseded — replaced by a newer decision</p>
+      <p class="lifecycle-standalone superseded">↻ Superseded — replaced by a newer Command</p>
       """
     else
       entries = Enum.map(@steps, &step_entry(&1, lifecycle))
       assigns = assign(assigns, entries: entries, failed: lifecycle == :delivery_failed)
 
       ~H"""
-      <div class={["lifecycle", @failed && "failed"]} aria-label={"Decision lifecycle: #{label(@lifecycle)}"}>
+      <div class={["lifecycle", @failed && "failed"]} aria-label={"Command lifecycle: #{label(@lifecycle)}"}>
         <div :for={{entry, index} <- Enum.with_index(@entries)} class={["lifecycle-step", entry.state]}>
           <span :if={index > 0} class="lifecycle-connector"></span>
           <span class={["lifecycle-node", entry.failed && "failed"]}>

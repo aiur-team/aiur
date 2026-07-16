@@ -21,7 +21,7 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
     ~H"""
     <div :if={!@writable} class="readonly-banner" role="status">
       <span aria-hidden="true">◉</span>
-      <span><b>Read-only dashboard.</b> Decision, message, and pause controls are hidden.</span>
+      <span><b>Read-only dashboard.</b> Command, message, and pause controls are hidden.</span>
     </div>
     """
   end
@@ -42,22 +42,22 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
       :if={is_integer(@open) and @open > 0}
       patch="/decisions"
       class={["decisions-banner", @blocking > 0 && "blocking"]}
-      aria-label={"#{@open} open retained Decisions, #{@blocking} blocking"}
+      aria-label={"#{@open} open retained Commands, #{@blocking} blocking"}
     >
       <span class="decision-banner-icon" aria-hidden="true">!</span>
       <span class="decision-banner-body">
         <strong>{banner_title(@blocking, @open)}</strong>
         <span>{banner_detail(@blocking, @open)}</span>
       </span>
-      <span class="decision-banner-cta">Review decisions <span aria-hidden="true">→</span></span>
+      <span class="decision-banner-cta">Review Commands <span aria-hidden="true">→</span></span>
     </.link>
     <div :if={!is_integer(@open)} class="readonly-banner" role="status" aria-live="polite">
       <span aria-hidden="true">◉</span>
-      <span><b>Retained Decision counts unavailable.</b> The priority overview is still shown without a global count.</span>
+      <span><b>Retained Command counts unavailable.</b> The priority overview is still shown without a global count.</span>
     </div>
     <div :if={@health == :partial and is_integer(@open)} class="readonly-banner" role="status" aria-live="polite">
       <span aria-hidden="true">◉</span>
-      <span><b>Partial retained Decision counts.</b> Counts cover the validated audit prefix only.</span>
+      <span><b>Partial retained Command counts.</b> Counts cover the validated audit prefix only.</span>
     </div>
     """
   end
@@ -104,13 +104,13 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
     """
   end
 
-  defp banner_title(1, _open), do: "1 decision is blocking an agent"
-  defp banner_title(blocking, _open) when blocking > 1, do: "#{blocking} decisions are blocking agents"
-  defp banner_title(_blocking, 1), do: "1 decision is awaiting you"
-  defp banner_title(_blocking, open), do: "#{open} decisions are awaiting you"
+  defp banner_title(1, _open), do: "1 Command is blocking an agent"
+  defp banner_title(blocking, _open) when blocking > 1, do: "#{blocking} Commands are blocking agents"
+  defp banner_title(_blocking, 1), do: "1 Command is awaiting you"
+  defp banner_title(_blocking, open), do: "#{open} Commands are awaiting you"
 
   defp banner_detail(blocking, open) when blocking > 0,
-    do: "#{open} awaiting input in total · answer the blocking decision first"
+    do: "#{open} awaiting input in total · answer the blocking Command first"
 
   defp banner_detail(_blocking, _open), do: "Nothing is blocking · answer at your pace to keep agents moving"
 

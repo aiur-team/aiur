@@ -26,7 +26,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
 
     case selected_open_decision(socket, decision_id) do
       {:ok, decision} -> socket |> put_form(decision_id, form, decision) |> submit_answer(decision, form, reload_fun)
-      :error -> put_error(reload_fun.(socket), decision_id, "This decision is no longer open.")
+      :error -> put_error(reload_fun.(socket), decision_id, "This Command is no longer open.")
     end
   end
 
@@ -52,7 +52,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
         end
 
       :error ->
-        put_error(reload_fun.(socket), decision_id, "This decision detail is no longer available.")
+        put_error(reload_fun.(socket), decision_id, "This Command detail is no longer available.")
     end
   end
 
@@ -235,7 +235,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   defp retry_notice(:already_dispatching), do: "A delivery attempt is already in progress."
 
   defp command_error({:conflict, {:stale_version, _expected, current}}),
-    do: "This decision changed to version #{current}. Review the refreshed state before answering."
+    do: "This Command changed to version #{current}. Review the refreshed state before answering."
 
   defp command_error({:conflict, {:already_decided, _action_id}}),
     do: "Another durable answer already won. Canonical state was refreshed."
@@ -243,7 +243,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   defp command_error({:conflict, {:idempotency_conflict, _action_id}}),
     do: "This submission token was already used with different content. Review the refreshed answer."
 
-  defp command_error({:conflict, :resolved}), do: "This decision is already resolved."
+  defp command_error({:conflict, :resolved}), do: "This Command is already resolved."
   defp command_error({:answer_invalid, {:option_id, :unknown}}), do: "That option is no longer available."
 
   defp command_error({:answer_invalid, {_field, :too_long}}),
@@ -253,10 +253,10 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
     do: "The response contains unsupported control characters."
 
   defp command_error({:store_unavailable, _reason}),
-    do: "Decision storage is read-only or unavailable."
+    do: "Command storage is read-only or unavailable."
 
-  defp command_error(:store_unavailable), do: "Decision storage is currently unavailable."
-  defp command_error(:not_found), do: "This decision no longer exists."
+  defp command_error(:store_unavailable), do: "Command storage is currently unavailable."
+  defp command_error(:not_found), do: "This Command no longer exists."
 
   defp command_error(:action_mismatch),
     do: "The failed action changed. Review the refreshed state before retrying."
