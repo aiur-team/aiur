@@ -1,7 +1,7 @@
 defmodule AiurWeb.OperatorControlCenter.UnitsRowTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.TrackerIdentity
+  alias Aiur.{Orchestrator.WaitingReason, TrackerIdentity}
   alias AiurWeb.OperatorControlCenter.{UnitsPolicy, UnitsRow}
 
   test "joins all sources by repository-qualified identity, not a display identifier" do
@@ -106,6 +106,52 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRowTest do
     refute row.terminal?
     assert row.lifecycle == :waiting
     assert row.runtime.bucket == :running
+  end
+
+  test "keeps a completed runtime row with an open decision and tracker pause at the replacement boundary" do
+    ticket = identity("acme", "alpha", "NODE-completed-open-decision", "14")
+
+    waiting_reason =
+      WaitingReason.for_running(%{
+        tracker_state: "in-progress",
+        pause_reason: nil,
+        work_state: :completed,
+        open_decision_count: 1,
+        stale_for_seconds: 0,
+        stall_timeout_seconds: 60
+      })
+
+    assert waiting_reason == :waiting_for_human
+
+    snapshot =
+      UnitsRow.snapshot(%{
+        membership: membership([member(ticket)]),
+        status: %{
+          running: [
+            status(ticket,
+              work_state: :completed,
+              waiting_reason: waiting_reason,
+              tracker_paused: true,
+              open_decision_count: 1
+            )
+          ],
+          retrying: [],
+          idle: []
+        },
+        activity: %{entries: []},
+        decisions: %{entries: [%{identity: ticket, open_count: 1}]},
+        issue_facts: %{entries: [facts(ticket, "Replacement", "https://github.com/acme/alpha/issues/14")]}
+      })
+
+    assert {:ok, row} = UnitsRow.lookup(snapshot, ticket)
+    assert row.replacement_boundary?
+    assert row.reasons.waiting == :waiting_for_human
+    assert UnitsPolicy.in_scope?(row, :unfinished)
+    refute UnitsPolicy.in_scope?(row, :live)
+    assert UnitsPolicy.condition?(:queued, row)
+    refute UnitsPolicy.condition?(:active, row)
+    refute UnitsPolicy.condition?(:paused, row)
+    refute UnitsPolicy.condition?(:finished, row)
   end
 
   test "uses retry and pause facts without conflating their reasons" do
