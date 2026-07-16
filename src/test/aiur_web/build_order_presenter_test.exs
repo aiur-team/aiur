@@ -65,7 +65,9 @@ defmodule AiurWeb.BuildOrderPresenterTest do
     assert active_node.plan.lifecycle.state == :open
     assert active_node.readiness == :ready
     assert active_node.execution.work_state == :working
-    assert active_node.execution.tokens == %{input: 10, output: 20, total: 30}
+    refute Map.has_key?(active_node.execution, :tokens)
+    assert active_node.execution.runtime_seconds == 90
+    assert active_node.execution.ci_result.decision == :pending
     assert active_node.activity.progress.percent == 42
     assert active_node.activity.active_stage == :work
     assert active_node.card.progress == 42

@@ -163,6 +163,7 @@ defmodule Aiur.Application do
       if(debug?, do: Aiur.RunTelemetry.Supervisor),
       Aiur.Events.Publisher,
       Aiur.ProviderAccountGeneration,
+      Aiur.ProviderMeters.Store,
       Aiur.UsageLedger,
       Aiur.DecisionStore,
       {Aiur.DecisionMetrics.Writer, path: Aiur.DecisionMetrics.metrics_file()},
@@ -185,6 +186,7 @@ defmodule Aiur.Application do
       # Dashboard supervision is independent of terminal attachment/headless
       # mode. Aiur.HttpServer retains its own bind and credential guards.
       if(dashboard?, do: AiurWeb.ControlCenterCache),
+      if(dashboard?, do: AiurWeb.FinancialData.Supervisor),
       if(dashboard?, do: Aiur.HttpServer),
       Aiur.Opencode.TokenRegistry,
       Aiur.Opencode.ActiveTurns,
