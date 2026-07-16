@@ -1574,16 +1574,20 @@ kill_control_rpc_process() {
   local pid="$1" grouped="$2" p tree=()
   [ -n "$pid" ] || return 0
 
+  # Snapshot descendants before signalling the wrapper. A release launcher may
+  # fork its rpc BEAM into another process group and then exit; group signalling
+  # alone would orphan that child and lose the only relationship we can reap.
+  while IFS= read -r p; do tree+=("$p"); done < <(agent_pid_tree "$pid")
+
   if [ "$grouped" = "1" ]; then
     kill -TERM "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
-    sleep 0.2
-    kill -KILL "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
-    return 0
   fi
 
-  while IFS= read -r p; do tree+=("$p"); done < <(agent_pid_tree "$pid")
   for p in "${tree[@]}"; do kill -TERM "$p" 2>/dev/null || true; done
   sleep 0.2
+  if [ "$grouped" = "1" ]; then
+    kill -KILL "-$pid" 2>/dev/null || true
+  fi
   for p in "${tree[@]}"; do kill -KILL "$p" 2>/dev/null || true; done
 }
 
