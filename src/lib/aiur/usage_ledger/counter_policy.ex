@@ -10,16 +10,7 @@ defmodule Aiur.UsageLedger.CounterPolicy do
             streams: %{},
             coverage: %{lower: nil, upper: nil, status: :empty}
 
-  @type state :: %__MODULE__{
-          idempotency: MapSet.t(),
-          absolute: map(),
-          streams: %{optional(String.t()) => :absolute | :delta},
-          coverage: %{
-            lower: non_neg_integer() | nil,
-            upper: non_neg_integer() | nil,
-            status: :empty | :unknown | :partial | :full
-          }
-        }
+  @type state :: %__MODULE__{}
 
   @spec new() :: state()
   def new, do: %__MODULE__{}

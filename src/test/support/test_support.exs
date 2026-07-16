@@ -248,13 +248,24 @@ defmodule Aiur.TestSupport do
     end
   end
 
-  defp restart_workflow_store do
-    case Supervisor.restart_child(Aiur.Supervisor, Aiur.WorkflowStore) do
+  defp restart_workflow_store(retries \\ 1) do
+    case restart_workflow_store_child() do
       {:ok, pid} when is_pid(pid) ->
         :ok
 
       {:error, {:already_started, pid}} when is_pid(pid) ->
         :ok
+
+      # The application supervisor can terminate after the initial
+      # `Process.whereis/1` check and before the synchronous restart call.
+      # Bring it back and retry the child once so a suite sibling cannot leak
+      # that narrow shutdown race into an unrelated test setup.
+      :supervisor_unavailable when retries > 0 ->
+        ensure_aiur_supervisor_running()
+        restart_workflow_store(retries - 1)
+
+      :supervisor_unavailable ->
+        :error
 
       # A restart can race a sibling (already-present / running / restarting) or
       # genuinely fail — `WorkflowStore.init/1` reads the workflow file and stops
@@ -266,6 +277,13 @@ defmodule Aiur.TestSupport do
       {:error, _reason} ->
         if Process.whereis(Aiur.WorkflowStore), do: :ok, else: :error
     end
+  end
+
+  defp restart_workflow_store_child do
+    Supervisor.restart_child(Aiur.Supervisor, Aiur.WorkflowStore)
+  catch
+    :exit, :noproc -> :supervisor_unavailable
+    :exit, {:noproc, _details} -> :supervisor_unavailable
   end
 
   defp ensure_aiur_supervisor_running do
