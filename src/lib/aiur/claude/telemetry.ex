@@ -13,6 +13,8 @@ defmodule Aiur.Claude.Telemetry do
   alias Aiur.Claude.Telemetry.{Event, Receiver}
 
   @source_version "claude-code-2.1.210"
+  @emitter_version "2.1.210"
+  @service_name "claude-code"
   @topic "claude_telemetry:events"
   @default_max_connections 12
   @default_max_inflight 3
@@ -174,6 +176,7 @@ defmodule Aiur.Claude.Telemetry do
       entry = %{
         launch_id: launch_id,
         correlation: correlation,
+        source_contract: source_contract(),
         session_id: nil,
         owner_monitor: monitor,
         inflight: 0,
@@ -219,7 +222,8 @@ defmodule Aiur.Claude.Telemetry do
   def handle_call({:ingest, request_id, payload}, _from, state) do
     with {:ok, capability} <- Map.fetch(state.requests, request_id),
          {:ok, entry} <- Map.fetch(state.capabilities, capability),
-         {:ok, events} <- Event.from_otlp(payload, entry.correlation),
+         {:ok, events} <-
+           Event.from_otlp(payload, entry.correlation, request_source_contract(entry.source_contract, capability)),
          :ok <- matching_session(entry, events),
          :ok <- unseen?(state.replay, events),
          {:ok, next_entry} <- take_rate_slots(entry, state, length(events) - 1) do
@@ -376,6 +380,22 @@ defmodule Aiur.Claude.Telemetry do
     ]
   end
 
+  defp source_contract do
+    %{
+      emitter_version: @emitter_version,
+      service_name: @service_name,
+      source_version: @source_version
+    }
+  end
+
+  defp request_source_contract(source_contract, capability) do
+    Map.put(source_contract, :forbidden_values, [
+      capability,
+      "Bearer #{capability}",
+      "Authorization=Bearer #{capability}"
+    ])
+  end
+
   defp bearer_capability("Bearer " <> capability) when byte_size(capability) == 43, do: {:ok, capability}
   defp bearer_capability(_header), do: {:error, :unauthenticated}
 
@@ -513,6 +533,7 @@ defmodule Aiur.Claude.Telemetry do
            :malformed,
            :oversize,
            :unsupported_event,
+           :unsupported_version,
            :attribute_limit,
            :unknown_request,
            :capability_unavailable,

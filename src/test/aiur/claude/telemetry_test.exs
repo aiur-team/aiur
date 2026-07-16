@@ -9,6 +9,8 @@ defmodule Aiur.Claude.TelemetryTest do
   alias Aiur.{Issue, TrackerIdentity}
 
   @deterministic_capability Base.url_encode64(:binary.copy(<<7>>, 32), padding: false)
+  @fixture Path.expand("../../fixtures/claude/telemetry-2.1.210-api-request.json", __DIR__)
+  @model "claude-sonnet-4-6"
 
   setup context do
     name = Module.concat(__MODULE__, :"Receiver#{System.unique_integer([:positive, :monotonic])}")
@@ -45,14 +47,110 @@ defmodule Aiur.Claude.TelemetryTest do
     assert event.event == :api_request
     assert event.source_version == Telemetry.source_version()
     assert event.transport == :otlp_http_json
-    assert event.identity == {:request, "request-current"}
+    assert event.identity == {:request, canonical_request_id("request-current")}
     assert event.correlation.ticket == issue.tracker_identity
     assert event.correlation.attempt_id == "attempt-1"
     assert event.correlation.worker_generation == 7
     assert event.correlation.backend == "claude"
-    assert event.correlation.session_id == "session-current"
-    assert event.attributes == %{"event.sequence" => 1, "input_tokens" => 11, "output_tokens" => 7, "request_id" => "request-current"}
+    assert event.correlation.session_id == canonical_session_id("session-current")
+
+    assert event.attributes == %{
+             "event.sequence" => 1,
+             "input_tokens" => 11,
+             "model" => @model,
+             "output_tokens" => 7,
+             "request_id" => canonical_request_id("request-current")
+           }
+
     refute inspect(event) =~ "TOP_SECRET"
+  end
+
+  test "accepts the sanitized exact Claude Code 2.1.210 compatibility fixture", %{server: server, issue: issue} do
+    launch = launch(server, issue)
+    assert :ok = Telemetry.subscribe()
+
+    fixture = @fixture |> File.read!() |> Jason.decode!()
+    assert submit(server, authorization(launch), fixture).status == 200
+
+    assert_receive {:claude_telemetry, event}
+    assert event.source_version == "claude-code-2.1.210"
+    assert event.identity == {:request, "req_011111111111111111111111"}
+    assert event.correlation.session_id == "11111111-1111-4111-8111-111111111111"
+
+    assert event.attributes == %{
+             "cache_creation_tokens" => 13,
+             "cache_read_tokens" => 89,
+             "event.sequence" => 17,
+             "input_tokens" => 101,
+             "model" => "claude-sonnet-4-6",
+             "output_tokens" => 23,
+             "request_id" => "req_011111111111111111111111"
+           }
+
+    refute inspect(event) =~ "removed@example.invalid"
+    refute inspect(event) =~ "removed-org"
+  end
+
+  test "fails closed when the authenticated emitter version is absent or unsupported", %{server: server, issue: issue} do
+    launch = launch(server, issue)
+    authorization = authorization(launch)
+    compatible = payload("session-versioned", "request-versioned")
+
+    unsupported = replace_attribute(compatible, "service.version", %{"stringValue" => "2.1.211"})
+    missing = drop_attribute(compatible, "service.version")
+
+    assert submit(server, authorization, unsupported).status == 400
+    assert submit(server, authorization, missing).status == 400
+    assert submit(server, authorization, compatible).status == 200
+
+    assert Telemetry.health(server).rejections.unsupported_version == 2
+  end
+
+  test "rejects forbidden content in every accepted string field including the active capability", %{server: server, issue: issue} do
+    launch = launch(server, issue)
+    authorization = authorization(launch)
+    capability = String.replace_prefix(authorization, "Bearer ", "")
+
+    forbidden_values = [
+      capability,
+      authorization,
+      "Authorization=#{authorization}",
+      "owner@example.invalid",
+      "/home/owner/private.txt",
+      "free form event prose",
+      "sk-123456789012345678901234567890"
+    ]
+
+    for key <- ~w(event.name session.id service.name service.version request_id model), value <- forbidden_values do
+      rejected = replace_attribute(payload("session-content-free", "request-content-free"), key, %{"stringValue" => value})
+      assert submit(server, authorization, rejected).status == 400
+    end
+
+    assert submit(server, authorization, payload("session-content-free", "request-content-free")).status == 200
+    assert Telemetry.health(server).accepted == 1
+  end
+
+  test "enforces pinned per-field string grammars instead of a shared opaque-string rule", %{server: server, issue: issue} do
+    launch = launch(server, issue)
+    authorization = authorization(launch)
+    compatible = payload("session-field-grammar", "request-field-grammar")
+
+    invalid = [
+      {"event.name", "api-error"},
+      {"session.id", canonical_request_id("wrong-field")},
+      {"request_id", canonical_session_id("wrong-field")},
+      {"model", canonical_session_id("wrong-model")},
+      {"model", "claude-secret-prompt"},
+      {"service.name", "claude_code"},
+      {"service.version", "claude-code-2.1.210"}
+    ]
+
+    for {key, value} <- invalid do
+      rejected = replace_attribute(compatible, key, %{"stringValue" => value})
+      assert submit(server, authorization, rejected).status == 400
+    end
+
+    assert submit(server, authorization, compatible).status == 200
   end
 
   test "authenticates before decoding and never logs an unauthenticated body", %{server: server, issue: issue} do
@@ -100,6 +198,40 @@ defmodule Aiur.Claude.TelemetryTest do
     assert rejections.malformed == 1
     assert rejections.oversize == 1
     assert rejections.attribute_limit == 1
+  end
+
+  test "bounds OTLP integer strings before parsing and recovers on the next request", %{server: server, issue: issue} do
+    launch = launch(server, issue)
+    authorization = authorization(launch)
+    compatible = payload("session-integer-bound", "request-integer-bound")
+
+    oversized = replace_attribute(compatible, "event.sequence", %{"intValue" => String.duplicate("9", 20_000)})
+    out_of_range = replace_attribute(compatible, "event.sequence", %{"intValue" => "9223372036854775808"})
+
+    assert submit(server, authorization, oversized).status == 413
+    assert submit(server, authorization, out_of_range).status == 413
+    assert submit(server, authorization, compatible).status == 200
+    assert Telemetry.health(server).accepted == 1
+  end
+
+  test "canonicalizes valid OTLP sequence encodings and rejects stringValue sequence identity", %{server: server, issue: issue} do
+    launch = launch(server, issue)
+    authorization = authorization(launch)
+
+    encoded_string =
+      payload("session-sequence", "request-sequence")
+      |> drop_attribute("request_id")
+      |> replace_attribute("event.sequence", %{"intValue" => "1"})
+
+    encoded_number = replace_attribute(encoded_string, "event.sequence", %{"intValue" => 1})
+    wrong_kind = replace_attribute(encoded_string, "event.sequence", %{"stringValue" => "2"})
+    recovered = replace_attribute(encoded_string, "event.sequence", %{"intValue" => "2"})
+
+    assert submit(server, authorization, encoded_string).status == 200
+    assert submit(server, authorization, encoded_number).status == 409
+    assert submit(server, authorization, wrong_kind).status == 400
+    assert submit(server, authorization, recovered).status == 200
+    assert Telemetry.health(server).accepted == 2
   end
 
   @tag max_events_per_window: 2
@@ -284,7 +416,13 @@ defmodule Aiur.Claude.TelemetryTest do
     %{
       "resourceLogs" => [
         %{
-          "resource" => %{"attributes" => [attribute("session.id", session_id)]},
+          "resource" => %{
+            "attributes" => [
+              attribute("service.name", "claude-code"),
+              attribute("service.version", "2.1.210"),
+              attribute("session.id", canonical_session_id(session_id))
+            ]
+          },
           "scopeLogs" => [%{"scope" => %{"attributes" => []}, "logRecords" => Enum.map(request_ids, &record(&1, extra_attribute))}]
         }
       ]
@@ -297,7 +435,8 @@ defmodule Aiur.Claude.TelemetryTest do
     attributes =
       [
         attribute("event.name", "api_request"),
-        attribute("request_id", request_id),
+        attribute("request_id", canonical_request_id(request_id)),
+        attribute("model", @model),
         attribute("event.sequence", 1),
         attribute("input_tokens", 11),
         attribute("output_tokens", 7)
@@ -312,6 +451,44 @@ defmodule Aiur.Claude.TelemetryTest do
 
   defp oversized_payload do
     %{"resourceLogs" => String.duplicate("x", 32_769)}
+  end
+
+  defp replace_attribute(value, key, replacement) when is_list(value),
+    do: Enum.map(value, &replace_attribute(&1, key, replacement))
+
+  defp replace_attribute(%{"key" => key} = attribute, key, replacement),
+    do: Map.put(attribute, "value", replacement)
+
+  defp replace_attribute(value, key, replacement) when is_map(value),
+    do: Map.new(value, fn {map_key, map_value} -> {map_key, replace_attribute(map_value, key, replacement)} end)
+
+  defp replace_attribute(value, _key, _replacement), do: value
+
+  defp drop_attribute(value, key) when is_list(value) do
+    value
+    |> Enum.reject(&match?(%{"key" => ^key}, &1))
+    |> Enum.map(&drop_attribute(&1, key))
+  end
+
+  defp drop_attribute(value, key) when is_map(value),
+    do: Map.new(value, fn {map_key, map_value} -> {map_key, drop_attribute(map_value, key)} end)
+
+  defp drop_attribute(value, _key), do: value
+
+  defp canonical_session_id(label) do
+    digest = :sha256 |> :crypto.hash(label) |> Base.encode16(case: :lower)
+    a = String.slice(digest, 0, 8)
+    b = String.slice(digest, 8, 4)
+    c = String.slice(digest, 13, 3)
+    d = String.slice(digest, 17, 3)
+    e = String.slice(digest, 20, 12)
+
+    "#{a}-#{b}-4#{c}-8#{d}-#{e}"
+  end
+
+  defp canonical_request_id(label) do
+    suffix = :sha256 |> :crypto.hash(label) |> Base.encode16() |> binary_part(0, 24)
+    "req_#{suffix}"
   end
 
   defp maybe_put_capability_fun(opts, :deterministic), do: Keyword.put(opts, :capability_fun, fn -> @deterministic_capability end)
