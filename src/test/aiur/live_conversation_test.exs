@@ -19,8 +19,7 @@ defmodule Aiur.LiveConversationTest do
                %{
                  role: :assistant,
                  msg_id: "m-1",
-                 body:
-                   "token ghp_abcdefghijklmnopqrstuvwxyz0123456789 at /tmp/secret and https://example.test/capability"
+                 body: "token ghp_abcdefghijklmnopqrstuvwxyz0123456789 at /tmp/secret and https://example.test/capability"
                },
                server: server
              )
@@ -32,9 +31,7 @@ defmodule Aiur.LiveConversationTest do
     assert body =~ "[REDACTED:url]"
 
     assert {:ok, duplicate} =
-             LiveConversation.observe(source, %{role: :assistant, msg_id: "m-1", body: "different retry"},
-               server: server
-             )
+             LiveConversation.observe(source, %{role: :assistant, msg_id: "m-1", body: "different retry"}, server: server)
 
     assert duplicate.messages == snapshot.messages
   end
@@ -44,15 +41,15 @@ defmodule Aiur.LiveConversationTest do
 
     Enum.each(1..81, fn n ->
       assert {:ok, _} =
-               LiveConversation.observe(source, %{role: :assistant, msg_id: "m-#{n}", body: "message #{n}"},
-                 server: server
-               )
+               LiveConversation.observe(source, %{role: :assistant, msg_id: "m-#{n}", body: "message #{n}"}, server: server)
     end)
 
     assert {:ok, snapshot} =
              LiveConversation.observe(
                source,
-               %{role: :tool, msg_id: "tool", body: "cat /private/data", payload: %{output: "secret"}}, server: server)
+               %{role: :tool, msg_id: "tool", body: "cat /private/data", payload: %{output: "secret"}},
+               server: server
+             )
 
     assert length(snapshot.messages) == 80
     assert snapshot.truncated?
@@ -72,9 +69,7 @@ defmodule Aiur.LiveConversationTest do
     assert %{state: :restart_unknown, messages: []} = LiveConversation.snapshot(replacement, server: server)
 
     assert {:ok, _} =
-             LiveConversation.observe(replacement, %{role: :assistant, msg_id: "new", body: "replacement"},
-               server: server
-             )
+             LiveConversation.observe(replacement, %{role: :assistant, msg_id: "new", body: "replacement"}, server: server)
 
     assert %{messages: [%{id: "old"}]} = LiveConversation.snapshot(old, server: server)
     assert %{messages: [%{id: "new"}]} = LiveConversation.snapshot(replacement, server: server)
@@ -107,9 +102,7 @@ defmodule Aiur.LiveConversationTest do
     assert [%{id: "turn-1", body: "hello world"}] = partial.messages
 
     assert {:ok, completed} =
-             LiveConversation.observe(source, %{kind: :assistant_completed, id: "turn-1", body: "hello, world"},
-               server: server
-             )
+             LiveConversation.observe(source, %{kind: :assistant_completed, id: "turn-1", body: "hello, world"}, server: server)
 
     assert [%{id: "turn-1", body: "hello, world"}] = completed.messages
 
@@ -123,6 +116,44 @@ defmodule Aiur.LiveConversationTest do
     source = source()
     assert {:ok, _} = LiveConversation.observe(source, %{role: :assistant, msg_id: "m", body: "known"}, server: server)
     assert {:ok, %{state: :stale, messages: [%{id: "m"}]}} = LiveConversation.mark_stale(source, server: server)
+  end
+
+  test "accepts only trusted operator deliveries and canonicalizes notification topics", %{server: server} do
+    source = source() |> Map.delete(:run_id)
+
+    assert :ok = LiveConversation.subscribe(source)
+
+    assert {:ok, rejected} =
+             LiveConversation.observe(source, %{role: :user, msg_id: "untrusted", body: "workspace prompt"}, server: server)
+
+    assert rejected.messages == []
+    assert rejected.diagnostic_counts.untrusted_operator == 1
+
+    assert {:ok, _snapshot} =
+             LiveConversation.observe(
+               source,
+               %{role: :user, msg_id: "operator-1", body: "approved question", payload: %{source: :operator_delivery}},
+               server: server
+             )
+
+    assert_receive {:live_conversation_changed, %{messages: [%{id: "operator-1", role: "operator"}]}}, 100
+  end
+
+  test "retains bounded partial state and enforces the total message byte ceiling", %{server: server} do
+    source = source()
+    body = String.duplicate("x", 1_600)
+
+    Enum.each(1..80, fn n ->
+      assert {:ok, _} =
+               LiveConversation.observe(source, %{kind: :assistant_delta, id: "partial-#{n}", body: body}, server: server)
+    end)
+
+    assert {:ok, snapshot} =
+             LiveConversation.observe(source, %{kind: :assistant_delta, id: "partial-1", body: body}, server: server)
+
+    assert byte_size(:erlang.term_to_binary(snapshot.messages)) <= 64_000
+    assert snapshot.truncated?
+    assert Enum.all?(snapshot.messages, &(String.length(&1.body) <= 1_600))
   end
 
   defp source(overrides \\ []) do

@@ -152,6 +152,13 @@ defmodule Aiur.Claude.Transcript do
 
   defp block_to_event(_block, _turn_id, _timestamp), do: :skip
 
+  defp item_id(item) do
+    case get(item, :id) do
+      id when is_binary(id) and id != "" -> id
+      _ -> nil
+    end
+  end
+
   defp normalize_block(block) do
     case get(block, :type) do
       "tool_use" ->
@@ -203,7 +210,12 @@ defmodule Aiur.Claude.Transcript do
   defp event_from_item("text", item, turn_id, timestamp) do
     case get(item, :text) do
       text when is_binary(text) and text != "" ->
-        {:ok, AgentEvents.transcript_event(:assistant, text, timestamp: timestamp, turn_id: turn_id)}
+        {:ok,
+         AgentEvents.transcript_event(:assistant, text,
+           timestamp: timestamp,
+           turn_id: turn_id,
+           msg_id: item_id(item)
+         )}
 
       _ ->
         :skip

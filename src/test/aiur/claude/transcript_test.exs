@@ -23,6 +23,7 @@ defmodule Aiur.Claude.TranscriptTest do
       assert event.role == :assistant
       assert event.body == "Done."
       assert event.turn_id == "turn-aaa"
+      assert event.msg_id == "i1"
     end
 
     test "thinking item → :reasoning" do

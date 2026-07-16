@@ -17,6 +17,7 @@ defmodule Aiur.AgentRunner.MessageHandler do
     TrackerIdentity
   }
 
+  alias Aiur.AgentRunner.QueueDrain
   alias Aiur.Protocol.MapAccess
   alias Aiur.RunTelemetry.Lifecycle
 
@@ -36,6 +37,8 @@ defmodule Aiur.AgentRunner.MessageHandler do
       else
         lifecycle_opts
       end
+
+    activate_live_conversation(issue, backend, lifecycle_opts)
 
     fn message ->
       message = CodingAgent.normalize_event(message, backend)
@@ -83,20 +86,48 @@ defmodule Aiur.AgentRunner.MessageHandler do
   # pane is intentionally rich (reasoning, commands, tool I/O); the dashboard
   # projection admits only its own conservative allowlist.
   defp maybe_observe_live_conversation(%Issue{} = issue, message, backend, turn_id, opts) do
-    with %TrackerIdentity{} = identity <- Issue.tracker_identity(issue),
-         true <- TrackerIdentity.joinable?(identity),
-         generation when is_integer(generation) and generation > 0 <- Keyword.get(opts, :worker_generation),
-         attempt_id when not is_nil(attempt_id) <- Keyword.get(opts, :attempt_id),
+    with {:ok, source} <- live_source(issue, backend, opts),
          {:ok, event} <- transcript_event_from(message, backend, turn_id) do
-      source = %{identity: identity, attempt_id: attempt_id, backend: backend, worker_generation: generation}
-      _ = LiveConversation.activate(source)
-      _ = LiveConversation.observe(source, event)
+      safe_live_conversation(fn -> LiveConversation.observe(source, event) end)
     else
       _ -> :ok
     end
   end
 
   defp maybe_observe_live_conversation(_issue, _message, _backend, _turn_id, _opts), do: :ok
+
+  @doc false
+  @spec observe_operator_delivery(Issue.t(), map(), String.t(), keyword()) :: :ok
+  def observe_operator_delivery(%Issue{} = issue, %{id: request_id} = item, backend, opts)
+      when is_integer(request_id) and is_binary(backend) and is_list(opts) do
+    with {:ok, source} <- live_source(issue, backend, opts),
+         text when is_binary(text) and text != "" <- QueueDrain.queue_item_text(item) do
+      event = %{
+        role: :user,
+        msg_id: "operator:#{request_id}",
+        body: text,
+        timestamp: DateTime.utc_now(),
+        payload: %{source: :operator_delivery}
+      }
+
+      safe_live_conversation(fn -> LiveConversation.observe(source, event) end)
+    else
+      _ -> :ok
+    end
+  end
+
+  def observe_operator_delivery(_issue, _item, _backend, _opts), do: :ok
+
+  @doc false
+  @spec end_live_conversation(Issue.t(), String.t(), keyword()) :: :ok
+  def end_live_conversation(%Issue{} = issue, backend, opts) when is_binary(backend) and is_list(opts) do
+    case live_source(issue, backend, opts) do
+      {:ok, source} -> safe_live_conversation(fn -> LiveConversation.end_generation(source) end)
+      :error -> :ok
+    end
+  end
+
+  def end_live_conversation(_issue, _backend, _opts), do: :ok
 
   defp maybe_broadcast_turn_event(%Issue{identifier: identifier}, message, turn_id)
        when is_binary(identifier) and is_binary(turn_id) do
@@ -171,6 +202,31 @@ defmodule Aiur.AgentRunner.MessageHandler do
       %DateTime{} = ts -> ts
       _ -> DateTime.utc_now()
     end
+  end
+
+  defp activate_live_conversation(issue, backend, opts) do
+    case live_source(issue, backend, opts) do
+      {:ok, source} -> safe_live_conversation(fn -> LiveConversation.activate(source) end)
+      :error -> :ok
+    end
+  end
+
+  defp live_source(%Issue{} = issue, backend, opts) do
+    with %TrackerIdentity{} = identity <- Issue.tracker_identity(issue),
+         true <- TrackerIdentity.joinable?(identity),
+         generation when is_integer(generation) and generation > 0 <- Keyword.get(opts, :worker_generation),
+         attempt_id when not is_nil(attempt_id) <- Keyword.get(opts, :attempt_id) do
+      {:ok, %{identity: identity, attempt_id: attempt_id, backend: backend, worker_generation: generation}}
+    else
+      _ -> :error
+    end
+  end
+
+  defp safe_live_conversation(fun) do
+    _ = fun.()
+    :ok
+  catch
+    :exit, _reason -> :ok
   end
 
   defp send_codex_update(recipient, %Issue{id: issue_id}, message)

@@ -19,6 +19,19 @@ defmodule Aiur.Codex.TranscriptTest do
       assert event.role == :assistant
       assert event.body == "Done."
       assert event.turn_id == "turn-aaa"
+      assert event.msg_id == "msg_1"
+    end
+
+    test "agentMessage delta preserves its provider id and partial delivery marker" do
+      message = %{
+        payload: %{
+          method: "item/agentMessage/delta",
+          params: %{turnId: "turn-aaa", itemId: "msg_1", delta: "partial"}
+        }
+      }
+
+      assert {:ok, %{role: :assistant, body: "partial", msg_id: "msg_1", kind: :assistant_delta, id: "msg_1"}} =
+               Transcript.extract(message, "fallback")
     end
 
     test "commandExecution item/completed → :command with clean payload (no $ prefix, real output)" do

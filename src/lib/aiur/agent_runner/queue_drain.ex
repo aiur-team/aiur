@@ -484,6 +484,8 @@ defmodule Aiur.AgentRunner.QueueDrain do
        ) do
     case record_operator_delivery(item, issue) do
       :ok ->
+        MessageHandler.observe_operator_delivery(issue, item, SessionLifecycle.session_backend(app_session), opts)
+
         run_recorded_queue_item_turn(
           app_session,
           issue,
@@ -528,7 +530,10 @@ defmodule Aiur.AgentRunner.QueueDrain do
         worker_generation: Keyword.get(opts, :worker_generation)
       )
 
-    safe_checkpoint_handler = CheckpointDelivery.safe_checkpoint_handler(issue, orchestrator)
+    live_opts = Keyword.put(opts, :backend, backend)
+
+    safe_checkpoint_handler =
+      CheckpointDelivery.safe_checkpoint_handler(issue, orchestrator, Aiur.DecisionStore, live_opts)
 
     MessageHandler.send_control_state(codex_update_recipient, issue, :working)
     aiur_turn_id = TurnStreams.open(issue)
@@ -542,7 +547,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
         issue,
         on_message: message_handler,
         on_safe_checkpoint: safe_checkpoint_handler,
-        on_operator_message: CheckpointDelivery.operator_immediate_handler(issue, orchestrator),
+        on_operator_message: CheckpointDelivery.operator_immediate_handler(issue, orchestrator, Aiur.DecisionStore, live_opts),
         tool_executor:
           ToolExecutor.build(
             issue,

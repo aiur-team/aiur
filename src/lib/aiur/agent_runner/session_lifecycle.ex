@@ -2,7 +2,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   @moduledoc false
   require Logger
   alias Aiur.{AgentPubSub, CodingAgent, Config, Issue, Tracker}
-  alias Aiur.AgentRunner.{SessionResume, TurnLoop}
+  alias Aiur.AgentRunner.{MessageHandler, SessionResume, TurnLoop}
   alias Aiur.Claude.{DisplayTailer, RemoteControl}
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Workspace.Ownership
@@ -307,18 +307,22 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     opts = Keyword.put(opts, :resumed, SessionResume.session_resumed?(session))
 
     try do
-      TurnLoop.run_turns(
-        session,
-        workspace,
-        issue,
-        codex_update_recipient,
-        opts,
-        session_context.issue_state_fetcher,
-        session_context.orchestrator,
-        worker_host,
-        1,
-        session_context.max_turns
-      )
+      result =
+        TurnLoop.run_turns(
+          session,
+          workspace,
+          issue,
+          codex_update_recipient,
+          opts,
+          session_context.issue_state_fetcher,
+          session_context.orchestrator,
+          worker_host,
+          1,
+          session_context.max_turns
+        )
+
+      MessageHandler.end_live_conversation(issue, session_context.session_backend, opts)
+      result
     after
       stop_display_tailer(display_tailer)
       stop_session_with_ownership(session, ownership)
