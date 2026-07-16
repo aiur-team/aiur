@@ -159,13 +159,61 @@ defmodule Aiur.CoordinationTasksTest do
 
     log =
       capture_log(fn ->
-        assert :pending = CoordinationTasks.enqueue(:key, fn -> {:error, :terminal_failure} end, name)
-        assert :pending = CoordinationTasks.enqueue(:key, fn -> send(test_pid, :lane_advanced) end, name)
+        assert :pending =
+                 CoordinationTasks.enqueue(
+                   {:dependency, "1031", 999},
+                   fn -> {:error, :terminal_failure} end,
+                   name,
+                   operation_timeout: 123
+                 )
+
+        assert :pending =
+                 CoordinationTasks.enqueue(
+                   {:dependency, "1031", 999},
+                   fn -> send(test_pid, :lane_advanced) end,
+                   name
+                 )
+
         assert_receive :lane_advanced
       end)
 
     assert log =~ "coordination operation failed"
+    assert log =~ ~s({:dependency, "1031", 999})
+    assert log =~ ~s(ticket="1031")
     assert log =~ "terminal_failure"
+    assert log =~ "timeout_ms=123"
+  end
+
+  test "distinct-key timeouts log their event key and configured timeout" do
+    name = unique_name("CorrelatedTimeout")
+    start_supervised!({CoordinationTasks, name: name, operation_timeout_ms: 500})
+    test_pid = self()
+
+    log =
+      capture_log(fn ->
+        assert :pending =
+                 CoordinationTasks.enqueue(
+                   {:event, "1032"},
+                   fn -> Process.sleep(:infinity) end,
+                   name,
+                   operation_timeout: 17
+                 )
+
+        assert :pending =
+                 CoordinationTasks.enqueue(
+                   {:event, "1032"},
+                   fn -> send(test_pid, :event_lane_advanced) end,
+                   name
+                 )
+
+        assert_receive :event_lane_advanced, 200
+      end)
+
+    assert log =~ ~s({:event, "1032"})
+    assert log =~ ~s(ticket="1032")
+    assert log =~ "coordination_timeout"
+    assert log =~ "timeout_ms=17"
+    refute log =~ ~s({:dependency, "1031", 999})
   end
 
   defp blocking_operation(test_pid) do

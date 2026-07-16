@@ -29,6 +29,10 @@ DEFAULT_OUTPUT = Path(
     )
 ).expanduser()
 ESTIMATE_KINDS = frozenset(("progress", "progress.checkin"))
+PUBLICATION_EVENTS = {
+    "event_publication_completed": "emitted",
+    "event_publication_failed": "failed",
+}
 STATUS_RANK = {"attempted": 0, "failed": 1, "emitted": 2}
 PERCENT = re.compile(r"^(?:100(?:\.0+)?|\d{1,2}(?:\.\d+)?)%?$")
 
@@ -137,6 +141,7 @@ def _call_id(row: dict[str, Any]) -> str | None:
         ("payload", "params", "callId"),
         ("payload", "params", "item", "id"),
         ("payload", "callId"),
+        ("tool_call_id",),
         ("callId",),
         ("item", "id"),
     ):
@@ -186,6 +191,20 @@ def _delivery_status(row: dict[str, Any], event_id: str | int | None) -> str:
     return "attempted"
 
 
+def _publication_outcome(row: dict[str, Any]) -> dict[str, Any] | None:
+    status = PUBLICATION_EVENTS.get(row.get("event"))
+    call_id = _call_id(row)
+    timestamp = _timestamp(row)
+    if status is None or call_id is None or timestamp is None:
+        return None
+    return {
+        "delivery_status": status,
+        "event_id": _event_id(row),
+        "timestamp": timestamp,
+        "tool_call_id": call_id,
+    }
+
+
 def _sample_id(
     ticket: int,
     source_log: str,
@@ -197,20 +216,24 @@ def _sample_id(
     message: str | None,
 ) -> str:
     if call_id is not None:
-        identity = f"call\0{ticket}\0{call_id}"
-    else:
-        identity = "\0".join(
-            (
-                "estimate",
-                str(ticket),
-                source_log,
-                timestamp,
-                kind,
-                str(percent),
-                label or "",
-                message or "",
-            )
+        return _call_sample_id(ticket, call_id)
+    identity = "\0".join(
+        (
+            "estimate",
+            str(ticket),
+            source_log,
+            timestamp,
+            kind,
+            str(percent),
+            label or "",
+            message or "",
         )
+    )
+    return hashlib.sha256(identity.encode("utf-8")).hexdigest()
+
+
+def _call_sample_id(ticket: int, call_id: str) -> str:
+    identity = f"call\0{ticket}\0{call_id}"
     return hashlib.sha256(identity.encode("utf-8")).hexdigest()
 
 
@@ -267,6 +290,16 @@ def _merge_sample(
     for field in ("tool_call_id", "label", "message"):
         if result.get(field) is None and incoming.get(field) is not None:
             result[field] = incoming[field]
+    return result
+
+
+def _apply_publication_outcome(
+    sample: dict[str, Any], outcome: dict[str, Any]
+) -> dict[str, Any]:
+    result = dict(sample)
+    result["delivery_status"] = outcome["delivery_status"]
+    if outcome.get("event_id") is not None:
+        result["event_id"] = outcome["event_id"]
     return result
 
 
@@ -339,7 +372,9 @@ def collect(
             "source_lines_scanned": 0,
             "malformed_source_lines": 0,
             "estimate_records_seen": 0,
+            "publication_records_seen": 0,
         }
+        publication_outcomes: dict[str, dict[str, Any]] = {}
         scanned_tickets: set[int] = set()
         for raw_root in workspace_roots:
             root = raw_root.expanduser()
@@ -359,6 +394,15 @@ def collect(
                             continue
                         if not isinstance(row, dict):
                             continue
+                        outcome = _publication_outcome(row)
+                        if outcome is not None:
+                            stats["publication_records_seen"] += 1
+                            sample_id = _call_sample_id(
+                                ticket, outcome["tool_call_id"]
+                            )
+                            current = publication_outcomes.get(sample_id)
+                            if current is None or outcome["timestamp"] >= current["timestamp"]:
+                                publication_outcomes[sample_id] = outcome
                         sample = sample_from_row(row, ticket, source_log)
                         if sample is None:
                             continue
@@ -368,6 +412,11 @@ def collect(
                             samples[sample_id] = _merge_sample(samples[sample_id], sample)
                         else:
                             samples[sample_id] = sample
+        for sample_id, outcome in publication_outcomes.items():
+            if sample_id in samples:
+                samples[sample_id] = _apply_publication_outcome(
+                    samples[sample_id], outcome
+                )
         _write_atomic(output, samples)
 
     covered_tickets = sorted(

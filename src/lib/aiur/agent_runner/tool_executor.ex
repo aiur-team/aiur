@@ -9,7 +9,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   require Logger
 
   alias Aiur.AgentRunner.SessionLifecycle
-  alias Aiur.{Alerts, Boot, CodingAgent, CoordinationTasks, DecisionAttention, DecisionStore, Issue}
+  alias Aiur.{AgentEventLog, Alerts, Boot, CodingAgent, CoordinationTasks, DecisionAttention, DecisionStore, Issue}
   alias Aiur.Codex.DynamicTool
   alias Aiur.Events.{Publisher, SubscriptionStore}
   alias Aiur.GitHub.IssueDependencies
@@ -70,6 +70,11 @@ defmodule Aiur.AgentRunner.ToolExecutor do
       event_handlers: event_handlers,
       enqueue: coordination.enqueue,
       issue: issue,
+      publish: Keyword.get(opts, :event_bus_publisher, &Publisher.publish/3),
+      publication_recorder:
+        Keyword.get(opts, :event_publication_recorder, fn record ->
+          AgentEventLog.write(workspace, worker_host, record)
+        end),
       worker_host: worker_host,
       workspace: workspace
     }
@@ -336,6 +341,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
     source = trusted_source(app_session)
     provenance = observation_provenance(app_session, attempt_id)
     occurred_at = DateTime.utc_now()
+    tool_call_id = stringify_invocation_id(invocation_id())
 
     operation = fn ->
       decision_projection =
@@ -352,7 +358,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
 
       log_decision_projection_failure(decision_projection, topic)
 
-      case Publisher.publish(
+      case context.publish.(
              topic,
              event_payload,
              identity: Issue.tracker_identity(issue),
@@ -360,10 +366,12 @@ defmodule Aiur.AgentRunner.ToolExecutor do
              observation_provenance: provenance,
              occurred_at: occurred_at
            ) do
-        {:ok, _id, _subscribers} ->
+        {:ok, id, _subscribers} ->
+          record_event_publication(context.publication_recorder, :completed, issue, tool_call_id, topic, id)
           sync_decision_resolution(issue, name, payload, handlers.attention_resolver)
 
         result ->
+          record_event_publication(context.publication_recorder, :failed, issue, tool_call_id, topic, nil, result)
           Logger.error("coordination event publish failed topic=#{topic} reason=#{inspect(result)}")
       end
     end
@@ -376,6 +384,37 @@ defmodule Aiur.AgentRunner.ToolExecutor do
 
   defp durable_decision_topic?(topic) do
     Enum.any?(["decision.requested", "decision.acknowledged", "decision.resolved"], &String.ends_with?(topic, &1))
+  end
+
+  defp record_event_publication(recorder, status, issue, tool_call_id, topic, event_id, reason \\ nil) do
+    record = %{
+      event: "event_publication_#{status}",
+      event_id: event_id,
+      issue_id: Map.get(issue, :id),
+      issue_identifier: Map.get(issue, :identifier),
+      reason: reason,
+      timestamp: DateTime.utc_now(),
+      tool_call_id: tool_call_id,
+      topic: topic
+    }
+
+    recorder.(record)
+  rescue
+    error ->
+      Logger.warning(
+        "aiur_tool_executor phase=event_publication_record_failed " <>
+          "topic=#{inspect(topic)} error=#{Exception.message(error)}"
+      )
+
+      :ok
+  catch
+    kind, reason ->
+      Logger.warning(
+        "aiur_tool_executor phase=event_publication_record_failed " <>
+          "topic=#{inspect(topic)} failure=#{inspect({kind, reason})}"
+      )
+
+      :ok
   end
 
   defp request_decision(issue, app_session, handlers, message, payload) do

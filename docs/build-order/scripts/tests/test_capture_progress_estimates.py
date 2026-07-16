@@ -162,6 +162,84 @@ class CaptureProgressEstimatesTests(unittest.TestCase):
         self.assertIsNone(sample["event_id"])
         self.assertEqual("attempted", sample["delivery_status"])
 
+    def test_eventual_publication_completion_upgrades_pending_call(self) -> None:
+        arguments = {
+            "name": "progress.checkin",
+            "message": "publication queued",
+            "payload": {"label": "work", "percent": 65},
+        }
+        self.write_rows(
+            1086,
+            {
+                "event": "notification",
+                "timestamp": "2026-07-14T02:30:00Z",
+                "payload": {
+                    "method": "item/completed",
+                    "params": {
+                        "item": {
+                            "id": "exec-eventual-success",
+                            "arguments": arguments,
+                            "status": "completed",
+                            "success": True,
+                            "contentItems": [],
+                        }
+                    },
+                },
+            },
+            {
+                "event": "event_publication_completed",
+                "timestamp": "2026-07-14T02:30:01Z",
+                "tool_call_id": "exec-eventual-success",
+                "event_id": 4243,
+                "topic": "ticket.1086.agent.progress.checkin",
+            },
+        )
+
+        collect([self.root], self.output)
+
+        sample = self.samples()[0]
+        self.assertEqual("emitted", sample["delivery_status"])
+        self.assertEqual(4243, sample["event_id"])
+
+    def test_terminal_publication_failure_marks_pending_call_failed(self) -> None:
+        arguments = {
+            "name": "progress",
+            "message": "publication queued",
+            "payload": {"label": "work", "percent": 66},
+        }
+        self.write_rows(
+            1086,
+            {
+                "event": "notification",
+                "timestamp": "2026-07-14T02:31:00Z",
+                "payload": {
+                    "method": "item/completed",
+                    "params": {
+                        "item": {
+                            "id": "exec-eventual-failure",
+                            "arguments": arguments,
+                            "status": "completed",
+                            "success": True,
+                            "contentItems": [],
+                        }
+                    },
+                },
+            },
+            {
+                "event": "event_publication_failed",
+                "timestamp": "2026-07-14T02:31:01Z",
+                "tool_call_id": "exec-eventual-failure",
+                "reason": ["error", "disk_full"],
+                "topic": "ticket.1086.agent.progress",
+            },
+        )
+
+        collect([self.root], self.output)
+
+        sample = self.samples()[0]
+        self.assertIsNone(sample["event_id"])
+        self.assertEqual("failed", sample["delivery_status"])
+
     def test_failed_attempt_is_retained_but_distinguished(self) -> None:
         self.write_rows(
             1087,

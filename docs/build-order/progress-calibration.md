@@ -30,8 +30,9 @@ identity when available, estimate kind, percent, explicit progress label and
 message, delivery status, and source-log path. `attempted` or `failed` rows are
 kept so the later analysis can distinguish an agent estimate from one that
 actually reached the Executor bar. A record is `emitted` only when the durable
-bus event ID is present (or the source is an explicit persisted estimate event),
-not merely because the surrounding tool lifecycle completed.
+bus event ID is present—either in the synchronous result, an explicit persisted
+estimate event, or the call-correlated eventual-publication marker—not merely
+because admission succeeded or the surrounding tool lifecycle completed.
 
 ## Phase-boundary calibration loop
 

@@ -172,6 +172,71 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert Jason.decode!(response["output"])["error"]["message"] =~ "Do not retry"
     end
 
+    test "coordination failures retain subsystem-specific payloads across tools" do
+      issue = %Issue{identifier: "1031"}
+
+      for {reason, expected_message} <- [
+            {:coordination_overloaded, "at capacity"},
+            {:coordination_unavailable, "temporarily unavailable"},
+            {:coordination_indeterminate, "timed out"},
+            {:coordination_timeout, "operation timeout"}
+          ],
+          tool <- ["aiur_declare_blocker", "aiur_unblock", "emit_event"] do
+        opts = coordination_failure_opts(tool, reason)
+        executor = ToolExecutor.build(issue, nil, nil, %{}, opts)
+        arguments = coordination_tool_arguments(tool)
+
+        response = executor.(tool, arguments)
+        error = Jason.decode!(response["output"])["error"]
+
+        refute response["success"]
+        assert error["reason"] == Atom.to_string(reason)
+        assert error["message"] =~ expected_message
+      end
+    end
+
+    test "task exits and operation failures retain structured coordination details" do
+      issue = %Issue{identifier: "1031"}
+
+      for {reason, expected_reason, expected_detail} <- [
+            {{:coordination_task_exit, :killed}, "coordination_task_exit", "killed"},
+            {
+              {:coordination_operation_exception, "broken operation"},
+              "coordination_operation_exception",
+              "broken operation"
+            },
+            {
+              {:coordination_operation_failure, :throw, :bad_state},
+              "coordination_operation_failure",
+              "bad_state"
+            }
+          ] do
+        executor =
+          ToolExecutor.build(issue, nil, nil, %{}, coordination_runner: fn _key, _operation, _opts -> {:error, reason} end)
+
+        response = executor.("aiur_unblock", %{"issue_number" => 999})
+        error = Jason.decode!(response["output"])["error"]
+
+        refute response["success"]
+        assert error["reason"] == expected_reason
+        assert Jason.encode!(error["detail"]) =~ expected_detail
+        refute error["message"] =~ "Linear"
+      end
+    end
+
+    test "unclassified tool failures use a subsystem-neutral fallback" do
+      issue = %Issue{identifier: "1031"}
+
+      executor =
+        ToolExecutor.build(issue, nil, nil, %{}, coordination_runner: fn _key, _operation, _opts -> {:error, :unexpected_dependency_failure} end)
+
+      response = executor.("aiur_unblock", %{"issue_number" => 999})
+      error = Jason.decode!(response["output"])["error"]
+
+      assert error["message"] == "Aiur tool execution failed."
+      refute error["message"] =~ "Linear"
+    end
+
     test "coordination timeout does not kill an admitted dependency mutation" do
       issue = %Issue{identifier: "1031"}
       name = Module.concat(__MODULE__, "Timeout#{System.unique_integer([:positive])}")
@@ -491,6 +556,92 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert_receive {:event, %{ticket_observation: observation}}, 200
       assert DateTime.compare(observation.occurred_at, admitted_at) in [:lt, :eq]
       assert DateTime.compare(observation.observed_at, admitted_at) in [:gt, :eq]
+    end
+
+    test "queued events persist call-correlated publication completion" do
+      identifier = "TE-publication-#{System.unique_integer([:positive])}"
+      issue = %Issue{id: "gid-publication-success", identifier: identifier}
+      test_pid = self()
+      workspace = Path.join(System.tmp_dir!(), "aiur-publication-#{System.unique_integer([:positive])}")
+      on_exit(fn -> File.rm_rf!(workspace) end)
+
+      executor =
+        ToolExecutor.build(issue, workspace, nil, %{},
+          coordination_enqueuer: fn _key, operation, _opts ->
+            send(test_pid, {:captured_event_operation, operation})
+            :pending
+          end,
+          event_bus_publisher: fn topic, _payload, _opts -> {:ok, 4242, topic} end
+        )
+
+      response =
+        ToolExecutor.execute(
+          executor,
+          "emit_event",
+          %{"name" => "progress.checkin", "message" => "queued", "payload" => %{"percent" => 70}},
+          "call-progress-70"
+        )
+
+      assert response["success"]
+      assert_receive {:captured_event_operation, operation}
+      assert :ok = operation.()
+
+      [record] =
+        workspace
+        |> Path.join("logs/agent.ndjson")
+        |> File.read!()
+        |> String.split("\n", trim: true)
+        |> Enum.map(&Jason.decode!/1)
+
+      assert record["event"] == "event_publication_completed"
+      assert record["tool_call_id"] == "call-progress-70"
+      assert record["event_id"] == 4242
+      assert record["issue_id"] == "gid-publication-success"
+      assert record["issue_identifier"] == identifier
+      assert record["topic"] == "ticket.gid-publication-success.agent.progress.checkin"
+    end
+
+    test "queued events persist call-correlated terminal publication failure" do
+      identifier = "TE-publication-failure-#{System.unique_integer([:positive])}"
+      issue = %Issue{id: "gid-publication-failure", identifier: identifier}
+      test_pid = self()
+      workspace = Path.join(System.tmp_dir!(), "aiur-publication-#{System.unique_integer([:positive])}")
+      on_exit(fn -> File.rm_rf!(workspace) end)
+
+      executor =
+        ToolExecutor.build(issue, workspace, nil, %{},
+          coordination_enqueuer: fn _key, operation, _opts ->
+            send(test_pid, {:captured_event_operation, operation})
+            :pending
+          end,
+          event_bus_publisher: fn _topic, _payload, _opts -> {:error, :disk_full} end
+        )
+
+      response =
+        ToolExecutor.execute(
+          executor,
+          "emit_event",
+          %{"name" => "progress.checkin", "message" => "queued", "payload" => %{"percent" => 71}},
+          "call-progress-71"
+        )
+
+      assert response["success"]
+      assert_receive {:captured_event_operation, operation}
+      operation.()
+
+      [record] =
+        workspace
+        |> Path.join("logs/agent.ndjson")
+        |> File.read!()
+        |> String.split("\n", trim: true)
+        |> Enum.map(&Jason.decode!/1)
+
+      assert record["event"] == "event_publication_failed"
+      assert record["tool_call_id"] == "call-progress-71"
+      assert record["event_id"] == nil
+      assert record["issue_id"] == "gid-publication-failure"
+      assert record["issue_identifier"] == identifier
+      assert record["reason"] == ["error", "disk_full"]
     end
 
     test "progress check-ins and phase updates preserve retry provenance without changing identity" do
@@ -1365,4 +1516,21 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       :pending
     end
   end
+
+  defp coordination_failure_opts("aiur_declare_blocker", reason) do
+    [coordination_enqueuer: fn _key, _operation, _opts -> {:error, reason} end]
+  end
+
+  defp coordination_failure_opts("aiur_unblock", reason) do
+    [coordination_runner: fn _key, _operation, _opts -> {:error, reason} end]
+  end
+
+  defp coordination_failure_opts("emit_event", reason) do
+    [coordination_enqueuer: fn _key, _operation, _opts -> {:error, reason} end]
+  end
+
+  defp coordination_tool_arguments("emit_event"),
+    do: %{"name" => "progress.checkin", "message" => "testing coordination"}
+
+  defp coordination_tool_arguments(_tool), do: %{"issue_number" => 999}
 end

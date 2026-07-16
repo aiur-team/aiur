@@ -115,25 +115,36 @@ defmodule Aiur.CoordinationTasks do
 
   @impl true
   def handle_info({ref, result}, state) when is_reference(ref) do
-    if match?({:error, _reason}, result) do
-      Logger.error("coordination operation failed reason=#{inspect(result)}")
-    end
+    case active_by_ref(state.active, ref) do
+      {key, task} ->
+        log_failure(key, task.operation_timeout, result)
+        complete(key, task, result, state)
 
-    finish(ref, result, state)
+      nil ->
+        {:noreply, state}
+    end
   end
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
-    if reason != :normal, do: Logger.error("coordination task failed reason=#{inspect(reason)}")
-    finish(ref, {:error, {:coordination_task_exit, reason}}, state)
+    case active_by_ref(state.active, ref) do
+      {key, task} ->
+        result = {:error, {:coordination_task_exit, reason}}
+        log_failure(key, task.operation_timeout, result)
+        complete(key, task, result, state)
+
+      nil ->
+        {:noreply, state}
+    end
   end
 
   def handle_info({:coordination_timeout, ref}, state) do
     case active_by_ref(state.active, ref) do
       {key, task} ->
-        Logger.error("coordination task timed out timeout_ms=#{state.operation_timeout_ms}")
+        result = {:error, :coordination_timeout}
+        log_failure(key, task.operation_timeout, result)
         Process.unlink(task.pid)
         _ = Task.Supervisor.terminate_child(Aiur.TaskSupervisor, task.pid)
-        complete(key, task, {:error, :coordination_timeout}, state)
+        complete(key, task, result, state)
 
       nil ->
         {:noreply, state}
@@ -141,13 +152,6 @@ defmodule Aiur.CoordinationTasks do
   end
 
   def handle_info(_message, state), do: {:noreply, state}
-
-  defp finish(ref, result, state) do
-    case active_by_ref(state.active, ref) do
-      {key, task} -> complete(key, task, result, state)
-      nil -> {:noreply, state}
-    end
-  end
 
   defp complete(key, task, result, state) do
     Process.demonitor(task.ref, [:flush])
@@ -189,6 +193,7 @@ defmodule Aiur.CoordinationTasks do
         task =
           task
           |> Map.put(:timer, schedule_timeout(task.ref, entry.timeout))
+          |> Map.put(:operation_timeout, entry.timeout)
           |> Map.put(:reply_to, entry.reply_to)
 
         queues = if :queue.is_empty(queue), do: Map.delete(state.queues, key), else: Map.put(state.queues, key, queue)
@@ -228,6 +233,19 @@ defmodule Aiur.CoordinationTasks do
   catch
     kind, reason -> {:error, {:coordination_operation_failure, kind, reason}}
   end
+
+  defp log_failure(key, timeout, {:error, reason}) do
+    Logger.error(
+      "coordination operation failed key=#{inspect(key)} ticket=#{inspect(key_ticket(key))} " <>
+        "failure=#{inspect(reason)} timeout_ms=#{timeout}"
+    )
+  end
+
+  defp log_failure(_key, _timeout, _result), do: :ok
+
+  defp key_ticket({:event, ticket}), do: ticket
+  defp key_ticket({:dependency, ticket, _blocker}), do: ticket
+  defp key_ticket(_key), do: nil
 
   defp admission_deadline(:infinity), do: :infinity
 
