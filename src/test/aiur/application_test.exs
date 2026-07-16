@@ -104,6 +104,7 @@ defmodule Aiur.ApplicationTest do
       Aiur.CurrentRunMembership.Store,
       Aiur.CurrentRunMembership.Reconciler,
       Aiur.TicketActivity,
+      Aiur.BuildOrder.TicketHistoryProvider,
       Aiur.Opencode.SessionSupervisor,
       Aiur.Opencode.BridgeSupervisor,
       Aiur.Opencode.TokenRegistry
@@ -166,6 +167,21 @@ defmodule Aiur.ApplicationTest do
         assert reaper < task_sup, "ProcessReaper must precede Task.Supervisor for #{inspect(opts)}"
         assert containment < task_sup, "PauseContainment must precede Task.Supervisor for #{inspect(opts)}"
       end
+    end
+
+    test "ticket history starts after its activity and configured-detail authorities" do
+      modules =
+        AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false)
+        |> modules()
+
+      detail = Enum.find_index(modules, &(&1 == Aiur.BuildOrder.TicketDetailCache))
+      activity = Enum.find_index(modules, &(&1 == Aiur.TicketActivity))
+      history = Enum.find_index(modules, &(&1 == Aiur.BuildOrder.TicketHistoryProvider))
+      orchestrator = Enum.find_index(modules, &(&1 == Aiur.Orchestrator))
+
+      assert detail < history
+      assert activity < history
+      assert history < orchestrator
     end
 
     test "ticket-detail cache starts after its task and workflow dependencies" do

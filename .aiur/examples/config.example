@@ -87,9 +87,9 @@ alerts:
 #   watch_label: watch        # label a PR `<label_prefix>:watch` (e.g. agent:watch) to monitor all its code-owner/trusted comments
 #   command_prefix: /aiur     # a trusted comment starting with this (or mentioning github.bot_account) handles that one comment, no label needed
 
-# === Build Order ticket detail cache (optional; in-memory only) ===
-# One supervised provider fetches selected configured-repository GitHub tickets on demand.
-# Restarting Aiur clears this cache; consumers receive unavailable state until a new read succeeds.
+# === Build Order providers (optional; in-memory only) ===
+# Supervised providers fetch configured-repository detail and retain sanitized typed ticket history.
+# Restarting Aiur clears their snapshots; consumers receive unavailable state until a new read succeeds.
 # build_order:
 #   ticket_detail_freshness_ms: 30000       # 1..300000; reuse a healthy detail during this window
 #   graph_catalog_refresh_ms: 60000         # daemon-owned root-catalog reconciliation interval
@@ -100,6 +100,9 @@ alerts:
 #   graph_max_inflight: 4                    # provider refreshes shared by all connected consumers
 #   ticket_detail_max_entries: 32            # 1..100; retained ticket identities, independent of browser count
 #   ticket_detail_max_description_bytes: 16384 # 1..16384; bounded sanitized provider description
+#   ticket_history_limit: 50                  # 1..100; retained allowlisted recent-history entries per ticket
+#   ticket_history_max_identities: 100        # 1..100; retained configured-repository ticket histories
+#   ticket_history_stale_after_ms: 60000      # 1..300000; freshness window for typed activity evidence
 
 # --- advanced (top-level; defaults shown, uncomment to override) ---
 # debug: false                           # true = always run in debug mode (verbose logs + debug UI), no --debug flag needed; --debug still wins

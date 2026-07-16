@@ -110,11 +110,12 @@ and it will walk you through setup and ask which mode you want.
   defines its `name`, `message`, and optional `sound` clips in one place.
 
 See [src/README.md](src/README.md#config) for the supported `.aiurconfig` options and
-adapter examples. Build Order's optional `build_order` settings configure a supervised,
-in-memory configured-repository ticket-detail cache and planning graph projection. The
-projection owns catalog and demanded-root refreshes independently of browser count, with
-bounded retained roots and provider work. Restart clears both stores: ticket detail and graph
-snapshots remain unavailable until new complete provider reads succeed.
+adapter examples. Build Order's optional `build_order` settings configure supervised,
+in-memory configured-repository ticket-detail, typed ticket-history, and planning-graph
+providers. The graph projection owns catalog and demanded-root refreshes independently of
+browser count, with bounded retained roots and provider work. Restart clears all three stores:
+ticket detail, ticket history, and graph snapshots remain unavailable until fresh provider
+evidence succeeds.
 
 ## Running Aiur
 

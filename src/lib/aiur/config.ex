@@ -267,6 +267,18 @@ defmodule Aiur.Config do
   end
 
   @doc false
+  @spec build_order_ticket_history_options() :: keyword()
+  def build_order_ticket_history_options do
+    build_order = settings!().build_order
+
+    [
+      history_limit: build_order.ticket_history_limit,
+      max_identities: build_order.ticket_history_max_identities,
+      stale_after_ms: build_order.ticket_history_stale_after_ms
+    ]
+  end
+
+  @doc false
   @spec build_order_graph_projection_options() :: keyword()
   def build_order_graph_projection_options do
     build_order = settings!().build_order
