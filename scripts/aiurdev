@@ -135,10 +135,10 @@ build_aiur() {
   local log_file status=0
 
   require_mise
-  echo "🔨 rebuilding bin/aiur (release)" >&2
+  echo "🔨 rebuilding bin/aiur (compile + release)" >&2
   log_file="$(mktemp "${TMPDIR:-/tmp}/aiurdev-release.XXXXXX")"
 
-  if (cd "$elixir_dir" && "$mise_bin" exec -- mix release --overwrite) >"$log_file" 2>&1; then
+  if (cd "$elixir_dir" && "$mise_bin" exec -- mix compile --force && "$mise_bin" exec -- mix release --overwrite) >"$log_file" 2>&1; then
     status=0
   else
     status=$?
@@ -302,9 +302,6 @@ if [ "${1:-}" = "build" ]; then
     rm -rf "$elixir_dir/_build/dev/rel"
     ensure_elixir_deps || build_status=$?
     require_mise
-    if [ "$build_status" -eq 0 ]; then
-      (cd "$elixir_dir" && "$mise_bin" exec -- mix compile --force) >&2 || build_status=$?
-    fi
   fi
   if [ "$build_status" -eq 0 ]; then
     build_aiur || build_status=$?
