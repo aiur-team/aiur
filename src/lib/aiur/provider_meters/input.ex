@@ -6,48 +6,62 @@ defmodule Aiur.ProviderMeters.Input do
   @auth_modes [:subscription, :api_key, :unknown]
   @sources [:provider, :adapter, :codex_app_server, :claude_app_server, :synthetic]
   @window_kinds [:rate_limit, :credit, :spend_control]
-  @window_names %{primary: "Primary", secondary: "Secondary", credits: "Credits", spend_control: "Spend control", custom: "Provider limit"}
+  @window_names %{
+    primary: "Primary",
+    secondary: "Secondary",
+    credits: "Credits",
+    spend_control: "Spend control",
+    custom: "Provider limit"
+  }
   @coverages [:supported, :unsupported, :empty_supported]
   @failure_reasons [:authentication, :malformed, :timeout, :transport]
   @plan_tiers [:free, :pro, :team, :business, :enterprise, :unknown]
   @max_numeric 1_000_000_000_000
   @max_source_version 1_000_000_000
 
-  @update_keys MapSet.new([
-                 :schema_version,
-                 :update_kind,
-                 :provider,
-                 :backend,
-                 :account_generation_binding,
-                 :auth_mode,
-                 :plan,
-                 :observed_at,
-                 :source,
-                 :source_version,
-                 :windows,
-                 :limit_id
-               ])
-  @window_keys MapSet.new([
-                 :limit_id,
-                 :kind,
-                 :name,
-                 :used_percent,
-                 :remaining_percent,
-                 :used,
-                 :limit,
-                 :remaining,
-                 :duration_minutes,
-                 :resets_at,
-                 :credits,
-                 :spend_control,
-                 :source,
-                 :observed_at,
-                 :expires_at,
-                 :coverage
-               ])
-  @plan_keys MapSet.new([:tier, :source, :observed_at, :expires_at])
-  @credit_keys MapSet.new([:status, :amount])
-  @spend_control_keys MapSet.new([:status, :limit])
+  @update_keys [
+    :schema_version,
+    :update_kind,
+    :provider,
+    :backend,
+    :account_generation_binding,
+    :auth_mode,
+    :plan,
+    :observed_at,
+    :source,
+    :source_version,
+    :windows,
+    :limit_id
+  ]
+  @window_keys [
+    :limit_id,
+    :kind,
+    :name,
+    :used_percent,
+    :remaining_percent,
+    :used,
+    :limit,
+    :remaining,
+    :duration_minutes,
+    :resets_at,
+    :credits,
+    :spend_control,
+    :source,
+    :observed_at,
+    :expires_at,
+    :coverage
+  ]
+  @plan_keys [:tier, :source, :observed_at, :expires_at]
+  @credit_keys [:status, :amount]
+  @spend_control_keys [:status, :limit]
+  @failure_keys [
+    :schema_version,
+    :provider,
+    :backend,
+    :account_generation_binding,
+    :reason,
+    :observed_at
+  ]
 
   @spec normalize(map()) :: {:ok, map()} | {:error, :invalid_provider_meter_update}
   def normalize(input) when is_map(input) do
@@ -87,16 +101,21 @@ defmodule Aiur.ProviderMeters.Input do
 
   @spec normalize_failure(map()) :: {:ok, map()} | {:error, :invalid_provider_meter_failure}
   def normalize_failure(input) when is_map(input) do
-    allowed = MapSet.new([:schema_version, :provider, :backend, :account_generation_binding, :reason, :observed_at])
-
-    with :ok <- only_keys?(input, allowed),
+    with :ok <- only_keys?(input, @failure_keys),
          :ok <- equal?(Map.get(input, :schema_version), 1),
          {:ok, provider} <- enum(Map.get(input, :provider), @providers),
          {:ok, backend} <- enum(Map.get(input, :backend), @backends),
          {:ok, binding} <- generation_binding(Map.get(input, :account_generation_binding)),
          {:ok, reason} <- enum(Map.get(input, :reason), @failure_reasons),
          {:ok, observed_at} <- datetime(Map.get(input, :observed_at)) do
-      {:ok, %{provider: provider, backend: backend, account_generation_binding: binding, reason: reason, observed_at: observed_at}}
+      {:ok,
+       %{
+         provider: provider,
+         backend: backend,
+         account_generation_binding: binding,
+         reason: reason,
+         observed_at: observed_at
+       }}
     else
       _ -> {:error, :invalid_provider_meter_failure}
     end
@@ -262,12 +281,22 @@ defmodule Aiur.ProviderMeters.Input do
   defp optional_non_negative_integer(value) when is_integer(value) and value >= 0, do: {:ok, value}
   defp optional_non_negative_integer(_value), do: {:error, :invalid_non_negative_integer}
   defp optional_non_negative_number(nil), do: {:ok, nil}
-  defp optional_non_negative_number(value) when is_number(value) and value >= 0 and value <= @max_numeric, do: {:ok, value}
+
+  defp optional_non_negative_number(value)
+       when is_number(value) and value >= 0 and value <= @max_numeric,
+       do: {:ok, value}
+
   defp optional_non_negative_number(_value), do: {:error, :invalid_non_negative_number}
   defp coverage_facts(:supported, _numeric, _credits, _spend_control), do: :ok
 
-  defp coverage_facts(coverage, numeric, credits, spend_control) when coverage in [:unsupported, :empty_supported] do
-    if map_size(numeric) == 0 and absent_or_unsupported?(credits) and absent_or_unsupported?(spend_control), do: :ok, else: {:error, :invalid_coverage_facts}
+  defp coverage_facts(coverage, numeric, credits, spend_control)
+       when coverage in [:unsupported, :empty_supported] do
+    if map_size(numeric) == 0 and absent_or_unsupported?(credits) and
+         absent_or_unsupported?(spend_control) do
+      :ok
+    else
+      {:error, :invalid_coverage_facts}
+    end
   end
 
   defp absent_or_unsupported?(nil), do: true
@@ -278,7 +307,14 @@ defmodule Aiur.ProviderMeters.Input do
   defp unsupported_without_value(_status, _value), do: :ok
   defp annotate_plan(nil, _source_version), do: nil
   defp annotate_plan(plan, source_version), do: Map.put(plan, :source_version, source_version)
-  defp annotate_windows(windows, source_version), do: Map.new(windows, fn {id, window} -> {id, Map.put(window, :source_version, source_version)} end)
-  defp only_keys?(map, allowed), do: if(MapSet.subset?(MapSet.new(Map.keys(map)), allowed), do: :ok, else: {:error, :unexpected_key})
+
+  defp annotate_windows(windows, source_version) do
+    Map.new(windows, fn {id, window} -> {id, Map.put(window, :source_version, source_version)} end)
+  end
+
+  defp only_keys?(map, allowed) do
+    if Enum.all?(Map.keys(map), &Enum.member?(allowed, &1)), do: :ok, else: {:error, :unexpected_key}
+  end
+
   defp equal?(left, right), do: if(left == right, do: :ok, else: {:error, :not_equal})
 end

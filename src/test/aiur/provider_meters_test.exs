@@ -12,15 +12,13 @@ defmodule Aiur.ProviderMetersTest do
     {:ok, owner} = ProviderAccountGeneration.start_link(name: nil, mint: sequence_mint())
     {:ok, store} = Store.start_link(name: nil, account_generation_owner: owner, clock: fn -> @now end)
 
-    on_exit(fn ->
-      if Process.alive?(owner), do: GenServer.stop(owner)
-      if Process.alive?(store), do: GenServer.stop(store)
-    end)
-
     %{owner: owner, store: store}
   end
 
-  test "full snapshots remove omitted windows while patches and tombstones stay sparse", %{owner: owner, store: store} do
+  test "full snapshots remove omitted windows while patches and tombstones stay sparse", %{
+    owner: owner,
+    store: store
+  } do
     binding = bound_binding(owner)
 
     assert {:ok, first} =
@@ -64,7 +62,14 @@ defmodule Aiur.ProviderMetersTest do
   end
 
   property "arbitrary limit IDs preserve full, sparse, tombstone, and out-of-order semantics" do
-    check all(ids <- uniq_list_of(string(:alphanumeric, min_length: 1, max_length: 20), min_length: 2, max_length: 12), max_runs: 25) do
+    check all(
+            ids <-
+              uniq_list_of(string(:alphanumeric, min_length: 1, max_length: 20),
+                min_length: 2,
+                max_length: 12
+              ),
+            max_runs: 25
+          ) do
       full = reconciliation_update(:snapshot, ids, @now, 1)
       {:updated, snapshot} = Reconciler.apply(nil, full, @now)
 
@@ -159,7 +164,14 @@ defmodule Aiur.ProviderMetersTest do
     assert {:ok, failed} =
              Store.record_failure(
                store,
-               %{schema_version: 1, provider: :codex, backend: :app_server, account_generation_binding: binding, reason: :transport, observed_at: DateTime.add(@now, 1, :second)}
+               %{
+                 schema_version: 1,
+                 provider: :codex,
+                 backend: :app_server,
+                 account_generation_binding: binding,
+                 reason: :transport,
+                 observed_at: DateTime.add(@now, 1, :second)
+               }
              )
 
     assert failed.health.state == :stale
@@ -204,7 +216,14 @@ defmodule Aiur.ProviderMetersTest do
     assert {:ok, new_failure} =
              Store.record_failure(
                store,
-               %{schema_version: 1, provider: :codex, backend: :app_server, account_generation_binding: first_binding, reason: :timeout, observed_at: @now}
+               %{
+                 schema_version: 1,
+                 provider: :codex,
+                 backend: :app_server,
+                 account_generation_binding: first_binding,
+                 reason: :timeout,
+                 observed_at: @now
+               }
              )
 
     assert new_failure.windows == %{}
@@ -220,18 +239,36 @@ defmodule Aiur.ProviderMetersTest do
     assert {:ignored, ^snapshot} = Reconciler.apply(snapshot, claude, DateTime.add(@now, 1, :second))
   end
 
-  test "adapter boundary rejects identity, credential, raw, capability, and content fields before state or PubSub", %{owner: owner, store: store} do
+  test "adapter boundary rejects identity, credential, raw, capability, and content fields before state or PubSub", %{
+    owner: owner,
+    store: store
+  } do
     binding = bound_binding(owner)
     input = update(binding, windows: [window("rolling")])
     assert {:ok, generation} = Store.subscription_generation(store, :codex, :app_server, binding)
     :ok = Events.subscribe(:codex, :app_server, generation)
     before = :sys.get_state(store)
 
-    for field <- [:account, :email, :organization, :org, :project, :credential, :raw_response, :headers, :capability, :content] do
-      assert {:error, :invalid_provider_meter_update} = Store.ingest(store, Map.put(input, field, "secret@example.test"))
+    for field <- [
+          :account,
+          :email,
+          :organization,
+          :org,
+          :project,
+          :credential,
+          :raw_response,
+          :headers,
+          :capability,
+          :content
+        ] do
+      assert {:error, :invalid_provider_meter_update} =
+               Store.ingest(store, Map.put(input, field, "secret@example.test"))
     end
 
-    assert {:error, :invalid_provider_meter_update} = Store.ingest(store, %{input | windows: [Map.put(window("rolling"), :raw_payload, %{token: "secret"})]})
+    raw_window = Map.put(window("rolling"), :raw_payload, %{token: "secret"})
+
+    assert {:error, :invalid_provider_meter_update} =
+             Store.ingest(store, %{input | windows: [raw_window]})
 
     assert :sys.get_state(store) == before
     refute_receive {:provider_meter_changed, _snapshot}, 100
@@ -257,7 +294,10 @@ defmodule Aiur.ProviderMetersTest do
     assert {:error, :invalid_provider_meter_update} = Store.ingest(store, bad_control)
   end
 
-  test "supported-empty and unsupported facts remain distinct and change notifications are bounded", %{owner: owner, store: store} do
+  test "supported-empty and unsupported facts remain distinct and change notifications are bounded", %{
+    owner: owner,
+    store: store
+  } do
     binding = bound_binding(owner)
     assert {:ok, generation} = Store.subscription_generation(store, :codex, :app_server, binding)
     :ok = Events.subscribe(:codex, :app_server, generation)

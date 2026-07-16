@@ -7,8 +7,8 @@ defmodule Aiur.ProviderMeters do
   account generation before accepting, retaining, or broadcasting it.
   """
 
-  alias Aiur.ProviderMeterSnapshot
   alias Aiur.ProviderMeters.{Events, Store}
+  alias Aiur.ProviderMeterSnapshot
 
   @type provider :: :codex | :claude
   @type backend :: :app_server

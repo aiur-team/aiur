@@ -25,7 +25,9 @@ defmodule Aiur.ProviderMeters.Store do
 
   @spec subscription_generation(GenServer.server(), :codex | :claude, :app_server, reference() | map()) ::
           {:ok, String.t()} | {:error, :unknown_account_generation}
-  def subscription_generation(server, provider, backend, binding), do: GenServer.call(server, {:subscription_generation, provider, backend, binding})
+  def subscription_generation(server, provider, backend, binding) do
+    GenServer.call(server, {:subscription_generation, provider, backend, binding})
+  end
 
   @spec generation(GenServer.server()) :: non_neg_integer()
   def generation(server), do: GenServer.call(server, :generation)
@@ -43,24 +45,28 @@ defmodule Aiur.ProviderMeters.Store do
 
   @impl true
   def handle_call({:ingest, input}, _from, state) do
-    with {:ok, update} <- normalize_update(input, state) do
-      key = key(update)
-      {outcome, snapshot} = Reconciler.apply(Map.get(state.projections, key), update, now(state))
-      {state, snapshot} = maybe_store(state, key, snapshot, outcome == :updated)
-      {:reply, {:ok, snapshot}, state}
-    else
-      {:error, _reason} = error -> {:reply, error, state}
+    case normalize_update(input, state) do
+      {:ok, update} ->
+        key = key(update)
+        {outcome, snapshot} = Reconciler.apply(Map.get(state.projections, key), update, now(state))
+        {state, snapshot} = maybe_store(state, key, snapshot, outcome == :updated)
+        {:reply, {:ok, snapshot}, state}
+
+      {:error, _reason} = error ->
+        {:reply, error, state}
     end
   end
 
   def handle_call({:failure, input}, _from, state) do
-    with {:ok, failure} <- normalize_failure(input, state) do
-      key = key(failure)
-      {outcome, snapshot} = Reconciler.failure(Map.get(state.projections, key), failure, now(state))
-      {state, snapshot} = maybe_store(state, key, snapshot, outcome == :updated)
-      {:reply, {:ok, snapshot}, state}
-    else
-      {:error, _reason} = error -> {:reply, error, state}
+    case normalize_failure(input, state) do
+      {:ok, failure} ->
+        key = key(failure)
+        {outcome, snapshot} = Reconciler.failure(Map.get(state.projections, key), failure, now(state))
+        {state, snapshot} = maybe_store(state, key, snapshot, outcome == :updated)
+        {:reply, {:ok, snapshot}, state}
+
+      {:error, _reason} = error ->
+        {:reply, error, state}
     end
   end
 
@@ -83,19 +89,32 @@ defmodule Aiur.ProviderMeters.Store do
 
   defp normalize_update(input, state) do
     with {:ok, update} <- Input.normalize(input),
-         {:ok, generation} <- resolve_generation(state, update.provider, update.backend, update.account_generation_binding) do
+         {:ok, generation} <-
+           resolve_generation(
+             state,
+             update.provider,
+             update.backend,
+             update.account_generation_binding
+           ) do
       {:ok, update |> Map.delete(:account_generation_binding) |> Map.put(:provider_account_generation, generation)}
     end
   end
 
   defp normalize_failure(input, state) do
     with {:ok, failure} <- Input.normalize_failure(input),
-         {:ok, generation} <- resolve_generation(state, failure.provider, failure.backend, failure.account_generation_binding) do
+         {:ok, generation} <-
+           resolve_generation(
+             state,
+             failure.provider,
+             failure.backend,
+             failure.account_generation_binding
+           ) do
       {:ok, failure |> Map.delete(:account_generation_binding) |> Map.put(:provider_account_generation, generation)}
     end
   end
 
-  defp resolve_generation(state, provider, backend, binding) when provider in [:codex, :claude] and backend == :app_server do
+  defp resolve_generation(state, provider, backend, binding)
+       when provider in [:codex, :claude] and backend == :app_server do
     case ProviderAccountGeneration.lookup(state.account_generation_owner, provider, backend, binding) do
       %{generation: generation, freshness: :current, health: :healthy} when is_binary(generation) -> {:ok, generation}
       _ -> {:error, :unknown_account_generation}
@@ -127,6 +146,12 @@ defmodule Aiur.ProviderMeters.Store do
     {state, snapshot}
   end
 
-  defp key(%{provider: provider, backend: backend, provider_account_generation: generation}), do: {provider, backend, generation}
+  defp key(%{
+         provider: provider,
+         backend: backend,
+         provider_account_generation: generation
+       }),
+       do: {provider, backend, generation}
+
   defp now(%{clock: clock}), do: clock.()
 end

@@ -69,7 +69,12 @@ defmodule Aiur.ProviderMeterSnapshot do
     %__MODULE__{
       provider: provider,
       backend: backend,
-      health: %{state: :unavailable, failure: :unknown_account_generation, last_observed_at: nil, last_source_version: nil}
+      health: %{
+        state: :unavailable,
+        failure: :unknown_account_generation,
+        last_observed_at: nil,
+        last_source_version: nil
+      }
     }
   end
 end

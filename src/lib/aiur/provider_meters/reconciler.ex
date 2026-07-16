@@ -6,7 +6,13 @@ defmodule Aiur.ProviderMeters.Reconciler do
   @spec apply(ProviderMeterSnapshot.t() | nil, map(), DateTime.t()) ::
           {:updated | :ignored, ProviderMeterSnapshot.t()}
   def apply(existing, update, now) do
-    snapshot = existing || ProviderMeterSnapshot.empty(update.provider, update.backend, update.provider_account_generation)
+    snapshot =
+      existing ||
+        ProviderMeterSnapshot.empty(
+          update.provider,
+          update.backend,
+          update.provider_account_generation
+        )
 
     cond do
       different_identity?(snapshot, update) ->
@@ -42,7 +48,11 @@ defmodule Aiur.ProviderMeters.Reconciler do
 
   @spec refresh(ProviderMeterSnapshot.t(), DateTime.t()) :: ProviderMeterSnapshot.t()
   def refresh(snapshot, now) do
-    windows = Map.new(snapshot.windows, fn {limit_id, window} -> {limit_id, Map.put(window, :freshness, freshness(window, now))} end)
+    windows =
+      Map.new(snapshot.windows, fn {limit_id, window} ->
+        {limit_id, Map.put(window, :freshness, freshness(window, now))}
+      end)
+
     plan = refresh_plan(snapshot.plan, now)
     freshness = projection_freshness(windows, plan, snapshot.observed_at)
     health = snapshot.health
@@ -112,16 +122,24 @@ defmodule Aiur.ProviderMeters.Reconciler do
   end
 
   defp merge_windows(snapshot, update) do
-    Enum.reduce(update.windows, {snapshot.windows, snapshot.window_tombstones}, fn {limit_id, incoming}, {windows, tombstones} ->
-      current = Map.get(windows, limit_id)
-      tombstone = Map.get(tombstones, limit_id)
+    Enum.reduce(
+      update.windows,
+      {snapshot.windows, snapshot.window_tombstones},
+      fn {limit_id, incoming}, {windows, tombstones} ->
+        current = Map.get(windows, limit_id)
+        tombstone = Map.get(tombstones, limit_id)
 
-      if newer_than_existing?(incoming, current) and newer_than_tombstone?(incoming, tombstone, snapshot.full_snapshot_observed_at) do
-        {Map.put(windows, limit_id, incoming), Map.delete(tombstones, limit_id)}
-      else
-        {windows, tombstones}
+        newer? =
+          newer_than_existing?(incoming, current) and
+            newer_than_tombstone?(incoming, tombstone, snapshot.full_snapshot_observed_at)
+
+        if newer? do
+          {Map.put(windows, limit_id, incoming), Map.delete(tombstones, limit_id)}
+        else
+          {windows, tombstones}
+        end
       end
-    end)
+    )
   end
 
   defp tombstone(snapshot, update) do
@@ -159,7 +177,9 @@ defmodule Aiur.ProviderMeters.Reconciler do
   end
 
   defp different_identity?(snapshot, update) do
-    snapshot.provider != update.provider or snapshot.backend != update.backend or snapshot.provider_account_generation != update.provider_account_generation
+    snapshot.provider != update.provider or
+      snapshot.backend != update.backend or
+      snapshot.provider_account_generation != update.provider_account_generation
   end
 
   defp older_or_duplicate_success?(%{health: %{last_observed_at: nil}}, _update), do: false
@@ -186,7 +206,10 @@ defmodule Aiur.ProviderMeters.Reconciler do
   end
 
   defp newer_than_full_snapshot?(_incoming, nil), do: true
-  defp newer_than_full_snapshot?(incoming, full_snapshot_at), do: DateTime.compare(incoming.observed_at, full_snapshot_at) != :lt
+
+  defp newer_than_full_snapshot?(incoming, full_snapshot_at) do
+    DateTime.compare(incoming.observed_at, full_snapshot_at) != :lt
+  end
 
   defp newer_fact?(nil, _current), do: false
   defp newer_fact?(_incoming, nil), do: true
