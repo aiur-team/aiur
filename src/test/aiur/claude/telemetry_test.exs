@@ -200,6 +200,22 @@ defmodule Aiur.Claude.TelemetryTest do
     assert rejections.attribute_limit == 1
   end
 
+  test "rejects malformed nested OTLP nodes without restarting the receiver", %{server: server, issue: issue} do
+    launch = launch(server, issue)
+    authorization = authorization(launch)
+    compatible = payload("session-nested-node", "request-nested-node")
+    receiver = Process.whereis(server)
+
+    resource_null = put_in(compatible, ["resourceLogs", Access.at(0), "resource"], nil)
+    scope_null = put_in(compatible, ["resourceLogs", Access.at(0), "scopeLogs", Access.at(0), "scope"], nil)
+
+    assert submit(server, authorization, resource_null).status == 400
+    assert submit(server, authorization, scope_null).status == 400
+    assert Process.whereis(server) == receiver
+    assert submit(server, authorization, compatible).status == 200
+    assert Telemetry.health(server).rejections.malformed == 2
+  end
+
   test "bounds OTLP integer strings before parsing and recovers on the next request", %{server: server, issue: issue} do
     launch = launch(server, issue)
     authorization = authorization(launch)

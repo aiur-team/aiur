@@ -223,7 +223,12 @@ defmodule Aiur.Claude.Telemetry.Event do
 
   defp attributes_at(record, parent) when is_map(record) do
     node = if is_nil(parent), do: record, else: Map.get(record, parent, %{})
-    bounded_list(Map.get(node, "attributes", []), @max_attributes)
+
+    if is_map(node) do
+      bounded_list(Map.get(node, "attributes", []), @max_attributes)
+    else
+      {:error, :malformed}
+    end
   end
 
   defp attributes_at(_record, _parent), do: {:error, :malformed}
