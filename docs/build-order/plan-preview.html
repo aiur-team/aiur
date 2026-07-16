@@ -230,7 +230,7 @@ footer{margin-top:26px;border-top:1px solid var(--line);padding-top:14px;font-fa
       </div>
     </div>
     <div style="display:flex;align-items:center;gap:.8rem">
-      <div class="hd-note">~18 core tickets merged to develop. CI test-suite stabilization DONE: all 4 develop-red flakes handled (telemetry + reconciler real fixes; codeowners #1212 + coding_agent #1214 quarantined) and pushed as 818a5d8f — test job expected green. Fleet switching to headless Claude Opus 4.8: daemon STOPPED to resolve a cross-machine dispatch collision (macbook-fable co-running a 2nd Aiur session) and prep the switch; restarts on the Claude config once develop CI is green. orangekid-opus fleet: DASH-021 merged (#1200); DASH-020 / DASH-013 / BO-018 queued for the Claude restart. Static preview — binds to live GitHub + Aiur state.</div>
+      <div class="hd-note">~18 core tickets merged to develop. CI test-suite stabilization DONE: all 4 develop-red flakes handled (telemetry + reconciler real fixes; codeowners #1212 + coding_agent #1214 quarantined), pushed as 818a5d8f — develop CI now 5/6 jobs green (build/lint/dialyzer/browser/layout); only the test job still running. Fleet switching to headless Claude Opus 4.8: daemon STOPPED (resolved a cross-machine dispatch collision with macbook-fable's 2nd Aiur session; release pre-built on the Claude config) — restarts the instant test greens. orangekid-opus fleet queued for restart: DASH-020 (PR #1208) / BO-018 (PR #1209) / DASH-013 / DASH-021. Static preview — binds to live GitHub + Aiur state.</div>
       <button class="theme-btn" id="themeBtn" aria-label="Toggle theme">◐ theme</button>
     </div>
   </div>
@@ -262,7 +262,7 @@ footer{margin-top:26px;border-top:1px solid var(--line);padding-top:14px;font-fa
 <script>
 const RUN = {
   phase: 4,
-  updated: "2026-07-16 08:28 PDT (orangekid header 08:00 + macbook-fable rows)",
+  updated: "2026-07-16 07:59 PDT (orangekid header + macbook-fable rows)",
   tickets: {
     "BO-004": {state:"merged", progress:100, issue:1086},
     "BO-008": {state:"merged", progress:100, issue:1087},
