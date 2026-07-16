@@ -1,7 +1,7 @@
 defmodule Aiur.AgentRunner.MessageHandlerTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.{AgentPubSub, Issue}
+  alias Aiur.{AgentPubSub, Issue, LiveConversation, TrackerIdentity}
   alias Aiur.AgentRunner.MessageHandler
 
   describe "build/6" do
@@ -102,6 +102,66 @@ defmodule Aiur.AgentRunner.MessageHandlerTest do
 
       assert_receive {:lifecycle, :lifecycle, %{event: "build_test", boundary: "start", operation_id: "cmd-1"}, _opts}
     end
+
+    test "projects only fixed prose from completed tool results" do
+      unique = Integer.to_string(System.unique_integer([:positive]))
+      identity = tracker_identity(unique)
+
+      issue = %Issue{id: "gid-tool-#{unique}", identifier: unique, tracker_identity: identity}
+      source = %{identity: identity, attempt_id: "attempt-#{unique}", backend: "codex", worker_generation: 1}
+
+      handler =
+        MessageHandler.build(nil, issue, nil, nil, "codex", nil,
+          attempt_id: "attempt-#{unique}",
+          worker_generation: 1
+        )
+
+      handler.(%{
+        event: :notification,
+        payload: %{
+          method: "item/completed",
+          params: %{
+            item: %{
+              id: "tool-1",
+              type: "dynamicToolCall",
+              tool: "dangerous_tool",
+              arguments: ~s({"token":"ghp_abcdefghijklmnopqrstuvwxyz0123456789"}),
+              contentItems: [%{text: "/private/full/output"}],
+              success: true
+            }
+          }
+        }
+      })
+
+      assert %{messages: [%{role: "tool", title: "Tool result", body: "Tool completed"}]} =
+               LiveConversation.snapshot(source)
+
+      refute inspect(LiveConversation.snapshot(source)) =~ "dangerous_tool"
+      refute inspect(LiveConversation.snapshot(source)) =~ "private/full/output"
+    end
+
+    test "projects operator deliveries using the runner telemetry attempt id" do
+      unique = Integer.to_string(System.unique_integer([:positive]))
+      identity = tracker_identity(unique)
+      issue = %Issue{id: "gid-operator-#{unique}", identifier: unique, tracker_identity: identity}
+
+      item = %{
+        id: System.unique_integer([:positive]),
+        category: :operator_message,
+        body: %{text: "Please continue"}
+      }
+
+      assert :ok =
+               MessageHandler.observe_operator_delivery(issue, item, "codex",
+                 telemetry_attempt_id: "attempt-#{unique}",
+                 worker_generation: 2
+               )
+
+      source = %{identity: identity, attempt_id: "attempt-#{unique}", backend: "codex", worker_generation: 2}
+
+      assert %{messages: [%{role: "operator", body: "Please continue"}]} =
+               LiveConversation.snapshot(source)
+    end
   end
 
   describe "send_control_state/3" do
@@ -182,5 +242,17 @@ defmodule Aiur.AgentRunner.MessageHandlerTest do
       assert :ok = MessageHandler.send_worker_runtime_info(self(), issue, "host", "/path")
       refute_receive {:worker_runtime_info, _, _}, 100
     end
+  end
+
+  defp tracker_identity(identifier) do
+    %TrackerIdentity{
+      status: :joinable,
+      kind: :github,
+      owner: "owner",
+      repository: "repo",
+      provider_id: "provider-#{identifier}",
+      identifier: identifier,
+      reason: nil
+    }
   end
 end

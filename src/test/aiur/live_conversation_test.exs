@@ -92,6 +92,36 @@ defmodule Aiur.LiveConversationTest do
     assert %{messages: [%{id: "new"}]} = LiveConversation.snapshot(replacement, server: server)
   end
 
+  test "isolates repositories, attempts, and sessions that share a display number", %{server: server} do
+    first = source()
+
+    second_identity = %{
+      first.identity
+      | repository: "other-repo",
+        provider_id: "other-provider"
+    }
+
+    second = %{first | identity: second_identity}
+    next_attempt = first |> Map.put(:attempt_id, "attempt-2") |> Map.put(:session_id, "session-2")
+
+    assert {:ok, _} =
+             LiveConversation.observe(first, %{role: :assistant, msg_id: "first", body: "first"}, server: server)
+
+    assert {:ok, _} =
+             LiveConversation.observe(second, %{role: :assistant, msg_id: "second", body: "second"}, server: server)
+
+    assert {:ok, _} =
+             LiveConversation.observe(
+               next_attempt,
+               %{role: :assistant, msg_id: "attempt", body: "attempt"},
+               server: server
+             )
+
+    assert %{messages: [%{id: "first"}]} = LiveConversation.snapshot(first, server: server)
+    assert %{messages: [%{id: "second"}]} = LiveConversation.snapshot(second, server: server)
+    assert %{messages: [%{id: "attempt"}]} = LiveConversation.snapshot(next_attempt, server: server)
+  end
+
   test "ended sources never accept late events", %{server: server} do
     source = source()
 
@@ -105,18 +135,38 @@ defmodule Aiur.LiveConversationTest do
 
     assert snapshot.state == :ended
     assert [%{id: "first"}] = snapshot.messages
+
+    assert {:ok, %{state: :ended}} = LiveConversation.mark_stale(source, server: server)
+    assert {:ok, %{state: :ended}} = LiveConversation.mark_unavailable(source, server: server)
   end
 
   test "compacts streaming deltas and replaces only their matching completion", %{server: server} do
     source = source()
 
     assert {:ok, _} =
-             LiveConversation.observe(source, %{kind: :assistant_delta, id: "turn-1", body: "hello "}, server: server)
+             LiveConversation.observe(
+               source,
+               %{kind: :assistant_delta, id: "turn-1", body: "hello ", sequence: 1},
+               server: server
+             )
 
     assert {:ok, partial} =
-             LiveConversation.observe(source, %{kind: :assistant_delta, id: "turn-1", body: "world"}, server: server)
+             LiveConversation.observe(
+               source,
+               %{kind: :assistant_delta, id: "turn-1", body: "world", sequence: 2},
+               server: server
+             )
 
     assert [%{id: "turn-1", body: "hello world"}] = partial.messages
+
+    assert {:ok, replayed} =
+             LiveConversation.observe(
+               source,
+               %{kind: :assistant_delta, id: "turn-1", body: "world", sequence: 2},
+               server: server
+             )
+
+    assert replayed.messages == partial.messages
 
     assert {:ok, completed} =
              LiveConversation.observe(
@@ -147,11 +197,49 @@ defmodule Aiur.LiveConversationTest do
   test "recovers an unavailable generation only after authoritative activation", %{server: server} do
     source = source()
 
+    assert {:ok, _} =
+             LiveConversation.observe(source, %{role: :assistant, msg_id: "known", body: "known"}, server: server)
+
     assert {:ok, %{state: :unavailable, health: :unavailable, freshness: :unknown}} =
              LiveConversation.mark_unavailable(source, server: server)
 
-    assert {:ok, %{state: :known_empty, health: :healthy, freshness: :current}} =
+    assert {:ok, %{state: :unavailable, health: :unavailable, freshness: :unknown}} =
+             LiveConversation.observe(
+               source,
+               %{role: :assistant, msg_id: "known", body: "replayed"},
+               server: server
+             )
+
+    assert {:ok, %{state: :live, health: :healthy, freshness: :current}} =
              LiveConversation.activate(source, server: server)
+  end
+
+  test "activation publishes known-empty and recovery snapshots", %{server: server} do
+    source = source()
+    assert :ok = LiveConversation.subscribe(source)
+
+    assert {:ok, %{state: :known_empty}} = LiveConversation.activate(source, server: server)
+    assert_receive {:live_conversation_changed, %{state: :known_empty, messages: []}}, 2_000
+
+    assert {:ok, %{state: :unavailable}} = LiveConversation.mark_unavailable(source, server: server)
+    assert_receive {:live_conversation_changed, %{state: :unavailable}}, 2_000
+
+    assert {:ok, %{state: :known_empty}} = LiveConversation.activate(source, server: server)
+    assert_receive {:live_conversation_changed, %{state: :known_empty}}, 2_000
+  end
+
+  test "ended-generation eviction cannot crash a pending notification", %{server: server} do
+    first = source(worker_generation: 1)
+    assert :ok = LiveConversation.subscribe(first)
+
+    Enum.each(1..17, fn generation ->
+      assert {:ok, %{state: :ended}} =
+               LiveConversation.end_generation(source(worker_generation: generation), server: server)
+    end)
+
+    assert_receive {:live_conversation_changed, _snapshot}, 2_000
+    assert Process.alive?(server)
+    assert %{state: :restart_unknown} = LiveConversation.snapshot(first, server: server)
   end
 
   test "accepts only trusted operator deliveries and canonicalizes notification topics", %{server: server} do
@@ -170,13 +258,56 @@ defmodule Aiur.LiveConversationTest do
     assert rejected.diagnostic_counts.untrusted_operator == 1
 
     assert {:ok, _snapshot} =
-             LiveConversation.observe(
+             LiveConversation.observe_operator_message(
                source,
                %{role: :user, msg_id: "operator-1", body: "approved question", payload: %{source: :operator_delivery}},
                server: server
              )
 
-    assert_receive {:live_conversation_changed, %{messages: [%{id: "operator-1", role: "operator"}]}}, 100
+    assert_receive {:live_conversation_changed, %{messages: [%{id: "operator-1", role: "operator"}]}}, 2_000
+  end
+
+  test "admits system transitions and tool summaries only through trusted adapters", %{server: server} do
+    source = source()
+
+    assert {:ok, rejected_system} =
+             LiveConversation.observe(
+               source,
+               %{role: :system, msg_id: "raw-system", body: "provider supplied"},
+               server: server
+             )
+
+    assert rejected_system.messages == []
+    assert rejected_system.diagnostic_counts.unsafe_system == 1
+
+    assert {:ok, with_system} =
+             LiveConversation.observe_system_transition(
+               source,
+               %{msg_id: "transition", title: "Lifecycle", body: "Agent paused"},
+               server: server
+             )
+
+    assert [%{id: "transition", role: "system", title: "Lifecycle", body: "Agent paused"}] =
+             with_system.messages
+
+    assert {:ok, rejected_tool} =
+             LiveConversation.observe(
+               source,
+               %{role: :tool, msg_id: "raw-tool", body: "full command output"},
+               server: server
+             )
+
+    assert rejected_tool.diagnostic_counts.unsafe_tool == 1
+
+    assert {:ok, with_tool} =
+             LiveConversation.observe_tool_summary(
+               source,
+               %{msg_id: "tool-result", title: "Tool result", body: "Tool completed"},
+               server: server
+             )
+
+    assert %{id: "tool-result", role: "tool", title: "Tool result", body: "Tool completed"} =
+             List.last(with_tool.messages)
   end
 
   test "retains bounded partial state and enforces the total message byte ceiling", %{server: server} do
@@ -259,6 +390,67 @@ defmodule Aiur.LiveConversationTest do
            }
 
     refute Map.has_key?(snapshot.source.identity, :provider_id)
+  end
+
+  test "bounds public source fields within the total snapshot byte ceiling", %{server: server} do
+    oversized = String.duplicate("x", 100_000)
+    maximum = String.duplicate("x", 256)
+
+    maximum_source =
+      source()
+      |> Map.put(:run_id, maximum)
+      |> Map.put(:session_id, maximum)
+      |> Map.put(:attempt_id, maximum)
+      |> Map.put(:backend, maximum)
+
+    assert {:ok, snapshot} = LiveConversation.activate(maximum_source, server: server)
+    assert byte_size(:erlang.term_to_binary(snapshot)) <= 64_000
+
+    assert {:error, :invalid_source} =
+             LiveConversation.activate(%{source() | run_id: oversized}, server: server)
+
+    assert {:error, :invalid_source} =
+             LiveConversation.activate(%{source() | attempt_id: %{}}, server: server)
+  end
+
+  test "bounds titles and bodies and tolerates malformed timestamps", %{server: server} do
+    long_title = String.duplicate("t", 121)
+    long_body = String.duplicate("b", 1_601)
+
+    assert {:ok, snapshot} =
+             LiveConversation.observe(
+               source(),
+               %{
+                 role: :assistant,
+                 msg_id: "bounded",
+                 title: long_title,
+                 body: long_body,
+                 timestamp: "not-a-timestamp"
+               },
+               server: server
+             )
+
+    assert [%{title: title, body: body, occurred_at: %DateTime{}}] = snapshot.messages
+    assert String.length(title) == 120
+    assert String.length(body) == 1_600
+  end
+
+  test "drops malformed structured fields without crashing the projection", %{server: server} do
+    malformed = [
+      %{role: :assistant, msg_id: %{}, body: "bad id"},
+      %{role: :assistant, msg_id: "bad-title", title: %{}, body: "bad title"},
+      %{role: :assistant, msg_id: "bad-delivery", delivery: :unknown, body: "bad delivery"}
+    ]
+
+    snapshot =
+      Enum.reduce(malformed, nil, fn event, _snapshot ->
+        assert {:ok, snapshot} = LiveConversation.observe(source(), event, server: server)
+        snapshot
+      end)
+
+    assert snapshot.messages == []
+    assert snapshot.diagnostic_counts.invalid_event == 3
+    assert Process.alive?(server)
   end
 
   defp source(overrides \\ []) do

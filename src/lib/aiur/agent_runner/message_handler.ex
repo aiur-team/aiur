@@ -88,13 +88,52 @@ defmodule Aiur.AgentRunner.MessageHandler do
   defp maybe_observe_live_conversation(%Issue{} = issue, message, backend, turn_id, opts) do
     with {:ok, source} <- live_source(issue, backend, opts),
          {:ok, event} <- transcript_event_from(message, backend, turn_id) do
-      safe_live_conversation(fn -> LiveConversation.observe(source, event) end)
+      observe_live_event(source, event)
     else
       _ -> :ok
     end
   end
 
   defp maybe_observe_live_conversation(_issue, _message, _backend, _turn_id, _opts), do: :ok
+
+  defp observe_live_event(source, %{role: :tool} = event) do
+    case safe_tool_summary(event) do
+      {:ok, summary} -> safe_live_conversation(fn -> LiveConversation.observe_tool_summary(source, summary) end)
+      :skip -> :ok
+    end
+  end
+
+  defp observe_live_event(source, event),
+    do: safe_live_conversation(fn -> LiveConversation.observe(source, event) end)
+
+  # The rich transcript event contains tool inputs, output and paths. Reduce
+  # only completed result shapes to fixed prose before crossing the projection
+  # boundary; no provider-controlled tool content is retained.
+  defp safe_tool_summary(%{payload: payload} = event) when is_map(payload) do
+    case safe_tool_outcome(payload, event) do
+      nil ->
+        :skip
+
+      outcome ->
+        {:ok,
+         %{
+           msg_id: event[:msg_id] || "tool:#{event.sequence}",
+           title: "Tool result",
+           body: outcome,
+           timestamp: event.timestamp
+         }}
+    end
+  end
+
+  defp safe_tool_summary(_event), do: :skip
+
+  defp safe_tool_outcome(%{tool: "result"}, %{body: "tool result (error)"}),
+    do: "Tool reported an error"
+
+  defp safe_tool_outcome(%{tool: "result"}, _event), do: "Tool completed"
+  defp safe_tool_outcome(%{success: true}, _event), do: "Tool completed"
+  defp safe_tool_outcome(%{success: false}, _event), do: "Tool reported an error"
+  defp safe_tool_outcome(_payload, _event), do: nil
 
   @doc false
   @spec observe_operator_delivery(Issue.t(), map(), String.t(), keyword()) :: :ok
@@ -110,7 +149,7 @@ defmodule Aiur.AgentRunner.MessageHandler do
         payload: %{source: :operator_delivery}
       }
 
-      safe_live_conversation(fn -> LiveConversation.observe(source, event) end)
+      safe_live_conversation(fn -> LiveConversation.observe_operator_message(source, event) end)
     else
       _ -> :ok
     end
@@ -215,12 +254,15 @@ defmodule Aiur.AgentRunner.MessageHandler do
     with %TrackerIdentity{} = identity <- Issue.tracker_identity(issue),
          true <- TrackerIdentity.joinable?(identity),
          generation when is_integer(generation) and generation > 0 <- Keyword.get(opts, :worker_generation),
-         attempt_id when not is_nil(attempt_id) <- Keyword.get(opts, :attempt_id) do
+         attempt_id when not is_nil(attempt_id) <- live_attempt_id(opts) do
       {:ok, %{identity: identity, attempt_id: attempt_id, backend: backend, worker_generation: generation}}
     else
       _ -> :error
     end
   end
+
+  defp live_attempt_id(opts),
+    do: Keyword.get(opts, :attempt_id) || Keyword.get(opts, :telemetry_attempt_id)
 
   defp safe_live_conversation(fun) do
     _ = fun.()
