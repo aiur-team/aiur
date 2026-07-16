@@ -38,7 +38,7 @@ defmodule Aiur.Claude.CodingAgent do
     on_provider_started = Keyword.get(opts, :on_provider_started, fn _provider -> :ok end)
 
     with :ok <- validate_workspace_cwd(workspace),
-         {:ok, port} <- start_port(workspace, on_provider_started) do
+         {:ok, port} <- start_port(workspace, on_provider_started, Keyword.get(opts, :telemetry_launch)) do
       metadata = port_metadata(port)
 
       Aiur.ProcessReaper.register(:agent, {:os_pid, metadata[:claude_app_server_pid]},
@@ -140,10 +140,17 @@ defmodule Aiur.Claude.CodingAgent do
     end
   end
 
-  defp start_port(workspace, on_provider_started) do
-    Adapter.start_port(workspace, Aiur.Claude.Config.command(), fn port ->
-      on_provider_started.(provider_metadata(port))
-    end)
+  defp start_port(workspace, on_provider_started, %{env: telemetry_env}) when is_list(telemetry_env) do
+    Adapter.start_port(
+      workspace,
+      Aiur.Claude.Config.command(),
+      fn port -> on_provider_started.(provider_metadata(port)) end,
+      env: telemetry_env
+    )
+  end
+
+  defp start_port(workspace, on_provider_started, _telemetry_launch) do
+    Adapter.start_port(workspace, Aiur.Claude.Config.command(), fn port -> on_provider_started.(provider_metadata(port)) end)
   end
 
   defp provider_metadata(port) do
