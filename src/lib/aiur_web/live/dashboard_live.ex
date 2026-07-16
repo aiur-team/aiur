@@ -439,8 +439,7 @@ defmodule AiurWeb.DashboardLive do
     |> put_filter_query(filter)
   end
 
-  defp put_filter_query(query, :open),
-    do: query |> Map.put("lifecycle", "open") |> Map.put("authority", "human_required")
+  defp put_filter_query(query, :open), do: Map.put(query, "lifecycle", "open")
 
   defp put_filter_query(query, :blocking), do: query |> Map.put("lifecycle", "open") |> Map.put("blocking", true)
   defp put_filter_query(query, :resolved), do: Map.put(query, "lifecycle", "resolved")

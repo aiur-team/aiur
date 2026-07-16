@@ -863,6 +863,40 @@ defmodule AiurWeb.DashboardLiveTest do
     assert_patch(view, "/decisions?search=#{decision.decision_id}")
   end
 
+  test "Open Commands includes every canonical open authority" do
+    orchestrator_name = Module.concat(__MODULE__, :MixedAuthorityOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :MixedAuthorityDecisionStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 5_078}}}
+      end)
+
+    human = request_dashboard_decision(store, "open-human")
+
+    delegated =
+      request_dashboard_decision(store, "open-supervisor", "reversible", decision_authority: :supervisor_allowed)
+
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name,
+      control_center_cache: false
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/decisions")
+
+    view
+    |> element(~s(button[phx-click="filter-decisions"][phx-value-filter="open"]))
+    |> render_click()
+
+    assert_patch(view, "/decisions?filter=open")
+    assert has_element?(view, ".decision-list #decision-#{human.decision_id}")
+    assert has_element?(view, ".decision-list #decision-#{delegated.decision_id}")
+  end
+
   test "All Commands uses bounded retained pages with shareable search and safe cursor failure" do
     orchestrator_name = Module.concat(__MODULE__, :RetainedPageOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :RetainedPageDecisionStore)
@@ -2477,7 +2511,20 @@ defmodule AiurWeb.DashboardLiveTest do
     start_counting_orchestrator(orchestrator_name)
 
     human = request_api_decision(store, "human-required", :human_required)
-    delegated = request_api_decision(store, "supervisor-allowed", :supervisor_allowed)
+
+    delegated =
+      request_api_decision(store, "supervisor-allowed", :supervisor_allowed,
+        provenance: %{
+          agent_family: "codex",
+          backend: "codex-app-server",
+          requested_model: "gpt-requested",
+          resolved_model: "gpt-resolved",
+          session_id: "history-thread",
+          attempt_id: "history-attempt",
+          source: "agent_runner"
+        }
+      )
+
     api_opts = supervisor_api_opts(store)
 
     start_test_endpoint(
@@ -2548,6 +2595,11 @@ defmodule AiurWeb.DashboardLiveTest do
     root_html = reload_view(view)
     assert root_html =~ "Command history"
     assert root_html =~ "supervising-agent"
+    assert root_html =~ "codex-app-server · gpt-resolved"
+    assert root_html =~ "91% confidence"
+    assert root_html =~ "88% confidence"
+    assert root_html =~ "Supersedes"
+    assert root_html =~ action_id
 
     _filtered_html = render_patch(view, "/decisions?filter=supervisor")
     filtered_list = view |> element(".decision-list") |> render()
@@ -2762,7 +2814,7 @@ defmodule AiurWeb.DashboardLiveTest do
     start_supervised!({RecentMergeStore, name: name, state_dir: dir, filesystem_sync_fun: fn -> :ok end})
   end
 
-  defp request_api_decision(store, source_id, authority) do
+  defp request_api_decision(store, source_id, authority, opts \\ []) do
     assert {:ok, %{decision: decision}} =
              DecisionStore.request(
                %{
@@ -2773,10 +2825,13 @@ defmodule AiurWeb.DashboardLiveTest do
                  "authority" => Atom.to_string(authority),
                  "reversibility" => "reversible"
                },
-               [
-                 ticket: %{identifier: "AIUR-984", title: "Supervisor decision API", url: nil},
-                 source: %{agent_id: "agent-984", session_id: "session-984", event_id: "event-#{source_id}"}
-               ],
+               Keyword.merge(
+                 [
+                   ticket: %{identifier: "AIUR-984", title: "Supervisor decision API", url: nil},
+                   source: %{agent_id: "agent-984", session_id: "session-984", event_id: "event-#{source_id}"}
+                 ],
+                 opts
+               ),
                store
              )
 
@@ -2864,23 +2919,33 @@ defmodule AiurWeb.DashboardLiveTest do
   end
 
   defp request_dashboard_decision(store, source_id, reversibility \\ "reversible", opts \\ []) do
+    {decision_authority, opts} = Keyword.pop(opts, :decision_authority)
+
+    request =
+      %{
+        "source_id" => source_id,
+        "question" => "Should the dashboard ship this change?",
+        "blocking" => true,
+        "urgency" => "critical",
+        "reversibility" => reversibility,
+        "options" => [
+          %{
+            "id" => "ship",
+            "label" => "Ship it",
+            "description" => "Proceed with the reviewed change"
+          }
+        ],
+        "recommendation" => %{"option_id" => "ship", "reason" => "Checks are green"}
+      }
+      |> then(fn request ->
+        if is_atom(decision_authority),
+          do: Map.put(request, "authority", decision_authority),
+          else: request
+      end)
+
     assert {:ok, %{decision: decision}} =
              DecisionStore.request(
-               %{
-                 "source_id" => source_id,
-                 "question" => "Should the dashboard ship this change?",
-                 "blocking" => true,
-                 "urgency" => "critical",
-                 "reversibility" => reversibility,
-                 "options" => [
-                   %{
-                     "id" => "ship",
-                     "label" => "Ship it",
-                     "description" => "Proceed with the reviewed change"
-                   }
-                 ],
-                 "recommendation" => %{"option_id" => "ship", "reason" => "Checks are green"}
-               },
+               request,
                Keyword.merge(
                  [
                    ticket: %{
