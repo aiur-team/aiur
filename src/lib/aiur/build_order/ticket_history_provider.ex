@@ -257,7 +257,10 @@ defmodule Aiur.BuildOrder.TicketHistoryProvider do
   defp history(identity, state) do
     opts = [kinds: [:emit, :emit_alert, :self], limit: Normalizer.hard_limit()]
 
-    case safely(fn -> state.history_fun.(identity.identifier, opts) end) do
+    case safely(fn -> state.history_fun.(identity, opts) end) do
+      {:ok, {:error, :missing_source}} ->
+        {[], :missing_source, false}
+
       {:ok, {:error, _reason}} ->
         {[], :unavailable, false}
 
@@ -361,18 +364,33 @@ defmodule Aiur.BuildOrder.TicketHistoryProvider do
       {entry, put_entry_without_change(entry, state)}
     else
       {state, evicted} = make_room(state, entry.identity)
-      entry = %{entry | generation: state.next_generation}
+      {evicted, state} = allocate_eviction_generations(evicted, state)
+      {generation, state} = allocate_generation(state)
+      entry = %{entry | generation: generation}
 
       state = %{
         state
-        | entries: Map.put(state.entries, key(entry.identity), entry),
-          next_generation: state.next_generation + 1
+        | entries: Map.put(state.entries, key(entry.identity), entry)
       }
 
-      Enum.each(evicted, &broadcast_evicted(&1, state))
+      Enum.each(evicted, fn {evicted_entry, eviction_generation} ->
+        broadcast_evicted(evicted_entry, eviction_generation)
+      end)
+
       broadcast(entry, state)
       {entry, state}
     end
+  end
+
+  defp allocate_eviction_generations(entries, state) do
+    Enum.map_reduce(entries, state, fn entry, state ->
+      {generation, state} = allocate_generation(state)
+      {{entry, generation}, state}
+    end)
+  end
+
+  defp allocate_generation(state) do
+    {state.next_generation, %{state | next_generation: state.next_generation + 1}}
   end
 
   defp same_content?(nil, _entry), do: false
@@ -443,6 +461,7 @@ defmodule Aiur.BuildOrder.TicketHistoryProvider do
 
   defp overall_health(%{history_health: :unavailable}, _activity_health, _freshness), do: :unavailable
   defp overall_health(_entry, :unavailable, _freshness), do: :unavailable
+  defp overall_health(%{history_health: :missing_source}, _activity_health, _freshness), do: :missing_source
   defp overall_health(%{entries: [_ | _]}, :missing_source, _freshness), do: :restart_unknown
   defp overall_health(_entry, :missing_source, _freshness), do: :missing_source
   defp overall_health(_entry, :stale, _freshness), do: :stale
@@ -532,12 +551,12 @@ defmodule Aiur.BuildOrder.TicketHistoryProvider do
     end
   end
 
-  defp broadcast_evicted(entry, state) do
+  defp broadcast_evicted(entry, generation) do
     if Process.whereis(Aiur.PubSub) do
       Phoenix.PubSub.broadcast(
         Aiur.PubSub,
         topic(entry.identity),
-        {:ticket_history_evicted, entry.identity, state.next_generation}
+        {:ticket_history_evicted, entry.identity, generation}
       )
     end
   end

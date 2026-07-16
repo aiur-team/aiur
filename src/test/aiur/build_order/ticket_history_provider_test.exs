@@ -19,15 +19,15 @@ defmodule Aiur.BuildOrder.TicketHistoryProviderTest do
 
     server =
       start_provider(
-        history_fun: fn identifier, opts ->
-          send(test_pid, {:history_query, identifier, opts})
+        history_fun: fn identity, opts ->
+          send(test_pid, {:history_query, identity, opts})
           raw
         end,
         activity_snapshot_fun: fn _identity -> {:ok, activity()} end
       )
 
     assert {:ok, %Snapshot{} = snapshot} = TicketHistoryProvider.request(server, identity())
-    assert_receive {:history_query, "42", opts}
+    assert_receive {:history_query, %{identifier: "42"}, opts}
     assert opts[:limit] == 100
     assert opts[:kinds] == [:emit, :emit_alert, :self]
     assert snapshot.health == :available
@@ -83,6 +83,62 @@ defmodule Aiur.BuildOrder.TicketHistoryProviderTest do
              TicketHistoryProvider.request(server, identity())
   end
 
+  test "production IssueLog health distinguishes missing, unavailable, and known-empty history" do
+    with_log_root(fn ->
+      server =
+        start_provider(
+          history_fun: &Aiur.IssueLog.event_history/2,
+          activity_snapshot_fun: fn _ -> {:ok, activity()} end
+        )
+
+      path = Aiur.IssueLog.log_path(identity())
+
+      assert {:ok, %{health: :missing_source, source_health: %{history: :missing_source}}} =
+               TicketHistoryProvider.request(server, identity())
+
+      File.mkdir_p!(Path.dirname(path))
+      File.write!(path, "")
+
+      assert {:ok, %{health: :known_empty, source_health: %{history: :known_empty}}} =
+               TicketHistoryProvider.request(server, identity())
+
+      File.rm!(path)
+      File.mkdir_p!(path)
+
+      assert {:ok, %{health: :unavailable, source_health: %{history: :unavailable}}} =
+               TicketHistoryProvider.request(server, identity())
+    end)
+  end
+
+  test "production IssueLog reads cannot cross equal repository leaves owned by different accounts" do
+    with_log_root(fn ->
+      alice = identity(owner: "alice", repository: "project")
+      bob = identity(owner: "bob", repository: "project")
+      alice_path = Aiur.IssueLog.log_path(alice)
+
+      File.mkdir_p!(Path.dirname(alice_path))
+      File.write!(alice_path, history_line(9))
+
+      alice_server =
+        start_provider(
+          configured_repo: {"alice", "project"},
+          history_fun: &Aiur.IssueLog.event_history/2
+        )
+
+      bob_server =
+        start_provider(
+          configured_repo: {"bob", "project"},
+          history_fun: &Aiur.IssueLog.event_history/2
+        )
+
+      assert {:ok, %{entries: [%{event_id: 9}]}} =
+               TicketHistoryProvider.request(alice_server, alice)
+
+      assert {:ok, %{health: :missing_source, entries: []}} =
+               TicketHistoryProvider.request(bob_server, bob)
+    end)
+  end
+
   test "late live events are ordered, deduplicated, and replace disk entries with richer typed provenance" do
     server =
       start_provider(
@@ -122,8 +178,8 @@ defmodule Aiur.BuildOrder.TicketHistoryProviderTest do
 
     server =
       start_provider(
-        history_fun: fn identifier, _opts ->
-          send(test_pid, {:queried, identifier})
+        history_fun: fn identity, _opts ->
+          send(test_pid, {:queried, identity})
           raw
         end,
         activity_snapshot_fun: fn _ ->
@@ -140,7 +196,7 @@ defmodule Aiur.BuildOrder.TicketHistoryProviderTest do
     refute_receive {:queried, _}
 
     assert {:ok, snapshot} = TicketHistoryProvider.request(server, identity())
-    assert_receive {:queried, "42"}
+    assert_receive {:queried, %{identifier: "42"}}
     refute inspect(snapshot) =~ secret
     refute inspect(snapshot) =~ "/home/private"
     refute inspect(snapshot) =~ "agent.ndjson"
@@ -188,7 +244,7 @@ defmodule Aiur.BuildOrder.TicketHistoryProviderTest do
     server =
       start_provider(
         max_identities: 2,
-        history_fun: fn identifier, _ -> [history_event(String.to_integer(identifier))] end,
+        history_fun: fn identity, _ -> [history_event(String.to_integer(identity.identifier))] end,
         activity_snapshot_fun: fn _ -> {:ok, activity()} end
       )
 
@@ -207,6 +263,34 @@ defmodule Aiur.BuildOrder.TicketHistoryProviderTest do
     assert {:ok, %{generation: generation}} = TicketHistoryProvider.current(server, one)
     assert is_integer(generation)
     assert length(TicketHistoryProvider.snapshots(server)) == 2
+  end
+
+  test "eviction and rehydration notifications use strictly increasing generations" do
+    server =
+      start_provider(
+        max_identities: 1,
+        history_fun: fn identity, _ -> [history_event(String.to_integer(identity.identifier))] end
+      )
+
+    one = identity(identifier: "1", provider_id: "I-1")
+    two = identity(identifier: "2", provider_id: "I-2")
+    :ok = TicketHistoryProvider.subscribe(server, one)
+    :ok = TicketHistoryProvider.subscribe(server, two)
+
+    assert {:ok, %{generation: first_generation}} = TicketHistoryProvider.request(server, one)
+    assert_receive {:ticket_history_updated, %{identity: ^one, generation: ^first_generation}}, 2_000
+
+    assert {:ok, %{generation: second_generation}} = TicketHistoryProvider.request(server, two)
+    assert_receive {:ticket_history_evicted, ^one, first_eviction_generation}, 2_000
+    assert_receive {:ticket_history_updated, %{identity: ^two, generation: ^second_generation}}, 2_000
+    assert first_generation < first_eviction_generation
+    assert first_eviction_generation < second_generation
+
+    assert {:ok, %{generation: rehydrated_generation}} = TicketHistoryProvider.request(server, one)
+    assert_receive {:ticket_history_evicted, ^two, second_eviction_generation}, 2_000
+    assert_receive {:ticket_history_updated, %{identity: ^one, generation: ^rehydrated_generation}}, 2_000
+    assert second_generation < second_eviction_generation
+    assert second_eviction_generation < rehydrated_generation
   end
 
   test "current is I/O-free and does not call an unqueried source known-empty" do
@@ -356,6 +440,15 @@ defmodule Aiur.BuildOrder.TicketHistoryProviderTest do
     }
   end
 
+  defp history_line(id) do
+    timestamp =
+      ~U[2026-07-15 12:00:00Z]
+      |> DateTime.add(id, :second)
+      |> DateTime.to_iso8601()
+
+    "#{timestamp} [event:emit] id=#{id} ticket.42.pr.opened: unsafe arbitrary provider text\n"
+  end
+
   defp typed_event(id, observed_at, percent, provenance \\ []) do
     %{
       ticket_observation: %TicketObservation{
@@ -383,5 +476,22 @@ defmodule Aiur.BuildOrder.TicketHistoryProviderTest do
       identifier: Keyword.get(opts, :identifier, "42"),
       reason: nil
     }
+  end
+
+  defp with_log_root(fun) do
+    original_log_file = Application.get_env(:aiur, :log_file)
+    tmp = Path.join(System.tmp_dir!(), "ticket-history-provider-#{System.unique_integer([:positive])}")
+    Application.put_env(:aiur, :log_file, Path.join(tmp, "log/aiur.log"))
+
+    try do
+      fun.()
+    after
+      case original_log_file do
+        nil -> Application.delete_env(:aiur, :log_file)
+        value -> Application.put_env(:aiur, :log_file, value)
+      end
+
+      File.rm_rf!(tmp)
+    end
   end
 end

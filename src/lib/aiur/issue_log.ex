@@ -3,7 +3,7 @@ defmodule Aiur.IssueLog do
   Per-issue file writer that captures the same transcript + alert stream
   the opencode pane shows. One GenServer per active issue; it
   subscribes to the agent's PubSub topic on startup and appends every
-  event to `<logs-root>/log/<repo>.<issue>.log`.
+  event to a repository-qualified file below `<logs-root>/log`.
 
   Multiple agent sessions on the same issue reuse the running writer —
   `attach/1` is idempotent. The writer stays alive until the BEAM exits;
@@ -15,8 +15,9 @@ defmodule Aiur.IssueLog do
   use GenServer
   require Logger
 
-  alias Aiur.{AgentEvents, AgentPubSub}
+  alias Aiur.{AgentEvents, AgentPubSub, TrackerIdentity}
   alias Aiur.Config.Paths
+  alias Aiur.GitHub.Config, as: GitHubConfig
 
   @supervisor Aiur.IssueLog.Supervisor
 
@@ -93,38 +94,63 @@ defmodule Aiur.IssueLog do
 
   @doc """
   Parse `[event:emit]` / `[event:emit_alert]` / `[event:self]` / `[event:consumed]`
-  lines from the per-issue log. Returns a list of partial event maps with
-  `id`, `topic`, `kind`, `summary`, `ts` fields. Used by `Aiur.AgentRunner`
-  to build the bootstrap digest on agent (re)start — events with
-  `id > last_seen_event_id` represent activity the agent missed while
-  inactive.
+  lines from the per-issue log. A legacy display identifier returns the parsed
+  list for bootstrap compatibility. A joinable `TrackerIdentity` returns a
+  typed `{:ok, events}` / `{:error, reason}` result and resolves the exact
+  owner/repository path. Events with `id > last_seen_event_id` represent
+  activity the agent missed while inactive.
 
   Options:
     * `:since_id` — only return events with `id > since_id` (default 0)
     * `:kinds` — list of kinds to include (default `[:emit, :emit_alert]`)
     * `:limit` — max number of returned events (default `@history_limit`)
   """
-  @spec event_history(AgentEvents.agent_identifier(), keyword()) :: [map()]
-  def event_history(identifier, opts \\ []) when is_binary(identifier) do
+  @type event_history_error :: :missing_source | :invalid_identity | {:unavailable, term()}
+
+  @spec event_history(AgentEvents.agent_identifier() | TrackerIdentity.t(), keyword()) ::
+          [map()] | {:ok, [map()]} | {:error, event_history_error()}
+  def event_history(identifier_or_identity, opts \\ [])
+
+  def event_history(identifier, opts) when is_binary(identifier) do
+    case read_event_history(log_path(identifier), opts) do
+      {:ok, events} -> events
+      {:error, _reason} -> []
+    end
+  end
+
+  def event_history(%TrackerIdentity{} = identity, opts) do
+    if TrackerIdentity.joinable?(identity) do
+      read_event_history(log_path(identity), opts)
+    else
+      {:error, :invalid_identity}
+    end
+  end
+
+  defp read_event_history(path, opts) do
     since_id = Keyword.get(opts, :since_id, 0)
     kinds = Keyword.get(opts, :kinds, [:emit, :emit_alert])
     limit = Keyword.get(opts, :limit, @history_limit)
     kind_set = MapSet.new(Enum.map(kinds, &Atom.to_string/1))
-    path = log_path(identifier)
 
     case File.read(path) do
       {:ok, content} ->
-        content
-        |> String.split("\n", trim: true)
-        |> Enum.map(&parse_event_line/1)
-        |> Enum.reject(&is_nil/1)
-        |> Enum.filter(fn ev ->
-          MapSet.member?(kind_set, ev.kind) and is_integer(ev.id) and ev.id > since_id
-        end)
-        |> Enum.take(-limit)
+        events =
+          content
+          |> String.split("\n", trim: true)
+          |> Enum.map(&parse_event_line/1)
+          |> Enum.reject(&is_nil/1)
+          |> Enum.filter(fn ev ->
+            MapSet.member?(kind_set, ev.kind) and is_integer(ev.id) and ev.id > since_id
+          end)
+          |> Enum.take(-limit)
 
-      _ ->
-        []
+        {:ok, events}
+
+      {:error, :enoent} ->
+        {:error, :missing_source}
+
+      {:error, reason} ->
+        {:error, {:unavailable, reason}}
     end
   end
 
@@ -212,9 +238,19 @@ defmodule Aiur.IssueLog do
   Returns the resolved file path for an issue's log. Useful for tests
   and for users who want to `tail -F` a specific issue.
   """
-  @spec log_path(AgentEvents.agent_identifier()) :: String.t()
+  @spec log_path(AgentEvents.agent_identifier() | TrackerIdentity.t()) :: String.t()
   def log_path(identifier) when is_binary(identifier) do
-    Path.join(log_root_dir(), "#{repo_name()}.#{sanitize(identifier)}.log")
+    Path.join(log_root_dir(), "#{configured_repository_scope()}.#{sanitize(identifier)}.log")
+  end
+
+  def log_path(%TrackerIdentity{} = identity) do
+    case TrackerIdentity.github_key(identity) do
+      {:github, owner, repository, _provider_id} ->
+        Path.join(log_root_dir(), "#{repository_scope(owner, repository)}.#{sanitize(identity.identifier)}.log")
+
+      nil ->
+        raise ArgumentError, "IssueLog path requires a joinable tracker identity"
+    end
   end
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -266,8 +302,6 @@ defmodule Aiur.IssueLog do
 
   @impl true
   def handle_info({:transcript_event, %{role: _role, body: _body} = event}, state) do
-    write_line(state.file, format_transcript(event[:role], event[:body], event))
-
     # Also surface the line in the system-wide `aiur.log` using the
     # same `[tag]` shape the pane shows. `Logger.debug` entries
     # (broadcast traces, codex notifications) only appear when
@@ -275,26 +309,28 @@ defmodule Aiur.IssueLog do
     # human-readable rows, mirroring what the Executor sees in the pane.
     Logger.info(format_log_line(event[:role], event[:body], state.identifier))
 
-    {:noreply, push_history(state, {:transcript_event, event})}
+    write_and_continue(
+      state,
+      format_transcript(event[:role], event[:body], event),
+      {:transcript_event, event}
+    )
   end
 
   def handle_info({:alert, %{name: _name, message: _message} = event}, state) do
-    write_line(state.file, format_alert(event[:name], event[:message], event))
     # No Logger.info here — `Alerts.emit_system/2` already logs each
     # alert with `[alert] (#identifier) name: message`, so mirroring it
     # would double every alert row in aiur.log.
-    {:noreply, push_history(state, {:alert, event})}
+    write_and_continue(state, format_alert(event[:name], event[:message], event), {:alert, event})
   end
 
   def handle_info({:control_lifecycle, %{request_id: _request_id, status: _status} = event}, state) do
-    write_line(state.file, "[control] " <> Jason.encode!(event) <> "\n")
-    {:noreply, push_history(state, %{role: :system, body: "control lifecycle", payload: event, turn_id: nil})}
+    history = %{role: :system, body: "control lifecycle", payload: event, turn_id: nil}
+    write_and_continue(state, "[control] " <> Jason.encode!(event) <> "\n", history)
   end
 
   def handle_info({:aiur_event, kind, event}, state)
       when kind in [:emit, :emit_alert, :consumed, :self] do
-    write_line(state.file, format_event_marker(kind, event))
-    {:noreply, state}
+    write_and_continue(state, format_event_marker(kind, event))
   end
 
   def handle_info(_other, state), do: {:noreply, state}
@@ -342,6 +378,41 @@ defmodule Aiur.IssueLog do
   end
 
   defp via(identifier), do: {:via, Registry, {Aiur.IssueLog.Registry, identifier}}
+
+  defp write_and_continue(state, line, history_item \\ nil) do
+    case ensure_current_file(state) do
+      {:ok, state} ->
+        write_line(state.file, line)
+        state = if history_item, do: push_history(state, history_item), else: state
+        {:noreply, state}
+
+      {:error, reason, state} ->
+        Logger.warning("IssueLog reopen failed identifier=#{state.identifier} path=#{log_path(state.identifier)} reason=#{inspect(reason)}")
+
+        {:stop, {:log_reopen_failed, reason}, state}
+    end
+  end
+
+  defp ensure_current_file(state) do
+    path = log_path(state.identifier)
+
+    if path == state.path do
+      {:ok, state}
+    else
+      open_replacement_file(state, path)
+    end
+  end
+
+  defp open_replacement_file(state, path) do
+    with :ok <- File.mkdir_p(Path.dirname(path)),
+         {:ok, file} <- File.open(path, [:append, :utf8]) do
+      _ = File.close(state.file)
+      Logger.debug("IssueLog repository path changed identifier=#{state.identifier} path=#{path}")
+      {:ok, %{state | file: file, path: path}}
+    else
+      {:error, reason} -> {:error, reason, state}
+    end
+  end
 
   defp write_line(file, line) do
     IO.write(file, line)
@@ -426,6 +497,19 @@ defmodule Aiur.IssueLog do
   end
 
   defp log_root_dir, do: Paths.log_root_dir()
+
+  defp configured_repository_scope do
+    case GitHubConfig.configured_repo() do
+      {:ok, {owner, repository}} -> repository_scope(owner, repository)
+      {:error, _reason} -> repo_name()
+    end
+  end
+
+  defp repository_scope(owner, repository) do
+    encoded = Base.url_encode64("#{String.downcase(owner)}/#{String.downcase(repository)}", padding: false)
+    "github-" <> encoded
+  end
+
   defp repo_name, do: Paths.repo_name()
   defp sanitize(name), do: Paths.sanitize(name)
 end

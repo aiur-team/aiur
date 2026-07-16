@@ -9,6 +9,9 @@ defmodule Aiur.IssueLogEventHistoryTest do
 
   use ExUnit.Case, async: false
 
+  alias Aiur.GitHub.Config, as: GitHubConfig
+  alias Aiur.TrackerIdentity
+
   setup do
     original_log_file = Application.get_env(:aiur, :log_file)
     identifier = "test-event-history-#{System.unique_integer([:positive])}"
@@ -89,6 +92,50 @@ defmodule Aiur.IssueLogEventHistoryTest do
     assert Aiur.IssueLog.event_history(id) == []
   end
 
+  test "typed reads distinguish missing, unavailable, and genuinely empty history", %{tmp: tmp} do
+    identity = identity()
+    path = Aiur.IssueLog.log_path(identity)
+
+    assert {:error, :missing_source} = Aiur.IssueLog.event_history(identity)
+
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, "")
+    assert {:ok, []} = Aiur.IssueLog.event_history(identity)
+
+    File.rm!(path)
+    File.mkdir_p!(path)
+
+    assert {:error, {:unavailable, :eisdir}} = Aiur.IssueLog.event_history(identity)
+    assert String.starts_with?(path, Path.join(tmp, "log"))
+  end
+
+  test "typed paths keep equal repository leaves isolated by owner" do
+    alice = identity(owner: "alice", repository: "project")
+    bob = identity(owner: "bob", repository: "project")
+
+    alice_path = Aiur.IssueLog.log_path(alice)
+    bob_path = Aiur.IssueLog.log_path(bob)
+
+    refute alice_path == bob_path
+
+    File.mkdir_p!(Path.dirname(alice_path))
+
+    File.write!(
+      alice_path,
+      "2026-07-15T12:00:00Z [event:emit] id=7 ticket.42.pr.opened: private repository event\n"
+    )
+
+    assert {:ok, [%{id: 7}]} = Aiur.IssueLog.event_history(alice)
+    assert {:error, :missing_source} = Aiur.IssueLog.event_history(bob)
+  end
+
+  test "legacy writers and typed readers resolve the same configured repository path" do
+    assert {:ok, {owner, repository}} = GitHubConfig.configured_repo()
+    identity = identity(owner: owner, repository: repository)
+
+    assert Aiur.IssueLog.log_path(identity.identifier) == Aiur.IssueLog.log_path(identity)
+  end
+
   test "lines without [event:*] tag are ignored", %{identifier: id} do
     write_log(id, [
       "2026-05-27T10:00:00Z [agent] (#99) some agent message",
@@ -125,5 +172,18 @@ defmodule Aiur.IssueLogEventHistoryTest do
              %{id: 8, source: :github, author_trusted?: false},
              %{id: 9, source: nil, author_trusted?: nil}
            ] = events
+  end
+
+  defp identity(opts \\ []) do
+    %TrackerIdentity{
+      version: 1,
+      status: :joinable,
+      kind: :github,
+      owner: Keyword.get(opts, :owner, "owner"),
+      repository: Keyword.get(opts, :repository, "repo"),
+      provider_id: "I-42",
+      identifier: "42",
+      reason: nil
+    }
   end
 end
