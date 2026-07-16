@@ -39,6 +39,14 @@ General/reusable improvements merge to `main`, then `main` is merged into `devel
 (invariant: `origin/main` is an ancestor of `origin/develop`). Build-Order work merges
 to `develop`. `tracker.base_branch: develop`.
 
+**Feature velocity + optimizations allowed (operator directive).** Prioritize shipping the
+Build Order feature as fast as possible. The earlier guidance to defer
+optimizer/optimization, adaptive-monitoring, and defect tickets without `agent:todo`
+(operating-decision #4 and the "pre-optimization release" hold below) is **withdrawn** —
+pull in fixes and optimizations as needed and keep the fleet fed with ready backlog tickets.
+All eight active-labeled tickets (#619, #1106, #1117, #1125, #1030, #728, #781, #855) were
+resumed (`agent:paused` cleared) to restart the wave.
+
 ## Live Executor state (updated 2026-07-15 15:56 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
