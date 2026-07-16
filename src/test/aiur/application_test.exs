@@ -84,7 +84,7 @@ defmodule Aiur.ApplicationTest do
       Aiur.Opencode.PaneSupervisor
     ]
 
-    @dashboard [AiurWeb.ControlCenterCache, Aiur.HttpServer]
+    @dashboard [AiurWeb.ControlCenterCache, AiurWeb.FinancialData.Supervisor, Aiur.HttpServer]
 
     # Agent backends kept in headless mode plus core infra both modes need.
     @always [

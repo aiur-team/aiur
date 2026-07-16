@@ -527,8 +527,7 @@ defmodule Aiur.ExtensionsTest do
                  "waiting_reason" => "active",
                  "open_decision_count" => 0,
                  "ci" => nil,
-                 "review" => "not_started",
-                 "tokens" => %{"input_tokens" => 4, "output_tokens" => 8, "total_tokens" => 12}
+                 "review" => "not_started"
                }
              ],
              "retrying" => [
@@ -554,13 +553,7 @@ defmodule Aiur.ExtensionsTest do
                }
              ],
              "idle" => [],
-             "agent_totals" => %{
-               "input_tokens" => 4,
-               "output_tokens" => 8,
-               "total_tokens" => 12,
-               "seconds_running" => 42.5
-             },
-             "rate_limits" => %{"primary" => %{"remaining" => 11}}
+             "agent_totals" => %{"seconds_running" => 42.5}
            }
 
     conn = get(build_conn(), "/api/v1/MT-HTTP")
@@ -597,8 +590,7 @@ defmodule Aiur.ExtensionsTest do
                "waiting_reason" => "active",
                "open_decision_count" => 0,
                "ci" => nil,
-               "review" => "not_started",
-               "tokens" => %{"input_tokens" => 4, "output_tokens" => 8, "total_tokens" => 12}
+               "review" => "not_started"
              },
              "retry" => nil,
              "capabilities" => %{

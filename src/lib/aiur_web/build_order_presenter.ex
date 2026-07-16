@@ -527,7 +527,6 @@ defmodule AiurWeb.BuildOrderPresenter do
       tracker_paused: boolean_or_unknown(Map.get(row, :tracker_paused)),
       runtime_seconds: non_negative_or_unknown(Map.get(row, :runtime_seconds)),
       ci_result: safe_ci_result(Map.get(row, :ci_result)),
-      tokens: safe_tokens(row),
       observed_at: execution_observed_at(row)
     }
   end
@@ -554,14 +553,6 @@ defmodule AiurWeb.BuildOrderPresenter do
 
   defp safe_ci_result(_result), do: %{status: :unknown}
 
-  defp safe_tokens(row) do
-    %{
-      input: non_negative_or_unknown(Map.get(row, :agent_input_tokens)),
-      output: non_negative_or_unknown(Map.get(row, :agent_output_tokens)),
-      total: non_negative_or_unknown(Map.get(row, :agent_total_tokens))
-    }
-  end
-
   defp unknown_execution do
     %{
       status: :unknown,
@@ -572,7 +563,6 @@ defmodule AiurWeb.BuildOrderPresenter do
       tracker_paused: :unknown,
       runtime_seconds: :unknown,
       ci_result: %{status: :unknown},
-      tokens: %{input: :unknown, output: :unknown, total: :unknown},
       observed_at: nil
     }
   end

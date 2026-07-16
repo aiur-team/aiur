@@ -59,6 +59,7 @@ defmodule AiurWeb.ControlCenterPresenter do
   def compose(fleet, decisions, history, recent_merges, decision_latency, decision_latency_health)
       when is_map(fleet) and is_list(decisions) and is_list(history) and is_map(recent_merges) and
              is_map(decision_latency) do
+    fleet = public_fleet(fleet)
     decision_rows = decisions |> DecisionPresenter.rows() |> DecisionPresenter.attach_latency(decision_latency, decision_latency_health)
     recent_outcomes = normalize_recent_outcomes(recent_merges)
 
@@ -239,10 +240,29 @@ defmodule AiurWeb.ControlCenterPresenter do
       running: [],
       retrying: [],
       idle: [],
-      agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
-      rate_limits: nil
+      agent_totals: %{seconds_running: 0}
     }
   end
+
+  defp public_fleet(fleet) do
+    fleet
+    |> Map.delete(:rate_limits)
+    |> Map.update(:agent_totals, %{seconds_running: 0}, fn totals ->
+      %{seconds_running: if(is_map(totals), do: Map.get(totals, :seconds_running, 0), else: 0)}
+    end)
+    |> Map.update(:running, [], &strip_row_tokens/1)
+    |> Map.update(:retrying, [], &strip_row_tokens/1)
+    |> Map.update(:idle, [], &strip_row_tokens/1)
+  end
+
+  defp strip_row_tokens(rows) when is_list(rows) do
+    Enum.map(rows, fn
+      row when is_map(row) -> Map.delete(row, :tokens)
+      row -> row
+    end)
+  end
+
+  defp strip_row_tokens(_rows), do: []
 
   defp unavailable_recent_merges do
     %{merges: [], health: :unavailable, reconciliation: %{status: :unavailable, partial?: true}}
