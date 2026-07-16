@@ -97,7 +97,7 @@ defmodule Aiur.ApplicationTest do
       Aiur.BuildOrder.GraphProjection,
       Aiur.AppServer.ToolCallLedger,
       Aiur.ProviderAccountGeneration,
-      Aiur.UsageLedger.Store,
+      Aiur.UsageLedger,
       Aiur.DecisionMetrics.Writer,
       Aiur.DecisionMetrics,
       Aiur.GitHub.CodeOwners,
@@ -262,7 +262,7 @@ defmodule Aiur.ApplicationTest do
           ] do
         mods = modules(AiurApp.child_specs(opts))
         generation = Enum.find_index(mods, &(&1 == Aiur.ProviderAccountGeneration))
-        ledger = Enum.find_index(mods, &(&1 == Aiur.UsageLedger.Store))
+        ledger = Enum.find_index(mods, &(&1 == Aiur.UsageLedger))
         orchestrator = Enum.find_index(mods, &(&1 == Aiur.Orchestrator))
 
         assert generation < ledger, "account generation must precede usage ledger for #{inspect(opts)}"

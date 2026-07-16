@@ -343,7 +343,8 @@ replay authority.
   new event past a limit receives a sanitized capacity result and explicit
   coverage/health state; no identity is evicted and no implicit rotation is
   introduced.
-- On boot, validate checkpoint schema/checksum and replay only the canonical
+- On boot, validate checkpoint schema/checksum and semantically validate its
+  canonical prefix before using the validated checkpoint to replay only the
   suffix after its acknowledged position. If the checkpoint is missing or
   unusable, rebuild from a fully validated raw prefix; repair only a torn tail,
   quarantine malformed complete artifacts, and surface degraded/unavailable

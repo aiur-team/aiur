@@ -163,7 +163,7 @@ defmodule Aiur.Application do
       if(debug?, do: Aiur.RunTelemetry.Supervisor),
       Aiur.Events.Publisher,
       Aiur.ProviderAccountGeneration,
-      Aiur.UsageLedger.Store,
+      Aiur.UsageLedger,
       Aiur.DecisionStore,
       {Aiur.DecisionMetrics.Writer, path: Aiur.DecisionMetrics.metrics_file()},
       Aiur.DecisionMetrics,

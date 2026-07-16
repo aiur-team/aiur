@@ -43,7 +43,10 @@ defmodule Aiur.UsageLedger.Recovery do
         limits: persistence.limits
       }
 
-      {:ok, maybe_quarantine(state, checkpoint_health, segment_health, persistence)}
+      state
+      |> rebuild_missing_checkpoint(checkpoint, checkpoint_status, segment_health, marker, persistence)
+      |> maybe_quarantine(checkpoint_health, segment_health, persistence)
+      |> then(&{:ok, &1})
     else
       {:error, reason} -> {:ok, unavailable_state(reason, persistence)}
     end
@@ -77,6 +80,10 @@ defmodule Aiur.UsageLedger.Recovery do
   defp restore_checkpoint(records, nil, :corrupt), do: rebuild(records, :corrupt)
 
   defp restore_checkpoint(records, checkpoint, :healthy) do
+    # A checkpoint proves the writer's acknowledged counter state, but raw
+    # records remain the replay authority. Validate the prefix semantically
+    # before trusting that checkpoint, then seed it to replay only the suffix.
+    # This detects a checksum-valid record whose stored delta was forged.
     with true <- checkpoint.position <= length(records),
          true <- checkpoint.generation == checkpoint.position,
          {:ok, prefix_policy} <- replay_suffix(Enum.take(records, checkpoint.position), 0, CounterPolicy.new()),
@@ -137,6 +144,19 @@ defmodule Aiur.UsageLedger.Recovery do
       _ -> state
     end
   end
+
+  defp rebuild_missing_checkpoint(state, nil, :healthy, :healthy, :absent, persistence) do
+    checkpoint = Checkpoint.record(state.position, state.generation, state.policy)
+
+    with :ok <- Checkpoint.write(state.paths.checkpoint_path, checkpoint, max_bytes: state.limits.max_checkpoint_bytes),
+         :ok <- persistence.sync_fun.() do
+      state
+    else
+      _ -> %{state | health: {:unavailable, :checkpoint_rebuild_failed}, writable?: false}
+    end
+  end
+
+  defp rebuild_missing_checkpoint(state, _checkpoint, _checkpoint_status, _segment_health, _marker, _persistence), do: state
 
   defp repair_checkpoint(state, persistence) do
     checkpoint = Checkpoint.record(state.position, state.generation, state.policy)

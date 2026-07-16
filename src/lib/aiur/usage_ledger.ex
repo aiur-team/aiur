@@ -33,6 +33,11 @@ defmodule Aiur.UsageLedger do
   @callback generation() :: non_neg_integer()
   @callback coverage() :: map()
   @callback subscribe(pid()) :: :ok
+  @callback child_spec(keyword()) :: Supervisor.child_spec()
+
+  @doc false
+  @spec child_spec(keyword()) :: Supervisor.child_spec()
+  def child_spec(opts), do: Supervisor.child_spec(backend(), opts)
 
   @doc """
   Appends through the configured backend. The file-backed store is the
@@ -42,32 +47,17 @@ defmodule Aiur.UsageLedger do
   @spec append(UsageEnvelope.t()) :: {:ok, acknowledgement()} | {:duplicate, acknowledgement()} | {:error, atom()}
   def append(%UsageEnvelope{} = envelope), do: backend().append(envelope)
 
-  @spec append(UsageEnvelope.t(), GenServer.server()) :: {:ok, acknowledgement()} | {:duplicate, acknowledgement()} | {:error, atom()}
-  def append(%UsageEnvelope{} = envelope, server), do: GenServer.call(server, {:append, envelope})
-
   @spec scan(keyword()) :: {:ok, [replay_record()]} | {:error, atom()}
   def scan(options \\ []) when is_list(options), do: backend().scan(options)
-
-  @spec scan(keyword(), GenServer.server()) :: {:ok, [replay_record()]} | {:error, atom()}
-  def scan(options, server) when is_list(options), do: GenServer.call(server, {:scan, options})
 
   @spec health() :: health()
   def health, do: backend().health()
 
-  @spec health(GenServer.server()) :: health()
-  def health(server), do: GenServer.call(server, :health)
-
   @spec generation() :: non_neg_integer()
   def generation, do: backend().generation()
 
-  @spec generation(GenServer.server()) :: non_neg_integer()
-  def generation(server), do: GenServer.call(server, :generation)
-
   @spec coverage() :: map()
   def coverage, do: backend().coverage()
-
-  @spec coverage(GenServer.server()) :: map()
-  def coverage(server), do: GenServer.call(server, :coverage)
 
   @doc """
   Registers for post-acknowledgement position-bearing refreshes.
@@ -78,9 +68,6 @@ defmodule Aiur.UsageLedger do
   """
   @spec subscribe(pid()) :: :ok
   def subscribe(pid \\ self()) when is_pid(pid), do: backend().subscribe(pid)
-
-  @spec subscribe(pid(), GenServer.server()) :: :ok
-  def subscribe(pid, server) when is_pid(pid), do: GenServer.call(server, {:subscribe, pid})
 
   defp backend, do: Application.get_env(:aiur, :usage_ledger_backend, Aiur.UsageLedger.Store)
 end

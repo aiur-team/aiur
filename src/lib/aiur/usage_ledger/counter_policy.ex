@@ -204,18 +204,19 @@ defmodule Aiur.UsageLedger.CounterPolicy do
   end
 
   defp advance_absolute(absolute, key, previous, value, sequence) do
-    case compare(value, previous.value) do
-      :gt ->
-        {:ok, Map.put(absolute, key, %{value: value, source_sequence: max(sequence, previous.source_sequence)}), subtract(value, previous.value)}
+    if sequence <= previous.source_sequence do
+      {:ok, absolute, zero(value)}
+    else
+      case compare(value, previous.value) do
+        :gt ->
+          {:ok, Map.put(absolute, key, %{value: value, source_sequence: sequence}), subtract(value, previous.value)}
 
-      :eq ->
-        {:ok, Map.put(absolute, key, %{previous | source_sequence: max(sequence, previous.source_sequence)}), zero(value)}
+        :eq ->
+          {:ok, Map.put(absolute, key, %{previous | source_sequence: sequence}), zero(value)}
 
-      :lt when sequence <= previous.source_sequence ->
-        {:ok, absolute, zero(value)}
-
-      :lt ->
-        {:error, :counter_decreased}
+        :lt ->
+          {:error, :counter_decreased}
+      end
     end
   end
 

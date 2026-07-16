@@ -21,6 +21,9 @@ defmodule Aiur.UsageLedger.RecoveryTest do
     assert state.writable?
     assert state.position == 1
     assert state.policy.idempotency == MapSet.new([CounterPolicy.idempotency_key(record.envelope)])
+    assert {:ok, rebuilt_checkpoint} = Aiur.UsageLedger.Checkpoint.load(paths.checkpoint_path)
+    assert rebuilt_checkpoint.position == 1
+    assert rebuilt_checkpoint.generation == 1
     assert [replayed] = state.records
     assert replayed.envelope.source_version == "2026-07"
     assert replayed.delta.relationship_revision == "codex-app-server-2026-07"

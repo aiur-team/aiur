@@ -27,6 +27,9 @@ defmodule Aiur.UsageLedger.StoreTest do
 
     @impl true
     def subscribe(_pid), do: :ok
+
+    @impl true
+    def child_spec(_opts), do: %{id: __MODULE__, start: {Task, :start_link, [fn -> :ok end]}}
   end
 
   setup do
@@ -38,19 +41,19 @@ defmodule Aiur.UsageLedger.StoreTest do
 
   test "acknowledges only after append and checkpoint, then survives restart without re-adding cumulative input", %{root: root, name: name} do
     {:ok, pid} = start_store(root, name)
-    :ok = UsageLedger.subscribe(self(), name)
+    :ok = subscribe(name, self())
     first = envelope(%{tokens: %{input: 10, cached_input: nil, cache_creation_input: nil, output: nil, reasoning_output: nil, provider_reported_total: nil}})
 
-    assert {:ok, acknowledgement} = UsageLedger.append(first, name)
+    assert {:ok, acknowledgement} = append(name, first)
     assert acknowledgement.position == 1
     assert acknowledgement.delta.relationship_revision == "codex-app-server-2026-07"
     assert_receive {:usage_ledger_delta, ^acknowledgement}
     GenServer.stop(pid)
 
     {:ok, restarted} = start_store(root, name)
-    assert {:ok, [record]} = UsageLedger.scan([], name)
+    assert {:ok, [record]} = scan(name)
     assert record.delta.relationship_revision == "codex-app-server-2026-07"
-    assert {:duplicate, duplicate} = UsageLedger.append(first, name)
+    assert {:duplicate, duplicate} = append(name, first)
     assert duplicate.position == acknowledgement.position
     refute_receive {:usage_ledger_delta, _}
     GenServer.stop(restarted)
@@ -72,6 +75,7 @@ defmodule Aiur.UsageLedger.StoreTest do
     assert 11 = UsageLedger.generation()
     assert %{status: :full} = UsageLedger.coverage()
     assert :ok = UsageLedger.subscribe(self())
+    assert %{id: BackendStub} = UsageLedger.child_spec([])
   end
 
   test "never acknowledges or publishes an injected append/checkpoint failure", %{root: root, name: name} do
@@ -81,9 +85,9 @@ defmodule Aiur.UsageLedger.StoreTest do
         publish_fun: fn acknowledgement -> send(self(), {:published, acknowledgement}) end
       )
 
-    assert {:error, :persistence_failed} = UsageLedger.append(envelope(%{}), name)
+    assert {:error, :persistence_failed} = append(name, envelope(%{}))
     refute_receive {:published, _}
-    assert {:degraded, :persistence_failed} = UsageLedger.health(name)
+    assert {:degraded, :persistence_failed} = health(name)
     GenServer.stop(pid)
   end
 
@@ -92,13 +96,13 @@ defmodule Aiur.UsageLedger.StoreTest do
       start_store(root, name, checkpoint_fun: fn _path, _checkpoint, _opts -> {:error, :eio} end)
 
     first = envelope(%{})
-    assert {:error, :persistence_failed} = UsageLedger.append(first, name)
+    assert {:error, :persistence_failed} = append(name, first)
     GenServer.stop(pid)
 
     {:ok, restarted} = start_store(root, name)
-    assert {:ok, [record]} = UsageLedger.scan([], name)
+    assert {:ok, [record]} = scan(name)
     assert record.delta.tokens.input == 10
-    assert {:duplicate, duplicate} = UsageLedger.append(first, name)
+    assert {:duplicate, duplicate} = append(name, first)
     assert duplicate.position == record.position
     GenServer.stop(restarted)
   end
@@ -116,11 +120,11 @@ defmodule Aiur.UsageLedger.StoreTest do
         cost: money("1.10", :absolute)
       })
 
-    assert {:ok, _first} = UsageLedger.append(first, name)
-    assert {:error, :capacity_exhausted} = UsageLedger.append(second, name)
-    assert {:ok, [record]} = UsageLedger.scan([], name)
+    assert {:ok, _first} = append(name, first)
+    assert {:error, :capacity_exhausted} = append(name, second)
+    assert {:ok, [record]} = scan(name)
     assert record.envelope.idempotency_key == first.idempotency_key
-    assert {:degraded, :capacity_exhausted} = UsageLedger.health(name)
+    assert {:degraded, :capacity_exhausted} = health(name)
     GenServer.stop(pid)
   end
 
@@ -128,8 +132,8 @@ defmodule Aiur.UsageLedger.StoreTest do
     {:ok, pid} = start_store(root, name)
 
     unsafe = envelope(%{source: "/provider/raw-response"})
-    assert {:error, :content_rejected} = UsageLedger.append(unsafe, name)
-    assert {:ok, _acknowledgement} = UsageLedger.append(envelope(%{}), name)
+    assert {:error, :content_rejected} = append(name, unsafe)
+    assert {:ok, _acknowledgement} = append(name, envelope(%{}))
 
     for path <- [root, Path.join(root, "segments"), Path.join([root, "segments", "00000001.ndjson"]), Path.join(root, "checkpoint.json")] do
       assert {:ok, %File.Stat{mode: mode}} = File.stat(path)
@@ -143,4 +147,9 @@ defmodule Aiur.UsageLedger.StoreTest do
   defp start_store(root, name, opts \\ []) do
     Store.start_link(Keyword.merge([name: name, state_dir: root, filesystem_sync_fun: fn -> :ok end], opts))
   end
+
+  defp append(server, envelope), do: GenServer.call(server, {:append, envelope})
+  defp scan(server), do: GenServer.call(server, {:scan, []})
+  defp health(server), do: GenServer.call(server, :health)
+  defp subscribe(server, pid), do: GenServer.call(server, {:subscribe, pid})
 end

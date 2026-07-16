@@ -36,11 +36,20 @@ defmodule Aiur.UsageLedger.CounterPolicyTest do
     assert {:duplicate, ^state} = CounterPolicy.apply(state, source_delta)
 
     first = envelope(tokens: %{input: 10})
-    older = envelope(idempotency_key: "codex:evt-16", source_event_id: "evt-16", source_sequence: 16, tokens: %{input: 8})
+
+    older =
+      envelope(
+        idempotency_key: "codex:evt-16",
+        source_event_id: "evt-16",
+        source_sequence: 16,
+        tokens: %{input: 18},
+        cost: money("1.50", :absolute)
+      )
 
     assert {:ok, %{state: absolute_state}} = CounterPolicy.apply(CounterPolicy.new(), first)
     assert {:ok, %{delta: stale_delta}} = CounterPolicy.apply(absolute_state, older)
     assert stale_delta.tokens.input == 0
+    assert Decimal.equal?(stale_delta.cost.amount, Decimal.new(0))
   end
 
   test "rejects a newer unexplained decrease but establishes new epochs and models independently" do
