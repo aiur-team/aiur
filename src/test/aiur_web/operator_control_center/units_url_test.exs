@@ -13,7 +13,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsURLTest do
 
   test "decoding removes invalid values without creating an unrepresentable selection" do
     assert UnitsURL.decode(%{"v" => "1", "scope" => "not-a-scope", "conditions" => "alert,wat,paused,alert"}) ==
-             %{scope: :live, conditions: MapSet.new([:alert, :paused])}
+             %{scope: :live, conditions: [:alert, :paused]}
 
     assert UnitsURL.decode(%{"v" => "999", "scope" => "all", "conditions" => "alert"}) == UnitsURL.default_selection()
   end

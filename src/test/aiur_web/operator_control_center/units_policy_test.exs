@@ -13,6 +13,15 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPolicyTest do
     assert UnitsPolicy.filter(rows, %{scope: :none, conditions: MapSet.new()}) == []
   end
 
+  test "normalized selections expose scope and condition membership through policy accessors" do
+    selection = UnitsPolicy.normalize_selection(%{scope: :unfinished, conditions: [:active, :paused]})
+
+    assert UnitsPolicy.scope(selection) == :unfinished
+    assert UnitsPolicy.selected?(selection, :active)
+    assert UnitsPolicy.selected?(selection, :paused)
+    refute UnitsPolicy.selected?(selection, :queued)
+  end
+
   test "conditions overlap and chip counts are calculated before OR refinement" do
     alert_paused =
       active_row(

@@ -22,11 +22,12 @@ defmodule AiurWeb.OperatorControlCenter.UnitsURL do
 
   @spec params(UnitsPolicy.selection() | term()) :: [{String.t(), String.t()}]
   def params(selection) do
-    %{scope: scope, conditions: conditions} = UnitsPolicy.normalize_selection(selection)
+    selection = UnitsPolicy.normalize_selection(selection)
+    scope = UnitsPolicy.scope(selection)
 
     [{"v", @version}]
     |> maybe_put_scope(scope)
-    |> maybe_put_conditions(conditions)
+    |> maybe_put_conditions(selection)
   end
 
   @spec decode(String.t() | map() | term()) :: UnitsPolicy.selection()
@@ -52,10 +53,10 @@ defmodule AiurWeb.OperatorControlCenter.UnitsURL do
   defp maybe_put_scope(params, :live), do: params
   defp maybe_put_scope(params, scope), do: params ++ [{"scope", Atom.to_string(scope)}]
 
-  defp maybe_put_conditions(params, conditions) do
+  defp maybe_put_conditions(params, selection) do
     selected =
       UnitsPolicy.conditions()
-      |> Enum.filter(&MapSet.member?(conditions, &1))
+      |> Enum.filter(&UnitsPolicy.selected?(selection, &1))
       |> Enum.map_join(",", &Atom.to_string/1)
 
     if selected == "", do: params, else: params ++ [{"conditions", selected}]

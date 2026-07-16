@@ -13,7 +13,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPolicy do
 
   @type scope :: :live | :unfinished | :all | :none
   @type condition :: :active | :alert | :paused | :stuck | :queued | :finished
-  @type selection :: %{scope: scope(), conditions: MapSet.t()}
+  @type selection :: %{scope: scope(), conditions: [condition()]}
 
   @spec scopes() :: [scope()]
   def scopes, do: @scopes
@@ -22,7 +22,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPolicy do
   def conditions, do: @conditions
 
   @spec default_selection() :: selection()
-  def default_selection, do: %{scope: :live, conditions: MapSet.new()}
+  def default_selection, do: %{scope: :live, conditions: []}
 
   @spec normalize_selection(term()) :: selection()
   def normalize_selection(selection) when is_map(selection) do
@@ -33,6 +33,12 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPolicy do
   end
 
   def normalize_selection(_selection), do: default_selection()
+
+  @spec scope(selection()) :: scope()
+  def scope(selection), do: selection.scope
+
+  @spec selected?(selection(), condition()) :: boolean()
+  def selected?(selection, condition), do: condition in selection.conditions
 
   @spec rows_for_scope([map()], scope() | selection() | term()) :: [map()]
   def rows_for_scope(rows, selection) when is_list(rows) do
@@ -47,7 +53,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPolicy do
     selection = normalize_selection(selection)
     scoped_rows = rows_for_scope(rows, selection)
 
-    if MapSet.size(selection.conditions) == 0 do
+    if selection.conditions == [] do
       scoped_rows
     else
       Enum.filter(scoped_rows, fn row -> Enum.any?(selection.conditions, &condition?(&1, row)) end)
@@ -153,17 +159,20 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPolicy do
   end
 
   defp normalize_conditions(conditions) when is_list(conditions) do
-    conditions
-    |> Enum.map(&normalize_condition/1)
-    |> Enum.reject(&is_nil/1)
-    |> MapSet.new()
+    normalized =
+      conditions
+      |> Enum.map(&normalize_condition/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    Enum.filter(@conditions, &(&1 in normalized))
   end
 
   defp normalize_conditions(conditions) when is_binary(conditions) do
     conditions |> String.split(",", trim: true) |> normalize_conditions()
   end
 
-  defp normalize_conditions(_conditions), do: MapSet.new()
+  defp normalize_conditions(_conditions), do: []
 
   defp normalize_condition(condition) when condition in @conditions, do: condition
 
