@@ -1,7 +1,7 @@
 defmodule Aiur.Codex.AccountGenerationTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.Codex.AccountGeneration
+  alias Aiur.Codex.{AccountGeneration, RateLimitAdapter}
   alias Aiur.{ModelAvailability, ProviderAccountGeneration}
   alias Aiur.ProviderMeters.{Input, Store}
 
@@ -179,8 +179,8 @@ defmodule Aiur.Codex.AccountGenerationTest do
     assert recovered.health.state == :healthy
     assert recovered.windows["codex:primary"].used_percent == 20
 
-    assert {:ok, _normalized} =
-             Input.normalize_failure(Aiur.Codex.RateLimitAdapter.failure(session.account_generation_binding, :response_timeout, observed_at))
+    failure = RateLimitAdapter.failure(session.account_generation_binding, :response_timeout, observed_at)
+    assert {:ok, _normalized} = Input.normalize_failure(failure)
   end
 
   test "API-key snapshots keep the trusted generation and auth mode", %{owner: owner, session: session} do

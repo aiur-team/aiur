@@ -58,19 +58,23 @@ defmodule Aiur.Codex.RateLimitAdapter do
         {:error, :malformed}
 
       :structured ->
-        with {:ok, limit_id} <- patch_limit_id(rate_limits, Keyword.get(opts, :single_limit_id)),
-             {:ok, windows} <- windows_for(limit_id, rate_limits, observed_at),
-             {:ok, plan} <- plan_for(rate_limits, observed_at) do
-          if windows == [] and is_nil(plan) do
-            :ignore
-          else
-            {:ok, update(:patch, binding, auth_mode, observed_at, windows: windows, plan: plan)}
-          end
-        end
+        structured_patch(rate_limits, binding, auth_mode, observed_at, opts)
     end
   end
 
   def patch(_rate_limits, _binding, _auth_mode, _observed_at, _opts), do: {:error, :malformed}
+
+  defp structured_patch(rate_limits, binding, auth_mode, observed_at, opts) do
+    with {:ok, limit_id} <- patch_limit_id(rate_limits, Keyword.get(opts, :single_limit_id)),
+         {:ok, windows} <- windows_for(limit_id, rate_limits, observed_at),
+         {:ok, plan} <- plan_for(rate_limits, observed_at) do
+      if windows == [] and is_nil(plan) do
+        :ignore
+      else
+        {:ok, update(:patch, binding, auth_mode, observed_at, windows: windows, plan: plan)}
+      end
+    end
+  end
 
   @spec failure(reference(), term(), DateTime.t()) :: map()
   def failure(binding, reason, observed_at) when is_reference(binding) and is_struct(observed_at, DateTime) do
@@ -138,10 +142,7 @@ defmodule Aiur.Codex.RateLimitAdapter do
         end
 
       nil when is_binary(single_limit_id) ->
-        case canonical_limit_id(single_limit_id) do
-          {:ok, canonical_limit_id} -> {:ok, canonical_limit_id}
-          :error -> {:error, :malformed}
-        end
+        canonical_limit_id(single_limit_id)
 
       nil ->
         :ignore
@@ -222,15 +223,19 @@ defmodule Aiur.Codex.RateLimitAdapter do
           {:cont, {:ok, windows}}
 
         {:ok, %{} = rate_window} ->
-          case rate_window(limit_id, name, rate_window, observed_at) do
-            {:ok, window} -> {:cont, {:ok, windows ++ [window]}}
-            :error -> {:halt, {:error, :malformed}}
-          end
+          append_rate_window(windows, limit_id, name, rate_window, observed_at)
 
         {:ok, _other} ->
           {:halt, {:error, :malformed}}
       end
     end)
+  end
+
+  defp append_rate_window(windows, limit_id, name, rate_window, observed_at) do
+    case rate_window(limit_id, name, rate_window, observed_at) do
+      {:ok, window} -> {:cont, {:ok, windows ++ [window]}}
+      :error -> {:halt, {:error, :malformed}}
+    end
   end
 
   defp rate_window(limit_id, name, %{"usedPercent" => used_percent} = source_window, observed_at)
@@ -267,14 +272,12 @@ defmodule Aiur.Codex.RateLimitAdapter do
         {:ok, nil}
 
       {:ok, %{"hasCredits" => has_credits, "unlimited" => unlimited}} when is_boolean(has_credits) and is_boolean(unlimited) ->
-        status = if unlimited, do: :unlimited, else: if(has_credits, do: :available, else: :exhausted)
-
         {:ok,
          %{
            limit_id: "#{limit_id}:credits",
            kind: :credit,
            name: :credits,
-           credits: %{status: status},
+           credits: %{status: credit_status(unlimited, has_credits)},
            source: @source,
            observed_at: observed_at,
            coverage: :supported
@@ -287,41 +290,49 @@ defmodule Aiur.Codex.RateLimitAdapter do
 
   defp spend_window(limit_id, snapshot, observed_at) do
     case Map.fetch(snapshot, "individualLimit") do
-      :error ->
-        {:ok, nil}
+      :error -> {:ok, nil}
+      {:ok, nil} -> {:ok, nil}
+      {:ok, individual_limit} -> spend_window_from(limit_id, individual_limit, observed_at)
+    end
+  end
 
-      {:ok, nil} ->
-        {:ok, nil}
+  defp spend_window_from(
+         limit_id,
+         %{
+           "used" => used,
+           "limit" => limit,
+           "remainingPercent" => remaining_percent,
+           "resetsAt" => resets_at
+         },
+         observed_at
+       )
+       when is_binary(used) and is_binary(limit) and is_integer(remaining_percent) and
+              remaining_percent in 0..100 and is_integer(resets_at) do
+    case optional_unix_timestamp(resets_at) do
+      {:ok, reset_at} ->
+        {:ok,
+         %{
+           limit_id: "#{limit_id}:spend-control",
+           kind: :spend_control,
+           name: :spend_control,
+           remaining_percent: remaining_percent,
+           resets_at: reset_at,
+           spend_control: %{status: :enabled},
+           source: @source,
+           observed_at: observed_at,
+           coverage: :supported
+         }}
 
-      {:ok,
-       %{
-         "used" => used,
-         "limit" => limit,
-         "remainingPercent" => remaining_percent,
-         "resetsAt" => resets_at
-       }}
-      when is_binary(used) and is_binary(limit) and is_integer(remaining_percent) and remaining_percent in 0..100 and is_integer(resets_at) ->
-        with {:ok, reset_at} <- optional_unix_timestamp(resets_at) do
-          {:ok,
-           %{
-             limit_id: "#{limit_id}:spend-control",
-             kind: :spend_control,
-             name: :spend_control,
-             remaining_percent: remaining_percent,
-             resets_at: reset_at,
-             spend_control: %{status: :enabled},
-             source: @source,
-             observed_at: observed_at,
-             coverage: :supported
-           }}
-        else
-          _ -> {:error, :malformed}
-        end
-
-      {:ok, _other} ->
+      _ ->
         {:error, :malformed}
     end
   end
+
+  defp spend_window_from(_limit_id, _individual_limit, _observed_at), do: {:error, :malformed}
+
+  defp credit_status(true, _has_credits), do: :unlimited
+  defp credit_status(false, true), do: :available
+  defp credit_status(false, false), do: :exhausted
 
   defp reset_credit_window(response, observed_at) do
     case Map.fetch(response, "rateLimitResetCredits") do
@@ -412,7 +423,6 @@ defmodule Aiur.Codex.RateLimitAdapter do
   end
 
   defp canonical_limit_id(value) when is_binary(value), do: opaque_limit_id(value)
-  defp canonical_limit_id(_value), do: :error
 
   defp opaque_limit_id(value) do
     {:ok, "opaque-" <> (:crypto.hash(:sha256, value) |> Base.encode16(case: :lower))}

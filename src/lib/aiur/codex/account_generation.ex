@@ -181,52 +181,45 @@ defmodule Aiur.Codex.AccountGeneration do
   defp submit_rate_limit_snapshot(session, response, opts) do
     case Context.fetch(session) do
       {:ok, _server, binding, _authority, _topic} ->
-        case RateLimitAdapter.snapshot(response, binding, RateLimitAdapter.auth_mode(Context.auth_mode(session)), observed_at(opts)) do
-          {:ok, update} ->
-            case ingest_rate_limit_update(session, update, opts) do
-              :ok ->
-                with {:ok, limit_ids} <- RateLimitAdapter.snapshot_limit_ids(response) do
-                  Context.put_rate_limit_ids(session, limit_ids)
-                end
-
-                :ok
-
-              :error ->
-                :error
-            end
-
-          {:error, reason} ->
-            record_rate_limit_failure(session, reason, opts) && :error
-        end
+        response
+        |> RateLimitAdapter.snapshot(binding, session_auth_mode(session), observed_at(opts))
+        |> handle_snapshot_result(session, response, opts)
 
       :error ->
         :error
     end
   end
 
+  defp handle_snapshot_result({:ok, update}, session, response, opts) do
+    case ingest_rate_limit_update(session, update, opts) do
+      :ok ->
+        remember_rate_limit_ids(session, response)
+        :ok
+
+      :error ->
+        :error
+    end
+  end
+
+  defp handle_snapshot_result({:error, reason}, session, _response, opts) do
+    record_rate_limit_failure(session, reason, opts)
+    :error
+  end
+
+  defp remember_rate_limit_ids(session, response) do
+    with {:ok, limit_ids} <- RateLimitAdapter.snapshot_limit_ids(response) do
+      Context.put_rate_limit_ids(session, limit_ids)
+    end
+
+    :ok
+  end
+
   defp submit_rate_limit_patch(session, rate_limits) when is_map(rate_limits) do
     case Context.fetch(session) do
       {:ok, _server, binding, _authority, _topic} ->
-        case RateLimitAdapter.patch(
-               rate_limits,
-               binding,
-               RateLimitAdapter.auth_mode(Context.auth_mode(session)),
-               DateTime.utc_now(),
-               single_limit_id: Context.single_rate_limit_id(session)
-             ) do
-          {:ok, update} ->
-            ingest_rate_limit_update(session, update, [])
-
-          :ignore ->
-            if trusted_generation?(session) do
-              :ignore
-            else
-              record_rate_limit_failure(session, :malformed) && :error
-            end
-
-          {:error, reason} ->
-            record_rate_limit_failure(session, reason) && :error
-        end
+        rate_limits
+        |> RateLimitAdapter.patch(binding, session_auth_mode(session), DateTime.utc_now(), single_limit_id: Context.single_rate_limit_id(session))
+        |> handle_patch_result(session)
 
       :error ->
         :error
@@ -237,6 +230,24 @@ defmodule Aiur.Codex.AccountGeneration do
     record_rate_limit_failure(session, :malformed)
     :error
   end
+
+  defp handle_patch_result({:ok, update}, session), do: ingest_rate_limit_update(session, update, [])
+
+  defp handle_patch_result(:ignore, session) do
+    if trusted_generation?(session) do
+      :ignore
+    else
+      record_rate_limit_failure(session, :malformed)
+      :error
+    end
+  end
+
+  defp handle_patch_result({:error, reason}, session) do
+    record_rate_limit_failure(session, reason)
+    :error
+  end
+
+  defp session_auth_mode(session), do: RateLimitAdapter.auth_mode(Context.auth_mode(session))
 
   defp ingest_rate_limit_update(session, update, opts) do
     case meter_ingester(session).(update) do

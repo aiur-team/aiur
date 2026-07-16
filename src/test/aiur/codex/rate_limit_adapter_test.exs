@@ -116,8 +116,11 @@ defmodule Aiur.Codex.RateLimitAdapterTest do
 
   test "rejects malformed source fields and returns typed failures without source content" do
     oversized_id = String.duplicate("x", 1_025)
+    oversized_response = %{"rateLimits" => %{"limitId" => oversized_id}}
 
-    assert {:error, :malformed} = RateLimitAdapter.snapshot(%{"rateLimits" => %{"limitId" => oversized_id}}, make_ref(), :subscription, @observed_at)
+    assert {:error, :malformed} =
+             RateLimitAdapter.snapshot(oversized_response, make_ref(), :subscription, @observed_at)
+
     assert {:error, :malformed} = RateLimitAdapter.patch(%{"limitId" => oversized_id}, make_ref(), :subscription, @observed_at)
 
     failure = RateLimitAdapter.failure(make_ref(), :response_timeout, @observed_at)
@@ -139,7 +142,9 @@ defmodule Aiur.Codex.RateLimitAdapterTest do
     }
 
     assert {:error, :malformed} = RateLimitAdapter.snapshot(unknown_only, make_ref(), :subscription, @observed_at)
-    assert {:error, :malformed} = RateLimitAdapter.snapshot(invalid_multi_bucket, make_ref(), :subscription, @observed_at)
+
+    assert {:error, :malformed} =
+             RateLimitAdapter.snapshot(invalid_multi_bucket, make_ref(), :subscription, @observed_at)
 
     mismatched_id = %{
       "rateLimits" => %{"primary" => %{"usedPercent" => 10}},

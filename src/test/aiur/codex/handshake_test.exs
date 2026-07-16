@@ -77,7 +77,10 @@ defmodule Aiur.Codex.HandshakeTest do
 
       assert {:error, :response_timeout} = Handshake.read_rate_limits(port)
 
-      log = capture_log(fn -> assert {:ok, %{auth_mode: "chatgpt"}} = Handshake.read_account(port, on_notification: handler) end)
+      log =
+        capture_log(fn ->
+          assert {:ok, %{auth_mode: "chatgpt"}} = Handshake.read_account(port, on_notification: handler)
+        end)
 
       refute_receive {:late_rate_limit_payload, _payload}
       refute log =~ secret
@@ -105,7 +108,10 @@ defmodule Aiur.Codex.HandshakeTest do
 
       assert {:error, :response_timeout} = Handshake.read_rate_limits(port)
 
-      log = capture_log(fn -> assert {:ok, %{auth_mode: "chatgpt"}} = Handshake.read_account(port, on_notification: handler) end)
+      log =
+        capture_log(fn ->
+          assert {:ok, %{auth_mode: "chatgpt"}} = Handshake.read_account(port, on_notification: handler)
+        end)
 
       refute_receive {:late_rate_limit_payload, _payload}
       refute log =~ secret
