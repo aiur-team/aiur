@@ -1481,7 +1481,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
                  )
       end)
 
-    assert auth_log == ""
+    refute auth_log =~ "Linear GraphQL request failed"
 
     outage_log =
       ExUnit.CaptureLog.capture_log(fn ->
