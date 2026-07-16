@@ -19,6 +19,8 @@ defmodule Aiur.LiveConversation do
   @title_limit 120
   @snapshot_byte_limit 64_000
   @ended_generation_limit 16
+  @retained_snapshot_limit 128
+  @partial_fragment_limit 128
   @source_field_limit 256
   @topic "live-conversation:changed"
 
@@ -371,6 +373,20 @@ defmodule Aiur.LiveConversation do
   end
 
   defp append_partial_message(snapshot, id, message, index, prior_body, fragment_ids) do
+    if MapSet.size(fragment_ids) >= @partial_fragment_limit do
+      snapshot =
+        snapshot
+        |> live_snapshot(message.observed_at)
+        |> increment_diagnostic(:partial_fragment_limit)
+        |> Map.put(:truncated?, true)
+
+      {snapshot, true}
+    else
+      append_bounded_partial(snapshot, id, message, index, prior_body, fragment_ids)
+    end
+  end
+
+  defp append_bounded_partial(snapshot, id, message, index, prior_body, fragment_ids) do
     accumulated_body = sanitize(prior_body <> message.body, @body_limit)
     fragment_ids = MapSet.union(fragment_ids, message.fragment_ids)
 
@@ -458,7 +474,6 @@ defmodule Aiur.LiveConversation do
   end
 
   defp health_for(:unavailable), do: :unavailable
-  defp health_for(:restart_unknown), do: :unknown
   defp health_for(_state), do: :healthy
 
   defp freshness_for(:stale), do: :stale
@@ -639,7 +654,12 @@ defmodule Aiur.LiveConversation do
   defp date_time(_value), do: nil
 
   defp put_snapshot(state, key, snapshot) do
-    snapshots = Map.put(state.snapshots, key, snapshot) |> retain_ended_generations()
+    snapshots =
+      state.snapshots
+      |> Map.put(key, snapshot)
+      |> retain_ended_generations()
+      |> retain_snapshots()
+
     %{state | snapshots: snapshots}
   end
 
@@ -647,12 +667,25 @@ defmodule Aiur.LiveConversation do
     ended =
       snapshots
       |> Enum.filter(fn {_key, snapshot} -> snapshot.state == :ended end)
-      |> Enum.sort_by(fn {key, snapshot} -> {snapshot.observed_at, inspect(key)} end)
+      |> Enum.sort_by(&retention_order/1)
 
     ended
     |> Enum.take(max(length(ended) - @ended_generation_limit, 0))
     |> Enum.reduce(snapshots, fn {key, _snapshot}, acc -> Map.delete(acc, key) end)
   end
+
+  defp retain_snapshots(snapshots) when map_size(snapshots) <= @retained_snapshot_limit,
+    do: snapshots
+
+  defp retain_snapshots(snapshots) do
+    snapshots
+    |> Enum.sort_by(&retention_order/1)
+    |> Enum.take(map_size(snapshots) - @retained_snapshot_limit)
+    |> Enum.reduce(snapshots, fn {key, _snapshot}, acc -> Map.delete(acc, key) end)
+  end
+
+  defp retention_order({key, snapshot}),
+    do: {DateTime.to_unix(snapshot.observed_at, :microsecond), inspect(key)}
 
   defp schedule_notification(%{pending_notifications: pending} = state, key, source) do
     if Map.has_key?(pending, key) do
@@ -678,8 +711,16 @@ defmodule Aiur.LiveConversation do
     end
   end
 
-  defp fragment_id(%{sequence: sequence}, _body) when is_integer(sequence) or is_binary(sequence), do: sequence
+  defp fragment_id(%{sequence: sequence}, _body)
+       when is_integer(sequence) or (is_binary(sequence) and byte_size(sequence) <= @source_field_limit),
+       do: opaque_id("fragment:", sequence)
+
   defp fragment_id(event, body), do: stable_id(:fragment, event, body)
+
+  defp opaque_id(prefix, value) do
+    digest = :crypto.hash(:sha256, :erlang.term_to_binary(value)) |> Base.url_encode64(padding: false)
+    prefix <> digest
+  end
 
   defp seen_entry(%{delivery: :completed}, _index), do: :completed
 

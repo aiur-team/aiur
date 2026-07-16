@@ -94,14 +94,17 @@ defmodule Aiur.AgentRunner.MessageHandler do
     end
   end
 
-  defp maybe_observe_live_conversation(_issue, _message, _backend, _turn_id, _opts), do: :ok
-
   defp observe_live_event(source, %{role: :tool} = event) do
     case safe_tool_summary(event) do
       {:ok, summary} -> safe_live_conversation(fn -> LiveConversation.observe_tool_summary(source, summary) end)
       :skip -> :ok
     end
   end
+
+  # Codex does not expose a stable fragment identity for replayed deltas. Keep
+  # rich partials in the pane transcript, but admit only the matching completed
+  # message to the bounded public projection.
+  defp observe_live_event(_source, %{kind: :assistant_delta}), do: :ok
 
   defp observe_live_event(source, event),
     do: safe_live_conversation(fn -> LiveConversation.observe(source, event) end)

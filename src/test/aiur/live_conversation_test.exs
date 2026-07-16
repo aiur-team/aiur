@@ -331,6 +331,57 @@ defmodule Aiur.LiveConversationTest do
     assert Enum.all?(snapshot.messages, &(String.length(&1.body) <= 1_600))
   end
 
+  test "bounds partial fragment bookkeeping before completion", %{server: server} do
+    source = source()
+
+    Enum.each(1..256, fn sequence ->
+      assert {:ok, _snapshot} =
+               LiveConversation.observe(
+                 source,
+                 %{kind: :assistant_delta, id: "partial", body: "x", sequence: sequence},
+                 server: server
+               )
+    end)
+
+    snapshot = LiveConversation.snapshot(source, server: server)
+    assert [%{body: body}] = snapshot.messages
+    assert String.length(body) == 128
+    assert snapshot.truncated?
+    assert snapshot.diagnostic_counts.partial_fragment_limit == 128
+
+    internal_snapshot = server |> :sys.get_state() |> Map.fetch!(:snapshots) |> Map.values() |> List.first()
+    assert MapSet.size(hd(internal_snapshot.messages).fragment_ids) == 128
+    assert MapSet.size(internal_snapshot.seen["partial"].fragment_ids) == 128
+  end
+
+  test "bounds live generations that miss end cleanup" do
+    counter = :atomics.new(1, [])
+
+    clock = fn ->
+      DateTime.add(~U[2026-01-30 00:00:00Z], :atomics.add_get(counter, 1, 1) * 86_400, :second)
+    end
+
+    server =
+      start_supervised!(Supervisor.child_spec({LiveConversation, name: nil, clock: clock}, id: make_ref()))
+
+    Enum.each(1..129, fn generation ->
+      assert {:ok, %{state: :live}} =
+               LiveConversation.observe(
+                 source(worker_generation: generation),
+                 %{role: :assistant, msg_id: "message-#{generation}", body: "generation #{generation}"},
+                 server: server
+               )
+    end)
+
+    assert map_size(:sys.get_state(server).snapshots) == 128
+
+    assert %{state: :restart_unknown, messages: []} =
+             LiveConversation.snapshot(source(worker_generation: 1), server: server)
+
+    assert %{state: :live, messages: [%{id: "message-129"}]} =
+             LiveConversation.snapshot(source(worker_generation: 129), server: server)
+  end
+
   test "preserves original ordering when a partial message completes", %{server: server} do
     source = source()
     first_at = ~U[2026-01-01 00:00:00Z]

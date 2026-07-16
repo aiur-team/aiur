@@ -162,6 +162,43 @@ defmodule Aiur.AgentRunner.MessageHandlerTest do
       assert %{messages: [%{role: "operator", body: "Please continue"}]} =
                LiveConversation.snapshot(source)
     end
+
+    test "omits replay-unstable Codex deltas and projects their completion once" do
+      unique = Integer.to_string(System.unique_integer([:positive]))
+      identity = tracker_identity(unique)
+      issue = %Issue{id: "gid-delta-#{unique}", identifier: unique, tracker_identity: identity}
+      source = %{identity: identity, attempt_id: "attempt-#{unique}", backend: "codex", worker_generation: 3}
+
+      handler =
+        MessageHandler.build(nil, issue, nil, nil, "codex", nil,
+          attempt_id: "attempt-#{unique}",
+          worker_generation: 3
+        )
+
+      delta = %{
+        event: :notification,
+        payload: %{
+          method: "item/agentMessage/delta",
+          params: %{turnId: "turn-1", itemId: "message-1", delta: "partial"}
+        }
+      }
+
+      handler.(delta)
+      handler.(delta)
+
+      assert %{state: :known_empty, messages: []} = LiveConversation.snapshot(source)
+
+      handler.(%{
+        event: :notification,
+        payload: %{
+          method: "item/completed",
+          params: %{turnId: "turn-1", item: %{type: "agentMessage", id: "message-1", text: "complete"}}
+        }
+      })
+
+      assert %{messages: [%{id: "message-1", body: "complete"}]} =
+               LiveConversation.snapshot(source)
+    end
   end
 
   describe "send_control_state/3" do
