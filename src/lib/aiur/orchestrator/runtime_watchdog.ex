@@ -6,8 +6,7 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
 
   require Logger
 
-  alias Aiur.Config
-  alias Aiur.Orchestrator
+  alias Aiur.{Config, Issue}
   alias Aiur.Orchestrator.{AgentTeardown, PauseResume, RetryEngine, State}
 
   @spec apply_overrun_check(State.t(), non_neg_integer()) :: State.t()
@@ -34,7 +33,7 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
   # time excluded via `running_seconds/2`). The duration cap is almost
   # always "I want to check in," not "this work is done" — pausing keeps
   # the agent in the list, holding its slot and its session/turn context,
-  # so the operator can review and resume with one keystroke instead of
+  # so the Executor can review and resume with one keystroke instead of
   # restarting from scratch.
   @doc false
   @spec reconcile_overrunning_agents(State.t()) :: State.t()
@@ -70,13 +69,9 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
       State.running_seconds(Map.get(running_entry, :started_at), now) > max_seconds
   end
 
-  # Mirror the operator-pause path: queue the cooperative `{:pause_agent}`
-  # control message so the worker parks at its next turn boundary, then
-  # flip control status to `:paused`. Stamping `paused_reason` makes the
-  # pause attributable to the duration cap (distinct from a manual or
-  # blocker pause), and reusing the `:paused` state means slot accounting
-  # (`paused_running_count`/`available_slots`) and the resume paths treat
-  # it identically to a manual pause for free.
+  # Route a cooperative pause through the control lifecycle. The duration
+  # cap becomes authoritative only after matching worker evidence confirms
+  # that the worker actually parked.
   @doc false
   @spec maybe_pause_overrunning_entry(State.t(), term(), map(), DateTime.t(), non_neg_integer()) :: State.t()
   def maybe_pause_overrunning_entry(state, issue_id, running_entry, now, max_seconds) do
@@ -86,10 +81,15 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
 
       Logger.warning("orchestrator.pause issue_id=#{issue_id} issue_identifier=#{identifier} cause=max_agent_duration running_seconds=#{seconds} cap_seconds=#{max_seconds}")
 
-      _ = PauseResume.send_pause_control_message(state, identifier)
+      {_reply, state} =
+        PauseResume.request_pause(
+          state,
+          running_entry,
+          Map.get(running_entry, :issue),
+          :max_agent_duration
+        )
 
-      paused_entry = Map.put(running_entry, :paused_reason, :max_agent_duration)
-      Orchestrator.transition_control_status(state, paused_entry, :paused, "max_agent_duration")
+      state
     else
       state
     end
@@ -125,7 +125,7 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
       # agent (single never-ending codex turn) never reaches one, so it
       # keeps streaming past the pause. Such an entry would otherwise sit
       # `:paused` forever — the duration cap can never re-fire (paused
-      # entries are excluded) and the operator's resume never comes. Once
+      # entries are excluded) and the Executor’s resume never comes. Once
       # it has been wedged past the grace window, force-terminate it. This
       # is the only place a duration cap escalates to a kill; a cooperative
       # park stops the codex stream and is left alone.
@@ -136,9 +136,9 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
       # pause.request because it declared a blocker and has nothing to
       # do until the blocker emits. The stall watchdog must not
       # interpret deliberate idleness as a stuck codex stream. The
-      # auto-resume hook in handle_info({:event, ...}) will reawaken
-      # the entry when its blocker pushes; if no push ever arrives, an
-      # operator-driven resume (label flip or chat) is the path
+      # explicit-unblocked auto-resume hook in handle_info({:event, ...})
+      # will reawaken the entry when its blocker emits readiness. If no signal
+      # Executor-driven resume (label flip or chat) is the path
       # forward, not a restart that throws away the agent's workpad.
       State.paused_running_entry?(running_entry) ->
         state
@@ -161,7 +161,7 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
   # that way longer than the grace window (`timeout_ms`, the stall budget).
   # A cooperatively-parked agent stops streaming at its turn boundary, so
   # its `last_codex_timestamp` does not advance past `paused_at` — those
-  # are left to the operator/blocker resume, never killed here.
+  # are left to the Executor/blocker resume, never killed here.
   @doc false
   @spec wedged_overcap_entry?(map(), DateTime.t(), non_neg_integer()) :: boolean()
   def wedged_overcap_entry?(running_entry, now, timeout_ms) when is_map(running_entry) do
@@ -205,7 +205,11 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
       |> AgentTeardown.terminate_running_issue(issue_id, false)
       |> RetryEngine.schedule_issue_retry(issue_id, next_attempt, %{
         identifier: identifier,
-        error: "stalled for #{elapsed_ms}ms without codex activity"
+        tracker_identity: Issue.tracker_identity(Map.get(running_entry, :issue)),
+        error: "stalled for #{elapsed_ms}ms without codex activity",
+        prior_work: RetryEngine.prior_work_for_retry?(running_entry),
+        worker_host: Map.get(running_entry, :worker_host),
+        workspace_path: Map.get(running_entry, :workspace_path)
       })
     else
       state

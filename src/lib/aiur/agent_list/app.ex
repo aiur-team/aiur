@@ -8,6 +8,7 @@ defmodule Aiur.AgentList.App do
 
   alias Aiur.AgentList.{
     Activation,
+    ActivityIntake,
     Controls,
     EventIntake,
     PerfIntake,
@@ -28,6 +29,7 @@ defmodule Aiur.AgentList.App do
   @dialyzer {:nowarn_function, render: 1}
   @refresh_tick_ms 1_000
   @geometry_tick_ms 250
+  @activity_refresh_tick_ms 30_000
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -94,9 +96,19 @@ defmodule Aiur.AgentList.App do
     opts = Keyword.put_new(opts, :command_template, Activation.default_command_template())
     state = State.new(opts)
 
-    if Keyword.get(opts, :subscribe?, true), do: subscribe(state.debug_mode?)
+    subscribe? = Keyword.get(opts, :subscribe?, true)
+
+    state =
+      if subscribe? do
+        subscribe(state)
+        load_ticket_activity(state)
+      else
+        state
+      end
+
     schedule_refresh_tick()
     schedule_geometry_tick()
+    if subscribe?, do: schedule_activity_refresh_tick()
     render(state)
     elapsed = Aiur.Boot.elapsed_ms()
     Logger.info("aiur_agent_list phase=ready elapsed_ms=#{elapsed} agents=#{length(state.summaries)}")
@@ -210,6 +222,13 @@ defmodule Aiur.AgentList.App do
     if columns == state.columns and rows == state.rows, do: {:noreply, state}, else: render_reply(%{state | columns: columns, rows: rows})
   end
 
+  def handle_info(:activity_refresh_tick, state) do
+    state = load_ticket_activity(state)
+    schedule_activity_refresh_tick()
+    render(state)
+    {:noreply, state}
+  end
+
   def handle_info({:aiur_perf, event}, %{debug_mode?: true} = state) do
     {state, render?} = PerfIntake.fold(state, event)
     if render?, do: render(state)
@@ -217,6 +236,17 @@ defmodule Aiur.AgentList.App do
   end
 
   def handle_info({:aiur_perf, _event}, state), do: {:noreply, state}
+
+  def handle_info({:ticket_activity_changed, payload}, state) do
+    state =
+      case ActivityIntake.fold(state, payload) do
+        {:ok, next_state} -> next_state
+        :reload -> load_ticket_activity(state)
+      end
+
+    render(state)
+    {:noreply, state}
+  end
 
   def handle_info({:event_debug, entry}, state) do
     state = EventIntake.fold(state, entry)
@@ -232,7 +262,7 @@ defmodule Aiur.AgentList.App do
     :ok
   end
 
-  defp subscribe(debug_mode?) do
+  defp subscribe(state) do
     AgentPubSub.subscribe_running()
     AgentPubSub.subscribe_status()
     AgentPubSub.subscribe_poll_state()
@@ -240,8 +270,23 @@ defmodule Aiur.AgentList.App do
     AgentPubSub.subscribe_prewarm()
     Phoenix.PubSub.subscribe(Aiur.PubSub, Slot.slots_topic())
     Phoenix.PubSub.subscribe(Aiur.PubSub, AttachPool.topic())
-    DebugLog.subscribe()
-    if debug_mode?, do: Phoenix.PubSub.subscribe(Aiur.PubSub, Aiur.Perf.topic())
+    _ = state.ticket_activity_subscribe_fun.()
+
+    if state.debug_mode? do
+      DebugLog.subscribe()
+      Phoenix.PubSub.subscribe(Aiur.PubSub, Aiur.Perf.topic())
+    end
+  end
+
+  defp load_ticket_activity(state) do
+    case safe_call(state.ticket_activity_snapshot_fun) do
+      %{generation: generation, entries: entries} = snapshot
+      when is_integer(generation) and is_list(entries) ->
+        ActivityIntake.load(state, snapshot)
+
+      _ ->
+        state
+    end
   end
 
   defp select(state, amount) do
@@ -280,6 +325,9 @@ defmodule Aiur.AgentList.App do
   defp schedule_refresh_tick, do: Process.send_after(self(), :refresh_tick, @refresh_tick_ms)
   defp schedule_geometry_tick, do: Process.send_after(self(), :geometry_tick, @geometry_tick_ms)
 
+  defp schedule_activity_refresh_tick,
+    do: Process.send_after(self(), :activity_refresh_tick, @activity_refresh_tick_ms)
+
   defp safe_call(function) do
     function.()
   rescue
@@ -299,7 +347,8 @@ defmodule Aiur.AgentList.App do
     # :perf_summary :warmth_events :debug_events :attach_state :started_slots
     # :fully_warmed_slots :opened_panes :agents_with_content
     # :latest_event_by_id :phase_by_identifier :open_attentions_by_id
-    # :progress_by_id :warm_status_dark_mode? :remote_control_hint
+    # :progress_by_id :activity_status_by_identifier
+    # :warm_status_dark_mode? :remote_control_hint
     # :prewarm_active? :prewarm_phase :truecolor?
     state.write_fun.(Renderer.render(render_state))
     :ok

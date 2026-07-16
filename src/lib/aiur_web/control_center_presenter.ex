@@ -1,10 +1,10 @@
 defmodule AiurWeb.ControlCenterPresenter do
   @moduledoc """
-  Composes the Operator Control Center's read model from independent domain
+  Composes the Executor Control Center's read model from independent domain
   providers. A failed optional provider degrades only its own surface.
   """
 
-  alias Aiur.{Decision, DecisionStore}
+  alias Aiur.{Decision, DecisionMetrics, DecisionStore}
   alias AiurWeb.OperatorControlCenter.DecisionPresenter
   alias AiurWeb.Presenter
 
@@ -13,6 +13,7 @@ defmodule AiurWeb.ControlCenterPresenter do
   @spec state_payload(GenServer.name(), timeout(), keyword()) :: map()
   def state_payload(orchestrator, snapshot_timeout_ms, opts \\ []) do
     decision_store = Keyword.get(opts, :decision_store, DecisionStore)
+    decision_metrics = Keyword.get(opts, :decision_metrics, DecisionMetrics)
     recent_merge_store = Keyword.get(opts, :recent_merge_store, Aiur.RecentMergeStore)
 
     presenter_opts = [
@@ -31,25 +32,35 @@ defmodule AiurWeb.ControlCenterPresenter do
 
     decisions_fun = Keyword.get(opts, :decisions_fun, fn -> DecisionStore.recent_decisions(50, decision_store) end)
 
+    decision_metrics_fun =
+      Keyword.get(opts, :decision_metrics_fun, fn -> DecisionMetrics.snapshots(decision_metrics) end)
+
     {fleet, fleet_health} = safe_read(fleet_fun, unavailable_fleet(), &is_map/1)
     {decisions, decisions_health} = safe_read(decisions_fun, [], &is_list/1)
+    {decision_latency, decision_latency_health} = safe_read(decision_metrics_fun, %{}, &is_map/1)
     {history, history_health} = history_read(fleet, opts)
     {recent_merges, recent_outcomes_health} = recent_merges_read(fleet, opts)
 
     fleet
-    |> compose(decisions, history, recent_merges)
+    |> compose(decisions, history, recent_merges, decision_latency, decision_latency_health)
     |> Map.put(:provider_health, %{
       fleet: fleet_health,
       decisions: decisions_health,
+      decision_latency: decision_latency_health,
       history: history_health,
       recent_outcomes: recent_outcomes_health
     })
   end
 
   @spec compose(map(), [Decision.t()], [map()], map()) :: map()
-  def compose(fleet, decisions, history, recent_merges)
-      when is_map(fleet) and is_list(decisions) and is_list(history) and is_map(recent_merges) do
-    decision_rows = DecisionPresenter.rows(decisions)
+  @spec compose(map(), [Decision.t()], [map()], map(), map(), term()) :: map()
+  def compose(fleet, decisions, history, recent_merges, decision_latency \\ %{}, decision_latency_health \\ :ok)
+
+  def compose(fleet, decisions, history, recent_merges, decision_latency, decision_latency_health)
+      when is_map(fleet) and is_list(decisions) and is_list(history) and is_map(recent_merges) and
+             is_map(decision_latency) do
+    fleet = public_fleet(fleet)
+    decision_rows = decisions |> DecisionPresenter.rows() |> DecisionPresenter.attach_latency(decision_latency, decision_latency_health)
     recent_outcomes = normalize_recent_outcomes(recent_merges)
 
     %{
@@ -62,7 +73,13 @@ defmodule AiurWeb.ControlCenterPresenter do
       recent_outcomes_reconciliation: Map.get(recent_merges, :reconciliation),
       analytics: analytics(Map.get(fleet, :analytics)),
       overview: overview(fleet, decision_rows, recent_outcomes),
-      provider_health: %{fleet: :ok, decisions: :ok, history: :ok, recent_outcomes: :ok}
+      provider_health: %{
+        fleet: :ok,
+        decisions: :ok,
+        decision_latency: decision_latency_health,
+        history: :ok,
+        recent_outcomes: :ok
+      }
     }
   end
 
@@ -104,6 +121,8 @@ defmodule AiurWeb.ControlCenterPresenter do
       revision_result: Map.get(entry, :revision_result),
       choice: Map.get(entry, :choice),
       rationale: Map.get(entry, :rationale),
+      provenance: Map.get(entry, :provenance),
+      supervisor_basis: Map.get(entry, :supervisor_basis),
       dispatch_result: Map.get(entry, :dispatch_result),
       acknowledgement_result: Map.get(entry, :acknowledgement_result),
       revision_of: Map.get(entry, :revision_of),
@@ -221,10 +240,29 @@ defmodule AiurWeb.ControlCenterPresenter do
       running: [],
       retrying: [],
       idle: [],
-      agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
-      rate_limits: nil
+      agent_totals: %{seconds_running: 0}
     }
   end
+
+  defp public_fleet(fleet) do
+    fleet
+    |> Map.delete(:rate_limits)
+    |> Map.update(:agent_totals, %{seconds_running: 0}, fn totals ->
+      %{seconds_running: if(is_map(totals), do: Map.get(totals, :seconds_running, 0), else: 0)}
+    end)
+    |> Map.update(:running, [], &strip_row_tokens/1)
+    |> Map.update(:retrying, [], &strip_row_tokens/1)
+    |> Map.update(:idle, [], &strip_row_tokens/1)
+  end
+
+  defp strip_row_tokens(rows) when is_list(rows) do
+    Enum.map(rows, fn
+      row when is_map(row) -> Map.delete(row, :tokens)
+      row -> row
+    end)
+  end
+
+  defp strip_row_tokens(_rows), do: []
 
   defp unavailable_recent_merges do
     %{merges: [], health: :unavailable, reconciliation: %{status: :unavailable, partial?: true}}

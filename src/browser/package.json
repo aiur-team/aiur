@@ -1,0 +1,23 @@
+{
+  "name": "aiur-liveview-browser-harness",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "check:elk": "node scripts/check-vendored-elk.mjs",
+    "fixture:preflight": "cd .. && mise exec -- mix compile --warnings-as-errors",
+    "fixture:server": "node scripts/start-fixture.mjs",
+    "test": "npm run check:elk && npm run fixture:preflight && npm run test:harness && npm run test:smoke && npm run test:shell && npm run test:layout",
+    "test:smoke": "node scripts/run-browser-tests.mjs tests/liveview-smoke.spec.mjs",
+    "test:shell": "node scripts/run-browser-tests.mjs tests/route-shell.browser.spec.mjs",
+    "test:harness": "node scripts/run-browser-tests.mjs tests/harness-failures.spec.mjs",
+    "test:layout": "npm run fixture:preflight && node scripts/run-browser-tests.mjs tests/layout-worker.browser.spec.mjs tests/dom-svg-layout-adapter.browser.spec.mjs",
+    "verify:failure-artifacts": "npm run fixture:preflight && node scripts/verify-failure-artifacts.mjs",
+    "vendor:elk": "node scripts/vendor-elk.mjs"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.11.3",
+    "@playwright/test": "1.61.1",
+    "elkjs": "0.11.1"
+  }
+}

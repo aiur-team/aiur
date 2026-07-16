@@ -83,11 +83,13 @@ defmodule Aiur.CoordinationTasksTest do
   test "terminal operation errors are logged before the lane advances" do
     name = unique_name("Error")
     start_supervised!({CoordinationTasks, name: name})
+    test_pid = self()
 
     log =
       capture_log(fn ->
         assert :pending = CoordinationTasks.enqueue(:key, fn -> {:error, :terminal_failure} end, name)
-        Process.sleep(20)
+        assert :pending = CoordinationTasks.enqueue(:key, fn -> send(test_pid, :lane_advanced) end, name)
+        assert_receive :lane_advanced
       end)
 
     assert log =~ "coordination operation failed"

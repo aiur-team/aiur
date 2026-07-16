@@ -25,7 +25,6 @@ defmodule Aiur.RepoBase do
   alias Aiur.Config
 
   @built_marker ".aiur-base-built"
-  @default_branch "main"
 
   ## ---- Public API ----
 
@@ -61,12 +60,7 @@ defmodule Aiur.RepoBase do
   back to `"main"` when unset, empty, or the config cannot be loaded.
   """
   @spec base_branch() :: String.t()
-  def base_branch do
-    case Config.settings() do
-      {:ok, %{tracker: %{base_branch: name}}} when is_binary(name) and name != "" -> name
-      _ -> @default_branch
-    end
-  end
+  def base_branch, do: Config.base_branch()
 
   ## ---- Synchronous core (no GenServer; exercised directly in tests) ----
 
@@ -305,7 +299,7 @@ defmodule Aiur.RepoBase do
   defp run_base_build(_base_path, ""), do: :ok
 
   defp run_base_build(base_path, command) do
-    # Same execution shape as workspace hooks: scrub the operator's Erlang
+    # Same execution shape as workspace hooks: scrub the Executor’s Erlang
     # distribution env at the shell level, then run in the base dir. `base_env/1`
     # trusts the base's mise.toml (MISE_TRUSTED_CONFIG_PATHS) so mise-provided
     # tools run; the detected command still sets its own HEX_HOME/MIX_HOME so the

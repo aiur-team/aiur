@@ -1,9 +1,460 @@
 defmodule Aiur.OrchestratorControlRoutingTest do
   use Aiur.TestSupport
 
-  alias Aiur.Orchestrator.State
+  alias Aiur.{AgentPubSub, Issue, TrackerIdentity}
+  alias Aiur.Orchestrator.{ControlLifecycle, PauseResume, PushRouting, RuntimeWatchdog, State}
 
   describe "control-status writes" do
+    test "accepted pause stays working until matching worker evidence applies it" do
+      issue_id = unique_id("control-correlated-pause")
+      entry = running_entry(issue_id)
+      state = base_state(running: %{issue_id => entry})
+
+      {{:ok, request_id}, accepted_state} = PauseResume.pause_agent_reply(state, issue_id)
+
+      assert accepted_state.running[issue_id].control.status == :working
+      assert accepted_state.control_lifecycle.pending[issue_id] == request_id
+      assert %{request_id: ^request_id, status: :accepted} = accepted_state.control_lifecycle.records[request_id]
+      assert_receive {:pause_agent, ^request_id, generation}
+
+      assert {:noreply, ^accepted_state} =
+               Orchestrator.handle_info(
+                 {:worker_control_state, issue_id, :paused,
+                  %{
+                    request_id: request_id,
+                    generation: generation + 1,
+                    kind: :operator_pause
+                  }},
+                 accepted_state
+               )
+
+      replacement_state = put_in(accepted_state.running[issue_id].control.generation, generation + 1)
+
+      assert {:noreply, stale_generation_state} =
+               Orchestrator.handle_info(
+                 {:worker_control_state, issue_id, :paused,
+                  %{
+                    request_id: request_id,
+                    generation: generation,
+                    kind: :operator_pause
+                  }},
+                 replacement_state
+               )
+
+      assert stale_generation_state.running[issue_id] == replacement_state.running[issue_id]
+
+      assert %{status: :rejected, rejection: %{class: :stale_generation}} =
+               stale_generation_state.control_lifecycle.records[request_id]
+
+      assert {:noreply, applied_state} =
+               Orchestrator.handle_info(
+                 {:worker_control_state, issue_id, :paused,
+                  %{
+                    request_id: request_id,
+                    generation: generation,
+                    kind: :operator_pause
+                  }},
+                 accepted_state
+               )
+
+      assert applied_state.running[issue_id].control.status == :paused
+      assert applied_state.running[issue_id].paused_reason == :operator_pause
+      assert applied_state.control_lifecycle.records[request_id].status == :applied
+      refute Map.has_key?(applied_state.control_lifecycle.pending, issue_id)
+    end
+
+    test "a supplied control request ID retries the original intent without routing twice" do
+      issue_id = unique_id("control-idempotent-request")
+      state = base_state(running: %{issue_id => running_entry(issue_id)})
+
+      assert {:reply, {:ok, 42}, accepted_state} =
+               PauseResume.request_control_call(state, issue_id, :pause, 42)
+
+      assert_receive {:pause_agent, 42, 101}
+
+      assert {:reply, {:ok, 42}, ^accepted_state} =
+               PauseResume.request_control_call(accepted_state, issue_id, :pause, 42)
+
+      refute_receive {:pause_agent, 42, _generation}
+
+      assert [%{request_id: 42, status: :accepted}] =
+               ControlLifecycle.history(accepted_state.control_lifecycle, issue_id)
+    end
+
+    test "resume supersedes a pending pause and the stale pause cannot apply later" do
+      issue_id = unique_id("control-resume-pending-pause")
+      entry = running_entry(issue_id)
+      state = base_state(running: %{issue_id => entry})
+
+      {{:ok, pause_request_id}, pause_pending_state} =
+        PauseResume.request_pause(state, entry, entry.issue, :ci_wait)
+
+      assert_receive {:pause_agent, ^pause_request_id, 101}
+      assert pause_pending_state.running[issue_id].control.status == :working
+
+      assert {{:ok, :resumed}, resume_pending_state} = PauseResume.resume_issue(pause_pending_state, issue_id)
+      assert_receive {:resume_agent, resume_request_id, 101}
+
+      assert %{status: :rejected, rejection: %{class: :superseded}} =
+               resume_pending_state.control_lifecycle.records[pause_request_id]
+
+      assert {:noreply, ^resume_pending_state} =
+               Orchestrator.handle_info(
+                 {:worker_control_state, issue_id, :paused, %{request_id: pause_request_id, generation: 101}},
+                 resume_pending_state
+               )
+
+      assert {:noreply, resumed_state} =
+               Orchestrator.handle_info(
+                 {:worker_control_state, issue_id, :working, %{request_id: resume_request_id, generation: 101}},
+                 resume_pending_state
+               )
+
+      assert resumed_state.running[issue_id].control.status == :working
+      refute Map.has_key?(resumed_state.running[issue_id], :pending_pause_reason)
+    end
+
+    test "a new pause supersedes an accepted resume before its worker evidence" do
+      issue_id = unique_id("control-pause-pending-resume")
+
+      entry =
+        running_entry(issue_id,
+          control: %{
+            status: :paused,
+            can_interrupt: true,
+            safe_checkpoints: [:notification],
+            application_confirmation: :confirmed,
+            generation: 101,
+            version: 1
+          },
+          paused_reason: :operator_pause
+        )
+
+      state = base_state(running: %{issue_id => entry})
+      assert {:reply, {:ok, 73}, resume_pending_state} = PauseResume.request_control_call(state, issue_id, :resume, 73)
+      assert_receive {:resume_agent, 73, 101}
+
+      assert {{:ok, pause_request_id}, paused_state} =
+               PauseResume.request_pause(resume_pending_state, entry, entry.issue, :ci_wait)
+
+      assert pause_request_id != 73
+      assert_receive {:pause_agent, ^pause_request_id, 101}
+
+      assert paused_state.running[issue_id].control.status == :paused
+      assert paused_state.running[issue_id].paused_reason == :operator_pause
+
+      assert paused_state.running[issue_id].pending_pause_reason == %{
+               request_id: pause_request_id,
+               reason: :ci_wait
+             }
+
+      assert %{status: :rejected, rejection: %{class: :superseded}} =
+               paused_state.control_lifecycle.records[73]
+
+      assert {:noreply, ^paused_state} =
+               Orchestrator.handle_info(
+                 {:worker_control_state, issue_id, :working, %{request_id: 73, generation: 101}},
+                 paused_state
+               )
+
+      assert {:noreply, applied_pause_state} =
+               Orchestrator.handle_info(
+                 {:worker_control_state, issue_id, :paused, %{request_id: pause_request_id, generation: 101}},
+                 paused_state
+               )
+
+      assert applied_pause_state.running[issue_id].control.status == :paused
+      assert applied_pause_state.running[issue_id].paused_reason == :ci_wait
+      refute Map.has_key?(applied_pause_state.running[issue_id], :pending_pause_reason)
+    end
+
+    test "a newer request publishes the older pending request as superseded" do
+      issue_id = unique_id("control-superseded-event")
+      state = base_state(running: %{issue_id => running_entry(issue_id)})
+      :ok = AgentPubSub.subscribe_agent(issue_id)
+
+      assert {:reply, {:ok, 70}, first_state} = PauseResume.request_control_call(state, issue_id, :pause, 70)
+      assert_receive {:control_lifecycle, %{request_id: 70, status: :requested}}
+      assert_receive {:control_lifecycle, %{request_id: 70, status: :accepted}}
+      assert_receive {:pause_agent, 70, 101}
+
+      assert {:reply, {:ok, 71}, _next_state} = PauseResume.request_control_call(first_state, issue_id, :pause, 71)
+      assert_receive {:control_lifecycle, %{request_id: 70, status: :rejected, rejection: %{class: :superseded}}}
+      assert_receive {:control_lifecycle, %{request_id: 71, status: :requested}}
+      assert_receive {:control_lifecycle, %{request_id: 71, status: :accepted}}
+      assert_receive {:pause_agent, 71, 101}
+    end
+
+    test "request-only controls are visibly rejected and never routed as applied" do
+      issue_id = unique_id("control-request-only")
+
+      entry =
+        running_entry(issue_id,
+          control: %{
+            status: :working,
+            can_interrupt: true,
+            safe_checkpoints: [:notification],
+            application_confirmation: :request_only,
+            generation: 101,
+            version: 0
+          }
+        )
+
+      state = base_state(running: %{issue_id => entry})
+
+      assert {:reply, {:error, {:control_rejected, %{class: :unsupported}}}, rejected_state} =
+               PauseResume.request_control_call(state, issue_id, :pause, 43)
+
+      assert %{status: :rejected, rejection: %{class: :unsupported}} =
+               rejected_state.control_lifecycle.records[43]
+
+      refute_receive {:pause_agent, 43, _generation}
+
+      assert {:reply, {:error, {:control_rejected, %{class: :unsupported}}}, ^rejected_state} =
+               PauseResume.request_control_call(rejected_state, issue_id, :pause, 43)
+    end
+
+    test "a request for the current state has a structured already-in-state rejection" do
+      issue_id = unique_id("control-already-paused")
+
+      entry =
+        running_entry(issue_id,
+          control: %{
+            status: :paused,
+            can_interrupt: true,
+            safe_checkpoints: [:notification],
+            application_confirmation: :confirmed,
+            generation: 101,
+            version: 2
+          }
+        )
+
+      state = base_state(running: %{issue_id => entry})
+
+      assert {:reply, {:error, {:control_rejected, %{class: :already_in_state}}}, rejected_state} =
+               PauseResume.request_control_call(state, issue_id, :pause, 44)
+
+      assert %{status: :rejected, rejection: %{class: :already_in_state}} =
+               rejected_state.control_lifecycle.records[44]
+
+      refute_receive {:pause_agent, 44, _generation}
+    end
+
+    test "an explicit resume request cannot bypass the existing capacity limit" do
+      active_issue_id = unique_id("control-active-capacity")
+      paused_issue_id = unique_id("control-paused-capacity")
+
+      paused_entry =
+        running_entry(paused_issue_id,
+          control: %{
+            status: :paused,
+            can_interrupt: true,
+            safe_checkpoints: [:notification],
+            application_confirmation: :confirmed,
+            generation: 101,
+            version: 0
+          }
+        )
+
+      state =
+        base_state(
+          max_concurrent_agents: 1,
+          running: %{
+            active_issue_id => running_entry(active_issue_id),
+            paused_issue_id => paused_entry
+          }
+        )
+
+      assert {:reply, {:error, :max_concurrent_agents_reached}, ^state} =
+               PauseResume.request_control_call(state, paused_issue_id, :resume, 46)
+
+      refute_receive {:resume_agent, 46, _generation}
+    end
+
+    test "worker completion expires a pending control instead of leaving it applied or pending" do
+      issue_id = unique_id("control-completion-race")
+      state = base_state(running: %{issue_id => running_entry(issue_id)})
+
+      {{:ok, request_id}, accepted_state} = PauseResume.pause_agent_reply(state, issue_id)
+      assert_receive {:pause_agent, ^request_id, _generation}
+
+      assert {:noreply, completed_state} =
+               Orchestrator.handle_info({:worker_control_state, issue_id, :completed, %{}}, accepted_state)
+
+      assert completed_state.running[issue_id].control.status == :completed
+
+      assert %{status: :expired, expiry: %{reason: :worker_unavailable}} =
+               completed_state.control_lifecycle.records[request_id]
+
+      refute Map.has_key?(completed_state.control_lifecycle.pending, issue_id)
+    end
+
+    test "a matching acknowledgement is rejected when its expected state version is stale" do
+      issue_id = unique_id("control-stale-version")
+      state = base_state(running: %{issue_id => running_entry(issue_id)})
+
+      {{:ok, request_id}, accepted_state} = PauseResume.pause_agent_reply(state, issue_id)
+      assert_receive {:pause_agent, ^request_id, generation}
+
+      assert {:noreply, changed_state} =
+               Orchestrator.handle_info(
+                 {:worker_control_state, issue_id, :paused, %{kind: :usage_limit_exhausted}},
+                 accepted_state
+               )
+
+      assert changed_state.running[issue_id].control.version == 1
+
+      assert {:noreply, rejected_state} =
+               Orchestrator.handle_info(
+                 {:worker_control_state, issue_id, :paused,
+                  %{
+                    request_id: request_id,
+                    generation: generation,
+                    kind: :operator_pause
+                  }},
+                 changed_state
+               )
+
+      assert rejected_state.running[issue_id] == changed_state.running[issue_id]
+
+      assert %{status: :rejected, rejection: %{class: :already_in_state}} =
+               rejected_state.control_lifecycle.records[request_id]
+    end
+
+    test "a successful resume clears only its own operator pause reason" do
+      issue_id = unique_id("control-resume-pause-owner")
+
+      entry =
+        running_entry(issue_id,
+          control: %{
+            status: :paused,
+            can_interrupt: true,
+            safe_checkpoints: [:notification],
+            application_confirmation: :confirmed,
+            generation: 101,
+            version: 1
+          },
+          paused_reason: :operator_pause
+        )
+
+      state = base_state(running: %{issue_id => entry})
+      {{:ok, :resumed}, accepted_state} = PauseResume.resume_paused_issue(state, entry)
+      assert_receive {:resume_agent, request_id, 101}
+
+      assert {:noreply, resumed_state} =
+               Orchestrator.handle_info(
+                 {:worker_control_state, issue_id, :working, %{request_id: request_id, generation: 101}},
+                 accepted_state
+               )
+
+      refute Map.has_key?(resumed_state.running[issue_id], :paused_reason)
+    end
+
+    test "a successful resume preserves an unrelated waiting reason" do
+      issue_id = unique_id("control-resume-waiting-owner")
+
+      entry =
+        running_entry(issue_id,
+          control: %{
+            status: :paused,
+            can_interrupt: true,
+            safe_checkpoints: [:notification],
+            application_confirmation: :confirmed,
+            generation: 101,
+            version: 1
+          },
+          paused_reason: :dependency_waiting
+        )
+
+      state = base_state(running: %{issue_id => entry})
+      assert {:reply, {:ok, 45}, accepted_state} = PauseResume.request_control_call(state, issue_id, :resume, 45)
+      assert_receive {:resume_agent, 45, 101}
+
+      assert {:noreply, resumed_state} =
+               Orchestrator.handle_info(
+                 {:worker_control_state, issue_id, :working, %{request_id: 45, generation: 101}},
+                 accepted_state
+               )
+
+      assert resumed_state.running[issue_id].paused_reason == :dependency_waiting
+    end
+
+    test "an applied resume clears every control-owned waiting cause" do
+      for pause_reason <- [:agent_pause_request, :ci_wait, :input_required, :label_override] do
+        issue_id = unique_id("control-resume-#{pause_reason}")
+
+        entry =
+          running_entry(issue_id,
+            control: %{
+              status: :paused,
+              can_interrupt: true,
+              safe_checkpoints: [:notification],
+              application_confirmation: :confirmed,
+              generation: 101,
+              version: 1
+            },
+            paused_reason: pause_reason
+          )
+
+        state = base_state(running: %{issue_id => entry})
+
+        assert {:reply, {:ok, request_id}, accepted_state} =
+                 PauseResume.request_control_call(state, issue_id, :resume, 50)
+
+        assert_receive {:resume_agent, ^request_id, 101}
+
+        assert {:noreply, resumed_state} =
+                 Orchestrator.handle_info(
+                   {:worker_control_state, issue_id, :working, %{request_id: request_id, generation: 101}},
+                   accepted_state
+                 )
+
+        refute Map.has_key?(resumed_state.running[issue_id], :paused_reason)
+      end
+    end
+
+    test "label override, duration cap, and agent pause requests wait for worker evidence" do
+      issue_id = unique_id("control-pause-sources")
+      entry = running_entry(issue_id, started_at: DateTime.add(DateTime.utc_now(), -120, :second))
+      state = base_state(running: %{issue_id => entry})
+      paused_issue = %{entry.issue | paused: true}
+
+      label_pending_state = PauseResume.pause_issue_for_label_override(state, paused_issue)
+      assert_receive {:pause_agent, label_request_id, 101}
+      assert label_pending_state.running[issue_id].control.status == :working
+
+      assert label_pending_state.running[issue_id].pending_pause_reason == %{
+               request_id: label_request_id,
+               reason: :label_override
+             }
+
+      duration_pending_state =
+        RuntimeWatchdog.maybe_pause_overrunning_entry(
+          state,
+          issue_id,
+          entry,
+          DateTime.utc_now(),
+          60
+        )
+
+      assert_receive {:pause_agent, duration_request_id, 101}
+      assert duration_pending_state.running[issue_id].control.status == :working
+
+      assert duration_pending_state.running[issue_id].pending_pause_reason == %{
+               request_id: duration_request_id,
+               reason: :max_agent_duration
+             }
+
+      agent_pending_state = PushRouting.maybe_pause_on_request(state, issue_id)
+      assert_receive {:pause_agent, agent_request_id, 101}
+      assert agent_pending_state.running[issue_id].control.status == :working
+
+      assert agent_pending_state.running[issue_id].pending_pause_reason == %{
+               request_id: agent_request_id,
+               reason: :agent_pause_request
+             }
+    end
+
     test "worker pause confirmation preserves capabilities and freezes the runtime clock" do
       issue_id = unique_id("control-pause")
       started_at = DateTime.add(DateTime.utc_now(), -30, :second)
@@ -121,6 +572,94 @@ defmodule Aiur.OrchestratorControlRoutingTest do
                  {:DOWN, make_ref(), :process, self(), :normal},
                  state
                )
+    end
+
+    test "a real completed child exiting normally parks its identity without a retry" do
+      issue_id = unique_id("down-completed")
+      {:ok, worker} = supervised_worker()
+      monitor_ref = Process.monitor(worker)
+
+      entry =
+        running_entry(issue_id,
+          pid: worker,
+          ref: monitor_ref,
+          worker_host: "worker-a",
+          workspace_path: "/workspace/#{issue_id}",
+          control: %{status: :completed, can_interrupt: true}
+        )
+
+      state =
+        base_state(
+          running: %{issue_id => entry},
+          claimed: MapSet.new([issue_id]),
+          retry_attempts: %{issue_id => %{attempt: 4}}
+        )
+
+      send(worker, :stop)
+      assert_receive {:DOWN, ^monitor_ref, :process, ^worker, :normal}, 1_000
+
+      assert {:noreply, next} =
+               Orchestrator.handle_info(
+                 {:DOWN, monitor_ref, :process, worker, :normal},
+                 state
+               )
+
+      parked = Map.fetch!(next.running, issue_id)
+      assert parked.pid == nil
+      assert parked.ref == nil
+      assert parked.control.status == :completed
+      assert parked.session_id == entry.session_id
+      assert parked.worker_host == "worker-a"
+      assert parked.workspace_path == "/workspace/#{issue_id}"
+      assert MapSet.member?(next.claimed, issue_id)
+      assert MapSet.member?(next.completed, issue_id)
+      refute Map.has_key?(next.retry_attempts, issue_id)
+
+      assert {:noreply, ^next} =
+               Orchestrator.handle_info(
+                 {:DOWN, monitor_ref, :process, worker, :normal},
+                 next
+               )
+    end
+
+    test "a real pre-completion child exiting abnormally schedules a failure retry" do
+      issue_id = unique_id("down-real-crash")
+      {:ok, worker} = supervised_worker()
+      monitor_ref = Process.monitor(worker)
+
+      entry =
+        running_entry(issue_id,
+          pid: worker,
+          ref: monitor_ref,
+          retry_attempt: 1,
+          control: %{
+            status: :working,
+            can_interrupt: true,
+            safe_checkpoints: [:notification],
+            application_confirmation: :confirmed,
+            generation: 101,
+            version: 0
+          }
+        )
+
+      state = base_state(running: %{issue_id => entry}, claimed: MapSet.new([issue_id]))
+
+      {{:ok, request_id}, accepted_state} = PauseResume.pause_agent_reply(state, issue_id)
+      assert %{status: :accepted} = accepted_state.control_lifecycle.records[request_id]
+
+      Process.exit(worker, :boom)
+      assert_receive {:DOWN, ^monitor_ref, :process, ^worker, :boom}, 1_000
+
+      assert {:noreply, next} =
+               Orchestrator.handle_info(
+                 {:DOWN, monitor_ref, :process, worker, :boom},
+                 accepted_state
+               )
+
+      refute Map.has_key?(next.running, issue_id)
+      assert %{attempt: 2, error: "agent exited: :boom"} = next.retry_attempts[issue_id]
+      assert %{status: :expired, expiry: %{reason: :worker_unavailable}} = next.control_lifecycle.records[request_id]
+      cancel_retry_timer(next.retry_attempts[issue_id])
     end
 
     test "normal exit completes and schedules continuation without teardown" do
@@ -287,12 +826,16 @@ defmodule Aiur.OrchestratorControlRoutingTest do
         id: issue_id,
         identifier: issue_id,
         state: "in-progress",
-        title: "Characterize control routing"
+        title: "Characterize control routing",
+        tracker_identity: tracker_identity(issue_id)
       },
       control: %{
         status: :working,
         can_interrupt: true,
-        safe_checkpoints: [:notification]
+        safe_checkpoints: [:notification],
+        application_confirmation: :confirmed,
+        generation: 101,
+        version: 0
       },
       session_id: "thread-#{issue_id}",
       started_at: DateTime.utc_now()
@@ -320,6 +863,14 @@ defmodule Aiur.OrchestratorControlRoutingTest do
     {worker, workspace, marker}
   end
 
+  defp supervised_worker do
+    Task.Supervisor.start_child(Aiur.TaskSupervisor, fn ->
+      receive do
+        :stop -> :ok
+      end
+    end)
+  end
+
   defp cancel_retry_timer(%{timer_ref: timer_ref, retry_token: retry_token}) do
     Process.cancel_timer(timer_ref)
 
@@ -332,5 +883,18 @@ defmodule Aiur.OrchestratorControlRoutingTest do
 
   defp unique_id(prefix) do
     "#{prefix}-#{System.unique_integer([:positive])}"
+  end
+
+  defp tracker_identity(identifier) do
+    %TrackerIdentity{
+      version: 1,
+      status: :joinable,
+      kind: :github,
+      owner: "its-everdred",
+      repository: "aiur",
+      provider_id: "I_kwDO#{identifier}",
+      identifier: "101",
+      reason: nil
+    }
   end
 end

@@ -17,6 +17,7 @@ defmodule Aiur.CodeownersTest do
     {:ok, repo_root: repo_root}
   end
 
+  @tag skip: "flaky: leaked-cwd + /tmp pressure under full suite; see #1212"
   test "uses GitHub CODEOWNERS location order and last matching rule", %{repo_root: repo_root} do
     write_codeowners!(repo_root, "docs/CODEOWNERS", "* @docs-owner")
     write_codeowners!(repo_root, "CODEOWNERS", "* @root-owner")

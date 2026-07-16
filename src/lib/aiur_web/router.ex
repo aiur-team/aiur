@@ -16,6 +16,7 @@ defmodule AiurWeb.Router do
 
   pipeline :browser do
     plug(:fetch_session)
+    plug(AiurWeb.FinancialDataAccess, :persist_session)
     plug(:fetch_live_flash)
     plug(:put_root_layout, html: {AiurWeb.Layouts, :root})
     plug(:protect_from_forgery)
@@ -29,7 +30,7 @@ defmodule AiurWeb.Router do
   # CSRF defense for the bare REST JSON write endpoints. `Plug.CSRFProtection`
   # is the wrong tool here — it depends on a session-stored token, and the
   # API isn't driven by our own LiveView (curl + 3rd-party scripts are
-  # legitimate callers as long as they come from the operator's machine).
+  # legitimate callers as long as they come from the Executor’s machine).
   # Defense: Origin/Referer must match the dashboard's own origin (or
   # loopback equivalents), AND a custom `X-Aiur-Request: 1` header must
   # be present (browsers attaching this header on a same-origin XHR is
@@ -40,7 +41,7 @@ defmodule AiurWeb.Router do
     plug(:require_custom_header)
   end
 
-  # Read-only gate for the dashboard's agent-write endpoints (operator chat,
+  # Read-only gate for the dashboard's agent-write endpoints (Executor chat,
   # refresh). Disabled by default until a deliberate dashboard parity pass —
   # see issue #371. Re-enable via `observability.dashboard_writable` config.
   # The TUI's pane endpoints and the RC claude-hook are intentionally NOT
@@ -87,18 +88,24 @@ defmodule AiurWeb.Router do
     pipe_through(:dashboard_auth)
 
     get("/dashboard.css", StaticAssetController, :dashboard_css)
+    get("/aiur-dom-svg-layout-adapter.js", StaticAssetController, :dom_svg_layout_adapter)
+    get("/aiur-dom-svg-layout-loader.js", StaticAssetController, :dom_svg_layout_loader)
+    get("/aiur-dom-svg-layout/:module", StaticAssetController, :dom_svg_layout_module)
     get("/aiur-logo.png", StaticAssetController, :aiur_logo)
     get("/vendor/phoenix_html/phoenix_html.js", StaticAssetController, :phoenix_html_js)
     get("/vendor/phoenix/phoenix.js", StaticAssetController, :phoenix_js)
     get("/vendor/phoenix_live_view/phoenix_live_view.js", StaticAssetController, :phoenix_live_view_js)
+    get("/vendor/layout/:version/:digest/:asset", StaticAssetController, :layout_asset)
   end
 
   scope "/", AiurWeb do
     pipe_through([:dashboard_auth, :browser])
 
-    live("/", DashboardLive, :index)
-    live("/decisions", DashboardLive, :decisions)
-    live("/decisions/:decision_id", DashboardLive, :decision)
+    live_session :dashboard, on_mount: AiurWeb.FinancialDataAccess do
+      live("/", DashboardLive, :index)
+      live("/decisions", DashboardLive, :decisions)
+      live("/decisions/:decision_id", DashboardLive, :decision)
+    end
   end
 
   scope "/", AiurWeb do
@@ -143,21 +150,12 @@ defmodule AiurWeb.Router do
     match(:*, "/*path", ObservabilityApiController, :not_found)
   end
 
-  defp dashboard_basic_auth(conn, _opts) do
-    username = System.get_env("AIUR_DASHBOARD_USERNAME")
-    password = System.get_env("AIUR_DASHBOARD_PASSWORD")
-
-    if present?(username) and present?(password) do
-      Plug.BasicAuth.basic_auth(conn, username: username, password: password, realm: "Aiur")
-    else
-      conn
-    end
-  end
-
-  defp present?(value), do: is_binary(value) and String.trim(value) != ""
+  @doc false
+  @spec dashboard_basic_auth(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
+  def dashboard_basic_auth(conn, opts), do: AiurWeb.FinancialDataAccess.authenticate_request(conn, opts)
 
   # Origin/Referer allowlist. Parses exact origins and accepts the configured
-  # dashboard host or loopback equivalents operators typically use.
+  # dashboard host or loopback equivalents Executors typically use.
   defp verify_same_origin(conn, _opts) do
     if origin_allowed?(conn) do
       conn

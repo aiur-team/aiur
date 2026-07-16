@@ -55,8 +55,14 @@ defmodule Aiur.Config.CodexSandboxPolicy do
       {:ok, policy_for_roots(remote_workspace_writable_roots(workspace_root))}
     else
       with expanded_workspace_root <- expand_local_workspace_root(workspace_root),
-           {:ok, canonical_workspace_root} <- PathSafety.canonicalize(expanded_workspace_root) do
-        {:ok, policy_for_roots(local_workspace_writable_roots(canonical_workspace_root))}
+           {:ok, canonical_workspace_root} <- PathSafety.canonicalize(expanded_workspace_root),
+           {:ok, additional_roots} <- additional_writable_roots(opts) do
+        writable_roots =
+          canonical_workspace_root
+          |> local_workspace_writable_roots()
+          |> append_unique(additional_roots)
+
+        {:ok, policy_for_roots(writable_roots)}
       end
     end
   end
@@ -67,13 +73,13 @@ defmodule Aiur.Config.CodexSandboxPolicy do
 
   defp runtime_policy_writable_roots(workspace, opts) when is_binary(workspace) do
     if String.trim(workspace) == "" do
-      {:ok, []}
+      runtime_policy_additional_roots([], opts)
     else
       do_runtime_policy_writable_roots(workspace, opts)
     end
   end
 
-  defp runtime_policy_writable_roots(_workspace, _opts), do: {:ok, []}
+  defp runtime_policy_writable_roots(_workspace, opts), do: runtime_policy_additional_roots([], opts)
 
   defp do_runtime_policy_writable_roots(workspace, opts) do
     if Keyword.get(opts, :remote, false) do
@@ -83,10 +89,45 @@ defmodule Aiur.Config.CodexSandboxPolicy do
       |> expand_local_workspace_root()
       |> PathSafety.canonicalize()
       |> case do
-        {:ok, canonical_workspace} -> {:ok, local_workspace_writable_roots(canonical_workspace)}
-        {:error, reason} -> {:error, reason}
+        {:ok, canonical_workspace} ->
+          canonical_workspace
+          |> local_workspace_writable_roots()
+          |> runtime_policy_additional_roots(opts)
+
+        {:error, reason} ->
+          {:error, reason}
       end
     end
+  end
+
+  defp runtime_policy_additional_roots(writable_roots, opts) do
+    if Keyword.get(opts, :remote, false) do
+      {:ok, writable_roots}
+    else
+      with {:ok, additional_roots} <- additional_writable_roots(opts) do
+        {:ok, append_unique(writable_roots, additional_roots)}
+      end
+    end
+  end
+
+  defp additional_writable_roots(opts) do
+    case Keyword.get(opts, :additional_writable_roots, []) do
+      roots when is_list(roots) -> canonicalize_additional_roots(roots)
+      roots -> {:error, {:unsafe_turn_sandbox_policy, {:invalid_writable_roots, roots}}}
+    end
+  end
+
+  defp canonicalize_additional_roots(roots) do
+    Enum.reduce_while(roots, {:ok, []}, fn
+      root, {:ok, canonical_roots} when is_binary(root) ->
+        case PathSafety.canonicalize(root) do
+          {:ok, canonical_root} -> {:cont, {:ok, append_unique(canonical_roots, canonical_root)}}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+
+      root, _acc ->
+        {:halt, {:error, {:unsafe_turn_sandbox_policy, {:invalid_writable_root, root}}}}
+    end)
   end
 
   defp expand_configured_workspace(workspace) when is_binary(workspace) do

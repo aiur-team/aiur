@@ -1,6 +1,6 @@
 defmodule Aiur.AppServer.OperatorDelivery do
   @moduledoc """
-  Shared safe-checkpoint delivery and operator response tracking.
+  Shared safe-checkpoint delivery and Executor response tracking.
   """
 
   alias Aiur.AppServer.{Messages, TurnState}
@@ -67,32 +67,36 @@ defmodule Aiur.AppServer.OperatorDelivery do
   defp handle_claimed_operator_response(
          session,
          state,
-         %{"result" => %{"turn" => %{"id" => turn_id}}} = payload,
+         %{"result" => %{"turn" => %{"id" => turn_id} = turn}} = payload,
          payload_string,
          request_id,
          on_success,
-         _on_failure,
+         on_failure,
          pending_operator_requests
        ) do
-    TurnState.safe_invoke_success_callback(on_success, %{
-      request_id: request_id,
-      turn_id: turn_id,
-      payload: payload
-    })
+    next_state = %{state | pending_operator_requests: pending_operator_requests}
 
-    Messages.emit_message(
-      state.on_message,
-      :operator_turn_started,
-      %{payload: payload, raw: payload_string},
-      state.backend.metadata_from_message(session.port, payload)
-    )
+    if TurnState.provider_turn_retired?(state, turn_id) do
+      TurnState.safe_invoke_failure_callback(on_failure, {:provider_turn_retired, turn_id})
+      TurnState.maybe_finish_after_pending_response(next_state)
+    else
+      TurnState.safe_invoke_success_callback(on_success, %{
+        request_id: request_id,
+        turn_id: turn_id,
+        payload: payload
+      })
 
-    {:continue,
-     %{
-       state
-       | pending_operator_requests: pending_operator_requests,
-         outstanding_turns: state.outstanding_turns + 1
-     }}
+      Messages.emit_message(
+        state.on_message,
+        :operator_turn_started,
+        %{payload: payload, raw: payload_string},
+        state.backend.metadata_from_message(session.port, payload)
+      )
+
+      next_state
+      |> TurnState.record_accepted_provider_turn(turn)
+      |> TurnState.maybe_finish_after_pending_response()
+    end
   end
 
   defp handle_claimed_operator_response(

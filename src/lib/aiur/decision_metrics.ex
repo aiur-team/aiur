@@ -13,6 +13,7 @@ defmodule Aiur.DecisionMetrics do
   require Logger
 
   alias Aiur.DecisionMetrics.{Bootstrap, Collector, Options, Sample, Window, Writer}
+  alias Aiur.DecisionPubSub
   alias Aiur.DecisionStore
   alias Aiur.Events.Exchange
   alias Aiur.Metrics
@@ -41,6 +42,10 @@ defmodule Aiur.DecisionMetrics do
   def snapshot(decision_id, server \\ __MODULE__) when is_binary(decision_id) do
     GenServer.call(server, {:snapshot, decision_id})
   end
+
+  @doc "Returns every retained redacted Decision snapshot keyed by Decision ID."
+  @spec snapshots(GenServer.server()) :: %{String.t() => map()}
+  def snapshots(server \\ __MODULE__), do: GenServer.call(server, :snapshots)
 
   @doc "Flushes queued metric snapshots to the bounded stream."
   @spec flush(GenServer.server()) :: :ok | {:error, term()}
@@ -72,6 +77,7 @@ defmodule Aiur.DecisionMetrics do
         attention_index: %{},
         clock: Keyword.get(opts, :clock, &DateTime.utc_now/0),
         decision_store: Keyword.get(opts, :decision_store, DecisionStore),
+        metrics_changed_fun: Keyword.get(opts, :metrics_changed_fun, &DecisionPubSub.broadcast_metrics_changed/0),
         writer: writer,
         owned_writer?: owned_writer?,
         seed_status: seed_status,
@@ -86,6 +92,7 @@ defmodule Aiur.DecisionMetrics do
   @impl true
   def handle_call({:observe, event}, _from, state) do
     {reply, next_state} = Collector.record(event, state)
+    notify_if_recorded(reply, next_state.metrics_changed_fun)
     {:reply, reply, next_state}
   end
 
@@ -97,6 +104,11 @@ defmodule Aiur.DecisionMetrics do
       end
 
     {:reply, reply, state}
+  end
+
+  def handle_call(:snapshots, _from, state) do
+    snapshots = Map.new(state.samples, fn {decision_id, sample} -> {decision_id, Sample.to_map(sample)} end)
+    {:reply, snapshots, state}
   end
 
   def handle_call(:flush, _from, state) do
@@ -115,12 +127,15 @@ defmodule Aiur.DecisionMetrics do
 
   @impl true
   def handle_info({:event, event}, state) when is_map(event) do
-    {_reply, next_state} = Collector.record(event, state)
+    {reply, next_state} = Collector.record(event, state)
+    notify_if_recorded(reply, next_state.metrics_changed_fun)
     {:noreply, next_state}
   end
 
   def handle_info({:canonical_seed, %{events: events, attention_index: index}}, state) do
-    {:noreply, events |> Collector.seed(index, state) |> finish_seed(:complete)}
+    next_state = events |> Collector.seed(index, state) |> finish_seed(:complete)
+    if events != [], do: next_state.metrics_changed_fun.()
+    {:noreply, next_state}
   end
 
   def handle_info({:canonical_seed_failed, reason}, state) do
@@ -153,4 +168,7 @@ defmodule Aiur.DecisionMetrics do
   catch
     :exit, reason -> {:error, {:writer_exit, reason}}
   end
+
+  defp notify_if_recorded(:ok, metrics_changed_fun), do: metrics_changed_fun.()
+  defp notify_if_recorded(_result, _metrics_changed_fun), do: :ok
 end

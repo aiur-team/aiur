@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 #
 # Stream NEW aiur ALERT events out of every active agent's structured NDJSON log,
-# one JSON line per alert, as they fire — so the operator agent running aiur can
+# one JSON line per alert, as they fire — so the Executor agent running aiur can
 # post the "why" in chat in near real time instead of waiting for the 5-minute
 # status tick. This is the immediacy half of the alert relay; `aiurdev watch`'s
 # ACTIONABLE section is the periodic floor/backstop.
 #
 # Unlike a one-shot board snapshot, this is LONG-LIVED: it keeps
-# running and prints each new alert as it lands. Drive it from the operator
+# running and prints each new alert as it lands. Drive it from the Executor
 # agent's harness as a streaming background watch (the Monitor tool) so every
 # printed line becomes one in-chat notification. It never drives the status
-# cadence (that stays an armed /loop), so it does not violate the monitor skill's
-# "armed timer, not passive event-waiting" cadence rule — it only adds immediacy
+# cadence (which stays armed through the host's recurring mechanism), so it does
+# not violate the "timer, not passive event-waiting" rule — it adds immediacy
 # to alerts, which the periodic `aiurdev watch` tick still catches as a floor.
 #
 # Reuses the #651/#662 structured alert feed: it reads each active agent's
@@ -19,8 +19,9 @@
 #   {"event":"alert","timestamp":"...","name":"ticket.43.agent.paused",
 #    "reason":"Agent paused","severity":"warning","needs_attention":true,
 #    "source_ticket_id":"43",...}
-# The central alerts.ndjson is written only for remote worker_host agents and is
-# out of scope for Phase 1 (local --bg runs write only agent.ndjson).
+# Remote-worker and workspace-less alerts have no local per-workspace record and
+# land in the central alerts.ndjson, which is out of scope here. The recurring
+# server-side `aiurdev watch` cadence is the backstop for those alerts.
 #
 # Output (oldest->newest, one per new alert; same shape as the alert feed plus
 # a timestamp so the chat line can say when it fired):
@@ -30,7 +31,7 @@
 #    "operator_decision":false}
 #
 # `operator_decision:true` marks the canonical `attention.operator-decision`
-# topic so the operator relay can distinguish an unanswered scope or acceptance
+# topic so the Executor relay can distinguish an unanswered scope or acceptance
 # question from a routine pause and fan it out to the active surfaces.
 #
 # New alerts are detected by tracking, per feed file, the count of alert lines
@@ -38,14 +39,14 @@
 # cursor, so no cross-run state collisions and nothing to grow unbounded). At
 # startup each existing file is baselined to its current count (routine history
 # is skipped — it is covered by the `aiurdev watch` tick). The one exception is
-# the latest unresolved operator-decision attention, which is replayed so a
+# the latest unresolved Executor decision attention, which is replayed so a
 # watcher restart cannot hide an unanswered question.
 #
 # Tune with env vars:
 #   AIUR_ALERT_POLL            (default 2)    — seconds between scans
 #   AIUR_ALERT_WATCH_ITERS     (default 0)    — stop after N scans (0 = forever; for tests)
 #   AIUR_ALERT_RELAY_BACKLOG   (default 0)    — 1 = also emit alerts already present at startup
-#   AIUR_ALERT_NEEDS_ATTENTION (default 0)    — 1 = Phase 2: relay only needs_attention:true alerts
+#   AIUR_ALERT_NEEDS_ATTENTION (default 0)    — 1 = relay only needs_attention:true alerts
 #   AIUR_ALERT_DISABLE_JQ       (default 0)    — 1 = force the portable jq-less path (tests)
 #   AIUR_OPERATOR_SURFACES      (default empty) — comma list: claude,codex,remote-control
 #   AIUR_ALERT_NOTIFY_CLAUDE_COMMAND / AIUR_ALERT_NOTIFY_CODEX_COMMAND /
@@ -121,6 +122,13 @@ json_string_field() {
   encoded="$(printf '%s' "$line" | sed -nE 's/.*"'"$key"'":"(([^"\\]|\\.)*)".*/\1/p')"
   [ -n "$encoded" ] || return 0
   printf '%s' "$encoded"
+}
+
+# Keep persisted NDJSON byte-for-byte compatible while presenting legacy
+# decision copy with the current role name on every relay/notification surface.
+normalize_legacy_role_line() {
+  printf '%s' "$1" |
+    sed -E 's/("(reason|message)"[[:space:]]*:[[:space:]]*")Operator decision /\1Executor decision /g'
 }
 
 # Per-file alert-line-count cursors, kept as parallel indexed arrays so this
@@ -251,7 +259,8 @@ replay_open_decisions() {
 # needs_attention-only Phase-2 filter. Mirrors the alert feed's field handling
 # (kept in sync deliberately) and adds the timestamp.
 emit_alert_line() {
-  local line="$1" agent="$2"
+  local line agent="$2"
+  line="$(normalize_legacy_role_line "$1")"
   local ts msg name reason severity need src_ticket tkt operator_decision decision_state decision_key notification_results
 
   if [ "$have_jq" -eq 1 ]; then

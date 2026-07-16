@@ -74,6 +74,11 @@ jobs:
             --version "${{ steps.version.outputs.version }}")
           echo "out=$out" >> "$GITHUB_OUTPUT"
 
+      - name: Verify local layout assets in release packages
+        run: |
+          node packaging/scripts/check-layout-assets-release.mjs --release "${{ steps.build.outputs.release_dir }}"
+          node packaging/scripts/check-layout-assets-release.mjs --release "${{ steps.assemble.outputs.out }}/release"
+
       - name: Pack tarball
         run: |
           mkdir -p "$GITHUB_WORKSPACE/dist"

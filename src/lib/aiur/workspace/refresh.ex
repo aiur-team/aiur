@@ -3,7 +3,7 @@ defmodule Aiur.Workspace.Refresh do
 
   require Logger
   alias Aiur.Config
-  alias Aiur.Workspace.{BootstrapImage, Context, GitMetadata, Hooks, Provisioner}
+  alias Aiur.Workspace.{BootstrapImage, Context, GitMetadata, Hooks, Ownership, Provisioner, Reconstruction}
 
   @spec run(Path.t(), map() | String.t() | nil, String.t() | nil) :: :ok | {:error, term()}
   def run(workspace, issue_or_identifier, worker_host \\ nil) when is_binary(workspace) do
@@ -12,23 +12,28 @@ defmodule Aiur.Workspace.Refresh do
       |> Context.build()
       |> then(&%{&1 | branch_name: Provisioner.resolve_branch_name(workspace, &1)})
 
-    hooks = Config.settings!().hooks
+    case refresh_workspace_readiness(workspace, worker_host) do
+      {:error, _reason} = error ->
+        error
 
-    hook_result = run_before_run_command(hooks.before_run, workspace, issue_context, worker_host)
+      _readiness ->
+        hooks = Config.settings!().hooks
+        hook_result = run_before_run_command(hooks.before_run, workspace, issue_context, worker_host)
 
-    case hook_result do
-      :ok ->
-        finalize_before_run_workspace(workspace, issue_context, worker_host)
+        case hook_result do
+          :ok ->
+            finalize_before_run_workspace(workspace, issue_context, worker_host)
 
-      {:error, reason} = error ->
-        maybe_recreate_stale_workspace(
-          error,
-          reason,
-          hooks.before_run,
-          workspace,
-          issue_context,
-          worker_host
-        )
+          {:error, reason} = error ->
+            maybe_recreate_stale_workspace(
+              error,
+              reason,
+              hooks.before_run,
+              workspace,
+              issue_context,
+              worker_host
+            )
+        end
     end
   end
 
@@ -55,6 +60,13 @@ defmodule Aiur.Workspace.Refresh do
 
       not stale_leftover_refresh_refusal?(reason) ->
         error
+
+      Ownership.protected?(issue_context.issue_identifier) ->
+        Logger.warning(
+          "Refusing stale workspace recreation while an active generation owns it #{Context.log_context(issue_context)} workspace=#{workspace} worker_host=#{Context.worker_host_for_log(worker_host)}"
+        )
+
+        {:error, {:workspace_owned, Ownership.current(issue_context.issue_identifier)}}
 
       # A fresh todo dispatch that lands on a dirty *leftover* workspace
       # (#577): the dirty content is not this agent's WIP, so recreate the
@@ -100,9 +112,38 @@ defmodule Aiur.Workspace.Refresh do
     end
   end
 
+  defp refresh_workspace_readiness(workspace, worker_host) do
+    case Provisioner.workspace_readiness(workspace) do
+      {:error, {:workspace_ambiguous, _workspace, :invalid_git_checkout}} = error ->
+        case GitMetadata.ensure_git_metadata_writable(workspace, worker_host) do
+          :ok -> error
+          {:error, _reason} = metadata_error -> metadata_error
+        end
+
+      readiness ->
+        readiness
+    end
+  end
+
   defp run_before_run_command(nil, _workspace, _issue_context, _worker_host), do: :ok
 
-  defp run_before_run_command(command, workspace, issue_context, worker_host) do
+  defp run_before_run_command(command, workspace, issue_context, nil) do
+    case Provisioner.workspace_readiness(workspace) do
+      :bootstrap ->
+        Reconstruction.run(workspace, fn stage ->
+          Hooks.run_hook(command, stage, issue_context, "before_run", nil)
+        end)
+
+      :ready ->
+        Hooks.run_hook(command, workspace, issue_context, "before_run", nil)
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp run_before_run_command(command, workspace, issue_context, worker_host)
+       when is_binary(worker_host) do
     Hooks.run_hook(command, workspace, issue_context, "before_run", worker_host)
   end
 

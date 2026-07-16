@@ -23,12 +23,14 @@ defmodule Aiur.AgentRunner.MessageHandler do
     lifecycle_opts =
       if Lifecycle.enabled?(lifecycle_opts) do
         Keyword.put_new(lifecycle_opts, :tracker, make_ref())
+      else
+        lifecycle_opts
       end
 
     fn message ->
       message = CodingAgent.normalize_event(message, backend)
       observe_lifecycle(issue, backend, message, lifecycle_opts)
-      observe_rate_limits(backend, message)
+      observe_rate_limits(backend, message, lifecycle_opts)
       AgentEventLog.write(workspace, worker_host, message)
       maybe_broadcast_transcript(issue, message, backend, turn_id)
       maybe_broadcast_turn_event(issue, message, turn_id)
@@ -49,8 +51,12 @@ defmodule Aiur.AgentRunner.MessageHandler do
 
   defp observe_lifecycle(_issue, _backend, _message, _lifecycle_opts), do: :ok
 
-  defp observe_rate_limits(backend, %{rate_limits: limits}) when is_map(limits), do: ModelAvailability.observe(backend, limits)
-  defp observe_rate_limits(_backend, _message), do: :ok
+  defp observe_rate_limits(backend, %{rate_limits: limits}, lifecycle_opts) when is_map(limits) do
+    observer = Keyword.get(lifecycle_opts, :rate_limit_observer, &ModelAvailability.observe/2)
+    observer.(backend, limits)
+  end
+
+  defp observe_rate_limits(_backend, _message, _lifecycle_opts), do: :ok
 
   defp maybe_broadcast_transcript(%Issue{identifier: identifier}, message, backend, turn_id)
        when is_binary(identifier) do
@@ -164,9 +170,9 @@ defmodule Aiur.AgentRunner.MessageHandler do
   def send_worker_runtime_info(_recipient, _issue, _worker_host, _workspace), do: :ok
 
   @doc false
-  @spec send_control_state(pid() | nil, Issue.t(), :paused | :working | term()) :: :ok
+  @spec send_control_state(pid() | nil, Issue.t(), :completed | :paused | :working | term()) :: :ok
   def send_control_state(recipient, %Issue{id: issue_id}, status)
-      when is_pid(recipient) and is_binary(issue_id) and status in [:paused, :working] do
+      when is_pid(recipient) and is_binary(issue_id) and status in [:completed, :paused, :working] do
     send(recipient, {:worker_control_state, issue_id, status})
     :ok
   end
@@ -174,12 +180,26 @@ defmodule Aiur.AgentRunner.MessageHandler do
   def send_control_state(_recipient, _issue, _status), do: :ok
 
   @doc false
-  @spec send_control_state(pid() | nil, Issue.t(), :paused, map()) :: :ok
-  def send_control_state(recipient, %Issue{id: issue_id}, :paused, pause_payload)
-      when is_pid(recipient) and is_binary(issue_id) and is_map(pause_payload) do
-    send(recipient, {:worker_control_state, issue_id, :paused, pause_payload})
+  @spec send_control_state(pid() | nil, Issue.t(), :completed | :paused | :working, map()) :: :ok
+  def send_control_state(recipient, %Issue{id: issue_id}, status, payload)
+      when is_pid(recipient) and is_binary(issue_id) and status in [:completed, :paused, :working] and
+             is_map(payload) do
+    send(recipient, {:worker_control_state, issue_id, status, normalize_control_payload(status, payload)})
     :ok
   end
 
-  def send_control_state(_recipient, _issue, :paused, _pause_payload), do: :ok
+  def send_control_state(_recipient, _issue, _status, _payload), do: :ok
+
+  defp normalize_control_payload(status, %{control: %{request_id: request_id, generation: generation} = control} = payload)
+       when is_integer(request_id) and is_integer(generation) do
+    payload
+    |> Map.delete(:control)
+    |> Map.merge(control)
+    |> maybe_put_control_pause_kind(status)
+  end
+
+  defp normalize_control_payload(status, payload), do: maybe_put_control_pause_kind(payload, status)
+
+  defp maybe_put_control_pause_kind(payload, :paused), do: Map.put_new(payload, :kind, :operator_pause)
+  defp maybe_put_control_pause_kind(payload, _status), do: payload
 end

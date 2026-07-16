@@ -4,6 +4,13 @@
 
 The branch already exists when your workspace boots. Read it with `git branch --show-current` and push or open the PR against that exact ref. New tickets use the generated readable Aiur branch; existing legacy and PR-anchored heads remain unchanged. Do not rename it or reconstruct one from the issue number. The numeric `ticket.<N>.branch.push` event key remains stable even when the actual branch has a suffix.
 
+The agent environment also carries the active workflow's authoritative
+integration branch as `AIUR_BASE_BRANCH`. It comes from the configured
+`tracker.base_branch`, not GitHub's repository default or `origin/HEAD`. Require
+it to be nonempty, include the branch name in durable workpad/PR handoff notes,
+and pass it explicitly on every PR creation or retarget operation. Do not log
+the surrounding environment or machine-local configuration.
+
 **The workspace `.git` directory is writable from this sandbox. If a `git`
 command claims the index is read-only ("Could not write index", "Unable to
 lock", "cannot create FETCH_HEAD"), do NOT clone a recovery checkout into
@@ -17,15 +24,17 @@ index-write failure. Never `mktemp -d /tmp/...` for recovery and never push from
 `/tmp`.**
 
 **Integrating an upstream blocker's branch**: when
-`ticket.<blocker-id>.branch.push` arrives, fetch the actual validated ref carried
-by the event payload (or discover it with `scripts/resolve-ticket-branch <blocker-id>`)
+`ticket.<blocker-id>.agent.unblocked` arrives, use the latest
+`ticket.<blocker-id>.branch.push` payload to fetch the actual validated ref (or
+discover it with `scripts/resolve-ticket-branch <blocker-id>`)
 → commit your local WIP if any → merge that fetched ref → resolve any conflicts →
-continue. Do NOT `git stash` before the merge — committing WIP is just as safe
+continue. Never infer readiness from the branch push alone. Do NOT `git stash`
+before the merge — committing WIP is just as safe
 and avoids the index-write failure path entirely.
 
 Ticket branches are named `aiur/<id>-<slug>` for new tickets, with legacy
 `aiur/<id>` branches still supported. `scripts/resolve-ticket-branch <id>` is the
-operator helper for the reverse lookup: it queries the remote, prints the one
+Executor helper for the reverse lookup: it queries the remote, prints the one
 matching branch, and exits non-zero when no branch or more than one branch exists.
 
 ## The loop
@@ -50,24 +59,38 @@ matching branch, and exits non-zero when no branch or more than one branch exist
    Claude, Codex, AI, models, or "generated with" in commit messages or PR
    descriptions — keep them plain and human.
 6. Push to the exact branch returned by `git branch --show-current`.
-7. **Open the PR as a draft** with that branch as `--head` (not ready for
-   review yet).
-8. **Self-review the draft PR with `ce-code-review`** against the diff you just
+7. **Open the PR as a draft** with that branch as `--head` and the authoritative
+   integration branch as `--base`: `gh pr create --draft --head "$branch"
+   --base "$AIUR_BASE_BRANCH" ...` (not ready for review yet). If a PR already
+   exists, read its `baseRefName` before CI handoff. Leave a matching base
+   unchanged; if it differs, PATCH only the PR's `base` through GitHub's pull
+   request REST endpoint, then re-fetch and verify `baseRefName`. Stop with the
+   observed branch, expected branch, and repair error if verification fails.
+8. **Own branch freshness before review:** fetch the PR's configured base and
+   verify its current remote head is an ancestor of your exact branch head. If
+   it is not, integrate or re-cut against it, resolve both textual conflicts
+   and semantic drift, rerun the scoped gate, and push. Do not hand stale code
+   to the Executor or reviewers to update.
+9. **Self-review the draft PR with `ce-code-review`** against the diff you just
    pushed.
-9. Implement any issues `ce-code-review` surfaces (commit + push the fixes).
-10. Re-run the scoped local pre-PR verification gate after review fixes if any
+10. Implement any issues `ce-code-review` surfaces (commit + push the fixes).
+11. Re-run the scoped local pre-PR verification gate after review fixes if any
     code, tests, prompt, skill, or config files changed.
-11. If you still believe the work is complete and correct and only CI remains,
+12. Recheck current-base ancestry after fixes. If the base moved, integrate it,
+    rerun the scoped gate, and push before continuing.
+13. If you still believe the work is complete and correct and only CI remains,
     keep the PR as a draft, add the `agent:ci-wait` label, and end the turn. Do
     not loop on `gh pr checks` + sleep: the daemon polls CI centrally and
     returns the dispatch slot while this runner is paused.
-12. On a delivered terminal CI event:
-    - **Passed:** trust the delivered result without re-polling, mark the PR ready
-      for review, emit the required 100% progress sample, and add
-      `agent:human-review`.
+14. On a delivered terminal CI event:
+    - **Passed:** fetch the configured base once. If its current remote head is
+      still an ancestor of the tested PR head, trust the delivered result without re-polling,
+      mark the PR ready for review, emit the required 100% progress sample, and
+      add `agent:human-review`. If the base moved, integrate it yourself,
+      validate, push, and return to `agent:ci-wait` for fresh exact-head CI.
     - **Failed:** use the delivered failed-check names and excerpt, keep or move
       the ticket in `agent:rework`, and begin the repair loop.
-13. On a CI re-wake timeout, run `gh pr checks` exactly once. If CI is terminal,
+15. On a CI re-wake timeout, run `gh pr checks` exactly once. If CI is terminal,
     follow the pass or failure path; if it is still pending, return to
     `agent:ci-wait` and end the turn without polling again.
 
@@ -80,7 +103,7 @@ resume you with a terminal CI result, a bounded CI fallback re-wake, or when the
 label flips back to `agent:in-progress` / `agent:rework` / `merging`. If you have
 nothing left to do on the current turn but the label is still
 `agent:in-progress` for a non-CI reason (for example, an upstream PR must merge),
-emit `pause.request` instead of looping; the operator will see the ❗ and reply
+emit `pause.request` instead of looping; the Executor will see the ❗ and reply
 when ready.
 
 ## Manual CLI verification before opening a PR

@@ -3,7 +3,7 @@ defmodule Aiur.Workspace.Materialize do
 
   require Logger
   alias Aiur.TicketBranch
-  alias Aiur.Workspace.Checkout
+  alias Aiur.Workspace.{Checkout, Reconstruction}
 
   @doc false
   # Copy the warm base into `workspace` (CoW when the FS supports it) and branch
@@ -18,40 +18,26 @@ defmodule Aiur.Workspace.Materialize do
   @spec materialize_from_base(Path.t(), Path.t(), String.t(), String.t() | nil) ::
           :ok | {:error, term()}
   def materialize_from_base(base, workspace, branch_name, nil) when is_binary(branch_name) do
-    File.rm_rf!(workspace)
-    # The repo-namespaced layout (`<root>/<repo>/<issue>`) means the `<repo>`
-    # parent dir may not exist yet for the first agent of a repo; `cp` needs it
-    # present. The cold `create_workspace/1` path gets this via `mkdir_p!`; the
-    # materialize path must create the parent itself (the leaf is made by `cp`).
-    File.mkdir_p!(Path.dirname(workspace))
-
-    with {_out, 0} <- copy_tree(base, workspace),
-         :ok <- Checkout.checkout_fresh_branch(workspace, branch_name) do
-      :ok
-    else
-      other ->
-        Logger.warning("prewarm materialize failed (#{inspect(other)}); falling back to cold clone")
-
-        File.rm_rf!(workspace)
-        {:error, other}
-    end
+    materialize(workspace, fn stage ->
+      with {_out, 0} <- copy_tree(base, stage),
+           :ok <- Checkout.checkout_fresh_branch(stage, branch_name) do
+        :ok
+      else
+        other -> {:error, other}
+      end
+    end)
   end
 
   def materialize_from_base(base, workspace, _branch_name, pr_head_ref)
       when is_binary(pr_head_ref) do
-    File.rm_rf!(workspace)
-    File.mkdir_p!(Path.dirname(workspace))
-
-    with {_out, 0} <- copy_tree(base, workspace),
-         :ok <- Checkout.checkout_existing_pr_branch(workspace, pr_head_ref) do
-      :ok
-    else
-      other ->
-        Logger.warning("prewarm materialize (PR-anchored) failed (#{inspect(other)}); falling back to cold clone")
-
-        File.rm_rf!(workspace)
-        {:error, other}
-    end
+    materialize(workspace, fn stage ->
+      with {_out, 0} <- copy_tree(base, stage),
+           :ok <- Checkout.checkout_existing_pr_branch(stage, pr_head_ref) do
+        :ok
+      else
+        other -> {:error, other}
+      end
+    end)
   end
 
   @doc false
@@ -60,13 +46,24 @@ defmodule Aiur.Workspace.Materialize do
     materialize_from_base(base, workspace, TicketBranch.legacy_branch_name(Path.basename(workspace)), pr_head_ref)
   end
 
+  defp materialize(workspace, prepare) do
+    case Reconstruction.run(workspace, prepare) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("prewarm materialize failed (#{inspect(reason)}); falling back to cold clone")
+        {:error, reason}
+    end
+  end
+
   # macOS APFS clones via `cp -c`; Linux btrfs/xfs reflink via `cp --reflink=auto`
   # (degrading to a full copy on ext4). Either way the warm `_build`/deps come
   # along, so the agent skips the recompile.
   defp copy_tree(base, workspace) do
     case :os.type() do
-      {:unix, :darwin} -> System.cmd("cp", ["-Rc", base, workspace], stderr_to_stdout: true)
-      _ -> System.cmd("cp", ["-a", "--reflink=auto", base, workspace], stderr_to_stdout: true)
+      {:unix, :darwin} -> System.cmd("cp", ["-Rc", Path.join(base, "."), workspace], stderr_to_stdout: true)
+      _ -> System.cmd("cp", ["-a", "--reflink=auto", Path.join(base, "."), workspace], stderr_to_stdout: true)
     end
   end
 end

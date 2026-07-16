@@ -44,6 +44,10 @@ defmodule AiurWeb.TelemetryDashboardControllerTest do
     assert {:ok, document} = Floki.parse_document(conn.resp_body)
     assert Floki.find(document, "script#aiur-data[type='application/json']") != []
     assert Floki.find(document, "#ticket-lifecycle") != []
+    assert conn.resp_body =~ "Compare daemon, Executor, and ticket process trees"
+    assert conn.resp_body =~ ~s(actor === "_operator" ? "Executor" : actor)
+    assert conn.resp_body =~ ~s(operator_process_unavailable: "Executor process unavailable")
+    assert conn.resp_body =~ ~s(operator_pid_unavailable: "Executor PID unavailable")
     refute conn.resp_body =~ "/etc/passwd"
   end
 

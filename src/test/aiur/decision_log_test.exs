@@ -136,6 +136,14 @@ defmodule Aiur.DecisionLogTest do
   end
 
   describe "corruption" do
+    test "an interior blank record is corruption rather than a skipped delimiter", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "decisions.ndjson")
+      File.write!(path, ~s({"version":1}\n\n{"version":3}\n))
+
+      assert {:ok, [first], {:corrupt, 2, _reason}} = DecisionLog.replay(path, identity_validator())
+      assert first["version"] == 1
+    end
+
     test "malformed JSON on an interior line halts replay at that line, never skipping forward", %{
       tmp_dir: tmp_dir
     } do

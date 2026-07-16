@@ -11,7 +11,7 @@ defmodule Aiur.Codex.DynamicTool.EmitAlert do
 
   @emit_alert_description """
   Emit a custom Aiur alert with a scoped name, concise message, and
-  structured operator context.
+  structured Executor context.
   Reserved system scopes (`task.*`, `agent.*`, `chat.*`) are not allowed.
   """
   @emit_alert_input_schema %{
@@ -26,11 +26,11 @@ defmodule Aiur.Codex.DynamicTool.EmitAlert do
       "message" => %{"type" => "string", "description" => "Concise log-facing alert message."},
       "reason" => %{
         "type" => "string",
-        "description" => "Human-readable reason or context the operator should relay."
+        "description" => "Human-readable reason or context the Executor should relay."
       },
       "needs_attention" => %{
         "type" => "boolean",
-        "description" => "True only when the operator should look or act now."
+        "description" => "True only when the Executor should look or act now."
       },
       "severity" => %{
         "type" => "string",

@@ -127,6 +127,25 @@ defmodule Aiur.AgentRunnerTest do
                AgentRunner.start_agent_session("/ws", [backend: "claude", model: nil], start_fun)
     end
 
+    test "missing Remote Control hook listener fails instead of falling back" do
+      parent = self()
+
+      start_fun = fn _workspace, opts ->
+        send(parent, {:attempt, Keyword.fetch!(opts, :backend)})
+        {:error, :remote_control_requires_dashboard}
+      end
+
+      assert {:error, :remote_control_requires_dashboard} =
+               AgentRunner.start_agent_session(
+                 "/ws",
+                 [backend: "claude-repl", model: "opus", remote_control: true],
+                 start_fun
+               )
+
+      assert_received {:attempt, "claude-repl"}
+      refute_received {:attempt, "claude"}
+    end
+
     test "a repl failure whose headless retry also fails surfaces the retry error" do
       start_fun = fn _workspace, opts ->
         case Keyword.fetch!(opts, :backend) do
@@ -217,6 +236,15 @@ defmodule Aiur.AgentRunnerTest do
 
     test "an undelivered prompt is transient so a single failed paste re-dispatches instead of crashing the run" do
       assert AgentRunner.transient_run_error?(:prompt_not_delivered)
+    end
+
+    test "a retired app-server port is transient so a fresh generation can replace it" do
+      assert AgentRunner.transient_run_error?(:port_closed)
+      assert AgentRunner.transient_run_error?({:port_exit, 9})
+      assert AgentRunner.transient_run_error?(:port_closed, "codex")
+      refute AgentRunner.transient_run_error?(:port_closed, "claude")
+      assert AgentRunner.transient_run_error?({:port_exit, 9}, "codex")
+      refute AgentRunner.transient_run_error?({:port_exit, 9}, "claude")
     end
 
     test "a genuine agent failure is NOT transient so it still surfaces as a hard error" do

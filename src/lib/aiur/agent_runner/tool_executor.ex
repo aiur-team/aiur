@@ -9,7 +9,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   require Logger
 
   alias Aiur.AgentRunner.SessionLifecycle
-  alias Aiur.{Alerts, CoordinationTasks, DecisionAttention, DecisionStore, Issue}
+  alias Aiur.{Alerts, Boot, CodingAgent, CoordinationTasks, DecisionAttention, DecisionStore, Issue}
   alias Aiur.Codex.DynamicTool
   alias Aiur.Events.{Publisher, SubscriptionStore}
   alias Aiur.GitHub.IssueDependencies
@@ -38,6 +38,8 @@ defmodule Aiur.AgentRunner.ToolExecutor do
 
   @spec build(Issue.t(), Path.t() | nil, String.t() | nil, map(), keyword()) :: (String.t(), map() -> map())
   def build(issue, workspace, worker_host, app_session \\ %{}, opts \\ []) do
+    attempt_id = Keyword.get(opts, :attempt_id)
+
     coordination = %{
       enqueue:
         Keyword.get(opts, :coordination_enqueuer, fn key, operation, enqueue_opts ->
@@ -59,12 +61,13 @@ defmodule Aiur.AgentRunner.ToolExecutor do
     }
 
     event_context = %{
-      issue: issue,
-      workspace: workspace,
-      worker_host: worker_host,
       app_session: app_session,
-      handlers: event_handlers,
-      enqueue: coordination.enqueue
+      attempt_id: attempt_id,
+      event_handlers: event_handlers,
+      enqueue: coordination.enqueue,
+      issue: issue,
+      worker_host: worker_host,
+      workspace: workspace
     }
 
     fn tool, arguments ->
@@ -86,7 +89,11 @@ defmodule Aiur.AgentRunner.ToolExecutor do
             worker_host: worker_host,
             reason: reason,
             needs_attention: needs_attention,
-            severity: severity
+            severity: severity,
+            observation_identity: Issue.tracker_identity(issue),
+            observation_source: %{kind: :agent_alert, name: name},
+            observation_provenance: observation_provenance(app_session, attempt_id),
+            occurred_at: DateTime.utc_now()
           )
         end,
         event_publisher: fn name, message, payload ->
@@ -279,24 +286,28 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   # service — everything else keeps the existing generic publish path
   # below unchanged. `Publisher.publish/3` itself also rejects this topic
   # family, so this is the sole production ingress, not just a preference.
-  defp emit_agent_event(context, "decision.requested", message, payload) do
-    request_decision(context.issue, context.app_session, context.handlers, message, payload)
+  defp emit_agent_event(
+         %{app_session: app_session, event_handlers: handlers, issue: issue},
+         "decision.requested",
+         message,
+         payload
+       ) do
+    request_decision(issue, app_session, handlers, message, payload)
   end
 
-  defp emit_agent_event(context, name, message, payload)
+  defp emit_agent_event(
+         %{app_session: app_session, event_handlers: handlers, issue: issue},
+         name,
+         message,
+         payload
+       )
        when name in ["decision.acknowledged", "decision.resolved"] do
-    record_decision_lifecycle(
-      context.issue,
-      context.app_session,
-      context.handlers.decision_lifecycle_recorder,
-      name,
-      message,
-      payload
-    )
+    record_decision_lifecycle(issue, app_session, handlers.decision_lifecycle_recorder, name, message, payload)
   end
 
-  defp emit_agent_event(context, name, message, payload) do
-    identifier = issue_identifier(context.issue)
+  defp emit_agent_event(event_context, name, message, payload) do
+    %{issue: issue} = event_context
+    identifier = issue_identifier(issue)
 
     topic =
       case identifier do
@@ -307,7 +318,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
     if durable_decision_topic?(topic) do
       {:error, :decision_requires_durable_publish}
     else
-      enqueue_agent_event(context, name, message, payload, identifier, topic)
+      enqueue_agent_event(event_context, name, message, payload, identifier, topic)
     end
   end
 
@@ -318,7 +329,9 @@ defmodule Aiur.AgentRunner.ToolExecutor do
       |> Map.put("name", name)
       |> Map.put("issue", identifier)
 
-    source = trusted_source(context.app_session)
+    %{app_session: app_session, attempt_id: attempt_id, event_handlers: handlers, issue: issue} = context
+    source = trusted_source(app_session)
+    provenance = observation_provenance(app_session, attempt_id)
 
     operation = fn ->
       decision_projection =
@@ -327,7 +340,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
           context.workspace,
           context.worker_host,
           source,
-          context.handlers.attention_opener,
+          handlers.attention_opener,
           name,
           message,
           payload
@@ -335,9 +348,16 @@ defmodule Aiur.AgentRunner.ToolExecutor do
 
       log_decision_projection_failure(decision_projection, topic)
 
-      case Publisher.publish(topic, event_payload) do
+      case Publisher.publish(
+             topic,
+             event_payload,
+             identity: Issue.tracker_identity(issue),
+             observation_source: %{kind: :agent_event, name: name},
+             observation_provenance: provenance,
+             occurred_at: DateTime.utc_now()
+           ) do
         {:ok, _id, _subscribers} ->
-          sync_decision_resolution(context.issue, name, payload, context.handlers.attention_resolver)
+          sync_decision_resolution(issue, name, payload, handlers.attention_resolver)
 
         result ->
           Logger.error("coordination event publish failed topic=#{topic} reason=#{inspect(result)}")
@@ -368,6 +388,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
           |> remove_untrusted_decision_identity()
 
         source = trusted_source(app_session)
+        provenance = trusted_provenance(app_session)
 
         request_decision_by_correlation(
           issue,
@@ -375,12 +396,13 @@ defmodule Aiur.AgentRunner.ToolExecutor do
           request_payload,
           ticket,
           source,
+          provenance,
           handlers
         )
     end
   end
 
-  defp request_decision_by_correlation(issue, identifier, request_payload, ticket, source, handlers) do
+  defp request_decision_by_correlation(issue, identifier, request_payload, ticket, source, provenance, handlers) do
     case MapAccess.get(request_payload, :attention_slug) do
       nil ->
         payload =
@@ -388,7 +410,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
           |> remove_attention_slug()
           |> Map.put("source_id", trusted_source_id(identifier, source.session_id, request_payload))
 
-        request_and_format(handlers.decision_requester, payload, ticket: ticket, source: source)
+        request_and_format(handlers.decision_requester, payload, ticket: ticket, source: source, provenance: provenance)
 
       slug when is_binary(slug) ->
         case DecisionAttention.correlation(issue, slug) do
@@ -401,7 +423,8 @@ defmodule Aiur.AgentRunner.ToolExecutor do
             request_and_format(handlers.attention_enricher, payload,
               ticket: ticket,
               source: source,
-              legacy_attention: correlation.legacy_attention
+              legacy_attention: correlation.legacy_attention,
+              provenance: provenance
             )
 
           {:error, reason} ->
@@ -636,8 +659,49 @@ defmodule Aiur.AgentRunner.ToolExecutor do
     }
   end
 
+  # This is deliberately built from the runner-owned session, not from the
+  # agent tool payload. `resolved_model` stays absent because the current
+  # adapters do not expose an authoritative resolved-model fact.
+  defp trusted_provenance(app_session) when is_map(app_session) do
+    backend = Map.get(app_session, :backend)
+    requested_model = Map.get(app_session, :model)
+    session_id = Map.get(app_session, :thread_id)
+    attempt_id = Map.get(app_session, :attempt_id)
+
+    if Enum.any?([backend, requested_model, session_id, attempt_id], &is_binary/1) do
+      %{
+        agent_family: CodingAgent.family_for(backend),
+        backend: backend,
+        requested_model: requested_model,
+        session_id: session_id,
+        attempt_id: attempt_id,
+        source: "agent_runner"
+      }
+    else
+      nil
+    end
+  end
+
+  defp observation_provenance(app_session, attempt_id) do
+    %{
+      run_id: Boot.run_id(),
+      attempt: attempt_id,
+      session_id: Map.get(app_session, :thread_id),
+      source_event_id: stringify_invocation_id(invocation_id())
+    }
+  end
+
   defp remove_untrusted_decision_identity(payload) do
-    Map.drop(payload, [:source_id, "source_id", :decision_id, "decision_id", :legacy_attention, "legacy_attention"])
+    Map.drop(payload, [
+      :source_id,
+      "source_id",
+      :decision_id,
+      "decision_id",
+      :legacy_attention,
+      "legacy_attention",
+      :provenance,
+      "provenance"
+    ])
   end
 
   defp remove_attention_slug(payload), do: Map.drop(payload, [:attention_slug, "attention_slug"])

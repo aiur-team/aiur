@@ -89,6 +89,24 @@ defmodule AiurWeb.DecisionApiController do
     error_response(conn, 404, "decision_not_found", "Decision not found")
   end
 
+  defp render_error(conn, {:indeterminate, %{status: :partial}}) do
+    conn
+    |> put_status(503)
+    |> json(%{
+      error: %{
+        code: "decision_presence_indeterminate",
+        message: "Decision presence cannot be determined from partial retained data"
+      },
+      scope: %{"kind" => "retained", "label" => "All retained decisions"},
+      health: %{
+        "status" => "partial",
+        "partial" => true,
+        "reason" => "retained_store_partial",
+        "label" => "Partial retained Decision data"
+      }
+    })
+  end
+
   defp render_error(conn, {:delegation_forbidden, _details}) do
     error_response(conn, 403, "supervisor_forbidden", "Supervisor action is not authorized")
   end

@@ -37,6 +37,10 @@ defmodule Aiur.AgentList.RenderState do
     |> Map.put(:open_attentions_by_id, Map.get(state, :open_attentions_by_id, %{}))
     |> Map.put(:progress_by_id, Map.get(state, :progress_by_id, %{}))
     |> Map.put(
+      :activity_status_by_identifier,
+      Map.get(state, :activity_status_by_identifier, %{})
+    )
+    |> Map.put(
       :warm_status_dark_mode?,
       Map.get(state, :warm_status_dark_mode?, true)
     )
@@ -82,15 +86,12 @@ defmodule Aiur.AgentList.RenderState do
     end
   end
 
-  defp dashboard_url do
-    host = safe_call(fn -> Config.server_host() end)
-    port = safe_call(fn -> HttpServer.bound_port() end) || safe_call(fn -> Config.server_port() end)
-
-    cond do
-      not is_integer(port) -> nil
-      port <= 0 -> nil
-      is_binary(host) and host != "" -> "http://#{host}:#{port}/"
-      true -> "http://127.0.0.1:#{port}/"
+  @doc false
+  @spec dashboard_url((-> String.t() | nil)) :: String.t() | nil
+  def dashboard_url(base_url_fun \\ &HttpServer.base_url/0) do
+    case safe_call(base_url_fun) do
+      url when is_binary(url) -> url <> "/"
+      _ -> nil
     end
   end
 

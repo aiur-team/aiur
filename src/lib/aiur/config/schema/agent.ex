@@ -80,9 +80,18 @@ defmodule Aiur.Config.Schema.Agent do
     # resolved backend is RC-capable. This default is the single flip point
     # for always-remote: change `false` here and every dispatch attaches RC.
     field(:remote_control, :boolean, default: false)
+    # When true, a re-dispatch of a ticket the orchestrator already ran (a
+    # max_turns recycle or completed-entry replacement) whose codex thread could
+    # not be resumed gets continuation guidance instead of the cold-start prompt,
+    # so it does not re-run brainstorm/plan over work that already exists.
+    field(:prior_work_continuation, :boolean, default: false)
+    # Lifetime cap on (re)dispatches for one ticket. The per-window thrash
+    # breaker resets whenever its window lapses, so a slowly-churning ticket is
+    # never circuit-broken. 0 disables the latch.
+    field(:max_dispatches_per_ticket, :integer, default: 0)
     field(:max_concurrent_agents, :integer, default: 10)
     # Fleet-wide cap for agent-launched `mix compile` / `mix test` commands.
-    # 0 deliberately disables the gate for operators who need unrestricted
+    # 0 deliberately disables the gate for Executors who need unrestricted
     # local verification.
     field(:max_concurrent_builds, :integer, default: 2)
     # Minimum spacing between local Mix compile/test starts when more than one
@@ -108,6 +117,7 @@ defmodule Aiur.Config.Schema.Agent do
     # "" disables it.
     field(:rate_limit_fallback, :string, default: "claude")
     field(:complexity_prompts, :map, default: %{})
+    field(:max_turns_by_complexity, :map, default: %{})
     # Backend-agnostic turn/stall timeouts (promoted from codex; claude-repl
     # already reads these via Config.agent_turn_timeout_ms/0).
     field(:turn_timeout_ms, :integer, default: 3_600_000)
@@ -120,7 +130,7 @@ defmodule Aiur.Config.Schema.Agent do
     field(:ci_wait_rewake_minutes, :integer, default: 5)
     # Per-scheduler 1-min load ceiling for the dispatch load gate (#465).
     # Enabled by default so high-concurrency runs have protection without
-    # extra operator knowledge; explicit YAML null disables it.
+    # extra Executor knowledge; explicit YAML null disables it.
     field(:max_load_average, :float, default: 1.5)
     # Per-scheduler 1-min load target for the adaptive concurrency envelope.
     # It ramps capacity while below target and backs off before the separate
@@ -148,6 +158,8 @@ defmodule Aiur.Config.Schema.Agent do
       [
         :kind,
         :remote_control,
+        :prior_work_continuation,
+        :max_dispatches_per_ticket,
         :max_concurrent_agents,
         :max_concurrent_builds,
         :build_start_stagger_seconds,
@@ -160,6 +172,7 @@ defmodule Aiur.Config.Schema.Agent do
         :switch_model_on_ratelimit,
         :rate_limit_fallback,
         :complexity_prompts,
+        :max_turns_by_complexity,
         :turn_timeout_ms,
         :stall_timeout_ms,
         :max_agent_duration_minutes,
@@ -178,6 +191,7 @@ defmodule Aiur.Config.Schema.Agent do
     |> validate_number(:build_start_stagger_seconds, greater_than_or_equal_to: 0)
     |> validate_number(:min_free_memory_mb, greater_than: 0)
     |> validate_number(:max_turns, greater_than: 0)
+    |> validate_number(:max_dispatches_per_ticket, greater_than_or_equal_to: 0)
     |> validate_number(:max_retry_attempts, greater_than: 0)
     |> validate_number(:max_retry_backoff_ms, greater_than: 0)
     |> validate_number(:turn_timeout_ms, greater_than: 0)
@@ -210,6 +224,8 @@ defmodule Aiur.Config.Schema.Agent do
     end)
     |> update_change(:complexity_prompts, &AgentValidation.normalize_complexity_prompts/1)
     |> AgentValidation.validate_complexity_prompts(:complexity_prompts)
+    |> update_change(:max_turns_by_complexity, &AgentValidation.normalize_max_turns_by_complexity/1)
+    |> AgentValidation.validate_max_turns_by_complexity(:max_turns_by_complexity)
     |> cast_embed(:claude, with: &Claude.changeset/2)
     |> cast_embed(:codex, with: &Codex.changeset/2)
   end
