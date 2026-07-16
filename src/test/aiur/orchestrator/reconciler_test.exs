@@ -1,5 +1,5 @@
 defmodule Aiur.Orchestrator.ReconcilerTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Aiur.Issue
   alias Aiur.Orchestrator.Reconciler
@@ -144,7 +144,10 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
         pid: self(),
         identifier: "issue-brf",
         issue: issue,
-        control: %{status: :paused},
+        # `can_interrupt` (without the modern confirm fields) selects the
+        # synchronous control path, which delivers `{:resume_agent, request_id}`
+        # to the live pid and flips the entry to :working in the same step.
+        control: %{status: :paused, can_interrupt: true},
         paused_reason: :before_run_failure
       }
 
@@ -155,7 +158,7 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
       # The parked agent is blocked in AgentRunner.wait_for_before_run_resume/3;
       # a transient hook failure must self-heal by delivering the resume signal
       # to its live pid, not sit paused forever.
-      assert_received {:resume_agent, _request_id}
+      assert_receive {:resume_agent, _request_id}
       assert get_in(result.running, ["issue-brf", :control, :status]) == :working
     end
 
@@ -166,7 +169,7 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
         pid: self(),
         identifier: "issue-brf-loop",
         issue: issue,
-        control: %{status: :paused},
+        control: %{status: :paused, can_interrupt: true},
         paused_reason: :before_run_failure
       }
 
