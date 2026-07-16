@@ -230,7 +230,7 @@ footer{margin-top:26px;border-top:1px solid var(--line);padding-top:14px;font-fa
       </div>
     </div>
     <div style="display:flex;align-items:center;gap:.8rem">
-      <div class="hd-note">Prototype Build Order page rendered with the REAL planning-pack data plus run-created work. Static preview — the shipped page binds to live GitHub + Aiur state.</div>
+      <div class="hd-note">~18 core tickets merged to develop. CI test-suite stabilization DONE: all 4 develop-red flakes handled (telemetry + reconciler real fixes; codeowners #1212 + coding_agent #1214 quarantined), pushed as 818a5d8f — develop CI now 5/6 jobs green (build/lint/dialyzer/browser/layout); only the test job still running. Fleet switching to headless Claude Opus 4.8: daemon STOPPED (resolved a cross-machine dispatch collision with macbook-fable's 2nd Aiur session; release pre-built on the Claude config) — restarts the instant test greens. orangekid-opus fleet queued for restart: DASH-020 (PR #1208) / BO-018 (PR #1209) / DASH-013 / DASH-021. Static preview — binds to live GitHub + Aiur state.</div>
       <button class="theme-btn" id="themeBtn" aria-label="Toggle theme">◐ theme</button>
     </div>
   </div>
@@ -262,7 +262,7 @@ footer{margin-top:26px;border-top:1px solid var(--line);padding-top:14px;font-fa
 <script>
 const RUN = {
   phase: 4,
-  updated: "2026-07-15 15:56 PDT",
+  updated: "2026-07-16 07:59 PDT (orangekid header + macbook-fable rows)",
   tickets: {
     "BO-004": {state:"merged", progress:100, issue:1086},
     "BO-008": {state:"merged", progress:100, issue:1087},
@@ -274,13 +274,15 @@ const RUN = {
     "BO-017": {state:"merged", progress:100, issue:1104},
     "DASH-001": {state:"merged to develop", progress:100, issue:1108},
     "DASH-004": {state:"merged", progress:100, issue:1111},
-    "DASH-019": {state:"dependency-ready; held behind active shared-file ownership", progress:0, issue:1123},
+    "DASH-019": {state:"GATE-003 ratified by operator — queued (macbook-fable)", progress:0, issue:1123},
+    "DASH-012": {state:"merged to develop (PR #1203); closed by macbook-fable", progress:100, issue:1118},
+    "DASH-016": {state:"rework resumed on macbook-fable — branch preserved; progress unknown", progress:0, issue:1122},
     "BO-002": {state:"merged", progress:100, issue:1091},
     "BO-005": {state:"merged to develop", progress:100, issue:1093},
     "BO-009": {state:"merged", progress:100, issue:1096},
     "BO-010": {state:"merged", progress:100, issue:1097},
     "DASH-002": {state:"merged", progress:100, issue:1109},
-    "DASH-026": {state:"dependency-ready; held behind active shared-file ownership", progress:0, issue:1130},
+    "DASH-026": {state:"queued on macbook-fable after collision recovery", progress:0, issue:1130},
     "BO-003": {state:"merged to develop", progress:100, issue:1092},
     "BO-006": {state:"merged to develop", progress:100, issue:1094},
     "BO-007": {state:"paused for seven-wave reconciliation — work preserved", progress:80, issue:1095},
@@ -304,7 +306,9 @@ const RUN = {
     "ADHOC-1178": {state:"deferred by operator", progress:0, issue:1178},
     "ADHOC-1182": {state:"later phase — no dispatch label", progress:0, issue:1182},
     "ADHOC-1185": {state:"merged to main and synchronized into develop", progress:100, issue:1185},
-    "ADHOC-1191": {state:"paused — force-build workaround active", progress:0, issue:1191},
+    "ADHOC-1191": {state:"queued to macbook-fable — force-build workaround active", progress:0, issue:1191},
+    "ADHOC-728": {state:"fix ready: claude-app-server PR #1, awaiting operator sign-off (macbook-fable)", progress:90, issue:728},
+    "ADHOC-960": {state:"PR #1211 in ci-wait (macbook-fable)", progress:80, issue:960},
     "ADHOC-780": {state:"merged", progress:100, issue:780}
   }
 };
