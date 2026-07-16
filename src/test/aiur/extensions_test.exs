@@ -1201,7 +1201,7 @@ defmodule Aiur.ExtensionsTest do
     }
 
     {:ok, inbox_view, inbox_html} = live(build_conn(), "/decisions")
-    assert inbox_html =~ "Decision inbox"
+    assert inbox_html =~ "Commands inbox"
 
     assert has_element?(inbox_view, ~s(a[href="/decisions/decision-live-route"])),
            dashboard_route_diagnostic(inbox_html, providers)
@@ -1215,11 +1215,11 @@ defmodule Aiur.ExtensionsTest do
 
     assert detail_html =~ "Should this real projected decision ship?"
     assert detail_html =~ "&lt;script&gt;never execute&lt;/script&gt;"
-    assert detail_html =~ "Read-only mode · mutation controls are hidden."
+    assert detail_html =~ "Read-only mode · Command mutation controls are hidden."
     refute detail_html =~ "phx-click=\"answer-decision\""
 
     {:ok, _missing_view, missing_html} = live(build_conn(), "/decisions/not-present")
-    assert missing_html =~ "Decision not found"
+    assert missing_html =~ "Command not found"
     assert missing_html =~ "not-present"
 
     lifecycle_diagnostic = dashboard_route_diagnostic(missing_html, providers)
