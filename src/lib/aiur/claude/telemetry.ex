@@ -63,6 +63,8 @@ defmodule Aiur.Claude.Telemetry do
     }
 
     GenServer.call(server, {:prepare_launch, request})
+  catch
+    :exit, _ -> {:error, :receiver_unavailable}
   end
 
   def prepare_launch(_issue, _opts), do: {:error, :invalid_correlation}
@@ -197,7 +199,8 @@ defmodule Aiur.Claude.Telemetry do
   def handle_call({:authorize, header}, _from, state) do
     with {:ok, capability} <- bearer_capability(header),
          {:ok, entry} <- Map.fetch(state.capabilities, capability),
-         :ok <- available?(entry, state) do
+         :ok <- available?(entry, state),
+         {:ok, entry} <- take_rate_slots(entry, state, 1) do
       request_id = make_ref()
 
       next = %{
@@ -219,7 +222,7 @@ defmodule Aiur.Claude.Telemetry do
          {:ok, events} <- Event.from_otlp(payload, entry.correlation),
          :ok <- matching_session(entry, events),
          :ok <- unseen?(state.replay, events),
-         {:ok, next_entry} <- take_rate_slots(entry, state, length(events)) do
+         {:ok, next_entry} <- take_rate_slots(entry, state, length(events) - 1) do
       events =
         Enum.map(events, fn event ->
           %{event | correlation: Map.put(event.correlation, :producer_generation, entry.correlation.producer_generation)}
@@ -315,7 +318,10 @@ defmodule Aiur.Claude.Telemetry do
              ip: {127, 0, 0, 1},
              port: Keyword.get(opts, :port, 0),
              startup_log: false,
-             thousand_island_options: [num_connections: Keyword.get(opts, :max_connections, @default_max_connections)]
+             thousand_island_options: [
+               num_acceptors: 1,
+               num_connections: Keyword.get(opts, :max_connections, @default_max_connections)
+             ]
            ),
          {:ok, {_ip, port}} <- ThousandIsland.listener_info(listener) do
       {:ok, listener, port}
@@ -388,6 +394,8 @@ defmodule Aiur.Claude.Telemetry do
     end
   end
 
+  defp take_rate_slots(entry, _state, 0), do: {:ok, entry}
+
   defp matching_session(%{session_id: current}, events) when is_list(events) do
     session_ids = events |> Enum.map(&get_in(&1, [:correlation, :session_id])) |> Enum.uniq()
 
@@ -432,9 +440,13 @@ defmodule Aiur.Claude.Telemetry do
 
       {capability, requests} ->
         capabilities =
-          Map.update(state.capabilities, capability, nil, fn entry ->
-            %{entry | inflight: max(entry.inflight - 1, 0)}
-          end)
+          case Map.fetch(state.capabilities, capability) do
+            {:ok, entry} ->
+              Map.put(state.capabilities, capability, %{entry | inflight: max(entry.inflight - 1, 0)})
+
+            :error ->
+              state.capabilities
+          end
 
         %{state | requests: requests, capabilities: capabilities}
     end

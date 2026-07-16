@@ -110,7 +110,7 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
       assert launch_id == launch.id
     end
 
-    test "does not reuse a REPL telemetry capability for its headless fallback" do
+    test "does not reuse a REPL telemetry capability when fallback renewal is unavailable" do
       launch = %{id: make_ref(), env: [{"OTEL_EXPORTER_OTLP_LOGS_HEADERS", "Authorization=Bearer synthetic"}]}
       parent = self()
 
@@ -133,6 +133,39 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
       refute Map.has_key?(session, :telemetry_launch)
       assert_received {:fallback_attempt, "claude-repl", ^launch}
       assert_received {:fallback_attempt, "claude", nil}
+    end
+
+    test "passes a freshly correlated telemetry capability to the headless fallback" do
+      repl_launch = %{id: make_ref(), env: [{"OTEL_EXPORTER_OTLP_LOGS_HEADERS", "Authorization=Bearer repl"}]}
+      headless_launch = %{id: make_ref(), env: [{"OTEL_EXPORTER_OTLP_LOGS_HEADERS", "Authorization=Bearer headless"}]}
+      parent = self()
+
+      start_fun = fn _workspace, opts ->
+        send(parent, {:renewed_fallback_attempt, Keyword.fetch!(opts, :backend), Keyword.get(opts, :telemetry_launch)})
+
+        case Keyword.fetch!(opts, :backend) do
+          "claude-repl" -> {:error, :repl_not_ready}
+          "claude" -> {:ok, %{handle: :headless}}
+        end
+      end
+
+      fallback_launch_fun = fn "claude" -> {:ok, headless_launch} end
+
+      assert {:ok, %{backend: "claude", telemetry_launch: %{id: launch_id}}} =
+               SessionLifecycle.start_agent_session(
+                 "/ws",
+                 [
+                   backend: "claude-repl",
+                   model: nil,
+                   telemetry_launch: repl_launch,
+                   telemetry_fallback_launch_fun: fallback_launch_fun
+                 ],
+                 start_fun
+               )
+
+      assert launch_id == headless_launch.id
+      assert_received {:renewed_fallback_attempt, "claude-repl", ^repl_launch}
+      assert_received {:renewed_fallback_attempt, "claude", ^headless_launch}
     end
   end
 
@@ -215,6 +248,29 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
 
       assert {:ok, retry_lease} = Ownership.claim(ticket)
       assert :ok = Ownership.release(retry_lease)
+    end
+
+    test "releases the provider expectation when telemetry rejects before spawn" do
+      ticket = "telemetry-pre-spawn-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: ticket, selected_backend: "claude"}
+      assert {:ok, lease} = Ownership.claim(ticket)
+      assert {:ok, active_lease} = Ownership.activate(lease)
+
+      assert {:error, :missing_tracker_identity} =
+               SessionLifecycle.run_session(
+                 "/workspaces/#{ticket}",
+                 issue,
+                 nil,
+                 [
+                   workspace_ownership: active_lease,
+                   telemetry_attempt_id: "attempt-test",
+                   session_start_fun: fn _workspace, _opts -> flunk("telemetry rejection must precede process spawn") end
+                 ],
+                 nil
+               )
+
+      assert {:ok, %{phase: :released}} = Ownership.release_and_wait(active_lease)
+      assert :none = Ownership.current(ticket)
     end
 
     test "failed REPL cleanup retains a late child during explicit release" do

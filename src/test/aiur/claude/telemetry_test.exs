@@ -14,7 +14,12 @@ defmodule Aiur.Claude.TelemetryTest do
     name = Module.concat(__MODULE__, :"Receiver#{System.unique_integer([:positive, :monotonic])}")
 
     options =
-      [name: name, max_inflight: 1, max_events_per_window: 2, replay_capacity: 4]
+      [
+        name: name,
+        max_inflight: 1,
+        max_events_per_window: context[:max_events_per_window] || 120,
+        replay_capacity: 4
+      ]
       |> maybe_put_capability_fun(context[:capability_mint])
 
     start_supervised!({Telemetry, options})
@@ -83,7 +88,7 @@ defmodule Aiur.Claude.TelemetryTest do
     assert rejections.unknown_capability == 1
   end
 
-  test "bounds malformed input, attributes, concurrent requests, and event rate without crashing the receiver", %{server: server, issue: issue} do
+  test "bounds malformed input and attributes without crashing the receiver", %{server: server, issue: issue} do
     launch = launch(server, issue)
     authorization = authorization(launch)
 
@@ -91,19 +96,31 @@ defmodule Aiur.Claude.TelemetryTest do
     assert submit(server, authorization, oversized_payload()).status == 413
     assert submit(server, authorization, payload("session-current", "request-large", String.duplicate("a", 257))).status == 413
 
-    assert {:ok, held_request} = Telemetry.authorize(authorization, server)
-    assert {:error, :concurrent_limit} = Telemetry.authorize(authorization, server)
-    assert :ok = Telemetry.release_request(held_request, server)
-
-    assert submit(server, authorization, payload("session-current", ["request-one", "request-two"])).status == 200
-    assert submit(server, authorization, payload("session-current", "request-rate-limited")).status == 429
-
     rejections = Telemetry.health(server).rejections
     assert rejections.malformed == 1
     assert rejections.oversize == 1
     assert rejections.attribute_limit == 1
+  end
+
+  @tag max_events_per_window: 2
+  test "bounds concurrent requests and reserves rate capacity before body decoding", %{server: server, issue: issue} do
+    first = launch(server, issue)
+    first_authorization = authorization(first)
+
+    assert {:ok, held_request} = Telemetry.authorize(first_authorization, server)
+    assert {:error, :concurrent_limit} = Telemetry.authorize(first_authorization, server)
+    assert :ok = Telemetry.release_request(held_request, server)
+
+    second = launch(server, issue)
+    second_authorization = authorization(second)
+
+    assert submit(server, second_authorization, payload("session-current", ["request-one", "request-two"])).status == 200
+    assert submit(server, second_authorization, "not-json").status == 429
+
+    rejections = Telemetry.health(server).rejections
     assert rejections.concurrent_limit == 1
     assert rejections.rate_limited == 1
+    refute Map.has_key?(rejections, :malformed)
   end
 
   test "a partial loopback client times out without taking down the receiver", %{server: server, issue: issue} do
@@ -129,6 +146,21 @@ defmodule Aiur.Claude.TelemetryTest do
     assert submit(server, authorization, payload("session-recovered", "request-recovered")).status == 200
   end
 
+  test "the listener applies its connection bound once across the receiver", %{server: server} do
+    listener = :sys.get_state(server).listener
+
+    acceptor_pool =
+      listener
+      |> Supervisor.which_children()
+      |> Enum.find_value(fn
+        {:acceptor_pool_supervisor, pid, :supervisor, _modules} -> pid
+        _child -> nil
+      end)
+
+    assert is_pid(acceptor_pool)
+    assert length(Supervisor.which_children(acceptor_pool)) == 1
+  end
+
   test "replacement rotates the capability and explicit teardown revokes the generation", %{server: server, issue: issue} do
     first = launch(server, issue)
     second = launch(server, issue)
@@ -138,6 +170,20 @@ defmodule Aiur.Claude.TelemetryTest do
 
     assert :ok = Telemetry.revoke(second, server)
     assert Telemetry.health(server).active_generations == 0
+  end
+
+  test "releasing an in-flight request after teardown cannot restore its capability", %{server: server, issue: issue} do
+    first = launch(server, issue)
+    authorization = authorization(first)
+
+    assert {:ok, request_id} = Telemetry.authorize(authorization, server)
+    assert :ok = Telemetry.revoke(first, server)
+    assert :ok = Telemetry.release_request(request_id, server)
+    assert Telemetry.health(server).active_generations == 0
+
+    second = launch(server, issue)
+    assert submit(server, authorization, payload("session-stale", "request-stale")).status == 401
+    assert submit(server, authorization(second), payload("session-current", "request-current")).status == 200
   end
 
   test "launch configuration uses a loopback HTTP/JSON logs-only transport with explicit content gates", %{server: server, issue: issue} do
@@ -162,6 +208,18 @@ defmodule Aiur.Claude.TelemetryTest do
 
     refute inspect(:sys.get_status(server)) =~ capability
     refute Map.has_key?(Telemetry.health(server), :endpoint)
+  end
+
+  test "an unavailable receiver fails the launch without crashing its owner", %{issue: issue} do
+    missing_server = Module.concat(__MODULE__, :MissingReceiver)
+
+    assert {:error, :receiver_unavailable} =
+             Telemetry.prepare_launch(issue,
+               server: missing_server,
+               attempt_id: "attempt-1",
+               workspace_ownership: %{generation: 7},
+               backend: "claude"
+             )
   end
 
   @tag capability_mint: :deterministic
