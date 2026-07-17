@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Recovery checkpoint (updated 2026-07-17 02:41 PDT)
+## Recovery checkpoint (updated 2026-07-17 04:49 PDT)
 
 This checkpoint supersedes the older live-state narrative below. The former
 Claude Executor is not being restarted. Its exact local session was recovered
@@ -14,27 +14,29 @@ fresh canonical runtime checkout `/home/orangekid/github/aiur-runtime-develop`.
 The Executor force-built `scripts/aiurdev` first, removed 18 leaked test-only
 `opencode serve` process groups, and launched the background daemon with a
 sixteen-worker ceiling. The checkout and authoritative remote tip are exact
-`develop@59e9a2d5f002e3381ee49e8e88fe12598af4925f`; Claude fallback is empty.
+`develop@01a9fc8849044edbaf0663c9852c937d5c709904`; Claude fallback is empty.
 The dashboard is healthy on loopback. The requested Tailscale bind was not used
 because neither dashboard-auth environment variable was present; do not invent
 credentials or restart the healthy daemon only to change that listener.
 
-The recovered fleet began with nine one-writer Codex owners and is now eight
-after the first merge:
+The recovered fleet began with nine one-writer Codex owners. Two infrastructure
+lanes have now merged, while the surviving feature owners remain isolated:
 
-- coordination RPC latency #1031 / PR #1036;
-- BO-011/#1098;
-- DASH-003/#1110;
+- BO-011/#1098 / ready PR #1233;
+- DASH-003/#1110 / draft PR #1234;
 - DASH-009/#1115 / draft PR #1204;
-- DASH-010/#1116;
+- DASH-010/#1116 / draft PR #1232;
 - DASH-014/#1120;
 - DASH-026/#1130 / PR #1217; and
 - DASH-029/#1133.
 
-No additional Build Order ticket is queued. The host settled after startup and
-has remained within the historical 8–11-worker safe envelope. Preserve one
-writer per workspace. After every `develop` merge, send the exact new base to
-all owners and stop reviewing their now-stale heads until they push replacements.
+The Executor also triaged the newly confirmed full-suite monitor race #1235 as
+a narrow Ad Hoc stability lane and dispatched one Codex owner. No additional
+Build Order ticket is queued. Load reached 16.68 on 12 CPUs during the resulting
+five-worker base-sync wave, so DASH-009/#1115 remains deliberately deactivated
+until capacity falls. Preserve one writer per workspace. After every `develop`
+merge, send the exact new base to all owners and stop reviewing their now-stale
+heads until they push replacements.
 
 The first convergence lane is complete: PR #1213's one-file global-log test
 isolation passed every exact-head CI job and six independent Compound
@@ -45,6 +47,20 @@ PR heads became stale at that instant. #1036's prior exact head was `ab94042b`,
 #1204's was `0fdb7e4c` (with a ticket-local lint failure), and #1217's remote
 head was still `c2e67acd`; their owners were told to preserve scope, integrate
 exact `59e9a2d5`, and publish replacement heads before Executor review.
+
+The second convergence lane is also complete. The Executor took over #1036 in
+an isolated checkout, repaired its asynchronous admission, daemon-owned outcome
+trust boundary, schema migration, retry coalescing, attention ordering, and JSON
+primitive handling, and published final head
+`883e03f107aff8aa1b78212687b4076e8bb3ee9e`. Independent correctness, security,
+and reliability reviews found no remaining issue; every exact-head CI job and
+both regression guards passed. PR #1036 squash-merged as
+`develop@01a9fc8849044edbaf0663c9852c937d5c709904`, and #1031 was explicitly
+closed with `agent:done`. The live owners received that exact replacement base
+through Aiur's Executor-message path. DASH-010 immediately published replacement
+head `ba666dbb964450a2a7d2c561fbda8c5182771864` and restarted CI; DASH-026 is
+integrating it. BO-011 remains green at `07ffcfcd` but now needs an exact-base
+integration before merge.
 
 DASH-013/#1119 remains source-complete as draft PR #1228 at
 `6f5696828cb54f775623299cc61c1067ef2b2810`, with full CI green and independent
