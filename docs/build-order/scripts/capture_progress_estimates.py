@@ -179,22 +179,6 @@ def _event_id(row: dict[str, Any]) -> str | int | None:
     return None
 
 
-def _delivery_status(row: dict[str, Any], event_id: str | int | None) -> str:
-    event = row.get("event")
-    if event == "tool_call_failed":
-        return "failed"
-    if event in ESTIMATE_KINDS:
-        return "emitted"
-    method = _get(row, "payload", "method")
-    item = _get(row, "payload", "params", "item")
-    if method == "item/completed" and isinstance(item, dict):
-        if item.get("success") is False or item.get("status") == "failed":
-            return "failed"
-    if event_id is not None:
-        return "emitted"
-    return "attempted"
-
-
 def _publication_outcome(row: dict[str, Any]) -> dict[str, Any] | None:
     status = PUBLICATION_EVENTS.get(row.get("event"))
     call_id = _call_id(row)
@@ -269,7 +253,6 @@ def sample_from_row(
         message = _text(arguments.get("message", payload.get("message")))
         call_id = _call_id(row)
         source = str(source_log.resolve())
-        event_id = _event_id(row)
         return {
             "schema_version": 1,
             "sample_id": _sample_id(
@@ -277,13 +260,13 @@ def sample_from_row(
             ),
             "ticket": ticket,
             "timestamp": timestamp,
-            "event_id": event_id,
+            "event_id": None,
             "tool_call_id": call_id,
             "estimate_kind": kind,
             "percent": percent,
             "label": label,
             "message": message,
-            "delivery_status": _delivery_status(row, event_id),
+            "delivery_status": "attempted",
             "source_log": source,
         }
     return None
@@ -457,28 +440,21 @@ def collect(
             root = raw_root.expanduser()
             for ticket in range(ticket_min, ticket_max + 1):
                 agent_log = root / str(ticket) / "logs" / "agent.ndjson"
-                publication_log = agent_log.with_name(PUBLICATION_LOG_NAME)
-                for source_log in (agent_log, publication_log):
-                    if not source_log.is_file():
+                if not agent_log.is_file():
+                    continue
+                scanned_tickets.add(ticket)
+                for row in _source_rows(agent_log, stats):
+                    sample = sample_from_row(row, ticket, agent_log)
+                    if sample is None:
                         continue
-                    scanned_tickets.add(ticket)
-                    for row in _source_rows(source_log, stats):
-                        _remember_publication_outcome(
-                            row, ticket, publication_outcomes, stats
+                    stats["estimate_records_seen"] += 1
+                    sample_id = sample["sample_id"]
+                    if sample_id in samples:
+                        samples[sample_id] = _merge_sample(
+                            samples[sample_id], sample
                         )
-                        if source_log != agent_log:
-                            continue
-                        sample = sample_from_row(row, ticket, source_log)
-                        if sample is None:
-                            continue
-                        stats["estimate_records_seen"] += 1
-                        sample_id = sample["sample_id"]
-                        if sample_id in samples:
-                            samples[sample_id] = _merge_sample(
-                                samples[sample_id], sample
-                            )
-                        else:
-                            samples[sample_id] = sample
+                    else:
+                        samples[sample_id] = sample
 
         seen_publication_logs: set[Path] = set()
         for raw_root in publication_roots:

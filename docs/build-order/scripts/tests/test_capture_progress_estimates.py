@@ -32,10 +32,6 @@ class CaptureProgressEstimatesTests(unittest.TestCase):
         return self.write_log(path, *rows)
 
     def write_publication_rows(self, ticket: int, *rows: object) -> Path:
-        path = self.root / str(ticket) / "logs" / "event-publications.ndjson"
-        return self.write_log(path, *rows)
-
-    def write_daemon_publication_rows(self, ticket: int, *rows: object) -> Path:
         enriched = []
         for row in rows:
             if isinstance(row, dict):
@@ -57,7 +53,7 @@ class CaptureProgressEstimatesTests(unittest.TestCase):
     def samples(self) -> list[dict[str, object]]:
         return [json.loads(line) for line in self.output.read_text().splitlines()]
 
-    def test_lifecycle_copies_collapse_and_completion_enriches_sample(self) -> None:
+    def test_lifecycle_copies_collapse_but_cannot_assert_delivery(self) -> None:
         arguments = {
             "name": "progress.checkin",
             "message": "review underway",
@@ -108,8 +104,8 @@ class CaptureProgressEstimatesTests(unittest.TestCase):
         self.assertEqual(1, result["total_samples"])
         sample = self.samples()[0]
         self.assertEqual("2026-07-14T01:00:00.000000Z", sample["timestamp"])
-        self.assertEqual("emitted", sample["delivery_status"])
-        self.assertEqual(4242, sample["event_id"])
+        self.assertEqual("attempted", sample["delivery_status"])
+        self.assertIsNone(sample["event_id"])
         self.assertEqual("progress.checkin", sample["estimate_kind"])
         self.assertEqual(90, sample["percent"])
 
@@ -204,7 +200,7 @@ class CaptureProgressEstimatesTests(unittest.TestCase):
                 },
             },
         )
-        self.write_daemon_publication_rows(
+        self.write_publication_rows(
             1086,
             {
                 "event": "event_publication_completed",
@@ -270,7 +266,13 @@ class CaptureProgressEstimatesTests(unittest.TestCase):
                 "event_id": 5003,
             },
         )
-        collect([self.root], self.output, 1091, 1091)
+        collect(
+            [self.root],
+            self.output,
+            1091,
+            1091,
+            [self.publication_root],
+        )
 
         self.write_publication_rows(
             1091,
@@ -281,13 +283,19 @@ class CaptureProgressEstimatesTests(unittest.TestCase):
                 "reason": "replayed failure",
             },
         )
-        collect([self.root], self.output, 1091, 1091)
+        collect(
+            [self.root],
+            self.output,
+            1091,
+            1091,
+            [self.publication_root],
+        )
 
         sample = self.samples()[0]
         self.assertEqual("emitted", sample["delivery_status"])
         self.assertEqual(5003, sample["event_id"])
 
-    def test_terminal_publication_failure_marks_pending_call_failed(self) -> None:
+    def test_workspace_forgery_cannot_override_daemon_publication_failure(self) -> None:
         arguments = {
             "name": "progress",
             "message": "publication queued",
@@ -312,21 +320,35 @@ class CaptureProgressEstimatesTests(unittest.TestCase):
                 },
             },
             {
-                "event": "event_publication_failed",
+                "event": "event_publication_completed",
                 "timestamp": "2026-07-14T02:31:01Z",
+                "tool_call_id": "exec-eventual-failure",
+                "event_id": 9999,
+                "topic": "ticket.1086.agent.progress",
+            },
+        )
+        self.write_publication_rows(
+            1086,
+            {
+                "event": "event_publication_failed",
+                "timestamp": "2026-07-14T02:31:02Z",
                 "tool_call_id": "exec-eventual-failure",
                 "reason": ["error", "disk_full"],
                 "topic": "ticket.1086.agent.progress",
             },
         )
 
-        collect([self.root], self.output)
+        collect(
+            [self.root],
+            self.output,
+            publication_roots=[self.publication_root],
+        )
 
         sample = self.samples()[0]
         self.assertIsNone(sample["event_id"])
         self.assertEqual("failed", sample["delivery_status"])
 
-    def test_failed_attempt_is_retained_but_distinguished(self) -> None:
+    def test_agent_reported_failure_remains_untrusted_attempt(self) -> None:
         self.write_rows(
             1087,
             {
@@ -345,7 +367,7 @@ class CaptureProgressEstimatesTests(unittest.TestCase):
             },
         )
         collect([self.root], self.output)
-        self.assertEqual("failed", self.samples()[0]["delivery_status"])
+        self.assertEqual("attempted", self.samples()[0]["delivery_status"])
 
     def test_rescan_and_source_removal_preserve_one_durable_sample(self) -> None:
         source = self.write_rows(
@@ -365,7 +387,7 @@ class CaptureProgressEstimatesTests(unittest.TestCase):
         self.assertEqual(0, second["new_samples"])
         self.assertEqual(1, third["total_samples"])
         self.assertEqual([1088], third["covered_tickets"])
-        self.assertEqual("emitted", self.samples()[0]["delivery_status"])
+        self.assertEqual("attempted", self.samples()[0]["delivery_status"])
 
     def test_malformed_durable_output_fails_closed(self) -> None:
         self.output.parent.mkdir(parents=True)
@@ -385,7 +407,13 @@ class CaptureProgressEstimatesTests(unittest.TestCase):
         self.write_progress_attempt(ticket, "exec-replay")
         self.write_publication_rows(ticket, *outcomes)
 
-        collect([self.root], self.output, ticket, ticket)
+        collect(
+            [self.root],
+            self.output,
+            ticket,
+            ticket,
+            [self.publication_root],
+        )
 
         sample = self.samples()[0]
         self.assertEqual("emitted", sample["delivery_status"])

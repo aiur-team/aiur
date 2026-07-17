@@ -25,9 +25,9 @@ python3 docs/build-order/scripts/capture_progress_estimates.py \
 ```
 
 The default publication root is `~/.aiur/logs`; the collector discovers each
-run's `log/event-publications.ndjson` beneath it. Legacy workspace-local outcome
-files remain readable for already-captured runs, but current daemons write only
-to their trusted run-log directory.
+run's `log/event-publications.ndjson` beneath it. Terminal publication outcomes
+are accepted only from those daemon-owned roots; workspace transcript rows can
+establish an attempted tool call but cannot assert its eventual delivery.
 
 The collector streams each source file one line at a time, tolerates malformed
 and unrelated source records, and merges repeat scans by the tool-call identity.
