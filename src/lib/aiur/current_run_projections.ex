@@ -284,7 +284,12 @@ defmodule Aiur.CurrentRunProjections do
         {Map.put(status, :health, :available), true}
 
       _result ->
-        status = state.sources.status |> ensure_status_buckets() |> Map.put(:health, :unavailable)
+        status =
+          state.sources.status
+          |> ensure_status_buckets()
+          |> Map.put(:health, :unavailable)
+          |> Map.put(:freshness, :stale)
+
         {status, false}
     end
   end
@@ -407,7 +412,7 @@ defmodule Aiur.CurrentRunProjections do
         entries: Enum.reverse(issue_entries),
         generation: nil,
         health: issue_source_health(weight_health),
-        freshness: issue_source_freshness(stale_cache?, race?)
+        freshness: issue_source_freshness(weight_health)
       }
     }
 
@@ -461,9 +466,8 @@ defmodule Aiur.CurrentRunProjections do
   defp issue_source_health(:healthy), do: :available
   defp issue_source_health(_weight_health), do: :degraded
 
-  defp issue_source_freshness(true, _race?), do: :stale
-  defp issue_source_freshness(_stale_cache?, true), do: :stale
-  defp issue_source_freshness(_stale_cache?, _race?), do: :fresh
+  defp issue_source_freshness(:healthy), do: :fresh
+  defp issue_source_freshness(_weight_health), do: :stale
 
   defp units_snapshot(fun, inputs, membership) do
     case safe_units_snapshot(fun, inputs) do

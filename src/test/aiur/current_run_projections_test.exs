@@ -90,6 +90,37 @@ defmodule Aiur.CurrentRunProjectionsTest do
     assert Process.alive?(owner)
   end
 
+  test "status reader failures mark retained status and issue facts stale" do
+    {source, owner, _pubsub} = start_owner()
+    :ok = CurrentRunProjections.refresh(owner)
+    good = CurrentRunSummary.snapshot(server: owner)
+
+    Agent.update(source, &Map.put(&1, :status, :timeout))
+    assert :ok = CurrentRunProjections.refresh(owner)
+
+    status_stale = CurrentRunSummary.snapshot(server: owner)
+    assert status_stale.health.status == :partial
+    assert status_stale.sources.status_health == :unavailable
+    assert status_stale.freshness.status == :stale
+    assert status_stale.last_known_good.generation == good.generation
+
+    Agent.update(source, fn current ->
+      current
+      |> Map.put(:status, sources().status)
+      |> Map.put(:status_facts, :timeout)
+    end)
+
+    assert :ok = CurrentRunProjections.refresh(owner)
+
+    issue_stale = CurrentRunSummary.snapshot(server: owner)
+    assert issue_stale.health.status == :partial
+    assert issue_stale.sources.issue_health == :degraded
+    assert issue_stale.sources.weight_health == :unavailable
+    assert issue_stale.freshness.status == :stale
+    assert issue_stale.last_known_good.generation == good.generation
+    assert Process.alive?(owner)
+  end
+
   test "membership reconciliation freshness transitions projections from partial to exact" do
     {source, owner, _pubsub} =
       start_owner(fn sources ->
