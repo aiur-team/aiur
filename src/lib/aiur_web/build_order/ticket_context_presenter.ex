@@ -565,7 +565,7 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
   defp positive_integer(_value), do: nil
 
   defp evidence_source(%{kind: kind, name: name}) when kind in [:agent_event, :agent_alert, :legacy] and is_binary(name) do
-    case safe_opaque(name) do
+    case Bounded.opaque(name) do
       nil -> nil
       safe_name -> %{kind: kind, name: safe_name}
     end
@@ -636,17 +636,10 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
   defp safe_repository_part?(_value), do: false
 
   defp maybe_put_safe_opaque(map, key, value) do
-    case safe_opaque(value) do
+    case Bounded.opaque(value) do
       nil -> map
       safe -> Map.put(map, key, safe)
     end
-  end
-
-  defp safe_opaque(value) do
-    if value != "" and byte_size(value) <= 128 and
-         Regex.match?(~r/^[A-Za-z0-9._:-]+$/, value) and Aiur.SecretRedactor.redact(value) == value,
-       do: value,
-       else: nil
   end
 
   defp unavailable_view do

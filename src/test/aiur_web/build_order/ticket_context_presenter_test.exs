@@ -228,6 +228,44 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenterTest do
     end
   end
 
+  test "deduplicates capabilities without letting later entries replace the first destination" do
+    identity = identity()
+
+    context =
+      TicketContextPresenter.present(detail_state(identity), history(identity), [
+        %{kind: :chat, available?: true, href: "/chat/first"},
+        %{kind: :chat, available?: true, href: "/chat/replacement"},
+        %{kind: :commands, available?: true, href: "/commands/42"}
+      ])
+
+    assert Enum.map(context.capabilities, &{&1.label, &1.href}) == [
+             {"Chat", "/chat/first"},
+             {"Commands", "/commands/42"}
+           ]
+  end
+
+  test "caps normalized capabilities after four distinct destinations" do
+    identity = identity()
+
+    context =
+      TicketContextPresenter.present(detail_state(identity), history(identity), [
+        %{kind: :github, available?: false},
+        %{kind: :github, variant: :issue, available?: true, href: "https://github.com/owner/repo/issues/42"},
+        %{
+          kind: :github,
+          variant: :pull_request,
+          number: 7,
+          available?: true,
+          href: "https://github.com/owner/repo/pull/7"
+        },
+        %{kind: :chat, available?: true, href: "/chat/42"},
+        %{kind: :commands, available?: true, href: "/commands/42"}
+      ])
+
+    assert Enum.map(context.capabilities, & &1.label) == ["GitHub", "Issue", "Pull request", "Chat"]
+    refute Enum.any?(context.capabilities, &(&1.kind == :commands))
+  end
+
   defp detail_state(identity, overrides \\ []) do
     %State{
       identity: identity,

@@ -1,11 +1,10 @@
 defmodule Aiur.BuildOrder.TicketHistory.Normalizer do
   @moduledoc false
 
-  alias Aiur.BuildOrder.TicketHistory.Entry
-  alias Aiur.{SecretRedactor, TicketObservation, TrackerIdentity}
+  alias Aiur.BuildOrder.{Bounded, TicketHistory.Entry}
+  alias Aiur.{TicketObservation, TrackerIdentity}
 
   @hard_limit 100
-  @max_opaque_bytes 128
   @progress_names ["progress", "progress.checkin", "progress.phase"]
   @stages [:brainstorm, :plan, :work, :review]
   @transitions [:start, :end]
@@ -210,7 +209,7 @@ defmodule Aiur.BuildOrder.TicketHistory.Normalizer do
 
   defp source(%{kind: kind, name: name})
        when kind in [:agent_event, :agent_alert, :legacy] and is_binary(name) do
-    case safe_opaque(name) do
+    case Bounded.opaque(name) do
       nil -> nil
       safe_name -> %{kind: kind, name: safe_name}
     end
@@ -256,17 +255,10 @@ defmodule Aiur.BuildOrder.TicketHistory.Normalizer do
   defp maybe_put(map, key, value, predicate), do: if(predicate.(value), do: Map.put(map, key, value), else: map)
 
   defp maybe_put_opaque(map, key, value) do
-    case safe_opaque(value) do
+    case Bounded.opaque(value) do
       nil -> map
       safe -> Map.put(map, key, safe)
     end
-  end
-
-  defp safe_opaque(value) do
-    if value != "" and byte_size(value) <= @max_opaque_bytes and
-         Regex.match?(~r/^[A-Za-z0-9._:-]+$/, value) and SecretRedactor.redact(value) == value,
-       do: value,
-       else: nil
   end
 
   defp dedup_key(%Entry{event_id: event_id}) when is_integer(event_id), do: {:event_id, event_id}

@@ -1,9 +1,12 @@
 defmodule Aiur.BuildOrder.Bounded do
   @moduledoc false
 
+  alias Aiur.SecretRedactor
+
   @max_title_bytes 512
   @max_url_bytes 2048
   @max_github_issue_identifier_bytes 19
+  @max_opaque_bytes 128
 
   @spec title(term()) :: {:ok, String.t()} | :error
   def title(value), do: text(value, @max_title_bytes)
@@ -134,6 +137,20 @@ defmodule Aiur.BuildOrder.Bounded do
   end
 
   def text(_value, _limit), do: :error
+
+  @doc "Validates bounded opaque identifiers before they enter a public Build Order projection."
+  @spec opaque(term(), pos_integer()) :: String.t() | nil
+  def opaque(value, limit \\ @max_opaque_bytes)
+
+  def opaque(value, limit)
+      when is_binary(value) and is_integer(limit) and limit > 0 and byte_size(value) <= limit do
+    if String.valid?(value) and value != "" and
+         Regex.match?(~r/^[A-Za-z0-9._:-]+$/, value) and
+         SecretRedactor.redact(value) == value,
+       do: value
+  end
+
+  def opaque(_value, _limit), do: nil
 
   defp safe_github_uri?(%URI{
          scheme: "https",
