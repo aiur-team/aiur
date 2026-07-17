@@ -72,9 +72,11 @@ defmodule Aiur.CurrentRunProjections.SourceCollector do
     :ok
   end
 
-  @spec reply_waiters(t()) :: :ok
-  def reply_waiters(refresh) do
-    Enum.each(refresh.waiters, &GenServer.reply(&1, :ok))
+  @spec reply_waiters(t() | [GenServer.from()]) :: :ok
+  def reply_waiters(%{waiters: waiters}), do: reply_waiters(waiters)
+
+  def reply_waiters(waiters) when is_list(waiters) do
+    Enum.each(waiters, &GenServer.reply(&1, :ok))
     :ok
   end
 

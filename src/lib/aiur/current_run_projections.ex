@@ -10,7 +10,7 @@ defmodule Aiur.CurrentRunProjections do
 
   use GenServer
 
-  alias Aiur.CurrentRunProjections.{Refresh, SourceCollector, State}
+  alias Aiur.CurrentRunProjections.{CheckpointPersistence, Refresh, SourceCollector, State}
 
   @type projection :: :summary | :outcomes
   @refresh_timeout 30_000
@@ -65,6 +65,10 @@ defmodule Aiur.CurrentRunProjections do
   def handle_call({:snapshot, :outcomes}, _from, state),
     do: {:reply, state.outcome_snapshot, state}
 
+  def handle_call(:refresh, from, %{checkpoint_write: write} = state) when is_map(write) do
+    {:noreply, %{state | refresh_again?: true, queued_waiters: [from | state.queued_waiters]}}
+  end
+
   def handle_call(:refresh, from, %{refresh: nil} = state) do
     {:noreply, Refresh.start(%{state | refresh_pending?: false}, :full, [from])}
   end
@@ -78,7 +82,10 @@ defmodule Aiur.CurrentRunProjections do
   end
 
   @impl true
-  def handle_info(:refresh_sources, %{refresh_pending?: true, refresh: nil} = state) do
+  def handle_info(
+        :refresh_sources,
+        %{refresh_pending?: true, refresh: nil, checkpoint_write: nil} = state
+      ) do
     {:noreply, Refresh.start(%{state | refresh_pending?: false}, :full)}
   end
 
@@ -88,7 +95,7 @@ defmodule Aiur.CurrentRunProjections do
     schedule(:clock_tick, state.clock_interval_ms)
 
     state =
-      if is_nil(state.refresh) and not state.refresh_pending? do
+      if is_nil(state.refresh) and is_nil(state.checkpoint_write) and not state.refresh_pending? do
         Refresh.start(state, :clock)
       else
         state
@@ -116,6 +123,14 @@ defmodule Aiur.CurrentRunProjections do
     {:noreply, Refresh.finish(%{state | refresh: SourceCollector.expire(refresh)})}
   end
 
+  def handle_info({:current_run_checkpoint_result, ref, generation, result}, state) do
+    {:noreply, Refresh.finish_checkpoint(state, ref, generation, result)}
+  end
+
+  def handle_info({:current_run_checkpoint_deadline, ref, generation}, state) do
+    {:noreply, Refresh.expire_checkpoint(state, ref, generation)}
+  end
+
   def handle_info({:current_run_membership_changed, _payload}, state),
     do: {:noreply, Refresh.schedule(state)}
 
@@ -135,8 +150,10 @@ defmodule Aiur.CurrentRunProjections do
   def handle_info(_message, state), do: {:noreply, state}
 
   @impl true
-  def terminate(_reason, %{refresh: refresh}) when is_map(refresh), do: SourceCollector.finish(refresh)
-  def terminate(_reason, _state), do: :ok
+  def terminate(_reason, state) do
+    if is_map(state.refresh), do: SourceCollector.finish(state.refresh)
+    CheckpointPersistence.stop(state.checkpoint_write)
+  end
 
   defp subscribe(opts) do
     opts

@@ -4,8 +4,18 @@ defmodule Aiur.CurrentRunProjections.Projector do
   alias Aiur.{CurrentRunOutcomeSnapshot, CurrentRunSummary}
   alias Aiur.CurrentRunProjections.{Checkpoint, Finalizer, MembershipCache, SourceFallback, UnitsBuilder}
 
-  @spec full(map(), map()) :: {map(), term()}
-  def full(state, results) do
+  @spec full(map(), map()) :: {map(), term(), map()}
+  def full(%{restore_fence_pending?: true} = state, results) do
+    if required_source_failed?(results) do
+      {restore_canonical(state), nil, %{persist?: false, summary: false, outcomes: false}}
+    else
+      project_full(state, results)
+    end
+  end
+
+  def full(state, results), do: project_full(state, results)
+
+  defp project_full(state, results) do
     {sources, availability} = SourceFallback.resolve(results, state.sources)
     run_id = get_in(sources, [:run, :id])
     retained = if state.run_id == run_id, do: state.weight_facts, else: %{}
@@ -88,25 +98,21 @@ defmodule Aiur.CurrentRunProjections.Projector do
         summary_snapshot: summary.snapshot,
         outcome_snapshot: outcomes.snapshot,
         summary_lkg: summary.lkg,
-        outcome_lkg: outcomes.lkg
+        outcome_lkg: outcomes.lkg,
+        restore_fence_pending?: false
     }
 
-    case Checkpoint.write(candidate.checkpoint_writer, candidate) do
-      :ok ->
-        next = %{candidate | checkpoint_health: :healthy}
-        broadcast_changes(next, summary, outcomes)
-        {next, built.race_signature}
-
-      {:error, :checkpoint_write_failed} ->
-        failed = Checkpoint.fail(canonical)
-        broadcast_checkpoint_failure(canonical, failed)
-        {failed, built.race_signature}
-    end
+    changes = %{persist?: true, summary: summary.changed?, outcomes: outcomes.changed?}
+    {candidate, built.race_signature, changes}
   end
 
-  @spec clock(map(), map()) :: {map(), boolean()}
+  @spec clock(map(), map()) :: {map(), boolean(), map()}
+  def clock(%{restore_fence_pending?: true} = state, _results) do
+    {restore_canonical(state), false, %{persist?: false, summary: false, outcomes: false}}
+  end
+
   def clock(%{checkpoint_health: health} = state, _results) when health != :healthy do
-    {restore_canonical(state), false}
+    {restore_canonical(state), false, %{persist?: false, summary: false, outcomes: false}}
   end
 
   def clock(state, results) do
@@ -115,7 +121,7 @@ defmodule Aiur.CurrentRunProjections.Projector do
     run_id = Map.get(run, :id)
 
     if is_binary(state.run_id) and is_binary(run_id) and state.run_id != run_id do
-      {restore_canonical(state), true}
+      {restore_canonical(state), true, %{persist?: false, summary: false, outcomes: false}}
     else
       sources = Map.put(state.sources, :run, run)
       availability = Map.put(state.availability, :run, Map.fetch!(clock_availability, :run))
@@ -137,8 +143,6 @@ defmodule Aiur.CurrentRunProjections.Projector do
           state.denominator_signature
         )
 
-      canonical = canonical_state(state)
-
       candidate = %{
         state
         | sources: sources,
@@ -149,18 +153,22 @@ defmodule Aiur.CurrentRunProjections.Projector do
           summary_lkg: summary.lkg
       }
 
-      case Checkpoint.write(candidate.checkpoint_writer, candidate) do
-        :ok ->
-          next = %{candidate | checkpoint_health: :healthy}
-          broadcast_summary_change(next, summary)
-          {next, false}
-
-        {:error, :checkpoint_write_failed} ->
-          failed = Checkpoint.fail(canonical)
-          broadcast_checkpoint_failure(canonical, failed)
-          {failed, false}
-      end
+      {candidate, false, %{persist?: true, summary: summary.changed?, outcomes: false}}
     end
+  end
+
+  @spec commit(map(), map(), map()) :: map()
+  def commit(state, candidate, changes) do
+    next = state |> Checkpoint.adopt(candidate) |> Map.put(:checkpoint_health, :healthy)
+    broadcast_changes(next, changes)
+    next
+  end
+
+  @spec checkpoint_failed(map()) :: map()
+  def checkpoint_failed(state) do
+    failed = Checkpoint.fail(state)
+    broadcast_checkpoint_failure(state, failed)
+    failed
   end
 
   defp canonical_state(%{refresh: %{base_summary: summary, base_outcomes: outcomes}} = state) do
@@ -175,6 +183,10 @@ defmodule Aiur.CurrentRunProjections.Projector do
 
   defp restore_canonical(state), do: state
 
+  defp required_source_failed?(results) do
+    Enum.any?([:run, :membership], &match?({:error, _reason}, Map.get(results, &1)))
+  end
+
   defp next_denominator_generation(previous_run, run, _previous, _current, _generation)
        when previous_run != run,
        do: 1
@@ -187,30 +199,20 @@ defmodule Aiur.CurrentRunProjections.Projector do
   defp next_denominator_generation(run, run, _previous, _current, generation),
     do: generation + 1
 
-  defp broadcast_changes(state, summary, outcomes) do
-    if summary.changed? do
+  defp broadcast_changes(state, changes) do
+    if changes.summary do
       broadcast(
         state.pubsub,
         CurrentRunSummary.topic(),
-        {:current_run_summary_changed, summary.snapshot}
+        {:current_run_summary_changed, state.summary_snapshot}
       )
     end
 
-    if outcomes.changed? do
+    if changes.outcomes do
       broadcast(
         state.pubsub,
         CurrentRunOutcomeSnapshot.topic(),
-        {:current_run_outcome_snapshot_changed, outcomes.snapshot}
-      )
-    end
-  end
-
-  defp broadcast_summary_change(state, summary) do
-    if summary.changed? do
-      broadcast(
-        state.pubsub,
-        CurrentRunSummary.topic(),
-        {:current_run_summary_changed, summary.snapshot}
+        {:current_run_outcome_snapshot_changed, state.outcome_snapshot}
       )
     end
   end

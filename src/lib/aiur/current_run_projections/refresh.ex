@@ -1,7 +1,7 @@
 defmodule Aiur.CurrentRunProjections.Refresh do
   @moduledoc false
 
-  alias Aiur.CurrentRunProjections.{Projector, SourceCollector}
+  alias Aiur.CurrentRunProjections.{CheckpointPersistence, Projector, SourceCollector}
 
   @type mode :: :full | :clock
 
@@ -25,17 +25,53 @@ defmodule Aiur.CurrentRunProjections.Refresh do
   @spec finish(map(), pid()) :: map()
   def finish(%{refresh: refresh} = state, owner \\ self()) do
     SourceCollector.finish(refresh)
-    {projected, race_signature, force_full?} = project(state, refresh)
 
-    projected
-    |> Map.put(:refresh, nil)
-    |> maybe_retry_race(race_signature)
-    |> maybe_force_full(force_full?)
-    |> continue(owner)
+    case project(state, refresh) do
+      {:persist, candidate, race_signature, force_full?, changes} ->
+        CheckpointPersistence.start(
+          state,
+          candidate,
+          [
+            changes: changes,
+            race_signature: race_signature,
+            force_full?: force_full?,
+            waiters: refresh.waiters
+          ],
+          owner
+        )
+
+      {:complete, projected, race_signature, force_full?} ->
+        SourceCollector.reply_waiters(refresh)
+
+        projected
+        |> Map.put(:refresh, nil)
+        |> maybe_retry_race(race_signature)
+        |> maybe_force_full(force_full?)
+        |> continue(owner)
+    end
+  end
+
+  @spec finish_checkpoint(map(), reference(), pos_integer(), term(), pid()) :: map()
+  def finish_checkpoint(state, ref, generation, result, owner \\ self()) do
+    case CheckpointPersistence.finish(state, ref, generation, result) do
+      :stale -> state
+      completion -> complete_checkpoint(completion, owner)
+    end
+  end
+
+  @spec expire_checkpoint(map(), reference(), pos_integer(), pid()) :: map()
+  def expire_checkpoint(state, ref, generation, owner \\ self()) do
+    case CheckpointPersistence.expire(state, ref, generation) do
+      :stale -> state
+      completion -> complete_checkpoint(completion, owner)
+    end
   end
 
   @spec request_full(map(), pid()) :: map()
   def request_full(state, owner \\ self())
+
+  def request_full(%{checkpoint_write: write} = state, _owner) when is_map(write),
+    do: %{state | refresh_again?: true}
 
   def request_full(%{refresh: nil} = state, owner) do
     state |> Map.put(:refresh_pending?, false) |> start(:full, [], owner)
@@ -47,6 +83,9 @@ defmodule Aiur.CurrentRunProjections.Refresh do
   def schedule(state, owner \\ self())
 
   def schedule(%{refresh: refresh} = state, _owner) when is_map(refresh),
+    do: %{state | refresh_again?: true}
+
+  def schedule(%{checkpoint_write: write} = state, _owner) when is_map(write),
     do: %{state | refresh_again?: true}
 
   def schedule(%{refresh_pending?: true} = state, _owner), do: state
@@ -62,23 +101,45 @@ defmodule Aiur.CurrentRunProjections.Refresh do
   defp refreshing_outcomes(state, :clock), do: state.outcome_snapshot
 
   defp project(state, %{mode: :full} = refresh) do
-    {projected, race_signature} = Projector.full(state, refresh.results)
-    SourceCollector.reply_waiters(refresh)
-    {projected, race_signature, false}
+    {projected, race_signature, changes} = Projector.full(state, refresh.results)
+
+    if changes.persist? do
+      {:persist, projected, race_signature, false, changes}
+    else
+      {:complete, projected, race_signature, false}
+    end
   end
 
   defp project(state, %{mode: :clock} = refresh) do
-    {projected, force_full?} = Projector.clock(state, refresh.results)
-    {projected, nil, force_full?}
+    {projected, force_full?, changes} = Projector.clock(state, refresh.results)
+
+    if changes.persist? do
+      {:persist, projected, nil, force_full?, changes}
+    else
+      {:complete, projected, nil, force_full?}
+    end
   end
 
-  defp maybe_retry_race(state, nil), do: %{state | last_race_signature: nil}
+  defp complete_checkpoint({:ok, state, write, result}, owner) do
+    next =
+      case result do
+        :ok -> Projector.commit(state, write.candidate, write.changes)
+        _error -> Projector.checkpoint_failed(state)
+      end
+
+    SourceCollector.reply_waiters(write.waiters)
+
+    next
+    |> maybe_retry_race(write.race_signature)
+    |> maybe_force_full(write.force_full?)
+    |> continue(owner)
+  end
 
   defp maybe_retry_race(state, signature) do
-    if state.last_race_signature == signature do
-      state
-    else
-      %{state | last_race_signature: signature, refresh_again?: true}
+    cond do
+      is_nil(signature) -> %{state | last_race_signature: nil}
+      state.last_race_signature == signature -> state
+      true -> %{state | last_race_signature: signature, refresh_again?: true}
     end
   end
 

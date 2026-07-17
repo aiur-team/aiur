@@ -10,7 +10,7 @@ defmodule Aiur.CurrentRunProjectionsTest do
   }
 
   alias Aiur.CurrentRunOutcomeSnapshot.MembershipIndex
-  alias Aiur.CurrentRunProjections.Projector
+  alias Aiur.CurrentRunProjections.{Checkpoint, Projector}
 
   test "refreshes both projections, publishes changes, and serves read APIs" do
     {source, owner, pubsub} = start_owner()
@@ -251,27 +251,63 @@ defmodule Aiur.CurrentRunProjectionsTest do
 
   test "reader-boundary sanitization keeps raw issue and workspace facts out of owner state" do
     sentinel = "FORBIDDEN-RAW-WORKSPACE-#{System.unique_integer([:positive])}"
+    test_pid = self()
 
     {source, owner, _pubsub} =
-      start_owner(fn current ->
-        current
-        |> put_in([:run, :workspace_path], sentinel)
-        |> put_in([:membership, :members, Access.at(0), :raw_issue], %{body: sentinel})
-        |> put_in([:membership, :members, Access.at(0), :workspace_path], sentinel)
-        |> put_in([:status, :running, Access.at(0), :title], sentinel)
-        |> put_in([:status_facts, Access.at(0), :body], sentinel)
-        |> put_in([:status_facts, Access.at(0), :workspace_path], sentinel)
-        |> put_in([:activity, :entries, Access.at(0), :raw_issue], sentinel)
-        |> update_in([:merges, :merges, Access.at(0)], &%{&1 | content_hash: sentinel})
-      end)
+      start_owner(
+        fn current ->
+          current
+          |> put_in([:run, :workspace_path], sentinel)
+          |> put_in([:membership, :members, Access.at(0), :raw_issue], %{body: sentinel})
+          |> put_in([:membership, :members, Access.at(0), :workspace_path], sentinel)
+          |> put_in([:status, :running, Access.at(0), :title], sentinel)
+          |> put_in([:status_facts, Access.at(0), :body], sentinel)
+          |> put_in([:status_facts, Access.at(0), :workspace_path], sentinel)
+          |> put_in([:activity, :entries, Access.at(0), :raw_issue], sentinel)
+          |> update_in([:merges, :merges, Access.at(0)], &%{&1 | content_hash: sentinel})
+        end,
+        checkpoint_writer: fn _run_id, checkpoint ->
+          send(test_pid, {:sanitized_projection_checkpoint, checkpoint})
+          :ok
+        end
+      )
 
     assert :ok = CurrentRunProjections.refresh(owner)
+    assert_receive {:sanitized_projection_checkpoint, checkpoint}, 2_000
     state_text = inspect(:sys.get_state(owner), limit: :infinity, printable_limit: :infinity)
+    checkpoint_text = inspect(checkpoint, limit: :infinity, printable_limit: :infinity)
 
     refute state_text =~ sentinel
+    refute checkpoint_text =~ sentinel
     refute inspect(CurrentRunSummary.snapshot(server: owner), limit: :infinity) =~ sentinel
     refute inspect(CurrentRunOutcomeSnapshot.snapshot(server: owner), limit: :infinity) =~ sentinel
     assert Process.alive?(source)
+  end
+
+  test "checkpoint fallback collections remain bounded" do
+    oversized = Enum.map(1..1_001, &%{identity: identity(&1)})
+
+    checkpoint =
+      Checkpoint.dump(%{
+        sources: %{
+          membership: %{members: oversized, truncated?: false},
+          status: %{running: oversized, retrying: oversized, idle: oversized},
+          status_facts: oversized,
+          activity: %{entries: oversized},
+          merges: %{merges: oversized}
+        },
+        units: %{rows: oversized},
+        weight_facts: Map.new(1..1_001, &{&1, %{complexity: 1}})
+      })
+
+    assert length(checkpoint.sources.membership.members) == 1_000
+    assert checkpoint.sources.membership.truncated?
+    assert length(checkpoint.sources.status.running) == 1_000
+    assert length(checkpoint.sources.status_facts) == 1_000
+    assert length(checkpoint.sources.activity.entries) == 1_000
+    assert length(checkpoint.sources.merges.merges) == 1_000
+    assert length(checkpoint.units.rows) == 1_000
+    assert map_size(checkpoint.weight_facts) == 1_000
   end
 
   test "membership generation fences outcome last-known-good snapshots" do
@@ -455,6 +491,228 @@ defmodule Aiur.CurrentRunProjectionsTest do
     assert after_restart.eta == before_restart.eta
   end
 
+  test "first required-source failure after restart retains the restored projection fence" do
+    for {failed_key, checkpoint_shape} <- [
+          {:run, :current},
+          {:membership, :current},
+          {:run, :legacy},
+          {:membership, :legacy}
+        ] do
+      source =
+        start_supervised!(
+          {Agent, fn -> weighted_sources() end},
+          id: unique_name(failed_key)
+        )
+
+      checkpoint =
+        start_supervised!(Supervisor.child_spec({Agent, fn -> %{} end}, id: unique_name(:restart_failure_checkpoint)))
+
+      pubsub = unique_name(:restart_failure_pubsub)
+      name = unique_name(:restart_failure_owner)
+      start_supervised!({Phoenix.PubSub, name: pubsub}, id: pubsub)
+      test_pid = self()
+
+      checkpoint_reader = fn ->
+        send(test_pid, {:projection_checkpoint_read, self()})
+        %{run_id: "run-1", checkpoint: Agent.get(checkpoint, &Map.get(&1, "run-1"))}
+      end
+
+      checkpoint_writer = fn run_id, value ->
+        Agent.update(checkpoint, &Map.put(&1, run_id, value))
+        send(test_pid, {:projection_checkpoint_written, run_id, value})
+        :ok
+      end
+
+      opts =
+        owner_options(source, pubsub,
+          name: name,
+          checkpoint_reader: checkpoint_reader,
+          checkpoint_writer: checkpoint_writer
+        )
+
+      {:ok, supervisor} = Supervisor.start_link([{CurrentRunProjections, opts}], strategy: :one_for_one)
+      on_exit(fn -> if Process.alive?(supervisor), do: Supervisor.stop(supervisor) end)
+      assert_receive {:projection_checkpoint_read, initial_owner}, 2_000
+
+      assert :ok = CurrentRunProjections.refresh(name)
+      assert_receive {:projection_checkpoint_written, "run-1", _checkpoint}, 2_000
+
+      Agent.update(source, fn current ->
+        Map.put(current, :status_facts, [List.last(current.status_facts)])
+      end)
+
+      assert :ok = CurrentRunProjections.refresh(name)
+      assert_receive {:projection_checkpoint_written, "run-1", fenced_checkpoint}, 2_000
+      before_restart = CurrentRunSummary.snapshot(server: name)
+      assert before_restart.eta.status == :available
+      assert length(fenced_checkpoint.sources.membership.members) == 3
+      assert length(fenced_checkpoint.units.rows) == 3
+      assert fenced_checkpoint.weight_health == :healthy
+
+      if checkpoint_shape == :legacy do
+        Agent.update(checkpoint, fn checkpoints ->
+          update_in(checkpoints, ["run-1"], fn value ->
+            Map.drop(value, [:sources, :availability, :units, :weight_health])
+          end)
+        end)
+      end
+
+      original = Agent.get(source, &Map.fetch!(&1, failed_key))
+      Agent.update(source, &Map.put(&1, failed_key, :timeout))
+      Process.exit(initial_owner, :kill)
+
+      assert_receive {:projection_checkpoint_read, restarted}, 2_000
+      assert restarted != initial_owner
+      assert :ok = CurrentRunProjections.refresh(name)
+
+      degraded = CurrentRunSummary.snapshot(server: name)
+      degraded_state = :sys.get_state(name)
+
+      if checkpoint_shape == :current do
+        assert_receive {:projection_checkpoint_written, "run-1", degraded_checkpoint}, 2_000
+        assert degraded.weights == before_restart.weights
+        assert degraded.progress.exact == nil
+        assert degraded.progress.lower_bound == before_restart.progress.lower_bound
+        assert degraded.progress.denominator_weight == before_restart.progress.denominator_weight
+        assert degraded.progress.weighted_numerator == before_restart.progress.weighted_numerator
+        assert degraded.last_known_good.generation == before_restart.generation
+        assert map_size(degraded_state.weight_facts) == 3
+        assert length(degraded_state.sources.membership.members) == 3
+        assert length(degraded_checkpoint.sources.membership.members) == 3
+        assert map_size(degraded_checkpoint.weight_facts) == 3
+        refute degraded_state.restore_fence_pending?
+      else
+        refute_receive {:projection_checkpoint_written, "run-1", _checkpoint}, 50
+        assert degraded == before_restart
+        assert degraded_state.restore_fence_pending?
+
+        send(name, :clock_tick)
+        refute_receive {:projection_checkpoint_written, "run-1", _checkpoint}, 100
+        assert CurrentRunSummary.snapshot(server: name) == before_restart
+      end
+
+      Agent.update(source, &Map.put(&1, failed_key, original))
+      assert :ok = CurrentRunProjections.refresh(name)
+      assert_receive {:projection_checkpoint_written, "run-1", _checkpoint}, 2_000
+
+      recovered = CurrentRunSummary.snapshot(server: name)
+      assert recovered.weights == before_restart.weights
+      assert recovered.progress == before_restart.progress
+      assert recovered.eta == before_restart.eta
+      refute :sys.get_state(name).restore_fence_pending?
+
+      Supervisor.stop(supervisor)
+    end
+  end
+
+  test "blocked checkpoint persistence leaves canonical snapshots readable" do
+    test_pid = self()
+
+    checkpoint_writer = fn _run_id, checkpoint ->
+      send(test_pid, {:projection_checkpoint_blocked, self(), checkpoint.checkpoint_generation})
+
+      receive do
+        {:release_projection_checkpoint, result} -> result
+      end
+    end
+
+    {_source, owner, _pubsub} =
+      start_owner(fn value -> value end,
+        checkpoint_writer: checkpoint_writer,
+        checkpoint_timeout_ms: 2_000
+      )
+
+    baseline = CurrentRunSummary.snapshot(server: owner)
+    refresh = Task.async(fn -> CurrentRunProjections.refresh(owner) end)
+    assert_receive {:projection_checkpoint_blocked, writer, _generation}, 2_000
+
+    read = Task.async(fn -> CurrentRunSummary.snapshot(server: owner) end)
+    assert Task.await(read, 500) == baseline
+    assert Process.alive?(owner)
+    refute Task.yield(refresh, 0)
+
+    send(writer, {:release_projection_checkpoint, :ok})
+    assert Task.await(refresh, 2_000) == :ok
+    assert CurrentRunSummary.snapshot(server: owner).health.status == :healthy
+  end
+
+  test "checkpoint persistence deadline bounds a blocked writer" do
+    test_pid = self()
+
+    checkpoint_writer = fn _run_id, checkpoint ->
+      send(test_pid, {:projection_checkpoint_blocked, self(), checkpoint.checkpoint_generation})
+
+      receive do
+        :unreachable -> :ok
+      end
+    end
+
+    {_source, owner, _pubsub} =
+      start_owner(fn value -> value end,
+        checkpoint_writer: checkpoint_writer,
+        checkpoint_timeout_ms: 50
+      )
+
+    refresh = Task.async(fn -> CurrentRunProjections.refresh(owner) end)
+    assert_receive {:projection_checkpoint_blocked, writer, _generation}, 2_000
+    assert Task.await(refresh, 2_000) == :ok
+    refute Process.alive?(writer)
+
+    snapshot = CurrentRunSummary.snapshot(server: owner)
+    assert snapshot.generation == 0
+    assert snapshot.freshness.status == :stale
+    assert :projection_checkpoint_unavailable in snapshot.health.reasons
+    assert :sys.get_state(owner).checkpoint_health == {:unavailable, :write_failed}
+    assert Process.alive?(owner)
+  end
+
+  test "stale checkpoint task outcomes cannot corrupt recovered projection health" do
+    test_pid = self()
+
+    checkpoint_writer = fn _run_id, checkpoint ->
+      send(test_pid, {:projection_checkpoint_blocked, self(), checkpoint.checkpoint_generation})
+
+      receive do
+        {:release_projection_checkpoint, result} -> result
+      end
+    end
+
+    {source, owner, _pubsub} =
+      start_owner(fn value -> value end,
+        checkpoint_writer: checkpoint_writer,
+        checkpoint_timeout_ms: 2_000
+      )
+
+    first_refresh = Task.async(fn -> CurrentRunProjections.refresh(owner) end)
+    assert_receive {:projection_checkpoint_blocked, first_writer, first_generation}, 2_000
+    first_write = :sys.get_state(owner).checkpoint_write
+    send(first_writer, {:release_projection_checkpoint, {:error, :disk_full}})
+    assert Task.await(first_refresh, 2_000) == :ok
+    assert :sys.get_state(owner).checkpoint_health == {:unavailable, :write_failed}
+
+    Agent.update(source, &put_in(&1, [:activity, :entries], [activity_entry(identity(), 60)]))
+    recovery = Task.async(fn -> CurrentRunProjections.refresh(owner) end)
+    assert_receive {:projection_checkpoint_blocked, recovery_writer, recovery_generation}, 2_000
+    assert recovery_generation > first_generation
+    send(recovery_writer, {:release_projection_checkpoint, :ok})
+    assert Task.await(recovery, 2_000) == :ok
+
+    recovered = CurrentRunSummary.snapshot(server: owner)
+    assert recovered.health.status == :healthy
+    assert recovered.progress.exact == %{numerator: 3, denominator: 5}
+    assert :sys.get_state(owner).checkpoint_health == :healthy
+
+    send(owner, {
+      :current_run_checkpoint_result,
+      first_write.ref,
+      first_write.generation,
+      {:error, :checkpoint_write_failed}
+    })
+
+    assert CurrentRunSummary.snapshot(server: owner) == recovered
+    assert :sys.get_state(owner).checkpoint_health == :healthy
+  end
+
   test "failed checkpoints retain the last fenced generation across restart" do
     source = start_supervised!({Agent, fn -> sources() end})
 
@@ -521,7 +779,7 @@ defmodule Aiur.CurrentRunProjectionsTest do
 
     failed_state = :sys.get_state(name)
     assert failed_state.checkpoint_health == {:unavailable, :write_failed}
-    assert {^failed_state, false} = Projector.clock(failed_state, %{})
+    assert {^failed_state, false, %{persist?: false}} = Projector.clock(failed_state, %{})
 
     assert failed_outcomes.health.status == :partial
     assert failed_outcomes.freshness.status == :stale

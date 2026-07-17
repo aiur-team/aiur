@@ -21,11 +21,15 @@ defmodule Aiur.CurrentRunProjections.State do
       pubsub: Keyword.get(opts, :pubsub, Aiur.PubSub),
       task_supervisor: Keyword.get(opts, :task_supervisor, Aiur.TaskSupervisor),
       source_timeout_ms: positive_integer(opts, :source_timeout_ms, 5_000),
+      checkpoint_timeout_ms: positive_integer(opts, :checkpoint_timeout_ms, 5_000),
       clock_interval_ms: interval(opts, :clock_interval_ms, 1_000),
       reconcile_interval_ms: interval(opts, :reconcile_interval_ms, 30_000),
       checkpoint_reader: checkpoint_reader(opts, named?),
       checkpoint_writer: checkpoint_writer(opts, named?),
       checkpoint_health: :healthy,
+      checkpoint_generation: 0,
+      checkpoint_write: nil,
+      restore_fence_pending?: false,
       sources: sources,
       availability: Map.new(Map.keys(sources), &{&1, false}),
       units: units,
@@ -132,7 +136,7 @@ defmodule Aiur.CurrentRunProjections.State do
 
   defp default_checkpoint_reader(true), do: &CurrentRunMembership.projection_checkpoint/0
   defp default_checkpoint_reader(false), do: fn -> nil end
-  defp default_checkpoint_writer(true), do: &CurrentRunMembership.put_projection_checkpoint/2
+  defp default_checkpoint_writer(true), do: &CurrentRunMembership.put_projection_checkpoint_fenced/2
   defp default_checkpoint_writer(false), do: fn _, _ -> :ok end
 
   defp positive_integer(opts, key, default) do

@@ -71,6 +71,29 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
     assert %{run_id: @run_id, checkpoint: ^checkpoint} = Store.projection_checkpoint(pid)
   end
 
+  test "stale projection checkpoint generations cannot overwrite newer state", %{dir: dir} do
+    pid = start_store!(dir)
+    newer = %{checkpoint_generation: 20, summary_generation: 8}
+    stale = %{checkpoint_generation: 19, summary_generation: 7}
+
+    assert :ok = Store.put_projection_checkpoint(@run_id, newer, pid)
+    assert :ok = Store.put_projection_checkpoint(@run_id, stale, pid)
+    assert %{run_id: @run_id, checkpoint: ^newer} = Store.projection_checkpoint(pid)
+  end
+
+  test "expired projection checkpoint tasks cannot mutate store state", %{dir: dir} do
+    pid = start_store!(dir)
+
+    expired = %{
+      checkpoint_generation: 20,
+      checkpoint_deadline_monotonic_ms: System.monotonic_time(:millisecond) - 1,
+      summary_generation: 8
+    }
+
+    assert {:error, :checkpoint_expired} = Store.put_projection_checkpoint_fenced(@run_id, expired, pid)
+    assert %{run_id: @run_id, checkpoint: nil} = Store.projection_checkpoint(pid)
+  end
+
   test "compacts after a bounded journal cadence instead of syncing the filesystem per observation", %{dir: dir} do
     {:ok, sync_count} = Agent.start_link(fn -> 0 end)
 
