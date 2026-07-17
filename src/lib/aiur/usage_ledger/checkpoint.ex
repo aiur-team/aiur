@@ -81,9 +81,8 @@ defmodule Aiur.UsageLedger.Checkpoint do
   @spec write_encoded(String.t(), String.t()) :: :ok | {:error, term()}
   def write_encoded(path, contents) when is_binary(path) and is_binary(contents) do
     with :ok <- writable_path(path),
-         :ok <- Fs.atomic_write(path, contents, fsync: true, mode: 0o600),
-         :ok <- File.chmod(path, 0o600) do
-      :ok
+         :ok <- Fs.atomic_write(path, contents, fsync: true, mode: 0o600) do
+      File.chmod(path, 0o600)
     end
   end
 

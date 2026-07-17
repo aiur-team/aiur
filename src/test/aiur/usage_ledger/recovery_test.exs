@@ -306,6 +306,82 @@ defmodule Aiur.UsageLedger.RecoveryTest do
     end)
   end
 
+  test "reuses quarantine evidence across repeated failed recovery restarts", %{
+    root: root,
+    persistence: persistence
+  } do
+    {:ok, paths} = Paths.prepare(root, persistence.sync_fun)
+    :ok = DecisionLog.append(paths.segment_path, Record.encode(canonical_record(1)))
+    :ok = File.write(paths.segment_path, "{\"forged\":true}\n", [:append])
+    :ok = File.write(paths.checkpoint_path, "{\"version\":99}")
+
+    expected_bytes = File.stat!(paths.segment_path).size + File.stat!(paths.checkpoint_path).size
+
+    expected_entries =
+      [paths.segment_path, paths.checkpoint_path]
+      |> Enum.map(&content_addressed_quarantine_entry/1)
+      |> Enum.sort()
+
+    faulted = fault_after_checkpoint_quarantine(persistence)
+
+    snapshots =
+      Enum.map(1..4, fn _restart ->
+        assert {:ok, state} = Recovery.boot(root, faulted)
+        assert state.health == {:unavailable, :quarantine_failed}
+        assert state.position == 1
+        quarantine_snapshot(paths.quarantine_dir)
+      end)
+
+    assert [%{entries: entries, total_bytes: ^expected_bytes} = snapshot] = Enum.uniq(snapshots)
+    assert entries == expected_entries
+
+    assert {:ok, %{health: {:degraded, :storage_corrupt}}} = Recovery.boot(root, persistence)
+    assert quarantine_snapshot(paths.quarantine_dir) == snapshot
+  end
+
+  test "fails closed when existing content-addressed evidence does not match its digest", %{
+    root: root,
+    persistence: persistence
+  } do
+    {:ok, paths} = Paths.prepare(root, persistence.sync_fun)
+    :ok = DecisionLog.append(paths.segment_path, Record.encode(canonical_record(1)))
+    expected_entry = content_addressed_quarantine_entry(paths.segment_path)
+
+    assert :ok = Paths.quarantine(paths.segment_path, paths.quarantine_dir, persistence.sync_fun)
+
+    evidence_path = Path.join(paths.quarantine_dir, expected_entry)
+    assert Bitwise.band(File.stat!(evidence_path).mode, 0o077) == 0
+    :ok = File.write(evidence_path, "tampered")
+
+    assert {:error, :quarantine_checksum_mismatch} =
+             Paths.quarantine(paths.segment_path, paths.quarantine_dir, persistence.sync_fun)
+
+    assert File.read!(evidence_path) == "tampered"
+    assert File.ls!(paths.quarantine_dir) == [expected_entry]
+  end
+
+  test "rejects a symlink at the content-addressed quarantine destination", %{
+    root: root,
+    persistence: persistence
+  } do
+    {:ok, paths} = Paths.prepare(root, persistence.sync_fun)
+    :ok = DecisionLog.append(paths.segment_path, Record.encode(canonical_record(1)))
+    :ok = DecisionLog.ensure_directory(paths.quarantine_dir)
+
+    external = Path.join(root, "external")
+    :ok = File.write(external, "do not overwrite")
+
+    destination =
+      Path.join(paths.quarantine_dir, content_addressed_quarantine_entry(paths.segment_path))
+
+    :ok = File.ln_s(external, destination)
+
+    assert {:error, :symlink_rejected} =
+             Paths.quarantine(paths.segment_path, paths.quarantine_dir, persistence.sync_fun)
+
+    assert File.read!(external) == "do not overwrite"
+  end
+
   test "quarantines a rechecksummed checkpoint with an impossible generation", %{root: root, persistence: persistence} do
     {:ok, paths} = Paths.prepare(root, persistence.sync_fun)
     record = canonical_record(1)
@@ -445,6 +521,37 @@ defmodule Aiur.UsageLedger.RecoveryTest do
           {:error, :injected_checkpoint_failure}
         end
     }
+  end
+
+  defp fault_after_checkpoint_quarantine(persistence) do
+    quarantine_fun = persistence.quarantine_fun
+
+    %{
+      persistence
+      | quarantine_fun: fn path, quarantine_dir, sync_fun ->
+          with :ok <- quarantine_fun.(path, quarantine_dir, sync_fun) do
+            if Path.basename(path) == "checkpoint.json",
+              do: {:error, :injected_checkpoint_quarantine_failure},
+              else: :ok
+          end
+        end
+    }
+  end
+
+  defp quarantine_snapshot(quarantine_dir) do
+    entries = quarantine_dir |> File.ls!() |> Enum.sort()
+
+    total_bytes =
+      Enum.reduce(entries, 0, fn entry, total ->
+        total + File.stat!(Path.join(quarantine_dir, entry)).size
+      end)
+
+    %{entries: entries, total_bytes: total_bytes}
+  end
+
+  defp content_addressed_quarantine_entry(path) do
+    digest = path |> File.read!() |> then(&:crypto.hash(:sha256, &1)) |> Base.encode16(case: :lower)
+    "#{Path.basename(path)}.sha256-#{digest}.quarantine"
   end
 
   defp fault_health(:marker), do: {:unavailable, :degraded_marker_failed}

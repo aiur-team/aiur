@@ -240,9 +240,8 @@ defmodule Aiur.UsageLedger.Recovery do
   end
 
   defp quarantine_artifacts(state, checkpoint_health, segment_health, persistence) do
-    with :ok <- maybe_quarantine_segment(state, segment_health, persistence),
-         :ok <- maybe_quarantine_checkpoint(state, checkpoint_health, persistence) do
-      :ok
+    with :ok <- maybe_quarantine_segment(state, segment_health, persistence) do
+      maybe_quarantine_checkpoint(state, checkpoint_health, persistence)
     end
   end
 
@@ -278,9 +277,8 @@ defmodule Aiur.UsageLedger.Recovery do
              :checkpoint_rewrite,
              persistence.checkpoint_write_fun,
              [state.paths.checkpoint_path, checkpoint, state.limits.max_checkpoint_bytes]
-           ),
-         :ok <- stage(:repair_sync, persistence.sync_fun, []) do
-      :ok
+           ) do
+      stage(:repair_sync, persistence.sync_fun, [])
     end
   end
 
@@ -337,9 +335,8 @@ defmodule Aiur.UsageLedger.Recovery do
        when reason in [:checkpoint_corrupt, :segment_corrupt, :segment_torn, :storage_corrupt] do
     contents = Jason.encode!(%{"version" => 1, "reason" => Atom.to_string(reason)})
 
-    with :ok <- Fs.atomic_write(path, contents, fsync: true, mode: 0o600),
-         :ok <- sync_fun.() do
-      :ok
+    with :ok <- Fs.atomic_write(path, contents, fsync: true, mode: 0o600) do
+      sync_fun.()
     end
   end
 
