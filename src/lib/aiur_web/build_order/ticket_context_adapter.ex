@@ -136,8 +136,6 @@ defmodule AiurWeb.BuildOrder.TicketContextAdapter do
     {rows, %{total: total, shown: shown, truncated?: total > shown}}
   end
 
-  defp relationship_rows(_edges, _direction, _model), do: {[], %{total: 0, shown: 0, truncated?: false}}
-
   defp relationship(%Edge{} = edge, direction, model) do
     endpoint = endpoint(edge, direction)
     endpoint_node = exact_node(model, endpoint)

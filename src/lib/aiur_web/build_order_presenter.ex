@@ -903,7 +903,6 @@ defmodule AiurWeb.BuildOrderPresenter do
   defp safe_destination(:pull_request, value, identity, number), do: safe_destination_result(Bounded.github_pull_request_url_for(value, identity, number))
   defp safe_destination(:chat, value, identity, _number), do: safe_destination_result(Bounded.chat_route_for(value, identity))
   defp safe_destination(:commands, value, _identity, _number), do: safe_destination_result(Bounded.commands_route(value))
-  defp safe_destination(_key, _value, _identity, _number), do: nil
 
   defp safe_destination_result({:ok, safe}), do: safe
   defp safe_destination_result(:error), do: nil
