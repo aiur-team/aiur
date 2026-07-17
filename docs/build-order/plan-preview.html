@@ -226,11 +226,11 @@ footer{margin-top:26px;border-top:1px solid var(--line);padding-top:14px;font-fa
       <div class="hd-mark">A</div>
       <div>
         <h1>Build Order — plan preview</h1>
-        <div class="sub">its-everdred/aiur : aiur-dashboard-program · 54 core members + 21 ad hoc · plan v1 · researched @ 9849f329</div>
+        <div class="sub">its-everdred/aiur : aiur-dashboard-program · 54 core members + 26 ad hoc · plan v1 · researched @ 9849f329</div>
       </div>
     </div>
     <div style="display:flex;align-items:center;gap:.8rem">
-      <div class="hd-note">~18 core tickets merged to develop. orangekid-opus: daemon DOWN (direct-worker mode, zero cross-machine collision). DASH-021 (#1125) CLOSED. In flight via workflow: PR #1208 (DASH-020) + #1209 (BO-018) refreshing onto current develop + full 6-lens code review + adversarial verify → merge on green+clean-review. Parallel: #1214 WorkflowStore durable fix salvage, GATE-004 sibling PR #3 review (→ receipt → DASH-013), credo/formatter line-length fix (operator-approved → 200). Recovered from a 09:00–12:00 PT session-limit pause. Static preview — binds to live GitHub + Aiur state.</div>
+      <div class="hd-note">25 core tickets closed. Codex-only aiurdev run live on develop: #1031 coordination-RPC rework, DASH-026 (#1130) contract repair, and #1149 assertion isolation are active. PRs #1036, #1217, and #1213 have green scoped/non-test gates but remain full-suite red amid develop-wide shared-state races tracked by #1222. BO-018, DASH-013, DASH-020, and recovered #1030 remain paused. Static preview — binds to live GitHub + Aiur state.</div>
       <button class="theme-btn" id="themeBtn" aria-label="Toggle theme">◐ theme</button>
     </div>
   </div>
@@ -262,7 +262,7 @@ footer{margin-top:26px;border-top:1px solid var(--line);padding-top:14px;font-fa
 <script>
 const RUN = {
   phase: 4,
-  updated: "2026-07-16 13:11 PDT (orangekid header + macbook-fable rows)",
+  updated: "2026-07-16 19:14 PDT (Codex Executor reconciliation)",
   tickets: {
     "BO-004": {state:"merged", progress:100, issue:1086},
     "BO-008": {state:"merged", progress:100, issue:1087},
@@ -270,29 +270,37 @@ const RUN = {
     "DASH-017": {state:"merged", progress:100, issue:1089},
     "DASH-018": {state:"merged", progress:100, issue:1090},
     "BO-001": {state:"merged", progress:100, issue:1085},
-    "BO-016": {state:"paused for seven-wave reconciliation — work preserved", progress:70, issue:1103},
+    "BO-016": {state:"merged to develop", progress:100, issue:1103},
     "BO-017": {state:"merged", progress:100, issue:1104},
     "DASH-001": {state:"merged to develop", progress:100, issue:1108},
     "DASH-004": {state:"merged", progress:100, issue:1111},
-    "DASH-019": {state:"PR #1215 open — lint rework (macbook-fable)", progress:70, issue:1123},
+    "DASH-019": {state:"merged to develop (PR #1215)", progress:100, issue:1123},
     "DASH-012": {state:"merged to develop (PR #1203); closed by macbook-fable", progress:100, issue:1118},
-    "DASH-016": {state:"PR #1202 rework — 2 P1 review findings on replacement boundary (macbook-fable)", progress:75, issue:1122},
+    "DASH-016": {state:"merged to develop (PR #1202)", progress:100, issue:1122},
     "BO-002": {state:"merged", progress:100, issue:1091},
     "BO-005": {state:"merged to develop", progress:100, issue:1093},
     "BO-009": {state:"merged", progress:100, issue:1096},
     "BO-010": {state:"merged", progress:100, issue:1097},
     "DASH-002": {state:"merged", progress:100, issue:1109},
-    "DASH-026": {state:"PR #1217 open — lint rework (macbook-fable)", progress:70, issue:1130},
+    "DASH-026": {state:"rework — conversation-projection contract repairs", progress:70, issue:1130, agent_live:true},
     "BO-003": {state:"merged to develop", progress:100, issue:1092},
     "BO-006": {state:"merged to develop", progress:100, issue:1094},
-    "BO-007": {state:"paused for seven-wave reconciliation — work preserved", progress:80, issue:1095},
+    "BO-007": {state:"merged to develop", progress:100, issue:1095},
+    "BO-019": {state:"merged to develop", progress:100, issue:1106},
+    "DASH-007": {state:"merged to develop", progress:100, issue:1113},
     "DASH-008": {state:"merged to develop", progress:100, issue:1114},
+    "DASH-021": {state:"merged to develop", progress:100, issue:1125},
+    "BO-018": {state:"paused — review branch preserved", progress:80, issue:1105},
+    "DASH-013": {state:"paused — awaiting GATE-004 protocol receipt", progress:20, issue:1119},
+    "DASH-020": {state:"paused — draft PR #1208 preserved", progress:90, issue:1124},
+    "ADHOC-1030": {state:"paused — feature branch recovered after zero-diff incident", progress:70, issue:1030},
+    "ADHOC-1031": {state:"rework — control-RPC fixes plus alert-feed evidence", progress:80, issue:1031, agent_live:true},
     "ADHOC-1139": {state:"closed", progress:100, issue:1139},
     "ADHOC-1140": {state:"merged", progress:100, issue:1140},
     "ADHOC-1142": {state:"deferred", progress:0, issue:1142},
     "ADHOC-1146": {state:"merged", progress:100, issue:1146},
     "ADHOC-1148": {state:"merged", progress:100, issue:1148},
-    "ADHOC-1149": {state:"deferred", progress:0, issue:1149},
+    "ADHOC-1149": {state:"rework — focused review feedback reconciliation", progress:80, issue:1149, agent_live:true},
     "ADHOC-1151": {state:"merged", progress:100, issue:1151},
     "ADHOC-1152": {state:"deferred", progress:0, issue:1152},
     "ADHOC-1154": {state:"merged", progress:100, issue:1154},
@@ -306,7 +314,8 @@ const RUN = {
     "ADHOC-1178": {state:"deferred by operator", progress:0, issue:1178},
     "ADHOC-1182": {state:"later phase — no dispatch label", progress:0, issue:1182},
     "ADHOC-1185": {state:"merged to main and synchronized into develop", progress:100, issue:1185},
-    "ADHOC-1191": {state:"PR #1218 open — CI running (macbook-fable)", progress:80, issue:1191},
+    "ADHOC-1191": {state:"merged to develop (PR #1218)", progress:100, issue:1191},
+    "ADHOC-1222": {state:"queued — develop-wide shared-state suite races", progress:0, issue:1222},
     "ADHOC-728": {state:"engine+adapter fixes merged (aiur #1216 → main→develop; claude-app-server #1/#2); npm publish pending operator OTP", progress:95, issue:728},
     "ADHOC-960": {state:"MERGED to develop (PR #1211, 79ed76f1) — closed", progress:100, issue:960},
     "ADHOC-780": {state:"merged", progress:100, issue:780}
@@ -316,6 +325,10 @@ const DATA = {"tickets":[{"id":"BO-004","title":"Define configured-repository tr
 
 const CORE_TICKETS = DATA.tickets;
 const ADHOC_TICKETS = [
+  {id:"ADHOC-728",issue:728,title:"Restore Aiur coordination tools for Claude-backend agents",issue_title:"#728 — Restore Aiur coordination tools for Claude-backend agents",lane:"adhoc",cx:4,deps:[],pack:"all",phase:4,pickup_phase:4,adhoc:true},
+  {id:"ADHOC-960",issue:960,title:"Isolate CoreTest capture_log from leaked agent tasks",issue_title:"#960 — Isolate CoreTest capture_log from leaked agent tasks",lane:"adhoc",cx:null,deps:[],pack:"all",phase:4,pickup_phase:4,adhoc:true},
+  {id:"ADHOC-1030",issue:1030,title:"Prevent workspace-bootstrap races from wiping live checkouts",issue_title:"#1030 — Prevent workspace-bootstrap races from wiping live checkouts",lane:"adhoc",cx:null,deps:[],pack:"all",phase:4,pickup_phase:4,adhoc:true},
+  {id:"ADHOC-1031",issue:1031,title:"Bound coordination-tool RPC latency",issue_title:"#1031 — Bound coordination-tool RPC latency",lane:"adhoc",cx:null,deps:[],pack:"all",phase:4,pickup_phase:4,adhoc:true},
   {id:"ADHOC-1139",issue:1139,title:"Land bounded Executor planning skills",issue_title:"#1139 — Land bounded Executor planning skills",lane:"adhoc",cx:null,deps:[],pack:"all",phase:1,pickup_phase:1,adhoc:true},
   {id:"ADHOC-1140",issue:1140,title:"Stop tracking per-workspace Hex cache state",issue_title:"#1140 — Stop tracking per-workspace Hex cache state",lane:"adhoc",cx:1,deps:[],pack:"all",phase:1,pickup_phase:1,adhoc:true},
   {id:"ADHOC-1142",issue:1142,title:"Make Executor monitoring and capacity adaptive",issue_title:"#1142 — Make Executor monitoring and capacity adaptive",lane:"adhoc",cx:2,deps:[],pack:"all",phase:null,pickup_phase:null,adhoc:true},
@@ -336,6 +349,7 @@ const ADHOC_TICKETS = [
   {id:"ADHOC-1182",issue:1182,title:"Add configurable Executor takeover alerts",issue_title:"BO: Add configurable Executor takeover alerts",lane:"adhoc",cx:3,deps:[],pack:"all",phase:8,pickup_phase:8,adhoc:true},
   {id:"ADHOC-1185",issue:1185,title:"Allow valid ownership receipts to survive restart",issue_title:"Bug: valid workspace-ownership receipt prevents Aiur restart",lane:"adhoc",cx:1,deps:[],pack:"all",phase:4,pickup_phase:4,adhoc:true},
   {id:"ADHOC-1191",issue:1191,title:"Prevent stale mixed-BEAM aiurdev releases",issue_title:"Bug: aiurdev incremental rebuild can assemble a stale mixed-BEAM release",lane:"adhoc",cx:2,deps:[],pack:"all",phase:4,pickup_phase:4,adhoc:true},
+  {id:"ADHOC-1222",issue:1222,title:"Stabilize develop-wide shared-state suite races",issue_title:"#1222 — Stabilize develop-wide shared-state suite races",lane:"adhoc",cx:null,deps:[],pack:"all",phase:4,pickup_phase:4,adhoc:true},
   {id:"ADHOC-780",issue:780,title:"Fix remaining concurrent-flaky specs",issue_title:"#780 — Fix remaining concurrent-flaky specs",lane:"adhoc",cx:1,deps:[],pack:"all",phase:1,pickup_phase:1,adhoc:true}
 ];
 const TICKETS = [...CORE_TICKETS, ...ADHOC_TICKETS];
@@ -349,7 +363,7 @@ TICKETS.forEach(ticket => {
   if (Object.prototype.hasOwnProperty.call(EXECUTION_PHASES, ticket.id)) ticket.phase = EXECUTION_PHASES[ticket.id];
 });
 const ISSUE_BY_ID = {"BO-001":1085,"BO-004":1086,"BO-008":1087,"DASH-006":1088,"DASH-017":1089,"DASH-018":1090,"BO-002":1091,"BO-003":1092,"BO-005":1093,"BO-006":1094,"BO-007":1095,"BO-009":1096,"BO-010":1097,"BO-011":1098,"BO-012":1099,"BO-013":1100,"BO-014":1101,"BO-015":1102,"BO-016":1103,"BO-017":1104,"BO-018":1105,"BO-019":1106,"BO-020":1107,"DASH-001":1108,"DASH-002":1109,"DASH-003":1110,"DASH-004":1111,"DASH-005":1112,"DASH-007":1113,"DASH-008":1114,"DASH-009":1115,"DASH-010":1116,"DASH-011":1117,"DASH-012":1118,"DASH-013":1119,"DASH-014":1120,"DASH-015":1121,"DASH-016":1122,"DASH-019":1123,"DASH-020":1124,"DASH-021":1125,"DASH-022":1126,"DASH-023":1127,"DASH-024":1128,"DASH-025":1129,"DASH-026":1130,"DASH-027":1131,"DASH-028":1132,"DASH-029":1133,"DASH-030":1134,"DASH-031":1135,"DASH-032":1136,"DASH-033":1137,"DASH-034":1138};
-const PR_BY_ISSUE = {780:1181,1085:1155,1086:1143,1087:1145,1088:1144,1089:1159,1090:1141,1091:1157,1092:1190,1093:1187,1094:1192,1096:1158,1097:1168,1103:1163,1104:1156,1108:1188,1109:1167,1111:1160,1114:1189,1139:1065,1140:1180,1146:1174,1148:1173,1151:1153,1154:1172,1161:1166,1162:1165,1177:1176,1185:1186};
+const PR_BY_ISSUE = {780:1181,1030:1039,1031:1036,1085:1155,1086:1143,1087:1145,1088:1144,1089:1159,1090:1141,1091:1157,1092:1190,1093:1187,1094:1192,1096:1158,1097:1168,1103:1163,1104:1156,1105:1209,1108:1188,1109:1167,1111:1160,1114:1189,1122:1202,1123:1215,1124:1208,1130:1217,1139:1065,1140:1180,1146:1174,1148:1173,1149:1213,1151:1153,1154:1172,1161:1166,1162:1165,1177:1176,1185:1186,1191:1218};
 const LANES = ["plan-graph","runtime","dashboard-ui","accounting","platform","adhoc"];
 const LANE_LABEL = {"plan-graph":"Plan graph","runtime":"Runtime","dashboard-ui":"Dashboard UI","accounting":"Accounting","platform":"Platform","adhoc":"Ad Hoc"};
 const ICONS = {
