@@ -28,6 +28,13 @@ class CaptureProgressEstimatesTests(unittest.TestCase):
 
     def write_rows(self, ticket: int, *rows: object) -> Path:
         path = self.root / str(ticket) / "logs" / "agent.ndjson"
+        return self.write_log(path, *rows)
+
+    def write_publication_rows(self, ticket: int, *rows: object) -> Path:
+        path = self.root / str(ticket) / "logs" / "event-publications.ndjson"
+        return self.write_log(path, *rows)
+
+    def write_log(self, path: Path, *rows: object) -> Path:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("w", encoding="utf-8") as stream:
             for row in rows:
@@ -186,6 +193,9 @@ class CaptureProgressEstimatesTests(unittest.TestCase):
                     },
                 },
             },
+        )
+        self.write_publication_rows(
+            1086,
             {
                 "event": "event_publication_completed",
                 "timestamp": "2026-07-14T02:30:01Z",
@@ -200,6 +210,68 @@ class CaptureProgressEstimatesTests(unittest.TestCase):
         sample = self.samples()[0]
         self.assertEqual("emitted", sample["delivery_status"])
         self.assertEqual(4243, sample["event_id"])
+
+    def test_success_then_failure_replay_remains_emitted(self) -> None:
+        self.assert_conflicting_publication_replay(
+            1089,
+            {
+                "event": "event_publication_completed",
+                "timestamp": "2026-07-14T05:00:01Z",
+                "tool_call_id": "exec-replay",
+                "event_id": 5001,
+            },
+            {
+                "event": "event_publication_failed",
+                "timestamp": "2026-07-14T05:00:02Z",
+                "tool_call_id": "exec-replay",
+                "reason": "later replay failed",
+            },
+        )
+
+    def test_failure_then_success_replay_is_emitted(self) -> None:
+        self.assert_conflicting_publication_replay(
+            1090,
+            {
+                "event": "event_publication_failed",
+                "timestamp": "2026-07-14T05:01:01Z",
+                "tool_call_id": "exec-replay",
+                "reason": "first replay failed",
+            },
+            {
+                "event": "event_publication_completed",
+                "timestamp": "2026-07-14T05:01:02Z",
+                "tool_call_id": "exec-replay",
+                "event_id": 5002,
+            },
+        )
+
+    def test_rescan_cannot_downgrade_a_durable_emitted_sample(self) -> None:
+        self.write_progress_attempt(1091, "exec-rescan")
+        self.write_publication_rows(
+            1091,
+            {
+                "event": "event_publication_completed",
+                "timestamp": "2026-07-14T05:02:01Z",
+                "tool_call_id": "exec-rescan",
+                "event_id": 5003,
+            },
+        )
+        collect([self.root], self.output, 1091, 1091)
+
+        self.write_publication_rows(
+            1091,
+            {
+                "event": "event_publication_failed",
+                "timestamp": "2026-07-14T05:02:02Z",
+                "tool_call_id": "exec-rescan",
+                "reason": "replayed failure",
+            },
+        )
+        collect([self.root], self.output, 1091, 1091)
+
+        sample = self.samples()[0]
+        self.assertEqual("emitted", sample["delivery_status"])
+        self.assertEqual(5003, sample["event_id"])
 
     def test_terminal_publication_failure_marks_pending_call_failed(self) -> None:
         arguments = {
@@ -292,6 +364,43 @@ class CaptureProgressEstimatesTests(unittest.TestCase):
         collect([self.root], self.output)
         mode = stat.S_IMODE(self.output.parent.stat().st_mode)
         self.assertEqual(0o700, mode)
+
+    def assert_conflicting_publication_replay(
+        self, ticket: int, *outcomes: object
+    ) -> None:
+        self.write_progress_attempt(ticket, "exec-replay")
+        self.write_publication_rows(ticket, *outcomes)
+
+        collect([self.root], self.output, ticket, ticket)
+
+        sample = self.samples()[0]
+        self.assertEqual("emitted", sample["delivery_status"])
+        self.assertIsNotNone(sample["event_id"])
+
+    def write_progress_attempt(self, ticket: int, call_id: str) -> None:
+        self.write_rows(
+            ticket,
+            {
+                "event": "notification",
+                "timestamp": "2026-07-14T05:00:00Z",
+                "payload": {
+                    "method": "item/completed",
+                    "params": {
+                        "item": {
+                            "id": call_id,
+                            "arguments": {
+                                "name": "progress.checkin",
+                                "message": "publication queued",
+                                "payload": {"label": "work", "percent": 75},
+                            },
+                            "status": "completed",
+                            "success": True,
+                            "contentItems": [],
+                        }
+                    },
+                },
+            },
+        )
 
 
 if __name__ == "__main__":

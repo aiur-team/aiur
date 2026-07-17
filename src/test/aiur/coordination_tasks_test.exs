@@ -164,7 +164,8 @@ defmodule Aiur.CoordinationTasksTest do
                    {:dependency, "1031", 999},
                    fn -> {:error, :terminal_failure} end,
                    name,
-                   operation_timeout: 123
+                   operation_timeout: 123,
+                   log_context: %{issue_id: "gid-1031", issue_identifier: "AIUR-1031"}
                  )
 
         assert :pending =
@@ -180,6 +181,8 @@ defmodule Aiur.CoordinationTasksTest do
     assert log =~ "coordination operation failed"
     assert log =~ ~s({:dependency, "1031", 999})
     assert log =~ ~s(ticket="1031")
+    assert log =~ ~s(issue_id="gid-1031")
+    assert log =~ ~s(issue_identifier="AIUR-1031")
     assert log =~ "terminal_failure"
     assert log =~ "timeout_ms=123"
   end
@@ -196,7 +199,8 @@ defmodule Aiur.CoordinationTasksTest do
                    {:event, "1032"},
                    fn -> Process.sleep(:infinity) end,
                    name,
-                   operation_timeout: 17
+                   operation_timeout: 17,
+                   log_context: %{issue_id: "gid-1032", issue_identifier: "AIUR-1032"}
                  )
 
         assert :pending =
@@ -211,9 +215,46 @@ defmodule Aiur.CoordinationTasksTest do
 
     assert log =~ ~s({:event, "1032"})
     assert log =~ ~s(ticket="1032")
+    assert log =~ ~s(issue_id="gid-1032")
+    assert log =~ ~s(issue_identifier="AIUR-1032")
     assert log =~ "coordination_timeout"
     assert log =~ "timeout_ms=17"
     refute log =~ ~s({:dependency, "1031", 999})
+  end
+
+  test "failure logs redact secrets and bound failure details" do
+    name = unique_name("SanitizedFailure")
+    start_supervised!({CoordinationTasks, name: name})
+    test_pid = self()
+    secret = "ghp_" <> String.duplicate("b", 36)
+
+    log =
+      capture_log(fn ->
+        assert :pending =
+                 CoordinationTasks.enqueue(
+                   {:event, "internal-1033"},
+                   fn -> {:error, {:publisher_failed, secret, String.duplicate("x", 2_000)}} end,
+                   name,
+                   operation_timeout: 456,
+                   log_context: %{issue_id: "internal-1033", issue_identifier: "AIUR-1033"}
+                 )
+
+        assert :pending =
+                 CoordinationTasks.enqueue(
+                   {:event, "internal-1033"},
+                   fn -> send(test_pid, :sanitized_lane_advanced) end,
+                   name
+                 )
+
+        assert_receive :sanitized_lane_advanced
+      end)
+
+    refute log =~ secret
+    assert log =~ "[REDACTED:ghp]"
+    assert log =~ ~s(issue_id="internal-1033")
+    assert log =~ ~s(issue_identifier="AIUR-1033")
+    assert log =~ "timeout_ms=456"
+    assert byte_size(log) < 1_000
   end
 
   defp blocking_operation(test_pid) do

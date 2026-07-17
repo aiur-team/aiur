@@ -9,14 +9,27 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   require Logger
 
   alias Aiur.AgentRunner.SessionLifecycle
-  alias Aiur.{AgentEventLog, Alerts, Boot, CodingAgent, CoordinationTasks, DecisionAttention, DecisionStore, Issue}
+
+  alias Aiur.{
+    Alerts,
+    Boot,
+    CodingAgent,
+    CoordinationTasks,
+    DecisionAttention,
+    DecisionStore,
+    EventPublicationLog,
+    Issue
+  }
+
   alias Aiur.Codex.DynamicTool
   alias Aiur.Events.{Publisher, SubscriptionStore}
   alias Aiur.GitHub.IssueDependencies
   alias Aiur.Orchestrator
   alias Aiur.Protocol.MapAccess
+  alias Aiur.SecretRedactor
 
   @invocation_key {__MODULE__, :invocation_id}
+  @max_failure_chars 500
 
   @doc false
   @spec execute((String.t(), term() -> map()), String.t() | nil, term(), term()) :: map()
@@ -73,7 +86,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
       publish: Keyword.get(opts, :event_bus_publisher, &Publisher.publish/3),
       publication_recorder:
         Keyword.get(opts, :event_publication_recorder, fn record ->
-          AgentEventLog.write(workspace, worker_host, record)
+          EventPublicationLog.write(workspace, record)
         end),
       worker_host: worker_host,
       workspace: workspace
@@ -148,7 +161,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
           coordination.enqueue,
           dependency_key(current, blocker_number),
           fn -> declare_and_reconcile(current, blocker_number, coordination) end,
-          operation_timeout: :infinity
+          coordination_operation_opts(issue)
         )
     end
   end
@@ -162,12 +175,22 @@ defmodule Aiur.AgentRunner.ToolExecutor do
         coordination.run.(
           dependency_key(current, blocker_number),
           fn -> coordination.unblock_dependency.(current, blocker_number) end,
-          operation_timeout: :infinity
+          coordination_operation_opts(issue)
         )
     end
   end
 
   defp dependency_key(current, blocker), do: {:dependency, current, blocker}
+
+  defp coordination_operation_opts(issue) do
+    [
+      operation_timeout: :infinity,
+      log_context: %{
+        issue_id: Map.get(issue, :id),
+        issue_identifier: Map.get(issue, :identifier)
+      }
+    ]
+  end
 
   defp admit(enqueue, key, operation, opts) do
     case enqueue.(key, operation, opts) do
@@ -358,28 +381,40 @@ defmodule Aiur.AgentRunner.ToolExecutor do
 
       log_decision_projection_failure(decision_projection, topic)
 
-      case context.publish.(
-             topic,
-             event_payload,
-             identity: Issue.tracker_identity(issue),
-             observation_source: %{kind: :agent_event, name: name},
-             observation_provenance: provenance,
-             occurred_at: occurred_at
-           ) do
-        {:ok, id, _subscribers} ->
+      publish_opts = [
+        identity: Issue.tracker_identity(issue),
+        observation_source: %{kind: :agent_event, name: name},
+        observation_provenance: provenance,
+        occurred_at: occurred_at
+      ]
+
+      case safe_publish(context.publish, topic, event_payload, publish_opts) do
+        {:ok, id} ->
           record_event_publication(context.publication_recorder, :completed, issue, tool_call_id, topic, id)
           sync_decision_resolution(issue, name, payload, handlers.attention_resolver)
 
-        result ->
-          record_event_publication(context.publication_recorder, :failed, issue, tool_call_id, topic, nil, result)
-          Logger.error("coordination event publish failed topic=#{topic} reason=#{inspect(result)}")
+        {:error, reason} ->
+          failure = safe_failure_detail(reason)
+          record_event_publication(context.publication_recorder, :failed, issue, tool_call_id, topic, nil, failure)
+          {:error, {:event_publication_failed, failure}}
       end
     end
 
-    case context.enqueue.({:event, identifier}, operation, operation_timeout: :infinity) do
+    case context.enqueue.({:event, identifier}, operation, coordination_operation_opts(issue)) do
       :pending -> {:ok, %{"status" => "pending", "topic" => topic}}
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  defp safe_publish(publisher, topic, payload, opts) do
+    case publisher.(topic, payload, opts) do
+      {:ok, id, _subscribers} -> {:ok, id}
+      result -> {:error, {:publisher_returned, result}}
+    end
+  rescue
+    error -> {:error, {:publisher_exception, Exception.message(error)}}
+  catch
+    kind, reason -> {:error, {:publisher_failure, kind, reason}}
   end
 
   defp durable_decision_topic?(topic) do
@@ -387,6 +422,8 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   end
 
   defp record_event_publication(recorder, status, issue, tool_call_id, topic, event_id, reason \\ nil) do
+    log_context = event_publication_log_context(issue, tool_call_id, topic)
+
     record = %{
       event: "event_publication_#{status}",
       event_id: event_id,
@@ -398,12 +435,32 @@ defmodule Aiur.AgentRunner.ToolExecutor do
       topic: topic
     }
 
-    recorder.(record)
+    case recorder.(record) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "aiur_tool_executor phase=event_publication_record_failed " <>
+            "#{log_context} failure=#{safe_failure_detail(reason)}"
+        )
+
+        :ok
+
+      other ->
+        Logger.warning(
+          "aiur_tool_executor phase=event_publication_record_failed " <>
+            "#{log_context} failure=#{safe_failure_detail({:unexpected_result, other})}"
+        )
+
+        :ok
+    end
   rescue
     error ->
       Logger.warning(
         "aiur_tool_executor phase=event_publication_record_failed " <>
-          "topic=#{inspect(topic)} error=#{Exception.message(error)}"
+          "#{event_publication_log_context(issue, tool_call_id, topic)} " <>
+          "failure=#{safe_failure_detail({:exception, Exception.message(error)})}"
       )
 
       :ok
@@ -411,10 +468,27 @@ defmodule Aiur.AgentRunner.ToolExecutor do
     kind, reason ->
       Logger.warning(
         "aiur_tool_executor phase=event_publication_record_failed " <>
-          "topic=#{inspect(topic)} failure=#{inspect({kind, reason})}"
+          "#{event_publication_log_context(issue, tool_call_id, topic)} " <>
+          "failure=#{safe_failure_detail({kind, reason})}"
       )
 
       :ok
+  end
+
+  defp event_publication_log_context(issue, tool_call_id, topic) do
+    ticket = issue_identifier(issue)
+
+    "key=#{safe_failure_detail({:event, ticket})} ticket=#{safe_failure_detail(ticket)} " <>
+      "issue_id=#{safe_failure_detail(Map.get(issue, :id))} " <>
+      "issue_identifier=#{safe_failure_detail(Map.get(issue, :identifier))} " <>
+      "tool_call_id=#{safe_failure_detail(tool_call_id)} topic=#{safe_failure_detail(topic)} timeout_ms=infinity"
+  end
+
+  defp safe_failure_detail(reason) do
+    reason
+    |> inspect(limit: 20, printable_limit: @max_failure_chars)
+    |> SecretRedactor.redact()
+    |> String.slice(0, @max_failure_chars)
   end
 
   defp request_decision(issue, app_session, handlers, message, payload) do

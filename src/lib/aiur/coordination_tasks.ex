@@ -11,10 +11,13 @@ defmodule Aiur.CoordinationTasks do
 
   require Logger
 
+  alias Aiur.SecretRedactor
+
   @default_admission_timeout_ms 100
   @default_operation_timeout_ms 30_000
   @default_max_pending 1_000
   @default_max_concurrency 16
+  @max_failure_chars 500
 
   @type key :: term()
   @type admission_result ::
@@ -36,11 +39,12 @@ defmodule Aiur.CoordinationTasks do
       )
       when is_function(operation, 0) do
     operation_timeout = Keyword.get(opts, :operation_timeout, :default)
+    log_context = log_context(opts)
     deadline = admission_deadline(admission_timeout)
 
     GenServer.call(
       server,
-      {:enqueue, key, operation, operation_timeout, deadline},
+      {:enqueue, key, operation, operation_timeout, deadline, log_context},
       admission_timeout
     )
   catch
@@ -65,7 +69,7 @@ defmodule Aiur.CoordinationTasks do
       )
       when is_function(operation, 0) do
     operation_timeout = Keyword.get(opts, :operation_timeout, :default)
-    GenServer.call(server, {:run, key, operation, operation_timeout}, call_timeout)
+    GenServer.call(server, {:run, key, operation, operation_timeout, log_context(opts)}, call_timeout)
   catch
     :exit, {:timeout, _reason} -> {:error, :coordination_indeterminate}
     :exit, _reason -> {:error, :coordination_unavailable}
@@ -86,7 +90,7 @@ defmodule Aiur.CoordinationTasks do
 
   @impl true
   def handle_call(
-        {:enqueue, _key, _operation, _timeout, _deadline},
+        {:enqueue, _key, _operation, _timeout, _deadline, _log_context},
         _from,
         %{pending: pending, max_pending: max} = state
       )
@@ -94,22 +98,22 @@ defmodule Aiur.CoordinationTasks do
     {:reply, {:error, :coordination_overloaded}, state}
   end
 
-  def handle_call({:enqueue, key, operation, timeout, deadline}, _from, state) do
+  def handle_call({:enqueue, key, operation, timeout, deadline, log_context}, _from, state) do
     if admission_expired?(deadline) do
       {:reply, {:error, :coordination_unavailable}, state}
     else
-      entry = entry(operation, timeout, nil, state)
+      entry = entry(operation, timeout, nil, log_context, state)
       {:reply, :pending, enqueue_entry(key, entry, state)}
     end
   end
 
-  def handle_call({:run, _key, _operation, _timeout}, _from, %{pending: pending, max_pending: max} = state)
+  def handle_call({:run, _key, _operation, _timeout, _log_context}, _from, %{pending: pending, max_pending: max} = state)
       when pending >= max do
     {:reply, {:error, :coordination_overloaded}, state}
   end
 
-  def handle_call({:run, key, operation, timeout}, from, state) do
-    entry = entry(operation, timeout, from, state)
+  def handle_call({:run, key, operation, timeout, log_context}, from, state) do
+    entry = entry(operation, timeout, from, log_context, state)
     {:noreply, enqueue_entry(key, entry, state)}
   end
 
@@ -117,7 +121,7 @@ defmodule Aiur.CoordinationTasks do
   def handle_info({ref, result}, state) when is_reference(ref) do
     case active_by_ref(state.active, ref) do
       {key, task} ->
-        log_failure(key, task.operation_timeout, result)
+        log_failure(key, task, result)
         complete(key, task, result, state)
 
       nil ->
@@ -129,7 +133,7 @@ defmodule Aiur.CoordinationTasks do
     case active_by_ref(state.active, ref) do
       {key, task} ->
         result = {:error, {:coordination_task_exit, reason}}
-        log_failure(key, task.operation_timeout, result)
+        log_failure(key, task, result)
         complete(key, task, result, state)
 
       nil ->
@@ -141,7 +145,7 @@ defmodule Aiur.CoordinationTasks do
     case active_by_ref(state.active, ref) do
       {key, task} ->
         result = {:error, :coordination_timeout}
-        log_failure(key, task.operation_timeout, result)
+        log_failure(key, task, result)
         Process.unlink(task.pid)
         _ = Task.Supervisor.terminate_child(Aiur.TaskSupervisor, task.pid)
         complete(key, task, result, state)
@@ -194,6 +198,7 @@ defmodule Aiur.CoordinationTasks do
           task
           |> Map.put(:timer, schedule_timeout(task.ref, entry.timeout))
           |> Map.put(:operation_timeout, entry.timeout)
+          |> Map.put(:log_context, entry.log_context)
           |> Map.put(:reply_to, entry.reply_to)
 
         queues = if :queue.is_empty(queue), do: Map.delete(state.queues, key), else: Map.put(state.queues, key, queue)
@@ -218,8 +223,9 @@ defmodule Aiur.CoordinationTasks do
     dispatch(%{state | queues: Map.put(state.queues, key, :queue.in(entry, queue)), pending: state.pending + 1})
   end
 
-  defp entry(operation, timeout, reply_to, state) do
+  defp entry(operation, timeout, reply_to, log_context, state) do
     %{
+      log_context: log_context,
       operation: operation,
       timeout: resolve_timeout(timeout, state.operation_timeout_ms),
       reply_to: reply_to
@@ -234,18 +240,41 @@ defmodule Aiur.CoordinationTasks do
     kind, reason -> {:error, {:coordination_operation_failure, kind, reason}}
   end
 
-  defp log_failure(key, timeout, {:error, reason}) do
+  defp log_failure(key, task, {:error, reason}) do
+    %{issue_id: issue_id, issue_identifier: issue_identifier} = task.log_context
+
     Logger.error(
-      "coordination operation failed key=#{inspect(key)} ticket=#{inspect(key_ticket(key))} " <>
-        "failure=#{inspect(reason)} timeout_ms=#{timeout}"
+      "coordination operation failed key=#{safe_detail(key)} ticket=#{safe_detail(key_ticket(key))} " <>
+        "issue_id=#{safe_detail(issue_id)} issue_identifier=#{safe_detail(issue_identifier)} " <>
+        "failure=#{safe_detail(reason)} timeout_ms=#{task.operation_timeout}"
     )
   end
 
-  defp log_failure(_key, _timeout, _result), do: :ok
+  defp log_failure(_key, _task, _result), do: :ok
 
   defp key_ticket({:event, ticket}), do: ticket
   defp key_ticket({:dependency, ticket, _blocker}), do: ticket
   defp key_ticket(_key), do: nil
+
+  defp log_context(opts) do
+    case Keyword.get(opts, :log_context) do
+      context when is_map(context) ->
+        %{
+          issue_id: Map.get(context, :issue_id),
+          issue_identifier: Map.get(context, :issue_identifier)
+        }
+
+      _other ->
+        %{issue_id: nil, issue_identifier: nil}
+    end
+  end
+
+  defp safe_detail(value) do
+    value
+    |> inspect(limit: 20, printable_limit: @max_failure_chars)
+    |> SecretRedactor.redact()
+    |> String.slice(0, @max_failure_chars)
+  end
 
   defp admission_deadline(:infinity), do: :infinity
 

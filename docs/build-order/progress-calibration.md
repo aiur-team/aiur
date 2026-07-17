@@ -2,7 +2,8 @@
 
 This run preserves the percentage estimates that BO agents report through
 `progress` and `progress.checkin`. The capture is deliberately offline: it reads
-the per-ticket `logs/agent.ndjson` streams, writes an operator-local dataset,
+the per-ticket `logs/agent.ndjson` transcript streams and the locally-owned
+`logs/event-publications.ndjson` outcome streams, writes an operator-local dataset,
 and never calls GitHub, changes a ticket, or stores surrounding prompts,
 commands, tool output, or transcript prose.
 

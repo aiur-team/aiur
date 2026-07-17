@@ -60,7 +60,9 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
 
       assert response["success"] == true
       assert Jason.decode!(response["output"])["result"] == "pending"
-      assert_receive {:enqueued, {:dependency, "1031", 999}, operation, [operation_timeout: :infinity]}
+      assert_receive {:enqueued, {:dependency, "1031", 999}, operation, opts}
+      assert opts[:operation_timeout] == :infinity
+      assert opts[:log_context] == %{issue_id: nil, issue_identifier: "1031"}
       assert is_function(operation, 0)
     end
 
@@ -113,8 +115,11 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert response["success"]
       assert Jason.decode!(response["output"])["result"] == "removed"
 
-      assert_receive {:enqueued, key, _declare, [operation_timeout: :infinity]}
-      assert_receive {:ran, ^key, _unblock, [operation_timeout: :infinity]}
+      assert_receive {:enqueued, key, _declare, declare_opts}
+      assert_receive {:ran, ^key, _unblock, unblock_opts}
+      assert declare_opts == unblock_opts
+      assert declare_opts[:operation_timeout] == :infinity
+      assert declare_opts[:log_context] == %{issue_id: nil, issue_identifier: "1031"}
     end
 
     test "unblock preserves terminal success and error results" do
@@ -209,6 +214,11 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
               {:coordination_operation_failure, :throw, :bad_state},
               "coordination_operation_failure",
               "bad_state"
+            },
+            {
+              {:coordination_operation_failure, :exit, {:noproc, {GenServer, :call, [:coordination]}}},
+              "coordination_operation_failure",
+              "noproc"
             }
           ] do
         executor =
@@ -221,6 +231,13 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
         assert error["reason"] == expected_reason
         assert Jason.encode!(error["detail"]) =~ expected_detail
         refute error["message"] =~ "Linear"
+
+        if match?({:coordination_operation_failure, :exit, _detail}, reason) do
+          assert error["detail"] == %{
+                   "kind" => "exit",
+                   "detail" => ["noproc", ["Elixir.GenServer", "call", ["coordination"]]]
+                 }
+        end
       end
     end
 
@@ -567,8 +584,8 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
 
       executor =
         ToolExecutor.build(issue, workspace, nil, %{},
-          coordination_enqueuer: fn _key, operation, _opts ->
-            send(test_pid, {:captured_event_operation, operation})
+          coordination_enqueuer: fn _key, operation, opts ->
+            send(test_pid, {:captured_event_operation, operation, opts})
             :pending
           end,
           event_bus_publisher: fn topic, _payload, _opts -> {:ok, 4242, topic} end
@@ -583,12 +600,19 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
         )
 
       assert response["success"]
-      assert_receive {:captured_event_operation, operation}
+      assert_receive {:captured_event_operation, operation, opts}
+      assert opts[:operation_timeout] == :infinity
+
+      assert opts[:log_context] == %{
+               issue_id: "gid-publication-success",
+               issue_identifier: identifier
+             }
+
       assert :ok = operation.()
 
       [record] =
         workspace
-        |> Path.join("logs/agent.ndjson")
+        |> Path.join("logs/event-publications.ndjson")
         |> File.read!()
         |> String.split("\n", trim: true)
         |> Enum.map(&Jason.decode!/1)
@@ -631,7 +655,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
 
       [record] =
         workspace
-        |> Path.join("logs/agent.ndjson")
+        |> Path.join("logs/event-publications.ndjson")
         |> File.read!()
         |> String.split("\n", trim: true)
         |> Enum.map(&Jason.decode!/1)
@@ -641,7 +665,172 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert record["event_id"] == nil
       assert record["issue_id"] == "gid-publication-failure"
       assert record["issue_identifier"] == identifier
-      assert record["reason"] == ["error", "disk_full"]
+      assert record["reason"] =~ "publisher_returned"
+      assert record["reason"] =~ "disk_full"
+    end
+
+    test "raised, exited, and thrown publisher failures persist sanitized terminal outcomes" do
+      secret = "ghp_" <> String.duplicate("a", 36)
+
+      publishers = [
+        {"raise", fn _topic, _payload, _opts -> raise "publisher exploded #{secret}" end, "publisher_exception"},
+        {"exit", fn _topic, _payload, _opts -> exit({:publisher_down, secret}) end, "publisher_failure, :exit"},
+        {"throw", fn _topic, _payload, _opts -> throw({:publisher_rejected, secret}) end, "publisher_failure, :throw"}
+      ]
+
+      for {label, publisher, expected_failure} <- publishers do
+        identifier = "TE-publication-#{label}-#{System.unique_integer([:positive])}"
+        issue = %Issue{id: "gid-#{label}", identifier: identifier}
+        test_pid = self()
+        workspace = Path.join(System.tmp_dir!(), "aiur-publication-#{System.unique_integer([:positive])}")
+        on_exit(fn -> File.rm_rf!(workspace) end)
+
+        executor =
+          ToolExecutor.build(issue, workspace, nil, %{},
+            coordination_enqueuer: fn _key, operation, _opts ->
+              send(test_pid, {:captured_event_operation, operation})
+              :pending
+            end,
+            event_bus_publisher: publisher
+          )
+
+        response =
+          ToolExecutor.execute(
+            executor,
+            "emit_event",
+            %{"name" => "progress.checkin", "message" => "queued", "payload" => %{"percent" => 72}},
+            "call-progress-#{label}"
+          )
+
+        assert response["success"]
+        assert_receive {:captured_event_operation, operation}
+        assert {:error, {:event_publication_failed, failure}} = operation.()
+        assert failure =~ expected_failure
+
+        [record] = publication_records(workspace)
+        assert record["event"] == "event_publication_failed"
+        assert record["tool_call_id"] == "call-progress-#{label}"
+        assert record["reason"] =~ expected_failure
+        assert record["reason"] =~ "[REDACTED:ghp]"
+        refute record["reason"] =~ secret
+        assert String.length(record["reason"]) <= 500
+      end
+    end
+
+    test "queued publication failures log sanitized issue context and actual timeout" do
+      name = Module.concat(__MODULE__, "PublicationLog#{System.unique_integer([:positive])}")
+      start_supervised!({Aiur.CoordinationTasks, name: name})
+      secret = "ghp_" <> String.duplicate("c", 36)
+      issue = %Issue{id: "gid-publication-log", identifier: "AIUR-PUBLICATION-LOG"}
+      workspace = Path.join(System.tmp_dir!(), "aiur-publication-#{System.unique_integer([:positive])}")
+      on_exit(fn -> File.rm_rf!(workspace) end)
+
+      executor =
+        ToolExecutor.build(issue, workspace, nil, %{},
+          coordination_enqueuer: fn key, operation, opts ->
+            Aiur.CoordinationTasks.enqueue(key, operation, name, opts)
+          end,
+          event_bus_publisher: fn _topic, _payload, _opts -> {:error, {:disk_failed, secret}} end
+        )
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          response =
+            ToolExecutor.execute(
+              executor,
+              "emit_event",
+              %{"name" => "progress.checkin", "message" => "queued", "payload" => %{"percent" => 74}},
+              "call-progress-log"
+            )
+
+          assert response["success"]
+          assert :drained = Aiur.CoordinationTasks.run({:event, "gid-publication-log"}, fn -> :drained end, name)
+        end)
+
+      assert log =~ ~s(key={:event, "gid-publication-log"})
+      assert log =~ ~s(ticket="gid-publication-log")
+      assert log =~ ~s(issue_id="gid-publication-log")
+      assert log =~ ~s(issue_identifier="AIUR-PUBLICATION-LOG")
+      assert log =~ "event_publication_failed"
+      assert log =~ "timeout_ms=infinity"
+      assert log =~ "[REDACTED:ghp]"
+      refute log =~ secret
+
+      [record] = publication_records(workspace)
+      assert record["event"] == "event_publication_failed"
+      assert record["tool_call_id"] == "call-progress-log"
+    end
+
+    test "publication recorder failures log sanitized issue context" do
+      secret = "ghp_" <> String.duplicate("d", 36)
+      issue = %Issue{id: "gid-recorder-log", identifier: "AIUR-RECORDER-LOG"}
+      test_pid = self()
+
+      executor =
+        ToolExecutor.build(issue, nil, nil, %{},
+          coordination_enqueuer: fn _key, operation, _opts ->
+            send(test_pid, {:captured_event_operation, operation})
+            :pending
+          end,
+          event_bus_publisher: fn _topic, _payload, _opts -> {:ok, 4245, []} end,
+          event_publication_recorder: fn _record -> {:error, {:disk_failed, secret}} end
+        )
+
+      response =
+        ToolExecutor.execute(
+          executor,
+          "emit_event",
+          %{"name" => "progress.checkin", "message" => "queued", "payload" => %{"percent" => 75}},
+          "call-recorder-log"
+        )
+
+      assert response["success"]
+      assert_receive {:captured_event_operation, operation}
+      log = ExUnit.CaptureLog.capture_log(fn -> assert :ok = operation.() end)
+
+      assert log =~ ~s(key={:event, "gid-recorder-log"})
+      assert log =~ ~s(ticket="gid-recorder-log")
+      assert log =~ ~s(issue_id="gid-recorder-log")
+      assert log =~ ~s(issue_identifier="AIUR-RECORDER-LOG")
+      assert log =~ ~s(tool_call_id="call-recorder-log")
+      assert log =~ "timeout_ms=infinity"
+      assert log =~ "[REDACTED:ghp]"
+      refute log =~ secret
+    end
+
+    test "remote workers persist locally-known publication outcomes outside their transcript" do
+      identifier = "TE-publication-remote-#{System.unique_integer([:positive])}"
+      issue = %Issue{id: "gid-publication-remote", identifier: identifier}
+      test_pid = self()
+      workspace = Path.join(System.tmp_dir!(), "aiur-publication-#{System.unique_integer([:positive])}")
+      on_exit(fn -> File.rm_rf!(workspace) end)
+
+      executor =
+        ToolExecutor.build(issue, workspace, "remote.example.com", %{},
+          coordination_enqueuer: fn _key, operation, _opts ->
+            send(test_pid, {:captured_event_operation, operation})
+            :pending
+          end,
+          event_bus_publisher: fn _topic, _payload, _opts -> {:ok, 4244, []} end
+        )
+
+      response =
+        ToolExecutor.execute(
+          executor,
+          "emit_event",
+          %{"name" => "progress.checkin", "message" => "queued", "payload" => %{"percent" => 73}},
+          "call-progress-remote"
+        )
+
+      assert response["success"]
+      assert_receive {:captured_event_operation, operation}
+      assert :ok = operation.()
+
+      [record] = publication_records(workspace)
+      assert record["event"] == "event_publication_completed"
+      assert record["event_id"] == 4244
+      refute File.exists?(Path.join(workspace, "logs/agent.ndjson"))
+      refute File.exists?(Path.join(workspace, "logs/agent.md"))
     end
 
     test "progress check-ins and phase updates preserve retry provenance without changing identity" do
@@ -1533,4 +1722,12 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
     do: %{"name" => "progress.checkin", "message" => "testing coordination"}
 
   defp coordination_tool_arguments(_tool), do: %{"issue_number" => 999}
+
+  defp publication_records(workspace) do
+    workspace
+    |> Path.join("logs/event-publications.ndjson")
+    |> File.read!()
+    |> String.split("\n", trim: true)
+    |> Enum.map(&Jason.decode!/1)
+  end
 end

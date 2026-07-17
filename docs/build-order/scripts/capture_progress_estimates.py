@@ -34,6 +34,7 @@ PUBLICATION_EVENTS = {
     "event_publication_failed": "failed",
 }
 STATUS_RANK = {"attempted": 0, "failed": 1, "emitted": 2}
+PUBLICATION_LOG_NAME = "event-publications.ndjson"
 PERCENT = re.compile(r"^(?:100(?:\.0+)?|\d{1,2}(?:\.\d+)?)%?$")
 
 
@@ -297,9 +298,27 @@ def _apply_publication_outcome(
     sample: dict[str, Any], outcome: dict[str, Any]
 ) -> dict[str, Any]:
     result = dict(sample)
-    result["delivery_status"] = outcome["delivery_status"]
-    if outcome.get("event_id") is not None:
+    if STATUS_RANK[outcome["delivery_status"]] > STATUS_RANK[
+        sample["delivery_status"]
+    ]:
+        result["delivery_status"] = outcome["delivery_status"]
+    if result.get("event_id") is None and outcome.get("event_id") is not None:
         result["event_id"] = outcome["event_id"]
+    return result
+
+
+def _merge_publication_outcome(
+    current: dict[str, Any], incoming: dict[str, Any]
+) -> dict[str, Any]:
+    result = dict(current)
+    if STATUS_RANK[incoming["delivery_status"]] > STATUS_RANK[
+        current["delivery_status"]
+    ]:
+        result["delivery_status"] = incoming["delivery_status"]
+    if result.get("event_id") is None and incoming.get("event_id") is not None:
+        result["event_id"] = incoming["event_id"]
+    if incoming["timestamp"] < current["timestamp"]:
+        result["timestamp"] = incoming["timestamp"]
     return result
 
 
@@ -379,39 +398,46 @@ def collect(
         for raw_root in workspace_roots:
             root = raw_root.expanduser()
             for ticket in range(ticket_min, ticket_max + 1):
-                source_log = root / str(ticket) / "logs" / "agent.ndjson"
-                if not source_log.is_file():
-                    continue
-                stats["source_logs_scanned"] += 1
-                scanned_tickets.add(ticket)
-                with source_log.open(encoding="utf-8", errors="replace") as stream:
-                    for line in stream:
-                        stats["source_lines_scanned"] += 1
-                        try:
-                            row = json.loads(line)
-                        except (TypeError, ValueError):
-                            stats["malformed_source_lines"] += 1
-                            continue
-                        if not isinstance(row, dict):
-                            continue
-                        outcome = _publication_outcome(row)
-                        if outcome is not None:
-                            stats["publication_records_seen"] += 1
-                            sample_id = _call_sample_id(
-                                ticket, outcome["tool_call_id"]
-                            )
-                            current = publication_outcomes.get(sample_id)
-                            if current is None or outcome["timestamp"] >= current["timestamp"]:
-                                publication_outcomes[sample_id] = outcome
-                        sample = sample_from_row(row, ticket, source_log)
-                        if sample is None:
-                            continue
-                        stats["estimate_records_seen"] += 1
-                        sample_id = sample["sample_id"]
-                        if sample_id in samples:
-                            samples[sample_id] = _merge_sample(samples[sample_id], sample)
-                        else:
-                            samples[sample_id] = sample
+                agent_log = root / str(ticket) / "logs" / "agent.ndjson"
+                publication_log = agent_log.with_name(PUBLICATION_LOG_NAME)
+                for source_log in (agent_log, publication_log):
+                    if not source_log.is_file():
+                        continue
+                    stats["source_logs_scanned"] += 1
+                    scanned_tickets.add(ticket)
+                    with source_log.open(encoding="utf-8", errors="replace") as stream:
+                        for line in stream:
+                            stats["source_lines_scanned"] += 1
+                            try:
+                                row = json.loads(line)
+                            except (TypeError, ValueError):
+                                stats["malformed_source_lines"] += 1
+                                continue
+                            if not isinstance(row, dict):
+                                continue
+                            outcome = _publication_outcome(row)
+                            if outcome is not None:
+                                stats["publication_records_seen"] += 1
+                                sample_id = _call_sample_id(
+                                    ticket, outcome["tool_call_id"]
+                                )
+                                current = publication_outcomes.get(sample_id)
+                                publication_outcomes[sample_id] = (
+                                    outcome
+                                    if current is None
+                                    else _merge_publication_outcome(current, outcome)
+                                )
+                            if source_log != agent_log:
+                                continue
+                            sample = sample_from_row(row, ticket, source_log)
+                            if sample is None:
+                                continue
+                            stats["estimate_records_seen"] += 1
+                            sample_id = sample["sample_id"]
+                            if sample_id in samples:
+                                samples[sample_id] = _merge_sample(samples[sample_id], sample)
+                            else:
+                                samples[sample_id] = sample
         for sample_id, outcome in publication_outcomes.items():
             if sample_id in samples:
                 samples[sample_id] = _apply_publication_outcome(
@@ -445,7 +471,7 @@ def _parser() -> argparse.ArgumentParser:
         action="append",
         type=Path,
         dest="workspace_roots",
-        help="repository workspace root containing <ticket>/logs/agent.ndjson; repeatable",
+        help="repository workspace root containing ticket agent and publication logs; repeatable",
     )
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--ticket-min", type=int, default=1085)
