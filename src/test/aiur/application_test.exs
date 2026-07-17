@@ -105,6 +105,7 @@ defmodule Aiur.ApplicationTest do
       Aiur.CurrentRunMembership.Store,
       Aiur.CurrentRunMembership.Reconciler,
       Aiur.TicketActivity,
+      Aiur.Claude.Telemetry,
       Aiur.BuildOrder.TicketHistoryProvider,
       Aiur.Opencode.SessionSupervisor,
       Aiur.Opencode.BridgeSupervisor,
@@ -296,6 +297,20 @@ defmodule Aiur.ApplicationTest do
 
         assert membership_store < activity
         assert activity < orchestrator
+      end
+    end
+
+    test "Claude telemetry is dashboard-independent and starts before the orchestrator" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        modules = modules(AiurApp.child_specs(opts))
+        telemetry = Enum.find_index(modules, &(&1 == Aiur.Claude.Telemetry))
+        orchestrator = Enum.find_index(modules, &(&1 == Aiur.Orchestrator))
+
+        assert is_integer(telemetry)
+        assert telemetry < orchestrator
       end
     end
 

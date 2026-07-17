@@ -43,7 +43,8 @@ defmodule Aiur.Claude.Repl.Launcher do
       rc_name: rc_name,
       window_name: window_name,
       started_at: started_at,
-      opts: opts
+      opts: opts,
+      telemetry_launch: Keyword.get(opts, :telemetry_launch)
     }
 
     # RC sessions emit no structured stdout, so turn detection rides on Claude
@@ -95,7 +96,7 @@ defmodule Aiur.Claude.Repl.Launcher do
         resume_id: resume_id
       })
 
-    case Tmux.new_hidden_window(ctx.tmux, ctx.window_name, command) do
+    case new_hidden_window(ctx, command) do
       {:ok, pane_id} ->
         os_pid = pane_pid(ctx.tmux, pane_id)
         process_group_id = process_group(ctx, os_pid)
@@ -123,6 +124,12 @@ defmodule Aiur.Claude.Repl.Launcher do
         err
     end
   end
+
+  defp new_hidden_window(%{telemetry_launch: %{env: env}} = ctx, command) when is_list(env) do
+    Tmux.new_hidden_window_with_env(ctx.tmux, ctx.window_name, command, env)
+  end
+
+  defp new_hidden_window(ctx, command), do: Tmux.new_hidden_window(ctx.tmux, ctx.window_name, command)
 
   defp notify_provider_started(%{opts: opts}, os_pid, process_group_id) do
     callback = Keyword.get(opts, :on_provider_started, fn _provider -> :ok end)

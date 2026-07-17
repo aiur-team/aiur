@@ -8,7 +8,7 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
   alias Aiur.Issue
   alias Aiur.Workflow
 
-  test "spawned claude shell receives workspace and configured base vars" do
+  test "spawned claude shell receives workspace, configured base, and launch vars" do
     root = Path.join(System.tmp_dir!(), "aiur_claude_env_#{System.unique_integer([:positive])}")
     workspace = Path.join(root, "agent-1")
     File.mkdir_p!(workspace)
@@ -22,13 +22,17 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
       # The fake app-server records the workspace variables the spawned shell sees,
       # then idles so the initialize handshake reads back nothing and
       # start_session returns a timeout error. The marker is written first.
-      command: "printenv AIUR_AGENT_WORKSPACE AIUR_BASE_BRANCH > #{marker}; sleep 2",
+      command: "env | grep -E '^(AIUR_AGENT_WORKSPACE|AIUR_BASE_BRANCH|CLAUDE_CODE_ENABLE_TELEMETRY)=' | sort | sed 's/^[^=]*=//' > #{marker}; sleep 2",
       agent_read_timeout_ms: 300
     )
 
-    assert {:error, _reason} = ClaudeAgent.start_session(workspace)
+    assert {:error, _reason} =
+             ClaudeAgent.start_session(workspace,
+               telemetry_launch: %{env: [{"CLAUDE_CODE_ENABLE_TELEMETRY", "1"}]}
+             )
+
     assert File.exists?(marker)
-    assert String.split(File.read!(marker), "\n", trim: true) == [workspace, "integration"]
+    assert String.split(File.read!(marker), "\n", trim: true) == [workspace, "integration", "1"]
   end
 
   test "turn/start carries the configured model and completes a turn" do

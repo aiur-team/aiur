@@ -190,6 +190,27 @@ defmodule Aiur.TmuxTest do
     assert {:ok, "%5"} = Task.await(task, 1_000)
   end
 
+  test "new_hidden_window_with_env/4 passes launch-only environment through tmux", %{name: name} do
+    parent = self()
+
+    task =
+      Task.async(fn ->
+        send(parent, :ready)
+
+        Tmux.new_hidden_window_with_env(name, "aiur-repl-telemetry", "exec claude", [
+          {"CLAUDE_CODE_ENABLE_TELEMETRY", "1"},
+          {"OTEL_RESOURCE_ATTRIBUTES", false}
+        ])
+      end)
+
+    assert_receive :ready
+    assert_receive {:tmux_mock_out, cmd}, 1_000
+    assert cmd == "new-window -d -n aiur-repl-telemetry -e CLAUDE_CODE_ENABLE_TELEMETRY=1 -e OTEL_RESOURCE_ATTRIBUTES= -P -F \#{pane_id} exec claude"
+
+    send(GenServer.whereis(name), {:tmux_mock_data, "%begin 1 1 0\n%8\n%end 1 1 0\n"})
+    assert {:ok, "%8"} = Task.await(task, 1_000)
+  end
+
   test "new_hidden_window/3 bootstraps the session when no server is running", %{name: name} do
     parent = self()
 
