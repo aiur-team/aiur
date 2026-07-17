@@ -126,17 +126,19 @@ defmodule Aiur.LiveConversation do
 
   @impl true
   def handle_call({:activate, source}, _from, state) do
-    with {:ok, key, source} <- Source.canonical(source) do
-      now = state.clock.()
-      created? = not Map.has_key?(state.snapshots, key)
-      {snapshot, state} = fetch_or_create(state, key, source, now)
-      activated = activate_snapshot(snapshot, now)
-      changed? = created? or activated != snapshot
-      state = put_snapshot(state, key, activated)
-      state = maybe_schedule_notification(state, key, source, changed?)
-      {:reply, {:ok, public(activated)}, state}
-    else
-      {:error, reason} -> {:reply, {:error, reason}, state}
+    case Source.canonical(source) do
+      {:ok, key, source} ->
+        now = state.clock.()
+        created? = not Map.has_key?(state.snapshots, key)
+        {snapshot, state} = fetch_or_create(state, key, source, now)
+        activated = activate_snapshot(snapshot, now)
+        changed? = created? or activated != snapshot
+        state = put_snapshot(state, key, activated)
+        state = maybe_schedule_notification(state, key, source, changed?)
+        {:reply, {:ok, public(activated)}, state}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
     end
   end
 
@@ -195,44 +197,48 @@ defmodule Aiur.LiveConversation do
   end
 
   defp observe_normalized(source, state, normalize_fun) do
-    with {:ok, key, source} <- Source.canonical(source) do
-      now = state.clock.()
-      {snapshot, state} = fetch_or_create(state, key, source, now)
-      {snapshot, changed?} = Compactor.apply(snapshot, normalize_fun.(now))
-      snapshot = Retention.retain(snapshot, &public/1)
-      state = put_snapshot(state, key, snapshot)
-      state = maybe_schedule_notification(state, key, source, changed?)
-      {:reply, {:ok, public(snapshot)}, state}
-    else
-      {:error, reason} -> {:reply, {:error, reason}, state}
+    case Source.canonical(source) do
+      {:ok, key, source} ->
+        now = state.clock.()
+        {snapshot, state} = fetch_or_create(state, key, source, now)
+        {snapshot, changed?} = Compactor.apply(snapshot, normalize_fun.(now))
+        snapshot = Retention.retain(snapshot, &public/1)
+        state = put_snapshot(state, key, snapshot)
+        state = maybe_schedule_notification(state, key, source, changed?)
+        {:reply, {:ok, public(snapshot)}, state}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
     end
   end
 
   defp change_state(source, state, next_state) do
-    with {:ok, key, source} <- Source.canonical(source) do
-      now = state.clock.()
-      {snapshot, state} = fetch_or_create(state, key, source, now)
+    case Source.canonical(source) do
+      {:ok, key, source} ->
+        now = state.clock.()
+        {snapshot, state} = fetch_or_create(state, key, source, now)
 
-      if snapshot.state == :ended do
-        {:reply, {:ok, public(snapshot)}, state}
-      else
-        {next_state, health, freshness} = state_transition(next_state, snapshot)
+        if snapshot.state == :ended do
+          {:reply, {:ok, public(snapshot)}, state}
+        else
+          {next_state, health, freshness} = state_transition(next_state, snapshot)
 
-        snapshot =
-          snapshot
-          |> Map.merge(%{
-            state: next_state,
-            health: health,
-            freshness: freshness,
-            observed_at: now
-          })
-          |> Retention.retain(&public/1)
+          snapshot =
+            snapshot
+            |> Map.merge(%{
+              state: next_state,
+              health: health,
+              freshness: freshness,
+              observed_at: now
+            })
+            |> Retention.retain(&public/1)
 
-        state = state |> put_snapshot(key, snapshot) |> schedule_notification(key, source)
-        {:reply, {:ok, public(snapshot)}, state}
-      end
-    else
-      {:error, reason} -> {:reply, {:error, reason}, state}
+          state = state |> put_snapshot(key, snapshot) |> schedule_notification(key, source)
+          {:reply, {:ok, public(snapshot)}, state}
+        end
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
     end
   end
 

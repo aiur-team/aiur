@@ -1,8 +1,8 @@
 defmodule AiurWeb.OperatorControlCenter.UnitsRow.Projection do
   @moduledoc false
 
-  alias Aiur.TrackerIdentity
   alias Aiur.LiveConversation.Source, as: LiveConversationSource
+  alias Aiur.TrackerIdentity
   alias AiurWeb.OperatorControlCenter.UnitsRow.{Fields, Sources, URL, Value}
 
   @spec rows(map(), map(), Sources.source_set()) :: [map()]

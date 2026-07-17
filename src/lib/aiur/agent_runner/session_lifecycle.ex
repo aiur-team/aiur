@@ -4,6 +4,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   alias Aiur.{AgentPubSub, CodingAgent, Config, Issue, Tracker}
   alias Aiur.AgentRunner.{MessageHandler, SessionResume, TurnLoop}
   alias Aiur.Claude.{DisplayTailer, RemoteControl, Telemetry}
+  alias Aiur.LiveConversation.Source
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Workspace.Ownership
   @type worker_host :: String.t() | nil
@@ -693,7 +694,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   end
 
   defp opaque_live_session(opts) do
-    Aiur.LiveConversation.Source.opaque_session_id(Keyword.get(opts, :session_id)) ||
+    Source.opaque_session_id(Keyword.get(opts, :session_id)) ||
       "session:unresolved"
   end
 

@@ -176,23 +176,25 @@ defmodule Aiur.AgentRunner.MessageHandler do
 
   def observe_operator_delivery(_issue, _item, _backend, _opts), do: :ok
 
-  defp observe_operator_text(issue, request_id, text, backend, opts) do
-    if text != "" do
-      with_live_source(issue, backend, opts, :observe_operator, fn source ->
-        event = %{
-          role: :user,
-          msg_id: "operator:#{request_id}",
-          body: text,
-          payload: %{source: :operator_delivery}
-        }
+  defp observe_operator_text(_issue, _request_id, "", _backend, _opts), do: :ok
 
-        safe_live_conversation(issue, :observe_operator, opts, fn ->
-          LiveConversation.observe_operator_message(source, event, live_conversation_opts(opts))
-        end)
-      end)
-    else
-      :ok
-    end
+  defp observe_operator_text(issue, request_id, text, backend, opts) do
+    with_live_source(issue, backend, opts, :observe_operator, fn source ->
+      observe_operator_text_for_source(issue, source, request_id, text, opts)
+    end)
+  end
+
+  defp observe_operator_text_for_source(issue, source, request_id, text, opts) do
+    event = %{
+      role: :user,
+      msg_id: "operator:#{request_id}",
+      body: text,
+      payload: %{source: :operator_delivery}
+    }
+
+    safe_live_conversation(issue, :observe_operator, opts, fn ->
+      LiveConversation.observe_operator_message(source, event, live_conversation_opts(opts))
+    end)
   end
 
   @doc false
@@ -335,19 +337,26 @@ defmodule Aiur.AgentRunner.MessageHandler do
           :ok | {:error, term()}
   def activate_live_conversation(%Issue{} = issue, backend, opts)
       when is_binary(backend) and is_list(opts) do
-    if Keyword.get(opts, :live_conversation_authority) == :display_tailer do
-      :ok
-    else
-      with_live_source(issue, backend, opts, :activate, fn source ->
-        safe_live_conversation(issue, :activate, opts, fn ->
-          LiveConversation.activate(source, live_conversation_opts(opts))
-        end)
-      end)
+    case Keyword.get(opts, :live_conversation_authority) do
+      :display_tailer -> :ok
+      _authority -> activate_live_source(issue, backend, opts)
     end
   end
 
   def activate_live_conversation(_issue, _backend, _opts),
     do: {:error, {:live_conversation_context, :invalid_arguments}}
+
+  defp activate_live_source(issue, backend, opts) do
+    with_live_source(issue, backend, opts, :activate, fn source ->
+      activate_live_source_projection(issue, source, opts)
+    end)
+  end
+
+  defp activate_live_source_projection(issue, source, opts) do
+    safe_live_conversation(issue, :activate, opts, fn ->
+      LiveConversation.activate(source, live_conversation_opts(opts))
+    end)
+  end
 
   @doc false
   @spec replace_live_conversation_source(
