@@ -1,0 +1,74 @@
+{
+  "rateLimits": {
+    "limitId": "codex",
+    "planType": "business",
+    "primary": {
+      "usedPercent": 25,
+      "windowDurationMins": 300,
+      "resetsAt": 1784246400
+    },
+    "secondary": {
+      "usedPercent": 60,
+      "windowDurationMins": 10080,
+      "resetsAt": 1784851200
+    },
+    "credits": {
+      "hasCredits": true,
+      "unlimited": false,
+      "balance": "123.45"
+    },
+    "individualLimit": {
+      "used": "1.50",
+      "limit": "10.00",
+      "remainingPercent": 85,
+      "resetsAt": 1786838400
+    }
+  },
+  "rateLimitsByLimitId": {
+    "codex": {
+      "limitId": "codex",
+      "planType": "business",
+      "primary": {
+        "usedPercent": 25,
+        "windowDurationMins": 300,
+        "resetsAt": 1784246400
+      },
+      "secondary": {
+        "usedPercent": 60,
+        "windowDurationMins": 10080,
+        "resetsAt": 1784851200
+      },
+      "credits": {
+        "hasCredits": true,
+        "unlimited": false,
+        "balance": "123.45"
+      },
+      "individualLimit": {
+        "used": "1.50",
+        "limit": "10.00",
+        "remainingPercent": 85,
+        "resetsAt": 1786838400
+      }
+    },
+    "gpt-5": {
+      "limitId": "gpt-5",
+      "planType": "business",
+      "primary": {
+        "usedPercent": 10,
+        "windowDurationMins": 60,
+        "resetsAt": 1784246400
+      },
+      "secondary": null,
+      "credits": {
+        "hasCredits": false,
+        "unlimited": false,
+        "balance": null
+      },
+      "individualLimit": null
+    }
+  },
+  "rateLimitResetCredits": {
+    "availableCount": 2,
+    "credits": []
+  }
+}

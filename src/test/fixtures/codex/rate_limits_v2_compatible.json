@@ -1,0 +1,12 @@
+{
+  "rateLimits": {
+    "primary": {
+      "usedPercent": 50,
+      "windowDurationMins": 60,
+      "resetsAt": 1784246400
+    },
+    "futureProtocolField": "future-only"
+  },
+  "rateLimitsByLimitId": null,
+  "rateLimitResetCredits": null
+}

@@ -142,7 +142,7 @@ defmodule Aiur.ProviderMeters.Input do
     end
   end
 
-  defp windows(values) when is_list(values) and length(values) <= 32 do
+  defp windows(values) when is_list(values) and length(values) <= 128 do
     values
     |> Enum.reduce_while({:ok, %{}}, fn value, {:ok, windows} ->
       with {:ok, window} <- window(value),
