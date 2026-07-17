@@ -262,7 +262,7 @@ footer{margin-top:26px;border-top:1px solid var(--line);padding-top:14px;font-fa
 <script>
 const RUN = {
   phase: 6,
-  updated: "2026-07-17 06:59 PDT",
+  updated: "2026-07-17 07:07 PDT",
   tickets: {
     "BO-004": {state:"merged", progress:100, issue:1086},
     "BO-008": {state:"merged", progress:100, issue:1087},
@@ -307,8 +307,8 @@ const RUN = {
     "ADHOC-1148": {state:"merged", progress:100, issue:1148},
     "ADHOC-1149": {state:"merged to develop through PR #1213", progress:100, issue:1149},
     "ADHOC-1237": {state:"working P1 — fence stale lifecycle writes and truthful message delivery", progress:38, issue:1237},
-    "ADHOC-1238": {state:"focused validation green — preparing draft PR for closed-port recovery", progress:68, issue:1238},
-    "ADHOC-1240": {state:"working P1 — tracing answered Decision enrichment redispatch", progress:24, issue:1240},
+    "ADHOC-1238": {state:"exact-head CE review — draft PR #1241 at 91ab86db; lint red, full test running", progress:82, issue:1238},
+    "ADHOC-1240": {state:"draft PR #1242 at 56ef7503 — focused tests green, exact-head CI running", progress:82, issue:1240},
     "ADHOC-1151": {state:"merged", progress:100, issue:1151},
     "ADHOC-1152": {state:"deferred", progress:0, issue:1152},
     "ADHOC-1154": {state:"merged", progress:100, issue:1154},
@@ -373,7 +373,7 @@ TICKETS.forEach(ticket => {
   if (Object.prototype.hasOwnProperty.call(EXECUTION_PHASES, ticket.id)) ticket.phase = EXECUTION_PHASES[ticket.id];
 });
 const ISSUE_BY_ID = {"BO-001":1085,"BO-004":1086,"BO-008":1087,"DASH-006":1088,"DASH-017":1089,"DASH-018":1090,"BO-002":1091,"BO-003":1092,"BO-005":1093,"BO-006":1094,"BO-007":1095,"BO-009":1096,"BO-010":1097,"BO-011":1098,"BO-012":1099,"BO-013":1100,"BO-014":1101,"BO-015":1102,"BO-016":1103,"BO-017":1104,"BO-018":1105,"BO-019":1106,"BO-020":1107,"DASH-001":1108,"DASH-002":1109,"DASH-003":1110,"DASH-004":1111,"DASH-005":1112,"DASH-007":1113,"DASH-008":1114,"DASH-009":1115,"DASH-010":1116,"DASH-011":1117,"DASH-012":1118,"DASH-013":1119,"DASH-014":1120,"DASH-015":1121,"DASH-016":1122,"DASH-019":1123,"DASH-020":1124,"DASH-021":1125,"DASH-022":1126,"DASH-023":1127,"DASH-024":1128,"DASH-025":1129,"DASH-026":1130,"DASH-027":1131,"DASH-028":1132,"DASH-029":1133,"DASH-030":1134,"DASH-031":1135,"DASH-032":1136,"DASH-033":1137,"DASH-034":1138};
-const PR_BY_ISSUE = {780:1181,1031:1036,1085:1155,1086:1143,1087:1145,1088:1144,1089:1159,1090:1141,1091:1157,1092:1190,1093:1187,1094:1192,1095:1196,1096:1158,1097:1168,1103:1195,1104:1156,1105:1209,1106:1198,1108:1188,1109:1167,1111:1160,1113:1197,1114:1189,1115:1204,1117:1199,1118:1203,1119:1228,1124:1208,1125:1200,1130:1217,1139:1065,1140:1180,1146:1174,1148:1173,1149:1213,1151:1153,1154:1172,1161:1166,1162:1165,1177:1176,1185:1186,1229:1230};
+const PR_BY_ISSUE = {780:1181,1031:1036,1085:1155,1086:1143,1087:1145,1088:1144,1089:1159,1090:1141,1091:1157,1092:1190,1093:1187,1094:1192,1095:1196,1096:1158,1097:1168,1103:1195,1104:1156,1105:1209,1106:1198,1108:1188,1109:1167,1111:1160,1113:1197,1114:1189,1115:1204,1117:1199,1118:1203,1119:1228,1124:1208,1125:1200,1130:1217,1139:1065,1140:1180,1146:1174,1148:1173,1149:1213,1151:1153,1154:1172,1161:1166,1162:1165,1177:1176,1185:1186,1229:1230,1238:1241,1240:1242};
 const LANES = ["plan-graph","runtime","dashboard-ui","accounting","platform","adhoc"];
 const LANE_LABEL = {"plan-graph":"Plan graph","runtime":"Runtime","dashboard-ui":"Dashboard UI","accounting":"Accounting","platform":"Platform","adhoc":"Ad Hoc"};
 const ICONS = {
