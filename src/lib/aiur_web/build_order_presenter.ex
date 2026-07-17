@@ -21,7 +21,7 @@ defmodule AiurWeb.BuildOrderPresenter do
   }
 
   alias Aiur.BuildOrder.GraphProjection.Snapshot
-  alias Aiur.TrackerIdentity
+  alias Aiur.{OpaqueIdentifier, TrackerIdentity}
   alias AiurWeb.BuildOrderViewModel
   alias AiurWeb.BuildOrderViewModel.{Edge, Group, Node, Relationships}
 
@@ -547,7 +547,7 @@ defmodule AiurWeb.BuildOrderPresenter do
       status: :known,
       decision: decision,
       pr_number: positive_or_unknown(Map.get(result, :pr_number)),
-      head_sha: Bounded.opaque(Map.get(result, :head_sha), 128)
+      head_sha: OpaqueIdentifier.normalize(Map.get(result, :head_sha), 128)
     }
   end
 
@@ -684,7 +684,7 @@ defmodule AiurWeb.BuildOrderPresenter do
   defp safe_provenance(_provenance), do: %{}
 
   defp maybe_put_opaque(acc, key, value) do
-    case Bounded.opaque(value, 128) do
+    case OpaqueIdentifier.normalize(value, 128) do
       nil -> acc
       safe -> Map.put(acc, key, safe)
     end

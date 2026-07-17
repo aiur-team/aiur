@@ -1,12 +1,11 @@
 defmodule Aiur.TicketActivity.Projection do
   @moduledoc false
 
-  alias Aiur.{SecretRedactor, TicketActivity.Reducer, TicketObservation, TrackerIdentity}
+  alias Aiur.{OpaqueIdentifier, TicketActivity.Reducer, TicketObservation, TrackerIdentity}
 
   @default_retention_ms 300_000
   @default_stale_after_ms 60_000
   @default_max_recent 100
-  @max_opaque_bytes 128
   @progress_generation_keys [:run_id, :attempt, :session_id]
 
   @type entry :: %{
@@ -476,7 +475,7 @@ defmodule Aiur.TicketActivity.Projection do
         value when is_integer(value) and value >= 0 ->
           Map.put(acc, key, value)
 
-        value when is_binary(value) and byte_size(value) <= @max_opaque_bytes ->
+        value when is_binary(value) ->
           put_safe_opaque(acc, key, value)
 
         _ ->
@@ -488,10 +487,10 @@ defmodule Aiur.TicketActivity.Projection do
   defp safe_provenance(_provenance), do: %{}
 
   defp put_safe_opaque(acc, key, value) do
-    if Regex.match?(~r/^[A-Za-z0-9._:-]+$/, value) and
-         SecretRedactor.redact(value) == value,
-       do: Map.put(acc, key, value),
-       else: acc
+    case OpaqueIdentifier.normalize(value) do
+      nil -> acc
+      safe -> Map.put(acc, key, safe)
+    end
   end
 
   defp phase_source("phase." <> rest) do

@@ -96,7 +96,7 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
   alias Aiur.BuildOrder.{Bounded, Lifecycle, TicketHistory}
   alias Aiur.BuildOrder.TicketDetail.{Sanitizer, Snapshot, State}
   alias Aiur.BuildOrder.TicketHistory.Entry
-  alias Aiur.TrackerIdentity
+  alias Aiur.{OpaqueIdentifier, TrackerIdentity}
   alias AiurWeb.BuildOrder.TicketContextPresenter.{Capability, LogEntry, View}
 
   @max_description_bytes 4_000
@@ -565,7 +565,7 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
   defp positive_integer(_value), do: nil
 
   defp evidence_source(%{kind: kind, name: name}) when kind in [:agent_event, :agent_alert, :legacy] and is_binary(name) do
-    case Bounded.opaque(name) do
+    case OpaqueIdentifier.normalize(name) do
       nil -> nil
       safe_name -> %{kind: kind, name: safe_name}
     end
@@ -636,7 +636,7 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
   defp safe_repository_part?(_value), do: false
 
   defp maybe_put_safe_opaque(map, key, value) do
-    case Bounded.opaque(value) do
+    case OpaqueIdentifier.normalize(value) do
       nil -> map
       safe -> Map.put(map, key, safe)
     end

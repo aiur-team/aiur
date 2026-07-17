@@ -1,8 +1,8 @@
 defmodule Aiur.BuildOrder.TicketHistory.Normalizer do
   @moduledoc false
 
-  alias Aiur.BuildOrder.{Bounded, TicketHistory.Entry}
-  alias Aiur.{TicketObservation, TrackerIdentity}
+  alias Aiur.BuildOrder.TicketHistory.Entry
+  alias Aiur.{OpaqueIdentifier, TicketObservation, TrackerIdentity}
 
   @hard_limit 100
   @progress_names ["progress", "progress.checkin", "progress.phase"]
@@ -209,7 +209,7 @@ defmodule Aiur.BuildOrder.TicketHistory.Normalizer do
 
   defp source(%{kind: kind, name: name})
        when kind in [:agent_event, :agent_alert, :legacy] and is_binary(name) do
-    case Bounded.opaque(name) do
+    case OpaqueIdentifier.normalize(name) do
       nil -> nil
       safe_name -> %{kind: kind, name: safe_name}
     end
@@ -255,7 +255,7 @@ defmodule Aiur.BuildOrder.TicketHistory.Normalizer do
   defp maybe_put(map, key, value, predicate), do: if(predicate.(value), do: Map.put(map, key, value), else: map)
 
   defp maybe_put_opaque(map, key, value) do
-    case Bounded.opaque(value) do
+    case OpaqueIdentifier.normalize(value) do
       nil -> map
       safe -> Map.put(map, key, safe)
     end
