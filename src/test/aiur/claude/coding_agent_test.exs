@@ -339,7 +339,6 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
     assert turn_models == ["claude-sonnet-4-6", "opus-4-8"]
   end
 
-  @tag skip: "flaky: WorkflowStore/cwd config leak under full suite; see #1214"
   test "an operator message after the transport is torn down fails cleanly, never crashing the caller" do
     # Regression for #708/#699: a write to the agent backend after its stdio
     # transport closed used to raise `ArgumentError` from `Port.command/2` and
