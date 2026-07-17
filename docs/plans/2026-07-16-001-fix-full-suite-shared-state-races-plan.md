@@ -36,6 +36,11 @@ from PR #1213, PR #1036, or any other unrelated feature branch.
   `GenServer.call(Aiur.Supervisor, {:restart_child, ...})` exiting `:shutdown`.
 - The same files and dependencies exist on `main`; there is no develop-only
   exception for this recurring set.
+- Exact-head CI on PR #1223 reproduced the cross-head provider-interrupt fixture
+  failure previously seen on PR #1036. The fixture enqueued a checkpoint item
+  before sending an artificial interrupt signal, so a delayed `turn/started`
+  checkpoint could legally claim the item and bypass the intended interrupt
+  path.
 
 ## Requirements
 
@@ -54,6 +59,8 @@ from PR #1213, PR #1036, or any other unrelated feature branch.
 - **R7.** The same exact patch head must pass the affected tests repeatedly with
   `--max-cases 4` and complete at least two successful full-coverage CI
   executions without a commit change between them.
+- **R8.** The provider-interrupt lifecycle regression must enqueue an
+  interrupt-only item so a delayed safe checkpoint cannot consume it first.
 
 ## Assumptions
 
@@ -73,13 +80,14 @@ from PR #1213, PR #1036, or any other unrelated feature branch.
 - `src/test/aiur/build_gate_test.exs`
 - `src/lib/aiur_web/observability_pubsub.ex`
 - `src/test/aiur/observability_pubsub_test.exs`
+- `src/test/aiur/agent_runner/provider_lifecycle_test.exs`
 - Main-first publication followed by exact-main integration into `develop`
 
 ### Out of scope
 
 - BuildGate lease-holder production behavior or capacity policy changes
-- Provider-turn ledger, completed-runner replacement, event-digest semantics,
-  and unrelated application-supervisor refactors
+- Provider-turn ledger production behavior, completed-runner replacement,
+  event-digest semantics, and unrelated application-supervisor refactors
 - PR #1213 or PR #1036 feature changes
 - Local full-suite loops or agent-workspace manual `aiurdev --test` runs
 
@@ -99,6 +107,9 @@ from PR #1213, PR #1036, or any other unrelated feature branch.
 - **CI is the full-suite oracle.** Local verification repeats only the affected
   files within the mandated four-case cap; exact-head coverage repetition is
   proven by CI without mixing in unrelated branch changes.
+- **Interrupt fixtures use interrupt items.** The lifecycle regression now
+  constructs the queued operator message with `delivery_policy: :interrupt`,
+  matching the production path and preventing safe-checkpoint preemption.
 
 ## Implementation Units
 
@@ -179,14 +190,33 @@ such as `Aiur.Opencode.SlotPolicy`, plus `start_supervised!` ownership.
 **Verification:** Repeat `observability_pubsub_test.exs` with `--max-cases 4`
 while the application-global PubSub child remains continuously registered.
 
+### U2.5. Isolate the provider-interrupt fixture
+
+**Goal:** Keep the lifecycle regression on the interrupt path under suite load.
+
+**Requirements:** R7, R8
+
+**Dependencies:** None
+
+**Files:**
+
+- Modify: `src/test/aiur/agent_runner/provider_lifecycle_test.exs`
+
+**Approach:** Construct the queued operator message with
+`delivery_policy: :interrupt`. Existing checkpoint-claim coverage proves these
+items are excluded until the direct interrupt signal routes them to queue drain.
+
+**Verification:** Repeat the exact lifecycle case in clean VMs and require the
+same exact PR head to pass full-coverage CI twice.
+
 ### U3. Publish main-first and prove develop ancestry
 
 **Goal:** Land one generic writer change through the branch sequence required by
 the Executor.
 
-**Requirements:** R6, R7
+**Requirements:** R6, R7, R8
 
-**Dependencies:** U1, U2
+**Dependencies:** U1, U2, U2.5
 
 **Files:**
 
@@ -209,7 +239,7 @@ the Executor.
 
 **Test scenarios:**
 
-- **Integration:** main PR diff contains only U1/U2 and plan evidence.
+- **Integration:** main PR diff contains only U1/U2/U2.5 and plan evidence.
 - **Integration:** develop integration diff contains the exact main merge and no
   feature-branch changes from PR #1213 or PR #1036.
 - **Workflow:** the main PR leaves #1222 open; the develop integration PR owns
@@ -221,7 +251,8 @@ successful ancestry check in the workpad/PR handoff.
 ## System-Wide Impact
 
 - **Interaction graph:** BuildGate test shell -> detached child -> holder lease;
-  Observability facade -> test-owned Phoenix PubSub; git main -> develop.
+  Observability facade -> test-owned Phoenix PubSub; interrupt fixture -> direct
+  queue drain; git main -> develop.
 - **Error propagation:** Test cleanup releases descendants unconditionally;
   unavailable PubSub remains a documented `:ok` no-op.
 - **State lifecycle risks:** Release files must be unique per test and installed
