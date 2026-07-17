@@ -177,6 +177,9 @@ defmodule Aiur.Application do
       Aiur.Orchestrator.TrackedSet,
       Aiur.CurrentRunMembership.Store,
       Aiur.TicketActivity,
+      # Claude telemetry owns an independent loopback listener and must be
+      # available before the Orchestrator starts owned Claude workers.
+      Aiur.Claude.Telemetry,
       {Aiur.BuildOrder.TicketHistoryProvider, runtime_config?: true},
       {Aiur.Orchestrator, initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
       Aiur.CurrentRunMembership.Reconciler,
