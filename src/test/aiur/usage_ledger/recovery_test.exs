@@ -79,20 +79,39 @@ defmodule Aiur.UsageLedger.RecoveryTest do
     assert {:ok, [_entry]} = File.ls(paths.quarantine_dir)
   end
 
-  test "fails closed when a checkpointed canonical delta is forged", %{root: root, persistence: persistence} do
+  test "fails closed on a forged suffix while retaining the checkpointed canonical prefix", %{
+    root: root,
+    persistence: persistence
+  } do
     {:ok, paths} = Paths.prepare(root, persistence.sync_fun)
-    record = canonical_record(1)
-    :ok = DecisionLog.append(paths.segment_path, Record.encode(record))
+    first_envelope = envelope(%{})
+    {:ok, %{state: first_policy, delta: first_delta}} = CounterPolicy.apply(CounterPolicy.new(), first_envelope)
+    {:ok, first_record} = Record.new(1, first_envelope, first_delta)
+    :ok = DecisionLog.append(paths.segment_path, Record.encode(first_record))
 
-    checkpoint = Checkpoint.record(1, 1, CounterPolicy.new())
+    checkpoint = Checkpoint.record(1, 1, first_policy)
     :ok = Checkpoint.write(paths.checkpoint_path, checkpoint)
 
-    forged = record |> Record.encode() |> put_in(["delta", "tokens", "input"], 9) |> Jason.encode!() |> then(&(&1 <> "\n"))
-    :ok = File.write(paths.segment_path, forged)
+    second_envelope = envelope(%{idempotency_key: "codex:evt-18", source_event_id: "evt-18", source_sequence: 18})
+    {:ok, %{delta: second_delta}} = CounterPolicy.apply(first_policy, second_envelope)
+    {:ok, second_record} = Record.new(2, second_envelope, second_delta)
+
+    forged =
+      second_record
+      |> Record.encode()
+      |> put_in(["delta", "tokens", "input"], 9)
+      |> Jason.encode!()
+      |> then(&(&1 <> "\n"))
+
+    :ok = File.write(paths.segment_path, forged, [:append])
 
     assert {:ok, state} = Recovery.boot(root, persistence)
     assert state.health == {:unavailable, :record_delta_mismatch}
     refute state.writable?
+    assert state.position == 1
+    assert state.generation == 1
+    assert [%{position: 1}] = state.records
+    assert CounterPolicy.dump(state.policy) == CounterPolicy.dump(first_policy)
   end
 
   test "quarantines a rechecksummed checkpoint with an impossible generation", %{root: root, persistence: persistence} do

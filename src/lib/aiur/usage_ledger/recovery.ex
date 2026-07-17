@@ -34,24 +34,32 @@ defmodule Aiur.UsageLedger.Recovery do
          {:ok, marker} <- marker(paths.degraded_path),
          {:ok, tail_status} <- preserve_torn_tail(paths, persistence),
          {:ok, records, segment_health} <- replay(paths.segment_path, persistence.limits, tail_status),
-         {:ok, checkpoint, checkpoint_status} <- checkpoint(paths.checkpoint_path, persistence.limits),
-         {:ok, policy, position, generation, checkpoint_health} <- restore(records, checkpoint, checkpoint_status) do
-      state = %{
-        paths: paths,
-        records: records,
-        policy: policy,
-        position: position,
-        generation: generation,
-        coverage: policy.coverage,
-        health: marker_health(health(checkpoint_health, segment_health), marker),
-        writable?: checkpoint_health == :healthy and segment_health == :healthy and marker == :absent,
-        limits: persistence.limits
-      }
+         {:ok, checkpoint, checkpoint_status} <- checkpoint(paths.checkpoint_path, persistence.limits) do
+      case restore(records, checkpoint, checkpoint_status) do
+        {:ok, policy, position, generation, checkpoint_health} ->
+          state = %{
+            paths: paths,
+            records: records,
+            policy: policy,
+            position: position,
+            generation: generation,
+            coverage: policy.coverage,
+            health: marker_health(health(checkpoint_health, segment_health), marker),
+            writable?: checkpoint_health == :healthy and segment_health == :healthy and marker == :absent,
+            limits: persistence.limits
+          }
 
-      state
-      |> rebuild_missing_checkpoint(checkpoint, checkpoint_status, segment_health, marker, persistence)
-      |> maybe_quarantine(checkpoint_health, segment_health, persistence)
-      |> then(&{:ok, &1})
+          state
+          |> rebuild_missing_checkpoint(checkpoint, checkpoint_status, segment_health, marker, persistence)
+          |> maybe_quarantine(checkpoint_health, segment_health, persistence)
+          |> then(&{:ok, &1})
+
+        {:error, reason, policy, position} ->
+          {:ok, unavailable_prefix_state(paths, records, policy, position, reason, persistence)}
+
+        {:error, reason} ->
+          {:ok, unavailable_state(reason, persistence)}
+      end
     else
       {:error, reason} -> {:ok, unavailable_state(reason, persistence)}
     end
@@ -96,13 +104,15 @@ defmodule Aiur.UsageLedger.Recovery do
          {:ok, policy} <- replay_suffix(records, checkpoint.position, checkpoint.policy) do
       {:ok, policy, length(records), length(records), :healthy}
     else
+      {:error, reason, policy, position} -> {:error, reason, policy, position}
       _ -> rebuild(records, :corrupt)
     end
   end
 
   defp rebuild(records, health) do
-    with {:ok, policy} <- replay_suffix(records, 0, CounterPolicy.new()) do
-      {:ok, policy, length(records), length(records), health}
+    case replay_suffix(records, 0, CounterPolicy.new()) do
+      {:ok, policy} -> {:ok, policy, length(records), length(records), health}
+      {:error, _reason, _policy, _position} = error -> error
     end
   end
 
@@ -116,17 +126,20 @@ defmodule Aiur.UsageLedger.Recovery do
 
   defp replay_record(record, policy) do
     case CounterPolicy.apply(policy, record.envelope) do
-      {:ok, %{state: next, delta: delta}} -> replay_delta(record, next, delta)
-      {:duplicate, _state} -> {:halt, {:error, :duplicate_canonical_record}}
-      {:error, reason, _state} -> {:halt, {:error, reason}}
+      {:ok, %{state: next, delta: delta}} -> replay_delta(record, policy, next, delta)
+      {:duplicate, _state} -> replay_error(record, policy, :duplicate_canonical_record)
+      {:error, reason, _state} -> replay_error(record, policy, reason)
     end
   end
 
-  defp replay_delta(record, policy, delta) do
+  defp replay_delta(record, previous_policy, next_policy, delta) do
     if Record.matches_delta?(record, delta),
-      do: {:cont, {:ok, policy}},
-      else: {:halt, {:error, :record_delta_mismatch}}
+      do: {:cont, {:ok, next_policy}},
+      else: replay_error(record, previous_policy, :record_delta_mismatch)
   end
+
+  defp replay_error(record, policy, reason),
+    do: {:halt, {:error, reason, policy, record.position - 1}}
 
   defp consecutive_positions(records) do
     if Enum.all?(Enum.with_index(records, 1), fn {record, position} -> record.position == position end),
@@ -291,6 +304,20 @@ defmodule Aiur.UsageLedger.Recovery do
       position: 0,
       generation: 0,
       coverage: %{lower: nil, upper: nil, status: :empty},
+      health: {:unavailable, safe_reason(reason)},
+      writable?: false,
+      limits: persistence.limits
+    }
+  end
+
+  defp unavailable_prefix_state(paths, records, policy, position, reason, persistence) do
+    %{
+      paths: paths,
+      records: Enum.take(records, position),
+      policy: policy,
+      position: position,
+      generation: position,
+      coverage: policy.coverage,
       health: {:unavailable, safe_reason(reason)},
       writable?: false,
       limits: persistence.limits
