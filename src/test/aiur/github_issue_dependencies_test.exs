@@ -237,6 +237,26 @@ defmodule Aiur.GitHub.IssueDependenciesTest do
     end
   end
 
+  describe "declared?/3" do
+    test "reads authoritative presence and absence" do
+      request_fun = fn req ->
+        cond do
+          String.contains?(req.url, "/issues/80") and not String.contains?(req.url, "dependencies") ->
+            {:ok, %{status: 200, headers: [], body: %{"id" => 80_001, "number" => 80}}}
+
+          String.contains?(req.url, "/issues/7/dependencies/blocked_by") ->
+            {:ok, %{status: 200, headers: [], body: [%{"id" => 80_001, "number" => 80}]}}
+
+          String.contains?(req.url, "/issues/8/dependencies/blocked_by") ->
+            {:ok, %{status: 200, headers: [], body: []}}
+        end
+      end
+
+      assert {:ok, true} = IssueDependencies.declared?(7, 80, request_fun: request_fun)
+      assert {:ok, false} = IssueDependencies.declared?(8, 80, request_fun: request_fun)
+    end
+  end
+
   defp rate_limited_403_response do
     %{
       status: 403,

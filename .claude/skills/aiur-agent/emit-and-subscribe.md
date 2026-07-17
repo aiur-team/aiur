@@ -17,9 +17,23 @@ Validates that `name` is in the allowlist (`event-taxonomy.md`). Returns:
   "ok": true,
   "name": "progress.tests-green",
   "message": "All 47 tests green on aiur/42",
-  "result": { "id": 4287, "topic": "ticket.42.agent.progress.tests-green" }
+  "result": {
+    "status": "pending",
+    "topic": "ticket.42.agent.progress.tests-green"
+  }
 }
 ```
+
+`pending` means Aiur accepted the event for keyed background processing. No
+event ID exists at admission time; publication assigns it later. A terminal
+background failure is written to the daemon run log and does not rewrite
+the already-returned tool response.
+
+Legacy `attention.<slug>` events use the same pending admission. If the
+attention needs a durable Decision contract, immediately follow it with
+`decision.requested` carrying that `attention_slug`; Aiur serializes the
+structured request behind the projection and returns its terminal
+`decision_id`, `version`, and status.
 
 Or, on failure:
 
@@ -87,6 +101,11 @@ fetch and inspect its validated ref (never a guessed `origin/aiur/N`; use
 readiness from `branch.push` alone. Record the concrete inspected reason if the
 explicitly-unblocked dependency is still unusable; otherwise remove any
 temporary stub and stack on the blocker branch.
+
+`aiur_declare_blocker(N)` returns `pending` after the ordered declaration is
+admitted, not after GitHub confirms the dependency. Background failures are
+terminal in daemon diagnostics. If admission is indeterminate, inspect the
+authoritative GitHub dependency state before deciding whether a retry is safe.
 
 `blocked` and `unblocked` are required single-attempt, fire-and-forget emissions:
 enqueue each once and continue without waiting, polling, or retrying.

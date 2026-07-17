@@ -2,9 +2,10 @@
 
 This run preserves the percentage estimates that BO agents report through
 `progress` and `progress.checkin`. The capture is deliberately offline: it reads
-the per-ticket `logs/agent.ndjson` streams, writes an operator-local dataset,
-and never calls GitHub, changes a ticket, or stores surrounding prompts,
-commands, tool output, or transcript prose.
+the per-ticket `logs/agent.ndjson` transcript streams and the locally-owned
+daemon run-log `log/event-publications.ndjson` outcome streams, writes an
+operator-local dataset, and never calls GitHub, changes a ticket, or stores
+surrounding prompts, commands, tool output, or transcript prose.
 
 Run it periodically and once more before retiring the workspaces:
 
@@ -19,8 +20,18 @@ source or destination without editing the script:
 ```bash
 python3 docs/build-order/scripts/capture_progress_estimates.py \
   --workspace-root ~/code/aiur-workspaces/its-everdred/aiur \
+  --publication-root ~/.aiur/logs \
   --output ~/.aiur/analytics/build-order-progress/progress-estimates.ndjson
 ```
+
+The default publication root is `~/.aiur/logs`; the collector discovers each
+run's `log/event-publications.ndjson` beneath it. Terminal publication outcomes
+are accepted only from those daemon-owned roots; workspace transcript rows can
+establish an attempted tool call but cannot assert its eventual delivery.
+Schema version 2 enforces this trust boundary. On the first corrected scan,
+schema-v1 rows are reset to `attempted` with no event ID before current
+daemon-owned outcomes are applied, so a status retained from an older
+workspace-trusting collector cannot survive the migration.
 
 The collector streams each source file one line at a time, tolerates malformed
 and unrelated source records, and merges repeat scans by the tool-call identity.
@@ -30,8 +41,9 @@ identity when available, estimate kind, percent, explicit progress label and
 message, delivery status, and source-log path. `attempted` or `failed` rows are
 kept so the later analysis can distinguish an agent estimate from one that
 actually reached the Executor bar. A record is `emitted` only when the durable
-bus event ID is present (or the source is an explicit persisted estimate event),
-not merely because the surrounding tool lifecycle completed.
+bus event ID is present—either in the synchronous result, an explicit persisted
+estimate event, or the call-correlated eventual-publication marker—not merely
+because admission succeeded or the surrounding tool lifecycle completed.
 
 ## Phase-boundary calibration loop
 

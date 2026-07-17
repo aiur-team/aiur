@@ -153,6 +153,7 @@ defmodule Aiur.Application do
       {Registry, keys: :unique, name: Aiur.Workspace.Ownership.Registry},
       Aiur.Workspace.Ownership.Reconciler,
       {Task.Supervisor, name: Aiur.TaskSupervisor},
+      Aiur.CoordinationTasks,
       Aiur.WorkflowStore,
       Aiur.RepoBase,
       {Aiur.BuildOrder.TicketDetailCache, runtime_config?: true},

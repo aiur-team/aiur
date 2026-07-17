@@ -105,17 +105,22 @@ where `workspace.root` is the value from the active workflow and `<repo>` is the
 sanitized repo segment (GitHub repo name, or Linear `project_slug`) so multiple
 repos sharing a root don't collide on issue number. Trackers without a repo
 segment (e.g. memory) fall back to `<workspace.root>/<issue-id>/`. The leaf is
-still the bare issue id, so `basename "$PWD"` resolves the issue number. Two log
-files are written inside each workspace:
+still the bare issue id, so `basename "$PWD"` resolves the issue number. Runtime
+logs written inside each workspace include:
 
 - `logs/agent.md` — human-readable chat-style transcript of every event
 - `logs/agent.ndjson` — newline-delimited JSON event stream. The attentions feed
   (`Aiur.AlertFeed`) reads its `alert` events, and agent crash reasons must
   persist here (#708); don't stop writing it.
 
-When resuming an issue that was already in progress, inspect both logs and
-the workpad comment on the issue before changing code. Don't repeat work
-the previous run already finished.
+Call-correlated completion or failure evidence for asynchronously published
+agent events is daemon-owned at `<run-log-root>/log/event-publications.ndjson`.
+It must not live under an agent-writable workspace; the offline delivery
+collector joins it to the transcript by ticket and tool-call identity.
+
+When resuming an issue that was already in progress, inspect the transcript
+logs, daemon publication outcomes, and workpad comment before changing code. Don't
+repeat work the previous run already finished.
 
 ## Tracker label slugs
 
