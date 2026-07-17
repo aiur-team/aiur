@@ -21,8 +21,15 @@ defmodule Aiur.LiveConversation do
   @ended_generation_limit 16
   @retained_snapshot_limit 128
   @partial_fragment_limit 128
+  @diagnostic_count_limit 1_000
   @source_field_limit 256
   @topic "live-conversation:changed"
+  @credential_assignment ~r"""
+    (?:["']?)
+    (?: password | passphrase | api[_-]?key | secret | token | access[_-]?token | refresh[_-]?token | credential )
+    (?:["']?) \s* [:=] \s*
+    (?: "[^"]*" | '[^']*' | [^\s,}\]]+ )
+  """ix
 
   @type source :: %{
           required(:identity) => TrackerIdentity.t(),
@@ -556,13 +563,14 @@ defmodule Aiur.LiveConversation do
         session_id = Map.get(source, :session_id)
         attempt_id = to_string(attempt_id)
         public_identity = public_identity(identity)
+        public_session_id = public_session_id(session_id)
 
         if valid_public_source?(public_identity, run_id, attempt_id, session_id, backend) do
           normalized = %{
             identity: public_identity,
             run_id: run_id,
             attempt_id: attempt_id,
-            session_id: session_id,
+            session_id: public_session_id,
             backend: backend,
             worker_generation: generation
           }
@@ -580,6 +588,12 @@ defmodule Aiur.LiveConversation do
   defp public_identity(identity) do
     Map.take(identity, [:version, :kind, :owner, :repository, :identifier])
   end
+
+  # Session/thread identifiers are provider-controlled values. They remain in
+  # the private key for exact-generation isolation, but the public contract
+  # receives only an opaque surrogate.
+  defp public_session_id(nil), do: nil
+  defp public_session_id(session_id), do: opaque_id("session:", session_id)
 
   defp valid_public_source?(identity, run_id, attempt_id, session_id, backend) do
     identity_fields = Map.take(identity, [:owner, :repository, :identifier]) |> Map.values()
@@ -607,6 +621,7 @@ defmodule Aiur.LiveConversation do
     text
     |> String.replace_invalid()
     |> SecretRedactor.redact()
+    |> String.replace(@credential_assignment, "[REDACTED:credential]")
     |> String.replace(~r{https?://[^\s]+}u, "[REDACTED:url]")
     |> String.replace(~r|(?<![[:alnum:]_])/(?:[^\s/]+/){1,}[^\s]+|u, "[REDACTED:path]")
     |> String.replace(~r{(?:[A-Za-z]:\\|~[/\\])[^\s]+}u, "[REDACTED:path]")
@@ -745,7 +760,13 @@ defmodule Aiur.LiveConversation do
     do: %{message_index: index, body: body, fragment_ids: fragment_ids}
 
   defp increment_diagnostic(snapshot, reason) do
-    put_in(snapshot.diagnostic_counts[reason], Map.get(snapshot.diagnostic_counts, reason, 0) + 1)
+    count = Map.get(snapshot.diagnostic_counts, reason, 0)
+
+    if count < @diagnostic_count_limit do
+      put_in(snapshot.diagnostic_counts[reason], count + 1)
+    else
+      %{snapshot | truncated?: true}
+    end
   end
 
   defp topic_for(key) do

@@ -396,11 +396,14 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
           session_context.max_turns
         )
 
-      MessageHandler.finish_live_conversation(issue, session_context.session_backend, result, opts)
+      # The provider may have fallen back (for example, from claude-repl to
+      # claude). Conversation ingestion keys every event by the backend tagged
+      # on the actual session, so terminal health must close that same source.
+      MessageHandler.finish_live_conversation(issue, session_backend(session), result, opts)
       result
     catch
       kind, reason ->
-        MessageHandler.mark_live_conversation_degraded(issue, session_context.session_backend, opts)
+        MessageHandler.mark_live_conversation_degraded(issue, session_backend(session), opts)
         :erlang.raise(kind, reason, __STACKTRACE__)
     after
       stop_display_tailer(display_tailer)

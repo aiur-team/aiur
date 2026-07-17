@@ -125,6 +125,18 @@ defmodule Aiur.LiveConversationTest do
     assert %{messages: [%{body: "attempt"}]} = LiveConversation.snapshot(next_attempt, server: server)
   end
 
+  test "keeps provider session identifiers private while preserving session isolation", %{server: server} do
+    provider_session_id = "provider-thread-secret"
+    source = source(session_id: provider_session_id)
+
+    assert {:ok, snapshot} =
+             LiveConversation.observe(source, %{role: :assistant, msg_id: "session", body: "safe"}, server: server)
+
+    assert is_binary(snapshot.source.session_id)
+    assert String.starts_with?(snapshot.source.session_id, "session:")
+    refute inspect(snapshot) =~ provider_session_id
+  end
+
   test "ended sources never accept late events", %{server: server} do
     source = source()
 
@@ -561,6 +573,31 @@ defmodule Aiur.LiveConversationTest do
     assert [%{title: title, body: body, occurred_at: %DateTime{}}] = snapshot.messages
     assert String.length(title) == 120
     assert String.length(body) == 1_600
+  end
+
+  test "redacts generic credential fields before retaining trusted message content", %{server: server} do
+    body = ~s(password=correct-horse api_key=abc123 {"token":"opaque"})
+
+    assert {:ok, snapshot} =
+             LiveConversation.observe(source(), %{role: :assistant, msg_id: "secrets", body: body}, server: server)
+
+    [message] = snapshot.messages
+    assert message.body =~ "[REDACTED:credential]"
+    refute message.body =~ "correct-horse"
+    refute message.body =~ "abc123"
+    refute message.body =~ "opaque"
+  end
+
+  test "caps diagnostic counters for indefinitely rejected event streams", %{server: server} do
+    snapshot =
+      Enum.reduce(1..1_100, nil, fn _, _snapshot ->
+        assert {:ok, snapshot} = LiveConversation.observe(source(), %{role: :tool, body: "unsafe"}, server: server)
+        snapshot
+      end)
+
+    assert snapshot.diagnostic_counts.unsafe_tool == 1_000
+    assert snapshot.truncated?
+    assert byte_size(Jason.encode!(snapshot)) <= 64_000
   end
 
   test "drops malformed structured fields without crashing the projection", %{server: server} do
