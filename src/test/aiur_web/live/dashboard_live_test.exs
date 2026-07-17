@@ -451,7 +451,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert html =~ "Backing off"
   end
 
-  test "renders payload-aware document navigation and named unavailable routes" do
+  test "renders payload-aware document navigation and owner-aware Build Order navigation" do
     fleet_payload = %{
       generated_at: "2026-07-12T12:00:00Z",
       counts: %{running: 0, retrying: 0, idle: 0},
@@ -474,16 +474,17 @@ defmodule AiurWeb.DashboardLiveTest do
     available_units = render_payload(available_payload)
     commands = render_payload(available_payload, live_action: :decision)
 
-    assert length(Floki.find(Floki.parse_document!(unavailable_units), ~s(nav[aria-label="Control Center routes"]))) == 2
+    assert length(Floki.find(Floki.parse_document!(unavailable_units), ~s(nav[aria-label^="Control Center"]))) == 2
     assert length(Floki.find(Floki.parse_document!(unavailable_units), ~s(a[aria-current="page"]))) == 2
     assert unavailable_units =~ ~s(<h1 id="route-title">Units</h1>)
     refute unavailable_units =~ ~s(href="/analytics")
-    refute unavailable_units =~ ~s(href="/build-orders")
+    assert unavailable_units =~ ~s(href="/build-orders")
+    assert unavailable_units =~ ~s(data-phx-link="redirect")
     assert unavailable_units =~ "Telemetry analytics are unavailable."
-    assert length(Floki.find(Floki.parse_document!(unavailable_units), ~s([aria-disabled="true"]))) == 4
+    assert length(Floki.find(Floki.parse_document!(unavailable_units), ~s([aria-disabled="true"]))) == 2
 
     assert available_units =~ ~s(href="/analytics")
-    assert length(Floki.find(Floki.parse_document!(available_units), ~s([aria-disabled="true"]))) == 2
+    assert length(Floki.find(Floki.parse_document!(available_units), ~s([aria-disabled="true"]))) == 0
 
     assert commands =~ ~s(<h1 id="route-title">Commands</h1>)
     assert length(Floki.find(Floki.parse_document!(commands), ~s(a[aria-current="page"]))) == 2

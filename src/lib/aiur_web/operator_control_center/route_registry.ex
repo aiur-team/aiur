@@ -9,6 +9,7 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
       description: "Current Executor activity and durable outcomes.",
       path: "/",
       type: :live,
+      owner: :dashboard,
       availability: :available,
       active_actions: [:index]
     },
@@ -19,6 +20,7 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
       description: "Recorded Commands that need review or follow-up.",
       path: "/decisions",
       type: :live,
+      owner: :dashboard,
       availability: :available,
       active_actions: [:decisions, :decision]
     },
@@ -26,11 +28,12 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
       id: :build_order,
       label: "Build Order",
       icon: "◌",
-      description: "Build Order is unavailable until its route is registered.",
+      description: "Repository planning graph and cached ticket context.",
       path: "/build-orders",
       type: :live,
-      availability: :unavailable,
-      active_actions: []
+      owner: :build_order,
+      availability: :available,
+      active_actions: [:build_orders, :build_order]
     },
     %{
       id: :analytics,
@@ -39,6 +42,7 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
       description: "Telemetry analytics are unavailable.",
       path: "/analytics",
       type: :document,
+      owner: :document,
       availability: :unavailable,
       active_actions: []
     }
@@ -73,6 +77,14 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
 
   @spec document?(map()) :: boolean()
   def document?(route) when is_map(route), do: route.type == :document
+
+  @spec navigation_mode(map(), map()) :: :patch | :navigate | :document
+  def navigation_mode(_current_route, %{type: :document}), do: :document
+
+  def navigation_mode(%{type: :live, owner: owner}, %{type: :live, owner: owner}),
+    do: :patch
+
+  def navigation_mode(_current_route, _target_route), do: :navigate
 
   defp resolve_runtime_availability(%{id: :analytics} = route, analytics) do
     route

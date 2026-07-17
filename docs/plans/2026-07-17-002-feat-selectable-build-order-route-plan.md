@@ -1,7 +1,7 @@
 ---
 title: "feat: Ship the selectable minimum Build Order route"
 type: feat
-status: active
+status: completed
 date: 2026-07-17
 origin: docs/brainstorms/2026-07-12-build-order-requirements.md
 deepened: 2026-07-17
