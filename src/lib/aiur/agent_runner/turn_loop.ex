@@ -5,7 +5,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
 
   alias Aiur.AgentRunner.{CheckpointDelivery, MessageHandler, QueueDrain, SessionLifecycle}
   alias Aiur.AgentRunner.{SessionResume, ToolExecutor, TurnAlerts, TurnPrompt, TurnStreams}
-  alias Aiur.Codex.DynamicTool
+  alias Aiur.Codex.{DynamicTool, SessionRecovery}
   alias Aiur.CodingAgent
   alias Aiur.Config
   alias Aiur.Issue
@@ -145,34 +145,26 @@ defmodule Aiur.AgentRunner.TurnLoop do
         MessageHandler.send_control_state(codex_update_recipient, issue, :paused, pause_payload)
         wait_for_resume(turn_context, app_session, message_handler)
 
-      {:error, :port_closed} = error when backend == "codex" ->
-        best_effort_queue_bookkeeping(
-          Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier),
-          :restore,
-          issue
-        )
+      {:error, reason} = error ->
+        if backend == "codex" and SessionRecovery.recoverable?(reason) do
+          best_effort_queue_bookkeeping(
+            Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier),
+            :restore,
+            issue
+          )
 
-        error
+          error
+        else
+          TurnAlerts.maybe_emit_more_tokens_alert(issue, workspace, worker_host, reason)
 
-      {:error, {:port_exit, _status}} = error when backend == "codex" ->
-        best_effort_queue_bookkeeping(
-          Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier),
-          :restore,
-          issue
-        )
+          best_effort_queue_bookkeeping(
+            Aiur.Orchestrator.fail_delivered_queue_items(orchestrator, issue.identifier, reason),
+            :fail,
+            issue
+          )
 
-        error
-
-      {:error, reason} ->
-        TurnAlerts.maybe_emit_more_tokens_alert(issue, workspace, worker_host, reason)
-
-        best_effort_queue_bookkeeping(
-          Aiur.Orchestrator.fail_delivered_queue_items(orchestrator, issue.identifier, reason),
-          :fail,
-          issue
-        )
-
-        {:error, reason}
+          error
+        end
     end
   end
 

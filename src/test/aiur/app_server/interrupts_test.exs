@@ -2,6 +2,7 @@ defmodule Aiur.AppServer.InterruptsTest do
   use ExUnit.Case, async: true
 
   alias Aiur.AppServer.Interrupts
+  alias Aiur.Codex.CodingAgent
 
   defmodule StubBackend do
     def send_frame(_port, frame) do
@@ -42,6 +43,22 @@ defmodule Aiur.AppServer.InterruptsTest do
 
   test "interrupt_turn returns invalid_session fallback" do
     assert Interrupts.interrupt_turn(StubBackend, %{}, "turn-1") == {:error, :invalid_session}
+  end
+
+  test "a closed Codex port returns a typed interrupt failure" do
+    port =
+      Port.open({:spawn_executable, String.to_charlist(System.find_executable("cat"))}, [
+        :binary,
+        :exit_status
+      ])
+
+    true = Port.close(port)
+
+    assert {:error, {:turn_interrupt_failed, :port_closed}} =
+             Interrupts.handle_operator_queue_update(
+               %{port: port, thread_id: "thread-1"},
+               %{backend: CodingAgent, current_turn_id: "queued-turn"}
+             )
   end
 
   defp session do

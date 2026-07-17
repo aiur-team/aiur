@@ -18,7 +18,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
   alias Aiur.{AgentPubSub, Alerts, DecisionStore, Issue, OperatorWaitLog, PauseContainment}
   alias Aiur.AgentRunner.{CheckpointDelivery, EventsDigest, MessageHandler, SessionLifecycle}
   alias Aiur.AgentRunner.{ToolExecutor, TurnAlerts, TurnLoop, TurnStreams}
-  alias Aiur.Codex.DynamicTool
+  alias Aiur.Codex.{DynamicTool, SessionRecovery}
   alias Aiur.CodingAgent
 
   @max_delivery_correlation_attempts 3
@@ -598,22 +598,18 @@ defmodule Aiur.AgentRunner.QueueDrain do
 
         :ok
 
-      {:error, :port_closed} = error when backend == "codex" ->
-        :ok = Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier)
-        error
-
-      {:error, {:port_exit, _status}} = error when backend == "codex" ->
-        :ok = Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier)
-        error
-
       {:error, reason} = error ->
-        :ok = Aiur.Orchestrator.fail_delivered_queue_items(orchestrator, issue.identifier, reason)
+        if backend == "codex" and SessionRecovery.recoverable?(reason) do
+          :ok = Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier)
+        else
+          :ok = Aiur.Orchestrator.fail_delivered_queue_items(orchestrator, issue.identifier, reason)
 
-        if is_binary(turn_id) do
-          AgentPubSub.broadcast_turn_event(issue.identifier, :turn_failed, %{
-            turn_id: turn_id,
-            reason: reason
-          })
+          if is_binary(turn_id) do
+            AgentPubSub.broadcast_turn_event(issue.identifier, :turn_failed, %{
+              turn_id: turn_id,
+              reason: reason
+            })
+          end
         end
 
         error

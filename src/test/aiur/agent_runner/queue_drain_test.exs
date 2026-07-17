@@ -5,6 +5,11 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
   alias Aiur.{AlertFeed, Issue, TrackerIdentity}
   alias Aiur.Events.Exchange
 
+  @active_turn_mismatch %{
+    "code" => -32600,
+    "message" => "expected active turn id queued-turn but found prior-turn"
+  }
+
   setup do
     original_log_file = Application.get_env(:aiur, :log_file)
     log_root = Path.join(System.tmp_dir!(), "aiur-queue-drain-#{System.unique_integer([:positive])}")
@@ -303,6 +308,94 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
       assert_receive {:replacement_turn, "replacement-thread", "retry on replacement"}
       refute_receive {:replacement_turn, "replacement-thread", "retry on replacement"}
       assert_receive {:queue_item_consumed, ^identifier}
+      refute_receive {:queue_item_restored, ^identifier}
+    end
+
+    test "closed turn/start restores the queued message for one replacement delivery" do
+      identifier = "QD-start-port-closed-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      item = %{category: :operator_message, id: 5, body: %{text: "survive closed start"}}
+      {:ok, orchestrator} = FakeQueueOrchestrator.start_link(item, self())
+
+      assert {:error, {:turn_start_failed, :port_closed}} =
+               QueueDrain.drain_operator_messages(
+                 %{backend: "codex", thread_id: "retired-thread"},
+                 issue,
+                 fn _message -> :ok end,
+                 orchestrator,
+                 nil,
+                 run_turn: fn _session, _text, _issue, _opts ->
+                   {:error, {:turn_start_failed, :port_closed}}
+                 end
+               )
+
+      assert_receive {:queue_item_restored, ^identifier}
+      refute_receive {:queue_item_consumed, ^identifier}
+      refute_receive {:queue_item_failed, ^identifier, {:turn_start_failed, :port_closed}}
+
+      test_pid = self()
+
+      assert :ok =
+               QueueDrain.drain_operator_messages(
+                 %{backend: "codex", thread_id: "replacement-thread"},
+                 issue,
+                 fn _message -> :ok end,
+                 orchestrator,
+                 nil,
+                 run_turn: fn session, text, _issue, _opts ->
+                   send(test_pid, {:replacement_turn, session.thread_id, text})
+                   {:ok, session}
+                 end
+               )
+
+      assert_receive {:replacement_turn, "replacement-thread", "survive closed start"}
+      refute_receive {:replacement_turn, "replacement-thread", "survive closed start"}
+      assert_receive {:queue_item_consumed, ^identifier}
+      refute_receive {:queue_item_restored, ^identifier}
+    end
+
+    test "active-turn mismatch restores the queued message without failing it" do
+      identifier = "QD-turn-mismatch-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      item = %{category: :operator_message, id: 6, body: %{text: "preserve mismatch work"}}
+      {:ok, orchestrator} = FakeQueueOrchestrator.start_link(item, self())
+
+      assert {:error, {:turn_interrupt_failed, @active_turn_mismatch}} =
+               QueueDrain.drain_operator_messages(
+                 %{backend: "codex", thread_id: "desynchronized-thread"},
+                 issue,
+                 fn _message -> :ok end,
+                 orchestrator,
+                 nil,
+                 run_turn: fn _session, _text, _issue, _opts ->
+                   {:error, {:turn_interrupt_failed, @active_turn_mismatch}}
+                 end
+               )
+
+      assert_receive {:queue_item_restored, ^identifier}
+      refute_receive {:queue_item_consumed, ^identifier}
+      refute_receive {:queue_item_failed, ^identifier, {:turn_interrupt_failed, @active_turn_mismatch}}
+    end
+
+    test "genuine provider turn/start failures still fail the queued delivery" do
+      identifier = "QD-provider-rejected-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      item = %{category: :operator_message, id: 7, body: %{text: "hard failure"}}
+      {:ok, orchestrator} = FakeQueueOrchestrator.start_link(item, self())
+
+      assert {:error, {:turn_start_failed, :provider_rejected}} =
+               QueueDrain.drain_operator_messages(
+                 %{backend: "codex", thread_id: "provider-rejected-thread"},
+                 issue,
+                 fn _message -> :ok end,
+                 orchestrator,
+                 nil,
+                 run_turn: fn _session, _text, _issue, _opts ->
+                   {:error, {:turn_start_failed, :provider_rejected}}
+                 end
+               )
+
+      assert_receive {:queue_item_failed, ^identifier, {:turn_start_failed, :provider_rejected}}
       refute_receive {:queue_item_restored, ^identifier}
     end
 
