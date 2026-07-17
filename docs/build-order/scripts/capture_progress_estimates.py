@@ -28,8 +28,17 @@ DEFAULT_OUTPUT = Path(
         "~/.aiur/analytics/build-order-progress/progress-estimates.ndjson",
     )
 ).expanduser()
+DEFAULT_PUBLICATION_ROOT = Path(
+    os.environ.get("AIUR_BUILD_ORDER_PUBLICATION_ROOT", "~/.aiur/logs")
+).expanduser()
 ESTIMATE_KINDS = frozenset(("progress", "progress.checkin"))
+PUBLICATION_EVENTS = {
+    "event_publication_completed": "emitted",
+    "event_publication_failed": "failed",
+}
 STATUS_RANK = {"attempted": 0, "failed": 1, "emitted": 2}
+PUBLICATION_LOG_NAME = "event-publications.ndjson"
+SCHEMA_VERSION = 2
 PERCENT = re.compile(r"^(?:100(?:\.0+)?|\d{1,2}(?:\.\d+)?)%?$")
 
 
@@ -137,6 +146,7 @@ def _call_id(row: dict[str, Any]) -> str | None:
         ("payload", "params", "callId"),
         ("payload", "params", "item", "id"),
         ("payload", "callId"),
+        ("tool_call_id",),
         ("callId",),
         ("item", "id"),
     ):
@@ -170,20 +180,28 @@ def _event_id(row: dict[str, Any]) -> str | int | None:
     return None
 
 
-def _delivery_status(row: dict[str, Any], event_id: str | int | None) -> str:
-    event = row.get("event")
-    if event == "tool_call_failed":
-        return "failed"
-    if event in ESTIMATE_KINDS:
-        return "emitted"
-    method = _get(row, "payload", "method")
-    item = _get(row, "payload", "params", "item")
-    if method == "item/completed" and isinstance(item, dict):
-        if item.get("success") is False or item.get("status") == "failed":
-            return "failed"
-    if event_id is not None:
-        return "emitted"
-    return "attempted"
+def _publication_outcome(row: dict[str, Any]) -> dict[str, Any] | None:
+    status = PUBLICATION_EVENTS.get(row.get("event"))
+    call_id = _call_id(row)
+    timestamp = _timestamp(row)
+    if status is None or call_id is None or timestamp is None:
+        return None
+    return {
+        "delivery_status": status,
+        "event_id": _event_id(row),
+        "timestamp": timestamp,
+        "tool_call_id": call_id,
+    }
+
+
+def _publication_ticket(row: dict[str, Any]) -> int | None:
+    for key in ("issue_number", "issue_identifier"):
+        value = row.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+            return value
+        if isinstance(value, str) and value.isdigit() and int(value) > 0:
+            return int(value)
+    return None
 
 
 def _sample_id(
@@ -197,20 +215,24 @@ def _sample_id(
     message: str | None,
 ) -> str:
     if call_id is not None:
-        identity = f"call\0{ticket}\0{call_id}"
-    else:
-        identity = "\0".join(
-            (
-                "estimate",
-                str(ticket),
-                source_log,
-                timestamp,
-                kind,
-                str(percent),
-                label or "",
-                message or "",
-            )
+        return _call_sample_id(ticket, call_id)
+    identity = "\0".join(
+        (
+            "estimate",
+            str(ticket),
+            source_log,
+            timestamp,
+            kind,
+            str(percent),
+            label or "",
+            message or "",
         )
+    )
+    return hashlib.sha256(identity.encode("utf-8")).hexdigest()
+
+
+def _call_sample_id(ticket: int, call_id: str) -> str:
+    identity = f"call\0{ticket}\0{call_id}"
     return hashlib.sha256(identity.encode("utf-8")).hexdigest()
 
 
@@ -232,21 +254,20 @@ def sample_from_row(
         message = _text(arguments.get("message", payload.get("message")))
         call_id = _call_id(row)
         source = str(source_log.resolve())
-        event_id = _event_id(row)
         return {
-            "schema_version": 1,
+            "schema_version": SCHEMA_VERSION,
             "sample_id": _sample_id(
                 ticket, source, call_id, timestamp, kind, percent, label, message
             ),
             "ticket": ticket,
             "timestamp": timestamp,
-            "event_id": event_id,
+            "event_id": None,
             "tool_call_id": call_id,
             "estimate_kind": kind,
             "percent": percent,
             "label": label,
             "message": message,
-            "delivery_status": _delivery_status(row, event_id),
+            "delivery_status": "attempted",
             "source_log": source,
         }
     return None
@@ -270,6 +291,34 @@ def _merge_sample(
     return result
 
 
+def _apply_publication_outcome(
+    sample: dict[str, Any], outcome: dict[str, Any]
+) -> dict[str, Any]:
+    result = dict(sample)
+    if STATUS_RANK[outcome["delivery_status"]] > STATUS_RANK[
+        sample["delivery_status"]
+    ]:
+        result["delivery_status"] = outcome["delivery_status"]
+    if result.get("event_id") is None and outcome.get("event_id") is not None:
+        result["event_id"] = outcome["event_id"]
+    return result
+
+
+def _merge_publication_outcome(
+    current: dict[str, Any], incoming: dict[str, Any]
+) -> dict[str, Any]:
+    result = dict(current)
+    if STATUS_RANK[incoming["delivery_status"]] > STATUS_RANK[
+        current["delivery_status"]
+    ]:
+        result["delivery_status"] = incoming["delivery_status"]
+    if result.get("event_id") is None and incoming.get("event_id") is not None:
+        result["event_id"] = incoming["event_id"]
+    if incoming["timestamp"] < current["timestamp"]:
+        result["timestamp"] = incoming["timestamp"]
+    return result
+
+
 def _load_existing(output: Path) -> dict[str, dict[str, Any]]:
     samples: dict[str, dict[str, Any]] = {}
     if not output.exists():
@@ -287,8 +336,25 @@ def _load_existing(output: Path) -> dict[str, dict[str, Any]]:
                 raise CollectorError(
                     f"refusing to replace invalid durable output at line {line_number}"
                 )
-            samples[sample_id] = row
+            samples[sample_id] = _upgrade_existing_sample(row, line_number)
     return samples
+
+
+def _upgrade_existing_sample(
+    row: dict[str, Any], line_number: int
+) -> dict[str, Any]:
+    version = row.get("schema_version", 1)
+    if version == SCHEMA_VERSION:
+        return row
+    if version == 1:
+        upgraded = dict(row)
+        upgraded["schema_version"] = SCHEMA_VERSION
+        upgraded["delivery_status"] = "attempted"
+        upgraded["event_id"] = None
+        return upgraded
+    raise CollectorError(
+        f"refusing unsupported durable schema at line {line_number}: {version!r}"
+    )
 
 
 def _write_atomic(output: Path, samples: dict[str, dict[str, Any]]) -> None:
@@ -312,11 +378,56 @@ def _write_atomic(output: Path, samples: dict[str, dict[str, Any]]) -> None:
     os.replace(temporary, output)
 
 
+def _source_rows(source_log: Path, stats: dict[str, int]) -> Iterable[dict[str, Any]]:
+    stats["source_logs_scanned"] += 1
+    with source_log.open(encoding="utf-8", errors="replace") as stream:
+        for line in stream:
+            stats["source_lines_scanned"] += 1
+            try:
+                row = json.loads(line)
+            except (TypeError, ValueError):
+                stats["malformed_source_lines"] += 1
+                continue
+            if isinstance(row, dict):
+                yield row
+
+
+def _remember_publication_outcome(
+    row: dict[str, Any],
+    ticket: int,
+    publication_outcomes: dict[str, dict[str, Any]],
+    stats: dict[str, int],
+) -> None:
+    outcome = _publication_outcome(row)
+    if outcome is None:
+        return
+    stats["publication_records_seen"] += 1
+    sample_id = _call_sample_id(ticket, outcome["tool_call_id"])
+    current = publication_outcomes.get(sample_id)
+    publication_outcomes[sample_id] = (
+        outcome
+        if current is None
+        else _merge_publication_outcome(current, outcome)
+    )
+
+
+def _publication_logs(root: Path) -> Iterable[Path]:
+    if root.is_file():
+        yield root
+        return
+
+    direct = root / PUBLICATION_LOG_NAME
+    if direct.is_file():
+        yield direct
+    yield from sorted(root.glob(f"*/log/{PUBLICATION_LOG_NAME}"))
+
+
 def collect(
     workspace_roots: Iterable[Path],
     output: Path,
     ticket_min: int = 1085,
     ticket_max: int = 1138,
+    publication_roots: Iterable[Path] = (),
 ) -> dict[str, Any]:
     if ticket_min > ticket_max:
         raise CollectorError("ticket minimum must not exceed ticket maximum")
@@ -339,35 +450,50 @@ def collect(
             "source_lines_scanned": 0,
             "malformed_source_lines": 0,
             "estimate_records_seen": 0,
+            "publication_records_seen": 0,
         }
+        publication_outcomes: dict[str, dict[str, Any]] = {}
         scanned_tickets: set[int] = set()
         for raw_root in workspace_roots:
             root = raw_root.expanduser()
             for ticket in range(ticket_min, ticket_max + 1):
-                source_log = root / str(ticket) / "logs" / "agent.ndjson"
-                if not source_log.is_file():
+                agent_log = root / str(ticket) / "logs" / "agent.ndjson"
+                if not agent_log.is_file():
                     continue
-                stats["source_logs_scanned"] += 1
                 scanned_tickets.add(ticket)
-                with source_log.open(encoding="utf-8", errors="replace") as stream:
-                    for line in stream:
-                        stats["source_lines_scanned"] += 1
-                        try:
-                            row = json.loads(line)
-                        except (TypeError, ValueError):
-                            stats["malformed_source_lines"] += 1
-                            continue
-                        if not isinstance(row, dict):
-                            continue
-                        sample = sample_from_row(row, ticket, source_log)
-                        if sample is None:
-                            continue
-                        stats["estimate_records_seen"] += 1
-                        sample_id = sample["sample_id"]
-                        if sample_id in samples:
-                            samples[sample_id] = _merge_sample(samples[sample_id], sample)
-                        else:
-                            samples[sample_id] = sample
+                for row in _source_rows(agent_log, stats):
+                    sample = sample_from_row(row, ticket, agent_log)
+                    if sample is None:
+                        continue
+                    stats["estimate_records_seen"] += 1
+                    sample_id = sample["sample_id"]
+                    if sample_id in samples:
+                        samples[sample_id] = _merge_sample(
+                            samples[sample_id], sample
+                        )
+                    else:
+                        samples[sample_id] = sample
+
+        seen_publication_logs: set[Path] = set()
+        for raw_root in publication_roots:
+            for source_log in _publication_logs(raw_root.expanduser()):
+                resolved = source_log.resolve()
+                if resolved in seen_publication_logs:
+                    continue
+                seen_publication_logs.add(resolved)
+                for row in _source_rows(source_log, stats):
+                    ticket = _publication_ticket(row)
+                    if ticket is None or not ticket_min <= ticket <= ticket_max:
+                        continue
+                    scanned_tickets.add(ticket)
+                    _remember_publication_outcome(
+                        row, ticket, publication_outcomes, stats
+                    )
+        for sample_id, outcome in publication_outcomes.items():
+            if sample_id in samples:
+                samples[sample_id] = _apply_publication_outcome(
+                    samples[sample_id], outcome
+                )
         _write_atomic(output, samples)
 
     covered_tickets = sorted(
@@ -396,7 +522,14 @@ def _parser() -> argparse.ArgumentParser:
         action="append",
         type=Path,
         dest="workspace_roots",
-        help="repository workspace root containing <ticket>/logs/agent.ndjson; repeatable",
+        help="repository workspace root containing ticket agent logs; repeatable",
+    )
+    parser.add_argument(
+        "--publication-root",
+        action="append",
+        type=Path,
+        dest="publication_roots",
+        help="daemon run-log root containing event-publications.ndjson; repeatable",
     )
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--ticket-min", type=int, default=1085)
@@ -407,8 +540,15 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str]) -> int:
     args = _parser().parse_args(argv[1:])
     roots = args.workspace_roots or [DEFAULT_WORKSPACE_ROOT]
+    publication_roots = args.publication_roots or [DEFAULT_PUBLICATION_ROOT]
     try:
-        result = collect(roots, args.output, args.ticket_min, args.ticket_max)
+        result = collect(
+            roots,
+            args.output,
+            args.ticket_min,
+            args.ticket_max,
+            publication_roots,
+        )
     except (CollectorError, OSError) as error:
         print(f"capture failed: {error}", file=sys.stderr)
         return 1

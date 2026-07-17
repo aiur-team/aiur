@@ -62,15 +62,15 @@ defmodule Aiur.Codex.DynamicTool.ErrorsTest do
   end
 
   describe "payload/1 — catch-all" do
-    test "unknown atom renders the Linear catch-all message with inspected reason" do
+    test "unknown atom renders the Aiur catch-all message with inspected reason" do
       result = Errors.payload(:some_unknown_error)
-      assert result["error"]["message"] == "Linear GraphQL tool execution failed."
+      assert result["error"]["message"] == "Aiur tool execution failed."
       assert result["error"]["reason"] == ":some_unknown_error"
     end
 
-    test "unknown tuple renders the Linear catch-all message" do
+    test "unknown tuple renders the Aiur catch-all message" do
       result = Errors.payload({:something_weird, "detail"})
-      assert result["error"]["message"] == "Linear GraphQL tool execution failed."
+      assert result["error"]["message"] == "Aiur tool execution failed."
     end
   end
 end

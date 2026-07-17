@@ -93,6 +93,7 @@ defmodule Aiur.ApplicationTest do
       Aiur.ProcessReaper,
       Aiur.PauseContainment,
       Aiur.AgentResourceGuard,
+      Aiur.CoordinationTasks,
       Aiur.BuildOrder.TicketDetailCache,
       Aiur.BuildOrder.GraphProjection,
       Aiur.AppServer.ToolCallLedger,
