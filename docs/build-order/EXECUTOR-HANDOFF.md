@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Recovery checkpoint (updated 2026-07-17 06:40 PDT)
+## Recovery checkpoint (updated 2026-07-17 06:59 PDT)
 
 This checkpoint supersedes the older live-state narrative below. The former
 Claude Executor is not being restarted. Its exact local session was recovered
@@ -117,20 +117,40 @@ redaction, and bounded runtime-status fanout. PR #1217 is draft until an
 exact-base replacement fixes all ten, passes fresh CI, and survives exact-head
 re-review.
 
+DASH-009/#1115 is now authoritatively back in `agent:rework`. PR #1204 exact
+head `5cf41c08cde489dc109e0355c84bd77b4e701fd1` contains exact
+`develop@6afa1612` and every centralized CI job is green, but three independent
+Compound Engineering reviews plus the Executor found nine blockers. The P1s
+are: durable dedup ignores DASH-008's stable `idempotency_key` and can count one
+event twice when mutable model/source context changes; `update_kind: :partial`
+can report full raw coverage; and checkpoint/segment/torn recovery mutates the
+active authority before durably publishing its degraded marker, so a crash can
+reboot healthy/writable after acknowledged history disappeared from the active
+segment. Six P2 prefix-retention, quarantine, call-timeout, numeric-bound, and
+append-scaling findings are in PR comment `5004008587`; issue comment
+`5004011243` is the durable rework handoff. Keep #1204 draft and do not attempt
+the Executor-only synthetic daemon/TUI gate until a replacement head clears
+focused review and fresh CI. The Executor message was accepted into AgentChat
+but has not yet been proven provider-delivered; the tracker label was verified
+after the authoritative write.
+
 DASH-014/#1120 published exact-base draft PR #1239 at
 `b3ae911de08fe97018b6afcbe1ac8dd6609d54d4`. Its first full-test job failed
-only untouched `BranchRefStoreTest` and is rerunning, but three independent
-reviews plus the Executor found ten production blockers independent of that
-flake. The P1 set is: production status snapshots can never make the summary
+only untouched `BranchRefStoreTest`; the rerun and every other exact-head CI
+job are now green. Three independent reviews plus the Executor nevertheless
+found ten production blockers independent of that flake. The P1 set is:
+production status snapshots can never make the summary
 fresh; terminal complexity becomes permanently stale and then silently
 defaults to weight 1 after same-run owner restart; serial in-owner source reads
 can block the read API beyond its timeout; forbidden workspace/message/session
 facts are retained; exact progress ignores unhealthy weight evidence; and
 outcome LKG omits the membership-generation fence. Four P2
 freshness/generation/performance/decomposition findings are in PR comment
-`5003844613`. #1120 is authoritatively `agent:rework`; the Executor message was
-accepted into its still-active long test turn and must not be treated as
-provider-delivered until the turn drains.
+`5003844613`. #1120 is authoritatively `agent:rework`. Its unchanged head was
+later marked ready by a stale lifecycle/CI transition; the Executor converted
+it back to draft and recorded the correction in PR comment `5004023349` while
+the existing Codex owner began a new rework turn. This is live corroboration for
+#1237's lifecycle-generation fence.
 
 The #1098/#1130 rework regressions are now a confirmed P1 orchestration defect,
 tracked as queued stability lane #1237. Accepted Executor messages can remain
@@ -150,10 +170,20 @@ Executor transcript as authoritative delivery evidence.
 three retries after `port_command` wrote `turn/start` to a dead app-server,
 then QueueDrain hit a turn-ID mismatch and `{:error, :unavailable}`. The
 Executor restored #1110 through authoritative `agent:rework` without replacing
-its workspace; #1238 now owns restart-safe queued-turn recovery. #1240 owns a
-separate exact-`develop` DecisionStore race: the answered-decision enrichment
-test reproduced an unexpected second dispatch in 3/5 isolated serial seeds.
+its workspace; #1238 now owns restart-safe queued-turn recovery. Its focused
+implementation and directly related tests are passing and it is preparing a
+draft PR, but no remote head existed at this checkpoint. #1240 owns a separate
+exact-`develop` DecisionStore race: the answered-decision enrichment test
+reproduced an unexpected second dispatch in 3/5 isolated serial seeds and its
+owner is tracing the existing reconciliation scheduler before changing code.
 Do not repair either control-plane defect inside feature workspaces.
+
+At 06:58 PDT a lightweight `aiurdev agents` RPC timed out while both build-gate
+slots were occupied by large focused suites. Direct process inspection proved
+the canonical release BEAM, instance-keyed tmux session, owners, and test
+processes were all still live and advancing; only the bounded RPC helper was
+terminated. Do not restart the daemon for that saturation symptom. Wait for the
+current build-gate holders to drain, then retry one lightweight control call.
 
 DASH-013/#1119 remains source-complete as draft PR #1228 at
 `6f5696828cb54f775623299cc61c1067ef2b2810`, with full CI green and independent

@@ -1343,3 +1343,32 @@ still exposes 1.0.0 and local npm publication auth is E401. Aiur remains
 intentionally stopped.
 
 — Codex
+
+## Codex — 2026-07-17 06:59 PDT
+
+Recovered and reconciled the abandoned Claude Executor rather than restarting
+it. The exact local session is `f6f086dd-48ba-4e9e-aa9e-7a703b96a778`; its old
+workflow `wyxa8n3xw` / `wf_9fed8f61-e34` owned #1105/#1209, #1124/#1208,
+#1214, the Credo alignment, and #1119. The first four lanes are already merged
+and closed; #1119 is the only survivor and remains intentionally paused at the
+`aiur-claude@1.1.0` distribution gate. No Claude worker or old workspace was
+restarted. The current Aiur fleet remains Codex-only on exact
+`develop@6afa1612`.
+
+Exact-head CE review of DASH-009/#1115 PR #1204 found nine blockers despite
+fully green CI: stable usage event identity can be counted twice, partial
+observations can report full coverage, and corruption repair can crash/restart
+healthy after mutating acknowledged authority, plus six P2 recovery/durability/
+bounds findings. The durable packet is PR comment `5004008587`; #1115 is
+authoritatively `agent:rework` and the existing owner has the queued message.
+
+DASH-014/#1120's rerun is fully green but its ten review findings remain. A
+stale lifecycle transition marked unchanged PR #1239 ready after rework; I
+converted it back to draft and recorded the correction as comment `5004023349`.
+That is direct live evidence for #1237. #1238 has focused closed-port recovery
+tests green and is preparing a draft PR; #1240 is tracing the answered-Decision
+redispatch scheduler. A 06:58 lightweight control RPC timed out while both
+build-gate slots were occupied, but direct inspection proved the release BEAM,
+tmux session, owners, and test processes live; no daemon restart was performed.
+
+— Codex
