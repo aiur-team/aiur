@@ -177,6 +177,26 @@ defmodule Aiur.TicketActivity.ProjectionTest do
              Projection.snapshot(state, ticket, @now)
   end
 
+  test "retains only canonical opaque progress provenance" do
+    ticket = identity()
+    token = "ghp_" <> String.duplicate("a", 36)
+
+    state =
+      Projection.new()
+      |> Projection.refresh_members([ticket], @now)
+      |> apply!(
+        observation(ticket, :agent_event, "progress", %{percent: 25}, 1, %{
+          run_id: "run-1",
+          attempt: 1,
+          session_id: "/private/session",
+          source_event_id: token
+        })
+      )
+
+    assert %{progress: %{provenance: %{run_id: "run-1", attempt: 1}}} =
+             Projection.snapshot(state, ticket, @now)
+  end
+
   test "ignores unattributed and invalid observations without retaining event content" do
     ticket = identity()
     state = Projection.new() |> Projection.refresh_members([ticket], @now)

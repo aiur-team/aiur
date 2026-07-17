@@ -88,6 +88,7 @@ defmodule AiurWeb.Router do
     pipe_through(:dashboard_auth)
 
     get("/dashboard.css", StaticAssetController, :dashboard_css)
+    get("/ticket-context-dialog-hook.js", StaticAssetController, :ticket_context_dialog_hook)
     get("/aiur-dom-svg-layout-adapter.js", StaticAssetController, :dom_svg_layout_adapter)
     get("/aiur-dom-svg-layout-loader.js", StaticAssetController, :dom_svg_layout_loader)
     get("/aiur-dom-svg-layout/:module", StaticAssetController, :dom_svg_layout_module)
