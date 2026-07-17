@@ -376,6 +376,22 @@ defmodule AiurWeb.BuildOrderPresenterTest do
     assert relationships.capabilities.commands.destination == "/decisions/1"
     refute relationships.capabilities.chat.available?
     assert BuildOrderPresenter.relationships(model, %{identifier: "1"}).status == :invalid_selection
+
+    for unsafe <- [
+          "/\\evil.example/path",
+          "/\nevil.example/path",
+          "/\tevil.example/path",
+          <<"/", 255>>,
+          "/" <> String.duplicate("a", 2_048)
+        ] do
+      relationships =
+        BuildOrderPresenter.relationships(model, identity(1), %{
+          chat: %{available?: true, path: unsafe}
+        })
+
+      refute relationships.capabilities.chat.available?
+      assert relationships.capabilities.chat.reason == :invalid_destination
+    end
   end
 
   test "redacts credential-shaped provenance and deduplicates opposite connection views" do
