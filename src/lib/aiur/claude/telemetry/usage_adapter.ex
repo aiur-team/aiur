@@ -55,7 +55,6 @@ defmodule Aiur.Claude.Telemetry.UsageAdapter do
          :ok <- Relationship.supported?(catalog, envelope) do
       {:ok, envelope, optional_coverage(normalized)}
     else
-      {:coverage, _coverage} = result -> result
       {:error, class, field} -> terminal(class, field)
       {:error, :missing_historic_relationship_revision} -> terminal(:unsupported_relationship_revision, :relationship_revision)
       {:error, :invalid_relationship_catalog} -> terminal(:unsupported_relationship_revision, :relationship_revision)

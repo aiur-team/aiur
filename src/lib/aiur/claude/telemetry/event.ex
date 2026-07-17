@@ -190,16 +190,21 @@ defmodule Aiur.Claude.Telemetry.Event do
   end
 
   defp required_string_attributes(attributes) do
-    cond do
-      attributes["event.name"] != "api_request" -> {:error, :malformed}
-      not Contract.valid_session_id?(attributes["session.id"]) -> {:error, :malformed}
-      not Contract.valid_model?(attributes["model"]) -> {:error, :malformed}
-      not is_nil(attributes["request_id"]) and not Contract.valid_request_id?(attributes["request_id"]) -> {:error, :malformed}
-      not is_nil(attributes["query_source"]) and not Contract.valid_query_source?(attributes["query_source"]) -> {:error, :malformed}
-      not is_nil(attributes["effort"]) and not Contract.valid_effort?(attributes["effort"]) -> {:error, :malformed}
-      true -> :ok
-    end
+    valid? =
+      Enum.all?([
+        attributes["event.name"] == "api_request",
+        Contract.valid_session_id?(attributes["session.id"]),
+        Contract.valid_model?(attributes["model"]),
+        optional_source_value?(attributes["request_id"], &Contract.valid_request_id?/1),
+        optional_source_value?(attributes["query_source"], &Contract.valid_query_source?/1),
+        optional_source_value?(attributes["effort"], &Contract.valid_effort?/1)
+      ])
+
+    if valid?, do: :ok, else: {:error, :malformed}
   end
+
+  defp optional_source_value?(nil, _validator), do: true
+  defp optional_source_value?(value, validator), do: validator.(value)
 
   defp required_integer_attributes(attributes) do
     cond do
