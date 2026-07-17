@@ -68,6 +68,11 @@ defmodule AiurWeb.PresenterTest do
         [:issue, Access.key(:labels)],
         ["model:codex-gpt-5.6-terra", "complexity:3", "build-lane:dashboard-ui"]
       )
+      |> Map.put(:session_execution, %{
+        backend: "codex",
+        requested_model: "gpt-5.6-terra",
+        effort: nil
+      })
       |> put_in([:issue, Access.key(:tracker_identity)], tracker_identity("MT-700"))
 
     retry_identity = tracker_identity("MT-701")

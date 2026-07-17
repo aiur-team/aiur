@@ -189,7 +189,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       open_decision_count_health: open_decision_count_health,
       ci_result: cached_ci_result(state, metadata.identifier)
     }
-    |> Map.merge(issue_execution_facts(metadata.issue))
+    |> Map.merge(running_execution_facts(metadata))
   end
 
   defp retry_snapshot(%State{} = state, {issue_id, %{attempt: attempt, due_at_ms: due_at_ms} = retry}, now_ms) do
@@ -264,13 +264,41 @@ defmodule Aiur.Orchestrator.StatusReport do
       backend: backend,
       agent_family: CodingAgent.family_for(backend),
       requested_model: CodingAgent.model_for(issue),
-      effort: CodingAgent.effort_for(issue),
+      effort: CodingAgent.effort_for(issue)
+    }
+    |> Map.merge(issue_classification_facts(issue))
+  end
+
+  defp issue_execution_facts(_issue), do: %{}
+
+  defp running_execution_facts(entry) do
+    execution = session_execution(entry)
+    backend = Map.get(execution, :backend)
+
+    %{
+      backend: backend,
+      agent_family: CodingAgent.family_for(backend),
+      requested_model: Map.get(execution, :requested_model),
+      effort: Map.get(execution, :effort)
+    }
+    |> Map.merge(issue_classification_facts(Map.get(entry, :issue)))
+  end
+
+  defp issue_classification_facts(%Issue{} = issue) do
+    %{
       complexity: issue_complexity(issue),
       labels: Issue.label_names(issue)
     }
   end
 
-  defp issue_execution_facts(_issue), do: %{}
+  defp issue_classification_facts(_issue), do: %{}
+
+  defp session_execution(entry) when is_map(entry) do
+    case Map.get(entry, :session_execution) do
+      execution when is_map(execution) -> execution
+      _execution -> %{}
+    end
+  end
 
   defp cached_ci_result(%State{} = state, identifier) do
     state.ci_lifecycle
@@ -383,25 +411,18 @@ defmodule Aiur.Orchestrator.StatusReport do
     })
   end
 
-  # Resolved backend string for a running entry, so the agent list can name
-  # the agent's own engine in its placeholder rather than guessing. nil when
-  # the entry carries no issue; agent_summary drops the nil.
+  # Session-resolved backend for a running entry, so the agent list names the
+  # engine that actually started rather than re-routing from mutable config.
+  # nil while the dispatched worker is still warming up.
   defp entry_backend(entry) do
-    case Map.get(entry, :issue) do
-      %Issue{} = issue -> CodingAgent.backend_for(issue)
-      _ -> nil
-    end
+    entry |> session_execution() |> Map.get(:backend)
   end
 
-  # Pinned model variant for a running entry (e.g. "opus-4-8", "gpt-5.5"),
-  # so the agent list can render the model column's version suffix. nil when
-  # the entry carries no issue or the model is unpinned (backend default);
-  # agent_summary drops the nil and the renderer falls back to the base name.
+  # Session-requested model variant for a running entry (for example
+  # "opus-4-8" or "gpt-5.5"). nil while warming up or when the backend default
+  # is authoritative; agent_summary drops nil and the renderer shows the base.
   defp entry_model(entry) do
-    case Map.get(entry, :issue) do
-      %Issue{} = issue -> CodingAgent.model_for(issue)
-      _ -> nil
-    end
+    entry |> session_execution() |> Map.get(:requested_model)
   end
 
   # Highest `complexity:N` label on the issue (nil when unlabelled). Reused by

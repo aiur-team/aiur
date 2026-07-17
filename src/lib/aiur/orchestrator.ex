@@ -86,6 +86,10 @@ defmodule Aiur.Orchestrator do
       when is_binary(issue_id) and is_map(info),
       do: State.handle_repl_session_runtime(state, issue_id, info)
 
+  def handle_info({:session_execution_info, issue_id, %{backend: backend} = info}, state)
+      when is_binary(issue_id) and is_binary(backend),
+      do: State.handle_session_execution_info(state, issue_id, info)
+
   def handle_info(
         {:codex_worker_update, issue_id, %{event: _, timestamp: _} = update},
         state
