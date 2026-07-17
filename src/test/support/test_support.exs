@@ -297,8 +297,15 @@ defmodule Aiur.TestSupport do
             ensure_pubsub_running(retries - 1)
 
           _ ->
-            if Process.whereis(Aiur.PubSub), do: :ok, else: :error
+            pubsub_status()
         end
+    end
+  end
+
+  defp pubsub_status do
+    case Process.whereis(Aiur.PubSub) do
+      pid when is_pid(pid) -> :ok
+      nil -> :error
     end
   end
 
