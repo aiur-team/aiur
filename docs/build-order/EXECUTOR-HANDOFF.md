@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Recovery checkpoint (updated 2026-07-17 04:49 PDT)
+## Recovery checkpoint (updated 2026-07-17 05:22 PDT)
 
 This checkpoint supersedes the older live-state narrative below. The former
 Claude Executor is not being restarted. Its exact local session was recovered
@@ -14,7 +14,7 @@ fresh canonical runtime checkout `/home/orangekid/github/aiur-runtime-develop`.
 The Executor force-built `scripts/aiurdev` first, removed 18 leaked test-only
 `opencode serve` process groups, and launched the background daemon with a
 sixteen-worker ceiling. The checkout and authoritative remote tip are exact
-`develop@01a9fc8849044edbaf0663c9852c937d5c709904`; Claude fallback is empty.
+`develop@6afa161230b4349543c039a6b8b6abcc9218ba07`; Claude fallback is empty.
 The dashboard is healthy on loopback. The requested Tailscale bind was not used
 because neither dashboard-auth environment variable was present; do not invent
 credentials or restart the healthy daemon only to change that listener.
@@ -31,12 +31,16 @@ lanes have now merged, while the surviving feature owners remain isolated:
 - DASH-029/#1133.
 
 The Executor also triaged the newly confirmed full-suite monitor race #1235 as
-a narrow Ad Hoc stability lane and dispatched one Codex owner. No additional
-Build Order ticket is queued. Load reached 16.68 on 12 CPUs during the resulting
-five-worker base-sync wave, so DASH-009/#1115 remains deliberately deactivated
-until capacity falls. Preserve one writer per workspace. After every `develop`
-merge, send the exact new base to all owners and stop reviewing their now-stale
-heads until they push replacements.
+a narrow Ad Hoc stability lane. Its one-file fix passed 25 focused repetitions,
+the complete GraphProjection file, independent review, and every CI job; PR
+#1236 squash-merged as `develop@6afa161230b4349543c039a6b8b6abcc9218ba07`,
+and #1235 was explicitly closed `agent:done`. No additional Build Order ticket
+is queued. Load reached 16.68 on 12 CPUs during the earlier base-sync wave and
+is now below one core per CPU, but five feature owners remain active, so
+DASH-009/#1115 stays deliberately deactivated until capacity falls further.
+Preserve one writer per workspace. After every `develop` merge, send the exact
+new base to all owners and stop reviewing their now-stale heads until they push
+replacements.
 
 The first convergence lane is complete: PR #1213's one-file global-log test
 isolation passed every exact-head CI job and six independent Compound
@@ -61,6 +65,23 @@ through Aiur's Executor-message path. DASH-010 immediately published replacement
 head `ba666dbb964450a2a7d2c561fbda8c5182771864` and restarted CI; DASH-026 is
 integrating it. BO-011 remains green at `07ffcfcd` but now needs an exact-base
 integration before merge.
+
+Feature review is active rather than ceremonial. Exact-head Compound
+Engineering review returned BO-011/#1098 to rework with five confirmed
+security, accessibility, identity, reconnect-token, and truthful-truncation
+defects; an erroneous interim human-review transition was corrected both in the
+issue and through Aiur's live Executor-message path. DASH-010/#1116 is repairing
+four confirmed source-accounting/coverage/time/identity defects and has
+published exact-base replacement head `cf1d61fa0457bfdd18f647232d54da0fa21d880c`
+with fresh CI running. DASH-026/#1130 passed all CI at `390f2137` before #1236,
+then returned to rework for the test-only base advance and ten confirmed
+exact-head review defects: prompt/response chronology, authoritative
+worker-generation and runtime-status fences, restart cache reset, Remote
+Control backfill and cold-start delivery loss, replay identity beyond visible
+retention, stable Claude disk-record identity, complete capability-URL
+redaction, and bounded runtime-status fanout. PR #1217 is draft until an
+exact-base replacement fixes all ten, passes fresh CI, and survives exact-head
+re-review.
 
 DASH-013/#1119 remains source-complete as draft PR #1228 at
 `6f5696828cb54f775623299cc61c1067ef2b2810`, with full CI green and independent
