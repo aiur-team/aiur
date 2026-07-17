@@ -306,9 +306,8 @@ defmodule Aiur.Claude.Telemetry.Event do
   defp authenticated_resource(attributes, source_contract) do
     with {:ok, service_name} <- one_string_attribute(attributes, "service.name", :source),
          :ok <- supported_resource_value(service_name, source_contract.service_name, source_contract, :source),
-         {:ok, emitter_version} <- one_string_attribute(attributes, "service.version", :source_version),
-         :ok <- supported_resource_value(emitter_version, source_contract.emitter_version, source_contract, :source_version) do
-      :ok
+         {:ok, emitter_version} <- one_string_attribute(attributes, "service.version", :source_version) do
+      supported_resource_value(emitter_version, source_contract.emitter_version, source_contract, :source_version)
     end
   end
 
@@ -365,23 +364,26 @@ defmodule Aiur.Claude.Telemetry.Event do
         {:ok, nil}
 
       {:ok, value} ->
-        case bounded_integer(value) do
-          {:ok, 0} ->
-            {:ok, nil}
-
-          {:ok, nanoseconds} ->
-            case DateTime.from_unix(nanoseconds, :nanosecond) do
-              {:ok, occurred_at} -> {:ok, occurred_at}
-              _ -> coverage_error(:malformed, :ambiguous_measurement_semantics, :occurred_at)
-            end
-
-          :error ->
-            coverage_error(:malformed, :ambiguous_measurement_semantics, :occurred_at)
-        end
+        occurrence_time_value(value)
     end
   end
 
   defp occurrence_time(_record), do: {:error, :malformed}
+
+  defp occurrence_time_value(value) do
+    case bounded_integer(value) do
+      {:ok, 0} -> {:ok, nil}
+      {:ok, nanoseconds} -> occurrence_time_nanoseconds(nanoseconds)
+      :error -> coverage_error(:malformed, :ambiguous_measurement_semantics, :occurred_at)
+    end
+  end
+
+  defp occurrence_time_nanoseconds(nanoseconds) do
+    case DateTime.from_unix(nanoseconds, :nanosecond) do
+      {:ok, occurred_at} -> {:ok, occurred_at}
+      _ -> coverage_error(:malformed, :ambiguous_measurement_semantics, :occurred_at)
+    end
+  end
 
   defp bounded_integer(value) when is_integer(value) and value in 0..@max_otlp_int64, do: {:ok, value}
 
