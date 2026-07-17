@@ -92,6 +92,39 @@ defmodule AiurWeb.BuildOrderViewModel.Node do
   ]
 end
 
+defmodule AiurWeb.BuildOrderViewModel.Capability do
+  @moduledoc "A normalized, identity-qualified read-only destination fact."
+
+  alias Aiur.TrackerIdentity
+
+  @type reason ::
+          :identity_mismatch
+          | :inactive
+          | :invalid_destination
+          | :missing
+          | :not_available
+          | :not_configured
+          | :not_opened
+          | :stale
+          | :unauthorized
+          | :unavailable
+          | :unreadable
+          | :unsupported
+
+  @type t :: %__MODULE__{
+          identity: TrackerIdentity.t() | nil,
+          destination: String.t() | nil,
+          number: pos_integer() | nil,
+          label: String.t() | nil,
+          reason: reason() | nil,
+          available?: boolean(),
+          active?: boolean() | nil,
+          readable?: boolean() | nil
+        }
+
+  defstruct [:identity, :destination, :number, :label, :active?, :readable?, available?: false, reason: :unavailable]
+end
+
 defmodule AiurWeb.BuildOrderViewModel.Group do
   @moduledoc "A deterministic lane or phase grouping over visible nodes."
 
@@ -111,14 +144,14 @@ defmodule AiurWeb.BuildOrderViewModel.Relationships do
   @moduledoc "Read-only relationship context for the selected member."
 
   alias Aiur.BuildOrder.Diagnostic
-  alias AiurWeb.BuildOrderViewModel.{Edge, Node}
+  alias AiurWeb.BuildOrderViewModel.{Capability, Edge, Node}
 
   @type t :: %__MODULE__{
           selected: Node.t() | nil,
           blocked_by: [Edge.t()],
           blocking: [Edge.t()],
           external: [Edge.t()],
-          capabilities: map(),
+          capabilities: %{optional(atom()) => Capability.t()},
           diagnostics: [Diagnostic.t()],
           status: :selected | :not_found | :invalid_selection
         }

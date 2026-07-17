@@ -51,7 +51,7 @@ defmodule AiurWeb.BuildOrderPresenterTest do
     model =
       BuildOrderPresenter.present(planning, execution, activity,
         selected_identity: identity(2),
-        capabilities: %{issue: %{available?: true, url: issue_url(2), label: "Issue"}}
+        capabilities: %{issue: %{available?: true, url: issue_url(2), identity: identity(2), label: "Issue"}}
       )
 
     assert %BuildOrderViewModel{status: :ready, execution_health: :available, activity_health: :available} = model
@@ -360,15 +360,15 @@ defmodule AiurWeb.BuildOrderPresenterTest do
     end
   end
 
-  test "capabilities accept only bounded relative paths or validated GitHub destinations" do
+  test "capabilities accept only identity-qualified destination-specific routes" do
     model = BuildOrderPresenter.present(snapshot([member(1)]), status_snapshot(), activity_snapshot())
 
     relationships =
       BuildOrderPresenter.relationships(model, identity(1), %{
-        issue: %{available?: true, url: "https://token@github.com/owner/repo/issues/1"},
-        pull_request: %{available?: true, url: "https://github.com/owner/repo/pull/2"},
-        commands: %{available?: true, path: "/decisions/1"},
-        chat: %{available?: true, path: "/chat\nheader: value"}
+        issue: %{available?: true, url: "https://token@github.com/owner/repo/issues/1", identity: identity(1)},
+        pull_request: %{available?: true, url: "https://github.com/owner/repo/pull/2", identity: identity(1), number: 2},
+        commands: %{available?: true, path: "/decisions/1", identity: identity(1)},
+        chat: %{available?: true, path: "/chat\nheader: value", identity: identity(1)}
       })
 
     refute relationships.capabilities.issue.available?
@@ -386,12 +386,54 @@ defmodule AiurWeb.BuildOrderPresenterTest do
         ] do
       relationships =
         BuildOrderPresenter.relationships(model, identity(1), %{
-          chat: %{available?: true, path: unsafe}
+          chat: %{available?: true, path: unsafe, identity: identity(1)}
         })
 
       refute relationships.capabilities.chat.available?
       assert relationships.capabilities.chat.reason == :invalid_destination
     end
+
+    for {kind, destination} <- [
+          {:chat, "/chat/1?capability=private"},
+          {:chat, "/chat/1#token=private"},
+          {:chat, "/decisions/1"},
+          {:commands, "/decisions/1?token=private"},
+          {:commands, "/decisions/1#capability=private"},
+          {:commands, "/chat/1"}
+        ] do
+      capability = %{available?: true, path: destination, identity: identity(1), active?: true, readable?: true}
+      relationships = BuildOrderPresenter.relationships(model, identity(1), %{kind => capability})
+
+      refute relationships.capabilities[kind].available?
+      assert relationships.capabilities[kind].reason == :invalid_destination
+      assert relationships.capabilities[kind].destination == nil
+    end
+  end
+
+  test "capabilities retain only exact identity, readability, activity, and controlled reason facts" do
+    model = BuildOrderPresenter.present(snapshot([member(1)]), status_snapshot(), activity_snapshot())
+
+    relationships =
+      BuildOrderPresenter.relationships(model, identity(1), %{
+        issue: %{available?: true, url: issue_url(1), identity: identity(1)},
+        pull_request: %{available?: true, url: "https://github.com/owner/repo/pull/8", identity: identity(1), number: 8},
+        chat: %{available?: true, path: "/chat/1", identity: identity(1), active?: true, readable?: true},
+        commands: %{available?: false, identity: identity(1), readable?: false, reason: :unauthorized}
+      })
+
+    assert relationships.capabilities.issue.identity == identity(1)
+    assert relationships.capabilities.pull_request.number == 8
+    assert relationships.capabilities.chat.active?
+    assert relationships.capabilities.chat.readable?
+    assert relationships.capabilities.commands.identity == identity(1)
+    assert relationships.capabilities.commands.reason == :unauthorized
+
+    unsafe_identity = %{identity(1) | provider_id: ""}
+    normalized = BuildOrderPresenter.relationships(model, identity(1), %{chat: %{available?: true, path: "/chat/1", identity: unsafe_identity}})
+    assert normalized.capabilities.chat.identity == nil
+
+    arbitrary = BuildOrderPresenter.relationships(model, identity(1), %{commands: %{reason: :raw_provider_failure}})
+    assert arbitrary.capabilities.commands.reason == :unavailable
   end
 
   test "redacts credential-shaped provenance and deduplicates opposite connection views" do
