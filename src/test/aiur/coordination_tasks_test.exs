@@ -30,6 +30,26 @@ defmodule Aiur.CoordinationTasksTest do
     send(first, :release)
   end
 
+  test "accepted runnable keys are scheduled fairly" do
+    name = unique_name("Fair")
+    start_supervised!({CoordinationTasks, name: name, max_concurrency: 1})
+    test_pid = self()
+
+    assert :pending = CoordinationTasks.enqueue(:hot, blocking_operation(test_pid, :hot_first), name)
+    assert_receive {:started, :hot_first, hot_first}
+
+    assert :pending = CoordinationTasks.enqueue(:hot, blocking_operation(test_pid, :hot_second), name)
+    assert :pending = CoordinationTasks.enqueue(:waiting, blocking_operation(test_pid, :waiting), name)
+
+    send(hot_first, :release)
+    assert_receive {:started, :waiting, waiting}
+    refute_receive {:started, :hot_second, _worker}, 20
+
+    send(waiting, :release)
+    assert_receive {:started, :hot_second, hot_second}
+    send(hot_second, :release)
+  end
+
   test "bounded admission rejects overload and recovers after work drains" do
     name = unique_name("Bounded")
     start_supervised!({CoordinationTasks, name: name, max_concurrency: 1, max_pending: 1})
@@ -260,6 +280,13 @@ defmodule Aiur.CoordinationTasksTest do
   defp blocking_operation(test_pid) do
     fn ->
       send(test_pid, {:started, self()})
+      receive do: (:release -> :ok)
+    end
+  end
+
+  defp blocking_operation(test_pid, label) do
+    fn ->
+      send(test_pid, {:started, label, self()})
       receive do: (:release -> :ok)
     end
   end

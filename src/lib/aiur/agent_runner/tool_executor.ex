@@ -159,7 +159,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
       current ->
         admit(
           coordination.enqueue,
-          dependency_key(current, blocker_number),
+          ticket_coordination_key(issue),
           fn -> declare_and_reconcile(current, blocker_number, coordination) end,
           coordination_operation_opts(issue)
         )
@@ -173,14 +173,14 @@ defmodule Aiur.AgentRunner.ToolExecutor do
 
       current ->
         coordination.run.(
-          dependency_key(current, blocker_number),
+          ticket_coordination_key(issue),
           fn -> coordination.unblock_dependency.(current, blocker_number) end,
           coordination_operation_opts(issue)
         )
     end
   end
 
-  defp dependency_key(current, blocker), do: {:dependency, current, blocker}
+  defp ticket_coordination_key(issue), do: {:ticket, issue_identifier(issue) || issue_number_of(issue)}
 
   defp coordination_operation_opts(issue) do
     [
@@ -400,7 +400,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
       end
     end
 
-    case context.enqueue.({:event, identifier}, operation, coordination_operation_opts(issue)) do
+    case context.enqueue.(ticket_coordination_key(issue), operation, coordination_operation_opts(issue)) do
       :pending -> {:ok, %{"status" => "pending", "topic" => topic}}
       {:error, reason} -> {:error, reason}
     end
@@ -478,7 +478,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   defp event_publication_log_context(issue, tool_call_id, topic) do
     ticket = issue_identifier(issue)
 
-    "key=#{safe_failure_detail({:event, ticket})} ticket=#{safe_failure_detail(ticket)} " <>
+    "key=#{safe_failure_detail(ticket_coordination_key(issue))} ticket=#{safe_failure_detail(ticket)} " <>
       "issue_id=#{safe_failure_detail(Map.get(issue, :id))} " <>
       "issue_identifier=#{safe_failure_detail(Map.get(issue, :identifier))} " <>
       "tool_call_id=#{safe_failure_detail(tool_call_id)} topic=#{safe_failure_detail(topic)} timeout_ms=infinity"

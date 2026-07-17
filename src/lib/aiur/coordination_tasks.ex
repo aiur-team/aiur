@@ -3,8 +3,9 @@ defmodule Aiur.CoordinationTasks do
   Bounded, keyed admission for best-effort coordination side effects.
 
   Operations for one key retain admission order while independent keys may run
-  concurrently. Admission is synchronous and bounded so callers never report
-  acceptance unless this process owns the work.
+  concurrently. Runnable keys are scheduled in FIFO order so a busy key cannot
+  starve other accepted work. Admission is synchronous and bounded so callers
+  never report acceptance unless this process owns the work.
   """
 
   use GenServer
@@ -81,6 +82,8 @@ defmodule Aiur.CoordinationTasks do
      %{
        active: %{},
        queues: %{},
+       runnable_keys: :queue.new(),
+       runnable_key_set: MapSet.new(),
        pending: 0,
        operation_timeout_ms: Keyword.get(opts, :operation_timeout_ms, @default_operation_timeout_ms),
        max_pending: Keyword.get(opts, :max_pending, @default_max_pending),
@@ -161,7 +164,13 @@ defmodule Aiur.CoordinationTasks do
     Process.demonitor(task.ref, [:flush])
     cancel_timer(task.timer, task.ref)
     reply(task.reply_to, result)
-    {:noreply, dispatch(%{state | active: Map.delete(state.active, key)})}
+
+    state =
+      state
+      |> Map.put(:active, Map.delete(state.active, key))
+      |> make_runnable(key)
+
+    {:noreply, dispatch(state)}
   end
 
   defp reply(nil, _result), do: :ok
@@ -186,10 +195,9 @@ defmodule Aiur.CoordinationTasks do
   defp dispatch(state) when map_size(state.active) >= state.max_concurrency, do: state
 
   defp dispatch(state) do
-    case Enum.find(state.queues, fn {key, queue} ->
-           not Map.has_key?(state.active, key) and not :queue.is_empty(queue)
-         end) do
-      {key, queue} ->
+    case pop_runnable(state) do
+      {key, state} ->
+        queue = Map.fetch!(state.queues, key)
         {{:value, entry}, queue} = :queue.out(queue)
 
         task = Task.Supervisor.async(Aiur.TaskSupervisor, fn -> safely_run(entry.operation) end)
@@ -209,9 +217,33 @@ defmodule Aiur.CoordinationTasks do
         |> Map.put(:active, Map.put(state.active, key, task))
         |> dispatch()
 
-      nil ->
+      :empty ->
         state
     end
+  end
+
+  defp pop_runnable(state) do
+    case :queue.out(state.runnable_keys) do
+      {{:value, key}, runnable_keys} ->
+        state = %{
+          state
+          | runnable_keys: runnable_keys,
+            runnable_key_set: MapSet.delete(state.runnable_key_set, key)
+        }
+
+        if runnable?(state, key), do: {key, state}, else: pop_runnable(state)
+
+      {:empty, _runnable_keys} ->
+        :empty
+    end
+  end
+
+  defp runnable?(state, key) do
+    not Map.has_key?(state.active, key) and
+      case Map.fetch(state.queues, key) do
+        {:ok, queue} -> not :queue.is_empty(queue)
+        :error -> false
+      end
   end
 
   defp active_by_ref(active, ref) do
@@ -220,7 +252,28 @@ defmodule Aiur.CoordinationTasks do
 
   defp enqueue_entry(key, entry, state) do
     queue = Map.get(state.queues, key, :queue.new())
-    dispatch(%{state | queues: Map.put(state.queues, key, :queue.in(entry, queue)), pending: state.pending + 1})
+
+    state = %{
+      state
+      | queues: Map.put(state.queues, key, :queue.in(entry, queue)),
+        pending: state.pending + 1
+    }
+
+    state
+    |> make_runnable(key)
+    |> dispatch()
+  end
+
+  defp make_runnable(state, key) do
+    if runnable?(state, key) and not MapSet.member?(state.runnable_key_set, key) do
+      %{
+        state
+        | runnable_keys: :queue.in(key, state.runnable_keys),
+          runnable_key_set: MapSet.put(state.runnable_key_set, key)
+      }
+    else
+      state
+    end
   end
 
   defp entry(operation, timeout, reply_to, log_context, state) do
@@ -254,6 +307,7 @@ defmodule Aiur.CoordinationTasks do
 
   defp key_ticket({:event, ticket}), do: ticket
   defp key_ticket({:dependency, ticket, _blocker}), do: ticket
+  defp key_ticket({:ticket, ticket}), do: ticket
   defp key_ticket(_key), do: nil
 
   defp log_context(opts) do

@@ -60,7 +60,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
 
       assert response["success"] == true
       assert Jason.decode!(response["output"])["result"] == "pending"
-      assert_receive {:enqueued, {:dependency, "1031", 999}, operation, opts}
+      assert_receive {:enqueued, {:ticket, "1031"}, operation, opts}
       assert opts[:operation_timeout] == :infinity
       assert opts[:log_context] == %{issue_id: nil, issue_identifier: "1031"}
       assert is_function(operation, 0)
@@ -92,7 +92,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       send(worker, :release)
     end
 
-    test "declare and unblock use the same ordered dependency key" do
+    test "declare and unblock use the same ordered ticket key" do
       issue = %Issue{identifier: "1031"}
       test_pid = self()
 
@@ -120,6 +120,43 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert declare_opts == unblock_opts
       assert declare_opts[:operation_timeout] == :infinity
       assert declare_opts[:log_context] == %{issue_id: nil, issue_identifier: "1031"}
+    end
+
+    test "blocked publication waits for blocker subscription on the ticket lane" do
+      issue = %Issue{id: "gid-1031", identifier: "1031"}
+      name = Module.concat(__MODULE__, "SubscriptionOrder#{System.unique_integer([:positive])}")
+      start_supervised!({Aiur.CoordinationTasks, name: name})
+      test_pid = self()
+
+      executor =
+        ToolExecutor.build(issue, nil, nil, %{},
+          coordination_enqueuer: fn key, operation, opts ->
+            Aiur.CoordinationTasks.enqueue(key, operation, name, opts)
+          end,
+          blocker_subscriber: fn _current, _blocker ->
+            send(test_pid, {:subscription_started, self()})
+            receive do: (:release -> :ok)
+          end,
+          dependency_declarer: fn _current, _blocker ->
+            send(test_pid, :dependency_declared)
+            {:ok, :created}
+          end,
+          event_bus_publisher: fn topic, _payload, _opts ->
+            send(test_pid, {:event_published, topic})
+            {:ok, 42, []}
+          end
+        )
+
+      assert executor.("aiur_declare_blocker", %{"issue_number" => 999})["success"]
+      assert_receive {:subscription_started, subscriber}
+
+      response = executor.("emit_event", %{"name" => "blocked", "message" => "waiting"})
+      assert response["success"]
+      refute_receive {:event_published, _topic}, 20
+
+      send(subscriber, :release)
+      assert_receive :dependency_declared
+      assert_receive {:event_published, "ticket.gid-1031.agent.blocked"}
     end
 
     test "unblock preserves terminal success and error results" do
@@ -744,10 +781,10 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
             )
 
           assert response["success"]
-          assert :drained = Aiur.CoordinationTasks.run({:event, "gid-publication-log"}, fn -> :drained end, name)
+          assert :drained = Aiur.CoordinationTasks.run({:ticket, "gid-publication-log"}, fn -> :drained end, name)
         end)
 
-      assert log =~ ~s(key={:event, "gid-publication-log"})
+      assert log =~ ~s(key={:ticket, "gid-publication-log"})
       assert log =~ ~s(ticket="gid-publication-log")
       assert log =~ ~s(issue_id="gid-publication-log")
       assert log =~ ~s(issue_identifier="AIUR-PUBLICATION-LOG")
@@ -788,7 +825,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert_receive {:captured_event_operation, operation}
       log = ExUnit.CaptureLog.capture_log(fn -> assert :ok = operation.() end)
 
-      assert log =~ ~s(key={:event, "gid-recorder-log"})
+      assert log =~ ~s(key={:ticket, "gid-recorder-log"})
       assert log =~ ~s(ticket="gid-recorder-log")
       assert log =~ ~s(issue_id="gid-recorder-log")
       assert log =~ ~s(issue_identifier="AIUR-RECORDER-LOG")
