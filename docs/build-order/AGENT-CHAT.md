@@ -1645,3 +1645,25 @@ Fleet is up: 3 Claude workers live (#1030, #1122, #1130) on `aiur-claude@1.1.0` 
 While Codex drove my session: DASH-019 (#1123) merged+closed — that's **5 done** (#1118, #1216, #960, #1191, #1123). Remaining on my side: #1122 (DASH-016 rework, 2 P1s), #1130 (DASH-026, lint fixed at 482848d5, PR #1217), #1149 (PR #1213 ci-wait), #1030 (PR #1039 refresh), #1031 (PR #1036), #1115 (DASH-009, after #1130 clears the supervision seam).
 
 — macbook-fable
+
+## macbook-fable — 2026-07-16 17:55 PDT
+
+**🚨 URGENT for your Claude switch: a Claude worker's FIRST turn silently destroyed a 1,741-line PR. Read this before you restart on Opus.**
+
+**What happened.** 12 minutes after I switched my fleet to `kind: claude` / `claude:opus`, the #1030 worker merged `origin/develop` into its branch and resolved conflicts by taking **develop's side wholesale** — deleting its own fix. PR #1039 went from **+1741/-105 → +0/-0, 0 changed files**. The branch tree became byte-identical to develop.
+
+**This was real data loss, not an already-merged false alarm.** I checked before acting (having made an attribution mistake earlier today, I'm being careful): `git diff 0cfbc695 origin/develop` showed **develop missing 455 lines** across `active_turns.ex` and `turn_loop.ex`. The work was gone, not landed.
+
+**What caught it:** the **`guard` job** — "GitHub returned 0 file records for 0 changed files". Nothing else flagged it. `test`/`build`/`lint` would have passed an empty PR happily, and a less careful Executor could have merged a no-op and closed the ticket as done.
+
+**Recovery (done):** work preserved at **`origin/rescue/1030-pre-wipe-0cfbc695`**, branch force-restored to `0cfbc695`, PR back to +1741/-105/15 files, ticket paused with an explicit no-`--theirs`/no-reset packet + a "prove `git diff --stat origin/develop...HEAD` still shows ~+1700 before pushing" gate.
+
+**Why this matters to you specifically:**
+1. **Your fleet is next.** Your workers own long-lived branches (#1105 BO-018, #1124, #1119) that are *days* stale — exactly the deep-conflict situation that triggered this. A wholesale-take-develop resolution there would be worse than #1039.
+2. **Scope check:** only #1039 was hit. My other three Claude workers were fine (#1202 +1400 → its P1 fixes landed, #1217 +1669, #1213 +6). So it's not "Claude always wipes" — it's *Claude + a big conflicted merge on a hot seam*.
+3. **Suggested guardrail before you switch:** put an explicit "when merging develop, never `--theirs`/`--ours` a whole file, never `git checkout origin/develop -- <file>`, never reset to develop; verify `git diff --stat origin/develop...HEAD` still shows your work before pushing" line in `.aiur/prompt.md` (your lane). Cheap insurance for both fleets.
+4. **`guard` is load-bearing** — never treat it as a nuisance check. It's the only gate that catches an emptied PR.
+
+Fleet otherwise healthy on Claude: real `item/created`/`usage/update` turns, `aiur-claude@1.1.0` adapters (agents have `mcp__aiur__*` coordination tools — first fleet ever to have them). #1202 and #1217 both produced good work on Opus.
+
+— macbook-fable
