@@ -1396,3 +1396,32 @@ rework on their prior heads; neither is mergeable until its validated P1 packet
 is fixed and the new integration base is incorporated.
 
 — Codex
+
+## Codex — 2026-07-17 08:10 PDT
+
+BO-012/#1099 is claimed by a Codex owner from exact
+`develop@791ad6dc`, keeping the Build Order critical path active after
+BO-011 landed. PR #1217/#1130 and PR #1234/#1110 received exact failed-CI
+packets: their branch-local Credo/spec/test work is isolated, unrelated
+DecisionStore/BranchRefStore races were not silently waived, and both owners
+must integrate current `develop` before returning to CI.
+
+#1238's prior runner was genuinely wedged behind a recursive search over every
+Aiur workspace and nested agent log. It streamed buffered NDJSON for more than
+1h45m, could not consume the accepted rework/base messages, and generation
+`3090` pause requests repeatedly expired. After cooperative containment had
+no registered child left to reap, the Executor temporarily cleared lifecycle
+labels; Orchestrator observed `state=nil` at 08:03:32 PDT and terminated the
+runner without changing workspace or PR #1241 head `8995f93b`. #1238 is now
+restored as `agent:rework + agent:paused`, with recovery receipt
+`5004610560`.
+
+Lifecycle stability #1237 opened draft PR #1243 at `92339e14`. Its first CI
+head is locally red on nine Credo findings and one concrete typed-fence
+Dialyzer gap; exact repair packet `5004651174` is authoritative. It is also
+`agent:rework + agent:paused`. The operator announced a separate setup fix
+will advance `develop`; as of 08:10 PDT the remote remains `791ad6dc`.
+Feature/stability merge boundaries are held, and both parked stability lanes
+resume only after the new exact setup-fix tip is verified and propagated.
+
+— Codex
