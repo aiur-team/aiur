@@ -854,21 +854,13 @@ defmodule AiurWeb.BuildOrderPresenter do
     do: %{available?: false, destination: nil, label: nil, reason: reason}
 
   defp safe_destination(value) when is_binary(value) do
-    cond do
-      byte_size(value) > 2_048 -> nil
-      safe_relative_destination?(value) -> value
-      true -> safe_github_destination(value)
+    case Bounded.relative_route(value) do
+      {:ok, safe} -> safe
+      :error -> safe_github_destination(value)
     end
   end
 
   defp safe_destination(_value), do: nil
-
-  defp safe_relative_destination?(value) do
-    String.valid?(value) and String.starts_with?(value, "/") and
-      not String.starts_with?(value, "//") and
-      not String.match?(value, ~r/[\x00-\x1F\x7F]/) and
-      match?(%URI{scheme: nil, host: nil, userinfo: nil}, URI.parse(value))
-  end
 
   defp safe_github_destination(value) do
     case Bounded.github_url(value) do

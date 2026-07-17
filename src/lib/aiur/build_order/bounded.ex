@@ -135,6 +135,21 @@ defmodule Aiur.BuildOrder.Bounded do
 
   def text(_value, _limit), do: :error
 
+  @doc "Validates one bounded same-origin route used by a Build Order capability."
+  @spec relative_route(term()) :: {:ok, String.t()} | :error
+  def relative_route(value) do
+    with {:ok, value} <- text(value, @max_url_bytes),
+         true <- String.starts_with?(value, "/"),
+         false <- String.starts_with?(value, "//"),
+         false <- String.contains?(value, "\\"),
+         false <- String.match?(value, ~r/[\x00-\x1F\x7F]/),
+         %URI{scheme: nil, host: nil, userinfo: nil} <- URI.parse(value) do
+      {:ok, value}
+    else
+      _ -> :error
+    end
+  end
+
   defp safe_github_uri?(%URI{
          scheme: "https",
          host: host,

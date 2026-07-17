@@ -228,6 +228,28 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenterTest do
     end
   end
 
+  test "rejects browser-normalized relative destination escapes" do
+    identity = identity()
+
+    for unsafe <- [
+          "//evil.example/path",
+          "/\\evil.example/path",
+          "/\nevil.example/path",
+          "/\tevil.example/path",
+          <<"/", 255>>,
+          "/" <> String.duplicate("a", 2_048)
+        ] do
+      [capability] =
+        TicketContextPresenter.present(detail_state(identity), history(identity), [
+          %{kind: :chat, available?: true, href: unsafe}
+        ]).capabilities
+
+      refute capability.available?
+      assert capability.href == nil
+      assert capability.reason == "Chat is unavailable."
+    end
+  end
+
   test "deduplicates capabilities without letting later entries replace the first destination" do
     identity = identity()
 

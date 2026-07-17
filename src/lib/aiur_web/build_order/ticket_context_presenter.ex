@@ -507,14 +507,8 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
     end
   end
 
-  defp available_href(kind, _variant, href, _identity, _capability) when kind in [:chat, :commands] and is_binary(href) do
-    case URI.parse(href) do
-      %URI{scheme: nil, host: nil, path: "/" <> _path, userinfo: nil} ->
-        if String.starts_with?(href, "//") or String.contains?(href, "\\"), do: :error, else: {:ok, href, false}
-
-      _ ->
-        :error
-    end
+  defp available_href(kind, _variant, href, _identity, _capability) when kind in [:chat, :commands] do
+    with {:ok, href} <- Bounded.relative_route(href), do: {:ok, href, false}
   end
 
   defp available_href(_kind, _variant, _href, _identity, _capability), do: :error
