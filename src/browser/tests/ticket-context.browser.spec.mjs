@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
 import { assertNoDocumentOverflow } from './support/browser-helpers.mjs'
+import { nextPaint } from './support/measurements.mjs'
 
 async function openTicketContext(page) {
   await page.goto('/auth/read_only')
@@ -51,6 +52,7 @@ test('ticket context keeps its semantic content and keyboard lifecycle accessibl
       await expect(close).toBeFocused()
 
       await page.evaluate(() => { document.documentElement.style.fontSize = '200%' })
+      await nextPaint(page)
       await assertNoDocumentOverflow(page)
 
       const accessibility = await new AxeBuilder({ page }).analyze()
