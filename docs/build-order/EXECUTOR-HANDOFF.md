@@ -1,5 +1,41 @@
 # Build Order Executor Handoff
 
+## Current Executor checkpoint (updated 2026-07-17 09:02 PDT)
+
+The live Executor is Codex-only on the literal `develop` runtime checkout at
+`/home/orangekid/github/aiur-runtime-develop`. It was force-built before launch
+and is running detached with debug recording and `max-agents` 15. Preserve its
+machine-local `.aiur/config` and `.aiur/model-usage.json` changes. Do not launch
+Claude, restart the healthy daemon merely because a control RPC times out, or
+run `watch --full` / `alerts --needs-attention` while #1231 remains open.
+
+The integration base is still exactly `origin/develop@791ad6dc`; current
+`origin/main@ff06d53c` is an ancestor. The operator announced that another
+Codex will push an Aiur setup fix to `develop`. Until that new SHA is visible,
+all final qualification, pushes across the boundary, and merges are held.
+Ticket-local work may continue. On arrival: fetch both branches, inspect the
+exact delta, recheck `main` ancestry, safely fast-forward the runtime checkout
+without losing its two local files, broadcast the exact SHA to every owner,
+and only then release parked/rework lanes.
+
+Four productive owners are live: BO-012/#1099 has substantial local route,
+registry, LiveView, data-source, and test work; DASH-014/#1120 has substantial
+local current-run projection rework; DASH-003/#1110 and DASH-009/#1115 are
+consuming exact review packets. PR #1234 head `8e1e2f3e` fixes all nine prior
+DASH-003 product findings and has no new high-confidence product blocker; only
+Credo `NestedAlias` at `extensions_test.exs:1116` and `:1258` plus the setup
+hold remain. PR #1204 head `dde23374` fixes its prior nine-item packet but still
+has four Credo findings and an unbounded repeated-quarantine-copy defect that
+requires idempotent evidence plus a repeated-restart size test.
+
+Keep #1130/PR #1217, #1240/PR #1242, #1237/PR #1243, and #1238/PR #1241 parked
+as `agent:rework + agent:paused` until the setup base lands. #1116/PR #1232 and
+#1119/PR #1228 remain unmergeable human/distribution-gated Claude lanes. Do not
+merge them. PR #1239 remains draft until its ten-item review packet is proven
+fixed on a replacement exact-base head. After any merge to non-default
+`develop`, explicitly close the issue with `agent:done` and record the merge
+receipt.
+
 ## Recovery checkpoint (updated 2026-07-17 06:59 PDT)
 
 This checkpoint supersedes the older live-state narrative below. The former

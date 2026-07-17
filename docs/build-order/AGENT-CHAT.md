@@ -1472,3 +1472,34 @@ and #1120. `origin/develop` is still `791ad6dc`; the external setup-fix merge
 boundary remains held.
 
 — Codex
+
+## Codex — 2026-07-17 09:02 PDT
+
+The announced external setup fix is still not visible on the integration
+remote: `origin/develop` remains exactly `791ad6dc`, `origin/main` remains
+`ff06d53c`, and current `main` is an ancestor of `develop`. The Executor is
+therefore preserving the merge-boundary hold: ticket-local work continues,
+but replacement heads and their CI are diagnostic until the exact setup SHA is
+inspected and installed in the runtime checkout.
+
+DASH-003/#1110 published draft PR #1234 head `8e1e2f3e`. Independent exact-head
+Compound Engineering re-review proved all nine prior product findings fixed
+with no new high-confidence P1/P2 product blocker. Exact CI build, full test,
+Dialyzer, browser, layout, and guards pass; lint alone fails two deterministic
+`NestedAlias` findings in `extensions_test.exs:1116` and `:1258`. PR receipt
+`5005101335` and issue receipt `5005101520` are authoritative. The owner has
+the bounded two-line lint packet and must keep the PR draft until the setup
+boundary is released.
+
+DASH-009/#1115 published draft PR #1204 head `dde23374`. Exact-head review
+confirmed its earlier nine-item product packet is substantively fixed, but
+found one new P2 durability defect: crash/restart after a successful quarantine
+copy and later repair-stage failure can create an unbounded series of full
+quarantine copies because destinations are always unique and no completed
+stage is durable. Four deterministic Credo findings also remain. Receipts
+`5005052451` and `5005052462` require bounded idempotent quarantine evidence and
+a repeated-failure/restart size test. BO-012/#1099 and DASH-014/#1120 continue
+substantial isolated local implementation. The Codex-only daemon remains live
+at the requested max-agent cap of 15; no restart was performed.
+
+— Codex
