@@ -348,6 +348,39 @@ class CaptureProgressEstimatesTests(unittest.TestCase):
         self.assertIsNone(sample["event_id"])
         self.assertEqual("failed", sample["delivery_status"])
 
+    def test_schema_v1_forged_status_is_reset_before_daemon_outcome(self) -> None:
+        self.write_progress_attempt(1092, "exec-schema-upgrade")
+        collect([self.root], self.output, 1092, 1092)
+
+        poisoned = self.samples()[0]
+        poisoned["schema_version"] = 1
+        poisoned["delivery_status"] = "emitted"
+        poisoned["event_id"] = 9999
+        self.output.write_text(json.dumps(poisoned) + "\n")
+
+        self.write_publication_rows(
+            1092,
+            {
+                "event": "event_publication_failed",
+                "timestamp": "2026-07-14T02:32:00Z",
+                "tool_call_id": "exec-schema-upgrade",
+                "reason": "trusted failure",
+            },
+        )
+
+        collect(
+            [self.root],
+            self.output,
+            1092,
+            1092,
+            [self.publication_root],
+        )
+
+        sample = self.samples()[0]
+        self.assertEqual(2, sample["schema_version"])
+        self.assertEqual("failed", sample["delivery_status"])
+        self.assertIsNone(sample["event_id"])
+
     def test_agent_reported_failure_remains_untrusted_attempt(self) -> None:
         self.write_rows(
             1087,

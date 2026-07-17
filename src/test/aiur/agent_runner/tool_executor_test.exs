@@ -881,6 +881,42 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       refute log =~ secret
     end
 
+    test "successful attention publication resolves locally even when outcome recording fails" do
+      issue = %Issue{id: "gid-recorder-resolution", identifier: "AIUR-RECORDER-RESOLUTION"}
+      test_pid = self()
+
+      executor =
+        ToolExecutor.build(issue, nil, nil, %{},
+          coordination_enqueuer: fn _key, operation, _opts ->
+            send(test_pid, {:captured_event_operation, operation})
+            :pending
+          end,
+          event_bus_publisher: fn _topic, _payload, _opts -> {:ok, 4246, []} end,
+          event_publication_recorder: fn _record -> {:error, :disk_failed} end,
+          attention_resolver: fn resolved_issue, slug ->
+            send(test_pid, {:attention_resolved, resolved_issue.identifier, slug})
+            :ok
+          end
+        )
+
+      response =
+        ToolExecutor.execute(
+          executor,
+          "emit_event",
+          %{
+            "name" => "attention.resolved",
+            "message" => "resolved",
+            "payload" => %{"slug" => "scope-question"}
+          },
+          "call-recorder-resolution"
+        )
+
+      assert response["success"]
+      assert_receive {:captured_event_operation, operation}, 2_000
+      assert {:error, {:event_publication_record_failed, _failure}} = operation.()
+      assert_receive {:attention_resolved, "AIUR-RECORDER-RESOLUTION", "scope-question"}, 2_000
+    end
+
     test "remote workers persist locally-known publication outcomes outside their transcript" do
       identifier = "TE-publication-remote-#{System.unique_integer([:positive])}"
       issue = %Issue{id: "gid-publication-remote", identifier: identifier}

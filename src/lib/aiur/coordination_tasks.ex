@@ -18,6 +18,7 @@ defmodule Aiur.CoordinationTasks do
   @default_operation_timeout_ms 30_000
   @default_max_pending 1_000
   @default_max_concurrency 16
+  @task_start_retry_ms 100
   @max_failure_chars 500
 
   @type key :: term()
@@ -91,7 +92,8 @@ defmodule Aiur.CoordinationTasks do
        operation_timeout_ms: Keyword.get(opts, :operation_timeout_ms, @default_operation_timeout_ms),
        max_pending: max_pending,
        max_pending_per_key: Keyword.get(opts, :max_pending_per_key, default_per_key_limit(max_pending)),
-       max_concurrency: Keyword.get(opts, :max_concurrency, @default_max_concurrency)
+       max_concurrency: Keyword.get(opts, :max_concurrency, @default_max_concurrency),
+       task_starter: Keyword.get(opts, :task_starter, &start_task/1)
      }}
   end
 
@@ -160,6 +162,8 @@ defmodule Aiur.CoordinationTasks do
     end
   end
 
+  def handle_info(:retry_dispatch, state), do: {:noreply, dispatch(state)}
+
   def handle_info(_message, state), do: {:noreply, state}
 
   defp complete(key, task, result, state) do
@@ -202,26 +206,37 @@ defmodule Aiur.CoordinationTasks do
         queue = Map.fetch!(state.queues, key)
         {{:value, entry}, queue} = :queue.out(queue)
 
-        task = Task.Supervisor.async(Aiur.TaskSupervisor, fn -> safely_run(entry.operation) end)
-
-        task =
-          task
-          |> Map.put(:timer, schedule_timeout(task.ref, entry.timeout))
-          |> Map.put(:operation_timeout, entry.timeout)
-          |> Map.put(:log_context, entry.log_context)
-          |> Map.put(:reply_to, entry.reply_to)
-
-        queues = if :queue.is_empty(queue), do: Map.delete(state.queues, key), else: Map.put(state.queues, key, queue)
-
-        state
-        |> Map.put(:queues, queues)
-        |> Map.put(:pending, state.pending - 1)
-        |> Map.put(:active, Map.put(state.active, key, task))
-        |> dispatch()
+        case safely_start_task(state.task_starter, entry) do
+          {:ok, task} -> activate_task(state, key, queue, entry, task)
+          {:error, reason} -> retry_task_start(state, key, reason)
+        end
 
       :empty ->
         state
     end
+  end
+
+  defp activate_task(state, key, queue, entry, task) do
+    task =
+      task
+      |> Map.put(:timer, schedule_timeout(task.ref, entry.timeout))
+      |> Map.put(:operation_timeout, entry.timeout)
+      |> Map.put(:log_context, entry.log_context)
+      |> Map.put(:reply_to, entry.reply_to)
+
+    queues = if :queue.is_empty(queue), do: Map.delete(state.queues, key), else: Map.put(state.queues, key, queue)
+
+    state
+    |> Map.put(:queues, queues)
+    |> Map.put(:pending, state.pending - 1)
+    |> Map.put(:active, Map.put(state.active, key, task))
+    |> dispatch()
+  end
+
+  defp retry_task_start(state, key, reason) do
+    Logger.warning("coordination task start failed failure=#{safe_detail(reason)}")
+    Process.send_after(self(), :retry_dispatch, @task_start_retry_ms)
+    make_runnable(state, key)
   end
 
   defp pop_runnable(state) do
@@ -292,6 +307,22 @@ defmodule Aiur.CoordinationTasks do
     error -> {:error, {:coordination_operation_exception, Exception.message(error)}}
   catch
     kind, reason -> {:error, {:coordination_operation_failure, kind, reason}}
+  end
+
+  defp start_task(entry) do
+    {:ok, Task.Supervisor.async(Aiur.TaskSupervisor, fn -> safely_run(entry.operation) end)}
+  end
+
+  defp safely_start_task(starter, entry) do
+    case starter.(entry) do
+      {:ok, %Task{} = task} -> {:ok, task}
+      {:error, reason} -> {:error, reason}
+      other -> {:error, {:unexpected_task_starter_result, other}}
+    end
+  rescue
+    error -> {:error, {:task_start_exception, Exception.message(error)}}
+  catch
+    kind, reason -> {:error, {:task_start_failure, kind, reason}}
   end
 
   defp log_failure(key, task, {:error, reason}) do

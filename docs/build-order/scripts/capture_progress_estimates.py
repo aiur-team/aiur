@@ -38,6 +38,7 @@ PUBLICATION_EVENTS = {
 }
 STATUS_RANK = {"attempted": 0, "failed": 1, "emitted": 2}
 PUBLICATION_LOG_NAME = "event-publications.ndjson"
+SCHEMA_VERSION = 2
 PERCENT = re.compile(r"^(?:100(?:\.0+)?|\d{1,2}(?:\.\d+)?)%?$")
 
 
@@ -254,7 +255,7 @@ def sample_from_row(
         call_id = _call_id(row)
         source = str(source_log.resolve())
         return {
-            "schema_version": 1,
+            "schema_version": SCHEMA_VERSION,
             "sample_id": _sample_id(
                 ticket, source, call_id, timestamp, kind, percent, label, message
             ),
@@ -335,8 +336,25 @@ def _load_existing(output: Path) -> dict[str, dict[str, Any]]:
                 raise CollectorError(
                     f"refusing to replace invalid durable output at line {line_number}"
                 )
-            samples[sample_id] = row
+            samples[sample_id] = _upgrade_existing_sample(row, line_number)
     return samples
+
+
+def _upgrade_existing_sample(
+    row: dict[str, Any], line_number: int
+) -> dict[str, Any]:
+    version = row.get("schema_version", 1)
+    if version == SCHEMA_VERSION:
+        return row
+    if version == 1:
+        upgraded = dict(row)
+        upgraded["schema_version"] = SCHEMA_VERSION
+        upgraded["delivery_status"] = "attempted"
+        upgraded["event_id"] = None
+        return upgraded
+    raise CollectorError(
+        f"refusing unsupported durable schema at line {line_number}: {version!r}"
+    )
 
 
 def _write_atomic(output: Path, samples: dict[str, dict[str, Any]]) -> None:

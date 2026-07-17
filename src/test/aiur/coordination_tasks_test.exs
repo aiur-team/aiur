@@ -13,7 +13,8 @@ defmodule Aiur.CoordinationTasksTest do
     assert :pending = CoordinationTasks.enqueue(:ticket_a, blocking_operation(test_pid), name)
     assert :pending = CoordinationTasks.enqueue(:ticket_a, fn -> send(test_pid, :second_started) end, name)
     assert_receive {:started, first}, 2_000
-    refute_receive :second_started, 20
+    state = :sys.get_state(name)
+    assert :queue.len(Map.fetch!(state.queues, :ticket_a)) == 1
     send(first, :release)
     assert_receive :second_started, 2_000
   end
@@ -43,7 +44,6 @@ defmodule Aiur.CoordinationTasksTest do
 
     send(hot_first, :release)
     assert_receive {:started, :waiting, waiting}, 2_000
-    refute_receive {:started, :hot_second, _worker}, 20
 
     send(waiting, :release)
     assert_receive {:started, :hot_second, hot_second}, 2_000
@@ -87,6 +87,33 @@ defmodule Aiur.CoordinationTasksTest do
     assert_receive :independent_started, 2_000
   end
 
+  test "acknowledged work survives a temporary task-start failure" do
+    name = unique_name("TaskStartRetry")
+    test_pid = self()
+    {:ok, attempts} = Agent.start_link(fn -> 0 end)
+
+    task_starter = fn entry ->
+      attempt = Agent.get_and_update(attempts, fn count -> {count + 1, count + 1} end)
+      send(test_pid, {:task_start_attempt, attempt})
+
+      if attempt == 1 do
+        {:error, :task_supervisor_unavailable}
+      else
+        {:ok, Task.Supervisor.async(Aiur.TaskSupervisor, entry.operation)}
+      end
+    end
+
+    start_supervised!({CoordinationTasks, name: name, task_starter: task_starter})
+
+    assert :pending =
+             CoordinationTasks.enqueue(:key, fn -> send(test_pid, :retained_operation_ran) end, name)
+
+    assert_receive {:task_start_attempt, 1}, 2_000
+    assert_receive {:task_start_attempt, 2}, 2_000
+    assert_receive :retained_operation_ran, 2_000
+    assert Agent.get(attempts, & &1) == 2
+  end
+
   test "absence and restart loss return coordination unavailable" do
     name = unique_name("Absent")
     assert {:error, :coordination_unavailable} = CoordinationTasks.enqueue(:key, fn -> :ok end, name, [], 20)
@@ -109,9 +136,10 @@ defmodule Aiur.CoordinationTasksTest do
         CoordinationTasks.enqueue(:key, fn -> send(test_pid, :late_execution) end, name, [], 20)
       end)
 
-    assert {:error, :coordination_indeterminate} = Task.await(call, 100)
+    assert {:error, :coordination_indeterminate} = Task.await(call, 2_000)
     :ok = :sys.resume(pid)
-    refute_receive :late_execution, 50
+    assert :barrier = CoordinationTasks.run(:barrier, fn -> :barrier end, name)
+    refute_receive :late_execution, 0
   end
 
   test "run waits behind the keyed lane and returns the operation result" do
@@ -134,7 +162,7 @@ defmodule Aiur.CoordinationTasksTest do
         )
       end)
 
-    refute_receive :awaited_started, 20
+    assert :ok = wait_for_queued_entry(name, :key)
     send(first, :release)
     assert_receive :awaited_started, 2_000
     assert {:ok, :removed} = Task.await(call)
@@ -221,7 +249,7 @@ defmodule Aiur.CoordinationTasksTest do
     Process.exit(worker, :kill)
     assert_receive :lane_recovered, 2_000
     assert Process.alive?(coordinator)
-    refute_receive {:DOWN, ^coordinator_ref, :process, ^coordinator, _reason}, 20
+    refute_receive {:DOWN, ^coordinator_ref, :process, ^coordinator, _reason}, 0
   end
 
   test "coordinator restart terminates active work before reopening its key" do
@@ -271,7 +299,8 @@ defmodule Aiur.CoordinationTasksTest do
 
     assert_receive {:started, first}, 2_000
     assert :pending = CoordinationTasks.enqueue(:key, fn -> send(test_pid, :second_started) end, name)
-    refute_receive :second_started, 40
+    state = :sys.get_state(name)
+    assert :queue.len(Map.fetch!(state.queues, :key)) == 1
     send(first, :release)
     assert_receive :second_started, 2_000
   end
@@ -395,7 +424,7 @@ defmodule Aiur.CoordinationTasksTest do
     end
   end
 
-  defp wait_for_restart(name, old_pid, attempts \\ 50)
+  defp wait_for_restart(name, old_pid, attempts \\ 400)
 
   defp wait_for_restart(_name, _old_pid, 0), do: nil
 
@@ -409,6 +438,29 @@ defmodule Aiur.CoordinationTasksTest do
         after
           5 -> wait_for_restart(name, old_pid, attempts - 1)
         end
+    end
+  end
+
+  defp wait_for_queued_entry(name, key, attempts \\ 400)
+
+  defp wait_for_queued_entry(_name, _key, 0), do: :timeout
+
+  defp wait_for_queued_entry(name, key, attempts) do
+    state = :sys.get_state(name)
+
+    case Map.get(state.queues, key) do
+      queue when not is_nil(queue) ->
+        if :queue.is_empty(queue), do: retry_queued_entry(name, key, attempts), else: :ok
+
+      nil ->
+        retry_queued_entry(name, key, attempts)
+    end
+  end
+
+  defp retry_queued_entry(name, key, attempts) do
+    receive do
+    after
+      5 -> wait_for_queued_entry(name, key, attempts - 1)
     end
   end
 

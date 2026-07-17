@@ -28,6 +28,10 @@ The default publication root is `~/.aiur/logs`; the collector discovers each
 run's `log/event-publications.ndjson` beneath it. Terminal publication outcomes
 are accepted only from those daemon-owned roots; workspace transcript rows can
 establish an attempted tool call but cannot assert its eventual delivery.
+Schema version 2 enforces this trust boundary. On the first corrected scan,
+schema-v1 rows are reset to `attempted` with no event ID before current
+daemon-owned outcomes are applied, so a status retained from an older
+workspace-trusting collector cannot survive the migration.
 
 The collector streams each source file one line at a time, tolerates malformed
 and unrelated source records, and merges repeat scans by the tool-call identity.
