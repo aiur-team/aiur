@@ -912,6 +912,7 @@ defmodule Aiur.ExtensionsTest do
 
     html = html_response(get(build_conn(), "/"), 200)
     assert html =~ "/dashboard.css"
+    assert html =~ "/ticket-context-dialog-hook.js"
     assert html =~ "/aiur-dom-svg-layout-loader.js"
     assert html =~ "/vendor/phoenix_html/phoenix_html.js"
     assert html =~ "/vendor/phoenix/phoenix.js"
@@ -927,6 +928,10 @@ defmodule Aiur.ExtensionsTest do
     assert dashboard_css =~ "[data-phx-main].phx-connected .status-badge-offline"
     assert dashboard_css =~ ".live-button[data-live=\"false\"]"
     assert Plug.Conn.get_resp_header(dashboard_css_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
+
+    dialog_hook_conn = get(build_conn(), "/ticket-context-dialog-hook.js")
+    assert response(dialog_hook_conn, 200) =~ "AiurTicketContextDialogHook"
+    assert Plug.Conn.get_resp_header(dialog_hook_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
 
     adapter_conn = get(build_conn(), "/aiur-dom-svg-layout-adapter.js")
     adapter = response(adapter_conn, 200)
@@ -981,6 +986,7 @@ defmodule Aiur.ExtensionsTest do
     end
 
     assert html =~ "AgentLogPanel"
+    assert html =~ "AiurTicketContextDialogHook"
     assert html =~ "hooks: Hooks"
   end
 

@@ -18,7 +18,7 @@ defmodule Aiur.WorkflowStore do
   defmodule State do
     @moduledoc false
 
-    defstruct [:path, :stamp, :workflow, generation: 1]
+    defstruct [:path, :stamp, :workflow, :failed_stamp, generation: 1]
   end
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -174,13 +174,29 @@ defmodule Aiur.WorkflowStore do
         {:ok, state}
 
       {:ok, stamp} ->
-        # Advance the stamp before reloading so a persistently-broken config or
-        # missing prompt_file logs once per change instead of every poll.
-        reload_path(path, %{state | stamp: stamp})
+        reload_changed_stamp(path, stamp, state)
 
       {:error, reason} ->
         log_reload_error(path, reason)
         {:error, reason, state}
+    end
+  end
+
+  defp reload_changed_stamp(path, stamp, state) do
+    case load_state(path) do
+      {:ok, new_state} ->
+        new_state = advance_generation(new_state, state)
+        broadcast_configuration(new_state)
+        {:ok, new_state}
+
+      {:error, reason} ->
+        # Keep the prior stamp so the next poll retries: a transient load
+        # error must not mark the new content as current, or a later good
+        # reload gets skipped and stale config is served. Track the failing
+        # stamp separately so a persistently-broken config still logs once
+        # per change instead of every poll.
+        if stamp != state.failed_stamp, do: log_reload_error(path, reason)
+        {:error, reason, %{state | failed_stamp: stamp}}
     end
   end
 

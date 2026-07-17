@@ -22,6 +22,10 @@ defmodule AiurWeb.StaticAssets do
     "/aiur-dom-svg-layout/renderer.js" => "priv/static/aiur-dom-svg-layout/renderer.js"
   }
 
+  @runtime_static_assets %{
+    "/ticket-context-dialog-hook.js" => {"application/javascript", "priv/static/ticket-context-dialog-hook.js"}
+  }
+
   @external_resource @dashboard_css_path
   @external_resource @dom_svg_layout_adapter_path
   @external_resource @phoenix_html_js_path
@@ -67,15 +71,22 @@ defmodule AiurWeb.StaticAssets do
   end
 
   def fetch(path) when is_binary(path) do
+    case Map.fetch(@runtime_static_assets, path) do
+      {:ok, {content_type, asset_path}} -> read_static_asset(content_type, asset_path)
+      :error -> fetch_dom_svg_layout_module(path)
+    end
+  end
+
+  defp fetch_dom_svg_layout_module(path) do
     case Map.fetch(@dom_svg_layout_modules, path) do
-      {:ok, asset_path} -> read_static_module(asset_path)
+      {:ok, asset_path} -> read_static_asset("application/javascript", asset_path)
       :error -> fetch_embedded_or_layout_asset(path)
     end
   end
 
-  defp read_static_module(asset_path) do
+  defp read_static_asset(content_type, asset_path) do
     case File.read(Application.app_dir(:aiur, asset_path)) do
-      {:ok, body} -> {:ok, "application/javascript", body}
+      {:ok, body} -> {:ok, content_type, body}
       {:error, _reason} -> :error
     end
   end

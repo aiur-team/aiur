@@ -141,8 +141,13 @@ defmodule Aiur.Codex.Handshake do
   def read_rate_limits(port, opts \\ []) do
     Rpc.send_message(port, Frames.rate_limits_read_frame())
 
-    case Rpc.await_response(port, Frames.rate_limits_read_id(), @rate_limits_read_timeout_ms, opts) do
-      {:ok, %{"rateLimits" => rate_limits}} when is_map(rate_limits) -> {:ok, rate_limits}
+    case Rpc.await_response(
+           port,
+           Frames.rate_limits_read_id(),
+           @rate_limits_read_timeout_ms,
+           Keyword.put(opts, :sensitive_response?, true)
+         ) do
+      {:ok, %{"rateLimits" => rate_limits} = response} when is_map(rate_limits) -> {:ok, response}
       {:ok, payload} -> {:error, {:invalid_rate_limits_payload, payload}}
       {:error, _reason} = error -> error
     end

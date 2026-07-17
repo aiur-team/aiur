@@ -26,6 +26,10 @@ defmodule Aiur.Codex.RateLimits do
 
   def from_notification(_payload), do: nil
 
+  @spec from_read_response(map()) :: map() | nil
+  def from_read_response(%{"rateLimits" => rate_limits}) when is_map(rate_limits), do: redact(rate_limits)
+  def from_read_response(_response), do: nil
+
   @doc "Whether a map is already the privacy-reduced rate-limit shape this module emits."
   @spec safe?(term()) :: boolean()
   def safe?(rate_limits) when is_map(rate_limits) do

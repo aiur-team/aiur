@@ -40,11 +40,89 @@ defmodule Aiur.Codex.AccountGeneration.Context do
 
   def clear(_session), do: :ok
 
+  @spec put_auth_mode(map(), String.t()) :: :ok
+  def put_auth_mode(%{account_generation_context: context}, auth_mode) when is_reference(context) and is_binary(auth_mode) do
+    case current(context) do
+      {:ok, binding} -> Process.put(context_key(context), Map.put(binding, :auth_mode, auth_mode))
+      :error -> :ok
+    end
+
+    :ok
+  end
+
+  def put_auth_mode(_session, _auth_mode), do: :ok
+
+  @spec auth_mode(map()) :: String.t() | nil
+  def auth_mode(%{account_generation_context: context}) when is_reference(context) do
+    case current(context) do
+      {:ok, binding} -> Map.get(binding, :auth_mode)
+      :error -> nil
+    end
+  end
+
+  def auth_mode(_session), do: nil
+
+  @spec clear_auth_mode(map()) :: :ok
+  def clear_auth_mode(%{account_generation_context: context}) when is_reference(context) do
+    case current(context) do
+      {:ok, binding} -> Process.put(context_key(context), Map.delete(binding, :auth_mode))
+      :error -> :ok
+    end
+
+    :ok
+  end
+
+  def clear_auth_mode(_session), do: :ok
+
+  @spec put_rate_limit_ids(map(), [String.t()]) :: :ok
+  def put_rate_limit_ids(%{account_generation_context: context}, ids)
+      when is_reference(context) and is_list(ids) do
+    if Enum.all?(ids, &is_binary/1) do
+      case current(context) do
+        {:ok, binding} -> Process.put(context_key(context), Map.put(binding, :rate_limit_ids, ids))
+        :error -> :ok
+      end
+    end
+
+    :ok
+  end
+
+  def put_rate_limit_ids(_session, _ids), do: :ok
+
+  @spec single_rate_limit_id(map()) :: String.t() | nil
+  def single_rate_limit_id(%{account_generation_context: context}) when is_reference(context) do
+    case current(context) do
+      {:ok, %{rate_limit_ids: [limit_id]}} when is_binary(limit_id) -> limit_id
+      _ -> nil
+    end
+  end
+
+  def single_rate_limit_id(_session), do: nil
+
+  @spec clear_rate_limit_ids(map()) :: :ok
+  def clear_rate_limit_ids(%{account_generation_context: context}) when is_reference(context) do
+    case current(context) do
+      {:ok, binding} -> Process.put(context_key(context), Map.delete(binding, :rate_limit_ids))
+      :error -> :ok
+    end
+
+    :ok
+  end
+
+  def clear_rate_limit_ids(_session), do: :ok
+
   defp current(context) do
     case Process.get(context_key(context)) do
-      %{binding: binding, authority: authority, topic: topic}
+      %{binding: binding, authority: authority, topic: topic} = retained
       when is_reference(binding) and is_reference(authority) and is_binary(topic) ->
-        {:ok, %{binding: binding, authority: authority, topic: topic}}
+        {:ok,
+         %{
+           binding: binding,
+           authority: authority,
+           topic: topic,
+           auth_mode: Map.get(retained, :auth_mode),
+           rate_limit_ids: Map.get(retained, :rate_limit_ids)
+         }}
 
       _ ->
         :error
