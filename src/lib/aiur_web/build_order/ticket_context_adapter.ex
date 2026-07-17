@@ -54,8 +54,9 @@ defmodule AiurWeb.BuildOrder.TicketContextAdapter do
 
   alias Aiur.BuildOrder.Bounded
   alias Aiur.TrackerIdentity
-  alias AiurWeb.BuildOrder.{TicketContextPresenter, TicketContextSelection}
   alias AiurWeb.BuildOrder.TicketContextAdapter.{Relationship, View}
+  alias AiurWeb.BuildOrder.TicketContextPresenter
+  alias AiurWeb.BuildOrder.TicketContextSelection
   alias AiurWeb.BuildOrderPresenter
   alias AiurWeb.BuildOrderViewModel
   alias AiurWeb.BuildOrderViewModel.{Capability, Edge, Node, Relationships}
@@ -68,14 +69,12 @@ defmodule AiurWeb.BuildOrder.TicketContextAdapter do
   def present(%BuildOrderViewModel{} = model, selected_identity, base_context, capabilities) do
     base = TicketContextPresenter.normalize_view(base_context)
 
-    cond do
-      not current_scope?(model) ->
-        unavailable(:stale_scope)
-
-      true ->
-        model
-        |> BuildOrderPresenter.relationships(selected_identity, capabilities)
-        |> compose(model, base)
+    if current_scope?(model) do
+      model
+      |> BuildOrderPresenter.relationships(selected_identity, capabilities)
+      |> compose(model, base)
+    else
+      unavailable(:stale_scope)
     end
   end
 
@@ -201,16 +200,33 @@ defmodule AiurWeb.BuildOrder.TicketContextAdapter do
   defp capability_kind(:chat), do: {:chat, nil}
   defp capability_kind(:commands), do: {:commands, nil}
 
+  defp capability_reason(
+         _key,
+         %Capability{available?: available?, reason: reason},
+         _selected_identity
+       )
+       when available? != true,
+       do: reason
+
   defp capability_reason(key, %Capability{} = capability, selected_identity) do
-    cond do
-      not capability.available? -> capability.reason
-      not same_identity?(capability.identity, selected_identity) -> :identity_mismatch
-      key == :chat and capability.active? != true -> :inactive
-      key == :chat and capability.readable? != true -> :unreadable
-      key == :commands and capability.readable? != true -> :unreadable
-      true -> nil
+    if same_identity?(capability.identity, selected_identity) do
+      capability_state_reason(key, capability)
+    else
+      :identity_mismatch
     end
   end
+
+  defp capability_state_reason(:chat, %Capability{active?: active?}) when active? != true,
+    do: :inactive
+
+  defp capability_state_reason(:chat, %Capability{readable?: readable?}) when readable? != true,
+    do: :unreadable
+
+  defp capability_state_reason(:commands, %Capability{readable?: readable?})
+       when readable? != true,
+       do: :unreadable
+
+  defp capability_state_reason(_key, _capability), do: nil
 
   defp current_scope?(%BuildOrderViewModel{
          root: %{identity: %TrackerIdentity{} = root, generation: generation},

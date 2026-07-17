@@ -210,24 +210,26 @@ defmodule AiurWeb.BuildOrder.TicketContextSelection do
   end
 
   defp resolve_navigation(model, navigation_value) when is_binary(navigation_value) do
-    with {:ok, {root_key, generation}} <- scope(model) do
-      matches =
-        Enum.filter(model.nodes, fn
-          %Node{key: key, identity: identity} ->
-            TrackerIdentity.github_key(identity) == key and
-              same_repository?(model.root, identity) and
-              navigation_value_for_scope(root_key, generation, key) == navigation_value
+    case scope(model) do
+      {:ok, {root_key, generation}} ->
+        matches =
+          Enum.filter(model.nodes, fn
+            %Node{key: key, identity: identity} ->
+              TrackerIdentity.github_key(identity) == key and
+                same_repository?(model.root, identity) and
+                navigation_value_for_scope(root_key, generation, key) == navigation_value
 
-          _node ->
-            false
-        end)
+            _node ->
+              false
+          end)
 
-      case matches do
-        [%Node{} = node] -> node
-        _ -> nil
-      end
-    else
-      _ -> nil
+        case matches do
+          [%Node{} = node] -> node
+          _ -> nil
+        end
+
+      _ ->
+        nil
     end
   end
 
