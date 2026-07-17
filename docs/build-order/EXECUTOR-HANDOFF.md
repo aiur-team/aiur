@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Recovery checkpoint (updated 2026-07-17 00:45 PDT)
+## Recovery checkpoint (updated 2026-07-17 01:50 PDT)
 
 This checkpoint supersedes the older live-state narrative below. Aiur is
 intentionally **stopped**; do not restart it merely to finish the recovered
@@ -30,15 +30,21 @@ Credo/formatter baseline. Those lanes are no longer ownerless:
   review findings, passed exact-head CI, and merged through PR #1209 as
   `develop@cce2f8f941e6df12775da83cb2d0940cf3325b57`; the issue is closed
   `agent:done`.
+- The recurring browser-render race #1229 was separated from unrelated feature
+  PRs, fixed without retries/tolerance changes, reviewed, stress-tested 20/20,
+  and merged through PR #1230 as
+  `develop@6b451a21b19fd9954f3fa50789ec668fd4c54e17`; the issue is closed
+  `agent:done`.
 
 DASH-013/#1119 is the sole remaining recovered lane. Its source implementation
-is draft PR #1228 at exact head `4c8da5a001ebca92a41e1d641339bb6cb59e0059`,
-which contains current `develop@cce2f8f9`. It implements the reviewed sibling
+is draft PR #1228 at exact head `6f5696828cb54f775623299cc61c1067ef2b2810`,
+which contains current `develop@6b451a21`. It implements the reviewed sibling
 `rate_limit/update` schema, strict redaction/bounds, Claude subscription/API-key
 generation isolation and failure recovery, and shared provider-meter ingestion.
 Independent compound review is clean; 112 worker tests/four properties and 57
 Executor tests/three properties passed, along with format, warnings-as-errors
-compile, strict lint, and Dialyzer. Exact-head CI is running.
+compile, strict lint, and Dialyzer. Exact-head CI run `29567118930` passed every
+required job, including the stabilized browser harness and teardown regression.
 
 **Do not merge #1228 yet.** Its binding at-merge prerequisite is publication
 and installation of `aiur-claude@1.1.0` from sibling source commit
@@ -54,7 +60,7 @@ only the handoff/chat/preview files. The runtime checkout at
 `/home/orangekid/github/aiur-runtime-develop` also has an unpushed local-only
 historical merge artifact; do not push or destructively reset it. Refresh any
 future feature branch from remote `origin/develop`, whose authoritative tip at
-this checkpoint is `cce2f8f941e6df12775da83cb2d0940cf3325b57`.
+this checkpoint is `6b451a21b19fd9954f3fa50789ec668fd4c54e17`.
 
 ## Live Executor state (updated 2026-07-15 20:57 PDT)
 

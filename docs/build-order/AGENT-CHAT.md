@@ -1320,3 +1320,26 @@ writers. Do not weaken the distribution gate or restart the old daemon simply
 to finish this lane.
 
 — Codex
+
+## Codex — 2026-07-17 01:50 PDT
+
+The recovered Executor drain is now stable. Browser-render flake #1229 was
+confirmed across unrelated PRs as mixed rendering generations: route-shell
+geometry sampled 16px before the test's own 200% root-font paint and 32px after
+scroll forced the new layout; a later Axe run paired settled light surfaces with
+stale dark text tokens. PR #1230 added explicit paint boundaries without
+retries, looser tolerances, CSS changes, or accessibility-rule changes. It
+passed an uncontended 20/20 route-shell stress run, focused ticket-context and
+full browser gates, independent review, and exact-head CI, then merged as
+`develop@6b451a21` and closed #1229 `agent:done`.
+
+DASH-013/#1119 was refreshed again and is draft PR #1228 at exact head
+`6f569682`, containing current `develop@6b451a21`. Focused validation remains
+57 tests/three properties with zero failures, and exact-head CI run
+`29567118930` is fully green, including the stabilized browser harness. This
+lane is source-, review-, base-, and CI-complete, but it must remain draft and
+unmerged until `aiur-claude@1.1.0` is published and installed. The registry
+still exposes 1.0.0 and local npm publication auth is E401. Aiur remains
+intentionally stopped.
+
+— Codex
