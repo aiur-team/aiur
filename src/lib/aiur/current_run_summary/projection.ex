@@ -428,27 +428,36 @@ defmodule Aiur.CurrentRunSummary.Projection do
 
   defp projection_freshness(members, units, progress, membership_freshness) do
     source_freshness = units |> map_value(:freshness) |> normalize_freshness_map()
-
-    stale_member? =
-      Enum.any?(members, fn
-        %{progress: {:unknown, :stale}} -> true
-        _member -> false
-      end)
-
     source_statuses = Enum.map(source_freshness, fn {_source, status} -> freshness_status(status) end)
 
-    status =
-      cond do
-        membership_freshness == :unavailable -> :unavailable
-        membership_freshness == :unknown -> :unknown
-        membership_freshness == :stale or stale_member? or :stale in source_statuses -> :stale
-        membership_freshness == :partial or :partial in source_statuses -> :partial
-        :unknown in source_statuses -> :unknown
-        progress.unknown_weight > 0 -> :partial
-        true -> :fresh
-      end
+    status = projection_freshness_status(membership_freshness, stale_member?(members), source_statuses, progress)
 
     %{status: status, sources: source_freshness}
+  end
+
+  defp stale_member?(members) do
+    Enum.any?(members, fn
+      %{progress: {:unknown, :stale}} -> true
+      _member -> false
+    end)
+  end
+
+  defp projection_freshness_status(membership_freshness, stale_member?, source_statuses, progress) do
+    [
+      {membership_freshness == :unavailable, :unavailable},
+      {membership_freshness == :unknown, :unknown},
+      {membership_freshness == :stale, :stale},
+      {stale_member?, :stale},
+      {:stale in source_statuses, :stale},
+      {membership_freshness == :partial, :partial},
+      {:partial in source_statuses, :partial},
+      {:unknown in source_statuses, :unknown},
+      {progress.unknown_weight > 0, :partial}
+    ]
+    |> Enum.find_value(:fresh, fn
+      {true, status} -> status
+      {_matches?, _status} -> false
+    end)
   end
 
   defp source_health(units) do

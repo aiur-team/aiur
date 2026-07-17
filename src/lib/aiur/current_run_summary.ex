@@ -15,11 +15,13 @@ defmodule Aiur.CurrentRunSummary do
   `:fresh`, `:partial`, `:stale`, `:unknown`, or `:unavailable`.
   """
 
+  alias Aiur.CurrentRunSummary.Projection
+
   @spec version() :: pos_integer()
   def version, do: 1
 
   @spec project(map()) :: map()
-  def project(inputs), do: Aiur.CurrentRunSummary.Projection.snapshot(inputs)
+  def project(inputs), do: Projection.snapshot(inputs)
 
   @spec snapshot(keyword()) :: map()
   def snapshot(opts \\ []), do: Aiur.CurrentRunProjections.snapshot(:summary, opts)

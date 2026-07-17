@@ -14,11 +14,13 @@ defmodule Aiur.CurrentRunOutcomeSnapshot do
   completeness rather than silently treated as complete.
   """
 
+  alias Aiur.CurrentRunOutcomeSnapshot.Projection
+
   @spec version() :: pos_integer()
   def version, do: 1
 
   @spec project(map()) :: map()
-  def project(inputs), do: Aiur.CurrentRunOutcomeSnapshot.Projection.snapshot(inputs)
+  def project(inputs), do: Projection.snapshot(inputs)
 
   @spec snapshot(keyword()) :: map()
   def snapshot(opts \\ []), do: Aiur.CurrentRunProjections.snapshot(:outcomes, opts)

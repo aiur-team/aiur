@@ -11,7 +11,15 @@ defmodule Aiur.CurrentRunProjections do
 
   use GenServer
 
-  alias Aiur.{CurrentRunOutcomeSnapshot, CurrentRunSummary, TrackerIdentity}
+  alias Aiur.{
+    CurrentRunMembership,
+    CurrentRunOutcomeSnapshot,
+    CurrentRunSummary,
+    TrackerIdentity
+  }
+
+  alias Aiur.GitHub.Config, as: GitHubConfig
+  alias Aiur.Orchestrator.StatusReport
   alias AiurWeb.OperatorControlCenter.UnitsRow
 
   @type projection :: :summary | :outcomes
@@ -136,12 +144,12 @@ defmodule Aiur.CurrentRunProjections do
   defp readers(opts) do
     %{
       run: Keyword.get(opts, :run_snapshot_fun, &run_snapshot/0),
-      membership: Keyword.get(opts, :membership_snapshot_fun, &Aiur.CurrentRunMembership.snapshot/0),
-      status: Keyword.get(opts, :status_snapshot_fun, &Aiur.Orchestrator.StatusReport.snapshot_api/0),
-      status_facts: Keyword.get(opts, :status_facts_fun, &Aiur.Orchestrator.StatusReport.status_api/0),
+      membership: Keyword.get(opts, :membership_snapshot_fun, &CurrentRunMembership.snapshot/0),
+      status: Keyword.get(opts, :status_snapshot_fun, &StatusReport.snapshot_api/0),
+      status_facts: Keyword.get(opts, :status_facts_fun, &StatusReport.status_api/0),
       activity: Keyword.get(opts, :activity_snapshot_fun, &Aiur.TicketActivity.snapshots/0),
       merges: Keyword.get(opts, :recent_merges_snapshot_fun, &Aiur.RecentMergeStore.snapshot/0),
-      configured_repository: Keyword.get(opts, :configured_repository_fun, &Aiur.GitHub.Config.configured_repo/0)
+      configured_repository: Keyword.get(opts, :configured_repository_fun, &GitHubConfig.configured_repo/0)
     }
   end
 
@@ -168,13 +176,11 @@ defmodule Aiur.CurrentRunProjections do
   end
 
   defp safe_subscribe(fun) do
-    try do
-      fun.()
-    rescue
-      _error -> :ok
-    catch
-      _kind, _reason -> :ok
-    end
+    fun.()
+  rescue
+    _error -> :ok
+  catch
+    _kind, _reason -> :ok
   end
 
   defp interval(opts, key, default) do
@@ -320,17 +326,15 @@ defmodule Aiur.CurrentRunProjections do
   end
 
   defp safe_read(fun) do
-    try do
-      case fun.() do
-        :timeout -> {:error, :timeout}
-        :unavailable -> {:error, :unavailable}
-        value -> {:ok, value}
-      end
-    rescue
-      _error -> {:error, :exception}
-    catch
-      _kind, _reason -> {:error, :exit}
+    case fun.() do
+      :timeout -> {:error, :timeout}
+      :unavailable -> {:error, :unavailable}
+      value -> {:ok, value}
     end
+  rescue
+    _error -> {:error, :exception}
+  catch
+    _kind, _reason -> {:error, :exit}
   end
 
   defp stale_membership(membership) do
@@ -469,16 +473,14 @@ defmodule Aiur.CurrentRunProjections do
   end
 
   defp safe_units_snapshot(fun, inputs) do
-    try do
-      case fun.(inputs) do
-        snapshot when is_map(snapshot) -> {:ok, snapshot}
-        _snapshot -> :error
-      end
-    rescue
-      _error -> :error
-    catch
-      _kind, _reason -> :error
+    case fun.(inputs) do
+      snapshot when is_map(snapshot) -> {:ok, snapshot}
+      _snapshot -> :error
     end
+  rescue
+    _error -> :error
+  catch
+    _kind, _reason -> :error
   end
 
   defp normalize_status_fact(fact) when is_map(fact) do
