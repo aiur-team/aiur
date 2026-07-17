@@ -156,7 +156,16 @@ defmodule Aiur.DecisionStore do
     GenServer.call(server, {:retry_dispatch, decision_id, action_id})
   end
 
-  @doc "Synchronously persist the backend-handoff edge for one correlated queue item."
+  @doc "Synchronously validate one correlated item before attempting provider delivery."
+  @spec validate_delivery(map(), GenServer.server()) ::
+          {:ok, :accepted | :ignored} | {:error, term()}
+  def validate_delivery(item, server \\ __MODULE__) when is_map(item) do
+    GenServer.call(server, {:validate_delivery, item}, @request_timeout)
+  catch
+    :exit, _reason -> {:error, :store_unavailable}
+  end
+
+  @doc "Synchronously persist provider-confirmed delivery for one correlated queue item."
   @spec record_delivery(map(), GenServer.server()) :: {:ok, :accepted | :duplicate | :ignored} | {:error, term()}
   def record_delivery(item, server \\ __MODULE__) when is_map(item) do
     GenServer.call(server, {:transport_transition, :delivered, item, nil}, @request_timeout)
@@ -518,6 +527,14 @@ defmodule Aiur.DecisionStore do
 
   def handle_call({:transport_transition, _type, _item, _reason}, _from, %{writable?: false} = state) do
     {:reply, {:error, {:store_unavailable, state.health}}, state}
+  end
+
+  def handle_call({:validate_delivery, _item}, _from, %{writable?: false} = state) do
+    {:reply, {:error, {:store_unavailable, state.health}}, state}
+  end
+
+  def handle_call({:validate_delivery, item}, _from, state) do
+    {:reply, validate_transport_delivery(state, item), state}
   end
 
   def handle_call({:transport_transition, type, item, reason}, _from, state) do
@@ -1624,6 +1641,26 @@ defmodule Aiur.DecisionStore do
 
       {:error, reason} ->
         {{:error, reason}, state}
+    end
+  end
+
+  defp validate_transport_delivery(state, item) do
+    case correlated_transport_context(state, item) do
+      {:ok, _decision, %{status: status}, _context}
+      when status in [:queued, :restored, :delivered] ->
+        {:ok, :accepted}
+
+      {:ok, _decision, %{status: status}, _context} ->
+        {:error, {:delivery_attempt_not_ready, status}}
+
+      {:ok, _decision, :missing_attempt, _context} ->
+        {:ok, :accepted}
+
+      {:ok, :ignored} ->
+        {:ok, :ignored}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

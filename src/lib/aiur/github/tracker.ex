@@ -87,6 +87,23 @@ defmodule Aiur.GitHub.Tracker do
     client_module().update_issue_state(issue_id, state_name)
   end
 
+  @spec update_issue_state(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
+  def update_issue_state(issue_id, state_name, opts)
+      when is_binary(issue_id) and is_binary(state_name) and is_list(opts) do
+    client = client_module()
+
+    cond do
+      Code.ensure_loaded?(client) and function_exported?(client, :update_issue_state, 3) ->
+        apply(client, :update_issue_state, [issue_id, state_name, opts])
+
+      opts == [] ->
+        apply(client, :update_issue_state, [issue_id, state_name])
+
+      true ->
+        {:error, :expected_state_unsupported}
+    end
+  end
+
   @spec add_label(String.t(), String.t()) :: :ok | {:error, term()}
   def add_label(issue_id, label) when is_binary(issue_id) and is_binary(label) do
     client_module().add_label(issue_id, label)

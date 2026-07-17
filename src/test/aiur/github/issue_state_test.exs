@@ -196,6 +196,79 @@ defmodule Aiur.GitHub.IssueStateTest do
       assert_receive {:request, %{method: :delete}}
       refute_receive {:request, %{method: :post}}, 100
     end
+
+    test "rejects a stale expected state before mutating labels" do
+      test_pid = self()
+
+      request_fun = fn request ->
+        send(test_pid, {:request, request})
+
+        {:ok,
+         %{
+           status: 200,
+           body: %{
+             "state" => "open",
+             "labels" => [%{"name" => "sym:rework"}]
+           }
+         }}
+      end
+
+      assert {:error, {:stale_issue_state, "ci-wait", "rework"}} =
+               IssueState.update_issue_state("42", "in-progress",
+                 expected_state: "ci-wait",
+                 request_fun: request_fun
+               )
+
+      assert_receive {:request, %{method: :get}}
+      refute_receive {:request, %{method: _method}}, 100
+    end
+
+    test "revalidates expected state after the human-review gate" do
+      test_pid = self()
+      issue_gets = :ets.new(:issue_gets, [:set, :public])
+      :ets.insert(issue_gets, {:count, 0})
+
+      request_fun = fn request ->
+        send(test_pid, {:request, request})
+
+        cond do
+          request.method == :get and String.contains?(request.url, "/issues/42") ->
+            [{:count, count}] = :ets.lookup(issue_gets, :count)
+            :ets.insert(issue_gets, {:count, count + 1})
+            state = if count == 0, do: "ci-wait", else: "rework"
+
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "state" => "open",
+                 "labels" => [%{"name" => "sym:#{state}"}]
+               }
+             }}
+
+          request.method == :get and String.contains?(request.url, "/pulls?") ->
+            {:ok, %{status: 200, body: [], headers: []}}
+
+          true ->
+            flunk("unexpected request: #{inspect(request)}")
+        end
+      end
+
+      assert {:error, {:stale_issue_state, "ci-wait", "rework"}} =
+               IssueState.update_issue_state("42", "human-review",
+                 expected_state: "ci-wait",
+                 request_fun: request_fun
+               )
+
+      assert_receive {:request, %{method: :get, url: issue_url}}
+      assert issue_url =~ "/issues/42"
+      assert_receive {:request, %{method: :get, url: legacy_pull_url}}
+      assert legacy_pull_url =~ "/pulls?"
+      assert_receive {:request, %{method: :get, url: ticket_pull_url}}
+      assert ticket_pull_url =~ "/pulls?"
+      assert_receive {:request, %{method: :get, url: ^issue_url}}
+      refute_receive {:request, %{method: _method}}, 100
+    end
   end
 
   describe "add_label/3" do

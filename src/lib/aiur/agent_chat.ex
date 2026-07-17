@@ -5,7 +5,7 @@ defmodule Aiur.AgentChat do
 
   require Logger
 
-  alias Aiur.{AgentEvents, AgentPubSub, OperatorWaitLog, Orchestrator}
+  alias Aiur.Orchestrator
   alias Aiur.Opencode.SlotRegistry
 
   @spec send(String.t(), String.t()) :: {:ok, integer()} | {:error, term()}
@@ -24,21 +24,11 @@ defmodule Aiur.AgentChat do
         %{kind: :text, body: text, delivery_policy: delivery_policy, fallback: fallback, turn_id: turn_id}
       )
 
-    case result do
-      {:ok, request_id} = ok ->
-        OperatorWaitLog.record_queued(request_id, issue_identifier, byte_size(text))
-
-        AgentPubSub.broadcast_transcript(
-          issue_identifier,
-          AgentEvents.transcript_event(:user, text, turn_id: turn_id)
-        )
-
-        ok
-
-      other ->
-        Logger.warning("AgentChat.send issue=#{issue_identifier} failed: #{inspect(other)}")
-        other
+    if match?({:error, _reason}, result) do
+      Logger.warning("AgentChat.send issue=#{issue_identifier} failed: #{inspect(result)}")
     end
+
+    result
   end
 
   defp preview(text) when is_binary(text) do

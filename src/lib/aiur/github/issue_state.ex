@@ -9,7 +9,7 @@ defmodule Aiur.GitHub.IssueState do
   """
 
   alias Aiur.GitHub.Config
-  alias Aiur.GitHub.{Errors, HumanReviewGate, Labels, StatePolicy, Transport}
+  alias Aiur.GitHub.{Errors, HumanReviewGate, Issues, Labels, StatePolicy, Transport}
 
   @spec update_issue_state(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
   def update_issue_state(issue_number, state_name, opts \\ [])
@@ -92,20 +92,75 @@ defmodule Aiur.GitHub.IssueState do
 
   @spec apply_issue_state_update(map(), map(), String.t(), String.t()) :: :ok | {:error, term()}
   def apply_issue_state_update(context, issue_body, state_name, new_label) do
-    with :ok <- HumanReviewGate.verify_human_review_review_threads_clear(context, state_name) do
-      if closed_issue?(issue_body) and StatePolicy.active_target_state?(state_name) do
+    with :ok <- validate_expected_state(context, issue_body),
+         :ok <- HumanReviewGate.verify_human_review_review_threads_clear(context, state_name),
+         {:ok, current_issue_body} <- revalidate_expected_state(context, issue_body) do
+      if closed_issue?(current_issue_body) and StatePolicy.active_target_state?(state_name) do
         remove_active_state_labels(
           context.request_fun,
           context.token,
           context.owner,
           context.repo,
           context.issue_number,
-          issue_body,
+          current_issue_body,
           context.prefix
         )
       else
-        swap_and_maybe_close_issue(context, issue_body, state_name, new_label)
+        swap_and_maybe_close_issue(context, current_issue_body, state_name, new_label)
       end
+    end
+  end
+
+  defp revalidate_expected_state(%{opts: opts} = context, issue_body) do
+    if Keyword.has_key?(opts, :expected_state) do
+      case context.request_fun.(%{
+             method: :get,
+             url: context.issue_url,
+             token: context.token
+           }) do
+        {:ok, %{status: 200, body: current_issue_body}} ->
+          case validate_expected_state(context, current_issue_body) do
+            :ok -> {:ok, current_issue_body}
+            {:error, _reason} = error -> error
+          end
+
+        {:ok, %{status: _status} = response} ->
+          {:error, Errors.github_status_error(response)}
+
+        {:error, reason} ->
+          {:error, Errors.classify_error({:error, reason})}
+      end
+    else
+      {:ok, issue_body}
+    end
+  end
+
+  defp validate_expected_state(%{opts: opts, prefix: prefix}, issue_body) do
+    case Keyword.fetch(opts, :expected_state) do
+      :error ->
+        :ok
+
+      {:ok, expected_state} when is_binary(expected_state) ->
+        expected = StatePolicy.normalize_state(expected_state)
+        actual = current_state(issue_body, prefix)
+
+        if actual == expected do
+          :ok
+        else
+          {:error, {:stale_issue_state, expected, actual}}
+        end
+
+      {:ok, _invalid} ->
+        {:error, :invalid_expected_state}
+    end
+  end
+
+  defp current_state(issue_body, prefix) do
+    labels = issue_body |> Map.get("labels", []) |> Enum.map(&Map.get(&1, "name", ""))
+
+    case Issues.extract_state(issue_body, labels, prefix) do
+      state when is_binary(state) -> StatePolicy.normalize_state(state)
+      nil -> nil
     end
   end
 

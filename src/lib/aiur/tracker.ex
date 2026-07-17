@@ -17,10 +17,11 @@ defmodule Aiur.Tracker do
   @callback fetch_open_pull_request_for_branch(String.t() | integer()) ::
               {:ok, map() | nil} | {:error, term()}
   @callback update_issue_state(String.t(), String.t()) :: :ok | {:error, term()}
+  @callback update_issue_state(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
   @callback add_label(String.t(), String.t()) :: :ok | {:error, term()}
   @callback remove_label(String.t(), String.t()) :: :ok | {:error, term()}
 
-  @optional_callbacks add_label: 2, remove_label: 2
+  @optional_callbacks update_issue_state: 3, add_label: 2, remove_label: 2
 
   @spec fetch_candidate_issues() :: {:ok, [term()]} | {:error, term()}
   def fetch_candidate_issues do
@@ -50,6 +51,24 @@ defmodule Aiur.Tracker do
   @spec update_issue_state(String.t(), String.t()) :: :ok | {:error, term()}
   def update_issue_state(issue_id, state_name) do
     adapter().update_issue_state(issue_id, state_name)
+  end
+
+  @spec update_issue_state(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
+  def update_issue_state(issue_id, state_name, opts)
+      when is_binary(issue_id) and is_binary(state_name) and is_list(opts) do
+    tracker_adapter = adapter()
+
+    cond do
+      Code.ensure_loaded?(tracker_adapter) and
+          function_exported?(tracker_adapter, :update_issue_state, 3) ->
+        apply(tracker_adapter, :update_issue_state, [issue_id, state_name, opts])
+
+      opts == [] ->
+        apply(tracker_adapter, :update_issue_state, [issue_id, state_name])
+
+      true ->
+        {:error, :expected_state_unsupported}
+    end
   end
 
   @spec add_label(String.t(), String.t()) :: :ok | {:error, term()}

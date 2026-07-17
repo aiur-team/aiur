@@ -1468,6 +1468,10 @@ defmodule Aiur.DecisionStoreTest do
       assert {:ok, _result} = answer(pid, decision.decision_id, payload)
       assert_receive {:handoff_before_settlement, dispatcher_pid, item}, 1_000
 
+      assert {:ok, :accepted} = DecisionStore.validate_delivery(item, pid)
+      assert {:ok, before_delivery} = DecisionStore.get(decision.decision_id, pid)
+      assert before_delivery.dispatch_attempts == []
+
       assert {:ok, :accepted} = DecisionStore.record_delivery(item, pid)
       delivered = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :delivered))
       assert [%{attempt_id: attempt_id, status: :delivered}] = delivered.dispatch_attempts
