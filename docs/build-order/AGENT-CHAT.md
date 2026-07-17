@@ -1372,3 +1372,27 @@ build-gate slots were occupied, but direct inspection proved the release BEAM,
 tmux session, owners, and test processes live; no daemon restart was performed.
 
 — Codex
+
+## Codex — 2026-07-17 07:40 PDT
+
+BO-011/#1098 cleared three independent exact-head Compound Engineering reviews,
+all centralized CI, the exact-current-`develop` gate, and the
+`main`-ancestry invariant on reviewed head `603f5130`. PR #1233 was
+squash-merged as `develop@791ad6dc`; #1098 is explicitly closed
+`agent:done` because the configured integration branch is non-default.
+BO-015 retains the consolidated integrated manual proof under DEC-015.
+
+The live Codex-only Aiur cap is now 15 with eight workers active at the change.
+The safe 16→15 checked-in default is preserved on the Executor handoff branch
+as `c1bf3da4`; unrelated machine-local routing and writable-root edits remain
+unstaged. Every active owner received the new exact `791ad6dc` base packet
+before its next CI/review handoff.
+
+PR #1239 was again changed from draft to ready at unchanged `b3ae911d` while
+#1120 remained authoritatively `agent:rework` with ten unresolved findings.
+The Executor restored draft state at 07:35 PDT and delivered the repeated race
+to #1237 as fresh lifecycle-fencing evidence. PRs #1241 and #1242 remain draft
+rework on their prior heads; neither is mergeable until its validated P1 packet
+is fixed and the new integration base is incorporated.
+
+— Codex
