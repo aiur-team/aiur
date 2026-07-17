@@ -1,8 +1,8 @@
 defmodule Aiur.Codex.AccountGeneration do
   @moduledoc false
 
-  alias Aiur.Codex.{AccountGeneration.Context, RateLimits}
-  alias Aiur.ProviderAccountGeneration
+  alias Aiur.Codex.{AccountGeneration.Context, RateLimitAdapter, RateLimits}
+  alias Aiur.{ProviderAccountGeneration, ProviderMeters}
 
   @account_updated "account/updated"
   @token_refresh "account/chatgptAuthTokens/refresh"
@@ -35,9 +35,15 @@ defmodule Aiur.Codex.AccountGeneration do
   end
 
   def handle_notification(session, @rate_limits_updated, payload) when is_map(session) and is_map(payload) do
-    rate_limits = RateLimits.from_notification(payload)
-    observe_rate_limits(session, rate_limits)
-    {:redacted, redacted_message(@rate_limits_updated, rate_limits)}
+    case submit_rate_limit_patch(session, raw_rate_limits(payload)) do
+      result when result in [:ok, :ignore] ->
+        rate_limits = RateLimits.from_notification(payload)
+        observe_rate_limits(session, rate_limits)
+        {:redacted, redacted_message(@rate_limits_updated, rate_limits)}
+
+      :error ->
+        {:redacted, redacted_message(@rate_limits_updated)}
+    end
   end
 
   def handle_notification(session, <<"account/", _rest::binary>> = method, _payload) when is_map(session) do
@@ -61,6 +67,33 @@ defmodule Aiur.Codex.AccountGeneration do
 
   def seed_from_account_read(_session, _response), do: :ok
 
+  @spec observe_rate_limit_snapshot(map(), map(), keyword()) :: map() | nil
+  def observe_rate_limit_snapshot(session, response, opts \\ [])
+
+  def observe_rate_limit_snapshot(session, response, opts) when is_map(session) and is_map(response) do
+    case submit_rate_limit_snapshot(session, response, opts) do
+      result when result in [:ok, :ignore] ->
+        rate_limits = RateLimits.from_read_response(response)
+        observe_rate_limits(session, rate_limits)
+        rate_limits
+
+      :error ->
+        nil
+    end
+  end
+
+  def observe_rate_limit_snapshot(_session, _response, _opts), do: nil
+
+  @spec record_rate_limit_failure(map(), term(), keyword()) :: :ok
+  def record_rate_limit_failure(session, reason, opts \\ []) when is_map(session) do
+    with {:ok, _server, binding, _authority, _topic} <- Context.fetch(session) do
+      failure = RateLimitAdapter.failure(binding, reason, observed_at(opts))
+      meter_failure_recorder(session).(failure)
+    end
+
+    :ok
+  end
+
   @spec process_stopped(map()) :: :ok
   def process_stopped(session) when is_map(session) do
     retire_binding(session, :continuity_lost)
@@ -69,6 +102,8 @@ defmodule Aiur.Codex.AccountGeneration do
   end
 
   defp bind_account(session, auth_mode) do
+    Context.clear_rate_limit_ids(session)
+
     with_recovered_binding(session, fn server, binding, authority ->
       ProviderAccountGeneration.bind(server, :codex, :app_server, binding,
         source: :codex_app_server,
@@ -76,6 +111,8 @@ defmodule Aiur.Codex.AccountGeneration do
         authority: authority
       )
     end)
+
+    Context.put_auth_mode(session, auth_mode)
   end
 
   defp confirm_account_binding(session) do
@@ -95,6 +132,8 @@ defmodule Aiur.Codex.AccountGeneration do
         authority: authority
       )
     end)
+
+    Context.clear_auth_mode(session)
   end
 
   defp with_recovered_binding(session, transition) when is_function(transition, 3) do
@@ -138,6 +177,118 @@ defmodule Aiur.Codex.AccountGeneration do
   end
 
   defp observe_rate_limits(_session, _rate_limits), do: :ok
+
+  defp submit_rate_limit_snapshot(session, response, opts) do
+    case Context.fetch(session) do
+      {:ok, _server, binding, _authority, _topic} ->
+        response
+        |> RateLimitAdapter.snapshot(binding, session_auth_mode(session), observed_at(opts))
+        |> handle_snapshot_result(session, response, opts)
+
+      :error ->
+        :error
+    end
+  end
+
+  defp handle_snapshot_result({:ok, update}, session, response, opts) do
+    case ingest_rate_limit_update(session, update, opts) do
+      :ok ->
+        remember_rate_limit_ids(session, response)
+        :ok
+
+      :error ->
+        :error
+    end
+  end
+
+  defp handle_snapshot_result({:error, reason}, session, _response, opts) do
+    record_rate_limit_failure(session, reason, opts)
+    :error
+  end
+
+  defp remember_rate_limit_ids(session, response) do
+    with {:ok, limit_ids} <- RateLimitAdapter.snapshot_limit_ids(response) do
+      Context.put_rate_limit_ids(session, limit_ids)
+    end
+
+    :ok
+  end
+
+  defp submit_rate_limit_patch(session, rate_limits) when is_map(rate_limits) do
+    case Context.fetch(session) do
+      {:ok, _server, binding, _authority, _topic} ->
+        rate_limits
+        |> RateLimitAdapter.patch(binding, session_auth_mode(session), DateTime.utc_now(), single_limit_id: Context.single_rate_limit_id(session))
+        |> handle_patch_result(session)
+
+      :error ->
+        :error
+    end
+  end
+
+  defp submit_rate_limit_patch(session, _rate_limits) do
+    record_rate_limit_failure(session, :malformed)
+    :error
+  end
+
+  defp handle_patch_result({:ok, update}, session), do: ingest_rate_limit_update(session, update, [])
+
+  defp handle_patch_result(:ambiguous_limit_id, session) do
+    record_rate_limit_failure(session, :malformed)
+
+    if trusted_generation?(session), do: :ignore, else: :error
+  end
+
+  defp handle_patch_result(:ignore, session) do
+    if trusted_generation?(session) do
+      :ignore
+    else
+      record_rate_limit_failure(session, :malformed)
+      :error
+    end
+  end
+
+  defp handle_patch_result({:error, reason}, session) do
+    record_rate_limit_failure(session, reason)
+    :error
+  end
+
+  defp session_auth_mode(session), do: RateLimitAdapter.auth_mode(Context.auth_mode(session))
+
+  defp ingest_rate_limit_update(session, update, opts) do
+    case meter_ingester(session).(update) do
+      {:ok, _snapshot} ->
+        :ok
+
+      {:error, _reason} ->
+        record_rate_limit_failure(session, :malformed, opts)
+        :error
+
+      _other ->
+        record_rate_limit_failure(session, :malformed, opts)
+        :error
+    end
+  end
+
+  defp trusted_generation?(session) do
+    with {:ok, server, binding, _authority, _topic} <- Context.fetch(session),
+         %{generation: generation, freshness: :current, health: :healthy} <-
+           ProviderAccountGeneration.lookup(server, :codex, :app_server, binding),
+         true <- is_binary(generation) do
+      true
+    else
+      _ -> false
+    end
+  end
+
+  # Older Codex versions publish an explicitly limited/unlimited scheduling
+  # signal without canonical facts. It remains a conservative compatibility
+  # feed only; structured malformed data never reaches that path.
+  defp raw_rate_limits(%{"params" => %{"rateLimits" => rate_limits}}) when is_map(rate_limits), do: rate_limits
+  defp raw_rate_limits(_payload), do: nil
+  defp meter_ingester(session), do: Map.get(session, :provider_meter_ingester, &ProviderMeters.ingest/1)
+  defp meter_failure_recorder(session), do: Map.get(session, :provider_meter_failure_recorder, &ProviderMeters.record_failure/1)
+  defp observed_at(opts), do: Keyword.get(opts, :observed_at, DateTime.utc_now())
 
   defp redacted_message(method), do: %{payload: %{"method" => redacted_method(method), "params" => %{}}, raw: nil}
 

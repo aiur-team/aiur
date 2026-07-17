@@ -9,8 +9,8 @@ defmodule Aiur.Codex.SessionLifecycle do
 
   @spec observe_startup(port(), boolean(), map(), keyword()) :: :ok
   def observe_startup(port, true, session, handshake_opts) do
-    observe_rate_limits(port, handshake_opts)
     seed_account(port, session, handshake_opts)
+    observe_rate_limits(port, session, handshake_opts)
   end
 
   def observe_startup(_port, false, _session, _handshake_opts), do: :ok
@@ -56,10 +56,17 @@ defmodule Aiur.Codex.SessionLifecycle do
     PauseContainment.unregister(containment)
   end
 
-  defp observe_rate_limits(port, handshake_opts) do
+  defp observe_rate_limits(port, session, handshake_opts) do
     case Handshake.read_rate_limits(port, handshake_opts) do
-      {:ok, rate_limits} -> ModelAvailability.observe("codex", rate_limits)
-      {:error, _reason} -> Logger.debug("Codex account/rateLimits/read unavailable")
+      {:ok, response} ->
+        case AccountGeneration.observe_rate_limit_snapshot(session, response) do
+          rate_limits when is_map(rate_limits) -> ModelAvailability.observe("codex", rate_limits)
+          _ -> :ok
+        end
+
+      {:error, reason} ->
+        AccountGeneration.record_rate_limit_failure(session, reason)
+        Logger.debug("Codex account/rateLimits/read unavailable")
     end
   end
 
