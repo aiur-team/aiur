@@ -159,7 +159,7 @@ defmodule Aiur.UsageLedger.CounterPolicyTest do
     assert historical_delta.relationship_revision == "codex-app-server-2026-08"
   end
 
-  test "uses the declared counter scope and namespaces identical source ids" do
+  test "uses the declared counter scope and makes the stable event key authoritative across mutable context" do
     first = envelope(tokens: %{input: 10})
     assert {:ok, %{state: state}} = CounterPolicy.apply(CounterPolicy.new(), first)
 
@@ -175,18 +175,53 @@ defmodule Aiur.UsageLedger.CounterPolicyTest do
     assert {:ok, %{delta: request_delta, state: state}} = CounterPolicy.apply(state, next_request)
     assert request_delta.tokens.input == 0
 
-    other_source =
+    retry_with_changed_context =
+      envelope(
+        idempotency_key: first.idempotency_key,
+        source_event_id: "mutated-event-id",
+        source_sequence: 19,
+        source_version: "2026-08",
+        requested_model: "gpt-5.7-terra",
+        resolved_model: "gpt-5.7-terra",
+        relationship_revision: "codex-app-server-2026-08",
+        tokens: %{input: 99},
+        cost: money("9.99", :absolute)
+      )
+
+    assert {:duplicate, ^state} = CounterPolicy.apply(state, retry_with_changed_context)
+
+    rotated_account =
       envelope(
         idempotency_key: first.idempotency_key,
         source_event_id: first.source_event_id,
-        source_sequence: 19,
-        source_version: "2026-08",
-        relationship_revision: "codex-app-server-2026-08",
+        source_sequence: 20,
+        account_generation: account_generation("generation-b"),
         tokens: %{input: 4}
       )
 
-    assert {:ok, %{delta: source_delta}} = CounterPolicy.apply(state, other_source)
-    assert source_delta.tokens.input == 4
+    assert {:ok, %{delta: account_delta, state: state}} = CounterPolicy.apply(state, rotated_account)
+    assert account_delta.tokens.input == 4
+
+    rotated_epoch =
+      envelope(
+        idempotency_key: first.idempotency_key,
+        source_event_id: first.source_event_id,
+        source_sequence: 21,
+        counter_epoch: "thread-epoch-2",
+        tokens: %{input: 3}
+      )
+
+    assert {:ok, %{delta: epoch_delta}} = CounterPolicy.apply(state, rotated_epoch)
+    assert epoch_delta.tokens.input == 3
+  end
+
+  test "persists partial update coverage in the checkpoint policy" do
+    partial = envelope(update_kind: :partial)
+
+    assert {:ok, %{state: state}} = CounterPolicy.apply(CounterPolicy.new(), partial)
+    assert state.coverage.status == :partial
+    assert {:ok, restored} = state |> CounterPolicy.dump() |> CounterPolicy.load()
+    assert restored.coverage == state.coverage
   end
 
   defp envelope(overrides) do

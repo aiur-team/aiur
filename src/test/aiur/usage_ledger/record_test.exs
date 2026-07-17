@@ -1,6 +1,8 @@
 defmodule Aiur.UsageLedger.RecordTest do
   use ExUnit.Case, async: true
 
+  import Bitwise
+
   alias Aiur.{TrackerIdentity, UsageEnvelope}
   alias Aiur.UsageLedger.{CounterPolicy, Record}
 
@@ -39,6 +41,19 @@ defmodule Aiur.UsageLedger.RecordTest do
 
     assert {:error, :invalid_ledger_delta} =
              Record.decode(put_in(encoded, ["delta", "relationship_revision"], "current-registry-revision"))
+  end
+
+  test "rejects token, source-sequence, and tracker database integers outside the ledger bound" do
+    huge_integer = 1 <<< 100_000
+
+    for oversized <- [
+          envelope(tokens: token_values(huge_integer)),
+          envelope(source_sequence: huge_integer),
+          envelope(attribution: %{envelope().attribution | tracker_identity: %{envelope().attribution.tracker_identity | database_id: huge_integer}})
+        ] do
+      assert {:error, :numeric_value_out_of_bounds} = Record.admit(oversized)
+      assert {:error, :numeric_value_out_of_bounds, _state} = CounterPolicy.apply(CounterPolicy.new(), oversized)
+    end
   end
 
   defp envelope(overrides \\ %{}) do

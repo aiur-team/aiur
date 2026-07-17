@@ -81,16 +81,10 @@ defmodule Aiur.UsageLedger.CounterPolicy do
       envelope.provider,
       envelope.backend,
       envelope.transport,
-      envelope.auth_mode,
       envelope.account_generation.generation,
       envelope.counter_epoch,
-      scope(envelope, envelope.counter_scope),
-      envelope.requested_model,
-      envelope.resolved_model,
       envelope.source,
-      envelope.source_version,
-      envelope.source_event_id,
-      cost_idempotency_context(envelope.cost)
+      envelope.idempotency_key
     }
     |> :erlang.term_to_binary()
     |> Base.url_encode64(padding: false)
@@ -168,12 +162,6 @@ defmodule Aiur.UsageLedger.CounterPolicy do
   defp scope(envelope, :request) do
     attribution = envelope.attribution
     {attribution.session_id, attribution.thread_id, attribution.turn_id, attribution.request_id}
-  end
-
-  defp cost_idempotency_context(nil), do: nil
-
-  defp cost_idempotency_context(money) do
-    {money.currency, money.measurement_kind, money.counter_scope, money.source, money.source_version}
   end
 
   defp compatible_streams?(state, entries) do
@@ -276,7 +264,7 @@ defmodule Aiur.UsageLedger.CounterPolicy do
   defp coverage_status(_previous, envelope) do
     cond do
       unknown_coverage?(envelope) -> :unknown
-      envelope.coverage_reasons != [] or partial_cost?(envelope.cost) -> :partial
+      envelope.update_kind == :partial or envelope.coverage_reasons != [] or partial_cost?(envelope.cost) -> :partial
       true -> :full
     end
   end
@@ -315,7 +303,7 @@ defmodule Aiur.UsageLedger.CounterPolicy do
     source_sequence = value_of(value, :source_sequence)
 
     with :ok <- only_keys(value, ["value", "kind", "source_sequence"]),
-         true <- is_integer(source_sequence) and source_sequence >= 0,
+         true <- Record.bounded_integer?(source_sequence),
          {:ok, decoded} <- checkpoint_value(value_of(value, :kind), value_of(value, :value)) do
       {:ok, %{value: decoded, source_sequence: source_sequence}}
     else
@@ -324,7 +312,10 @@ defmodule Aiur.UsageLedger.CounterPolicy do
   end
 
   defp absolute_value(_value), do: {:error, :invalid_ledger_checkpoint}
-  defp checkpoint_value("token", value) when is_integer(value) and value >= 0, do: {:ok, value}
+
+  defp checkpoint_value("token", value) do
+    if Record.bounded_integer?(value), do: {:ok, value}, else: {:error, :invalid_ledger_checkpoint}
+  end
 
   defp checkpoint_value("money", value) when is_binary(value) do
     case Decimal.parse(value) do
@@ -369,8 +360,8 @@ defmodule Aiur.UsageLedger.CounterPolicy do
 
   defp valid_coverage?(values, lower, upper, status) do
     only_keys(values, ["lower", "upper", "status"]) == :ok and
-      (is_nil(lower) or is_integer(lower)) and
-      (is_nil(upper) or is_integer(upper)) and
+      (is_nil(lower) or Record.bounded_integer?(lower)) and
+      (is_nil(upper) or Record.bounded_integer?(upper)) and
       status in ["empty", "unknown", "partial", "full"]
   end
 

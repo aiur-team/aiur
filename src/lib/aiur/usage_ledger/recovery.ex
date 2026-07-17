@@ -16,6 +16,9 @@ defmodule Aiur.UsageLedger.Recovery do
     %{
       sync_fun: Keyword.get(opts, :filesystem_sync_fun, &Fs.sync_filesystem/0),
       quarantine_fun: Keyword.get(opts, :quarantine_fun, &Paths.quarantine/3),
+      degraded_marker_fun: Keyword.get(opts, :degraded_marker_fun, &write_marker/3),
+      rewrite_segment_fun: Keyword.get(opts, :rewrite_segment_fun, &rewrite_segment/3),
+      checkpoint_write_fun: Keyword.get(opts, :recovery_checkpoint_fun, &write_checkpoint/3),
       limits: Map.merge(@default_limits, Map.new(Keyword.get(opts, :limits, [])))
     }
   end
@@ -30,36 +33,29 @@ defmodule Aiur.UsageLedger.Recovery do
 
   @spec boot(String.t(), map()) :: {:ok, map()}
   def boot(root, persistence) when is_binary(root) and is_map(persistence) do
-    with {:ok, paths} <- Paths.prepare(root, persistence.sync_fun),
-         {:ok, marker} <- marker(paths.degraded_path),
-         {:ok, tail_status} <- preserve_torn_tail(paths, persistence),
+    case Paths.prepare(root, persistence.sync_fun) do
+      {:ok, paths} -> load(paths, persistence)
+      {:error, reason} -> {:ok, unavailable_state(reason, persistence)}
+    end
+  end
+
+  defp load(paths, persistence) do
+    marker_status = marker_status(paths.degraded_path)
+
+    with {:ok, tail_status} <- segment_tail_status(paths.segment_path, persistence.limits.max_segment_bytes),
          {:ok, records, segment_health} <- replay(paths.segment_path, persistence.limits, tail_status),
          {:ok, checkpoint, checkpoint_status} <- checkpoint(paths.checkpoint_path, persistence.limits) do
-      case restore(records, checkpoint, checkpoint_status) do
-        {:ok, policy, position, generation, checkpoint_health} ->
-          state = %{
-            paths: paths,
-            records: records,
-            policy: policy,
-            position: position,
-            generation: generation,
-            coverage: policy.coverage,
-            health: marker_health(health(checkpoint_health, segment_health), marker),
-            writable?: checkpoint_health == :healthy and segment_health == :healthy and marker == :absent,
-            limits: persistence.limits
-          }
+      recovery = restore(records, checkpoint, checkpoint_status, segment_health)
+      state = recovered_state(paths, records, recovery, marker_status, persistence)
 
-          state
-          |> rebuild_missing_checkpoint(checkpoint, checkpoint_status, segment_health, marker, persistence)
-          |> maybe_quarantine(checkpoint_health, segment_health, persistence)
-          |> then(&{:ok, &1})
-
-        {:error, reason, policy, position} ->
-          {:ok, unavailable_prefix_state(paths, records, policy, position, reason, persistence)}
-
-        {:error, reason} ->
-          {:ok, unavailable_state(reason, persistence)}
-      end
+      {:ok,
+       finalize_recovery(
+         state,
+         marker_status,
+         recovery.checkpoint_health,
+         recovery.segment_health,
+         persistence
+       )}
     else
       {:error, reason} -> {:ok, unavailable_state(reason, persistence)}
     end
@@ -68,7 +64,8 @@ defmodule Aiur.UsageLedger.Recovery do
   defp replay(path, limits, tail_status) do
     case DecisionLog.replay(path, &Record.decode/1,
            max_file_bytes: limits.max_segment_bytes,
-           max_record_bytes: limits.max_record_bytes
+           max_record_bytes: limits.max_record_bytes,
+           repair_torn_tail: false
          ) do
       {:ok, records, nil} -> {:ok, records, tail_status}
       {:ok, records, {:corrupt, _line, _reason}} -> {:ok, records, :corrupt}
@@ -78,157 +75,242 @@ defmodule Aiur.UsageLedger.Recovery do
 
   defp checkpoint(path, limits) do
     case Checkpoint.load(path, max_bytes: limits.max_checkpoint_bytes) do
-      :missing -> {:ok, nil, :healthy}
+      :missing -> {:ok, nil, :missing}
       {:ok, checkpoint} -> {:ok, checkpoint, :healthy}
       {:corrupt, _reason} -> {:ok, nil, :corrupt}
     end
   end
 
-  defp restore(records, checkpoint, checkpoint_status) do
-    with :ok <- consecutive_positions(records), do: restore_checkpoint(records, checkpoint, checkpoint_status)
-  end
+  defp restore(records, checkpoint, checkpoint_status, segment_health) do
+    case replay_records(records) do
+      {:ok, policy, position} ->
+        %{
+          policy: policy,
+          position: position,
+          checkpoint_health: checkpoint_health(checkpoint, checkpoint_status, records, policy, position),
+          segment_health: segment_health
+        }
 
-  defp restore_checkpoint(records, nil, :healthy), do: rebuild(records, :healthy)
-
-  defp restore_checkpoint(records, nil, :corrupt), do: rebuild(records, :corrupt)
-
-  defp restore_checkpoint(records, checkpoint, :healthy) do
-    # A checkpoint proves the writer's acknowledged counter state, but raw
-    # records remain the replay authority. Validate the prefix semantically
-    # before trusting that checkpoint, then seed it to replay only the suffix.
-    # This detects a checksum-valid record whose stored delta was forged.
-    with true <- checkpoint.position <= length(records),
-         true <- checkpoint.generation == checkpoint.position,
-         {:ok, prefix_policy} <- replay_suffix(Enum.take(records, checkpoint.position), 0, CounterPolicy.new()),
-         true <- CounterPolicy.dump(prefix_policy) == CounterPolicy.dump(checkpoint.policy),
-         {:ok, policy} <- replay_suffix(records, checkpoint.position, checkpoint.policy) do
-      {:ok, policy, length(records), length(records), :healthy}
-    else
-      {:error, reason, policy, position} -> {:error, reason, policy, position}
-      _ -> rebuild(records, :corrupt)
+      {:error, _reason, policy, position} ->
+        %{
+          policy: policy,
+          position: position,
+          checkpoint_health: checkpoint_health(checkpoint, checkpoint_status, records, policy, position),
+          segment_health: :corrupt
+        }
     end
   end
 
-  defp rebuild(records, health) do
-    case replay_suffix(records, 0, CounterPolicy.new()) do
-      {:ok, policy} -> {:ok, policy, length(records), length(records), health}
-      {:error, _reason, _policy, _position} = error -> error
-    end
-  end
+  defp replay_records(records) do
+    Enum.reduce_while(records, {:ok, CounterPolicy.new(), 0}, fn record, {:ok, policy, position} ->
+      expected_position = position + 1
 
-  defp replay_suffix(records, position, policy) do
-    records
-    |> Enum.drop(position)
-    |> Enum.reduce_while({:ok, policy}, fn record, {:ok, current} ->
-      replay_record(record, current)
+      if record.position == expected_position do
+        replay_record(record, policy, position)
+      else
+        {:halt, {:error, :invalid_positions, policy, position}}
+      end
     end)
   end
 
-  defp replay_record(record, policy) do
+  defp replay_record(record, policy, position) do
     case CounterPolicy.apply(policy, record.envelope) do
-      {:ok, %{state: next, delta: delta}} -> replay_delta(record, policy, next, delta)
-      {:duplicate, _state} -> replay_error(record, policy, :duplicate_canonical_record)
-      {:error, reason, _state} -> replay_error(record, policy, reason)
+      {:ok, %{state: next, delta: delta}} ->
+        if Record.matches_delta?(record, delta),
+          do: {:cont, {:ok, next, position + 1}},
+          else: {:halt, {:error, :record_delta_mismatch, policy, position}}
+
+      {:duplicate, _state} ->
+        {:halt, {:error, :duplicate_canonical_record, policy, position}}
+
+      {:error, reason, _state} ->
+        {:halt, {:error, reason, policy, position}}
     end
   end
 
-  defp replay_delta(record, previous_policy, next_policy, delta) do
-    if Record.matches_delta?(record, delta),
-      do: {:cont, {:ok, next_policy}},
-      else: replay_error(record, previous_policy, :record_delta_mismatch)
+  defp checkpoint_health(nil, :missing, _records, _policy, _position), do: :missing
+  defp checkpoint_health(nil, :corrupt, _records, _policy, _position), do: :corrupt
+
+  defp checkpoint_health(checkpoint, :healthy, records, _policy, position) do
+    with true <- checkpoint.position <= position,
+         true <- checkpoint.generation == checkpoint.position,
+         {:ok, prefix_policy, checkpoint_position} <-
+           records |> Enum.take(checkpoint.position) |> replay_records(),
+         true <- checkpoint_position == checkpoint.position,
+         true <- CounterPolicy.dump(checkpoint.policy) == CounterPolicy.dump(prefix_policy) do
+      :healthy
+    else
+      _ -> :corrupt
+    end
   end
 
-  defp replay_error(record, policy, reason),
-    do: {:halt, {:error, reason, policy, record.position - 1}}
+  defp recovered_state(paths, records, recovery, marker_status, persistence) do
+    health = marker_health(storage_health(recovery.checkpoint_health, recovery.segment_health), marker_status)
 
-  defp consecutive_positions(records) do
-    if Enum.all?(Enum.with_index(records, 1), fn {record, position} -> record.position == position end),
-      do: :ok,
-      else: {:error, :invalid_positions}
+    %{
+      paths: paths,
+      records: Enum.take(records, recovery.position),
+      policy: recovery.policy,
+      position: recovery.position,
+      generation: recovery.position,
+      coverage: recovery.policy.coverage,
+      health: health,
+      writable?:
+        recovery.checkpoint_health in [:healthy, :missing] and
+          recovery.segment_health == :healthy and marker_status == :absent,
+      limits: persistence.limits
+    }
   end
 
-  defp health(:healthy, :healthy), do: :healthy
-  defp health(:corrupt, :healthy), do: {:degraded, :checkpoint_corrupt}
-  defp health(:healthy, :corrupt), do: {:degraded, :segment_corrupt}
-  defp health(:healthy, :torn), do: {:degraded, :segment_torn}
-  defp health(:corrupt, :corrupt), do: {:degraded, :storage_corrupt}
-  defp health(:corrupt, :torn), do: {:degraded, :storage_corrupt}
+  defp storage_health(:corrupt, segment_health) when segment_health in [:corrupt, :torn],
+    do: {:degraded, :storage_corrupt}
+
+  defp storage_health(:corrupt, :healthy), do: {:degraded, :checkpoint_corrupt}
+  defp storage_health(_checkpoint_health, :corrupt), do: {:degraded, :segment_corrupt}
+  defp storage_health(_checkpoint_health, :torn), do: {:degraded, :segment_torn}
+  defp storage_health(_checkpoint_health, :healthy), do: :healthy
 
   defp marker_health(health, :absent), do: health
   defp marker_health(_health, {:degraded, reason}), do: {:degraded, reason}
+  defp marker_health(_health, {:unavailable, reason}), do: {:unavailable, reason}
 
-  defp maybe_quarantine(state, checkpoint_health, segment_health, persistence) do
-    case {checkpoint_health, segment_health} do
-      {:corrupt, _} -> repair_checkpoint(state, persistence)
-      {_, :corrupt} -> repair_segment(state, persistence, :segment_corrupt)
-      {_, :torn} -> repair_torn_segment(state, persistence)
-      _ -> state
+  defp finalize_recovery(state, {:unavailable, _reason}, _checkpoint_health, _segment_health, _persistence),
+    do: %{state | writable?: false}
+
+  defp finalize_recovery(state, marker_status, checkpoint_health, segment_health, persistence) do
+    cond do
+      checkpoint_health == :corrupt or segment_health in [:corrupt, :torn] ->
+        repair_storage(state, marker_status, checkpoint_health, segment_health, persistence)
+
+      checkpoint_health == :missing ->
+        rebuild_missing_checkpoint(state, persistence)
+
+      true ->
+        state
     end
   end
 
-  defp rebuild_missing_checkpoint(state, nil, :healthy, :healthy, :absent, persistence) do
+  defp rebuild_missing_checkpoint(state, persistence) do
     checkpoint = Checkpoint.record(state.position, state.generation, state.policy)
 
-    with :ok <- Checkpoint.write(state.paths.checkpoint_path, checkpoint, max_bytes: state.limits.max_checkpoint_bytes),
-         :ok <- persistence.sync_fun.() do
+    with :ok <-
+           stage(
+             :checkpoint_rebuild,
+             persistence.checkpoint_write_fun,
+             [state.paths.checkpoint_path, checkpoint, state.limits.max_checkpoint_bytes]
+           ),
+         :ok <- stage(:checkpoint_rebuild_sync, persistence.sync_fun, []) do
       state
     else
-      _ -> %{state | health: {:unavailable, :checkpoint_rebuild_failed}, writable?: false}
+      {:error, _stage, _reason} ->
+        %{state | health: {:unavailable, :checkpoint_rebuild_failed}, writable?: false}
     end
   end
 
-  defp rebuild_missing_checkpoint(state, _checkpoint, _checkpoint_status, _segment_health, _marker, _persistence), do: state
+  defp repair_storage(state, marker_status, checkpoint_health, segment_health, persistence) do
+    reason = repair_reason(checkpoint_health, segment_health)
 
-  defp repair_checkpoint(state, persistence) do
-    checkpoint = Checkpoint.record(state.position, state.generation, state.policy)
-
-    with :ok <- persistence.quarantine_fun.(state.paths.checkpoint_path, state.paths.quarantine_dir, persistence.sync_fun),
-         :ok <- Checkpoint.write(state.paths.checkpoint_path, checkpoint, max_bytes: state.limits.max_checkpoint_bytes),
-         :ok <- write_marker(state.paths.degraded_path, :checkpoint_corrupt),
-         :ok <- persistence.sync_fun.() do
-      %{state | writable?: false}
+    with :ok <- ensure_marker(state.paths.degraded_path, marker_status, reason, persistence),
+         :ok <- quarantine_artifacts(state, checkpoint_health, segment_health, persistence),
+         :ok <- rewrite_artifacts(state, segment_health, persistence) do
+      %{state | health: marker_health({:degraded, reason}, marker_status), writable?: false}
     else
-      _ -> %{state | health: {:unavailable, :quarantine_failed}, writable?: false}
+      {:error, :marker, _reason} ->
+        %{state | health: {:unavailable, :degraded_marker_failed}, writable?: false}
+
+      {:error, stage, _reason} when stage in [:segment_quarantine, :checkpoint_quarantine] ->
+        %{state | health: {:unavailable, :quarantine_failed}, writable?: false}
+
+      {:error, _stage, _reason} ->
+        %{state | health: {:unavailable, :repair_failed}, writable?: false}
     end
   end
 
-  defp repair_segment(state, persistence, reason) do
-    checkpoint = Checkpoint.record(state.position, state.generation, state.policy)
+  defp repair_reason(:corrupt, segment_health) when segment_health in [:corrupt, :torn],
+    do: :storage_corrupt
 
-    with :ok <- Checkpoint.write(state.paths.checkpoint_path, checkpoint, max_bytes: state.limits.max_checkpoint_bytes),
-         :ok <- persistence.sync_fun.(),
-         :ok <- persistence.quarantine_fun.(state.paths.segment_path, state.paths.quarantine_dir, persistence.sync_fun),
-         :ok <- rewrite_segment(state.paths.segment_path, state.records, persistence.sync_fun),
-         :ok <- write_marker(state.paths.degraded_path, reason) do
-      %{state | writable?: false}
-    else
-      _ -> %{state | health: {:unavailable, :quarantine_failed}, writable?: false}
-    end
+  defp repair_reason(:corrupt, :healthy), do: :checkpoint_corrupt
+  defp repair_reason(_checkpoint_health, :corrupt), do: :segment_corrupt
+  defp repair_reason(_checkpoint_health, :torn), do: :segment_torn
+
+  defp ensure_marker(_path, {:degraded, _reason}, _repair_reason, _persistence), do: :ok
+
+  defp ensure_marker(path, :absent, repair_reason, persistence) do
+    stage(:marker, persistence.degraded_marker_fun, [path, repair_reason, persistence.sync_fun])
   end
 
-  defp repair_torn_segment(state, persistence) do
-    checkpoint = Checkpoint.record(state.position, state.generation, state.policy)
-
-    with :ok <- Checkpoint.write(state.paths.checkpoint_path, checkpoint, max_bytes: state.limits.max_checkpoint_bytes),
-         :ok <- write_marker(state.paths.degraded_path, :segment_torn),
-         :ok <- persistence.sync_fun.() do
-      %{state | writable?: false}
-    else
-      _ -> %{state | health: {:unavailable, :quarantine_failed}, writable?: false}
-    end
-  end
-
-  defp rewrite_segment(path, records, sync_fun) do
-    contents = records |> Enum.map(&(Jason.encode!(Record.encode(&1)) <> "\n")) |> IO.iodata_to_binary()
-
-    with {:ok, %File.Stat{type: :regular}} <- File.lstat(path),
-         :ok <- Fs.atomic_write(path, contents, fsync: true, mode: 0o600),
-         :ok <- sync_fun.() do
+  defp quarantine_artifacts(state, checkpoint_health, segment_health, persistence) do
+    with :ok <- maybe_quarantine_segment(state, segment_health, persistence),
+         :ok <- maybe_quarantine_checkpoint(state, checkpoint_health, persistence) do
       :ok
-    else
-      {:ok, %File.Stat{type: :symlink}} -> {:error, :symlink_rejected}
-      {:ok, _stat} -> {:error, :not_a_regular_file}
-      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp maybe_quarantine_segment(_state, :healthy, _persistence), do: :ok
+
+  defp maybe_quarantine_segment(state, segment_health, persistence)
+       when segment_health in [:corrupt, :torn] do
+    stage(
+      :segment_quarantine,
+      persistence.quarantine_fun,
+      [state.paths.segment_path, state.paths.quarantine_dir, persistence.sync_fun]
+    )
+  end
+
+  defp maybe_quarantine_checkpoint(_state, checkpoint_health, _persistence)
+       when checkpoint_health in [:healthy, :missing],
+       do: :ok
+
+  defp maybe_quarantine_checkpoint(state, :corrupt, persistence) do
+    stage(
+      :checkpoint_quarantine,
+      persistence.quarantine_fun,
+      [state.paths.checkpoint_path, state.paths.quarantine_dir, persistence.sync_fun]
+    )
+  end
+
+  defp rewrite_artifacts(state, segment_health, persistence) do
+    checkpoint = Checkpoint.record(state.position, state.generation, state.policy)
+
+    with :ok <- maybe_rewrite_segment(state, segment_health, persistence),
+         :ok <-
+           stage(
+             :checkpoint_rewrite,
+             persistence.checkpoint_write_fun,
+             [state.paths.checkpoint_path, checkpoint, state.limits.max_checkpoint_bytes]
+           ),
+         :ok <- stage(:repair_sync, persistence.sync_fun, []) do
+      :ok
+    end
+  end
+
+  defp maybe_rewrite_segment(_state, :healthy, _persistence), do: :ok
+
+  defp maybe_rewrite_segment(state, segment_health, persistence)
+       when segment_health in [:corrupt, :torn] do
+    stage(
+      :segment_rewrite,
+      persistence.rewrite_segment_fun,
+      [state.paths.segment_path, state.records, persistence.sync_fun]
+    )
+  end
+
+  defp stage(stage, fun, arguments) do
+    case apply(fun, arguments) do
+      :ok -> :ok
+      {:error, reason} -> {:error, stage, reason}
+      other -> {:error, stage, {:unexpected_result, other}}
+    end
+  rescue
+    error -> {:error, stage, {:exception, Exception.message(error)}}
+  catch
+    kind, reason -> {:error, stage, {kind, reason}}
+  end
+
+  defp marker_status(path) do
+    case marker(path) do
+      {:ok, status} -> status
+      {:error, reason} -> {:unavailable, reason}
     end
   end
 
@@ -251,22 +333,37 @@ defmodule Aiur.UsageLedger.Recovery do
     end
   end
 
-  defp write_marker(path, reason) when reason in [:checkpoint_corrupt, :segment_corrupt, :segment_torn, :storage_corrupt] do
-    Fs.atomic_write(path, Jason.encode!(%{"version" => 1, "reason" => Atom.to_string(reason)}), fsync: true, mode: 0o600)
+  defp write_marker(path, reason, sync_fun)
+       when reason in [:checkpoint_corrupt, :segment_corrupt, :segment_torn, :storage_corrupt] do
+    contents = Jason.encode!(%{"version" => 1, "reason" => Atom.to_string(reason)})
+
+    with :ok <- Fs.atomic_write(path, contents, fsync: true, mode: 0o600),
+         :ok <- sync_fun.() do
+      :ok
+    end
   end
 
-  defp preserve_torn_tail(paths, persistence) do
-    case tail_status(paths.segment_path, persistence.limits.max_segment_bytes) do
-      :healthy ->
-        {:ok, :healthy}
+  defp write_checkpoint(path, checkpoint, max_bytes),
+    do: Checkpoint.write(path, checkpoint, max_bytes: max_bytes)
 
-      :torn ->
-        with :ok <- persistence.quarantine_fun.(paths.segment_path, paths.quarantine_dir, persistence.sync_fun) do
-          {:ok, :torn}
-        end
+  defp rewrite_segment(path, records, sync_fun) do
+    contents = records |> Enum.map(&(Jason.encode!(Record.encode(&1)) <> "\n")) |> IO.iodata_to_binary()
 
-      {:error, _reason} ->
-        {:error, :segment_unavailable}
+    with {:ok, %File.Stat{type: :regular}} <- File.lstat(path),
+         :ok <- Fs.atomic_write(path, contents, fsync: true, mode: 0o600),
+         :ok <- sync_fun.() do
+      :ok
+    else
+      {:ok, %File.Stat{type: :symlink}} -> {:error, :symlink_rejected}
+      {:ok, _stat} -> {:error, :not_a_regular_file}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp segment_tail_status(path, max_bytes) do
+    case tail_status(path, max_bytes) do
+      status when status in [:healthy, :torn] -> {:ok, status}
+      {:error, _reason} -> {:error, :segment_unavailable}
     end
   end
 
@@ -304,20 +401,6 @@ defmodule Aiur.UsageLedger.Recovery do
       position: 0,
       generation: 0,
       coverage: %{lower: nil, upper: nil, status: :empty},
-      health: {:unavailable, safe_reason(reason)},
-      writable?: false,
-      limits: persistence.limits
-    }
-  end
-
-  defp unavailable_prefix_state(paths, records, policy, position, reason, persistence) do
-    %{
-      paths: paths,
-      records: Enum.take(records, position),
-      policy: policy,
-      position: position,
-      generation: position,
-      coverage: policy.coverage,
       health: {:unavailable, safe_reason(reason)},
       writable?: false,
       limits: persistence.limits

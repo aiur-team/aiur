@@ -5,6 +5,10 @@ defmodule Aiur.UsageLedger.Record do
   alias Aiur.UsageEnvelope.{Codec, ExactMoney}
 
   @version 1
+  # Raw counters, source sequences, ledger positions, and provider database IDs
+  # share one explicit unsigned-64-bit storage bound. Comparing against it is
+  # cheap even for a hostile bignum and happens before any JSON encoding.
+  @max_integer 18_446_744_073_709_551_615
   @token_fields UsageEnvelope.token_dimensions() ++ [:provider_reported_total]
   @record_fields ["schema_version", "position", "envelope", "delta"]
   @delta_fields ["tokens", "cost", "source_version", "relationship_revision", "coverage_reasons"]
@@ -14,10 +18,14 @@ defmodule Aiur.UsageLedger.Record do
   @type t :: %__MODULE__{position: pos_integer(), envelope: UsageEnvelope.t(), delta: map()}
 
   @spec new(pos_integer(), UsageEnvelope.t(), map()) :: {:ok, t()} | {:error, atom()}
-  def new(position, %UsageEnvelope{} = envelope, delta) when is_integer(position) and position > 0 and is_map(delta) do
+  def new(position, %UsageEnvelope{} = envelope, delta) when is_map(delta) do
     with :ok <- admit(envelope),
+         true <- bounded_integer?(position) and position > 0,
          {:ok, decoded_delta} <- decode_delta(encode_delta(delta), envelope) do
       {:ok, %__MODULE__{position: position, envelope: envelope, delta: decoded_delta}}
+    else
+      false -> {:error, :invalid_ledger_record}
+      {:error, _reason} = error -> error
     end
   end
 
@@ -43,6 +51,7 @@ defmodule Aiur.UsageLedger.Record do
     with :ok <- only_keys(value, @record_fields, :invalid_ledger_record),
          @version <- value_of(value, :schema_version),
          position when is_integer(position) and position > 0 <- value_of(value, :position),
+         true <- bounded_integer?(position),
          {:ok, envelope} <- Codec.decode(value_of(value, :envelope)),
          :ok <- admit(envelope),
          {:ok, delta} <- decode_delta(value_of(value, :delta), envelope) do
@@ -56,10 +65,20 @@ defmodule Aiur.UsageLedger.Record do
 
   def decode(_value), do: {:error, :invalid_ledger_record}
 
-  @spec admit(UsageEnvelope.t()) :: :ok | {:error, :content_rejected}
+  @spec admit(UsageEnvelope.t()) :: :ok | {:error, :content_rejected | :numeric_value_out_of_bounds}
   def admit(%UsageEnvelope{} = envelope) do
-    if safe_value?(Codec.encode(envelope)), do: :ok, else: {:error, :content_rejected}
+    encoded = Codec.encode(envelope)
+
+    cond do
+      not bounded_numbers?(encoded) -> {:error, :numeric_value_out_of_bounds}
+      safe_value?(encoded) -> :ok
+      true -> {:error, :content_rejected}
+    end
   end
+
+  @doc false
+  @spec bounded_integer?(term()) :: boolean()
+  def bounded_integer?(value), do: is_integer(value) and value >= 0 and value <= @max_integer
 
   defp encode_delta(delta) do
     %{
@@ -108,10 +127,20 @@ defmodule Aiur.UsageLedger.Record do
   defp decode_tokens(_value), do: {:error, :invalid_ledger_delta}
 
   defp validate_tokens(tokens) do
-    if Enum.all?(tokens, fn {_field, amount} -> is_nil(amount) or (is_integer(amount) and amount >= 0) end),
+    if Enum.all?(tokens, fn {_field, amount} -> is_nil(amount) or bounded_integer?(amount) end),
       do: {:ok, tokens},
       else: {:error, :invalid_ledger_delta}
   end
+
+  defp bounded_numbers?(value) when is_integer(value), do: bounded_integer?(value)
+  defp bounded_numbers?(value) when is_float(value), do: false
+  defp bounded_numbers?(value) when is_binary(value) or is_nil(value) or is_boolean(value), do: true
+  defp bounded_numbers?(value) when is_list(value), do: Enum.all?(value, &bounded_numbers?/1)
+
+  defp bounded_numbers?(value) when is_map(value),
+    do: Enum.all?(value, fn {key, nested} -> bounded_numbers?(key) and bounded_numbers?(nested) end)
+
+  defp bounded_numbers?(_value), do: false
 
   defp coverage_reasons(values, envelope) when is_list(values) do
     expected = Enum.map(envelope.coverage_reasons, &Atom.to_string/1)
@@ -126,7 +155,7 @@ defmodule Aiur.UsageLedger.Record do
       not String.match?(value, ~r/(?:sk[-_][A-Za-z0-9]|ghp_|github_pat_|xox[baprs]-|AKIA[0-9A-Z]{16}|secret|password|credential|bearer|authorization|api[-_]?key|prompt)/i)
   end
 
-  defp safe_value?(value) when is_integer(value) or is_float(value) or is_nil(value) or is_boolean(value), do: true
+  defp safe_value?(value) when is_integer(value) or is_nil(value) or is_boolean(value), do: true
   defp safe_value?(value) when is_list(value), do: Enum.all?(value, &safe_value?/1)
   defp safe_value?(value) when is_map(value), do: Enum.all?(value, fn {key, nested} -> safe_value?(key) and safe_value?(nested) end)
   defp safe_value?(_value), do: false

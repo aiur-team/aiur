@@ -1,6 +1,8 @@
 defmodule Aiur.UsageLedger.CheckpointTest do
   use ExUnit.Case, async: true
 
+  import Bitwise
+
   alias Aiur.UsageLedger.{Checkpoint, CounterPolicy}
   import Aiur.TestSupport.UsageLedger, only: [envelope: 1]
 
@@ -29,5 +31,27 @@ defmodule Aiur.UsageLedger.CheckpointTest do
 
     assert {:error, :invalid_ledger_checkpoint} =
              CounterPolicy.load(put_in(dumped, ["absolute", counter_key, "credential"], "ghp_0123456789abcdef"))
+  end
+
+  test "rejects checksummed position and policy integers outside the ledger bound" do
+    huge_integer = 1 <<< 100_000
+    oversized_position = Checkpoint.record(huge_integer, huge_integer, CounterPolicy.new())
+    assert {:error, :invalid_ledger_checkpoint} = Checkpoint.from_record(oversized_position)
+
+    oversized_generation = Checkpoint.record(0, huge_integer, CounterPolicy.new())
+    assert {:error, :invalid_ledger_checkpoint} = Checkpoint.from_record(oversized_generation)
+
+    {:ok, %{state: policy}} = CounterPolicy.apply(CounterPolicy.new(), envelope(%{}))
+    dumped = CounterPolicy.dump(policy)
+    [counter_key | _rest] = Map.keys(dumped["absolute"])
+
+    assert {:error, :invalid_ledger_checkpoint} =
+             CounterPolicy.load(put_in(dumped, ["absolute", counter_key, "value"], huge_integer))
+
+    assert {:error, :invalid_ledger_checkpoint} =
+             CounterPolicy.load(put_in(dumped, ["absolute", counter_key, "source_sequence"], huge_integer))
+
+    assert {:error, :invalid_ledger_checkpoint} =
+             CounterPolicy.load(put_in(dumped, ["coverage", "upper"], huge_integer))
   end
 end

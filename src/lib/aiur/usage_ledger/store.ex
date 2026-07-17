@@ -5,7 +5,7 @@ defmodule Aiur.UsageLedger.Store do
 
   @behaviour Aiur.UsageLedger
 
-  alias Aiur.{DecisionLog, UsageEnvelope}
+  alias Aiur.{Config, DecisionLog, UsageEnvelope}
   alias Aiur.UsageLedger.{Checkpoint, CounterPolicy, Record, Recovery}
 
   @max_scan_limit 10_000
@@ -16,7 +16,20 @@ defmodule Aiur.UsageLedger.Store do
   end
 
   @impl Aiur.UsageLedger
-  def append(%UsageEnvelope{} = envelope), do: GenServer.call(__MODULE__, {:append, envelope})
+  def append(%UsageEnvelope{} = envelope), do: append(__MODULE__, envelope)
+
+  @doc false
+  @spec append(GenServer.server(), UsageEnvelope.t()) ::
+          {:ok, Aiur.UsageLedger.acknowledgement()}
+          | {:duplicate, Aiur.UsageLedger.acknowledgement()}
+          | {:error, atom()}
+  def append(server, %UsageEnvelope{} = envelope) do
+    GenServer.call(server, {:append, envelope}, durability_timeout())
+  end
+
+  @doc false
+  @spec durability_timeout() :: timeout()
+  def durability_timeout, do: Config.usage_ledger_durability_timeout()
 
   @impl Aiur.UsageLedger
   def scan(options), do: GenServer.call(__MODULE__, {:scan, options})
@@ -50,8 +63,10 @@ defmodule Aiur.UsageLedger.Store do
 
     {:ok,
      Map.merge(state, %{
+       records: :queue.from_list(state.records),
        append_fun: Keyword.get(opts, :append_fun, &DecisionLog.append/2),
-       checkpoint_fun: Keyword.get(opts, :checkpoint_fun, &Checkpoint.write/3),
+       checkpoint_fun: Keyword.get(opts, :checkpoint_fun, &Checkpoint.write_encoded/2),
+       checkpoint_encode_fun: Keyword.get(opts, :checkpoint_encode_fun, &Checkpoint.encode/2),
        sync_fun: persistence.sync_fun,
        publish_fun: Keyword.get(opts, :publish_fun, fn _acknowledgement -> :ok end),
        subscribers: %{}
@@ -82,6 +97,7 @@ defmodule Aiur.UsageLedger.Store do
 
     records =
       state.records
+      |> :queue.to_list()
       |> Enum.filter(&(&1.position > after_position))
       |> Enum.take(limit)
       |> Enum.map(&replay_record/1)
@@ -117,16 +133,17 @@ defmodule Aiur.UsageLedger.Store do
   defp persist(envelope, policy, delta, state) do
     position = state.position + 1
     generation = state.generation + 1
+    checkpoint = Checkpoint.record(position, generation, policy)
 
     with {:ok, record} <- Record.new(position, envelope, delta),
-         :ok <- capacity(record, policy, position, generation, state),
+         {:ok, encoded_checkpoint} <- encode_checkpoint(checkpoint, state),
+         :ok <- capacity(record, encoded_checkpoint, policy, state),
          :ok <- state.append_fun.(state.paths.segment_path, Record.encode(record)),
-         checkpoint <- Checkpoint.record(position, generation, policy),
-         :ok <- state.checkpoint_fun.(state.paths.checkpoint_path, checkpoint, max_bytes: state.limits.max_checkpoint_bytes),
+         :ok <- state.checkpoint_fun.(state.paths.checkpoint_path, encoded_checkpoint),
          :ok <- state.sync_fun.() do
       next_state = %{
         state
-        | records: state.records ++ [record],
+        | records: :queue.in(record, state.records),
           policy: policy,
           position: position,
           generation: generation,
@@ -148,15 +165,21 @@ defmodule Aiur.UsageLedger.Store do
     end
   end
 
-  defp capacity(record, policy, position, generation, state) do
+  defp encode_checkpoint(checkpoint, state) do
+    case state.checkpoint_encode_fun.(checkpoint, state.limits.max_checkpoint_bytes) do
+      {:ok, encoded} -> {:ok, encoded}
+      {:error, :record_too_large} -> {:error, :capacity_exhausted}
+      {:error, _reason} -> {:error, :checkpoint_encode_failed}
+    end
+  end
+
+  defp capacity(record, encoded_checkpoint, policy, state) do
     encoded_record = Jason.encode!(Record.encode(record))
-    checkpoint = Checkpoint.record(position, generation, policy)
-    checkpoint_bytes = checkpoint |> Jason.encode!() |> byte_size()
     segment_size = file_size(state.paths.segment_path)
 
     if byte_size(encoded_record) > state.limits.max_record_bytes or
          segment_size + byte_size(encoded_record) + 1 > state.limits.max_segment_bytes or
-         checkpoint_bytes > state.limits.max_checkpoint_bytes or
+         byte_size(encoded_checkpoint) > state.limits.max_checkpoint_bytes or
          MapSet.size(policy.idempotency) > state.limits.max_idempotency_entries do
       {:error, :capacity_exhausted}
     else
@@ -174,7 +197,7 @@ defmodule Aiur.UsageLedger.Store do
   defp duplicate_acknowledgement(state, envelope) do
     idempotency_key = CounterPolicy.idempotency_key(envelope)
 
-    case Enum.find(state.records, &(CounterPolicy.idempotency_key(&1.envelope) == idempotency_key)) do
+    case Enum.find(:queue.to_list(state.records), &(CounterPolicy.idempotency_key(&1.envelope) == idempotency_key)) do
       nil -> %{position: state.position, generation: state.generation, delta: nil}
       record -> %{position: record.position, generation: record.position, delta: record.delta}
     end

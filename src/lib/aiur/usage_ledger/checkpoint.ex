@@ -1,7 +1,8 @@
 defmodule Aiur.UsageLedger.Checkpoint do
   @moduledoc false
 
-  alias Aiur.{Fs, UsageLedger.CounterPolicy}
+  alias Aiur.Fs
+  alias Aiur.UsageLedger.{CounterPolicy, Record}
 
   @version 1
   @record_keys ~w(checksum generation policy position version)
@@ -25,7 +26,9 @@ defmodule Aiur.UsageLedger.Checkpoint do
     with @record_keys <- record |> Map.keys() |> Enum.sort(),
          @version <- Map.get(record, "version"),
          position when is_integer(position) and position >= 0 <- Map.get(record, "position"),
+         :ok <- bounded_integer(position),
          generation when is_integer(generation) and generation >= 0 <- Map.get(record, "generation"),
+         :ok <- bounded_integer(generation),
          policy when is_map(policy) <- Map.get(record, "policy"),
          checksum_value when is_binary(checksum_value) <- Map.get(record, "checksum"),
          true <- checksum_value == checksum(payload(record)),
@@ -59,11 +62,28 @@ defmodule Aiur.UsageLedger.Checkpoint do
 
     with :ok <- writable_path(path),
          {:ok, contents} <- encode(checkpoint, max_bytes),
-         :ok <- Fs.atomic_write(path, contents, fsync: true, mode: 0o600),
-         :ok <- File.chmod(path, 0o600) do
+         :ok <- write_encoded(path, contents) do
       :ok
     else
       {:error, _reason} = error -> error
+    end
+  end
+
+  @doc false
+  @spec encode(map(), pos_integer()) :: {:ok, String.t()} | {:error, :record_too_large}
+  def encode(checkpoint, max_bytes)
+      when is_map(checkpoint) and is_integer(max_bytes) and max_bytes > 0 do
+    contents = Jason.encode!(checkpoint)
+    if byte_size(contents) <= max_bytes, do: {:ok, contents}, else: {:error, :record_too_large}
+  end
+
+  @doc false
+  @spec write_encoded(String.t(), String.t()) :: :ok | {:error, term()}
+  def write_encoded(path, contents) when is_binary(path) and is_binary(contents) do
+    with :ok <- writable_path(path),
+         :ok <- Fs.atomic_write(path, contents, fsync: true, mode: 0o600),
+         :ok <- File.chmod(path, 0o600) do
+      :ok
     end
   end
 
@@ -88,12 +108,11 @@ defmodule Aiur.UsageLedger.Checkpoint do
     end
   end
 
-  defp encode(checkpoint, max_bytes) do
-    contents = Jason.encode!(checkpoint)
-    if byte_size(contents) <= max_bytes, do: {:ok, contents}, else: {:error, :record_too_large}
-  end
-
   defp payload(record), do: record |> Map.drop(["checksum"]) |> Map.put("version", @version)
+
+  defp bounded_integer(value) do
+    if Record.bounded_integer?(value), do: :ok, else: {:error, :invalid_ledger_checkpoint}
+  end
 
   defp checksum(payload) do
     payload
