@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Recovery checkpoint (updated 2026-07-17 05:22 PDT)
+## Recovery checkpoint (updated 2026-07-17 05:52 PDT)
 
 This checkpoint supersedes the older live-state narrative below. The former
 Claude Executor is not being restarted. Its exact local session was recovered
@@ -22,7 +22,7 @@ credentials or restart the healthy daemon only to change that listener.
 The recovered fleet began with nine one-writer Codex owners. Two infrastructure
 lanes have now merged, while the surviving feature owners remain isolated:
 
-- BO-011/#1098 / ready PR #1233;
+- BO-011/#1098 / draft PR #1233;
 - DASH-003/#1110 / draft PR #1234;
 - DASH-009/#1115 / draft PR #1204;
 - DASH-010/#1116 / draft PR #1232;
@@ -69,11 +69,20 @@ integration before merge.
 Feature review is active rather than ceremonial. Exact-head Compound
 Engineering review returned BO-011/#1098 to rework with five confirmed
 security, accessibility, identity, reconnect-token, and truthful-truncation
-defects; an erroneous interim human-review transition was corrected both in the
-issue and through Aiur's live Executor-message path. DASH-010/#1116 is repairing
-four confirmed source-accounting/coverage/time/identity defects and has
-published exact-base replacement head `cf1d61fa0457bfdd18f647232d54da0fa21d880c`
-with fresh CI running. DASH-026/#1130 passed all CI at `390f2137` before #1236,
+defects; head `211004e0` contains the exact base but not those repairs, so its
+owner is now consuming the queued Executor packet. DASH-010/#1116 repaired all
+four confirmed source-accounting/coverage/time/identity defects at `cf1d61fa`;
+three independent re-review slices are clean and the complete test job passed.
+Its one-file Credo follow-up is pushed as exact head
+`612e3cb7e2e21b62d354c27c12853ac543956faf`, with lint and every short CI job
+green while the fresh full test job runs. Keep PR #1232 draft: the required real
+synthetic-safe Claude REPL/Remote Control proof is still pending, and Claude
+must not be launched while the operator's no-Claude usage-limit instruction is
+active. DASH-003/#1110 is full-CI green at `ef469502` but returned to draft
+rework for nine exact-head identity, announcement, count-truth, truncation,
+exact-navigation, touch-target, cache-fencing, subscription-lifecycle, and
+provider-outage command-truth defects. DASH-026/#1130 passed all CI at
+`390f2137` before #1236,
 then returned to rework for the test-only base advance and ten confirmed
 exact-head review defects: prompt/response chronology, authoritative
 worker-generation and runtime-status fences, restart cache reset, Remote
@@ -82,6 +91,14 @@ retention, stable Claude disk-record identity, complete capability-URL
 redaction, and bounded runtime-status fanout. PR #1217 is draft until an
 exact-base replacement fixes all ten, passes fresh CI, and survives exact-head
 re-review.
+
+An orchestration race is under diagnosis: when an Executor rework label/message
+arrives while an old worker turn is still finishing, that stale turn can write
+`agent:ci-wait` afterward and temporarily overwrite the newer rework state.
+This occurred on #1098 and #1130. The Executor re-applied `agent:rework`; the
+queued messages were then delivered as fresh Codex turns. Until the root fix is
+landed, verify the tracker label after every in-flight review intervention and
+never trust an old turn's CI-wait transition by itself.
 
 DASH-013/#1119 remains source-complete as draft PR #1228 at
 `6f5696828cb54f775623299cc61c1067ef2b2810`, with full CI green and independent
