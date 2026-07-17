@@ -394,6 +394,32 @@ defmodule AiurWeb.BuildOrderPresenterTest do
     end
   end
 
+  test "capabilities retain only exact identity, readability, activity, and controlled reason facts" do
+    model = BuildOrderPresenter.present(snapshot([member(1)]), status_snapshot(), activity_snapshot())
+
+    relationships =
+      BuildOrderPresenter.relationships(model, identity(1), %{
+        issue: %{available?: true, url: issue_url(1), identity: identity(1)},
+        pull_request: %{available?: true, url: "https://github.com/owner/repo/pull/8", identity: identity(1), number: 8},
+        chat: %{available?: true, path: "/chat/1", identity: identity(1), active?: true, readable?: true},
+        commands: %{available?: false, identity: identity(1), readable?: false, reason: :unauthorized}
+      })
+
+    assert relationships.capabilities.issue.identity == identity(1)
+    assert relationships.capabilities.pull_request.number == 8
+    assert relationships.capabilities.chat.active?
+    assert relationships.capabilities.chat.readable?
+    assert relationships.capabilities.commands.identity == identity(1)
+    assert relationships.capabilities.commands.reason == :unauthorized
+
+    unsafe_identity = %{identity(1) | provider_id: ""}
+    normalized = BuildOrderPresenter.relationships(model, identity(1), %{chat: %{available?: true, path: "/chat/1", identity: unsafe_identity}})
+    assert normalized.capabilities.chat.identity == nil
+
+    arbitrary = BuildOrderPresenter.relationships(model, identity(1), %{commands: %{reason: :raw_provider_failure}})
+    assert arbitrary.capabilities.commands.reason == :unavailable
+  end
+
   test "redacts credential-shaped provenance and deduplicates opposite connection views" do
     token = "ghp_" <> String.duplicate("a", 36)
     one = member(1, dependencies: [Dependency.new(identity(1), identity(2), issue_url(2), :blocked_by)])

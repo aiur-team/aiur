@@ -294,6 +294,39 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenterTest do
            ]
   end
 
+  test "renders only controlled destination-unavailability reasons" do
+    identity = identity()
+
+    cases = [
+      {:chat, :missing, "Chat is missing."},
+      {:chat, :stale, "Chat is stale."},
+      {:chat, :unauthorized, "Chat is unauthorized."},
+      {:chat, :inactive, "Chat is inactive."},
+      {:chat, :unreadable, "Chat is unreadable."},
+      {:chat, :identity_mismatch, "Chat is unavailable for this ticket."},
+      {:commands, :missing, "Commands are missing."},
+      {:commands, :stale, "Commands are stale."},
+      {:commands, :unauthorized, "Commands are unauthorized."},
+      {:commands, :unreadable, "Commands are unreadable."}
+    ]
+
+    for {kind, reason, expected} <- cases do
+      [capability] =
+        TicketContextPresenter.present(detail_state(identity), history(identity), [
+          %{kind: kind, available?: false, reason: reason}
+        ]).capabilities
+
+      assert capability.reason == expected
+    end
+
+    [capability] =
+      TicketContextPresenter.present(detail_state(identity), history(identity), [
+        %{kind: :chat, available?: false, reason: "raw provider failure"}
+      ]).capabilities
+
+    assert capability.reason == "Chat is unavailable."
+  end
+
   test "caps normalized capabilities after four distinct destinations" do
     identity = identity()
 

@@ -23,13 +23,27 @@ defmodule AiurWeb.BuildOrderPresenter do
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.{OpaqueIdentifier, TrackerIdentity}
   alias AiurWeb.BuildOrderViewModel
-  alias AiurWeb.BuildOrderViewModel.{Edge, Group, Node, Relationships}
+  alias AiurWeb.BuildOrderViewModel.{Capability, Edge, Group, Node, Relationships}
 
   @capability_keys [:issue, :pull_request, :commands, :chat]
   @safe_stages [:brainstorm, :plan, :work, :review]
   @safe_activity_statuses [:fresh, :stale]
   @safe_retention [:current, :recent]
   @safe_ci_decisions [:pass, :passed, :fail, :failed, :pending, :unknown]
+  @safe_capability_reasons [
+    :identity_mismatch,
+    :inactive,
+    :invalid_destination,
+    :missing,
+    :not_available,
+    :not_configured,
+    :not_opened,
+    :stale,
+    :unauthorized,
+    :unavailable,
+    :unreadable,
+    :unsupported
+  ]
 
   @spec present(term(), term(), term(), keyword()) :: BuildOrderViewModel.t()
   def present(planning_snapshot, execution_snapshot, activity_snapshot, opts \\ []) do
@@ -838,20 +852,49 @@ defmodule AiurWeb.BuildOrderPresenter do
 
   defp normalize_capabilities(_capabilities), do: normalize_capabilities(%{})
 
-  defp normalize_capability(%{available?: true} = capability) do
+  defp normalize_capability(capability) when is_map(capability) do
     destination = Map.get(capability, :destination) || Map.get(capability, :url) || Map.get(capability, :path)
+    identity = safe_capability_identity(Map.get(capability, :identity))
+    number = safe_capability_number(Map.get(capability, :number))
+    label = safe_label(Map.get(capability, :label))
+    active? = optional_boolean(Map.get(capability, :active?))
+    readable? = optional_boolean(Map.get(capability, :readable?))
 
-    case safe_destination(destination) do
-      nil -> unavailable_capability(:invalid_destination)
-      safe -> %{available?: true, destination: safe, label: safe_label(Map.get(capability, :label)), reason: nil}
+    case {Map.get(capability, :available?) == true, safe_destination(destination)} do
+      {true, nil} ->
+        unavailable_capability(:invalid_destination, identity, number, label, active?, readable?)
+
+      {true, safe} ->
+        %Capability{
+          identity: identity,
+          destination: safe,
+          number: number,
+          label: label,
+          reason: nil,
+          available?: true,
+          active?: active?,
+          readable?: readable?
+        }
+
+      {false, _destination} ->
+        unavailable_capability(safe_reason(Map.get(capability, :reason)), identity, number, label, active?, readable?)
     end
   end
 
-  defp normalize_capability(%{reason: reason}), do: unavailable_capability(safe_reason(reason))
   defp normalize_capability(_capability), do: unavailable_capability(:unavailable)
 
-  defp unavailable_capability(reason),
-    do: %{available?: false, destination: nil, label: nil, reason: reason}
+  defp unavailable_capability(reason, identity \\ nil, number \\ nil, label \\ nil, active? \\ nil, readable? \\ nil) do
+    %Capability{
+      identity: identity,
+      destination: nil,
+      number: number,
+      label: label,
+      reason: reason,
+      available?: false,
+      active?: active?,
+      readable?: readable?
+    }
+  end
 
   defp safe_destination(value) when is_binary(value) do
     case Bounded.relative_route(value) do
@@ -874,7 +917,17 @@ defmodule AiurWeb.BuildOrderPresenter do
   end
 
   defp safe_label(_value), do: nil
-  defp safe_reason(value) when is_atom(value) and not is_nil(value), do: value
+
+  defp safe_capability_identity(%TrackerIdentity{} = identity) do
+    if TrackerIdentity.joinable?(identity), do: identity
+  end
+
+  defp safe_capability_identity(_identity), do: nil
+  defp safe_capability_number(value) when is_integer(value) and value > 0, do: value
+  defp safe_capability_number(_value), do: nil
+  defp optional_boolean(value) when is_boolean(value), do: value
+  defp optional_boolean(_value), do: nil
+  defp safe_reason(value) when value in @safe_capability_reasons, do: value
   defp safe_reason(_value), do: :unavailable
 
   defp model_diagnostics(planning, nodes, edges, execution_duplicates, activity_duplicates) do
