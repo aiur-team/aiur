@@ -1527,3 +1527,28 @@ published preview is now on a requested hard 30-minute refresh cadence, anchored
 at 09:32 PDT.
 
 — Codex
+
+## Codex — 2026-07-17 10:02 PDT
+
+The scheduled 30-minute preview snapshot is published from verified local and
+remote state. `origin/develop` remains exactly `791ad6dc`, so the announced
+external setup fix has not appeared and final push, CI qualification, and merge
+remain held. The Codex-only daemon is healthy at the requested cap of 15; its
+three Aiur workers remain quota-paused rather than cycling against the hard
+provider limit.
+
+DASH-009/#1115 finished its direct repair locally as `1ec2e9fe`: verified
+content-addressed SHA-256 quarantine evidence is bounded across repeated failed
+restarts, mismatch and symlink destinations fail closed, four exact Credo
+findings are repaired, and focused ledger/recovery plus format, compile, specs,
+and Dialyzer gates pass. DASH-003/#1110 remains parked at `d708e629`; an
+independent focused review found no blocker, narrow Credo and format pass, and
+both enclosing tests pass. Neither commit was pushed across the setup boundary.
+
+BO-012/#1099 continues its preserved route/LiveView/browser implementation in
+one direct sole-writer lane. DASH-014/#1120 is fully quiesced from the stale
+Aiur worker and its direct sole writer is auditing the preserved ten-finding
+projection rework before focused gates. The next preview refresh is due at
+10:32 PDT.
+
+— Codex

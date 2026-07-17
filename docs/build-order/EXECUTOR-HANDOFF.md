@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Current Executor checkpoint (updated 2026-07-17 09:02 PDT)
+## Current Executor checkpoint (updated 2026-07-17 10:02 PDT)
 
 The live Executor is Codex-only on the literal `develop` runtime checkout at
 `/home/orangekid/github/aiur-runtime-develop`. It was force-built before launch
@@ -20,15 +20,19 @@ exact delta, recheck `main` ancestry, safely fast-forward the runtime checkout
 without losing its two local files, broadcast the exact SHA to every owner,
 and only then release parked/rework lanes.
 
-Four productive owners are live: BO-012/#1099 has substantial local route,
-registry, LiveView, data-source, and test work; DASH-014/#1120 has substantial
-local current-run projection rework; DASH-003/#1110 and DASH-009/#1115 are
-consuming exact review packets. PR #1234 head `8e1e2f3e` fixes all nine prior
-DASH-003 product findings and has no new high-confidence product blocker; only
-Credo `NestedAlias` at `extensions_test.exs:1116` and `:1258` plus the setup
-hold remain. PR #1204 head `dde23374` fixes its prior nine-item packet but still
-has four Credo findings and an unbounded repeated-quarantine-copy defect that
-requires idempotent evidence plus a repeated-restart size test.
+Two sole-writer direct Codex implementations are live. BO-012/#1099 retains
+substantial dirty route, registry, LiveView, data-source, browser, and test
+work. DASH-014/#1120 is now fully quiesced from Aiur and its direct takeover is
+auditing the preserved ten-finding projection rework before focused gates.
+DASH-003/#1110 is parked one commit ahead at `d708e629`; an independent focused
+review proved the two alias substitutions preserve behavior, and narrow Credo,
+format, plus both enclosing tests pass. DASH-009/#1115 is parked one commit
+ahead at `1ec2e9fe`; content-addressed verified SHA-256 quarantine reuse, stable
+repeated-restart entry/byte bounds, mismatch/symlink failure, and four Credo
+repairs pass focused ledger/recovery, format, compile, specs, and Dialyzer gates.
+Both parked heads still require exact-head Compound Engineering review now and
+fresh exact-base qualification after the setup boundary is resolved; neither
+has been pushed.
 
 Keep #1130/PR #1217, #1240/PR #1242, #1237/PR #1243, and #1238/PR #1241 parked
 as `agent:rework + agent:paused` until the setup base lands. #1116/PR #1232 and
