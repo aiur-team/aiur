@@ -105,6 +105,7 @@ defmodule Aiur.ApplicationTest do
       Aiur.RecentMergeStore,
       Aiur.CurrentRunMembership.Store,
       Aiur.CurrentRunMembership.Reconciler,
+      Aiur.CurrentRunProjections,
       Aiur.TicketActivity,
       Aiur.Claude.Telemetry,
       Aiur.BuildOrder.TicketHistoryProvider,
@@ -270,6 +271,24 @@ defmodule Aiur.ApplicationTest do
 
         assert membership_store < orchestrator, "membership store must precede Orchestrator for #{inspect(opts)}"
         assert orchestrator < reconciler, "membership reconciler must follow Orchestrator for #{inspect(opts)}"
+      end
+    end
+
+    test "current-run projections have one runtime owner in every run shape" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: true, headless?: false, dashboard?: false],
+            [interactive_cli?: false, headless?: true, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        mods = modules(AiurApp.child_specs(opts))
+        reconciler = Enum.find_index(mods, &(&1 == Aiur.CurrentRunMembership.Reconciler))
+        projection = Enum.find_index(mods, &(&1 == Aiur.CurrentRunProjections))
+        merge_ticker = Enum.find_index(mods, &(&1 == Aiur.Events.LsRemoteTicker))
+
+        assert Enum.count(mods, &(&1 == Aiur.CurrentRunProjections)) == 1
+        assert projection == reconciler + 1
+        assert merge_ticker == projection + 1
       end
     end
 
