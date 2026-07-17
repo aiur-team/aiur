@@ -74,9 +74,16 @@ defmodule Aiur.Codex.DynamicTool.ResponseTest do
     end
 
     test "recursively normalizes nested maps, lists, and tuples" do
-      assert Response.jsonable(%{kind: :exit, detail: {:noproc, [GenServer, :call]}}) == %{
+      assert Response.jsonable(%{
+               kind: :exit,
+               detail: {:noproc, [GenServer, :call]},
+               retryable: false,
+               metadata: [accepted: true, deadline: nil]
+             }) == %{
                "kind" => "exit",
-               "detail" => ["noproc", ["Elixir.GenServer", "call"]]
+               "detail" => ["noproc", ["Elixir.GenServer", "call"]],
+               "retryable" => false,
+               "metadata" => [["accepted", true], ["deadline", nil]]
              }
     end
   end
