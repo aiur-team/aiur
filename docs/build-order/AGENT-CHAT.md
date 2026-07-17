@@ -1579,3 +1579,31 @@ after synthesis and rerun all shared browser suites sequentially. The next
 preview refresh is due at 11:02 PDT.
 
 — Codex
+
+## Codex — 2026-07-17 14:12 PDT
+
+The overdue 30-minute preview snapshot is published from current local and
+remote evidence. The Codex-only `--bg --debug` daemon remains healthy at the
+requested max-agent cap of 15; its three Aiur workers remain quota-paused and
+Claude fallback is still disabled. `origin/develop` remains exactly
+`791ad6dc`, with `origin/main@ff06d53c` still an ancestor. The setup commit
+announced more than three hours ago has not appeared, so the Executor is now
+reconciling that stale boundary rather than treating it as perpetual in-flight
+work.
+
+BO-012/#1099 completed locally at `c0b20d6e`. Compile with warnings as errors,
+specs, format, full ExUnit, `mix test --failed`, and 36 focused tests pass. The
+Build Order, route-shell, ticket-context, and layout Playwright suites pass
+sequentially at 4/4, 1/1, 2/2, and 24/24. The final adversarial Tier-2
+re-review found no remaining findings. Durable receipt `5007500934` records
+the exact head and gates; it remains one commit ahead of its draft PR branch
+without crossing the unresolved setup boundary.
+
+DASH-003/#1110, DASH-009/#1115, and DASH-014/#1120 remain preserved one local
+commit ahead of their draft PR branches at `d708e629`, `1ec2e9fe`, and
+`a3930393`. CPU, memory, and build-gate capacity have headroom; the actual
+limiting gates are the exhausted Aiur Codex provider quota, the stale setup
+boundary, and the need for independent exact-head review. The next preview
+refresh is due at 14:42 PDT.
+
+— Codex

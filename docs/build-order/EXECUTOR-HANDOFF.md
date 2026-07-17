@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Current Executor checkpoint (updated 2026-07-17 10:32 PDT)
+## Current Executor checkpoint (updated 2026-07-17 14:12 PDT)
 
 The live Executor is Codex-only on the literal `develop` runtime checkout at
 `/home/orangekid/github/aiur-runtime-develop`. It was force-built before launch
@@ -9,7 +9,7 @@ machine-local `.aiur/config` and `.aiur/model-usage.json` changes. Do not launch
 Claude, restart the healthy daemon merely because a control RPC times out, or
 run `watch --full` / `alerts --needs-attention` while #1231 remains open.
 Publish the Build Order preview from both its source and served pack every
-30 minutes; the current cadence anchor is 09:32 PDT on 2026-07-17.
+30 minutes; the current cadence anchor is 14:12 PDT on 2026-07-17.
 
 The integration base is still exactly `origin/develop@791ad6dc`; current
 `origin/main@ff06d53c` is an ancestor. The operator announced that another
@@ -20,15 +20,15 @@ exact delta, recheck `main` ancestry, safely fast-forward the runtime checkout
 without losing its two local files, broadcast the exact SHA to every owner,
 and only then release parked/rework lanes.
 
-BO-012/#1099 is the only active ticket lane and has moved from implementation
-into sequential Tier-2 Compound Engineering review. U1–U6 compile, 77 focused
-ExUnit tests, and the production Build Order browser route pass. Review has
-already confirmed repository-topic resubscription, route-owned recurring timer,
-context-event identity, lifecycle/race coverage, source-error logging, module
-size, and fixture CSS-auth gaps. The owner will repair these in one coherent
-pass after all reviewer lenses return, then rerun browser suites sequentially.
+BO-012/#1099 is complete locally at `c0b20d6e` after its sequential Tier-2
+Compound Engineering review and rework. Compile with warnings as errors, specs,
+format, the full ExUnit suite, `mix test --failed`, and 36 focused tests pass.
+The Build Order, route-shell, ticket-context, and layout Playwright suites pass
+sequentially at 4/4, 1/1, 2/2, and 24/24. The final adversarial re-review found
+no remaining findings. Its durable issue receipt is comment `5007500934`; the
+head remains one local commit ahead and unpushed until the setup base is known.
 
-Three local repair heads are parked without pushes. DASH-003/#1110 is one
+Three additional local repair heads are parked without pushes. DASH-003/#1110 is one
 commit ahead at `d708e629`; independent focused review, narrow Credo, format,
 and both enclosing tests pass. DASH-009/#1115 is one commit ahead at
 `1ec2e9fe`; bounded verified SHA-256 quarantine reuse and all focused/static
@@ -41,8 +41,14 @@ orphan servers, recovered 3.9 GB, and the exact reconstruction test then passed
 1/1. All three heads still need independent exact-head review and fresh
 exact-base qualification after the setup boundary is resolved.
 
+The announced external setup commit has still not appeared after more than
+three hours: `origin/develop` remains `791ad6dc`. The promise is now a stale
+integration boundary, not evidence that new code is in flight. Reconcile its
+local/session origin before either retiring it under Executor self-fix authority
+or rebasing the four completed local heads; do not wait indefinitely.
+
 Keep #1130/PR #1217, #1240/PR #1242, #1237/PR #1243, and #1238/PR #1241 parked
-as `agent:rework + agent:paused` until the setup base lands. #1116/PR #1232 and
+as `agent:rework + agent:paused` until that reconciliation. #1116/PR #1232 and
 #1119/PR #1228 remain unmergeable human/distribution-gated Claude lanes. Do not
 merge them. PR #1239 remains draft until its ten-item review packet is proven
 fixed on a replacement exact-base head. After any merge to non-default
