@@ -36,11 +36,13 @@ defmodule AiurWeb.BuildOrder.TicketContextAdapterTest do
     assert view.base.logs.entries == []
 
     assert Enum.map(view.blocked_by, & &1.edge.state) == states
+    assert view.blocked_by_metadata == %{total: 5, shown: 5, truncated?: false}
     assert Enum.all?(view.blocked_by, &match?(%Relationship{direction: :blocked_by}, &1))
     assert Enum.all?(view.blocked_by, &(&1.readiness == selected.readiness))
     assert Enum.zip_with(view.blocked_by, blocked_by, &(&1.edge === &2)) |> Enum.all?()
 
     assert [%Relationship{direction: :blocking, edge: ^blocking, readiness: :blocking}] = view.blocking
+    assert view.blocking_metadata == %{total: 1, shown: 1, truncated?: false}
     assert Enum.all?(view.blocked_by ++ view.blocking, &(&1.selectable? and is_binary(&1.navigation_value)))
     refute Enum.any?(view.blocked_by ++ view.blocking, &(&1.navigation_value == &1.endpoint.identifier))
 
@@ -194,6 +196,65 @@ defmodule AiurWeb.BuildOrder.TicketContextAdapterTest do
     end
   end
 
+  test "checks exact identity before every capability availability reason" do
+    selected = node(2, :ready)
+    graph = model([selected], [])
+    foreign = identity(2, provider_id: "OTHER")
+
+    for {key, kind, variant, extra} <- [
+          {:issue, :github, :issue, %{}},
+          {:pull_request, :github, :pull_request, %{number: 77}},
+          {:chat, :chat, nil, %{active?: true, readable?: true}},
+          {:commands, :commands, nil, %{readable?: true}}
+        ],
+        capability_identity <- [foreign, nil] do
+      capability = Map.merge(%{available?: false, identity: capability_identity, reason: :unauthorized}, extra)
+      view = TicketContextAdapter.present(graph, selected.identity, base_view(selected.identity), %{key => capability})
+      rendered = Enum.find(view.base.capabilities, &(&1.kind == kind and &1.variant == variant))
+
+      refute rendered.available?
+      assert rendered.href == nil
+      assert rendered.reason == identity_reason(rendered.label)
+    end
+  end
+
+  test "rejects Chat and Commands query, fragment, and cross-destination routes" do
+    selected = node(2, :ready)
+    graph = model([selected], [])
+
+    for {kind, destination, expected_reason} <- [
+          {:chat, "/chat/2?capability=private", "Chat is unavailable."},
+          {:chat, "/chat/2#token=private", "Chat is unavailable."},
+          {:chat, "/decisions/2", "Chat is unavailable."},
+          {:commands, "/decisions/2?token=private", "Commands are unavailable."},
+          {:commands, "/decisions/2#capability=private", "Commands are unavailable."},
+          {:commands, "/chat/2", "Commands are unavailable."}
+        ] do
+      capability =
+        %{available?: true, destination: destination, identity: selected.identity, readable?: true}
+        |> Map.put(:active?, kind == :chat)
+
+      view = TicketContextAdapter.present(graph, selected.identity, base_view(selected.identity), %{kind => capability})
+      rendered = Enum.find(view.base.capabilities, &(&1.kind == kind))
+
+      refute rendered.available?
+      assert rendered.href == nil
+      assert rendered.reason == expected_reason
+    end
+  end
+
+  test "retains truthful totals when one relationship direction exceeds the render bound" do
+    selected = node(500, :ready)
+    upstream = Enum.map(1..101, &node(&1, :blocking))
+    edges = Enum.map(upstream, &edge(&1, selected, :blocking, "blocked-by-#{&1.identity.identifier}"))
+
+    view = TicketContextAdapter.present(model([selected | upstream], edges), selected.identity, base_view(selected.identity), %{})
+
+    assert length(view.blocked_by) == TicketContextAdapter.max_relationships()
+    assert view.blocked_by_metadata == %{total: 101, shown: 100, truncated?: true}
+    assert view.blocking_metadata == %{total: 0, shown: 0, truncated?: false}
+  end
+
   defp model(nodes, edges) do
     root = identity(100)
 
@@ -280,6 +341,9 @@ defmodule AiurWeb.BuildOrder.TicketContextAdapterTest do
   defp readiness_for(3), do: :terminal_unsatisfied
   defp readiness_for(4), do: :unknown
   defp readiness_for(5), do: :cyclic
+
+  defp identity_reason("Commands"), do: "Commands are unavailable for this ticket."
+  defp identity_reason(label), do: "#{label} is unavailable for this ticket."
 
   defp identity(number, overrides \\ []) do
     struct!(

@@ -519,8 +519,12 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
     end
   end
 
-  defp available_href(kind, _variant, href, _identity, _capability) when kind in [:chat, :commands] do
-    with {:ok, href} <- Bounded.relative_route(href), do: {:ok, href, false}
+  defp available_href(:chat, _variant, href, identity, _capability) do
+    with {:ok, href} <- Bounded.chat_route_for(href, identity), do: {:ok, href, false}
+  end
+
+  defp available_href(:commands, _variant, href, _identity, _capability) do
+    with {:ok, href} <- Bounded.commands_route(href), do: {:ok, href, false}
   end
 
   defp available_href(_kind, _variant, _href, _identity, _capability), do: :error

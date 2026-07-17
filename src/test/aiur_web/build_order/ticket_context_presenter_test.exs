@@ -278,19 +278,42 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenterTest do
     end
   end
 
+  test "revalidates Chat and Commands with destination-specific query-free codecs" do
+    identity = identity()
+
+    for {kind, unsafe} <- [
+          {:chat, "/chat/42?capability=private"},
+          {:chat, "/chat/42#token=private"},
+          {:chat, "/chat/41"},
+          {:chat, "/decisions/42"},
+          {:commands, "/decisions/42?token=private"},
+          {:commands, "/decisions/42#capability=private"},
+          {:commands, "/chat/42"},
+          {:commands, "/commands/42"}
+        ] do
+      [capability] =
+        TicketContextPresenter.present(detail_state(identity), history(identity), [
+          %{kind: kind, available?: true, href: unsafe}
+        ]).capabilities
+
+      refute capability.available?
+      assert capability.href == nil
+    end
+  end
+
   test "deduplicates capabilities without letting later entries replace the first destination" do
     identity = identity()
 
     context =
       TicketContextPresenter.present(detail_state(identity), history(identity), [
-        %{kind: :chat, available?: true, href: "/chat/first"},
-        %{kind: :chat, available?: true, href: "/chat/replacement"},
-        %{kind: :commands, available?: true, href: "/commands/42"}
+        %{kind: :chat, available?: true, href: "/chat/42"},
+        %{kind: :chat, available?: true, href: "/chat/42?capability=replacement"},
+        %{kind: :commands, available?: true, href: "/decisions/42"}
       ])
 
     assert Enum.map(context.capabilities, &{&1.label, &1.href}) == [
-             {"Chat", "/chat/first"},
-             {"Commands", "/commands/42"}
+             {"Chat", "/chat/42"},
+             {"Commands", "/decisions/42"}
            ]
   end
 
@@ -342,7 +365,7 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenterTest do
           href: "https://github.com/owner/repo/pull/7"
         },
         %{kind: :chat, available?: true, href: "/chat/42"},
-        %{kind: :commands, available?: true, href: "/commands/42"}
+        %{kind: :commands, available?: true, href: "/decisions/42"}
       ])
 
     assert Enum.map(context.capabilities, & &1.label) == ["GitHub", "Issue", "Pull request", "Chat"]

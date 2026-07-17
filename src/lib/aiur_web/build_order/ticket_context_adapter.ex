@@ -29,6 +29,7 @@ defmodule AiurWeb.BuildOrder.TicketContextAdapter.View do
 
   @type status :: :available | :unavailable
   @type reason :: :identity_mismatch | :selection_unavailable | :stale_scope | nil
+  @type relationship_metadata :: %{total: non_neg_integer(), shown: non_neg_integer(), truncated?: boolean()}
 
   @type t :: %__MODULE__{
           status: status(),
@@ -36,12 +37,24 @@ defmodule AiurWeb.BuildOrder.TicketContextAdapter.View do
           base: BaseView.t(),
           selected: Node.t() | nil,
           blocked_by: [Relationship.t()],
+          blocked_by_metadata: relationship_metadata(),
           blocking: [Relationship.t()],
+          blocking_metadata: relationship_metadata(),
           diagnostics: [Diagnostic.t()]
         }
 
   @enforce_keys [:status, :base]
-  defstruct [:reason, :base, :selected, status: :unavailable, blocked_by: [], blocking: [], diagnostics: []]
+  defstruct [
+    :reason,
+    :base,
+    :selected,
+    status: :unavailable,
+    blocked_by: [],
+    blocked_by_metadata: %{total: 0, shown: 0, truncated?: false},
+    blocking: [],
+    blocking_metadata: %{total: 0, shown: 0, truncated?: false},
+    diagnostics: []
+  ]
 end
 
 defmodule AiurWeb.BuildOrder.TicketContextAdapter do
@@ -62,6 +75,11 @@ defmodule AiurWeb.BuildOrder.TicketContextAdapter do
   alias AiurWeb.BuildOrderViewModel.{Capability, Edge, Node, Relationships}
 
   @capability_keys [:issue, :pull_request, :chat, :commands]
+  @max_relationships 100
+
+  @doc "Returns the maximum number of relationship rows retained per direction."
+  @spec max_relationships() :: pos_integer()
+  def max_relationships, do: @max_relationships
 
   @spec present(BuildOrderViewModel.t(), term(), term(), term()) :: View.t()
   def present(model, selected_identity, base_context, capabilities \\ %{})
@@ -92,13 +110,18 @@ defmodule AiurWeb.BuildOrder.TicketContextAdapter do
         unavailable(:identity_mismatch)
 
       true ->
+        {blocked_by, blocked_by_metadata} = relationship_rows(relationships.blocked_by, :blocked_by, model)
+        {blocking, blocking_metadata} = relationship_rows(relationships.blocking, :blocking, model)
+
         %View{
           status: :available,
           reason: nil,
           base: bind_capabilities(base, relationships.capabilities, selected.identity),
           selected: selected,
-          blocked_by: relationship_rows(relationships.blocked_by, :blocked_by, model),
-          blocking: relationship_rows(relationships.blocking, :blocking, model),
+          blocked_by: blocked_by,
+          blocked_by_metadata: blocked_by_metadata,
+          blocking: blocking,
+          blocking_metadata: blocking_metadata,
           diagnostics: relationships.diagnostics
         }
     end
@@ -106,9 +129,14 @@ defmodule AiurWeb.BuildOrder.TicketContextAdapter do
 
   defp compose(_relationships, _model, _base), do: unavailable(:selection_unavailable)
 
-  defp relationship_rows(edges, direction, model) do
-    Enum.map(edges, &relationship(&1, direction, model))
+  defp relationship_rows(edges, direction, model) when is_list(edges) do
+    total = length(edges)
+    rows = edges |> Stream.map(&relationship(&1, direction, model)) |> Enum.take(@max_relationships)
+    shown = length(rows)
+    {rows, %{total: total, shown: shown, truncated?: total > shown}}
   end
+
+  defp relationship_rows(_edges, _direction, _model), do: {[], %{total: 0, shown: 0, truncated?: false}}
 
   defp relationship(%Edge{} = edge, direction, model) do
     endpoint = endpoint(edge, direction)
@@ -200,21 +228,18 @@ defmodule AiurWeb.BuildOrder.TicketContextAdapter do
   defp capability_kind(:chat), do: {:chat, nil}
   defp capability_kind(:commands), do: {:commands, nil}
 
-  defp capability_reason(
-         _key,
-         %Capability{available?: available?, reason: reason},
-         _selected_identity
-       )
-       when available? != true,
-       do: reason
-
   defp capability_reason(key, %Capability{} = capability, selected_identity) do
     if same_identity?(capability.identity, selected_identity) do
-      capability_state_reason(key, capability)
+      capability_availability_reason(key, capability)
     else
       :identity_mismatch
     end
   end
+
+  defp capability_availability_reason(_key, %Capability{available?: available?, reason: reason}) when available? != true,
+    do: reason
+
+  defp capability_availability_reason(key, capability), do: capability_state_reason(key, capability)
 
   defp capability_state_reason(:chat, %Capability{active?: active?}) when active? != true,
     do: :inactive

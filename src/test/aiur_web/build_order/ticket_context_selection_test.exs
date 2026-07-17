@@ -16,13 +16,14 @@ defmodule AiurWeb.BuildOrder.TicketContextSelectionTest do
              close: "build-order-context-close"
            }
 
-    state = Selection.open(Selection.new(), graph, navigation(graph, 2))
+    state = Selection.open(selection(), graph, navigation(graph, 2))
     origin = Selection.origin_id(graph, identity(2))
 
     assert state.status == :open
     assert state.selected == identity(2)
     assert state.history == []
     assert state.origin_id == origin
+    assert state.request_epoch == "mount-a"
     assert String.starts_with?(origin, "build-order-card-")
     assert state.focus_revision == 1
     assert is_binary(state.request_token)
@@ -63,7 +64,7 @@ defmodule AiurWeb.BuildOrder.TicketContextSelectionTest do
     original = model(100, 7, [1, 2, 3])
 
     state =
-      Selection.new()
+      selection()
       |> Selection.open(original, navigation(original, 2))
       |> Selection.replace(original, navigation(original, 1))
       |> Selection.replace(original, navigation(original, 3))
@@ -89,44 +90,44 @@ defmodule AiurWeb.BuildOrder.TicketContextSelectionTest do
   test "root, generation, repository, and duplicate-member mismatches fail closed" do
     graph = model(100, 7, [1, 2])
     original_navigation = navigation(graph, 2)
-    state = Selection.open(Selection.new(), graph, original_navigation)
+    state = Selection.open(selection(), graph, original_navigation)
 
     same_numbers_new_root = model(200, 8, [1, 2])
     assert Selection.reconcile(state, same_numbers_new_root).status == :closed
     refute navigation(same_numbers_new_root, 2) == original_navigation
-    assert Selection.open(Selection.new(), same_numbers_new_root, original_navigation) == Selection.new()
+    assert Selection.open(selection(), same_numbers_new_root, original_navigation) == selection()
 
     stale_generation = model(100, 8, [1, 2])
     refute navigation(stale_generation, 2) == original_navigation
-    assert Selection.open(Selection.new(), stale_generation, original_navigation) == Selection.new()
+    assert Selection.open(selection(), stale_generation, original_navigation) == selection()
     assert Selection.replace(state, stale_generation, navigation(stale_generation, 1)) == state
 
     foreign = identity(9, owner: "other", repository: "repo", provider_id: "FOREIGN")
     refute Selection.navigation_value(graph, foreign)
     refute Selection.origin_id(graph, foreign)
-    assert Selection.open(Selection.new(), graph, "2") == Selection.new()
-    assert Selection.open(Selection.new(), graph, "member-not-present") == Selection.new()
+    assert Selection.open(selection(), graph, "2") == selection()
+    assert Selection.open(selection(), graph, "member-not-present") == selection()
 
     duplicate = %{graph | nodes: [member_node(2), member_node(2)]}
     duplicate_value = Selection.navigation_value(graph, identity(2))
-    assert Selection.open(Selection.new(), duplicate, duplicate_value) == Selection.new()
+    assert Selection.open(selection(), duplicate, duplicate_value) == selection()
 
     malformed_node = %{member_node(2) | key: TrackerIdentity.github_key(identity(1))}
     malformed = %{graph | nodes: [malformed_node]}
     refute Selection.navigation_value(malformed, identity(2))
-    assert Selection.open(Selection.new(), malformed, duplicate_value) == Selection.new()
+    assert Selection.open(selection(), malformed, duplicate_value) == selection()
 
     invalid_generation = %{graph | generations: %{planning: :unknown, activity: 1}}
-    assert Selection.open(Selection.new(), invalid_generation, navigation(graph, 2)) == Selection.new()
+    assert Selection.open(selection(), invalid_generation, navigation(graph, 2)) == selection()
 
     mismatched_generation = put_in(graph.root.generation, 6)
     refute Selection.navigation_value(mismatched_generation, identity(2))
-    assert Selection.open(Selection.new(), mismatched_generation, original_navigation) == Selection.new()
+    assert Selection.open(selection(), mismatched_generation, original_navigation) == selection()
   end
 
   test "rejects delayed completions after every token-changing transition and reconnect" do
     graph = model(100, 7, [1, 2])
-    opened = Selection.open(Selection.new(), graph, navigation(graph, 1))
+    opened = Selection.open(selection(), graph, navigation(graph, 1))
     open_token = opened.request_token
 
     assert Selection.current_completion?(opened, open_token, identity(1))
@@ -148,6 +149,11 @@ defmodule AiurWeb.BuildOrder.TicketContextSelectionTest do
     refute Selection.current_completion?(reconnected, reconciled.request_token, identity(1))
     assert Selection.reconnect(reconnected) == reconnected
 
+    fresh_mount = Selection.open(selection("mount-b"), graph, navigation(graph, 1))
+    refute fresh_mount.request_token == open_token
+    refute Selection.current_completion?(fresh_mount, open_token, identity(1))
+    assert Selection.current_completion?(fresh_mount, fresh_mount.request_token, identity(1))
+
     current_graph = model(100, 8, [1, 2])
     reopened = Selection.open(reconnected, current_graph, navigation(current_graph, 1))
     assert reopened.status == :open
@@ -157,7 +163,7 @@ defmodule AiurWeb.BuildOrder.TicketContextSelectionTest do
 
   test "caps replacement history to the graph member bound" do
     graph = model(100, 7, [1, 2])
-    state = Selection.open(Selection.new(), graph, navigation(graph, 1))
+    state = Selection.open(selection(), graph, navigation(graph, 1))
 
     state =
       Enum.reduce(1..240, state, fn index, current ->
@@ -202,6 +208,7 @@ defmodule AiurWeb.BuildOrder.TicketContextSelectionTest do
   end
 
   defp navigation(graph, number), do: Selection.navigation_value(graph, identity(number))
+  defp selection(epoch \\ "mount-a"), do: Selection.new(epoch)
 
   defp identity(number, overrides \\ []) do
     struct!(

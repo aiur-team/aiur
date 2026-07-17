@@ -110,6 +110,39 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderTicketContextTest do
     assert html =~ "Dependency is outside the configured repository."
   end
 
+  test "renders a truthful warning when a relationship direction exceeds 100 rows" do
+    view = context()
+    template = hd(view.blocked_by)
+
+    rows =
+      Enum.map(1..101, fn index ->
+        %{
+          template
+          | edge: %{template.edge | id: "bounded-edge-#{index}"},
+            label: "Bounded relationship #{index}",
+            navigation_value: "bounded-member-#{index}"
+        }
+      end)
+
+    html =
+      render_component(&BuildOrderTicketContext.build_order_ticket_context/1, %{
+        id: "truncated-build-order-ticket-context",
+        context: %{
+          view
+          | blocked_by: rows,
+            blocked_by_metadata: %{total: 101, shown: 100, truncated?: true},
+            blocking: [],
+            blocking_metadata: %{total: 0, shown: 0, truncated?: false}
+        },
+        selection: selection()
+      })
+
+    document = Floki.parse_fragment!(html)
+    assert document |> Floki.find("#truncated-build-order-ticket-context-blocked-by + .ticket-context-status") |> Floki.text() =~ "showing 100 of 101 relationships"
+    assert length(Floki.find(document, "#truncated-build-order-ticket-context-blocked-by ~ ul > li")) == 100
+    refute html =~ "Bounded relationship 101</button>"
+  end
+
   test "preserves every base detail and history presentation state" do
     for {detail, expected} <- [
           {:available, "Ticket detail is current."},
@@ -264,6 +297,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderTicketContextTest do
       selected: identity(42),
       history: [identity(41)],
       origin_id: "build-order-card-root-member",
+      request_epoch: "component-mount",
       request_sequence: 5,
       request_token: "request-current",
       focus_revision: 5

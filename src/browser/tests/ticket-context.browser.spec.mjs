@@ -147,6 +147,18 @@ test('relationship replacement, stale completion, generation, root, and removal 
   await expect(page.locator('#ticket-context-fixture-status')).toHaveText('Unrelated LiveView patch applied.')
   await expect(chat).toBeFocused()
 
+  await page.locator('#fixture-remove-destination').evaluate((element) => element.click())
+  await expect(page.locator('#ticket-context-fixture-status')).toHaveText('Focused destination removed.')
+  await expect(dialog.getByRole('link', { name: 'Chat' })).toHaveCount(0)
+  await expect(dialog.getByRole('heading', { name: 'Configured ticket' })).toBeFocused()
+
+  const upstream = dialog.getByRole('button', { name: 'Upstream ticket' })
+  await upstream.focus()
+  await page.locator('#fixture-remove-upstream').evaluate((element) => element.click())
+  await expect(page.locator('#ticket-context-fixture-status')).toHaveText('Focused relationship removed.')
+  await expect(dialog.getByRole('button', { name: 'Upstream ticket' })).toHaveCount(0)
+  await expect(dialog.getByRole('heading', { name: 'Configured ticket' })).toBeFocused()
+
   await page.locator('#fixture-root').evaluate((element) => element.click())
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(page.locator('#ticket-context-fixture-status')).toHaveText('Build Order root changed.')

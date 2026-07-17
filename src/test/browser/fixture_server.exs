@@ -306,7 +306,8 @@ defmodule Aiur.BrowserHarness.TicketContextLive do
      |> assign(:generation, 7)
      |> assign(:members, [41, 42, 43])
      |> assign(:model, graph(100, 7, [41, 42, 43]))
-     |> assign(:selection, TicketContextSelection.new())
+     |> assign(:selection, TicketContextSelection.new(mount_epoch()))
+     |> assign(:destinations_available?, true)
      |> assign(:stale_completion, nil)
      |> assign(:fixture_status, "Ticket context closed.")
      |> assign(:tick, 0)}
@@ -392,6 +393,28 @@ defmodule Aiur.BrowserHarness.TicketContextLive do
 
   def handle_event("fixture-remove-selected", _params, socket), do: {:noreply, socket}
 
+  def handle_event("fixture-remove-upstream", _params, socket) do
+    members = Enum.reject(socket.assigns.members, &(&1 == 41))
+    generation = socket.assigns.generation + 1
+    model = graph(socket.assigns.root_number, generation, members)
+    selection = TicketContextSelection.reconcile(socket.assigns.selection, model)
+
+    {:noreply,
+     socket
+     |> assign(:members, members)
+     |> assign(:generation, generation)
+     |> assign(:model, model)
+     |> assign(:selection, selection)
+     |> assign(:fixture_status, "Focused relationship removed.")}
+  end
+
+  def handle_event("fixture-remove-destination", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:destinations_available?, false)
+     |> assign(:fixture_status, "Focused destination removed.")}
+  end
+
   def handle_event("fixture-stale-completion", _params, socket) do
     accepted? =
       case socket.assigns.stale_completion do
@@ -409,7 +432,7 @@ defmodule Aiur.BrowserHarness.TicketContextLive do
 
   @impl true
   def render(assigns) do
-    context = current_context(assigns.model, assigns.selection)
+    context = current_context(assigns.model, assigns.selection, assigns.destinations_available?)
 
     cards =
       Enum.map(assigns.model.nodes, fn node ->
@@ -451,6 +474,8 @@ defmodule Aiur.BrowserHarness.TicketContextLive do
         <button id="fixture-generation" type="button" phx-click="fixture-generation">Advance graph generation</button>
         <button id="fixture-root" type="button" phx-click="fixture-root">Switch Build Order root</button>
         <button id="fixture-remove-selected" type="button" phx-click="fixture-remove-selected">Remove selected member</button>
+        <button id="fixture-remove-upstream" type="button" phx-click="fixture-remove-upstream">Remove upstream relationship</button>
+        <button id="fixture-remove-destination" type="button" phx-click="fixture-remove-destination">Remove Chat destination</button>
         <button id="fixture-stale-completion" type="button" phx-click="fixture-stale-completion">Apply stale detail completion</button>
         <button id="fixture-tick" type="button" phx-click="fixture-tick">Apply unrelated patch</button>
       </div>
@@ -465,16 +490,16 @@ defmodule Aiur.BrowserHarness.TicketContextLive do
     """
   end
 
-  defp current_context(model, %{status: :open, selected: %TrackerIdentity{} = selected}) do
+  defp current_context(model, %{status: :open, selected: %TrackerIdentity{} = selected}, destinations_available?) do
     model
-    |> TicketContextAdapter.present(selected, base_context(selected), capabilities(selected))
+    |> TicketContextAdapter.present(selected, base_context(selected), capabilities(selected, destinations_available?))
     |> case do
       %{status: :available} = context -> context
       _unavailable -> nil
     end
   end
 
-  defp current_context(_model, _selection), do: nil
+  defp current_context(_model, _selection, _destinations_available?), do: nil
 
   defp base_context(%TrackerIdentity{} = identity) do
     {title, detail_state, history_state} = ticket_states(identity.identifier)
@@ -534,7 +559,13 @@ defmodule Aiur.BrowserHarness.TicketContextLive do
   defp ticket_states("43"), do: {"Downstream ticket", :stale, :stale}
   defp ticket_states(_identifier), do: {"Configured ticket", :available, :available}
 
-  defp capabilities(%TrackerIdentity{identifier: "43"} = identity) do
+  defp capabilities(%TrackerIdentity{} = identity, false) do
+    identity
+    |> capabilities(true)
+    |> Map.put(:chat, %{available?: false, identity: identity, reason: :stale})
+  end
+
+  defp capabilities(%TrackerIdentity{identifier: "43"} = identity, true) do
     %{
       issue: %{available?: true, destination: issue_url(identity), identity: identity},
       pull_request: %{available?: false, identity: identity, reason: :not_opened},
@@ -543,7 +574,7 @@ defmodule Aiur.BrowserHarness.TicketContextLive do
     }
   end
 
-  defp capabilities(%TrackerIdentity{} = identity) do
+  defp capabilities(%TrackerIdentity{} = identity, true) do
     %{
       issue: %{available?: true, destination: issue_url(identity), identity: identity},
       pull_request: %{available?: false, identity: identity, reason: :not_opened},
@@ -551,6 +582,8 @@ defmodule Aiur.BrowserHarness.TicketContextLive do
       commands: %{available?: true, destination: "/decisions/#{identity.identifier}", identity: identity, readable?: true}
     }
   end
+
+  defp mount_epoch, do: "ticket-context-mount-#{System.unique_integer([:positive, :monotonic])}"
 
   defp graph(root_number, generation, members) do
     nodes = Enum.map(members, &member/1)

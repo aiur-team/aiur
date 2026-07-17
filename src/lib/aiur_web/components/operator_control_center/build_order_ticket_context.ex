@@ -6,6 +6,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderTicketContext do
   alias Aiur.BuildOrder.{Bounded, Diagnostic}
   alias Aiur.OpaqueIdentifier
   alias Aiur.TrackerIdentity
+  alias AiurWeb.BuildOrder.TicketContextAdapter
   alias AiurWeb.BuildOrder.TicketContextAdapter.Relationship
   alias AiurWeb.BuildOrder.TicketContextAdapter.View
   alias AiurWeb.BuildOrder.TicketContextSelection
@@ -14,7 +15,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderTicketContext do
 
   @edge_states [:cleared, :blocking, :terminal_unsatisfied, :unknown, :cyclic]
   @readiness_states [:ready, :blocking, :terminal_unsatisfied, :unknown, :cyclic]
-  @max_relationships 100
+  @max_relationships TicketContextAdapter.max_relationships()
   @max_diagnostics 100
 
   attr(:id, :string, required: true)
@@ -55,6 +56,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderTicketContext do
               empty="No upstream blockers are available."
               direction={:blocked_by}
               rows={@context.blocked_by}
+              metadata={@context.blocked_by_metadata}
               replace_event={@events.replace}
             />
             <.relationship_section
@@ -63,6 +65,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderTicketContext do
               empty="No downstream tickets are available."
               direction={:blocking}
               rows={@context.blocking}
+              metadata={@context.blocking_metadata}
               replace_event={@events.replace}
             />
           </div>
@@ -88,6 +91,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderTicketContext do
   attr(:empty, :string, required: true)
   attr(:direction, :atom, required: true)
   attr(:rows, :list, required: true)
+  attr(:metadata, :map, required: true)
   attr(:replace_event, :string, required: true)
 
   defp relationship_section(assigns) do
@@ -95,6 +99,9 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderTicketContext do
     <section class="build-order-context-section" aria-labelledby={@id}>
       <h3 id={@id}>{@heading}</h3>
       <p :if={@rows == []} class="empty-state compact">{@empty}</p>
+      <p :if={@metadata.truncated?} class="ticket-context-status" role="status">
+        {@heading}: showing {@metadata.shown} of {@metadata.total} relationships. Additional relationships are not shown.
+      </p>
       <ul :if={@rows != []} class="build-order-context-relationships">
         <li :for={row <- @rows} data-edge-state={row.edge.state}>
           <article>
@@ -138,14 +145,27 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderTicketContext do
   end
 
   defp context_view(%View{status: :available} = view) do
+    blocked_by = safe_rows(view.blocked_by, :blocked_by)
+    blocking = safe_rows(view.blocking, :blocking)
+
     %{
       view
-      | blocked_by: safe_rows(view.blocked_by, :blocked_by),
-        blocking: safe_rows(view.blocking, :blocking)
+      | blocked_by: blocked_by,
+        blocked_by_metadata: safe_relationship_metadata(view.blocked_by_metadata, blocked_by),
+        blocking: blocking,
+        blocking_metadata: safe_relationship_metadata(view.blocking_metadata, blocking)
     }
   end
 
-  defp context_view(%View{} = view), do: %{view | blocked_by: [], blocking: []}
+  defp context_view(%View{} = view) do
+    %{
+      view
+      | blocked_by: [],
+        blocked_by_metadata: empty_relationship_metadata(),
+        blocking: [],
+        blocking_metadata: empty_relationship_metadata()
+    }
+  end
 
   defp safe_rows(rows, direction) do
     rows
@@ -185,6 +205,20 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderTicketContext do
   end
 
   defp safe_row(_row, _direction), do: []
+
+  defp safe_relationship_metadata(%{total: total}, rows)
+       when is_integer(total) and total >= 0 do
+    shown = length(rows)
+    total = max(total, shown)
+    %{total: total, shown: shown, truncated?: total > shown}
+  end
+
+  defp safe_relationship_metadata(_metadata, rows) do
+    shown = length(rows)
+    %{total: shown, shown: shown, truncated?: false}
+  end
+
+  defp empty_relationship_metadata, do: %{total: 0, shown: 0, truncated?: false}
 
   defp safe_outbound_url(%Relationship{
          edge: %Edge{kind: :external},

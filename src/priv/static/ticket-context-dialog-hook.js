@@ -85,7 +85,8 @@
 
         const candidate = Array.from(this.el.querySelectorAll("[data-ticket-context-focus]"))
           .find((element) => element.dataset.ticketContextFocus === focusKey);
-        candidate?.focus();
+        const heading = this.el.querySelector("[data-dialog-heading]");
+        (candidate || heading || this.el).focus();
       });
     }
   };

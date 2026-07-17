@@ -847,12 +847,12 @@ defmodule AiurWeb.BuildOrderPresenter do
   end
 
   defp normalize_capabilities(capabilities) when is_map(capabilities) do
-    Map.new(@capability_keys, fn key -> {key, normalize_capability(Map.get(capabilities, key))} end)
+    Map.new(@capability_keys, fn key -> {key, normalize_capability(key, Map.get(capabilities, key))} end)
   end
 
   defp normalize_capabilities(_capabilities), do: normalize_capabilities(%{})
 
-  defp normalize_capability(capability) when is_map(capability) do
+  defp normalize_capability(key, capability) when key in @capability_keys and is_map(capability) do
     destination = Map.get(capability, :destination) || Map.get(capability, :url) || Map.get(capability, :path)
     identity = safe_capability_identity(Map.get(capability, :identity))
     number = safe_capability_number(Map.get(capability, :number))
@@ -860,11 +860,14 @@ defmodule AiurWeb.BuildOrderPresenter do
     active? = optional_boolean(Map.get(capability, :active?))
     readable? = optional_boolean(Map.get(capability, :readable?))
 
-    case {Map.get(capability, :available?) == true, safe_destination(destination)} do
-      {true, nil} ->
+    case {Map.get(capability, :available?) == true, is_struct(identity, TrackerIdentity), safe_destination(key, destination, identity, number)} do
+      {true, false, _destination} ->
         unavailable_capability(:invalid_destination, identity, number, label, active?, readable?)
 
-      {true, safe} ->
+      {true, true, nil} ->
+        unavailable_capability(:invalid_destination, identity, number, label, active?, readable?)
+
+      {true, true, safe} ->
         %Capability{
           identity: identity,
           destination: safe,
@@ -876,12 +879,12 @@ defmodule AiurWeb.BuildOrderPresenter do
           readable?: readable?
         }
 
-      {false, _destination} ->
+      {false, _identity?, _destination} ->
         unavailable_capability(safe_reason(Map.get(capability, :reason)), identity, number, label, active?, readable?)
     end
   end
 
-  defp normalize_capability(_capability), do: unavailable_capability(:unavailable)
+  defp normalize_capability(_key, _capability), do: unavailable_capability(:unavailable)
 
   defp unavailable_capability(reason, identity \\ nil, number \\ nil, label \\ nil, active? \\ nil, readable? \\ nil) do
     %Capability{
@@ -896,21 +899,14 @@ defmodule AiurWeb.BuildOrderPresenter do
     }
   end
 
-  defp safe_destination(value) when is_binary(value) do
-    case Bounded.relative_route(value) do
-      {:ok, safe} -> safe
-      :error -> safe_github_destination(value)
-    end
-  end
+  defp safe_destination(:issue, value, identity, _number), do: safe_destination_result(Bounded.github_issue_url_for(value, identity))
+  defp safe_destination(:pull_request, value, identity, number), do: safe_destination_result(Bounded.github_pull_request_url_for(value, identity, number))
+  defp safe_destination(:chat, value, identity, _number), do: safe_destination_result(Bounded.chat_route_for(value, identity))
+  defp safe_destination(:commands, value, _identity, _number), do: safe_destination_result(Bounded.commands_route(value))
+  defp safe_destination(_key, _value, _identity, _number), do: nil
 
-  defp safe_destination(_value), do: nil
-
-  defp safe_github_destination(value) do
-    case Bounded.github_url(value) do
-      {:ok, safe} -> safe
-      :error -> nil
-    end
-  end
+  defp safe_destination_result({:ok, safe}), do: safe
+  defp safe_destination_result(:error), do: nil
 
   defp safe_label(value) when is_binary(value) and byte_size(value) in 1..80 and value != "" do
     if String.valid?(value) and not String.match?(value, ~r/[\x00-\x1F\x7F]/), do: value

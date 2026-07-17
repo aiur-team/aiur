@@ -4,7 +4,8 @@ defmodule AiurWeb.BuildOrder.TicketContextSelection do
 
   Navigation values, request tokens, and origin identifiers are deterministic,
   bounded, and derived from exact repository-qualified identities. The reducer
-  performs no I/O and retains no client-only selection cache.
+  performs no I/O and retains no client-only selection cache. Callers inject a
+  fresh opaque request epoch for every LiveView mount.
   """
 
   alias Aiur.BuildOrder.Bounded
@@ -28,6 +29,7 @@ defmodule AiurWeb.BuildOrder.TicketContextSelection do
           selected: TrackerIdentity.t() | nil,
           history: [TrackerIdentity.t()],
           origin_id: String.t() | nil,
+          request_epoch: String.t() | nil,
           request_sequence: non_neg_integer(),
           request_token: String.t() | nil,
           focus_revision: non_neg_integer()
@@ -39,13 +41,14 @@ defmodule AiurWeb.BuildOrder.TicketContextSelection do
             selected: nil,
             history: [],
             origin_id: nil,
+            request_epoch: nil,
             request_sequence: 0,
             request_token: nil,
             focus_revision: 0
 
-  @doc "Returns an empty disposable selection state."
-  @spec new() :: t()
-  def new, do: %__MODULE__{}
+  @doc "Returns an empty disposable selection state scoped to one caller-provided mount epoch."
+  @spec new(term()) :: t()
+  def new(request_epoch), do: %__MODULE__{request_epoch: OpaqueIdentifier.normalize(request_epoch)}
 
   @doc "Returns the fixed navigation-only event names owned by BO-011."
   @spec event_names() :: %{replace: String.t(), back: String.t(), close: String.t()}
@@ -86,7 +89,8 @@ defmodule AiurWeb.BuildOrder.TicketContextSelection do
   @doc "Opens context for one exact current member navigation value."
   @spec open(t(), BuildOrderViewModel.t(), term()) :: t()
   def open(%__MODULE__{status: :closed} = state, %BuildOrderViewModel{} = model, navigation_value) do
-    with {:ok, {root_key, generation}} <- scope(model),
+    with request_epoch when is_binary(request_epoch) <- state.request_epoch,
+         {:ok, {root_key, generation}} <- scope(model),
          %Node{identity: identity} <- resolve_navigation(model, navigation_value),
          origin when is_binary(origin) <- origin_id(model, identity) do
       state
@@ -106,7 +110,7 @@ defmodule AiurWeb.BuildOrder.TicketContextSelection do
   end
 
   def open(%__MODULE__{} = state, _model, _navigation_value), do: state
-  def open(_state, _model, _navigation_value), do: new()
+  def open(_state, _model, _navigation_value), do: %__MODULE__{}
 
   @doc "Replaces the current ticket with one exact member in the same current scope."
   @spec replace(t(), BuildOrderViewModel.t(), term()) :: t()
@@ -127,7 +131,7 @@ defmodule AiurWeb.BuildOrder.TicketContextSelection do
   end
 
   def replace(%__MODULE__{} = state, _model, _navigation_value), do: state
-  def replace(_state, _model, _navigation_value), do: new()
+  def replace(_state, _model, _navigation_value), do: %__MODULE__{}
 
   @doc "Returns to the newest surviving exact member in bounded relationship history."
   @spec back(t(), BuildOrderViewModel.t()) :: t()
@@ -147,7 +151,7 @@ defmodule AiurWeb.BuildOrder.TicketContextSelection do
   end
 
   def back(%__MODULE__{} = state, _model), do: state
-  def back(_state, _model), do: new()
+  def back(_state, _model), do: %__MODULE__{}
 
   @doc "Reconciles an open selection against a current root and planning generation."
   @spec reconcile(t(), BuildOrderViewModel.t()) :: t()
@@ -175,25 +179,26 @@ defmodule AiurWeb.BuildOrder.TicketContextSelection do
   end
 
   def reconcile(%__MODULE__{} = state, _model), do: state
-  def reconcile(_state, _model), do: new()
+  def reconcile(_state, _model), do: %__MODULE__{}
 
   @doc "Closes context and invalidates the current completion token."
   @spec close(t()) :: t()
   def close(%__MODULE__{status: :open} = state) do
     %__MODULE__{
+      request_epoch: state.request_epoch,
       request_sequence: state.request_sequence + 1,
       focus_revision: state.focus_revision
     }
   end
 
   def close(%__MODULE__{} = state), do: state
-  def close(_state), do: new()
+  def close(_state), do: %__MODULE__{}
 
   @doc "Clears open selection during reconnect and invalidates its completion generation."
   @spec reconnect(t()) :: t()
   def reconnect(%__MODULE__{status: :open} = state), do: close(state)
   def reconnect(%__MODULE__{} = state), do: state
-  def reconnect(_state), do: new()
+  def reconnect(_state), do: %__MODULE__{}
 
   @doc "Checks that delayed base-context data belongs to the exact current request."
   @spec current_completion?(t(), term(), term()) :: boolean()
@@ -205,7 +210,7 @@ defmodule AiurWeb.BuildOrder.TicketContextSelection do
 
   defp rotate_request(%__MODULE__{} = state) do
     sequence = state.request_sequence + 1
-    token = opaque("request", {state.root_key, state.generation, TrackerIdentity.github_key(state.selected), sequence})
+    token = opaque("request", {state.request_epoch, state.root_key, state.generation, TrackerIdentity.github_key(state.selected), sequence})
     %{state | request_sequence: sequence, request_token: token}
   end
 
