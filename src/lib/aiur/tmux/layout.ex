@@ -62,11 +62,21 @@ defmodule Aiur.Tmux.Layout do
   @spec new_hidden_window(map(), String.t(), String.t()) ::
           {:ok, String.t()} | {:error, term()}
   def new_hidden_window(state, window_name, command_to_run) do
+    new_hidden_window(state, window_name, command_to_run, [])
+  end
+
+  @spec new_hidden_window_with_env(map(), String.t(), String.t(), [{String.t(), String.t() | false}]) ::
+          {:ok, String.t()} | {:error, term()}
+  def new_hidden_window_with_env(state, window_name, command_to_run, env) when is_list(env) do
+    new_hidden_window(state, window_name, command_to_run, env)
+  end
+
+  defp new_hidden_window(state, window_name, command_to_run, env) do
     # `-d` keeps the new window in the background; `-P -F #{pane_id}` makes
     # tmux print the pane id so we can target it later for `join-pane`.
-    args = ["new-window", "-d", "-n", window_name, "-P", "-F", "\#{pane_id}", command_to_run]
+    args = ["new-window", "-d", "-n", window_name] ++ env_args(env) ++ ["-P", "-F", "\#{pane_id}", command_to_run]
 
-    case Exec.run_args(state, args) do
+    case run_window_command(state, args, env) do
       {:ok, [pane_id | _]} ->
         {:ok, String.trim(pane_id)}
 
@@ -80,7 +90,7 @@ defmodule Aiur.Tmux.Layout do
       # the headless fallback. Later spawns reuse the server via `new-window`.
       {:error, reason} = err ->
         if no_server?(reason) do
-          bootstrap_window(state, window_name, command_to_run)
+          bootstrap_window(state, window_name, command_to_run, env)
         else
           err
         end
@@ -155,24 +165,47 @@ defmodule Aiur.Tmux.Layout do
   # Create the holder session detached, running the REPL command as its first
   # window — `new-session` starts the server when none exists, so the pane is
   # spawned in one shot and `-P -F #{pane_id}` prints its id.
-  defp bootstrap_window(state, window_name, command_to_run) do
-    args = [
-      "new-session",
-      "-d",
-      "-s",
-      state.session,
-      "-n",
-      window_name,
-      "-P",
-      "-F",
-      "\#{pane_id}",
-      command_to_run
-    ]
+  defp bootstrap_window(state, window_name, command_to_run, env) do
+    args =
+      [
+        "new-session",
+        "-d",
+        "-s",
+        state.session,
+        "-n",
+        window_name
+      ] ++
+        env_args(env) ++
+        [
+          "-P",
+          "-F",
+          "\#{pane_id}",
+          command_to_run
+        ]
 
-    case Exec.run_args(state, args) do
+    case run_window_command(state, args, env) do
       {:ok, [pane_id | _]} -> {:ok, String.trim(pane_id)}
       {:ok, []} -> {:error, :no_pane_id}
       {:error, _} = err -> err
     end
   end
+
+  defp run_window_command(state, args, []), do: Exec.run_args(state, args)
+  defp run_window_command(state, args, _env), do: Exec.run_args_silent(state, args)
+
+  defp env_args(env) do
+    env
+    |> Enum.flat_map(fn
+      {name, value} when is_binary(name) and is_binary(value) ->
+        if valid_env_name?(name), do: ["-e", name <> "=" <> value], else: []
+
+      {name, false} when is_binary(name) ->
+        if valid_env_name?(name), do: ["-e", name <> "="], else: []
+
+      _ ->
+        []
+    end)
+  end
+
+  defp valid_env_name?(name), do: name != "" and not String.contains?(name, "=")
 end
