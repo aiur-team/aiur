@@ -59,11 +59,21 @@ defmodule Aiur.Claude.AccountGeneration do
   end
 
   defp transition(server, binding, authority, auth_mode, auth_mode) do
-    ProviderAccountGeneration.confirm(server, :claude, :app_server, binding,
-      source: :claude_app_server,
-      auth_mode: Atom.to_string(auth_mode),
-      authority: authority
-    )
+    case ProviderAccountGeneration.lookup(server, :claude, :app_server, binding) do
+      %{generation: generation, freshness: :current, health: :healthy} when is_binary(generation) ->
+        ProviderAccountGeneration.confirm(server, :claude, :app_server, binding,
+          source: :claude_app_server,
+          auth_mode: Atom.to_string(auth_mode),
+          authority: authority
+        )
+
+      _unknown ->
+        ProviderAccountGeneration.bind(server, :claude, :app_server, binding,
+          source: :claude_app_server,
+          auth_mode: Atom.to_string(auth_mode),
+          authority: authority
+        )
+    end
   end
 
   defp transition(server, binding, authority, _previous, auth_mode) do

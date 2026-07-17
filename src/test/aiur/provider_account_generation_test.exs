@@ -584,6 +584,28 @@ defmodule Aiur.ProviderAccountGenerationTest do
 
       assert is_binary(generation)
     end
+
+    for auth_mode <- ~w(subscription api_key) do
+      assert {:ok, %{generation: generation}} =
+               ProviderAccountGeneration.bind(owner, :claude, :app_server, issued_binding(owner, :claude),
+                 source: :claude_app_server,
+                 auth_mode: auth_mode
+               )
+
+      assert is_binary(generation)
+    end
+
+    assert {:ok, %{generation: nil, reason: :owner_unavailable}} =
+             ProviderAccountGeneration.bind(owner, :codex, :app_server, issued_binding(owner),
+               source: :codex_app_server,
+               auth_mode: "subscription"
+             )
+
+    assert {:ok, %{generation: nil, reason: :owner_unavailable}} =
+             ProviderAccountGeneration.bind(owner, :claude, :app_server, issued_binding(owner, :claude),
+               source: :claude_app_server,
+               auth_mode: "chatgpt"
+             )
   end
 
   test "default minting is non-derivable and distinct" do

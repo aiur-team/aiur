@@ -4,6 +4,7 @@ defmodule Aiur.Claude.RateLimitAdapter do
   @source :claude_app_server
   @limit_id "rate-limit"
   @freshness_seconds 300
+  @max_unix_seconds 253_402_300_799
   @statuses ~w(allowed allowed_warning rejected unknown)
   @account_types ~w(subscription api_key unknown)
   @payload_keys ~w(jsonrpc method params)
@@ -14,36 +15,9 @@ defmodule Aiur.Claude.RateLimitAdapter do
   @spec snapshot(map(), reference(), DateTime.t()) :: {:ok, map()} | {:error, :malformed}
   def snapshot(payload, binding, observed_at)
       when is_map(payload) and is_reference(binding) and is_struct(observed_at, DateTime) do
-    with :ok <- only_keys(payload, @payload_keys),
-         "rate_limit/update" <- Map.get(payload, "method"),
-         %{} = params <- Map.get(payload, "params"),
-         :ok <- only_keys(params, @params_keys),
-         :ok <- correlation(Map.get(params, "turn_id")),
-         :ok <- correlation(Map.get(params, "thread_id")),
-         %{} = rate_limit <- Map.get(params, "rate_limit"),
-         :ok <- only_keys(rate_limit, @rate_limit_keys),
-         {:ok, standing} <- enum(Map.get(rate_limit, "status"), @statuses),
-         {:ok, auth_mode} <- auth_mode(Map.get(rate_limit, "account_type")),
-         {:ok, source_version} <- source_version(Map.get(rate_limit, "source_version")),
-         {:ok, used_percent} <- optional_percent(Map.get(rate_limit, "used_percent")),
-         {:ok, resets_at} <- optional_reset(Map.get(rate_limit, "resets_at")) do
-      {:ok,
-       %{
-         schema_version: 1,
-         # The pinned method carries the complete current state of its one
-         # anonymous rate-limit control. Treating it as a full observation
-         # permits honest failure recovery without inventing sparse window IDs.
-         update_kind: :snapshot,
-         provider: :claude,
-         backend: :app_server,
-         account_generation_binding: binding,
-         auth_mode: auth_mode,
-         plan: nil,
-         observed_at: observed_at,
-         source: @source,
-         source_version: source_version,
-         windows: [window(standing, used_percent, resets_at, observed_at)]
-       }}
+    with {:ok, rate_limit} <- notification_rate_limit(payload),
+         {:ok, facts} <- rate_limit_facts(rate_limit) do
+      {:ok, update(binding, observed_at, facts)}
     else
       _ -> {:error, :malformed}
     end
@@ -60,6 +34,60 @@ defmodule Aiur.Claude.RateLimitAdapter do
       account_generation_binding: binding,
       reason: failure_reason(reason),
       observed_at: observed_at
+    }
+  end
+
+  defp notification_rate_limit(payload) do
+    with :ok <- only_keys(payload, @payload_keys),
+         "2.0" <- Map.get(payload, "jsonrpc"),
+         "rate_limit/update" <- Map.get(payload, "method"),
+         %{} = params <- Map.get(payload, "params"),
+         :ok <- only_keys(params, @params_keys),
+         :ok <- correlation(Map.get(params, "turn_id")),
+         :ok <- correlation(Map.get(params, "thread_id")),
+         %{} = rate_limit <- Map.get(params, "rate_limit") do
+      {:ok, rate_limit}
+    else
+      _ -> {:error, :malformed}
+    end
+  end
+
+  defp rate_limit_facts(rate_limit) do
+    with :ok <- only_keys(rate_limit, @rate_limit_keys),
+         {:ok, standing} <- enum(Map.get(rate_limit, "status"), @statuses),
+         {:ok, auth_mode} <- auth_mode(Map.get(rate_limit, "account_type")),
+         {:ok, source_version} <- source_version(Map.get(rate_limit, "source_version")),
+         {:ok, used_percent} <- optional_percent(Map.get(rate_limit, "used_percent")),
+         {:ok, resets_at} <- optional_reset(Map.get(rate_limit, "resets_at")) do
+      {:ok,
+       %{
+         standing: standing,
+         auth_mode: auth_mode,
+         source_version: source_version,
+         used_percent: used_percent,
+         resets_at: resets_at
+       }}
+    else
+      _ -> {:error, :malformed}
+    end
+  end
+
+  defp update(binding, observed_at, facts) do
+    %{
+      schema_version: 1,
+      # The pinned method carries the complete current state of its one
+      # anonymous rate-limit control. Treating it as a full observation
+      # permits honest failure recovery without inventing sparse window IDs.
+      update_kind: :snapshot,
+      provider: :claude,
+      backend: :app_server,
+      account_generation_binding: binding,
+      auth_mode: facts.auth_mode,
+      plan: nil,
+      observed_at: observed_at,
+      source: @source,
+      source_version: facts.source_version,
+      windows: [window(facts.standing, facts.used_percent, facts.resets_at, observed_at)]
     }
   end
 
@@ -121,14 +149,14 @@ defmodule Aiur.Claude.RateLimitAdapter do
 
   defp optional_reset(nil), do: {:ok, nil}
 
-  defp optional_reset(value) when is_integer(value) and value >= 0 do
+  defp optional_reset(value) when is_integer(value) and value >= 0 and value <= @max_unix_seconds do
     case DateTime.from_unix(value) do
       {:ok, datetime} -> {:ok, datetime}
       _ -> {:error, :malformed}
     end
   end
 
-  defp optional_reset(value) when is_float(value) and value >= 0 do
+  defp optional_reset(value) when is_float(value) and value >= 0 and value <= @max_unix_seconds do
     case DateTime.from_unix(round(value * 1_000), :millisecond) do
       {:ok, datetime} -> {:ok, datetime}
       _ -> {:error, :malformed}

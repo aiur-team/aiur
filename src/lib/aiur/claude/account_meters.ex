@@ -1,6 +1,8 @@
 defmodule Aiur.Claude.AccountMeters do
   @moduledoc false
 
+  require Logger
+
   alias Aiur.Claude.{AccountGeneration, RateLimitAdapter}
   alias Aiur.ProviderMeters
 
@@ -14,17 +16,14 @@ defmodule Aiur.Claude.AccountMeters do
 
     with binding when is_reference(binding) <- Map.get(session, :account_generation_binding),
          {:ok, update} <- RateLimitAdapter.snapshot(payload, binding, observed_at),
-         {:ok, ^binding} <- AccountGeneration.observe(session, update.auth_mode),
-         {:ok, _snapshot} <- meter_ingester(session).(update) do
-      :ok
+         {:ok, ^binding} <- AccountGeneration.observe(session, update.auth_mode) do
+      ingest(session, update, observed_at)
     else
       {:error, reason} ->
-        record_failure(session, reason, observed_at)
-        {:error, reason}
+        fail(session, reason, observed_at)
 
       _other ->
-        record_failure(session, :malformed, observed_at)
-        {:error, :malformed}
+        fail(session, :malformed, observed_at)
     end
   end
 
@@ -35,13 +34,44 @@ defmodule Aiur.Claude.AccountMeters do
     %{payload: %{"method" => @redacted_method, "params" => %{}}, raw: nil}
   end
 
-  defp record_failure(session, reason, observed_at) do
-    with {:ok, binding} <- AccountGeneration.trusted_binding(session) do
-      recorder = meter_failure_recorder(session)
-      recorder.(RateLimitAdapter.failure(binding, reason, observed_at))
-    end
+  defp ingest(session, update, observed_at) do
+    case meter_ingester(session).(update) do
+      {:ok, _snapshot} ->
+        :ok
 
-    :ok
+      _error ->
+        fail(session, :malformed, observed_at)
+    end
+  end
+
+  defp fail(session, reason, observed_at) do
+    case record_failure(session, reason, observed_at) do
+      :ok ->
+        {:error, reason}
+
+      {:error, :unknown_account_generation} ->
+        {:error, :unknown_account_generation}
+
+      {:error, :failure_recorder_rejected} ->
+        Logger.error("Claude provider-meter failure could not be recorded: #{reason}")
+
+        {:error, :provider_meter_failure_unrecorded}
+    end
+  end
+
+  defp record_failure(session, reason, observed_at) do
+    case AccountGeneration.trusted_binding(session) do
+      {:ok, binding} -> record_failure(meter_failure_recorder(session), binding, reason, observed_at)
+      :error -> {:error, :unknown_account_generation}
+    end
+  end
+
+  defp record_failure(recorder, binding, reason, observed_at) do
+    case recorder.(RateLimitAdapter.failure(binding, reason, observed_at)) do
+      :ok -> :ok
+      {:ok, _snapshot} -> :ok
+      _error -> {:error, :failure_recorder_rejected}
+    end
   end
 
   defp meter_ingester(session), do: Map.get(session, :provider_meter_ingester, &ProviderMeters.ingest/1)
