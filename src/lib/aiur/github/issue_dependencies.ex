@@ -89,6 +89,23 @@ defmodule Aiur.GitHub.IssueDependencies do
     end
   end
 
+  @doc "Checks the authoritative GitHub dependency state."
+  @spec declared?(integer() | String.t(), integer() | String.t(), keyword()) ::
+          {:ok, boolean()} | {:error, term()}
+  def declared?(current_number, blocker_number, opts \\ []) do
+    request_fun = Keyword.get(opts, :request_fun)
+    client_opts = if request_fun, do: [request_fun: request_fun], else: []
+
+    with {:ok, blocker_issue} <- fetch_blocker(blocker_number, client_opts),
+         blocker_id when is_integer(blocker_id) <- Map.get(blocker_issue, "id"),
+         {:ok, dependencies} <- Client.fetch_blocked_by(current_number, client_opts) do
+      {:ok, Enum.any?(dependencies, &(Map.get(&1, "id") == blocker_id))}
+    else
+      {:error, reason} -> {:error, reason}
+      other -> {:error, {:unexpected, other}}
+    end
+  end
+
   defp fetch_blocker(blocker_number, client_opts) do
     case Client.fetch_issue_raw(blocker_number, client_opts) do
       {:ok, issue} -> {:ok, issue}

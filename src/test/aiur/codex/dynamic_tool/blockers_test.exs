@@ -16,7 +16,7 @@ defmodule Aiur.Codex.DynamicTool.BlockersTest do
       decoded = Jason.decode!(response["output"])
       assert decoded["ok"] == true
       assert decoded["issue_number"] == 42
-      assert decoded["result"] == "42"
+      assert decoded["result"] == 42
     end
 
     test "atom result is rendered as a string" do
