@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Current Executor checkpoint (updated 2026-07-17 10:02 PDT)
+## Current Executor checkpoint (updated 2026-07-17 10:32 PDT)
 
 The live Executor is Codex-only on the literal `develop` runtime checkout at
 `/home/orangekid/github/aiur-runtime-develop`. It was force-built before launch
@@ -20,19 +20,26 @@ exact delta, recheck `main` ancestry, safely fast-forward the runtime checkout
 without losing its two local files, broadcast the exact SHA to every owner,
 and only then release parked/rework lanes.
 
-Two sole-writer direct Codex implementations are live. BO-012/#1099 retains
-substantial dirty route, registry, LiveView, data-source, browser, and test
-work. DASH-014/#1120 is now fully quiesced from Aiur and its direct takeover is
-auditing the preserved ten-finding projection rework before focused gates.
-DASH-003/#1110 is parked one commit ahead at `d708e629`; an independent focused
-review proved the two alias substitutions preserve behavior, and narrow Credo,
-format, plus both enclosing tests pass. DASH-009/#1115 is parked one commit
-ahead at `1ec2e9fe`; content-addressed verified SHA-256 quarantine reuse, stable
-repeated-restart entry/byte bounds, mismatch/symlink failure, and four Credo
-repairs pass focused ledger/recovery, format, compile, specs, and Dialyzer gates.
-Both parked heads still require exact-head Compound Engineering review now and
-fresh exact-base qualification after the setup boundary is resolved; neither
-has been pushed.
+BO-012/#1099 is the only active ticket lane and has moved from implementation
+into sequential Tier-2 Compound Engineering review. U1–U6 compile, 77 focused
+ExUnit tests, and the production Build Order browser route pass. Review has
+already confirmed repository-topic resubscription, route-owned recurring timer,
+context-event identity, lifecycle/race coverage, source-error logging, module
+size, and fixture CSS-auth gaps. The owner will repair these in one coherent
+pass after all reviewer lenses return, then rerun browser suites sequentially.
+
+Three local repair heads are parked without pushes. DASH-003/#1110 is one
+commit ahead at `d708e629`; independent focused review, narrow Credo, format,
+and both enclosing tests pass. DASH-009/#1115 is one commit ahead at
+`1ec2e9fe`; bounded verified SHA-256 quarantine reuse and all focused/static
+gates pass. DASH-014/#1120 is one commit ahead at `a3930393`; all ten review
+findings are reconciled, split production modules are at most 195 lines, and
+compile, format, specs, lint, Dialyzer, plus 68 focused tests pass. Its full
+suite's three order-sensitive failures pass isolated. The fourth was explicit
+`/tmp` ENOSPC; the Executor removed 44 inactive leaked test roots and two
+orphan servers, recovered 3.9 GB, and the exact reconstruction test then passed
+1/1. All three heads still need independent exact-head review and fresh
+exact-base qualification after the setup boundary is resolved.
 
 Keep #1130/PR #1217, #1240/PR #1242, #1237/PR #1243, and #1238/PR #1241 parked
 as `agent:rework + agent:paused` until the setup base lands. #1116/PR #1232 and

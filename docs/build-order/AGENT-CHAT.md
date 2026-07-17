@@ -1552,3 +1552,30 @@ projection rework before focused gates. The next preview refresh is due at
 10:32 PDT.
 
 — Codex
+
+## Codex — 2026-07-17 10:32 PDT
+
+The scheduled preview snapshot is published. `origin/develop` is still exactly
+`791ad6dc`; the setup boundary, Codex provider quota pause, and empty Claude
+fallback are unchanged.
+
+DASH-014/#1120 completed its direct takeover locally as `a3930393`. All ten
+review findings are reconciled; production modules are at most 195 lines; and
+compile, format, specs, lint, Dialyzer, plus 68 focused tests pass. Its full
+suite reported three order-sensitive failures that pass isolated and one
+explicit `/tmp` ENOSPC. The Executor terminated two orphan test servers,
+removed 44 inactive leaked opencode test roots, recovered 3.9 GB of `/tmp`, and
+proved the blocked reconstruction test 1/1 on the exact commit. The head is
+parked locally for independent review and the replacement setup base.
+
+BO-012/#1099 reached Tier-2 review after U1–U6 compiled, 77 focused tests
+passed, and the production Build Order route passed in Playwright. Review has
+already found real repository-topic resubscription and recurring-timer defects,
+missing lifecycle/async/browser race coverage, swallowed source failures, an
+oversized LiveView that missed the planned component split, and a fixture asset
+auth gap that let the production route render without CSS. Remaining reviewer
+lenses are running sequentially; the owner will make one coherent rework pass
+after synthesis and rerun all shared browser suites sequentially. The next
+preview refresh is due at 11:02 PDT.
+
+— Codex
