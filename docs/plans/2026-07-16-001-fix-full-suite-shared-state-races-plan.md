@@ -10,11 +10,12 @@ issue: 1222
 
 ## Summary
 
-Two test fixtures repeatedly fail on unrelated pull-request heads: BuildGate's
-detached descendants expire on wall-clock sleeps before the capacity assertion,
-and the Observability PubSub test removes and restores the application-global
-PubSub child while the shared supervisor may be shutting down. Replace both
-shared-runner timing assumptions with test-owned, event-driven lifecycles.
+Three test fixtures repeatedly fail on unrelated pull-request heads: BuildGate
+descendants expire on wall-clock sleeps, the Observability PubSub test restarts
+application-global state during teardown, and the provider-interrupt fixture
+labels a checkpoint item as an interrupt only after enqueue. Replace the shared
+timing assumptions with test-owned lifecycles and align the interrupt fixture
+with production delivery policy.
 
 The fixes apply unchanged to `main`, so delivery is main-first. After the exact
 main fix lands, merge that exact main commit into `develop` and prove the main
@@ -281,10 +282,12 @@ successful ancestry check in the workpad/PR handoff.
    remains alive before and after the file.
 3. Run the repository affected-test selector and every printed test command
    with `--max-cases 4`.
-4. Run `mix format` and `mix compile --warnings-as-errors`.
-5. Self-review the exact main diff, then hand the draft PR to CI without a
+4. Repeat the provider-interrupt lifecycle case in clean VMs at the failing CI
+   seeds and retain the strict release barrier and two-turn assertion.
+5. Run `mix format` and `mix compile --warnings-as-errors`.
+6. Self-review the exact main diff, then hand the draft PR to CI without a
    closing keyword for #1222.
-6. Require two successful full-coverage executions on the same main PR SHA;
+7. Require two successful full-coverage executions on the same main PR SHA;
    after merge, prove exact-main ancestry in the develop integration head and
    close #1222 from that final PR only.
 
@@ -293,7 +296,9 @@ successful ancestry check in the workpad/PR handoff.
 - GitHub issue #1222 and Agent Workpad comment `4998485843`
 - PR #1213 run `29551309799`
 - PR #1036 failed-job rerun `29550586146`
+- PR #1223 failed CI run `29554647286`
 - `src/test/aiur/build_gate_test.exs`
+- `src/test/aiur/agent_runner/provider_lifecycle_test.exs`
 - `src/priv/build_gate.bash`
 - `src/priv/build_gate_holder.py`
 - `src/lib/aiur_web/observability_pubsub.ex`
