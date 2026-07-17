@@ -226,7 +226,7 @@ footer{margin-top:26px;border-top:1px solid var(--line);padding-top:14px;font-fa
       <div class="hd-mark">A</div>
       <div>
         <h1>Build Order — plan preview</h1>
-        <div class="sub">its-everdred/aiur : aiur-dashboard-program · 54 core members + 21 ad hoc · plan v1 · researched @ 9849f329</div>
+        <div class="sub">its-everdred/aiur : aiur-dashboard-program · 54 core members + 28 ad hoc · plan v1 · researched @ 9849f329</div>
       </div>
     </div>
     <div style="display:flex;align-items:center;gap:.8rem">
@@ -262,7 +262,7 @@ footer{margin-top:26px;border-top:1px solid var(--line);padding-top:14px;font-fa
 <script>
 const RUN = {
   phase: 6,
-  updated: "2026-07-17 06:08 PDT",
+  updated: "2026-07-17 06:40 PDT",
   tickets: {
     "BO-004": {state:"merged", progress:100, issue:1086},
     "BO-008": {state:"merged", progress:100, issue:1087},
@@ -293,11 +293,11 @@ const RUN = {
     "DASH-013": {state:"source + exact-head CI complete — draft PR #1228; blocked on aiur-claude@1.1.0 distribution", progress:95, issue:1119},
     "DASH-020": {state:"merged to develop", progress:100, issue:1124},
     "BO-018": {state:"merged to develop", progress:100, issue:1105},
-    "DASH-009": {state:"rework — draft PR #1204 integrating exact develop@6afa1612", progress:87, issue:1115},
+    "DASH-009": {state:"rework — draft PR #1204 at 5cf41c08; fresh CI running", progress:91, issue:1115},
     "DASH-010": {state:"paused + CI wait — draft PR #1232 at 612e3cb7; all CI green, real Claude gate held", progress:95, issue:1116},
-    "DASH-014": {state:"working — Codex owner; exact-base integration required before PR", progress:65, issue:1120},
+    "DASH-014": {state:"rework — draft PR #1239 at b3ae911d; ten exact-head CE findings", progress:76, issue:1120},
     "DASH-029": {state:"dependency-blocked — Codex owner idle", progress:20, issue:1133},
-    "BO-011": {state:"rework — PR #1233 resolving five exact-head CE findings", progress:88, issue:1098},
+    "BO-011": {state:"rework — PR #1233 at aff1f7f7; two ticket-local Dialyzer failures", progress:91, issue:1098},
     "DASH-003": {state:"rework — draft PR #1234 resolving nine exact-head CE findings", progress:83, issue:1110},
     "ADHOC-1031": {state:"merged to develop through PR #1036", progress:100, issue:1031},
     "ADHOC-1139": {state:"closed", progress:100, issue:1139},
@@ -306,7 +306,9 @@ const RUN = {
     "ADHOC-1146": {state:"merged", progress:100, issue:1146},
     "ADHOC-1148": {state:"merged", progress:100, issue:1148},
     "ADHOC-1149": {state:"merged to develop through PR #1213", progress:100, issue:1149},
-    "ADHOC-1237": {state:"queued P1 — fence stale lifecycle writes and truthful message delivery", progress:2, issue:1237},
+    "ADHOC-1237": {state:"working P1 — fence stale lifecycle writes and truthful message delivery", progress:30, issue:1237},
+    "ADHOC-1238": {state:"working P1 — recover queued turns after app-server port closure", progress:24, issue:1238},
+    "ADHOC-1240": {state:"working P1 — prevent answered Decision enrichment redispatch", progress:16, issue:1240},
     "ADHOC-1151": {state:"merged", progress:100, issue:1151},
     "ADHOC-1152": {state:"deferred", progress:0, issue:1152},
     "ADHOC-1154": {state:"merged", progress:100, issue:1154},
@@ -354,6 +356,10 @@ const ADHOC_TICKETS = [
   {id:"ADHOC-1191",issue:1191,title:"Prevent stale mixed-BEAM aiurdev releases",issue_title:"Bug: aiurdev incremental rebuild can assemble a stale mixed-BEAM release",lane:"adhoc",cx:2,deps:[],pack:"all",phase:4,pickup_phase:4,adhoc:true},
   {id:"ADHOC-1229",issue:1229,title:"Stabilize browser paint readiness",issue_title:"Flaky: browser checks sample mixed rendering generations",lane:"adhoc",cx:2,deps:[],pack:"all",phase:5,pickup_phase:5,adhoc:true},
   {id:"ADHOC-1231",issue:1231,title:"Bound AlertFeed history scans",issue_title:"AlertFeed full-history scans make watch and alerts time out",lane:"adhoc",cx:3,deps:[],pack:"all",phase:null,pickup_phase:null,adhoc:true},
+  {id:"ADHOC-1235",issue:1235,title:"Fence GraphProjection monitor teardown",issue_title:"Flaky: GraphProjection monitor cleanup can race process teardown",lane:"adhoc",cx:2,deps:[],pack:"all",phase:5,pickup_phase:5,adhoc:true},
+  {id:"ADHOC-1237",issue:1237,title:"Fence stale lifecycle transitions",issue_title:"P1: Fence stale lifecycle transitions from overwriting authoritative rework",lane:"adhoc",cx:4,deps:[],pack:"all",phase:6,pickup_phase:6,adhoc:true},
+  {id:"ADHOC-1238",issue:1238,title:"Recover queued Codex turns",issue_title:"P1: Recover queued Codex turns when the app-server port closes",lane:"adhoc",cx:4,deps:[],pack:"all",phase:6,pickup_phase:6,adhoc:true},
+  {id:"ADHOC-1240",issue:1240,title:"Fence answered Decision enrichment",issue_title:"P1: Stop DecisionStore enrichment from redispatching answered decisions",lane:"adhoc",cx:3,deps:[],pack:"all",phase:6,pickup_phase:6,adhoc:true},
   {id:"ADHOC-780",issue:780,title:"Fix remaining concurrent-flaky specs",issue_title:"#780 — Fix remaining concurrent-flaky specs",lane:"adhoc",cx:1,deps:[],pack:"all",phase:1,pickup_phase:1,adhoc:true}
 ];
 const TICKETS = [...CORE_TICKETS, ...ADHOC_TICKETS];

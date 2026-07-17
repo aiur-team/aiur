@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Recovery checkpoint (updated 2026-07-17 06:08 PDT)
+## Recovery checkpoint (updated 2026-07-17 06:40 PDT)
 
 This checkpoint supersedes the older live-state narrative below. The former
 Claude Executor is not being restarted. Its exact local session was recovered
@@ -8,6 +8,16 @@ as `f6f086dd-48ba-4e9e-aa9e-7a703b96a778` from
 `~/.claude/projects/-home-orangekid-github-aiur/f6f086dd-48ba-4e9e-aa9e-7a703b96a778.jsonl`,
 and its live issue/PR ownership was reconciled against GitHub, the per-issue
 workpads, and both workspace logs before dispatch resumed.
+
+The recovered Claude workflow was `wyxa8n3xw` / local run
+`wf_9fed8f61-e34` (`refresh-review-prs`). Its final concrete lanes were
+#1105/PR #1209, #1124/PR #1208, #1214, the Credo 200-column alignment, and
+the distribution-gated #1119. Reconciliation proves the first four were
+finished after Claude stopped: PRs #1209 and #1208 merged to `develop`, #1105,
+#1124, and #1214 are closed `agent:done`, and the Credo fix merged through
+#1226/#1227. Do not restart or duplicate those old workers. #1119 is the only
+surviving old lane and remains intentionally paused at the package-publication
+gate described below.
 
 Aiur is now **running Codex-only** from the literal `develop` branch in the
 fresh canonical runtime checkout `/home/orangekid/github/aiur-runtime-develop`.
@@ -26,19 +36,26 @@ lanes have now merged, while the surviving feature owners remain isolated:
 - DASH-003/#1110 / draft PR #1234;
 - DASH-009/#1115 / draft PR #1204;
 - DASH-010/#1116 / paused draft PR #1232;
-- DASH-014/#1120;
+- DASH-014/#1120 / draft PR #1239;
 - DASH-026/#1130 / PR #1217; and
 - DASH-029/#1133.
+
+Three Codex-only P1 stability owners are also live: #1237 fences stale
+lifecycle writes and distinguishes queued from provider-delivered Executor
+messages; #1238 recovers queued Codex turns after the app-server port closes;
+and #1240 prevents DecisionStore enrichment from redispatching already-answered
+decisions.
 
 The Executor also triaged the newly confirmed full-suite monitor race #1235 as
 a narrow Ad Hoc stability lane. Its one-file fix passed 25 focused repetitions,
 the complete GraphProjection file, independent review, and every CI job; PR
 #1236 squash-merged as `develop@6afa161230b4349543c039a6b8b6abcc9218ba07`,
-and #1235 was explicitly closed `agent:done`. No additional Build Order ticket
-is queued. Load reached 16.68 on 12 CPUs during the earlier base-sync wave and
-is now below one core per CPU. DASH-010/#1116 has since released its owner slot
-at the no-Claude manual gate, so DASH-009/#1115 resumed as the fifth active
-owner and PR #1204 returned to draft exact-base rework against `6afa1612`.
+and #1235 was explicitly closed `agent:done`. At that checkpoint no additional
+Build Order ticket was queued. Load reached 16.68 on 12 CPUs during the earlier
+base-sync wave and is now below one core per CPU. DASH-010/#1116 has since
+released its owner slot at the no-Claude manual gate, so DASH-009/#1115 resumed
+as the fifth active owner and PR #1204 returned to draft exact-base rework
+against `6afa1612`.
 Preserve one writer per workspace. After every `develop` merge, send the exact
 new base to all owners and stop reviewing their now-stale heads until they push
 replacements.
@@ -70,8 +87,13 @@ integration before merge.
 Feature review is active rather than ceremonial. Exact-head Compound
 Engineering review returned BO-011/#1098 to rework with five confirmed
 security, accessibility, identity, reconnect-token, and truthful-truncation
-defects; head `211004e0` contains the exact base but not those repairs, so its
-owner is now consuming the queued Executor packet. DASH-010/#1116 repaired all
+defects. Its owner published replacement head
+`aff1f7f7c83ae044c5d47a5011888d98407fee3b`: build, lint, guard, full test,
+browser, and layout jobs are green, but Dialyzer found two ticket-local
+unreachable patterns at `ticket_context_adapter.ex:139` and
+`build_order_presenter.ex:906`. The exact repair packet is PR comment
+`5003865397`; keep the PR draft until a replacement head passes Dialyzer and
+fresh delta review. DASH-010/#1116 repaired all
 four confirmed source-accounting/coverage/time/identity defects at `cf1d61fa`;
 three independent re-review slices are clean and the complete test job passed.
 Its one-file Credo follow-up is pushed as exact head
@@ -95,6 +117,21 @@ redaction, and bounded runtime-status fanout. PR #1217 is draft until an
 exact-base replacement fixes all ten, passes fresh CI, and survives exact-head
 re-review.
 
+DASH-014/#1120 published exact-base draft PR #1239 at
+`b3ae911de08fe97018b6afcbe1ac8dd6609d54d4`. Its first full-test job failed
+only untouched `BranchRefStoreTest` and is rerunning, but three independent
+reviews plus the Executor found ten production blockers independent of that
+flake. The P1 set is: production status snapshots can never make the summary
+fresh; terminal complexity becomes permanently stale and then silently
+defaults to weight 1 after same-run owner restart; serial in-owner source reads
+can block the read API beyond its timeout; forbidden workspace/message/session
+facts are retained; exact progress ignores unhealthy weight evidence; and
+outcome LKG omits the membership-generation fence. Four P2
+freshness/generation/performance/decomposition findings are in PR comment
+`5003844613`. #1120 is authoritatively `agent:rework`; the Executor message was
+accepted into its still-active long test turn and must not be treated as
+provider-delivered until the turn drains.
+
 The #1098/#1130 rework regressions are now a confirmed P1 orchestration defect,
 tracked as queued stability lane #1237. Accepted Executor messages can remain
 undelivered to the provider while an old worker turn continues: #1130's review
@@ -108,6 +145,15 @@ and a turn-ID mismatch; its preserved workspace is running again in rework.
 Until #1237 lands, verify the tracker label after every in-flight review
 intervention and never treat an old turn's CI-wait transition or optimistic
 Executor transcript as authoritative delivery evidence.
+
+#1238 is the concrete closed-port companion to #1237. #1110 exhausted all
+three retries after `port_command` wrote `turn/start` to a dead app-server,
+then QueueDrain hit a turn-ID mismatch and `{:error, :unavailable}`. The
+Executor restored #1110 through authoritative `agent:rework` without replacing
+its workspace; #1238 now owns restart-safe queued-turn recovery. #1240 owns a
+separate exact-`develop` DecisionStore race: the answered-decision enrichment
+test reproduced an unexpected second dispatch in 3/5 isolated serial seeds.
+Do not repair either control-plane defect inside feature workspaces.
 
 DASH-013/#1119 remains source-complete as draft PR #1228 at
 `6f5696828cb54f775623299cc61c1067ef2b2810`, with full CI green and independent
