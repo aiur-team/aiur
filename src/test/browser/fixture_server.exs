@@ -1015,12 +1015,19 @@ defmodule Aiur.BrowserHarness.FixtureServer do
 
     System.put_env("AIUR_DASHBOARD_USERNAME", "browser_fixture")
     System.put_env("AIUR_DASHBOARD_PASSWORD", "browser_fixture_password")
+    Application.put_env(:aiur, :workflow_file_path, Path.expand("../fixtures/test.aiurconfig", __DIR__))
     Application.put_env(:aiur, :build_order_data_source, Aiur.BrowserHarness.BuildOrderDataSource)
+    configure_forwarded_dashboard()
 
     {:ok, _} =
       Supervisor.start_link(
         [
-          {Phoenix.PubSub, name: Aiur.BrowserHarness.FixturePubSub},
+          Supervisor.child_spec(
+            {Phoenix.PubSub, name: Aiur.BrowserHarness.FixturePubSub},
+            id: Aiur.BrowserHarness.FixturePubSub
+          ),
+          Supervisor.child_spec({Phoenix.PubSub, name: Aiur.PubSub}, id: Aiur.PubSub),
+          {AiurWeb.Endpoint, []},
           AiurWeb.FinancialDataAccess.Generation
         ],
         strategy: :one_for_one
@@ -1042,6 +1049,20 @@ defmodule Aiur.BrowserHarness.FixtureServer do
     {:ok, _} = FixtureEndpoint.start_link()
     IO.puts("Aiur browser harness fixture ready at http://127.0.0.1:#{@port}")
     Process.sleep(:infinity)
+  end
+
+  defp configure_forwarded_dashboard do
+    config =
+      :aiur
+      |> Application.get_env(AiurWeb.Endpoint, [])
+      |> Keyword.merge(
+        server: false,
+        dashboard_writable: false,
+        control_center_cache: false,
+        snapshot_timeout_ms: 100
+      )
+
+    Application.put_env(:aiur, AiurWeb.Endpoint, config)
   end
 end
 

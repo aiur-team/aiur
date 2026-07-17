@@ -4,14 +4,33 @@ import { assertNoDocumentOverflow, openFixture } from './support/browser-helpers
 import { dashboardCredentials } from './support/layout-worker.mjs'
 import { nextPaint } from './support/measurements.mjs'
 
-test('route shell keeps navigation URL-backed, accessible, and unclipped across responsive widths', async ({ browser }) => {
-  for (const { width, isMobile } of [
-    { width: 320, isMobile: true },
-    { width: 390, isMobile: true },
-    { width: 768, isMobile: false },
-    { width: 960, isMobile: false },
-    { width: 1440, isMobile: false }
-  ]) {
+test('Build Order navigation returns to the production Units route', async ({ page }) => {
+  await openFixture(page)
+  await page.goto('/')
+  await page.context().setHTTPCredentials(dashboardCredentials)
+
+  await page.getByRole('link', { name: 'Build Order' }).click()
+  await expect(page).toHaveURL(/\/build-orders$/)
+  await expect(page.locator('#build-order-page')).toHaveAttribute('data-build-order-catalog-state', 'ready')
+
+  await page.getByRole('link', { name: 'Units' }).click()
+  await expect(page).toHaveURL(/\/$/)
+  await expect(page.getByRole('heading', { name: 'Units' })).toBeVisible()
+  await expect(page.locator('.fleet-card')).toBeVisible()
+  await expect(page.locator('#fleet-title')).toHaveText('Fleet state')
+  await expect(page.locator('#route-shell-action')).toHaveCount(0)
+})
+
+const routeShellViewports = [
+  { width: 320, isMobile: true },
+  { width: 390, isMobile: true },
+  { width: 768, isMobile: false },
+  { width: 960, isMobile: false },
+  { width: 1440, isMobile: false }
+]
+
+for (const { width, isMobile } of routeShellViewports) {
+  test(`route shell keeps navigation URL-backed, accessible, and unclipped at ${width}px`, async ({ browser }) => {
     const context = await browser.newContext({
       viewport: { width, height: 844 },
       hasTouch: isMobile,
@@ -58,31 +77,6 @@ test('route shell keeps navigation URL-backed, accessible, and unclipped across 
       await expect(page).toHaveURL(/\/decisions\/decision-123$/)
       await expect(page.getByRole('heading', { name: 'Commands' })).toBeVisible()
       await expect(page.getByRole('link', { name: 'Commands' })).toHaveAttribute('aria-current', 'page')
-
-      await context.setHTTPCredentials(dashboardCredentials)
-      const buildOrder = page.getByRole('link', { name: 'Build Order' })
-
-      if (isMobile) {
-        await buildOrder.tap()
-      } else {
-        await buildOrder.press('Enter')
-      }
-
-      await expect(page).toHaveURL(/\/build-orders$/)
-      await expect(page.getByRole('heading', { name: 'Build Order', exact: true })).toBeVisible()
-      await expect(page.locator('#build-order-page')).toHaveAttribute('data-build-order-catalog-state', 'ready')
-      await expect(page.getByRole('link', { name: 'Build Order' })).toHaveAttribute('aria-current', 'page')
-
-      const units = page.getByRole('link', { name: 'Units' })
-
-      if (isMobile) {
-        await units.tap()
-      } else {
-        await units.press('Enter')
-      }
-
-      await expect(page).toHaveURL(/\/$/)
-      await expect(page.getByRole('heading', { name: 'Units' })).toBeVisible()
       await expect(page.locator('#route-shell-action')).toBeVisible()
 
       await page.getByRole('button', { name: 'Toggle color theme' }).click()
@@ -127,5 +121,5 @@ test('route shell keeps navigation URL-backed, accessible, and unclipped across 
     } finally {
       await context.close()
     }
-  }
-})
+  })
+}
