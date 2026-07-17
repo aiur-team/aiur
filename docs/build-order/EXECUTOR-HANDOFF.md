@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Current Executor checkpoint (updated 2026-07-17 14:42 PDT)
+## Current Executor checkpoint (updated 2026-07-17 15:12 PDT)
 
 The live Executor is Codex-only on the literal `develop` runtime checkout at
 `/home/orangekid/github/aiur-runtime-develop`. It was force-built before launch
@@ -9,10 +9,13 @@ machine-local `.aiur/config` and `.aiur/model-usage.json` changes. Do not launch
 Claude, restart the healthy daemon merely because a control RPC times out, or
 run `watch --full` / `alerts --needs-attention` while #1231 remains open.
 Publish the Build Order preview from both its source and served pack every
-30 minutes; the current cadence anchor is 14:42 PDT on 2026-07-17.
+30 minutes; the current cadence anchor is 15:12 PDT on 2026-07-17.
 
-The integration base is still exactly `origin/develop@791ad6dc`; current
-`origin/main@ff06d53c` is an ancestor. The previously announced external setup
+The authoritative integration base is now exactly
+`origin/develop@9229b48d`, the squash merge of #1240/PR #1242; current
+`origin/main@ff06d53c` is an ancestor. The healthy daemon remains on its
+previous `791ad6dc` runtime build and does not need a disruptive restart merely
+for this base advance. The previously announced external setup
 fix is no longer an integration hold. Exhaustive local session, branch, ref,
 worktree, process, and GitHub reconciliation found no concrete owner, branch,
 or actionable change. A session-historian pass over #1237/#1238/#1240 confirmed
@@ -20,49 +23,63 @@ those workers merely waited on the Executor announcement. Continue against
 actual current `develop`; if a setup commit later appears, treat it as an
 ordinary new base advance and inspect it before integration.
 
-BO-012/#1099 is complete locally at `c0b20d6e` after sequential Tier-2 review
-and rework. Compile with warnings as errors, specs, format, full ExUnit,
-`mix test --failed`, and 36 focused tests pass. The Build Order, route-shell,
-ticket-context, and layout Playwright suites pass sequentially at 4/4, 1/1,
-2/2, and 24/24. Final adversarial re-review found no findings. Durable issue
-receipt `5007500934` records the exact head; it is released for current-base
-push, draft PR creation, exact-head CI, and final review.
+BO-012/#1099 is published as draft PR #1244 at `0ef359a3`. Its original exact
+head passed the full GitHub test job, but CI exposed five Credo findings, a
+too-narrow Dialyzer contract, inaccessible dependency-kind contrast, and a
+route-shell test that rejected the fixture reaching its stable `ready` state
+faster than the transient assertion. The bounded repairs pass focused Credo,
+Dialyzer, affected LiveView tests, 4/4 browser smoke, and the complete
+five-viewport route-shell test locally. Its replacement CI is useful diagnostic
+evidence but became stale when #1240 landed. Merge exact `9229b48d`, requalify
+the resulting head, and require a clean independent delta review before merge.
 
-Independent exact-head review rejected the other three local heads and each
-now has one direct sole writer. DASH-003/#1110 at `d708e629` recomputed the
-running backend/model/effort from mutable request/config state instead of
-session-resolved facts; its writer is adding resolve-once metadata and Remote
-Control/fallback/config-mutation regressions. DASH-009/#1115 at `1ec2e9fe`
-allowed a source-version change to bypass conservative absolute/delta overlap,
-ran global `sync(1)` on every append, and used forbidden sleep polling; its
-writer is repairing all three. DASH-014/#1120 merged current develop as
-`beee8d0a`, then repaired store-health normalization, nil/source-specific
-provenance, checkpoint failure fencing, and sleep synchronization; 26 targeted
-and 121 broader affected tests pass, with exact-diff review and commit pending.
+DASH-003/#1110 and DASH-009/#1115 remain direct sole-writer repairs. DASH-003
+has 158 runner/dispatcher tests, 96 status/dashboard tests, and 24 new
+regressions green; its long full suite is classifying two unrelated
+timing/concurrency failures before final Dialyzer and commit. DASH-009 has 29
+focused and 46 complete usage-ledger tests plus compile, format, specs, and
+Credo green; its long full suite is classifying four unrelated shared-state
+failures before Dialyzer and commit. Do not push either until an independent
+exact-head review runs.
 
-The Executor directly repaired #1240/PR #1242 at local commit `52207071`.
-Failing-before regressions proved that stale boot fences dropped durable
-follow-up repair and that the serialized lifecycle fence grew from roughly
-1 KiB to 14 KiB after 20 retries. Restart reconciliation now always repairs
-current durable state while dispatch remains gated by the captured pre-repair
-fence, and the fence retains only fixed scalar state plus the latest attempt
-identity. Both complete DecisionStore files pass 77/77; the two new regressions
-pass six consecutive runs; compile, format, and diff checks pass. It remains
-draft pending independent review, push, and fresh exact-head CI.
+DASH-014/#1120 is now review-clean as draft PR #1239 at `900d7bf5`. The branch
+contains current `develop`, all four delta findings are fixed, 26 targeted and
+121 affected tests pass, and independent Executor review found no actionable
+finding. First exact CI found one deterministic nesting warning; the extracted
+broadcast helper passes focused Credo, format, and 15/15 projection tests.
+Replacement build, lint, Dialyzer, browser, layout, and guards are green; only
+the long test job was still in flight when #1240 advanced `develop`. Treat that
+run as diagnostic, then merge exact `9229b48d` and requalify the new head.
+
+The Executor's #1240 repair was independently review-clean and landed through
+PR #1242 as `develop@9229b48d` from exact head `52207071`. Failing-before
+regressions proved that stale boot
+fences dropped durable follow-up repair and that serialized lifecycle state
+grew from roughly 1 KiB to 14 KiB after 20 retries. Both complete DecisionStore
+files pass 77/77 and the new pair passes six consecutive runs. All exact CI
+jobs passed, the non-default-branch issue was explicitly marked `agent:done`
+and closed, and every surviving feature head must now advance to this new exact
+`develop` before final qualification.
 
 The older Executor handoffs are fully reconciled. Of the four-PR shutdown
 frontier, #1036, #1202, and #1213 merged and closed; #1217/#1130 is the only
-survivor and is queued for direct rework after a current writer frees a slot.
+survivor. It now has a direct sole writer: the previous exact
+`develop@791ad6dc` was merged as `b934090d`, the three reproduced Credo findings
+are repaired, full Credo and format pass, and focused runtime/security
+validation plus Dialyzer are running. Commit that isolated repair, then merge
+exact `9229b48d` and requalify it without rebase or force-push.
 Of the abandoned Claude session's five lanes, four merged and closed; only
 #1119/PR #1228 survives. Its source and CI are complete, and local
 `aiur-claude --version` is 1.1.0, but npm still publishes only 1.0.0, so the
 public distribution gate remains real. Keep #1119 and human-gated #1116 frozen.
 
 The Aiur Codex provider remains exhausted until 2026-07-22 21:15 PDT; the three
-daemon workers stay quota-paused and Claude fallback stays disabled. Four
-direct repair lanes currently consume all collaboration slots. A 14:40 scoped
-test briefly drove one-minute load above 26 on 12 CPUs while memory and build
-serialization remained healthy; do not add another build until it drains.
+daemon workers stay quota-paused and Claude fallback stays disabled. Three
+direct repair writers plus the Executor qualification lane consume all
+collaboration slots. Two long local full suites remain active but are making
+steady progress; memory is healthy and one-minute load remains below the
+12-core ceiling. Avoid redundant full-suite or shared-browser launches until
+they drain.
 #1237 and #1238 remain preserved `agent:rework + agent:paused`, but no longer
 depend on a hypothetical setup fix; resume them in priority order after the
 current repairs and #1130 are staffed. After any merge to non-default

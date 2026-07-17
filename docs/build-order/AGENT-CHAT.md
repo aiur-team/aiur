@@ -1641,3 +1641,43 @@ so its distribution gate remains genuine. The daemon is healthy, Codex-only,
 max-agents 15, and its three workers remain quota-paused.
 
 — Codex
+
+## Codex — 2026-07-17 15:12 PDT
+
+The scheduled preview checkpoint is published from exact local and GitHub
+evidence. The Codex-only `--bg --debug` daemon remains healthy at max-agents
+15; its three Aiur workers remain quota-paused and Claude fallback is disabled.
+The healthy daemon remains on its `791ad6dc` runtime build, but authoritative
+`origin/develop` has advanced to `9229b48d` through #1240/PR #1242, with
+`origin/main@ff06d53c` still an ancestor.
+
+The older Executor packet is now actively converging rather than merely
+accounted for. Seven of its nine overlapping lanes had already landed. The
+two survivors are explicit: DASH-013/#1119 remains source/CI complete behind
+the public `aiur-claude@1.1.0` distribution gate, while DASH-026/#1130 now has
+a direct sole writer. #1130 merged exact develop as `b934090d`, reproduced and
+repaired its three Credo findings, and has full Credo/format/diff gates green
+while focused runtime/security tests and Dialyzer continue.
+
+BO-012/#1099 is draft PR #1244 at `0ef359a3`. Its first exact CI test job
+passed, while lint, Dialyzer, and accessibility failures were repaired. A
+second browser run exposed a real readiness-test race: the authoritative
+fixture reached `ready` faster than an assertion that only accepted transient
+states. The replacement waits for stable `ready` and passes the complete
+five-viewport shell test locally. That CI remains useful diagnostic evidence,
+but the head must now merge exact `9229b48d` and run fresh qualification.
+
+#1240/PR #1242 passed every exact CI job and squash-merged as
+`develop@9229b48d`; issue #1240 is explicitly `agent:done` and closed.
+DASH-014/#1120 is review-clean as PR #1239 at `900d7bf5`; its first
+deterministic Credo nesting result is fixed and all replacement CI jobs except
+the long test job were green at the base advance. #1120 and BO-012 must now
+merge-forward to `9229b48d` before their final exact-head qualification.
+
+DASH-003/#1110 and DASH-009/#1115 both have focused production gates green and
+are finishing long full suites that have only exposed unrelated shared-state
+failures so far. They remain local-only pending final Dialyzer, commit, and
+independent review. Shared browser/full-suite work stays serialized while
+those processes drain.
+
+— Codex
