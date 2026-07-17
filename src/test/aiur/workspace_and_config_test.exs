@@ -1476,6 +1476,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
                  Client.graphql(
                    "query Viewer { viewer { id } }",
                    %{},
+                   operation_name: "QuietAuthIsolation",
                    request_fun: request_fun,
                    quiet_auth_errors?: true
                  )
@@ -1486,7 +1487,8 @@ defmodule Aiur.WorkspaceAndConfigTest do
     # "target refresh skipped" warning) lands in `auth_log` too. Assert that the
     # client stayed quiet about *this* request rather than that nothing at all
     # logged — an emptiness check fails on unrelated concurrent output.
-    refute auth_log =~ "Linear GraphQL request failed"
+    refute auth_log =~
+             "Linear GraphQL request failed status=401 operation=QuietAuthIsolation"
 
     outage_log =
       ExUnit.CaptureLog.capture_log(fn ->
