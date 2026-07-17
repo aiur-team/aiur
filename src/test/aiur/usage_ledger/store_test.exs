@@ -4,7 +4,7 @@ defmodule Aiur.UsageLedger.StoreTest do
   import Bitwise
 
   alias Aiur.UsageLedger
-  alias Aiur.UsageLedger.{Checkpoint, Store}
+  alias Aiur.UsageLedger.{Checkpoint, Recovery, Store}
   import Aiur.TestSupport.UsageLedger, only: [envelope: 1, money: 2]
 
   defmodule BackendStub do
@@ -100,6 +100,41 @@ defmodule Aiur.UsageLedger.StoreTest do
     assert 0 = UsageLedger.generation()
     assert :healthy = UsageLedger.health()
     assert %{status: :empty} = UsageLedger.coverage()
+  end
+
+  test "path resolution failure stays unavailable without preparing the current directory", %{
+    root: root,
+    name: name
+  } do
+    cwd = Path.join(root, "cwd")
+    File.mkdir_p!(cwd)
+    original_mode = File.stat!(cwd).mode
+    original_instance_key = System.get_env("AIUR_INSTANCE_KEY")
+    original_ledger_dir = Application.get_env(:aiur, :usage_ledger_state_dir)
+    original_decision_dir = Application.get_env(:aiur, :decision_state_dir)
+
+    on_exit(fn ->
+      restore_system_env("AIUR_INSTANCE_KEY", original_instance_key)
+      restore_application_env(:usage_ledger_state_dir, original_ledger_dir)
+      restore_application_env(:decision_state_dir, original_decision_dir)
+      :erlang.trace(:new, false, [:call])
+      :erlang.trace_pattern({Recovery, :boot, 2}, false, [:local])
+    end)
+
+    System.delete_env("AIUR_INSTANCE_KEY")
+    Application.delete_env(:aiur, :usage_ledger_state_dir)
+    Application.delete_env(:aiur, :decision_state_dir)
+    :erlang.trace_pattern({Recovery, :boot, 2}, true, [:local])
+    :erlang.trace(:new, true, [:call, {:tracer, self()}])
+
+    File.cd!(cwd, fn ->
+      assert {:ok, pid} = Store.start_link(name: name)
+      assert {:unavailable, :missing_instance_key} = health(name)
+      assert File.ls!(cwd) == []
+      assert File.stat!(cwd).mode == original_mode
+      refute_received {:trace, ^pid, :call, {Recovery, :boot, _arguments}}
+      GenServer.stop(pid)
+    end)
   end
 
   test "never acknowledges or publishes an injected append/checkpoint failure", %{root: root, name: name} do
@@ -324,4 +359,9 @@ defmodule Aiur.UsageLedger.StoreTest do
       provider_reported_total: nil
     }
   end
+
+  defp restore_application_env(key, nil), do: Application.delete_env(:aiur, key)
+  defp restore_application_env(key, value), do: Application.put_env(:aiur, key, value)
+  defp restore_system_env(key, nil), do: System.delete_env(key)
+  defp restore_system_env(key, value), do: System.put_env(key, value)
 end

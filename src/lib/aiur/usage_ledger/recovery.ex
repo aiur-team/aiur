@@ -39,6 +39,11 @@ defmodule Aiur.UsageLedger.Recovery do
     end
   end
 
+  @doc false
+  @spec unavailable(term(), map()) :: map()
+  def unavailable(reason, persistence) when is_map(persistence),
+    do: unavailable_state(reason, persistence)
+
   defp load(paths, persistence) do
     marker_status = marker_status(paths.degraded_path)
 

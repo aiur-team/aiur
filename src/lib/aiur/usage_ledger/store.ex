@@ -57,8 +57,7 @@ defmodule Aiur.UsageLedger.Store do
           state
 
         {:error, reason} ->
-          {:ok, state} = Recovery.boot("", persistence)
-          %{state | health: {:unavailable, reason}, writable?: false}
+          Recovery.unavailable(reason, persistence)
       end
 
     {:ok,
