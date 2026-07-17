@@ -202,6 +202,34 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenterTest do
     refute inspect(context) =~ "raw-description-secret"
   end
 
+  test "fails closed before joining an unbounded typed tracker identity" do
+    valid_identity = identity()
+    unbounded_identifier = String.duplicate("9", 5_000)
+    unsafe_identity = identity(identifier: unbounded_identifier)
+
+    view =
+      TicketContextPresenter.present(
+        detail_state(valid_identity),
+        history(valid_identity),
+        []
+      )
+
+    normalized =
+      TicketContextPresenter.normalize_view(%{
+        view
+        | identity: unsafe_identity,
+          repository: "owner/repo",
+          identifier: unbounded_identifier,
+          title: nil
+      })
+
+    assert normalized.identity == nil
+    assert normalized.repository == "Configured repository"
+    assert normalized.identifier == nil
+    assert normalized.title == "Ticket context unavailable"
+    refute inspect(normalized) =~ unbounded_identifier
+  end
+
   test "only keeps GitHub destinations for the configured repository and destination type" do
     identity = identity()
 

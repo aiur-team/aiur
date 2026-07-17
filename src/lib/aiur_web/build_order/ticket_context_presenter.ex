@@ -519,7 +519,7 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
   defp unavailable_reason(label, _reason), do: "#{label} is unavailable."
 
   defp configured_identity(%TrackerIdentity{} = identity) do
-    if TrackerIdentity.joinable?(identity) and safe_repository_identity?(identity), do: identity
+    if safe_repository_identity?(identity) and TrackerIdentity.joinable?(identity), do: identity
   end
 
   defp configured_identity(_identity), do: nil
@@ -623,11 +623,13 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
   defp safe_text(_value, _limit), do: :error
 
   defp safe_repository_identity?(%TrackerIdentity{owner: owner, repository: repository, identifier: identifier}) do
-    safe_repository_part?(owner) and safe_repository_part?(repository) and is_binary(identifier) and Regex.match?(~r/^\d+$/, identifier)
+    with {:ok, _repository} <- Bounded.github_repository_components(owner, repository),
+         {:ok, _identifier} <- Bounded.github_issue_identifier(identifier) do
+      true
+    else
+      _ -> false
+    end
   end
-
-  defp safe_repository_part?(value) when is_binary(value), do: byte_size(value) <= 100 and Regex.match?(~r/^[A-Za-z0-9_.-]+$/, value)
-  defp safe_repository_part?(_value), do: false
 
   defp maybe_put_safe_opaque(map, key, value) do
     case OpaqueIdentifier.normalize(value) do
