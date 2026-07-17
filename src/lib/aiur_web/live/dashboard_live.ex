@@ -301,25 +301,29 @@ defmodule AiurWeb.DashboardLive do
         %{assigns: %{writable: true, agent_log_modal: modal}} = socket
       )
       when is_map(modal) do
-    handle_writable_event(socket, fn ->
-      target = agent_log_target(modal)
-      key = agent_log_key(modal)
-
-      if Map.get(modal, :writable_target?) == true do
-        case pause_agent(target) do
-          {:ok, _request_id} ->
-            {:noreply, assign(socket, :chat_errors, Map.delete(socket.assigns.chat_errors, key))}
-
-          {:error, reason} ->
-            {:noreply, put_chat_error(socket, key, reason)}
-        end
-      else
-        {:noreply, put_chat_error(socket, key, :ambiguous_identifier)}
-      end
-    end)
+    handle_writable_event(socket, fn -> pause_agent_action(socket, modal) end)
   end
 
   def handle_event("pause-agent", _params, socket), do: {:noreply, socket}
+
+  defp pause_agent_action(socket, modal) do
+    key = agent_log_key(modal)
+
+    if Map.get(modal, :writable_target?) == true do
+      modal
+      |> agent_log_target()
+      |> pause_agent()
+      |> pause_agent_result(socket, key)
+    else
+      {:noreply, put_chat_error(socket, key, :ambiguous_identifier)}
+    end
+  end
+
+  defp pause_agent_result({:ok, _request_id}, socket, key),
+    do: {:noreply, assign(socket, :chat_errors, Map.delete(socket.assigns.chat_errors, key))}
+
+  defp pause_agent_result({:error, reason}, socket, key),
+    do: {:noreply, put_chat_error(socket, key, reason)}
 
   @impl true
   def render(assigns) do

@@ -14,7 +14,10 @@ defmodule AiurWeb.OperatorControlCenter.TicketContextTest do
       render_component(&TicketContext.ticket_context/1, %{
         id: "ticket-context-42",
         context: context(),
-        close_event: "close-ticket-context"
+        close_event: "close-ticket-context",
+        fallback_focus_id: "units-title",
+        focus_key: "navigation-5",
+        origin_id: "unit-inspect-owner-repo-42"
       })
 
     assert html =~ ~s(id="ticket-context-42")
@@ -22,6 +25,9 @@ defmodule AiurWeb.OperatorControlCenter.TicketContextTest do
     assert html =~ ~s(aria-modal="true")
     assert html =~ ~s(phx-hook="TicketContextDialog")
     assert html =~ ~s(data-close-event="close-ticket-context")
+    assert html =~ ~s(data-focus-fallback-id="units-title")
+    assert html =~ ~s(data-focus-key="navigation-5")
+    assert html =~ ~s(data-origin-id="unit-inspect-owner-repo-42")
     assert html =~ ~s(data-dialog-heading)
     assert html =~ ~s(tabindex="-1")
     assert html =~ "owner/repo"
@@ -49,6 +55,25 @@ defmodule AiurWeb.OperatorControlCenter.TicketContextTest do
     refute html =~ ~s(phx-click="open-chat")
     refute html =~ ~s(phx-click="pause-agent")
     refute html =~ ~s(phx-click="retry")
+  end
+
+  test "drops unsafe focus restoration identifiers at the component boundary" do
+    html =
+      render_component(&TicketContext.ticket_context/1, %{
+        id: "ticket-context-unsafe-focus",
+        context: context(),
+        close_event: "close-ticket-context",
+        fallback_focus_id: "unsafe id",
+        focus_key: "Bearer secret-token",
+        origin_id: "<script>"
+      })
+
+    refute html =~ "unsafe id"
+    refute html =~ "secret-token"
+    refute html =~ "&lt;script&gt;"
+    refute html =~ ~s(data-focus-fallback-id=)
+    refute html =~ ~s(data-focus-key=)
+    refute html =~ ~s(data-origin-id=)
   end
 
   test "renders region mode and truthful missing, stale, restart, and unavailable states" do

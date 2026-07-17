@@ -3,6 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.TicketContext do
 
   use Phoenix.Component
 
+  alias Aiur.OpaqueIdentifier
   alias AiurWeb.BuildOrder.TicketContextPresenter
 
   attr(:id, :string, required: true)
@@ -10,18 +11,27 @@ defmodule AiurWeb.OperatorControlCenter.TicketContext do
   attr(:mode, :atom, default: :dialog)
   attr(:close_event, :any, default: nil)
   attr(:fallback_focus_id, :string, default: nil)
+  attr(:focus_key, :string, default: nil)
+  attr(:origin_id, :string, default: nil)
+  slot(:extension)
 
   @spec ticket_context(map()) :: Phoenix.LiveView.Rendered.t()
   def ticket_context(assigns) do
     context = TicketContextPresenter.normalize_view(assigns.context)
     dialog? = assigns.mode == :dialog and valid_close_event?(assigns.close_event)
     close_event = if(dialog? and valid_close_event?(assigns.close_event), do: assigns.close_event)
+    fallback_focus_id = safe_opaque(assigns.fallback_focus_id)
+    focus_key = safe_opaque(assigns.focus_key)
+    origin_id = safe_opaque(assigns.origin_id)
 
     assigns =
       assigns
       |> assign(:context, context)
       |> assign(:dialog?, dialog?)
       |> assign(:close_event, close_event)
+      |> assign(:fallback_focus_id, fallback_focus_id)
+      |> assign(:focus_key, focus_key)
+      |> assign(:origin_id, origin_id)
       |> assign(:heading_id, "#{assigns.id}-title")
       |> assign(:capabilities, context.capabilities)
       |> assign(:detail_message, detail_message(context.detail.state))
@@ -40,6 +50,8 @@ defmodule AiurWeb.OperatorControlCenter.TicketContext do
         phx-hook="TicketContextDialog"
         data-close-event={@close_event}
         data-focus-fallback-id={@fallback_focus_id}
+        data-focus-key={@focus_key}
+        data-origin-id={@origin_id}
       >
         <.context_content
           context={@context}
@@ -50,6 +62,7 @@ defmodule AiurWeb.OperatorControlCenter.TicketContext do
           history_message={@history_message}
           progress_message={@progress_message}
           evidence_message={@evidence_message}
+          extension={@extension}
         />
       </section>
     </div>
@@ -64,6 +77,7 @@ defmodule AiurWeb.OperatorControlCenter.TicketContext do
         history_message={@history_message}
         progress_message={@progress_message}
         evidence_message={@evidence_message}
+        extension={@extension}
       />
     </section>
     """
@@ -77,6 +91,7 @@ defmodule AiurWeb.OperatorControlCenter.TicketContext do
   attr(:history_message, :string, required: true)
   attr(:progress_message, :string, required: true)
   attr(:evidence_message, :string, required: true)
+  attr(:extension, :list, default: [])
 
   defp context_content(assigns) do
     ~H"""
@@ -84,14 +99,16 @@ defmodule AiurWeb.OperatorControlCenter.TicketContext do
       <div>
         <p class="section-eyebrow">Ticket context</p>
         <p class="ticket-context-repository mono">{@context.repository}<span :if={@context.identifier}> · #{@context.identifier}</span></p>
-        <h2 id={@heading_id} tabindex="-1" data-dialog-heading>{@context.title}</h2>
+        <h2 id={@heading_id} tabindex="-1" data-dialog-heading data-ticket-context-focus="heading">{@context.title}</h2>
       </div>
-      <button :if={@close_event} type="button" class="tool-btn" phx-click={@close_event}>Close</button>
+      <button :if={@close_event} type="button" class="tool-btn" phx-click={@close_event} data-ticket-context-focus="close">Close</button>
     </header>
 
     <p :if={@context.description} class="ticket-context-description">{@context.description}</p>
 
     <p class="ticket-context-status" role="status" aria-live="polite">{@detail_message} {@history_message}</p>
+
+    <div :if={@extension != []} class="ticket-context-extension">{render_slot(@extension)}</div>
 
     <div class="ticket-context-grid">
       <section class="detail-block" aria-labelledby={"#{@heading_id}-facts"}>
@@ -148,6 +165,7 @@ defmodule AiurWeb.OperatorControlCenter.TicketContext do
             href={capability.href}
             target={if(capability.external?, do: "_blank")}
             rel={if(capability.external?, do: "noopener noreferrer")}
+            data-ticket-context-focus={capability_focus_key(capability)}
           >{capability.label}<span :if={capability.external?} aria-hidden="true"> ↗</span></a>
           <span :if={!capability.available?} class="link-pill unavailable" aria-disabled="true">{capability.label}</span>
           <p :if={!capability.available?} class="ticket-context-capability-reason">{capability.reason}</p>
@@ -215,6 +233,12 @@ defmodule AiurWeb.OperatorControlCenter.TicketContext do
   defp provenance_value(value) when is_binary(value), do: value
   defp provenance_value(_value), do: "Unknown"
 
+  defp capability_focus_key(capability) do
+    variant = Map.get(capability, :variant) || :default
+    "capability-#{Map.get(capability, :kind)}-#{variant}"
+  end
+
   defp valid_close_event?(value) when is_binary(value), do: Regex.match?(~r/^[a-z][a-z0-9-]{0,63}$/, value)
   defp valid_close_event?(_value), do: false
+  defp safe_opaque(value), do: OpaqueIdentifier.normalize(value)
 end

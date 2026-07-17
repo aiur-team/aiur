@@ -526,6 +526,7 @@ defmodule Aiur.ExtensionsTest do
                  "stale_for_seconds" => nil,
                  "waiting_reason" => "active",
                  "open_decision_count" => 0,
+                 "open_decision_count_health" => "unknown",
                  "ci" => nil,
                  "review" => "not_started"
                }
@@ -548,6 +549,7 @@ defmodule Aiur.ExtensionsTest do
                  "tracker_paused" => false,
                  "waiting_reason" => "backing_off",
                  "open_decision_count" => 0,
+                 "open_decision_count_health" => "unknown",
                  "ci" => nil,
                  "review" => "not_started"
                }
@@ -589,6 +591,7 @@ defmodule Aiur.ExtensionsTest do
                "stale_for_seconds" => nil,
                "waiting_reason" => "active",
                "open_decision_count" => 0,
+               "open_decision_count_health" => "unknown",
                "ci" => nil,
                "review" => "not_started"
              },
@@ -1110,9 +1113,11 @@ defmodule Aiur.ExtensionsTest do
       render(view) =~ "Updated unit title"
     end)
 
+    token = AiurWeb.OperatorControlCenter.UnitsPresenter.row_token(%{identity: static_units_identity("1100")})
+
     log_html =
       view
-      |> element(~s(button[phx-click="show-agent-log"][phx-value-issue="1100"]))
+      |> element(~s(button[phx-click="show-agent-log"][phx-value-unit="#{token}"]))
       |> render_click()
 
     assert log_html =~ "Logs"
@@ -1250,9 +1255,11 @@ defmodule Aiur.ExtensionsTest do
 
     {:ok, view, _html} = live(build_conn(), "/")
 
+    token = AiurWeb.OperatorControlCenter.UnitsPresenter.row_token(%{identity: static_units_identity("1100")})
+
     modal_html =
       view
-      |> element(~s(button[phx-click="show-agent-log"][phx-value-issue="1100"]))
+      |> element(~s(button[phx-click="show-agent-log"][phx-value-unit="#{token}"]))
       |> render_click()
 
     # The agent log modal still opens (reads work), but the composer and its

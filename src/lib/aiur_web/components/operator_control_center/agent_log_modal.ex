@@ -65,7 +65,7 @@ defmodule AiurWeb.OperatorControlCenter.AgentLogModal do
     """
   end
 
-  @spec find_running_entry(map(), String.t()) :: map() | nil
+  @spec find_running_entry(map(), String.t() | TrackerIdentity.t()) :: map() | nil
   def find_running_entry(%{fleet: %{running: running}}, %TrackerIdentity{} = identity) when is_list(running) do
     key = TrackerIdentity.github_key(identity)
 

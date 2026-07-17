@@ -60,7 +60,7 @@ defmodule Aiur.Orchestrator.PauseResume do
     {:reply, reply, state}
   end
 
-  @spec pause_agent_call(State.t(), String.t()) :: {:reply, term(), State.t()}
+  @spec pause_agent_call(State.t(), String.t() | TrackerIdentity.t()) :: {:reply, term(), State.t()}
   def pause_agent_call(%State{} = state, issue_identifier) do
     {reply, state} = pause_agent_reply(state, issue_identifier)
     {:reply, reply, state}

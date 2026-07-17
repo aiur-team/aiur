@@ -2414,6 +2414,10 @@ textarea:focus-visible,
   color: var(--fg);
 }
 
+.ticket-context-panel .tool-btn {
+  min-height: 44px;
+}
+
 .ticket-context-repository {
   margin: 0.25rem 0 0;
   color: var(--muted);
@@ -2575,8 +2579,134 @@ textarea:focus-visible,
   background: var(--surface);
 }
 
+.build-order-ticket-context {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.build-order-context-history {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.build-order-context-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.build-order-context-section,
+.build-order-context-diagnostics {
+  min-width: 0;
+  padding: 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.build-order-context-section h3,
+.build-order-context-diagnostics h3 {
+  margin: 0;
+  font-size: 0.92rem;
+}
+
+.build-order-context-relationships,
+.build-order-context-row-diagnostics,
+.build-order-context-diagnostics ul {
+  display: grid;
+  gap: 0.65rem;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.build-order-context-relationships > li {
+  min-width: 0;
+  border-left: 3px solid var(--accent-line);
+  background: var(--surface);
+}
+
+.build-order-context-relationships article {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.7rem 0.8rem;
+}
+
+.build-order-context-relationships header,
+.build-order-context-relationships dl {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.build-order-context-relationships dl {
+  justify-content: flex-start;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.build-order-context-relationships dl div {
+  display: inline-flex;
+  gap: 0.3rem;
+}
+
+.build-order-context-relationships dt {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.build-order-context-relationships dd {
+  margin: 0;
+}
+
+.build-order-context-relationships .chip {
+  color: var(--fg);
+}
+
+.build-order-context-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  max-width: 100%;
+  padding: 0.4rem 0.65rem;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--pill-bg);
+  color: var(--accent-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.build-order-context-row-diagnostics,
+.build-order-context-diagnostics ul {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.build-order-context-row-diagnostics li,
+.build-order-context-diagnostics li {
+  position: relative;
+  padding-left: 0.9rem;
+}
+
+.build-order-context-row-diagnostics li::before,
+.build-order-context-diagnostics li::before {
+  position: absolute;
+  left: 0;
+  content: "•";
+}
+
 @media (max-width: 700px) {
   .ticket-context-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .build-order-context-grid {
     grid-template-columns: 1fr;
   }
 
@@ -2597,6 +2727,8 @@ textarea:focus-visible,
   .ticket-context-grid .detail-block,
   .ticket-context-logs-section,
   .ticket-context-capabilities,
+  .build-order-context-section,
+  .build-order-context-diagnostics,
   .ticket-context-status,
   .ticket-context-logs li,
   .ticket-context-capability .link-pill.unavailable {
@@ -2606,8 +2738,15 @@ textarea:focus-visible,
   }
 
   .ticket-context-logs li,
+  .build-order-context-relationships > li,
   .ticket-context-status {
     border-left-color: Highlight;
+  }
+
+  .build-order-context-link {
+    border-color: LinkText;
+    background: Canvas;
+    color: LinkText;
   }
 }
 
