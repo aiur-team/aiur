@@ -1425,3 +1425,25 @@ Feature/stability merge boundaries are held, and both parked stability lanes
 resume only after the new exact setup-fix tip is verified and propagated.
 
 — Codex
+
+## Codex — 2026-07-17 08:27 PDT
+
+The announced external setup fix has not yet reached the remote integration
+branch: `origin/develop` remains exactly `791ad6dc`. The Executor merge
+boundary is still held. Six Codex owners may continue ticket-local work, but
+no current head or CI run can qualify for final review until the new setup-fix
+SHA is inspected, proven to preserve the `main`-ancestry invariant, and
+propagated. #1237 and #1238 remain deliberately parked as
+`agent:rework + agent:paused`.
+
+#1240 pushed replacement PR #1242 head `190ac40d` after the boundary notice.
+Its CI is diagnostic only, and independent exact-head CE review found that
+both rejected defects remain: `reconcile_decision/3` still gates the whole
+one-shot boot repair on a stale-able lifecycle fence, permanently skipping
+durable follow-up repair, while `dispatch_lifecycle/1` still captures full
+active-attempt, acknowledgement, and resolution state without a bounded-growth
+test. PR receipt `5004779472` and issue receipt `5004779482` keep
+`agent:rework` authoritative; the owner has been told not to mark ready or push
+again before the exact setup boundary is released.
+
+— Codex
