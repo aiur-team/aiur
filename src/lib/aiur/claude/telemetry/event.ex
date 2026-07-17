@@ -10,8 +10,10 @@ defmodule Aiur.Claude.Telemetry.Event do
   @max_otlp_int64 9_223_372_036_854_775_807
   @max_otlp_int64_bytes 19
 
+  alias Aiur.Claude.Telemetry.Contract
   alias Aiur.SecretRedactor
 
+  @source Contract.source()
   @allowed_attributes ~w(
     event.name
     session.id
@@ -20,21 +22,22 @@ defmodule Aiur.Claude.Telemetry.Event do
     event.sequence
     request_id
     model
+    cost_usd
     input_tokens
     output_tokens
     cache_read_tokens
     cache_creation_tokens
+    query_source
+    effort
   )
   @integer_attributes ~w(input_tokens output_tokens cache_read_tokens cache_creation_tokens event.sequence)
-  @session_id_pattern ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/i
-  @request_id_pattern ~r/\Areq_[A-Za-z0-9]{24}\z/
-  @model_pattern ~r/\Aclaude-(?:(?:opus|sonnet|haiku)-[0-9]+(?:-[0-9]+)*(?:-[0-9]{8})?|[0-9]+(?:-[0-9]+)*-(?:opus|sonnet|haiku)(?:-[0-9]{8})?)\z/
 
   @type t :: %{
           event: :api_request,
           source_version: String.t(),
           transport: :otlp_http_json,
           identity: {:request | :sequence, String.t() | non_neg_integer()},
+          occurred_at: DateTime.t() | nil,
           correlation: map(),
           attributes: map()
         }
@@ -128,7 +131,8 @@ defmodule Aiur.Claude.Telemetry.Event do
   defp normalize_records(records, correlation, source_contract) do
     Enum.reduce_while(records, {:ok, []}, fn record, {:ok, events} ->
       with {:ok, attributes} <- normalize_attributes(record, source_contract),
-           :ok <- required_attributes(attributes, source_contract) do
+           :ok <- required_attributes(attributes, source_contract),
+           {:ok, occurred_at} <- occurrence_time(record.record) do
         session_id = attributes["session.id"]
         identity = identity(attributes)
 
@@ -137,8 +141,13 @@ defmodule Aiur.Claude.Telemetry.Event do
           source_version: source_contract.source_version,
           transport: :otlp_http_json,
           identity: identity,
+          occurred_at: occurred_at,
           correlation: Map.put(correlation, :session_id, session_id),
-          attributes: Map.take(attributes, ~w(model input_tokens output_tokens cache_read_tokens cache_creation_tokens request_id event.sequence))
+          attributes:
+            Map.take(
+              attributes,
+              ~w(model cost_usd input_tokens output_tokens cache_read_tokens cache_creation_tokens request_id event.sequence query_source effort)
+            )
         }
 
         {:cont, {:ok, [event | events]}}
@@ -162,10 +171,16 @@ defmodule Aiur.Claude.Telemetry.Event do
     Enum.reduce_while(attributes, {:ok, %{}}, fn attribute, {:ok, acc} ->
       case normalized_attribute(attribute, source_contract) do
         :drop -> {:cont, {:ok, acc}}
-        {:ok, {key, value}} -> {:cont, {:ok, Map.put(acc, key, value)}}
+        {:ok, {key, value}} -> put_unique_attribute(acc, key, value)
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
+  end
+
+  defp put_unique_attribute(attributes, key, value) do
+    if Map.has_key?(attributes, key),
+      do: {:halt, {:error, :malformed}},
+      else: {:cont, {:ok, Map.put(attributes, key, value)}}
   end
 
   defp required_attributes(attributes, source_contract) do
@@ -177,9 +192,11 @@ defmodule Aiur.Claude.Telemetry.Event do
   defp required_string_attributes(attributes) do
     cond do
       attributes["event.name"] != "api_request" -> {:error, :malformed}
-      not valid_session_id?(attributes["session.id"]) -> {:error, :malformed}
-      not valid_model?(attributes["model"]) -> {:error, :malformed}
-      not is_nil(attributes["request_id"]) and not valid_request_id?(attributes["request_id"]) -> {:error, :malformed}
+      not Contract.valid_session_id?(attributes["session.id"]) -> {:error, :malformed}
+      not Contract.valid_model?(attributes["model"]) -> {:error, :malformed}
+      not is_nil(attributes["request_id"]) and not Contract.valid_request_id?(attributes["request_id"]) -> {:error, :malformed}
+      not is_nil(attributes["query_source"]) and not Contract.valid_query_source?(attributes["query_source"]) -> {:error, :malformed}
+      not is_nil(attributes["effort"]) and not Contract.valid_effort?(attributes["effort"]) -> {:error, :malformed}
       true -> :ok
     end
   end
@@ -215,6 +232,13 @@ defmodule Aiur.Claude.Telemetry.Event do
   defp normalize_value(key, %{"intValue" => value}, _source_contract) when key in @integer_attributes do
     case bounded_integer(value) do
       {:ok, integer} -> {:ok, {key, integer}}
+      :error -> {:error, :malformed}
+    end
+  end
+
+  defp normalize_value("cost_usd", %{"doubleValue" => value}, _source_contract) do
+    case Contract.exact_cost(value) do
+      {:ok, decimal} -> {:ok, {"cost_usd", decimal}}
       :error -> {:error, :malformed}
     end
   end
@@ -269,7 +293,7 @@ defmodule Aiur.Claude.Telemetry.Event do
     end
   end
 
-  defp api_request_body?(%{"stringValue" => "claude_code.api_request"}), do: true
+  defp api_request_body?(%{"stringValue" => @source}), do: true
   defp api_request_body?(_body), do: false
   defp bounded_list(value, max) when is_list(value) and length(value) <= max, do: {:ok, value}
   defp bounded_list(_value, _max), do: {:error, :attribute_limit}
@@ -277,7 +301,9 @@ defmodule Aiur.Claude.Telemetry.Event do
   defp bounded_value?(%{"stringValue" => value}) when is_binary(value), do: byte_size(value) <= @max_attribute_value_bytes
   defp bounded_value?(%{"intValue" => value}), do: bounded_integer(value) != :error
   defp bounded_value?(%{"boolValue" => value}), do: is_boolean(value)
-  defp bounded_value?(%{"doubleValue" => value}), do: is_number(value)
+  defp bounded_value?(%{"doubleValue" => %Decimal{} = value}), do: Contract.bounded_decimal?(value)
+  defp bounded_value?(%{"doubleValue" => value}) when is_number(value), do: true
+  defp bounded_value?(%{"doubleValue" => value}) when is_binary(value), do: byte_size(value) <= @max_attribute_value_bytes
 
   defp bounded_value?(%{"arrayValue" => %{"values" => values}}) when is_list(values) and length(values) <= 8 do
     Enum.all?(values, &bounded_value?/1)
@@ -291,6 +317,23 @@ defmodule Aiur.Claude.Telemetry.Event do
       _ -> {:sequence, attributes["event.sequence"]}
     end
   end
+
+  defp occurrence_time(record) when is_map(record) do
+    case Map.fetch(record, "timeUnixNano") do
+      :error ->
+        {:ok, nil}
+
+      {:ok, value} ->
+        with {:ok, nanoseconds} <- bounded_integer(value),
+             {:ok, occurred_at} <- DateTime.from_unix(nanoseconds, :nanosecond) do
+          {:ok, occurred_at}
+        else
+          _ -> {:error, :malformed}
+        end
+    end
+  end
+
+  defp occurrence_time(_record), do: {:error, :malformed}
 
   defp bounded_integer(value) when is_integer(value) and value in 0..@max_otlp_int64, do: {:ok, value}
 
@@ -315,9 +358,11 @@ defmodule Aiur.Claude.Telemetry.Event do
   defp content_free_string(_value, _source_contract), do: {:error, :unsupported_version}
 
   defp validate_string_value("event.name", "api_request", _source_contract), do: :ok
-  defp validate_string_value("session.id", value, _source_contract), do: if(valid_session_id?(value), do: :ok, else: {:error, :malformed})
-  defp validate_string_value("request_id", value, _source_contract), do: if(valid_request_id?(value), do: :ok, else: {:error, :malformed})
-  defp validate_string_value("model", value, _source_contract), do: if(valid_model?(value), do: :ok, else: {:error, :malformed})
+  defp validate_string_value("session.id", value, _source_contract), do: if(Contract.valid_session_id?(value), do: :ok, else: {:error, :malformed})
+  defp validate_string_value("request_id", value, _source_contract), do: if(Contract.valid_request_id?(value), do: :ok, else: {:error, :malformed})
+  defp validate_string_value("model", value, _source_contract), do: if(Contract.valid_model?(value), do: :ok, else: {:error, :malformed})
+  defp validate_string_value("query_source", value, _source_contract), do: if(Contract.valid_query_source?(value), do: :ok, else: {:error, :malformed})
+  defp validate_string_value("effort", value, _source_contract), do: if(Contract.valid_effort?(value), do: :ok, else: {:error, :malformed})
   defp validate_string_value("service.name", value, %{service_name: value}), do: :ok
   defp validate_string_value("service.name", _value, _source_contract), do: {:error, :unsupported_version}
   defp validate_string_value("service.version", value, %{emitter_version: value}), do: :ok
@@ -331,12 +376,6 @@ defmodule Aiur.Claude.Telemetry.Event do
   end
 
   defp source_attributes(_attributes, _source_contract), do: {:error, :unsupported_version}
-  defp valid_session_id?(value) when is_binary(value), do: Regex.match?(@session_id_pattern, value)
-  defp valid_session_id?(_value), do: false
-  defp valid_request_id?(value) when is_binary(value), do: Regex.match?(@request_id_pattern, value)
-  defp valid_request_id?(_value), do: false
-  defp valid_model?(value) when is_binary(value), do: byte_size(value) <= 96 and Regex.match?(@model_pattern, value)
-  defp valid_model?(_value), do: false
   defp valid_sequence?(value), do: is_integer(value) and value in 0..@max_otlp_int64
   defp valid_nonnegative?(attributes, key), do: is_nil(attributes[key]) or (is_integer(attributes[key]) and attributes[key] >= 0)
 end
