@@ -262,7 +262,7 @@ footer{margin-top:26px;border-top:1px solid var(--line);padding-top:14px;font-fa
 <script>
 const RUN = {
   phase: 6,
-  updated: "2026-07-17 15:12 PDT",
+  updated: "2026-07-17 15:22 PDT",
   tickets: {
     "BO-004": {state:"merged", progress:100, issue:1086},
     "BO-008": {state:"merged", progress:100, issue:1087},
@@ -282,7 +282,7 @@ const RUN = {
     "BO-010": {state:"merged", progress:100, issue:1097},
     "BO-019": {state:"merged to develop", progress:100, issue:1106},
     "DASH-002": {state:"merged", progress:100, issue:1109},
-    "DASH-026": {state:"direct rework active — current develop merged at b934090d; ticket-local lint/runtime repairs in progress", progress:88, issue:1130, agent_live:true},
+    "DASH-026": {state:"review-ready local head 30f9eec0 on exact 9229b48d — 451 tests plus compile/lint/Dialyzer green; independent review active", progress:96, issue:1130, agent_live:true},
     "BO-003": {state:"merged to develop", progress:100, issue:1092},
     "BO-006": {state:"merged to develop", progress:100, issue:1094},
     "BO-007": {state:"merged to develop", progress:100, issue:1095},
@@ -293,10 +293,10 @@ const RUN = {
     "DASH-013": {state:"source + exact-head CI complete — draft PR #1228; blocked on aiur-claude@1.1.0 distribution", progress:95, issue:1119},
     "DASH-020": {state:"merged to develop", progress:100, issue:1124},
     "BO-018": {state:"merged to develop", progress:100, issue:1105},
-    "DASH-009": {state:"direct rework active — focused ledger gates green; long full suite classifying unrelated shared-state failures", progress:92, issue:1115, agent_live:true},
+    "DASH-009": {state:"review-ready local head 276a79f4 on exact 9229b48d — 125 affected tests plus compile/lint/Dialyzer green; independent review active", progress:96, issue:1115, agent_live:true},
     "DASH-010": {state:"paused + CI wait — draft PR #1232 at 612e3cb7; all CI green, real Claude gate held", progress:95, issue:1116},
-    "DASH-014": {state:"review-clean draft PR #1239 at 900d7bf5 — prior CI diagnostic after #1240 landed; exact 9229b48d merge-forward required", progress:97, issue:1120},
-    "DASH-029": {state:"dependency-blocked — Codex owner idle", progress:20, issue:1133},
+    "DASH-014": {state:"local head 2cde8b4c contains exact 9229b48d — 148 post-merge affected tests green; final gates/review remain", progress:98, issue:1120, agent_live:true},
+    "DASH-029": {state:"preserved plan only — waits for #1130 to land before source/test work resumes", progress:20, issue:1133},
     "BO-011": {state:"merged to develop through PR #1233 at 791ad6dc", progress:100, issue:1098},
     "BO-012": {state:"draft PR #1244 at 0ef359a3 — CI repairs proven; exact 9229b48d merge-forward and fresh qualification required", progress:98, issue:1099},
     "DASH-003": {state:"direct rework active — focused runner/status/dashboard gates green; full suite and final Dialyzer classification in progress", progress:92, issue:1110, agent_live:true},
@@ -397,13 +397,18 @@ function phaseOrder(phase){ return phase == null ? Number.MAX_SAFE_INTEGER : pha
 function phaseLabel(phase, prefix="W"){ return phase == null ? "TBD" : `${prefix}${phase}`; }
 function isCompleted(run){ return !!run && (run.state.startsWith("merged") || run.state.startsWith("closed")); }
 function hasLiveAgent(run){ return run?.agent_live === true; }
+function displayId(id){
+  const issue = ISSUE_BY_ID[id];
+  return id?.startsWith("DASH-") && issue ? `#${issue}` : id;
+}
+function displayTitle(ticket){ return `${displayId(ticket.id)} — ${ticket.title}`; }
 function visibleInSpatial(ticket){
   if (!ticket.adhoc) return true;
   const run = RUN.tickets[ticket.id];
   return !!run && !isCompleted(run) && !run.state.includes("deferred");
 }
 function ticketRef(ticket){
-  const label = ticket.adhoc ? `#${ticket.issue}` : ticket.id;
+  const label = ticket.adhoc ? `#${ticket.issue}` : displayId(ticket.id);
   return `<button class="sum-ticket" data-go="${ticket.id}">${ticket.critical ? `<b>${label}</b>` : label}</button>`;
 }
 
@@ -454,14 +459,14 @@ function buildGraph(rootEl, pack, title, cap){
         const nodeClass = completed ? " is-merged" : active ? " is-working" : !live && ready ? " is-ready" : "";
         const stateCopy = live ? `${live.progress}% · ${live.state}` : ready ? "dependency-ready" : "blocked ×"+t.deps.length;
         const xdeps = t.deps.filter(d=>byId[d] && byId[d].pack!==pack);
-        return `<button class="bo-node${nodeClass}" data-id="${t.id}" id="node-${t.id}" aria-label="${t.issue_title}">
+        return `<button class="bo-node${nodeClass}" data-id="${t.id}" id="node-${t.id}" aria-label="${displayTitle(t)}">
           <div class="bo-node-top"><span class="bo-ic">${ICONS[t.lane]}</span>
-            <span class="bo-node-id">${t.adhoc ? `#${t.issue}` : t.id}</span>
+            <span class="bo-node-id">${t.adhoc ? `#${t.issue}` : displayId(t.id)}</span>
             <span class="bo-cx">${t.cx == null ? "cx?" : `${CX_GLYPH[t.cx]||t.cx} cx${t.cx}`}</span></div>
           <div class="bo-node-title">${t.title}</div>
           <div class="bo-node-status"><span class="st">${stateCopy}</span>
-            <span>${t.critical?'<span class="crit">critical path</span>':""}${xdeps.length?`<span class="xdep">needs ${xdeps.join(", ")}</span>`:""}</span></div>
-          ${live?`<span class="bo-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${live.progress}" aria-label="${t.id} progress"><i style="width:${live.progress}%"></i></span>`:""}
+            <span>${t.critical?'<span class="crit">critical path</span>':""}${xdeps.length?`<span class="xdep">needs ${xdeps.map(displayId).join(", ")}</span>`:""}</span></div>
+          ${live?`<span class="bo-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${live.progress}" aria-label="${displayId(t.id)} progress"><i style="width:${live.progress}%"></i></span>`:""}
         </button>`;}).join("") + `</div>`;
     }
   }
@@ -589,8 +594,8 @@ function openDrawer(id){
   const deps = t.deps.map(d=>({id:d, ext: byId[d]?.pack!==t.pack}));
   const downs = (dependents[id]||[]).map(d=>({id:d, ext: byId[d]?.pack!==t.pack}));
   document.getElementById("drawerBody").innerHTML = `
-    <div class="did">${t.adhoc ? `#${t.issue} · Ad Hoc execution ticket` : `${t.id} · core Build Order member`}</div>
-    <h3>${t.issue_title}</h3>
+    <div class="did">${t.adhoc ? `#${t.issue} · Ad Hoc execution ticket` : `${displayId(t.id)} · core Build Order member`}</div>
+    <h3>${displayTitle(t)}</h3>
     <div class="row">
       <span class="pill">${LANE_LABEL[t.lane]} epic</span>
       <span class="pill">${t.phase == null ? "wave assigned at pickup" : `execution wave ${t.phase}`}</span>
@@ -599,9 +604,9 @@ function openDrawer(id){
       ${t.critical?'<span class="pill" style="color:var(--attn-ink);border-color:var(--attn-line);background:var(--attn-soft)">critical path</span>':""}
     </div>
     <h4>Blocked by (${deps.length})</h4>
-    <div>${deps.length?deps.map(d=>`<span class="dep-chip${d.ext?" ext":""}" data-go="${d.ext?"":d.id}">${d.id}${d.ext?" ↗":""}</span>`).join(""):`<span class="pill">${t.adhoc ? "tracked outside the approved core graph" : "none — ready at start"}</span>`}</div>
+    <div>${deps.length?deps.map(d=>`<span class="dep-chip${d.ext?" ext":""}" data-go="${d.ext?"":d.id}">${displayId(d.id)}${d.ext?" ↗":""}</span>`).join(""):`<span class="pill">${t.adhoc ? "tracked outside the approved core graph" : "none — ready at start"}</span>`}</div>
     <h4>Blocks (${downs.length})</h4>
-    <div>${downs.length?downs.map(d=>`<span class="dep-chip${d.ext?" ext":""}" data-go="${d.ext?"":d.id}">${d.id}${d.ext?" ↗":""}</span>`).join(""):'<span class="pill">nothing downstream</span>'}</div>
+    <div>${downs.length?downs.map(d=>`<span class="dep-chip${d.ext?" ext":""}" data-go="${d.ext?"":d.id}">${displayId(d.id)}${d.ext?" ↗":""}</span>`).join(""):'<span class="pill">nothing downstream</span>'}</div>
     <h4>Sources</h4>
     <div class="source-links">
       <a class="source-link" href="https://github.com/its-everdred/aiur/issues/${issue}" target="_blank" rel="noopener noreferrer"><span>Issue</span><span>#${issue} ↗</span></a>
@@ -610,7 +615,7 @@ function openDrawer(id){
         : '<span class="source-link unavailable" aria-disabled="true"><span>Pull request</span><span>not opened</span></span>'}
     </div>
     <h4>Ticket document</h4>
-    <div class="did" style="line-height:1.5">${t.adhoc ? `execution wave is frozen when the ticket is picked up` : `docs/build-order/${t.document}<br>+ implementation pointers: docs/build-order/08-implementation-pointers.md §${t.id}`}</div>`;
+    <div class="did" style="line-height:1.5">${t.adhoc ? `execution wave is frozen when the ticket is picked up` : t.id.startsWith("DASH-") ? `Implementation contract and pointers for ${displayId(t.id)}` : `docs/build-order/${t.document}<br>+ implementation pointers: docs/build-order/08-implementation-pointers.md §${t.id}`}</div>`;
   drawer.classList.add("open");
   document.querySelectorAll(".bo-node.sel").forEach(m=>m.classList.remove("sel"));
   document.getElementById("node-"+id)?.classList.add("sel");
