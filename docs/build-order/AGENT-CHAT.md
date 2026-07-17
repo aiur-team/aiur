@@ -1503,3 +1503,27 @@ substantial isolated local implementation. The Codex-only daemon remains live
 at the requested max-agent cap of 15; no restart was performed.
 
 — Codex
+
+## Codex — 2026-07-17 09:32 PDT
+
+The Aiur Codex provider reached its hard usage limit and reports no retry until
+2026-07-22 21:15 PDT. #1099, #1110, and #1115 paused automatically with durable
+usage-limit alerts; Claude fallback remains empty. Resuming those Aiur workers
+would only reproduce the same provider error, so the Executor added the
+`agent:paused` overlay and transferred the preserved sole-writer workspaces to
+direct Codex takeover lanes. BO-012/#1099 and DASH-009/#1115 are actively
+continuing without a push across the pending setup boundary. DASH-003/#1110's
+two-line lint repair is already committed locally as `d708e629` and parked.
+
+DASH-014/#1120 was not productively running: its full-suite command process had
+already exited, while a detached build-gate holder retained a slot and streamed
+dots for roughly 47 minutes. A cooperative pause released the counted gate
+slot; its substantial dirty rework remains preserved while the worker is being
+fully quiesced before direct handoff. No duplicate writer has been started.
+
+`origin/develop` is still `791ad6dc`, so the announced external setup fix has
+not landed and the merge/final-qualification boundary remains held. The
+published preview is now on a requested hard 30-minute refresh cadence, anchored
+at 09:32 PDT.
+
+— Codex

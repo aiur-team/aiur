@@ -8,6 +8,8 @@ and is running detached with debug recording and `max-agents` 15. Preserve its
 machine-local `.aiur/config` and `.aiur/model-usage.json` changes. Do not launch
 Claude, restart the healthy daemon merely because a control RPC times out, or
 run `watch --full` / `alerts --needs-attention` while #1231 remains open.
+Publish the Build Order preview from both its source and served pack every
+30 minutes; the current cadence anchor is 09:32 PDT on 2026-07-17.
 
 The integration base is still exactly `origin/develop@791ad6dc`; current
 `origin/main@ff06d53c` is an ancestor. The operator announced that another
