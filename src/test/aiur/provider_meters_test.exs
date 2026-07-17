@@ -98,7 +98,7 @@ defmodule Aiur.ProviderMetersTest do
     end
   end
 
-  property "newer success recovers LKG while delayed failures cannot regress health" do
+  property "only a full snapshot recovers LKG while delayed failures cannot regress health" do
     check all(id <- string(:alphanumeric, min_length: 1, max_length: 20), max_runs: 25) do
       initial = reconciliation_update(:snapshot, [id], @now, 1)
       {:updated, snapshot} = Reconciler.apply(nil, initial, @now)
@@ -108,10 +108,20 @@ defmodule Aiur.ProviderMetersTest do
       assert stale.health.state == :stale
       assert stale.windows[id].used_percent == 25
 
-      recovery = reconciliation_update(:patch, [id], DateTime.add(@now, 3, :second), 2)
-      {:updated, recovered} = Reconciler.apply(stale, recovery, @now)
+      sparse_patch = reconciliation_update(:patch, [id], DateTime.add(@now, 4, :second), 2)
+      {:updated, patched} = Reconciler.apply(stale, sparse_patch, @now)
+      assert patched.health.state == :stale
+      assert patched.health.failure == :transport
+      assert patched.health.last_observed_at == DateTime.add(@now, 4, :second)
+      assert patched.windows[id].used_percent == 50
+
+      out_of_order_full = reconciliation_update(:snapshot, [id], DateTime.add(@now, 3, :second), 3)
+      assert {:ignored, ^patched} = Reconciler.apply(patched, out_of_order_full, @now)
+
+      recovery = reconciliation_update(:snapshot, [id], DateTime.add(@now, 5, :second), 4)
+      {:updated, recovered} = Reconciler.apply(patched, recovery, @now)
       assert recovered.health.state == :healthy
-      assert recovered.windows[id].used_percent == 50
+      assert recovered.health.failure == nil
 
       delayed = reconciliation_failure(DateTime.add(@now, 1, :second), :timeout)
       assert {:ignored, ^recovered} = Reconciler.failure(recovered, delayed, @now)
@@ -331,7 +341,7 @@ defmodule Aiur.ProviderMetersTest do
     assert {:ok, other_snapshot} = Store.ingest(store, update(other_binding, windows: [window("other")]))
     refute_receive {:provider_meter_changed, ^other_snapshot}, 100
 
-    oversized = Enum.map(1..33, &window("limit-#{&1}"))
+    oversized = Enum.map(1..129, &window("limit-#{&1}"))
     assert {:error, :invalid_provider_meter_update} = Input.normalize(update(binding, windows: oversized))
   end
 
