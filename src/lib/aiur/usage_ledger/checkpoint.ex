@@ -86,6 +86,24 @@ defmodule Aiur.UsageLedger.Checkpoint do
     end
   end
 
+  @doc false
+  @spec overwrite_encoded(String.t(), String.t()) :: :ok | {:error, term()}
+  def overwrite_encoded(path, contents) when is_binary(path) and is_binary(contents) do
+    with :ok <- existing_regular_path(path),
+         :ok <- File.chmod(path, 0o600),
+         {:ok, file} <- :file.open(path, [:read, :write, :binary, :raw]) do
+      try do
+        with {:ok, 0} <- :file.position(file, 0),
+             :ok <- :file.write(file, contents),
+             :ok <- :file.truncate(file) do
+          :file.sync(file)
+        end
+      after
+        :ok = :file.close(file)
+      end
+    end
+  end
+
   defp load_regular(path) do
     with {:ok, contents} <- File.read(path),
          {:ok, decoded} <- Jason.decode(contents),
@@ -102,6 +120,21 @@ defmodule Aiur.UsageLedger.Checkpoint do
       {:ok, %File.Stat{type: :symlink}} -> {:error, :symlink_rejected}
       {:ok, %File.Stat{type: :regular}} -> :ok
       {:error, :enoent} -> :ok
+      {:ok, _stat} -> {:error, :not_a_regular_file}
+      {:error, _reason} -> {:error, :unreadable}
+    end
+  end
+
+  # Recovery creates and directory-syncs the checkpoint before the store serves
+  # appends. Requiring that prepared inode lets the hot path fsync only this
+  # file: no rename means no new parent-directory entry needs a global barrier.
+  # A crash during the overwrite can only leave a corrupt checkpoint; the
+  # already-fsynced canonical segment remains authoritative for recovery.
+  defp existing_regular_path(path) do
+    case File.lstat(path) do
+      {:ok, %File.Stat{type: :symlink}} -> {:error, :symlink_rejected}
+      {:ok, %File.Stat{type: :regular}} -> :ok
+      {:error, :enoent} -> {:error, :missing_checkpoint}
       {:ok, _stat} -> {:error, :not_a_regular_file}
       {:error, _reason} -> {:error, :unreadable}
     end

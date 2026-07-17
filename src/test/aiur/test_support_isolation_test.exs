@@ -23,4 +23,16 @@ defmodule Aiur.TestSupportIsolationTest do
     assert String.ends_with?(log_root, "/log")
     assert String.contains?(log_root, "aiur-elixir-tests")
   end
+
+  test "process lifecycle waits synchronize on DOWN instead of polling" do
+    test_support = File.read!(Path.expand("../support/test_support.exs", __DIR__))
+    refute test_support =~ "Process.sleep("
+
+    process = spawn(fn -> receive do: (:stop -> :ok) end)
+    waiter = Task.async(fn -> Aiur.TestSupport.await_process_down(process, 1_000) end)
+
+    assert Task.yield(waiter, 0) == nil
+    send(process, :stop)
+    assert {:ok, :ok} = Task.yield(waiter, 1_000)
+  end
 end

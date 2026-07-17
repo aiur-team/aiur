@@ -109,7 +109,30 @@ defmodule Aiur.UsageLedger.CounterPolicy do
   end
 
   defp entry(envelope, type, dimension, value, kind, money \\ nil) do
-    identity = {
+    key =
+      envelope
+      |> identity(type, dimension, money, source(envelope, money))
+      |> encode_key()
+
+    stream_key =
+      envelope
+      |> identity(type, dimension, money, stream_source(envelope, money))
+      |> encode_key()
+
+    %{
+      key: key,
+      stream_key: stream_key,
+      type: type,
+      dimension: dimension,
+      value: value,
+      kind: kind,
+      money: money,
+      source_sequence: envelope.source_sequence
+    }
+  end
+
+  defp identity(envelope, type, dimension, money, source) do
+    {
       envelope.provider,
       envelope.backend,
       envelope.transport,
@@ -121,25 +144,21 @@ defmodule Aiur.UsageLedger.CounterPolicy do
       dimension,
       envelope.requested_model,
       envelope.resolved_model,
-      source(envelope, money)
-    }
-
-    key = identity |> :erlang.term_to_binary() |> Base.url_encode64(padding: false)
-
-    %{
-      key: key,
-      stream_key: key,
-      type: type,
-      dimension: dimension,
-      value: value,
-      kind: kind,
-      money: money,
-      source_sequence: envelope.source_sequence
+      source
     }
   end
 
   defp source(envelope, nil), do: {envelope.source, envelope.source_version, envelope.counter_scope}
   defp source(_envelope, money), do: {money.source, money.source_version, money.counter_scope}
+
+  # Version revisions remain part of the counter identity so historical
+  # observations retain independent high-water marks. They are deliberately
+  # excluded from the overlap identity: a version string alone is not the
+  # trusted declaration required to prove absolute and delta streams independent.
+  defp stream_source(envelope, nil), do: {envelope.source, envelope.counter_scope}
+  defp stream_source(_envelope, money), do: {money.source, money.counter_scope}
+
+  defp encode_key(identity), do: identity |> :erlang.term_to_binary() |> Base.url_encode64(padding: false)
 
   defp stream_scope(envelope, nil), do: envelope.counter_scope
   defp stream_scope(_envelope, money), do: money.counter_scope

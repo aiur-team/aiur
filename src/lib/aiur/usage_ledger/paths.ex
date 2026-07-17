@@ -58,9 +58,8 @@ defmodule Aiur.UsageLedger.Paths do
       with :ok <- regular_or_missing(pending),
            :ok <- File.cp(source, pending),
            :ok <- File.chmod(pending, 0o600),
-           :ok <- verify_digest(pending, digest),
-           :ok <- File.rename(pending, destination) do
-        :ok
+           :ok <- verify_digest(pending, digest) do
+        File.rename(pending, destination)
       end
 
     if result != :ok, do: discard_pending(pending)

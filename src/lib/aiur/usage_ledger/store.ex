@@ -65,9 +65,8 @@ defmodule Aiur.UsageLedger.Store do
      Map.merge(state, %{
        records: :queue.from_list(state.records),
        append_fun: Keyword.get(opts, :append_fun, &DecisionLog.append/2),
-       checkpoint_fun: Keyword.get(opts, :checkpoint_fun, &Checkpoint.write_encoded/2),
+       checkpoint_fun: Keyword.get(opts, :checkpoint_fun, &Checkpoint.overwrite_encoded/2),
        checkpoint_encode_fun: Keyword.get(opts, :checkpoint_encode_fun, &Checkpoint.encode/2),
-       sync_fun: persistence.sync_fun,
        publish_fun: Keyword.get(opts, :publish_fun, fn _acknowledgement -> :ok end),
        subscribers: %{}
      })}
@@ -139,8 +138,7 @@ defmodule Aiur.UsageLedger.Store do
          {:ok, encoded_checkpoint} <- encode_checkpoint(checkpoint, state),
          :ok <- capacity(record, encoded_checkpoint, policy, state),
          :ok <- state.append_fun.(state.paths.segment_path, Record.encode(record)),
-         :ok <- state.checkpoint_fun.(state.paths.checkpoint_path, encoded_checkpoint),
-         :ok <- state.sync_fun.() do
+         :ok <- state.checkpoint_fun.(state.paths.checkpoint_path, encoded_checkpoint) do
       next_state = %{
         state
         | records: :queue.in(record, state.records),

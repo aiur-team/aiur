@@ -180,24 +180,22 @@ defmodule Aiur.UsageLedger.StoreTest do
     GenServer.stop(restarted)
   end
 
-  test "the public durable call remains pending until a blocked sync has a result", %{
+  test "the public durable call remains pending until the checkpoint is durable", %{
     root: root,
     name: name
   } do
     assert Store.durability_timeout() == :infinity
-    {:ok, prepared} = start_store(root, name)
-    GenServer.stop(prepared)
     parent = self()
 
-    sync_fun = fn ->
-      send(parent, {:sync_waiting, self()})
+    checkpoint_fun = fn path, checkpoint ->
+      send(parent, {:checkpoint_waiting, self()})
 
       receive do
-        :continue_sync -> :ok
+        :continue_checkpoint -> Checkpoint.overwrite_encoded(path, checkpoint)
       end
     end
 
-    {:ok, pid} = start_store(root, name, filesystem_sync_fun: sync_fun)
+    {:ok, pid} = start_store(root, name, checkpoint_fun: checkpoint_fun)
 
     next =
       envelope(%{
@@ -208,10 +206,27 @@ defmodule Aiur.UsageLedger.StoreTest do
       })
 
     task = Task.async(fn -> Store.append(name, next) end)
-    assert_receive {:sync_waiting, sync_owner}, 2_000
+    assert_receive {:checkpoint_waiting, checkpoint_owner}, 2_000
     assert Task.yield(task, 100) == nil
-    send(sync_owner, :continue_sync)
+    send(checkpoint_owner, :continue_checkpoint)
     assert {:ok, {:ok, %{position: 1}}} = Task.yield(task, 2_000)
+    GenServer.stop(pid)
+  end
+
+  test "hot appends never invoke the recovery-only filesystem barrier", %{root: root, name: name} do
+    {:ok, prepared} = start_store(root, name)
+    GenServer.stop(prepared)
+    parent = self()
+
+    sync_fun = fn ->
+      send(parent, :global_sync_called)
+      {:error, :global_sync_called}
+    end
+
+    {:ok, pid} = start_store(root, name, filesystem_sync_fun: sync_fun)
+
+    assert {:ok, %{position: 1}} = append(name, envelope(%{}))
+    refute_received :global_sync_called
     GenServer.stop(pid)
   end
 

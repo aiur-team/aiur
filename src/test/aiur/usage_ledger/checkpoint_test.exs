@@ -54,4 +54,25 @@ defmodule Aiur.UsageLedger.CheckpointTest do
     assert {:error, :invalid_ledger_checkpoint} =
              CounterPolicy.load(put_in(dumped, ["coverage", "upper"], huge_integer))
   end
+
+  test "durably overwrites a prepared checkpoint without replacing its path" do
+    path = Path.join(System.tmp_dir!(), "aiur-usage-ledger-checkpoint-#{System.unique_integer([:positive])}")
+    on_exit(fn -> File.rm(path) end)
+
+    first = Checkpoint.record(0, 0, CounterPolicy.new())
+    second = Checkpoint.record(4, 9, CounterPolicy.new())
+
+    assert :ok = Checkpoint.write(path, first)
+    assert {:ok, before} = File.stat(path)
+    assert :ok = Checkpoint.overwrite_encoded(path, Jason.encode!(second))
+    assert {:ok, after_overwrite} = File.stat(path)
+    assert before.inode == after_overwrite.inode
+    assert {:ok, %{position: 4, generation: 9}} = Checkpoint.load(path)
+  end
+
+  test "targeted checkpoint overwrite requires a prepared regular file" do
+    path = Path.join(System.tmp_dir!(), "aiur-usage-ledger-checkpoint-#{System.unique_integer([:positive])}")
+
+    assert {:error, :missing_checkpoint} = Checkpoint.overwrite_encoded(path, "{}")
+  end
 end

@@ -208,17 +208,17 @@ defmodule Aiur.TestSupport do
   def stop_default_http_server do
     case Process.whereis(Aiur.Supervisor) do
       supervisor when is_pid(supervisor) ->
-        case stop_default_http_server_child() do
-          :ok ->
-            :ok
-
-          :supervisor_unavailable ->
-            await_supervisor_shutdown(supervisor)
-            ensure_aiur_supervisor_running()
-        end
+        stop_default_http_server(supervisor)
 
       nil ->
         ensure_aiur_supervisor_running()
+    end
+  end
+
+  defp stop_default_http_server(supervisor) do
+    case stop_default_http_server_child() do
+      :ok -> :ok
+      :supervisor_unavailable -> recover_stopped_supervisor(supervisor, &ensure_aiur_supervisor_running/0)
     end
   end
 
@@ -243,13 +243,17 @@ defmodule Aiur.TestSupport do
     :exit, _reason -> :supervisor_unavailable
   end
 
-  defp await_supervisor_shutdown(supervisor) do
-    ref = Process.monitor(supervisor)
+  @doc false
+  @spec await_process_down(pid(), timeout()) :: :ok | :error
+  def await_process_down(process, timeout \\ 2_000) when is_pid(process) do
+    ref = Process.monitor(process)
 
     receive do
-      {:DOWN, ^ref, :process, ^supervisor, _reason} -> :ok
+      {:DOWN, ^ref, :process, ^process, _reason} -> :ok
     after
-      100 -> Process.demonitor(ref, [:flush])
+      timeout ->
+        Process.demonitor(ref, [:flush])
+        :error
     end
   end
 
@@ -352,45 +356,65 @@ defmodule Aiur.TestSupport do
     :exit, _reason -> :supervisor_unavailable
   end
 
-  defp ensure_aiur_supervisor_running(retries \\ 10) do
+  defp ensure_aiur_supervisor_running do
     case Process.whereis(Aiur.Supervisor) do
       pid when is_pid(pid) ->
-        if supervisor_accepting_calls?(pid) do
-          :ok
-        else
-          await_supervisor_shutdown(pid)
-          restart_aiur_application(retries)
-        end
+        registered_supervisor_status(pid, &restart_aiur_application/0)
 
       nil ->
-        restart_aiur_application(retries)
+        restart_aiur_application()
     end
   end
 
-  defp restart_aiur_application(retries) do
-    case Application.ensure_all_started(:aiur) do
-      {:ok, _apps} -> await_aiur_supervisor(retries)
-      {:error, {:already_started, _app}} -> await_aiur_supervisor(retries)
-      {:error, {:aiur, {:already_started, _app}}} -> await_aiur_supervisor(retries)
-      {:error, _reason} -> await_aiur_supervisor(retries)
-    end
+  defp restart_aiur_application do
+    ensure_aiur_application_started(&verify_or_restart_aiur_application/0)
   end
 
-  defp await_aiur_supervisor(0), do: :error
-
-  defp await_aiur_supervisor(retries) do
+  defp verify_or_restart_aiur_application do
     case Process.whereis(Aiur.Supervisor) do
       supervisor when is_pid(supervisor) ->
-        if supervisor_accepting_calls?(supervisor) do
-          :ok
-        else
-          await_supervisor_shutdown(supervisor)
-          await_aiur_supervisor(retries - 1)
-        end
+        registered_supervisor_status(supervisor, &stop_and_start_aiur_application/0)
 
       nil ->
-        Process.sleep(10)
-        await_aiur_supervisor(retries - 1)
+        stop_and_start_aiur_application()
+    end
+  end
+
+  defp registered_supervisor_status(supervisor, recovery) do
+    if supervisor_accepting_calls?(supervisor),
+      do: :ok,
+      else: recover_stopped_supervisor(supervisor, recovery)
+  end
+
+  defp recover_stopped_supervisor(supervisor, recovery) do
+    with :ok <- await_process_down(supervisor), do: recovery.()
+  end
+
+  defp stop_and_start_aiur_application do
+    case Application.stop(:aiur) do
+      :ok -> start_aiur_application()
+      {:error, {:not_started, :aiur}} -> start_aiur_application()
+      {:error, _reason} -> :error
+    end
+  end
+
+  defp start_aiur_application do
+    ensure_aiur_application_started(&aiur_supervisor_status/0)
+  end
+
+  defp ensure_aiur_application_started(on_started) do
+    case Application.ensure_all_started(:aiur) do
+      {:ok, _apps} -> on_started.()
+      {:error, {:already_started, _app}} -> on_started.()
+      {:error, {:aiur, {:already_started, _app}}} -> on_started.()
+      {:error, _reason} -> :error
+    end
+  end
+
+  defp aiur_supervisor_status do
+    case Process.whereis(Aiur.Supervisor) do
+      supervisor when is_pid(supervisor) -> if(supervisor_accepting_calls?(supervisor), do: :ok, else: :error)
+      nil -> :error
     end
   end
 

@@ -101,6 +101,42 @@ defmodule Aiur.UsageLedger.CounterPolicyTest do
     assert {:error, :mixed_measurement_stream, ^state} = CounterPolicy.apply(state, delta)
   end
 
+  test "rejects token overlap across source versions without a trusted independence policy" do
+    absolute = envelope(tokens: %{input: 10}, cost: nil)
+
+    delta =
+      envelope(
+        idempotency_key: "codex:evt-18",
+        source_event_id: "evt-18",
+        source_sequence: 18,
+        source_version: "2026-08",
+        relationship_revision: "codex-app-server-2026-08",
+        measurement_kind: :delta,
+        tokens: %{input: 2},
+        cost: nil
+      )
+
+    assert {:ok, %{state: state}} = CounterPolicy.apply(CounterPolicy.new(), absolute)
+    assert {:error, :mixed_measurement_stream, ^state} = CounterPolicy.apply(state, delta)
+  end
+
+  test "rejects cost overlap across source versions without a trusted independence policy" do
+    absolute = envelope(tokens: token_values(nil), cost: money("1.00", :absolute))
+
+    delta =
+      envelope(
+        idempotency_key: "codex:evt-18",
+        source_event_id: "evt-18",
+        source_sequence: 18,
+        measurement_kind: :delta,
+        tokens: token_values(nil),
+        cost: money("0.10", :delta) |> Map.put(:source_version, "2026-08")
+      )
+
+    assert {:ok, %{state: state}} = CounterPolicy.apply(CounterPolicy.new(), absolute)
+    assert {:error, :mixed_measurement_stream, ^state} = CounterPolicy.apply(state, delta)
+  end
+
   test "partitions account rotation, retry scope, resumed sessions, and historical source revisions" do
     first = envelope(tokens: %{input: 10})
     assert {:ok, %{state: state}} = CounterPolicy.apply(CounterPolicy.new(), first)
