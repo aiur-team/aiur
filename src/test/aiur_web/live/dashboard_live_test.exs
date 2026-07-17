@@ -484,7 +484,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert length(Floki.find(Floki.parse_document!(unavailable_units), ~s([aria-disabled="true"]))) == 2
 
     assert available_units =~ ~s(href="/analytics")
-    assert length(Floki.find(Floki.parse_document!(available_units), ~s([aria-disabled="true"]))) == 0
+    assert Floki.find(Floki.parse_document!(available_units), ~s([aria-disabled="true"])) == []
 
     assert commands =~ ~s(<h1 id="route-title">Commands</h1>)
     assert length(Floki.find(Floki.parse_document!(commands), ~s(a[aria-current="page"]))) == 2

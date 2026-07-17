@@ -521,7 +521,7 @@ textarea:focus-visible,
 .bo-layout-edge-kind {
   display: inline-block;
   margin-left: 0.35rem;
-  color: var(--faint);
+  color: var(--muted);
   font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
   font-size: 0.62rem;
 }

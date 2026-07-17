@@ -4,10 +4,10 @@ defmodule AiurWeb.BuildOrderLiveTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
-  alias Aiur.BuildOrder.{Catalog, Member, ProviderHealth, RootSummary, SelectedRoot}
+  alias Aiur.BuildOrder.{Catalog, Lifecycle, Member, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
-  alias Aiur.BuildOrder.TicketDetail.State
   alias Aiur.BuildOrder.TicketDetail.Snapshot, as: DetailSnapshot
+  alias Aiur.BuildOrder.TicketDetail.State
   alias Aiur.BuildOrder.TicketHistory
   alias Aiur.TrackerIdentity
   alias AiurWeb.Endpoint
@@ -598,7 +598,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
         identity: identity,
         title: title,
         description: "Cached context",
-        lifecycle: Aiur.BuildOrder.Lifecycle.from_github("OPEN", nil),
+        lifecycle: Lifecycle.from_github("OPEN", nil),
         url: "https://github.com/owner/repo/issues/#{identity.identifier}",
         created_at: observed_at,
         updated_at: observed_at,

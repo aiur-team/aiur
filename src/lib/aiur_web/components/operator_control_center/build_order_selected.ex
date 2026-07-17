@@ -3,8 +3,8 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
 
   use Phoenix.Component
 
-  alias Aiur.BuildOrder.{SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
+  alias Aiur.BuildOrder.SelectedRoot
   alias AiurWeb.BuildOrder.RouteState
   alias AiurWeb.OperatorControlCenter.{BuildOrderGraph, BuildOrderStatus}
 
