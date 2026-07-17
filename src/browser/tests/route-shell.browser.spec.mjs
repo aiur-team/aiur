@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
 import { assertNoDocumentOverflow, openFixture } from './support/browser-helpers.mjs'
+import { nextPaint } from './support/measurements.mjs'
 
 test('route shell keeps navigation URL-backed, accessible, and unclipped across responsive widths', async ({ browser }) => {
   for (const { width, isMobile } of [
@@ -55,6 +56,7 @@ test('route shell keeps navigation URL-backed, accessible, and unclipped across 
       await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
 
       await page.evaluate(() => { document.documentElement.style.fontSize = '200%' })
+      await nextPaint(page)
       await assertNoDocumentOverflow(page)
       await expect(page.locator('#route-shell-action')).toBeVisible()
 
@@ -82,6 +84,7 @@ test('route shell keeps navigation URL-backed, accessible, and unclipped across 
           document.querySelector('.shell-content').append(spacer)
           window.scrollTo(0, 600)
         })
+        await nextPaint(page)
 
         expect((await sidebar.boundingBox()).y).toBeCloseTo(initialTop, 0)
       }
