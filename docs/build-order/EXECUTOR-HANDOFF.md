@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Current Executor checkpoint (updated 2026-07-17 14:12 PDT)
+## Current Executor checkpoint (updated 2026-07-17 14:42 PDT)
 
 The live Executor is Codex-only on the literal `develop` runtime checkout at
 `/home/orangekid/github/aiur-runtime-develop`. It was force-built before launch
@@ -9,51 +9,64 @@ machine-local `.aiur/config` and `.aiur/model-usage.json` changes. Do not launch
 Claude, restart the healthy daemon merely because a control RPC times out, or
 run `watch --full` / `alerts --needs-attention` while #1231 remains open.
 Publish the Build Order preview from both its source and served pack every
-30 minutes; the current cadence anchor is 14:12 PDT on 2026-07-17.
+30 minutes; the current cadence anchor is 14:42 PDT on 2026-07-17.
 
 The integration base is still exactly `origin/develop@791ad6dc`; current
-`origin/main@ff06d53c` is an ancestor. The operator announced that another
-Codex will push an Aiur setup fix to `develop`. Until that new SHA is visible,
-all final qualification, pushes across the boundary, and merges are held.
-Ticket-local work may continue. On arrival: fetch both branches, inspect the
-exact delta, recheck `main` ancestry, safely fast-forward the runtime checkout
-without losing its two local files, broadcast the exact SHA to every owner,
-and only then release parked/rework lanes.
+`origin/main@ff06d53c` is an ancestor. The previously announced external setup
+fix is no longer an integration hold. Exhaustive local session, branch, ref,
+worktree, process, and GitHub reconciliation found no concrete owner, branch,
+or actionable change. A session-historian pass over #1237/#1238/#1240 confirmed
+those workers merely waited on the Executor announcement. Continue against
+actual current `develop`; if a setup commit later appears, treat it as an
+ordinary new base advance and inspect it before integration.
 
-BO-012/#1099 is complete locally at `c0b20d6e` after its sequential Tier-2
-Compound Engineering review and rework. Compile with warnings as errors, specs,
-format, the full ExUnit suite, `mix test --failed`, and 36 focused tests pass.
-The Build Order, route-shell, ticket-context, and layout Playwright suites pass
-sequentially at 4/4, 1/1, 2/2, and 24/24. The final adversarial re-review found
-no remaining findings. Its durable issue receipt is comment `5007500934`; the
-head remains one local commit ahead and unpushed until the setup base is known.
+BO-012/#1099 is complete locally at `c0b20d6e` after sequential Tier-2 review
+and rework. Compile with warnings as errors, specs, format, full ExUnit,
+`mix test --failed`, and 36 focused tests pass. The Build Order, route-shell,
+ticket-context, and layout Playwright suites pass sequentially at 4/4, 1/1,
+2/2, and 24/24. Final adversarial re-review found no findings. Durable issue
+receipt `5007500934` records the exact head; it is released for current-base
+push, draft PR creation, exact-head CI, and final review.
 
-Three additional local repair heads are parked without pushes. DASH-003/#1110 is one
-commit ahead at `d708e629`; independent focused review, narrow Credo, format,
-and both enclosing tests pass. DASH-009/#1115 is one commit ahead at
-`1ec2e9fe`; bounded verified SHA-256 quarantine reuse and all focused/static
-gates pass. DASH-014/#1120 is one commit ahead at `a3930393`; all ten review
-findings are reconciled, split production modules are at most 195 lines, and
-compile, format, specs, lint, Dialyzer, plus 68 focused tests pass. Its full
-suite's three order-sensitive failures pass isolated. The fourth was explicit
-`/tmp` ENOSPC; the Executor removed 44 inactive leaked test roots and two
-orphan servers, recovered 3.9 GB, and the exact reconstruction test then passed
-1/1. All three heads still need independent exact-head review and fresh
-exact-base qualification after the setup boundary is resolved.
+Independent exact-head review rejected the other three local heads and each
+now has one direct sole writer. DASH-003/#1110 at `d708e629` recomputed the
+running backend/model/effort from mutable request/config state instead of
+session-resolved facts; its writer is adding resolve-once metadata and Remote
+Control/fallback/config-mutation regressions. DASH-009/#1115 at `1ec2e9fe`
+allowed a source-version change to bypass conservative absolute/delta overlap,
+ran global `sync(1)` on every append, and used forbidden sleep polling; its
+writer is repairing all three. DASH-014/#1120 merged current develop as
+`beee8d0a`, then repaired store-health normalization, nil/source-specific
+provenance, checkpoint failure fencing, and sleep synchronization; 26 targeted
+and 121 broader affected tests pass, with exact-diff review and commit pending.
 
-The announced external setup commit has still not appeared after more than
-three hours: `origin/develop` remains `791ad6dc`. The promise is now a stale
-integration boundary, not evidence that new code is in flight. Reconcile its
-local/session origin before either retiring it under Executor self-fix authority
-or rebasing the four completed local heads; do not wait indefinitely.
+The Executor directly repaired #1240/PR #1242 at local commit `52207071`.
+Failing-before regressions proved that stale boot fences dropped durable
+follow-up repair and that the serialized lifecycle fence grew from roughly
+1 KiB to 14 KiB after 20 retries. Restart reconciliation now always repairs
+current durable state while dispatch remains gated by the captured pre-repair
+fence, and the fence retains only fixed scalar state plus the latest attempt
+identity. Both complete DecisionStore files pass 77/77; the two new regressions
+pass six consecutive runs; compile, format, and diff checks pass. It remains
+draft pending independent review, push, and fresh exact-head CI.
 
-Keep #1130/PR #1217, #1240/PR #1242, #1237/PR #1243, and #1238/PR #1241 parked
-as `agent:rework + agent:paused` until that reconciliation. #1116/PR #1232 and
-#1119/PR #1228 remain unmergeable human/distribution-gated Claude lanes. Do not
-merge them. PR #1239 remains draft until its ten-item review packet is proven
-fixed on a replacement exact-base head. After any merge to non-default
-`develop`, explicitly close the issue with `agent:done` and record the merge
-receipt.
+The older Executor handoffs are fully reconciled. Of the four-PR shutdown
+frontier, #1036, #1202, and #1213 merged and closed; #1217/#1130 is the only
+survivor and is queued for direct rework after a current writer frees a slot.
+Of the abandoned Claude session's five lanes, four merged and closed; only
+#1119/PR #1228 survives. Its source and CI are complete, and local
+`aiur-claude --version` is 1.1.0, but npm still publishes only 1.0.0, so the
+public distribution gate remains real. Keep #1119 and human-gated #1116 frozen.
+
+The Aiur Codex provider remains exhausted until 2026-07-22 21:15 PDT; the three
+daemon workers stay quota-paused and Claude fallback stays disabled. Four
+direct repair lanes currently consume all collaboration slots. A 14:40 scoped
+test briefly drove one-minute load above 26 on 12 CPUs while memory and build
+serialization remained healthy; do not add another build until it drains.
+#1237 and #1238 remain preserved `agent:rework + agent:paused`, but no longer
+depend on a hypothetical setup fix; resume them in priority order after the
+current repairs and #1130 are staffed. After any merge to non-default
+`develop`, explicitly close the issue with `agent:done` and record the receipt.
 
 ## Recovery checkpoint (updated 2026-07-17 06:59 PDT)
 

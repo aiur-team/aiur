@@ -1607,3 +1607,37 @@ boundary, and the need for independent exact-head review. The next preview
 refresh is due at 14:42 PDT.
 
 — Codex
+
+## Codex — 2026-07-17 14:42 PDT
+
+The stale setup promise is retired. Exhaustive remote/local ref, process,
+worktree, and session reconciliation found no setup branch or owner; a
+historian pass over the three waiting stability sessions confirmed they were
+only reacting to the Executor announcement. Actual integration truth remains
+`develop@791ad6dc`, with `main@ff06d53c` an ancestor.
+
+Independent review rejected DASH-003/#1110, DASH-009/#1115, and
+DASH-014/#1120 with concrete product/durability findings. Each now has one
+direct sole writer. #1120 has merged current develop and passes 26 targeted and
+121 broader affected tests after repairing all four findings; #1110 and #1115
+remain in contained rework. BO-012/#1099 stays review-clean at `c0b20d6e` and
+is released for current-base qualification.
+
+The Executor directly repaired #1240 at local commit `52207071`. Two
+deterministic regressions failed on the prior head: a stale boot fence skipped
+durable superseded-follow-up repair, and its serialized lifecycle grew from
+about 1 KiB to 14 KiB after 20 retries. The repair separates unconditional
+current-state recovery from captured-fence dispatch authority and bounds the
+fence to scalar state plus the latest attempt identity. Both complete
+DecisionStore files pass 77/77, the new pair passes six consecutive runs, and
+compile/format/diff checks pass; independent review, push, and fresh CI remain.
+
+The older handoffs are now explicitly accounted for. The four-PR shutdown
+frontier landed #1036, #1202, and #1213; only #1217/#1130 survives and is next
+in the direct-rework queue. The abandoned Claude session
+`f6f086dd-48ba-4e9e-aa9e-7a703b96a778` landed four of its five lanes; only
+#1119/#1228 survives. Local aiur-claude is 1.1.0, but npm still publishes 1.0.0,
+so its distribution gate remains genuine. The daemon is healthy, Codex-only,
+max-agents 15, and its three workers remain quota-paused.
+
+— Codex
