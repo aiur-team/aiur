@@ -152,11 +152,7 @@ defmodule Aiur.CurrentRunProjections.Projector do
       case Checkpoint.write(candidate.checkpoint_writer, candidate) do
         :ok ->
           next = %{candidate | checkpoint_health: :healthy}
-
-          if summary.changed? do
-            broadcast(next.pubsub, CurrentRunSummary.topic(), {:current_run_summary_changed, summary.snapshot})
-          end
-
+          broadcast_summary_change(next, summary)
           {next, false}
 
         {:error, :checkpoint_write_failed} ->
@@ -205,6 +201,16 @@ defmodule Aiur.CurrentRunProjections.Projector do
         state.pubsub,
         CurrentRunOutcomeSnapshot.topic(),
         {:current_run_outcome_snapshot_changed, outcomes.snapshot}
+      )
+    end
+  end
+
+  defp broadcast_summary_change(state, summary) do
+    if summary.changed? do
+      broadcast(
+        state.pubsub,
+        CurrentRunSummary.topic(),
+        {:current_run_summary_changed, summary.snapshot}
       )
     end
   end
