@@ -930,8 +930,13 @@ defmodule Aiur.CoreTest do
       end)
 
     on_exit(fn ->
-      send(busy_worker_pid, :done)
       stop_test_orchestrator(pid)
+
+      busy_worker_ref = Process.monitor(busy_worker_pid)
+      send(busy_worker_pid, :done)
+
+      assert_receive {:DOWN, ^busy_worker_ref, :process, ^busy_worker_pid, reason}
+      assert reason in [:normal, :noproc]
     end)
 
     other_running_entry = %{

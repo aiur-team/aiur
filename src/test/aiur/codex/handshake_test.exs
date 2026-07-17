@@ -37,7 +37,7 @@ defmodule Aiur.Codex.HandshakeTest do
         done
         """)
 
-      assert {:ok, %{"primary" => %{"usedPercent" => 100, "resetsAt" => 123}}} = Handshake.read_rate_limits(port)
+      assert {:ok, %{"rateLimits" => %{"primary" => %{"usedPercent" => 100, "resetsAt" => 123}}}} = Handshake.read_rate_limits(port)
     end
 
     test "returns an error for a malformed account response" do
@@ -51,6 +51,70 @@ defmodule Aiur.Codex.HandshakeTest do
         """)
 
       assert {:error, {:invalid_rate_limits_payload, %{"unexpected" => true}}} = Handshake.read_rate_limits(port)
+    end
+
+    test "quarantines valid late rate-limit responses" do
+      secret = "person@example.test credential=super-secret"
+
+      port =
+        script_port("""
+        while IFS= read -r line; do
+          case "$line" in
+            *'\"id\":4'*)
+              sleep 1.1
+              printf '%s\\n' '{"id":4,"result":{"rateLimits":{"primary":{"usedPercent":100},"email":"#{secret}","capabilityUrl":"https://example.test/#{secret}"}}}' ;;
+            *'\"id\":5'*) printf '%s\\n' '{"id":5,"result":{"account":{"type":"chatgpt"}}}'; exit 0 ;;
+          esac
+        done
+        """)
+
+      test_pid = self()
+
+      handler = fn payload ->
+        send(test_pid, {:late_rate_limit_payload, payload})
+        :handled
+      end
+
+      assert {:error, :response_timeout} = Handshake.read_rate_limits(port)
+
+      log =
+        capture_log(fn ->
+          assert {:ok, %{auth_mode: "chatgpt"}} = Handshake.read_account(port, on_notification: handler)
+        end)
+
+      refute_receive {:late_rate_limit_payload, _payload}
+      refute log =~ secret
+    end
+
+    test "quarantines malformed late rate-limit stream output" do
+      secret = "person@example.test credential=super-secret"
+
+      port =
+        script_port("""
+        while IFS= read -r line; do
+          case "$line" in
+            *'\"id\":4'*) sleep 1.1; printf '%s\\n' '{"id":4,"result": malformed rate-limit=#{secret}' ;;
+            *'\"id\":5'*) printf '%s\\n' '{"id":5,"result":{"account":{"type":"chatgpt"}}}'; exit 0 ;;
+          esac
+        done
+        """)
+
+      test_pid = self()
+
+      handler = fn payload ->
+        send(test_pid, {:late_rate_limit_payload, payload})
+        :handled
+      end
+
+      assert {:error, :response_timeout} = Handshake.read_rate_limits(port)
+
+      log =
+        capture_log(fn ->
+          assert {:ok, %{auth_mode: "chatgpt"}} = Handshake.read_account(port, on_notification: handler)
+        end)
+
+      refute_receive {:late_rate_limit_payload, _payload}
+      refute log =~ secret
     end
   end
 
@@ -124,7 +188,7 @@ defmodule Aiur.Codex.HandshakeTest do
 
       log =
         capture_log(fn ->
-          assert {:ok, %{"primary" => %{"usedPercent" => 100}}} =
+          assert {:ok, %{"rateLimits" => %{"primary" => %{"usedPercent" => 100}}}} =
                    Handshake.read_rate_limits(port, on_notification: handler)
         end)
 
@@ -160,7 +224,7 @@ defmodule Aiur.Codex.HandshakeTest do
 
       log =
         capture_log(fn ->
-          assert {:ok, %{"primary" => %{"usedPercent" => 100}}} =
+          assert {:ok, %{"rateLimits" => %{"primary" => %{"usedPercent" => 100}}}} =
                    Handshake.read_rate_limits(port, on_notification: handler)
         end)
 

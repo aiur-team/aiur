@@ -426,7 +426,7 @@ defmodule Aiur.Codex.TurnLoopTest do
           rate_limit_observer: fn backend, limits -> ModelAvailability.observe(backend, limits, path: path) end
         )
 
-      reset_at = DateTime.add(DateTime.utc_now(), 3_600, :second) |> DateTime.to_iso8601()
+      reset_at = DateTime.add(DateTime.utc_now(), 3_600, :second) |> DateTime.to_unix()
       secret = "person@example.test credential=super-secret"
       reset_secret = "reset-token=super-secret"
 
@@ -501,6 +501,9 @@ defmodule Aiur.Codex.TurnLoopTest do
         account_generation_context: account_generation.context,
         account_generation_server: owner
       }
+
+      assert {:redacted, _} =
+               AccountGeneration.handle_notification(session, "account/updated", %{"params" => %{"authMode" => "chatgpt"}})
 
       limited = %{
         "method" => "account/rateLimits/updated",

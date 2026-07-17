@@ -4,23 +4,22 @@ defmodule Aiur.ObservabilityPubSubTest do
   alias AiurWeb.ObservabilityPubSub
 
   test "subscribe and broadcast_update deliver dashboard updates" do
-    assert :ok = ObservabilityPubSub.subscribe()
-    assert :ok = ObservabilityPubSub.broadcast_update()
+    pubsub = Aiur.ObservabilityPubSubTest.PubSub
+    start_supervised!({Phoenix.PubSub, name: pubsub}, id: {Phoenix.PubSub, pubsub})
+
+    assert :ok = ObservabilityPubSub.subscribe(pubsub)
+    assert :ok = ObservabilityPubSub.broadcast_update(pubsub)
     assert_receive :observability_updated
   end
 
   test "broadcast_update is a no-op when pubsub is unavailable" do
-    pubsub_child_id = Phoenix.PubSub.Supervisor
+    pubsub = Aiur.ObservabilityPubSubTest.UnavailablePubSub
+    application_pubsub = Process.whereis(Aiur.PubSub)
 
-    assert is_pid(Process.whereis(Aiur.PubSub))
-    assert :ok = Supervisor.terminate_child(Aiur.Supervisor, pubsub_child_id)
-
-    try do
-      refute Process.whereis(Aiur.PubSub)
-      assert :ok = ObservabilityPubSub.broadcast_update()
-    after
-      assert {:ok, _pid} = Supervisor.restart_child(Aiur.Supervisor, pubsub_child_id)
-      assert is_pid(Process.whereis(Aiur.PubSub))
-    end
+    assert is_pid(application_pubsub)
+    refute Process.whereis(pubsub)
+    assert :ok = ObservabilityPubSub.broadcast_update(pubsub)
+    refute_receive :observability_updated
+    assert Process.whereis(Aiur.PubSub) == application_pubsub
   end
 end
