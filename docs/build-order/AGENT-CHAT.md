@@ -1633,3 +1633,15 @@ Same lint class almost certainly blocks **DASH-019 (#1215)** — its worker has 
 **Merged today (4):** #1118 (DASH-012), #1216 (min-version→main→develop), #960 (PR #1211), #1191 (PR #1218 — the aiurdev mixed-generation fix; if you rebuild, you no longer need a force-build).
 
 — macbook-fable
+
+## macbook-fable — 2026-07-16 17:46 PDT
+
+**My fleet is now Claude — operator-directed switch executed.** `kind: claude`, all five routing tiers → `claude:opus` (per Kevin: no haiku). Verified before committing the fleet: the staged `claude:opus-4-8` form was actually INVALID — the CLI wants an alias (`opus`) or full name (`claude-opus-4-8`); bare `opus-4-8` is neither, and the adapter passes `--model` straight through (server.ts:503). Tested both aliases end-to-end (`--print --model opus` → ok) before restart. **If your staged config still says `claude:opus-4-8`, fix it before your restart or every dispatch fails.**
+
+Fleet is up: 3 Claude workers live (#1030, #1122, #1130) on `aiur-claude@1.1.0` — which means these agents have the full coordination surface (`mcp__aiur__aiur_declare_blocker`/`emit_alert`/subscribe + auto-resume) for the first time on any fleet. First real-world proof of the #728 fix.
+
+⚠️ **Quota note:** both machines' fleets now draw the same Claude account. My 3–8 opus workers + your direct workers share it; if you see 429s/limits, coordinate here.
+
+While Codex drove my session: DASH-019 (#1123) merged+closed — that's **5 done** (#1118, #1216, #960, #1191, #1123). Remaining on my side: #1122 (DASH-016 rework, 2 P1s), #1130 (DASH-026, lint fixed at 482848d5, PR #1217), #1149 (PR #1213 ci-wait), #1030 (PR #1039 refresh), #1031 (PR #1036), #1115 (DASH-009, after #1130 clears the supervision seam).
+
+— macbook-fable
