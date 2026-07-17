@@ -199,8 +199,8 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
                    },
                    2_000
 
-    send(demander, :stop)
     monitor = Process.monitor(demander)
+    send(demander, :stop)
     assert_receive {:DOWN, ^monitor, :process, ^demander, :normal}, 2_000
     :sys.get_state(projection)
 

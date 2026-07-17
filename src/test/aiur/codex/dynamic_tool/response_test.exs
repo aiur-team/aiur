@@ -59,12 +59,12 @@ defmodule Aiur.Codex.DynamicTool.ResponseTest do
       assert Response.jsonable(:error) == "error"
     end
 
-    test "passes maps through unchanged" do
+    test "preserves JSON-safe maps" do
       map = %{"key" => "value"}
       assert Response.jsonable(map) == map
     end
 
-    test "passes lists through unchanged" do
+    test "preserves JSON-safe lists" do
       list = [1, 2, 3]
       assert Response.jsonable(list) == list
     end
@@ -73,8 +73,18 @@ defmodule Aiur.Codex.DynamicTool.ResponseTest do
       assert Response.jsonable("hello") == "hello"
     end
 
-    test "inspect-stringifies other terms" do
-      assert Response.jsonable({:a, :b}) == inspect({:a, :b})
+    test "recursively normalizes nested maps, lists, and tuples" do
+      assert Response.jsonable(%{
+               kind: :exit,
+               detail: {:noproc, [GenServer, :call]},
+               retryable: false,
+               metadata: [accepted: true, deadline: nil]
+             }) == %{
+               "kind" => "exit",
+               "detail" => ["noproc", ["Elixir.GenServer", "call"]],
+               "retryable" => false,
+               "metadata" => [["accepted", true], ["deadline", nil]]
+             }
     end
   end
 end
