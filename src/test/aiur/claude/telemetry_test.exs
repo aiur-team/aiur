@@ -118,6 +118,24 @@ defmodule Aiur.Claude.TelemetryTest do
     refute_receive {:claude_usage_coverage, _coverage}
   end
 
+  test "accounts for bounded subagent request sources without publishing the agent name", %{server: server, issue: issue} do
+    launch = launch(server, issue, backend: "claude-repl")
+    assert :ok = Telemetry.subscribe()
+    assert :ok = Telemetry.subscribe_usage()
+
+    subagent =
+      payload("session-subagent", "request-subagent")
+      |> append_record_attribute(attribute("query_source", "code-reviewer"))
+
+    assert submit(server, authorization(launch), subagent).status == 200
+    assert_receive {:claude_telemetry, event}, 2_000
+    assert_receive {:claude_usage, envelope}, 2_000
+    assert event.attributes["query_source"] == "subagent"
+    assert envelope.query_source == "subagent"
+    refute inspect(event) =~ "code-reviewer"
+    refute inspect(envelope) =~ "code-reviewer"
+  end
+
   test "publishes bounded optional coverage without fabricating cache or cost", %{server: server, issue: issue} do
     launch = launch(server, issue, backend: "claude-repl")
     assert :ok = Telemetry.subscribe_usage()
@@ -228,6 +246,30 @@ defmodule Aiur.Claude.TelemetryTest do
     refute Map.has_key?(event.attributes, "cache_creation_tokens")
   end
 
+  test "publishes terminal coverage for authenticated identity and measurement failures", %{server: server, issue: issue} do
+    launch = launch(server, issue, backend: "claude-repl")
+    authorization = authorization(launch)
+    assert :ok = Telemetry.subscribe_usage()
+
+    missing_session = drop_attribute(payload("session-missing", "request-missing-session"), "session.id")
+    missing_input = drop_attribute(payload("session-missing", "request-missing-input"), "input_tokens")
+
+    assert submit(server, authorization, missing_session).status == 400
+
+    assert_receive {:claude_usage_coverage, %{class: :missing_required_identity, field: :session_id} = identity_coverage},
+                   2_000
+
+    refute inspect(identity_coverage) =~ "request-missing-session"
+
+    assert submit(server, authorization, missing_input).status == 400
+
+    assert_receive {:claude_usage_coverage, %{class: :ambiguous_measurement_semantics, field: :input_tokens} = measurement_coverage},
+                   2_000
+
+    refute inspect(measurement_coverage) =~ "request-missing-input"
+    refute_receive {:claude_usage, _envelope}
+  end
+
   test "rejects unreviewed accounting strings and inexact cost before publication", %{server: server, issue: issue} do
     launch = launch(server, issue)
     authorization = authorization(launch)
@@ -282,16 +324,54 @@ defmodule Aiur.Claude.TelemetryTest do
     assert Telemetry.health(server).accepted == 1
   end
 
+  test "treats integer and string OTLP zero timestamps as unknown occurrence time", %{server: server, issue: issue} do
+    assert :ok = Telemetry.subscribe_usage()
+
+    for {zero, suffix} <- [{0, "integer"}, {"0", "string"}] do
+      launch = launch(server, issue, backend: "claude-repl", attempt_id: "attempt-#{suffix}")
+
+      compatible =
+        payload("session-zero-#{suffix}", "request-zero-#{suffix}")
+        |> append_record_attribute(attribute("cache_read_tokens", 3))
+        |> append_record_attribute(attribute("cache_creation_tokens", 2))
+        |> append_record_attribute(attribute("query_source", "repl_main_thread"))
+        |> append_record_attribute(attribute("effort", "high"))
+        |> append_record_attribute(%{"key" => "cost_usd", "value" => %{"doubleValue" => 0.125}})
+        |> put_in(
+          ["resourceLogs", Access.at(0), "scopeLogs", Access.at(0), "logRecords", Access.at(0), "timeUnixNano"],
+          zero
+        )
+
+      assert submit(server, authorization(launch), compatible).status == 200
+      assert_receive {:claude_usage, envelope}, 2_000
+      assert envelope.occurred_at == nil
+      refute inspect(envelope) =~ "1970-01-01"
+
+      assert_receive {:claude_usage_coverage, %{class: :optional_field_absent, field: :occurred_at}},
+                     2_000
+    end
+  end
+
   test "fails closed when the authenticated emitter version is absent or unsupported", %{server: server, issue: issue} do
-    launch = launch(server, issue)
+    launch = launch(server, issue, backend: "claude-repl")
     authorization = authorization(launch)
     compatible = payload("session-versioned", "request-versioned")
+    assert :ok = Telemetry.subscribe_usage()
 
     unsupported = replace_attribute(compatible, "service.version", %{"stringValue" => "2.1.211"})
     missing = drop_attribute(compatible, "service.version")
 
     assert submit(server, authorization, unsupported).status == 400
+
+    assert_receive {:claude_usage_coverage, %{class: :unsupported_source_revision, field: :source_version} = unsupported_coverage},
+                   2_000
+
+    refute inspect(unsupported_coverage) =~ "2.1.211"
+
     assert submit(server, authorization, missing).status == 400
+
+    assert_receive {:claude_usage_coverage, %{class: :unsupported_source_revision, field: :source_version}}, 2_000
+
     assert submit(server, authorization, compatible).status == 200
 
     assert Telemetry.health(server).rejections.unsupported_version == 2

@@ -6,7 +6,10 @@ defmodule Aiur.Claude.Telemetry.Contract do
   @emitter_version "2.1.210"
   @service_name "claude-code"
   @max_decimal_bytes 128
-  @query_sources ~w(repl_main_thread compact)
+  @query_sources ~w(repl_main_thread compact subagent)
+  @built_in_subagent_sources ~w(Explore Plan)
+  @max_subagent_source_bytes 96
+  @subagent_source_pattern ~r/\A[a-z]+(?:-[a-z]+)*(?::[a-z]+(?:-[a-z]+)*){0,2}\z/
   @efforts ~w(low medium high xhigh max)
   @session_id_pattern ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/i
   @request_id_pattern ~r/\Areq_[A-Za-z0-9]{24}\z/
@@ -26,6 +29,20 @@ defmodule Aiur.Claude.Telemetry.Contract do
 
   @spec valid_query_source?(term()) :: boolean()
   def valid_query_source?(value), do: value in @query_sources
+
+  @spec normalize_query_source(term()) :: {:ok, String.t()} | :error
+  def normalize_query_source(value) when value in ~w(repl_main_thread compact), do: {:ok, value}
+
+  def normalize_query_source(value) when is_binary(value) do
+    if value in @built_in_subagent_sources or
+         (byte_size(value) <= @max_subagent_source_bytes and Regex.match?(@subagent_source_pattern, value)) do
+      {:ok, "subagent"}
+    else
+      :error
+    end
+  end
+
+  def normalize_query_source(_value), do: :error
 
   @spec valid_effort?(term()) :: boolean()
   def valid_effort?(value), do: value in @efforts

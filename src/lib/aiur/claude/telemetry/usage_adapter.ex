@@ -47,6 +47,18 @@ defmodule Aiur.Claude.Telemetry.UsageAdapter do
   @spec relationship_catalog() :: RelationshipRegistry.catalog()
   def relationship_catalog, do: Relationship.catalog()
 
+  @doc false
+  @spec coverage(coverage_class(), atom()) :: coverage()
+  def coverage(class, field) do
+    %{
+      schema_version: 1,
+      source: @source,
+      adapter_version: @source_version,
+      class: class,
+      field: field
+    }
+  end
+
   @spec normalize(map(), DateTime.t(), RelationshipRegistry.catalog()) ::
           {:ok, UsageEnvelope.t(), [coverage()]} | {:coverage, coverage()}
   def normalize(event, ingested_at, catalog \\ relationship_catalog()) do
@@ -148,6 +160,7 @@ defmodule Aiur.Claude.Telemetry.UsageAdapter do
     "claude-request:" <>
       fingerprint([
         @source_version,
+        correlation.run_id,
         correlation.session_id,
         correlation.worker_generation,
         correlation.producer_generation,
@@ -159,6 +172,7 @@ defmodule Aiur.Claude.Telemetry.UsageAdapter do
     "claude-counter:" <>
       fingerprint([
         @source_version,
+        correlation.run_id,
         correlation.session_id,
         correlation.worker_generation,
         correlation.producer_generation
@@ -176,14 +190,4 @@ defmodule Aiur.Claude.Telemetry.UsageAdapter do
   end
 
   defp terminal(class, field), do: {:coverage, coverage(class, field)}
-
-  defp coverage(class, field) do
-    %{
-      schema_version: 1,
-      source: @source,
-      adapter_version: @source_version,
-      class: class,
-      field: field
-    }
-  end
 end

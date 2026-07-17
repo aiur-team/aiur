@@ -49,7 +49,9 @@ defmodule Aiur.Claude.Telemetry.Event do
           required(:source_version) => String.t()
         }
 
-  @spec from_otlp(map(), map(), source_contract()) :: {:ok, [t(), ...]} | {:error, atom()}
+  @type coverage_error :: {:coverage, atom(), atom(), atom()}
+
+  @spec from_otlp(map(), map(), source_contract()) :: {:ok, [t(), ...]} | {:error, atom() | coverage_error()}
   def from_otlp(%{"resourceLogs" => resource_logs}, correlation, source_contract)
       when is_map(correlation) and is_map(source_contract) do
     with {:ok, resource_logs} <- bounded_list(resource_logs, @max_resource_logs),
@@ -190,17 +192,28 @@ defmodule Aiur.Claude.Telemetry.Event do
   end
 
   defp required_string_attributes(attributes) do
-    valid? =
-      Enum.all?([
-        attributes["event.name"] == "api_request",
-        Contract.valid_session_id?(attributes["session.id"]),
-        Contract.valid_model?(attributes["model"]),
-        optional_source_value?(attributes["request_id"], &Contract.valid_request_id?/1),
-        optional_source_value?(attributes["query_source"], &Contract.valid_query_source?/1),
-        optional_source_value?(attributes["effort"], &Contract.valid_effort?/1)
-      ])
+    cond do
+      attributes["event.name"] != "api_request" ->
+        coverage_error(:malformed, :unsupported_source_revision, :event)
 
-    if valid?, do: :ok, else: {:error, :malformed}
+      not Contract.valid_session_id?(attributes["session.id"]) ->
+        coverage_error(:malformed, :missing_required_identity, :session_id)
+
+      not Contract.valid_model?(attributes["model"]) ->
+        coverage_error(:malformed, :ambiguous_measurement_semantics, :model)
+
+      not optional_source_value?(attributes["request_id"], &Contract.valid_request_id?/1) ->
+        coverage_error(:malformed, :ambiguous_measurement_semantics, :request_id)
+
+      not optional_source_value?(attributes["query_source"], &Contract.valid_query_source?/1) ->
+        coverage_error(:malformed, :ambiguous_measurement_semantics, :query_source)
+
+      not optional_source_value?(attributes["effort"], &Contract.valid_effort?/1) ->
+        coverage_error(:malformed, :ambiguous_measurement_semantics, :effort)
+
+      true ->
+        :ok
+    end
   end
 
   defp optional_source_value?(nil, _validator), do: true
@@ -208,10 +221,17 @@ defmodule Aiur.Claude.Telemetry.Event do
 
   defp required_integer_attributes(attributes) do
     cond do
-      not valid_sequence?(attributes["event.sequence"]) -> {:error, :malformed}
-      not valid_nonnegative?(attributes, "input_tokens") -> {:error, :malformed}
-      not valid_nonnegative?(attributes, "output_tokens") -> {:error, :malformed}
-      true -> :ok
+      not valid_sequence?(attributes["event.sequence"]) ->
+        coverage_error(:malformed, :missing_required_identity, :event_sequence)
+
+      not valid_nonnegative?(attributes, "input_tokens") ->
+        coverage_error(:malformed, :ambiguous_measurement_semantics, :input_tokens)
+
+      not valid_nonnegative?(attributes, "output_tokens") ->
+        coverage_error(:malformed, :ambiguous_measurement_semantics, :output_tokens)
+
+      true ->
+        :ok
     end
   end
 
@@ -225,6 +245,17 @@ defmodule Aiur.Claude.Telemetry.Event do
   end
 
   defp normalized_attribute(_attribute, _source_contract), do: {:error, :malformed}
+
+  defp normalize_value("query_source", %{"stringValue" => value}, source_contract)
+       when is_binary(value) and byte_size(value) <= @max_attribute_value_bytes do
+    with :ok <- content_free_string(value, source_contract),
+         {:ok, normalized} <- Contract.normalize_query_source(value) do
+      {:ok, {"query_source", normalized}}
+    else
+      :error -> coverage_error(:malformed, :ambiguous_measurement_semantics, :query_source)
+      {:error, _reason} -> coverage_error(:malformed, :ambiguous_measurement_semantics, :query_source)
+    end
+  end
 
   defp normalize_value(key, %{"stringValue" => value}, source_contract)
        when is_binary(value) and byte_size(value) <= @max_attribute_value_bytes do
@@ -273,19 +304,15 @@ defmodule Aiur.Claude.Telemetry.Event do
   end
 
   defp authenticated_resource(attributes, source_contract) do
-    with {:ok, service_name} <- one_string_attribute(attributes, "service.name"),
-         {:ok, emitter_version} <- one_string_attribute(attributes, "service.version"),
-         :ok <- content_free_string(service_name, source_contract),
-         :ok <- content_free_string(emitter_version, source_contract),
-         :ok <- validate_string_value("service.name", service_name, source_contract),
-         :ok <- validate_string_value("service.version", emitter_version, source_contract) do
+    with {:ok, service_name} <- one_string_attribute(attributes, "service.name", :source),
+         :ok <- supported_resource_value(service_name, source_contract.service_name, source_contract, :source),
+         {:ok, emitter_version} <- one_string_attribute(attributes, "service.version", :source_version),
+         :ok <- supported_resource_value(emitter_version, source_contract.emitter_version, source_contract, :source_version) do
       :ok
-    else
-      _ -> {:error, :unsupported_version}
     end
   end
 
-  defp one_string_attribute(attributes, key) do
+  defp one_string_attribute(attributes, key, coverage_field) do
     values =
       Enum.flat_map(attributes, fn
         %{"key" => ^key, "value" => %{"stringValue" => value}} when is_binary(value) -> [value]
@@ -294,7 +321,16 @@ defmodule Aiur.Claude.Telemetry.Event do
 
     case values do
       [value] -> {:ok, value}
-      _values -> {:error, :unsupported_version}
+      _values -> coverage_error(:unsupported_version, :unsupported_source_revision, coverage_field)
+    end
+  end
+
+  defp supported_resource_value(value, expected, source_contract, coverage_field) do
+    with :ok <- content_free_string(value, source_contract),
+         true <- value == expected do
+      :ok
+    else
+      _ -> coverage_error(:unsupported_version, :unsupported_source_revision, coverage_field)
     end
   end
 
@@ -329,11 +365,18 @@ defmodule Aiur.Claude.Telemetry.Event do
         {:ok, nil}
 
       {:ok, value} ->
-        with {:ok, nanoseconds} <- bounded_integer(value),
-             {:ok, occurred_at} <- DateTime.from_unix(nanoseconds, :nanosecond) do
-          {:ok, occurred_at}
-        else
-          _ -> {:error, :malformed}
+        case bounded_integer(value) do
+          {:ok, 0} ->
+            {:ok, nil}
+
+          {:ok, nanoseconds} ->
+            case DateTime.from_unix(nanoseconds, :nanosecond) do
+              {:ok, occurred_at} -> {:ok, occurred_at}
+              _ -> coverage_error(:malformed, :ambiguous_measurement_semantics, :occurred_at)
+            end
+
+          :error ->
+            coverage_error(:malformed, :ambiguous_measurement_semantics, :occurred_at)
         end
     end
   end
@@ -363,24 +406,46 @@ defmodule Aiur.Claude.Telemetry.Event do
   defp content_free_string(_value, _source_contract), do: {:error, :unsupported_version}
 
   defp validate_string_value("event.name", "api_request", _source_contract), do: :ok
-  defp validate_string_value("session.id", value, _source_contract), do: if(Contract.valid_session_id?(value), do: :ok, else: {:error, :malformed})
-  defp validate_string_value("request_id", value, _source_contract), do: if(Contract.valid_request_id?(value), do: :ok, else: {:error, :malformed})
-  defp validate_string_value("model", value, _source_contract), do: if(Contract.valid_model?(value), do: :ok, else: {:error, :malformed})
-  defp validate_string_value("query_source", value, _source_contract), do: if(Contract.valid_query_source?(value), do: :ok, else: {:error, :malformed})
-  defp validate_string_value("effort", value, _source_contract), do: if(Contract.valid_effort?(value), do: :ok, else: {:error, :malformed})
+
+  defp validate_string_value("session.id", value, _source_contract),
+    do: validate_string(value, &Contract.valid_session_id?/1, :missing_required_identity, :session_id)
+
+  defp validate_string_value("request_id", value, _source_contract),
+    do: validate_string(value, &Contract.valid_request_id?/1, :ambiguous_measurement_semantics, :request_id)
+
+  defp validate_string_value("model", value, _source_contract),
+    do: validate_string(value, &Contract.valid_model?/1, :ambiguous_measurement_semantics, :model)
+
+  defp validate_string_value("effort", value, _source_contract),
+    do: validate_string(value, &Contract.valid_effort?/1, :ambiguous_measurement_semantics, :effort)
+
   defp validate_string_value("service.name", value, %{service_name: value}), do: :ok
-  defp validate_string_value("service.name", _value, _source_contract), do: {:error, :unsupported_version}
+
+  defp validate_string_value("service.name", _value, _source_contract),
+    do: coverage_error(:unsupported_version, :unsupported_source_revision, :source)
+
   defp validate_string_value("service.version", value, %{emitter_version: value}), do: :ok
-  defp validate_string_value("service.version", _value, _source_contract), do: {:error, :unsupported_version}
+
+  defp validate_string_value("service.version", _value, _source_contract),
+    do: coverage_error(:unsupported_version, :unsupported_source_revision, :source_version)
+
   defp validate_string_value(_key, _value, _source_contract), do: {:error, :malformed}
+
+  defp validate_string(value, validator, class, field) do
+    if validator.(value), do: :ok, else: coverage_error(:malformed, class, field)
+  end
 
   defp source_attributes(attributes, %{service_name: service_name, emitter_version: emitter_version}) do
     if attributes["service.name"] == service_name and attributes["service.version"] == emitter_version,
       do: :ok,
-      else: {:error, :unsupported_version}
+      else: coverage_error(:unsupported_version, :unsupported_source_revision, :source_version)
   end
 
-  defp source_attributes(_attributes, _source_contract), do: {:error, :unsupported_version}
+  defp source_attributes(_attributes, _source_contract),
+    do: coverage_error(:unsupported_version, :unsupported_source_revision, :source_version)
+
   defp valid_sequence?(value), do: is_integer(value) and value in 0..@max_otlp_int64
-  defp valid_nonnegative?(attributes, key), do: is_nil(attributes[key]) or (is_integer(attributes[key]) and attributes[key] >= 0)
+  defp valid_nonnegative?(attributes, key), do: is_integer(attributes[key]) and attributes[key] >= 0
+
+  defp coverage_error(reason, class, field), do: {:error, {:coverage, reason, class, field}}
 end

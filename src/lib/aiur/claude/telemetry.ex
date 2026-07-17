@@ -225,8 +225,15 @@ defmodule Aiur.Claude.Telemetry do
 
   def handle_call({:ingest, request_id, payload}, _from, state) do
     with {:ok, capability} <- Map.fetch(state.requests, request_id),
-         {:ok, entry} <- Map.fetch(state.capabilities, capability),
-         {:ok, events} <-
+         {:ok, entry} <- Map.fetch(state.capabilities, capability) do
+      ingest_authenticated(state, capability, entry, payload)
+    else
+      :error -> {:reply, {:error, :unknown_request}, count_rejection(state, :unknown_request)}
+    end
+  end
+
+  defp ingest_authenticated(state, capability, entry, payload) do
+    with {:ok, events} <-
            Event.from_otlp(payload, entry.correlation, request_source_contract(entry.source_contract, capability)),
          :ok <- matching_session(entry, events),
          :ok <- unseen?(state.replay, events),
@@ -247,8 +254,12 @@ defmodule Aiur.Claude.Telemetry do
       Enum.each(events, &publish/1)
       {:reply, :ok, next}
     else
-      :error -> {:reply, {:error, :unknown_request}, count_rejection(state, :unknown_request)}
-      {:error, reason} -> {:reply, {:error, reason}, count_rejection(state, reason)}
+      {:error, {:coverage, reason, class, field}} ->
+        publish_ingest_coverage(entry, class, field)
+        {:reply, {:error, reason}, count_rejection(state, reason)}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, count_rejection(state, reason)}
     end
   end
 
@@ -568,6 +579,12 @@ defmodule Aiur.Claude.Telemetry do
   end
 
   defp publish(event), do: broadcast(event)
+
+  defp publish_ingest_coverage(%{correlation: %{backend: "claude-repl"}}, class, field) do
+    broadcast_usage({:claude_usage_coverage, UsageAdapter.coverage(class, field)})
+  end
+
+  defp publish_ingest_coverage(_entry, _class, _field), do: :ok
 
   defp broadcast_usage(message) do
     if Process.whereis(Aiur.PubSub), do: Phoenix.PubSub.broadcast(Aiur.PubSub, @usage_topic, message)

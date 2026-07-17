@@ -75,6 +75,11 @@ defmodule Aiur.Claude.Telemetry.UsageAdapterTest do
     assert {:ok, replacement, []} = UsageAdapter.normalize(replacement, @ingested_at)
     refute first.idempotency_key == replacement.idempotency_key
     refute first.counter_epoch == replacement.counter_epoch
+
+    other_run = put_in(source, [:correlation, :run_id], "run-1117")
+    assert {:ok, other_run, []} = UsageAdapter.normalize(other_run, @ingested_at)
+    refute first.idempotency_key == other_run.idempotency_key
+    refute first.counter_epoch == other_run.counter_epoch
   end
 
   test "uses the session-scoped sequence when the optional request id is absent" do
