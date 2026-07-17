@@ -1,6 +1,6 @@
 # Build Order Executor Handoff
 
-## Recovery checkpoint (updated 2026-07-17 05:52 PDT)
+## Recovery checkpoint (updated 2026-07-17 06:08 PDT)
 
 This checkpoint supersedes the older live-state narrative below. The former
 Claude Executor is not being restarted. Its exact local session was recovered
@@ -25,7 +25,7 @@ lanes have now merged, while the surviving feature owners remain isolated:
 - BO-011/#1098 / draft PR #1233;
 - DASH-003/#1110 / draft PR #1234;
 - DASH-009/#1115 / draft PR #1204;
-- DASH-010/#1116 / draft PR #1232;
+- DASH-010/#1116 / paused draft PR #1232;
 - DASH-014/#1120;
 - DASH-026/#1130 / PR #1217; and
 - DASH-029/#1133.
@@ -36,8 +36,9 @@ the complete GraphProjection file, independent review, and every CI job; PR
 #1236 squash-merged as `develop@6afa161230b4349543c039a6b8b6abcc9218ba07`,
 and #1235 was explicitly closed `agent:done`. No additional Build Order ticket
 is queued. Load reached 16.68 on 12 CPUs during the earlier base-sync wave and
-is now below one core per CPU, but five feature owners remain active, so
-DASH-009/#1115 stays deliberately deactivated until capacity falls further.
+is now below one core per CPU. DASH-010/#1116 has since released its owner slot
+at the no-Claude manual gate, so DASH-009/#1115 resumed as the fifth active
+owner and PR #1204 returned to draft exact-base rework against `6afa1612`.
 Preserve one writer per workspace. After every `develop` merge, send the exact
 new base to all owners and stop reviewing their now-stale heads until they push
 replacements.
@@ -75,10 +76,12 @@ four confirmed source-accounting/coverage/time/identity defects at `cf1d61fa`;
 three independent re-review slices are clean and the complete test job passed.
 Its one-file Credo follow-up is pushed as exact head
 `612e3cb7e2e21b62d354c27c12853ac543956faf`, with lint and every short CI job
-green while the fresh full test job runs. Keep PR #1232 draft: the required real
-synthetic-safe Claude REPL/Remote Control proof is still pending, and Claude
-must not be launched while the operator's no-Claude usage-limit instruction is
-active. DASH-003/#1110 is full-CI green at `ef469502` but returned to draft
+plus the complete test job green. PR #1232 remains draft with
+`agent:ci-wait` preserved under `agent:paused`: code is qualified, but the
+required real synthetic-safe Claude REPL/Remote Control proof has no honest
+quota-free substitute, and Claude must not be launched while the operator's
+no-Claude usage-limit instruction is active. DASH-003/#1110 is full-CI green
+at `ef469502` but returned to draft
 rework for nine exact-head identity, announcement, count-truth, truncation,
 exact-navigation, touch-target, cache-fencing, subscription-lifecycle, and
 provider-outage command-truth defects. DASH-026/#1130 passed all CI at
@@ -92,13 +95,19 @@ redaction, and bounded runtime-status fanout. PR #1217 is draft until an
 exact-base replacement fixes all ten, passes fresh CI, and survives exact-head
 re-review.
 
-An orchestration race is under diagnosis: when an Executor rework label/message
-arrives while an old worker turn is still finishing, that stale turn can write
-`agent:ci-wait` afterward and temporarily overwrite the newer rework state.
-This occurred on #1098 and #1130. The Executor re-applied `agent:rework`; the
-queued messages were then delivered as fresh Codex turns. Until the root fix is
-landed, verify the tracker label after every in-flight review intervention and
-never trust an old turn's CI-wait transition by itself.
+The #1098/#1130 rework regressions are now a confirmed P1 orchestration defect,
+tracked as queued stability lane #1237. Accepted Executor messages can remain
+undelivered to the provider while an old worker turn continues: #1130's review
+waited 2,110,645 ms before provider delivery, and both tickets received an
+unfenced lifecycle write that replaced newer authoritative `agent:rework` with
+`agent:ci-wait`. Tracker and CI handoff transitions have no expected-state or
+lifecycle-generation fence, while the rendered user transcript currently proves
+enqueue acceptance rather than delivery. #1110 separately exhausted three
+retries in the same queue-drain subsystem after closed-port `turn/start` writes
+and a turn-ID mismatch; its preserved workspace is running again in rework.
+Until #1237 lands, verify the tracker label after every in-flight review
+intervention and never treat an old turn's CI-wait transition or optimistic
+Executor transcript as authoritative delivery evidence.
 
 DASH-013/#1119 remains source-complete as draft PR #1228 at
 `6f5696828cb54f775623299cc61c1067ef2b2810`, with full CI green and independent
