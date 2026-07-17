@@ -417,22 +417,16 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   end
 
   defp record_completed_publication(context, issue, tool_call_id, topic, event_id, name, payload, handlers) do
-    record_result =
-      record_event_publication(
-        context.publication_recorder,
-        :completed,
-        issue,
-        tool_call_id,
-        topic,
-        event_id
-      )
-
     _ = sync_decision_resolution(issue, name, payload, handlers.attention_resolver)
 
-    case record_result do
-      :ok -> :ok
-      {:error, _reason} = error -> error
-    end
+    record_event_publication(
+      context.publication_recorder,
+      :completed,
+      issue,
+      tool_call_id,
+      topic,
+      event_id
+    )
   end
 
   defp safe_publish(publisher, topic, payload, opts) do

@@ -881,7 +881,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       refute log =~ secret
     end
 
-    test "successful attention publication resolves locally even when outcome recording fails" do
+    test "successful attention publication resolves locally before outcome recording completes" do
       issue = %Issue{id: "gid-recorder-resolution", identifier: "AIUR-RECORDER-RESOLUTION"}
       test_pid = self()
 
@@ -892,7 +892,10 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
             :pending
           end,
           event_bus_publisher: fn _topic, _payload, _opts -> {:ok, 4246, []} end,
-          event_publication_recorder: fn _record -> {:error, :disk_failed} end,
+          event_publication_recorder: fn _record ->
+            send(test_pid, {:publication_recorder_started, self()})
+            receive do: (:release_publication_recorder -> {:error, :disk_failed})
+          end,
           attention_resolver: fn resolved_issue, slug ->
             send(test_pid, {:attention_resolved, resolved_issue.identifier, slug})
             :ok
@@ -913,8 +916,11 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
 
       assert response["success"]
       assert_receive {:captured_event_operation, operation}, 2_000
-      assert {:error, {:event_publication_record_failed, _failure}} = operation.()
+      operation_call = Task.async(operation)
       assert_receive {:attention_resolved, "AIUR-RECORDER-RESOLUTION", "scope-question"}, 2_000
+      assert_receive {:publication_recorder_started, recorder}, 2_000
+      send(recorder, :release_publication_recorder)
+      assert {:error, {:event_publication_record_failed, _failure}} = Task.await(operation_call, 2_000)
     end
 
     test "remote workers persist locally-known publication outcomes outside their transcript" do
