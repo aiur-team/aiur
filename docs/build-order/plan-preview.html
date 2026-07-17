@@ -230,7 +230,7 @@ footer{margin-top:26px;border-top:1px solid var(--line);padding-top:14px;font-fa
       </div>
     </div>
     <div style="display:flex;align-items:center;gap:.8rem">
-      <div class="hd-note">25 core tickets closed. Codex-only aiurdev is live on develop: DASH-026 (#1130) and the shared-state repair #1222 are running; #1031 and #1149 are paused. PRs #1217, #1213, and #1036 have green scoped/non-test gates but remain full-suite red on the develop-wide races #1222 is isolating; WorkflowStore repair PR #1219 remains draft. BO-018, DASH-013, DASH-020, and recovered #1030 remain paused. Static preview — binds to live GitHub + Aiur state.</div>
+      <div class="hd-note">25 core tickets closed. The Aiur daemon is stopped while Executor-managed offline review and repair continues. PR #1213 passed final focused review and PR #1036 is in exact-head CE review; both remain test-lane red only on the develop-wide races owned by #1222. DASH-026/PR #1217 returned to rework after final review found ordering, delivery, health, and session-rotation defects. The preserved #1222 main-first patch is passing repeated focused runs offline. WorkflowStore repair PR #1219 remains draft. BO-018, DASH-013, DASH-020, and recovered #1030 remain paused. Static preview — binds to live GitHub + Executor state.</div>
       <button class="theme-btn" id="themeBtn" aria-label="Toggle theme">◐ theme</button>
     </div>
   </div>
@@ -262,7 +262,7 @@ footer{margin-top:26px;border-top:1px solid var(--line);padding-top:14px;font-fa
 <script>
 const RUN = {
   phase: 4,
-  updated: "2026-07-16 20:33 PDT (live Aiur + GitHub reconciliation)",
+  updated: "2026-07-16 20:41 PDT (offline Executor + GitHub reconciliation)",
   tickets: {
     "BO-004": {state:"merged", progress:100, issue:1086},
     "BO-008": {state:"merged", progress:100, issue:1087},
@@ -282,7 +282,7 @@ const RUN = {
     "BO-009": {state:"merged", progress:100, issue:1096},
     "BO-010": {state:"merged", progress:100, issue:1097},
     "DASH-002": {state:"merged", progress:100, issue:1109},
-    "DASH-026": {state:"review/rework — own domain green; shared full-suite race remains", progress:90, issue:1130, agent_live:true},
+    "DASH-026": {state:"rework — final CE review found ordering, delivery, health, and session-rotation defects", progress:86, issue:1130},
     "BO-003": {state:"merged to develop", progress:100, issue:1092},
     "BO-006": {state:"merged to develop", progress:100, issue:1094},
     "BO-007": {state:"merged to develop", progress:100, issue:1095},
@@ -294,13 +294,13 @@ const RUN = {
     "DASH-013": {state:"paused — awaiting GATE-004 protocol receipt", progress:20, issue:1119},
     "DASH-020": {state:"paused — draft PR #1208 preserved", progress:90, issue:1124},
     "ADHOC-1030": {state:"paused — feature branch recovered after zero-diff incident", progress:70, issue:1030},
-    "ADHOC-1031": {state:"paused — scoped gates green; full-suite and alert-feed review pending", progress:90, issue:1031},
+    "ADHOC-1031": {state:"offline exact-head CE review — scoped/non-test gates green", progress:95, issue:1031},
     "ADHOC-1139": {state:"closed", progress:100, issue:1139},
     "ADHOC-1140": {state:"merged", progress:100, issue:1140},
     "ADHOC-1142": {state:"deferred", progress:0, issue:1142},
     "ADHOC-1146": {state:"merged", progress:100, issue:1146},
     "ADHOC-1148": {state:"merged", progress:100, issue:1148},
-    "ADHOC-1149": {state:"paused — exact-head proof recorded; shared full-suite race remains", progress:90, issue:1149},
+    "ADHOC-1149": {state:"final focused review clean — shared test-lane race remains", progress:98, issue:1149},
     "ADHOC-1151": {state:"merged", progress:100, issue:1151},
     "ADHOC-1152": {state:"deferred", progress:0, issue:1152},
     "ADHOC-1154": {state:"merged", progress:100, issue:1154},
@@ -315,7 +315,7 @@ const RUN = {
     "ADHOC-1182": {state:"later phase — no dispatch label", progress:0, issue:1182},
     "ADHOC-1185": {state:"merged to main and synchronized into develop", progress:100, issue:1185},
     "ADHOC-1191": {state:"merged to develop (PR #1218)", progress:100, issue:1191},
-    "ADHOC-1222": {state:"running — isolate BuildGate and Observability shared state", progress:30, issue:1222, agent_live:true},
+    "ADHOC-1222": {state:"offline main-first repair — repeated BuildGate and Observability tests green", progress:65, issue:1222},
     "ADHOC-728": {state:"engine+adapter fixes merged (aiur #1216 → main→develop; claude-app-server #1/#2); npm publish pending operator OTP", progress:95, issue:728},
     "ADHOC-960": {state:"MERGED to develop (PR #1211, 79ed76f1) — closed", progress:100, issue:960},
     "ADHOC-780": {state:"merged", progress:100, issue:780}
