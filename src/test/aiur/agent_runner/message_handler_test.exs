@@ -205,6 +205,8 @@ defmodule Aiur.AgentRunner.MessageHandlerTest do
       unique = Integer.to_string(System.unique_integer([:positive]))
       identity = tracker_identity(unique)
       issue = %Issue{id: "gid-operator-#{unique}", identifier: unique, tracker_identity: identity}
+      observed_at = ~U[2026-07-17 12:00:00Z]
+      server = start_supervised!({LiveConversation, name: nil, clock: fn -> observed_at end})
 
       item = %{
         id: System.unique_integer([:positive]),
@@ -215,13 +217,14 @@ defmodule Aiur.AgentRunner.MessageHandlerTest do
       assert :ok =
                MessageHandler.observe_operator_delivery(issue, item, "codex",
                  telemetry_attempt_id: "attempt-#{unique}",
-                 worker_generation: 2
+                 worker_generation: 2,
+                 live_conversation_server: server
                )
 
       source = %{identity: identity, attempt_id: "attempt-#{unique}", backend: "codex", worker_generation: 2}
 
-      assert %{messages: [%{role: "operator", body: "Please continue"}]} =
-               LiveConversation.snapshot(source)
+      assert %{messages: [%{role: "operator", body: "Please continue", occurred_at: ^observed_at}]} =
+               LiveConversation.snapshot(source, server: server)
     end
 
     test "never projects coordination events as operator messages" do

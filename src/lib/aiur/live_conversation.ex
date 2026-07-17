@@ -311,6 +311,12 @@ defmodule Aiur.LiveConversation do
   defp state_transition(:degraded, _snapshot),
     do: {:stale, :unavailable, :stale}
 
+  # Ending a generation is authoritative about lifecycle, not about source
+  # recovery. Preserve any unavailable/stale health so an incomplete
+  # conversation cannot become healthy merely because its run stopped.
+  defp state_transition(:ended, snapshot),
+    do: {:ended, snapshot.health, snapshot.freshness}
+
   defp state_transition(state, _snapshot),
     do: {state, health_for(state), freshness_for(state)}
 

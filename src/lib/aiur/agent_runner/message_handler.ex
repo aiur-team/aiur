@@ -183,7 +183,6 @@ defmodule Aiur.AgentRunner.MessageHandler do
           role: :user,
           msg_id: "operator:#{request_id}",
           body: text,
-          timestamp: DateTime.utc_now(),
           payload: %{source: :operator_delivery}
         }
 

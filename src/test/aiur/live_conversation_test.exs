@@ -549,6 +549,28 @@ defmodule Aiur.LiveConversationTest do
     assert {:ok, %{state: :live, freshness: :current}} = LiveConversation.activate(populated, server: server)
   end
 
+  test "ending a degraded source preserves its unavailable health", %{server: server} do
+    populated = source(worker_generation: 22)
+
+    assert {:ok, _snapshot} =
+             LiveConversation.observe(
+               populated,
+               %{role: :assistant, msg_id: "known", body: "incomplete evidence"},
+               server: server
+             )
+
+    assert {:ok, %{state: :stale, health: :unavailable, freshness: :stale}} =
+             LiveConversation.mark_degraded(populated, server: server)
+
+    assert {:ok,
+            %{
+              state: :ended,
+              health: :unavailable,
+              freshness: :stale,
+              messages: [%{body: "incomplete evidence"}]
+            }} = LiveConversation.end_generation(populated, server: server)
+  end
+
   test "bounds public source fields within the total snapshot byte ceiling", %{server: server} do
     oversized = String.duplicate("x", 100_000)
     maximum = String.duplicate("x", 256)
