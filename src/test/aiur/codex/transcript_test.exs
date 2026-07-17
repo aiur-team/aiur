@@ -118,6 +118,25 @@ defmodule Aiur.Codex.TranscriptTest do
       assert event.payload.input == %{"name" => "attention.x", "message" => "hi"}
       assert event.payload.output == "ok"
       assert event.payload.title == "emit_alert"
+      assert event.payload.success == true
+    end
+
+    test "dynamicToolCall preserves a string-keyed false success result" do
+      message = %{
+        "payload" => %{
+          "method" => "item/completed",
+          "params" => %{
+            "item" => %{
+              "type" => "dynamicToolCall",
+              "tool" => "emit_event",
+              "success" => false
+            }
+          }
+        }
+      }
+
+      assert {:ok, event} = Transcript.extract(message, nil)
+      assert event.payload.success == false
     end
 
     test "fileChange item/completed → :tool transcript with tool: \"edit\"" do

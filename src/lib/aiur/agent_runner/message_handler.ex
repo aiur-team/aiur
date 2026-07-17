@@ -177,7 +177,7 @@ defmodule Aiur.AgentRunner.MessageHandler do
   def observe_operator_delivery(_issue, _item, _backend, _opts), do: :ok
 
   defp observe_operator_text(issue, request_id, text, backend, opts) do
-    if is_binary(text) and text != "" do
+    if text != "" do
       with_live_source(issue, backend, opts, :observe_operator, fn source ->
         event = %{
           role: :user,
@@ -376,46 +376,63 @@ defmodule Aiur.AgentRunner.MessageHandler do
   @spec live_source(Issue.t(), String.t(), keyword()) ::
           {:ok, map()} | {:skip, atom()} | {:error, atom()}
   def live_source(%Issue{} = issue, backend, opts)
-      when is_list(opts) do
-    cond do
-      Keyword.get(opts, :live_conversation) == :disabled ->
-        {:skip, :disabled}
-
-      not is_binary(backend) or backend == "" ->
-        {:error, :invalid_backend}
-
-      not match?(%TrackerIdentity{}, Issue.tracker_identity(issue)) ->
-        {:error, :missing_identity}
-
-      not TrackerIdentity.joinable?(Issue.tracker_identity(issue)) ->
-        {:error, :unjoinable_identity}
-
-      not valid_worker_generation?(Keyword.get(opts, :worker_generation)) ->
-        {:error, :missing_worker_generation}
-
-      is_nil(live_attempt_id(opts)) ->
-        {:error, :missing_attempt_id}
-
-      true ->
-        identity = Issue.tracker_identity(issue)
-        generation = Keyword.fetch!(opts, :worker_generation)
-        attempt_id = live_attempt_id(opts)
-
-        {:ok,
-         %{
-           identity: identity,
-           attempt_id: attempt_id,
-           session_id: Keyword.get(opts, :session_id),
-           backend: backend,
-           worker_generation: generation
-         }}
+      when is_binary(backend) and is_list(opts) do
+    with :ok <- live_projection_enabled(opts),
+         :ok <- valid_live_backend(backend),
+         {:ok, identity} <- live_identity(issue),
+         :ok <- joinable_live_identity(identity),
+         {:ok, generation} <- live_worker_generation(opts),
+         {:ok, attempt_id} <- live_source_attempt(opts) do
+      {:ok,
+       %{
+         identity: identity,
+         attempt_id: attempt_id,
+         session_id: Keyword.get(opts, :session_id),
+         backend: backend,
+         worker_generation: generation
+       }}
     end
   end
 
   def live_source(_issue, _backend, _opts), do: {:error, :invalid_arguments}
 
-  defp valid_worker_generation?(generation),
-    do: is_integer(generation) and generation > 0
+  defp live_projection_enabled(opts) do
+    case Keyword.get(opts, :live_conversation) do
+      :disabled -> {:skip, :disabled}
+      _enabled -> :ok
+    end
+  end
+
+  defp valid_live_backend(""), do: {:error, :invalid_backend}
+  defp valid_live_backend(_backend), do: :ok
+
+  defp live_identity(issue) do
+    case Issue.tracker_identity(issue) do
+      %TrackerIdentity{} = identity -> {:ok, identity}
+      _missing -> {:error, :missing_identity}
+    end
+  end
+
+  defp joinable_live_identity(identity) do
+    case TrackerIdentity.joinable?(identity) do
+      true -> :ok
+      false -> {:error, :unjoinable_identity}
+    end
+  end
+
+  defp live_worker_generation(opts) do
+    case Keyword.get(opts, :worker_generation) do
+      generation when is_integer(generation) and generation > 0 -> {:ok, generation}
+      _missing -> {:error, :missing_worker_generation}
+    end
+  end
+
+  defp live_source_attempt(opts) do
+    case live_attempt_id(opts) do
+      nil -> {:error, :missing_attempt_id}
+      attempt_id -> {:ok, attempt_id}
+    end
+  end
 
   defp live_attempt_id(opts),
     do: Keyword.get(opts, :attempt_id) || Keyword.get(opts, :telemetry_attempt_id)
@@ -452,11 +469,6 @@ defmodule Aiur.AgentRunner.MessageHandler do
         log_projection_failure(issue, operation, reason)
         publish_projection_failure(issue, opts, reason)
         {:error, {:live_conversation_projection, operation, reason}}
-
-      _other ->
-        log_projection_failure(issue, operation, :invalid_result)
-        publish_projection_failure(issue, opts, :invalid_result)
-        {:error, {:live_conversation_projection, operation, :invalid_result}}
     end
   catch
     :exit, reason ->

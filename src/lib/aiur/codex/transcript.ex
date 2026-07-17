@@ -212,7 +212,7 @@ defmodule Aiur.Codex.Transcript do
       input: arguments || %{},
       output: format_tool_content(content),
       title: title,
-      success: get(item, :success)
+      success: Map.get(item, :success, Map.get(item, "success"))
     }
   end
 

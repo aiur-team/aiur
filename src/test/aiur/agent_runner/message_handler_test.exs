@@ -140,6 +140,26 @@ defmodule Aiur.AgentRunner.MessageHandlerTest do
 
       refute inspect(LiveConversation.snapshot(source)) =~ "dangerous_tool"
       refute inspect(LiveConversation.snapshot(source)) =~ "private/full/output"
+
+      handler.(%{
+        event: :notification,
+        payload: %{
+          method: "item/completed",
+          params: %{
+            item: %{
+              id: "tool-2",
+              type: "dynamicToolCall",
+              tool: "failed_tool",
+              contentItems: [%{text: "credential=super-secret"}],
+              success: false
+            }
+          }
+        }
+      })
+
+      assert %{messages: messages} = LiveConversation.snapshot(source)
+      assert Enum.map(messages, & &1.body) == ["Tool completed", "Tool reported an error"]
+      refute inspect(messages) =~ "super-secret"
     end
 
     test "deduplicates replayed tool results using provider identity" do
