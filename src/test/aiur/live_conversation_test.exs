@@ -32,7 +32,7 @@ defmodule Aiur.LiveConversationTest do
     assert [%{id: id, role: "agent", body: body}] = snapshot.messages
     assert_opaque_id(id)
     assert body =~ "[REDACTED:ghp]"
-    assert body =~ "[REDACTED:path]"
+    assert body =~ "[REDACTED:local_path]"
     assert body =~ "[REDACTED:url]"
 
     assert {:ok, duplicate} =
@@ -199,6 +199,26 @@ defmodule Aiur.LiveConversationTest do
     assert late_delta.messages == completed.messages
   end
 
+  test "orders reverse-arriving sequenced fragments by trusted sequence", %{server: server} do
+    source = source()
+
+    assert {:ok, _} =
+             LiveConversation.observe(
+               source,
+               %{kind: :assistant_delta, id: "reverse", body: "second", sequence: 2},
+               server: server
+             )
+
+    assert {:ok, snapshot} =
+             LiveConversation.observe(
+               source,
+               %{kind: :assistant_delta, id: "reverse", body: "first ", sequence: 1},
+               server: server
+             )
+
+    assert [%{body: "first second"}] = snapshot.messages
+  end
+
   test "preserves last known messages only as explicitly stale", %{server: server} do
     source = source()
     assert {:ok, _} = LiveConversation.observe(source, %{role: :assistant, msg_id: "m", body: "known"}, server: server)
@@ -284,7 +304,9 @@ defmodule Aiur.LiveConversationTest do
     assert_opaque_id(operator_id)
   end
 
-  test "admits system transitions and tool summaries only through trusted adapters", %{server: server} do
+  test "removes the unwired system capability and admits tool summaries only through trusted adapters", %{
+    server: server
+  } do
     source = source()
 
     assert {:ok, rejected_system} =
@@ -296,18 +318,6 @@ defmodule Aiur.LiveConversationTest do
 
     assert rejected_system.messages == []
     assert rejected_system.diagnostic_counts.unsafe_system == 1
-
-    assert {:ok, with_system} =
-             LiveConversation.observe_system_transition(
-               source,
-               %{msg_id: "transition", title: "Lifecycle", body: "Agent paused"},
-               server: server
-             )
-
-    assert [%{id: system_id, role: "system", title: "Lifecycle", body: "Agent paused"}] =
-             with_system.messages
-
-    assert_opaque_id(system_id)
 
     assert {:ok, rejected_tool} =
              LiveConversation.observe(
@@ -390,8 +400,9 @@ defmodule Aiur.LiveConversationTest do
 
     internal_snapshot = server |> :sys.get_state() |> Map.fetch!(:snapshots) |> Map.values() |> List.first()
     [internal_message] = internal_snapshot.messages
-    assert MapSet.size(internal_message.fragment_ids) == 128
-    assert MapSet.size(internal_snapshot.seen[internal_message.id].fragment_ids) == 128
+    assert map_size(internal_message.fragments) == 128
+    assert %{message_index: 0} = internal_snapshot.seen[internal_message.id]
+    refute Map.has_key?(internal_snapshot.seen[internal_message.id], :fragment_ids)
   end
 
   test "bounds live generations that miss end cleanup" do
@@ -526,7 +537,13 @@ defmodule Aiur.LiveConversationTest do
                server: server
              )
 
-    assert {:ok, %{state: :stale, messages: [%{body: "last known good"}]}} =
+    assert {:ok,
+            %{
+              state: :stale,
+              health: :unavailable,
+              freshness: :stale,
+              messages: [%{body: "last known good"}]
+            }} =
              LiveConversation.mark_degraded(populated, server: server)
 
     assert {:ok, %{state: :live, freshness: :current}} = LiveConversation.activate(populated, server: server)
@@ -600,6 +617,161 @@ defmodule Aiur.LiveConversationTest do
     assert byte_size(Jason.encode!(snapshot)) <= 64_000
   end
 
+  test "unknown provider records retain only a bounded diagnostic count", %{server: server} do
+    sentinel = "SENTINEL_SECRET_1130 ghp_abcdefghijklmnopqrstuvwxyz0123456789 /home/private/raw"
+
+    records = [
+      %{"role" => "reasoning", "body" => sentinel, "raw" => %{"prompt" => sentinel}},
+      %{"role" => "command", "body" => sentinel, "provider_kind" => "shell"},
+      %{"kind" => "assistant_delta", "body" => sentinel, "payload" => sentinel},
+      %{role: :reasoning, body: sentinel, raw: sentinel},
+      %{provider_kind: :raw, record: sentinel}
+    ]
+
+    snapshot =
+      Enum.reduce(records, nil, fn record, _snapshot ->
+        assert {:ok, snapshot} = LiveConversation.observe(source(), record, server: server)
+        snapshot
+      end)
+
+    assert snapshot.messages == []
+    assert snapshot.diagnostic_counts == %{unknown_kind: length(records)}
+    refute inspect(snapshot) =~ sentinel
+    refute inspect(:sys.get_state(server)) =~ sentinel
+    assert byte_size(Jason.encode!(snapshot)) <= 64_000
+  end
+
+  test "resolves and subscribes with an opaque generation handle", %{server: server} do
+    provider_session = "provider-session-must-stay-private"
+    source = source(session_id: provider_session)
+
+    assert {:ok, %{generation_handle: handle}} = LiveConversation.activate(source, server: server)
+    assert String.starts_with?(handle, "conversation:")
+    assert :ok = LiveConversation.subscribe_handle(handle)
+
+    assert {:ok, resolved} = LiveConversation.resolve(handle, server: server)
+    assert resolved.generation_handle == handle
+    refute inspect(resolved) =~ provider_session
+
+    assert {:ok, _snapshot} =
+             LiveConversation.observe(
+               source,
+               %{role: :assistant, msg_id: "handle-message", body: "visible"},
+               server: server
+             )
+
+    assert_receive {:live_conversation_changed, %{generation_handle: ^handle}}, 2_000
+
+    unknown_handle = "conversation:" <> String.duplicate("A", 43)
+
+    assert {:ok, %{state: :restart_unknown, generation_handle: ^unknown_handle, messages: []}} =
+             LiveConversation.resolve(unknown_handle, server: server)
+
+    assert {:error, :invalid_handle} = LiveConversation.resolve("not-a-handle", server: server)
+  end
+
+  test "serializes barrier-controlled races without violating terminal or ordering invariants" do
+    server = start_barrier_server()
+
+    fragment_source = source(worker_generation: 31)
+
+    {_sequence_two, _sequence_one} =
+      concurrent_calls(
+        server,
+        fn ->
+          LiveConversation.observe(
+            fragment_source,
+            %{kind: :assistant_delta, id: "barrier-fragment", body: "two", sequence: 2},
+            server: server
+          )
+        end,
+        fn ->
+          LiveConversation.observe(
+            fragment_source,
+            %{kind: :assistant_delta, id: "barrier-fragment", body: "one ", sequence: 1},
+            server: server
+          )
+        end
+      )
+
+    assert %{messages: [%{body: "one two"}]} =
+             LiveConversation.snapshot(fragment_source, server: server)
+
+    completion_source = source(worker_generation: 32)
+
+    LiveConversation.observe(
+      completion_source,
+      %{kind: :assistant_delta, id: "barrier-completion", body: "partial", sequence: 1},
+      server: server
+    )
+
+    {_completion, _late_delta} =
+      concurrent_calls(
+        server,
+        fn ->
+          LiveConversation.observe(
+            completion_source,
+            %{kind: :assistant_completed, id: "barrier-completion", body: "complete"},
+            server: server
+          )
+        end,
+        fn ->
+          LiveConversation.observe(
+            completion_source,
+            %{kind: :assistant_delta, id: "barrier-completion", body: " late", sequence: 2},
+            server: server
+          )
+        end
+      )
+
+    assert %{messages: [%{body: "complete"}]} =
+             LiveConversation.snapshot(completion_source, server: server)
+
+    terminal_source = source(worker_generation: 33)
+
+    {_ended, _late_observe} =
+      concurrent_calls(
+        server,
+        fn -> LiveConversation.end_generation(terminal_source, server: server) end,
+        fn ->
+          LiveConversation.observe(
+            terminal_source,
+            %{role: :assistant, msg_id: "too-late", body: "must not enter"},
+            server: server
+          )
+        end
+      )
+
+    assert %{state: :ended, messages: []} =
+             LiveConversation.snapshot(terminal_source, server: server)
+
+    timestamp_source = source(worker_generation: 34)
+    earlier = ~U[2026-01-01 00:00:00Z]
+    later = ~U[2026-01-01 00:00:01Z]
+
+    {_later_first, _earlier_second} =
+      concurrent_calls(
+        server,
+        fn ->
+          LiveConversation.observe(
+            timestamp_source,
+            %{role: :assistant, msg_id: "later", body: "later", timestamp: later},
+            server: server
+          )
+        end,
+        fn ->
+          LiveConversation.observe(
+            timestamp_source,
+            %{role: :assistant, msg_id: "earlier", body: "earlier", timestamp: earlier},
+            server: server
+          )
+        end
+      )
+
+    assert %{messages: [%{body: "earlier"}, %{body: "later"}]} =
+             LiveConversation.snapshot(timestamp_source, server: server)
+  end
+
   test "drops malformed structured fields without crashing the projection", %{server: server} do
     malformed = [
       %{role: :assistant, msg_id: %{}, body: "bad id"},
@@ -642,5 +814,54 @@ defmodule Aiur.LiveConversationTest do
   defp assert_opaque_id(id) do
     assert String.starts_with?(id, "message:")
     assert byte_size(id) <= 64
+  end
+
+  defp start_barrier_server do
+    start_supervised!(
+      Supervisor.child_spec(
+        {LiveConversation, name: nil},
+        id: make_ref()
+      )
+    )
+  end
+
+  defp concurrent_calls(server, first_call, second_call) do
+    :ok = :sys.suspend(server)
+    baseline = message_queue_length(server)
+
+    try do
+      first = Task.async(first_call)
+      assert_queue_length(server, baseline + 1, 100)
+
+      second = Task.async(second_call)
+      assert_queue_length(server, baseline + 2, 100)
+      :ok = :sys.resume(server)
+
+      {Task.await(first, 2_000), Task.await(second, 2_000)}
+    after
+      _ = :sys.resume(server)
+    end
+  end
+
+  defp assert_queue_length(_server, _minimum, 0),
+    do: flunk("concurrent projection calls were not queued")
+
+  defp assert_queue_length(server, minimum, attempts) do
+    if message_queue_length(server) >= minimum do
+      :ok
+    else
+      Process.sleep(1)
+      assert_queue_length(server, minimum, attempts - 1)
+    end
+  end
+
+  defp message_queue_length(server) do
+    case Process.info(server, :message_queue_len) do
+      {:message_queue_len, count} ->
+        count
+
+      _other ->
+        0
+    end
   end
 end

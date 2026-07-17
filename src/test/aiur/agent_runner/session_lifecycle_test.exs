@@ -2,7 +2,7 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
   use ExUnit.Case, async: false
 
   alias Aiur.{AgentEvents, AgentPubSub, Config, Issue, LiveConversation, TrackerIdentity}
-  alias Aiur.AgentRunner.SessionLifecycle
+  alias Aiur.AgentRunner.{MessageHandler, SessionLifecycle}
   alias Aiur.Workspace.Ownership
   alias Aiur.Workspace.Ownership.Store
 
@@ -52,12 +52,151 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
 
       assistant = AgentEvents.transcript_event(:assistant, "Agent reply", msg_id: "assistant-#{unique}")
 
-      assert :ok = handler.(%{transcript_event: remote})
-      assert :ok = handler.(%{transcript_event: assistant})
+      assert :ok =
+               handler.(%{
+                 source_session_id: "session-#{unique}",
+                 transcript_event: remote
+               })
+
+      assert :ok =
+               handler.(%{
+                 source_session_id: "session-#{unique}",
+                 transcript_event: assistant
+               })
+
       assert_receive {:transcript_event, ^remote}
       assert_receive {:transcript_event, ^assistant}
 
       assert %{messages: [%{role: "operator"}, %{role: "agent"}]} = LiveConversation.snapshot(source)
+    end
+
+    test "rotates exact transcript sources and projects tailer loss as stale" do
+      unique = Integer.to_string(System.unique_integer([:positive]))
+      identity = tracker_identity(unique)
+      issue = %Issue{id: "gid-rc-rotate-#{unique}", identifier: unique, tracker_identity: identity}
+      server = start_supervised!({LiveConversation, name: nil})
+
+      opts = [
+        telemetry_attempt_id: "attempt-#{unique}",
+        worker_generation: 8,
+        live_conversation_server: server,
+        live_conversation_recipient: self(),
+        live_conversation_authority: :display_tailer
+      ]
+
+      source = fn session_id ->
+        %{
+          identity: identity,
+          attempt_id: "attempt-#{unique}",
+          session_id: session_id,
+          backend: "claude-repl",
+          worker_generation: 8
+        }
+      end
+
+      source_handler = SessionLifecycle.display_tailer_source_handler(issue, "claude-repl", opts)
+      message_handler = SessionLifecycle.display_tailer_handler(issue, "claude-repl", opts)
+
+      assert :ok = source_handler.({:available, nil, "transcript-a"})
+
+      assistant_a =
+        AgentEvents.transcript_event(:assistant, "session a", msg_id: "assistant-a-#{unique}")
+
+      assert :ok =
+               message_handler.(%{
+                 source_session_id: "transcript-a",
+                 transcript_event: assistant_a
+               })
+
+      assert %{state: :live, messages: [%{body: "session a"}]} =
+               LiveConversation.snapshot(source.("transcript-a"), server: server)
+
+      assert :ok = source_handler.({:available, "transcript-a", "transcript-b"})
+
+      assert %{state: :ended, messages: [%{body: "session a"}]} =
+               LiveConversation.snapshot(source.("transcript-a"), server: server)
+
+      assert %{state: :known_empty, messages: []} =
+               LiveConversation.snapshot(source.("transcript-b"), server: server)
+
+      assistant_b =
+        AgentEvents.transcript_event(:assistant, "session b", msg_id: "assistant-b-#{unique}")
+
+      assert :ok =
+               message_handler.(%{
+                 source_session_id: "transcript-b",
+                 transcript_event: assistant_b
+               })
+
+      assert :ok =
+               MessageHandler.observe_operator_delivery(
+                 issue,
+                 %{id: 71, category: :operator_message, body: %{text: "accepted in session b"}},
+                 "claude-repl",
+                 Keyword.put(
+                   opts,
+                   :live_conversation_source_resolver,
+                   fn -> "transcript-b" end
+                 )
+               )
+
+      assert :ok =
+               source_handler.({
+                 :unavailable,
+                 "transcript-b",
+                 "transcript-b",
+                 :inner_tailer_down
+               })
+
+      snapshot = LiveConversation.snapshot(source.("transcript-b"), server: server)
+      assert snapshot.state == :stale
+      assert snapshot.health == :unavailable
+      assert snapshot.freshness == :stale
+      assert Enum.map(snapshot.messages, & &1.body) == ["session b", "accepted in session b"]
+    end
+
+    test "ordinary provider callbacks cannot clear unavailable RC tailer health" do
+      unique = Integer.to_string(System.unique_integer([:positive]))
+      identity = tracker_identity(unique)
+      issue = %Issue{id: "gid-rc-authority-#{unique}", identifier: unique, tracker_identity: identity}
+      server = start_supervised!({LiveConversation, name: nil})
+
+      opts = [
+        attempt_id: "attempt-#{unique}",
+        session_id: nil,
+        worker_generation: 9,
+        live_conversation_server: server,
+        live_conversation_authority: :display_tailer
+      ]
+
+      source = %{
+        identity: identity,
+        attempt_id: "attempt-#{unique}",
+        session_id: nil,
+        backend: "claude-repl",
+        worker_generation: 9
+      }
+
+      assert :ok = MessageHandler.mark_live_conversation_degraded(issue, "claude-repl", opts)
+
+      ordinary_handler =
+        MessageHandler.build(nil, issue, nil, nil, "claude-repl", nil, opts)
+
+      assert :ok = ordinary_handler.(%{event: :agent_message, body: "ordinary duplicate"})
+
+      assert %{state: :unavailable, health: :unavailable, messages: []} =
+               LiveConversation.snapshot(source, server: server)
+
+      assert {:error, {:live_conversation_context, :missing_source_session}} =
+               MessageHandler.observe_operator_delivery(
+                 issue,
+                 %{id: 72, category: :operator_message, body: %{text: "not yet keyed"}},
+                 "claude-repl",
+                 opts
+               )
+
+      assert %{state: :unavailable, messages: []} =
+               LiveConversation.snapshot(source, server: server)
     end
   end
 

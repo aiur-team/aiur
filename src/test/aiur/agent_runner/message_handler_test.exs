@@ -257,7 +257,7 @@ defmodule Aiur.AgentRunner.MessageHandlerTest do
 
       log =
         capture_log(fn ->
-          assert :ok =
+          assert {:error, {:live_conversation_unavailable, :observe_operator}} =
                    MessageHandler.observe_operator_delivery(
                      issue,
                      %{id: 1, category: :operator_message, body: %{text: "continue"}},
@@ -270,6 +270,66 @@ defmodule Aiur.AgentRunner.MessageHandlerTest do
 
       assert log =~ "Live conversation projection observe_operator failed"
       assert log =~ unique
+    end
+
+    test "returns named context errors and publishes degraded consumer status" do
+      unique = Integer.to_string(System.unique_integer([:positive]))
+      issue_id = "gid-context-#{unique}"
+
+      issue = %Issue{
+        id: issue_id,
+        identifier: unique,
+        tracker_identity: tracker_identity(unique)
+      }
+
+      item = %{id: 17, category: :operator_message, body: %{text: "accepted"}}
+
+      log =
+        capture_log(fn ->
+          assert {:error, {:live_conversation_context, :missing_worker_generation}} =
+                   MessageHandler.observe_operator_delivery(
+                     issue,
+                     item,
+                     "codex",
+                     attempt_id: "attempt-#{unique}",
+                     live_conversation_recipient: self()
+                   )
+        end)
+
+      assert log =~ "issue_id=gid-context-#{unique} issue_identifier=#{unique}"
+      assert log =~ "reason_class=missing_worker_generation"
+
+      assert_receive {:worker_runtime_info, ^issue_id,
+                      %{
+                        live_conversation: %{
+                          generation_handle: nil,
+                          state: :unavailable,
+                          health: :unavailable,
+                          freshness: :unknown,
+                          reason: :missing_worker_generation
+                        }
+                      }}
+    end
+
+    test "distinguishes an intentional projection skip from invalid context" do
+      unique = Integer.to_string(System.unique_integer([:positive]))
+      issue_id = "gid-skip-#{unique}"
+      issue = %Issue{id: issue_id, identifier: unique}
+      item = %{id: 18, category: :operator_message, body: %{text: "accepted"}}
+
+      assert :ok =
+               MessageHandler.observe_operator_delivery(issue, item, "codex",
+                 live_conversation: :disabled,
+                 live_conversation_recipient: self()
+               )
+
+      refute_receive {:worker_runtime_info, ^issue_id, _status}, 100
+
+      assert {:error, {:live_conversation_context, :missing_identity}} =
+               MessageHandler.observe_operator_delivery(issue, item, "codex",
+                 attempt_id: "attempt-#{unique}",
+                 worker_generation: 1
+               )
     end
 
     test "omits replay-unstable Codex deltas and projects their completion once" do

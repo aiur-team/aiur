@@ -4,6 +4,7 @@ defmodule Aiur.Orchestrator.State do
   """
 
   alias Aiur.{AgentQueueStore, Issue}
+  alias Aiur.LiveConversation.Source, as: LiveConversationSource
   alias Aiur.Orchestrator.{ControlLifecycle, PauseResume, StatusReport}
 
   @default_dispatch_recovery %{
@@ -114,9 +115,14 @@ defmodule Aiur.Orchestrator.State do
           running_entry
           |> maybe_put_runtime_value(:worker_host, runtime_info[:worker_host])
           |> maybe_put_runtime_value(:workspace_path, runtime_info[:workspace_path])
+          |> maybe_put_runtime_value(
+            :live_conversation,
+            live_conversation_runtime(runtime_info[:live_conversation])
+          )
 
-        StatusReport.notify_dashboard(state)
-        {:noreply, %{state | running: Map.put(running, issue_id, updated_running_entry)}}
+        next_state = %{state | running: Map.put(running, issue_id, updated_running_entry)}
+        StatusReport.notify_dashboard(next_state)
+        {:noreply, next_state}
     end
   end
 
@@ -167,6 +173,35 @@ defmodule Aiur.Orchestrator.State do
   def maybe_put_runtime_value(running_entry, key, value) when is_map(running_entry) do
     Map.put(running_entry, key, value)
   end
+
+  defp live_conversation_runtime(%{} = status) do
+    handle = Map.get(status, :generation_handle)
+    state = Map.get(status, :state)
+    health = Map.get(status, :health)
+    freshness = Map.get(status, :freshness)
+    observed_at = Map.get(status, :observed_at)
+    reason = Map.get(status, :reason)
+
+    if valid_conversation_handle?(handle) and
+         state in [:live, :ended, :known_empty, :stale, :unavailable, :restart_unknown] and
+         health in [:healthy, :unavailable, :unknown] and
+         freshness in [:current, :stale, :unknown] and is_struct(observed_at, DateTime) and
+         (is_nil(reason) or is_atom(reason)) do
+      Map.take(status, [
+        :generation_handle,
+        :state,
+        :health,
+        :freshness,
+        :observed_at,
+        :reason
+      ])
+    end
+  end
+
+  defp live_conversation_runtime(_status), do: nil
+
+  defp valid_conversation_handle?(nil), do: true
+  defp valid_conversation_handle?(handle), do: LiveConversationSource.valid_handle?(handle)
 
   @spec find_issue_id_for_ref(map(), term()) :: term() | nil
   def find_issue_id_for_ref(running, ref) do

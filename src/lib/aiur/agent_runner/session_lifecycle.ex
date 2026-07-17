@@ -373,8 +373,16 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     report_repl_session(codex_update_recipient, issue, session)
     report_pause_containment(codex_update_recipient, issue, session)
 
-    opts = put_live_conversation_session_id(opts, session)
+    display_authority? =
+      should_display_tail?(session_backend(session), session_context.rc?, issue.identifier)
+
+    opts =
+      opts
+      |> put_live_conversation_session_id(session)
+      |> maybe_put_display_authority(display_authority?)
+
     display_tailer = maybe_start_display_tailer(session, issue, session_context.rc?, opts)
+    opts = maybe_put_display_source_resolver(opts, display_tailer)
 
     # A resumed thread already carries the original task + full prior turn
     # history, so its first turn must continue rather than replay the
@@ -399,11 +407,22 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
       # The provider may have fallen back (for example, from claude-repl to
       # claude). Conversation ingestion keys every event by the backend tagged
       # on the actual session, so terminal health must close that same source.
-      MessageHandler.finish_live_conversation(issue, session_backend(session), result, opts)
+      MessageHandler.finish_live_conversation(
+        issue,
+        session_backend(session),
+        result,
+        current_display_source_opts(opts, display_tailer)
+      )
+
       result
     catch
       kind, reason ->
-        MessageHandler.mark_live_conversation_degraded(issue, session_backend(session), opts)
+        MessageHandler.mark_live_conversation_degraded(
+          issue,
+          session_backend(session),
+          current_display_source_opts(opts, display_tailer)
+        )
+
         :erlang.raise(kind, reason, __STACKTRACE__)
     after
       stop_display_tailer(display_tailer)
@@ -417,6 +436,33 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   end
 
   defp put_live_conversation_session_id(opts, _session), do: opts
+
+  defp maybe_put_display_authority(opts, true),
+    do: Keyword.put(opts, :live_conversation_authority, :display_tailer)
+
+  defp maybe_put_display_authority(opts, false), do: opts
+
+  defp current_display_source_opts(opts, nil), do: opts
+
+  defp current_display_source_opts(opts, display_tailer) do
+    case DisplayTailer.current_session(display_tailer) do
+      session_id when is_binary(session_id) and session_id != "" ->
+        Keyword.put(opts, :session_id, session_id)
+
+      _other ->
+        opts
+    end
+  catch
+    :exit, _reason -> opts
+  end
+
+  defp maybe_put_display_source_resolver(opts, nil), do: opts
+
+  defp maybe_put_display_source_resolver(opts, display_tailer) do
+    Keyword.put(opts, :live_conversation_source_resolver, fn ->
+      DisplayTailer.current_session(display_tailer)
+    end)
+  end
 
   @doc false
   @spec stop_session_with_ownership(map(), Ownership.lease() | nil, (map() -> term())) :: term()
@@ -557,18 +603,31 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
       # shared run recipient), so a `from: :start` backfill burst would hammer
       # both. The pane render only needs the transcript broadcast.
       on_message = display_tailer_handler(issue, backend, opts)
+      on_source = display_tailer_source_handler(issue, backend, opts)
+
+      # Until a hook identifies a readable transcript, the sole authoritative
+      # RC conversation source is unavailable. Ordinary provider activation is
+      # suppressed by `:live_conversation_authority` and cannot clear this.
+      _ = MessageHandler.mark_live_conversation_degraded(issue, backend, opts)
 
       case DisplayTailer.start(
              identifier: issue.identifier,
              on_message: on_message,
+             on_source: on_source,
+             initial_session_id: Keyword.get(opts, :session_id),
+             log_context: "#{Aiur.AgentRunner.issue_context(issue)} backend=#{backend}",
              owner: self()
            ) do
         {:ok, pid} ->
           pid
 
         {:error, reason} ->
-          Logger.warning("display_tailer start_failed issue_identifier=#{issue.identifier} reason=#{inspect(reason)}")
-          MessageHandler.mark_live_conversation_degraded(issue, backend, opts)
+          Logger.warning(
+            "display_tailer start_failed #{Aiur.AgentRunner.issue_context(issue)} " <>
+              "backend=#{backend} session=#{opaque_live_session(opts)} " <>
+              "reason_class=#{Lifecycle.reason_class(reason)}"
+          )
+
           nil
       end
     else
@@ -581,13 +640,61 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   def display_tailer_handler(%Issue{identifier: identifier} = issue, backend, opts)
       when is_binary(identifier) and is_binary(backend) and is_list(opts) do
     fn
-      %{transcript_event: event} when is_map(event) ->
+      %{source_session_id: session_id, transcript_event: event}
+      when is_binary(session_id) and is_map(event) ->
         AgentPubSub.broadcast_transcript(identifier, event)
-        MessageHandler.observe_display_transcript(issue, event, backend, opts)
+
+        MessageHandler.observe_display_transcript(
+          issue,
+          event,
+          backend,
+          Keyword.put(opts, :session_id, session_id)
+        )
 
       _ ->
         :ok
     end
+  end
+
+  @doc false
+  @spec display_tailer_source_handler(Issue.t(), String.t(), keyword()) ::
+          (DisplayTailer.source_event() -> :ok | {:error, term()})
+  def display_tailer_source_handler(%Issue{} = issue, backend, opts)
+      when is_binary(backend) and is_list(opts) do
+    fn
+      {:available, prior_session, next_session} ->
+        MessageHandler.replace_live_conversation_source(
+          issue,
+          backend,
+          prior_session,
+          next_session,
+          opts
+        )
+
+      {:unavailable, prior_session, next_session, _reason} ->
+        if prior_session != next_session do
+          _ =
+            MessageHandler.end_live_conversation(
+              issue,
+              backend,
+              Keyword.put(opts, :session_id, prior_session)
+            )
+        end
+
+        MessageHandler.mark_live_conversation_degraded(
+          issue,
+          backend,
+          Keyword.put(opts, :session_id, next_session)
+        )
+
+      _other ->
+        :ok
+    end
+  end
+
+  defp opaque_live_session(opts) do
+    Aiur.LiveConversation.Source.opaque_session_id(Keyword.get(opts, :session_id)) ||
+      "session:unresolved"
   end
 
   # Only a backend that declares the `rc_display_tail` capability (the

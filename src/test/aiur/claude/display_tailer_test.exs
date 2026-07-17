@@ -1,7 +1,10 @@
 defmodule Aiur.Claude.DisplayTailerTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias Aiur.Claude.{DisplayTailer, HookEvents}
+  alias Aiur.LiveConversation.Source
 
   # Build a claude on-disk transcript jsonl from raw record maps.
   defp write_jsonl(records) do
@@ -43,8 +46,10 @@ defmodule Aiur.Claude.DisplayTailerTest do
     )
   end
 
-  defp dispatch_path(identifier, path) do
-    HookEvents.dispatch(identifier, %{"hook_event_name" => "PostToolUse", "transcript_path" => path})
+  defp dispatch_path(identifier, path, session_id \\ nil) do
+    event = %{"hook_event_name" => "PostToolUse", "transcript_path" => path}
+    event = if is_binary(session_id), do: Map.put(event, "session_id", session_id), else: event
+    HookEvents.dispatch(identifier, event)
   end
 
   # Collect the roles+bodies forwarded as transcript events.
@@ -111,32 +116,82 @@ defmodule Aiur.Claude.DisplayTailerTest do
     id = "MT-DT-ROTATE-#{System.unique_integer([:positive])}"
     path1 = write_jsonl([assistant_blocks([%{"type" => "text", "text" => "session one"}])])
     path2 = write_jsonl([assistant_blocks([%{"type" => "text", "text" => "session two"}])])
+    test_pid = self()
 
-    pid = start_tailer(id)
+    pid = start_tailer(id, on_source: fn event -> send(test_pid, {:source, event}) end)
 
-    dispatch_path(id, path1)
+    dispatch_path(id, path1, "session-one")
+    assert_receive {:source, {:available, nil, "session-one"}}
     assert {:ok, _} = DisplayTailer.poll(pid)
-    assert {:assistant, "session one"} in drain_forwarded()
 
-    dispatch_path(id, path2)
+    assert_receive {:fwd,
+                    %{
+                      source_session_id: "session-one",
+                      transcript_event: %{role: :assistant, body: "session one"}
+                    }}
+
+    assert DisplayTailer.current_session(pid) == "session-one"
+
+    dispatch_path(id, path2, "session-two")
+    assert_receive {:source, {:available, "session-one", "session-two"}}
     assert {:ok, _} = DisplayTailer.poll(pid)
-    forwarded = drain_forwarded()
-    assert {:assistant, "session two"} in forwarded
+
+    assert_receive {:fwd,
+                    %{
+                      source_session_id: "session-two",
+                      transcript_event: %{role: :assistant, body: "session two"}
+                    }}
+
+    assert DisplayTailer.current_session(pid) == "session-two"
   end
 
   test "a missing transcript path does not crash and recovers when a valid one arrives" do
     id = "MT-DT-MISSING-#{System.unique_integer([:positive])}"
-    pid = start_tailer(id)
+    test_pid = self()
+    pid = start_tailer(id, on_source: fn event -> send(test_pid, {:source, event}) end)
 
-    dispatch_path(id, "/nonexistent/path/abc.jsonl")
+    dispatch_path(id, "/nonexistent/path/abc.jsonl", "missing-session")
+    assert_receive {:source, {:unavailable, nil, "missing-session", :transcript_unavailable}}
     assert {:ok, 0} = DisplayTailer.poll(pid)
     assert Process.alive?(pid)
     assert drain_forwarded() == []
 
     path = write_jsonl([assistant_blocks([%{"type" => "text", "text" => "recovered"}])])
-    dispatch_path(id, path)
+    dispatch_path(id, path, "missing-session")
+    assert_receive {:source, {:available, "missing-session", "missing-session"}}
     assert {:ok, _} = DisplayTailer.poll(pid)
     assert {:assistant, "recovered"} in drain_forwarded()
+  end
+
+  test "inner tailer loss reports authoritative health with correlated opaque logging" do
+    id = "MT-DT-DOWN-#{System.unique_integer([:positive])}"
+    raw_session = "provider-session-#{System.unique_integer([:positive])}"
+    path = write_jsonl([assistant_blocks([%{"type" => "text", "text" => "before loss"}])])
+    test_pid = self()
+
+    pid =
+      start_tailer(id,
+        on_source: fn event -> send(test_pid, {:source, event}) end,
+        log_context: "issue_id=gid-display issue_identifier=#{id} backend=claude-repl"
+      )
+
+    dispatch_path(id, path, raw_session)
+    assert_receive {:source, {:available, nil, ^raw_session}}
+    inner = :sys.get_state(pid).tailer
+
+    log =
+      capture_log(fn ->
+        Process.exit(inner, :kill)
+
+        assert_receive {:source, {:unavailable, ^raw_session, ^raw_session, :inner_tailer_down}},
+                       2_000
+      end)
+
+    assert Process.alive?(pid)
+    assert DisplayTailer.current_session(pid) == raw_session
+    assert log =~ "issue_id=gid-display issue_identifier=#{id} backend=claude-repl"
+    assert log =~ Source.opaque_session_id(raw_session)
+    refute log =~ raw_session
   end
 
   test "a malformed jsonl line is skipped without crashing the tailer" do

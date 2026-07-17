@@ -28,6 +28,8 @@ defmodule Aiur.Claude.DisplayTailer do
   require Logger
 
   alias Aiur.Claude.{HookEvents, TranscriptTailer}
+  alias Aiur.LiveConversation.Source
+  alias Aiur.RunTelemetry.Lifecycle
 
   # Cap oversized reasoning/tool bodies so a 10k-line tool dump or a long
   # thinking block can't flood the pane. Mirrors the spirit of the RC view's
@@ -41,10 +43,17 @@ defmodule Aiur.Claude.DisplayTailer do
   @type option ::
           {:identifier, String.t()}
           | {:on_message, (map() -> any())}
+          | {:on_source, (source_event() -> any())}
+          | {:initial_session_id, String.t() | nil}
+          | {:log_context, String.t()}
           | {:interval_ms, pos_integer() | nil}
           | {:max_body, pos_integer()}
           | {:owner, pid()}
           | {:name, GenServer.name()}
+
+  @type source_event ::
+          {:available, String.t() | nil, String.t()}
+          | {:unavailable, String.t() | nil, String.t(), atom()}
 
   @spec start_link([option()]) :: GenServer.on_start()
   def start_link(opts) do
@@ -69,11 +78,16 @@ defmodule Aiur.Claude.DisplayTailer do
   @spec poll(GenServer.server()) :: {:ok, non_neg_integer()}
   def poll(server), do: GenServer.call(server, :poll)
 
+  @doc false
+  @spec current_session(GenServer.server()) :: String.t() | nil
+  def current_session(server), do: GenServer.call(server, :current_session)
+
   @impl true
   def init(opts) do
     Process.flag(:trap_exit, true)
     identifier = Keyword.fetch!(opts, :identifier)
     on_message = Keyword.fetch!(opts, :on_message)
+    on_source = Keyword.get(opts, :on_source, fn _event -> :ok end)
     :ok = HookEvents.subscribe(identifier)
 
     owner_ref =
@@ -86,17 +100,22 @@ defmodule Aiur.Claude.DisplayTailer do
      %{
        identifier: identifier,
        on_message: on_message,
+       on_source: on_source,
+       log_context: Keyword.get(opts, :log_context, "issue_identifier=#{identifier}"),
        interval_ms: Keyword.get(opts, :interval_ms, @default_interval_ms),
        max_body: Keyword.get(opts, :max_body, @default_max_body),
        owner_ref: owner_ref,
+       session_id: normalize_session_id(Keyword.get(opts, :initial_session_id)),
        path: nil,
        tailer: nil
      }}
   end
 
   @impl true
-  def handle_info({:claude_hook, _id, %{transcript_path: path}}, state) when is_binary(path) do
-    {:noreply, maybe_retarget(state, path)}
+  def handle_info({:claude_hook, _id, %{transcript_path: path} = event}, state)
+      when is_binary(path) and path != "" do
+    session_id = session_id(event, path)
+    {:noreply, maybe_retarget(state, path, session_id)}
   end
 
   def handle_info({:claude_hook, _id, _event}, state), do: {:noreply, state}
@@ -104,7 +123,8 @@ defmodule Aiur.Claude.DisplayTailer do
   # The inner tailer died (parse loop crash, vanished file): drop it and wait
   # for the next hook to retarget. Display degrades; the agent run is untouched.
   def handle_info({:EXIT, pid, reason}, %{tailer: pid} = state) do
-    Logger.warning("display_tailer inner_tailer_down identifier=#{state.identifier} reason=#{inspect(reason)}")
+    log_failure(state, :inner_tailer_down, reason)
+    notify_source(state, {:unavailable, state.session_id, required_session_id(state), :inner_tailer_down})
     {:noreply, %{state | tailer: nil, path: nil}}
   end
 
@@ -117,6 +137,8 @@ defmodule Aiur.Claude.DisplayTailer do
   def handle_info(_other, state), do: {:noreply, state}
 
   @impl true
+  def handle_call(:current_session, _from, state), do: {:reply, state.session_id, state}
+
   def handle_call(:poll, _from, %{tailer: nil} = state), do: {:reply, {:ok, 0}, state}
 
   def handle_call(:poll, _from, %{tailer: tailer} = state) do
@@ -125,28 +147,42 @@ defmodule Aiur.Claude.DisplayTailer do
     _ -> {:reply, {:ok, 0}, state}
   end
 
-  # Already tailing this path — nothing to do.
-  defp maybe_retarget(%{path: path} = state, path), do: state
+  # Already tailing this exact source — nothing to do.
+  defp maybe_retarget(
+         %{path: path, session_id: session_id, tailer: tailer} = state,
+         path,
+         session_id
+       )
+       when is_pid(tailer),
+       do: state
 
-  defp maybe_retarget(state, path) do
+  defp maybe_retarget(state, path, session_id) do
+    prior_session = state.session_id
+
     if File.exists?(path) do
       stop_tailer(state.tailer)
 
-      case start_tailer(state, path) do
+      case start_tailer(state, path, session_id) do
         {:ok, tailer} ->
-          %{state | tailer: tailer, path: path}
+          notify_source(state, {:available, prior_session, session_id})
+          %{state | tailer: tailer, path: path, session_id: session_id}
 
         {:error, reason} ->
-          Logger.warning("display_tailer start_failed identifier=#{state.identifier} reason=#{inspect(reason)}")
-          %{state | tailer: nil, path: nil}
+          log_failure(state, :start_failed, reason, session_id)
+          notify_source(state, {:unavailable, prior_session, session_id, :tailer_start_failed})
+          %{state | tailer: nil, path: nil, session_id: session_id}
       end
     else
-      # Path not flushed to disk yet (lazy flush). A later hook retargets.
-      state
+      # Path not flushed to disk yet (lazy flush). Stop an older source now so
+      # it cannot remain falsely healthy while we wait for a later hook.
+      stop_tailer(state.tailer)
+      log_failure(state, :transcript_unavailable, :enoent, session_id)
+      notify_source(state, {:unavailable, prior_session, session_id, :transcript_unavailable})
+      %{state | tailer: nil, path: nil, session_id: session_id}
     end
   end
 
-  defp start_tailer(state, path) do
+  defp start_tailer(state, path, session_id) do
     on_message = state.on_message
     max_body = state.max_body
 
@@ -155,8 +191,47 @@ defmodule Aiur.Claude.DisplayTailer do
       from: :start,
       turn_id: nil,
       interval_ms: state.interval_ms,
-      on_message: fn event -> forward(on_message, max_body, event) end,
+      on_message: fn event -> forward(on_message, max_body, session_id, event) end,
       on_turn_end: fn _reason -> :ok end
+    )
+  end
+
+  defp session_id(%{session_id: session_id}, _path)
+       when is_binary(session_id) and session_id != "",
+       do: session_id
+
+  defp session_id(_event, path), do: path |> Path.basename() |> Path.rootname()
+
+  defp normalize_session_id(session_id) when is_binary(session_id) and session_id != "",
+    do: session_id
+
+  defp normalize_session_id(_session_id), do: nil
+
+  defp required_session_id(%{session_id: session_id}) when is_binary(session_id), do: session_id
+  defp required_session_id(state), do: "unresolved:#{state.identifier}"
+
+  defp notify_source(state, event) do
+    case state.on_source.(event) do
+      {:error, reason} -> log_failure(state, :source_callback_failed, reason)
+      _result -> :ok
+    end
+  rescue
+    error ->
+      log_failure(state, :source_callback_failed, error)
+      :ok
+  catch
+    kind, reason ->
+      log_failure(state, :source_callback_failed, {kind, reason})
+      :ok
+  end
+
+  defp log_failure(state, operation, reason, session_id \\ nil) do
+    session_id = session_id || state.session_id
+    opaque_session = Source.opaque_session_id(session_id) || "session:unresolved"
+
+    Logger.warning(
+      "display_tailer #{operation} #{state.log_context} " <>
+        "session=#{opaque_session} reason_class=#{Lifecycle.reason_class(reason)}"
     )
   end
 
@@ -172,8 +247,13 @@ defmodule Aiur.Claude.DisplayTailer do
   # Forward one transcript event to the run's on_message as a display event,
   # mirroring ReplAgent.emit_transcript/2's shape so it flows through the
   # runner's transcript broadcast path. Read-only: no agent input ever.
-  defp forward(on_message, max_body, event) do
-    on_message.(%{event: :transcript, transcript_event: cap(event, max_body), timestamp: DateTime.utc_now()})
+  defp forward(on_message, max_body, session_id, event) do
+    on_message.(%{
+      event: :transcript,
+      source_session_id: session_id,
+      transcript_event: cap(event, max_body),
+      timestamp: DateTime.utc_now()
+    })
   rescue
     _ -> :ok
   end

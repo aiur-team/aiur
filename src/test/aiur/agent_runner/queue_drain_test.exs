@@ -2,7 +2,7 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
   use ExUnit.Case, async: false
 
   alias Aiur.AgentRunner.{QueueDrain, ToolExecutor}
-  alias Aiur.{AlertFeed, Issue, TrackerIdentity}
+  alias Aiur.{AlertFeed, Issue, LiveConversation, TrackerIdentity}
   alias Aiur.Events.Exchange
 
   setup do
@@ -266,10 +266,25 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
     end
 
     test "provider exits restore the queued message for a replacement to drain once" do
-      identifier = "QD-port-closed-#{System.unique_integer([:positive])}"
-      issue = %Issue{identifier: identifier}
+      identifier = Integer.to_string(System.unique_integer([:positive]))
+      identity = queue_identity(identifier)
+      issue = %Issue{id: "gid-#{identifier}", identifier: identifier, tracker_identity: identity}
       item = %{category: :operator_message, id: 2, body: %{text: "retry on replacement"}}
       {:ok, orchestrator} = FakeQueueOrchestrator.start_link(item, self())
+      server = start_supervised!({LiveConversation, name: nil})
+
+      common_opts = [
+        attempt_id: "attempt-#{identifier}",
+        live_conversation_server: server
+      ]
+
+      retired_source = %{
+        identity: identity,
+        attempt_id: "attempt-#{identifier}",
+        session_id: "retired-thread",
+        backend: "codex",
+        worker_generation: 10
+      }
 
       assert {:error, {:port_exit, 9}} =
                QueueDrain.drain_operator_messages(
@@ -278,14 +293,30 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
                  fn _message -> :ok end,
                  orchestrator,
                  nil,
-                 run_turn: fn _session, _text, _issue, _opts -> {:error, {:port_exit, 9}} end
+                 common_opts ++
+                   [
+                     session_id: "retired-thread",
+                     worker_generation: 10,
+                     run_turn: fn _session, _text, _issue, _opts ->
+                       {:error, {:port_exit, 9}}
+                     end
+                   ]
                )
 
       assert_receive {:queue_item_restored, ^identifier}
       refute_receive {:queue_item_consumed, ^identifier}
       refute_receive {:queue_item_failed, ^identifier, {:port_exit, 9}}
+      assert %{messages: []} = LiveConversation.snapshot(retired_source, server: server)
 
       test_pid = self()
+
+      replacement_source = %{
+        identity: identity,
+        attempt_id: "attempt-#{identifier}",
+        session_id: "replacement-thread",
+        backend: "codex",
+        worker_generation: 11
+      }
 
       assert :ok =
                QueueDrain.drain_operator_messages(
@@ -294,16 +325,39 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
                  fn _message -> :ok end,
                  orchestrator,
                  nil,
-                 run_turn: fn session, text, _issue, _opts ->
-                   send(test_pid, {:replacement_turn, session.thread_id, text})
-                   {:ok, session}
-                 end
+                 common_opts ++
+                   [
+                     session_id: "replacement-thread",
+                     worker_generation: 11,
+                     run_turn: fn session, text, _issue, _opts ->
+                       send(test_pid, {:replacement_turn, session.thread_id, text})
+                       {:ok, session}
+                     end
+                   ]
                )
 
       assert_receive {:replacement_turn, "replacement-thread", "retry on replacement"}
       refute_receive {:replacement_turn, "replacement-thread", "retry on replacement"}
       assert_receive {:queue_item_consumed, ^identifier}
       refute_receive {:queue_item_restored, ^identifier}
+
+      assert %{messages: [%{role: "operator", body: "retry on replacement"}]} =
+               LiveConversation.snapshot(replacement_source, server: server)
+
+      assert %{messages: []} = LiveConversation.snapshot(retired_source, server: server)
+
+      assert :ok =
+               QueueDrain.drain_operator_messages(
+                 %{backend: "codex", thread_id: "replacement-thread"},
+                 issue,
+                 fn _message -> :ok end,
+                 orchestrator,
+                 nil,
+                 common_opts ++ [session_id: "replacement-thread", worker_generation: 11]
+               )
+
+      assert %{messages: [_single_delivery]} =
+               LiveConversation.snapshot(replacement_source, server: server)
     end
 
     test "Claude provider exits retain the existing failed-delivery behavior" do
@@ -345,5 +399,17 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
       assert_receive {:queue_item_failed, ^identifier, :port_closed}
       refute_receive {:queue_item_restored, ^identifier}
     end
+  end
+
+  defp queue_identity(identifier) do
+    %TrackerIdentity{
+      status: :joinable,
+      kind: :github,
+      owner: "owner",
+      repository: "repo",
+      provider_id: "provider-#{identifier}",
+      identifier: identifier,
+      reason: nil
+    }
   end
 end
