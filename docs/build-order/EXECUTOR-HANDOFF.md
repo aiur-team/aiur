@@ -1,66 +1,74 @@
 # Build Order Executor Handoff
 
-## Recovery checkpoint (updated 2026-07-17 01:50 PDT)
+## Recovery checkpoint (updated 2026-07-17 02:41 PDT)
 
-This checkpoint supersedes the older live-state narrative below. Aiur is
-intentionally **stopped**; do not restart it merely to finish the recovered
-lanes. The prior two-daemon/operator-label state created duplicate-writer risk,
-so the bounded last mile was completed with direct Codex workers and exact-head
-GitHub CI.
+This checkpoint supersedes the older live-state narrative below. The former
+Claude Executor is not being restarted. Its exact local session was recovered
+as `f6f086dd-48ba-4e9e-aa9e-7a703b96a778` from
+`~/.claude/projects/-home-orangekid-github-aiur/f6f086dd-48ba-4e9e-aa9e-7a703b96a778.jsonl`,
+and its live issue/PR ownership was reconciled against GitHub, the per-issue
+workpads, and both workspace logs before dispatch resumed.
 
-The interrupted Claude Executor was recovered from local session
-`f6f086dd-48ba-4e9e-aa9e-7a703b96a778` at
-`~/.claude/projects/-home-orangekid-github-aiur/f6f086dd-48ba-4e9e-aa9e-7a703b96a778.jsonl`.
-It owned five unfinished lanes: BO-018/#1105 (PR #1209), DASH-020/#1124
-(PR #1208), DASH-013/#1119, WorkflowStore flake #1214 (PR #1219), and the
-Credo/formatter baseline. Those lanes are no longer ownerless:
+Aiur is now **running Codex-only** from the literal `develop` branch in the
+fresh canonical runtime checkout `/home/orangekid/github/aiur-runtime-develop`.
+The Executor force-built `scripts/aiurdev` first, removed 18 leaked test-only
+`opencode serve` process groups, and launched the background daemon with a
+sixteen-worker ceiling. The checkout and authoritative remote tip are exact
+`develop@59e9a2d5f002e3381ee49e8e88fe12598af4925f`; Claude fallback is empty.
+The dashboard is healthy on loopback. The requested Tailscale bind was not used
+because neither dashboard-auth environment variable was present; do not invent
+credentials or restart the healthy daemon only to change that listener.
 
-- Shared BuildGate/provider/observability test stability #1222 landed through
-  PR #1223 and was integrated into `develop` through #1224.
-- The Credo 200-column alignment #1225 landed to `main` as `ff06d53c` and was
-  integrated into `develop` through #1227 with ancestry preserved.
-- DASH-020/#1124 passed exact-head CI and merged through PR #1208 as
-  `develop@2275727c288eed47756392bc7587dcaf887c39a8`; the issue is closed
-  `agent:done`.
-- WorkflowStore flake #1214 passed independent review, 20 randomized focused
-  repetitions (180 tests), and exact-head CI, then merged through PR #1219 as
-  `develop@3358c873760bb4398648fe8c00a1a6544ea533fa`; the issue is closed
-  `agent:done`.
-- BO-018/#1105 repaired all opaque-ID, route, capability, and typed-identity
-  review findings, passed exact-head CI, and merged through PR #1209 as
-  `develop@cce2f8f941e6df12775da83cb2d0940cf3325b57`; the issue is closed
-  `agent:done`.
-- The recurring browser-render race #1229 was separated from unrelated feature
-  PRs, fixed without retries/tolerance changes, reviewed, stress-tested 20/20,
-  and merged through PR #1230 as
-  `develop@6b451a21b19fd9954f3fa50789ec668fd4c54e17`; the issue is closed
-  `agent:done`.
+The recovered fleet began with nine one-writer Codex owners and is now eight
+after the first merge:
 
-DASH-013/#1119 is the sole remaining recovered lane. Its source implementation
-is draft PR #1228 at exact head `6f5696828cb54f775623299cc61c1067ef2b2810`,
-which contains current `develop@6b451a21`. It implements the reviewed sibling
-`rate_limit/update` schema, strict redaction/bounds, Claude subscription/API-key
-generation isolation and failure recovery, and shared provider-meter ingestion.
-Independent compound review is clean; 112 worker tests/four properties and 57
-Executor tests/three properties passed, along with format, warnings-as-errors
-compile, strict lint, and Dialyzer. Exact-head CI run `29567118930` passed every
-required job, including the stabilized browser harness and teardown regression.
+- coordination RPC latency #1031 / PR #1036;
+- BO-011/#1098;
+- DASH-003/#1110;
+- DASH-009/#1115 / draft PR #1204;
+- DASH-010/#1116;
+- DASH-014/#1120;
+- DASH-026/#1130 / PR #1217; and
+- DASH-029/#1133.
 
-**Do not merge #1228 yet.** Its binding at-merge prerequisite is publication
-and installation of `aiur-claude@1.1.0` from sibling source commit
+No additional Build Order ticket is queued. The host settled after startup and
+has remained within the historical 8–11-worker safe envelope. Preserve one
+writer per workspace. After every `develop` merge, send the exact new base to
+all owners and stop reviewing their now-stale heads until they push replacements.
+
+The first convergence lane is complete: PR #1213's one-file global-log test
+isolation passed every exact-head CI job and six independent Compound
+Engineering review lenses plus its prior-comment gate. It squash-merged as
+`develop@59e9a2d5f002e3381ee49e8e88fe12598af4925f`, and #1149 was explicitly
+closed with `agent:done` because `develop` is not the default branch. All other
+PR heads became stale at that instant. #1036's prior exact head was `ab94042b`,
+#1204's was `0fdb7e4c` (with a ticket-local lint failure), and #1217's remote
+head was still `c2e67acd`; their owners were told to preserve scope, integrate
+exact `59e9a2d5`, and publish replacement heads before Executor review.
+
+DASH-013/#1119 remains source-complete as draft PR #1228 at
+`6f5696828cb54f775623299cc61c1067ef2b2810`, with full CI green and independent
+review clean. It carries `agent:paused` and must **not** merge until
+`aiur-claude@1.1.0` is published and installed from sibling source commit
 `e555b8dd61c0af4cc18a6061fd278da05b9bc9f8`. The npm registry still exposes
-only 1.0.0, this machine's `npm whoami` returns E401, and there is no sibling
-publish workflow. Source work and CI may continue, but publication requires
-operator/npm authority; never invent credentials or weaken the prerequisite.
+only 1.0.0 and this machine has no publish authority.
+
+Two control-plane symptoms were separated. Ordinary control recovers after
+startup pressure settles; the one `set max-agents` timeout was fleet/GenServer
+saturation, not a recurrence of #627. By contrast, `watch --full` and
+`alerts --needs-attention` synchronously scan roughly 19 GiB of historical
+workspace NDJSON and time out deterministically. That distinct bug is paused
+as #1231 outside the 54-ticket Build Order denominator. Until fixed, use direct
+workspace logs, GitHub state, and the lightweight local alert tailer; do not run
+the full-history alert commands.
 
 The documentation checkout remains branch
 `executor/build-order-live-handoff-20260715` with intentional machine-only
 `.aiur/config`, `.aiur/model-usage.json`, caches, and crash-dump residue. Commit
-only the handoff/chat/preview files. The runtime checkout at
-`/home/orangekid/github/aiur-runtime-develop` also has an unpushed local-only
-historical merge artifact; do not push or destructively reset it. Refresh any
-future feature branch from remote `origin/develop`, whose authoritative tip at
-this checkpoint is `6b451a21b19fd9954f3fa50789ec668fd4c54e17`.
+only the handoff/chat/preview files. The old accidental runtime merge was
+preserved non-destructively at
+`/home/orangekid/github/aiur-runtime-develop-preserved-20260717`; never push or
+destructively reset it.
 
 ## Live Executor state (updated 2026-07-15 20:57 PDT)
 
