@@ -11,7 +11,8 @@ defmodule Aiur.BuildGateTest do
               )
 
   setup do
-    gate_dir = Path.join(System.tmp_dir!(), "aiur-build-gate-#{System.unique_integer([:positive])}")
+    gate_id = :crypto.strong_rand_bytes(12) |> Base.url_encode64(padding: false)
+    gate_dir = Path.join(System.tmp_dir!(), "aiur-build-gate-#{gate_id}")
     lock_dir = BuildGate.lock_dir(gate_dir)
     bin_dir = Path.join(gate_dir, "bin")
     log_path = Path.join(gate_dir, "mix.log")
@@ -20,6 +21,7 @@ defmodule Aiur.BuildGateTest do
     concurrency_path = Path.join(gate_dir, "mix.concurrency")
     max_concurrency_path = Path.join(gate_dir, "mix.max-concurrency")
     descendant_path = Path.join(gate_dir, "mix.descendant")
+    descendant_release_path = Path.join(gate_dir, "mix.descendant.release")
     mix_pid_path = Path.join(gate_dir, "mix.pid")
     real_mix_project = Path.join(gate_dir, "real-mix-project")
 
@@ -47,6 +49,7 @@ defmodule Aiur.BuildGateTest do
       concurrency_path: concurrency_path,
       max_concurrency_path: max_concurrency_path,
       descendant_path: descendant_path,
+      descendant_release_path: descendant_release_path,
       mix_pid_path: mix_pid_path,
       real_mix_project: real_mix_project
     }
@@ -288,10 +291,23 @@ defmodule Aiur.BuildGateTest do
   end
 
   @tag @linux_only
+  test "cleanup waits for a descendant release acknowledgement", context do
+    task = Task.async(fn -> release_descendant!(context) end)
+    wait_for_file!(context.descendant_release_path)
+    assert Task.yield(task, 0) == nil
+
+    File.touch!(context.descendant_path)
+    File.touch!(context.descendant_path <> ".done")
+    assert Task.await(task) == :ok
+  end
+
+  @tag @linux_only
   test "a slot holder protects a Mix descendant after its wrapper exits", context do
+    release_descendant_on_exit(context)
+
     descendant_context =
       Map.merge(context, %{
-        descendant_sleep_seconds: 2,
+        descendant_release_barrier: true,
         started_path: ""
       })
 
@@ -306,12 +322,14 @@ defmodule Aiur.BuildGateTest do
              )
 
     assert blocked_output =~ "aiur_build_gate timeout"
-    wait_for_file!(context.descendant_path <> ".done", 1500)
+    release_descendant!(context)
     assert {_output, 0} = run_bash("mix compile", Map.put(context, :started_path, ""))
   end
 
   @tag @linux_only
   test "a real Mix descendant retains capacity after the BEAM exits", context do
+    release_descendant_on_exit(context)
+
     assert {output, 0} = run_real_mix("mix test", context)
     assert output =~ "aiur_build_gate acquired slot=1 command=test"
     assert output =~ "aiur_build_gate lease_retained slot=1 status=0"
@@ -324,7 +342,7 @@ defmodule Aiur.BuildGateTest do
              )
 
     assert blocked_output =~ "aiur_build_gate timeout"
-    wait_for_file!(context.descendant_path <> ".done", 1500)
+    release_descendant!(context)
     assert {_output, 0} = run_bash("mix compile", Map.put(context, :started_path, ""))
   end
 
@@ -556,6 +574,38 @@ defmodule Aiur.BuildGateTest do
 
     assert System.monotonic_time(:millisecond) - started_at >= 1_500
     assert output =~ "aiur_build_gate released slot=1 status=0"
+  end
+
+  @tag @linux_only
+  test "a durable status acknowledgement wins after its parent exits", context do
+    python = System.find_executable("python3") || flunk("python3 is required")
+    holder_path = Path.expand("../../priv/build_gate_holder.py", __DIR__)
+    ack_path = Path.join(context.gate_dir, "late-status-ack")
+    token = "test-token"
+    File.write!(ack_path, "ack=#{token}\n")
+
+    probe = ~S"""
+    import runpy, sys, time
+
+    holder = runpy.run_path(sys.argv[1])
+    holder["wait_for_status_ack"](
+        sys.argv[2], sys.argv[3], int(sys.argv[4]), time.monotonic() - 1
+    )
+    """
+
+    assert {"", 0} =
+             System.cmd(
+               python,
+               ["-c", probe, holder_path, ack_path, token, "999999999"],
+               stderr_to_stdout: true
+             )
+
+    assert {"", 125} =
+             System.cmd(
+               python,
+               ["-c", probe, holder_path, ack_path, "wrong-token", "999999999"],
+               stderr_to_stdout: true
+             )
   end
 
   @tag @linux_only
@@ -1187,6 +1237,7 @@ defmodule Aiur.BuildGateTest do
       {"FAKE_MIX_CONCURRENCY", if(Map.get(context, :track_concurrency, false), do: context.concurrency_path, else: "")},
       {"FAKE_MIX_MAX_CONCURRENCY", if(Map.get(context, :track_concurrency, false), do: context.max_concurrency_path, else: "")},
       {"FAKE_MIX_DESCENDANT", Map.get(context, :descendant_path, "")},
+      {"FAKE_MIX_DESCENDANT_RELEASE", if(Map.get(context, :descendant_release_barrier, false), do: context.descendant_release_path, else: "")},
       {"FAKE_MIX_DESCENDANT_SLEEP", Integer.to_string(Map.get(context, :descendant_sleep_seconds, 0))},
       {"FAKE_MIX_PID", Map.get(context, :mix_pid_path, "")},
       {"FAKE_MIX_SLEEP", Integer.to_string(Map.get(context, :sleep_seconds, 0))},
@@ -1249,6 +1300,7 @@ defmodule Aiur.BuildGateTest do
       {"AIUR_MEMINFO_PATH", Map.get(context, :meminfo_path, Path.join(gate_dir, "meminfo"))},
       {"AIUR_BUILD_GATE_LEASE_STRATEGY", "linux"},
       {"LEASE_DESCENDANT_STARTED", context.descendant_path},
+      {"LEASE_DESCENDANT_RELEASE", context.descendant_release_path},
       {"LEASE_DESCENDANT_DONE", context.descendant_path <> ".done"},
       {"PATH", Path.dirname(mix_path) <> ":" <> System.get_env("PATH", "")}
     ]
@@ -1269,6 +1321,15 @@ defmodule Aiur.BuildGateTest do
       {_output, 0} -> :ok
       _ -> flunk("timed out waiting for #{path}")
     end
+  end
+
+  defp release_descendant_on_exit(context) do
+    on_exit(fn -> release_descendant!(context) end)
+  end
+
+  defp release_descendant!(context) do
+    File.touch!(context.descendant_release_path)
+    wait_for_file!(context.descendant_path <> ".done", 1500)
   end
 
   defp maybe_assert_recorded_process_gone!(path) do
@@ -1388,11 +1449,15 @@ defmodule Aiur.BuildGateTest do
       : > "$FAKE_MIX_STARTED"
     fi
 
-    if ((FAKE_MIX_DESCENDANT_SLEEP > 0)); then
+    if [[ -n ${FAKE_MIX_DESCENDANT_RELEASE:-} ]] || ((FAKE_MIX_DESCENDANT_SLEEP > 0)); then
       (
         printf '%s\\n' "$$" > "${FAKE_MIX_DESCENDANT}.pid"
         printf 'started\\n' > "$FAKE_MIX_DESCENDANT"
-        sleep "$FAKE_MIX_DESCENDANT_SLEEP"
+        if [[ -n ${FAKE_MIX_DESCENDANT_RELEASE:-} ]]; then
+          while [[ ! -e $FAKE_MIX_DESCENDANT_RELEASE ]]; do sleep 0.02; done
+        else
+          sleep "$FAKE_MIX_DESCENDANT_SLEEP"
+        fi
         printf 'done\\n' > "${FAKE_MIX_DESCENDANT}.done"
       ) </dev/null >/dev/null 2>&1 &
       update_concurrency -1
@@ -1493,7 +1558,7 @@ defmodule Aiur.BuildGateTest do
       test "leaves a detached OS child alive" do
         script = ~S"""
         printf started > "$LEASE_DESCENDANT_STARTED"
-        sleep 2
+        while [ ! -e "$LEASE_DESCENDANT_RELEASE" ]; do sleep 0.02; done
         printf done > "$LEASE_DESCENDANT_DONE"
         """
 

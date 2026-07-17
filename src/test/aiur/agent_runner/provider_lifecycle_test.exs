@@ -151,7 +151,7 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
 
     :sys.replace_state(orchestrator_pid, fn state ->
       {queue_store, item} =
-        Aiur.AgentQueue.operator_message(issue.identifier, "rework after interrupt")
+        Aiur.AgentQueue.operator_message(issue.identifier, "rework after interrupt", delivery_policy: :interrupt)
         |> then(&Aiur.AgentQueueStore.enqueue(state.queue_store, &1))
 
       send(parent, {:queued_interrupt_item, item})
@@ -159,6 +159,7 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
     end)
 
     assert_receive {:queued_interrupt_item, item}
+    assert item.delivery.interrupt_requested
 
     send(task.pid, {:agent_queue_updated, issue.identifier, item.id, true})
     assert wait_for_path(late_marker)

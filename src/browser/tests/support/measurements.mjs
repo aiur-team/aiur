@@ -1,3 +1,9 @@
+export async function nextPaint(page) {
+  await page.evaluate(() => new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(resolve))
+  }))
+}
+
 export async function measureBrowserWork(page, { operation, targetSelector = '#graph-content', warmups = 2, repetitions = 4 } = {}) {
   if (!operation) throw new Error('measurement requires an injected browser-side operation name')
 
