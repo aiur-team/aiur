@@ -1,5 +1,61 @@
 # Build Order Executor Handoff
 
+## Recovery checkpoint (updated 2026-07-17 00:45 PDT)
+
+This checkpoint supersedes the older live-state narrative below. Aiur is
+intentionally **stopped**; do not restart it merely to finish the recovered
+lanes. The prior two-daemon/operator-label state created duplicate-writer risk,
+so the bounded last mile was completed with direct Codex workers and exact-head
+GitHub CI.
+
+The interrupted Claude Executor was recovered from local session
+`f6f086dd-48ba-4e9e-aa9e-7a703b96a778` at
+`~/.claude/projects/-home-orangekid-github-aiur/f6f086dd-48ba-4e9e-aa9e-7a703b96a778.jsonl`.
+It owned five unfinished lanes: BO-018/#1105 (PR #1209), DASH-020/#1124
+(PR #1208), DASH-013/#1119, WorkflowStore flake #1214 (PR #1219), and the
+Credo/formatter baseline. Those lanes are no longer ownerless:
+
+- Shared BuildGate/provider/observability test stability #1222 landed through
+  PR #1223 and was integrated into `develop` through #1224.
+- The Credo 200-column alignment #1225 landed to `main` as `ff06d53c` and was
+  integrated into `develop` through #1227 with ancestry preserved.
+- DASH-020/#1124 passed exact-head CI and merged through PR #1208 as
+  `develop@2275727c288eed47756392bc7587dcaf887c39a8`; the issue is closed
+  `agent:done`.
+- WorkflowStore flake #1214 passed independent review, 20 randomized focused
+  repetitions (180 tests), and exact-head CI, then merged through PR #1219 as
+  `develop@3358c873760bb4398648fe8c00a1a6544ea533fa`; the issue is closed
+  `agent:done`.
+- BO-018/#1105 repaired all opaque-ID, route, capability, and typed-identity
+  review findings, passed exact-head CI, and merged through PR #1209 as
+  `develop@cce2f8f941e6df12775da83cb2d0940cf3325b57`; the issue is closed
+  `agent:done`.
+
+DASH-013/#1119 is the sole remaining recovered lane. Its source implementation
+is draft PR #1228 at exact head `4c8da5a001ebca92a41e1d641339bb6cb59e0059`,
+which contains current `develop@cce2f8f9`. It implements the reviewed sibling
+`rate_limit/update` schema, strict redaction/bounds, Claude subscription/API-key
+generation isolation and failure recovery, and shared provider-meter ingestion.
+Independent compound review is clean; 112 worker tests/four properties and 57
+Executor tests/three properties passed, along with format, warnings-as-errors
+compile, strict lint, and Dialyzer. Exact-head CI is running.
+
+**Do not merge #1228 yet.** Its binding at-merge prerequisite is publication
+and installation of `aiur-claude@1.1.0` from sibling source commit
+`e555b8dd61c0af4cc18a6061fd278da05b9bc9f8`. The npm registry still exposes
+only 1.0.0, this machine's `npm whoami` returns E401, and there is no sibling
+publish workflow. Source work and CI may continue, but publication requires
+operator/npm authority; never invent credentials or weaken the prerequisite.
+
+The documentation checkout remains branch
+`executor/build-order-live-handoff-20260715` with intentional machine-only
+`.aiur/config`, `.aiur/model-usage.json`, caches, and crash-dump residue. Commit
+only the handoff/chat/preview files. The runtime checkout at
+`/home/orangekid/github/aiur-runtime-develop` also has an unpushed local-only
+historical merge artifact; do not push or destructively reset it. Refresh any
+future feature branch from remote `origin/develop`, whose authoritative tip at
+this checkpoint is `cce2f8f941e6df12775da83cb2d0940cf3325b57`.
+
 ## Live Executor state (updated 2026-07-15 20:57 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every

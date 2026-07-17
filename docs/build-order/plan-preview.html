@@ -261,14 +261,15 @@ footer{margin-top:26px;border-top:1px solid var(--line);padding-top:14px;font-fa
 
 <script>
 const RUN = {
-  phase: 4,
-  updated: "2026-07-15 20:57 PDT",
+  phase: 5,
+  updated: "2026-07-17 00:45 PDT",
   tickets: {
     "BO-004": {state:"merged", progress:100, issue:1086},
     "BO-008": {state:"merged", progress:100, issue:1087},
     "DASH-006": {state:"merged", progress:100, issue:1088},
     "DASH-017": {state:"merged", progress:100, issue:1089},
     "DASH-018": {state:"merged", progress:100, issue:1090},
+    "DASH-012": {state:"merged to develop", progress:100, issue:1118},
     "BO-001": {state:"merged", progress:100, issue:1085},
     "BO-016": {state:"merged to develop", progress:100, issue:1103},
     "BO-017": {state:"merged", progress:100, issue:1104},
@@ -279,7 +280,7 @@ const RUN = {
     "BO-005": {state:"merged to develop", progress:100, issue:1093},
     "BO-009": {state:"merged", progress:100, issue:1096},
     "BO-010": {state:"merged", progress:100, issue:1097},
-    "BO-019": {state:"bounded rework — legacy migration + bounded tail read", progress:84, issue:1106, agent_live:true},
+    "BO-019": {state:"merged to develop", progress:100, issue:1106},
     "DASH-002": {state:"merged", progress:100, issue:1109},
     "DASH-026": {state:"dependency-ready; held behind active shared-file ownership", progress:0, issue:1130},
     "BO-003": {state:"merged to develop", progress:100, issue:1092},
@@ -287,8 +288,11 @@ const RUN = {
     "BO-007": {state:"merged to develop", progress:100, issue:1095},
     "DASH-008": {state:"merged to develop", progress:100, issue:1114},
     "DASH-007": {state:"merged to develop", progress:100, issue:1113},
-    "DASH-021": {state:"bounded rework — cache eviction + session isolation + non-replayable auth", progress:84, issue:1125, agent_live:true},
-    "DASH-011": {state:"bounded rework — provider rate dimensions + partial coverage", progress:86, issue:1117, agent_live:true},
+    "DASH-021": {state:"merged to develop", progress:100, issue:1125},
+    "DASH-011": {state:"merged to develop", progress:100, issue:1117},
+    "DASH-013": {state:"source complete — draft PR #1228; blocked on aiur-claude@1.1.0 distribution", progress:95, issue:1119},
+    "DASH-020": {state:"merged to develop", progress:100, issue:1124},
+    "BO-018": {state:"merged to develop", progress:100, issue:1105},
     "DASH-029": {state:"paused — DASH-026 + GATE-004 binding order", progress:15, issue:1133},
     "ADHOC-1139": {state:"closed", progress:100, issue:1139},
     "ADHOC-1140": {state:"merged", progress:100, issue:1140},
@@ -350,7 +354,7 @@ TICKETS.forEach(ticket => {
   if (Object.prototype.hasOwnProperty.call(EXECUTION_PHASES, ticket.id)) ticket.phase = EXECUTION_PHASES[ticket.id];
 });
 const ISSUE_BY_ID = {"BO-001":1085,"BO-004":1086,"BO-008":1087,"DASH-006":1088,"DASH-017":1089,"DASH-018":1090,"BO-002":1091,"BO-003":1092,"BO-005":1093,"BO-006":1094,"BO-007":1095,"BO-009":1096,"BO-010":1097,"BO-011":1098,"BO-012":1099,"BO-013":1100,"BO-014":1101,"BO-015":1102,"BO-016":1103,"BO-017":1104,"BO-018":1105,"BO-019":1106,"BO-020":1107,"DASH-001":1108,"DASH-002":1109,"DASH-003":1110,"DASH-004":1111,"DASH-005":1112,"DASH-007":1113,"DASH-008":1114,"DASH-009":1115,"DASH-010":1116,"DASH-011":1117,"DASH-012":1118,"DASH-013":1119,"DASH-014":1120,"DASH-015":1121,"DASH-016":1122,"DASH-019":1123,"DASH-020":1124,"DASH-021":1125,"DASH-022":1126,"DASH-023":1127,"DASH-024":1128,"DASH-025":1129,"DASH-026":1130,"DASH-027":1131,"DASH-028":1132,"DASH-029":1133,"DASH-030":1134,"DASH-031":1135,"DASH-032":1136,"DASH-033":1137,"DASH-034":1138};
-const PR_BY_ISSUE = {780:1181,1085:1155,1086:1143,1087:1145,1088:1144,1089:1159,1090:1141,1091:1157,1092:1190,1093:1187,1094:1192,1095:1196,1096:1158,1097:1168,1103:1195,1104:1156,1106:1198,1108:1188,1109:1167,1111:1160,1113:1197,1114:1189,1117:1199,1125:1200,1139:1065,1140:1180,1146:1174,1148:1173,1151:1153,1154:1172,1161:1166,1162:1165,1177:1176,1185:1186};
+const PR_BY_ISSUE = {780:1181,1085:1155,1086:1143,1087:1145,1088:1144,1089:1159,1090:1141,1091:1157,1092:1190,1093:1187,1094:1192,1095:1196,1096:1158,1097:1168,1103:1195,1104:1156,1105:1209,1106:1198,1108:1188,1109:1167,1111:1160,1113:1197,1114:1189,1117:1199,1118:1203,1119:1228,1124:1208,1125:1200,1139:1065,1140:1180,1146:1174,1148:1173,1151:1153,1154:1172,1161:1166,1162:1165,1177:1176,1185:1186};
 const LANES = ["plan-graph","runtime","dashboard-ui","accounting","platform","adhoc"];
 const LANE_LABEL = {"plan-graph":"Plan graph","runtime":"Runtime","dashboard-ui":"Dashboard UI","accounting":"Accounting","platform":"Platform","adhoc":"Ad Hoc"};
 const ICONS = {

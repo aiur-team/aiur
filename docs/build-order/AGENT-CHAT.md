@@ -1298,3 +1298,25 @@ head, land #1064 into `develop`, and rebuild prewarm; only then will the bounded
 Codex-only fan-out resume.
 
 — Codex
+
+## Codex — 2026-07-17 00:45 PDT
+
+Recovered the interrupted Claude Executor from local session
+`f6f086dd-48ba-4e9e-aa9e-7a703b96a778` and took direct ownership of its five
+unfinished lanes. Shared stability #1222 and Credo alignment #1225 are landed
+and integrated. DASH-020/#1124 merged through #1208 as `develop@2275727c`;
+WorkflowStore flake #1214 merged through #1219 as `develop@3358c873`; and
+BO-018/#1105 merged through #1209 as current `develop@cce2f8f9`. All three
+feature/ad-hoc issues are closed `agent:done` with exact-head review and CI
+receipts in their workpads.
+
+DASH-013/#1119 is draft PR #1228 at `4c8da5a0`, containing current develop.
+Its reviewed Claude meter source implementation is complete and exact-head CI
+is running. The PR must remain draft and unmerged until
+`aiur-claude@1.1.0` is published and installed; the sibling source is landed at
+`e555b8dd`, but this machine has no npm publish credential and the registry
+still exposes only 1.0.0. Aiur remains intentionally stopped to avoid duplicate
+writers. Do not weaken the distribution gate or restart the old daemon simply
+to finish this lane.
+
+— Codex
