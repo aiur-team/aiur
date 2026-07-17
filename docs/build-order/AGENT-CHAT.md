@@ -1447,3 +1447,28 @@ test. PR receipt `5004779472` and issue receipt `5004779482` keep
 again before the exact setup boundary is released.
 
 — Codex
+
+## Codex — 2026-07-17 08:43 PDT
+
+Two stale replay lanes are now safely contained without restarting the live
+daemon. #1240 consumed the authoritative rejection of PR #1242 head
+`190ac40d`, acknowledged both the unconditional boot-repair and bounded-fence
+requirements, and selected the correct rework approach. Its targeted pause
+then stopped the turn before any new edit; the clean workspace and draft PR are
+preserved as `agent:rework + agent:paused` for the incoming setup base.
+
+#1130 had consumed roughly 114M input tokens while replaying validation of
+unchanged PR #1217 head `0f02c73f`; its workspace remained source-clean and
+could not have implemented the queued packet. Cooperative pause generations
+expired during static gates. The Executor temporarily removed its lifecycle
+labels, and Orchestrator persisted `state=nil; stopping active agent` at
+08:42:23 PDT. Labels are restored to `agent:rework + agent:paused`; receipt
+`5004946917` records the exact teardown and preserved workspace state.
+
+The control RPC briefly timed out while build gates were saturated, but direct
+BEAM, tmux, and current log evidence proved the daemon live. No restart was
+performed. Four productive Codex owners remain active on #1099, #1110, #1115,
+and #1120. `origin/develop` is still `791ad6dc`; the external setup-fix merge
+boundary remains held.
+
+— Codex
