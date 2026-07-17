@@ -1554,7 +1554,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       enrich_call =
         Task.async(fn -> ToolExecutor.execute(executor, "emit_event", structured_arguments, "call-enrich") end)
 
-      assert nil == Task.yield(enrich_call, 40)
+      assert :ok = wait_for_coordination_queue(coordination, {:ticket, identifier})
       send(projection_worker, :release_attention_projection)
 
       enriched = Task.await(enrich_call, 2_000)
@@ -1873,5 +1873,28 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
     |> File.read!()
     |> String.split("\n", trim: true)
     |> Enum.map(&Jason.decode!/1)
+  end
+
+  defp wait_for_coordination_queue(name, key, attempts \\ 400)
+
+  defp wait_for_coordination_queue(_name, _key, 0), do: :timeout
+
+  defp wait_for_coordination_queue(name, key, attempts) do
+    state = :sys.get_state(name)
+
+    case Map.get(state.queues, key) do
+      queue when not is_nil(queue) ->
+        if :queue.is_empty(queue), do: retry_coordination_queue(name, key, attempts), else: :ok
+
+      nil ->
+        retry_coordination_queue(name, key, attempts)
+    end
+  end
+
+  defp retry_coordination_queue(name, key, attempts) do
+    receive do
+    after
+      5 -> wait_for_coordination_queue(name, key, attempts - 1)
+    end
   end
 end

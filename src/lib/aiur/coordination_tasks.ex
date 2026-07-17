@@ -19,6 +19,7 @@ defmodule Aiur.CoordinationTasks do
   @default_max_pending 1_000
   @default_max_concurrency 16
   @task_start_retry_ms 100
+  @task_start_retry_max_ms 5_000
   @max_failure_chars 500
 
   @type key :: term()
@@ -93,7 +94,11 @@ defmodule Aiur.CoordinationTasks do
        max_pending: max_pending,
        max_pending_per_key: Keyword.get(opts, :max_pending_per_key, default_per_key_limit(max_pending)),
        max_concurrency: Keyword.get(opts, :max_concurrency, @default_max_concurrency),
-       task_starter: Keyword.get(opts, :task_starter, &start_task/1)
+       task_starter: Keyword.get(opts, :task_starter, &start_task/1),
+       task_start_retry_base_ms: Keyword.get(opts, :task_start_retry_ms, @task_start_retry_ms),
+       task_start_retry_max_ms: Keyword.get(opts, :task_start_retry_max_ms, @task_start_retry_max_ms),
+       task_start_retry_ms: Keyword.get(opts, :task_start_retry_ms, @task_start_retry_ms),
+       task_start_retry_timer: nil
      }}
   end
 
@@ -162,7 +167,10 @@ defmodule Aiur.CoordinationTasks do
     end
   end
 
-  def handle_info(:retry_dispatch, state), do: {:noreply, dispatch(state)}
+  def handle_info(:retry_dispatch, state) do
+    state = %{state | task_start_retry_timer: nil}
+    {:noreply, dispatch(state)}
+  end
 
   def handle_info(_message, state), do: {:noreply, state}
 
@@ -198,6 +206,7 @@ defmodule Aiur.CoordinationTasks do
     end
   end
 
+  defp dispatch(%{task_start_retry_timer: timer} = state) when not is_nil(timer), do: state
   defp dispatch(state) when map_size(state.active) >= state.max_concurrency, do: state
 
   defp dispatch(state) do
@@ -217,6 +226,8 @@ defmodule Aiur.CoordinationTasks do
   end
 
   defp activate_task(state, key, queue, entry, task) do
+    state = reset_task_start_retry(state)
+
     task =
       task
       |> Map.put(:timer, schedule_timeout(task.ref, entry.timeout))
@@ -234,9 +245,36 @@ defmodule Aiur.CoordinationTasks do
   end
 
   defp retry_task_start(state, key, reason) do
-    Logger.warning("coordination task start failed failure=#{safe_detail(reason)}")
-    Process.send_after(self(), :retry_dispatch, @task_start_retry_ms)
-    make_runnable(state, key)
+    state = make_runnable(state, key)
+
+    if is_nil(state.task_start_retry_timer) do
+      Logger.warning("coordination task start failed failure=#{safe_detail(reason)}")
+      timer = Process.send_after(self(), :retry_dispatch, state.task_start_retry_ms)
+
+      %{
+        state
+        | task_start_retry_timer: timer,
+          task_start_retry_ms: min(state.task_start_retry_ms * 2, state.task_start_retry_max_ms)
+      }
+    else
+      state
+    end
+  end
+
+  defp reset_task_start_retry(%{task_start_retry_timer: nil} = state) do
+    %{state | task_start_retry_ms: state.task_start_retry_base_ms}
+  end
+
+  defp reset_task_start_retry(state) do
+    _ = Process.cancel_timer(state.task_start_retry_timer)
+
+    receive do
+      :retry_dispatch -> :ok
+    after
+      0 -> :ok
+    end
+
+    %{state | task_start_retry_ms: state.task_start_retry_base_ms, task_start_retry_timer: nil}
   end
 
   defp pop_runnable(state) do

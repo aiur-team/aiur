@@ -114,13 +114,44 @@ defmodule Aiur.CoordinationTasksTest do
     assert Agent.get(attempts, & &1) == 2
   end
 
+  test "task-start retries and warnings coalesce while the supervisor is unavailable" do
+    name = unique_name("TaskStartCoalesced")
+    test_pid = self()
+    {:ok, attempts} = Agent.start_link(fn -> 0 end)
+
+    task_starter = fn _entry ->
+      Agent.update(attempts, &(&1 + 1))
+      send(test_pid, :task_start_attempted)
+      exit(:task_supervisor_unavailable)
+    end
+
+    start_supervised!({CoordinationTasks, name: name, task_starter: task_starter, task_start_retry_ms: 2_000, task_start_retry_max_ms: 2_000})
+
+    log =
+      capture_log(fn ->
+        assert :pending = CoordinationTasks.enqueue(:first, fn -> :ok end, name)
+        assert_receive :task_start_attempted, 2_000
+
+        for key <- 2..20 do
+          assert :pending = CoordinationTasks.enqueue(key, fn -> :ok end, name)
+        end
+
+        assert Agent.get(attempts, & &1) == 1
+      end)
+
+    assert length(String.split(log, "coordination task start failed")) == 2
+  end
+
   test "absence and restart loss return coordination unavailable" do
     name = unique_name("Absent")
     assert {:error, :coordination_unavailable} = CoordinationTasks.enqueue(:key, fn -> :ok end, name, [], 20)
     assert {:error, :coordination_unavailable} = CoordinationTasks.run(:key, fn -> :ok end, name, [], 20)
 
-    pid = start_supervised!({CoordinationTasks, name: name})
+    child = Supervisor.child_spec({CoordinationTasks, name: name}, restart: :temporary)
+    pid = start_supervised!(child)
+    ref = Process.monitor(pid)
     Process.exit(pid, :kill)
+    assert_receive {:DOWN, ^ref, :process, ^pid, :killed}, 2_000
     assert {:error, :coordination_unavailable} = CoordinationTasks.enqueue(:key, fn -> :ok end, name, [], 20)
   end
 
