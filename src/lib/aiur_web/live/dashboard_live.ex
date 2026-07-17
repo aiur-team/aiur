@@ -5,10 +5,10 @@ defmodule AiurWeb.DashboardLive do
 
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
+  alias Aiur.{AgentChat, CurrentRunMembership, DecisionPubSub, TicketActivity, TrackerIdentity}
   alias Aiur.BuildOrder.{TicketDetailCache, TicketHistoryProvider}
   alias Aiur.BuildOrder.TicketDetail.State, as: TicketDetailState
   alias Aiur.BuildOrder.TicketHistory.Snapshot, as: TicketHistorySnapshot
-  alias Aiur.{AgentChat, CurrentRunMembership, DecisionPubSub, TicketActivity, TrackerIdentity}
   alias AiurWeb.{Endpoint, ObservabilityPubSub}
   alias AiurWeb.BuildOrder.TicketContextPresenter
 

@@ -17,6 +17,7 @@ defmodule AiurWeb.DashboardLiveTest do
     TrackerIdentity
   }
 
+  alias Aiur.BuildOrder.Lifecycle
   alias Aiur.DecisionMetrics.Canonical, as: DecisionMetricsCanonical
   alias Aiur.DecisionMetrics.Event, as: DecisionMetricsEvent
   alias Aiur.Events.Exchange
@@ -2993,7 +2994,7 @@ defmodule AiurWeb.DashboardLiveTest do
         identity: identity,
         title: title,
         description: "Bounded reusable ticket context",
-        lifecycle: Aiur.BuildOrder.Lifecycle.from_github("OPEN", nil),
+        lifecycle: Lifecycle.from_github("OPEN", nil),
         url: "https://github.com/its-everdred/aiur/issues/#{identity.identifier}",
         created_at: observed_at,
         updated_at: observed_at,
