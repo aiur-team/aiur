@@ -139,6 +139,27 @@ defmodule Aiur.CurrentRunSummary.ProjectionTest do
     assert snapshot.eta.reason == :membership_not_fresh
   end
 
+  test "unhealthy complexity evidence gates exact progress and ETA" do
+    rows = [
+      row(1, lifecycle: :completed, terminal?: true, complexity: 2),
+      row(2, lifecycle: :completed, terminal?: true, complexity: 3),
+      row(3, lifecycle: :running, complexity: 5)
+    ]
+
+    snapshot =
+      CurrentRunSummary.project(%{
+        run: run(),
+        units: units(rows),
+        weight_health: :unavailable
+      })
+
+    assert snapshot.health.status == :partial
+    assert :unhealthy_weight_facts in snapshot.health.reasons
+    assert snapshot.freshness.status == :stale
+    assert snapshot.progress.exact == nil
+    assert snapshot.eta.reason == :unhealthy_weight_facts
+  end
+
   test "malformed optional source containers degrade deterministically without raising" do
     snapshot =
       CurrentRunSummary.project(%{

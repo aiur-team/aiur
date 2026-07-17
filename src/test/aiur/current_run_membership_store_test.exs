@@ -55,6 +55,22 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
     assert %{status: _status} = payload.freshness
   end
 
+  test "holds a run-fenced projection checkpoint across membership updates", %{dir: dir} do
+    pid = start_store!(dir)
+    checkpoint = %{summary_generation: 7, weight_facts: %{{:github, "owner", "repo", "32"} => 3}}
+
+    assert %{run_id: @run_id, checkpoint: nil} = Store.projection_checkpoint(pid)
+    assert :ok = Store.put_projection_checkpoint(@run_id, checkpoint, pid)
+    assert {:ok, %{generation: 1}} = observe(pid, identity(), :queued)
+    assert :ok = Store.mark_reconciled(:fresh, pid)
+    assert %{run_id: @run_id, checkpoint: ^checkpoint} = Store.projection_checkpoint(pid)
+
+    assert {:error, :different_run} =
+             Store.put_projection_checkpoint("another-run", %{summary_generation: 99}, pid)
+
+    assert %{run_id: @run_id, checkpoint: ^checkpoint} = Store.projection_checkpoint(pid)
+  end
+
   test "compacts after a bounded journal cadence instead of syncing the filesystem per observation", %{dir: dir} do
     {:ok, sync_count} = Agent.start_link(fn -> 0 end)
 

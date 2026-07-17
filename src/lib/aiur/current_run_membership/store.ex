@@ -44,6 +44,18 @@ defmodule Aiur.CurrentRunMembership.Store do
   @spec freshness(GenServer.server()) :: map()
   def freshness(server \\ __MODULE__), do: GenServer.call(server, :freshness)
 
+  @doc false
+  @spec projection_checkpoint(GenServer.server()) :: %{run_id: String.t(), checkpoint: map() | nil}
+  def projection_checkpoint(server \\ __MODULE__), do: GenServer.call(server, :projection_checkpoint)
+
+  @doc false
+  @spec put_projection_checkpoint(String.t(), map(), GenServer.server()) ::
+          :ok | {:error, :different_run}
+  def put_projection_checkpoint(run_id, checkpoint, server \\ __MODULE__)
+      when is_binary(run_id) and is_map(checkpoint) do
+    GenServer.call(server, {:put_projection_checkpoint, run_id, checkpoint})
+  end
+
   @spec mark_reconciled(:fresh | :unavailable, GenServer.server()) :: :ok
   def mark_reconciled(status, server \\ __MODULE__) when status in [:fresh, :unavailable] do
     GenServer.call(server, {:mark_reconciled, status})
@@ -66,6 +78,7 @@ defmodule Aiur.CurrentRunMembership.Store do
         {:error, reason} -> Recovery.unavailable_state(run_id, persistence, {:path_unresolved, reason})
       end
 
+    state = Map.put(state, :projection_checkpoint, nil)
     Runtime.notify(state, nil)
     {:ok, state}
   end
@@ -94,6 +107,18 @@ defmodule Aiur.CurrentRunMembership.Store do
   def handle_call(:generation, _from, state), do: {:reply, state.projection.generation, state}
   def handle_call(:health, _from, state), do: {:reply, state.health, state}
   def handle_call(:freshness, _from, state), do: {:reply, Runtime.freshness(state), state}
+
+  def handle_call(:projection_checkpoint, _from, state) do
+    {:reply, %{run_id: state.run_id, checkpoint: state.projection_checkpoint}, state}
+  end
+
+  def handle_call({:put_projection_checkpoint, run_id, checkpoint}, _from, state) do
+    if run_id == state.run_id do
+      {:reply, :ok, Map.put(state, :projection_checkpoint, checkpoint)}
+    else
+      {:reply, {:error, :different_run}, state}
+    end
+  end
 
   def handle_call({:mark_reconciled, status}, _from, state) do
     {:reply, :ok, Runtime.mark_reconciled(state, status)}
