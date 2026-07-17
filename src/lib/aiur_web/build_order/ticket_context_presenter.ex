@@ -121,7 +121,19 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
           optional(:number) => pos_integer(),
           required(:available?) => boolean(),
           optional(:href) => String.t(),
-          optional(:reason) => :not_available | :not_configured | :not_opened | :unsupported
+          optional(:reason) =>
+            :identity_mismatch
+            | :inactive
+            | :invalid_destination
+            | :missing
+            | :not_available
+            | :not_configured
+            | :not_opened
+            | :stale
+            | :unauthorized
+            | :unavailable
+            | :unreadable
+            | :unsupported
         }
 
   @spec max_description_bytes() :: pos_integer()
@@ -507,16 +519,40 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
     end
   end
 
-  defp available_href(kind, _variant, href, _identity, _capability) when kind in [:chat, :commands] do
-    with {:ok, href} <- Bounded.relative_route(href), do: {:ok, href, false}
+  defp available_href(:chat, _variant, href, identity, _capability) do
+    with {:ok, href} <- Bounded.chat_route_for(href, identity), do: {:ok, href, false}
+  end
+
+  defp available_href(:commands, _variant, href, _identity, _capability) do
+    with {:ok, href} <- Bounded.commands_route(href), do: {:ok, href, false}
   end
 
   defp available_href(_kind, _variant, _href, _identity, _capability), do: :error
 
   defp unavailable_reason("Pull request", :not_opened), do: "Pull request has not been opened."
   defp unavailable_reason("Pull request", "Pull request has not been opened."), do: "Pull request has not been opened."
-  defp unavailable_reason("Commands", _reason), do: "Commands are unavailable."
-  defp unavailable_reason(label, _reason), do: "#{label} is unavailable."
+  defp unavailable_reason(label, :missing), do: destination_reason(label, "missing")
+  defp unavailable_reason(label, :stale), do: destination_reason(label, "stale")
+  defp unavailable_reason(label, :unauthorized), do: destination_reason(label, "unauthorized")
+  defp unavailable_reason(label, :inactive), do: destination_reason(label, "inactive")
+  defp unavailable_reason(label, :unreadable), do: destination_reason(label, "unreadable")
+  defp unavailable_reason(label, :identity_mismatch), do: destination_reason(label, "unavailable for this ticket")
+
+  defp unavailable_reason(label, reason) when is_binary(reason) do
+    if reason in controlled_destination_reasons(label), do: reason, else: destination_reason(label, "unavailable")
+  end
+
+  defp unavailable_reason(label, _reason), do: destination_reason(label, "unavailable")
+
+  defp controlled_destination_reasons(label) do
+    Enum.map(
+      ["missing", "stale", "unauthorized", "inactive", "unreadable", "unavailable for this ticket", "unavailable"],
+      &destination_reason(label, &1)
+    )
+  end
+
+  defp destination_reason("Commands", reason), do: "Commands are #{reason}."
+  defp destination_reason(label, reason), do: "#{label} is #{reason}."
 
   defp configured_identity(%TrackerIdentity{} = identity) do
     if safe_repository_identity?(identity) and TrackerIdentity.joinable?(identity), do: identity
