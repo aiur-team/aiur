@@ -6,6 +6,7 @@ defmodule Aiur.ExtensionsTest do
 
   alias Aiur.Linear.Tracker, as: LinearTracker
   alias Aiur.Memory.Tracker, as: Memory
+  alias AiurWeb.OperatorControlCenter.UnitsPresenter
 
   @endpoint AiurWeb.Endpoint
 
@@ -1113,7 +1114,7 @@ defmodule Aiur.ExtensionsTest do
       render(view) =~ "Updated unit title"
     end)
 
-    token = AiurWeb.OperatorControlCenter.UnitsPresenter.row_token(%{identity: static_units_identity("1100")})
+    token = UnitsPresenter.row_token(%{identity: static_units_identity("1100")})
 
     log_html =
       view
@@ -1255,7 +1256,7 @@ defmodule Aiur.ExtensionsTest do
 
     {:ok, view, _html} = live(build_conn(), "/")
 
-    token = AiurWeb.OperatorControlCenter.UnitsPresenter.row_token(%{identity: static_units_identity("1100")})
+    token = UnitsPresenter.row_token(%{identity: static_units_identity("1100")})
 
     modal_html =
       view
