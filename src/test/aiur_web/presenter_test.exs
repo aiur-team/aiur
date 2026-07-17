@@ -219,6 +219,29 @@ defmodule AiurWeb.PresenterTest do
 
     assert [running_row] = payload.running
     assert running_row.open_decision_count == 1
+    assert running_row.open_decision_count_health == :available
+  end
+
+  test "open decision count names an unattached SubscriptionStore as unavailable" do
+    orchestrator_name = Module.concat(__MODULE__, :UnavailableDecisionCountOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    identifier = "MT-unavailable-#{System.unique_integer([:positive])}"
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+      SubscriptionStore.stop(identifier)
+    end)
+
+    :sys.replace_state(pid, fn state ->
+      %{state | running: %{"issue-decision" => running_entry("issue-decision", identifier, :working)}}
+    end)
+
+    payload = Presenter.state_payload(orchestrator_name, 1_000)
+
+    assert [running_row] = payload.running
+    assert running_row.open_decision_count == 0
+    assert running_row.open_decision_count_health == :unavailable
   end
 
   test "durable history and outcomes remain visible when the orchestrator is unavailable" do

@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   @moduledoc """
   Queues and routes Executor messages and event digests to running agents. All functions execute inside the orchestrator GenServer process.
   """
-  alias Aiur.{AgentQueue, AgentQueueStore, Alerts}
+  alias Aiur.{AgentQueue, AgentQueueStore, Alerts, TrackerIdentity}
 
   alias Aiur.Orchestrator.{
     AutoSubscriptions,
@@ -15,12 +15,12 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy}
   @max_operator_message_chars 8_000
 
-  @spec send_operator_message(String.t(), map()) ::
+  @spec send_operator_message(String.t() | TrackerIdentity.t(), map()) ::
           {:ok, integer()} | {:error, term()}
   def send_operator_message(issue_identifier, payload),
     do: send_operator_message(Aiur.Orchestrator, issue_identifier, payload)
 
-  @spec send_operator_message(GenServer.server(), String.t(), map()) ::
+  @spec send_operator_message(GenServer.server(), String.t() | TrackerIdentity.t(), map()) ::
           {:ok, integer()} | {:error, term()}
   def send_operator_message(server, issue_identifier, payload),
     do: control_api_call(server, {:send_operator_message, issue_identifier, payload}, 5_000)
@@ -201,6 +201,13 @@ defmodule Aiur.Orchestrator.OperatorMessages do
       when is_binary(issue_identifier) and is_binary(body) do
     {reply, next_state} = enqueue_operator_message(state, issue_identifier, body, payload)
     {:reply, reply, next_state}
+  end
+
+  def send_operator_message_call(%State{} = state, %TrackerIdentity{} = identity, payload) do
+    case State.find_unique_running_by_identity(state.running, identity) do
+      {:ok, _entry, issue_identifier} -> send_operator_message_call(state, issue_identifier, payload)
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
   end
 
   def send_operator_message_call(%State{} = state, _issue_identifier, _payload) do

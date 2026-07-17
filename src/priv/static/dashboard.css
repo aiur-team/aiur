@@ -1910,6 +1910,11 @@ textarea:focus-visible,
   margin: 0 0 0.8rem;
 }
 
+.units-reset {
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+}
+
 .units-table-wrap {
   margin-top: 1rem;
   overflow: hidden;

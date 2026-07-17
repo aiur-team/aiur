@@ -8,9 +8,18 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
 
   @reload_debounce_ms 50
   @reload_min_interval_ms 400
+  @max_reload_events 32
 
-  @spec load(:cached | :fresh) :: map()
-  def load(mode \\ :cached) when mode in [:cached, :fresh] do
+  @spec load(:cached | :fresh | {:event, MapSet.t()}) :: map()
+  def load(mode \\ :cached)
+
+  def load(mode) when mode in [:cached, :fresh] do
+    do_load(mode)
+  end
+
+  def load({:event, %MapSet{}} = mode), do: do_load(mode)
+
+  defp do_load(mode) do
     providers = providers()
 
     case cache_server() do
@@ -50,18 +59,45 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
     socket
     |> assign(:payload_loaded_at_ms, now_ms())
     |> assign(:payload_reload_scheduled?, false)
+    |> assign(:payload_reload_mode, :cached)
   end
 
-  @spec schedule(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
-  def schedule(%{assigns: %{payload_reload_scheduled?: true}} = socket), do: socket
+  @spec schedule(Phoenix.LiveView.Socket.t(), :cached | {:event, term()}) :: Phoenix.LiveView.Socket.t()
+  def schedule(socket, mode \\ :cached)
 
-  def schedule(socket) do
+  def schedule(%{assigns: %{payload_reload_scheduled?: true}} = socket, {:event, event_key}),
+    do: assign(socket, :payload_reload_mode, merge_event_mode(socket, event_key))
+
+  def schedule(%{assigns: %{payload_reload_scheduled?: true}} = socket, _mode), do: socket
+
+  def schedule(socket, :cached), do: schedule_reload(socket, :cached)
+
+  def schedule(socket, {:event, event_key}),
+    do: schedule_reload(socket, initial_reload_mode({:event, event_key}))
+
+  defp schedule_reload(socket, mode) do
     last_loaded_at_ms = Map.get(socket.assigns, :payload_loaded_at_ms, now_ms() - @reload_min_interval_ms)
     elapsed_ms = max(now_ms() - last_loaded_at_ms, 0)
     delay_ms = max(@reload_min_interval_ms - elapsed_ms + @reload_debounce_ms, @reload_debounce_ms)
 
     schedule_reload(delay_ms)
-    assign(socket, :payload_reload_scheduled?, true)
+
+    socket
+    |> assign(:payload_reload_scheduled?, true)
+    |> assign(:payload_reload_mode, mode)
+  end
+
+  defp fetch_cached(server, {:event, %MapSet{} = events}, providers) do
+    event_key = events |> MapSet.to_list() |> Enum.sort()
+
+    ControlCenterCache.fetch_event(
+      server,
+      cache_key(providers),
+      event_key,
+      fn -> load_uncached(providers) end
+    )
+  catch
+    :exit, _reason -> load_uncached(providers)
   end
 
   defp fetch_cached(server, mode, providers) do
@@ -75,6 +111,23 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
     )
   catch
     :exit, _reason -> load_uncached(providers)
+  end
+
+  defp initial_reload_mode({:event, event_key}), do: {:event, MapSet.new([event_key])}
+
+  defp merge_event_mode(socket, event_key) do
+    case Map.get(socket.assigns, :payload_reload_mode) do
+      {:event, %MapSet{} = events} -> {:event, events |> MapSet.put(event_key) |> bound_reload_events()}
+      _mode -> {:event, MapSet.new([event_key])}
+    end
+  end
+
+  defp bound_reload_events(events) do
+    events
+    |> MapSet.to_list()
+    |> Enum.sort(:desc)
+    |> Enum.take(@max_reload_events)
+    |> MapSet.new()
   end
 
   defp load_uncached({orchestrator, decision_store, decision_metrics, recent_merge_store, snapshot_timeout_ms}) do

@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   All functions execute inside the orchestrator GenServer process.
   """
 
-  alias Aiur.{AgentPubSub, Config, Issue, Tracker}
+  alias Aiur.{AgentPubSub, Config, Issue, Tracker, TrackerIdentity}
   alias Aiur.Events.IdGenerator
   alias Aiur.Orchestrator.AgentTeardown
   alias Aiur.Orchestrator.{ControlLifecycle, ControlLifecycleStore}
@@ -22,10 +22,10 @@ defmodule Aiur.Orchestrator.PauseResume do
   alias Aiur.RunTelemetry.Lifecycle
   require Logger
 
-  @spec pause_agent(String.t()) :: {:ok, integer()} | {:error, term()}
+  @spec pause_agent(String.t() | TrackerIdentity.t()) :: {:ok, integer()} | {:error, term()}
   def pause_agent(issue_identifier), do: pause_agent(Aiur.Orchestrator, issue_identifier)
 
-  @spec pause_agent(GenServer.server(), String.t()) :: {:ok, integer()} | {:error, term()}
+  @spec pause_agent(GenServer.server(), String.t() | TrackerIdentity.t()) :: {:ok, integer()} | {:error, term()}
   def pause_agent(server, issue_identifier),
     do: control_api_call(server, {:pause_agent, issue_identifier})
 
@@ -257,7 +257,17 @@ defmodule Aiur.Orchestrator.PauseResume do
   # max-depth 2. A `:deactivated` row has no live pid to pause; we
   # return `:already_inactive` and rely on `:resume_agent` to handle
   # the wake path on the same space-key.
-  @spec pause_agent_reply(State.t(), String.t()) :: {term(), State.t()}
+  @spec pause_agent_reply(State.t(), String.t() | TrackerIdentity.t()) :: {term(), State.t()}
+  def pause_agent_reply(state, %TrackerIdentity{} = identity) do
+    case State.find_unique_running_by_identity(state.running, identity) do
+      {:ok, running_entry, issue_identifier} ->
+        pause_running_or_inactive(state, running_entry, issue_identifier)
+
+      {:error, reason} ->
+        {{:error, reason}, state}
+    end
+  end
+
   def pause_agent_reply(state, issue_identifier) do
     case State.find_running_by_identifier(state.running, issue_identifier) do
       running_entry when is_map(running_entry) ->

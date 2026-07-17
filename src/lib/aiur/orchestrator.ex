@@ -314,11 +314,11 @@ defmodule Aiur.Orchestrator do
   def request_refresh, do: Lifecycle.request_refresh_api()
   @spec request_refresh(GenServer.server()) :: map() | :unavailable
   def request_refresh(server), do: Lifecycle.request_refresh_api(server)
-  @spec send_operator_message(String.t(), map()) :: {:ok, integer()} | {:error, term()}
+  @spec send_operator_message(String.t() | Aiur.TrackerIdentity.t(), map()) :: {:ok, integer()} | {:error, term()}
   def send_operator_message(identifier, payload),
     do: OM.send_operator_message(identifier, payload)
 
-  @spec send_operator_message(GenServer.server(), String.t(), map()) ::
+  @spec send_operator_message(GenServer.server(), String.t() | Aiur.TrackerIdentity.t(), map()) ::
           {:ok, integer()} | {:error, term()}
   def send_operator_message(server, identifier, payload),
     do: OM.send_operator_message(server, identifier, payload)
@@ -332,9 +332,9 @@ defmodule Aiur.Orchestrator do
   def send_correlated_operator_message(server, identifier, payload),
     do: OM.send_correlated_operator_message(server, identifier, payload)
 
-  @spec pause_agent(String.t()) :: {:ok, integer()} | {:error, term()}
+  @spec pause_agent(String.t() | Aiur.TrackerIdentity.t()) :: {:ok, integer()} | {:error, term()}
   def pause_agent(identifier), do: PauseResume.pause_agent(identifier)
-  @spec pause_agent(GenServer.server(), String.t()) :: {:ok, integer()} | {:error, term()}
+  @spec pause_agent(GenServer.server(), String.t() | Aiur.TrackerIdentity.t()) :: {:ok, integer()} | {:error, term()}
   def pause_agent(server, identifier), do: PauseResume.pause_agent(server, identifier)
   @spec request_control(String.t(), :pause | :resume, pos_integer()) :: {:ok, pos_integer()} | {:error, term()}
   def request_control(identifier, action, request_id), do: PauseResume.request_control(identifier, action, request_id)
@@ -521,6 +521,9 @@ defmodule Aiur.Orchestrator do
   def handle_call({:pause_agent, issue_identifier}, _from, state)
       when is_binary(issue_identifier),
       do: PauseResume.pause_agent_call(state, issue_identifier)
+
+  def handle_call({:pause_agent, %Aiur.TrackerIdentity{} = identity}, _from, state),
+    do: PauseResume.pause_agent_call(state, identity)
 
   def handle_call({:pause_agent, _issue_identifier}, _from, state) do
     {:reply, {:error, :invalid_identifier}, state}

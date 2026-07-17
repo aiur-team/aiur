@@ -20,14 +20,14 @@ defmodule AiurWeb.DashboardLiveTest do
   alias Aiur.BuildOrder.Lifecycle
   alias Aiur.DecisionMetrics.Canonical, as: DecisionMetricsCanonical
   alias Aiur.DecisionMetrics.Event, as: DecisionMetricsEvent
-  alias Aiur.Events.Exchange
+  alias Aiur.Events.{Exchange, SubscriptionStore}
 
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.OperatorMessages
   alias Aiur.RecentMerge
   alias Aiur.RecentMergeStore
   alias AiurWeb.{ControlCenterCache, ControlCenterPresenter, DashboardLive, Presenter}
-  alias AiurWeb.OperatorControlCenter.{FleetFilters, PayloadLoader}
+  alias AiurWeb.OperatorControlCenter.{FleetFilters, PayloadLoader, UnitsPresenter}
 
   @endpoint AiurWeb.Endpoint
 
@@ -728,6 +728,11 @@ defmodule AiurWeb.DashboardLiveTest do
 
     assert_bounded_reload_burst(views, decision_messages, cache, orchestrator_name)
     assert_bounded_reload_burst(views, List.duplicate(:decision_metrics_changed, 25), cache, orchestrator_name)
+
+    membership_messages =
+      List.duplicate({:current_run_membership_changed, %{generation: 2}}, 25)
+
+    assert_bounded_reload_burst(views, membership_messages, cache, orchestrator_name, false)
   end
 
   test "optional unauthenticated LiveView state, HTML, diffs, and logs contain no financial sentinels" do
@@ -960,6 +965,35 @@ defmodule AiurWeb.DashboardLiveTest do
     assert_patch(view, "/decisions/#{decision.decision_id}?filter=blocking")
     render_submit(view, "search-commands", %{"search" => decision.decision_id})
     assert_patch(view, "/decisions?search=#{decision.decision_id}")
+  end
+
+  test "ticket query navigation returns the exact Commands ticket instead of identifier prefixes" do
+    orchestrator_name = Module.concat(__MODULE__, :ExactTicketQueryOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :ExactTicketQueryStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 61}}}
+      end)
+
+    exact =
+      request_dashboard_decision(store, "exact-ticket-11", "reversible", ticket: %{identifier: "11", title: "Exact ticket", url: nil})
+
+    prefixed =
+      request_dashboard_decision(store, "prefixed-ticket-1110", "reversible", ticket: %{identifier: "1110", title: "Prefixed ticket", url: nil})
+
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/decisions?ticket=11")
+
+    assert has_element?(view, "#decision-#{exact.decision_id}")
+    refute has_element?(view, "#decision-#{prefixed.decision_id}")
   end
 
   test "Open Commands includes every canonical open authority" do
@@ -2785,6 +2819,7 @@ defmodule AiurWeb.DashboardLiveTest do
   test "keeps valid Units selection and stable typed row identity across catalog updates" do
     identity = units_identity()
     {:ok, membership} = Agent.start_link(fn -> units_membership(identity) end)
+    {:ok, activity} = Agent.start_link(fn -> units_activity(identity) end)
     orchestrator_name = Module.concat(__MODULE__, :UnitsUpdateOrchestrator)
     orchestrator = start_counting_orchestrator(orchestrator_name)
 
@@ -2795,24 +2830,38 @@ defmodule AiurWeb.DashboardLiveTest do
       snapshot_timeout_ms: 100,
       control_center_cache: false,
       units_membership_fun: fn -> Agent.get(membership, & &1) end,
-      units_activity_fun: fn -> units_activity(identity) end
+      units_activity_fun: fn -> Agent.get(activity, & &1) end
     )
 
     {:ok, view, _html} = live(build_conn(), "/?v=1&scope=all")
-    [row_id] = view |> render() |> Floki.parse_document!() |> Floki.attribute(".units-row", "id")
+    initial_document = view |> render() |> Floki.parse_document!()
+    [row_id] = Floki.attribute(initial_document, ".units-row", "id")
+    initial_announcement = initial_document |> Floki.find("#units-status") |> Floki.text()
 
     Agent.update(membership, fn snapshot ->
       member = snapshot.members |> hd() |> Map.merge(%{lifecycle: :terminal, terminal?: true})
       %{snapshot | generation: 2, members: [member]}
     end)
 
+    Agent.update(activity, fn snapshot ->
+      entry = snapshot.entries |> hd() |> put_in([:progress, :percent], 75)
+      %{snapshot | generation: 2, entries: [entry]}
+    end)
+
     send(view.pid, {:current_run_membership_changed, %{generation: 2}})
+    send(view.pid, {:ticket_activity_changed, %{generation: 2}})
     send(view.pid, :reload_payload)
     _state = :sys.get_state(view.pid)
 
     assert has_element?(view, ~s(button[phx-value-scope="all"][aria-pressed="true"]))
     assert has_element?(view, "##{row_id}")
-    assert render(view) =~ "Terminal"
+    updated_html = render(view)
+    assert updated_html =~ "Terminal"
+    assert has_element?(view, "##{row_id}", "75%")
+
+    updated_announcement = updated_html |> Floki.parse_document!() |> Floki.find("#units-status") |> Floki.text()
+    refute updated_announcement == initial_announcement
+    assert updated_announcement =~ ~r/Catalog update [a-f0-9]{10}/
   end
 
   test "opens shared ticket context only after explicit inspection and gates updates by typed identity" do
@@ -2831,6 +2880,10 @@ defmodule AiurWeb.DashboardLiveTest do
       control_center_cache: false,
       units_membership_fun: fn -> membership end,
       units_activity_fun: fn -> units_activity(identity) end,
+      ticket_context_reset_subscribe_fun: fn ->
+        send(test_pid, :ticket_context_resets_subscribed)
+        :ok
+      end,
       ticket_detail_subscribe_fun: fn selected ->
         attempt = Agent.get_and_update(subscription_attempts, fn current -> {current + 1, current + 1} end)
         send(test_pid, {:detail_subscribed, selected, attempt})
@@ -2838,6 +2891,14 @@ defmodule AiurWeb.DashboardLiveTest do
       end,
       ticket_history_subscribe_fun: fn selected ->
         send(test_pid, {:history_subscribed, selected})
+        :ok
+      end,
+      ticket_detail_unsubscribe_fun: fn selected ->
+        send(test_pid, {:detail_unsubscribed, selected})
+        :ok
+      end,
+      ticket_history_unsubscribe_fun: fn selected ->
+        send(test_pid, {:history_unsubscribed, selected})
         :ok
       end,
       ticket_detail_request_fun: fn selected ->
@@ -2851,6 +2912,8 @@ defmodule AiurWeb.DashboardLiveTest do
     )
 
     {:ok, view, html} = live(build_conn(), "/")
+    assert_receive :ticket_context_resets_subscribed
+    refute_receive :ticket_context_resets_subscribed
     assert html =~ "Responsive Units interface"
     refute html =~ "units-ticket-context"
     refute_receive {:detail_requested, _identity}
@@ -2868,6 +2931,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert html =~ "Issue"
     assert html =~ "Chat is unavailable"
     assert html =~ "Commands"
+    assert html =~ ~s(href="/decisions?ticket=1110")
     refute html =~ "/private/workspace"
 
     other = units_identity(provider_id: "NODE-other", identifier: "1111")
@@ -2878,14 +2942,239 @@ defmodule AiurWeb.DashboardLiveTest do
     assert render(view) =~ "Updated ticket context"
 
     view |> element("#units-ticket-context button", "Close") |> render_click()
+    refute_receive {:detail_unsubscribed, ^identity}
+    assert_receive {:history_unsubscribed, ^identity}
     refute has_element?(view, "#units-ticket-context")
 
     html = view |> element(~s(button[phx-click="inspect-unit"])) |> render_click()
     assert_receive {:detail_subscribed, ^identity, 2}
-    refute_receive {:history_subscribed, ^identity}
+    assert_receive {:history_subscribed, ^identity}
+    refute_receive :ticket_context_resets_subscribed
     assert_receive {:detail_requested, ^identity}
     assert_receive {:history_requested, ^identity}
     assert html =~ ~s(id="units-ticket-context")
+  end
+
+  test "Agent log writable actions carry the selected typed Unit identity" do
+    identity = units_identity()
+    membership = units_membership(identity)
+    orchestrator_name = Module.concat(__MODULE__, :TypedAgentLogOrchestrator)
+    orchestrator = start_counting_orchestrator(orchestrator_name)
+    test_pid = self()
+
+    :sys.replace_state(orchestrator, &Map.put(&1, :snapshot, units_orchestrator_snapshot(identity)))
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      control_center_cache: false,
+      dashboard_writable: true,
+      units_membership_fun: fn -> membership end,
+      units_activity_fun: fn -> units_activity(identity) end,
+      agent_chat_send_fun: fn selected, text ->
+        send(test_pid, {:typed_agent_message, selected, text})
+        {:ok, 7}
+      end,
+      agent_chat_pause_fun: fn selected ->
+        send(test_pid, {:typed_agent_pause, selected})
+        {:ok, 8}
+      end
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/")
+    token = UnitsPresenter.row_token(%{identity: identity})
+
+    html =
+      view
+      |> element(~s(button[phx-click="show-agent-log"][phx-value-unit="#{token}"]))
+      |> render_click()
+
+    assert html =~ ~s(phx-submit="send-operator-message")
+
+    render_submit(view, "send-operator-message", %{"message" => "typed hello"})
+    assert_receive {:typed_agent_message, ^identity, "typed hello"}
+
+    render_hook(view, "pause-agent", %{})
+    assert_receive {:typed_agent_pause, ^identity}
+  end
+
+  test "ticket context replaces identity subscriptions and keeps common resets singular" do
+    alpha = units_identity()
+    beta = units_identity(repository: "other", provider_id: "NODE-other", database_id: 1111, identifier: "1111")
+    membership = units_membership(alpha)
+    membership = %{membership | members: membership.members ++ units_membership(beta).members}
+    orchestrator_name = Module.concat(__MODULE__, :TicketContextSubscriptionOrchestrator)
+    orchestrator = start_counting_orchestrator(orchestrator_name)
+    test_pid = self()
+
+    alpha_row = units_orchestrator_snapshot(alpha).running |> hd()
+    beta_row = units_orchestrator_snapshot(beta).running |> hd() |> Map.put(:issue_id, "issue-1111")
+    :sys.replace_state(orchestrator, &Map.put(&1, :snapshot, %{units_orchestrator_snapshot(alpha) | running: [alpha_row, beta_row]}))
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      control_center_cache: false,
+      units_membership_fun: fn -> membership end,
+      units_activity_fun: fn -> units_activity(alpha) end,
+      ticket_context_reset_subscribe_fun: fn ->
+        send(test_pid, :context_resets_once)
+        :ok
+      end,
+      ticket_detail_subscribe_fun: &context_subscription(test_pid, :detail_subscribed, &1),
+      ticket_history_subscribe_fun: &context_subscription(test_pid, :history_subscribed, &1),
+      ticket_detail_unsubscribe_fun: &context_subscription(test_pid, :detail_unsubscribed, &1),
+      ticket_history_unsubscribe_fun: &context_subscription(test_pid, :history_unsubscribed, &1),
+      ticket_detail_request_fun: fn selected -> {:ok, units_ticket_detail(selected, "Ticket #{selected.identifier}")} end,
+      ticket_history_request_fun: fn selected -> {:ok, units_ticket_history(selected)} end
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/")
+    assert_receive :context_resets_once
+
+    alpha_token = UnitsPresenter.row_token(%{identity: alpha})
+    beta_token = UnitsPresenter.row_token(%{identity: beta})
+
+    render_hook(view, "inspect-unit", %{"unit" => alpha_token})
+    assert_receive {:detail_subscribed, ^alpha}
+    assert_receive {:history_subscribed, ^alpha}
+
+    render_hook(view, "inspect-unit", %{"unit" => beta_token})
+    assert_receive {:detail_unsubscribed, ^alpha}
+    assert_receive {:history_unsubscribed, ^alpha}
+    assert_receive {:detail_subscribed, ^beta}
+    assert_receive {:history_subscribed, ^beta}
+
+    render_hook(view, "close-ticket-context", %{})
+    assert_receive {:detail_unsubscribed, ^beta}
+    assert_receive {:history_unsubscribed, ^beta}
+
+    render_hook(view, "inspect-unit", %{"unit" => alpha_token})
+    assert_receive {:detail_subscribed, ^alpha}
+    assert_receive {:history_subscribed, ^alpha}
+    refute_receive :context_resets_once
+  end
+
+  test "Agent log disables and rejects writes for colliding display identifiers" do
+    alpha = units_identity()
+    beta = units_identity(repository: "other", provider_id: "NODE-other-1110")
+    membership = units_membership(alpha)
+    membership = %{membership | members: membership.members ++ units_membership(beta).members}
+    orchestrator_name = Module.concat(__MODULE__, :CollidingAgentLogOrchestrator)
+    orchestrator = start_counting_orchestrator(orchestrator_name)
+    test_pid = self()
+
+    alpha_row = units_orchestrator_snapshot(alpha).running |> hd()
+    beta_row = units_orchestrator_snapshot(beta).running |> hd() |> Map.put(:issue_id, "issue-other-1110")
+
+    snapshot = %{units_orchestrator_snapshot(alpha) | running: [alpha_row, beta_row]}
+    :sys.replace_state(orchestrator, &Map.put(&1, :snapshot, snapshot))
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      control_center_cache: false,
+      dashboard_writable: true,
+      units_membership_fun: fn -> membership end,
+      units_activity_fun: fn -> units_activity(alpha) end,
+      agent_chat_send_fun: fn selected, text ->
+        send(test_pid, {:unexpected_agent_message, selected, text})
+        {:ok, 9}
+      end,
+      agent_chat_pause_fun: fn selected ->
+        send(test_pid, {:unexpected_agent_pause, selected})
+        {:ok, 10}
+      end
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/")
+    token = UnitsPresenter.row_token(%{identity: alpha})
+
+    html =
+      view
+      |> element(~s(button[phx-click="show-agent-log"][phx-value-unit="#{token}"]))
+      |> render_click()
+
+    assert html =~ "not a unique writable target"
+    refute html =~ ~s(phx-submit="send-operator-message")
+    refute html =~ ~s(phx-click="pause-agent")
+
+    render_submit(view, "send-operator-message", %{"message" => "must not route"})
+    render_hook(view, "pause-agent", %{})
+    refute_receive {:unexpected_agent_message, _identity, _text}
+    refute_receive {:unexpected_agent_pause, _identity}
+  end
+
+  test "membership provider failure renders unavailable counts instead of healthy zeros" do
+    orchestrator_name = Module.concat(__MODULE__, :UnavailableUnitsOrchestrator)
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      control_center_cache: false,
+      units_membership_fun: fn -> raise "membership unavailable" end,
+      units_activity_fun: fn -> exit(:activity_unavailable) end
+    )
+
+    {:ok, _view, html} = live(build_conn(), "/")
+
+    assert html =~ "Units unavailable"
+    assert html =~ "Observed and selected-scope counts unavailable"
+    assert html =~ "Count unavailable"
+    assert html =~ "Counts are unavailable"
+    refute html =~ "0 observed"
+    refute html =~ "0 in selected scope"
+  end
+
+  test "Commands count returns to unknown across count-store teardown and recovery" do
+    identifier = System.unique_integer([:positive]) |> Integer.to_string()
+
+    identity =
+      units_identity(
+        identifier: identifier,
+        provider_id: "NODE-#{identifier}"
+      )
+
+    membership = units_membership(identity)
+    orchestrator_name = Module.concat(__MODULE__, :CommandsOutageOrchestrator)
+    available_store = Module.concat(__MODULE__, :RecoveredCommandsStore)
+    dispatcher = fn _decision, _opts -> {:ok, %{status: :accepted, item: %{id: 77}}} end
+
+    :ok = SubscriptionStore.stop(identifier)
+    on_exit(fn -> SubscriptionStore.stop(identifier) end)
+
+    start_decision_store(available_store, dispatcher)
+    start_queue_orchestrator(orchestrator_name, identifier, identity)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      decision_store: available_store,
+      snapshot_timeout_ms: 100,
+      control_center_cache: false,
+      units_membership_fun: fn -> membership end,
+      units_activity_fun: fn -> units_activity(identity) end
+    )
+
+    {:ok, view, html} = live(build_conn(), "/")
+    assert html =~ ~r/Open Commands<\/dt><dd>Unknown<\/dd>/
+    refute html =~ ~r/Open Commands<\/dt><dd>None open<\/dd>/
+
+    :ok = SubscriptionStore.attach(identifier)
+    assert reload_view(view) =~ ~r/Open Commands<\/dt><dd>None open<\/dd>/
+
+    :ok = SubscriptionStore.stop(identifier)
+    html = reload_view(view)
+    assert html =~ ~r/Open Commands<\/dt><dd>Unknown<\/dd>/
+    refute html =~ ~r/Open Commands<\/dt><dd>None open<\/dd>/
+
+    :ok = SubscriptionStore.attach(identifier)
+    assert reload_view(view) =~ ~r/Open Commands<\/dt><dd>None open<\/dd>/
+
+    :ok = SubscriptionStore.stop(identifier)
+    html = reload_view(view)
+    assert html =~ ~r/Open Commands<\/dt><dd>Unknown<\/dd>/
+    refute html =~ ~r/Open Commands<\/dt><dd>None open<\/dd>/
   end
 
   defp units_identity(overrides \\ []) do
@@ -2905,6 +3194,11 @@ defmodule AiurWeb.DashboardLiveTest do
         overrides
       )
     )
+  end
+
+  defp context_subscription(test_pid, event, identity) do
+    send(test_pid, {event, identity})
+    :ok
   end
 
   defp units_membership(identity) do
@@ -2972,6 +3266,7 @@ defmodule AiurWeb.DashboardLiveTest do
           tracker_paused: false,
           waiting_reason: :active,
           open_decision_count: 0,
+          open_decision_count_health: :available,
           control: %{},
           ci_result: nil
         }
@@ -3094,7 +3389,7 @@ defmodule AiurWeb.DashboardLiveTest do
     )
   end
 
-  defp start_queue_orchestrator(name, identifier) do
+  defp start_queue_orchestrator(name, identifier, tracker_identity \\ nil) do
     parent = self()
     worker_pid = spawn(fn -> worker_probe(parent) end)
     issue_id = "issue-#{identifier}"
@@ -3104,7 +3399,7 @@ defmodule AiurWeb.DashboardLiveTest do
       max_concurrent_agents: 1,
       effective_concurrent_agents: 1,
       poll_check_in_progress: false,
-      running: %{issue_id => running_entry(issue_id, identifier, worker_pid)},
+      running: %{issue_id => running_entry(issue_id, identifier, worker_pid, tracker_identity)},
       agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0}
     }
 
@@ -3117,12 +3412,18 @@ defmodule AiurWeb.DashboardLiveTest do
     name
   end
 
-  defp running_entry(issue_id, identifier, worker_pid) do
+  defp running_entry(issue_id, identifier, worker_pid, tracker_identity) do
     %{
       pid: worker_pid,
       ref: make_ref(),
       identifier: identifier,
-      issue: %Issue{id: issue_id, identifier: identifier, state: "in-progress", title: "OCC integration"},
+      issue: %Issue{
+        id: issue_id,
+        identifier: identifier,
+        state: "in-progress",
+        title: "OCC integration",
+        tracker_identity: tracker_identity
+      },
       control: %{can_interrupt: true, safe_checkpoints: [:notification], status: :working},
       session_id: "thread-#{identifier}",
       codex_app_server_pid: nil,
@@ -3438,7 +3739,7 @@ defmodule AiurWeb.DashboardLiveTest do
     :ok = AiurWeb.Endpoint.config_change([{AiurWeb.Endpoint, disabled_config}], [])
   end
 
-  defp assert_bounded_reload_burst(views, messages, cache, orchestrator) do
+  defp assert_bounded_reload_burst(views, messages, cache, orchestrator, expire? \\ true) do
     baseline_count = CountingOrchestrator.snapshot_count(orchestrator)
     expected_pids = views |> Enum.map(& &1.pid) |> MapSet.new()
 
@@ -3459,7 +3760,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert length(Enum.uniq(scheduled_pids)) == length(views)
     refute_receive {:payload_reload_scheduled, _pid, :reload_payload, _delay_ms}, 0
 
-    expire_cached_payloads(cache)
+    if expire?, do: expire_cached_payloads(cache)
     Enum.each(views, &reload_view/1)
 
     assert CountingOrchestrator.snapshot_count(orchestrator) == baseline_count + 1

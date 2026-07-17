@@ -36,8 +36,11 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     assert html =~ "Inspect ticket"
     assert html =~ "Chat unavailable"
     assert html =~ "Commands"
+    assert html =~ ~s(href="/decisions?ticket=1110")
     assert html =~ ~s(href="https://github.com/acme/aiur/issues/1110")
     assert html =~ "Agent log"
+    assert html =~ ~s(phx-value-unit="#{token}")
+    refute html =~ ~s(phx-value-issue="1110")
     refute html =~ ~r/<tr[^>]+phx-click=/
   end
 
@@ -91,9 +94,14 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     assert empty =~ "No units observed"
     assert filtered =~ "No units match this valid scope"
     assert filtered =~ ~s(phx-click="reset-units-filters")
+    assert filtered =~ ~s(class="btn ghost units-reset")
     assert stale =~ "Units may be stale"
     assert stale =~ "last known membership"
     assert stale =~ "Responsive Units interface"
+
+    partial = render(Map.merge(view([row()]), %{truncated?: true, count_status: :partial}))
+    assert partial =~ "Units catalog is partial"
+    assert partial =~ "Counts are lower bounds"
   end
 
   defp render(view) do

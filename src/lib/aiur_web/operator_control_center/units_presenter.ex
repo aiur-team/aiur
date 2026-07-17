@@ -47,6 +47,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
     %{
       status: status,
       message: catalog_message(status, membership),
+      truncated?: snapshot.truncated?,
       snapshot: snapshot
     }
   end
@@ -57,13 +58,16 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
   def project(%{snapshot: %{rows: rows}} = catalog, selection) when is_list(rows) do
     selection = UnitsPolicy.normalize_selection(selection)
     visible_rows = UnitsPolicy.filter(rows, selection)
-    counts = UnitsPolicy.counts(rows, selection)
+    count_status = count_status(catalog)
+    counts = display_counts(rows, selection, count_status)
 
     catalog
     |> Map.put(:selection, selection)
     |> Map.put(:rows, visible_rows)
     |> Map.put(:counts, counts)
-    |> Map.put(:total_count, length(rows))
+    |> Map.put(:count_status, count_status)
+    |> Map.put(:total_count, display_total(rows, count_status))
+    |> Map.put(:revision, catalog_revision(catalog))
     |> Map.put(:zero_result?, zero_result?(rows, visible_rows, selection))
   end
 
@@ -116,6 +120,27 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
   end
 
   def lookup(_catalog, _token), do: {:error, :not_found}
+
+  @doc "Returns the bounded, production live-region summary for one projected catalog."
+  @spec announcement(map()) :: String.t()
+  def announcement(view) when is_map(view) do
+    visible = view |> Map.get(:rows, []) |> length()
+    total = Map.get(view, :total_count)
+    revision = Map.get(view, :revision, "unknown")
+
+    summary =
+      case Map.get(view, :status, :loading) do
+        :loading -> "Loading Units."
+        :unavailable -> "Units catalog unavailable."
+        :empty -> "No units have been observed in this run."
+        :stale -> "Showing #{count_phrase(visible, total, view)} from stale catalog data."
+        _status -> "Showing #{count_phrase(visible, total, view)}."
+      end
+
+    summary <> " Catalog update #{revision}."
+  end
+
+  def announcement(_view), do: "Units catalog unavailable. Catalog update unknown."
 
   defp valid_membership?(%{members: members}) when is_list(members), do: true
   defp valid_membership?(_membership), do: false
@@ -247,6 +272,77 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
 
   defp catalog_message(:unavailable, membership),
     do: Map.get(membership, :health_message) || "Units catalog is unavailable."
+
+  defp count_status(%{status: :unavailable}), do: :unavailable
+  defp count_status(%{truncated?: true}), do: :partial
+  defp count_status(%{snapshot: %{truncated?: true}}), do: :partial
+  defp count_status(_catalog), do: :exact
+
+  defp display_counts(_rows, _selection, :unavailable) do
+    [:scope | UnitsPolicy.conditions()]
+    |> Map.new(&{&1, nil})
+  end
+
+  defp display_counts(rows, selection, _count_status), do: UnitsPolicy.counts(rows, selection)
+
+  defp display_total(_rows, :unavailable), do: nil
+  defp display_total(rows, _count_status), do: length(rows)
+
+  defp catalog_revision(catalog) do
+    snapshot = Map.get(catalog, :snapshot, %{})
+
+    %{
+      status: Map.get(catalog, :status),
+      message: Map.get(catalog, :message),
+      truncated?: Map.get(catalog, :truncated?, Map.get(snapshot, :truncated?, false)),
+      health: Map.get(snapshot, :health),
+      rows: snapshot |> Map.get(:rows, []) |> Enum.map(&announcement_row_signature/1)
+    }
+    |> :erlang.term_to_binary()
+    |> then(&:crypto.hash(:sha256, &1))
+    |> binary_part(0, 5)
+    |> Base.encode16(case: :lower)
+  rescue
+    _error -> "unknown"
+  end
+
+  defp announcement_row_signature(row) do
+    %{
+      facts:
+        Map.take(row, [
+          :identity,
+          :title,
+          :lifecycle,
+          :terminal?,
+          :replacement_boundary?,
+          :tracker_state,
+          :backend,
+          :agent_family,
+          :requested_model,
+          :resolved_model,
+          :effort,
+          :complexity,
+          :build_lane,
+          :reasons,
+          :open_command_count,
+          :progress,
+          :latest_evidence,
+          :provider_health
+        ]),
+      runtime:
+        row
+        |> Map.get(:runtime, %{})
+        |> Map.take([:bucket, :work_state, :waiting_reason, :tracker_paused?, :membership_lifecycle])
+    }
+  end
+
+  defp count_phrase(visible, total, %{count_status: :partial}) when is_integer(total),
+    do: "at least #{visible} of at least #{total} Units"
+
+  defp count_phrase(visible, total, _view) when is_integer(total),
+    do: "#{visible} of #{total} Units"
+
+  defp count_phrase(_visible, _total, _view), do: "an unavailable number of Units"
 
   defp zero_result?([], _visible_rows, _selection), do: false
 

@@ -296,6 +296,7 @@ defmodule AiurWeb.Presenter do
       stale_for_seconds: Map.get(entry, :stale_for_seconds),
       waiting_reason: Map.get(entry, :waiting_reason, :active),
       open_decision_count: Map.get(entry, :open_decision_count, 0),
+      open_decision_count_health: Map.get(entry, :open_decision_count_health, :unknown),
       ci: ci_payload(Map.get(entry, :ci_result)),
       review: review_status(entry.state)
     }
@@ -321,6 +322,7 @@ defmodule AiurWeb.Presenter do
       tracker_paused: false,
       waiting_reason: Map.get(entry, :waiting_reason, :backing_off),
       open_decision_count: Map.get(entry, :open_decision_count, 0),
+      open_decision_count_health: Map.get(entry, :open_decision_count_health, :unknown),
       ci: ci_payload(Map.get(entry, :ci_result)),
       review: review_status(Map.get(entry, :state))
     }
@@ -342,6 +344,7 @@ defmodule AiurWeb.Presenter do
       queue_depth: Map.get(entry, :queue_depth, 0),
       waiting_reason: Map.get(entry, :waiting_reason, :active),
       open_decision_count: Map.get(entry, :open_decision_count, 0),
+      open_decision_count_health: Map.get(entry, :open_decision_count_health, :unknown),
       ci: ci_payload(Map.get(entry, :ci_result)),
       review: review_status(entry.state)
     }
@@ -421,6 +424,7 @@ defmodule AiurWeb.Presenter do
       stale_for_seconds: Map.get(running, :stale_for_seconds),
       waiting_reason: Map.get(running, :waiting_reason, :active),
       open_decision_count: Map.get(running, :open_decision_count, 0),
+      open_decision_count_health: Map.get(running, :open_decision_count_health, :unknown),
       ci: ci_payload(Map.get(running, :ci_result)),
       review: review_status(running.state)
     }
@@ -442,6 +446,7 @@ defmodule AiurWeb.Presenter do
       state: Map.get(retry, :state),
       waiting_reason: Map.get(retry, :waiting_reason, :backing_off),
       open_decision_count: Map.get(retry, :open_decision_count, 0),
+      open_decision_count_health: Map.get(retry, :open_decision_count_health, :unknown),
       ci: ci_payload(Map.get(retry, :ci_result)),
       review: review_status(Map.get(retry, :state))
     }

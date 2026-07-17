@@ -36,9 +36,14 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
         <span><b>Units may be stale.</b> {@message || "Showing the last-known catalog."}</span>
       </div>
 
+      <div :if={@view[:truncated?]} class="units-state readonly-banner" role="status">
+        <span aria-hidden="true">◉</span>
+        <span><b>Units catalog is partial.</b> Counts are lower bounds for the bounded membership prefix.</span>
+      </div>
+
       <div :if={@view[:zero_result?]} class="units-state empty-state filtered-empty">
         <p>No units match this valid scope and condition selection.</p>
-        <button type="button" class="btn ghost" phx-click="reset-units-filters">Reset Units filters</button>
+        <button type="button" class="btn ghost units-reset" phx-click="reset-units-filters">Reset Units filters</button>
       </div>
 
       <div :if={@rows != []} class="units-table-wrap">
@@ -141,7 +146,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
                     type="button"
                     class="units-action"
                     phx-click="show-agent-log"
-                    phx-value-issue={row.identity.identifier}
+                    phx-value-unit={token}
                   >Agent log</button>
                 </nav>
               </td>
@@ -185,7 +190,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   defp identity_label(_identity), do: "Typed identity unavailable"
 
   defp commands_path(%{identity: %TrackerIdentity{identifier: identifier}}) when is_binary(identifier),
-    do: DecisionPath.inbox(:all, %{search: identifier})
+    do: DecisionPath.inbox(:all, %{ticket: identifier})
 
   defp commands_path(_row), do: DecisionPath.inbox(:all)
 

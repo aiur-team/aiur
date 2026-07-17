@@ -49,6 +49,7 @@ defmodule AiurWeb.DashboardLive do
       :ok = DecisionPubSub.subscribe()
       :ok = CurrentRunMembership.subscribe()
       :ok = TicketActivity.subscribe()
+      :ok = subscribe_ticket_context_resets()
     end
 
     payload = PayloadLoader.load(if connected, do: :fresh, else: :cached)
@@ -62,6 +63,7 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:chat_errors, %{})
       |> assign(:decision_actions, %{})
       |> assign(:payload_reload_scheduled?, false)
+      |> assign(:payload_reload_mode, :cached)
       |> assign(:writable, dashboard_writable?())
       |> assign(:decision_filter, :all)
       |> assign(:decision_page, empty_decision_page())
@@ -111,25 +113,29 @@ defmodule AiurWeb.DashboardLive do
     {:noreply, PayloadLoader.schedule(socket)}
   end
 
+  def handle_info({:observability_updated, event_id}, socket) do
+    {:noreply, PayloadLoader.schedule(socket, {:event, {:observability, event_id}})}
+  end
+
   @impl true
-  def handle_info({:decision_changed, _decision_id, _version}, socket) do
-    {:noreply, PayloadLoader.schedule(socket)}
+  def handle_info({:decision_changed, decision_id, version}, socket) do
+    {:noreply, PayloadLoader.schedule(socket, {:event, {:decision, decision_id, version}})}
   end
 
   def handle_info(:decision_metrics_changed, socket) do
     {:noreply, PayloadLoader.schedule(socket)}
   end
 
-  def handle_info({:current_run_membership_changed, _payload}, socket) do
-    {:noreply, PayloadLoader.schedule(socket)}
+  def handle_info({:current_run_membership_changed, payload}, socket) do
+    {:noreply, PayloadLoader.schedule(socket, {:event, {:membership, Map.get(payload, :generation)}})}
   end
 
-  def handle_info({:current_run_membership_health_changed, _payload}, socket) do
-    {:noreply, PayloadLoader.schedule(socket)}
+  def handle_info({:current_run_membership_health_changed, payload}, socket) do
+    {:noreply, PayloadLoader.schedule(socket, {:event, {:membership_health, Map.get(payload, :generation)}})}
   end
 
-  def handle_info({:ticket_activity_changed, _payload}, socket) do
-    {:noreply, PayloadLoader.schedule(socket)}
+  def handle_info({:ticket_activity_changed, payload}, socket) do
+    {:noreply, PayloadLoader.schedule(socket, {:event, {:activity, Map.get(payload, :generation)}})}
   end
 
   def handle_info({:ticket_detail_updated, %TicketDetailState{} = detail}, socket) do
@@ -154,7 +160,8 @@ defmodule AiurWeb.DashboardLive do
 
   @impl true
   def handle_info(:reload_payload, socket) do
-    {:noreply, socket |> reload_payload(:cached) |> PayloadLoader.mark_loaded()}
+    mode = Map.get(socket.assigns, :payload_reload_mode, :cached)
+    {:noreply, socket |> reload_payload(mode) |> PayloadLoader.mark_loaded()}
   end
 
   @impl true
@@ -211,6 +218,7 @@ defmodule AiurWeb.DashboardLive do
   def handle_event("close-ticket-context", _params, socket) do
     {:noreply,
      socket
+     |> unsubscribe_ticket_context()
      |> assign(:ticket_context, nil)
      |> assign(:ticket_context_detail, nil)
      |> assign(:ticket_context_history, nil)
@@ -224,9 +232,20 @@ defmodule AiurWeb.DashboardLive do
     end)
   end
 
-  def handle_event("show-agent-log", %{"issue" => issue_identifier}, socket) do
+  def handle_event("show-agent-log", %{"unit" => token}, socket) when is_binary(token) do
+    catalog = Map.get(socket.assigns.payload, :units, %{})
+
+    with {:ok, row} <- UnitsPresenter.lookup(catalog, token),
+         %{} = entry <- AgentLogModal.find_running_entry(socket.assigns.payload, row.identity) do
+      {:noreply, assign(socket, :agent_log_modal, AgentLogModal.build(entry, socket.assigns.payload))}
+    else
+      _not_found -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("show-agent-log", %{"issue" => issue_identifier}, socket) when is_binary(issue_identifier) do
     entry = AgentLogModal.find_running_entry(socket.assigns.payload, issue_identifier)
-    {:noreply, assign(socket, :agent_log_modal, AgentLogModal.build(entry))}
+    {:noreply, assign(socket, :agent_log_modal, AgentLogModal.build(entry, socket.assigns.payload))}
   end
 
   def handle_event("show-agent-log", _params, socket), do: {:noreply, socket}
@@ -242,12 +261,12 @@ defmodule AiurWeb.DashboardLive do
       )
       when is_map(modal) do
     handle_writable_event(socket, fn ->
-      identifier = modal.issue_identifier
+      key = agent_log_key(modal)
 
       {:noreply,
        socket
-       |> assign(:drafts, Map.put(socket.assigns.drafts, identifier, message))
-       |> assign(:chat_errors, Map.delete(socket.assigns.chat_errors, identifier))}
+       |> assign(:drafts, Map.put(socket.assigns.drafts, key, message))
+       |> assign(:chat_errors, Map.delete(socket.assigns.chat_errors, key))}
     end)
   end
 
@@ -260,7 +279,17 @@ defmodule AiurWeb.DashboardLive do
       )
       when is_map(modal) do
     handle_writable_event(socket, fn ->
-      {:noreply, send_operator_message(socket, modal.issue_identifier, String.trim(message))}
+      if Map.get(modal, :writable_target?) == true do
+        {:noreply,
+         send_operator_message(
+           socket,
+           agent_log_target(modal),
+           agent_log_key(modal),
+           String.trim(message)
+         )}
+      else
+        {:noreply, put_chat_error(socket, agent_log_key(modal), :ambiguous_identifier)}
+      end
     end)
   end
 
@@ -273,14 +302,19 @@ defmodule AiurWeb.DashboardLive do
       )
       when is_map(modal) do
     handle_writable_event(socket, fn ->
-      identifier = modal.issue_identifier
+      target = agent_log_target(modal)
+      key = agent_log_key(modal)
 
-      case AgentChat.pause(identifier) do
-        {:ok, _request_id} ->
-          {:noreply, assign(socket, :chat_errors, Map.delete(socket.assigns.chat_errors, identifier))}
+      if Map.get(modal, :writable_target?) == true do
+        case pause_agent(target) do
+          {:ok, _request_id} ->
+            {:noreply, assign(socket, :chat_errors, Map.delete(socket.assigns.chat_errors, key))}
 
-        {:error, reason} ->
-          {:noreply, put_chat_error(socket, identifier, reason)}
+          {:error, reason} ->
+            {:noreply, put_chat_error(socket, key, reason)}
+        end
+      else
+        {:noreply, put_chat_error(socket, key, :ambiguous_identifier)}
       end
     end)
   end
@@ -301,9 +335,8 @@ defmodule AiurWeb.DashboardLive do
         :units_view,
         UnitsPresenter.project(Map.get(assigns.payload, :units, %{}), Map.get(assigns, :units_selection, UnitsURL.default_selection()))
       )
+      |> then(&Map.put_new(&1, :units_announcement, UnitsPresenter.announcement(&1.units_view)))
       |> Map.put_new(:current_route, RouteRegistry.current_route(Map.get(assigns, :live_action)))
-
-    assigns = Map.put(assigns, :units_announcement, units_announcement(assigns.units_view))
 
     ~H"""
     <DashboardShell.dashboard_shell
@@ -349,9 +382,7 @@ defmodule AiurWeb.DashboardLive do
             <div>
               <p class="section-eyebrow">Current-run catalog</p>
               <h2 id="units-title" tabindex="-1">Units</h2>
-              <p>
-                {@units_view[:total_count] || 0} observed · {@units_view[:counts][:scope] || 0} in selected scope
-              </p>
+              <p>{units_count_summary(@units_view)}</p>
             </div>
           </header>
 
@@ -359,7 +390,11 @@ defmodule AiurWeb.DashboardLive do
             {@units_announcement}
           </p>
 
-          <UnitsFilters.units_filters selection={@units_selection} counts={@units_view[:counts] || %{}} />
+          <UnitsFilters.units_filters
+            selection={@units_selection}
+            counts={@units_view[:counts] || %{}}
+            count_status={@units_view[:count_status] || :unavailable}
+          />
           <UnitsTable.units_table view={@units_view} now={@now} />
         </section>
       </div>
@@ -496,18 +531,17 @@ defmodule AiurWeb.DashboardLive do
 
   defp units_path(selection), do: "/?" <> UnitsURL.encode(selection)
 
-  defp units_announcement(view) do
-    visible = view |> Map.get(:rows, []) |> length()
-    total = Map.get(view, :total_count, 0)
+  defp units_count_summary(%{count_status: :unavailable}),
+    do: "Observed and selected-scope counts unavailable"
 
-    case Map.get(view, :status, :loading) do
-      :loading -> "Loading Units."
-      :unavailable -> "Units catalog unavailable."
-      :empty -> "No units have been observed in this run."
-      :stale -> "Showing #{visible} of #{total} Units from stale catalog data."
-      _status -> "Showing #{visible} of #{total} Units."
-    end
-  end
+  defp units_count_summary(%{count_status: :partial, total_count: total, counts: %{scope: scope}}),
+    do: "At least #{total} observed · at least #{scope} in selected scope"
+
+  defp units_count_summary(%{total_count: total, counts: %{scope: scope}})
+       when is_integer(total) and is_integer(scope),
+       do: "#{total} observed · #{scope} in selected scope"
+
+  defp units_count_summary(_view), do: "Observed and selected-scope counts unavailable"
 
   defp assign_units_selection(socket, params) do
     selection = UnitsURL.decode(params)
@@ -530,11 +564,15 @@ defmodule AiurWeb.DashboardLive do
 
   defp assign_units_view(socket) do
     catalog = socket.assigns.payload |> Map.get(:units, %{})
-    assign(socket, :units_view, UnitsPresenter.project(catalog, socket.assigns.units_selection))
+    view = UnitsPresenter.project(catalog, socket.assigns.units_selection)
+
+    socket
+    |> assign(:units_view, view)
+    |> assign(:units_announcement, UnitsPresenter.announcement(view))
   end
 
   defp open_ticket_context(socket, %{identity: %TrackerIdentity{} = identity} = row) do
-    socket = subscribe_ticket_context(socket, identity)
+    socket = replace_ticket_context_subscription(socket, identity)
     detail = request_context(:ticket_detail_request_fun, &TicketDetailCache.request/1, identity)
     history = request_context(:ticket_history_request_fun, &TicketHistoryProvider.request/1, identity)
 
@@ -545,6 +583,16 @@ defmodule AiurWeb.DashboardLive do
   end
 
   defp open_ticket_context(socket, _row), do: socket
+
+  defp replace_ticket_context_subscription(socket, identity) do
+    if same_identity?(socket.assigns.ticket_context_identity, identity) do
+      subscribe_ticket_context(socket, identity)
+    else
+      socket
+      |> unsubscribe_ticket_context()
+      |> subscribe_ticket_context(identity)
+    end
+  end
 
   defp subscribe_ticket_context(socket, identity) do
     key = TrackerIdentity.github_key(identity)
@@ -558,13 +606,13 @@ defmodule AiurWeb.DashboardLive do
         |> ensure_ticket_context_subscription(
           {key, :detail},
           :ticket_detail_subscribe_fun,
-          &TicketDetailCache.subscribe/1,
+          &subscribe_ticket_detail/1,
           identity
         )
         |> ensure_ticket_context_subscription(
           {key, :history},
           :ticket_history_subscribe_fun,
-          &TicketHistoryProvider.subscribe/1,
+          &subscribe_ticket_history/1,
           identity
         )
 
@@ -579,6 +627,70 @@ defmodule AiurWeb.DashboardLive do
       true -> subscriptions
     end
   end
+
+  defp unsubscribe_ticket_context(%{assigns: %{ticket_context_identity: %TrackerIdentity{} = identity}} = socket) do
+    key = TrackerIdentity.github_key(identity)
+
+    subscriptions =
+      socket.assigns.ticket_context_subscriptions
+      |> drop_ticket_context_subscription(
+        {key, :detail},
+        :ticket_detail_unsubscribe_fun,
+        &unsubscribe_ticket_detail/1,
+        identity
+      )
+      |> drop_ticket_context_subscription(
+        {key, :history},
+        :ticket_history_unsubscribe_fun,
+        &unsubscribe_ticket_history/1,
+        identity
+      )
+
+    assign(socket, :ticket_context_subscriptions, subscriptions)
+  end
+
+  defp unsubscribe_ticket_context(socket),
+    do: assign(socket, :ticket_context_subscriptions, MapSet.new())
+
+  defp drop_ticket_context_subscription(subscriptions, marker, config_key, default, identity) do
+    if MapSet.member?(subscriptions, marker) do
+      _result = call_context(config_key, default, identity)
+      MapSet.delete(subscriptions, marker)
+    else
+      subscriptions
+    end
+  end
+
+  defp subscribe_ticket_context_resets do
+    _result =
+      case Endpoint.config(:ticket_context_reset_subscribe_fun) do
+        fun when is_function(fun, 0) -> fun.()
+        _fun -> subscribe_default_ticket_context_resets()
+      end
+
+    :ok
+  rescue
+    _error -> :ok
+  catch
+    _kind, _reason -> :ok
+  end
+
+  defp subscribe_default_ticket_context_resets do
+    :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, TicketDetailCache.reset_topic())
+    Phoenix.PubSub.subscribe(Aiur.PubSub, TicketHistoryProvider.reset_topic())
+  end
+
+  defp subscribe_ticket_detail(identity),
+    do: Phoenix.PubSub.subscribe(Aiur.PubSub, TicketDetailCache.topic(identity))
+
+  defp subscribe_ticket_history(identity),
+    do: Phoenix.PubSub.subscribe(Aiur.PubSub, TicketHistoryProvider.topic(identity))
+
+  defp unsubscribe_ticket_detail(identity),
+    do: Phoenix.PubSub.unsubscribe(Aiur.PubSub, TicketDetailCache.topic(identity))
+
+  defp unsubscribe_ticket_history(identity),
+    do: Phoenix.PubSub.unsubscribe(Aiur.PubSub, TicketHistoryProvider.topic(identity))
 
   defp request_context(config_key, default, identity) do
     case call_context(config_key, default, identity) do
@@ -654,7 +766,7 @@ defmodule AiurWeb.DashboardLive do
       %{
         kind: :commands,
         available?: is_binary(identifier),
-        href: DecisionPath.inbox(:all, %{search: identifier}),
+        href: DecisionPath.inbox(:all, %{ticket: identifier}),
         reason: :not_available
       }
     ]
@@ -766,6 +878,7 @@ defmodule AiurWeb.DashboardLive do
 
   defp decision_query(:all, params) do
     %{}
+    |> maybe_put_query(:ticket, params["ticket"])
     |> maybe_put_query(:search, params["search"])
     |> maybe_put_query(:cursor, params["cursor"])
   end
@@ -850,12 +963,32 @@ defmodule AiurWeb.DashboardLive do
     assign(socket, :chat_errors, Map.put(socket.assigns.chat_errors, identifier, AgentLogModal.format_error(reason)))
   end
 
-  defp send_operator_message(socket, _identifier, ""), do: socket
+  defp send_operator_message(socket, _target, _key, ""), do: socket
 
-  defp send_operator_message(socket, identifier, text) do
-    case AgentChat.send(identifier, text) do
-      {:ok, _request_id} -> clear_chat_state(socket, identifier)
-      {:error, reason} -> put_chat_error(socket, identifier, reason)
+  defp send_operator_message(socket, target, key, text) do
+    case send_agent_message(target, text) do
+      {:ok, _request_id} -> clear_chat_state(socket, key)
+      {:error, reason} -> put_chat_error(socket, key, reason)
     end
   end
+
+  defp send_agent_message(target, text) do
+    case Endpoint.config(:agent_chat_send_fun) do
+      fun when is_function(fun, 2) -> fun.(target, text)
+      _fun -> AgentChat.send(target, text)
+    end
+  end
+
+  defp pause_agent(target) do
+    case Endpoint.config(:agent_chat_pause_fun) do
+      fun when is_function(fun, 1) -> fun.(target)
+      _fun -> AgentChat.pause(target)
+    end
+  end
+
+  defp agent_log_target(%{tracker_identity: %TrackerIdentity{} = identity}), do: identity
+  defp agent_log_target(%{issue_identifier: identifier}), do: to_string(identifier)
+
+  defp agent_log_key(%{target_key: key}) when is_binary(key), do: key
+  defp agent_log_key(%{issue_identifier: identifier}), do: to_string(identifier)
 end

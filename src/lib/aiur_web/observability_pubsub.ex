@@ -5,7 +5,6 @@ defmodule AiurWeb.ObservabilityPubSub do
 
   @pubsub Aiur.PubSub
   @topic "observability:dashboard"
-  @update_message :observability_updated
 
   @spec subscribe() :: :ok | {:error, term()}
   @spec subscribe(Phoenix.PubSub.t()) :: :ok | {:error, term()}
@@ -18,7 +17,8 @@ defmodule AiurWeb.ObservabilityPubSub do
   def broadcast_update(pubsub \\ @pubsub) do
     case Process.whereis(pubsub) do
       pid when is_pid(pid) ->
-        Phoenix.PubSub.broadcast(pubsub, @topic, @update_message)
+        event_id = System.unique_integer([:monotonic, :positive])
+        Phoenix.PubSub.broadcast(pubsub, @topic, {:observability_updated, event_id})
 
       _ ->
         :ok

@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.State do
   Runtime state for the orchestrator polling loop.
   """
 
-  alias Aiur.{AgentQueueStore, Issue}
+  alias Aiur.{AgentQueueStore, Issue, TrackerIdentity}
   alias Aiur.Orchestrator.{ControlLifecycle, PauseResume, StatusReport}
 
   @default_dispatch_recovery %{
@@ -341,6 +341,54 @@ defmodule Aiur.Orchestrator.State do
       _ ->
         nil
     end)
+  end
+
+  @doc false
+  @spec find_unique_running_by_identity(map(), TrackerIdentity.t()) ::
+          {:ok, map(), String.t()} | {:error, :no_running_agent | :ambiguous_identifier}
+  def find_unique_running_by_identity(running, %TrackerIdentity{} = identity) when is_map(running) do
+    identity_key = TrackerIdentity.github_key(identity)
+
+    exact_matches =
+      Enum.flat_map(running, fn
+        {_issue_id, entry} when is_map(entry) ->
+          if running_identity_key(entry) == identity_key and not is_nil(identity_key), do: [entry], else: []
+
+        _entry ->
+          []
+      end)
+
+    case exact_matches do
+      [entry] -> unique_identifier_target(running, entry)
+      _matches -> {:error, if(exact_matches == [], do: :no_running_agent, else: :ambiguous_identifier)}
+    end
+  end
+
+  def find_unique_running_by_identity(_running, _identity), do: {:error, :no_running_agent}
+
+  defp unique_identifier_target(running, entry) do
+    identifier = entry |> Map.get(:identifier) |> to_string()
+
+    matches =
+      Enum.count(running, fn
+        {_issue_id, %{identifier: candidate}} -> to_string(candidate) == identifier
+        _entry -> false
+      end)
+
+    if identifier != "" and matches == 1,
+      do: {:ok, entry, identifier},
+      else: {:error, :ambiguous_identifier}
+  end
+
+  defp running_identity_key(entry) do
+    identity =
+      Map.get(entry, :tracker_identity) ||
+        case Map.get(entry, :issue) do
+          %Issue{} = issue -> Issue.tracker_identity(issue)
+          _issue -> nil
+        end
+
+    TrackerIdentity.github_key(identity)
   end
 
   @spec find_running_by_repl_pane_id(map(), term()) :: map() | nil

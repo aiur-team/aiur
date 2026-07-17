@@ -40,6 +40,7 @@ test('Units keeps complete semantic rows, named actions, and 44px targets across
       await expect(unknownProgress).not.toHaveAttribute('aria-valuenow')
       await expect(first.getByText('Chat unavailable')).toHaveAttribute('aria-disabled', 'true')
       await expect(first.getByRole('link', { name: /Open Commands/ })).toBeVisible()
+      await expect(first.getByRole('link', { name: /Open Commands/ })).toHaveAttribute('href', '/decisions?ticket=1110')
       await expect(first.getByRole('link', { name: 'GitHub' })).toBeVisible()
       await expect(first.getByRole('button', { name: 'Agent log' })).toBeVisible()
 
@@ -54,6 +55,17 @@ test('Units keeps complete semantic rows, named actions, and 44px targets across
         })
       )
       expect(actionSizes.every(({ width: actionWidth, height }) => actionWidth >= 44 && height >= 44)).toBe(true)
+
+      if (mobile) {
+        await page.getByRole('button', { name: 'None' }).tap()
+        const resetSize = await page.getByRole('button', { name: 'Reset Units filters' }).evaluate((button) => {
+          const box = button.getBoundingClientRect()
+          return { width: box.width, height: box.height }
+        })
+        expect(resetSize.width).toBeGreaterThanOrEqual(44)
+        expect(resetSize.height).toBeGreaterThanOrEqual(44)
+        await page.getByRole('button', { name: 'Reset Units filters' }).tap()
+      }
 
       const rowDisplay = await first.evaluate((row) => getComputedStyle(row).display)
       expect(rowDisplay).toBe(width === 1440 ? 'table-row' : 'grid')
@@ -129,10 +141,12 @@ test('Units preserves focused controls on stable updates and restores dialog foc
   await expect(dialog).toHaveCount(0)
   await expect(inspect).toBeFocused()
 
+  const announcementBefore = await page.locator('#units-status').textContent()
   await page.locator('#same-identity-update').evaluate((button) => button.click())
   await expect(inspect).toBeFocused()
   await expect(page.getByText('Responsive Units interface · updated')).toBeVisible()
-  await expect(page.locator('#units-status')).toContainText('Catalog update 2')
+  await expect(page.locator('#units-status')).not.toHaveText(announcementBefore)
+  await expect(page.locator('#units-status')).toContainText(/Catalog update [a-f0-9]{10}/)
   await expect(page.locator('[role="status"][aria-live="polite"]')).toHaveCount(1)
 
   await page.keyboard.press('Enter')

@@ -496,7 +496,7 @@ defmodule Aiur.BrowserHarness.UnitsLive do
     assigns =
       assigns
       |> assign(:view, view)
-      |> assign(:announcement, "Showing #{length(view.rows)} of #{view.total_count} Units. Catalog update #{assigns.generation}.")
+      |> assign(:announcement, UnitsPresenter.announcement(view))
 
     ~H"""
     <main class="app-shell" data-units-fixture="true">
@@ -513,7 +513,11 @@ defmodule Aiur.BrowserHarness.UnitsLive do
           {@announcement}
         </p>
 
-        <UnitsFilters.units_filters selection={@selection} counts={@view.counts} />
+        <UnitsFilters.units_filters
+          selection={@selection}
+          counts={@view.counts}
+          count_status={@view.count_status}
+        />
         <UnitsTable.units_table view={@view} now={@now} />
       </section>
 

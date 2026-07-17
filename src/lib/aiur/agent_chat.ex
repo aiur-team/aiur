@@ -5,13 +5,20 @@ defmodule Aiur.AgentChat do
 
   require Logger
 
-  alias Aiur.{AgentEvents, AgentPubSub, OperatorWaitLog, Orchestrator}
+  alias Aiur.{AgentEvents, AgentPubSub, OperatorWaitLog, Orchestrator, TrackerIdentity}
   alias Aiur.Opencode.SlotRegistry
 
-  @spec send(String.t(), String.t()) :: {:ok, integer()} | {:error, term()}
-  @spec send(String.t(), String.t(), keyword()) :: {:ok, integer()} | {:error, term()}
-  def send(issue_identifier, text, opts \\ [])
-      when is_binary(issue_identifier) and is_binary(text) do
+  @spec send(String.t() | TrackerIdentity.t(), String.t()) :: {:ok, integer()} | {:error, term()}
+  @spec send(String.t() | TrackerIdentity.t(), String.t(), keyword()) :: {:ok, integer()} | {:error, term()}
+  def send(target, text, opts \\ [])
+
+  def send(%TrackerIdentity{} = target, text, opts) when is_binary(text),
+    do: do_send(target, target.identifier, text, opts)
+
+  def send(issue_identifier, text, opts) when is_binary(issue_identifier) and is_binary(text),
+    do: do_send(issue_identifier, issue_identifier, text, opts)
+
+  defp do_send(target, issue_identifier, text, opts) do
     delivery_policy = Keyword.get(opts, :delivery_policy, :interrupt)
     fallback = Keyword.get(opts, :fallback, :queue_next)
     turn_id = Keyword.get(opts, :turn_id)
@@ -20,7 +27,7 @@ defmodule Aiur.AgentChat do
 
     result =
       Orchestrator.send_operator_message(
-        issue_identifier,
+        target,
         %{kind: :text, body: text, delivery_policy: delivery_policy, fallback: fallback, turn_id: turn_id}
       )
 
@@ -67,7 +74,9 @@ defmodule Aiur.AgentChat do
     result
   end
 
-  @spec pause(String.t()) :: {:ok, integer()} | {:error, term()}
+  @spec pause(String.t() | TrackerIdentity.t()) :: {:ok, integer()} | {:error, term()}
+  def pause(%TrackerIdentity{} = identity), do: Orchestrator.pause_agent(identity)
+
   def pause(issue_identifier) when is_binary(issue_identifier) do
     Orchestrator.pause_agent(issue_identifier)
   end

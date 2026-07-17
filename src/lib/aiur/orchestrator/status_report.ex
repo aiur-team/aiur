@@ -144,7 +144,7 @@ defmodule Aiur.Orchestrator.StatusReport do
     pause_reason = Map.get(metadata, :paused_reason)
     started_at = Map.get(metadata, :started_at)
     stale_for_seconds = stale_for_seconds(metadata, now)
-    open_decision_count = open_decision_count(metadata.identifier)
+    {open_decision_count, open_decision_count_health} = open_decision_count(metadata.identifier)
 
     waiting_reason =
       WaitingReason.for_running(%{
@@ -186,6 +186,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       stale_for_seconds: stale_for_seconds,
       waiting_reason: waiting_reason,
       open_decision_count: open_decision_count,
+      open_decision_count_health: open_decision_count_health,
       ci_result: cached_ci_result(state, metadata.identifier)
     }
     |> Map.merge(issue_execution_facts(metadata.issue))
@@ -194,6 +195,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   defp retry_snapshot(%State{} = state, {issue_id, %{attempt: attempt, due_at_ms: due_at_ms} = retry}, now_ms) do
     identifier = Map.get(retry, :identifier)
     issue = Map.get(state.last_polled_issues, issue_id)
+    {open_decision_count, open_decision_count_health} = open_decision_count(identifier)
 
     %{
       issue_id: issue_id,
@@ -209,7 +211,8 @@ defmodule Aiur.Orchestrator.StatusReport do
       worker_host: Map.get(retry, :worker_host),
       workspace_path: Map.get(retry, :workspace_path),
       waiting_reason: WaitingReason.for_retry(),
-      open_decision_count: open_decision_count(identifier),
+      open_decision_count: open_decision_count,
+      open_decision_count_health: open_decision_count_health,
       ci_result: cached_ci_result(state, identifier)
     }
     |> Map.merge(issue_execution_facts(issue))
@@ -234,7 +237,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   defp idle_issue_snapshot(%State{} = state, %Issue{} = issue, terminal_states) do
     identifier = issue.identifier || issue.id
     blocked_by_open? = DispatchPolicy.todo_issue_blocked_by_non_terminal?(issue, terminal_states)
-    open_decision_count = open_decision_count(identifier)
+    {open_decision_count, open_decision_count_health} = open_decision_count(identifier)
 
     %{
       issue_id: issue.id,
@@ -248,6 +251,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       queue_depth: OM.queue_depth_for_issue(state, identifier),
       waiting_reason: WaitingReason.for_idle(issue.state, blocked_by_open?, open_decision_count),
       open_decision_count: open_decision_count,
+      open_decision_count_health: open_decision_count_health,
       ci_result: cached_ci_result(state, identifier)
     }
     |> Map.merge(issue_execution_facts(issue))
@@ -288,10 +292,14 @@ defmodule Aiur.Orchestrator.StatusReport do
     end
   end
 
-  defp open_decision_count(identifier) when is_binary(identifier),
-    do: SubscriptionStore.open_attention_count(identifier)
+  defp open_decision_count(identifier) when is_binary(identifier) do
+    case SubscriptionStore.open_attention_count_result(identifier) do
+      {:ok, count} -> {count, :available}
+      {:error, :unavailable} -> {0, :unavailable}
+    end
+  end
 
-  defp open_decision_count(_identifier), do: 0
+  defp open_decision_count(_identifier), do: {0, :unavailable}
 
   defp status_api_call(server, request, timeout, distinguish_timeout?) do
     if Process.whereis(server) do

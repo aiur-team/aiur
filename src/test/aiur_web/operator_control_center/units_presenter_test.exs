@@ -72,6 +72,52 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
     assert catalog.snapshot.rows == []
     assert catalog.snapshot.health.membership == :unavailable
     assert catalog.snapshot.health.activity == :unavailable
+
+    view = UnitsPresenter.project(catalog, UnitsURL.default_selection())
+    assert view.total_count == nil
+    assert view.count_status == :unavailable
+    assert Enum.all?(view.counts, fn {_name, count} -> is_nil(count) end)
+    assert UnitsPresenter.announcement(view) =~ "Units catalog unavailable"
+    refute UnitsPresenter.announcement(view) =~ "0 of 0"
+  end
+
+  test "truncated membership qualifies every catalog count as a lower bound" do
+    identities = Enum.map(1..1_001, &identity("NODE-#{&1}", Integer.to_string(&1)))
+    retained = identities |> Enum.take(1_000) |> Enum.map(&member/1)
+
+    bounded_membership =
+      retained
+      |> membership()
+      |> Map.put(:truncated?, length(identities) > length(retained))
+
+    catalog =
+      UnitsPresenter.load(%{},
+        membership_fun: fn -> bounded_membership end,
+        activity_fun: fn -> %{entries: []} end
+      )
+
+    view = UnitsPresenter.project(catalog, %{scope: :all, conditions: []})
+
+    assert view.truncated?
+    assert view.count_status == :partial
+    assert view.total_count == 1_000
+    assert view.counts.scope == 1_000
+    assert UnitsPresenter.announcement(view) =~ "at least 1000 of at least 1000 Units"
+  end
+
+  test "same-count row changes produce a bounded production announcement revision" do
+    alpha = identity("NODE-announcement", "41")
+    catalog = UnitsPresenter.load(payload(alpha), membership_fun: fn -> membership([member(alpha)]) end)
+    before = UnitsPresenter.project(catalog, %{scope: :all, conditions: []})
+
+    updated_catalog = update_in(catalog, [:snapshot, :rows], fn [row] -> [%{row | title: "Updated title"}] end)
+    after_update = UnitsPresenter.project(updated_catalog, %{scope: :all, conditions: []})
+
+    assert before.total_count == after_update.total_count
+    assert length(before.rows) == length(after_update.rows)
+    refute before.revision == after_update.revision
+    refute UnitsPresenter.announcement(before) == UnitsPresenter.announcement(after_update)
+    assert UnitsPresenter.announcement(after_update) =~ ~r/Catalog update [a-f0-9]{10}/
   end
 
   test "unknown membership health never renders as a healthy empty catalog" do
@@ -134,6 +180,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
             work_state: :working,
             waiting_reason: :active,
             open_decision_count: 2,
+            open_decision_count_health: :available,
             runtime_seconds: 90,
             workspace_path: "/private/agent/workspace"
           }

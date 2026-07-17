@@ -215,6 +215,54 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRowTest do
     assert row.reasons.alert == :open_command
   end
 
+  test "an unavailable Commands provider cannot turn a fallback zero into an exact fact" do
+    ticket = identity("acme", "alpha", "NODE-unavailable-decision-count", "19")
+
+    row =
+      snapshot_row(ticket,
+        status: status(ticket, open_decision_count: 0),
+        decisions: %{health: {:unavailable, :store_restarting}, entries: []}
+      )
+
+    assert row.provider_health.decisions == :unavailable
+    assert row.open_command_count == nil
+    assert row.field_sources.open_command_count == :unknown
+    assert row.reasons.alert == nil
+  end
+
+  test "an unavailable status count provider cannot turn its fallback zero into an exact fact" do
+    ticket = identity("acme", "alpha", "NODE-unavailable-status-count", "21")
+
+    row =
+      snapshot_row(ticket,
+        status:
+          status(ticket,
+            open_decision_count: 0,
+            open_decision_count_health: :unavailable
+          ),
+        decisions: %{health: {:degraded, :bounded_overview}, entries: []}
+      )
+
+    assert row.provider_health.decisions == :degraded
+    assert row.open_command_count == nil
+    assert row.field_sources.open_command_count == :unknown
+    assert row.reasons.alert == nil
+  end
+
+  test "an unavailable Commands provider preserves a positive fallback alert" do
+    ticket = identity("acme", "alpha", "NODE-unavailable-positive-count", "20")
+
+    row =
+      snapshot_row(ticket,
+        status: status(ticket, open_decision_count: 2),
+        decisions: %{health: {:unavailable, :store_restarting}, entries: []}
+      )
+
+    assert row.open_command_count == 2
+    assert row.field_sources.open_command_count == :status_report
+    assert row.reasons.alert == :open_command
+  end
+
   test "uses retry and pause facts without conflating their reasons" do
     retrying = identity("acme", "alpha", "NODE-retry", "12")
     paused = identity("acme", "alpha", "NODE-paused", "13")
@@ -318,6 +366,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRowTest do
       pause_reason: Keyword.get(attrs, :pause_reason),
       tracker_paused: Keyword.get(attrs, :tracker_paused, false),
       open_decision_count: Keyword.get(attrs, :open_decision_count, 0),
+      open_decision_count_health: Keyword.get(attrs, :open_decision_count_health, :available),
       workspace_path: Keyword.get(attrs, :workspace_path),
       runtime_seconds: 15
     }

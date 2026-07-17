@@ -21,7 +21,32 @@ defmodule AiurWeb.OperatorControlCenter.UnitsFiltersTest do
     assert html =~ ~r/aria-pressed="false"[^>]+phx-value-condition="alert"/
     assert html =~ "Counts describe the selected scope before condition filtering"
     assert html =~ "Conditions overlap, so counts are not additive"
-    assert html =~ ~r/>Active<\/span>\s*<span class="units-filter-count num">3<\/span>/
-    assert html =~ ~r/>Queued<\/span>\s*<span class="units-filter-count num">2<\/span>/
+    assert html =~ ~r/>Active<\/span>\s*<span class="units-filter-count num" aria-label="3">\s*3\s*<\/span>/
+    assert html =~ ~r/>Queued<\/span>\s*<span class="units-filter-count num" aria-label="2">\s*2\s*<\/span>/
+  end
+
+  test "renders lower-bound counts and names unavailable counts without exact zeros" do
+    partial =
+      render_component(&UnitsFilters.units_filters/1, %{
+        selection: %{scope: :all, conditions: []},
+        counts: %{scope: 1_000, active: 800, alert: 2, paused: 1, stuck: 0, queued: 200, finished: 100},
+        count_status: :partial
+      })
+
+    assert partial =~ "800+"
+    assert partial =~ ~s(aria-label="At least 800")
+    assert partial =~ "Counts are lower bounds"
+
+    unavailable =
+      render_component(&UnitsFilters.units_filters/1, %{
+        selection: %{scope: :live, conditions: []},
+        counts: %{scope: nil, active: nil, alert: nil, paused: nil, stuck: nil, queued: nil, finished: nil},
+        count_status: :unavailable
+      })
+
+    assert unavailable =~ ~s(aria-label="Count unavailable")
+    assert unavailable =~ "Counts are unavailable"
+    assert unavailable =~ "disabled"
+    refute unavailable =~ ~r/units-filter-count num[^>]*>0</
   end
 end
