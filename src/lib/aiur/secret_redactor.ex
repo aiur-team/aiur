@@ -31,4 +31,13 @@ defmodule Aiur.SecretRedactor do
       Regex.replace(pattern, acc, replacement)
     end)
   end
+
+  @doc "Inspect a runtime term, redact credentials, and cap the resulting text."
+  @spec safe_inspect(term(), pos_integer()) :: String.t()
+  def safe_inspect(value, max_chars) when is_integer(max_chars) and max_chars > 0 do
+    value
+    |> inspect(limit: 20, printable_limit: max_chars)
+    |> redact()
+    |> String.slice(0, max_chars)
+  end
 end

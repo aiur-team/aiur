@@ -524,6 +524,7 @@ function setupControlRpc() {
       '    missing_marker) echo ":ok"; echo "remote diagnostic"; exit 0 ;;',
       '    missing_marker_empty) exit 0 ;;',
       '    hang) trap \'echo cleaned >"$AIUR_FAKE_RPC_CLEANUP"; exit 143\' TERM; while :; do sleep 1; done ;;',
+      '    hang_descendant) setsid bash -c \'trap "" TERM; while :; do sleep 1; done\' & child=$!; echo "$child" >"$AIUR_FAKE_RPC_CHILD"; wait "$child" ;;',
       // Transport fails the way Elixir --rpc-eval does for an unreachable node.
       '    noconnection) echo "--rpc-eval : RPC failed with reason :noconnection" >&2; exit 1 ;;',
       "  esac",
@@ -757,6 +758,22 @@ test("control rpc timeouts terminate stuck helpers and describe the degraded sto
   expect(capture).toContain("Aiur.AgentControlCLI.status()");
   expect(capture).toContain("Aiur.AgentControlCLI.agents()");
   expect(capture).toContain("Aiur.AgentControlCLI.pause(:all)");
+});
+
+test("control rpc timeouts reap descendants that escape the wrapper process group", () => {
+  if (spawnSync("which", ["setsid"], { encoding: "utf8" }).status !== 0) return;
+
+  const { launcher, releaseDir } = setupControlRpc();
+  const childFile = path.join(root, "rpc-child-pid");
+  const result = runControl(launcher, releaseDir, {
+    AIUR_FAKE_RPC_MODE: "hang_descendant",
+    AIUR_FAKE_RPC_CHILD: childFile,
+    AIUR_CONTROL_RPC_TIMEOUT_SECONDS: "1",
+  });
+
+  expect(result.status).toBe(124);
+  const childPid = Number.parseInt(readFileSync(childFile, "utf8"), 10);
+  expect(() => process.kill(childPid, 0)).toThrow();
 });
 
 // --- Update notifier -------------------------------------------------------

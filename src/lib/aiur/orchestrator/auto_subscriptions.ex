@@ -101,6 +101,13 @@ defmodule Aiur.Orchestrator.AutoSubscriptions do
 
   def auto_unsubscribe_for_dependency(_blockee, _blocker), do: :ok
 
+  @spec unsubscribe_for_declared_blocker(String.t() | integer(), String.t() | integer()) :: :ok
+  def unsubscribe_for_declared_blocker(blockee_identifier, blocker_identifier) do
+    blockee = %Issue{identifier: to_string(blockee_identifier)}
+    blocker = %{identifier: to_string(blocker_identifier)}
+    auto_unsubscribe_for_dependency(blockee, blocker)
+  end
+
   defp attach_and_subscribe(identifier, topics, reason) do
     :ok = SubscriptionStore.attach(identifier)
 

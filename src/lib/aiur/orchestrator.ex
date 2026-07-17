@@ -703,4 +703,8 @@ defmodule Aiur.Orchestrator do
   @spec subscribe_for_declared_blocker(String.t() | integer(), String.t() | integer()) :: :ok
   def subscribe_for_declared_blocker(blockee_identifier, blocker_identifier),
     do: AutoSubscriptions.subscribe_for_declared_blocker(blockee_identifier, blocker_identifier)
+
+  @spec unsubscribe_for_declared_blocker(String.t() | integer(), String.t() | integer()) :: :ok
+  def unsubscribe_for_declared_blocker(blockee_identifier, blocker_identifier),
+    do: AutoSubscriptions.unsubscribe_for_declared_blocker(blockee_identifier, blocker_identifier)
 end

@@ -572,7 +572,7 @@ defmodule Aiur.Codex.DynamicToolTest do
 
     assert Jason.decode!(response["output"]) == %{
              "error" => %{
-               "message" => "Linear GraphQL tool execution failed.",
+               "message" => "Aiur tool execution failed.",
                "reason" => ":boom"
              }
            }
@@ -878,8 +878,8 @@ defmodule Aiur.Codex.DynamicToolTest do
     end
   end
 
-  describe "catch-all error payload — Wave 0 characterization" do
-    test "non-linear tool returning unexpected error still renders catch-all message" do
+  describe "catch-all error payload" do
+    test "non-linear tool returning an unexpected error renders the shared catch-all message" do
       response =
         DynamicTool.execute(
           "emit_event",
@@ -889,7 +889,7 @@ defmodule Aiur.Codex.DynamicToolTest do
 
       assert response["success"] == false
       decoded = Jason.decode!(response["output"])
-      assert decoded["error"]["message"] == "Linear GraphQL tool execution failed."
+      assert decoded["error"]["message"] == "Aiur tool execution failed."
       assert decoded["error"]["reason"] == ":unexpected"
     end
   end
