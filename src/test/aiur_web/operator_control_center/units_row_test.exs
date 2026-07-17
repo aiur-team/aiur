@@ -105,6 +105,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRowTest do
     assert row.replacement_boundary?
     refute row.terminal?
     assert row.lifecycle == :waiting
+    assert row.field_sources.lifecycle == :status_report
     assert row.runtime.bucket == :running
   end
 
@@ -152,6 +153,66 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRowTest do
     refute UnitsPolicy.condition?(:active, row)
     refute UnitsPolicy.condition?(:paused, row)
     refute UnitsPolicy.condition?(:finished, row)
+  end
+
+  test "falls back to the status count when a Decision entry has no count" do
+    ticket = identity("acme", "alpha", "NODE-missing-decision-count", "15")
+
+    row =
+      snapshot_row(ticket,
+        status: status(ticket, open_decision_count: 2),
+        decisions: %{entries: [%{identity: ticket}]}
+      )
+
+    assert row.open_command_count == 2
+    assert row.field_sources.open_command_count == :status_report
+    assert row.reasons.alert == :open_command
+  end
+
+  test "falls back to the status count after an invalid Decision count" do
+    ticket = identity("acme", "alpha", "NODE-invalid-decision-count", "16")
+
+    row =
+      snapshot_row(ticket,
+        status: status(ticket, open_decision_count: 2),
+        decisions: %{entries: [%{identity: ticket, open_count: -1}]}
+      )
+
+    assert row.open_command_count == 2
+    assert row.field_sources.open_command_count == :status_report
+    assert row.reasons.alert == :open_command
+  end
+
+  test "a degraded zero Decision count cannot clear a positive status alert" do
+    ticket = identity("acme", "alpha", "NODE-degraded-decision-count", "17")
+
+    row =
+      snapshot_row(ticket,
+        status: status(ticket, open_decision_count: 2),
+        decisions: %{
+          health: {:degraded, :stale},
+          entries: [%{identity: ticket, open_count: 0}]
+        }
+      )
+
+    assert row.provider_health.decisions == :degraded
+    assert row.open_command_count == 2
+    assert row.field_sources.open_command_count == :status_report
+    assert row.reasons.alert == :open_command
+  end
+
+  test "a valid positive Decision count wins a positive count conflict" do
+    ticket = identity("acme", "alpha", "NODE-conflicting-decision-count", "18")
+
+    row =
+      snapshot_row(ticket,
+        status: status(ticket, open_decision_count: 2),
+        decisions: %{entries: [%{identity: ticket, open_count: 1}]}
+      )
+
+    assert row.open_command_count == 1
+    assert row.field_sources.open_command_count == :decisions
+    assert row.reasons.alert == :open_command
   end
 
   test "uses retry and pause facts without conflating their reasons" do
@@ -274,5 +335,25 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRowTest do
       effort: "high",
       labels: ["complexity:3", "build-lane:dashboard-ui"]
     }
+  end
+
+  defp snapshot_row(ticket, opts) do
+    snapshot =
+      UnitsRow.snapshot(%{
+        membership: membership([member(ticket)]),
+        status: %{
+          running: [Keyword.fetch!(opts, :status)],
+          retrying: [],
+          idle: []
+        },
+        activity: %{entries: []},
+        decisions: Keyword.fetch!(opts, :decisions),
+        issue_facts: %{
+          entries: [facts(ticket, "Decision count", "https://github.com/acme/alpha/issues/#{ticket.identifier}")]
+        }
+      })
+
+    assert {:ok, row} = UnitsRow.lookup(snapshot, ticket)
+    row
   end
 end

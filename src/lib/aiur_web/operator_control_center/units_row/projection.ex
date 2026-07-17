@@ -28,7 +28,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Projection do
     issue_fact = rows.issue
     replacement_boundary? = Fields.replacement_boundary?(status_row)
     terminal? = Map.get(member, :terminal?) == true and not replacement_boundary?
-    lifecycle = if replacement_boundary?, do: :waiting, else: Map.get(member, :lifecycle)
+    {lifecycle, lifecycle_source} = lifecycle(member, replacement_boundary?)
+    {open_command_count, command_count_source} = Fields.command_count(decision_row, status_row)
     values = field_values(issue_fact, status_row)
 
     %{
@@ -46,10 +47,10 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Projection do
       effort: values.effort,
       complexity: values.complexity,
       build_lane: values.build_lane,
-      reasons: Fields.reasons(status_row, decision_row),
+      reasons: Fields.reasons(status_row, open_command_count),
       runtime: Fields.runtime(status_row, member),
       timestamps: timestamps(member, status_row),
-      open_command_count: Fields.decision_count(decision_row, status_row),
+      open_command_count: open_command_count,
       progress: Fields.activity_value(activity_row, :progress),
       latest_evidence: Fields.activity_value(activity_row, :latest_evidence),
       provider_health: Sources.health(sources),
@@ -57,12 +58,15 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Projection do
         field_sources(
           values.sources,
           activity_row,
-          decision_row,
-          status_row
+          lifecycle_source,
+          command_count_source
         ),
       sources: source_descriptors(sources, member, rows)
     }
   end
+
+  defp lifecycle(_member, true), do: {:waiting, :status_report}
+  defp lifecycle(member, false), do: {Map.get(member, :lifecycle), :membership}
 
   defp timestamps(member, status_row) do
     %{
@@ -125,12 +129,12 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Projection do
     }
   end
 
-  defp field_sources(values, activity_row, decision_row, status_row) do
+  defp field_sources(values, activity_row, lifecycle_source, command_count_source) do
     %{
       title: values.title,
       url: values.url,
       tracker_state: values.tracker_state,
-      lifecycle: :membership,
+      lifecycle: lifecycle_source,
       backend: values.backend,
       agent_family: values.agent_family,
       requested_model: values.requested_model,
@@ -139,7 +143,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Projection do
       complexity: values.complexity,
       build_lane: values.build_lane,
       progress: if(is_nil(activity_row), do: :unknown, else: :activity),
-      open_command_count: Fields.command_count_source(decision_row, status_row)
+      open_command_count: command_count_source
     }
   end
 

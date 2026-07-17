@@ -32,17 +32,18 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Fields do
     sourced_derived_value(issue_fact, status_row, &build_lane/1)
   end
 
-  @spec reasons(map() | term(), map() | term()) :: map()
-  def reasons(status_row, decision_row) do
+  @type command_count_source :: :decisions | :status_report | :unknown
+
+  @spec reasons(map() | term(), non_neg_integer() | nil) :: map()
+  def reasons(status_row, open_command_count) do
     waiting = Value.get(status_row, :waiting_reason)
     pause = Value.get(status_row, :pause_reason)
     explicit_alert = Value.get(status_row, :alert_reason)
-    count = decision_count(decision_row, status_row)
 
     %{
       waiting: waiting,
       blocking: blocking_reason(status_row, waiting),
-      alert: alert_reason(explicit_alert, count),
+      alert: alert_reason(explicit_alert, open_command_count),
       pause: pause_reason(status_row, pause),
       stuck: stuck_reason(status_row, waiting)
     }
@@ -61,21 +62,14 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Fields do
     }
   end
 
-  @spec decision_count(map() | term(), map() | term()) :: non_neg_integer() | nil
-  def decision_count(decision_row, status_row) do
-    value =
-      Value.get(decision_row, :open_command_count) ||
-        Value.get(decision_row, :open_count) ||
-        Value.get(decision_row, :count) ||
-        Value.get(status_row, :open_decision_count)
+  @spec command_count(map() | term(), map() | term()) ::
+          {non_neg_integer() | nil, command_count_source()}
+  def command_count(decision_row, status_row) do
+    decision_count = sourced_count(decision_row, [:open_command_count, :open_count, :count], :decisions)
+    status_count = sourced_count(status_row, [:open_decision_count], :status_report)
 
-    if is_integer(value) and value >= 0, do: value
+    choose_command_count(decision_count, status_count)
   end
-
-  @spec command_count_source(map() | term(), map() | term()) :: :decisions | :status_report | :unknown
-  def command_count_source(decision_row, _status_row) when not is_nil(decision_row), do: :decisions
-  def command_count_source(_decision_row, status_row) when not is_nil(status_row), do: :status_report
-  def command_count_source(_decision_row, _status_row), do: :unknown
 
   @spec activity_value(map() | term(), atom()) :: map()
   def activity_value(activity_row, key) do
@@ -103,6 +97,25 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Fields do
       derived -> {derived, source}
     end
   end
+
+  defp sourced_count(row, keys, source) do
+    Enum.find_value(keys, fn key ->
+      case Value.get(row, key) do
+        count when is_integer(count) and count >= 0 -> {count, source}
+        _count -> nil
+      end
+    end)
+  end
+
+  # An alert is safety-significant, so a positive StatusReport count wins a
+  # zero Decision count instead of allowing stale/LKG disagreement to clear
+  # the reason. Decisions remain canonical for equally-signalling facts.
+  defp choose_command_count({0, :decisions}, {count, :status_report} = status_count) when count > 0,
+    do: status_count
+
+  defp choose_command_count({_count, :decisions} = decision_count, _status_count), do: decision_count
+  defp choose_command_count(nil, {_count, :status_report} = status_count), do: status_count
+  defp choose_command_count(nil, nil), do: {nil, :unknown}
 
   defp complexity(issue) do
     case Value.get(issue, :complexity) do
