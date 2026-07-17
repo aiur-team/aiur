@@ -74,7 +74,7 @@ defmodule Aiur.CurrentRunProjections.SourceAdapter do
     {:ok,
      %{
        run_id: Value.get(membership, :run_id),
-       generation: Value.get(membership, :generation),
+       generation: Value.get(membership, :generation, nil),
        health: Value.get(membership, :health),
        freshness: Value.get(membership, :freshness),
        truncated?: Value.get(membership, :truncated?, false) == true,
@@ -85,7 +85,7 @@ defmodule Aiur.CurrentRunProjections.SourceAdapter do
   defp sanitize(:status, status) when is_map(status) do
     {:ok,
      %{
-       generation: Value.get(status, :generation),
+       generation: Value.get(status, :generation, nil),
        health: :available,
        freshness: :fresh,
        running: sanitize_status_bucket(status, :running),
@@ -106,7 +106,7 @@ defmodule Aiur.CurrentRunProjections.SourceAdapter do
 
     {:ok,
      %{
-       generation: Value.get(activity, :generation),
+       generation: Value.get(activity, :generation, nil),
        entries: entries,
        health: if(invalid?, do: :degraded, else: :available),
        freshness: activity_freshness(invalid?, stale?)
@@ -118,7 +118,7 @@ defmodule Aiur.CurrentRunProjections.SourceAdapter do
 
     {:ok,
      %{
-       generation: Value.get(snapshot, :generation),
+       generation: Value.get(snapshot, :generation, nil),
        health: Value.get(snapshot, :health),
        reconciliation: sanitize_reconciliation(Value.get(snapshot, :reconciliation)),
        merges: merges

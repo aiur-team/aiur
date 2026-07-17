@@ -104,7 +104,7 @@ defmodule Aiur.CurrentRunOutcomeSnapshot.Projection do
   end
 
   defp membership_descriptor(membership, index) do
-    %{generation: Value.get(membership, :generation), signature: index.signature}
+    %{generation: Value.get(membership, :generation, nil), signature: index.signature}
   end
 
   defp membership_index(inputs, members) do

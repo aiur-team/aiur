@@ -98,13 +98,13 @@ defmodule Aiur.CurrentRunOutcomeSnapshot.SourceState do
   def configured_repository_name({:error, _reason}), do: nil
 
   @spec provenance(map(), map(), map()) :: map()
-  def provenance(membership, recent_merges, source_state) do
+  def provenance(membership, recent_merges, _source_state) do
     %{
       run_generation: nil,
-      membership_generation: Value.get(membership, :generation),
+      membership_generation: Value.get(membership, :generation, nil),
       membership_health: membership |> Value.get(:health) |> Value.health(),
-      membership_freshness: source_state.freshness,
-      merge_generation: Value.get(recent_merges, :generation),
+      membership_freshness: membership |> Value.get(:freshness) |> Value.freshness(),
+      merge_generation: Value.get(recent_merges, :generation, nil),
       merge_health: recent_merges |> Value.get(:health) |> merge_health(),
       configured_repository_generation: nil,
       reconciliation: recent_merges |> Value.get(:reconciliation) |> safe_reconciliation()
@@ -152,6 +152,7 @@ defmodule Aiur.CurrentRunOutcomeSnapshot.SourceState do
   defp maybe_reason(reasons, true, reason), do: reasons ++ [reason]
   defp maybe_reason(reasons, false, _reason), do: reasons
   defp merge_health(:writable), do: :healthy
+  defp merge_health({failure, _reason}) when failure in [:append_failed, :compaction_failed], do: :degraded
   defp merge_health(status), do: Value.health(status)
 
   defp valid_run?(run) do

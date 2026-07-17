@@ -96,7 +96,7 @@ defmodule Aiur.CurrentRunOutcomeSnapshot.Outcomes do
         id: Value.get(run, :id),
         started_at: Value.get(run, :started_at),
         observed_at: Value.get(run, :observed_at),
-        membership_generation: Value.get(membership, :generation)
+        membership_generation: Value.get(membership, :generation, nil)
       },
       observation: %{
         source: merge.observation_source,

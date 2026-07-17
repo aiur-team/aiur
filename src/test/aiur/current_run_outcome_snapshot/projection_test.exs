@@ -111,6 +111,20 @@ defmodule Aiur.CurrentRunOutcomeSnapshot.ProjectionTest do
     assert :membership_unavailable in snapshot.health.reasons
   end
 
+  test "readable merge-store persistence failures retain bounded outcomes" do
+    for health <- [{:append_failed, :disk_full}, {:compaction_failed, :disk_full}] do
+      snapshot = CurrentRunOutcomeSnapshot.project(inputs(merge_health: health))
+
+      assert snapshot.state == :partial
+      assert snapshot.completeness == :partial
+      assert snapshot.counts.qualified == 1
+      assert snapshot.counts.returned == 1
+      assert snapshot.health.status == :partial
+      assert :merge_source_degraded in snapshot.health.reasons
+      refute :merge_source_unavailable in snapshot.health.reasons
+    end
+  end
+
   test "orders newest first and makes result caps explicit" do
     members = [member(identity(32)), member(identity(33))]
 
@@ -170,7 +184,7 @@ defmodule Aiur.CurrentRunOutcomeSnapshot.ProjectionTest do
       },
       recent_merges: %{
         generation: 9,
-        health: :writable,
+        health: Keyword.get(opts, :merge_health, :writable),
         reconciliation: %{status: :complete, partial?: false, pages_fetched: 1},
         merges: merges
       },

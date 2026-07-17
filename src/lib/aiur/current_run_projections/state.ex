@@ -25,6 +25,7 @@ defmodule Aiur.CurrentRunProjections.State do
       reconcile_interval_ms: interval(opts, :reconcile_interval_ms, 30_000),
       checkpoint_reader: checkpoint_reader(opts, named?),
       checkpoint_writer: checkpoint_writer(opts, named?),
+      checkpoint_health: :healthy,
       sources: sources,
       availability: Map.new(Map.keys(sources), &{&1, false}),
       units: units,

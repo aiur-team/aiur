@@ -10,6 +10,7 @@ defmodule Aiur.CurrentRunProjectionsTest do
   }
 
   alias Aiur.CurrentRunOutcomeSnapshot.MembershipIndex
+  alias Aiur.CurrentRunProjections.Projector
 
   test "refreshes both projections, publishes changes, and serves read APIs" do
     {source, owner, pubsub} = start_owner()
@@ -187,8 +188,18 @@ defmodule Aiur.CurrentRunProjectionsTest do
   end
 
   test "source event bursts coalesce without making the owner unavailable" do
-    {source, owner, _pubsub} = start_owner()
+    test_pid = self()
+
+    {source, owner, _pubsub} =
+      start_owner(fn value -> value end,
+        checkpoint_writer: fn _run_id, _checkpoint ->
+          send(test_pid, :projection_checkpoint_written)
+          :ok
+        end
+      )
+
     :ok = CurrentRunProjections.refresh(owner)
+    assert_receive :projection_checkpoint_written, 2_000
     assert Agent.get(source, & &1.run_reads) == 1
 
     :ok = :sys.suspend(owner)
@@ -197,8 +208,8 @@ defmodule Aiur.CurrentRunProjectionsTest do
     send(owner, {:running_changed, %{}})
     :ok = :sys.resume(owner)
 
-    assert eventually(fn -> Agent.get(source, & &1.run_reads) == 2 end)
-    Process.sleep(20)
+    assert_receive :projection_checkpoint_written, 2_000
+    refute_receive :projection_checkpoint_written, 50
     assert Agent.get(source, & &1.run_reads) == 2
     assert CurrentRunSummary.health(server: owner).status == :healthy
     assert Process.alive?(owner)
@@ -304,16 +315,53 @@ defmodule Aiur.CurrentRunProjectionsTest do
     end
   end
 
+  test "missing scalar generations stay nil and membership freshness remains source-specific" do
+    {_source, owner, _pubsub} =
+      start_owner(fn current ->
+        current
+        |> update_in([:status], &Map.delete(&1, :generation))
+        |> update_in([:merges], fn merges ->
+          merges
+          |> Map.delete(:generation)
+          |> put_in([:reconciliation, :status], :partial)
+        end)
+      end)
+
+    assert :ok = CurrentRunProjections.refresh(owner)
+
+    summary = CurrentRunSummary.snapshot(server: owner)
+    outcomes = CurrentRunOutcomeSnapshot.snapshot(server: owner)
+
+    assert summary.sources.status_generation == nil
+    assert outcomes.sources.merge_generation == nil
+    assert outcomes.sources.membership_generation == 3
+    assert outcomes.sources.membership_freshness == :fresh
+    assert outcomes.freshness.status == :partial
+    assert outcomes.state == :partial
+    assert :reconciliation_incomplete in outcomes.health.reasons
+    refute :membership_freshness_partial in outcomes.health.reasons
+  end
+
   test "membership indexes rebuild only when the authoritative generation changes" do
     counter = :counters.new(1, [:atomics])
+    test_pid = self()
 
     membership_index_fun = fn members ->
       :counters.add(counter, 1, 1)
       MembershipIndex.build(members)
     end
 
-    {source, owner, _pubsub} = start_owner(fn value -> value end, membership_index_fun: membership_index_fun)
+    {source, owner, _pubsub} =
+      start_owner(fn value -> value end,
+        membership_index_fun: membership_index_fun,
+        checkpoint_writer: fn _run_id, _checkpoint ->
+          send(test_pid, :projection_checkpoint_written)
+          :ok
+        end
+      )
+
     assert :ok = CurrentRunProjections.refresh(owner)
+    assert_receive :projection_checkpoint_written, 2_000
     outcomes = CurrentRunOutcomeSnapshot.snapshot(server: owner)
     assert :counters.get(counter, 1) == 1
     assert Agent.get(source, &Map.get(&1, :membership_reads, 0)) == 1
@@ -321,10 +369,8 @@ defmodule Aiur.CurrentRunProjectionsTest do
 
     send(owner, :clock_tick)
 
-    assert eventually(fn ->
-             state = :sys.get_state(owner)
-             Agent.get(source, & &1.run_reads) == 2 and is_nil(state.refresh)
-           end)
+    assert_receive :projection_checkpoint_written, 2_000
+    assert is_nil(:sys.get_state(owner).refresh)
 
     assert Agent.get(source, &Map.get(&1, :membership_reads, 0)) == 1
     assert Agent.get(source, &Map.get(&1, :merges_reads, 0)) == 1
@@ -350,7 +396,10 @@ defmodule Aiur.CurrentRunProjectionsTest do
     name = unique_name(:restart_owner)
     start_supervised!({Phoenix.PubSub, name: pubsub})
 
+    test_pid = self()
+
     checkpoint_reader = fn ->
+      send(test_pid, {:projection_checkpoint_read, self()})
       %{run_id: "run-1", checkpoint: Agent.get(checkpoint, &Map.get(&1, "run-1"))}
     end
 
@@ -365,6 +414,7 @@ defmodule Aiur.CurrentRunProjectionsTest do
 
     {:ok, supervisor} = Supervisor.start_link([{CurrentRunProjections, opts}], strategy: :one_for_one)
     on_exit(fn -> if Process.alive?(supervisor), do: Supervisor.stop(supervisor) end)
+    assert_receive {:projection_checkpoint_read, initial_owner}, 2_000
 
     assert :ok = CurrentRunProjections.refresh(name)
 
@@ -384,12 +434,12 @@ defmodule Aiur.CurrentRunProjectionsTest do
     assert before_restart.eta.throughput_weight_per_second == %{numerator: 1, denominator: 1_440}
 
     first_owner = Process.whereis(name)
+    assert first_owner == initial_owner
     Process.exit(first_owner, :kill)
 
-    assert eventually(fn ->
-             restarted = Process.whereis(name)
-             is_pid(restarted) and restarted != first_owner
-           end)
+    assert_receive {:projection_checkpoint_read, restarted}, 2_000
+    assert restarted != first_owner
+    assert Process.whereis(name) == restarted
 
     restored = CurrentRunSummary.snapshot(server: name)
     assert restored.generation == before_restart.generation
@@ -403,6 +453,98 @@ defmodule Aiur.CurrentRunProjectionsTest do
     assert after_restart.weights == before_restart.weights
     assert after_restart.progress == before_restart.progress
     assert after_restart.eta == before_restart.eta
+  end
+
+  test "failed checkpoints retain the last fenced generation across restart" do
+    source = start_supervised!({Agent, fn -> sources() end})
+
+    checkpoint =
+      start_supervised!(
+        Supervisor.child_spec(
+          {Agent, fn -> %{fail?: false, checkpoints: %{}} end},
+          id: unique_name(:failing_checkpoint)
+        )
+      )
+
+    pubsub = unique_name(:failed_checkpoint_pubsub)
+    name = unique_name(:failed_checkpoint_owner)
+    test_pid = self()
+    start_supervised!({Phoenix.PubSub, name: pubsub})
+
+    checkpoint_reader = fn ->
+      send(test_pid, {:projection_checkpoint_read, self()})
+
+      %{
+        run_id: "run-1",
+        checkpoint: Agent.get(checkpoint, &get_in(&1, [:checkpoints, "run-1"]))
+      }
+    end
+
+    checkpoint_writer = fn run_id, value ->
+      Agent.get_and_update(checkpoint, fn
+        %{fail?: true} = state ->
+          {{:error, :disk_full}, state}
+
+        state ->
+          {:ok, put_in(state, [:checkpoints, run_id], value)}
+      end)
+    end
+
+    opts =
+      owner_options(source, pubsub,
+        name: name,
+        checkpoint_reader: checkpoint_reader,
+        checkpoint_writer: checkpoint_writer
+      )
+
+    {:ok, supervisor} = Supervisor.start_link([{CurrentRunProjections, opts}], strategy: :one_for_one)
+    on_exit(fn -> if Process.alive?(supervisor), do: Supervisor.stop(supervisor) end)
+    assert_receive {:projection_checkpoint_read, first_owner}, 2_000
+
+    assert :ok = CurrentRunProjections.refresh(name)
+    fenced = CurrentRunSummary.snapshot(server: name)
+    assert fenced.health.status == :healthy
+
+    Agent.update(source, &put_in(&1, [:activity, :entries], [activity_entry(identity(), 60)]))
+    Agent.update(checkpoint, &Map.put(&1, :fail?, true))
+
+    assert :ok = CurrentRunProjections.refresh(name)
+    failed_summary = CurrentRunSummary.snapshot(server: name)
+    failed_outcomes = CurrentRunOutcomeSnapshot.snapshot(server: name)
+
+    assert failed_summary.generation == fenced.generation
+    assert failed_summary.progress == fenced.progress
+    assert failed_summary.health.status == :partial
+    assert failed_summary.freshness.status == :stale
+    assert :projection_checkpoint_unavailable in failed_summary.health.reasons
+    assert failed_summary.last_known_good.generation == fenced.generation
+
+    failed_state = :sys.get_state(name)
+    assert failed_state.checkpoint_health == {:unavailable, :write_failed}
+    assert {^failed_state, false} = Projector.clock(failed_state, %{})
+
+    assert failed_outcomes.health.status == :partial
+    assert failed_outcomes.freshness.status == :stale
+    assert :projection_checkpoint_unavailable in failed_outcomes.health.reasons
+
+    Process.exit(first_owner, :kill)
+    assert_receive {:projection_checkpoint_read, restarted}, 2_000
+    assert restarted != first_owner
+    assert Process.whereis(name) == restarted
+
+    restored = CurrentRunSummary.snapshot(server: name)
+    assert restored.generation == fenced.generation
+    assert restored.progress == fenced.progress
+    assert restored.health.status == :healthy
+    assert :sys.get_state(name).checkpoint_health == :healthy
+
+    Agent.update(checkpoint, &Map.put(&1, :fail?, false))
+    assert :ok = CurrentRunProjections.refresh(name)
+
+    recovered = CurrentRunSummary.snapshot(server: name)
+    assert recovered.generation > fenced.generation
+    assert recovered.progress.exact == %{numerator: 3, denominator: 5}
+    assert recovered.health.status == :healthy
   end
 
   defp start_owner(transform \\ fn value -> value end, extra_opts \\ []) do
@@ -619,17 +761,5 @@ defmodule Aiur.CurrentRunProjectionsTest do
 
   defp unique_name(suffix) do
     String.to_atom("current_run_projections_#{suffix}_#{System.unique_integer([:positive])}")
-  end
-
-  defp eventually(fun, attempts \\ 20)
-  defp eventually(_fun, 0), do: false
-
-  defp eventually(fun, attempts) do
-    if fun.() do
-      true
-    else
-      Process.sleep(10)
-      eventually(fun, attempts - 1)
-    end
   end
 end

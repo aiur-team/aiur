@@ -70,7 +70,7 @@ defmodule Aiur.CurrentRunProjections.Projector do
         membership_signature
       )
 
-    next = %{
+    candidate = %{
       state
       | sources: sources,
         availability: availability,
@@ -91,12 +91,24 @@ defmodule Aiur.CurrentRunProjections.Projector do
         outcome_lkg: outcomes.lkg
     }
 
-    broadcast_changes(next, summary, outcomes)
-    Checkpoint.write(next.checkpoint_writer, next)
-    {next, built.race_signature}
+    case Checkpoint.write(candidate.checkpoint_writer, candidate) do
+      :ok ->
+        next = %{candidate | checkpoint_health: :healthy}
+        broadcast_changes(next, summary, outcomes)
+        {next, built.race_signature}
+
+      {:error, :checkpoint_write_failed} ->
+        failed = Checkpoint.fail(canonical)
+        broadcast_checkpoint_failure(canonical, failed)
+        {failed, built.race_signature}
+    end
   end
 
   @spec clock(map(), map()) :: {map(), boolean()}
+  def clock(%{checkpoint_health: health} = state, _results) when health != :healthy do
+    {restore_canonical(state), false}
+  end
+
   def clock(state, results) do
     {clock_sources, clock_availability} = SourceFallback.resolve(results, state.sources)
     run = Map.fetch!(clock_sources, :run)
@@ -125,7 +137,9 @@ defmodule Aiur.CurrentRunProjections.Projector do
           state.denominator_signature
         )
 
-      next = %{
+      canonical = canonical_state(state)
+
+      candidate = %{
         state
         | sources: sources,
           availability: availability,
@@ -135,9 +149,21 @@ defmodule Aiur.CurrentRunProjections.Projector do
           summary_lkg: summary.lkg
       }
 
-      if summary.changed?, do: broadcast(next.pubsub, CurrentRunSummary.topic(), {:current_run_summary_changed, summary.snapshot})
-      Checkpoint.write(next.checkpoint_writer, next)
-      {next, false}
+      case Checkpoint.write(candidate.checkpoint_writer, candidate) do
+        :ok ->
+          next = %{candidate | checkpoint_health: :healthy}
+
+          if summary.changed? do
+            broadcast(next.pubsub, CurrentRunSummary.topic(), {:current_run_summary_changed, summary.snapshot})
+          end
+
+          {next, false}
+
+        {:error, :checkpoint_write_failed} ->
+          failed = Checkpoint.fail(canonical)
+          broadcast_checkpoint_failure(canonical, failed)
+          {failed, false}
+      end
     end
   end
 
@@ -179,6 +205,24 @@ defmodule Aiur.CurrentRunProjections.Projector do
         state.pubsub,
         CurrentRunOutcomeSnapshot.topic(),
         {:current_run_outcome_snapshot_changed, outcomes.snapshot}
+      )
+    end
+  end
+
+  defp broadcast_checkpoint_failure(previous, failed) do
+    if previous.summary_snapshot != failed.summary_snapshot do
+      broadcast(
+        failed.pubsub,
+        CurrentRunSummary.topic(),
+        {:current_run_summary_changed, failed.summary_snapshot}
+      )
+    end
+
+    if previous.outcome_snapshot != failed.outcome_snapshot do
+      broadcast(
+        failed.pubsub,
+        CurrentRunOutcomeSnapshot.topic(),
+        {:current_run_outcome_snapshot_changed, failed.outcome_snapshot}
       )
     end
   end
