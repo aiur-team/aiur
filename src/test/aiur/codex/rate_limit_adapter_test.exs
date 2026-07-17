@@ -3,7 +3,7 @@ defmodule Aiur.Codex.RateLimitAdapterTest do
   use ExUnitProperties
 
   alias Aiur.Codex.RateLimitAdapter
-  alias Aiur.ProviderMeters.Input
+  alias Aiur.ProviderMeters.{Input, Reconciler}
 
   @observed_at ~U[2026-07-16 19:00:00Z]
 
@@ -18,13 +18,51 @@ defmodule Aiur.Codex.RateLimitAdapterTest do
     assert normalized.plan.tier == :business
     assert normalized.windows["codex:primary"].used_percent == 25
     assert normalized.windows["codex:primary"].remaining_percent == 75
+    assert normalized.windows["codex:primary"].expires_at == normalized.windows["codex:primary"].resets_at
     assert normalized.windows["gpt-5:primary"].duration_minutes == 60
     assert normalized.windows["codex:credits"].credits.status == :available
     assert normalized.windows["gpt-5:credits"].credits.status == :exhausted
     assert normalized.windows["codex:spend-control"].spend_control.status == :enabled
     assert normalized.windows["codex:spend-control"].remaining_percent == 85
     assert normalized.windows["codex:spend-control"].resets_at == ~U[2026-08-16 00:00:00Z]
+    assert normalized.windows["codex:spend-control"].expires_at == ~U[2026-08-16 00:00:00Z]
     assert normalized.windows["reset-credits"].credits == %{status: :available, amount: 2}
+  end
+
+  test "rate and spend facts become stale at their provider reset boundary" do
+    reset_at = DateTime.add(@observed_at, 60, :second)
+
+    response = %{
+      "rateLimits" => %{
+        "limitId" => "codex",
+        "primary" => %{"usedPercent" => 25, "resetsAt" => DateTime.to_unix(reset_at)},
+        "individualLimit" => %{
+          "used" => "1.00",
+          "limit" => "2.00",
+          "remainingPercent" => 50,
+          "resetsAt" => DateTime.to_unix(reset_at)
+        }
+      },
+      "rateLimitsByLimitId" => nil,
+      "rateLimitResetCredits" => nil
+    }
+
+    assert {:ok, update} = RateLimitAdapter.snapshot(response, make_ref(), :subscription, @observed_at)
+    assert {:ok, normalized} = Input.normalize(update)
+
+    normalized =
+      normalized
+      |> Map.delete(:account_generation_binding)
+      |> Map.put(:provider_account_generation, "generation")
+
+    assert {:updated, fresh} = Reconciler.apply(nil, normalized, @observed_at)
+    assert fresh.freshness == :fresh
+
+    expired = Reconciler.refresh(fresh, DateTime.add(reset_at, 1, :second))
+    assert expired.windows["codex:primary"].freshness == :stale
+    assert expired.windows["codex:spend-control"].freshness == :stale
+    assert expired.freshness == :stale
+    assert expired.health.state == :stale
   end
 
   test "maps API-key mode without fabricating plan or monetary balances" do
@@ -75,13 +113,22 @@ defmodule Aiur.Codex.RateLimitAdapterTest do
   test "uses an unkeyed sparse patch only after a full snapshot identifies one bucket" do
     patch = %{"primary" => %{"usedPercent" => 20}}
 
-    assert :ignore = RateLimitAdapter.patch(patch, make_ref(), :subscription, @observed_at)
+    assert :ambiguous_limit_id = RateLimitAdapter.patch(patch, make_ref(), :subscription, @observed_at)
 
     assert {:ok, update} =
              RateLimitAdapter.patch(patch, make_ref(), :subscription, @observed_at, single_limit_id: "default")
 
     assert {:ok, normalized} = Input.normalize(update)
     assert normalized.windows["default:primary"].used_percent == 20
+  end
+
+  test "normalizes an unkeyed plan-only patch without fabricating a limit ID" do
+    patch = %{"limitId" => nil, "planType" => "plus"}
+
+    assert {:ok, update} = RateLimitAdapter.patch(patch, make_ref(), :subscription, @observed_at)
+    assert {:ok, normalized} = Input.normalize(update)
+    assert normalized.plan.tier == :pro
+    assert normalized.windows == %{}
   end
 
   test "normalizes a compatible v2 response without claiming its binary version" do
@@ -153,6 +200,27 @@ defmodule Aiur.Codex.RateLimitAdapterTest do
     }
 
     assert {:error, :malformed} = RateLimitAdapter.snapshot(mismatched_id, make_ref(), :subscription, @observed_at)
+  end
+
+  test "rejects malformed or conflicting plan facts across limit buckets" do
+    response = %{
+      "rateLimits" => %{"planType" => "business"},
+      "rateLimitsByLimitId" => %{
+        "codex" => %{"planType" => "business", "primary" => %{"usedPercent" => 10}},
+        "gpt-5" => %{"planType" => "enterprise", "primary" => %{"usedPercent" => 20}}
+      },
+      "rateLimitResetCredits" => nil
+    }
+
+    assert {:error, :malformed} = RateLimitAdapter.snapshot(response, make_ref(), :subscription, @observed_at)
+
+    compatible = put_in(response, ["rateLimitsByLimitId", "gpt-5", "planType"], "self_serve_business_usage_based")
+
+    assert {:ok, %{plan: %{tier: :business}}} =
+             RateLimitAdapter.snapshot(compatible, make_ref(), :subscription, @observed_at)
+
+    malformed = put_in(response, ["rateLimitsByLimitId", "gpt-5", "planType"], %{raw: "enterprise"})
+    assert {:error, :malformed} = RateLimitAdapter.snapshot(malformed, make_ref(), :subscription, @observed_at)
   end
 
   test "drops account and capability fields before projection output" do

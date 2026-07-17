@@ -132,7 +132,6 @@ defmodule Aiur.Codex.AccountGenerationTest do
 
   test "rate-limit patches share the trusted account generation and preserve LKG on failure", %{owner: owner, session: session} do
     {:ok, meter_store} = Store.start_link(name: nil, account_generation_owner: owner)
-    observed_at = ~U[2026-07-16 19:00:00Z]
     session = Map.put(session, :provider_meter_ingester, &Store.ingest(meter_store, &1))
     session = Map.put(session, :provider_meter_failure_recorder, &Store.record_failure(meter_store, &1))
 
@@ -156,7 +155,8 @@ defmodule Aiur.Codex.AccountGenerationTest do
     assert snapshot.auth_mode == :subscription
     assert snapshot.windows["codex:primary"].used_percent == 75
 
-    assert :ok = AccountGeneration.record_rate_limit_failure(session, :response_timeout, observed_at: observed_at)
+    failure_at = DateTime.add(snapshot.health.last_observed_at, 1, :second)
+    assert :ok = AccountGeneration.record_rate_limit_failure(session, :response_timeout, observed_at: failure_at)
     assert stale = Store.snapshot(meter_store, :codex, :app_server, session.account_generation_binding)
     assert stale.provider_account_generation == expected_generation
     assert stale.health.state == :stale
@@ -172,14 +172,14 @@ defmodule Aiur.Codex.AccountGenerationTest do
     }
 
     assert %{"primary" => %{"usedPercent" => 20}} =
-             AccountGeneration.observe_rate_limit_snapshot(session, response, observed_at: DateTime.add(observed_at, 1, :second))
+             AccountGeneration.observe_rate_limit_snapshot(session, response, observed_at: DateTime.add(failure_at, 1, :second))
 
     assert recovered = Store.snapshot(meter_store, :codex, :app_server, session.account_generation_binding)
     assert recovered.provider_account_generation == expected_generation
     assert recovered.health.state == :healthy
     assert recovered.windows["codex:primary"].used_percent == 20
 
-    failure = RateLimitAdapter.failure(session.account_generation_binding, :response_timeout, observed_at)
+    failure = RateLimitAdapter.failure(session.account_generation_binding, :response_timeout, failure_at)
     assert {:ok, _normalized} = Input.normalize_failure(failure)
   end
 
@@ -236,6 +236,8 @@ defmodule Aiur.Codex.AccountGenerationTest do
     snapshot = Store.snapshot(meter_store, :codex, :app_server, session.account_generation_binding)
     assert snapshot.windows["codex:primary"].used_percent == 30
     assert snapshot.windows["gpt-5:primary"].used_percent == 40
+    assert snapshot.health.state == :stale
+    assert snapshot.health.failure == :malformed
   end
 
   test "malformed meter updates retain LKG and do not reach scheduling compatibility", %{owner: owner, session: session} do

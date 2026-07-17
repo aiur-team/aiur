@@ -233,6 +233,12 @@ defmodule Aiur.Codex.AccountGeneration do
 
   defp handle_patch_result({:ok, update}, session), do: ingest_rate_limit_update(session, update, [])
 
+  defp handle_patch_result(:ambiguous_limit_id, session) do
+    record_rate_limit_failure(session, :malformed)
+
+    if trusted_generation?(session), do: :ignore, else: :error
+  end
+
   defp handle_patch_result(:ignore, session) do
     if trusted_generation?(session) do
       :ignore

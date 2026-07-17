@@ -181,7 +181,10 @@ defmodule Aiur.ProviderMeters.Reconciler do
   # full snapshot (or a new account generation) clears that same-generation
   # LKG failure state.
   defp patch_health(%{failure: nil}, update), do: healthy(update)
-  defp patch_health(health, _update), do: health
+
+  defp patch_health(health, update) do
+    %{health | last_observed_at: update.observed_at, last_source_version: update.source_version}
+  end
 
   defp different_identity?(snapshot, update) do
     snapshot.provider != update.provider or

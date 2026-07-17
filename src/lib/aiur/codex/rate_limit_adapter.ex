@@ -5,6 +5,7 @@ defmodule Aiur.Codex.RateLimitAdapter do
   @adapter_mapping_version 144_004
   @auth_modes [:subscription, :api_key, :unknown]
   @rate_limit_kinds [primary: "primary", secondary: "secondary"]
+  @window_fields ~w(primary secondary credits individualLimit)
   @snapshot_fields ~w(limitId limitName planType primary secondary credits individualLimit rateLimitReachedType)
   @legacy_compatibility_fields ~w(limited resetAt reset_at resetsAt)
   @max_limit_sets 32
@@ -45,7 +46,7 @@ defmodule Aiur.Codex.RateLimitAdapter do
   def snapshot_limit_ids(_response), do: {:error, :malformed}
 
   @spec patch(map(), reference(), :subscription | :api_key | :unknown, DateTime.t(), keyword()) ::
-          {:ok, map()} | :ignore | {:error, :malformed}
+          {:ok, map()} | :ignore | :ambiguous_limit_id | {:error, :malformed}
   def patch(rate_limits, binding, auth_mode, observed_at, opts \\ [])
 
   def patch(%{} = rate_limits, binding, auth_mode, observed_at, opts)
@@ -65,15 +66,31 @@ defmodule Aiur.Codex.RateLimitAdapter do
   def patch(_rate_limits, _binding, _auth_mode, _observed_at, _opts), do: {:error, :malformed}
 
   defp structured_patch(rate_limits, binding, auth_mode, observed_at, opts) do
-    with {:ok, limit_id} <- patch_limit_id(rate_limits, Keyword.get(opts, :single_limit_id)),
-         {:ok, windows} <- windows_for(limit_id, rate_limits, observed_at),
-         {:ok, plan} <- plan_for(rate_limits, observed_at) do
+    with {:ok, plan} <- plan_for(rate_limits, observed_at),
+         {:ok, windows} <- patch_windows(rate_limits, observed_at, opts) do
       if windows == [] and is_nil(plan) do
         :ignore
       else
         {:ok, update(:patch, binding, auth_mode, observed_at, windows: windows, plan: plan)}
       end
     end
+  end
+
+  defp patch_windows(rate_limits, observed_at, opts) do
+    case patch_limit_id(rate_limits, Keyword.get(opts, :single_limit_id)) do
+      {:ok, limit_id} -> windows_for(limit_id, rate_limits, observed_at)
+      :ignore -> if(window_facts?(rate_limits), do: :ambiguous_limit_id, else: {:ok, []})
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp window_facts?(rate_limits) do
+    Enum.any?(@window_fields, fn field ->
+      case Map.fetch(rate_limits, field) do
+        {:ok, value} -> not is_nil(value)
+        :error -> false
+      end
+    end)
   end
 
   @spec failure(reference(), term(), DateTime.t()) :: map()
@@ -251,6 +268,7 @@ defmodule Aiur.Codex.RateLimitAdapter do
          remaining_percent: 100 - used_percent,
          duration_minutes: duration_minutes,
          resets_at: resets_at,
+         expires_at: resets_at,
          source: @source,
          observed_at: observed_at,
          coverage: :supported
@@ -317,6 +335,7 @@ defmodule Aiur.Codex.RateLimitAdapter do
            name: :spend_control,
            remaining_percent: remaining_percent,
            resets_at: reset_at,
+           expires_at: reset_at,
            spend_control: %{status: :enabled},
            source: @source,
            observed_at: observed_at,
@@ -360,16 +379,33 @@ defmodule Aiur.Codex.RateLimitAdapter do
   end
 
   defp plan(legacy, limit_sets, observed_at) do
-    plan_source =
-      Map.get(legacy, "planType") ||
-        Enum.find_value(limit_sets, fn {_limit_id, snapshot} -> Map.get(snapshot, "planType") end)
+    sources = [legacy | Enum.map(limit_sets, &elem(&1, 1))]
 
-    plan_for(%{"planType" => plan_source}, observed_at)
+    with {:ok, plan_tiers} <- plan_tiers(sources) do
+      case Enum.uniq(plan_tiers) do
+        [] -> {:ok, nil}
+        [tier] -> {:ok, normalized_plan(tier, observed_at)}
+        _conflicting -> {:error, :malformed}
+      end
+    end
+  end
+
+  defp plan_tiers(sources) do
+    Enum.reduce_while(sources, {:ok, []}, fn source, {:ok, plan_tiers} ->
+      case Map.fetch(source, "planType") do
+        :error -> {:cont, {:ok, plan_tiers}}
+        {:ok, nil} -> {:cont, {:ok, plan_tiers}}
+        {:ok, plan_type} when is_binary(plan_type) -> {:cont, {:ok, [plan_tier(plan_type) | plan_tiers]}}
+        {:ok, _other} -> {:halt, {:error, :malformed}}
+      end
+    end)
   end
 
   defp plan_for(%{"planType" => nil}, _observed_at), do: {:ok, nil}
-  defp plan_for(%{"planType" => plan_type}, observed_at) when is_binary(plan_type), do: {:ok, %{tier: plan_tier(plan_type), source: @source, observed_at: observed_at}}
+  defp plan_for(%{"planType" => plan_type}, observed_at) when is_binary(plan_type), do: {:ok, normalized_plan(plan_tier(plan_type), observed_at)}
   defp plan_for(%{} = source, _observed_at), do: if(Map.has_key?(source, "planType"), do: {:error, :malformed}, else: {:ok, nil})
+
+  defp normalized_plan(tier, observed_at), do: %{tier: tier, source: @source, observed_at: observed_at}
 
   defp update(update_kind, binding, auth_mode, observed_at, opts) do
     %{

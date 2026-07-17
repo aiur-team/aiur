@@ -108,13 +108,17 @@ defmodule Aiur.ProviderMetersTest do
       assert stale.health.state == :stale
       assert stale.windows[id].used_percent == 25
 
-      sparse_patch = reconciliation_update(:patch, [id], DateTime.add(@now, 3, :second), 2)
+      sparse_patch = reconciliation_update(:patch, [id], DateTime.add(@now, 4, :second), 2)
       {:updated, patched} = Reconciler.apply(stale, sparse_patch, @now)
       assert patched.health.state == :stale
       assert patched.health.failure == :transport
+      assert patched.health.last_observed_at == DateTime.add(@now, 4, :second)
       assert patched.windows[id].used_percent == 50
 
-      recovery = reconciliation_update(:snapshot, [id], DateTime.add(@now, 4, :second), 3)
+      out_of_order_full = reconciliation_update(:snapshot, [id], DateTime.add(@now, 3, :second), 3)
+      assert {:ignored, ^patched} = Reconciler.apply(patched, out_of_order_full, @now)
+
+      recovery = reconciliation_update(:snapshot, [id], DateTime.add(@now, 5, :second), 4)
       {:updated, recovered} = Reconciler.apply(patched, recovery, @now)
       assert recovered.health.state == :healthy
       assert recovered.health.failure == nil
