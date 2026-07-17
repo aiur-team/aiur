@@ -484,7 +484,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
        ) do
     case record_operator_delivery(item, issue) do
       :ok ->
-        MessageHandler.observe_operator_delivery(issue, item, SessionLifecycle.session_backend(app_session), opts)
+        maybe_observe_operator_delivery(issue, item, app_session, opts)
 
         run_recorded_queue_item_turn(
           app_session,
@@ -502,6 +502,12 @@ defmodule Aiur.AgentRunner.QueueDrain do
         :ok
     end
   end
+
+  defp maybe_observe_operator_delivery(issue, %{category: :operator_message} = item, app_session, opts) do
+    MessageHandler.observe_operator_delivery(issue, item, SessionLifecycle.session_backend(app_session), opts)
+  end
+
+  defp maybe_observe_operator_delivery(_issue, _item, _app_session, _opts), do: :ok
 
   defp run_recorded_queue_item_turn(
          app_session,

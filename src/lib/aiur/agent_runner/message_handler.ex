@@ -6,6 +6,8 @@ defmodule Aiur.AgentRunner.MessageHandler do
   subscribers, and reports worker state to the orchestrator recipient.
   """
 
+  require Logger
+
   alias Aiur.{
     AgentEventLog,
     AgentEvents,
@@ -88,43 +90,43 @@ defmodule Aiur.AgentRunner.MessageHandler do
   defp maybe_observe_live_conversation(%Issue{} = issue, message, backend, turn_id, opts) do
     with {:ok, source} <- live_source(issue, backend, opts),
          {:ok, event} <- transcript_event_from(message, backend, turn_id) do
-      observe_live_event(source, event)
+      observe_live_event(issue, source, event, opts)
     else
       _ -> :ok
     end
   end
 
-  defp observe_live_event(source, %{role: :tool} = event) do
+  defp observe_live_event(issue, source, %{role: :tool} = event, opts) do
     case safe_tool_summary(event) do
-      {:ok, summary} -> safe_live_conversation(fn -> LiveConversation.observe_tool_summary(source, summary) end)
-      :skip -> :ok
+      {:ok, summary} ->
+        safe_live_conversation(issue, :observe_tool, fn ->
+          LiveConversation.observe_tool_summary(source, summary, live_conversation_opts(opts))
+        end)
+
+      :skip ->
+        :ok
     end
   end
 
   # Codex does not expose a stable fragment identity for replayed deltas. Keep
   # rich partials in the pane transcript, but admit only the matching completed
   # message to the bounded public projection.
-  defp observe_live_event(_source, %{kind: :assistant_delta}), do: :ok
+  defp observe_live_event(_issue, _source, %{kind: :assistant_delta}, _opts), do: :ok
 
-  defp observe_live_event(source, event),
-    do: safe_live_conversation(fn -> LiveConversation.observe(source, event) end)
+  defp observe_live_event(issue, source, event, opts) do
+    safe_live_conversation(issue, :observe, fn ->
+      LiveConversation.observe(source, event, live_conversation_opts(opts))
+    end)
+  end
 
   # The rich transcript event contains tool inputs, output and paths. Reduce
   # only completed result shapes to fixed prose before crossing the projection
   # boundary; no provider-controlled tool content is retained.
-  defp safe_tool_summary(%{payload: payload} = event) when is_map(payload) do
+  defp safe_tool_summary(%{payload: payload, msg_id: msg_id} = event)
+       when is_map(payload) and (is_binary(msg_id) or is_integer(msg_id)) do
     case safe_tool_outcome(payload, event) do
-      nil ->
-        :skip
-
-      outcome ->
-        {:ok,
-         %{
-           msg_id: event[:msg_id] || "tool:#{event.sequence}",
-           title: "Tool result",
-           body: outcome,
-           timestamp: event.timestamp
-         }}
+      nil -> :skip
+      outcome -> {:ok, %{msg_id: msg_id, title: "Tool result", body: outcome, timestamp: event.timestamp}}
     end
   end
 
@@ -140,7 +142,12 @@ defmodule Aiur.AgentRunner.MessageHandler do
 
   @doc false
   @spec observe_operator_delivery(Issue.t(), map(), String.t(), keyword()) :: :ok
-  def observe_operator_delivery(%Issue{} = issue, %{id: request_id} = item, backend, opts)
+  def observe_operator_delivery(
+        %Issue{} = issue,
+        %{id: request_id, category: :operator_message} = item,
+        backend,
+        opts
+      )
       when is_integer(request_id) and is_binary(backend) and is_list(opts) do
     with {:ok, source} <- live_source(issue, backend, opts),
          text when is_binary(text) and text != "" <- QueueDrain.queue_item_text(item) do
@@ -152,7 +159,9 @@ defmodule Aiur.AgentRunner.MessageHandler do
         payload: %{source: :operator_delivery}
       }
 
-      safe_live_conversation(fn -> LiveConversation.observe_operator_message(source, event) end)
+      safe_live_conversation(issue, :observe_operator, fn ->
+        LiveConversation.observe_operator_message(source, event, live_conversation_opts(opts))
+      end)
     else
       _ -> :ok
     end
@@ -161,15 +170,75 @@ defmodule Aiur.AgentRunner.MessageHandler do
   def observe_operator_delivery(_issue, _item, _backend, _opts), do: :ok
 
   @doc false
-  @spec end_live_conversation(Issue.t(), String.t(), keyword()) :: :ok
-  def end_live_conversation(%Issue{} = issue, backend, opts) when is_binary(backend) and is_list(opts) do
+  @spec observe_display_transcript(Issue.t(), map(), String.t(), keyword()) :: :ok
+  def observe_display_transcript(
+        %Issue{} = issue,
+        %{role: :user, payload: %{origin: :remote}} = event,
+        backend,
+        opts
+      )
+      when is_binary(backend) and is_list(opts) do
     case live_source(issue, backend, opts) do
-      {:ok, source} -> safe_live_conversation(fn -> LiveConversation.end_generation(source) end)
+      {:ok, source} ->
+        safe_live_conversation(issue, :observe_remote_operator, fn ->
+          LiveConversation.observe_operator_message(source, event, live_conversation_opts(opts))
+        end)
+
+      :error ->
+        :ok
+    end
+  end
+
+  def observe_display_transcript(%Issue{} = issue, %{role: role} = event, backend, opts)
+      when role in [:assistant, :tool] and is_binary(backend) and is_list(opts) do
+    case live_source(issue, backend, opts) do
+      {:ok, source} -> observe_live_event(issue, source, event, opts)
       :error -> :ok
     end
   end
 
+  def observe_display_transcript(_issue, _event, _backend, _opts), do: :ok
+
+  @doc false
+  @spec end_live_conversation(Issue.t(), String.t(), keyword()) :: :ok
+  def end_live_conversation(%Issue{} = issue, backend, opts) when is_binary(backend) and is_list(opts) do
+    case live_source(issue, backend, opts) do
+      {:ok, source} ->
+        safe_live_conversation(issue, :end_generation, fn ->
+          LiveConversation.end_generation(source, live_conversation_opts(opts))
+        end)
+
+      :error ->
+        :ok
+    end
+  end
+
   def end_live_conversation(_issue, _backend, _opts), do: :ok
+
+  @doc false
+  @spec finish_live_conversation(Issue.t(), String.t(), term(), keyword()) :: :ok
+  def finish_live_conversation(issue, backend, {:error, _reason}, opts),
+    do: mark_live_conversation_degraded(issue, backend, opts)
+
+  def finish_live_conversation(issue, backend, _result, opts),
+    do: end_live_conversation(issue, backend, opts)
+
+  @doc false
+  @spec mark_live_conversation_degraded(Issue.t(), String.t(), keyword()) :: :ok
+  def mark_live_conversation_degraded(%Issue{} = issue, backend, opts)
+      when is_binary(backend) and is_list(opts) do
+    case live_source(issue, backend, opts) do
+      {:ok, source} ->
+        safe_live_conversation(issue, :mark_degraded, fn ->
+          LiveConversation.mark_degraded(source, live_conversation_opts(opts))
+        end)
+
+      :error ->
+        :ok
+    end
+  end
+
+  def mark_live_conversation_degraded(_issue, _backend, _opts), do: :ok
 
   defp maybe_broadcast_turn_event(%Issue{identifier: identifier}, message, turn_id)
        when is_binary(identifier) and is_binary(turn_id) do
@@ -248,8 +317,13 @@ defmodule Aiur.AgentRunner.MessageHandler do
 
   defp activate_live_conversation(issue, backend, opts) do
     case live_source(issue, backend, opts) do
-      {:ok, source} -> safe_live_conversation(fn -> LiveConversation.activate(source) end)
-      :error -> :ok
+      {:ok, source} ->
+        safe_live_conversation(issue, :activate, fn ->
+          LiveConversation.activate(source, live_conversation_opts(opts))
+        end)
+
+      :error ->
+        :ok
     end
   end
 
@@ -267,11 +341,24 @@ defmodule Aiur.AgentRunner.MessageHandler do
   defp live_attempt_id(opts),
     do: Keyword.get(opts, :attempt_id) || Keyword.get(opts, :telemetry_attempt_id)
 
-  defp safe_live_conversation(fun) do
+  defp live_conversation_opts(opts) do
+    case Keyword.get(opts, :live_conversation_server) do
+      nil -> []
+      server -> [server: server]
+    end
+  end
+
+  defp safe_live_conversation(issue, operation, fun) do
     _ = fun.()
     :ok
   catch
-    :exit, _reason -> :ok
+    :exit, reason ->
+      Logger.warning(
+        "Live conversation projection #{operation} failed for " <>
+          "#{Aiur.AgentRunner.issue_context(issue)} reason_class=#{Lifecycle.reason_class(reason)}"
+      )
+
+      :ok
   end
 
   defp send_codex_update(recipient, %Issue{id: issue_id}, message)

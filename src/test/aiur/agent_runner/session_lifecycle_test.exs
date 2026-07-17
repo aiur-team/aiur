@@ -1,9 +1,8 @@
 defmodule Aiur.AgentRunner.SessionLifecycleTest do
   use ExUnit.Case, async: false
 
+  alias Aiur.{AgentEvents, AgentPubSub, Config, Issue, LiveConversation, TrackerIdentity}
   alias Aiur.AgentRunner.SessionLifecycle
-  alias Aiur.Config
-  alias Aiur.Issue
   alias Aiur.Workspace.Ownership
   alias Aiur.Workspace.Ownership.Store
 
@@ -23,6 +22,34 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
       refute SessionLifecycle.should_display_tail?("codex", true, "101")
       refute SessionLifecycle.should_display_tail?("claude-repl", false, "101")
       refute SessionLifecycle.should_display_tail?("claude-repl", true, nil)
+    end
+  end
+
+  describe "display_tailer_handler/3" do
+    test "mirrors pane events through the Remote Control projection allowlist" do
+      unique = Integer.to_string(System.unique_integer([:positive]))
+      identity = tracker_identity(unique)
+      issue = %Issue{id: "gid-rc-#{unique}", identifier: unique, tracker_identity: identity}
+      opts = [telemetry_attempt_id: "attempt-#{unique}", worker_generation: 5]
+      source = %{identity: identity, attempt_id: "attempt-#{unique}", backend: "claude-repl", worker_generation: 5}
+      :ok = AgentPubSub.subscribe_agent(unique)
+
+      handler = SessionLifecycle.display_tailer_handler(issue, "claude-repl", opts)
+
+      remote =
+        AgentEvents.transcript_event(:user, "Remote Control message",
+          msg_id: "remote-#{unique}",
+          payload: %{origin: :remote}
+        )
+
+      assistant = AgentEvents.transcript_event(:assistant, "Agent reply", msg_id: "assistant-#{unique}")
+
+      assert :ok = handler.(%{transcript_event: remote})
+      assert :ok = handler.(%{transcript_event: assistant})
+      assert_receive {:transcript_event, ^remote}
+      assert_receive {:transcript_event, ^assistant}
+
+      assert %{messages: [%{role: "operator"}, %{role: "agent"}]} = LiveConversation.snapshot(source)
     end
   end
 
@@ -394,5 +421,17 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
       Process.sleep(25)
       assert_eventually(fun, attempts - 1)
     end
+  end
+
+  defp tracker_identity(identifier) do
+    %TrackerIdentity{
+      status: :joinable,
+      kind: :github,
+      owner: "owner",
+      repository: "repo",
+      provider_id: "provider-#{identifier}",
+      identifier: identifier,
+      reason: nil
+    }
   end
 end

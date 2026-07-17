@@ -69,11 +69,14 @@ defmodule Aiur.Codex.Transcript do
            turn_id: effective_turn_id
          )}
 
-      tool_payload = tool_payload_from_codex(message) ->
+      tool_result = tool_payload_from_codex(message) ->
+        {tool_payload, msg_id} = tool_result
+
         {:ok,
          AgentEvents.transcript_event(:tool, tool_payload.title,
            timestamp: timestamp,
            turn_id: effective_turn_id,
+           msg_id: msg_id,
            payload: tool_payload
          )}
 
@@ -187,7 +190,7 @@ defmodule Aiur.Codex.Transcript do
     with "item/completed" <- notification_method(message),
          item when is_map(item) <- notification_item(message),
          type when type in ["dynamicToolCall", "fileChange"] <- get(item, :type) do
-      build_tool_payload(type, item)
+      {build_tool_payload(type, item), item_id(item)}
     else
       _ -> nil
     end

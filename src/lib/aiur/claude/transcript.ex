@@ -101,7 +101,13 @@ defmodule Aiur.Claude.Transcript do
 
     case get(get(record, :message) || %{}, :content) do
       text when is_binary(text) and text != "" ->
-        [AgentEvents.transcript_event(:user, text, timestamp: timestamp, turn_id: fallback_turn_id)]
+        [
+          AgentEvents.transcript_event(:user, text,
+            timestamp: timestamp,
+            turn_id: fallback_turn_id,
+            msg_id: record_id(record)
+          )
+        ]
 
       content when is_list(content) ->
         Enum.flat_map(content, &events_for_block(&1, fallback_turn_id, timestamp))
@@ -126,6 +132,7 @@ defmodule Aiur.Claude.Transcript do
         AgentEvents.transcript_event(:user, prompt,
           timestamp: disk_timestamp(record),
           turn_id: fallback_turn_id,
+          msg_id: record_id(record),
           payload: %{origin: :remote}
         )
       ]
@@ -158,6 +165,10 @@ defmodule Aiur.Claude.Transcript do
       _ -> nil
     end
   end
+
+  defp record_id(record), do: get(record, :uuid) || get(record, :id)
+
+  defp tool_event_id(item), do: item_id(item) || get(item, :tool_use_id)
 
   defp normalize_block(block) do
     case get(block, :type) do
@@ -255,6 +266,7 @@ defmodule Aiur.Claude.Transcript do
          AgentEvents.transcript_event(:tool, title,
            timestamp: timestamp,
            turn_id: turn_id,
+           msg_id: tool_event_id(item),
            payload: %{tool: "edit", input: input, output: edit_diff(name, input), title: title}
          )}
 
@@ -263,6 +275,7 @@ defmodule Aiur.Claude.Transcript do
          AgentEvents.transcript_event(:tool, name,
            timestamp: timestamp,
            turn_id: turn_id,
+           msg_id: tool_event_id(item),
            payload: %{tool: name, input: input, output: "", title: name}
          )}
     end
@@ -277,6 +290,7 @@ defmodule Aiur.Claude.Transcript do
          AgentEvents.transcript_event(:tool, title,
            timestamp: timestamp,
            turn_id: turn_id,
+           msg_id: tool_event_id(item),
            payload: %{tool: "result", input: %{}, output: content, title: title}
          )}
 

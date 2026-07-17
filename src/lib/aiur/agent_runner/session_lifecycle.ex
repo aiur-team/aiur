@@ -299,7 +299,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     report_repl_session(codex_update_recipient, issue, session)
     report_pause_containment(codex_update_recipient, issue, session)
 
-    display_tailer = maybe_start_display_tailer(session, issue, session_context.rc?)
+    display_tailer = maybe_start_display_tailer(session, issue, session_context.rc?, opts)
 
     # A resumed thread already carries the original task + full prior turn
     # history, so its first turn must continue rather than replay the
@@ -307,20 +307,27 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     opts = Keyword.put(opts, :resumed, SessionResume.session_resumed?(session))
 
     try do
-      TurnLoop.run_turns(
-        session,
-        workspace,
-        issue,
-        codex_update_recipient,
-        opts,
-        session_context.issue_state_fetcher,
-        session_context.orchestrator,
-        worker_host,
-        1,
-        session_context.max_turns
-      )
+      result =
+        TurnLoop.run_turns(
+          session,
+          workspace,
+          issue,
+          codex_update_recipient,
+          opts,
+          session_context.issue_state_fetcher,
+          session_context.orchestrator,
+          worker_host,
+          1,
+          session_context.max_turns
+        )
+
+      MessageHandler.finish_live_conversation(issue, session_context.session_backend, result, opts)
+      result
+    catch
+      kind, reason ->
+        MessageHandler.mark_live_conversation_degraded(issue, session_context.session_backend, opts)
+        :erlang.raise(kind, reason, __STACKTRACE__)
     after
-      MessageHandler.end_live_conversation(issue, session_context.session_backend, opts)
       stop_display_tailer(display_tailer)
       stop_session_with_ownership(session, ownership)
     end
@@ -451,24 +458,19 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   # agent, so the pane and Remote Control channel are two views of one conversation.
   # Headless/codex/RC-off sessions stream their own rich transcript and are left
   # untouched. Started UNLINKED with `owner: self()` so display failure never affects the run.
-  defp maybe_start_display_tailer(session, issue, rc?) do
+  defp maybe_start_display_tailer(session, issue, rc?, opts) do
     backend = session_backend(session)
 
     if should_display_tail?(backend, rc?, issue.identifier) do
-      identifier = issue.identifier
-
       # DISPLAY-ONLY: broadcast straight to the opencode pane's transcript
       # topic. Do NOT route through codex_message_handler — that also does
       # per-record AgentEventLog.write (disk) and send_codex_update (to the
       # shared run recipient), so a `from: :start` backfill burst would hammer
       # both. The pane render only needs the transcript broadcast.
-      on_message = fn
-        %{transcript_event: event} -> AgentPubSub.broadcast_transcript(identifier, event)
-        _ -> :ok
-      end
+      on_message = display_tailer_handler(issue, backend, opts)
 
       case DisplayTailer.start(
-             identifier: identifier,
+             identifier: issue.identifier,
              on_message: on_message,
              owner: self()
            ) do
@@ -477,10 +479,25 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
 
         {:error, reason} ->
           Logger.warning("display_tailer start_failed issue_identifier=#{issue.identifier} reason=#{inspect(reason)}")
+          MessageHandler.mark_live_conversation_degraded(issue, backend, opts)
           nil
       end
     else
       nil
+    end
+  end
+
+  @doc false
+  @spec display_tailer_handler(Issue.t(), String.t(), keyword()) :: (map() -> :ok)
+  def display_tailer_handler(%Issue{identifier: identifier} = issue, backend, opts)
+      when is_binary(identifier) and is_binary(backend) and is_list(opts) do
+    fn
+      %{transcript_event: event} when is_map(event) ->
+        AgentPubSub.broadcast_transcript(identifier, event)
+        MessageHandler.observe_display_transcript(issue, event, backend, opts)
+
+      _ ->
+        :ok
     end
   end
 

@@ -1,6 +1,8 @@
 defmodule Aiur.AgentRunner.MessageHandlerTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
+
   alias Aiur.{AgentPubSub, Issue, LiveConversation, TrackerIdentity}
   alias Aiur.AgentRunner.MessageHandler
 
@@ -140,6 +142,45 @@ defmodule Aiur.AgentRunner.MessageHandlerTest do
       refute inspect(LiveConversation.snapshot(source)) =~ "private/full/output"
     end
 
+    test "deduplicates replayed tool results using provider identity" do
+      unique = Integer.to_string(System.unique_integer([:positive]))
+      identity = tracker_identity(unique)
+      issue = %Issue{id: "gid-tool-replay-#{unique}", identifier: unique, tracker_identity: identity}
+      source = %{identity: identity, attempt_id: "attempt-#{unique}", backend: "codex", worker_generation: 1}
+
+      handler =
+        MessageHandler.build(nil, issue, nil, nil, "codex", nil,
+          attempt_id: "attempt-#{unique}",
+          worker_generation: 1
+        )
+
+      completed_tool = %{
+        event: :notification,
+        payload: %{
+          method: "item/completed",
+          params: %{
+            item: %{
+              id: "provider-tool-#{unique}",
+              type: "dynamicToolCall",
+              tool: "safe_tool",
+              success: true
+            }
+          }
+        }
+      }
+
+      handler.(completed_tool)
+      handler.(completed_tool)
+
+      assert %{messages: [%{id: id, role: "tool", body: "Tool completed"}]} =
+               LiveConversation.snapshot(source)
+
+      refute id =~ "provider-tool"
+
+      handler.(put_in(completed_tool, [:payload, :params, :item], %{type: "dynamicToolCall", success: true}))
+      assert %{messages: [_single_safe_summary]} = LiveConversation.snapshot(source)
+    end
+
     test "projects operator deliveries using the runner telemetry attempt id" do
       unique = Integer.to_string(System.unique_integer([:positive]))
       identity = tracker_identity(unique)
@@ -161,6 +202,74 @@ defmodule Aiur.AgentRunner.MessageHandlerTest do
 
       assert %{messages: [%{role: "operator", body: "Please continue"}]} =
                LiveConversation.snapshot(source)
+    end
+
+    test "never projects coordination events as operator messages" do
+      unique = Integer.to_string(System.unique_integer([:positive]))
+      identity = tracker_identity(unique)
+      issue = %Issue{id: "gid-coordination-#{unique}", identifier: unique, tracker_identity: identity}
+
+      item = %{
+        id: System.unique_integer([:positive]),
+        category: :coordination_event,
+        event_type: :ticket,
+        body: %{summary: "cross-ticket secret"}
+      }
+
+      assert :ok =
+               MessageHandler.observe_operator_delivery(issue, item, "codex",
+                 telemetry_attempt_id: "attempt-#{unique}",
+                 worker_generation: 2
+               )
+
+      source = %{identity: identity, attempt_id: "attempt-#{unique}", backend: "codex", worker_generation: 2}
+      assert %{state: :restart_unknown, messages: []} = LiveConversation.snapshot(source)
+    end
+
+    test "marks failed sources unavailable or stale and authoritative activation recovers them" do
+      unique = Integer.to_string(System.unique_integer([:positive]))
+      identity = tracker_identity(unique)
+      issue = %Issue{id: "gid-health-#{unique}", identifier: unique, tracker_identity: identity}
+
+      opts = [attempt_id: "attempt-#{unique}", worker_generation: 4]
+      source = %{identity: identity, attempt_id: "attempt-#{unique}", backend: "codex", worker_generation: 4}
+      empty_handler = MessageHandler.build(nil, issue, nil, nil, "codex", nil, opts)
+
+      assert :ok = MessageHandler.finish_live_conversation(issue, "codex", {:error, :port_closed}, opts)
+      assert %{state: :unavailable, messages: []} = LiveConversation.snapshot(source)
+
+      empty_handler.(%{event: :agent_message, body: "known evidence"})
+      assert %{state: :live, messages: [%{body: "known evidence"}]} = LiveConversation.snapshot(source)
+
+      assert :ok = MessageHandler.finish_live_conversation(issue, "codex", {:error, :port_closed}, opts)
+      assert %{state: :stale, messages: [%{body: "known evidence"}]} = LiveConversation.snapshot(source)
+
+      _recovered_handler = MessageHandler.build(nil, issue, nil, nil, "codex", nil, opts)
+      assert %{state: :live, health: :healthy, freshness: :current} = LiveConversation.snapshot(source)
+    end
+
+    test "logs projection process exits without failing the agent path" do
+      unique = Integer.to_string(System.unique_integer([:positive]))
+      identity = tracker_identity(unique)
+      issue = %Issue{id: "gid-log-#{unique}", identifier: unique, tracker_identity: identity}
+      server = start_supervised!({LiveConversation, name: nil})
+      GenServer.stop(server)
+
+      log =
+        capture_log(fn ->
+          assert :ok =
+                   MessageHandler.observe_operator_delivery(
+                     issue,
+                     %{id: 1, category: :operator_message, body: %{text: "continue"}},
+                     "codex",
+                     attempt_id: "attempt-#{unique}",
+                     worker_generation: 1,
+                     live_conversation_server: server
+                   )
+        end)
+
+      assert log =~ "Live conversation projection observe_operator failed"
+      assert log =~ unique
     end
 
     test "omits replay-unstable Codex deltas and projects their completion once" do
@@ -196,8 +305,10 @@ defmodule Aiur.AgentRunner.MessageHandlerTest do
         }
       })
 
-      assert %{messages: [%{id: "message-1", body: "complete"}]} =
+      assert %{messages: [%{id: id, body: "complete"}]} =
                LiveConversation.snapshot(source)
+
+      refute id == "message-1"
     end
   end
 

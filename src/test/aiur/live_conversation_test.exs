@@ -29,7 +29,8 @@ defmodule Aiur.LiveConversationTest do
              )
 
     assert snapshot.state == :live
-    assert [%{id: "m-1", role: "agent", body: body}] = snapshot.messages
+    assert [%{id: id, role: "agent", body: body}] = snapshot.messages
+    assert_opaque_id(id)
     assert body =~ "[REDACTED:ghp]"
     assert body =~ "[REDACTED:path]"
     assert body =~ "[REDACTED:url]"
@@ -88,8 +89,10 @@ defmodule Aiur.LiveConversationTest do
                server: server
              )
 
-    assert %{messages: [%{id: "old"}]} = LiveConversation.snapshot(old, server: server)
-    assert %{messages: [%{id: "new"}]} = LiveConversation.snapshot(replacement, server: server)
+    assert %{messages: [%{id: old_id, body: "old generation"}]} = LiveConversation.snapshot(old, server: server)
+    assert %{messages: [%{id: new_id, body: "replacement"}]} = LiveConversation.snapshot(replacement, server: server)
+    assert_opaque_id(old_id)
+    assert_opaque_id(new_id)
   end
 
   test "isolates repositories, attempts, and sessions that share a display number", %{server: server} do
@@ -117,9 +120,9 @@ defmodule Aiur.LiveConversationTest do
                server: server
              )
 
-    assert %{messages: [%{id: "first"}]} = LiveConversation.snapshot(first, server: server)
-    assert %{messages: [%{id: "second"}]} = LiveConversation.snapshot(second, server: server)
-    assert %{messages: [%{id: "attempt"}]} = LiveConversation.snapshot(next_attempt, server: server)
+    assert %{messages: [%{body: "first"}]} = LiveConversation.snapshot(first, server: server)
+    assert %{messages: [%{body: "second"}]} = LiveConversation.snapshot(second, server: server)
+    assert %{messages: [%{body: "attempt"}]} = LiveConversation.snapshot(next_attempt, server: server)
   end
 
   test "ended sources never accept late events", %{server: server} do
@@ -134,7 +137,7 @@ defmodule Aiur.LiveConversationTest do
              LiveConversation.observe(source, %{role: :assistant, msg_id: "late", body: "late"}, server: server)
 
     assert snapshot.state == :ended
-    assert [%{id: "first"}] = snapshot.messages
+    assert [%{body: "first"}] = snapshot.messages
 
     assert {:ok, %{state: :ended}} = LiveConversation.mark_stale(source, server: server)
     assert {:ok, %{state: :ended}} = LiveConversation.mark_unavailable(source, server: server)
@@ -157,7 +160,8 @@ defmodule Aiur.LiveConversationTest do
                server: server
              )
 
-    assert [%{id: "turn-1", body: "hello world"}] = partial.messages
+    assert [%{id: message_id, body: "hello world"}] = partial.messages
+    assert_opaque_id(message_id)
 
     assert {:ok, replayed} =
              LiveConversation.observe(
@@ -175,7 +179,7 @@ defmodule Aiur.LiveConversationTest do
                server: server
              )
 
-    assert [%{id: "turn-1", body: "hello, world"}] = completed.messages
+    assert [%{id: ^message_id, body: "hello, world"}] = completed.messages
 
     assert {:ok, late_delta} =
              LiveConversation.observe(source, %{kind: :assistant_delta, id: "turn-1", body: " ignored"}, server: server)
@@ -187,7 +191,7 @@ defmodule Aiur.LiveConversationTest do
     source = source()
     assert {:ok, _} = LiveConversation.observe(source, %{role: :assistant, msg_id: "m", body: "known"}, server: server)
 
-    assert {:ok, %{state: :stale, health: :healthy, freshness: :stale, messages: [%{id: "m"}]}} =
+    assert {:ok, %{state: :stale, health: :healthy, freshness: :stale, messages: [%{body: "known"}]}} =
              LiveConversation.mark_stale(source, server: server)
 
     assert {:ok, %{state: :live, health: :healthy, freshness: :current}} =
@@ -264,7 +268,8 @@ defmodule Aiur.LiveConversationTest do
                server: server
              )
 
-    assert_receive {:live_conversation_changed, %{messages: [%{id: "operator-1", role: "operator"}]}}, 2_000
+    assert_receive {:live_conversation_changed, %{messages: [%{id: operator_id, role: "operator"}]}}, 2_000
+    assert_opaque_id(operator_id)
   end
 
   test "admits system transitions and tool summaries only through trusted adapters", %{server: server} do
@@ -287,8 +292,10 @@ defmodule Aiur.LiveConversationTest do
                server: server
              )
 
-    assert [%{id: "transition", role: "system", title: "Lifecycle", body: "Agent paused"}] =
+    assert [%{id: system_id, role: "system", title: "Lifecycle", body: "Agent paused"}] =
              with_system.messages
+
+    assert_opaque_id(system_id)
 
     assert {:ok, rejected_tool} =
              LiveConversation.observe(
@@ -306,8 +313,10 @@ defmodule Aiur.LiveConversationTest do
                server: server
              )
 
-    assert %{id: "tool-result", role: "tool", title: "Tool result", body: "Tool completed"} =
+    assert %{id: tool_id, role: "tool", title: "Tool result", body: "Tool completed"} =
              List.last(with_tool.messages)
+
+    assert_opaque_id(tool_id)
   end
 
   test "retains bounded partial state and enforces the total message byte ceiling", %{server: server} do
@@ -326,9 +335,27 @@ defmodule Aiur.LiveConversationTest do
     assert {:ok, snapshot} =
              LiveConversation.observe(source, %{kind: :assistant_delta, id: "partial-1", body: body}, server: server)
 
-    assert byte_size(:erlang.term_to_binary(snapshot)) <= 64_000
+    assert byte_size(Jason.encode!(snapshot)) <= 64_000
     assert snapshot.truncated?
     assert Enum.all?(snapshot.messages, &(String.length(&1.body) <= 1_600))
+  end
+
+  test "bounds the actual JSON wire representation for escape-heavy bodies", %{server: server} do
+    source = source()
+    body = String.duplicate(~s("\\), 800)
+
+    Enum.each(1..80, fn n ->
+      assert {:ok, _} =
+               LiveConversation.observe(
+                 source,
+                 %{role: :assistant, msg_id: "escaped-#{n}", body: body},
+                 server: server
+               )
+    end)
+
+    snapshot = LiveConversation.snapshot(source, server: server)
+    assert byte_size(Jason.encode!(snapshot)) <= 64_000
+    assert snapshot.truncated?
   end
 
   test "bounds partial fragment bookkeeping before completion", %{server: server} do
@@ -350,8 +377,9 @@ defmodule Aiur.LiveConversationTest do
     assert snapshot.diagnostic_counts.partial_fragment_limit == 128
 
     internal_snapshot = server |> :sys.get_state() |> Map.fetch!(:snapshots) |> Map.values() |> List.first()
-    assert MapSet.size(hd(internal_snapshot.messages).fragment_ids) == 128
-    assert MapSet.size(internal_snapshot.seen["partial"].fragment_ids) == 128
+    [internal_message] = internal_snapshot.messages
+    assert MapSet.size(internal_message.fragment_ids) == 128
+    assert MapSet.size(internal_snapshot.seen[internal_message.id].fragment_ids) == 128
   end
 
   test "bounds live generations that miss end cleanup" do
@@ -378,7 +406,7 @@ defmodule Aiur.LiveConversationTest do
     assert %{state: :restart_unknown, messages: []} =
              LiveConversation.snapshot(source(worker_generation: 1), server: server)
 
-    assert %{state: :live, messages: [%{id: "message-129"}]} =
+    assert %{state: :live, messages: [%{body: "generation 129"}]} =
              LiveConversation.snapshot(source(worker_generation: 129), server: server)
   end
 
@@ -416,7 +444,7 @@ defmodule Aiur.LiveConversationTest do
                server: server
              )
 
-    assert Enum.map(snapshot.messages, & &1.id) == ["first", "second", "third"]
+    assert Enum.map(snapshot.messages, & &1.body) == ["first", "second", "third"]
     assert hd(snapshot.messages).occurred_at == first_at
   end
 
@@ -443,6 +471,55 @@ defmodule Aiur.LiveConversationTest do
     refute Map.has_key?(snapshot.source.identity, :provider_id)
   end
 
+  test "hashes and bounds provider message ids before publication", %{server: server} do
+    raw_ids = [
+      "Bearer credential-shaped-value",
+      "https://example.test/capability/message",
+      "/home/operator/private/message-id"
+    ]
+
+    snapshot =
+      Enum.reduce(raw_ids, nil, fn raw_id, _snapshot ->
+        assert {:ok, snapshot} =
+                 LiveConversation.observe(
+                   source(),
+                   %{role: :assistant, msg_id: raw_id, body: "safe body"},
+                   server: server
+                 )
+
+        snapshot
+      end)
+
+    public_ids = Enum.map(snapshot.messages, & &1.id)
+    assert length(public_ids) == length(raw_ids)
+    assert Enum.uniq(public_ids) == public_ids
+    assert Enum.all?(public_ids, &(String.starts_with?(&1, "message:") and byte_size(&1) <= 64))
+
+    Enum.each(raw_ids, fn raw_id ->
+      refute inspect(snapshot) =~ raw_id
+    end)
+  end
+
+  test "degraded health preserves evidence as stale and reports an empty source unavailable", %{server: server} do
+    empty = source(worker_generation: 20)
+    populated = source(worker_generation: 21)
+
+    assert {:ok, %{state: :known_empty}} = LiveConversation.activate(empty, server: server)
+    assert {:ok, %{state: :unavailable, messages: []}} = LiveConversation.mark_degraded(empty, server: server)
+
+    assert {:ok, _} =
+             LiveConversation.observe(
+               populated,
+               %{role: :assistant, msg_id: "known", body: "last known good"},
+               server: server
+             )
+
+    assert {:ok, %{state: :stale, messages: [%{body: "last known good"}]}} =
+             LiveConversation.mark_degraded(populated, server: server)
+
+    assert {:ok, %{state: :live, freshness: :current}} = LiveConversation.activate(populated, server: server)
+  end
+
   test "bounds public source fields within the total snapshot byte ceiling", %{server: server} do
     oversized = String.duplicate("x", 100_000)
     maximum = String.duplicate("x", 256)
@@ -455,7 +532,7 @@ defmodule Aiur.LiveConversationTest do
       |> Map.put(:backend, maximum)
 
     assert {:ok, snapshot} = LiveConversation.activate(maximum_source, server: server)
-    assert byte_size(:erlang.term_to_binary(snapshot)) <= 64_000
+    assert byte_size(Jason.encode!(snapshot)) <= 64_000
 
     assert {:error, :invalid_source} =
              LiveConversation.activate(%{source() | run_id: oversized}, server: server)
@@ -523,5 +600,10 @@ defmodule Aiur.LiveConversationTest do
       },
       Map.new(overrides)
     )
+  end
+
+  defp assert_opaque_id(id) do
+    assert String.starts_with?(id, "message:")
+    assert byte_size(id) <= 64
   end
 end

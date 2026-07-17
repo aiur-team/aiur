@@ -94,6 +94,9 @@ defmodule Aiur.LiveConversation do
   @spec mark_stale(source(), keyword()) :: {:ok, snapshot()} | {:error, atom()}
   def mark_stale(source, opts \\ []), do: call({:stale, source}, opts)
 
+  @spec mark_degraded(source(), keyword()) :: {:ok, snapshot()} | {:error, atom()}
+  def mark_degraded(source, opts \\ []), do: call({:degraded, source}, opts)
+
   @spec snapshot(source(), keyword()) :: snapshot()
   def snapshot(source, opts \\ []), do: GenServer.call(server(opts), {:snapshot, source})
 
@@ -166,6 +169,7 @@ defmodule Aiur.LiveConversation do
   def handle_call({:end, source}, _from, state), do: change_state(source, state, :ended)
   def handle_call({:unavailable, source}, _from, state), do: change_state(source, state, :unavailable)
   def handle_call({:stale, source}, _from, state), do: change_state(source, state, :stale)
+  def handle_call({:degraded, source}, _from, state), do: change_state(source, state, :degraded)
 
   def handle_call({:snapshot, source}, _from, state) do
     case canonical_source(source) do
@@ -217,13 +221,17 @@ defmodule Aiur.LiveConversation do
         if snapshot.state == :ended do
           {:reply, {:ok, public(snapshot)}, state}
         else
-          snapshot = %{
+          next_state = degraded_state(next_state, snapshot)
+
+          snapshot =
             snapshot
-            | state: next_state,
+            |> Map.merge(%{
+              state: next_state,
               health: health_for(next_state),
               freshness: freshness_for(next_state),
               observed_at: state.clock.()
-          }
+            })
+            |> retain()
 
           state = put_snapshot(state, key, snapshot)
           state = schedule_notification(state, key, source)
@@ -243,7 +251,7 @@ defmodule Aiur.LiveConversation do
         apply_message(snapshot, message)
 
       {:drop, reason} ->
-        {increment_diagnostic(snapshot, reason), true}
+        {snapshot |> increment_diagnostic(reason) |> retain(), true}
     end
   end
 
@@ -252,12 +260,12 @@ defmodule Aiur.LiveConversation do
   defp apply_trusted_event(snapshot, role, %{body: body} = event, clock) when is_binary(body) do
     case normalized_message(role, body, event, clock.()) do
       {:ok, message} -> apply_message(snapshot, message)
-      {:drop, reason} -> {increment_diagnostic(snapshot, reason), true}
+      {:drop, reason} -> {snapshot |> increment_diagnostic(reason) |> retain(), true}
     end
   end
 
   defp apply_trusted_event(snapshot, _role, _event, _clock),
-    do: {increment_diagnostic(snapshot, :invalid_summary), true}
+    do: {snapshot |> increment_diagnostic(:invalid_summary) |> retain(), true}
 
   # The adapter must make an explicit safe-tool summary opt-in. Existing rich
   # transcript tool/command rows can carry command output, diffs, paths, or
@@ -379,6 +387,7 @@ defmodule Aiur.LiveConversation do
         |> live_snapshot(message.observed_at)
         |> increment_diagnostic(:partial_fragment_limit)
         |> Map.put(:truncated?, true)
+        |> retain()
 
       {snapshot, true}
     else
@@ -442,19 +451,21 @@ defmodule Aiur.LiveConversation do
     do: trim_messages(snapshot, tl(messages), evicted + 1)
 
   defp trim_messages(snapshot, [_ | rest] = messages, evicted) do
-    if snapshot_bytes(snapshot, messages) > @snapshot_byte_limit,
+    if snapshot_bytes(snapshot, messages, evicted) > @snapshot_byte_limit,
       do: trim_messages(snapshot, rest, evicted + 1),
       else: {messages, evicted}
   end
 
   defp trim_messages(_snapshot, [], evicted), do: {[], evicted}
 
-  defp snapshot_bytes(snapshot, messages) do
+  defp snapshot_bytes(snapshot, messages, evicted) do
     snapshot
     |> Map.put(:messages, messages)
+    |> Map.update!(:evicted_count, &(&1 + evicted))
+    |> Map.update!(:truncated?, &(&1 or evicted > 0))
     |> public()
-    |> :erlang.term_to_binary()
-    |> byte_size()
+    |> Jason.encode_to_iodata!()
+    |> IO.iodata_length()
   end
 
   defp fresh_snapshot(source, now) do
@@ -480,6 +491,10 @@ defmodule Aiur.LiveConversation do
   defp freshness_for(state) when state in [:unavailable, :restart_unknown], do: :unknown
   defp freshness_for(_state), do: :current
 
+  defp degraded_state(:degraded, %{messages: []}), do: :unavailable
+  defp degraded_state(:degraded, _snapshot), do: :stale
+  defp degraded_state(state, _snapshot), do: state
+
   defp restart_unknown_snapshot(source, now) do
     %{fresh_snapshot(source, now) | state: :restart_unknown, health: :unknown, freshness: :unknown}
   end
@@ -488,7 +503,10 @@ defmodule Aiur.LiveConversation do
 
   defp activate_snapshot(snapshot, now) do
     next_state = if snapshot.messages == [], do: :known_empty, else: :live
-    %{snapshot | state: next_state, health: :healthy, freshness: :current, observed_at: now}
+
+    snapshot
+    |> Map.merge(%{state: next_state, health: :healthy, freshness: :current, observed_at: now})
+    |> retain()
   end
 
   defp live_snapshot(snapshot, observed_at) do
@@ -612,8 +630,7 @@ defmodule Aiur.LiveConversation do
     case event[:msg_id] || event[:id] do
       nil -> {:ok, stable_id(role, event, body)}
       "" -> {:ok, stable_id(role, event, body)}
-      id when is_binary(id) -> {:ok, id}
-      id when is_integer(id) -> {:ok, Integer.to_string(id)}
+      id when is_binary(id) or is_integer(id) -> {:ok, opaque_id("message:", id)}
       _ -> {:error, :invalid_id}
     end
   end
