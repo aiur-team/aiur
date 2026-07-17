@@ -63,6 +63,11 @@ defmodule AiurWeb.PresenterTest do
         agent_output_tokens: 910_012,
         agent_total_tokens: 910_023
       })
+      |> put_in([:issue, Access.key(:selected_backend)], "codex")
+      |> put_in(
+        [:issue, Access.key(:labels)],
+        ["model:codex-gpt-5.6-terra", "complexity:3", "build-lane:dashboard-ui"]
+      )
       |> put_in([:issue, Access.key(:tracker_identity)], tracker_identity("MT-700"))
 
     retry_identity = tracker_identity("MT-701")
@@ -137,8 +142,13 @@ defmodule AiurWeb.PresenterTest do
     assert running_row.open_decision_count == 0
     assert is_integer(running_row.stale_for_seconds)
     assert running_row.tracker_identity == tracker_identity("MT-700")
+    assert running_row.backend == "codex"
+    assert running_row.agent_family == "codex"
+    assert running_row.requested_model == "gpt-5.6-terra"
+    assert running_row.complexity == 3
+    assert "build-lane:dashboard-ui" in running_row.labels
 
-    assert {:ok, issue_payload} = Presenter.issue_payload("MT-700", orchestrator_name, 1_000)
+    assert {:ok, issue_payload} = Presenter.issue_payload("MT-700", orchestrator_name, 5_000)
     refute Map.has_key?(issue_payload.running, :tokens)
     assert issue_payload.running.waiting_reason == :waiting_for_ci
 

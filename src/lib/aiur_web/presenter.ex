@@ -299,6 +299,7 @@ defmodule AiurWeb.Presenter do
       ci: ci_payload(Map.get(entry, :ci_result)),
       review: review_status(entry.state)
     }
+    |> Map.merge(public_execution_facts(entry))
     |> maybe_put_tracker_identity(entry)
   end
 
@@ -323,6 +324,7 @@ defmodule AiurWeb.Presenter do
       ci: ci_payload(Map.get(entry, :ci_result)),
       review: review_status(Map.get(entry, :state))
     }
+    |> Map.merge(public_execution_facts(entry))
     |> maybe_put_tracker_identity(entry)
   end
 
@@ -343,7 +345,21 @@ defmodule AiurWeb.Presenter do
       ci: ci_payload(Map.get(entry, :ci_result)),
       review: review_status(entry.state)
     }
+    |> Map.merge(public_execution_facts(entry))
     |> maybe_put_tracker_identity(entry)
+  end
+
+  defp public_execution_facts(entry) do
+    Map.take(entry, [
+      :backend,
+      :agent_family,
+      :requested_model,
+      :resolved_model,
+      :effort,
+      :complexity,
+      :build_lane,
+      :labels
+    ])
   end
 
   defp maybe_put_tracker_identity(payload, entry_or_identity) do

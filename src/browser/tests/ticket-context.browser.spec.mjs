@@ -66,6 +66,7 @@ test('ticket context keeps its semantic content and keyboard lifecycle accessibl
 
       await expect(page.getByRole('dialog')).toHaveCount(0)
       await expect(page.locator('#ticket-context-closed')).toHaveText('Ticket context closed.')
+      await expect(page.locator('#ticket-context-trigger')).toBeFocused()
     } finally {
       await context.close()
     }

@@ -2,6 +2,8 @@
   window.AiurTicketContextDialogHook = {
     mounted() {
       this.closeEvent = this.el.dataset.closeEvent;
+      this.fallbackFocusId = this.el.dataset.focusFallbackId;
+      this.origin = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       this.onKeydown = this.handleKeydown.bind(this);
       this.el.addEventListener("keydown", this.onKeydown);
 
@@ -12,6 +14,23 @@
     },
     destroyed() {
       this.el.removeEventListener("keydown", this.onKeydown);
+
+      requestAnimationFrame(() => {
+        const origin = this.origin;
+        const fallback = this.fallbackFocusId ? document.getElementById(this.fallbackFocusId) : null;
+
+        if (
+          origin?.isConnected &&
+          origin !== document.body &&
+          origin !== document.documentElement &&
+          !origin.hasAttribute("disabled") &&
+          origin.getAttribute("aria-disabled") !== "true"
+        ) {
+          origin.focus();
+        } else {
+          fallback?.focus();
+        }
+      });
     },
     handleKeydown(event) {
       if (event.key === "Escape" && this.closeEvent) {

@@ -9,6 +9,7 @@ defmodule AiurWeb.OperatorControlCenter.TicketContext do
   attr(:context, :map, required: true)
   attr(:mode, :atom, default: :dialog)
   attr(:close_event, :any, default: nil)
+  attr(:fallback_focus_id, :string, default: nil)
 
   @spec ticket_context(map()) :: Phoenix.LiveView.Rendered.t()
   def ticket_context(assigns) do
@@ -38,6 +39,7 @@ defmodule AiurWeb.OperatorControlCenter.TicketContext do
         aria-labelledby={@heading_id}
         phx-hook="TicketContextDialog"
         data-close-event={@close_event}
+        data-focus-fallback-id={@fallback_focus_id}
       >
         <.context_content
           context={@context}

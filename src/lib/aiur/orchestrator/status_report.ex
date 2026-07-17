@@ -188,6 +188,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       open_decision_count: open_decision_count,
       ci_result: cached_ci_result(state, metadata.identifier)
     }
+    |> Map.merge(issue_execution_facts(metadata.issue))
   end
 
   defp retry_snapshot(%State{} = state, {issue_id, %{attempt: attempt, due_at_ms: due_at_ms} = retry}, now_ms) do
@@ -211,6 +212,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       open_decision_count: open_decision_count(identifier),
       ci_result: cached_ci_result(state, identifier)
     }
+    |> Map.merge(issue_execution_facts(issue))
   end
 
   defp idle_snapshot(%State{} = state) do
@@ -248,7 +250,23 @@ defmodule Aiur.Orchestrator.StatusReport do
       open_decision_count: open_decision_count,
       ci_result: cached_ci_result(state, identifier)
     }
+    |> Map.merge(issue_execution_facts(issue))
   end
+
+  defp issue_execution_facts(%Issue{} = issue) do
+    backend = CodingAgent.backend_for(issue)
+
+    %{
+      backend: backend,
+      agent_family: CodingAgent.family_for(backend),
+      requested_model: CodingAgent.model_for(issue),
+      effort: CodingAgent.effort_for(issue),
+      complexity: issue_complexity(issue),
+      labels: Issue.label_names(issue)
+    }
+  end
+
+  defp issue_execution_facts(_issue), do: %{}
 
   defp cached_ci_result(%State{} = state, identifier) do
     state.ci_lifecycle

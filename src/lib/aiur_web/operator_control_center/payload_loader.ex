@@ -4,7 +4,7 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
   import Phoenix.Component, only: [assign: 3]
 
   alias AiurWeb.{ControlCenterCache, ControlCenterPresenter, Endpoint}
-  alias AiurWeb.OperatorControlCenter.DecisionProvider
+  alias AiurWeb.OperatorControlCenter.{DecisionProvider, UnitsPresenter}
 
   @reload_debounce_ms 50
   @reload_min_interval_ms 400
@@ -90,6 +90,7 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
     payload
     |> Map.put(:retained_counts, retained_counts)
     |> update_in([:provider_health], &Map.put(&1, :retained_counts, retained_counts.health.status))
+    |> then(&Map.put(&1, :units, UnitsPresenter.load(&1, units_options())))
   end
 
   defp providers do
@@ -111,6 +112,15 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
       snapshot_timeout_ms
     }
   end
+
+  defp units_options do
+    []
+    |> maybe_put_option(:membership_fun, Endpoint.config(:units_membership_fun))
+    |> maybe_put_option(:activity_fun, Endpoint.config(:units_activity_fun))
+  end
+
+  defp maybe_put_option(opts, _key, nil), do: opts
+  defp maybe_put_option(opts, key, value), do: Keyword.put(opts, key, value)
 
   defp provider_identity(server) do
     {server, GenServer.whereis(server) || :unavailable}
