@@ -3,9 +3,9 @@
 This run preserves the percentage estimates that BO agents report through
 `progress` and `progress.checkin`. The capture is deliberately offline: it reads
 the per-ticket `logs/agent.ndjson` transcript streams and the locally-owned
-`logs/event-publications.ndjson` outcome streams, writes an operator-local dataset,
-and never calls GitHub, changes a ticket, or stores surrounding prompts,
-commands, tool output, or transcript prose.
+daemon run-log `log/event-publications.ndjson` outcome streams, writes an
+operator-local dataset, and never calls GitHub, changes a ticket, or stores
+surrounding prompts, commands, tool output, or transcript prose.
 
 Run it periodically and once more before retiring the workspaces:
 
@@ -20,8 +20,14 @@ source or destination without editing the script:
 ```bash
 python3 docs/build-order/scripts/capture_progress_estimates.py \
   --workspace-root ~/code/aiur-workspaces/its-everdred/aiur \
+  --publication-root ~/.aiur/logs \
   --output ~/.aiur/analytics/build-order-progress/progress-estimates.ndjson
 ```
+
+The default publication root is `~/.aiur/logs`; the collector discovers each
+run's `log/event-publications.ndjson` beneath it. Legacy workspace-local outcome
+files remain readable for already-captured runs, but current daemons write only
+to their trusted run-log directory.
 
 The collector streams each source file one line at a time, tolerates malformed
 and unrelated source records, and merges repeat scans by the tool-call identity.

@@ -3,6 +3,8 @@ defmodule Aiur.Codex.DynamicTool.Response do
   Builds standard response envelopes for dynamic tool results.
   """
 
+  alias Aiur.JSONSafe
+
   @spec build(boolean(), String.t()) :: map()
   def build(success, output) when is_boolean(success) and is_binary(output) do
     %{
@@ -30,15 +32,5 @@ defmodule Aiur.Codex.DynamicTool.Response do
   def encode_payload(payload), do: inspect(payload)
 
   @spec jsonable(term()) :: term()
-  def jsonable(%DateTime{} = value), do: DateTime.to_iso8601(value)
-  def jsonable(%{} = value), do: Map.new(value, fn {key, item} -> {json_key(key), jsonable(item)} end)
-  def jsonable(value) when is_list(value), do: Enum.map(value, &jsonable/1)
-  def jsonable(value) when is_tuple(value), do: value |> Tuple.to_list() |> jsonable()
-  def jsonable(value) when is_binary(value) or is_number(value) or is_boolean(value) or is_nil(value), do: value
-  def jsonable(value) when is_atom(value), do: Atom.to_string(value)
-  def jsonable(value), do: inspect(value)
-
-  defp json_key(key) when is_atom(key), do: Atom.to_string(key)
-  defp json_key(key) when is_binary(key), do: key
-  defp json_key(key), do: inspect(key)
+  defdelegate jsonable(value), to: JSONSafe, as: :normalize
 end

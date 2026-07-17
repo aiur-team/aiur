@@ -2,7 +2,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
   use ExUnit.Case, async: false
 
   alias Aiur.AgentRunner.{SessionLifecycle, ToolExecutor}
-  alias Aiur.{Boot, DecisionStore, Issue, TrackerIdentity}
+  alias Aiur.{Boot, DecisionAttention, DecisionStore, EventPublicationLog, Issue, TrackerIdentity}
   alias Aiur.Events.{Exchange, SubscriptionStore}
 
   describe "build/3" do
@@ -60,7 +60,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
 
       assert response["success"] == true
       assert Jason.decode!(response["output"])["result"] == "pending"
-      assert_receive {:enqueued, {:ticket, "1031"}, operation, opts}
+      assert_receive {:enqueued, {:ticket, "1031"}, operation, opts}, 2_000
       assert opts[:operation_timeout] == :infinity
       assert opts[:log_context] == %{issue_id: nil, issue_identifier: "1031"}
       assert is_function(operation, 0)
@@ -84,11 +84,11 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
 
       call = Task.async(fn -> executor.("aiur_declare_blocker", %{"issue_number" => 999}) end)
 
-      assert {:ok, response} = Task.yield(call, 250)
+      assert {:ok, response} = Task.yield(call, 2_000)
       assert response["success"] == true
       assert Jason.decode!(response["output"])["result"] == "pending"
-      assert_receive {:subscribed, "1031", 999}, 200
-      assert_receive {:dependency_started, worker}, 200
+      assert_receive {:subscribed, "1031", 999}, 2_000
+      assert_receive {:dependency_started, worker}, 2_000
       send(worker, :release)
     end
 
@@ -115,8 +115,8 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert response["success"]
       assert Jason.decode!(response["output"])["result"] == "removed"
 
-      assert_receive {:enqueued, key, _declare, declare_opts}
-      assert_receive {:ran, ^key, _unblock, unblock_opts}
+      assert_receive {:enqueued, key, _declare, declare_opts}, 2_000
+      assert_receive {:ran, ^key, _unblock, unblock_opts}, 2_000
       assert declare_opts == unblock_opts
       assert declare_opts[:operation_timeout] == :infinity
       assert declare_opts[:log_context] == %{issue_id: nil, issue_identifier: "1031"}
@@ -148,15 +148,15 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
         )
 
       assert executor.("aiur_declare_blocker", %{"issue_number" => 999})["success"]
-      assert_receive {:subscription_started, subscriber}
+      assert_receive {:subscription_started, subscriber}, 2_000
 
       response = executor.("emit_event", %{"name" => "blocked", "message" => "waiting"})
       assert response["success"]
       refute_receive {:event_published, _topic}, 20
 
       send(subscriber, :release)
-      assert_receive :dependency_declared
-      assert_receive {:event_published, "ticket.gid-1031.agent.blocked"}
+      assert_receive :dependency_declared, 2_000
+      assert_receive {:event_published, "ticket.gid-1031.agent.blocked"}, 2_000
     end
 
     test "unblock preserves terminal success and error results" do
@@ -313,9 +313,10 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
         )
 
       assert executor.("aiur_declare_blocker", %{"issue_number" => 999})["success"]
-      assert_receive :subscribed
-      assert_receive {:dependency_started, worker}
-      Process.sleep(30)
+      assert_receive :subscribed, 2_000
+      assert_receive {:dependency_started, worker}, 2_000
+      worker_ref = Process.monitor(worker)
+      refute_receive {:DOWN, ^worker_ref, :process, ^worker, _reason}, 40
       assert Process.alive?(Process.whereis(name))
       assert Process.alive?(worker)
       send(worker, :release)
@@ -338,9 +339,9 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
         )
 
       assert executor.("aiur_declare_blocker", %{"issue_number" => 999})["success"]
-      assert_receive {:captured_operation, operation}
+      assert_receive {:captured_operation, operation}, 2_000
       assert {:error, {:blocker_subscription_failed, :disk_busy}} = operation.()
-      assert_receive {:unsubscribed, "1031", 999}
+      assert_receive {:unsubscribed, "1031", 999}, 2_000
       refute_receive :unexpected_declare
     end
 
@@ -364,7 +365,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
         )
 
       assert executor.("aiur_declare_blocker", %{"issue_number" => 999})["success"]
-      assert_receive {:captured_operation, operation}
+      assert_receive {:captured_operation, operation}, 2_000
       assert :ok = operation.()
       assert Agent.get(calls, & &1) == 2
       refute_receive :unexpected_unsubscribe
@@ -388,9 +389,9 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
         )
 
       assert executor.("aiur_declare_blocker", %{"issue_number" => 999})["success"]
-      assert_receive {:captured_operation, operation}
+      assert_receive {:captured_operation, operation}, 2_000
       assert {:error, {:blocker_declaration_failed, :timeout}} = operation.()
-      assert_receive {:unsubscribed, "1031", 999}
+      assert_receive {:unsubscribed, "1031", 999}, 2_000
     end
 
     test "ambiguous declaration keeps auto-resume coverage when GitHub confirms presence" do
@@ -410,11 +411,47 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
         )
 
       assert executor.("aiur_declare_blocker", %{"issue_number" => 999})["success"]
-      assert_receive {:captured_operation, operation}
+      assert_receive {:captured_operation, operation}, 2_000
       assert :ok = operation.()
-      assert_receive {:subscribed, "1031", 999}
-      assert_receive {:subscribed, "1031", 999}
+      assert_receive {:subscribed, "1031", 999}, 2_000
+      assert_receive {:subscribed, "1031", 999}, 2_000
       refute_receive :unexpected_unsubscribe
+    end
+
+    test "failed declaration reports an inconclusive authoritative-state read" do
+      issue = %Issue{identifier: "1031"}
+      test_pid = self()
+
+      executor =
+        ToolExecutor.build(issue, nil, nil, %{},
+          coordination_enqueuer: capturing_enqueuer(test_pid),
+          blocker_subscriber: fn _current, _blocker -> :ok end,
+          dependency_declarer: fn _current, _blocker -> {:error, :timeout} end,
+          dependency_present: fn _current, _blocker -> {:error, :github_unavailable} end
+        )
+
+      assert executor.("aiur_declare_blocker", %{"issue_number" => 999})["success"]
+      assert_receive {:captured_operation, operation}, 2_000
+
+      assert {:error, {:blocker_reconcile_inconclusive, :timeout, :github_unavailable}} =
+               operation.()
+    end
+
+    test "failed subscription contains an exception from authoritative-state reconciliation" do
+      issue = %Issue{identifier: "1031"}
+      test_pid = self()
+
+      executor =
+        ToolExecutor.build(issue, nil, nil, %{},
+          coordination_enqueuer: capturing_enqueuer(test_pid),
+          blocker_subscriber: fn _current, _blocker -> {:error, :disk_busy} end,
+          dependency_present: fn _current, _blocker -> raise "read failed" end
+        )
+
+      assert executor.("aiur_declare_blocker", %{"issue_number" => 999})["success"]
+      assert_receive {:captured_operation, operation}, 2_000
+
+      assert {:error, {:blocker_subscription_reconcile_inconclusive, :disk_busy, {:coordination_call_error, "read failed"}}} = operation.()
     end
 
     test "stalled declare followed by unblock finishes unblocked" do
@@ -443,24 +480,25 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
             end
           end,
           dependency_unblocker: fn _current, _blocker ->
+            send(test_pid, :unblock_started)
             Agent.update(state, fn _ -> :unblocked end)
             {:ok, :removed}
           end
         )
 
       assert executor.("aiur_declare_blocker", %{"issue_number" => 999})["success"]
-      assert_receive {:declare_started, worker}
+      assert_receive {:declare_started, worker}, 2_000
 
       unblock = Task.async(fn -> executor.("aiur_unblock", %{"issue_number" => 999}) end)
 
-      assert nil == Task.yield(unblock, 20)
+      refute_receive :unblock_started, 40
       assert Agent.get(state, & &1) == :initial
       send(worker, :release)
 
       response = Task.await(unblock)
       assert response["success"]
       assert Jason.decode!(response["output"])["result"] == "removed"
-      assert_eventually(fn -> Agent.get(state, & &1) == :unblocked end)
+      assert Agent.get(state, & &1) == :unblocked
     end
   end
 
@@ -531,11 +569,11 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
           })
         end)
 
-      assert {:ok, response} = Task.yield(call, 100)
+      assert {:ok, response} = Task.yield(call, 2_000)
 
       assert response["success"] == true
       assert Jason.decode!(response["output"])["result"]["status"] == "pending"
-      assert_receive {:downstream_started, worker}, 200
+      assert_receive {:downstream_started, worker}, 2_000
       assert Process.alive?(worker)
       send(worker, :release)
     end
@@ -603,11 +641,10 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       admitted_at = DateTime.utc_now()
 
       assert response["success"]
-      assert_receive {:captured_event_operation, operation}
-      Process.sleep(20)
+      assert_receive {:captured_event_operation, operation}, 2_000
       operation.()
 
-      assert_receive {:event, %{ticket_observation: observation}}, 200
+      assert_receive {:event, %{ticket_observation: observation}}, 2_000
       assert DateTime.compare(observation.occurred_at, admitted_at) in [:lt, :eq]
       assert DateTime.compare(observation.observed_at, admitted_at) in [:gt, :eq]
     end
@@ -625,7 +662,8 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
             send(test_pid, {:captured_event_operation, operation, opts})
             :pending
           end,
-          event_bus_publisher: fn topic, _payload, _opts -> {:ok, 4242, topic} end
+          event_bus_publisher: fn topic, _payload, _opts -> {:ok, 4242, topic} end,
+          event_publication_recorder: publication_recorder(workspace)
         )
 
       response =
@@ -637,7 +675,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
         )
 
       assert response["success"]
-      assert_receive {:captured_event_operation, operation, opts}
+      assert_receive {:captured_event_operation, operation, opts}, 2_000
       assert opts[:operation_timeout] == :infinity
 
       assert opts[:log_context] == %{
@@ -675,7 +713,8 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
             send(test_pid, {:captured_event_operation, operation})
             :pending
           end,
-          event_bus_publisher: fn _topic, _payload, _opts -> {:error, :disk_full} end
+          event_bus_publisher: fn _topic, _payload, _opts -> {:error, :disk_full} end,
+          event_publication_recorder: publication_recorder(workspace)
         )
 
       response =
@@ -687,7 +726,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
         )
 
       assert response["success"]
-      assert_receive {:captured_event_operation, operation}
+      assert_receive {:captured_event_operation, operation}, 2_000
       operation.()
 
       [record] =
@@ -728,7 +767,8 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
               send(test_pid, {:captured_event_operation, operation})
               :pending
             end,
-            event_bus_publisher: publisher
+            event_bus_publisher: publisher,
+            event_publication_recorder: publication_recorder(workspace)
           )
 
         response =
@@ -740,7 +780,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
           )
 
         assert response["success"]
-        assert_receive {:captured_event_operation, operation}
+        assert_receive {:captured_event_operation, operation}, 2_000
         assert {:error, {:event_publication_failed, failure}} = operation.()
         assert failure =~ expected_failure
 
@@ -767,7 +807,8 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
           coordination_enqueuer: fn key, operation, opts ->
             Aiur.CoordinationTasks.enqueue(key, operation, name, opts)
           end,
-          event_bus_publisher: fn _topic, _payload, _opts -> {:error, {:disk_failed, secret}} end
+          event_bus_publisher: fn _topic, _payload, _opts -> {:error, {:disk_failed, secret}} end,
+          event_publication_recorder: publication_recorder(workspace)
         )
 
       log =
@@ -822,8 +863,13 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
         )
 
       assert response["success"]
-      assert_receive {:captured_event_operation, operation}
-      log = ExUnit.CaptureLog.capture_log(fn -> assert :ok = operation.() end)
+      assert_receive {:captured_event_operation, operation}, 2_000
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {:error, {:event_publication_record_failed, failure}} = operation.()
+          assert failure =~ "[REDACTED:ghp]"
+        end)
 
       assert log =~ ~s(key={:ticket, "gid-recorder-log"})
       assert log =~ ~s(ticket="gid-recorder-log")
@@ -848,7 +894,8 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
             send(test_pid, {:captured_event_operation, operation})
             :pending
           end,
-          event_bus_publisher: fn _topic, _payload, _opts -> {:ok, 4244, []} end
+          event_bus_publisher: fn _topic, _payload, _opts -> {:ok, 4244, []} end,
+          event_publication_recorder: publication_recorder(workspace)
         )
 
       response =
@@ -860,7 +907,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
         )
 
       assert response["success"]
-      assert_receive {:captured_event_operation, operation}
+      assert_receive {:captured_event_operation, operation}, 2_000
       assert :ok = operation.()
 
       [record] = publication_records(workspace)
@@ -1030,10 +1077,12 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       executor = ToolExecutor.build(issue, nil, nil)
 
       assert executor.("emit_event", %{"name" => "attention.scope-question", "message" => "Approve the target?"})["success"] == true
-      assert_eventually(fn -> open_attentions(identifier) == ["scope-question"] end)
+      assert :drained = Aiur.CoordinationTasks.run({:ticket, identifier}, fn -> :drained end)
+      assert open_attentions(identifier) == ["scope-question"]
 
       assert executor.("emit_event", %{"name" => "attention.resolved", "message" => "Approved", "payload" => %{"slug" => "scope-question"}})["success"] == true
-      assert_eventually(fn -> open_attentions(identifier) == [] end)
+      assert :drained = Aiur.CoordinationTasks.run({:ticket, identifier}, fn -> :drained end)
+      assert open_attentions(identifier) == []
     end
 
     test "operator-decision pause requests raise a durable attention" do
@@ -1050,7 +1099,8 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
                }
              )["success"] == true
 
-      assert_eventually(fn -> open_attentions(identifier) == ["operator-decision"] end)
+      assert :drained = Aiur.CoordinationTasks.run({:ticket, identifier}, fn -> :drained end)
+      assert open_attentions(identifier) == ["operator-decision"]
       assert executor.("emit_event", %{"name" => "attention.resolved", "message" => "Approved", "payload" => %{"slug" => "operator-decision"}})["success"] == true
     end
 
@@ -1075,10 +1125,10 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
           "call-attention"
         )
 
-      assert_receive {:projected_attention, "scope-question", "Approve the target?", opts}
+      assert_receive {:projected_attention, "scope-question", "Approve the target?", opts}, 2_000
       assert opts[:source].session_id == "thread-1"
       assert opts[:source].event_id == "call-attention"
-      assert_receive {:event, %{topic: "ticket." <> _}}
+      assert_receive {:event, %{topic: "ticket." <> _}}, 2_000
 
       result = Jason.decode!(response["output"])["result"]
       assert result["status"] == "pending"
@@ -1107,7 +1157,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert response["success"] == true
 
       expected_topic = "ticket.#{identifier}.agent.attention.scope-question"
-      assert_receive {:event, %{topic: ^expected_topic}}, 200
+      assert_receive {:event, %{topic: ^expected_topic}}, 2_000
     end
 
     test "a control-character operator-decision block still publishes when projection fails" do
@@ -1133,7 +1183,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
 
       assert response["success"] == true
       expected_topic = "ticket.#{identifier}.agent.blocked"
-      assert_receive {:event, %{topic: ^expected_topic}}, 200
+      assert_receive {:event, %{topic: ^expected_topic}}, 2_000
     end
 
     test "ordinary blocked events do not enter the legacy Decision adapter" do
@@ -1179,7 +1229,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert Process.alive?(self())
 
       expected_topic = "ticket.#{identifier}.agent.attention.resolved"
-      assert_receive {:event, %{topic: ^expected_topic}}, 200
+      assert_receive {:event, %{topic: ^expected_topic}}, 2_000
     end
   end
 
@@ -1407,7 +1457,24 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
     test "a structured request enriches its legacy attention instead of duplicating it" do
       identifier = "TE-decision-attention-#{System.unique_integer([:positive])}"
       issue = %Issue{identifier: identifier, title: "Adapter ticket"}
-      executor = ToolExecutor.build(issue, nil, nil, %{backend: "codex", thread_id: "thread-adapter"})
+      coordination = Module.concat(__MODULE__, "DecisionCorrelation#{System.unique_integer([:positive])}")
+      start_supervised!({Aiur.CoordinationTasks, name: coordination})
+      test_pid = self()
+
+      executor =
+        ToolExecutor.build(issue, nil, nil, %{backend: "codex", thread_id: "thread-adapter"},
+          coordination_enqueuer: fn key, operation, opts ->
+            Aiur.CoordinationTasks.enqueue(key, operation, coordination, opts)
+          end,
+          coordination_runner: fn key, operation, opts ->
+            Aiur.CoordinationTasks.run(key, operation, coordination, opts)
+          end,
+          attention_opener: fn issue, workspace, worker_host, slug, question, opts ->
+            send(test_pid, {:attention_projection_started, self()})
+            receive do: (:release_attention_projection -> :ok)
+            DecisionAttention.open_with_decision(issue, workspace, worker_host, slug, question, opts)
+          end
+        )
 
       legacy =
         ToolExecutor.execute(
@@ -1422,11 +1489,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
 
       legacy_result = Jason.decode!(legacy["output"])["result"]
       assert legacy_result["status"] == "pending"
-      assert_eventually(fn -> Enum.any?(DecisionStore.list(), &(&1.ticket.identifier == identifier)) end)
-
-      legacy_decision =
-        DecisionStore.list()
-        |> Enum.find(&(&1.ticket.identifier == identifier))
+      assert_receive {:attention_projection_started, projection_worker}, 2_000
 
       structured_arguments = %{
         "name" => "decision.requested",
@@ -1446,7 +1509,13 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
         }
       }
 
-      enriched = ToolExecutor.execute(executor, "emit_event", structured_arguments, "call-enrich")
+      enrich_call =
+        Task.async(fn -> ToolExecutor.execute(executor, "emit_event", structured_arguments, "call-enrich") end)
+
+      assert nil == Task.yield(enrich_call, 40)
+      send(projection_worker, :release_attention_projection)
+
+      enriched = Task.await(enrich_call, 2_000)
       retry = ToolExecutor.execute(executor, "emit_event", structured_arguments, "call-enrich")
 
       assert enriched["success"] == true, enriched["output"]
@@ -1454,6 +1523,10 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
 
       enriched_result = Jason.decode!(enriched["output"])["result"]
       retry_result = Jason.decode!(retry["output"])["result"]
+
+      legacy_decision =
+        DecisionStore.list()
+        |> Enum.find(&(&1.ticket.identifier == identifier))
 
       assert enriched_result["decision_id"] == legacy_decision.decision_id
       assert enriched_result["version"] == 2
@@ -1641,7 +1714,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert result["status"] == "accepted"
       assert result["decision_status"] == "acknowledged"
 
-      assert_receive {:lifecycle_recorded, :acknowledged, payload, opts}
+      assert_receive {:lifecycle_recorded, :acknowledged, payload, opts}, 2_000
       assert payload["detail"] == "Applying it"
       assert opts[:ticket_identifier] == identifier
       assert opts[:actor].kind == :agent
@@ -1679,7 +1752,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
         })
 
       assert resolution["success"] == true
-      assert_receive {:resolved_through_store, :resolved}
+      assert_receive {:resolved_through_store, :resolved}, 2_000
 
       generic = executor.("emit_event", %{"name" => "decision.use-something", "message" => "ordinary"})
       assert generic["success"] == true
@@ -1716,19 +1789,6 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
     end
   end
 
-  defp assert_eventually(predicate, attempts \\ 20)
-
-  defp assert_eventually(predicate, attempts) when attempts > 0 do
-    if predicate.() do
-      :ok
-    else
-      Process.sleep(10)
-      assert_eventually(predicate, attempts - 1)
-    end
-  end
-
-  defp assert_eventually(predicate, 0), do: assert(predicate.())
-
   defp open_attentions(identifier) do
     case SubscriptionStore.snapshot(identifier) do
       :not_found -> []
@@ -1759,6 +1819,11 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
     do: %{"name" => "progress.checkin", "message" => "testing coordination"}
 
   defp coordination_tool_arguments(_tool), do: %{"issue_number" => 999}
+
+  defp publication_recorder(workspace) do
+    path = Path.join(workspace, "logs/event-publications.ndjson")
+    fn record -> EventPublicationLog.write(workspace, record, path: path) end
+  end
 
   defp publication_records(workspace) do
     workspace

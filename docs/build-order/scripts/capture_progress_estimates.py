@@ -28,6 +28,9 @@ DEFAULT_OUTPUT = Path(
         "~/.aiur/analytics/build-order-progress/progress-estimates.ndjson",
     )
 ).expanduser()
+DEFAULT_PUBLICATION_ROOT = Path(
+    os.environ.get("AIUR_BUILD_ORDER_PUBLICATION_ROOT", "~/.aiur/logs")
+).expanduser()
 ESTIMATE_KINDS = frozenset(("progress", "progress.checkin"))
 PUBLICATION_EVENTS = {
     "event_publication_completed": "emitted",
@@ -206,6 +209,16 @@ def _publication_outcome(row: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
+def _publication_ticket(row: dict[str, Any]) -> int | None:
+    for key in ("issue_number", "issue_identifier"):
+        value = row.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+            return value
+        if isinstance(value, str) and value.isdigit() and int(value) > 0:
+            return int(value)
+    return None
+
+
 def _sample_id(
     ticket: int,
     source_log: str,
@@ -364,11 +377,56 @@ def _write_atomic(output: Path, samples: dict[str, dict[str, Any]]) -> None:
     os.replace(temporary, output)
 
 
+def _source_rows(source_log: Path, stats: dict[str, int]) -> Iterable[dict[str, Any]]:
+    stats["source_logs_scanned"] += 1
+    with source_log.open(encoding="utf-8", errors="replace") as stream:
+        for line in stream:
+            stats["source_lines_scanned"] += 1
+            try:
+                row = json.loads(line)
+            except (TypeError, ValueError):
+                stats["malformed_source_lines"] += 1
+                continue
+            if isinstance(row, dict):
+                yield row
+
+
+def _remember_publication_outcome(
+    row: dict[str, Any],
+    ticket: int,
+    publication_outcomes: dict[str, dict[str, Any]],
+    stats: dict[str, int],
+) -> None:
+    outcome = _publication_outcome(row)
+    if outcome is None:
+        return
+    stats["publication_records_seen"] += 1
+    sample_id = _call_sample_id(ticket, outcome["tool_call_id"])
+    current = publication_outcomes.get(sample_id)
+    publication_outcomes[sample_id] = (
+        outcome
+        if current is None
+        else _merge_publication_outcome(current, outcome)
+    )
+
+
+def _publication_logs(root: Path) -> Iterable[Path]:
+    if root.is_file():
+        yield root
+        return
+
+    direct = root / PUBLICATION_LOG_NAME
+    if direct.is_file():
+        yield direct
+    yield from sorted(root.glob(f"*/log/{PUBLICATION_LOG_NAME}"))
+
+
 def collect(
     workspace_roots: Iterable[Path],
     output: Path,
     ticket_min: int = 1085,
     ticket_max: int = 1138,
+    publication_roots: Iterable[Path] = (),
 ) -> dict[str, Any]:
     if ticket_min > ticket_max:
         raise CollectorError("ticket minimum must not exceed ticket maximum")
@@ -403,41 +461,40 @@ def collect(
                 for source_log in (agent_log, publication_log):
                     if not source_log.is_file():
                         continue
-                    stats["source_logs_scanned"] += 1
                     scanned_tickets.add(ticket)
-                    with source_log.open(encoding="utf-8", errors="replace") as stream:
-                        for line in stream:
-                            stats["source_lines_scanned"] += 1
-                            try:
-                                row = json.loads(line)
-                            except (TypeError, ValueError):
-                                stats["malformed_source_lines"] += 1
-                                continue
-                            if not isinstance(row, dict):
-                                continue
-                            outcome = _publication_outcome(row)
-                            if outcome is not None:
-                                stats["publication_records_seen"] += 1
-                                sample_id = _call_sample_id(
-                                    ticket, outcome["tool_call_id"]
-                                )
-                                current = publication_outcomes.get(sample_id)
-                                publication_outcomes[sample_id] = (
-                                    outcome
-                                    if current is None
-                                    else _merge_publication_outcome(current, outcome)
-                                )
-                            if source_log != agent_log:
-                                continue
-                            sample = sample_from_row(row, ticket, source_log)
-                            if sample is None:
-                                continue
-                            stats["estimate_records_seen"] += 1
-                            sample_id = sample["sample_id"]
-                            if sample_id in samples:
-                                samples[sample_id] = _merge_sample(samples[sample_id], sample)
-                            else:
-                                samples[sample_id] = sample
+                    for row in _source_rows(source_log, stats):
+                        _remember_publication_outcome(
+                            row, ticket, publication_outcomes, stats
+                        )
+                        if source_log != agent_log:
+                            continue
+                        sample = sample_from_row(row, ticket, source_log)
+                        if sample is None:
+                            continue
+                        stats["estimate_records_seen"] += 1
+                        sample_id = sample["sample_id"]
+                        if sample_id in samples:
+                            samples[sample_id] = _merge_sample(
+                                samples[sample_id], sample
+                            )
+                        else:
+                            samples[sample_id] = sample
+
+        seen_publication_logs: set[Path] = set()
+        for raw_root in publication_roots:
+            for source_log in _publication_logs(raw_root.expanduser()):
+                resolved = source_log.resolve()
+                if resolved in seen_publication_logs:
+                    continue
+                seen_publication_logs.add(resolved)
+                for row in _source_rows(source_log, stats):
+                    ticket = _publication_ticket(row)
+                    if ticket is None or not ticket_min <= ticket <= ticket_max:
+                        continue
+                    scanned_tickets.add(ticket)
+                    _remember_publication_outcome(
+                        row, ticket, publication_outcomes, stats
+                    )
         for sample_id, outcome in publication_outcomes.items():
             if sample_id in samples:
                 samples[sample_id] = _apply_publication_outcome(
@@ -471,7 +528,14 @@ def _parser() -> argparse.ArgumentParser:
         action="append",
         type=Path,
         dest="workspace_roots",
-        help="repository workspace root containing ticket agent and publication logs; repeatable",
+        help="repository workspace root containing ticket agent logs; repeatable",
+    )
+    parser.add_argument(
+        "--publication-root",
+        action="append",
+        type=Path,
+        dest="publication_roots",
+        help="daemon run-log root containing event-publications.ndjson; repeatable",
     )
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--ticket-min", type=int, default=1085)
@@ -482,8 +546,15 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str]) -> int:
     args = _parser().parse_args(argv[1:])
     roots = args.workspace_roots or [DEFAULT_WORKSPACE_ROOT]
+    publication_roots = args.publication_roots or [DEFAULT_PUBLICATION_ROOT]
     try:
-        result = collect(roots, args.output, args.ticket_min, args.ticket_max)
+        result = collect(
+            roots,
+            args.output,
+            args.ticket_min,
+            args.ticket_max,
+            publication_roots,
+        )
     except (CollectorError, OSError) as error:
         print(f"capture failed: {error}", file=sys.stderr)
         return 1

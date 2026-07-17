@@ -50,7 +50,7 @@ defmodule Aiur.CoordinationTasks do
     )
   catch
     :exit, {:timeout, _reason} -> {:error, :coordination_indeterminate}
-    :exit, _reason -> {:error, :coordination_unavailable}
+    :exit, reason -> coordination_exit(reason)
   end
 
   @doc """
@@ -73,11 +73,14 @@ defmodule Aiur.CoordinationTasks do
     GenServer.call(server, {:run, key, operation, operation_timeout, log_context(opts)}, call_timeout)
   catch
     :exit, {:timeout, _reason} -> {:error, :coordination_indeterminate}
-    :exit, _reason -> {:error, :coordination_unavailable}
+    :exit, reason -> coordination_exit(reason)
   end
 
   @impl true
   def init(opts) do
+    Process.flag(:trap_exit, true)
+    max_pending = Keyword.get(opts, :max_pending, @default_max_pending)
+
     {:ok,
      %{
        active: %{},
@@ -86,39 +89,38 @@ defmodule Aiur.CoordinationTasks do
        runnable_key_set: MapSet.new(),
        pending: 0,
        operation_timeout_ms: Keyword.get(opts, :operation_timeout_ms, @default_operation_timeout_ms),
-       max_pending: Keyword.get(opts, :max_pending, @default_max_pending),
+       max_pending: max_pending,
+       max_pending_per_key: Keyword.get(opts, :max_pending_per_key, default_per_key_limit(max_pending)),
        max_concurrency: Keyword.get(opts, :max_concurrency, @default_max_concurrency)
      }}
   end
 
   @impl true
-  def handle_call(
-        {:enqueue, _key, _operation, _timeout, _deadline, _log_context},
-        _from,
-        %{pending: pending, max_pending: max} = state
-      )
-      when pending >= max do
-    {:reply, {:error, :coordination_overloaded}, state}
-  end
-
   def handle_call({:enqueue, key, operation, timeout, deadline, log_context}, _from, state) do
-    if admission_expired?(deadline) do
-      {:reply, {:error, :coordination_unavailable}, state}
-    else
-      entry = entry(operation, timeout, nil, log_context, state)
-      {:reply, :pending, enqueue_entry(key, entry, state)}
+    cond do
+      not admission_available?(state, key) ->
+        {:reply, {:error, :coordination_overloaded}, state}
+
+      admission_expired?(deadline) ->
+        {:reply, {:error, :coordination_unavailable}, state}
+
+      true ->
+        entry = entry(operation, timeout, nil, log_context, state)
+        {:reply, :pending, queue_entry(key, entry, state), {:continue, :dispatch}}
     end
   end
 
-  def handle_call({:run, _key, _operation, _timeout, _log_context}, _from, %{pending: pending, max_pending: max} = state)
-      when pending >= max do
-    {:reply, {:error, :coordination_overloaded}, state}
+  def handle_call({:run, key, operation, timeout, log_context}, from, state) do
+    if admission_available?(state, key) do
+      entry = entry(operation, timeout, from, log_context, state)
+      {:noreply, queue_entry(key, entry, state), {:continue, :dispatch}}
+    else
+      {:reply, {:error, :coordination_overloaded}, state}
+    end
   end
 
-  def handle_call({:run, key, operation, timeout, log_context}, from, state) do
-    entry = entry(operation, timeout, from, log_context, state)
-    {:noreply, enqueue_entry(key, entry, state)}
-  end
+  @impl true
+  def handle_continue(:dispatch, state), do: {:noreply, dispatch(state)}
 
   @impl true
   def handle_info({ref, result}, state) when is_reference(ref) do
@@ -250,7 +252,7 @@ defmodule Aiur.CoordinationTasks do
     Enum.find(active, fn {_key, task} -> task.ref == ref end)
   end
 
-  defp enqueue_entry(key, entry, state) do
+  defp queue_entry(key, entry, state) do
     queue = Map.get(state.queues, key, :queue.new())
 
     state = %{
@@ -261,7 +263,6 @@ defmodule Aiur.CoordinationTasks do
 
     state
     |> make_runnable(key)
-    |> dispatch()
   end
 
   defp make_runnable(state, key) do
@@ -324,10 +325,7 @@ defmodule Aiur.CoordinationTasks do
   end
 
   defp safe_detail(value) do
-    value
-    |> inspect(limit: 20, printable_limit: @max_failure_chars)
-    |> SecretRedactor.redact()
-    |> String.slice(0, @max_failure_chars)
+    SecretRedactor.safe_inspect(value, @max_failure_chars)
   end
 
   defp admission_deadline(:infinity), do: :infinity
@@ -338,6 +336,24 @@ defmodule Aiur.CoordinationTasks do
 
   defp admission_expired?(:infinity), do: false
   defp admission_expired?(deadline), do: System.monotonic_time(:millisecond) >= deadline
+
+  defp admission_available?(state, key) do
+    state.pending < state.max_pending and
+      pending_for_key(state, key) < state.max_pending_per_key
+  end
+
+  defp pending_for_key(state, key) do
+    state.queues
+    |> Map.get(key, :queue.new())
+    |> :queue.len()
+  end
+
+  defp default_per_key_limit(max_pending) when max_pending > 1, do: max_pending - 1
+  defp default_per_key_limit(_max_pending), do: 1
+
+  defp coordination_exit(:noproc), do: {:error, :coordination_unavailable}
+  defp coordination_exit({:noproc, _call}), do: {:error, :coordination_unavailable}
+  defp coordination_exit(_reason), do: {:error, :coordination_indeterminate}
 
   defp resolve_timeout(:default, default), do: default
   defp resolve_timeout(:infinity, _default), do: :infinity

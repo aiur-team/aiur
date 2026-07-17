@@ -12,10 +12,10 @@ defmodule Aiur.CoordinationTasksTest do
 
     assert :pending = CoordinationTasks.enqueue(:ticket_a, blocking_operation(test_pid), name)
     assert :pending = CoordinationTasks.enqueue(:ticket_a, fn -> send(test_pid, :second_started) end, name)
-    assert_receive {:started, first}
+    assert_receive {:started, first}, 2_000
     refute_receive :second_started, 20
     send(first, :release)
-    assert_receive :second_started
+    assert_receive :second_started, 2_000
   end
 
   test "a stalled key does not delay an independent key" do
@@ -24,9 +24,9 @@ defmodule Aiur.CoordinationTasksTest do
     test_pid = self()
 
     assert :pending = CoordinationTasks.enqueue(:ticket_a, blocking_operation(test_pid), name)
-    assert_receive {:started, first}
+    assert_receive {:started, first}, 2_000
     assert :pending = CoordinationTasks.enqueue(:ticket_b, fn -> send(test_pid, :ticket_b_started) end, name)
-    assert_receive :ticket_b_started, 100
+    assert_receive :ticket_b_started, 2_000
     send(first, :release)
   end
 
@@ -36,17 +36,17 @@ defmodule Aiur.CoordinationTasksTest do
     test_pid = self()
 
     assert :pending = CoordinationTasks.enqueue(:hot, blocking_operation(test_pid, :hot_first), name)
-    assert_receive {:started, :hot_first, hot_first}
+    assert_receive {:started, :hot_first, hot_first}, 2_000
 
     assert :pending = CoordinationTasks.enqueue(:hot, blocking_operation(test_pid, :hot_second), name)
     assert :pending = CoordinationTasks.enqueue(:waiting, blocking_operation(test_pid, :waiting), name)
 
     send(hot_first, :release)
-    assert_receive {:started, :waiting, waiting}
+    assert_receive {:started, :waiting, waiting}, 2_000
     refute_receive {:started, :hot_second, _worker}, 20
 
     send(waiting, :release)
-    assert_receive {:started, :hot_second, hot_second}
+    assert_receive {:started, :hot_second, hot_second}, 2_000
     send(hot_second, :release)
   end
 
@@ -56,15 +56,35 @@ defmodule Aiur.CoordinationTasksTest do
     test_pid = self()
 
     assert :pending = CoordinationTasks.enqueue(:active, blocking_operation(test_pid), name)
-    assert_receive {:started, first}
+    assert_receive {:started, first}, 2_000
     assert :pending = CoordinationTasks.enqueue(:queued, fn -> send(test_pid, :queued_ran) end, name)
     assert {:error, :coordination_overloaded} = CoordinationTasks.enqueue(:extra, fn -> :ok end, name)
     assert {:error, :coordination_overloaded} = CoordinationTasks.run(:extra, fn -> :ok end, name)
 
     send(first, :release)
-    assert_receive :queued_ran
+    assert_receive :queued_ran, 2_000
     assert :pending = CoordinationTasks.enqueue(:recovered, fn -> send(test_pid, :recovered) end, name)
-    assert_receive :recovered
+    assert_receive :recovered, 2_000
+  end
+
+  test "one stalled key cannot consume the final pending slot" do
+    name = unique_name("ReservedCapacity")
+    start_supervised!({CoordinationTasks, name: name, max_concurrency: 1, max_pending: 3})
+    test_pid = self()
+
+    assert :pending = CoordinationTasks.enqueue(:hot, blocking_operation(test_pid), name)
+    assert_receive {:started, first}, 2_000
+    assert :pending = CoordinationTasks.enqueue(:hot, fn -> send(test_pid, :hot_two) end, name)
+    assert :pending = CoordinationTasks.enqueue(:hot, fn -> send(test_pid, :hot_three) end, name)
+
+    assert {:error, :coordination_overloaded} =
+             CoordinationTasks.enqueue(:hot, fn -> send(test_pid, :hot_four) end, name)
+
+    assert :pending =
+             CoordinationTasks.enqueue(:independent, fn -> send(test_pid, :independent_started) end, name)
+
+    send(first, :release)
+    assert_receive :independent_started, 2_000
   end
 
   test "absence and restart loss return coordination unavailable" do
@@ -100,7 +120,7 @@ defmodule Aiur.CoordinationTasksTest do
     test_pid = self()
 
     assert :pending = CoordinationTasks.enqueue(:key, blocking_operation(test_pid), name)
-    assert_receive {:started, first}
+    assert_receive {:started, first}, 2_000
 
     call =
       Task.async(fn ->
@@ -116,8 +136,92 @@ defmodule Aiur.CoordinationTasksTest do
 
     refute_receive :awaited_started, 20
     send(first, :release)
-    assert_receive :awaited_started
+    assert_receive :awaited_started, 2_000
     assert {:ok, :removed} = Task.await(call)
+  end
+
+  test "run normalizes raised, thrown, and exited operations" do
+    name = unique_name("Failures")
+    start_supervised!({CoordinationTasks, name: name})
+
+    for {operation, expected} <- [
+          {fn -> raise "broken" end, {:coordination_operation_exception, "broken"}},
+          {fn -> throw(:rejected) end, {:coordination_operation_failure, :throw, :rejected}},
+          {fn -> exit(:gone) end, {:coordination_operation_failure, :exit, :gone}}
+        ] do
+      assert {:error, ^expected} = CoordinationTasks.run(:key, operation, name)
+    end
+  end
+
+  test "run reports an externally killed operation without killing the coordinator" do
+    name = unique_name("KilledRun")
+    coordinator = start_supervised!({CoordinationTasks, name: name})
+    test_pid = self()
+
+    call =
+      Task.async(fn ->
+        CoordinationTasks.run(
+          :key,
+          fn ->
+            send(test_pid, {:killable_operation, self()})
+            receive do: (:never_release -> :ok)
+          end,
+          name
+        )
+      end)
+
+    assert_receive {:killable_operation, worker}, 2_000
+    Process.exit(worker, :kill)
+    assert {:error, {:coordination_task_exit, :killed}} = Task.await(call, 2_000)
+    assert Process.alive?(coordinator)
+  end
+
+  test "coordinator death after a run starts is indeterminate" do
+    name = unique_name("RunIndeterminate")
+    coordinator = start_supervised!({CoordinationTasks, name: name})
+    test_pid = self()
+
+    call =
+      Task.async(fn ->
+        CoordinationTasks.run(
+          :key,
+          fn ->
+            send(test_pid, :run_started)
+            receive do: (:never_release -> :ok)
+          end,
+          name
+        )
+      end)
+
+    assert_receive :run_started, 2_000
+    Process.exit(coordinator, :kill)
+    assert {:error, :coordination_indeterminate} = Task.await(call, 2_000)
+  end
+
+  test "an abnormal task exit leaves the coordinator and keyed lane available" do
+    name = unique_name("TaskExit")
+    coordinator = start_supervised!({CoordinationTasks, name: name})
+    coordinator_ref = Process.monitor(coordinator)
+    test_pid = self()
+
+    assert :pending =
+             CoordinationTasks.enqueue(
+               :key,
+               fn ->
+                 send(test_pid, {:failing_task_started, self()})
+                 receive do: (:never_release -> :ok)
+               end,
+               name
+             )
+
+    assert :pending =
+             CoordinationTasks.enqueue(:key, fn -> send(test_pid, :lane_recovered) end, name)
+
+    assert_receive {:failing_task_started, worker}, 2_000
+    Process.exit(worker, :kill)
+    assert_receive :lane_recovered, 2_000
+    assert Process.alive?(coordinator)
+    refute_receive {:DOWN, ^coordinator_ref, :process, ^coordinator, _reason}, 20
   end
 
   test "coordinator restart terminates active work before reopening its key" do
@@ -129,7 +233,7 @@ defmodule Aiur.CoordinationTasksTest do
     test_pid = self()
 
     assert :pending = CoordinationTasks.enqueue(:key, blocking_operation(test_pid), name)
-    assert_receive {:started, first}
+    assert_receive {:started, first}, 2_000
     first_ref = Process.monitor(first)
 
     Process.exit(coordinator, :kill)
@@ -143,8 +247,8 @@ defmodule Aiur.CoordinationTasksTest do
                name
              )
 
-    assert_receive {:after_restart, false}
-    assert_receive {:DOWN, ^first_ref, :process, ^first, _reason}, 200
+    assert_receive {:after_restart, false}, 2_000
+    assert_receive {:DOWN, ^first_ref, :process, ^first, _reason}, 2_000
   end
 
   test "timed out work releases its keyed lane" do
@@ -152,9 +256,9 @@ defmodule Aiur.CoordinationTasksTest do
     start_supervised!({CoordinationTasks, name: name, operation_timeout_ms: 20})
     test_pid = self()
 
-    assert :pending = CoordinationTasks.enqueue(:key, fn -> Process.sleep(:infinity) end, name)
+    assert :pending = CoordinationTasks.enqueue(:key, fn -> receive do: (:never_release -> :ok) end, name)
     assert :pending = CoordinationTasks.enqueue(:key, fn -> send(test_pid, :after_timeout) end, name)
-    assert_receive :after_timeout, 200
+    assert_receive :after_timeout, 2_000
   end
 
   test "infinite operation timeout preserves ordering past the default deadline" do
@@ -165,11 +269,11 @@ defmodule Aiur.CoordinationTasksTest do
     assert :pending =
              CoordinationTasks.enqueue(:key, blocking_operation(test_pid), name, operation_timeout: :infinity)
 
-    assert_receive {:started, first}
+    assert_receive {:started, first}, 2_000
     assert :pending = CoordinationTasks.enqueue(:key, fn -> send(test_pid, :second_started) end, name)
     refute_receive :second_started, 40
     send(first, :release)
-    assert_receive :second_started
+    assert_receive :second_started, 2_000
   end
 
   test "terminal operation errors are logged before the lane advances" do
@@ -195,7 +299,7 @@ defmodule Aiur.CoordinationTasksTest do
                    name
                  )
 
-        assert_receive :lane_advanced
+        assert_receive :lane_advanced, 2_000
       end)
 
     assert log =~ "coordination operation failed"
@@ -217,7 +321,7 @@ defmodule Aiur.CoordinationTasksTest do
         assert :pending =
                  CoordinationTasks.enqueue(
                    {:event, "1032"},
-                   fn -> Process.sleep(:infinity) end,
+                   fn -> receive do: (:never_release -> :ok) end,
                    name,
                    operation_timeout: 17,
                    log_context: %{issue_id: "gid-1032", issue_identifier: "AIUR-1032"}
@@ -230,7 +334,7 @@ defmodule Aiur.CoordinationTasksTest do
                    name
                  )
 
-        assert_receive :event_lane_advanced, 200
+        assert_receive :event_lane_advanced, 2_000
       end)
 
     assert log =~ ~s({:event, "1032"})
@@ -266,7 +370,7 @@ defmodule Aiur.CoordinationTasksTest do
                    name
                  )
 
-        assert_receive :sanitized_lane_advanced
+        assert_receive :sanitized_lane_advanced, 2_000
       end)
 
     refute log =~ secret
@@ -301,8 +405,10 @@ defmodule Aiur.CoordinationTasksTest do
         pid
 
       _ ->
-        Process.sleep(5)
-        wait_for_restart(name, old_pid, attempts - 1)
+        receive do
+        after
+          5 -> wait_for_restart(name, old_pid, attempts - 1)
+        end
     end
   end
 

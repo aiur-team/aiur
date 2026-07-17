@@ -3,46 +3,49 @@ defmodule Aiur.EventPublicationLog do
   Persists locally-known event publication outcomes independently of agent transcripts.
 
   Remote workers own their transcript files, but publication happens in the local
-  Aiur runtime. Keeping these small coordination facts in a separate local stream
-  avoids duplicate transcript ownership while retaining eventual delivery evidence.
+  Aiur runtime. Keeping these small coordination facts in the daemon-owned run log
+  avoids duplicate transcript ownership and prevents an agent-controlled workspace
+  from redirecting the append through a symlink.
   """
 
-  alias Aiur.Workspace.Reconstruction
+  alias Aiur.Config.Paths
+  alias Aiur.DecisionLog
+  alias Aiur.JSONSafe
 
-  @relative_path "logs/event-publications.ndjson"
+  @filename "event-publications.ndjson"
+
+  @doc "Canonical daemon-owned publication outcome stream for this run."
+  @spec publication_file() :: Path.t()
+  def publication_file do
+    Application.get_env(
+      :aiur,
+      :event_publication_log_file,
+      Path.join(Paths.log_root_dir(), @filename)
+    )
+  end
 
   @doc """
-  Appends one publication outcome to the workspace-local durable stream.
+  Appends one publication outcome to the daemon-owned durable stream.
+
+  The workspace argument is retained for caller compatibility but is never used
+  to resolve the destination path.
   """
   @spec write(Path.t() | nil, map()) :: :ok | {:error, term()}
-  def write(workspace, record) when is_binary(workspace) and is_map(record) do
-    Reconstruction.with_log_lock(workspace, fn ->
-      path = Path.join(workspace, @relative_path)
+  def write(workspace, record), do: write(workspace, record, [])
 
-      with :ok <- File.mkdir_p(Path.dirname(path)),
-           {:ok, encoded} <- Jason.encode(json_safe(record)) do
-        File.write(path, encoded <> "\n", [:append, :sync])
-      end
-    end)
+  @doc false
+  @spec write(Path.t() | nil, map(), keyword()) :: :ok | {:error, term()}
+  def write(_workspace, record, opts) when is_map(record) and is_list(opts) do
+    path = Keyword.get(opts, :path, publication_file())
+
+    with :ok <- DecisionLog.prepare(Path.dirname(path), path) do
+      DecisionLog.append(path, JSONSafe.normalize(record))
+    end
   rescue
     error -> {:error, {:publication_log_exception, Exception.message(error)}}
   catch
     kind, reason -> {:error, {:publication_log_failure, kind, reason}}
   end
 
-  def write(nil, _record), do: :ok
-  def write(_workspace, _record), do: {:error, :invalid_publication_record}
-
-  defp json_safe(%DateTime{} = value), do: DateTime.to_iso8601(value)
-  defp json_safe(%{} = value), do: Map.new(value, fn {key, item} -> {json_key(key), json_safe(item)} end)
-  defp json_safe(value) when is_list(value), do: Enum.map(value, &json_safe/1)
-  defp json_safe(value) when is_tuple(value), do: value |> Tuple.to_list() |> json_safe()
-  defp json_safe(value) when is_boolean(value) or is_nil(value), do: value
-  defp json_safe(value) when is_atom(value), do: Atom.to_string(value)
-  defp json_safe(value) when is_binary(value) or is_number(value), do: value
-  defp json_safe(value), do: inspect(value)
-
-  defp json_key(key) when is_atom(key), do: Atom.to_string(key)
-  defp json_key(key) when is_binary(key), do: key
-  defp json_key(key), do: inspect(key)
+  def write(_workspace, _record, _opts), do: {:error, :invalid_publication_record}
 end

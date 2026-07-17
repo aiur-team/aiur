@@ -112,12 +112,14 @@ logs written inside each workspace include:
 - `logs/agent.ndjson` — newline-delimited JSON event stream. The attentions feed
   (`Aiur.AlertFeed`) reads its `alert` events, and agent crash reasons must
   persist here (#708); don't stop writing it.
-- `logs/event-publications.ndjson` — locally-owned, call-correlated completion
-  or failure evidence for asynchronously published agent events. It stays
-  separate from remote-owned transcripts and feeds offline delivery accounting.
+
+Call-correlated completion or failure evidence for asynchronously published
+agent events is daemon-owned at `<run-log-root>/log/event-publications.ndjson`.
+It must not live under an agent-writable workspace; the offline delivery
+collector joins it to the transcript by ticket and tool-call identity.
 
 When resuming an issue that was already in progress, inspect the transcript
-logs, publication outcomes, and workpad comment before changing code. Don't
+logs, daemon publication outcomes, and workpad comment before changing code. Don't
 repeat work the previous run already finished.
 
 ## Tracker label slugs

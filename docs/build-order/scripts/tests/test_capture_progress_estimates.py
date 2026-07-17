@@ -21,6 +21,7 @@ class CaptureProgressEstimatesTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name) / "workspaces"
+        self.publication_root = Path(self.temporary.name) / "run-logs"
         self.output = Path(self.temporary.name) / "analytics" / "samples.ndjson"
 
     def tearDown(self) -> None:
@@ -33,6 +34,15 @@ class CaptureProgressEstimatesTests(unittest.TestCase):
     def write_publication_rows(self, ticket: int, *rows: object) -> Path:
         path = self.root / str(ticket) / "logs" / "event-publications.ndjson"
         return self.write_log(path, *rows)
+
+    def write_daemon_publication_rows(self, ticket: int, *rows: object) -> Path:
+        enriched = []
+        for row in rows:
+            if isinstance(row, dict):
+                row = {"issue_number": ticket, **row}
+            enriched.append(row)
+        path = self.publication_root / "run-1" / "log" / "event-publications.ndjson"
+        return self.write_log(path, *enriched)
 
     def write_log(self, path: Path, *rows: object) -> Path:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -194,7 +204,7 @@ class CaptureProgressEstimatesTests(unittest.TestCase):
                 },
             },
         )
-        self.write_publication_rows(
+        self.write_daemon_publication_rows(
             1086,
             {
                 "event": "event_publication_completed",
@@ -205,7 +215,11 @@ class CaptureProgressEstimatesTests(unittest.TestCase):
             },
         )
 
-        collect([self.root], self.output)
+        collect(
+            [self.root],
+            self.output,
+            publication_roots=[self.publication_root],
+        )
 
         sample = self.samples()[0]
         self.assertEqual("emitted", sample["delivery_status"])
