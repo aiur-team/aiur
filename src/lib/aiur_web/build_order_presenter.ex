@@ -21,7 +21,7 @@ defmodule AiurWeb.BuildOrderPresenter do
   }
 
   alias Aiur.BuildOrder.GraphProjection.Snapshot
-  alias Aiur.{SecretRedactor, TrackerIdentity}
+  alias Aiur.{OpaqueIdentifier, TrackerIdentity}
   alias AiurWeb.BuildOrderViewModel
   alias AiurWeb.BuildOrderViewModel.{Edge, Group, Node, Relationships}
 
@@ -547,7 +547,7 @@ defmodule AiurWeb.BuildOrderPresenter do
       status: :known,
       decision: decision,
       pr_number: positive_or_unknown(Map.get(result, :pr_number)),
-      head_sha: safe_opaque(Map.get(result, :head_sha), 128)
+      head_sha: OpaqueIdentifier.normalize(Map.get(result, :head_sha), 128)
     }
   end
 
@@ -684,7 +684,7 @@ defmodule AiurWeb.BuildOrderPresenter do
   defp safe_provenance(_provenance), do: %{}
 
   defp maybe_put_opaque(acc, key, value) do
-    case safe_opaque(value, 128) do
+    case OpaqueIdentifier.normalize(value, 128) do
       nil -> acc
       safe -> Map.put(acc, key, safe)
     end
@@ -854,21 +854,13 @@ defmodule AiurWeb.BuildOrderPresenter do
     do: %{available?: false, destination: nil, label: nil, reason: reason}
 
   defp safe_destination(value) when is_binary(value) do
-    cond do
-      byte_size(value) > 2_048 -> nil
-      safe_relative_destination?(value) -> value
-      true -> safe_github_destination(value)
+    case Bounded.relative_route(value) do
+      {:ok, safe} -> safe
+      :error -> safe_github_destination(value)
     end
   end
 
   defp safe_destination(_value), do: nil
-
-  defp safe_relative_destination?(value) do
-    String.valid?(value) and String.starts_with?(value, "/") and
-      not String.starts_with?(value, "//") and
-      not String.match?(value, ~r/[\x00-\x1F\x7F]/) and
-      match?(%URI{scheme: nil, host: nil, userinfo: nil}, URI.parse(value))
-  end
 
   defp safe_github_destination(value) do
     case Bounded.github_url(value) do
@@ -943,13 +935,4 @@ defmodule AiurWeb.BuildOrderPresenter do
   defp safe_progress_source(_value), do: :unknown
   defp safe_retention(value) when value in @safe_retention, do: value
   defp safe_retention(_value), do: :unknown
-
-  defp safe_opaque(value, limit)
-       when is_binary(value) and byte_size(value) <= limit and value != "" do
-    if String.valid?(value) and Regex.match?(~r/^[A-Za-z0-9._:-]+$/, value) and
-         SecretRedactor.redact(value) == value,
-       do: value
-  end
-
-  defp safe_opaque(_value, _limit), do: nil
 end

@@ -31,6 +31,7 @@ defmodule AiurWeb.Layouts do
         <script defer src="/vendor/phoenix/phoenix.js"></script>
         <script defer src="/vendor/phoenix_live_view/phoenix_live_view.js"></script>
         <script defer src="/aiur-dom-svg-layout-loader.js"></script>
+        <script defer src="/ticket-context-dialog-hook.js"></script>
         <script>
           window.addEventListener("DOMContentLoaded", function () {
             var csrfToken = document
@@ -107,6 +108,10 @@ defmodule AiurWeb.Layouts do
                 this.el.removeEventListener("click", this.onClick);
               }
             };
+
+            if (window.AiurTicketContextDialogHook) {
+              Hooks.TicketContextDialog = window.AiurTicketContextDialogHook;
+            }
 
             if (window.AiurDomSvgLayout) {
               Hooks.DomSvgLayout = window.AiurDomSvgLayout.createLiveViewHook();

@@ -8,11 +8,10 @@ defmodule Aiur.TicketObservation do
   topic, issue number, workspace, or arbitrary payload to discover identity.
   """
 
-  alias Aiur.{SecretRedactor, TrackerIdentity}
+  alias Aiur.{OpaqueIdentifier, TrackerIdentity}
 
   @version 1
   @payload_version 1
-  @max_opaque_bytes 128
   @progress_names ["progress", "progress.checkin", "progress.phase"]
   @stages ["brainstorm", "plan", "work", "review"]
   @transitions ["start", "end"]
@@ -194,11 +193,7 @@ defmodule Aiur.TicketObservation do
 
   defp opaque(value) when is_integer(value) and value >= 0, do: value
 
-  defp opaque(value) when is_binary(value) do
-    if byte_size(value) <= @max_opaque_bytes and Regex.match?(~r/^[A-Za-z0-9._:-]+$/, value) and SecretRedactor.redact(value) == value,
-      do: value,
-      else: nil
-  end
+  defp opaque(value) when is_binary(value), do: OpaqueIdentifier.normalize(value)
 
   defp opaque(_value), do: nil
 
