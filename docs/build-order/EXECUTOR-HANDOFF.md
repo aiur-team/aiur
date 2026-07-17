@@ -1,5 +1,183 @@
 # Build Order Executor Handoff
 
+## Live Executor state (updated 2026-07-16 17:37 PDT — orangekid-opus → Claude)
+
+This is the current live truth for the **orangekid-opus** machine and supersedes
+older orangekid-opus entries below. The operator stopped the Codex Executor and
+is handing control to a Claude Executor. **Do not infer that the worker backend
+must also change:** the live Aiur fleet remains configured for Codex workers;
+Claude is taking over the Executor role.
+
+### Stop / ownership boundary
+
+- No new tickets were started, resumed, unpaused, merged, or pushed after the
+  stop request.
+- The live Aiur daemon was deliberately **left running** for takeover. Do not
+  restart it merely because the Executor changed. Establish control-plane
+  health first and use the recovery ordering in the `aiur-run` handoff.
+- All three direct Codex lanes were parked. Two were review-only and made no
+  changes. The #1130/#1217 resolver left a clean, committed local checkpoint
+  described below. No direct Codex subagent remains working.
+- Claude is now the single Executor. Before assigning a writer, re-read the
+  ticket workpad and both workspace logs, re-query GitHub state, and ensure
+  there is only one writer for that workspace. The #1031 duplicate native/direct
+  collision earlier today is the concrete reason for this fence.
+
+### Runtime and repository identity
+
+- Executor checkout: `/home/orangekid/github/aiur-runtime-develop`
+- Branch/base at handoff: `develop` at exact
+  `82703ecab6497e13f2804f21f7c2b3aa3856061f` (same as `origin/develop`)
+- `origin/main`: `a2b948b1cb31e2dc9dc7d4d30e02c63cd2f3bc99`; it is an ancestor of
+  `origin/develop`.
+- Last merge: PR #1215 / issue #1123, squash commit `82703eca`; #1123 was
+  explicitly closed and labeled `agent:done` because `develop` is not the
+  default branch.
+- Live daemon: PID 357239, dashboard `http://127.0.0.1:4000`, tmux socket
+  `aiur-orangekid-0f62c25cdf`, session
+  `aiur-orangekid-0f62c25cdf-default`.
+- Live log root:
+  `/home/orangekid/.aiur/logs/20260716T215217Z-356823/log`.
+- The on-disk release was rebuilt from `develop@82703eca`; the already-running
+  daemon was not restarted by that rebuild. If a later restart is genuinely
+  needed, run `scripts/aiurdev build` from this `develop` checkout first, then
+  relaunch through `aiurdev`.
+- Machine-local dirt is intentional and must not be committed:
+  `.aiur/config`, `.aiur/model-usage.json`, and
+  `docs/build-order/scripts/__pycache__/`.
+
+At the stop snapshot, `scripts/aiurdev agents` showed only #1030 and #1122,
+both paused. `status` also showed #1105, #1119, #1124, and #1130 idle. The
+daemon stays up, but there is no active worker to drain.
+
+### Exact PR/workspace frontier at shutdown
+
+#### #1031 / PR #1036 — coordination RPC latency
+
+- Remote/workspace head:
+  `56c99d3fae49cdf6bd0f3529da905720805c6db9`; exact base `82703eca` is its
+  merge-base and ancestor. Workspace:
+  `/home/orangekid/code/aiur-workspaces/its-everdred/aiur/1031`.
+- The branch is clean except pre-existing untracked `.aiur-base-built`.
+- Focused gates previously passed: 152 Elixir tests, 12 Python tests, compile
+  warnings-as-errors, specs, format, strict Credo, bash syntax, and two serial
+  launcher timeout tests.
+- CI at 17:37 PDT: build/lint/guard/Dialyzer/browser/layout green; full `test`
+  still running.
+- The independent reviewer verified head/base/ancestry and began the 25-file
+  diff review, but shutdown arrived before a final verdict. **No independent
+  merge verdict exists.** Re-query ticket labels before assigning ownership;
+  keep/add `agent:paused` until one writer is chosen.
+
+#### #1122 / PR #1202 — DASH-016 canonical Units rows
+
+- Remote/workspace head:
+  `719d35309865e4814303fa05e40d50d81b89ab62`; exact base `82703eca` is its
+  ancestor. Workspace:
+  `/home/orangekid/code/aiur-workspaces/its-everdred/aiur/1122` is clean.
+- Independent code review is clean: atomic count/source selection, replacement
+  lifecycle provenance, privacy/identity joins, URL filtering, capacity policy,
+  bounded membership, ordering, and API parity were rechecked. Focused Units
+  tests passed (19 tests + 3 properties), as did the compatibility suites.
+- CI at shutdown: every non-test gate green; full `test` completed **failure**
+  immediately before stop. The reviewer did not classify the failure. PR is
+  not merge-ready until Claude inspects the failing job and proves regression
+  versus an already-known changing unrelated suite failure.
+- Ticket/worker remains paused. Do not remove that fence until a single owner is
+  assigned.
+
+#### #1149 / PR #1213 — isolate Linear/global-log assertion
+
+- Remote/workspace head:
+  `982504626941c5086be7520f6707e5135fc7f14e`; exact base `82703eca` is merged.
+  Workspace:
+  `/home/orangekid/code/aiur-workspaces/its-everdred/aiur/1149` is clean except
+  `.aiur-base-built`.
+- The net feature change remains the one assertion in
+  `src/test/aiur/workspace_and_config_test.exs`; prior focused evidence was 11
+  consecutive seeded green runs.
+- CI at 17:37 PDT: every non-test gate green and full `test` still running.
+- Native self-review was clean, but the Executor still requires an independent
+  exact-head review before merge. No such final review was completed in this
+  shutdown window.
+
+#### #1130 / PR #1217 — DASH-026 bounded live conversation
+
+- **The durable repair is local, clean, and not pushed.** Workspace:
+  `/home/orangekid/code/aiur-workspaces/its-everdred/aiur/1130`; local head
+  `766d14afd3a5150f0683a641e7cb162716236c2d`, containing repair commit
+  `d8028dbe` (`Repair live conversation boundaries`) plus the merge of exact
+  `develop@82703eca`. There is no `MERGE_HEAD`, no conflict, and no dirty file.
+- Remote PR head remains old `4ee6ad87d72b33a178bcd84d4dcbaec2ade5fc19`.
+  Do not reset the workspace to that remote head and do not discard the local
+  commits.
+- Local validation completed after the merge: 220 focused tests green; the
+  route-shell browser spec passes on both local head and exact base; compile
+  warnings-as-errors, format, specs, strict Credo, and diff hygiene are clean.
+- Dialyzer was interrupted before its terminal verdict. Final sequential CE
+  review, workpad/PR update, and push remain undone.
+- The repair addresses the six prior P1 findings: coordination-category
+  exposure, Remote Control projection bypass, JSON-wire byte bounds, replay
+  sequence stability, health propagation, and opaque provider-ID handling.
+  Independently verify those claims on `766d14af` before pushing.
+- GitHub still reports the old PR head with full `test` and browser harness red;
+  that status is not evidence about the unpushed repair. Ticket labels were not
+  changed during shutdown.
+
+### Parked / ready-next tickets
+
+- #1030 / PR #1039: paused, zero-diff/superseded by #1166; operator-root
+  acceptance is unresolved. Do not wake casually.
+- #1105 / PR #1209: `agent:rework` + `agent:paused`, older base/head
+  `211945e4`; needs current-develop refresh and review. It was **not** unpaused.
+- #1124 / PR #1208: `agent:in-progress` + `agent:rework` + `agent:paused`, older
+  head `4b5233c4`; DASH-012 dependency is satisfied and this is a good next Codex
+  worker lane once Claude establishes authority. It was **not** unpaused.
+- #1119: `agent:in-progress` + `agent:paused`, no PR, externally blocked on
+  GATE-004 / a pinned compatible `aiur-claude` account-meter revision. Do not
+  unpause merely for utilization.
+
+### Monitoring and recovery evidence
+
+- Stable run ID: `aiur-dashboard-program-20260713`.
+- Retrospective state/history:
+  `/tmp/aiur-executor-watch/aiur-dashboard-program-20260713/`.
+- Capacity audit timer remains installed:
+  `/home/orangekid/.aiur/executor-capacity-audit.sh` and
+  `aiur-executor-capacity-audit.timer`. Last audit found load 11.75 on 12 CPUs,
+  19 GiB available, target cap 18, and build serialization intact; no cap change
+  was warranted.
+- A GitHub REST degradation earlier today recovered automatically. Control RPC
+  `watch --full` / `alerts` later timed out under scheduler saturation while
+  lightweight `status`/`agents` still worked. This is not, by itself, authority
+  to restart. Prefer lightweight status, native preflight recovery, and the
+  existing 15-minute safety audit during a confirmed REST incident.
+- Diagnostics footnote: AuthPreflight currently hard-codes the displayed source
+  as `GITHUB_TOKEN` even when the daemon uses the `gh` keyring; do not treat that
+  string alone as proof of the credential source.
+
+### Claude takeover order
+
+1. Work from `/home/orangekid/github/aiur-runtime-develop` on `develop`; read
+   this entry, `AGENT-CHAT.md`, each selected ticket's workpad, and both workspace
+   logs before mutation.
+2. Re-query daemon status, ticket labels, PR heads/checks, and workspace Git
+   state. This snapshot is exact at 17:37 PDT, not a substitute for live state.
+3. Preserve the pause fences until a single owner is assigned. Highest-value
+   immediate last miles are: finish #1217 locally (Dialyzer + independent CE
+   review + push), classify #1202's full-test failure, complete #1036's review,
+   and independently review #1213.
+4. Build Order PRs target `develop`. Generic stability work normally targets
+   `main`, then exact `main` is merged into `develop`. Keep `origin/main` an
+   ancestor of `origin/develop`.
+5. For material `develop` changes, remaining Build Order heads must incorporate
+   exact current `develop` and receive fresh exact-head CI/review. A PR merged
+   into non-default `develop` does not auto-close its ticket: explicitly apply
+   `agent:done` and close it.
+6. Use the documented changing-unrelated-full-suite-flake exception only with
+   exact evidence, clean scoped gates, and independent review. Never call an
+   unclassified red job merge-ready.
+
 ## Live Executor state (updated 2026-07-16 11:05 PDT — macbook-fable)
 
 This entry is the current live truth for the **macbook-fable** (macOS, git

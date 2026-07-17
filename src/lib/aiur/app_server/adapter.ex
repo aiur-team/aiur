@@ -104,11 +104,11 @@ defmodule Aiur.AppServer.Adapter do
   defp pause_latched?(session), do: Aiur.PauseContainment.paused?(Map.get(session, :containment))
 
   @spec start_port(Path.t(), String.t()) :: {:ok, port()} | {:error, :bash_not_found}
-  def start_port(workspace, command), do: start_port(workspace, command, fn _port -> :ok end)
+  def start_port(workspace, command), do: start_port(workspace, command, fn _port -> :ok end, [])
 
   @doc false
-  @spec start_port(Path.t(), String.t(), (port() -> term())) :: {:ok, port()} | {:error, :bash_not_found}
-  def start_port(workspace, command, on_port_started) when is_function(on_port_started, 1) do
+  @spec start_port(Path.t(), String.t(), (port() -> term()), keyword()) :: {:ok, port()} | {:error, :bash_not_found}
+  def start_port(workspace, command, on_port_started, opts \\ []) when is_function(on_port_started, 1) and is_list(opts) do
     executable = System.find_executable("bash")
 
     if is_nil(executable) do
@@ -129,7 +129,7 @@ defmodule Aiur.AppServer.Adapter do
             :stderr_to_stdout,
             args: [~c"-lc", String.to_charlist(AgentEnvironment.scrub_shell_command(command))],
             cd: String.to_charlist(workspace),
-            env: AgentEnvironment.workspace_env(workspace),
+            env: AgentEnvironment.workspace_env(workspace) ++ port_env(Keyword.get(opts, :env, [])),
             line: @port_line_bytes
           ]
         )
@@ -151,6 +151,32 @@ defmodule Aiur.AppServer.Adapter do
       end
     end
   end
+
+  # Launch adapters describe ephemeral environment values as strings because
+  # tmux and System.cmd use strings. `Port.open/2` is stricter: it accepts
+  # charlists only. Normalize at this one boundary so a capability-bearing
+  # launch never fails (or renders its options in an argument error) before
+  # the owned process starts.
+  defp port_env(env) when is_list(env) do
+    Enum.flat_map(env, fn
+      {name, value} when is_binary(name) and is_binary(value) ->
+        [{String.to_charlist(name), String.to_charlist(value)}]
+
+      {name, false} when is_binary(name) ->
+        [{String.to_charlist(name), false}]
+
+      {name, value} when is_list(name) and is_list(value) ->
+        [{name, value}]
+
+      {name, false} when is_list(name) ->
+        [{name, false}]
+
+      _ ->
+        []
+    end)
+  end
+
+  defp port_env(_env), do: []
 
   defp terminate_uncontained_port(port) do
     case :erlang.port_info(port, :os_pid) do
