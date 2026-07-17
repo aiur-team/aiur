@@ -1,8 +1,8 @@
 defmodule Aiur.ProviderAccountGeneration.Validation do
   @moduledoc false
 
-  @trusted_sources %{codex: [:codex_app_server]}
-  @auth_modes ~w(apikey chatgpt chatgptAuthTokens headers agentIdentity personalAccessToken bedrockApiKey)
+  @trusted_sources %{codex: [:codex_app_server], claude: [:claude_app_server]}
+  @auth_modes ~w(apikey chatgpt chatgptAuthTokens headers agentIdentity personalAccessToken bedrockApiKey subscription api_key)
   @invalidation_reasons [
     :logout,
     :credential_replaced,

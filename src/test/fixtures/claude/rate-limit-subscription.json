@@ -1,0 +1,15 @@
+{
+  "jsonrpc": "2.0",
+  "method": "rate_limit/update",
+  "params": {
+    "turn_id": "synthetic-turn-subscription",
+    "thread_id": "synthetic-thread-subscription",
+    "rate_limit": {
+      "status": "allowed_warning",
+      "used_percent": 83,
+      "resets_at": 1784192400,
+      "account_type": "subscription",
+      "source_version": "9.9.9-test (fake-claude)"
+    }
+  }
+}

@@ -37,6 +37,7 @@ defmodule Aiur.ProviderMeters.Input do
     :limit_id,
     :kind,
     :name,
+    :standing,
     :used_percent,
     :remaining_percent,
     :used,
@@ -161,6 +162,7 @@ defmodule Aiur.ProviderMeters.Input do
          {:ok, limit_id} <- limit_id(Map.get(value, :limit_id)),
          {:ok, kind} <- enum(Map.get(value, :kind), @window_kinds),
          {:ok, name} <- human_name(Map.get(value, :name)),
+         {:ok, standing} <- optional_enum(Map.get(value, :standing), [:allowed, :allowed_warning, :rejected, :unknown]),
          {:ok, source} <- enum(Map.get(value, :source), @sources),
          {:ok, observed_at} <- datetime(Map.get(value, :observed_at)),
          {:ok, coverage} <- enum(Map.get(value, :coverage), @coverages),
@@ -170,13 +172,14 @@ defmodule Aiur.ProviderMeters.Input do
          {:ok, expires_at} <- optional_datetime(Map.get(value, :expires_at)),
          {:ok, credits} <- optional_credits(Map.get(value, :credits)),
          {:ok, spend_control} <- optional_spend_control(Map.get(value, :spend_control)),
-         :ok <- coverage_facts(coverage, numeric, credits, spend_control) do
+         :ok <- coverage_facts(coverage, standing, numeric, credits, spend_control) do
       {:ok,
        numeric
        |> Map.merge(%{
          limit_id: limit_id,
          kind: kind,
          name: name,
+         standing: standing,
          source: source,
          observed_at: observed_at,
          expires_at: expires_at,
@@ -287,11 +290,11 @@ defmodule Aiur.ProviderMeters.Input do
        do: {:ok, value}
 
   defp optional_non_negative_number(_value), do: {:error, :invalid_non_negative_number}
-  defp coverage_facts(:supported, _numeric, _credits, _spend_control), do: :ok
+  defp coverage_facts(:supported, _standing, _numeric, _credits, _spend_control), do: :ok
 
-  defp coverage_facts(coverage, numeric, credits, spend_control)
+  defp coverage_facts(coverage, standing, numeric, credits, spend_control)
        when coverage in [:unsupported, :empty_supported] do
-    if map_size(numeric) == 0 and absent_or_unsupported?(credits) and
+    if is_nil(standing) and map_size(numeric) == 0 and absent_or_unsupported?(credits) and
          absent_or_unsupported?(spend_control) do
       :ok
     else
