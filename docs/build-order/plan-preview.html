@@ -226,7 +226,7 @@ footer{margin-top:26px;border-top:1px solid var(--line);padding-top:14px;font-fa
       <div class="hd-mark">A</div>
       <div>
         <h1>Build Order — plan preview</h1>
-        <div class="sub">its-everdred/aiur : aiur-dashboard-program · 54 core members + 29 ad hoc · plan v1 · researched @ 9849f329</div>
+        <div class="sub">its-everdred/aiur : aiur-dashboard-program · 54 core members + 30 ad hoc · plan v1 · researched @ 9849f329</div>
       </div>
     </div>
     <div style="display:flex;align-items:center;gap:.8rem">
@@ -262,7 +262,7 @@ footer{margin-top:26px;border-top:1px solid var(--line);padding-top:14px;font-fa
 <script>
 const RUN = {
   phase: 6,
-  updated: "2026-07-17 16:17 PDT",
+  updated: "2026-07-17 16:31 PDT",
   tickets: {
     "BO-004": {state:"merged", progress:100, issue:1086},
     "BO-008": {state:"merged", progress:100, issue:1087},
@@ -282,7 +282,7 @@ const RUN = {
     "BO-010": {state:"merged", progress:100, issue:1097},
     "BO-019": {state:"merged to develop", progress:100, issue:1106},
     "DASH-002": {state:"merged", progress:100, issue:1109},
-    "DASH-026": {state:"exact-base security/retention repair active under direct sole writer; no separate manual gate", progress:92, issue:1130, agent_live:true},
+    "DASH-026": {state:"exact-head review found same-path transcript replacement backfill defect; focused repair active", progress:94, issue:1130, agent_live:true},
     "BO-003": {state:"merged to develop", progress:100, issue:1092},
     "BO-006": {state:"merged to develop", progress:100, issue:1094},
     "BO-007": {state:"merged to develop", progress:100, issue:1095},
@@ -311,6 +311,7 @@ const RUN = {
     "ADHOC-1238": {state:"paused preserved rework — PR #1241 at 8995f93b; queued after current repair lanes", progress:78, issue:1238},
     "ADHOC-1240": {state:"merged to develop through PR #1242 at 9229b48d — exact CI green; issue closed done", progress:100, issue:1240},
     "ADHOC-1245": {state:"unpicked — lossless Executor/Aiur takeover + handoff commands specified; no dispatch or phase label", progress:0, issue:1245},
+    "ADHOC-1246": {state:"Executor-owned after current five land + Claude Aiur is live — full Build Order flake-history/root-cause audit", progress:0, issue:1246},
     "ADHOC-1151": {state:"merged", progress:100, issue:1151},
     "ADHOC-1152": {state:"deferred", progress:0, issue:1152},
     "ADHOC-1154": {state:"merged", progress:100, issue:1154},
@@ -363,6 +364,7 @@ const ADHOC_TICKETS = [
   {id:"ADHOC-1238",issue:1238,title:"Recover queued Codex turns",issue_title:"P1: Recover queued Codex turns when the app-server port closes",lane:"adhoc",cx:4,deps:[],pack:"all",phase:6,pickup_phase:6,adhoc:true},
   {id:"ADHOC-1240",issue:1240,title:"Fence answered Decision enrichment",issue_title:"P1: Stop DecisionStore enrichment from redispatching answered decisions",lane:"adhoc",cx:3,deps:[],pack:"all",phase:6,pickup_phase:6,adhoc:true},
   {id:"ADHOC-1245",issue:1245,title:"Add lossless Executor/Aiur ownership transitions",issue_title:"BO: Add lossless /aiur-takeover and /aiur-handoff ownership transitions",lane:"adhoc",cx:4,deps:[],pack:"all",phase:null,pickup_phase:null,adhoc:true},
+  {id:"ADHOC-1246",issue:1246,title:"Audit Build Order test instability",issue_title:"BO: Audit Build Order flake history and eliminate systemic test instability",lane:"adhoc",cx:5,deps:[],pack:"all",phase:null,pickup_phase:null,adhoc:true},
   {id:"ADHOC-780",issue:780,title:"Fix remaining concurrent-flaky specs",issue_title:"#780 — Fix remaining concurrent-flaky specs",lane:"adhoc",cx:1,deps:[],pack:"all",phase:1,pickup_phase:1,adhoc:true}
 ];
 const TICKETS = [...CORE_TICKETS, ...ADHOC_TICKETS];
