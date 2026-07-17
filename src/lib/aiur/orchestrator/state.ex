@@ -115,16 +115,64 @@ defmodule Aiur.Orchestrator.State do
           running_entry
           |> maybe_put_runtime_value(:worker_host, runtime_info[:worker_host])
           |> maybe_put_runtime_value(:workspace_path, runtime_info[:workspace_path])
-          |> maybe_put_runtime_value(
-            :live_conversation,
-            live_conversation_runtime(runtime_info[:live_conversation])
-          )
+          |> maybe_put_live_conversation(runtime_info[:live_conversation])
 
-        next_state = %{state | running: Map.put(running, issue_id, updated_running_entry)}
-        StatusReport.notify_dashboard(next_state)
-        {:noreply, next_state}
+        if updated_running_entry == running_entry do
+          {:noreply, state}
+        else
+          next_state = %{state | running: Map.put(running, issue_id, updated_running_entry)}
+          StatusReport.notify_dashboard(next_state)
+          {:noreply, next_state}
+        end
     end
   end
+
+  @spec handle_live_conversation_restart(t(), String.t(), DateTime.t()) :: {:noreply, t()}
+  def handle_live_conversation_restart(%__MODULE__{} = state, projection_epoch, observed_at)
+      when is_binary(projection_epoch) and is_struct(observed_at, DateTime) do
+    running =
+      Map.new(state.running, fn {issue_id, entry} ->
+        generation = get_in(entry, [:control, :generation])
+
+        status = %{
+          projection_epoch: projection_epoch,
+          revision: 0,
+          source_revision: 0,
+          generation_handle: nil,
+          source: nil,
+          state: :restart_unknown,
+          health: :unknown,
+          freshness: :unknown,
+          observed_at: observed_at
+        }
+
+        fence = %{
+          projection_epoch: projection_epoch,
+          revision: 0,
+          source_revision: 0,
+          source: nil,
+          worker_generation: generation,
+          restart_locked?: true
+        }
+
+        {issue_id,
+         entry
+         |> Map.put(:live_conversation, status)
+         |> Map.put(:live_conversation_fence, fence)}
+      end)
+
+    next_state = %{state | running: running}
+
+    if next_state == state do
+      {:noreply, state}
+    else
+      StatusReport.notify_dashboard(next_state)
+      {:noreply, next_state}
+    end
+  end
+
+  def handle_live_conversation_restart(%__MODULE__{} = state, _projection_epoch, _observed_at),
+    do: {:noreply, state}
 
   @spec handle_repl_session_runtime(t(), String.t(), map()) :: {:noreply, t()}
   def handle_repl_session_runtime(%__MODULE__{running: running} = state, issue_id, info)
@@ -174,34 +222,144 @@ defmodule Aiur.Orchestrator.State do
     Map.put(running_entry, key, value)
   end
 
+  defp maybe_put_live_conversation(running_entry, nil), do: running_entry
+
+  defp maybe_put_live_conversation(running_entry, status) do
+    with %{} = status <- live_conversation_runtime(status),
+         true <- authoritative_live_conversation_status?(running_entry, status) do
+      fence = %{
+        projection_epoch: status.projection_epoch,
+        revision: status.revision,
+        source_revision: status.source_revision,
+        source: status.source,
+        worker_generation: status.source.worker_generation,
+        restart_locked?: false
+      }
+
+      running_entry
+      |> Map.put(:live_conversation, status)
+      |> Map.put(:live_conversation_fence, fence)
+    else
+      _invalid_or_stale -> running_entry
+    end
+  end
+
   defp live_conversation_runtime(%{} = status) do
+    projection_epoch = Map.get(status, :projection_epoch)
+    revision = Map.get(status, :revision)
+    source_revision = Map.get(status, :source_revision)
     handle = Map.get(status, :generation_handle)
+    source = Map.get(status, :source)
     state = Map.get(status, :state)
     health = Map.get(status, :health)
     freshness = Map.get(status, :freshness)
     observed_at = Map.get(status, :observed_at)
-    reason = Map.get(status, :reason)
 
-    if valid_conversation_handle?(handle) and
+    if valid_projection_epoch?(projection_epoch) and is_integer(revision) and revision > 0 and
+         is_integer(source_revision) and source_revision > 0 and source_revision <= revision and
+         valid_conversation_handle?(handle) and valid_conversation_source?(source) and
          state in [:live, :ended, :known_empty, :stale, :unavailable, :restart_unknown] and
          health in [:healthy, :unavailable, :unknown] and
-         freshness in [:current, :stale, :unknown] and is_struct(observed_at, DateTime) and
-         (is_nil(reason) or is_atom(reason)) do
+         freshness in [:current, :stale, :unknown] and is_struct(observed_at, DateTime) do
       Map.take(status, [
+        :projection_epoch,
+        :revision,
+        :source_revision,
         :generation_handle,
+        :source,
         :state,
         :health,
         :freshness,
-        :observed_at,
-        :reason
+        :observed_at
       ])
     end
   end
 
   defp live_conversation_runtime(_status), do: nil
 
-  defp valid_conversation_handle?(nil), do: true
+  defp authoritative_live_conversation_status?(running_entry, status) do
+    expected_generation = get_in(running_entry, [:control, :generation])
+
+    status.source.worker_generation == expected_generation and
+      matching_live_identity?(running_entry, status.source.identity) and
+      newer_live_conversation_status?(running_entry, status)
+  end
+
+  defp matching_live_identity?(running_entry, identity) do
+    case Issue.tracker_identity(Map.get(running_entry, :issue)) do
+      %{kind: kind, owner: owner, repository: repository, identifier: identifier} ->
+        identity == %{
+          version: 1,
+          kind: kind,
+          owner: owner,
+          repository: repository,
+          identifier: identifier
+        }
+
+      _missing ->
+        false
+    end
+  end
+
+  defp newer_live_conversation_status?(running_entry, status) do
+    case Map.get(running_entry, :live_conversation_fence) do
+      nil ->
+        true
+
+      %{projection_epoch: epoch} when epoch != status.projection_epoch ->
+        false
+
+      %{restart_locked?: true} ->
+        status.state == :ended
+
+      %{revision: revision} when status.revision <= revision ->
+        false
+
+      %{source: source, source_revision: source_revision} ->
+        source == status.source or status.source_revision > source_revision
+
+      _invalid_fence ->
+        false
+    end
+  end
+
+  defp valid_projection_epoch?("projection:" <> digest) do
+    byte_size(digest) == 43 and Regex.match?(~r/^[A-Za-z0-9_-]+$/, digest)
+  end
+
+  defp valid_projection_epoch?(_epoch), do: false
+
   defp valid_conversation_handle?(handle), do: LiveConversationSource.valid_handle?(handle)
+
+  defp valid_conversation_source?(%{
+         identity: %{
+           version: 1,
+           kind: :github,
+           owner: owner,
+           repository: repository,
+           identifier: identifier
+         },
+         run_id: run_id,
+         attempt_id: attempt_id,
+         session_id: session_id,
+         backend: backend,
+         worker_generation: generation
+       }) do
+    Enum.all?([owner, repository, identifier, run_id, attempt_id, backend], &valid_runtime_field?/1) and
+      valid_runtime_session?(session_id) and is_integer(generation) and generation > 0
+  end
+
+  defp valid_conversation_source?(_source), do: false
+
+  defp valid_runtime_session?(nil), do: true
+
+  defp valid_runtime_session?("session:" <> digest) do
+    byte_size(digest) == 43 and Regex.match?(~r/^[A-Za-z0-9_-]+$/, digest)
+  end
+
+  defp valid_runtime_session?(_session), do: false
+
+  defp valid_runtime_field?(field), do: is_binary(field) and field != "" and byte_size(field) <= 256
 
   @spec find_issue_id_for_ref(map(), term()) :: term() | nil
   def find_issue_id_for_ref(running, ref) do

@@ -57,6 +57,10 @@ defmodule Aiur.Orchestrator do
       when is_binary(issue_id) and is_map(runtime_info),
       do: State.handle_worker_runtime_info(state, issue_id, runtime_info)
 
+  def handle_info({:live_conversation_restarted, projection_epoch, observed_at}, state) do
+    State.handle_live_conversation_restart(state, projection_epoch, observed_at)
+  end
+
   def handle_info({:workspace_setup_contended, issue_id, identifier, owner, wait}, state)
       when is_binary(issue_id) and is_binary(identifier) do
     state = RetryEngine.wait_for_workspace_ownership(state, issue_id, identifier, owner, wait)

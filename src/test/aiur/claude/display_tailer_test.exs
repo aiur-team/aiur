@@ -121,7 +121,7 @@ defmodule Aiur.Claude.DisplayTailerTest do
     pid = start_tailer(id, on_source: fn event -> send(test_pid, {:source, event}) end)
 
     dispatch_path(id, path1, "session-one")
-    assert_receive {:source, {:available, nil, "session-one"}}
+    assert_receive {:source, {:available, nil, "session-one", %{backfill?: true}}}
     assert {:ok, _} = DisplayTailer.poll(pid)
 
     assert_receive {:fwd,
@@ -133,7 +133,7 @@ defmodule Aiur.Claude.DisplayTailerTest do
     assert DisplayTailer.current_session(pid) == "session-one"
 
     dispatch_path(id, path2, "session-two")
-    assert_receive {:source, {:available, "session-one", "session-two"}}
+    assert_receive {:source, {:available, "session-one", "session-two", %{backfill?: true}}}
     assert {:ok, _} = DisplayTailer.poll(pid)
 
     assert_receive {:fwd,
@@ -158,7 +158,7 @@ defmodule Aiur.Claude.DisplayTailerTest do
 
     path = write_jsonl([assistant_blocks([%{"type" => "text", "text" => "recovered"}])])
     dispatch_path(id, path, "missing-session")
-    assert_receive {:source, {:available, "missing-session", "missing-session"}}
+    assert_receive {:source, {:available, "missing-session", "missing-session", %{backfill?: true}}}
     assert {:ok, _} = DisplayTailer.poll(pid)
     assert {:assistant, "recovered"} in drain_forwarded()
   end
@@ -176,7 +176,7 @@ defmodule Aiur.Claude.DisplayTailerTest do
       )
 
     dispatch_path(id, path, raw_session)
-    assert_receive {:source, {:available, nil, ^raw_session}}
+    assert_receive {:source, {:available, nil, ^raw_session, %{backfill?: true}}}
     inner = :sys.get_state(pid).tailer
 
     log =
@@ -210,6 +210,78 @@ defmodule Aiur.Claude.DisplayTailerTest do
     assert {:ok, _} = DisplayTailer.poll(pid)
     assert Process.alive?(pid)
     assert {:assistant, "after garbage"} in drain_forwarded()
+  end
+
+  test "tags attach-time history as display-only and later appends as live ingress" do
+    id = "MT-DT-INGRESS-#{System.unique_integer([:positive])}"
+    path = write_jsonl([assistant_blocks([%{"type" => "text", "text" => "old history"}])])
+    pid = start_tailer(id)
+
+    dispatch_path(id, path, "ingress-session")
+    assert {:ok, 1} = DisplayTailer.poll(pid)
+
+    assert_receive {:fwd,
+                    %{
+                      projection_ingress: :display_backfill,
+                      transcript_event: %{body: "old history"}
+                    }}
+
+    File.write!(
+      path,
+      Jason.encode!(assistant_blocks([%{"type" => "text", "text" => "new live record"}])) <>
+        "\n",
+      [:append]
+    )
+
+    assert {:ok, 1} = DisplayTailer.poll(pid)
+
+    assert_receive {:fwd,
+                    %{
+                      projection_ingress: :live,
+                      transcript_event: %{body: "new live record"}
+                    }}
+  end
+
+  test "buffers confirmed cold-start operator deliveries by request id and flushes once" do
+    id = "MT-DT-BUFFER-#{System.unique_integer([:positive])}"
+    path = write_jsonl([])
+    test_pid = self()
+
+    pid =
+      start_tailer(id,
+        on_operator_delivery: fn item, occurred_at, session_id ->
+          send(test_pid, {:operator_delivery, item.id, occurred_at, session_id})
+        end
+      )
+
+    item = %{id: 91, category: :operator_message, body: %{text: "accepted before hook"}}
+    occurred_at = ~U[2026-07-17 12:00:00Z]
+
+    assert :ok = DisplayTailer.buffer_operator_delivery(pid, item, occurred_at)
+    assert :ok = DisplayTailer.buffer_operator_delivery(pid, item, occurred_at)
+    refute_receive {:operator_delivery, _, _, _}, 100
+
+    dispatch_path(id, path, "first-exact-session")
+
+    assert_receive {:operator_delivery, 91, ^occurred_at, "first-exact-session"}
+    refute_receive {:operator_delivery, 91, _, _}, 100
+
+    raced_item = %{item | id: 92}
+    assert :ok = DisplayTailer.buffer_operator_delivery(pid, raced_item, occurred_at)
+    assert_receive {:operator_delivery, 92, ^occurred_at, "first-exact-session"}
+  end
+
+  test "bounds the unresolved operator delivery buffer to the newest 32 request ids" do
+    id = "MT-DT-BUFFER-BOUND-#{System.unique_integer([:positive])}"
+    pid = start_tailer(id)
+
+    Enum.each(1..40, fn request_id ->
+      item = %{id: request_id, category: :operator_message, body: %{text: "message #{request_id}"}}
+      assert :ok = DisplayTailer.buffer_operator_delivery(pid, item, nil)
+    end)
+
+    assert Enum.map(:sys.get_state(pid).pending_operator_deliveries, & &1.request_id) ==
+             Enum.to_list(9..40)
   end
 
   test "self-stops when its owning run process dies (no orphan)" do

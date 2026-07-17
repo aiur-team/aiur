@@ -635,10 +635,15 @@ defmodule Aiur.AgentRunner.QueueDrain do
          backend,
          opts
        ) do
+    opts = Keyword.put(opts, :occurred_at, operator_delivery_occurred_at(item))
     MessageHandler.observe_operator_delivery(issue, item, backend, opts)
   end
 
   defp maybe_observe_accepted_operator_delivery(_issue, _item, _backend, _opts), do: :ok
+
+  defp operator_delivery_occurred_at(item) do
+    Enum.find([Map.get(item, :delivered_at), Map.get(item, :inserted_at)], &is_struct(&1, DateTime))
+  end
 
   defp queue_item_turn_id(%{turn_id: turn_id}) when is_binary(turn_id), do: turn_id
   defp queue_item_turn_id(%{body: %{turn_id: turn_id}}) when is_binary(turn_id), do: turn_id

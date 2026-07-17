@@ -108,7 +108,7 @@ defmodule Aiur.AgentRunner.MessageHandler do
     case safe_tool_summary(event) do
       {:ok, summary} ->
         safe_live_conversation(issue, :observe_tool, opts, fn ->
-          LiveConversation.observe_tool_summary(source, summary, live_conversation_opts(opts))
+          LiveConversation.observe_tool_summary(source, summary, live_conversation_opts(opts, issue))
         end)
 
       :skip ->
@@ -123,7 +123,7 @@ defmodule Aiur.AgentRunner.MessageHandler do
 
   defp observe_live_event(issue, source, event, opts) do
     safe_live_conversation(issue, :observe, opts, fn ->
-      LiveConversation.observe(source, event, live_conversation_opts(opts))
+      LiveConversation.observe(source, event, live_conversation_opts(opts, issue))
     end)
   end
 
@@ -169,8 +169,10 @@ defmodule Aiur.AgentRunner.MessageHandler do
       when is_integer(request_id) and is_binary(backend) and is_list(opts) do
     text = QueueDrain.queue_item_text(item)
 
-    with {:ok, opts} <- operator_delivery_opts(issue, opts) do
-      observe_operator_text(issue, request_id, text, backend, opts)
+    case operator_delivery_opts(issue, item, opts) do
+      {:ok, opts} -> observe_operator_text(issue, request_id, text, backend, opts)
+      :buffered -> :ok
+      {:error, _reason} = error -> error
     end
   end
 
@@ -185,15 +187,17 @@ defmodule Aiur.AgentRunner.MessageHandler do
   end
 
   defp observe_operator_text_for_source(issue, source, request_id, text, opts) do
-    event = %{
-      role: :user,
-      msg_id: "operator:#{request_id}",
-      body: text,
-      payload: %{source: :operator_delivery}
-    }
+    event =
+      %{
+        role: :user,
+        msg_id: "operator:#{request_id}",
+        body: text,
+        payload: %{source: :operator_delivery}
+      }
+      |> maybe_put_occurred_at(Keyword.get(opts, :occurred_at))
 
     safe_live_conversation(issue, :observe_operator, opts, fn ->
-      LiveConversation.observe_operator_message(source, event, live_conversation_opts(opts))
+      LiveConversation.observe_operator_message(source, event, live_conversation_opts(opts, issue))
     end)
   end
 
@@ -208,7 +212,7 @@ defmodule Aiur.AgentRunner.MessageHandler do
       when is_binary(backend) and is_list(opts) do
     with_live_source(issue, backend, opts, :observe_remote_operator, fn source ->
       safe_live_conversation(issue, :observe_remote_operator, opts, fn ->
-        LiveConversation.observe_operator_message(source, event, live_conversation_opts(opts))
+        LiveConversation.observe_operator_message(source, event, live_conversation_opts(opts, issue))
       end)
     end)
   end
@@ -227,7 +231,7 @@ defmodule Aiur.AgentRunner.MessageHandler do
   def end_live_conversation(%Issue{} = issue, backend, opts) when is_binary(backend) and is_list(opts) do
     with_live_source(issue, backend, opts, :end_generation, fn source ->
       safe_live_conversation(issue, :end_generation, opts, fn ->
-        LiveConversation.end_generation(source, live_conversation_opts(opts))
+        LiveConversation.end_generation(source, live_conversation_opts(opts, issue))
       end)
     end)
   end
@@ -250,7 +254,7 @@ defmodule Aiur.AgentRunner.MessageHandler do
       when is_binary(backend) and is_list(opts) do
     with_live_source(issue, backend, opts, :mark_degraded, fn source ->
       safe_live_conversation(issue, :mark_degraded, opts, fn ->
-        LiveConversation.mark_degraded(source, live_conversation_opts(opts))
+        LiveConversation.mark_degraded(source, live_conversation_opts(opts, issue))
       end)
     end)
   end
@@ -354,7 +358,7 @@ defmodule Aiur.AgentRunner.MessageHandler do
 
   defp activate_live_source_projection(issue, source, opts) do
     safe_live_conversation(issue, :activate, opts, fn ->
-      LiveConversation.activate(source, live_conversation_opts(opts))
+      LiveConversation.activate(source, live_conversation_opts(opts, issue))
     end)
   end
 
@@ -445,11 +449,11 @@ defmodule Aiur.AgentRunner.MessageHandler do
   defp live_attempt_id(opts),
     do: Keyword.get(opts, :attempt_id) || Keyword.get(opts, :telemetry_attempt_id)
 
-  defp live_conversation_opts(opts) do
-    case Keyword.get(opts, :live_conversation_server) do
-      nil -> []
-      server -> [server: server]
-    end
+  defp live_conversation_opts(opts, %Issue{id: issue_id}) do
+    []
+    |> maybe_put_live_server(Keyword.get(opts, :live_conversation_server))
+    |> Keyword.put(:history_known?, Keyword.get(opts, :live_conversation_history_known?, true))
+    |> maybe_put_runtime_subscriber(projection_recipient(opts), issue_id)
   end
 
   defp with_live_source(issue, backend, opts, operation, fun) do
@@ -462,67 +466,25 @@ defmodule Aiur.AgentRunner.MessageHandler do
 
       {:error, reason} ->
         log_projection_failure(issue, operation, reason)
-        publish_projection_failure(issue, opts, reason)
         {:error, {:live_conversation_context, reason}}
     end
   end
 
-  defp safe_live_conversation(issue, operation, opts, fun) do
+  defp safe_live_conversation(issue, operation, _opts, fun) do
     case fun.() do
       {:ok, snapshot} when is_map(snapshot) ->
-        publish_projection_snapshot(issue, opts, snapshot)
         :ok
 
       {:error, reason} ->
         log_projection_failure(issue, operation, reason)
-        publish_projection_failure(issue, opts, reason)
         {:error, {:live_conversation_projection, operation, reason}}
     end
   catch
     :exit, reason ->
       reason_class = Lifecycle.reason_class(reason)
       log_projection_failure(issue, operation, reason_class)
-      publish_projection_failure(issue, opts, reason_class)
       {:error, {:live_conversation_unavailable, operation}}
   end
-
-  defp publish_projection_snapshot(issue, opts, snapshot) do
-    status =
-      Map.take(snapshot, [
-        :generation_handle,
-        :state,
-        :health,
-        :freshness,
-        :observed_at
-      ])
-
-    send_projection_runtime_info(issue, opts, status)
-  end
-
-  defp publish_projection_failure(issue, opts, reason) do
-    send_projection_runtime_info(issue, opts, %{
-      generation_handle: nil,
-      state: :unavailable,
-      health: :unavailable,
-      freshness: :unknown,
-      reason: normalize_projection_reason(reason),
-      observed_at: DateTime.utc_now()
-    })
-  end
-
-  defp send_projection_runtime_info(%Issue{id: issue_id}, opts, status)
-       when is_binary(issue_id) and is_list(opts) and is_map(status) do
-    recipient =
-      Keyword.get(opts, :live_conversation_recipient) || Keyword.get(opts, :orchestrator)
-
-    if is_pid(recipient) do
-      send(recipient, {:worker_runtime_info, issue_id, %{live_conversation: status}})
-    end
-
-    :ok
-  end
-
-  defp send_projection_runtime_info(_issue, _opts, _status), do: :ok
 
   defp normalize_projection_reason(reason) when is_atom(reason), do: reason
   defp normalize_projection_reason(_reason), do: :projection_unavailable
@@ -530,17 +492,14 @@ defmodule Aiur.AgentRunner.MessageHandler do
   defp display_tailer_authority?(opts),
     do: Keyword.get(opts, :live_conversation_authority) == :display_tailer
 
-  defp operator_delivery_opts(issue, opts) do
+  defp operator_delivery_opts(issue, item, opts) do
     if display_tailer_authority?(opts) do
       case resolve_source_session(Keyword.get(opts, :live_conversation_source_resolver)) do
         session_id when is_binary(session_id) and session_id != "" ->
           {:ok, Keyword.put(opts, :session_id, session_id)}
 
         _missing ->
-          reason = :missing_source_session
-          log_projection_failure(issue, :observe_operator, reason)
-          publish_projection_failure(issue, opts, reason)
-          {:error, {:live_conversation_context, reason}}
+          buffer_operator_delivery(issue, item, opts)
       end
     else
       {:ok, opts}
@@ -556,6 +515,47 @@ defmodule Aiur.AgentRunner.MessageHandler do
   end
 
   defp resolve_source_session(_resolver), do: nil
+
+  defp buffer_operator_delivery(issue, item, opts) do
+    case Keyword.get(opts, :live_conversation_operator_buffer) do
+      buffer when is_function(buffer, 2) ->
+        case buffer.(item, Keyword.get(opts, :occurred_at)) do
+          :ok -> :buffered
+          _other -> missing_source_session(issue)
+        end
+
+      _missing ->
+        missing_source_session(issue)
+    end
+  rescue
+    _error -> missing_source_session(issue)
+  catch
+    _kind, _reason -> missing_source_session(issue)
+  end
+
+  defp missing_source_session(issue) do
+    reason = :missing_source_session
+    log_projection_failure(issue, :observe_operator, reason)
+    {:error, {:live_conversation_context, reason}}
+  end
+
+  defp maybe_put_occurred_at(event, %DateTime{} = occurred_at),
+    do: Map.put(event, :timestamp, occurred_at)
+
+  defp maybe_put_occurred_at(event, _occurred_at), do: event
+
+  defp maybe_put_live_server(opts, nil), do: opts
+  defp maybe_put_live_server(opts, server), do: Keyword.put(opts, :server, server)
+
+  defp maybe_put_runtime_subscriber(opts, recipient, issue_id)
+       when is_pid(recipient) and is_binary(issue_id),
+       do: Keyword.put(opts, :runtime_subscriber, {recipient, issue_id})
+
+  defp maybe_put_runtime_subscriber(opts, _recipient, _issue_id), do: opts
+
+  defp projection_recipient(opts) do
+    Keyword.get(opts, :live_conversation_recipient) || Keyword.get(opts, :orchestrator)
+  end
 
   defp log_projection_failure(issue, operation, reason) do
     Logger.warning(

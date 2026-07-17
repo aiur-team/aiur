@@ -152,7 +152,6 @@ defmodule Aiur.BuildOrder.TicketDetail.Sanitizer do
     (?<![A-Za-z0-9._/-])
     /(?!/)[A-Za-z0-9._-]+(?:/[A-Za-z0-9._@%+=,-]+)+
   }ux
-  @url_pattern ~r{https?://[^\s]+}u
   @environment_assignment_pattern ~r/\b[A-Z][A-Z0-9_]{2,}=(?:[^\s]+)/u
   @projection_input_byte_limit 128_000
 
@@ -184,6 +183,7 @@ defmodule Aiur.BuildOrder.TicketDetail.Sanitizer do
       sanitized =
         value
         |> String.replace_invalid()
+        |> maybe_redact_urls(Keyword.get(opts, :redact_urls, false))
         |> sanitize_base(" ")
         |> maybe_redact_urls(Keyword.get(opts, :redact_urls, false))
         |> maybe_redact_environment(Keyword.get(opts, :redact_environment, false))
@@ -210,7 +210,7 @@ defmodule Aiur.BuildOrder.TicketDetail.Sanitizer do
     |> redact_local_paths()
   end
 
-  defp maybe_redact_urls(value, true), do: Regex.replace(@url_pattern, value, "[REDACTED:url]")
+  defp maybe_redact_urls(value, true), do: SecretRedactor.redact_urls(value)
   defp maybe_redact_urls(value, _redact?), do: value
 
   defp maybe_redact_environment(value, true),

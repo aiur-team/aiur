@@ -5,7 +5,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
   Every function runs synchronously inside the orchestrator GenServer process.
   """
 
-  alias Aiur.{CIApprovalStore, Config, ProcessReaper}
+  alias Aiur.{CIApprovalStore, Config, LiveConversation, ProcessReaper}
   alias Aiur.Events.{Exchange, Publisher}
 
   alias Aiur.Orchestrator.{
@@ -97,6 +97,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
     TrackedSet.reset([])
     install_event_tracked_fn(tracked_issue?)
     subscribe_to_orchestrator_topics()
+    _ = LiveConversation.subscribe_restarts()
 
     {:ok, schedule_initial_tick(state, Keyword.get(opts, :initial_poll?, true))}
   end

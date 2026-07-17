@@ -295,7 +295,7 @@ defmodule Aiur.AgentRunner.MessageHandlerTest do
       assert log =~ unique
     end
 
-    test "returns named context errors and publishes degraded consumer status" do
+    test "returns named context errors without publishing an unfenced consumer status" do
       unique = Integer.to_string(System.unique_integer([:positive]))
       issue_id = "gid-context-#{unique}"
 
@@ -322,16 +322,36 @@ defmodule Aiur.AgentRunner.MessageHandlerTest do
       assert log =~ "issue_id=gid-context-#{unique} issue_identifier=#{unique}"
       assert log =~ "reason_class=missing_worker_generation"
 
-      assert_receive {:worker_runtime_info, ^issue_id,
-                      %{
-                        live_conversation: %{
-                          generation_handle: nil,
-                          state: :unavailable,
-                          health: :unavailable,
-                          freshness: :unknown,
-                          reason: :missing_worker_generation
-                        }
-                      }}
+      refute_receive {:worker_runtime_info, ^issue_id, _status}, 100
+    end
+
+    test "buffers an accepted RC delivery while the exact source session is unresolved" do
+      unique = Integer.to_string(System.unique_integer([:positive]))
+
+      issue = %Issue{
+        id: "gid-buffer-#{unique}",
+        identifier: unique,
+        tracker_identity: tracker_identity(unique)
+      }
+
+      item = %{id: 73, category: :operator_message, body: %{text: "accepted before hook"}}
+      occurred_at = ~U[2026-07-17 12:00:00Z]
+      test_pid = self()
+
+      assert :ok =
+               MessageHandler.observe_operator_delivery(issue, item, "claude-repl",
+                 attempt_id: "attempt-#{unique}",
+                 worker_generation: 9,
+                 live_conversation_authority: :display_tailer,
+                 live_conversation_source_resolver: fn -> nil end,
+                 live_conversation_operator_buffer: fn buffered_item, buffered_at ->
+                   send(test_pid, {:buffered, buffered_item, buffered_at})
+                   :ok
+                 end,
+                 occurred_at: occurred_at
+               )
+
+      assert_receive {:buffered, ^item, ^occurred_at}
     end
 
     test "distinguishes an intentional projection skip from invalid context" do

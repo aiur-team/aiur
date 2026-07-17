@@ -460,8 +460,12 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   defp maybe_put_display_source_resolver(opts, nil), do: opts
 
   defp maybe_put_display_source_resolver(opts, display_tailer) do
-    Keyword.put(opts, :live_conversation_source_resolver, fn ->
+    opts
+    |> Keyword.put(:live_conversation_source_resolver, fn ->
       DisplayTailer.current_session(display_tailer)
+    end)
+    |> Keyword.put(:live_conversation_operator_buffer, fn item, occurred_at ->
+      DisplayTailer.buffer_operator_delivery(display_tailer, item, occurred_at)
     end)
   end
 
@@ -605,6 +609,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
       # both. The pane render only needs the transcript broadcast.
       on_message = display_tailer_handler(issue, backend, opts)
       on_source = display_tailer_source_handler(issue, backend, opts)
+      on_operator_delivery = display_tailer_operator_delivery_handler(issue, backend, opts)
 
       # Until a hook identifies a readable transcript, the sole authoritative
       # RC conversation source is unavailable. Ordinary provider activation is
@@ -615,6 +620,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
              identifier: issue.identifier,
              on_message: on_message,
              on_source: on_source,
+             on_operator_delivery: on_operator_delivery,
              initial_session_id: Keyword.get(opts, :session_id),
              log_context: "#{Aiur.AgentRunner.issue_context(issue)} backend=#{backend}",
              owner: self()
@@ -641,6 +647,14 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   def display_tailer_handler(%Issue{identifier: identifier} = issue, backend, opts)
       when is_binary(identifier) and is_binary(backend) and is_list(opts) do
     fn
+      %{
+        source_session_id: session_id,
+        projection_ingress: :display_backfill,
+        transcript_event: event
+      }
+      when is_binary(session_id) and is_map(event) ->
+        AgentPubSub.broadcast_transcript(identifier, event)
+
       %{source_session_id: session_id, transcript_event: event}
       when is_binary(session_id) and is_map(event) ->
         AgentPubSub.broadcast_transcript(identifier, event)
@@ -663,6 +677,18 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   def display_tailer_source_handler(%Issue{} = issue, backend, opts)
       when is_binary(backend) and is_list(opts) do
     fn
+      {:available, prior_session, next_session, %{backfill?: backfill?}}
+      when is_boolean(backfill?) ->
+        opts = Keyword.put(opts, :live_conversation_history_known?, not backfill?)
+
+        MessageHandler.replace_live_conversation_source(
+          issue,
+          backend,
+          prior_session,
+          next_session,
+          opts
+        )
+
       {:available, prior_session, next_session} ->
         MessageHandler.replace_live_conversation_source(
           issue,
@@ -673,14 +699,16 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
         )
 
       {:unavailable, prior_session, next_session, _reason} ->
-        if prior_session != next_session do
-          _ =
-            MessageHandler.end_live_conversation(
-              issue,
-              backend,
-              Keyword.put(opts, :session_id, prior_session)
-            )
-        end
+        opts = Keyword.put(opts, :live_conversation_history_known?, false)
+
+        _ =
+          MessageHandler.replace_live_conversation_source(
+            issue,
+            backend,
+            prior_session,
+            next_session,
+            opts
+          )
 
         MessageHandler.mark_live_conversation_degraded(
           issue,
@@ -690,6 +718,18 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
 
       _other ->
         :ok
+    end
+  end
+
+  defp display_tailer_operator_delivery_handler(issue, backend, opts) do
+    fn item, occurred_at, session_id ->
+      opts =
+        opts
+        |> Keyword.put(:session_id, session_id)
+        |> Keyword.put(:occurred_at, occurred_at)
+        |> Keyword.delete(:live_conversation_authority)
+
+      MessageHandler.observe_operator_delivery(issue, item, backend, opts)
     end
   end
 

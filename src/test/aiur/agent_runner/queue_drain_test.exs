@@ -360,6 +360,108 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
                LiveConversation.snapshot(replacement_source, server: server)
     end
 
+    test "accepted queued prompts retain delivery chronology ahead of assistant output" do
+      identifier = Integer.to_string(System.unique_integer([:positive]))
+      identity = queue_identity(identifier)
+      issue = %Issue{id: "gid-#{identifier}", identifier: identifier, tracker_identity: identity}
+      delivered_at = ~U[2026-07-17 12:00:00Z]
+      assistant_at = DateTime.add(delivered_at, 1, :second)
+
+      item = %{
+        category: :operator_message,
+        id: 20,
+        body: %{text: "accepted prompt"},
+        inserted_at: DateTime.add(delivered_at, -1, :second),
+        delivered_at: delivered_at
+      }
+
+      {:ok, orchestrator} = FakeQueueOrchestrator.start_link(item, self())
+      server = start_supervised!({LiveConversation, name: nil})
+
+      assert :ok =
+               QueueDrain.drain_operator_messages(
+                 %{backend: "codex", thread_id: "ordered-thread"},
+                 issue,
+                 fn _message -> :ok end,
+                 orchestrator,
+                 nil,
+                 attempt_id: "attempt-#{identifier}",
+                 session_id: "ordered-thread",
+                 worker_generation: 20,
+                 live_conversation_server: server,
+                 run_turn: fn session, _text, _issue, turn_opts ->
+                   Keyword.fetch!(turn_opts, :on_message).(%{
+                     event: :agent_message,
+                     body: "assistant response",
+                     timestamp: assistant_at
+                   })
+
+                   {:ok, session}
+                 end
+               )
+
+      source = %{
+        identity: identity,
+        attempt_id: "attempt-#{identifier}",
+        session_id: "ordered-thread",
+        backend: "codex",
+        worker_generation: 20
+      }
+
+      assert %{messages: [operator, assistant]} = LiveConversation.snapshot(source, server: server)
+      assert %{role: "operator", body: "accepted prompt", occurred_at: ^delivered_at} = operator
+      assert %{role: "agent", body: "assistant response", occurred_at: ^assistant_at} = assistant
+    end
+
+    test "assistant output from a failed queued turn never admits the unaccepted prompt" do
+      identifier = Integer.to_string(System.unique_integer([:positive]))
+      identity = queue_identity(identifier)
+      issue = %Issue{id: "gid-#{identifier}", identifier: identifier, tracker_identity: identity}
+
+      item = %{
+        category: :operator_message,
+        id: 21,
+        body: %{text: "must remain unaccepted"},
+        delivered_at: ~U[2026-07-17 12:00:00Z]
+      }
+
+      {:ok, orchestrator} = FakeQueueOrchestrator.start_link(item, self())
+      server = start_supervised!({LiveConversation, name: nil})
+
+      assert {:error, :provider_failed} =
+               QueueDrain.drain_operator_messages(
+                 %{backend: "claude", thread_id: "failed-thread"},
+                 issue,
+                 fn _message -> :ok end,
+                 orchestrator,
+                 nil,
+                 attempt_id: "attempt-#{identifier}",
+                 session_id: "failed-thread",
+                 worker_generation: 21,
+                 live_conversation_server: server,
+                 run_turn: fn _session, _text, _issue, turn_opts ->
+                   Keyword.fetch!(turn_opts, :on_message).(%{
+                     event: :agent_message,
+                     body: "pre-failure assistant output",
+                     timestamp: ~U[2026-07-17 12:00:01Z]
+                   })
+
+                   {:error, :provider_failed}
+                 end
+               )
+
+      source = %{
+        identity: identity,
+        attempt_id: "attempt-#{identifier}",
+        session_id: "failed-thread",
+        backend: "claude",
+        worker_generation: 21
+      }
+
+      assert %{messages: [%{role: "agent", body: "pre-failure assistant output"}]} =
+               LiveConversation.snapshot(source, server: server)
+    end
+
     test "Claude provider exits retain the existing failed-delivery behavior" do
       identifier = "QD-claude-port-exit-#{System.unique_integer([:positive])}"
       issue = %Issue{identifier: identifier}

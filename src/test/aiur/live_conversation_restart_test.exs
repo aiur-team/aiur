@@ -30,6 +30,7 @@ defmodule Aiur.LiveConversationRestartTest do
                body: "before restart"
              })
 
+    assert :ok = LiveConversation.subscribe(source)
     prior = Process.whereis(LiveConversation)
     ref = Process.monitor(prior)
     Process.exit(prior, :kill)
@@ -38,6 +39,8 @@ defmodule Aiur.LiveConversationRestartTest do
     replacement = await_replacement(prior, 200)
     assert is_pid(replacement)
     assert :sys.get_state(replacement).snapshots == %{}
+
+    assert_receive {:live_conversation_restarted, "projection:" <> _, %DateTime{}}, 2_000
 
     assert %{state: :restart_unknown, health: :unknown, freshness: :unknown, messages: []} =
              LiveConversation.snapshot(source)

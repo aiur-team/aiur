@@ -3,6 +3,7 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
 
   alias Aiur.{AgentEvents, AgentPubSub, Config, Issue, LiveConversation, TrackerIdentity}
   alias Aiur.AgentRunner.{MessageHandler, SessionLifecycle}
+  alias Aiur.Claude.{DisplayTailer, HookEvents}
   alias Aiur.Workspace.Ownership
   alias Aiur.Workspace.Ownership.Store
 
@@ -196,6 +197,94 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
                )
 
       assert %{state: :unavailable, messages: []} =
+               LiveConversation.snapshot(source, server: server)
+    end
+
+    test "composed RC attach keeps display backfill out of restart-unknown projection" do
+      unique = Integer.to_string(System.unique_integer([:positive]))
+      identity = tracker_identity(unique)
+      issue = %Issue{id: "gid-#{unique}", identifier: unique, tracker_identity: identity}
+      server = start_supervised!({LiveConversation, name: nil})
+      session_id = "provider-session-#{unique}"
+
+      opts = [
+        telemetry_attempt_id: "attempt-#{unique}",
+        worker_generation: 12,
+        live_conversation_server: server,
+        live_conversation_authority: :display_tailer
+      ]
+
+      source = %{
+        identity: identity,
+        attempt_id: "attempt-#{unique}",
+        session_id: session_id,
+        backend: "claude-repl",
+        worker_generation: 12
+      }
+
+      path =
+        Path.join(
+          System.tmp_dir!(),
+          "session-lifecycle-display-#{System.unique_integer([:positive])}.jsonl"
+        )
+
+      old_record = %{
+        "uuid" => "old-record",
+        "type" => "assistant",
+        "timestamp" => "2026-07-17T12:00:00Z",
+        "message" => %{
+          "content" => [%{"type" => "text", "text" => "pane-only history"}]
+        }
+      }
+
+      on_exit(fn -> File.rm(path) end)
+      :ok = AgentPubSub.subscribe_agent(unique)
+
+      display_tailer =
+        start_supervised!(
+          {DisplayTailer,
+           identifier: unique,
+           on_message: SessionLifecycle.display_tailer_handler(issue, "claude-repl", opts),
+           on_source: SessionLifecycle.display_tailer_source_handler(issue, "claude-repl", opts),
+           interval_ms: nil}
+        )
+
+      source_event = %{
+        "hook_event_name" => "PostToolUse",
+        "transcript_path" => path,
+        "session_id" => session_id
+      }
+
+      HookEvents.dispatch(unique, source_event)
+
+      assert DisplayTailer.current_session(display_tailer) == session_id
+
+      assert %{state: :unavailable, messages: []} =
+               LiveConversation.snapshot(source, server: server)
+
+      File.write!(path, Jason.encode!(old_record) <> "\n")
+      HookEvents.dispatch(unique, source_event)
+
+      assert DisplayTailer.current_session(display_tailer) == session_id
+      assert {:ok, 1} = DisplayTailer.poll(display_tailer)
+      assert_receive {:transcript_event, %{body: "pane-only history"}}
+
+      assert %{state: :restart_unknown, messages: []} =
+               LiveConversation.snapshot(source, server: server)
+
+      live_record = %{
+        "uuid" => "live-record",
+        "type" => "assistant",
+        "timestamp" => "2026-07-17T12:00:01Z",
+        "message" => %{
+          "content" => [%{"type" => "text", "text" => "new live evidence"}]
+        }
+      }
+
+      File.write!(path, Jason.encode!(live_record) <> "\n", [:append])
+      assert {:ok, 1} = DisplayTailer.poll(display_tailer)
+
+      assert %{state: :restart_unknown, messages: [%{body: "new live evidence"}]} =
                LiveConversation.snapshot(source, server: server)
     end
   end

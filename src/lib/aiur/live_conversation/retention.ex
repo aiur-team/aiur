@@ -4,18 +4,23 @@ defmodule Aiur.LiveConversation.Retention do
   alias Aiur.LiveConversation.Compactor
 
   @message_limit 80
+  @replay_tombstone_limit 256
   @snapshot_byte_limit 64_000
   @ended_generation_limit 16
   @retained_snapshot_limit 128
 
   @spec retain(map(), (map() -> map())) :: map()
   def retain(snapshot, public_fun) when is_function(public_fun, 1) do
-    {messages, evicted} = trim_messages(snapshot, snapshot.messages, 0, public_fun)
+    {messages, evicted_messages} =
+      trim_messages(snapshot, snapshot.messages, [], public_fun)
+
+    evicted = length(evicted_messages)
 
     %{
       snapshot
       | messages: messages,
         seen: Compactor.reindex(messages),
+        replay_tombstones: retain_replay_tombstones(snapshot.replay_tombstones, evicted_messages),
         evicted_count: snapshot.evicted_count + evicted,
         truncated?: snapshot.truncated? or evicted > 0
     }
@@ -30,18 +35,27 @@ defmodule Aiur.LiveConversation.Retention do
 
   defp trim_messages(snapshot, messages, evicted, public_fun)
        when length(messages) > @message_limit do
-    trim_messages(snapshot, tl(messages), evicted + 1, public_fun)
+    [message | rest] = messages
+    trim_messages(snapshot, rest, [message | evicted], public_fun)
   end
 
-  defp trim_messages(snapshot, [_message | rest] = messages, evicted, public_fun) do
-    if snapshot_bytes(snapshot, messages, evicted, public_fun) > @snapshot_byte_limit do
-      trim_messages(snapshot, rest, evicted + 1, public_fun)
+  defp trim_messages(snapshot, [message | rest] = messages, evicted, public_fun) do
+    if snapshot_bytes(snapshot, messages, length(evicted), public_fun) > @snapshot_byte_limit do
+      trim_messages(snapshot, rest, [message | evicted], public_fun)
     else
       {messages, evicted}
     end
   end
 
   defp trim_messages(_snapshot, [], evicted, _public_fun), do: {[], evicted}
+
+  defp retain_replay_tombstones(tombstones, evicted_messages) do
+    evicted_messages
+    |> Enum.reduce(tombstones, fn message, acc -> Map.put(acc, message.id, message.order) end)
+    |> Enum.sort_by(fn {_id, order} -> order end, :desc)
+    |> Enum.take(@replay_tombstone_limit)
+    |> Map.new()
+  end
 
   defp snapshot_bytes(snapshot, messages, evicted, public_fun) do
     snapshot

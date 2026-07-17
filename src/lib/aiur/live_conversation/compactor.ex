@@ -37,7 +37,10 @@ defmodule Aiur.LiveConversation.Compactor do
   end
 
   defp apply_message(snapshot, %{id: id, delivery: :partial} = message) do
-    case Map.get(snapshot.seen, id) do
+    case seen_status(snapshot, id) do
+      :evicted ->
+        {snapshot, false}
+
       :completed ->
         {snapshot, false}
 
@@ -50,7 +53,10 @@ defmodule Aiur.LiveConversation.Compactor do
   end
 
   defp apply_message(snapshot, %{id: id, delivery: :completed} = message) do
-    case Map.get(snapshot.seen, id) do
+    case seen_status(snapshot, id) do
+      :evicted ->
+        {snapshot, false}
+
       :completed ->
         {snapshot, false}
 
@@ -138,12 +144,24 @@ defmodule Aiur.LiveConversation.Compactor do
   end
 
   defp live_snapshot(snapshot, observed_at) do
-    %{
-      snapshot
-      | state: :live,
-        health: :healthy,
-        freshness: :current,
-        observed_at: observed_at
-    }
+    if snapshot.state == :restart_unknown do
+      %{snapshot | observed_at: observed_at}
+    else
+      %{
+        snapshot
+        | state: :live,
+          health: :healthy,
+          freshness: :current,
+          observed_at: observed_at
+      }
+    end
+  end
+
+  defp seen_status(snapshot, id) do
+    if Map.has_key?(snapshot.replay_tombstones, id) do
+      :evicted
+    else
+      Map.get(snapshot.seen, id)
+    end
   end
 end

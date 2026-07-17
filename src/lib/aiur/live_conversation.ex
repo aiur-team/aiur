@@ -15,6 +15,7 @@ defmodule Aiur.LiveConversation do
 
   @version 1
   @topic "live-conversation:changed"
+  @restart_topic "live-conversation:restarted"
 
   @type source :: Source.input()
   @type public_source :: Source.public()
@@ -30,6 +31,9 @@ defmodule Aiur.LiveConversation do
 
   @type snapshot :: %{
           required(:version) => pos_integer(),
+          required(:projection_epoch) => String.t(),
+          required(:revision) => non_neg_integer(),
+          required(:source_revision) => non_neg_integer(),
           required(:generation_handle) => String.t() | nil,
           required(:source) => public_source() | nil,
           required(:state) => :live | :ended | :known_empty | :stale | :unavailable | :restart_unknown,
@@ -44,42 +48,50 @@ defmodule Aiur.LiveConversation do
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
+    name = Keyword.get(opts, :name, __MODULE__)
+    opts = Keyword.put_new(opts, :announce_restarts?, name == __MODULE__)
+    GenServer.start_link(__MODULE__, opts, name: name)
   end
 
   @spec activate(source(), keyword()) :: {:ok, snapshot()} | {:error, atom()}
-  def activate(source, opts \\ []), do: call({:activate, source}, opts)
+  def activate(source, opts \\ []) do
+    history_known? = Keyword.get(opts, :history_known?, true)
+    call({:activate, source, history_known?, runtime_subscriber(opts)}, opts)
+  end
 
   @spec observe(source(), map(), keyword()) :: {:ok, snapshot()} | {:error, atom()}
   def observe(source, event, opts \\ []) when is_map(event) do
-    call({:observe, source, event}, opts)
+    call({:observe, source, event, runtime_subscriber(opts)}, opts)
   end
 
   @spec observe_operator_message(source(), map(), keyword()) ::
           {:ok, snapshot()} | {:error, atom()}
   def observe_operator_message(source, event, opts \\ []) when is_map(event) do
-    call({:observe_trusted, source, :user, event}, opts)
+    call({:observe_trusted, source, :user, event, runtime_subscriber(opts)}, opts)
   end
 
   @spec observe_tool_summary(source(), map(), keyword()) ::
           {:ok, snapshot()} | {:error, atom()}
   def observe_tool_summary(source, event, opts \\ []) when is_map(event) do
-    call({:observe_trusted, source, :tool, event}, opts)
+    call({:observe_trusted, source, :tool, event, runtime_subscriber(opts)}, opts)
   end
 
   @spec end_generation(source(), keyword()) :: {:ok, snapshot()} | {:error, atom()}
-  def end_generation(source, opts \\ []), do: call({:change_state, source, :ended}, opts)
+  def end_generation(source, opts \\ []),
+    do: call({:change_state, source, :ended, runtime_subscriber(opts)}, opts)
 
   @spec mark_unavailable(source(), keyword()) :: {:ok, snapshot()} | {:error, atom()}
   def mark_unavailable(source, opts \\ []) do
-    call({:change_state, source, :unavailable}, opts)
+    call({:change_state, source, :unavailable, runtime_subscriber(opts)}, opts)
   end
 
   @spec mark_stale(source(), keyword()) :: {:ok, snapshot()} | {:error, atom()}
-  def mark_stale(source, opts \\ []), do: call({:change_state, source, :stale}, opts)
+  def mark_stale(source, opts \\ []),
+    do: call({:change_state, source, :stale, runtime_subscriber(opts)}, opts)
 
   @spec mark_degraded(source(), keyword()) :: {:ok, snapshot()} | {:error, atom()}
-  def mark_degraded(source, opts \\ []), do: call({:change_state, source, :degraded}, opts)
+  def mark_degraded(source, opts \\ []),
+    do: call({:change_state, source, :degraded, runtime_subscriber(opts)}, opts)
 
   @spec snapshot(source(), keyword()) :: snapshot()
   def snapshot(source, opts \\ []), do: GenServer.call(server(opts), {:snapshot, source})
@@ -97,7 +109,7 @@ defmodule Aiur.LiveConversation do
   @spec subscribe(source()) :: :ok | {:error, term()}
   def subscribe(source) do
     case Source.canonical(source) do
-      {:ok, key, _source} -> Phoenix.PubSub.subscribe(Aiur.PubSub, source_topic(key))
+      {:ok, key, _source} -> subscribe_with_restarts(source_topic(key))
       _error -> {:error, :invalid_source}
     end
   end
@@ -106,66 +118,108 @@ defmodule Aiur.LiveConversation do
   @spec subscribe_handle(String.t()) :: :ok | {:error, :invalid_handle}
   def subscribe_handle(handle) do
     if Source.valid_handle?(handle) do
-      Phoenix.PubSub.subscribe(Aiur.PubSub, handle_topic(handle))
+      subscribe_with_restarts(handle_topic(handle))
     else
       {:error, :invalid_handle}
     end
   end
 
+  @doc "Subscribe to projection-epoch changes so retained consumer caches can reset truthfully."
+  @spec subscribe_restarts() :: :ok | {:error, term()}
+  def subscribe_restarts, do: Phoenix.PubSub.subscribe(Aiur.PubSub, @restart_topic)
+
   @impl true
   def init(opts) do
-    {:ok,
-     %{
-       clock: Keyword.get(opts, :clock, &DateTime.utc_now/0),
-       handle_fun: Keyword.get(opts, :handle_fun, &random_handle/0),
-       snapshots: %{},
-       handles: %{},
-       pending_notifications: %{}
-     }}
+    announce_restarts? = Keyword.get(opts, :announce_restarts?, false)
+
+    state = %{
+      clock: Keyword.get(opts, :clock, &DateTime.utc_now/0),
+      handle_fun: Keyword.get(opts, :handle_fun, &random_handle/0),
+      projection_epoch: random_epoch(),
+      implicit_restart_unknown?: projection_restarted?(announce_restarts?),
+      announce_restarts?: announce_restarts?,
+      notification_delay_ms: Keyword.get(opts, :notification_delay_ms, 10),
+      next_revision: 0,
+      snapshots: %{},
+      handles: %{},
+      active_sources: %{},
+      runtime_subscribers: %{},
+      pending_notifications: %{}
+    }
+
+    {:ok, state, {:continue, :announce_restart}}
   end
 
   @impl true
-  def handle_call({:activate, source}, _from, state) do
+  def handle_continue(:announce_restart, state) do
+    if state.announce_restarts? do
+      Phoenix.PubSub.broadcast(
+        Aiur.PubSub,
+        @restart_topic,
+        {:live_conversation_restarted, state.projection_epoch, state.clock.()}
+      )
+    end
+
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_call({:activate, source, history_known?, runtime}, _from, state) do
     case Source.canonical(source) do
       {:ok, key, source} ->
-        now = state.clock.()
-        created? = not Map.has_key?(state.snapshots, key)
-        {snapshot, state} = fetch_or_create(state, key, source, now)
-        activated = activate_snapshot(snapshot, now)
-        changed? = created? or activated != snapshot
-        state = put_snapshot(state, key, activated)
-        state = maybe_schedule_notification(state, key, source, changed?)
-        {:reply, {:ok, public(activated)}, state}
+        case authorize_source(state, key, :activate) do
+          {:ok, state} ->
+            now = state.clock.()
+            mode = if history_known?, do: :known_history, else: :unknown_history
+            {snapshot, state, created?} = fetch_or_create(state, key, source, now, mode)
+            activated = activate_snapshot(snapshot, now, created?, history_known?)
+            changed? = created? or activated != snapshot
+            {activated, state} = persist_snapshot(state, key, activated, changed?)
+
+            state =
+              state
+              |> register_runtime_subscriber(key, runtime)
+              |> maybe_schedule_notification(key, source, changed?)
+
+            {:reply, {:ok, public(activated)}, state}
+
+          {:error, reason} ->
+            {:reply, {:error, reason}, state}
+        end
 
       {:error, reason} ->
         {:reply, {:error, reason}, state}
     end
   end
 
-  def handle_call({:observe, source, event}, _from, state) do
-    observe_normalized(source, state, fn now -> Normalizer.normalize(event, now) end)
+  def handle_call({:observe, source, event, runtime}, _from, state) do
+    observe_normalized(source, state, runtime, fn now -> Normalizer.normalize(event, now) end)
   end
 
-  def handle_call({:observe_trusted, source, role, event}, _from, state) do
-    observe_normalized(source, state, fn now ->
+  def handle_call({:observe_trusted, source, role, event, runtime}, _from, state) do
+    observe_normalized(source, state, runtime, fn now ->
       Normalizer.normalize_trusted(role, event, now)
     end)
   end
 
-  def handle_call({:change_state, source, next_state}, _from, state) do
-    change_state(source, state, next_state)
+  def handle_call({:change_state, source, next_state, runtime}, _from, state) do
+    change_state(source, state, next_state, runtime)
   end
 
   def handle_call({:snapshot, source}, _from, state) do
     case Source.canonical(source) do
       {:ok, key, source} ->
         snapshot =
-          Map.get(state.snapshots, key, restart_unknown_snapshot(source, state.clock.()))
+          Map.get(
+            state.snapshots,
+            key,
+            restart_unknown_snapshot(source, state.clock.(), state.projection_epoch)
+          )
 
         {:reply, public(snapshot), state}
 
       _error ->
-        {:reply, unavailable_snapshot(state.clock.(), :invalid_source), state}
+        {:reply, unavailable_snapshot(state.clock.(), state.projection_epoch, :invalid_source), state}
     end
   end
 
@@ -175,7 +229,9 @@ defmodule Aiur.LiveConversation do
            {:ok, snapshot} <- Map.fetch(state.snapshots, key) do
         public(snapshot)
       else
-        _missing -> restart_unknown_snapshot(nil, state.clock.(), handle) |> public()
+        _missing ->
+          restart_unknown_snapshot(nil, state.clock.(), state.projection_epoch, handle)
+          |> public()
       end
 
     {:reply, {:ok, snapshot}, state}
@@ -189,52 +245,37 @@ defmodule Aiur.LiveConversation do
 
       {source, pending_notifications} ->
         snapshot =
-          Map.get(state.snapshots, key, restart_unknown_snapshot(source, state.clock.()))
+          Map.get(
+            state.snapshots,
+            key,
+            restart_unknown_snapshot(source, state.clock.(), state.projection_epoch)
+          )
 
         broadcast(key, public(snapshot))
+        notify_runtime_subscribers(state, key, snapshot)
         {:noreply, %{state | pending_notifications: pending_notifications}}
     end
   end
 
-  defp observe_normalized(source, state, normalize_fun) do
+  defp observe_normalized(source, state, runtime, normalize_fun) do
     case Source.canonical(source) do
       {:ok, key, source} ->
-        now = state.clock.()
-        {snapshot, state} = fetch_or_create(state, key, source, now)
-        {snapshot, changed?} = Compactor.apply(snapshot, normalize_fun.(now))
-        snapshot = Retention.retain(snapshot, &public/1)
-        state = put_snapshot(state, key, snapshot)
-        state = maybe_schedule_notification(state, key, source, changed?)
-        {:reply, {:ok, public(snapshot)}, state}
+        case authorize_source(state, key, :mutate) do
+          {:ok, state} ->
+            now = state.clock.()
+            {snapshot, state, _created?} = fetch_or_create(state, key, source, now, :implicit)
+            {snapshot, changed?} = Compactor.apply(snapshot, normalize_fun.(now))
+            {snapshot, state} = persist_snapshot(state, key, snapshot, changed?)
 
-      {:error, reason} ->
-        {:reply, {:error, reason}, state}
-    end
-  end
+            state =
+              state
+              |> register_runtime_subscriber(key, runtime)
+              |> maybe_schedule_notification(key, source, changed?)
 
-  defp change_state(source, state, next_state) do
-    case Source.canonical(source) do
-      {:ok, key, source} ->
-        now = state.clock.()
-        {snapshot, state} = fetch_or_create(state, key, source, now)
+            {:reply, {:ok, public(snapshot)}, state}
 
-        if snapshot.state == :ended do
-          {:reply, {:ok, public(snapshot)}, state}
-        else
-          {next_state, health, freshness} = state_transition(next_state, snapshot)
-
-          snapshot =
-            snapshot
-            |> Map.merge(%{
-              state: next_state,
-              health: health,
-              freshness: freshness,
-              observed_at: now
-            })
-            |> Retention.retain(&public/1)
-
-          state = state |> put_snapshot(key, snapshot) |> schedule_notification(key, source)
-          {:reply, {:ok, public(snapshot)}, state}
+          {:error, reason} ->
+            {:reply, {:error, reason}, state}
         end
 
       {:error, reason} ->
@@ -242,21 +283,74 @@ defmodule Aiur.LiveConversation do
     end
   end
 
-  defp fetch_or_create(state, key, source, now) do
-    case Map.fetch(state.snapshots, key) do
-      {:ok, snapshot} -> {snapshot, state}
-      :error -> new_snapshot(state, source, now)
+  defp change_state(source, state, next_state, runtime) do
+    case Source.canonical(source) do
+      {:ok, key, source} ->
+        case authorize_source(state, key, :mutate) do
+          {:ok, state} ->
+            now = state.clock.()
+            {snapshot, state, _created?} = fetch_or_create(state, key, source, now, :implicit)
+
+            if snapshot.state == :ended do
+              {:reply, {:ok, public(snapshot)}, state}
+            else
+              {next_state, health, freshness} = state_transition(next_state, snapshot)
+
+              snapshot =
+                Map.merge(snapshot, %{
+                  state: next_state,
+                  health: health,
+                  freshness: freshness,
+                  observed_at: now
+                })
+
+              {snapshot, state} = persist_snapshot(state, key, snapshot, true)
+
+              state =
+                state
+                |> register_runtime_subscriber(key, runtime)
+                |> schedule_notification(key, source)
+
+              {:reply, {:ok, public(snapshot)}, state}
+            end
+
+          {:error, reason} ->
+            {:reply, {:error, reason}, state}
+        end
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
     end
   end
 
-  defp new_snapshot(state, source, now) do
-    handle = unique_handle(state)
-    {fresh_snapshot(source, now, handle), state}
+  defp fetch_or_create(state, key, source, now, mode) do
+    case Map.fetch(state.snapshots, key) do
+      {:ok, snapshot} -> {snapshot, state, false}
+      :error -> new_snapshot(state, source, now, mode)
+    end
   end
 
-  defp fresh_snapshot(source, now, handle) do
+  defp new_snapshot(state, source, now, mode) do
+    handle = unique_handle(state)
+    snapshot = fresh_snapshot(source, now, handle, state.projection_epoch)
+
+    snapshot =
+      if mode == :unknown_history or
+           (mode == :implicit and state.implicit_restart_unknown?) do
+        restart_unknown(snapshot)
+      else
+        snapshot
+      end
+
+    {snapshot, state, true}
+  end
+
+  defp fresh_snapshot(source, now, handle, projection_epoch) do
     %{
       version: @version,
+      projection_epoch: projection_epoch,
+      revision: 0,
+      source_revision: 0,
       generation_handle: handle,
       source: source,
       state: :known_empty,
@@ -264,6 +358,7 @@ defmodule Aiur.LiveConversation do
       freshness: :current,
       messages: [],
       seen: %{},
+      replay_tombstones: %{},
       observed_at: now,
       diagnostic_counts: %{},
       truncated?: false,
@@ -271,18 +366,22 @@ defmodule Aiur.LiveConversation do
     }
   end
 
-  defp restart_unknown_snapshot(source, now, handle \\ nil) do
-    %{
-      fresh_snapshot(source, now, handle)
-      | state: :restart_unknown,
-        health: :unknown,
-        freshness: :unknown
-    }
+  defp restart_unknown_snapshot(source, now, projection_epoch, handle \\ nil) do
+    source
+    |> fresh_snapshot(now, handle, projection_epoch)
+    |> restart_unknown()
   end
 
-  defp unavailable_snapshot(now, reason) do
+  defp restart_unknown(snapshot) do
+    %{snapshot | state: :restart_unknown, health: :unknown, freshness: :unknown}
+  end
+
+  defp unavailable_snapshot(now, projection_epoch, reason) do
     %{
       version: @version,
+      projection_epoch: projection_epoch,
+      revision: 0,
+      source_revision: 0,
       generation_handle: nil,
       source: nil,
       state: :unavailable,
@@ -296,9 +395,16 @@ defmodule Aiur.LiveConversation do
     }
   end
 
-  defp activate_snapshot(%{state: :ended} = snapshot, _now), do: snapshot
+  defp activate_snapshot(%{state: :ended} = snapshot, _now, _created?, _history_known?),
+    do: snapshot
 
-  defp activate_snapshot(snapshot, now) do
+  defp activate_snapshot(snapshot, now, _created?, false) do
+    snapshot
+    |> restart_unknown()
+    |> Map.put(:observed_at, now)
+  end
+
+  defp activate_snapshot(snapshot, now, _created?, _history_known?) do
     next_state = if snapshot.messages == [], do: :known_empty, else: :live
 
     snapshot
@@ -308,7 +414,6 @@ defmodule Aiur.LiveConversation do
       freshness: :current,
       observed_at: now
     })
-    |> Retention.retain(&public/1)
   end
 
   defp state_transition(:degraded, %{messages: []}),
@@ -337,6 +442,9 @@ defmodule Aiur.LiveConversation do
     snapshot
     |> Map.take([
       :version,
+      :projection_epoch,
+      :revision,
+      :source_revision,
       :generation_handle,
       :source,
       :state,
@@ -364,7 +472,37 @@ defmodule Aiur.LiveConversation do
         {retained.generation_handle, snapshot_key}
       end)
 
-    %{state | snapshots: snapshots, handles: handles}
+    runtime_subscribers = Map.take(state.runtime_subscribers, Map.keys(snapshots))
+
+    %{
+      state
+      | snapshots: snapshots,
+        handles: handles,
+        runtime_subscribers: runtime_subscribers
+    }
+  end
+
+  defp persist_snapshot(state, _key, snapshot, false), do: {snapshot, state}
+
+  defp persist_snapshot(state, key, snapshot, true) do
+    revision = state.next_revision + 1
+
+    snapshot =
+      snapshot
+      |> Map.put(:revision, revision)
+      |> Map.update!(:source_revision, fn
+        0 -> revision
+        source_revision -> source_revision
+      end)
+      |> Retention.retain(&public/1)
+
+    state =
+      state
+      |> Map.put(:next_revision, revision)
+      |> put_snapshot(key, snapshot)
+      |> update_active_revision(key, revision)
+
+    {snapshot, state}
   end
 
   defp maybe_schedule_notification(state, _key, _source, false), do: state
@@ -374,7 +512,7 @@ defmodule Aiur.LiveConversation do
     if Map.has_key?(pending, key) do
       state
     else
-      Process.send_after(self(), {:notify, key}, 10)
+      Process.send_after(self(), {:notify, key}, state.notification_delay_ms)
       %{state | pending_notifications: Map.put(pending, key, source)}
     end
   end
@@ -390,8 +528,18 @@ defmodule Aiur.LiveConversation do
     "conversation:" <> (:crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false))
   end
 
+  defp random_epoch do
+    "projection:" <> (:crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false))
+  end
+
   defp source_topic(key), do: topic("source", key)
   defp handle_topic(handle), do: @topic <> ":v#{@version}:handle:" <> handle
+
+  defp subscribe_with_restarts(topic) do
+    with :ok <- Phoenix.PubSub.subscribe(Aiur.PubSub, topic) do
+      subscribe_restarts()
+    end
+  end
 
   defp topic(kind, value) do
     digest =
@@ -420,6 +568,103 @@ defmodule Aiur.LiveConversation do
       _handle ->
         :ok
     end
+  end
+
+  defp authorize_source(state, key, mode) do
+    scope = Source.scope(key)
+    generation = Source.generation(key)
+
+    case Map.get(state.active_sources, scope) do
+      nil ->
+        {:ok, put_active_source(state, scope, key, generation)}
+
+      %{generation: active_generation} when generation < active_generation ->
+        {:error, :stale_generation}
+
+      %{generation: active_generation} when generation > active_generation ->
+        {:ok, put_active_source(state, scope, key, generation)}
+
+      %{key: ^key} ->
+        {:ok, state}
+
+      _active when mode == :activate ->
+        {:ok, put_active_source(state, scope, key, generation)}
+
+      _active ->
+        {:error, :stale_source}
+    end
+  end
+
+  defp put_active_source(state, scope, key, generation) do
+    active = %{key: key, generation: generation, revision: state.next_revision}
+    %{state | active_sources: Map.put(state.active_sources, scope, active)}
+  end
+
+  defp update_active_revision(state, key, revision) do
+    scope = Source.scope(key)
+
+    case Map.get(state.active_sources, scope) do
+      %{key: ^key} = active ->
+        put_in(state.active_sources[scope], %{active | revision: revision})
+
+      _other ->
+        state
+    end
+  end
+
+  defp register_runtime_subscriber(state, _key, nil), do: state
+
+  defp register_runtime_subscriber(state, key, {recipient, issue_id}) do
+    subscribers =
+      Map.update(state.runtime_subscribers, key, %{issue_id => recipient}, fn subscribers ->
+        Map.put(subscribers, issue_id, recipient)
+      end)
+
+    %{state | runtime_subscribers: subscribers}
+  end
+
+  defp notify_runtime_subscribers(state, key, snapshot) do
+    status =
+      snapshot
+      |> public()
+      |> Map.take([
+        :projection_epoch,
+        :revision,
+        :source_revision,
+        :generation_handle,
+        :source,
+        :state,
+        :health,
+        :freshness,
+        :observed_at
+      ])
+
+    state.runtime_subscribers
+    |> Map.get(key, %{})
+    |> Enum.each(fn {issue_id, recipient} ->
+      send(recipient, {:worker_runtime_info, issue_id, %{live_conversation: status}})
+    end)
+
+    :ok
+  end
+
+  defp runtime_subscriber(opts) do
+    case Keyword.get(opts, :runtime_subscriber) do
+      {recipient, issue_id} when is_pid(recipient) and is_binary(issue_id) ->
+        {recipient, issue_id}
+
+      _other ->
+        nil
+    end
+  end
+
+  defp projection_restarted?(false), do: false
+
+  defp projection_restarted?(true) do
+    key = {__MODULE__, :projection_started, Aiur.Boot.run_id()}
+    restarted? = :persistent_term.get(key, false)
+    :persistent_term.put(key, true)
+    restarted?
   end
 
   defp server(opts), do: Keyword.get(opts, :server, __MODULE__)

@@ -39,11 +39,13 @@ defmodule Aiur.Claude.DisplayTailer do
   # The inner tailer polls on this cadence in production; tests pass
   # `interval_ms: nil` and drive reads synchronously via `poll/1`.
   @default_interval_ms 400
+  @operator_delivery_limit 32
 
   @type option ::
           {:identifier, String.t()}
           | {:on_message, (map() -> any())}
           | {:on_source, (source_event() -> any())}
+          | {:on_operator_delivery, (map(), DateTime.t() | nil, String.t() -> any())}
           | {:initial_session_id, String.t() | nil}
           | {:log_context, String.t()}
           | {:interval_ms, pos_integer() | nil}
@@ -53,6 +55,7 @@ defmodule Aiur.Claude.DisplayTailer do
 
   @type source_event ::
           {:available, String.t() | nil, String.t()}
+          | {:available, String.t() | nil, String.t(), %{backfill?: boolean()}}
           | {:unavailable, String.t() | nil, String.t(), atom()}
 
   @spec start_link([option()]) :: GenServer.on_start()
@@ -82,6 +85,12 @@ defmodule Aiur.Claude.DisplayTailer do
   @spec current_session(GenServer.server()) :: String.t() | nil
   def current_session(server), do: GenServer.call(server, :current_session)
 
+  @doc false
+  @spec buffer_operator_delivery(GenServer.server(), map(), DateTime.t() | nil) :: :ok
+  def buffer_operator_delivery(server, item, occurred_at) when is_map(item) do
+    GenServer.call(server, {:buffer_operator_delivery, item, occurred_at})
+  end
+
   @impl true
   def init(opts) do
     Process.flag(:trap_exit, true)
@@ -101,13 +110,15 @@ defmodule Aiur.Claude.DisplayTailer do
        identifier: identifier,
        on_message: on_message,
        on_source: on_source,
+       on_operator_delivery: Keyword.get(opts, :on_operator_delivery, fn _item, _occurred_at, _session_id -> :ok end),
        log_context: Keyword.get(opts, :log_context, "issue_identifier=#{identifier}"),
        interval_ms: Keyword.get(opts, :interval_ms, @default_interval_ms),
        max_body: Keyword.get(opts, :max_body, @default_max_body),
        owner_ref: owner_ref,
        session_id: normalize_session_id(Keyword.get(opts, :initial_session_id)),
        path: nil,
-       tailer: nil
+       tailer: nil,
+       pending_operator_deliveries: []
      }}
   end
 
@@ -139,6 +150,22 @@ defmodule Aiur.Claude.DisplayTailer do
   @impl true
   def handle_call(:current_session, _from, state), do: {:reply, state.session_id, state}
 
+  def handle_call(
+        {:buffer_operator_delivery, item, occurred_at},
+        _from,
+        %{session_id: session_id, tailer: tailer} = state
+      )
+      when is_binary(session_id) and is_pid(tailer) do
+    delivery = operator_delivery(item, occurred_at)
+    if delivery, do: safely_forward_operator_delivery(state, delivery, session_id)
+    {:reply, :ok, state}
+  end
+
+  def handle_call({:buffer_operator_delivery, item, occurred_at}, _from, state) do
+    pending = retain_operator_delivery(state.pending_operator_deliveries, item, occurred_at)
+    {:reply, :ok, %{state | pending_operator_deliveries: pending}}
+  end
+
   def handle_call(:poll, _from, %{tailer: nil} = state), do: {:reply, {:ok, 0}, state}
 
   def handle_call(:poll, _from, %{tailer: tailer} = state) do
@@ -161,11 +188,20 @@ defmodule Aiur.Claude.DisplayTailer do
 
     if File.exists?(path) do
       stop_tailer(state.tailer)
+      backfill_bytes = current_size(path)
 
-      case start_tailer(state, path, session_id) do
+      case start_tailer(state, path, session_id, backfill_bytes) do
         {:ok, tailer} ->
-          notify_source(state, {:available, prior_session, session_id})
-          %{state | tailer: tailer, path: path, session_id: session_id}
+          notify_source(state, {
+            :available,
+            prior_session,
+            session_id,
+            %{backfill?: backfill_bytes > 0}
+          })
+
+          state
+          |> Map.merge(%{tailer: tailer, path: path, session_id: session_id})
+          |> flush_operator_deliveries(session_id)
 
         {:error, reason} ->
           log_failure(state, :start_failed, reason, session_id)
@@ -182,16 +218,20 @@ defmodule Aiur.Claude.DisplayTailer do
     end
   end
 
-  defp start_tailer(state, path, session_id) do
+  defp start_tailer(state, path, session_id, backfill_bytes) do
     on_message = state.on_message
     max_body = state.max_body
 
     TranscriptTailer.start_link(
       path: path,
       from: :start,
+      backfill_until: backfill_bytes,
       turn_id: nil,
       interval_ms: state.interval_ms,
-      on_message: fn event -> forward(on_message, max_body, session_id, event) end,
+      on_backfill_message: fn event ->
+        forward(on_message, max_body, session_id, :display_backfill, event)
+      end,
+      on_message: fn event -> forward(on_message, max_body, session_id, :live, event) end,
       on_turn_end: fn _reason -> :ok end
     )
   end
@@ -247,10 +287,11 @@ defmodule Aiur.Claude.DisplayTailer do
   # Forward one transcript event to the run's on_message as a display event,
   # mirroring ReplAgent.emit_transcript/2's shape so it flows through the
   # runner's transcript broadcast path. Read-only: no agent input ever.
-  defp forward(on_message, max_body, session_id, event) do
+  defp forward(on_message, max_body, session_id, projection_ingress, event) do
     on_message.(%{
       event: :transcript,
       source_session_id: session_id,
+      projection_ingress: projection_ingress,
       transcript_event: cap(event, max_body),
       timestamp: DateTime.utc_now()
     })
@@ -284,4 +325,44 @@ defmodule Aiur.Claude.DisplayTailer do
   end
 
   defp cap_text(text, _max_body), do: text
+
+  defp retain_operator_delivery(pending, %{id: request_id} = item, occurred_at)
+       when is_integer(request_id) do
+    delivery = operator_delivery(item, occurred_at)
+
+    pending
+    |> Enum.reject(&(&1.request_id == request_id))
+    |> Kernel.++([delivery])
+    |> Enum.take(-@operator_delivery_limit)
+  end
+
+  defp retain_operator_delivery(pending, _item, _occurred_at), do: pending
+
+  defp operator_delivery(%{id: request_id} = item, occurred_at) when is_integer(request_id),
+    do: %{request_id: request_id, item: item, occurred_at: occurred_at}
+
+  defp operator_delivery(_item, _occurred_at), do: nil
+
+  defp flush_operator_deliveries(state, session_id) do
+    Enum.each(state.pending_operator_deliveries, fn delivery ->
+      safely_forward_operator_delivery(state, delivery, session_id)
+    end)
+
+    %{state | pending_operator_deliveries: []}
+  end
+
+  defp safely_forward_operator_delivery(state, delivery, session_id) do
+    state.on_operator_delivery.(delivery.item, delivery.occurred_at, session_id)
+  rescue
+    error -> log_failure(state, :operator_delivery_callback_failed, error, session_id)
+  catch
+    kind, reason -> log_failure(state, :operator_delivery_callback_failed, {kind, reason}, session_id)
+  end
+
+  defp current_size(path) do
+    case File.stat(path) do
+      {:ok, %{size: size}} -> size
+      _error -> 0
+    end
+  end
 end

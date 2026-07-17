@@ -27,6 +27,8 @@ defmodule Aiur.LiveConversation.Source do
   @type key ::
           {identity_key(), String.t(), String.t(), String.t() | nil, String.t(), pos_integer()}
 
+  @type scope :: {identity_key(), String.t()}
+
   @spec canonical(term()) :: {:ok, key(), public()} | {:error, atom()}
   def canonical(
         %{
@@ -64,6 +66,14 @@ defmodule Aiur.LiveConversation.Source do
   end
 
   def canonical(_source), do: {:error, :invalid_source}
+
+  @spec scope(key()) :: scope()
+  def scope({identity_key, run_id, _attempt_id, _session_id, _backend, _generation}),
+    do: {identity_key, run_id}
+
+  @spec generation(key()) :: pos_integer()
+  def generation({_identity_key, _run_id, _attempt_id, _session_id, _backend, generation}),
+    do: generation
 
   @spec opaque_session_id(term()) :: String.t() | nil
   def opaque_session_id(nil), do: nil

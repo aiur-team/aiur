@@ -95,6 +95,46 @@ defmodule Aiur.LiveConversationTest do
     assert_opaque_id(new_id)
   end
 
+  test "rejects late predecessor generations and replaced exact sessions", %{server: server} do
+    old = source(worker_generation: 40, session_id: "old-session")
+    replacement = source(worker_generation: 41, session_id: "replacement-session")
+
+    assert {:ok, _snapshot} =
+             LiveConversation.observe(
+               old,
+               %{role: :assistant, msg_id: "old", body: "old generation"},
+               server: server
+             )
+
+    assert {:ok, _snapshot} = LiveConversation.activate(replacement, server: server)
+
+    assert {:error, :stale_generation} =
+             LiveConversation.observe(
+               old,
+               %{role: :assistant, msg_id: "late-old", body: "must not enter"},
+               server: server
+             )
+
+    assert %{messages: [%{body: "old generation"}]} =
+             LiveConversation.snapshot(old, server: server)
+
+    session_a = source(run_id: "session-fence", worker_generation: 50, session_id: "session-a")
+    session_b = %{session_a | session_id: "session-b", attempt_id: "attempt-2"}
+
+    assert {:ok, _snapshot} = LiveConversation.activate(session_a, server: server)
+    assert {:ok, _snapshot} = LiveConversation.activate(session_b, server: server)
+
+    assert {:error, :stale_source} =
+             LiveConversation.observe(
+               session_a,
+               %{role: :assistant, msg_id: "late-session-a", body: "must not enter"},
+               server: server
+             )
+
+    assert %{messages: []} = LiveConversation.snapshot(session_a, server: server)
+    assert %{state: :known_empty, messages: []} = LiveConversation.snapshot(session_b, server: server)
+  end
+
   test "isolates repositories, attempts, and sessions that share a display number", %{server: server} do
     first = source()
 
@@ -113,6 +153,9 @@ defmodule Aiur.LiveConversationTest do
     assert {:ok, _} =
              LiveConversation.observe(second, %{role: :assistant, msg_id: "second", body: "second"}, server: server)
 
+    assert {:ok, %{state: :known_empty}} =
+             LiveConversation.activate(next_attempt, server: server)
+
     assert {:ok, _} =
              LiveConversation.observe(
                next_attempt,
@@ -122,6 +165,7 @@ defmodule Aiur.LiveConversationTest do
 
     assert %{messages: [%{body: "first"}]} = LiveConversation.snapshot(first, server: server)
     assert %{messages: [%{body: "second"}]} = LiveConversation.snapshot(second, server: server)
+
     assert %{messages: [%{body: "attempt"}]} = LiveConversation.snapshot(next_attempt, server: server)
   end
 
@@ -360,6 +404,119 @@ defmodule Aiur.LiveConversationTest do
     assert byte_size(Jason.encode!(snapshot)) <= 64_000
     assert snapshot.truncated?
     assert Enum.all?(snapshot.messages, &(String.length(&1.body) <= 1_600))
+  end
+
+  test "retains bounded replay tombstones after visible-message eviction", %{server: server} do
+    source = source()
+
+    Enum.each(1..400, fn n ->
+      assert {:ok, _snapshot} =
+               LiveConversation.observe(
+                 source,
+                 %{role: :assistant, msg_id: "replay-#{n}", body: "message #{n}"},
+                 server: server
+               )
+    end)
+
+    before_replay = LiveConversation.snapshot(source, server: server)
+    assert length(before_replay.messages) == 80
+
+    assert {:ok, after_replay} =
+             LiveConversation.observe(
+               source,
+               %{role: :assistant, msg_id: "replay-320", body: "resurrected retry"},
+               server: server
+             )
+
+    assert after_replay.messages == before_replay.messages
+
+    internal = server |> :sys.get_state() |> Map.fetch!(:snapshots) |> Map.values() |> List.first()
+    assert map_size(internal.replay_tombstones) == 256
+  end
+
+  test "unknown-history activation stays restart_unknown while admitting only new live evidence", %{
+    server: server
+  } do
+    source = source()
+
+    assert {:ok, %{state: :restart_unknown, messages: []}} =
+             LiveConversation.activate(source, server: server, history_known?: false)
+
+    assert {:ok, %{state: :restart_unknown, messages: [%{body: "new evidence"}]}} =
+             LiveConversation.observe(
+               source,
+               %{role: :assistant, msg_id: "after-restart", body: "new evidence"},
+               server: server
+             )
+  end
+
+  test "coalesces burst runtime status onto one authoritative epoch revision", %{server: _server} do
+    server =
+      start_supervised!(
+        Supervisor.child_spec(
+          {LiveConversation, name: nil, notification_delay_ms: 1_000},
+          id: make_ref()
+        )
+      )
+
+    source = source()
+    opts = [server: server, runtime_subscriber: {self(), "gid-runtime"}]
+
+    assert {:ok, _snapshot} = LiveConversation.activate(source, opts)
+
+    Enum.each(1..50, fn n ->
+      assert {:ok, _snapshot} =
+               LiveConversation.observe(
+                 source,
+                 %{role: :assistant, msg_id: "burst-#{n}", body: "burst #{n}"},
+                 opts
+               )
+    end)
+
+    assert_receive {:worker_runtime_info, "gid-runtime", %{live_conversation: status}}, 2_000
+    assert status.revision == 51
+    assert status.source_revision == 1
+    assert status.source.worker_generation == 1
+    assert String.starts_with?(status.projection_epoch, "projection:")
+    refute_receive {:worker_runtime_info, "gid-runtime", _status}, 200
+  end
+
+  test "replaces a stale runtime subscriber for the same issue and source", %{server: _server} do
+    server =
+      start_supervised!(
+        Supervisor.child_spec(
+          {LiveConversation, name: nil, notification_delay_ms: 60_000},
+          id: make_ref()
+        )
+      )
+
+    replacement =
+      spawn(fn ->
+        receive do
+          :stop -> :ok
+        end
+      end)
+
+    on_exit(fn -> send(replacement, :stop) end)
+    source = source()
+
+    assert {:ok, _snapshot} =
+             LiveConversation.activate(source,
+               server: server,
+               runtime_subscriber: {self(), "gid-runtime"}
+             )
+
+    assert {:ok, _snapshot} =
+             LiveConversation.activate(source,
+               server: server,
+               runtime_subscriber: {replacement, "gid-runtime"}
+             )
+
+    assert [%{"gid-runtime" => ^replacement}] =
+             server
+             |> :sys.get_state()
+             |> Map.fetch!(:runtime_subscribers)
+             |> Map.values()
   end
 
   test "bounds the actual JSON wire representation for escape-heavy bodies", %{server: server} do
@@ -625,6 +782,31 @@ defmodule Aiur.LiveConversationTest do
     refute message.body =~ "correct-horse"
     refute message.body =~ "abc123"
     refute message.body =~ "opaque"
+  end
+
+  test "redacts mixed-case and escaped HTTP and websocket capability URLs", %{server: server} do
+    samples = [
+      "HTTPS://capability.example.test/session/secret",
+      "WsS://capability.example.test/socket/secret",
+      ~S(https:\/\/capability.example.test\/escaped),
+      ~S(HTTPS:\\/\\/capability.example.test\\/escaped),
+      ~S(wss\u003A\u002F\u002Fcapability.example.test\u002Fescaped),
+      ~S(https%3A%2F%2Fcapability.example.test%2Fescaped),
+      "wss&colon;&sol;&sol;capability.example.test/socket"
+    ]
+
+    body = Enum.join(samples, " ")
+
+    assert {:ok, snapshot} =
+             LiveConversation.observe(
+               source(),
+               %{role: :assistant, msg_id: "capability-urls", body: body},
+               server: server
+             )
+
+    [message] = snapshot.messages
+    assert length(Regex.scan(~r/\[REDACTED:url\]/, message.body)) == length(samples)
+    refute message.body =~ "capability.example.test"
   end
 
   test "caps diagnostic counters for indefinitely rejected event streams", %{server: server} do
