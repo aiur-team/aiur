@@ -70,7 +70,7 @@ test('route shell keeps navigation URL-backed, accessible, and unclipped across 
 
       await expect(page).toHaveURL(/\/build-orders$/)
       await expect(page.getByRole('heading', { name: 'Build Order', exact: true })).toBeVisible()
-      await expect(page.locator('#build-order-page')).toHaveAttribute('data-build-order-catalog-state', /loading|unavailable/)
+      await expect(page.locator('#build-order-page')).toHaveAttribute('data-build-order-catalog-state', 'ready')
       await expect(page.getByRole('link', { name: 'Build Order' })).toHaveAttribute('aria-current', 'page')
 
       const units = page.getByRole('link', { name: 'Units' })
