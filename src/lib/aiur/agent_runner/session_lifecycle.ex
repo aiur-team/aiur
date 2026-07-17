@@ -373,6 +373,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     report_repl_session(codex_update_recipient, issue, session)
     report_pause_containment(codex_update_recipient, issue, session)
 
+    opts = put_live_conversation_session_id(opts, session)
     display_tailer = maybe_start_display_tailer(session, issue, session_context.rc?, opts)
 
     # A resumed thread already carries the original task + full prior turn
@@ -406,6 +407,13 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
       stop_session_with_ownership(session, ownership)
     end
   end
+
+  defp put_live_conversation_session_id(opts, %{thread_id: thread_id})
+       when is_binary(thread_id) and thread_id != "" do
+    Keyword.put(opts, :session_id, thread_id)
+  end
+
+  defp put_live_conversation_session_id(opts, _session), do: opts
 
   @doc false
   @spec stop_session_with_ownership(map(), Ownership.lease() | nil, (map() -> term())) :: term()

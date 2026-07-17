@@ -30,8 +30,16 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
       unique = Integer.to_string(System.unique_integer([:positive]))
       identity = tracker_identity(unique)
       issue = %Issue{id: "gid-rc-#{unique}", identifier: unique, tracker_identity: identity}
-      opts = [telemetry_attempt_id: "attempt-#{unique}", worker_generation: 5]
-      source = %{identity: identity, attempt_id: "attempt-#{unique}", backend: "claude-repl", worker_generation: 5}
+      opts = [telemetry_attempt_id: "attempt-#{unique}", session_id: "session-#{unique}", worker_generation: 5]
+
+      source = %{
+        identity: identity,
+        attempt_id: "attempt-#{unique}",
+        session_id: "session-#{unique}",
+        backend: "claude-repl",
+        worker_generation: 5
+      }
+
       :ok = AgentPubSub.subscribe_agent(unique)
 
       handler = SessionLifecycle.display_tailer_handler(issue, "claude-repl", opts)

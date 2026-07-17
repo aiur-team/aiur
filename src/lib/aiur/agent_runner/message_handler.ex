@@ -332,7 +332,14 @@ defmodule Aiur.AgentRunner.MessageHandler do
          true <- TrackerIdentity.joinable?(identity),
          generation when is_integer(generation) and generation > 0 <- Keyword.get(opts, :worker_generation),
          attempt_id when not is_nil(attempt_id) <- live_attempt_id(opts) do
-      {:ok, %{identity: identity, attempt_id: attempt_id, backend: backend, worker_generation: generation}}
+      {:ok,
+       %{
+         identity: identity,
+         attempt_id: attempt_id,
+         session_id: Keyword.get(opts, :session_id),
+         backend: backend,
+         worker_generation: generation
+       }}
     else
       _ -> :error
     end

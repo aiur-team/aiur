@@ -533,6 +533,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
         backend,
         turn_id,
         attempt_id: Keyword.get(opts, :telemetry_attempt_id),
+        session_id: Keyword.get(opts, :session_id),
         worker_generation: Keyword.get(opts, :worker_generation)
       )
 
