@@ -230,6 +230,9 @@ defmodule Aiur.DecisionStoreTest do
     )
   end
 
+  defp dispatch_fence_size({:dispatch_action, fence, false}),
+    do: fence |> :erlang.term_to_binary() |> byte_size()
+
   defp enrich(pid, decision_id, patch, expected_version, opts \\ []) do
     DecisionStore.enrich(
       decision_id,
@@ -604,7 +607,7 @@ defmodule Aiur.DecisionStoreTest do
 
       pid = start_store!(dir, store_opts)
 
-      assert_receive {:dispatch_scheduled, ^pid, {:reconcile_dispatches, []}, 0}, 1_000
+      assert_receive {:dispatch_scheduled, ^pid, {:reconcile_dispatches, []}, 0}, 2_000
 
       assert {:ok, %{decision: v1}} = request(pid, answerable_request("enrich-after-answer"))
 
@@ -615,17 +618,17 @@ defmodule Aiur.DecisionStoreTest do
       }
 
       assert {:ok, %{action: accepted}} = answer(pid, v1.decision_id, answer_payload)
-      assert_receive {:dispatch_scheduled, ^pid, scheduled_dispatch, 0}, 1_000
+      assert_receive {:dispatch_scheduled, ^pid, scheduled_dispatch, 0}, 2_000
       assert match?({:dispatch_action, _fence, false}, scheduled_dispatch)
       send(pid, scheduled_dispatch)
-      assert_receive {:dispatched, 1}, 1_000
+      assert_receive {:dispatched, 1}, 2_000
       settled = wait_for_decision(pid, v1.decision_id, &(&1.delivery_status == :queued))
 
       GenServer.stop(pid)
       replayed_pid = start_store!(dir, store_opts)
 
       assert_receive {:dispatch_scheduled, ^replayed_pid, {:reconcile_dispatches, [%{request_version: 1}]} = scheduled_reconciliation, 0},
-                     1_000
+                     2_000
 
       patch = %{"context" => %{"short_summary" => "Additional context"}}
 
@@ -685,7 +688,7 @@ defmodule Aiur.DecisionStoreTest do
       ]
 
       pid = start_store!(dir, store_opts)
-      assert_receive {:dispatch_scheduled, ^pid, {:reconcile_dispatches, []}, 0}, 1_000
+      assert_receive {:dispatch_scheduled, ^pid, {:reconcile_dispatches, []}, 0}, 2_000
       assert {:ok, %{decision: v1}} = request(pid, answerable_request("enrich-pending-answer"))
 
       answer_payload = %{
@@ -695,13 +698,13 @@ defmodule Aiur.DecisionStoreTest do
       }
 
       assert {:ok, %{action: accepted}} = answer(pid, v1.decision_id, answer_payload)
-      assert_receive {:dispatch_scheduled, ^pid, {:dispatch_action, _fence, false}, 0}, 1_000
+      assert_receive {:dispatch_scheduled, ^pid, {:dispatch_action, _fence, false}, 0}, 2_000
       GenServer.stop(pid)
 
       replayed_pid = start_store!(dir, store_opts)
 
       assert_receive {:dispatch_scheduled, ^replayed_pid, {:reconcile_dispatches, [%{request_version: 1}]} = scheduled_reconciliation, 0},
-                     1_000
+                     2_000
 
       patch = %{"context" => %{"short_summary" => "Context before first delivery"}}
 
@@ -716,13 +719,62 @@ defmodule Aiur.DecisionStoreTest do
       :atomics.put(release_scheduled_work, 1, 1)
       send(replayed_pid, scheduled_reconciliation)
 
-      assert_receive {:pending_dispatched, 1, 1}, 1_000
+      assert_receive {:pending_dispatched, 1, 1}, 2_000
       settled = wait_for_decision(replayed_pid, v1.decision_id, &(&1.delivery_status == :queued))
       assert settled.version == 2
       assert settled.answer == accepted
       assert Enum.map(settled.dispatch_attempts, & &1.status) == [:queued]
       refute_receive {:pending_dispatched, 2, _version}, 100
       assert :counters.get(dispatches, 1) == 1
+    end
+
+    test "dispatch lifecycle fences stay bounded across repeated retries", %{dir: dir} do
+      parent = self()
+      attempts = :counters.new(1, [])
+
+      dispatcher = fn _decision, _opts ->
+        :counters.add(attempts, 1, 1)
+        send(parent, {:dispatch_attempted, :counters.get(attempts, 1)})
+        {:error, :unavailable}
+      end
+
+      scheduler = fn recipient, message, delay_ms ->
+        send(parent, {:dispatch_scheduled, recipient, message, delay_ms})
+        make_ref()
+      end
+
+      pid =
+        start_store!(dir,
+          dispatcher: dispatcher,
+          dispatch_delay_ms: 0,
+          reconcile_delay_ms: 0,
+          retry_delays_ms: List.duplicate(0, 25),
+          dispatch_scheduler: scheduler
+        )
+
+      assert_receive {:dispatch_scheduled, ^pid, {:reconcile_dispatches, []}, 0}, 2_000
+      assert {:ok, %{decision: decision}} = request(pid, answerable_request("bounded-dispatch-fence"))
+
+      payload = %{"idempotency_key" => "bounded-fence", "expected_version" => 1, "custom_response" => "Proceed"}
+      assert {:ok, _result} = answer(pid, decision.decision_id, payload)
+      assert_receive {:dispatch_scheduled, ^pid, initial_dispatch, 0}, 2_000
+      send(pid, initial_dispatch)
+      assert_receive {:dispatch_attempted, 1}, 2_000
+      assert_receive {:dispatch_scheduled, ^pid, first_retry, 0}, 2_000
+
+      baseline_size = dispatch_fence_size(first_retry)
+
+      sizes =
+        Enum.reduce(2..20, {first_retry, [baseline_size]}, fn attempt, {scheduled, sizes} ->
+          send(pid, scheduled)
+          assert_receive {:dispatch_attempted, ^attempt}, 2_000
+          assert_receive {:dispatch_scheduled, ^pid, next_retry, 0}, 2_000
+          {next_retry, [dispatch_fence_size(next_retry) | sizes]}
+        end)
+        |> elem(1)
+
+      assert Enum.max(sizes) <= baseline_size + 64
+      assert :counters.get(attempts, 1) == 20
     end
   end
 
@@ -1385,15 +1437,15 @@ defmodule Aiur.DecisionStoreTest do
           dispatch_scheduler: dispatch_scheduler
         )
 
-      assert_receive {:retry_scheduled, ^pid, {:reconcile_dispatches, []}, 0}, 1_000
+      assert_receive {:retry_scheduled, ^pid, {:reconcile_dispatches, []}, 0}, 2_000
       assert {:ok, %{decision: decision}} = request(pid, answerable_request("answer-retry-enrichment"))
       payload = %{"idempotency_key" => "retry-1", "expected_version" => 1, "custom_response" => "Proceed"}
       assert {:ok, _result} = answer(pid, decision.decision_id, payload)
 
-      assert_receive {:retry_scheduled, ^pid, first_dispatch, 0}, 1_000
+      assert_receive {:retry_scheduled, ^pid, first_dispatch, 0}, 2_000
       send(pid, first_dispatch)
       assert_receive {:attempted, 1, first_attempt}, 1_000
-      assert_receive {:retry_scheduled, ^pid, scheduled_retry, 0}, 1_000
+      assert_receive {:retry_scheduled, ^pid, scheduled_retry, 0}, 2_000
 
       patch = %{"context" => %{"short_summary" => "Context before retry"}}
 

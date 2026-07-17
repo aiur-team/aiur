@@ -1996,22 +1996,25 @@ defmodule Aiur.DecisionStore do
   end
 
   defp reconcile_scheduled_decision(%{decision_id: decision_id} = fence, state) do
-    with {:ok, current} <- fetch_decision(state, decision_id),
-         true <- dispatch_fence_current?(fence, current, :normal) do
-      reconcile_decision(current, state, fence.request_version == current.version)
-    else
-      _stale_or_missing -> state
+    case fetch_decision(state, decision_id) do
+      {:ok, current} ->
+        dispatch_current? = dispatch_fence_current?(fence, current, :normal)
+        reconcile_queue? = dispatch_current? and fence.request_version == current.version
+        reconcile_decision(current, state, dispatch_current?, reconcile_queue?)
+
+      {:error, _reason} ->
+        state
     end
   end
 
-  defp reconcile_decision(decision, state, reconcile_queue?) do
+  defp reconcile_decision(decision, state, dispatch_current?, reconcile_queue?) do
     state = ensure_revision_follow_up_required(state, decision)
     current = Map.fetch!(state.current, decision.decision_id)
     state = ensure_superseded_revision_follow_ups(state, current)
     current = Map.fetch!(state.current, decision.decision_id)
     state = schedule_revision_follow_up_work(state, current)
 
-    state = maybe_schedule_after_answer(state, current, false)
+    state = if dispatch_current?, do: maybe_schedule_after_answer(state, current, false), else: state
 
     # Request enrichment may advance the version without changing delivery state.
     # Pending first delivery can follow it; queued reconciliation cannot.
@@ -2180,10 +2183,25 @@ defmodule Aiur.DecisionStore do
       decision.revision_result,
       decision.decision_status,
       decision.delivery_status,
-      Decision.active_dispatch_attempts(decision),
-      decision.acknowledgement,
-      decision.resolution
+      dispatch_attempt_identity(decision)
     }
+  end
+
+  defp dispatch_attempt_identity(decision) do
+    case List.last(Decision.active_dispatch_attempts(decision)) do
+      nil ->
+        nil
+
+      attempt ->
+        {
+          attempt.action_id,
+          attempt.attempt_id,
+          attempt.queue_item_id,
+          attempt.run_id,
+          attempt.status,
+          attempt.failure_reason_class
+        }
+    end
   end
 
   defp dispatch_answer_identity(decision) do
