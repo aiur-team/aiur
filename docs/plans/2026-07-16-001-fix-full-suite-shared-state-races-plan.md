@@ -42,6 +42,15 @@ from PR #1213, PR #1036, or any other unrelated feature branch.
   before sending an artificial interrupt signal, so a delayed `turn/started`
   checkpoint could legally claim the item and bypass the intended interrupt
   path.
+- A later exact-head run failed the repaired fake-Mix case after logging
+  `lease_retained`, even though the release signal had not been sent. The holder
+  checked parent liveness before reading the parent's durable acknowledgement;
+  if the parent wrote the acknowledgement, logged, and exited first, the holder
+  discarded that proof, killed the retained child, and released the slot.
+- Concurrent local clean-VM repetitions also exposed a separate isolation
+  hazard: `System.unique_integer/1` resets for every BEAM, so two VMs can reuse
+  one `/tmp/aiur-build-gate-*` namespace. There is no evidence that this caused
+  the isolated hosted-CI failure, but fixture roots must still be cross-VM safe.
 
 ## Requirements
 
@@ -62,6 +71,11 @@ from PR #1213, PR #1036, or any other unrelated feature branch.
   executions without a commit change between them.
 - **R8.** The provider-interrupt lifecycle regression must enqueue an
   interrupt-only item so a delayed safe checkpoint cannot consume it first.
+- **R9.** BuildGate fixture roots must remain unique across separate BEAM VMs,
+  including while a detached holder from an earlier VM is still exiting.
+- **R10.** A persisted, token-matched holder status acknowledgement must win
+  before parent-liveness or deadline failure; absent or mismatched
+  acknowledgements must retain the existing fail-closed behavior.
 
 ## Assumptions
 
@@ -86,7 +100,8 @@ from PR #1213, PR #1036, or any other unrelated feature branch.
 
 ### Out of scope
 
-- BuildGate lease-holder production behavior or capacity policy changes
+- BuildGate capacity policy changes beyond the durable status-acknowledgement
+  ordering repair
 - Provider-turn ledger production behavior, completed-runner replacement,
   event-digest semantics, and unrelated application-supervisor refactors
 - PR #1213 or PR #1036 feature changes
@@ -101,6 +116,13 @@ from PR #1213, PR #1036, or any other unrelated feature branch.
 - **Cleanup owns release.** Each descendant test installs release cleanup before
   starting the fixture so assertion failures still let the child and holder
   exit.
+- **Fixture roots are cross-VM unique.** Use random entropy rather than the
+  VM-local unique-integer counter so detached holders and parallel test VMs
+  cannot share release markers or lock paths.
+- **Durable acknowledgement precedes liveness.** The exact token is proof that
+  the parent completed the status handoff. Read it before rejecting an exited
+  parent or elapsed polling deadline, while retaining cancellation as the first
+  check.
 - **PubSub is injected only at the facade boundary.** Keep the existing zero-arg
   facade calls as defaults while allowing tests to supply a uniquely named,
   test-supervised PubSub server. The unavailable case uses a missing test name;
@@ -119,17 +141,22 @@ from PR #1213, PR #1036, or any other unrelated feature branch.
 **Goal:** Prove retained capacity across BEAM/wrapper exit without depending on
 runner speed.
 
-**Requirements:** R1, R2, R3, R7
+**Requirements:** R1, R2, R3, R7, R9, R10
 
 **Dependencies:** None
 
 **Files:**
 
+- Modify: `src/priv/build_gate_holder.py`
 - Modify: `src/test/aiur/build_gate_test.exs`
 
 **Approach:**
 
 - Add a per-case release path to the BuildGate test context and environment.
+- Generate the per-case gate root with random entropy that cannot repeat when a
+  separate test VM resets its unique-integer counter.
+- Accept an already-persisted exact status acknowledgement before testing
+  whether its parent is still alive or the polling deadline elapsed.
 - Make the fake-Mix detached child and real-Mix fixture wait for that path after
   writing their existing started marker.
 - Install cleanup that touches the release path before removing the test root.
@@ -149,6 +176,8 @@ barriers in provider lifecycle tests.
 - **Integration:** real Mix/BEAM exits with the same held/released sequence.
 - **Error path:** an assertion failure or teardown still releases the detached
   child through registered cleanup.
+- **Regression:** an exact durable acknowledgement succeeds after its parent
+  exits, while a mismatched token continues to fail closed.
 
 **Verification:** Repeat both named tests in one VM and as a file with
 `--max-cases 4`; no result depends on a two-second scheduling window.
@@ -270,6 +299,8 @@ successful ancestry check in the workpad/PR handoff.
 | Risk | Mitigation |
 |------|------------|
 | A failed test strands a barrier-held child | Register release cleanup before launch and keep bounded completion waits. |
+| Separate test VMs reuse a gate namespace | Give every fixture root a random cross-VM identifier. |
+| Parent exits after persisting the holder acknowledgement | Accept the exact durable token before liveness and deadline checks. |
 | PubSub injection leaks into callers | Preserve default arguments and cover the existing zero-arg call shape. |
 | A green local repetition masks suite pressure | Require exact-head full coverage CI repetition before acceptance. |
 | Main/develop delivery absorbs unrelated work | Base the first diff on `origin/main`, merge the validated main SHA exactly, and prove ancestry. |
@@ -278,16 +309,18 @@ successful ancestry check in the workpad/PR handoff.
 
 1. Run both BuildGate descendant tests repeatedly in the same VM with
    `--repeat-until-failure` and `--max-cases 4`.
-2. Run `observability_pubsub_test.exs` repeatedly and assert `Aiur.PubSub`
+2. Run concurrent clean-VM repetitions of the fake descendant case and verify
+   their gate roots and release markers remain isolated.
+3. Run `observability_pubsub_test.exs` repeatedly and assert `Aiur.PubSub`
    remains alive before and after the file.
-3. Run the repository affected-test selector and every printed test command
+4. Run the repository affected-test selector and every printed test command
    with `--max-cases 4`.
-4. Repeat the provider-interrupt lifecycle case in clean VMs at the failing CI
+5. Repeat the provider-interrupt lifecycle case in clean VMs at the failing CI
    seeds and retain the strict release barrier and two-turn assertion.
-5. Run `mix format` and `mix compile --warnings-as-errors`.
-6. Self-review the exact main diff, then hand the draft PR to CI without a
+6. Run `mix format` and `mix compile --warnings-as-errors`.
+7. Self-review the exact main diff, then hand the draft PR to CI without a
    closing keyword for #1222.
-7. Require two successful full-coverage executions on the same main PR SHA;
+8. Require two successful full-coverage executions on the same main PR SHA;
    after merge, prove exact-main ancestry in the develop integration head and
    close #1222 from that final PR only.
 
@@ -297,6 +330,7 @@ successful ancestry check in the workpad/PR handoff.
 - PR #1213 run `29551309799`
 - PR #1036 failed-job rerun `29550586146`
 - PR #1223 failed CI run `29554647286`
+- PR #1223 failed CI run `29556414730`
 - `src/test/aiur/build_gate_test.exs`
 - `src/test/aiur/agent_runner/provider_lifecycle_test.exs`
 - `src/priv/build_gate.bash`

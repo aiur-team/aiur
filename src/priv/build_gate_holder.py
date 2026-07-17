@@ -408,14 +408,14 @@ def wait_for_status_ack(path: str, token: str, parent_pid: int, deadline: float)
     while True:
         raise_if_cancelled()
 
+        if read_regular_bytes(path) == expected:
+            return
+
         if not pid_alive(parent_pid):
             raise SystemExit(125)
 
         if time.monotonic() >= deadline:
             raise TimeoutError("build-gate status acknowledgement deadline expired")
-
-        if read_regular_bytes(path) == expected:
-            return
 
         time.sleep(POLL_SECONDS)
 

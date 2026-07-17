@@ -11,7 +11,8 @@ defmodule Aiur.BuildGateTest do
               )
 
   setup do
-    gate_dir = Path.join(System.tmp_dir!(), "aiur-build-gate-#{System.unique_integer([:positive])}")
+    gate_id = :crypto.strong_rand_bytes(12) |> Base.url_encode64(padding: false)
+    gate_dir = Path.join(System.tmp_dir!(), "aiur-build-gate-#{gate_id}")
     lock_dir = BuildGate.lock_dir(gate_dir)
     bin_dir = Path.join(gate_dir, "bin")
     log_path = Path.join(gate_dir, "mix.log")
@@ -573,6 +574,38 @@ defmodule Aiur.BuildGateTest do
 
     assert System.monotonic_time(:millisecond) - started_at >= 1_500
     assert output =~ "aiur_build_gate released slot=1 status=0"
+  end
+
+  @tag @linux_only
+  test "a durable status acknowledgement wins after its parent exits", context do
+    python = System.find_executable("python3") || flunk("python3 is required")
+    holder_path = Path.expand("../../priv/build_gate_holder.py", __DIR__)
+    ack_path = Path.join(context.gate_dir, "late-status-ack")
+    token = "test-token"
+    File.write!(ack_path, "ack=#{token}\n")
+
+    probe = ~S"""
+    import runpy, sys, time
+
+    holder = runpy.run_path(sys.argv[1])
+    holder["wait_for_status_ack"](
+        sys.argv[2], sys.argv[3], int(sys.argv[4]), time.monotonic() - 1
+    )
+    """
+
+    assert {"", 0} =
+             System.cmd(
+               python,
+               ["-c", probe, holder_path, ack_path, token, "999999999"],
+               stderr_to_stdout: true
+             )
+
+    assert {"", 125} =
+             System.cmd(
+               python,
+               ["-c", probe, holder_path, ack_path, "wrong-token", "999999999"],
+               stderr_to_stdout: true
+             )
   end
 
   @tag @linux_only
