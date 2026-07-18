@@ -13,9 +13,11 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderStatus do
     assigns = assign(assigns, :health, snapshot_health(assigns.snapshot))
 
     ~H"""
-    <div class="bo-provider-health" role="status" aria-live="polite">
-      <span class={["status-badge", health_class(@health)]}>{health_label(@health)}</span>
-      <span :if={refreshing?(@health)} class="status-badge">Refreshing</span>
+    <div class="bo-provider-health">
+      <span class="bo-provider-health-status" role="status" aria-live="polite">
+        <span class={["status-badge", health_class(@health)]}>{health_label(@health)}</span>
+        <span :if={refreshing?(@health)} class="status-badge">Refreshing</span>
+      </span>
       <span :if={health_age(@health, @now)} class="status-badge mono">{health_age(@health, @now)}</span>
     </div>
     """

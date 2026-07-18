@@ -179,6 +179,18 @@ defmodule AiurWeb.BuildOrderLiveTest do
 
     assert html =~ Calendar.strftime(observed_at, "%H:%M:%S")
     assert html =~ "Observed 0s ago"
+
+    document = Floki.parse_document!(html)
+
+    assert Floki.find(document, ~s(.bo-provider-health[role="status"])) == []
+
+    live_status =
+      document
+      |> Floki.find(~s(.bo-provider-health > [role="status"][aria-live="polite"]))
+      |> Floki.text()
+
+    assert live_status =~ "Healthy"
+    refute live_status =~ "Observed"
     calls_before_tick = FakeDataSource.calls(source)
 
     Agent.update(clock, &DateTime.add(&1, 7, :second))
@@ -187,6 +199,18 @@ defmodule AiurWeb.BuildOrderLiveTest do
 
     assert advanced_html =~ Calendar.strftime(DateTime.add(observed_at, 7, :second), "%H:%M:%S")
     assert advanced_html =~ "Observed 7s ago"
+
+    advanced_document = Floki.parse_document!(advanced_html)
+
+    assert Floki.find(advanced_document, ~s(.bo-provider-health[role="status"])) == []
+
+    advanced_live_status =
+      advanced_document
+      |> Floki.find(~s(.bo-provider-health > [role="status"][aria-live="polite"]))
+      |> Floki.text()
+
+    assert advanced_live_status =~ "Healthy"
+    refute advanced_live_status =~ "Observed"
     assert FakeDataSource.calls(source) == calls_before_tick
   end
 

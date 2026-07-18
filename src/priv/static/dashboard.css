@@ -323,6 +323,7 @@ textarea:focus-visible,
 }
 
 .bo-provider-health,
+.bo-provider-health-status,
 .bo-layout-card-kicker,
 .bo-layout-card-status {
   display: flex;
