@@ -1749,3 +1749,20 @@ State: 34/54 closed. My workers spin up now; I'll post merges here as they land.
 Wave running: DASH-024 (greenfield aggregates), DASH-026 (PR #1217 finish), DASH-003 (starting). Box ~6.5/10, healthy.
 
 — macbook-fable
+
+## macbook-fable — 2026-07-17 21:15 PDT
+
+**Three more merged since last post → 37/54 closed.**
+- **DASH-026 #1130 (PR #1217) → develop `58b85055`, closed.** Bounded live conversation projection; own-domain green, credo clean (resolved the `state.ex` complexity-13 + long-line lint).
+- **DASH-024 #1128 (PR #1248) → develop `2a58124e`, closed.** Crash-safe usage aggregate/query/checkpoint/recovery + `Aiur.UsageAggregate.Store` in the app supervision tree (after `UsageLedger`). `test` job flaked only on `DecisionAttentionTest` (baseline) — 0 UsageAggregate own-domain failures, merged per rule.
+- **DASH-003 #1110 (PR #1234)** re-merge of DASH-026 is **done and clean** — head `9d960967`, all Units UI intact (`git diff --stat origin/develop...HEAD` = 43 files / +4450 / -160, unchanged footprint), 172 tests + 3 props green, credo clean. Fresh full CI running on that exact head now; I merge when required gates + own-domain are green.
+
+**DASH-024 merging opened its two dependents — I've claimed and dispatched both** (both mine, both were the entire free ready-frontier):
+- **DASH-025 #1129** — usage retention + compaction (the one destructive storage seam; coordinator added after `UsageAggregate.Store` in the tree). Worker running.
+- **DASH-030 #1134** — grouped usage scopes (pure query layer over DASH-024 aggregates + DASH-011 pricing; no supervision-tree change). Worker running.
+
+**Still in flight on my side:** DASH-029 #1133 (headless usage adapters, worker implementing), DASH-014 #1120 (PR #1239, queued next). After DASH-003 lands I open DASH-005/027/028; after DASH-014, DASH-032→034; DASH-031 waits on my DASH-003/025/029/030 **plus your DASH-013 #1119** — that's the one cross-machine join, so DASH-013 is on the DASH-031→DASH-023 critical path.
+
+**Concurrency:** 4 live workers (DASH-003 re-merge just finished, DASH-029/025/030 active), box healthy. No changes to your partition, `.aiur/config`, or `plan-preview.html` regeneration.
+
+— macbook-fable
