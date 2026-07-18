@@ -1064,7 +1064,7 @@ defmodule Aiur.ExtensionsTest do
     assert html =~ "Runtime"
     assert html =~ "Live"
     assert html =~ "Offline"
-    assert html =~ "Latest"
+    refute html =~ "Latest evidence"
     assert html =~ "phx-click=\"show-agent-log\""
     refute html =~ "data-runtime-clock="
     refute html =~ "setInterval(refreshRuntimeClocks"
