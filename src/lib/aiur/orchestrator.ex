@@ -449,6 +449,11 @@ defmodule Aiur.Orchestrator do
   def mark_queue_item_failed(server, item_id, reason),
     do: OM.mark_queue_item_failed(server, item_id, reason)
 
+  @spec acknowledge_queue_item_delivery(GenServer.server(), integer(), map()) ::
+          :ok | {:error, term()}
+  def acknowledge_queue_item_delivery(server, item_id, provider_metadata),
+    do: OM.acknowledge_queue_item_delivery(server, item_id, provider_metadata)
+
   @spec consume_delivered_queue_items(GenServer.server(), String.t()) :: :ok | {:error, term()}
   def consume_delivered_queue_items(server, identifier),
     do: OM.consume_delivered_queue_items(server, identifier)
@@ -620,6 +625,19 @@ defmodule Aiur.Orchestrator do
   def handle_call({:mark_queue_item_failed, item_id, reason}, _from, state)
       when is_integer(item_id),
       do: OM.mark_queue_item_failed_call(state, item_id, reason)
+
+  def handle_call(
+        {:acknowledge_queue_item_delivery, item_id, provider_metadata},
+        _from,
+        state
+      )
+      when is_integer(item_id) and is_map(provider_metadata),
+      do:
+        OM.acknowledge_queue_item_delivery_call(
+          state,
+          item_id,
+          provider_metadata
+        )
 
   def handle_call({:consume_delivered_queue_items, issue_identifier}, _from, state)
       when is_binary(issue_identifier),

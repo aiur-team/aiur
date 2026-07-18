@@ -54,6 +54,14 @@ defmodule Aiur.Claude.Repl.TranscriptTurnTest do
     }) <> "\n"
   end
 
+  defp user_record(text) do
+    Jason.encode!(%{
+      "type" => "user",
+      "timestamp" => "2026-06-08T11:59:59.000Z",
+      "message" => %{"role" => "user", "content" => text}
+    }) <> "\n"
+  end
+
   defp api_error_record(error \\ "rate_limit") do
     Jason.encode!(%{
       "type" => "assistant",
@@ -157,6 +165,36 @@ defmodule Aiur.Claude.Repl.TranscriptTurnTest do
     assert is_binary(result.session_id)
     assert is_binary(result.thread_id)
     assert is_binary(result.turn_id)
+  end
+
+  test "acknowledges provider delivery when the submitted prompt reaches the transcript", %{
+    tmux: tmux
+  } do
+    path = temp_transcript()
+    on_exit(fn -> File.rm(path) end)
+    parent = self()
+
+    task =
+      Task.async(fn ->
+        TranscriptTurn.run(turn_session(tmux, path), "do work",
+          poll_interval_ms: 10,
+          on_provider_delivery: fn metadata ->
+            send(parent, {:provider_delivered, metadata})
+          end
+        )
+      end)
+
+    expect_prompt_submit(tmux)
+    refute_receive {:provider_delivered, _metadata}, 50
+
+    File.write!(path, user_record("do work") <> completion_record(), [:append])
+
+    assert {:ok, result} = drain_pane_pid(tmux, task)
+
+    assert_receive {:provider_delivered, %{transport: :claude_transcript, turn_id: turn_id}}
+
+    assert turn_id == result.turn_id
+    refute_receive {:provider_delivered, _metadata}, 50
   end
 
   test "API-error transcript record pauses the turn", %{tmux: tmux} do

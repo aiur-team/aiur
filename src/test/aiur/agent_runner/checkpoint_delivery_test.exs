@@ -43,6 +43,15 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
       send(state.report, {:mark_failed, item_id, reason})
       {:reply, :ok, state}
     end
+
+    def handle_call(
+          {:acknowledge_queue_item_delivery, item_id, provider_metadata},
+          _from,
+          state
+        ) do
+      send(state.report, {:provider_delivered, item_id, provider_metadata})
+      {:reply, :ok, state}
+    end
   end
 
   defmodule FakeDecisionStore do
@@ -54,9 +63,14 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
     def init(opts), do: {:ok, %{report: Keyword.fetch!(opts, :report), reply: Keyword.fetch!(opts, :reply)}}
 
     @impl true
+    def handle_call({:validate_delivery, item}, _from, state) do
+      send(state.report, {:decision_delivery_prepared, item.id})
+      {:reply, state.reply, state}
+    end
+
     def handle_call({:transport_transition, :delivered, item, nil}, _from, state) do
       send(state.report, {:decision_delivery, item.id})
-      {:reply, state.reply, state}
+      {:reply, {:ok, :accepted}, state}
     end
   end
 
@@ -107,8 +121,8 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
 
       assert {:deliver_text, "hello operator", success, failure} = handler.()
       assert is_function(success, 1)
-      # The success callback is a no-op; the turn-end sweep retires the item.
-      assert success.(:any_payload) == :ok
+      assert success.(%{turn_id: "turn-5"}) == :ok
+      assert_receive {:provider_delivered, 5, %{turn_id: "turn-5"}}
 
       # A send failure restores the claimed item so the normal turn-boundary
       # drain re-attempts it.
@@ -123,7 +137,8 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
       handler = CheckpointDelivery.operator_immediate_handler(issue(), orch, decision_store)
 
       assert handler.() == :noop
-      assert_receive {:decision_delivery, 6}
+      assert_receive {:decision_delivery_prepared, 6}
+      refute_receive {:decision_delivery, 6}
       assert_receive {:restore, 6}
     end
 
@@ -134,7 +149,8 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
       handler = CheckpointDelivery.operator_immediate_handler(issue(), orch, decision_store)
 
       assert handler.() == :noop
-      assert_receive {:decision_delivery, 7}
+      assert_receive {:decision_delivery_prepared, 7}
+      refute_receive {:decision_delivery, 7}
       assert_receive {:mark_failed, 7, {:decision_correlation_failed, :store_unavailable}}
       refute_receive {:restore, 7}, 100
     end
@@ -203,14 +219,19 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
       assert_receive {:restore, 23}
     end
 
-    test "persists correlated checkpoint handoff before returning deliver_text" do
+    test "keeps a correlated checkpoint queued until the provider callback" do
       item = correlated_item(22)
       orch = start_fake(checkpoint: {:ok, item})
       decision_store = start_decision_store({:ok, :accepted})
       handler = CheckpointDelivery.safe_checkpoint_handler(issue(), orch, decision_store)
 
-      assert {:deliver_text, "durable answer", _success, _failure} = handler.(:checkpoint)
+      assert {:deliver_text, "durable answer", success, _failure} = handler.(:checkpoint)
+      assert_receive {:decision_delivery_prepared, 22}
+      refute_receive {:decision_delivery, 22}
+
+      assert success.(%{turn_id: "provider-22"}) == :ok
       assert_receive {:decision_delivery, 22}
+      assert_receive {:provider_delivered, 22, %{turn_id: "provider-22"}}
     end
 
     test "an unrecognized delivery failure marks the checkpoint item failed" do

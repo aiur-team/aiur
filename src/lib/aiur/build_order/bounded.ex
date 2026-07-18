@@ -1,9 +1,12 @@
 defmodule Aiur.BuildOrder.Bounded do
   @moduledoc false
 
+  alias Aiur.SecretRedactor
+
   @max_title_bytes 512
   @max_url_bytes 2048
   @max_github_issue_identifier_bytes 19
+  @max_decision_identifier_bytes 256
 
   @spec title(term()) :: {:ok, String.t()} | :error
   def title(value), do: text(value, @max_title_bytes)
@@ -150,6 +153,32 @@ defmodule Aiur.BuildOrder.Bounded do
     end
   end
 
+  @doc "Validates the exact query-free Chat route for one GitHub issue identity."
+  @spec chat_route_for(term(), term()) :: {:ok, String.t()} | :error
+  def chat_route_for(value, %{identifier: identifier}) do
+    with {:ok, identifier} <- github_issue_identifier(identifier),
+         {:ok, value, %URI{path: path}} <- destination_route(value),
+         true <- path == "/chat/#{identifier}" do
+      {:ok, value}
+    else
+      _ -> :error
+    end
+  end
+
+  def chat_route_for(_value, _identity), do: :error
+
+  @doc "Validates one query-free Commands detail route produced by DecisionPath."
+  @spec commands_route(term()) :: {:ok, String.t()} | :error
+  def commands_route(value) do
+    with {:ok, value, %URI{path: path}} <- destination_route(value),
+         ["", "decisions", decision_id] <- String.split(path, "/", trim: false),
+         true <- safe_decision_identifier?(decision_id) do
+      {:ok, value}
+    else
+      _ -> :error
+    end
+  end
+
   defp safe_github_uri?(%URI{
          scheme: "https",
          host: host,
@@ -164,6 +193,31 @@ defmodule Aiur.BuildOrder.Bounded do
   end
 
   defp safe_github_uri?(_uri), do: false
+
+  defp destination_route(value) do
+    with {:ok, value} <- relative_route(value),
+         %URI{query: nil, fragment: nil} = uri <- URI.parse(value) do
+      {:ok, value, uri}
+    else
+      _ -> :error
+    end
+  end
+
+  defp safe_decision_identifier?(value) when is_binary(value) and byte_size(value) <= @max_decision_identifier_bytes do
+    with true <- Regex.match?(~r/^(?:[A-Za-z0-9._~-]|%[0-9A-F]{2})+$/, value),
+         decoded <- URI.decode(value),
+         {:ok, decoded} <- text(decoded, @max_decision_identifier_bytes),
+         true <- String.trim(decoded) == decoded,
+         false <- String.match?(decoded, ~r/[\x00-\x1F\x7F]/),
+         false <- decoded in [".", ".."],
+         true <- SecretRedactor.redact(decoded) == decoded do
+      URI.encode(decoded, &URI.char_unreserved?/1) == value
+    else
+      _ -> false
+    end
+  end
+
+  defp safe_decision_identifier?(_value), do: false
 
   defp github_issue_path?(path) when is_binary(path) do
     case String.split(path, "/", trim: true) do
