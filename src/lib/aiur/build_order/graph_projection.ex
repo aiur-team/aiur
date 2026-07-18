@@ -287,6 +287,7 @@ defmodule Aiur.BuildOrder.GraphProjection do
         active_repository: snapshot.repository,
         active_configuration_generation: snapshot.generation,
         authority_fingerprint: snapshot.fingerprint,
+        authority_epoch: new_authority_epoch(),
         authority_generation: state.authority_generation + 1,
         root_limit: snapshot.limits.root_limit,
         page_budget: snapshot.limits.page_budget,
@@ -296,8 +297,8 @@ defmodule Aiur.BuildOrder.GraphProjection do
 
     events =
       if old_catalog.repository == :unknown and old_catalog.generation == :unknown,
-        do: [{:reset, state.authority_generation}],
-        else: [{:health, catalog_snapshot(state)}, {:reset, state.authority_generation}]
+        do: [{:reset, state.authority_epoch}],
+        else: [{:health, catalog_snapshot(state)}, {:reset, state.authority_epoch}]
 
     {state, events}
   end
@@ -399,7 +400,14 @@ defmodule Aiur.BuildOrder.GraphProjection do
 
   defp evicted_snapshot(entry, state) do
     health = ProviderHealth.new(entry.generation, :unavailable, false, failure: :evicted)
-    %Snapshot{scope: entry.scope, repository: state.active_repository, generation: entry.generation, health: health}
+
+    %Snapshot{
+      scope: entry.scope,
+      repository: state.active_repository,
+      authority_epoch: state.authority_epoch,
+      generation: entry.generation,
+      health: health
+    }
   end
 
   defp enforce_retention_bound(state) do
@@ -740,7 +748,13 @@ defmodule Aiur.BuildOrder.GraphProjection do
   end
 
   defp catalog_snapshot(state) do
-    Policy.snapshot(state.catalog, state.active_repository, now_ms(state), state.policy.catalog_refresh_ms)
+    Policy.snapshot(
+      state.catalog,
+      state.active_repository,
+      state.authority_epoch,
+      now_ms(state),
+      state.policy.catalog_refresh_ms
+    )
   end
 
   defp selected_snapshot(state, identity) do
@@ -748,10 +762,10 @@ defmodule Aiur.BuildOrder.GraphProjection do
       nil ->
         identity
         |> then(&Policy.unavailable_entry({:selected, &1}, now_ms(state)))
-        |> Policy.snapshot(state.active_repository, now_ms(state), state.policy.selected_refresh_ms)
+        |> Policy.snapshot(state.active_repository, state.authority_epoch, now_ms(state), state.policy.selected_refresh_ms)
 
       entry ->
-        Policy.snapshot(entry, state.active_repository, now_ms(state), state.policy.selected_refresh_ms)
+        Policy.snapshot(entry, state.active_repository, state.authority_epoch, now_ms(state), state.policy.selected_refresh_ms)
     end
   end
 
@@ -855,4 +869,5 @@ defmodule Aiur.BuildOrder.GraphProjection do
 
   defp now(state), do: state.now.()
   defp now_ms(state), do: state.clock_ms.()
+  defp new_authority_epoch, do: System.unique_integer([:positive, :monotonic])
 end

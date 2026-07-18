@@ -22,14 +22,16 @@ defmodule Aiur.BuildOrder.GraphProjection.Snapshot do
 
   @type scope :: :catalog | {:selected, TrackerIdentity.t()}
   @type data :: Catalog.t() | SelectedRoot.t() | nil
+  @type authority_epoch :: pos_integer() | :unknown
   @type t :: %__MODULE__{
           scope: scope(),
           repository: TrackerIdentity.repository() | :unknown,
+          authority_epoch: authority_epoch(),
           generation: pos_integer() | :unknown,
           data: data(),
           health: ProviderHealth.t()
         }
 
   @enforce_keys [:scope, :repository, :generation, :health]
-  defstruct [:scope, :repository, :generation, :data, :health]
+  defstruct [:scope, :repository, :generation, :data, :health, authority_epoch: :unknown]
 end

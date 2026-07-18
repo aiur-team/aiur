@@ -3,8 +3,11 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
 
   import Phoenix.LiveViewTest, only: [render_component: 2]
 
+  alias AiurWeb.BuildOrderViewModel.Node
+
   alias AiurWeb.OperatorControlCenter.{
     BuildOrderGraph,
+    BuildOrderIcon,
     DecisionAction,
     DecisionDetail,
     DecisionInbox,
@@ -56,6 +59,104 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert html =~ "has an unknown dependency relation to"
     assert html =~ "is cyclic with"
     assert html =~ "Using readable document-flow layout."
+  end
+
+  test "renders every presenter-derived icon key through accessible local components" do
+    keys = [
+      :lane_plan_graph,
+      :lane_runtime,
+      :lane_dashboard_ui,
+      :lane_accounting,
+      :lane_platform,
+      :lane_generic,
+      :status_ready,
+      :status_blocking,
+      :status_terminal_unsatisfied,
+      :status_unknown,
+      :status_cyclic,
+      :status_generic,
+      :status_completed,
+      :status_not_planned,
+      :status_paused,
+      :status_retrying,
+      :status_waiting,
+      :status_working
+    ]
+
+    for key <- keys do
+      label = "Accessible #{key}"
+
+      html =
+        render_component(&BuildOrderIcon.build_order_icon/1, %{
+          icon: %Aiur.BuildOrder.Icon{key: key, text: label}
+        })
+
+      assert html =~ ~s(data-icon-key="#{key}")
+      assert html =~ ~s(aria-label="#{label}")
+      assert html =~ ~s(aria-hidden="true")
+    end
+
+    fallback =
+      render_component(&BuildOrderIcon.build_order_icon/1, %{
+        icon: %Aiur.BuildOrder.Icon{key: :from_github_fixture, text: "unsafe fixture icon"}
+      })
+
+    assert fallback =~ ~s(data-icon-key="generic")
+    assert fallback =~ ~s(aria-label="Status unavailable")
+    refute fallback =~ "from_github_fixture"
+    refute fallback =~ "unsafe fixture icon"
+  end
+
+  test "renders typed card progress and agent stage without replacing unknown facts" do
+    known = %Node{
+      key: :known,
+      identity: nil,
+      title: "Known activity",
+      plan: %{},
+      execution: %{},
+      activity: %{},
+      readiness: :ready,
+      lane_icon: nil,
+      status_icon: nil,
+      health: %{},
+      observed_at: %{},
+      provenance: %{},
+      card: %{
+        identifier: "#1",
+        lane: "dashboard-ui",
+        phase: 1,
+        lifecycle: %{state: :open, state_reason: :none},
+        execution_state: :working,
+        agent_stage: :review,
+        progress: 60,
+        status_text: "Working"
+      }
+    }
+
+    unknown = %{
+      known
+      | key: :unknown,
+        title: "Unknown activity",
+        card: %{known.card | identifier: "#2", agent_stage: :unknown, progress: :unknown}
+    }
+
+    html =
+      render_component(&BuildOrderGraph.build_order_graph/1, %{
+        id: "typed-build-order-graph",
+        root_id: "root-1",
+        provider_generation: 1,
+        dom_generation: 1,
+        layout_assets: %{client: "/client.js", worker: "/worker.js", engine: "/engine.js"},
+        nodes: [known, unknown],
+        edges: []
+      })
+
+    assert html =~ "Agent stage"
+    assert html =~ "Review"
+    assert html =~ "60%"
+    assert html =~ "Agent stage unavailable"
+    assert html =~ "Progress unavailable"
+    assert html =~ ~s(aria-label="#1 · Known activity · Working · Dashboard ui · Phase 1 · Review · 60%")
   end
 
   test "renders delivery failure and supersession as explicit lifecycle overrides" do

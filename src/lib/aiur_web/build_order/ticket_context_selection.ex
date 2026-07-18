@@ -200,6 +200,12 @@ defmodule AiurWeb.BuildOrder.TicketContextSelection do
   def reconnect(%__MODULE__{} = state), do: state
   def reconnect(_state), do: %__MODULE__{}
 
+  @doc "Invalidates an in-flight cached-context read while retaining the exact open selection."
+  @spec refresh(t()) :: t()
+  def refresh(%__MODULE__{status: :open} = state), do: rotate_request(state)
+  def refresh(%__MODULE__{} = state), do: state
+  def refresh(_state), do: %__MODULE__{}
+
   @doc "Checks that delayed base-context data belongs to the exact current request."
   @spec current_completion?(t(), term(), term()) :: boolean()
   def current_completion?(%__MODULE__{status: :open} = state, token, identity) do

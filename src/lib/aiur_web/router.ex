@@ -106,6 +106,8 @@ defmodule AiurWeb.Router do
       live("/", DashboardLive, :index)
       live("/decisions", DashboardLive, :decisions)
       live("/decisions/:decision_id", DashboardLive, :decision)
+      live("/build-orders", BuildOrderLive, :build_orders)
+      live("/build-orders/:root_number", BuildOrderLive, :build_order)
     end
   end
 
