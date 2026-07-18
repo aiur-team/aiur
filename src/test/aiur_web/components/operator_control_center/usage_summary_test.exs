@@ -131,6 +131,10 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryTest do
     assert html =~ ~s(aria-controls="usage-drill-region")
     assert html =~ "acme/aiur#42"
     assert html =~ "usage-control"
+    # Closing returns focus to the dimension trigger for keyboard users.
+    assert html =~ "usage-drill-close"
+    assert html =~ "focus"
+    assert html =~ "#usage-drill-by_ticket"
   end
 
   test "unknown pricing coverage is named, not shown as zero" do

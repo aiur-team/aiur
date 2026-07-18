@@ -990,6 +990,7 @@ defmodule AiurWeb.DashboardLive do
     socket
     |> assign(:usage_summary_source, source)
     |> assign_usage_view(view)
+    |> refresh_open_drill()
   end
 
   defp apply_usage_summary(socket, {:error, :authentication_required}) do
@@ -1162,6 +1163,22 @@ defmodule AiurWeb.DashboardLive do
       assign(socket, :usage_summary_drill, %{page | items: existing.items ++ page.items})
     else
       _denied_or_missing -> socket
+    end
+  end
+
+  # Keep an open drill-down consistent with the current snapshot: when a live
+  # update replaces the source, re-page the same dimension over the fresh source
+  # for the number of rows already shown, so stale contributor rows never mix
+  # with a newer projection.
+  defp refresh_open_drill(socket) do
+    case {Map.get(socket.assigns, :usage_summary_drill), Map.get(socket.assigns, :usage_summary_source)} do
+      {%{dimension: dim} = existing, %{} = source} ->
+        shown = max(length(existing.items), @usage_drill_limit)
+        page = UsageSummaryPresenter.drill_down(source, dim, cursor: 0, limit: shown)
+        assign(socket, :usage_summary_drill, page)
+
+      _no_open_drill ->
+        socket
     end
   end
 

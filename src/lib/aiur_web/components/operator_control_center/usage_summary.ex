@@ -13,6 +13,8 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummary do
 
   use Phoenix.Component
 
+  alias Phoenix.LiveView.JS
+
   attr(:view, :map, required: true)
   attr(:announcement, :string, default: nil)
   attr(:drill_down, :map, default: nil)
@@ -200,8 +202,8 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummary do
         <div class="usage-summary-fact">
           <dt>Retained interval</dt>
           <dd>
-            <span :if={@view.retained_interval.earliest}>
-              <time>{@view.retained_interval.earliest}</time>–<time>{@view.retained_interval.latest}</time>
+            <span :if={@view.retained_interval.earliest} class="usage-retained-bounds">
+              positions {@view.retained_interval.earliest}–{@view.retained_interval.latest}
             </span>
             <span>{@view.retained_interval.label}</span>
           </dd>
@@ -253,7 +255,13 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummary do
       <div id="usage-drill-region" class="usage-drill-region" :if={@drill_down}>
         <div class="usage-drill-region-header">
           <h4>{@drill_down.label} — {@drill_down.total} contributors</h4>
-          <button type="button" class="usage-control" phx-click="usage-drill-close">Close</button>
+          <button
+            type="button"
+            class="usage-control"
+            phx-click={JS.push("usage-drill-close") |> JS.focus(to: "#usage-drill-#{@drill_down.dimension}")}
+          >
+            Close
+          </button>
         </div>
 
         <table class="usage-summary-table">
