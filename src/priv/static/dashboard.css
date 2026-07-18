@@ -4851,3 +4851,54 @@ textarea:focus-visible,
     background: currentColor;
   }
 }
+
+/* ------------------------------------------------------------------ *
+ * DASH-034 — current-run "Finished this run" outcomes                *
+ * Namespaced .current-run-outcomes-* so the shared Recent region and  *
+ * responsive CSS serialize without semantic reorder or a duplicate    *
+ * dashboard container. Cards reuse the shared .outcome-* patterns.    *
+ * ------------------------------------------------------------------ */
+.current-run-outcomes-card {
+  margin-top: 1rem;
+  margin-bottom: 1rem;
+}
+
+.current-run-outcomes-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.current-run-outcomes-header .recent-subtitle-actions {
+  flex: 0 0 auto;
+}
+
+.current-run-outcomes-state {
+  margin-top: 0.75rem;
+}
+
+.current-run-outcome-list {
+  margin-top: 0.85rem;
+}
+
+/* Preserve comfortable touch targets for the outcome links and analytics
+ * route at coarse pointers and small breakpoints. */
+@media (pointer: coarse) {
+  .current-run-outcomes-card .link-pill {
+    min-height: 44px;
+    align-items: center;
+  }
+}
+
+@media (max-width: 480px) {
+  .current-run-outcomes-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .current-run-outcomes-header .recent-subtitle-actions {
+    justify-content: flex-start;
+  }
+}
