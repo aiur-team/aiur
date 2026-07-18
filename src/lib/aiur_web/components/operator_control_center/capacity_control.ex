@@ -9,6 +9,8 @@ defmodule AiurWeb.OperatorControlCenter.CapacityControl do
 
   use Phoenix.Component
 
+  alias AiurWeb.OperatorControlCenter.CapacityPresenter
+
   attr(:capacity, :map, required: true)
   attr(:writable, :boolean, required: true)
   attr(:input, :string, default: "")
@@ -127,7 +129,7 @@ defmodule AiurWeb.OperatorControlCenter.CapacityControl do
     do: "Maximum agent capacity is unchanged at #{max}."
 
   def feedback_message(%{kind: :invalid}),
-    do: "Enter a whole number of #{AiurWeb.OperatorControlCenter.CapacityPresenter.min()} or more."
+    do: "Enter a whole number of #{CapacityPresenter.min()} or more."
 
   def feedback_message(%{kind: :timeout}),
     do: "The capacity service did not respond in time. The value shown may be stale; wait a moment and retry."

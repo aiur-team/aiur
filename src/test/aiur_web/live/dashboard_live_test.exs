@@ -3366,7 +3366,7 @@ defmodule AiurWeb.DashboardLiveTest do
     # A serialized control call both forces init to complete before the mount
     # snapshot and establishes a known authoritative maximum via the real Slots
     # contract (as a session override).
-    {:ok, %{max: ^max}} = Aiur.Orchestrator.Slots.set_max_concurrent_agents(name, max)
+    {:ok, %{max: ^max}} = Orchestrator.Slots.set_max_concurrent_agents(name, max)
 
     name
   end
