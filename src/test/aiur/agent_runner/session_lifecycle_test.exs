@@ -401,6 +401,59 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
       assert log =~ "Ignoring effort \"xhigh\" for backend claude"
     end
 
+    test "keeps an effort the started backend supports, without warning" do
+      start_fun = fn _workspace, _opts -> {:ok, %{handle: :codex}} end
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {:ok, %{backend: "codex", effort: "high"}} =
+                   SessionLifecycle.start_agent_session(
+                     "/ws",
+                     [backend: "codex", model: nil, effort: "high"],
+                     start_fun
+                   )
+        end)
+
+      refute log =~ "Ignoring effort"
+    end
+
+    test "the RC transport (claude-repl) retains its effort without warning" do
+      start_fun = fn _workspace, _opts -> {:ok, %{handle: :repl}} end
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {:ok, %{backend: "claude-repl", effort: "high"}} =
+                   SessionLifecycle.start_agent_session(
+                     "/ws",
+                     [backend: "claude-repl", model: "opus", effort: "high"],
+                     start_fun
+                   )
+        end)
+
+      refute log =~ "Ignoring effort"
+    end
+
+    test "warns when the claude-repl->claude fallback drops a repl effort" do
+      start_fun = fn _workspace, opts ->
+        case Keyword.fetch!(opts, :backend) do
+          "claude-repl" -> {:error, :repl_not_ready}
+          "claude" -> {:ok, %{handle: :headless}}
+        end
+      end
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {:ok, %{backend: "claude", effort: nil}} =
+                   SessionLifecycle.start_agent_session(
+                     "/ws",
+                     [backend: "claude-repl", model: "opus", effort: "high", remote_control: true],
+                     start_fun
+                   )
+        end)
+
+      assert log =~ "Ignoring effort \"high\" for backend claude"
+    end
+
     test "non-repl start errors propagate unchanged" do
       start_fun = fn _workspace, _opts -> {:error, :boom} end
 
