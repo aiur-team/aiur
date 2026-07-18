@@ -3,8 +3,8 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdownTest do
 
   import Phoenix.LiveViewTest
 
-  alias Aiur.BuildOrder.{Dependency, Member, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.AdHocSource.Snapshot, as: AdHocSnapshot
+  alias Aiur.BuildOrder.{Dependency, Member, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrderPresenter

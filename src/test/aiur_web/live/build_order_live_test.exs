@@ -4,8 +4,8 @@ defmodule AiurWeb.BuildOrderLiveTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
-  alias Aiur.BuildOrder.{Catalog, Lifecycle, Member, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.AdHocSource.Snapshot, as: AdHocSnapshot
+  alias Aiur.BuildOrder.{Catalog, Lifecycle, Member, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.BuildOrder.TicketDetail.Snapshot, as: DetailSnapshot
   alias Aiur.BuildOrder.TicketDetail.State

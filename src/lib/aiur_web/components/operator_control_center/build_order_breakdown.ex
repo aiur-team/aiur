@@ -13,8 +13,8 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdown do
 
   use Phoenix.Component
 
-  alias Aiur.BuildOrder.{Bounded, Metadata}
   alias Aiur.BuildOrder.AdHocSource.Snapshot, as: AdHocSnapshot
+  alias Aiur.BuildOrder.{Bounded, Metadata}
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrderViewModel
   alias AiurWeb.BuildOrderViewModel.{Group, Node}
@@ -262,6 +262,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdown do
     end
   end
 
+  @spec running_identity_set(term()) :: MapSet.t()
   defp running_identity_set(%{running: running}) when is_list(running) do
     running
     |> Enum.map(&identity_key(Map.get(&1, :tracker_identity)))
