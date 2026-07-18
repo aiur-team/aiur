@@ -17,18 +17,18 @@
     },
     "worker": {
       "file": "aiur-layout-worker.js",
-      "sha256": "d66fbfcfa98828e7f53728852fd22603422423b856924085b1e86477dfaa4ef5",
-      "bytes": 17076,
+      "sha256": "aba380b8d8851d6493054cbb0d0320a3fff5d6f532663f6b15a9fcb6a105c704",
+      "bytes": 17077,
       "contentType": "application/javascript",
-      "url": "/vendor/layout/worker-v1/d66fbfcfa98828e7f53728852fd22603422423b856924085b1e86477dfaa4ef5/aiur-layout-worker.js",
+      "url": "/vendor/layout/worker-v1/aba380b8d8851d6493054cbb0d0320a3fff5d6f532663f6b15a9fcb6a105c704/aiur-layout-worker.js",
       "engineUrl": "/vendor/layout/elk-0.11.1/458fbe927f19d11d8d054e34b7587011b9a4d1ecbdfb688b60e491fbdfb2a8d7/elk-worker.min.js"
     },
     "client": {
       "file": "aiur-layout-client.js",
-      "sha256": "d02e197e052d28e36c96aa163e019d271e5c6ca3ae101490f60ce2c3c67c3a10",
-      "bytes": 16230,
+      "sha256": "4155d2fbcc266debbd0bd4328ba483f5c79c109b53802b6fb739b0e3c1255698",
+      "bytes": 16574,
       "contentType": "application/javascript",
-      "url": "/vendor/layout/client-v1/d02e197e052d28e36c96aa163e019d271e5c6ca3ae101490f60ce2c3c67c3a10/aiur-layout-client.js"
+      "url": "/vendor/layout/client-v1/4155d2fbcc266debbd0bd4328ba483f5c79c109b53802b6fb739b0e3c1255698/aiur-layout-client.js"
     }
   }
 }
