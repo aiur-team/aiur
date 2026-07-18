@@ -34,6 +34,8 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryPresenter do
   labelled stale rather than presenting zeros.
   """
 
+  alias Aiur.Usage.GroupedScopes
+
   @type snapshot :: map()
   @type view :: map()
   @type tier_facts :: %{optional({atom(), atom(), String.t()}) => map()}
@@ -121,7 +123,7 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryPresenter do
 
   def drill_down(source, dimension, opts) when is_map(source) do
     subscription_currencies = subscription_currencies(source)
-    page = Aiur.Usage.GroupedScopes.drill_down(source, dimension, opts)
+    page = GroupedScopes.drill_down(source, dimension, opts)
 
     %{
       dimension: dimension,
