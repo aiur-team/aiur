@@ -50,6 +50,15 @@ defmodule Aiur.UsageCompaction.Floor do
     end
   end
 
+  # Once a phase reaches `source_retired` the raw for its range is committed to
+  # deletion but the block that replaces it is still only `pending`, not in the
+  # finalized cover. Reconstructing a floor from finalized blocks alone would
+  # silently omit that range while the raw is already gone. Fail closed so the
+  # aggregate latches unavailable and reconciliation (finalize) runs first,
+  # rather than serving undercounted totals. Earlier phases leave raw intact, so
+  # a rebuild over the finalized floor plus retained raw is still exact.
+  defp from_manifest(_dir, %Manifest{pending: %{phase: :source_retired}}), do: {:error, :destructive_phase_in_flight}
+
   defp from_manifest(_dir, %Manifest{retired_through: 0}), do: {:ok, empty()}
 
   defp from_manifest(dir, manifest) do

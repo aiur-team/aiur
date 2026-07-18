@@ -2,6 +2,7 @@ defmodule Aiur.UsageCompaction.CoordinatorTest do
   use ExUnit.Case, async: false
 
   alias Aiur.UsageAggregate.Projection
+  alias Aiur.UsageAggregate.Store, as: Aggregate
   alias Aiur.UsageCompaction.{Block, Coordinator, Floor, Manifest, Paths, Policy}
   alias Aiur.UsageLedger.Store, as: Ledger
 
@@ -141,6 +142,45 @@ defmodule Aiur.UsageCompaction.CoordinatorTest do
     assert snapshot.health == :ok
     # Roll-forward retired the raw idempotently.
     assert Enum.map(scan_all(context.ledger), & &1.position) == [8, 9, 10]
+  end
+
+  test "the floor fails closed while a destructive phase is stuck at :source_retired", context do
+    append_n(context.ledger, 10)
+    {:ok, paths} = Paths.prepare(context.comp_root, fn -> :ok end)
+
+    {:ok, block} = Block.build(Enum.filter(scan_all(context.ledger), &(&1.position <= 7)))
+    ref = Paths.block_ref(1, 7)
+    :ok = Block.write(Paths.block_path(context.comp_root, ref), block)
+
+    {:ok, m} = Manifest.prepare(Manifest.new(), 1, 7, ref, block.source_generation)
+    {:ok, m} = Manifest.advance(m, :aggregate_committed)
+    {:ok, m} = Manifest.advance(m, :source_retired)
+    :ok = Manifest.write(paths.manifest_path, m)
+
+    # Raw for [1,7] may already be gone; rebuilding from finalized blocks alone
+    # would undercount, so the floor must refuse rather than seed a short floor.
+    assert Floor.load(context.comp_root) == {:error, :destructive_phase_in_flight}
+  end
+
+  test "an aggregate rebuild latches unavailable rather than undercount on a broken floor", context do
+    append_n(context.ledger, 3)
+    agg_root = Path.join(System.tmp_dir!(), "aiur-cc-agg-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(agg_root)
+    on_exit(fn -> File.rm_rf(agg_root) end)
+    agg = :"cc_agg_#{System.unique_integer([:positive])}"
+
+    {:ok, _} =
+      Aggregate.start_link(
+        name: agg,
+        state_dir: agg_root,
+        ledger_scan_fun: fn opts -> GenServer.call(context.ledger, {:scan, opts}) end,
+        ledger_subscribe_fun: fn pid -> GenServer.call(context.ledger, {:subscribe, pid}) end,
+        ledger_generation_fun: fn -> GenServer.call(context.ledger, :generation) end,
+        ledger_coverage_fun: fn -> GenServer.call(context.ledger, :coverage) end,
+        compaction_floor_fun: fn -> {:error, :destructive_phase_in_flight} end
+      )
+
+    assert {:unavailable, :compaction_floor_unavailable} = Aggregate.health(agg)
   end
 
   test "quarantines a corrupt manifest and halts destructive progress", context do
