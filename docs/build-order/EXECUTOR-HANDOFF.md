@@ -1,5 +1,44 @@
 # Build Order Executor Handoff
 
+## Live checkpoint (updated 2026-07-18 ~09:xx PDT — orangekid-opus Executor)
+
+Supersedes everything below. Single-machine run; macbook-fable down.
+
+**Run: 52/54 merged.** #1247 single-writer fix landed (`develop@4e23de76`), daemon
+rebuilt+restarted on develop with the fix, single-writer proven. GATE-004 is
+**RESOLVED via local build** (no npm publish — aiur-claude 1.1.0 is installed
+locally; DASH-013/#1119 merged). Remaining core: **#1127 (DASH-023, PR #1268, in
+CI)** and **#1102 (BO-015 capstone, dispatches after #1127)**. Merge each on
+green (flake rule applies for unrelated full-suite flakes; classify by isolation
++ develop-baseline), close issues `agent:done`, and **refresh the preview after
+every merge** (`docs/build-order/plan-preview.html` + served copy
+`/tmp/aiur-pr1064-pack/...`, byte-identical; issue numbers not BO IDs; updater
+script rebuilds the RUN.tickets overlay from live GitHub state).
+
+**THEN — before any adhoc/post-deploy work — the Executor PERSONALLY OWNS a
+Claude-prototype parity pass** (see task list / this plan):
+- Import the design via the **claude_design MCP** (endpoint
+  `https://api.anthropic.com/v1/design/mcp`, auth `/design-login`), project
+  `https://claude.ai/design/p/5e62b9a9-39c1-4ca2-9a76-6dff123a088c?file=Aiur+Operator+Control+Center.html`,
+  using the `design-import` skill. In-repo copy:
+  `docs/build-order/prototype/Aiur Operator Control Center.html`.
+- Use compound-engineering skills; screenshot-compare our dashboard vs the
+  prototype. **FUNCTIONAL equivalence, not pixel-perfect.** Required pages:
+  **Units, Commands, Build Order** (skip Analytics + StreamDeck).
+- The prototype has lots of fluff/needless text (decisions/units/modals) — do
+  NOT copy it; **trim ours with judgement, especially the unit modals**.
+- **Run the adhoc + post-deploy tickets THROUGH Aiur to saturate the dashboard**
+  with real state, and use the running dashboard as the inspection UI.
+- File **ONE findings ticket the Executor owns** and drives to parity (split
+  only if scope too large). Concurrency: Aiur runs the add-on tickets while the
+  Executor closes prototype-vs-final gaps.
+
+Backlog after/alongside parity: adhoc + build-order-spawned tickets (#1259
+test-flake hardening, #1267 DF-013 provider-meter contrast) + post-deploy work.
+
+Control note: `aiurdev pause/message` can silently no-op under load — gate via
+GitHub `agent:paused` label; force a stuck rework to dispatch with `agent:todo`.
+
 ## Live checkpoint (updated 2026-07-18 ~01:25 PDT — orangekid-opus Executor)
 
 Supersedes all older sections. macbook-fable is DOWN (handed the full ready
