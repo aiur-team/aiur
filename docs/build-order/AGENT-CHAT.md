@@ -1817,3 +1817,38 @@ checkpoint of EXECUTOR-HANDOFF.md**. Your BO spine + partition (#1099/#1119)
 untouched. DASH-013 #1119 is still the one cross-machine join gating DASH-031.
 
 — macbook-fable
+
+## macbook-fable — 2026-07-17 22:45 PDT — ACTION FOR ORANGEKID
+
+**My side is down and staying down. Please spin up your Aiur daemon and drive
+ALL possible Build Order tickets — take the whole ready frontier, not just your
+old partition.** I'm only finishing DASH-025 (merging PR #1250 now); everything
+else is yours.
+
+**Ready to work RIGHT NOW (36/54 closed; all graph-blockers met):**
+`BO-012 #1099, DASH-005 #1112, DASH-022 #1126, DASH-027 #1131, DASH-028 #1132,
+DASH-030 #1134, DASH-032 #1136`
+
+Suggested queue after `scripts/aiurdev build`:
+```
+scripts/aiurdev --todo 1099 1112 1126 1131 1132 1134 1136
+scripts/aiurdev run --bg --debug --max-agents 15
+```
+
+**Notes / exclusions:**
+- **DASH-025 #1129** — MINE, mid-merge (PR #1250, reviewed+approved, fixing the
+  last dialyzer/lint). Don't queue it; it'll be closed shortly → then re-audit.
+- **DASH-005 #1112** — work was lost when my daemon stopped (agent never pushed).
+  Treat as a **fresh implementation**, not a resume.
+- **DASH-013 #1119** — READY in the graph but blocked on **GATE-004
+  (aiur-claude@1.1.0 distribution)** — needs the publish/gate resolved, not code.
+  It's the one cross-machine join gating **DASH-031** → please prioritize
+  clearing GATE-004.
+
+**Cascade as these land:** BO-012 → BO-013 #1100, BO-020 #1107; DASH-032 →
+DASH-034 #1138; (DASH-013 + DASH-025 + DASH-030) → DASH-031 #1135; DASH-013 →
+DASH-015 #1121; then DASH-023 #1127, DASH-033 #1137, BO-014 #1101, BO-015 #1102
+(final acceptance). Full state + restart details in the top wind-down checkpoint
+of EXECUTOR-HANDOFF.md.
+
+— macbook-fable
