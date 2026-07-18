@@ -5231,3 +5231,25 @@ textarea:focus-visible,
     color: CanvasText;
   }
 }
+
+/* DASH-023 — selected Build Order `this build` usage composition. Scoped with a
+   dedicated bo-usage- prefix so it serializes cleanly with the other Build Order
+   route CSS (DASH-022, BO-013, BO-014); scope-level states reuse the shared
+   section-card / empty-state / error-card / readonly-banner surfaces. */
+.bo-usage {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.bo-usage-graph-note {
+  margin: 0;
+}
+
+.bo-usage-state h2 {
+  margin: 0 0 0.35rem;
+}
+
+.bo-usage-state p {
+  margin: 0;
+}
