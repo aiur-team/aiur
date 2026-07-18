@@ -5,10 +5,12 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
 
   alias Aiur.BuildOrder.Bounded
   alias Aiur.TrackerIdentity
-  alias AiurWeb.OperatorControlCenter.{DecisionPath, UnitsPresenter}
+  alias AiurWeb.OperatorControlCenter.{DecisionPath, UnitsControlPolicy, UnitsPresenter}
 
   attr(:view, :map, required: true)
   attr(:now, :any, required: true)
+  attr(:controls, :map, default: %{})
+  attr(:writable, :boolean, default: false)
 
   @spec units_table(map()) :: Phoenix.LiveView.Rendered.t()
   def units_table(assigns) do
@@ -120,6 +122,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
 
               <td data-label="Actions">
                 <nav class="units-actions" aria-label={"Actions for #{identity_label(row.identity)}"}>
+                  <.unit_control token={token} row={row} control={Map.get(@controls, token)} writable={@writable} />
                   <button
                     id={"units-inspect-#{token}"}
                     type="button"
@@ -157,6 +160,104 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
     </div>
     """
   end
+
+  attr(:token, :string, required: true)
+  attr(:row, :map, required: true)
+  attr(:control, :map, default: nil)
+  attr(:writable, :boolean, default: false)
+
+  defp unit_control(assigns) do
+    affordance = UnitsControlPolicy.affordance(assigns.row, assigns.control)
+
+    assigns =
+      assigns
+      |> assign(:affordance, affordance)
+      |> assign(:identity_label, identity_label(assigns.row.identity))
+      |> assign(:presentation, control_presentation(assigns.control))
+      |> assign(:pause_note, pause_note(assigns.row))
+      |> assign(:disabled?, control_button_disabled?(affordance, assigns.writable))
+
+    ~H"""
+    <div class="units-control" data-unit-control={@token}>
+      <button
+        :if={@affordance.state in [:enabled, :pending]}
+        id={"units-control-#{@token}"}
+        type="button"
+        class={["units-action", "units-control-action", control_tone_class(@affordance)]}
+        phx-click="request-unit-control"
+        phx-value-unit={@token}
+        phx-value-action={control_action(@affordance)}
+        disabled={@disabled?}
+        aria-disabled={to_string(@disabled?)}
+        aria-label={control_aria_label(@affordance, @identity_label)}
+      >{control_button_label(@affordance)}</button>
+
+      <span
+        :if={@affordance.state == :disabled}
+        class="units-action unavailable units-control-disabled"
+        aria-disabled="true"
+        title={UnitsControlPolicy.disabled_reason(@affordance.reason)}
+      >{control_disabled_label(@affordance.reason)}</span>
+
+      <p :if={not @writable and @affordance.state != :disabled} class="units-control-note" role="note">
+        Read-only — sign-in required to act
+      </p>
+
+      <p
+        :if={@presentation}
+        class={["units-control-status", "tone-#{@presentation.tone}"]}
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        <span class="units-control-glyph" aria-hidden="true">{control_glyph(@presentation.tone)}</span>
+        <span>{@presentation.announce}</span>
+      </p>
+
+      <p :if={present?(@pause_note)} class="units-control-owner">Paused: {@pause_note}</p>
+    </div>
+    """
+  end
+
+  defp control_presentation(nil), do: nil
+  defp control_presentation(control) when is_map(control), do: UnitsControlPolicy.presentation(control)
+
+  defp control_button_disabled?(%{state: :enabled}, true), do: false
+  defp control_button_disabled?(_affordance, _writable), do: true
+
+  defp control_action(%{action: action}) when action in [:pause, :resume], do: Atom.to_string(action)
+  defp control_action(%{pending_action: action}) when action in [:pause, :resume], do: Atom.to_string(action)
+  defp control_action(_affordance), do: nil
+
+  defp control_button_label(%{state: :pending, pending_action: action}), do: "#{control_verb(action)}…"
+  defp control_button_label(%{action: action}), do: control_verb(action)
+
+  defp control_verb(:pause), do: "Pause"
+  defp control_verb(:resume), do: "Resume"
+  defp control_verb(_action), do: "Control"
+
+  defp control_disabled_label(:no_identity), do: "Control unavailable"
+  defp control_disabled_label(:remote_control), do: "Remote Control"
+  defp control_disabled_label(:replaced_generation), do: "Superseded"
+  defp control_disabled_label(_reason), do: "Control unavailable"
+
+  defp control_aria_label(%{state: :pending, pending_action: action}, identity),
+    do: "#{control_verb(action)} #{identity} — request pending"
+
+  defp control_aria_label(%{action: action}, identity), do: "#{control_verb(action)} #{identity}"
+
+  defp control_tone_class(%{state: :pending}), do: "is-pending"
+  defp control_tone_class(%{action: :resume}), do: "is-resume"
+  defp control_tone_class(_affordance), do: "is-pause"
+
+  defp control_glyph(:pending), do: "◔"
+  defp control_glyph(:applied), do: "✓"
+  defp control_glyph(:error), do: "!"
+  defp control_glyph(:warning), do: "△"
+  defp control_glyph(_tone), do: "•"
+
+  defp pause_note(%{reasons: %{pause: pause}}) when not is_nil(pause), do: label(pause)
+  defp pause_note(_row), do: nil
 
   attr(:progress, :map, required: true)
 

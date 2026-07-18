@@ -6,6 +6,7 @@ defmodule AiurWeb.DashboardLive do
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
   alias Aiur.AgentChat
+  alias Aiur.AgentPubSub
   alias Aiur.BuildOrder.TicketDetail.State, as: TicketDetailState
   alias Aiur.BuildOrder.TicketDetailCache
   alias Aiur.BuildOrder.TicketHistory.Snapshot, as: TicketHistorySnapshot
@@ -30,6 +31,7 @@ defmodule AiurWeb.DashboardLive do
     RecentOutcomes,
     RouteRegistry,
     TicketContext,
+    UnitsControlPolicy,
     UnitsFilters,
     UnitsPresenter,
     UnitsTable,
@@ -69,7 +71,10 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:decision_page, empty_decision_page())
       |> assign(:decision_query, %{})
       |> assign(:units_selection, UnitsURL.default_selection())
+      |> assign(:unit_controls, %{})
+      |> assign(:unit_control_subscriptions, MapSet.new())
       |> assign_units_view()
+      |> sync_unit_control_subscriptions(connected)
       |> assign(:ticket_context, nil)
       |> assign(:ticket_context_detail, nil)
       |> assign(:ticket_context_history, nil)
@@ -164,6 +169,18 @@ defmodule AiurWeb.DashboardLive do
     {:noreply, socket |> reload_payload(mode) |> PayloadLoader.mark_loaded()}
   end
 
+  def handle_info({:control_lifecycle, payload}, socket) when is_map(payload) do
+    {:noreply, apply_control_lifecycle(socket, payload)}
+  end
+
+  # A unit's agent topic also carries transcript, alert, and turn traffic that
+  # this view subscribes for the control lifecycle but does not otherwise
+  # consume. Ignore that known noise rather than crashing on it.
+  def handle_info({:transcript_event, _event}, socket), do: {:noreply, socket}
+  def handle_info({:alert, _event}, socket), do: {:noreply, socket}
+  def handle_info({:turn_event, _identifier, _tag, _payload}, socket), do: {:noreply, socket}
+  def handle_info({:aiur_turn_done, _identifier, _turn_id, _reason}, socket), do: {:noreply, socket}
+
   @impl true
   def handle_event("filter-decisions", %{"filter" => filter}, socket) do
     filter = normalize_filter(filter)
@@ -214,6 +231,15 @@ defmodule AiurWeb.DashboardLive do
   end
 
   def handle_event("inspect-unit", _params, socket), do: {:noreply, socket}
+
+  def handle_event("request-unit-control", %{"unit" => token, "action" => action}, socket)
+      when is_binary(token) and action in ["pause", "resume"] do
+    handle_writable_event(socket, fn ->
+      {:noreply, request_unit_control(socket, token, String.to_existing_atom(action))}
+    end)
+  end
+
+  def handle_event("request-unit-control", _params, socket), do: {:noreply, socket}
 
   def handle_event("close-ticket-context", _params, socket) do
     {:noreply,
@@ -334,6 +360,7 @@ defmodule AiurWeb.DashboardLive do
       |> Map.put_new(:decision_page, fallback_decision_page(assigns.payload))
       |> Map.put_new(:decision_query, %{})
       |> Map.put_new(:ticket_context, nil)
+      |> Map.put_new(:unit_controls, %{})
       |> Map.put_new(:units_selection, UnitsURL.default_selection())
       |> Map.put_new(
         :units_view,
@@ -399,7 +426,7 @@ defmodule AiurWeb.DashboardLive do
             counts={@units_view[:counts] || %{}}
             count_status={@units_view[:count_status] || :unavailable}
           />
-          <UnitsTable.units_table view={@units_view} now={@now} />
+          <UnitsTable.units_table view={@units_view} now={@now} controls={@unit_controls} writable={@writable} />
         </section>
       </div>
 
@@ -445,6 +472,8 @@ defmodule AiurWeb.DashboardLive do
     |> assign(:now, DateTime.utc_now())
     |> assign(:agent_log_modal, AgentLogModal.refresh(socket.assigns.agent_log_modal, payload))
     |> assign_units_view()
+    |> sync_unit_control_subscriptions(connected?(socket))
+    |> reconcile_unit_controls()
     |> refresh_ticket_context_row()
     |> reload_decision_page()
     |> assign_selected_decision(socket.assigns.selected_decision_id)
@@ -989,6 +1018,170 @@ defmodule AiurWeb.DashboardLive do
       _fun -> AgentChat.pause(target)
     end
   end
+
+  # --- Unit controls (DASH-005) --------------------------------------------
+
+  # Resolve the row server-side by opaque token, recheck live capability, then
+  # invoke DASH-004. Applied state is mirrored only from lifecycle evidence, so
+  # this only records the request; it never mutates the row's lifecycle.
+  defp request_unit_control(socket, token, action) do
+    control = Map.get(socket.assigns.unit_controls, token)
+
+    if UnitsControlPolicy.settled?(control) do
+      resolve_unit_control_row(socket, token, action)
+    else
+      # A request for this unit is already pending; activation is idempotent.
+      socket
+    end
+  end
+
+  defp resolve_unit_control_row(socket, token, action) do
+    catalog = Map.get(socket.assigns.payload, :units, %{})
+
+    case UnitsPresenter.lookup(catalog, token) do
+      {:ok, row} -> invoke_unit_control(socket, token, row, action)
+      {:error, :not_found} -> socket
+    end
+  end
+
+  defp invoke_unit_control(socket, token, row, action) do
+    case UnitsControlPolicy.identifier(row) do
+      nil ->
+        put_unit_control(socket, token, %{action: action, status: :no_identity, identifier: nil})
+
+      identifier ->
+        recheck_and_invoke(socket, token, identifier, action)
+    end
+  end
+
+  defp recheck_and_invoke(socket, token, identifier, action) do
+    case unit_capabilities(identifier) do
+      {:ok, capabilities} ->
+        recheck_result(socket, token, identifier, action, UnitsControlPolicy.recheck(capabilities, action))
+
+      {:error, reason} ->
+        put_unit_control(socket, token, UnitsControlPolicy.settle_error(action, reason, identifier))
+    end
+  end
+
+  defp recheck_result(socket, token, identifier, action, :ok),
+    do: dispatch_unit_control(socket, token, identifier, action)
+
+  defp recheck_result(socket, token, identifier, action, {:error, reason}),
+    do: put_unit_control(socket, token, %{action: action, status: reason, identifier: identifier})
+
+  defp dispatch_unit_control(socket, token, identifier, action) do
+    case invoke_control_owner(action, identifier) do
+      {:ok, result} ->
+        put_unit_control(socket, token, %{
+          action: action,
+          status: :requested,
+          request_id: control_request_id(result),
+          identifier: identifier,
+          focus: "units-control-#{token}"
+        })
+
+      {:error, reason} ->
+        put_unit_control(socket, token, UnitsControlPolicy.settle_error(action, reason, identifier))
+    end
+  end
+
+  defp invoke_control_owner(:pause, identifier), do: pause_agent(identifier)
+  defp invoke_control_owner(:resume, identifier), do: resume_agent(identifier)
+
+  defp control_request_id(result) when is_integer(result), do: result
+  defp control_request_id(_result), do: nil
+
+  defp put_unit_control(socket, token, control_state) do
+    assign(socket, :unit_controls, Map.put(socket.assigns.unit_controls, token, control_state))
+  end
+
+  defp resume_agent(identifier) do
+    case Endpoint.config(:agent_chat_resume_fun) do
+      fun when is_function(fun, 1) -> fun.(identifier)
+      _fun -> AgentChat.resume(identifier)
+    end
+  end
+
+  defp unit_capabilities(identifier) do
+    case Endpoint.config(:agent_chat_capabilities_fun) do
+      fun when is_function(fun, 1) -> fun.(identifier)
+      _fun -> AgentChat.capabilities(identifier)
+    end
+  end
+
+  defp apply_control_lifecycle(socket, payload) do
+    identifier = get_in(payload, [:tracker_identity, :identifier])
+
+    case find_control_token(socket.assigns.unit_controls, identifier) do
+      {token, control} ->
+        put_unit_control(socket, token, UnitsControlPolicy.apply_lifecycle(control, payload))
+
+      nil ->
+        socket
+    end
+  end
+
+  defp find_control_token(controls, identifier) when is_binary(identifier) do
+    Enum.find(controls, fn {_token, control} -> Map.get(control, :identifier) == identifier end)
+  end
+
+  defp find_control_token(_controls, _identifier), do: nil
+
+  defp sync_unit_control_subscriptions(socket, false), do: socket
+
+  defp sync_unit_control_subscriptions(socket, true) do
+    desired = controllable_identifiers(socket)
+    current = socket.assigns.unit_control_subscriptions
+
+    Enum.each(MapSet.difference(desired, current), &AgentPubSub.subscribe_agent/1)
+    Enum.each(MapSet.difference(current, desired), &AgentPubSub.unsubscribe_agent/1)
+
+    assign(socket, :unit_control_subscriptions, desired)
+  end
+
+  defp controllable_identifiers(socket) do
+    socket.assigns.payload
+    |> Map.get(:units, %{})
+    |> unit_rows()
+    |> Enum.filter(&(get_in(&1, [:runtime, :bucket]) == :running))
+    |> Enum.map(&UnitsControlPolicy.identifier/1)
+    |> Enum.reject(&is_nil/1)
+    |> MapSet.new()
+  end
+
+  # A changed or terminal row cancels stale in-flight UI intent rather than
+  # targeting a replacement unit; settled states are left untouched.
+  defp reconcile_unit_controls(%{assigns: %{unit_controls: controls}} = socket) when controls == %{},
+    do: socket
+
+  defp reconcile_unit_controls(socket) do
+    catalog = Map.get(socket.assigns.payload, :units, %{})
+    rows_by_token = Map.new(unit_rows(catalog), fn row -> {UnitsPresenter.row_token(row), row} end)
+
+    reconciled =
+      Map.new(socket.assigns.unit_controls, fn {token, control} ->
+        {token, reconcile_control(control, Map.get(rows_by_token, token))}
+      end)
+
+    assign(socket, :unit_controls, reconciled)
+  end
+
+  defp reconcile_control(control, row) do
+    if UnitsControlPolicy.settled?(control) or not stale_control_row?(row) do
+      control
+    else
+      Map.put(control, :status, :state_changed)
+    end
+  end
+
+  defp stale_control_row?(nil), do: true
+
+  defp stale_control_row?(row),
+    do: Map.get(row, :terminal?) == true or Map.get(row, :replacement_boundary?) == true
+
+  defp unit_rows(%{snapshot: %{rows: rows}}) when is_list(rows), do: rows
+  defp unit_rows(_catalog), do: []
 
   defp agent_log_target(%{tracker_identity: %TrackerIdentity{} = identity}), do: identity
   defp agent_log_target(%{issue_identifier: identifier}), do: to_string(identifier)
