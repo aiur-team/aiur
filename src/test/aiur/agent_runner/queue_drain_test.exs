@@ -261,6 +261,65 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
       assert :ok = Task.await(task, 1_000)
     end
 
+    test "a deferred check-in is delivered as exactly one follow-up turn after the parent turn completes" do
+      parent = self()
+      identifier = "QD-followup-#{System.unique_integer([:positive])}"
+      issue = %Issue{id: "gid-#{identifier}", identifier: identifier}
+      item = %{category: :operator_message, id: 7, body: %{text: "deferred check-in"}}
+      {:ok, orchestrator} = FakeQueueOrchestrator.start_link(item, parent)
+
+      run_turn = fn _session, text, _issue, opts ->
+        send(parent, {:follow_up_turn, text})
+        opts[:on_provider_delivery].(%{turn_id: "follow-up-turn"})
+        {:ok, %{session_id: "follow-up-session"}}
+      end
+
+      assert :ok =
+               QueueDrain.drain_operator_messages(
+                 %{backend: "codex", thread_id: "queue-thread"},
+                 issue,
+                 fn _message -> :ok end,
+                 orchestrator,
+                 nil,
+                 telemetry_attempt_id: 7,
+                 run_turn: run_turn
+               )
+
+      # The deferred item reaches the agent as exactly one sequential follow-up
+      # turn once the parent turn has ended — never overlapping a live turn.
+      assert_receive {:follow_up_turn, "deferred check-in"}
+      assert_receive {:provider_delivered, 7, %{turn_id: "follow-up-turn"}}
+      assert_receive {:queue_item_consumed, ^identifier}
+      refute_receive {:follow_up_turn, _other}
+    end
+
+    test "a provider active-turn (-32003) rejection restores the queued message instead of failing it" do
+      identifier = "QD-active-turn-#{System.unique_integer([:positive])}"
+      issue = %Issue{id: "gid-#{identifier}", identifier: identifier}
+      item = %{category: :operator_message, id: 3, body: %{text: "active turn retry"}}
+      {:ok, orchestrator} = FakeQueueOrchestrator.start_link(item, self())
+
+      # aiur-claude rejected the turn-boundary `turn/start` because it still
+      # considers the thread active; the durable item must be restored to
+      # pending, never marked failed.
+      assert :ok =
+               QueueDrain.drain_operator_messages(
+                 %{backend: "codex", thread_id: "active-thread"},
+                 issue,
+                 fn _message -> :ok end,
+                 orchestrator,
+                 nil,
+                 telemetry_attempt_id: 3,
+                 run_turn: fn _session, _text, _issue, _opts ->
+                   {:error, {:turn_start_failed, {:response_error, %{"code" => -32003}}}}
+                 end
+               )
+
+      assert_receive {:queue_item_restored, ^identifier}
+      refute_receive {:queue_item_failed, ^identifier, _reason}
+      refute_receive {:queue_item_consumed, ^identifier}
+    end
+
     test "queued turns preserve lifecycle attempts in emitted observations" do
       identifier = "QD-observation-#{System.unique_integer([:positive])}"
 
