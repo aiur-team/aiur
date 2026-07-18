@@ -2727,6 +2727,67 @@ textarea:focus-visible,
   color: var(--muted);
 }
 
+.units-control {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.units-control-action {
+  min-height: 44px;
+}
+
+.units-control-action.is-resume {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.units-control-action[disabled],
+.units-control-action[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.units-control-status {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  margin: 0;
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.units-control-glyph {
+  font-weight: 700;
+}
+
+.units-control-status.tone-pending {
+  color: var(--muted);
+}
+
+.units-control-status.tone-applied {
+  color: var(--accent-ink);
+}
+
+.units-control-status.tone-warning {
+  color: var(--warn-ink, #8a5a00);
+}
+
+.units-control-status.tone-error {
+  color: var(--danger-ink, #a11);
+}
+
+.units-control-note,
+.units-control-owner {
+  margin: 0;
+  font-size: 0.68rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
 .table-wrap {
   overflow-x: auto;
   margin-top: 1rem;

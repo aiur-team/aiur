@@ -57,7 +57,7 @@ defmodule Aiur.ProviderAccountGenerationTest do
     refute_received :minted
   end
 
-  test "keeps Claude unknown until a trusted Claude lifecycle owner exists", %{owner: owner} do
+  test "trusted Codex and Claude lifecycle owners mint isolated generations", %{owner: owner} do
     codex_binding = issued_binding(owner, :codex)
     claude_binding = issued_binding(owner, :claude)
 
@@ -65,11 +65,14 @@ defmodule Aiur.ProviderAccountGenerationTest do
              ProviderAccountGeneration.bind(owner, :codex, :app_server, codex_binding, source: :codex_app_server)
 
     assert {:ok, claude} =
-             ProviderAccountGeneration.bind(owner, :claude, :app_server, claude_binding, source: :claude_app_server)
+             ProviderAccountGeneration.bind(owner, :claude, :app_server, claude_binding,
+               source: :claude_app_server,
+               auth_mode: "subscription"
+             )
 
     assert is_binary(codex.generation)
-    assert claude.generation == nil
-    assert claude.reason == :owner_unavailable
+    assert is_binary(claude.generation)
+    assert claude.generation != codex.generation
     assert ProviderAccountGeneration.lookup(owner, :codex, :app_server, claude_binding).generation == nil
     assert ProviderAccountGeneration.lookup(owner, :claude, :app_server, codex_binding).generation == nil
   end
@@ -581,6 +584,28 @@ defmodule Aiur.ProviderAccountGenerationTest do
 
       assert is_binary(generation)
     end
+
+    for auth_mode <- ~w(subscription api_key) do
+      assert {:ok, %{generation: generation}} =
+               ProviderAccountGeneration.bind(owner, :claude, :app_server, issued_binding(owner, :claude),
+                 source: :claude_app_server,
+                 auth_mode: auth_mode
+               )
+
+      assert is_binary(generation)
+    end
+
+    assert {:ok, %{generation: nil, reason: :owner_unavailable}} =
+             ProviderAccountGeneration.bind(owner, :codex, :app_server, issued_binding(owner),
+               source: :codex_app_server,
+               auth_mode: "subscription"
+             )
+
+    assert {:ok, %{generation: nil, reason: :owner_unavailable}} =
+             ProviderAccountGeneration.bind(owner, :claude, :app_server, issued_binding(owner, :claude),
+               source: :claude_app_server,
+               auth_mode: "chatgpt"
+             )
   end
 
   test "default minting is non-derivable and distinct" do

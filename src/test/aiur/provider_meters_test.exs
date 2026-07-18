@@ -302,6 +302,13 @@ defmodule Aiur.ProviderMetersTest do
       )
 
     assert {:error, :invalid_provider_meter_update} = Store.ingest(store, bad_control)
+
+    bad_standing =
+      update(binding,
+        windows: [coverage_window("standing", :unsupported, standing: :rejected)]
+      )
+
+    assert {:error, :invalid_provider_meter_update} = Store.ingest(store, bad_standing)
   end
 
   test "supported-empty and unsupported facts remain distinct and change notifications are bounded", %{

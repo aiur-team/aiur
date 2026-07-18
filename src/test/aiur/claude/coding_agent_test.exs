@@ -86,6 +86,71 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
     assert advertised_tool_names == expected_tool_names
   end
 
+  test "rate-limit notifications ingest through the Claude meter adapter and log only a redacted marker" do
+    root = Path.join(System.tmp_dir!(), "aiur_claude_meter_#{System.unique_integer([:positive])}")
+    workspace = Path.join(root, "agent-1")
+    File.mkdir_p!(workspace)
+    frames = Path.join(workspace, "frames.jsonl")
+    on_exit(fn -> File.rm_rf(root) end)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agent_kind: "claude",
+      workspace_root: root,
+      command: fake_app_server_with_rate_limit(frames)
+    )
+
+    {:ok, account_owner} =
+      start_supervised({Aiur.ProviderAccountGeneration, name: nil}, id: :claude_meter_account_owner)
+
+    test_pid = self()
+
+    ingester = fn update ->
+      send(test_pid, {:meter_update, update})
+      {:ok, %{}}
+    end
+
+    failure_recorder = fn failure ->
+      send(test_pid, {:meter_failure, failure})
+      {:ok, %{}}
+    end
+
+    on_message = fn message -> send(test_pid, {:agent_message, message}) end
+    issue = %{id: 1, identifier: "test:meter", title: "meter"}
+
+    assert {:ok, session} =
+             ClaudeAgent.start_session(workspace,
+               account_generation_server: account_owner,
+               provider_meter_ingester: ingester,
+               provider_meter_failure_recorder: failure_recorder
+             )
+
+    assert {:ok, %{result: :turn_completed}} =
+             ClaudeAgent.run_turn(session, "read limits", issue, on_message: on_message)
+
+    assert_received {:meter_update,
+                     %{
+                       provider: :claude,
+                       auth_mode: :subscription,
+                       source_version: 9_009_009,
+                       windows: [%{standing: :allowed_warning, used_percent: 83}]
+                     }}
+
+    assert_received {:agent_message,
+                     %{
+                       event: :notification,
+                       payload: %{"method" => "provider_account/rate_limits_changed", "params" => %{}},
+                       raw: nil
+                     } = message}
+
+    notification_wire = Jason.encode!(message)
+    refute String.contains?(notification_wire, "secret-turn-correlation")
+    refute String.contains?(notification_wire, "secret-thread-correlation")
+    refute String.contains?(notification_wire, "source_version")
+    refute_received {:meter_failure, _failure}
+
+    ClaudeAgent.stop_session(session)
+  end
+
   test "tool calls execute through the injected tool executor" do
     root = Path.join(System.tmp_dir!(), "aiur_claude_tool_call_#{System.unique_integer([:positive])}")
     workspace = Path.join(root, "agent-1")
@@ -366,6 +431,24 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
       "*'\"thread/start\"'*) echo '#{thread}' ;; " <>
       "*'\"turn/start\"'*) echo '#{turn}'; echo '#{tool_call}' ;; " <>
       "*'\"id\":101'*) echo '#{completed}' ;; " <>
+      "esac; done"
+  end
+
+  defp fake_app_server_with_rate_limit(frames) do
+    init = ~s({"jsonrpc":"2.0","id":1,"result":{"server":{"name":"fake"}}})
+    thread = ~s({"jsonrpc":"2.0","id":2,"result":{"thread":{"id":"t1"}}})
+    turn = ~s({"jsonrpc":"2.0","id":3,"result":{"turn":{"id":"u1"}}})
+
+    rate_limit =
+      ~s|{"jsonrpc":"2.0","method":"rate_limit/update","params":{"turn_id":"secret-turn-correlation","thread_id":"secret-thread-correlation","rate_limit":{"status":"allowed_warning","used_percent":83,"resets_at":1784192400,"account_type":"subscription","source_version":"9.9.9-test (fake-claude)"}}}|
+
+    completed = ~s({"jsonrpc":"2.0","method":"turn/completed","params":{"turn":{"status":"completed"}}})
+
+    "while IFS= read -r line; do echo \"$line\" >> #{frames}; " <>
+      "case \"$line\" in " <>
+      "*'\"initialize\"'*) echo '#{init}' ;; " <>
+      "*'\"thread/start\"'*) echo '#{thread}' ;; " <>
+      "*'\"turn/start\"'*) echo '#{turn}'; echo '#{rate_limit}'; echo '#{completed}' ;; " <>
       "esac; done"
   end
 
