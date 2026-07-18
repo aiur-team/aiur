@@ -163,6 +163,8 @@ defmodule Aiur.AgentQueueStore do
           item
           | status: :pending,
             delivered_at: nil,
+            provider_delivered_at: nil,
+            provider_turn_id: nil,
             failed_at: nil,
             failure_reason: nil
         }
@@ -186,6 +188,25 @@ defmodule Aiur.AgentQueueStore do
   def mark_failed(%__MODULE__{} = store, item_id, reason) when is_integer(item_id) do
     update_item(store, item_id, fn item ->
       %{item | status: :failed, failed_at: DateTime.utc_now(), failure_reason: reason}
+    end)
+  end
+
+  @spec mark_provider_delivered(t(), integer(), map()) ::
+          {t(), AgentQueueItem.t() | nil}
+  def mark_provider_delivered(%__MODULE__{} = store, item_id, metadata)
+      when is_integer(item_id) and is_map(metadata) do
+    update_item(store, item_id, fn item ->
+      case item do
+        %AgentQueueItem{status: :delivered, provider_delivered_at: nil} ->
+          %{
+            item
+            | provider_delivered_at: DateTime.utc_now(),
+              provider_turn_id: provider_turn_id(metadata)
+          }
+
+        _other ->
+          item
+      end
     end)
   end
 
@@ -243,7 +264,7 @@ defmodule Aiur.AgentQueueStore do
         category: :operator_message,
         status: status
       }
-      when status in [:pending, :delivered] ->
+      when status in [:pending, :delivered, :failed] ->
         true
 
       _ ->
@@ -266,6 +287,8 @@ defmodule Aiur.AgentQueueStore do
         item
         | status: :pending,
           delivered_at: nil,
+          provider_delivered_at: nil,
+          provider_turn_id: nil,
           failed_at: nil,
           failure_reason: nil
       }
@@ -355,6 +378,8 @@ defmodule Aiur.AgentQueueStore do
       | status: :pending,
         delivery_attempts: 0,
         delivered_at: nil,
+        provider_delivered_at: nil,
+        provider_turn_id: nil,
         failed_at: nil,
         failure_reason: nil
     }
@@ -422,6 +447,13 @@ defmodule Aiur.AgentQueueStore do
       immediate: Map.get(delivery, :immediate, false),
       fallback: Map.get(delivery, :fallback)
     }
+  end
+
+  defp provider_turn_id(metadata) do
+    case Map.get(metadata, :turn_id) || Map.get(metadata, "turn_id") do
+      turn_id when is_binary(turn_id) -> turn_id
+      _other -> nil
+    end
   end
 
   defp put_item(%__MODULE__{} = store, %AgentQueueItem{id: id} = item) do

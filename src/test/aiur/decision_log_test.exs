@@ -133,6 +133,21 @@ defmodule Aiur.DecisionLogTest do
       assert {:ok, [], nil} = DecisionLog.replay(path, identity_validator())
       assert File.read!(path) == ""
     end
+
+    test "callers can validate a torn prefix without mutating it before their own recovery marker", %{
+      tmp_dir: tmp_dir
+    } do
+      path = Path.join(tmp_dir, "decisions.ndjson")
+      assert :ok = DecisionLog.append(path, %{"decision_id" => "dec_1", "version" => 1})
+      File.write!(path, ~s({"decision_id":"dec_1","version":2,"trunc), [:append])
+      torn_contents = File.read!(path)
+
+      assert {:ok, [decoded], nil} =
+               DecisionLog.replay(path, identity_validator(), repair_torn_tail: false)
+
+      assert decoded["version"] == 1
+      assert File.read!(path) == torn_contents
+    end
   end
 
   describe "corruption" do

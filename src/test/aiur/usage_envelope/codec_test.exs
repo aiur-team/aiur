@@ -11,6 +11,7 @@ defmodule Aiur.UsageEnvelope.CodecTest do
     assert record["cost"]["amount"] == "1.00"
     assert record["cost"]["unit"] == "major"
     assert record["cost"]["source_representation"] == "minor"
+    assert record["query_source"] == "repl_main_thread"
     assert {:ok, decoded} = Codec.decode(record)
     assert decoded == envelope
 
@@ -73,6 +74,7 @@ defmodule Aiur.UsageEnvelope.CodecTest do
       backend: :app_server,
       transport: :app_server,
       auth_mode: :chatgpt,
+      query_source: "repl_main_thread",
       account_generation: %{
         provider: :codex,
         backend: :app_server,

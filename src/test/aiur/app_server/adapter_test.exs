@@ -130,6 +130,28 @@ defmodule Aiur.AppServer.AdapterTest do
     assert result.session_id == "thread-1-turn-1"
   end
 
+  test "acknowledges provider delivery only after turn/start succeeds" do
+    port = cat_port()
+    parent = self()
+    send(self(), {port, {:data, {:eol, Jason.encode!(%{"method" => "turn/completed"})}}})
+
+    assert {:ok, _result} =
+             Adapter.run_turn(StubBackend, session(port), "prompt", issue(),
+               on_provider_delivery: fn metadata ->
+                 send(parent, {:provider_delivered, metadata})
+               end
+             )
+
+    assert_receive {:provider_delivered, %{transport: :app_server, turn_id: "turn-1"}}
+
+    failed_session = session(port, %{start_turn_result: {:error, :boom}})
+
+    assert {:error, {:turn_start_failed, :boom}} =
+             Adapter.run_turn(StubBackend, failed_session, "prompt", issue(), on_provider_delivery: fn _metadata -> send(parent, :unexpected_delivery) end)
+
+    refute_receive :unexpected_delivery, 50
+  end
+
   test "run_turn passes paused payload through with session_id" do
     port = cat_port()
     send(self(), {port, {:data, {:eol, Jason.encode!(%{"method" => "pause"})}}})
