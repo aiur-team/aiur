@@ -194,5 +194,7 @@ defmodule Aiur.Codex.Handshake do
       {:ok, %{"turn" => %{"id" => turn_id}}} -> {:ok, turn_id}
       other -> other
     end
+  rescue
+    ArgumentError -> {:error, :port_closed}
   end
 end
