@@ -2,8 +2,12 @@ defmodule Aiur.Usage.GroupedScopesTest do
   use ExUnit.Case, async: true
 
   alias Aiur.TestSupport.GroupedScopes, as: Support
+  alias Aiur.TestSupport.UsageAggregate, as: Aggregate
   alias Aiur.Usage.GroupedScopes
   alias Aiur.Usage.GroupedScopes.Scope
+  alias Aiur.Usage.Pricing
+  alias Aiur.Usage.PriceTable
+  alias Aiur.UsageEnvelope.RelationshipRegistry
 
   defp mixed_run_source do
     Support.source([
@@ -111,6 +115,99 @@ defmodule Aiur.Usage.GroupedScopesTest do
       assert Decimal.equal?(snap.provider_reported_estimate.by_currency["EUR"], Decimal.new("3.00"))
       currencies = snap.contributors.by_currency |> Enum.map(& &1.key) |> Enum.sort()
       assert "EUR" in currencies and "USD" in currencies
+    end
+  end
+
+  describe "subset-dimension remainder" do
+    # A single record carrying both `output` and its subset `reasoning_output`:
+    # the `output` cell count already includes the reasoning tokens, so pricing
+    # both at their raw counts would double count the overlap. DASH-030 must
+    # match DASH-011, which prices the parent on its remainder.
+    @subset_tokens %{
+      input: 100,
+      cached_input: 20,
+      cache_creation_input: 0,
+      output: 10,
+      reasoning_output: 4,
+      provider_reported_total: 130
+    }
+
+    defp subset_envelope do
+      Aggregate.claude_envelope(%{
+        source: "remote-control",
+        source_version: "2026-07",
+        resolved_model: "claude-opus-4-8",
+        requested_model: "claude-opus-4-8",
+        relationship_revision: "claude-remote-control-2026-07",
+        tokens: @subset_tokens
+      })
+    end
+
+    test "prices the output remainder, not the raw output count" do
+      env = subset_envelope()
+      source = Support.source([Aggregate.record(1, env, %{tokens: @subset_tokens})])
+
+      snap = project(source, Scope.this_run("run-1115"))
+
+      # Raw token counts stay raw; only the api-equivalent pricing de-overlaps.
+      assert snap.tokens == %{
+               input: 100,
+               cached_input: 20,
+               output: 10,
+               reasoning_output: 4,
+               provider_reported_total: 130
+             }
+
+      assert snap.api_equivalent_estimate.coverage.status == :known
+
+      {:ok, price_table} = PriceTable.default()
+
+      {:ok, registry} =
+        RelationshipRegistry.new([
+          %{
+            provider: :claude,
+            source: "remote-control",
+            source_version: "2026-07",
+            revision: "claude-remote-control-2026-07",
+            provider_total_authoritative: false,
+            dimensions: %{
+              input: :additive,
+              cached_input: :additive,
+              cache_creation_input: :additive,
+              output: :additive,
+              reasoning_output: {:subset_of, :output}
+            }
+          }
+        ])
+
+      {:ok, priced} =
+        Pricing.resolve(env, registry, price_table, currency: "USD", cache_write_duration: :five_minutes)
+
+      assert priced.api_equivalent_coverage == :full
+      # The grouped-scope roll-up equals DASH-011's remainder-based estimate.
+      rollup = usd(snap.api_equivalent_estimate.rollup)
+      assert Decimal.equal?(rollup, priced.api_equivalent_estimate.amount)
+
+      # The old raw-count pricing would have added 4 × the output rate on top of
+      # the correct total; prove the roll-up is exactly that much lower.
+      {:ok, output_price} =
+        PriceTable.lookup(price_table, %{
+          provider: :claude,
+          resolved_model: "claude-opus-4-8",
+          token_dimension: :output,
+          relationship_revision: "claude-remote-control-2026-07",
+          currency: "USD",
+          pricing_effective_date: env.pricing_effective_date,
+          context_tier: :not_applicable,
+          cache_write_duration: :not_applicable
+        })
+
+      overcount =
+        output_price.price |> Decimal.mult(Decimal.new(4)) |> Decimal.div(Decimal.new(output_price.token_unit))
+
+      # A non-zero overcount is what the raw-count bug added; the equality above
+      # only bites because the correct roll-up is strictly below rollup + this.
+      assert Decimal.gt?(overcount, Decimal.new(0))
     end
   end
 

@@ -28,6 +28,7 @@ defmodule Aiur.Usage.GroupedScopes.PriceAdapter do
 
   alias Aiur.Usage.PriceTable
   alias Aiur.UsageAggregate.Key
+  alias Aiur.UsageEnvelope.RelationshipRegistry
 
   @priced_dimensions Key.token_dimensions() -- [:provider_reported_total]
 
@@ -40,18 +41,27 @@ defmodule Aiur.Usage.GroupedScopes.PriceAdapter do
   @doc """
   Resolves the exact API-equivalent amount for `tokens` of one token dimension.
 
+  `siblings` is the `%{dimension => count}` of the token cell's aggregate group
+  (its identity dimensions), and `relationships` is the relationship registry
+  the group's `(provider, relationship_revision)` resolves against. A subset
+  *parent* is priced on its remainder (`parent − Σ subset children`) exactly as
+  DASH-011's `Aiur.Usage.Pricing.Components`, so an overlapping child (claude
+  `reasoning_output` ⊂ `output`) is never double counted.
+
   Returns `{:ok, priced}` with the amount and the occurrence-price
   partition/revision, or `{:unknown, reason}` when the price table cannot be
-  joined exactly (unretained partition, unknown model/date/revision, or a price
-  not yet effective).
+  joined exactly (unretained partition, unknown model/date/revision, a price not
+  yet effective, or a relationship revision whose subset structure the registry
+  cannot resolve — the remainder is then unknowable rather than guessed).
   """
-  @spec price(Key.dims(), atom(), non_neg_integer(), String.t(), PriceTable.catalog()) ::
+  @spec price(Key.dims(), atom(), %{optional(atom()) => non_neg_integer()}, RelationshipRegistry.catalog(), String.t(), PriceTable.catalog()) ::
           {:ok, priced()} | {:unknown, atom()}
-  def price(_dims, :provider_reported_total, _tokens, _currency, _price_table),
+  def price(_dims, :provider_reported_total, _siblings, _relationships, _currency, _price_table),
     do: {:unknown, :not_a_priced_dimension}
 
-  def price(dims, token_dimension, tokens, currency, price_table) do
+  def price(dims, token_dimension, siblings, relationships, currency, price_table) do
     with {:ok, partition} <- partition_dimensions(dims.provider, token_dimension),
+         {:ok, tokens} <- remainder(dims, token_dimension, siblings, relationships),
          query = lookup_query(dims, token_dimension, currency, partition),
          {:ok, entry} <- PriceTable.lookup(price_table, query) do
       amount = entry.price |> Decimal.mult(Decimal.new(tokens)) |> Decimal.div(Decimal.new(entry.token_unit))
@@ -59,6 +69,23 @@ defmodule Aiur.Usage.GroupedScopes.PriceAdapter do
     else
       {:unknown, reason} -> {:unknown, reason}
       {:error, reason} -> {:unknown, reason}
+    end
+  end
+
+  # Subtract subset-child token counts from a parent so it prices only its
+  # remainder. The partition check runs first, so a provider whose components
+  # never price from the aggregate (codex) keeps its own `:unknown` reason and
+  # never reaches this. Remainder is exact at the aggregate level because
+  # `Σ(parent_r − child_r) = parent_cell − child_cell`.
+  defp remainder(dims, token_dimension, siblings, relationships) do
+    case RelationshipRegistry.subset_children(relationships, dims.provider, dims.relationship_revision) do
+      {:ok, edges} ->
+        children = Map.get(edges, token_dimension, [])
+        subtract = Enum.reduce(children, 0, fn child, sum -> sum + Map.get(siblings, child, 0) end)
+        {:ok, Map.fetch!(siblings, token_dimension) - subtract}
+
+      {:error, reason} ->
+        {:unknown, reason}
     end
   end
 

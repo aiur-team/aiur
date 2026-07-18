@@ -36,11 +36,17 @@ defmodule Aiur.Usage.GroupedScopes do
   `cache_write_duration`; those token dimensions are reported as explicit
   unknown API-equivalent coverage rather than priced at a guessed partition (see
   `Aiur.Usage.GroupedScopes.PriceAdapter`).
+
+  A subset *parent* dimension is priced on its remainder (`parent − Σ subset
+  children`) using the group's relationship revision, exactly as DASH-011's
+  `Aiur.Usage.Pricing.Components`, so an overlapping child (claude
+  `reasoning_output` ⊂ `output`) never double counts against the roll-up.
   """
 
   alias Aiur.Usage.GroupedScopes.{PriceAdapter, Scope}
   alias Aiur.Usage.PriceTable
   alias Aiur.UsageAggregate.Key
+  alias Aiur.UsageEnvelope.RelationshipRegistry
 
   @schema_version 1
   @default_currency "USD"
@@ -71,13 +77,19 @@ defmodule Aiur.Usage.GroupedScopes do
     * `:price_table` — a `Aiur.Usage.PriceTable` catalog (default
       `PriceTable.default/0`). Passing it in keeps the layer pure and lets the
       caller pin the pricing authority in its cache key.
+    * `:relationship_catalog` — a `Aiur.UsageEnvelope.RelationshipRegistry`
+      catalog resolving each group's `(provider, relationship_revision)` to its
+      subset structure, so a subset parent prices on its remainder rather than
+      double counting an overlapping child. Defaults to the pinned catalog for
+      the providers this layer prices.
   """
   @spec project(source(), Scope.t(), keyword()) :: map()
   def project(source, %Scope{} = scope, opts \\ []) do
     currency = Keyword.get(opts, :currency, @default_currency)
+    relationships = Keyword.get_lazy(opts, :relationship_catalog, &default_relationship_catalog/0)
 
     case resolve_price_table(opts) do
-      {:ok, price_table} -> do_project(source, scope, currency, price_table)
+      {:ok, price_table} -> do_project(source, scope, currency, price_table, relationships)
       {:error, reason} -> unavailable(scope, currency, {:price_table, reason})
     end
   end
@@ -89,14 +101,28 @@ defmodule Aiur.Usage.GroupedScopes do
     end
   end
 
-  defp do_project(source, scope, currency, price_table) do
+  # The subset structure the API-equivalent remainder needs is identical across
+  # both pinned claude relationship revisions (`reasoning_output` ⊂ `output`);
+  # codex components never price from the aggregate, so no codex revision is
+  # required here. A caller may override to pin the authority in its cache key.
+  defp default_relationship_catalog do
+    {:ok, catalog} =
+      RelationshipRegistry.register(
+        Aiur.Usage.Headless.Catalog.relationship_catalog(),
+        Aiur.Claude.Telemetry.UsageAdapter.Relationship.definition()
+      )
+
+    catalog
+  end
+
+  defp do_project(source, scope, currency, price_table, relationships) do
     case validate_source(source) do
       {:error, reason} ->
         unavailable(scope, currency, reason)
 
       {:ok, cells, metadata} ->
         selected = select(cells, scope)
-        token_entries = token_entries(selected, currency, price_table)
+        token_entries = token_entries(selected, currency, price_table, relationships)
         money_entries = money_entries(selected)
         build_snapshot(scope, currency, price_table, metadata, selected, token_entries, money_entries)
     end
@@ -120,15 +146,32 @@ defmodule Aiur.Usage.GroupedScopes do
     Enum.filter(cells, fn {{dims, _measure}, _value} -> Scope.matches?(scope, dims) end)
   end
 
-  defp token_entries(selected, currency, price_table) do
+  # Pricing a subset parent on its remainder needs the sibling token counts of
+  # its aggregate group, so the raw cell counts are grouped by identity
+  # dimensions once and threaded into each entry's pricing. The `count` stays
+  # the raw observed count everywhere except that remainder-aware pricing.
+  defp token_entries(selected, currency, price_table, relationships) do
+    siblings = sibling_counts(selected)
+
     for {{dims, {:token, dimension}}, count} <- selected do
-      %{dims: dims, dimension: dimension, count: count, priced: price(dims, dimension, count, currency, price_table)}
+      priced = price(dims, dimension, Map.fetch!(siblings, dims), relationships, currency, price_table)
+      %{dims: dims, dimension: dimension, count: count, priced: priced}
     end
   end
 
-  defp price(dims, dimension, count, currency, price_table) do
+  defp sibling_counts(selected) do
+    Enum.reduce(selected, %{}, fn
+      {{dims, {:token, dimension}}, count}, acc ->
+        Map.update(acc, dims, %{dimension => count}, &Map.put(&1, dimension, count))
+
+      _money_cell, acc ->
+        acc
+    end)
+  end
+
+  defp price(dims, dimension, group, relationships, currency, price_table) do
     if PriceAdapter.priced_dimension?(dimension) do
-      PriceAdapter.price(dims, dimension, count, currency, price_table)
+      PriceAdapter.price(dims, dimension, group, relationships, currency, price_table)
     else
       :excluded
     end
