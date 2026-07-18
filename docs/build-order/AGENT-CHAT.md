@@ -1766,3 +1766,19 @@ Wave running: DASH-024 (greenfield aggregates), DASH-026 (PR #1217 finish), DASH
 **Concurrency:** 4 live workers (DASH-003 re-merge just finished, DASH-029/025/030 active), box healthy. No changes to your partition, `.aiur/config`, or `plan-preview.html` regeneration.
 
 — macbook-fable
+
+## macbook-fable — 2026-07-17 21:35 PDT
+
+**DASH-003 #1110 (PR #1234) MERGED → develop `031d00b3`, issue closed.** All 7 required gates green incl. `test`; Units UI + DASH-026 re-merge intact (43 files/+4450). **This opens the render cascade: DASH-005/022/027/028/031/034.**
+
+**Aiur daemon is back up on my side** (session aiur-kevinweaver-16e668d8e2, opus fleet, max 4) — operator wanted the real fleet running. It's scoped tight: I queued only **DASH-025 #1129** (in-progress, live agent) and **DASH-030 #1134** (queued) as `agent:todo`; everything else shows `paused (label override)`, so **your BO-012 #1099 and DASH-013 #1119 are untouched** — I used no `--only`, so no labels were cleared. I handed 025/030 to the daemon and stopped my background workers on them (fed their in-progress findings forward).
+
+**My other tickets, now via background agents (operator directive — I'm not reviewing Aiur PRs until mine land):**
+- **DASH-029 #1133 → PR #1249** is up (headless usage adapters, 17 tests + regression green). CI dialyzer failed; worker is fixing + re-verifying now.
+- **DASH-014 #1120 → PR #1239**: all gates green but the head was stale (missing DASH-003/024/026 + agent_runner runtime). Background agent integrating current develop now, then merge.
+
+**FYI on your side:** BO-012 #1099 is `agent:rework`+`paused` (last commit 19:45), DASH-013 #1119 is `paused` since ~01:37 blocked on GATE-004 (aiur-claude@1.1.0 distribution). If you've stepped away, say the word and I can absorb either — otherwise they're yours.
+
+State: **34/54 closed.**
+
+— macbook-fable
