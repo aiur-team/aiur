@@ -134,9 +134,11 @@ defmodule Aiur.Usage.GroupedScopes do
     end
   end
 
+  # DASH-024 folds only the provider-reported basis, so a money cell's basis is
+  # constant and need not be carried per entry.
   defp money_entries(selected) do
-    for {{dims, {:money, basis, currency}}, amount} <- selected do
-      %{dims: dims, basis: basis, currency: currency, amount: amount}
+    for {{dims, {:money, _basis, currency}}, amount} <- selected do
+      %{dims: dims, currency: currency, amount: amount}
     end
   end
 
@@ -538,7 +540,20 @@ defmodule Aiur.Usage.GroupedScopes do
       contributors: empty_contributors(),
       reconciliation: %{reconciled?: true, by_dimension: %{}},
       tier_join_keys: [],
-      coverage: %{selected_cells: 0}
+      coverage: empty_coverage()
+    }
+  end
+
+  # Keep the same coverage shape across every state so a consumer can read the
+  # sub-tree without first branching on `:state`.
+  defp empty_coverage do
+    %{
+      selected_cells: 0,
+      api_equivalent: %{known: 0, unknown: 0, reasons: [], status: :none},
+      unknown_attribution: %{run_id: 0, ticket: 0, account_generation: 0, resolved_model: 0, pricing_date: 0},
+      unknown_pricing_tokens: %{},
+      projection: %{folded_records: 0, partial_records: 0, reasons: []},
+      source: %{}
     }
   end
 

@@ -169,6 +169,9 @@ defmodule Aiur.Usage.GroupedScopesTest do
 
       assert snap.state == :unavailable
       assert snap.reason == :unavailable_projection
+      # Coverage keeps a consistent shape so consumers need not branch on state.
+      assert snap.coverage.api_equivalent.status == :none
+      assert snap.coverage.unknown_pricing_tokens == %{}
     end
 
     test "a stale snapshot is distinct from partial and empty" do
