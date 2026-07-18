@@ -3,7 +3,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
 
   require Logger
 
-  alias Aiur.AgentRunner.{CheckpointDelivery, MessageHandler, QueueDrain, SessionLifecycle}
+  alias Aiur.AgentRunner.{MessageHandler, QueueDrain, SessionLifecycle, TurnCallbacks}
   alias Aiur.AgentRunner.{SessionResume, ToolExecutor, TurnAlerts, TurnPrompt, TurnStreams}
   alias Aiur.Codex.DynamicTool
   alias Aiur.CodingAgent
@@ -53,18 +53,18 @@ defmodule Aiur.AgentRunner.TurnLoop do
 
     prompt = TurnPrompt.build_turn_prompt(issue, opts, turn_number, max_turns)
 
-    message_handler =
-      MessageHandler.build(
-        codex_update_recipient,
+    callbacks =
+      TurnCallbacks.build(
+        app_session,
         issue,
-        workspace,
-        worker_host,
-        SessionLifecycle.session_backend(app_session),
-        nil,
-        attempt_id: Keyword.get(opts, :telemetry_attempt_id)
+        opts
+        |> Keyword.put(:workspace, workspace)
+        |> Keyword.put(:worker_host, worker_host)
+        |> Keyword.put(:recipient, codex_update_recipient)
+        |> Keyword.put(:orchestrator, orchestrator)
       )
 
-    safe_checkpoint_handler = CheckpointDelivery.safe_checkpoint_handler(issue, orchestrator)
+    message_handler = callbacks.on_message
 
     MessageHandler.send_control_state(codex_update_recipient, issue, :working)
     aiur_turn_id = TurnStreams.open(issue)
@@ -86,8 +86,8 @@ defmodule Aiur.AgentRunner.TurnLoop do
         prompt,
         issue,
         on_message: message_handler,
-        on_safe_checkpoint: safe_checkpoint_handler,
-        on_operator_message: CheckpointDelivery.operator_immediate_handler(issue, orchestrator),
+        on_safe_checkpoint: callbacks.on_safe_checkpoint,
+        on_operator_message: callbacks.on_operator_message,
         tool_executor: ToolExecutor.build(issue, workspace, worker_host, app_session, attempt_id: lifecycle_attempt_id)
       )
 

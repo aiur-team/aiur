@@ -753,6 +753,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
             worker_host: worker_host,
             workspace_path: nil,
             session_id: nil,
+            session_execution: nil,
             last_codex_message: nil,
             last_codex_timestamp: nil,
             last_codex_event: nil,

@@ -9,7 +9,7 @@ defmodule Aiur.AgentRunner.CheckpointDelivery do
 
   require Logger
 
-  alias Aiur.AgentRunner.{EventsDigest, QueueDrain}
+  alias Aiur.AgentRunner.{EventsDigest, MessageHandler, QueueDrain}
   alias Aiur.Issue
 
   # Mid-turn delivery for the persistent-REPL backend: when an Executor
@@ -20,12 +20,12 @@ defmodule Aiur.AgentRunner.CheckpointDelivery do
   # as a separate follow-up turn. A send failure restores it to pending so
   # the normal turn-boundary drain re-attempts.
   @doc false
-  @spec operator_immediate_handler(Issue.t(), GenServer.server(), GenServer.server()) :: fun()
-  def operator_immediate_handler(issue, orchestrator, decision_store \\ Aiur.DecisionStore) do
+  @spec operator_immediate_handler(Issue.t(), GenServer.server(), GenServer.server(), keyword()) :: fun()
+  def operator_immediate_handler(issue, orchestrator, decision_store \\ Aiur.DecisionStore, live_opts \\ []) do
     fn ->
       case QueueDrain.claim_next_operator_item(orchestrator, issue.identifier) do
         {:ok, item} ->
-          immediate_operator_delivery(issue, orchestrator, item, decision_store)
+          immediate_operator_delivery(issue, orchestrator, item, decision_store, live_opts)
 
         :empty ->
           :noop
@@ -33,13 +33,13 @@ defmodule Aiur.AgentRunner.CheckpointDelivery do
     end
   end
 
-  defp immediate_operator_delivery(issue, orchestrator, item, decision_store) do
+  defp immediate_operator_delivery(issue, orchestrator, item, decision_store, live_opts) do
     case QueueDrain.prepare_operator_delivery(item, issue, decision_store) do
       :ok ->
-        {:deliver_text, QueueDrain.queue_item_text(item), provider_delivery_callback(orchestrator, item, issue, decision_store),
-         fn _reason ->
-           Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item.id)
-         end}
+        text = QueueDrain.queue_item_text(item)
+        on_success = operator_delivery_success(orchestrator, item, issue, decision_store, live_opts)
+        on_failure = fn _reason -> Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item.id) end
+        {:deliver_text, text, on_success, on_failure}
 
       {:error, outcome} ->
         QueueDrain.settle_operator_delivery_failure(orchestrator, item, outcome)
@@ -48,23 +48,23 @@ defmodule Aiur.AgentRunner.CheckpointDelivery do
   end
 
   @doc false
-  @spec safe_checkpoint_handler(Issue.t(), GenServer.server(), GenServer.server()) :: fun()
-  def safe_checkpoint_handler(issue, orchestrator, decision_store \\ Aiur.DecisionStore) do
+  @spec safe_checkpoint_handler(Issue.t(), GenServer.server(), GenServer.server(), keyword()) :: fun()
+  def safe_checkpoint_handler(issue, orchestrator, decision_store \\ Aiur.DecisionStore, live_opts \\ []) do
     fn checkpoint ->
       case claim_blocker_critical_events_digest(orchestrator, issue.identifier) do
         {:ok, item} ->
           urgent_checkpoint_delivery(issue, orchestrator, item, checkpoint, decision_store)
 
         :empty ->
-          fallback_checkpoint_claim(issue, orchestrator, checkpoint, decision_store)
+          fallback_checkpoint_claim(issue, orchestrator, checkpoint, decision_store, live_opts)
       end
     end
   end
 
-  defp fallback_checkpoint_claim(issue, orchestrator, checkpoint, decision_store) do
+  defp fallback_checkpoint_claim(issue, orchestrator, checkpoint, decision_store, live_opts) do
     case claim_next_checkpoint_queue_item(orchestrator, issue.identifier) do
       {:ok, item} ->
-        safe_checkpoint_delivery(issue, orchestrator, item, checkpoint, decision_store)
+        safe_checkpoint_delivery(issue, orchestrator, item, checkpoint, decision_store, live_opts)
 
       :empty ->
         :noop
@@ -113,15 +113,15 @@ defmodule Aiur.AgentRunner.CheckpointDelivery do
     end
   end
 
-  defp safe_checkpoint_delivery(issue, orchestrator, item, checkpoint, decision_store) do
+  defp safe_checkpoint_delivery(issue, orchestrator, item, checkpoint, decision_store, live_opts) do
     Logger.info("Queueing Executor message into active turn for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{item.id} checkpoint=#{inspect(checkpoint)}")
 
     case QueueDrain.prepare_operator_delivery(item, issue, decision_store) do
       :ok ->
-        {:deliver_text, QueueDrain.queue_item_text(item), provider_delivery_callback(orchestrator, item, issue, decision_store),
-         fn reason ->
-           handle_checkpoint_delivery_failure(issue, orchestrator, item.id, reason)
-         end}
+        text = QueueDrain.queue_item_text(item)
+        on_success = operator_delivery_success(orchestrator, item, issue, decision_store, live_opts)
+        on_failure = fn reason -> handle_checkpoint_delivery_failure(issue, orchestrator, item.id, reason) end
+        {:deliver_text, text, on_success, on_failure}
 
       {:error, outcome} ->
         QueueDrain.settle_operator_delivery_failure(orchestrator, item, outcome)
@@ -151,10 +151,29 @@ defmodule Aiur.AgentRunner.CheckpointDelivery do
     Aiur.Orchestrator.mark_queue_item_failed(orchestrator, item_id, reason)
   end
 
+  # Compose provider-delivery settlement (record + acknowledge) with the
+  # DASH-026 live-conversation observation so an operator message that lands
+  # mid-turn is both settled and projected into the bounded live conversation.
+  defp operator_delivery_success(orchestrator, item, issue, decision_store, live_opts) do
+    provider_callback = provider_delivery_callback(orchestrator, item, issue, decision_store)
+
+    fn provider_metadata ->
+      provider_callback.(provider_metadata)
+      observe_operator_delivery(issue, item, live_opts)
+    end
+  end
+
   defp provider_delivery_callback(orchestrator, item, issue, decision_store) do
     fn provider_metadata ->
       :ok = QueueDrain.record_provider_delivery(item, issue, decision_store)
       QueueDrain.acknowledge_provider_delivery(orchestrator, item, provider_metadata)
+    end
+  end
+
+  defp observe_operator_delivery(issue, item, live_opts) do
+    case Keyword.get(live_opts, :backend) do
+      backend when is_binary(backend) -> MessageHandler.observe_operator_delivery(issue, item, backend, live_opts)
+      _ -> :ok
     end
   end
 end

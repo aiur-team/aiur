@@ -44,6 +44,26 @@ defmodule Aiur.CurrentRunMembership.Store do
   @spec freshness(GenServer.server()) :: map()
   def freshness(server \\ __MODULE__), do: GenServer.call(server, :freshness)
 
+  @doc false
+  @spec projection_checkpoint(GenServer.server()) :: %{run_id: String.t(), checkpoint: map() | nil}
+  def projection_checkpoint(server \\ __MODULE__), do: GenServer.call(server, :projection_checkpoint)
+
+  @doc false
+  @spec put_projection_checkpoint(String.t(), map(), GenServer.server()) ::
+          :ok | {:error, :different_run}
+  def put_projection_checkpoint(run_id, checkpoint, server \\ __MODULE__)
+      when is_binary(run_id) and is_map(checkpoint) do
+    GenServer.call(server, {:put_projection_checkpoint, run_id, checkpoint})
+  end
+
+  @doc false
+  @spec put_projection_checkpoint_fenced(String.t(), map(), GenServer.server()) ::
+          :ok | {:error, :different_run | :checkpoint_expired}
+  def put_projection_checkpoint_fenced(run_id, checkpoint, server \\ __MODULE__)
+      when is_binary(run_id) and is_map(checkpoint) do
+    GenServer.call(server, {:put_projection_checkpoint_fenced, run_id, checkpoint})
+  end
+
   @spec mark_reconciled(:fresh | :unavailable, GenServer.server()) :: :ok
   def mark_reconciled(status, server \\ __MODULE__) when status in [:fresh, :unavailable] do
     GenServer.call(server, {:mark_reconciled, status})
@@ -65,6 +85,11 @@ defmodule Aiur.CurrentRunMembership.Store do
         {:ok, root} -> Recovery.boot(root, run_id, persistence)
         {:error, reason} -> Recovery.unavailable_state(run_id, persistence, {:path_unresolved, reason})
       end
+
+    state =
+      state
+      |> Map.put(:projection_checkpoint, nil)
+      |> Map.put(:projection_checkpoint_generation, 0)
 
     Runtime.notify(state, nil)
     {:ok, state}
@@ -95,6 +120,31 @@ defmodule Aiur.CurrentRunMembership.Store do
   def handle_call(:health, _from, state), do: {:reply, state.health, state}
   def handle_call(:freshness, _from, state), do: {:reply, Runtime.freshness(state), state}
 
+  def handle_call(:projection_checkpoint, _from, state) do
+    {:reply, %{run_id: state.run_id, checkpoint: state.projection_checkpoint}, state}
+  end
+
+  def handle_call({:put_projection_checkpoint, run_id, checkpoint}, _from, state) do
+    if run_id == state.run_id do
+      {:reply, :ok, retain_projection_checkpoint(state, checkpoint)}
+    else
+      {:reply, {:error, :different_run}, state}
+    end
+  end
+
+  def handle_call({:put_projection_checkpoint_fenced, run_id, checkpoint}, _from, state) do
+    cond do
+      run_id != state.run_id ->
+        {:reply, {:error, :different_run}, state}
+
+      checkpoint_expired?(checkpoint) ->
+        {:reply, {:error, :checkpoint_expired}, state}
+
+      true ->
+        {:reply, :ok, retain_projection_checkpoint(state, checkpoint)}
+    end
+  end
+
   def handle_call({:mark_reconciled, status}, _from, state) do
     {:reply, :ok, Runtime.mark_reconciled(state, status)}
   end
@@ -103,6 +153,30 @@ defmodule Aiur.CurrentRunMembership.Store do
     case Runtime.set_terminal_verification_pending(state, identity, pending?) do
       {:ok, next_state} -> {:reply, :ok, next_state}
       {:error, reason, next_state} -> {:reply, {:error, reason}, next_state}
+    end
+  end
+
+  defp retain_projection_checkpoint(state, checkpoint) do
+    generation = Map.get(checkpoint, :checkpoint_generation)
+
+    cond do
+      is_integer(generation) and generation > state.projection_checkpoint_generation ->
+        state
+        |> Map.put(:projection_checkpoint, checkpoint)
+        |> Map.put(:projection_checkpoint_generation, generation)
+
+      is_nil(generation) and state.projection_checkpoint_generation == 0 ->
+        Map.put(state, :projection_checkpoint, checkpoint)
+
+      true ->
+        state
+    end
+  end
+
+  defp checkpoint_expired?(checkpoint) do
+    case Map.get(checkpoint, :checkpoint_deadline_monotonic_ms) do
+      deadline when is_integer(deadline) -> System.monotonic_time(:millisecond) >= deadline
+      _missing_deadline -> false
     end
   end
 end

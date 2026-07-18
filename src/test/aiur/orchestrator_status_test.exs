@@ -871,6 +871,79 @@ defmodule Aiur.OrchestratorStatusTest do
     assert %{active: 2, paused: 1, max: 3} = Orchestrator.max_concurrent_agents(orchestrator_name)
   end
 
+  test "running execution facts stay pinned while undispatched routing follows config" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agent_routing: %{3 => "codex:gpt-5.6-terra:high"}
+    )
+
+    running_issue = %Issue{
+      id: "issue-pinned-execution",
+      identifier: "MT-PINNED",
+      state: "In Progress",
+      labels: ["complexity:3"]
+    }
+
+    idle_issue = %Issue{
+      id: "issue-undispatched-execution",
+      identifier: "MT-UNDISPATCHED",
+      state: "Todo",
+      labels: ["complexity:3"]
+    }
+
+    orchestrator_name = Module.concat(__MODULE__, :PinnedExecutionOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | running: %{
+            running_issue.id =>
+              running_entry(
+                running_issue.id,
+                running_issue.identifier,
+                :working
+              )
+              |> Map.put(:issue, running_issue)
+          },
+          last_polled_issues: %{idle_issue.id => idle_issue}
+      }
+    end)
+
+    assert %{running: [warming], idle: [undispatched]} =
+             Orchestrator.snapshot(orchestrator_name, 5_000)
+
+    assert warming.backend == nil
+    assert warming.requested_model == nil
+    assert warming.effort == nil
+    assert undispatched.backend == "codex"
+    assert undispatched.requested_model == "gpt-5.6-terra"
+    assert undispatched.effort == "high"
+
+    send(
+      pid,
+      {:session_execution_info, running_issue.id, %{backend: "codex", requested_model: "gpt-5.6-terra", effort: "high"}}
+    )
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agent_routing: %{3 => "claude:sonnet"}
+    )
+
+    assert %{running: [running], idle: [rerouted]} =
+             Orchestrator.snapshot(orchestrator_name, 5_000)
+
+    assert running.backend == "codex"
+    assert running.agent_family == "codex"
+    assert running.requested_model == "gpt-5.6-terra"
+    assert running.effort == "high"
+    assert rerouted.backend == "claude"
+    assert rerouted.requested_model == "sonnet"
+    assert rerouted.effort == nil
+  end
+
   test "orchestrator snapshot reflects last codex update and session id" do
     issue_id = "issue-snapshot"
 

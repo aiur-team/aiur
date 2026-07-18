@@ -98,6 +98,49 @@ defmodule Aiur.Claude.TranscriptTailerTest do
     refute_receive {:event, %{body: "first"}}, 100
   end
 
+  test "separates records present at attach from records appended afterward", %{
+    path: path,
+    test_pid: tp
+  } do
+    existing = assistant_line("display backfill")
+    File.write!(path, existing)
+
+    tailer =
+      start_tailer(path, tp,
+        backfill_until: byte_size(existing),
+        on_backfill_message: fn event -> send(tp, {:backfill, event}) end
+      )
+
+    assert {:ok, 1} = TranscriptTailer.poll(tailer)
+    assert_receive {:backfill, %{body: "display backfill"}}
+    refute_receive {:event, %{body: "display backfill"}}, 100
+
+    File.write!(path, existing <> assistant_line("live append"))
+    assert {:ok, 1} = TranscriptTailer.poll(tailer)
+    assert_receive {:event, %{body: "live append"}}
+    refute_receive {:backfill, %{body: "live append"}}, 100
+  end
+
+  test "keeps an attach-time partial record in display backfill when it later completes", %{
+    path: path,
+    test_pid: tp
+  } do
+    partial = assistant_line("partial display backfill") |> String.trim_trailing("\n")
+    File.write!(path, partial)
+
+    tailer =
+      start_tailer(path, tp,
+        backfill_until: byte_size(partial),
+        on_backfill_message: fn event -> send(tp, {:backfill, event}) end
+      )
+
+    assert {:ok, 0} = TranscriptTailer.poll(tailer)
+    File.write!(path, partial <> "\n")
+    assert {:ok, 1} = TranscriptTailer.poll(tailer)
+    assert_receive {:backfill, %{body: "partial display backfill"}}
+    refute_receive {:event, %{body: "partial display backfill"}}, 100
+  end
+
   test "detects truncation/replacement and reads the new file from the start", %{
     path: path,
     test_pid: tp

@@ -164,10 +164,12 @@ defmodule Aiur.Events.SubscriptionStoreTest do
     test "counts open attentions and tracks resolution", %{identifier: id} do
       :ok = SubscriptionStore.attach(id)
       assert SubscriptionStore.open_attention_count(id) == 0
+      assert SubscriptionStore.open_attention_count_result(id) == {:ok, 0}
 
       :ok = SubscriptionStore.add_attention(id, "needs-review")
       :ok = SubscriptionStore.add_attention(id, "needs-input")
       assert SubscriptionStore.open_attention_count(id) == 2
+      assert SubscriptionStore.open_attention_count_result(id) == {:ok, 2}
 
       :ok = SubscriptionStore.resolve_attention(id, "needs-review")
       assert SubscriptionStore.open_attention_count(id) == 1
@@ -175,6 +177,7 @@ defmodule Aiur.Events.SubscriptionStoreTest do
 
     test "returns 0 for an identifier with no attached store" do
       assert SubscriptionStore.open_attention_count("no-such-identifier") == 0
+      assert SubscriptionStore.open_attention_count_result("no-such-identifier") == {:error, :unavailable}
     end
 
     test "does not call a suspended per-ticket store", %{identifier: id} do
@@ -196,9 +199,11 @@ defmodule Aiur.Events.SubscriptionStoreTest do
       :ok = SubscriptionStore.add_attention(id, "needs-review")
       :ok = SubscriptionStore.stop(id)
       assert SubscriptionStore.open_attention_count(id) == 0
+      assert SubscriptionStore.open_attention_count_result(id) == {:error, :unavailable}
 
       :ok = SubscriptionStore.attach(id)
       assert SubscriptionStore.open_attention_count(id) == 1
+      assert SubscriptionStore.open_attention_count_result(id) == {:ok, 1}
     end
   end
 

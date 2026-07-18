@@ -55,6 +55,45 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
     assert %{status: _status} = payload.freshness
   end
 
+  test "holds a run-fenced projection checkpoint across membership updates", %{dir: dir} do
+    pid = start_store!(dir)
+    checkpoint = %{summary_generation: 7, weight_facts: %{{:github, "owner", "repo", "32"} => 3}}
+
+    assert %{run_id: @run_id, checkpoint: nil} = Store.projection_checkpoint(pid)
+    assert :ok = Store.put_projection_checkpoint(@run_id, checkpoint, pid)
+    assert {:ok, %{generation: 1}} = observe(pid, identity(), :queued)
+    assert :ok = Store.mark_reconciled(:fresh, pid)
+    assert %{run_id: @run_id, checkpoint: ^checkpoint} = Store.projection_checkpoint(pid)
+
+    assert {:error, :different_run} =
+             Store.put_projection_checkpoint("another-run", %{summary_generation: 99}, pid)
+
+    assert %{run_id: @run_id, checkpoint: ^checkpoint} = Store.projection_checkpoint(pid)
+  end
+
+  test "stale projection checkpoint generations cannot overwrite newer state", %{dir: dir} do
+    pid = start_store!(dir)
+    newer = %{checkpoint_generation: 20, summary_generation: 8}
+    stale = %{checkpoint_generation: 19, summary_generation: 7}
+
+    assert :ok = Store.put_projection_checkpoint(@run_id, newer, pid)
+    assert :ok = Store.put_projection_checkpoint(@run_id, stale, pid)
+    assert %{run_id: @run_id, checkpoint: ^newer} = Store.projection_checkpoint(pid)
+  end
+
+  test "expired projection checkpoint tasks cannot mutate store state", %{dir: dir} do
+    pid = start_store!(dir)
+
+    expired = %{
+      checkpoint_generation: 20,
+      checkpoint_deadline_monotonic_ms: System.monotonic_time(:millisecond) - 1,
+      summary_generation: 8
+    }
+
+    assert {:error, :checkpoint_expired} = Store.put_projection_checkpoint_fenced(@run_id, expired, pid)
+    assert %{run_id: @run_id, checkpoint: nil} = Store.projection_checkpoint(pid)
+  end
+
   test "compacts after a bounded journal cadence instead of syncing the filesystem per observation", %{dir: dir} do
     {:ok, sync_count} = Agent.start_link(fn -> 0 end)
 

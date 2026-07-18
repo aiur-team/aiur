@@ -19,6 +19,30 @@ defmodule Aiur.Codex.TranscriptTest do
       assert event.role == :assistant
       assert event.body == "Done."
       assert event.turn_id == "turn-aaa"
+      assert event.msg_id == "msg_1"
+    end
+
+    test "agentMessage delta preserves its provider id and partial delivery marker" do
+      message = %{
+        payload: %{
+          method: "item/agentMessage/delta",
+          params: %{turnId: "turn-aaa", itemId: "msg_1", delta: "partial"}
+        }
+      }
+
+      assert {:ok, %{role: :assistant, body: "partial", msg_id: "msg_1", kind: :assistant_delta, id: "msg_1"}} =
+               Transcript.extract(message, "fallback")
+    end
+
+    test "agentMessage delta falls back to the aiur turn id" do
+      message = %{
+        payload: %{
+          method: "item/agentMessage/delta",
+          params: %{itemId: "msg_1", delta: "partial"}
+        }
+      }
+
+      assert {:ok, %{turn_id: "fallback"}} = Transcript.extract(message, "fallback")
     end
 
     test "commandExecution item/completed → :command with clean payload (no $ prefix, real output)" do
@@ -94,6 +118,25 @@ defmodule Aiur.Codex.TranscriptTest do
       assert event.payload.input == %{"name" => "attention.x", "message" => "hi"}
       assert event.payload.output == "ok"
       assert event.payload.title == "emit_alert"
+      assert event.payload.success == true
+    end
+
+    test "dynamicToolCall preserves a string-keyed false success result" do
+      message = %{
+        "payload" => %{
+          "method" => "item/completed",
+          "params" => %{
+            "item" => %{
+              "type" => "dynamicToolCall",
+              "tool" => "emit_event",
+              "success" => false
+            }
+          }
+        }
+      }
+
+      assert {:ok, event} = Transcript.extract(message, nil)
+      assert event.payload.success == false
     end
 
     test "fileChange item/completed → :tool transcript with tool: \"edit\"" do

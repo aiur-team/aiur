@@ -677,6 +677,319 @@ defmodule Aiur.BrowserHarness.TicketContextLive do
   end
 end
 
+defmodule Aiur.BrowserHarness.UnitsLive do
+  use Phoenix.LiveView, layout: {Aiur.BrowserHarness.FixtureLayout, :app}
+
+  alias Aiur.TrackerIdentity
+  alias AiurWeb.BuildOrder.TicketContextPresenter.{Capability, View}
+
+  alias AiurWeb.OperatorControlCenter.{
+    DecisionPath,
+    TicketContext,
+    UnitsFilters,
+    UnitsPresenter,
+    UnitsTable,
+    UnitsURL
+  }
+
+  @now ~U[2026-07-17 12:00:00Z]
+
+  @impl true
+  def mount(_params, _session, socket) do
+    {:ok,
+     socket
+     |> assign(:catalog, catalog(rows()))
+     |> assign(:selection, UnitsURL.default_selection())
+     |> assign(:now, @now)
+     |> assign(:context, nil)
+     |> assign(:selected_row, nil)
+     |> assign(:generation, 1)}
+  end
+
+  @impl true
+  def handle_params(params, _uri, socket) do
+    {:noreply, assign(socket, :selection, UnitsURL.decode(params))}
+  end
+
+  @impl true
+  def handle_event("select-units-scope", %{"scope" => scope}, socket) do
+    selection = UnitsPresenter.select_scope(socket.assigns.selection, scope)
+    {:noreply, push_patch(socket, to: units_path(selection))}
+  end
+
+  def handle_event("toggle-units-condition", %{"condition" => condition}, socket) do
+    selection = UnitsPresenter.toggle_condition(socket.assigns.selection, condition)
+    {:noreply, push_patch(socket, to: units_path(selection))}
+  end
+
+  def handle_event("reset-units-filters", _params, socket) do
+    {:noreply, push_patch(socket, to: units_path(UnitsURL.zero_result_reset()))}
+  end
+
+  def handle_event("inspect-unit", %{"unit" => token}, socket) do
+    case UnitsPresenter.lookup(socket.assigns.catalog, token) do
+      {:ok, row} -> {:noreply, socket |> assign(:selected_row, row) |> assign(:context, context(row))}
+      {:error, :not_found} -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("close-ticket-context", _params, socket) do
+    {:noreply, socket |> assign(:context, nil) |> assign(:selected_row, nil)}
+  end
+
+  def handle_event("same-identity-update", _params, socket) do
+    catalog = update_catalog(socket.assigns.catalog, &update_primary_row/1)
+
+    {:noreply,
+     socket
+     |> assign(:catalog, catalog)
+     |> update(:generation, &(&1 + 1))}
+  end
+
+  def handle_event("remove-selected-unit", _params, socket) do
+    selected = socket.assigns.selected_row
+
+    catalog =
+      update_catalog(socket.assigns.catalog, fn rows ->
+        Enum.reject(rows, &same_identity?(Map.get(&1, :identity), selected && selected.identity))
+      end)
+
+    {:noreply,
+     socket
+     |> assign(:catalog, catalog)
+     |> update(:generation, &(&1 + 1))}
+  end
+
+  @impl true
+  def render(assigns) do
+    view = UnitsPresenter.project(assigns.catalog, assigns.selection)
+
+    assigns =
+      assigns
+      |> assign(:view, view)
+      |> assign(:announcement, UnitsPresenter.announcement(view))
+
+    ~H"""
+    <main class="app-shell" data-units-fixture="true">
+      <section class="section-card units-card" aria-labelledby="units-title">
+        <header class="section-header units-header">
+          <div>
+            <p class="section-eyebrow">Current-run catalog</p>
+            <h1 id="units-title" tabindex="-1">Units</h1>
+            <p>{@view.total_count} observed · {@view.counts.scope} in selected scope</p>
+          </div>
+        </header>
+
+        <p id="units-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true">
+          {@announcement}
+        </p>
+
+        <UnitsFilters.units_filters
+          selection={@selection}
+          counts={@view.counts}
+          count_status={@view.count_status}
+        />
+        <UnitsTable.units_table view={@view} now={@now} />
+      </section>
+
+      <div class="controls" aria-label="Units fixture updates">
+        <button id="same-identity-update" type="button" phx-click="same-identity-update">Update same Unit</button>
+        <button id="remove-selected-unit" type="button" phx-click="remove-selected-unit">Remove selected Unit</button>
+      </div>
+
+      <TicketContext.ticket_context
+        :if={@context}
+        id="units-fixture-ticket-context"
+        context={@context}
+        close_event="close-ticket-context"
+        fallback_focus_id="units-title"
+      />
+    </main>
+    """
+  end
+
+  defp catalog(rows) do
+    %{
+      status: :ready,
+      message: nil,
+      snapshot: %{
+        rows: rows,
+        health: %{membership: :available},
+        freshness: %{membership: %{status: :fresh}}
+      }
+    }
+  end
+
+  defp update_catalog(catalog, fun) do
+    put_in(catalog, [:snapshot, :rows], fun.(catalog.snapshot.rows))
+  end
+
+  defp update_primary_row(rows) do
+    Enum.map(rows, fn
+      %{identity: %{identifier: "1110"}} = row ->
+        row
+        |> Map.put(:title, "Responsive Units interface · updated")
+        |> Map.put(:progress, %{status: :known, percent: 60, source: :checkin, freshness: :fresh})
+
+      row ->
+        row
+    end)
+  end
+
+  defp rows do
+    [
+      row(identity("NODE-1110", "1110"), %{
+        title: "Responsive Units interface",
+        lifecycle: :active,
+        runtime: runtime(:running, :working, :active, 4_200),
+        progress: %{status: :known, percent: 50, source: :checkin, freshness: :fresh},
+        latest_evidence: %{status: :known, source: %{kind: :branch, name: "feature pushed"}}
+      }),
+      row(identity("NODE-1111", "1111"), %{
+        title: "Paused provider follow-up",
+        lifecycle: :active,
+        runtime: runtime(:running, :paused, :waiting_for_human, 900),
+        reasons: reasons(:waiting_for_human, :waiting_for_human, :open_command, :operator_pause, nil),
+        open_command_count: 1,
+        progress: %{status: :unknown},
+        latest_evidence: %{status: :unknown}
+      }),
+      row(identity("NODE-1112", "1112"), %{
+        title: "Queued integration",
+        lifecycle: :queued,
+        runtime: runtime(:retrying, :retrying, :backing_off, 0),
+        reasons: reasons(:backing_off, nil, nil, nil, :backing_off),
+        requested_model: nil,
+        resolved_model: nil,
+        effort: nil,
+        complexity: nil,
+        build_lane: nil,
+        progress: %{status: :unknown},
+        latest_evidence: %{status: :unknown}
+      }),
+      row(identity("NODE-1113", "1113"), %{
+        title: "Finished accessibility evidence",
+        lifecycle: :terminal,
+        terminal?: true,
+        runtime: runtime(:idle, :completed, :none, 7_200),
+        progress: %{status: :known, percent: 100, source: :phase, freshness: :stale},
+        latest_evidence: %{status: :known, source: %{kind: :pull_request, name: "merged"}}
+      })
+    ]
+  end
+
+  defp row(identity, overrides) do
+    Map.merge(
+      %{
+        identity: identity,
+        title: "Unit #{identity.identifier}",
+        url: "https://github.com/its-everdred/aiur/issues/#{identity.identifier}",
+        lifecycle: :active,
+        terminal?: false,
+        replacement_boundary?: false,
+        tracker_state: "in-progress",
+        backend: :codex,
+        agent_family: :codex,
+        requested_model: "gpt-5.6-terra",
+        resolved_model: nil,
+        effort: :high,
+        complexity: 3,
+        build_lane: "L2",
+        reasons: reasons(:active, nil, nil, nil, nil),
+        runtime: runtime(:running, :working, :active, 60),
+        timestamps: %{started_at: "2026-07-17T11:00:00Z"},
+        open_command_count: 0,
+        progress: %{status: :unknown},
+        latest_evidence: %{status: :unknown},
+        provider_health: %{
+          membership: :available,
+          status: :available,
+          activity: :available,
+          decisions: :available,
+          issue: :available
+        },
+        field_sources: %{},
+        sources: %{}
+      },
+      overrides
+    )
+  end
+
+  defp runtime(bucket, work_state, waiting_reason, seconds) do
+    %{
+      bucket: bucket,
+      work_state: work_state,
+      waiting_reason: waiting_reason,
+      tracker_paused?: work_state == :paused,
+      runtime_seconds: seconds,
+      stale_for_seconds: 0,
+      membership_lifecycle: :active
+    }
+  end
+
+  defp reasons(waiting, blocking, alert, pause, stuck) do
+    %{waiting: waiting, blocking: blocking, alert: alert, pause: pause, stuck: stuck}
+  end
+
+  defp identity(provider_id, identifier) do
+    %TrackerIdentity{
+      status: :joinable,
+      kind: :github,
+      owner: "its-everdred",
+      repository: "aiur",
+      provider_id: provider_id,
+      identifier: identifier,
+      reason: nil
+    }
+  end
+
+  defp context(row) do
+    %View{
+      identity: row.identity,
+      repository: "its-everdred/aiur",
+      identifier: row.identity.identifier,
+      title: row.title,
+      description: "Bounded ticket context from the accepted shared presentation.",
+      lifecycle: %{state: :open, reason: :none},
+      detail: %{state: :available, observed_at: @now, last_success_at: @now, last_attempt_at: @now},
+      history: %{
+        state: :available,
+        freshness: :fresh,
+        observed_at: @now,
+        source_health: %{activity: :available, history: :available}
+      },
+      progress: Map.merge(%{occurred_at: @now, observed_at: @now, provenance: %{}}, row.progress),
+      latest_evidence: Map.merge(%{occurred_at: @now, observed_at: @now, provenance: %{}}, row.latest_evidence),
+      logs: %{entries: [], truncated?: false, observed_at: @now},
+      capabilities: [
+        %Capability{
+          kind: :github,
+          variant: :issue,
+          label: "Issue",
+          href: row.url,
+          available?: true,
+          external?: true
+        },
+        %Capability{kind: :chat, label: "Chat", available?: false, external?: false, reason: "Chat is unavailable."},
+        %Capability{
+          kind: :commands,
+          label: "Commands",
+          href: DecisionPath.inbox(:all, %{ticket: row.identity.identifier}),
+          available?: true,
+          external?: false
+        }
+      ]
+    }
+  end
+
+  defp units_path(selection), do: "/units?" <> UnitsURL.encode(selection)
+
+  defp same_identity?(%TrackerIdentity{} = left, %TrackerIdentity{} = right),
+    do: TrackerIdentity.github_key(left) == TrackerIdentity.github_key(right)
+
+  defp same_identity?(_left, _right), do: false
+end
+
 defmodule Aiur.BrowserHarness.FixtureAuth do
   use Phoenix.Controller, formats: []
 
@@ -968,6 +1281,7 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
 
     live("/fixture", Aiur.BrowserHarness.FixtureLive, :index)
     live("/ticket-context", Aiur.BrowserHarness.TicketContextLive, :index)
+    live("/units", Aiur.BrowserHarness.UnitsLive, :index)
     live("/", Aiur.BrowserHarness.RouteShellLive, :index)
     live("/decisions", Aiur.BrowserHarness.RouteShellLive, :decisions)
     live("/decisions/:decision_id", Aiur.BrowserHarness.RouteShellLive, :decision)

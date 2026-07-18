@@ -100,12 +100,14 @@ defmodule Aiur.ApplicationTest do
       Aiur.ProviderAccountGeneration,
       Aiur.ProviderMeters.Store,
       Aiur.UsageLedger,
+      Aiur.UsageAggregate.Store,
       Aiur.DecisionMetrics.Writer,
       Aiur.DecisionMetrics,
       Aiur.GitHub.CodeOwners,
       Aiur.RecentMergeStore,
       Aiur.CurrentRunMembership.Store,
       Aiur.CurrentRunMembership.Reconciler,
+      Aiur.CurrentRunProjections,
       Aiur.TicketActivity,
       Aiur.Claude.Telemetry,
       Aiur.BuildOrder.TicketHistoryProvider,
@@ -274,6 +276,24 @@ defmodule Aiur.ApplicationTest do
       end
     end
 
+    test "current-run projections have one runtime owner in every run shape" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: true, headless?: false, dashboard?: false],
+            [interactive_cli?: false, headless?: true, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        mods = modules(AiurApp.child_specs(opts))
+        reconciler = Enum.find_index(mods, &(&1 == Aiur.CurrentRunMembership.Reconciler))
+        projection = Enum.find_index(mods, &(&1 == Aiur.CurrentRunProjections))
+        merge_ticker = Enum.find_index(mods, &(&1 == Aiur.Events.LsRemoteTicker))
+
+        assert Enum.count(mods, &(&1 == Aiur.CurrentRunProjections)) == 1
+        assert projection == reconciler + 1
+        assert merge_ticker == projection + 1
+      end
+    end
+
     test "provider meters and usage ledger start after the generation owner in every run shape" do
       for opts <- [
             [interactive_cli?: true, headless?: false, dashboard?: true],
@@ -288,6 +308,37 @@ defmodule Aiur.ApplicationTest do
         assert meters == owner + 1, "provider meters must immediately follow their generation owner for #{inspect(opts)}"
         assert meters < ledger, "provider meters must precede usage ledger for #{inspect(opts)}"
         assert ledger < orchestrator, "usage ledger must precede orchestrator for #{inspect(opts)}"
+      end
+    end
+
+    test "usage aggregate projection starts after its source ledger in every run shape" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        mods = modules(AiurApp.child_specs(opts))
+        ledger = Enum.find_index(mods, &(&1 == Aiur.UsageLedger))
+        aggregate = Enum.find_index(mods, &(&1 == Aiur.UsageAggregate.Store))
+        orchestrator = Enum.find_index(mods, &(&1 == Aiur.Orchestrator))
+
+        assert ledger < aggregate, "usage ledger must precede the aggregate projection for #{inspect(opts)}"
+        assert aggregate < orchestrator, "usage aggregate must precede orchestrator for #{inspect(opts)}"
+      end
+    end
+
+    test "usage compaction coordinator starts after the ledger and aggregate it reads" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        mods = modules(AiurApp.child_specs(opts))
+        ledger = Enum.find_index(mods, &(&1 == Aiur.UsageLedger))
+        aggregate = Enum.find_index(mods, &(&1 == Aiur.UsageAggregate.Store))
+        coordinator = Enum.find_index(mods, &(&1 == Aiur.UsageCompaction.Coordinator))
+
+        assert coordinator, "compaction coordinator must be supervised for #{inspect(opts)}"
+        assert ledger < coordinator, "compaction must start after the raw ledger for #{inspect(opts)}"
+        assert coordinator < aggregate, "compaction must reconcile before the aggregate rebuilds for #{inspect(opts)}"
       end
     end
 

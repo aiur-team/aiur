@@ -2,6 +2,8 @@
   window.AiurTicketContextDialogHook = {
     mounted() {
       this.closeEvent = this.el.dataset.closeEvent;
+      this.fallbackFocusId = this.el.dataset.focusFallbackId;
+      this.origin = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       this.focusKey = this.el.dataset.focusKey;
       this.originId = this.el.dataset.originId;
       this.onKeydown = this.handleKeydown.bind(this);
@@ -14,6 +16,7 @@
     },
     updated() {
       this.closeEvent = this.el.dataset.closeEvent;
+      this.fallbackFocusId = this.el.dataset.focusFallbackId;
       this.originId = this.el.dataset.originId;
 
       const nextFocusKey = this.el.dataset.focusKey;
@@ -28,10 +31,12 @@
     destroyed() {
       document.removeEventListener("keydown", this.onKeydown);
 
-      const originId = this.originId;
-      if (originId) {
-        requestAnimationFrame(() => document.getElementById(originId)?.focus());
-      }
+      requestAnimationFrame(() => {
+        const explicitOrigin = this.originId ? document.getElementById(this.originId) : null;
+        const fallback = this.fallbackFocusId ? document.getElementById(this.fallbackFocusId) : null;
+        const target = [explicitOrigin, this.origin, fallback].find((element) => this.restorable(element));
+        target?.focus();
+      });
     },
     handleKeydown(event) {
       if (event.key === "Escape" && this.closeEvent) {
@@ -74,6 +79,14 @@
         const heading = this.el.querySelector("[data-dialog-heading]");
         (heading || this.el).focus();
       });
+    },
+    restorable(element) {
+      return element instanceof HTMLElement &&
+        element.isConnected &&
+        element !== document.body &&
+        element !== document.documentElement &&
+        !element.hasAttribute("disabled") &&
+        element.getAttribute("aria-disabled") !== "true";
     },
     restoreActiveFocus() {
       const focusKey = this.activeFocusKey;
