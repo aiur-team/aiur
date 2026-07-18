@@ -13,6 +13,7 @@ defmodule AiurWeb.DashboardLive do
   alias Aiur.CurrentRunMembership
   alias Aiur.CurrentRunSummary
   alias Aiur.DecisionPubSub
+  alias Aiur.LiveConversation
   alias Aiur.Orchestrator.Slots
   alias Aiur.TicketActivity
   alias Aiur.TrackerIdentity
@@ -24,6 +25,7 @@ defmodule AiurWeb.DashboardLive do
     AgentLogModal,
     CapacityControl,
     CapacityPresenter,
+    ConversationDrawer,
     DashboardShell,
     DecisionEvents,
     DecisionInbox,
@@ -41,6 +43,8 @@ defmodule AiurWeb.DashboardLive do
     UnitsTable,
     UnitsURL
   }
+
+  alias AiurWeb.OperatorControlCenter.ConversationDrawer.Presenter, as: ConversationPresenter
 
   @runtime_tick_ms 1_000
   @run_summary_flush_ms 250
@@ -87,6 +91,13 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:ticket_context_identity, nil)
       |> assign(:ticket_context_row, nil)
       |> assign(:ticket_context_subscriptions, MapSet.new())
+      |> assign(:conversation_drawer, nil)
+      |> assign(:conversation_handle, nil)
+      |> assign(:conversation_identity, nil)
+      |> assign(:conversation_row, nil)
+      |> assign(:conversation_origin_id, nil)
+      |> assign(:conversation_lifecycle, :active)
+      |> assign(:conversation_snapshot, nil)
       |> assign(:selected_decision_id, nil)
       |> assign(:selected_decision, nil)
       |> assign(:selected_decision_status, :none)
@@ -177,6 +188,14 @@ defmodule AiurWeb.DashboardLive do
     {:noreply, reset_selected_ticket_context(socket, :history)}
   end
 
+  def handle_info({:live_conversation_changed, snapshot}, socket) do
+    {:noreply, maybe_update_conversation(socket, snapshot)}
+  end
+
+  def handle_info({:live_conversation_restarted, _epoch, _now}, socket) do
+    {:noreply, supersede_conversation(socket)}
+  end
+
   @impl true
   def handle_info(:reload_payload, socket) do
     mode = Map.get(socket.assigns, :payload_reload_mode, :cached)
@@ -243,6 +262,24 @@ defmodule AiurWeb.DashboardLive do
      |> assign(:ticket_context_history, nil)
      |> assign(:ticket_context_identity, nil)
      |> assign(:ticket_context_row, nil)}
+  end
+
+  def handle_event("read-conversation", %{"unit" => token}, socket) when is_binary(token) do
+    catalog = Map.get(socket.assigns.payload, :units, %{})
+
+    with {:ok, row} <- UnitsPresenter.lookup(catalog, token),
+         handle when is_binary(handle) <- conversation_handle(row),
+         {:ok, snapshot} <- resolve_conversation(handle) do
+      {:noreply, open_conversation(socket, row, token, handle, snapshot)}
+    else
+      _not_available -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("read-conversation", _params, socket), do: {:noreply, socket}
+
+  def handle_event("close-conversation", _params, socket) do
+    {:noreply, close_conversation(socket)}
   end
 
   def handle_event(event, params, socket) when event in @decision_events do
@@ -443,6 +480,8 @@ defmodule AiurWeb.DashboardLive do
       |> Map.put_new(:decision_page, fallback_decision_page(assigns.payload))
       |> Map.put_new(:decision_query, %{})
       |> Map.put_new(:ticket_context, nil)
+      |> Map.put_new(:conversation_drawer, nil)
+      |> Map.put_new(:conversation_origin_id, nil)
       |> Map.put_new(:units_selection, UnitsURL.default_selection())
       |> Map.put_new(
         :units_view,
@@ -554,6 +593,14 @@ defmodule AiurWeb.DashboardLive do
         close_event="close-ticket-context"
         fallback_focus_id="units-title"
       />
+      <ConversationDrawer.conversation_drawer
+        :if={@conversation_drawer}
+        id="units-conversation-drawer"
+        view={@conversation_drawer}
+        close_event="close-conversation"
+        fallback_focus_id="units-title"
+        origin_id={@conversation_origin_id}
+      />
     </DashboardShell.dashboard_shell>
     """
   end
@@ -567,6 +614,7 @@ defmodule AiurWeb.DashboardLive do
     |> assign(:agent_log_modal, AgentLogModal.refresh(socket.assigns.agent_log_modal, payload))
     |> assign_units_view()
     |> refresh_ticket_context_row()
+    |> refresh_conversation_row()
     |> reload_decision_page()
     |> assign_selected_decision(socket.assigns.selected_decision_id)
   end
@@ -1008,6 +1056,137 @@ defmodule AiurWeb.DashboardLive do
         |> assign_ticket_context(socket.assigns.ticket_context_detail, socket.assigns.ticket_context_history)
     end
   end
+
+  defp open_conversation(socket, row, token, handle, snapshot) do
+    socket
+    |> replace_conversation_subscription(handle)
+    |> assign(:conversation_handle, handle)
+    |> assign(:conversation_identity, Map.get(row, :identity))
+    |> assign(:conversation_row, row)
+    |> assign(:conversation_origin_id, "units-conversation-#{token}")
+    |> assign(:conversation_lifecycle, :active)
+    |> assign(:conversation_snapshot, snapshot)
+    |> present_conversation()
+  end
+
+  defp close_conversation(socket) do
+    socket
+    |> unsubscribe_conversation()
+    |> assign(:conversation_drawer, nil)
+    |> assign(:conversation_handle, nil)
+    |> assign(:conversation_identity, nil)
+    |> assign(:conversation_row, nil)
+    |> assign(:conversation_origin_id, nil)
+    |> assign(:conversation_lifecycle, :active)
+    |> assign(:conversation_snapshot, nil)
+  end
+
+  defp present_conversation(socket) do
+    view =
+      ConversationPresenter.present(
+        socket.assigns.conversation_row,
+        socket.assigns.conversation_snapshot,
+        socket.assigns.conversation_lifecycle
+      )
+
+    assign(socket, :conversation_drawer, view)
+  end
+
+  # Replace only the pinned generation's snapshot. A change for any other handle
+  # is ignored so a replacement worker never appears under the old heading.
+  defp maybe_update_conversation(
+         %{assigns: %{conversation_handle: handle, conversation_lifecycle: :active}} = socket,
+         %{generation_handle: handle} = snapshot
+       )
+       when is_binary(handle) do
+    socket
+    |> assign(:conversation_snapshot, snapshot)
+    |> present_conversation()
+  end
+
+  defp maybe_update_conversation(socket, _snapshot), do: socket
+
+  defp supersede_conversation(%{assigns: %{conversation_handle: handle}} = socket)
+       when is_binary(handle) do
+    socket
+    |> assign(:conversation_lifecycle, :superseded)
+    |> present_conversation()
+  end
+
+  defp supersede_conversation(socket), do: socket
+
+  # On payload reload, transition truthfully: the row leaving scope freezes the
+  # drawer as out-of-scope, a changed generation handle freezes it as superseded,
+  # and an in-scope same-generation row refreshes only its metadata.
+  defp refresh_conversation_row(%{assigns: %{conversation_lifecycle: :active, conversation_handle: handle}} = socket)
+       when is_binary(handle) do
+    rows = get_in(socket.assigns.payload, [:units, :snapshot, :rows]) || []
+    identity = socket.assigns.conversation_identity
+
+    case Enum.find(rows, &same_identity?(Map.get(&1, :identity), identity)) do
+      nil ->
+        socket
+        |> assign(:conversation_lifecycle, :out_of_scope)
+        |> present_conversation()
+
+      row ->
+        case conversation_handle(row) do
+          ^handle ->
+            socket
+            |> assign(:conversation_row, row)
+            |> present_conversation()
+
+          _replaced ->
+            socket
+            |> assign(:conversation_lifecycle, :superseded)
+            |> present_conversation()
+        end
+    end
+  end
+
+  defp refresh_conversation_row(socket), do: socket
+
+  defp replace_conversation_subscription(socket, handle) do
+    if socket.assigns.conversation_handle == handle do
+      socket
+    else
+      socket
+      |> unsubscribe_conversation()
+      |> subscribe_conversation(handle)
+    end
+  end
+
+  defp subscribe_conversation(socket, handle) do
+    _result = call_conversation(:live_conversation_subscribe_fun, &LiveConversation.subscribe_handle/1, handle)
+    socket
+  end
+
+  defp unsubscribe_conversation(%{assigns: %{conversation_handle: handle}} = socket)
+       when is_binary(handle) do
+    _result = call_conversation(:live_conversation_unsubscribe_fun, &LiveConversation.unsubscribe_handle/1, handle)
+    socket
+  end
+
+  defp unsubscribe_conversation(socket), do: socket
+
+  defp resolve_conversation(handle) do
+    call_conversation(:live_conversation_resolve_fun, &LiveConversation.resolve/1, handle)
+  end
+
+  defp call_conversation(config_key, default, handle) do
+    fun = Endpoint.config(config_key) || default
+    fun.(handle)
+  rescue
+    _error -> {:error, :unavailable}
+  catch
+    :exit, _reason -> {:error, :unavailable}
+    _kind, _reason -> {:error, :unavailable}
+  end
+
+  defp conversation_handle(%{live_conversation: %{generation_handle: handle}}) when is_binary(handle),
+    do: handle
+
+  defp conversation_handle(_row), do: nil
 
   defp same_identity?(%TrackerIdentity{} = left, %TrackerIdentity{} = right) do
     key = TrackerIdentity.github_key(left)
