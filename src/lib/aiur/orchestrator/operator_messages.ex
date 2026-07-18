@@ -125,13 +125,16 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   defp do_enqueue_event_digest_item(state, identifier, events) do
     summary_source = if length(events) == 1, do: List.first(events), else: %{events: events}
 
+    blocker_critical? = blocker_critical_events?(state, identifier, events)
+
     body = %{
       summary: CommentWake.event_digest_summary(summary_source),
-      events: events
+      events: events,
+      urgent: blocker_critical?
     }
 
     running_entry = State.find_running_by_identifier(state.running, identifier)
-    delivery_opts = DeliveryPolicy.event_digest_delivery_opts(running_entry, events)
+    delivery_opts = DeliveryPolicy.event_digest_delivery_opts(running_entry, events, blocker_critical?)
 
     {queue_store, item} =
       AgentQueue.coordination_event(identifier, :events_digest, body, delivery_opts)
@@ -151,6 +154,15 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     end
 
     next_state
+  end
+
+  defp blocker_critical_events?(state, identifier, events) do
+    direct_blockers = AutoSubscriptions.direct_blockers_for(state, identifier)
+
+    AutoSubscriptions.blocker_critical_digest?(
+      %{category: :coordination_event, event_type: :events_digest, body: %{events: events}},
+      direct_blockers
+    )
   end
 
   # The orchestrator may queue a terminal CI event synchronously before it

@@ -250,6 +250,20 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
       assert_receive {:restore, 21}
     end
 
+    test "a provider active-turn (-32003) rejection restores the checkpoint item to pending" do
+      item = %{category: :operator_message, id: 24, body: %{text: "cp"}}
+      orch = start_fake(checkpoint: {:ok, item})
+      handler = CheckpointDelivery.safe_checkpoint_handler(issue(), orch)
+
+      assert {:deliver_text, "cp", _s, failure} = handler.(:checkpoint)
+
+      # aiur-claude rejected a `turn/start` on an active thread; the durable
+      # item must be restored to pending, never marked failed.
+      failure.({:response_error, %{"code" => -32003}})
+      assert_receive {:restore, 24}
+      refute_receive {:mark_failed, 24, _reason}
+    end
+
     test "a late response for retired provider work restores the checkpoint item" do
       item = %{category: :operator_message, id: 23, body: %{text: "cp"}}
       orch = start_fake(checkpoint: {:ok, item})

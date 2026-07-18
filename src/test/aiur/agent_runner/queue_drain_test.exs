@@ -179,6 +179,21 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
       assert result =~ "progress note"
     end
 
+    test "renders an urgent events_digest with the urgent attribute" do
+      event = %{id: 1, topic: "ticket.QD-01.agent.progress", message: "blocker note"}
+
+      item = %{
+        category: :coordination_event,
+        event_type: :events_digest,
+        body: %{events: [event], urgent: true}
+      }
+
+      result = QueueDrain.queue_item_text(item)
+
+      assert result =~ ~s(<aiur:events urgent="true">)
+      assert result =~ "blocker note"
+    end
+
     test "returns summary for other coordination events" do
       item = %{
         category: :coordination_event,

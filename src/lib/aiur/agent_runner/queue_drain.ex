@@ -385,6 +385,19 @@ defmodule Aiur.AgentRunner.QueueDrain do
         %{
           category: :coordination_event,
           event_type: :events_digest,
+          body: %{events: events, urgent: true}
+        } = item
+      )
+      when is_list(events) do
+    events
+    |> EventsDigest.render(Map.get(item, :target_issue_identifier))
+    |> String.replace("<aiur:events>", "<aiur:events urgent=\"true\">", global: false)
+  end
+
+  def queue_item_text(
+        %{
+          category: :coordination_event,
+          event_type: :events_digest,
           body: %{events: events}
         } = item
       )
@@ -668,6 +681,16 @@ defmodule Aiur.AgentRunner.QueueDrain do
         Logger.info(
           "Queued item delivery lost completion race for #{Aiur.AgentRunner.issue_context(issue)} " <>
             "request_id=#{item.id} reason=#{inspect(reason)} decision=requeue_after_parent_turn_completed"
+        )
+
+        :ok
+
+      {:error, {:turn_start_failed, {:response_error, %{"code" => -32003}}}} ->
+        :ok = Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier)
+
+        Logger.info(
+          "Queued item delivery hit provider active turn for #{Aiur.AgentRunner.issue_context(issue)} " <>
+            "request_id=#{item.id} decision=restore_pending reason=active_turn"
         )
 
         :ok
