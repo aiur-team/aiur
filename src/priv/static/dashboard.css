@@ -739,6 +739,172 @@ textarea:focus-visible,
   }
 }
 
+/* --- Build Order graph interaction and accessibility (BO-013) --- */
+
+.bo-graph-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.5rem 0;
+}
+
+.bo-graph-control {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--fg);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.bo-graph-control:hover {
+  border-color: var(--accent-line);
+}
+
+.bo-graph-control:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.bo-graph-zoom-level {
+  min-width: 3.5rem;
+  text-align: center;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.bo-graph-help {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.bo-graph-help > summary {
+  list-style: none;
+}
+
+.bo-graph-help ul {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0.5rem 0 0;
+  padding-left: 1.1rem;
+}
+
+.bo-graph-help kbd {
+  padding: 0 0.3rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  font-family: inherit;
+}
+
+/* The viewport/canvas wrappers stay transparent to layout in fallback so the
+   readable document-flow graph is unchanged; they become the bounded pan/zoom
+   canvas only once the visual layout is ready. */
+.bo-layout-viewport,
+.bo-layout-canvas {
+  display: contents;
+}
+
+.bo-layout-root.is-layout-ready .bo-layout-viewport {
+  display: block;
+  position: relative;
+  max-height: min(70vh, 44rem);
+  overflow: hidden;
+  touch-action: none;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.bo-layout-root.is-layout-ready .bo-layout-viewport.is-graph-panning {
+  cursor: grabbing;
+}
+
+/* Follow the pointer exactly while dragging instead of easing behind it. */
+.bo-layout-root.is-layout-ready .bo-layout-viewport.is-graph-panning .bo-layout-canvas {
+  transition: none;
+}
+
+.bo-layout-root.is-layout-ready .bo-layout-canvas {
+  display: block;
+  position: relative;
+  width: max-content;
+  transform-origin: 0 0;
+  transform: translate(var(--bo-graph-pan-x, 0px), var(--bo-graph-pan-y, 0px)) scale(var(--bo-graph-scale, 1));
+  transition: transform 120ms ease;
+}
+
+.bo-layout-card {
+  position: relative;
+  transition: box-shadow 120ms ease, opacity 120ms ease;
+}
+
+/* Focused/selected/chain cues are never color-only: they add ring weight, a
+   dashed border, opacity, and a text badge alongside any color change. */
+.bo-layout-card.is-graph-active,
+.bo-layout-card.is-graph-selected {
+  border-color: var(--accent-line);
+  box-shadow: 0 0 0 2px var(--accent-line);
+}
+
+.bo-layout-card.is-graph-selected::after {
+  content: "Selected";
+  position: absolute;
+  top: 0.3rem;
+  right: 0.5rem;
+  font-size: 0.6rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.bo-layout-card.is-graph-chain {
+  border-color: var(--accent-line);
+  border-style: dashed;
+}
+
+.bo-layout-card.is-graph-dimmed {
+  opacity: 0.4;
+}
+
+.bo-layout-edge.is-graph-chain {
+  stroke-width: 3.5;
+}
+
+.bo-layout-edge.is-graph-dimmed {
+  opacity: 0.2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bo-layout-root.is-layout-ready .bo-layout-canvas,
+  .bo-layout-card {
+    transition: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .bo-graph-control {
+    border-color: ButtonText;
+  }
+
+  .bo-layout-card.is-graph-active,
+  .bo-layout-card.is-graph-selected,
+  .bo-layout-card.is-graph-chain {
+    border-color: Highlight;
+    box-shadow: 0 0 0 2px Highlight;
+  }
+
+  /* Opacity dimming is invisible in forced colors, so keep chain semantics
+     legible by not fading and relying on the border/weight cues instead. */
+  .bo-layout-card.is-graph-dimmed,
+  .bo-layout-edge.is-graph-dimmed {
+    opacity: 1;
+  }
+}
+
 .topbar {
   display: flex;
   align-items: flex-start;

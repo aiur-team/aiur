@@ -1,6 +1,7 @@
 import { errorCode, matchesLayoutContext, now, safeCode, validateLayoutResult } from "./protocol.js"
 import { layoutAssetUrls, measureLayout, readRootContext } from "./measurement.js"
 import { applyFallback, applyLayout, clearVisualLayout, setLayoutHealth } from "./renderer.js"
+import { GraphInteraction } from "./interaction.js"
 
 export class DomSvgLayoutAdapter {
   constructor(element, options, hookInstance) {
@@ -25,6 +26,7 @@ export class DomSvgLayoutAdapter {
     this.updateContextKey = null
     this.lastAppliedLayout = null
     this.lastFallbackReason = null
+    this.interaction = null
     this.onWindowResize = () => this.requestRemeasure("resize")
     this.onFontLoad = () => this.requestRemeasure("font")
   }
@@ -32,6 +34,8 @@ export class DomSvgLayoutAdapter {
   mount() {
     this.restoreHookMarkers()
     this.installObservers()
+    this.interaction = new GraphInteraction(this.element, this.options)
+    this.interaction.mount()
     this.configureClient()
     this.scheduleLayout("initial")
     this.notify("mounted")
@@ -45,9 +49,14 @@ export class DomSvgLayoutAdapter {
     this.restoreHookMarkers()
     const changed = this.updateContextKey !== this.contextKey()
     this.updateContextKey = null
-    if (!changed) return this.restoreLayout()
+    if (!changed) {
+      this.restoreLayout()
+      this.interaction?.refresh()
+      return
+    }
 
     this.invalidate()
+    this.interaction?.reset()
     this.refreshObservedNodes()
     this.scheduleLayout("updated")
   }
@@ -77,6 +86,8 @@ export class DomSvgLayoutAdapter {
 
     this.destroyed = true
     this.clientEpoch += 1
+    this.interaction?.destroy()
+    this.interaction = null
     this.resizeObserver?.disconnect()
     this.resizeObserver = null
     this.themeObserver?.disconnect()

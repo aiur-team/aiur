@@ -3,7 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
 
   use Phoenix.Component
 
-  alias Aiur.BuildOrder.{Diagnostic, Metadata}
+  alias Aiur.BuildOrder.{DependencyChain, Diagnostic, Metadata}
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.TicketContextSelection
   alias AiurWeb.BuildOrderViewModel.{Edge, Node}
@@ -29,6 +29,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
       assigns
       |> assign(:lanes, lane_groups(nodes))
       |> assign(:edge_rows, edge_rows(edges))
+      |> assign(:chains, dependency_chains(assigns.model, nodes))
       |> assign(:layout_assets, assigns.layout_assets || StaticAssets.layout_asset_urls())
 
     ~H"""
@@ -51,19 +52,53 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
         <p data-layout-health-message role="status">Using readable document-flow layout.</p>
       </header>
 
-      <div class="bo-layout-cards" data-layout-cards>
-        <section :for={lane <- @lanes} class="bo-layout-lane" data-layout-lane={lane.index} aria-labelledby={"#{@id}-lane-#{lane.index}"}>
-          <h3 id={"#{@id}-lane-#{lane.index}"} class="bo-layout-lane-heading">{lane.label}</h3>
+      <div class="bo-graph-controls" role="group" aria-label="Graph view controls" data-graph-controls>
+        <button type="button" class="bo-graph-control" data-graph-zoom="out" aria-label="Zoom graph out">&minus;</button>
+        <span class="bo-graph-zoom-level" data-graph-zoom-level aria-hidden="true">100%</span>
+        <button type="button" class="bo-graph-control" data-graph-zoom="in" aria-label="Zoom graph in">+</button>
+        <button type="button" class="bo-graph-control" data-graph-zoom="fit" aria-label="Fit graph to view">Fit</button>
+        <button type="button" class="bo-graph-control" data-graph-zoom="reset" aria-label="Reset graph zoom and pan">Reset</button>
+        <details class="bo-graph-help" id={"#{@id}-graph-help"}>
+          <summary class="bo-graph-control">Keyboard help</summary>
+          <ul>
+            <li>Tab or arrow keys move between build-order cards.</li>
+            <li>Focus or hover a card to highlight its dependency chain.</li>
+            <li>Space pins a card selection; Escape clears it.</li>
+            <li>Enter opens the focused card's ticket context.</li>
+            <li>On the canvas, arrow keys pan and <kbd>+</kbd>/<kbd>-</kbd>/<kbd>0</kbd> zoom.</li>
+            <li>Hold Ctrl (or &#8984;) while scrolling to zoom the graph.</li>
+          </ul>
+        </details>
+      </div>
 
-          <article
-            :for={node <- lane.nodes}
-            class="bo-layout-card"
-            aria-label={node_accessible_title(node)}
-            data-layout-node
-            data-layout-node-id={node_id(node)}
-            data-layout-lane={node_lane(node)}
-            data-layout-phase={node_phase(node)}
-          >
+      <p class="sr-only" aria-live="polite" aria-atomic="true" data-graph-announce></p>
+
+      <div
+        class="bo-layout-viewport"
+        data-graph-viewport
+        tabindex="0"
+        role="group"
+        aria-label="Build order graph canvas"
+        aria-describedby={"#{@id}-graph-help"}
+      >
+        <div class="bo-layout-canvas" data-graph-content>
+          <div class="bo-layout-cards" data-layout-cards>
+            <section :for={lane <- @lanes} class="bo-layout-lane" data-layout-lane={lane.index} aria-labelledby={"#{@id}-lane-#{lane.index}"}>
+              <h3 id={"#{@id}-lane-#{lane.index}"} class="bo-layout-lane-heading">{lane.label}</h3>
+
+              <article
+                :for={node <- lane.nodes}
+                class="bo-layout-card"
+                aria-label={node_accessible_title(node)}
+                tabindex="0"
+                data-layout-node
+                data-graph-node={node_id(node)}
+                data-graph-upstream={chain_tokens(@chains, node, :upstream)}
+                data-graph-downstream={chain_tokens(@chains, node, :downstream)}
+                data-layout-node-id={node_id(node)}
+                data-layout-lane={node_lane(node)}
+                data-layout-phase={node_phase(node)}
+              >
             <header data-layout-card-header>
               <div class="bo-layout-card-kicker">
                 <p class="bo-layout-card-id">{node_id(node)}</p>
@@ -94,23 +129,26 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
             <ul :if={node_diagnostics(node) != []} class="bo-layout-card-warnings" aria-label="Metadata warnings">
               <li :for={warning <- node_diagnostics(node)}>{warning}</li>
             </ul>
-            <button
-              :if={node_navigation_value(@model, node)}
-              id={node_origin_id(@model, node)}
-              type="button"
-              class="bo-card-context-trigger"
-              phx-click="open-ticket-context"
-              phx-value-member={node_navigation_value(@model, node)}
-              aria-label={"Open cached context for #{node_id(node)} #{node_title(node)}"}
-            >
-              Ticket context
-            </button>
-            <p :if={!typed_node?(node)} class="bo-layout-card-meta">Phase {node_phase(node)}</p>
-          </article>
-        </section>
-      </div>
+                <button
+                  :if={node_navigation_value(@model, node)}
+                  id={node_origin_id(@model, node)}
+                  type="button"
+                  class="bo-card-context-trigger"
+                  data-graph-context
+                  phx-click="open-ticket-context"
+                  phx-value-member={node_navigation_value(@model, node)}
+                  aria-label={"Open cached context for #{node_id(node)} #{node_title(node)}"}
+                >
+                  Ticket context
+                </button>
+                <p :if={!typed_node?(node)} class="bo-layout-card-meta">Phase {node_phase(node)}</p>
+              </article>
+            </section>
+          </div>
 
-      <svg class="bo-layout-edges" data-layout-edges aria-hidden="true" focusable="false"></svg>
+          <svg class="bo-layout-edges" data-layout-edges aria-hidden="true" focusable="false"></svg>
+        </div>
+      </div>
 
       <section class="bo-layout-dependency-summary" aria-labelledby={"#{@id}-dependencies"}>
         <h3 id={"#{@id}-dependencies"}>Dependency summary</h3>
@@ -151,6 +189,41 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
     do: {model.nodes, model.edges}
 
   defp graph_content(_model, nodes, edges), do: {nodes, edges}
+
+  defp dependency_chains(%AiurWeb.BuildOrderViewModel{} = model, nodes) do
+    closures = DependencyChain.closures(model.adjacency, model.reverse_adjacency)
+    id_by_key = Map.new(nodes, fn node -> {node_key(node), node_id(node)} end)
+
+    Map.new(nodes, fn node ->
+      closure = Map.get(closures, node_key(node), %{upstream: [], downstream: []})
+
+      {node_id(node),
+       %{
+         upstream: chain_identifiers(closure.upstream, id_by_key),
+         downstream: chain_identifiers(closure.downstream, id_by_key)
+       }}
+    end)
+  end
+
+  defp dependency_chains(_model, _nodes), do: %{}
+
+  defp chain_identifiers(keys, id_by_key) do
+    keys
+    |> Enum.map(&Map.get(id_by_key, &1))
+    |> Enum.filter(&valid_token?/1)
+  end
+
+  defp chain_tokens(chains, node, direction) do
+    case Map.get(chains, node_id(node)) do
+      %{^direction => ids} when ids != [] -> Enum.join(ids, " ")
+      _chain -> nil
+    end
+  end
+
+  defp valid_token?(value), do: is_binary(value) and value != "" and not String.contains?(value, " ")
+
+  defp node_key(%Node{key: key}), do: key
+  defp node_key(node), do: node_id(node)
 
   defp edge_rows(edges) do
     edges
