@@ -736,6 +736,75 @@ defmodule AiurWeb.DashboardLiveTest do
     assert_bounded_reload_burst(views, membership_messages, cache, orchestrator_name, false)
   end
 
+  describe "current-run summary" do
+    test "renders a pushed summary with a bounded announcement and no protected fields" do
+      view = start_run_summary_dashboard()
+      html = push_summary(view, healthy_summary_snapshot(live: 3))
+
+      assert html =~ "Current run"
+      assert html =~ "Weighted progress"
+      assert html =~ ~s(role="progressbar")
+      assert html =~ ~s(aria-valuenow="60")
+      assert html =~ "60% complete (exact)"
+      assert html =~ "Health: Healthy"
+      assert html =~ ~s(id="run-summary-status")
+      assert html =~ "3 live"
+
+      # Scope the protected-field check to the summary card so page-level CSRF
+      # and LiveView session tokens do not trip the assertion.
+      card = view |> element("section.run-summary-card") |> render() |> String.downcase()
+
+      for term <- ["cost", "token", "provider", "quota", "credit", "$"] do
+        refute String.contains?(card, term), "expected no protected term #{inspect(term)}"
+      end
+    end
+
+    test "coalesces a burst of summary updates into a single scheduled flush" do
+      view = start_run_summary_dashboard()
+
+      for _ <- 1..25 do
+        send(view.pid, {:current_run_summary_changed, healthy_summary_snapshot(live: 9)})
+      end
+
+      :sys.get_state(view.pid)
+
+      assert_receive {:run_summary_flush_scheduled, pid, :flush_run_summary, delay_ms}, 0
+      assert pid == view.pid
+      assert delay_ms > 0
+      refute_receive {:run_summary_flush_scheduled, _pid, :flush_run_summary, _delay}, 0
+
+      send(view.pid, :flush_run_summary)
+      assert render(view) =~ "9 live"
+    end
+
+    test "retains the last known-good summary across an unavailable same-run update" do
+      view = start_run_summary_dashboard()
+
+      assert push_summary(view, healthy_summary_snapshot(live: 3)) =~ "60% complete (exact)"
+
+      stale_html = push_summary(view, unavailable_same_run_snapshot())
+
+      assert stale_html =~ "Stale summary"
+      assert stale_html =~ "60% complete (exact)"
+      assert stale_html =~ "3 live"
+      assert stale_html =~ "Health: Unavailable"
+      # Never fall back to a zeroed/empty summary for the retained run.
+      refute stale_html =~ "zero eligible weight"
+      refute stale_html =~ "0 live"
+    end
+
+    test "adopts a new run generation instead of showing the prior run as current" do
+      view = start_run_summary_dashboard()
+
+      assert push_summary(view, healthy_summary_snapshot(live: 3, run_id: "run-1")) =~ "60% complete (exact)"
+
+      new_html = push_summary(view, healthy_summary_snapshot(live: 8, run_id: "run-2", exact: {3, 10}))
+
+      assert new_html =~ "30% complete (exact)"
+      assert new_html =~ ~s(aria-valuenow="30")
+    end
+  end
+
   test "optional unauthenticated LiveView state, HTML, diffs, and logs contain no financial sentinels" do
     orchestrator_name = Module.concat(__MODULE__, :FinancialBoundaryOrchestrator)
     sentinel = "acct-plan-quota-reset-financial-sentinel"
@@ -3345,6 +3414,112 @@ defmodule AiurWeb.DashboardLiveTest do
           }
         end)
     }
+  end
+
+  defp start_run_summary_dashboard do
+    test_process = self()
+
+    start_run_summary_dashboard(fn destination, message, delay_ms ->
+      send(test_process, {:run_summary_flush_scheduled, destination, message, delay_ms})
+      make_ref()
+    end)
+  end
+
+  defp start_run_summary_dashboard(flush_timer) when is_function(flush_timer, 3) do
+    orchestrator_name = Module.concat(__MODULE__, :RunSummaryOrchestrator)
+
+    start_supervised!(
+      {CountingOrchestrator,
+       name: orchestrator_name,
+       snapshot: %{
+         running: [],
+         retrying: [],
+         idle: [],
+         agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+         rate_limits: nil
+       }},
+      id: orchestrator_name
+    )
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      run_summary_flush_timer: flush_timer
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/")
+    view
+  end
+
+  # Deterministically apply one pushed snapshot: process the update (which
+  # schedules but defers the coalesced flush), then run the flush and render.
+  defp push_summary(view, snapshot) do
+    send(view.pid, {:current_run_summary_changed, snapshot})
+    :sys.get_state(view.pid)
+    send(view.pid, :flush_run_summary)
+    render(view)
+  end
+
+  defp healthy_summary_snapshot(opts \\ []) do
+    live = Keyword.get(opts, :live, 3)
+    {num, den} = Keyword.get(opts, :exact, {3, 5})
+
+    %{
+      version: 1,
+      generation: Keyword.get(opts, :generation, 1),
+      run: %{
+        id: Keyword.get(opts, :run_id, "run-1"),
+        started_at: ~U[2026-07-17 10:00:00Z],
+        observed_at: ~U[2026-07-17 10:20:00Z],
+        elapsed_wall_ms: 1_200_000,
+        elapsed_wall_seconds: 1200,
+        valid?: true
+      },
+      counts: %{live: live, remaining: 2, successful_terminal: 1, non_work_terminal: 0, unknown_state: 0, total: live + 3},
+      weights: %{
+        eligible: 10,
+        successful_terminal: 4,
+        remaining: 6,
+        excluded: 0,
+        excluded_count: 0,
+        defaulted: 0,
+        defaulted_count: 0,
+        known_progress: 10,
+        unknown_progress: 0
+      },
+      progress: %{
+        scale: 100,
+        weighted_numerator: %{value: 600, scale: 100},
+        denominator_weight: 10,
+        known_weight: 10,
+        unknown_weight: 0,
+        lower_bound: %{numerator: num, denominator: den},
+        coverage: %{numerator: 1, denominator: 1},
+        exact: %{numerator: num, denominator: den}
+      },
+      eta: %{
+        status: :available,
+        reason: nil,
+        confidence: :evidence_based,
+        formula_version: "completed_weight_rate_v1",
+        sample_count: 2,
+        duration_seconds: %{numerator: 480, denominator: 1},
+        throughput_weight_per_second: %{numerator: 1, denominator: 300},
+        completed_weight: 4,
+        remaining_weight: 6,
+        denominator_generation: 1,
+        observed_at: ~U[2026-07-17 10:20:00Z]
+      },
+      health: %{status: :healthy, reasons: []},
+      freshness: %{status: :fresh, sources: %{}}
+    }
+  end
+
+  defp unavailable_same_run_snapshot do
+    healthy_summary_snapshot()
+    |> Map.put(:generation, 2)
+    |> Map.put(:health, %{status: :unavailable, reasons: [:unhealthy_membership]})
+    |> Map.put(:freshness, %{status: :unavailable, sources: %{}})
   end
 
   defp start_test_endpoint(overrides) do
