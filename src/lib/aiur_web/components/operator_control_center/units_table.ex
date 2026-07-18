@@ -174,7 +174,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
       |> assign(:affordance, affordance)
       |> assign(:identity_label, identity_label(assigns.row.identity))
       |> assign(:presentation, control_presentation(assigns.control))
-      |> assign(:pause_note, pause_note(assigns.row))
+      |> assign(:pause_note, pause_note(affordance, assigns.row))
       |> assign(:disabled?, control_button_disabled?(affordance, assigns.writable))
 
     ~H"""
@@ -256,8 +256,10 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   defp control_glyph(:warning), do: "△"
   defp control_glyph(_tone), do: "•"
 
-  defp pause_note(%{reasons: %{pause: pause}}) when not is_nil(pause), do: label(pause)
-  defp pause_note(_row), do: nil
+  # Only surface the pause owner/reason when the row is actually paused (Resume
+  # offered), so the "Paused: …" note never contradicts a live Pause control.
+  defp pause_note(%{action: :resume}, %{reasons: %{pause: pause}}) when not is_nil(pause), do: label(pause)
+  defp pause_note(_affordance, _row), do: nil
 
   attr(:progress, :map, required: true)
 

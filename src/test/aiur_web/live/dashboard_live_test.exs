@@ -3013,8 +3013,12 @@ defmodule AiurWeb.DashboardLiveTest do
       refute html =~ "tone-applied"
 
       send(view.pid, {:control_lifecycle, lifecycle(:pause, :applied, 8)})
-      assert render(view) =~ "Paused"
-      assert render(view) =~ "tone-applied"
+      html = render(view)
+      assert html =~ "Paused"
+      assert html =~ "tone-applied"
+      # The control button keeps its stable id across the lifecycle re-render, so
+      # LiveView preserves keyboard focus on it.
+      assert html =~ ~s(id="units-control-#{token}")
     end
 
     test "resumes an applied-paused unit and correlates the resume lifecycle" do
@@ -3115,6 +3119,49 @@ defmodule AiurWeb.DashboardLiveTest do
       html = render(view)
       refute html =~ "tone-applied"
       assert html =~ "canceled"
+    end
+
+    test "a concurrent terminal transition cancels stale in-flight intent on reload" do
+      identity = units_identity()
+      orchestrator_name = Module.concat(__MODULE__, :TerminalReconcileOrchestrator)
+      orchestrator = start_counting_orchestrator(orchestrator_name)
+      test_pid = self()
+      {:ok, membership_agent} = Agent.start_link(fn -> units_membership(identity) end)
+
+      :sys.replace_state(orchestrator, &Map.put(&1, :snapshot, units_orchestrator_snapshot(identity)))
+
+      start_test_endpoint(
+        orchestrator: orchestrator_name,
+        snapshot_timeout_ms: 100,
+        control_center_cache: false,
+        dashboard_writable: true,
+        units_membership_fun: fn -> Agent.get(membership_agent, & &1) end,
+        units_activity_fun: fn -> units_activity(identity) end,
+        agent_chat_capabilities_fun: fn _id ->
+          {:ok, %{unit_control: :confirmed, status: :working, pending_control: nil}}
+        end,
+        agent_chat_pause_fun: fn id ->
+          send(test_pid, {:unit_pause, id})
+          {:ok, 8}
+        end
+      )
+
+      {:ok, view, _html} = live(build_conn(), "/")
+      token = UnitsPresenter.row_token(%{identity: identity})
+
+      render_hook(view, "request-unit-control", %{"unit" => token, "action" => "pause"})
+      assert_receive {:unit_pause, "1110"}
+      assert render(view) =~ "Pause requested"
+      assert control_status(view, token) == :requested
+
+      # The unit goes terminal before any applied evidence arrives; a reload must
+      # cancel the stale intent rather than let it settle or masquerade as applied.
+      terminal = put_in(units_membership(identity), [:members, Access.at(0), :terminal?], true)
+      Agent.update(membership_agent, fn _prev -> terminal end)
+      send(view.pid, :reload_payload)
+      _ = render(view)
+
+      assert control_status(view, token) == :state_changed
     end
 
     test "a timeout leaves the last state visible with a named retry" do
@@ -3541,6 +3588,15 @@ defmodule AiurWeb.DashboardLiveTest do
       |> Map.put(:tracker_paused, work_state == :paused)
 
     %{snapshot | running: [running]}
+  end
+
+  defp control_status(view, token) do
+    socket = :sys.get_state(view.pid).socket
+
+    case socket.assigns.unit_controls[token] do
+      nil -> nil
+      control -> control.status
+    end
   end
 
   defp lifecycle(action, status, request_id, rejection \\ nil) do

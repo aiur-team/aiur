@@ -131,6 +131,11 @@ defmodule AiurWeb.OperatorControlCenter.UnitsControlPolicyTest do
       assert %{tone: :warning, retry?: false} = Policy.presentation(state)
     end
 
+    test "an already-in-state rejection renders the resulting applied state, not an error" do
+      assert %{label: "Paused", tone: :applied, retry?: false} =
+               Policy.presentation(%{action: :pause, status: :rejected, rejection: %{class: :already_in_state}})
+    end
+
     test "request-only and unsupported are distinct warnings" do
       assert %{tone: :warning} = Policy.presentation(%{action: :pause, status: :request_only})
       assert %{tone: :warning} = Policy.presentation(%{action: :pause, status: :unsupported})
@@ -176,9 +181,16 @@ defmodule AiurWeb.OperatorControlCenter.UnitsControlPolicyTest do
       assert Policy.settled?(nil)
     end
 
-    test "a control rejection carries its class" do
+    test "a control rejection carries its class in the rejection map" do
       settled = Policy.settle_error(:pause, {:control_rejected, %{class: :worker_unavailable}}, "1110")
-      assert %{status: :rejected, class: :worker_unavailable} = settled
+      assert %{status: :rejected, rejection: %{class: :worker_unavailable}} = settled
+      assert %{tone: :error, retry?: true} = Policy.presentation(settled)
+    end
+
+    test "a control expiry becomes an expired, retryable state" do
+      settled = Policy.settle_error(:resume, {:control_expired, %{at: "now"}}, "1110")
+      assert %{status: :expired} = settled
+      assert %{tone: :error, retry?: true} = Policy.presentation(settled)
     end
 
     test "an atom reason becomes the status" do

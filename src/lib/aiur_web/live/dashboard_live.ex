@@ -173,13 +173,11 @@ defmodule AiurWeb.DashboardLive do
     {:noreply, apply_control_lifecycle(socket, payload)}
   end
 
-  # A unit's agent topic also carries transcript, alert, and turn traffic that
-  # this view subscribes for the control lifecycle but does not otherwise
-  # consume. Ignore that known noise rather than crashing on it.
-  def handle_info({:transcript_event, _event}, socket), do: {:noreply, socket}
-  def handle_info({:alert, _event}, socket), do: {:noreply, socket}
-  def handle_info({:turn_event, _identifier, _tag, _payload}, socket), do: {:noreply, socket}
-  def handle_info({:aiur_turn_done, _identifier, _turn_id, _reason}, socket), do: {:noreply, socket}
+  # A unit's agent topic also carries transcript, alert, turn, and aiur-turn
+  # traffic that this view subscribes for the control lifecycle but does not
+  # otherwise consume. Ignore that noise — and any future message added to a
+  # topic this view does not own — rather than crashing every open dashboard.
+  def handle_info(_message, socket), do: {:noreply, socket}
 
   @impl true
   def handle_event("filter-decisions", %{"filter" => filter}, socket) do
@@ -1073,16 +1071,32 @@ defmodule AiurWeb.DashboardLive do
   defp dispatch_unit_control(socket, token, identifier, action) do
     case invoke_control_owner(action, identifier) do
       {:ok, result} ->
-        put_unit_control(socket, token, %{
+        # Subscribe to this unit's agent topic now, before its lifecycle
+        # evidence can arrive, even if the row is not in the :running bucket the
+        # periodic subscription sync tracks. The pending control is also unioned
+        # into the sync set so the subscription survives reloads until it settles.
+        socket
+        |> put_unit_control(token, %{
           action: action,
           status: :requested,
           request_id: control_request_id(result),
-          identifier: identifier,
-          focus: "units-control-#{token}"
+          identifier: identifier
         })
+        |> ensure_control_subscription(identifier)
 
       {:error, reason} ->
         put_unit_control(socket, token, UnitsControlPolicy.settle_error(action, reason, identifier))
+    end
+  end
+
+  defp ensure_control_subscription(socket, identifier) do
+    subscriptions = socket.assigns.unit_control_subscriptions
+
+    if connected?(socket) and not MapSet.member?(subscriptions, identifier) do
+      AgentPubSub.subscribe_agent(identifier)
+      assign(socket, :unit_control_subscriptions, MapSet.put(subscriptions, identifier))
+    else
+      socket
     end
   end
 
@@ -1140,12 +1154,26 @@ defmodule AiurWeb.DashboardLive do
     assign(socket, :unit_control_subscriptions, desired)
   end
 
+  # Subscribe to units that are controllable now, unioned with any unit that
+  # still has an in-flight control, so a request whose row leaves the running
+  # bucket mid-flight keeps its subscription until the lifecycle settles it.
   defp controllable_identifiers(socket) do
-    socket.assigns.payload
-    |> Map.get(:units, %{})
-    |> unit_rows()
-    |> Enum.filter(&(get_in(&1, [:runtime, :bucket]) == :running))
-    |> Enum.map(&UnitsControlPolicy.identifier/1)
+    running =
+      socket.assigns.payload
+      |> Map.get(:units, %{})
+      |> unit_rows()
+      |> Enum.filter(&(get_in(&1, [:runtime, :bucket]) == :running))
+      |> Enum.map(&UnitsControlPolicy.identifier/1)
+      |> Enum.reject(&is_nil/1)
+      |> MapSet.new()
+
+    MapSet.union(running, in_flight_control_identifiers(socket))
+  end
+
+  defp in_flight_control_identifiers(socket) do
+    socket.assigns.unit_controls
+    |> Enum.reject(fn {_token, control} -> UnitsControlPolicy.settled?(control) end)
+    |> Enum.map(fn {_token, control} -> Map.get(control, :identifier) end)
     |> Enum.reject(&is_nil/1)
     |> MapSet.new()
   end

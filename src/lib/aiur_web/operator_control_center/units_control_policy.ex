@@ -42,8 +42,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsControlPolicy do
           required(:status) => atom(),
           optional(:rejection) => map() | nil,
           optional(:request_id) => pos_integer() | nil,
-          optional(:identifier) => String.t(),
-          optional(:focus) => String.t()
+          optional(:identifier) => String.t()
         }
 
   @in_flight [:requested, :accepted]
@@ -119,8 +118,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsControlPolicy do
   the renderer can present. Owner rejections carry a DASH-004 rejection class.
   """
   @spec settle_error(action(), term(), String.t() | nil) :: control_state()
-  def settle_error(action, {:control_rejected, %{class: class} = rejection}, identifier) do
-    %{action: action, status: :rejected, rejection: rejection, class: class, identifier: identifier}
+  def settle_error(action, {:control_rejected, %{class: _class} = rejection}, identifier) do
+    %{action: action, status: :rejected, rejection: rejection, identifier: identifier}
   end
 
   def settle_error(action, {:control_expired, expiry}, identifier) do
@@ -150,8 +149,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsControlPolicy do
         status: Map.get(payload, :status),
         rejection: Map.get(payload, :rejection),
         request_id: Map.get(payload, :request_id, Map.get(tracked, :request_id)),
-        identifier: Map.get(tracked, :identifier),
-        focus: Map.get(tracked, :focus)
+        identifier: Map.get(tracked, :identifier)
       }
     else
       tracked
@@ -230,8 +228,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsControlPolicy do
   end
 
   defp rejection_class(state) do
-    Map.get(state, :class) || get_in(state, [:rejection, Access.key(:class)]) ||
-      get_in(state, [:rejection, Access.key("class")])
+    get_in(state, [:rejection, Access.key(:class)]) || get_in(state, [:rejection, Access.key("class")])
   end
 
   defp present(label, tone, retry?), do: %{label: label, tone: tone, announce: label, retry?: retry?}
@@ -296,6 +293,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsControlPolicy do
     runtime_bucket(row) == :queued or Map.get(row, :lifecycle) in [:queued, :waiting]
   end
 
-  defp runtime_bucket(row), do: get_in(row, [:runtime, :bucket])
-  defp work_state(row), do: get_in(row, [:runtime, :work_state])
+  # Mirror UnitsPolicy's flat-key fallback so both policies classify a row the
+  # same way regardless of which row shape it carries.
+  defp runtime_bucket(row), do: get_in(row, [:runtime, :bucket]) || Map.get(row, :runtime_bucket)
+  defp work_state(row), do: get_in(row, [:runtime, :work_state]) || Map.get(row, :work_state)
 end
