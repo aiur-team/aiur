@@ -6,8 +6,10 @@ defmodule Aiur.Init.GitHub do
   """
 
   alias Aiur.Codeowners.Edit
+  alias Aiur.GitHub.BotIdentity
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Labels
+  alias Aiur.GitHub.Transport
 
   @config_file_name ".aiur/config"
   @env_file_name ".env"
@@ -112,6 +114,25 @@ defmodule Aiur.Init.GitHub do
     end
   rescue
     _ -> nil
+  end
+
+  @doc """
+  Resolves the GitHub login that the configured `GITHUB_TOKEN` authenticates as,
+  via the validated viewer-identity path. This is the login `aiur init` offers as
+  the default `bot_account` — the identity Aiur recognizes and suppresses to avoid
+  self-triggered comment/event loops.
+
+  Returns `nil` (never the token value) when no token is set or the viewer lookup
+  fails, so the caller can prompt without a default instead of crashing.
+  """
+  @spec detect_bot_account() :: String.t() | nil
+  def detect_bot_account do
+    with {:ok, token} <- require_github_token(),
+         {:ok, login} <- BotIdentity.fetch_authenticated_viewer_login(&Transport.default_request_fun/1, token) do
+      Edit.normalize_login(login)
+    else
+      _ -> nil
+    end
   end
 
   @spec detect_repo() :: String.t() | nil

@@ -7,6 +7,10 @@ tracker:
   terminal_states: [done, cancelled, canceled]
 {{TRACKER_PROVIDER}}
   # provider block (filled above): github {repo, label_prefix, bot_account, trusted_accounts} | linear {api_key, project_slug, assignee}
+  # bot_account is an IDENTITY, not a credential: GITHUB_TOKEN (in .env) is the credential Aiur
+  # authenticates with; bot_account is the login Aiur recognizes as its own to suppress self-triggered
+  # comment/event loops. Prefer a dedicated bot account (e.g. its-applekid) when operators also comment
+  # from a trusted CODEOWNER account — reusing one login makes agent-vs-human provenance ambiguous.
 
 # === Coding agents ===
 agent:

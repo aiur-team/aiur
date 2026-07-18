@@ -89,6 +89,7 @@ defmodule Aiur.Init do
 
   defp fresh_setup(io, deps, location, target) do
     tracker = Questions.prompt_tracker(io, deps, location)
+    tracker = Aiur.Init.BotAccount.maybe_prompt(io, deps, tracker)
     agents = Questions.prompt_agents(io)
     routing = Questions.prompt_routing(io, agents)
     rate_limit_fallback = Questions.prompt_rate_limit_fallback(io, agents)

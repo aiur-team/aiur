@@ -23,7 +23,7 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 | `tracker.terminal_states` | array | tracker-specific | States that stop work. GitHub values are lifecycle label slugs such as `done`. |
 | `tracker.github.repo` | string | — | GitHub owner/name used by Aiur. |
 | `tracker.github.label_prefix` | string | `agent` | Prefixes lifecycle labels. |
-| `tracker.github.bot_account` | string | nil | Account Aiur replies as or recognizes. |
+| `tracker.github.bot_account` | string | nil | Login identity Aiur recognizes as its own to suppress self-triggered comment/event loops. This is an identity, not the credential: `GITHUB_TOKEN` is the credential Aiur authenticates with. `aiur init` defaults it to the token's login; prefer a dedicated bot account when operators also comment from a trusted CODEOWNER account. |
 | `tracker.github.trusted_accounts` | array | `[]` | Usernames allowed to direct agents. |
 | `tracker.linear.api_key` | string | env fallback | Linear API key; `$VAR` resolves from the environment. |
 | `tracker.linear.project_slug` | string | nil | Linear project polled by Aiur. |

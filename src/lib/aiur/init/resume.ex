@@ -28,6 +28,7 @@ defmodule Aiur.Init.Resume do
     [
       "tracker: #{tracker["kind"]}",
       github["repo"] && "repo: #{github["repo"]}",
+      github["bot_account"] && "bot_account: #{github["bot_account"]}",
       "agent: #{agent["kind"]}",
       "routing: #{format_routing(agent["routing"])}",
       permission_mode && "permission_mode: #{permission_mode}",
