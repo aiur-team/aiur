@@ -166,6 +166,7 @@ defmodule Aiur.Application do
       Aiur.ProviderAccountGeneration,
       Aiur.ProviderMeters.Store,
       Aiur.UsageLedger,
+      Aiur.UsageAggregate.Store,
       Aiur.DecisionStore,
       {Aiur.DecisionMetrics.Writer, path: Aiur.DecisionMetrics.metrics_file()},
       Aiur.DecisionMetrics,
