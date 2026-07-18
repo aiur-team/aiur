@@ -3,21 +3,21 @@ defmodule Aiur.CodeownersTest do
 
   alias Aiur.Codeowners
 
-  setup do
-    repo_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-codeowners-test-#{System.unique_integer([:positive])}"
-      )
+  # Use ExUnit's per-test `:tmp_dir` (project-local `tmp/`) instead of the shared
+  # `System.tmp_dir!()` tmpfs: under `--cover` the shared `/tmp` can hit 100% and
+  # fail the setup mkdir/writes. See #1212.
+  @moduletag :tmp_dir
 
-    File.mkdir_p!(repo_root)
+  setup %{tmp_dir: tmp_dir} do
+    # Restore the OS-global cwd after each test so a leaked `File.cd!` (this
+    # file's parent-root discovery test, or an async sibling) can't corrupt the
+    # cwd-based repo-root fallback in `Codeowners`. See #1212.
+    original_cwd = File.cwd!()
+    on_exit(fn -> File.cd!(original_cwd) end)
 
-    on_exit(fn -> File.rm_rf(repo_root) end)
-
-    {:ok, repo_root: repo_root}
+    {:ok, repo_root: tmp_dir}
   end
 
-  @tag skip: "flaky: leaked-cwd + /tmp pressure under full suite; see #1212"
   test "uses GitHub CODEOWNERS location order and last matching rule", %{repo_root: repo_root} do
     write_codeowners!(repo_root, "docs/CODEOWNERS", "* @docs-owner")
     write_codeowners!(repo_root, "CODEOWNERS", "* @root-owner")
