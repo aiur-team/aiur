@@ -254,15 +254,15 @@ defmodule Aiur.Usage.GroupedScopes do
     |> Enum.reduce(%{}, fn entry, acc ->
       Map.update(acc, entry.currency, add_money(empty_acc(), entry), &add_money(&1, entry))
     end)
-    |> then(fn acc ->
-      Enum.reduce(api_amount, acc, fn {currency, amount}, acc ->
-        Map.update(acc, currency, %{empty_acc() | api_amount: %{currency => amount}}, fn bucket ->
-          %{bucket | api_amount: Map.update(bucket.api_amount, currency, amount, &Decimal.add(&1, amount))}
-        end)
-      end)
-    end)
+    |> then(&Enum.reduce(api_amount, &1, fn {currency, amount}, acc -> merge_api_amount(acc, currency, amount) end))
     |> Enum.map(fn {key, acc} -> present(key, finalize(acc)) end)
     |> Enum.sort_by(&sort_key(&1.key))
+  end
+
+  defp merge_api_amount(acc, currency, amount) do
+    Map.update(acc, currency, %{empty_acc() | api_amount: %{currency => amount}}, fn bucket ->
+      %{bucket | api_amount: Map.update(bucket.api_amount, currency, amount, &Decimal.add(&1, amount))}
+    end)
   end
 
   defp bucket(token_entries, money_entries, token_key, money_key) do
