@@ -17,6 +17,9 @@ defmodule Aiur.UsageLedger.StoreTest do
     def scan(_options), do: {:ok, []}
 
     @impl true
+    def retire(_watermark), do: {:ok, %{retired_through: 0, retired_count: 0}}
+
+    @impl true
     def health, do: :healthy
 
     @impl true
