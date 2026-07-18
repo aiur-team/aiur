@@ -38,8 +38,13 @@ test('Provider meters expose semantic meters, machine-readable resets, and stay 
       await expect(claude).toContainText('Account identity unknown')
       await expect(claude.getByRole('progressbar')).toHaveCount(0)
 
-      // Reset time is machine-readable and human-visible.
-      await expect(codex.locator('time')).toHaveAttribute('datetime', '2026-07-18T12:00:00Z')
+      // Reset time is machine-readable and human-visible. Scope to the Resets
+      // fact so the assertion targets the reset time and not the card's
+      // "Last observation" time, which is a sibling <time> in the same article.
+      const resetsFact = codex
+        .locator('.provider-meter-window-facts > div')
+        .filter({ has: page.locator('dt', { hasText: 'Resets' }) })
+      await expect(resetsFact.locator('time')).toHaveAttribute('datetime', '2026-07-18T12:00:00Z')
 
       // A single polite, atomic live region drives announcements.
       await expect(page.locator('#provider-meters-status')).toHaveAttribute('aria-live', 'polite')
