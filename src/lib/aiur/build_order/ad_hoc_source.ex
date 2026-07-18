@@ -81,7 +81,7 @@ defmodule Aiur.BuildOrder.AdHocSource do
   def handle_call(:snapshot, _from, state), do: {:reply, state.snapshot, state}
 
   def handle_call(:refresh_sync, _from, state) do
-    state = state |> apply_result(fetch(state)) |> broadcast()
+    state = apply_and_broadcast(state, fetch(state))
     {:reply, state.snapshot, state}
   end
 
@@ -93,13 +93,11 @@ defmodule Aiur.BuildOrder.AdHocSource do
 
   def handle_info({ref, result}, %{inflight: ref} = state) when is_reference(ref) do
     Process.demonitor(ref, [:flush])
-    state = %{state | inflight: nil} |> apply_result(result) |> broadcast()
-    {:noreply, state}
+    {:noreply, apply_and_broadcast(%{state | inflight: nil}, result)}
   end
 
   def handle_info({:DOWN, ref, :process, _pid, _reason}, %{inflight: ref} = state) do
-    state = %{state | inflight: nil} |> apply_result({:error, :task_down}) |> broadcast()
-    {:noreply, state}
+    {:noreply, apply_and_broadcast(%{state | inflight: nil}, {:error, :task_down})}
   end
 
   def handle_info(_message, state), do: {:noreply, state}
@@ -189,12 +187,23 @@ defmodule Aiur.BuildOrder.AdHocSource do
     %{state | snapshot: %Snapshot{status: :unavailable}}
   end
 
+  defp apply_and_broadcast(state, result) do
+    previous = state.snapshot
+    state = apply_result(state, result)
+    if meaningful(previous) != meaningful(state.snapshot), do: broadcast(state)
+    state
+  end
+
+  # Ignore observed_at/generation churn: only status or membership changes warrant
+  # waking subscribed LiveViews to reload.
+  defp meaningful(%Snapshot{status: status, members: members}), do: {status, members}
+
   defp broadcast(state) do
     if Process.whereis(Aiur.PubSub) do
       Phoenix.PubSub.broadcast(Aiur.PubSub, @topic, {:build_order_adhoc_updated, state.snapshot})
     end
 
-    state
+    :ok
   end
 
   defp now(state) do
