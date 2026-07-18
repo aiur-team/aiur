@@ -20,7 +20,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
         <div>
           <p class="section-eyebrow">Repository planning</p>
           <h2 id="build-order-catalog-title">Build Order catalog</h2>
-          <p>Select a repository-qualified root. Each entry retains its own structural diagnosis.</p>
+          <p>Select a repository to open its Build Order.</p>
         </div>
         <BuildOrderStatus.provider_health snapshot={RouteState.catalog_snapshot(@route_state)} now={@now} />
       </header>

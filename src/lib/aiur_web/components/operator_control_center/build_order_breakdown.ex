@@ -59,7 +59,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdown do
           <.breakdown_table
             id="bo-phase-breakdown"
             dimension="Phase"
-            caption="Members and complexity points per plan phase, a rollout hint that does not gate readiness."
+            caption="Members and complexity points per plan phase."
             rows={@projection.phases}
           />
           <.breakdown_table
