@@ -28,7 +28,7 @@ defmodule Aiur.BuildOrder.GraphAnalysis do
             cyclic_edges: MapSet.new(),
             topological_order: []
 
-  @spec analyze(term(), term()) :: t()
+  @spec analyze(term(), term()) :: %__MODULE__{}
   def analyze(nodes, edges) when is_list(nodes) and is_list(edges) do
     nodes = nodes |> Enum.uniq() |> Enum.sort() |> Enum.take(@max_nodes)
     node_set = MapSet.new(nodes)
