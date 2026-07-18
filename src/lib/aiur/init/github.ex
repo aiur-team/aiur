@@ -122,17 +122,20 @@ defmodule Aiur.Init.GitHub do
   the default `bot_account` — the identity Aiur recognizes and suppresses to avoid
   self-triggered comment/event loops.
 
-  Returns `nil` (never the token value) when no token is set or the viewer lookup
-  fails, so the caller can prompt without a default instead of crashing.
+  Returns `nil` (never the token value) when no token is set, the viewer lookup
+  fails, or the request raises, so the caller can prompt without a default
+  instead of crashing. `request_fun` is injectable for tests.
   """
-  @spec detect_bot_account() :: String.t() | nil
-  def detect_bot_account do
+  @spec detect_bot_account((map() -> {:ok, map()} | {:error, term()})) :: String.t() | nil
+  def detect_bot_account(request_fun \\ &Transport.default_request_fun/1) do
     with {:ok, token} <- require_github_token(),
-         {:ok, login} <- BotIdentity.fetch_authenticated_viewer_login(&Transport.default_request_fun/1, token) do
+         {:ok, login} <- BotIdentity.fetch_authenticated_viewer_login(request_fun, token) do
       Edit.normalize_login(login)
     else
       _ -> nil
     end
+  rescue
+    _ -> nil
   end
 
   @spec detect_repo() :: String.t() | nil

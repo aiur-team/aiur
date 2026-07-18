@@ -58,6 +58,30 @@ defmodule Aiur.Init.BotAccountTest do
     assert puts_output(pid) =~ "valid GitHub login"
   end
 
+  test "re-prompts on boundary-invalid logins (too long, leading/trailing hyphen)" do
+    for bad <- [String.duplicate("a", 40), "-bot", "bot-", "a--b"] do
+      {io, _pid} = io([bad, "good-bot"])
+      tracker = BotAccount.maybe_prompt(io, deps(nil), %{kind: "github", repo: "o/r"})
+      assert tracker.bot_account == "good-bot", "expected #{inspect(bad)} to be rejected"
+    end
+  end
+
+  test "accepts a 39-char login at the length boundary" do
+    login = String.duplicate("a", 39)
+    {io, _pid} = io([login])
+    tracker = BotAccount.maybe_prompt(io, deps(nil), %{kind: "github", repo: "o/r"})
+    assert tracker.bot_account == login
+  end
+
+  test "sanitizes an invalid detected default to a skip instead of looping" do
+    # A non-nil-but-invalid default would otherwise re-prompt forever in a
+    # non-interactive session (io.input keeps echoing the default). It must skip.
+    {io, pid} = io([])
+    tracker = BotAccount.maybe_prompt(io, deps("not a valid login"), %{kind: "github", repo: "o/r"})
+    assert tracker.bot_account == nil
+    assert puts_output(pid) =~ "Skipped bot_account"
+  end
+
   test "explains the credential-vs-identity distinction and the dedicated-account recommendation" do
     {io, pid} = io([""])
     BotAccount.maybe_prompt(io, deps(nil), %{kind: "github", repo: "o/r"})

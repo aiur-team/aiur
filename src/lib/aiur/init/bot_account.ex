@@ -8,7 +8,13 @@ defmodule Aiur.Init.BotAccount do
   The answer is normalized, validated as a GitHub login, and merged into the
   tracker map as `:bot_account` so the config template persists it under
   `tracker.github.bot_account`. A blank answer skips it (nothing written); a
-  malformed login re-prompts. No token value is ever shown or written.
+  malformed typed answer re-prompts. No token value is ever shown or written.
+
+  Non-interactive / `--force` runs are deterministic: the injected prompt echoes
+  the default, so setup applies the detected token login when one is resolved and
+  omits the key otherwise — the loop never blocks, since an unresolved or invalid
+  default is sanitized to nil (skip). Re-running init resumes and never rewrites
+  the tracker, so an existing `bot_account` is preserved.
   """
 
   alias Aiur.Codeowners.Edit
@@ -29,7 +35,11 @@ defmodule Aiur.Init.BotAccount do
   @spec maybe_prompt(Aiur.Init.io(), Aiur.Init.deps(), map()) :: map()
   def maybe_prompt(io, deps, %{kind: "github"} = tracker) do
     explain(io)
-    default = Edit.normalize_login(deps.github_bot_account_default.())
+    # Sanitize the detected default here so the prompt loop's termination never
+    # depends on the resolver only ever returning a valid login or nil: a
+    # non-interactive run echoes the default, so an invalid default must degrade
+    # to nil (skip) rather than re-prompt forever.
+    default = valid_login_or_nil(Edit.normalize_login(deps.github_bot_account_default.()))
     Map.put(tracker, :bot_account, prompt(io, default))
   end
 
@@ -55,7 +65,7 @@ defmodule Aiur.Init.BotAccount do
         nil
 
       login ->
-        if Regex.match?(@login_regex, login) and String.length(login) <= 39 do
+        if valid_login?(login) do
           login
         else
           io.puts.("Enter a valid GitHub login (letters, numbers, and single hyphens).")
@@ -63,4 +73,13 @@ defmodule Aiur.Init.BotAccount do
         end
     end
   end
+
+  @spec valid_login_or_nil(String.t() | nil) :: String.t() | nil
+  defp valid_login_or_nil(login) when is_binary(login), do: if(valid_login?(login), do: login)
+  defp valid_login_or_nil(_login), do: nil
+
+  # GitHub logins are ≤ 39 chars; the regex already bounds shape. Assumes a
+  # login normalized by `Edit.normalize_login/1` (trimmed, lowercased, no `@`).
+  @spec valid_login?(String.t()) :: boolean()
+  defp valid_login?(login), do: String.length(login) <= 39 and Regex.match?(@login_regex, login)
 end
