@@ -59,6 +59,80 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert html =~ "has an unknown dependency relation to"
     assert html =~ "is cyclic with"
     assert html =~ "Using readable document-flow layout."
+
+    # BO-013 interaction + accessibility scaffolding.
+    assert html =~ ~s(data-graph-viewport)
+    assert html =~ ~s(data-graph-content)
+    assert html =~ ~s(role="group" aria-label="Build order graph canvas")
+    assert html =~ ~s(data-graph-zoom="in")
+    assert html =~ ~s(data-graph-zoom="out")
+    assert html =~ ~s(data-graph-zoom="fit")
+    assert html =~ ~s(data-graph-zoom="reset")
+    assert html =~ ~s(aria-label="Zoom graph in")
+    assert html =~ ~s(data-graph-zoom-level)
+    assert html =~ ~s(data-graph-announce)
+    assert html =~ ~s(aria-live="polite")
+    assert html =~ "Keyboard help"
+    # Every card is focusable and carries a stable node identifier for the hook.
+    assert html =~ ~s(tabindex="0")
+    assert html =~ ~s(data-graph-node="BO-010")
+  end
+
+  test "renders transitive dependency-chain closures as sanitized card data attributes" do
+    html =
+      render_component(&BuildOrderGraph.build_order_graph/1, %{
+        id: "chain-graph",
+        root_id: "root-1",
+        provider_generation: 1,
+        dom_generation: 1,
+        layout_assets: %{client: "/client.js", worker: "/worker.js", engine: "/engine.js"},
+        model: chain_view_model()
+      })
+
+    # a -> b -> c (blocker -> blocked). b depends on a (upstream) and is
+    # depended on by c (downstream).
+    assert html =~ ~r/data-graph-node="b"[^>]*data-graph-upstream="a"[^>]*data-graph-downstream="c"/s
+    assert html =~ ~r/data-graph-node="a"[^>]*data-graph-downstream="b c"/s
+    # Root of the chain has no upstream attribute rendered.
+    refute html =~ ~r/data-graph-node="a"[^>]*data-graph-upstream=/s
+  end
+
+  defp chain_view_model do
+    %AiurWeb.BuildOrderViewModel{
+      status: :ready,
+      nodes: [chain_node("a"), chain_node("b"), chain_node("c")],
+      edges: [],
+      adjacency: %{"a" => ["b"], "b" => ["c"], "c" => []},
+      reverse_adjacency: %{"a" => [], "b" => ["a"], "c" => ["b"]}
+    }
+  end
+
+  defp chain_node(id) do
+    %AiurWeb.BuildOrderViewModel.Node{
+      key: id,
+      identity: nil,
+      title: "Node #{id}",
+      plan: %{},
+      execution: %{},
+      activity: %{},
+      readiness: :ready,
+      lane_icon: nil,
+      status_icon: nil,
+      health: %{},
+      observed_at: %{},
+      provenance: %{planning_generation: 1, activity_generation: 1},
+      diagnostics: [],
+      card: %{
+        identifier: id,
+        lane: 0,
+        phase: 1,
+        status_text: nil,
+        lifecycle: %{state: :open, state_reason: :none},
+        execution_state: :idle,
+        agent_stage: nil,
+        progress: nil
+      }
+    }
   end
 
   test "renders every presenter-derived icon key through accessible local components" do
