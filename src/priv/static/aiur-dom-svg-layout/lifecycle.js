@@ -15,6 +15,7 @@ export class DomSvgLayoutAdapter {
     this.ignoringResizeObservations = false
     this.resizeObservationEpoch = 0
     this.scheduled = false
+    this.layoutInFlight = false
     this.pendingReasons = new Set()
     this.client = null
     this.clientPromise = null
@@ -147,19 +148,32 @@ export class DomSvgLayoutAdapter {
     this.scheduled = true
     queueMicrotask(() => {
       this.scheduled = false
-      const reasons = [...this.pendingReasons]
-      this.pendingReasons.clear()
-      this.requestLayout(reasons)
+      this.flushLayout()
     })
+  }
+
+  flushLayout() {
+    // Coalesce triggers that arrive while a worker layout is in flight into a
+    // single trailing pass, so observer callbacks can never sustain a relayout
+    // loop and one logical change causes bounded layout work.
+    if (this.destroyed || this.layoutInFlight || this.pendingReasons.size === 0) return
+
+    const reasons = [...this.pendingReasons]
+    this.pendingReasons.clear()
+    this.requestLayout(reasons)
   }
 
   requestLayout(reasons) {
     if (this.destroyed) return
 
     this.configureClient()
-    const clientEpoch = this.clientEpoch
+    const clientPromise = this.clientPromise
+    if (!clientPromise) return
 
-    this.clientPromise?.then((client) => {
+    const clientEpoch = this.clientEpoch
+    this.layoutInFlight = true
+
+    Promise.resolve(clientPromise).then((client) => {
       if (!client || this.destroyed || clientEpoch !== this.clientEpoch) return
 
       const measured = this.measure(clientEpoch)
@@ -168,7 +182,7 @@ export class DomSvgLayoutAdapter {
       const { context, request } = measured
       this.notify("request", { reasons, request })
       setLayoutHealth(this.element, "measuring")
-      client.layout(request).then((response) => {
+      return client.layout(request).then((response) => {
         if (!this.canApply(context, request)) return this.discard(response)
         if (!validateLayoutResult(response, request)) return this.fallback("malformed_geometry")
         if (response.type === "error") return this.fallback(response.error?.code || "worker_failed")
@@ -179,6 +193,9 @@ export class DomSvgLayoutAdapter {
       }).catch((error) => {
         if (this.canApply(context, request)) this.fallback(errorCode(error, "worker_failed"))
       })
+    }).finally(() => {
+      this.layoutInFlight = false
+      this.flushLayout()
     })
   }
 
