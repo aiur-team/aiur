@@ -2,7 +2,7 @@ defmodule Aiur.UsageLedger.Recovery do
   @moduledoc false
 
   alias Aiur.{Config, DecisionLog, Fs}
-  alias Aiur.UsageLedger.{Checkpoint, CounterPolicy, Paths, Record}
+  alias Aiur.UsageLedger.{Checkpoint, CounterPolicy, Paths, Record, RetiredFloor}
 
   @default_limits %{
     max_record_bytes: 32_768,
@@ -47,23 +47,77 @@ defmodule Aiur.UsageLedger.Recovery do
   defp load(paths, persistence) do
     marker_status = marker_status(paths.degraded_path)
 
-    with {:ok, tail_status} <- segment_tail_status(paths.segment_path, persistence.limits.max_segment_bytes),
+    with {:ok, floor} <- retired_floor(paths.retired_path),
+         {:ok, tail_status} <- segment_tail_status(paths.segment_path, persistence.limits.max_segment_bytes),
          {:ok, records, segment_health} <- replay(paths.segment_path, persistence.limits, tail_status),
          {:ok, checkpoint, checkpoint_status} <- checkpoint(paths.checkpoint_path, persistence.limits) do
-      recovery = restore(records, checkpoint, checkpoint_status, segment_health)
-      state = recovered_state(paths, records, recovery, marker_status, persistence)
+      if floor == 0 do
+        recovery = restore(records, checkpoint, checkpoint_status, segment_health)
+        state = recovered_state(paths, records, recovery, marker_status, persistence)
 
-      {:ok,
-       finalize_recovery(
-         state,
-         marker_status,
-         recovery.checkpoint_health,
-         recovery.segment_health,
-         persistence
-       )}
+        {:ok,
+         finalize_recovery(
+           state,
+           marker_status,
+           recovery.checkpoint_health,
+           recovery.segment_health,
+           persistence
+         )}
+      else
+        retained = Enum.filter(records, &(&1.position > floor))
+        {:ok, restore_retired(paths, retained, floor, checkpoint, checkpoint_status, segment_health, marker_status, persistence)}
+      end
     else
       {:error, reason} -> {:ok, unavailable_state(reason, persistence)}
     end
+  end
+
+  # A corrupt floor is only ever present once retirement has run, and without a
+  # trustworthy watermark the retained tail cannot reconstruct the retired
+  # prefix — halt rather than guess. A missing floor means nothing was retired.
+  defp retired_floor(path) do
+    case RetiredFloor.load(path) do
+      :missing -> {:ok, 0}
+      {:ok, value} -> {:ok, value}
+      {:corrupt, _reason} -> {:error, :retired_floor_corrupt}
+    end
+  end
+
+  # Once a prefix is retired the raw source for it is gone, so the durable
+  # checkpoint — not a full replay — is the authoritative counter state. The
+  # retained tail must line up exactly on top of the checkpoint head; anything
+  # ambiguous halts (a documented rebuild limit), preserving the last validated
+  # queryable state rather than resetting totals.
+  defp restore_retired(paths, retained, floor, checkpoint, checkpoint_status, segment_health, marker_status, persistence) do
+    cond do
+      checkpoint_status != :healthy ->
+        %{unavailable_state(:checkpoint_required_after_retirement, persistence) | retired_through: floor}
+
+      segment_health != :healthy ->
+        %{unavailable_state(:retired_segment_unhealthy, persistence) | retired_through: floor}
+
+      not contiguous_tail?(retained, floor, checkpoint.position) ->
+        %{unavailable_state(:retired_segment_inconsistent, persistence) | retired_through: floor}
+
+      true ->
+        %{
+          paths: paths,
+          records: retained,
+          policy: checkpoint.policy,
+          position: checkpoint.position,
+          generation: checkpoint.generation,
+          coverage: checkpoint.policy.coverage,
+          health: marker_health(:healthy, marker_status),
+          writable?: marker_status == :absent,
+          limits: persistence.limits,
+          retired_through: floor
+        }
+    end
+  end
+
+  defp contiguous_tail?(records, floor, position) do
+    expected = if position > floor, do: Enum.to_list((floor + 1)..position), else: []
+    Enum.map(records, & &1.position) == expected
   end
 
   defp replay(path, limits, tail_status) do
@@ -163,7 +217,8 @@ defmodule Aiur.UsageLedger.Recovery do
       writable?:
         recovery.checkpoint_health in [:healthy, :missing] and
           recovery.segment_health == :healthy and marker_status == :absent,
-      limits: persistence.limits
+      limits: persistence.limits,
+      retired_through: 0
     }
   end
 
@@ -405,7 +460,8 @@ defmodule Aiur.UsageLedger.Recovery do
       coverage: %{lower: nil, upper: nil, status: :empty},
       health: {:unavailable, safe_reason(reason)},
       writable?: false,
-      limits: persistence.limits
+      limits: persistence.limits,
+      retired_through: 0
     }
   end
 

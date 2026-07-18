@@ -31,6 +31,23 @@ defmodule Aiur.UsageAggregate.Projection do
   def new, do: %__MODULE__{}
 
   @doc """
+  Seeds a projection from a DASH-025 compacted-coverage floor: the exact merged
+  cells of the retired position range at `source_position`. Folding the retained
+  raw above the floor reproduces the full pre-compaction projection. An empty
+  floor is equivalent to `new/0`, so a non-retired rebuild is unchanged.
+  """
+  @spec seed(%{
+          source_position: non_neg_integer(),
+          source_generation: non_neg_integer(),
+          cells: map(),
+          coverage: map()
+        }) :: t()
+  def seed(%{source_position: position, source_generation: generation, cells: cells, coverage: coverage})
+      when is_integer(position) and position >= 0 and is_map(cells) and is_map(coverage) do
+    %__MODULE__{cells: cells, source_position: position, source_generation: generation, generation: 0, coverage: coverage}
+  end
+
+  @doc """
   Folds one ordered replay record. Records at or before `source_position` are
   ignored; a record must advance the position by exactly consuming the next
   ledger delta the caller supplied in order.

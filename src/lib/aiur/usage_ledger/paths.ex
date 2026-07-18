@@ -20,6 +20,7 @@ defmodule Aiur.UsageLedger.Paths do
          segment_path: segment_path,
          checkpoint_path: Path.join(root, "checkpoint.json"),
          degraded_path: Path.join(root, "degraded.json"),
+         retired_path: Path.join(root, "retired.json"),
          quarantine_dir: Path.join(root, "quarantine")
        }}
     end
