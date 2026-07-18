@@ -5,8 +5,8 @@ defmodule Aiur.Usage.GroupedScopesTest do
   alias Aiur.TestSupport.UsageAggregate, as: Aggregate
   alias Aiur.Usage.GroupedScopes
   alias Aiur.Usage.GroupedScopes.Scope
-  alias Aiur.Usage.Pricing
   alias Aiur.Usage.PriceTable
+  alias Aiur.Usage.Pricing
   alias Aiur.UsageEnvelope.RelationshipRegistry
 
   defp mixed_run_source do

@@ -43,7 +43,9 @@ defmodule Aiur.Usage.GroupedScopes do
   `reasoning_output` ⊂ `output`) never double counts against the roll-up.
   """
 
+  alias Aiur.Claude.Telemetry.UsageAdapter.Relationship
   alias Aiur.Usage.GroupedScopes.{PriceAdapter, Scope}
+  alias Aiur.Usage.Headless.Catalog
   alias Aiur.Usage.PriceTable
   alias Aiur.UsageAggregate.Key
   alias Aiur.UsageEnvelope.RelationshipRegistry
@@ -108,8 +110,8 @@ defmodule Aiur.Usage.GroupedScopes do
   defp default_relationship_catalog do
     {:ok, catalog} =
       RelationshipRegistry.register(
-        Aiur.Usage.Headless.Catalog.relationship_catalog(),
-        Aiur.Claude.Telemetry.UsageAdapter.Relationship.definition()
+        Catalog.relationship_catalog(),
+        Relationship.definition()
       )
 
     catalog
