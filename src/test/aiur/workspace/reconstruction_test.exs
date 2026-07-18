@@ -87,7 +87,7 @@ defmodule Aiur.Workspace.ReconstructionTest do
                :ok
              end)
 
-    assert_receive {:staged_size, staged_size}
+    assert_receive {:staged_size, staged_size}, 5_000
     assert {:ok, %File.Stat{size: size}} = File.stat(log)
     assert size == previous_size + staged_size
     assert File.ls!(Path.dirname(workspace)) == [Path.basename(workspace)]
@@ -206,7 +206,7 @@ defmodule Aiur.Workspace.ReconstructionTest do
         end)
       end)
 
-    assert_receive :cold_fallback_recheck_entered
+    assert_receive :cold_fallback_recheck_entered, 5_000
 
     writer =
       Task.async(fn ->

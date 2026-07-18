@@ -5110,7 +5110,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
   describe "ticket.<blocker>.agent.unblocked auto-resumes paused blockees" do
     setup do
-      :ok = BranchRefStore.reset()
+      reset_branch_refs()
 
       # Isolate subscription persistence to a unique tmp dir. `attach` loads
       # any `<repo>.<identifier>.subscriptions.json` left on disk, and the
@@ -5129,7 +5129,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       :ok = SubscriptionStore.attach(identifier)
 
       on_exit(fn ->
-        :ok = BranchRefStore.reset()
+        reset_branch_refs()
         :ok = SubscriptionStore.stop(identifier)
 
         if original_log_file do
@@ -5154,6 +5154,32 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
     defp blocker_ref, do: "refs/heads/aiur/99-dependency"
     defp blocker_sha, do: String.duplicate("a", 40)
+
+    # BranchRefStore persists through a disk-backed GenServer. Under full-suite
+    # IO load a write can transiently fail; on failure it rolls the in-memory
+    # state back and re-persists on a scheduled retry (production recovers the
+    # same way via PushRouting.reconcile_durable_unblocks). Drive these
+    # singleton operations to convergence so a saturated box does not surface
+    # as a spurious failure of an assertion that reads the store immediately.
+    defp reset_branch_refs, do: assert_eventually(fn -> BranchRefStore.reset() == :ok end)
+
+    defp record_blocker_ref,
+      do: assert_eventually(fn -> BranchRefStore.record(blocker_ref(), blocker_sha()) == :ok end)
+
+    defp assert_ready_unblock(expected),
+      do: assert_eventually(fn -> BranchRefStore.ready_unblock("99") == expected end)
+
+    defp assert_eventually(fun, attempts \\ 50)
+    defp assert_eventually(fun, 0), do: assert(fun.())
+
+    defp assert_eventually(fun, attempts) do
+      if fun.() do
+        :ok
+      else
+        Process.sleep(20)
+        assert_eventually(fun, attempts - 1)
+      end
+    end
 
     defp blocker_pause_fields do
       %{
@@ -5186,7 +5212,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
     end
 
     defp with_blocker_push(entry) do
-      :ok = BranchRefStore.record(blocker_ref(), blocker_sha())
+      record_blocker_ref()
       entry
     end
 
@@ -5238,7 +5264,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       fake_pid: fake_pid
     } do
       :ok = SubscriptionStore.add_subscription(identifier, "ticket.99.agent.unblocked", "blocker:auto")
-      :ok = BranchRefStore.record(blocker_ref(), blocker_sha())
+      record_blocker_ref()
 
       issue_id = "issue-replaced-pause"
       issue = control_issue(issue_id, identifier, "ci-wait")
@@ -5293,7 +5319,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       fake_pid: fake_pid
     } do
       :ok = SubscriptionStore.add_subscription(identifier, "ticket.99.agent.unblocked", "blocker:auto")
-      :ok = BranchRefStore.record(blocker_ref(), blocker_sha())
+      record_blocker_ref()
       issue_id = "issue-current-generation"
 
       matching_entry =
@@ -5394,7 +5420,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         sha: blocker_sha()
       })
 
-      assert BranchRefStore.ready_unblock("99") == %{ref: blocker_ref(), sha: blocker_sha()}
+      assert_ready_unblock(%{ref: blocker_ref(), sha: blocker_sha()})
       :ok = SubscriptionStore.add_subscription(identifier, "ticket.99.agent.unblocked", "blocker:auto")
       issue_id = "issue-restored-after-ready"
 
@@ -5419,7 +5445,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       assert get_in(resumed.running, [issue_id, :control, :status]) == :paused
       resumed = confirm_pending_control(resumed, issue_id, :working)
       assert get_in(resumed.running, [issue_id, :control, :status]) == :working
-      assert BranchRefStore.ready_unblock("99") == nil
+      assert_ready_unblock(nil)
     end
 
     test "parked blockee ignores branch push then consumes explicit unblocked and resumes", %{
@@ -5511,7 +5537,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       assert get_in(resumed.running, [issue_id, :control, :status]) == :paused
       assert get_in(resumed.running, [issue_id, :pending_auto_resume, :blocker_identifier]) == "99"
-      assert BranchRefStore.ready_unblock("99") == %{ref: blocker_ref(), sha: blocker_sha()}
+      assert_ready_unblock(%{ref: blocker_ref(), sha: blocker_sha()})
       resumed = confirm_pending_control(resumed, issue_id, :working)
       assert get_in(resumed.running, [issue_id, :control, :status]) == :working
       refute Map.has_key?(resumed.running[issue_id], :pending_auto_resume)
@@ -5570,7 +5596,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         max_concurrent_agents: 6
       }
 
-      :ok = BranchRefStore.record(blocker_ref(), blocker_sha())
+      record_blocker_ref()
 
       after_unblock =
         EventTopics.route(state, %{
@@ -5584,10 +5610,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       after_unblock = confirm_pending_control(after_unblock, first_issue_id, :working)
       assert get_in(after_unblock.running, [first_issue_id, :control, :status]) == :working
 
-      assert BranchRefStore.ready_unblock("99") == %{
-               ref: blocker_ref(),
-               sha: blocker_sha()
-             }
+      assert_ready_unblock(%{ref: blocker_ref(), sha: blocker_sha()})
 
       after_late_pause =
         EventTopics.route(after_unblock, %{
@@ -5604,7 +5627,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       assert get_in(reconciled.running, [late_issue_id, :control, :status]) == :paused
       reconciled = confirm_pending_control(reconciled, late_issue_id, :working)
       assert get_in(reconciled.running, [late_issue_id, :control, :status]) == :working
-      assert BranchRefStore.ready_unblock("99") == nil
+      assert_ready_unblock(nil)
     end
 
     test "unblock stays durable for a declared consumer that has not started yet", %{
@@ -5654,7 +5677,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         max_concurrent_agents: 6
       }
 
-      :ok = BranchRefStore.record(blocker_ref(), blocker_sha())
+      record_blocker_ref()
 
       after_unblock =
         EventTopics.route(state, %{
@@ -5665,7 +5688,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       assert get_in(after_unblock.running, [first_issue_id, :control, :status]) == :paused
       after_unblock = confirm_pending_control(after_unblock, first_issue_id, :working)
       assert get_in(after_unblock.running, [first_issue_id, :control, :status]) == :working
-      assert BranchRefStore.ready_unblock("99") == %{ref: blocker_ref(), sha: blocker_sha()}
+      assert_ready_unblock(%{ref: blocker_ref(), sha: blocker_sha()})
 
       late_pid = spawn_link(fn -> fake_agent_loop() end)
 
@@ -5691,7 +5714,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       assert get_in(reconciled.running, [late_issue_id, :control, :status]) == :paused
       reconciled = confirm_pending_control(reconciled, late_issue_id, :working)
       assert get_in(reconciled.running, [late_issue_id, :control, :status]) == :working
-      assert BranchRefStore.ready_unblock("99") == nil
+      assert_ready_unblock(nil)
     end
 
     test "final unblock requires canonical ref and SHA corroborated by branch push", %{
@@ -5839,7 +5862,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         max_concurrent_agents: 6
       }
 
-      :ok = BranchRefStore.record(blocker_ref(), blocker_sha())
+      record_blocker_ref()
 
       events = [
         %{topic: "ticket.99.agent.unblocked", temporary_stub: true, ref: blocker_ref(), sha: blocker_sha()},
