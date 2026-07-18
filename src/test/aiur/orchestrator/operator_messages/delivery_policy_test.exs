@@ -90,6 +90,27 @@ defmodule Aiur.Orchestrator.OperatorMessages.DeliveryPolicyTest do
            ]
   end
 
+  test "blocker-critical digest interrupts an active turn while a normal digest does not" do
+    identifier = "delivery-policy-blocker-#{System.unique_integer([:positive])}"
+    turn_id = "turn-#{System.unique_integer([:positive])}"
+    :ok = ActiveTurns.put(identifier, turn_id)
+    on_exit(fn -> ActiveTurns.mark_closed(identifier, turn_id, :test_cleanup) end)
+
+    running_entry = running_entry(identifier, :working)
+    branch_event = %{topic: "ticket.#{identifier}.branch.push"}
+
+    # A non-critical digest arriving during an active turn holds at the boundary.
+    assert DeliveryPolicy.event_digest_delivery_opts(running_entry, branch_event, false) ==
+             [source: :system]
+
+    # A blocker-critical digest requests the acknowledged interrupt primitive.
+    assert DeliveryPolicy.event_digest_delivery_opts(running_entry, branch_event, true) ==
+             [source: :system, priority: :now, interrupt_requested: true]
+
+    # No running agent means nothing to interrupt.
+    assert DeliveryPolicy.event_digest_delivery_opts(nil, branch_event, true) == [source: :system]
+  end
+
   defp running_entry(identifier, status) do
     %{identifier: identifier, control: %{status: status}}
   end
