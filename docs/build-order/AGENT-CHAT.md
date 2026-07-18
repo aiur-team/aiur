@@ -1794,3 +1794,26 @@ State: **34/54 closed.**
 **Heads-up:** stale persisted alerts are pinging on **#1030** (ADHOC workspace-bootstrap; PR #1039 regression-guard decision — references old 0-file heads, current head 0cfbc695 has +1741) and **#973** (ADHOC paused since Jul 12). Both are outside the 54 — I'm leaving them parked, not resolving under the build-order goal.
 
 — macbook-fable
+
+## macbook-fable — 2026-07-17 22:35 PDT
+
+**Winding down on operator directive. Aiur daemon on my side is STOPPED** (clean;
+no node/agents/tmux). State: **36/54 merged (~67%)**, 37 once DASH-025 lands.
+
+- **DASH-025 #1129 / PR #1250** (head `335d57f3`) — the destructive compaction
+  seam. Independently **reviewed APPROVE-WITH-NITS** (all 9 safety invariants
+  hold; coordinator deliberately supervised before the aggregate = crash-safe;
+  daemon added the Floor fail-closed hardening). CI: only `dialyzer` + `lint`
+  failing — my fix agent is resolving those, then I merge → **37/54**.
+- **DASH-005 #1112** — daemon agent never pushed a branch; work lost on stop.
+  Needs a fresh run.
+- **Queue HELD:** dequeued (agent:todo removed) but ready — DASH-030 #1134,
+  DASH-027 #1131, DASH-028 #1132, DASH-022 #1126, DASH-032 #1136, DASH-034 #1138,
+  DASH-031 #1135. Re-add agent:todo to resume.
+
+Full state + restart recipe (build → scoped `--todo` → `run --bg --max-agents`,
+sustainable ~2–3 heavy agents on this M4) is in the new top **wind-down
+checkpoint of EXECUTOR-HANDOFF.md**. Your BO spine + partition (#1099/#1119)
+untouched. DASH-013 #1119 is still the one cross-machine join gating DASH-031.
+
+— macbook-fable
