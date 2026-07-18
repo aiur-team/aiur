@@ -997,6 +997,92 @@ defmodule AiurWeb.DashboardLiveTest do
     assert socket.assigns.writable == false
   end
 
+  test "denied usage and cost panel is locked and invokes no protected usage provider" do
+    orchestrator_name = Module.concat(__MODULE__, :DeniedUsageOrchestrator)
+    previous_username = System.get_env("AIUR_DASHBOARD_USERNAME")
+    previous_password = System.get_env("AIUR_DASHBOARD_PASSWORD")
+    System.delete_env("AIUR_DASHBOARD_USERNAME")
+    System.delete_env("AIUR_DASHBOARD_PASSWORD")
+
+    on_exit(fn ->
+      restore_env("AIUR_DASHBOARD_USERNAME", previous_username)
+      restore_env("AIUR_DASHBOARD_PASSWORD", previous_password)
+    end)
+
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      dashboard_auth_required: false
+    )
+
+    {:ok, view, html} = live(build_conn(), "/")
+    socket = :sys.get_state(view.pid).socket
+
+    # The panel renders the value-free locked view and never fetched, cached, or
+    # subscribed to a protected snapshot.
+    assert socket.assigns.usage_summary.state == :locked
+    assert socket.assigns.usage_summary_source == nil
+    assert socket.assigns.usage_summary_drill == nil
+    refute Map.has_key?(socket.assigns.usage_summary, :tokens)
+    refute Map.has_key?(socket.assigns.usage_summary, :api_equivalent)
+
+    rendered = render(view)
+    assert html =~ "usage-summary-card"
+    assert rendered =~ "Financial data locked"
+
+    # No protected usage/cost/tier/coverage region or drill-down control leaks
+    # into a denied connection's HTML or serialized socket state.
+    for marker <- [
+          "API-equivalent estimate",
+          "Provider-reported estimate",
+          "Plan tier",
+          "Pricing coverage",
+          ~s(phx-click="usage-drill-down"),
+          "usage-drill-region"
+        ] do
+      refute rendered =~ marker, "denied usage panel leaked #{inspect(marker)}"
+    end
+
+    refute inspect(socket.assigns.usage_summary) =~ "API-equivalent"
+  end
+
+  test "authorized usage and cost panel opens the capability gate without leaking a locked state" do
+    orchestrator_name = Module.concat(__MODULE__, :AuthorizedUsageOrchestrator)
+    previous_username = System.get_env("AIUR_DASHBOARD_USERNAME")
+    previous_password = System.get_env("AIUR_DASHBOARD_PASSWORD")
+    System.put_env("AIUR_DASHBOARD_USERNAME", "operator")
+    System.put_env("AIUR_DASHBOARD_PASSWORD", "usage-panel-secret")
+
+    on_exit(fn ->
+      restore_env("AIUR_DASHBOARD_USERNAME", previous_username)
+      restore_env("AIUR_DASHBOARD_PASSWORD", previous_password)
+    end)
+
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      dashboard_auth_required: true,
+      dashboard_writable: false
+    )
+
+    conn =
+      build_conn()
+      |> Plug.Conn.put_req_header("authorization", "Basic " <> Base.encode64("operator:usage-panel-secret"))
+
+    assert {:ok, view, _html} = live(conn, "/")
+    socket = :sys.get_state(view.pid).socket
+
+    # The gate opens: the panel is no longer locked. With no active run scope it
+    # is a truthful empty state, never a synthetic zero total.
+    assert socket.assigns.financial_data_capability.state == :authorized
+    refute socket.assigns.usage_summary.state == :locked
+    assert socket.assigns.usage_summary.state in [:empty, :ready, :partial, :stale, :unavailable]
+  end
+
   describe "authenticated provider meter cards" do
     test "a locked connection renders the content-free locked card and never invokes the meter source" do
       orchestrator_name = Module.concat(__MODULE__, :LockedMetersOrchestrator)

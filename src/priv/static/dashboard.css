@@ -4902,3 +4902,332 @@ textarea:focus-visible,
     justify-content: flex-start;
   }
 }
+
+/* ------------------------------------------------------------------ *
+ * DASH-031 — authenticated usage and cost summary                     *
+ * Namespaced .usage-summary-* so it serializes with the shared        *
+ * dashboard composition and responsive CSS without semantic reorder.  *
+ * Reflows totals, disclosures, groups, and drill-down at 320/390/768/  *
+ * 960/desktop and 200% zoom; controls keep 44px targets.              *
+ * ------------------------------------------------------------------ */
+.usage-summary-card {
+  margin-top: 1rem;
+  margin-bottom: 1rem;
+}
+
+.usage-summary-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.usage-summary-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.usage-summary-badge {
+  padding: 0.15rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--fg);
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.usage-summary-badge.health-healthy,
+.usage-summary-badge.freshness-fresh {
+  border-color: var(--good);
+}
+
+.usage-summary-badge.health-degraded,
+.usage-summary-badge.freshness-partial,
+.usage-summary-badge.freshness-unknown {
+  border-color: var(--attention);
+}
+
+.usage-summary-badge.health-unavailable,
+.usage-summary-badge.freshness-stale,
+.usage-summary-badge.freshness-unavailable {
+  border-color: var(--blocking);
+}
+
+.usage-summary-state {
+  margin-top: 0.75rem;
+}
+
+.usage-summary-body {
+  margin-top: 0.85rem;
+}
+
+.usage-summary-scope {
+  margin: 0 0 0.75rem;
+}
+
+.usage-summary-note {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin: 0.2rem 0;
+}
+
+.usage-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  gap: 1rem;
+}
+
+.usage-summary-panel {
+  min-width: 0;
+  padding: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.usage-summary-panel h3 {
+  margin: 0 0 0.6rem;
+  font-size: 0.95rem;
+}
+
+.usage-summary-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-summary-table caption {
+  text-align: left;
+}
+
+.usage-summary-table th[scope="row"] {
+  text-align: left;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.usage-summary-table th[scope="col"] {
+  text-align: left;
+  font-size: 0.8rem;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+}
+
+.usage-summary-table td {
+  text-align: right;
+  font-weight: 600;
+}
+
+.usage-summary-table tfoot th,
+.usage-summary-table tfoot td {
+  border-top: 1px solid var(--line);
+  font-weight: 700;
+}
+
+.usage-summary-money {
+  list-style: none;
+  margin: 0.3rem 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1rem;
+}
+
+.usage-summary-amount {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
+.usage-summary-mark {
+  color: var(--attention);
+  font-weight: 700;
+}
+
+.usage-summary-coverage {
+  margin: 0.4rem 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.usage-disclosure {
+  margin-top: 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-3);
+}
+
+.usage-disclosure > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.usage-disclosure > p {
+  margin: 0.5rem 0.75rem 0.75rem;
+  color: var(--fg);
+  font-size: 0.9rem;
+}
+
+.usage-summary-tiers {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.usage-summary-tiers li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.3rem;
+}
+
+.usage-summary-tiers li.tier-unjoined .usage-summary-tier-label {
+  color: var(--muted);
+}
+
+.usage-summary-tier-label {
+  font-weight: 600;
+}
+
+.usage-summary-facts {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.3rem 0.75rem;
+  margin: 0;
+}
+
+.usage-summary-fact {
+  display: contents;
+}
+
+.usage-summary-fact dt {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.usage-summary-fact dd {
+  margin: 0;
+  font-weight: 600;
+  text-align: right;
+}
+
+.usage-summary-drill {
+  margin-top: 1rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--line);
+}
+
+.usage-summary-drill h3 {
+  margin: 0 0 0.6rem;
+  font-size: 0.95rem;
+}
+
+.usage-drill-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.usage-drill-region {
+  margin-top: 0.85rem;
+}
+
+.usage-drill-region-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.usage-drill-region-header h4 {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+/* All interactive controls keep a comfortable 44px target. */
+.usage-control {
+  min-height: 44px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.4rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--fg);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.usage-control:hover {
+  border-color: var(--accent);
+}
+
+.usage-control:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.usage-summary-card .locked-panel h3 {
+  margin: 0 0 0.4rem;
+}
+
+/* 768px and narrower: collapse the panel grid to a single column. */
+@media (max-width: 768px) {
+  .usage-summary-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 390px and narrower: stack the header and drill controls full width. */
+@media (max-width: 390px) {
+  .usage-summary-header,
+  .usage-drill-region-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .usage-drill-controls .usage-control {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* 320px: keep money values from overflowing the narrowest viewport. */
+@media (max-width: 320px) {
+  .usage-summary-money {
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+
+  .usage-summary-amount {
+    font-size: 1rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .usage-control {
+    transition: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .usage-summary-badge,
+  .usage-summary-panel,
+  .usage-disclosure,
+  .usage-control {
+    border-color: CanvasText;
+  }
+
+  .usage-summary-mark {
+    color: CanvasText;
+  }
+}

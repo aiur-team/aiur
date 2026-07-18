@@ -33,6 +33,18 @@ defmodule Aiur.UsageAggregate do
   @spec snapshot() :: map()
   def snapshot, do: Store.snapshot()
 
+  @doc """
+  Returns the retained aggregate cells paired with the bounded metadata as
+  `%{cells: cells, metadata: metadata}`, the source shape the pure grouped-scope
+  query layer (DASH-030) consumes.
+
+  Work is proportional to the retained cell count, never to ledger size. The
+  cells stay server-side: the grouped-scope layer reduces them to a bounded,
+  scope-restricted snapshot before anything reaches a browser.
+  """
+  @spec cells_snapshot() :: %{cells: map(), metadata: map()}
+  def cells_snapshot, do: Store.cells_snapshot()
+
   @spec health() :: term()
   def health, do: Store.health()
 
