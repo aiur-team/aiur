@@ -1057,7 +1057,7 @@ defmodule Aiur.ExtensionsTest do
     )
 
     {:ok, view, html} = live(build_conn(), "/?v=1&scope=unfinished")
-    assert html =~ "Executor Control Center"
+    assert html =~ "Operator Control Center"
     assert html =~ "1100"
     assert html =~ "1101"
     assert html =~ "Progress unavailable"

@@ -16,10 +16,10 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
   def dashboard_shell(assigns) do
     ~H"""
     <section class="dashboard-shell">
-      <aside class="shell-sidebar" aria-label="Executor Control Center navigation">
-        <a class="brand-mini" href="/" aria-label="Aiur Executor Control Center">
+      <aside class="shell-sidebar" aria-label="Operator Control Center navigation">
+        <a class="brand-mini" href="/" aria-label="Aiur Operator Control Center">
           <img class="brand-mini-logo" src="/aiur-logo.png" alt="" />
-          <span class="brand-wordmark"><b>aiur</b> / Executor Control Center</span>
+          <span class="brand-wordmark"><b>aiur</b> / Operator Control Center</span>
         </a>
         <.navigation
           routes={@routes}
@@ -32,7 +32,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
       <div class="shell-main">
         <header class="topbar">
           <div class="route-context">
-            <p class="route-eyebrow">Executor Control Center</p>
+            <p class="route-eyebrow">Operator Control Center</p>
             <h1 id="route-title">{@route.label}</h1>
             <p>{@route.description}</p>
           </div>
