@@ -209,6 +209,22 @@ defmodule Aiur.Usage.GroupedScopesTest do
       # only bites because the correct roll-up is strictly below rollup + this.
       assert Decimal.gt?(overcount, Decimal.new(0))
     end
+
+    test "a subset child exceeding its parent is unknown coverage, never a negative amount" do
+      # Only a degraded/corrupt aggregate can carry reasoning_output > output in
+      # the same group; the parent remainder is then unknowable, not negative.
+      source =
+        Support.raw_source([
+          {Support.dims(), {:token, :output}, 4},
+          {Support.dims(), {:token, :reasoning_output}, 10}
+        ])
+
+      snap = project(source, Scope.this_run("run-1115"))
+
+      assert :invalid_parent_remainder in snap.api_equivalent_estimate.coverage.reasons
+      assert snap.coverage.unknown_pricing_tokens[:invalid_parent_remainder] == 4
+      refute Enum.any?(Map.values(snap.api_equivalent_estimate.rollup), &Decimal.lt?(&1, Decimal.new(0)))
+    end
   end
 
   describe "contributor reconciliation" do

@@ -76,16 +76,18 @@ defmodule Aiur.Usage.GroupedScopes.PriceAdapter do
   # remainder. The partition check runs first, so a provider whose components
   # never price from the aggregate (codex) keeps its own `:unknown` reason and
   # never reaches this. Remainder is exact at the aggregate level because
-  # `Σ(parent_r − child_r) = parent_cell − child_cell`.
+  # `Σ(parent_r − child_r) = parent_cell − child_cell`. A negative remainder can
+  # only come from an inconsistent (degraded/corrupt) source where a child cell
+  # exceeds its parent; that is explicit unknown coverage, never a negative
+  # amount, matching DASH-011's `:invalid_parent_remainder`.
   defp remainder(dims, token_dimension, siblings, relationships) do
-    case RelationshipRegistry.subset_children(relationships, dims.provider, dims.relationship_revision) do
-      {:ok, edges} ->
-        children = Map.get(edges, token_dimension, [])
-        subtract = Enum.reduce(children, 0, fn child, sum -> sum + Map.get(siblings, child, 0) end)
-        {:ok, Map.fetch!(siblings, token_dimension) - subtract}
+    with {:ok, edges} <-
+           RelationshipRegistry.subset_children(relationships, dims.provider, dims.relationship_revision) do
+      children = Map.get(edges, token_dimension, [])
+      subtract = Enum.reduce(children, 0, fn child, sum -> sum + Map.get(siblings, child, 0) end)
+      remainder = Map.fetch!(siblings, token_dimension) - subtract
 
-      {:error, reason} ->
-        {:unknown, reason}
+      if remainder < 0, do: {:unknown, :invalid_parent_remainder}, else: {:ok, remainder}
     end
   end
 
