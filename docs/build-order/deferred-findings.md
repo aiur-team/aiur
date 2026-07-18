@@ -134,3 +134,24 @@ critical-path capacity, or prevent completion.
 - Future disposition: reproduce after the recovery restart, then make the
   helper exit immediately after the framed success marker and distinguish a
   target RPC timeout from helper-shutdown latency.
+
+## DF-013 — DASH-015 provider-meter browser proof red and unwired
+
+- Severity: P1 dashboard-accessibility candidate — escalated to the Executor for
+  a blocker-vs-defer routing decision (surfaced by the DASH-033 parity capstone).
+- Evidence: `src/browser/tests/provider_meters.browser.spec.mjs` (landed with
+  DASH-015 #1263) fails on a clean `develop` — an axe `color-contrast` violation
+  (meter text 3.05:1, `#676b74` on `#1e2025`, below WCAG AA 4.5:1) and a
+  strict-mode locator matching two `<time>` elements (spec line ~42). The spec
+  was also never added to the `npm test` chain in `src/browser/package.json`, so
+  the browser CI job never ran it. Repro: `cd src/browser && node
+  scripts/run-browser-tests.mjs tests/provider_meters.browser.spec.mjs`.
+- Affected component: `AiurWeb.OperatorControlCenter.ProviderMeters` (DASH-015)
+  and its browser spec + harness wiring.
+- Why routed, not fixed here: the DASH-033 capstone proves composition and does
+  not reopen a prerequisite; per its contract, review findings default to
+  contained rework in the owning prerequisite (DASH-015). Wiring the red spec
+  into CI was intentionally not done — it would break the gate before the fix.
+- Future disposition: DASH-015 fixes the dark-theme contrast token and the
+  `time` locator, then wires `test:provider-meters` into the aggregate
+  `npm test` chain so the proof is enforced.
