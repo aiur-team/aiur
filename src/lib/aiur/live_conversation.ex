@@ -124,6 +124,17 @@ defmodule Aiur.LiveConversation do
     end
   end
 
+  @doc "Unsubscribe from a previously subscribed opaque generation handle."
+  @spec unsubscribe_handle(String.t()) :: :ok | {:error, :invalid_handle}
+  def unsubscribe_handle(handle) do
+    if Source.valid_handle?(handle) do
+      :ok = Phoenix.PubSub.unsubscribe(Aiur.PubSub, handle_topic(handle))
+      Phoenix.PubSub.unsubscribe(Aiur.PubSub, @restart_topic)
+    else
+      {:error, :invalid_handle}
+    end
+  end
+
   @doc "Subscribe to projection-epoch changes so retained consumer caches can reset truthfully."
   @spec subscribe_restarts() :: :ok | {:error, term()}
   def subscribe_restarts, do: Phoenix.PubSub.subscribe(Aiur.PubSub, @restart_topic)
