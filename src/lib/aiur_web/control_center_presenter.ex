@@ -1,6 +1,6 @@
 defmodule AiurWeb.ControlCenterPresenter do
   @moduledoc """
-  Composes the Executor Control Center's read model from independent domain
+  Composes the Operator Control Center's read model from independent domain
   providers. A failed optional provider degrades only its own surface.
   """
 

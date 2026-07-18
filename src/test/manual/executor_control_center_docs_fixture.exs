@@ -66,7 +66,7 @@ defmodule Aiur.Docs.ControlCenterFixture do
     configure_endpoint()
     {:ok, _} = AiurWeb.Endpoint.start_link()
 
-    IO.puts("Executor Control Center docs fixture ready at http://127.0.0.1:#{@port}")
+    IO.puts("Operator Control Center docs fixture ready at http://127.0.0.1:#{@port}")
     Process.sleep(:infinity)
   end
 

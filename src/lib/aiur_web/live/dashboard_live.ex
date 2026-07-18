@@ -1,6 +1,6 @@
 defmodule AiurWeb.DashboardLive do
   @moduledoc """
-  Phoenix LiveView shell for the Aiur Executor Control Center.
+  Phoenix LiveView shell for the Aiur Operator Control Center.
   """
 
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
