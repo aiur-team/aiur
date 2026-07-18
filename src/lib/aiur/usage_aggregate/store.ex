@@ -95,6 +95,8 @@ defmodule Aiur.UsageAggregate.Store do
       ledger_coverage_fun: Keyword.get(opts, :ledger_coverage_fun, &Aiur.UsageLedger.coverage/0),
       checkpoint_write_fun: Keyword.get(opts, :checkpoint_write_fun, &Checkpoint.write/2),
       publish_fun: Keyword.get(opts, :publish_fun, &UsageAggregate.broadcast/1),
+      compaction_floor_fun: Keyword.get(opts, :compaction_floor_fun, &Aiur.UsageCompaction.Floor.load/0),
+      base_health_override: nil,
       max_scan: Keyword.get(opts, :max_scan, @max_scan)
     }
   end
@@ -106,14 +108,34 @@ defmodule Aiur.UsageAggregate.Store do
 
     cond do
       base.rebuild? ->
-        %{state | projection: Projection.new(), recovery: rebuild_reason(base.checkpoint_status)}
+        rebuild_from_floor(state, rebuild_reason(base.checkpoint_status))
 
       is_integer(ledger_latest) and base.projection.source_position > ledger_latest ->
         _ = write_marker(state, :source_regressed)
-        %{state | projection: Projection.new(), recovery: :rebuilt_source_regressed}
+        rebuild_from_floor(state, :rebuilt_source_regressed)
 
       true ->
         %{state | projection: base.projection, recovery: :clean}
+    end
+  end
+
+  # A rebuild seeds from the DASH-025 compacted-coverage floor before folding the
+  # retained raw above it, so a range whose raw has been retired is still
+  # reconstructed exactly. A corrupt/incomplete floor after retirement cannot be
+  # reconstructed: rather than serve undercounted totals, the projection stays
+  # empty and health latches unavailable until the blocks are reconciled.
+  defp rebuild_from_floor(state, recovery) do
+    case safe(fn -> state.compaction_floor_fun.() end) do
+      {:ok, {:ok, floor}} ->
+        %{state | projection: Projection.seed(floor), recovery: recovery, base_health_override: nil}
+
+      _floor_unavailable ->
+        %{
+          state
+          | projection: Projection.new(),
+            recovery: :rebuilt_floor_unavailable,
+            base_health_override: {:unavailable, :compaction_floor_unavailable}
+        }
     end
   end
 
@@ -205,6 +227,7 @@ defmodule Aiur.UsageAggregate.Store do
 
   defp derive_health(state, checkpoint_health, source_health) do
     cond do
+      state.base_health_override != nil -> state.base_health_override
       not state.base_available? -> state.unavailable_health
       match?({:failed, _reason}, checkpoint_health) -> {:degraded, :checkpoint_write_failed}
       source_health == :unreachable -> {:degraded, :source_unavailable}

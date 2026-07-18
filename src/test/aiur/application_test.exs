@@ -307,6 +307,22 @@ defmodule Aiur.ApplicationTest do
       end
     end
 
+    test "usage compaction coordinator starts after the ledger and aggregate it reads" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        mods = modules(AiurApp.child_specs(opts))
+        ledger = Enum.find_index(mods, &(&1 == Aiur.UsageLedger))
+        aggregate = Enum.find_index(mods, &(&1 == Aiur.UsageAggregate.Store))
+        coordinator = Enum.find_index(mods, &(&1 == Aiur.UsageCompaction.Coordinator))
+
+        assert coordinator, "compaction coordinator must be supervised for #{inspect(opts)}"
+        assert ledger < coordinator, "compaction must start after the raw ledger for #{inspect(opts)}"
+        assert coordinator < aggregate, "compaction must reconcile before the aggregate rebuilds for #{inspect(opts)}"
+      end
+    end
+
     test "ticket activity is supervised before the orchestrator in every run shape" do
       for opts <- [
             [interactive_cli?: true, headless?: false, dashboard?: true],
