@@ -62,13 +62,14 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Fields do
     }
   end
 
-  @spec command_count(map() | term(), map() | term()) ::
+  @spec command_count(map() | term(), map() | term(), atom()) ::
           {non_neg_integer() | nil, command_count_source()}
-  def command_count(decision_row, status_row) do
+  def command_count(decision_row, status_row, decision_health) do
     decision_count = sourced_count(decision_row, [:open_command_count, :open_count, :count], :decisions)
     status_count = sourced_count(status_row, [:open_decision_count], :status_report)
+    status_health = Value.get(status_row, :open_decision_count_health)
 
-    choose_command_count(decision_count, status_count)
+    choose_command_count(decision_count, status_count, decision_health, status_health)
   end
 
   @spec activity_value(map() | term(), atom()) :: map()
@@ -110,12 +111,28 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Fields do
   # An alert is safety-significant, so a positive StatusReport count wins a
   # zero Decision count instead of allowing stale/LKG disagreement to clear
   # the reason. Decisions remain canonical for equally-signalling facts.
-  defp choose_command_count({0, :decisions}, {count, :status_report} = status_count) when count > 0,
-    do: status_count
+  defp choose_command_count({0, :decisions}, {count, :status_report} = status_count, _decision_health, _status_health)
+       when count > 0,
+       do: status_count
 
-  defp choose_command_count({_count, :decisions} = decision_count, _status_count), do: decision_count
-  defp choose_command_count(nil, {_count, :status_report} = status_count), do: status_count
-  defp choose_command_count(nil, nil), do: {nil, :unknown}
+  defp choose_command_count({count, :decisions} = decision_count, _status_count, _decision_health, _status_health)
+       when count > 0,
+       do: decision_count
+
+  defp choose_command_count(_decision_count, {count, :status_report} = status_count, _decision_health, _status_health)
+       when count > 0,
+       do: status_count
+
+  defp choose_command_count(_decision_count, _status_count, :unavailable, _status_health), do: {nil, :unknown}
+
+  defp choose_command_count({_count, :decisions} = decision_count, _status_count, _decision_health, _status_health),
+    do: decision_count
+
+  defp choose_command_count(nil, {_count, :status_report} = status_count, _decision_health, status_health)
+       when status_health in [:available, :healthy],
+       do: status_count
+
+  defp choose_command_count(_decision_count, _status_count, _decision_health, _status_health), do: {nil, :unknown}
 
   defp complexity(issue) do
     case Value.get(issue, :complexity) do

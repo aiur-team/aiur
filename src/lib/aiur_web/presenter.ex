@@ -282,6 +282,7 @@ defmodule AiurWeb.Presenter do
       worker_host: Map.get(entry, :worker_host),
       workspace_path: Map.get(entry, :workspace_path),
       session_id: entry.session_id,
+      live_conversation: Map.get(entry, :live_conversation),
       turn_count: Map.get(entry, :turn_count, 0),
       runtime_seconds: Map.get(entry, :runtime_seconds, 0),
       work_state: Map.get(entry, :work_state, :working),
@@ -296,9 +297,11 @@ defmodule AiurWeb.Presenter do
       stale_for_seconds: Map.get(entry, :stale_for_seconds),
       waiting_reason: Map.get(entry, :waiting_reason, :active),
       open_decision_count: Map.get(entry, :open_decision_count, 0),
+      open_decision_count_health: Map.get(entry, :open_decision_count_health, :unknown),
       ci: ci_payload(Map.get(entry, :ci_result)),
       review: review_status(entry.state)
     }
+    |> Map.merge(public_execution_facts(entry))
     |> maybe_put_tracker_identity(entry)
   end
 
@@ -320,9 +323,11 @@ defmodule AiurWeb.Presenter do
       tracker_paused: false,
       waiting_reason: Map.get(entry, :waiting_reason, :backing_off),
       open_decision_count: Map.get(entry, :open_decision_count, 0),
+      open_decision_count_health: Map.get(entry, :open_decision_count_health, :unknown),
       ci: ci_payload(Map.get(entry, :ci_result)),
       review: review_status(Map.get(entry, :state))
     }
+    |> Map.merge(public_execution_facts(entry))
     |> maybe_put_tracker_identity(entry)
   end
 
@@ -340,10 +345,25 @@ defmodule AiurWeb.Presenter do
       queue_depth: Map.get(entry, :queue_depth, 0),
       waiting_reason: Map.get(entry, :waiting_reason, :active),
       open_decision_count: Map.get(entry, :open_decision_count, 0),
+      open_decision_count_health: Map.get(entry, :open_decision_count_health, :unknown),
       ci: ci_payload(Map.get(entry, :ci_result)),
       review: review_status(entry.state)
     }
+    |> Map.merge(public_execution_facts(entry))
     |> maybe_put_tracker_identity(entry)
+  end
+
+  defp public_execution_facts(entry) do
+    Map.take(entry, [
+      :backend,
+      :agent_family,
+      :requested_model,
+      :resolved_model,
+      :effort,
+      :complexity,
+      :build_lane,
+      :labels
+    ])
   end
 
   defp maybe_put_tracker_identity(payload, entry_or_identity) do
@@ -394,6 +414,7 @@ defmodule AiurWeb.Presenter do
       worker_host: Map.get(running, :worker_host),
       workspace_path: Map.get(running, :workspace_path),
       session_id: running.session_id,
+      live_conversation: Map.get(running, :live_conversation),
       turn_count: Map.get(running, :turn_count, 0),
       state: running.state,
       queue_depth: Map.get(running, :queue_depth, 0),
@@ -405,6 +426,7 @@ defmodule AiurWeb.Presenter do
       stale_for_seconds: Map.get(running, :stale_for_seconds),
       waiting_reason: Map.get(running, :waiting_reason, :active),
       open_decision_count: Map.get(running, :open_decision_count, 0),
+      open_decision_count_health: Map.get(running, :open_decision_count_health, :unknown),
       ci: ci_payload(Map.get(running, :ci_result)),
       review: review_status(running.state)
     }
@@ -426,6 +448,7 @@ defmodule AiurWeb.Presenter do
       state: Map.get(retry, :state),
       waiting_reason: Map.get(retry, :waiting_reason, :backing_off),
       open_decision_count: Map.get(retry, :open_decision_count, 0),
+      open_decision_count_health: Map.get(retry, :open_decision_count_health, :unknown),
       ci: ci_payload(Map.get(retry, :ci_result)),
       review: review_status(Map.get(retry, :state))
     }

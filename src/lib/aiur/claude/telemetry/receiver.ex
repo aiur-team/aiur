@@ -79,7 +79,7 @@ defmodule Aiur.Claude.Telemetry.Receiver do
   end
 
   defp decode_json(body) do
-    case Jason.decode(body) do
+    case Jason.decode(body, floats: :decimals) do
       {:ok, payload} when is_map(payload) -> {:ok, payload}
       _ -> {:error, :malformed}
     end

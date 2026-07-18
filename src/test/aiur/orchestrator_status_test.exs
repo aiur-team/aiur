@@ -2,6 +2,7 @@ defmodule Aiur.OrchestratorStatusTest do
   use Aiur.TestSupport
 
   alias Aiur.{AgentPubSub, AgentQueueStore, Issue, TrackerIdentity}
+  alias Aiur.AgentRunner.QueueDrain
   alias Aiur.Codex.CodingAgent, as: CodexCodingAgent
   alias Aiur.Events.SubscriptionStore
   alias Aiur.Opencode.ActiveTurns
@@ -868,6 +869,79 @@ defmodule Aiur.OrchestratorStatusTest do
 
     refute_receive {:resume_agent, _request_id}, 100
     assert %{active: 2, paused: 1, max: 3} = Orchestrator.max_concurrent_agents(orchestrator_name)
+  end
+
+  test "running execution facts stay pinned while undispatched routing follows config" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agent_routing: %{3 => "codex:gpt-5.6-terra:high"}
+    )
+
+    running_issue = %Issue{
+      id: "issue-pinned-execution",
+      identifier: "MT-PINNED",
+      state: "In Progress",
+      labels: ["complexity:3"]
+    }
+
+    idle_issue = %Issue{
+      id: "issue-undispatched-execution",
+      identifier: "MT-UNDISPATCHED",
+      state: "Todo",
+      labels: ["complexity:3"]
+    }
+
+    orchestrator_name = Module.concat(__MODULE__, :PinnedExecutionOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | running: %{
+            running_issue.id =>
+              running_entry(
+                running_issue.id,
+                running_issue.identifier,
+                :working
+              )
+              |> Map.put(:issue, running_issue)
+          },
+          last_polled_issues: %{idle_issue.id => idle_issue}
+      }
+    end)
+
+    assert %{running: [warming], idle: [undispatched]} =
+             Orchestrator.snapshot(orchestrator_name, 5_000)
+
+    assert warming.backend == nil
+    assert warming.requested_model == nil
+    assert warming.effort == nil
+    assert undispatched.backend == "codex"
+    assert undispatched.requested_model == "gpt-5.6-terra"
+    assert undispatched.effort == "high"
+
+    send(
+      pid,
+      {:session_execution_info, running_issue.id, %{backend: "codex", requested_model: "gpt-5.6-terra", effort: "high"}}
+    )
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agent_routing: %{3 => "claude:sonnet"}
+    )
+
+    assert %{running: [running], idle: [rerouted]} =
+             Orchestrator.snapshot(orchestrator_name, 5_000)
+
+    assert running.backend == "codex"
+    assert running.agent_family == "codex"
+    assert running.requested_model == "gpt-5.6-terra"
+    assert running.effort == "high"
+    assert rerouted.backend == "claude"
+    assert rerouted.requested_model == "sonnet"
+    assert rerouted.effort == nil
   end
 
   test "orchestrator snapshot reflects last codex update and session id" do
@@ -2075,6 +2149,245 @@ defmodule Aiur.OrchestratorStatusTest do
 
     assert {:error, :no_running_agent} =
              Orchestrator.send_operator_message(orchestrator_name, "MT-MISSING", %{kind: :text, body: "hello"})
+  end
+
+  test "orchestrator records queued evidence before notifying the worker" do
+    orchestrator_name = Module.concat(__MODULE__, :QueuedEvidenceOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
+    parent = self()
+
+    worker_pid =
+      spawn(fn ->
+        :ok = AgentPubSub.subscribe_agent("MT-QUEUED-EVIDENCE")
+        send(parent, :queued_evidence_worker_ready)
+
+        for position <- [:first, :second] do
+          receive do
+            message -> send(parent, {:queued_evidence_worker_message, position, message})
+          end
+        end
+      end)
+
+    assert_receive :queued_evidence_worker_ready
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | running: %{
+            "issue-queued-evidence" =>
+              running_entry(
+                "issue-queued-evidence",
+                "MT-QUEUED-EVIDENCE",
+                :working,
+                worker_pid
+              )
+          }
+      }
+    end)
+
+    assert {:ok, request_id} =
+             Orchestrator.send_operator_message(
+               orchestrator_name,
+               "MT-QUEUED-EVIDENCE",
+               %{kind: :text, body: "authoritative rework"}
+             )
+
+    assert_receive {:queued_evidence_worker_message, :first,
+                    {:transcript_event,
+                     %{
+                       role: :user,
+                       body: "authoritative rework",
+                       payload: %{
+                         operator_message: %{request_id: ^request_id, status: :queued}
+                       }
+                     }}}
+
+    assert_receive {:queued_evidence_worker_message, :second, {:agent_queue_updated, "MT-QUEUED-EVIDENCE", ^request_id, _deliver_now?}}
+  end
+
+  test "provider acknowledgements clear only matching lifecycle fence items" do
+    orchestrator_name = Module.concat(__MODULE__, :ProviderDeliveryFenceOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
+    :ok = AgentPubSub.subscribe_agent("MT-FENCE")
+    parent = self()
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | running: %{
+            "issue-fence" => running_entry("issue-fence", "MT-FENCE", :working, parent)
+          }
+      }
+    end)
+
+    assert {:ok, first_id} =
+             Orchestrator.send_operator_message(orchestrator_name, "MT-FENCE", %{
+               kind: :text,
+               body: "first review instruction"
+             })
+
+    assert {:ok, second_id} =
+             Orchestrator.send_operator_message(orchestrator_name, "MT-FENCE", %{
+               kind: :text,
+               body: "second review instruction"
+             })
+
+    state = :sys.get_state(pid)
+
+    assert state.running["issue-fence"].lifecycle_fence.pending_item_ids ==
+             MapSet.new([first_id, second_id])
+
+    assert {:ok, %{id: ^first_id}} =
+             Orchestrator.claim_next_queue_item(orchestrator_name, "MT-FENCE")
+
+    assert OperatorMessages.pending_operator_messages_for_issue(
+             :sys.get_state(pid),
+             "MT-FENCE"
+           ) == [
+             %{id: first_id, text: "first review instruction", status: :queued},
+             %{id: second_id, text: "second review instruction", status: :queued}
+           ]
+
+    assert :ok =
+             Orchestrator.acknowledge_queue_item_delivery(
+               orchestrator_name,
+               first_id,
+               %{turn_id: "provider-turn-1"}
+             )
+
+    state = :sys.get_state(pid)
+
+    assert state.running["issue-fence"].lifecycle_fence.pending_item_ids ==
+             MapSet.new([second_id])
+
+    assert_receive {:transcript_event,
+                    %{
+                      role: :system,
+                      payload: %{
+                        operator_message: %{
+                          request_id: ^first_id,
+                          status: :delivered,
+                          provider_turn_id: "provider-turn-1"
+                        }
+                      }
+                    }}
+
+    assert {:ok, %{id: ^second_id}} =
+             Orchestrator.claim_next_queue_item(orchestrator_name, "MT-FENCE")
+
+    assert :ok =
+             Orchestrator.acknowledge_queue_item_delivery(
+               orchestrator_name,
+               second_id,
+               %{turn_id: "provider-turn-2"}
+             )
+
+    refute Map.has_key?(:sys.get_state(pid).running["issue-fence"], :lifecycle_fence)
+
+    assert OperatorMessages.pending_operator_messages_for_issue(
+             :sys.get_state(pid),
+             "MT-FENCE"
+           ) == [
+             %{id: first_id, text: "first review instruction", status: :delivered},
+             %{id: second_id, text: "second review instruction", status: :delivered}
+           ]
+
+    assert {:ok, failed_id} =
+             Orchestrator.send_operator_message(orchestrator_name, "MT-FENCE", %{
+               kind: :text,
+               body: "delivery will fail"
+             })
+
+    assert {:ok, %{id: ^failed_id}} =
+             Orchestrator.claim_next_queue_item(orchestrator_name, "MT-FENCE")
+
+    assert :ok =
+             Orchestrator.mark_queue_item_failed(
+               orchestrator_name,
+               failed_id,
+               :provider_down
+             )
+
+    state = :sys.get_state(pid)
+    assert state.running["issue-fence"].lifecycle_fence.pending_item_ids == MapSet.new([failed_id])
+
+    assert List.last(OperatorMessages.pending_operator_messages_for_issue(state, "MT-FENCE")) == %{id: failed_id, text: "delivery will fail", status: :failed}
+  end
+
+  test "provider acknowledgement clears every fence item folded into one event digest" do
+    orchestrator_name = Module.concat(__MODULE__, :CoalescedFenceOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
+    parent = self()
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | running: %{
+            "issue-coalesced-fence" =>
+              running_entry(
+                "issue-coalesced-fence",
+                "MT-COALESCED-FENCE",
+                :working,
+                parent
+              )
+          }
+      }
+    end)
+
+    for event_id <- [101, 102] do
+      assert :ok =
+               GenServer.call(orchestrator_name, {
+                 :enqueue_event_digest,
+                 "MT-COALESCED-FENCE",
+                 %{
+                   id: event_id,
+                   topic: "ticket.MT-COALESCED-FENCE.issue.commented",
+                   source: :github,
+                   author_trusted?: true,
+                   comment: %{id: event_id, body: "authoritative review #{event_id}"}
+                 }
+               })
+    end
+
+    assert_receive {:agent_queue_updated, "MT-COALESCED-FENCE", first_id, _deliver_now?}
+    assert_receive {:agent_queue_updated, "MT-COALESCED-FENCE", second_id, _deliver_now?}
+
+    state = :sys.get_state(pid)
+
+    assert state.running["issue-coalesced-fence"].lifecycle_fence.pending_item_ids ==
+             MapSet.new([first_id, second_id])
+
+    assert {:ok, item} =
+             Orchestrator.claim_next_queue_item(
+               orchestrator_name,
+               "MT-COALESCED-FENCE"
+             )
+
+    assert item.delivery.coalesced_item_ids == [first_id, second_id]
+
+    assert :ok =
+             QueueDrain.acknowledge_provider_delivery(
+               orchestrator_name,
+               item,
+               %{turn_id: "provider-turn-coalesced"}
+             )
+
+    refute Map.has_key?(
+             :sys.get_state(pid).running["issue-coalesced-fence"],
+             :lifecycle_fence
+           )
   end
 
   test "correlated operator messages return queue snapshots and notify only on enqueue or failed retry" do

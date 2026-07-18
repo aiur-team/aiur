@@ -144,7 +144,7 @@ defmodule Aiur.Orchestrator.StatusReport do
     pause_reason = Map.get(metadata, :paused_reason)
     started_at = Map.get(metadata, :started_at)
     stale_for_seconds = stale_for_seconds(metadata, now)
-    open_decision_count = open_decision_count(metadata.identifier)
+    {open_decision_count, open_decision_count_health} = open_decision_count(metadata.identifier)
 
     waiting_reason =
       WaitingReason.for_running(%{
@@ -167,6 +167,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       worker_host: Map.get(metadata, :worker_host),
       workspace_path: Map.get(metadata, :workspace_path),
       session_id: Map.get(metadata, :session_id),
+      live_conversation: Map.get(metadata, :live_conversation),
       codex_app_server_pid: Map.get(metadata, :codex_app_server_pid),
       agent_input_tokens: Map.get(metadata, :agent_input_tokens, 0),
       agent_output_tokens: Map.get(metadata, :agent_output_tokens, 0),
@@ -186,13 +187,16 @@ defmodule Aiur.Orchestrator.StatusReport do
       stale_for_seconds: stale_for_seconds,
       waiting_reason: waiting_reason,
       open_decision_count: open_decision_count,
+      open_decision_count_health: open_decision_count_health,
       ci_result: cached_ci_result(state, metadata.identifier)
     }
+    |> Map.merge(running_execution_facts(metadata))
   end
 
   defp retry_snapshot(%State{} = state, {issue_id, %{attempt: attempt, due_at_ms: due_at_ms} = retry}, now_ms) do
     identifier = Map.get(retry, :identifier)
     issue = Map.get(state.last_polled_issues, issue_id)
+    {open_decision_count, open_decision_count_health} = open_decision_count(identifier)
 
     %{
       issue_id: issue_id,
@@ -208,9 +212,11 @@ defmodule Aiur.Orchestrator.StatusReport do
       worker_host: Map.get(retry, :worker_host),
       workspace_path: Map.get(retry, :workspace_path),
       waiting_reason: WaitingReason.for_retry(),
-      open_decision_count: open_decision_count(identifier),
+      open_decision_count: open_decision_count,
+      open_decision_count_health: open_decision_count_health,
       ci_result: cached_ci_result(state, identifier)
     }
+    |> Map.merge(issue_execution_facts(issue))
   end
 
   defp idle_snapshot(%State{} = state) do
@@ -232,7 +238,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   defp idle_issue_snapshot(%State{} = state, %Issue{} = issue, terminal_states) do
     identifier = issue.identifier || issue.id
     blocked_by_open? = DispatchPolicy.todo_issue_blocked_by_non_terminal?(issue, terminal_states)
-    open_decision_count = open_decision_count(identifier)
+    {open_decision_count, open_decision_count_health} = open_decision_count(identifier)
 
     %{
       issue_id: issue.id,
@@ -246,8 +252,53 @@ defmodule Aiur.Orchestrator.StatusReport do
       queue_depth: OM.queue_depth_for_issue(state, identifier),
       waiting_reason: WaitingReason.for_idle(issue.state, blocked_by_open?, open_decision_count),
       open_decision_count: open_decision_count,
+      open_decision_count_health: open_decision_count_health,
       ci_result: cached_ci_result(state, identifier)
     }
+    |> Map.merge(issue_execution_facts(issue))
+  end
+
+  defp issue_execution_facts(%Issue{} = issue) do
+    backend = CodingAgent.backend_for(issue)
+
+    %{
+      backend: backend,
+      agent_family: CodingAgent.family_for(backend),
+      requested_model: CodingAgent.model_for(issue),
+      effort: CodingAgent.effort_for(issue)
+    }
+    |> Map.merge(issue_classification_facts(issue))
+  end
+
+  defp issue_execution_facts(_issue), do: %{}
+
+  defp running_execution_facts(entry) do
+    execution = session_execution(entry)
+    backend = Map.get(execution, :backend)
+
+    %{
+      backend: backend,
+      agent_family: CodingAgent.family_for(backend),
+      requested_model: Map.get(execution, :requested_model),
+      effort: Map.get(execution, :effort)
+    }
+    |> Map.merge(issue_classification_facts(Map.get(entry, :issue)))
+  end
+
+  defp issue_classification_facts(%Issue{} = issue) do
+    %{
+      complexity: issue_complexity(issue),
+      labels: Issue.label_names(issue)
+    }
+  end
+
+  defp issue_classification_facts(_issue), do: %{}
+
+  defp session_execution(entry) when is_map(entry) do
+    case Map.get(entry, :session_execution) do
+      execution when is_map(execution) -> execution
+      _execution -> %{}
+    end
   end
 
   defp cached_ci_result(%State{} = state, identifier) do
@@ -270,10 +321,14 @@ defmodule Aiur.Orchestrator.StatusReport do
     end
   end
 
-  defp open_decision_count(identifier) when is_binary(identifier),
-    do: SubscriptionStore.open_attention_count(identifier)
+  defp open_decision_count(identifier) when is_binary(identifier) do
+    case SubscriptionStore.open_attention_count_result(identifier) do
+      {:ok, count} -> {count, :available}
+      {:error, :unavailable} -> {0, :unavailable}
+    end
+  end
 
-  defp open_decision_count(_identifier), do: 0
+  defp open_decision_count(_identifier), do: {0, :unavailable}
 
   defp status_api_call(server, request, timeout, distinguish_timeout?) do
     if Process.whereis(server) do
@@ -357,25 +412,18 @@ defmodule Aiur.Orchestrator.StatusReport do
     })
   end
 
-  # Resolved backend string for a running entry, so the agent list can name
-  # the agent's own engine in its placeholder rather than guessing. nil when
-  # the entry carries no issue; agent_summary drops the nil.
+  # Session-resolved backend for a running entry, so the agent list names the
+  # engine that actually started rather than re-routing from mutable config.
+  # nil while the dispatched worker is still warming up.
   defp entry_backend(entry) do
-    case Map.get(entry, :issue) do
-      %Issue{} = issue -> CodingAgent.backend_for(issue)
-      _ -> nil
-    end
+    entry |> session_execution() |> Map.get(:backend)
   end
 
-  # Pinned model variant for a running entry (e.g. "opus-4-8", "gpt-5.5"),
-  # so the agent list can render the model column's version suffix. nil when
-  # the entry carries no issue or the model is unpinned (backend default);
-  # agent_summary drops the nil and the renderer falls back to the base name.
+  # Session-requested model variant for a running entry (for example
+  # "opus-4-8" or "gpt-5.5"). nil while warming up or when the backend default
+  # is authoritative; agent_summary drops nil and the renderer shows the base.
   defp entry_model(entry) do
-    case Map.get(entry, :issue) do
-      %Issue{} = issue -> CodingAgent.model_for(issue)
-      _ -> nil
-    end
+    entry |> session_execution() |> Map.get(:requested_model)
   end
 
   # Highest `complexity:N` label on the issue (nil when unlabelled). Reused by
@@ -419,6 +467,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       worker_host: Map.get(entry, :worker_host),
       workspace_path: Map.get(entry, :workspace_path),
       session_id: Map.get(entry, :session_id),
+      live_conversation: Map.get(entry, :live_conversation),
       runtime_seconds: State.running_seconds(Map.get(entry, :started_at), now),
       queue_depth: OM.queue_depth_for_issue(state, identifier),
       complexity: issue_complexity(issue),
