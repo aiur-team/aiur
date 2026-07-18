@@ -4626,3 +4626,228 @@ textarea:focus-visible,
     grid-template-columns: 1fr;
   }
 }
+
+/* --- Authenticated provider account meters (DASH-015) --- */
+.provider-meters-card {
+  margin-bottom: 1rem;
+}
+
+.provider-meters-state {
+  margin-top: 0.75rem;
+}
+
+.provider-meters-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  gap: 1rem;
+  margin-top: 0.85rem;
+}
+
+.provider-meter-card {
+  min-width: 0;
+  padding: 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.provider-meter-card.state-error,
+.provider-meter-card.state-unavailable {
+  border-color: var(--blocking);
+}
+
+.provider-meter-card.state-stale,
+.provider-meter-card.state-unknown {
+  border-color: var(--attention);
+}
+
+.provider-meter-card.state-healthy {
+  border-color: var(--good);
+}
+
+.provider-meter-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.provider-meter-header h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.provider-meter-badge {
+  padding: 0.15rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--fg);
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.provider-meter-badge.state-healthy {
+  border-color: var(--good);
+}
+
+.provider-meter-badge.state-partial,
+.provider-meter-badge.state-stale,
+.provider-meter-badge.state-unknown {
+  border-color: var(--attention);
+}
+
+.provider-meter-badge.state-error,
+.provider-meter-badge.state-unavailable {
+  border-color: var(--blocking);
+}
+
+.provider-meter-identity,
+.provider-meter-window-facts {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.3rem 0.75rem;
+  margin: 0.75rem 0 0;
+}
+
+.provider-meter-identity > div,
+.provider-meter-window-facts > div {
+  display: contents;
+}
+
+.provider-meter-identity dt,
+.provider-meter-window-facts dt {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.provider-meter-identity dd,
+.provider-meter-window-facts dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  text-align: right;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.provider-meter-state {
+  margin-top: 0.75rem;
+}
+
+.provider-meter-windows {
+  list-style: none;
+  margin: 0.85rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.provider-meter-window {
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.provider-meter-window.coverage-unsupported,
+.provider-meter-window.coverage-empty_supported {
+  border-style: dashed;
+}
+
+.provider-meter-window-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem 0.6rem;
+}
+
+.provider-meter-window-name {
+  font-weight: 600;
+}
+
+.provider-meter-window-kind {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.provider-meter-standing {
+  margin-left: auto;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.provider-meter-standing.standing-allowed {
+  border-color: var(--good);
+}
+
+.provider-meter-standing.standing-allowed_warning {
+  border-color: var(--attention);
+}
+
+.provider-meter-standing.standing-rejected {
+  border-color: var(--blocking);
+}
+
+.provider-meter-bar {
+  margin: 0.6rem 0 0;
+}
+
+.provider-meter-track {
+  display: block;
+  height: 0.55rem;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.provider-meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+.provider-meter-value {
+  display: block;
+  margin: 0.35rem 0 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.provider-meter-coverage {
+  margin: 0.5rem 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+@media (max-width: 700px) {
+  .provider-meters-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .provider-meter-fill {
+    transition: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .provider-meter-track,
+  .provider-meter-fill {
+    forced-color-adjust: none;
+    border: 1px solid currentColor;
+  }
+
+  .provider-meter-fill {
+    background: currentColor;
+  }
+}

@@ -62,6 +62,34 @@ defmodule AiurWeb.DashboardLiveTest do
     end
   end
 
+  defmodule ProviderMeterSourceStub do
+    @moduledoc false
+
+    def load(context) do
+      report(:load, context)
+      config(:snapshots, %{codex: nil, claude: nil})
+    end
+
+    def reload(context, message) do
+      report(:reload, {context, message})
+      config(:reload_snapshots, config(:snapshots, %{codex: nil, claude: nil}))
+    end
+
+    def subscribe(context) do
+      report(:subscribe, context)
+      :ok
+    end
+
+    defp report(call, arg) do
+      case config(:pid, nil) do
+        pid when is_pid(pid) -> send(pid, {:provider_meter_source, call, arg})
+        _other -> :ok
+      end
+    end
+
+    defp config(key, default), do: Map.get(Application.get_env(:aiur, :provider_meter_source_stub, %{}), key, default)
+  end
+
   defmodule CountingDetailStore do
     use GenServer
 
@@ -906,6 +934,81 @@ defmodule AiurWeb.DashboardLiveTest do
     refute inspect(socket.private.aiur_financial_data_access) =~ "operator"
     refute inspect(socket.private.aiur_financial_data_access) =~ "socket-bound-secret"
     assert socket.assigns.writable == false
+  end
+
+  describe "authenticated provider meter cards" do
+    test "a locked connection renders the content-free locked card and never invokes the meter source" do
+      orchestrator_name = Module.concat(__MODULE__, :LockedMetersOrchestrator)
+      start_counting_orchestrator(orchestrator_name)
+      configure_provider_meter_stub(%{pid: self(), snapshots: %{codex: healthy_codex_snapshot(), claude: nil}})
+
+      start_test_endpoint(
+        orchestrator: orchestrator_name,
+        dashboard_auth_required: false,
+        provider_meter_source: ProviderMeterSourceStub
+      )
+
+      {:ok, view, _html} = live(build_conn(), "/")
+      socket = :sys.get_state(view.pid).socket
+
+      assert socket.assigns.financial_data_capability.state == :locked
+      assert socket.assigns.provider_meters_view.state == :locked
+      assert socket.assigns.provider_meter_snapshots == %{}
+
+      html = render(view)
+      assert html =~ "provider-meters-card"
+      refute html =~ "provider-meter-card"
+      refute html =~ "aria-valuenow"
+      refute html =~ "gen-codex"
+
+      refute_received {:provider_meter_source, _call, _arg}
+    end
+
+    test "an authorized connection fetches and subscribes on mount, then reloads on a facade update" do
+      previous_username = System.get_env("AIUR_DASHBOARD_USERNAME")
+      previous_password = System.get_env("AIUR_DASHBOARD_PASSWORD")
+      System.put_env("AIUR_DASHBOARD_USERNAME", "operator")
+      System.put_env("AIUR_DASHBOARD_PASSWORD", "meter-secret")
+
+      on_exit(fn ->
+        restore_env("AIUR_DASHBOARD_USERNAME", previous_username)
+        restore_env("AIUR_DASHBOARD_PASSWORD", previous_password)
+      end)
+
+      configure_provider_meter_stub(%{pid: self(), snapshots: %{codex: healthy_codex_snapshot(), claude: nil}})
+
+      start_test_endpoint(
+        orchestrator: start_counting_orchestrator(Module.concat(__MODULE__, :AuthedMetersOrchestrator)),
+        dashboard_auth_required: true,
+        provider_meter_source: ProviderMeterSourceStub,
+        provider_meters_flush_timer: fn pid, message, _delay -> send(pid, message) end
+      )
+
+      conn =
+        build_conn()
+        |> Plug.Conn.put_req_header("authorization", "Basic " <> Base.encode64("operator:meter-secret"))
+
+      {:ok, view, _html} = live(conn, "/")
+
+      assert_received {:provider_meter_source, :subscribe, _context}
+      assert_received {:provider_meter_source, :load, _context}
+
+      socket = :sys.get_state(view.pid).socket
+      assert socket.assigns.provider_meters_view.state == :authorized
+      assert %Aiur.ProviderMeterSnapshot{provider: :codex} = socket.assigns.provider_meter_snapshots.codex
+
+      html = render(view)
+      assert html =~ "Codex"
+      assert html =~ ~s(aria-valuenow="40")
+
+      # A payload-free facade update triggers one coalesced reload through the source.
+      context = socket.private.aiur_financial_data_access
+      {:ok, identity} = AiurWeb.FinancialDataAccess.identity(context)
+      send(view.pid, {AiurWeb.FinancialData, :updated, identity})
+      _ = render(view)
+
+      assert_received {:provider_meter_source, :reload, {_context, {AiurWeb.FinancialData, :updated, ^identity}}}
+    end
   end
 
   test "cached payload follows a same-name DecisionMetrics replacement" do
@@ -4259,6 +4362,40 @@ defmodule AiurWeb.DashboardLiveTest do
          rate_limits: nil
        }}
     )
+  end
+
+  defp configure_provider_meter_stub(config) do
+    Application.put_env(:aiur, :provider_meter_source_stub, config)
+    on_exit(fn -> Application.delete_env(:aiur, :provider_meter_source_stub) end)
+  end
+
+  defp healthy_codex_snapshot do
+    observed = ~U[2026-07-18 11:30:00Z]
+
+    %Aiur.ProviderMeterSnapshot{
+      provider: :codex,
+      backend: :app_server,
+      provider_account_generation: "gen-codex",
+      auth_mode: :subscription,
+      plan: %{tier: :pro, source: :provider, observed_at: observed, freshness: :fresh},
+      observed_at: observed,
+      ingested_at: observed,
+      freshness: :fresh,
+      health: %{state: :healthy, failure: nil, last_observed_at: observed, last_source_version: 1},
+      windows: %{
+        "primary" => %{
+          kind: :rate_limit,
+          name: "Primary",
+          standing: :allowed,
+          used_percent: 40,
+          remaining_percent: 60,
+          coverage: :supported,
+          freshness: :fresh,
+          resets_at: ~U[2026-07-18 12:00:00Z],
+          source: :codex_app_server
+        }
+      }
+    }
   end
 
   defp start_queue_orchestrator(name, identifier, tracker_identity \\ nil) do

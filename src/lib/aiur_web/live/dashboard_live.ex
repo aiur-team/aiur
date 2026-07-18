@@ -20,6 +20,8 @@ defmodule AiurWeb.DashboardLive do
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.TicketContextPresenter
   alias AiurWeb.Endpoint
+  alias AiurWeb.FinancialData
+  alias AiurWeb.FinancialDataAccess
   alias AiurWeb.ObservabilityPubSub
 
   alias AiurWeb.OperatorControlCenter.{
@@ -34,6 +36,9 @@ defmodule AiurWeb.DashboardLive do
     History,
     Overview,
     PayloadLoader,
+    ProviderMeters,
+    ProviderMetersPresenter,
+    ProviderMeterSource,
     RecentOutcomes,
     RouteRegistry,
     RunSummary,
@@ -50,6 +55,7 @@ defmodule AiurWeb.DashboardLive do
 
   @runtime_tick_ms 1_000
   @run_summary_flush_ms 250
+  @provider_meters_flush_ms 250
   @decision_filters [:all, :open, :blocking, :undelivered, :supervisor, :resolved, :superseded]
   @decision_events DecisionEvents.events()
 
@@ -90,6 +96,7 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:capacity_input, "")
       |> assign(:capacity_feedback, nil)
       |> assign_initial_run_summary(connected)
+      |> assign_initial_provider_meters(connected)
       |> assign(:ticket_context, nil)
       |> assign(:ticket_context_detail, nil)
       |> assign(:ticket_context_history, nil)
@@ -163,6 +170,14 @@ defmodule AiurWeb.DashboardLive do
 
   def handle_info(:flush_run_summary, socket) do
     {:noreply, flush_run_summary(socket)}
+  end
+
+  def handle_info({FinancialData, :updated, _identity} = message, socket) do
+    {:noreply, schedule_provider_meters_reload(socket, message)}
+  end
+
+  def handle_info(:flush_provider_meters, socket) do
+    {:noreply, flush_provider_meters(socket)}
   end
 
   def handle_info({:current_run_membership_health_changed, payload}, socket) do
@@ -518,6 +533,8 @@ defmodule AiurWeb.DashboardLive do
       |> Map.put_new(:capacity_feedback, nil)
       |> Map.put_new(:run_summary, RunSummaryPresenter.present(nil))
       |> Map.put_new(:run_summary_announcement, nil)
+      |> then(&Map.put_new(&1, :provider_meters_view, ProviderMetersPresenter.present(financial_data_capability(&1))))
+      |> Map.put_new(:provider_meters_announcement, nil)
       |> Map.put_new(:current_route, RouteRegistry.current_route(Map.get(assigns, :live_action)))
 
     ~H"""
@@ -566,6 +583,10 @@ defmodule AiurWeb.DashboardLive do
           feedback={@capacity_feedback}
         />
         <RunSummary.run_summary view={@run_summary} announcement={@run_summary_announcement} />
+        <ProviderMeters.provider_meters
+          view={@provider_meters_view}
+          announcement={@provider_meters_announcement}
+        />
         <section class="section-card units-card" aria-labelledby="units-title">
           <header class="section-header units-header">
             <div>
@@ -835,6 +856,94 @@ defmodule AiurWeb.DashboardLive do
       _other -> Process.send_after(self(), :flush_run_summary, @run_summary_flush_ms)
     end
   end
+
+  # Provider meter cards read protected snapshots only through the DASH-021
+  # facade. An authorized connection fetches once on mount and subscribes to
+  # payload-free updates; a locked connection never obtains a context, never
+  # queries, and never subscribes, so its card renders the content-free locked
+  # state.
+  defp assign_initial_provider_meters(socket, connected) do
+    capability = financial_data_capability(socket.assigns)
+
+    snapshots =
+      if connected and authorized?(capability) do
+        context = FinancialDataAccess.context(socket)
+        _subscription = subscribe_provider_meters(context)
+        load_provider_meters(context)
+      else
+        %{}
+      end
+
+    socket
+    |> assign(:provider_meter_snapshots, snapshots)
+    |> assign(:provider_meters_pending_message, nil)
+    |> assign(:provider_meters_flush_scheduled?, false)
+    |> apply_provider_meters()
+  end
+
+  # Coalesce bursts of payload-free facade updates: schedule one flush per
+  # debounce window so protected re-reads and screen-reader announcements stay
+  # bounded and isolated from the render loop.
+  defp schedule_provider_meters_reload(socket, message) do
+    socket = assign(socket, :provider_meters_pending_message, message)
+
+    if socket.assigns.provider_meters_flush_scheduled? do
+      socket
+    else
+      schedule_provider_meters_flush()
+      assign(socket, :provider_meters_flush_scheduled?, true)
+    end
+  end
+
+  defp flush_provider_meters(socket) do
+    socket = assign(socket, :provider_meters_flush_scheduled?, false)
+    capability = financial_data_capability(socket.assigns)
+    message = socket.assigns.provider_meters_pending_message
+
+    if authorized?(capability) and not is_nil(message) do
+      context = FinancialDataAccess.context(socket)
+      snapshots = reload_provider_meters(context, message)
+
+      socket
+      |> assign(:provider_meter_snapshots, snapshots)
+      |> assign(:provider_meters_pending_message, nil)
+      |> apply_provider_meters()
+    else
+      socket
+    end
+  end
+
+  defp apply_provider_meters(socket) do
+    capability = financial_data_capability(socket.assigns)
+    view = ProviderMetersPresenter.present(capability, socket.assigns.provider_meter_snapshots)
+
+    socket
+    |> assign(:provider_meters_view, view)
+    |> assign(:provider_meters_announcement, ProviderMetersPresenter.announcement(view))
+  end
+
+  defp subscribe_provider_meters(context), do: provider_meter_source().subscribe(context)
+  defp load_provider_meters(context), do: provider_meter_source().load(context)
+  defp reload_provider_meters(context, message), do: provider_meter_source().reload(context, message)
+
+  defp provider_meter_source do
+    case Endpoint.config(:provider_meter_source) do
+      module when is_atom(module) and not is_nil(module) -> module
+      _other -> ProviderMeterSource
+    end
+  end
+
+  defp schedule_provider_meters_flush do
+    case Endpoint.config(:provider_meters_flush_timer) do
+      timer when is_function(timer, 3) -> timer.(self(), :flush_provider_meters, @provider_meters_flush_ms)
+      _other -> Process.send_after(self(), :flush_provider_meters, @provider_meters_flush_ms)
+    end
+  end
+
+  defp financial_data_capability(assigns), do: Map.get(assigns, :financial_data_capability) || FinancialDataAccess.locked_capability()
+
+  defp authorized?(%{state: :authorized}), do: true
+  defp authorized?(_capability), do: false
 
   defp open_ticket_context(socket, %{identity: %TrackerIdentity{} = identity} = row) do
     socket = replace_ticket_context_subscription(socket, identity)
