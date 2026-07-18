@@ -256,6 +256,8 @@ test('production route rejects old-root layout completion after live navigation'
     const clockBeforeTick = await clock.getAttribute('datetime')
     await expect.poll(() => clock.getAttribute('datetime')).not.toBe(clockBeforeTick)
     await expect.poll(() => page.evaluate(() => window.__aiurRouteLayoutRequests.length)).toBe(currentRequestCount)
+    await expect(currentGraph).toHaveClass(/is-layout-ready/)
+    await expect(currentGraph).toHaveAttribute('data-layout-health', 'ready')
   } finally {
     await context.close()
   }
