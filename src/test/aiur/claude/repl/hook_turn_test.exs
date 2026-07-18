@@ -65,6 +65,19 @@ defmodule Aiur.Claude.Repl.HookTurnTest do
     end
   end
 
+  defp await_provider_delivery(tmux) do
+    receive do
+      {:tmux_mock_out, "display-message" <> _} ->
+        respond(tmux, "4242\n")
+        await_provider_delivery(tmux)
+
+      {:provider_delivered, metadata} ->
+        metadata
+    after
+      1_000 -> flunk("provider delivery acknowledgement did not arrive")
+    end
+  end
+
   test "pause_agent mid-turn interrupts (Ctrl+C) and returns {:paused, %{request_id: ^id}}", %{
     tmux: tmux
   } do
@@ -176,6 +189,42 @@ defmodule Aiur.Claude.Repl.HookTurnTest do
     assert {:ok, result} = drain_pane_pid(tmux, task)
     assert result.thread_id == "real-session-id"
     assert result.session_id == "real-session-id"
+  end
+
+  test "acknowledges provider delivery only after a provider hook", %{tmux: tmux} do
+    identifier = "HT-DELIVERY-#{System.unique_integer([:positive])}"
+    session = hook_session(tmux, identifier)
+    parent = self()
+
+    task =
+      Task.async(fn ->
+        HookTurn.run(session, "work",
+          poll_interval_ms: 10,
+          on_provider_delivery: fn metadata ->
+            send(parent, {:provider_delivered, metadata})
+          end
+        )
+      end)
+
+    expect_prompt_submit(tmux)
+    refute_receive {:provider_delivered, _metadata}, 50
+
+    HookEvents.dispatch(identifier, %{
+      "hook_event_name" => "UserPromptSubmit",
+      "session_id" => "session-delivery"
+    })
+
+    assert %{transport: :claude_hook, session_id: "session-delivery"} =
+             await_provider_delivery(tmux)
+
+    HookEvents.dispatch(identifier, %{
+      "hook_event_name" => "Stop",
+      "last_assistant_message" => "done",
+      "session_id" => "session-delivery"
+    })
+
+    assert {:ok, _result} = drain_pane_pid(tmux, task)
+    refute_receive {:provider_delivered, _metadata}, 50
   end
 
   test "structured API usage-limit failure pauses the turn", %{tmux: tmux} do

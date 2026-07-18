@@ -183,17 +183,18 @@ Restart behavior is explicit:
 - A queue snapshot already marked delivered, consumed, or failed fills in any
   missing durable transport edges when reconciliation completes.
 
-The backend-handoff edge is synchronous:
-`QueueDrain`/`CheckpointDelivery` must receive `{:ok, ...}` from
-`DecisionStore.record_delivery/2` before exposing correlated answer text. If
-handoff beats the asynchronous dispatch settlement, the Store adopts the
-missing queued edge before recording delivery instead of bouncing the item.
-Other correlation failures withhold the text and restore the item for at most
-three claims; exhaustion marks the item failed and opens one stable attention.
-A later explicit action retry resets that claim budget. Restore/consume/fail
-updates from one queue mutation are batched into one Store message and one
-projection rewrite; the successful agent turn is not retroactively converted
-into a failure.
+The backend-handoff edge has two synchronous boundaries. Before exposing
+correlated answer text, `QueueDrain`/`CheckpointDelivery` must receive
+`{:ok, ...}` from the non-mutating `DecisionStore.validate_delivery/2` check.
+Only the provider's subsequent receipt callback may persist
+`DecisionStore.record_delivery/2`. If provider receipt beats asynchronous
+dispatch settlement, that callback adopts the missing queued edge before
+recording delivery instead of bouncing the item. Other correlation failures
+withhold the text and restore the item for at most three claims; exhaustion
+marks the item failed and opens one stable attention. A later explicit action
+retry resets that claim budget. Restore/consume/fail updates from one queue
+mutation are batched into one Store message and one projection rewrite; the
+successful agent turn is not retroactively converted into a failure.
 
 ## Explicit agent acknowledgement
 

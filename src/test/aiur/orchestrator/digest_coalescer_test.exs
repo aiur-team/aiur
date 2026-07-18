@@ -14,5 +14,6 @@ defmodule Aiur.Orchestrator.DigestCoalescerTest do
     {_store, item} = DigestCoalescer.coalesce_events_digests(store, "42", claimed)
 
     assert Enum.map(item.body.events, & &1.id) == [1, 2]
+    assert item.delivery.coalesced_item_ids == [1, 2]
   end
 end

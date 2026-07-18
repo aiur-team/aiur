@@ -38,6 +38,7 @@ defmodule Aiur.Claude.Repl.TranscriptTurn do
   def run(session, prompt, opts) do
     on_message = Keyword.get(opts, :on_message, fn _ -> :ok end)
     on_operator = Keyword.get(opts, :on_operator_message, fn -> :noop end)
+    on_provider_delivery = Keyword.get(opts, :on_provider_delivery, fn _metadata -> :ok end)
     poll_ms = Keyword.get(opts, :poll_interval_ms, @turn_poll_ms)
     timeout_ms = Keyword.get(opts, :turn_timeout_ms) || Aiur.Config.agent_turn_timeout_ms()
     pause_confirm_ms = Keyword.get(opts, :pause_confirm_ms, @pause_confirm_ms)
@@ -54,7 +55,14 @@ defmodule Aiur.Claude.Repl.TranscriptTurn do
           turn_id: turn_id
         })
 
-        {:ok, tailer} = start_turn_tailer(session, turn_id, from, on_message)
+        {:ok, tailer} =
+          start_turn_tailer(
+            session,
+            turn_id,
+            from,
+            on_message,
+            on_provider_delivery
+          )
 
         # Warm turns send AFTER the tailer attaches so no record is missed;
         # cold turns already sent the prompt to create the transcript.
@@ -147,7 +155,13 @@ defmodule Aiur.Claude.Repl.TranscriptTurn do
 
   # Capture `parent = self()` BEFORE start_link so `{:turn_end, …}` routes back
   # to the awaiting process, not the tailer's process.
-  defp start_turn_tailer(session, turn_id, from, on_message) do
+  defp start_turn_tailer(
+         session,
+         turn_id,
+         from,
+         on_message,
+         on_provider_delivery
+       ) do
     parent = self()
 
     TranscriptTailer.start_link(
@@ -155,9 +169,32 @@ defmodule Aiur.Claude.Repl.TranscriptTurn do
       from: from,
       turn_id: turn_id,
       interval_ms: nil,
-      on_message: fn event -> TurnEvents.emit_transcript(on_message, event) end,
+      on_message: fn event ->
+        maybe_acknowledge_provider_delivery(event, on_provider_delivery, turn_id)
+        TurnEvents.emit_transcript(on_message, event)
+      end,
       on_turn_end: fn reason -> send(parent, {:turn_end, turn_id, reason}) end
     )
+  end
+
+  defp maybe_acknowledge_provider_delivery(
+         %{role: :user},
+         on_provider_delivery,
+         turn_id
+       ) do
+    safely_invoke_provider_delivery(on_provider_delivery, %{
+      transport: :claude_transcript,
+      turn_id: turn_id
+    })
+  end
+
+  defp maybe_acknowledge_provider_delivery(_event, _on_provider_delivery, _turn_id),
+    do: :ok
+
+  defp safely_invoke_provider_delivery(callback, metadata) do
+    callback.(metadata)
+  rescue
+    _error -> :ok
   end
 
   defp await_turn(session, tailer, turn_id, deadline, poll_ms, on_operator, pause_confirm_ms) do
