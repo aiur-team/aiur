@@ -8,6 +8,7 @@ defmodule Aiur.AgentRunner do
   alias Aiur.{AgentEventLog, CodingAgent, Config, Issue, IssueLog, Tracker, Workspace}
   alias Aiur.AgentRunner.{BootstrapDigest, CommentContext, EventsDigest, MessageHandler, QueueDrain}
   alias Aiur.AgentRunner.{SessionLifecycle, SessionResume, TurnLoop, TurnPrompt, TurnStreams}
+  alias Aiur.Codex.SessionRecovery
   alias Aiur.Opencode.ApiClient
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Workspace.Ownership
@@ -55,10 +56,10 @@ defmodule Aiur.AgentRunner do
   # a slow render) must not tear down an otherwise-healthy agent and crash the
   # run. Re-dispatch with a fresh pane instead of hard-failing.
   #
-  # A retired Codex app-server port (`:port_closed` or `{:port_exit, status}`)
-  # means the current generation cannot finish its response. Its delivered
-  # queue work is restored before this reaches the runner, so a clean exit lets
-  # the orchestrator replace the generation and drain that work exactly once.
+  # A recoverable Codex session failure means the current generation cannot
+  # safely finish its response. Its delivered queue work is restored before
+  # this reaches the runner, so a clean exit lets the orchestrator replace the
+  # generation and drain that work exactly once.
   @doc false
   @spec transient_run_error?(term()) :: boolean()
   def transient_run_error?(:repl_gone), do: true
@@ -69,9 +70,8 @@ defmodule Aiur.AgentRunner do
 
   @doc false
   @spec transient_run_error?(term(), String.t()) :: boolean()
-  def transient_run_error?(:port_closed, "codex"), do: true
+  def transient_run_error?(reason, "codex"), do: SessionRecovery.recoverable?(reason) or transient_run_error?(reason)
   def transient_run_error?(:port_closed, _backend), do: false
-  def transient_run_error?({:port_exit, status}, "codex") when is_integer(status), do: true
   def transient_run_error?({:port_exit, status}, _backend) when is_integer(status), do: false
   def transient_run_error?(reason, _backend), do: transient_run_error?(reason)
 

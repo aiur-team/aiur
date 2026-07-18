@@ -293,6 +293,25 @@ defmodule Aiur.Codex.HandshakeTest do
   end
 
   describe "closed-port degradation" do
+    test "start_turn/3 returns port_closed" do
+      port = open_cat_port()
+      true = Port.close(port)
+
+      session = %{
+        port: port,
+        thread_id: "thread-1",
+        workspace: "/ws",
+        approval_policy: "never",
+        turn_sandbox_policy: %{}
+      }
+
+      assert {:error, :port_closed} =
+               Handshake.start_turn(session, "queued follow-up", %{
+                 identifier: "DASH-018",
+                 title: "test"
+               })
+    end
+
     test "send_thread_init/2 returns port_closed" do
       port = open_cat_port()
       true = Port.close(port)

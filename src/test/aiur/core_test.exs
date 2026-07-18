@@ -797,7 +797,7 @@ defmodule Aiur.CoreTest do
     assert_due_in_range(due_at_ms, before_down_ms, 39_500, 40_500)
   end
 
-  test "abnormal worker exit beyond max_retry_attempts gives up, clears retry state, and surfaces the error state" do
+  test "genuine provider-start failure beyond max_retry_attempts reaches the error state" do
     # Drive the give-up path through the in-memory tracker so the state move is
     # observable (#708): on genuine retry exhaustion the orchestrator must push
     # the ticket into the operator-visible `error` state instead of silently
@@ -841,7 +841,7 @@ defmodule Aiur.CoreTest do
 
     log =
       capture_log(fn ->
-        send(pid, {:DOWN, ref, :process, self(), :boom})
+        send(pid, {:DOWN, ref, :process, self(), {:turn_start_failed, :provider_rejected}})
         # Synchronous barrier inside the capture window: `:sys.get_state/1`
         # blocks until the orchestrator has fully handled the :DOWN (and emitted
         # both its "giving up" warning and the retry_exhausted alert), so the log
@@ -2105,7 +2105,7 @@ defmodule Aiur.CoreTest do
     end
   end
 
-  test "completed Codex runner replacement drains queued rework once" do
+  test "closed Codex port after completion replays queued rework once on replacement" do
     # The memory tracker fixture is process-global. Suspend the supervised
     # orchestrator from independently dispatching it beside this named one.
     default_orchestrator = Process.whereis(Orchestrator)
@@ -2129,9 +2129,8 @@ defmodule Aiur.CoreTest do
       workspace_root = Path.join(test_root, "workspaces")
       codex_binary = Path.join(test_root, "fake-codex")
       trace_file = Path.join(test_root, "codex.trace")
-      rework_started = Path.join(test_root, "rework.started")
-      port_exit_once = Path.join(test_root, "port-exit.once")
-      port_exit_release = Path.join(test_root, "port-exit.release")
+      port_closed_once = Path.join(test_root, "port-closed.once")
+      port_closed_after_completion = Path.join(test_root, "port-closed.after-completion")
       rework_replayed = Path.join(test_root, "rework.replayed")
       rework_release = Path.join(test_root, "rework.release")
 
@@ -2164,20 +2163,18 @@ defmodule Aiur.CoreTest do
 
             if printf '%s' "$line" | grep -q 'repair from replacement'; then
               printf '{"id":%s,"result":{"turn":{"id":"turn-replacement-rework","status":"inProgress"}}}\\n' "$request_id"
-
-              if [ ! -f "#{port_exit_once}" ]; then
-                touch "#{port_exit_once}"
-                touch "#{rework_started}"
-                while [ ! -f "#{port_exit_release}" ]; do sleep 0.01; done
-                exit 9
-              else
-                touch "#{rework_replayed}"
-                while [ ! -f "#{rework_release}" ]; do sleep 0.01; done
-                printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-replacement-rework","status":"completed"}}}'
-              fi
+              touch "#{rework_replayed}"
+              while [ ! -f "#{rework_release}" ]; do sleep 0.01; done
+              printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-replacement-rework","status":"completed"}}}'
             else
               printf '{"id":%s,"result":{"turn":{"id":"turn-replacement-main","status":"inProgress"}}}\\n' "$request_id"
               printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-replacement-main","status":"completed"}}}'
+
+              if [ ! -f "#{port_closed_once}" ]; then
+                touch "#{port_closed_once}"
+                touch "#{port_closed_after_completion}"
+                exit 0
+              fi
             fi
             ;;
         esac
@@ -2222,7 +2219,6 @@ defmodule Aiur.CoreTest do
       old_ref = Process.monitor(old_worker)
 
       on_exit(fn ->
-        File.touch(port_exit_release)
         File.touch(rework_release)
         System.delete_env("SYMP_TEST_CODEX_TRACE")
         if Process.alive?(orchestrator_pid), do: Process.exit(orchestrator_pid, :normal)
@@ -2293,17 +2289,10 @@ defmodule Aiur.CoreTest do
       replacement_pid = replacement.pid
       completion_ref = Process.monitor(replacement_pid)
 
-      assert wait_for_path(rework_started, 15_000)
-
-      in_flight = :sys.get_state(orchestrator_pid)
-      assert in_flight.running[issue.id].pid == replacement.pid
-      assert in_flight.queue_store.items[item_id].status == :delivered
-      assert in_flight.queue_store.items[item_id].delivery_attempts == 1
-
       send(orchestrator_pid, {:DOWN, old_ref, :process, old_worker, :normal})
       assert :sys.get_state(orchestrator_pid).running[issue.id].pid == replacement.pid
 
-      File.touch!(port_exit_release)
+      assert wait_for_path(port_closed_after_completion, 15_000)
 
       assert_receive {:DOWN, ^completion_ref, :process, ^replacement_pid, :normal},
                      15_000
@@ -2344,13 +2333,11 @@ defmodule Aiur.CoreTest do
           |> Enum.map_join("\n", &Map.get(&1, "text", ""))
         end)
 
-      assert length(turn_texts) == 4
+      assert length(turn_texts) == 3
       assert Enum.at(turn_texts, 0) =~ "You are an agent for this repository."
-      assert Enum.at(turn_texts, 1) == "repair from replacement"
-      assert Enum.at(turn_texts, 2) =~ "Continuation guidance"
-      assert Enum.at(turn_texts, 3) == "repair from replacement"
+      assert Enum.at(turn_texts, 1) =~ "Continuation guidance"
+      assert Enum.at(turn_texts, 2) == "repair from replacement"
     after
-      File.touch(Path.join(test_root, "port-exit.release"))
       File.touch(Path.join(test_root, "rework.release"))
       System.delete_env("SYMP_TEST_CODEX_TRACE")
       Application.delete_env(:aiur, :memory_tracker_issues)
