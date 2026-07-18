@@ -245,11 +245,44 @@ defmodule Aiur.AgentRunnerTest do
       refute AgentRunner.transient_run_error?(:port_closed, "claude")
       assert AgentRunner.transient_run_error?({:port_exit, 9}, "codex")
       refute AgentRunner.transient_run_error?({:port_exit, 9}, "claude")
+
+      assert AgentRunner.transient_run_error?(
+               {:turn_start_failed, :port_closed},
+               "codex"
+             )
+
+      assert AgentRunner.transient_run_error?(
+               {:turn_interrupt_failed, :port_closed},
+               "codex"
+             )
+
+      refute AgentRunner.transient_run_error?(
+               {:turn_start_failed, :port_closed},
+               "claude"
+             )
+
+      refute AgentRunner.transient_run_error?(
+               {:turn_interrupt_failed, :port_closed},
+               "claude"
+             )
+    end
+
+    test "an active-turn mismatch is transient only for Codex" do
+      reason =
+        {:turn_interrupt_failed,
+         %{
+           "code" => -32_600,
+           "message" => "expected active turn id queued-turn but found prior-turn"
+         }}
+
+      assert AgentRunner.transient_run_error?(reason, "codex")
+      refute AgentRunner.transient_run_error?(reason, "claude")
     end
 
     test "a genuine agent failure is NOT transient so it still surfaces as a hard error" do
       refute AgentRunner.transient_run_error?(:no_transcript)
       refute AgentRunner.transient_run_error?({:workspace_prepare_failed, :enoent})
+      refute AgentRunner.transient_run_error?({:turn_start_failed, :provider_rejected}, "codex")
     end
   end
 
