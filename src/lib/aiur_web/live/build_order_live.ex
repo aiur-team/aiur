@@ -5,13 +5,25 @@ defmodule AiurWeb.BuildOrderLive do
 
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.TrackerIdentity
-  alias AiurWeb.BuildOrder.{ContextRuntime, DataSource, RouteState, Runtime, SourceRuntime, TicketContextSelection}
+
+  alias AiurWeb.BuildOrder.{
+    ContextRuntime,
+    DataSource,
+    RouteState,
+    Runtime,
+    SourceRuntime,
+    TicketContextSelection,
+    UsageRuntime
+  }
+
+  alias AiurWeb.FinancialData
   alias AiurWeb.Presenter
 
   alias AiurWeb.OperatorControlCenter.{
     BuildOrderCatalog,
     BuildOrderSelected,
     BuildOrderTicketContext,
+    BuildOrderUsage,
     DashboardShell,
     RouteRegistry
   }
@@ -31,13 +43,14 @@ defmodule AiurWeb.BuildOrderLive do
       |> assign(:route_state, route_state)
       |> SourceRuntime.initialize(source)
       |> ContextRuntime.initialize(request_epoch)
+      |> UsageRuntime.initialize()
       |> assign(:now, Runtime.display_now())
       |> assign(:tracker_kind, Runtime.tracker_kind())
       |> assign(:agent_kind, Runtime.agent_kind())
       |> assign(:current_route, RouteRegistry.current_route(Map.get(socket.assigns, :live_action)))
       |> assign(:analytics, Presenter.analytics_navigation())
 
-    socket = if connected, do: SourceRuntime.connect(socket), else: socket
+    socket = if connected, do: socket |> SourceRuntime.connect() |> UsageRuntime.connect(), else: socket
     if connected, do: schedule_ui_tick()
 
     {:ok, socket}
@@ -59,6 +72,7 @@ defmodule AiurWeb.BuildOrderLive do
       |> assign(:current_route, RouteRegistry.current_route(socket.assigns.live_action))
       |> SourceRuntime.apply_effects(effects)
       |> SourceRuntime.assign_model()
+      |> UsageRuntime.sync_scope()
 
     {:noreply, socket}
   end
@@ -66,11 +80,19 @@ defmodule AiurWeb.BuildOrderLive do
   @impl true
   def handle_info({kind, %Snapshot{} = snapshot}, socket)
       when kind in [:graph_projection_generation, :graph_projection_health] do
-    {:noreply, SourceRuntime.accept_projection(socket, snapshot)}
+    {:noreply, socket |> SourceRuntime.accept_projection(snapshot) |> UsageRuntime.sync_scope()}
   end
 
   def handle_info({:graph_projection_reset, generation}, socket) when is_integer(generation) do
-    {:noreply, SourceRuntime.reset(socket, generation)}
+    {:noreply, socket |> SourceRuntime.reset(generation) |> UsageRuntime.sync_scope()}
+  end
+
+  def handle_info({FinancialData, :updated, _identity} = message, socket) do
+    {:noreply, UsageRuntime.stash(socket, message)}
+  end
+
+  def handle_info(:flush_bo_usage, socket) do
+    {:noreply, UsageRuntime.flush(socket)}
   end
 
   def handle_info(:build_order_ui_tick, socket) do
@@ -134,6 +156,18 @@ defmodule AiurWeb.BuildOrderLive do
     {:noreply, ContextRuntime.close(socket)}
   end
 
+  def handle_event("usage-drill-down", %{"dimension" => dimension}, socket) do
+    {:noreply, UsageRuntime.open_drill(socket, dimension)}
+  end
+
+  def handle_event("usage-drill-more", %{"dimension" => dimension, "cursor" => cursor}, socket) do
+    {:noreply, UsageRuntime.page_drill(socket, dimension, cursor)}
+  end
+
+  def handle_event("usage-drill-close", _params, socket) do
+    {:noreply, UsageRuntime.close_drill(socket)}
+  end
+
   def handle_event(_event, _params, socket), do: {:noreply, socket}
 
   @impl true
@@ -171,6 +205,14 @@ defmodule AiurWeb.BuildOrderLive do
           model={@model}
           adhoc={@adhoc_overlay}
           now={@now}
+        />
+
+        <BuildOrderUsage.build_order_usage
+          scope={@bo_usage_scope}
+          view={@bo_usage_view}
+          announcement={@bo_usage_announcement}
+          drill_down={@bo_usage_drill}
+          drill_trigger={@bo_usage_drill_trigger}
         />
       </section>
 
