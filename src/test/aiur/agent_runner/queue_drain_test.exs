@@ -32,6 +32,11 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
     def init(opts), do: {:ok, %{report: Keyword.fetch!(opts, :report), reply: Keyword.fetch!(opts, :reply)}}
 
     @impl true
+    def handle_call({:validate_delivery, item}, _from, state) do
+      send(state.report, {:decision_delivery_prepared, item})
+      {:reply, state.reply, state}
+    end
+
     def handle_call({:transport_transition, :delivered, item, nil}, _from, state) do
       send(state.report, {:decision_delivery, item})
       {:reply, state.reply, state}
@@ -69,6 +74,15 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
       send(state.report, {:queue_item_failed, identifier, reason})
       {:reply, :ok, %{state | delivered: nil}}
     end
+
+    def handle_call(
+          {:acknowledge_queue_item_delivery, item_id, provider_metadata},
+          _from,
+          state
+        ) do
+      send(state.report, {:provider_delivered, item_id, provider_metadata})
+      {:reply, :ok, state}
+    end
   end
 
   defp correlated_item do
@@ -91,27 +105,28 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
     end
   end
 
-  describe "record_operator_delivery/2" do
+  describe "prepare_operator_delivery/2" do
     test "returns :ok for a non-operator-message item" do
       item = %{category: :coordination_event, id: 1}
       issue = %Issue{identifier: "QD-01", id: "gid-qd01"}
 
-      assert QueueDrain.record_operator_delivery(item, issue) == :ok
+      assert QueueDrain.prepare_operator_delivery(item, issue) == :ok
     end
 
     test "returns :ok when issue has no binary identifier" do
       item = %{category: :operator_message, id: 1}
       issue = %Issue{identifier: nil, id: "gid-qd02"}
 
-      assert QueueDrain.record_operator_delivery(item, issue) == :ok
+      assert QueueDrain.prepare_operator_delivery(item, issue) == :ok
     end
 
-    test "persists correlated delivery before returning success" do
+    test "validates correlated delivery without marking it provider-delivered" do
       {:ok, store} = FakeDecisionStore.start_link(report: self(), reply: {:ok, :accepted})
       issue = %Issue{identifier: "QD-09", id: "gid-qd09"}
 
-      assert QueueDrain.record_operator_delivery(correlated_item(), issue, store) == :ok
-      assert_receive {:decision_delivery, %{action_id: "act_9"}}
+      assert QueueDrain.prepare_operator_delivery(correlated_item(), issue, store) == :ok
+      assert_receive {:decision_delivery_prepared, %{action_id: "act_9"}}
+      refute_receive {:decision_delivery, _}
     end
 
     test "bounds correlation retries and keeps terminal attention open until recovery", %{log_root: log_root} do
@@ -119,21 +134,31 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
       issue = %Issue{identifier: "QD-09", id: "gid-qd09"}
       topic = "ticket.QD-09.agent.attention.decision-delivery-correlation-act-9"
 
-      assert QueueDrain.record_operator_delivery(correlated_item(), issue, store) ==
+      assert QueueDrain.prepare_operator_delivery(correlated_item(), issue, store) ==
                {:error, {:retry, :store_unavailable}}
 
       assert AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true) == []
 
       exhausted = Map.put(correlated_item(), :delivery_attempts, 3)
 
-      assert QueueDrain.record_operator_delivery(exhausted, issue, store) ==
+      assert QueueDrain.prepare_operator_delivery(exhausted, issue, store) ==
                {:error, {:failed, :store_unavailable}}
 
       assert [%{"topic" => ^topic}] = AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true)
 
       {:ok, recovered_store} = FakeDecisionStore.start_link(report: self(), reply: {:ok, :accepted})
-      assert QueueDrain.record_operator_delivery(correlated_item(), issue, recovered_store) == :ok
+      assert QueueDrain.prepare_operator_delivery(correlated_item(), issue, recovered_store) == :ok
       assert AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true) == []
+    end
+  end
+
+  describe "record_provider_delivery/3" do
+    test "persists correlated delivery only after provider acknowledgement" do
+      {:ok, store} = FakeDecisionStore.start_link(report: self(), reply: {:ok, :accepted})
+      issue = %Issue{identifier: "QD-09", id: "gid-qd09"}
+
+      assert QueueDrain.record_provider_delivery(correlated_item(), issue, store) == :ok
+      assert_receive {:decision_delivery, %{action_id: "act_9"}}
     end
   end
 
@@ -198,6 +223,7 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
                 telemetry_attempt_id: 8,
                 run_turn: fn _session, _text, _issue, opts ->
                   send(parent, {:queue_drain_opts, opts})
+                  opts[:on_provider_delivery].(%{turn_id: "queued-provider-turn"})
                   {:ok, %{session_id: "queued-session"}}
                 end
               )
@@ -214,6 +240,8 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
       assert_receive {:worker_control_state, ^worker_issue_id, :working, %{request_id: 52, generation: 101}}
       assert_receive {:queue_drain_opts, opts}, 1_000
       assert is_function(opts[:tool_executor], 2)
+      assert is_function(opts[:on_provider_delivery], 1)
+      assert_receive {:provider_delivered, 1, %{turn_id: "queued-provider-turn"}}
       assert_receive {:queue_item_consumed, ^identifier}
       assert :ok = Task.await(task, 1_000)
     end

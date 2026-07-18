@@ -170,7 +170,7 @@ defmodule Aiur.LiveConversation do
         case authorize_source(state, key, :activate) do
           {:ok, state} ->
             now = state.clock.()
-            mode = if history_known?, do: :known_history, else: :unknown_history
+            mode = history_mode(history_known?)
             {snapshot, state, created?} = fetch_or_create(state, key, source, now, mode)
             activated = activate_snapshot(snapshot, now, created?, history_known?)
             changed? = created? or activated != snapshot
@@ -288,31 +288,7 @@ defmodule Aiur.LiveConversation do
       {:ok, key, source} ->
         case authorize_source(state, key, :mutate) do
           {:ok, state} ->
-            now = state.clock.()
-            {snapshot, state, _created?} = fetch_or_create(state, key, source, now, :implicit)
-
-            if snapshot.state == :ended do
-              {:reply, {:ok, public(snapshot)}, state}
-            else
-              {next_state, health, freshness} = state_transition(next_state, snapshot)
-
-              snapshot =
-                Map.merge(snapshot, %{
-                  state: next_state,
-                  health: health,
-                  freshness: freshness,
-                  observed_at: now
-                })
-
-              {snapshot, state} = persist_snapshot(state, key, snapshot, true)
-
-              state =
-                state
-                |> register_runtime_subscriber(key, runtime)
-                |> schedule_notification(key, source)
-
-              {:reply, {:ok, public(snapshot)}, state}
-            end
+            apply_change_state(state, key, source, next_state, runtime)
 
           {:error, reason} ->
             {:reply, {:error, reason}, state}
@@ -321,6 +297,38 @@ defmodule Aiur.LiveConversation do
       {:error, reason} ->
         {:reply, {:error, reason}, state}
     end
+  end
+
+  defp apply_change_state(state, key, source, next_state, runtime) do
+    now = state.clock.()
+    {snapshot, state, _created?} = fetch_or_create(state, key, source, now, :implicit)
+
+    if snapshot.state == :ended do
+      {:reply, {:ok, public(snapshot)}, state}
+    else
+      {next_state, health, freshness} = state_transition(next_state, snapshot)
+
+      snapshot =
+        Map.merge(snapshot, %{
+          state: next_state,
+          health: health,
+          freshness: freshness,
+          observed_at: now
+        })
+
+      {snapshot, state} = persist_snapshot(state, key, snapshot, true)
+
+      state =
+        state
+        |> register_runtime_subscriber(key, runtime)
+        |> schedule_notification(key, source)
+
+      {:reply, {:ok, public(snapshot)}, state}
+    end
+  end
+
+  defp history_mode(history_known?) do
+    if history_known?, do: :known_history, else: :unknown_history
   end
 
   defp fetch_or_create(state, key, source, now, mode) do

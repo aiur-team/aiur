@@ -34,10 +34,10 @@ defmodule Aiur.AgentRunner.CheckpointDelivery do
   end
 
   defp immediate_operator_delivery(issue, orchestrator, item, decision_store, live_opts) do
-    case QueueDrain.record_operator_delivery(item, issue, decision_store) do
+    case QueueDrain.prepare_operator_delivery(item, issue, decision_store) do
       :ok ->
         text = QueueDrain.queue_item_text(item)
-        on_success = fn _payload -> observe_operator_delivery(issue, item, live_opts) end
+        on_success = operator_delivery_success(orchestrator, item, issue, decision_store, live_opts)
         on_failure = fn _reason -> Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item.id) end
         {:deliver_text, text, on_success, on_failure}
 
@@ -74,10 +74,14 @@ defmodule Aiur.AgentRunner.CheckpointDelivery do
   defp urgent_checkpoint_delivery(issue, orchestrator, item, checkpoint, decision_store) do
     Logger.info("Urgent blocker-critical events delivered mid-turn for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{item.id} checkpoint=#{inspect(checkpoint)}")
 
-    case QueueDrain.record_operator_delivery(item, issue, decision_store) do
+    case QueueDrain.prepare_operator_delivery(item, issue, decision_store) do
       :ok ->
         text = render_urgent_events_digest(item)
-        {:deliver_text, text, fn _payload -> :ok end, fn reason -> handle_checkpoint_delivery_failure(issue, orchestrator, item.id, reason) end}
+
+        {:deliver_text, text, provider_delivery_callback(orchestrator, item, issue, decision_store),
+         fn reason ->
+           handle_checkpoint_delivery_failure(issue, orchestrator, item.id, reason)
+         end}
 
       {:error, outcome} ->
         QueueDrain.settle_operator_delivery_failure(orchestrator, item, outcome)
@@ -112,10 +116,10 @@ defmodule Aiur.AgentRunner.CheckpointDelivery do
   defp safe_checkpoint_delivery(issue, orchestrator, item, checkpoint, decision_store, live_opts) do
     Logger.info("Queueing Executor message into active turn for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{item.id} checkpoint=#{inspect(checkpoint)}")
 
-    case QueueDrain.record_operator_delivery(item, issue, decision_store) do
+    case QueueDrain.prepare_operator_delivery(item, issue, decision_store) do
       :ok ->
         text = QueueDrain.queue_item_text(item)
-        on_success = fn _payload -> observe_operator_delivery(issue, item, live_opts) end
+        on_success = operator_delivery_success(orchestrator, item, issue, decision_store, live_opts)
         on_failure = fn reason -> handle_checkpoint_delivery_failure(issue, orchestrator, item.id, reason) end
         {:deliver_text, text, on_success, on_failure}
 
@@ -145,6 +149,25 @@ defmodule Aiur.AgentRunner.CheckpointDelivery do
   defp handle_checkpoint_delivery_failure(issue, orchestrator, item_id, reason) do
     Logger.info("Queued item delivery failed for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{item_id} decision=mark_failed reason=#{inspect(reason)}")
     Aiur.Orchestrator.mark_queue_item_failed(orchestrator, item_id, reason)
+  end
+
+  # Compose provider-delivery settlement (record + acknowledge) with the
+  # DASH-026 live-conversation observation so an operator message that lands
+  # mid-turn is both settled and projected into the bounded live conversation.
+  defp operator_delivery_success(orchestrator, item, issue, decision_store, live_opts) do
+    provider_callback = provider_delivery_callback(orchestrator, item, issue, decision_store)
+
+    fn provider_metadata ->
+      provider_callback.(provider_metadata)
+      observe_operator_delivery(issue, item, live_opts)
+    end
+  end
+
+  defp provider_delivery_callback(orchestrator, item, issue, decision_store) do
+    fn provider_metadata ->
+      :ok = QueueDrain.record_provider_delivery(item, issue, decision_store)
+      QueueDrain.acknowledge_provider_delivery(orchestrator, item, provider_metadata)
+    end
   end
 
   defp observe_operator_delivery(issue, item, live_opts) do

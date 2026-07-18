@@ -1,8 +1,7 @@
 defmodule Aiur.OperatorWaitLog do
   @moduledoc """
   Records how long Executor messages sit between submission
-  (`Aiur.AgentChat.send/3` accept) and delivery (`AgentRunner`
-  handing the text to a codex turn). Appends one NDJSON line per
+  (`Aiur.AgentChat.send/3` accept) and provider-confirmed delivery. Appends one NDJSON line per
   delivered message to `<log-root>/metrics/operator_message_wait.ndjson`.
 
   The file survives `aiur --clear` (sits in a subdirectory; --clear
@@ -39,9 +38,9 @@ defmodule Aiur.OperatorWaitLog do
   end
 
   @doc """
-  Note an Executor message accepted into the queue. Called from
-  `Aiur.AgentChat.send/3` after the orchestrator returns
-  `{:ok, request_id}`.
+  Note an Executor message accepted into the queue. Called by the orchestrator
+  before it notifies the worker, so a provider acknowledgement cannot outrun
+  the queued timestamp.
   """
   @spec record_queued(integer(), String.t(), non_neg_integer()) :: :ok
   def record_queued(request_id, identifier, text_bytes)
@@ -57,10 +56,9 @@ defmodule Aiur.OperatorWaitLog do
   end
 
   @doc """
-  Note an Executor message handed off to the agent and append the
-  wait delta to the NDJSON file. Called from
-  `Aiur.AgentRunner.run_queue_item_turn/6` and
-  `safe_checkpoint_delivery/4` for `:operator_message` items.
+  Note a provider-confirmed Executor message and append the wait delta to
+  the NDJSON file. Called only after the provider accepts a new turn or
+  emits equivalent receipt evidence for an interactive session.
 
   Silently no-ops when no queued record exists (writer started after
   the message was enqueued, or this `request_id` came from a

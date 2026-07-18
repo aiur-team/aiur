@@ -85,6 +85,25 @@ defmodule Aiur.Config.Paths do
   end
 
   @doc """
+  Resolves the daemon-private canonical usage-ledger state directory.
+
+  It deliberately uses a separate leaf from decision and membership state so
+  raw accounting evidence can never be replayed by either subsystem.
+  """
+  @spec usage_ledger_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def usage_ledger_state_dir do
+    case Application.get_env(:aiur, :usage_ledger_state_dir) do
+      path when is_binary(path) and path != "" ->
+        {:ok, path}
+
+      _ ->
+        with {:ok, root} <- decision_state_dir() do
+          {:ok, Path.join(root, "usage-ledger")}
+        end
+    end
+  end
+
+  @doc """
   Returns the sanitized last segment of the tracker's project identity,
   or `"aiur"` if no identity is available. Safe to use as a filename
   prefix.

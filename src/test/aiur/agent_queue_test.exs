@@ -65,6 +65,31 @@ defmodule Aiur.AgentQueueTest do
     assert second.delivery_attempts == 2
   end
 
+  test "claim and provider acknowledgement remain distinct delivery milestones" do
+    {store, item} =
+      AgentQueue.operator_message("MT-102", "wait for provider")
+      |> then(&AgentQueueStore.enqueue(AgentQueueStore.new(), &1))
+
+    {store, claimed} = AgentQueueStore.claim_next_deliverable(store, "MT-102")
+    assert claimed.status == :delivered
+    assert %DateTime{} = claimed.delivered_at
+    assert claimed.provider_delivered_at == nil
+    assert claimed.provider_turn_id == nil
+
+    {store, acknowledged} =
+      AgentQueueStore.mark_provider_delivered(store, item.id, %{turn_id: "turn-provider-1"})
+
+    assert acknowledged.status == :delivered
+    assert %DateTime{} = acknowledged.provider_delivered_at
+    assert acknowledged.provider_turn_id == "turn-provider-1"
+
+    {_store, duplicate} =
+      AgentQueueStore.mark_provider_delivered(store, item.id, %{turn_id: "turn-provider-2"})
+
+    assert duplicate.provider_delivered_at == acknowledged.provider_delivered_at
+    assert duplicate.provider_turn_id == "turn-provider-1"
+  end
+
   test "immediate delivery policy flags pass-through, now priority, immediate consume point" do
     item = AgentQueue.operator_message("MT-110", "steer now", delivery_policy: :immediate)
 
@@ -391,15 +416,24 @@ defmodule Aiur.AgentQueueTest do
     assert Enum.map(AgentQueueStore.list_pending(store, "MT-886"), & &1.id) == [item.id]
   end
 
-  test "visible operator messages include pending and delivered items" do
+  test "visible operator messages include queued, in-flight, and failed items" do
     store = AgentQueueStore.new()
     {store, first} = AgentQueue.operator_message("MT-881", "abc") |> then(&AgentQueueStore.enqueue(store, &1))
     {store, second} = AgentQueue.operator_message("MT-881", "def") |> then(&AgentQueueStore.enqueue(store, &1))
     {store, _claimed} = AgentQueueStore.claim_next_deliverable(store, "MT-881")
 
-    assert [%{id: first_id}, %{id: second_id}] = AgentQueueStore.list_visible_operator_messages(store, "MT-881")
+    {store, failed_item} =
+      AgentQueue.operator_message("MT-881", "ghi")
+      |> then(&AgentQueueStore.enqueue(store, &1))
+
+    {store, failed} = AgentQueueStore.mark_failed(store, failed_item.id, :provider_down)
+
+    assert [%{id: first_id}, %{id: second_id}, %{id: failed_id}] =
+             AgentQueueStore.list_visible_operator_messages(store, "MT-881")
+
     assert first_id == first.id
     assert second_id == second.id
+    assert failed_id == failed.id
   end
 
   test "visible operator messages excludes non-operator and terminal items" do

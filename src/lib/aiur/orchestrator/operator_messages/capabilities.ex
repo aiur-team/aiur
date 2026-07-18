@@ -25,7 +25,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Capabilities do
         # Orchestrator whenever the dashboard rendered an issue with a visible
         # Executor message.
         text: operator_item_text(item),
-        status: item.status
+        status: operator_message_status(item)
       }
     end)
   end
@@ -54,6 +54,13 @@ defmodule Aiur.Orchestrator.OperatorMessages.Capabilities do
 
   defp operator_item_text(%{body: %{text: text}}) when is_binary(text), do: text
   defp operator_item_text(_item), do: ""
+
+  defp operator_message_status(%{status: :failed}), do: :failed
+
+  defp operator_message_status(%{provider_delivered_at: %DateTime{}}),
+    do: :delivered
+
+  defp operator_message_status(_item), do: :queued
 
   # The REPL backend forwards Executor messages straight into the live
   # process, so it offers :immediate instead of the hold-then-deliver

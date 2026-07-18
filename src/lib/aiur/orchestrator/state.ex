@@ -245,22 +245,8 @@ defmodule Aiur.Orchestrator.State do
   end
 
   defp live_conversation_runtime(%{} = status) do
-    projection_epoch = Map.get(status, :projection_epoch)
-    revision = Map.get(status, :revision)
-    source_revision = Map.get(status, :source_revision)
-    handle = Map.get(status, :generation_handle)
-    source = Map.get(status, :source)
-    state = Map.get(status, :state)
-    health = Map.get(status, :health)
-    freshness = Map.get(status, :freshness)
-    observed_at = Map.get(status, :observed_at)
-
-    if valid_projection_epoch?(projection_epoch) and is_integer(revision) and revision > 0 and
-         is_integer(source_revision) and source_revision > 0 and source_revision <= revision and
-         valid_conversation_handle?(handle) and valid_conversation_source?(source) and
-         state in [:live, :ended, :known_empty, :stale, :unavailable, :restart_unknown] and
-         health in [:healthy, :unavailable, :unknown] and
-         freshness in [:current, :stale, :unknown] and is_struct(observed_at, DateTime) do
+    if valid_runtime_identity?(status) and valid_runtime_revisions?(status) and
+         valid_runtime_enums?(status) and is_struct(Map.get(status, :observed_at), DateTime) do
       Map.take(status, [
         :projection_epoch,
         :revision,
@@ -276,6 +262,26 @@ defmodule Aiur.Orchestrator.State do
   end
 
   defp live_conversation_runtime(_status), do: nil
+
+  defp valid_runtime_identity?(status) do
+    valid_projection_epoch?(Map.get(status, :projection_epoch)) and
+      valid_conversation_handle?(Map.get(status, :generation_handle)) and
+      valid_conversation_source?(Map.get(status, :source))
+  end
+
+  defp valid_runtime_revisions?(status) do
+    revision = Map.get(status, :revision)
+    source_revision = Map.get(status, :source_revision)
+
+    is_integer(revision) and revision > 0 and is_integer(source_revision) and
+      source_revision > 0 and source_revision <= revision
+  end
+
+  defp valid_runtime_enums?(status) do
+    Map.get(status, :state) in [:live, :ended, :known_empty, :stale, :unavailable, :restart_unknown] and
+      Map.get(status, :health) in [:healthy, :unavailable, :unknown] and
+      Map.get(status, :freshness) in [:current, :stale, :unknown]
+  end
 
   defp authoritative_live_conversation_status?(running_entry, status) do
     expected_generation = get_in(running_entry, [:control, :generation])

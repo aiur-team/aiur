@@ -311,6 +311,16 @@ defmodule Aiur.Config do
     settings!().hooks.timeout_ms
   end
 
+  @doc false
+  @spec usage_ledger_durability_timeout() :: timeout()
+  def usage_ledger_durability_timeout do
+    case Application.get_env(:aiur, :usage_ledger_durability_timeout, :infinity) do
+      :infinity -> :infinity
+      timeout when is_integer(timeout) and timeout > 0 -> timeout
+      _other -> :infinity
+    end
+  end
+
   @spec max_concurrent_agents() :: pos_integer()
   def max_concurrent_agents do
     settings!().agent.max_concurrent_agents
