@@ -68,15 +68,24 @@ defmodule AiurWeb.OperatorControlCenter.UnitsControlPolicy do
   defp base_affordance(row) do
     cond do
       is_nil(identifier(row)) -> disabled(:no_identity)
-      terminal?(row) -> disabled(:terminal)
-      replacement_boundary?(row) -> disabled(:replaced_generation)
-      remote_control?(row) -> disabled(:remote_control)
-      retrying?(row) -> disabled(:retrying)
-      merging?(row) -> disabled(:merging)
+      reason = blocking_reason(row) -> disabled(reason)
       paused?(row) -> enabled(:resume)
       running_working?(row) -> enabled(:pause)
       queued?(row) -> disabled(:queued)
       true -> disabled(:unavailable)
+    end
+  end
+
+  # Precedence-ordered gates that disable a control regardless of pause/resume
+  # eligibility. Returns the disabling reason, or nil when the row is not gated.
+  defp blocking_reason(row) do
+    cond do
+      terminal?(row) -> :terminal
+      replacement_boundary?(row) -> :replaced_generation
+      remote_control?(row) -> :remote_control
+      retrying?(row) -> :retrying
+      merging?(row) -> :merging
+      true -> nil
     end
   end
 
