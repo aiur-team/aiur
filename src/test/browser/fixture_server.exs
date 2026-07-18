@@ -148,7 +148,31 @@ defmodule Aiur.BrowserHarness.FixtureLive do
   @impl true
   def handle_params(params, _uri, socket) do
     view = if params["view"] == "details", do: :details, else: :overview
-    {:noreply, assign(socket, :view, view)}
+    {:noreply, socket |> assign(:view, view) |> apply_fixture_size(params["size"])}
+  end
+
+  defp apply_fixture_size(socket, size) do
+    case parse_fixture_size(size) do
+      nil ->
+        socket
+
+      requested when requested == length(socket.assigns.fixture.nodes) ->
+        socket
+
+      requested ->
+        socket
+        |> assign(:fixture, Fixtures.graph(requested))
+        |> update(:graph_generation, &(&1 + 1))
+    end
+  end
+
+  defp parse_fixture_size(nil), do: nil
+
+  defp parse_fixture_size(size) do
+    case Integer.parse(size) do
+      {value, ""} when value in [20, 50, 100] -> value
+      _ -> nil
+    end
   end
 
   @impl true
@@ -252,6 +276,9 @@ defmodule Aiur.BrowserHarness.FixtureLive do
   end
 
   defp graph_nodes(fixture) do
+    size = length(fixture.nodes)
+    per_phase = nodes_per_phase(size)
+
     Enum.map(fixture.nodes, fn node ->
       ordinal = node.ordinal || 1
 
@@ -260,20 +287,61 @@ defmodule Aiur.BrowserHarness.FixtureLive do
         title: "Fixture #{ordinal}",
         summary: "Semantic card #{ordinal}",
         lane: rem(ordinal - 1, 2),
-        phase: rem(div(ordinal - 1, 2), 4)
+        phase: node_phase(size, ordinal, per_phase)
       }
     end)
   end
 
+  # Small graphs keep the original 4-column layout (phase cycles every two cards)
+  # so BO-013/route interaction specs stay pinned. Larger graphs fill a balanced
+  # ~sqrt(size) grid: `per_phase` consecutive cards share a partition column and
+  # each successive column advances the build order. `elk.partitioning` maps
+  # phase onto a layered column, so keeping both the column count and the
+  # per-column stack near sqrt(size) holds every layout coordinate under the
+  # worker's MAX_COORDINATE bound for 20/50/100 instead of a false overflow.
+  defp node_phase(size, ordinal, _per_phase) when size <= 20, do: rem(div(ordinal - 1, 2), 4)
+  defp node_phase(_size, ordinal, per_phase), do: div(ordinal - 1, per_phase)
+
+  defp nodes_per_phase(size), do: max(1, round(:math.sqrt(size)))
+
   defp graph_edges(fixture) do
     states = [:cleared, :blocking, :terminal_unsatisfied, :unknown, :cyclic]
+    graph_edges(length(fixture.nodes), fixture, states)
+  end
 
+  # Small graphs keep the original star topology (edges fan out from the first
+  # two cards) so BO-013/route edge-state specs stay pinned.
+  defp graph_edges(size, fixture, states) when size <= 20 do
     edges =
       fixture.edges
       |> Enum.with_index()
       |> Enum.map(fn {_edge, index} ->
         source = Enum.at(fixture.nodes, rem(index, 2)).id
         target = Enum.at(fixture.nodes, index + 1).id
+
+        %{id: "fixture-edge-#{index + 1}", source: source, target: target, state: Enum.at(states, rem(index, length(states)))}
+      end)
+
+    [%{id: "fixture-missing-endpoint", source: "missing:fixture-node", target: "fixture-node-001", state: :unknown} | edges]
+  end
+
+  # Larger graphs connect each card to the same row of the next partition column
+  # (node i -> i + per_phase), so every dependency spans exactly one column and
+  # ELK routes it between adjacent layers with no dummy nodes. A dependency that
+  # crossed many columns (as the star topology does) would stack routing dummies
+  # vertically in the intermediate columns until a coordinate exceeds
+  # MAX_COORDINATE — a false overflow instead of real worker geometry.
+  defp graph_edges(size, fixture, states) do
+    per_phase = nodes_per_phase(size)
+    nodes = fixture.nodes
+    last = size - 1
+
+    edges =
+      fixture.edges
+      |> Enum.with_index()
+      |> Enum.map(fn {_edge, index} ->
+        source = Enum.at(nodes, index).id
+        target = Enum.at(nodes, min(index + per_phase, last)).id
 
         %{id: "fixture-edge-#{index + 1}", source: source, target: target, state: Enum.at(states, rem(index, length(states)))}
       end)
