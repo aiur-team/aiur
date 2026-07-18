@@ -568,6 +568,105 @@ defmodule Aiur.DecisionRevisionStoreTest do
     assert second_index < handled_index
   end
 
+  test "restart repairs a superseded follow-up after its dispatch fence becomes stale", %{dir: dir} do
+    parent = self()
+
+    dispatcher = fn dispatched, opts ->
+      active = Decision.active_answer(dispatched)
+      send(parent, {:revision_dispatched, active.action_id, opts[:attempt_id]})
+
+      if dispatched.revision_sequence == 1 do
+        {:no_longer_applicable, :missing}
+      else
+        {:ok,
+         %{
+           status: :accepted,
+           item: %{id: System.unique_integer([:positive]), status: :pending, correlation: %{attempt_id: opts[:attempt_id]}}
+         }}
+      end
+    end
+
+    scheduler = fn recipient, message, delay_ms ->
+      send(parent, {:dispatch_scheduled, recipient, message, delay_ms})
+      make_ref()
+    end
+
+    resolver = fn resolved, action_id ->
+      send(parent, {:follow_up_resolved, action_id, resolved.active_action_id})
+      :ok
+    end
+
+    opts = [
+      dispatcher: dispatcher,
+      dispatch_delay_ms: 0,
+      reconcile_delay_ms: 0,
+      dispatch_scheduler: scheduler,
+      revision_follow_up_resolver: resolver
+    ]
+
+    pid = start_store!(dir, opts)
+    assert_receive {:dispatch_scheduled, ^pid, {:reconcile_dispatches, []}, 0}, 2_000
+
+    {decision, original} = answered_decision(pid)
+    assert_receive {:dispatch_scheduled, ^pid, original_dispatch, 0}, 2_000
+    send(pid, original_dispatch)
+    assert_receive {:revision_dispatched, original_action_id, _attempt_id}, 2_000
+    assert original_action_id == original.action_id
+    _original_queued = wait_for(pid, decision.decision_id, &(&1.delivery_status == :queued))
+
+    assert {:ok, %{action: first}} = revise(pid, decision, original, "revision-first", "Hold")
+    assert_receive {:dispatch_scheduled, ^pid, first_dispatch, 0}, 2_000
+    send(pid, first_dispatch)
+    assert_receive {:revision_dispatched, first_action_id, _attempt_id}, 2_000
+    assert first_action_id == first.action_id
+
+    current = wait_for(pid, decision.decision_id, &Map.has_key?(&1.revision_follow_ups, first.action_id))
+
+    second_payload = %{
+      "idempotency_key" => "revision-second",
+      "expected_version" => current.version,
+      "expected_action_id" => current.active_action_id,
+      "expected_revision_sequence" => current.revision_sequence,
+      "custom_response" => "Open replacement work",
+      "rationale" => "The original target is closed"
+    }
+
+    assert {:ok, %{status: :accepted, action: second}} =
+             DecisionStore.revise(current.decision_id, second_payload, [actor: @actor], pid)
+
+    assert_receive {:dispatch_scheduled, ^pid, _second_dispatch, 0}, 2_000
+    assert_receive {:follow_up_resolved, first_action_id, second_action_id}, 2_000
+    assert first_action_id == first.action_id
+    assert second_action_id == second.action_id
+    GenServer.stop(pid)
+
+    remove_follow_up_handled_event!(dir)
+    restarted = start_store!(dir, opts)
+
+    assert_receive {:dispatch_scheduled, ^restarted, {:reconcile_dispatches, [_fence]} = boot_reconciliation, 0}, 2_000
+
+    assert {:ok, %{status: :duplicate, action: ^second}} =
+             DecisionStore.revise(current.decision_id, second_payload, [actor: @actor], restarted)
+
+    assert_receive {:dispatch_scheduled, ^restarted, replay_dispatch, 0}, 2_000
+    send(restarted, replay_dispatch)
+    assert_receive {:revision_dispatched, second_action_id, _attempt_id}, 2_000
+    assert second_action_id == second.action_id
+    _second_queued = wait_for(restarted, decision.decision_id, &(&1.delivery_status == :queued))
+
+    send(restarted, boot_reconciliation)
+    assert_receive {:follow_up_resolved, first_action_id, second_action_id}, 2_000
+    assert first_action_id == first.action_id
+    assert second_action_id == second.action_id
+
+    repaired = wait_for(restarted, decision.decision_id, & &1.revision_follow_ups[first.action_id].handled_at)
+    assert repaired.revision_follow_ups[first.action_id].handled_detail == "Superseded by revision #{second.action_id}"
+
+    assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, restarted)
+    assert Enum.count(audit, &match?(%DecisionEvent{type: :follow_up_handled}, &1)) == 1
+    refute_receive {:dispatch_scheduled, ^restarted, _message, _delay_ms}, 100
+  end
+
   defp start_store!(dir, opts \\ []) do
     Application.put_env(:aiur, :decision_state_dir, dir)
 
@@ -631,6 +730,23 @@ defmodule Aiur.DecisionRevisionStoreTest do
   end
 
   defp system_follow_up_actor, do: %{kind: :system, id: "decision-store"}
+
+  defp remove_follow_up_handled_event!(dir) do
+    path = Path.join(dir, "decisions.ndjson")
+    lines = path |> File.read!() |> String.split("\n", trim: true)
+
+    {removed, kept} =
+      Enum.reduce(lines, {false, []}, fn line, {removed, kept} ->
+        handled? = Jason.decode!(line)["event_type"] == "follow_up_handled"
+
+        if handled? and not removed,
+          do: {true, kept},
+          else: {removed, [line | kept]}
+      end)
+
+    assert removed
+    File.write!(path, Enum.join(Enum.reverse(kept), "\n") <> "\n")
+  end
 
   defp wait_for(pid, decision_id, predicate, attempts \\ 100)
 
