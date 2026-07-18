@@ -53,10 +53,13 @@ From the repository root:
 
    `--only` dequeues all other pending tickets and therefore requires explicit
    scope authority;
-4. choose a measured starting cap and the recorded maximum. Keep the session
-   ceiling high enough to admit every ready independent lane; use AIMD/build
-   gates or explicit resource thresholds to regulate effective concurrency,
-   not an arbitrary low fixed cap;
+4. choose a measured starting cap and the recorded maximum. Treat `max-agents`
+   as a runtime admission ceiling recomputed from dependency-ready width,
+   serialization constraints, model capacity, CPU, memory, file descriptors,
+   and build-gate pressure — never a fixed program-wide target. Keep the
+   session ceiling high enough to admit every ready independent lane; use
+   AIMD/build gates or explicit resource thresholds to regulate effective
+   concurrency, not an arbitrary low fixed cap;
 5. when `AIUR_CMD=scripts/aiurdev`, use `"$AIUR_CMD" build` if the local release
    needs an explicit clean checkpoint; ordinary local launches rebuild stale
    sources, and installed `aiur` has no shim-only `build` command.
@@ -108,6 +111,37 @@ The timer and alert path are additive: an urgent alert is handled immediately,
 while the cadence still provides a quiet-state floor. Do not depend on PR or
 agent-completion events as the only wake-up mechanism.
 
+### Adaptive quiet-audit wait
+
+Do not turn every internal poll into a model wake or a repository commit. Wake
+the model immediately for an actionable transition — a needs-attention alert,
+an agent-state change, a PR/CI result, a daemon health change, a stale worker,
+or a likely-thrash signal — and otherwise fall back to a bounded quiet audit
+interval that adapts to recent outcomes. Keep operator-requested status reports
+and meaningful phase-preview snapshots; those are deliberate, not a wake on
+every internal tick.
+
+The interval is low-token and self-tuning: an actionable or a thrash/stale wake
+resets it to the floor so the next quiet check comes soon, while each repeated
+no-action audit widens it multiplicatively toward the ceiling. Retain the wake
+reason, the audit outcome, the intervention or no-action result, and the next
+interval so the floor, ceiling, and backoff can be tuned from a real
+multi-phase run. Record one line per wake with the bundled helper (the same
+event also feeds the hourly retrospective's action/no-action denominator):
+
+```bash
+RETRO="<loaded-aiur-run-skill>/scripts/executor-retrospective.sh"
+export AIUR_EXECUTOR_RUN_ID="<stable-build-order-or-run-id>"
+"$RETRO" plan-wait actionable "dispatched-ready-batch"  # next = floor
+"$RETRO" plan-wait quiet "no-actionable-transition"     # widen toward ceiling
+"$RETRO" plan-wait thrash "pr-review-rework-loop"       # narrow to floor
+```
+
+Bound the interval with `AIUR_EXECUTOR_WAIT_FLOOR_SECONDS`,
+`AIUR_EXECUTOR_WAIT_CEILING_SECONDS`, and `AIUR_EXECUTOR_WAIT_BACKOFF`. The
+event-driven wakes above stay immediate regardless of the current interval;
+the interval only bounds the quiet fallback timer.
+
 ### Ten-minute capacity audit — required
 
 Arm a hard capacity reminder every ten minutes, independent of the adaptive
@@ -152,6 +186,13 @@ export AIUR_EXECUTOR_RUN_ID="<stable-build-order-or-run-id>"
 "$RETRO" record "<assessment>" "<adjustment-or-unchanged>"
 ```
 
+Take the recorded assessment's count language from the atomic
+`summary.count_sentence` that `record` embeds (or the one `summarize` prints in
+the same call), not from an earlier separate poll. `summarize` and `record` each
+resolve a sliding one-hour window at call time, so counts copied from a preflight
+`summarize` into a later `record` would otherwise disagree with the report the
+`record` actually embeds.
+
 Choose the stable run ID once and preserve it across Executor handoffs of that
 same run; never reuse it for a later run. Every event-driven or quiet audit must
 call `observe action|no-action <reason>` with a concise reason; otherwise the
@@ -180,10 +221,16 @@ On every observation:
   `"$AIUR_CMD" set max-agents <n>` to keep the ceiling at the recorded maximum.
   Lower it only for measured pressure AIMD/build gates do not capture, record a
   restoration condition, and raise it again as soon as that condition clears;
-- use CPU saturation as a control target, then memory, build serialization,
-  provider quota, review capacity, and dependency width as successive
-  bottlenecks. Do not leave CPU/memory/provider headroom idle while independent
-  ready work or review work exists;
+- use CPU saturation as a control target, then memory, file descriptors,
+  build serialization, model/provider capacity, review capacity, and dependency
+  width as successive bottlenecks. Do not leave CPU/memory/provider headroom
+  idle while independent ready work or review work exists;
+- measure live state before recomputing the ceiling: read the daemon
+  (`"$AIUR_CMD" agents`, `"$AIUR_CMD" status`) together with host evidence —
+  CPU idle/run queue, available memory, FD and build pressure, and occupied
+  agent slots. Distinguish current worker-owned browser/test processes from
+  stale PID-1 daemons with no live owner; the latter are recoverable capacity,
+  not load to schedule around;
 - do not inflate utilization by waking `ci-wait`, human-review, dependency-
   blocked, or conflict-bound tickets. Those are external gates, not idle worker
   lanes. Instead fill reviewer capacity and staff the unblocker/fan-out spine;
@@ -271,6 +318,15 @@ broken controls, follow the reference's sanitization and consent policy:
   commenting.
 
 Always remove secrets and privacy-sensitive context, regardless of debug mode.
+
+When a reproducible Aiur defect is discovered, diagnose and file it first, then
+decide separately whether to dispatch it *now*. Free capacity is necessary but
+not sufficient: the ticket must also be explicitly authorized/in-boundary or a
+direct P0/P1 acceptance blocker, and dispatching it must not displace ready
+critical-path work. An orphaned/stale-daemon cleanup or another incidental
+reliability fix stays in the deferred ledger even when a capacity audit shows
+idle slots. Base the decision on the measured live state above and record the
+dispatch-or-defer outcome, with its reason, in the Executor decision ledger.
 
 ## 7. Rebuild, resume, and stop
 

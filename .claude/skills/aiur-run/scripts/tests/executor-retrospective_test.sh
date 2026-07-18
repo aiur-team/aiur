@@ -77,6 +77,67 @@ printf '%s\n' '"valid-json-but-not-an-event"' >> "$state_root/run-a/history.ndjs
 jq -e '.malformed_lines == 2 and .total_wakes == 3' <<< "$(run run-a 3600 summarize)" >/dev/null ||
   fail "malformed history was not isolated"
 
+# The atomic count sentence lets `record` embed one window boundary, so a
+# preflight summarize and a later record cannot report divergent counts.
+jq -e '.count_sentence == "3 wakes (1 action / 2 no-action) since \(.since)"' \
+  <<< "$(run run-a 3600 summarize)" >/dev/null ||
+  fail "summary count sentence did not match its own counts"
+jq -e '.count_sentence == "0 wakes (0 action / 0 no-action) since \(.since)"' \
+  <<< "$(run empty-window 3600 summarize)" >/dev/null ||
+  fail "empty-window count sentence was wrong"
+
+# Adaptive quiet-audit wait planner. Event-driven wakes stay immediate; the
+# quiet fallback interval resets to the floor on an actionable or thrash/stale
+# wake and widens multiplicatively on each repeated no-action quiet audit,
+# always clamped to the configured [floor, ceiling] bounds.
+run_wait() {
+  AIUR_EXECUTOR_STATE_DIR="$state_root" \
+    AIUR_EXECUTOR_RUN_ID="$1" \
+    AIUR_EXECUTOR_WAIT_FLOOR_SECONDS="$2" \
+    AIUR_EXECUTOR_WAIT_CEILING_SECONDS="$3" \
+    AIUR_EXECUTOR_WAIT_BACKOFF="$4" \
+    "$script" "${@:5}"
+}
+
+jq -e '.category == "quiet" and .outcome == "no-action" and .prev_interval_seconds == 30 and .next_interval_seconds == 60' \
+  <<< "$(run_wait wait 30 900 2 plan-wait quiet nothing-actionable)" >/dev/null ||
+  fail "first quiet audit did not widen from the floor"
+jq -e '.next_interval_seconds == 120' \
+  <<< "$(run_wait wait 30 900 2 plan-wait quiet still-quiet)" >/dev/null ||
+  fail "repeated no-action audit did not keep widening"
+jq -e '.outcome == "action" and .next_interval_seconds == 30' \
+  <<< "$(run_wait wait 30 900 2 plan-wait actionable dispatched-ready-work)" >/dev/null ||
+  fail "actionable wake did not reset the interval to the floor"
+jq -e '.outcome == "action" and .next_interval_seconds == 30' \
+  <<< "$(run_wait wait 30 900 2 plan-wait quiet re-widen && run_wait wait 30 900 2 plan-wait thrash likely-thrash)" >/dev/null ||
+  fail "thrash wake did not narrow the interval to the floor"
+jq -e '.next_interval_seconds == 30' \
+  <<< "$(run_wait wait 30 900 2 plan-wait stale stale-agent)" >/dev/null ||
+  fail "stale wake did not narrow the interval to the floor"
+
+# Widening is bounded by the ceiling, not unbounded backoff.
+run_wait clamp 10 25 2 plan-wait quiet q1 >/dev/null
+jq -e '.prev_interval_seconds == 20 and .next_interval_seconds == 25' \
+  <<< "$(run_wait clamp 10 25 2 plan-wait quiet q2)" >/dev/null ||
+  fail "widening was not clamped to the ceiling"
+jq -e '.prev_interval_seconds == 25 and .next_interval_seconds == 25' \
+  <<< "$(run_wait clamp 10 25 2 plan-wait quiet q3)" >/dev/null ||
+  fail "interval did not stay pinned at the ceiling"
+
+# plan-wait events feed the same action/no-action retrospective denominator.
+jq -e '.total_wakes == 6 and .action_wakes == 3 and .no_action_wakes == 3' \
+  <<< "$(run wait 3600 summarize)" >/dev/null ||
+  fail "plan-wait outcomes were not counted in the summary"
+
+if run_wait wait 30 900 2 plan-wait sideways bad-category >/dev/null 2>&1; then
+  fail "plan-wait accepted an unknown category"
+fi
+if AIUR_EXECUTOR_STATE_DIR="$state_root" AIUR_EXECUTOR_RUN_ID=wait \
+  AIUR_EXECUTOR_WAIT_CEILING_SECONDS=5 AIUR_EXECUTOR_WAIT_FLOOR_SECONDS=10 \
+  "$script" due >/dev/null 2>&1; then
+  fail "a ceiling below the floor was accepted"
+fi
+
 run concurrent 60 record first unchanged > "$state_root/first.out" 2> "$state_root/first.err" &
 first_pid=$!
 run concurrent 60 record second unchanged > "$state_root/second.out" 2> "$state_root/second.err" &

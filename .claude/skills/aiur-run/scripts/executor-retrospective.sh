@@ -10,12 +10,30 @@ run_id="${AIUR_EXECUTOR_RUN_ID:-}"
 state_root="${AIUR_EXECUTOR_STATE_DIR:-/tmp/aiur-executor-watch}"
 interval_seconds="${AIUR_EXECUTOR_RETROSPECTIVE_SECONDS:-3600}"
 
+# Adaptive quiet-audit wait bounds. Event-driven wakes stay immediate; these
+# only bound the fallback timer between quiet audits.
+wait_floor_seconds="${AIUR_EXECUTOR_WAIT_FLOOR_SECONDS:-30}"
+wait_ceiling_seconds="${AIUR_EXECUTOR_WAIT_CEILING_SECONDS:-900}"
+wait_backoff="${AIUR_EXECUTOR_WAIT_BACKOFF:-2}"
+
 if [[ ! "$run_id" =~ ^[A-Za-z0-9._-]+$ ]] || [ "$run_id" = "." ] || [ "$run_id" = ".." ]; then
   printf 'AIUR_EXECUTOR_RUN_ID is required, must match [A-Za-z0-9._-]+, and cannot be . or ..\n' >&2
   exit 64
 fi
 if [[ ! "$interval_seconds" =~ ^[1-9][0-9]*$ ]]; then
   printf 'AIUR_EXECUTOR_RETROSPECTIVE_SECONDS must be a positive integer\n' >&2
+  exit 64
+fi
+if [[ ! "$wait_floor_seconds" =~ ^[1-9][0-9]*$ ]]; then
+  printf 'AIUR_EXECUTOR_WAIT_FLOOR_SECONDS must be a positive integer\n' >&2
+  exit 64
+fi
+if [[ ! "$wait_ceiling_seconds" =~ ^[1-9][0-9]*$ ]] || [ "$wait_ceiling_seconds" -lt "$wait_floor_seconds" ]; then
+  printf 'AIUR_EXECUTOR_WAIT_CEILING_SECONDS must be a positive integer >= the floor\n' >&2
+  exit 64
+fi
+if [[ ! "$wait_backoff" =~ ^[1-9][0-9]*$ ]]; then
+  printf 'AIUR_EXECUTOR_WAIT_BACKOFF must be a positive integer\n' >&2
   exit 64
 fi
 
@@ -291,7 +309,7 @@ summary() {
   cutoff="$(jq -nr --argjson epoch "$cutoff_epoch" '$epoch | strftime("%Y-%m-%dT%H:%M:%SZ")')"
   if [ ! -s "$history_file" ]; then
     jq -nc --arg since "$cutoff" --arg run_id "$run_id" \
-      '{run_id:$run_id,since:$since,total_wakes:0,action_wakes:0,no_action_wakes:0,malformed_lines:0,no_action_reasons:[],repeated_no_action_reasons:[]}'
+      '{run_id:$run_id,since:$since,total_wakes:0,action_wakes:0,no_action_wakes:0,malformed_lines:0,no_action_reasons:[],repeated_no_action_reasons:[],count_sentence:("0 wakes (0 action / 0 no-action) since " + $since)}'
     return
   fi
 
@@ -300,15 +318,19 @@ summary() {
     ([$lines[] | try fromjson catch null]) as $parsed |
     [ $parsed[] | select(type == "object" and (.at // "") >= $since and (.outcome == "action" or .outcome == "no-action")) ] as $events |
     ([ $events[] | select(.outcome == "no-action") | .reason ] | group_by(.) | map({reason:.[0], count:length})) as $reasons |
+    ($events|length) as $total |
+    ([$events[]|select(.outcome == "action")]|length) as $action |
+    ([$events[]|select(.outcome == "no-action")]|length) as $no_action |
     {
       run_id:$run_id,
       since:$since,
-      total_wakes:($events|length),
-      action_wakes:([$events[]|select(.outcome == "action")]|length),
-      no_action_wakes:([$events[]|select(.outcome == "no-action")]|length),
+      total_wakes:$total,
+      action_wakes:$action,
+      no_action_wakes:$no_action,
       malformed_lines:([$parsed[]|select(type != "object")]|length),
       no_action_reasons:$reasons,
-      repeated_no_action_reasons:[$reasons[]|select(.count > 1)]
+      repeated_no_action_reasons:[$reasons[]|select(.count > 1)],
+      count_sentence:("\($total) wakes (\($action) action / \($no_action) no-action) since \($since)")
     }
   ' "$history_file"
 }
@@ -332,6 +354,58 @@ observe() {
     '{type:"monitoring_outcome",at:$at,epoch:$epoch,run_id:$run_id,outcome:$outcome,reason:$reason}')"
   acquire_lock
   printf '%s\n' "$event" >> "$history_file"
+  unlock
+  printf '%s\n' "$event"
+}
+
+# Adaptive quiet-audit wait planner. One low-token call per wake records the
+# wake reason, its action/no-action outcome, and the next quiet interval so the
+# thresholds can be tuned from a real multi-phase run. Event-driven wakes
+# (attention, agent-state, PR/CI, daemon, stale, thrash) stay immediate; this
+# only governs the fallback timer between quiet audits: an actionable or a
+# thrash/stale wake resets it to the floor (watch closely), while each repeated
+# no-action quiet audit widens it multiplicatively toward the ceiling.
+plan_wait() {
+  local category="${2:-}" reason="${3:-}" outcome prev next event current payload
+  [ "$#" -eq 3 ] || {
+    printf 'usage: %s plan-wait actionable|thrash|stale|quiet <reason>\n' "$0" >&2
+    exit 64
+  }
+  case "$category" in
+    actionable|thrash|stale) outcome="action" ;;
+    quiet) outcome="no-action" ;;
+    *)
+      printf 'usage: %s plan-wait actionable|thrash|stale|quiet <reason>\n' "$0" >&2
+      exit 64
+      ;;
+  esac
+  [ -n "$reason" ] || {
+    printf 'usage: %s plan-wait actionable|thrash|stale|quiet <reason>\n' "$0" >&2
+    exit 64
+  }
+
+  acquire_lock
+  current="$(cat "$state_file")"
+  prev="$(jq -r --argjson floor "$wait_floor_seconds" '.last_wait_interval_seconds // $floor' <<< "$current")"
+  [[ "$prev" =~ ^[1-9][0-9]*$ ]] || prev="$wait_floor_seconds"
+
+  if [ "$category" = "quiet" ]; then
+    next=$((prev * wait_backoff))
+    [ "$next" -gt "$wait_ceiling_seconds" ] && next="$wait_ceiling_seconds"
+  else
+    next="$wait_floor_seconds"
+  fi
+  [ "$next" -lt "$wait_floor_seconds" ] && next="$wait_floor_seconds"
+
+  event="$(jq -nc --arg at "$(now_iso)" --argjson epoch "$(now_epoch)" \
+    --arg outcome "$outcome" --arg reason "$reason" --arg run_id "$run_id" \
+    --arg category "$category" --argjson prev "$prev" --argjson next "$next" \
+    --argjson floor "$wait_floor_seconds" --argjson ceiling "$wait_ceiling_seconds" \
+    '{type:"monitoring_outcome",at:$at,epoch:$epoch,run_id:$run_id,outcome:$outcome,reason:$reason,category:$category,prev_interval_seconds:$prev,next_interval_seconds:$next,wait_floor_seconds:$floor,wait_ceiling_seconds:$ceiling}')"
+  printf '%s\n' "$event" >> "$history_file"
+
+  payload="$(jq --argjson next "$next" '.last_wait_interval_seconds=$next' <<< "$current")"
+  write_state "$payload"
   unlock
   printf '%s\n' "$event"
 }
@@ -381,6 +455,7 @@ case "$mode" in
   due) due ;;
   summarize) summary ;;
   observe) observe "$@" ;;
+  plan-wait) plan_wait "$@" ;;
   record) record "$@" ;;
-  *) printf 'usage: %s arm|due|summarize|observe|record\n' "$0" >&2; exit 64 ;;
+  *) printf 'usage: %s arm|due|summarize|observe|plan-wait|record\n' "$0" >&2; exit 64 ;;
 esac
