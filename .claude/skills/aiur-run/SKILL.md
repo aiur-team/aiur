@@ -140,7 +140,10 @@ export AIUR_EXECUTOR_RUN_ID="<stable-build-order-or-run-id>"
 Bound the interval with `AIUR_EXECUTOR_WAIT_FLOOR_SECONDS`,
 `AIUR_EXECUTOR_WAIT_CEILING_SECONDS`, and `AIUR_EXECUTOR_WAIT_BACKOFF`. The
 event-driven wakes above stay immediate regardless of the current interval;
-the interval only bounds the quiet fallback timer.
+the interval only bounds the quiet fallback timer. Record each wake with
+exactly one of `plan-wait` or the plain `observe` below — both append the same
+`monitoring_outcome` event, so calling both for one wake double-counts it in
+the retrospective denominator.
 
 ### Ten-minute capacity audit — required
 

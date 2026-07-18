@@ -138,6 +138,37 @@ if AIUR_EXECUTOR_STATE_DIR="$state_root" AIUR_EXECUTOR_RUN_ID=wait \
   fail "a ceiling below the floor was accepted"
 fi
 
+# Each wait bound must reject non-positive-integer values before any arithmetic
+# reaches `prev * wait_backoff`.
+for bad_floor in 0 abc; do
+  if AIUR_EXECUTOR_STATE_DIR="$state_root" AIUR_EXECUTOR_RUN_ID=wait \
+    AIUR_EXECUTOR_WAIT_FLOOR_SECONDS="$bad_floor" "$script" due >/dev/null 2>&1; then
+    fail "invalid wait floor $bad_floor was accepted"
+  fi
+done
+for bad_ceiling in 0 abc; do
+  if AIUR_EXECUTOR_STATE_DIR="$state_root" AIUR_EXECUTOR_RUN_ID=wait \
+    AIUR_EXECUTOR_WAIT_CEILING_SECONDS="$bad_ceiling" "$script" due >/dev/null 2>&1; then
+    fail "invalid wait ceiling $bad_ceiling was accepted"
+  fi
+done
+for bad_backoff in 0 abc; do
+  if AIUR_EXECUTOR_STATE_DIR="$state_root" AIUR_EXECUTOR_RUN_ID=wait \
+    AIUR_EXECUTOR_WAIT_BACKOFF="$bad_backoff" "$script" due >/dev/null 2>&1; then
+    fail "invalid wait backoff $bad_backoff was accepted"
+  fi
+done
+
+# A corrupted last_wait_interval_seconds falls back to the floor instead of
+# feeding a non-integer into the widening arithmetic.
+run corrupt-wait 3600 arm >/dev/null
+corrupt_state="$state_root/corrupt-wait/retrospective-state.json"
+jq '.last_wait_interval_seconds="not-a-number"' "$corrupt_state" > "$corrupt_state.tmp"
+mv "$corrupt_state.tmp" "$corrupt_state"
+jq -e '.prev_interval_seconds == 30 and .next_interval_seconds == 60' \
+  <<< "$(run_wait corrupt-wait 30 900 2 plan-wait quiet recovered-from-corruption)" >/dev/null ||
+  fail "corrupted last_wait_interval_seconds did not fall back to the floor"
+
 run concurrent 60 record first unchanged > "$state_root/first.out" 2> "$state_root/first.err" &
 first_pid=$!
 run concurrent 60 record second unchanged > "$state_root/second.out" 2> "$state_root/second.err" &
