@@ -53,6 +53,7 @@ defmodule Aiur.OrchestratorEventsDigestCoalesceTest do
     {store, item} = OperatorMessages.coalesce_for_test(store, "99")
 
     assert [%{id: 1}, %{id: 2}, %{id: 3}] = item.body.events
+    assert item.delivery.coalesced_item_ids == [1, 2, 3]
 
     # All three items were claimed — next drain returns nothing.
     {_store, follow_up} = AgentQueueStore.claim_next_deliverable(store, "99")
