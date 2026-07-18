@@ -76,6 +76,9 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     # Every card is focusable and carries a stable node identifier for the hook.
     assert html =~ ~s(tabindex="0")
     assert html =~ ~s(data-graph-node="BO-010")
+
+    # BO-1270 parity: a visible edge legend keys the graph's cleared/blocking edges.
+    assert html =~ ~s(class="bo-graph-legend")
   end
 
   test "renders transitive dependency-chain closures as sanitized card data attributes" do
@@ -186,7 +189,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
       key: :known,
       identity: nil,
       title: "Known activity",
-      plan: %{},
+      plan: %{complexity: 3},
       execution: %{},
       activity: %{},
       readiness: :ready,
@@ -231,6 +234,15 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert html =~ "Agent stage unavailable"
     assert html =~ "Progress unavailable"
     assert html =~ ~s(aria-label="#1 · Known activity · Working · Dashboard ui · Phase 1 · Review · 60%")
+
+    # BO-1270 parity: complexity badge and a visual progress bar surface on the
+    # node card itself, replacing the 7-row fact grid and the generation
+    # provenance line.
+    assert html =~ ~s(class="bo-cx")
+    assert html =~ "Cx:3"
+    assert html =~ ~s(class="bo-layout-card-progress")
+    assert html =~ "width:60%"
+    refute html =~ "planning gen"
   end
 
   test "renders delivery failure and supersession as explicit lifecycle overrides" do
