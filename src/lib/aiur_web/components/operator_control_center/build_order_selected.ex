@@ -6,10 +6,11 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.BuildOrder.SelectedRoot
   alias AiurWeb.BuildOrder.RouteState
-  alias AiurWeb.OperatorControlCenter.{BuildOrderGraph, BuildOrderStatus}
+  alias AiurWeb.OperatorControlCenter.{BuildOrderBreakdown, BuildOrderGraph, BuildOrderStatus}
 
   attr(:route_state, :any, required: true)
   attr(:model, :any, default: nil)
+  attr(:adhoc, :any, default: nil)
   attr(:now, :any, required: true)
 
   @spec build_order_selected(map()) :: Phoenix.LiveView.Rendered.t()
@@ -65,6 +66,8 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
           dom_generation={max(RouteState.dom_generation(@route_state), 1)}
           model={@model}
         />
+
+        <BuildOrderBreakdown.build_order_breakdown :if={@model.status != :empty} model={@model} adhoc={@adhoc} />
 
         <ul :if={@model.diagnostics != []} class="bo-diagnostics" aria-label="Build Order diagnostics">
           <li :for={diagnostic <- @model.diagnostics}>{diagnostic.text}</li>
