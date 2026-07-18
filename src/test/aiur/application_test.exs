@@ -100,6 +100,7 @@ defmodule Aiur.ApplicationTest do
       Aiur.ProviderAccountGeneration,
       Aiur.ProviderMeters.Store,
       Aiur.UsageLedger,
+      Aiur.UsageAggregate.Store,
       Aiur.DecisionMetrics.Writer,
       Aiur.DecisionMetrics,
       Aiur.GitHub.CodeOwners,
@@ -288,6 +289,21 @@ defmodule Aiur.ApplicationTest do
         assert meters == owner + 1, "provider meters must immediately follow their generation owner for #{inspect(opts)}"
         assert meters < ledger, "provider meters must precede usage ledger for #{inspect(opts)}"
         assert ledger < orchestrator, "usage ledger must precede orchestrator for #{inspect(opts)}"
+      end
+    end
+
+    test "usage aggregate projection starts after its source ledger in every run shape" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        mods = modules(AiurApp.child_specs(opts))
+        ledger = Enum.find_index(mods, &(&1 == Aiur.UsageLedger))
+        aggregate = Enum.find_index(mods, &(&1 == Aiur.UsageAggregate.Store))
+        orchestrator = Enum.find_index(mods, &(&1 == Aiur.Orchestrator))
+
+        assert ledger < aggregate, "usage ledger must precede the aggregate projection for #{inspect(opts)}"
+        assert aggregate < orchestrator, "usage aggregate must precede orchestrator for #{inspect(opts)}"
       end
     end
 
