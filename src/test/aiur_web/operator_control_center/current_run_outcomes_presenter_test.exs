@@ -93,6 +93,16 @@ defmodule AiurWeb.OperatorControlCenter.CurrentRunOutcomesPresenterTest do
       assert Presenter.announcement(view) =~ "Showing 100 of 250 qualified outcomes"
     end
 
+    test "a degraded state never surfaces cards even from a malformed snapshot" do
+      for {reasons, expected} <- [{[:merge_source_unavailable], :unavailable}, {[:invalid_run_window], :new_run}] do
+        malformed = %{unavailable_snapshot(reasons: reasons) | outcomes: [outcome(number: 99)]}
+        view = Presenter.present(malformed)
+
+        assert view.state == expected
+        assert view.outcomes == []
+      end
+    end
+
     test "nil source presents the loading view" do
       view = Presenter.present(nil)
 

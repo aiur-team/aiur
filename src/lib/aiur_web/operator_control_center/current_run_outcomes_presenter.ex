@@ -84,7 +84,7 @@ defmodule AiurWeb.OperatorControlCenter.CurrentRunOutcomesPresenter do
       counts: present_counts(Map.get(source, :counts, %{})),
       truncated?: Map.get(source, :truncated?, false) == true,
       limit: Map.get(source, :limit),
-      outcomes: present_outcomes(source),
+      outcomes: present_outcomes(source, state),
       health: present_health(Map.get(status, :health, %{})),
       freshness: present_freshness(Map.get(status, :freshness, %{}))
     }
@@ -193,7 +193,12 @@ defmodule AiurWeb.OperatorControlCenter.CurrentRunOutcomesPresenter do
 
   # --- outcomes ------------------------------------------------------------
 
-  defp present_outcomes(source) do
+  # A degraded run-identity/provider state never surfaces cards, even if a
+  # malformed snapshot carried a non-empty list. Retained (:stale) and :partial
+  # results still show their outcomes, with a caveat.
+  defp present_outcomes(_source, state) when state in [:unavailable, :new_run], do: []
+
+  defp present_outcomes(source, _state) do
     source
     |> Map.get(:outcomes, [])
     |> List.wrap()
