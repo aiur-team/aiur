@@ -4,7 +4,9 @@ defmodule Aiur.UsageAggregate.CheckpointTest do
   import Bitwise
 
   alias Aiur.UsageAggregate.{Checkpoint, Key, Projection}
-  import Aiur.TestSupport.UsageAggregate, only: [envelope: 1, record: 3, money: 1]
+
+  import Aiur.TestSupport.UsageAggregate,
+    only: [envelope: 1, claude_envelope: 1, record: 3, money: 1]
 
   setup do
     root = Path.join(System.tmp_dir!(), "aiur-usage-aggregate-checkpoint-#{System.unique_integer([:positive])}")
@@ -33,6 +35,34 @@ defmodule Aiur.UsageAggregate.CheckpointTest do
 
     dims = Key.dims(envelope(%{}))
     assert Decimal.equal?(restored.cells[{dims, {:money, :provider_reported_estimate, "USD"}}], Decimal.new("2.50"))
+  end
+
+  test "retains occurrence-price partition dimensions across the checkpoint round trip" do
+    codex = envelope(%{context_tier: :short_context})
+    claude = claude_envelope(%{cache_write_duration: :one_hour})
+
+    projection =
+      Projection.new()
+      |> Projection.apply_record(record(1, codex, %{tokens: %{input: 10}}))
+      |> Projection.apply_record(record(2, claude, %{tokens: %{cache_creation_input: 5}}))
+
+    {:ok, restored} =
+      projection |> Checkpoint.encode() |> Jason.encode!() |> Jason.decode!() |> Checkpoint.from_record()
+
+    assert restored.cells == projection.cells
+    assert Key.dims(codex).context_tier == :short_context
+    assert Key.dims(claude).cache_write_duration == :one_hour
+    assert restored.cells[{Key.dims(codex), {:token, :input}}] == 10
+    assert restored.cells[{Key.dims(claude), {:token, :cache_creation_input}}] == 5
+  end
+
+  test "rejects a checkpoint cell carrying an invalid occurrence-price partition" do
+    encoded = Checkpoint.encode(sample_projection())
+    [cell | rest] = encoded["cells"]
+    tampered = put_in(cell, ["dims", "context_tier"], "bogus_tier")
+
+    assert {:error, _reason} =
+             encoded |> Map.put("cells", [tampered | rest]) |> recompute_checksum() |> Checkpoint.from_record()
   end
 
   test "writes owner-only and loads the durable snapshot atomically", %{path: path} do

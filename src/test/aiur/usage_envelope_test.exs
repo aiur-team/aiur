@@ -218,6 +218,84 @@ defmodule Aiur.UsageEnvelopeTest do
     end
   end
 
+  describe "occurrence-price partition dimensions" do
+    test "codex retains context_tier and round-trips through the codec" do
+      {:ok, envelope} = UsageEnvelope.new(attributes(%{context_tier: :long_context}))
+
+      assert envelope.context_tier == :long_context
+      assert envelope.cache_write_duration == nil
+
+      assert {:ok, decoded} = envelope |> Codec.encode() |> Codec.decode()
+      assert decoded == envelope
+      assert Codec.encode(envelope)["context_tier"] == "long_context"
+    end
+
+    test "defaults to absent partitions when the adapter does not supply them" do
+      {:ok, envelope} = UsageEnvelope.new(attributes())
+
+      assert envelope.context_tier == nil
+      assert envelope.cache_write_duration == nil
+    end
+
+    test "rejects a codex partition that is not a valid context tier" do
+      assert {:error, :invalid_context_tier} =
+               UsageEnvelope.new(attributes(%{context_tier: :not_applicable}))
+
+      assert {:error, :invalid_context_tier} =
+               UsageEnvelope.new(attributes(%{context_tier: :unbounded}))
+
+      assert {:error, :invalid_cache_write_duration} =
+               UsageEnvelope.new(attributes(%{context_tier: :short_context, cache_write_duration: :five_minutes}))
+    end
+
+    test "claude retains cache_write_duration and round-trips through the codec" do
+      {:ok, envelope} = UsageEnvelope.new(claude_attributes(%{cache_write_duration: :one_hour}))
+
+      assert envelope.context_tier == nil
+      assert envelope.cache_write_duration == :one_hour
+
+      assert {:ok, decoded} = envelope |> Codec.encode() |> Codec.decode()
+      assert decoded == envelope
+    end
+
+    test "rejects a claude partition that mixes providers or uses an unknown duration" do
+      assert {:error, :invalid_context_tier} =
+               UsageEnvelope.new(claude_attributes(%{context_tier: :short_context}))
+
+      assert {:error, :invalid_cache_write_duration} =
+               UsageEnvelope.new(claude_attributes(%{cache_write_duration: :session}))
+    end
+  end
+
+  defp claude_attributes(overrides) do
+    attributes(
+      Map.merge(
+        %{
+          idempotency_key: "claude:evt-17",
+          provider: :claude,
+          source: "otlp",
+          source_version: "claude-2026-07",
+          agent_family: :claude,
+          backend: :remote_control,
+          transport: :otlp,
+          auth_mode: :api_key,
+          requested_model: "claude-opus-4-8",
+          resolved_model: "claude-opus-4-8",
+          relationship_revision: "claude-remote-control-2026-07",
+          account_generation: %{
+            provider: :claude,
+            backend: :remote_control,
+            generation: "generation-c",
+            freshness: :current,
+            health: :healthy,
+            reason: nil
+          }
+        },
+        overrides
+      )
+    )
+  end
+
   defp attributes(overrides \\ %{}) do
     Map.merge(
       %{
