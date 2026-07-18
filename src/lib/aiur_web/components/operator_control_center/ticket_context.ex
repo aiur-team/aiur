@@ -10,6 +10,7 @@ defmodule AiurWeb.OperatorControlCenter.TicketContext do
   attr(:context, :map, required: true)
   attr(:mode, :atom, default: :dialog)
   attr(:close_event, :any, default: nil)
+  attr(:fallback_focus_id, :string, default: nil)
   attr(:focus_key, :string, default: nil)
   attr(:origin_id, :string, default: nil)
   slot(:extension)
@@ -19,6 +20,7 @@ defmodule AiurWeb.OperatorControlCenter.TicketContext do
     context = TicketContextPresenter.normalize_view(assigns.context)
     dialog? = assigns.mode == :dialog and valid_close_event?(assigns.close_event)
     close_event = if(dialog? and valid_close_event?(assigns.close_event), do: assigns.close_event)
+    fallback_focus_id = safe_opaque(assigns.fallback_focus_id)
     focus_key = safe_opaque(assigns.focus_key)
     origin_id = safe_opaque(assigns.origin_id)
 
@@ -27,6 +29,7 @@ defmodule AiurWeb.OperatorControlCenter.TicketContext do
       |> assign(:context, context)
       |> assign(:dialog?, dialog?)
       |> assign(:close_event, close_event)
+      |> assign(:fallback_focus_id, fallback_focus_id)
       |> assign(:focus_key, focus_key)
       |> assign(:origin_id, origin_id)
       |> assign(:heading_id, "#{assigns.id}-title")
@@ -46,6 +49,7 @@ defmodule AiurWeb.OperatorControlCenter.TicketContext do
         aria-labelledby={@heading_id}
         phx-hook="TicketContextDialog"
         data-close-event={@close_event}
+        data-focus-fallback-id={@fallback_focus_id}
         data-focus-key={@focus_key}
         data-origin-id={@origin_id}
       >

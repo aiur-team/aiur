@@ -49,4 +49,29 @@ defmodule AiurWeb.ControlCenterCacheTest do
     assert Enum.uniq(expired_results) == [%{generation: 2}]
     assert :counters.get(counter, 1) == 2
   end
+
+  test "coalesces a provider event across viewers and refreshes the ordinary TTL entry" do
+    cache = start_supervised!({ControlCenterCache, name: nil})
+    counter = :counters.new(1, [])
+
+    loader = fn ->
+      :counters.add(counter, 1, 1)
+      %{generation: :counters.get(counter, 1)}
+    end
+
+    initial = ControlCenterCache.fetch(cache, :dashboard, 400, loader)
+
+    results =
+      1..2
+      |> Enum.map(fn _viewer ->
+        Task.async(fn -> ControlCenterCache.fetch_event(cache, :dashboard, {:membership, 2}, loader) end)
+      end)
+      |> Enum.map(&Task.await/1)
+
+    assert initial == %{generation: 1}
+    assert results == [%{generation: 2}, %{generation: 2}]
+    assert :counters.get(counter, 1) == 2
+    assert ControlCenterCache.fetch(cache, :dashboard, 400, loader) == %{generation: 2}
+    assert :counters.get(counter, 1) == 2
+  end
 end

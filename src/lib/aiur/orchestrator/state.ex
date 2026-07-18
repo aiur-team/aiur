@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.State do
   Runtime state for the orchestrator polling loop.
   """
 
-  alias Aiur.{AgentQueueStore, Issue}
+  alias Aiur.{AgentQueueStore, Issue, TrackerIdentity}
   alias Aiur.LiveConversation.Source, as: LiveConversationSource
   alias Aiur.Orchestrator.{ControlLifecycle, PauseResume, StatusReport}
 
@@ -193,6 +193,32 @@ defmodule Aiur.Orchestrator.State do
     end
   end
 
+  @spec handle_session_execution_info(t(), String.t(), map()) :: {:noreply, t()}
+  def handle_session_execution_info(
+        %__MODULE__{running: running} = state,
+        issue_id,
+        %{backend: backend} = info
+      )
+      when is_binary(issue_id) and is_binary(backend) do
+    case Map.get(running, issue_id) do
+      nil ->
+        {:noreply, state}
+
+      running_entry ->
+        session_execution = %{
+          backend: backend,
+          requested_model: optional_runtime_string(info[:requested_model]),
+          effort: optional_runtime_string(info[:effort])
+        }
+
+        updated_state =
+          %{state | running: Map.put(running, issue_id, Map.put(running_entry, :session_execution, session_execution))}
+
+        StatusReport.notify_dashboard(updated_state)
+        {:noreply, updated_state}
+    end
+  end
+
   @spec note_agent_activity(t(), String.t()) :: t()
   # Claude hook activity is the liveness signal for backends without codex updates.
   def note_agent_activity(%__MODULE__{} = state, identifier) when is_binary(identifier) do
@@ -221,6 +247,9 @@ defmodule Aiur.Orchestrator.State do
   def maybe_put_runtime_value(running_entry, key, value) when is_map(running_entry) do
     Map.put(running_entry, key, value)
   end
+
+  defp optional_runtime_string(value) when is_binary(value), do: value
+  defp optional_runtime_string(_value), do: nil
 
   defp maybe_put_live_conversation(running_entry, nil), do: running_entry
 
@@ -540,6 +569,54 @@ defmodule Aiur.Orchestrator.State do
       _ ->
         nil
     end)
+  end
+
+  @doc false
+  @spec find_unique_running_by_identity(map(), TrackerIdentity.t()) ::
+          {:ok, map(), String.t()} | {:error, :no_running_agent | :ambiguous_identifier}
+  def find_unique_running_by_identity(running, %TrackerIdentity{} = identity) when is_map(running) do
+    identity_key = TrackerIdentity.github_key(identity)
+
+    exact_matches =
+      Enum.flat_map(running, fn
+        {_issue_id, entry} when is_map(entry) ->
+          if running_identity_key(entry) == identity_key and not is_nil(identity_key), do: [entry], else: []
+
+        _entry ->
+          []
+      end)
+
+    case exact_matches do
+      [entry] -> unique_identifier_target(running, entry)
+      _matches -> {:error, if(exact_matches == [], do: :no_running_agent, else: :ambiguous_identifier)}
+    end
+  end
+
+  def find_unique_running_by_identity(_running, _identity), do: {:error, :no_running_agent}
+
+  defp unique_identifier_target(running, entry) do
+    identifier = entry |> Map.get(:identifier) |> to_string()
+
+    matches =
+      Enum.count(running, fn
+        {_issue_id, %{identifier: candidate}} -> to_string(candidate) == identifier
+        _entry -> false
+      end)
+
+    if identifier != "" and matches == 1,
+      do: {:ok, entry, identifier},
+      else: {:error, :ambiguous_identifier}
+  end
+
+  defp running_identity_key(entry) do
+    identity =
+      Map.get(entry, :tracker_identity) ||
+        case Map.get(entry, :issue) do
+          %Issue{} = issue -> Issue.tracker_identity(issue)
+          _issue -> nil
+        end
+
+    TrackerIdentity.github_key(identity)
   end
 
   @spec find_running_by_repl_pane_id(map(), term()) :: map() | nil

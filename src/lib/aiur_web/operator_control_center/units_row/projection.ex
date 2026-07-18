@@ -30,7 +30,10 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Projection do
     replacement_boundary? = Fields.replacement_boundary?(status_row)
     terminal? = Map.get(member, :terminal?) == true and not replacement_boundary?
     {lifecycle, lifecycle_source} = lifecycle(member, replacement_boundary?)
-    {open_command_count, command_count_source} = Fields.command_count(decision_row, status_row)
+
+    {open_command_count, command_count_source} =
+      Fields.command_count(decision_row, status_row, Sources.health(sources).decisions)
+
     values = field_values(issue_fact, status_row)
 
     %{

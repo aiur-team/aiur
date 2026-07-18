@@ -29,6 +29,25 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
 
   defp report_repl_session(_recipient, _issue, _session), do: :ok
 
+  @doc false
+  @spec report_session_execution(pid() | nil, Issue.t(), map()) :: :ok
+  def report_session_execution(recipient, %Issue{id: issue_id}, session)
+      when is_binary(issue_id) and is_pid(recipient) and is_map(session) do
+    send(
+      recipient,
+      {:session_execution_info, issue_id,
+       %{
+         backend: session_backend(session),
+         requested_model: Map.get(session, :model),
+         effort: Map.get(session, :effort)
+       }}
+    )
+
+    :ok
+  end
+
+  def report_session_execution(_recipient, _issue, _session), do: :ok
+
   defp report_pause_containment(recipient, %Issue{id: issue_id}, %{containment: containment, metadata: metadata})
        when is_pid(recipient) and is_binary(issue_id) and is_map(containment) do
     send(recipient, {
@@ -368,6 +387,8 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
          ownership,
          session_context
        ) do
+    report_session_execution(codex_update_recipient, issue, session)
+
     # Persist the live session handle so the next aiur restart can resume it.
     SessionResume.persist_session_handle(session, issue.identifier, worker_host)
     SessionResume.log_resume_outcome(issue, session, Keyword.get(session_context.session_opts, :resume_thread_id))
@@ -901,9 +922,17 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   defp tag_session(session, backend, opts) do
     session
     |> Map.put(:backend, backend)
+    |> Map.put(:model, Keyword.get(opts, :model))
+    |> Map.put(:effort, supported_effort(backend, Keyword.get(opts, :effort)))
     |> maybe_put_attempt_id(Keyword.get(opts, :attempt_id))
     |> maybe_put_telemetry_launch_session(Keyword.get(opts, :telemetry_launch))
   end
+
+  defp supported_effort(backend, effort) when is_binary(effort) do
+    if effort in CodingAgent.efforts(backend), do: effort
+  end
+
+  defp supported_effort(_backend, _effort), do: nil
 
   defp maybe_put_attempt_id(session, attempt_id) when is_binary(attempt_id), do: Map.put(session, :attempt_id, attempt_id)
   defp maybe_put_attempt_id(session, _attempt_id), do: session

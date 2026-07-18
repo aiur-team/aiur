@@ -6,6 +6,7 @@ defmodule Aiur.ExtensionsTest do
 
   alias Aiur.Linear.Tracker, as: LinearTracker
   alias Aiur.Memory.Tracker, as: Memory
+  alias AiurWeb.OperatorControlCenter.UnitsPresenter
 
   @endpoint AiurWeb.Endpoint
 
@@ -527,6 +528,7 @@ defmodule Aiur.ExtensionsTest do
                  "stale_for_seconds" => nil,
                  "waiting_reason" => "active",
                  "open_decision_count" => 0,
+                 "open_decision_count_health" => "unknown",
                  "ci" => nil,
                  "review" => "not_started"
                }
@@ -549,6 +551,7 @@ defmodule Aiur.ExtensionsTest do
                  "tracker_paused" => false,
                  "waiting_reason" => "backing_off",
                  "open_decision_count" => 0,
+                 "open_decision_count_health" => "unknown",
                  "ci" => nil,
                  "review" => "not_started"
                }
@@ -591,6 +594,7 @@ defmodule Aiur.ExtensionsTest do
                "stale_for_seconds" => nil,
                "waiting_reason" => "active",
                "open_decision_count" => 0,
+               "open_decision_count_health" => "unknown",
                "ci" => nil,
                "review" => "not_started"
              },
@@ -1027,7 +1031,9 @@ defmodule Aiur.ExtensionsTest do
       """
     )
 
-    snapshot = static_snapshot(workspace_path: log_root)
+    {snapshot, units_membership} =
+      static_snapshot(workspace_path: log_root)
+      |> with_static_units()
 
     on_exit(fn -> File.rm_rf(log_root) end)
 
@@ -1043,14 +1049,19 @@ defmodule Aiur.ExtensionsTest do
         }
       )
 
-    start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 50)
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 50,
+      units_membership_fun: fn -> units_membership end,
+      units_activity_fun: &static_units_activity/0
+    )
 
-    {:ok, view, html} = live(build_conn(), "/")
+    {:ok, view, html} = live(build_conn(), "/?v=1&scope=unfinished")
     assert html =~ "Executor Control Center"
-    assert html =~ "MT-HTTP"
-    assert html =~ "MT-RETRY"
-    assert html =~ "rendered"
-    assert html =~ "Elapsed"
+    assert html =~ "1100"
+    assert html =~ "1101"
+    assert html =~ "Progress unavailable"
+    assert html =~ "Runtime"
     assert html =~ "Live"
     assert html =~ "Offline"
     assert html =~ "Latest"
@@ -1066,8 +1077,10 @@ defmodule Aiur.ExtensionsTest do
       put_in(snapshot.running, [
         %{
           issue_id: "issue-http",
-          identifier: "MT-HTTP",
+          identifier: "1100",
+          tracker_identity: static_units_identity("1100"),
           state: "In Progress",
+          title: "Updated unit title",
           session_id: "thread-http",
           turn_count: 8,
           last_codex_event: :notification,
@@ -1100,16 +1113,18 @@ defmodule Aiur.ExtensionsTest do
     AiurWeb.ObservabilityPubSub.broadcast_update()
 
     assert_eventually(fn ->
-      render(view) =~ "structured update"
+      render(view) =~ "Updated unit title"
     end)
+
+    token = UnitsPresenter.row_token(%{identity: static_units_identity("1100")})
 
     log_html =
       view
-      |> element("tr[phx-value-issue=\"MT-HTTP\"]")
+      |> element(~s(button[phx-click="show-agent-log"][phx-value-unit="#{token}"]))
       |> render_click()
 
     assert log_html =~ "Logs"
-    assert log_html =~ "MT-HTTP"
+    assert log_html =~ "1100"
     assert log_html =~ "data-agent-log-live"
     assert log_html =~ "Live"
     assert log_html =~ "phx-hook=\"AgentLogPanel\""
@@ -1229,21 +1244,25 @@ defmodule Aiur.ExtensionsTest do
 
   test "read-only dashboard liveview hides chat controls and no-ops write events" do
     orchestrator_name = Module.concat(__MODULE__, :ReadOnlyDashboardOrchestrator)
-    snapshot = static_snapshot()
+    {snapshot, units_membership} = static_snapshot() |> with_static_units()
 
     {:ok, _pid} = StaticOrchestrator.start_link(name: orchestrator_name, snapshot: snapshot)
 
     start_test_endpoint(
       orchestrator: orchestrator_name,
       snapshot_timeout_ms: 50,
-      dashboard_writable: false
+      dashboard_writable: false,
+      units_membership_fun: fn -> units_membership end,
+      units_activity_fun: &static_units_activity/0
     )
 
     {:ok, view, _html} = live(build_conn(), "/")
 
+    token = UnitsPresenter.row_token(%{identity: static_units_identity("1100")})
+
     modal_html =
       view
-      |> element("tr[phx-value-issue=\"MT-HTTP\"]")
+      |> element(~s(button[phx-click="show-agent-log"][phx-value-unit="#{token}"]))
       |> render_click()
 
     # The agent log modal still opens (reads work), but the composer and its
@@ -1484,6 +1503,67 @@ defmodule Aiur.ExtensionsTest do
       idle: [],
       agent_totals: %{input_tokens: 4, output_tokens: 8, total_tokens: 12, seconds_running: 42.5},
       rate_limits: %{"primary" => %{"remaining" => 11}}
+    }
+  end
+
+  defp with_static_units(snapshot) do
+    observed_at = DateTime.utc_now()
+    running_identity = static_units_identity("1100")
+    retrying_identity = static_units_identity("1101")
+
+    snapshot =
+      snapshot
+      |> update_in([:running], fn rows ->
+        Enum.map(rows, &Map.merge(&1, %{identifier: "1100", tracker_identity: running_identity}))
+      end)
+      |> update_in([:retrying], fn rows ->
+        Enum.map(rows, &Map.merge(&1, %{identifier: "1101", tracker_identity: retrying_identity}))
+      end)
+
+    membership = %{
+      run_id: "extensions-dashboard",
+      generation: 1,
+      health: :healthy,
+      health_message: nil,
+      freshness: %{status: :fresh, observed_at: observed_at},
+      members: [
+        static_units_member(running_identity, :running, observed_at),
+        static_units_member(retrying_identity, :retrying, observed_at)
+      ],
+      truncated?: false
+    }
+
+    {snapshot, membership}
+  end
+
+  defp static_units_identity(identifier) do
+    %Aiur.TrackerIdentity{
+      status: :joinable,
+      kind: :github,
+      owner: "its-everdred",
+      repository: "aiur",
+      provider_id: "NODE-#{identifier}",
+      identifier: identifier,
+      reason: nil
+    }
+  end
+
+  defp static_units_member(identity, lifecycle, observed_at) do
+    %{
+      identity: identity,
+      lifecycle: lifecycle,
+      terminal?: false,
+      first_observed_at: observed_at,
+      last_observed_at: observed_at
+    }
+  end
+
+  defp static_units_activity do
+    %{
+      generation: 1,
+      health: :healthy,
+      freshness: %{status: :fresh},
+      entries: []
     }
   end
 

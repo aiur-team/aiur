@@ -13,6 +13,31 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
       assert SessionLifecycle.remote_session_backend("claude", false) == "claude"
       assert SessionLifecycle.remote_session_backend("codex", true) == "codex"
     end
+
+    test "reports the transport backend selected for a remote-control session" do
+      issue = %Issue{
+        id: "issue-rc-execution",
+        identifier: "RC-EXECUTION",
+        selected_backend: "claude",
+        labels: ["model:claude-opus", "model:remote"]
+      }
+
+      {"claude-repl", true, session_opts} =
+        SessionLifecycle.resolve_session_options(issue, [], nil)
+
+      assert {:ok, session} =
+               SessionLifecycle.start_agent_session(
+                 "/ws",
+                 session_opts,
+                 fn _workspace, opts ->
+                   {:ok, %{thread_id: "thread-rc", model: Keyword.get(opts, :model)}}
+                 end
+               )
+
+      assert :ok = SessionLifecycle.report_session_execution(self(), issue, session)
+
+      assert_receive {:session_execution_info, "issue-rc-execution", %{backend: "claude-repl", requested_model: "opus", effort: nil}}
+    end
   end
 
   describe "should_display_tail?/3" do
@@ -338,15 +363,26 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
       assert {:ok, %{backend: "codex", attempt_id: "attempt-codex"}} =
                SessionLifecycle.start_agent_session("/ws", [backend: "codex", model: nil, attempt_id: "attempt-codex"], start_fun)
 
-      assert {:ok, %{backend: "claude", attempt_id: "attempt-claude"}} =
+      assert {:ok, %{backend: "claude", attempt_id: "attempt-claude"} = fallback_session} =
                SessionLifecycle.start_agent_session(
                  "/ws",
-                 [backend: "claude-repl", model: "opus", remote_control: true, attempt_id: "attempt-claude"],
+                 [
+                   backend: "claude-repl",
+                   model: "opus",
+                   effort: "max",
+                   remote_control: true,
+                   attempt_id: "attempt-claude"
+                 ],
                  start_fun
                )
 
       assert_received {:attempt, "claude-repl", true}
       assert_received {:attempt, "claude", nil}
+
+      issue = %Issue{id: "issue-fallback-execution", identifier: "FALLBACK-EXECUTION"}
+      assert :ok = SessionLifecycle.report_session_execution(self(), issue, fallback_session)
+
+      assert_receive {:session_execution_info, "issue-fallback-execution", %{backend: "claude", requested_model: "opus", effort: nil}}
     end
 
     test "non-repl start errors propagate unchanged" do
