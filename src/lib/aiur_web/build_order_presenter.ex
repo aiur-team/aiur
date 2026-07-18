@@ -151,7 +151,7 @@ defmodule AiurWeb.BuildOrderPresenter do
       reverse_adjacency: graph.reverse_adjacency,
       strongly_connected_components: graph.strongly_connected_components,
       topological_order: graph.topological_order,
-      summary: summary(nodes, edges, lane_groups, phase_groups),
+      summary: summary(nodes, edges, lane_groups, phase_groups, graph),
       planning_health: planning.health,
       execution_health: execution_health,
       activity_health: activity_health,
@@ -771,7 +771,7 @@ defmodule AiurWeb.BuildOrderPresenter do
   defp phase_group_sort_key(%Group{key: :unphased}), do: {1, 0}
   defp phase_group_sort_key(%Group{key: key}), do: {0, key}
 
-  defp summary(nodes, edges, lane_groups, phase_groups) do
+  defp summary(nodes, edges, lane_groups, phase_groups, graph) do
     %{
       members: length(nodes),
       edges: length(edges),
@@ -780,7 +780,9 @@ defmodule AiurWeb.BuildOrderPresenter do
       lifecycle: frequencies(nodes, &lifecycle_key/1),
       execution: frequencies(nodes, &Map.get(&1.execution, :work_state, :unknown)),
       lanes: Map.new(lane_groups, &{&1.key, &1.count}),
-      phases: Map.new(phase_groups, &{&1.key, &1.count})
+      phases: Map.new(phase_groups, &{&1.key, &1.count}),
+      ready_at_start: length(GraphAnalysis.ready_at_start(graph)),
+      longest_chain: GraphAnalysis.longest_chain_length(graph)
     }
   end
 
@@ -793,7 +795,9 @@ defmodule AiurWeb.BuildOrderPresenter do
       lifecycle: %{},
       execution: %{},
       lanes: %{},
-      phases: %{}
+      phases: %{},
+      ready_at_start: 0,
+      longest_chain: 0
     }
   end
 

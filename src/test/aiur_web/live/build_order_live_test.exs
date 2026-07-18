@@ -287,6 +287,30 @@ defmodule AiurWeb.BuildOrderLiveTest do
     assert {:demand, [first]} in FakeDataSource.calls(source)
   end
 
+  test "renders the plan phase and epic breakdowns on the selected route", %{first: first} do
+    members = [
+      breakdown_member(7, phase: 1, lane: "plan-graph", complexity: 3),
+      breakdown_member(8, phase: 2, lane: "dashboard-ui", complexity: 4)
+    ]
+
+    selected = selected_snapshot(first, SelectedRoot.new(root(first, "Root forty-two"), members, health(1, :healthy)), 1, :healthy)
+    install_source(catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy), selected: [selected])
+
+    assert {:ok, view, html} = live(build_conn(), "/build-orders/42")
+
+    # The breakdown region renders with accessible table semantics and a KPI strip.
+    assert html =~ ~s(<section class="bo-breakdown")
+    assert has_element?(view, "table#bo-phase-breakdown caption")
+    assert has_element?(view, "table#bo-epic-breakdown caption")
+    assert has_element?(view, ~s(table#bo-phase-breakdown th[scope="col"]))
+    assert has_element?(view, ~s(table#bo-phase-breakdown th[scope="row"]))
+    assert has_element?(view, "dl.bo-kpis")
+    assert html =~ "rollout hint"
+
+    # The graph surface remains present and unaffected alongside the breakdown.
+    assert has_element?(view, "#selected-build-order-graph")
+  end
+
   test "projection reset rolls the catalog subscription to the replacement repository", %{source: source} do
     assert {:ok, view, _html} = live(build_conn(), "/build-orders")
     replacement_repository = {"new-owner", "new-repo"}
@@ -657,6 +681,25 @@ defmodule AiurWeb.BuildOrderLiveTest do
       state: "OPEN",
       state_reason: nil,
       labels: ["phase:1", "build-lane:dashboard-ui"]
+    })
+  end
+
+  defp breakdown_member(number, opts) do
+    identity = identity(number, "NODE-#{number}")
+
+    labels = [
+      "complexity:#{Keyword.fetch!(opts, :complexity)}",
+      "phase:#{Keyword.fetch!(opts, :phase)}",
+      "build-lane:#{Keyword.fetch!(opts, :lane)}"
+    ]
+
+    Member.new(%{
+      identity: identity,
+      title: "Ticket #{number}",
+      url: "https://github.com/owner/repo/issues/#{number}",
+      state: "OPEN",
+      state_reason: nil,
+      labels: labels
     })
   end
 

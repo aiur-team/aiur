@@ -57,4 +57,30 @@ defmodule Aiur.BuildOrder.GraphAnalysisTest do
     refute MapSet.member?(analysis.cyclic_edges, {:b, :c})
     assert analysis.topological_order == [:a, :b, :c, :d]
   end
+
+  test "ready_at_start returns blocker-free nodes deterministically sorted" do
+    analysis = GraphAnalysis.analyze([:a, :b, :c, :x], [{:a, :b}, {:b, :c}])
+
+    assert GraphAnalysis.ready_at_start(analysis) == [:a, :x]
+    assert GraphAnalysis.ready_at_start(%GraphAnalysis{}) == []
+    assert GraphAnalysis.ready_at_start(:invalid) == []
+  end
+
+  test "longest_chain_length measures the deepest dependency path" do
+    analysis = GraphAnalysis.analyze([:a, :b, :c, :d], [{:a, :b}, {:b, :c}, {:a, :d}])
+
+    assert GraphAnalysis.longest_chain_length(analysis) == 3
+  end
+
+  test "longest_chain_length counts isolated members and stays bounded under cycles" do
+    assert GraphAnalysis.longest_chain_length(GraphAnalysis.analyze([:solo], [])) == 1
+    assert GraphAnalysis.longest_chain_length(%GraphAnalysis{}) == 0
+    assert GraphAnalysis.longest_chain_length(:invalid) == 0
+
+    cyclic = GraphAnalysis.analyze([:a, :b, :c], [{:a, :b}, {:b, :c}, {:c, :b}])
+    length = GraphAnalysis.longest_chain_length(cyclic)
+
+    assert is_integer(length)
+    assert length in 1..3
+  end
 end
