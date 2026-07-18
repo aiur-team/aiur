@@ -20,9 +20,17 @@ defmodule Aiur.OrchestratorCILifecycleTest do
     end
 
     def update_issue_state(issue_id, state_name) do
+      record_update(issue_id, state_name, [])
+    end
+
+    def update_issue_state(issue_id, state_name, opts) when is_list(opts) do
+      record_update(issue_id, state_name, opts)
+    end
+
+    defp record_update(issue_id, state_name, opts) do
       case recipient() do
         recipient when is_pid(recipient) ->
-          send(recipient, {:tracker_update, issue_id, state_name})
+          send(recipient, {:tracker_update, issue_id, state_name, opts})
           Process.get(@update_result_key, :ok)
 
         _other ->
@@ -98,7 +106,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       next = poll_ci(state, issue, %{decision: :pending, head_sha: "pending-head"})
       sync_recorder(recorder)
 
-      assert_received {:recorded, 1, {:tracker_update, ^identifier, "ci-wait"}}
+      assert_received {:recorded, 1, {:tracker_update, ^identifier, "ci-wait", [expected_state: "human-review"]}}
       assert_received {:recorded, 2, {:pause_agent, request_id, _generation}}
       assert is_integer(request_id)
 
@@ -141,7 +149,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       sync_recorder(recorder)
 
-      assert_received {:recorded, 1, {:tracker_update, ^identifier, "rework"}}
+      assert_received {:recorded, 1, {:tracker_update, ^identifier, "rework", [expected_state: "ci-wait"]}}
       refute_received {:recorded, 2, _message}
 
       # The OCC-5 CI/PR projection still caches even when the tracker write
@@ -173,7 +181,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       sync_recorder(recorder)
 
-      assert_received {:recorded, 1, {:tracker_update, ^identifier, "in-progress"}}
+      assert_received {:recorded, 1, {:tracker_update, ^identifier, "in-progress", [expected_state: "ci-wait"]}}
 
       assert_received {:recorded, 2,
                        {:event,
@@ -224,7 +232,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       sync_recorder(recorder)
 
-      assert_received {:recorded, 1, {:tracker_update, ^identifier, "rework"}}
+      assert_received {:recorded, 1, {:tracker_update, ^identifier, "rework", [expected_state: "ci-wait"]}}
       assert_received {:recorded, 2, {:event, %{topic: ^topic}}}
       assert_received {:recorded, 3, {:agent_queue_updated, ^identifier, _item_id, false}}
       assert_received {:recorded, 4, {:resume_agent, _request_id, 101}}
@@ -306,7 +314,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       sync_recorder(recorder)
 
-      assert_received {:recorded, 1, {:tracker_update, ^identifier, "in-progress"}}
+      assert_received {:recorded, 1, {:tracker_update, ^identifier, "in-progress", [expected_state: "ci-wait"]}}
       assert_received {:recorded, 2, {:agent_queue_updated, ^identifier, _item_id, false}}
       assert_received {:recorded, 3, {:resume_agent, request_id, 101}}
       assert is_integer(request_id)
@@ -362,7 +370,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       sync_recorder(recorder)
 
-      assert_received {:recorded, 1, {:tracker_update, ^identifier, "in-progress"}}
+      assert_received {:recorded, 1, {:tracker_update, ^identifier, "in-progress", [expected_state: "ci-wait"]}}
       refute_received {:recorded, _position, {:resume_agent, _request_id}}
       assert %{token: replacement_token} = next.ci_lifecycle.rewakes[identifier]
       assert is_reference(replacement_token)

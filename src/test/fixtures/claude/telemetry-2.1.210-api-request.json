@@ -24,10 +24,13 @@
                 {"key": "event.sequence", "value": {"intValue": "17"}},
                 {"key": "request_id", "value": {"stringValue": "req_011111111111111111111111"}},
                 {"key": "model", "value": {"stringValue": "claude-sonnet-4-6"}},
+                {"key": "cost_usd", "value": {"doubleValue": 0.0001234567890123456789}},
                 {"key": "input_tokens", "value": {"intValue": "101"}},
                 {"key": "output_tokens", "value": {"intValue": "23"}},
                 {"key": "cache_read_tokens", "value": {"intValue": "89"}},
                 {"key": "cache_creation_tokens", "value": {"intValue": "13"}},
+                {"key": "query_source", "value": {"stringValue": "repl_main_thread"}},
+                {"key": "effort", "value": {"stringValue": "high"}},
                 {"key": "user.email", "value": {"stringValue": "removed@example.invalid"}},
                 {"key": "organization.id", "value": {"stringValue": "removed-org"}}
               ]

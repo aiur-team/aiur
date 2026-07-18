@@ -135,6 +135,12 @@ defmodule Aiur.OrchestratorDeactivateTest do
       :ok
     end
 
+    def update_issue_state(issue_id, state_name, opts) do
+      if is_pid(recipient()), do: send(recipient(), {:ci_watcher_update_opts, issue_id, state_name, opts})
+      if is_pid(recipient()), do: send(recipient(), {:ci_watcher_update, issue_id, state_name})
+      Application.get_env(:aiur, :ci_watcher_update_result, :ok)
+    end
+
     def fetch_issue_states_by_ids(issue_ids) do
       issues = Application.get_env(:aiur, :ci_watcher_issues, [])
       {:ok, Enum.filter(issues, &(&1.id in issue_ids))}
@@ -225,6 +231,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       previous_client = Application.get_env(:aiur, :github_client_module)
       previous_recipient = Application.get_env(:aiur, :ci_watcher_recipient)
       previous_issues = Application.get_env(:aiur, :ci_watcher_issues)
+      previous_update_result = Application.get_env(:aiur, :ci_watcher_update_result)
       previous_ci_approval_store_path = Application.get_env(:aiur, :ci_approval_store_path)
       ci_approval_store_path = Path.join(System.tmp_dir!(), "aiur_ci_approvals_#{System.unique_integer([:positive])}.json")
 
@@ -244,6 +251,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         restore_application_env(:github_client_module, previous_client)
         restore_application_env(:ci_watcher_recipient, previous_recipient)
         restore_application_env(:ci_watcher_issues, previous_issues)
+        restore_application_env(:ci_watcher_update_result, previous_update_result)
         restore_application_env(:ci_approval_store_path, previous_ci_approval_store_path)
         File.rm(ci_approval_store_path)
       end)
@@ -268,6 +276,62 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       assert_receive {:ci_watcher_update, "821", "ci-wait"}
       assert state.running == %{}
+    end
+
+    test "pending CI cannot hand off an active turn with undelivered rework" do
+      identifier = "ci-undelivered-rework"
+
+      # This is the target snapshot captured before the CI poll. While that
+      # poll was in flight, a trusted review opened a newer rework epoch on
+      # the active runner and queued its concrete delivery item.
+      stale_ci_target = %Issue{
+        id: identifier,
+        identifier: identifier,
+        state: "human-review",
+        title: "Stale CI target"
+      }
+
+      running_issue = %{stale_ci_target | state: "rework"}
+
+      state = %{
+        empty_orchestrator_state()
+        | running: %{
+            identifier => %{
+              identifier: identifier,
+              issue: running_issue,
+              control: %{status: :working},
+              lifecycle_fence: %{
+                generation: 1,
+                authoritative_state: "rework",
+                pending_item_ids: MapSet.new([77]),
+                opened_at: DateTime.utc_now()
+              }
+            }
+          }
+      }
+
+      next =
+        CiLifecycle.poll_github_ci(state,
+          ci_issue_fetcher: fn ["ci-wait", "human-review"] ->
+            {:ok, [stale_ci_target]}
+          end,
+          ci_poller: fn [^identifier], _opts ->
+            {:ok,
+             %{
+               results: [
+                 %{target: identifier, decision: :pending, head_sha: "stale-head"}
+               ],
+               errors: []
+             }}
+          end
+        )
+
+      refute_receive {:ci_watcher_update, ^identifier, "ci-wait"}, 100
+      assert next.running[identifier].issue.state == "rework"
+      assert next.running[identifier].control.status == :working
+
+      assert next.running[identifier].lifecycle_fence.pending_item_ids ==
+               MapSet.new([77])
     end
 
     test "pending CI preserves an approved human-review head" do
@@ -330,6 +394,41 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       assert_receive {:ci_watcher_update, "822", "in-progress"}
       assert state.ci_lifecycle.approved_heads == %{"822" => "new-head"}
+    end
+
+    test "CI result cannot overwrite a newer rework state" do
+      identifier = "ci-result-race"
+      issue = %Issue{id: identifier, identifier: identifier, state: "ci-wait", title: "CI race"}
+
+      Application.put_env(
+        :aiur,
+        :ci_watcher_update_result,
+        {:error, {:stale_issue_state, "ci-wait", "rework"}}
+      )
+
+      state =
+        CiLifecycle.poll_github_ci(empty_orchestrator_state(),
+          ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
+          ci_poller: fn [^identifier], _opts ->
+            {:ok,
+             %{
+               results: [
+                 %{
+                   target: identifier,
+                   decision: :passed,
+                   head_sha: "stale-head",
+                   pr_number: 1_237
+                 }
+               ],
+               errors: []
+             }}
+          end
+        )
+
+      assert_receive {:ci_watcher_update_opts, ^identifier, "in-progress", [expected_state: "ci-wait"]}
+
+      assert state.ci_lifecycle.approved_heads == %{}
+      assert state.running == %{}
     end
 
     test "an approved head stays in human review after the agent handoff and an orchestrator restart" do
@@ -3899,12 +3998,18 @@ defmodule Aiur.OrchestratorDeactivateTest do
       end
     end
 
-    test "leaves a :working entry untouched (no re-dispatch on comment)" do
+    test "keeps the active runner while fencing a trusted comment as rework" do
       issue_id = "issue-issue-commented-3"
       issue_identifier = "7"
       previous_memory_recipient = Application.get_env(:aiur, :memory_tracker_recipient)
 
       try do
+        write_workflow_file!(Workflow.workflow_file_path(),
+          tracker_kind: "memory",
+          tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+          tracker_terminal_states: ["done", "cancelled", "canceled"]
+        )
+
         Application.put_env(:aiur, :memory_tracker_recipient, self())
 
         state = %Orchestrator.State{
@@ -3924,15 +4029,38 @@ defmodule Aiur.OrchestratorDeactivateTest do
           max_concurrent_agents: 6
         }
 
-        # A live (:working) agent already sees the comment via its own
-        # subscription; the orchestrator must not re-dispatch or relabel it.
-        assert {:noreply, ^state} =
+        event = %{
+          id: 70_003,
+          topic: "ticket.#{issue_identifier}.issue.commented",
+          author_trusted?: true,
+          comment: %{body: "Please rework this head"}
+        }
+
+        assert {:noreply, next} =
                  Orchestrator.handle_info(
-                   {:event, %{topic: "ticket.#{issue_identifier}.issue.commented", author_trusted?: true}},
+                   {:event, event},
                    state
                  )
 
-        refute_receive {:memory_tracker_state_update, _, _}, 50
+        # The active runner remains the sole workspace writer, while the
+        # concrete queued comment opens a rework fence until provider receipt.
+        assert map_size(next.running) == 1
+        assert next.running[issue_id].pid == nil
+        assert next.running[issue_id].ref == nil
+        assert next.running[issue_id].control.status == :working
+        assert next.running[issue_id].issue.state == "rework"
+
+        assert %{pending_item_ids: pending_ids, authoritative_state: "rework"} =
+                 next.running[issue_id].lifecycle_fence
+
+        assert MapSet.size(pending_ids) == 1
+        [item_id] = MapSet.to_list(pending_ids)
+        item = AgentQueueStore.get(next.queue_store, item_id)
+        assert item.status == :pending
+        assert item.delivery.priority == :now
+        assert item.delivery.interrupt_requested == true
+        assert item.body.events == [event]
+        assert_receive {:memory_tracker_state_update, ^issue_id, "rework"}
       after
         if previous_memory_recipient do
           Application.put_env(:aiur, :memory_tracker_recipient, previous_memory_recipient)

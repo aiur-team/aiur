@@ -52,7 +52,21 @@ defmodule Aiur.Orchestrator.DigestCoalescer do
       |> Map.put(:events, sorted)
       |> Map.put(:summary, CommentWake.event_digest_summary(%{events: sorted}))
 
-    %{first | body: new_body}
+    delivery =
+      first.delivery
+      |> Map.put(:coalesced_item_ids, coalesced_item_ids(first, next))
+
+    %{first | body: new_body, delivery: delivery}
+  end
+
+  defp coalesced_item_ids(first, next) do
+    (delivery_item_ids(first) ++ delivery_item_ids(next))
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp delivery_item_ids(%{id: id, delivery: delivery}) do
+    Map.get(delivery, :coalesced_item_ids, [id])
   end
 
   defp event_sort_key(%{id: id}) when is_integer(id), do: id

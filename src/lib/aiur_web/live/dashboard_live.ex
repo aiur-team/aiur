@@ -5,25 +5,45 @@ defmodule AiurWeb.DashboardLive do
 
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
-  alias Aiur.{AgentChat, DecisionPubSub}
-  alias AiurWeb.{Endpoint, ObservabilityPubSub}
+  alias Aiur.AgentChat
+  alias Aiur.BuildOrder.TicketDetail.State, as: TicketDetailState
+  alias Aiur.BuildOrder.TicketDetailCache
+  alias Aiur.BuildOrder.TicketHistory.Snapshot, as: TicketHistorySnapshot
+  alias Aiur.BuildOrder.TicketHistoryProvider
+  alias Aiur.CurrentRunMembership
+  alias Aiur.CurrentRunSummary
+  alias Aiur.DecisionPubSub
+  alias Aiur.Orchestrator.Slots
+  alias Aiur.TicketActivity
+  alias Aiur.TrackerIdentity
+  alias AiurWeb.BuildOrder.TicketContextPresenter
+  alias AiurWeb.Endpoint
+  alias AiurWeb.ObservabilityPubSub
 
   alias AiurWeb.OperatorControlCenter.{
     AgentLogModal,
+    CapacityControl,
+    CapacityPresenter,
     DashboardShell,
     DecisionEvents,
     DecisionInbox,
     DecisionPath,
-    FleetFilters,
-    FleetTable,
     History,
     Overview,
     PayloadLoader,
     RecentOutcomes,
-    RouteRegistry
+    RouteRegistry,
+    RunSummary,
+    RunSummaryPresenter,
+    TicketContext,
+    UnitsFilters,
+    UnitsPresenter,
+    UnitsTable,
+    UnitsURL
   }
 
   @runtime_tick_ms 1_000
+  @run_summary_flush_ms 250
   @decision_filters [:all, :open, :blocking, :undelivered, :supervisor, :resolved, :superseded]
   @decision_events DecisionEvents.events()
 
@@ -34,6 +54,10 @@ defmodule AiurWeb.DashboardLive do
     if connected do
       :ok = ObservabilityPubSub.subscribe()
       :ok = DecisionPubSub.subscribe()
+      :ok = CurrentRunMembership.subscribe()
+      :ok = CurrentRunSummary.subscribe()
+      :ok = TicketActivity.subscribe()
+      :ok = subscribe_ticket_context_resets()
     end
 
     payload = PayloadLoader.load(if connected, do: :fresh, else: :cached)
@@ -47,11 +71,22 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:chat_errors, %{})
       |> assign(:decision_actions, %{})
       |> assign(:payload_reload_scheduled?, false)
+      |> assign(:payload_reload_mode, :cached)
       |> assign(:writable, dashboard_writable?())
       |> assign(:decision_filter, :all)
       |> assign(:decision_page, empty_decision_page())
       |> assign(:decision_query, %{})
-      |> assign(:fleet_filters, FleetFilters.default())
+      |> assign(:units_selection, UnitsURL.default_selection())
+      |> assign_units_view()
+      |> assign(:capacity_input, "")
+      |> assign(:capacity_feedback, nil)
+      |> assign_initial_run_summary(connected)
+      |> assign(:ticket_context, nil)
+      |> assign(:ticket_context_detail, nil)
+      |> assign(:ticket_context_history, nil)
+      |> assign(:ticket_context_identity, nil)
+      |> assign(:ticket_context_row, nil)
+      |> assign(:ticket_context_subscriptions, MapSet.new())
       |> assign(:selected_decision_id, nil)
       |> assign(:selected_decision, nil)
       |> assign(:selected_decision_status, :none)
@@ -72,8 +107,10 @@ defmodule AiurWeb.DashboardLive do
      socket
      |> assign(:decision_filter, filter)
      |> assign(:current_route, RouteRegistry.current_route(Map.get(socket.assigns, :live_action)))
+     |> assign_units_selection(params)
      |> assign_decision_page(filter, params)
-     |> assign_selected_decision(params["decision_id"])}
+     |> assign_selected_decision(params["decision_id"])
+     |> maybe_canonicalize_units_url(params)}
   end
 
   @impl true
@@ -87,18 +124,63 @@ defmodule AiurWeb.DashboardLive do
     {:noreply, PayloadLoader.schedule(socket)}
   end
 
+  def handle_info({:observability_updated, event_id}, socket) do
+    {:noreply, PayloadLoader.schedule(socket, {:event, {:observability, event_id}})}
+  end
+
   @impl true
-  def handle_info({:decision_changed, _decision_id, _version}, socket) do
-    {:noreply, PayloadLoader.schedule(socket)}
+  def handle_info({:decision_changed, decision_id, version}, socket) do
+    {:noreply, PayloadLoader.schedule(socket, {:event, {:decision, decision_id, version}})}
   end
 
   def handle_info(:decision_metrics_changed, socket) do
     {:noreply, PayloadLoader.schedule(socket)}
   end
 
+  def handle_info({:current_run_membership_changed, payload}, socket) do
+    {:noreply, PayloadLoader.schedule(socket, {:event, {:membership, Map.get(payload, :generation)}})}
+  end
+
+  def handle_info({:current_run_summary_changed, snapshot}, socket) do
+    {:noreply, stash_run_summary(socket, snapshot)}
+  end
+
+  def handle_info(:flush_run_summary, socket) do
+    {:noreply, flush_run_summary(socket)}
+  end
+
+  def handle_info({:current_run_membership_health_changed, payload}, socket) do
+    {:noreply, PayloadLoader.schedule(socket, {:event, {:membership_health, Map.get(payload, :generation)}})}
+  end
+
+  def handle_info({:ticket_activity_changed, payload}, socket) do
+    {:noreply, PayloadLoader.schedule(socket, {:event, {:activity, Map.get(payload, :generation)}})}
+  end
+
+  def handle_info({:ticket_detail_updated, %TicketDetailState{} = detail}, socket) do
+    {:noreply, maybe_update_ticket_context(socket, :detail, detail)}
+  end
+
+  def handle_info({:ticket_history_updated, %TicketHistorySnapshot{} = history}, socket) do
+    {:noreply, maybe_update_ticket_context(socket, :history, history)}
+  end
+
+  def handle_info({:ticket_history_evicted, identity, _generation}, socket) do
+    {:noreply, maybe_reset_ticket_context(socket, :history, identity)}
+  end
+
+  def handle_info({:ticket_detail_cache_reset, _epoch}, socket) do
+    {:noreply, reset_selected_ticket_context(socket, :detail)}
+  end
+
+  def handle_info({:ticket_history_reset, _epoch}, socket) do
+    {:noreply, reset_selected_ticket_context(socket, :history)}
+  end
+
   @impl true
   def handle_info(:reload_payload, socket) do
-    {:noreply, socket |> reload_payload(:cached) |> PayloadLoader.mark_loaded()}
+    mode = Map.get(socket.assigns, :payload_reload_mode, :cached)
+    {:noreply, socket |> reload_payload(mode) |> PayloadLoader.mark_loaded()}
   end
 
   @impl true
@@ -121,11 +203,47 @@ defmodule AiurWeb.DashboardLive do
 
   def handle_event("search-commands", _params, socket), do: {:noreply, socket}
 
-  def handle_event("toggle-fleet-filter", %{"filter" => filter}, socket) do
-    {:noreply, update(socket, :fleet_filters, &FleetFilters.toggle(&1, filter))}
+  def handle_event("toggle-fleet-filter", _params, socket), do: {:noreply, socket}
+
+  def handle_event("select-units-scope", %{"scope" => scope}, socket) do
+    selection = UnitsPresenter.select_scope(socket.assigns.units_selection, scope)
+    {:noreply, push_patch(socket, to: units_path(selection))}
   end
 
-  def handle_event("toggle-fleet-filter", _params, socket), do: {:noreply, socket}
+  def handle_event("select-units-scope", _params, socket), do: {:noreply, socket}
+
+  def handle_event("toggle-units-condition", %{"condition" => condition}, socket) do
+    selection = UnitsPresenter.toggle_condition(socket.assigns.units_selection, condition)
+    {:noreply, push_patch(socket, to: units_path(selection))}
+  end
+
+  def handle_event("toggle-units-condition", _params, socket), do: {:noreply, socket}
+
+  def handle_event("reset-units-filters", _params, socket) do
+    {:noreply, push_patch(socket, to: units_path(UnitsURL.zero_result_reset()))}
+  end
+
+  def handle_event("inspect-unit", %{"unit" => token}, socket) when is_binary(token) do
+    catalog = Map.get(socket.assigns.payload, :units, %{})
+
+    case UnitsPresenter.lookup(catalog, token) do
+      {:ok, row} -> {:noreply, open_ticket_context(socket, row)}
+      {:error, :not_found} -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("inspect-unit", _params, socket), do: {:noreply, socket}
+
+  def handle_event("close-ticket-context", _params, socket) do
+    {:noreply,
+     socket
+     |> unsubscribe_ticket_context()
+     |> assign(:ticket_context, nil)
+     |> assign(:ticket_context_detail, nil)
+     |> assign(:ticket_context_history, nil)
+     |> assign(:ticket_context_identity, nil)
+     |> assign(:ticket_context_row, nil)}
+  end
 
   def handle_event(event, params, socket) when event in @decision_events do
     handle_writable_event(socket, fn ->
@@ -133,9 +251,20 @@ defmodule AiurWeb.DashboardLive do
     end)
   end
 
-  def handle_event("show-agent-log", %{"issue" => issue_identifier}, socket) do
+  def handle_event("show-agent-log", %{"unit" => token}, socket) when is_binary(token) do
+    catalog = Map.get(socket.assigns.payload, :units, %{})
+
+    with {:ok, row} <- UnitsPresenter.lookup(catalog, token),
+         %{} = entry <- AgentLogModal.find_running_entry(socket.assigns.payload, row.identity) do
+      {:noreply, assign(socket, :agent_log_modal, AgentLogModal.build(entry, socket.assigns.payload))}
+    else
+      _not_found -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("show-agent-log", %{"issue" => issue_identifier}, socket) when is_binary(issue_identifier) do
     entry = AgentLogModal.find_running_entry(socket.assigns.payload, issue_identifier)
-    {:noreply, assign(socket, :agent_log_modal, AgentLogModal.build(entry))}
+    {:noreply, assign(socket, :agent_log_modal, AgentLogModal.build(entry, socket.assigns.payload))}
   end
 
   def handle_event("show-agent-log", _params, socket), do: {:noreply, socket}
@@ -151,12 +280,12 @@ defmodule AiurWeb.DashboardLive do
       )
       when is_map(modal) do
     handle_writable_event(socket, fn ->
-      identifier = modal.issue_identifier
+      key = agent_log_key(modal)
 
       {:noreply,
        socket
-       |> assign(:drafts, Map.put(socket.assigns.drafts, identifier, message))
-       |> assign(:chat_errors, Map.delete(socket.assigns.chat_errors, identifier))}
+       |> assign(:drafts, Map.put(socket.assigns.drafts, key, message))
+       |> assign(:chat_errors, Map.delete(socket.assigns.chat_errors, key))}
     end)
   end
 
@@ -169,7 +298,17 @@ defmodule AiurWeb.DashboardLive do
       )
       when is_map(modal) do
     handle_writable_event(socket, fn ->
-      {:noreply, send_operator_message(socket, modal.issue_identifier, String.trim(message))}
+      if Map.get(modal, :writable_target?) == true do
+        {:noreply,
+         send_operator_message(
+           socket,
+           agent_log_target(modal),
+           agent_log_key(modal),
+           String.trim(message)
+         )}
+      else
+        {:noreply, put_chat_error(socket, agent_log_key(modal), :ambiguous_identifier)}
+      end
     end)
   end
 
@@ -181,20 +320,119 @@ defmodule AiurWeb.DashboardLive do
         %{assigns: %{writable: true, agent_log_modal: modal}} = socket
       )
       when is_map(modal) do
-    handle_writable_event(socket, fn ->
-      identifier = modal.issue_identifier
-
-      case AgentChat.pause(identifier) do
-        {:ok, _request_id} ->
-          {:noreply, assign(socket, :chat_errors, Map.delete(socket.assigns.chat_errors, identifier))}
-
-        {:error, reason} ->
-          {:noreply, put_chat_error(socket, identifier, reason)}
-      end
-    end)
+    handle_writable_event(socket, fn -> pause_agent_action(socket, modal) end)
   end
 
   def handle_event("pause-agent", _params, socket), do: {:noreply, socket}
+
+  def handle_event("capacity-input-change", %{"max" => value}, socket) when is_binary(value) do
+    {:noreply, assign(socket, :capacity_input, value)}
+  end
+
+  def handle_event("capacity-input-change", _params, socket), do: {:noreply, socket}
+
+  def handle_event("capacity-decrement", _params, socket) do
+    handle_writable_event(socket, fn -> {:noreply, adjust_capacity(socket, -1)} end)
+  end
+
+  def handle_event("capacity-increment", _params, socket) do
+    handle_writable_event(socket, fn -> {:noreply, adjust_capacity(socket, 1)} end)
+  end
+
+  def handle_event("capacity-set", %{"max" => value}, socket) when is_binary(value) do
+    handle_writable_event(socket, fn -> {:noreply, set_capacity(socket, value)} end)
+  end
+
+  def handle_event("capacity-set", _params, socket), do: {:noreply, socket}
+
+  defp pause_agent_action(socket, modal) do
+    key = agent_log_key(modal)
+
+    if Map.get(modal, :writable_target?) == true do
+      modal
+      |> agent_log_target()
+      |> pause_agent()
+      |> pause_agent_result(socket, key)
+    else
+      {:noreply, put_chat_error(socket, key, :ambiguous_identifier)}
+    end
+  end
+
+  defp pause_agent_result({:ok, _request_id}, socket, key),
+    do: {:noreply, assign(socket, :chat_errors, Map.delete(socket.assigns.chat_errors, key))}
+
+  defp pause_agent_result({:error, reason}, socket, key),
+    do: {:noreply, put_chat_error(socket, key, reason)}
+
+  defp adjust_capacity(socket, delta) do
+    prior = capacity_max(socket.assigns.payload)
+    reconcile_capacity(socket, capacity_adjust(delta), prior)
+  end
+
+  defp set_capacity(socket, value) do
+    case parse_capacity(value) do
+      {:ok, next} ->
+        prior = capacity_max(socket.assigns.payload)
+        reconcile_capacity(socket, capacity_set(next), prior)
+
+      :error ->
+        assign(socket, :capacity_feedback, %{kind: :invalid})
+    end
+  end
+
+  defp reconcile_capacity(socket, {:ok, %{} = status}, prior) do
+    new_max = Map.get(status, :max)
+
+    kind =
+      cond do
+        is_integer(prior) and new_max == prior -> :noop
+        Map.get(status, :draining?) == true -> :draining
+        true -> :applied
+      end
+
+    socket
+    |> reload_after_action()
+    |> assign(:capacity_feedback, %{kind: kind, max: new_max})
+  end
+
+  defp reconcile_capacity(socket, {:error, reason}, _prior) do
+    assign(socket, :capacity_feedback, %{kind: capacity_error_kind(reason)})
+  end
+
+  defp capacity_error_kind(:timeout), do: :timeout
+  defp capacity_error_kind(_reason), do: :unavailable
+
+  defp parse_capacity(value) do
+    case value |> to_string() |> String.trim() |> Integer.parse() do
+      {next, ""} when next >= 1 -> {:ok, next}
+      _other -> :error
+    end
+  end
+
+  defp capacity_facts(payload), do: get_in(payload, [:fleet, :capacity])
+
+  defp capacity_max(payload) do
+    case capacity_facts(payload) do
+      %{max: max} when is_integer(max) -> max
+      _other -> nil
+    end
+  end
+
+  defp capacity_adjust(delta) do
+    case Endpoint.config(:capacity_adjust_fun) do
+      fun when is_function(fun, 1) -> fun.(delta)
+      _other -> Slots.adjust_max_concurrent_agents(capacity_orchestrator(), delta)
+    end
+  end
+
+  defp capacity_set(next) do
+    case Endpoint.config(:capacity_set_fun) do
+      fun when is_function(fun, 1) -> fun.(next)
+      _other -> Slots.set_max_concurrent_agents(capacity_orchestrator(), next)
+    end
+  end
+
+  defp capacity_orchestrator, do: Endpoint.config(:orchestrator) || Aiur.Orchestrator
 
   @impl true
   def render(assigns) do
@@ -204,6 +442,18 @@ defmodule AiurWeb.DashboardLive do
       |> Map.put_new(:retained_counts, Map.get(assigns.payload, :retained_counts, unavailable_retained_counts()))
       |> Map.put_new(:decision_page, fallback_decision_page(assigns.payload))
       |> Map.put_new(:decision_query, %{})
+      |> Map.put_new(:ticket_context, nil)
+      |> Map.put_new(:units_selection, UnitsURL.default_selection())
+      |> Map.put_new(
+        :units_view,
+        UnitsPresenter.project(Map.get(assigns.payload, :units, %{}), Map.get(assigns, :units_selection, UnitsURL.default_selection()))
+      )
+      |> then(&Map.put_new(&1, :units_announcement, UnitsPresenter.announcement(&1.units_view)))
+      |> Map.put_new(:capacity_view, CapacityPresenter.present(capacity_facts(assigns.payload)))
+      |> Map.put_new(:capacity_input, "")
+      |> Map.put_new(:capacity_feedback, nil)
+      |> Map.put_new(:run_summary, RunSummaryPresenter.present(nil))
+      |> Map.put_new(:run_summary_announcement, nil)
       |> Map.put_new(:current_route, RouteRegistry.current_route(Map.get(assigns, :live_action)))
 
     ~H"""
@@ -245,12 +495,33 @@ defmodule AiurWeb.DashboardLive do
       </div>
 
       <div :if={@live_action not in [:decisions, :decision]} class="control-panel">
-        <FleetTable.fleet_table
-          fleet={@payload.fleet}
-          decisions={@payload.decisions}
-          now={@now}
-          filters={@fleet_filters}
+        <CapacityControl.capacity_control
+          capacity={@capacity_view}
+          writable={@writable}
+          input={@capacity_input}
+          feedback={@capacity_feedback}
         />
+        <RunSummary.run_summary view={@run_summary} announcement={@run_summary_announcement} />
+        <section class="section-card units-card" aria-labelledby="units-title">
+          <header class="section-header units-header">
+            <div>
+              <p class="section-eyebrow">Current-run catalog</p>
+              <h2 id="units-title" tabindex="-1">Units</h2>
+              <p>{units_count_summary(@units_view)}</p>
+            </div>
+          </header>
+
+          <p id="units-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true">
+            {@units_announcement}
+          </p>
+
+          <UnitsFilters.units_filters
+            selection={@units_selection}
+            counts={@units_view[:counts] || %{}}
+            count_status={@units_view[:count_status] || :unavailable}
+          />
+          <UnitsTable.units_table view={@units_view} now={@now} />
+        </section>
       </div>
 
       <section :if={@live_action == :index} class="section-card recent-card" aria-labelledby="recent-title">
@@ -276,6 +547,13 @@ defmodule AiurWeb.DashboardLive do
         drafts={@drafts}
         errors={@chat_errors}
       />
+      <TicketContext.ticket_context
+        :if={@ticket_context}
+        id="units-ticket-context"
+        context={@ticket_context}
+        close_event="close-ticket-context"
+        fallback_focus_id="units-title"
+      />
     </DashboardShell.dashboard_shell>
     """
   end
@@ -287,6 +565,8 @@ defmodule AiurWeb.DashboardLive do
     |> assign(:payload, payload)
     |> assign(:now, DateTime.utc_now())
     |> assign(:agent_log_modal, AgentLogModal.refresh(socket.assigns.agent_log_modal, payload))
+    |> assign_units_view()
+    |> refresh_ticket_context_row()
     |> reload_decision_page()
     |> assign_selected_decision(socket.assigns.selected_decision_id)
   end
@@ -374,6 +654,368 @@ defmodule AiurWeb.DashboardLive do
   defp decision_path(nil, filter, query), do: DecisionPath.inbox(filter, query)
   defp decision_path(decision_id, filter, query), do: DecisionPath.detail(decision_id, filter, query)
 
+  defp units_path(selection), do: "/?" <> UnitsURL.encode(selection)
+
+  defp units_count_summary(%{count_status: :unavailable}),
+    do: "Observed and selected-scope counts unavailable"
+
+  defp units_count_summary(%{count_status: :partial, total_count: total, counts: %{scope: scope}}),
+    do: "At least #{total} observed · at least #{scope} in selected scope"
+
+  defp units_count_summary(%{total_count: total, counts: %{scope: scope}})
+       when is_integer(total) and is_integer(scope),
+       do: "#{total} observed · #{scope} in selected scope"
+
+  defp units_count_summary(_view), do: "Observed and selected-scope counts unavailable"
+
+  defp assign_units_selection(socket, params) do
+    selection = UnitsURL.decode(params)
+
+    socket
+    |> assign(:units_selection, selection)
+    |> assign_units_view()
+  end
+
+  defp maybe_canonicalize_units_url(socket, params) do
+    selection = socket.assigns.units_selection
+
+    if socket.assigns.live_action == :index and map_size(params) > 0 and
+         params != Map.new(UnitsURL.params(selection)) do
+      push_patch(socket, to: units_path(selection), replace: true)
+    else
+      socket
+    end
+  end
+
+  defp assign_units_view(socket) do
+    catalog = socket.assigns.payload |> Map.get(:units, %{})
+    view = UnitsPresenter.project(catalog, socket.assigns.units_selection)
+
+    socket
+    |> assign(:units_view, view)
+    |> assign(:units_announcement, UnitsPresenter.announcement(view))
+  end
+
+  # Read the current DASH-014 snapshot on mount/reconnect. On the dead first
+  # render, or when the projection process is unreachable, fall back to the
+  # loading view rather than crashing the LiveView.
+  defp assign_initial_run_summary(socket, connected) do
+    snapshot = if connected, do: read_run_summary_snapshot(), else: nil
+
+    socket
+    |> assign(:run_summary_source, nil)
+    |> assign(:run_summary_pending, nil)
+    |> assign(:run_summary_flush_scheduled?, false)
+    |> apply_run_summary(snapshot)
+  end
+
+  defp read_run_summary_snapshot do
+    CurrentRunSummary.snapshot()
+  rescue
+    _error -> nil
+  catch
+    :exit, _reason -> nil
+  end
+
+  # Coalesce bursts of daemon updates: keep only the latest pending snapshot
+  # and flush once per debounce window so high-frequency renders and
+  # screen-reader announcements stay bounded.
+  defp stash_run_summary(socket, snapshot) do
+    socket = assign(socket, :run_summary_pending, snapshot)
+
+    if socket.assigns.run_summary_flush_scheduled? do
+      socket
+    else
+      schedule_run_summary_flush()
+      assign(socket, :run_summary_flush_scheduled?, true)
+    end
+  end
+
+  defp flush_run_summary(socket) do
+    socket = assign(socket, :run_summary_flush_scheduled?, false)
+
+    case socket.assigns.run_summary_pending do
+      nil -> socket
+      snapshot -> socket |> assign(:run_summary_pending, nil) |> apply_run_summary(snapshot)
+    end
+  end
+
+  # Reconcile an incoming snapshot against the displayed source (last-known-good
+  # retention lives in the presenter) and assign the presented view plus a
+  # single bounded announcement.
+  defp apply_run_summary(socket, snapshot) do
+    {source, retained?} = RunSummaryPresenter.reconcile(socket.assigns.run_summary_source, snapshot)
+    status_source = if retained?, do: snapshot, else: nil
+    view = RunSummaryPresenter.present(source, retained?, status_source)
+
+    socket
+    |> assign(:run_summary_source, source)
+    |> assign(:run_summary, view)
+    |> assign(:run_summary_announcement, RunSummaryPresenter.announcement(view))
+  end
+
+  defp schedule_run_summary_flush do
+    case Endpoint.config(:run_summary_flush_timer) do
+      timer when is_function(timer, 3) -> timer.(self(), :flush_run_summary, @run_summary_flush_ms)
+      _other -> Process.send_after(self(), :flush_run_summary, @run_summary_flush_ms)
+    end
+  end
+
+  defp open_ticket_context(socket, %{identity: %TrackerIdentity{} = identity} = row) do
+    socket = replace_ticket_context_subscription(socket, identity)
+    detail = request_context(:ticket_detail_request_fun, &TicketDetailCache.request/1, identity)
+    history = request_context(:ticket_history_request_fun, &TicketHistoryProvider.request/1, identity)
+
+    socket
+    |> assign(:ticket_context_identity, identity)
+    |> assign(:ticket_context_row, row)
+    |> assign_ticket_context(detail, history)
+  end
+
+  defp open_ticket_context(socket, _row), do: socket
+
+  defp replace_ticket_context_subscription(socket, identity) do
+    if same_identity?(socket.assigns.ticket_context_identity, identity) do
+      subscribe_ticket_context(socket, identity)
+    else
+      socket
+      |> unsubscribe_ticket_context()
+      |> subscribe_ticket_context(identity)
+    end
+  end
+
+  defp subscribe_ticket_context(socket, identity) do
+    key = TrackerIdentity.github_key(identity)
+    subscriptions = socket.assigns.ticket_context_subscriptions
+
+    if is_nil(key) do
+      socket
+    else
+      subscriptions =
+        subscriptions
+        |> ensure_ticket_context_subscription(
+          {key, :detail},
+          :ticket_detail_subscribe_fun,
+          &subscribe_ticket_detail/1,
+          identity
+        )
+        |> ensure_ticket_context_subscription(
+          {key, :history},
+          :ticket_history_subscribe_fun,
+          &subscribe_ticket_history/1,
+          identity
+        )
+
+      assign(socket, :ticket_context_subscriptions, subscriptions)
+    end
+  end
+
+  defp ensure_ticket_context_subscription(subscriptions, marker, config_key, default, identity) do
+    cond do
+      MapSet.member?(subscriptions, marker) -> subscriptions
+      call_context(config_key, default, identity) == :ok -> MapSet.put(subscriptions, marker)
+      true -> subscriptions
+    end
+  end
+
+  defp unsubscribe_ticket_context(%{assigns: %{ticket_context_identity: %TrackerIdentity{} = identity}} = socket) do
+    key = TrackerIdentity.github_key(identity)
+
+    subscriptions =
+      socket.assigns.ticket_context_subscriptions
+      |> drop_ticket_context_subscription(
+        {key, :detail},
+        :ticket_detail_unsubscribe_fun,
+        &unsubscribe_ticket_detail/1,
+        identity
+      )
+      |> drop_ticket_context_subscription(
+        {key, :history},
+        :ticket_history_unsubscribe_fun,
+        &unsubscribe_ticket_history/1,
+        identity
+      )
+
+    assign(socket, :ticket_context_subscriptions, subscriptions)
+  end
+
+  defp unsubscribe_ticket_context(socket),
+    do: assign(socket, :ticket_context_subscriptions, MapSet.new())
+
+  defp drop_ticket_context_subscription(subscriptions, marker, config_key, default, identity) do
+    if MapSet.member?(subscriptions, marker) do
+      _result = call_context(config_key, default, identity)
+      MapSet.delete(subscriptions, marker)
+    else
+      subscriptions
+    end
+  end
+
+  defp subscribe_ticket_context_resets do
+    _result =
+      case Endpoint.config(:ticket_context_reset_subscribe_fun) do
+        fun when is_function(fun, 0) -> fun.()
+        _fun -> subscribe_default_ticket_context_resets()
+      end
+
+    :ok
+  rescue
+    _error -> :ok
+  catch
+    _kind, _reason -> :ok
+  end
+
+  defp subscribe_default_ticket_context_resets do
+    :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, TicketDetailCache.reset_topic())
+    Phoenix.PubSub.subscribe(Aiur.PubSub, TicketHistoryProvider.reset_topic())
+  end
+
+  defp subscribe_ticket_detail(identity),
+    do: Phoenix.PubSub.subscribe(Aiur.PubSub, TicketDetailCache.topic(identity))
+
+  defp subscribe_ticket_history(identity),
+    do: Phoenix.PubSub.subscribe(Aiur.PubSub, TicketHistoryProvider.topic(identity))
+
+  defp unsubscribe_ticket_detail(identity),
+    do: Phoenix.PubSub.unsubscribe(Aiur.PubSub, TicketDetailCache.topic(identity))
+
+  defp unsubscribe_ticket_history(identity),
+    do: Phoenix.PubSub.unsubscribe(Aiur.PubSub, TicketHistoryProvider.topic(identity))
+
+  defp request_context(config_key, default, identity) do
+    case call_context(config_key, default, identity) do
+      {:ok, value} -> value
+      _error -> nil
+    end
+  end
+
+  defp call_context(config_key, default, identity) do
+    fun = Endpoint.config(config_key) || default
+    fun.(identity)
+  rescue
+    _error -> {:error, :unavailable}
+  catch
+    :exit, _reason -> {:error, :unavailable}
+    _kind, _reason -> {:error, :unavailable}
+  end
+
+  defp assign_ticket_context(socket, detail, history) do
+    identity = socket.assigns.ticket_context_identity
+    row = socket.assigns.ticket_context_row
+    detail = valid_detail(detail, identity)
+    history = valid_history(history, identity)
+    context = TicketContextPresenter.present(detail, history, ticket_context_capabilities(row))
+
+    socket
+    |> assign(:ticket_context_detail, detail)
+    |> assign(:ticket_context_history, history)
+    |> assign(:ticket_context, context)
+  end
+
+  defp valid_detail(%TicketDetailState{} = detail, identity) do
+    if same_identity?(detail.identity, identity), do: detail, else: unavailable_detail(identity)
+  end
+
+  defp valid_detail(_detail, identity), do: unavailable_detail(identity)
+
+  defp valid_history(%TicketHistorySnapshot{} = history, identity) do
+    if same_identity?(history.identity, identity), do: history, else: unavailable_history(identity)
+  end
+
+  defp valid_history(_history, identity), do: unavailable_history(identity)
+
+  defp unavailable_detail(identity) do
+    %TicketDetailState{identity: identity, generation: :unknown, health: :unavailable}
+  end
+
+  defp unavailable_history(identity) do
+    %TicketHistorySnapshot{
+      identity: identity,
+      generation: :unknown,
+      health: :unavailable,
+      status_label: "Ticket history unavailable",
+      progress: %{status: :unknown},
+      latest_evidence: %{status: :unknown},
+      entries: [],
+      truncated?: false,
+      freshness: :unknown,
+      source_health: %{activity: :unavailable, history: :unavailable}
+    }
+  end
+
+  defp ticket_context_capabilities(%{identity: %TrackerIdentity{identifier: identifier}, url: url}) do
+    [
+      %{
+        kind: :github,
+        variant: :issue,
+        available?: is_binary(url),
+        href: url,
+        reason: :not_available
+      },
+      %{kind: :chat, available?: false, reason: :not_available},
+      %{
+        kind: :commands,
+        available?: is_binary(identifier),
+        href: DecisionPath.inbox(:all, %{ticket: identifier}),
+        reason: :not_available
+      }
+    ]
+  end
+
+  defp ticket_context_capabilities(_row), do: []
+
+  defp maybe_update_ticket_context(socket, kind, snapshot) do
+    if same_identity?(Map.get(snapshot, :identity), socket.assigns.ticket_context_identity) do
+      case kind do
+        :detail -> assign_ticket_context(socket, snapshot, socket.assigns.ticket_context_history)
+        :history -> assign_ticket_context(socket, socket.assigns.ticket_context_detail, snapshot)
+      end
+    else
+      socket
+    end
+  end
+
+  defp maybe_reset_ticket_context(socket, kind, identity) do
+    if same_identity?(identity, socket.assigns.ticket_context_identity) do
+      reset_selected_ticket_context(socket, kind)
+    else
+      socket
+    end
+  end
+
+  defp reset_selected_ticket_context(%{assigns: %{ticket_context_identity: nil}} = socket, _kind), do: socket
+
+  defp reset_selected_ticket_context(socket, :detail) do
+    assign_ticket_context(socket, nil, socket.assigns.ticket_context_history)
+  end
+
+  defp reset_selected_ticket_context(socket, :history) do
+    assign_ticket_context(socket, socket.assigns.ticket_context_detail, nil)
+  end
+
+  defp refresh_ticket_context_row(%{assigns: %{ticket_context_identity: nil}} = socket), do: socket
+
+  defp refresh_ticket_context_row(socket) do
+    rows = get_in(socket.assigns.payload, [:units, :snapshot, :rows]) || []
+
+    case Enum.find(rows, &same_identity?(Map.get(&1, :identity), socket.assigns.ticket_context_identity)) do
+      nil ->
+        socket
+
+      row ->
+        socket
+        |> assign(:ticket_context_row, row)
+        |> assign_ticket_context(socket.assigns.ticket_context_detail, socket.assigns.ticket_context_history)
+    end
+  end
+
+  defp same_identity?(%TrackerIdentity{} = left, %TrackerIdentity{} = right) do
+    key = TrackerIdentity.github_key(left)
+    not is_nil(key) and key == TrackerIdentity.github_key(right)
+  end
+
+  defp same_identity?(_left, _right), do: false
+
   defp assign_decision_page(socket, filter, params) do
     case Map.get(socket.assigns, :live_action) do
       :decisions ->
@@ -426,6 +1068,7 @@ defmodule AiurWeb.DashboardLive do
 
   defp decision_query(:all, params) do
     %{}
+    |> maybe_put_query(:ticket, params["ticket"])
     |> maybe_put_query(:search, params["search"])
     |> maybe_put_query(:cursor, params["cursor"])
   end
@@ -510,12 +1153,32 @@ defmodule AiurWeb.DashboardLive do
     assign(socket, :chat_errors, Map.put(socket.assigns.chat_errors, identifier, AgentLogModal.format_error(reason)))
   end
 
-  defp send_operator_message(socket, _identifier, ""), do: socket
+  defp send_operator_message(socket, _target, _key, ""), do: socket
 
-  defp send_operator_message(socket, identifier, text) do
-    case AgentChat.send(identifier, text) do
-      {:ok, _request_id} -> clear_chat_state(socket, identifier)
-      {:error, reason} -> put_chat_error(socket, identifier, reason)
+  defp send_operator_message(socket, target, key, text) do
+    case send_agent_message(target, text) do
+      {:ok, _request_id} -> clear_chat_state(socket, key)
+      {:error, reason} -> put_chat_error(socket, key, reason)
     end
   end
+
+  defp send_agent_message(target, text) do
+    case Endpoint.config(:agent_chat_send_fun) do
+      fun when is_function(fun, 2) -> fun.(target, text)
+      _fun -> AgentChat.send(target, text)
+    end
+  end
+
+  defp pause_agent(target) do
+    case Endpoint.config(:agent_chat_pause_fun) do
+      fun when is_function(fun, 1) -> fun.(target)
+      _fun -> AgentChat.pause(target)
+    end
+  end
+
+  defp agent_log_target(%{tracker_identity: %TrackerIdentity{} = identity}), do: identity
+  defp agent_log_target(%{issue_identifier: identifier}), do: to_string(identifier)
+
+  defp agent_log_key(%{target_key: key}) when is_binary(key), do: key
+  defp agent_log_key(%{issue_identifier: identifier}), do: to_string(identifier)
 end

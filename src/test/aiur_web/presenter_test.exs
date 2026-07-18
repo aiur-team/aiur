@@ -48,7 +48,8 @@ defmodule AiurWeb.PresenterTest do
 
   test "projects explicit waiting reasons, staleness, CI/PR, and idle rows" do
     orchestrator_name = Module.concat(__MODULE__, :FleetOrchestrator)
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
+    conversation_handle = "conversation:" <> String.duplicate("B", 43)
 
     on_exit(fn ->
       if Process.alive?(pid), do: Process.exit(pid, :normal)
@@ -61,7 +62,24 @@ defmodule AiurWeb.PresenterTest do
       |> Map.merge(%{
         agent_input_tokens: 910_011,
         agent_output_tokens: 910_012,
-        agent_total_tokens: 910_023
+        agent_total_tokens: 910_023,
+        live_conversation: %{
+          generation_handle: conversation_handle,
+          state: :known_empty,
+          health: :healthy,
+          freshness: :current,
+          observed_at: ~U[2026-07-15 10:02:00Z]
+        }
+      })
+      |> put_in([:issue, Access.key(:selected_backend)], "codex")
+      |> put_in(
+        [:issue, Access.key(:labels)],
+        ["model:codex-gpt-5.6-terra", "complexity:3", "build-lane:dashboard-ui"]
+      )
+      |> Map.put(:session_execution, %{
+        backend: "codex",
+        requested_model: "gpt-5.6-terra",
+        effort: nil
       })
       |> put_in([:issue, Access.key(:tracker_identity)], tracker_identity("MT-700"))
 
@@ -137,10 +155,24 @@ defmodule AiurWeb.PresenterTest do
     assert running_row.open_decision_count == 0
     assert is_integer(running_row.stale_for_seconds)
     assert running_row.tracker_identity == tracker_identity("MT-700")
+    assert running_row.backend == "codex"
+    assert running_row.agent_family == "codex"
+    assert running_row.requested_model == "gpt-5.6-terra"
+    assert running_row.complexity == 3
+    assert "build-lane:dashboard-ui" in running_row.labels
 
-    assert {:ok, issue_payload} = Presenter.issue_payload("MT-700", orchestrator_name, 1_000)
+    assert running_row.live_conversation == %{
+             generation_handle: conversation_handle,
+             state: :known_empty,
+             health: :healthy,
+             freshness: :current,
+             observed_at: ~U[2026-07-15 10:02:00Z]
+           }
+
+    assert {:ok, issue_payload} = Presenter.issue_payload("MT-700", orchestrator_name, 5_000)
     refute Map.has_key?(issue_payload.running, :tokens)
     assert issue_payload.running.waiting_reason == :waiting_for_ci
+    assert issue_payload.running.live_conversation.generation_handle == conversation_handle
 
     assert [retry_row] = payload.retrying
     assert retry_row.state == "rework"
@@ -209,6 +241,29 @@ defmodule AiurWeb.PresenterTest do
 
     assert [running_row] = payload.running
     assert running_row.open_decision_count == 1
+    assert running_row.open_decision_count_health == :available
+  end
+
+  test "open decision count names an unattached SubscriptionStore as unavailable" do
+    orchestrator_name = Module.concat(__MODULE__, :UnavailableDecisionCountOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    identifier = "MT-unavailable-#{System.unique_integer([:positive])}"
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+      SubscriptionStore.stop(identifier)
+    end)
+
+    :sys.replace_state(pid, fn state ->
+      %{state | running: %{"issue-decision" => running_entry("issue-decision", identifier, :working)}}
+    end)
+
+    payload = Presenter.state_payload(orchestrator_name, 1_000)
+
+    assert [running_row] = payload.running
+    assert running_row.open_decision_count == 0
+    assert running_row.open_decision_count_health == :unavailable
   end
 
   test "durable history and outcomes remain visible when the orchestrator is unavailable" do

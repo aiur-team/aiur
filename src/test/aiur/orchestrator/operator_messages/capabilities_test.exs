@@ -77,9 +77,40 @@ defmodule Aiur.Orchestrator.OperatorMessages.CapabilitiesTest do
     state = %State{queue_store: store}
 
     assert Capabilities.pending_operator_messages_for_issue(state, "42") == [
-             %{id: first_item.id, text: "operator text", status: :pending},
-             %{id: malformed_item.id, text: "", status: :pending}
+             %{id: first_item.id, text: "operator text", status: :queued},
+             %{id: malformed_item.id, text: "", status: :queued}
            ]
+  end
+
+  test "keeps a claimed message queued until provider acknowledgement" do
+    {store, item} =
+      AgentQueue.operator_message("42", "operator text")
+      |> then(&AgentQueueStore.enqueue(AgentQueueStore.new(), &1))
+
+    {claimed_store, _claimed} = AgentQueueStore.claim_next_deliverable(store, "42")
+
+    assert Capabilities.pending_operator_messages_for_issue(
+             %State{queue_store: claimed_store},
+             "42"
+           ) == [%{id: item.id, text: "operator text", status: :queued}]
+
+    {delivered_store, _acknowledged} =
+      AgentQueueStore.mark_provider_delivered(claimed_store, item.id, %{
+        turn_id: "turn-1"
+      })
+
+    assert Capabilities.pending_operator_messages_for_issue(
+             %State{queue_store: delivered_store},
+             "42"
+           ) == [%{id: item.id, text: "operator text", status: :delivered}]
+
+    {failed_store, _failed} =
+      AgentQueueStore.mark_failed(claimed_store, item.id, :provider_down)
+
+    assert Capabilities.pending_operator_messages_for_issue(
+             %State{queue_store: failed_store},
+             "42"
+           ) == [%{id: item.id, text: "operator text", status: :failed}]
   end
 
   defp state_with_running_entry(identifier, control) do

@@ -1,0 +1,14 @@
+{
+  "jsonrpc": "2.0",
+  "method": "turn/completed",
+  "params": {
+    "turn": {"id": "turn_synthetic_claude_1", "status": "completed"},
+    "usage": {
+      "input_tokens": 100,
+      "cache_read_input_tokens": 30,
+      "cache_creation_input_tokens": 20,
+      "output_tokens": 10
+    },
+    "cost_usd": 0.0001234567890123456789
+  }
+}

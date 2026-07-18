@@ -732,7 +732,7 @@ defmodule Aiur.Codex.TurnLoopTest do
       close_port(port)
     end
 
-    test "turn started marks the state and processes a notification checkpoint" do
+    test "turn started marks the state and defers the notification checkpoint while a turn is live" do
       port = open_cat_port()
 
       payload = %{
@@ -757,7 +757,10 @@ defmodule Aiur.Codex.TurnLoopTest do
 
       assert next_state.active_turn_ids == MapSet.new(["turn-1", "turn-2"])
       assert next_state.outstanding_turns == 2
-      assert_received {:checkpoint, %{kind: :notification, method: "turn/started"}}
+      # Single-writer guard: with a turn already live, the turn/started checkpoint
+      # is deferred (not delivered mid-turn), so no second turn/start can spawn.
+      assert_received {:event, :notification}
+      refute_received {:checkpoint, _}
       close_port(port)
     end
 

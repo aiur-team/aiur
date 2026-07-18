@@ -5,8 +5,8 @@ defmodule Aiur.UsageLedger.Store do
 
   @behaviour Aiur.UsageLedger
 
-  alias Aiur.{Config, DecisionLog, UsageEnvelope}
-  alias Aiur.UsageLedger.{Checkpoint, CounterPolicy, Record, Recovery}
+  alias Aiur.{Config, DecisionLog, Fs, UsageEnvelope}
+  alias Aiur.UsageLedger.{Checkpoint, CounterPolicy, Record, Recovery, RetiredFloor}
 
   @max_scan_limit 10_000
 
@@ -33,6 +33,15 @@ defmodule Aiur.UsageLedger.Store do
 
   @impl Aiur.UsageLedger
   def scan(options), do: GenServer.call(__MODULE__, {:scan, options})
+
+  @impl Aiur.UsageLedger
+  def retire(watermark), do: retire(__MODULE__, watermark)
+
+  @doc false
+  @spec retire(GenServer.server(), non_neg_integer()) :: {:ok, Aiur.UsageLedger.retirement()} | {:error, atom()}
+  def retire(server, watermark) when is_integer(watermark) and watermark >= 0 do
+    GenServer.call(server, {:retire, watermark})
+  end
 
   @impl Aiur.UsageLedger
   def health, do: GenServer.call(__MODULE__, :health)
@@ -67,6 +76,9 @@ defmodule Aiur.UsageLedger.Store do
        checkpoint_fun: Keyword.get(opts, :checkpoint_fun, &Checkpoint.overwrite_encoded/2),
        checkpoint_encode_fun: Keyword.get(opts, :checkpoint_encode_fun, &Checkpoint.encode/2),
        publish_fun: Keyword.get(opts, :publish_fun, fn _acknowledgement -> :ok end),
+       retired_floor_write_fun: Keyword.get(opts, :retired_floor_write_fun, &RetiredFloor.write/3),
+       retire_sync_fun: Keyword.get(opts, :filesystem_sync_fun, &Fs.sync_filesystem/0),
+       retired_through: Map.get(state, :retired_through, 0),
        subscribers: %{}
      })}
   end
@@ -103,6 +115,8 @@ defmodule Aiur.UsageLedger.Store do
     {:reply, {:ok, records}, state}
   end
 
+  def handle_call({:retire, watermark}, _from, state), do: retire_records(state, watermark)
+
   def handle_call(:health, _from, state), do: {:reply, state.health, state}
   def handle_call(:generation, _from, state), do: {:reply, state.generation, state}
   def handle_call(:coverage, _from, state), do: {:reply, state.coverage, state}
@@ -126,6 +140,53 @@ defmodule Aiur.UsageLedger.Store do
       end
 
     {:noreply, %{state | subscribers: subscribers}}
+  end
+
+  # Retirement removes raw source for a prefix whose durable aggregate coverage
+  # DASH-025 has already committed. The retained counter policy, position, and
+  # checkpoint are untouched, so exact totals and coverage survive; only the raw
+  # records are dropped. The floor is persisted before the segment is rewritten,
+  # and recovery ignores any raw at or below it, so a crash between the two
+  # leaves a consistent (if not yet fully reclaimed) ledger.
+  defp retire_records(%{writable?: false} = state, _watermark) do
+    {:reply, {:error, :ledger_unavailable}, state}
+  end
+
+  defp retire_records(state, watermark) when watermark <= 0 do
+    {:reply, {:ok, %{retired_through: state.retired_through, retired_count: 0}}, state}
+  end
+
+  defp retire_records(state, watermark) do
+    cond do
+      watermark <= state.retired_through ->
+        {:reply, {:ok, %{retired_through: state.retired_through, retired_count: 0}}, state}
+
+      watermark > state.position ->
+        {:reply, {:error, :watermark_beyond_head}, state}
+
+      true ->
+        commit_retirement(state, watermark)
+    end
+  end
+
+  defp commit_retirement(state, watermark) do
+    case state.retired_floor_write_fun.(state.paths.retired_path, watermark, state.retire_sync_fun) do
+      :ok ->
+        retained = state.records |> :queue.to_list() |> Enum.filter(&(&1.position > watermark))
+        _ = rewrite_segment(state.paths.segment_path, retained)
+        retired_count = watermark - state.retired_through
+
+        next_state = %{state | records: :queue.from_list(retained), retired_through: watermark}
+        {:reply, {:ok, %{retired_through: watermark, retired_count: retired_count}}, next_state}
+
+      {:error, _reason} ->
+        {:reply, {:error, :retired_floor_write_failed}, state}
+    end
+  end
+
+  defp rewrite_segment(path, records) do
+    contents = records |> Enum.map(&(Jason.encode!(Record.encode(&1)) <> "\n")) |> IO.iodata_to_binary()
+    Fs.atomic_write(path, contents, fsync: true, mode: 0o600)
   end
 
   defp persist(envelope, policy, delta, state) do

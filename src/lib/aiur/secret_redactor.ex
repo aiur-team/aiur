@@ -1,10 +1,10 @@
 defmodule Aiur.SecretRedactor do
   @moduledoc """
-  Shared well-known credential-pattern redaction. Extracted from
-  `Aiur.Events.Sanitizer` so every consumer that must not persist or
-  hash a raw secret (GitHub event payload text, Decision request
-  content) redacts through the same pattern list rather than a copy
-  that can drift.
+  Shared well-known credential and capability-URL redaction. Extracted
+  from `Aiur.Events.Sanitizer` so every consumer that must not persist or
+  hash a raw secret (GitHub event payload text, Decision request content,
+  browser-facing projections) redacts through the same patterns rather
+  than a copy that can drift.
   """
 
   @patterns [
@@ -21,6 +21,27 @@ defmodule Aiur.SecretRedactor do
     {~r/AIza[0-9A-Za-z\-_]{35}/, "[REDACTED:google]"}
   ]
 
+  @url_pattern ~r"""
+    (?<![A-Za-z0-9+.-])
+    (?:https?|wss?)
+    (?:
+      :
+      | %3[aA]
+      | \\+u003[aA]
+      | &\#(?:58|x3[aA]);
+      | &colon;
+    )
+    (?:
+      /
+      | %2[fF]
+      | \\+/
+      | \\+u002[fF]
+      | &\#(?:47|x2[fF]);
+      | &sol;
+    ){2}
+    [^\s"'<>]+
+  """iux
+
   @doc """
   Replace every known credential pattern in `text` with a
   `[REDACTED:<pattern>]` marker. Idempotent.
@@ -30,6 +51,12 @@ defmodule Aiur.SecretRedactor do
     Enum.reduce(@patterns, text, fn {pattern, replacement}, acc ->
       Regex.replace(pattern, acc, replacement)
     end)
+  end
+
+  @doc "Redact browser- and socket-capability URLs, including escaped and mixed-case forms."
+  @spec redact_urls(String.t()) :: String.t()
+  def redact_urls(text) when is_binary(text) do
+    Regex.replace(@url_pattern, text, "[REDACTED:url]")
   end
 
   @doc "Inspect a runtime term, redact credentials, and cap the resulting text."
