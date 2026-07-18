@@ -145,7 +145,9 @@ defmodule Aiur.DecisionLog do
   and `nil` corruption when the whole stream is intact, or the
   validated prefix plus `{:corrupt, line_number, reason}` at the first
   invalid complete line. A missing file replays as an empty, intact
-  stream.
+  stream. Recovery coordinators that must publish a durable degraded marker
+  before repair may pass `repair_torn_tail: false` to validate the prefix
+  without truncating an incomplete tail.
   """
   @spec replay(Path.t(), (map() -> {:ok, term()} | {:error, term()})) ::
           {:ok, [term()], corruption() | nil} | {:error, term()}
@@ -158,14 +160,25 @@ defmodule Aiur.DecisionLog do
          :ok <- validate_file_size(path, Keyword.get(opts, :max_file_bytes)),
          {:ok, content} <- read_or_empty(path) do
       {clean_content, truncated?} = drop_incomplete_tail(content)
-      finish_replay(path, clean_content, truncated?, validator, Keyword.get(opts, :max_record_bytes))
+
+      finish_replay(
+        path,
+        clean_content,
+        truncated?,
+        validator,
+        Keyword.get(opts, :max_record_bytes),
+        Keyword.get(opts, :repair_torn_tail, true)
+      )
     end
   end
 
-  defp finish_replay(_path, clean_content, false, validator, max_record_bytes),
+  defp finish_replay(_path, clean_content, false, validator, max_record_bytes, _repair_torn_tail?),
     do: decode_lines(clean_content, validator, max_record_bytes)
 
-  defp finish_replay(path, clean_content, true, validator, max_record_bytes) do
+  defp finish_replay(_path, clean_content, true, validator, max_record_bytes, false),
+    do: decode_lines(clean_content, validator, max_record_bytes)
+
+  defp finish_replay(path, clean_content, true, validator, max_record_bytes, true) do
     case truncate_and_sync(path, byte_size(clean_content)) do
       :ok -> decode_lines(clean_content, validator, max_record_bytes)
       {:error, reason} -> {:error, reason}

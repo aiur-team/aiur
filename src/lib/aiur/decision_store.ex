@@ -318,6 +318,7 @@ defmodule Aiur.DecisionStore do
       dispatch_delay_ms: Keyword.get(opts, :dispatch_delay_ms, @default_dispatch_delay_ms),
       reconcile_delay_ms: Keyword.get(opts, :reconcile_delay_ms, @default_reconcile_delay_ms),
       retry_delays_ms: Keyword.get(opts, :retry_delays_ms, @default_retry_delays_ms),
+      dispatch_scheduler: Keyword.get(opts, :dispatch_scheduler, &Process.send_after/3),
       revision_follow_up_projector: revision_projector,
       revision_follow_up_resolver: revision_resolver,
       event_id_reserver: Keyword.get(opts, :event_id_reserver, &IdGenerator.reserve_durable_id/0),
@@ -335,7 +336,12 @@ defmodule Aiur.DecisionStore do
   def handle_continue(:schedule_reconciliation, state) do
     if state.writable? do
       reproject_failure_attentions(state)
-      Process.send_after(self(), :reconcile_dispatches, state.reconcile_delay_ms)
+
+      schedule_dispatch_work(
+        state,
+        {:reconcile_dispatches, dispatch_fences(state)},
+        state.reconcile_delay_ms
+      )
     end
 
     {:noreply, state}
@@ -513,9 +519,9 @@ defmodule Aiur.DecisionStore do
 
       {:ok, decision} ->
         if lifecycle_append_failed?(state, action_id) do
-          schedule_append_reconciliation(decision, action_id, 0)
+          schedule_append_reconciliation(state, decision, action_id, 0)
         else
-          schedule_dispatch(decision, true, 0)
+          schedule_dispatch(state, decision, true, 0)
         end
 
         {:reply, {:ok, :scheduled}, state}
@@ -1967,25 +1973,23 @@ defmodule Aiur.DecisionStore do
   end
 
   @impl true
-  def handle_info(:reconcile_dispatches, state) do
+  def handle_info({:reconcile_dispatches, fences}, state) do
     next_state =
-      state.current
-      |> Map.values()
-      |> Enum.reduce(state, &reconcile_decision/2)
+      Enum.reduce(fences, state, &reconcile_scheduled_decision/2)
 
     {:noreply, next_state}
   end
 
-  def handle_info({:dispatch_action, decision_id, retry_failed?}, state) do
-    {:noreply, maybe_start_dispatch(state, decision_id, retry_failed?)}
+  def handle_info({:dispatch_action, fence, retry_failed?}, state) do
+    {:noreply, maybe_start_dispatch(state, fence, retry_failed?)}
   end
 
-  def handle_info({:reconcile_queue_action, decision_id}, state) do
-    {:noreply, maybe_start_dispatch(state, decision_id, false, :reconcile_queue)}
+  def handle_info({:reconcile_queue_action, fence}, state) do
+    {:noreply, maybe_start_dispatch(state, fence, false, :reconcile_queue)}
   end
 
-  def handle_info({:reconcile_lifecycle_append, decision_id, action_id}, state) do
-    {:noreply, maybe_reconcile_lifecycle_append(state, decision_id, action_id)}
+  def handle_info({:reconcile_lifecycle_append, fence, action_id}, state) do
+    {:noreply, maybe_reconcile_lifecycle_append(state, fence, action_id)}
   end
 
   def handle_info({:dispatch_result, decision_id, action_id, attempt_id, result}, state) do
@@ -2028,16 +2032,30 @@ defmodule Aiur.DecisionStore do
     end
   end
 
-  defp reconcile_decision(decision, state) do
+  defp reconcile_scheduled_decision(%{decision_id: decision_id} = fence, state) do
+    case fetch_decision(state, decision_id) do
+      {:ok, current} ->
+        dispatch_current? = dispatch_fence_current?(fence, current, :normal)
+        reconcile_queue? = dispatch_current? and fence.request_version == current.version
+        reconcile_decision(current, state, dispatch_current?, reconcile_queue?)
+
+      {:error, _reason} ->
+        state
+    end
+  end
+
+  defp reconcile_decision(decision, state, dispatch_current?, reconcile_queue?) do
     state = ensure_revision_follow_up_required(state, decision)
     current = Map.fetch!(state.current, decision.decision_id)
     state = ensure_superseded_revision_follow_ups(state, current)
     current = Map.fetch!(state.current, decision.decision_id)
     state = schedule_revision_follow_up_work(state, current)
 
-    state
-    |> maybe_schedule_after_answer(current, false)
-    |> maybe_schedule_queue_reconciliation(current)
+    state = if dispatch_current?, do: maybe_schedule_after_answer(state, current, false), else: state
+
+    # Request enrichment may advance the version without changing delivery state.
+    # Pending first delivery can follow it; queued reconciliation cannot.
+    if reconcile_queue?, do: maybe_schedule_queue_reconciliation(state, current), else: state
   end
 
   defp schedule_revision_follow_up_work(state, decision) do
@@ -2150,7 +2168,7 @@ defmodule Aiur.DecisionStore do
         state
 
       true ->
-        schedule_dispatch(decision, retry_failed?, state.dispatch_delay_ms)
+        schedule_dispatch(state, decision, retry_failed?, state.dispatch_delay_ms)
         state
     end
   end
@@ -2169,28 +2187,91 @@ defmodule Aiur.DecisionStore do
         state
 
       true ->
-        Process.send_after(self(), {:reconcile_queue_action, decision.decision_id}, 0)
+        schedule_dispatch_work(state, {:reconcile_queue_action, dispatch_fence(decision)}, 0)
         state
     end
   end
 
-  defp schedule_dispatch(decision, retry_failed?, delay_ms) do
-    Process.send_after(self(), {:dispatch_action, decision.decision_id, retry_failed?}, delay_ms)
+  defp schedule_dispatch(state, decision, retry_failed?, delay_ms) do
+    schedule_dispatch_work(state, {:dispatch_action, dispatch_fence(decision), retry_failed?}, delay_ms)
   end
 
-  defp maybe_reconcile_lifecycle_append(state, decision_id, action_id) do
+  defp schedule_dispatch_work(state, message, delay_ms) do
+    state.dispatch_scheduler.(self(), message, delay_ms)
+  end
+
+  defp dispatch_fences(state) do
+    Enum.map(state.current, fn {_decision_id, decision} -> dispatch_fence(decision) end)
+  end
+
+  defp dispatch_fence(decision) do
+    %{
+      decision_id: decision.decision_id,
+      request_version: decision.version,
+      lifecycle: dispatch_lifecycle(decision)
+    }
+  end
+
+  defp dispatch_lifecycle(decision) do
+    {
+      dispatch_answer_identity(decision),
+      decision.active_action_id,
+      decision.revision_sequence,
+      decision.revision_result,
+      decision.decision_status,
+      decision.delivery_status,
+      dispatch_attempt_identity(decision)
+    }
+  end
+
+  defp dispatch_attempt_identity(decision) do
+    case List.last(Decision.active_dispatch_attempts(decision)) do
+      nil ->
+        nil
+
+      attempt ->
+        {
+          attempt.action_id,
+          attempt.attempt_id,
+          attempt.queue_item_id,
+          attempt.run_id,
+          attempt.status,
+          attempt.failure_reason_class
+        }
+    end
+  end
+
+  defp dispatch_answer_identity(decision) do
+    case Decision.active_answer(decision) do
+      nil -> nil
+      answer -> {answer.action_id, answer.decision_version, answer.content_hash}
+    end
+  end
+
+  defp dispatch_fence_current?(fence, decision, mode) do
+    lifecycle_current? =
+      fence.decision_id == decision.decision_id and
+        fence.lifecycle == dispatch_lifecycle(decision)
+
+    lifecycle_current? and
+      (mode != :reconcile_queue or fence.request_version == decision.version)
+  end
+
+  defp maybe_reconcile_lifecycle_append(state, %{decision_id: decision_id} = fence, action_id) do
     with {:ok, decision} <- fetch_decision(state, decision_id),
+         true <- dispatch_fence_current?(fence, decision, :recover_append),
          %DecisionAnswer{action_id: ^action_id} <- Decision.active_answer(decision),
          true <- lifecycle_append_failed?(state, action_id) do
-      maybe_start_dispatch(state, decision_id, true, :recover_append)
+      maybe_start_dispatch(state, fence, true, :recover_append)
     else
       _other -> state
     end
   end
 
-  defp maybe_start_dispatch(state, decision_id, retry_failed?, mode \\ :normal) do
+  defp maybe_start_dispatch(state, %{decision_id: decision_id} = fence, retry_failed?, mode \\ :normal) do
     with true <- state.writable?,
          {:ok, decision} <- fetch_decision(state, decision_id),
+         true <- dispatch_fence_current?(fence, decision, mode),
          %DecisionAnswer{} = answer <- Decision.active_answer(decision),
          false <- MapSet.member?(state.dispatching_decisions, decision_id),
          false <- MapSet.member?(state.dispatching, answer.action_id),
@@ -2520,7 +2601,7 @@ defmodule Aiur.DecisionStore do
 
     case Enum.at(state.retry_delays_ms, retry_count) do
       delay when is_integer(delay) and delay >= 0 ->
-        schedule_append_reconciliation(decision, action_id, delay)
+        schedule_append_reconciliation(state, decision, action_id, delay)
         next_state
 
       _other ->
@@ -2554,8 +2635,8 @@ defmodule Aiur.DecisionStore do
     end
   end
 
-  defp schedule_append_reconciliation(decision, action_id, delay_ms) do
-    Process.send_after(self(), {:reconcile_lifecycle_append, decision.decision_id, action_id}, delay_ms)
+  defp schedule_append_reconciliation(state, decision, action_id, delay_ms) do
+    schedule_dispatch_work(state, {:reconcile_lifecycle_append, dispatch_fence(decision), action_id}, delay_ms)
   end
 
   defp lifecycle_append_failure_topic(decision, action_id) do
@@ -2582,7 +2663,7 @@ defmodule Aiur.DecisionStore do
 
     case Enum.at(state.retry_delays_ms, retry_count) do
       delay when is_integer(delay) and delay >= 0 ->
-        schedule_dispatch(decision, false, delay)
+        schedule_dispatch(state, decision, false, delay)
         next_state
 
       _other ->
