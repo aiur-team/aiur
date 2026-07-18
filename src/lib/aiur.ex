@@ -166,6 +166,12 @@ defmodule Aiur.Application do
       Aiur.ProviderAccountGeneration,
       Aiur.ProviderMeters.Store,
       Aiur.UsageLedger,
+      # Owns the one destructive storage seam: retention/compaction of retired
+      # raw usage. Starts after the raw ledger it reads but before the aggregate,
+      # so its boot reconciliation resolves any in-flight destructive phase into
+      # a consistent ledger + compacted-floor state before the aggregate rebuilds
+      # over it.
+      Aiur.UsageCompaction.Coordinator,
       Aiur.UsageAggregate.Store,
       Aiur.DecisionStore,
       {Aiur.DecisionMetrics.Writer, path: Aiur.DecisionMetrics.metrics_file()},

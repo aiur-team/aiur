@@ -136,7 +136,7 @@ defmodule Aiur.UsageCompaction.Manifest do
       "schema" => @schema,
       "version" => @version,
       "retired_through" => manifest.retired_through,
-      "policy" => manifest.policy,
+      "policy" => encode_policy(manifest.policy),
       "blocks" => Enum.map(manifest.blocks, &encode_block/1),
       "pending" => encode_pending(manifest.pending)
     }
@@ -210,6 +210,16 @@ defmodule Aiur.UsageCompaction.Manifest do
   end
 
   def from_record(_record), do: {:error, :invalid_manifest}
+
+  # The policy is a reporting-only breadcrumb; normalize it to JSON-native types
+  # so the checksummed payload is identical before and after a JSON round-trip.
+  defp encode_policy(policy) when is_map(policy) do
+    Map.new(policy, fn {key, value} -> {to_string(key), encode_policy_value(value)} end)
+  end
+
+  defp encode_policy_value(value) when is_integer(value) or is_binary(value) or is_nil(value) or is_boolean(value), do: value
+  defp encode_policy_value(value) when is_atom(value), do: Atom.to_string(value)
+  defp encode_policy_value(value), do: inspect(value)
 
   defp encode_block(block) do
     %{
