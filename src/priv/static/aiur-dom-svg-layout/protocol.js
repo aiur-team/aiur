@@ -1,4 +1,10 @@
 export const MAX_DIMENSION = 4_096
+// Absolute layout positions and canvas extents grow with graph depth/breadth,
+// so they are bounded independently of a single node's width/height. This
+// mirrors the coordinate bound the layout client accepts (worker MAX_COORDINATE
+// 65_535 plus the worker's `raw + 1` emit offset); MAX_DIMENSION stays reserved
+// for genuine single-node dimensions (measuredDimension).
+export const MAX_COORDINATE = 65_536
 export const MAX_CONTEXT_DIMENSION = 1_000_000
 export const MAX_NODES = 100
 export const MAX_EDGES = 1_000
@@ -154,9 +160,9 @@ function validPoint(point) {
 }
 
 function validCoordinate(value) {
-  return Number.isFinite(value) && value >= 1 && value <= MAX_DIMENSION
+  return Number.isFinite(value) && value >= 1 && value <= MAX_COORDINATE
 }
 
 function validExtent(origin, dimension) {
-  return Number.isFinite(dimension) && dimension >= 1 && origin + dimension <= MAX_DIMENSION
+  return Number.isFinite(dimension) && dimension >= 1 && origin + dimension <= MAX_COORDINATE
 }

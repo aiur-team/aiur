@@ -244,7 +244,7 @@ test('adapter validation rejects stale and malformed geometry before it can rend
       const extentRequest = { ...request, nodes: [{ id: 'node_0', width: 4096, height: 40 }] }
       const extentOverflow = {
         ...valid,
-        nodes: [{ id: 'node_0', x: 4096, y: 30, width: 4096, height: 40 }]
+        nodes: [{ id: 'node_0', x: 65_536, y: 30, width: 4096, height: 40 }]
       }
       const root = document.querySelector('#fixture-build-order-graph')
       root.querySelector('[data-layout-card-header]').remove()
@@ -280,6 +280,99 @@ test('adapter validation rejects stale and malformed geometry before it can rend
       viewportMismatch: false,
       measurementInvalid: true
     })
+  } finally {
+    await context.close()
+  }
+})
+
+// Regression for #1270: the real Build Order graph (#1084 — 54 nodes, 106
+// edges, 8 phase partitions) lays out to a canvas thousands of pixels wide, so
+// the worker/client protocol now emits node and edge-point coordinates in the
+// 5,000-15,000 range. Protocol-level validation independently bounded EVERY
+// absolute coordinate (validCoordinate) and node extent (validExtent) against
+// MAX_DIMENSION (4096) — a value meant only for a single card's width/height —
+// so validateLayoutResult rejected the geometry and the adapter fell back to
+// document flow with `malformed_geometry` (zero edges). The prior worker/client
+// fix never exercised this validateLayoutResult/geometryBounds layer, which is
+// why the fallback survived. This drives a large-coordinate result directly
+// through the protocol validators and asserts acceptance (plus a canvas beyond
+// the old bound), while confirming the raised guard still rejects coordinates
+// past the coordinate-space cap.
+test('protocol validation accepts real #1084-scale coordinates and still guards the coordinate-space cap', async ({ browser }) => {
+  const context = await browser.newContext({ httpCredentials: dashboardCredentials })
+  const page = await context.newPage()
+
+  try {
+    await openFixture(page)
+
+    const result = await page.evaluate(async () => {
+      const { validateLayoutResult, geometryBounds, MAX_COORDINATE } = await import('/aiur-dom-svg-layout/protocol.js')
+
+      const NODE_COUNT = 54
+      const CARD_W = 260
+      const CARD_H = 150
+      // Nodes fan out across a canvas that is several thousand px wide/tall,
+      // mirroring #1084's layered geometry — every coordinate is far past the
+      // old 4096 bound but well inside the raised coordinate-space cap.
+      const requestNodes = Array.from({ length: NODE_COUNT }, (_, index) => ({ id: `node_${index}`, width: CARD_W, height: CARD_H }))
+      const responseNodes = requestNodes.map((node, index) => ({
+        ...node,
+        x: 400 + (index % 9) * 1_600,
+        y: 400 + Math.floor(index / 9) * 900
+      }))
+      const requestEdges = []
+      const responseEdges = []
+      for (let index = 1; index < NODE_COUNT; index += 1) {
+        requestEdges.push({ id: `edge_${requestEdges.length}`, source: `node_${index - 1}`, target: `node_${index}` })
+        const source = responseNodes[index - 1]
+        const target = responseNodes[index]
+        responseEdges.push({
+          id: `edge_${responseEdges.length}`,
+          sections: [{
+            startPoint: { x: source.x + CARD_W, y: source.y + CARD_H / 2 },
+            bendPoints: [{ x: target.x - 20, y: source.y + CARD_H / 2 }],
+            endPoint: { x: target.x, y: target.y + CARD_H / 2 }
+          }]
+        })
+      }
+
+      const request = { requestId: `request_30_${NODE_COUNT}`, generation: 30, nodes: requestNodes, edges: requestEdges }
+      const response = { type: 'result', version: 1, requestId: request.requestId, generation: 30, nodes: responseNodes, edges: responseEdges }
+
+      const maxCoordinate = Math.max(
+        ...responseNodes.flatMap((node) => [node.x, node.y]),
+        ...responseEdges.flatMap((edge) => edge.sections.flatMap((section) => [section.startPoint, ...section.bendPoints, section.endPoint].flatMap((point) => [point.x, point.y])))
+      )
+
+      const overCap = {
+        ...response,
+        nodes: [{ ...responseNodes[0], x: MAX_COORDINATE + 1 }, ...responseNodes.slice(1)]
+      }
+      const bounds = geometryBounds(response)
+
+      return {
+        accepted: validateLayoutResult(response, request),
+        rejectedBeyondCap: validateLayoutResult(overCap, request),
+        maxCoordinate,
+        boundsWidth: bounds?.width ?? null,
+        boundsHeight: bounds?.height ?? null,
+        maxCoordinateConstant: MAX_COORDINATE
+      }
+    })
+
+    // The #1084-scale geometry genuinely exceeds the former 4096 bound, so this
+    // pins the regression rather than re-testing an already-bounded graph.
+    expect(result.maxCoordinate).toBeGreaterThan(4_096)
+    // Validation accepts it (adapter reaches is-layout-ready, edges render)
+    // instead of collapsing to the `malformed_geometry` fallback.
+    expect(result.accepted).toBe(true)
+    // geometryBounds returns a real canvas larger than the old bound.
+    expect(result.boundsWidth).toBeGreaterThan(4_096)
+    expect(result.boundsHeight).toBeGreaterThan(0)
+    // The bound is still a genuine guard: coordinates past the coordinate-space
+    // cap are rejected, they are only sized for the real dataset now.
+    expect(result.rejectedBeyondCap).toBe(false)
+    expect(result.maxCoordinateConstant).toBe(65_536)
   } finally {
     await context.close()
   }
