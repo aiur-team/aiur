@@ -3177,6 +3177,217 @@ defmodule AiurWeb.DashboardLiveTest do
     refute html =~ ~r/Open Commands<\/dt><dd>None open<\/dd>/
   end
 
+  describe "runtime capacity control" do
+    alias Aiur.Orchestrator.Slots
+
+    test "renders authoritative capacity facts from the Slots contract" do
+      name = Module.concat(__MODULE__, :CapacityFactsOrchestrator)
+      start_capacity_orchestrator(name, 3)
+
+      {_view, html} = mount_capacity_dashboard(name)
+
+      assert html =~ "Agent capacity"
+      assert html =~ ~s(<span class="capacity-current num" aria-hidden="true">3</span>)
+      assert html =~ ~s(<dd class="num">0</dd>)
+      assert html =~ "Session override"
+      assert html =~ "Steady"
+      # Focus target for status announcements is stable across updates.
+      assert html =~ ~s(id="capacity-title" tabindex="-1")
+    end
+
+    test "increment raises the maximum through Slots and reconciles from the returned status" do
+      name = Module.concat(__MODULE__, :CapacityIncrementOrchestrator)
+      start_capacity_orchestrator(name, 3)
+
+      {view, _html} = mount_capacity_dashboard(name)
+      html = view |> element("#capacity-increment") |> render_click()
+
+      assert html =~ "Maximum agent capacity is now 4."
+      # The applied value is the authoritative Slots value, not a browser guess.
+      assert Slots.max_concurrent_agents(name).max == 4
+    end
+
+    test "decrement lowers the maximum and disables further decrement at the minimum of one" do
+      name = Module.concat(__MODULE__, :CapacityDecrementOrchestrator)
+      start_capacity_orchestrator(name, 2)
+
+      {view, _html} = mount_capacity_dashboard(name)
+      html = view |> element("#capacity-decrement") |> render_click()
+
+      assert html =~ "Maximum agent capacity is now 1."
+      assert Slots.max_concurrent_agents(name).max == 1
+      assert html =~ ~r/id="capacity-decrement".*?disabled/s
+    end
+
+    test "set applies a validated absolute value from Slots" do
+      name = Module.concat(__MODULE__, :CapacitySetOrchestrator)
+      start_capacity_orchestrator(name, 3)
+
+      {view, _html} = mount_capacity_dashboard(name)
+      html = render_submit(view, "capacity-set", %{"max" => "7"})
+
+      assert html =~ "Maximum agent capacity is now 7."
+      assert Slots.max_concurrent_agents(name).max == 7
+    end
+
+    test "set to the current maximum reports a no-op rather than a fresh apply" do
+      name = Module.concat(__MODULE__, :CapacityNoopOrchestrator)
+      start_capacity_orchestrator(name, 4)
+
+      {view, _html} = mount_capacity_dashboard(name)
+      html = render_submit(view, "capacity-set", %{"max" => "4"})
+
+      assert html =~ "Maximum agent capacity is unchanged at 4."
+    end
+
+    test "rejects non-positive or non-numeric input without calling Slots" do
+      name = Module.concat(__MODULE__, :CapacityInvalidOrchestrator)
+      start_capacity_orchestrator(name, 3)
+
+      {view, _html} = mount_capacity_dashboard(name)
+
+      for value <- ["0", "-2", "abc", "3.5", ""] do
+        html = render_submit(view, "capacity-set", %{"max" => value})
+        assert html =~ "Enter a whole number of 1 or more."
+        assert Slots.max_concurrent_agents(name).max == 3
+      end
+    end
+
+    test "reconciles from the returned authoritative value when a concurrent change wins" do
+      name = Module.concat(__MODULE__, :CapacityConcurrentOrchestrator)
+      start_capacity_orchestrator(name, 3)
+
+      {view, _html} =
+        mount_capacity_dashboard(name, capacity_set_fun: fn _next -> {:ok, %{max: 9}} end)
+
+      html = render_submit(view, "capacity-set", %{"max" => "4"})
+
+      assert html =~ "Maximum agent capacity is now 9."
+      refute html =~ "now 4."
+    end
+
+    test "surfaces the authoritative draining state after lowering capacity" do
+      name = Module.concat(__MODULE__, :CapacityDrainingOrchestrator)
+      start_capacity_orchestrator(name, 5)
+
+      {view, _html} =
+        mount_capacity_dashboard(name,
+          capacity_set_fun: fn _next -> {:ok, %{max: 2, draining?: true}} end
+        )
+
+      html = render_submit(view, "capacity-set", %{"max" => "2"})
+
+      assert html =~ "Maximum agent capacity is now 2."
+      assert html =~ "Extra agents keep running and drain as they finish."
+    end
+
+    test "reports a timeout as stale without claiming the requested value applied" do
+      name = Module.concat(__MODULE__, :CapacityTimeoutOrchestrator)
+      start_capacity_orchestrator(name, 3)
+
+      {view, _html} =
+        mount_capacity_dashboard(name, capacity_adjust_fun: fn _delta -> {:error, :timeout} end)
+
+      html = view |> element("#capacity-increment") |> render_click()
+
+      assert html =~ "The capacity service did not respond in time."
+      refute html =~ "Maximum agent capacity is now"
+    end
+
+    test "reports an unavailable capacity service" do
+      name = Module.concat(__MODULE__, :CapacityUnavailableOrchestrator)
+      start_capacity_orchestrator(name, 3)
+
+      {view, _html} =
+        mount_capacity_dashboard(name, capacity_set_fun: fn _next -> {:error, :unavailable} end)
+
+      html = render_submit(view, "capacity-set", %{"max" => "5"})
+
+      assert html =~ "Capacity control is unavailable right now."
+      refute html =~ "Maximum agent capacity is now"
+    end
+
+    test "read-only dashboard exposes no usable mutation control" do
+      name = Module.concat(__MODULE__, :CapacityReadOnlyOrchestrator)
+      start_capacity_orchestrator(name, 3)
+
+      {_view, html} = mount_capacity_dashboard(name, dashboard_writable: false)
+
+      refute html =~ ~s(phx-click="capacity-increment")
+      refute html =~ ~s(id="capacity-max-input")
+      assert html =~ "Read-only dashboard. Agent capacity is displayed but cannot be changed here."
+    end
+
+    test "re-checks writable mode on every activation and rejects a revoked write" do
+      name = Module.concat(__MODULE__, :CapacityRevokedOrchestrator)
+      start_capacity_orchestrator(name, 3)
+
+      {view, html} = mount_capacity_dashboard(name)
+      assert html =~ ~s(phx-click="capacity-increment")
+
+      config = Application.fetch_env!(:aiur, AiurWeb.Endpoint)
+      revoked = Keyword.put(config, :dashboard_writable, false)
+      Application.put_env(:aiur, AiurWeb.Endpoint, revoked)
+      :ok = AiurWeb.Endpoint.config_change([{AiurWeb.Endpoint, revoked}], [])
+
+      html = view |> element("#capacity-increment") |> render_click()
+
+      refute html =~ ~s(phx-click="capacity-increment")
+      assert Slots.max_concurrent_agents(name).max == 3
+    end
+
+    test "guards double activation with a pending-disable hook" do
+      name = Module.concat(__MODULE__, :CapacityPendingOrchestrator)
+      start_capacity_orchestrator(name, 3)
+
+      {_view, html} = mount_capacity_dashboard(name)
+
+      assert html =~ ~s(phx-disable-with="Applying…")
+    end
+
+    test "preserves the typed absolute value across a re-render" do
+      name = Module.concat(__MODULE__, :CapacityFocusOrchestrator)
+      start_capacity_orchestrator(name, 3)
+
+      {view, _html} = mount_capacity_dashboard(name)
+      html = render_change(view, "capacity-input-change", %{"max" => "42"})
+
+      assert html =~ ~s(value="42")
+    end
+  end
+
+  defp start_capacity_orchestrator(name, max) do
+    {:ok, pid} = Orchestrator.start_link(name: name)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    # A serialized control call both forces init to complete before the mount
+    # snapshot and establishes a known authoritative maximum via the real Slots
+    # contract (as a session override).
+    {:ok, %{max: ^max}} = Aiur.Orchestrator.Slots.set_max_concurrent_agents(name, max)
+
+    name
+  end
+
+  defp mount_capacity_dashboard(orchestrator_name, overrides \\ []) do
+    start_test_endpoint(
+      Keyword.merge(
+        [
+          orchestrator: orchestrator_name,
+          snapshot_timeout_ms: 5_000,
+          control_center_cache: false,
+          dashboard_writable: true
+        ],
+        overrides
+      )
+    )
+
+    {:ok, view, html} = live(build_conn(), "/")
+    {view, html}
+  end
+
   defp units_identity(overrides \\ []) do
     struct!(
       TrackerIdentity,

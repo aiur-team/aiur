@@ -129,6 +129,7 @@ defmodule Aiur.Orchestrator.StatusReport do
        retrying: retrying,
        idle: idle,
        agent_totals: state.agent_totals,
+       capacity: Slots.max_concurrent_agent_status(state),
        rate_limits: Map.get(state, :agent_rate_limits),
        polling: %{
          checking?: state.poll_check_in_progress == true,
