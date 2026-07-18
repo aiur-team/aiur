@@ -1,6 +1,7 @@
 defmodule AiurWeb.OperatorControlCenter.UnitsRow.Projection do
   @moduledoc false
 
+  alias Aiur.LiveConversation.Source, as: LiveConversationSource
   alias Aiur.TrackerIdentity
   alias AiurWeb.OperatorControlCenter.UnitsRow.{Fields, Sources, URL, Value}
 
@@ -56,6 +57,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Projection do
       open_command_count: open_command_count,
       progress: Fields.activity_value(activity_row, :progress),
       latest_evidence: Fields.activity_value(activity_row, :latest_evidence),
+      live_conversation: live_conversation(status_row),
       provider_health: Sources.health(sources),
       field_sources:
         field_sources(
@@ -70,6 +72,37 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Projection do
 
   defp lifecycle(_member, true), do: {:waiting, :status_report}
   defp lifecycle(member, false), do: {Map.get(member, :lifecycle), :membership}
+
+  defp live_conversation(%{} = status_row) do
+    case Map.get(status_row, :live_conversation) do
+      %{generation_handle: handle} = conversation
+      when is_binary(handle) ->
+        if LiveConversationSource.valid_handle?(handle) do
+          public_live_conversation(conversation)
+        end
+
+      %{generation_handle: nil, state: state, health: health} = conversation
+      when state in [:unavailable, :restart_unknown] and
+             health in [:unavailable, :unknown] ->
+        public_live_conversation(conversation)
+
+      _conversation ->
+        nil
+    end
+  end
+
+  defp live_conversation(_status_row), do: nil
+
+  defp public_live_conversation(conversation) do
+    Map.take(conversation, [
+      :generation_handle,
+      :state,
+      :health,
+      :freshness,
+      :observed_at,
+      :reason
+    ])
+  end
 
   defp timestamps(member, status_row) do
     %{

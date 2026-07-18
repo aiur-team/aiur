@@ -323,6 +323,75 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRowTest do
     assert is_nil(row.url)
   end
 
+  test "projects opaque live-conversation handles and handleless degraded health" do
+    live_ticket = identity("acme", "alpha", "NODE-live-conversation", "19")
+    unavailable_ticket = identity("acme", "alpha", "NODE-unavailable-conversation", "20")
+    handle = "conversation:" <> String.duplicate("A", 43)
+    observed_at = ~U[2026-07-15 10:02:00Z]
+
+    snapshot =
+      UnitsRow.snapshot(%{
+        membership: membership([member(live_ticket), member(unavailable_ticket)]),
+        status: %{
+          running: [
+            status(live_ticket,
+              live_conversation: %{
+                generation_handle: handle,
+                state: :live,
+                health: :healthy,
+                freshness: :current,
+                observed_at: observed_at,
+                private_field: "/private/provider/session"
+              }
+            ),
+            status(unavailable_ticket,
+              live_conversation: %{
+                generation_handle: nil,
+                state: :unavailable,
+                health: :unavailable,
+                freshness: :unknown,
+                observed_at: observed_at,
+                reason: :missing_attempt_id
+              }
+            )
+          ],
+          retrying: [],
+          idle: []
+        },
+        activity: %{entries: []},
+        decisions: %{entries: []},
+        issue_facts: %{
+          entries: [
+            facts(live_ticket, "Live", "https://github.com/acme/alpha/issues/19"),
+            facts(unavailable_ticket, "Unavailable", "https://github.com/acme/alpha/issues/20")
+          ]
+        }
+      })
+
+    assert {:ok, live_row} = UnitsRow.lookup(snapshot, live_ticket)
+
+    assert live_row.live_conversation == %{
+             generation_handle: handle,
+             state: :live,
+             health: :healthy,
+             freshness: :current,
+             observed_at: observed_at
+           }
+
+    refute inspect(live_row.live_conversation) =~ "private/provider"
+
+    assert {:ok, unavailable_row} = UnitsRow.lookup(snapshot, unavailable_ticket)
+
+    assert unavailable_row.live_conversation == %{
+             generation_handle: nil,
+             state: :unavailable,
+             health: :unavailable,
+             freshness: :unknown,
+             observed_at: observed_at,
+             reason: :missing_attempt_id
+           }
+  end
+
   defp identity(owner, repository, provider_id, identifier) do
     %TrackerIdentity{
       status: :joinable,
@@ -367,6 +436,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRowTest do
       tracker_paused: Keyword.get(attrs, :tracker_paused, false),
       open_decision_count: Keyword.get(attrs, :open_decision_count, 0),
       open_decision_count_health: Keyword.get(attrs, :open_decision_count_health, :available),
+      live_conversation: Keyword.get(attrs, :live_conversation),
       workspace_path: Keyword.get(attrs, :workspace_path),
       runtime_seconds: 15
     }

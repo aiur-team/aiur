@@ -514,6 +514,7 @@ defmodule Aiur.ExtensionsTest do
                  "tracker_paused" => false,
                  "last_event" => "notification",
                  "last_message" => "rendered",
+                 "live_conversation" => nil,
                  "queue_depth" => 1,
                  "capabilities" => %{
                    "accepts_operator_messages" => true,
@@ -588,6 +589,7 @@ defmodule Aiur.ExtensionsTest do
                "started_at" => issue_payload["running"]["started_at"],
                "last_event" => "notification",
                "last_message" => "rendered",
+               "live_conversation" => nil,
                "last_event_at" => nil,
                "stale_for_seconds" => nil,
                "waiting_reason" => "active",

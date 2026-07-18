@@ -177,6 +177,9 @@ defmodule Aiur.Application do
       Aiur.OperatorWaitLog,
       Aiur.Orchestrator.TrackedSet,
       Aiur.CurrentRunMembership.Store,
+      # LiveConversation is projection-only: it never replays workspace logs
+      # after restart, so a missing key truthfully reports :restart_unknown.
+      Aiur.LiveConversation,
       Aiur.TicketActivity,
       # Claude telemetry owns an independent loopback listener and must be
       # available before the Orchestrator starts owned Claude workers.

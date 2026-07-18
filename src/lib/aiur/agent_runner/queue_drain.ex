@@ -16,7 +16,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
   require Logger
 
   alias Aiur.{AgentPubSub, Alerts, DecisionStore, Issue, PauseContainment}
-  alias Aiur.AgentRunner.{CheckpointDelivery, EventsDigest, MessageHandler, SessionLifecycle}
+  alias Aiur.AgentRunner.{EventsDigest, MessageHandler, SessionLifecycle, TurnCallbacks}
   alias Aiur.AgentRunner.{ToolExecutor, TurnAlerts, TurnLoop, TurnStreams}
   alias Aiur.Codex.DynamicTool
   alias Aiur.CodingAgent
@@ -580,17 +580,19 @@ defmodule Aiur.AgentRunner.QueueDrain do
 
     backend = SessionLifecycle.session_backend(app_session)
 
-    message_handler =
-      MessageHandler.build(
-        codex_update_recipient,
+    callbacks =
+      TurnCallbacks.build(
+        app_session,
         issue,
-        workspace,
-        worker_host,
-        backend,
-        turn_id
+        opts
+        |> Keyword.put(:workspace, workspace)
+        |> Keyword.put(:worker_host, worker_host)
+        |> Keyword.put(:recipient, codex_update_recipient)
+        |> Keyword.put(:orchestrator, orchestrator)
+        |> Keyword.put(:turn_id, turn_id)
       )
 
-    safe_checkpoint_handler = CheckpointDelivery.safe_checkpoint_handler(issue, orchestrator)
+    message_handler = callbacks.on_message
 
     MessageHandler.send_control_state(codex_update_recipient, issue, :working)
     aiur_turn_id = TurnStreams.open(issue)
@@ -603,8 +605,8 @@ defmodule Aiur.AgentRunner.QueueDrain do
         text,
         issue,
         on_message: message_handler,
-        on_safe_checkpoint: safe_checkpoint_handler,
-        on_operator_message: CheckpointDelivery.operator_immediate_handler(issue, orchestrator),
+        on_safe_checkpoint: callbacks.on_safe_checkpoint,
+        on_operator_message: callbacks.on_operator_message,
         on_provider_delivery: provider_delivery_callback(orchestrator, item, issue),
         tool_executor:
           ToolExecutor.build(
@@ -620,6 +622,13 @@ defmodule Aiur.AgentRunner.QueueDrain do
 
     case result do
       {:ok, _turn_session} ->
+        maybe_observe_accepted_operator_delivery(
+          issue,
+          item,
+          backend,
+          callbacks.live_opts
+        )
+
         :ok = Aiur.Orchestrator.consume_delivered_queue_items(orchestrator, issue.identifier)
 
         if is_binary(turn_id) do
@@ -683,6 +692,22 @@ defmodule Aiur.AgentRunner.QueueDrain do
 
         error
     end
+  end
+
+  defp maybe_observe_accepted_operator_delivery(
+         issue,
+         %{category: :operator_message} = item,
+         backend,
+         opts
+       ) do
+    opts = Keyword.put(opts, :occurred_at, operator_delivery_occurred_at(item))
+    MessageHandler.observe_operator_delivery(issue, item, backend, opts)
+  end
+
+  defp maybe_observe_accepted_operator_delivery(_issue, _item, _backend, _opts), do: :ok
+
+  defp operator_delivery_occurred_at(item) do
+    Enum.find([Map.get(item, :delivered_at), Map.get(item, :inserted_at)], &is_struct(&1, DateTime))
   end
 
   defp queue_item_turn_id(%{turn_id: turn_id}) when is_binary(turn_id), do: turn_id

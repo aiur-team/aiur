@@ -48,7 +48,8 @@ defmodule AiurWeb.PresenterTest do
 
   test "projects explicit waiting reasons, staleness, CI/PR, and idle rows" do
     orchestrator_name = Module.concat(__MODULE__, :FleetOrchestrator)
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
+    conversation_handle = "conversation:" <> String.duplicate("B", 43)
 
     on_exit(fn ->
       if Process.alive?(pid), do: Process.exit(pid, :normal)
@@ -61,7 +62,14 @@ defmodule AiurWeb.PresenterTest do
       |> Map.merge(%{
         agent_input_tokens: 910_011,
         agent_output_tokens: 910_012,
-        agent_total_tokens: 910_023
+        agent_total_tokens: 910_023,
+        live_conversation: %{
+          generation_handle: conversation_handle,
+          state: :known_empty,
+          health: :healthy,
+          freshness: :current,
+          observed_at: ~U[2026-07-15 10:02:00Z]
+        }
       })
       |> put_in([:issue, Access.key(:selected_backend)], "codex")
       |> put_in(
@@ -153,9 +161,18 @@ defmodule AiurWeb.PresenterTest do
     assert running_row.complexity == 3
     assert "build-lane:dashboard-ui" in running_row.labels
 
+    assert running_row.live_conversation == %{
+             generation_handle: conversation_handle,
+             state: :known_empty,
+             health: :healthy,
+             freshness: :current,
+             observed_at: ~U[2026-07-15 10:02:00Z]
+           }
+
     assert {:ok, issue_payload} = Presenter.issue_payload("MT-700", orchestrator_name, 5_000)
     refute Map.has_key?(issue_payload.running, :tokens)
     assert issue_payload.running.waiting_reason == :waiting_for_ci
+    assert issue_payload.running.live_conversation.generation_handle == conversation_handle
 
     assert [retry_row] = payload.retrying
     assert retry_row.state == "rework"
