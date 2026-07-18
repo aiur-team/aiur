@@ -486,7 +486,7 @@ textarea:focus-visible,
 
 .bo-layout-card-provenance {
   margin-top: 0.7rem !important;
-  color: var(--faint) !important;
+  color: var(--muted) !important;
 }
 
 .bo-layout-card-warnings,
@@ -2359,6 +2359,7 @@ textarea:focus-visible,
 }
 
 .ticket-context-panel {
+  grid-template-rows: none;
   width: min(920px, 100%);
   max-height: calc(100dvh - 2rem);
   overflow: auto;

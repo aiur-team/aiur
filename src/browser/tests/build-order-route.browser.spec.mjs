@@ -3,6 +3,8 @@ import { expect, test } from '@playwright/test'
 import { assertNoDocumentOverflow } from './support/browser-helpers.mjs'
 import { dashboardCredentials } from './support/layout-worker.mjs'
 
+const layoutClientPath = /^\/vendor\/layout\/client-v1\/[a-f0-9]{64}\/aiur-layout-client\.js$/
+
 async function openCatalog(page) {
   const stylesheet = page.waitForResponse((response) => new URL(response.url()).pathname === '/dashboard.css')
   await page.goto('/build-orders')
@@ -16,6 +18,37 @@ async function openCatalogEntry(page, title) {
   const entry = page.locator('.bo-catalog-entry', { hasText: title })
   await entry.getByRole('link', { name: 'Open graph' }).click()
 }
+
+async function interceptProductionLayoutClient(context, source) {
+  const requests = []
+
+  await context.route('**/vendor/layout/client-v1/*/aiur-layout-client.js', async (route) => {
+    const pathname = new URL(route.request().url()).pathname
+
+    if (!layoutClientPath.test(pathname)) return route.continue()
+
+    requests.push(pathname)
+    await route.fulfill({ status: 200, contentType: 'application/javascript', body: source })
+  })
+
+  return requests
+}
+
+test('production dependency context relationships remain clickable', async ({ page }) => {
+  await page.context().setHTTPCredentials(dashboardCredentials)
+  await openCatalog(page)
+  await openCatalogEntry(page, 'Release dashboard')
+
+  const graph = page.locator('#selected-build-order-graph')
+  const target = graph.locator('.bo-layout-card', { hasText: 'Readiness target' })
+  await target.getByRole('button', { name: /Open cached context/ }).click()
+
+  const dialog = page.getByRole('dialog', { name: 'Readiness target' })
+  const dependency = dialog.getByRole('button', { name: 'Completed dependency' })
+  await expect(dependency).toBeVisible()
+  await dependency.click()
+  await expect(page.getByRole('dialog', { name: 'Completed dependency' })).toBeVisible()
+})
 
 test('production Build Order route keeps catalog, graph truth, context, and URL history scoped', async ({ browser }) => {
   const context = await browser.newContext({
@@ -111,24 +144,28 @@ test('production Build Order route keeps catalog, graph truth, context, and URL 
 
 test('production route preserves semantic fallback when layout work fails', async ({ browser }) => {
   const context = await browser.newContext({ httpCredentials: dashboardCredentials })
-  await context.addInitScript(() => {
-    window.__aiurBrowserLayoutClientFactory = () => ({
-      dispose() {},
-      layout(request) {
-        return Promise.resolve({
-          type: 'error',
-          version: 1,
-          requestId: request.requestId,
-          generation: request.generation,
-          error: { code: 'forced_route_fallback', message: 'Forced production-route fallback.' }
-        })
+  const clientModules = await interceptProductionLayoutClient(context, `
+    export function createLayoutWorkerClient() {
+      return {
+        dispose() {},
+        layout(request) {
+          return Promise.resolve({
+            type: 'error',
+            version: 1,
+            requestId: request.requestId,
+            generation: request.generation,
+            error: { code: 'forced_route_fallback', message: 'Forced production-route fallback.' }
+          })
+        }
       }
-    })
-  })
+    }
+  `)
   const page = await context.newPage()
 
   try {
     await page.goto('/build-orders/42')
+    await expect.poll(() => clientModules.length).toBe(1)
+    expect(clientModules[0]).toMatch(layoutClientPath)
     const graph = page.locator('#selected-build-order-graph')
     await expect(graph).toHaveAttribute('data-layout-health', 'fallback')
     await expect(graph).toHaveAttribute('data-layout-failure', 'forced_route_fallback')
@@ -145,50 +182,68 @@ test('production route rejects old-root layout completion after live navigation'
   await context.addInitScript(() => {
     window.__aiurRouteLayoutRequests = []
     window.__aiurRouteLayoutResolvers = []
-    window.__aiurBrowserLayoutClientFactory = () => ({
-      dispose() {},
-      layout(request) {
-        window.__aiurRouteLayoutRequests.push(request)
-        return new Promise((resolve) => window.__aiurRouteLayoutResolvers.push(() => resolve({
-          type: 'result',
-          version: 1,
-          requestId: request.requestId,
-          generation: request.generation,
-          nodes: request.nodes.map((node, index) => ({
-            ...node,
-            x: (index % 4) * 220 + 1,
-            y: Math.floor(index / 4) * 160 + 1
-          })),
-          edges: request.edges.map((edge, index) => ({
-            id: edge.id,
-            sections: [{
-              startPoint: { x: index * 2 + 1, y: 1 },
-              bendPoints: [],
-              endPoint: { x: index * 2 + 2, y: 2 }
-            }]
-          }))
-        })))
-      }
-    })
   })
+  const clientModules = await interceptProductionLayoutClient(context, `
+    export function createLayoutWorkerClient() {
+      return {
+        dispose() {},
+        layout(request) {
+          globalThis.__aiurRouteLayoutRequests.push(request)
+          return new Promise((resolve) => globalThis.__aiurRouteLayoutResolvers.push(() => resolve({
+            type: 'result',
+            version: 1,
+            requestId: request.requestId,
+            generation: request.generation,
+            nodes: request.nodes.map((node, index) => ({
+              ...node,
+              x: (index % 4) * 220 + 1,
+              y: Math.floor(index / 4) * 160 + 1
+            })),
+            edges: request.edges.map((edge, index) => ({
+              id: edge.id,
+              sections: [{
+                startPoint: { x: index * 2 + 1, y: 1 },
+                bendPoints: [],
+                endPoint: { x: index * 2 + 2, y: 2 }
+              }]
+            }))
+          })))
+        }
+      }
+    }
+  `)
   const page = await context.newPage()
 
   try {
     await page.goto('/build-orders/42')
-    await expect.poll(() => page.evaluate(() => window.__aiurRouteLayoutRequests.length)).toBe(1)
+    await expect.poll(() => clientModules.length).toBe(1)
+    expect(clientModules[0]).toMatch(layoutClientPath)
+    await expect.poll(() => page.evaluate(() =>
+      window.__aiurRouteLayoutRequests.some((request) => request.nodes.length === 7)
+    )).toBe(true)
 
     await page.getByRole('link', { name: 'All Build Orders' }).click()
     await openCatalogEntry(page, 'Stale planning lane')
     const currentGraph = page.locator('#selected-build-order-graph')
     await expect(currentGraph).toHaveAttribute('data-layout-root-id', '43')
-    await expect.poll(() => page.evaluate(() => window.__aiurRouteLayoutRequests.length)).toBe(2)
+    await expect.poll(() => page.evaluate(() =>
+      window.__aiurRouteLayoutRequests.some((request) => request.nodes.length === 1)
+    )).toBe(true)
 
-    await page.evaluate(() => window.__aiurRouteLayoutResolvers[0]())
+    const oldRootRequest = await page.evaluate(() =>
+      window.__aiurRouteLayoutRequests.findIndex((request) => request.nodes.length === 7)
+    )
+
+    await page.evaluate((index) => window.__aiurRouteLayoutResolvers[index](), oldRootRequest)
     await expect(currentGraph).toHaveAttribute('data-layout-root-id', '43')
     await expect(currentGraph).not.toHaveClass(/is-layout-ready/)
 
-    await page.evaluate(() => window.__aiurRouteLayoutResolvers[1]())
-    await expect(currentGraph).toHaveAttribute('data-layout-health', 'ready')
+    await expect.poll(async () => {
+      await page.evaluate(() => window.__aiurRouteLayoutRequests.forEach((request, index) => {
+        if (request.nodes.length === 1) window.__aiurRouteLayoutResolvers[index]()
+      }))
+      return currentGraph.getAttribute('data-layout-health')
+    }).toBe('ready')
     await expect(currentGraph).toHaveAttribute('data-layout-provider-generation', '8')
   } finally {
     await context.close()
