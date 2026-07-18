@@ -98,5 +98,4 @@ defmodule Aiur.Usage.Headless.Emitter do
   end
 
   defp inspect_class(%{__struct__: module}), do: module |> Module.split() |> List.last()
-  defp inspect_class(_error), do: "unknown"
 end

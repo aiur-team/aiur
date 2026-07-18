@@ -221,7 +221,7 @@ defmodule Aiur.Usage.Headless.Adapter do
   representation is preserved before any float conversion. Returns `:absent`
   when no cost is present and `:imprecise` when only a lossy float is available.
   """
-  @spec exact_cost(String.t() | nil, term(), [String.t()]) :: {:ok, Decimal.t()} | :absent | :imprecise
+  @spec exact_cost(String.t() | nil, term(), [String.t() | [String.t()]]) :: {:ok, Decimal.t()} | :absent | :imprecise
   def exact_cost(raw, decoded_value, paths) when is_binary(raw) and is_list(paths) do
     case Jason.decode(raw, floats: :decimals) do
       {:ok, decoded} -> cost_from_map(decoded, paths, decoded_value)
