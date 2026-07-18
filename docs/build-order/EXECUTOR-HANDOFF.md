@@ -1,5 +1,43 @@
 # Build Order Executor Handoff
 
+## Live checkpoint (updated 2026-07-18 ~01:25 PDT — orangekid-opus Executor)
+
+Supersedes all older sections. macbook-fable is DOWN (handed the full ready
+frontier). Run is single-machine now.
+
+**#1247 (single-writer restart gate) is LANDED.** The mid-turn double-writer race
+reproduced live on this machine at max-15 (two sibling `claude --resume` turns on
+one workspace, confirmed via process tree). #1247 was re-cut fresh against current
+develop (old branch was overtaken by #1217/#1234), reviewed MERGE-READY, and the
+Executor took over its last mile: fixed 4 stale checkpoint tests (turn_loop:735,
+core_test:3114, core_test:2535, provider_lifecycle:6 — all asserted the old
+mid-turn delivery; reconciled to the deferred boundary-delivery model) + a credo
+lint fix. Merged as `develop@4e23de76` (PR #1254), closed agent:done. The daemon
+was rebuilt+restarted with it; single-writer now holds (0 race-container fires
+post-restart).
+
+**Runtime:** `/home/orangekid/github/aiur-runtime-develop` on develop, rebuilt,
+running `--bg --debug --max-agents 15` Claude Opus (config already `claude:opus`).
+A stopgap **race-container** script (scratchpad) auto-kills any sustained (≥90s)
+2-sibling-turn app-server group — retire it once single-writer is confirmed over
+more runtime (it was the pre-#1247 safety net).
+
+**Merged this session (~41/54):** #1255 (DASH-022), #1258 (DASH-028), #1244
+(BO-012 → opened BO-013 #1100 + BO-020 #1107, now running), plus #1247.
+macbook had reached 37/54 (incl DASH-025 #1129).
+
+**In flight / queue:** #1256 (DASH-030) routed to rework — REAL pricing bug: api-
+equivalent double-counts subset token dims (reasoning_output nested in output);
+see PR comment. #1252 (DASH-032, test-only), #1253 (DASH-005), #1257 (DASH-027)
+open PRs awaiting review/merge. #1238/PR #1241 (adhoc, DIRTY) deferred behind
+#1247 — reconcile now that #1247 landed. #1246 reliability audit not yet run.
+
+**Blocked:** GATE-004 — `npm whoami`=E401, can't publish aiur-claude 1.1.0; blocks
+#1119 (DASH-013) → DASH-031/DASH-015. Needs operator npm/OIDC access.
+
+**Control-plane note:** `aiurdev pause <id>` silently no-ops under load — gate via
+GitHub `agent:paused` label instead.
+
 ## Takeover checkpoint (updated 2026-07-17 20:10 PDT)
 
 This checkpoint supersedes every live-state paragraph below it. The previous
