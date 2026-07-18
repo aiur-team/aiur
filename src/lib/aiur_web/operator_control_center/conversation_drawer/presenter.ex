@@ -123,35 +123,14 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer.Presenter do
   defp role_label("tool"), do: "Tool summary"
   defp role_label(role) when is_binary(role), do: humanize(role)
 
-  defp metadata(row, snapshot) do
-    source = snapshot_source(snapshot)
-
+  defp metadata(row, _snapshot) do
     [
       %{key: :agent, label: "Agent", value: known_label(Map.get(row, :agent_family))},
       %{key: :backend, label: "Backend", value: known_label(Map.get(row, :backend))},
       %{key: :requested_model, label: "Requested model", value: known(Map.get(row, :requested_model))},
-      %{key: :resolved_model, label: "Resolved model", value: known(Map.get(row, :resolved_model))},
-      %{key: :generation, label: "Worker generation", value: generation_value(source)},
-      %{key: :session, label: "Session", value: session_value(source)}
+      %{key: :resolved_model, label: "Resolved model", value: known(Map.get(row, :resolved_model))}
     ]
   end
-
-  defp snapshot_source(%{source: source}) when is_map(source), do: source
-  defp snapshot_source(_snapshot), do: %{}
-
-  defp generation_value(%{worker_generation: generation}) when is_integer(generation),
-    do: Integer.to_string(generation)
-
-  defp generation_value(%{worker_generation: generation})
-       when is_binary(generation) and generation != "",
-       do: generation
-
-  defp generation_value(_source), do: "Unknown"
-
-  defp session_value(%{session_id: session_id}) when is_binary(session_id) and session_id != "",
-    do: "Recorded"
-
-  defp session_value(_source), do: "Unknown"
 
   defp title(row) do
     case Map.get(row, :title) do

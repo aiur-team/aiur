@@ -30,10 +30,7 @@ defmodule AiurWeb.OperatorControlCenter.CurrentRunOutcomes do
         <div>
           <p class="section-eyebrow">Current run</p>
           <h2 id="current-run-outcomes-title" tabindex="-1">{@view.heading}</h2>
-          <p>
-            Repository merges associated with current-run member tickets. Association is
-            evidence of linkage, not proof of authorship.
-          </p>
+          <p>Repository merges from this run.</p>
         </div>
         <div class="recent-subtitle-actions">
           <span :if={@state == :partial} class="chip attention">Partial</span>

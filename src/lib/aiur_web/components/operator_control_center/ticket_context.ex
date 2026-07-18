@@ -104,9 +104,42 @@ defmodule AiurWeb.OperatorControlCenter.TicketContext do
       <button :if={@close_event} type="button" class="tool-btn" phx-click={@close_event} data-ticket-context-focus="close">Close</button>
     </header>
 
+    <div :if={available_capabilities(@capabilities) != []} class="ticket-context-ctas">
+      <a
+        :for={capability <- available_capabilities(@capabilities)}
+        class="btn sm ticket-context-cta"
+        href={capability.href}
+        target={if(capability.external?, do: "_blank")}
+        rel={if(capability.external?, do: "noopener noreferrer")}
+        data-ticket-context-focus={capability_focus_key(capability)}
+      >{cta_label(capability)}<span :if={capability.external?} aria-hidden="true"> ↗</span></a>
+    </div>
+
     <p :if={@context.description} class="ticket-context-description">{@context.description}</p>
 
-    <p class="ticket-context-status" role="status" aria-live="polite">{@detail_message} {@history_message}</p>
+    <p class="ticket-context-status" role="status" aria-live="polite">
+      <span :if={current?(@context)} class="chip ticket-context-fresh-chip">Current</span>
+      <span :if={!current?(@context)}>{@detail_message} {@history_message}</span>
+    </p>
+
+    <section
+      :if={dependencies?(@context.dependencies)}
+      class="ticket-context-dependencies"
+      aria-labelledby={"#{@heading_id}-dependencies"}
+    >
+      <h3 id={"#{@heading_id}-dependencies"}>Dependencies</h3>
+      <%!-- Follow-up (#1270): tags are non-clickable — the OCC ticket-context data path does
+      not yet carry linked-ticket tokens. Mirror the prototype's openTicketModal goto wiring
+      once the build-order graph is plumbed to this component. --%>
+      <div :if={@context.dependencies.blocked_by != []} class="ticket-context-dep-group">
+        <span class="ticket-context-dep-label">Blocked by</span>
+        <span :for={dep <- @context.dependencies.blocked_by} class="ticket-context-dep-tag">#{dep.identifier}<span :if={dep.title}> · {dep.title}</span></span>
+      </div>
+      <div :if={@context.dependencies.blocking != []} class="ticket-context-dep-group">
+        <span class="ticket-context-dep-label">Blocking</span>
+        <span :for={dep <- @context.dependencies.blocking} class="ticket-context-dep-tag">#{dep.identifier}<span :if={dep.title}> · {dep.title}</span></span>
+      </div>
+    </section>
 
     <div :if={@extension != []} class="ticket-context-extension">{render_slot(@extension)}</div>
 
@@ -117,9 +150,7 @@ defmodule AiurWeb.OperatorControlCenter.TicketContext do
           <div><dt>Lifecycle</dt><dd>{lifecycle_label(@context.lifecycle)}</dd></div>
           <div><dt>Detail</dt><dd>{state_label(@context.detail.state)}</dd></div>
           <div><dt>History</dt><dd>{state_label(@context.history.state)}</dd></div>
-          <div><dt>History freshness</dt><dd>{state_label(@context.history.freshness)}</dd></div>
-          <div><dt>Detail observed</dt><dd><.timestamp value={@context.detail.observed_at} /></dd></div>
-          <div><dt>History observed</dt><dd><.timestamp value={@context.history.observed_at} /></dd></div>
+          <div><dt>Updated</dt><dd><.timestamp value={@context.detail.observed_at} /></dd></div>
         </dl>
       </section>
 
@@ -145,30 +176,26 @@ defmodule AiurWeb.OperatorControlCenter.TicketContext do
       <ol :if={@context.logs.entries != []} class="ticket-context-logs">
         <li :for={entry <- @context.logs.entries}>
           <article>
-            <header><strong>{entry.label}</strong><span class="chip mono">{state_label(entry.source)}</span></header>
-            <dl>
-              <div><dt>Occurred</dt><dd><.timestamp value={entry.occurred_at} /></dd></div>
-              <div><dt>Observed</dt><dd><.timestamp value={entry.observed_at} /></dd></div>
-            </dl>
+            <header>
+              <strong>{entry.label}</strong>
+              <span class="chip mono">{state_label(entry.source)}</span>
+              <.timestamp value={entry.occurred_at || entry.observed_at} />
+            </header>
           </article>
         </li>
       </ol>
     </section>
 
-    <nav class="ticket-context-capabilities" aria-label="Ticket destinations">
-      <h3>Destinations</h3>
+    <nav
+      :if={unavailable_capabilities(@capabilities) != []}
+      class="ticket-context-capabilities"
+      aria-label="Unavailable ticket destinations"
+    >
+      <h3>Unavailable destinations</h3>
       <div class="link-list">
-        <div :for={capability <- @capabilities} class="ticket-context-capability">
-          <a
-            :if={capability.available?}
-            class="link-pill"
-            href={capability.href}
-            target={if(capability.external?, do: "_blank")}
-            rel={if(capability.external?, do: "noopener noreferrer")}
-            data-ticket-context-focus={capability_focus_key(capability)}
-          >{capability.label}<span :if={capability.external?} aria-hidden="true"> ↗</span></a>
-          <span :if={!capability.available?} class="link-pill unavailable" aria-disabled="true">{capability.label}</span>
-          <p :if={!capability.available?} class="ticket-context-capability-reason">{capability.reason}</p>
+        <div :for={capability <- unavailable_capabilities(@capabilities)} class="ticket-context-capability">
+          <span class="link-pill unavailable" aria-disabled="true">{capability.label}</span>
+          <p class="ticket-context-capability-reason">{capability.reason}</p>
         </div>
       </div>
     </nav>
@@ -179,7 +206,7 @@ defmodule AiurWeb.OperatorControlCenter.TicketContext do
 
   defp timestamp(assigns) do
     ~H"""
-    <time :if={is_struct(@value, DateTime)} datetime={DateTime.to_iso8601(@value)}>{DateTime.to_iso8601(@value)}</time>
+    <time :if={is_struct(@value, DateTime)} datetime={DateTime.to_iso8601(@value)}>{relative(@value)}</time>
     <span :if={!is_struct(@value, DateTime)}>Unknown</span>
     """
   end
@@ -192,8 +219,9 @@ defmodule AiurWeb.OperatorControlCenter.TicketContext do
     assigns = assign(assigns, :provenance, provenance)
 
     ~H"""
-    <p class="ticket-context-provenance"><span>{@label} occurred:</span> <.timestamp value={@activity.occurred_at} /></p>
-    <p class="ticket-context-provenance"><span>{@label} observed:</span> <.timestamp value={@activity.observed_at} /></p>
+    <p class="ticket-context-provenance">
+      <span>{@label}:</span> <.timestamp value={@activity.occurred_at || @activity.observed_at} />
+    </p>
     <dl :if={is_map(@provenance) and map_size(@provenance) > 0} class="ticket-context-provenance-list">
       <div :for={{key, value} <- @provenance}>
         <dt>{state_label(key)}</dt>
@@ -202,6 +230,34 @@ defmodule AiurWeb.OperatorControlCenter.TicketContext do
     </dl>
     """
   end
+
+  defp relative(%DateTime{} = value) do
+    diff = DateTime.diff(DateTime.utc_now(), value, :second)
+
+    cond do
+      diff <= 60 -> "just now"
+      diff < 3_600 -> "#{div(diff, 60)}m ago"
+      diff < 86_400 -> "#{div(diff, 3_600)}h ago"
+      true -> "#{div(diff, 86_400)}d ago"
+    end
+  end
+
+  defp available_capabilities(capabilities), do: Enum.filter(capabilities, & &1.available?)
+  defp unavailable_capabilities(capabilities), do: Enum.reject(capabilities, & &1.available?)
+
+  defp cta_label(%{kind: :github, variant: :pull_request}), do: "Open pull request"
+  defp cta_label(%{kind: :github}), do: "Open in GitHub"
+  defp cta_label(%{kind: :chat}), do: "Read chat"
+  defp cta_label(%{kind: :commands}), do: "View command"
+  defp cta_label(capability), do: capability.label
+
+  defp current?(%{detail: %{state: :available}, history: %{state: :available}}), do: true
+  defp current?(_context), do: false
+
+  defp dependencies?(%{blocked_by: blocked_by, blocking: blocking}),
+    do: blocked_by != [] or blocking != []
+
+  defp dependencies?(_dependencies), do: false
 
   defp detail_message(:available), do: "Ticket detail is current."
   defp detail_message(:stale), do: "Ticket detail is stale."

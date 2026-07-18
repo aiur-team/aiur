@@ -25,9 +25,10 @@ defmodule AiurWeb.OperatorControlCenter.CurrentRunOutcomesTest do
     assert html =~ ~s(href="/analytics")
     assert html =~ "Open analytics report"
     refute html =~ "aiur.team"
-    # Causality-safe wording: association is evidence, never authorship.
-    assert html =~ "Association is"
+    # Trimmed to a short label; the legalese association disclaimer is gone.
+    assert html =~ "Repository merges from this run."
     refute html =~ "authored by"
+    refute html =~ "proof of authorship"
   end
 
   test "healthy-empty renders a confident no-outcomes claim under Finished this run" do

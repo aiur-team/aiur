@@ -35,19 +35,28 @@ defmodule AiurWeb.OperatorControlCenter.TicketContextTest do
     assert html =~ "Open — None"
     assert html =~ "40%"
     assert html =~ "Checkin"
-    assert html =~ "Progress occurred:"
-    assert html =~ "Progress observed:"
+    # Timestamp spray collapsed to a single relative time per event.
+    assert html =~ "Progress:"
     assert html =~ "Run id"
     assert html =~ "run-42"
     assert html =~ "Latest evidence: Agent event / progress.checkin"
-    assert html =~ "Evidence occurred:"
-    assert html =~ "Evidence observed:"
+    assert html =~ "Evidence:"
+    refute html =~ "Progress occurred:"
+    refute html =~ "Evidence observed:"
+    # Healthy detail + history collapse to a compact chip, not narrated prose.
+    assert html =~ "ticket-context-fresh-chip"
+    refute html =~ "Ticket detail is current."
     assert html =~ "Logs are truncated to the newest safe entries."
     assert html =~ ~s(<ol class="ticket-context-logs")
     assert html =~ ~s(<time datetime="2026-07-16T12:00:00Z")
+    # Available destinations are now header CTAs.
+    assert html =~ "ticket-context-cta"
+    assert html =~ "Open in GitHub"
+    assert html =~ "Read chat"
     assert html =~ ~s(href="https://github.com/owner/repo/issues/42")
     assert html =~ ~s(target="_blank")
     assert html =~ ~s(href="/chat/42")
+    # Unavailable destinations still disclose their reason.
     assert html =~ ~s(aria-disabled="true")
     assert html =~ "Pull request has not been opened."
     assert html =~ "Commands are unavailable."
@@ -128,6 +137,34 @@ defmodule AiurWeb.OperatorControlCenter.TicketContextTest do
     refute html =~ ~s(href="javascript:)
     assert html =~ ~s(aria-disabled="true")
     assert html =~ "Issue is unavailable."
+  end
+
+  test "renders blocked-by and blocking dependency tags as non-clickable pills" do
+    context = %{
+      context()
+      | dependencies: %{
+          blocked_by: [%{identifier: "41", title: "Upstream task"}],
+          blocking: [%{identifier: "43", title: "Downstream task"}]
+        }
+    }
+
+    html = render_component(&TicketContext.ticket_context/1, %{id: "ticket-context-deps", context: context, mode: :region})
+
+    assert html =~ "Dependencies"
+    assert html =~ "Blocked by"
+    assert html =~ "Blocking"
+    assert html =~ "Upstream task"
+    assert html =~ "Downstream task"
+    assert html =~ "ticket-context-dep-tag"
+    # Non-clickable per follow-up (#1270): no goto/navigation wiring yet.
+    refute html =~ ~s(data-goto)
+    refute html =~ ~s(phx-click="inspect-unit")
+  end
+
+  test "omits the Dependencies section when the ticket has no relationships" do
+    html = render_component(&TicketContext.ticket_context/1, %{id: "ticket-context-no-deps", context: context(), mode: :region})
+
+    refute html =~ ">Dependencies<"
   end
 
   test "normalizes direct View inputs before rendering text, logs, evidence, or provenance" do

@@ -73,8 +73,8 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer.PresenterTest do
     assert metadata.agent == "Codex"
     assert metadata.requested_model == "gpt-5.6-terra"
     assert metadata.resolved_model == "gpt-5.6-terra-2026"
-    assert metadata.generation == "4"
-    assert metadata.session == "Recorded"
+    refute Map.has_key?(metadata, :generation)
+    refute Map.has_key?(metadata, :session)
   end
 
   test "labels unknown optional facts as unknown rather than fabricating them" do
@@ -88,8 +88,8 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer.PresenterTest do
     assert metadata.requested_model == "Unknown"
     assert metadata.resolved_model == "Unknown"
     assert metadata.agent == "Unknown"
-    assert metadata.generation == "Unknown"
-    assert metadata.session == "Unknown"
+    refute Map.has_key?(metadata, :generation)
+    refute Map.has_key?(metadata, :session)
   end
 
   test "orders messages deterministically by occurrence then id and labels roles" do

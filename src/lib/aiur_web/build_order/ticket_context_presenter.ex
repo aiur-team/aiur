@@ -51,7 +51,11 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter.View do
           progress: map(),
           latest_evidence: map(),
           logs: %{entries: [LogEntry.t()], truncated?: boolean(), observed_at: DateTime.t() | nil},
-          capabilities: [Capability.t()]
+          capabilities: [Capability.t()],
+          dependencies: %{
+            blocked_by: [%{identifier: String.t(), title: String.t()}],
+            blocking: [%{identifier: String.t(), title: String.t()}]
+          }
         }
 
   @enforce_keys [
@@ -80,7 +84,8 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter.View do
     :progress,
     :latest_evidence,
     :logs,
-    capabilities: []
+    capabilities: [],
+    dependencies: %{blocked_by: [], blocking: []}
   ]
 end
 
@@ -103,6 +108,7 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
   @max_title_bytes 512
   @max_logs 100
   @max_capabilities 4
+  @max_dependency_tags 25
   @history_states [:available, :known_empty, :missing_source, :restart_unknown, :stale, :unavailable]
   @phase_labels [
     "Brainstorm started",
@@ -361,11 +367,49 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
       progress: normalized_progress(view.progress),
       latest_evidence: normalized_evidence(view.latest_evidence),
       logs: normalized_logs(view.logs),
-      capabilities: normalize_capabilities(view.capabilities, identity)
+      capabilities: normalize_capabilities(view.capabilities, identity),
+      dependencies: normalize_dependencies(view.dependencies)
     }
   end
 
   def normalize_view(_view), do: unavailable_view()
+
+  # Follow-up (#1270): the OCC ticket-context data path does not yet carry
+  # linked-ticket tokens, so callers currently leave dependencies empty and the
+  # component renders the tags non-clickable. When the build-order graph is
+  # plumbed here, add each tag's linked identity so the modal can mirror the
+  # prototype's openTicketModal goto wiring.
+  defp normalize_dependencies(dependencies) when is_map(dependencies) do
+    %{
+      blocked_by: normalize_dependency_tags(map_value(dependencies, :blocked_by)),
+      blocking: normalize_dependency_tags(map_value(dependencies, :blocking))
+    }
+  end
+
+  defp normalize_dependencies(_dependencies), do: %{blocked_by: [], blocking: []}
+
+  defp normalize_dependency_tags(tags) when is_list(tags) do
+    tags |> Enum.flat_map(&normalize_dependency_tag/1) |> Enum.take(@max_dependency_tags)
+  end
+
+  defp normalize_dependency_tags(_tags), do: []
+
+  defp normalize_dependency_tag(tag) when is_map(tag) do
+    case Bounded.github_issue_identifier(map_value(tag, :identifier)) do
+      {:ok, identifier} -> [%{identifier: identifier, title: dependency_title(map_value(tag, :title))}]
+      _ -> []
+    end
+  end
+
+  defp normalize_dependency_tag(_tag), do: []
+
+  defp dependency_title(title) do
+    case safe_text(title, @max_title_bytes) do
+      {:ok, ""} -> nil
+      {:ok, safe} -> safe
+      :error -> nil
+    end
+  end
 
   defp normalized_lifecycle(lifecycle) when is_map(lifecycle) do
     %{

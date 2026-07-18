@@ -77,28 +77,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummary do
         <section class="run-summary-panel" aria-labelledby="run-summary-progress-title">
           <h3 id="run-summary-progress-title">Weighted progress</h3>
           {progress_body(assigns)}
-          <dl class="run-summary-facts">
-            <div class="run-summary-fact">
-              <dt>Weight (denominator)</dt>
-              <dd>{@view.progress.denominator_weight}</dd>
-            </div>
-            <div class="run-summary-fact">
-              <dt>Known weight</dt>
-              <dd>{@view.progress.known_weight}</dd>
-            </div>
-            <div class="run-summary-fact">
-              <dt>Unknown weight</dt>
-              <dd>{@view.progress.unknown_weight}</dd>
-            </div>
-            <div class="run-summary-fact">
-              <dt>Defaulted weight</dt>
-              <dd>{@view.progress.defaulted_weight} ({@view.progress.defaulted_count})</dd>
-            </div>
-            <div class="run-summary-fact">
-              <dt>Excluded weight</dt>
-              <dd>{@view.progress.excluded_weight} ({@view.progress.excluded_count})</dd>
-            </div>
-          </dl>
         </section>
 
         <section class="run-summary-panel" aria-labelledby="run-summary-time-title">
