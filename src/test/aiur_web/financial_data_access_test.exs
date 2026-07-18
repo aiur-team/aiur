@@ -83,7 +83,13 @@ defmodule AiurWeb.FinancialDataAccessTest do
   test "dashboard LiveView routes install the financial on-mount contract" do
     live_routes = Enum.filter(AiurWeb.Router.__routes__(), &(&1.plug == Phoenix.LiveView.Plug))
 
-    assert Enum.map(live_routes, & &1.path) == ["/", "/decisions", "/decisions/:decision_id"]
+    assert Enum.map(live_routes, & &1.path) == [
+             "/",
+             "/decisions",
+             "/decisions/:decision_id",
+             "/build-orders",
+             "/build-orders/:root_number"
+           ]
 
     for route <- live_routes do
       {_view, _action, _route_opts, %{name: :dashboard, extra: %{on_mount: [%{id: {FinancialDataAccess, :default}}]}}} =

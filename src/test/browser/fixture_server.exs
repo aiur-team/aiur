@@ -1046,6 +1046,198 @@ defmodule Aiur.BrowserHarness.FixtureAssets do
   end
 end
 
+defmodule Aiur.BrowserHarness.BuildOrderDataSource do
+  @behaviour AiurWeb.BuildOrder.DataSource
+
+  alias Aiur.BuildOrder.{Catalog, Dependency, Member, ProviderHealth, RootSummary, SelectedRoot}
+  alias Aiur.BuildOrder.GraphProjection.Snapshot
+  alias Aiur.TrackerIdentity
+
+  @repository {"owner", "repo"}
+  @observed_at ~U[2026-07-17 12:00:00Z]
+
+  @impl true
+  def subscribe_catalog, do: :ok
+
+  @impl true
+  def unsubscribe_catalog(_repository), do: :ok
+
+  @impl true
+  def catalog do
+    entries = [root(42, "Release dashboard"), RootSummary.new(%{}), root(43, "Stale planning lane")]
+
+    %Snapshot{
+      scope: :catalog,
+      repository: @repository,
+      authority_epoch: 1,
+      generation: 3,
+      data: Catalog.new(entries, health(3, :healthy)),
+      health: health(3, :healthy)
+    }
+  end
+
+  @impl true
+  def subscribe_selected(_identity), do: :ok
+
+  @impl true
+  def unsubscribe_selected(_identity), do: :ok
+
+  @impl true
+  def selected(identity), do: selected_snapshot(identity)
+
+  @impl true
+  def demand(identity), do: selected_snapshot(identity)
+
+  @impl true
+  def release(_identity), do: :ok
+
+  @impl true
+  def subscribe_sources, do: :ok
+
+  @impl true
+  def load_sources do
+    %{
+      execution: %{running: [], retrying: [], idle: []},
+      activity: %{generation: 9, entries: [activity(identity(5))], diagnostics: %{}}
+    }
+  end
+
+  @impl true
+  def subscribe_context(_identity), do: :ok
+
+  @impl true
+  def unsubscribe_context(_identity), do: :ok
+
+  @impl true
+  def load_context(_identity),
+    do: %{detail: {:error, :unavailable}, history: {:error, :unavailable}}
+
+  defp selected_snapshot(%TrackerIdentity{identifier: "42"} = identity) do
+    snapshot =
+      %Snapshot{
+        scope: {:selected, identity},
+        repository: @repository,
+        authority_epoch: 1,
+        generation: 7,
+        data: SelectedRoot.new(root(42, "Release dashboard"), graph_members(), health(7, :healthy)),
+        health: health(7, :healthy)
+      }
+
+    {:ok, snapshot}
+  end
+
+  defp selected_snapshot(%TrackerIdentity{identifier: "43"} = identity) do
+    snapshot =
+      %Snapshot{
+        scope: {:selected, identity},
+        repository: @repository,
+        authority_epoch: 1,
+        generation: 8,
+        data: SelectedRoot.new(root(43, "Stale planning lane"), [member(8, "Stale member")], health(8, :stale)),
+        health: health(8, :stale)
+      }
+
+    {:ok, snapshot}
+  end
+
+  defp selected_snapshot(_identity), do: {:error, :unavailable}
+
+  defp activity(identity) do
+    %{
+      identity: identity,
+      status: :fresh,
+      active_stage: :review,
+      stage: %{status: :known, value: :review, freshness: :fresh, observed_at: @observed_at, event_id: 2},
+      progress: %{
+        status: :known,
+        percent: 60,
+        source: :checkin,
+        freshness: :fresh,
+        occurred_at: @observed_at,
+        observed_at: @observed_at,
+        event_id: 3
+      },
+      provenance: %{},
+      observed_at: @observed_at,
+      retention: :current
+    }
+  end
+
+  defp graph_members do
+    one = member(1, "Completed dependency", state: "CLOSED", state_reason: "COMPLETED")
+    two = member(2, "Open dependency")
+    three = member(3, "Not-planned dependency", state: "CLOSED", state_reason: "NOT_PLANNED")
+    four = member(4, "Unknown dependency", state: "CLOSED", state_reason: "DUPLICATE")
+
+    five =
+      member(5, "Readiness target",
+        dependencies: [
+          dependency(5, identity(1)),
+          dependency(5, identity(2)),
+          dependency(5, identity(3)),
+          dependency(5, identity(4)),
+          Dependency.new(identity(5), identity(9, {"other", "repo"}), "https://github.com/other/repo/issues/9")
+        ]
+      )
+
+    six = member(6, "Cycle one", dependencies: [dependency(6, identity(7))])
+    seven = member(7, "Cycle two", dependencies: [dependency(7, identity(6))])
+    [one, two, three, four, five, six, seven]
+  end
+
+  defp member(number, title, opts \\ []) do
+    lane = if number == 4, do: "unrecognized-lane", else: "dashboard-ui"
+
+    Member.new(%{
+      identity: identity(number),
+      title: title,
+      url: issue_url(number),
+      state: Keyword.get(opts, :state, "OPEN"),
+      state_reason: Keyword.get(opts, :state_reason),
+      dependencies: Keyword.get(opts, :dependencies, []),
+      labels: ["complexity:2", "phase:1", "build-lane:#{lane}"]
+    })
+  end
+
+  defp dependency(configured_number, endpoint),
+    do: Dependency.new(identity(configured_number), endpoint, issue_url(endpoint.identifier))
+
+  defp root(number, title) do
+    RootSummary.new(%{
+      identity: identity(number),
+      title: title,
+      url: issue_url(number),
+      state: "OPEN",
+      state_reason: nil
+    })
+  end
+
+  defp identity(number, repository \\ @repository) do
+    {owner, name} = repository
+
+    %TrackerIdentity{
+      version: 1,
+      status: :joinable,
+      kind: :github,
+      owner: owner,
+      repository: name,
+      provider_id: "NODE-#{owner}-#{name}-#{number}",
+      database_id: number,
+      identifier: to_string(number),
+      reason: nil
+    }
+  end
+
+  defp issue_url(number), do: "https://github.com/owner/repo/issues/#{number}"
+
+  defp health(generation, state) do
+    ProviderHealth.new(generation, state, state == :healthy,
+      observed_at: @observed_at,
+      last_success_at: @observed_at
+    )
+  end
+end
+
 defmodule Aiur.BrowserHarness.FixtureRouter do
   use Phoenix.Router
   import Phoenix.LiveView.Router
@@ -1062,6 +1254,10 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
 
   pipeline :fixture_access do
     plug(:require_fixture_access)
+  end
+
+  pipeline :fixture_asset_access do
+    plug(:require_fixture_or_dashboard_access)
   end
 
   scope "/" do
@@ -1089,6 +1285,11 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     live("/", Aiur.BrowserHarness.RouteShellLive, :index)
     live("/decisions", Aiur.BrowserHarness.RouteShellLive, :decisions)
     live("/decisions/:decision_id", Aiur.BrowserHarness.RouteShellLive, :decision)
+  end
+
+  scope "/" do
+    pipe_through([:browser, :fixture_asset_access])
+
     get("/dashboard.css", AiurWeb.StaticAssetController, :dashboard_css)
     get("/aiur-logo.png", AiurWeb.StaticAssetController, :aiur_logo)
   end
@@ -1100,6 +1301,12 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
   end
 
   defp require_fixture_access(conn, opts), do: FixtureAuth.require_access(conn, opts)
+
+  defp require_fixture_or_dashboard_access(conn, opts) do
+    if Plug.Conn.get_session(conn, "fixture_access") in ~w(read_only writable),
+      do: conn,
+      else: AiurWeb.Router.dashboard_basic_auth(conn, opts)
+  end
 end
 
 defmodule Aiur.BrowserHarness.FixtureEndpoint do
@@ -1125,11 +1332,19 @@ defmodule Aiur.BrowserHarness.FixtureServer do
 
     System.put_env("AIUR_DASHBOARD_USERNAME", "browser_fixture")
     System.put_env("AIUR_DASHBOARD_PASSWORD", "browser_fixture_password")
+    Application.put_env(:aiur, :workflow_file_path, Path.expand("../fixtures/test.aiurconfig", __DIR__))
+    Application.put_env(:aiur, :build_order_data_source, Aiur.BrowserHarness.BuildOrderDataSource)
+    configure_forwarded_dashboard()
 
     {:ok, _} =
       Supervisor.start_link(
         [
-          {Phoenix.PubSub, name: Aiur.BrowserHarness.FixturePubSub},
+          Supervisor.child_spec(
+            {Phoenix.PubSub, name: Aiur.BrowserHarness.FixturePubSub},
+            id: Aiur.BrowserHarness.FixturePubSub
+          ),
+          Supervisor.child_spec({Phoenix.PubSub, name: Aiur.PubSub}, id: Aiur.PubSub),
+          {AiurWeb.Endpoint, []},
           AiurWeb.FinancialDataAccess.Generation
         ],
         strategy: :one_for_one
@@ -1151,6 +1366,20 @@ defmodule Aiur.BrowserHarness.FixtureServer do
     {:ok, _} = FixtureEndpoint.start_link()
     IO.puts("Aiur browser harness fixture ready at http://127.0.0.1:#{@port}")
     Process.sleep(:infinity)
+  end
+
+  defp configure_forwarded_dashboard do
+    config =
+      :aiur
+      |> Application.get_env(AiurWeb.Endpoint, [])
+      |> Keyword.merge(
+        server: false,
+        dashboard_writable: false,
+        control_center_cache: false,
+        snapshot_timeout_ms: 100
+      )
+
+    Application.put_env(:aiur, AiurWeb.Endpoint, config)
   end
 end
 

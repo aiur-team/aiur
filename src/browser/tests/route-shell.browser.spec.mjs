@@ -1,22 +1,47 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
 import { assertNoDocumentOverflow, openFixture } from './support/browser-helpers.mjs'
+import { dashboardCredentials } from './support/layout-worker.mjs'
 import { nextPaint } from './support/measurements.mjs'
 
-test('route shell keeps navigation URL-backed, accessible, and unclipped across responsive widths', async ({ browser }) => {
-  for (const { width, isMobile } of [
-    { width: 320, isMobile: true },
-    { width: 390, isMobile: true },
-    { width: 768, isMobile: false },
-    { width: 960, isMobile: false },
-    { width: 1440, isMobile: false }
-  ]) {
-    const context = await browser.newContext({ viewport: { width, height: 844 }, hasTouch: isMobile, isMobile, reducedMotion: 'reduce' })
+test('Build Order navigation returns to the production Units route', async ({ page }) => {
+  await openFixture(page)
+  await page.goto('/')
+  await page.context().setHTTPCredentials(dashboardCredentials)
+
+  await page.getByRole('link', { name: 'Build Order' }).click()
+  await expect(page).toHaveURL(/\/build-orders$/)
+  await expect(page.locator('#build-order-page')).toHaveAttribute('data-build-order-catalog-state', 'ready')
+
+  await page.getByRole('link', { name: 'Units' }).click()
+  await expect(page).toHaveURL(/\/$/)
+  await expect(page.locator('#route-title')).toHaveText('Units')
+  await expect(page.locator('#units-title')).toBeVisible()
+  await expect(page.locator('#route-shell-action')).toHaveCount(0)
+})
+
+const routeShellViewports = [
+  { width: 320, isMobile: true },
+  { width: 390, isMobile: true },
+  { width: 768, isMobile: false },
+  { width: 960, isMobile: false },
+  { width: 1440, isMobile: false }
+]
+
+for (const { width, isMobile } of routeShellViewports) {
+  test(`route shell keeps navigation URL-backed, accessible, and unclipped at ${width}px`, async ({ browser }) => {
+    const context = await browser.newContext({
+      viewport: { width, height: 844 },
+      hasTouch: isMobile,
+      isMobile,
+      reducedMotion: 'reduce'
+    })
     const page = await context.newPage()
 
     try {
       await openFixture(page)
       await page.goto('/?analytics=unavailable')
+      await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
       await expect(page.getByRole('link', { name: 'Analytics' })).toHaveCount(0)
       await expect(page.locator('.shell-nav-item.is-unavailable', { hasText: 'Analytics' }).first()).toHaveAttribute('aria-disabled', 'true')
 
@@ -24,7 +49,7 @@ test('route shell keeps navigation URL-backed, accessible, and unclipped across 
 
       await expect(page.getByRole('heading', { name: 'Units' })).toBeVisible()
       await expect(page.getByRole('link', { name: 'Commands' })).not.toHaveAttribute('aria-current')
-      await expect(page.locator('.shell-nav-item.is-unavailable', { hasText: 'Build Order' }).first()).toHaveAttribute('aria-disabled', 'true')
+      await expect(page.getByRole('link', { name: 'Build Order' })).toHaveAttribute('href', '/build-orders')
       await expect(page.getByRole('link', { name: 'Analytics' })).toHaveAttribute('href', '/analytics')
       await assertNoDocumentOverflow(page)
 
@@ -51,6 +76,7 @@ test('route shell keeps navigation URL-backed, accessible, and unclipped across 
       await expect(page).toHaveURL(/\/decisions\/decision-123$/)
       await expect(page.getByRole('heading', { name: 'Commands' })).toBeVisible()
       await expect(page.getByRole('link', { name: 'Commands' })).toHaveAttribute('aria-current', 'page')
+      await expect(page.locator('#route-shell-action')).toBeVisible()
 
       await page.getByRole('button', { name: 'Toggle color theme' }).click()
       await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
@@ -94,5 +120,5 @@ test('route shell keeps navigation URL-backed, accessible, and unclipped across 
     } finally {
       await context.close()
     }
-  }
-})
+  })
+}

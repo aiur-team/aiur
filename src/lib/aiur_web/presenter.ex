@@ -17,6 +17,10 @@ defmodule AiurWeb.Presenter do
     |> Map.merge(auxiliary_payload(opts))
   end
 
+  @doc "Returns the current dashboard navigation contract for telemetry analytics."
+  @spec analytics_navigation(keyword()) :: map()
+  def analytics_navigation(opts \\ []), do: analytics_payload(opts)
+
   defp orchestrator_payload(orchestrator, snapshot_timeout_ms) do
     case Orchestrator.snapshot(orchestrator, snapshot_timeout_ms) do
       %{} = snapshot ->

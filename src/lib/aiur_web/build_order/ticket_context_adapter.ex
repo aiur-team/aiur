@@ -81,7 +81,7 @@ defmodule AiurWeb.BuildOrder.TicketContextAdapter do
   @spec max_relationships() :: pos_integer()
   def max_relationships, do: @max_relationships
 
-  @spec present(BuildOrderViewModel.t(), term(), term(), term()) :: View.t()
+  @spec present(term(), term(), term(), term()) :: View.t()
   def present(model, selected_identity, base_context, capabilities \\ %{})
 
   def present(%BuildOrderViewModel{} = model, selected_identity, base_context, capabilities) do
