@@ -17,6 +17,8 @@ defmodule Aiur.UsageEnvelopeTest do
       assert UsageEnvelope.raw_identity(envelope).cost_currency == "USD"
       assert UsageEnvelope.raw_identity(envelope).resolved_model == "gpt-5.6-terra"
       assert UsageEnvelope.raw_identity(envelope).provider_account_generation == "generation-a"
+      refute Map.has_key?(UsageEnvelope.raw_identity(envelope), :query_source)
+      assert envelope.query_source == "repl_main_thread"
 
       assert {:ok, decoded} = envelope |> Codec.encode() |> Codec.decode()
       assert decoded == envelope
@@ -245,6 +247,7 @@ defmodule Aiur.UsageEnvelopeTest do
         transport: :app_server,
         auth_mode: :chatgpt,
         effort: "high",
+        query_source: "repl_main_thread",
         requested_model: "gpt-5.6-terra",
         resolved_model: "gpt-5.6-terra",
         account_generation: %{

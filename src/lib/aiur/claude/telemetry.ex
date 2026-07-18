@@ -10,12 +10,10 @@ defmodule Aiur.Claude.Telemetry do
   use GenServer
 
   alias Aiur.{Boot, Issue, TrackerIdentity}
-  alias Aiur.Claude.Telemetry.{Event, Receiver}
+  alias Aiur.Claude.Telemetry.{Contract, Event, Receiver, UsageAdapter}
 
-  @source_version "claude-code-2.1.210"
-  @emitter_version "2.1.210"
-  @service_name "claude-code"
   @topic "claude_telemetry:events"
+  @usage_topic "claude_telemetry:usage"
   @default_max_connections 12
   @default_max_inflight 3
   @default_max_events_per_window 120
@@ -30,12 +28,18 @@ defmodule Aiur.Claude.Telemetry do
 
   @doc "Pinned Claude Code event contract accepted by this receiver."
   @spec source_version() :: String.t()
-  def source_version, do: @source_version
+  def source_version, do: Contract.source_version()
 
   @doc "Subscribe to content-free authenticated Claude API-request events."
   @spec subscribe() :: :ok | {:error, term()}
   def subscribe do
     Phoenix.PubSub.subscribe(Aiur.PubSub, @topic)
+  end
+
+  @doc "Subscribe to attributed usage envelopes and bounded coverage facts."
+  @spec subscribe_usage() :: :ok | {:error, term()}
+  def subscribe_usage do
+    Phoenix.PubSub.subscribe(Aiur.PubSub, @usage_topic)
   end
 
   @doc "Returns bounded receiver health without capabilities or payloads."
@@ -156,7 +160,7 @@ defmodule Aiur.Claude.Telemetry do
     {:reply,
      %{
        status: if(is_integer(state.port), do: :ready, else: :unavailable),
-       source_versions: [@source_version],
+       source_versions: [Contract.source_version()],
        active_generations: map_size(state.capabilities),
        accepted: state.accepted,
        rejections: state.rejections
@@ -190,7 +194,7 @@ defmodule Aiur.Claude.Telemetry do
           launch_ids: Map.put(state.launch_ids, launch_id, capability)
       }
 
-      {:reply, {:ok, %{id: launch_id, env: launch_env(state.port, capability), source_version: @source_version}}, next}
+      {:reply, {:ok, %{id: launch_id, env: launch_env(state.port, capability), source_version: Contract.source_version()}}, next}
     else
       {:error, reason} ->
         {:reply, {:error, reason}, count_rejection(state, reason)}
@@ -221,8 +225,15 @@ defmodule Aiur.Claude.Telemetry do
 
   def handle_call({:ingest, request_id, payload}, _from, state) do
     with {:ok, capability} <- Map.fetch(state.requests, request_id),
-         {:ok, entry} <- Map.fetch(state.capabilities, capability),
-         {:ok, events} <-
+         {:ok, entry} <- Map.fetch(state.capabilities, capability) do
+      ingest_authenticated(state, capability, entry, payload)
+    else
+      :error -> {:reply, {:error, :unknown_request}, count_rejection(state, :unknown_request)}
+    end
+  end
+
+  defp ingest_authenticated(state, capability, entry, payload) do
+    with {:ok, events} <-
            Event.from_otlp(payload, entry.correlation, request_source_contract(entry.source_contract, capability)),
          :ok <- matching_session(entry, events),
          :ok <- unseen?(state.replay, events),
@@ -240,11 +251,15 @@ defmodule Aiur.Claude.Telemetry do
         |> remember(events)
         |> Map.update!(:accepted, &(&1 + length(events)))
 
-      Enum.each(events, &broadcast/1)
+      Enum.each(events, &publish/1)
       {:reply, :ok, next}
     else
-      :error -> {:reply, {:error, :unknown_request}, count_rejection(state, :unknown_request)}
-      {:error, reason} -> {:reply, {:error, reason}, count_rejection(state, reason)}
+      {:error, {:coverage, reason, class, field}} ->
+        publish_ingest_coverage(entry, class, field)
+        {:reply, {:error, reason}, count_rejection(state, reason)}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, count_rejection(state, reason)}
     end
   end
 
@@ -382,9 +397,9 @@ defmodule Aiur.Claude.Telemetry do
 
   defp source_contract do
     %{
-      emitter_version: @emitter_version,
-      service_name: @service_name,
-      source_version: @source_version
+      emitter_version: Contract.emitter_version(),
+      service_name: Contract.service_name(),
+      source_version: Contract.source_version()
     }
   end
 
@@ -547,6 +562,32 @@ defmodule Aiur.Claude.Telemetry do
 
   defp broadcast(event) do
     if Process.whereis(Aiur.PubSub), do: Phoenix.PubSub.broadcast(Aiur.PubSub, @topic, {:claude_telemetry, event})
+    :ok
+  end
+
+  defp publish(%{correlation: %{backend: "claude-repl"}} = event) do
+    :ok = broadcast(event)
+
+    case UsageAdapter.normalize(event, DateTime.utc_now()) do
+      {:ok, envelope, coverage} ->
+        broadcast_usage({:claude_usage, envelope})
+        Enum.each(coverage, &broadcast_usage({:claude_usage_coverage, &1}))
+
+      {:coverage, coverage} ->
+        broadcast_usage({:claude_usage_coverage, coverage})
+    end
+  end
+
+  defp publish(event), do: broadcast(event)
+
+  defp publish_ingest_coverage(%{correlation: %{backend: "claude-repl"}}, class, field) do
+    broadcast_usage({:claude_usage_coverage, UsageAdapter.coverage(class, field)})
+  end
+
+  defp publish_ingest_coverage(_entry, _class, _field), do: :ok
+
+  defp broadcast_usage(message) do
+    if Process.whereis(Aiur.PubSub), do: Phoenix.PubSub.broadcast(Aiur.PubSub, @usage_topic, message)
     :ok
   end
 
