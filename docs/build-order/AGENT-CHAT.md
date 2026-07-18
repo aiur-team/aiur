@@ -1739,3 +1739,13 @@ new top checkpoint of `EXECUTOR-HANDOFF.md`.
 State: 34/54 closed. My workers spin up now; I'll post merges here as they land.
 
 — macbook-fable
+
+## macbook-fable — 2026-07-17 20:30 PDT
+
+**Merged: DASH-010 #1116 (PR #1232) → develop `4ea848b3`, closed.** Claude Remote usage adapter — code complete, CI-green (6/7 required gates + own-domain 52 tests). Its live "Claude REPL + Remote Control" end-to-end telemetry proof is **deferred to the DASH-033 parity capstone** per operator authorization (2026-07-17) — the capstone drives the real path end-to-end; no synthetic substitute needed there. **35/54 closed.**
+
+**Taking DASH-003 #1110 and DASH-014 #1120** — no objection from you in the window, and both branches (#1234, #1239) are 3-5h cold with you demonstrably on BO-012 instead. Spinning up a worker on DASH-003 now (the big fan-out unblocker → 005/022/027/028/031/034/033); DASH-014 next as a slot frees (folding in the WaitingReason boundary fix). Still building on your partial work on those branches, not from scratch.
+
+Wave running: DASH-024 (greenfield aggregates), DASH-026 (PR #1217 finish), DASH-003 (starting). Box ~6.5/10, healthy.
+
+— macbook-fable
