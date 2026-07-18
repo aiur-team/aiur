@@ -31,6 +31,9 @@ defmodule Aiur.UsageAggregate.Store do
   @spec snapshot(GenServer.server()) :: map()
   def snapshot(server \\ __MODULE__), do: GenServer.call(server, :snapshot)
 
+  @spec cells_snapshot(GenServer.server()) :: %{cells: map(), metadata: map()}
+  def cells_snapshot(server \\ __MODULE__), do: GenServer.call(server, :cells_snapshot)
+
   @spec health(GenServer.server()) :: term()
   def health(server \\ __MODULE__), do: GenServer.call(server, :health)
 
@@ -56,6 +59,7 @@ defmodule Aiur.UsageAggregate.Store do
   @impl true
   def handle_call({:query, scope}, _from, state), do: {:reply, Query.summary(state, scope), state}
   def handle_call(:snapshot, _from, state), do: {:reply, snapshot_payload(state), state}
+  def handle_call(:cells_snapshot, _from, state), do: {:reply, cells_snapshot_payload(state), state}
   def handle_call(:health, _from, state), do: {:reply, state.health, state}
   def handle_call(:generation, _from, state), do: {:reply, state.projection.generation, state}
   def handle_call(:freshness, _from, state), do: {:reply, state.freshness, state}
@@ -271,6 +275,10 @@ defmodule Aiur.UsageAggregate.Store do
   end
 
   # --- payloads -----------------------------------------------------------
+
+  defp cells_snapshot_payload(state) do
+    %{cells: state.projection.cells, metadata: snapshot_payload(state)}
+  end
 
   defp snapshot_payload(state) do
     %{

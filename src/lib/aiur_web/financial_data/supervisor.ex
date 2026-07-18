@@ -4,7 +4,7 @@ defmodule AiurWeb.FinancialData.Supervisor do
   use Supervisor
 
   alias AiurWeb.FinancialData
-  alias AiurWeb.FinancialData.SubscriptionAuthority
+  alias AiurWeb.FinancialData.{ChangeBridge, SubscriptionAuthority}
   alias AiurWeb.FinancialDataAccess.Generation
 
   @spec start_link(keyword()) :: Supervisor.on_start()
@@ -14,7 +14,7 @@ defmodule AiurWeb.FinancialData.Supervisor do
 
   @impl true
   def init(_opts) do
-    children = [Generation, SubscriptionAuthority, FinancialData]
+    children = [Generation, SubscriptionAuthority, FinancialData, ChangeBridge]
     Supervisor.init(children, strategy: :rest_for_one)
   end
 end

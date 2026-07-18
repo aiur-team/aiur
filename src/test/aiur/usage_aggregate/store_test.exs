@@ -37,6 +37,21 @@ defmodule Aiur.UsageAggregate.StoreTest do
     GenServer.stop(agg)
   end
 
+  test "cells_snapshot pairs the retained cells with the bounded metadata", context do
+    append(context.ledger_name, envelope(%{tokens: token(10)}))
+    append(context.ledger_name, envelope(%{tokens: token(5)}))
+    {:ok, agg} = start_aggregate(context)
+
+    %{cells: cells, metadata: metadata} = Store.cells_snapshot(context.agg_name)
+
+    assert is_map(cells) and map_size(cells) > 0
+    # Cells are keyed by {dimensions, measure}; the aggregate folded both deltas.
+    assert Enum.all?(Map.keys(cells), &match?({_dims, _measure}, &1))
+    assert metadata == Store.snapshot(context.agg_name)
+    assert metadata.cell_count == map_size(cells)
+    GenServer.stop(agg)
+  end
+
   test "folds a live delta published after subscription and stays fresh", context do
     {:ok, agg} = start_aggregate(context)
     assert Store.snapshot(context.agg_name).freshness.status == :empty
