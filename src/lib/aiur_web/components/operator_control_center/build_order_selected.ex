@@ -40,7 +40,6 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
 
       <div :if={not is_nil(@model)} class="bo-selected-summary">
         <p class="mono">Planning generation {display_generation(@snapshot)}</p>
-        <p>{model_summary(@model)}</p>
         <div :if={@model.status not in [:ready, :empty]} class="bo-state-card" role={model_state_role(@model)}>
           <h3>{model_state_title(@model)}</h3>
           <p>{model_summary(@model)}</p>
@@ -81,11 +80,11 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
   defp selected_title(_status, _snapshot, identifier) when is_binary(identifier), do: "Build Order ##{identifier}"
   defp selected_title(_status, _snapshot, _identifier), do: "Build Order"
 
-  defp selected_message(:selected), do: "Read-only planning truth joined with cached execution and activity."
-  defp selected_message(:selected_stale), do: "Showing last-known-good planning truth while the provider is stale."
+  defp selected_message(:selected), do: "Plan and live progress for this Build Order."
+  defp selected_message(:selected_stale), do: "Showing the last saved plan while live data catches up."
   defp selected_message(:selected_invalid), do: "The selected provider data is structurally invalid."
   defp selected_message(:selected_unavailable), do: "The selected provider is unavailable."
-  defp selected_message(_status), do: "The selected route remains explicit while its planning scope is resolved."
+  defp selected_message(_status), do: "Resolving which tickets belong to this Build Order."
 
   defp state_title(:invalid_parameter), do: "Invalid Build Order URL"
   defp state_title(:awaiting_catalog), do: "Loading catalog"
@@ -103,8 +102,8 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
   defp state_message(:awaiting_catalog), do: "Waiting for a validated repository catalog before selecting this root."
   defp state_message(:catalog_unavailable), do: "No validated catalog snapshot can resolve this URL yet."
   defp state_message(:catalog_stale), do: "The last-known-good catalog cannot safely confirm this root."
-  defp state_message(:not_found), do: "The healthy complete catalog does not contain this root."
-  defp state_message(:invalid_catalog), do: "The locator does not resolve to exactly one repository-qualified identity."
+  defp state_message(:not_found), do: "This Build Order is not in the catalog."
+  defp state_message(:invalid_catalog), do: "This link matches more than one repository. Pick a specific one."
   defp state_message(:selected_loading), do: "The exact root is selected; its graph snapshot is loading."
   defp state_message(:selected_unavailable), do: "No validated selected-root snapshot is available."
   defp state_message(:selected_stale), do: "The provider is stale and has no selected-root last-known-good snapshot."
@@ -120,11 +119,9 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
   defp positive_generation(%Snapshot{generation: generation}) when is_integer(generation) and generation > 0, do: generation
   defp positive_generation(_snapshot), do: 1
 
-  defp model_summary(%{status: :empty}), do: "This is a valid empty graph."
-  defp model_summary(%{status: :provider_stale}), do: "Showing the stale last-known-good planning graph."
+  defp model_summary(%{status: :provider_stale}), do: "Showing the last saved plan while live data catches up."
   defp model_summary(%{status: :structurally_invalid}), do: "The selected planning graph is structurally invalid."
   defp model_summary(%{status: :provider_unavailable}), do: "The selected planning graph is unavailable."
-  defp model_summary(_model), do: "Planning graph ready."
 
   defp model_state_title(%{status: :provider_stale}), do: "Stale last-known-good graph"
   defp model_state_title(%{status: :structurally_invalid}), do: "Structurally invalid graph"

@@ -653,44 +653,48 @@ textarea:focus-visible,
   line-height: 1;
 }
 
-.bo-layout-card-facts {
-  display: grid;
-  gap: 0.35rem;
-  margin: 0.75rem 0 0;
-}
-
-.bo-layout-card-facts > div {
-  display: grid;
-  grid-template-columns: minmax(4.5rem, 0.6fr) minmax(0, 1fr);
-  gap: 0.6rem;
+.bo-layout-card-idline {
+  display: inline-flex;
   align-items: center;
-  padding-top: 0.3rem;
-  border-top: 1px solid var(--hairline);
+  gap: 0.4rem;
+  min-width: 0;
 }
 
-.bo-layout-card-facts dt,
-.bo-layout-card-facts dd,
-.bo-layout-card-provenance {
-  margin: 0;
-  font-size: 0.68rem;
+.bo-cx {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  padding: 0.1rem 0.44rem;
+  border-radius: 999px;
+  border: 1px solid var(--super-line);
+  background: var(--super-soft);
+  color: var(--super-ink);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
-.bo-layout-card-facts dt {
-  color: var(--muted);
+.bo-layout-card-meta-line {
+  margin: 0.6rem 0 0 !important;
+  color: var(--muted) !important;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.66rem;
 }
 
-.bo-layout-card-facts dd {
+.bo-layout-card-progress {
   display: flex;
   align-items: center;
-  gap: 0.35rem;
-  min-width: 0;
-  color: var(--fg);
-  overflow-wrap: anywhere;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
 }
 
-.bo-layout-card-provenance {
-  margin-top: 0.7rem !important;
-  color: var(--muted) !important;
+.bo-layout-card-pct {
+  flex: none;
+  color: var(--muted);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.66rem;
+  font-weight: 600;
 }
 
 .bo-layout-card-warnings,
@@ -955,6 +959,41 @@ textarea:focus-visible,
      visible viewport so its controls wrap and stay reachable instead of being
      pushed off-screen; in normal-width layouts this cap has no visible effect. */
   max-width: calc(100vw - 4rem);
+}
+
+.bo-graph-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.9rem;
+  margin: 0 0 0.5rem;
+  padding: 0;
+  list-style: none;
+}
+
+.bo-graph-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.bo-graph-legend-line {
+  width: 1.5rem;
+  height: 0;
+  border-top-width: 2px;
+  border-top-style: solid;
+}
+
+.bo-graph-legend-line.is-cleared {
+  border-top-color: var(--good);
+  border-top-style: solid;
+}
+
+.bo-graph-legend-line.is-blocking {
+  border-top-color: var(--blocking);
+  border-top-style: dashed;
 }
 
 .bo-graph-control {

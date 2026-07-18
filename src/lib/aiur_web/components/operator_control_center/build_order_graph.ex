@@ -71,6 +71,11 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
         </details>
       </div>
 
+      <ul class="bo-graph-legend" aria-label="Dependency edge legend">
+        <li><span class="bo-graph-legend-line is-cleared" aria-hidden="true"></span>Cleared</li>
+        <li><span class="bo-graph-legend-line is-blocking" aria-hidden="true"></span>Blocking</li>
+      </ul>
+
       <p class="sr-only" aria-live="polite" aria-atomic="true" data-graph-announce></p>
 
       <div
@@ -101,7 +106,10 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
               >
             <header data-layout-card-header>
               <div class="bo-layout-card-kicker">
-                <p class="bo-layout-card-id">{node_id(node)}</p>
+                <span class="bo-layout-card-idline">
+                  <span class="bo-layout-card-id">{node_id(node)}</span>
+                  <span :if={node_complexity(node)} class="bo-cx" title={"Complexity #{node_complexity(node)} of 5"}>Cx:{node_complexity(node)}</span>
+                </span>
                 <span :if={node_status_icon(node)} class="bo-layout-card-status">
                   <BuildOrderIcon.build_order_icon icon={node_status_icon(node)} />
                   <span>{node_status_text(node)}</span>
@@ -110,22 +118,11 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
               <h4>{node_title(node)}</h4>
             </header>
             <p :if={node_summary(node)}>{node_summary(node)}</p>
-            <dl :if={typed_node?(node)} class="bo-layout-card-facts">
-              <div>
-                <dt>Lane</dt>
-                <dd>
-                  <BuildOrderIcon.build_order_icon :if={node_lane_icon(node)} icon={node_lane_icon(node)} />
-                  {node_lane_label(node)}
-                </dd>
-              </div>
-              <div><dt>Phase</dt><dd>{node_phase_label(node)}</dd></div>
-              <div><dt>Lifecycle</dt><dd>{node_lifecycle(node)}</dd></div>
-              <div><dt>Readiness</dt><dd>{node_readiness(node)}</dd></div>
-              <div><dt>Execution</dt><dd>{node_execution(node)}</dd></div>
-              <div><dt>Agent stage</dt><dd>{node_agent_stage(node)}</dd></div>
-              <div><dt>Progress</dt><dd>{node_progress(node)}</dd></div>
-            </dl>
-            <p :if={typed_node?(node)} class="bo-layout-card-provenance mono">{node_provenance(node)}</p>
+            <p :if={typed_node?(node) && node_meta_line(node)} class="bo-layout-card-meta-line">{node_meta_line(node)}</p>
+            <div :if={typed_node?(node)} class="bo-layout-card-progress">
+              <span class="bo-bar" aria-hidden="true"><i style={node_progress_style(node)}></i></span>
+              <span class="bo-layout-card-pct">{node_progress(node)}</span>
+            </div>
             <ul :if={node_diagnostics(node) != []} class="bo-layout-card-warnings" aria-label="Metadata warnings">
               <li :for={warning <- node_diagnostics(node)}>{warning}</li>
             </ul>
@@ -268,8 +265,6 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
   defp typed_node?(%Node{}), do: true
   defp typed_node?(_node), do: false
 
-  defp node_lane_icon(%Node{lane_icon: icon}), do: icon
-  defp node_lane_icon(_node), do: nil
   defp node_status_icon(%Node{status_icon: icon}), do: icon
   defp node_status_icon(_node), do: nil
   defp node_status_text(%Node{card: %{status_text: text}}), do: safe_text(text, "Status unavailable")
@@ -286,13 +281,32 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
 
   defp node_phase_label(%Node{}), do: "Unphased"
 
-  defp node_lifecycle(%Node{card: %{lifecycle: %{state: state, state_reason: reason}}}) do
-    [label(state), reason_label(reason)] |> Enum.reject(&is_nil/1) |> Enum.join(" — ")
+  defp node_complexity(%Node{plan: %{complexity: complexity}}) when complexity in 1..5, do: complexity
+  defp node_complexity(_node), do: nil
+
+  defp node_meta_line(%Node{} = node) do
+    case Enum.reject([node_meta_phase(node), node_meta_stage(node)], &is_nil/1) do
+      [] -> nil
+      parts -> Enum.join(parts, " · ")
+    end
   end
 
-  defp node_lifecycle(%Node{}), do: "Lifecycle unavailable"
-  defp node_readiness(%Node{readiness: readiness}), do: label(readiness)
-  defp node_execution(%Node{card: %{execution_state: state}}), do: label(state)
+  defp node_meta_phase(%Node{card: %{phase: phase}}) when is_integer(phase) and phase > 0,
+    do: "Phase #{phase}"
+
+  defp node_meta_phase(%Node{}), do: nil
+
+  defp node_meta_stage(%Node{card: %{agent_stage: stage}})
+       when stage in [:brainstorm, :plan, :work, :review],
+       do: label(stage)
+
+  defp node_meta_stage(%Node{}), do: nil
+
+  defp node_progress_style(%Node{card: %{progress: percent}})
+       when is_integer(percent) and percent in 0..100,
+       do: "width:#{percent}%"
+
+  defp node_progress_style(%Node{}), do: "width:0%"
 
   defp node_agent_stage(%Node{card: %{agent_stage: stage}})
        when stage in [:brainstorm, :plan, :work, :review],
@@ -305,12 +319,6 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
        do: "#{percent}%"
 
   defp node_progress(%Node{}), do: "Progress unavailable"
-
-  defp node_provenance(%Node{provenance: provenance}) do
-    planning = Map.get(provenance, :planning_generation, :unknown)
-    activity = Map.get(provenance, :activity_generation, :unknown)
-    "planning gen #{planning} · activity gen #{activity}"
-  end
 
   defp node_diagnostics(%Node{diagnostics: diagnostics}) do
     Enum.flat_map(diagnostics, fn
@@ -416,6 +424,4 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
 
   defp label(value) when is_atom(value), do: value |> Atom.to_string() |> String.replace("_", " ") |> String.capitalize()
   defp label(_value), do: "Unavailable"
-  defp reason_label(reason) when reason in [nil, :none, :unknown], do: nil
-  defp reason_label(reason), do: label(reason)
 end
