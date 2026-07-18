@@ -84,6 +84,9 @@ defmodule AiurWeb.BuildOrderLive do
   def handle_info({:running_changed, _summaries}, socket),
     do: {:noreply, SourceRuntime.schedule_reload(socket)}
 
+  def handle_info({:build_order_adhoc_updated, _snapshot}, socket),
+    do: {:noreply, SourceRuntime.schedule_reload(socket)}
+
   def handle_info({event, %{identity: %TrackerIdentity{} = identity}}, socket)
       when event in [:ticket_detail_updated, :ticket_history_updated],
       do: {:noreply, ContextRuntime.refresh_for(socket, identity)}
@@ -166,6 +169,7 @@ defmodule AiurWeb.BuildOrderLive do
           :if={RouteState.route(@route_state) == :selected}
           route_state={@route_state}
           model={@model}
+          adhoc={@adhoc_overlay}
           now={@now}
         />
       </section>

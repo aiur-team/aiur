@@ -10,6 +10,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
 
   attr(:route_state, :any, required: true)
   attr(:model, :any, default: nil)
+  attr(:adhoc, :any, default: nil)
   attr(:now, :any, required: true)
 
   @spec build_order_selected(map()) :: Phoenix.LiveView.Rendered.t()
@@ -66,7 +67,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
           model={@model}
         />
 
-        <BuildOrderBreakdown.build_order_breakdown :if={@model.status != :empty} model={@model} />
+        <BuildOrderBreakdown.build_order_breakdown :if={@model.status != :empty} model={@model} adhoc={@adhoc} />
 
         <ul :if={@model.diagnostics != []} class="bo-diagnostics" aria-label="Build Order diagnostics">
           <li :for={diagnostic <- @model.diagnostics}>{diagnostic.text}</li>

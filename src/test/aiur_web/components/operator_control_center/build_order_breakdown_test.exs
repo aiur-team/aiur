@@ -4,6 +4,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdownTest do
   import Phoenix.LiveViewTest
 
   alias Aiur.BuildOrder.{Dependency, Member, ProviderHealth, RootSummary, SelectedRoot}
+  alias Aiur.BuildOrder.AdHocSource.Snapshot, as: AdHocSnapshot
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrderPresenter
@@ -115,7 +116,123 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdownTest do
     end
   end
 
+  describe "adhoc_projection/3" do
+    test "returns an unavailable overlay when the source is unavailable" do
+      assert BuildOrderBreakdown.adhoc_projection(:unavailable, no_execution(), no_activity()) ==
+               %{status: :unavailable, total: 0, rows: []}
+    end
+
+    test "reports a healthy empty overlay with no rows" do
+      projection = BuildOrderBreakdown.adhoc_projection(adhoc_snapshot([]), no_execution(), no_activity())
+
+      assert projection == %{status: :available, total: 0, rows: []}
+    end
+
+    test "orders pickup-phase buckets ascending with TBD last and joins live facts" do
+      snapshot =
+        adhoc_snapshot([
+          adhoc_member(30, phase: 6),
+          adhoc_member(20, lifecycle: :closed),
+          adhoc_member(10, phase: 1)
+        ])
+
+      execution = running_snapshot([identity(10)])
+      activity = activity_snapshot([activity(identity(10))])
+
+      projection = BuildOrderBreakdown.adhoc_projection(snapshot, execution, activity)
+
+      assert projection.status == :available
+      assert projection.total == 3
+      assert Enum.map(projection.rows, & &1.identifier) == ["10", "30", "20"]
+
+      [picked, later, tbd] = projection.rows
+      assert picked.phase == 1 and picked.running? and picked.progress == 10
+      assert later.phase == 6 and later.running? == false
+      assert tbd.phase == :unphased and tbd.lifecycle == :closed
+    end
+
+    test "keeps closed tickets visible and never folds them into core totals" do
+      snapshot = adhoc_snapshot([adhoc_member(40, phase: 2, cx: 4, lifecycle: :closed)])
+
+      core = BuildOrderBreakdown.projection(model([m(1, phase: 2, lane: "runtime", cx: 3)]))
+      overlay = BuildOrderBreakdown.adhoc_projection(snapshot, no_execution(), no_activity())
+
+      assert core.kpis.points == 3, "the ad hoc member's points never reach the core total"
+      assert [%{identifier: "40", lifecycle: :closed}] = overlay.rows
+    end
+
+    test "carries the named stale status without listing rows as fresh truth" do
+      projection = BuildOrderBreakdown.adhoc_projection(adhoc_snapshot([adhoc_member(1)], :stale), no_execution(), no_activity())
+
+      assert projection.status == :stale
+    end
+  end
+
+  describe "build_order_breakdown/1 with an ad hoc overlay" do
+    test "renders no ad hoc section when the overlay is absent" do
+      refute render_breakdown(model([m(1, phase: 1, lane: "runtime", cx: 3)])) =~ "bo-adhoc"
+    end
+
+    test "renders the accessible ad hoc epic with GitHub links, pickup phases, and a TBD row" do
+      snapshot = adhoc_snapshot([adhoc_member(10, phase: 1), adhoc_member(20, lifecycle: :closed)])
+      overlay = BuildOrderBreakdown.adhoc_projection(snapshot, running_snapshot([identity(10)]), activity_snapshot([activity(identity(10))]))
+
+      html = render_breakdown(model([m(1, phase: 1, lane: "runtime", cx: 3)]), overlay)
+
+      assert html =~ ~s(id="bo-adhoc-breakdown")
+      assert html =~ "Ad Hoc epic"
+      assert html =~ "excluded from the"
+      assert html =~ ~s(<th scope="col">Pickup phase</th>)
+      assert html =~ ~s(href="https://github.com/owner/repo/issues/10")
+      assert html =~ "Phase 1"
+      assert html =~ "TBD / not picked"
+      assert html =~ "Live agent"
+      assert html =~ "Closed"
+    end
+
+    test "shows the named stale state and no ad hoc table when the overlay is stale" do
+      overlay = BuildOrderBreakdown.adhoc_projection(adhoc_snapshot([adhoc_member(1)], :stale), no_execution(), no_activity())
+
+      html = render_breakdown(model([m(1, phase: 1, lane: "runtime", cx: 3)]), overlay)
+
+      assert html =~ "Ad Hoc overlay is stale"
+      refute html =~ ~s(id="bo-adhoc-breakdown")
+    end
+  end
+
   defp render_breakdown(model), do: render_component(&BuildOrderBreakdown.build_order_breakdown/1, model: model)
+
+  defp render_breakdown(model, adhoc),
+    do: render_component(&BuildOrderBreakdown.build_order_breakdown/1, model: model, adhoc: adhoc)
+
+  defp adhoc_snapshot(members, status \\ :available),
+    do: %AdHocSnapshot{status: status, generation: 1, observed_at: @now, members: members}
+
+  defp adhoc_member(number, opts \\ []) do
+    labels =
+      ["build-lane:adhoc"] ++
+        phase_labels(Keyword.get(opts, :phase)) ++ complexity_labels(Keyword.get(opts, :cx))
+
+    %{
+      identity: identity(number),
+      identifier: to_string(number),
+      title: "Ad hoc #{number}",
+      url: issue_url(number),
+      lifecycle: Keyword.get(opts, :lifecycle, :open),
+      labels: labels
+    }
+  end
+
+  defp phase_labels(nil), do: []
+  defp phase_labels(phase), do: ["phase:#{phase}"]
+  defp complexity_labels(nil), do: []
+  defp complexity_labels(cx), do: ["complexity:#{cx}"]
+
+  defp running_snapshot(identities),
+    do: %{running: Enum.map(identities, &%{tracker_identity: &1}), retrying: [], idle: []}
+
+  defp no_execution, do: %{running: [], retrying: [], idle: []}
+  defp no_activity, do: activity_snapshot([])
 
   defp row(rows, key), do: Enum.find(rows, &(&1.key == key))
 

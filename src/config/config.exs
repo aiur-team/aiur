@@ -33,6 +33,11 @@ if config_env() == :test do
   # default, but this singleton must not poll across sequential test boundaries.
   config :aiur, :orchestrator_initial_poll?, false
 
+  # The shared app's Ad Hoc overlay poller must not reach GitHub across
+  # sequential test boundaries; tests that exercise it start their own named
+  # instance with an injected request_fun.
+  config :aiur, :build_order_adhoc_poll?, false
+
   # Suite-global :log_file isolation. The :aiur app boots BEFORE
   # test/test_helper.exs runs (mix test starts apps first), and
   # Aiur.Events.IdGenerator persists <log_root>/<repo>.event_id during
