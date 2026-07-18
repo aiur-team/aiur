@@ -13,6 +13,11 @@ const MAX_BEND_POINTS = MAX_SECTION_POINTS - 2
 const MAX_ROUTE_POINTS = 8_000
 const MAX_DIAGNOSTICS = 10
 const MAX_DIMENSION = 4_096
+// Absolute layout positions grow with graph depth/breadth, so coordinates are
+// bounded independently of a single node's dimensions. The worker clamps raw
+// coordinates to MAX_COORDINATE and emits `raw + 1`, so the client accepts one
+// unit higher (mirrors the worker's MAX_COORDINATE, offset by that `+ 1`).
+const MAX_COORDINATE = 65_536
 const generatedIdPatterns = {
   request_: /^request_[1-9][0-9]*_[0-9]+$/,
   node_: /^node_[0-9]+$/,
@@ -378,7 +383,7 @@ function positiveDimension(value) {
 }
 
 function positiveCoordinate(value) {
-  return Number.isFinite(value) && value >= 1 && value <= MAX_DIMENSION
+  return Number.isFinite(value) && value >= 1 && value <= MAX_COORDINATE
 }
 
 function hasOnlyKeys(value, allowed) {
