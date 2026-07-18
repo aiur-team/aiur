@@ -578,6 +578,11 @@ defmodule Aiur.AgentRunner.QueueDrain do
     end
   end
 
+  defp maybe_broadcast_turn_completed(turn_id, issue) when is_binary(turn_id),
+    do: AgentPubSub.broadcast_turn_event(issue.identifier, :turn_completed, %{turn_id: turn_id})
+
+  defp maybe_broadcast_turn_completed(_turn_id, _issue), do: :ok
+
   defp run_recorded_queue_item_turn(
          app_session,
          issue,
@@ -644,9 +649,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
 
         :ok = Aiur.Orchestrator.consume_delivered_queue_items(orchestrator, issue.identifier)
 
-        if is_binary(turn_id) do
-          AgentPubSub.broadcast_turn_event(issue.identifier, :turn_completed, %{turn_id: turn_id})
-        end
+        maybe_broadcast_turn_completed(turn_id, issue)
 
         drain_operator_messages(
           app_session,
@@ -685,7 +688,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
 
         :ok
 
-      {:error, {:turn_start_failed, {:response_error, %{"code" => -32003}}}} ->
+      {:error, {:turn_start_failed, {:response_error, %{"code" => -32_003}}}} ->
         :ok = Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier)
 
         Logger.info(

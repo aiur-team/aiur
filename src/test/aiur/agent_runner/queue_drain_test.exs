@@ -293,7 +293,7 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
       refute_receive {:follow_up_turn, _other}
     end
 
-    test "a provider active-turn (-32003) rejection restores the queued message instead of failing it" do
+    test "a provider active-turn (-32_003) rejection restores the queued message instead of failing it" do
       identifier = "QD-active-turn-#{System.unique_integer([:positive])}"
       issue = %Issue{id: "gid-#{identifier}", identifier: identifier}
       item = %{category: :operator_message, id: 3, body: %{text: "active turn retry"}}
@@ -311,7 +311,7 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
                  nil,
                  telemetry_attempt_id: 3,
                  run_turn: fn _session, _text, _issue, _opts ->
-                   {:error, {:turn_start_failed, {:response_error, %{"code" => -32003}}}}
+                   {:error, {:turn_start_failed, {:response_error, %{"code" => -32_003}}}}
                  end
                )
 
