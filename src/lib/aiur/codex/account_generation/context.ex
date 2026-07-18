@@ -1,141 +1,56 @@
 defmodule Aiur.Codex.AccountGeneration.Context do
   @moduledoc false
 
-  alias Aiur.ProviderAccountGeneration
-  alias Aiur.ProviderAccountGeneration.Continuity
+  alias Aiur.ProviderAccountGeneration.Context, as: SharedContext
 
   @spec new_binding(GenServer.server()) :: map()
-  def new_binding(server) do
-    binding =
-      case ProviderAccountGeneration.issue_binding(server, :codex, :app_server) do
-        {:ok, binding} -> binding
-        {:error, _reason} -> Continuity.issue(server, :codex, :app_server)
-      end
+  def new_binding(server),
+    do: SharedContext.new_binding(:codex, :app_server, server)
 
-    context = make_ref()
-    Process.put(context_key(context), binding)
-    Process.put(server_key(context), server)
-    Map.put(binding, :context, context)
-  end
-
-  @spec fetch(map()) :: {:ok, GenServer.server(), reference(), reference(), String.t()} | :error
-  def fetch(%{account_generation_context: context} = session) when is_reference(context) do
-    case current(context) do
-      {:ok, %{binding: binding, authority: authority, topic: topic}} ->
-        {:ok, Map.get(session, :account_generation_server, ProviderAccountGeneration), binding, authority, topic}
-
-      :error ->
-        :error
-    end
-  end
-
-  def fetch(_session), do: :error
+  @spec fetch(map()) ::
+          {:ok, GenServer.server(), reference(), reference(), String.t()} | :error
+  def fetch(session), do: SharedContext.fetch(session)
 
   @spec clear(map()) :: :ok
-  def clear(%{account_generation_context: context}) when is_reference(context) do
-    forget_continuity(context)
-    Process.put(context_key(context), :cleared)
-    :ok
-  end
-
-  def clear(_session), do: :ok
+  def clear(session),
+    do: SharedContext.clear(:codex, :app_server, session)
 
   @spec put_auth_mode(map(), String.t()) :: :ok
-  def put_auth_mode(%{account_generation_context: context}, auth_mode) when is_reference(context) and is_binary(auth_mode) do
-    case current(context) do
-      {:ok, binding} -> Process.put(context_key(context), Map.put(binding, :auth_mode, auth_mode))
-      :error -> :ok
-    end
-
-    :ok
-  end
+  def put_auth_mode(session, auth_mode) when is_binary(auth_mode),
+    do: SharedContext.put(session, :auth_mode, auth_mode)
 
   def put_auth_mode(_session, _auth_mode), do: :ok
 
   @spec auth_mode(map()) :: String.t() | nil
-  def auth_mode(%{account_generation_context: context}) when is_reference(context) do
-    case current(context) do
-      {:ok, binding} -> Map.get(binding, :auth_mode)
-      :error -> nil
+  def auth_mode(session) do
+    case SharedContext.value(session, :auth_mode) do
+      auth_mode when is_binary(auth_mode) -> auth_mode
+      _other -> nil
     end
   end
-
-  def auth_mode(_session), do: nil
 
   @spec clear_auth_mode(map()) :: :ok
-  def clear_auth_mode(%{account_generation_context: context}) when is_reference(context) do
-    case current(context) do
-      {:ok, binding} -> Process.put(context_key(context), Map.delete(binding, :auth_mode))
-      :error -> :ok
-    end
-
-    :ok
-  end
-
-  def clear_auth_mode(_session), do: :ok
+  def clear_auth_mode(session),
+    do: SharedContext.delete(session, :auth_mode)
 
   @spec put_rate_limit_ids(map(), [String.t()]) :: :ok
-  def put_rate_limit_ids(%{account_generation_context: context}, ids)
-      when is_reference(context) and is_list(ids) do
-    if Enum.all?(ids, &is_binary/1) do
-      case current(context) do
-        {:ok, binding} -> Process.put(context_key(context), Map.put(binding, :rate_limit_ids, ids))
-        :error -> :ok
-      end
-    end
-
-    :ok
+  def put_rate_limit_ids(session, ids) when is_list(ids) do
+    if Enum.all?(ids, &is_binary/1),
+      do: SharedContext.put(session, :rate_limit_ids, ids),
+      else: :ok
   end
 
   def put_rate_limit_ids(_session, _ids), do: :ok
 
   @spec single_rate_limit_id(map()) :: String.t() | nil
-  def single_rate_limit_id(%{account_generation_context: context}) when is_reference(context) do
-    case current(context) do
-      {:ok, %{rate_limit_ids: [limit_id]}} when is_binary(limit_id) -> limit_id
-      _ -> nil
+  def single_rate_limit_id(session) do
+    case SharedContext.value(session, :rate_limit_ids) do
+      [limit_id] when is_binary(limit_id) -> limit_id
+      _other -> nil
     end
   end
-
-  def single_rate_limit_id(_session), do: nil
 
   @spec clear_rate_limit_ids(map()) :: :ok
-  def clear_rate_limit_ids(%{account_generation_context: context}) when is_reference(context) do
-    case current(context) do
-      {:ok, binding} -> Process.put(context_key(context), Map.delete(binding, :rate_limit_ids))
-      :error -> :ok
-    end
-
-    :ok
-  end
-
-  def clear_rate_limit_ids(_session), do: :ok
-
-  defp current(context) do
-    case Process.get(context_key(context)) do
-      %{binding: binding, authority: authority, topic: topic} = retained
-      when is_reference(binding) and is_reference(authority) and is_binary(topic) ->
-        {:ok,
-         %{
-           binding: binding,
-           authority: authority,
-           topic: topic,
-           auth_mode: Map.get(retained, :auth_mode),
-           rate_limit_ids: Map.get(retained, :rate_limit_ids)
-         }}
-
-      _ ->
-        :error
-    end
-  end
-
-  defp forget_continuity(context) do
-    with {:ok, %{binding: binding}} <- current(context),
-         server <- Process.get(server_key(context), ProviderAccountGeneration) do
-      Continuity.forget(Continuity.service_id(server), {:codex, :app_server, binding})
-    end
-  end
-
-  defp context_key(context), do: {Aiur.Codex.AccountGeneration, :binding_context, context}
-  defp server_key(context), do: {Aiur.Codex.AccountGeneration, :binding_context_server, context}
+  def clear_rate_limit_ids(session),
+    do: SharedContext.delete(session, :rate_limit_ids)
 end
