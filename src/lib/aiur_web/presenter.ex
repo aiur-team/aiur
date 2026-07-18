@@ -17,6 +17,10 @@ defmodule AiurWeb.Presenter do
     |> Map.merge(auxiliary_payload(opts))
   end
 
+  @doc "Returns the current dashboard navigation contract for telemetry analytics."
+  @spec analytics_navigation(keyword()) :: map()
+  def analytics_navigation(opts \\ []), do: analytics_payload(opts)
+
   defp orchestrator_payload(orchestrator, snapshot_timeout_ms) do
     case Orchestrator.snapshot(orchestrator, snapshot_timeout_ms) do
       %{} = snapshot ->
@@ -31,7 +35,8 @@ defmodule AiurWeb.Presenter do
           running: Enum.map(snapshot.running, &running_entry_payload/1),
           retrying: Enum.map(snapshot.retrying, &retry_entry_payload/1),
           idle: Enum.map(idle, &idle_entry_payload/1),
-          agent_totals: public_agent_totals(snapshot.agent_totals)
+          agent_totals: public_agent_totals(snapshot.agent_totals),
+          capacity: capacity_payload(Map.get(snapshot, :capacity))
         }
 
       :timeout ->
@@ -437,6 +442,28 @@ defmodule AiurWeb.Presenter do
     do: %{seconds_running: Map.get(totals, :seconds_running, 0)}
 
   defp public_agent_totals(_totals), do: %{seconds_running: 0}
+
+  # The authoritative runtime max-agent capacity as returned by
+  # `Aiur.Orchestrator.Slots.max_concurrent_agent_status/1`. Only positive
+  # integer facts are surfaced; anything else is treated as absent so the
+  # dashboard labels it unknown rather than deriving capacity from rows.
+  defp capacity_payload(%{} = capacity) do
+    %{
+      active: non_negative_integer(Map.get(capacity, :active)),
+      max: positive_integer(Map.get(capacity, :max)),
+      configured: positive_integer(Map.get(capacity, :configured)),
+      session_override?: Map.get(capacity, :session_override?) == true,
+      draining?: Map.get(capacity, :draining?) == true
+    }
+  end
+
+  defp capacity_payload(_capacity), do: nil
+
+  defp positive_integer(value) when is_integer(value) and value > 0, do: value
+  defp positive_integer(_value), do: nil
+
+  defp non_negative_integer(value) when is_integer(value) and value >= 0, do: value
+  defp non_negative_integer(_value), do: nil
 
   defp retry_issue_payload(retry) do
     %{

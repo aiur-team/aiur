@@ -176,6 +176,21 @@ defmodule AiurWeb.BuildOrder.TicketContextSelectionTest do
     assert Enum.all?(state.history, &(&1 in [identity(1), identity(2)]))
   end
 
+  test "refresh retains the exact selection while invalidating its prior completion" do
+    graph = model(100, 7, [1, 2])
+    opened = Selection.open(selection(), graph, navigation(graph, 1))
+    refreshed = Selection.refresh(opened)
+
+    assert refreshed.status == :open
+    assert refreshed.selected == opened.selected
+    assert refreshed.history == opened.history
+    assert refreshed.root_key == opened.root_key
+    assert refreshed.generation == opened.generation
+    refute refreshed.request_token == opened.request_token
+    refute Selection.current_completion?(refreshed, opened.request_token, opened.selected)
+    assert Selection.current_completion?(refreshed, refreshed.request_token, opened.selected)
+  end
+
   defp model(root_number, generation, members) do
     root = identity(root_number)
 

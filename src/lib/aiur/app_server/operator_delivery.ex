@@ -39,6 +39,17 @@ defmodule Aiur.AppServer.OperatorDelivery do
   end
 
   @spec maybe_process_safe_checkpoint(map(), map(), map()) :: map()
+  # Single-writer lock. While a parent provider turn is live, sending another
+  # `turn/start` on the same thread makes aiur-claude spawn a second concurrent
+  # CLI writer in the shared workspace. Never claim or deliver a checkpoint item
+  # while `outstanding_turns > 0`; the item stays pending and the turn-boundary
+  # drain delivers it after the parent turn ends. Blocker-critical urgency is
+  # carried by the acknowledged `turn/interrupt` steering primitive instead.
+  def maybe_process_safe_checkpoint(_session, %{outstanding_turns: outstanding} = state, _checkpoint)
+      when is_integer(outstanding) and outstanding > 0 do
+    state
+  end
+
   def maybe_process_safe_checkpoint(session, state, checkpoint) do
     case state.on_safe_checkpoint.(checkpoint) do
       :noop ->

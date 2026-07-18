@@ -22,6 +22,7 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistryTest do
              description: "Current Executor activity and durable outcomes.",
              path: "/",
              type: :live,
+             owner: :dashboard,
              availability: :available,
              active_actions: [:index]
            }
@@ -53,6 +54,20 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistryTest do
     assert %{id: :units} = RouteRegistry.current_route(:unknown)
   end
 
+  test "uses patches only within one LiveView owner" do
+    analytics = %{available?: true}
+    {:ok, units} = RouteRegistry.route(:units, analytics)
+    {:ok, commands} = RouteRegistry.route(:commands, analytics)
+    {:ok, build_order} = RouteRegistry.route(:build_order, analytics)
+    {:ok, analytics_route} = RouteRegistry.route(:analytics, analytics)
+
+    assert RouteRegistry.navigation_mode(units, commands) == :patch
+    assert RouteRegistry.navigation_mode(build_order, build_order) == :patch
+    assert RouteRegistry.navigation_mode(units, build_order) == :navigate
+    assert RouteRegistry.navigation_mode(build_order, units) == :navigate
+    assert RouteRegistry.navigation_mode(units, analytics_route) == :document
+  end
+
   test "preserves shareable retained-page state without exposing it to non-All filters" do
     assert DecisionPath.inbox(:all, %{search: "AIUR-42", cursor: "opaque"}) ==
              "/decisions?cursor=opaque&search=AIUR-42"
@@ -63,11 +78,14 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistryTest do
     assert DecisionPath.inbox(:all, %{search: "", ignored: "secret"}) == "/decisions"
   end
 
-  test "makes the future Build Order destination named but non-navigable" do
+  test "registers the Build Order catalog and selected actions as one live owner" do
     assert {:ok, build_order} = RouteRegistry.route(:build_order, %{})
     assert build_order.path == "/build-orders"
-    assert build_order.availability == :unavailable
-    refute RouteRegistry.available?(build_order)
-    refute RouteRegistry.active?(build_order, :index)
+    assert build_order.availability == :available
+    assert build_order.owner == :build_order
+    assert build_order.active_actions == [:build_orders, :build_order]
+    assert RouteRegistry.available?(build_order)
+    assert RouteRegistry.active?(build_order, :build_orders)
+    assert RouteRegistry.active?(build_order, :build_order)
   end
 end

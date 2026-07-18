@@ -146,6 +146,17 @@ defmodule Aiur.AgentRunner.CheckpointDelivery do
     Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item_id)
   end
 
+  # Provider `active turn` rejection (JSON-RPC -32_003). Defensive parity with the
+  # turn-boundary drain: the single-writer guard already stops the safe-checkpoint
+  # path from sending a `turn/start` during a live parent turn, so this clause is a
+  # belt-and-suspenders net. If a checkpoint delivery ever does reach the provider
+  # and is rejected as active, the durable item is restored to pending — never
+  # marked failed or dropped.
+  defp handle_checkpoint_delivery_failure(issue, orchestrator, item_id, {:response_error, %{"code" => -32_003}}) do
+    Logger.info("Queued item delivery hit provider active turn for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{item_id} decision=restore_pending reason=active_turn")
+    Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item_id)
+  end
+
   defp handle_checkpoint_delivery_failure(issue, orchestrator, item_id, reason) do
     Logger.info("Queued item delivery failed for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{item_id} decision=mark_failed reason=#{inspect(reason)}")
     Aiur.Orchestrator.mark_queue_item_failed(orchestrator, item_id, reason)

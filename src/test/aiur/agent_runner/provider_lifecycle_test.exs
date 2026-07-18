@@ -245,8 +245,10 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
             if [ "$turn_start_count" -eq 1 ]; then
               printf '{"id":%s,"result":{"turn":{"id":"turn-main","status":"inProgress"}}}\n' "$request_id"
               printf '%s\n' '{"method":"turn/plan/updated","params":{"plan":[{"step":"checkpoint"}]}}'
+              printf '%s\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-main","status":"completed"}}}'
             else
-              printf '{"id":%s,"result":{"turn":{"id":"turn-main","status":"completed"}}}\n' "$request_id"
+              printf '{"id":%s,"result":{"turn":{"id":"turn-followup","status":"inProgress"}}}\n' "$request_id"
+              printf '%s\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-followup","status":"completed"}}}'
             fi
             ;;
     """)

@@ -2532,7 +2532,7 @@ defmodule Aiur.CoreTest do
     """
   end
 
-  test "agent runner delivers queued operator messages from a sub-turn checkpoint" do
+  test "agent runner delivers queued operator messages at the turn boundary after a deferred checkpoint" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -2578,10 +2578,11 @@ defmodule Aiur.CoreTest do
               request_id=$(printf '%s' "$line" | sed -n 's/.*"id":\\([0-9][0-9]*\\).*/\\1/p')
               printf '{"id":%s,"result":{"turn":{"id":"turn-checkpoint-main"}}}\\n' "$request_id"
               printf '%s\\n' '{"method":"turn/plan/updated","params":{"plan":[{"step":"keep going"}]}}'
+              printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-checkpoint-main","status":"completed"}}}'
             else
               request_id=$(printf '%s' "$line" | sed -n 's/.*"id":\\([0-9][0-9]*\\).*/\\1/p')
               printf '{"id":%s,"result":{"turn":{"id":"turn-accepted-steering","status":"inProgress"}}}\\n' "$request_id"
-              printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-checkpoint-main","status":"completed"}}}'
+              printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-accepted-steering","status":"completed"}}}'
               exit 0
             fi
             ;;
@@ -3157,6 +3158,7 @@ defmodule Aiur.CoreTest do
               1)
                 printf '{"id":%s,"result":{"turn":{"id":"turn-main"}}}\\n' "$request_id"
                 printf '%s\\n' '{"method":"turn/plan/updated","params":{"plan":[{"step":"checkpoint"}]}}'
+                printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-main","status":"completed"}}}'
                 ;;
               2)
                 printf '{"id":%s,"result":{"turn":{"id":"turn-checkpoint-abc"}}}\\n' "$request_id"
@@ -3231,7 +3233,23 @@ defmodule Aiur.CoreTest do
         end)
 
       assert_receive {:codex_worker_update, "issue-checkpoint-requeue", %{event: :session_started}}, 5_000
-      Process.sleep(50)
+
+      # Single-writer boundary delivery: "abc" is no longer delivered on
+      # turn-main's mid-turn checkpoint; it lands as a follow-up turn after
+      # turn-main completes. Wait for that deferred turn/start before pausing so
+      # the pause interrupts it (and restore_delivered_queue_items requeues it).
+      Enum.reduce_while(1..500, nil, fn _, _ ->
+        starts =
+          case File.read(trace_file) do
+            {:ok, c} ->
+              c |> String.split("\n") |> Enum.count(&String.contains?(&1, ~s("method":"turn/start")))
+
+            _ ->
+              0
+          end
+
+        if starts >= 2, do: {:halt, :ok}, else: Process.sleep(10) && {:cont, nil}
+      end)
 
       send(task.pid, {:pause_agent, 92})
 

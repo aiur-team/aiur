@@ -21,7 +21,12 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
           <img class="brand-mini-logo" src="/aiur-logo.png" alt="" />
           <span class="brand-wordmark"><b>aiur</b> / Executor Control Center</span>
         </a>
-        <.navigation routes={@routes} current_route={@route} class="shell-nav shell-nav-sidebar" />
+        <.navigation
+          routes={@routes}
+          current_route={@route}
+          class="shell-nav shell-nav-sidebar"
+          label="Control Center sidebar routes"
+        />
       </aside>
 
       <div class="shell-main">
@@ -48,7 +53,12 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
         </div>
       </div>
 
-      <.navigation routes={@routes} current_route={@route} class="shell-nav shell-nav-mobile" />
+      <.navigation
+        routes={@routes}
+        current_route={@route}
+        class="shell-nav shell-nav-mobile"
+        label="Control Center mobile routes"
+      />
     </section>
     """
   end
@@ -56,27 +66,41 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
   attr(:routes, :list, required: true)
   attr(:current_route, :map, required: true)
   attr(:class, :string, required: true)
+  attr(:label, :string, required: true)
 
   defp navigation(assigns) do
     ~H"""
-    <nav class={@class} aria-label="Control Center routes">
+    <nav class={@class} aria-label={@label}>
       <%= for route <- @routes do %>
-        <.route_item route={route} active={route.id == @current_route.id} />
+        <.route_item route={route} current_route={@current_route} active={route.id == @current_route.id} />
       <% end %>
     </nav>
     """
   end
 
   attr(:route, :map, required: true)
+  attr(:current_route, :map, required: true)
   attr(:active, :boolean, required: true)
 
   defp route_item(assigns) do
-    assigns = assign(assigns, :available, RouteRegistry.available?(assigns.route))
+    assigns =
+      assigns
+      |> assign(:available, RouteRegistry.available?(assigns.route))
+      |> assign(:navigation_mode, RouteRegistry.navigation_mode(assigns.current_route, assigns.route))
 
     ~H"""
     <.link
-      :if={@available and RouteRegistry.live?(@route)}
+      :if={@available and RouteRegistry.live?(@route) and @navigation_mode == :patch}
       patch={@route.path}
+      class={["shell-nav-item", @active && "is-active"]}
+      aria-current={if @active, do: "page"}
+    >
+      <span class="shell-nav-icon" aria-hidden="true">{@route.icon}</span>
+      <span class="shell-nav-label">{@route.label}</span>
+    </.link>
+    <.link
+      :if={@available and RouteRegistry.live?(@route) and @navigation_mode == :navigate}
+      navigate={@route.path}
       class={["shell-nav-item", @active && "is-active"]}
       aria-current={if @active, do: "page"}
     >
