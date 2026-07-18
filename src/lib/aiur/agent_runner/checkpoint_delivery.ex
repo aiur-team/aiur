@@ -10,6 +10,7 @@ defmodule Aiur.AgentRunner.CheckpointDelivery do
   require Logger
 
   alias Aiur.AgentRunner.{EventsDigest, QueueDrain}
+  alias Aiur.Codex.SessionRecovery
   alias Aiur.Issue
 
   # Mid-turn delivery for the persistent-REPL backend: when an Executor
@@ -45,36 +46,36 @@ defmodule Aiur.AgentRunner.CheckpointDelivery do
   end
 
   @doc false
-  @spec safe_checkpoint_handler(Issue.t(), GenServer.server(), GenServer.server()) :: fun()
-  def safe_checkpoint_handler(issue, orchestrator, decision_store \\ Aiur.DecisionStore) do
+  @spec safe_checkpoint_handler(Issue.t(), GenServer.server(), String.t(), GenServer.server()) :: fun()
+  def safe_checkpoint_handler(issue, orchestrator, backend, decision_store \\ Aiur.DecisionStore) do
     fn checkpoint ->
       case claim_blocker_critical_events_digest(orchestrator, issue.identifier) do
         {:ok, item} ->
-          urgent_checkpoint_delivery(issue, orchestrator, item, checkpoint, decision_store)
+          urgent_checkpoint_delivery(issue, orchestrator, item, checkpoint, backend, decision_store)
 
         :empty ->
-          fallback_checkpoint_claim(issue, orchestrator, checkpoint, decision_store)
+          fallback_checkpoint_claim(issue, orchestrator, checkpoint, backend, decision_store)
       end
     end
   end
 
-  defp fallback_checkpoint_claim(issue, orchestrator, checkpoint, decision_store) do
+  defp fallback_checkpoint_claim(issue, orchestrator, checkpoint, backend, decision_store) do
     case claim_next_checkpoint_queue_item(orchestrator, issue.identifier) do
       {:ok, item} ->
-        safe_checkpoint_delivery(issue, orchestrator, item, checkpoint, decision_store)
+        safe_checkpoint_delivery(issue, orchestrator, item, checkpoint, backend, decision_store)
 
       :empty ->
         :noop
     end
   end
 
-  defp urgent_checkpoint_delivery(issue, orchestrator, item, checkpoint, decision_store) do
+  defp urgent_checkpoint_delivery(issue, orchestrator, item, checkpoint, backend, decision_store) do
     Logger.info("Urgent blocker-critical events delivered mid-turn for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{item.id} checkpoint=#{inspect(checkpoint)}")
 
     case QueueDrain.record_operator_delivery(item, issue, decision_store) do
       :ok ->
         text = render_urgent_events_digest(item)
-        {:deliver_text, text, fn _payload -> :ok end, fn reason -> handle_checkpoint_delivery_failure(issue, orchestrator, item.id, reason) end}
+        {:deliver_text, text, fn _payload -> :ok end, fn reason -> handle_checkpoint_delivery_failure(issue, orchestrator, item.id, backend, reason) end}
 
       {:error, outcome} ->
         QueueDrain.settle_operator_delivery_failure(orchestrator, item, outcome)
@@ -106,14 +107,14 @@ defmodule Aiur.AgentRunner.CheckpointDelivery do
     end
   end
 
-  defp safe_checkpoint_delivery(issue, orchestrator, item, checkpoint, decision_store) do
+  defp safe_checkpoint_delivery(issue, orchestrator, item, checkpoint, backend, decision_store) do
     Logger.info("Queueing Executor message into active turn for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{item.id} checkpoint=#{inspect(checkpoint)}")
 
     case QueueDrain.record_operator_delivery(item, issue, decision_store) do
       :ok ->
         {:deliver_text, QueueDrain.queue_item_text(item), fn _payload -> :ok end,
          fn reason ->
-           handle_checkpoint_delivery_failure(issue, orchestrator, item.id, reason)
+           handle_checkpoint_delivery_failure(issue, orchestrator, item.id, backend, reason)
          end}
 
       {:error, outcome} ->
@@ -122,24 +123,48 @@ defmodule Aiur.AgentRunner.CheckpointDelivery do
     end
   end
 
-  defp handle_checkpoint_delivery_failure(issue, orchestrator, item_id, :parent_turn_completed) do
+  defp handle_checkpoint_delivery_failure(issue, orchestrator, item_id, _backend, :parent_turn_completed) do
     Logger.info("Queued item delivery lost completion race for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{item_id} decision=requeue_after_parent_turn_completed")
     Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item_id)
   end
 
-  defp handle_checkpoint_delivery_failure(_issue, orchestrator, item_id, {:turn_interrupted, _payload}) do
+  defp handle_checkpoint_delivery_failure(_issue, orchestrator, item_id, _backend, {:turn_interrupted, _payload}) do
     Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item_id)
   end
 
-  defp handle_checkpoint_delivery_failure(_issue, orchestrator, item_id, {:turn_cancelled, _payload}) do
+  defp handle_checkpoint_delivery_failure(_issue, orchestrator, item_id, _backend, {:turn_cancelled, _payload}) do
     Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item_id)
   end
 
-  defp handle_checkpoint_delivery_failure(_issue, orchestrator, item_id, {:provider_turn_retired, _turn_id}) do
+  defp handle_checkpoint_delivery_failure(_issue, orchestrator, item_id, _backend, {:provider_turn_retired, _turn_id}) do
     Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item_id)
   end
 
-  defp handle_checkpoint_delivery_failure(issue, orchestrator, item_id, reason) do
+  # A recoverable Codex transport loss (closed port, port exit, or exact
+  # active-turn desync) while writing a mid-turn checkpoint must NOT fail the
+  # claimed item. The same closed port fails the surrounding turn, which
+  # restores delivered work and forces a fresh Codex session; restore this
+  # checkpoint item to pending too so that replacement session redelivers it
+  # exactly once. Marking it failed here (issue #1238) stranded the instruction
+  # because the later target-wide sweep only restores `:delivered` items.
+  # Claude and genuine provider failures keep the mark-failed behavior below.
+  defp handle_checkpoint_delivery_failure(issue, orchestrator, item_id, "codex", reason) do
+    if SessionRecovery.recoverable?(reason) do
+      Logger.info(
+        "Queued item delivery hit a recoverable Codex transport loss for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{item_id} decision=restore_for_fresh_session reason=#{inspect(reason)}"
+      )
+
+      Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item_id)
+    else
+      mark_checkpoint_item_failed(issue, orchestrator, item_id, reason)
+    end
+  end
+
+  defp handle_checkpoint_delivery_failure(issue, orchestrator, item_id, _backend, reason) do
+    mark_checkpoint_item_failed(issue, orchestrator, item_id, reason)
+  end
+
+  defp mark_checkpoint_item_failed(issue, orchestrator, item_id, reason) do
     Logger.info("Queued item delivery failed for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{item_id} decision=mark_failed reason=#{inspect(reason)}")
     Aiur.Orchestrator.mark_queue_item_failed(orchestrator, item_id, reason)
   end

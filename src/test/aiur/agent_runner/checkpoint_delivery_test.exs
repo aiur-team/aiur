@@ -140,9 +140,9 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
     end
   end
 
-  describe "safe_checkpoint_handler/2" do
+  describe "safe_checkpoint_handler/4" do
     test "returns a one-arity function" do
-      handler = CheckpointDelivery.safe_checkpoint_handler(issue(), self())
+      handler = CheckpointDelivery.safe_checkpoint_handler(issue(), self(), "codex")
       assert is_function(handler, 1)
     end
 
@@ -150,7 +150,7 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
       event = %{id: 9, topic: "ticket.CD.agent.progress", message: "blocker critical text"}
       item = %{id: 7, body: %{events: [event]}, target_issue_identifier: "CD-DIGEST"}
       orch = start_fake(blocker: {:ok, item})
-      handler = CheckpointDelivery.safe_checkpoint_handler(issue(), orch)
+      handler = CheckpointDelivery.safe_checkpoint_handler(issue(), orch, "codex")
 
       assert {:deliver_text, text, _success, failure} = handler.(%{safe: :checkpoint})
       assert text =~ ~s(<aiur:events urgent="true">)
@@ -164,7 +164,7 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
     test "urgent digest falls back to queue_item_text for an item carrying no events" do
       item = %{category: :operator_message, id: 11, body: %{text: "urgent operator text"}}
       orch = start_fake(blocker: {:ok, item})
-      handler = CheckpointDelivery.safe_checkpoint_handler(issue(), orch)
+      handler = CheckpointDelivery.safe_checkpoint_handler(issue(), orch, "codex")
 
       assert {:deliver_text, "urgent operator text", _s, _f} = handler.(:checkpoint)
     end
@@ -172,7 +172,7 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
     test "a blocker claim error is treated as empty and falls through to the checkpoint queue" do
       item = %{category: :operator_message, id: 8, body: %{text: "checkpoint text"}}
       orch = start_fake(blocker: {:error, :unavailable}, checkpoint: {:ok, item})
-      handler = CheckpointDelivery.safe_checkpoint_handler(issue(), orch)
+      handler = CheckpointDelivery.safe_checkpoint_handler(issue(), orch, "codex")
 
       assert {:deliver_text, "checkpoint text", _s, failure} = handler.(:checkpoint)
 
@@ -184,7 +184,7 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
     test "a turn-cancelled failure restores the checkpoint item to pending" do
       item = %{category: :operator_message, id: 21, body: %{text: "cp"}}
       orch = start_fake(checkpoint: {:ok, item})
-      handler = CheckpointDelivery.safe_checkpoint_handler(issue(), orch)
+      handler = CheckpointDelivery.safe_checkpoint_handler(issue(), orch, "codex")
 
       assert {:deliver_text, "cp", _s, failure} = handler.(:checkpoint)
 
@@ -195,7 +195,7 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
     test "a late response for retired provider work restores the checkpoint item" do
       item = %{category: :operator_message, id: 23, body: %{text: "cp"}}
       orch = start_fake(checkpoint: {:ok, item})
-      handler = CheckpointDelivery.safe_checkpoint_handler(issue(), orch)
+      handler = CheckpointDelivery.safe_checkpoint_handler(issue(), orch, "codex")
 
       assert {:deliver_text, "cp", _success, failure} = handler.(:checkpoint)
 
@@ -207,7 +207,7 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
       item = correlated_item(22)
       orch = start_fake(checkpoint: {:ok, item})
       decision_store = start_decision_store({:ok, :accepted})
-      handler = CheckpointDelivery.safe_checkpoint_handler(issue(), orch, decision_store)
+      handler = CheckpointDelivery.safe_checkpoint_handler(issue(), orch, "codex", decision_store)
 
       assert {:deliver_text, "durable answer", _success, _failure} = handler.(:checkpoint)
       assert_receive {:decision_delivery, 22}
@@ -216,7 +216,7 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
     test "an unrecognized delivery failure marks the checkpoint item failed" do
       item = %{category: :operator_message, id: 33, body: %{text: "cp"}}
       orch = start_fake(checkpoint: {:ok, item})
-      handler = CheckpointDelivery.safe_checkpoint_handler(issue(), orch)
+      handler = CheckpointDelivery.safe_checkpoint_handler(issue(), orch, "codex")
 
       assert {:deliver_text, "cp", _s, failure} = handler.(:checkpoint)
 
@@ -224,16 +224,64 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
       assert_receive {:mark_failed, 33, {:some_other, :boom}}
     end
 
+    # #1238: a closed Codex app-server port during the mid-turn checkpoint
+    # `turn/start` write must NOT permanently fail the claimed instruction. The
+    # surrounding turn dies on the same port and forces a fresh session; the
+    # checkpoint item is restored to pending so that replacement session
+    # redelivers it exactly once.
+    test "a recoverable Codex transport loss restores the checkpoint item for a fresh session" do
+      item = %{category: :operator_message, id: 41, body: %{text: "survive closed checkpoint"}}
+      orch = start_fake(checkpoint: {:ok, item})
+      handler = CheckpointDelivery.safe_checkpoint_handler(issue(), orch, "codex")
+
+      assert {:deliver_text, "survive closed checkpoint", _s, failure} = handler.(:checkpoint)
+
+      failure.(:port_closed)
+      assert_receive {:restore, 41}
+      refute_receive {:mark_failed, 41, _reason}, 100
+    end
+
+    test "wrapped closed-start and exact active-turn mismatch also restore the codex checkpoint item" do
+      mismatch =
+        {:turn_interrupt_failed, %{"code" => -32_600, "message" => "expected active turn id queued-turn but found prior-turn"}}
+
+      for {id, reason} <- [{42, {:turn_start_failed, :port_closed}}, {43, mismatch}] do
+        item = %{category: :operator_message, id: id, body: %{text: "cp"}}
+        orch = start_fake(checkpoint: {:ok, item})
+        handler = CheckpointDelivery.safe_checkpoint_handler(issue(), orch, "codex")
+
+        assert {:deliver_text, "cp", _s, failure} = handler.(:checkpoint)
+
+        failure.(reason)
+        assert_receive {:restore, ^id}
+        refute_receive {:mark_failed, ^id, _reason}, 100
+      end
+    end
+
+    test "a Claude checkpoint transport failure still marks the item failed" do
+      item = %{category: :operator_message, id: 44, body: %{text: "do not replay"}}
+      orch = start_fake(checkpoint: {:ok, item})
+      handler = CheckpointDelivery.safe_checkpoint_handler(issue(), orch, "claude")
+
+      assert {:deliver_text, "do not replay", _s, failure} = handler.(:checkpoint)
+
+      # Claude retains the existing mark-failed behavior: the codex recovery
+      # policy must not widen to other backends.
+      failure.(:port_closed)
+      assert_receive {:mark_failed, 44, :port_closed}
+      refute_receive {:restore, 44}, 100
+    end
+
     test "noops when both the blocker and checkpoint queues are empty" do
       orch = start_fake(blocker: :empty, checkpoint: :empty)
-      handler = CheckpointDelivery.safe_checkpoint_handler(issue(), orch)
+      handler = CheckpointDelivery.safe_checkpoint_handler(issue(), orch, "codex")
 
       assert handler.(:checkpoint) == :noop
     end
 
     test "a checkpoint claim error is treated as empty (noop)" do
       orch = start_fake(blocker: :empty, checkpoint: {:error, :unavailable})
-      handler = CheckpointDelivery.safe_checkpoint_handler(issue(), orch)
+      handler = CheckpointDelivery.safe_checkpoint_handler(issue(), orch, "codex")
 
       assert handler.(:checkpoint) == :noop
     end

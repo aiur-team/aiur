@@ -1,6 +1,7 @@
 defmodule Aiur.AppServer.OperatorDeliveryTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.AgentRunner.CheckpointDelivery
   alias Aiur.AppServer.OperatorDelivery
 
   defmodule StubBackend do
@@ -10,6 +11,37 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
     end
 
     def metadata_from_message(_port, _payload), do: %{backend: :stub}
+  end
+
+  # Serves a single checkpoint item to the real safe-checkpoint handler and
+  # forwards the restore/mark-failed settlement calls back to the test process,
+  # so the closed-port delivery outcome can be asserted through the actual
+  # driver path without standing up the full orchestrator.
+  defmodule CheckpointOrchestrator do
+    use GenServer
+
+    def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
+
+    @impl true
+    def init(opts),
+      do: {:ok, %{report: Keyword.fetch!(opts, :report), checkpoint: Keyword.fetch!(opts, :checkpoint)}}
+
+    @impl true
+    def handle_call({:claim_blocker_critical_events_digest, _id}, _from, state),
+      do: {:reply, :empty, state}
+
+    def handle_call({:claim_next_checkpoint_queue_item, _id}, _from, state),
+      do: {:reply, state.checkpoint, state}
+
+    def handle_call({:restore_queue_item_pending, item_id}, _from, state) do
+      send(state.report, {:restore, item_id})
+      {:reply, :ok, state}
+    end
+
+    def handle_call({:mark_queue_item_failed, item_id, reason}, _from, state) do
+      send(state.report, {:mark_failed, item_id, reason})
+      {:reply, :ok, state}
+    end
   end
 
   test "noop checkpoint leaves state unchanged" do
@@ -45,6 +77,38 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
 
     assert OperatorDelivery.maybe_process_safe_checkpoint(session, state, %{kind: :notification}) == state
     assert_receive {:failed, :port_closed}
+  end
+
+  # #1238: driving the real checkpoint handler through the delivery driver, a
+  # closed Codex app-server port during the mid-turn `turn/start` write must
+  # restore the claimed item (so a replacement session redelivers it), not fail
+  # it. Marking it failed stranded the instruction because the later target-wide
+  # sweep only restores `:delivered` items.
+  test "a real closed-port checkpoint write restores the codex item for a replacement" do
+    item = %{category: :operator_message, id: 77, body: %{text: "survive closed checkpoint"}}
+    {:ok, orch} = CheckpointOrchestrator.start_link(report: self(), checkpoint: {:ok, item})
+    issue = %Aiur.Issue{identifier: "OD-#{System.unique_integer([:positive])}", id: "gid-od"}
+
+    state = state(%{on_safe_checkpoint: CheckpointDelivery.safe_checkpoint_handler(issue, orch, "codex")})
+    session = session(%{send_operator_result: {:error, :port_closed}})
+
+    assert OperatorDelivery.maybe_process_safe_checkpoint(session, state, %{kind: :notification}) == state
+    assert_receive {:operator_message, %{kind: :text, body: "survive closed checkpoint"}}
+    assert_receive {:restore, 77}
+    refute_receive {:mark_failed, 77, _reason}, 100
+  end
+
+  test "a real closed-port checkpoint write still fails a Claude item" do
+    item = %{category: :operator_message, id: 78, body: %{text: "do not replay"}}
+    {:ok, orch} = CheckpointOrchestrator.start_link(report: self(), checkpoint: {:ok, item})
+    issue = %Aiur.Issue{identifier: "OD-#{System.unique_integer([:positive])}", id: "gid-od"}
+
+    state = state(%{on_safe_checkpoint: CheckpointDelivery.safe_checkpoint_handler(issue, orch, "claude")})
+    session = session(%{send_operator_result: {:error, :port_closed}})
+
+    assert OperatorDelivery.maybe_process_safe_checkpoint(session, state, %{kind: :notification}) == state
+    assert_receive {:mark_failed, 78, :port_closed}
+    refute_receive {:restore, 78}, 100
   end
 
   test "unclaimed response emits other_message" do

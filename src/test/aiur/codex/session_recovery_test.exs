@@ -4,7 +4,7 @@ defmodule Aiur.Codex.SessionRecoveryTest do
   alias Aiur.Codex.SessionRecovery
 
   @active_turn_mismatch %{
-    "code" => -32600,
+    "code" => -32_600,
     "message" => "expected active turn id 019f7020-f11c-73d3-b590-c91d83636ae3 but found 019f7020-eb13-7590-b948-707ab116e522"
   }
 
@@ -22,7 +22,7 @@ defmodule Aiur.Codex.SessionRecoveryTest do
     refute SessionRecovery.recoverable?(
              {:turn_interrupt_failed,
               %{
-                "code" => -32600,
+                "code" => -32_600,
                 "message" => "expected active turn id turn-1 but found turn-1"
               }}
            )
@@ -30,7 +30,7 @@ defmodule Aiur.Codex.SessionRecoveryTest do
     refute SessionRecovery.recoverable?(
              {:turn_interrupt_failed,
               %{
-                "code" => -32600,
+                "code" => -32_600,
                 "message" => "expected active turn id turn-1 but found turn-2."
               }}
            )
@@ -38,7 +38,7 @@ defmodule Aiur.Codex.SessionRecoveryTest do
     refute SessionRecovery.recoverable?(
              {:turn_interrupt_failed,
               %{
-                "code" => -32600,
+                "code" => -32_600,
                 "message" => "no active turn to interrupt"
               }}
            )
@@ -48,6 +48,6 @@ defmodule Aiur.Codex.SessionRecoveryTest do
     refute SessionRecovery.recoverable?({:turn_start_failed, :provider_rejected})
     refute SessionRecovery.recoverable?({:turn_start_failed, :response_timeout})
     refute SessionRecovery.recoverable?({:turn_interrupt_failed, :invalid_session})
-    refute SessionRecovery.recoverable?(%{"code" => -32600, "message" => "unwrapped mismatch"})
+    refute SessionRecovery.recoverable?(%{"code" => -32_600, "message" => "unwrapped mismatch"})
   end
 end

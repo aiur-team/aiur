@@ -6,7 +6,7 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
   alias Aiur.Events.Exchange
 
   @active_turn_mismatch %{
-    "code" => -32600,
+    "code" => -32_600,
     "message" => "expected active turn id queued-turn but found prior-turn"
   }
 
@@ -63,6 +63,54 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
     def handle_call({:consume_delivered_queue_items, identifier}, _from, state) do
       send(state.report, {:queue_item_consumed, identifier})
       {:reply, :ok, %{state | delivered: nil}}
+    end
+
+    def handle_call({:restore_delivered_queue_items, identifier}, _from, %{delivered: delivered} = state) do
+      send(state.report, {:queue_item_restored, identifier})
+      {:reply, :ok, %{state | item: delivered, delivered: nil}}
+    end
+
+    def handle_call({:fail_delivered_queue_items, identifier, reason}, _from, state) do
+      send(state.report, {:queue_item_failed, identifier, reason})
+      {:reply, :ok, %{state | delivered: nil}}
+    end
+  end
+
+  # Like FakeQueueOrchestrator, but the first `unavailable_left` restore RPCs
+  # answer `{:error, :unavailable}` (a briefly overloaded queue GenServer)
+  # before the restore confirms. Used to prove the recovery boundary retries
+  # the restore instead of stranding the item or crashing on a MatchError.
+  defmodule FlakyRestoreQueueOrchestrator do
+    use GenServer
+
+    def start_link(item, report, unavailable_restores),
+      do:
+        GenServer.start_link(
+          __MODULE__,
+          %{item: item, delivered: nil, report: report, unavailable_left: unavailable_restores}
+        )
+
+    @impl true
+    def init(state), do: {:ok, state}
+
+    @impl true
+    def handle_call({:claim_next_queue_item, _identifier}, _from, %{item: item} = state) when is_map(item) do
+      {:reply, {:ok, item}, %{state | item: nil, delivered: item}}
+    end
+
+    def handle_call({:claim_next_queue_item, _identifier}, _from, state) do
+      {:reply, :empty, state}
+    end
+
+    def handle_call({:consume_delivered_queue_items, identifier}, _from, state) do
+      send(state.report, {:queue_item_consumed, identifier})
+      {:reply, :ok, %{state | delivered: nil}}
+    end
+
+    def handle_call({:restore_delivered_queue_items, identifier}, _from, %{unavailable_left: n} = state)
+        when n > 0 do
+      send(state.report, {:restore_unavailable, identifier})
+      {:reply, {:error, :unavailable}, %{state | unavailable_left: n - 1}}
     end
 
     def handle_call({:restore_delivered_queue_items, identifier}, _from, %{delivered: delivered} = state) do
@@ -350,6 +398,55 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
 
       assert_receive {:replacement_turn, "replacement-thread", "survive closed start"}
       refute_receive {:replacement_turn, "replacement-thread", "survive closed start"}
+      assert_receive {:queue_item_consumed, ^identifier}
+      refute_receive {:queue_item_restored, ^identifier}
+    end
+
+    test "a transient unavailable restore is confirmed before replacement, without stranding or failing the item" do
+      identifier = "QD-restore-unavailable-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      item = %{category: :operator_message, id: 8, body: %{text: "survive unavailable restore"}}
+      {:ok, orchestrator} = FlakyRestoreQueueOrchestrator.start_link(item, self(), 1)
+
+      # The follow-up turn hits a closed port and the first restore RPC answers
+      # `{:error, :unavailable}`. The boundary must retry the restore (no
+      # MatchError abnormal exit, no failed-delivery), confirm it, then return
+      # the recoverable error so the runner clean-exits for a fresh transport.
+      assert {:error, {:turn_start_failed, :port_closed}} =
+               QueueDrain.drain_operator_messages(
+                 %{backend: "codex", thread_id: "retired-thread"},
+                 issue,
+                 fn _message -> :ok end,
+                 orchestrator,
+                 nil,
+                 restore_confirm_backoff_ms: 0,
+                 run_turn: fn _session, _text, _issue, _opts ->
+                   {:error, {:turn_start_failed, :port_closed}}
+                 end
+               )
+
+      assert_receive {:restore_unavailable, ^identifier}
+      assert_receive {:queue_item_restored, ^identifier}
+      refute_receive {:queue_item_failed, ^identifier, _reason}
+      refute_receive {:queue_item_consumed, ^identifier}
+
+      test_pid = self()
+
+      assert :ok =
+               QueueDrain.drain_operator_messages(
+                 %{backend: "codex", thread_id: "replacement-thread"},
+                 issue,
+                 fn _message -> :ok end,
+                 orchestrator,
+                 nil,
+                 run_turn: fn session, text, _issue, _opts ->
+                   send(test_pid, {:replacement_turn, session.thread_id, text})
+                   {:ok, session}
+                 end
+               )
+
+      assert_receive {:replacement_turn, "replacement-thread", "survive unavailable restore"}
+      refute_receive {:replacement_turn, "replacement-thread", "survive unavailable restore"}
       assert_receive {:queue_item_consumed, ^identifier}
       refute_receive {:queue_item_restored, ^identifier}
     end

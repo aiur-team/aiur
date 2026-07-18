@@ -271,7 +271,7 @@ defmodule Aiur.AgentRunnerTest do
       reason =
         {:turn_interrupt_failed,
          %{
-           "code" => -32600,
+           "code" => -32_600,
            "message" => "expected active turn id queued-turn but found prior-turn"
          }}
 
