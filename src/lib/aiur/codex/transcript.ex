@@ -26,14 +26,34 @@ defmodule Aiur.Codex.Transcript do
     effective_turn_id = codex_turn_id(message) || fallback_turn_id
     timestamp = timestamp_for(message)
 
-    cond do
-      text = assistant_message_from_codex(message) ->
+    case assistant_delta_from_codex(message, effective_turn_id) do
+      {:ok, event} ->
+        {:ok, event}
+
+      :skip ->
+        assistant_or_non_assistant_event(message, effective_turn_id, timestamp)
+    end
+  end
+
+  def extract(_message, _fallback_turn_id), do: :skip
+
+  defp assistant_or_non_assistant_event(message, effective_turn_id, timestamp) do
+    case assistant_message_from_codex(message) do
+      {text, msg_id} ->
         {:ok,
          AgentEvents.transcript_event(:assistant, text,
            timestamp: timestamp,
-           turn_id: effective_turn_id
+           turn_id: effective_turn_id,
+           msg_id: msg_id
          )}
 
+      _ ->
+        non_assistant_event(message, effective_turn_id, timestamp)
+    end
+  end
+
+  defp non_assistant_event(message, effective_turn_id, timestamp) do
+    cond do
       command_payload = command_payload_from_codex(message) ->
         {:ok,
          AgentEvents.transcript_event(:command, command_payload.command,
@@ -49,11 +69,14 @@ defmodule Aiur.Codex.Transcript do
            turn_id: effective_turn_id
          )}
 
-      tool_payload = tool_payload_from_codex(message) ->
+      tool_result = tool_payload_from_codex(message) ->
+        {tool_payload, msg_id} = tool_result
+
         {:ok,
          AgentEvents.transcript_event(:tool, tool_payload.title,
            timestamp: timestamp,
            turn_id: effective_turn_id,
+           msg_id: msg_id,
            payload: tool_payload
          )}
 
@@ -62,8 +85,6 @@ defmodule Aiur.Codex.Transcript do
     end
   end
 
-  def extract(_message, _fallback_turn_id), do: :skip
-
   # ----------------------------------------------------------------- extraction
 
   defp assistant_message_from_codex(message) do
@@ -71,8 +92,35 @@ defmodule Aiur.Codex.Transcript do
          item when is_map(item) <- notification_item(message),
          "agentMessage" <- get(item, :type),
          text when is_binary(text) and text != "" <- get(item, :text) do
-      text
+      {text, item_id(item)}
     else
+      _ -> nil
+    end
+  end
+
+  defp assistant_delta_from_codex(message, turn_id) do
+    with "item/agentMessage/delta" <- notification_method(message),
+         params when is_map(params) <- notification_params(message),
+         id when is_binary(id) and id != "" <- get(params, :itemId),
+         delta when is_binary(delta) and delta != "" <- get(params, :delta) do
+      event =
+        AgentEvents.transcript_event(:assistant, delta,
+          timestamp: timestamp_for(message),
+          msg_id: id,
+          turn_id: turn_id
+        )
+        |> Map.put(:kind, :assistant_delta)
+        |> Map.put(:id, id)
+
+      {:ok, event}
+    else
+      _ -> :skip
+    end
+  end
+
+  defp item_id(item) do
+    case get(item, :id) do
+      id when is_binary(id) and id != "" -> id
       _ -> nil
     end
   end
@@ -142,7 +190,7 @@ defmodule Aiur.Codex.Transcript do
     with "item/completed" <- notification_method(message),
          item when is_map(item) <- notification_item(message),
          type when type in ["dynamicToolCall", "fileChange"] <- get(item, :type) do
-      build_tool_payload(type, item)
+      {build_tool_payload(type, item), item_id(item)}
     else
       _ -> nil
     end
@@ -164,7 +212,7 @@ defmodule Aiur.Codex.Transcript do
       input: arguments || %{},
       output: format_tool_content(content),
       title: title,
-      success: get(item, :success)
+      success: Map.get(item, :success, Map.get(item, "success"))
     }
   end
 
@@ -237,6 +285,15 @@ defmodule Aiur.Codex.Transcript do
 
   defp notification_item(message) do
     MapAccess.notification_item(message)
+  end
+
+  defp notification_params(message) do
+    with payload when is_map(payload) <- get(message, :payload),
+         params when is_map(params) <- get(payload, :params) do
+      params
+    else
+      _ -> nil
+    end
   end
 
   defp codex_turn_id(message) do

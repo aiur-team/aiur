@@ -2,7 +2,7 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
   use ExUnit.Case, async: false
 
   alias Aiur.AgentRunner.{QueueDrain, ToolExecutor}
-  alias Aiur.{AlertFeed, Issue, TrackerIdentity}
+  alias Aiur.{AlertFeed, Issue, LiveConversation, TrackerIdentity}
   alias Aiur.Events.Exchange
 
   setup do
@@ -294,10 +294,25 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
     end
 
     test "provider exits restore the queued message for a replacement to drain once" do
-      identifier = "QD-port-closed-#{System.unique_integer([:positive])}"
-      issue = %Issue{identifier: identifier}
+      identifier = Integer.to_string(System.unique_integer([:positive]))
+      identity = queue_identity(identifier)
+      issue = %Issue{id: "gid-#{identifier}", identifier: identifier, tracker_identity: identity}
       item = %{category: :operator_message, id: 2, body: %{text: "retry on replacement"}}
       {:ok, orchestrator} = FakeQueueOrchestrator.start_link(item, self())
+      server = start_supervised!({LiveConversation, name: nil})
+
+      common_opts = [
+        attempt_id: "attempt-#{identifier}",
+        live_conversation_server: server
+      ]
+
+      retired_source = %{
+        identity: identity,
+        attempt_id: "attempt-#{identifier}",
+        session_id: "retired-thread",
+        backend: "codex",
+        worker_generation: 10
+      }
 
       assert {:error, {:port_exit, 9}} =
                QueueDrain.drain_operator_messages(
@@ -306,14 +321,30 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
                  fn _message -> :ok end,
                  orchestrator,
                  nil,
-                 run_turn: fn _session, _text, _issue, _opts -> {:error, {:port_exit, 9}} end
+                 common_opts ++
+                   [
+                     session_id: "retired-thread",
+                     worker_generation: 10,
+                     run_turn: fn _session, _text, _issue, _opts ->
+                       {:error, {:port_exit, 9}}
+                     end
+                   ]
                )
 
       assert_receive {:queue_item_restored, ^identifier}
       refute_receive {:queue_item_consumed, ^identifier}
       refute_receive {:queue_item_failed, ^identifier, {:port_exit, 9}}
+      assert %{messages: []} = LiveConversation.snapshot(retired_source, server: server)
 
       test_pid = self()
+
+      replacement_source = %{
+        identity: identity,
+        attempt_id: "attempt-#{identifier}",
+        session_id: "replacement-thread",
+        backend: "codex",
+        worker_generation: 11
+      }
 
       assert :ok =
                QueueDrain.drain_operator_messages(
@@ -322,16 +353,141 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
                  fn _message -> :ok end,
                  orchestrator,
                  nil,
-                 run_turn: fn session, text, _issue, _opts ->
-                   send(test_pid, {:replacement_turn, session.thread_id, text})
-                   {:ok, session}
-                 end
+                 common_opts ++
+                   [
+                     session_id: "replacement-thread",
+                     worker_generation: 11,
+                     run_turn: fn session, text, _issue, _opts ->
+                       send(test_pid, {:replacement_turn, session.thread_id, text})
+                       {:ok, session}
+                     end
+                   ]
                )
 
       assert_receive {:replacement_turn, "replacement-thread", "retry on replacement"}
       refute_receive {:replacement_turn, "replacement-thread", "retry on replacement"}
       assert_receive {:queue_item_consumed, ^identifier}
       refute_receive {:queue_item_restored, ^identifier}
+
+      assert %{messages: [%{role: "operator", body: "retry on replacement"}]} =
+               LiveConversation.snapshot(replacement_source, server: server)
+
+      assert %{messages: []} = LiveConversation.snapshot(retired_source, server: server)
+
+      assert :ok =
+               QueueDrain.drain_operator_messages(
+                 %{backend: "codex", thread_id: "replacement-thread"},
+                 issue,
+                 fn _message -> :ok end,
+                 orchestrator,
+                 nil,
+                 common_opts ++ [session_id: "replacement-thread", worker_generation: 11]
+               )
+
+      assert %{messages: [_single_delivery]} =
+               LiveConversation.snapshot(replacement_source, server: server)
+    end
+
+    test "accepted queued prompts retain delivery chronology ahead of assistant output" do
+      identifier = Integer.to_string(System.unique_integer([:positive]))
+      identity = queue_identity(identifier)
+      issue = %Issue{id: "gid-#{identifier}", identifier: identifier, tracker_identity: identity}
+      delivered_at = ~U[2026-07-17 12:00:00Z]
+      assistant_at = DateTime.add(delivered_at, 1, :second)
+
+      item = %{
+        category: :operator_message,
+        id: 20,
+        body: %{text: "accepted prompt"},
+        inserted_at: DateTime.add(delivered_at, -1, :second),
+        delivered_at: delivered_at
+      }
+
+      {:ok, orchestrator} = FakeQueueOrchestrator.start_link(item, self())
+      server = start_supervised!({LiveConversation, name: nil})
+
+      assert :ok =
+               QueueDrain.drain_operator_messages(
+                 %{backend: "codex", thread_id: "ordered-thread"},
+                 issue,
+                 fn _message -> :ok end,
+                 orchestrator,
+                 nil,
+                 attempt_id: "attempt-#{identifier}",
+                 session_id: "ordered-thread",
+                 worker_generation: 20,
+                 live_conversation_server: server,
+                 run_turn: fn session, _text, _issue, turn_opts ->
+                   Keyword.fetch!(turn_opts, :on_message).(%{
+                     event: :agent_message,
+                     body: "assistant response",
+                     timestamp: assistant_at
+                   })
+
+                   {:ok, session}
+                 end
+               )
+
+      source = %{
+        identity: identity,
+        attempt_id: "attempt-#{identifier}",
+        session_id: "ordered-thread",
+        backend: "codex",
+        worker_generation: 20
+      }
+
+      assert %{messages: [operator, assistant]} = LiveConversation.snapshot(source, server: server)
+      assert %{role: "operator", body: "accepted prompt", occurred_at: ^delivered_at} = operator
+      assert %{role: "agent", body: "assistant response", occurred_at: ^assistant_at} = assistant
+    end
+
+    test "assistant output from a failed queued turn never admits the unaccepted prompt" do
+      identifier = Integer.to_string(System.unique_integer([:positive]))
+      identity = queue_identity(identifier)
+      issue = %Issue{id: "gid-#{identifier}", identifier: identifier, tracker_identity: identity}
+
+      item = %{
+        category: :operator_message,
+        id: 21,
+        body: %{text: "must remain unaccepted"},
+        delivered_at: ~U[2026-07-17 12:00:00Z]
+      }
+
+      {:ok, orchestrator} = FakeQueueOrchestrator.start_link(item, self())
+      server = start_supervised!({LiveConversation, name: nil})
+
+      assert {:error, :provider_failed} =
+               QueueDrain.drain_operator_messages(
+                 %{backend: "claude", thread_id: "failed-thread"},
+                 issue,
+                 fn _message -> :ok end,
+                 orchestrator,
+                 nil,
+                 attempt_id: "attempt-#{identifier}",
+                 session_id: "failed-thread",
+                 worker_generation: 21,
+                 live_conversation_server: server,
+                 run_turn: fn _session, _text, _issue, turn_opts ->
+                   Keyword.fetch!(turn_opts, :on_message).(%{
+                     event: :agent_message,
+                     body: "pre-failure assistant output",
+                     timestamp: ~U[2026-07-17 12:00:01Z]
+                   })
+
+                   {:error, :provider_failed}
+                 end
+               )
+
+      source = %{
+        identity: identity,
+        attempt_id: "attempt-#{identifier}",
+        session_id: "failed-thread",
+        backend: "claude",
+        worker_generation: 21
+      }
+
+      assert %{messages: [%{role: "agent", body: "pre-failure assistant output"}]} =
+               LiveConversation.snapshot(source, server: server)
     end
 
     test "Claude provider exits retain the existing failed-delivery behavior" do
@@ -373,5 +529,17 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
       assert_receive {:queue_item_failed, ^identifier, :port_closed}
       refute_receive {:queue_item_restored, ^identifier}
     end
+  end
+
+  defp queue_identity(identifier) do
+    %TrackerIdentity{
+      status: :joinable,
+      kind: :github,
+      owner: "owner",
+      repository: "repo",
+      provider_id: "provider-#{identifier}",
+      identifier: identifier,
+      reason: nil
+    }
   end
 end

@@ -152,19 +152,13 @@ defmodule Aiur.BuildOrder.TicketDetail.Sanitizer do
     (?<![A-Za-z0-9._/-])
     /(?!/)[A-Za-z0-9._-]+(?:/[A-Za-z0-9._@%+=,-]+)+
   }ux
+  @environment_assignment_pattern ~r/\b[A-Z][A-Z0-9_]{2,}=(?:[^\s]+)/u
+  @projection_input_byte_limit 128_000
 
   @spec sanitize(String.t(), pos_integer()) :: {:ok, String.t()} | :error
   def sanitize(value, limit) when is_binary(value) and is_integer(limit) and limit > 0 do
     if byte_size(value) <= limit and String.valid?(value) do
-      sanitized =
-        value
-        |> String.replace("\r\n", "\n")
-        |> String.replace("\r", "\n")
-        |> String.replace(~r/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u, "")
-        |> decode_structural_escapes()
-        |> SecretRedactor.redact()
-        |> redact_credentials()
-        |> redact_local_paths()
+      sanitized = sanitize_base(value, "")
 
       if byte_size(sanitized) <= limit, do: {:ok, sanitized}, else: :error
     else
@@ -173,6 +167,56 @@ defmodule Aiur.BuildOrder.TicketDetail.Sanitizer do
   end
 
   def sanitize(_value, _limit), do: :error
+
+  @doc false
+  @spec sanitize_projection(String.t(), pos_integer(), keyword()) ::
+          {:ok, String.t(), boolean()} | :error
+  def sanitize_projection(value, character_limit, opts \\ [])
+
+  def sanitize_projection(value, character_limit, opts)
+      when is_binary(value) and is_integer(character_limit) and character_limit > 0 and
+             is_list(opts) do
+    input_byte_limit = Keyword.get(opts, :input_byte_limit, @projection_input_byte_limit)
+
+    if is_integer(input_byte_limit) and input_byte_limit > 0 and
+         byte_size(value) <= input_byte_limit do
+      sanitized =
+        value
+        |> String.replace_invalid()
+        |> maybe_redact_urls(Keyword.get(opts, :redact_urls, false))
+        |> sanitize_base(" ")
+        |> maybe_redact_urls(Keyword.get(opts, :redact_urls, false))
+        |> maybe_redact_environment(Keyword.get(opts, :redact_environment, false))
+
+      truncated? = String.length(sanitized) > character_limit
+      sanitized = String.slice(sanitized, 0, character_limit)
+      sanitized = if Keyword.get(opts, :trim, true), do: String.trim(sanitized), else: sanitized
+      {:ok, sanitized, truncated?}
+    else
+      :error
+    end
+  end
+
+  def sanitize_projection(_value, _character_limit, _opts), do: :error
+
+  defp sanitize_base(value, control_replacement) do
+    value
+    |> String.replace("\r\n", "\n")
+    |> String.replace("\r", "\n")
+    |> String.replace(~r/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u, control_replacement)
+    |> decode_structural_escapes()
+    |> SecretRedactor.redact()
+    |> redact_credentials()
+    |> redact_local_paths()
+  end
+
+  defp maybe_redact_urls(value, true), do: SecretRedactor.redact_urls(value)
+  defp maybe_redact_urls(value, _redact?), do: value
+
+  defp maybe_redact_environment(value, true),
+    do: Regex.replace(@environment_assignment_pattern, value, "[REDACTED:env]")
+
+  defp maybe_redact_environment(value, _redact?), do: value
 
   defp redact_credentials(value) do
     value = redact_folded_headers(value)

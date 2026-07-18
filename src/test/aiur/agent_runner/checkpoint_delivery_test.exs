@@ -2,7 +2,7 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
   use ExUnit.Case, async: true
 
   alias Aiur.AgentRunner.CheckpointDelivery
-  alias Aiur.Issue
+  alias Aiur.{Issue, LiveConversation, TrackerIdentity}
 
   # Minimal fake orchestrator: answers the `claim_*` calls with canned
   # responses and forwards the `restore`/`mark_failed` failure-recovery calls
@@ -154,6 +154,48 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
       assert_receive {:mark_failed, 7, {:decision_correlation_failed, :store_unavailable}}
       refute_receive {:restore, 7}, 100
     end
+
+    test "projects immediate delivery only after provider success and exactly once" do
+      {issue, source, live_opts} = live_context(41)
+      item = %{category: :operator_message, id: 41, body: %{text: "immediate accepted"}}
+      orch = start_fake(operator: {:ok, item})
+
+      handler =
+        CheckpointDelivery.operator_immediate_handler(
+          issue,
+          orch,
+          Aiur.DecisionStore,
+          live_opts
+        )
+
+      assert {:deliver_text, "immediate accepted", success, _failure} = handler.()
+      assert %{state: :restart_unknown, messages: []} = snapshot(source, live_opts)
+
+      assert :ok = success.(%{turn_id: "turn-accepted"})
+      assert :ok = success.(%{turn_id: "turn-accepted"})
+
+      assert %{messages: [%{role: "operator", body: "immediate accepted"}]} =
+               snapshot(source, live_opts)
+    end
+
+    test "a failed immediate delivery projects no operator evidence" do
+      {issue, source, live_opts} = live_context(42)
+      item = %{category: :operator_message, id: 42, body: %{text: "immediate rejected"}}
+      orch = start_fake(operator: {:ok, item})
+
+      handler =
+        CheckpointDelivery.operator_immediate_handler(
+          issue,
+          orch,
+          Aiur.DecisionStore,
+          live_opts
+        )
+
+      assert {:deliver_text, "immediate rejected", _success, failure} = handler.()
+      assert :ok = failure.(:send_failed)
+      assert_receive {:restore, 42}
+      assert %{state: :restart_unknown, messages: []} = snapshot(source, live_opts)
+    end
   end
 
   describe "safe_checkpoint_handler/2" do
@@ -258,5 +300,120 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
 
       assert handler.(:checkpoint) == :noop
     end
+
+    test "projects checkpoint delivery only from its provider success callback" do
+      {issue, source, live_opts} = live_context(51)
+      item = %{category: :operator_message, id: 51, body: %{text: "checkpoint accepted"}}
+      orch = start_fake(checkpoint: {:ok, item})
+
+      handler =
+        CheckpointDelivery.safe_checkpoint_handler(
+          issue,
+          orch,
+          Aiur.DecisionStore,
+          live_opts
+        )
+
+      assert {:deliver_text, "checkpoint accepted", success, _failure} =
+               handler.(:checkpoint)
+
+      assert %{state: :restart_unknown, messages: []} = snapshot(source, live_opts)
+      assert :ok = success.(%{turn_id: "turn-accepted"})
+
+      assert %{messages: [%{role: "operator", body: "checkpoint accepted"}]} =
+               snapshot(source, live_opts)
+    end
+
+    test "a correlated handoff projects only after durable and provider acceptance" do
+      {issue, source, live_opts} = live_context(52)
+
+      item =
+        52
+        |> correlated_item()
+        |> put_in([:body, :text], "durable accepted")
+
+      orch = start_fake(checkpoint: {:ok, item})
+      decision_store = start_decision_store({:ok, :accepted})
+
+      handler =
+        CheckpointDelivery.safe_checkpoint_handler(
+          issue,
+          orch,
+          decision_store,
+          live_opts
+        )
+
+      assert {:deliver_text, "durable accepted", success, _failure} =
+               handler.(:checkpoint)
+
+      assert_receive {:decision_delivery_prepared, 52}
+      refute_receive {:decision_delivery, 52}
+      assert %{state: :restart_unknown, messages: []} = snapshot(source, live_opts)
+
+      assert :ok = success.(%{turn_id: "turn-accepted"})
+
+      assert_receive {:decision_delivery, 52}
+
+      assert %{messages: [%{role: "operator", body: "durable accepted"}]} =
+               snapshot(source, live_opts)
+    end
+
+    test "a requeued checkpoint delivery projects nothing" do
+      {issue, source, live_opts} = live_context(53)
+      item = %{category: :operator_message, id: 53, body: %{text: "checkpoint requeued"}}
+      orch = start_fake(checkpoint: {:ok, item})
+
+      handler =
+        CheckpointDelivery.safe_checkpoint_handler(
+          issue,
+          orch,
+          Aiur.DecisionStore,
+          live_opts
+        )
+
+      assert {:deliver_text, "checkpoint requeued", _success, failure} =
+               handler.(:checkpoint)
+
+      assert :ok = failure.({:provider_turn_retired, "retired"})
+      assert_receive {:restore, 53}
+      assert %{state: :restart_unknown, messages: []} = snapshot(source, live_opts)
+    end
+  end
+
+  defp live_context(id) do
+    unique = Integer.to_string(System.unique_integer([:positive]))
+    server = start_supervised!({LiveConversation, name: nil})
+
+    identity = %TrackerIdentity{
+      status: :joinable,
+      kind: :github,
+      owner: "owner",
+      repository: "repo",
+      provider_id: "provider-#{unique}",
+      identifier: unique,
+      reason: nil
+    }
+
+    issue = %Issue{id: "gid-#{id}-#{unique}", identifier: unique, tracker_identity: identity}
+
+    source = %{
+      identity: identity,
+      attempt_id: "attempt-#{unique}",
+      backend: "codex",
+      worker_generation: id
+    }
+
+    opts = [
+      backend: "codex",
+      attempt_id: "attempt-#{unique}",
+      worker_generation: id,
+      live_conversation_server: server
+    ]
+
+    {issue, source, opts}
+  end
+
+  defp snapshot(source, opts) do
+    LiveConversation.snapshot(source, server: Keyword.fetch!(opts, :live_conversation_server))
   end
 end
