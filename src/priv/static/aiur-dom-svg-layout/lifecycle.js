@@ -22,6 +22,9 @@ export class DomSvgLayoutAdapter {
     this.resizeObserver = null
     this.themeObserver = null
     this.fonts = null
+    this.updateContextKey = null
+    this.lastAppliedLayout = null
+    this.lastFallbackReason = null
     this.onWindowResize = () => this.requestRemeasure("resize")
     this.onFontLoad = () => this.requestRemeasure("font")
   }
@@ -34,13 +37,37 @@ export class DomSvgLayoutAdapter {
     this.notify("mounted")
   }
 
+  beforeUpdate() {
+    this.updateContextKey = this.contextKey()
+  }
+
   updated() {
     this.restoreHookMarkers()
+    const changed = this.updateContextKey !== this.contextKey()
+    this.updateContextKey = null
+    if (!changed) return this.restoreLayout()
+
+    this.invalidate()
     this.refreshObservedNodes()
     this.scheduleLayout("updated")
   }
 
+  restoreLayout() {
+    if (this.destroyed) return
+
+    if (this.lastAppliedLayout) {
+      const { response, measured } = this.lastAppliedLayout
+      this.suppressResizeObservations()
+      applyLayout(this.element, response, measured, this.hookInstance)
+    } else if (this.lastFallbackReason) {
+      this.suppressResizeObservations()
+      applyFallback(this.element, this.lastFallbackReason)
+    }
+  }
+
   invalidate() {
+    this.lastAppliedLayout = null
+    this.lastFallbackReason = null
     this.measurementVersion += 1
     clearVisualLayout(this.element)
   }
@@ -136,6 +163,8 @@ export class DomSvgLayoutAdapter {
         if (response.type === "error") return this.fallback(response.error?.code || "worker_failed")
         this.suppressResizeObservations()
         if (!applyLayout(this.element, response, measured, this.hookInstance)) return this.fallback("malformed_geometry")
+        this.lastAppliedLayout = { response, measured }
+        this.lastFallbackReason = null
       }).catch((error) => {
         if (this.canApply(context, request)) this.fallback(errorCode(error, "worker_failed"))
       })
@@ -204,6 +233,8 @@ export class DomSvgLayoutAdapter {
   fallback(reason) {
     if (this.destroyed) return
 
+    this.lastAppliedLayout = null
+    this.lastFallbackReason = reason
     this.suppressResizeObservations()
     applyFallback(this.element, reason)
     this.notify("fallback", { reason })
@@ -220,6 +251,17 @@ export class DomSvgLayoutAdapter {
   restoreHookMarkers() {
     this.element.dataset.layoutHookInstance = this.hookInstance
     this.element.dataset.layoutHookCount = String(this.hookCount)
+  }
+
+  contextKey() {
+    return [
+      this.element.dataset.layoutRootId,
+      this.element.dataset.layoutProviderGeneration,
+      this.element.dataset.layoutDomGeneration,
+      this.element.dataset.layoutClientUrl,
+      this.element.dataset.layoutWorkerUrl,
+      this.element.dataset.layoutEngineUrl
+    ].join("\u0000")
   }
 
   notify(event, detail = {}) {

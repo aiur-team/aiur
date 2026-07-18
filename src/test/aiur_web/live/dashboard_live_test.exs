@@ -447,7 +447,7 @@ defmodule AiurWeb.DashboardLiveTest do
     refute html =~ "Idle review"
   end
 
-  test "renders payload-aware document navigation and named unavailable routes" do
+  test "renders payload-aware document navigation and owner-aware Build Order navigation" do
     fleet_payload = %{
       generated_at: "2026-07-12T12:00:00Z",
       counts: %{running: 0, retrying: 0, idle: 0},
@@ -470,16 +470,17 @@ defmodule AiurWeb.DashboardLiveTest do
     available_units = render_payload(available_payload)
     commands = render_payload(available_payload, live_action: :decision)
 
-    assert length(Floki.find(Floki.parse_document!(unavailable_units), ~s(nav[aria-label="Control Center routes"]))) == 2
+    assert length(Floki.find(Floki.parse_document!(unavailable_units), ~s(nav[aria-label^="Control Center"]))) == 2
     assert length(Floki.find(Floki.parse_document!(unavailable_units), ~s(a[aria-current="page"]))) == 2
     assert unavailable_units =~ ~s(<h1 id="route-title">Units</h1>)
     refute unavailable_units =~ ~s(href="/analytics")
-    refute unavailable_units =~ ~s(href="/build-orders")
+    assert unavailable_units =~ ~s(href="/build-orders")
+    assert unavailable_units =~ ~s(data-phx-link="redirect")
     assert unavailable_units =~ "Telemetry analytics are unavailable."
-    assert length(Floki.find(Floki.parse_document!(unavailable_units), ~s([aria-disabled="true"]))) == 4
+    assert length(Floki.find(Floki.parse_document!(unavailable_units), ~s([aria-disabled="true"]))) == 2
 
     assert available_units =~ ~s(href="/analytics")
-    assert length(Floki.find(Floki.parse_document!(available_units), ~s([aria-disabled="true"]))) == 2
+    assert Floki.find(Floki.parse_document!(available_units), ~s([aria-disabled="true"])) == []
 
     assert commands =~ ~s(<h1 id="route-title">Commands</h1>)
     assert length(Floki.find(Floki.parse_document!(commands), ~s(a[aria-current="page"]))) == 2
@@ -733,6 +734,75 @@ defmodule AiurWeb.DashboardLiveTest do
       List.duplicate({:current_run_membership_changed, %{generation: 2}}, 25)
 
     assert_bounded_reload_burst(views, membership_messages, cache, orchestrator_name, false)
+  end
+
+  describe "current-run summary" do
+    test "renders a pushed summary with a bounded announcement and no protected fields" do
+      view = start_run_summary_dashboard()
+      html = push_summary(view, healthy_summary_snapshot(live: 3))
+
+      assert html =~ "Current run"
+      assert html =~ "Weighted progress"
+      assert html =~ ~s(role="progressbar")
+      assert html =~ ~s(aria-valuenow="60")
+      assert html =~ "60% complete (exact)"
+      assert html =~ "Health: Healthy"
+      assert html =~ ~s(id="run-summary-status")
+      assert html =~ "3 live"
+
+      # Scope the protected-field check to the summary card so page-level CSRF
+      # and LiveView session tokens do not trip the assertion.
+      card = view |> element("section.run-summary-card") |> render() |> String.downcase()
+
+      for term <- ["cost", "token", "provider", "quota", "credit", "$"] do
+        refute String.contains?(card, term), "expected no protected term #{inspect(term)}"
+      end
+    end
+
+    test "coalesces a burst of summary updates into a single scheduled flush" do
+      view = start_run_summary_dashboard()
+
+      for _ <- 1..25 do
+        send(view.pid, {:current_run_summary_changed, healthy_summary_snapshot(live: 9)})
+      end
+
+      :sys.get_state(view.pid)
+
+      assert_receive {:run_summary_flush_scheduled, pid, :flush_run_summary, delay_ms}, 0
+      assert pid == view.pid
+      assert delay_ms > 0
+      refute_receive {:run_summary_flush_scheduled, _pid, :flush_run_summary, _delay}, 0
+
+      send(view.pid, :flush_run_summary)
+      assert render(view) =~ "9 live"
+    end
+
+    test "retains the last known-good summary across an unavailable same-run update" do
+      view = start_run_summary_dashboard()
+
+      assert push_summary(view, healthy_summary_snapshot(live: 3)) =~ "60% complete (exact)"
+
+      stale_html = push_summary(view, unavailable_same_run_snapshot())
+
+      assert stale_html =~ "Stale summary"
+      assert stale_html =~ "60% complete (exact)"
+      assert stale_html =~ "3 live"
+      assert stale_html =~ "Health: Unavailable"
+      # Never fall back to a zeroed/empty summary for the retained run.
+      refute stale_html =~ "zero eligible weight"
+      refute stale_html =~ "0 live"
+    end
+
+    test "adopts a new run generation instead of showing the prior run as current" do
+      view = start_run_summary_dashboard()
+
+      assert push_summary(view, healthy_summary_snapshot(live: 3, run_id: "run-1")) =~ "60% complete (exact)"
+
+      new_html = push_summary(view, healthy_summary_snapshot(live: 8, run_id: "run-2", exact: {3, 10}))
+
+      assert new_html =~ "30% complete (exact)"
+      assert new_html =~ ~s(aria-valuenow="30")
+    end
   end
 
   test "optional unauthenticated LiveView state, HTML, diffs, and logs contain no financial sentinels" do
@@ -3344,6 +3414,217 @@ defmodule AiurWeb.DashboardLiveTest do
     refute html =~ ~r/Open Commands<\/dt><dd>None open<\/dd>/
   end
 
+  describe "runtime capacity control" do
+    alias Aiur.Orchestrator.Slots
+
+    test "renders authoritative capacity facts from the Slots contract" do
+      name = Module.concat(__MODULE__, :CapacityFactsOrchestrator)
+      start_capacity_orchestrator(name, 3)
+
+      {_view, html} = mount_capacity_dashboard(name)
+
+      assert html =~ "Agent capacity"
+      assert html =~ ~s(<span class="capacity-current num" aria-hidden="true">3</span>)
+      assert html =~ ~s(<dd class="num">0</dd>)
+      assert html =~ "Session override"
+      assert html =~ "Steady"
+      # Focus target for status announcements is stable across updates.
+      assert html =~ ~s(id="capacity-title" tabindex="-1")
+    end
+
+    test "increment raises the maximum through Slots and reconciles from the returned status" do
+      name = Module.concat(__MODULE__, :CapacityIncrementOrchestrator)
+      start_capacity_orchestrator(name, 3)
+
+      {view, _html} = mount_capacity_dashboard(name)
+      html = view |> element("#capacity-increment") |> render_click()
+
+      assert html =~ "Maximum agent capacity is now 4."
+      # The applied value is the authoritative Slots value, not a browser guess.
+      assert Slots.max_concurrent_agents(name).max == 4
+    end
+
+    test "decrement lowers the maximum and disables further decrement at the minimum of one" do
+      name = Module.concat(__MODULE__, :CapacityDecrementOrchestrator)
+      start_capacity_orchestrator(name, 2)
+
+      {view, _html} = mount_capacity_dashboard(name)
+      html = view |> element("#capacity-decrement") |> render_click()
+
+      assert html =~ "Maximum agent capacity is now 1."
+      assert Slots.max_concurrent_agents(name).max == 1
+      assert html =~ ~r/id="capacity-decrement".*?disabled/s
+    end
+
+    test "set applies a validated absolute value from Slots" do
+      name = Module.concat(__MODULE__, :CapacitySetOrchestrator)
+      start_capacity_orchestrator(name, 3)
+
+      {view, _html} = mount_capacity_dashboard(name)
+      html = render_submit(view, "capacity-set", %{"max" => "7"})
+
+      assert html =~ "Maximum agent capacity is now 7."
+      assert Slots.max_concurrent_agents(name).max == 7
+    end
+
+    test "set to the current maximum reports a no-op rather than a fresh apply" do
+      name = Module.concat(__MODULE__, :CapacityNoopOrchestrator)
+      start_capacity_orchestrator(name, 4)
+
+      {view, _html} = mount_capacity_dashboard(name)
+      html = render_submit(view, "capacity-set", %{"max" => "4"})
+
+      assert html =~ "Maximum agent capacity is unchanged at 4."
+    end
+
+    test "rejects non-positive or non-numeric input without calling Slots" do
+      name = Module.concat(__MODULE__, :CapacityInvalidOrchestrator)
+      start_capacity_orchestrator(name, 3)
+
+      {view, _html} = mount_capacity_dashboard(name)
+
+      for value <- ["0", "-2", "abc", "3.5", ""] do
+        html = render_submit(view, "capacity-set", %{"max" => value})
+        assert html =~ "Enter a whole number of 1 or more."
+        assert Slots.max_concurrent_agents(name).max == 3
+      end
+    end
+
+    test "reconciles from the returned authoritative value when a concurrent change wins" do
+      name = Module.concat(__MODULE__, :CapacityConcurrentOrchestrator)
+      start_capacity_orchestrator(name, 3)
+
+      {view, _html} =
+        mount_capacity_dashboard(name, capacity_set_fun: fn _next -> {:ok, %{max: 9}} end)
+
+      html = render_submit(view, "capacity-set", %{"max" => "4"})
+
+      assert html =~ "Maximum agent capacity is now 9."
+      refute html =~ "now 4."
+    end
+
+    test "surfaces the authoritative draining state after lowering capacity" do
+      name = Module.concat(__MODULE__, :CapacityDrainingOrchestrator)
+      start_capacity_orchestrator(name, 5)
+
+      {view, _html} =
+        mount_capacity_dashboard(name,
+          capacity_set_fun: fn _next -> {:ok, %{max: 2, draining?: true}} end
+        )
+
+      html = render_submit(view, "capacity-set", %{"max" => "2"})
+
+      assert html =~ "Maximum agent capacity is now 2."
+      assert html =~ "Extra agents keep running and drain as they finish."
+    end
+
+    test "reports a timeout as stale without claiming the requested value applied" do
+      name = Module.concat(__MODULE__, :CapacityTimeoutOrchestrator)
+      start_capacity_orchestrator(name, 3)
+
+      {view, _html} =
+        mount_capacity_dashboard(name, capacity_adjust_fun: fn _delta -> {:error, :timeout} end)
+
+      html = view |> element("#capacity-increment") |> render_click()
+
+      assert html =~ "The capacity service did not respond in time."
+      refute html =~ "Maximum agent capacity is now"
+    end
+
+    test "reports an unavailable capacity service" do
+      name = Module.concat(__MODULE__, :CapacityUnavailableOrchestrator)
+      start_capacity_orchestrator(name, 3)
+
+      {view, _html} =
+        mount_capacity_dashboard(name, capacity_set_fun: fn _next -> {:error, :unavailable} end)
+
+      html = render_submit(view, "capacity-set", %{"max" => "5"})
+
+      assert html =~ "Capacity control is unavailable right now."
+      refute html =~ "Maximum agent capacity is now"
+    end
+
+    test "read-only dashboard exposes no usable mutation control" do
+      name = Module.concat(__MODULE__, :CapacityReadOnlyOrchestrator)
+      start_capacity_orchestrator(name, 3)
+
+      {_view, html} = mount_capacity_dashboard(name, dashboard_writable: false)
+
+      refute html =~ ~s(phx-click="capacity-increment")
+      refute html =~ ~s(id="capacity-max-input")
+      assert html =~ "Read-only dashboard. Agent capacity is displayed but cannot be changed here."
+    end
+
+    test "re-checks writable mode on every activation and rejects a revoked write" do
+      name = Module.concat(__MODULE__, :CapacityRevokedOrchestrator)
+      start_capacity_orchestrator(name, 3)
+
+      {view, html} = mount_capacity_dashboard(name)
+      assert html =~ ~s(phx-click="capacity-increment")
+
+      config = Application.fetch_env!(:aiur, AiurWeb.Endpoint)
+      revoked = Keyword.put(config, :dashboard_writable, false)
+      Application.put_env(:aiur, AiurWeb.Endpoint, revoked)
+      :ok = AiurWeb.Endpoint.config_change([{AiurWeb.Endpoint, revoked}], [])
+
+      html = view |> element("#capacity-increment") |> render_click()
+
+      refute html =~ ~s(phx-click="capacity-increment")
+      assert Slots.max_concurrent_agents(name).max == 3
+    end
+
+    test "guards double activation with a pending-disable hook" do
+      name = Module.concat(__MODULE__, :CapacityPendingOrchestrator)
+      start_capacity_orchestrator(name, 3)
+
+      {_view, html} = mount_capacity_dashboard(name)
+
+      assert html =~ ~s(phx-disable-with="Applying…")
+    end
+
+    test "preserves the typed absolute value across a re-render" do
+      name = Module.concat(__MODULE__, :CapacityFocusOrchestrator)
+      start_capacity_orchestrator(name, 3)
+
+      {view, _html} = mount_capacity_dashboard(name)
+      html = render_change(view, "capacity-input-change", %{"max" => "42"})
+
+      assert html =~ ~s(value="42")
+    end
+  end
+
+  defp start_capacity_orchestrator(name, max) do
+    {:ok, pid} = Orchestrator.start_link(name: name)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    # A serialized control call both forces init to complete before the mount
+    # snapshot and establishes a known authoritative maximum via the real Slots
+    # contract (as a session override).
+    {:ok, %{max: ^max}} = Orchestrator.Slots.set_max_concurrent_agents(name, max)
+
+    name
+  end
+
+  defp mount_capacity_dashboard(orchestrator_name, overrides \\ []) do
+    start_test_endpoint(
+      Keyword.merge(
+        [
+          orchestrator: orchestrator_name,
+          snapshot_timeout_ms: 5_000,
+          control_center_cache: false,
+          dashboard_writable: true
+        ],
+        overrides
+      )
+    )
+
+    {:ok, view, html} = live(build_conn(), "/")
+    {view, html}
+  end
+
   defp units_identity(overrides \\ []) do
     struct!(
       TrackerIdentity,
@@ -3564,6 +3845,112 @@ defmodule AiurWeb.DashboardLiveTest do
           }
         end)
     }
+  end
+
+  defp start_run_summary_dashboard do
+    test_process = self()
+
+    start_run_summary_dashboard(fn destination, message, delay_ms ->
+      send(test_process, {:run_summary_flush_scheduled, destination, message, delay_ms})
+      make_ref()
+    end)
+  end
+
+  defp start_run_summary_dashboard(flush_timer) when is_function(flush_timer, 3) do
+    orchestrator_name = Module.concat(__MODULE__, :RunSummaryOrchestrator)
+
+    start_supervised!(
+      {CountingOrchestrator,
+       name: orchestrator_name,
+       snapshot: %{
+         running: [],
+         retrying: [],
+         idle: [],
+         agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+         rate_limits: nil
+       }},
+      id: orchestrator_name
+    )
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      run_summary_flush_timer: flush_timer
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/")
+    view
+  end
+
+  # Deterministically apply one pushed snapshot: process the update (which
+  # schedules but defers the coalesced flush), then run the flush and render.
+  defp push_summary(view, snapshot) do
+    send(view.pid, {:current_run_summary_changed, snapshot})
+    :sys.get_state(view.pid)
+    send(view.pid, :flush_run_summary)
+    render(view)
+  end
+
+  defp healthy_summary_snapshot(opts \\ []) do
+    live = Keyword.get(opts, :live, 3)
+    {num, den} = Keyword.get(opts, :exact, {3, 5})
+
+    %{
+      version: 1,
+      generation: Keyword.get(opts, :generation, 1),
+      run: %{
+        id: Keyword.get(opts, :run_id, "run-1"),
+        started_at: ~U[2026-07-17 10:00:00Z],
+        observed_at: ~U[2026-07-17 10:20:00Z],
+        elapsed_wall_ms: 1_200_000,
+        elapsed_wall_seconds: 1200,
+        valid?: true
+      },
+      counts: %{live: live, remaining: 2, successful_terminal: 1, non_work_terminal: 0, unknown_state: 0, total: live + 3},
+      weights: %{
+        eligible: 10,
+        successful_terminal: 4,
+        remaining: 6,
+        excluded: 0,
+        excluded_count: 0,
+        defaulted: 0,
+        defaulted_count: 0,
+        known_progress: 10,
+        unknown_progress: 0
+      },
+      progress: %{
+        scale: 100,
+        weighted_numerator: %{value: 600, scale: 100},
+        denominator_weight: 10,
+        known_weight: 10,
+        unknown_weight: 0,
+        lower_bound: %{numerator: num, denominator: den},
+        coverage: %{numerator: 1, denominator: 1},
+        exact: %{numerator: num, denominator: den}
+      },
+      eta: %{
+        status: :available,
+        reason: nil,
+        confidence: :evidence_based,
+        formula_version: "completed_weight_rate_v1",
+        sample_count: 2,
+        duration_seconds: %{numerator: 480, denominator: 1},
+        throughput_weight_per_second: %{numerator: 1, denominator: 300},
+        completed_weight: 4,
+        remaining_weight: 6,
+        denominator_generation: 1,
+        observed_at: ~U[2026-07-17 10:20:00Z]
+      },
+      health: %{status: :healthy, reasons: []},
+      freshness: %{status: :fresh, sources: %{}}
+    }
+  end
+
+  defp unavailable_same_run_snapshot do
+    healthy_summary_snapshot()
+    |> Map.put(:generation, 2)
+    |> Map.put(:health, %{status: :unavailable, reasons: [:unhealthy_membership]})
+    |> Map.put(:freshness, %{status: :unavailable, sources: %{}})
   end
 
   defp start_test_endpoint(overrides) do

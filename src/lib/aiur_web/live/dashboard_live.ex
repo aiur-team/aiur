@@ -11,8 +11,10 @@ defmodule AiurWeb.DashboardLive do
   alias Aiur.BuildOrder.TicketHistory.Snapshot, as: TicketHistorySnapshot
   alias Aiur.BuildOrder.TicketHistoryProvider
   alias Aiur.CurrentRunMembership
+  alias Aiur.CurrentRunSummary
   alias Aiur.DecisionPubSub
   alias Aiur.LiveConversation
+  alias Aiur.Orchestrator.Slots
   alias Aiur.TicketActivity
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.TicketContextPresenter
@@ -21,6 +23,8 @@ defmodule AiurWeb.DashboardLive do
 
   alias AiurWeb.OperatorControlCenter.{
     AgentLogModal,
+    CapacityControl,
+    CapacityPresenter,
     ConversationDrawer,
     DashboardShell,
     DecisionEvents,
@@ -31,6 +35,8 @@ defmodule AiurWeb.DashboardLive do
     PayloadLoader,
     RecentOutcomes,
     RouteRegistry,
+    RunSummary,
+    RunSummaryPresenter,
     TicketContext,
     UnitsFilters,
     UnitsPresenter,
@@ -41,6 +47,7 @@ defmodule AiurWeb.DashboardLive do
   alias AiurWeb.OperatorControlCenter.ConversationDrawer.Presenter, as: ConversationPresenter
 
   @runtime_tick_ms 1_000
+  @run_summary_flush_ms 250
   @decision_filters [:all, :open, :blocking, :undelivered, :supervisor, :resolved, :superseded]
   @decision_events DecisionEvents.events()
 
@@ -52,6 +59,7 @@ defmodule AiurWeb.DashboardLive do
       :ok = ObservabilityPubSub.subscribe()
       :ok = DecisionPubSub.subscribe()
       :ok = CurrentRunMembership.subscribe()
+      :ok = CurrentRunSummary.subscribe()
       :ok = TicketActivity.subscribe()
       :ok = subscribe_ticket_context_resets()
     end
@@ -74,6 +82,9 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:decision_query, %{})
       |> assign(:units_selection, UnitsURL.default_selection())
       |> assign_units_view()
+      |> assign(:capacity_input, "")
+      |> assign(:capacity_feedback, nil)
+      |> assign_initial_run_summary(connected)
       |> assign(:ticket_context, nil)
       |> assign(:ticket_context_detail, nil)
       |> assign(:ticket_context_history, nil)
@@ -139,6 +150,14 @@ defmodule AiurWeb.DashboardLive do
 
   def handle_info({:current_run_membership_changed, payload}, socket) do
     {:noreply, PayloadLoader.schedule(socket, {:event, {:membership, Map.get(payload, :generation)}})}
+  end
+
+  def handle_info({:current_run_summary_changed, snapshot}, socket) do
+    {:noreply, stash_run_summary(socket, snapshot)}
+  end
+
+  def handle_info(:flush_run_summary, socket) do
+    {:noreply, flush_run_summary(socket)}
   end
 
   def handle_info({:current_run_membership_health_changed, payload}, socket) do
@@ -343,6 +362,26 @@ defmodule AiurWeb.DashboardLive do
 
   def handle_event("pause-agent", _params, socket), do: {:noreply, socket}
 
+  def handle_event("capacity-input-change", %{"max" => value}, socket) when is_binary(value) do
+    {:noreply, assign(socket, :capacity_input, value)}
+  end
+
+  def handle_event("capacity-input-change", _params, socket), do: {:noreply, socket}
+
+  def handle_event("capacity-decrement", _params, socket) do
+    handle_writable_event(socket, fn -> {:noreply, adjust_capacity(socket, -1)} end)
+  end
+
+  def handle_event("capacity-increment", _params, socket) do
+    handle_writable_event(socket, fn -> {:noreply, adjust_capacity(socket, 1)} end)
+  end
+
+  def handle_event("capacity-set", %{"max" => value}, socket) when is_binary(value) do
+    handle_writable_event(socket, fn -> {:noreply, set_capacity(socket, value)} end)
+  end
+
+  def handle_event("capacity-set", _params, socket), do: {:noreply, socket}
+
   defp pause_agent_action(socket, modal) do
     key = agent_log_key(modal)
 
@@ -362,6 +401,76 @@ defmodule AiurWeb.DashboardLive do
   defp pause_agent_result({:error, reason}, socket, key),
     do: {:noreply, put_chat_error(socket, key, reason)}
 
+  defp adjust_capacity(socket, delta) do
+    prior = capacity_max(socket.assigns.payload)
+    reconcile_capacity(socket, capacity_adjust(delta), prior)
+  end
+
+  defp set_capacity(socket, value) do
+    case parse_capacity(value) do
+      {:ok, next} ->
+        prior = capacity_max(socket.assigns.payload)
+        reconcile_capacity(socket, capacity_set(next), prior)
+
+      :error ->
+        assign(socket, :capacity_feedback, %{kind: :invalid})
+    end
+  end
+
+  defp reconcile_capacity(socket, {:ok, %{} = status}, prior) do
+    new_max = Map.get(status, :max)
+
+    kind =
+      cond do
+        is_integer(prior) and new_max == prior -> :noop
+        Map.get(status, :draining?) == true -> :draining
+        true -> :applied
+      end
+
+    socket
+    |> reload_after_action()
+    |> assign(:capacity_feedback, %{kind: kind, max: new_max})
+  end
+
+  defp reconcile_capacity(socket, {:error, reason}, _prior) do
+    assign(socket, :capacity_feedback, %{kind: capacity_error_kind(reason)})
+  end
+
+  defp capacity_error_kind(:timeout), do: :timeout
+  defp capacity_error_kind(_reason), do: :unavailable
+
+  defp parse_capacity(value) do
+    case value |> to_string() |> String.trim() |> Integer.parse() do
+      {next, ""} when next >= 1 -> {:ok, next}
+      _other -> :error
+    end
+  end
+
+  defp capacity_facts(payload), do: get_in(payload, [:fleet, :capacity])
+
+  defp capacity_max(payload) do
+    case capacity_facts(payload) do
+      %{max: max} when is_integer(max) -> max
+      _other -> nil
+    end
+  end
+
+  defp capacity_adjust(delta) do
+    case Endpoint.config(:capacity_adjust_fun) do
+      fun when is_function(fun, 1) -> fun.(delta)
+      _other -> Slots.adjust_max_concurrent_agents(capacity_orchestrator(), delta)
+    end
+  end
+
+  defp capacity_set(next) do
+    case Endpoint.config(:capacity_set_fun) do
+      fun when is_function(fun, 1) -> fun.(next)
+      _other -> Slots.set_max_concurrent_agents(capacity_orchestrator(), next)
+    end
+  end
+
+  defp capacity_orchestrator, do: Endpoint.config(:orchestrator) || Aiur.Orchestrator
+
   @impl true
   def render(assigns) do
     assigns =
@@ -379,6 +488,11 @@ defmodule AiurWeb.DashboardLive do
         UnitsPresenter.project(Map.get(assigns.payload, :units, %{}), Map.get(assigns, :units_selection, UnitsURL.default_selection()))
       )
       |> then(&Map.put_new(&1, :units_announcement, UnitsPresenter.announcement(&1.units_view)))
+      |> Map.put_new(:capacity_view, CapacityPresenter.present(capacity_facts(assigns.payload)))
+      |> Map.put_new(:capacity_input, "")
+      |> Map.put_new(:capacity_feedback, nil)
+      |> Map.put_new(:run_summary, RunSummaryPresenter.present(nil))
+      |> Map.put_new(:run_summary_announcement, nil)
       |> Map.put_new(:current_route, RouteRegistry.current_route(Map.get(assigns, :live_action)))
 
     ~H"""
@@ -420,6 +534,13 @@ defmodule AiurWeb.DashboardLive do
       </div>
 
       <div :if={@live_action not in [:decisions, :decision]} class="control-panel">
+        <CapacityControl.capacity_control
+          capacity={@capacity_view}
+          writable={@writable}
+          input={@capacity_input}
+          feedback={@capacity_feedback}
+        />
+        <RunSummary.run_summary view={@run_summary} announcement={@run_summary_announcement} />
         <section class="section-card units-card" aria-labelledby="units-title">
           <header class="section-header units-header">
             <div>
@@ -621,6 +742,71 @@ defmodule AiurWeb.DashboardLive do
     socket
     |> assign(:units_view, view)
     |> assign(:units_announcement, UnitsPresenter.announcement(view))
+  end
+
+  # Read the current DASH-014 snapshot on mount/reconnect. On the dead first
+  # render, or when the projection process is unreachable, fall back to the
+  # loading view rather than crashing the LiveView.
+  defp assign_initial_run_summary(socket, connected) do
+    snapshot = if connected, do: read_run_summary_snapshot(), else: nil
+
+    socket
+    |> assign(:run_summary_source, nil)
+    |> assign(:run_summary_pending, nil)
+    |> assign(:run_summary_flush_scheduled?, false)
+    |> apply_run_summary(snapshot)
+  end
+
+  defp read_run_summary_snapshot do
+    CurrentRunSummary.snapshot()
+  rescue
+    _error -> nil
+  catch
+    :exit, _reason -> nil
+  end
+
+  # Coalesce bursts of daemon updates: keep only the latest pending snapshot
+  # and flush once per debounce window so high-frequency renders and
+  # screen-reader announcements stay bounded.
+  defp stash_run_summary(socket, snapshot) do
+    socket = assign(socket, :run_summary_pending, snapshot)
+
+    if socket.assigns.run_summary_flush_scheduled? do
+      socket
+    else
+      schedule_run_summary_flush()
+      assign(socket, :run_summary_flush_scheduled?, true)
+    end
+  end
+
+  defp flush_run_summary(socket) do
+    socket = assign(socket, :run_summary_flush_scheduled?, false)
+
+    case socket.assigns.run_summary_pending do
+      nil -> socket
+      snapshot -> socket |> assign(:run_summary_pending, nil) |> apply_run_summary(snapshot)
+    end
+  end
+
+  # Reconcile an incoming snapshot against the displayed source (last-known-good
+  # retention lives in the presenter) and assign the presented view plus a
+  # single bounded announcement.
+  defp apply_run_summary(socket, snapshot) do
+    {source, retained?} = RunSummaryPresenter.reconcile(socket.assigns.run_summary_source, snapshot)
+    status_source = if retained?, do: snapshot, else: nil
+    view = RunSummaryPresenter.present(source, retained?, status_source)
+
+    socket
+    |> assign(:run_summary_source, source)
+    |> assign(:run_summary, view)
+    |> assign(:run_summary_announcement, RunSummaryPresenter.announcement(view))
+  end
+
+  defp schedule_run_summary_flush do
+    case Endpoint.config(:run_summary_flush_timer) do
+      timer when is_function(timer, 3) -> timer.(self(), :flush_run_summary, @run_summary_flush_ms)
+      _other -> Process.send_after(self(), :flush_run_summary, @run_summary_flush_ms)
+    end
   end
 
   defp open_ticket_context(socket, %{identity: %TrackerIdentity{} = identity} = row) do

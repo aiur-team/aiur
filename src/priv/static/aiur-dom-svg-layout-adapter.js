@@ -12,7 +12,7 @@ export function createDomSvgLayoutHook(options = {}) {
       this.__domSvgLayoutAdapter.mount()
     },
     beforeUpdate() {
-      this.__domSvgLayoutAdapter?.invalidate()
+      this.__domSvgLayoutAdapter?.beforeUpdate()
     },
     updated() {
       this.__domSvgLayoutAdapter?.updated()

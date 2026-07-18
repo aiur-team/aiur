@@ -34,13 +34,15 @@ defmodule Aiur.BuildOrder.GraphProjection.Policy do
     }
   end
 
-  @spec snapshot(map(), TrackerIdentity.repository() | :unknown, integer(), pos_integer()) :: Snapshot.t()
-  def snapshot(entry, repository, now_ms, interval_ms) do
+  @spec snapshot(map(), TrackerIdentity.repository() | :unknown, Snapshot.authority_epoch(), integer(), pos_integer()) ::
+          Snapshot.t()
+  def snapshot(entry, repository, authority_epoch, now_ms, interval_ms) do
     health = aged_health(entry, now_ms, interval_ms)
 
     %Snapshot{
       scope: entry.scope,
       repository: repository,
+      authority_epoch: authority_epoch,
       generation: entry.generation,
       data: entry.data,
       health: health

@@ -7,7 +7,7 @@
       this.focusKey = this.el.dataset.focusKey;
       this.originId = this.el.dataset.originId;
       this.onKeydown = this.handleKeydown.bind(this);
-      this.el.addEventListener("keydown", this.onKeydown);
+      document.addEventListener("keydown", this.onKeydown);
       this.focusHeading();
     },
     beforeUpdate() {
@@ -29,7 +29,7 @@
       }
     },
     destroyed() {
-      this.el.removeEventListener("keydown", this.onKeydown);
+      document.removeEventListener("keydown", this.onKeydown);
 
       requestAnimationFrame(() => {
         const explicitOrigin = this.originId ? document.getElementById(this.originId) : null;

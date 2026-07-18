@@ -12,14 +12,32 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
     def metadata_from_message(_port, _payload), do: %{backend: :stub}
   end
 
+  test "checkpoint is skipped while a parent provider turn is live" do
+    parent = self()
+
+    state =
+      state(%{
+        outstanding_turns: 1,
+        on_safe_checkpoint: fn _ ->
+          send(parent, :checkpoint_invoked)
+          {:deliver_text, "hello", fn _ -> :ok end, fn _ -> :ok end}
+        end
+      })
+
+    assert OperatorDelivery.maybe_process_safe_checkpoint(session(), state, %{kind: :notification}) == state
+    refute_receive :checkpoint_invoked
+    refute_receive {:operator_message, _}
+  end
+
   test "noop checkpoint leaves state unchanged" do
-    state = state(%{on_safe_checkpoint: fn _ -> :noop end})
+    state = state(%{outstanding_turns: 0, on_safe_checkpoint: fn _ -> :noop end})
     assert OperatorDelivery.maybe_process_safe_checkpoint(session(), state, %{kind: :notification}) == state
   end
 
   test "deliver_text sends operator message and registers pending request" do
     state =
       state(%{
+        outstanding_turns: 0,
         on_safe_checkpoint: fn _ ->
           {:deliver_text, "hello", fn _ -> :ok end, fn _ -> :ok end}
         end
@@ -36,6 +54,7 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
 
     state =
       state(%{
+        outstanding_turns: 0,
         on_safe_checkpoint: fn _ ->
           {:deliver_text, "hello", fn _ -> :ok end, fn reason -> send(parent, {:failed, reason}) end}
         end
