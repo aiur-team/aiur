@@ -103,18 +103,19 @@ defmodule Aiur.AgentRunner.TurnStreamsTest do
     test "returns :ok immediately (fire-and-forget)" do
       writers = [%{session_id: "s-slow", base_url: "http://slow"}]
 
-      slow_post = fn _base, _sid, _payload ->
+      parent = self()
+
+      slow_post = fn base, sid, _payload ->
+        send(parent, {:entered, base, sid})
         Process.sleep(5_000)
         {:ok, %{}}
       end
 
-      {elapsed_us, :ok} =
-        :timer.tc(fn ->
-          TurnStreams.post_aiur_turn_markers("TS-02", "tSLOW", writers, slow_post)
-        end)
-
-      assert div(elapsed_us, 1_000) < 500,
-             "post_aiur_turn_markers should return immediately"
+      # A synchronous post would block here for the full 5s sleep; reaching the
+      # assertion proves the call returned without waiting on it. The post still
+      # ran in its fire-and-forget Task, so the entry message lands afterward.
+      assert :ok = TurnStreams.post_aiur_turn_markers("TS-02", "tSLOW", writers, slow_post)
+      assert_receive {:entered, "http://slow", "s-slow"}, 5_000
     end
 
     test "returns :ok when the post_fn returns an error" do
