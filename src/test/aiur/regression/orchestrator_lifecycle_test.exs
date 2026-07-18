@@ -199,7 +199,7 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
         restore_app_env(:hermetic_rework_agent, previous_agent)
         restore_app_env(:hermetic_rework_issues, previous_issues)
         restore_app_env(:comment_rework_retry_delay_ms, previous_delay)
-        Aiur.TestSupport.safe_stop(agent)
+        if Process.alive?(agent), do: Agent.stop(agent)
       end)
 
       write_workflow_file!(Workflow.workflow_file_path(),
