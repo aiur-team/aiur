@@ -61,14 +61,20 @@ defmodule Aiur.Tracker do
     cond do
       Code.ensure_loaded?(tracker_adapter) and
           function_exported?(tracker_adapter, :update_issue_state, 3) ->
-        apply(tracker_adapter, :update_issue_state, [issue_id, state_name, opts])
+        dispatch_update_issue_state(tracker_adapter, issue_id, state_name, opts)
 
       opts == [] ->
-        apply(tracker_adapter, :update_issue_state, [issue_id, state_name])
+        tracker_adapter.update_issue_state(issue_id, state_name)
 
       true ->
         {:error, :expected_state_unsupported}
     end
+  end
+
+  @spec dispatch_update_issue_state(module(), String.t(), String.t(), keyword()) ::
+          :ok | {:error, term()}
+  defp dispatch_update_issue_state(tracker_adapter, issue_id, state_name, opts) do
+    tracker_adapter.update_issue_state(issue_id, state_name, opts)
   end
 
   @spec add_label(String.t(), String.t()) :: :ok | {:error, term()}

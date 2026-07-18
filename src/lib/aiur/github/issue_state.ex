@@ -119,10 +119,7 @@ defmodule Aiur.GitHub.IssueState do
              token: context.token
            }) do
         {:ok, %{status: 200, body: current_issue_body}} ->
-          case validate_expected_state(context, current_issue_body) do
-            :ok -> {:ok, current_issue_body}
-            {:error, _reason} = error -> error
-          end
+          validate_revalidated_state(context, current_issue_body)
 
         {:ok, %{status: _status} = response} ->
           {:error, Errors.github_status_error(response)}
@@ -132,6 +129,13 @@ defmodule Aiur.GitHub.IssueState do
       end
     else
       {:ok, issue_body}
+    end
+  end
+
+  defp validate_revalidated_state(context, current_issue_body) do
+    case validate_expected_state(context, current_issue_body) do
+      :ok -> {:ok, current_issue_body}
+      {:error, _reason} = error -> error
     end
   end
 

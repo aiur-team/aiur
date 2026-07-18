@@ -86,26 +86,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
       case Tracker.update_issue_state(to_string(issue_key), next_state, expected_state: issue.state) do
         :ok ->
-          updated_issue = %{issue | state: next_state}
-
-          state =
-            if ci_wait_state?(next_state),
-              do: clear_ci_approved_head(state, issue),
-              else: state
-
-          cond do
-            DispatchPolicy.active_issue_state?(
-              next_state,
-              DispatchPolicy.active_state_set()
-            ) ->
-              Reconciler.maybe_reactivate_or_refresh(state, updated_issue)
-
-            ci_wait_state?(next_state) ->
-              pause_issue_for_ci_wait(state, updated_issue)
-
-            true ->
-              Reconciler.refresh_running_issue_state(state, updated_issue)
-          end
+          dispatch_successful_transition(state, issue, next_state)
 
         {:error, reason} ->
           Logger.warning(
@@ -115,6 +96,26 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
           state
       end
+    end
+  end
+
+  defp dispatch_successful_transition(state, issue, next_state) do
+    updated_issue = %{issue | state: next_state}
+
+    state =
+      if ci_wait_state?(next_state),
+        do: clear_ci_approved_head(state, issue),
+        else: state
+
+    cond do
+      DispatchPolicy.active_issue_state?(next_state, DispatchPolicy.active_state_set()) ->
+        Reconciler.maybe_reactivate_or_refresh(state, updated_issue)
+
+      ci_wait_state?(next_state) ->
+        pause_issue_for_ci_wait(state, updated_issue)
+
+      true ->
+        Reconciler.refresh_running_issue_state(state, updated_issue)
     end
   end
 

@@ -18,6 +18,13 @@ defmodule Aiur.Orchestrator.LifecycleFence do
 
   @pr_anchored_state "pr-watch"
 
+  @type t :: %{
+          generation: pos_integer(),
+          authoritative_state: String.t(),
+          pending_item_ids: MapSet.t(integer()),
+          opened_at: DateTime.t()
+        }
+
   @spec protect_queued_item(State.t(), String.t(), AgentQueueItem.t()) :: State.t()
   def protect_queued_item(%State{} = state, identifier, %AgentQueueItem{} = item)
       when is_binary(identifier) do
@@ -40,15 +47,7 @@ defmodule Aiur.Orchestrator.LifecycleFence do
         state
 
       issue_id ->
-        update_fence(state, issue_id, fn fence ->
-          remaining = MapSet.delete(fence.pending_item_ids, item.id)
-
-          if MapSet.size(remaining) == 0 do
-            nil
-          else
-            %{fence | pending_item_ids: remaining}
-          end
-        end)
+        update_fence(state, issue_id, &remove_pending_item(&1, item.id))
     end
   end
 
@@ -112,31 +111,10 @@ defmodule Aiur.Orchestrator.LifecycleFence do
     existing_fence = fence_for_entry(entry)
     comment_rework? = trusted_comment_item?(item) and not pr_anchored_entry?(entry)
 
-    authoritative_state =
-      cond do
-        comment_rework? -> "rework"
-        is_map(existing_fence) -> existing_fence.authoritative_state
-        true -> normalize_state(get_in(entry, [:issue, Access.key(:state)])) || "in-progress"
-      end
-
-    pending_item_ids =
-      existing_fence
-      |> case do
-        %{pending_item_ids: pending_item_ids} -> pending_item_ids
-        _ -> MapSet.new()
-      end
-      |> MapSet.put(item.id)
-
-    generation =
-      case existing_fence do
-        %{generation: generation} when is_integer(generation) -> generation + 1
-        _ -> 1
-      end
-
     fence = %{
-      generation: generation,
-      authoritative_state: authoritative_state,
-      pending_item_ids: pending_item_ids,
+      generation: next_generation(existing_fence),
+      authoritative_state: derive_authoritative_state(existing_fence, entry, comment_rework?),
+      pending_item_ids: put_pending_item(existing_fence, item.id),
       opened_at: DateTime.utc_now()
     }
 
@@ -146,6 +124,29 @@ defmodule Aiur.Orchestrator.LifecycleFence do
       |> Map.put(:lifecycle_fence, fence)
 
     %{state | running: Map.put(state.running, issue_id, updated_entry)}
+  end
+
+  defp derive_authoritative_state(existing_fence, entry, comment_rework?) do
+    cond do
+      comment_rework? -> "rework"
+      is_map(existing_fence) -> existing_fence.authoritative_state
+      true -> normalize_state(get_in(entry, [:issue, Access.key(:state)])) || "in-progress"
+    end
+  end
+
+  defp next_generation(%{generation: generation}) when is_integer(generation), do: generation + 1
+  defp next_generation(_existing_fence), do: 1
+
+  defp put_pending_item(%{pending_item_ids: %MapSet{} = pending_item_ids}, item_id),
+    do: MapSet.put(pending_item_ids, item_id)
+
+  defp put_pending_item(_existing_fence, item_id), do: MapSet.new([item_id])
+
+  @spec remove_pending_item(t(), integer()) :: t() | nil
+  defp remove_pending_item(fence, item_id) do
+    remaining = MapSet.delete(fence.pending_item_ids, item_id)
+
+    if MapSet.size(remaining) == 0, do: nil, else: %{fence | pending_item_ids: remaining}
   end
 
   defp authoritative_item?(%AgentQueueItem{category: :operator_message}), do: true

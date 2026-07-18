@@ -94,10 +94,10 @@ defmodule Aiur.GitHub.Tracker do
 
     cond do
       Code.ensure_loaded?(client) and function_exported?(client, :update_issue_state, 3) ->
-        apply(client, :update_issue_state, [issue_id, state_name, opts])
+        client.update_issue_state(issue_id, state_name, opts)
 
       opts == [] ->
-        apply(client, :update_issue_state, [issue_id, state_name])
+        client.update_issue_state(issue_id, state_name)
 
       true ->
         {:error, :expected_state_unsupported}

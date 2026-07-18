@@ -5,8 +5,8 @@ defmodule Aiur.AgentChat do
 
   require Logger
 
-  alias Aiur.Orchestrator
   alias Aiur.Opencode.SlotRegistry
+  alias Aiur.Orchestrator
 
   @spec send(String.t(), String.t()) :: {:ok, integer()} | {:error, term()}
   @spec send(String.t(), String.t(), keyword()) :: {:ok, integer()} | {:error, term()}
