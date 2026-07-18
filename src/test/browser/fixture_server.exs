@@ -1340,6 +1340,7 @@ defmodule Aiur.BrowserHarness.ProviderMetersLive do
 
     ~H"""
     <main class="app-shell" data-provider-meters-fixture="true">
+      <h1 class="sr-only">Provider meters fixture</h1>
       <ProviderMeters.provider_meters view={@view} announcement={@announcement} />
 
       <div class="controls" aria-label="Provider meter fixture updates">

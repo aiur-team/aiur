@@ -7,7 +7,9 @@
   --surface-3: #292d34;
   --fg: #edeef0;
   --muted: #969aa4;
-  --faint: #676b74;
+  /* Keep faint text >= WCAG AA 4.5:1 on the dark surfaces (>= 5:1 on --surface);
+     stay dimmer than --muted. Do not darken below this without rechecking axe. */
+  --faint: #8b8f99;
   --line: rgba(221, 226, 235, 0.12);
   --line-strong: rgba(221, 226, 235, 0.2);
   --hairline: rgba(221, 226, 235, 0.08);
