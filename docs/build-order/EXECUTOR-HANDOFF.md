@@ -1,326 +1,474 @@
 # Build Order Executor Handoff
 
-## Live Executor state (updated 2026-07-16 17:37 PDT — orangekid-opus → Claude)
+## Wind-down checkpoint — macbook-fable (2026-07-17 22:30 PDT)
 
-This is the current live truth for the **orangekid-opus** machine and supersedes
-older orangekid-opus entries below. The operator stopped the Codex Executor and
-is handing control to a Claude Executor. **Do not infer that the worker backend
-must also change:** the live Aiur fleet remains configured for Codex workers;
-Claude is taking over the Executor role.
+This supersedes everything below for macbook-fable's scope (the DASH accounting /
+Units / conversation stack). Orangekid's BO-graph spine and partition are
+untouched; their checkpoints below still hold for their scope.
 
-### Stop / ownership boundary
+**Progress: 36/54 merged (~67%); 37 once DASH-025 lands.** Since the 20:10
+handoff, macbook-fable merged DASH-010, DASH-026, DASH-024, DASH-003, DASH-014,
+DASH-029 to `develop`, then ran a same-machine Aiur daemon (session
+`aiur-kevinweaver-16e668d8e2`, opus, aiur-claude 1.1.0) to implement the rest
+while acting as reviewer.
 
-- No new tickets were started, resumed, unpaused, merged, or pushed after the
-  stop request.
-- The live Aiur daemon was deliberately **left running** for takeover. Do not
-  restart it merely because the Executor changed. Establish control-plane
-  health first and use the recovery ordering in the `aiur-run` handoff.
-- All three direct Codex lanes were parked. Two were review-only and made no
-  changes. The #1130/#1217 resolver left a clean, committed local checkpoint
-  described below. No direct Codex subagent remains working.
-- Claude is now the single Executor. Before assigning a writer, re-read the
-  ticket workpad and both workspace logs, re-query GitHub state, and ensure
-  there is only one writer for that workspace. The #1031 duplicate native/direct
-  collision earlier today is the concrete reason for this fence.
+**Aiur is now STOPPED on macbook-fable** (clean stop; no node, 0 agent procs, 0
+tmux sessions). Operator directive: wind down, finish the two in-flight tickets,
+hold the queue, hand off.
 
-### Runtime and repository identity
+### In-flight at stop
+- **DASH-025 #1129 — PR #1250** (`aiur/1129-bo-dash-025-harden`, head
+  `335d57f3`). The destructive retention/compaction seam. **Reviewed
+  APPROVE-WITH-NITS** by a background review agent: all 9 safety invariants hold
+  (no-delete-before-coverage, crash-safe manifest state machine, dimension
+  preservation, query equivalence, containment); the coordinator is deliberately
+  supervised BEFORE the aggregate (crash-safe — keep it). The daemon's rework
+  already added the top nit (Floor fail-closed on a mid-flight destructive
+  phase). **CI: only `dialyzer` + `lint` fail** (build/guard/layout/browser/test
+  green). A macbook-fable fix agent is resolving those now → **merge on green**
+  (required gates + 0 own-domain failures). Deferred non-blocking nits: read-back
+  block validation before the point of no return; explicit `sync_fun` coupling in
+  the coordinator; broaden compaction property-test dimensions.
+- **DASH-005 #1112 — work LOST.** Its daemon agent never pushed a branch, so the
+  in-progress implementation was discarded on stop. Label is a stale
+  `agent:in-progress`. **Needs a fresh run.**
 
-- Executor checkout: `/home/orangekid/github/aiur-runtime-develop`
-- Branch/base at handoff: `develop` at exact
-  `82703ecab6497e13f2804f21f7c2b3aa3856061f` (same as `origin/develop`)
-- `origin/main`: `a2b948b1cb31e2dc9dc7d4d30e02c63cd2f3bc99`; it is an ancestor of
-  `origin/develop`.
-- Last merge: PR #1215 / issue #1123, squash commit `82703eca`; #1123 was
-  explicitly closed and labeled `agent:done` because `develop` is not the
-  default branch.
-- Live daemon: PID 357239, dashboard `http://127.0.0.1:4000`, tmux socket
-  `aiur-orangekid-0f62c25cdf`, session
-  `aiur-orangekid-0f62c25cdf-default`.
-- Live log root:
-  `/home/orangekid/.aiur/logs/20260716T215217Z-356823/log`.
-- The on-disk release was rebuilt from `develop@82703eca`; the already-running
-  daemon was not restarted by that rebuild. If a later restart is genuinely
-  needed, run `scripts/aiurdev build` from this `develop` checkout first, then
-  relaunch through `aiurdev`.
-- Machine-local dirt is intentional and must not be committed:
-  `.aiur/config`, `.aiur/model-usage.json`, and
-  `docs/build-order/scripts/__pycache__/`.
+### Queue HELD (do not auto-start)
+These 7 downstream tickets were dequeued (`agent:todo` removed) and left
+dependency-ready but intentionally unstarted. Re-add `agent:todo` to resume:
+**DASH-030 #1134, DASH-027 #1131, DASH-028 #1132, DASH-022 #1126,
+DASH-032 #1136, DASH-034 #1138, DASH-031 #1135.**
 
-At the stop snapshot, `scripts/aiurdev agents` showed only #1030 and #1122,
-both paused. `status` also showed #1105, #1119, #1124, and #1130 idle. The
-daemon stays up, but there is no active worker to drain.
+### Ready frontier on resume
+Dependency-ready now: **DASH-005, DASH-030, DASH-027, DASH-028, DASH-022,
+DASH-032.** Then **DASH-034** (after DASH-032) and **DASH-031** (after
+DASH-025 + DASH-030 + orangekid's **DASH-013 #1119** — the one cross-machine
+join). Capstones last: DASH-023 #1127, DASH-033 #1137, BO-015 #1102.
 
-### Exact PR/workspace frontier at shutdown
+### Restart recipe (macbook-fable)
+1. `git -C /Users/kevinweaver/github.com/its-everdred/aiur checkout develop && git pull`
+2. `scripts/aiurdev build` (rebuild on current develop — DASH-003/014/024/026/029
+   are in the base).
+3. Queue ONLY the intended set: `scripts/aiurdev --todo <ids>` (e.g. re-run
+   DASH-005 first, then the frontier). Do NOT `--only` (it would strip
+   orangekid's paused labels).
+4. `scripts/aiurdev run --bg --debug --max-agents <n>` with Claude opus.
+   **Sustainable concurrency on this M4 (10-core) is ~2–3 heavy Elixir agents**;
+   AIMD + the load gate (holds dispatch ~load 18) will keep it there. Dispatch is
+   serial-ish because each agent materializes a prewarm workspace and a 690-file
+   compile is heavy. Don't set the ceiling high expecting 6 parallel — it thrashes.
+5. Reviewer loop: for each daemon PR, review + merge under the proven policy, or
+   route rework via `scripts/aiurdev message <id>`.
 
-#### #1031 / PR #1036 — coordination RPC latency
+### Standing constraints
+- **NEVER commit `.aiur/config`** (machine-local `writableRoots`) or
+  `.aiur/model-usage.json`.
+- Do not touch orangekid's **BO-012 #1099 / DASH-013 #1119** or the 5
+  CI-stabilization flaky test files.
+- Merge target `develop`; generic fixes → `main` then sync main→develop.
+- Stale ADHOC alerts **#1030** (workspace-bootstrap; PR #1039 regression-guard
+  decision, references old 0-file heads) and **#973** (paused since Jul 12) are
+  OUTSIDE the 54 — parked, not resolved under the build-order goal.
 
-- Remote/workspace head:
-  `56c99d3fae49cdf6bd0f3529da905720805c6db9`; exact base `82703eca` is its
-  merge-base and ancestor. Workspace:
-  `/home/orangekid/code/aiur-workspaces/its-everdred/aiur/1031`.
-- The branch is clean except pre-existing untracked `.aiur-base-built`.
-- Focused gates previously passed: 152 Elixir tests, 12 Python tests, compile
-  warnings-as-errors, specs, format, strict Credo, bash syntax, and two serial
-  launcher timeout tests.
-- CI at 17:37 PDT: build/lint/guard/Dialyzer/browser/layout green; full `test`
-  still running.
-- The independent reviewer verified head/base/ancestry and began the 25-file
-  diff review, but shutdown arrived before a final verdict. **No independent
-  merge verdict exists.** Re-query ticket labels before assigning ownership;
-  keep/add `agent:paused` until one writer is chosen.
+## Takeover checkpoint (updated 2026-07-17 20:10 PDT)
 
-#### #1122 / PR #1202 — DASH-016 canonical Units rows
+This checkpoint supersedes every live-state paragraph below it. The previous
+Executor is handing off; do not infer current runtime or ticket state from the
+older narrative.
 
-- Remote/workspace head:
-  `719d35309865e4814303fa05e40d50d81b89ab62`; exact base `82703eca` is its
-  ancestor. Workspace:
-  `/home/orangekid/code/aiur-workspaces/its-everdred/aiur/1122` is clean.
-- Independent code review is clean: atomic count/source selection, replacement
-  lifecycle provenance, privacy/identity joins, URL filtering, capacity policy,
-  bounded membership, ordering, and API parity were rechecked. Focused Units
-  tests passed (19 tests + 3 properties), as did the compatibility suites.
-- CI at shutdown: every non-test gate green; full `test` completed **failure**
-  immediately before stop. The reviewer did not classify the failure. PR is
-  not merge-ready until Claude inspects the failing job and proves regression
-  versus an already-known changing unrelated suite failure.
-- Ticket/worker remains paused. Do not remove that fence until a single owner is
-  assigned.
+### Runtime containment and restart gate
 
-#### #1149 / PR #1213 — isolate Linear/global-log assertion
+Aiur is intentionally stopped. The former debug daemon reproduced two
+overlapping provider turn IDs (`7d85041c…` and `7e02bf19…`) for #1237 in the
+same workspace. `aiurdev pause 1237` interrupted only the turn still recorded
+as active while the older Claude child remained alive, so the Executor stopped
+the daemon rather than trust pause containment. #1237 subsequently passed exact
+CI and two correctness passes, merged through PR #1243 as
+`develop@6b6f167999d5b47415c1fb1e5e10f87fbd81a3bf`, and was explicitly closed
+`agent:done`.
 
-- Remote/workspace head:
-  `982504626941c5086be7520f6707e5135fc7f14e`; exact base `82703eca` is merged.
-  Workspace:
-  `/home/orangekid/code/aiur-workspaces/its-everdred/aiur/1149` is clean except
-  `.aiur-base-built`.
-- The net feature change remains the one assertion in
-  `src/test/aiur/workspace_and_config_test.exs`; prior focused evidence was 11
-  consecutive seeded green runs.
-- CI at 17:37 PDT: every non-test gate green and full `test` still running.
-- Native self-review was clean, but the Executor still requires an independent
-  exact-head review before merge. No such final review was completed in this
-  shutdown window.
+The canonical runtime checkout is
+`/home/orangekid/github/aiur-runtime-develop`. It is on literal `develop`, one
+commit behind `origin/develop@6b6f1679`, with only the machine-local
+`.aiur/config` and `.aiur/model-usage.json` changes; preserve both. Its control
+RPC reports no running Aiur node. Do not restart until #1247 lands. After that:
 
-#### #1130 / PR #1217 — DASH-026 bounded live conversation
+1. update the runtime checkout to exact `origin/develop` without discarding its
+   machine-local files;
+2. run `scripts/aiurdev build` first;
+3. launch detached with `--debug --max-agents 15`, Claude Opus, and
+   aiur-claude 1.1.0;
+4. prove from durable logs and process census that a normal check-in produces
+   only one provider turn/workspace writer, then one queued follow-up after the
+   parent exits; and
+5. keep #1246 Executor-owned while Aiur consumes other unblocked tickets.
 
-- **The durable repair is local, clean, and not pushed.** Workspace:
-  `/home/orangekid/code/aiur-workspaces/its-everdred/aiur/1130`; local head
-  `766d14afd3a5150f0683a641e7cb162716236c2d`, containing repair commit
-  `d8028dbe` (`Repair live conversation boundaries`) plus the merge of exact
-  `develop@82703eca`. There is no `MERGE_HEAD`, no conflict, and no dirty file.
-- Remote PR head remains old `4ee6ad87d72b33a178bcd84d4dcbaec2ade5fc19`.
-  Do not reset the workspace to that remote head and do not discard the local
-  commits.
-- Local validation completed after the merge: 220 focused tests green; the
-  route-shell browser spec passes on both local head and exact base; compile
-  warnings-as-errors, format, specs, strict Credo, and diff hygiene are clean.
-- Dialyzer was interrupted before its terminal verdict. Final sequential CE
-  review, workpad/PR update, and push remain undone.
-- The repair addresses the six prior P1 findings: coordination-category
-  exposure, Remote Control projection bypass, JSON-wire byte bounds, replay
-  sequence stability, health propagation, and opaque provider-ID handling.
-  Independently verify those claims on `766d14af` before pushing.
-- GitHub still reports the old PR head with full `test` and browser harness red;
-  that status is not evidence about the unpushed repair. Ticket labels were not
-  changed during shutdown.
+### Immediate P1: #1247 single-writer checkpoint delivery
 
-### Parked / ready-next tickets
+Worktree:
+`/home/orangekid/github/aiur/.worktrees/fix/1247-single-writer-checkpoints`
+on `fix/1247-single-writer-checkpoints`. Committed head is merge commit
+`ea9b8d82` over feature commit `3bfebcdd`, with exact base `6b6f1679`. No remote
+feature branch or PR exists yet.
 
-- #1030 / PR #1039: paused, zero-diff/superseded by #1166; operator-root
-  acceptance is unresolved. Do not wake casually.
-- #1105 / PR #1209: `agent:rework` + `agent:paused`, older base/head
-  `211945e4`; needs current-develop refresh and review. It was **not** unpaused.
-- #1124 / PR #1208: `agent:in-progress` + `agent:rework` + `agent:paused`, older
-  head `4b5233c4`; DASH-012 dependency is satisfied and this is a good next Codex
-  worker lane once Claude establishes authority. It was **not** unpaused.
-- #1119: `agent:in-progress` + `agent:paused`, no PR, externally blocked on
-  GATE-004 / a pinned compatible `aiur-claude` account-meter revision. Do not
-  unpause merely for utilization.
+Before independent review, the exact merged head passed 106 focused tests,
+compile with warnings as errors, format, specs, strict Credo, Dialyzer, and
+diff checks. A real aiur-claude 1.1.0 protocol probe also returned `-32003` for
+a second active turn and observed exactly one started/completed turn.
 
-### Monitoring and recovery evidence
+Independent exact-head review found three actionable gaps:
 
-- Stable run ID: `aiur-dashboard-program-20260713`.
-- Retrospective state/history:
-  `/tmp/aiur-executor-watch/aiur-dashboard-program-20260713/`.
-- Capacity audit timer remains installed:
-  `/home/orangekid/.aiur/executor-capacity-audit.sh` and
-  `aiur-executor-capacity-audit.timer`. Last audit found load 11.75 on 12 CPUs,
-  19 GiB available, target cap 18, and build serialization intact; no cap change
-  was warranted.
-- A GitHub REST degradation earlier today recovered automatically. Control RPC
-  `watch --full` / `alerts` later timed out under scheduler saturation while
-  lightweight `status`/`agents` still worked. This is not, by itself, authority
-  to restart. Prefer lightweight status, native preflight recovery, and the
-  existing 15-minute safety audit during a confirmed REST incident.
-- Diagnostics footnote: AuthPreflight currently hard-codes the displayed source
-  as `GITHUB_TOKEN` even when the daemon uses the `gh` keyring; do not treat that
-  string alone as proof of the credential source.
+- boundary-drain `-32003` still failed the durable item instead of restoring
+  it;
+- the broad active-turn guard also deferred blocker-critical digests instead
+  of routing them through an explicit interrupt; and
+- the Claude regression asserted only that an interrupt frame was written,
+  not acknowledgement, parent termination, and exactly-once queued follow-up.
 
-### Claude takeover order
+Seven files are currently modified and intentionally uncommitted. The repair
+adds boundary-drain restore behavior and regression coverage, classifies
+direct-blocker digests at enqueue time as explicit interrupts while preserving
+`urgent="true"` framing, and adds a production-shaped Claude lifecycle test
+that acknowledges interruption and proves exactly one durable follow-up after
+the parent completes. `mix format` and `git diff --check` pass, but these
+post-review repairs have **not** yet been compiled or tested. Run their focused
+tests first, fix any failures, run the complete #1247 matrix/static gates,
+commit, and obtain a fresh independent delta review before push/CI/merge.
 
-1. Work from `/home/orangekid/github/aiur-runtime-develop` on `develop`; read
-   this entry, `AGENT-CHAT.md`, each selected ticket's workpad, and both workspace
-   logs before mutation.
-2. Re-query daemon status, ticket labels, PR heads/checks, and workspace Git
-   state. This snapshot is exact at 17:37 PDT, not a substitute for live state.
-3. Preserve the pause fences until a single owner is assigned. Highest-value
-   immediate last miles are: finish #1217 locally (Dialyzer + independent CE
-   review + push), classify #1202's full-test failure, complete #1036's review,
-   and independently review #1213.
-4. Build Order PRs target `develop`. Generic stability work normally targets
-   `main`, then exact `main` is merged into `develop`. Keep `origin/main` an
-   ancestor of `origin/develop`.
-5. For material `develop` changes, remaining Build Order heads must incorporate
-   exact current `develop` and receive fresh exact-head CI/review. A PR merged
-   into non-default `develop` does not auto-close its ticket: explicitly apply
-   `agent:done` and close it.
-6. Use the documented changing-unrelated-full-suite-flake exception only with
-   exact evidence, clean scoped gates, and independent review. Never call an
-   unclassified red job merge-ready.
+A full-suite run on the prior compiled head used seed `388564` and was stopped
+for this handoff after four unrelated signatures: Workspace reconstruction
+missed a 100 ms rendezvous; `post_aiur_turn_markers/4` took 894 ms against a
+500 ms wall-clock bound under load; OwnershipRunner ran `after_create` twice;
+and OrchestratorDeactivate again lost `BranchRefStore.ready_unblock`. These are
+evidence for #1246, not grounds to change #1247 product code.
 
-## Live Executor state (updated 2026-07-16 11:05 PDT — macbook-fable)
+### Executor-owned convergence queue
 
-This entry is the current live truth for the **macbook-fable** (macOS, git
-`its-applekid`) fleet and supersedes older entries for that machine only. The
-orangekid-opus machine records its own state; see `AGENT-CHAT.md` for the
-cross-machine partition.
+| Ticket | Exact local state | Remaining gate |
+|---|---|---|
+| #1099 / PR #1244 | Repair head `f63fcaa3` keeps the 1 Hz age outside `aria-live`; focused regression green. Prior pushed head `9d0e9c87` has 7/8 CI green and a browser-harness failure. | Push repaired head, classify browser failure against literal develop, fresh exact CI/review, land/close. |
+| #1110 / PR #1234 | Local head `ab955134` contains the real TicketActivity/provider-restart reload. Review confirmed behavior but rejected sleep-based synchronization. The reviewer incorrectly claimed a mandatory 1,000-line threshold: the real CONTRIBUTING target is 200 lines and explicitly not a CI line-count gate. | Writer is replacing sleep with an explicit >=2 s handshake and should extract only a cohesive responsibility justified by the real one-responsibility/200-line guidance. Then push/review/CI/land. |
+| #1130 / PR #1217 | Local head `d586780c` resolves byte ceiling and truncation diagnostics. Review found replacement backfill still defaults to the live callback when production omits `on_backfill_message`. | Writer is making backfill no-op by default and adding the production-shaped regression; then push/review/CI/land. |
+| #1120 / PR #1239 | Exact remote/local `a4759944`; draft; all eight CI jobs green. | Real synthetic/manual acceptance, mark ready, land, close. |
+| #1238 / PR #1241 | Exact remote/local `2c8499ec`; ready; all eight CI jobs green. | Independent exact-head review, merge-forward to current develop, fresh CI, land, close. |
+| #1246 | Executor-owned Ad Hoc reliability audit; issue comment `5009600338` contains the newest incident packet. | Start after the direct queue is merged and Aiur is live; maintain the evidence ledger and do not dispatch through Aiur. |
 
-**Fleet PAUSED at operator direction (2026-07-16 ~11:00 PDT)** pending a backend
-switch to Codex. `aiurdev pause --all` applied; the daemon stays up.
+At handoff, the active bounded writers are the #1099 accessibility repair
+(already committed at `f63fcaa3`), the #1110 synchronization/decomposition
+repair, and the #1130 backfill-callback repair. They were told not to push or
+mutate GitHub/runtime. Inspect their final messages and worktree logs before
+touching those files.
 
-### Backend switch: workspace/session ownership (verified, not assumed)
+### Execution policy and preview
 
-An agent backend switch is **workspace-safe**. The two identities are keyed
-differently:
+The next Executor owns #1247, #1099, #1110, #1130, #1120, #1238, then #1246.
+Once #1247 lands, Aiur should run the other unblocked Build Order tickets in
+parallel; defer review of Aiur-owned PRs until the direct queue is merged.
+Preserve one writer per workspace, merge-forward after every develop advance,
+qualify exact heads, and explicitly close issues merged to non-default
+`develop` with `agent:done`.
 
-- **Workspace is backend-agnostic.** `Workspace.workspace_path_under/2` resolves
-  `Layout.issue_workspace_path(root, Layout.safe_identifier(identifier))` — the
-  path derives from the *issue identifier only*. No backend, model, or provider
-  appears in it. Codex and Claude agents for the same ticket therefore use the
-  identical checkout, branch, commits, uncommitted tree, and Agent Workpad.
-- **Provider session is backend-scoped.** `SessionLifecycle` resolves resume via
-  `SessionResume.load_resume_thread_id(session_backend, worker_host,
-  issue.identifier)`. Changing the backend changes the lookup key, so no prior
-  thread resolves and the replacement agent **cold-starts on the preserved
-  workspace**. This is a clean miss, not corruption: a Codex agent can never
-  attach to a Claude thread or vice versa.
+The live preview is
+`http://100.81.109.51:4180/docs/build-order/plan-preview.html`. Source and
+served copy must remain byte-identical. The 30-minute preview/capacity cadence
+continues from this 20:10 PDT checkpoint, and user-facing labels must use GitHub
+ticket numbers rather than internal Build Order IDs.
 
-**Net churn cost of a switch = the provider conversation context only.** All file
-work survives. Recovery of that context is the ordinary prior-work continuation
-path: the workpad handoff plus committed state. Minimize rework by having each
-worker commit/push a checkpoint and update its workpad *before* the switch; the
-replacement agent then resumes from durable evidence rather than re-deriving.
+## Current Executor checkpoint (updated 2026-07-17 15:12 PDT)
 
-### Work at risk at pause time: none
+The live Executor is Codex-only on the literal `develop` runtime checkout at
+`/home/orangekid/github/aiur-runtime-develop`. It was force-built before launch
+and is running detached with debug recording and `max-agents` 15. Preserve its
+machine-local `.aiur/config` and `.aiur/model-usage.json` changes. Do not launch
+Claude, restart the healthy daemon merely because a control RPC times out, or
+run `watch --full` / `alerts --needs-attention` while #1231 remains open.
+Publish the Build Order preview from both its source and served pack every
+30 minutes; the current cadence anchor is 15:12 PDT on 2026-07-17.
 
-Every ticket in the macbook-fable set had **zero unpushed commits** when paused:
+The authoritative integration base is now exactly
+`origin/develop@9229b48d`, the squash merge of #1240/PR #1242; current
+`origin/main@ff06d53c` is an ancestor. The healthy daemon remains on its
+previous `791ad6dc` runtime build and does not need a disruptive restart merely
+for this base advance. The previously announced external setup
+fix is no longer an integration hold. Exhaustive local session, branch, ref,
+worktree, process, and GitHub reconciliation found no concrete owner, branch,
+or actionable change. A session-historian pass over #1237/#1238/#1240 confirmed
+those workers merely waited on the Executor announcement. Continue against
+actual current `develop`; if a setup commit later appears, treat it as an
+ordinary new base advance and inspect it before integration.
 
-| Ticket | Branch | Dirty | Unpushed |
-|---|---|---:|---:|
-| #960 | `aiur/960-flake-coretest-capture-log` | 1 | 0 |
-| #1122 | `aiur/1122-bo-dash-016-project` | 0 | 0 |
-| #1123 | `aiur/1123-bo-dash-019-authenticate` | 0 | 0 |
-| #1130 | `aiur/1130-bo-dash-026-project` | 1 | 0 |
-| #1149 | `aiur/1149-test-isolate-global-log` | 1 | 0 |
-| #1030 | `aiur/1030-bug-workspace-bootstrap-race` | 748 | 0 |
+BO-012/#1099 is published as draft PR #1244 at `0ef359a3`. Its original exact
+head passed the full GitHub test job, but CI exposed five Credo findings, a
+too-narrow Dialyzer contract, inaccessible dependency-kind contrast, and a
+route-shell test that rejected the fixture reaching its stable `ready` state
+faster than the transient assertion. The bounded repairs pass focused Credo,
+Dialyzer, affected LiveView tests, 4/4 browser smoke, and the complete
+five-viewport route-shell test locally. Its replacement CI is useful diagnostic
+evidence but became stale when #1240 landed. Merge exact `9229b48d`, requalify
+the resulting head, and require a clean independent delta review before merge.
 
-#1030's 748 dirty paths are deleted tracked `.aiur-hex/*` cache entries — the
-known per-workspace Hex-cache defect (#1140), not agent work. The switch can
-proceed immediately with no checkpoint drain.
+DASH-003/#1110 and DASH-009/#1115 remain direct sole-writer repairs. DASH-003
+has 158 runner/dispatcher tests, 96 status/dashboard tests, and 24 new
+regressions green; its long full suite is classifying two unrelated
+timing/concurrency failures before final Dialyzer and commit. DASH-009 has 29
+focused and 46 complete usage-ledger tests plus compile, format, specs, and
+Credo green; its long full suite is classifying four unrelated shared-state
+failures before Dialyzer and commit. Do not push either until an independent
+exact-head review runs.
 
-### macbook-fable configuration
+DASH-014/#1120 is now review-clean as draft PR #1239 at `900d7bf5`. The branch
+contains current `develop`, all four delta findings are fixed, 26 targeted and
+121 affected tests pass, and independent Executor review found no actionable
+finding. First exact CI found one deterministic nesting warning; the extracted
+broadcast helper passes focused Credo, format, and 15/15 projection tests.
+Replacement build, lint, Dialyzer, browser, layout, and guards are green; only
+the long test job was still in flight when #1240 advanced `develop`. Treat that
+run as diagnostic, then merge exact `9229b48d` and requalify the new head.
 
-`.aiur/config` on `develop` is already `agent.kind: codex` with Codex 5.6
-routing (luna/terra/sol by complexity); **no config change is required on this
-machine** for a Codex fleet. The machine-local sandbox `writableRoots` block for
-macOS paths is deliberately an *uncommitted working-tree edit* — it was
-accidentally committed once and reverted; never commit it (nonexistent roots
-break build-gate canonicalization on the other OS). A machine-local override
-file is the durable fix.
+The Executor's #1240 repair was independently review-clean and landed through
+PR #1242 as `develop@9229b48d` from exact head `52207071`. Failing-before
+regressions proved that stale boot
+fences dropped durable follow-up repair and that serialized lifecycle state
+grew from roughly 1 KiB to 14 KiB after 20 retries. Both complete DecisionStore
+files pass 77/77 and the new pair passes six consecutive runs. All exact CI
+jobs passed, the non-default-branch issue was explicitly marked `agent:done`
+and closed, and every surviving feature head must now advance to this new exact
+`develop` before final qualification.
 
-### Blocking external condition
+The older Executor handoffs are fully reconciled. Of the four-PR shutdown
+frontier, #1036, #1202, and #1213 merged and closed; #1217/#1130 is the only
+survivor. It now has a direct sole writer: the previous exact
+`develop@791ad6dc` was merged as `b934090d`, the three reproduced Credo findings
+are repaired, full Credo and format pass, and focused runtime/security
+validation plus Dialyzer are running. Commit that isolated repair, then merge
+exact `9229b48d` and requalify it without rebase or force-push.
+Of the abandoned Claude session's five lanes, four merged and closed; only
+#1119/PR #1228 survives. Its source and CI are complete, and local
+`aiur-claude --version` is 1.1.0, but npm still publishes only 1.0.0, so the
+public distribution gate remains real. Keep #1119 and human-gated #1116 frozen.
 
-The `its-applekid` `GITHUB_TOKEN` REST quota is **exhausted until 18:18Z
-(11:18 PDT)**. Aiur prefers `GITHUB_TOKEN` over `gh` keyring auth, so the tracker
-went blind and the orchestrator released worker claims
-(`orchestrator.retry_poll.exhausted` on #960/#1123). Do not restart into that
-window expecting dispatch; resume after reset, or refresh/unset the token and
-restart so the daemon inherits the fixed environment.
+The Aiur Codex provider remains exhausted until 2026-07-22 21:15 PDT; the three
+daemon workers stay quota-paused and Claude fallback stays disabled. Three
+direct repair writers plus the Executor qualification lane consume all
+collaboration slots. Two long local full suites remain active but are making
+steady progress; memory is healthy and one-minute load remains below the
+12-core ceiling. Avoid redundant full-suite or shared-browser launches until
+they drain.
+#1237 and #1238 remain preserved `agent:rework + agent:paused`, but no longer
+depend on a hypothetical setup fix; resume them in priority order after the
+current repairs and #1130 are staffed. After any merge to non-default
+`develop`, explicitly close the issue with `agent:done` and record the receipt.
 
-### Delivered this session
+## Recovery checkpoint (updated 2026-07-17 06:59 PDT)
 
-- **#728 root-caused and fixed.** The engine already advertised `dynamicTools`
-  on `thread/start` and handled `item/tool/call`; published `aiur-claude@1.0.0`
-  silently dropped both. Sibling `claude-app-server` PR #1 (in-process MCP
-  bridge) and PR #2 (rename `symphony-claude` → `aiur-claude`, v1.1.0, bin fix)
-  are merged; `aiur-claude@1.1.0` is installed on this machine. npm publish
-  awaits the operator's OTP. Remaining aiur-repo work: an adapter min-version
-  nudge in `agent_cli.ex`.
-- **GATE-003 ratified** by the operator; resolution receipt on #1123.
-- **DASH-012/#1118 verified merged** (PR #1203, ancestor of `develop`) and closed.
-- Open PRs awaiting CI/merge: #1202 (#1122), #1211 (#960), #1213 (#1149).
+This checkpoint supersedes the older live-state narrative below. The former
+Claude Executor is not being restarted. Its exact local session was recovered
+as `f6f086dd-48ba-4e9e-aa9e-7a703b96a778` from
+`~/.claude/projects/-home-orangekid-github-aiur/f6f086dd-48ba-4e9e-aa9e-7a703b96a778.jsonl`,
+and its live issue/PR ownership was reconciled against GitHub, the per-issue
+workpads, and both workspace logs before dispatch resumed.
 
-### Operational defects observed (workarounds active, evidence held)
+The recovered Claude workflow was `wyxa8n3xw` / local run
+`wf_9fed8f61-e34` (`refresh-review-prs`). Its final concrete lanes were
+#1105/PR #1209, #1124/PR #1208, #1214, the Credo 200-column alignment, and
+the distribution-gated #1119. Reconciliation proves the first four were
+finished after Claude stopped: PRs #1209 and #1208 merged to `develop`, #1105,
+#1124, and #1214 are closed `agent:done`, and the Credo fix merged through
+#1226/#1227. Do not restart or duplicate those old workers. #1119 is the only
+surviving old lane and remains intentionally paused at the package-publication
+gate described below.
 
-1. **Dispatcher fan-out is inert without kick events.** After launch the daemon
-   admits one worker and then stalls with free slots, low load, clean queue, and
-   a ready prewarm base. `aiurdev resume <id>` / `--todo <id>` reliably admits
-   each lane. Never leave a clean rework/todo row idle.
-2. **Slot accounting leaks.** `no available orchestrator slots` retry storms
-   (253+ occurrences) persisted while `set max-agents` reported only 1–2 active;
-   deactivated-but-claimed entries hold slots. A daemon restart clears it.
-3. **Startup label-strip has a worse variant than #1148.** Startup stripped
-   *every* `agent:*` label from #1125 (not merely `agent:paused`). Re-verify
-   ticket labels immediately after any restart.
+Aiur is now **running Codex-only** from the literal `develop` branch in the
+fresh canonical runtime checkout `/home/orangekid/github/aiur-runtime-develop`.
+The Executor force-built `scripts/aiurdev` first, removed 18 leaked test-only
+`opencode serve` process groups, and launched the background daemon with a
+sixteen-worker ceiling. The checkout and authoritative remote tip are exact
+`develop@6afa161230b4349543c039a6b8b6abcc9218ba07`; Claude fallback is empty.
+The dashboard is healthy on loopback. The requested Tailscale bind was not used
+because neither dashboard-auth environment variable was present; do not invent
+credentials or restart the healthy daemon only to change that listener.
 
-## Live Executor state (updated 2026-07-15 21:33 PDT)
+The recovered fleet began with nine one-writer Codex owners. Two infrastructure
+lanes have now merged, while the surviving feature owners remain isolated:
 
-This entry is the current live truth and supersedes the 2026-07-15 15:56 PDT entry
-below (whose seven-wave reconciliation stop was resolved — work resumed and merged
-past it, e.g. #1192–#1197).
+- BO-011/#1098 / draft PR #1233;
+- DASH-003/#1110 / draft PR #1234;
+- DASH-009/#1115 / draft PR #1204;
+- DASH-010/#1116 / paused draft PR #1232;
+- DASH-014/#1120 / draft PR #1239;
+- DASH-026/#1130 / PR #1217; and
+- DASH-029/#1133.
 
-**Operator handoff → Claude.** A Codex operator had been driving this wave; per
-operator direction control passed to a single **Claude Executor**. The prior Codex
-operator process and all stale workers were terminated (fresh-restart below).
+Three Codex-only P1 stability owners are also live: #1237 fences stale
+lifecycle writes and distinguishes queued from provider-delivered Executor
+messages; #1238 recovers queued Codex turns after the app-server port closes;
+and #1240 prevents DecisionStore enrichment from redispatching already-answered
+decisions.
 
-**Fresh restart on `develop` (2026-07-15 21:33 PDT).** The previous daemon had
-wedged — up ~35 min at ~140% CPU with zero dispatch and control-RPC timeouts, on a
-saturated box (load 22 on 12 cores, mostly the fleet's own mix-VMs plus an 11h Codex
-operator). Per operator direction the Executor: (1) killed every old aiur, codex, and
-opencode process and an orphaned `make coverage` build; (2) rebuilt the release from
-the `develop` head (`cbfcdd5a`, #1197) with `aiurdev build`; (3) relaunched detached
-(`aiurdev --bg --debug`) as node `aiur-orangekid-0f62c25cdf`, dashboard
-`127.0.0.1:4000`. Build-Order tickets re-dispatch on the fresh build once prewarm
-reaches `:ready`. **Operate this instance with `aiurdev` from
-`/home/orangekid/github/aiur-runtime-develop`.**
+The Executor also triaged the newly confirmed full-suite monitor race #1235 as
+a narrow Ad Hoc stability lane. Its one-file fix passed 25 focused repetitions,
+the complete GraphProjection file, independent review, and every CI job; PR
+#1236 squash-merged as `develop@6afa161230b4349543c039a6b8b6abcc9218ba07`,
+and #1235 was explicitly closed `agent:done`. At that checkpoint no additional
+Build Order ticket was queued. Load reached 16.68 on 12 CPUs during the earlier
+base-sync wave and is now below one core per CPU. DASH-010/#1116 has since
+released its owner slot at the no-Claude manual gate, so DASH-009/#1115 resumed
+as the fifth active owner and PR #1204 returned to draft exact-base rework
+against `6afa1612`.
+Preserve one writer per workspace. After every `develop` merge, send the exact
+new base to all owners and stop reviewing their now-stale heads until they push
+replacements.
 
-**Standing build/rebuild procedure (operator directive).** Always run `aiurdev build`
-from the `develop` branch checkout, and **rebuild after every few merged PRs**, so the
-running daemon dogfoods merged code and picks up new features. After a rebuild+restart,
-verify prewarm rebuilds to the new base head before newly-ready dispatch begins.
+The first convergence lane is complete: PR #1213's one-file global-log test
+isolation passed every exact-head CI job and six independent Compound
+Engineering review lenses plus its prior-comment gate. It squash-merged as
+`develop@59e9a2d5f002e3381ee49e8e88fe12598af4925f`, and #1149 was explicitly
+closed with `agent:done` because `develop` is not the default branch. All other
+PR heads became stale at that instant. #1036's prior exact head was `ab94042b`,
+#1204's was `0fdb7e4c` (with a ticket-local lint failure), and #1217's remote
+head was still `c2e67acd`; their owners were told to preserve scope, integrate
+exact `59e9a2d5`, and publish replacement heads before Executor review.
 
-**Backend routing (operator directive — supersedes "never dispatch Claude").** Codex
-remains the backend for the current wave. `agent.rate_limit_fallback: claude` is **ON**
-(set explicitly; it is also the release default): a running Codex agent that hits a
-usage limit auto-reroutes to headless Claude and reverts at a safe turn boundary once
-Codex recovers (`Aiur.Orchestrator.RateLimitFallback`). This intentionally relaxes the
-earlier "All providers are Codex Sol or Terra; never dispatch Claude" wording — Claude
-is now the sanctioned usage-limit fallback, not a default backend.
+The second convergence lane is also complete. The Executor took over #1036 in
+an isolated checkout, repaired its asynchronous admission, daemon-owned outcome
+trust boundary, schema migration, retry coalescing, attention ordering, and JSON
+primitive handling, and published final head
+`883e03f107aff8aa1b78212687b4076e8bb3ee9e`. Independent correctness, security,
+and reliability reviews found no remaining issue; every exact-head CI job and
+both regression guards passed. PR #1036 squash-merged as
+`develop@01a9fc8849044edbaf0663c9852c937d5c709904`, and #1031 was explicitly
+closed with `agent:done`. The live owners received that exact replacement base
+through Aiur's Executor-message path. DASH-010 immediately published replacement
+head `ba666dbb964450a2a7d2c561fbda8c5182771864` and restarted CI; DASH-026 is
+integrating it. BO-011 remains green at `07ffcfcd` but now needs an exact-base
+integration before merge.
 
-**Merge policy (reaffirmed; see "Binding integration and promotion policy").**
-General/reusable improvements merge to `main`, then `main` is merged into `develop`
-(invariant: `origin/main` is an ancestor of `origin/develop`). Build-Order work merges
-to `develop`. `tracker.base_branch: develop`.
+Feature review is active rather than ceremonial. Exact-head Compound
+Engineering review returned BO-011/#1098 to rework with five confirmed
+security, accessibility, identity, reconnect-token, and truthful-truncation
+defects. Its owner published replacement head
+`aff1f7f7c83ae044c5d47a5011888d98407fee3b`: build, lint, guard, full test,
+browser, and layout jobs are green, but Dialyzer found two ticket-local
+unreachable patterns at `ticket_context_adapter.ex:139` and
+`build_order_presenter.ex:906`. The exact repair packet is PR comment
+`5003865397`; keep the PR draft until a replacement head passes Dialyzer and
+fresh delta review. DASH-010/#1116 repaired all
+four confirmed source-accounting/coverage/time/identity defects at `cf1d61fa`;
+three independent re-review slices are clean and the complete test job passed.
+Its one-file Credo follow-up is pushed as exact head
+`612e3cb7e2e21b62d354c27c12853ac543956faf`, with lint and every short CI job
+plus the complete test job green. PR #1232 remains draft with
+`agent:ci-wait` preserved under `agent:paused`: code is qualified, but the
+required real synthetic-safe Claude REPL/Remote Control proof has no honest
+quota-free substitute, and Claude must not be launched while the operator's
+no-Claude usage-limit instruction is active. DASH-003/#1110 is full-CI green
+at `ef469502` but returned to draft
+rework for nine exact-head identity, announcement, count-truth, truncation,
+exact-navigation, touch-target, cache-fencing, subscription-lifecycle, and
+provider-outage command-truth defects. DASH-026/#1130 passed all CI at
+`390f2137` before #1236,
+then returned to rework for the test-only base advance and ten confirmed
+exact-head review defects: prompt/response chronology, authoritative
+worker-generation and runtime-status fences, restart cache reset, Remote
+Control backfill and cold-start delivery loss, replay identity beyond visible
+retention, stable Claude disk-record identity, complete capability-URL
+redaction, and bounded runtime-status fanout. PR #1217 is draft until an
+exact-base replacement fixes all ten, passes fresh CI, and survives exact-head
+re-review.
 
-**Feature velocity + optimizations allowed (operator directive).** Prioritize shipping the
-Build Order feature as fast as possible. The earlier guidance to defer
-optimizer/optimization, adaptive-monitoring, and defect tickets without `agent:todo`
-(operating-decision #4 and the "pre-optimization release" hold below) is **withdrawn** —
-pull in fixes and optimizations as needed and keep the fleet fed with ready backlog tickets.
-All eight active-labeled tickets (#619, #1106, #1117, #1125, #1030, #728, #781, #855) were
-resumed (`agent:paused` cleared) to restart the wave.
+DASH-009/#1115 is now authoritatively back in `agent:rework`. PR #1204 exact
+head `5cf41c08cde489dc109e0355c84bd77b4e701fd1` contains exact
+`develop@6afa1612` and every centralized CI job is green, but three independent
+Compound Engineering reviews plus the Executor found nine blockers. The P1s
+are: durable dedup ignores DASH-008's stable `idempotency_key` and can count one
+event twice when mutable model/source context changes; `update_kind: :partial`
+can report full raw coverage; and checkpoint/segment/torn recovery mutates the
+active authority before durably publishing its degraded marker, so a crash can
+reboot healthy/writable after acknowledged history disappeared from the active
+segment. Six P2 prefix-retention, quarantine, call-timeout, numeric-bound, and
+append-scaling findings are in PR comment `5004008587`; issue comment
+`5004011243` is the durable rework handoff. Keep #1204 draft and do not attempt
+the Executor-only synthetic daemon/TUI gate until a replacement head clears
+focused review and fresh CI. The Executor message was accepted into AgentChat
+but has not yet been proven provider-delivered; the tracker label was verified
+after the authoritative write.
 
-## Live Executor state (updated 2026-07-15 15:56 PDT)
+DASH-014/#1120 published exact-base draft PR #1239 at
+`b3ae911de08fe97018b6afcbe1ac8dd6609d54d4`. Its first full-test job failed
+only untouched `BranchRefStoreTest`; the rerun and every other exact-head CI
+job are now green. Three independent reviews plus the Executor nevertheless
+found ten production blockers independent of that flake. The P1 set is:
+production status snapshots can never make the summary
+fresh; terminal complexity becomes permanently stale and then silently
+defaults to weight 1 after same-run owner restart; serial in-owner source reads
+can block the read API beyond its timeout; forbidden workspace/message/session
+facts are retained; exact progress ignores unhealthy weight evidence; and
+outcome LKG omits the membership-generation fence. Four P2
+freshness/generation/performance/decomposition findings are in PR comment
+`5003844613`. #1120 is authoritatively `agent:rework`. Its unchanged head was
+later marked ready by a stale lifecycle/CI transition; the Executor converted
+it back to draft and recorded the correction in PR comment `5004023349` while
+the existing Codex owner began a new rework turn. This is live corroboration for
+#1237's lifecycle-generation fence.
+
+The #1098/#1130 rework regressions are now a confirmed P1 orchestration defect,
+tracked as queued stability lane #1237. Accepted Executor messages can remain
+undelivered to the provider while an old worker turn continues: #1130's review
+waited 2,110,645 ms before provider delivery, and both tickets received an
+unfenced lifecycle write that replaced newer authoritative `agent:rework` with
+`agent:ci-wait`. Tracker and CI handoff transitions have no expected-state or
+lifecycle-generation fence, while the rendered user transcript currently proves
+enqueue acceptance rather than delivery. #1110 separately exhausted three
+retries in the same queue-drain subsystem after closed-port `turn/start` writes
+and a turn-ID mismatch; its preserved workspace is running again in rework.
+Until #1237 lands, verify the tracker label after every in-flight review
+intervention and never treat an old turn's CI-wait transition or optimistic
+Executor transcript as authoritative delivery evidence.
+
+#1238 is the concrete closed-port companion to #1237. #1110 exhausted all
+three retries after `port_command` wrote `turn/start` to a dead app-server,
+then QueueDrain hit a turn-ID mismatch and `{:error, :unavailable}`. The
+Executor restored #1110 through authoritative `agent:rework` without replacing
+its workspace; #1238 now owns restart-safe queued-turn recovery. Its focused
+implementation and directly related tests are passing and it is preparing a
+draft PR, but no remote head existed at this checkpoint. #1240 owns a separate
+exact-`develop` DecisionStore race: the answered-decision enrichment test
+reproduced an unexpected second dispatch in 3/5 isolated serial seeds and its
+owner is tracing the existing reconciliation scheduler before changing code.
+Do not repair either control-plane defect inside feature workspaces.
+
+At 06:58 PDT a lightweight `aiurdev agents` RPC timed out while both build-gate
+slots were occupied by large focused suites. Direct process inspection proved
+the canonical release BEAM, instance-keyed tmux session, owners, and test
+processes were all still live and advancing; only the bounded RPC helper was
+terminated. Do not restart the daemon for that saturation symptom. Wait for the
+current build-gate holders to drain, then retry one lightweight control call.
+
+DASH-013/#1119 remains source-complete as draft PR #1228 at
+`6f5696828cb54f775623299cc61c1067ef2b2810`, with full CI green and independent
+review clean. It carries `agent:paused` and must **not** merge until
+`aiur-claude@1.1.0` is published and installed from sibling source commit
+`e555b8dd61c0af4cc18a6061fd278da05b9bc9f8`. The npm registry still exposes
+only 1.0.0 and this machine has no publish authority.
+
+Two control-plane symptoms were separated. Ordinary control recovers after
+startup pressure settles; the one `set max-agents` timeout was fleet/GenServer
+saturation, not a recurrence of #627. By contrast, `watch --full` and
+`alerts --needs-attention` synchronously scan roughly 19 GiB of historical
+workspace NDJSON and time out deterministically. That distinct bug is paused
+as #1231 outside the 54-ticket Build Order denominator. Until fixed, use direct
+workspace logs, GitHub state, and the lightweight local alert tailer; do not run
+the full-history alert commands.
+
+The documentation checkout remains branch
+`executor/build-order-live-handoff-20260715` with intentional machine-only
+`.aiur/config`, `.aiur/model-usage.json`, caches, and crash-dump residue. Commit
+only the handoff/chat/preview files. The old accidental runtime merge was
+preserved non-destructively at
+`/home/orangekid/github/aiur-runtime-develop-preserved-20260717`; never push or
+destructively reset it.
+
+## Live Executor state (updated 2026-07-15 20:57 PDT)
 
 You are the **Executor**: you run Aiur to implement this feature, make every
 PR merge-ready via review, do the merging, keep agents genuinely working, and
@@ -332,14 +480,24 @@ truth and supersedes stale pre-run wording later in the document.
 consolidation gate complete after applying DEC-015's ownership overlay while
 leaving the materialized ticket phases and preview on different schedules.
 The operator stopped the run. Aiur and every direct worker were terminated;
-no new execution may start until
+execution could not restart until
 [`12-current-execution-waves.md`](12-current-execution-waves.md) and
 [`execution-waves.json`](execution-waves.json) form an exact 54-ticket W1–W7
 partition, every GitHub member carries exactly the matching `phase:<wave>`
 label, and the preview renders that same partition with no legacy-history
-view. Native blocker edges remain the readiness authority. Preserve existing
-worker branches and PRs, but do not resume them until this reconciliation gate
-passes.
+view. Native blocker edges remain the readiness authority. That gate passed in
+two live ticket reads and one browser render, was committed and pushed as
+`develop@4e9ea7fb`, and is recorded on root #1084. Aiur was then force-built
+to avoid #1191's mixed-BEAM defect and restarted at the Tailscale dashboard
+listener with a sixteen-worker ceiling. At 20:46 PDT the Executor fetched a
+fresh `account/rateLimits/read` receipt directly from Codex: weekly usage is
+10%, no rate limit is active, and reset is July 22 at 15:37 PDT. The stale 100%
+receipt was replaced, and `aiurdev` was rebuilt/restarted from literal branch
+`develop` at exact `origin/develop@cbfcdd5a` in the dedicated runtime worktree
+`/home/orangekid/github/aiur-runtime-develop`, preserving the original instance
+identity and Tailscale listener. The daemon is healthy with a sixteen-worker
+ceiling; all currently active/legacy tickets remain `agent:paused` during the
+three-PR review drain, so it deliberately owns zero workers.
 
 BO-006/#1094 finished before the stop and was merged to `develop` as
 `2f48ac78` via PR #1192 before the reconciliation commit could stale its exact
@@ -366,9 +524,8 @@ ProviderLifecycle and BuildGate base timing flakes. Executor convergence PR
 `a58b309a`; its execution receipt, issue graph, prewarm gate, and configured
 `develop` base all validated before dispatch.
 
-Aiur is stopped for the seven-wave reconciliation gate. Before the stop it ran
-headlessly in diagnostic mode, but its Codex providers were quota-paused until
-the recorded weekly reset and were not resumed early. DASH-001/#1108 merged to
+Aiur initially ran headlessly after the seven-wave reconciliation gate while
+its Codex providers were quota-paused. DASH-001/#1108 merged to
 `develop` as
 `f8b52beb`, BO-005/#1093 as `c7c4d7a8`, and DASH-008/#1114 as `e4955d80`; all
 three issues were manually marked `agent:done` and closed because a PR into the
@@ -378,20 +535,190 @@ marked done and closed. Its exact final head passed browser, packaged-layout,
 build, strict-lint, Dialyzer, and guard CI plus 72/72 integrated affected tests
 and bounded exact-head review. The pre-dispatch drain is complete at
 `develop@93d3a049`. The committed handoff/preview snapshot advances the live
-branch to `develop@89609a92`. Aiur has been force-rebuilt from that exact tip
-and is healthy at the Tailscale dashboard listener, but its Codex backend has a
-fresh 100%-weekly-limit receipt through the recorded reset and cannot dispatch
-without violating the no-Claude constraint.
+branch to `develop@89609a92`. That historical release was later superseded by
+the exact-current `develop@cbfcdd5a` restart recorded above.
 
 The Executor therefore activated the bounded direct-takeover fallback rather
-than idling. Before the stop, three conflict-safe Codex background workers
-owned BO-016/#1103, BO-007/#1095, and BO-006/#1094 from exact
-`origin/develop`; all were interrupted and their work preserved. BO-016 owns
-the reopened distinct Issue/Pull-request destination seam, BO-007 advances the
-serial graph critical path, and BO-006 has now merged. BO-016 and BO-007 retain
-`agent:paused` alongside `agent:in-progress` so a restarted daemon cannot
-create duplicate writers until the Executor deliberately resumes or replaces
-them.
+than idling. BO-016/#1103 completed its distinct Issue/Pull-request destination
+repair and merged to `develop` as `47159958` through PR #1195 after an exact-head
+review, 73 focused tests, and the documented develop-suite flake adjudication;
+the issue is closed `agent:done`. No Claude worker is running. The external
+Claude-authored docs PR #1194 was discovered by direct GitHub polling, moved off
+the 53-commit-stale `v2` base, and repaired to state the real workspace security
+boundary, distinguish npm CLI installation from repo-local skill availability,
+describe the dashboard's read-only default, and expose `aiur-intro` canonically
+to Codex. Independent exact-head re-review cleared every blocker, the focused
+skill-surface test passed 19/19, and all deterministic CI gates passed. It merged
+to `main` as `f189332d`; that exact main tip is verified inside
+`develop@c742c851`. BO-007/#1095 then cleared independent exact-head review,
+all deterministic gates, and 52 focused tests; its four full-suite failures
+were unrelated shared-global-state races, so PR #1196 merged under the bounded
+develop flake rule as `develop@4a799ef4` and the issue is closed `agent:done`.
+DASH-007/#1113 cleared two bounded exact-head review findings: Open no longer
+hides valid non-human authorities while counting them, and durable history now
+preserves trusted provenance/supervisor-basis/supersession through the real
+LiveView path. Its fresh suite ran 5,692 tests and retained only four classified
+global-state/timing failures; all deterministic gates and 76 focused tests were
+green, so PR #1197 merged under the develop flake rule as
+`develop@cbfcdd5a` and the issue is closed `agent:done`. BO-019/#1106 was first
+published as draft PR #1198 at `35973b75` with 77 focused/adjacent tests and all
+static gates green. The DASH-007 merge made that head stale, so review was
+stopped, current develop was integrated without conflict, and exact head
+`08dadc56` passed post-integration format, warnings-as-errors compile, and 45
+directly affected tests. Fresh exact-head review then found three bounded P1s:
+the production IssueLog API collapses missing/unreadable into healthy empty,
+durable history paths/topics are not exact owner/repository-qualified, and
+eviction can publish a later generation before a snapshot then reuse it on
+rehydration. Those three were repaired and pushed at exact head `b6d22049`,
+with 67 focused/adjacent tests and all static gates green. Fresh independent
+re-review found two remaining P1s: the qualified filename lacks safe legacy-log
+migration/fallback, and the bounded API still reads/parses an unbounded entire
+log at boot/request time. One new CI test also assumes configured repository
+state that is absent in CI. BO-019 remains in bounded repair and BO-018 remains
+blocked.
+DASH-011/#1117 is the only other currently-ready ticket without an active
+serialization peer, so a third direct Codex implementation worker owns its
+exact-pricing seam. It is draft PR #1199 at exact head `7af5958e` with current
+`develop` contained; 41 focused tests including three properties plus compile,
+format, lint/specs, and Dialyzer are green. Independent exact-head review found
+two bounded P1s: observations cannot distinguish provider-defined long-context
+Codex rates or Claude cache-write duration while still claiming full coverage,
+and the advertised partial-coverage result is unreachable because the query
+discards already-priced components on the first missing rate. The same reviewer
+now owns that bounded repair and its edge/sparse tests.
+DASH-029/#1133 was briefly dispatched from the native graph, but its read-first
+amendment exposed the non-native binding order that the live issue body obscures:
+DEC-015 requires it to serialize after DASH-026, and unresolved GATE-004 must
+preserve Claude exact decimals before JavaScript float conversion. It was
+stopped at 15% before source edits, its workpad preserves the protocol research,
+and it is paused until both constraints clear. DASH-009/DASH-012/DASH-026 remain
+held behind BO-019's shared supervision seam. DASH-021 is now ready because
+DASH-007 merged, so DASH-021 took the freed implementation slot and published
+draft PR #1200 at exact head `6736d501` with `develop@cbfcdd5a` contained.
+Its 142-test affected matrix, compile, format, strict lint/specs, and Dialyzer
+are green. Independent security review found three bounded P1s: denied or stale
+contexts do not immediately evict protected cache state, subscriptions use only
+configuration identity instead of connection-plus-configuration identity, and
+deterministic generations let an A→B→A credential rollback revive old proofs.
+The same reviewer now owns those rotation, isolation, and non-replayability
+repairs. The full-suite failures are baseline-correlated; the untouched
+route-shell browser assertion needs a clean rerun, and Executor-root
+authenticated/optional manual evidence remains outstanding after the code gate.
+Active issues retain `agent:paused` alongside their execution state so the
+restarted daemon cannot create duplicate writers. Aiur itself is running
+through `scripts/aiurdev` from the literal `develop` branch in the dedicated
+runtime worktree, not from the detached documentation checkout.
+
+### Successor checkpoint — preserve this operating shape
+
+This is the minimum self-contained state a successor must recover before doing
+anything else:
+
+- **Authority and bounded goal.** The Executor has merge authority and owns the
+  last mile: diagnose stalled work, use bounded Codex background workers for
+  implementation/review, take direct ownership whenever delegation stops making
+  material progress, refresh stale branches, adjudicate CI, merge, update this
+  handoff/preview, and keep useful parallelism full. Do not wait for catastrophic
+  Aiur failure before taking over. Review only material correctness, durability,
+  security, and acceptance-contract risks; the feature stages on `develop`, so
+  polish/nit-picking waits for the final integrated feature review. Do not leave
+  comments on PRs the Executor already owns merely to communicate with itself.
+- **Branch policy.** Build Order feature PRs merge into `develop`. Generic
+  stability fixes merge into `main`, after which the exact new `main` tip must be
+  merged or fast-forwarded into `develop` before any new feature work starts.
+  Every implementation and every exact-head review must contain the exact
+  current integration tip; stop a review immediately if another merge makes its
+  head stale. Prefer restarting a badly diverged branch over spending hours
+  reconciling obsolete code. PR #1194 is not pending: it merged into `main` at
+  `f189332d1503fe9d0a3b28f6c99ad4773c9a8462`, and that exact tip is already in
+  `develop` through `c742c851`.
+- **Current runtime.** Run the product with `scripts/aiurdev`, not a direct Mix
+  command. The live instance is built from the literal `develop` branch at
+  `cbfcdd5ac426acac59b8050822c7ed254e99807a` in
+  `/home/orangekid/github/aiur-runtime-develop`; instance key is `5c1b32aea9`,
+  the dashboard is `http://100.81.109.51:4000`, and the configured ceiling is
+  sixteen workers. The launch shape is `scripts/aiurdev --bg --host
+  100.81.109.51 --max-agents 16 /home/orangekid/github/aiur/.aiur/config` after
+  loading the root `.env`. Reuse the same instance key for control commands.
+  The current HTTP `401` is healthy basic-auth behavior, not a failed listener.
+- **Workspace safety.** The original checkout is intentionally detached at
+  `4e9ea7fb1cf6` so the literal `develop` branch can belong to the clean runtime
+  worktree. It contains uncommitted handoff/preview edits and machine-only
+  `.aiur/config` / `.aiur/model-usage.json` state. Do not reset it, blindly commit
+  the machine config, expose `.env`, or delete the generated caches while another
+  process may use them. Update/rebuild/restart the clean runtime worktree after
+  each integration merge; do not run the stale release from the documentation
+  checkout.
+- **Models and quota.** This run is Codex-only: use current Sol/Terra labels and
+  do not spend Claude tokens. A direct `codex app-server`
+  `account/rateLimits/read` receipt at 20:46 PDT reported weekly usage at 10%, no
+  active limit, and reset at 2026-07-22 15:37 PDT. The old persisted 100% receipt
+  was stale and was replaced in machine state. Re-read the authoritative account
+  endpoint before treating a persisted receipt as a reason to stop or switch.
+- **Why Aiur owns zero workers right now.** Aiur is healthy and intentionally
+  running with the three active issues carrying `agent:paused`; three direct
+  Codex workers own their bounded repairs, so unpausing would create duplicate
+  writers. BO-019/#1106 PR #1198 is repairing legacy-log compatibility, a truly
+  bounded tail reader, and a CI-independent test. DASH-011/#1117 PR #1199 is
+  repairing provider rate dimensions and reachable partial pricing coverage.
+  DASH-021/#1125 PR #1200 is repairing immediate protected-cache eviction,
+  connection-scoped subscriptions, and non-replayable A→B→A authorization
+  generations. All three PR heads currently contain `develop@cbfcdd5a`; verify
+  that again rather than trusting this sentence.
+- **Drain order and exact-head rule.** BO-019 is the immediate critical-path
+  blocker for BO-018. Merge the first genuinely approved PR, then immediately
+  refresh every remaining open head onto the new exact `develop`, rerun its
+  affected/static gates, and obtain a fresh exact-head review; never carry an
+  approval across an integration change. A repository-wide red suite may use the
+  documented `develop` flake rule only after the exact failures are shown to be
+  baseline-correlated and all owned deterministic/focused gates are green.
+  Security/auth work additionally needs the explicit Executor-root evidence
+  below; review prose alone is not proof.
+- **Readiness is native plus binding amendments.** The verified W1–W7 labels and
+  native `blockedBy` edges are the scheduling authority, but
+  [`11-execution-amendment.md`](11-execution-amendment.md) carries binding
+  non-native serialization/gate constraints. In particular, do not resume
+  DASH-029/#1133 until DASH-026 is complete and GATE-004 preserves Claude's exact
+  decimal before JavaScript float conversion. DASH-009, DASH-012, and DASH-026
+  also share BO-019's current supervision seam. Do not create speculative scope
+  to fill capacity; only dispatch dependency-ready, ownership-safe work.
+- **After this three-PR drain.** Advance the clean runtime worktree to exact
+  `origin/develop`, force-rebuild if any release coherence is uncertain, restart
+  the same `aiurdev` instance, remove `agent:paused` only from the next safe
+  critical/earlier-wave set, and use Sol/Terra workers. Maximize *useful*
+  concurrency against CPU/memory/ownership constraints rather than an arbitrary
+  five-agent cap. Prioritize the critical path, then earlier waves, and only pull
+  a later-wave ticket when every earlier safe ticket is genuinely blocked.
+- **Known runtime trap.** The normal mtime-based dev rebuild once produced a
+  mixed-BEAM release and a missing `graph_catalog_refresh_ms` field. A forced
+  `scripts/aiurdev build` fixed it; #1191 records the durable P1. If startup looks
+  incoherent, force-build once before diagnosing unrelated application code.
+  Issue #1182 is intentionally scheduled in the final execution wave for first
+  Executor-takeover alerts at eight hours and hourly reminders thereafter; it
+  must not delay this drain.
+- **External PR polling.** The external planning/Claude agent does not send an
+  Aiur event when it opens a PR. Poll `gh pr list` directly and review/merge any
+  promised scoped PR when it appears. Do not mistake already-merged #1194 for
+  that future PR, and do not reintroduce Analytics (explicitly excluded from the
+  Build Order scope).
+- **Operator surfaces.** The live progress artifact is
+  `http://100.81.109.51:4180/docs/build-order/plan-preview.html`; its served copy
+  is `/tmp/aiur-pr1064-pack/docs/build-order/plan-preview.html`. Keep ticket/PR
+  links, live/merged styling, percentages, and the seven-wave view current at
+  meaningful transitions. The dashboard remains available while work runs. The
+  ten-minute capacity check and adaptive monitoring cadence are operational
+  duties, not a reason to poll pointlessly; record meaningful directives and
+  failure discoveries here as they occur.
+- **Terminal proof.** Do not call the feature shipped merely because PRs merge.
+  After the bounded graph is complete on `develop`, run comprehensive integrated
+  review, full CI, and the repository's canonical real CLI manual flow from the
+  Executor root: `scripts/aiurdev --test --force --allow-remote`, drive the real
+  TUI via wrapper tmux, open a running agent chat, send an Executor message via
+  the TUI input, and inspect what the user sees. Also exercise the authenticated
+  and optional-unauthenticated dashboard paths, credential rotation/removal,
+  cached/queued/in-flight updates, A→B→A rollback, responsive/accessibility
+  behavior, and the final Build Order graph. Stop only for operator sign-off on
+  promotion from `develop` to `main`.
 
 The normal post-integration `aiurdev --bg` restart also exposed a separate P1
 dev-release coherence defect: its mtime-based incremental rebuild assembled a

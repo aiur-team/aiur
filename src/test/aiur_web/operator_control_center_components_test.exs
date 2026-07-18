@@ -3,8 +3,11 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
 
   import Phoenix.LiveViewTest, only: [render_component: 2]
 
+  alias AiurWeb.BuildOrderViewModel.Node
+
   alias AiurWeb.OperatorControlCenter.{
     BuildOrderGraph,
+    BuildOrderIcon,
     DecisionAction,
     DecisionDetail,
     DecisionInbox,
@@ -56,6 +59,178 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert html =~ "has an unknown dependency relation to"
     assert html =~ "is cyclic with"
     assert html =~ "Using readable document-flow layout."
+
+    # BO-013 interaction + accessibility scaffolding.
+    assert html =~ ~s(data-graph-viewport)
+    assert html =~ ~s(data-graph-content)
+    assert html =~ ~s(role="group" aria-label="Build order graph canvas")
+    assert html =~ ~s(data-graph-zoom="in")
+    assert html =~ ~s(data-graph-zoom="out")
+    assert html =~ ~s(data-graph-zoom="fit")
+    assert html =~ ~s(data-graph-zoom="reset")
+    assert html =~ ~s(aria-label="Zoom graph in")
+    assert html =~ ~s(data-graph-zoom-level)
+    assert html =~ ~s(data-graph-announce)
+    assert html =~ ~s(aria-live="polite")
+    assert html =~ "Keyboard help"
+    # Every card is focusable and carries a stable node identifier for the hook.
+    assert html =~ ~s(tabindex="0")
+    assert html =~ ~s(data-graph-node="BO-010")
+  end
+
+  test "renders transitive dependency-chain closures as sanitized card data attributes" do
+    html =
+      render_component(&BuildOrderGraph.build_order_graph/1, %{
+        id: "chain-graph",
+        root_id: "root-1",
+        provider_generation: 1,
+        dom_generation: 1,
+        layout_assets: %{client: "/client.js", worker: "/worker.js", engine: "/engine.js"},
+        model: chain_view_model()
+      })
+
+    # a -> b -> c (blocker -> blocked). b depends on a (upstream) and is
+    # depended on by c (downstream).
+    assert html =~ ~r/data-graph-node="b"[^>]*data-graph-upstream="a"[^>]*data-graph-downstream="c"/s
+    assert html =~ ~r/data-graph-node="a"[^>]*data-graph-downstream="b c"/s
+    # Root of the chain has no upstream attribute rendered.
+    refute html =~ ~r/data-graph-node="a"[^>]*data-graph-upstream=/s
+  end
+
+  defp chain_view_model do
+    %AiurWeb.BuildOrderViewModel{
+      status: :ready,
+      nodes: [chain_node("a"), chain_node("b"), chain_node("c")],
+      edges: [],
+      adjacency: %{"a" => ["b"], "b" => ["c"], "c" => []},
+      reverse_adjacency: %{"a" => [], "b" => ["a"], "c" => ["b"]}
+    }
+  end
+
+  defp chain_node(id) do
+    %AiurWeb.BuildOrderViewModel.Node{
+      key: id,
+      identity: nil,
+      title: "Node #{id}",
+      plan: %{},
+      execution: %{},
+      activity: %{},
+      readiness: :ready,
+      lane_icon: nil,
+      status_icon: nil,
+      health: %{},
+      observed_at: %{},
+      provenance: %{planning_generation: 1, activity_generation: 1},
+      diagnostics: [],
+      card: %{
+        identifier: id,
+        lane: 0,
+        phase: 1,
+        status_text: nil,
+        lifecycle: %{state: :open, state_reason: :none},
+        execution_state: :idle,
+        agent_stage: nil,
+        progress: nil
+      }
+    }
+  end
+
+  test "renders every presenter-derived icon key through accessible local components" do
+    keys = [
+      :lane_plan_graph,
+      :lane_runtime,
+      :lane_dashboard_ui,
+      :lane_accounting,
+      :lane_platform,
+      :lane_generic,
+      :status_ready,
+      :status_blocking,
+      :status_terminal_unsatisfied,
+      :status_unknown,
+      :status_cyclic,
+      :status_generic,
+      :status_completed,
+      :status_not_planned,
+      :status_paused,
+      :status_retrying,
+      :status_waiting,
+      :status_working
+    ]
+
+    for key <- keys do
+      label = "Accessible #{key}"
+
+      html =
+        render_component(&BuildOrderIcon.build_order_icon/1, %{
+          icon: %Aiur.BuildOrder.Icon{key: key, text: label}
+        })
+
+      assert html =~ ~s(data-icon-key="#{key}")
+      assert html =~ ~s(aria-label="#{label}")
+      assert html =~ ~s(aria-hidden="true")
+    end
+
+    fallback =
+      render_component(&BuildOrderIcon.build_order_icon/1, %{
+        icon: %Aiur.BuildOrder.Icon{key: :from_github_fixture, text: "unsafe fixture icon"}
+      })
+
+    assert fallback =~ ~s(data-icon-key="generic")
+    assert fallback =~ ~s(aria-label="Status unavailable")
+    refute fallback =~ "from_github_fixture"
+    refute fallback =~ "unsafe fixture icon"
+  end
+
+  test "renders typed card progress and agent stage without replacing unknown facts" do
+    known = %Node{
+      key: :known,
+      identity: nil,
+      title: "Known activity",
+      plan: %{},
+      execution: %{},
+      activity: %{},
+      readiness: :ready,
+      lane_icon: nil,
+      status_icon: nil,
+      health: %{},
+      observed_at: %{},
+      provenance: %{},
+      card: %{
+        identifier: "#1",
+        lane: "dashboard-ui",
+        phase: 1,
+        lifecycle: %{state: :open, state_reason: :none},
+        execution_state: :working,
+        agent_stage: :review,
+        progress: 60,
+        status_text: "Working"
+      }
+    }
+
+    unknown = %{
+      known
+      | key: :unknown,
+        title: "Unknown activity",
+        card: %{known.card | identifier: "#2", agent_stage: :unknown, progress: :unknown}
+    }
+
+    html =
+      render_component(&BuildOrderGraph.build_order_graph/1, %{
+        id: "typed-build-order-graph",
+        root_id: "root-1",
+        provider_generation: 1,
+        dom_generation: 1,
+        layout_assets: %{client: "/client.js", worker: "/worker.js", engine: "/engine.js"},
+        nodes: [known, unknown],
+        edges: []
+      })
+
+    assert html =~ "Agent stage"
+    assert html =~ "Review"
+    assert html =~ "60%"
+    assert html =~ "Agent stage unavailable"
+    assert html =~ "Progress unavailable"
+    assert html =~ ~s(aria-label="#1 · Known activity · Working · Dashboard ui · Phase 1 · Review · 60%")
   end
 
   test "renders delivery failure and supersession as explicit lifecycle overrides" do

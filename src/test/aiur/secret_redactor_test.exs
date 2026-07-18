@@ -38,4 +38,23 @@ defmodule Aiur.SecretRedactorTest do
     once = SecretRedactor.redact(text)
     assert SecretRedactor.redact(once) == once
   end
+
+  test "redacts mixed-case, websocket, JSON-escaped, and structurally escaped URLs" do
+    samples = [
+      "HTTPS://capability.example.test/session/secret",
+      "WsS://capability.example.test/socket/secret",
+      ~S(https:\/\/capability.example.test\/session\/secret),
+      ~S(HTTPS:\\/\\/capability.example.test\\/session),
+      ~S(wss\u003A\u002F\u002Fcapability.example.test\u002Fsocket),
+      ~S(https%3A%2F%2Fcapability.example.test%2Fsession),
+      "WsS&#x3A;&#x2F;&#x2F;capability.example.test/socket",
+      "wss&colon;&sol;&sol;capability.example.test/socket"
+    ]
+
+    Enum.each(samples, fn sample ->
+      redacted = SecretRedactor.redact_urls("before #{sample} after")
+      assert redacted =~ "[REDACTED:url]"
+      refute redacted =~ "capability.example.test"
+    end)
+  end
 end

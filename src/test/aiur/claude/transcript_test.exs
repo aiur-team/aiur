@@ -23,6 +23,7 @@ defmodule Aiur.Claude.TranscriptTest do
       assert event.role == :assistant
       assert event.body == "Done."
       assert event.turn_id == "turn-aaa"
+      assert event.msg_id == "i1"
     end
 
     test "thinking item → :reasoning" do
@@ -317,6 +318,30 @@ defmodule Aiur.Claude.TranscriptTest do
       events = Transcript.extract_disk_record(record, "turn-1")
       assert length(events) == 2
       assert Enum.map(events, & &1.role) == [:assistant, :command]
+    end
+
+    test "assistant disk ids combine the stable record UUID with block identity or index" do
+      first =
+        assistant_record([
+          %{"type" => "text", "text" => "same body"},
+          %{"type" => "text", "text" => "same body"}
+        ])
+        |> Map.put("uuid", "record-one")
+
+      second =
+        assistant_record([%{"type" => "text", "text" => "same body"}])
+        |> Map.put("uuid", "record-two")
+
+      [first_block, second_block] = Transcript.extract_disk_record(first, "turn-1")
+      [other_record] = Transcript.extract_disk_record(second, "turn-1")
+      [replayed_first, replayed_second] = Transcript.extract_disk_record(first, "turn-1")
+
+      assert first_block.msg_id != second_block.msg_id
+      assert first_block.msg_id != other_record.msg_id
+      assert replayed_first.msg_id == first_block.msg_id
+      assert replayed_second.msg_id == second_block.msg_id
+      assert first_block.msg_id =~ "record-one:text:0"
+      assert other_record.msg_id =~ "record-two:text:0"
     end
 
     test "user tool_result (string content) → :tool output" do

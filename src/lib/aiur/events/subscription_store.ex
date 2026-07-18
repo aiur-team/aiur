@@ -196,12 +196,21 @@ defmodule Aiur.Events.SubscriptionStore do
   """
   @spec open_attention_count(String.t()) :: non_neg_integer()
   def open_attention_count(identifier) when is_binary(identifier) do
+    case open_attention_count_result(identifier) do
+      {:ok, count} -> count
+      {:error, :unavailable} -> 0
+    end
+  end
+
+  @doc "Returns the direct-read count without collapsing a missing or restarting store to an exact zero."
+  @spec open_attention_count_result(String.t()) :: {:ok, non_neg_integer()} | {:error, :unavailable}
+  def open_attention_count_result(identifier) when is_binary(identifier) do
     case registry_lookup(identifier) do
       [{pid, count}] when is_integer(count) and count >= 0 ->
-        if Process.alive?(pid), do: count, else: 0
+        if Process.alive?(pid), do: {:ok, count}, else: {:error, :unavailable}
 
       _ ->
-        0
+        {:error, :unavailable}
     end
   end
 

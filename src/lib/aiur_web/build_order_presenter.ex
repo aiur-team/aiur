@@ -23,13 +23,27 @@ defmodule AiurWeb.BuildOrderPresenter do
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.{OpaqueIdentifier, TrackerIdentity}
   alias AiurWeb.BuildOrderViewModel
-  alias AiurWeb.BuildOrderViewModel.{Edge, Group, Node, Relationships}
+  alias AiurWeb.BuildOrderViewModel.{Capability, Edge, Group, Node, Relationships}
 
   @capability_keys [:issue, :pull_request, :commands, :chat]
   @safe_stages [:brainstorm, :plan, :work, :review]
   @safe_activity_statuses [:fresh, :stale]
   @safe_retention [:current, :recent]
   @safe_ci_decisions [:pass, :passed, :fail, :failed, :pending, :unknown]
+  @safe_capability_reasons [
+    :identity_mismatch,
+    :inactive,
+    :invalid_destination,
+    :missing,
+    :not_available,
+    :not_configured,
+    :not_opened,
+    :stale,
+    :unauthorized,
+    :unavailable,
+    :unreadable,
+    :unsupported
+  ]
 
   @spec present(term(), term(), term(), keyword()) :: BuildOrderViewModel.t()
   def present(planning_snapshot, execution_snapshot, activity_snapshot, opts \\ []) do
@@ -137,7 +151,7 @@ defmodule AiurWeb.BuildOrderPresenter do
       reverse_adjacency: graph.reverse_adjacency,
       strongly_connected_components: graph.strongly_connected_components,
       topological_order: graph.topological_order,
-      summary: summary(nodes, edges, lane_groups, phase_groups),
+      summary: summary(nodes, edges, lane_groups, phase_groups, graph),
       planning_health: planning.health,
       execution_health: execution_health,
       activity_health: activity_health,
@@ -757,7 +771,7 @@ defmodule AiurWeb.BuildOrderPresenter do
   defp phase_group_sort_key(%Group{key: :unphased}), do: {1, 0}
   defp phase_group_sort_key(%Group{key: key}), do: {0, key}
 
-  defp summary(nodes, edges, lane_groups, phase_groups) do
+  defp summary(nodes, edges, lane_groups, phase_groups, graph) do
     %{
       members: length(nodes),
       edges: length(edges),
@@ -766,7 +780,9 @@ defmodule AiurWeb.BuildOrderPresenter do
       lifecycle: frequencies(nodes, &lifecycle_key/1),
       execution: frequencies(nodes, &Map.get(&1.execution, :work_state, :unknown)),
       lanes: Map.new(lane_groups, &{&1.key, &1.count}),
-      phases: Map.new(phase_groups, &{&1.key, &1.count})
+      phases: Map.new(phase_groups, &{&1.key, &1.count}),
+      ready_at_start: length(GraphAnalysis.ready_at_start(graph)),
+      longest_chain: GraphAnalysis.longest_chain_length(graph)
     }
   end
 
@@ -779,7 +795,9 @@ defmodule AiurWeb.BuildOrderPresenter do
       lifecycle: %{},
       execution: %{},
       lanes: %{},
-      phases: %{}
+      phases: %{},
+      ready_at_start: 0,
+      longest_chain: 0
     }
   end
 
@@ -833,48 +851,82 @@ defmodule AiurWeb.BuildOrderPresenter do
   end
 
   defp normalize_capabilities(capabilities) when is_map(capabilities) do
-    Map.new(@capability_keys, fn key -> {key, normalize_capability(Map.get(capabilities, key))} end)
+    Map.new(@capability_keys, fn key -> {key, normalize_capability(key, Map.get(capabilities, key))} end)
   end
 
   defp normalize_capabilities(_capabilities), do: normalize_capabilities(%{})
 
-  defp normalize_capability(%{available?: true} = capability) do
+  defp normalize_capability(key, capability) when key in @capability_keys and is_map(capability) do
     destination = Map.get(capability, :destination) || Map.get(capability, :url) || Map.get(capability, :path)
+    identity = safe_capability_identity(Map.get(capability, :identity))
+    number = safe_capability_number(Map.get(capability, :number))
+    label = safe_label(Map.get(capability, :label))
+    active? = optional_boolean(Map.get(capability, :active?))
+    readable? = optional_boolean(Map.get(capability, :readable?))
 
-    case safe_destination(destination) do
-      nil -> unavailable_capability(:invalid_destination)
-      safe -> %{available?: true, destination: safe, label: safe_label(Map.get(capability, :label)), reason: nil}
+    case {Map.get(capability, :available?) == true, is_struct(identity, TrackerIdentity), safe_destination(key, destination, identity, number)} do
+      {true, false, _destination} ->
+        unavailable_capability(:invalid_destination, identity, number, label, active?, readable?)
+
+      {true, true, nil} ->
+        unavailable_capability(:invalid_destination, identity, number, label, active?, readable?)
+
+      {true, true, safe} ->
+        %Capability{
+          identity: identity,
+          destination: safe,
+          number: number,
+          label: label,
+          reason: nil,
+          available?: true,
+          active?: active?,
+          readable?: readable?
+        }
+
+      {false, _identity?, _destination} ->
+        unavailable_capability(safe_reason(Map.get(capability, :reason)), identity, number, label, active?, readable?)
     end
   end
 
-  defp normalize_capability(%{reason: reason}), do: unavailable_capability(safe_reason(reason))
-  defp normalize_capability(_capability), do: unavailable_capability(:unavailable)
+  defp normalize_capability(_key, _capability), do: unavailable_capability(:unavailable)
 
-  defp unavailable_capability(reason),
-    do: %{available?: false, destination: nil, label: nil, reason: reason}
-
-  defp safe_destination(value) when is_binary(value) do
-    case Bounded.relative_route(value) do
-      {:ok, safe} -> safe
-      :error -> safe_github_destination(value)
-    end
+  defp unavailable_capability(reason, identity \\ nil, number \\ nil, label \\ nil, active? \\ nil, readable? \\ nil) do
+    %Capability{
+      identity: identity,
+      destination: nil,
+      number: number,
+      label: label,
+      reason: reason,
+      available?: false,
+      active?: active?,
+      readable?: readable?
+    }
   end
 
-  defp safe_destination(_value), do: nil
+  defp safe_destination(:issue, value, identity, _number), do: safe_destination_result(Bounded.github_issue_url_for(value, identity))
+  defp safe_destination(:pull_request, value, identity, number), do: safe_destination_result(Bounded.github_pull_request_url_for(value, identity, number))
+  defp safe_destination(:chat, value, identity, _number), do: safe_destination_result(Bounded.chat_route_for(value, identity))
+  defp safe_destination(:commands, value, _identity, _number), do: safe_destination_result(Bounded.commands_route(value))
 
-  defp safe_github_destination(value) do
-    case Bounded.github_url(value) do
-      {:ok, safe} -> safe
-      :error -> nil
-    end
-  end
+  defp safe_destination_result({:ok, safe}), do: safe
+  defp safe_destination_result(:error), do: nil
 
   defp safe_label(value) when is_binary(value) and byte_size(value) in 1..80 and value != "" do
     if String.valid?(value) and not String.match?(value, ~r/[\x00-\x1F\x7F]/), do: value
   end
 
   defp safe_label(_value), do: nil
-  defp safe_reason(value) when is_atom(value) and not is_nil(value), do: value
+
+  defp safe_capability_identity(%TrackerIdentity{} = identity) do
+    if TrackerIdentity.joinable?(identity), do: identity
+  end
+
+  defp safe_capability_identity(_identity), do: nil
+  defp safe_capability_number(value) when is_integer(value) and value > 0, do: value
+  defp safe_capability_number(_value), do: nil
+  defp optional_boolean(value) when is_boolean(value), do: value
+  defp optional_boolean(_value), do: nil
+  defp safe_reason(value) when value in @safe_capability_reasons, do: value
   defp safe_reason(_value), do: :unavailable
 
   defp model_diagnostics(planning, nodes, edges, execution_duplicates, activity_duplicates) do

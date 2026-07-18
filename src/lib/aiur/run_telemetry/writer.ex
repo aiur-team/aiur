@@ -142,7 +142,7 @@ defmodule Aiur.RunTelemetry.Writer do
           attributes: attributes
         }
 
-        {:ok, encoded} = Jason.encode(json_safe(envelope))
+        {:ok, encoded} = Jason.encode(Aiur.JSONSafe.normalize(envelope))
         {%{state | sequence: sequence}, [[encoded, "\n"] | lines]}
       end)
 
@@ -200,17 +200,4 @@ defmodule Aiur.RunTelemetry.Writer do
   defp normalize_timestamp(%DateTime{} = timestamp), do: DateTime.to_iso8601(timestamp)
   defp normalize_timestamp(timestamp) when is_binary(timestamp), do: timestamp
   defp normalize_timestamp(_timestamp), do: DateTime.utc_now() |> DateTime.to_iso8601()
-
-  defp json_safe(%DateTime{} = value), do: DateTime.to_iso8601(value)
-  defp json_safe(%{} = value), do: Map.new(value, fn {key, item} -> {json_key(key), json_safe(item)} end)
-  defp json_safe(value) when is_list(value), do: Enum.map(value, &json_safe/1)
-  defp json_safe(value) when is_tuple(value), do: value |> Tuple.to_list() |> json_safe()
-  defp json_safe(value) when is_boolean(value) or is_nil(value), do: value
-  defp json_safe(value) when is_atom(value), do: Atom.to_string(value)
-  defp json_safe(value) when is_binary(value), do: value
-  defp json_safe(value) when is_number(value), do: value
-  defp json_safe(value), do: inspect(value)
-
-  defp json_key(key) when is_atom(key), do: Atom.to_string(key)
-  defp json_key(key), do: to_string(key)
 end

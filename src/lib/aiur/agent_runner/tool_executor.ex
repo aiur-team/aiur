@@ -9,14 +9,27 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   require Logger
 
   alias Aiur.AgentRunner.SessionLifecycle
-  alias Aiur.{Alerts, Boot, CodingAgent, DecisionAttention, DecisionStore, Issue}
+
+  alias Aiur.{
+    Alerts,
+    Boot,
+    CodingAgent,
+    CoordinationTasks,
+    DecisionAttention,
+    DecisionStore,
+    EventPublicationLog,
+    Issue
+  }
+
   alias Aiur.Codex.DynamicTool
   alias Aiur.Events.{Publisher, SubscriptionStore}
   alias Aiur.GitHub.IssueDependencies
   alias Aiur.Orchestrator
   alias Aiur.Protocol.MapAccess
+  alias Aiur.SecretRedactor
 
   @invocation_key {__MODULE__, :invocation_id}
+  @max_failure_chars 500
 
   @doc false
   @spec execute((String.t(), term() -> map()), String.t() | nil, term(), term()) :: map()
@@ -40,6 +53,22 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   def build(issue, workspace, worker_host, app_session \\ %{}, opts \\ []) do
     attempt_id = Keyword.get(opts, :attempt_id)
 
+    coordination = %{
+      enqueue:
+        Keyword.get(opts, :coordination_enqueuer, fn key, operation, enqueue_opts ->
+          CoordinationTasks.enqueue(key, operation, CoordinationTasks, enqueue_opts)
+        end),
+      run:
+        Keyword.get(opts, :coordination_runner, fn key, operation, run_opts ->
+          CoordinationTasks.run(key, operation, CoordinationTasks, run_opts)
+        end),
+      declare_dependency: Keyword.get(opts, :dependency_declarer, &IssueDependencies.declare/2),
+      unblock_dependency: Keyword.get(opts, :dependency_unblocker, &IssueDependencies.unblock/2),
+      dependency_present: Keyword.get(opts, :dependency_present, &IssueDependencies.declared?/2),
+      subscribe_blocker: Keyword.get(opts, :blocker_subscriber, &Orchestrator.subscribe_for_declared_blocker/2),
+      unsubscribe_blocker: Keyword.get(opts, :blocker_unsubscriber, &Orchestrator.unsubscribe_for_declared_blocker/2)
+    }
+
     event_handlers = %{
       decision_requester: Keyword.get(opts, :decision_requester, &DecisionStore.request/2),
       decision_lifecycle_recorder: Keyword.get(opts, :decision_lifecycle_recorder, &DecisionStore.agent_lifecycle/3),
@@ -52,7 +81,14 @@ defmodule Aiur.AgentRunner.ToolExecutor do
       app_session: app_session,
       attempt_id: attempt_id,
       event_handlers: event_handlers,
+      enqueue: coordination.enqueue,
+      run: coordination.run,
       issue: issue,
+      publish: Keyword.get(opts, :event_bus_publisher, &Publisher.publish/3),
+      publication_recorder:
+        Keyword.get(opts, :event_publication_recorder, fn record ->
+          EventPublicationLog.write(workspace, record)
+        end),
       worker_host: worker_host,
       workspace: workspace
     }
@@ -89,10 +125,10 @@ defmodule Aiur.AgentRunner.ToolExecutor do
         subscriber: fn pattern -> subscribe_for_issue(issue, pattern) end,
         unsubscriber: fn pattern -> unsubscribe_for_issue(issue, pattern) end,
         blocker_declarer: fn blocker_number ->
-          declare_blocker_for_issue(issue, blocker_number)
+          declare_blocker_for_issue(issue, blocker_number, coordination)
         end,
         unblocker: fn blocker_number ->
-          unblock_for_issue(issue, blocker_number)
+          unblock_for_issue(issue, blocker_number, coordination)
         end
       )
     end
@@ -116,39 +152,133 @@ defmodule Aiur.AgentRunner.ToolExecutor do
 
   defp prefix_with_ticket_namespace(name, _issue), do: name
 
-  defp declare_blocker_for_issue(issue, blocker_number) do
+  defp declare_blocker_for_issue(issue, blocker_number, coordination) do
     case issue_number_of(issue) do
       nil ->
         {:error, :no_issue_number}
 
       current ->
-        result = IssueDependencies.declare(current, blocker_number)
-
-        # Add the SubscriptionStore subscription IMMEDIATELY on a
-        # successful (or `:already_present`) declare, instead of
-        # waiting for the orchestrator's poll-driven
-        # `auto_subscribe_for_dependency`. GitHub state can lag, drop,
-        # or already-present the dependency due to PR open/close
-        # cycles; without the direct subscribe, the blockee's
-        # SubscriptionStore never gets `ticket.<blocker>.branch.push`
-        # and the blockee never auto-resumes. Idempotent.
-        case result do
-          {:ok, _} ->
-            Orchestrator.subscribe_for_declared_blocker(current, blocker_number)
-            result
-
-          other ->
-            other
-        end
+        admit(
+          coordination.enqueue,
+          ticket_coordination_key(issue),
+          fn -> declare_and_reconcile(current, blocker_number, coordination) end,
+          coordination_operation_opts(issue)
+        )
     end
   end
 
-  defp unblock_for_issue(issue, blocker_number) do
+  defp unblock_for_issue(issue, blocker_number, coordination) do
     case issue_number_of(issue) do
-      nil -> {:error, :no_issue_number}
-      current -> IssueDependencies.unblock(current, blocker_number)
+      nil ->
+        {:error, :no_issue_number}
+
+      current ->
+        coordination.run.(
+          ticket_coordination_key(issue),
+          fn -> coordination.unblock_dependency.(current, blocker_number) end,
+          coordination_operation_opts(issue)
+        )
     end
   end
+
+  defp ticket_coordination_key(issue), do: {:ticket, issue_identifier(issue) || issue_number_of(issue)}
+
+  defp coordination_operation_opts(issue) do
+    [
+      operation_timeout: :infinity,
+      log_context: %{
+        issue_id: Map.get(issue, :id),
+        issue_identifier: Map.get(issue, :identifier)
+      }
+    ]
+  end
+
+  defp admit(enqueue, key, operation, opts) do
+    case enqueue.(key, operation, opts) do
+      :pending -> {:ok, :pending}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp declare_and_reconcile(current, blocker, coordination) do
+    case safe_coordination_call(coordination.subscribe_blocker, [current, blocker]) do
+      :ok ->
+        case safe_coordination_call(coordination.declare_dependency, [current, blocker]) do
+          {:ok, _result} -> :ok
+          {:error, reason} -> reconcile_declaration(current, blocker, reason, coordination)
+          other -> reconcile_declaration(current, blocker, {:unexpected, other}, coordination)
+        end
+
+      {:error, reason} ->
+        reconcile_subscription_failure(current, blocker, reason, coordination)
+
+      other ->
+        reconcile_subscription_failure(current, blocker, {:unexpected, other}, coordination)
+    end
+  end
+
+  defp safe_coordination_call(function, arguments) do
+    apply(function, arguments)
+  rescue
+    error -> {:error, {:coordination_call_error, Exception.message(error)}}
+  catch
+    :exit, reason -> {:error, {:coordination_call_exit, reason}}
+  end
+
+  defp reconcile_declaration(current, blocker, declaration_error, coordination) do
+    coordination.dependency_present
+    |> safe_coordination_call([current, blocker])
+    |> reconcile_declaration_state(current, blocker, declaration_error, coordination)
+  end
+
+  defp reconcile_subscription_failure(current, blocker, subscription_error, coordination) do
+    coordination.dependency_present
+    |> safe_coordination_call([current, blocker])
+    |> reconcile_subscription_state(current, blocker, subscription_error, coordination)
+  end
+
+  defp reconcile_declaration_state({:ok, true}, current, blocker, error, coordination) do
+    result = safe_coordination_call(coordination.subscribe_blocker, [current, blocker])
+    normalize_reconcile_result(result, :blocker_reconcile_subscription_failed, error)
+  end
+
+  defp reconcile_declaration_state({:ok, false}, current, blocker, error, coordination) do
+    result = safe_coordination_call(coordination.unsubscribe_blocker, [current, blocker])
+    normalize_cleanup_result(result, :blocker_declaration_failed, :blocker_declaration_cleanup_failed, error)
+  end
+
+  defp reconcile_declaration_state({:error, reason}, _current, _blocker, error, _coordination),
+    do: {:error, {:blocker_reconcile_inconclusive, error, reason}}
+
+  defp reconcile_subscription_state({:ok, true}, current, blocker, error, coordination) do
+    result = safe_coordination_call(coordination.subscribe_blocker, [current, blocker])
+    normalize_reconcile_result(result, :blocker_subscription_retry_failed, error)
+  end
+
+  defp reconcile_subscription_state({:ok, false}, current, blocker, error, coordination) do
+    result = safe_coordination_call(coordination.unsubscribe_blocker, [current, blocker])
+    normalize_cleanup_result(result, :blocker_subscription_failed, :blocker_subscription_cleanup_failed, error)
+  end
+
+  defp reconcile_subscription_state({:error, reason}, _current, _blocker, error, _coordination),
+    do: {:error, {:blocker_subscription_reconcile_inconclusive, error, reason}}
+
+  defp normalize_reconcile_result(:ok, _failure, _original_error), do: :ok
+
+  defp normalize_reconcile_result({:error, reason}, failure, original_error),
+    do: {:error, {failure, original_error, reason}}
+
+  defp normalize_reconcile_result(other, failure, original_error),
+    do: {:error, {failure, original_error, {:unexpected, other}}}
+
+  defp normalize_cleanup_result(:ok, failure, _cleanup_failure, original_error),
+    do: {:error, {failure, original_error}}
+
+  defp normalize_cleanup_result({:error, reason}, _failure, cleanup_failure, original_error),
+    do: {:error, {cleanup_failure, original_error, reason}}
+
+  defp normalize_cleanup_result(other, _failure, cleanup_failure, original_error),
+    do: {:error, {cleanup_failure, original_error, {:unexpected, other}}}
 
   defp issue_number_of(issue) do
     case Map.get(issue, :number) || Map.get(issue, :identifier) do
@@ -189,12 +319,22 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   # below unchanged. `Publisher.publish/3` itself also rejects this topic
   # family, so this is the sole production ingress, not just a preference.
   defp emit_agent_event(
-         %{app_session: app_session, event_handlers: handlers, issue: issue},
+         %{app_session: app_session, event_handlers: handlers, issue: issue} = context,
          "decision.requested",
          message,
          payload
        ) do
-    request_decision(issue, app_session, handlers, message, payload)
+    case MapAccess.get(payload, :attention_slug) do
+      slug when is_binary(slug) ->
+        context.run.(
+          ticket_coordination_key(issue),
+          fn -> request_decision(issue, app_session, handlers, message, payload) end,
+          coordination_operation_opts(issue)
+        )
+
+      _uncorrelated_or_invalid ->
+        request_decision(issue, app_session, handlers, message, payload)
+    end
   end
 
   defp emit_agent_event(
@@ -208,7 +348,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   end
 
   defp emit_agent_event(event_context, name, message, payload) do
-    %{app_session: app_session, attempt_id: attempt_id, event_handlers: handlers, issue: issue} = event_context
+    %{issue: issue} = event_context
     identifier = issue_identifier(issue)
 
     topic =
@@ -217,52 +357,167 @@ defmodule Aiur.AgentRunner.ToolExecutor do
         id -> "ticket.#{id}.agent.#{name}"
       end
 
+    if durable_decision_topic?(topic) do
+      {:error, :decision_requires_durable_publish}
+    else
+      enqueue_agent_event(event_context, name, message, payload, identifier, topic)
+    end
+  end
+
+  defp enqueue_agent_event(context, name, message, payload, identifier, topic) do
     event_payload =
       payload
       |> Map.put("message", message)
       |> Map.put("name", name)
       |> Map.put("issue", identifier)
 
-    decision_projection =
-      prepare_decision_attention(
-        issue,
-        event_context.workspace,
-        event_context.worker_host,
-        app_session,
-        handlers.attention_opener,
-        name,
-        message,
-        payload
-      )
+    %{app_session: app_session, attempt_id: attempt_id, event_handlers: handlers, issue: issue} = context
+    source = trusted_source(app_session)
+    provenance = observation_provenance(app_session, attempt_id)
+    occurred_at = DateTime.utc_now()
+    tool_call_id = stringify_invocation_id(invocation_id())
 
-    log_decision_projection_failure(decision_projection, topic)
+    operation = fn ->
+      decision_projection =
+        prepare_decision_attention(
+          context.issue,
+          context.workspace,
+          context.worker_host,
+          source,
+          handlers.attention_opener,
+          name,
+          message,
+          payload
+        )
 
-    case Publisher.publish(
-           topic,
-           event_payload,
-           identity: Issue.tracker_identity(issue),
-           observation_source: %{kind: :agent_event, name: name},
-           observation_provenance: observation_provenance(app_session, attempt_id),
-           occurred_at: DateTime.utc_now()
-         ) do
-      {:ok, id, _subscribers} ->
-        sync_decision_resolution(issue, name, payload, handlers.attention_resolver)
+      log_decision_projection_failure(decision_projection, topic)
 
-        result =
-          %{"id" => id, "topic" => topic}
-          |> add_decision_projection_result(decision_projection)
+      publish_opts = [
+        identity: Issue.tracker_identity(issue),
+        observation_source: %{kind: :agent_event, name: name},
+        observation_provenance: provenance,
+        occurred_at: occurred_at
+      ]
 
-        {:ok, result}
+      case safe_publish(context.publish, topic, event_payload, publish_opts) do
+        {:ok, id} ->
+          record_completed_publication(context, issue, tool_call_id, topic, id, name, payload, handlers)
 
-      :filtered ->
-        {:error, :event_filtered}
+        {:error, reason} ->
+          failure = safe_failure_detail(reason)
+          _ = record_event_publication(context.publication_recorder, :failed, issue, tool_call_id, topic, nil, failure)
+          {:error, {:event_publication_failed, failure}}
+      end
+    end
 
-      :deduped ->
-        {:error, :event_deduped}
+    case context.enqueue.(ticket_coordination_key(issue), operation, coordination_operation_opts(issue)) do
+      :pending -> {:ok, %{"status" => "pending", "topic" => topic}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp record_completed_publication(context, issue, tool_call_id, topic, event_id, name, payload, handlers) do
+    _ = sync_decision_resolution(issue, name, payload, handlers.attention_resolver)
+
+    record_event_publication(
+      context.publication_recorder,
+      :completed,
+      issue,
+      tool_call_id,
+      topic,
+      event_id
+    )
+  end
+
+  defp safe_publish(publisher, topic, payload, opts) do
+    case publisher.(topic, payload, opts) do
+      {:ok, id, _subscribers} -> {:ok, id}
+      result -> {:error, {:publisher_returned, result}}
+    end
+  rescue
+    error -> {:error, {:publisher_exception, Exception.message(error)}}
+  catch
+    kind, reason -> {:error, {:publisher_failure, kind, reason}}
+  end
+
+  defp durable_decision_topic?(topic) do
+    Enum.any?(["decision.requested", "decision.acknowledged", "decision.resolved"], &String.ends_with?(topic, &1))
+  end
+
+  defp record_event_publication(recorder, status, issue, tool_call_id, topic, event_id, reason \\ nil) do
+    log_context = event_publication_log_context(issue, tool_call_id, topic)
+
+    record = %{
+      event: "event_publication_#{status}",
+      event_id: event_id,
+      issue_id: Map.get(issue, :id),
+      issue_identifier: Map.get(issue, :identifier),
+      issue_number: issue_number_of(issue),
+      reason: reason,
+      timestamp: DateTime.utc_now(),
+      tool_call_id: tool_call_id,
+      topic: topic
+    }
+
+    case recorder.(record) do
+      :ok ->
+        :ok
 
       {:error, reason} ->
-        {:error, reason}
+        failure = safe_failure_detail(reason)
+
+        Logger.warning(
+          "aiur_tool_executor phase=event_publication_record_failed " <>
+            "#{log_context} failure=#{failure}"
+        )
+
+        {:error, {:event_publication_record_failed, failure}}
+
+      other ->
+        failure = safe_failure_detail({:unexpected_result, other})
+
+        Logger.warning(
+          "aiur_tool_executor phase=event_publication_record_failed " <>
+            "#{log_context} failure=#{failure}"
+        )
+
+        {:error, {:event_publication_record_failed, failure}}
     end
+  rescue
+    error ->
+      failure = safe_failure_detail({:exception, Exception.message(error)})
+
+      Logger.warning(
+        "aiur_tool_executor phase=event_publication_record_failed " <>
+          "#{event_publication_log_context(issue, tool_call_id, topic)} " <>
+          "failure=#{failure}"
+      )
+
+      {:error, {:event_publication_record_failed, failure}}
+  catch
+    kind, reason ->
+      failure = safe_failure_detail({kind, reason})
+
+      Logger.warning(
+        "aiur_tool_executor phase=event_publication_record_failed " <>
+          "#{event_publication_log_context(issue, tool_call_id, topic)} " <>
+          "failure=#{failure}"
+      )
+
+      {:error, {:event_publication_record_failed, failure}}
+  end
+
+  defp event_publication_log_context(issue, tool_call_id, topic) do
+    ticket = issue_identifier(issue)
+
+    "key=#{safe_failure_detail(ticket_coordination_key(issue))} ticket=#{safe_failure_detail(ticket)} " <>
+      "issue_id=#{safe_failure_detail(Map.get(issue, :id))} " <>
+      "issue_identifier=#{safe_failure_detail(Map.get(issue, :identifier))} " <>
+      "tool_call_id=#{safe_failure_detail(tool_call_id)} topic=#{safe_failure_detail(topic)} timeout_ms=infinity"
+  end
+
+  defp safe_failure_detail(reason) do
+    SecretRedactor.safe_inspect(reason, @max_failure_chars)
   end
 
   defp request_decision(issue, app_session, handlers, message, payload) do
@@ -435,7 +690,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
          _issue,
          _workspace,
          _worker_host,
-         _app_session,
+         _source,
          _opener,
          "attention.resolved",
          _message,
@@ -448,16 +703,16 @@ defmodule Aiur.AgentRunner.ToolExecutor do
          issue,
          workspace,
          worker_host,
-         app_session,
+         source,
          opener,
          "attention." <> slug,
          message,
          _payload
        ) do
-    open_decision_attention(opener, issue, workspace, worker_host, slug, message, trusted_source(app_session))
+    open_decision_attention(opener, issue, workspace, worker_host, slug, message, source)
   end
 
-  defp prepare_decision_attention(issue, workspace, worker_host, app_session, opener, name, message, payload)
+  defp prepare_decision_attention(issue, workspace, worker_host, source, opener, name, message, payload)
        when name in ["blocked", "pause.request"] do
     case operator_decision_question(message, payload) do
       nil ->
@@ -471,7 +726,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
           worker_host,
           "operator-decision",
           question,
-          trusted_source(app_session)
+          source
         )
     end
   end
@@ -480,7 +735,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
          _issue,
          _workspace,
          _worker_host,
-         _app_session,
+         _source,
          _opener,
          _name,
          _message,
@@ -541,22 +796,6 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   end
 
   defp log_decision_projection_failure({:ok, _result}, _topic), do: :ok
-
-  defp add_decision_projection_result(result, {:ok, decision_result}) do
-    add_decision_result(result, decision_result)
-  end
-
-  defp add_decision_projection_result(result, {:error, _reason}), do: result
-
-  defp add_decision_result(result, nil), do: result
-
-  defp add_decision_result(result, %{status: status, decision: decision}) do
-    Map.merge(result, %{
-      "decision_id" => decision.decision_id,
-      "version" => decision.version,
-      "status" => Atom.to_string(status)
-    })
-  end
 
   defp trusted_source(app_session) do
     %{

@@ -55,12 +55,13 @@ defmodule Aiur.AgentChatBroadcastTest do
     end
   end
 
-  test "send/2 broadcasts a user-role transcript event when the orchestrator accepts the message" do
+  test "send/2 delegates accepted-message evidence to the orchestrator" do
     {fake, _cleanup} = with_fake_orchestrator({:ok, 42})
     :ok = AgentPubSub.subscribe_agent("MT-CHATBC")
 
     assert {:ok, 42} = AgentChat.send("MT-CHATBC", "hello there")
-    assert_receive {:transcript_event, %{role: :user, body: "hello there"}}, 500
+    refute_receive {:transcript_event, _}, 100
+
     refute fake in elem(Process.info(self(), :links), 1)
   end
 

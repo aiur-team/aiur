@@ -62,6 +62,10 @@ defmodule Aiur.DecisionDeliveryIntegrationTest do
 
     assert action_id == action.action_id
     assert :empty = OperatorMessages.claim_next_queue_item(orchestrator, "981")
+    assert {:ok, :accepted} = DecisionStore.validate_delivery(item, store)
+    assert {:ok, queued_after_preflight} = DecisionStore.get(decision.decision_id, store)
+    assert [%{action_id: ^action_id, status: :queued}] = queued_after_preflight.dispatch_attempts
+
     assert {:ok, :accepted} = DecisionStore.record_delivery(item, store)
 
     delivered = wait_for_decision(store, decision.decision_id, &(&1.delivery_status == :delivered))

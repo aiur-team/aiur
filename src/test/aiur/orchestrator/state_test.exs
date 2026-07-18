@@ -1,8 +1,8 @@
 defmodule Aiur.Orchestrator.StateTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.Issue
-  alias Aiur.Orchestrator.State
+  alias Aiur.{Issue, TrackerIdentity}
+  alias Aiur.Orchestrator.{OperatorMessages, PauseResume, State}
 
   describe "running entry predicates" do
     test "classify entries by control status" do
@@ -53,6 +53,36 @@ defmodule Aiur.Orchestrator.StateTest do
 
       assert {%{identifier: "repo#1"}, %State{running: %{}}} =
                State.pop_running_entry(state, "issue-1")
+    end
+
+    test "typed writable lookup refuses colliding display identifiers across repositories" do
+      alpha = identity("acme", "alpha", "NODE-alpha", "42")
+      beta = identity("acme", "beta", "NODE-beta", "42")
+
+      running = %{
+        "alpha" => %{identifier: "42", tracker_identity: alpha},
+        "beta" => %{identifier: "42", tracker_identity: beta}
+      }
+
+      assert {:error, :ambiguous_identifier} = State.find_unique_running_by_identity(running, alpha)
+      assert {:error, :ambiguous_identifier} = State.find_unique_running_by_identity(running, beta)
+
+      assert {:error, :no_running_agent} =
+               State.find_unique_running_by_identity(running, identity("acme", "gamma", "NODE-gamma", "42"))
+
+      state = %State{running: running}
+
+      assert {:reply, {:error, :ambiguous_identifier}, ^state} =
+               OperatorMessages.send_operator_message_call(state, alpha, %{kind: :text, body: "do not misroute"})
+
+      assert {{:error, :ambiguous_identifier}, ^state} = PauseResume.pause_agent_reply(state, alpha)
+    end
+
+    test "typed writable lookup returns the exact unique running target" do
+      identity = identity("acme", "alpha", "NODE-alpha", "42")
+      entry = %{identifier: "42", tracker_identity: identity}
+
+      assert {:ok, ^entry, "42"} = State.find_unique_running_by_identity(%{"alpha" => entry}, identity)
     end
   end
 
@@ -113,5 +143,17 @@ defmodule Aiur.Orchestrator.StateTest do
 
       assert State.effective_runtime_seconds(entry, ~U[2026-01-01 00:10:00Z]) == 90
     end
+  end
+
+  defp identity(owner, repository, provider_id, identifier) do
+    %TrackerIdentity{
+      status: :joinable,
+      kind: :github,
+      owner: owner,
+      repository: repository,
+      provider_id: provider_id,
+      identifier: identifier,
+      reason: nil
+    }
   end
 end

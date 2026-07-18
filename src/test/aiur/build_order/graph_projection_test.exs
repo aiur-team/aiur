@@ -23,13 +23,25 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
     first = identity(1, "I1")
     {:ok, projection} = start_projection()
 
-    assert %Snapshot{generation: :unknown, data: nil, health: %{state: :unavailable}} =
-             GraphProjection.catalog(projection)
+    assert %Snapshot{
+             authority_epoch: first_authority_epoch,
+             generation: :unknown,
+             data: nil,
+             health: %{state: :unavailable}
+           } = GraphProjection.catalog(projection)
+
+    assert is_integer(first_authority_epoch) and first_authority_epoch > 0
+    assert_receive {:projection_event, {:graph_projection_reset, ^first_authority_epoch}}, 2_000
 
     reader = await_reader(:catalog)
     finish(reader, {:ok, ProviderResult.complete(catalog([root(first)]))})
 
-    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: :catalog} = published}}, 2_000
+    assert_receive {
+                     :projection_event,
+                     {:graph_projection_generation, %Snapshot{scope: :catalog, authority_epoch: ^first_authority_epoch} = published}
+                   },
+                   2_000
+
     assert published.generation == 1
     assert published.data == catalog([root(first)])
     assert published.health.state == :healthy
@@ -41,8 +53,14 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
     GenServer.stop(projection)
     {:ok, restarted} = start_projection()
 
-    assert %Snapshot{generation: :unknown, data: nil, health: %{state: :unavailable}} =
-             GraphProjection.catalog(restarted)
+    assert %Snapshot{
+             authority_epoch: restarted_authority_epoch,
+             generation: :unknown,
+             data: nil,
+             health: %{state: :unavailable}
+           } = GraphProjection.catalog(restarted)
+
+    assert restarted_authority_epoch > first_authority_epoch
 
     _reader = await_reader(:catalog)
   end
@@ -96,7 +114,12 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
     {:ok, projection} = start_projection(max_selected_roots: 1)
 
     finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([root(first), root(second)]))})
-    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: :catalog}}}, 2_000
+
+    assert_receive {
+                     :projection_event,
+                     {:graph_projection_generation, %Snapshot{scope: :catalog, authority_epoch: authority_epoch}}
+                   },
+                   2_000
 
     assert {:ok, %Snapshot{data: nil}} = GraphProjection.demand(projection, first)
     first_reader = await_reader({:selected, first})
@@ -116,6 +139,7 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
                      {:graph_projection_generation,
                       %Snapshot{
                         scope: {:selected, ^first},
+                        authority_epoch: ^authority_epoch,
                         data: ^first_selected,
                         generation: first_generation
                       }}
@@ -199,8 +223,8 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
                    },
                    2_000
 
-    send(demander, :stop)
     monitor = Process.monitor(demander)
+    send(demander, :stop)
     assert_receive {:DOWN, ^monitor, :process, ^demander, :normal}, 2_000
     :sys.get_state(projection)
 

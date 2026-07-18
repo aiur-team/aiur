@@ -57,6 +57,11 @@ defmodule Aiur.GitHub.TrackerTest do
     assert :ok = GitHubTracker.update_issue_state("42", "Done")
   end
 
+  test "fenced update fails closed when the configured client lacks update_issue_state/3" do
+    assert {:error, :expected_state_unsupported} =
+             GitHubTracker.update_issue_state("42", "ci-wait", expected_state: "human-review")
+  end
+
   test "tracker routes to GitHub adapter when kind is github" do
     assert Tracker.adapter() == Aiur.GitHub.Tracker
   end

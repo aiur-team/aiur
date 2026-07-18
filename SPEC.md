@@ -1082,7 +1082,10 @@ Completion conditions:
 - Targeted-protocol turn failure signal -> failure
 - Targeted-protocol turn cancellation signal -> failure
 - turn timeout (`turn_timeout_ms`) -> failure
-- subprocess exit -> failure
+- app-server transport loss -> recoverable session loss: restore any delivered durable queue work,
+  end the stale worker cleanly, and let the orchestrator dispatch a fresh session
+- provider-reported active-turn mismatch during interrupt -> recoverable session desynchronization:
+  do not retarget the reported turn ID; restore durable queue work and replace the stale session
 
 Continuation processing:
 
@@ -1090,6 +1093,9 @@ Continuation processing:
   live thread using the targeted protocol.
 - The app-server subprocess SHOULD remain alive across those continuation turns and be stopped only
   when the worker run is ending.
+- A closed transport or active-turn mismatch MUST NOT reuse the stale thread/session for a queued
+  follow-up. Replacement delivery MUST preserve FIFO order, claim the restored item once per
+  attempt, and acknowledge it only after a successful turn.
 
 Transport handling requirements:
 
@@ -1229,7 +1235,9 @@ Behavior:
 2. Build prompt from workflow template.
 3. Start app-server session.
 4. Forward app-server events to orchestrator.
-5. On any error, fail the worker attempt (the orchestrator will retry).
+5. On recoverable app-server transport loss or active-turn desynchronization, restore delivered
+   durable queue work and end the worker cleanly so the orchestrator creates a fresh session.
+6. On any other error, fail the worker attempt (the orchestrator will apply bounded failure retries).
 
 Note:
 

@@ -153,6 +153,7 @@ defmodule Aiur.Application do
       {Registry, keys: :unique, name: Aiur.Workspace.Ownership.Registry},
       Aiur.Workspace.Ownership.Reconciler,
       {Task.Supervisor, name: Aiur.TaskSupervisor},
+      Aiur.CoordinationTasks,
       Aiur.WorkflowStore,
       Aiur.RepoBase,
       {Aiur.BuildOrder.TicketDetailCache, runtime_config?: true},
@@ -164,6 +165,14 @@ defmodule Aiur.Application do
       Aiur.Events.Publisher,
       Aiur.ProviderAccountGeneration,
       Aiur.ProviderMeters.Store,
+      Aiur.UsageLedger,
+      # Owns the one destructive storage seam: retention/compaction of retired
+      # raw usage. Starts after the raw ledger it reads but before the aggregate,
+      # so its boot reconciliation resolves any in-flight destructive phase into
+      # a consistent ledger + compacted-floor state before the aggregate rebuilds
+      # over it.
+      Aiur.UsageCompaction.Coordinator,
+      Aiur.UsageAggregate.Store,
       Aiur.DecisionStore,
       {Aiur.DecisionMetrics.Writer, path: Aiur.DecisionMetrics.metrics_file()},
       Aiur.DecisionMetrics,
@@ -175,13 +184,18 @@ defmodule Aiur.Application do
       Aiur.OperatorWaitLog,
       Aiur.Orchestrator.TrackedSet,
       Aiur.CurrentRunMembership.Store,
+      # LiveConversation is projection-only: it never replays workspace logs
+      # after restart, so a missing key truthfully reports :restart_unknown.
+      Aiur.LiveConversation,
       Aiur.TicketActivity,
       # Claude telemetry owns an independent loopback listener and must be
       # available before the Orchestrator starts owned Claude workers.
       Aiur.Claude.Telemetry,
       {Aiur.BuildOrder.TicketHistoryProvider, runtime_config?: true},
+      {Aiur.BuildOrder.AdHocSource, poll_on_start: Application.get_env(:aiur, :build_order_adhoc_poll?, true)},
       {Aiur.Orchestrator, initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
       Aiur.CurrentRunMembership.Reconciler,
+      Aiur.CurrentRunProjections,
       Aiur.Events.LsRemoteTicker,
       Aiur.ProgressCheckin.Worker,
       Aiur.Logs.Retention,

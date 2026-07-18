@@ -2,16 +2,41 @@
   window.AiurTicketContextDialogHook = {
     mounted() {
       this.closeEvent = this.el.dataset.closeEvent;
+      this.fallbackFocusId = this.el.dataset.focusFallbackId;
+      this.origin = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      this.focusKey = this.el.dataset.focusKey;
+      this.originId = this.el.dataset.originId;
       this.onKeydown = this.handleKeydown.bind(this);
-      this.el.addEventListener("keydown", this.onKeydown);
+      document.addEventListener("keydown", this.onKeydown);
+      this.focusHeading();
+    },
+    beforeUpdate() {
+      const active = document.activeElement;
+      this.activeFocusKey = this.el.contains(active) ? active.dataset.ticketContextFocus : undefined;
+    },
+    updated() {
+      this.closeEvent = this.el.dataset.closeEvent;
+      this.fallbackFocusId = this.el.dataset.focusFallbackId;
+      this.originId = this.el.dataset.originId;
 
-      requestAnimationFrame(() => {
-        const heading = this.el.querySelector("[data-dialog-heading]");
-        (heading || this.el).focus();
-      });
+      const nextFocusKey = this.el.dataset.focusKey;
+      if (nextFocusKey && nextFocusKey !== this.focusKey) {
+        this.focusKey = nextFocusKey;
+        this.activeFocusKey = undefined;
+        this.focusHeading();
+      } else {
+        this.restoreActiveFocus();
+      }
     },
     destroyed() {
-      this.el.removeEventListener("keydown", this.onKeydown);
+      document.removeEventListener("keydown", this.onKeydown);
+
+      requestAnimationFrame(() => {
+        const explicitOrigin = this.originId ? document.getElementById(this.originId) : null;
+        const fallback = this.fallbackFocusId ? document.getElementById(this.fallbackFocusId) : null;
+        const target = [explicitOrigin, this.origin, fallback].find((element) => this.restorable(element));
+        target?.focus();
+      });
     },
     handleKeydown(event) {
       if (event.key === "Escape" && this.closeEvent) {
@@ -46,6 +71,36 @@
       return Array.from(this.el.querySelectorAll(
         "a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])"
       )).filter((element) => !element.hasAttribute("hidden") && element.getAttribute("aria-hidden") !== "true");
+    },
+    focusHeading() {
+      requestAnimationFrame(() => {
+        if (!this.el.isConnected) return;
+
+        const heading = this.el.querySelector("[data-dialog-heading]");
+        (heading || this.el).focus();
+      });
+    },
+    restorable(element) {
+      return element instanceof HTMLElement &&
+        element.isConnected &&
+        element !== document.body &&
+        element !== document.documentElement &&
+        !element.hasAttribute("disabled") &&
+        element.getAttribute("aria-disabled") !== "true";
+    },
+    restoreActiveFocus() {
+      const focusKey = this.activeFocusKey;
+      this.activeFocusKey = undefined;
+      if (!focusKey) return;
+
+      requestAnimationFrame(() => {
+        if (!this.el.isConnected) return;
+
+        const candidate = Array.from(this.el.querySelectorAll("[data-ticket-context-focus]"))
+          .find((element) => element.dataset.ticketContextFocus === focusKey);
+        const heading = this.el.querySelector("[data-dialog-heading]");
+        (candidate || heading || this.el).focus();
+      });
     }
   };
 })();

@@ -94,6 +94,43 @@ defmodule Aiur.UsageEnvelope.RelationshipRegistry do
 
   def resolve(_catalog, _envelope), do: {:error, :invalid_relationship_catalog}
 
+  @doc """
+  The direct subset parent→children edges shared by every definition registered
+  for `provider` at `revision`.
+
+  A caller that holds only the retained `(provider, relationship_revision)` of an
+  aggregate cell — not the full envelope `resolve/2` needs — uses this to price a
+  subset *parent* on its remainder (`parent − Σ children`) rather than double
+  counting an overlapping child dimension. Every matching definition must agree
+  on the edges; a revision no definition covers, or one whose definitions
+  disagree, is an explicit error rather than a guessed structure.
+  """
+  @spec subset_children(catalog(), :codex | :claude, String.t()) ::
+          {:ok, %{optional(dimension()) => [dimension()]}} | {:error, atom()}
+  def subset_children(%{version: @version, entries: entries}, provider, revision)
+      when is_map(entries) do
+    entries
+    |> Enum.filter(fn {{p, _source, _source_version, r}, _definition} -> p == provider and r == revision end)
+    |> Enum.map(fn {_key, definition} -> subset_edges(definition.dimensions) end)
+    |> Enum.uniq()
+    |> case do
+      [] -> {:error, :missing_historic_relationship_revision}
+      [edges] -> {:ok, edges}
+      _conflicting -> {:error, :ambiguous_relationship_revision}
+    end
+  end
+
+  def subset_children(_catalog, _provider, _revision), do: {:error, :invalid_relationship_catalog}
+
+  defp subset_edges(dimensions) do
+    dimensions
+    |> Enum.reduce(%{}, fn
+      {child, {:subset_of, parent}}, edges -> Map.update(edges, parent, [child], &[child | &1])
+      {_dimension, _relationship}, edges -> edges
+    end)
+    |> Map.new(fn {parent, children} -> {parent, Enum.sort(children)} end)
+  end
+
   @spec reconcile(catalog(), UsageEnvelope.t()) :: {:ok, reconciliation()} | {:error, atom()}
   def reconcile(catalog, %UsageEnvelope{} = envelope) do
     case resolve(catalog, envelope) do

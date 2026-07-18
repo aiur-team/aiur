@@ -19,7 +19,9 @@ defmodule AiurWeb.StaticAssets do
     "/aiur-dom-svg-layout/lifecycle.js" => "priv/static/aiur-dom-svg-layout/lifecycle.js",
     "/aiur-dom-svg-layout/measurement.js" => "priv/static/aiur-dom-svg-layout/measurement.js",
     "/aiur-dom-svg-layout/protocol.js" => "priv/static/aiur-dom-svg-layout/protocol.js",
-    "/aiur-dom-svg-layout/renderer.js" => "priv/static/aiur-dom-svg-layout/renderer.js"
+    "/aiur-dom-svg-layout/renderer.js" => "priv/static/aiur-dom-svg-layout/renderer.js",
+    "/aiur-dom-svg-layout/interaction.js" => "priv/static/aiur-dom-svg-layout/interaction.js",
+    "/aiur-dom-svg-layout/interaction-policy.js" => "priv/static/aiur-dom-svg-layout/interaction-policy.js"
   }
 
   @runtime_static_assets %{

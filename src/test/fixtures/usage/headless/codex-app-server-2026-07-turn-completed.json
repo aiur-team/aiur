@@ -1,0 +1,14 @@
+{
+  "jsonrpc": "2.0",
+  "method": "turn/completed",
+  "params": {
+    "turn": {"id": "turn_synthetic_codex_1", "status": "completed"},
+    "usage": {
+      "input_tokens": 210,
+      "cached_input_tokens": 60,
+      "output_tokens": 90,
+      "reasoning_output_tokens": 24,
+      "total_tokens": 300
+    }
+  }
+}

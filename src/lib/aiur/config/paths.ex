@@ -85,6 +85,67 @@ defmodule Aiur.Config.Paths do
   end
 
   @doc """
+  Resolves the daemon-private canonical usage-ledger state directory.
+
+  It deliberately uses a separate leaf from decision and membership state so
+  raw accounting evidence can never be replayed by either subsystem.
+  """
+  @spec usage_ledger_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def usage_ledger_state_dir do
+    case Application.get_env(:aiur, :usage_ledger_state_dir) do
+      path when is_binary(path) and path != "" ->
+        {:ok, path}
+
+      _ ->
+        with {:ok, root} <- decision_state_dir() do
+          {:ok, Path.join(root, "usage-ledger")}
+        end
+    end
+  end
+
+  @doc """
+  Resolves the daemon-private usage-aggregate projection state directory.
+
+  The crash-safe aggregate/query projection owns its own leaf so its
+  reproducible checkpoint can never be mistaken for, or replayed as, the
+  canonical usage ledger (whose deltas remain the only source of truth).
+  """
+  @spec usage_aggregate_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def usage_aggregate_state_dir do
+    case Application.get_env(:aiur, :usage_aggregate_state_dir) do
+      path when is_binary(path) and path != "" ->
+        {:ok, path}
+
+      _ ->
+        with {:ok, root} <- decision_state_dir() do
+          {:ok, Path.join(root, "usage-aggregate")}
+        end
+    end
+  end
+
+  @doc """
+  Resolves the daemon-private usage-compaction state directory.
+
+  Retention/compaction owns its own leaf holding dimension-preserving
+  compacted aggregate blocks and the destructive-phase manifest. It is kept
+  distinct from the ledger and aggregate leaves so a compacted block can never
+  be replayed as raw ledger authority nor mistaken for the live projection
+  checkpoint.
+  """
+  @spec usage_compaction_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def usage_compaction_state_dir do
+    case Application.get_env(:aiur, :usage_compaction_state_dir) do
+      path when is_binary(path) and path != "" ->
+        {:ok, path}
+
+      _ ->
+        with {:ok, root} <- decision_state_dir() do
+          {:ok, Path.join(root, "usage-compaction")}
+        end
+    end
+  end
+
+  @doc """
   Returns the sanitized last segment of the tracker's project identity,
   or `"aiur"` if no identity is available. Safe to use as a filename
   prefix.

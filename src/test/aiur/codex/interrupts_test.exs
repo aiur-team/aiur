@@ -121,5 +121,15 @@ defmodule Aiur.Codex.InterruptsTest do
       assert {:error, {:turn_interrupt_failed, ^error}} =
                Interrupts.handle_interrupt_error(%{pending_interrupt_request_id: 790}, error)
     end
+
+    test "returns an active-turn mismatch without retargeting the interrupt" do
+      error = %{
+        "code" => -32_600,
+        "message" => "expected active turn id queued-turn but found replacement-turn"
+      }
+
+      assert {:error, {:turn_interrupt_failed, ^error}} =
+               Interrupts.handle_interrupt_error(%{pending_interrupt_request_id: 791}, error)
+    end
   end
 end

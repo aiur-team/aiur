@@ -2,12 +2,13 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   @moduledoc """
   Queues and routes Executor messages and event digests to running agents. All functions execute inside the orchestrator GenServer process.
   """
-  alias Aiur.{AgentQueue, AgentQueueStore, Alerts}
+  alias Aiur.{AgentEvents, AgentPubSub, AgentQueue, AgentQueueStore, Alerts, OperatorWaitLog, TrackerIdentity}
 
   alias Aiur.Orchestrator.{
     AutoSubscriptions,
     CommentWake,
     DigestCoalescer,
+    LifecycleFence,
     PauseResume,
     State
   }
@@ -15,12 +16,12 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy}
   @max_operator_message_chars 8_000
 
-  @spec send_operator_message(String.t(), map()) ::
+  @spec send_operator_message(String.t() | TrackerIdentity.t(), map()) ::
           {:ok, integer()} | {:error, term()}
   def send_operator_message(issue_identifier, payload),
     do: send_operator_message(Aiur.Orchestrator, issue_identifier, payload)
 
-  @spec send_operator_message(GenServer.server(), String.t(), map()) ::
+  @spec send_operator_message(GenServer.server(), String.t() | TrackerIdentity.t(), map()) ::
           {:ok, integer()} | {:error, term()}
   def send_operator_message(server, issue_identifier, payload),
     do: control_api_call(server, {:send_operator_message, issue_identifier, payload}, 5_000)
@@ -83,6 +84,16 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   def mark_queue_item_failed(server, item_id, reason) when is_integer(item_id),
     do: queue_api_call(server, {:mark_queue_item_failed, item_id, reason})
 
+  @spec acknowledge_queue_item_delivery(GenServer.server(), integer(), map()) ::
+          :ok | {:error, term()}
+  def acknowledge_queue_item_delivery(server, item_id, provider_metadata)
+      when is_integer(item_id) and is_map(provider_metadata),
+      do:
+        queue_api_call(
+          server,
+          {:acknowledge_queue_item_delivery, item_id, provider_metadata}
+        )
+
   @spec consume_delivered_queue_items(GenServer.server(), String.t()) ::
           :ok | {:error, term()}
   def consume_delivered_queue_items(server, issue_identifier) when is_binary(issue_identifier),
@@ -114,19 +125,25 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   defp do_enqueue_event_digest_item(state, identifier, events) do
     summary_source = if length(events) == 1, do: List.first(events), else: %{events: events}
 
+    blocker_critical? = blocker_critical_events?(state, identifier, events)
+
     body = %{
       summary: CommentWake.event_digest_summary(summary_source),
-      events: events
+      events: events,
+      urgent: blocker_critical?
     }
 
     running_entry = State.find_running_by_identifier(state.running, identifier)
-    delivery_opts = DeliveryPolicy.event_digest_delivery_opts(running_entry, events)
+    delivery_opts = DeliveryPolicy.event_digest_delivery_opts(running_entry, events, blocker_critical?)
 
     {queue_store, item} =
       AgentQueue.coordination_event(identifier, :events_digest, body, delivery_opts)
       |> then(&Aiur.AgentQueueStore.enqueue(state.queue_store, &1))
 
-    next_state = %{state | queue_store: queue_store}
+    next_state =
+      state
+      |> Map.put(:queue_store, queue_store)
+      |> LifecycleFence.protect_queued_item(identifier, item)
 
     case running_entry do
       nil ->
@@ -137,6 +154,15 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     end
 
     next_state
+  end
+
+  defp blocker_critical_events?(state, identifier, events) do
+    direct_blockers = AutoSubscriptions.direct_blockers_for(state, identifier)
+
+    AutoSubscriptions.blocker_critical_digest?(
+      %{category: :coordination_event, event_type: :events_digest, body: %{events: events}},
+      direct_blockers
+    )
   end
 
   # The orchestrator may queue a terminal CI event synchronously before it
@@ -201,6 +227,13 @@ defmodule Aiur.Orchestrator.OperatorMessages do
       when is_binary(issue_identifier) and is_binary(body) do
     {reply, next_state} = enqueue_operator_message(state, issue_identifier, body, payload)
     {:reply, reply, next_state}
+  end
+
+  def send_operator_message_call(%State{} = state, %TrackerIdentity{} = identity, payload) do
+    case State.find_unique_running_by_identity(state.running, identity) do
+      {:ok, _entry, issue_identifier} -> send_operator_message_call(state, issue_identifier, payload)
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
   end
 
   def send_operator_message_call(%State{} = state, _issue_identifier, _payload) do
@@ -301,6 +334,29 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   @spec mark_queue_item_failed_call(State.t(), integer(), term()) :: {:reply, :ok, State.t()}
   def mark_queue_item_failed_call(%State{} = state, item_id, reason) when is_integer(item_id) do
     update_queue_store(state, &AgentQueueStore.mark_failed(&1, item_id, reason), :failed, reason)
+  end
+
+  @spec acknowledge_queue_item_delivery_call(State.t(), integer(), map()) ::
+          {:reply, :ok, State.t()}
+  def acknowledge_queue_item_delivery_call(%State{} = state, item_id, provider_metadata)
+      when is_integer(item_id) and is_map(provider_metadata) do
+    previous_item = AgentQueueStore.get(state.queue_store, item_id)
+
+    {queue_store, item} =
+      AgentQueueStore.mark_provider_delivered(
+        state.queue_store,
+        item_id,
+        provider_metadata
+      )
+
+    next_state = %{state | queue_store: queue_store}
+
+    if newly_provider_delivered?(previous_item, item) do
+      record_provider_delivery_evidence(item)
+      {:reply, :ok, LifecycleFence.acknowledge_provider_delivery(next_state, item)}
+    else
+      {:reply, :ok, next_state}
+    end
   end
 
   @spec consume_delivered_queue_items_call(State.t(), String.t()) :: {:reply, :ok, State.t()}
@@ -480,8 +536,14 @@ defmodule Aiur.Orchestrator.OperatorMessages do
 
   defp finish_operator_enqueue(state, running_entry, attrs, %{mode: :plain}) do
     {queue_store, item} = AgentQueueStore.enqueue(state.queue_store, attrs)
+    record_operator_queued_evidence(item)
     DeliveryPolicy.notify_running_queue_update(running_entry, item)
-    next_state = maybe_replace_completed_runner(%{state | queue_store: queue_store}, running_entry)
+
+    next_state =
+      %{state | queue_store: queue_store}
+      |> maybe_replace_completed_runner(running_entry)
+      |> LifecycleFence.protect_queued_item(item.target_issue_identifier, item)
+
     {{:ok, item.id}, next_state}
   end
 
@@ -489,10 +551,15 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     case AgentQueueStore.enqueue_correlated(state.queue_store, attrs, retry_failed: request.retry_failed) do
       {:ok, queue_store, item, status} ->
         if status in [:accepted, :retried] do
+          record_operator_queued_evidence(item)
           DeliveryPolicy.notify_running_queue_update(running_entry, item)
         end
 
-        next_state = maybe_replace_completed_runner(%{state | queue_store: queue_store}, running_entry)
+        next_state =
+          %{state | queue_store: queue_store}
+          |> maybe_replace_completed_runner(running_entry)
+          |> maybe_protect_correlated_item(item, status)
+
         {{:ok, %{status: status, item: item}}, next_state}
 
       {:error, _reason} = error ->
@@ -506,6 +573,11 @@ defmodule Aiur.Orchestrator.OperatorMessages do
       _ -> state
     end
   end
+
+  defp maybe_protect_correlated_item(state, item, status) when status in [:accepted, :retried],
+    do: LifecycleFence.protect_queued_item(state, item.target_issue_identifier, item)
+
+  defp maybe_protect_correlated_item(state, _item, _status), do: state
 
   @spec maybe_emit_agent_control_alert(atom(), atom(), map()) :: :ok
   def maybe_emit_agent_control_alert(
@@ -569,8 +641,87 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   defp update_queue_store(%State{} = state, update, transition, reason \\ nil) when is_function(update, 1) do
     {queue_store, items} = update.(state.queue_store)
     Aiur.DecisionStore.record_transport_batch_async(transition, List.wrap(items), reason)
-    {:reply, :ok, %{state | queue_store: queue_store}}
+    next_state = %{state | queue_store: queue_store}
+    maybe_alert_failed_fenced_items(next_state, transition, List.wrap(items), reason)
+    {:reply, :ok, next_state}
   end
+
+  defp newly_provider_delivered?(
+         %{provider_delivered_at: nil},
+         %{provider_delivered_at: %DateTime{}}
+       ),
+       do: true
+
+  defp newly_provider_delivered?(_previous_item, _item), do: false
+
+  defp record_operator_queued_evidence(
+         %{
+           category: :operator_message,
+           id: request_id,
+           target_issue_identifier: identifier,
+           body: %{text: text}
+         } = item
+       ) do
+    OperatorWaitLog.record_queued(request_id, identifier, byte_size(text))
+
+    AgentPubSub.broadcast_transcript(
+      identifier,
+      AgentEvents.transcript_event(:user, text,
+        turn_id: item.turn_id,
+        payload: %{
+          operator_message: %{
+            request_id: request_id,
+            status: :queued
+          }
+        }
+      )
+    )
+  end
+
+  defp record_provider_delivery_evidence(
+         %{
+           category: :operator_message,
+           id: request_id,
+           target_issue_identifier: identifier
+         } = item
+       ) do
+    OperatorWaitLog.record_delivered(request_id, identifier)
+
+    AgentPubSub.broadcast_transcript(
+      identifier,
+      AgentEvents.transcript_event(
+        :system,
+        "Executor message delivered to provider (request_id=#{request_id})",
+        payload: %{
+          operator_message: %{
+            request_id: request_id,
+            status: :delivered,
+            provider_turn_id: item.provider_turn_id,
+            provider_delivered_at: item.provider_delivered_at
+          }
+        }
+      )
+    )
+  end
+
+  defp record_provider_delivery_evidence(_item), do: :ok
+
+  defp maybe_alert_failed_fenced_items(state, :failed, items, reason) do
+    Enum.each(items, fn item ->
+      if LifecycleFence.protected_item?(state, item) do
+        identifier = item.target_issue_identifier
+
+        Alerts.emit_system("ticket.#{identifier}.agent.provider_delivery_failed",
+          issue: identifier,
+          reason: "Authoritative input request #{item.id} failed before provider acknowledgement and still fences lifecycle handoff: #{inspect(reason)}.",
+          needs_attention: true,
+          severity: "warning"
+        )
+      end
+    end)
+  end
+
+  defp maybe_alert_failed_fenced_items(_state, _transition, _items, _reason), do: :ok
 
   defp control_api_call(server, request, timeout) do
     if GenServer.whereis(server) do
