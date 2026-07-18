@@ -1768,6 +1768,7 @@ defmodule Aiur.InitTest do
           confirm: %{
             "Create the complexity labels?" => false,
             "Create the model labels?" => false,
+            "Create the effort labels?" => false,
             "Create the model:remote label?" => false
           }
         })

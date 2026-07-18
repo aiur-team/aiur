@@ -385,6 +385,22 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
       assert_receive {:session_execution_info, "issue-fallback-execution", %{backend: "claude", requested_model: "opus", effort: nil}}
     end
 
+    test "warns when dropping an effort the started backend cannot use" do
+      start_fun = fn _workspace, _opts -> {:ok, %{handle: :headless}} end
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {:ok, %{backend: "claude", effort: nil}} =
+                   SessionLifecycle.start_agent_session(
+                     "/ws",
+                     [backend: "claude", model: nil, effort: "xhigh"],
+                     start_fun
+                   )
+        end)
+
+      assert log =~ "Ignoring effort \"xhigh\" for backend claude"
+    end
+
     test "non-repl start errors propagate unchanged" do
       start_fun = fn _workspace, _opts -> {:error, :boom} end
 

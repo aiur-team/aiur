@@ -21,7 +21,8 @@ defmodule Aiur.Init.Labels do
     with :ok <- create_required_labels(io, deps, tracker, existing, required),
          existing = Enum.uniq(existing ++ required),
          :ok <- maybe_create_complexity_labels(io, deps, tracker, existing),
-         :ok <- maybe_create_model_labels(io, deps, tracker, existing, kinds) do
+         :ok <- maybe_create_model_labels(io, deps, tracker, existing, kinds),
+         :ok <- maybe_create_effort_labels(io, deps, tracker, existing) do
       maybe_create_remote_label(io, deps, tracker, existing, kinds)
     end
   end
@@ -89,6 +90,24 @@ defmodule Aiur.Init.Labels do
         print_label_list(io, labels)
         Format.print_hint(io, "Optional: These will override complexity label model choices.")
         create_or_skip(io, deps, tracker, labels, missing, "Create the model labels?", true)
+    end
+  end
+
+  # Stage 3b — optional per-ticket effort override labels (backend-independent).
+  # These set an issue's reasoning effort independent of complexity routing.
+  defp maybe_create_effort_labels(io, deps, tracker, existing) do
+    labels = Labels.effort_labels()
+
+    case labels -- existing do
+      [] ->
+        io.puts.(label_status_line("Effort tags"))
+        :ok
+
+      missing ->
+        io.puts.("\nNext you can create effort labels to override reasoning effort per issue:")
+        print_label_list(io, labels)
+        Format.print_hint(io, "Optional: These set reasoning effort independent of complexity routing.")
+        create_or_skip(io, deps, tracker, labels, missing, "Create the effort labels?", true)
     end
   end
 

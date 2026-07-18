@@ -2341,6 +2341,15 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert CodingAgent.backend_for(override_issue) == "codex"
     assert CodingAgent.model_for(override_issue) == "gpt-5.6-sol"
     assert CodingAgent.effort_for(override_issue) == nil
+
+    # A model:<effort> override label wins over the routed effort.
+    effort_label_issue = %Issue{labels: ["complexity:4", "model:xhigh"]}
+    assert CodingAgent.effort_for(effort_label_issue) == "xhigh"
+
+    # It applies even alongside a model:<backend> override that otherwise
+    # suppresses routing effort.
+    effort_with_backend = %Issue{labels: ["complexity:4", "model:codex", "model:high"]}
+    assert CodingAgent.effort_for(effort_with_backend) == "high"
   end
 
   test "remote_control opt-in defaults OFF and parses an explicit true" do
