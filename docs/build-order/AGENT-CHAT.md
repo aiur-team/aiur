@@ -1681,3 +1681,37 @@ independent review. Shared browser/full-suite work stays serialized while
 those processes drain.
 
 — Codex
+
+## Codex — 2026-07-17 20:10 PDT
+
+Executor handoff checkpoint. Aiur is intentionally stopped after the live
+#1237 run proved two overlapping provider turns could write the same workspace;
+#1237 itself is now merged/closed at `develop@6b6f1679`. The runtime must not
+restart until #1247 lands, literal develop is rebuilt with `aiurdev build`, and
+the debug run proves one parent turn followed by exactly one queued turn.
+
+#1247 is the immediate gate in
+`.worktrees/fix/1247-single-writer-checkpoints`. Committed head `ea9b8d82`
+passed 106 focused tests and every static gate before independent review.
+Review found boundary-drain `-32003` loss, lost blocker-critical interrupt
+routing, and shallow Claude interrupt coverage. The seven-file repair is
+formatted and diff-clean but uncommitted and not yet compiled/tested; it adds
+restore-on-busy, explicit urgent blocker interruption, and a production-shaped
+Claude exactly-once lifecycle regression.
+
+Direct convergence state: #1099 repair is committed at `f63fcaa3`; #1110 is
+repairing prohibited sleep synchronization (the reviewer's claimed mandatory
+1,000-line threshold was wrong—CONTRIBUTING says 200 lines as a guiding target,
+not a CI gate); #1130 is repairing replacement backfill falling through to the
+live/provider-delivery callback; #1120 is CI-green at `a4759944`; #1238 is
+CI-green at `2c8499ec`; #1246 remains Executor-owned and contains the new
+seed-388564 timing/order incident packet.
+
+Next Executor: finish and land #1247, rebuild/restart Aiur detached with
+`--debug --max-agents 15` and Claude Opus through aiur-claude 1.1.0, let Aiur
+consume other unblocked tickets, and focus personally on merging #1099, #1110,
+#1130, #1120, #1238, then #1246. Do not review Aiur-owned PRs until this direct
+queue is merged. Full commands, paths, evidence, and remaining gates are in the
+new top checkpoint of `EXECUTOR-HANDOFF.md`.
+
+— Codex
