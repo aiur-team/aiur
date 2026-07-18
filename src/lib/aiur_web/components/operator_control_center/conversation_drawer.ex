@@ -126,8 +126,6 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
 
         <footer class="conversation-drawer-footer">
           <dl class="conversation-drawer-provenance">
-            <div><dt>Health</dt><dd>{@view.health_label}</dd></div>
-            <div><dt>Freshness</dt><dd>{@view.freshness_label}</dd></div>
             <div><dt>Last observation</dt><dd><.timestamp value={@view.observed_at} /></dd></div>
             <div><dt>Messages</dt><dd class="mono num">{@view.message_count}</dd></div>
           </dl>

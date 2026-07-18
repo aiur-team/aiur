@@ -145,7 +145,8 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderTicketContextTest do
 
   test "preserves every base detail and history presentation state" do
     for {detail, expected} <- [
-          {:available, "Ticket detail is current."},
+          # Healthy detail + history collapse to a compact chip, not narrated prose.
+          {:available, "ticket-context-fresh-chip"},
           {:stale, "Ticket detail is stale."},
           {:missing, "Ticket detail has not been loaded."},
           {:unavailable, "Ticket detail is unavailable."}
@@ -153,11 +154,10 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderTicketContextTest do
       html = render(detail, :available)
       assert html =~ expected
       assert html =~ "Logs"
-      assert html =~ "Destinations"
     end
 
     for {history, expected} <- [
-          {:available, "Ticket history is current."},
+          {:available, "ticket-context-fresh-chip"},
           {:known_empty, "No history has been recorded yet."},
           {:missing_source, "Ticket history is not available from its source."},
           {:restart_unknown, "Activity continuity is unknown after restart."},

@@ -91,9 +91,18 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
               <td data-label="Progress and evidence">
                 <.progress progress={row.progress} />
                 <dl class="units-facts compact">
-                  <div><dt>Progress source</dt><dd>{progress_source(row.progress)}</dd></div>
-                  <div><dt>Freshness</dt><dd>{progress_freshness(row.progress)}</dd></div>
-                  <div><dt>Latest evidence</dt><dd>{latest_evidence(row.latest_evidence)}</dd></div>
+                  <div :if={progress_source(row.progress)}>
+                    <dt>Progress source</dt>
+                    <dd>{progress_source(row.progress)}</dd>
+                  </div>
+                  <div :if={progress_freshness(row.progress)}>
+                    <dt>Freshness</dt>
+                    <dd>{progress_freshness(row.progress)}</dd>
+                  </div>
+                  <div :if={latest_evidence(row.latest_evidence)}>
+                    <dt>Latest evidence</dt>
+                    <dd>{latest_evidence(row.latest_evidence)}</dd>
+                  </div>
                 </dl>
               </td>
 
@@ -111,11 +120,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
 
               <td data-label="Waiting and Commands">
                 <dl class="units-facts compact">
-                  <div><dt>Waiting</dt><dd>{reason(row.reasons, :waiting)}</dd></div>
-                  <div><dt>Blocking</dt><dd>{reason(row.reasons, :blocking)}</dd></div>
-                  <div><dt>Alert</dt><dd>{reason(row.reasons, :alert)}</dd></div>
-                  <div><dt>Paused</dt><dd>{reason(row.reasons, :pause)}</dd></div>
-                  <div><dt>Stuck</dt><dd>{reason(row.reasons, :stuck)}</dd></div>
+                  <div :for={{label, value} <- present_reasons(row.reasons)}><dt>{label}</dt><dd>{value}</dd></div>
                   <div><dt>Open Commands</dt><dd>{command_count(row.open_command_count)}</dd></div>
                 </dl>
               </td>
@@ -140,12 +145,6 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
                     phx-value-unit={token}
                     aria-label={"Read conversation for #{identity_label(row.identity)}"}
                   >Read conversation</button>
-                  <span
-                    :if={!conversation_handle(row)}
-                    class="units-action unavailable"
-                    aria-disabled="true"
-                    title="Conversation is not available for this unit"
-                  >Conversation unavailable</span>
                   <.link
                     patch={commands_path(row)}
                     class="units-action"
@@ -333,7 +332,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   end
 
   defp latest_evidence(%{status: :known, source: source}), do: evidence_source(source)
-  defp latest_evidence(_evidence), do: "Unavailable"
+  defp latest_evidence(_evidence), do: nil
 
   defp evidence_source(%{kind: kind, name: name}) when not is_nil(kind) and is_binary(name),
     do: "#{label(kind)} · #{name}"
@@ -342,10 +341,10 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   defp evidence_source(_source), do: "Unavailable"
 
   defp progress_source(%{status: :known, source: source}) when not is_nil(source), do: label(source)
-  defp progress_source(_progress), do: "Unavailable"
+  defp progress_source(_progress), do: nil
 
   defp progress_freshness(%{freshness: freshness}) when not is_nil(freshness), do: freshness_label(freshness)
-  defp progress_freshness(_progress), do: "Unknown"
+  defp progress_freshness(_progress), do: nil
 
   defp freshness_label(%{status: status}), do: label(status)
   defp freshness_label(value), do: label(value)
@@ -365,14 +364,20 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   defp command_count(0), do: "None open"
   defp command_count(_count), do: "Unknown"
 
-  defp reason(reasons, name) when is_map(reasons) do
-    case Map.get(reasons, name) do
-      nil -> "None reported"
-      value -> label(value)
-    end
+  @reason_labels [waiting: "Waiting", blocking: "Blocking", alert: "Alert", pause: "Paused", stuck: "Stuck"]
+
+  # Only surface reasons that carry a real value, so healthy rows no longer repeat
+  # "None reported" across every waiting/blocking/alert/pause/stuck row.
+  defp present_reasons(reasons) when is_map(reasons) do
+    Enum.flat_map(@reason_labels, fn {key, dt} ->
+      case Map.get(reasons, key) do
+        nil -> []
+        value -> [{dt, label(value)}]
+      end
+    end)
   end
 
-  defp reason(_reasons, _name), do: "Unknown"
+  defp present_reasons(_reasons), do: []
 
   defp complexity(value) when is_integer(value) and value > 0, do: Integer.to_string(value)
   defp complexity(_value), do: "Unknown"

@@ -34,7 +34,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     assert html =~ "Stale"
     assert html =~ "Branch · feature pushed"
     assert html =~ "Inspect ticket"
-    assert html =~ "Conversation unavailable"
+    refute html =~ "Conversation unavailable"
     refute html =~ ~s(phx-click="read-conversation")
     assert html =~ "Commands"
     assert html =~ ~s(href="/decisions?ticket=1110")
@@ -70,8 +70,9 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
       })
 
     assert html =~ "Progress unavailable"
-    assert html =~ "Progress source"
-    assert html =~ "Latest evidence"
+    # Unknown progress facts are omitted rather than labelled "Unavailable"/"Unknown".
+    refute html =~ "Progress source"
+    refute html =~ "Latest evidence"
     assert html =~ "Requested model"
     assert html =~ "Resolved model"
     assert html =~ "Unknown"

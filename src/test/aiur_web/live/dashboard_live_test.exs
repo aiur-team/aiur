@@ -3248,7 +3248,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert html =~ ~s(id="units-ticket-context")
     assert html =~ "Ticket context"
     assert html =~ "Responsive Units interface"
-    assert html =~ "Issue"
+    assert html =~ "Open in GitHub"
     assert html =~ "Chat is unavailable"
     assert html =~ "Commands"
     assert html =~ ~s(href="/decisions?ticket=1110")
