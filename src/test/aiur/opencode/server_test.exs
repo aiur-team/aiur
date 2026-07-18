@@ -65,7 +65,7 @@ defmodule Aiur.Opencode.ServerTest do
       })
 
     on_exit(fn ->
-      if Process.alive?(server), do: GenServer.stop(server)
+      Aiur.TestSupport.safe_stop(server)
     end)
 
     assert {:ok, base_url, _os_pid} = Server.await_ready(server)

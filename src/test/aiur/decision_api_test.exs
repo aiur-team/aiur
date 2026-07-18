@@ -124,7 +124,7 @@ defmodule Aiur.DecisionApiTest do
       )
 
     on_exit(fn ->
-      if Process.alive?(store), do: GenServer.stop(store)
+      Aiur.TestSupport.safe_stop(store)
 
       case original_override do
         nil -> Application.delete_env(:aiur, :decision_state_dir)
@@ -390,7 +390,7 @@ defmodule Aiur.DecisionApiTest do
     {:ok, legacy_store} = SnapshotLegacyStore.start_link(decisions: decisions ++ nonmatching)
 
     on_exit(fn ->
-      if Process.alive?(legacy_store), do: GenServer.stop(legacy_store)
+      Aiur.TestSupport.safe_stop(legacy_store)
     end)
 
     assert {:ok, first_page} =
@@ -487,7 +487,7 @@ defmodule Aiur.DecisionApiTest do
     {:ok, retained_store} = RetainedOnlyStore.start_link(decision: decision, report: self())
 
     on_exit(fn ->
-      if Process.alive?(retained_store), do: GenServer.stop(retained_store)
+      Aiur.TestSupport.safe_stop(retained_store)
     end)
 
     assert {:ok, %{"decisions" => [listed]}} =
@@ -519,7 +519,7 @@ defmodule Aiur.DecisionApiTest do
     {:ok, legacy_store} = MutableLegacySnapshotStore.start_link(snapshot: snapshot, mutated: mutated, report: self())
 
     on_exit(fn ->
-      if Process.alive?(legacy_store), do: GenServer.stop(legacy_store)
+      Aiur.TestSupport.safe_stop(legacy_store)
     end)
 
     assert {:ok, %{"decisions" => rows, "pagination" => %{"total" => 101, "next_offset" => nil}}} =

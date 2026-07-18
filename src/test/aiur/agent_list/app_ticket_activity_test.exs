@@ -33,7 +33,7 @@ defmodule Aiur.AgentList.AppTicketActivityTest do
         ticket_activity_snapshot_fun: snapshot_fun
       )
 
-    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
 
     assert_receive :subscribed
     assert_receive :snapshotted

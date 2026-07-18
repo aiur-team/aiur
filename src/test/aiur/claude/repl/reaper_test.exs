@@ -49,7 +49,7 @@ defmodule Aiur.Claude.Repl.ReaperTest do
       parent = self()
       {:ok, group_alive} = Agent.start_link(fn -> true end)
 
-      on_exit(fn -> if Process.alive?(group_alive), do: Agent.stop(group_alive) end)
+      on_exit(fn -> Aiur.TestSupport.safe_stop(group_alive) end)
 
       session = %{
         tmux: tmux,
@@ -110,7 +110,7 @@ defmodule Aiur.Claude.Repl.ReaperTest do
 
     test "trusts observed absence when the group signal races with process exit", %{tmux: tmux} do
       {:ok, group_probes} = Agent.start_link(fn -> [true, false] end)
-      on_exit(fn -> if Process.alive?(group_probes), do: Agent.stop(group_probes) end)
+      on_exit(fn -> Aiur.TestSupport.safe_stop(group_probes) end)
 
       session = %{
         tmux: tmux,

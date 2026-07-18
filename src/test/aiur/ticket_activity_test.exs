@@ -15,7 +15,7 @@ defmodule Aiur.TicketActivityTest do
       )
 
     on_exit(fn ->
-      if Process.alive?(server), do: GenServer.stop(server)
+      Aiur.TestSupport.safe_stop(server)
     end)
 
     :ok = TicketActivity.subscribe()
@@ -72,7 +72,7 @@ defmodule Aiur.TicketActivityTest do
       )
 
     on_exit(fn ->
-      if Process.alive?(server), do: GenServer.stop(server)
+      Aiur.TestSupport.safe_stop(server)
     end)
 
     Exchange.publish("ticket.42.agent.progress", event)
@@ -108,7 +108,7 @@ defmodule Aiur.TicketActivityTest do
       )
 
     on_exit(fn ->
-      if Process.alive?(restarted), do: GenServer.stop(restarted)
+      Aiur.TestSupport.safe_stop(restarted)
     end)
 
     assert {:error, :not_found} = TicketActivity.snapshot(ticket, server: restarted)

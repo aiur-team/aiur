@@ -29,7 +29,7 @@ defmodule Aiur.Workspace.OwnershipTest do
     {:ok, group_alive} = Agent.start_link(fn -> true end)
 
     on_exit(fn ->
-      if Process.alive?(group_alive), do: Agent.stop(group_alive)
+      Aiur.TestSupport.safe_stop(group_alive)
     end)
 
     assert {:ok, lease} =
@@ -88,7 +88,7 @@ defmodule Aiur.Workspace.OwnershipTest do
     {:ok, child_alive} = Agent.start_link(fn -> true end)
 
     on_exit(fn ->
-      if Process.alive?(child_alive), do: Agent.stop(child_alive)
+      Aiur.TestSupport.safe_stop(child_alive)
     end)
 
     group_alive? = fn group -> group == process_group_id and Agent.get(child_alive, & &1) end
@@ -409,7 +409,7 @@ defmodule Aiur.Workspace.OwnershipTest do
     parent = self()
     {:ok, child_alive} = Agent.start_link(fn -> true end)
 
-    on_exit(fn -> if Process.alive?(child_alive), do: Agent.stop(child_alive) end)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(child_alive) end)
 
     owner =
       spawn(fn ->
@@ -448,7 +448,7 @@ defmodule Aiur.Workspace.OwnershipTest do
     {:ok, alive} = Agent.start_link(fn -> %{root_pid => false, child_pid => true} end)
 
     on_exit(fn ->
-      if Process.alive?(alive), do: Agent.stop(alive)
+      Aiur.TestSupport.safe_stop(alive)
     end)
 
     process_alive? = fn pid -> Agent.get(alive, &Map.fetch!(&1, pid)) end
@@ -495,7 +495,7 @@ defmodule Aiur.Workspace.OwnershipTest do
     {:ok, alive} = Agent.start_link(fn -> %{root_pid => false, late_child_pid => true} end)
 
     on_exit(fn ->
-      if Process.alive?(alive), do: Agent.stop(alive)
+      Aiur.TestSupport.safe_stop(alive)
     end)
 
     owner =
@@ -528,7 +528,7 @@ defmodule Aiur.Workspace.OwnershipTest do
     {:ok, alive} = Agent.start_link(fn -> %{root_pid => false, escaped_child_pid => true} end)
 
     on_exit(fn ->
-      if Process.alive?(alive), do: Agent.stop(alive)
+      Aiur.TestSupport.safe_stop(alive)
     end)
 
     process_reap = fn pid ->
@@ -567,7 +567,7 @@ defmodule Aiur.Workspace.OwnershipTest do
     {:ok, child_alive} = Agent.start_link(fn -> true end)
 
     on_exit(fn ->
-      if Process.alive?(child_alive), do: Agent.stop(child_alive)
+      Aiur.TestSupport.safe_stop(child_alive)
     end)
 
     owner =
@@ -620,8 +620,8 @@ defmodule Aiur.Workspace.OwnershipTest do
     {:ok, group_identity} = Agent.start_link(fn -> :original end)
 
     on_exit(fn ->
-      if Process.alive?(alive), do: Agent.stop(alive)
-      if Process.alive?(group_identity), do: Agent.stop(group_identity)
+      Aiur.TestSupport.safe_stop(alive)
+      Aiur.TestSupport.safe_stop(group_identity)
     end)
 
     process_identity_fun = fn
@@ -678,8 +678,8 @@ defmodule Aiur.Workspace.OwnershipTest do
       {:ok, group_identity} = Agent.start_link(fn -> :original end)
 
       on_exit(fn ->
-        if Process.alive?(child_alive), do: Agent.stop(child_alive)
-        if Process.alive?(group_identity), do: Agent.stop(group_identity)
+        Aiur.TestSupport.safe_stop(child_alive)
+        Aiur.TestSupport.safe_stop(group_identity)
       end)
 
       process_identity_fun = fn
@@ -729,7 +729,7 @@ defmodule Aiur.Workspace.OwnershipTest do
     {:ok, identities} = Agent.start_link(fn -> %{process_group_id => :original} end)
 
     on_exit(fn ->
-      if Process.alive?(identities), do: Agent.stop(identities)
+      Aiur.TestSupport.safe_stop(identities)
     end)
 
     identity_fun = fn pid -> {:ok, Agent.get(identities, &Map.fetch!(&1, pid))} end
@@ -762,7 +762,7 @@ defmodule Aiur.Workspace.OwnershipTest do
     parent = self()
     {:ok, identities} = Agent.start_link(fn -> :original end)
 
-    on_exit(fn -> if Process.alive?(identities), do: Agent.stop(identities) end)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(identities) end)
 
     identity_fun = fn ^process_group_id -> {:ok, Agent.get(identities, & &1)} end
 
@@ -806,7 +806,7 @@ defmodule Aiur.Workspace.OwnershipTest do
     {:ok, identities} = Agent.start_link(fn -> %{root_pid => :original} end)
 
     on_exit(fn ->
-      if Process.alive?(identities), do: Agent.stop(identities)
+      Aiur.TestSupport.safe_stop(identities)
     end)
 
     identity_fun = fn pid -> {:ok, Agent.get(identities, &Map.fetch!(&1, pid))} end
@@ -858,7 +858,7 @@ defmodule Aiur.Workspace.OwnershipTest do
     parent = self()
     {:ok, child_alive} = Agent.start_link(fn -> true end)
 
-    on_exit(fn -> if Process.alive?(child_alive), do: Agent.stop(child_alive) end)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(child_alive) end)
 
     assert {:ok, lease} =
              Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry,
@@ -903,7 +903,7 @@ defmodule Aiur.Workspace.OwnershipTest do
     {:ok, child_alive} = Agent.start_link(fn -> true end)
 
     on_exit(fn ->
-      if Process.alive?(child_alive), do: Agent.stop(child_alive)
+      Aiur.TestSupport.safe_stop(child_alive)
     end)
 
     group_alive? = fn group -> group == process_group_id and Agent.get(child_alive, & &1) end

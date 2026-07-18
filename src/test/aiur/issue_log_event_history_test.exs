@@ -179,7 +179,7 @@ defmodule Aiur.IssueLogEventHistoryTest do
     first_pid = writer_pid(Aiur.IssueLog.event_log_path(first_identity))
 
     on_exit(fn ->
-      if Process.alive?(first_pid), do: GenServer.stop(first_pid)
+      Aiur.TestSupport.safe_stop(first_pid)
     end)
 
     write_workflow_file!(Workflow.workflow_file_path(),
@@ -196,7 +196,7 @@ defmodule Aiur.IssueLogEventHistoryTest do
     assert Process.alive?(first_pid)
 
     on_exit(fn ->
-      if Process.alive?(second_pid), do: GenServer.stop(second_pid)
+      Aiur.TestSupport.safe_stop(second_pid)
     end)
 
     :ok =

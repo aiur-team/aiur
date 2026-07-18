@@ -103,7 +103,7 @@ defmodule Aiur.Workspace.ReconstructionTest do
     {:ok, writes} = Agent.start_link(fn -> 0 end)
 
     on_exit(fn ->
-      if Process.alive?(writes), do: Agent.stop(writes)
+      Aiur.TestSupport.safe_stop(writes)
     end)
 
     write_fun = fn output, data ->

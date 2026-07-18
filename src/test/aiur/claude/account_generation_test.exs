@@ -43,7 +43,7 @@ defmodule Aiur.Claude.AccountGenerationTest do
   test "same-mode observations recover after the account-generation owner restarts" do
     name = __MODULE__.RestartOwner
     mint = MeterTestSupport.sequence_mint()
-    on_exit(fn -> if pid = Process.whereis(name), do: GenServer.stop(pid) end)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(name) end)
 
     {:ok, first_owner} = ProviderAccountGeneration.start_link(name: name, mint: mint)
     session = MeterTestSupport.generation_session(name)

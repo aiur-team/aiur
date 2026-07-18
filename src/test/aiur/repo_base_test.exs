@@ -230,7 +230,7 @@ defmodule Aiur.RepoBaseTest do
       {:ok, pid} = GenServer.start_link(RepoBase, [])
 
       on_exit(fn ->
-        if Process.alive?(pid), do: GenServer.stop(pid)
+        Aiur.TestSupport.safe_stop(pid)
 
         case prev_path do
           nil -> Aiur.Workflow.clear_workflow_file_path()

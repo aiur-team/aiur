@@ -71,7 +71,7 @@ defmodule Aiur.DecisionQueryTest do
     {:ok, store} = DecisionStore.start_link(name: nil, filesystem_sync_fun: fn -> :ok end)
 
     on_exit(fn ->
-      if Process.alive?(store), do: GenServer.stop(store)
+      Aiur.TestSupport.safe_stop(store)
 
       case original_override do
         nil -> Application.delete_env(:aiur, :decision_state_dir)
@@ -164,7 +164,7 @@ defmodule Aiur.DecisionQueryTest do
     {:ok, replayed} = DecisionStore.start_link(name: nil, filesystem_sync_fun: fn -> :ok end)
 
     on_exit(fn ->
-      if Process.alive?(replayed), do: GenServer.stop(replayed)
+      Aiur.TestSupport.safe_stop(replayed)
     end)
 
     assert %{ids: ids} = traverse_pages(replayed, 1)
@@ -549,7 +549,7 @@ defmodule Aiur.DecisionQueryTest do
     {:ok, replayed} = DecisionStore.start_link(name: nil, filesystem_sync_fun: fn -> :ok end)
 
     on_exit(fn ->
-      if Process.alive?(replayed), do: GenServer.stop(replayed)
+      Aiur.TestSupport.safe_stop(replayed)
     end)
 
     assert {:ok, %{decision: retained, health: %{status: :partial, partial?: true}}} =
@@ -649,7 +649,7 @@ defmodule Aiur.DecisionQueryTest do
     {:ok, boundary_store} = AtomicSnapshotStore.start_link(decision: decision, report: self())
 
     on_exit(fn ->
-      if Process.alive?(boundary_store), do: GenServer.stop(boundary_store)
+      Aiur.TestSupport.safe_stop(boundary_store)
     end)
 
     check all(cursor <- malformed_cursor(), max_runs: 10) do
