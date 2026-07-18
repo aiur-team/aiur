@@ -87,7 +87,7 @@ export function measureLayout(element, { clientEpoch, layoutGeneration, measurem
         phases: constraintIndexes(rankedNodes, "phase")
       },
       options: {
-        direction: "RIGHT",
+        direction: "DOWN",
         edgeRouting: "ORTHOGONAL",
         randomSeed: 1,
         thoroughness: 1,
