@@ -21,6 +21,18 @@ defmodule AiurWeb.BuildOrder.Runtime do
   @spec unavailable_sources() :: %{activity: :unavailable, execution: :unavailable}
   def unavailable_sources, do: %{execution: :unavailable, activity: :unavailable}
 
+  @spec display_now() :: DateTime.t()
+  def display_now do
+    case Application.get_env(:aiur, :build_order_display_clock, &DateTime.utc_now/0).() do
+      %DateTime{} = now -> now
+      _now -> DateTime.utc_now()
+    end
+  rescue
+    _error -> DateTime.utc_now()
+  catch
+    _kind, _reason -> DateTime.utc_now()
+  end
+
   @spec tracker_kind() :: String.t()
   def tracker_kind, do: configured_kind(:tracker_kind, &Aiur.Config.tracker_kind/0, "tracker unavailable")
 

@@ -756,6 +756,7 @@ defmodule Aiur.BrowserHarness.BuildOrderDataSource do
     %Snapshot{
       scope: :catalog,
       repository: @repository,
+      authority_epoch: 1,
       generation: 3,
       data: Catalog.new(entries, health(3, :healthy)),
       health: health(3, :healthy)
@@ -803,6 +804,7 @@ defmodule Aiur.BrowserHarness.BuildOrderDataSource do
       %Snapshot{
         scope: {:selected, identity},
         repository: @repository,
+        authority_epoch: 1,
         generation: 7,
         data: SelectedRoot.new(root(42, "Release dashboard"), graph_members(), health(7, :healthy)),
         health: health(7, :healthy)
@@ -816,6 +818,7 @@ defmodule Aiur.BrowserHarness.BuildOrderDataSource do
       %Snapshot{
         scope: {:selected, identity},
         repository: @repository,
+        authority_epoch: 1,
         generation: 8,
         data: SelectedRoot.new(root(43, "Stale planning lane"), [member(8, "Stale member")], health(8, :stale)),
         health: health(8, :stale)

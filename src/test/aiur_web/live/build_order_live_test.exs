@@ -17,9 +17,12 @@ defmodule AiurWeb.BuildOrderLiveTest do
   defmodule FakeDataSource do
     use GenServer
 
+    alias Aiur.BuildOrder.GraphProjection.Snapshot
+
     def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
     def calls(server), do: GenServer.call(server, :calls)
     def put_catalog(server, catalog), do: GenServer.call(server, {:put_catalog, catalog})
+    def put_selected(server, selected), do: GenServer.call(server, {:put_selected, selected})
 
     def subscribe_catalog(server), do: invoke(server, :subscribe_catalog, [])
     def unsubscribe_catalog(server, repository), do: invoke(server, :unsubscribe_catalog, [repository])
@@ -71,6 +74,9 @@ defmodule AiurWeb.BuildOrderLiveTest do
     def handle_call(:calls, _from, state), do: {:reply, Enum.reverse(state.calls), state}
     def handle_call({:put_catalog, catalog}, _from, state), do: {:reply, :ok, %{state | catalog: catalog}}
 
+    def handle_call({:put_selected, %Snapshot{scope: scope} = selected}, _from, state),
+      do: {:reply, :ok, %{state | selected: Map.put(state.selected, scope, selected)}}
+
     def handle_call({:invoke, name, args}, _from, state) do
       call = {name, args}
       send(state.report, {:build_order_source_call, call})
@@ -117,6 +123,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
       )
 
     previous_source = Application.get_env(:aiur, :build_order_data_source)
+    previous_clock = Application.get_env(:aiur, :build_order_display_clock)
     previous_endpoint = Application.get_env(:aiur, Endpoint)
     Application.put_env(:aiur, :build_order_data_source, {FakeDataSource, source})
 
@@ -135,6 +142,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
 
     on_exit(fn ->
       restore_application_env(:build_order_data_source, previous_source)
+      restore_application_env(:build_order_display_clock, previous_clock)
       restore_application_env(Endpoint, previous_endpoint)
     end)
 
@@ -153,6 +161,33 @@ defmodule AiurWeb.BuildOrderLiveTest do
     assert {:catalog, []} in calls
     assert {:subscribe_sources, []} in calls
     refute Enum.any?(calls, &match?({:demand, _}, &1))
+  end
+
+  test "a UI-only tick advances source age and the shell clock without polling providers" do
+    observed_at = DateTime.utc_now() |> DateTime.truncate(:second)
+    clock = start_supervised!({Agent, fn -> observed_at end})
+    Application.put_env(:aiur, :build_order_display_clock, fn -> Agent.get(clock, & &1) end)
+
+    catalog =
+      []
+      |> catalog_snapshot(1, :healthy)
+      |> put_in([Access.key(:health)], health(1, :healthy, observed_at: observed_at))
+
+    source = install_source(catalog: catalog)
+    assert {:ok, view, html} = live(build_conn(), "/build-orders")
+    render_async(view, 2_000)
+
+    assert html =~ Calendar.strftime(observed_at, "%H:%M:%S")
+    assert html =~ "Observed 0s ago"
+    calls_before_tick = FakeDataSource.calls(source)
+
+    Agent.update(clock, &DateTime.add(&1, 7, :second))
+    send(view.pid, :build_order_ui_tick)
+    advanced_html = render(view)
+
+    assert advanced_html =~ Calendar.strftime(DateTime.add(observed_at, 7, :second), "%H:%M:%S")
+    assert advanced_html =~ "Observed 7s ago"
+    assert FakeDataSource.calls(source) == calls_before_tick
   end
 
   test "distinguishes cold, unavailable, and stale-LKG catalog states" do
@@ -236,7 +271,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     :ok =
       FakeDataSource.put_catalog(
         source,
-        catalog_snapshot([root(replacement, "Replacement root")], 1, :healthy, replacement_repository)
+        catalog_snapshot([root(replacement, "Replacement root")], 1, :healthy, replacement_repository, 2)
       )
 
     send(view.pid, {:graph_projection_reset, 2})
@@ -249,18 +284,46 @@ defmodule AiurWeb.BuildOrderLiveTest do
     assert unsubscribe_index < resubscribe_index
     assert resubscribe_index < reload_index
 
-    publication = catalog_snapshot([root(replacement, "Replacement root updated")], 2, :healthy, replacement_repository)
+    publication =
+      catalog_snapshot([root(replacement, "Replacement root updated")], 2, :healthy, replacement_repository, 2)
+
     send(view.pid, {:graph_projection_generation, publication})
     assert render(view) =~ "Replacement root updated"
 
     :ok =
       FakeDataSource.put_catalog(
         source,
-        catalog_snapshot([root(replacement, "Restarted projection root")], 1, :healthy, replacement_repository)
+        catalog_snapshot([root(replacement, "Restarted projection root")], 1, :healthy, replacement_repository, 3)
       )
 
-    send(view.pid, {:graph_projection_reset, 1})
+    send(view.pid, {:graph_projection_reset, 3})
     assert render(view) =~ "Restarted projection root"
+  end
+
+  test "reset authority rejects queued old-instance catalog and selected publications", %{
+    source: source,
+    first: first
+  } do
+    assert {:ok, view, html} = live(build_conn(), "/build-orders/42")
+    assert html =~ "Root forty-two"
+
+    new_catalog = catalog_snapshot([root(first, "New-instance root")], 1, :healthy, repository(), 2)
+    new_selected = selected_snapshot(first, "New-instance generation one", 1, :healthy, authority_epoch: 2)
+    :ok = FakeDataSource.put_catalog(source, new_catalog)
+    :ok = FakeDataSource.put_selected(source, new_selected)
+
+    send(view.pid, {:graph_projection_reset, 2})
+    assert render(view) =~ "New-instance generation one"
+
+    old_catalog = catalog_snapshot([root(first, "Queued old catalog")], 99, :healthy, repository(), 1)
+    old_selected = selected_snapshot(first, "Queued old selected root", 99, :healthy, authority_epoch: 1)
+    send(view.pid, {:graph_projection_generation, old_catalog})
+    send(view.pid, {:graph_projection_generation, old_selected})
+
+    final_html = render(view)
+    assert final_html =~ "New-instance generation one"
+    refute final_html =~ "Queued old catalog"
+    refute final_html =~ "Queued old selected root"
   end
 
   test "coalesces source invalidation bursts behind one in-flight cached read" do
@@ -509,12 +572,13 @@ defmodule AiurWeb.BuildOrderLiveTest do
     end
   end
 
-  defp catalog_snapshot(entries, generation, state, snapshot_repository \\ repository()) do
+  defp catalog_snapshot(entries, generation, state, snapshot_repository \\ repository(), authority_epoch \\ 1) do
     data = if is_list(entries), do: Catalog.new(entries, health(generation, state))
 
     %Snapshot{
       scope: :catalog,
       repository: snapshot_repository,
+      authority_epoch: authority_epoch,
       generation: generation,
       data: data,
       health: health(generation, state)
@@ -526,7 +590,8 @@ defmodule AiurWeb.BuildOrderLiveTest do
   defp selected_snapshot(identity, %SelectedRoot{} = data, generation, state, opts) do
     %Snapshot{
       scope: {:selected, identity},
-      repository: repository(),
+      repository: Keyword.get(opts, :repository, repository()),
+      authority_epoch: Keyword.get(opts, :authority_epoch, 1),
       generation: generation,
       data: data,
       health: health(generation, state, opts)
@@ -541,7 +606,8 @@ defmodule AiurWeb.BuildOrderLiveTest do
 
     %Snapshot{
       scope: {:selected, identity},
-      repository: repository(),
+      repository: Keyword.get(opts, :repository, repository()),
+      authority_epoch: Keyword.get(opts, :authority_epoch, 1),
       generation: generation,
       data: data,
       health: health(generation, state, opts)

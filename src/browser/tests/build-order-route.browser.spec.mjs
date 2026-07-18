@@ -104,6 +104,11 @@ test('production Build Order route keeps catalog, graph truth, context, and URL 
     await replacement.getByRole('button', { name: 'Back' }).click()
     await expect(page.getByRole('dialog', { name: 'Readiness target' })).toBeVisible()
 
+    const clock = page.locator('time.status-badge')
+    const clockBeforeTick = await clock.getAttribute('datetime')
+    await expect.poll(() => clock.getAttribute('datetime')).not.toBe(clockBeforeTick)
+    await expect(dialog.getByRole('heading', { name: 'Readiness target' })).toBeFocused()
+
     await page.keyboard.press('Escape')
     await expect(dialog).toHaveCount(0)
     await expect(contextTrigger).toBeFocused()
@@ -245,6 +250,12 @@ test('production route rejects old-root layout completion after live navigation'
       return currentGraph.getAttribute('data-layout-health')
     }).toBe('ready')
     await expect(currentGraph).toHaveAttribute('data-layout-provider-generation', '8')
+
+    const currentRequestCount = await page.evaluate(() => window.__aiurRouteLayoutRequests.length)
+    const clock = page.locator('time.status-badge')
+    const clockBeforeTick = await clock.getAttribute('datetime')
+    await expect.poll(() => clock.getAttribute('datetime')).not.toBe(clockBeforeTick)
+    await expect.poll(() => page.evaluate(() => window.__aiurRouteLayoutRequests.length)).toBe(currentRequestCount)
   } finally {
     await context.close()
   }

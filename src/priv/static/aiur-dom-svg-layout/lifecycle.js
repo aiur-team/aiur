@@ -22,6 +22,7 @@ export class DomSvgLayoutAdapter {
     this.resizeObserver = null
     this.themeObserver = null
     this.fonts = null
+    this.updateContextKey = null
     this.onWindowResize = () => this.requestRemeasure("resize")
     this.onFontLoad = () => this.requestRemeasure("font")
   }
@@ -34,8 +35,17 @@ export class DomSvgLayoutAdapter {
     this.notify("mounted")
   }
 
+  beforeUpdate() {
+    this.updateContextKey = this.contextKey()
+  }
+
   updated() {
     this.restoreHookMarkers()
+    const changed = this.updateContextKey !== this.contextKey()
+    this.updateContextKey = null
+    if (!changed) return
+
+    this.invalidate()
     this.refreshObservedNodes()
     this.scheduleLayout("updated")
   }
@@ -220,6 +230,17 @@ export class DomSvgLayoutAdapter {
   restoreHookMarkers() {
     this.element.dataset.layoutHookInstance = this.hookInstance
     this.element.dataset.layoutHookCount = String(this.hookCount)
+  }
+
+  contextKey() {
+    return [
+      this.element.dataset.layoutRootId,
+      this.element.dataset.layoutProviderGeneration,
+      this.element.dataset.layoutDomGeneration,
+      this.element.dataset.layoutClientUrl,
+      this.element.dataset.layoutWorkerUrl,
+      this.element.dataset.layoutEngineUrl
+    ].join("\u0000")
   }
 
   notify(event, detail = {}) {

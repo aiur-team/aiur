@@ -41,6 +41,7 @@ defmodule Aiur.BuildOrder.GraphProjection.Options do
       active_repository: :unknown,
       active_configuration_generation: :unknown,
       authority_fingerprint: :unknown,
+      authority_epoch: :unknown,
       authority_generation: 0,
       policy: policy,
       configured_repo: Keyword.get(opts, :configured_repo),

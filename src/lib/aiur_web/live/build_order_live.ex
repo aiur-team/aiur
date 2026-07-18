@@ -17,6 +17,7 @@ defmodule AiurWeb.BuildOrderLive do
   }
 
   @context_events TicketContextSelection.event_names()
+  @ui_tick_ms 1_000
 
   @impl true
   def mount(_params, _session, socket) do
@@ -30,13 +31,14 @@ defmodule AiurWeb.BuildOrderLive do
       |> assign(:route_state, route_state)
       |> SourceRuntime.initialize(source)
       |> ContextRuntime.initialize(request_epoch)
-      |> assign(:now, DateTime.utc_now())
+      |> assign(:now, Runtime.display_now())
       |> assign(:tracker_kind, Runtime.tracker_kind())
       |> assign(:agent_kind, Runtime.agent_kind())
       |> assign(:current_route, RouteRegistry.current_route(Map.get(socket.assigns, :live_action)))
       |> assign(:analytics, Presenter.analytics_navigation())
 
     socket = if connected, do: SourceRuntime.connect(socket), else: socket
+    if connected, do: schedule_ui_tick()
 
     {:ok, socket}
   end
@@ -69,6 +71,11 @@ defmodule AiurWeb.BuildOrderLive do
 
   def handle_info({:graph_projection_reset, generation}, socket) when is_integer(generation) do
     {:noreply, SourceRuntime.reset(socket, generation)}
+  end
+
+  def handle_info(:build_order_ui_tick, socket) do
+    schedule_ui_tick()
+    {:noreply, assign(socket, :now, Runtime.display_now())}
   end
 
   def handle_info({:ticket_activity_changed, _payload}, socket),
@@ -172,4 +179,6 @@ defmodule AiurWeb.BuildOrderLive do
     </DashboardShell.dashboard_shell>
     """
   end
+
+  defp schedule_ui_tick, do: Process.send_after(self(), :build_order_ui_tick, @ui_tick_ms)
 end

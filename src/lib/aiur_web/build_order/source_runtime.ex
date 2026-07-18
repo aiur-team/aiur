@@ -14,6 +14,7 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
   def initialize(socket, source) do
     socket
     |> assign(:source, source)
+    |> assign(:source_authority_epoch, nil)
     |> assign(:sources, Runtime.unavailable_sources())
     |> assign(:source_reload_loading?, false)
     |> assign(:source_reload_queued?, false)
@@ -31,7 +32,17 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
   end
 
   @spec reset(Socket.t(), integer()) :: Socket.t()
-  def reset(socket, _generation) do
+  def reset(socket, authority_epoch) do
+    if newer_authority_epoch?(authority_epoch, socket.assigns.source_authority_epoch) do
+      socket
+      |> assign(:source_authority_epoch, authority_epoch)
+      |> reset_projection()
+    else
+      socket
+    end
+  end
+
+  defp reset_projection(socket) do
     previous_repository = catalog_repository(socket.assigns.route_state)
 
     if previous_repository do
@@ -50,27 +61,16 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
 
   @spec accept_projection(Socket.t(), Snapshot.t()) :: Socket.t()
   def accept_projection(socket, %Snapshot{scope: :catalog} = snapshot) do
-    {route_state, effects} = RouteState.put_catalog(socket.assigns.route_state, snapshot)
-
-    socket
-    |> assign(:route_state, route_state)
-    |> apply_effects(effects)
-    |> assign_model()
+    case accept_authority(socket, snapshot) do
+      {:ok, socket} -> put_catalog(socket, snapshot)
+      :ignored -> socket
+    end
   end
 
   def accept_projection(socket, %Snapshot{} = snapshot) do
-    case RouteState.put_selected(socket.assigns.route_state, snapshot) do
-      {route_state, :generation} ->
-        socket
-        |> assign(:route_state, route_state)
-        |> assign_model()
-        |> schedule_reload()
-
-      {route_state, :health} ->
-        socket |> assign(:route_state, route_state) |> assign_model()
-
-      {_route_state, :ignored} ->
-        socket
+    case accept_authority(socket, snapshot) do
+      {:ok, socket} -> put_selected(socket, snapshot)
+      :ignored -> socket
     end
   end
 
@@ -149,11 +149,11 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
 
   defp reload_catalog(socket) do
     snapshot = Runtime.safe_source_call(socket.assigns.source, :catalog, [], nil)
-    {route_state, effects} = RouteState.put_catalog(socket.assigns.route_state, snapshot)
 
-    socket
-    |> assign(:route_state, route_state)
-    |> apply_effects(effects)
+    case accept_authority(socket, snapshot) do
+      {:ok, socket} -> put_catalog(socket, snapshot)
+      :ignored -> socket
+    end
   end
 
   defp activate(socket, identity) do
@@ -161,17 +161,9 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
       source = socket.assigns.source
       _ = Runtime.safe_source_call(source, :subscribe_selected, [identity], :ok)
 
-      socket =
-        case Runtime.safe_source_call(source, :demand, [identity], {:error, :unavailable}) do
-          {:ok, %Snapshot{} = snapshot} ->
-            {route_state, _accepted} = RouteState.put_selected(socket.assigns.route_state, snapshot)
-            assign(socket, :route_state, route_state)
-
-          _failure ->
-            assign(socket, :route_state, RouteState.demand_failed(socket.assigns.route_state, identity))
-        end
-
-      schedule_reload(socket)
+      socket
+      |> demand_selected(source, identity)
+      |> schedule_reload()
     else
       socket
     end
@@ -183,6 +175,19 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
     :ok
   end
 
+  defp demand_selected(socket, source, identity) do
+    case Runtime.safe_source_call(source, :demand, [identity], {:error, :unavailable}) do
+      {:ok, %Snapshot{} = snapshot} ->
+        case accept_authority(socket, snapshot) do
+          {:ok, socket} -> put_demand_snapshot(socket, snapshot)
+          :ignored -> socket
+        end
+
+      _failure ->
+        assign(socket, :route_state, RouteState.demand_failed(socket.assigns.route_state, identity))
+    end
+  end
+
   defp finish_reload(%{assigns: %{source_reload_queued?: true}} = socket) do
     socket |> assign(:source_reload_queued?, false) |> schedule_reload()
   end
@@ -191,6 +196,54 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
 
   defp ensure_reload(%{assigns: %{source_reload_loading?: true}} = socket), do: socket
   defp ensure_reload(socket), do: schedule_reload(socket)
+
+  defp accept_authority(socket, %Snapshot{authority_epoch: authority_epoch})
+       when is_integer(authority_epoch) and authority_epoch > 0 do
+    case socket.assigns.source_authority_epoch do
+      nil -> {:ok, assign(socket, :source_authority_epoch, authority_epoch)}
+      ^authority_epoch -> {:ok, socket}
+      _authority_epoch -> :ignored
+    end
+  end
+
+  defp accept_authority(_socket, _snapshot), do: :ignored
+
+  defp put_catalog(socket, snapshot) do
+    {route_state, effects} = RouteState.put_catalog(socket.assigns.route_state, snapshot)
+
+    socket
+    |> assign(:route_state, route_state)
+    |> apply_effects(effects)
+    |> assign_model()
+  end
+
+  defp put_selected(socket, snapshot) do
+    case RouteState.put_selected(socket.assigns.route_state, snapshot) do
+      {route_state, :generation} ->
+        socket
+        |> assign(:route_state, route_state)
+        |> assign_model()
+        |> schedule_reload()
+
+      {route_state, :health} ->
+        socket |> assign(:route_state, route_state) |> assign_model()
+
+      {_route_state, :ignored} ->
+        socket
+    end
+  end
+
+  defp put_demand_snapshot(socket, snapshot) do
+    {route_state, _accepted} = RouteState.put_selected(socket.assigns.route_state, snapshot)
+    assign(socket, :route_state, route_state)
+  end
+
+  defp newer_authority_epoch?(incoming, current)
+       when is_integer(incoming) and incoming > 0 and is_integer(current),
+       do: incoming > current
+
+  defp newer_authority_epoch?(incoming, nil), do: is_integer(incoming) and incoming > 0
+  defp newer_authority_epoch?(_incoming, _current), do: false
 
   defp valid_sources?(%{execution: _execution, activity: _activity}), do: true
   defp valid_sources?(_sources), do: false
