@@ -47,6 +47,16 @@ defmodule AiurWeb.BuildOrder.DataSourceTest do
     end
   end
 
+  defmodule AdHocSpy do
+    def subscribe, do: notify(:subscribe_adhoc, :ok)
+    def snapshot, do: notify(:load_adhoc, :adhoc_snapshot)
+
+    defp notify(message, result) do
+      send(self(), message)
+      result
+    end
+  end
+
   defmodule DetailSpy do
     def subscribe(identity), do: notify({:subscribe_detail, identity}, :ok)
     def request(identity), do: notify({:request_detail, identity}, {:ok, :detail_state})
@@ -93,15 +103,22 @@ defmodule AiurWeb.BuildOrder.DataSourceTest do
   end
 
   test "loads activity and execution from their complete cached snapshots" do
-    opts = [ticket_activity: ActivitySpy, agent_pubsub: AgentPubSubSpy, status_report: StatusSpy]
+    opts = [ticket_activity: ActivitySpy, agent_pubsub: AgentPubSubSpy, status_report: StatusSpy, adhoc_source: AdHocSpy]
 
     assert DataSource.subscribe_sources(opts) == :ok
-    assert DataSource.load_sources(opts) == %{activity: :activity_snapshots, execution: :execution_snapshot}
+
+    assert DataSource.load_sources(opts) == %{
+             activity: :activity_snapshots,
+             execution: :execution_snapshot,
+             adhoc: :adhoc_snapshot
+           }
 
     assert_received :subscribe_activity
     assert_received :subscribe_running
+    assert_received :subscribe_adhoc
     assert_received :load_activity
     assert_received :load_execution
+    assert_received :load_adhoc
   end
 
   test "unsubscribes the prior repository catalog topic without touching provider state" do

@@ -43,6 +43,7 @@ defmodule Aiur.AgentRunner.TurnCallbacks do
         CheckpointDelivery.safe_checkpoint_handler(
           issue,
           orchestrator,
+          backend,
           Aiur.DecisionStore,
           live_opts
         ),

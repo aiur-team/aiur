@@ -192,6 +192,7 @@ defmodule Aiur.Application do
       # available before the Orchestrator starts owned Claude workers.
       Aiur.Claude.Telemetry,
       {Aiur.BuildOrder.TicketHistoryProvider, runtime_config?: true},
+      {Aiur.BuildOrder.AdHocSource, poll_on_start: Application.get_env(:aiur, :build_order_adhoc_poll?, true)},
       {Aiur.Orchestrator, initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
       Aiur.CurrentRunMembership.Reconciler,
       Aiur.CurrentRunProjections,

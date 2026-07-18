@@ -18,7 +18,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
   alias Aiur.{AgentPubSub, Alerts, DecisionStore, Issue, PauseContainment}
   alias Aiur.AgentRunner.{EventsDigest, MessageHandler, SessionLifecycle, TurnCallbacks}
   alias Aiur.AgentRunner.{ToolExecutor, TurnAlerts, TurnLoop, TurnStreams}
-  alias Aiur.Codex.DynamicTool
+  alias Aiur.Codex.{DynamicTool, SessionRecovery}
   alias Aiur.CodingAgent
 
   @max_delivery_correlation_attempts 3
@@ -698,26 +698,44 @@ defmodule Aiur.AgentRunner.QueueDrain do
 
         :ok
 
-      {:error, :port_closed} = error when backend == "codex" ->
-        :ok = Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier)
-        error
-
-      {:error, {:port_exit, _status}} = error when backend == "codex" ->
-        :ok = Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier)
-        error
-
-      {:error, reason} = error ->
-        :ok = Aiur.Orchestrator.fail_delivered_queue_items(orchestrator, issue.identifier, reason)
-
-        if is_binary(turn_id) do
-          AgentPubSub.broadcast_turn_event(issue.identifier, :turn_failed, %{
-            turn_id: turn_id,
-            reason: reason
-          })
-        end
-
-        error
+      {:error, reason} ->
+        settle_failed_queue_item_turn(orchestrator, issue, turn_id, backend, reason, opts)
     end
+  end
+
+  # A recoverable Codex session failure (closed port, port exit, or exact
+  # active-turn desync) routes through the one confirmed restore-and-replace
+  # boundary: the durable item is restored to pending and the recoverable error
+  # is returned so the runner clean-exits for a fresh transport. Issue #1238
+  # showed the old `:ok = restore_delivered_queue_items(...)` hard match raised a
+  # MatchError on a transient `{:error, :unavailable}`, converting recovery into
+  # an abnormal exit that consumed a failure retry. Claude and genuine provider
+  # failures keep the fail-and-broadcast settlement.
+  defp settle_failed_queue_item_turn(orchestrator, issue, turn_id, "codex", reason, opts) do
+    if SessionRecovery.recoverable?(reason) do
+      TurnLoop.confirm_restore_for_replacement(orchestrator, issue, opts, {:error, reason})
+    else
+      fail_queue_item_turn(orchestrator, issue, turn_id, reason)
+      {:error, reason}
+    end
+  end
+
+  defp settle_failed_queue_item_turn(orchestrator, issue, turn_id, _backend, reason, _opts) do
+    fail_queue_item_turn(orchestrator, issue, turn_id, reason)
+    {:error, reason}
+  end
+
+  defp fail_queue_item_turn(orchestrator, issue, turn_id, reason) do
+    :ok = Aiur.Orchestrator.fail_delivered_queue_items(orchestrator, issue.identifier, reason)
+
+    if is_binary(turn_id) do
+      AgentPubSub.broadcast_turn_event(issue.identifier, :turn_failed, %{
+        turn_id: turn_id,
+        reason: reason
+      })
+    end
+
+    :ok
   end
 
   defp maybe_observe_accepted_operator_delivery(

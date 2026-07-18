@@ -131,7 +131,21 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
                     phx-value-unit={token}
                     data-ticket-context-origin
                   >Inspect ticket</button>
-                  <span class="units-action unavailable" aria-disabled="true" title="Chat destination is not available yet">Chat unavailable</span>
+                  <button
+                    :if={conversation_handle(row)}
+                    id={"units-conversation-#{token}"}
+                    type="button"
+                    class="units-action"
+                    phx-click="read-conversation"
+                    phx-value-unit={token}
+                    aria-label={"Read conversation for #{identity_label(row.identity)}"}
+                  >Read conversation</button>
+                  <span
+                    :if={!conversation_handle(row)}
+                    class="units-action unavailable"
+                    aria-disabled="true"
+                    title="Conversation is not available for this unit"
+                  >Conversation unavailable</span>
                   <.link
                     patch={commands_path(row)}
                     class="units-action"
@@ -291,6 +305,9 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
        do: "#{owner}/#{repository} ##{identifier}"
 
   defp identity_label(_identity), do: "Typed identity unavailable"
+
+  defp conversation_handle(%{live_conversation: %{generation_handle: handle}}) when is_binary(handle), do: handle
+  defp conversation_handle(_row), do: nil
 
   defp commands_path(%{identity: %TrackerIdentity{identifier: identifier}}) when is_binary(identifier),
     do: DecisionPath.inbox(:all, %{ticket: identifier})

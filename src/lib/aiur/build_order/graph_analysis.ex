@@ -63,6 +63,47 @@ defmodule Aiur.BuildOrder.GraphAnalysis do
 
   def analyze(_nodes, _edges), do: %__MODULE__{}
 
+  @doc """
+  Node keys that have no blockers, and are therefore ready at the plan's start.
+
+  Derives from the native reverse adjacency only: a member with an empty blocker
+  set can begin immediately at kickoff. Deterministically sorted.
+  """
+  @spec ready_at_start(t()) :: [node_key()]
+  def ready_at_start(%__MODULE__{reverse_adjacency: reverse}) do
+    reverse
+    |> Enum.filter(fn {_node, blockers} -> blockers == [] end)
+    |> Enum.map(&elem(&1, 0))
+    |> Enum.sort()
+  end
+
+  def ready_at_start(_graph), do: []
+
+  @doc """
+  Length, in members, of the longest dependency chain in the native graph.
+
+  Computed as the longest path over the topological order using the reverse
+  adjacency. Cyclic members never inflate the count: a back edge whose
+  predecessor has no assigned depth contributes zero, so the result stays a
+  bounded lower bound rather than diverging.
+  """
+  @spec longest_chain_length(t()) :: non_neg_integer()
+  def longest_chain_length(%__MODULE__{topological_order: order, reverse_adjacency: reverse}) do
+    order
+    |> Enum.reduce({%{}, 0}, fn node, {depths, longest} ->
+      depth = 1 + max_predecessor_depth(Map.get(reverse, node, []), depths)
+      {Map.put(depths, node, depth), max(longest, depth)}
+    end)
+    |> elem(1)
+  end
+
+  def longest_chain_length(_graph), do: 0
+
+  defp max_predecessor_depth([], _depths), do: 0
+
+  defp max_predecessor_depth(predecessors, depths),
+    do: predecessors |> Enum.map(&Map.get(depths, &1, 0)) |> Enum.max()
+
   defp native_edge?({source, target}, nodes),
     do: MapSet.member?(nodes, source) and MapSet.member?(nodes, target)
 

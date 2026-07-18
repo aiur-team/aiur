@@ -34,7 +34,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     assert html =~ "Stale"
     assert html =~ "Branch · feature pushed"
     assert html =~ "Inspect ticket"
-    assert html =~ "Chat unavailable"
+    assert html =~ "Conversation unavailable"
+    refute html =~ ~s(phx-click="read-conversation")
     assert html =~ "Commands"
     assert html =~ ~s(href="/decisions?ticket=1110")
     assert html =~ ~s(href="https://github.com/acme/aiur/issues/1110")
@@ -198,6 +199,24 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
 
   defp render(view) do
     render_component(&UnitsTable.units_table/1, %{view: view, now: ~U[2026-07-17 12:00:00Z]})
+  end
+
+  test "offers the explicit Read conversation action only when a valid handle is present" do
+    handle = "conversation:" <> String.duplicate("a", 43)
+    row = Map.put(row(), :live_conversation, %{generation_handle: handle})
+    token = UnitsPresenter.row_token(row)
+
+    html =
+      render_component(&UnitsTable.units_table/1, %{
+        view: view([row]),
+        now: ~U[2026-07-17 12:00:00Z]
+      })
+
+    assert html =~ ~s(id="units-conversation-#{token}")
+    assert html =~ ~s(phx-click="read-conversation")
+    assert html =~ "Read conversation for acme/aiur #1110"
+    refute html =~ "Conversation unavailable"
+    refute html =~ handle
   end
 
   defp view(rows) do
