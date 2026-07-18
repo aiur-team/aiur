@@ -99,7 +99,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryPresenter do
   @doc "Render reason atoms as a human-readable comma-separated clause."
   @spec reasons_text([atom()]) :: String.t()
   def reasons_text(reasons) when is_list(reasons) do
-    reasons |> Enum.map(&reason_phrase/1) |> Enum.join(", ")
+    Enum.map_join(reasons, ", ", &reason_phrase/1)
   end
 
   def reasons_text(_reasons), do: "unspecified"
