@@ -3379,6 +3379,171 @@ textarea:focus-visible,
   }
 }
 
+/* Runtime agent-capacity control (DASH-028) */
+.capacity-card {
+  min-width: 0;
+}
+
+.capacity-header {
+  align-items: end;
+}
+
+.capacity-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.6rem;
+  margin: 1rem 0 0;
+}
+
+.capacity-fact {
+  min-width: 0;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--pill-bg);
+}
+
+.capacity-fact dt {
+  margin: 0;
+  color: var(--muted);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.capacity-fact dd {
+  margin: 0.3rem 0 0;
+  color: var(--fg);
+  font-size: 0.95rem;
+  font-weight: 650;
+}
+
+.capacity-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.capacity-steppers {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.capacity-current {
+  min-width: 2.5rem;
+  padding-inline: 0.25rem;
+  text-align: center;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.capacity-set {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.capacity-set label {
+  color: var(--muted);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.capacity-set-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.capacity-input {
+  min-height: 2.75rem;
+  width: 6rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface-1, var(--pill-bg));
+  color: var(--fg);
+  font-size: 0.9rem;
+}
+
+.capacity-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.75rem;
+  min-width: 2.75rem;
+  padding: 0.55rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--pill-bg);
+  color: var(--fg);
+  cursor: pointer;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.85rem;
+  font-weight: 650;
+}
+
+.capacity-button:hover:not([disabled]) {
+  border-color: var(--accent-line);
+}
+
+.capacity-button[disabled] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.capacity-apply {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  color: var(--accent-ink);
+}
+
+.capacity-readonly {
+  margin: 1rem 0 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.capacity-status {
+  margin: 0.75rem 0 0;
+  min-height: 1.2rem;
+  color: var(--fg);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.capacity-status[data-kind="timeout"],
+.capacity-status[data-kind="unavailable"],
+.capacity-status[data-kind="invalid"] {
+  color: var(--danger-ink, var(--fg));
+}
+
+@media (max-width: 640px) {
+  .capacity-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .capacity-set-row {
+    flex-direction: column;
+  }
+
+  .capacity-input {
+    width: 100%;
+  }
+
+  .capacity-apply {
+    width: 100%;
+  }
+}
+
 /* ------------------------------------------------------------------ *
  * DASH-022 — current-run summary (nonfinancial, accessible)          *
  * Namespaced .run-summary-* so the shared summary container/CSS can   *

@@ -13,6 +13,7 @@ defmodule AiurWeb.DashboardLive do
   alias Aiur.CurrentRunMembership
   alias Aiur.CurrentRunSummary
   alias Aiur.DecisionPubSub
+  alias Aiur.Orchestrator.Slots
   alias Aiur.TicketActivity
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.TicketContextPresenter
@@ -21,6 +22,8 @@ defmodule AiurWeb.DashboardLive do
 
   alias AiurWeb.OperatorControlCenter.{
     AgentLogModal,
+    CapacityControl,
+    CapacityPresenter,
     DashboardShell,
     DecisionEvents,
     DecisionInbox,
@@ -75,6 +78,8 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:decision_query, %{})
       |> assign(:units_selection, UnitsURL.default_selection())
       |> assign_units_view()
+      |> assign(:capacity_input, "")
+      |> assign(:capacity_feedback, nil)
       |> assign_initial_run_summary(connected)
       |> assign(:ticket_context, nil)
       |> assign(:ticket_context_detail, nil)
@@ -320,6 +325,26 @@ defmodule AiurWeb.DashboardLive do
 
   def handle_event("pause-agent", _params, socket), do: {:noreply, socket}
 
+  def handle_event("capacity-input-change", %{"max" => value}, socket) when is_binary(value) do
+    {:noreply, assign(socket, :capacity_input, value)}
+  end
+
+  def handle_event("capacity-input-change", _params, socket), do: {:noreply, socket}
+
+  def handle_event("capacity-decrement", _params, socket) do
+    handle_writable_event(socket, fn -> {:noreply, adjust_capacity(socket, -1)} end)
+  end
+
+  def handle_event("capacity-increment", _params, socket) do
+    handle_writable_event(socket, fn -> {:noreply, adjust_capacity(socket, 1)} end)
+  end
+
+  def handle_event("capacity-set", %{"max" => value}, socket) when is_binary(value) do
+    handle_writable_event(socket, fn -> {:noreply, set_capacity(socket, value)} end)
+  end
+
+  def handle_event("capacity-set", _params, socket), do: {:noreply, socket}
+
   defp pause_agent_action(socket, modal) do
     key = agent_log_key(modal)
 
@@ -339,6 +364,76 @@ defmodule AiurWeb.DashboardLive do
   defp pause_agent_result({:error, reason}, socket, key),
     do: {:noreply, put_chat_error(socket, key, reason)}
 
+  defp adjust_capacity(socket, delta) do
+    prior = capacity_max(socket.assigns.payload)
+    reconcile_capacity(socket, capacity_adjust(delta), prior)
+  end
+
+  defp set_capacity(socket, value) do
+    case parse_capacity(value) do
+      {:ok, next} ->
+        prior = capacity_max(socket.assigns.payload)
+        reconcile_capacity(socket, capacity_set(next), prior)
+
+      :error ->
+        assign(socket, :capacity_feedback, %{kind: :invalid})
+    end
+  end
+
+  defp reconcile_capacity(socket, {:ok, %{} = status}, prior) do
+    new_max = Map.get(status, :max)
+
+    kind =
+      cond do
+        is_integer(prior) and new_max == prior -> :noop
+        Map.get(status, :draining?) == true -> :draining
+        true -> :applied
+      end
+
+    socket
+    |> reload_after_action()
+    |> assign(:capacity_feedback, %{kind: kind, max: new_max})
+  end
+
+  defp reconcile_capacity(socket, {:error, reason}, _prior) do
+    assign(socket, :capacity_feedback, %{kind: capacity_error_kind(reason)})
+  end
+
+  defp capacity_error_kind(:timeout), do: :timeout
+  defp capacity_error_kind(_reason), do: :unavailable
+
+  defp parse_capacity(value) do
+    case value |> to_string() |> String.trim() |> Integer.parse() do
+      {next, ""} when next >= 1 -> {:ok, next}
+      _other -> :error
+    end
+  end
+
+  defp capacity_facts(payload), do: get_in(payload, [:fleet, :capacity])
+
+  defp capacity_max(payload) do
+    case capacity_facts(payload) do
+      %{max: max} when is_integer(max) -> max
+      _other -> nil
+    end
+  end
+
+  defp capacity_adjust(delta) do
+    case Endpoint.config(:capacity_adjust_fun) do
+      fun when is_function(fun, 1) -> fun.(delta)
+      _other -> Slots.adjust_max_concurrent_agents(capacity_orchestrator(), delta)
+    end
+  end
+
+  defp capacity_set(next) do
+    case Endpoint.config(:capacity_set_fun) do
+      fun when is_function(fun, 1) -> fun.(next)
+      _other -> Slots.set_max_concurrent_agents(capacity_orchestrator(), next)
+    end
+  end
+
+  defp capacity_orchestrator, do: Endpoint.config(:orchestrator) || Aiur.Orchestrator
+
   @impl true
   def render(assigns) do
     assigns =
@@ -354,6 +449,9 @@ defmodule AiurWeb.DashboardLive do
         UnitsPresenter.project(Map.get(assigns.payload, :units, %{}), Map.get(assigns, :units_selection, UnitsURL.default_selection()))
       )
       |> then(&Map.put_new(&1, :units_announcement, UnitsPresenter.announcement(&1.units_view)))
+      |> Map.put_new(:capacity_view, CapacityPresenter.present(capacity_facts(assigns.payload)))
+      |> Map.put_new(:capacity_input, "")
+      |> Map.put_new(:capacity_feedback, nil)
       |> Map.put_new(:run_summary, RunSummaryPresenter.present(nil))
       |> Map.put_new(:run_summary_announcement, nil)
       |> Map.put_new(:current_route, RouteRegistry.current_route(Map.get(assigns, :live_action)))
@@ -397,6 +495,12 @@ defmodule AiurWeb.DashboardLive do
       </div>
 
       <div :if={@live_action not in [:decisions, :decision]} class="control-panel">
+        <CapacityControl.capacity_control
+          capacity={@capacity_view}
+          writable={@writable}
+          input={@capacity_input}
+          feedback={@capacity_feedback}
+        />
         <RunSummary.run_summary view={@run_summary} announcement={@run_summary_announcement} />
         <section class="section-card units-card" aria-labelledby="units-title">
           <header class="section-header units-header">
