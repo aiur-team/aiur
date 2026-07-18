@@ -31,8 +31,14 @@ defmodule Aiur.UsageLedger do
 
   @type health :: :healthy | {:degraded, atom()} | {:unavailable, atom()}
 
+  @type retirement :: %{
+          required(:retired_through) => non_neg_integer(),
+          required(:retired_count) => non_neg_integer()
+        }
+
   @callback append(UsageEnvelope.t()) :: {:ok, acknowledgement()} | {:duplicate, acknowledgement()} | {:error, atom()}
   @callback scan(keyword()) :: {:ok, [replay_record()]} | {:error, atom()}
+  @callback retire(non_neg_integer()) :: {:ok, retirement()} | {:error, atom()}
   @callback health() :: health()
   @callback generation() :: non_neg_integer()
   @callback coverage() :: map()
@@ -65,6 +71,17 @@ defmodule Aiur.UsageLedger do
 
   @spec scan(keyword()) :: {:ok, [replay_record()]} | {:error, atom()}
   def scan(options \\ []) when is_list(options), do: backend().scan(options)
+
+  @doc """
+  Retires every raw record at or below `watermark`, reclaiming its storage after
+  DASH-025 has committed durable dimension-preserving aggregate coverage for the
+  range. The watermark is the highest retired position; retirement is idempotent
+  and never crosses the current ledger head. The durable retained counter state
+  is unchanged, so exact totals and coverage are preserved — only the raw source
+  for the already-covered prefix is removed.
+  """
+  @spec retire(non_neg_integer()) :: {:ok, retirement()} | {:error, atom()}
+  def retire(watermark) when is_integer(watermark) and watermark >= 0, do: backend().retire(watermark)
 
   @spec health() :: health()
   def health, do: backend().health()
