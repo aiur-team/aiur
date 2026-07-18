@@ -26,8 +26,8 @@ defmodule Aiur.UsageCompaction.Coordinator do
 
   require Logger
 
-  alias Aiur.UsageCompaction.{Block, Manifest, Paths, Policy}
   alias Aiur.{Config, Fs, UsageLedger}
+  alias Aiur.UsageCompaction.{Block, Manifest, Paths, Policy}
 
   @default_interval_ms 5 * 60 * 1000
 

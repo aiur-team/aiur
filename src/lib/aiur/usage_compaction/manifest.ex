@@ -301,9 +301,10 @@ defmodule Aiur.UsageCompaction.Manifest do
   defp decode_pending(_raw, _retired_through, _blocks), do: {:error, :invalid_manifest}
 
   # Block refs are daemon-generated filenames; reject anything that could escape
-  # the blocks directory or is not a plain leaf name.
+  # the blocks directory or is not a plain leaf name. Callers guarantee `ref` is
+  # a binary before this runs.
   defp safe_ref?(ref) do
-    is_binary(ref) and ref != "" and Path.basename(ref) == ref and not String.contains?(ref, "/") and
+    ref != "" and Path.basename(ref) == ref and not String.contains?(ref, "/") and
       String.match?(ref, ~r/^[A-Za-z0-9._-]+$/)
   end
 

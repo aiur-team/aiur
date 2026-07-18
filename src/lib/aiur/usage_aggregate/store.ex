@@ -16,6 +16,7 @@ defmodule Aiur.UsageAggregate.Store do
 
   alias Aiur.UsageAggregate
   alias Aiur.UsageAggregate.{Checkpoint, Projection, Query, Recovery}
+  alias Aiur.UsageCompaction.Floor
 
   @max_scan 5_000
 
@@ -95,7 +96,7 @@ defmodule Aiur.UsageAggregate.Store do
       ledger_coverage_fun: Keyword.get(opts, :ledger_coverage_fun, &Aiur.UsageLedger.coverage/0),
       checkpoint_write_fun: Keyword.get(opts, :checkpoint_write_fun, &Checkpoint.write/2),
       publish_fun: Keyword.get(opts, :publish_fun, &UsageAggregate.broadcast/1),
-      compaction_floor_fun: Keyword.get(opts, :compaction_floor_fun, &Aiur.UsageCompaction.Floor.load/0),
+      compaction_floor_fun: Keyword.get(opts, :compaction_floor_fun, &Floor.load/0),
       base_health_override: nil,
       max_scan: Keyword.get(opts, :max_scan, @max_scan)
     }

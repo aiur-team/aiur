@@ -66,6 +66,17 @@ defmodule Aiur.UsageCompaction.Policy do
       })
       when is_integer(latest) and is_integer(retired) and is_integer(raw_bytes) and latest >= 0 and
              retired >= 0 and raw_bytes >= 0 do
+    watermark = retire_watermark(policy, latest, retired, raw_bytes)
+
+    if watermark > retired, do: {:retire, retired + 1, watermark}, else: :noop
+  end
+
+  def eligible_range(%__MODULE__{}, _facts), do: :noop
+
+  # Highest position eligible to be retired this cycle: never inside the minimum
+  # retained window, never more than `retire_batch` past the watermark already
+  # retired, and never below it.
+  defp retire_watermark(%__MODULE__{} = policy, latest, retired, raw_bytes) do
     # The highest position we may ever retire keeps the minimum window intact.
     retirable_ceiling = latest - policy.min_retained_positions
 
@@ -76,16 +87,11 @@ defmodule Aiur.UsageCompaction.Policy do
         true -> retired
       end
 
-    watermark =
-      target
-      |> min(retirable_ceiling)
-      |> min(retired + policy.retire_batch)
-      |> max(retired)
-
-    if watermark > retired, do: {:retire, retired + 1, watermark}, else: :noop
+    target
+    |> min(retirable_ceiling)
+    |> min(retired + policy.retire_batch)
+    |> max(retired)
   end
-
-  def eligible_range(%__MODULE__{}, _facts), do: :noop
 
   @doc "Stable human-readable retention policy facts for health/coverage reporting."
   @spec describe(t()) :: map()

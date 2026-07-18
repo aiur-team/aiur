@@ -20,7 +20,7 @@ defmodule Aiur.UsageCompaction.Floor do
           source_position: non_neg_integer(),
           source_generation: non_neg_integer(),
           cells: map(),
-          coverage: %{folded_records: non_neg_integer(), partial_records: non_neg_integer(), reasons: MapSet.t()}
+          coverage: %{folded_records: non_neg_integer(), partial_records: non_neg_integer(), reasons: map()}
         }
 
   @spec empty() :: t()
