@@ -9,9 +9,11 @@ defmodule Aiur.CodeownersTest do
   @moduletag :tmp_dir
 
   setup %{tmp_dir: tmp_dir} do
-    # Restore the OS-global cwd after each test so a leaked `File.cd!` (this
-    # file's parent-root discovery test, or an async sibling) can't corrupt the
-    # cwd-based repo-root fallback in `Codeowners`. See #1212.
+    # Keep the OS-global (VM-wide) cwd stable across tests: the parent-root
+    # discovery test below changes cwd, and restoring here stops this module
+    # from leaking a stale cwd into later modules if that ever fails to unwind.
+    # The location-order test itself is cwd-independent — it passes `repo_root:`
+    # explicitly, so the `:tmp_dir` switch is its real fix. See #1212.
     original_cwd = File.cwd!()
     on_exit(fn -> File.cd!(original_cwd) end)
 
