@@ -15,9 +15,8 @@ test('Build Order navigation returns to the production Units route', async ({ pa
 
   await page.getByRole('link', { name: 'Units' }).click()
   await expect(page).toHaveURL(/\/$/)
-  await expect(page.getByRole('heading', { name: 'Units' })).toBeVisible()
-  await expect(page.locator('.fleet-card')).toBeVisible()
-  await expect(page.locator('#fleet-title')).toHaveText('Fleet state')
+  await expect(page.locator('#route-title')).toHaveText('Units')
+  await expect(page.locator('#units-title')).toBeVisible()
   await expect(page.locator('#route-shell-action')).toHaveCount(0)
 })
 
