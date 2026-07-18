@@ -3378,3 +3378,138 @@ textarea:focus-visible,
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ------------------------------------------------------------------ *
+ * DASH-022 — current-run summary (nonfinancial, accessible)          *
+ * Namespaced .run-summary-* so the shared summary container/CSS can   *
+ * serialize with DASH-015 protected cards without semantic reorder.   *
+ * ------------------------------------------------------------------ */
+.run-summary-card {
+  margin-bottom: 1rem;
+}
+
+.run-summary-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.run-summary-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.run-summary-badge {
+  padding: 0.15rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--fg);
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.run-summary-badge.health-healthy,
+.run-summary-badge.freshness-fresh {
+  border-color: var(--good);
+}
+
+.run-summary-badge.health-partial,
+.run-summary-badge.freshness-partial,
+.run-summary-badge.freshness-unknown {
+  border-color: var(--attention);
+}
+
+.run-summary-badge.health-unavailable,
+.run-summary-badge.freshness-stale,
+.run-summary-badge.freshness-unavailable {
+  border-color: var(--blocking);
+}
+
+.run-summary-state {
+  margin-top: 0.75rem;
+}
+
+.run-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  gap: 1rem;
+  margin-top: 0.85rem;
+}
+
+.run-summary-panel {
+  min-width: 0;
+  padding: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.run-summary-panel h3 {
+  margin: 0 0 0.6rem;
+  font-size: 0.95rem;
+}
+
+.run-summary-facts {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.3rem 0.75rem;
+  margin: 0;
+}
+
+.run-summary-fact {
+  display: contents;
+}
+
+.run-summary-fact dt {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.run-summary-fact dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  text-align: right;
+}
+
+.run-summary-progress {
+  margin-bottom: 0.7rem;
+}
+
+.run-summary-progress-track {
+  display: block;
+  height: 0.55rem;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.run-summary-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+.run-summary-progress-value {
+  margin: 0.4rem 0 0;
+  font-weight: 600;
+}
+
+.run-summary-progress-coverage {
+  margin: 0.2rem 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+@media (max-width: 700px) {
+  .run-summary-grid {
+    grid-template-columns: 1fr;
+  }
+}
