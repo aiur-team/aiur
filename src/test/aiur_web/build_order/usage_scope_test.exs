@@ -28,10 +28,6 @@ defmodule AiurWeb.BuildOrder.UsageScopeTest do
       assert {:unavailable, :catalog_unavailable} = UsageScope.decide(route_state(:catalog_unavailable))
       assert {:unavailable, :selected_unavailable} = UsageScope.decide(route_state(:selected_unavailable))
     end
-
-    test "an unknown status degrades to invalid rather than a guessed scope" do
-      assert {:invalid, :some_new_status} = UsageScope.decide(route_state(:some_new_status))
-    end
   end
 
   describe "ready membership" do

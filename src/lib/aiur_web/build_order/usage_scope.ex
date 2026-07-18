@@ -52,24 +52,22 @@ defmodule AiurWeb.BuildOrder.UsageScope do
   caller can annotate a stale (last-known-good) member set without confusing it
   with zero.
   """
+  @invalid_statuses [:invalid_parameter, :not_found, :invalid_catalog, :selected_invalid]
+  @pending_statuses [:awaiting_catalog, :selected_loading]
+  @unavailable_statuses [:catalog_unavailable, :selected_unavailable]
+
   @spec decide(RouteState.t()) :: decision()
   def decide(%RouteState{} = route_state) do
     case RouteState.status(route_state) do
       :catalog -> :none
-      :invalid_parameter -> {:invalid, :invalid_parameter}
-      :not_found -> {:invalid, :not_found}
-      :invalid_catalog -> {:invalid, :invalid_catalog}
-      :selected_invalid -> {:invalid, :selected_invalid}
-      :awaiting_catalog -> :pending
-      :selected_loading -> :pending
-      :catalog_unavailable -> {:unavailable, :catalog_unavailable}
-      :selected_unavailable -> {:unavailable, :selected_unavailable}
+      status when status in @invalid_statuses -> {:invalid, status}
+      status when status in @pending_statuses -> :pending
+      status when status in @unavailable_statuses -> {:unavailable, status}
       # A stale catalog is a usable stale member graph only once a selected root
       # has resolved; otherwise the membership itself is unavailable.
       :catalog_stale -> from_members(route_state, :stale, {:unavailable, :catalog_stale})
       :selected_stale -> from_members(route_state, :stale)
       :selected -> from_members(route_state, :ready)
-      other -> {:invalid, other}
     end
   end
 

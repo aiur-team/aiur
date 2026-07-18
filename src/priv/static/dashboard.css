@@ -4915,6 +4915,10 @@ textarea:focus-visible,
   margin-bottom: 1rem;
 }
 
+.usage-summary-card .section-eyebrow {
+  color: var(--muted);
+}
+
 .usage-summary-header {
   display: flex;
   flex-wrap: wrap;
