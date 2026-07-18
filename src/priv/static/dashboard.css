@@ -747,6 +747,11 @@ textarea:focus-visible,
   align-items: center;
   gap: 0.4rem;
   margin: 0.5rem 0;
+  /* The canvas can force a wider-than-viewport scroll area around this toolbar
+     (e.g. a large graph, or under high text zoom). Bound the toolbar to the
+     visible viewport so its controls wrap and stay reachable instead of being
+     pushed off-screen; in normal-width layouts this cap has no visible effect. */
+  max-width: calc(100vw - 4rem);
 }
 
 .bo-graph-control {

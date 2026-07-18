@@ -39,7 +39,9 @@ function readStaticAssets(aiurApplication) {
     ['/aiur-dom-svg-layout/lifecycle.js', 'aiur-dom-svg-layout/lifecycle.js', 'application/javascript'],
     ['/aiur-dom-svg-layout/measurement.js', 'aiur-dom-svg-layout/measurement.js', 'application/javascript'],
     ['/aiur-dom-svg-layout/protocol.js', 'aiur-dom-svg-layout/protocol.js', 'application/javascript'],
-    ['/aiur-dom-svg-layout/renderer.js', 'aiur-dom-svg-layout/renderer.js', 'application/javascript']
+    ['/aiur-dom-svg-layout/renderer.js', 'aiur-dom-svg-layout/renderer.js', 'application/javascript'],
+    ['/aiur-dom-svg-layout/interaction.js', 'aiur-dom-svg-layout/interaction.js', 'application/javascript'],
+    ['/aiur-dom-svg-layout/interaction-policy.js', 'aiur-dom-svg-layout/interaction-policy.js', 'application/javascript']
   ]
 
   const assets = new Map()
