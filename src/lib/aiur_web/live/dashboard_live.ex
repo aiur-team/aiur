@@ -12,6 +12,7 @@ defmodule AiurWeb.DashboardLive do
   alias Aiur.BuildOrder.TicketHistory.Snapshot, as: TicketHistorySnapshot
   alias Aiur.BuildOrder.TicketHistoryProvider
   alias Aiur.CurrentRunMembership
+  alias Aiur.CurrentRunOutcomeSnapshot
   alias Aiur.CurrentRunSummary
   alias Aiur.DecisionPubSub
   alias Aiur.LiveConversation
@@ -27,6 +28,8 @@ defmodule AiurWeb.DashboardLive do
     CapacityControl,
     CapacityPresenter,
     ConversationDrawer,
+    CurrentRunOutcomes,
+    CurrentRunOutcomesPresenter,
     DashboardShell,
     DecisionEvents,
     DecisionInbox,
@@ -50,6 +53,7 @@ defmodule AiurWeb.DashboardLive do
 
   @runtime_tick_ms 1_000
   @run_summary_flush_ms 250
+  @current_run_outcomes_flush_ms 250
   @decision_filters [:all, :open, :blocking, :undelivered, :supervisor, :resolved, :superseded]
   @decision_events DecisionEvents.events()
 
@@ -62,6 +66,7 @@ defmodule AiurWeb.DashboardLive do
       :ok = DecisionPubSub.subscribe()
       :ok = CurrentRunMembership.subscribe()
       :ok = CurrentRunSummary.subscribe()
+      :ok = CurrentRunOutcomeSnapshot.subscribe()
       :ok = TicketActivity.subscribe()
       :ok = subscribe_ticket_context_resets()
     end
@@ -90,6 +95,7 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:capacity_input, "")
       |> assign(:capacity_feedback, nil)
       |> assign_initial_run_summary(connected)
+      |> assign_initial_current_run_outcomes(connected)
       |> assign(:ticket_context, nil)
       |> assign(:ticket_context_detail, nil)
       |> assign(:ticket_context_history, nil)
@@ -163,6 +169,14 @@ defmodule AiurWeb.DashboardLive do
 
   def handle_info(:flush_run_summary, socket) do
     {:noreply, flush_run_summary(socket)}
+  end
+
+  def handle_info({:current_run_outcome_snapshot_changed, snapshot}, socket) do
+    {:noreply, stash_current_run_outcomes(socket, snapshot)}
+  end
+
+  def handle_info(:flush_current_run_outcomes, socket) do
+    {:noreply, flush_current_run_outcomes(socket)}
   end
 
   def handle_info({:current_run_membership_health_changed, payload}, socket) do
@@ -518,6 +532,8 @@ defmodule AiurWeb.DashboardLive do
       |> Map.put_new(:capacity_feedback, nil)
       |> Map.put_new(:run_summary, RunSummaryPresenter.present(nil))
       |> Map.put_new(:run_summary_announcement, nil)
+      |> Map.put_new(:current_run_outcomes, CurrentRunOutcomesPresenter.present(nil))
+      |> Map.put_new(:current_run_outcomes_announcement, nil)
       |> Map.put_new(:current_route, RouteRegistry.current_route(Map.get(assigns, :live_action)))
 
     ~H"""
@@ -586,6 +602,12 @@ defmodule AiurWeb.DashboardLive do
           />
           <UnitsTable.units_table view={@units_view} now={@now} controls={@unit_controls} writable={@writable} />
         </section>
+
+        <CurrentRunOutcomes.current_run_outcomes
+          view={@current_run_outcomes}
+          announcement={@current_run_outcomes_announcement}
+          analytics={@payload.analytics}
+        />
       </div>
 
       <section :if={@live_action == :index} class="section-card recent-card" aria-labelledby="recent-title">
@@ -833,6 +855,71 @@ defmodule AiurWeb.DashboardLive do
     case Endpoint.config(:run_summary_flush_timer) do
       timer when is_function(timer, 3) -> timer.(self(), :flush_run_summary, @run_summary_flush_ms)
       _other -> Process.send_after(self(), :flush_run_summary, @run_summary_flush_ms)
+    end
+  end
+
+  # Read the current DASH-032 outcome snapshot on mount/reconnect. On the dead
+  # first render, or when the projection process is unreachable, fall back to the
+  # loading view rather than crashing the LiveView.
+  defp assign_initial_current_run_outcomes(socket, connected) do
+    snapshot = if connected, do: read_current_run_outcomes_snapshot(), else: nil
+
+    socket
+    |> assign(:current_run_outcomes_source, nil)
+    |> assign(:current_run_outcomes_pending, nil)
+    |> assign(:current_run_outcomes_flush_scheduled?, false)
+    |> apply_current_run_outcomes(snapshot)
+  end
+
+  defp read_current_run_outcomes_snapshot do
+    CurrentRunOutcomeSnapshot.snapshot()
+  rescue
+    _error -> nil
+  catch
+    :exit, _reason -> nil
+  end
+
+  # Coalesce bursts of daemon updates: keep only the latest pending snapshot and
+  # flush once per debounce window so high-frequency renders and screen-reader
+  # announcements stay bounded.
+  defp stash_current_run_outcomes(socket, snapshot) do
+    socket = assign(socket, :current_run_outcomes_pending, snapshot)
+
+    if socket.assigns.current_run_outcomes_flush_scheduled? do
+      socket
+    else
+      schedule_current_run_outcomes_flush()
+      assign(socket, :current_run_outcomes_flush_scheduled?, true)
+    end
+  end
+
+  defp flush_current_run_outcomes(socket) do
+    socket = assign(socket, :current_run_outcomes_flush_scheduled?, false)
+
+    case socket.assigns.current_run_outcomes_pending do
+      nil -> socket
+      snapshot -> socket |> assign(:current_run_outcomes_pending, nil) |> apply_current_run_outcomes(snapshot)
+    end
+  end
+
+  # Reconcile an incoming snapshot against the displayed source (last-known-good
+  # retention lives in the presenter) and assign the presented, generation-pinned
+  # view plus a single bounded announcement.
+  defp apply_current_run_outcomes(socket, snapshot) do
+    {source, retained?} = CurrentRunOutcomesPresenter.reconcile(socket.assigns.current_run_outcomes_source, snapshot)
+    status_source = if retained?, do: snapshot, else: nil
+    view = CurrentRunOutcomesPresenter.present(source, retained?, status_source)
+
+    socket
+    |> assign(:current_run_outcomes_source, source)
+    |> assign(:current_run_outcomes, view)
+    |> assign(:current_run_outcomes_announcement, CurrentRunOutcomesPresenter.announcement(view))
+  end
+
+  defp schedule_current_run_outcomes_flush do
+    case Endpoint.config(:current_run_outcomes_flush_timer) do
+      timer when is_function(timer, 3) -> timer.(self(), :flush_current_run_outcomes, @current_run_outcomes_flush_ms)
+      _other -> Process.send_after(self(), :flush_current_run_outcomes, @current_run_outcomes_flush_ms)
     end
   end
 

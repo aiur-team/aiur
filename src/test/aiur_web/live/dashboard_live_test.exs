@@ -805,6 +805,67 @@ defmodule AiurWeb.DashboardLiveTest do
     end
   end
 
+  describe "current-run outcomes (DASH-034)" do
+    test "renders the Finished this run region on the Units destination with the real analytics route" do
+      view = start_outcomes_dashboard()
+      html = push_outcomes(view, healthy_outcomes_snapshot(numbers: [42, 7]))
+
+      assert html =~ "Finished this run"
+      assert html =~ ~s(id="current-run-outcomes")
+      assert html =~ "PR #42"
+      assert html =~ "its-everdred/aiur #42"
+      assert html =~ ~s(href="https://github.com/its-everdred/aiur/pull/42")
+      # The region consumes the shared analytics contract; it never hardcodes the
+      # prototype's aiur.team destination. (Route availability is telemetry-driven
+      # and exercised in the component test.)
+      refute html =~ "aiur.team"
+      # The global RecentMerge audit remains a distinct, reachable scope.
+      assert html =~ "Recent repository merges"
+    end
+
+    test "coalesces a burst of outcome updates into a single scheduled flush" do
+      view = start_outcomes_dashboard()
+
+      for _ <- 1..25 do
+        send(view.pid, {:current_run_outcome_snapshot_changed, healthy_outcomes_snapshot(numbers: [1])})
+      end
+
+      :sys.get_state(view.pid)
+
+      assert_receive {:outcomes_flush_scheduled, pid, :flush_current_run_outcomes, delay_ms}, 0
+      assert pid == view.pid
+      assert delay_ms > 0
+      refute_receive {:outcomes_flush_scheduled, _pid, :flush_current_run_outcomes, _delay}, 0
+
+      send(view.pid, :flush_current_run_outcomes)
+      assert render(view) =~ "PR #1"
+    end
+
+    test "retains the last validated outcomes across an unavailable same-run update" do
+      view = start_outcomes_dashboard()
+
+      assert push_outcomes(view, healthy_outcomes_snapshot(numbers: [11], run_id: "run-1")) =~ "PR #11"
+
+      stale_html = push_outcomes(view, unavailable_same_run_outcomes_snapshot("run-1"))
+
+      assert stale_html =~ "Stale outcomes"
+      assert stale_html =~ "PR #11"
+      # Never fall back to a confident empty claim for the retained run.
+      refute stale_html =~ "No repository merges have finished this run yet"
+    end
+
+    test "adopts a new run, dropping prior-run cards under the current heading" do
+      view = start_outcomes_dashboard()
+
+      assert push_outcomes(view, healthy_outcomes_snapshot(numbers: [11], run_id: "run-1")) =~ "PR #11"
+
+      new_html = push_outcomes(view, healthy_outcomes_snapshot(numbers: [22], run_id: "run-2"))
+
+      assert new_html =~ "PR #22"
+      refute new_html =~ "PR #11"
+    end
+  end
+
   test "optional unauthenticated LiveView state, HTML, diffs, and logs contain no financial sentinels" do
     orchestrator_name = Module.concat(__MODULE__, :FinancialBoundaryOrchestrator)
     sentinel = "acct-plan-quota-reset-financial-sentinel"
@@ -4216,6 +4277,101 @@ defmodule AiurWeb.DashboardLiveTest do
     |> Map.put(:generation, 2)
     |> Map.put(:health, %{status: :unavailable, reasons: [:unhealthy_membership]})
     |> Map.put(:freshness, %{status: :unavailable, sources: %{}})
+  end
+
+  defp start_outcomes_dashboard do
+    test_process = self()
+
+    start_outcomes_dashboard(fn destination, message, delay_ms ->
+      send(test_process, {:outcomes_flush_scheduled, destination, message, delay_ms})
+      make_ref()
+    end)
+  end
+
+  defp start_outcomes_dashboard(flush_timer) when is_function(flush_timer, 3) do
+    orchestrator_name = Module.concat(__MODULE__, :OutcomesOrchestrator)
+
+    start_supervised!(
+      {CountingOrchestrator,
+       name: orchestrator_name,
+       snapshot: %{
+         running: [],
+         retrying: [],
+         idle: [],
+         agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+         rate_limits: nil
+       }},
+      id: orchestrator_name
+    )
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      current_run_outcomes_flush_timer: flush_timer
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/")
+    view
+  end
+
+  # Deterministically apply one pushed outcome snapshot: process the update
+  # (which schedules but defers the coalesced flush), then run the flush.
+  defp push_outcomes(view, snapshot) do
+    send(view.pid, {:current_run_outcome_snapshot_changed, snapshot})
+    :sys.get_state(view.pid)
+    send(view.pid, :flush_current_run_outcomes)
+    render(view)
+  end
+
+  defp healthy_outcomes_snapshot(opts) do
+    numbers = Keyword.get(opts, :numbers, [1])
+    outcomes = Enum.map(numbers, &outcome_fixture/1)
+
+    %{
+      version: 1,
+      generation: Keyword.get(opts, :generation, 3),
+      state: if(outcomes == [], do: :healthy_empty, else: :healthy),
+      run: %{id: Keyword.get(opts, :run_id, "run-1"), started_at: ~U[2026-07-17 10:00:00Z], observed_at: ~U[2026-07-17 12:00:00Z]},
+      repository: "its-everdred/aiur",
+      membership: %{generation: 4, signature: "sig"},
+      outcomes: outcomes,
+      counts: %{input: length(outcomes), invalid: 0, deduplicated: length(outcomes), qualified: length(outcomes), returned: length(outcomes)},
+      exclusions: %{},
+      limit: 100,
+      truncated?: false,
+      health: %{status: :healthy, reasons: []},
+      freshness: %{status: :fresh},
+      sources: %{}
+    }
+  end
+
+  defp unavailable_same_run_outcomes_snapshot(run_id) do
+    healthy_outcomes_snapshot(numbers: [], run_id: run_id)
+    |> Map.put(:state, :unavailable)
+    |> Map.put(:generation, 5)
+    |> Map.put(:health, %{status: :unavailable, reasons: [:merge_source_unavailable]})
+    |> Map.put(:freshness, %{status: :unavailable})
+  end
+
+  defp outcome_fixture(number) do
+    identity = %TrackerIdentity{status: :joinable, kind: :github, owner: "its-everdred", repository: "aiur", identifier: "#{number}"}
+
+    %{
+      id: "merge-#{number}",
+      repository: "its-everdred/aiur",
+      number: number,
+      title: "Ship #{number}",
+      summary: "A short safe summary for #{number}.",
+      url: "https://github.com/its-everdred/aiur/pull/#{number}",
+      head_ref: "aiur/#{number}-slug",
+      head_sha: "abc#{number}",
+      merge_commit_sha: "def#{number}",
+      merged_at: ~U[2026-07-17 11:00:00Z],
+      member: %{identity: identity, identifier: identity.identifier},
+      association: %{version: 1, basis: :configured_repository_branch_locator_unique_membership_run_window},
+      run: %{id: "run-1", started_at: ~U[2026-07-17 10:00:00Z], observed_at: ~U[2026-07-17 12:00:00Z], membership_generation: 4},
+      observation: %{source: :recent_merge_store, backfilled?: false, live_observed?: false, observed_run_id: nil, first_observed_at: nil, last_observed_at: nil}
+    }
   end
 
   defp start_test_endpoint(overrides) do
