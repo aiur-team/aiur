@@ -22,6 +22,7 @@ defmodule Aiur.AgentRunner.MessageHandler do
   alias Aiur.AgentRunner.QueueDrain
   alias Aiur.Protocol.MapAccess
   alias Aiur.RunTelemetry.Lifecycle
+  alias Aiur.Usage.Headless.Emitter
 
   @spec build(pid() | nil, Issue.t(), Path.t() | nil, String.t() | nil, String.t(), String.t() | nil) :: (map() -> :ok)
   def build(recipient, issue, workspace, worker_host, backend, turn_id \\ nil) do
@@ -52,6 +53,7 @@ defmodule Aiur.AgentRunner.MessageHandler do
       transcript_event = transcript_event_from(message, backend, turn_id)
       observe_lifecycle(issue, backend, message, lifecycle_opts)
       observe_rate_limits(backend, message, lifecycle_opts)
+      observe_usage(issue, backend, message, turn_id, lifecycle_opts)
       AgentEventLog.write(workspace, worker_host, message)
       maybe_broadcast_transcript(issue, transcript_event)
       maybe_observe_live_conversation(issue, transcript_event, lifecycle_opts)
@@ -79,6 +81,15 @@ defmodule Aiur.AgentRunner.MessageHandler do
   end
 
   defp observe_rate_limits(_backend, _message, _lifecycle_opts), do: :ok
+
+  # Emit a DASH-008 usage envelope for each supported headless usage event. This
+  # runs on the unconditional per-message path, so emission is independent of
+  # dashboard clients, TUI mode, or --debug. The emitter fails closed and never
+  # propagates a fault into the worker turn.
+  defp observe_usage(issue, backend, message, turn_id, lifecycle_opts) do
+    Emitter.observe(issue, backend, message, Keyword.put(lifecycle_opts, :turn_id, turn_id))
+    :ok
+  end
 
   defp maybe_broadcast_transcript(%Issue{identifier: identifier}, {:ok, event})
        when is_binary(identifier) do
