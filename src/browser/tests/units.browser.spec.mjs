@@ -38,7 +38,9 @@ test('Units keeps complete semantic rows, named actions, and 44px targets across
       await expect(first).toContainText('Branch · feature pushed')
       await expect(first.getByRole('progressbar', { name: 'Unit progress' })).toHaveAttribute('aria-valuenow', '50')
       await expect(unknownProgress).not.toHaveAttribute('aria-valuenow')
-      await expect(first.getByText('Conversation unavailable')).toHaveAttribute('aria-disabled', 'true')
+      // When no conversation handle exists the action is omitted entirely, not shown as a disabled placeholder.
+      await expect(first.getByText('Conversation unavailable')).toHaveCount(0)
+      await expect(first.getByRole('button', { name: /Read conversation/ })).toHaveCount(0)
       await expect(first.getByRole('link', { name: /Open Commands/ })).toBeVisible()
       await expect(first.getByRole('link', { name: /Open Commands/ })).toHaveAttribute('href', '/decisions?ticket=1110')
       await expect(first.getByRole('link', { name: 'GitHub' })).toBeVisible()
