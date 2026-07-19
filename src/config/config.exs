@@ -17,6 +17,13 @@ config :aiur, AiurWeb.Endpoint,
   check_origin: false,
   server: false
 
+# Demo / pre-ticket planning mode: render a Build Order in the spatial dashboard
+# straight from a local planning pack (no GitHub issues). Enable at build time
+# with AIUR_BUILD_ORDER_DEMO=1. Remove this block + priv/build_orders to delete.
+if System.get_env("AIUR_BUILD_ORDER_DEMO") in ~w(1 true) do
+  config :aiur, :build_order_data_source, AiurWeb.BuildOrder.PlanningSource
+end
+
 if config_env() == :test do
   # Library code must never register real pids/panes into the reaper during
   # unit tests — a draining sweep would kill live host processes. Reaper

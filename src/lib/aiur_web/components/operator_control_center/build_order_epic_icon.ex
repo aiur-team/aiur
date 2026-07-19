@@ -18,7 +18,13 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderEpicIcon do
     "dashboard-ui" => "rectangle-group",
     "accounting" => "banknotes",
     "platform" => "server-stack",
-    "adhoc" => "sparkles"
+    "adhoc" => "sparkles",
+    # Additional lanes used by planning packs (e.g. the CropTracker demo).
+    "core" => "cube",
+    "web" => "window",
+    "data" => "circle-stack",
+    "api" => "cloud",
+    "billing" => "credit-card"
   }
 
   @generic_icon "squares-2x2"
@@ -45,7 +51,12 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderEpicIcon do
     "dashboard-ui" => "Dashboard UI",
     "accounting" => "Accounting",
     "platform" => "Platform",
-    "adhoc" => "Ad Hoc"
+    "adhoc" => "Ad Hoc",
+    "core" => "Core",
+    "web" => "Web",
+    "data" => "Data",
+    "api" => "API",
+    "billing" => "Billing"
   }
 
   attr(:lane, :any, required: true)

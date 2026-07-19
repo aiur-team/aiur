@@ -201,7 +201,8 @@ defmodule AiurWeb.BuildOrderViewModel do
           execution_health: :available | :unavailable,
           activity_health: :available | :unavailable,
           generations: map(),
-          diagnostics: [Diagnostic.t()]
+          diagnostics: [Diagnostic.t()],
+          planning?: boolean()
         }
 
   defstruct version: 1,
@@ -221,5 +222,6 @@ defmodule AiurWeb.BuildOrderViewModel do
             execution_health: :unavailable,
             activity_health: :unavailable,
             generations: %{planning: :unknown, activity: :unknown},
-            diagnostics: []
+            diagnostics: [],
+            planning?: false
 end

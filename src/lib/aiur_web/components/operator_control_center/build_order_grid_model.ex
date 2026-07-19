@@ -44,7 +44,8 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
           edges: [map()]
         }
   def build(model, adhoc) do
-    core_cards = core_cards(model)
+    planning? = planning?(model)
+    core_cards = core_cards(model, planning?)
     adhoc_cards = adhoc_cards(adhoc)
     cards = core_cards ++ adhoc_cards
 
@@ -52,18 +53,30 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
       columns: columns(cards),
       waves: waves(core_cards, cards),
       cards: cards,
-      edges: edges(model, core_cards)
+      edges: edges(model, core_cards, planning?),
+      planning?: planning?
     }
   end
 
+  defp planning?(%AiurWeb.BuildOrderViewModel{planning?: planning?}), do: planning? == true
+  defp planning?(_model), do: false
+
   # --- cards ------------------------------------------------------------------
 
-  defp core_cards(%AiurWeb.BuildOrderViewModel{nodes: nodes}) when is_list(nodes),
-    do: Enum.map(nodes, &core_card/1)
+  defp core_cards(%AiurWeb.BuildOrderViewModel{nodes: nodes}, planning?) when is_list(nodes),
+    do: Enum.map(nodes, &core_card(&1, planning?))
 
-  defp core_cards(_model), do: []
+  defp core_cards(_model, _planning?), do: []
 
-  defp core_card(%Node{card: card} = node) do
+  # In planning (pre-ticket) mode a ticket is neither merged nor blocked — it is
+  # simply planned, with no live progress; dependencies are drawn neutrally.
+  defp core_card(%Node{} = node, true) do
+    node
+    |> core_card(false)
+    |> Map.merge(%{progress: 0, has_progress: false, merged: false, state: :planned, status_word: "planned"})
+  end
+
+  defp core_card(%Node{card: card} = node, false) do
     status_key = status_key(node)
     merged = status_key == :status_completed
     complexity = complexity(node)
@@ -123,23 +136,24 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
 
   defp columns(cards) do
     counts = Enum.frequencies_by(cards, & &1.lane)
+    order = cards |> Enum.map(& &1.lane) |> Enum.uniq()
+    appearance = order |> Enum.with_index() |> Map.new()
 
-    cards
-    |> Enum.map(& &1.lane)
-    |> Enum.uniq()
-    |> Enum.sort_by(&lane_order/1)
+    order
+    |> Enum.sort_by(&lane_order(&1, appearance))
     |> Enum.map(fn lane ->
       %{lane: lane, label: BuildOrderEpicIcon.label(lane), count: Map.get(counts, lane, 0)}
     end)
   end
 
-  # Metadata lane order first, Ad Hoc last, unknown lanes in between.
-  defp lane_order(@adhoc_lane), do: {2, 0, @adhoc_lane}
+  # Built-in lanes keep their Metadata order; unknown lanes (e.g. a planning
+  # pack's own epics) follow first-appearance order; Ad Hoc is always last.
+  defp lane_order(@adhoc_lane, _appearance), do: {2, 0}
 
-  defp lane_order(lane) do
+  defp lane_order(lane, appearance) do
     case Enum.find_index(Metadata.lanes(), &(&1 == lane)) do
-      nil -> {1, 0, lane}
-      index -> {0, index, lane}
+      nil -> {1, Map.get(appearance, lane, 0)}
+      index -> {0, index}
     end
   end
 
@@ -195,7 +209,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
 
   # --- edges ------------------------------------------------------------------
 
-  defp edges(%AiurWeb.BuildOrderViewModel{edges: edges}, core_cards) when is_list(edges) do
+  defp edges(%AiurWeb.BuildOrderViewModel{edges: edges}, core_cards, planning?) when is_list(edges) do
     id_by_key = Map.new(core_cards, &{&1.key, &1.id})
 
     edges
@@ -203,7 +217,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
       %Edge{source_key: source_key, target_key: target_key, state: state} ->
         with source when is_binary(source) <- Map.get(id_by_key, source_key),
              target when is_binary(target) <- Map.get(id_by_key, target_key) do
-          [%{source: source, target: target, state: edge_state(state)}]
+          [%{source: source, target: target, state: edge_state(state, planning?)}]
         else
           _missing -> []
         end
@@ -213,11 +227,14 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
     end)
   end
 
-  defp edges(_model, _core_cards), do: []
+  defp edges(_model, _core_cards, _planning?), do: []
 
-  defp edge_state(:cleared), do: "cleared"
-  defp edge_state("cleared"), do: "cleared"
-  defp edge_state(_state), do: "blocking"
+  # Planning mode: every dependency is just a planned link (neutral), not a
+  # cleared/blocking runtime edge.
+  defp edge_state(_state, true), do: "planned"
+  defp edge_state(:cleared, false), do: "cleared"
+  defp edge_state("cleared", false), do: "cleared"
+  defp edge_state(_state, false), do: "blocking"
 
   # --- shared field helpers ---------------------------------------------------
 

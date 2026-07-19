@@ -33,6 +33,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
       |> assign(:cells, cells)
       |> assign(:columns_style, columns_style(grid.columns, cells))
       |> assign(:core_waves, Enum.filter(grid.waves, & &1.core?))
+      |> assign(:planning?, grid.planning?)
 
     ~H"""
     <section
@@ -45,7 +46,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
     >
       <h3 id={"#{@id}-title"} class="sr-only">Build order graph</h3>
 
-      <div :if={@core_waves != []} class="bo-waves-head" aria-label="Core execution-wave progress, complexity-weighted completion">
+      <div :if={@core_waves != [] and not @planning?} class="bo-waves-head" aria-label="Core execution-wave progress, complexity-weighted completion">
         <p class="bo-waves-caption">Core execution-wave progress · complexity-weighted completion; ad hoc work is tracked separately</p>
         <div class="bo-waves-strip">
           <div :for={wave <- @core_waves} class="bo-wave-seg">
@@ -58,8 +59,14 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
         </div>
       </div>
 
+      <p :if={@planning?} class="bo-planning-note">Planning preview · pre-ticket — no GitHub issues created yet</p>
+
       <div class="bo-grid-toolbar">
-        <ul class="bo-grid-legend" aria-label="Graph legend">
+        <ul :if={@planning?} class="bo-grid-legend" aria-label="Graph legend">
+          <li><span class="bo-legend-swatch is-planned" aria-hidden="true"></span>planned</li>
+          <li><span class="bo-legend-line is-planned" aria-hidden="true"></span>dependency</li>
+        </ul>
+        <ul :if={not @planning?} class="bo-grid-legend" aria-label="Graph legend">
           <li><span class="bo-legend-swatch is-working" aria-hidden="true"></span>agent live</li>
           <li><span class="bo-legend-swatch is-merged" aria-hidden="true"></span>merged</li>
           <li><span class="bo-legend-line is-cleared" aria-hidden="true"></span>cleared</li>

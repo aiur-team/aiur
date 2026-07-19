@@ -9,13 +9,16 @@ defmodule Aiur.BuildOrder.SelectedRoot do
           root: RootSummary.t(),
           members: [Member.t()],
           provider: ProviderHealth.t(),
-          diagnostics: [Diagnostic.t()]
+          diagnostics: [Diagnostic.t()],
+          planning?: boolean()
         }
 
-  defstruct [:root, members: [], provider: %ProviderHealth{}, diagnostics: []]
+  defstruct [:root, members: [], provider: %ProviderHealth{}, diagnostics: [], planning?: false]
 
-  @spec new(term(), term(), term()) :: t()
-  def new(root, members, provider) when is_list(members) do
+  @spec new(term(), term(), term(), keyword()) :: t()
+  def new(root, members, provider, opts \\ [])
+
+  def new(root, members, provider, opts) when is_list(members) do
     overflow? = length(members) > @max_members
     {members, malformed?} = members |> Enum.take(@max_members) |> members()
 
@@ -26,15 +29,17 @@ defmodule Aiur.BuildOrder.SelectedRoot do
       root: root_summary(root),
       members: members,
       provider: provider_health(provider),
-      diagnostics: diagnostics
+      diagnostics: diagnostics,
+      planning?: Keyword.get(opts, :planning?, false)
     }
   end
 
-  def new(root, _members, provider),
+  def new(root, _members, provider, opts),
     do: %__MODULE__{
       root: root_summary(root),
       provider: provider_health(provider),
-      diagnostics: [Diagnostic.new(:invalid_member)]
+      diagnostics: [Diagnostic.new(:invalid_member)],
+      planning?: Keyword.get(opts, :planning?, false)
     }
 
   @spec structurally_valid?(term()) :: boolean()

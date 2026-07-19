@@ -5748,6 +5748,33 @@ textarea:focus-visible,
   border-color: var(--blocking-line);
 }
 
+/* Planning (pre-ticket): neutral, not-yet-started. */
+.bo-node.is-planned {
+  border-style: dashed;
+  border-color: var(--line-strong);
+  background: var(--surface-2);
+  color: var(--fg);
+}
+
+.bo-planning-note {
+  margin: 0 0 0.6rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+}
+
+.bo-legend-swatch.is-planned {
+  border-style: dashed;
+  border-color: var(--line-strong);
+  background: var(--surface-2);
+}
+
+.bo-legend-line.is-planned {
+  border-top-style: dashed;
+  border-top-color: var(--faint);
+}
+
 .bo-node-top {
   display: flex;
   align-items: center;
@@ -5868,6 +5895,17 @@ textarea:focus-visible,
   stroke: var(--good);
   stroke-dasharray: none;
   opacity: 0.6;
+}
+
+.bo-edge.is-planned {
+  stroke: var(--faint);
+  stroke-dasharray: 4 4;
+  opacity: 0.5;
+}
+
+.bo-edge-dot.is-planned {
+  fill: var(--faint);
+  opacity: 0.5;
 }
 
 .bo-edge.is-hl {

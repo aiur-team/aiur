@@ -156,7 +156,8 @@ defmodule AiurWeb.BuildOrderPresenter do
       execution_health: execution_health,
       activity_health: activity_health,
       generations: %{planning: planning.generation, activity: activity_generation},
-      diagnostics: diagnostics
+      diagnostics: diagnostics,
+      planning?: planning.selected.planning?
     }
 
     selection = Keyword.get(opts, :selected_identity)

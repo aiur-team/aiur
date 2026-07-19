@@ -9,10 +9,18 @@ defmodule Aiur.BuildOrder.MetadataTest do
     assert %{complexity: 3, phase: 4, lane: "runtime", warnings: []} = metadata
   end
 
+  test "accepts any well-formed lane slug, not only the built-ins" do
+    # Planning packs define their own epics; a valid slug is kept as-is with no
+    # warning, while a malformed slug is rejected as :unassigned.
+    assert %{lane: "billing", warnings: []} = Metadata.parse(["complexity:2", "phase:1", "build-lane:billing"])
+    assert %{lane: "data", warnings: []} = Metadata.parse(["complexity:2", "phase:1", "build-lane:data"])
+    assert %{lane: :unassigned} = Metadata.parse(["complexity:2", "phase:1", "build-lane:-bad"])
+  end
+
   test "keeps missing, duplicate, and malformed labels explicit" do
     missing = Metadata.parse([])
     duplicate = Metadata.parse(["complexity:1", "complexity:3", "phase:2", "build-lane:runtime"])
-    malformed = Metadata.parse(["complexity:9", "phase:0", "build-lane:invented"])
+    malformed = Metadata.parse(["complexity:9", "phase:0", "build-lane:-nope"])
 
     assert %{complexity: :unknown, phase: :unphased, lane: :unassigned} = missing
     assert %{complexity: :unknown, phase: 2, lane: "runtime"} = duplicate
