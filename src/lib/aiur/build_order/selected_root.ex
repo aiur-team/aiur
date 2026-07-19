@@ -3,7 +3,7 @@ defmodule Aiur.BuildOrder.SelectedRoot do
 
   alias Aiur.BuildOrder.{Diagnostic, Member, ProviderHealth, RootSummary}
 
-  @max_members 100
+  @max_members 1000
 
   @type t :: %__MODULE__{
           root: RootSummary.t(),

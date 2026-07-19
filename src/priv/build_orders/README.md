@@ -41,7 +41,8 @@ That sets `config :aiur, :build_order_data_source, AiurWeb.BuildOrder.PlanningSo
 ## croptracker-demo.json (deletable demo data)
 
 Generated from the sibling `../croptracker` repo's pre-ticket planning pack
-(`docs/build-order/build-order-phase-{1..4}.json` + ticket markdown) — the first
-100 of 115 tickets (Aiur caps a root at 100 direct members). To delete the demo:
-remove this file and the `AIUR_BUILD_ORDER_DEMO` block in `config/config.exs`.
-`PlanningSource` itself is a general feature and can stay.
+(`docs/build-order/build-order-phase-{1..9}.json` — the machine-readable phase
+membership, labels, and cross-phase edges — plus each ticket's markdown header
+for its title). This tracks plan v2: 116 tickets across 9 phases and 6 lanes.
+To delete the demo: remove this file and the `AIUR_BUILD_ORDER_DEMO` block in
+`config/config.exs`. `PlanningSource` itself is a general feature and can stay.
