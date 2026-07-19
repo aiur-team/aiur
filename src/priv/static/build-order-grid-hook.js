@@ -32,6 +32,7 @@
     this.onPointerOver = this.onPointerOver.bind(this);
     this.onPointerOut = this.onPointerOut.bind(this);
     this.scheduleDraw = this.scheduleDraw.bind(this);
+    this.onResize = this.onResize.bind(this);
   }
 
   Grid.prototype.capture = function () {
@@ -50,7 +51,9 @@
     this.capture();
     if (!this.viewport || !this.scaleEl) return;
 
-    this.scale = this.restoreScale();
+    var stored = this.restoreScale();
+    this.scale = stored == null ? 1 : stored;
+    this.autoFit = stored == null; // first visit: fit the whole grid to width
 
     this.zoomButtons.forEach(function (button) {
       button.addEventListener("click", this.onZoomClick);
@@ -62,16 +65,31 @@
     this.el.addEventListener("pointerout", this.onPointerOut);
 
     if (typeof ResizeObserver === "function") {
-      this.observer = new ResizeObserver(this.scheduleDraw);
+      this.observer = new ResizeObserver(this.onResize);
       this.observer.observe(this.body);
       this.observer.observe(this.viewport);
     }
     if (typeof window !== "undefined") {
-      window.addEventListener("resize", this.scheduleDraw);
+      window.addEventListener("resize", this.onResize);
     }
 
     this.applyTransform();
     this.scheduleDraw();
+    this.maybeAutoFit();
+  };
+
+  // Redraw edges on layout change, and — on first load only — fit to width once
+  // the viewport has a real (non-transient) width. Fitting from the resize
+  // observer avoids locking a tiny scale measured before layout settled.
+  Grid.prototype.onResize = function () {
+    this.scheduleDraw();
+    this.maybeAutoFit();
+  };
+
+  Grid.prototype.maybeAutoFit = function () {
+    if (!this.autoFit) return;
+    if (!this.viewport || this.viewport.clientWidth < 320) return;
+    this.fit(); // clears autoFit via setZoom
   };
 
   // Re-applied on every LiveView patch: heal any transform the DOM patch may
@@ -86,12 +104,13 @@
 
   Grid.prototype.destroy = function () {
     if (this.observer) this.observer.disconnect();
-    if (typeof window !== "undefined") window.removeEventListener("resize", this.scheduleDraw);
+    if (typeof window !== "undefined") window.removeEventListener("resize", this.onResize);
   };
 
   // --- zoom -----------------------------------------------------------------
 
   Grid.prototype.setZoom = function (next) {
+    this.autoFit = false;
     this.scale = clamp(round2(next), MIN_ZOOM, MAX_ZOOM);
     this.storeScale();
     this.applyTransform();
@@ -141,7 +160,8 @@
     if (sw <= 0) return;
     this.viewport.scrollLeft = 0;
     this.viewport.scrollTop = 0;
-    this.setZoom(Math.min(1, vw / sw));
+    // Floor so a fit can never collapse the graph to an unreadable sliver.
+    this.setZoom(Math.max(0.4, Math.min(1, vw / sw)));
   };
 
   Grid.prototype.applyTransform = function () {
@@ -160,7 +180,7 @@
       var stored = parseFloat(window.sessionStorage.getItem(this.storageKey));
       if (!isNaN(stored)) return clamp(stored, MIN_ZOOM, MAX_ZOOM);
     } catch (_error) {}
-    return this.scale;
+    return null;
   };
 
   Grid.prototype.storeScale = function () {
