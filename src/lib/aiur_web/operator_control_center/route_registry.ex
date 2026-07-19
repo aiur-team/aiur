@@ -28,7 +28,7 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
       id: :build_order,
       label: "Build Order",
       icon: "◌",
-      description: "Repository planning graph and cached ticket context.",
+      description: "",
       path: "/build-orders",
       type: :live,
       owner: :build_order,

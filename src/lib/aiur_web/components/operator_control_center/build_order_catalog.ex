@@ -7,7 +7,6 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.RouteState
-  alias AiurWeb.OperatorControlCenter.BuildOrderStatus
 
   attr(:route_state, :any, required: true)
   attr(:now, :any, required: true)
@@ -15,16 +14,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
   @spec build_order_catalog(map()) :: Phoenix.LiveView.Rendered.t()
   def build_order_catalog(assigns) do
     ~H"""
-    <section class="bo-surface" aria-labelledby="build-order-catalog-title">
-      <header class="bo-page-header">
-        <div>
-          <p class="section-eyebrow">Repository planning</p>
-          <h2 id="build-order-catalog-title">Build Order catalog</h2>
-          <p>Select a repository to open its Build Order.</p>
-        </div>
-        <BuildOrderStatus.provider_health snapshot={RouteState.catalog_snapshot(@route_state)} now={@now} />
-      </header>
-
+    <section class="bo-surface" aria-label="Build Orders">
       <.catalog_entries snapshot={RouteState.catalog_snapshot(@route_state)} />
     </section>
     """
@@ -57,27 +47,39 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
       |> assign(:catalog_notice, catalog_notice(snapshot))
 
     ~H"""
-    <div class="bo-catalog-list" role="list">
+    <div class="bo-catalog">
       <div :if={@catalog_notice} class="bo-state-card" role="status">
         <h3>{@catalog_notice.title}</h3>
         <p>{@catalog_notice.message}</p>
       </div>
-      <article :for={entry <- @entries} class="bo-catalog-entry" role="listitem">
-        <div>
-          <p class="mono">{catalog_identifier(entry)}</p>
-          <h3>{entry.title}</h3>
-          <p class="bo-catalog-entry-state">{catalog_lifecycle(entry)}</p>
-          <ul :if={entry.diagnostics != []} class="bo-layout-card-warnings" aria-label="Catalog entry diagnostics">
-            <li :for={diagnostic <- entry.diagnostics}>{diagnostic.text}</li>
-          </ul>
-        </div>
-        <.link :if={catalog_path(entry)} patch={catalog_path(entry)} class="link-pill">Open graph</.link>
-        <span :if={is_nil(catalog_path(entry))} class="status-badge">Invalid entry</span>
-      </article>
+
+      <table :if={@entries != []} class="bo-catalog-table">
+        <thead>
+          <tr>
+            <th scope="col">Title</th>
+            <th scope="col" class="bo-catalog-num">Tickets</th>
+            <th scope="col" class="bo-catalog-num">Epics</th>
+            <th scope="col" class="bo-catalog-num">Phases</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr :for={entry <- @entries}>
+            <td>
+              <.link :if={catalog_path(entry)} patch={catalog_path(entry)} class="bo-catalog-link">{entry.title}</.link>
+              <span :if={is_nil(catalog_path(entry))} class="bo-catalog-invalid">{entry.title}</span>
+            </td>
+            <td class="bo-catalog-num mono num">{count_display(entry.member_count)}</td>
+            <td class="bo-catalog-num mono num">{count_display(entry.epic_count)}</td>
+            <td class="bo-catalog-num mono num">{count_display(entry.phase_count)}</td>
+          </tr>
+        </tbody>
+      </table>
+
       <div :if={@entries == []} class="bo-state-card">
         <h3>No Build Orders</h3>
         <p>The healthy catalog contains no roots.</p>
       </div>
+
       <ul :if={@catalog.diagnostics != []} class="bo-diagnostics" aria-label="Catalog diagnostics">
         <li :for={diagnostic <- @catalog.diagnostics}>{diagnostic.text}</li>
       </ul>
@@ -96,8 +98,8 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
     """
   end
 
-  defp catalog_identifier(%RootSummary{identity: %TrackerIdentity{identifier: identifier}}), do: "##{identifier}"
-  defp catalog_identifier(_entry), do: "Unqualified root"
+  defp count_display(count) when is_integer(count), do: Integer.to_string(count)
+  defp count_display(_count), do: "—"
 
   defp catalog_path(%RootSummary{identity: %TrackerIdentity{identifier: identifier} = identity}) when is_binary(identifier) do
     if TrackerIdentity.joinable?(identity), do: "/build-orders/#{identifier}"
@@ -125,14 +127,4 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
 
   defp catalog_state_role(:invalid), do: "alert"
   defp catalog_state_role(_state), do: "status"
-
-  defp catalog_lifecycle(%RootSummary{lifecycle: %{state: state, state_reason: reason}}) do
-    state = state |> to_string() |> String.capitalize()
-
-    if reason in [:none, :unknown],
-      do: state,
-      else: "#{state} · #{reason |> to_string() |> String.replace("_", " ")}"
-  end
-
-  defp catalog_lifecycle(_entry), do: "Lifecycle unavailable"
 end

@@ -110,7 +110,16 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   defp root_summary(pack) do
     identity = root_identity(pack)
-    RootSummary.new(%{identity: identity, title: pack.title, state: :open, url: issue_url(identity)})
+
+    RootSummary.new(%{
+      identity: identity,
+      title: pack.title,
+      state: :open,
+      url: issue_url(identity),
+      member_count: length(pack.tickets),
+      epic_count: pack.tickets |> Enum.map(& &1.lane) |> Enum.uniq() |> length(),
+      phase_count: pack.tickets |> Enum.map(& &1.phase) |> Enum.uniq() |> length()
+    })
   end
 
   defp members(pack) do

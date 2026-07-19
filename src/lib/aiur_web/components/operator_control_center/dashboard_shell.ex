@@ -57,7 +57,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
         <header class="topbar">
           <div class="route-context">
             <h1 id="route-title">{@route.label}</h1>
-            <p>{@route.description}</p>
+            <p :if={@route.description not in [nil, ""]}>{@route.description}</p>
           </div>
           <div class="toolbar">
             <span class="status-badge status-badge-live"><span class="status-badge-dot"></span>Live</span>
