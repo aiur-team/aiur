@@ -118,6 +118,40 @@ function drawEdges(svg, edges, edgeRecords, geometry, instance) {
 function edgePath(sections) {
   return sections.map((section) => {
     const points = [section.startPoint, ...section.bendPoints, section.endPoint]
-    return points.map((point, index) => `${index === 0 ? "M" : "L"}${point.x} ${point.y}`).join(" ")
+    return smoothPath(points)
   }).join(" ")
+}
+
+// Render the ELK route as a smooth curve instead of an orthogonal polyline.
+// A Catmull-Rom spline through the route points is converted to cubic Béziers,
+// so edges follow the same routing (never cutting through cards) while reading
+// as the flowing dependency curves from the Build Order design.
+function smoothPath(points) {
+  if (points.length < 2) return ""
+  if (points.length === 2) {
+    // Straight source→target: bow it into a gentle S-curve so single dependency
+    // hops still read as curves (matches the design's edge style). The control
+    // points carry a horizontal lean so a column-crossing hop reads as a clean
+    // diagonal rather than a vertical zig-zag; dy is signed so the bow follows
+    // the layout direction rather than assuming source-above-target.
+    const [a, b] = points
+    const span = b.y - a.y
+    const dy = Math.sign(span || 1) * Math.max(18, Math.abs(span) * 0.45)
+    const lean = (b.x - a.x) * 0.2
+    return `M${a.x} ${a.y} C${a.x + lean} ${a.y + dy}, ${b.x - lean} ${b.y - dy}, ${b.x} ${b.y}`
+  }
+
+  let path = `M${points[0].x} ${points[0].y}`
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[i === 0 ? 0 : i - 1]
+    const p1 = points[i]
+    const p2 = points[i + 1]
+    const p3 = points[i + 2 < points.length ? i + 2 : points.length - 1]
+    const c1x = p1.x + (p2.x - p0.x) / 6
+    const c1y = p1.y + (p2.y - p0.y) / 6
+    const c2x = p2.x - (p3.x - p1.x) / 6
+    const c2y = p2.y - (p3.y - p1.y) / 6
+    path += ` C${c1x} ${c1y}, ${c2x} ${c2y}, ${p2.x} ${p2.y}`
+  }
+  return path
 }

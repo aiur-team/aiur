@@ -416,9 +416,23 @@ function visibleInSpatial(ticket){
   const run = RUN.tickets[ticket.id];
   return !!run && !isCompleted(run) && !run.state.includes("deferred");
 }
+function ticketHue(p){ return Math.round(Math.max(0,Math.min(100,p))/100*125); }
+// Color a ticket reference to match its node's state + progress:
+// merged→done grey, live agent→green, in-progress→red→green progress hue,
+// dependency-ready→accent blue, blocked→faint. Mirrors the spatial node states.
+function ticketRefColor(ticket){
+  const run = RUN.tickets[ticket.id];
+  if (isCompleted(run)) return {cls:"is-merged", color:"var(--done-ink)"};
+  if (hasLiveAgent(run)) return {cls:"is-working", color:"var(--good-ink)"};
+  if (run && typeof run.progress === "number") return {cls:"is-progress", color:`hsl(${ticketHue(run.progress)} 62% 62%)`};
+  const ready = (ticket.deps||[]).every(d=>isCompleted(RUN.tickets[d]));
+  if (ready) return {cls:"is-ready", color:"var(--accent-ink)"};
+  return {cls:"is-blocked", color:"var(--faint)"};
+}
 function ticketRef(ticket){
   const label = ticket.adhoc ? `#${ticket.issue}` : displayId(ticket.id);
-  return `<button class="sum-ticket" data-go="${ticket.id}">${ticket.critical ? `<b>${label}</b>` : label}</button>`;
+  const {cls, color} = ticketRefColor(ticket);
+  return `<button class="sum-ticket ${cls}" data-go="${ticket.id}" style="color:${color}">${ticket.critical ? `<b>${label}</b>` : label}</button>`;
 }
 
 function buildGraph(rootEl, pack, title, cap){
