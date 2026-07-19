@@ -24,6 +24,18 @@ if System.get_env("AIUR_BUILD_ORDER_DEMO") in ~w(1 true) do
   config :aiur, :build_order_data_source, AiurWeb.BuildOrder.PlanningSource
 end
 
+# STUBBED demo Units: populate the "/" dashboard Units table with synthetic
+# agent/unit rows (Claude + Codex vendors) spanning every condition state.
+# Enable at build time with AIUR_UNITS_DEMO=1. Remove this block +
+# lib/aiur_web/units/demo_source.ex + the `:units_fleet_fun` read in
+# payload_loader.ex to delete.
+if System.get_env("AIUR_UNITS_DEMO") in ~w(1 true) do
+  config :aiur, AiurWeb.Endpoint,
+    units_fleet_fun: &AiurWeb.Units.DemoSource.fleet/0,
+    units_membership_fun: &AiurWeb.Units.DemoSource.membership/0,
+    units_activity_fun: &AiurWeb.Units.DemoSource.activity/0
+end
+
 if config_env() == :test do
   # Library code must never register real pids/panes into the reaper during
   # unit tests — a draining sweep would kill live host processes. Reaper
