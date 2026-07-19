@@ -421,7 +421,7 @@ function ticketHue(p){ return Math.round(Math.max(0,Math.min(100,p))/100*125); }
 // merged→done grey, live agent→green, in-progress→red→green progress hue,
 // dependency-ready→accent blue, blocked→faint. Mirrors the spatial node states.
 function ticketRefColor(ticket){
-  const run = ticket.adhoc ? RUN.tickets[ticket.id] : RUN.tickets[ticket.id];
+  const run = RUN.tickets[ticket.id];
   if (isCompleted(run)) return {cls:"is-merged", color:"var(--done-ink)"};
   if (hasLiveAgent(run)) return {cls:"is-working", color:"var(--good-ink)"};
   if (run && typeof run.progress === "number") return {cls:"is-progress", color:`hsl(${ticketHue(run.progress)} 62% 62%)`};
