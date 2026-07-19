@@ -18,6 +18,8 @@ defmodule Aiur.UsageAggregate.Key do
   @backends [:app_server, :remote_control, :unknown]
   @agent_families [:codex, :claude]
   @auth_modes [:api_key, :chatgpt, :unknown]
+  @context_tiers [:short_context, :long_context, :not_applicable]
+  @cache_write_durations [:five_minutes, :one_hour, :not_applicable]
   @token_dimensions UsageEnvelope.token_dimensions() ++ [:provider_reported_total]
   @max_opaque_bytes 512
   @max_integer 18_446_744_073_709_551_615
@@ -33,6 +35,8 @@ defmodule Aiur.UsageAggregate.Key do
           agent_family: atom(),
           resolved_model: String.t() | nil,
           auth_mode: atom(),
+          context_tier: :short_context | :long_context | :not_applicable | nil,
+          cache_write_duration: :five_minutes | :one_hour | :not_applicable | nil,
           pricing_date: Date.t() | nil,
           relationship_revision: String.t()
         }
@@ -65,6 +69,8 @@ defmodule Aiur.UsageAggregate.Key do
       agent_family: envelope.agent_family,
       resolved_model: envelope.resolved_model,
       auth_mode: envelope.auth_mode,
+      context_tier: envelope.context_tier,
+      cache_write_duration: envelope.cache_write_duration,
       pricing_date: envelope.pricing_effective_date,
       relationship_revision: envelope.relationship_revision
     }
@@ -129,6 +135,8 @@ defmodule Aiur.UsageAggregate.Key do
       "agent_family" => Atom.to_string(dims.agent_family),
       "resolved_model" => dims.resolved_model,
       "auth_mode" => Atom.to_string(dims.auth_mode),
+      "context_tier" => if(dims.context_tier, do: Atom.to_string(dims.context_tier)),
+      "cache_write_duration" => if(dims.cache_write_duration, do: Atom.to_string(dims.cache_write_duration)),
       "pricing_date" => if(dims.pricing_date, do: Date.to_iso8601(dims.pricing_date)),
       "relationship_revision" => dims.relationship_revision
     }
@@ -153,6 +161,8 @@ defmodule Aiur.UsageAggregate.Key do
          {:ok, attempt_id} <- opaque_or_nil(raw["attempt_id"]),
          {:ok, account_generation} <- opaque_or_nil(raw["account_generation"]),
          {:ok, resolved_model} <- opaque_or_nil(raw["resolved_model"]),
+         {:ok, context_tier} <- partition(raw["context_tier"], @context_tiers),
+         {:ok, cache_write_duration} <- partition(raw["cache_write_duration"], @cache_write_durations),
          {:ok, pricing_date} <- decode_date(raw["pricing_date"]),
          {:ok, revision} <- opaque(raw["relationship_revision"]) do
       {:ok,
@@ -166,6 +176,8 @@ defmodule Aiur.UsageAggregate.Key do
          agent_family: agent_family,
          resolved_model: resolved_model,
          auth_mode: auth_mode,
+         context_tier: context_tier,
+         cache_write_duration: cache_write_duration,
          pricing_date: pricing_date,
          relationship_revision: revision
        }}
@@ -214,6 +226,12 @@ defmodule Aiur.UsageAggregate.Key do
   end
 
   defp decode_value(_measure, _value), do: :error
+
+  # An absent occurrence-price partition (`nil`) is a valid cell: the adapter did
+  # not retain it, so downstream pricing reports it as unknown rather than
+  # guessing. A present value must be one of the exact allowed partitions.
+  defp partition(nil, _allowed), do: {:ok, nil}
+  defp partition(value, allowed), do: enum(value, allowed)
 
   defp enum(value, allowed) when is_binary(value) do
     case Enum.find(allowed, &(Atom.to_string(&1) == value)) do

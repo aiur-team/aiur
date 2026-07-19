@@ -19,6 +19,17 @@ defmodule Aiur.UsageLedger.RecordTest do
     assert Decimal.equal?(decoded.delta.cost.amount, Decimal.new("1.00"))
   end
 
+  test "admits and round-trips an occurrence-price partition through the ledger" do
+    envelope = envelope(context_tier: :short_context)
+    assert :ok = Record.admit(envelope)
+    assert {:ok, %{delta: delta}} = CounterPolicy.apply(CounterPolicy.new(), envelope)
+    assert {:ok, record} = Record.new(3, envelope, delta)
+
+    assert {:ok, decoded} = record |> Record.encode() |> Jason.encode!() |> Jason.decode!() |> Record.decode()
+    assert decoded.envelope.context_tier == :short_context
+    assert decoded.envelope.cache_write_duration == nil
+  end
+
   test "rejects content-bearing values at the ledger admission boundary" do
     path_envelope = envelope(source: "/private/provider-response")
     assert {:error, :content_rejected} = Record.admit(path_envelope)

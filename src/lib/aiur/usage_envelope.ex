@@ -19,6 +19,8 @@ defmodule Aiur.UsageEnvelope do
   @update_kinds [:full, :partial]
   @agent_families [:codex, :claude]
   @auth_modes [:api_key, :chatgpt, :unknown]
+  @context_tiers [:short_context, :long_context, :not_applicable]
+  @cache_write_durations [:five_minutes, :one_hour, :not_applicable]
   @freshnesses [:current, :unknown]
   @healths [:healthy, :unknown, :unavailable]
   @account_reasons [
@@ -77,6 +79,8 @@ defmodule Aiur.UsageEnvelope do
     :effort,
     :requested_model,
     :resolved_model,
+    :context_tier,
+    :cache_write_duration,
     :account_generation,
     :tokens,
     :relationship_revision,
@@ -128,6 +132,8 @@ defmodule Aiur.UsageEnvelope do
     :effort,
     :requested_model,
     :resolved_model,
+    :context_tier,
+    :cache_write_duration,
     :account_generation,
     :tokens,
     :relationship_revision,
@@ -186,6 +192,9 @@ defmodule Aiur.UsageEnvelope do
            optional_opaque_result(value_of(attributes, :requested_model), :invalid_requested_model),
          {:ok, resolved_model} <-
            optional_opaque_result(value_of(attributes, :resolved_model), :invalid_resolved_model),
+         {:ok, context_tier} <- context_tier(value_of(attributes, :context_tier), provider),
+         {:ok, cache_write_duration} <-
+           cache_write_duration(value_of(attributes, :cache_write_duration), provider),
          {:ok, account_generation} <-
            account_generation(value_of(attributes, :account_generation), provider, backend),
          :ok <- distinct_epoch(account_generation, counter_epoch),
@@ -228,6 +237,8 @@ defmodule Aiur.UsageEnvelope do
          effort: effort,
          requested_model: requested_model,
          resolved_model: resolved_model,
+         context_tier: context_tier,
+         cache_write_duration: cache_write_duration,
          account_generation: account_generation,
          tokens: tokens,
          relationship_revision: relationship_revision,
@@ -325,6 +336,8 @@ defmodule Aiur.UsageEnvelope do
       "effort" => envelope.effort,
       "requested_model" => envelope.requested_model,
       "resolved_model" => envelope.resolved_model,
+      "context_tier" => optional_atom(envelope.context_tier),
+      "cache_write_duration" => optional_atom(envelope.cache_write_duration),
       "account_generation" => account_generation_to_map(envelope.account_generation),
       "tokens" => tokens_to_map(envelope.tokens),
       "relationship_revision" => envelope.relationship_revision,
@@ -407,6 +420,35 @@ defmodule Aiur.UsageEnvelope do
 
   defp optional_opaque_result(nil, _error), do: {:ok, nil}
   defp optional_opaque_result(value, error), do: opaque(value, error)
+
+  # Occurrence-time price-partition context an adapter may supply. Both are
+  # optional (absent when the adapter cannot determine them) but, when present,
+  # must match the provider's price-affecting partition exactly: codex retains a
+  # `context_tier`, claude retains a `cache_write_duration`, and each provider's
+  # other partition is `:not_applicable`.
+  defp context_tier(nil, _provider), do: {:ok, nil}
+
+  defp context_tier(value, provider) do
+    with {:ok, tier} <- enum(value, @context_tiers, :invalid_context_tier) do
+      valid_context_tier(provider, tier)
+    end
+  end
+
+  defp valid_context_tier(:codex, tier) when tier in [:short_context, :long_context], do: {:ok, tier}
+  defp valid_context_tier(:claude, :not_applicable), do: {:ok, :not_applicable}
+  defp valid_context_tier(_provider, _tier), do: {:error, :invalid_context_tier}
+
+  defp cache_write_duration(nil, _provider), do: {:ok, nil}
+
+  defp cache_write_duration(value, provider) do
+    with {:ok, duration} <- enum(value, @cache_write_durations, :invalid_cache_write_duration) do
+      valid_cache_write_duration(provider, duration)
+    end
+  end
+
+  defp valid_cache_write_duration(:claude, duration) when duration in [:five_minutes, :one_hour], do: {:ok, duration}
+  defp valid_cache_write_duration(:codex, :not_applicable), do: {:ok, :not_applicable}
+  defp valid_cache_write_duration(_provider, _duration), do: {:error, :invalid_cache_write_duration}
 
   defp tracker_identity(nil), do: {:ok, nil}
 
@@ -570,6 +612,8 @@ defmodule Aiur.UsageEnvelope do
   end
 
   defp tokens_to_map(tokens), do: Map.new(tokens, fn {key, value} -> {Atom.to_string(key), value} end)
+  defp optional_atom(nil), do: nil
+  defp optional_atom(value) when is_atom(value), do: Atom.to_string(value)
   defp iso8601(nil), do: nil
   defp iso8601(value), do: DateTime.to_iso8601(value)
   defp date(nil), do: nil
