@@ -296,9 +296,9 @@ textarea:focus-visible,
 
 .bo-page-header {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.9rem;
 }
 
 .bo-page-header h2,
@@ -386,10 +386,23 @@ textarea:focus-visible,
 }
 
 .bo-back-link {
-  width: fit-content;
-  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
-  font-size: 0.72rem;
-  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--fg);
+  font-size: 1.05rem;
+  line-height: 1;
+  text-decoration: none;
+}
+
+.bo-back-link:hover {
+  background: var(--surface-3);
 }
 
 .bo-state-card {
