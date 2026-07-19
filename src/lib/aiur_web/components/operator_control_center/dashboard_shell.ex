@@ -18,32 +18,31 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
     <section class="dashboard-shell">
       <aside class="shell-sidebar" aria-label="Aiur navigation">
         <div class="brand-row">
-          <a class="brand-mini" href="/" aria-label="Aiur home">
-            <img class="brand-mini-logo" src="/aiur-logo.png" alt="" />
-            <span class="brand-wordmark"><b>aiur</b></span>
-          </a>
-          <div class="brand-tools">
-            <button
-              id="nav-toggle"
-              class="tool-btn tool-btn-icon"
-              type="button"
-              phx-hook="NavToggle"
-              aria-label="Hide or show navigation"
-              title="Hide or show navigation"
-            >
-              <span aria-hidden="true">☰</span>
-            </button>
-            <button
-              id="theme-toggle"
-              class="tool-btn tool-btn-icon"
-              type="button"
-              phx-hook="ThemeToggle"
-              aria-label="Toggle color theme"
-              title="Toggle color theme"
-            >
-              <span class="theme-icon" aria-hidden="true">◐</span>
-            </button>
-          </div>
+          <img class="brand-mini-logo" src="/aiur-logo.png" alt="Aiur" />
+          <span class="brand-wordmark"><b>aiur</b></span>
+          <span class="status-badge status-badge-live brand-live">
+            <span class="status-badge-dot"></span>Live
+          </span>
+          <span class="status-badge status-badge-offline brand-live">
+            <span class="status-badge-dot"></span>Offline
+          </span>
+          <button
+            id="theme-toggle"
+            class="tool-btn icon-only"
+            type="button"
+            phx-hook="ThemeToggle"
+            aria-label="Toggle color theme"
+            title="Toggle color theme"
+          >
+            <span class="toggle-icon" aria-hidden="true">
+              <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+              </svg>
+              <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
+              </svg>
+            </span>
+          </button>
         </div>
         <.navigation
           routes={@routes}
@@ -60,8 +59,6 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
             <p :if={@route.description not in [nil, ""]}>{@route.description}</p>
           </div>
           <div class="toolbar">
-            <span class="status-badge status-badge-live"><span class="status-badge-dot"></span>Live</span>
-            <span class="status-badge status-badge-offline"><span class="status-badge-dot"></span>Offline</span>
             <time class="status-badge mono num" datetime={datetime_value(@now)}>{clock_value(@now)}</time>
           </div>
         </header>
@@ -113,7 +110,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
       class={["shell-nav-item", @active && "is-active"]}
       aria-current={if @active, do: "page"}
     >
-      <span class="shell-nav-icon" aria-hidden="true">{@route.icon}</span>
+      <span class="shell-nav-icon" aria-hidden="true">{nav_icon(@route.id)}</span>
       <span class="shell-nav-label">{@route.label}</span>
     </.link>
     <.link
@@ -122,7 +119,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
       class={["shell-nav-item", @active && "is-active"]}
       aria-current={if @active, do: "page"}
     >
-      <span class="shell-nav-icon" aria-hidden="true">{@route.icon}</span>
+      <span class="shell-nav-icon" aria-hidden="true">{nav_icon(@route.id)}</span>
       <span class="shell-nav-label">{@route.label}</span>
     </.link>
     <.link
@@ -130,7 +127,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
       href={@route.path}
       class="shell-nav-item"
     >
-      <span class="shell-nav-icon" aria-hidden="true">{@route.icon}</span>
+      <span class="shell-nav-icon" aria-hidden="true">{nav_icon(@route.id)}</span>
       <span class="shell-nav-label">{@route.label}</span>
     </.link>
     <span
@@ -140,11 +137,41 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
       aria-disabled="true"
       title={@route.description}
     >
-      <span class="shell-nav-icon" aria-hidden="true">{@route.icon}</span>
+      <span class="shell-nav-icon" aria-hidden="true">{nav_icon(@route.id)}</span>
       <span class="shell-nav-label">{@route.label}</span>
       <span class="shell-nav-state">Unavailable</span>
     </span>
     """
+  end
+
+  @nav_svg_attrs ~s(viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round")
+
+  defp nav_icon(:units) do
+    Phoenix.HTML.raw(
+      ~s(<svg #{@nav_svg_attrs}><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>)
+    )
+  end
+
+  defp nav_icon(:commands) do
+    Phoenix.HTML.raw(
+      ~s(<svg #{@nav_svg_attrs}><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>)
+    )
+  end
+
+  defp nav_icon(:build_order) do
+    Phoenix.HTML.raw(
+      ~s(<svg #{@nav_svg_attrs}><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="8" r="3"/><path d="M6 9v6"/><path d="M18 11a9 9 0 0 1-9 9"/></svg>)
+    )
+  end
+
+  defp nav_icon(:analytics) do
+    Phoenix.HTML.raw(
+      ~s(<svg #{@nav_svg_attrs}><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="5"/><rect x="12" y="8" width="3" height="9"/><rect x="17" y="5" width="3" height="12"/></svg>)
+    )
+  end
+
+  defp nav_icon(_id) do
+    Phoenix.HTML.raw(~s(<svg #{@nav_svg_attrs}><circle cx="12" cy="12" r="9"/></svg>))
   end
 
   defp clock_value(%DateTime{} = now), do: Calendar.strftime(now, "%H:%M:%S")

@@ -176,7 +176,7 @@ textarea:focus-visible,
   display: grid;
   align-self: start;
   align-content: start;
-  gap: 1.5rem;
+  gap: 0.45rem;
   min-width: 0;
 }
 
@@ -192,34 +192,37 @@ textarea:focus-visible,
   gap: 0.35rem;
 }
 
+.shell-nav-sidebar {
+  gap: 0.15rem;
+}
+
 .shell-nav-item {
   display: flex;
   align-items: center;
   gap: 0.7rem;
   min-width: 0;
-  min-height: 2.75rem;
-  padding: 0.6rem 0.75rem;
-  border: 1px solid transparent;
-  border-radius: 12px;
+  min-height: 2.6rem;
+  padding: 0.62rem 0.72rem;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
   color: var(--muted);
-  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
-  font-size: 0.75rem;
-  font-weight: 700;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
   line-height: 1.2;
   text-decoration: none;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .shell-nav-item:hover {
-  border-color: var(--line);
   color: var(--fg);
-  background: var(--pill-bg);
+  background: var(--surface-2);
 }
 
 .shell-nav-item.is-active {
-  border-color: var(--line-strong);
-  color: var(--fg);
-  background: var(--surface-3);
-  box-shadow: inset 3px 0 var(--accent-line);
+  color: var(--accent-ink);
+  background: var(--accent-soft);
 }
 
 .shell-nav-item.is-unavailable {
@@ -228,12 +231,15 @@ textarea:focus-visible,
 }
 
 .shell-nav-icon {
-  display: grid;
+  display: inline-flex;
   flex: 0 0 auto;
-  place-items: center;
-  width: 1.25rem;
-  color: var(--accent-ink);
-  font-size: 1rem;
+  align-items: center;
+  color: inherit;
+}
+
+.shell-nav-icon svg {
+  width: 18px;
+  height: 18px;
 }
 
 .shell-nav-label {
@@ -363,53 +369,53 @@ textarea:focus-visible,
 .bo-catalog-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.9rem;
+  table-layout: fixed;
 }
 
-.bo-catalog-table thead th {
+.bo-catalog-table th {
+  padding: 0 0.5rem 0.7rem;
   text-align: left;
-  padding: 0.55rem 0.9rem;
-  font-size: 0.68rem;
-  font-weight: 600;
+  color: var(--muted);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.62rem;
+  font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--fg-muted);
-  border-bottom: 1px solid var(--line-strong);
 }
 
-.bo-catalog-table tbody td {
-  padding: 0.75rem 0.9rem;
-  border-bottom: 1px solid var(--line);
+.bo-catalog-table td {
+  min-width: 0;
+  padding: 0.85rem 0.5rem;
+  border-top: 1px solid var(--hairline);
+  font-size: 0.78rem;
   vertical-align: middle;
-}
-
-.bo-catalog-table tbody tr:last-child td {
-  border-bottom: none;
+  overflow-wrap: anywhere;
 }
 
 .bo-catalog-table tbody tr:hover td {
-  background: var(--surface-2);
+  background: var(--pill-bg);
 }
 
 .bo-catalog-num {
   text-align: right;
-  width: 6rem;
+  width: 5.5rem;
   white-space: nowrap;
-  color: var(--fg-muted);
+  color: var(--muted);
 }
 
 .bo-catalog-link {
-  color: inherit;
+  color: var(--fg);
   text-decoration: none;
   font-weight: 600;
+  font-size: 0.88rem;
 }
 
 .bo-catalog-link:hover {
-  text-decoration: underline;
+  color: var(--accent-ink);
 }
 
 .bo-catalog-invalid {
-  color: var(--fg-muted);
+  color: var(--muted);
 }
 
 .bo-back-link {
@@ -1383,27 +1389,72 @@ textarea:focus-visible,
 
 .brand-wordmark {
   font-family: "JetBrains Mono", "SFMono-Regular", monospace;
-  font-size: 0.76rem;
-  letter-spacing: 0.12em;
+  font-size: 1.05rem;
+  line-height: 1;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
 }
 
 .brand-wordmark b {
   color: var(--fg);
-  letter-spacing: 0.22em;
+  letter-spacing: 0.04em;
 }
 
 .brand-row {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.55rem;
+  padding: 0.35rem 0.2rem 0.6rem 0.35rem;
 }
 
-.brand-tools {
+.brand-row .brand-live {
+  margin-left: 0.1rem;
+  min-height: 0;
+  padding: 0.14rem 0.5rem;
+  font-size: 0.66rem;
+}
+
+.brand-row #theme-toggle {
+  margin-left: auto;
+}
+
+.tool-btn.icon-only {
+  gap: 0;
+  padding: 0;
+  width: 2.05rem;
+  height: 2.05rem;
+  justify-content: center;
+  border-radius: 50%;
+  aspect-ratio: 1;
+  flex: none;
+}
+
+.toggle-icon {
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
-  margin-left: auto;
+  justify-content: center;
+}
+
+.toggle-icon svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
+.toggle-icon .moon {
+  display: none;
+}
+
+.toggle-icon .sun {
+  display: inline-flex;
+}
+
+html[data-theme="light"] .toggle-icon .sun {
+  display: none;
+}
+
+html[data-theme="light"] .toggle-icon .moon {
+  display: inline-flex;
 }
 
 .tool-btn-icon {
