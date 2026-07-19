@@ -17,12 +17,14 @@ defmodule Aiur.BuildOrder.Member do
           updated_at: DateTime.t() | nil,
           connection_counts: %{blocked_by: non_neg_integer(), blocking: non_neg_integer()},
           dependencies: [Dependency.t()],
+          document_url: String.t() | nil,
           diagnostics: [Diagnostic.t()]
         }
 
   defstruct identity: nil,
             title: "Untitled ticket",
             url: nil,
+            document_url: nil,
             metadata: %Metadata{},
             lifecycle: %Lifecycle{},
             activity: %Activity{},
@@ -63,11 +65,15 @@ defmodule Aiur.BuildOrder.Member do
       updated_at: datetime(Map.get(attributes, :updated_at)),
       connection_counts: connection_counts(Map.get(attributes, :connection_counts)),
       dependencies: dependencies,
+      document_url: document_url(Map.get(attributes, :document_url)),
       diagnostics: diagnostics
     }
   end
 
   def new(_attributes), do: new(%{})
+
+  defp document_url(value) when is_binary(value) and byte_size(value) in 1..512, do: value
+  defp document_url(_value), do: nil
 
   @spec structurally_valid?(term()) :: boolean()
   def structurally_valid?(%__MODULE__{identity: identity, diagnostics: diagnostics})

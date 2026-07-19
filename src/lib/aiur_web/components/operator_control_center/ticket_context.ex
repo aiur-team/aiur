@@ -247,6 +247,7 @@ defmodule AiurWeb.OperatorControlCenter.TicketContext do
 
   defp cta_label(%{kind: :github, variant: :pull_request}), do: "Open pull request"
   defp cta_label(%{kind: :github}), do: "Open in GitHub"
+  defp cta_label(%{kind: :document}), do: "Open planning doc"
   defp cta_label(%{kind: :chat}), do: "Read chat"
   defp cta_label(%{kind: :commands}), do: "View command"
   defp cta_label(capability), do: capability.label

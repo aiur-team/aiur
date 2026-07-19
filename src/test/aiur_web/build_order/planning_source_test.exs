@@ -14,7 +14,8 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     "repository": "acme/widgets",
     "workstreams": [{"id": "core", "title": "Core"}, {"id": "web", "title": "Web"}],
     "tickets": [
-      {"id": "T-1", "title": "Foundation", "lane": "core", "phase": 1, "complexity": 3, "depends_on": []},
+      {"id": "T-1", "title": "Foundation", "lane": "core", "phase": 1, "complexity": 3, "depends_on": [],
+       "document_url": "https://github.com/acme/widgets/blob/plan/docs/T-1.md"},
       {"id": "T-2", "title": "Build on it", "lane": "web", "phase": 2, "complexity": 2, "depends_on": ["T-1"]}
     ]
   }
@@ -59,6 +60,11 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert length(model.nodes) == 2
     assert length(model.edges) == 1
     assert Map.keys(model.summary.lanes) |> Enum.sort() == ["core", "web"]
+
+    # Planning tickets carry their planning-doc URL so the ticket-context modal
+    # can link to it instead of a not-yet-existent GitHub issue.
+    node = Enum.find(model.nodes, &(&1.card.identifier == "1"))
+    assert node.document_url == "https://github.com/acme/widgets/blob/plan/docs/T-1.md"
   end
 
   test "planning tickets render as planned with neutral dependency edges" do

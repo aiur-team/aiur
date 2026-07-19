@@ -130,6 +130,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
         identity: identity,
         title: ticket.title,
         url: issue_url(identity),
+        document_url: ticket.document_url,
         state: "OPEN",
         labels: labels(ticket),
         dependencies: dependencies
