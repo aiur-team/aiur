@@ -189,12 +189,17 @@ prototype's docs/frontend/backend/infra set is an example — choose lanes that
 partition THIS feature's work into legible ownership columns (for example
 plan-graph / runtime / dashboard-ui / accounting / platform), keep the set
 small (3–6), fold a one-ticket lane into its nearest neighbor, and record the
-chosen labels in the pack's label projection. Assign each epic (and, where it
-adds signal, each ticket) an icon key from the dashboard's controlled
-line-art icon library (`BO_ICONS` in the vendored design prototype — keys
-like `flow`, `gauge`, `components`, `chart`, `pipeline`, `database`,
-`shield`, `book`) so rendering never needs a model call and falls back to a
-generic glyph for unknown keys. Prefer a single Build Order containing every
+chosen labels in the pack's label projection. Assign each epic a Heroicon whose
+meaning fits the lane you defined — the dashboard renders epic columns from the
+Heroicons v2 outline set, and an icon name is simply the SVG filename (for
+example `share`, `bolt`, `rectangle-group`, `banknotes`, `server-stack`,
+`sparkles`, `cpu-chip`, `chart-bar`, `circle-stack`, `shield-check`,
+`book-open`). Pick per epic from what those names mean, not from a fixed list,
+and record the chosen icon name for each lane in the pack's lane metadata (the
+README lane index and Executor handoff): the strict `build-order.json` schema
+and the GitHub label projection carry no icon field, so the name lives in pack
+prose only. An unknown or absent name falls back to a generic glyph, so
+rendering never needs a model call. Prefer a single Build Order containing every
 ticket in the program over sibling packs: one graph maximizes how many agents
 can work at once, and separation belongs in lanes and phases, not in
 membership — split membership only when a track genuinely must not gate or be
