@@ -34,6 +34,18 @@ load-flake). **Finish path:** when green → open PR → CI full-green → merge
 the 6 agent PRs below auto-rebase onto green (post-#720 develop push notifies
 running agents) and get merged one-by-one on green.
 
+### ⚠️ Backend quota — CODEX IS EXHAUSTED (stay on claude)
+As of 2026-07-18, codex weekly quota is **99/100 used, resets in ~4 days**
+(`reset_at` 1784780144 ≈ 2026-07-22). Config stays on `claude:opus` (working).
+Operator decision this session: keep claude, note codex here. **Do NOT flip
+routing to codex before the reset** — agents would stall on the first request.
+After reset (or if claude gets constrained), flip `.aiur/config` routing tiers
+1-5 → `codex:gpt-5.6-terra:high` (valid recent model) and `kind: codex`, then
+rebuild the daemon. Check `.aiur/model-usage.json` `backends.codex.weekly` for
+live quota before switching. The 6 agent PRs (below) need NO agent turns to
+merge — they land via CI-green after `develop`'s baseline fix, so backend choice
+does not block finishing the run.
+
 ### Aiur agents state (THIS machine, orangekid)
 Daemon RUNNING: release 0.0.4 from `/home/orangekid/github/aiur-runtime-develop`
 @ develop `37f337ea`, `--bg --debug --max-agents 15 --host 100.81.109.51`,
