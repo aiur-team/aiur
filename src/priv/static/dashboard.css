@@ -1231,6 +1231,36 @@ textarea:focus-visible,
   letter-spacing: 0.22em;
 }
 
+.brand-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.brand-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-left: auto;
+}
+
+.tool-btn-icon {
+  padding: 0.3rem 0.45rem;
+  line-height: 1;
+}
+
+/* Collapsed navigation: hide the route list; the brand row (with the toggle to
+   reopen) stays, and the sidebar shrinks to reclaim space for content. */
+.dashboard-shell[data-nav-collapsed="true"] .shell-nav-sidebar {
+  display: none;
+}
+
+@media (min-width: 960px) {
+  .dashboard-shell[data-nav-collapsed="true"] {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+}
+
 .toolbar {
   display: flex;
   align-items: center;
@@ -5538,7 +5568,7 @@ textarea:focus-visible,
 /* --- epic header row (sticky) --- */
 .bo-grid-lanes {
   display: grid;
-  gap: 0 10px;
+  gap: 0 8px;
   position: sticky;
   top: 0;
   z-index: 5;
@@ -5600,7 +5630,7 @@ textarea:focus-visible,
 
 .bo-grid-wave-row {
   display: grid;
-  gap: 0 10px;
+  gap: 0 8px;
   position: relative;
   z-index: 2;
   padding: 0.35rem 0;
@@ -5634,7 +5664,7 @@ textarea:focus-visible,
   display: flex;
   flex-flow: row wrap;
   align-content: flex-start;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
 }
 
@@ -5644,9 +5674,9 @@ textarea:focus-visible,
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
-  flex: 0 0 128px;
-  width: 128px;
-  padding: 0.5rem 0.55rem 0.6rem;
+  flex: 0 0 108px;
+  width: 108px;
+  padding: 0.45rem 0.5rem 0.55rem;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--surface-2);

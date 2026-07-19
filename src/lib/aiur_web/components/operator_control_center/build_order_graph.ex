@@ -23,13 +23,15 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
   def build_order_graph(assigns) do
     grid = BuildOrderGridModel.build(assigns.model, assigns.adhoc)
 
+    cells = Enum.group_by(grid.cards, &{&1.lane, &1.phase})
+
     assigns =
       assigns
       |> assign(:columns, grid.columns)
       |> assign(:waves, grid.waves)
       |> assign(:edges, grid.edges)
-      |> assign(:cells, Enum.group_by(grid.cards, &{&1.lane, &1.phase}))
-      |> assign(:columns_style, columns_style(grid.columns))
+      |> assign(:cells, cells)
+      |> assign(:columns_style, columns_style(grid.columns, cells))
       |> assign(:core_waves, Enum.filter(grid.waves, & &1.core?))
 
     ~H"""
@@ -155,12 +157,39 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
 
   # --- helpers ----------------------------------------------------------------
 
-  # Fixed-width columns (not 1fr) so the grid keeps compact cards and
-  # scrolls/zooms instead of stretching to fill a wide viewport. Each epic column
-  # is wide enough for two ~140px ticket cards side by side (they wrap within the
-  # cell); the leading 56px track is the wave-label gutter.
-  defp columns_style(columns),
-    do: "grid-template-columns: 52px repeat(#{max(length(columns), 1)}, 264px);"
+  @card_w 108
+  @card_gap 6
+
+  # Each epic column is only as wide as its busiest cell needs: the max number of
+  # tickets any single (epic, wave) cell holds, clamped to a cap that shrinks as
+  # the number of epics grows (fewer columns → allow up to 3 cards across). A
+  # 1-max column is just one card wide, killing the wasted space. The leading
+  # 52px track is the sticky wave-label gutter.
+  defp columns_style(columns, cells) do
+    cap = column_cap(length(columns))
+
+    widths =
+      Enum.map_join(columns, " ", fn %{lane: lane} ->
+        span = columns |> column_occupancy(cells, lane) |> min(cap) |> max(1)
+        "#{span * @card_w + (span - 1) * @card_gap}px"
+      end)
+
+    "grid-template-columns: 52px #{widths};"
+  end
+
+  defp column_occupancy(_columns, cells, lane) do
+    cells
+    |> Enum.filter(fn {{cell_lane, _phase}, _cards} -> cell_lane == lane end)
+    |> Enum.map(fn {_key, cards} -> length(cards) end)
+    |> case do
+      [] -> 1
+      counts -> Enum.max(counts)
+    end
+  end
+
+  defp column_cap(epic_count) when epic_count <= 4, do: 3
+  defp column_cap(epic_count) when epic_count <= 7, do: 2
+  defp column_cap(_epic_count), do: 1
 
   # Hue ramps red (0%) → green (100%): pct*1.2 maps 100 → 120° (green).
   defp wave_meter_style(pct) when is_integer(pct),
