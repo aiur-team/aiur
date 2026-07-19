@@ -3151,6 +3151,16 @@ textarea:focus-visible,
   font-size: 0.78rem;
 }
 
+.ticket-context-cta {
+  min-height: 44px;
+}
+
+.ticket-context-fresh-chip {
+  color: var(--fg);
+  background: var(--good-soft);
+  border-color: var(--good-line);
+}
+
 .ticket-context-description {
   margin: 0;
   color: var(--muted);
