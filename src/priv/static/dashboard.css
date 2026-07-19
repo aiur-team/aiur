@@ -504,13 +504,42 @@ textarea:focus-visible,
   align-items: start;
 }
 
+/* Grid/flex items default to min-width:auto and single-column grids get an
+   `auto` track — both grow to content's natural width, which let the breakdown
+   tables push the whole content column (and page) wider than the viewport.
+   Force shrinkable tracks + min-width so they never overflow. */
+.bo-selected-summary,
+.bo-breakdown,
+.bo-breakdown-body,
+.bo-breakdown-tables,
+.bo-adhoc,
+.bo-adhoc-body {
+  min-width: 0;
+}
+
+.bo-selected-summary,
+.bo-breakdown,
+.bo-breakdown-body,
+.bo-adhoc,
+.bo-adhoc-body {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .bo-breakdown-table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   border: 1px solid var(--line);
   border-radius: 12px;
   overflow: hidden;
   font-size: 0.78rem;
+}
+
+/* Long "#1130, #1093, …" member lists must wrap, not force the table (and the
+   whole content column) wider than the viewport. */
+.bo-breakdown-members {
+  word-break: break-word;
+  white-space: normal;
 }
 
 .bo-breakdown-table caption {
