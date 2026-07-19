@@ -273,7 +273,6 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
   defp node_lane_label(%Node{card: %{lane: lane}}) when is_binary(lane),
     do: lane |> String.replace("-", " ") |> String.capitalize()
 
-  defp node_lane_label(%Node{}), do: "Unassigned"
   defp node_lane_label(node), do: "Lane #{node_lane(node) + 1}"
 
   defp node_phase_label(%Node{card: %{phase: phase}}) when is_integer(phase) and phase > 0,
@@ -423,5 +422,4 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
   defp edge_relation("cyclic"), do: "is cyclic with"
 
   defp label(value) when is_atom(value), do: value |> Atom.to_string() |> String.replace("_", " ") |> String.capitalize()
-  defp label(_value), do: "Unavailable"
 end
