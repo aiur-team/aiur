@@ -515,7 +515,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     source = install_source(catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy), selected: [selected], context_loader: loader)
 
     {:ok, view, _html} = live(build_conn(), "/build-orders/42")
-    view |> element(~s(button[phx-click="open-ticket-context"])) |> render_click()
+    view |> element(~s([phx-click="open-ticket-context"])) |> render_click()
 
     assert_receive {:context_load_started, loader_pid, selected_identity}, 2_000
     assert selected_identity.identifier == "7"
@@ -559,7 +559,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
       )
 
     {:ok, view, _html} = live(build_conn(), "/build-orders/42")
-    view |> element(~s(button[phx-click="open-ticket-context"])) |> render_click()
+    view |> element(~s([phx-click="open-ticket-context"])) |> render_click()
     assert_receive {:context_load_started, loader_pid, old_context_identity}, 2_000
 
     html = render_patch(view, "/build-orders/43")
@@ -596,7 +596,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
       )
 
     {:ok, view, _html} = live(build_conn(), "/build-orders/42")
-    view |> element(~s(button[phx-click="open-ticket-context"])) |> render_click()
+    view |> element(~s([phx-click="open-ticket-context"])) |> render_click()
 
     assert_receive {:context_load_started, 1, first_loader, selected_identity}, 2_000
     send(view.pid, {:ticket_detail_updated, %{identity: selected_identity}})
@@ -620,7 +620,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
       )
 
     {:ok, view, _html} = live(build_conn(), "/build-orders/42")
-    view |> element(~s(button[phx-click="open-ticket-context"])) |> render_click()
+    view |> element(~s([phx-click="open-ticket-context"])) |> render_click()
     render_async(view, 2_000)
     calls_before = FakeDataSource.calls(source)
 
@@ -639,7 +639,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
       )
 
     {:ok, view, _html} = live(build_conn(), "/build-orders/42")
-    view |> element(~s(button[phx-click="open-ticket-context"])) |> render_click()
+    view |> element(~s([phx-click="open-ticket-context"])) |> render_click()
     render_async(view, 2_000)
     selected_identity = identity(7, "NODE-7")
     GenServer.stop(view.pid)

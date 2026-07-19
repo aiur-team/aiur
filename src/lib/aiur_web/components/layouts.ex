@@ -91,6 +91,33 @@ defmodule AiurWeb.Layouts do
               }
             };
 
+            Hooks.NavToggle = {
+              mounted: function () {
+                var shell = this.el.closest(".dashboard-shell");
+                try {
+                  if (shell && window.localStorage.getItem("aiur-nav-collapsed") === "true") {
+                    shell.setAttribute("data-nav-collapsed", "true");
+                  }
+                } catch (_error) {}
+
+                this.onClick = () => {
+                  if (!shell) return;
+                  var collapsed = shell.getAttribute("data-nav-collapsed") === "true";
+                  var next = collapsed ? "false" : "true";
+                  shell.setAttribute("data-nav-collapsed", next);
+                  this.el.setAttribute("aria-pressed", next);
+                  try {
+                    window.localStorage.setItem("aiur-nav-collapsed", next);
+                  } catch (_error) {}
+                };
+
+                this.el.addEventListener("click", this.onClick);
+              },
+              destroyed: function () {
+                this.el.removeEventListener("click", this.onClick);
+              }
+            };
+
             Hooks.ThemeToggle = {
               mounted: function () {
                 this.onClick = () => {

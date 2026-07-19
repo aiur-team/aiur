@@ -16,23 +16,46 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
   def dashboard_shell(assigns) do
     ~H"""
     <section class="dashboard-shell">
-      <aside class="shell-sidebar" aria-label="Operator Control Center navigation">
-        <a class="brand-mini" href="/" aria-label="Aiur Operator Control Center">
-          <img class="brand-mini-logo" src="/aiur-logo.png" alt="" />
-          <span class="brand-wordmark"><b>aiur</b> / Operator Control Center</span>
-        </a>
+      <aside class="shell-sidebar" aria-label="Aiur navigation">
+        <div class="brand-row">
+          <a class="brand-mini" href="/" aria-label="Aiur home">
+            <img class="brand-mini-logo" src="/aiur-logo.png" alt="" />
+            <span class="brand-wordmark"><b>aiur</b></span>
+          </a>
+          <div class="brand-tools">
+            <button
+              id="nav-toggle"
+              class="tool-btn tool-btn-icon"
+              type="button"
+              phx-hook="NavToggle"
+              aria-label="Hide or show navigation"
+              title="Hide or show navigation"
+            >
+              <span aria-hidden="true">☰</span>
+            </button>
+            <button
+              id="theme-toggle"
+              class="tool-btn tool-btn-icon"
+              type="button"
+              phx-hook="ThemeToggle"
+              aria-label="Toggle color theme"
+              title="Toggle color theme"
+            >
+              <span class="theme-icon" aria-hidden="true">◐</span>
+            </button>
+          </div>
+        </div>
         <.navigation
           routes={@routes}
           current_route={@route}
           class="shell-nav shell-nav-sidebar"
-          label="Control Center sidebar routes"
+          label="Aiur sidebar routes"
         />
       </aside>
 
       <div class="shell-main">
         <header class="topbar">
           <div class="route-context">
-            <p class="route-eyebrow">Operator Control Center</p>
             <h1 id="route-title">{@route.label}</h1>
             <p>{@route.description}</p>
           </div>
@@ -42,9 +65,6 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
             <span class="status-badge"><span class="status-key">ITS</span> {@tracker_kind}</span>
             <span class="status-badge"><span class="status-key">Agent</span> {@agent_kind}</span>
             <time class="status-badge mono num" datetime={datetime_value(@now)}>{clock_value(@now)}</time>
-            <button id="theme-toggle" class="tool-btn" type="button" phx-hook="ThemeToggle" aria-label="Toggle color theme">
-              <span class="theme-icon" aria-hidden="true">◐</span>Theme
-            </button>
           </div>
         </header>
 
@@ -57,7 +77,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
         routes={@routes}
         current_route={@route}
         class="shell-nav shell-nav-mobile"
-        label="Control Center mobile routes"
+        label="Aiur mobile routes"
       />
     </section>
     """
