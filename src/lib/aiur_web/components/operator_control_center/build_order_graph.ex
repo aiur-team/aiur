@@ -59,8 +59,6 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
         </div>
       </div>
 
-      <p :if={@planning?} class="bo-planning-note">Planning preview · pre-ticket — no GitHub issues created yet</p>
-
       <div class="bo-grid-toolbar">
         <ul :if={@planning?} class="bo-grid-legend" aria-label="Graph legend">
           <li><span class="bo-legend-swatch is-planned" aria-hidden="true"></span>planned</li>

@@ -525,6 +525,99 @@ textarea:focus-visible,
   grid-template-columns: minmax(0, 1fr);
 }
 
+/* Per-phase / per-epic block: a top stat row, a wrapping member sub-row, and a
+   full-width progress bar along the bottom. Replaces the old wide table so long
+   member lists wrap instead of overflowing. */
+.bo-breakdown-list {
+  display: grid;
+  gap: 0.5rem;
+  align-content: start;
+  min-width: 0;
+}
+
+.bo-breakdown-list-title {
+  margin: 0 0 0.1rem;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.66rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.bo-breakdown-row {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.bo-breakdown-row-top {
+  display: flex;
+  align-items: baseline;
+  gap: 0.85rem;
+  min-width: 0;
+}
+
+.bo-breakdown-row-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 0.82rem;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bo-breakdown-row-stat {
+  flex: none;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+
+.bo-breakdown-row-stat-label {
+  font-size: 0.6rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.bo-breakdown-row-stat .num {
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.bo-breakdown-row-members {
+  margin: 0;
+  min-width: 0;
+  word-break: break-word;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.66rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.bo-breakdown-row-bar {
+  display: block;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.bo-breakdown-row-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
 .bo-breakdown-table {
   width: 100%;
   table-layout: fixed;

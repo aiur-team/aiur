@@ -299,12 +299,12 @@ defmodule AiurWeb.BuildOrderLiveTest do
 
     assert {:ok, view, html} = live(build_conn(), "/build-orders/42")
 
-    # The breakdown region renders with accessible table semantics and a KPI strip.
+    # The breakdown region renders per-phase/epic blocks and a KPI strip.
     assert html =~ ~s(<section class="bo-breakdown")
-    assert has_element?(view, "table#bo-phase-breakdown caption")
-    assert has_element?(view, "table#bo-epic-breakdown caption")
-    assert has_element?(view, ~s(table#bo-phase-breakdown th[scope="col"]))
-    assert has_element?(view, ~s(table#bo-phase-breakdown th[scope="row"]))
+    assert has_element?(view, "#bo-phase-breakdown .bo-breakdown-list-title")
+    assert has_element?(view, "#bo-epic-breakdown .bo-breakdown-list-title")
+    assert has_element?(view, "#bo-phase-breakdown .bo-breakdown-row .bo-breakdown-row-name")
+    assert has_element?(view, "#bo-phase-breakdown .bo-breakdown-row-bar")
     assert has_element?(view, "dl.bo-kpis")
     assert html =~ "rollout hint"
 
@@ -483,9 +483,9 @@ defmodule AiurWeb.BuildOrderLiveTest do
     health_html = render(view)
     assert health_html =~ ~s(data-build-order-status="selected_stale")
     assert health_html =~ "Root forty-two updated"
+    # Degraded provider states surface as an explicit state card (the always-on
+    # health badge was removed from the header).
     assert health_html =~ "Stale last-known-good graph"
-    assert health_html =~ "Stale"
-    assert health_html =~ "Refreshing"
   end
 
   test "keeps structurally invalid selected data visible as an explicit diagnostic state", %{first: first} do

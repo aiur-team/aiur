@@ -6,7 +6,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.BuildOrder.SelectedRoot
   alias AiurWeb.BuildOrder.RouteState
-  alias AiurWeb.OperatorControlCenter.{BuildOrderBreakdown, BuildOrderGraph, BuildOrderStatus}
+  alias AiurWeb.OperatorControlCenter.{BuildOrderBreakdown, BuildOrderGraph}
 
   attr(:route_state, :any, required: true)
   attr(:model, :any, default: nil)
@@ -22,15 +22,9 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
 
     ~H"""
     <section class="bo-surface" aria-labelledby="build-order-selected-title">
-      <.link patch="/build-orders" class="bo-back-link">← All Build Orders</.link>
-
       <header class="bo-page-header">
-        <div>
-          <p class="section-eyebrow">Selected planning root</p>
-          <h2 id="build-order-selected-title">{selected_title(@status, @snapshot, RouteState.root_identifier(@route_state))}</h2>
-          <p>{selected_message(@status)}</p>
-        </div>
-        <BuildOrderStatus.provider_health snapshot={@snapshot || RouteState.catalog_snapshot(@route_state)} now={@now} />
+        <.link patch="/build-orders" class="bo-back-link" aria-label="Back to all Build Orders">←</.link>
+        <h2 id="build-order-selected-title">{selected_title(@status, @snapshot, RouteState.root_identifier(@route_state))}</h2>
       </header>
 
       <div :if={is_nil(@model)} class="bo-state-card" role={state_role(@status)}>
@@ -39,7 +33,6 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
       </div>
 
       <div :if={not is_nil(@model)} class="bo-selected-summary">
-        <p class="mono">Planning generation {display_generation(@snapshot)}</p>
         <div :if={@model.status not in [:ready, :empty]} class="bo-state-card" role={model_state_role(@model)}>
           <h3>{model_state_title(@model)}</h3>
           <p>{model_summary(@model)}</p>
@@ -81,12 +74,6 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
   defp selected_title(_status, _snapshot, identifier) when is_binary(identifier), do: "Build Order ##{identifier}"
   defp selected_title(_status, _snapshot, _identifier), do: "Build Order"
 
-  defp selected_message(:selected), do: "Plan and live progress for this Build Order."
-  defp selected_message(:selected_stale), do: "Showing the last saved plan while live data catches up."
-  defp selected_message(:selected_invalid), do: "The selected provider data is structurally invalid."
-  defp selected_message(:selected_unavailable), do: "The selected provider is unavailable."
-  defp selected_message(_status), do: "Resolving which tickets belong to this Build Order."
-
   defp state_title(:invalid_parameter), do: "Invalid Build Order URL"
   defp state_title(:awaiting_catalog), do: "Loading catalog"
   defp state_title(:catalog_unavailable), do: "Catalog unavailable"
@@ -115,8 +102,6 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
   defp state_role(:invalid_catalog), do: "alert"
   defp state_role(_status), do: "status"
 
-  defp display_generation(%Snapshot{generation: generation}), do: generation
-  defp display_generation(_snapshot), do: "unknown"
   defp positive_generation(%Snapshot{generation: generation}) when is_integer(generation) and generation > 0, do: generation
   defp positive_generation(_snapshot), do: 1
 

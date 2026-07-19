@@ -62,8 +62,6 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
           <div class="toolbar">
             <span class="status-badge status-badge-live"><span class="status-badge-dot"></span>Live</span>
             <span class="status-badge status-badge-offline"><span class="status-badge-dot"></span>Offline</span>
-            <span class="status-badge"><span class="status-key">ITS</span> {@tracker_kind}</span>
-            <span class="status-badge"><span class="status-key">Agent</span> {@agent_kind}</span>
             <time class="status-badge mono num" datetime={datetime_value(@now)}>{clock_value(@now)}</time>
           </div>
         </header>

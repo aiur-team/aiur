@@ -83,21 +83,21 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdownTest do
   end
 
   describe "build_order_breakdown/1" do
-    test "renders accessible tables, KPI strip, and a rollout-hint note" do
+    test "renders per-phase/epic blocks, KPI strip, and a rollout-hint note" do
       html = render_breakdown(model([m(1, phase: 1, lane: "plan-graph", cx: 3), m(2, phase: 2, lane: "runtime", cx: 4, blockers: [1])]))
 
       assert html =~ ~s(id="bo-phase-breakdown")
       assert html =~ ~s(id="bo-epic-breakdown")
-      assert html =~ "<caption"
-      assert html =~ ~s(<th scope="col">Phase</th>)
-      assert html =~ ~s(<th scope="row">Phase 1</th>)
+      assert html =~ ~s(class="bo-breakdown-list-title">Phases</h4>)
+      assert html =~ ~s(class="bo-breakdown-row-name">Phase 1</span>)
+      assert html =~ ~s(class="bo-breakdown-row-members">#1</p>)
       assert html =~ "Plan distribution"
       assert html =~ "rollout hint"
       # KPI facts are present as text, not only bars.
       assert html =~ "Ready at start"
       assert html =~ "Longest chain"
-      # Bars are decorative only.
-      assert html =~ ~s(<span class="bo-bar" aria-hidden="true">)
+      # A full-width progress bar sits along the bottom of each block.
+      assert html =~ ~s(<span class="bo-breakdown-row-bar" aria-hidden="true">)
     end
 
     test "renders the named stale state and no healthy table when degraded" do

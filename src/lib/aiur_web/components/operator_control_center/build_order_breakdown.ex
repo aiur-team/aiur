@@ -158,29 +158,23 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdown do
 
   defp breakdown_table(assigns) do
     ~H"""
-    <table id={@id} class="bo-breakdown-table">
-      <caption class="sr-only">{@caption}</caption>
-      <thead>
-        <tr>
-          <th scope="col">{@dimension}</th>
-          <th scope="col" class="num">Tickets</th>
-          <th scope="col" class="num">Points</th>
-          <th scope="col"><span class="sr-only">Point share</span></th>
-          <th scope="col">Members</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr :for={row <- @rows} data-breakdown-key={to_string(row.key)}>
-          <th scope="row">{row.label}</th>
-          <td class="num">{row.count}</td>
-          <td class="num">{points_display(row.points)}</td>
-          <td>
-            <span class="bo-bar" aria-hidden="true"><i style={"width:#{bar_percent(row.weight)}%"}></i></span>
-          </td>
-          <td class="bo-breakdown-members">{members_text(row.members)}</td>
-        </tr>
-      </tbody>
-    </table>
+    <section id={@id} class="bo-breakdown-list" aria-label={@caption}>
+      <h4 class="bo-breakdown-list-title">{@dimension}s</h4>
+      <p class="sr-only">{@caption}</p>
+      <article
+        :for={row <- @rows}
+        class="bo-breakdown-row"
+        data-breakdown-key={to_string(row.key)}
+      >
+        <div class="bo-breakdown-row-top">
+          <span class="bo-breakdown-row-name">{row.label}</span>
+          <span class="bo-breakdown-row-stat"><span class="bo-breakdown-row-stat-label">tickets</span> <span class="num">{row.count}</span></span>
+          <span class="bo-breakdown-row-stat"><span class="bo-breakdown-row-stat-label">points</span> <span class="num">{points_display(row.points)}</span></span>
+        </div>
+        <p :if={row.members != []} class="bo-breakdown-row-members">{members_text(row.members)}</p>
+        <span class="bo-breakdown-row-bar" aria-hidden="true"><i style={"width:#{bar_percent(row.weight)}%"}></i></span>
+      </article>
+    </section>
     """
   end
 
