@@ -165,6 +165,7 @@ defmodule Aiur.InitTest do
         claude_version: fn -> {:ok, "1.1.0"} end,
         repo_root: fn -> dir end,
         github_login: fn -> "octocat" end,
+        github_bot_account_default: fn -> nil end,
         github_token: fn -> nil end,
         list_labels: fn _tracker -> {:ok, []} end,
         create_labels: fn tracker, labels ->
@@ -1396,6 +1397,84 @@ defmodule Aiur.InitTest do
 
       assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
       assert written_config(target)["prompt_file"] == nil
+    end
+  end
+
+  describe "github bot_account setup (#1152)" do
+    @bot_account_label "GitHub account Aiur's agents post as (bot_account)"
+
+    test "persists the token's detected login accepted as the default", %{dir: dir, target: target} do
+      d = deps(self(), dir, target, %{github_bot_account_default: fn -> "its-applekid" end})
+
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), d)
+
+      assert written_config(target)["tracker"]["github"]["bot_account"] == "its-applekid"
+    end
+
+    test "persists a normalized custom login over the default", %{dir: dir, target: target} do
+      answers = github_answers(%{input: %{@bot_account_label => "@Custom-Bot"}})
+      d = deps(self(), dir, target, %{github_bot_account_default: fn -> "octocat" end})
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), d)
+
+      assert written_config(target)["tracker"]["github"]["bot_account"] == "custom-bot"
+    end
+
+    test "explains the credential-vs-identity distinction during setup", %{dir: dir, target: target} do
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
+
+      log = Enum.join(puts_log(), "\n")
+      assert log =~ "GITHUB_TOKEN"
+      assert log =~ "github.bot_account"
+      assert log =~ ~r/dedicated bot account/i
+    end
+
+    test "a blank answer skips bot_account and writes no key", %{dir: dir, target: target} do
+      answers = github_answers(%{input: %{@bot_account_label => ""}})
+      d = deps(self(), dir, target, %{github_bot_account_default: fn -> nil end})
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), d)
+
+      refute Map.has_key?(written_config(target)["tracker"]["github"], "bot_account")
+      assert Enum.any?(puts_log(), &(&1 =~ ~r/Skipped bot_account/))
+    end
+
+    test "a failed token-identity lookup writes no bot_account and never exposes token material",
+         %{dir: dir, target: target} do
+      secret = "ghp_supersecrettokenvalue"
+
+      d =
+        deps(self(), dir, target, %{
+          # A viewer-login lookup failure surfaces as a nil default, not a raise.
+          github_bot_account_default: fn -> nil end,
+          github_token: fn -> secret end
+        })
+
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), d)
+
+      refute Map.has_key?(written_config(target)["tracker"]["github"], "bot_account")
+      refute File.read!(target) =~ secret
+      refute Enum.any?(puts_log(), &(&1 =~ secret))
+    end
+
+    test "re-running init preserves an existing bot_account and shows it in the summary",
+         %{dir: dir, target: target} do
+      d = deps(self(), dir, target, %{github_bot_account_default: fn -> "its-applekid" end})
+
+      # First run writes bot_account: its-applekid.
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), d)
+      assert written_config(target)["tracker"]["github"]["bot_account"] == "its-applekid"
+      # Drain the first run's recorded prompts/output so the assertions below
+      # only observe the resume run.
+      _ = puts_log()
+      _ = input_labels()
+
+      # Resume must neither re-ask nor rewrite the tracker; the value stands.
+      assert :ok = Init.run(%{force: false}, io(self()), d)
+
+      assert written_config(target)["tracker"]["github"]["bot_account"] == "its-applekid"
+      refute Enum.any?(input_labels(), &(&1 == @bot_account_label))
+      assert Enum.any?(puts_log(), &(&1 =~ ~r/bot_account: its-applekid/))
     end
   end
 

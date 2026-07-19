@@ -113,12 +113,14 @@ defmodule Aiur.Init.Templates do
   defp rate_limit_fallback_line([]), do: ""
   defp rate_limit_fallback_line(backends), do: "  switch_model_on_ratelimit: [#{Enum.join(backends, ", ")}]\n"
 
-  defp tracker_provider_block(%{kind: "github", repo: repo}) do
+  defp tracker_provider_block(%{kind: "github"} = github) do
     # label_prefix is fixed (`agent`) and matches the schema default, so the
-    # written config omits it.
+    # written config omits it. bot_account is the identity (not the GITHUB_TOKEN
+    # credential) Aiur suppresses to avoid self-loops; omitted when left blank.
     [
       "  github:",
-      repo && "    repo: #{repo}"
+      github[:repo] && "    repo: #{github[:repo]}",
+      github[:bot_account] && "    bot_account: #{github[:bot_account]}"
     ]
     |> Enum.reject(&is_nil/1)
     |> Enum.join("\n")

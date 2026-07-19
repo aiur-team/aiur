@@ -83,6 +83,47 @@ defmodule Aiur.Init.GitHubTest do
     end
   end
 
+  describe "detect_bot_account/1" do
+    @tag :not_async
+    test "returns nil when no GITHUB_TOKEN is set (never calls the viewer lookup)" do
+      System.delete_env("GITHUB_TOKEN")
+      on_exit(fn -> System.delete_env("GITHUB_TOKEN") end)
+
+      request_fun = fn _req -> flunk("viewer lookup must not run without a token") end
+      assert GitHub.detect_bot_account(request_fun) == nil
+    end
+
+    @tag :not_async
+    test "returns nil on a viewer-lookup failure without surfacing the token" do
+      System.put_env("GITHUB_TOKEN", "ghp_supersecret")
+      on_exit(fn -> System.delete_env("GITHUB_TOKEN") end)
+
+      request_fun = fn _req -> {:error, :boom} end
+      assert GitHub.detect_bot_account(request_fun) == nil
+    end
+
+    @tag :not_async
+    test "returns nil when the request raises rather than crashing" do
+      System.put_env("GITHUB_TOKEN", "ghp_supersecret")
+      on_exit(fn -> System.delete_env("GITHUB_TOKEN") end)
+
+      request_fun = fn _req -> raise "network down" end
+      assert GitHub.detect_bot_account(request_fun) == nil
+    end
+
+    @tag :not_async
+    test "normalizes the resolved viewer login" do
+      System.put_env("GITHUB_TOKEN", "ghp_supersecret")
+      on_exit(fn -> System.delete_env("GITHUB_TOKEN") end)
+
+      request_fun = fn _req ->
+        {:ok, %{status: 200, body: %{"data" => %{"viewer" => %{"login" => "Its-AppleKid"}}}}}
+      end
+
+      assert GitHub.detect_bot_account(request_fun) == "its-applekid"
+    end
+  end
+
   describe "detect_repo/0" do
     test "returns owner/name from git remote" do
       dir = System.tmp_dir!() |> Path.join("detect-repo-#{System.unique_integer([:positive])}")
