@@ -2177,7 +2177,9 @@ dispatch_run() {
     fi
   done
 
-  run_session "$mode" "${args[@]}"
+  # bash 3.2 (macOS default) errors on "${args[@]}" when args is empty under
+  # `set -u` — happens for a bare `--bg` run. Guard the expansion.
+  run_session "$mode" "${args[@]+"${args[@]}"}"
 }
 
 aiur_engine_main() {
