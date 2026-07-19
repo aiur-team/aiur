@@ -258,6 +258,16 @@ defmodule Aiur.UsageEnvelopeTest do
       assert decoded == envelope
     end
 
+    test "claude retains a five_minutes cache_write_duration and round-trips through the codec" do
+      {:ok, envelope} = UsageEnvelope.new(claude_attributes(%{cache_write_duration: :five_minutes}))
+
+      assert envelope.cache_write_duration == :five_minutes
+      assert envelope.context_tier == nil
+
+      assert {:ok, decoded} = envelope |> Codec.encode() |> Codec.decode()
+      assert decoded == envelope
+    end
+
     test "rejects a claude partition that mixes providers or uses an unknown duration" do
       assert {:error, :invalid_context_tier} =
                UsageEnvelope.new(claude_attributes(%{context_tier: :short_context}))

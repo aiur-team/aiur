@@ -56,6 +56,29 @@ defmodule Aiur.UsageAggregate.CheckpointTest do
     assert restored.cells[{Key.dims(claude), {:token, :cache_creation_input}}] == 5
   end
 
+  test "loads a legacy checkpoint whose cells predate the occurrence-price partitions" do
+    # A checkpoint written before this change has no context_tier /
+    # cache_write_duration keys in its cell dims. Decoding must tolerate their
+    # absence, surfacing the partition as unknown (nil) rather than erroring or
+    # collapsing the price bucket to a guessed value.
+    projection = sample_projection()
+    encoded = Checkpoint.encode(projection)
+
+    legacy_cells =
+      Enum.map(encoded["cells"], fn cell ->
+        update_in(cell["dims"], &Map.drop(&1, ["context_tier", "cache_write_duration"]))
+      end)
+
+    assert {:ok, restored} =
+             encoded |> Map.put("cells", legacy_cells) |> recompute_checksum() |> Checkpoint.from_record()
+
+    assert restored.cells == projection.cells
+
+    {dims, _measure} = restored.cells |> Map.keys() |> hd()
+    assert dims.context_tier == nil
+    assert dims.cache_write_duration == nil
+  end
+
   test "rejects a checkpoint cell carrying an invalid occurrence-price partition" do
     encoded = Checkpoint.encode(sample_projection())
     [cell | rest] = encoded["cells"]
