@@ -141,6 +141,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
       <div class="bo-node-top">
         <span class="bo-node-id">{@card.id}</span>
         <span :if={@card.complexity} class="bo-cx" title={"Complexity #{@card.complexity} of 5"}>cx{@card.complexity}</span>
+        <BuildOrderEpicIcon.build_order_epic_icon lane={@card.lane} class="bo-node-ic" />
       </div>
       <div class="bo-node-title">{@card.title}</div>
       <div class="bo-node-status">
@@ -159,7 +160,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
   # is wide enough for two ~140px ticket cards side by side (they wrap within the
   # cell); the leading 56px track is the wave-label gutter.
   defp columns_style(columns),
-    do: "grid-template-columns: 56px repeat(#{max(length(columns), 1)}, 292px);"
+    do: "grid-template-columns: 52px repeat(#{max(length(columns), 1)}, 264px);"
 
   # Hue ramps red (0%) → green (100%): pct*1.2 maps 100 → 120° (green).
   defp wave_meter_style(pct) when is_integer(pct),

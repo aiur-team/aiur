@@ -5644,8 +5644,8 @@ textarea:focus-visible,
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
-  flex: 0 0 140px;
-  width: 140px;
+  flex: 0 0 128px;
+  width: 128px;
   padding: 0.5rem 0.55rem 0.6rem;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -5712,6 +5712,18 @@ textarea:focus-visible,
   font-size: 0.66rem;
   font-weight: 600;
   white-space: nowrap;
+}
+
+/* Epic icon in the card's top-right corner. */
+.bo-epic-ic.bo-node-ic {
+  width: 0.95rem;
+  height: 0.95rem;
+  color: var(--faint);
+}
+
+/* When the card has no complexity chip, the icon still hugs the right edge. */
+.bo-node-top > .bo-node-ic:nth-child(2) {
+  margin-left: auto;
 }
 
 .bo-node-title {
