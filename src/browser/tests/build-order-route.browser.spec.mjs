@@ -83,9 +83,9 @@ test('production Build Order route keeps catalog, graph truth, context, and URL 
 
     await expect(graph.getByText('External reference').first()).toBeVisible()
     await expect(graph.getByText('Dependency is outside the configured repository.').first()).toBeVisible()
-    await expect(graph.locator('.bo-layout-card', { hasText: 'Readiness target' }).getByText('Review', { exact: true })).toBeVisible()
+    await expect(graph.locator('.bo-layout-card', { hasText: 'Readiness target' }).locator('.bo-layout-card-meta-line')).toContainText('Review')
     await expect(graph.locator('.bo-layout-card', { hasText: 'Readiness target' }).getByText('60%', { exact: true })).toBeVisible()
-    await expect(graph.locator('.bo-layout-card', { hasText: 'Unknown dependency' }).locator('[data-icon-key="lane_generic"]')).toBeVisible()
+    await expect(graph.getByRole('region', { name: 'Lane 6' }).locator('.bo-layout-card', { hasText: 'Unknown dependency' })).toBeVisible()
 
     const target = graph.locator('.bo-layout-card', { hasText: 'Readiness target' })
     const contextTrigger = target.getByRole('button', { name: /Open cached context/ })
@@ -96,7 +96,7 @@ test('production Build Order route keeps catalog, graph truth, context, and URL 
     await expect(dialog).toBeVisible()
     await expect(dialog.getByRole('heading', { name: 'Readiness target' })).toBeFocused()
     await expect(dialog.getByRole('heading', { name: 'Blocked by' })).toBeVisible()
-    await expect(dialog.getByRole('link', { name: 'Issue' })).toHaveAttribute('href', 'https://github.com/owner/repo/issues/5')
+    await expect(dialog.getByRole('link', { name: 'Open in GitHub' })).toHaveAttribute('href', 'https://github.com/owner/repo/issues/5')
 
     await dialog.getByRole('button', { name: 'Completed dependency' }).click()
     const replacement = page.getByRole('dialog', { name: 'Completed dependency' })
