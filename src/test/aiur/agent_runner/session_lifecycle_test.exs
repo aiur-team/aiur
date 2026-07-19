@@ -649,7 +649,7 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
       {:ok, alive} = Agent.start_link(fn -> %{root_pid => false, late_child_pid => true} end)
 
       on_exit(fn ->
-        if Process.alive?(alive), do: Agent.stop(alive)
+        Aiur.TestSupport.safe_stop(alive)
       end)
 
       assert {:ok, lease} =
@@ -691,7 +691,7 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
       {:ok, alive} = Agent.start_link(fn -> %{root_pid => false, late_child_pid => true} end)
 
       on_exit(fn ->
-        if Process.alive?(alive), do: Agent.stop(alive)
+        Aiur.TestSupport.safe_stop(alive)
       end)
 
       assert {:ok, lease} =
@@ -730,7 +730,7 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
         end)
 
       on_exit(fn ->
-        if Process.alive?(alive), do: Agent.stop(alive)
+        Aiur.TestSupport.safe_stop(alive)
       end)
 
       assert {:ok, lease} =

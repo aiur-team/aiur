@@ -21,7 +21,7 @@ defmodule Aiur.DecisionAttentionTest do
 
     opts = Keyword.merge(defaults, opts)
     {:ok, pid} = DecisionAttention.start_link(opts)
-    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
     {pid, Keyword.fetch!(opts, :name)}
   end
 
@@ -289,7 +289,7 @@ defmodule Aiur.DecisionAttentionTest do
         filesystem_sync_fun: fn -> :ok end
       )
 
-    on_exit(fn -> if Process.alive?(store), do: GenServer.stop(store) end)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(store) end)
 
     projector = fn payload, opts -> DecisionStore.project_attention(payload, opts, store) end
 

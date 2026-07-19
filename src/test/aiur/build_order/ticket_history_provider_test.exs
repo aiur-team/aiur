@@ -386,7 +386,7 @@ defmodule Aiur.BuildOrder.TicketHistoryProviderTest do
     {:ok, exchange} = Agent.start_link(fn -> first_exchange end)
 
     on_exit(fn ->
-      if Process.alive?(exchange), do: Agent.stop(exchange)
+      Aiur.TestSupport.safe_stop(exchange)
     end)
 
     _server =
@@ -449,7 +449,7 @@ defmodule Aiur.BuildOrder.TicketHistoryProviderTest do
     {:ok, server} = TicketHistoryProvider.start_link(Keyword.merge(defaults, opts))
 
     on_exit(fn ->
-      if Process.alive?(server), do: GenServer.stop(server)
+      Aiur.TestSupport.safe_stop(server)
     end)
 
     server

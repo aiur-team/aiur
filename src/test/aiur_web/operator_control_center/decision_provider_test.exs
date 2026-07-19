@@ -29,7 +29,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionProviderTest do
     {:ok, store} = DecisionStore.start_link(name: nil, filesystem_sync_fun: fn -> :ok end)
 
     on_exit(fn ->
-      if Process.alive?(store), do: GenServer.stop(store)
+      Aiur.TestSupport.safe_stop(store)
 
       case original_override do
         nil -> Application.delete_env(:aiur, :decision_state_dir)

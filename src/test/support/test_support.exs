@@ -243,6 +243,28 @@ defmodule Aiur.TestSupport do
     :exit, _reason -> :supervisor_unavailable
   end
 
+  @doc """
+  Stops a server during test teardown, tolerating a process that has already
+  exited.
+
+  `start_link`ed servers are linked to the test process, so when the test
+  finishes its exit propagates over the link and tears the server down. An
+  `on_exit/1` callback runs *afterward* in a separate process, so a
+  `Process.alive?/1` / `Process.whereis/1` guard around `GenServer.stop/1` is a
+  TOCTOU race: the guard observes the server alive, the link teardown then kills
+  it, and the stop crashes with `no process`. Under coverage instrumentation the
+  teardown window widens and the race trips intermittently. `safe_stop/1`
+  catches that `:exit` instead of guarding, so an already-dead process is a
+  no-op. Accepts a pid or a registered name.
+  """
+  @spec safe_stop(GenServer.server()) :: :ok
+  def safe_stop(server) do
+    GenServer.stop(server)
+    :ok
+  catch
+    :exit, _reason -> :ok
+  end
+
   @doc false
   @spec await_process_down(pid(), timeout()) :: :ok | :error
   def await_process_down(process, timeout \\ 2_000) when is_pid(process) do

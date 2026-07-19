@@ -44,7 +44,7 @@ defmodule Aiur.DecisionApiIntegrationTest do
       )
 
     on_exit(fn ->
-      if Process.alive?(store), do: GenServer.stop(store)
+      Aiur.TestSupport.safe_stop(store)
       restore_endpoint_config(original_writable, endpoint_started?)
       restore_env("AIUR_SUPERVISOR_TOKEN", original_token)
 

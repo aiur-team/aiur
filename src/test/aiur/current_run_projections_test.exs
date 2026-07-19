@@ -449,7 +449,7 @@ defmodule Aiur.CurrentRunProjectionsTest do
       )
 
     {:ok, supervisor} = Supervisor.start_link([{CurrentRunProjections, opts}], strategy: :one_for_one)
-    on_exit(fn -> if Process.alive?(supervisor), do: Supervisor.stop(supervisor) end)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(supervisor) end)
     assert_receive {:projection_checkpoint_read, initial_owner}, 2_000
 
     assert :ok = CurrentRunProjections.refresh(name)
@@ -531,7 +531,7 @@ defmodule Aiur.CurrentRunProjectionsTest do
         )
 
       {:ok, supervisor} = Supervisor.start_link([{CurrentRunProjections, opts}], strategy: :one_for_one)
-      on_exit(fn -> if Process.alive?(supervisor), do: Supervisor.stop(supervisor) end)
+      on_exit(fn -> Aiur.TestSupport.safe_stop(supervisor) end)
       assert_receive {:projection_checkpoint_read, initial_owner}, 2_000
 
       assert :ok = CurrentRunProjections.refresh(name)
@@ -756,7 +756,7 @@ defmodule Aiur.CurrentRunProjectionsTest do
       )
 
     {:ok, supervisor} = Supervisor.start_link([{CurrentRunProjections, opts}], strategy: :one_for_one)
-    on_exit(fn -> if Process.alive?(supervisor), do: Supervisor.stop(supervisor) end)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(supervisor) end)
     assert_receive {:projection_checkpoint_read, first_owner}, 2_000
 
     assert :ok = CurrentRunProjections.refresh(name)
