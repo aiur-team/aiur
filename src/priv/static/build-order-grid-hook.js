@@ -1,0 +1,317 @@
+// Build Order grid hook: draws dependency edges between grid cards and owns
+// zoom / pan / fit. Zoom is a CSS transform scale on the scale wrapper; pan is
+// native viewport scroll. Zoom/pan state lives on the hook instance (and is
+// mirrored to sessionStorage) and is ALWAYS re-applied in `updated()` — it is
+// never reset on a data refresh, so background provider updates cannot snap the
+// view back to 100%.
+(function () {
+  "use strict";
+
+  var MIN_ZOOM = 0.1;
+  var MAX_ZOOM = 1.6;
+  var ZOOM_STEP = 0.1;
+
+  function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+  }
+
+  function round2(value) {
+    return Math.round(value * 100) / 100;
+  }
+
+  function Grid(el) {
+    this.el = el;
+    this.scale = 1;
+    this.storageKey = "aiur-bo-grid:" + (el.getAttribute("data-bo-grid-key") || el.id || "default");
+    this.onZoomClick = this.onZoomClick.bind(this);
+    this.onWheel = this.onWheel.bind(this);
+    this.onKeydown = this.onKeydown.bind(this);
+    this.onPointerDown = this.onPointerDown.bind(this);
+    this.onPointerMove = this.onPointerMove.bind(this);
+    this.onPointerUp = this.onPointerUp.bind(this);
+    this.onPointerOver = this.onPointerOver.bind(this);
+    this.onPointerOut = this.onPointerOut.bind(this);
+    this.scheduleDraw = this.scheduleDraw.bind(this);
+  }
+
+  Grid.prototype.capture = function () {
+    var q = this.el.querySelector.bind(this.el);
+    this.viewport = q("[data-bo-grid-viewport]");
+    this.scaleEl = q("[data-bo-grid-scale]");
+    this.stage = q("[data-bo-grid-stage]");
+    this.body = q("[data-bo-grid-body]");
+    this.edgesSvg = q("[data-bo-grid-edges]");
+    this.readout = q("[data-bo-zoom-level]");
+    this.announce = q("[data-bo-grid-announce]");
+    this.zoomButtons = Array.prototype.slice.call(this.el.querySelectorAll("[data-bo-zoom]"));
+  };
+
+  Grid.prototype.mount = function () {
+    this.capture();
+    if (!this.viewport || !this.scaleEl) return;
+
+    this.scale = this.restoreScale();
+
+    this.zoomButtons.forEach(function (button) {
+      button.addEventListener("click", this.onZoomClick);
+    }, this);
+    this.viewport.addEventListener("wheel", this.onWheel, { passive: false });
+    this.viewport.addEventListener("keydown", this.onKeydown);
+    this.viewport.addEventListener("pointerdown", this.onPointerDown);
+    this.el.addEventListener("pointerover", this.onPointerOver);
+    this.el.addEventListener("pointerout", this.onPointerOut);
+
+    if (typeof ResizeObserver === "function") {
+      this.observer = new ResizeObserver(this.scheduleDraw);
+      this.observer.observe(this.body);
+      this.observer.observe(this.viewport);
+    }
+    if (typeof window !== "undefined") {
+      window.addEventListener("resize", this.scheduleDraw);
+    }
+
+    this.applyTransform();
+    this.scheduleDraw();
+  };
+
+  // Re-applied on every LiveView patch: heal any transform the DOM patch may
+  // have dropped, and redraw edges against the freshly rendered cards. Zoom/pan
+  // are intentionally preserved — never reset here.
+  Grid.prototype.refresh = function () {
+    this.capture();
+    if (!this.viewport || !this.scaleEl) return;
+    this.applyTransform();
+    this.scheduleDraw();
+  };
+
+  Grid.prototype.destroy = function () {
+    if (this.observer) this.observer.disconnect();
+    if (typeof window !== "undefined") window.removeEventListener("resize", this.scheduleDraw);
+  };
+
+  // --- zoom -----------------------------------------------------------------
+
+  Grid.prototype.setZoom = function (next) {
+    this.scale = clamp(round2(next), MIN_ZOOM, MAX_ZOOM);
+    this.storeScale();
+    this.applyTransform();
+    this.scheduleDraw();
+    if (this.announce) this.announce.textContent = "Zoom " + Math.round(this.scale * 100) + "%";
+  };
+
+  Grid.prototype.onZoomClick = function (event) {
+    var action = event.currentTarget.getAttribute("data-bo-zoom");
+    if (action === "in") this.setZoom(this.scale + ZOOM_STEP);
+    else if (action === "out") this.setZoom(this.scale - ZOOM_STEP);
+    else if (action === "fit") this.fit();
+  };
+
+  Grid.prototype.onWheel = function (event) {
+    if (!(event.ctrlKey || event.metaKey)) return;
+    event.preventDefault();
+    this.setZoom(this.scale + (event.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP));
+  };
+
+  Grid.prototype.onKeydown = function (event) {
+    if (event.target !== this.viewport) return;
+    if (event.key === "+" || event.key === "=") {
+      event.preventDefault();
+      this.setZoom(this.scale + ZOOM_STEP);
+    } else if (event.key === "-" || event.key === "_") {
+      event.preventDefault();
+      this.setZoom(this.scale - ZOOM_STEP);
+    } else if (event.key === "0") {
+      event.preventDefault();
+      this.setZoom(1);
+    }
+  };
+
+  Grid.prototype.fit = function () {
+    var vw = this.viewport.clientWidth - 8;
+    var vh = this.viewport.clientHeight - 8;
+    var sw = this.stage.offsetWidth;
+    var sh = this.stage.offsetHeight;
+    if (sw <= 0 || sh <= 0) return;
+    this.viewport.scrollLeft = 0;
+    this.viewport.scrollTop = 0;
+    this.setZoom(Math.min(1, vw / sw, vh / sh));
+  };
+
+  Grid.prototype.applyTransform = function () {
+    this.scaleEl.style.transformOrigin = "0 0";
+    this.scaleEl.style.transform = "scale(" + this.scale + ")";
+    if (this.readout) this.readout.textContent = Math.round(this.scale * 100) + "%";
+    this.zoomButtons.forEach(function (button) {
+      var action = button.getAttribute("data-bo-zoom");
+      if (action === "in") button.disabled = this.scale >= MAX_ZOOM;
+      else if (action === "out") button.disabled = this.scale <= MIN_ZOOM;
+    }, this);
+  };
+
+  Grid.prototype.restoreScale = function () {
+    try {
+      var stored = parseFloat(window.sessionStorage.getItem(this.storageKey));
+      if (!isNaN(stored)) return clamp(stored, MIN_ZOOM, MAX_ZOOM);
+    } catch (_error) {}
+    return this.scale;
+  };
+
+  Grid.prototype.storeScale = function () {
+    try {
+      window.sessionStorage.setItem(this.storageKey, String(this.scale));
+    } catch (_error) {}
+  };
+
+  // --- pan (native scroll drag) ---------------------------------------------
+
+  Grid.prototype.onPointerDown = function (event) {
+    if (event.button !== 0) return;
+    if (event.target.closest("button, a, [data-bo-card]")) return;
+    this.drag = {
+      x: event.clientX,
+      y: event.clientY,
+      left: this.viewport.scrollLeft,
+      top: this.viewport.scrollTop
+    };
+    this.viewport.setPointerCapture(event.pointerId);
+    this.viewport.classList.add("is-grabbing");
+    this.viewport.addEventListener("pointermove", this.onPointerMove);
+    this.viewport.addEventListener("pointerup", this.onPointerUp);
+    this.viewport.addEventListener("pointercancel", this.onPointerUp);
+  };
+
+  Grid.prototype.onPointerMove = function (event) {
+    if (!this.drag) return;
+    this.viewport.scrollLeft = this.drag.left - (event.clientX - this.drag.x);
+    this.viewport.scrollTop = this.drag.top - (event.clientY - this.drag.y);
+  };
+
+  Grid.prototype.onPointerUp = function (event) {
+    this.drag = null;
+    this.viewport.classList.remove("is-grabbing");
+    try {
+      this.viewport.releasePointerCapture(event.pointerId);
+    } catch (_error) {}
+    this.viewport.removeEventListener("pointermove", this.onPointerMove);
+    this.viewport.removeEventListener("pointerup", this.onPointerUp);
+    this.viewport.removeEventListener("pointercancel", this.onPointerUp);
+  };
+
+  // --- edges ----------------------------------------------------------------
+
+  Grid.prototype.scheduleDraw = function () {
+    if (this.drawScheduled) return;
+    this.drawScheduled = true;
+    var self = this;
+    (window.requestAnimationFrame || function (fn) { return setTimeout(fn, 16); })(function () {
+      self.drawScheduled = false;
+      self.drawEdges();
+    });
+  };
+
+  Grid.prototype.edgeData = function () {
+    return Array.prototype.slice.call(this.el.querySelectorAll("[data-bo-grid-edge-data] [data-bo-edge-source]"));
+  };
+
+  Grid.prototype.cardBox = function (id, bodyRect) {
+    var card = this.body.querySelector('[data-bo-card="' + cssEscape(id) + '"]');
+    if (!card) return null;
+    var rect = card.getBoundingClientRect();
+    var scale = this.scale || 1;
+    return {
+      el: card,
+      x: (rect.left - bodyRect.left) / scale,
+      y: (rect.top - bodyRect.top) / scale,
+      w: rect.width / scale,
+      h: rect.height / scale
+    };
+  };
+
+  Grid.prototype.drawEdges = function () {
+    if (!this.edgesSvg || !this.body) return;
+    var width = this.body.offsetWidth;
+    var height = this.body.offsetHeight;
+    this.edgesSvg.setAttribute("width", width);
+    this.edgesSvg.setAttribute("height", height);
+    this.edgesSvg.setAttribute("viewBox", "0 0 " + width + " " + height);
+
+    var bodyRect = this.body.getBoundingClientRect();
+    var edges = this.edgeData();
+    var parts = [];
+    this.edgeIndex = {};
+
+    for (var i = 0; i < edges.length; i++) {
+      var node = edges[i];
+      var sourceId = node.getAttribute("data-bo-edge-source");
+      var targetId = node.getAttribute("data-bo-edge-target");
+      var state = node.getAttribute("data-bo-edge-state") || "blocking";
+      var s = this.cardBox(sourceId, bodyRect);
+      var t = this.cardBox(targetId, bodyRect);
+      if (!s || !t) continue;
+
+      var x1 = s.x + s.w / 2;
+      var y1 = s.y + s.h;
+      var x2 = t.x + t.w / 2;
+      var y2 = t.y;
+      var dy = Math.max(24, Math.abs(y2 - y1) * 0.45);
+      var d = "M " + x1 + " " + y1 + " C " + x1 + " " + (y1 + dy) + ", " + x2 + " " + (y2 - dy) + ", " + x2 + " " + y2;
+
+      parts.push('<path class="bo-edge is-' + state + '" data-from="' + escapeAttr(sourceId) +
+        '" data-to="' + escapeAttr(targetId) + '" d="' + d + '"/>');
+      parts.push('<circle class="bo-edge-dot is-' + state + '" cx="' + x2 + '" cy="' + y2 + '" r="2.4"/>');
+
+      (this.edgeIndex[sourceId] = this.edgeIndex[sourceId] || []).push(i);
+      (this.edgeIndex[targetId] = this.edgeIndex[targetId] || []).push(i);
+    }
+
+    this.edgesSvg.innerHTML = parts.join("");
+    this.edgePaths = Array.prototype.slice.call(this.edgesSvg.querySelectorAll(".bo-edge"));
+  };
+
+  // --- hover highlight ------------------------------------------------------
+
+  Grid.prototype.onPointerOver = function (event) {
+    var card = event.target.closest("[data-bo-card]");
+    if (!card) return;
+    this.highlight(card.getAttribute("data-bo-card"));
+  };
+
+  Grid.prototype.onPointerOut = function (event) {
+    var card = event.target.closest("[data-bo-card]");
+    if (!card) return;
+    this.highlight(null);
+  };
+
+  Grid.prototype.highlight = function (id) {
+    if (!this.edgePaths) return;
+    this.edgePaths.forEach(function (path) {
+      var on = id && (path.getAttribute("data-from") === id || path.getAttribute("data-to") === id);
+      path.classList.toggle("is-hl", !!on);
+      path.classList.toggle("is-dim", !!id && !on);
+    });
+  };
+
+  // --- utils ----------------------------------------------------------------
+
+  function cssEscape(value) {
+    if (window.CSS && window.CSS.escape) return window.CSS.escape(value);
+    return String(value).replace(/["\\\]]/g, "\\$&");
+  }
+
+  function escapeAttr(value) {
+    return String(value).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+  }
+
+  window.AiurBuildOrderGridHook = {
+    mounted: function () {
+      this.grid = new Grid(this.el);
+      this.grid.mount();
+    },
+    updated: function () {
+      if (this.grid) this.grid.refresh();
+    },
+    destroyed: function () {
+      if (this.grid) this.grid.destroy();
+    }
+  };
+})();

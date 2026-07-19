@@ -25,7 +25,8 @@ defmodule AiurWeb.StaticAssets do
   }
 
   @runtime_static_assets %{
-    "/ticket-context-dialog-hook.js" => {"application/javascript", "priv/static/ticket-context-dialog-hook.js"}
+    "/ticket-context-dialog-hook.js" => {"application/javascript", "priv/static/ticket-context-dialog-hook.js"},
+    "/build-order-grid-hook.js" => {"application/javascript", "priv/static/build-order-grid-hook.js"}
   }
 
   @external_resource @dashboard_css_path

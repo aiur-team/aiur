@@ -64,6 +64,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
           provider_generation={positive_generation(@snapshot)}
           dom_generation={max(RouteState.dom_generation(@route_state), 1)}
           model={@model}
+          adhoc={@adhoc}
         />
 
         <BuildOrderBreakdown.build_order_breakdown :if={@model.status != :empty} model={@model} adhoc={@adhoc} />

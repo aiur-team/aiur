@@ -5346,3 +5346,458 @@ textarea:focus-visible,
 .bo-usage-state p {
   margin: 0;
 }
+
+/* ==========================================================================
+   Build Order spatial grid (epic columns × execution-wave rows)
+   ========================================================================== */
+
+.bo-grid-root {
+  display: block;
+  margin: 1.25rem 0;
+}
+
+/* --- wave-progress header strip --- */
+.bo-waves-head {
+  margin-bottom: 1rem;
+}
+
+.bo-waves-caption {
+  margin: 0 0 0.5rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.bo-waves-strip {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 0.75rem;
+}
+
+.bo-wave-seg-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 0.3rem;
+}
+
+.bo-wave-seg-label {
+  font-weight: 600;
+  font-size: 0.82rem;
+  color: var(--fg);
+}
+
+.bo-wave-seg-pct {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.bo-wave-seg-meter {
+  display: block;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.bo-wave-seg-meter > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+}
+
+/* --- toolbar (legend + zoom) --- */
+.bo-grid-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.6rem;
+}
+
+.bo-grid-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.bo-grid-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.bo-legend-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+}
+
+.bo-legend-swatch.is-working {
+  border-color: var(--good-line);
+  background: var(--good-soft);
+  box-shadow: 0 0 0 1px var(--good-line);
+}
+
+.bo-legend-swatch.is-merged {
+  border-color: var(--line);
+  background: var(--surface-3);
+}
+
+.bo-legend-line {
+  width: 22px;
+  height: 0;
+  border-top: 2px solid var(--good);
+}
+
+.bo-legend-line.is-blocking {
+  border-top-style: dashed;
+  border-top-color: var(--blocking);
+}
+
+.bo-grid-zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.bo-grid-zbtn {
+  min-width: 2rem;
+  height: 2rem;
+  padding: 0 0.6rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.bo-grid-zbtn:hover:not(:disabled) {
+  background: var(--surface-3);
+}
+
+.bo-grid-zbtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.bo-grid-zval {
+  min-width: 3.2rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+/* --- viewport / scale / stage --- */
+.bo-grid-viewport {
+  position: relative;
+  max-height: min(78vh, 780px);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: auto;
+  cursor: grab;
+  background:
+    radial-gradient(circle at center, var(--hairline) 1px, transparent 1px) 0 0 / 22px 22px,
+    var(--surface);
+}
+
+.bo-grid-viewport.is-grabbing {
+  cursor: grabbing;
+}
+
+.bo-grid-viewport:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.bo-grid-scale {
+  transform-origin: 0 0;
+  width: max-content;
+  min-width: 100%;
+}
+
+.bo-grid-stage {
+  position: relative;
+  padding: 0 0.8rem 1rem;
+}
+
+/* --- epic header row (sticky) --- */
+.bo-grid-lanes {
+  display: grid;
+  gap: 0 10px;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  padding: 0.6rem 0;
+  background: var(--surface);
+}
+
+.bo-epic {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.bo-epic-ic {
+  display: inline-flex;
+  width: 1.15rem;
+  height: 1.15rem;
+  color: var(--accent-ink);
+  flex: none;
+}
+
+.bo-epic-ic svg {
+  width: 100%;
+  height: 100%;
+}
+
+.bo-epic-label {
+  font-weight: 600;
+  font-size: 0.86rem;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bo-epic-count {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+/* --- body + wave rows --- */
+.bo-grid-body {
+  position: relative;
+}
+
+.bo-grid-edges {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.bo-grid-wave-row {
+  display: grid;
+  gap: 0 10px;
+  position: relative;
+  z-index: 2;
+  padding: 0.35rem 0;
+  align-items: start;
+}
+
+.bo-wave {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  padding-top: 0.15rem;
+  background: linear-gradient(90deg, var(--surface) 70%, transparent);
+}
+
+.bo-wave-n {
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--fg);
+}
+
+.bo-wave-note {
+  font-size: 0.68rem;
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+.bo-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* --- ticket card (small square) --- */
+.bo-node {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.55rem 0.6rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--fg);
+  min-width: 0;
+  cursor: default;
+}
+
+.bo-node.is-ready {
+  border-color: var(--accent-line);
+  border-style: dashed;
+}
+
+.bo-node.is-working {
+  border-color: var(--good-line);
+  background: var(--good-soft);
+  box-shadow: 0 0 0 1px var(--good-line);
+}
+
+.bo-node.is-merged {
+  border-color: var(--line);
+  background: var(--surface-3);
+  color: var(--faint);
+}
+
+.bo-node.is-blocked {
+  border-color: var(--blocking-line);
+}
+
+.bo-node-top {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.bo-node-id {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+
+.bo-cx {
+  margin-left: auto;
+  padding: 0.05rem 0.35rem;
+  border: 1px solid var(--super-line);
+  border-radius: 999px;
+  background: var(--super-soft);
+  color: var(--super-ink);
+  font-size: 0.66rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.bo-node-title {
+  font-size: 0.82rem;
+  line-height: 1.25;
+  color: inherit;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.bo-node-status {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.bo-node-pct {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.bo-node.is-merged .bo-node-pct {
+  color: var(--faint);
+}
+
+.bo-node-word {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bo-node-bar {
+  display: block;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.bo-node-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--good);
+}
+
+.bo-node.is-ready .bo-node-bar > i {
+  background: var(--accent);
+}
+
+.bo-node-context {
+  align-self: flex-start;
+  margin-top: 0.15rem;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--accent-line);
+  border-radius: 7px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font: inherit;
+  font-size: 0.68rem;
+  cursor: pointer;
+}
+
+.bo-node-context:hover {
+  background: var(--accent-line);
+}
+
+/* --- edges --- */
+.bo-edge {
+  fill: none;
+  stroke: var(--blocking);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+  opacity: 0.5;
+}
+
+.bo-edge.is-cleared {
+  stroke: var(--good);
+  stroke-dasharray: none;
+  opacity: 0.6;
+}
+
+.bo-edge.is-hl {
+  stroke: var(--accent);
+  stroke-width: 2.2;
+  stroke-dasharray: none;
+  opacity: 1;
+}
+
+.bo-edge.is-dim {
+  opacity: 0.12;
+}
+
+.bo-edge-dot {
+  fill: var(--blocking);
+  opacity: 0.6;
+}
+
+.bo-edge-dot.is-cleared {
+  fill: var(--good);
+}

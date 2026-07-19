@@ -14,6 +14,9 @@ defmodule AiurWeb.StaticAssetController do
   @spec ticket_context_dialog_hook(Conn.t(), map()) :: Conn.t()
   def ticket_context_dialog_hook(conn, _params), do: serve(conn, "/ticket-context-dialog-hook.js", revalidate?: true)
 
+  @spec build_order_grid_hook(Conn.t(), map()) :: Conn.t()
+  def build_order_grid_hook(conn, _params), do: serve(conn, "/build-order-grid-hook.js", revalidate?: true)
+
   @spec dom_svg_layout_adapter(Conn.t(), map()) :: Conn.t()
   def dom_svg_layout_adapter(conn, _params), do: serve(conn, "/aiur-dom-svg-layout-adapter.js", revalidate?: true)
 
