@@ -369,7 +369,16 @@ textarea:focus-visible,
 .bo-catalog-table {
   width: 100%;
   border-collapse: collapse;
-  table-layout: fixed;
+}
+
+.bo-catalog-table th:first-child,
+.bo-catalog-table td:first-child {
+  width: 100%;
+}
+
+.bo-catalog-table tbody tr {
+  position: relative;
+  cursor: pointer;
 }
 
 .bo-catalog-table th {
@@ -398,7 +407,8 @@ textarea:focus-visible,
 
 .bo-catalog-num {
   text-align: right;
-  width: 5.5rem;
+  width: 4.25rem;
+  padding-left: 0.35rem;
   white-space: nowrap;
   color: var(--muted);
 }
@@ -410,7 +420,13 @@ textarea:focus-visible,
   font-size: 0.88rem;
 }
 
-.bo-catalog-link:hover {
+.bo-catalog-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.bo-catalog-table tbody tr:hover .bo-catalog-link {
   color: var(--accent-ink);
 }
 
