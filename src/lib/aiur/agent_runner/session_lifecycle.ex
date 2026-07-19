@@ -929,7 +929,16 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   end
 
   defp supported_effort(backend, effort) when is_binary(effort) do
-    if effort in CodingAgent.efforts(backend), do: effort
+    if effort in CodingAgent.efforts(backend) do
+      effort
+    else
+      Logger.warning(
+        "Ignoring effort #{inspect(effort)} for backend #{backend}: not in its supported efforts " <>
+          "#{inspect(CodingAgent.efforts(backend))} (pair a model:<effort> label with model:remote to run on a transport that supports effort)"
+      )
+
+      nil
+    end
   end
 
   defp supported_effort(_backend, _effort), do: nil

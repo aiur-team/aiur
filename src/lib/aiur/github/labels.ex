@@ -46,7 +46,8 @@ defmodule Aiur.GitHub.Labels do
   @spec label_set(String.t(), [String.t()]) :: [String.t()]
   def label_set(prefix, backends) do
     state_labels(prefix) ++
-      marker_labels(prefix) ++ model_labels(backends) ++ alias_labels(backends) ++ complexity_labels()
+      marker_labels(prefix) ++
+      model_labels(backends) ++ alias_labels(backends) ++ effort_labels() ++ complexity_labels()
   end
 
   @spec state_labels(String.t()) :: [String.t()]
@@ -94,6 +95,11 @@ defmodule Aiur.GitHub.Labels do
     end
   end
 
+  # Per-ticket effort override labels (`model:xhigh`, ...). Backend-independent,
+  # so they are seeded regardless of which backends the Executor chose.
+  @spec effort_labels() :: [String.t()]
+  def effort_labels, do: CodingAgent.override_effort_labels()
+
   @spec complexity_labels() :: [String.t()]
   def complexity_labels, do: Enum.map(1..5, &"complexity:#{&1}")
 
@@ -101,7 +107,12 @@ defmodule Aiur.GitHub.Labels do
   @spec describe(String.t()) :: String.t()
   def describe("complexity:" <> n), do: "story-point complexity #{n}"
   def describe("model:remote"), do: "Supports claude remote-control"
-  def describe("model:" <> spec), do: "route this issue to #{spec}"
+
+  def describe("model:" <> spec = label) do
+    if label in effort_labels(),
+      do: "run this issue at #{spec} reasoning effort",
+      else: "route this issue to #{spec}"
+  end
 
   def describe(label) do
     case String.split(label, ":", parts: 2) do

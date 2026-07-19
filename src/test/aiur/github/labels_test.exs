@@ -83,6 +83,15 @@ defmodule Aiur.GitHub.LabelsTest do
       assert "model:codex-gpt-5.5-mini" in labels
       assert "model:codex-gpt-5.4-mini" in labels
     end
+
+    test "effort labels are seeded regardless of the chosen backend" do
+      for backends <- [["codex"], ["claude"], ["claude-repl"]] do
+        labels = Labels.label_set("agent", backends)
+        assert "model:low" in labels
+        assert "model:xhigh" in labels
+        assert "model:max" in labels
+      end
+    end
   end
 
   describe "describe/1" do
@@ -92,6 +101,7 @@ defmodule Aiur.GitHub.LabelsTest do
       assert Labels.describe("model:remote") == "Supports claude remote-control"
       assert Labels.describe("model:claude") =~ "route this issue to claude"
       assert Labels.describe("model:claude-haiku") =~ "route this issue to claude-haiku"
+      assert Labels.describe("model:xhigh") == "run this issue at xhigh reasoning effort"
       assert Labels.describe("complexity:3") == "story-point complexity 3"
       assert Labels.describe("agent:watch") == "aiur watches this PR for comments"
       assert Labels.describe("agent:paused") == "suppress aiur work while preserving state"

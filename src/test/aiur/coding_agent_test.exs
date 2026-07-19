@@ -181,6 +181,44 @@ defmodule Aiur.CodingAgentTest do
     end
   end
 
+  describe "effort_for/1 (model:<effort> override label)" do
+    test "a model:<effort> label sets effort with no routing configured" do
+      assert CodingAgent.effort_for(issue(["model:low"])) == "low"
+      assert CodingAgent.effort_for(issue(["model:medium"])) == "medium"
+      assert CodingAgent.effort_for(issue(["model:high"])) == "high"
+      assert CodingAgent.effort_for(issue(["model:xhigh"])) == "xhigh"
+      assert CodingAgent.effort_for(issue(["model:max"])) == "max"
+    end
+
+    test "the first well-formed effort label wins when several are present" do
+      assert CodingAgent.effort_for(issue(["model:low", "model:max"])) == "low"
+    end
+
+    test "an unsupported effort spec is ignored (no effort, not a backend)" do
+      assert CodingAgent.effort_for(issue(["model:ultra"])) == nil
+      assert CodingAgent.override_backend(issue(["model:ultra"])) == nil
+    end
+
+    test "an effort label never selects a backend or pins a model" do
+      assert CodingAgent.override_backend(issue(["model:xhigh"])) == nil
+      assert CodingAgent.model_for(issue(["model:xhigh"])) == nil
+    end
+  end
+
+  describe "override_effort_labels/0" do
+    test "yields one model:<effort> label per supported effort" do
+      assert CodingAgent.override_effort_labels() ==
+               ["model:low", "model:medium", "model:high", "model:xhigh", "model:max"]
+    end
+
+    test "override_labels/0 seeds the effort labels" do
+      labels = CodingAgent.override_labels()
+      assert "model:low" in labels
+      assert "model:xhigh" in labels
+      assert "model:max" in labels
+    end
+  end
+
   describe "complexity_level/1" do
     test "highest well-formed complexity wins" do
       assert CodingAgent.complexity_level(issue(["complexity:2", "complexity:5"])) == 5

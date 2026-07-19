@@ -45,6 +45,17 @@ defmodule Aiur.CodingAgent do
   # remote transport the flag implies).
   @backend_aliases %{"remote" => "claude-repl"}
 
+  # `model:<effort>` per-ticket effort override labels. These set an agent's
+  # reasoning effort independent of the per-complexity `agent.routing` table and
+  # pair with (never select) a backend: the backend is resolved as usual and the
+  # effort is applied on top. They share the `@model_override_label` namespace
+  # but name an effort rather than a backend, so `override/1` skips them (an
+  # effort is never a known backend) and only `override_effort/1` reads them.
+  # Validity against the finally-dispatched backend is enforced at runtime
+  # (`Aiur.AgentRunner.SessionLifecycle.supported_effort/2`), since the resolved
+  # backend is per-issue state (and can swap to a remote transport).
+  @effort_override_values ~w(low medium high xhigh max)
+
   @doc """
   Registry of supported coding-agent backends. Each entry carries the
   modules, delivery-policy defaults, the model variants worth seeding as
@@ -181,11 +192,19 @@ defmodule Aiur.CodingAgent do
   Derived from the registry so new backends/models seed automatically.
   """
   @spec override_labels() :: [String.t()]
-  def override_labels, do: override_labels(known_backends()) ++ alias_labels()
+  def override_labels, do: override_labels(known_backends()) ++ alias_labels() ++ override_effort_labels()
 
   @doc "Label-only alias override labels (e.g. `model:remote`)."
   @spec alias_labels() :: [String.t()]
   def alias_labels, do: Enum.map(Map.keys(@backend_aliases), &"model:#{&1}")
+
+  @doc """
+  Backend-independent `model:<effort>` override labels (e.g. `model:xhigh`),
+  one per supported effort value. They set an issue's reasoning effort
+  independent of the per-complexity routing table; see `effort_for/1`.
+  """
+  @spec override_effort_labels() :: [String.t()]
+  def override_effort_labels, do: Enum.map(@effort_override_values, &"model:#{&1}")
 
   @doc """
   `override_labels/0` restricted to the given backends. Each backend
@@ -250,19 +269,48 @@ defmodule Aiur.CodingAgent do
   end
 
   @doc """
-  Per-complexity reasoning effort for an issue, read from the
-  `agent.routing` value's effort segment (`backend:model:effort`), or `nil`
-  when none is pinned. Effort has no `model:` label form (config-only, no
-  new labels), so a `model:<backend>` override label — which pins
-  backend/model explicitly and bypasses routing — also suppresses routing
-  effort, keeping the effort consistent with the resolved backend/model.
+  Reasoning effort for an issue, in precedence order: a per-ticket
+  `model:<effort>` override label (e.g. `model:xhigh`) wins, then the
+  per-complexity `agent.routing` value's effort segment
+  (`backend:model:effort`), then `nil` (the dispatched backend's own
+  default). The override label sets effort independent of routing and pairs
+  with the resolved backend, so it applies even alongside a
+  `model:<backend>` override — which otherwise suppresses routing effort to
+  keep the routed effort consistent with the explicitly pinned
+  backend/model. The resolved value is a pure read of the labels/routing;
+  validity against the finally-dispatched backend is enforced at dispatch
+  (`Aiur.AgentRunner.SessionLifecycle.supported_effort/2`).
   """
   @spec effort_for(Issue.t()) :: String.t() | nil
   def effort_for(%Issue{} = issue) do
+    override_effort(issue) || routing_effort(issue)
+  end
+
+  # Per-complexity routing effort, suppressed when a `model:<backend>`
+  # override label is present (that label bypasses routing entirely).
+  @spec routing_effort(Issue.t()) :: String.t() | nil
+  defp routing_effort(%Issue{} = issue) do
     with nil <- override_backend(issue),
          value when is_binary(value) <- routing_value(issue) do
       RoutingValue.routing_effort(value)
     else
+      _ -> nil
+    end
+  end
+
+  # First `model:<effort>` override label naming a supported effort value, or
+  # nil. An effort label never selects a backend (see `override/1`).
+  @spec override_effort(Issue.t()) :: String.t() | nil
+  defp override_effort(%Issue{} = issue) do
+    issue
+    |> Issue.label_names()
+    |> Enum.find_value(&match_effort_override/1)
+  end
+
+  @spec match_effort_override(term()) :: String.t() | nil
+  defp match_effort_override(label) do
+    case Regex.run(@model_override_label, to_string(label)) do
+      [_, spec] -> if spec in @effort_override_values, do: spec
       _ -> nil
     end
   end

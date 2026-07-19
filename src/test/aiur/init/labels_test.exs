@@ -34,7 +34,7 @@ defmodule Aiur.Init.LabelsTest do
     lifecycle = all_lifecycle_labels()
     complexity = Labels.complexity_labels()
     model = Labels.model_labels(["claude"])
-    all_existing = lifecycle ++ complexity ++ model
+    all_existing = lifecycle ++ complexity ++ model ++ Labels.effort_labels()
 
     deps = %{
       list_labels: fn _tracker -> {:ok, all_existing} end,
@@ -92,7 +92,8 @@ defmodule Aiur.Init.LabelsTest do
     answers = %{
       confirm: %{
         "Create the complexity labels?" => false,
-        "Create the model labels?" => false
+        "Create the model labels?" => false,
+        "Create the effort labels?" => false
       }
     }
 
@@ -148,6 +149,31 @@ defmodule Aiur.Init.LabelsTest do
     InitLabels.setup_labels(io(parent, answers), deps, %{kind: "github", repo: "o/r"}, ["claude"])
     assert_received {:create_called, created}
     assert Enum.all?(Labels.complexity_labels(), &(&1 in created))
+  end
+
+  test "confirms effort labels: create_labels called with effort labels" do
+    parent = self()
+    lifecycle = all_lifecycle_labels()
+
+    deps = %{
+      list_labels: fn _tracker -> {:ok, lifecycle ++ Labels.complexity_labels() ++ Labels.model_labels(["claude"])} end,
+      create_labels: fn _tracker, labels ->
+        send(parent, {:create_called, labels})
+        :ok
+      end
+    }
+
+    answers = %{
+      confirm: %{
+        "Create the complexity labels?" => false,
+        "Create the model labels?" => false,
+        "Create the effort labels?" => true
+      }
+    }
+
+    InitLabels.setup_labels(io(parent, answers), deps, %{kind: "github", repo: "o/r"}, ["claude"])
+    assert_received {:create_called, created}
+    assert Enum.all?(Labels.effort_labels(), &(&1 in created))
   end
 
   test "no alias_labels: remote stage skipped" do
