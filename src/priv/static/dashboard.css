@@ -5531,6 +5531,7 @@ textarea:focus-visible,
 
 .bo-grid-stage {
   position: relative;
+  width: max-content;
   padding: 0 0.8rem 1rem;
 }
 

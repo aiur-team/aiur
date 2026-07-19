@@ -161,8 +161,11 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
 
   # --- helpers ----------------------------------------------------------------
 
+  # Fixed-width columns (not 1fr) so the grid keeps compact, square-ish cards and
+  # scrolls/zooms instead of stretching to fill a wide viewport, matching the
+  # prototype's fixed-width stage.
   defp columns_style(columns),
-    do: "grid-template-columns: 60px repeat(#{max(length(columns), 1)}, minmax(150px, 1fr));"
+    do: "grid-template-columns: 56px repeat(#{max(length(columns), 1)}, 176px);"
 
   # Hue ramps red (0%) → green (100%): pct*1.2 maps 100 → 120° (green).
   defp wave_meter_style(pct) when is_integer(pct),
