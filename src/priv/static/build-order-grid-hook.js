@@ -113,6 +113,13 @@
   };
 
   Grid.prototype.onKeydown = function (event) {
+    // Enter/Space on a focused, openable card opens its ticket context.
+    var card = event.target.closest && event.target.closest('[data-bo-card][role="button"]');
+    if (card && (event.key === "Enter" || event.key === " ")) {
+      event.preventDefault();
+      card.click();
+      return;
+    }
     if (event.target !== this.viewport) return;
     if (event.key === "+" || event.key === "=") {
       event.preventDefault();
@@ -126,15 +133,15 @@
     }
   };
 
+  // Fit the full grid WIDTH into the viewport so a zoom-out shows every epic
+  // column edge to edge; height overflows to vertical scroll.
   Grid.prototype.fit = function () {
     var vw = this.viewport.clientWidth - 8;
-    var vh = this.viewport.clientHeight - 8;
     var sw = this.stage.offsetWidth;
-    var sh = this.stage.offsetHeight;
-    if (sw <= 0 || sh <= 0) return;
+    if (sw <= 0) return;
     this.viewport.scrollLeft = 0;
     this.viewport.scrollTop = 0;
-    this.setZoom(Math.min(1, vw / sw, vh / sh));
+    this.setZoom(Math.min(1, vw / sw));
   };
 
   Grid.prototype.applyTransform = function () {

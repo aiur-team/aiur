@@ -5632,7 +5632,8 @@ textarea:focus-visible,
 
 .bo-cell {
   display: flex;
-  flex-direction: column;
+  flex-flow: row wrap;
+  align-content: flex-start;
   gap: 8px;
   min-width: 0;
 }
@@ -5643,13 +5644,28 @@ textarea:focus-visible,
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
-  padding: 0.55rem 0.6rem 0.65rem;
+  flex: 0 0 140px;
+  width: 140px;
+  padding: 0.5rem 0.55rem 0.6rem;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--surface-2);
   color: var(--fg);
   min-width: 0;
   cursor: default;
+}
+
+.bo-node.is-openable {
+  cursor: pointer;
+}
+
+.bo-node.is-openable:hover {
+  border-color: var(--accent-line);
+}
+
+.bo-node.is-openable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .bo-node.is-ready {

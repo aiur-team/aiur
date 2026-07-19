@@ -128,11 +128,15 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
 
     ~H"""
     <article
-      class={["bo-node", "is-#{@card.state}"]}
+      class={["bo-node", "is-#{@card.state}", @nav_value && "is-openable"]}
+      id={@origin_id}
       data-bo-card={@card.id}
       data-bo-state={@card.state}
-      aria-label={card_aria(@card)}
+      aria-label={card_aria(@card, @nav_value)}
       tabindex="0"
+      role={@nav_value && "button"}
+      phx-click={@nav_value && "open-ticket-context"}
+      phx-value-member={@nav_value}
     >
       <div class="bo-node-top">
         <span class="bo-node-id">{@card.id}</span>
@@ -144,28 +148,18 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
         <span class="bo-node-word">{@card.status_word}</span>
       </div>
       <span :if={@card.has_progress} class="bo-node-bar" aria-hidden="true"><i style={"width:#{@card.progress}%"}></i></span>
-      <button
-        :if={@nav_value}
-        id={@origin_id}
-        type="button"
-        class="bo-node-context"
-        phx-click="open-ticket-context"
-        phx-value-member={@nav_value}
-        aria-label={"Open cached context for #{@card.id}"}
-      >
-        Ticket context
-      </button>
     </article>
     """
   end
 
   # --- helpers ----------------------------------------------------------------
 
-  # Fixed-width columns (not 1fr) so the grid keeps compact, square-ish cards and
-  # scrolls/zooms instead of stretching to fill a wide viewport, matching the
-  # prototype's fixed-width stage.
+  # Fixed-width columns (not 1fr) so the grid keeps compact cards and
+  # scrolls/zooms instead of stretching to fill a wide viewport. Each epic column
+  # is wide enough for two ~140px ticket cards side by side (they wrap within the
+  # cell); the leading 56px track is the wave-label gutter.
   defp columns_style(columns),
-    do: "grid-template-columns: 56px repeat(#{max(length(columns), 1)}, 176px);"
+    do: "grid-template-columns: 56px repeat(#{max(length(columns), 1)}, 292px);"
 
   # Hue ramps red (0%) → green (100%): pct*1.2 maps 100 → 120° (green).
   defp wave_meter_style(pct) when is_integer(pct),
@@ -185,8 +179,10 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
 
   defp origin_id(_model, _card), do: nil
 
-  defp card_aria(card) do
-    [card.id, card.title, "#{card.progress}%", card.status_word]
+  defp card_aria(card, nav_value) do
+    prefix = if nav_value, do: ["Open ticket context:"], else: []
+
+    (prefix ++ [card.id, card.title, "#{card.progress}%", card.status_word])
     |> Enum.reject(&(&1 in [nil, ""]))
     |> Enum.join(" · ")
   end
