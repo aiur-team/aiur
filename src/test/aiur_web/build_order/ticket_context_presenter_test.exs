@@ -350,7 +350,7 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenterTest do
     assert capability.reason == "Chat is unavailable."
   end
 
-  test "caps normalized capabilities after four distinct destinations" do
+  test "caps normalized capabilities after five distinct destinations" do
     identity = identity()
 
     context =
@@ -365,11 +365,28 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenterTest do
           href: "https://github.com/owner/repo/pull/7"
         },
         %{kind: :chat, available?: true, href: "/chat/42"},
-        %{kind: :commands, available?: true, href: "/decisions/42"}
+        %{kind: :commands, available?: true, href: "/decisions/42"},
+        %{kind: :document, available?: true, href: "https://github.com/owner/repo/blob/main/doc.md"}
       ])
 
-    assert Enum.map(context.capabilities, & &1.label) == ["GitHub", "Issue", "Pull request", "Chat"]
-    refute Enum.any?(context.capabilities, &(&1.kind == :commands))
+    assert Enum.map(context.capabilities, & &1.label) == ["GitHub", "Issue", "Pull request", "Chat", "Commands"]
+    refute Enum.any?(context.capabilities, &(&1.kind == :document))
+  end
+
+  test "normalizes a planning-doc capability linking to a GitHub doc URL" do
+    identity = identity()
+    doc = "https://github.com/owner/repo/blob/plan/docs/CT-1.md"
+
+    context =
+      TicketContextPresenter.present(detail_state(identity), history(identity), [
+        %{kind: :document, available?: true, href: doc}
+      ])
+
+    capability = Enum.find(context.capabilities, &(&1.kind == :document))
+    assert capability.available?
+    assert capability.href == doc
+    assert capability.external?
+    assert capability.label == "Planning doc"
   end
 
   defp detail_state(identity, overrides \\ []) do
