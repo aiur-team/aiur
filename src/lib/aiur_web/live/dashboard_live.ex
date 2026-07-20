@@ -49,6 +49,7 @@ defmodule AiurWeb.DashboardLive do
     RouteRegistry,
     RunSummary,
     RunSummaryPresenter,
+    RunSummaryStrip,
     TicketContext,
     UnitsControlPolicy,
     UnitsFilters,
@@ -627,32 +628,16 @@ defmodule AiurWeb.DashboardLive do
       </div>
 
       <div :if={@live_action not in [:decisions, :decision]} class="control-panel">
-        <CapacityControl.capacity_control
-          capacity={@capacity_view}
-          writable={@writable}
-          input={@capacity_input}
-          feedback={@capacity_feedback}
-        />
-        <RunSummary.run_summary view={@run_summary} announcement={@run_summary_announcement} />
-        <UsageSummary.usage_summary
-          view={@usage_summary}
-          announcement={@usage_summary_announcement}
-          drill_down={@usage_summary_drill}
-          drill_trigger={@usage_summary_drill_trigger}
-        />
-        <ProviderMeters.provider_meters
-          view={@provider_meters_view}
-          announcement={@provider_meters_announcement}
-        />
-        <section class="section-card units-card" aria-labelledby="units-title">
-          <header class="section-header units-header">
-            <div>
-              <p class="section-eyebrow">Current-run catalog</p>
-              <h2 id="units-title" tabindex="-1">Units</h2>
-              <p>{units_count_summary(@units_view)}</p>
-            </div>
-          </header>
+        <header class="units-page-head">
+          <span class="units-page-ic" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></svg>
+          </span>
+          <h2 id="units-title" tabindex="-1">Units</h2>
+        </header>
 
+        <RunSummaryStrip.run_summary_strip />
+
+        <section class="section-card units-card" aria-labelledby="units-title">
           <p id="units-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true">
             {@units_announcement}
           </p>

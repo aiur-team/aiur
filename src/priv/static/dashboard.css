@@ -2843,6 +2843,200 @@ html[data-theme="light"] .toggle-icon .moon {
   overflow: hidden;
 }
 
+/* Units page heading (icon tile + title), matching the design's page-head. */
+.units-page-head {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.15rem 0.15rem 0;
+}
+
+.units-page-ic {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--accent);
+}
+
+.units-page-ic svg {
+  width: 22px;
+  height: 22px;
+}
+
+.units-page-head h2 {
+  margin: 0;
+  font-size: 1.55rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+/* ---- run summary / vendor usage strip (Units page top) ---- */
+.run-summary {
+  display: grid;
+  grid-template-columns: minmax(170px, 0.92fr) 1fr 1fr;
+  gap: 0.9rem;
+}
+
+.run-summary .rs-status {
+  order: -1;
+}
+
+.rs-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  min-width: 0;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.rs-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.rs-logo {
+  width: 1.2rem;
+  height: 1.2rem;
+  flex: none;
+  object-fit: contain;
+}
+
+.rs-name {
+  font-weight: 700;
+  font-size: 0.92rem;
+}
+
+.rs-head-stats {
+  margin-left: auto;
+  display: flex;
+  gap: 1.1rem;
+}
+
+.rs-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.04rem;
+}
+
+.rs-stat-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  font-family: "JetBrains Mono", "SFMono-Regular", monospace;
+  font-size: 0.63rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.rs-stat-val {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.84rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+}
+
+.rs-stat-spend {
+  color: var(--good-ink);
+}
+
+.rs-token-ic {
+  width: 1.05rem;
+  height: 1.05rem;
+  flex: none;
+  object-fit: contain;
+  margin: 0 0.15rem;
+}
+
+.rs-limits {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.rs-limit-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.28rem;
+}
+
+.rs-limit-label,
+.rs-stat-label {
+  white-space: nowrap;
+}
+
+.rs-limit-label {
+  font-family: "JetBrains Mono", "SFMono-Regular", monospace;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.rs-limit-meta {
+  font-family: "JetBrains Mono", "SFMono-Regular", monospace;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.rs-meter {
+  height: 0.34rem;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.rs-meter > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.rs-status-rows {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.6rem 1.4rem;
+  width: 100%;
+}
+
+.rs-progress {
+  margin-top: auto;
+}
+
+.rs-progress .rs-limit-top {
+  flex-wrap: wrap;
+}
+
+.rs-progress .rs-limit-meta svg {
+  width: 12px;
+  height: 12px;
+  vertical-align: -2px;
+}
+
+@media (max-width: 720px) {
+  .run-summary {
+    grid-template-columns: 1fr;
+  }
+}
+
 .units-header {
   align-items: end;
 }
