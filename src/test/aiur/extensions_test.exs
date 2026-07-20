@@ -1403,7 +1403,7 @@ defmodule Aiur.ExtensionsTest do
       server_port: 0
     )
 
-    start_supervised!({HttpServer, port: 0})
+    start_supervised!({HttpServer, port: 0, dashboard_writable: false})
     assert is_integer(wait_for_bound_port())
   end
 
