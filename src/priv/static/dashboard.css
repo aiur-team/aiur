@@ -2888,11 +2888,13 @@ html[data-theme="light"] .toggle-icon .moon {
   color: var(--muted);
 }
 
-/* ---- compact units table (Claude design) ---- */
-.units-table th.ut-col-id { width: 60px; }
-.units-table th.ut-col-unit { width: 195px; }
-.units-table th.ut-col-ticket { width: 28%; }
-.units-table th.ut-col-cmd { width: 152px; }
+/* ---- compact units table (Claude design) ----
+   ID / Unit / Command are squeezed to just what they need; Ticket and Latest
+   have no fixed width, so (with table-layout: fixed) they split the remaining
+   space and get the most room. */
+.units-table th.ut-col-id { width: 62px; }
+.units-table th.ut-col-unit { width: 176px; }
+.units-table th.ut-col-cmd { width: 100px; }
 
 .units-table td.ut-id-cell,
 .units-table td.ut-unit-cell,
@@ -2908,6 +2910,7 @@ html[data-theme="light"] .toggle-icon .moon {
 .ut-id-num {
   font-weight: 600;
   color: var(--muted);
+  white-space: nowrap;
 }
 
 .ut-alert {
@@ -3482,13 +3485,6 @@ html[data-theme="light"] .toggle-icon .moon {
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
-
-.units-table th:nth-child(1) { width: 18%; }
-.units-table th:nth-child(2) { width: 13%; }
-.units-table th:nth-child(3) { width: 18%; }
-.units-table th:nth-child(4) { width: 20%; }
-.units-table th:nth-child(5) { width: 16%; }
-.units-table th:nth-child(6) { width: 15%; }
 
 .units-table td {
   min-width: 0;

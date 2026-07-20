@@ -113,14 +113,15 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
                 <nav class="units-actions" aria-label={"Actions for #{identity_label(row.identity)}"}>
                   <.unit_control token={token} row={row} control={Map.get(@controls, token)} writable={@writable} />
                   <button
-                    :if={conversation_handle(row)}
                     id={"units-conversation-#{token}"}
                     type="button"
-                    class="units-icon-action"
-                    phx-click="read-conversation"
+                    class={["units-icon-action", !conversation_handle(row) && "unavailable"]}
+                    phx-click={conversation_handle(row) && "read-conversation"}
                     phx-value-unit={token}
+                    disabled={!conversation_handle(row)}
+                    aria-disabled={to_string(!conversation_handle(row))}
                     aria-label={"Open chat for #{identity_label(row.identity)}"}
-                    title="Open chat"
+                    title={if(conversation_handle(row), do: "Open chat", else: "Chat unavailable")}
                   >{icon(:chat)}</button>
                   <a
                     :if={remote_control_url(row)}
