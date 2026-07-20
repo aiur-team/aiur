@@ -52,6 +52,8 @@ defmodule Aiur.DecisionDispatchTest do
 
     assert_receive {:sent, :fake_operator_messages, "981", payload}
     assert payload.action_id == decision.answer.action_id
+    assert payload.delivery_policy == :interrupt
+    assert payload.fallback == :queue_next
     assert payload.correlation.decision_id == decision.decision_id
     assert payload.correlation.decision_version == 1
     assert payload.correlation.attempt_id == "attempt-1"

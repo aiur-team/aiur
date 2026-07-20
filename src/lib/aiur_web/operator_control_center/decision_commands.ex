@@ -199,7 +199,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
     Orchestrator.send_operator_message(orchestrator(), decision.ticket.identifier, %{
       kind: :text,
       body: dismissal_text(),
-      delivery_policy: :checkpoint
+      delivery_policy: :interrupt,
+      fallback: :queue_next
     })
   catch
     :exit, _reason -> {:error, :orchestrator_unavailable}

@@ -2405,7 +2405,7 @@ defmodule AiurWeb.DashboardLiveTest do
            end) == [:requested, :answer_recorded, :dispatch_queued, :delivered, :acknowledged, :resolved]
   end
 
-  test "card-face dismiss closes locally and notifies only a live agent at checkpoint" do
+  test "card-face dismiss closes locally and interrupts a capable live agent" do
     orchestrator_name = Module.concat(__MODULE__, :DismissCapstoneOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :DismissCapstoneDecisionStore)
     orchestrator = start_queue_orchestrator(orchestrator_name, "987")
@@ -2432,11 +2432,11 @@ defmodule AiurWeb.DashboardLiveTest do
     assert dismissed.decision_status == :dismissed
     assert dismissed.answer == nil
 
-    assert {:ok, item} =
-             OperatorMessages.claim_next_checkpoint_queue_item(orchestrator, "987")
+    assert {:ok, item} = OperatorMessages.claim_next_queue_item(orchestrator, "987")
 
     assert item.category == :operator_message
     assert item.delivery.consume_at == :safe_checkpoint
+    assert item.delivery.interrupt_requested == true
     assert item.body.text =~ "operator dismissed this decision"
     assert item.body.text =~ "best judgement"
 
