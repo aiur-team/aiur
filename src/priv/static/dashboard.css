@@ -264,6 +264,34 @@ textarea:focus-visible,
   font-weight: 600;
 }
 
+/* Live attention badge: active-unit count on Units, open-Command count on
+   Commands (the latter tinted as an alert). */
+.shell-nav-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.35rem;
+  height: 1.35rem;
+  margin-left: auto;
+  padding-inline: 0.4rem;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--fg);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.68rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.shell-nav-item.is-active .shell-nav-count {
+  background: color-mix(in srgb, var(--accent-ink) 22%, transparent);
+  color: var(--accent-ink);
+}
+
+.shell-nav-count.is-attention {
+  background: color-mix(in srgb, #f2836b 26%, transparent);
+  color: #f5b8a8;
+}
+
 .shell-nav-mobile {
   display: none;
 }

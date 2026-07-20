@@ -596,6 +596,7 @@ defmodule AiurWeb.DashboardLive do
       now={@now}
       tracker_kind={tracker_kind()}
       agent_kind={agent_kind()}
+      nav_counts={nav_counts(@units_view, @retained_counts)}
     >
       <Overview.decisions_banner decisions={@payload.decisions} retained_counts={@retained_counts} />
       <Overview.error error={@payload.fleet[:error]} />
@@ -798,6 +799,20 @@ defmodule AiurWeb.DashboardLive do
   defp decision_path(decision_id, filter, query), do: DecisionPath.detail(decision_id, filter, query)
 
   defp units_path(selection), do: "/?" <> UnitsURL.encode(selection)
+
+  # Nav badges surface live attention counts: active units and open Commands.
+  # Only real, positive integers are emitted; anything unknown is omitted so the
+  # nav never fabricates a count.
+  defp nav_counts(units_view, retained_counts) do
+    %{}
+    |> put_nav_count(:units, get_in(units_view, [:counts, :active]))
+    |> put_nav_count(:commands, Map.get(retained_counts || %{}, :open))
+  end
+
+  defp put_nav_count(counts, key, value) when is_integer(value) and value > 0,
+    do: Map.put(counts, key, value)
+
+  defp put_nav_count(counts, _key, _value), do: counts
 
   defp units_count_summary(%{count_status: :unavailable}),
     do: "Observed and selected-scope counts unavailable"

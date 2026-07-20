@@ -10,6 +10,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
   attr(:now, :any, required: true)
   attr(:tracker_kind, :string, required: true)
   attr(:agent_kind, :string, required: true)
+  attr(:nav_counts, :map, default: %{})
   slot(:inner_block, required: true)
 
   @spec dashboard_shell(map()) :: Phoenix.LiveView.Rendered.t()
@@ -47,6 +48,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
         <.navigation
           routes={@routes}
           current_route={@route}
+          nav_counts={@nav_counts}
           class="shell-nav shell-nav-sidebar"
           label="Aiur sidebar routes"
         />
@@ -71,6 +73,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
       <.navigation
         routes={@routes}
         current_route={@route}
+        nav_counts={@nav_counts}
         class="shell-nav shell-nav-mobile"
         label="Aiur mobile routes"
       />
@@ -80,6 +83,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
 
   attr(:routes, :list, required: true)
   attr(:current_route, :map, required: true)
+  attr(:nav_counts, :map, default: %{})
   attr(:class, :string, required: true)
   attr(:label, :string, required: true)
 
@@ -87,7 +91,12 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
     ~H"""
     <nav class={@class} aria-label={@label}>
       <%= for route <- @routes do %>
-        <.route_item route={route} current_route={@current_route} active={route.id == @current_route.id} />
+        <.route_item
+          route={route}
+          current_route={@current_route}
+          count={Map.get(@nav_counts, route.id)}
+          active={route.id == @current_route.id}
+        />
       <% end %>
     </nav>
     """
@@ -95,6 +104,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
 
   attr(:route, :map, required: true)
   attr(:current_route, :map, required: true)
+  attr(:count, :any, default: nil)
   attr(:active, :boolean, required: true)
 
   defp route_item(assigns) do
@@ -112,6 +122,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
     >
       <span class="shell-nav-icon" aria-hidden="true">{nav_icon(@route.id)}</span>
       <span class="shell-nav-label">{@route.label}</span>
+      <.nav_count route_id={@route.id} count={@count} />
     </.link>
     <.link
       :if={@available and RouteRegistry.live?(@route) and @navigation_mode == :navigate}
@@ -121,6 +132,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
     >
       <span class="shell-nav-icon" aria-hidden="true">{nav_icon(@route.id)}</span>
       <span class="shell-nav-label">{@route.label}</span>
+      <.nav_count route_id={@route.id} count={@count} />
     </.link>
     <.link
       :if={@available and RouteRegistry.document?(@route)}
@@ -143,6 +155,19 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
     </span>
     """
   end
+
+  attr(:route_id, :atom, required: true)
+  attr(:count, :any, required: true)
+
+  defp nav_count(%{count: count} = assigns) when is_integer(count) and count > 0 do
+    ~H"""
+    <span class={["shell-nav-count", @route_id == :commands && "is-attention"]} aria-hidden="true">
+      {@count}
+    </span>
+    """
+  end
+
+  defp nav_count(assigns), do: ~H""
 
   @nav_svg_attrs ~s(viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round")
 
