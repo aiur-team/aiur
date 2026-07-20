@@ -1,0 +1,728 @@
+{
+  "schema_version": 1,
+  "build_order_id": "its-everdred/aiur:build-order-dashboard",
+  "title": "Aiur Build Order dashboard",
+  "subtitle": "The build-order feature that ships this dashboard \u2014 permanent plan pack (8 phases)",
+  "repository": "its-everdred/aiur",
+  "root_number": 1084,
+  "plan_version": 1,
+  "permanent": true,
+  "workstreams": [
+    {
+      "id": "plan-graph",
+      "title": "Plan graph"
+    },
+    {
+      "id": "runtime",
+      "title": "Runtime"
+    },
+    {
+      "id": "dashboard-ui",
+      "title": "Dashboard UI"
+    },
+    {
+      "id": "accounting",
+      "title": "Accounting"
+    },
+    {
+      "id": "platform",
+      "title": "Platform"
+    }
+  ],
+  "tickets": [
+    {
+      "id": "BO-001",
+      "title": "Define Build Order domain contract",
+      "lane": "plan-graph",
+      "phase": 1,
+      "complexity": 3,
+      "number": 1085,
+      "depends_on": [
+        "BO-004"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1085"
+    },
+    {
+      "id": "BO-002",
+      "title": "Fetch complete GitHub planning graph",
+      "lane": "plan-graph",
+      "phase": 2,
+      "complexity": 4,
+      "number": 1091,
+      "depends_on": [
+        "BO-001"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1091"
+    },
+    {
+      "id": "BO-003",
+      "title": "Project atomic planning caches and LKG",
+      "lane": "plan-graph",
+      "phase": 3,
+      "complexity": 4,
+      "number": 1092,
+      "depends_on": [
+        "BO-002"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1092"
+    },
+    {
+      "id": "BO-004",
+      "title": "Define configured-repository tracker identity",
+      "lane": "plan-graph",
+      "phase": 1,
+      "complexity": 3,
+      "number": 1086,
+      "depends_on": [],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1086"
+    },
+    {
+      "id": "BO-017",
+      "title": "Propagate typed ticket event observations",
+      "lane": "runtime",
+      "phase": 2,
+      "complexity": 4,
+      "number": 1104,
+      "depends_on": [
+        "BO-004"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1104"
+    },
+    {
+      "id": "BO-005",
+      "title": "Project shared ticket activity",
+      "lane": "runtime",
+      "phase": 3,
+      "complexity": 4,
+      "number": 1093,
+      "depends_on": [
+        "BO-017"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1093"
+    },
+    {
+      "id": "BO-006",
+      "title": "Migrate AgentList to shared activity",
+      "lane": "runtime",
+      "phase": 4,
+      "complexity": 3,
+      "number": 1094,
+      "depends_on": [
+        "BO-005"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1094"
+    },
+    {
+      "id": "BO-007",
+      "title": "Join planning and runtime state",
+      "lane": "plan-graph",
+      "phase": 4,
+      "complexity": 4,
+      "number": 1095,
+      "depends_on": [
+        "BO-001",
+        "BO-003",
+        "BO-005"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1095"
+    },
+    {
+      "id": "BO-008",
+      "title": "Build browser, accessibility, and performance harness",
+      "lane": "platform",
+      "phase": 1,
+      "complexity": 4,
+      "number": 1087,
+      "depends_on": [],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1087"
+    },
+    {
+      "id": "BO-009",
+      "title": "Vendor layout worker and static platform",
+      "lane": "platform",
+      "phase": 2,
+      "complexity": 4,
+      "number": 1096,
+      "depends_on": [
+        "BO-001",
+        "BO-008"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1096"
+    },
+    {
+      "id": "BO-010",
+      "title": "Build DOM/SVG layout adapter and fallback",
+      "lane": "platform",
+      "phase": 3,
+      "complexity": 4,
+      "number": 1097,
+      "depends_on": [
+        "BO-008",
+        "BO-009"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1097"
+    },
+    {
+      "id": "BO-011",
+      "title": "Adapt ticket context to Build Order",
+      "lane": "dashboard-ui",
+      "phase": 4,
+      "complexity": 4,
+      "number": 1098,
+      "depends_on": [
+        "BO-007",
+        "BO-018"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1098"
+    },
+    {
+      "id": "BO-016",
+      "title": "Provide configured-repository ticket detail",
+      "lane": "plan-graph",
+      "phase": 4,
+      "complexity": 4,
+      "number": 1103,
+      "depends_on": [
+        "BO-004"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1103"
+    },
+    {
+      "id": "BO-019",
+      "title": "Provide bounded recent ticket history",
+      "lane": "plan-graph",
+      "phase": 4,
+      "complexity": 3,
+      "number": 1106,
+      "depends_on": [
+        "BO-005"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1106"
+    },
+    {
+      "id": "BO-018",
+      "title": "Build accessible base ticket context",
+      "lane": "dashboard-ui",
+      "phase": 4,
+      "complexity": 3,
+      "number": 1105,
+      "depends_on": [
+        "BO-008",
+        "BO-016",
+        "BO-019"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1105"
+    },
+    {
+      "id": "BO-012",
+      "title": "Ship selectable minimum graph route",
+      "lane": "dashboard-ui",
+      "phase": 5,
+      "complexity": 4,
+      "number": 1099,
+      "depends_on": [
+        "BO-003",
+        "BO-007",
+        "BO-010",
+        "BO-011"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1099"
+    },
+    {
+      "id": "BO-013",
+      "title": "Harden graph interaction and accessibility",
+      "lane": "dashboard-ui",
+      "phase": 6,
+      "complexity": 4,
+      "number": 1100,
+      "depends_on": [
+        "BO-008",
+        "BO-012"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1100"
+    },
+    {
+      "id": "BO-014",
+      "title": "Prove responsive redraw, scale, and performance",
+      "lane": "dashboard-ui",
+      "phase": 7,
+      "complexity": 4,
+      "number": 1101,
+      "depends_on": [
+        "BO-008",
+        "BO-013"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1101"
+    },
+    {
+      "id": "BO-015",
+      "title": "Prove current-base real and synthetic acceptance",
+      "lane": "dashboard-ui",
+      "phase": 8,
+      "complexity": 4,
+      "number": 1102,
+      "depends_on": [
+        "BO-006",
+        "BO-014",
+        "BO-020",
+        "DASH-023",
+        "DASH-033"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1102"
+    },
+    {
+      "id": "BO-020",
+      "title": "Render plan phase and epic breakdowns",
+      "lane": "dashboard-ui",
+      "phase": 6,
+      "complexity": 2,
+      "number": 1107,
+      "depends_on": [
+        "BO-003",
+        "BO-012"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1107"
+    },
+    {
+      "id": "DASH-001",
+      "title": "Ship responsive route-aware shell",
+      "lane": "dashboard-ui",
+      "phase": 2,
+      "complexity": 3,
+      "number": 1108,
+      "depends_on": [
+        "BO-008"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1108"
+    },
+    {
+      "id": "DASH-002",
+      "title": "Recover canonical current-run membership",
+      "lane": "runtime",
+      "phase": 3,
+      "complexity": 4,
+      "number": 1109,
+      "depends_on": [
+        "BO-017"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1109"
+    },
+    {
+      "id": "DASH-003",
+      "title": "Render responsive Units interface",
+      "lane": "dashboard-ui",
+      "phase": 6,
+      "complexity": 3,
+      "number": 1110,
+      "depends_on": [
+        "DASH-001",
+        "DASH-016",
+        "BO-018"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1110"
+    },
+    {
+      "id": "DASH-004",
+      "title": "Confirm applied unit controls",
+      "lane": "runtime",
+      "phase": 2,
+      "complexity": 4,
+      "number": 1111,
+      "depends_on": [
+        "BO-004"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1111"
+    },
+    {
+      "id": "DASH-005",
+      "title": "Render applied unit controls",
+      "lane": "dashboard-ui",
+      "phase": 7,
+      "complexity": 3,
+      "number": 1112,
+      "depends_on": [
+        "DASH-003",
+        "DASH-004"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1112"
+    },
+    {
+      "id": "DASH-006",
+      "title": "Add retained Decision lookup and queries",
+      "lane": "runtime",
+      "phase": 1,
+      "complexity": 3,
+      "number": 1088,
+      "depends_on": [],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1088"
+    },
+    {
+      "id": "DASH-007",
+      "title": "Align Commands presentation",
+      "lane": "dashboard-ui",
+      "phase": 3,
+      "complexity": 3,
+      "number": 1113,
+      "depends_on": [
+        "DASH-001",
+        "DASH-006",
+        "DASH-017"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1113"
+    },
+    {
+      "id": "DASH-008",
+      "title": "Define attributed usage envelopes",
+      "lane": "accounting",
+      "phase": 3,
+      "complexity": 3,
+      "number": 1114,
+      "depends_on": [
+        "BO-017",
+        "DASH-018"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1114"
+    },
+    {
+      "id": "DASH-009",
+      "title": "Persist canonical usage ledger",
+      "lane": "accounting",
+      "phase": 4,
+      "complexity": 4,
+      "number": 1115,
+      "depends_on": [
+        "DASH-008"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1115"
+    },
+    {
+      "id": "DASH-010",
+      "title": "Normalize Claude Remote usage",
+      "lane": "accounting",
+      "phase": 4,
+      "complexity": 3,
+      "number": 1116,
+      "depends_on": [
+        "DASH-008",
+        "DASH-019"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1116"
+    },
+    {
+      "id": "DASH-011",
+      "title": "Resolve exact usage pricing",
+      "lane": "accounting",
+      "phase": 4,
+      "complexity": 3,
+      "number": 1117,
+      "depends_on": [
+        "DASH-008"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1117"
+    },
+    {
+      "id": "DASH-012",
+      "title": "Project canonical provider meters",
+      "lane": "accounting",
+      "phase": 2,
+      "complexity": 3,
+      "number": 1118,
+      "depends_on": [
+        "DASH-018"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1118"
+    },
+    {
+      "id": "DASH-013",
+      "title": "Normalize Claude account meters",
+      "lane": "accounting",
+      "phase": 3,
+      "complexity": 4,
+      "number": 1119,
+      "depends_on": [
+        "DASH-012"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1119"
+    },
+    {
+      "id": "DASH-014",
+      "title": "Project canonical run summary",
+      "lane": "runtime",
+      "phase": 5,
+      "complexity": 4,
+      "number": 1120,
+      "depends_on": [
+        "DASH-016"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1120"
+    },
+    {
+      "id": "DASH-015",
+      "title": "Render authenticated provider meters",
+      "lane": "accounting",
+      "phase": 7,
+      "complexity": 3,
+      "number": 1121,
+      "depends_on": [
+        "DASH-003",
+        "DASH-013",
+        "DASH-020",
+        "DASH-021"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1121"
+    },
+    {
+      "id": "DASH-016",
+      "title": "Project canonical Units rows and policy",
+      "lane": "dashboard-ui",
+      "phase": 4,
+      "complexity": 3,
+      "number": 1122,
+      "depends_on": [
+        "DASH-002",
+        "BO-005"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1122"
+    },
+    {
+      "id": "DASH-017",
+      "title": "Persist trusted Decision provenance",
+      "lane": "runtime",
+      "phase": 1,
+      "complexity": 3,
+      "number": 1089,
+      "depends_on": [],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1089"
+    },
+    {
+      "id": "DASH-018",
+      "title": "Own provider-account generation identity",
+      "lane": "accounting",
+      "phase": 1,
+      "complexity": 3,
+      "number": 1090,
+      "depends_on": [],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1090"
+    },
+    {
+      "id": "DASH-019",
+      "title": "Authenticate Claude telemetry transport",
+      "lane": "platform",
+      "phase": 2,
+      "complexity": 4,
+      "number": 1123,
+      "depends_on": [
+        "BO-004"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1123"
+    },
+    {
+      "id": "DASH-020",
+      "title": "Normalize Codex account meters",
+      "lane": "accounting",
+      "phase": 3,
+      "complexity": 3,
+      "number": 1124,
+      "depends_on": [
+        "DASH-012"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1124"
+    },
+    {
+      "id": "DASH-021",
+      "title": "Enforce financial-data authentication",
+      "lane": "platform",
+      "phase": 3,
+      "complexity": 3,
+      "number": 1125,
+      "depends_on": [
+        "DASH-001"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1125"
+    },
+    {
+      "id": "DASH-022",
+      "title": "Render accessible current-run summary",
+      "lane": "dashboard-ui",
+      "phase": 7,
+      "complexity": 3,
+      "number": 1126,
+      "depends_on": [
+        "DASH-003",
+        "DASH-014"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1126"
+    },
+    {
+      "id": "DASH-023",
+      "title": "Integrate selected Build Order usage",
+      "lane": "accounting",
+      "phase": 8,
+      "complexity": 4,
+      "number": 1127,
+      "depends_on": [
+        "BO-003",
+        "BO-012",
+        "DASH-030",
+        "DASH-031",
+        "DASH-021"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1127"
+    },
+    {
+      "id": "DASH-024",
+      "title": "Project durable usage aggregates",
+      "lane": "accounting",
+      "phase": 5,
+      "complexity": 4,
+      "number": 1128,
+      "depends_on": [
+        "DASH-009"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1128"
+    },
+    {
+      "id": "DASH-025",
+      "title": "Harden usage retention and compaction",
+      "lane": "accounting",
+      "phase": 6,
+      "complexity": 4,
+      "number": 1129,
+      "depends_on": [
+        "DASH-024"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1129"
+    },
+    {
+      "id": "DASH-026",
+      "title": "Project bounded live conversations",
+      "lane": "runtime",
+      "phase": 3,
+      "complexity": 3,
+      "number": 1130,
+      "depends_on": [
+        "BO-017"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1130"
+    },
+    {
+      "id": "DASH-027",
+      "title": "Render accessible conversation drawer",
+      "lane": "dashboard-ui",
+      "phase": 7,
+      "complexity": 3,
+      "number": 1131,
+      "depends_on": [
+        "DASH-003",
+        "DASH-026"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1131"
+    },
+    {
+      "id": "DASH-028",
+      "title": "Render runtime capacity control",
+      "lane": "dashboard-ui",
+      "phase": 7,
+      "complexity": 2,
+      "number": 1132,
+      "depends_on": [
+        "DASH-003"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1132"
+    },
+    {
+      "id": "DASH-029",
+      "title": "Normalize headless usage sources",
+      "lane": "accounting",
+      "phase": 4,
+      "complexity": 3,
+      "number": 1133,
+      "depends_on": [
+        "DASH-008",
+        "BO-017",
+        "DASH-018"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1133"
+    },
+    {
+      "id": "DASH-030",
+      "title": "Project grouped usage scopes",
+      "lane": "accounting",
+      "phase": 6,
+      "complexity": 3,
+      "number": 1134,
+      "depends_on": [
+        "DASH-011",
+        "DASH-024"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1134"
+    },
+    {
+      "id": "DASH-031",
+      "title": "Render authenticated usage and cost summary",
+      "lane": "accounting",
+      "phase": 7,
+      "complexity": 4,
+      "number": 1135,
+      "depends_on": [
+        "DASH-003",
+        "DASH-010",
+        "DASH-013",
+        "DASH-020",
+        "DASH-021",
+        "DASH-025",
+        "DASH-029",
+        "DASH-030"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1135"
+    },
+    {
+      "id": "DASH-032",
+      "title": "Project truthful current-run outcomes",
+      "lane": "runtime",
+      "phase": 6,
+      "complexity": 3,
+      "number": 1136,
+      "depends_on": [
+        "DASH-002",
+        "DASH-014"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1136"
+    },
+    {
+      "id": "DASH-033",
+      "title": "Prove existing-dashboard parity",
+      "lane": "dashboard-ui",
+      "phase": 8,
+      "complexity": 3,
+      "number": 1137,
+      "depends_on": [
+        "DASH-001",
+        "DASH-003",
+        "DASH-005",
+        "DASH-007",
+        "DASH-015",
+        "DASH-022",
+        "DASH-027",
+        "DASH-028",
+        "DASH-031",
+        "DASH-034"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1137"
+    },
+    {
+      "id": "DASH-034",
+      "title": "Render current-run Recent outcomes",
+      "lane": "dashboard-ui",
+      "phase": 7,
+      "complexity": 3,
+      "number": 1138,
+      "depends_on": [
+        "DASH-003",
+        "DASH-007",
+        "DASH-032"
+      ],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1138"
+    }
+  ]
+}

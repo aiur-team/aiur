@@ -25,25 +25,32 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   @epoch 1
   @generation 1
   @root_number 9000
-  @default_pack "priv/build_orders/croptracker-demo.json"
+
+  # Default catalog: the permanent aiur build-order plan (kept in the repo) plus
+  # the CropTracker demo pack. A single `:build_order_planning_pack` override
+  # still selects exactly one pack for tests and focused demos.
+  @default_packs [
+    "priv/build_orders/aiur-build-order.json",
+    "priv/build_orders/croptracker-demo.json"
+  ]
 
   # --- catalog ---------------------------------------------------------------
 
   @impl true
   def catalog do
-    case load_pack() do
-      {:ok, pack} ->
+    case load_packs() do
+      [] ->
+        nil
+
+      packs ->
         %Snapshot{
           scope: :catalog,
-          repository: pack.repository,
+          repository: hd(packs).repository,
           generation: @generation,
           authority_epoch: @epoch,
-          data: Catalog.new([root_summary(pack)], health()),
+          data: Catalog.new(Enum.map(packs, &root_summary/1), health()),
           health: health()
         }
-
-      :error ->
-        nil
     end
   end
 
@@ -56,8 +63,8 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   def selected(%TrackerIdentity{} = identity), do: {:ok, selected_snapshot(identity)}
 
   defp selected_snapshot(identity) do
-    case load_pack() do
-      {:ok, pack} ->
+    case Enum.find(load_packs(), &pack_root?(&1, identity)) do
+      %{} = pack ->
         %Snapshot{
           scope: {:selected, identity},
           repository: pack.repository,
@@ -67,7 +74,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
           health: health()
         }
 
-      :error ->
+      nil ->
         %Snapshot{
           scope: {:selected, identity},
           repository: {"unknown", "unknown"},
@@ -78,6 +85,10 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
         }
     end
   end
+
+  # A selected root identity carries the pack's repository and root number.
+  defp pack_root?(pack, %TrackerIdentity{owner: owner, repository: repo, identifier: number}),
+    do: pack.repository == {owner, repo} and to_string(pack.root_number) == to_string(number)
 
   # --- runtime sources / context (planning mode: nothing live) ---------------
 
@@ -165,11 +176,20 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
       if(ticket.complexity, do: ["complexity:#{ticket.complexity}"], else: [])
   end
 
-  defp root_identity(pack), do: identity!(pack.repository, @root_number, "BO_ROOT")
+  defp root_identity(pack), do: identity!(pack.repository, pack.root_number, "BO_ROOT")
 
   defp ticket_identity(pack, ticket) do
-    number = ticket_number(ticket.id)
+    number = ticket_number(pack, ticket)
     identity!(pack.repository, number, "PLAN_#{ticket.id}")
+  end
+
+  # Prefer the pack's real GitHub number when present; otherwise derive it from
+  # the ticket id so blocker edges still resolve for pre-ticket packs.
+  defp ticket_number(pack, %{id: id}) do
+    case Map.get(pack.numbers, id) do
+      number when is_integer(number) -> number
+      _missing -> ticket_number(id)
+    end
   end
 
   # CT-101 -> 101. Falls back to a stable hash for non-numeric ids.
@@ -191,23 +211,46 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   # --- pack loading ----------------------------------------------------------
 
-  defp load_pack do
-    path = Application.get_env(:aiur, :build_order_planning_pack, @default_pack)
+  defp load_packs do
+    pack_paths()
+    |> Enum.map(&load_pack/1)
+    |> Enum.flat_map(fn
+      {:ok, pack} -> [pack]
+      :error -> []
+    end)
+  end
+
+  defp pack_paths do
+    case Application.get_env(:aiur, :build_order_planning_pack) do
+      nil -> Application.get_env(:aiur, :build_order_planning_packs, @default_packs)
+      path -> [path]
+    end
+  end
+
+  defp load_pack(path) do
     absolute = if Path.type(path) == :absolute, do: path, else: Application.app_dir(:aiur, path)
 
     with {:ok, body} <- File.read(absolute),
          {:ok, json} <- Jason.decode(body),
          {:ok, repository} <- repository(json) do
+      tickets = tickets(Map.get(json, "tickets", []))
+
       {:ok,
        %{
          repository: repository,
          build_order_id: Map.get(json, "build_order_id", "planning"),
          title: Map.get(json, "title", "Planning build order"),
-         tickets: tickets(Map.get(json, "tickets", []))
+         root_number: Map.get(json, "root_number", @root_number),
+         tickets: tickets,
+         numbers: ticket_numbers(tickets)
        }}
     else
       _error -> :error
     end
+  end
+
+  defp ticket_numbers(tickets) do
+    for %{id: id, number: number} <- tickets, is_integer(number), into: %{}, do: {id, number}
   end
 
   defp repository(json) do
@@ -227,6 +270,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
             lane: to_string(Map.get(ticket, "lane", "unassigned")),
             phase: Map.get(ticket, "phase", 0),
             complexity: Map.get(ticket, "complexity"),
+            number: Map.get(ticket, "number"),
             depends_on: List.wrap(Map.get(ticket, "depends_on", [])),
             document_url: Map.get(ticket, "document_url")
           }
