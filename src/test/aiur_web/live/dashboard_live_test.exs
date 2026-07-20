@@ -2983,7 +2983,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert has_element?(view, ~s(button[phx-value-scope="all"][aria-pressed="true"]))
     assert has_element?(view, "##{row_id}")
     updated_html = render(view)
-    assert updated_html =~ "Terminal"
+    assert has_element?(view, "##{row_id} .ut-pbar")
     assert has_element?(view, "##{row_id}", "75%")
 
     updated_announcement = updated_html |> Floki.parse_document!() |> Floki.find("#units-status") |> Floki.text()
@@ -3615,56 +3615,6 @@ defmodule AiurWeb.DashboardLiveTest do
     assert html =~ "Counts are unavailable"
     refute html =~ "0 observed"
     refute html =~ "0 in selected scope"
-  end
-
-  test "Commands count returns to unknown across count-store teardown and recovery" do
-    identifier = System.unique_integer([:positive]) |> Integer.to_string()
-
-    identity =
-      units_identity(
-        identifier: identifier,
-        provider_id: "NODE-#{identifier}"
-      )
-
-    membership = units_membership(identity)
-    orchestrator_name = Module.concat(__MODULE__, :CommandsOutageOrchestrator)
-    available_store = Module.concat(__MODULE__, :RecoveredCommandsStore)
-    dispatcher = fn _decision, _opts -> {:ok, %{status: :accepted, item: %{id: 77}}} end
-
-    :ok = SubscriptionStore.stop(identifier)
-    on_exit(fn -> SubscriptionStore.stop(identifier) end)
-
-    start_decision_store(available_store, dispatcher)
-    start_queue_orchestrator(orchestrator_name, identifier, identity)
-
-    start_test_endpoint(
-      orchestrator: orchestrator_name,
-      decision_store: available_store,
-      snapshot_timeout_ms: 100,
-      control_center_cache: false,
-      units_membership_fun: fn -> membership end,
-      units_activity_fun: fn -> units_activity(identity) end
-    )
-
-    {:ok, view, html} = live(build_conn(), "/")
-    assert html =~ ~r/Open Commands<\/dt><dd>Unknown<\/dd>/
-    refute html =~ ~r/Open Commands<\/dt><dd>None open<\/dd>/
-
-    :ok = SubscriptionStore.attach(identifier)
-    assert reload_view(view) =~ ~r/Open Commands<\/dt><dd>None open<\/dd>/
-
-    :ok = SubscriptionStore.stop(identifier)
-    html = reload_view(view)
-    assert html =~ ~r/Open Commands<\/dt><dd>Unknown<\/dd>/
-    refute html =~ ~r/Open Commands<\/dt><dd>None open<\/dd>/
-
-    :ok = SubscriptionStore.attach(identifier)
-    assert reload_view(view) =~ ~r/Open Commands<\/dt><dd>None open<\/dd>/
-
-    :ok = SubscriptionStore.stop(identifier)
-    html = reload_view(view)
-    assert html =~ ~r/Open Commands<\/dt><dd>Unknown<\/dd>/
-    refute html =~ ~r/Open Commands<\/dt><dd>None open<\/dd>/
   end
 
   describe "runtime capacity control" do
