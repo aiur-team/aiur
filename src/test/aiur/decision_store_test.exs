@@ -177,6 +177,51 @@ defmodule Aiur.DecisionStoreTest do
     DecisionStore.request(payload, Keyword.merge([ticket: @ticket, source: @source], opts), pid)
   end
 
+  test "dismiss is durable, idempotent, historic, and write-gated", %{dir: dir} do
+    pid = start_store!(dir)
+
+    assert {:ok, %{decision: decision}} =
+             request(pid, %{
+               "question" => "Use blue or green?",
+               "blocking" => true,
+               "options" => [
+                 %{"id" => "blue", "label" => "Blue"},
+                 %{"id" => "green", "label" => "Green"}
+               ]
+             })
+
+    opts = [actor: %{kind: :operator, id: "dashboard"}]
+
+    assert {:ok, %{status: :accepted, decision: dismissed}} =
+             DecisionStore.dismiss(decision.decision_id, opts, pid)
+
+    assert dismissed.decision_status == :dismissed
+    assert dismissed.answer == nil
+
+    assert {:ok, %{status: :duplicate, decision: replayed}} =
+             DecisionStore.dismiss(decision.decision_id, opts, pid)
+
+    assert replayed.decision_status == :dismissed
+
+    assert {:ok, %{decisions: [historic], total: 1}} =
+             DecisionStore.retained_query(
+               %{limit: 25, cursor: nil, lifecycle: :historic, search: nil, ticket: nil},
+               pid
+             )
+
+    assert historic.decision_id == decision.decision_id
+
+    :sys.replace_state(pid, &%{&1 | writable?: false, health: {:corrupt, 1, :test}})
+
+    assert {:error, {:store_unavailable, {:corrupt, 1, :test}}} =
+             DecisionStore.dismiss(decision.decision_id, opts, pid)
+
+    GenServer.stop(pid)
+    restarted = start_store!(dir)
+    assert {:ok, durable} = DecisionStore.get(decision.decision_id, restarted)
+    assert durable.decision_status == :dismissed
+  end
+
   defp decision_index_key(decision) do
     urgency = %{low: 0, normal: 1, high: 2, critical: 3}
 

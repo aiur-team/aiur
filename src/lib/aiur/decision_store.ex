@@ -126,6 +126,14 @@ defmodule Aiur.DecisionStore do
     GenServer.call(server, {:answer, decision_id, payload, opts}, timeout)
   end
 
+  @doc "Durably dismisses an open Decision without recording an answer."
+  @spec dismiss(String.t(), keyword(), GenServer.server(), timeout()) ::
+          {:ok, map()} | {:error, term()}
+  def dismiss(decision_id, opts \\ [], server \\ __MODULE__, timeout \\ @request_timeout)
+      when is_binary(decision_id) and is_list(opts) do
+    GenServer.call(server, {:dismiss, decision_id, opts}, timeout)
+  end
+
   @doc "Durably records an ordered correction to the active Decision action."
   @spec revise(String.t(), map(), keyword(), GenServer.server(), timeout()) ::
           {:ok, map()} | {:error, term()}
@@ -490,6 +498,14 @@ defmodule Aiur.DecisionStore do
 
   def handle_call({:answer, decision_id, payload, opts}, _from, state) do
     handle_answer(decision_id, payload, opts, state)
+  end
+
+  def handle_call({:dismiss, _decision_id, _opts}, _from, %{writable?: false} = state) do
+    {:reply, {:error, {:store_unavailable, state.health}}, state}
+  end
+
+  def handle_call({:dismiss, decision_id, opts}, _from, state) do
+    handle_dismiss(decision_id, opts, state)
   end
 
   def handle_call({:revise, _decision_id, _payload, _opts}, _from, %{writable?: false} = state) do
@@ -997,6 +1013,29 @@ defmodule Aiur.DecisionStore do
     end
   end
 
+  defp handle_dismiss(decision_id, opts, state) do
+    with {:ok, decision} <- fetch_decision(state, decision_id),
+         {:ok, actor} <- fetch_actor(opts) do
+      case decision.decision_status do
+        :open -> persist_dismissal(decision, actor, state)
+        :dismissed -> {:reply, {:ok, %{status: :duplicate, decision: decision}}, state}
+        status -> {:reply, {:error, {:conflict, status}}, state}
+      end
+    else
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  defp persist_dismissal(decision, actor, state) do
+    case build_and_persist_event(:decision_dismissed, decision, %{actor: actor}, DateTime.utc_now(), state) do
+      {:ok, next_state, updated} ->
+        {:reply, {:ok, %{status: :accepted, decision: updated}}, next_state}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
+  end
+
   defp dispatch_status(%Decision{delivery_status: :pending}), do: :dispatch_pending
   defp dispatch_status(%Decision{delivery_status: status}), do: status
 
@@ -1441,7 +1480,13 @@ defmodule Aiur.DecisionStore do
 
     next_state =
       Enum.reduce(lifecycle_events, next_state, fn {decision, event}, state_acc ->
-        resolve_lifecycle_append_failure(state_acc, decision, event.data.action_id)
+        case Map.get(event.data, :action_id) do
+          action_id when is_binary(action_id) ->
+            resolve_lifecycle_append_failure(state_acc, decision, action_id)
+
+          _action_id ->
+            state_acc
+        end
       end)
 
     if next_state.writable? do
@@ -1453,6 +1498,7 @@ defmodule Aiur.DecisionStore do
 
   defp lifecycle_version(_decision, %DecisionAnswer{decision_version: version}), do: version
   defp lifecycle_version(_decision, %DecisionRevision{decision_version: version}), do: version
+  defp lifecycle_version(decision, %{actor: _actor}), do: decision.version
 
   defp lifecycle_version(decision, %{action_id: action_id}) do
     case Decision.answer_for_action(decision, action_id) do
@@ -1491,6 +1537,7 @@ defmodule Aiur.DecisionStore do
   end
 
   defp lifecycle_slug(:answer_recorded), do: "answered"
+  defp lifecycle_slug(:decision_dismissed), do: "dismissed"
   defp lifecycle_slug(:enriched), do: "enriched"
   defp lifecycle_slug(:revision_recorded), do: "revision-recorded"
   defp lifecycle_slug(:dispatch_queued), do: "queued"
@@ -2903,7 +2950,7 @@ defmodule Aiur.DecisionStore do
 
   defp recent_decision_sort_key(%Decision{} = decision) do
     {
-      decision.decision_status == :resolved,
+      decision.decision_status in [:dismissed, :resolved],
       not decision.blocking,
       -urgency_rank(decision.urgency),
       -datetime_sort_key(decision.created_at),

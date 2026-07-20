@@ -33,6 +33,7 @@ defmodule Aiur.DecisionEvent do
   @types [
     :requested,
     :enriched,
+    :decision_dismissed,
     :answer_recorded,
     :revision_recorded,
     :dispatch_queued,
@@ -54,6 +55,7 @@ defmodule Aiur.DecisionEvent do
   @type type ::
           :requested
           | :enriched
+          | :decision_dismissed
           | :answer_recorded
           | :revision_recorded
           | :dispatch_queued
@@ -241,6 +243,12 @@ defmodule Aiur.DecisionEvent do
       {:ok, answer}
     else
       {:error, {:event_data, :answer_identity_mismatch}}
+    end
+  end
+
+  defp normalize_data(:decision_dismissed, raw, _decision_id, _version, _trusted_provenance) when is_map(raw) do
+    with {:ok, actor} <- normalize_actor(get(raw, :actor)) do
+      {:ok, %{actor: actor}}
     end
   end
 
@@ -464,6 +472,10 @@ defmodule Aiur.DecisionEvent do
   end
 
   defp data_to_json_safe(:answer_recorded, %DecisionAnswer{} = answer), do: DecisionAnswer.to_json_safe(answer)
+
+  defp data_to_json_safe(:decision_dismissed, data) do
+    %{"actor" => %{"kind" => Atom.to_string(data.actor.kind), "id" => data.actor.id}}
+  end
 
   defp data_to_json_safe(:revision_recorded, %DecisionRevision{} = revision),
     do: DecisionRevision.to_json_safe(revision, &DecisionAnswer.to_json_safe/1)
