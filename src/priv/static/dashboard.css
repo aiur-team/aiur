@@ -3093,6 +3093,47 @@ html[data-theme="light"] .toggle-icon .moon {
   align-items: stretch;
 }
 
+/* Medium widths: keep ID / Unit / Command as inline columns, but merge Ticket
+   and Latest into one column — title on top, progress/latest at the bottom — so
+   neither gets crushed into a narrow strip. */
+@media (min-width: 481px) and (max-width: 760px) {
+  .units-table,
+  .units-table tbody {
+    display: block;
+  }
+
+  .units-table thead {
+    display: none;
+  }
+
+  .units-table tr.units-row {
+    display: grid;
+    grid-template-columns: auto 176px minmax(0, 1fr) 100px;
+    grid-template-areas:
+      "id unit ticket  command"
+      "id unit latest  command";
+    align-items: center;
+    gap: 0.4rem 0.9rem;
+    padding: 0.85rem 1rem;
+    border-top: 1px solid var(--hairline);
+  }
+
+  .units-table tr.units-row td {
+    padding: 0;
+    border-top: 0;
+  }
+
+  .units-table td.ut-id-cell { grid-area: id; }
+  .units-table td.ut-unit-cell { grid-area: unit; }
+  .units-table td.ut-ticket-cell { grid-area: ticket; align-self: end; }
+  .units-table td.ut-latest-cell { grid-area: latest; align-self: start; }
+  .units-table td.ut-cmd-cell { grid-area: command; }
+
+  .units-table tr.units-row td::before {
+    content: none;
+  }
+}
+
 /* Compact table stacks simply on narrow screens (overrides the old grid map). */
 /* Keep the compact single-row table down to true phone widths; only reflow the
    cells into stacked sub-rows on the smallest screens. Even then, keep it short:
@@ -4578,25 +4619,6 @@ html[data-theme="light"] .toggle-icon .moon {
 
   .units-filter {
     width: 100%;
-  }
-
-  .units-table tr.units-row {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas:
-      "unit"
-      "state"
-      "progress"
-      "execution"
-      "waiting"
-      "actions";
-  }
-
-  .units-actions {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .units-facts div {
-    grid-template-columns: minmax(5rem, 42%) minmax(0, 1fr);
   }
 }
 

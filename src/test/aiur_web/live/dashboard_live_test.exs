@@ -627,8 +627,8 @@ defmodule AiurWeb.DashboardLiveTest do
         selected_decision_health: %{status: :partial, partial?: true}
       )
 
-    assert html =~ "4 Commands are blocking agents"
-    assert html =~ "73 awaiting input in total"
+    assert html =~ "4 units awaiting commands"
+    assert html =~ "Issue commands"
     assert html =~ "Partial retained Command counts"
     assert html =~ "Partial retained Command data"
   end

@@ -47,9 +47,8 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
       <span class="decision-banner-icon" aria-hidden="true">!</span>
       <span class="decision-banner-body">
         <strong>{banner_title(@blocking, @open)}</strong>
-        <span>{banner_detail(@blocking, @open)}</span>
       </span>
-      <span class="decision-banner-cta">Review Commands <span aria-hidden="true">→</span></span>
+      <span class="decision-banner-cta">Issue commands <span aria-hidden="true">→</span></span>
     </.link>
     <div :if={!is_integer(@open)} class="readonly-banner" role="status" aria-live="polite">
       <span aria-hidden="true">◉</span>
@@ -104,15 +103,10 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
     """
   end
 
-  defp banner_title(1, _open), do: "1 Command is blocking an agent"
-  defp banner_title(blocking, _open) when blocking > 1, do: "#{blocking} Commands are blocking agents"
-  defp banner_title(_blocking, 1), do: "1 Command is awaiting you"
-  defp banner_title(_blocking, open), do: "#{open} Commands are awaiting you"
-
-  defp banner_detail(blocking, open) when blocking > 0,
-    do: "#{open} awaiting input in total · answer the blocking Command first"
-
-  defp banner_detail(_blocking, _open), do: "Nothing is blocking · answer at your pace to keep agents moving"
+  defp banner_title(1, _open), do: "1 unit awaiting commands"
+  defp banner_title(blocking, _open) when blocking > 1, do: "#{blocking} units awaiting commands"
+  defp banner_title(_blocking, 1), do: "1 unit awaiting commands"
+  defp banner_title(_blocking, open), do: "#{open} units awaiting commands"
 
   defp active?(_filters, :all, all_active), do: all_active
   defp active?(filters, key, _all_active), do: MapSet.member?(filters, key)

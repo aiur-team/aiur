@@ -369,7 +369,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
       })
 
     assert html =~ ~s(href="/decisions")
-    assert html =~ "1 Command is awaiting you"
+    assert html =~ "1 unit awaiting commands"
     refute empty_html =~ "decisions-banner"
   end
 
