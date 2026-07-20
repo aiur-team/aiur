@@ -1,3 +1,13 @@
+/* Bungee — the display face used by the aiur home-page wordmark, bundled so
+   the dashboard renders it offline (no web-font fetch). */
+@font-face {
+  font-family: "Bungee";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/bungee.woff2") format("woff2");
+}
+
 :root {
   color-scheme: dark;
   --bg: #16171a;
@@ -1465,16 +1475,16 @@ textarea:focus-visible,
 }
 
 .brand-wordmark {
-  font-family: "JetBrains Mono", "SFMono-Regular", monospace;
-  font-size: 1.05rem;
+  font-family: "Bungee", "JetBrains Mono", "SFMono-Regular", monospace;
+  font-size: 0.98rem;
   line-height: 1;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
 .brand-wordmark b {
   color: var(--fg);
-  letter-spacing: 0.04em;
+  font-weight: 400;
 }
 
 .brand-row {
@@ -1486,8 +1496,9 @@ textarea:focus-visible,
 
 .brand-row .brand-live {
   margin-left: 0.1rem;
-  min-height: 0;
-  padding: 0.14rem 0.5rem;
+  min-height: 2.05rem;
+  padding: 0 0.7rem;
+  border-radius: 999px;
   font-size: 0.66rem;
 }
 

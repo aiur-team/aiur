@@ -30,7 +30,8 @@ defmodule AiurWeb.StaticAssets do
     "/codex-color.svg" => {"image/svg+xml", "priv/static/codex-color.svg"},
     "/claude-symbol.svg" => {"image/svg+xml", "priv/static/claude-symbol.svg"},
     "/codex-token.svg" => {"image/svg+xml", "priv/static/codex-token.svg"},
-    "/claude-token.svg" => {"image/svg+xml", "priv/static/claude-token.svg"}
+    "/claude-token.svg" => {"image/svg+xml", "priv/static/claude-token.svg"},
+    "/bungee.woff2" => {"font/woff2", "priv/static/bungee.woff2"}
   }
 
   @external_resource @dashboard_css_path

@@ -98,6 +98,7 @@ defmodule AiurWeb.Router do
     get("/claude-symbol.svg", StaticAssetController, :claude_symbol_svg)
     get("/codex-token.svg", StaticAssetController, :codex_token_svg)
     get("/claude-token.svg", StaticAssetController, :claude_token_svg)
+    get("/bungee.woff2", StaticAssetController, :bungee_font)
     get("/vendor/phoenix_html/phoenix_html.js", StaticAssetController, :phoenix_html_js)
     get("/vendor/phoenix/phoenix.js", StaticAssetController, :phoenix_js)
     get("/vendor/phoenix_live_view/phoenix_live_view.js", StaticAssetController, :phoenix_live_view_js)
