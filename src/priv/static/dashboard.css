@@ -3609,9 +3609,58 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .units-actions {
-  display: grid;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
   gap: 0.4rem;
   min-width: 0;
+}
+
+/* Compact icon actions in the Command column: pause/resume, open chat, remote
+   control. The row itself is the ticket-inspect trigger. */
+.ut-open {
+  cursor: pointer;
+}
+
+.units-icon-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 2.2rem;
+  height: 2.2rem;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--pill-bg);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.units-icon-action svg {
+  width: 1.05rem;
+  height: 1.05rem;
+}
+
+.units-icon-action:hover {
+  border-color: var(--accent-line);
+  color: var(--accent-ink);
+}
+
+.units-icon-action[disabled],
+.units-icon-action.unavailable {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.units-icon-action.tone-applied {
+  border-color: color-mix(in srgb, #6bd6a6 55%, transparent);
+  color: #6bd6a6;
+}
+
+.units-icon-action.tone-error {
+  border-color: color-mix(in srgb, #f2836b 55%, transparent);
+  color: #f2836b;
 }
 
 .units-action {

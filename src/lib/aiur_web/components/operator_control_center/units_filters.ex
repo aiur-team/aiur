@@ -59,9 +59,6 @@ defmodule AiurWeb.OperatorControlCenter.UnitsFilters do
             </span>
           </button>
         </div>
-        <p id="units-filter-note" class="units-filter-note">
-          {count_note(@count_status)} Conditions overlap, so counts are not additive.
-        </p>
       </fieldset>
     </div>
     """
@@ -88,7 +85,4 @@ defmodule AiurWeb.OperatorControlCenter.UnitsFilters do
 
   defp count_aria_label(counts, condition, _status), do: "#{Map.get(counts, condition, 0)}"
 
-  defp count_note(:unavailable), do: "Counts are unavailable while the catalog provider is unavailable."
-  defp count_note(:partial), do: "Counts are lower bounds for the bounded catalog prefix."
-  defp count_note(_status), do: "Counts describe the selected scope before condition filtering."
 end

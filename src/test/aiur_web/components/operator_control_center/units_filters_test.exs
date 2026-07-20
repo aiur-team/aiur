@@ -19,8 +19,6 @@ defmodule AiurWeb.OperatorControlCenter.UnitsFiltersTest do
     assert html =~ ~r/aria-pressed="true"[^>]+phx-value-condition="active"/
     assert html =~ ~r/aria-pressed="true"[^>]+phx-value-condition="paused"/
     assert html =~ ~r/aria-pressed="false"[^>]+phx-value-condition="alert"/
-    assert html =~ "Counts describe the selected scope before condition filtering"
-    assert html =~ "Conditions overlap, so counts are not additive"
     assert html =~ ~r/>Active<\/span>\s*<span class="units-filter-count num" aria-label="3">\s*3\s*<\/span>/
     assert html =~ ~r/>Queued<\/span>\s*<span class="units-filter-count num" aria-label="2">\s*2\s*<\/span>/
   end
@@ -35,7 +33,6 @@ defmodule AiurWeb.OperatorControlCenter.UnitsFiltersTest do
 
     assert partial =~ "800+"
     assert partial =~ ~s(aria-label="At least 800")
-    assert partial =~ "Counts are lower bounds"
 
     unavailable =
       render_component(&UnitsFilters.units_filters/1, %{
@@ -45,7 +42,6 @@ defmodule AiurWeb.OperatorControlCenter.UnitsFiltersTest do
       })
 
     assert unavailable =~ ~s(aria-label="Count unavailable")
-    assert unavailable =~ "Counts are unavailable"
     assert unavailable =~ "disabled"
     refute unavailable =~ ~r/units-filter-count num[^>]*>0</
   end

@@ -30,7 +30,6 @@ defmodule AiurWeb.DashboardLive do
 
   alias AiurWeb.OperatorControlCenter.{
     AgentLogModal,
-    CapacityControl,
     CapacityPresenter,
     ConversationDrawer,
     CurrentRunOutcomes,
@@ -637,12 +636,6 @@ defmodule AiurWeb.DashboardLive do
             selection={@units_selection}
             counts={@units_view[:counts] || %{}}
             count_status={@units_view[:count_status] || :unavailable}
-          />
-          <CapacityControl.capacity_control
-            capacity={@capacity_view}
-            writable={@writable}
-            input={@capacity_input}
-            feedback={@capacity_feedback}
           />
           <UnitsTable.units_table view={@units_view} now={@now} controls={@unit_controls} writable={@writable} />
         </section>
