@@ -57,6 +57,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
         <thead>
           <tr>
             <th scope="col">Title</th>
+            <th scope="col" class="bo-catalog-progress-head">Progress</th>
             <th scope="col" class="bo-catalog-num">Tickets</th>
             <th scope="col" class="bo-catalog-num">Epics</th>
             <th scope="col" class="bo-catalog-num">Phases</th>
@@ -67,6 +68,18 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
             <td>
               <.link :if={catalog_path(entry)} patch={catalog_path(entry)} class="bo-catalog-link">{entry.title}</.link>
               <span :if={is_nil(catalog_path(entry))} class="bo-catalog-invalid">{entry.title}</span>
+            </td>
+            <td class="bo-catalog-progress-cell">
+              <div
+                :if={is_integer(entry.progress)}
+                class="bo-catalog-progress"
+                role="img"
+                aria-label={"#{entry.progress}% complete"}
+              >
+                <span class="bo-catalog-progress-track"><i style={"width:#{entry.progress}%"}></i></span>
+                <span class="bo-catalog-progress-label mono num">{entry.progress}%</span>
+              </div>
+              <span :if={is_nil(entry.progress)} class="bo-catalog-invalid">—</span>
             </td>
             <td class="bo-catalog-num mono num">{count_display(entry.member_count)}</td>
             <td class="bo-catalog-num mono num">{count_display(entry.epic_count)}</td>

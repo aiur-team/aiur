@@ -373,7 +373,43 @@ textarea:focus-visible,
 
 .bo-catalog-table th:first-child,
 .bo-catalog-table td:first-child {
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
+.bo-catalog-progress-head,
+.bo-catalog-progress-cell {
   width: 100%;
+}
+
+.bo-catalog-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 6rem;
+}
+
+.bo-catalog-progress-track {
+  flex: 1 1 auto;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.bo-catalog-progress-track > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.bo-catalog-progress-label {
+  flex: 0 0 auto;
+  min-width: 2.4rem;
+  text-align: right;
+  font-size: 0.72rem;
+  color: var(--muted);
 }
 
 .bo-catalog-table tbody tr {

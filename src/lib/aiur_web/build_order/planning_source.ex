@@ -118,8 +118,18 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
       url: issue_url(identity),
       member_count: length(pack.tickets),
       epic_count: pack.tickets |> Enum.map(& &1.lane) |> Enum.uniq() |> length(),
-      phase_count: pack.tickets |> Enum.map(& &1.phase) |> Enum.uniq() |> length()
+      phase_count: pack.tickets |> Enum.map(& &1.phase) |> Enum.uniq() |> length(),
+      progress: progress_percent(pack.tickets)
     })
+  end
+
+  # Planning packs are pre-ticket: nothing is merged yet, so completion is 0%.
+  # Computed as the merged fraction so it stays correct once tickets materialize.
+  defp progress_percent([]), do: 0
+
+  defp progress_percent(tickets) do
+    merged = Enum.count(tickets, &match?(%{github: %{"merged" => true}}, &1))
+    round(merged / length(tickets) * 100)
   end
 
   defp members(pack) do
