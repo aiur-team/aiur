@@ -251,28 +251,6 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   defp pause_note(%{action: :resume}, %{reasons: %{pause: pause}}) when not is_nil(pause), do: label(pause)
   defp pause_note(_affordance, _row), do: nil
 
-  attr(:progress, :map, required: true)
-
-  defp progress(assigns) do
-    assigns = assign(assigns, :percent, known_percent(assigns.progress))
-
-    ~H"""
-    <div
-      :if={is_integer(@percent)}
-      class="units-progress"
-      role="progressbar"
-      aria-label="Unit progress"
-      aria-valuemin="0"
-      aria-valuemax="100"
-      aria-valuenow={@percent}
-    >
-      <span class="units-progress-track" aria-hidden="true"><span style={"width: #{@percent}%"}></span></span>
-      <span class="mono num">{@percent}%</span>
-    </div>
-    <p :if={!is_integer(@percent)} class="units-progress unavailable">Progress unavailable</p>
-    """
-  end
-
   defp known_percent(%{status: :known, percent: percent}) when is_integer(percent) and percent in 0..100, do: percent
   defp known_percent(_progress), do: nil
 
@@ -308,66 +286,9 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
     if hours > 0, do: "#{hours}h #{minutes}m", else: "#{minutes}m"
   end
 
-  defp latest_evidence(%{status: :known, source: source}), do: evidence_source(source)
-  defp latest_evidence(_evidence), do: nil
-
-  defp evidence_source(%{kind: kind, name: name}) when not is_nil(kind) and is_binary(name),
-    do: "#{label(kind)} · #{name}"
-
-  defp evidence_source(source) when is_atom(source) or is_binary(source), do: label(source)
-  defp evidence_source(_source), do: "Unavailable"
-
-  defp progress_source(%{status: :known, source: source}) when not is_nil(source), do: label(source)
-  defp progress_source(_progress), do: nil
-
-  defp progress_freshness(%{freshness: freshness}) when not is_nil(freshness), do: freshness_label(freshness)
-  defp progress_freshness(_progress), do: nil
-
-  defp freshness_label(%{status: status}), do: label(status)
-  defp freshness_label(value), do: label(value)
-
-  defp provider_health(%{provider_health: health}) when is_map(health) do
-    degraded =
-      health
-      |> Enum.filter(fn {_source, status} -> status not in [:available, :healthy] end)
-      |> Enum.map_join(", ", fn {source, status} -> "#{label(source)} #{label(status)}" end)
-
-    if degraded == "", do: "Available", else: degraded
-  end
-
-  defp provider_health(_row), do: "Unknown"
-
-  defp command_count(count) when is_integer(count) and count > 0, do: "#{count} open"
-  defp command_count(0), do: "None open"
-  defp command_count(_count), do: "Unknown"
-
-  @reason_labels [waiting: "Waiting", blocking: "Blocking", alert: "Alert", pause: "Paused", stuck: "Stuck"]
-
-  # Only surface reasons that carry a real value, so healthy rows no longer repeat
-  # "None reported" across every waiting/blocking/alert/pause/stuck row.
-  defp present_reasons(reasons) when is_map(reasons) do
-    Enum.flat_map(@reason_labels, fn {key, dt} ->
-      case Map.get(reasons, key) do
-        nil -> []
-        value -> [{dt, label(value)}]
-      end
-    end)
-  end
-
-  defp present_reasons(_reasons), do: []
-
-  defp complexity(value) when is_integer(value) and value > 0, do: Integer.to_string(value)
-  defp complexity(_value), do: "Unknown"
-
   defp row_tone(%{reasons: %{blocking: blocking}}) when not is_nil(blocking), do: "is-blocked"
   defp row_tone(%{reasons: %{alert: alert}}) when not is_nil(alert), do: "has-alert"
   defp row_tone(_row), do: nil
-
-  defp state_glyph(%{terminal?: true}), do: "✓"
-  defp state_glyph(%{reasons: %{blocking: blocking}}) when not is_nil(blocking), do: "!"
-  defp state_glyph(%{runtime: %{work_state: state}}) when state in [:working, :allocated], do: "●"
-  defp state_glyph(%{runtime: %{work_state: state}}) when state in [:paused, :sleeping], do: "Ⅱ"
-  defp state_glyph(_row), do: "○"
 
   defp display_rows(view) do
     view
@@ -443,8 +364,6 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   defp known(value, fallback \\ "Unknown")
   defp known(value, _fallback) when is_binary(value) and value != "", do: value
   defp known(_value, fallback), do: fallback
-  defp known_label(value) when not is_nil(value) and value != "", do: label(value)
-  defp known_label(_value), do: "Unknown"
   defp label(nil), do: "Unknown"
 
   defp label(value),

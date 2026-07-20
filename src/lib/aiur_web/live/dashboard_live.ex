@@ -42,12 +42,10 @@ defmodule AiurWeb.DashboardLive do
     History,
     Overview,
     PayloadLoader,
-    ProviderMeters,
     ProviderMeterSource,
     ProviderMetersPresenter,
     RecentOutcomes,
     RouteRegistry,
-    RunSummary,
     RunSummaryPresenter,
     RunSummaryStrip,
     TicketContext,
@@ -56,7 +54,6 @@ defmodule AiurWeb.DashboardLive do
     UnitsPresenter,
     UnitsTable,
     UnitsURL,
-    UsageSummary,
     UsageSummaryPresenter
   }
 
