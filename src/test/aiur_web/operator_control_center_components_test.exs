@@ -395,6 +395,23 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     refute html =~ "currently unavailable"
   end
 
+  test "renders answered and dismissed Commands once as compact green history rows" do
+    answered = inbox_decision("dec-history-answered", decision_status: :decided, answer: action_answer(:operator))
+    dismissed = inbox_decision("dec-history-dismissed", decision_status: :dismissed)
+
+    html =
+      render_component(&History.history/1, %{
+        entries: [],
+        decisions: [answered, dismissed],
+        provider_health: :ok
+      })
+
+    assert html =~ ~s(class="history-item" data-severity="good")
+    assert html =~ "Answered"
+    assert html =~ "Dismissed — agent proceeds with best judgement"
+    refute html =~ ~s(class="decision-card)
+  end
+
   test "Commands inbox exposes only the four primary filters with canonical retained counts" do
     html =
       render_inbox(
@@ -603,7 +620,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     refute readonly =~ ~s(phx-submit="handle-revision-follow-up")
   end
 
-  test "keeps every secondary lifecycle state visible under the primary All filter" do
+  test "moves answered and dismissed Commands out of the inbox into history" do
     operator_answer = action_answer(:operator)
     supervisor_answer = action_answer(:supervisor)
 
@@ -645,16 +662,14 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     all = render_inbox(decisions, :all)
     resolved = render_inbox(decisions, :resolved)
 
-    assert all =~ "Question dec-undelivered"
-    assert all =~ "Question dec-supervisor"
-    assert all =~ "Question dec-superseded"
-    assert all =~ "Answered"
-    assert all =~ "Supervisor answer"
-    assert all =~ "Superseded"
-    assert resolved =~ "Question dec-resolved"
-    assert resolved =~ "Question dec-dismissed"
-    assert resolved =~ "Change choice"
-    assert resolved =~ "Question dec-superseded"
+    assert all =~ "Question dec-open"
+    refute all =~ "Question dec-undelivered"
+    refute all =~ "Question dec-supervisor"
+    refute all =~ "Question dec-resolved"
+    refute all =~ "Question dec-dismissed"
+    refute all =~ "Question dec-superseded"
+    assert resolved =~ "Resolved Commands are shown in Command history below."
+    refute resolved =~ ~s(class="decision-card)
   end
 
   test "renders trusted provenance, exact confidence, and bounded option previews without prose inference" do

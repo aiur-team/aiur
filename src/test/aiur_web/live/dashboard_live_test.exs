@@ -1163,7 +1163,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert has_element?(view, ".decision-list #decision-#{delegated.decision_id}")
   end
 
-  test "All Commands uses bounded retained pages with shareable search and safe cursor failure" do
+  test "All Commands keeps retained search and pagination controls out of the surface" do
     orchestrator_name = Module.concat(__MODULE__, :RetainedPageOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :RetainedPageDecisionStore)
 
@@ -1189,19 +1189,11 @@ defmodule AiurWeb.DashboardLiveTest do
 
     {:ok, view, html} = live(build_conn(), "/decisions")
 
-    assert html =~ "Search retained Commands"
-    assert html =~ "Next page"
+    refute html =~ "Search retained Commands"
+    refute html =~ "Command ID or ticket ID"
+    refute html =~ "Next page"
+    refute html =~ "Final retained Command page"
     refute has_element?(view, "#decision-#{oldest.decision_id}")
-
-    page_two = view |> element(".command-pagination a", "Next page") |> render_click()
-    assert page_two =~ oldest.decision_id
-    assert has_element?(view, "#decision-#{oldest.decision_id}")
-    assert String.starts_with?(assert_patch(view), "/decisions?cursor=")
-
-    search_html = render_submit(view, "search-commands", %{"search" => oldest.decision_id})
-    assert_patch(view, "/decisions?search=#{oldest.decision_id}")
-    assert search_html =~ oldest.decision_id
-    refute search_html =~ "Next page"
 
     invalid_html = render_patch(view, "/decisions?cursor=not-a-valid-cursor")
     assert invalid_html =~ "Command projection is currently unavailable"
@@ -1362,7 +1354,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
       {:ok, view, html} = live(build_conn(), "/decisions/#{overview.decision_id}")
       assert html =~ if(detail_status == :unavailable, do: "Command unavailable", else: "Command presence unknown")
-      refute html =~ "Should the dashboard ship this change?"
+      refute has_element?(view, "#decision-#{overview.decision_id}")
       refute html =~ ~s(phx-submit="revise-decision")
 
       _html =

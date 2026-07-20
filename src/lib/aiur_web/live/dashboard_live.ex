@@ -607,7 +607,7 @@ defmodule AiurWeb.DashboardLive do
           <p>{selected_decision_error_message(@selected_decision_status, @selected_decision_id)}</p>
         </div>
         <DecisionInbox.decision_inbox
-          decisions={@decision_page.decisions}
+          decisions={Enum.reject(@decision_page.decisions, &(&1.decision_id == @selected_decision_id))}
           selected_decision={@selected_decision}
           selected_decision_id={@selected_decision_id}
           filter={@decision_filter}
@@ -620,7 +620,11 @@ defmodule AiurWeb.DashboardLive do
           page={@decision_page}
           query={@decision_query}
         />
-        <History.history entries={@payload.history} provider_health={@payload.provider_health.history} />
+        <History.history
+          entries={Enum.reject(@payload.history, &(&1.decision_id == @selected_decision_id))}
+          decisions={@decision_page.decisions}
+          provider_health={@payload.provider_health.history}
+        />
       </div>
 
       <div :if={@live_action not in [:decisions, :decision]} class="control-panel">

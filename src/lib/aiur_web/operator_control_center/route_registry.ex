@@ -17,7 +17,7 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
       id: :commands,
       label: "Commands",
       icon: "⌘",
-      description: "Recorded Commands that need review or follow-up.",
+      description: "",
       path: "/decisions",
       type: :live,
       owner: :dashboard,
