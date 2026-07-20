@@ -5822,6 +5822,10 @@ html[data-theme="light"] .toggle-icon .moon {
   transform-origin: 0 0;
   width: max-content;
   min-width: 100%;
+  /* The stage is scaled by transform (which leaves its layout box unscaled);
+     the hook sizes this layer to the scaled dimensions, so clip the leftover
+     unscaled overflow to stop the viewport scrolling past the visible graph. */
+  overflow: hidden;
 }
 
 .bo-grid-stage {
@@ -5948,6 +5952,7 @@ html[data-theme="light"] .toggle-icon .moon {
   color: var(--fg);
   min-width: 0;
   cursor: default;
+  transition: opacity 0.2s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .bo-node.is-openable {
@@ -6002,18 +6007,28 @@ html[data-theme="light"] .toggle-icon .moon {
   box-shadow: 0 0 0 1.5px var(--accent);
 }
 
-/* On highlight the blocks tag lifts and grows a blue shadow to signal it is
-   clickable independently of the card (click = lock the dependency highlight). */
-.bo-node.is-hl-source .bo-node-blocks {
-  transform: translateY(-3px);
+/* When a chain is locked (pinned), fade every card outside the chain so the
+   highlighted dependency path stands out. */
+.bo-grid-root.is-locked .bo-node:not(.is-hl-source):not(.is-hl-linked) {
+  opacity: 0.3;
+}
+
+/* Hovering the tag ITSELF (not the whole ticket) lifts it and grows a blue
+   shadow, signalling it is clickable independently of the card (click = lock the
+   dependency highlight). Only the inner fill moves; the outer hit target is
+   stable, so the lift cannot oscillate under the cursor. */
+.bo-node-blocks:hover {
   cursor: pointer;
+}
+
+.bo-node-blocks:hover .bo-node-blocks-fill {
+  transform: translateY(-3px);
   animation: bo-blocks-lift 0.9s ease-in-out infinite alternate;
 }
 
 /* Pinned: the highlight is locked; the tag holds its lifted, glowing state. */
-.bo-node.is-pinned .bo-node-blocks {
+.bo-node.is-pinned .bo-node-blocks-fill {
   transform: translateY(-3px);
-  cursor: pointer;
   animation: none;
   box-shadow: 0 5px 13px hsl(215 100% 60% / 0.65);
 }
@@ -6063,9 +6078,19 @@ html[data-theme="light"] .toggle-icon .moon {
 
 /* Top-right "blocks" tag (how many tickets depend on this one) — also the pin
    control that locks the dependency highlight. Colour is set inline, green →
-   red by count. */
+   red by count.
+
+   The outer span is a STABLE hit target that never transforms; only the inner
+   fill lifts on hover. A child's transform doesn't change the parent's layout
+   box, so the cursor stays over the outer span even as the pill lifts — that is
+   what prevents the "tag moves up out from under the cursor" oscillation. */
 .bo-node-blocks {
   flex: 0 0 auto;
+  display: inline-flex;
+  cursor: default;
+}
+
+.bo-node-blocks-fill {
   min-width: 1.15rem;
   padding: 0.05rem 0.35rem;
   border: 1px solid var(--line-strong);

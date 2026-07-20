@@ -169,13 +169,22 @@
   };
 
   Grid.prototype.applyTransform = function () {
-    this.scaleEl.style.transformOrigin = "0 0";
-    this.scaleEl.style.transform = "scale(" + this.scale + ")";
-    if (this.readout) this.readout.textContent = Math.round(this.scale * 100) + "%";
+    var s = this.scale;
+    // Scale the stage (not the scroll layer) and size the scroll layer to the
+    // SCALED content. A CSS transform leaves the layout box unscaled, so without
+    // this the viewport would scroll far past the visible graph.
+    var target = this.stage || this.scaleEl;
+    target.style.transformOrigin = "0 0";
+    target.style.transform = "scale(" + s + ")";
+    if (this.scaleEl && this.stage) {
+      this.scaleEl.style.width = Math.ceil(this.stage.offsetWidth * s) + "px";
+      this.scaleEl.style.height = Math.ceil(this.stage.offsetHeight * s) + "px";
+    }
+    if (this.readout) this.readout.textContent = Math.round(s * 100) + "%";
     this.zoomButtons.forEach(function (button) {
       var action = button.getAttribute("data-bo-zoom");
-      if (action === "in") button.disabled = this.scale >= MAX_ZOOM;
-      else if (action === "out") button.disabled = this.scale <= MIN_ZOOM;
+      if (action === "in") button.disabled = s >= MAX_ZOOM;
+      else if (action === "out") button.disabled = s <= MIN_ZOOM;
     }, this);
   };
 
@@ -297,7 +306,20 @@
 
     this.edgesSvg.innerHTML = parts.join("");
     this.edgePaths = Array.prototype.slice.call(this.edgesSvg.querySelectorAll(".bo-edge"));
+    this.buildAdjacency();
     this.reapplyHighlight();
+  };
+
+  // Forward (blocker → blocked) and reverse adjacency for transitive highlight.
+  Grid.prototype.buildAdjacency = function () {
+    this.fwd = {};
+    this.rev = {};
+    (this.edgePaths || []).forEach(function (path) {
+      var f = path.getAttribute("data-from");
+      var t = path.getAttribute("data-to");
+      (this.fwd[f] = this.fwd[f] || []).push(t);
+      (this.rev[t] = this.rev[t] || []).push(f);
+    }, this);
   };
 
   // --- hover highlight + pin ------------------------------------------------
@@ -359,7 +381,10 @@
     this.applyHighlight(null);
   };
 
+  // Pinned also toggles `is-locked` on the grid root so CSS can fade every
+  // card that is not part of the locked dependency chain.
   Grid.prototype.markPinned = function (id) {
+    this.el.classList.toggle("is-locked", !!id);
     if (!this.body) return;
     var cards = this.body.querySelectorAll("[data-bo-card]");
     Array.prototype.forEach.call(cards, function (card) {
@@ -368,22 +393,25 @@
   };
 
   Grid.prototype.applyHighlight = function (id) {
-    if (this.edgePaths) {
-      this.edgePaths.forEach(function (path) {
-        var on = id && (path.getAttribute("data-from") === id || path.getAttribute("data-to") === id);
-        path.classList.toggle("is-hl", !!on);
-        path.classList.toggle("is-dim", !!id && !on);
-      });
+    // Full transitive dependency chain: every ancestor (what `id` depends on,
+    // back to the roots) and every descendant (what depends on `id`), not just
+    // the direct neighbours. Reverse edges reach ancestors, forward edges reach
+    // descendants — directional so it never collapses to the whole graph.
+    var nodes = {};
+    if (id) {
+      nodes[id] = true;
+      var reach = reachable(id, this.rev || {});
+      var forward = reachable(id, this.fwd || {});
+      var k;
+      for (k in reach) nodes[k] = true;
+      for (k in forward) nodes[k] = true;
     }
 
-    // Every card connected to `id` by an edge gets a matching blue ring.
-    var linked = {};
-    if (id && this.edgePaths) {
+    if (this.edgePaths) {
       this.edgePaths.forEach(function (path) {
-        var from = path.getAttribute("data-from");
-        var to = path.getAttribute("data-to");
-        if (from === id) linked[to] = true;
-        else if (to === id) linked[from] = true;
+        var on = id && nodes[path.getAttribute("data-from")] && nodes[path.getAttribute("data-to")];
+        path.classList.toggle("is-hl", !!on);
+        path.classList.toggle("is-dim", !!id && !on);
       });
     }
 
@@ -392,7 +420,7 @@
     Array.prototype.forEach.call(cards, function (card) {
       var cid = card.getAttribute("data-bo-card");
       card.classList.toggle("is-hl-source", cid === id);
-      card.classList.toggle("is-hl-linked", cid !== id && !!linked[cid]);
+      card.classList.toggle("is-hl-linked", cid !== id && !!nodes[cid]);
     });
   };
 
@@ -407,6 +435,22 @@
   };
 
   // --- utils ----------------------------------------------------------------
+
+  // Every node reachable from `start` by walking `adj` (a {id: [ids]} map).
+  function reachable(start, adj) {
+    var seen = {};
+    var stack = [start];
+    while (stack.length) {
+      var neighbours = adj[stack.pop()] || [];
+      for (var i = 0; i < neighbours.length; i++) {
+        if (!seen[neighbours[i]]) {
+          seen[neighbours[i]] = true;
+          stack.push(neighbours[i]);
+        }
+      }
+    }
+    return seen;
+  }
 
   function cssEscape(value) {
     if (window.CSS && window.CSS.escape) return window.CSS.escape(value);

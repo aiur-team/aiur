@@ -153,10 +153,9 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
           data-bo-pin
           role="button"
           tabindex="-1"
-          style={blocks_style(@card.blocks)}
           title={blocks_title(@card.blocks)}
           aria-label={blocks_title(@card.blocks)}
-        >{@card.blocks}</span>
+        ><span class="bo-node-blocks-fill" style={blocks_style(@card.blocks)}>{@card.blocks}</span></span>
       </div>
       <div class="bo-node-title">{@card.title}</div>
       <div class="bo-node-status">
