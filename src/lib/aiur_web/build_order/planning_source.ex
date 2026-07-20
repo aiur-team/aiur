@@ -70,7 +70,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
           repository: pack.repository,
           generation: @generation,
           authority_epoch: @epoch,
-          data: SelectedRoot.new(root_summary(pack), members(pack), health(), planning?: true),
+          data: SelectedRoot.new(root_summary(pack), members(pack), health(), planning?: not pack.completed),
           health: health()
         }
 
@@ -130,21 +130,24 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
       member_count: length(pack.tickets),
       epic_count: pack.tickets |> Enum.map(& &1.lane) |> Enum.uniq() |> length(),
       phase_count: pack.tickets |> Enum.map(& &1.phase) |> Enum.uniq() |> length(),
-      progress: progress_percent(pack.tickets)
+      progress: progress_percent(pack)
     })
   end
 
-  # Planning packs are pre-ticket: nothing is merged yet, so completion is 0%.
-  # Computed as the merged fraction so it stays correct once tickets materialize.
-  defp progress_percent([]), do: 0
+  # A pack flagged `completed` has shipped every ticket → 100%. Otherwise a
+  # planning pack is pre-ticket, so completion is 0% (the merged fraction, which
+  # stays correct once tickets materialize).
+  defp progress_percent(%{completed: true}), do: 100
+  defp progress_percent(%{tickets: []}), do: 0
 
-  defp progress_percent(tickets) do
+  defp progress_percent(%{tickets: tickets}) do
     merged = Enum.count(tickets, &match?(%{github: %{"merged" => true}}, &1))
     round(merged / length(tickets) * 100)
   end
 
   defp members(pack) do
     ids = MapSet.new(pack.tickets, & &1.id)
+    {state, reason} = if pack.completed, do: {"CLOSED", "COMPLETED"}, else: {"OPEN", nil}
 
     Enum.map(pack.tickets, fn ticket ->
       identity = ticket_identity(pack, ticket)
@@ -161,7 +164,8 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
         title: ticket.title,
         url: issue_url(identity),
         document_url: ticket.document_url,
-        state: "OPEN",
+        state: state,
+        state_reason: reason,
         labels: labels(ticket),
         dependencies: dependencies
       })
@@ -241,6 +245,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
          build_order_id: Map.get(json, "build_order_id", "planning"),
          title: Map.get(json, "title", "Planning build order"),
          root_number: Map.get(json, "root_number", @root_number),
+         completed: Map.get(json, "completed", false) == true,
          tickets: tickets,
          numbers: ticket_numbers(tickets)
        }}
