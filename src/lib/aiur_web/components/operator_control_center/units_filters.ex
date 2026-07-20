@@ -84,5 +84,4 @@ defmodule AiurWeb.OperatorControlCenter.UnitsFilters do
     do: "At least #{Map.get(counts, condition, 0)}"
 
   defp count_aria_label(counts, condition, _status), do: "#{Map.get(counts, condition, 0)}"
-
 end

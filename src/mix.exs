@@ -161,13 +161,7 @@ defmodule Aiur.MixProject do
       {:owl, "~> 0.13"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev], runtime: false},
-      {:heroicons,
-       github: "tailwindlabs/heroicons",
-       tag: "v2.1.5",
-       sparse: "optimized",
-       app: false,
-       compile: false,
-       depth: 1}
+      {:heroicons, github: "tailwindlabs/heroicons", tag: "v2.1.5", sparse: "optimized", app: false, compile: false, depth: 1}
     ]
   end
 

@@ -354,7 +354,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   defp progress_tone(_row), do: nil
 
   defp present?(value), do: not is_nil(value) and value != ""
-  defp known(value, fallback \\ "Unknown")
+  defp known(value, fallback)
   defp known(value, _fallback) when is_binary(value) and value != "", do: value
   defp known(_value, fallback), do: fallback
 end
