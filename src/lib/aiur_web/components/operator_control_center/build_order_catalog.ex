@@ -60,7 +60,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
             <th scope="col" class="bo-catalog-progress-head">Progress</th>
             <th scope="col" class="bo-catalog-num">Tickets</th>
             <th scope="col" class="bo-catalog-num">Epics</th>
-            <th scope="col" class="bo-catalog-num">Phases</th>
+            <th scope="col" class="bo-catalog-num">Waves</th>
           </tr>
         </thead>
         <tbody>

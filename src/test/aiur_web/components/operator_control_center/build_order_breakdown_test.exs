@@ -24,7 +24,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdownTest do
 
       phase_one = row(projection.phases, 1)
       phase_two = row(projection.phases, 2)
-      assert phase_one.label == "Phase 1" and phase_one.count == 2 and phase_one.points == 5 and phase_one.weight == 1.0
+      assert phase_one.label == "Wave 1" and phase_one.count == 2 and phase_one.points == 5 and phase_one.weight == 1.0
       assert phase_two.count == 1 and phase_two.points == 4 and phase_two.weight == 4 / 5
 
       plan_graph = row(projection.epics, "plan-graph")

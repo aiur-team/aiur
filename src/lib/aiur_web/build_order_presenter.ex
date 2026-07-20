@@ -762,7 +762,7 @@ defmodule AiurWeb.BuildOrderPresenter do
   defp group_label(:lane, :unassigned), do: "Unassigned"
   defp group_label(:lane, lane), do: lane |> to_string() |> String.replace("-", " ") |> String.capitalize()
   defp group_label(:phase, :unphased), do: "Unphased"
-  defp group_label(:phase, phase), do: "Phase #{phase}"
+  defp group_label(:phase, phase), do: "Wave #{phase}"
 
   defp lane_group_sort_key(%Group{key: :unassigned}), do: {1, 0}
 

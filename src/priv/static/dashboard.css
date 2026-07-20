@@ -4791,12 +4791,26 @@ html[data-theme="light"] .toggle-icon .moon {
   }
 
   .shell-nav-mobile .shell-nav-item {
+    position: relative;
     flex-direction: column;
     justify-content: center;
     gap: 0.2rem;
     min-height: 2.75rem;
     padding: 0.35rem 0.2rem;
     text-align: center;
+  }
+
+  /* Count sits in the top-right corner, out of flow, so it never adds a third
+     row and stretches the nav item taller. */
+  .shell-nav-mobile .shell-nav-count {
+    position: absolute;
+    top: 0.2rem;
+    right: 0.3rem;
+    margin: 0;
+    min-width: 1.05rem;
+    height: 1.05rem;
+    padding-inline: 0.28rem;
+    font-size: 0.58rem;
   }
 
   .shell-nav-mobile .shell-nav-icon {
@@ -4832,7 +4846,6 @@ html[data-theme="light"] .toggle-icon .moon {
     justify-content: flex-start;
   }
 
-  .bo-page-header,
   .bo-catalog-entry {
     align-items: stretch;
     flex-direction: column;
@@ -6359,6 +6372,9 @@ html[data-theme="light"] .toggle-icon .moon {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   overflow: auto;
+  /* Always reserve the vertical scrollbar gutter so clientWidth stays constant;
+     otherwise a fit that adds/removes the bar re-measures and flickers. */
+  scrollbar-gutter: stable;
   cursor: grab;
   background:
     radial-gradient(circle at center, var(--hairline) 1px, transparent 1px) 0 0 / 22px 22px,

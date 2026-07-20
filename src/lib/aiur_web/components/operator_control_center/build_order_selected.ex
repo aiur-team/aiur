@@ -21,12 +21,12 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
       |> assign(:snapshot, RouteState.selected_snapshot(assigns.route_state))
 
     ~H"""
-    <section class="bo-surface" aria-labelledby="build-order-selected-title">
-      <header class="bo-page-header">
-        <.link patch="/build-orders" class="bo-back-link" aria-label="Back to all Build Orders">←</.link>
-        <h2 id="build-order-selected-title">{selected_title(@status, @snapshot, RouteState.root_identifier(@route_state))}</h2>
-      </header>
+    <header class="bo-page-header">
+      <.link patch="/build-orders" class="bo-back-link" aria-label="Back to all Build Orders">‹</.link>
+      <h2 id="build-order-selected-title">{selected_title(@status, @snapshot, RouteState.root_identifier(@route_state))}</h2>
+    </header>
 
+    <section class="bo-surface" aria-labelledby="build-order-selected-title">
       <div :if={is_nil(@model)} class="bo-state-card" role={state_role(@status)}>
         <h3>{state_title(@status)}</h3>
         <p>{state_message(@status)}</p>
@@ -42,7 +42,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
           <div><dt>Dependencies</dt><dd>{@model.summary.edges}</dd></div>
           <div><dt>External</dt><dd>{@model.summary.external_edges}</dd></div>
           <div><dt>Lanes</dt><dd>{map_size(@model.summary.lanes)}</dd></div>
-          <div><dt>Phases</dt><dd>{map_size(@model.summary.phases)}</dd></div>
+          <div><dt>Waves</dt><dd>{map_size(@model.summary.phases)}</dd></div>
         </dl>
 
         <div :if={@model.status == :empty} class="bo-state-card" role="status">

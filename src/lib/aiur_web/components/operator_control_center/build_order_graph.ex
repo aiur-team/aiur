@@ -46,8 +46,8 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
     >
       <h3 id={"#{@id}-title"} class="sr-only">Build order graph</h3>
 
-      <div :if={@core_waves != [] and not @planning?} class="bo-waves-head" aria-label="Core execution-wave progress, complexity-weighted completion">
-        <p class="bo-waves-caption">Core execution-wave progress · complexity-weighted completion; ad hoc work is tracked separately</p>
+      <div :if={@core_waves != [] and not @planning?} class="bo-waves-head" aria-label="Wave completion">
+
         <div class="bo-waves-strip">
           <div :for={wave <- @core_waves} class="bo-wave-seg">
             <div class="bo-wave-seg-top">

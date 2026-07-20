@@ -44,7 +44,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdown do
       </div>
 
       <div :if={@ready?} class="bo-breakdown-tables">
-        <.breakdown_list dimension="Phases" rows={@projection.phases} />
+        <.breakdown_list dimension="Waves" rows={@projection.phases} />
         <.breakdown_list dimension="Epics" rows={@projection.epics} icons />
       </div>
     </section>

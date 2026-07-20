@@ -159,13 +159,17 @@
   // Fit the full grid WIDTH into the viewport so a zoom-out shows every epic
   // column edge to edge; height overflows to vertical scroll.
   Grid.prototype.fit = function () {
-    var vw = this.viewport.clientWidth - 8;
+    // Reserve room for the (near-always-present) vertical scrollbar so the fitted
+    // width can never overflow and toggle a horizontal scrollbar — the toggle
+    // would change clientWidth and re-fit, flashing the bars in and out.
+    var vw = this.viewport.clientWidth - 16;
     var sw = this.stage.offsetWidth;
     if (sw <= 0) return;
     this.viewport.scrollLeft = 0;
     this.viewport.scrollTop = 0;
-    // Floor so a fit can never collapse the graph to an unreadable sliver.
-    this.setZoom(Math.max(0.4, Math.min(1, vw / sw)));
+    // Fit the full width down to MIN_ZOOM; on a narrow phone a wide graph must be
+    // allowed past the desktop 40% floor, or it can't show every column at once.
+    this.setZoom(clamp(round2(vw / sw), MIN_ZOOM, 1));
   };
 
   Grid.prototype.applyTransform = function () {
@@ -177,7 +181,9 @@
     target.style.transformOrigin = "0 0";
     target.style.transform = "scale(" + s + ")";
     if (this.scaleEl && this.stage) {
-      this.scaleEl.style.width = Math.ceil(this.stage.offsetWidth * s) + "px";
+      // Floor the width so the scaled content can never round up past the
+      // viewport and spawn a horizontal scrollbar (which would then flicker).
+      this.scaleEl.style.width = Math.floor(this.stage.offsetWidth * s) + "px";
       this.scaleEl.style.height = Math.ceil(this.stage.offsetHeight * s) + "px";
     }
     if (this.readout) this.readout.textContent = Math.round(s * 100) + "%";
