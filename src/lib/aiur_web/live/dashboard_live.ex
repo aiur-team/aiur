@@ -597,7 +597,6 @@ defmodule AiurWeb.DashboardLive do
       tracker_kind={tracker_kind()}
       agent_kind={agent_kind()}
     >
-      <Overview.readonly_banner writable={@writable} />
       <Overview.decisions_banner decisions={@payload.decisions} retained_counts={@retained_counts} />
       <Overview.error error={@payload.fleet[:error]} />
 
@@ -628,16 +627,9 @@ defmodule AiurWeb.DashboardLive do
       </div>
 
       <div :if={@live_action not in [:decisions, :decision]} class="control-panel">
-        <header class="units-page-head">
-          <span class="units-page-ic" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></svg>
-          </span>
-          <h2 id="units-title" tabindex="-1">Units</h2>
-        </header>
-
         <RunSummaryStrip.run_summary_strip />
 
-        <section class="section-card units-card" aria-labelledby="units-title">
+        <section class="section-card units-card" aria-labelledby="route-title">
           <p id="units-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true">
             {@units_announcement}
           </p>
@@ -685,14 +677,14 @@ defmodule AiurWeb.DashboardLive do
         id="units-ticket-context"
         context={@ticket_context}
         close_event="close-ticket-context"
-        fallback_focus_id="units-title"
+        fallback_focus_id="route-title"
       />
       <ConversationDrawer.conversation_drawer
         :if={@conversation_drawer}
         id="units-conversation-drawer"
         view={@conversation_drawer}
         close_event="close-conversation"
-        fallback_focus_id="units-title"
+        fallback_focus_id="route-title"
         origin_id={@conversation_origin_id}
       />
     </DashboardShell.dashboard_shell>

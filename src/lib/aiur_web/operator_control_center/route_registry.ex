@@ -6,7 +6,7 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
       id: :units,
       label: "Units",
       icon: "◫",
-      description: "Current Executor activity and durable outcomes.",
+      description: "",
       path: "/",
       type: :live,
       owner: :dashboard,
