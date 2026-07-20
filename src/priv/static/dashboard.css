@@ -5992,6 +5992,41 @@ html[data-theme="light"] .toggle-icon .moon {
   color: var(--fg);
 }
 
+/* Dependency highlight (hover or pinned): a blue ring on the hovered card and
+   every card its dependency lines connect to. Placed after the state rules so
+   it overrides their border colours. */
+.bo-node.is-hl-source,
+.bo-node.is-hl-linked {
+  border-color: var(--accent);
+  border-style: solid;
+  box-shadow: 0 0 0 1.5px var(--accent);
+}
+
+/* On highlight the blocks tag lifts and grows a blue shadow to signal it is
+   clickable independently of the card (click = lock the dependency highlight). */
+.bo-node.is-hl-source .bo-node-blocks {
+  transform: translateY(-3px);
+  cursor: pointer;
+  animation: bo-blocks-lift 0.9s ease-in-out infinite alternate;
+}
+
+/* Pinned: the highlight is locked; the tag holds its lifted, glowing state. */
+.bo-node.is-pinned .bo-node-blocks {
+  transform: translateY(-3px);
+  cursor: pointer;
+  animation: none;
+  box-shadow: 0 5px 13px hsl(215 100% 60% / 0.65);
+}
+
+@keyframes bo-blocks-lift {
+  from {
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  }
+  to {
+    box-shadow: 0 5px 12px hsl(215 100% 60% / 0.55);
+  }
+}
+
 .bo-planning-note {
   margin: 0 0 0.6rem;
   font-size: 0.72rem;
@@ -6014,38 +6049,47 @@ html[data-theme="light"] .toggle-icon .moon {
 .bo-node-top {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.3rem;
 }
 
 .bo-node-id {
+  flex: 1;
+  text-align: center;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   font-size: 0.76rem;
   color: var(--muted);
 }
 
-.bo-cx {
-  margin-left: auto;
+/* Top-right "blocks" tag (how many tickets depend on this one) — also the pin
+   control that locks the dependency highlight. Colour is set inline, green →
+   red by count. */
+.bo-node-blocks {
+  flex: 0 0 auto;
+  min-width: 1.15rem;
   padding: 0.05rem 0.35rem;
-  border: 1px solid var(--super-line);
+  border: 1px solid var(--line-strong);
   border-radius: 999px;
-  background: var(--super-soft);
-  color: var(--super-ink);
   font-size: 0.66rem;
-  font-weight: 600;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
   white-space: nowrap;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
-/* Epic icon in the card's top-right corner. */
+/* Epic icon in the card's top-left corner. */
 .bo-epic-ic.bo-node-ic {
+  flex: 0 0 auto;
   width: 0.95rem;
   height: 0.95rem;
   color: var(--faint);
 }
 
-/* When the card has no complexity chip, the icon still hugs the right edge. */
-.bo-node-top > .bo-node-ic:nth-child(2) {
-  margin-left: auto;
+/* Complexity moved into the card body as a plain detail. */
+.bo-node-cx {
+  font-variant-numeric: tabular-nums;
+  color: var(--faint);
 }
 
 .bo-node-title {

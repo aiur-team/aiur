@@ -31,8 +31,11 @@
     this.onPointerUp = this.onPointerUp.bind(this);
     this.onPointerOver = this.onPointerOver.bind(this);
     this.onPointerOut = this.onPointerOut.bind(this);
+    this.onClick = this.onClick.bind(this);
     this.scheduleDraw = this.scheduleDraw.bind(this);
     this.onResize = this.onResize.bind(this);
+    this.activeId = null; // card whose dependencies are currently highlighted
+    this.pinnedId = null; // when set, the highlight is locked and hover is frozen
   }
 
   Grid.prototype.capture = function () {
@@ -63,6 +66,7 @@
     this.viewport.addEventListener("pointerdown", this.onPointerDown);
     this.el.addEventListener("pointerover", this.onPointerOver);
     this.el.addEventListener("pointerout", this.onPointerOut);
+    this.el.addEventListener("click", this.onClick);
 
     if (typeof ResizeObserver === "function") {
       this.observer = new ResizeObserver(this.onResize);
@@ -293,29 +297,113 @@
 
     this.edgesSvg.innerHTML = parts.join("");
     this.edgePaths = Array.prototype.slice.call(this.edgesSvg.querySelectorAll(".bo-edge"));
+    this.reapplyHighlight();
   };
 
-  // --- hover highlight ------------------------------------------------------
+  // --- hover highlight + pin ------------------------------------------------
+  //
+  // Hover uses pointerover with a "same card" guard so moving between a card's
+  // own children never clears + re-sets the highlight (which caused flicker).
+  // Clicking a card's blocks tag ([data-bo-pin]) locks the current highlight;
+  // while locked, hover is frozen and only a real card click (which opens the
+  // ticket modal) or clicking the tag again clears it.
 
   Grid.prototype.onPointerOver = function (event) {
     var card = event.target.closest("[data-bo-card]");
-    if (!card) return;
-    this.highlight(card.getAttribute("data-bo-card"));
+    this.setHover(card ? card.getAttribute("data-bo-card") : null);
   };
 
   Grid.prototype.onPointerOut = function (event) {
-    var card = event.target.closest("[data-bo-card]");
-    if (!card) return;
-    this.highlight(null);
+    // Only clear when the pointer genuinely leaves the grid; moving between
+    // elements inside the grid is handled by pointerover.
+    if (event.relatedTarget && this.el.contains(event.relatedTarget)) return;
+    this.setHover(null);
   };
 
-  Grid.prototype.highlight = function (id) {
-    if (!this.edgePaths) return;
-    this.edgePaths.forEach(function (path) {
-      var on = id && (path.getAttribute("data-from") === id || path.getAttribute("data-to") === id);
-      path.classList.toggle("is-hl", !!on);
-      path.classList.toggle("is-dim", !!id && !on);
+  Grid.prototype.setHover = function (id) {
+    if (this.pinnedId) return; // frozen while a highlight is pinned
+    if (id === this.activeId) return; // same card → no-op, prevents flicker
+    this.activeId = id;
+    this.applyHighlight(id);
+  };
+
+  Grid.prototype.onClick = function (event) {
+    var pin = event.target.closest("[data-bo-pin]");
+    if (pin) {
+      // The blocks tag: pin/unpin the highlight instead of opening the modal.
+      event.preventDefault();
+      event.stopPropagation();
+      var pinCard = pin.closest("[data-bo-card]");
+      if (pinCard) this.togglePin(pinCard.getAttribute("data-bo-card"));
+      return;
+    }
+    // A normal card click opens its ticket modal — that cancels any pin.
+    if (this.pinnedId && event.target.closest("[data-bo-card]")) this.clearPin();
+  };
+
+  Grid.prototype.togglePin = function (id) {
+    if (this.pinnedId === id) {
+      this.clearPin();
+      return;
+    }
+    this.pinnedId = id;
+    this.activeId = id;
+    this.applyHighlight(id);
+    this.markPinned(id);
+  };
+
+  Grid.prototype.clearPin = function () {
+    this.pinnedId = null;
+    this.markPinned(null);
+    this.activeId = null;
+    this.applyHighlight(null);
+  };
+
+  Grid.prototype.markPinned = function (id) {
+    if (!this.body) return;
+    var cards = this.body.querySelectorAll("[data-bo-card]");
+    Array.prototype.forEach.call(cards, function (card) {
+      card.classList.toggle("is-pinned", card.getAttribute("data-bo-card") === id);
     });
+  };
+
+  Grid.prototype.applyHighlight = function (id) {
+    if (this.edgePaths) {
+      this.edgePaths.forEach(function (path) {
+        var on = id && (path.getAttribute("data-from") === id || path.getAttribute("data-to") === id);
+        path.classList.toggle("is-hl", !!on);
+        path.classList.toggle("is-dim", !!id && !on);
+      });
+    }
+
+    // Every card connected to `id` by an edge gets a matching blue ring.
+    var linked = {};
+    if (id && this.edgePaths) {
+      this.edgePaths.forEach(function (path) {
+        var from = path.getAttribute("data-from");
+        var to = path.getAttribute("data-to");
+        if (from === id) linked[to] = true;
+        else if (to === id) linked[from] = true;
+      });
+    }
+
+    if (!this.body) return;
+    var cards = this.body.querySelectorAll("[data-bo-card]");
+    Array.prototype.forEach.call(cards, function (card) {
+      var cid = card.getAttribute("data-bo-card");
+      card.classList.toggle("is-hl-source", cid === id);
+      card.classList.toggle("is-hl-linked", cid !== id && !!linked[cid]);
+    });
+  };
+
+  // Re-apply the current highlight after edges are (re)drawn — a LiveView patch
+  // replaces card DOM and drops the classes, so a pinned/hovered state would
+  // otherwise vanish on the next background refresh.
+  Grid.prototype.reapplyHighlight = function () {
+    var id = this.pinnedId || this.activeId;
+    if (!id) return;
+    this.applyHighlight(id);
+    if (this.pinnedId) this.markPinned(this.pinnedId);
   };
 
   // --- utils ----------------------------------------------------------------

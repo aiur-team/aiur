@@ -30,6 +30,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
           merged: boolean(),
           state: :merged | :working | :ready | :blocked | :plain,
           status_word: String.t(),
+          blocks: non_neg_integer(),
           adhoc: boolean()
         }
 
@@ -47,15 +48,27 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
     planning? = planning?(model)
     core_cards = core_cards(model, planning?)
     adhoc_cards = adhoc_cards(adhoc)
-    cards = core_cards ++ adhoc_cards
+    edges = edges(model, core_cards, planning?)
+    cards = annotate_blocks(core_cards ++ adhoc_cards, edges)
 
     %{
       columns: columns(cards),
       waves: waves(core_cards, cards),
       cards: cards,
-      edges: edges(model, core_cards, planning?),
+      edges: edges,
       planning?: planning?
     }
+  end
+
+  # Edges are blocker → blocked, so a card "blocks" every distinct ticket that
+  # depends on it: the count of edges where the card is the source.
+  defp annotate_blocks(cards, edges) do
+    blocks =
+      edges
+      |> Enum.group_by(& &1.source, & &1.target)
+      |> Map.new(fn {source, targets} -> {source, targets |> Enum.uniq() |> length()} end)
+
+    Enum.map(cards, fn card -> Map.put(card, :blocks, Map.get(blocks, card.id, 0)) end)
   end
 
   defp planning?(%AiurWeb.BuildOrderViewModel{planning?: planning?}), do: planning? == true

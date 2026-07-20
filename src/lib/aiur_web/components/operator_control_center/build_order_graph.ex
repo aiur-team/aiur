@@ -146,16 +146,25 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
       phx-value-member={@nav_value}
     >
       <div class="bo-node-top">
-        <span class="bo-node-id">{@card.id}</span>
-        <span :if={@card.complexity} class="bo-cx" title={"Complexity #{@card.complexity} of 5"}>cx{@card.complexity}</span>
         <BuildOrderEpicIcon.build_order_epic_icon lane={@card.lane} class="bo-node-ic" />
+        <span class="bo-node-id">{@card.id}</span>
+        <span
+          class="bo-node-blocks"
+          data-bo-pin
+          role="button"
+          tabindex="-1"
+          style={blocks_style(@card.blocks)}
+          title={blocks_title(@card.blocks)}
+          aria-label={blocks_title(@card.blocks)}
+        >{@card.blocks}</span>
       </div>
       <div class="bo-node-title">{@card.title}</div>
       <div class="bo-node-status">
         <span :if={@card.has_progress} class="bo-node-pct">{@card.progress}%</span>
+        <span :if={@card.complexity} class="bo-node-cx">Cx {@card.complexity}</span>
         <span class="bo-node-word">{@card.status_word}</span>
       </div>
-      <span :if={@card.has_progress} class="bo-node-bar" aria-hidden="true"><i style={"width:#{@card.progress}%"}></i></span>
+      <span class="bo-node-bar" aria-hidden="true"><i style={"width:#{@card.progress || 0}%"}></i></span>
     </article>
     """
   end
@@ -201,6 +210,19 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
     do: "width:#{pct}%; background:hsl(#{round(pct * 1.2)} 68% 46%)"
 
   defp wave_meter_style(_pct), do: "width:0%"
+
+  # "Blocks" tag colour ramps green (blocks nothing) → red (blocks many): each
+  # blocked ticket shifts the hue 20° toward red, clamped at 0° (red).
+  defp blocks_style(blocks) when is_integer(blocks) do
+    hue = max(0, 120 - blocks * 20)
+    "color: hsl(#{hue} 78% 64%); border-color: hsl(#{hue} 60% 50% / 0.55); background: hsl(#{hue} 55% 45% / 0.16)"
+  end
+
+  defp blocks_style(_blocks), do: nil
+
+  defp blocks_title(1), do: "Blocks 1 ticket"
+  defp blocks_title(blocks) when is_integer(blocks), do: "Blocks #{blocks} tickets"
+  defp blocks_title(_blocks), do: "Blocks no tickets"
 
   defp nav_value(%AiurWeb.BuildOrderViewModel{} = model, %{identity: %TrackerIdentity{} = identity}) do
     if TrackerIdentity.joinable?(identity),
