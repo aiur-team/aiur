@@ -2843,6 +2843,12 @@ html[data-theme="light"] .toggle-icon .moon {
   overflow: hidden;
 }
 
+.units-count-summary {
+  margin: 0 0 0.2rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
 /* Units page heading (icon tile + title), matching the design's page-head. */
 .units-page-head {
   display: flex;

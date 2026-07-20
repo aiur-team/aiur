@@ -633,11 +633,18 @@ defmodule AiurWeb.DashboardLive do
           <p id="units-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true">
             {@units_announcement}
           </p>
+          <p class="units-count-summary">{units_count_summary(@units_view)}</p>
 
           <UnitsFilters.units_filters
             selection={@units_selection}
             counts={@units_view[:counts] || %{}}
             count_status={@units_view[:count_status] || :unavailable}
+          />
+          <CapacityControl.capacity_control
+            capacity={@capacity_view}
+            writable={@writable}
+            input={@capacity_input}
+            feedback={@capacity_feedback}
           />
           <UnitsTable.units_table view={@units_view} now={@now} controls={@unit_controls} writable={@writable} />
         </section>
