@@ -498,7 +498,7 @@ defmodule AiurWeb.DashboardLiveTest do
     available_units = render_payload(available_payload)
     commands = render_payload(available_payload, live_action: :decision)
 
-    assert length(Floki.find(Floki.parse_document!(unavailable_units), ~s(nav[aria-label^="Control Center"]))) == 2
+    assert length(Floki.find(Floki.parse_document!(unavailable_units), ~s(nav[aria-label^="Aiur"]))) == 2
     assert length(Floki.find(Floki.parse_document!(unavailable_units), ~s(a[aria-current="page"]))) == 2
     assert unavailable_units =~ ~s(<h1 id="route-title">Units</h1>)
     refute unavailable_units =~ ~s(href="/analytics")
@@ -764,75 +764,6 @@ defmodule AiurWeb.DashboardLiveTest do
     assert_bounded_reload_burst(views, membership_messages, cache, orchestrator_name, false)
   end
 
-  describe "current-run summary" do
-    test "renders a pushed summary with a bounded announcement and no protected fields" do
-      view = start_run_summary_dashboard()
-      html = push_summary(view, healthy_summary_snapshot(live: 3))
-
-      assert html =~ "Current run"
-      assert html =~ "Weighted progress"
-      assert html =~ ~s(role="progressbar")
-      assert html =~ ~s(aria-valuenow="60")
-      assert html =~ "60% complete (exact)"
-      assert html =~ "Health: Healthy"
-      assert html =~ ~s(id="run-summary-status")
-      assert html =~ "3 live"
-
-      # Scope the protected-field check to the summary card so page-level CSRF
-      # and LiveView session tokens do not trip the assertion.
-      card = view |> element("section.run-summary-card") |> render() |> String.downcase()
-
-      for term <- ["cost", "token", "provider", "quota", "credit", "$"] do
-        refute String.contains?(card, term), "expected no protected term #{inspect(term)}"
-      end
-    end
-
-    test "coalesces a burst of summary updates into a single scheduled flush" do
-      view = start_run_summary_dashboard()
-
-      for _ <- 1..25 do
-        send(view.pid, {:current_run_summary_changed, healthy_summary_snapshot(live: 9)})
-      end
-
-      :sys.get_state(view.pid)
-
-      assert_receive {:run_summary_flush_scheduled, pid, :flush_run_summary, delay_ms}, 0
-      assert pid == view.pid
-      assert delay_ms > 0
-      refute_receive {:run_summary_flush_scheduled, _pid, :flush_run_summary, _delay}, 0
-
-      send(view.pid, :flush_run_summary)
-      assert render(view) =~ "9 live"
-    end
-
-    test "retains the last known-good summary across an unavailable same-run update" do
-      view = start_run_summary_dashboard()
-
-      assert push_summary(view, healthy_summary_snapshot(live: 3)) =~ "60% complete (exact)"
-
-      stale_html = push_summary(view, unavailable_same_run_snapshot())
-
-      assert stale_html =~ "Stale summary"
-      assert stale_html =~ "60% complete (exact)"
-      assert stale_html =~ "3 live"
-      assert stale_html =~ "Health: Unavailable"
-      # Never fall back to a zeroed/empty summary for the retained run.
-      refute stale_html =~ "zero eligible weight"
-      refute stale_html =~ "0 live"
-    end
-
-    test "adopts a new run generation instead of showing the prior run as current" do
-      view = start_run_summary_dashboard()
-
-      assert push_summary(view, healthy_summary_snapshot(live: 3, run_id: "run-1")) =~ "60% complete (exact)"
-
-      new_html = push_summary(view, healthy_summary_snapshot(live: 8, run_id: "run-2", exact: {3, 10}))
-
-      assert new_html =~ "30% complete (exact)"
-      assert new_html =~ ~s(aria-valuenow="30")
-    end
-  end
-
   describe "current-run outcomes (DASH-034)" do
     test "renders the Finished this run region on the Units destination with the real analytics route" do
       view = start_outcomes_dashboard()
@@ -997,56 +928,6 @@ defmodule AiurWeb.DashboardLiveTest do
     assert socket.assigns.writable == false
   end
 
-  test "denied usage and cost panel is locked and invokes no protected usage provider" do
-    orchestrator_name = Module.concat(__MODULE__, :DeniedUsageOrchestrator)
-    previous_username = System.get_env("AIUR_DASHBOARD_USERNAME")
-    previous_password = System.get_env("AIUR_DASHBOARD_PASSWORD")
-    System.delete_env("AIUR_DASHBOARD_USERNAME")
-    System.delete_env("AIUR_DASHBOARD_PASSWORD")
-
-    on_exit(fn ->
-      restore_env("AIUR_DASHBOARD_USERNAME", previous_username)
-      restore_env("AIUR_DASHBOARD_PASSWORD", previous_password)
-    end)
-
-    start_counting_orchestrator(orchestrator_name)
-
-    start_test_endpoint(
-      orchestrator: orchestrator_name,
-      snapshot_timeout_ms: 100,
-      dashboard_auth_required: false
-    )
-
-    {:ok, view, html} = live(build_conn(), "/")
-    socket = :sys.get_state(view.pid).socket
-
-    # The panel renders the value-free locked view and never fetched, cached, or
-    # subscribed to a protected snapshot.
-    assert socket.assigns.usage_summary.state == :locked
-    assert socket.assigns.usage_summary_source == nil
-    assert socket.assigns.usage_summary_drill == nil
-    refute Map.has_key?(socket.assigns.usage_summary, :tokens)
-    refute Map.has_key?(socket.assigns.usage_summary, :api_equivalent)
-
-    rendered = render(view)
-    assert html =~ "usage-summary-card"
-    assert rendered =~ "Financial data locked"
-
-    # No protected usage/cost/tier/coverage region or drill-down control leaks
-    # into a denied connection's HTML or serialized socket state.
-    for marker <- [
-          "API-equivalent estimate",
-          "Provider-reported estimate",
-          "Plan tier",
-          "Pricing coverage",
-          ~s(phx-click="usage-drill-down"),
-          "usage-drill-region"
-        ] do
-      refute rendered =~ marker, "denied usage panel leaked #{inspect(marker)}"
-    end
-
-    refute inspect(socket.assigns.usage_summary) =~ "API-equivalent"
-  end
 
   test "authorized usage and cost panel opens the capability gate without leaking a locked state" do
     orchestrator_name = Module.concat(__MODULE__, :AuthorizedUsageOrchestrator)
@@ -1083,80 +964,6 @@ defmodule AiurWeb.DashboardLiveTest do
     assert socket.assigns.usage_summary.state in [:empty, :ready, :partial, :stale, :unavailable]
   end
 
-  describe "authenticated provider meter cards" do
-    test "a locked connection renders the content-free locked card and never invokes the meter source" do
-      orchestrator_name = Module.concat(__MODULE__, :LockedMetersOrchestrator)
-      start_counting_orchestrator(orchestrator_name)
-      configure_provider_meter_stub(%{pid: self(), snapshots: %{codex: healthy_codex_snapshot(), claude: nil}})
-
-      start_test_endpoint(
-        orchestrator: orchestrator_name,
-        dashboard_auth_required: false,
-        provider_meter_source: ProviderMeterSourceStub
-      )
-
-      {:ok, view, _html} = live(build_conn(), "/")
-      socket = :sys.get_state(view.pid).socket
-
-      assert socket.assigns.financial_data_capability.state == :locked
-      assert socket.assigns.provider_meters_view.state == :locked
-      assert socket.assigns.provider_meter_snapshots == %{}
-
-      html = render(view)
-      assert html =~ "provider-meters-card"
-      refute html =~ "provider-meter-card"
-      refute html =~ "aria-valuenow"
-      refute html =~ "gen-codex"
-
-      refute_received {:provider_meter_source, _call, _arg}
-    end
-
-    test "an authorized connection fetches and subscribes on mount, then reloads on a facade update" do
-      previous_username = System.get_env("AIUR_DASHBOARD_USERNAME")
-      previous_password = System.get_env("AIUR_DASHBOARD_PASSWORD")
-      System.put_env("AIUR_DASHBOARD_USERNAME", "operator")
-      System.put_env("AIUR_DASHBOARD_PASSWORD", "meter-secret")
-
-      on_exit(fn ->
-        restore_env("AIUR_DASHBOARD_USERNAME", previous_username)
-        restore_env("AIUR_DASHBOARD_PASSWORD", previous_password)
-      end)
-
-      configure_provider_meter_stub(%{pid: self(), snapshots: %{codex: healthy_codex_snapshot(), claude: nil}})
-
-      start_test_endpoint(
-        orchestrator: start_counting_orchestrator(Module.concat(__MODULE__, :AuthedMetersOrchestrator)),
-        dashboard_auth_required: true,
-        provider_meter_source: ProviderMeterSourceStub,
-        provider_meters_flush_timer: fn pid, message, _delay -> send(pid, message) end
-      )
-
-      conn =
-        build_conn()
-        |> Plug.Conn.put_req_header("authorization", "Basic " <> Base.encode64("operator:meter-secret"))
-
-      {:ok, view, _html} = live(conn, "/")
-
-      assert_received {:provider_meter_source, :subscribe, _context}
-      assert_received {:provider_meter_source, :load, _context}
-
-      socket = :sys.get_state(view.pid).socket
-      assert socket.assigns.provider_meters_view.state == :authorized
-      assert %Aiur.ProviderMeterSnapshot{provider: :codex} = socket.assigns.provider_meter_snapshots.codex
-
-      html = render(view)
-      assert html =~ "Codex"
-      assert html =~ ~s(aria-valuenow="40")
-
-      # A payload-free facade update triggers one coalesced reload through the source.
-      context = socket.private.aiur_financial_data_access
-      {:ok, identity} = AiurWeb.FinancialDataAccess.identity(context)
-      send(view.pid, {AiurWeb.FinancialData, :updated, identity})
-      _ = render(view)
-
-      assert_received {:provider_meter_source, :reload, {_context, {AiurWeb.FinancialData, :updated, ^identity}}}
-    end
-  end
 
   test "cached payload follows a same-name DecisionMetrics replacement" do
     orchestrator_name = Module.concat(__MODULE__, :RestartCacheOrchestrator)
@@ -3176,7 +2983,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert has_element?(view, ~s(button[phx-value-scope="all"][aria-pressed="true"]))
     assert has_element?(view, "##{row_id}")
     updated_html = render(view)
-    assert updated_html =~ "Terminal"
+    assert has_element?(view, "##{row_id} .ut-pbar")
     assert has_element?(view, "##{row_id}", "75%")
 
     updated_announcement = updated_html |> Floki.parse_document!() |> Floki.find("#units-status") |> Floki.text()
@@ -3239,7 +3046,7 @@ defmodule AiurWeb.DashboardLiveTest do
     refute_receive {:detail_requested, _identity}
     refute_receive {:history_requested, _identity}
 
-    html = view |> element(~s(button[phx-click="inspect-unit"])) |> render_click()
+    html = view |> element(~s(td.ut-id-cell[phx-click="inspect-unit"])) |> render_click()
 
     assert_receive {:detail_subscribed, ^identity, 1}
     assert_receive {:history_subscribed, ^identity}
@@ -3251,7 +3058,6 @@ defmodule AiurWeb.DashboardLiveTest do
     assert html =~ "Open in GitHub"
     assert html =~ "Chat is unavailable"
     assert html =~ "Commands"
-    assert html =~ ~s(href="/decisions?ticket=1110")
     refute html =~ "/private/workspace"
 
     other = units_identity(provider_id: "NODE-other", identifier: "1111")
@@ -3266,7 +3072,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert_receive {:history_unsubscribed, ^identity}
     refute has_element?(view, "#units-ticket-context")
 
-    html = view |> element(~s(button[phx-click="inspect-unit"])) |> render_click()
+    html = view |> element(~s(td.ut-id-cell[phx-click="inspect-unit"])) |> render_click()
     assert_receive {:detail_subscribed, ^identity, 2}
     assert_receive {:history_subscribed, ^identity}
     refute_receive :ticket_context_resets_subscribed
@@ -3309,7 +3115,7 @@ defmodule AiurWeb.DashboardLiveTest do
     )
 
     {:ok, view, html} = live(build_conn(), "/")
-    assert html =~ "Read conversation"
+    assert html =~ "Open chat"
     refute html =~ "units-conversation-drawer"
 
     html =
@@ -3362,7 +3168,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
     {:ok, view, _html} = live(build_conn(), "/")
 
-    html = view |> element(~s(button[phx-click="inspect-unit"])) |> render_click()
+    html = view |> element(~s(td.ut-id-cell[phx-click="inspect-unit"])) |> render_click()
 
     assert html =~ ~s(id="units-ticket-context")
     refute html =~ ~s(id="units-conversation-drawer")
@@ -3472,9 +3278,7 @@ defmodule AiurWeb.DashboardLiveTest do
     token = UnitsPresenter.row_token(%{identity: identity})
 
     html =
-      view
-      |> element(~s(button[phx-click="show-agent-log"][phx-value-unit="#{token}"]))
-      |> render_click()
+      render_hook(view, "show-agent-log", %{"unit" => token})
 
     assert html =~ ~s(phx-submit="send-operator-message")
 
@@ -3532,7 +3336,7 @@ defmodule AiurWeb.DashboardLiveTest do
           pause: {:ok, 8}
         )
 
-      assert html =~ "Read-only"
+      assert html =~ ~s(aria-disabled="true")
       render_hook(view, "request-unit-control", %{"unit" => token, "action" => "pause"})
       refute_receive {:unit_caps, _}
       refute_receive {:unit_pause, _}
@@ -3774,9 +3578,7 @@ defmodule AiurWeb.DashboardLiveTest do
     token = UnitsPresenter.row_token(%{identity: alpha})
 
     html =
-      view
-      |> element(~s(button[phx-click="show-agent-log"][phx-value-unit="#{token}"]))
-      |> render_click()
+      render_hook(view, "show-agent-log", %{"unit" => token})
 
     assert html =~ "not a unique writable target"
     refute html =~ ~s(phx-submit="send-operator-message")
@@ -3805,270 +3607,9 @@ defmodule AiurWeb.DashboardLiveTest do
     assert html =~ "Units unavailable"
     assert html =~ "Observed and selected-scope counts unavailable"
     assert html =~ "Count unavailable"
-    assert html =~ "Counts are unavailable"
+    assert html =~ ~s(aria-label="Count unavailable")
     refute html =~ "0 observed"
     refute html =~ "0 in selected scope"
-  end
-
-  test "Commands count returns to unknown across count-store teardown and recovery" do
-    identifier = System.unique_integer([:positive]) |> Integer.to_string()
-
-    identity =
-      units_identity(
-        identifier: identifier,
-        provider_id: "NODE-#{identifier}"
-      )
-
-    membership = units_membership(identity)
-    orchestrator_name = Module.concat(__MODULE__, :CommandsOutageOrchestrator)
-    available_store = Module.concat(__MODULE__, :RecoveredCommandsStore)
-    dispatcher = fn _decision, _opts -> {:ok, %{status: :accepted, item: %{id: 77}}} end
-
-    :ok = SubscriptionStore.stop(identifier)
-    on_exit(fn -> SubscriptionStore.stop(identifier) end)
-
-    start_decision_store(available_store, dispatcher)
-    start_queue_orchestrator(orchestrator_name, identifier, identity)
-
-    start_test_endpoint(
-      orchestrator: orchestrator_name,
-      decision_store: available_store,
-      snapshot_timeout_ms: 100,
-      control_center_cache: false,
-      units_membership_fun: fn -> membership end,
-      units_activity_fun: fn -> units_activity(identity) end
-    )
-
-    {:ok, view, html} = live(build_conn(), "/")
-    assert html =~ ~r/Open Commands<\/dt><dd>Unknown<\/dd>/
-    refute html =~ ~r/Open Commands<\/dt><dd>None open<\/dd>/
-
-    :ok = SubscriptionStore.attach(identifier)
-    assert reload_view(view) =~ ~r/Open Commands<\/dt><dd>None open<\/dd>/
-
-    :ok = SubscriptionStore.stop(identifier)
-    html = reload_view(view)
-    assert html =~ ~r/Open Commands<\/dt><dd>Unknown<\/dd>/
-    refute html =~ ~r/Open Commands<\/dt><dd>None open<\/dd>/
-
-    :ok = SubscriptionStore.attach(identifier)
-    assert reload_view(view) =~ ~r/Open Commands<\/dt><dd>None open<\/dd>/
-
-    :ok = SubscriptionStore.stop(identifier)
-    html = reload_view(view)
-    assert html =~ ~r/Open Commands<\/dt><dd>Unknown<\/dd>/
-    refute html =~ ~r/Open Commands<\/dt><dd>None open<\/dd>/
-  end
-
-  describe "runtime capacity control" do
-    alias Aiur.Orchestrator.Slots
-
-    test "renders authoritative capacity facts from the Slots contract" do
-      name = Module.concat(__MODULE__, :CapacityFactsOrchestrator)
-      start_capacity_orchestrator(name, 3)
-
-      {_view, html} = mount_capacity_dashboard(name)
-
-      assert html =~ "Agent capacity"
-      assert html =~ ~s(<span class="capacity-current num" aria-hidden="true">3</span>)
-      assert html =~ ~s(<dd class="num">0</dd>)
-      assert html =~ "Session override"
-      assert html =~ "Steady"
-      # Focus target for status announcements is stable across updates.
-      assert html =~ ~s(id="capacity-title" tabindex="-1")
-    end
-
-    test "increment raises the maximum through Slots and reconciles from the returned status" do
-      name = Module.concat(__MODULE__, :CapacityIncrementOrchestrator)
-      start_capacity_orchestrator(name, 3)
-
-      {view, _html} = mount_capacity_dashboard(name)
-      html = view |> element("#capacity-increment") |> render_click()
-
-      assert html =~ "Maximum agent capacity is now 4."
-      # The applied value is the authoritative Slots value, not a browser guess.
-      assert Slots.max_concurrent_agents(name).max == 4
-    end
-
-    test "decrement lowers the maximum and disables further decrement at the minimum of one" do
-      name = Module.concat(__MODULE__, :CapacityDecrementOrchestrator)
-      start_capacity_orchestrator(name, 2)
-
-      {view, _html} = mount_capacity_dashboard(name)
-      html = view |> element("#capacity-decrement") |> render_click()
-
-      assert html =~ "Maximum agent capacity is now 1."
-      assert Slots.max_concurrent_agents(name).max == 1
-      assert html =~ ~r/id="capacity-decrement".*?disabled/s
-    end
-
-    test "set applies a validated absolute value from Slots" do
-      name = Module.concat(__MODULE__, :CapacitySetOrchestrator)
-      start_capacity_orchestrator(name, 3)
-
-      {view, _html} = mount_capacity_dashboard(name)
-      html = render_submit(view, "capacity-set", %{"max" => "7"})
-
-      assert html =~ "Maximum agent capacity is now 7."
-      assert Slots.max_concurrent_agents(name).max == 7
-    end
-
-    test "set to the current maximum reports a no-op rather than a fresh apply" do
-      name = Module.concat(__MODULE__, :CapacityNoopOrchestrator)
-      start_capacity_orchestrator(name, 4)
-
-      {view, _html} = mount_capacity_dashboard(name)
-      html = render_submit(view, "capacity-set", %{"max" => "4"})
-
-      assert html =~ "Maximum agent capacity is unchanged at 4."
-    end
-
-    test "rejects non-positive or non-numeric input without calling Slots" do
-      name = Module.concat(__MODULE__, :CapacityInvalidOrchestrator)
-      start_capacity_orchestrator(name, 3)
-
-      {view, _html} = mount_capacity_dashboard(name)
-
-      for value <- ["0", "-2", "abc", "3.5", ""] do
-        html = render_submit(view, "capacity-set", %{"max" => value})
-        assert html =~ "Enter a whole number of 1 or more."
-        assert Slots.max_concurrent_agents(name).max == 3
-      end
-    end
-
-    test "reconciles from the returned authoritative value when a concurrent change wins" do
-      name = Module.concat(__MODULE__, :CapacityConcurrentOrchestrator)
-      start_capacity_orchestrator(name, 3)
-
-      {view, _html} =
-        mount_capacity_dashboard(name, capacity_set_fun: fn _next -> {:ok, %{max: 9}} end)
-
-      html = render_submit(view, "capacity-set", %{"max" => "4"})
-
-      assert html =~ "Maximum agent capacity is now 9."
-      refute html =~ "now 4."
-    end
-
-    test "surfaces the authoritative draining state after lowering capacity" do
-      name = Module.concat(__MODULE__, :CapacityDrainingOrchestrator)
-      start_capacity_orchestrator(name, 5)
-
-      {view, _html} =
-        mount_capacity_dashboard(name,
-          capacity_set_fun: fn _next -> {:ok, %{max: 2, draining?: true}} end
-        )
-
-      html = render_submit(view, "capacity-set", %{"max" => "2"})
-
-      assert html =~ "Maximum agent capacity is now 2."
-      assert html =~ "Extra agents keep running and drain as they finish."
-    end
-
-    test "reports a timeout as stale without claiming the requested value applied" do
-      name = Module.concat(__MODULE__, :CapacityTimeoutOrchestrator)
-      start_capacity_orchestrator(name, 3)
-
-      {view, _html} =
-        mount_capacity_dashboard(name, capacity_adjust_fun: fn _delta -> {:error, :timeout} end)
-
-      html = view |> element("#capacity-increment") |> render_click()
-
-      assert html =~ "The capacity service did not respond in time."
-      refute html =~ "Maximum agent capacity is now"
-    end
-
-    test "reports an unavailable capacity service" do
-      name = Module.concat(__MODULE__, :CapacityUnavailableOrchestrator)
-      start_capacity_orchestrator(name, 3)
-
-      {view, _html} =
-        mount_capacity_dashboard(name, capacity_set_fun: fn _next -> {:error, :unavailable} end)
-
-      html = render_submit(view, "capacity-set", %{"max" => "5"})
-
-      assert html =~ "Capacity control is unavailable right now."
-      refute html =~ "Maximum agent capacity is now"
-    end
-
-    test "read-only dashboard exposes no usable mutation control" do
-      name = Module.concat(__MODULE__, :CapacityReadOnlyOrchestrator)
-      start_capacity_orchestrator(name, 3)
-
-      {_view, html} = mount_capacity_dashboard(name, dashboard_writable: false)
-
-      refute html =~ ~s(phx-click="capacity-increment")
-      refute html =~ ~s(id="capacity-max-input")
-      assert html =~ "Read-only dashboard. Agent capacity is displayed but cannot be changed here."
-    end
-
-    test "re-checks writable mode on every activation and rejects a revoked write" do
-      name = Module.concat(__MODULE__, :CapacityRevokedOrchestrator)
-      start_capacity_orchestrator(name, 3)
-
-      {view, html} = mount_capacity_dashboard(name)
-      assert html =~ ~s(phx-click="capacity-increment")
-
-      config = Application.fetch_env!(:aiur, AiurWeb.Endpoint)
-      revoked = Keyword.put(config, :dashboard_writable, false)
-      Application.put_env(:aiur, AiurWeb.Endpoint, revoked)
-      :ok = AiurWeb.Endpoint.config_change([{AiurWeb.Endpoint, revoked}], [])
-
-      html = view |> element("#capacity-increment") |> render_click()
-
-      refute html =~ ~s(phx-click="capacity-increment")
-      assert Slots.max_concurrent_agents(name).max == 3
-    end
-
-    test "guards double activation with a pending-disable hook" do
-      name = Module.concat(__MODULE__, :CapacityPendingOrchestrator)
-      start_capacity_orchestrator(name, 3)
-
-      {_view, html} = mount_capacity_dashboard(name)
-
-      assert html =~ ~s(phx-disable-with="Applying…")
-    end
-
-    test "preserves the typed absolute value across a re-render" do
-      name = Module.concat(__MODULE__, :CapacityFocusOrchestrator)
-      start_capacity_orchestrator(name, 3)
-
-      {view, _html} = mount_capacity_dashboard(name)
-      html = render_change(view, "capacity-input-change", %{"max" => "42"})
-
-      assert html =~ ~s(value="42")
-    end
-  end
-
-  defp start_capacity_orchestrator(name, max) do
-    {:ok, pid} = Orchestrator.start_link(name: name)
-
-    on_exit(fn ->
-      if Process.alive?(pid), do: Process.exit(pid, :normal)
-    end)
-
-    # A serialized control call both forces init to complete before the mount
-    # snapshot and establishes a known authoritative maximum via the real Slots
-    # contract (as a session override).
-    {:ok, %{max: ^max}} = Orchestrator.Slots.set_max_concurrent_agents(name, max)
-
-    name
-  end
-
-  defp mount_capacity_dashboard(orchestrator_name, overrides \\ []) do
-    start_test_endpoint(
-      Keyword.merge(
-        [
-          orchestrator: orchestrator_name,
-          snapshot_timeout_ms: 5_000,
-          control_center_cache: false,
-          dashboard_writable: true
-        ],
-        overrides
-      )
-    )
-
-    {:ok, view, html} = live(build_conn(), "/")
-    {view, html}
   end
 
   defp units_identity(overrides \\ []) do

@@ -155,7 +155,8 @@ defmodule AiurWeb.BuildOrderLiveTest do
 
     assert html =~ ~s(<h1 id="route-title">Build Order</h1>)
     assert html =~ ~s(data-build-order-status="catalog")
-    assert html =~ "Build Order catalog"
+    assert html =~ "bo-catalog-table"
+    assert html =~ "Root forty-two"
 
     calls = FakeDataSource.calls(source)
     assert {:subscribe_catalog, []} in calls
@@ -179,19 +180,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     render_async(view, 2_000)
 
     assert html =~ Calendar.strftime(observed_at, "%H:%M:%S")
-    assert html =~ "Observed 0s ago"
 
-    document = Floki.parse_document!(html)
-
-    assert Floki.find(document, ~s(.bo-provider-health[role="status"])) == []
-
-    live_status =
-      document
-      |> Floki.find(~s(.bo-provider-health > [role="status"][aria-live="polite"]))
-      |> Floki.text()
-
-    assert live_status =~ "Healthy"
-    refute live_status =~ "Observed"
     calls_before_tick = FakeDataSource.calls(source)
 
     Agent.update(clock, &DateTime.add(&1, 7, :second))
@@ -199,19 +188,6 @@ defmodule AiurWeb.BuildOrderLiveTest do
     advanced_html = render(view)
 
     assert advanced_html =~ Calendar.strftime(DateTime.add(observed_at, 7, :second), "%H:%M:%S")
-    assert advanced_html =~ "Observed 7s ago"
-
-    advanced_document = Floki.parse_document!(advanced_html)
-
-    assert Floki.find(advanced_document, ~s(.bo-provider-health[role="status"])) == []
-
-    advanced_live_status =
-      advanced_document
-      |> Floki.find(~s(.bo-provider-health > [role="status"][aria-live="polite"]))
-      |> Floki.text()
-
-    assert advanced_live_status =~ "Healthy"
-    refute advanced_live_status =~ "Observed"
     assert FakeDataSource.calls(source) == calls_before_tick
   end
 
@@ -288,7 +264,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     assert {:demand, [first]} in FakeDataSource.calls(source)
   end
 
-  test "renders the plan phase and epic breakdowns on the selected route", %{first: first} do
+  test "renders the epic breakdown on the selected route", %{first: first} do
     members = [
       breakdown_member(7, phase: 1, lane: "plan-graph", complexity: 3),
       breakdown_member(8, phase: 2, lane: "dashboard-ui", complexity: 4)
@@ -299,37 +275,20 @@ defmodule AiurWeb.BuildOrderLiveTest do
 
     assert {:ok, view, html} = live(build_conn(), "/build-orders/42")
 
-    # The breakdown region renders with accessible table semantics and a KPI strip.
+    # The breakdown region is now epics-only, each row with a coloured icon and bar.
     assert html =~ ~s(<section class="bo-breakdown")
-    assert has_element?(view, "table#bo-phase-breakdown caption")
-    assert has_element?(view, "table#bo-epic-breakdown caption")
-    assert has_element?(view, ~s(table#bo-phase-breakdown th[scope="col"]))
-    assert has_element?(view, ~s(table#bo-phase-breakdown th[scope="row"]))
-    assert has_element?(view, "dl.bo-kpis")
-    assert html =~ "rollout hint"
+    assert html =~ ">Epics<"
+    assert has_element?(view, ".bo-breakdown-list .bo-breakdown-row .bo-breakdown-row-name")
+    assert has_element?(view, ".bo-breakdown-row .bo-breakdown-row-ic")
+    assert has_element?(view, ".bo-breakdown-row-bar")
+
+    # Plan-distribution stats, the phase block, and ad hoc are gone.
+    refute has_element?(view, "#bo-phase-breakdown")
+    refute has_element?(view, "dl.bo-kpis")
+    refute html =~ "Ad Hoc epic"
 
     # The graph surface remains present and unaffected alongside the breakdown.
     assert has_element?(view, "#selected-build-order-graph")
-  end
-
-  test "renders the derived Ad Hoc epic overlay on the selected route", %{first: first} do
-    members = [breakdown_member(7, phase: 1, lane: "plan-graph", complexity: 3)]
-
-    selected =
-      selected_snapshot(first, SelectedRoot.new(root(first, "Root forty-two"), members, health(1, :healthy)), 1, :healthy)
-
-    install_source(
-      catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy),
-      selected: [selected],
-      sources_loader: fn -> sources_with_adhoc(adhoc_source_snapshot()) end
-    )
-
-    assert {:ok, view, html} = live(build_conn(), "/build-orders/42")
-
-    assert html =~ "Ad Hoc epic"
-    assert has_element?(view, "table#bo-adhoc-breakdown caption")
-    assert has_element?(view, ~s(a[href="https://github.com/owner/repo/issues/9001"]))
-    assert html =~ "Phase 1"
   end
 
   test "reloads sources when an ad hoc overlay update arrives", %{first: first} do
@@ -483,9 +442,9 @@ defmodule AiurWeb.BuildOrderLiveTest do
     health_html = render(view)
     assert health_html =~ ~s(data-build-order-status="selected_stale")
     assert health_html =~ "Root forty-two updated"
+    # Degraded provider states surface as an explicit state card (the always-on
+    # health badge was removed from the header).
     assert health_html =~ "Stale last-known-good graph"
-    assert health_html =~ "Stale"
-    assert health_html =~ "Refreshing"
   end
 
   test "keeps structurally invalid selected data visible as an explicit diagnostic state", %{first: first} do
@@ -515,7 +474,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     source = install_source(catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy), selected: [selected], context_loader: loader)
 
     {:ok, view, _html} = live(build_conn(), "/build-orders/42")
-    view |> element(~s(button[phx-click="open-ticket-context"])) |> render_click()
+    view |> element(~s([phx-click="open-ticket-context"])) |> render_click()
 
     assert_receive {:context_load_started, loader_pid, selected_identity}, 2_000
     assert selected_identity.identifier == "7"
@@ -559,7 +518,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
       )
 
     {:ok, view, _html} = live(build_conn(), "/build-orders/42")
-    view |> element(~s(button[phx-click="open-ticket-context"])) |> render_click()
+    view |> element(~s([phx-click="open-ticket-context"])) |> render_click()
     assert_receive {:context_load_started, loader_pid, old_context_identity}, 2_000
 
     html = render_patch(view, "/build-orders/43")
@@ -596,7 +555,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
       )
 
     {:ok, view, _html} = live(build_conn(), "/build-orders/42")
-    view |> element(~s(button[phx-click="open-ticket-context"])) |> render_click()
+    view |> element(~s([phx-click="open-ticket-context"])) |> render_click()
 
     assert_receive {:context_load_started, 1, first_loader, selected_identity}, 2_000
     send(view.pid, {:ticket_detail_updated, %{identity: selected_identity}})
@@ -620,7 +579,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
       )
 
     {:ok, view, _html} = live(build_conn(), "/build-orders/42")
-    view |> element(~s(button[phx-click="open-ticket-context"])) |> render_click()
+    view |> element(~s([phx-click="open-ticket-context"])) |> render_click()
     render_async(view, 2_000)
     calls_before = FakeDataSource.calls(source)
 
@@ -639,7 +598,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
       )
 
     {:ok, view, _html} = live(build_conn(), "/build-orders/42")
-    view |> element(~s(button[phx-click="open-ticket-context"])) |> render_click()
+    view |> element(~s([phx-click="open-ticket-context"])) |> render_click()
     render_async(view, 2_000)
     selected_identity = identity(7, "NODE-7")
     GenServer.stop(view.pid)

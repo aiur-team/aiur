@@ -23,7 +23,6 @@ defmodule AiurWeb.BuildOrderLive do
     BuildOrderCatalog,
     BuildOrderSelected,
     BuildOrderTicketContext,
-    BuildOrderUsage,
     DashboardShell,
     RouteRegistry
   }
@@ -205,14 +204,6 @@ defmodule AiurWeb.BuildOrderLive do
           model={@model}
           adhoc={@adhoc_overlay}
           now={@now}
-        />
-
-        <BuildOrderUsage.build_order_usage
-          scope={@bo_usage_scope}
-          view={@bo_usage_view}
-          announcement={@bo_usage_announcement}
-          drill_down={@bo_usage_drill}
-          drill_trigger={@bo_usage_drill_trigger}
         />
       </section>
 

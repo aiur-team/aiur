@@ -132,10 +132,15 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
 
   defp load_uncached({orchestrator, decision_store, decision_metrics, recent_merge_store, snapshot_timeout_ms}) do
     payload =
-      ControlCenterPresenter.state_payload(orchestrator, snapshot_timeout_ms,
-        decision_store: decision_store,
-        decision_metrics: decision_metrics,
-        recent_merge_store: recent_merge_store
+      ControlCenterPresenter.state_payload(
+        orchestrator,
+        snapshot_timeout_ms,
+        [
+          decision_store: decision_store,
+          decision_metrics: decision_metrics,
+          recent_merge_store: recent_merge_store
+        ]
+        |> maybe_put_option(:fleet_fun, Endpoint.config(:units_fleet_fun))
       )
 
     retained_counts = retained_counts(decision_store)

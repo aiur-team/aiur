@@ -239,11 +239,15 @@ defmodule AiurWeb.BuildOrder.RouteState do
   defp catalog_match(nil, _identifier), do: {:error, :awaiting_catalog}
 
   defp catalog_match(%Snapshot{data: %Catalog{entries: entries}} = snapshot, identifier) do
+    # Match by identifier across every published catalog entry. Each entry is an
+    # already-trusted, repository-qualified identity, so we do not additionally
+    # require it to match the snapshot's declared repository — that lets a single
+    # catalog span repositories (e.g. multiple planning packs) while ambiguous
+    # identifiers across repositories are still rejected as invalid below.
     matches =
       Enum.filter(entries, fn
         %RootSummary{identity: %TrackerIdentity{} = identity} ->
-          TrackerIdentity.joinable?(identity) and identity.identifier == identifier and
-            same_repository?(identity, snapshot.repository)
+          TrackerIdentity.joinable?(identity) and identity.identifier == identifier
 
         _entry ->
           false

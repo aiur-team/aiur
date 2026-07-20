@@ -1,7 +1,7 @@
 defmodule AiurWeb.BuildOrder.TicketContextPresenter.Capability do
   @moduledoc false
 
-  @type kind :: :github | :chat | :commands
+  @type kind :: :github | :chat | :commands | :document
 
   @type t :: %__MODULE__{
           kind: kind(),
@@ -107,7 +107,7 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
   @max_description_bytes 4_000
   @max_title_bytes 512
   @max_logs 100
-  @max_capabilities 4
+  @max_capabilities 5
   @max_dependency_tags 25
   @history_states [:available, :known_empty, :missing_source, :restart_unknown, :stale, :unavailable]
   @phase_labels [
@@ -498,7 +498,7 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
   defp normalized_view_log_entry(_entry), do: []
 
   defp normalize_capability(capability, identity) when is_map(capability) do
-    kind = map_value(capability, :kind, [:github, :chat, :commands], nil)
+    kind = map_value(capability, :kind, [:github, :chat, :commands, :document], nil)
     variant = map_value(capability, :variant, [:issue, :pull_request], nil)
 
     case {kind, capability_label(kind, variant)} do
@@ -550,6 +550,7 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
   defp capability_label(:github, nil), do: "GitHub"
   defp capability_label(:chat, _variant), do: "Chat"
   defp capability_label(:commands, _variant), do: "Commands"
+  defp capability_label(:document, _variant), do: "Planning doc"
   defp capability_label(_kind, _variant), do: nil
 
   defp available_href(:github, :issue, href, identity, _capability) do
@@ -571,7 +572,28 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
     with {:ok, href} <- Bounded.commands_route(href), do: {:ok, href, false}
   end
 
+  # Planning-doc link (pre-ticket): any bounded https://github.com URL, opened
+  # externally.
+  defp available_href(:document, _variant, href, _identity, _capability) do
+    case document_href(href) do
+      {:ok, href} -> {:ok, href, true}
+      :error -> :error
+    end
+  end
+
   defp available_href(_kind, _variant, _href, _identity, _capability), do: :error
+
+  defp document_href(value) when is_binary(value) and byte_size(value) in 1..512 do
+    case URI.parse(value) do
+      %URI{scheme: "https", host: host} = uri when host in ["github.com", "www.github.com"] ->
+        {:ok, URI.to_string(uri)}
+
+      _uri ->
+        :error
+    end
+  end
+
+  defp document_href(_value), do: :error
 
   defp unavailable_reason("Pull request", :not_opened), do: "Pull request has not been opened."
   defp unavailable_reason("Pull request", "Pull request has not been opened."), do: "Pull request has not been opened."

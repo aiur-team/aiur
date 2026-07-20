@@ -3,7 +3,8 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
 
   import Phoenix.LiveViewTest, only: [render_component: 2]
 
-  alias AiurWeb.BuildOrderViewModel.Node
+  alias Aiur.BuildOrder.Icon
+  alias AiurWeb.BuildOrderViewModel.{Edge, Node}
 
   alias AiurWeb.OperatorControlCenter.{
     BuildOrderGraph,
@@ -20,122 +21,91 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     Overview
   }
 
-  test "renders semantic graph cards and preserves every dependency state in the fallback summary" do
+  test "renders the epic-by-wave grid with cards, legend, and zoom controls" do
     html =
       render_component(&BuildOrderGraph.build_order_graph/1, %{
         id: "build-order-graph",
         root_id: "root-1",
         provider_generation: 4,
         dom_generation: 8,
-        layout_assets: %{client: "/client.js", worker: "/worker.js", engine: "/engine.js"},
-        nodes: [
-          %{id: "BO-010", title: "DOM and SVG layout", summary: "Keep cards semantic.", lane: 0, phase: 3},
-          %{id: "BO-012", title: "Graph markup", lane: 1, phase: 4}
-        ],
-        edges: [
-          %{id: "edge-cleared", source: "BO-010", target: "BO-012", state: :cleared},
-          %{id: "edge-blocking", source: "BO-012", target: "BO-010", state: :blocking},
-          %{id: "edge-terminal", source: "BO-010", target: "BO-404", state: :terminal_unsatisfied},
-          %{id: "edge-unknown", source: "BO-404", target: "BO-010", state: :unknown},
-          %{id: "edge-cycle", source: "BO-012", target: "BO-012", state: :cyclic}
-        ]
+        model: sample_view_model()
       })
 
-    assert html =~ ~s(phx-hook="DomSvgLayout")
-    assert html =~ ~s(data-layout-root-id="root-1")
-    assert html =~ ~s(data-layout-provider-generation="4")
-    assert html =~ ~s(data-layout-dom-generation="8")
-    assert html =~ ~s(data-layout-adapter-url="/aiur-dom-svg-layout-adapter.js")
-    assert html =~ ~s(data-layout-node-id="BO-010")
-    assert html =~ ~s(data-layout-card-header)
-    assert html =~ ~s(aria-hidden="true")
-    assert html =~ "Cleared"
-    assert html =~ "Blocking"
-    assert html =~ "Terminal unsatisfied"
-    assert html =~ "Unknown"
-    assert html =~ "Cyclic"
-    assert html =~ "is clear of"
-    assert html =~ "leaves terminally unsatisfied"
-    assert html =~ "has an unknown dependency relation to"
-    assert html =~ "is cyclic with"
-    assert html =~ "Using readable document-flow layout."
+    # New grid hook replaces the ELK DomSvgLayout hook.
+    assert html =~ ~s(phx-hook="BuildOrderGrid")
+    refute html =~ "DomSvgLayout"
 
-    # BO-013 interaction + accessibility scaffolding.
-    assert html =~ ~s(data-graph-viewport)
-    assert html =~ ~s(data-graph-content)
-    assert html =~ ~s(role="group" aria-label="Build order graph canvas")
-    assert html =~ ~s(data-graph-zoom="in")
-    assert html =~ ~s(data-graph-zoom="out")
-    assert html =~ ~s(data-graph-zoom="fit")
-    assert html =~ ~s(data-graph-zoom="reset")
-    assert html =~ ~s(aria-label="Zoom graph in")
-    assert html =~ ~s(data-graph-zoom-level)
-    assert html =~ ~s(data-graph-announce)
-    assert html =~ ~s(aria-live="polite")
-    assert html =~ "Keyboard help"
-    # Every card is focusable and carries a stable node identifier for the hook.
-    assert html =~ ~s(tabindex="0")
-    assert html =~ ~s(data-graph-node="BO-010")
+    # Epic column headers with counts (Metadata lane order).
+    assert html =~ "Plan graph"
+    assert html =~ "Dashboard UI"
+    assert html =~ ~s(class="bo-epic-count">2<)
 
-    # BO-1270 parity: a visible edge legend keys the graph's cleared/blocking edges.
-    assert html =~ ~s(class="bo-graph-legend")
+    # Wave rows.
+    assert html =~ ~s(class="bo-wave-n">W3<)
+    assert html =~ ~s(class="bo-wave-n">W4<)
+
+    # Cards carry a stable id and state class; merged forces 100%.
+    assert html =~ ~s(data-bo-card="BO-010")
+    assert html =~ ~s(class="bo-node is-merged")
+    assert html =~ "Cx 3"
+    assert html =~ "merged"
+    assert html =~ "agent live"
+    assert html =~ "dependency-ready"
+
+    # Edges are handed to the hook as sanitized source/target/state data.
+    assert html =~ ~s(data-bo-edge-source="BO-010")
+    assert html =~ ~s(data-bo-edge-target="BO-012")
+    assert html =~ ~s(data-bo-edge-state="cleared")
+    assert html =~ ~s(data-bo-edge-state="blocking")
+
+    # Legend keys the four states the prototype shows.
+    assert html =~ "agent live"
+    assert html =~ ">cleared<"
+    assert html =~ ">blocking<"
+
+    # Zoom controls: out / in / fit only. No Reset, no Keyboard help.
+    assert html =~ ~s(data-bo-zoom="out")
+    assert html =~ ~s(data-bo-zoom="in")
+    assert html =~ ~s(data-bo-zoom="fit")
+    refute html =~ ~s(data-bo-zoom="reset")
+    refute html =~ "Keyboard help"
+
+    assert html =~ ~s(data-bo-grid-viewport)
+    assert html =~ ~s(data-bo-zoom-level)
   end
 
-  test "renders transitive dependency-chain closures as sanitized card data attributes" do
+  test "places an Ad Hoc overlay column beside the planning lanes" do
+    adhoc = %{
+      status: :ready,
+      total: 1,
+      rows: [
+        %{
+          identifier: "1247",
+          title: "Runtime restart gate",
+          href: nil,
+          lifecycle: :closed,
+          phase: 3,
+          complexity: 4,
+          running?: false,
+          progress: nil
+        }
+      ]
+    }
+
     html =
       render_component(&BuildOrderGraph.build_order_graph/1, %{
-        id: "chain-graph",
+        id: "adhoc-graph",
         root_id: "root-1",
         provider_generation: 1,
         dom_generation: 1,
-        layout_assets: %{client: "/client.js", worker: "/worker.js", engine: "/engine.js"},
-        model: chain_view_model()
+        model: sample_view_model(),
+        adhoc: adhoc
       })
 
-    # a -> b -> c (blocker -> blocked). b depends on a (upstream) and is
-    # depended on by c (downstream).
-    assert html =~ ~r/data-graph-node="b"[^>]*data-graph-upstream="a"[^>]*data-graph-downstream="c"/s
-    assert html =~ ~r/data-graph-node="a"[^>]*data-graph-downstream="b c"/s
-    # Root of the chain has no upstream attribute rendered.
-    refute html =~ ~r/data-graph-node="a"[^>]*data-graph-upstream=/s
-  end
-
-  defp chain_view_model do
-    %AiurWeb.BuildOrderViewModel{
-      status: :ready,
-      nodes: [chain_node("a"), chain_node("b"), chain_node("c")],
-      edges: [],
-      adjacency: %{"a" => ["b"], "b" => ["c"], "c" => []},
-      reverse_adjacency: %{"a" => [], "b" => ["a"], "c" => ["b"]}
-    }
-  end
-
-  defp chain_node(id) do
-    %AiurWeb.BuildOrderViewModel.Node{
-      key: id,
-      identity: nil,
-      title: "Node #{id}",
-      plan: %{},
-      execution: %{},
-      activity: %{},
-      readiness: :ready,
-      lane_icon: nil,
-      status_icon: nil,
-      health: %{},
-      observed_at: %{},
-      provenance: %{planning_generation: 1, activity_generation: 1},
-      diagnostics: [],
-      card: %{
-        identifier: id,
-        lane: 0,
-        phase: 1,
-        status_text: nil,
-        lifecycle: %{state: :open, state_reason: :none},
-        execution_state: :idle,
-        agent_stage: nil,
-        progress: nil
-      }
-    }
+    assert html =~ "Ad Hoc"
+    # Closed ad hoc ticket renders merged at 100%.
+    assert html =~ ~s(data-bo-card="1247")
+    assert html =~ ~s(class="bo-epic-count">1<)
   end
 
   test "renders every presenter-derived icon key through accessible local components" do
@@ -184,37 +154,22 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     refute fallback =~ "unsafe fixture icon"
   end
 
-  test "renders typed card progress and agent stage without replacing unknown facts" do
-    known = %Node{
-      key: :known,
-      identity: nil,
-      title: "Known activity",
-      plan: %{complexity: 3},
-      execution: %{},
-      activity: %{},
-      readiness: :ready,
-      lane_icon: nil,
-      status_icon: nil,
-      health: %{},
-      observed_at: %{},
-      provenance: %{},
-      card: %{
-        identifier: "#1",
-        lane: "dashboard-ui",
-        phase: 1,
-        lifecycle: %{state: :open, state_reason: :none},
-        execution_state: :working,
-        agent_stage: :review,
+  test "renders typed card progress, complexity, and a progress bar" do
+    known =
+      node(:known, "#1", "dashboard-ui", 1,
+        title: "Known activity",
+        complexity: 3,
+        status_icon: %Icon{key: :status_working, text: "Agent working"},
         progress: 60,
         status_text: "Working"
-      }
-    }
+      )
 
     unknown = %{
       known
       | key: :unknown,
         title: "Unknown activity",
-        card: %{known.card | identifier: "#2", agent_stage: :unknown, progress: :unknown}
+        status_icon: %Icon{key: :status_blocking, text: "Blocked"},
+        card: %{known.card | identifier: "#2", progress: :unknown, status_text: "Blocked"}
     }
 
     html =
@@ -223,26 +178,22 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
         root_id: "root-1",
         provider_generation: 1,
         dom_generation: 1,
-        layout_assets: %{client: "/client.js", worker: "/worker.js", engine: "/engine.js"},
-        nodes: [known, unknown],
-        edges: []
+        model: %AiurWeb.BuildOrderViewModel{status: :ready, nodes: [known, unknown], edges: []}
       })
 
-    assert html =~ "Agent stage"
-    assert html =~ "Review"
+    # Known-progress card surfaces its percent, an "agent live" word, a cx badge
+    # and a visual progress bar.
     assert html =~ "60%"
-    assert html =~ "Agent stage unavailable"
-    assert html =~ "Progress unavailable"
-    assert html =~ ~s(aria-label="#1 · Known activity · Working · Dashboard ui · Phase 1 · Review · 60%")
-
-    # BO-1270 parity: complexity badge and a visual progress bar surface on the
-    # node card itself, replacing the 7-row fact grid and the generation
-    # provenance line.
-    assert html =~ ~s(class="bo-cx")
-    assert html =~ "Cx:3"
-    assert html =~ ~s(class="bo-layout-card-progress")
+    assert html =~ "agent live"
+    assert html =~ ~s(class="bo-node-cx")
+    assert html =~ "Cx 3"
+    assert html =~ ~s(class="bo-node-blocks")
     assert html =~ "width:60%"
-    refute html =~ "planning gen"
+
+    # Unknown-progress card shows no percent but still renders a (0%) bar and its status word.
+    assert html =~ ~s(data-bo-card="#2")
+    assert html =~ "Blocked"
+    assert html =~ "width:0%"
   end
 
   test "renders delivery failure and supersession as explicit lifecycle overrides" do
@@ -809,5 +760,80 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
       provider_health: :ok,
       retained_counts: retained_counts
     })
+  end
+
+  # --- Build Order grid fixtures ---------------------------------------------
+
+  defp sample_view_model do
+    nodes = [
+      node(:bo010, "BO-010", "plan-graph", 3,
+        complexity: 3,
+        status_icon: %Icon{key: :status_completed, text: "Completed"},
+        progress: :unknown
+      ),
+      node(:bo012, "BO-012", "plan-graph", 4,
+        complexity: 4,
+        status_icon: %Icon{key: :status_working, text: "Agent working"},
+        progress: 40
+      ),
+      node(:dash1, "DASH-001", "dashboard-ui", 3,
+        complexity: 3,
+        status_icon: %Icon{key: :status_ready, text: "Ready"}
+      ),
+      node(:dash2, "DASH-002", "dashboard-ui", 4,
+        complexity: 2,
+        status_icon: %Icon{key: :status_blocking, text: "Blocked by an open dependency"}
+      )
+    ]
+
+    edges = [
+      edge("e-cleared", :bo010, :bo012, :cleared),
+      edge("e-blocking", :dash2, :bo010, :blocking)
+    ]
+
+    %AiurWeb.BuildOrderViewModel{status: :ready, nodes: nodes, edges: edges}
+  end
+
+  defp node(key, identifier, lane, phase, opts) do
+    %Node{
+      key: key,
+      identity: nil,
+      title: Keyword.get(opts, :title, "Node #{identifier}"),
+      plan: %{complexity: Keyword.get(opts, :complexity, :unknown)},
+      execution: %{},
+      activity: %{},
+      readiness: :ready,
+      lane_icon: nil,
+      status_icon: Keyword.get(opts, :status_icon),
+      health: %{},
+      observed_at: %{},
+      provenance: %{},
+      diagnostics: [],
+      card: %{
+        identifier: identifier,
+        lane: lane,
+        phase: phase,
+        status_text: Keyword.get(opts, :status_text),
+        lifecycle: %{state: :open, state_reason: :none},
+        execution_state: :idle,
+        agent_stage: nil,
+        progress: Keyword.get(opts, :progress, :unknown)
+      }
+    }
+  end
+
+  defp edge(id, source_key, target_key, state) do
+    %Edge{
+      id: id,
+      source: nil,
+      target: nil,
+      source_key: source_key,
+      target_key: target_key,
+      kind: :native,
+      state: state,
+      source_connection: nil,
+      text: nil,
+      diagnostics: []
+    }
   end
 end

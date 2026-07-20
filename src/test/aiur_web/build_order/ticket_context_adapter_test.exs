@@ -50,7 +50,8 @@ defmodule AiurWeb.BuildOrder.TicketContextAdapterTest do
              {"Issue", true, issue_url(2)},
              {"Pull request", true, "https://github.com/owner/repo/pull/77"},
              {"Chat", true, "/chat/2"},
-             {"Commands", true, "/decisions/2"}
+             {"Commands", true, "/decisions/2"},
+             {"Planning doc", false, nil}
            ]
 
     assert Enum.map(view.diagnostics, & &1.code) == [:missing_lane]

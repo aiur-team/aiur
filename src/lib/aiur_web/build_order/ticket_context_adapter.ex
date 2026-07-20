@@ -74,7 +74,7 @@ defmodule AiurWeb.BuildOrder.TicketContextAdapter do
   alias AiurWeb.BuildOrderViewModel
   alias AiurWeb.BuildOrderViewModel.{Capability, Edge, Node, Relationships}
 
-  @capability_keys [:issue, :pull_request, :chat, :commands]
+  @capability_keys [:issue, :pull_request, :chat, :commands, :document]
   @max_relationships 100
 
   @doc "Returns the maximum number of relationship rows retained per direction."
@@ -225,6 +225,7 @@ defmodule AiurWeb.BuildOrder.TicketContextAdapter do
   defp capability_kind(:pull_request), do: {:github, :pull_request}
   defp capability_kind(:chat), do: {:chat, nil}
   defp capability_kind(:commands), do: {:commands, nil}
+  defp capability_kind(:document), do: {:document, nil}
 
   defp capability_reason(key, %Capability{} = capability, selected_identity) do
     if same_identity?(capability.identity, selected_identity) do

@@ -25,7 +25,7 @@ defmodule AiurWeb.BuildOrderPresenter do
   alias AiurWeb.BuildOrderViewModel
   alias AiurWeb.BuildOrderViewModel.{Capability, Edge, Group, Node, Relationships}
 
-  @capability_keys [:issue, :pull_request, :commands, :chat]
+  @capability_keys [:issue, :pull_request, :commands, :chat, :document]
   @safe_stages [:brainstorm, :plan, :work, :review]
   @safe_activity_statuses [:fresh, :stale]
   @safe_retention [:current, :recent]
@@ -156,7 +156,8 @@ defmodule AiurWeb.BuildOrderPresenter do
       execution_health: execution_health,
       activity_health: activity_health,
       generations: %{planning: planning.generation, activity: activity_generation},
-      diagnostics: diagnostics
+      diagnostics: diagnostics,
+      planning?: planning.selected.planning?
     }
 
     selection = Keyword.get(opts, :selected_identity)
@@ -435,6 +436,7 @@ defmodule AiurWeb.BuildOrderPresenter do
       identity: member.identity,
       title: member.title,
       url: member.url,
+      document_url: member.document_url,
       plan: plan,
       execution: execution,
       activity: Map.delete(activity, :generation),
@@ -907,9 +909,24 @@ defmodule AiurWeb.BuildOrderPresenter do
   defp safe_destination(:pull_request, value, identity, number), do: safe_destination_result(Bounded.github_pull_request_url_for(value, identity, number))
   defp safe_destination(:chat, value, identity, _number), do: safe_destination_result(Bounded.chat_route_for(value, identity))
   defp safe_destination(:commands, value, _identity, _number), do: safe_destination_result(Bounded.commands_route(value))
+  # Planning-doc link (pre-ticket): any bounded https://github.com URL, including
+  # a doc blob path that `github_url/1` (issue/PR-shaped) would reject.
+  defp safe_destination(:document, value, _identity, _number), do: safe_document_destination(value)
 
   defp safe_destination_result({:ok, safe}), do: safe
   defp safe_destination_result(:error), do: nil
+
+  defp safe_document_destination(value) when is_binary(value) and byte_size(value) in 1..512 do
+    case URI.parse(value) do
+      %URI{scheme: "https", host: host} = uri when host in ["github.com", "www.github.com"] ->
+        URI.to_string(uri)
+
+      _uri ->
+        nil
+    end
+  end
+
+  defp safe_document_destination(_value), do: nil
 
   defp safe_label(value) when is_binary(value) and byte_size(value) in 1..80 and value != "" do
     if String.valid?(value) and not String.match?(value, ~r/[\x00-\x1F\x7F]/), do: value

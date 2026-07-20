@@ -83,36 +83,29 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdownTest do
   end
 
   describe "build_order_breakdown/1" do
-    test "renders accessible tables, KPI strip, and a rollout-hint note" do
+    test "renders the epics list with coloured icons, members, and a progress bar" do
       html = render_breakdown(model([m(1, phase: 1, lane: "plan-graph", cx: 3), m(2, phase: 2, lane: "runtime", cx: 4, blockers: [1])]))
 
-      assert html =~ ~s(id="bo-phase-breakdown")
-      assert html =~ ~s(id="bo-epic-breakdown")
-      assert html =~ "<caption"
-      assert html =~ ~s(<th scope="col">Phase</th>)
-      assert html =~ ~s(<th scope="row">Phase 1</th>)
-      assert html =~ "Plan distribution"
-      assert html =~ "rollout hint"
-      # KPI facts are present as text, not only bars.
-      assert html =~ "Ready at start"
-      assert html =~ "Longest chain"
-      # Bars are decorative only.
-      assert html =~ ~s(<span class="bo-bar" aria-hidden="true">)
+      assert html =~ "bo-breakdown-list-title"
+      assert html =~ ">Epics<"
+      assert html =~ ~s(class="bo-breakdown-row-name">)
+      assert html =~ ~s(class="bo-breakdown-row-members">)
+      # Each epic row carries a coloured epic icon.
+      assert html =~ "bo-breakdown-row-ic"
+      # A full-width progress bar sits along the bottom of each epic row.
+      assert html =~ ~s(<span class="bo-breakdown-row-bar" aria-hidden="true">)
+      # Plan-distribution stats, the phase block, and the rollout note are gone.
+      refute html =~ "Plan distribution"
+      refute html =~ "Ready at start"
+      refute html =~ ~s(id="bo-phase-breakdown")
     end
 
-    test "renders the named stale state and no healthy table when degraded" do
+    test "renders the named stale state when degraded" do
       stale = ProviderHealth.new(9, :stale, false, observed_at: @now, last_success_at: @now)
       html = render_breakdown(model([m(1, phase: 1, lane: "runtime", cx: 3)], health: stale))
 
       assert html =~ "Plan distribution is stale"
       refute html =~ "bo-breakdown-table"
-    end
-
-    test "surfaces the warning bucket for excluded members" do
-      html = render_breakdown(model([m(1, phase: 1, lane: "runtime", cx: 3), bare(2, ["phase:1", "build-lane:runtime"])]))
-
-      assert html =~ "Excluded from point totals"
-      assert html =~ "missing or invalid complexity"
     end
   end
 
@@ -169,34 +162,9 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdownTest do
   end
 
   describe "build_order_breakdown/1 with an ad hoc overlay" do
-    test "renders no ad hoc section when the overlay is absent" do
-      refute render_breakdown(model([m(1, phase: 1, lane: "runtime", cx: 3)])) =~ "bo-adhoc"
-    end
-
-    test "renders the accessible ad hoc epic with GitHub links, pickup phases, and a TBD row" do
-      snapshot = adhoc_snapshot([adhoc_member(10, phase: 1), adhoc_member(20, lifecycle: :closed)])
-      overlay = BuildOrderBreakdown.adhoc_projection(snapshot, running_snapshot([identity(10)]), activity_snapshot([activity(identity(10))]))
-
-      html = render_breakdown(model([m(1, phase: 1, lane: "runtime", cx: 3)]), overlay)
-
-      assert html =~ ~s(id="bo-adhoc-breakdown")
-      assert html =~ "Ad Hoc epic"
-      assert html =~ "excluded from the"
-      assert html =~ ~s(<th scope="col">Pickup phase</th>)
-      assert html =~ ~s(href="https://github.com/owner/repo/issues/10")
-      assert html =~ "Phase 1"
-      assert html =~ "TBD / not picked"
-      assert html =~ "Live agent"
-      assert html =~ "Closed"
-    end
-
-    test "shows the named stale state and no ad hoc table when the overlay is stale" do
-      overlay = BuildOrderBreakdown.adhoc_projection(adhoc_snapshot([adhoc_member(1)], :stale), no_execution(), no_activity())
-
-      html = render_breakdown(model([m(1, phase: 1, lane: "runtime", cx: 3)]), overlay)
-
-      assert html =~ "Ad Hoc overlay is stale"
-      refute html =~ ~s(id="bo-adhoc-breakdown")
+    test "renders no ad hoc section (the ad hoc block was removed)" do
+      overlay = BuildOrderBreakdown.adhoc_projection(adhoc_snapshot([adhoc_member(10, phase: 1)]), no_execution(), no_activity())
+      refute render_breakdown(model([m(1, phase: 1, lane: "runtime", cx: 3)]), overlay) =~ "bo-adhoc"
     end
   end
 

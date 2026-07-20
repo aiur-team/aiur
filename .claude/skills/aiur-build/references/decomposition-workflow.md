@@ -180,21 +180,41 @@ Edge types:
 - `external_gates`: non-ticket gates with owners;
 - `discovered_from`: provenance for execution-discovered work.
 
-Phase is a presentation/rollout hint. It may aid batching, but it does not make
-every earlier phase ticket a blocker. Derive readiness from hard dependencies,
-conflicts, tracker state, and available capacity.
+**Phases are computed, not chosen.** A phase is an antichain of the
+hard-dependency graph: after the graph is final, level it (longest-path from
+roots) and publish each level as one phase with **zero internal `depends_on`
+edges** — every member must be dispatchable the moment the prior phase
+completes. Any consumer of the pack (dashboard, executor, human) may treat a
+phase as a barrier, so the pack must guarantee the barrier is free. Thematic
+grouping (foundations / data / surfaces / billing) goes in **lanes and epics**,
+never in phase membership: a milestone phase silently serializes every lane
+behind its slowest chain — CropTracker's Stripe lane started at effective wave 7
+of 21 under milestone phases; under computed phases it starts at phase 4 of 9.
+Derive readiness from hard dependencies, conflicts, tracker state, and available
+capacity — never from phase membership alone.
+
+**Phase-depth budget:** agree a target with the user during Stage 2 (default
+5–10 for 40–120 tickets). If leveling exceeds the budget, run the
+depth-reduction pass (below) before accepting the graph. Ticket IDs must not
+encode phase membership — IDs are stable opaque identity; phase truth lives only
+in the graph and projected labels.
 
 Epic/lane labels are the planner's choice, not a fixed vocabulary. The
 prototype's docs/frontend/backend/infra set is an example — choose lanes that
 partition THIS feature's work into legible ownership columns (for example
 plan-graph / runtime / dashboard-ui / accounting / platform), keep the set
 small (3–6), fold a one-ticket lane into its nearest neighbor, and record the
-chosen labels in the pack's label projection. Assign each epic (and, where it
-adds signal, each ticket) an icon key from the dashboard's controlled
-line-art icon library (`BO_ICONS` in the vendored design prototype — keys
-like `flow`, `gauge`, `components`, `chart`, `pipeline`, `database`,
-`shield`, `book`) so rendering never needs a model call and falls back to a
-generic glyph for unknown keys. Prefer a single Build Order containing every
+chosen labels in the pack's label projection. Assign each epic a Heroicon whose
+meaning fits the lane you defined — the dashboard renders epic columns from the
+Heroicons v2 outline set, and an icon name is simply the SVG filename (for
+example `share`, `bolt`, `rectangle-group`, `banknotes`, `server-stack`,
+`sparkles`, `cpu-chip`, `chart-bar`, `circle-stack`, `shield-check`,
+`book-open`). Pick per epic from what those names mean, not from a fixed list,
+and record the chosen icon name for each lane in the pack's lane metadata (the
+README lane index and Executor handoff): the strict `build-order.json` schema
+and the GitHub label projection carry no icon field, so the name lives in pack
+prose only. An unknown or absent name falls back to a generic glyph, so
+rendering never needs a model call. Prefer a single Build Order containing every
 ticket in the program over sibling packs: one graph maximizes how many agents
 can work at once, and separation belongs in lanes and phases, not in
 membership — split membership only when a track genuinely must not gate or be
@@ -209,7 +229,10 @@ Design for parallelism; do not merely document its absence:
 - After drafting the graph, compute its wave profile (longest-path levels),
   critical path, and which `serializes_with` pairs land in the same wave.
   Publish the wave table in the pack; same-wave serializations are the real
-  parallelism losses.
+  parallelism losses. For each lane, also report its **earliest-start phase**: a
+  lane that cannot start until after ~phase 3 without a cited CI-green reason is
+  a design smell — billing, premium, infra, and UI lanes can almost always begin
+  against contracts and fixtures in the first third of the program.
 - A serialization clique — three or more same-wave tickets pairwise
   serialized on one write surface — is a design smell, not a scheduling fact.
   Restructure ownership so write surfaces are disjoint: one module per
@@ -227,6 +250,65 @@ Design for parallelism; do not merely document its absence:
   staffing in the Executor handoff; a stall there starves more of the fleet
   than any other ticket.
 
+**Edge acceptance test.** An edge must pass one of two tests, cited in the pack
+when non-obvious:
+
+1. **CI-green test:** the dependent's PR cannot typecheck/test/merge without the
+   prerequisite's merged code — real imports, same-file extension, shared
+   migration journal.
+2. **Contract-authority test:** starting without the prerequisite would force
+   the ticket to invent a second, incompatible version of a shape the
+   prerequisite owns.
+
+"A's runtime data flows through B" fails both tests and is **not an edge** — it
+is integration, owned by exactly one named integration ticket. Keep a ledger:
+every data-flow coupling dropped from the graph must map to the integration
+ticket that reconnects it; an orphaned coupling is a validation error (Stage 7).
+Watch for the tell that edges contradict the plans: if a ticket's own plan says
+"pure library, no mocks, fixtures only" but the graph blocks it behind storage
+or another subsystem, the edge is wrong, not the plan.
+
+**Depth-reduction playbook.** When the wave profile exceeds the phase budget,
+apply in order of leverage, re-leveling after each mechanism and stopping when
+the budget is met (publish before/after wave tables in the pack):
+
+1. **Contract layer first.** Pull every shape definition — domain types,
+   wire/API contracts (including premium/billing/error unions), DB schema,
+   fixture kits — into the earliest waves as cheap, declarative tickets. All
+   implementations import only the contract layer and their own files, never
+   sibling implementations. This is the single biggest flattener: it converts
+   most implementation→implementation edges into implementation→contract edges
+   that all point at wave 2–4.
+2. **Pure-library engines.** Scope engine tickets (decoders, interpreters, math,
+   attribution) as pure deterministic libraries tested on fixtures;
+   storage/store wiring either lives in a thin unit gated only on the schema
+   ticket, or moves to the integration capstone.
+3. **Fixture-first UI.** One early ticket generates a fixture dataset from the
+   contracts; every screen binds {typed client, app shell, fixtures}, never a
+   live endpoint. One late ticket swaps fixtures for live APIs and runs the e2e
+   smoke.
+4. **Cross-cutting concerns: plugin early, audit late.** Never scope "apply X
+   across all routes/screens" as a late sweep that edges every route — ship the
+   middleware/plugin + a gating map early so each route composes it at creation,
+   and keep only a late audit ticket. (Entitlements, auth context, logging
+   redaction, i18n, telemetry all fit this shape.)
+5. **Migration-journal ownership.** Shared migration journals serialize every
+   schema ticket in a package. Consolidate a package's tables into one or two
+   declarative schema tickets, and give independent packages (billing,
+   entitlements) their own journals so their schema work leaves the core chain
+   entirely.
+6. **Name-pinning.** When plans are prescriptive enough to pin load-bearing
+   export names, a consumer in another package may gate on the *schema/contract*
+   wave instead of the producer's implementation; plan-vs-landed-name drift
+   becomes a review-blocking defect instead of a scheduling edge. Same-package
+   extension remains a real edge (CI-green test).
+7. **Fatten the bootstrap.** Wave 1 is inevitably the scaffold; make it ship the
+   workspace skeletons, placeholder packages, shared primitives, and CI script
+   names so wave 2 fans out maximally wide.
+8. **Fold trivial tails.** A 1–2 ticket final wave that exists only because of
+   one chain (a verify-after-package ticket, an adjacent same-package query
+   module) usually folds into its parent ticket as a verification/scope unit.
+
 ## Stage 7: Mechanical and semantic validation
 
 Run the bundled validator, then check semantics it cannot prove:
@@ -238,7 +320,14 @@ Run the bundled validator, then check semantics it cannot prove:
 5. error/freshness/partial failure behavior is specified at provider seams;
 6. issue count is an outcome of boundaries, not a target;
 7. the current GitHub/in-flight-work snapshot was refreshed before approval;
-8. all generated counts, tables, and diagrams agree with canonical records.
+8. all generated counts, tables, and diagrams agree with canonical records;
+9. every phase is an antichain (zero internal `depends_on` edges) and phase
+   count is within the agreed budget, or the exception is recorded;
+10. every data-flow coupling dropped under the edge acceptance test is owned by
+    a named integration ticket (the reconnection ledger is complete);
+11. a per-lane earliest-start report exists and late-starting lanes cite their
+    blocking edge;
+12. no ticket ID encodes phase membership as semantic truth.
 
 Commit a validation report with errors, warnings, reviewed SHA, artifact hashes,
 and any accepted exceptions.

@@ -30,7 +30,6 @@ defmodule AiurWeb.DashboardLive do
 
   alias AiurWeb.OperatorControlCenter.{
     AgentLogModal,
-    CapacityControl,
     CapacityPresenter,
     ConversationDrawer,
     CurrentRunOutcomes,
@@ -42,20 +41,18 @@ defmodule AiurWeb.DashboardLive do
     History,
     Overview,
     PayloadLoader,
-    ProviderMeters,
     ProviderMeterSource,
     ProviderMetersPresenter,
     RecentOutcomes,
     RouteRegistry,
-    RunSummary,
     RunSummaryPresenter,
+    RunSummaryStrip,
     TicketContext,
     UnitsControlPolicy,
     UnitsFilters,
     UnitsPresenter,
     UnitsTable,
     UnitsURL,
-    UsageSummary,
     UsageSummaryPresenter
   }
 
@@ -595,8 +592,8 @@ defmodule AiurWeb.DashboardLive do
       now={@now}
       tracker_kind={tracker_kind()}
       agent_kind={agent_kind()}
+      nav_counts={nav_counts(@units_view, @retained_counts)}
     >
-      <Overview.readonly_banner writable={@writable} />
       <Overview.decisions_banner decisions={@payload.decisions} retained_counts={@retained_counts} />
       <Overview.error error={@payload.fleet[:error]} />
 
@@ -627,35 +624,13 @@ defmodule AiurWeb.DashboardLive do
       </div>
 
       <div :if={@live_action not in [:decisions, :decision]} class="control-panel">
-        <CapacityControl.capacity_control
-          capacity={@capacity_view}
-          writable={@writable}
-          input={@capacity_input}
-          feedback={@capacity_feedback}
-        />
-        <RunSummary.run_summary view={@run_summary} announcement={@run_summary_announcement} />
-        <UsageSummary.usage_summary
-          view={@usage_summary}
-          announcement={@usage_summary_announcement}
-          drill_down={@usage_summary_drill}
-          drill_trigger={@usage_summary_drill_trigger}
-        />
-        <ProviderMeters.provider_meters
-          view={@provider_meters_view}
-          announcement={@provider_meters_announcement}
-        />
-        <section class="section-card units-card" aria-labelledby="units-title">
-          <header class="section-header units-header">
-            <div>
-              <p class="section-eyebrow">Current-run catalog</p>
-              <h2 id="units-title" tabindex="-1">Units</h2>
-              <p>{units_count_summary(@units_view)}</p>
-            </div>
-          </header>
+        <RunSummaryStrip.run_summary_strip />
 
+        <section class="section-card units-card" aria-labelledby="route-title">
           <p id="units-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true">
             {@units_announcement}
           </p>
+          <p class="units-count-summary">{units_count_summary(@units_view)}</p>
 
           <UnitsFilters.units_filters
             selection={@units_selection}
@@ -700,14 +675,14 @@ defmodule AiurWeb.DashboardLive do
         id="units-ticket-context"
         context={@ticket_context}
         close_event="close-ticket-context"
-        fallback_focus_id="units-title"
+        fallback_focus_id="route-title"
       />
       <ConversationDrawer.conversation_drawer
         :if={@conversation_drawer}
         id="units-conversation-drawer"
         view={@conversation_drawer}
         close_event="close-conversation"
-        fallback_focus_id="units-title"
+        fallback_focus_id="route-title"
         origin_id={@conversation_origin_id}
       />
     </DashboardShell.dashboard_shell>
@@ -814,6 +789,20 @@ defmodule AiurWeb.DashboardLive do
   defp decision_path(decision_id, filter, query), do: DecisionPath.detail(decision_id, filter, query)
 
   defp units_path(selection), do: "/?" <> UnitsURL.encode(selection)
+
+  # Nav badges surface live attention counts: active units and open Commands.
+  # Only real, positive integers are emitted; anything unknown is omitted so the
+  # nav never fabricates a count.
+  defp nav_counts(units_view, retained_counts) do
+    %{}
+    |> put_nav_count(:units, get_in(units_view, [:counts, :active]))
+    |> put_nav_count(:commands, Map.get(retained_counts || %{}, :open))
+  end
+
+  defp put_nav_count(counts, key, value) when is_integer(value) and value > 0,
+    do: Map.put(counts, key, value)
+
+  defp put_nav_count(counts, _key, _value), do: counts
 
   defp units_count_summary(%{count_status: :unavailable}),
     do: "Observed and selected-scope counts unavailable"

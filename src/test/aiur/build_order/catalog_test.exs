@@ -241,15 +241,15 @@ defmodule Aiur.BuildOrder.CatalogTest do
     assert length(
              SelectedRoot.new(
                root,
-               List.duplicate(member, 100),
+               List.duplicate(member, 1000),
                ProviderHealth.new(1, :healthy, true)
              ).members
-           ) == 100
+           ) == 1000
 
     selected =
-      SelectedRoot.new(root, List.duplicate(member, 101), ProviderHealth.new(1, :healthy, true))
+      SelectedRoot.new(root, List.duplicate(member, 1001), ProviderHealth.new(1, :healthy, true))
 
-    assert length(selected.members) == 100
+    assert length(selected.members) == 1000
     assert [%{code: :member_overflow}] = selected.diagnostics
     refute SelectedRoot.structurally_valid?(selected)
     assert SelectedRoot.status(selected) == :structurally_invalid

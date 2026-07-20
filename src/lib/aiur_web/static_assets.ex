@@ -25,7 +25,13 @@ defmodule AiurWeb.StaticAssets do
   }
 
   @runtime_static_assets %{
-    "/ticket-context-dialog-hook.js" => {"application/javascript", "priv/static/ticket-context-dialog-hook.js"}
+    "/ticket-context-dialog-hook.js" => {"application/javascript", "priv/static/ticket-context-dialog-hook.js"},
+    "/build-order-grid-hook.js" => {"application/javascript", "priv/static/build-order-grid-hook.js"},
+    "/codex-color.svg" => {"image/svg+xml", "priv/static/codex-color.svg"},
+    "/claude-symbol.svg" => {"image/svg+xml", "priv/static/claude-symbol.svg"},
+    "/codex-token.svg" => {"image/svg+xml", "priv/static/codex-token.svg"},
+    "/claude-token.svg" => {"image/svg+xml", "priv/static/claude-token.svg"},
+    "/bungee.woff2" => {"font/woff2", "priv/static/bungee.woff2"}
   }
 
   @external_resource @dashboard_css_path

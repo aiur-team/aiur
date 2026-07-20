@@ -44,6 +44,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsFilters do
             class={[
               "units-filter",
               "condition",
+              condition_class(condition),
               UnitsPolicy.selected?(@selection, condition) && "is-selected"
             ]}
             aria-pressed={to_string(UnitsPolicy.selected?(@selection, condition))}
@@ -51,21 +52,27 @@ defmodule AiurWeb.OperatorControlCenter.UnitsFilters do
             phx-click="toggle-units-condition"
             phx-value-condition={condition}
           >
+            <span class="units-filter-dot" aria-hidden="true"></span>
             <span>{label(condition)}</span>
             <span class="units-filter-count num" aria-label={count_aria_label(@counts, condition, @count_status)}>
               {count_label(@counts, condition, @count_status)}
             </span>
           </button>
         </div>
-        <p id="units-filter-note" class="units-filter-note">
-          {count_note(@count_status)} Conditions overlap, so counts are not additive.
-        </p>
       </fieldset>
     </div>
     """
   end
 
   defp label(value), do: value |> to_string() |> String.replace("_", " ") |> String.capitalize()
+
+  defp condition_class(:active), do: "is-cond-active"
+  defp condition_class(:alert), do: "is-cond-alert"
+  defp condition_class(:paused), do: "is-cond-paused"
+  defp condition_class(:stuck), do: "is-cond-stuck"
+  defp condition_class(:queued), do: "is-cond-queued"
+  defp condition_class(:finished), do: "is-cond-finished"
+  defp condition_class(_condition), do: "is-cond-generic"
 
   defp count_label(_counts, _condition, :unavailable), do: "—"
   defp count_label(counts, condition, :partial), do: "#{Map.get(counts, condition, 0)}+"
@@ -78,7 +85,4 @@ defmodule AiurWeb.OperatorControlCenter.UnitsFilters do
 
   defp count_aria_label(counts, condition, _status), do: "#{Map.get(counts, condition, 0)}"
 
-  defp count_note(:unavailable), do: "Counts are unavailable while the catalog provider is unavailable."
-  defp count_note(:partial), do: "Counts are lower bounds for the bounded catalog prefix."
-  defp count_note(_status), do: "Counts describe the selected scope before condition filtering."
 end

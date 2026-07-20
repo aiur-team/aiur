@@ -18,6 +18,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdown do
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrderViewModel
   alias AiurWeb.BuildOrderViewModel.{Group, Node}
+  alias AiurWeb.OperatorControlCenter.BuildOrderEpicIcon
 
   @ready_statuses [:ready]
   @degraded_statuses [:provider_stale, :provider_unavailable, :structurally_invalid]
@@ -36,151 +37,48 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdown do
       |> assign(:degraded?, projection.status in @degraded_statuses)
 
     ~H"""
-    <section class="bo-breakdown" aria-labelledby="bo-breakdown-title">
-      <div class="bo-breakdown-head">
-        <h3 id="bo-breakdown-title">Plan distribution</h3>
-        <p class="bo-breakdown-note">Phase is a rollout hint, not a readiness gate.</p>
-      </div>
-
+    <section class="bo-breakdown" aria-label="Plan breakdown">
       <div :if={@degraded?} class="bo-state-card" role={degraded_role(@projection.status)}>
         <h4>{degraded_title(@projection.status)}</h4>
         <p>{degraded_message(@projection.status)}</p>
       </div>
 
-      <div :if={@ready?} class="bo-breakdown-body">
-        <dl class="bo-kpis" aria-label="Plan summary">
-          <div class="bo-kpi"><dt>Members</dt><dd class="num">{@projection.kpis.members}</dd></div>
-          <div class="bo-kpi"><dt>Complexity points</dt><dd class="num">{@projection.kpis.points}</dd></div>
-          <div class="bo-kpi"><dt>Ready at start</dt><dd class="num">{@projection.kpis.ready_at_start}</dd></div>
-          <div class="bo-kpi"><dt>Longest chain</dt><dd class="num">{@projection.kpis.longest_chain}</dd></div>
-        </dl>
-
-        <div class="bo-breakdown-tables">
-          <.breakdown_table
-            id="bo-phase-breakdown"
-            dimension="Phase"
-            caption="Members and complexity points per plan phase."
-            rows={@projection.phases}
-          />
-          <.breakdown_table
-            id="bo-epic-breakdown"
-            dimension="Epic"
-            caption="Members and complexity points per epic lane."
-            rows={@projection.epics}
-          />
-        </div>
-
-        <div :if={@projection.warnings != []} class="bo-breakdown-warnings" role="status">
-          <h4>Excluded from point totals</h4>
-          <ul>
-            <li :for={warning <- @projection.warnings}>
-              <span class="mono">{member_label(warning)}</span> — {warning.reason}
-            </li>
-          </ul>
-        </div>
-      </div>
-
-      <.adhoc_section :if={not is_nil(@adhoc)} adhoc={@adhoc} />
-    </section>
-    """
-  end
-
-  attr(:adhoc, :any, required: true)
-
-  defp adhoc_section(assigns) do
-    ~H"""
-    <section class="bo-adhoc" aria-labelledby="bo-adhoc-title">
-      <div class="bo-breakdown-head">
-        <h3 id="bo-adhoc-title">Ad Hoc epic</h3>
-        <p class="bo-breakdown-note">
-          Tickets created or promoted during the run. Tracked separately — excluded from the
-          core member, point, critical-path, and ETA totals above.
-        </p>
-      </div>
-
-      <div :if={@adhoc.status in [:stale, :unavailable]} class="bo-state-card" role="status">
-        <h4>{adhoc_state_title(@adhoc.status)}</h4>
-        <p>{adhoc_state_message(@adhoc.status)}</p>
-      </div>
-
-      <div :if={@adhoc.status == :available} class="bo-adhoc-body">
-        <p class="bo-adhoc-total">
-          <span class="num">{@adhoc.total}</span> ad hoc {ticket_word(@adhoc.total)}
-        </p>
-
-        <div :if={@adhoc.total == 0} class="bo-state-card" role="status">
-          <h4>No ad hoc tickets yet</h4>
-          <p>No issues carry the <span class="mono">build-lane:adhoc</span> label in this run.</p>
-        </div>
-
-        <table :if={@adhoc.total > 0} id="bo-adhoc-breakdown" class="bo-breakdown-table bo-adhoc-table">
-          <caption class="sr-only">
-            Ad Hoc tickets grouped by the phase they were picked up in; tickets never picked up
-            appear as TBD / not picked. Live state comes from Aiur and completion from GitHub.
-          </caption>
-          <thead>
-            <tr>
-              <th scope="col">Pickup phase</th>
-              <th scope="col">Ticket</th>
-              <th scope="col">State</th>
-              <th scope="col" class="num">Progress</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              :for={row <- @adhoc.rows}
-              data-adhoc-ticket={row.identifier}
-              data-adhoc-phase={phase_key(row)}
-            >
-              <td>{phase_label(row)}</td>
-              <th scope="row" class="bo-adhoc-ticket">
-                <a :if={row.href} href={row.href}>{ticket_label(row)}</a>
-                <span :if={is_nil(row.href)}>{ticket_label(row)}</span>
-              </th>
-              <td>
-                <span class={"bo-adhoc-state bo-adhoc-state-#{adhoc_state_class(row)}"}>
-                  {adhoc_state_text(row)}
-                </span>
-              </td>
-              <td class="num">{progress_display(row.progress)}</td>
-            </tr>
-          </tbody>
-        </table>
+      <div :if={@ready?} class="bo-breakdown-tables">
+        <.breakdown_list dimension="Phases" rows={@projection.phases} />
+        <.breakdown_list dimension="Epics" rows={@projection.epics} icons />
       </div>
     </section>
     """
   end
 
-  attr(:id, :string, required: true)
   attr(:dimension, :string, required: true)
-  attr(:caption, :string, required: true)
   attr(:rows, :list, required: true)
+  attr(:icons, :boolean, default: false)
 
-  defp breakdown_table(assigns) do
+  defp breakdown_list(assigns) do
     ~H"""
-    <table id={@id} class="bo-breakdown-table">
-      <caption class="sr-only">{@caption}</caption>
-      <thead>
-        <tr>
-          <th scope="col">{@dimension}</th>
-          <th scope="col" class="num">Tickets</th>
-          <th scope="col" class="num">Points</th>
-          <th scope="col"><span class="sr-only">Point share</span></th>
-          <th scope="col">Members</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr :for={row <- @rows} data-breakdown-key={to_string(row.key)}>
-          <th scope="row">{row.label}</th>
-          <td class="num">{row.count}</td>
-          <td class="num">{points_display(row.points)}</td>
-          <td>
-            <span class="bo-bar" aria-hidden="true"><i style={"width:#{bar_percent(row.weight)}%"}></i></span>
-          </td>
-          <td class="bo-breakdown-members">{members_text(row.members)}</td>
-        </tr>
-      </tbody>
-    </table>
+    <section class="bo-breakdown-list" aria-label={"Members and complexity points per #{@dimension}"}>
+      <h4 class="bo-breakdown-list-title">{@dimension}</h4>
+      <article
+        :for={row <- @rows}
+        class="bo-breakdown-row"
+        data-breakdown-key={to_string(row.key)}
+      >
+        <div class="bo-breakdown-row-top">
+          <BuildOrderEpicIcon.build_order_epic_icon
+            :if={@icons}
+            lane={to_string(row.key)}
+            class="bo-breakdown-row-ic"
+            colored
+          />
+          <span class="bo-breakdown-row-name">{row.label}</span>
+          <span class="bo-breakdown-row-stat"><span class="bo-breakdown-row-stat-label">tickets</span> <span class="num">{row.count}</span></span>
+          <span class="bo-breakdown-row-stat"><span class="bo-breakdown-row-stat-label">points</span> <span class="num">{points_display(row.points)}</span></span>
+        </div>
+        <p :if={row.members != []} class="bo-breakdown-row-members">{members_text(row.members)}</p>
+        <span class="bo-breakdown-row-bar" aria-hidden="true"><i style={"width:#{bar_percent(row.weight)}%"}></i></span>
+      </article>
+    </section>
     """
   end
 
@@ -293,42 +191,6 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdown do
       :error -> nil
     end
   end
-
-  defp phase_key(%{phase: phase}) when is_integer(phase), do: Integer.to_string(phase)
-  defp phase_key(_row), do: "tbd"
-
-  defp phase_label(%{phase: phase}) when is_integer(phase), do: "Phase #{phase}"
-  defp phase_label(_row), do: "TBD / not picked"
-
-  defp ticket_label(%{identifier: identifier, title: title}) when is_binary(title) and title != "",
-    do: "#" <> to_string(identifier) <> " — " <> title
-
-  defp ticket_label(%{identifier: identifier}), do: "#" <> to_string(identifier)
-
-  defp ticket_word(1), do: "ticket"
-  defp ticket_word(_count), do: "tickets"
-
-  defp adhoc_state_text(%{running?: true}), do: "Live agent"
-  defp adhoc_state_text(%{lifecycle: :closed}), do: "Closed"
-  defp adhoc_state_text(_row), do: "Open"
-
-  defp adhoc_state_class(%{running?: true}), do: "live"
-  defp adhoc_state_class(%{lifecycle: :closed}), do: "done"
-  defp adhoc_state_class(_row), do: "open"
-
-  defp progress_display(percent) when is_integer(percent) and percent in 0..100,
-    do: Integer.to_string(percent) <> "%"
-
-  defp progress_display(_percent), do: "—"
-
-  defp adhoc_state_title(:stale), do: "Ad Hoc overlay is stale"
-  defp adhoc_state_title(:unavailable), do: "Ad Hoc overlay unavailable"
-
-  defp adhoc_state_message(:stale),
-    do: "Showing the last-known-good ad hoc overlay while the live source is stale."
-
-  defp adhoc_state_message(:unavailable),
-    do: "The ad hoc overlay source is unavailable, so ad hoc tickets cannot be listed."
 
   defp kpis(model) do
     %{

@@ -1,3 +1,13 @@
+/* Bungee — the display face used by the aiur home-page wordmark, bundled so
+   the dashboard renders it offline (no web-font fetch). */
+@font-face {
+  font-family: "Bungee";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/bungee.woff2") format("woff2");
+}
+
 :root {
   color-scheme: dark;
   --bg: #16171a;
@@ -176,7 +186,7 @@ textarea:focus-visible,
   display: grid;
   align-self: start;
   align-content: start;
-  gap: 1.5rem;
+  gap: 0.45rem;
   min-width: 0;
 }
 
@@ -192,34 +202,37 @@ textarea:focus-visible,
   gap: 0.35rem;
 }
 
+.shell-nav-sidebar {
+  gap: 0.15rem;
+}
+
 .shell-nav-item {
   display: flex;
   align-items: center;
   gap: 0.7rem;
   min-width: 0;
-  min-height: 2.75rem;
-  padding: 0.6rem 0.75rem;
-  border: 1px solid transparent;
-  border-radius: 12px;
+  min-height: 2.6rem;
+  padding: 0.62rem 0.72rem;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
   color: var(--muted);
-  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
-  font-size: 0.75rem;
-  font-weight: 700;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
   line-height: 1.2;
   text-decoration: none;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .shell-nav-item:hover {
-  border-color: var(--line);
   color: var(--fg);
-  background: var(--pill-bg);
+  background: var(--surface-2);
 }
 
 .shell-nav-item.is-active {
-  border-color: var(--line-strong);
-  color: var(--fg);
-  background: var(--surface-3);
-  box-shadow: inset 3px 0 var(--accent-line);
+  color: var(--accent-ink);
+  background: var(--accent-soft);
 }
 
 .shell-nav-item.is-unavailable {
@@ -228,12 +241,15 @@ textarea:focus-visible,
 }
 
 .shell-nav-icon {
-  display: grid;
+  display: inline-flex;
   flex: 0 0 auto;
-  place-items: center;
-  width: 1.25rem;
-  color: var(--accent-ink);
-  font-size: 1rem;
+  align-items: center;
+  color: inherit;
+}
+
+.shell-nav-icon svg {
+  width: 18px;
+  height: 18px;
 }
 
 .shell-nav-label {
@@ -246,6 +262,34 @@ textarea:focus-visible,
   color: var(--faint);
   font-size: 0.6rem;
   font-weight: 600;
+}
+
+/* Live attention badge: active-unit count on Units, open-Command count on
+   Commands (the latter tinted as an alert). */
+.shell-nav-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.35rem;
+  height: 1.35rem;
+  margin-left: auto;
+  padding-inline: 0.4rem;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--fg);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.68rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.shell-nav-item.is-active .shell-nav-count {
+  background: color-mix(in srgb, var(--accent-ink) 22%, transparent);
+  color: var(--accent-ink);
+}
+
+.shell-nav-count.is-attention {
+  background: color-mix(in srgb, #f2836b 26%, transparent);
+  color: #f5b8a8;
 }
 
 .shell-nav-mobile {
@@ -296,9 +340,9 @@ textarea:focus-visible,
 
 .bo-page-header {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.9rem;
 }
 
 .bo-page-header h2,
@@ -355,41 +399,152 @@ textarea:focus-visible,
   background: var(--blocking-soft);
 }
 
-.bo-catalog-list {
+.bo-catalog {
   display: grid;
   gap: 0.6rem;
 }
 
-.bo-catalog-entry {
+/* Full-bleed catalog: drop the card's horizontal padding so the table fills the
+   whole card at width:100% (no width math that could overflow), and clip to the
+   rounded corners. The outer cells re-inset their content by the old padding. */
+.bo-surface-flush {
+  overflow: hidden;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.bo-surface-flush > .bo-catalog > .bo-state-card {
+  margin: 0 clamp(1rem, 2.5vw, 1.4rem);
+}
+
+.bo-catalog-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.bo-catalog-table th:first-child,
+.bo-catalog-table td:first-child {
+  white-space: nowrap;
+  overflow-wrap: normal;
+  padding-left: clamp(1rem, 2.5vw, 1.4rem);
+}
+
+.bo-catalog-table th:last-child,
+.bo-catalog-table td:last-child {
+  padding-right: clamp(1rem, 2.5vw, 1.4rem);
+}
+
+.bo-catalog-progress-head,
+.bo-catalog-progress-cell {
+  width: 100%;
+}
+
+.bo-catalog-progress {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.85rem 1rem;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--surface-2);
+  gap: 0.6rem;
+  min-width: 6rem;
 }
 
-.bo-catalog-entry:hover {
-  border-color: var(--line-strong);
+.bo-catalog-progress-track {
+  flex: 1 1 auto;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--surface);
+  overflow: hidden;
 }
 
-.bo-catalog-entry .mono {
+.bo-catalog-progress-track > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.bo-catalog-progress-label {
+  flex: 0 0 auto;
+  min-width: 2.4rem;
+  text-align: right;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.bo-catalog-table tbody tr {
+  position: relative;
+  cursor: pointer;
+}
+
+.bo-catalog-table th {
+  padding: 0 0.5rem 0.7rem;
+  text-align: left;
+  color: var(--muted);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.bo-catalog-table td {
+  min-width: 0;
+  padding: 0.85rem 0.5rem;
+  border-top: 1px solid var(--hairline);
+  font-size: 0.78rem;
+  vertical-align: middle;
+  overflow-wrap: anywhere;
+}
+
+.bo-catalog-table tbody tr:hover td {
+  background: var(--pill-bg);
+}
+
+.bo-catalog-num {
+  text-align: right;
+  width: 4.25rem;
+  padding-left: 0.35rem;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.bo-catalog-link {
+  color: var(--fg);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.88rem;
+}
+
+.bo-catalog-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.bo-catalog-table tbody tr:hover .bo-catalog-link {
   color: var(--accent-ink);
-  font-size: 0.7rem;
 }
 
-.bo-catalog-entry h3 {
-  margin-top: 0.15rem;
-  font-size: 0.95rem;
+.bo-catalog-invalid {
+  color: var(--muted);
 }
 
 .bo-back-link {
-  width: fit-content;
-  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
-  font-size: 0.72rem;
-  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--fg);
+  font-size: 1.05rem;
+  line-height: 1;
+  text-decoration: none;
+}
+
+.bo-back-link:hover {
+  background: var(--surface-3);
 }
 
 .bo-state-card {
@@ -504,13 +659,141 @@ textarea:focus-visible,
   align-items: start;
 }
 
+/* Grid/flex items default to min-width:auto and single-column grids get an
+   `auto` track — both grow to content's natural width, which let the breakdown
+   tables push the whole content column (and page) wider than the viewport.
+   Force shrinkable tracks + min-width so they never overflow. */
+.bo-selected-summary,
+.bo-breakdown,
+.bo-breakdown-body,
+.bo-breakdown-tables,
+.bo-adhoc,
+.bo-adhoc-body {
+  min-width: 0;
+}
+
+.bo-selected-summary,
+.bo-breakdown,
+.bo-breakdown-body,
+.bo-adhoc,
+.bo-adhoc-body {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* Per-phase / per-epic block: a top stat row, a wrapping member sub-row, and a
+   full-width progress bar along the bottom. Replaces the old wide table so long
+   member lists wrap instead of overflowing. */
+.bo-breakdown-list {
+  display: grid;
+  gap: 0.5rem;
+  align-content: start;
+  min-width: 0;
+}
+
+.bo-breakdown-list-title {
+  margin: 0 0 0.1rem;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.66rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.bo-breakdown-row {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.bo-breakdown-row-top {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-width: 0;
+}
+
+.bo-epic-ic.bo-breakdown-row-ic {
+  width: 1.05rem;
+  height: 1.05rem;
+  flex: 0 0 auto;
+}
+
+.bo-breakdown-row-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 0.82rem;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bo-breakdown-row-stat {
+  flex: none;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+
+.bo-breakdown-row-stat-label {
+  font-size: 0.6rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.bo-breakdown-row-stat .num {
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.bo-breakdown-row-members {
+  margin: 0;
+  min-width: 0;
+  word-break: break-word;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.66rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.bo-breakdown-row-bar {
+  display: block;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.bo-breakdown-row-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
 .bo-breakdown-table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   border: 1px solid var(--line);
   border-radius: 12px;
   overflow: hidden;
   font-size: 0.78rem;
+}
+
+/* Long "#1130, #1093, …" member lists must wrap, not force the table (and the
+   whole content column) wider than the viewport. */
+.bo-breakdown-members {
+  word-break: break-word;
+  white-space: normal;
 }
 
 .bo-breakdown-table caption {
@@ -1220,15 +1503,91 @@ textarea:focus-visible,
 }
 
 .brand-wordmark {
-  font-family: "JetBrains Mono", "SFMono-Regular", monospace;
-  font-size: 0.76rem;
-  letter-spacing: 0.12em;
+  font-family: "Bungee", "JetBrains Mono", "SFMono-Regular", monospace;
+  font-size: 0.98rem;
+  line-height: 1;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
 .brand-wordmark b {
   color: var(--fg);
-  letter-spacing: 0.22em;
+  font-weight: 400;
+}
+
+.brand-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.35rem 0.2rem 0.6rem 0.35rem;
+}
+
+.brand-row .brand-live {
+  margin-left: 0.1rem;
+  min-height: 2.05rem;
+  padding: 0 0.7rem;
+  border-radius: 999px;
+  font-size: 0.66rem;
+}
+
+.brand-row #theme-toggle {
+  margin-left: auto;
+}
+
+.tool-btn.icon-only {
+  gap: 0;
+  padding: 0;
+  width: 2.05rem;
+  height: 2.05rem;
+  justify-content: center;
+  border-radius: 50%;
+  aspect-ratio: 1;
+  flex: none;
+}
+
+.toggle-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.toggle-icon svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
+.toggle-icon .moon {
+  display: none;
+}
+
+.toggle-icon .sun {
+  display: inline-flex;
+}
+
+html[data-theme="light"] .toggle-icon .sun {
+  display: none;
+}
+
+html[data-theme="light"] .toggle-icon .moon {
+  display: inline-flex;
+}
+
+.tool-btn-icon {
+  padding: 0.3rem 0.45rem;
+  line-height: 1;
+}
+
+/* Collapsed navigation: hide the route list; the brand row (with the toggle to
+   reopen) stays, and the sidebar shrinks to reclaim space for content. */
+.dashboard-shell[data-nav-collapsed="true"] .shell-nav-sidebar {
+  display: none;
+}
+
+@media (min-width: 960px) {
+  .dashboard-shell[data-nav-collapsed="true"] {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
 }
 
 .toolbar {
@@ -2519,6 +2878,440 @@ textarea:focus-visible,
 
 .units-card {
   min-width: 0;
+  /* Clip the full-bleed units table to the card's rounded corners. */
+  overflow: hidden;
+}
+
+.units-count-summary {
+  margin: 0 0 0.2rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+/* ---- compact units table (Claude design) ---- */
+.units-table th.ut-col-id { width: 60px; }
+.units-table th.ut-col-unit { width: 195px; }
+.units-table th.ut-col-ticket { width: 28%; }
+.units-table th.ut-col-cmd { width: 152px; }
+
+.units-table td.ut-id-cell,
+.units-table td.ut-unit-cell,
+.units-table td.ut-ticket-cell,
+.units-table td.ut-latest-cell {
+  vertical-align: middle;
+}
+
+.ut-id-cell {
+  position: relative;
+}
+
+.ut-id-num {
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.ut-alert {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--attention, #e3b341);
+  font-size: 0.85rem;
+}
+
+.ut-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-bottom: 0.3rem;
+}
+
+.ut-pill-row:last-child {
+  margin-bottom: 0;
+}
+
+.u-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: var(--pill-bg);
+  font-family: "JetBrains Mono", "SFMono-Regular", monospace;
+  font-size: 0.66rem;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--fg);
+}
+
+.u-agent.is-claude {
+  color: #f0a878;
+  border-color: rgba(240, 168, 120, 0.4);
+  background: rgba(240, 168, 120, 0.12);
+}
+
+.u-agent.is-codex {
+  color: #8fbcff;
+  border-color: rgba(143, 188, 255, 0.4);
+  background: rgba(143, 188, 255, 0.12);
+}
+
+.u-cx {
+  color: var(--accent-ink);
+}
+
+.u-model {
+  color: var(--muted);
+}
+
+.u-prio.is-high {
+  color: #e3b341;
+  border-color: rgba(227, 179, 65, 0.4);
+  background: rgba(227, 179, 65, 0.12);
+}
+
+.u-prio.is-med {
+  color: #d98f5b;
+  border-color: rgba(217, 143, 91, 0.4);
+  background: rgba(217, 143, 91, 0.12);
+}
+
+.u-prio.is-low {
+  color: #6bd6a6;
+  border-color: rgba(107, 214, 166, 0.4);
+  background: rgba(107, 214, 166, 0.12);
+}
+
+.ut-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.3;
+  margin-bottom: 0.35rem;
+}
+
+.u-lane {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--pill-bg);
+  font-family: "JetBrains Mono", "SFMono-Regular", monospace;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.u-lane-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.u-lane.is-lane-core,
+.u-lane.is-lane-platform {
+  color: #8fbcff;
+}
+
+.u-lane.is-lane-web {
+  color: #6bd6a6;
+}
+
+.u-lane.is-lane-data {
+  color: #e3b341;
+}
+
+.u-lane.is-lane-api {
+  color: #7fd4e0;
+}
+
+.u-lane.is-lane-billing {
+  color: #f2836b;
+}
+
+.ut-latest-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.4rem;
+}
+
+.ut-latest-emoji {
+  font-size: 0.95rem;
+}
+
+.ut-latest-text {
+  font-size: 0.82rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ut-pbar {
+  display: block;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.ut-pbar > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.ut-pbar > i.is-blocked {
+  background: var(--blocking, #f2836b);
+}
+
+.ut-pbar > i.has-alert {
+  background: var(--attention, #e3b341);
+}
+
+.ut-latest-meta {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.28rem;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.ut-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  align-items: stretch;
+}
+
+/* Compact table stacks simply on narrow screens (overrides the old grid map). */
+@media (max-width: 960px) {
+  .units-table,
+  .units-table thead,
+  .units-table tbody,
+  .units-table tr.units-row,
+  .units-table tr.units-row td {
+    display: block;
+    width: auto;
+  }
+
+  .units-table thead {
+    display: none;
+  }
+
+  .units-table tr.units-row {
+    padding: 0.6rem 0;
+    border-top: 1px solid var(--hairline);
+  }
+
+  .units-table tr.units-row td {
+    border-top: 0;
+    padding: 0.2rem 1.15rem;
+  }
+
+  .units-table tr.units-row td::before {
+    content: none;
+  }
+}
+
+/* Units page heading (icon tile + title), matching the design's page-head. */
+.units-page-head {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.15rem 0.15rem 0;
+}
+
+.units-page-ic {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--accent);
+}
+
+.units-page-ic svg {
+  width: 22px;
+  height: 22px;
+}
+
+.units-page-head h2 {
+  margin: 0;
+  font-size: 1.55rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+/* ---- run summary / vendor usage strip (Units page top) ---- */
+.run-summary {
+  display: grid;
+  grid-template-columns: minmax(170px, 0.92fr) 1fr 1fr;
+  gap: 0.9rem;
+}
+
+.run-summary .rs-status {
+  order: -1;
+}
+
+.rs-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  min-width: 0;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.rs-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.rs-logo {
+  width: 1.2rem;
+  height: 1.2rem;
+  flex: none;
+  object-fit: contain;
+}
+
+.rs-name {
+  font-weight: 700;
+  font-size: 0.92rem;
+}
+
+.rs-head-stats {
+  margin-left: auto;
+  display: flex;
+  gap: 1.1rem;
+}
+
+.rs-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.04rem;
+}
+
+.rs-stat-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  font-family: "JetBrains Mono", "SFMono-Regular", monospace;
+  font-size: 0.63rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.rs-stat-val {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.84rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+}
+
+.rs-stat-spend {
+  color: var(--good-ink);
+}
+
+.rs-token-ic {
+  width: 1.05rem;
+  height: 1.05rem;
+  flex: none;
+  object-fit: contain;
+  margin: 0 0.15rem;
+}
+
+.rs-limits {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.rs-limit-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.28rem;
+}
+
+.rs-limit-label,
+.rs-stat-label {
+  white-space: nowrap;
+}
+
+.rs-limit-label {
+  font-family: "JetBrains Mono", "SFMono-Regular", monospace;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.rs-limit-meta {
+  font-family: "JetBrains Mono", "SFMono-Regular", monospace;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.rs-meter {
+  height: 0.34rem;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.rs-meter > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.rs-status-rows {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.6rem 1.4rem;
+  width: 100%;
+}
+
+.rs-progress {
+  margin-top: auto;
+}
+
+.rs-progress .rs-limit-top {
+  flex-wrap: wrap;
+}
+
+.rs-progress .rs-limit-meta svg {
+  width: 12px;
+  height: 12px;
+  vertical-align: -2px;
+}
+
+@media (max-width: 720px) {
+  .run-summary {
+    grid-template-columns: 1fr;
+  }
 }
 
 .units-header {
@@ -2526,9 +3319,15 @@ textarea:focus-visible,
 }
 
 .units-filters {
-  display: grid;
-  gap: 0.8rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.7rem 1.6rem;
   margin-top: 1rem;
+}
+
+.units-filter-group legend {
+  margin-bottom: 0.4rem;
 }
 
 .units-filter-group {
@@ -2558,10 +3357,10 @@ textarea:focus-visible,
   align-items: center;
   justify-content: center;
   gap: 0.45rem;
-  min-height: 2.75rem;
-  padding: 0.55rem 0.8rem;
+  min-height: 2.1rem;
+  padding: 0.35rem 0.75rem;
   border: 1px solid var(--line);
-  border-radius: 11px;
+  border-radius: 999px;
   background: var(--pill-bg);
   color: var(--muted);
   cursor: pointer;
@@ -2575,11 +3374,39 @@ textarea:focus-visible,
   color: var(--fg);
 }
 
-.units-filter.is-selected {
+.units-filter.scope.is-selected {
   border-color: var(--accent-line);
   background: var(--accent-soft);
   color: var(--accent-ink);
 }
+
+/* Condition pills: a coloured dot + label + count; the dot colour keys the
+   condition, and a selected pill lights up with its own hue. */
+.units-filter-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: var(--muted);
+  flex: none;
+}
+
+.units-filter.is-cond-active .units-filter-dot { background: #6bd6a6; }
+.units-filter.is-cond-alert .units-filter-dot { background: #f2836b; }
+.units-filter.is-cond-paused .units-filter-dot { background: #9aa0ac; }
+.units-filter.is-cond-stuck .units-filter-dot { background: #e3b341; }
+.units-filter.is-cond-queued .units-filter-dot { background: #8fbcff; }
+.units-filter.is-cond-finished .units-filter-dot { background: #6b7280; }
+
+.units-filter.condition.is-selected {
+  color: var(--fg);
+  border-color: var(--line-strong);
+  background: var(--surface-3);
+}
+
+.units-filter.condition.is-cond-active.is-selected { border-color: rgba(107, 214, 166, 0.5); }
+.units-filter.condition.is-cond-alert.is-selected { border-color: rgba(242, 131, 107, 0.5); }
+.units-filter.condition.is-cond-stuck.is-selected { border-color: rgba(227, 179, 65, 0.5); }
+.units-filter.condition.is-cond-queued.is-selected { border-color: rgba(143, 188, 255, 0.5); }
 
 .units-filter-count {
   display: inline-grid;
@@ -2618,8 +3445,14 @@ textarea:focus-visible,
   min-height: 2.75rem;
 }
 
+/* Full-bleed: rows reach both card edges (the .section-card pads by 1.15rem).
+   The wrap (not the table) carries the negative margin so its overflow:hidden
+   doesn't clip the bleed; outer cells re-inset content to line up under the
+   header. */
 .units-table-wrap {
   margin-top: 1rem;
+  margin-left: -1.15rem;
+  margin-right: -1.15rem;
   overflow: hidden;
 }
 
@@ -2627,6 +3460,16 @@ textarea:focus-visible,
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
+}
+
+.units-table th:first-child,
+.units-table td:first-child {
+  padding-left: 1.15rem;
+}
+
+.units-table th:last-child,
+.units-table td:last-child {
+  padding-right: 1.15rem;
 }
 
 .units-table th {
@@ -2766,9 +3609,58 @@ textarea:focus-visible,
 }
 
 .units-actions {
-  display: grid;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
   gap: 0.4rem;
   min-width: 0;
+}
+
+/* Compact icon actions in the Command column: pause/resume, open chat, remote
+   control. The row itself is the ticket-inspect trigger. */
+.ut-open {
+  cursor: pointer;
+}
+
+.units-icon-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 2.2rem;
+  height: 2.2rem;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--pill-bg);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.units-icon-action svg {
+  width: 1.05rem;
+  height: 1.05rem;
+}
+
+.units-icon-action:hover {
+  border-color: var(--accent-line);
+  color: var(--accent-ink);
+}
+
+.units-icon-action[disabled],
+.units-icon-action.unavailable {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.units-icon-action.tone-applied {
+  border-color: color-mix(in srgb, #6bd6a6 55%, transparent);
+  color: #6bd6a6;
+}
+
+.units-icon-action.tone-error {
+  border-color: color-mix(in srgb, #f2836b 55%, transparent);
+  color: #f2836b;
 }
 
 .units-action {
@@ -5345,4 +6237,611 @@ textarea:focus-visible,
 
 .bo-usage-state p {
   margin: 0;
+}
+
+/* ==========================================================================
+   Build Order spatial grid (epic columns × execution-wave rows)
+   ========================================================================== */
+
+.bo-grid-root {
+  display: block;
+  margin: 1.25rem 0;
+}
+
+/* --- wave-progress header strip --- */
+.bo-waves-head {
+  margin-bottom: 1rem;
+}
+
+.bo-waves-caption {
+  margin: 0 0 0.5rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.bo-waves-strip {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 0.75rem;
+}
+
+.bo-wave-seg-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 0.3rem;
+}
+
+.bo-wave-seg-label {
+  font-weight: 600;
+  font-size: 0.82rem;
+  color: var(--fg);
+}
+
+.bo-wave-seg-pct {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.bo-wave-seg-meter {
+  display: block;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.bo-wave-seg-meter > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+}
+
+/* --- toolbar (legend + zoom) --- */
+.bo-grid-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.6rem;
+}
+
+.bo-grid-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.bo-grid-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.bo-legend-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+}
+
+.bo-legend-swatch.is-working {
+  border-color: var(--good-line);
+  background: var(--good-soft);
+  box-shadow: 0 0 0 1px var(--good-line);
+}
+
+.bo-legend-swatch.is-merged {
+  border-color: var(--line);
+  background: var(--surface-3);
+}
+
+.bo-legend-line {
+  width: 22px;
+  height: 0;
+  border-top: 2px solid var(--good);
+}
+
+.bo-legend-line.is-blocking {
+  border-top-style: dashed;
+  border-top-color: var(--blocking);
+}
+
+.bo-grid-zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.bo-grid-zbtn {
+  min-width: 2rem;
+  height: 2rem;
+  padding: 0 0.6rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.bo-grid-zbtn:hover:not(:disabled) {
+  background: var(--surface-3);
+}
+
+.bo-grid-zbtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.bo-grid-zval {
+  min-width: 3.2rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+/* --- viewport / scale / stage --- */
+.bo-grid-viewport {
+  position: relative;
+  max-height: min(78vh, 780px);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: auto;
+  cursor: grab;
+  background:
+    radial-gradient(circle at center, var(--hairline) 1px, transparent 1px) 0 0 / 22px 22px,
+    var(--surface);
+}
+
+.bo-grid-viewport.is-grabbing {
+  cursor: grabbing;
+}
+
+.bo-grid-viewport:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.bo-grid-scale {
+  transform-origin: 0 0;
+  width: max-content;
+  min-width: 100%;
+  /* The stage is scaled by transform (which leaves its layout box unscaled);
+     the hook sizes this layer to the scaled dimensions, so clip the leftover
+     unscaled overflow to stop the viewport scrolling past the visible graph. */
+  overflow: hidden;
+}
+
+.bo-grid-stage {
+  position: relative;
+  width: max-content;
+  padding: 0 0.8rem 1rem;
+}
+
+/* --- epic header row (sticky) --- */
+.bo-grid-lanes {
+  display: grid;
+  gap: 0 8px;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  padding: 0.6rem 0;
+  background: var(--surface);
+}
+
+.bo-epic {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.bo-epic-ic {
+  display: inline-flex;
+  width: 1.15rem;
+  height: 1.15rem;
+  color: var(--accent-ink);
+  flex: none;
+}
+
+.bo-epic-ic svg {
+  width: 100%;
+  height: 100%;
+}
+
+.bo-epic-label {
+  font-weight: 600;
+  font-size: 0.86rem;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bo-epic-count {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+/* --- body + wave rows --- */
+.bo-grid-body {
+  position: relative;
+}
+
+.bo-grid-edges {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.bo-grid-wave-row {
+  display: grid;
+  gap: 0 8px;
+  position: relative;
+  z-index: 2;
+  padding: 0.35rem 0;
+  align-items: start;
+}
+
+.bo-wave {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  padding-top: 0.15rem;
+  background: linear-gradient(90deg, var(--surface) 70%, transparent);
+}
+
+.bo-wave-n {
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--fg);
+}
+
+.bo-wave-note {
+  font-size: 0.68rem;
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+.bo-cell {
+  display: flex;
+  flex-flow: row wrap;
+  align-content: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* --- ticket card (small square) --- */
+.bo-node {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  flex: 0 0 108px;
+  width: 108px;
+  padding: 0.45rem 0.5rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--fg);
+  min-width: 0;
+  cursor: default;
+  transition: opacity 0.2s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.bo-node.is-openable {
+  cursor: pointer;
+}
+
+.bo-node.is-openable:hover {
+  border-color: var(--accent-line);
+}
+
+.bo-node.is-openable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.bo-node.is-ready {
+  border-color: var(--accent-line);
+  border-style: dashed;
+}
+
+.bo-node.is-working {
+  border-color: var(--good-line);
+  background: var(--good-soft);
+  box-shadow: 0 0 0 1px var(--good-line);
+}
+
+.bo-node.is-merged {
+  border-color: var(--line);
+  background: var(--surface-3);
+  color: var(--faint);
+}
+
+.bo-node.is-blocked {
+  border-color: var(--blocking-line);
+}
+
+/* Planning (pre-ticket): neutral, not-yet-started. */
+.bo-node.is-planned {
+  border-style: dashed;
+  border-color: var(--line-strong);
+  background: var(--surface-2);
+  color: var(--fg);
+}
+
+/* Dependency highlight (hover or pinned): a blue ring on the hovered card and
+   every card its dependency lines connect to. Placed after the state rules so
+   it overrides their border colours. */
+.bo-node.is-hl-source,
+.bo-node.is-hl-linked {
+  border-color: var(--accent);
+  border-style: solid;
+  box-shadow: 0 0 0 1.5px var(--accent);
+}
+
+/* Indirect (2+ hops away) dependencies get a lighter, more transparent ring so
+   direct blockers stay visually stronger than transitive ones. */
+.bo-node.is-hl-indirect {
+  border-color: var(--accent-line);
+  border-style: solid;
+  box-shadow: 0 0 0 1px var(--accent-line);
+}
+
+/* When a chain is locked (pinned), fade every card outside the chain so the
+   highlighted dependency path stands out. */
+.bo-grid-root.is-locked .bo-node:not(.is-hl-source):not(.is-hl-linked):not(.is-hl-indirect) {
+  opacity: 0.3;
+}
+
+/* Hovering the tag ITSELF (not the whole ticket) lifts it and grows a blue
+   shadow, signalling it is clickable independently of the card (click = lock the
+   dependency highlight). Only the inner fill moves; the outer hit target is
+   stable, so the lift cannot oscillate under the cursor. */
+.bo-node-blocks:hover {
+  cursor: pointer;
+}
+
+.bo-node-blocks:hover .bo-node-blocks-fill {
+  transform: translateY(-3px);
+  animation: bo-blocks-lift 0.9s ease-in-out infinite alternate;
+}
+
+/* Pinned: the highlight is locked; the tag holds its lifted, glowing state. */
+.bo-node.is-pinned .bo-node-blocks-fill {
+  transform: translateY(-3px);
+  animation: none;
+  box-shadow: 0 5px 13px hsl(215 100% 60% / 0.65);
+}
+
+@keyframes bo-blocks-lift {
+  from {
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  }
+  to {
+    box-shadow: 0 5px 12px hsl(215 100% 60% / 0.55);
+  }
+}
+
+.bo-planning-note {
+  margin: 0 0 0.6rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+}
+
+.bo-legend-swatch.is-planned {
+  border-style: dashed;
+  border-color: var(--line-strong);
+  background: var(--surface-2);
+}
+
+.bo-legend-line.is-planned {
+  border-top-style: dashed;
+  border-top-color: var(--faint);
+}
+
+.bo-node-top {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.bo-node-id {
+  flex: 1;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+
+/* Top-right "blocks" tag (how many tickets depend on this one) — also the pin
+   control that locks the dependency highlight. Colour is set inline, green →
+   red by count.
+
+   The outer span is a STABLE hit target that never transforms; only the inner
+   fill lifts on hover. A child's transform doesn't change the parent's layout
+   box, so the cursor stays over the outer span even as the pill lifts — that is
+   what prevents the "tag moves up out from under the cursor" oscillation. */
+.bo-node-blocks {
+  flex: 0 0 auto;
+  display: inline-flex;
+  cursor: default;
+}
+
+.bo-node-blocks-fill {
+  min-width: 1.15rem;
+  padding: 0.05rem 0.35rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  font-size: 0.66rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  white-space: nowrap;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+/* Epic icon in the card's top-left corner. */
+.bo-epic-ic.bo-node-ic {
+  flex: 0 0 auto;
+  width: 0.95rem;
+  height: 0.95rem;
+  color: var(--faint);
+}
+
+/* Complexity moved into the card body as a plain detail. */
+.bo-node-cx {
+  font-variant-numeric: tabular-nums;
+  color: var(--faint);
+}
+
+.bo-node-title {
+  font-size: 0.82rem;
+  line-height: 1.25;
+  color: inherit;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.bo-node-status {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.bo-node-pct {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.bo-node.is-merged .bo-node-pct {
+  color: var(--faint);
+}
+
+.bo-node-word {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bo-node-bar {
+  display: block;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.bo-node-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--good);
+}
+
+.bo-node.is-ready .bo-node-bar > i {
+  background: var(--accent);
+}
+
+.bo-node-context {
+  align-self: flex-start;
+  margin-top: 0.15rem;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--accent-line);
+  border-radius: 7px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font: inherit;
+  font-size: 0.68rem;
+  cursor: pointer;
+}
+
+.bo-node-context:hover {
+  background: var(--accent-line);
+}
+
+/* --- edges --- */
+.bo-edge {
+  fill: none;
+  stroke: var(--blocking);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+  opacity: 0.5;
+}
+
+.bo-edge.is-cleared {
+  stroke: var(--good);
+  stroke-dasharray: none;
+  opacity: 0.6;
+}
+
+.bo-edge.is-planned {
+  stroke: var(--faint);
+  stroke-dasharray: 4 4;
+  opacity: 0.5;
+}
+
+.bo-edge-dot.is-planned {
+  fill: var(--faint);
+  opacity: 0.5;
+}
+
+.bo-edge.is-hl {
+  stroke: var(--accent);
+  stroke-width: 2.2;
+  stroke-dasharray: none;
+  opacity: 1;
+}
+
+/* Edges further along the chain (not touching the source) are lighter. */
+.bo-edge.is-hl-far {
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-dasharray: none;
+  opacity: 0.4;
+}
+
+.bo-edge.is-dim {
+  opacity: 0.12;
+}
+
+.bo-edge-dot {
+  fill: var(--blocking);
+  opacity: 0.6;
+}
+
+.bo-edge-dot.is-cleared {
+  fill: var(--good);
 }

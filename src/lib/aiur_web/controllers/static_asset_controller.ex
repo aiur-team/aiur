@@ -14,6 +14,9 @@ defmodule AiurWeb.StaticAssetController do
   @spec ticket_context_dialog_hook(Conn.t(), map()) :: Conn.t()
   def ticket_context_dialog_hook(conn, _params), do: serve(conn, "/ticket-context-dialog-hook.js", revalidate?: true)
 
+  @spec build_order_grid_hook(Conn.t(), map()) :: Conn.t()
+  def build_order_grid_hook(conn, _params), do: serve(conn, "/build-order-grid-hook.js", revalidate?: true)
+
   @spec dom_svg_layout_adapter(Conn.t(), map()) :: Conn.t()
   def dom_svg_layout_adapter(conn, _params), do: serve(conn, "/aiur-dom-svg-layout-adapter.js", revalidate?: true)
 
@@ -25,6 +28,21 @@ defmodule AiurWeb.StaticAssetController do
 
   @spec aiur_logo(Conn.t(), map()) :: Conn.t()
   def aiur_logo(conn, _params), do: serve(conn, "/aiur-logo.png")
+
+  @spec codex_color_svg(Conn.t(), map()) :: Conn.t()
+  def codex_color_svg(conn, _params), do: serve(conn, "/codex-color.svg", revalidate?: true)
+
+  @spec claude_symbol_svg(Conn.t(), map()) :: Conn.t()
+  def claude_symbol_svg(conn, _params), do: serve(conn, "/claude-symbol.svg", revalidate?: true)
+
+  @spec codex_token_svg(Conn.t(), map()) :: Conn.t()
+  def codex_token_svg(conn, _params), do: serve(conn, "/codex-token.svg", revalidate?: true)
+
+  @spec claude_token_svg(Conn.t(), map()) :: Conn.t()
+  def claude_token_svg(conn, _params), do: serve(conn, "/claude-token.svg", revalidate?: true)
+
+  @spec bungee_font(Conn.t(), map()) :: Conn.t()
+  def bungee_font(conn, _params), do: serve(conn, "/bungee.woff2")
 
   @spec phoenix_html_js(Conn.t(), map()) :: Conn.t()
   def phoenix_html_js(conn, _params), do: serve(conn, "/vendor/phoenix_html/phoenix_html.js")
