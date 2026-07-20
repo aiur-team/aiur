@@ -545,7 +545,7 @@
       "title": "Create transaction, receipt, and log tables",
       "lane": "data",
       "phase": 5,
-      "complexity": 2,
+      "complexity": 4,
       "depends_on": [
         "CT-113",
         "CT-114"
@@ -1330,7 +1330,7 @@
       "title": "Build position-level history query module",
       "lane": "billing",
       "phase": 7,
-      "complexity": 2,
+      "complexity": 4,
       "depends_on": [
         "CT-209",
         "CT-409"
@@ -1468,7 +1468,7 @@
       "title": "Package Docker self-host with compose and README",
       "lane": "platform",
       "phase": 9,
-      "complexity": 3,
+      "complexity": 4,
       "depends_on": [
         "CT-117",
         "CT-119",
