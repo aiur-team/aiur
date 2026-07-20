@@ -6,7 +6,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
 
   import Phoenix.Component, only: [assign: 3]
 
-  alias Aiur.DecisionStore
+  alias Aiur.{DecisionStore, Orchestrator}
   alias AiurWeb.Endpoint
   alias Phoenix.LiveView.Socket
 
@@ -27,6 +27,28 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
     case selected_open_decision(socket, decision_id) do
       {:ok, decision} -> socket |> put_form(decision_id, form, decision) |> submit_answer(decision, form, reload_fun)
       :error -> put_error(reload_fun.(socket), decision_id, "This Command is no longer open.")
+    end
+  end
+
+  @spec dismiss(Socket.t(), String.t(), reload_fun()) :: Socket.t()
+  def dismiss(socket, decision_id, reload_fun) when is_function(reload_fun, 1) do
+    case selected_open_decision(socket, decision_id) do
+      {:ok, decision} ->
+        result = safe_dismiss(decision_id)
+
+        if match?({:ok, %{status: :accepted}}, result) do
+          notify_dismissal(decision)
+        end
+
+        socket = reload_fun.(socket)
+
+        case result do
+          {:ok, accepted} -> put_notice(socket, decision_id, dismiss_notice(accepted))
+          {:error, reason} -> put_error(socket, decision_id, command_error(reason))
+        end
+
+      :error ->
+        put_error(reload_fun.(socket), decision_id, "This Command is no longer open.")
     end
   end
 
@@ -89,6 +111,24 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
        ),
        do: {:ok, decision}
 
+  defp selected_open_decision(%{assigns: %{decisions: decisions}}, decision_id) when is_list(decisions) do
+    case Enum.find(decisions, &(&1.decision_id == decision_id and &1.decision_status in [:open, :dismissed])) do
+      nil -> :error
+      decision -> {:ok, decision}
+    end
+  end
+
+  defp selected_open_decision(
+         %{assigns: %{selected_decision_id: nil, decision_page: %{decisions: decisions}}},
+         decision_id
+       )
+       when is_list(decisions) do
+    case Enum.find(decisions, &(&1.decision_id == decision_id and &1.decision_status in [:open, :dismissed])) do
+      nil -> :error
+      decision -> {:ok, decision}
+    end
+  end
+
   defp selected_open_decision(_socket, _decision_id), do: :error
 
   defp selected_decision(
@@ -147,6 +187,26 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
     DecisionStore.answer(decision_id, payload, [actor: actor()], decision_store())
   catch
     :exit, _reason -> {:error, :store_unavailable}
+  end
+
+  defp safe_dismiss(decision_id) do
+    DecisionStore.dismiss(decision_id, [actor: actor()], decision_store())
+  catch
+    :exit, _reason -> {:error, :store_unavailable}
+  end
+
+  defp notify_dismissal(decision) do
+    Orchestrator.send_operator_message(orchestrator(), decision.ticket.identifier, %{
+      kind: :text,
+      body: dismissal_text(),
+      delivery_policy: :checkpoint
+    })
+  catch
+    :exit, _reason -> {:error, :orchestrator_unavailable}
+  end
+
+  defp dismissal_text do
+    "The operator dismissed this decision. Proceed with your best judgement per the aiur-agent skill, then record decision.resolved."
   end
 
   defp safe_retry_dispatch(decision_id, action_id) do
@@ -231,6 +291,9 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
 
   defp answer_notice(_accepted), do: "Answer recorded. Durable dispatch is pending."
 
+  defp dismiss_notice(%{status: :duplicate}), do: "This Command was already dismissed."
+  defp dismiss_notice(_accepted), do: "Command dismissed. The live agent was told to use its best judgement."
+
   defp retry_notice(:scheduled), do: "A durable delivery retry was scheduled."
   defp retry_notice(:already_dispatching), do: "A delivery attempt is already in progress."
 
@@ -268,4 +331,5 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   defp command_error(_reason), do: "The command was rejected. Canonical state was refreshed."
 
   defp decision_store, do: Endpoint.config(:decision_store) || DecisionStore
+  defp orchestrator, do: Endpoint.config(:orchestrator) || Orchestrator
 end

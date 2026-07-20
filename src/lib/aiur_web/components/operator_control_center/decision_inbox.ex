@@ -139,7 +139,10 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
   defp filtered(decisions, :blocking), do: Enum.filter(decisions, &blocking?/1)
   defp filtered(decisions, :undelivered), do: Enum.filter(decisions, &undelivered?/1)
   defp filtered(decisions, :supervisor), do: Enum.filter(decisions, &supervisor_decision?/1)
-  defp filtered(decisions, :resolved), do: Enum.filter(decisions, &(&1.decision_status == :resolved))
+
+  defp filtered(decisions, :resolved),
+    do: Enum.filter(decisions, &(&1.decision_status in [:decided, :acknowledged, :resolved, :dismissed]))
+
   defp filtered(decisions, :superseded), do: Enum.filter(decisions, &Map.get(&1, :superseded?, false))
   defp filtered(decisions, _filter), do: decisions
 

@@ -6,6 +6,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
   attr(:decision, :map, required: true)
   attr(:state, :map, default: %{})
   attr(:writable, :boolean, required: true)
+  attr(:compact, :boolean, default: false)
 
   @spec decision_action(map()) :: Phoenix.LiveView.Rendered.t()
   def decision_action(assigns) do
@@ -16,15 +17,19 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
       assign(assigns,
         form: form,
         choice: choice,
-        open?: assigns.decision.decision_status == :open,
+        answerable?: assigns.decision.decision_status in [:open, :dismissed],
+        dismissible?: assigns.decision.decision_status == :open,
         confirmation_required?: confirmation_required?(assigns.decision),
         error: Map.get(assigns.state, :error),
         notice: Map.get(assigns.state, :notice)
       )
 
     ~H"""
-    <section class="decision-action" aria-labelledby={"decision-action-title-#{@decision.decision_id}"}>
-      <header class="decision-action-header">
+    <section class={["decision-action", @compact && "compact"]} aria-labelledby={"decision-action-title-#{@decision.decision_id}"}>
+      <h4 :if={@compact} id={"decision-action-title-#{@decision.decision_id}"} class="sr-only">
+        {action_title(@decision)}
+      </h4>
+      <header :if={!@compact} class="decision-action-header">
         <div>
           <p class="section-eyebrow">Durable command</p>
           <h4 id={"decision-action-title-#{@decision.decision_id}"}>{action_title(@decision)}</h4>
@@ -39,7 +44,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
       <p :if={@notice} class="decision-action-message success" role="status">{@notice}</p>
 
       <form
-        :if={@writable and @open?}
+        :if={@writable and @answerable?}
         id={"decision-answer-form-#{@decision.decision_id}"}
         class="decision-answer-form"
         phx-change="decision-action-change"
@@ -92,7 +97,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
           >{Map.get(@form, "custom_response", "")}</textarea>
         </label>
 
-        <label class="decision-action-field">
+        <label :if={!@compact} class="decision-action-field">
           <span>Rationale <small>optional</small></span>
           <textarea name="answer[rationale]" rows="2" maxlength="4000" placeholder="Why this choice?">{Map.get(@form, "rationale", "")}</textarea>
         </label>
@@ -108,12 +113,22 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
         </label>
 
         <footer class="decision-action-footer">
-          <span>Persisted before dispatch · version {@decision.version}</span>
-          <button class="btn" type="submit" phx-disable-with="Recording…">Record answer</button>
+          <span>{if @compact, do: "Choose an option", else: "Persisted before dispatch · version #{@decision.version}"}</span>
+          <div class="decision-action-buttons">
+            <button
+              :if={@dismissible?}
+              class="btn ghost"
+              type="button"
+              phx-click="dismiss-decision"
+              phx-value-decision-id={@decision.decision_id}
+              phx-disable-with="Dismissing…"
+            >Dismiss</button>
+            <button class="btn" type="submit" phx-disable-with="Recording…">{if @decision.decision_status == :dismissed, do: "Change choice", else: "Decision"}</button>
+          </div>
         </footer>
       </form>
 
-      <div :if={!@open? and @decision.answer} class="decision-answer-summary">
+      <div :if={!@answerable? and @decision.answer} class="decision-answer-summary">
         <div>
           <span class="decision-answer-label">{if Map.get(@decision, :revision_sequence, 0) > 0, do: "Current revised answer", else: "Recorded answer"}</span>
           <strong>{answer_label(@decision)}</strong>
@@ -152,6 +167,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
   end
 
   defp action_title(%{decision_status: :open}), do: "Answer this Command"
+  defp action_title(%{decision_status: :dismissed}), do: "Change this Command"
   defp action_title(_decision), do: "Answer lifecycle"
 
   defp answer_label(%{answer: %{selected_option_id: option_id}} = decision) when is_binary(option_id) do

@@ -2357,6 +2357,27 @@ html[data-theme="light"] .toggle-icon .moon {
   box-shadow: var(--shadow-sm);
 }
 
+.decision-action.compact {
+  margin: 0 1.05rem 1rem 1.25rem;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+}
+
+.decision-action.compact .decision-choice-list {
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+
+.decision-action.compact .decision-choice {
+  padding: 0.62rem 0.7rem;
+}
+
+.decision-action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .decision-action-header,
 .decision-action-footer,
 .decision-retry-row {

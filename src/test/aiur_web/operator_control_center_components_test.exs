@@ -422,7 +422,43 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert html =~ ~s(name="answer[choice]")
     assert html =~ "Persisted before dispatch"
     assert html =~ "I understand this Command is irreversible or destructive."
-    assert html =~ "Record answer"
+    assert html =~ ">Decision</button>"
+  end
+
+  test "renders recommended card-face choices with Decision and Dismiss actions" do
+    decision = action_decision([])
+
+    html =
+      render_component(&DecisionAction.decision_action/1, %{
+        decision: decision,
+        state: %{},
+        writable: true,
+        compact: true
+      })
+
+    assert html =~ ~s(class="decision-action compact")
+    assert html =~ ~s(value="option:ship")
+    assert html =~ ~s(checked)
+    assert html =~ "Recommended"
+    assert html =~ ~s(phx-submit="answer-decision")
+    assert html =~ ~s(phx-click="dismiss-decision")
+    assert html =~ ">Decision</button>"
+  end
+
+  test "dismissed historic card offers a change choice answer without another dismiss" do
+    decision = action_decision(decision_status: :dismissed)
+
+    html =
+      render_component(&DecisionAction.decision_action/1, %{
+        decision: decision,
+        state: %{},
+        writable: true,
+        compact: true
+      })
+
+    assert html =~ ~s(phx-submit="answer-decision")
+    assert html =~ "Change choice"
+    refute html =~ ~s(phx-click="dismiss-decision")
   end
 
   test "renders canonical answer evidence and gates failed-delivery retry by writable mode" do
@@ -591,6 +627,11 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
         lifecycle: :resolved,
         answer: operator_answer
       ),
+      inbox_decision("dec-dismissed",
+        decision_status: :dismissed,
+        delivery_status: :not_dispatched,
+        lifecycle: :resolved
+      ),
       inbox_decision(
         "dec-superseded",
         decision_status: :decided,
@@ -607,11 +648,13 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert all =~ "Question dec-undelivered"
     assert all =~ "Question dec-supervisor"
     assert all =~ "Question dec-superseded"
-    assert all =~ "Dispatch pending"
+    assert all =~ "Answered"
     assert all =~ "Supervisor answer"
     assert all =~ "Superseded"
     assert resolved =~ "Question dec-resolved"
-    refute resolved =~ "Question dec-superseded"
+    assert resolved =~ "Question dec-dismissed"
+    assert resolved =~ "Change choice"
+    assert resolved =~ "Question dec-superseded"
   end
 
   test "renders trusted provenance, exact confidence, and bounded option previews without prose inference" do
@@ -636,7 +679,8 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
 
     html = render_inbox([decision], :all)
 
-    assert html =~ "codex · resolved-model"
+    assert html =~ ">Codex</span>"
+    assert html =~ ">resolved-model</span>"
     assert html =~ "0% confidence"
     assert html =~ "Selected · Second option"
     assert html =~ "First option"

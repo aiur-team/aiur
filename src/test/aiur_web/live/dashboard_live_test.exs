@@ -247,8 +247,16 @@ defmodule AiurWeb.DashboardLiveTest do
       OperatorMessages.send_correlated_operator_message_call(state, issue_identifier, payload)
     end
 
+    def handle_call({:send_operator_message, issue_identifier, payload}, _from, state) do
+      OperatorMessages.send_operator_message_call(state, issue_identifier, payload)
+    end
+
     def handle_call({:claim_next_queue_item, issue_identifier}, _from, state) do
       OperatorMessages.claim_next_queue_item_call(state, issue_identifier)
+    end
+
+    def handle_call({:claim_next_checkpoint_queue_item, issue_identifier}, _from, state) do
+      OperatorMessages.claim_next_checkpoint_queue_item_call(state, issue_identifier)
     end
   end
 
@@ -928,7 +936,6 @@ defmodule AiurWeb.DashboardLiveTest do
     assert socket.assigns.writable == false
   end
 
-
   test "authorized usage and cost panel opens the capability gate without leaking a locked state" do
     orchestrator_name = Module.concat(__MODULE__, :AuthorizedUsageOrchestrator)
     previous_username = System.get_env("AIUR_DASHBOARD_USERNAME")
@@ -963,7 +970,6 @@ defmodule AiurWeb.DashboardLiveTest do
     refute socket.assigns.usage_summary.state == :locked
     assert socket.assigns.usage_summary.state in [:empty, :ready, :partial, :stale, :unavailable]
   end
-
 
   test "cached payload follows a same-name DecisionMetrics replacement" do
     orchestrator_name = Module.concat(__MODULE__, :RestartCacheOrchestrator)
@@ -2397,6 +2403,60 @@ defmodule AiurWeb.DashboardLiveTest do
              %Decision{} -> :requested
              %DecisionEvent{type: type} -> type
            end) == [:requested, :answer_recorded, :dispatch_queued, :delivered, :acknowledged, :resolved]
+  end
+
+  test "card-face dismiss closes locally and notifies only a live agent at checkpoint" do
+    orchestrator_name = Module.concat(__MODULE__, :DismissCapstoneOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :DismissCapstoneDecisionStore)
+    orchestrator = start_queue_orchestrator(orchestrator_name, "987")
+    store = start_decision_store(decision_store_name, fn _decision, _opts -> {:error, :unexpected_dispatch} end)
+    live_decision = request_queue_decision(store, "dashboard-dismiss-live", "987")
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name,
+      control_center_cache: false,
+      dashboard_writable: true
+    )
+
+    {:ok, view, html} = live(build_conn(), "/decisions")
+    assert html =~ ~s(phx-click="dismiss-decision")
+
+    _html =
+      view
+      |> element("#decision-#{live_decision.decision_id} button[phx-click=\"dismiss-decision\"]")
+      |> render_click()
+
+    assert {:ok, dismissed} = DecisionStore.get(live_decision.decision_id, store)
+    assert dismissed.decision_status == :dismissed
+    assert dismissed.answer == nil
+
+    assert {:ok, item} =
+             OperatorMessages.claim_next_checkpoint_queue_item(orchestrator, "987")
+
+    assert item.category == :operator_message
+    assert item.delivery.consume_at == :safe_checkpoint
+    assert item.body.text =~ "operator dismissed this decision"
+    assert item.body.text =~ "best judgement"
+
+    historic = render_patch(view, "/decisions?filter=resolved")
+    assert historic =~ live_decision.decision_id
+    assert historic =~ "Dismissed"
+
+    :sys.replace_state(orchestrator, &%{&1 | running: %{}})
+    gone_decision = request_queue_decision(store, "dashboard-dismiss-gone", "988")
+    {:ok, gone_view, _html} = live(build_conn(), "/decisions")
+
+    _html =
+      gone_view
+      |> element("#decision-#{gone_decision.decision_id} button[phx-click=\"dismiss-decision\"]")
+      |> render_click()
+
+    assert {:ok, gone_dismissed} = DecisionStore.get(gone_decision.decision_id, store)
+    assert gone_dismissed.decision_status == :dismissed
+    refute_receive {:agent_queue_updated, "988", _queue_item_id, _delivery}, 200
+    assert :empty = OperatorMessages.claim_next_checkpoint_queue_item(orchestrator, "988")
   end
 
   test "human dashboard revision traverses the corrective queue and lifecycle projections" do

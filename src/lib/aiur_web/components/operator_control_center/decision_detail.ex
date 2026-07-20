@@ -31,7 +31,11 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
     ~H"""
     <div id={"decision-detail-#{@decision.decision_id}"} class="decision-detail" tabindex="-1">
       <LifecycleComponents.lifecycle_stepper lifecycle={@decision.lifecycle} />
-      <DecisionAction.decision_action decision={@decision} state={@action_state} writable={@writable} />
+      <DecisionAction.decision_action
+        decision={@decision}
+        state={@action_state}
+        writable={@writable}
+      />
       <DecisionRevisionAction.decision_revision_action decision={@decision} state={@action_state} writable={@writable} />
 
       <div class="decision-detail-grid">

@@ -3,7 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
 
   use Phoenix.Component
 
-  alias AiurWeb.OperatorControlCenter.{DecisionDetail, DecisionPath}
+  alias AiurWeb.OperatorControlCenter.{DecisionAction, DecisionDetail, DecisionPath}
   alias Phoenix.LiveView.JS
 
   attr(:decision, :map, required: true)
@@ -75,9 +75,17 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
         </div>
         <div class="decision-card-side">
           <span :if={@status_badge} class={["cmd-status-badge", @status_badge.tone]}><span class="chip-dot"></span>{@status_badge.label}</span>
-          <span class="expand-hint">{if @selected, do: "Collapse", else: "Details"} <span aria-hidden="true">⌄</span></span>
+          <span class="expand-hint">{expand_label(@decision, @selected)} <span aria-hidden="true">⌄</span></span>
         </div>
       </.link>
+
+      <DecisionAction.decision_action
+        :if={!@selected and @decision.decision_status in [:open, :dismissed]}
+        decision={@decision}
+        state={@action_state}
+        writable={@writable}
+        compact
+      />
 
       <div phx-mounted={@selected && JS.focus(to: "#decision-detail-#{@decision.decision_id}")}>
         <DecisionDetail.decision_detail
@@ -98,6 +106,10 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
   defp severity(%{blocking: true}), do: "block"
   defp severity(%{lifecycle: :resolved}), do: "good"
   defp severity(_decision), do: "attention"
+
+  defp expand_label(_decision, true), do: "Collapse"
+  defp expand_label(%{answer: answer}, false) when is_map(answer), do: "Change choice"
+  defp expand_label(_decision, false), do: "Details"
 
   # Top-right status badge: reflects where the command sits in its lifecycle so
   # answered/dismissed cards read as historic at a glance.
