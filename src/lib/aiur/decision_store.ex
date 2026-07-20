@@ -134,6 +134,18 @@ defmodule Aiur.DecisionStore do
     GenServer.call(server, {:revise, decision_id, payload, opts}, timeout)
   end
 
+  @doc """
+  Durably closes one open Decision as `:dismissed` without recording an answer.
+  `opts[:actor]` is trusted runtime identity. Idempotent: dismissing an already
+  dismissed Decision returns it as a duplicate.
+  """
+  @spec dismiss(String.t(), keyword(), GenServer.server(), timeout()) ::
+          {:ok, map()} | {:error, term()}
+  def dismiss(decision_id, opts \\ [], server \\ __MODULE__, timeout \\ @request_timeout)
+      when is_binary(decision_id) and is_list(opts) do
+    GenServer.call(server, {:dismiss, decision_id, opts}, timeout)
+  end
+
   @doc "Durably handles a blocking revision follow-up before clearing its reminder."
   @spec handle_revision_follow_up(String.t(), String.t(), keyword(), GenServer.server(), timeout()) ::
           {:ok, map()} | {:error, term()}
@@ -500,6 +512,14 @@ defmodule Aiur.DecisionStore do
     handle_revision(decision_id, payload, opts, state)
   end
 
+  def handle_call({:dismiss, _decision_id, _opts}, _from, %{writable?: false} = state) do
+    {:reply, {:error, {:store_unavailable, state.health}}, state}
+  end
+
+  def handle_call({:dismiss, decision_id, opts}, _from, state) do
+    handle_dismiss(decision_id, opts, state)
+  end
+
   def handle_call({:handle_revision_follow_up, _decision_id, _action_id, _opts}, _from, %{writable?: false} = state) do
     {:reply, {:error, {:store_unavailable, state.health}}, state}
   end
@@ -687,6 +707,32 @@ defmodule Aiur.DecisionStore do
 
   defp accept_or_replay_answer(%Decision{answer: %DecisionAnswer{}} = decision, payload, actor, opts, state) do
     replay_answer(decision, payload, actor, opts, state)
+  end
+
+  defp handle_dismiss(decision_id, opts, state) do
+    with {:ok, decision} <- fetch_decision(state, decision_id),
+         {:ok, actor} <- fetch_actor(opts) do
+      case decision.decision_status do
+        :dismissed -> {:reply, {:ok, %{status: :duplicate, decision: decision}}, state}
+        :open -> persist_dismissal(decision, actor, opts, state)
+        _other -> {:reply, {:error, {:conflict, :not_dismissable}}, state}
+      end
+    else
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  defp persist_dismissal(decision, actor, opts, state) do
+    now = Keyword.get(opts, :now, DateTime.utc_now())
+    data = %{actor: actor, detail: Keyword.get(opts, :detail)}
+
+    case build_and_persist_event(:decision_dismissed, decision, data, now, state) do
+      {:ok, next_state, updated} ->
+        {:reply, {:ok, %{status: :accepted, decision: updated}}, next_state}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
   end
 
   defp handle_revision(decision_id, payload, opts, state) do
@@ -1461,6 +1507,8 @@ defmodule Aiur.DecisionStore do
     end
   end
 
+  defp lifecycle_version(decision, %{actor: _actor, detail: _detail}), do: decision.version
+
   defp lifecycle_version(decision, _data), do: Decision.active_answer(decision).decision_version
 
   defp validate_transition(decision, event) do
@@ -1504,6 +1552,7 @@ defmodule Aiur.DecisionStore do
   defp lifecycle_slug(:failed), do: "failed"
   defp lifecycle_slug(:acknowledged), do: "acknowledged"
   defp lifecycle_slug(:resolved), do: "resolved"
+  defp lifecycle_slug(:decision_dismissed), do: "dismissed"
 
   defp apply_agent_lifecycle(state, type, payload, opts) do
     with {:ok, context} <- normalize_agent_lifecycle(type, payload, opts),

@@ -45,7 +45,8 @@ defmodule Aiur.DecisionEvent do
     :consumed,
     :failed,
     :acknowledged,
-    :resolved
+    :resolved,
+    :decision_dismissed
   ]
   @transport_types [:dispatch_queued, :revision_dispatched, :delivered, :restored, :consumed, :failed]
   @actor_types [:acknowledged, :resolved]
@@ -67,6 +68,7 @@ defmodule Aiur.DecisionEvent do
           | :failed
           | :acknowledged
           | :resolved
+          | :decision_dismissed
 
   @type t :: %__MODULE__{
           schema_version: pos_integer(),
@@ -322,6 +324,13 @@ defmodule Aiur.DecisionEvent do
     end
   end
 
+  defp normalize_data(:decision_dismissed, raw, _decision_id, _version, _trusted_provenance) when is_map(raw) do
+    with {:ok, actor} <- normalize_actor(get(raw, :actor)),
+         {:ok, detail} <- bounded_optional(get(raw, :detail), @detail_max, :detail) do
+      {:ok, %{actor: actor, detail: detail}}
+    end
+  end
+
   defp normalize_data(_type, _data, _decision_id, _version, _trusted_provenance), do: {:error, {:event_data, :invalid}}
 
   defp normalize_enrichment_decision(%Decision{} = decision, decision_id, version, _trusted_provenance) do
@@ -491,6 +500,13 @@ defmodule Aiur.DecisionEvent do
       "attempt_id" => data.attempt_id,
       "queue_item_id" => data.queue_item_id,
       "reason_class" => data.reason_class
+    }
+  end
+
+  defp data_to_json_safe(:decision_dismissed, data) do
+    %{
+      "actor" => %{"kind" => Atom.to_string(data.actor.kind), "id" => data.actor.id},
+      "detail" => data.detail
     }
   end
 

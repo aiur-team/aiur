@@ -56,9 +56,66 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
     end
   end
 
+  @doc """
+  Dismisses one open Command. Records the durable `:dismissed` status and, when
+  a live agent owns the Command's ticket, sends it a checkpoint message telling
+  it to proceed with its best judgement. Closes locally when no agent is live.
+  """
+  @spec dismiss(Socket.t(), String.t(), reload_fun()) :: Socket.t()
+  def dismiss(socket, decision_id, reload_fun) when is_function(reload_fun, 1) do
+    result = safe_dismiss(decision_id)
+    socket = reload_fun.(socket)
+
+    case result do
+      {:ok, %{status: :accepted, decision: decision}} ->
+        notified? = match?({:ok, _queue_id}, notify_dismissed_agent(decision))
+        put_notice(socket, decision_id, dismiss_notice(notified?))
+
+      {:ok, %{status: :duplicate}} ->
+        put_notice(socket, decision_id, "This Command was already dismissed. Canonical state was refreshed.")
+
+      {:error, reason} ->
+        put_error(socket, decision_id, command_error(reason))
+    end
+  end
+
   @doc false
   @spec actor() :: %{kind: :operator, id: String.t()}
   def actor, do: %{kind: :operator, id: dashboard_operator_id()}
+
+  defp notify_dismissed_agent(decision) do
+    identifier = get_in(decision, [Access.key(:ticket), Access.key(:identifier)])
+
+    if is_binary(identifier) do
+      safe_send_operator_message(identifier, %{kind: :text, body: dismissal_text(), delivery_policy: :checkpoint})
+    else
+      {:error, :no_running_agent}
+    end
+  end
+
+  defp safe_send_operator_message(identifier, payload) do
+    orchestrator().send_operator_message(identifier, payload)
+  catch
+    :exit, _reason -> {:error, :store_unavailable}
+  end
+
+  defp dismissal_text do
+    "An operator dismissed this decision. Proceed with your best judgement per the aiur-agent skill."
+  end
+
+  defp dismiss_notice(true),
+    do: "Command dismissed and the live agent was told to use its best judgement."
+
+  defp dismiss_notice(false),
+    do: "Command dismissed. No live agent was running, so it was closed locally."
+
+  defp safe_dismiss(decision_id) do
+    DecisionStore.dismiss(decision_id, [actor: actor()], decision_store())
+  catch
+    :exit, _reason -> {:error, :store_unavailable}
+  end
+
+  defp orchestrator, do: Endpoint.config(:decision_orchestrator) || Aiur.Orchestrator
 
   defp submit_answer(socket, decision, form, reload_fun) do
     with :ok <- require_confirmation(decision, form),

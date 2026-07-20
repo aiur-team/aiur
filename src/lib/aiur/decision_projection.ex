@@ -376,7 +376,17 @@ defmodule Aiur.DecisionProjection do
     end
   end
 
+  defp transition(%Decision{} = decision, %DecisionEvent{type: :decision_dismissed} = event) do
+    with :ok <- require_current_version(decision, event.decision_version),
+         :ok <- require_dismissable(decision) do
+      {:ok, %{decision | decision_status: :dismissed}}
+    end
+  end
+
   defp transition(_decision, _event), do: {:error, :unsupported_event}
+
+  defp require_dismissable(%Decision{decision_status: :open}), do: :ok
+  defp require_dismissable(_decision), do: {:error, :not_dismissable}
 
   defp require_current_version(%Decision{version: version}, version), do: :ok
   defp require_current_version(_decision, _version), do: {:error, :version_mismatch}
