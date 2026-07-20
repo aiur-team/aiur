@@ -21,18 +21,13 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     assert html =~ ~s(phx-click="inspect-unit")
     assert html =~ "acme/aiur #1110"
     assert html =~ "Responsive Units interface"
-    assert html =~ "Lane L2"
-    assert html =~ "Requested model"
-    assert html =~ "gpt-5.6-terra"
-    assert html =~ "Resolved model"
+    assert html =~ ~s(class="u-lane is-lane-L2")
     assert html =~ "gpt-5.6"
-    assert html =~ "Open Commands"
-    assert html =~ "2 open"
-    assert html =~ ~s(role="progressbar")
-    assert html =~ ~s(aria-valuenow="40")
-    assert html =~ "Checkin"
-    assert html =~ "Stale"
-    assert html =~ "Branch · feature pushed"
+    assert html =~ ~s(class="u-pill u-agent is-codex")
+    assert html =~ ~s(class="u-pill u-prio)
+    assert html =~ ~s(class="ut-pbar")
+    assert html =~ "width:40%"
+    assert html =~ "feature pushed"
     assert html =~ "Inspect ticket"
     refute html =~ "Conversation unavailable"
     refute html =~ ~s(phx-click="read-conversation")
@@ -69,16 +64,14 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
         now: ~U[2026-07-17 12:00:00Z]
       })
 
-    assert html =~ "Progress unavailable"
+    assert html =~ "No recent activity"
     # Unknown progress facts are omitted rather than labelled "Unavailable"/"Unknown".
     refute html =~ "Progress source"
     refute html =~ "Latest evidence"
-    assert html =~ "Requested model"
-    assert html =~ "Resolved model"
-    assert html =~ "Unknown"
-    assert html =~ "Status Unavailable"
+    assert html =~ ~s(class="u-pill u-agent)
+    assert html =~ ~s(class="u-pill u-prio)
     refute html =~ "aria-valuenow"
-    refute html =~ "0%"
+    refute html =~ ~s(<span>0%</span>)
     refute html =~ "github.com/acme/aiur/issues/1110"
     refute html =~ "example.com"
     refute html =~ "/private/workspace"

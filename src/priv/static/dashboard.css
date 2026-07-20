@@ -2849,6 +2849,238 @@ html[data-theme="light"] .toggle-icon .moon {
   color: var(--muted);
 }
 
+/* ---- compact units table (Claude design) ---- */
+.units-table th.ut-col-id { width: 60px; }
+.units-table th.ut-col-unit { width: 195px; }
+.units-table th.ut-col-ticket { width: 28%; }
+.units-table th.ut-col-cmd { width: 152px; }
+
+.units-table td.ut-id-cell,
+.units-table td.ut-unit-cell,
+.units-table td.ut-ticket-cell,
+.units-table td.ut-latest-cell {
+  vertical-align: middle;
+}
+
+.ut-id-cell {
+  position: relative;
+}
+
+.ut-id-num {
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.ut-alert {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--attention, #e3b341);
+  font-size: 0.85rem;
+}
+
+.ut-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-bottom: 0.3rem;
+}
+
+.ut-pill-row:last-child {
+  margin-bottom: 0;
+}
+
+.u-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: var(--pill-bg);
+  font-family: "JetBrains Mono", "SFMono-Regular", monospace;
+  font-size: 0.66rem;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--fg);
+}
+
+.u-agent.is-claude {
+  color: #f0a878;
+  border-color: rgba(240, 168, 120, 0.4);
+  background: rgba(240, 168, 120, 0.12);
+}
+
+.u-agent.is-codex {
+  color: #8fbcff;
+  border-color: rgba(143, 188, 255, 0.4);
+  background: rgba(143, 188, 255, 0.12);
+}
+
+.u-cx {
+  color: var(--accent-ink);
+}
+
+.u-model {
+  color: var(--muted);
+}
+
+.u-prio.is-high {
+  color: #e3b341;
+  border-color: rgba(227, 179, 65, 0.4);
+  background: rgba(227, 179, 65, 0.12);
+}
+
+.u-prio.is-med {
+  color: #d98f5b;
+  border-color: rgba(217, 143, 91, 0.4);
+  background: rgba(217, 143, 91, 0.12);
+}
+
+.u-prio.is-low {
+  color: #6bd6a6;
+  border-color: rgba(107, 214, 166, 0.4);
+  background: rgba(107, 214, 166, 0.12);
+}
+
+.ut-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.3;
+  margin-bottom: 0.35rem;
+}
+
+.u-lane {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--pill-bg);
+  font-family: "JetBrains Mono", "SFMono-Regular", monospace;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.u-lane-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.u-lane.is-lane-core,
+.u-lane.is-lane-platform {
+  color: #8fbcff;
+}
+
+.u-lane.is-lane-web {
+  color: #6bd6a6;
+}
+
+.u-lane.is-lane-data {
+  color: #e3b341;
+}
+
+.u-lane.is-lane-api {
+  color: #7fd4e0;
+}
+
+.u-lane.is-lane-billing {
+  color: #f2836b;
+}
+
+.ut-latest-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.4rem;
+}
+
+.ut-latest-emoji {
+  font-size: 0.95rem;
+}
+
+.ut-latest-text {
+  font-size: 0.82rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ut-pbar {
+  display: block;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.ut-pbar > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.ut-pbar > i.is-blocked {
+  background: var(--blocking, #f2836b);
+}
+
+.ut-pbar > i.has-alert {
+  background: var(--attention, #e3b341);
+}
+
+.ut-latest-meta {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.28rem;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.ut-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  align-items: stretch;
+}
+
+/* Compact table stacks simply on narrow screens (overrides the old grid map). */
+@media (max-width: 960px) {
+  .units-table,
+  .units-table thead,
+  .units-table tbody,
+  .units-table tr.units-row,
+  .units-table tr.units-row td {
+    display: block;
+    width: auto;
+  }
+
+  .units-table thead {
+    display: none;
+  }
+
+  .units-table tr.units-row {
+    padding: 0.6rem 0;
+    border-top: 1px solid var(--hairline);
+  }
+
+  .units-table tr.units-row td {
+    border-top: 0;
+    padding: 0.2rem 1.15rem;
+  }
+
+  .units-table tr.units-row td::before {
+    content: none;
+  }
+}
+
 /* Units page heading (icon tile + title), matching the design's page-head. */
 .units-page-head {
   display: flex;

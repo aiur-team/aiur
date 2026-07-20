@@ -53,12 +53,11 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
           <caption class="sr-only">Units catalog with execution facts, current evidence, and named actions</caption>
           <thead>
             <tr>
-              <th>Unit</th>
-              <th>State</th>
-              <th>Progress and evidence</th>
-              <th>Execution</th>
-              <th>Waiting and Commands</th>
-              <th><span class="sr-only">Actions</span></th>
+              <th class="ut-col-id">ID</th>
+              <th class="ut-col-unit">Unit</th>
+              <th class="ut-col-ticket">Ticket</th>
+              <th class="ut-col-latest">Latest</th>
+              <th class="ut-col-cmd">Command</th>
             </tr>
           </thead>
           <tbody id="units-rows">
@@ -68,64 +67,42 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
               class={["units-row", row_tone(row)]}
               data-unit-token={token}
             >
-              <td data-label="Unit">
-                <div class="units-identity">
-                  <span class="units-state-glyph" aria-hidden="true">{state_glyph(row)}</span>
-                  <div>
-                    <strong>{known(row.title, "Title unknown")}</strong>
-                    <span class="ticket-id">{identity_label(row.identity)}</span>
-                    <span :if={present?(row.build_lane)} class="units-lane">Lane {row.build_lane}</span>
-                  </div>
+              <td data-label="ID" class="ut-id-cell">
+                <span :if={row_tone(row)} class={["ut-alert", row_tone(row)]} aria-hidden="true">△</span>
+                <span class="ut-id-num mono num">{id_number(row.identity)}</span>
+              </td>
+
+              <td data-label="Unit" class="ut-unit-cell">
+                <div class="ut-pill-row">
+                  <span class={["u-pill", "u-agent", agent_class(row.agent_family)]}>{agent_label(row.agent_family)}</span>
+                  <span :if={is_integer(row.complexity)} class="u-pill u-cx">Cx:{row.complexity}</span>
+                </div>
+                <div class="ut-pill-row">
+                  <span :if={present?(model_label(row))} class="u-pill u-model">{model_label(row)}</span>
+                  <span class={["u-pill", "u-prio", priority_class(row)]}>{priority_label(row)}</span>
                 </div>
               </td>
 
-              <td data-label="State">
-                <dl class="units-facts compact">
-                  <div><dt>Lifecycle</dt><dd>{label(row.lifecycle)}</dd></div>
-                  <div><dt>Tracker</dt><dd>{known_label(row.tracker_state)}</dd></div>
-                  <div><dt>Runtime</dt><dd class="mono num">{runtime(row, @now)}</dd></div>
-                  <div><dt>Health</dt><dd>{provider_health(row)}</dd></div>
-                </dl>
+              <td data-label="Ticket" class="ut-ticket-cell">
+                <div class="ut-title">{known(row.title, "Title unknown")}</div>
+                <span :if={present?(row.build_lane)} class={["u-lane", lane_class(row.build_lane)]}>
+                  <span class="u-lane-dot" aria-hidden="true"></span>{String.upcase(row.build_lane)}
+                </span>
               </td>
 
-              <td data-label="Progress and evidence">
-                <.progress progress={row.progress} />
-                <dl class="units-facts compact">
-                  <div :if={progress_source(row.progress)}>
-                    <dt>Progress source</dt>
-                    <dd>{progress_source(row.progress)}</dd>
-                  </div>
-                  <div :if={progress_freshness(row.progress)}>
-                    <dt>Freshness</dt>
-                    <dd>{progress_freshness(row.progress)}</dd>
-                  </div>
-                  <div :if={latest_evidence(row.latest_evidence)}>
-                    <dt>Latest evidence</dt>
-                    <dd>{latest_evidence(row.latest_evidence)}</dd>
-                  </div>
-                </dl>
+              <td data-label="Latest" class="ut-latest-cell">
+                <div class="ut-latest-head">
+                  <span class="ut-latest-emoji" aria-hidden="true">{evidence_emoji(row)}</span>
+                  <span class="ut-latest-text">{latest_text(row)}</span>
+                </div>
+                <span class="ut-pbar" aria-hidden="true"><i class={progress_tone(row)} style={"width:#{progress_width(row.progress)}%"}></i></span>
+                <div class="ut-latest-meta mono num">
+                  <span>{progress_pct(row.progress)}</span>
+                  <span>{runtime(row, @now)}</span>
+                </div>
               </td>
 
-              <td data-label="Execution">
-                <dl class="units-facts compact">
-                  <div><dt>Backend</dt><dd>{known_label(row.backend)}</dd></div>
-                  <div><dt>Agent</dt><dd>{known_label(row.agent_family)}</dd></div>
-                  <div><dt>Requested model</dt><dd>{known(row.requested_model)}</dd></div>
-                  <div><dt>Resolved model</dt><dd>{known(row.resolved_model)}</dd></div>
-                  <div><dt>Effort</dt><dd>{known_label(row.effort)}</dd></div>
-                  <div><dt>Complexity</dt><dd>{complexity(row.complexity)}</dd></div>
-                  <div><dt>Lane</dt><dd>{known(row.build_lane)}</dd></div>
-                </dl>
-              </td>
-
-              <td data-label="Waiting and Commands">
-                <dl class="units-facts compact">
-                  <div :for={{label, value} <- present_reasons(row.reasons)}><dt>{label}</dt><dd>{value}</dd></div>
-                  <div><dt>Open Commands</dt><dd>{command_count(row.open_command_count)}</dd></div>
-                </dl>
-              </td>
-
-              <td data-label="Actions">
+              <td data-label="Command" class="ut-cmd-cell">
                 <nav class="units-actions" aria-label={"Actions for #{identity_label(row.identity)}"}>
                   <.unit_control token={token} row={row} control={Map.get(@controls, token)} writable={@writable} />
                   <button
@@ -406,6 +383,62 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   end
 
   defp trusted_url(_row), do: nil
+  # --- compact-row helpers ---------------------------------------------------
+
+  defp id_number(%TrackerIdentity{identifier: identifier}) when is_binary(identifier) and identifier != "", do: identifier
+  defp id_number(_identity), do: "—"
+
+  defp agent_label(family) when is_atom(family) and not is_nil(family),
+    do: family |> Atom.to_string() |> String.replace("_", " ") |> String.capitalize()
+
+  defp agent_label(_family), do: "Agent"
+
+  defp agent_class(:claude), do: "is-claude"
+  defp agent_class(:codex), do: "is-codex"
+  defp agent_class(_family), do: "is-generic"
+
+  defp model_label(%{resolved_model: model}) when is_binary(model) and model != "", do: model
+  defp model_label(%{requested_model: model}) when is_binary(model) and model != "", do: model
+  defp model_label(_row), do: nil
+
+  defp priority_label(row), do: elem(priority(row), 0)
+  defp priority_class(row), do: elem(priority(row), 1)
+
+  defp priority(%{effort: :deep}), do: {"HIGH", "is-high"}
+  defp priority(%{complexity: complexity}) when is_integer(complexity) and complexity >= 4, do: {"HIGH", "is-high"}
+  defp priority(%{complexity: 3}), do: {"MED", "is-med"}
+  defp priority(%{effort: :standard}), do: {"MED", "is-med"}
+  defp priority(_row), do: {"LOW", "is-low"}
+
+  defp lane_class(lane) when is_binary(lane) and lane != "", do: "is-lane-#{lane}"
+  defp lane_class(_lane), do: nil
+
+  defp evidence_emoji(%{latest_evidence: %{status: :known, source: %{kind: kind}}}), do: evidence_kind_emoji(kind)
+  defp evidence_emoji(_row), do: "•"
+
+  defp evidence_kind_emoji(:commit), do: "🔨"
+  defp evidence_kind_emoji(:pull_request), do: "🔀"
+  defp evidence_kind_emoji(:branch), do: "🌿"
+  defp evidence_kind_emoji(:log), do: "📋"
+  defp evidence_kind_emoji(:queue), do: "⏳"
+  defp evidence_kind_emoji(_kind), do: "•"
+
+  defp latest_text(%{latest_evidence: %{status: :known, source: %{name: name}}}) when is_binary(name) and name != "", do: name
+  defp latest_text(_row), do: "No recent activity"
+
+  defp progress_width(progress), do: known_percent(progress) || 0
+
+  defp progress_pct(progress) do
+    case known_percent(progress) do
+      nil -> "—"
+      percent -> "#{percent}%"
+    end
+  end
+
+  defp progress_tone(%{reasons: %{blocking: blocking}}) when not is_nil(blocking), do: "is-blocked"
+  defp progress_tone(%{reasons: %{alert: alert}}) when not is_nil(alert), do: "has-alert"
+  defp progress_tone(_row), do: nil
+
   defp present?(value), do: not is_nil(value) and value != ""
   defp known(value, fallback \\ "Unknown")
   defp known(value, _fallback) when is_binary(value) and value != "", do: value
