@@ -3280,9 +3280,15 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .units-filters {
-  display: grid;
-  gap: 0.8rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.7rem 1.6rem;
   margin-top: 1rem;
+}
+
+.units-filter-group legend {
+  margin-bottom: 0.4rem;
 }
 
 .units-filter-group {
@@ -3312,10 +3318,10 @@ html[data-theme="light"] .toggle-icon .moon {
   align-items: center;
   justify-content: center;
   gap: 0.45rem;
-  min-height: 2.75rem;
-  padding: 0.55rem 0.8rem;
+  min-height: 2.1rem;
+  padding: 0.35rem 0.75rem;
   border: 1px solid var(--line);
-  border-radius: 11px;
+  border-radius: 999px;
   background: var(--pill-bg);
   color: var(--muted);
   cursor: pointer;
@@ -3329,11 +3335,39 @@ html[data-theme="light"] .toggle-icon .moon {
   color: var(--fg);
 }
 
-.units-filter.is-selected {
+.units-filter.scope.is-selected {
   border-color: var(--accent-line);
   background: var(--accent-soft);
   color: var(--accent-ink);
 }
+
+/* Condition pills: a coloured dot + label + count; the dot colour keys the
+   condition, and a selected pill lights up with its own hue. */
+.units-filter-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: var(--muted);
+  flex: none;
+}
+
+.units-filter.is-cond-active .units-filter-dot { background: #6bd6a6; }
+.units-filter.is-cond-alert .units-filter-dot { background: #f2836b; }
+.units-filter.is-cond-paused .units-filter-dot { background: #9aa0ac; }
+.units-filter.is-cond-stuck .units-filter-dot { background: #e3b341; }
+.units-filter.is-cond-queued .units-filter-dot { background: #8fbcff; }
+.units-filter.is-cond-finished .units-filter-dot { background: #6b7280; }
+
+.units-filter.condition.is-selected {
+  color: var(--fg);
+  border-color: var(--line-strong);
+  background: var(--surface-3);
+}
+
+.units-filter.condition.is-cond-active.is-selected { border-color: rgba(107, 214, 166, 0.5); }
+.units-filter.condition.is-cond-alert.is-selected { border-color: rgba(242, 131, 107, 0.5); }
+.units-filter.condition.is-cond-stuck.is-selected { border-color: rgba(227, 179, 65, 0.5); }
+.units-filter.condition.is-cond-queued.is-selected { border-color: rgba(143, 188, 255, 0.5); }
 
 .units-filter-count {
   display: inline-grid;
