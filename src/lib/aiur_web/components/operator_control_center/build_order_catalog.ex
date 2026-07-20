@@ -14,7 +14,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
   @spec build_order_catalog(map()) :: Phoenix.LiveView.Rendered.t()
   def build_order_catalog(assigns) do
     ~H"""
-    <section class="bo-surface" aria-label="Build Orders">
+    <section class="bo-surface bo-surface-flush" aria-label="Build Orders">
       <.catalog_entries snapshot={RouteState.catalog_snapshot(@route_state)} />
     </section>
     """

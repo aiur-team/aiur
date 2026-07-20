@@ -37,30 +37,47 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdown do
       |> assign(:degraded?, projection.status in @degraded_statuses)
 
     ~H"""
-    <section class="bo-breakdown" aria-labelledby="bo-breakdown-title">
-      <h3 id="bo-breakdown-title" class="bo-breakdown-list-title">Epics</h3>
-
+    <section class="bo-breakdown" aria-label="Plan breakdown">
       <div :if={@degraded?} class="bo-state-card" role={degraded_role(@projection.status)}>
         <h4>{degraded_title(@projection.status)}</h4>
         <p>{degraded_message(@projection.status)}</p>
       </div>
 
-      <div :if={@ready?} class="bo-breakdown-list" aria-label="Members and complexity points per epic lane">
-        <article
-          :for={row <- @projection.epics}
-          class="bo-breakdown-row"
-          data-breakdown-key={to_string(row.key)}
-        >
-          <div class="bo-breakdown-row-top">
-            <BuildOrderEpicIcon.build_order_epic_icon lane={to_string(row.key)} class="bo-breakdown-row-ic" colored />
-            <span class="bo-breakdown-row-name">{row.label}</span>
-            <span class="bo-breakdown-row-stat"><span class="bo-breakdown-row-stat-label">tickets</span> <span class="num">{row.count}</span></span>
-            <span class="bo-breakdown-row-stat"><span class="bo-breakdown-row-stat-label">points</span> <span class="num">{points_display(row.points)}</span></span>
-          </div>
-          <p :if={row.members != []} class="bo-breakdown-row-members">{members_text(row.members)}</p>
-          <span class="bo-breakdown-row-bar" aria-hidden="true"><i style={"width:#{bar_percent(row.weight)}%"}></i></span>
-        </article>
+      <div :if={@ready?} class="bo-breakdown-tables">
+        <.breakdown_list dimension="Phases" rows={@projection.phases} />
+        <.breakdown_list dimension="Epics" rows={@projection.epics} icons />
       </div>
+    </section>
+    """
+  end
+
+  attr(:dimension, :string, required: true)
+  attr(:rows, :list, required: true)
+  attr(:icons, :boolean, default: false)
+
+  defp breakdown_list(assigns) do
+    ~H"""
+    <section class="bo-breakdown-list" aria-label={"Members and complexity points per #{@dimension}"}>
+      <h4 class="bo-breakdown-list-title">{@dimension}</h4>
+      <article
+        :for={row <- @rows}
+        class="bo-breakdown-row"
+        data-breakdown-key={to_string(row.key)}
+      >
+        <div class="bo-breakdown-row-top">
+          <BuildOrderEpicIcon.build_order_epic_icon
+            :if={@icons}
+            lane={to_string(row.key)}
+            class="bo-breakdown-row-ic"
+            colored
+          />
+          <span class="bo-breakdown-row-name">{row.label}</span>
+          <span class="bo-breakdown-row-stat"><span class="bo-breakdown-row-stat-label">tickets</span> <span class="num">{row.count}</span></span>
+          <span class="bo-breakdown-row-stat"><span class="bo-breakdown-row-stat-label">points</span> <span class="num">{points_display(row.points)}</span></span>
+        </div>
+        <p :if={row.members != []} class="bo-breakdown-row-members">{members_text(row.members)}</p>
+        <span class="bo-breakdown-row-bar" aria-hidden="true"><i style={"width:#{bar_percent(row.weight)}%"}></i></span>
+      </article>
     </section>
     """
   end

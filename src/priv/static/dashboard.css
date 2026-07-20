@@ -366,6 +366,11 @@ textarea:focus-visible,
   gap: 0.6rem;
 }
 
+/* Clip the full-bleed table to the card's rounded corners. */
+.bo-surface-flush {
+  overflow: hidden;
+}
+
 /* Full-bleed: rows span the whole card, edge to edge (the card pads by
    clamp(1rem, 2.5vw, 1.4rem)); the outer cells re-inset their content so it
    still lines up under the card heading. */
@@ -2830,6 +2835,8 @@ html[data-theme="light"] .toggle-icon .moon {
 
 .units-card {
   min-width: 0;
+  /* Clip the full-bleed units table to the card's rounded corners. */
+  overflow: hidden;
 }
 
 .units-header {
