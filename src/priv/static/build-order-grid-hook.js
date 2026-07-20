@@ -56,7 +56,7 @@
 
     var stored = this.restoreScale();
     this.scale = stored == null ? 1 : stored;
-    this.autoFit = stored == null; // first visit: fit the whole grid to width
+    this.autoFit = true; // always fit the whole grid to width on page load
 
     this.zoomButtons.forEach(function (button) {
       button.addEventListener("click", this.onZoomClick);
@@ -393,25 +393,28 @@
   };
 
   Grid.prototype.applyHighlight = function (id) {
-    // Full transitive dependency chain: every ancestor (what `id` depends on,
-    // back to the roots) and every descendant (what depends on `id`), not just
-    // the direct neighbours. Reverse edges reach ancestors, forward edges reach
-    // descendants — directional so it never collapses to the whole graph.
-    var nodes = {};
+    // Full transitive dependency chain, but keyed by HOP DISTANCE from the
+    // source: 0 = source, 1 = direct blocker/blocked, >=2 = indirect. Reverse
+    // edges reach ancestors, forward edges reach descendants (directional, so it
+    // never collapses to the whole graph). Distance drives a lighter highlight
+    // so direct dependencies read stronger than transitive ones.
+    var dist = {};
     if (id) {
-      nodes[id] = true;
-      var reach = reachable(id, this.rev || {});
-      var forward = reachable(id, this.fwd || {});
-      var k;
-      for (k in reach) nodes[k] = true;
-      for (k in forward) nodes[k] = true;
+      dist[id] = 0;
+      bfsDistance(id, this.fwd || {}, dist);
+      bfsDistance(id, this.rev || {}, dist);
     }
 
     if (this.edgePaths) {
       this.edgePaths.forEach(function (path) {
-        var on = id && nodes[path.getAttribute("data-from")] && nodes[path.getAttribute("data-to")];
-        path.classList.toggle("is-hl", !!on);
-        path.classList.toggle("is-dim", !!id && !on);
+        var f = path.getAttribute("data-from");
+        var t = path.getAttribute("data-to");
+        var inChain = id && dist[f] != null && dist[t] != null;
+        // A "direct" edge touches the source itself; everything deeper is far.
+        var direct = inChain && (f === id || t === id);
+        path.classList.toggle("is-hl", !!(inChain && direct));
+        path.classList.toggle("is-hl-far", !!(inChain && !direct));
+        path.classList.toggle("is-dim", !!id && !inChain);
       });
     }
 
@@ -419,8 +422,10 @@
     var cards = this.body.querySelectorAll("[data-bo-card]");
     Array.prototype.forEach.call(cards, function (card) {
       var cid = card.getAttribute("data-bo-card");
+      var d = dist[cid];
       card.classList.toggle("is-hl-source", cid === id);
-      card.classList.toggle("is-hl-linked", cid !== id && !!nodes[cid]);
+      card.classList.toggle("is-hl-linked", d === 1);
+      card.classList.toggle("is-hl-indirect", d >= 2);
     });
   };
 
@@ -436,20 +441,23 @@
 
   // --- utils ----------------------------------------------------------------
 
-  // Every node reachable from `start` by walking `adj` (a {id: [ids]} map).
-  function reachable(start, adj) {
-    var seen = {};
-    var stack = [start];
-    while (stack.length) {
-      var neighbours = adj[stack.pop()] || [];
+  // Record each node reachable from `start` via `adj` ({id: [ids]}) with its
+  // shortest hop distance, written into the shared `dist` map.
+  function bfsDistance(start, adj, dist) {
+    var queue = [start];
+    var head = 0;
+    while (head < queue.length) {
+      var node = queue[head++];
+      var d = dist[node];
+      var neighbours = adj[node] || [];
       for (var i = 0; i < neighbours.length; i++) {
-        if (!seen[neighbours[i]]) {
-          seen[neighbours[i]] = true;
-          stack.push(neighbours[i]);
+        var next = neighbours[i];
+        if (dist[next] == null || dist[next] > d + 1) {
+          dist[next] = d + 1;
+          queue.push(next);
         }
       }
     }
-    return seen;
   }
 
   function cssEscape(value) {

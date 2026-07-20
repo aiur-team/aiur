@@ -366,17 +366,21 @@ textarea:focus-visible,
   gap: 0.6rem;
 }
 
-/* Clip the full-bleed table to the card's rounded corners. */
+/* Full-bleed catalog: drop the card's horizontal padding so the table fills the
+   whole card at width:100% (no width math that could overflow), and clip to the
+   rounded corners. The outer cells re-inset their content by the old padding. */
 .bo-surface-flush {
   overflow: hidden;
+  padding-left: 0;
+  padding-right: 0;
 }
 
-/* Full-bleed: rows span the whole card, edge to edge (the card pads by
-   clamp(1rem, 2.5vw, 1.4rem)); the outer cells re-inset their content so it
-   still lines up under the card heading. */
+.bo-surface-flush > .bo-catalog > .bo-state-card {
+  margin: 0 clamp(1rem, 2.5vw, 1.4rem);
+}
+
 .bo-catalog-table {
-  width: calc(100% + 2 * clamp(1rem, 2.5vw, 1.4rem));
-  margin: 0 calc(-1 * clamp(1rem, 2.5vw, 1.4rem));
+  width: 100%;
   border-collapse: collapse;
 }
 
@@ -6046,9 +6050,17 @@ html[data-theme="light"] .toggle-icon .moon {
   box-shadow: 0 0 0 1.5px var(--accent);
 }
 
+/* Indirect (2+ hops away) dependencies get a lighter, more transparent ring so
+   direct blockers stay visually stronger than transitive ones. */
+.bo-node.is-hl-indirect {
+  border-color: var(--accent-line);
+  border-style: solid;
+  box-shadow: 0 0 0 1px var(--accent-line);
+}
+
 /* When a chain is locked (pinned), fade every card outside the chain so the
    highlighted dependency path stands out. */
-.bo-grid-root.is-locked .bo-node:not(.is-hl-source):not(.is-hl-linked) {
+.bo-grid-root.is-locked .bo-node:not(.is-hl-source):not(.is-hl-linked):not(.is-hl-indirect) {
   opacity: 0.3;
 }
 
@@ -6257,6 +6269,14 @@ html[data-theme="light"] .toggle-icon .moon {
   stroke-width: 2.2;
   stroke-dasharray: none;
   opacity: 1;
+}
+
+/* Edges further along the chain (not touching the source) are lighter. */
+.bo-edge.is-hl-far {
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-dasharray: none;
+  opacity: 0.4;
 }
 
 .bo-edge.is-dim {
