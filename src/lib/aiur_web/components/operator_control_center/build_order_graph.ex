@@ -86,7 +86,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
             <div class="bo-grid-lanes" style={@columns_style} role="row" aria-label="Epics">
               <div class="bo-grid-corner" aria-hidden="true"></div>
               <div :for={col <- @columns} class="bo-epic" role="columnheader">
-                <BuildOrderEpicIcon.build_order_epic_icon lane={col.lane} class="bo-epic-icon" />
+                <BuildOrderEpicIcon.build_order_epic_icon lane={col.lane} class="bo-epic-icon" colored />
                 <span class="bo-epic-label">{col.label}</span>
                 <span class="bo-epic-count">{col.count}</span>
               </div>

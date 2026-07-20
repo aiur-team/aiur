@@ -366,8 +366,12 @@ textarea:focus-visible,
   gap: 0.6rem;
 }
 
+/* Full-bleed: rows span the whole card, edge to edge (the card pads by
+   clamp(1rem, 2.5vw, 1.4rem)); the outer cells re-inset their content so it
+   still lines up under the card heading. */
 .bo-catalog-table {
-  width: 100%;
+  width: calc(100% + 2 * clamp(1rem, 2.5vw, 1.4rem));
+  margin: 0 calc(-1 * clamp(1rem, 2.5vw, 1.4rem));
   border-collapse: collapse;
 }
 
@@ -375,6 +379,12 @@ textarea:focus-visible,
 .bo-catalog-table td:first-child {
   white-space: nowrap;
   overflow-wrap: normal;
+  padding-left: clamp(1rem, 2.5vw, 1.4rem);
+}
+
+.bo-catalog-table th:last-child,
+.bo-catalog-table td:last-child {
+  padding-right: clamp(1rem, 2.5vw, 1.4rem);
 }
 
 .bo-catalog-progress-head,
@@ -654,9 +664,15 @@ textarea:focus-visible,
 
 .bo-breakdown-row-top {
   display: flex;
-  align-items: baseline;
-  gap: 0.85rem;
+  align-items: center;
+  gap: 0.7rem;
   min-width: 0;
+}
+
+.bo-epic-ic.bo-breakdown-row-ic {
+  width: 1.05rem;
+  height: 1.05rem;
+  flex: 0 0 auto;
 }
 
 .bo-breakdown-row-name {
@@ -2913,8 +2929,14 @@ html[data-theme="light"] .toggle-icon .moon {
   min-height: 2.75rem;
 }
 
+/* Full-bleed: rows reach both card edges (the .section-card pads by 1.15rem).
+   The wrap (not the table) carries the negative margin so its overflow:hidden
+   doesn't clip the bleed; outer cells re-inset content to line up under the
+   header. */
 .units-table-wrap {
   margin-top: 1rem;
+  margin-left: -1.15rem;
+  margin-right: -1.15rem;
   overflow: hidden;
 }
 
@@ -2922,6 +2944,16 @@ html[data-theme="light"] .toggle-icon .moon {
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
+}
+
+.units-table th:first-child,
+.units-table td:first-child {
+  padding-left: 1.15rem;
+}
+
+.units-table th:last-child,
+.units-table td:last-child {
+  padding-right: 1.15rem;
 }
 
 .units-table th {

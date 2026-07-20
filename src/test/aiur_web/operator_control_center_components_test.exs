@@ -47,7 +47,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     # Cards carry a stable id and state class; merged forces 100%.
     assert html =~ ~s(data-bo-card="BO-010")
     assert html =~ ~s(class="bo-node is-merged")
-    assert html =~ "cx3"
+    assert html =~ "Cx 3"
     assert html =~ "merged"
     assert html =~ "agent live"
     assert html =~ "dependency-ready"
@@ -185,14 +185,15 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     # and a visual progress bar.
     assert html =~ "60%"
     assert html =~ "agent live"
-    assert html =~ ~s(class="bo-cx")
-    assert html =~ "cx3"
+    assert html =~ ~s(class="bo-node-cx")
+    assert html =~ "Cx 3"
+    assert html =~ ~s(class="bo-node-blocks")
     assert html =~ "width:60%"
 
-    # Unknown-progress card shows no percent/bar but keeps its status word.
+    # Unknown-progress card shows no percent but still renders a (0%) bar and its status word.
     assert html =~ ~s(data-bo-card="#2")
     assert html =~ "Blocked"
-    refute html =~ "width:0%"
+    assert html =~ "width:0%"
   end
 
   test "renders delivery failure and supersession as explicit lifecycle overrides" do

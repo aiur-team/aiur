@@ -264,7 +264,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     assert {:demand, [first]} in FakeDataSource.calls(source)
   end
 
-  test "renders the plan phase and epic breakdowns on the selected route", %{first: first} do
+  test "renders the epic breakdown on the selected route", %{first: first} do
     members = [
       breakdown_member(7, phase: 1, lane: "plan-graph", complexity: 3),
       breakdown_member(8, phase: 2, lane: "dashboard-ui", complexity: 4)
@@ -275,37 +275,20 @@ defmodule AiurWeb.BuildOrderLiveTest do
 
     assert {:ok, view, html} = live(build_conn(), "/build-orders/42")
 
-    # The breakdown region renders per-phase/epic blocks and a KPI strip.
+    # The breakdown region is now epics-only, each row with a coloured icon and bar.
     assert html =~ ~s(<section class="bo-breakdown")
-    assert has_element?(view, "#bo-phase-breakdown .bo-breakdown-list-title")
-    assert has_element?(view, "#bo-epic-breakdown .bo-breakdown-list-title")
-    assert has_element?(view, "#bo-phase-breakdown .bo-breakdown-row .bo-breakdown-row-name")
-    assert has_element?(view, "#bo-phase-breakdown .bo-breakdown-row-bar")
-    assert has_element?(view, "dl.bo-kpis")
-    assert html =~ "rollout hint"
+    assert html =~ ">Epics<"
+    assert has_element?(view, ".bo-breakdown-list .bo-breakdown-row .bo-breakdown-row-name")
+    assert has_element?(view, ".bo-breakdown-row .bo-breakdown-row-ic")
+    assert has_element?(view, ".bo-breakdown-row-bar")
+
+    # Plan-distribution stats, the phase block, and ad hoc are gone.
+    refute has_element?(view, "#bo-phase-breakdown")
+    refute has_element?(view, "dl.bo-kpis")
+    refute html =~ "Ad Hoc epic"
 
     # The graph surface remains present and unaffected alongside the breakdown.
     assert has_element?(view, "#selected-build-order-graph")
-  end
-
-  test "renders the derived Ad Hoc epic overlay on the selected route", %{first: first} do
-    members = [breakdown_member(7, phase: 1, lane: "plan-graph", complexity: 3)]
-
-    selected =
-      selected_snapshot(first, SelectedRoot.new(root(first, "Root forty-two"), members, health(1, :healthy)), 1, :healthy)
-
-    install_source(
-      catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy),
-      selected: [selected],
-      sources_loader: fn -> sources_with_adhoc(adhoc_source_snapshot()) end
-    )
-
-    assert {:ok, view, html} = live(build_conn(), "/build-orders/42")
-
-    assert html =~ "Ad Hoc epic"
-    assert has_element?(view, "table#bo-adhoc-breakdown caption")
-    assert has_element?(view, ~s(a[href="https://github.com/owner/repo/issues/9001"]))
-    assert html =~ "Phase 1"
   end
 
   test "reloads sources when an ad hoc overlay update arrives", %{first: first} do
