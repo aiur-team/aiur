@@ -626,7 +626,12 @@ defmodule AiurWeb.DashboardLive do
       </div>
 
       <div :if={@live_action not in [:decisions, :decision]} class="control-panel">
-        <RunSummaryStrip.run_summary_strip />
+        <RunSummaryStrip.run_summary_strip
+          run={@run_summary}
+          usage={@usage_summary}
+          meters={@provider_meters_view}
+          now={@now}
+        />
 
         <section class="section-card units-card" aria-labelledby="route-title">
           <p id="units-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true">

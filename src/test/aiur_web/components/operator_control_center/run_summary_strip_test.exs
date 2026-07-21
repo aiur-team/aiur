@@ -1,0 +1,117 @@
+defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
+  use ExUnit.Case, async: true
+
+  import Phoenix.LiveViewTest, only: [render_component: 2]
+
+  alias AiurWeb.OperatorControlCenter.RunSummaryStrip
+
+  @now ~U[2026-07-20 12:00:00Z]
+
+  test "renders real run, per-provider usage, and rate-limit values" do
+    html =
+      render_component(&RunSummaryStrip.run_summary_strip/1, %{
+        run: run_view(),
+        usage: usage_view(),
+        meters: meters_view(),
+        now: @now
+      })
+
+    assert html =~ "3 units"
+    assert html =~ "4 remain"
+    assert html =~ "$8.75"
+    assert html =~ "20m elapsed"
+    assert html =~ "About 8m remaining"
+    assert html =~ "1.5K"
+    assert html =~ "$2.50"
+    assert html =~ "40% · resets in 30m"
+    refute html =~ "$50.47"
+    refute html =~ "0.89M"
+  end
+
+  test "names unavailable values instead of presenting synthetic zeroes" do
+    html =
+      render_component(&RunSummaryStrip.run_summary_strip/1, %{
+        run: %{state: :loading},
+        usage: %{state: :locked},
+        meters: %{state: :locked, cards: []},
+        now: @now
+      })
+
+    assert html =~ "Unavailable"
+    assert html =~ "ETA unavailable"
+    assert html =~ "Codex"
+    assert html =~ "Claude"
+    refute html =~ "$0.00"
+  end
+
+  test "hides the provider API estimate for subscription accounts" do
+    meters =
+      update_in(meters_view(), [:cards], fn cards ->
+        Enum.map(cards, fn
+          %{provider: :codex} = card -> put_in(card, [:auth_mode, :value], :subscription)
+          card -> card
+        end)
+      end)
+
+    html =
+      render_component(&RunSummaryStrip.run_summary_strip/1, %{
+        run: run_view(),
+        usage: usage_view(),
+        meters: meters,
+        now: @now
+      })
+
+    [codex_html, claude_html] = String.split(html, "Claude", parts: 2)
+    refute codex_html =~ "$2.50"
+    assert claude_html =~ "$6.25"
+  end
+
+  defp run_view do
+    %{
+      state: :ready,
+      counts: %{live: 3, remaining: 4},
+      progress: %{kind: :exact, percent: 60},
+      elapsed: %{label: "20m"},
+      eta: %{label: "About 8m remaining"}
+    }
+  end
+
+  defp usage_view do
+    %{
+      state: :ready,
+      api_equivalent: %{by_currency: [%{currency: "USD", amount: "8.75"}]},
+      providers: %{
+        codex: %{tokens: %{total: 1_500}, api_equivalent: [%{currency: "USD", amount: "2.50"}]},
+        claude: %{tokens: %{total: 2_000}, api_equivalent: [%{currency: "USD", amount: "6.25"}]}
+      }
+    }
+  end
+
+  defp meters_view do
+    %{
+      state: :authorized,
+      cards: [
+        meter_card(:codex, "Codex", 40),
+        meter_card(:claude, "Claude", 25)
+      ]
+    }
+  end
+
+  defp meter_card(provider, label, percent) do
+    %{
+      provider: provider,
+      provider_label: label,
+      status_label: "Healthy",
+      auth_mode: %{value: :api_key},
+      windows: [
+        %{
+          kind: :rate_limit,
+          name: "Session",
+          coverage_label: "Supported",
+          meter: %{kind: :exact, now: percent},
+          resets_at: DateTime.add(@now, 30, :minute)
+        }
+      ]
+    }
+  end
+end
