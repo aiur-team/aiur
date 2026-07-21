@@ -7,9 +7,7 @@ defmodule AiurWeb.OperatorControlCenter.CurrentRunOutcomesTest do
   alias AiurWeb.OperatorControlCenter.CurrentRunOutcomes
   alias AiurWeb.OperatorControlCenter.CurrentRunOutcomesPresenter, as: Presenter
 
-  @analytics %{available?: true, path: "/analytics", message: nil}
-
-  test "healthy outcomes render keyed cards, safe links, and the real analytics route" do
+  test "healthy outcomes render keyed cards and safe links" do
     identity = %TrackerIdentity{status: :joinable, kind: :github, owner: "its-everdred", repository: "aiur", identifier: "1138"}
     view = present([outcome(number: 42, id: "merge-42", identity: identity)])
 
@@ -21,9 +19,7 @@ defmodule AiurWeb.OperatorControlCenter.CurrentRunOutcomesTest do
     assert html =~ "its-everdred/aiur #1138"
     assert html =~ ~s(href="https://github.com/its-everdred/aiur/pull/42")
     assert html =~ ~s(rel="noopener noreferrer")
-    # Real authenticated analytics route, not the prototype's aiur.team host.
-    assert html =~ ~s(href="/analytics")
-    assert html =~ "Open analytics report"
+    refute html =~ "Open analytics report"
     refute html =~ "aiur.team"
     # Trimmed to a short label; the legalese association disclaimer is gone.
     assert html =~ "Repository merges from this run."
@@ -69,22 +65,14 @@ defmodule AiurWeb.OperatorControlCenter.CurrentRunOutcomesTest do
     {source, true} = Presenter.reconcile(current, incoming)
     view = Presenter.present(source, true, incoming)
 
-    html = render_component(&CurrentRunOutcomes.current_run_outcomes/1, view: view, announcement: Presenter.announcement(view), analytics: @analytics)
+    html =
+      render_component(&CurrentRunOutcomes.current_run_outcomes/1,
+        view: view,
+        announcement: Presenter.announcement(view)
+      )
 
     assert html =~ "Stale outcomes"
     assert html =~ "PR #1"
-  end
-
-  test "analytics link is absent when the route is unavailable" do
-    html =
-      render_component(&CurrentRunOutcomes.current_run_outcomes/1,
-        view: Presenter.present(snapshot([outcome(number: 1)])),
-        announcement: nil,
-        analytics: %{available?: false, path: nil, message: "Telemetry analytics are unavailable."}
-      )
-
-    refute html =~ ~s(href="/analytics")
-    refute html =~ "Open analytics report"
   end
 
   # --- helpers -------------------------------------------------------------
@@ -92,15 +80,14 @@ defmodule AiurWeb.OperatorControlCenter.CurrentRunOutcomesTest do
   defp render(view) do
     render_component(&CurrentRunOutcomes.current_run_outcomes/1,
       view: view,
-      announcement: Presenter.announcement(view),
-      analytics: @analytics
+      announcement: Presenter.announcement(view)
     )
   end
 
   defp present(outcomes, opts \\ []), do: Presenter.present(snapshot(outcomes, opts))
   defp present_unavailable(reasons), do: Presenter.present(unavailable_snapshot(reasons, []))
 
-  defp snapshot(outcomes, opts \\ []) do
+  defp snapshot(outcomes, opts) do
     %{
       version: 1,
       generation: 3,

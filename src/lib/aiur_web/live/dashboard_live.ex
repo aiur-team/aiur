@@ -43,7 +43,6 @@ defmodule AiurWeb.DashboardLive do
     PayloadLoader,
     ProviderMeterSource,
     ProviderMetersPresenter,
-    RecentOutcomes,
     RouteRegistry,
     RunSummaryPresenter,
     RunSummaryStrip,
@@ -634,8 +633,6 @@ defmodule AiurWeb.DashboardLive do
           <p id="units-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true">
             {@units_announcement}
           </p>
-          <p class="units-count-summary">{units_count_summary(@units_view)}</p>
-
           <UnitsFilters.units_filters
             selection={@units_selection}
             counts={@units_view[:counts] || %{}}
@@ -647,26 +644,8 @@ defmodule AiurWeb.DashboardLive do
         <CurrentRunOutcomes.current_run_outcomes
           view={@current_run_outcomes}
           announcement={@current_run_outcomes_announcement}
-          analytics={@payload.analytics}
         />
       </div>
-
-      <section :if={@live_action == :index} class="section-card recent-card" aria-labelledby="recent-title">
-        <header class="section-header">
-          <div>
-            <p class="section-eyebrow">Durable outcomes</p>
-            <h2 id="recent-title">Recent</h2>
-            <p>Repository merges and recorded Command actions from durable projections.</p>
-          </div>
-        </header>
-        <RecentOutcomes.recent_outcomes
-          outcomes={@payload.recent_outcomes}
-          provider_health={@payload.provider_health.recent_outcomes}
-          reconciliation={@payload.recent_outcomes_reconciliation}
-          analytics={@payload.analytics}
-        />
-        <History.history entries={@payload.history} provider_health={@payload.provider_health.history} />
-      </section>
 
       <AgentLogModal.agent_log_modal
         modal={@agent_log_modal}
@@ -807,18 +786,6 @@ defmodule AiurWeb.DashboardLive do
     do: Map.put(counts, key, value)
 
   defp put_nav_count(counts, _key, _value), do: counts
-
-  defp units_count_summary(%{count_status: :unavailable}),
-    do: "Observed and selected-scope counts unavailable"
-
-  defp units_count_summary(%{count_status: :partial, total_count: total, counts: %{scope: scope}}),
-    do: "At least #{total} observed · at least #{scope} in selected scope"
-
-  defp units_count_summary(%{total_count: total, counts: %{scope: scope}})
-       when is_integer(total) and is_integer(scope),
-       do: "#{total} observed · #{scope} in selected scope"
-
-  defp units_count_summary(_view), do: "Observed and selected-scope counts unavailable"
 
   defp assign_units_selection(socket, params) do
     selection = UnitsURL.decode(params)

@@ -1732,6 +1732,11 @@ html[data-theme="light"] .toggle-icon .moon {
   font-weight: 800;
 }
 
+.decision-banner-icon svg {
+  width: 1.35rem;
+  height: 1.35rem;
+}
+
 .blocking .decision-banner-icon {
   border-color: var(--blocking-line);
   background: var(--blocking-soft);

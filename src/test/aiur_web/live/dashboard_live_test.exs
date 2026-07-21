@@ -675,7 +675,7 @@ defmodule AiurWeb.DashboardLiveTest do
     refute html =~ "This detail was recovered from the validated audit prefix"
   end
 
-  test "renders durable decision history, honest merge provenance, and the analytics link during a snapshot outage" do
+  test "keeps durable outcomes off the Units page during a snapshot outage" do
     history = [
       history_entry("dec-human", :human_operator, "Executor", "<script>alert('decision')</script>"),
       history_entry("dec-supervisor", :supervising_agent, "Supervising agent", "Approve the fallback?")
@@ -710,20 +710,20 @@ defmodule AiurWeb.DashboardLiveTest do
     assert html =~ "Snapshot unavailable"
     refute html =~ "Merged this run"
     refute html =~ "from the current run"
-    assert html =~ "Command history"
-    assert html =~ "Executor"
-    assert html =~ "Supervising agent"
-    assert html =~ "&lt;script&gt;alert"
+    refute html =~ "Command history"
+    refute html =~ "Executor"
+    refute html =~ "Supervising agent"
+    refute html =~ "&lt;script&gt;alert"
     refute html =~ "<script>alert"
-    assert html =~ "Recent repository merges"
-    assert html =~ "Observed live"
-    assert html =~ "Observer run run-observer"
-    assert html =~ "No ticket attribution"
-    assert html =~ "5-page cap"
-    assert html =~ "&lt;img src=x onerror=alert(1)&gt;"
+    refute html =~ "Recent repository merges"
+    refute html =~ "Observed live"
+    refute html =~ "Observer run run-observer"
+    refute html =~ "No ticket attribution"
+    refute html =~ "5-page cap"
+    refute html =~ "&lt;img src=x onerror=alert(1)&gt;"
     refute html =~ "<img src=x"
     assert html =~ ~s(href="/analytics")
-    assert html =~ "Open analytics report"
+    refute html =~ "Open analytics report"
   end
 
   test "bounds each payload signal burst across open dashboards" do
@@ -786,8 +786,7 @@ defmodule AiurWeb.DashboardLiveTest do
       # prototype's aiur.team destination. (Route availability is telemetry-driven
       # and exercised in the component test.)
       refute html =~ "aiur.team"
-      # The global RecentMerge audit remains a distinct, reachable scope.
-      assert html =~ "Recent repository merges"
+      refute html =~ "Recent repository merges"
     end
 
     test "coalesces a burst of outcome updates into a single scheduled flush" do
@@ -2377,11 +2376,13 @@ defmodule AiurWeb.DashboardLiveTest do
     refute render(view) =~ "Command not found"
 
     root_html = render_patch(view, "/")
-    assert root_html =~ "987"
-    assert root_html =~ "Recent repository merges"
-    assert root_html =~ "Repository merge"
-    assert root_html =~ "Command history"
-    assert root_html =~ "dashboard"
+    refute root_html =~ "987"
+    refute root_html =~ "Recent repository merges"
+    refute root_html =~ "Command history"
+
+    decisions_html = render_patch(view, "/decisions")
+    assert decisions_html =~ "Command history"
+    assert decisions_html =~ "dashboard"
 
     detail_html = render_patch(view, path)
     assert detail_html =~ decision.decision_id
@@ -2640,8 +2641,11 @@ defmodule AiurWeb.DashboardLiveTest do
     assert detail_html =~ "Human"
 
     root_html = render_patch(view, "/")
-    assert root_html =~ "Command history"
-    assert root_html =~ "Hold deployment until the incident closes"
+    refute root_html =~ "Command history"
+
+    decisions_html = render_patch(view, "/decisions")
+    assert decisions_html =~ "Command history"
+    assert decisions_html =~ "Hold deployment until the incident closes"
   end
 
   test "connected cached dashboard converges from store-first revision to concrete metrics" do
@@ -2905,13 +2909,10 @@ defmodule AiurWeb.DashboardLiveTest do
 
     _root_html = render_patch(view, "/")
     root_html = reload_view(view)
-    assert root_html =~ "Command history"
-    assert root_html =~ "supervising-agent"
-    assert root_html =~ "codex-app-server · gpt-resolved"
-    assert root_html =~ "91% confidence"
-    assert root_html =~ "88% confidence"
-    assert root_html =~ "Supersedes"
-    assert root_html =~ action_id
+    refute root_html =~ "Command history"
+
+    decisions_html = render_patch(view, "/decisions")
+    assert decisions_html =~ "Command history"
 
     _filtered_html = render_patch(view, "/decisions?filter=supervisor")
     filtered_list = view |> element(".decision-list") |> render()
@@ -2937,7 +2938,7 @@ defmodule AiurWeb.DashboardLiveTest do
       decision_store: decision_store_name
     )
 
-    {:ok, view, _html} = live(build_conn(), "/")
+    {:ok, view, _html} = live(build_conn(), "/decisions")
 
     rows = view |> render() |> Floki.parse_document!() |> Floki.find(".history-list .history-item")
     assert length(rows) == 50
@@ -3657,7 +3658,7 @@ defmodule AiurWeb.DashboardLiveTest do
     {:ok, _view, html} = live(build_conn(), "/")
 
     assert html =~ "Units unavailable"
-    assert html =~ "Observed and selected-scope counts unavailable"
+    refute html =~ "Observed and selected-scope counts unavailable"
     assert html =~ "Count unavailable"
     assert html =~ ~s(aria-label="Count unavailable")
     refute html =~ "0 observed"

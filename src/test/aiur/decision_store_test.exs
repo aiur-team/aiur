@@ -824,6 +824,40 @@ defmodule Aiur.DecisionStoreTest do
   end
 
   describe "legacy attention projection and enrichment" do
+    test "internal delivery alerts never appear as operator Commands", %{dir: dir} do
+      pid = start_store!(dir)
+      slug = "decision-delivery-act-1"
+
+      payload = %{
+        "question" => "Decision action remains actionable after turn_failed.",
+        "blocking" => true,
+        "kind" => "legacy_attention",
+        "source_id" => "legacy_attention:#{slug}"
+      }
+
+      assert {:ok, %{status: :accepted, decision: decision}} =
+               DecisionStore.project_attention(
+                 payload,
+                 [
+                   ticket: @ticket,
+                   source: @source,
+                   legacy_attention: %{
+                     slug: slug,
+                     topic: "ticket.979.agent.attention.#{slug}"
+                   }
+                 ],
+                 pid
+               )
+
+      assert {:ok, %{decisions: [], total: 0, counts: %{open: 0, blocking: 0}}} =
+               DecisionStore.retained_query(
+                 %{limit: 25, cursor: nil, lifecycle: nil, search: nil, ticket: nil},
+                 pid
+               )
+
+      assert {:ok, ^decision} = DecisionStore.get(decision.decision_id, pid)
+    end
+
     test "a minimal attention creates one custom-response-only Decision", %{dir: dir} do
       pid = start_store!(dir)
 

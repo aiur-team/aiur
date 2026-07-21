@@ -44,11 +44,16 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
       class={["decisions-banner", @blocking > 0 && "blocking"]}
       aria-label={"#{@open} open retained Commands, #{@blocking} blocking"}
     >
-      <span class="decision-banner-icon" aria-hidden="true">!</span>
+      <span class="decision-banner-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+          <path d="M12 9v4M12 17h.01" />
+        </svg>
+      </span>
       <span class="decision-banner-body">
         <strong>{banner_title(@blocking, @open)}</strong>
       </span>
-      <span class="decision-banner-cta">Issue commands <span aria-hidden="true">→</span></span>
+      <span class="decision-banner-cta">Issue commands <span aria-hidden="true">&gt;</span></span>
     </.link>
     <div :if={!is_integer(@open)} class="readonly-banner" role="status" aria-live="polite">
       <span aria-hidden="true">◉</span>
