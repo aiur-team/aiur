@@ -501,14 +501,18 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   end
 
   defp enqueue_after_resume(state, running_entry, issue_identifier, text, request) do
-    case Aiur.Orchestrator.resume_paused_issue(state, running_entry) do
-      {{:ok, :resumed}, next_state} ->
-        resumed_entry = State.find_running_by_identifier(next_state.running, issue_identifier)
-
-        do_enqueue_running_operator_message(next_state, resumed_entry, issue_identifier, text, request)
-
-      {{:error, _reason} = error, next_state} ->
-        {error, next_state}
+    with :ok <- PauseResume.resume_paused_issue_preflight(state, running_entry),
+         {{:ok, _queued} = queued, queued_state} <-
+           do_enqueue_running_operator_message(state, running_entry, issue_identifier, text, request),
+         queued_entry when is_map(queued_entry) <-
+           State.find_running_by_identifier(queued_state.running, issue_identifier),
+         {{:ok, :resumed}, resumed_state} <-
+           Aiur.Orchestrator.resume_paused_issue(queued_state, queued_entry) do
+      {queued, resumed_state}
+    else
+      {:error, reason} -> {{:error, reason}, state}
+      {{:error, _reason} = error, next_state} -> {error, next_state}
+      _missing_entry -> {{:error, :no_running_agent}, state}
     end
   end
 
