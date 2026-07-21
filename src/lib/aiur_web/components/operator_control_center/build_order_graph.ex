@@ -8,9 +8,9 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
 
   use Phoenix.Component
 
+  alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.TicketContextSelection
   alias AiurWeb.OperatorControlCenter.{BuildOrderEpicIcon, BuildOrderGridModel}
-  alias Aiur.TrackerIdentity
 
   attr(:id, :string, required: true)
   attr(:root_id, :string, required: true)
