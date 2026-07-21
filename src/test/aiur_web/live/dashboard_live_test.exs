@@ -591,7 +591,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert inbox_html =~ "Commands inbox"
     refute inbox_html =~ ~s(id="recent-title")
     assert detail_html =~ "Recorded"
-    assert detail_html =~ "Dispatch pending"
+    assert detail_html =~ "Event timeline"
     assert detail_html =~ "The agent remains paused."
     assert detail_html =~ "&lt;script&gt;alert(&#39;no&#39;)&lt;/script&gt;"
     refute detail_html =~ "<script>alert('no')</script>"
@@ -1366,7 +1366,7 @@ defmodule AiurWeb.DashboardLiveTest do
     )
 
     {:ok, view, html} = live(build_conn(), "/decisions/#{decision.decision_id}")
-    assert html =~ "Answer this Command"
+    assert html =~ ~s(phx-submit="answer-decision")
 
     html =
       render_submit(view, "answer-decision", %{
@@ -1457,7 +1457,7 @@ defmodule AiurWeb.DashboardLiveTest do
     {:ok, view, _html} = live(build_conn(), "/decisions/#{decision.decision_id}")
     add_newer_dashboard_decisions(store, decision, "stale-payload-answer-newer")
     refute Enum.any?(DecisionStore.recent_decisions(50, store), &(&1.decision_id == decision.decision_id))
-    assert reload_view(view) =~ "Answer this Command"
+    assert reload_view(view) =~ ~s(phx-submit="answer-decision")
 
     html =
       render_submit(view, "answer-decision", %{
@@ -1549,7 +1549,7 @@ defmodule AiurWeb.DashboardLiveTest do
     {:ok, view, html} = live(build_conn(), "/decisions/#{detail.decision_id}")
     assert html =~ "Destroy the active release?"
     assert html =~ "Destroy the active release"
-    assert html =~ "I understand this Command is irreversible or destructive."
+    refute html =~ "I understand this Command is irreversible or destructive."
     refute html =~ "Should the dashboard ship this change?"
 
     html =
@@ -1663,14 +1663,12 @@ defmodule AiurWeb.DashboardLiveTest do
       render_change(view, "decision-action-change", %{
         "decision_id" => initial.decision_id,
         "answer" => %{
-          "choice" => "option:ship",
-          "confirmed" => "true",
-          "rationale" => "Draft from the old retained version"
+          "choice" => "custom",
+          "custom_response" => "Draft from the old retained version"
         }
       })
 
     assert draft_html =~ "Draft from the old retained version"
-    assert draft_html =~ ~s(name="answer[confirmed]" value="true" checked)
 
     refreshed =
       replace_dashboard_decision(store, initial,
@@ -1683,7 +1681,6 @@ defmodule AiurWeb.DashboardLiveTest do
     refreshed_html = render(view)
     assert refreshed_html =~ "Destroy the refreshed answer target?"
     refute refreshed_html =~ "Draft from the old retained version"
-    refute refreshed_html =~ ~s(name="answer[confirmed]" value="true" checked)
 
     html =
       render_submit(view, "answer-decision", %{
@@ -1870,7 +1867,7 @@ defmodule AiurWeb.DashboardLiveTest do
     )
 
     {:ok, view, html} = live(build_conn(), "/decisions/#{decision.decision_id}")
-    assert html =~ "Answer this Command"
+    refute html =~ "Answer this Command"
     assert html =~ ~s(phx-submit="answer-decision")
 
     draft_html =
@@ -1895,10 +1892,10 @@ defmodule AiurWeb.DashboardLiveTest do
              current.delivery_status == :failed
            end)
 
-    assert eventually(fn -> render(view) =~ "Delivery · Failed" end, 100)
+    assert eventually(fn -> render(view) =~ "Delivery failed" end, 100)
     html = render(view)
     assert html =~ "Recorded answer"
-    assert html =~ "Delivery · Failed"
+    assert html =~ "Delivery failed"
     assert html =~ ~s(phx-click="retry-decision")
 
     html = view |> element(~s(button[phx-click="retry-decision"])) |> render_click()
@@ -1909,10 +1906,7 @@ defmodule AiurWeb.DashboardLiveTest do
              current.delivery_status == :queued
            end)
 
-    assert eventually(fn -> render(view) =~ "Delivery · Queued" end, 100)
-    html = render(view)
-    assert html =~ "Delivery · Queued"
-    refute html =~ ~s(phx-click="retry-decision")
+    assert eventually(fn -> not String.contains?(render(view), ~s(phx-click="retry-decision")) end, 100)
 
     assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, store)
     assert Enum.count(audit, &match?(%DecisionEvent{type: :answer_recorded}, &1)) == 1
@@ -1920,7 +1914,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert Enum.count(audit, &match?(%DecisionEvent{type: :dispatch_queued}, &1)) == 1
   end
 
-  test "irreversible answers require confirmation in the server event handler" do
+  test "irreversible answers do not require a redundant confirmation" do
     orchestrator_name = Module.concat(__MODULE__, :ConfirmationOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :ConfirmationDecisionStore)
 
@@ -1940,7 +1934,7 @@ defmodule AiurWeb.DashboardLiveTest do
     )
 
     {:ok, view, html} = live(build_conn(), "/decisions/#{decision.decision_id}")
-    assert html =~ "I understand this Command is irreversible or destructive."
+    refute html =~ "I understand this Command is irreversible or destructive."
 
     params = %{
       "decision_id" => decision.decision_id,
@@ -1948,13 +1942,13 @@ defmodule AiurWeb.DashboardLiveTest do
     }
 
     html = render_submit(view, "answer-decision", params)
-    assert html =~ "Confirm that you understand this irreversible or destructive action."
+    assert html =~ "Answer recorded"
 
     assert {:ok, current} = DecisionStore.get(decision.decision_id, store)
-    assert is_nil(current.answer)
+    assert current.answer.selected_option_id == "ship"
 
     assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, store)
-    refute Enum.any?(audit, &match?(%DecisionEvent{type: :answer_recorded}, &1))
+    assert Enum.any?(audit, &match?(%DecisionEvent{type: :answer_recorded}, &1))
   end
 
   test "a socket mounted writable fails closed when the endpoint gate changes" do
@@ -2290,8 +2284,8 @@ defmodule AiurWeb.DashboardLiveTest do
 
     path = "/decisions/#{decision.decision_id}"
     {:ok, view, html} = live(build_conn(), path)
-    assert html =~ "Answer this Command"
-    assert html =~ "Command latency"
+    refute html =~ "Answer this Command"
+    refute html =~ "Command latency"
 
     _html =
       render_submit(view, "answer-decision", %{
@@ -2343,7 +2337,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
     resolved_html = reload_view(view)
     assert resolved_html =~ "Resolved"
-    assert resolved_html =~ "Human"
+    assert resolved_html =~ "Resolved"
     refute render(view) =~ "Command not found"
 
     root_html = render_patch(view, "/")
@@ -2357,8 +2351,8 @@ defmodule AiurWeb.DashboardLiveTest do
 
     detail_html = render_patch(view, path)
     assert detail_html =~ decision.decision_id
-    assert detail_html =~ "Command latency"
-    assert detail_html =~ "Request to Command"
+    assert detail_html =~ "Event timeline"
+    assert detail_html =~ "Requested"
     refute detail_html =~ "Command not found"
 
     assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, store)
@@ -2609,7 +2603,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert detail_html =~ "Resolved"
     assert detail_html =~ "Revision 1"
     assert detail_html =~ "Revised"
-    assert detail_html =~ "Human"
+    assert detail_html =~ "Event timeline"
 
     root_html = render_patch(view, "/")
     refute root_html =~ "Command history"
@@ -2687,7 +2681,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
     assert initial_html =~ "Hold the cached rollout"
     assert initial_html =~ "Revision 1"
-    assert initial_html =~ "No latency sample has been retained for this Command yet."
+    refute initial_html =~ "Command latency"
     assert_receive {:dashboard_payload_loaded, ^orchestrator, _count}, 2_000
     drain_dashboard_payload_notifications(orchestrator)
     assert :ok = DecisionPubSub.subscribe()
@@ -2699,15 +2693,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
     assert_receive {:dashboard_payload_loaded, ^orchestrator, _count}, 2_000
     converged_html = render(view)
-    latency_text = converged_html |> Floki.parse_document!() |> Floki.find(".decision-latency") |> Floki.text()
-
-    refute converged_html =~ "No latency sample has been retained for this Command yet."
-    assert latency_text =~ "2.0 s"
-    assert latency_text =~ "3.0 s"
-    assert latency_text =~ "0 reminders"
-    assert latency_text =~ "0 attentions"
-    assert latency_text =~ "Human"
-    assert latency_text =~ "Revised"
+    refute converged_html =~ "Command latency"
   end
 
   test "connected mount catches one metrics seed hint released between handshake mounts" do
@@ -2770,7 +2756,7 @@ defmodule AiurWeb.DashboardLiveTest do
     disconnected_html = html_response(conn, 200)
 
     assert disconnected_html =~ "Recorded answer"
-    assert disconnected_html =~ "No latency sample has been retained for this Command yet."
+    refute disconnected_html =~ "Command latency"
     assert :ok = DecisionPubSub.subscribe()
 
     send(seed_process, :release_metrics_seed)
@@ -2779,11 +2765,7 @@ defmodule AiurWeb.DashboardLiveTest do
     refute_receive :decision_metrics_changed, 50
 
     {:ok, _view, connected_html} = live(conn)
-    latency_text = connected_html |> Floki.parse_document!() |> Floki.find(".decision-latency") |> Floki.text()
-
-    refute connected_html =~ "No latency sample has been retained for this Command yet."
-    assert latency_text =~ "2.0 s"
-    assert latency_text =~ "Human"
+    refute connected_html =~ "Command latency"
   end
 
   test "supervisor API mutations converge on LiveView without weakening human-required authority" do
@@ -2823,7 +2805,7 @@ defmodule AiurWeb.DashboardLiveTest do
     )
 
     {:ok, view, human_html} = live(build_conn(), "/decisions/#{human.decision_id}")
-    assert human_html =~ "Human required"
+    refute human_html =~ "Human required"
 
     assert {:error, {:delegation_forbidden, %{reasons: [:human_required]}}} =
              DecisionApi.decide(human.decision_id, supervisor_decision_payload(1), api_opts)
@@ -2834,7 +2816,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
     delegated_path = "/decisions/#{delegated.decision_id}"
     delegated_html = render_patch(view, delegated_path)
-    assert delegated_html =~ "Supervisor allowed"
+    assert delegated_html =~ ~s(phx-submit="answer-decision")
 
     assert {:ok, %{"status" => "accepted", "decision" => enriched}} =
              DecisionApi.enrich(

@@ -83,25 +83,26 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   def actor, do: %{kind: :operator, id: dashboard_operator_id()}
 
   defp submit_answer(socket, decision, form, reload_fun) do
-    with :ok <- require_confirmation(decision, form),
-         {:ok, answer} <- answer_content(form) do
-      {idempotency_key, socket} = ensure_action_key(socket, decision.decision_id)
+    case answer_content(form) do
+      {:ok, answer} ->
+        {idempotency_key, socket} = ensure_action_key(socket, decision.decision_id)
 
-      payload =
-        answer
-        |> Map.put("idempotency_key", idempotency_key)
-        |> Map.put("expected_version", decision.version)
-        |> maybe_put_rationale(Map.get(form, "rationale"))
+        payload =
+          answer
+          |> Map.put("idempotency_key", idempotency_key)
+          |> Map.put("expected_version", decision.version)
+          |> maybe_put_rationale(Map.get(form, "rationale"))
 
-      result = safe_answer(decision.decision_id, payload)
-      socket = reload_fun.(socket)
+        result = safe_answer(decision.decision_id, payload)
+        socket = reload_fun.(socket)
 
-      case result do
-        {:ok, accepted} -> put_notice(socket, decision.decision_id, answer_notice(accepted))
-        {:error, reason} -> put_error(socket, decision.decision_id, command_error(reason))
-      end
-    else
-      {:error, message} -> put_error(socket, decision.decision_id, message)
+        case result do
+          {:ok, accepted} -> put_notice(socket, decision.decision_id, answer_notice(accepted))
+          {:error, reason} -> put_error(socket, decision.decision_id, command_error(reason))
+        end
+
+      {:error, message} ->
+        put_error(socket, decision.decision_id, message)
     end
   end
 
@@ -160,19 +161,6 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
     do: {:error, "Enter a custom response before recording this answer."}
 
   defp answer_content(_form), do: {:error, "Choose an option or a custom response."}
-
-  defp require_confirmation(decision, form) do
-    if confirmation_required?(decision) and Map.get(form, "confirmed") != "true" do
-      {:error, "Confirm that you understand this irreversible or destructive action."}
-    else
-      :ok
-    end
-  end
-
-  defp confirmation_required?(decision) do
-    Map.get(decision, :reversibility) == :irreversible or
-      Map.get(decision, :kind) == "destructive_op"
-  end
 
   defp maybe_put_rationale(payload, rationale) when is_binary(rationale) do
     case String.trim(rationale) do

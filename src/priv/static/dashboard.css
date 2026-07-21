@@ -2694,6 +2694,10 @@ html[data-theme="light"] .toggle-icon .moon {
   gap: 1.1rem;
 }
 
+.decision-detail-grid.single-column {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .detail-block + .detail-block {
   margin-top: 1rem;
 }
