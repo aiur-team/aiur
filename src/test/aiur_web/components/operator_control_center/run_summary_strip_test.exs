@@ -38,13 +38,13 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
       })
 
     assert html =~ "Unavailable"
-    assert html =~ "ETA unavailable"
+    refute html =~ "ETA unavailable"
     assert html =~ "Codex"
     assert html =~ "Claude"
     refute html =~ "$0.00"
   end
 
-  test "hides the provider API estimate for subscription accounts" do
+  test "hides spend for subscription accounts" do
     meters =
       update_in(meters_view(), [:cards], fn cards ->
         Enum.map(cards, fn
@@ -64,6 +64,38 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     [codex_html, claude_html] = String.split(html, "Claude", parts: 2)
     refute codex_html =~ "$2.50"
     assert claude_html =~ "$6.25"
+  end
+
+  test "hides aggregate spend unless at least one provider uses an API key" do
+    subscription_meters =
+      update_in(meters_view(), [:cards], fn cards ->
+        Enum.map(cards, &put_in(&1, [:auth_mode, :value], :subscription))
+      end)
+
+    html =
+      render_component(&RunSummaryStrip.run_summary_strip/1, %{
+        run: run_view(),
+        usage: usage_view(),
+        meters: subscription_meters,
+        now: @now
+      })
+
+    refute html =~ "Spend"
+    refute html =~ "$8.75"
+  end
+
+  test "omits the zero-eligible-weight ETA filler" do
+    run = put_in(run_view(), [:eta], %{reason: :zero_eligible_weight, label: "Unavailable — no eligible weight"})
+
+    html =
+      render_component(&RunSummaryStrip.run_summary_strip/1, %{
+        run: run,
+        usage: usage_view(),
+        meters: meters_view(),
+        now: @now
+      })
+
+    refute html =~ "no eligible weight"
   end
 
   defp run_view do

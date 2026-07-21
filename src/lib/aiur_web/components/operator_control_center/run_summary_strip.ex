@@ -10,12 +10,14 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
 
   @spec run_summary_strip(map()) :: Phoenix.LiveView.Rendered.t()
   def run_summary_strip(assigns) do
+    cards = provider_cards(assigns.usage, assigns.meters)
+
     assigns =
       assigns
       |> assign(:run_ready?, Map.get(assigns.run, :state) in [:ready, :stale])
       |> assign(:usage_ready?, Map.get(assigns.usage, :state) in [:ready, :partial, :stale])
-      |> assign(:estimate_total, estimate_total(assigns.usage))
-      |> assign(:cards, provider_cards(assigns.usage, assigns.meters))
+      |> assign(:cards, cards)
+      |> assign(:spend_total, provider_spend_total(cards))
 
     ~H"""
     <section class="run-summary" aria-label="Run summary and provider usage">
@@ -27,13 +29,13 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
         <div class="rs-status-rows">
           <div class="rs-stat"><span class="rs-stat-label">Live</span><span class="rs-stat-val">{count(@run_ready?, @run, :live, "units")}</span></div>
           <div class="rs-stat"><span class="rs-stat-label">Tickets</span><span class="rs-stat-val">{count(@run_ready?, @run, :remaining, "remain")}</span></div>
-          <div class="rs-stat"><span class="rs-stat-label">API estimate</span><span class="rs-stat-val rs-stat-spend">{@estimate_total}</span></div>
+          <div :if={@spend_total} class="rs-stat"><span class="rs-stat-label">Spend</span><span class="rs-stat-val rs-stat-spend">{@spend_total}</span></div>
         </div>
         <div class="rs-progress">
           <div class="rs-limit-top">
             <span class="rs-limit-label">Progress</span>
             <span class="rs-limit-meta">{if @run_ready?, do: @run.elapsed.label <> " elapsed", else: "Unavailable"}</span>
-            <span class="rs-limit-meta">{if @run_ready?, do: @run.eta.label, else: "ETA unavailable"}</span>
+            <span :if={eta = eta_label(@run_ready?, @run)} class="rs-limit-meta">{eta}</span>
           </div>
           <div class="rs-meter"><i style={"width:#{run_percent(@run)}%"}></i></div>
         </div>
@@ -53,7 +55,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       assigns
       |> assign(:usage, provider_usage(assigns.card))
       |> assign(:windows, rate_windows(assigns.card))
-      |> assign(:show_api_estimate?, provider_api_estimate?(assigns.card))
+      |> assign(:show_spend?, provider_spend?(assigns.card))
 
     ~H"""
     <div class="rs-block">
@@ -65,8 +67,8 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
             <span class="rs-stat-label">Tokens</span>
             <span class="rs-stat-val">{if @usage_ready?, do: tokens(@usage), else: "Unavailable"}</span>
           </div>
-          <div :if={@show_api_estimate?} class="rs-stat">
-            <span class="rs-stat-label">API estimate</span>
+          <div :if={@show_spend?} class="rs-stat">
+            <span class="rs-stat-label">Spend</span>
             <span class="rs-stat-val rs-stat-spend">{if @usage_ready?, do: money(@usage), else: "Unavailable"}</span>
           </div>
         </div>
@@ -101,8 +103,8 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   defp provider_usage(%{usage: usage}), do: usage
   defp provider_usage(_card), do: nil
 
-  defp provider_api_estimate?(%{auth_mode: %{value: :subscription}}), do: false
-  defp provider_api_estimate?(_card), do: true
+  defp provider_spend?(%{auth_mode: %{value: :api_key}}), do: true
+  defp provider_spend?(_card), do: false
 
   defp rate_windows(%{windows: windows}) when is_list(windows), do: windows |> Enum.filter(&(&1.kind == :rate_limit)) |> Enum.take(2)
   defp rate_windows(_card), do: []
@@ -114,8 +116,30 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   defp run_percent(%{progress: %{kind: :lower_bound, lower_bound_percent: percent}}) when is_integer(percent), do: percent
   defp run_percent(_run), do: 0
 
-  defp estimate_total(%{state: state, api_equivalent: %{by_currency: amounts}}) when state in [:ready, :partial, :stale], do: money_list(amounts)
-  defp estimate_total(_usage), do: "Unavailable"
+  defp eta_label(true, %{eta: %{reason: :zero_eligible_weight}}), do: nil
+  defp eta_label(true, %{eta: %{label: label}}) when is_binary(label) and label != "", do: label
+  defp eta_label(_ready?, _run), do: nil
+
+  defp provider_spend_total(cards) do
+    amounts =
+      cards
+      |> Enum.filter(&provider_spend?/1)
+      |> Enum.flat_map(fn card -> get_in(card, [:usage, :api_equivalent]) || [] end)
+
+    case amounts do
+      [] -> nil
+      amounts -> money_list(sum_by_currency(amounts))
+    end
+  end
+
+  defp sum_by_currency(amounts) do
+    amounts
+    |> Enum.reduce(%{}, fn %{currency: currency, amount: amount}, totals ->
+      Map.update(totals, currency, Decimal.new(amount), &Decimal.add(&1, Decimal.new(amount)))
+    end)
+    |> Enum.map(fn {currency, amount} -> %{currency: currency, amount: Decimal.to_string(amount, :normal)} end)
+    |> Enum.sort_by(& &1.currency)
+  end
 
   defp tokens(%{tokens: %{total: total}}), do: compact_number(total)
   defp tokens(_usage), do: "Unknown"
