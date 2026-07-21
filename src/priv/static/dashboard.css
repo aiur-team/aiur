@@ -3447,13 +3447,6 @@ html[data-theme="light"] .toggle-icon .moon {
   background: var(--accent);
 }
 
-.rs-status-rows {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 0.6rem 1.4rem;
-  width: 100%;
-}
-
 .rs-progress {
   margin-top: auto;
 }

@@ -25,11 +25,11 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
         <div class="rs-head">
           <img class="rs-logo" src="/aiur-logo.png" alt="" aria-hidden="true" />
           <span class="rs-name">Summary</span>
-        </div>
-        <div class="rs-status-rows">
-          <div class="rs-stat"><span class="rs-stat-label">Live</span><span class="rs-stat-val">{count(@run_ready?, @run, :live, "units")}</span></div>
-          <div class="rs-stat"><span class="rs-stat-label">Tickets</span><span class="rs-stat-val">{count(@run_ready?, @run, :remaining, "remain")}</span></div>
-          <div :if={@spend_total} class="rs-stat"><span class="rs-stat-label">Spend</span><span class="rs-stat-val rs-stat-spend">{@spend_total}</span></div>
+          <div class="rs-head-stats">
+            <div class="rs-stat"><span class="rs-stat-label">Live</span><span class="rs-stat-val">{count(@run_ready?, @run, :live, "units")}</span></div>
+            <div class="rs-stat"><span class="rs-stat-label">Tickets</span><span class="rs-stat-val">{count(@run_ready?, @run, :remaining, "remain")}</span></div>
+            <div :if={@spend_total} class="rs-stat"><span class="rs-stat-label">Spend</span><span class="rs-stat-val rs-stat-spend">{@spend_total}</span></div>
+          </div>
         </div>
         <div class="rs-progress">
           <div class="rs-limit-top">
