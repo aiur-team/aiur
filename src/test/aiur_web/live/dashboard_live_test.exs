@@ -773,20 +773,15 @@ defmodule AiurWeb.DashboardLiveTest do
   end
 
   describe "current-run outcomes (DASH-034)" do
-    test "renders the Finished this run region on the Units destination with the real analytics route" do
+    test "does not render current-run outcomes on the Units destination" do
       view = start_outcomes_dashboard()
       html = push_outcomes(view, healthy_outcomes_snapshot(numbers: [42, 7]))
 
-      assert html =~ "Finished this run"
-      assert html =~ ~s(id="current-run-outcomes")
-      assert html =~ "PR #42"
-      assert html =~ "its-everdred/aiur #42"
-      assert html =~ ~s(href="https://github.com/its-everdred/aiur/pull/42")
-      # The region consumes the shared analytics contract; it never hardcodes the
-      # prototype's aiur.team destination. (Route availability is telemetry-driven
-      # and exercised in the component test.)
-      refute html =~ "aiur.team"
-      refute html =~ "Recent repository merges"
+      refute html =~ "Finished this run"
+      refute html =~ "Current run"
+      refute html =~ "Repository merges from this run"
+      refute html =~ ~s(id="current-run-outcomes")
+      refute html =~ "PR #42"
     end
 
     test "coalesces a burst of outcome updates into a single scheduled flush" do
@@ -804,31 +799,7 @@ defmodule AiurWeb.DashboardLiveTest do
       refute_receive {:outcomes_flush_scheduled, _pid, :flush_current_run_outcomes, _delay}, 0
 
       send(view.pid, :flush_current_run_outcomes)
-      assert render(view) =~ "PR #1"
-    end
-
-    test "retains the last validated outcomes across an unavailable same-run update" do
-      view = start_outcomes_dashboard()
-
-      assert push_outcomes(view, healthy_outcomes_snapshot(numbers: [11], run_id: "run-1")) =~ "PR #11"
-
-      stale_html = push_outcomes(view, unavailable_same_run_outcomes_snapshot("run-1"))
-
-      assert stale_html =~ "Stale outcomes"
-      assert stale_html =~ "PR #11"
-      # Never fall back to a confident empty claim for the retained run.
-      refute stale_html =~ "No repository merges have finished this run yet"
-    end
-
-    test "adopts a new run, dropping prior-run cards under the current heading" do
-      view = start_outcomes_dashboard()
-
-      assert push_outcomes(view, healthy_outcomes_snapshot(numbers: [11], run_id: "run-1")) =~ "PR #11"
-
-      new_html = push_outcomes(view, healthy_outcomes_snapshot(numbers: [22], run_id: "run-2"))
-
-      assert new_html =~ "PR #22"
-      refute new_html =~ "PR #11"
+      refute render(view) =~ ~s(id="current-run-outcomes")
     end
   end
 

@@ -13,7 +13,7 @@ defmodule AiurWeb.OperatorControlCenter.CurrentRunOutcomesTest do
 
     html = render(view)
 
-    assert html =~ "Finished this run"
+    refute html =~ "Finished this run"
     assert html =~ ~s(id="current-run-outcome-merge-42")
     assert html =~ "PR #42"
     assert html =~ "its-everdred/aiur #1138"
@@ -22,15 +22,15 @@ defmodule AiurWeb.OperatorControlCenter.CurrentRunOutcomesTest do
     refute html =~ "Open analytics report"
     refute html =~ "aiur.team"
     # Trimmed to a short label; the legalese association disclaimer is gone.
-    assert html =~ "Repository merges from this run."
+    refute html =~ "Repository merges from this run."
     refute html =~ "authored by"
     refute html =~ "proof of authorship"
   end
 
-  test "healthy-empty renders a confident no-outcomes claim under Finished this run" do
+  test "healthy-empty renders a confident no-outcomes claim without a visible heading" do
     html = render(present([], state: :healthy_empty))
 
-    assert html =~ "Finished this run"
+    refute html =~ "Finished this run"
     assert html =~ "No repository merges have finished this run yet"
   end
 

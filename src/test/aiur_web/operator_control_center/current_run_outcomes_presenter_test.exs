@@ -5,12 +5,12 @@ defmodule AiurWeb.OperatorControlCenter.CurrentRunOutcomesPresenterTest do
   alias AiurWeb.OperatorControlCenter.CurrentRunOutcomesPresenter, as: Presenter
 
   describe "present/3 states" do
-    test "healthy snapshot with qualified outcomes labels the region Finished this run" do
+    test "healthy snapshot with qualified outcomes keeps a neutral heading" do
       view = Presenter.present(healthy_snapshot(outcomes: [outcome(number: 42)]))
 
       assert view.state == :healthy
       assert view.finished_this_run?
-      assert view.heading == "Finished this run"
+      assert view.heading == "Current-run outcomes"
       assert [%{number: 42}] = view.outcomes
     end
 
@@ -19,7 +19,7 @@ defmodule AiurWeb.OperatorControlCenter.CurrentRunOutcomesPresenterTest do
 
       assert view.state == :healthy_empty
       assert view.finished_this_run?
-      assert view.heading == "Finished this run"
+      assert view.heading == "Current-run outcomes"
       assert view.outcomes == []
       assert Presenter.announcement(view) =~ "No repository merges have finished this run yet"
     end

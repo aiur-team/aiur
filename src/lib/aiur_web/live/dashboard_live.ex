@@ -32,7 +32,6 @@ defmodule AiurWeb.DashboardLive do
     AgentLogModal,
     CapacityPresenter,
     ConversationDrawer,
-    CurrentRunOutcomes,
     CurrentRunOutcomesPresenter,
     DashboardShell,
     DecisionEvents,
@@ -641,10 +640,6 @@ defmodule AiurWeb.DashboardLive do
           <UnitsTable.units_table view={@units_view} now={@now} controls={@unit_controls} writable={@writable} />
         </section>
 
-        <CurrentRunOutcomes.current_run_outcomes
-          view={@current_run_outcomes}
-          announcement={@current_run_outcomes_announcement}
-        />
       </div>
 
       <AgentLogModal.agent_log_modal

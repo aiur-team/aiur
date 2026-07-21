@@ -23,13 +23,11 @@ defmodule AiurWeb.OperatorControlCenter.CurrentRunOutcomes do
     <section
       id="current-run-outcomes"
       class="section-card current-run-outcomes-card"
-      aria-labelledby="current-run-outcomes-title"
+      aria-label="Current run outcomes"
     >
       <header class="section-header current-run-outcomes-header">
         <div>
           <p class="section-eyebrow">Current run</p>
-          <h2 id="current-run-outcomes-title" tabindex="-1">{@view.heading}</h2>
-          <p>Repository merges from this run.</p>
         </div>
         <div class="recent-subtitle-actions">
           <span :if={@state == :partial} class="chip attention">Partial</span>
