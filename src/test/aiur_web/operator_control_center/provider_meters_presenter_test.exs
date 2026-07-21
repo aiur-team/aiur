@@ -217,7 +217,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
       announcement = Presenter.announcement(view)
       assert announcement =~ "Codex: healthy"
       assert announcement =~ "Pro plan"
-      assert announcement =~ "Claude: account identity unknown"
+      assert announcement =~ "Claude: no plan or quota available"
     end
   end
 

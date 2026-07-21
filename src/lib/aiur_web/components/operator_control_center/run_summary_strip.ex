@@ -75,7 +75,10 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       </div>
       <div class="rs-limits">
         <div :if={@windows == []} class="rs-limit">
-          <div class="rs-limit-top"><span class="rs-limit-label">Limits</span><span class="rs-limit-meta">{@card.status_label}</span></div>
+          <div class="rs-limit-top">
+            <span class="rs-limit-label">Limits</span>
+            <span :if={provider_status(@card)} class="rs-limit-meta">{provider_status(@card)}</span>
+          </div>
           <div class="rs-meter"><i style="width:0%"></i></div>
         </div>
         <div :for={window <- @windows} class="rs-limit">
@@ -105,6 +108,10 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
 
   defp provider_spend?(%{auth_mode: %{value: :api_key}}), do: true
   defp provider_spend?(_card), do: false
+
+  defp provider_status(%{state: :unknown}), do: nil
+  defp provider_status(%{status_label: label}) when is_binary(label) and label != "", do: label
+  defp provider_status(_card), do: nil
 
   defp rate_windows(%{windows: windows}) when is_list(windows), do: windows |> Enum.filter(&(&1.kind == :rate_limit)) |> Enum.take(2)
   defp rate_windows(_card), do: []

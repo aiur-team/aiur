@@ -276,7 +276,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
   end
 
   defp card_sentence(%{provider_label: label, state: :loading}), do: "#{label}: loading account meters."
-  defp card_sentence(%{provider_label: label, state: :unknown}), do: "#{label}: account identity unknown, no plan or quota available."
+  defp card_sentence(%{provider_label: label, state: :unknown}), do: "#{label}: no plan or quota available."
   defp card_sentence(%{provider_label: label, state: :error} = card), do: "#{label}: provider error, #{failure_phrase(card)}."
   defp card_sentence(%{provider_label: label}), do: "#{label}: account meters unavailable."
 
@@ -303,7 +303,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
   defp backend_label(_snapshot), do: "Backend unknown"
 
   defp status_label(:loading), do: "Loading…"
-  defp status_label(:unknown), do: "Account identity unknown"
+  defp status_label(:unknown), do: ""
   defp status_label(:unavailable), do: "Unavailable"
   defp status_label(:error), do: "Provider error"
   defp status_label(:healthy), do: "Healthy"
