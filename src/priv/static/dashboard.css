@@ -3493,8 +3493,16 @@ html[data-theme="light"] .toggle-icon .moon {
 
 .units-filter-list {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
   gap: 0.4rem;
+}
+
+.units-filter-divider {
+  width: 1px;
+  height: 1.55rem;
+  margin-inline: 0.15rem;
+  background: var(--line);
 }
 
 .units-filter {

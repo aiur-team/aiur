@@ -27,6 +27,12 @@ defmodule AiurWeb.OperatorControlCenter.UnitsFiltersTest do
 
     assert position(html, ~s(phx-value-condition="finished")) <
              position(html, ~s(phx-value-scope="unfinished"))
+
+    assert position(html, ~s(phx-value-scope="unfinished")) <
+             position(html, ~s(class="units-filter-divider"))
+
+    assert html =~ ~s(phx-click="select-all-units-filters")
+    assert html =~ ~s(phx-click="select-no-units-filters")
   end
 
   test "renders lower-bound counts and names unavailable counts without exact zeros" do

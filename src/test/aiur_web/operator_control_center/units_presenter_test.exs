@@ -147,6 +147,15 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
     assert UnitsPresenter.select_scope(selection, "invalid").scope == :live
   end
 
+  test "bulk filter actions select every visible prior filter or none" do
+    assert UnitsPresenter.select_all_filters() == %{
+             scope: :unfinished,
+             conditions: [:active, :alert, :paused, :queued, :finished]
+           }
+
+    assert UnitsPresenter.select_no_filters() == %{scope: :none, conditions: []}
+  end
+
   test "row tokens are stable opaque server lookup keys" do
     alpha = identity("NODE-alpha-private", "41")
     catalog = UnitsPresenter.load(payload(alpha), membership_fun: fn -> membership([member(alpha)]) end, activity_fun: fn -> %{entries: []} end)

@@ -13,7 +13,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsFilters do
   def units_filters(assigns) do
     assigns =
       assigns
-      |> assign(:scopes, Enum.reject(UnitsPolicy.scopes(), &(&1 == :live)))
+      |> assign(:scopes, [:unfinished])
       |> assign(:conditions, Enum.reject(UnitsPolicy.conditions(), &(&1 == :stuck)))
 
     ~H"""
@@ -49,6 +49,25 @@ defmodule AiurWeb.OperatorControlCenter.UnitsFilters do
           phx-value-scope={scope}
         >
           {label(scope)}
+        </button>
+        <span class="units-filter-divider" aria-hidden="true"></span>
+        <button
+          type="button"
+          class="units-filter scope bulk"
+          aria-label="Select all preceding filters"
+          disabled={@count_status == :unavailable}
+          phx-click="select-all-units-filters"
+        >
+          All
+        </button>
+        <button
+          type="button"
+          class="units-filter scope bulk"
+          aria-label="Select no filters"
+          disabled={@count_status == :unavailable}
+          phx-click="select-no-units-filters"
+        >
+          None
         </button>
       </div>
     </div>

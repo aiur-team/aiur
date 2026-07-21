@@ -308,6 +308,14 @@ defmodule AiurWeb.DashboardLive do
 
   def handle_event("toggle-units-condition", _params, socket), do: {:noreply, socket}
 
+  def handle_event("select-all-units-filters", _params, socket) do
+    {:noreply, push_patch(socket, to: units_path(UnitsPresenter.select_all_filters()))}
+  end
+
+  def handle_event("select-no-units-filters", _params, socket) do
+    {:noreply, push_patch(socket, to: units_path(UnitsPresenter.select_no_filters()))}
+  end
+
   def handle_event("reset-units-filters", _params, socket) do
     {:noreply, push_patch(socket, to: units_path(UnitsURL.zero_result_reset()))}
   end
