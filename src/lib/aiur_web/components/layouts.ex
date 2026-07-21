@@ -94,18 +94,27 @@ defmodule AiurWeb.Layouts do
             Hooks.NavToggle = {
               mounted: function () {
                 var shell = this.el.closest(".dashboard-shell");
+                var updateButton = (collapsed) => {
+                  var label = collapsed ? "Show navigation" : "Hide navigation";
+                  this.el.setAttribute("aria-pressed", collapsed ? "true" : "false");
+                  this.el.setAttribute("aria-label", label);
+                  this.el.setAttribute("title", label);
+                };
+                var collapsed = false;
                 try {
                   if (shell && window.localStorage.getItem("aiur-nav-collapsed") === "true") {
                     shell.setAttribute("data-nav-collapsed", "true");
+                    collapsed = true;
                   }
                 } catch (_error) {}
+                updateButton(collapsed);
 
                 this.onClick = () => {
                   if (!shell) return;
                   var collapsed = shell.getAttribute("data-nav-collapsed") === "true";
                   var next = collapsed ? "false" : "true";
                   shell.setAttribute("data-nav-collapsed", next);
-                  this.el.setAttribute("aria-pressed", next);
+                  updateButton(next === "true");
                   try {
                     window.localStorage.setItem("aiur-nav-collapsed", next);
                   } catch (_error) {}

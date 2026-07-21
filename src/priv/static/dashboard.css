@@ -1534,6 +1534,10 @@ textarea:focus-visible,
   margin-left: auto;
 }
 
+.brand-row #nav-toggle {
+  margin-left: -0.15rem;
+}
+
 .tool-btn.icon-only {
   gap: 0;
   padding: 0;
@@ -1555,6 +1559,21 @@ textarea:focus-visible,
   display: block;
   width: 16px;
   height: 16px;
+}
+
+.nav-toggle-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nav-toggle-icon svg {
+  width: 17px;
+  height: 17px;
+}
+
+.nav-show-icon {
+  display: none;
 }
 
 .toggle-icon .moon {
@@ -1582,6 +1601,17 @@ html[data-theme="light"] .toggle-icon .moon {
    reopen) stays, and the sidebar shrinks to reclaim space for content. */
 .dashboard-shell[data-nav-collapsed="true"] .shell-nav-sidebar {
   display: none;
+}
+
+.dashboard-shell[data-nav-collapsed="true"] .brand-mini-logo,
+.dashboard-shell[data-nav-collapsed="true"] .brand-wordmark,
+.dashboard-shell[data-nav-collapsed="true"] .brand-live,
+.dashboard-shell[data-nav-collapsed="true"] .nav-hide-icon {
+  display: none;
+}
+
+.dashboard-shell[data-nav-collapsed="true"] .nav-show-icon {
+  display: block;
 }
 
 @media (min-width: 960px) {
@@ -1625,27 +1655,10 @@ html[data-theme="light"] .toggle-icon .moon {
   background: currentColor;
 }
 
-.status-badge-live {
-  display: none;
-  color: var(--good-ink);
-  background: var(--good-soft);
-  border-color: var(--good-line);
-}
-
-.status-badge-live .status-badge-dot {
-  background: var(--good);
-  box-shadow: 0 0 8px var(--good);
-  animation: pulse 2s ease-in-out infinite;
-}
-
 .status-badge-offline {
   color: var(--attention-ink);
   background: var(--attention-soft);
   border-color: var(--attention-line);
-}
-
-[data-phx-main].phx-connected .status-badge-live {
-  display: inline-flex;
 }
 
 [data-phx-main].phx-connected .status-badge-offline {
@@ -3475,28 +3488,7 @@ html[data-theme="light"] .toggle-icon .moon {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
-  gap: 0.7rem 1.6rem;
   margin-top: 1rem;
-}
-
-.units-filter-group legend {
-  margin-bottom: 0.4rem;
-}
-
-.units-filter-group {
-  min-width: 0;
-  padding: 0;
-  border: 0;
-}
-
-.units-filter-group legend {
-  margin-bottom: 0.35rem;
-  color: var(--muted);
-  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
 }
 
 .units-filter-list {

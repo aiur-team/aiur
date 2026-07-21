@@ -21,9 +21,6 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
         <div class="brand-row">
           <img class="brand-mini-logo" src="/aiur-logo.png" alt="Aiur" />
           <span class="brand-wordmark"><b>aiur</b></span>
-          <span class="status-badge status-badge-live brand-live">
-            <span class="status-badge-dot"></span>Live
-          </span>
           <span class="status-badge status-badge-offline brand-live">
             <span class="status-badge-dot"></span>Offline
           </span>
@@ -41,6 +38,24 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
               </svg>
               <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
+              </svg>
+            </span>
+          </button>
+          <button
+            id="nav-toggle"
+            class="tool-btn icon-only"
+            type="button"
+            phx-hook="NavToggle"
+            aria-label="Hide navigation"
+            aria-pressed="false"
+            title="Hide navigation"
+          >
+            <span class="nav-toggle-icon" aria-hidden="true">
+              <svg class="nav-hide-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M15 18l-6-6 6-6" />
+              </svg>
+              <svg class="nav-show-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 18l6-6-6-6" />
               </svg>
             </span>
           </button>

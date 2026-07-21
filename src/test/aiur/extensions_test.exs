@@ -929,9 +929,9 @@ defmodule Aiur.ExtensionsTest do
     dashboard_css_conn = get(build_conn(), "/dashboard.css")
     dashboard_css = response(dashboard_css_conn, 200)
     assert dashboard_css =~ ":root {"
-    assert dashboard_css =~ ".status-badge-live"
-    assert dashboard_css =~ "[data-phx-main].phx-connected .status-badge-live"
+    refute dashboard_css =~ ".status-badge-live"
     assert dashboard_css =~ "[data-phx-main].phx-connected .status-badge-offline"
+    assert dashboard_css =~ ".dashboard-shell[data-nav-collapsed=\"true\"] .nav-show-icon"
     assert dashboard_css =~ ".live-button[data-live=\"false\"]"
     assert Plug.Conn.get_resp_header(dashboard_css_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
 
@@ -1060,7 +1060,7 @@ defmodule Aiur.ExtensionsTest do
     assert html =~ "Operator Control Center"
     assert html =~ "1100"
     assert html =~ "1101"
-    assert html =~ "Progress unavailable"
+    assert html =~ "Progress"
     assert html =~ "Runtime"
     assert html =~ "Live"
     assert html =~ "Offline"
@@ -1070,8 +1070,10 @@ defmodule Aiur.ExtensionsTest do
     refute html =~ "setInterval(refreshRuntimeClocks"
     refute html =~ "Refresh now"
     refute html =~ "Transport"
-    assert html =~ "status-badge-live"
+    refute html =~ "status-badge-live"
     assert html =~ "status-badge-offline"
+    assert html =~ ~s(id="nav-toggle")
+    assert html =~ ~s(phx-hook="NavToggle")
 
     updated_snapshot =
       put_in(snapshot.running, [
