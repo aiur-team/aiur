@@ -229,6 +229,79 @@ defmodule Aiur.DecisionAttentionTest do
            end)
   end
 
+  test "startup clears a legacy alert whose canonical Decision is already dismissed" do
+    identifier = "DECISION-IMPORT-DISMISSED-#{System.unique_integer([:positive])}"
+    test_pid = self()
+
+    loader = fn ->
+      [
+        %{
+          identifier: identifier,
+          slug: "scope-question",
+          question: "Already handled?",
+          topic: "ticket.#{identifier}.agent.attention.scope-question",
+          source_created_at: ~U[2026-07-12 01:00:00Z]
+        }
+      ]
+    end
+
+    projector = fn _payload, _opts ->
+      {:ok,
+       %{
+         status: :duplicate,
+         decision: %{decision_id: "dec_dismissed", version: 2, decision_status: :dismissed}
+       }}
+    end
+
+    {pid, _name} =
+      start_attention(
+        attention_loader: loader,
+        decision_projector: projector,
+        alert_emitter: fn attention -> send(test_pid, {:decision_alert, attention}) end,
+        resolution_emitter: fn attention -> send(test_pid, {:decision_resolved, attention}) end
+      )
+
+    assert eventually(fn -> :sys.get_state(pid).importing? == false end)
+    assert_receive {:decision_resolved, %{slug: "scope-question"}}
+    assert :sys.get_state(pid).attentions == %{}
+    assert SubscriptionStore.snapshot(identifier).open_attentions == []
+
+    send(pid, {:reask, {identifier, "scope-question"}})
+    refute_receive {:decision_alert, _}
+  end
+
+  test "a repeated live alert does not reopen a dismissed canonical Decision" do
+    identifier = "DECISION-LIVE-DISMISSED-#{System.unique_integer([:positive])}"
+    issue = %Issue{identifier: identifier, title: "Handled decision"}
+    test_pid = self()
+
+    {_pid, name} =
+      start_attention(
+        decision_projector: fn _payload, _opts ->
+          {:ok,
+           %{
+             status: :duplicate,
+             decision: %{decision_id: "dec_dismissed", version: 2, decision_status: :dismissed}
+           }}
+        end,
+        alert_emitter: fn attention -> send(test_pid, {:decision_alert, attention}) end
+      )
+
+    assert {:ok, %{status: :duplicate}} =
+             DecisionAttention.open_with_decision(
+               name,
+               issue,
+               nil,
+               nil,
+               "scope-question",
+               "Already handled?",
+               []
+             )
+
+    refute_receive {:decision_alert, _}
+    assert SubscriptionStore.snapshot(identifier).open_attentions == []
+  end
+
   test "startup import bounds projection fanout and restored timers" do
     prefix = "DECISION-IMPORT-LIMIT-#{System.unique_integer([:positive])}"
     test_pid = self()

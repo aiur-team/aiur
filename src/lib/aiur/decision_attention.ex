@@ -152,7 +152,14 @@ defmodule Aiur.DecisionAttention do
 
     case project_attention(state.decision_projector, attention, opts) do
       {:ok, result} ->
-        {:reply, {:ok, result}, register_attention(state, identifier, key, attention)}
+        next_state =
+          if actionable_decision?(result) do
+            register_attention(state, identifier, key, attention)
+          else
+            clear_attention(state, identifier, key, attention)
+          end
+
+        {:reply, {:ok, result}, next_state}
 
       {:error, _reason} = error ->
         {:reply, error, state}
@@ -366,11 +373,18 @@ defmodule Aiur.DecisionAttention do
     ]
 
     case project_attention(state.decision_projector, attention, opts) do
-      {:ok, _result} ->
+      {:ok, result} when is_map(result) ->
         :ok = SubscriptionStore.attach(identifier)
-        :ok = SubscriptionStore.add_attention(identifier, slug)
-        next_attention = schedule_reask(attention, state.reask_interval_ms)
-        %{state | attentions: Map.put(state.attentions, key, next_attention)}
+
+        if actionable_decision?(result) do
+          :ok = SubscriptionStore.add_attention(identifier, slug)
+          next_attention = schedule_reask(attention, state.reask_interval_ms)
+          %{state | attentions: Map.put(state.attentions, key, next_attention)}
+        else
+          :ok = SubscriptionStore.resolve_attention(identifier, slug)
+          state.resolution_emitter.(attention)
+          state
+        end
 
       {:error, reason} ->
         Logger.warning("decision_attention legacy_import_rejected issue_identifier=#{identifier} slug=#{slug} reason=#{inspect(reason)}")
@@ -384,6 +398,23 @@ defmodule Aiur.DecisionAttention do
   end
 
   defp maybe_put_source_created_at(payload, _source_created_at), do: payload
+
+  # A legacy alert can outlive its canonical Decision in the append-only alert
+  # feed. Never restore (or re-open) a reminder after that Decision has already
+  # been dismissed or resolved.
+  defp actionable_decision?(%{decision: decision}) when is_map(decision) do
+    Map.get(decision, :decision_status, Map.get(decision, "decision_status", :open)) == :open or
+      Map.get(decision, "decision_status") == "open"
+  end
+
+  defp actionable_decision?(_result), do: true
+
+  defp clear_attention(state, identifier, key, attention) do
+    cancel_timer(Map.get(state.attentions, key))
+    :ok = SubscriptionStore.attach(identifier)
+    :ok = SubscriptionStore.resolve_attention(identifier, attention.slug)
+    %{state | attentions: Map.delete(state.attentions, key)}
+  end
 
   defp ticket_context(issue) do
     %{

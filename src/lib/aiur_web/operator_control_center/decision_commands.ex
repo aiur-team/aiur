@@ -6,7 +6,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
 
   import Phoenix.Component, only: [assign: 3]
 
-  alias Aiur.{DecisionStore, Orchestrator}
+  alias Aiur.{DecisionAttention, DecisionStore, Issue, Orchestrator}
   alias AiurWeb.Endpoint
   alias Phoenix.LiveView.Socket
 
@@ -37,6 +37,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
         result = safe_dismiss(decision_id)
 
         if match?({:ok, %{status: :accepted}}, result) do
+          resolve_legacy_attention(decision)
           notify_dismissal(decision)
         end
 
@@ -183,6 +184,15 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
     :exit, _reason -> {:error, :store_unavailable}
   end
 
+  defp resolve_legacy_attention(%{legacy_attention: %{slug: slug}, ticket: ticket}) when is_binary(slug) do
+    issue = %Issue{identifier: ticket.identifier, title: ticket.title, url: ticket.url}
+    DecisionAttention.resolve(decision_attention(), issue, slug)
+  catch
+    :exit, _reason -> {:error, :attention_registry_unavailable}
+  end
+
+  defp resolve_legacy_attention(_decision), do: :ok
+
   defp notify_dismissal(decision) do
     Orchestrator.send_operator_message(orchestrator(), decision.ticket.identifier, %{
       kind: :text,
@@ -320,5 +330,6 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   defp command_error(_reason), do: "The command was rejected. Canonical state was refreshed."
 
   defp decision_store, do: Endpoint.config(:decision_store) || DecisionStore
+  defp decision_attention, do: Endpoint.config(:decision_attention) || DecisionAttention
   defp orchestrator, do: Endpoint.config(:orchestrator) || Orchestrator
 end
