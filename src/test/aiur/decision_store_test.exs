@@ -1859,6 +1859,16 @@ defmodule Aiur.DecisionStoreTest do
       item = correlated_queue_item(decision, action, attempt_id, 93)
       assert {:ok, :accepted} = DecisionStore.record_delivery(item, pid)
 
+      assert {:ok, %{decision: advanced}} =
+               request(
+                 pid,
+                 answerable_request("answer-lifecycle")
+                 |> Map.merge(%{"question" => "Deploy now with the latest context?", "version" => 2})
+               )
+
+      assert advanced.version == 2
+      assert Aiur.Decision.active_answer(advanced).action_id == action.action_id
+
       :ok = Exchange.subscribe("ticket.979.agent.decision.acknowledged")
       :ok = Exchange.subscribe("ticket.979.agent.decision.resolved")
 
