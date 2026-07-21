@@ -26,11 +26,12 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter.LogEntry do
           label: String.t(),
           source: :exchange | :issue_log,
           occurred_at: DateTime.t() | nil,
-          observed_at: DateTime.t()
+          observed_at: DateTime.t(),
+          details: map()
         }
 
   @enforce_keys [:kind, :label, :source, :observed_at]
-  defstruct [:kind, :label, :source, :occurred_at, :observed_at]
+  defstruct [:kind, :label, :source, :occurred_at, :observed_at, details: %{}]
 end
 
 defmodule AiurWeb.BuildOrder.TicketContextPresenter.View do
@@ -282,13 +283,14 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
       entry.source,
       entry.label,
       entry.occurred_at,
-      entry.observed_at
+      entry.observed_at,
+      entry.details
     )
   end
 
   defp log_entry(_entry), do: []
 
-  defp normalized_log_entry(kind, source, label, occurred_at, observed_at)
+  defp normalized_log_entry(kind, source, label, occurred_at, observed_at, details)
        when kind in [
               :agent_attention,
               :agent_decision,
@@ -307,12 +309,32 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
         label: log_label(kind, label),
         source: source,
         occurred_at: datetime(occurred_at),
-        observed_at: observed_at
+        observed_at: observed_at,
+        details: log_details(kind, details)
       }
     ]
   end
 
-  defp normalized_log_entry(_kind, _source, _label, _occurred_at, _observed_at), do: []
+  defp normalized_log_entry(_kind, _source, _label, _occurred_at, _observed_at, _details), do: []
+
+  defp log_details(:progress, details) when is_map(details) do
+    case map_value(details, :percent) do
+      percent when is_integer(percent) and percent in 0..100 -> %{percent: percent}
+      _ -> %{}
+    end
+  end
+
+  defp log_details(:agent_attention, details) when is_map(details) do
+    %{}
+    |> maybe_put_detail(:severity, map_value(details, :severity), &(&1 in [:info, :warning, :critical]))
+    |> maybe_put_detail(:needs_attention, map_value(details, :needs_attention), &is_boolean/1)
+  end
+
+  defp log_details(_kind, _details), do: %{}
+
+  defp maybe_put_detail(details, key, value, validator) do
+    if validator.(value), do: Map.put(details, key, value), else: details
+  end
 
   defp log_label(:agent_attention, _label), do: "Agent attention updated"
   defp log_label(:agent_decision, _label), do: "Agent decision updated"
@@ -492,7 +514,8 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
         entry.source,
         entry.label,
         entry.occurred_at,
-        entry.observed_at
+        entry.observed_at,
+        entry.details
       )
 
   defp normalized_view_log_entry(_entry), do: []
