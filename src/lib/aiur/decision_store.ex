@@ -1498,6 +1498,7 @@ defmodule Aiur.DecisionStore do
 
   defp lifecycle_version(_decision, %DecisionAnswer{decision_version: version}), do: version
   defp lifecycle_version(_decision, %DecisionRevision{decision_version: version}), do: version
+
   defp lifecycle_version(decision, %{action_id: action_id}) do
     case Decision.answer_for_action(decision, action_id) do
       %DecisionAnswer{decision_version: version} -> version

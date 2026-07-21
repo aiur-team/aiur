@@ -83,7 +83,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
       <div class="bo-grid-viewport" data-bo-grid-viewport tabindex="0" role="group" aria-label="Build order graph canvas">
         <div class="bo-grid-scale" data-bo-grid-scale>
           <div class="bo-grid-stage" data-bo-grid-stage>
-            <div class="bo-grid-lanes" style={@columns_style} role="row" aria-label="Epics">
+            <div class="bo-grid-lanes" style={@columns_style}>
               <div class="bo-grid-corner" aria-hidden="true"></div>
               <div :for={col <- @columns} class="bo-epic" role="columnheader">
                 <BuildOrderEpicIcon.build_order_epic_icon lane={col.lane} class="bo-epic-icon" colored />

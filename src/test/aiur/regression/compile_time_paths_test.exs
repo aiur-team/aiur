@@ -59,6 +59,9 @@ defmodule Aiur.Regression.CompileTimePathsTest do
       "@external_resource @phoenix_html_js_path",
       "@external_resource @phoenix_js_path",
       "@external_resource @phoenix_live_view_js_path"
+    ],
+    "aiur_web/components/operator_control_center/build_order_epic_icon.ex" => [
+      "@external_resource path"
     ]
   }
 
