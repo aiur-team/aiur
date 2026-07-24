@@ -4,6 +4,7 @@
   "title": "Analytics optimizations",
   "subtitle": "Unblock CI, land the fleet-leverage levers, and split analytics into live-session and build-order scopes",
   "repository": "its-everdred/aiur",
+  "root_number": 9001,
   "plan_version": 1,
   "permanent": false,
   "workstreams": [
