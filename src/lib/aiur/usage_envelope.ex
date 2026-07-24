@@ -446,7 +446,7 @@ defmodule Aiur.UsageEnvelope do
     end
   end
 
-  defp valid_cache_write_duration(:claude, duration) when duration in [:five_minutes, :one_hour], do: {:ok, duration}
+  defp valid_cache_write_duration(:claude, duration) when duration in [:five_minutes, :one_hour, :not_applicable], do: {:ok, duration}
   defp valid_cache_write_duration(:codex, :not_applicable), do: {:ok, :not_applicable}
   defp valid_cache_write_duration(_provider, _duration), do: {:error, :invalid_cache_write_duration}
 
