@@ -219,6 +219,63 @@ defmodule Aiur.CodingAgentTest do
     end
   end
 
+  describe "generic model aliases" do
+    test "codex gets a derived family alias per tier because its CLI has none" do
+      aliases = CodingAgent.model_aliases("codex")
+      assert "sol" in aliases
+      assert "terra" in aliases
+      assert "luna" in aliases
+    end
+
+    test "claude has no derived aliases — its own CLI resolves opus/sonnet/haiku" do
+      # Re-pointing `opus` at whichever version this registry lists would
+      # reintroduce exactly the staleness the alias exists to avoid.
+      assert CodingAgent.model_aliases("claude") == []
+      assert CodingAgent.model_aliases("claude-repl") == []
+    end
+
+    test "a generic codex tag resolves to the newest version in that family" do
+      resolved = CodingAgent.resolve_model("codex", "sol")
+      assert resolved != "sol"
+      assert String.ends_with?(resolved, "-sol")
+      assert resolved == Enum.find(CodingAgent.backends()["codex"].models, &String.ends_with?(&1, "-sol"))
+    end
+
+    test "an explicitly pinned codex model still pins" do
+      assert CodingAgent.resolve_model("codex", "gpt-5.4") == "gpt-5.4"
+    end
+
+    test "a claude alias passes through untouched so the claude CLI resolves it" do
+      assert CodingAgent.resolve_model("claude", "opus") == "opus"
+      assert CodingAgent.resolve_model("claude-repl", "opus") == "opus"
+    end
+
+    test "a model this build has never heard of passes through rather than being swapped" do
+      # aiur's list lags the provider by design, so an unknown model is more
+      # likely new than wrong. SessionLifecycle surfaces it to the Executor.
+      assert CodingAgent.resolve_model("codex", "gpt-9.9-nova") == "gpt-9.9-nova"
+      assert CodingAgent.resolve_model("codex", nil) == nil
+    end
+
+    test "known_model?/2 covers both aliases and pinned versions, and nothing else" do
+      assert CodingAgent.known_model?("codex", "sol")
+      assert CodingAgent.known_model?("codex", "gpt-5.4")
+      assert CodingAgent.known_model?("claude", "opus")
+      refute CodingAgent.known_model?("codex", "gpt-9.9-nova")
+      refute CodingAgent.known_model?("codex", nil)
+    end
+
+    test "override_labels/1 seeds the alias tags ahead of the pinned ones" do
+      labels = CodingAgent.override_labels(["codex"])
+
+      assert "model:codex-sol" in labels
+      assert "model:codex-gpt-5.6-sol" in labels
+
+      assert Enum.find_index(labels, &(&1 == "model:codex-sol")) <
+               Enum.find_index(labels, &(&1 == "model:codex-gpt-5.6-sol"))
+    end
+  end
+
   describe "complexity_level/1" do
     test "highest well-formed complexity wins" do
       assert CodingAgent.complexity_level(issue(["complexity:2", "complexity:5"])) == 5

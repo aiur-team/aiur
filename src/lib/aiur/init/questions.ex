@@ -180,8 +180,10 @@ defmodule Aiur.Init.Questions do
     routing_value(backend, model, effort)
   end
 
+  # Generic family tags lead the list, so the routing table an Executor builds
+  # here defaults to "newest in this family" instead of a version that expires.
   defp prompt_routing_model(io, backend, level) do
-    models = CodingAgent.backends() |> Map.get(backend, %{}) |> Map.get(:models, [])
+    models = CodingAgent.seedable_models(backend)
 
     case io.select.("complexity:#{level} #{backend} model", ["default model" | models], "default model") |> Format.value_of() do
       "default model" -> nil

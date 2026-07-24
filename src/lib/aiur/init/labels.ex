@@ -5,6 +5,7 @@ defmodule Aiur.Init.Labels do
   the required scope.
   """
 
+  alias Aiur.CodingAgent
   alias Aiur.GitHub.Labels
   alias Aiur.Init.Format
   alias Aiur.Init.Questions
@@ -22,6 +23,7 @@ defmodule Aiur.Init.Labels do
          existing = Enum.uniq(existing ++ required),
          :ok <- maybe_create_complexity_labels(io, deps, tracker, existing),
          :ok <- maybe_create_model_labels(io, deps, tracker, existing, kinds),
+         :ok <- maybe_offer_discovered_model_labels(io, deps, tracker, existing, kinds),
          :ok <- maybe_create_effort_labels(io, deps, tracker, existing) do
       maybe_create_remote_label(io, deps, tracker, existing, kinds)
     end
@@ -90,6 +92,59 @@ defmodule Aiur.Init.Labels do
         print_label_list(io, labels)
         Format.print_hint(io, "Optional: These will override complexity label model choices.")
         create_or_skip(io, deps, tracker, labels, missing, "Create the model labels?", true)
+    end
+  end
+
+  # Stage 3a — model tags for models the installed CLIs advertise but this build
+  # of aiur has no tag for yet. Asking each backend's own CLI is what stops the
+  # model list from being hand-maintained: a model released after this aiur was
+  # built shows up here with no code change. Always an offer, never a silent
+  # creation, and silent in the other direction too — when discovery can't
+  # answer (CLI absent, offline, unreadable reply) `init` continues without it.
+  defp maybe_offer_discovered_model_labels(io, deps, tracker, existing, kinds) do
+    case discovered_model_labels(deps, kinds) -- existing do
+      [] ->
+        :ok
+
+      missing ->
+        io.puts.("\nYour installed agent CLIs report models aiur has no tags for yet:")
+        print_label_list(io, missing)
+        Format.print_hint(io, "Optional: discovered from the installed CLIs, so these are current even if this aiur build predates them.")
+        create_or_skip(io, deps, tracker, missing, missing, "Create the newly discovered model labels?", true)
+    end
+  end
+
+  # One probe per backend family — `claude` and `claude-repl` share a CLI, so
+  # the answer is reused rather than paying a second app-server start. Which
+  # of those models is "new" is still decided per backend, against that
+  # backend's own registry entry.
+  defp discovered_model_labels(deps, kinds) do
+    {labels, _cache} =
+      Enum.flat_map_reduce(kinds, %{}, fn backend, cache ->
+        {discovered, cache} = discover_models(deps, backend, cache)
+        unknown = Enum.reject(discovered, &CodingAgent.known_model?(backend, &1))
+
+        {Enum.map(unknown, &"model:#{backend}-#{&1}"), cache}
+      end)
+
+    Enum.uniq(labels)
+  end
+
+  defp discover_models(deps, backend, cache) do
+    family = CodingAgent.family_for(backend) || backend
+
+    case Map.fetch(cache, family) do
+      {:ok, cached} ->
+        {cached, cache}
+
+      :error ->
+        discovered =
+          case deps.discover_models.(backend) do
+            {:ok, models} -> models
+            {:error, _reason} -> []
+          end
+
+        {discovered, Map.put(cache, family, discovered)}
     end
   end
 

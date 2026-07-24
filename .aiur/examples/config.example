@@ -25,7 +25,7 @@ agent:
   # max_turns_by_complexity: {1: 4, 2: 8, 3: 12, 4: 20, 5: 30}  # overrides max_turns for labeled tickets
   max_agent_duration_minutes: {{MAX_AGENT_DURATION}}  # safety checkpoint; 0 = never auto-pause
   # synthetic_load_process_cap: null     # per-agent cap for `yes`/`stress` load generators; null = cores/4, 0 = disabled
-  routing: {{ROUTING}}                   # complexity:<N> label -> backend[:model[:effort]], e.g. codex:gpt-5.6-terra:high
+  routing: {{ROUTING}}                   # complexity:<N> label -> backend[:model[:effort]]; prefer a family alias (codex:terra:high, claude:opus) over a pinned version, which expires
 {{RATE_LIMIT_FALLBACK}}  # opt-in default-ticket fallback order; explicit labels/routing are never changed
   claude:
     command: aiur-claude
