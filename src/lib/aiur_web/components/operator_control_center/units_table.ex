@@ -24,9 +24,24 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
     <div class="units-results" aria-describedby="units-filter-note">
       <div :if={@status == :loading} class="units-state empty-state">Loading Units…</div>
 
-      <div :if={@status == :unavailable} class="units-state error-card" role="alert">
-        <h3>Units unavailable</h3>
-        <p>{@message || "The Units catalog cannot be read right now."}</p>
+      <div :if={@status == :unavailable} class="units-table-wrap">
+        <table class="units-table">
+          <caption class="sr-only">Units catalog</caption>
+          <thead>
+            <tr>
+              <th class="ut-col-id">ID</th>
+              <th class="ut-col-unit">Unit</th>
+              <th class="ut-col-ticket">Ticket</th>
+              <th class="ut-col-latest">Latest</th>
+              <th class="ut-col-cmd">Command</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="units-row units-empty-row">
+              <td class="units-empty-cell" colspan="5">No active agents</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
 
       <div :if={@status == :empty} class="units-state empty-state">
@@ -107,14 +122,24 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
                 </div>
                 <span class="ut-pbar" aria-hidden="true"><i class={progress_tone(row)} style={"width:#{progress_width(row.progress)}%"}></i></span>
                 <div class="ut-latest-meta mono num">
-                  <span>{progress_pct(row.progress)}</span>
-                  <span>{runtime(row, @now)}</span>
+                  <span><span class="sr-only">Progress </span>{progress_pct(row.progress)}</span>
+                  <span><span class="sr-only">Runtime </span>{runtime(row, @now)}</span>
                 </div>
               </td>
 
               <td data-label="Command" class="ut-cmd-cell">
                 <nav class="units-actions" aria-label={"Actions for #{identity_label(row.identity)}"}>
                   <.unit_control token={token} row={row} control={Map.get(@controls, token)} writable={@writable} />
+                  <button
+                    :if={running?(row)}
+                    id={"units-agent-log-#{token}"}
+                    type="button"
+                    class="units-icon-action"
+                    phx-click="show-agent-log"
+                    phx-value-unit={token}
+                    aria-label={"Read agent log for #{identity_label(row.identity)}"}
+                    title="Read agent log"
+                  >{icon(:log)}</button>
                   <button
                     id={"units-conversation-#{token}"}
                     type="button"
@@ -218,6 +243,13 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
 
   defp icon(:warning),
     do: Phoenix.HTML.raw(~s(<svg #{@icon_svg}><path d="M12 3 2.8 20h18.4L12 3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>))
+
+  defp icon(:log),
+    do: Phoenix.HTML.raw(~s(<svg #{@icon_svg}><path d="M8 6h11M8 12h11M8 18h11"/><path d="M4 6h.01M4 12h.01M4 18h.01"/></svg>))
+
+  # A unit is running when its correlated fleet entry is in the running bucket;
+  # only then is there a live agent log to read.
+  defp running?(row), do: get_in(row, [:runtime, :bucket]) == :running
 
   # Remote control deep-link, present only when the agent exposes one.
   defp remote_control_url(%{live_conversation: %{remote_control_url: url}}) when is_binary(url) and url != "", do: url

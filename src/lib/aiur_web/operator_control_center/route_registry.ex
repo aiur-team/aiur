@@ -39,7 +39,7 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
       id: :analytics,
       label: "Analytics",
       icon: "↗",
-      description: "Telemetry analytics are unavailable.",
+      description: "Telemetry analytics are coming soon.",
       path: "/analytics",
       type: :document,
       owner: :document,

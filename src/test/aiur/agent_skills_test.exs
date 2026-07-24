@@ -50,8 +50,16 @@ defmodule Aiur.AgentSkillsTest do
     remote_workspace = Path.join(ws, "remote workspace")
     script = AgentSkills.remote_install_script(remote_workspace)
 
-    assert {_output, 0} = System.cmd("bash", ["-c", script], stderr_to_stdout: true)
-    assert {_output, 0} = System.cmd("bash", ["-c", script], stderr_to_stdout: true)
+    # Execute the script from a file rather than a single `bash -c <script>`
+    # argv: the bundled skills push the script past Linux MAX_ARG_STRLEN
+    # (131 KB), so an inline argv fails with "Argument list too long". The real
+    # remote path pipes the same script over SSH stdin, which is likewise
+    # immune to the argv cap.
+    script_path = Path.join(ws, "remote-install.sh")
+    File.write!(script_path, script)
+
+    assert {_output, 0} = System.cmd("bash", [script_path], stderr_to_stdout: true)
+    assert {_output, 0} = System.cmd("bash", [script_path], stderr_to_stdout: true)
 
     assert File.exists?(Path.join([remote_workspace, ".claude", "skills", "design-import", "SKILL.md"]))
     assert File.exists?(Path.join([remote_workspace, ".claude", "skills", "design-import", "agents", "openai.yaml"]))

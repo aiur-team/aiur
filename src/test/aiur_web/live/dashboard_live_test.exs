@@ -477,8 +477,7 @@ defmodule AiurWeb.DashboardLiveTest do
     payload = Presenter.state_payload(orchestrator_name, 1_000)
     html = render_payload(payload)
 
-    assert html =~ "Units unavailable"
-    assert html =~ "Units catalog is unavailable"
+    assert html =~ "No active agents"
     refute html =~ "MT-900"
     refute html =~ "Idle review"
   end
@@ -2913,25 +2912,30 @@ defmodule AiurWeb.DashboardLiveTest do
       units_activity_fun: fn -> units_activity(identity) end
     )
 
-    {:ok, view, html} = live(build_conn(), "/?v=1&scope=all&conditions=active")
+    # The compact filter bar exposes a single `unfinished` scope toggle plus the
+    # bulk All/None controls; scope/condition state still round-trips through the
+    # URL exactly as before.
+    {:ok, view, html} = live(build_conn(), "/?v=1&scope=unfinished&conditions=active")
 
     assert html =~ "Responsive Units interface"
-    assert has_element?(view, ~s(button[phx-value-scope="all"][aria-pressed="true"]))
+    assert has_element?(view, ~s(button[phx-value-scope="unfinished"][aria-pressed="true"]))
     assert has_element?(view, ~s(button[phx-value-condition="active"][aria-pressed="true"]))
 
     view
     |> element(~s(button[phx-value-condition="paused"]))
     |> render_click()
 
-    assert_patch(view, "/?v=1&scope=all&conditions=active%2Cpaused")
+    assert_patch(view, "/?v=1&scope=unfinished&conditions=active%2Cpaused")
     assert has_element?(view, ~s(button[phx-value-condition="active"][aria-pressed="true"]))
     assert has_element?(view, ~s(button[phx-value-condition="paused"][aria-pressed="true"]))
 
+    # Bulk "None" clears scope + conditions to the empty selection, which yields
+    # zero rows and surfaces the named reset affordance.
     view
-    |> element(~s(button[phx-value-scope="none"]))
+    |> element(~s(button[phx-click="select-no-units-filters"]))
     |> render_click()
 
-    assert_patch(view, "/?v=1&scope=none&conditions=active%2Cpaused")
+    assert_patch(view, "/?v=1&scope=none")
     assert has_element?(view, ~s(button[phx-click="reset-units-filters"]), "Reset Units filters")
 
     view
@@ -2939,13 +2943,13 @@ defmodule AiurWeb.DashboardLiveTest do
     |> render_click()
 
     assert_patch(view, "/?v=1")
-    assert has_element?(view, ~s(button[phx-value-scope="live"][aria-pressed="true"]))
+    refute has_element?(view, ~s(button[phx-value-scope="unfinished"][aria-pressed="true"]))
     assert has_element?(view, "#units-rows .units-row")
 
     invalid_html = render_patch(view, "/?v=999&scope=none&conditions=finished")
     assert invalid_html =~ "Responsive Units interface"
     assert_patch(view, "/?v=1")
-    assert has_element?(view, ~s(button[phx-value-scope="live"][aria-pressed="true"]))
+    refute has_element?(view, ~s(button[phx-value-scope="unfinished"][aria-pressed="true"]))
     refute has_element?(view, ~s(button[phx-value-condition="finished"][aria-pressed="true"]))
   end
 
@@ -2986,7 +2990,10 @@ defmodule AiurWeb.DashboardLiveTest do
     send(view.pid, :reload_payload)
     _state = :sys.get_state(view.pid)
 
-    assert has_element?(view, ~s(button[phx-value-scope="all"][aria-pressed="true"]))
+    # `all` scope has no dedicated button in the compact filter bar, but the
+    # URL-provided selection persists across catalog updates — proven by the
+    # now-terminal row (visible only under `scope=all`) remaining present with
+    # its stable typed identity.
     assert has_element?(view, "##{row_id}")
     updated_html = render(view)
     assert has_element?(view, "##{row_id} .ut-pbar")
@@ -3610,7 +3617,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
     {:ok, _view, html} = live(build_conn(), "/")
 
-    assert html =~ "Units unavailable"
+    assert html =~ "No active agents"
     refute html =~ "Observed and selected-scope counts unavailable"
     assert html =~ "Count unavailable"
     assert html =~ ~s(aria-label="Count unavailable")

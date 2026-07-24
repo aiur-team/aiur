@@ -160,13 +160,13 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
     <span
       :if={!@available}
       class="shell-nav-item is-unavailable"
-      aria-label={"#{@route.label} unavailable"}
+      aria-label={"#{@route.label} coming soon"}
       aria-disabled="true"
       title={@route.description}
     >
       <span class="shell-nav-icon" aria-hidden="true">{nav_icon(@route.id)}</span>
       <span class="shell-nav-label">{@route.label}</span>
-      <span class="shell-nav-state">Unavailable</span>
+      <span class="shell-nav-state">Coming soon</span>
     </span>
     """
   end

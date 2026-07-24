@@ -85,8 +85,10 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     filtered = render(%{status: :ready, message: nil, rows: [], zero_result?: true})
     stale = render(%{view([row()]) | status: :stale, message: "last known membership"})
 
-    assert unavailable =~ "Units unavailable"
-    assert unavailable =~ "membership failed"
+    # An unavailable current-run membership renders the empty catalog table
+    # (column headings + a single "No active agents" row) rather than an error.
+    assert unavailable =~ "No active agents"
+    assert unavailable =~ "units-table"
     assert empty =~ "No units observed"
     assert filtered =~ "No units match this valid scope"
     assert filtered =~ ~s(phx-click="reset-units-filters")

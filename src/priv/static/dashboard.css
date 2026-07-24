@@ -3653,6 +3653,16 @@ html[data-theme="light"] .toggle-icon .moon {
   box-shadow: inset 5px 0 var(--blocking);
 }
 
+.units-empty-row:hover td {
+  background: transparent;
+}
+
+.units-empty-cell {
+  text-align: center;
+  color: var(--muted);
+  padding: 1.6rem 1rem;
+}
+
 .units-row.has-alert td:first-child {
   box-shadow: inset 5px 0 var(--attention);
 }

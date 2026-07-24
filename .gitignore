@@ -33,3 +33,4 @@ logs/
 
 # Local Netlify folder
 .netlify
+.aiur-design-import/
