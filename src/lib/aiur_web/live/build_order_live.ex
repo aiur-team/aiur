@@ -7,6 +7,7 @@ defmodule AiurWeb.BuildOrderLive do
   alias Aiur.TrackerIdentity
 
   alias AiurWeb.BuildOrder.{
+    AnalyticsRuntime,
     ContextRuntime,
     DataSource,
     RouteState,
@@ -43,6 +44,7 @@ defmodule AiurWeb.BuildOrderLive do
       |> SourceRuntime.initialize(source)
       |> ContextRuntime.initialize(request_epoch)
       |> UsageRuntime.initialize()
+      |> AnalyticsRuntime.initialize()
       |> assign(:now, Runtime.display_now())
       |> assign(:tracker_kind, Runtime.tracker_kind())
       |> assign(:agent_kind, Runtime.agent_kind())
@@ -72,6 +74,7 @@ defmodule AiurWeb.BuildOrderLive do
       |> SourceRuntime.apply_effects(effects)
       |> SourceRuntime.assign_model()
       |> UsageRuntime.sync_scope()
+      |> AnalyticsRuntime.sync_scope()
 
     {:noreply, socket}
   end
@@ -79,11 +82,11 @@ defmodule AiurWeb.BuildOrderLive do
   @impl true
   def handle_info({kind, %Snapshot{} = snapshot}, socket)
       when kind in [:graph_projection_generation, :graph_projection_health] do
-    {:noreply, socket |> SourceRuntime.accept_projection(snapshot) |> UsageRuntime.sync_scope()}
+    {:noreply, socket |> SourceRuntime.accept_projection(snapshot) |> UsageRuntime.sync_scope() |> AnalyticsRuntime.sync_scope()}
   end
 
   def handle_info({:graph_projection_reset, generation}, socket) when is_integer(generation) do
-    {:noreply, socket |> SourceRuntime.reset(generation) |> UsageRuntime.sync_scope()}
+    {:noreply, socket |> SourceRuntime.reset(generation) |> UsageRuntime.sync_scope() |> AnalyticsRuntime.sync_scope()}
   end
 
   def handle_info({FinancialData, :updated, _identity} = message, socket) do
@@ -96,7 +99,7 @@ defmodule AiurWeb.BuildOrderLive do
 
   def handle_info(:build_order_ui_tick, socket) do
     schedule_ui_tick()
-    {:noreply, assign(socket, :now, Runtime.display_now())}
+    {:noreply, socket |> assign(:now, Runtime.display_now()) |> AnalyticsRuntime.tick()}
   end
 
   def handle_info({:ticket_activity_changed, _payload}, socket),
@@ -136,6 +139,14 @@ defmodule AiurWeb.BuildOrderLive do
 
   def handle_async({:build_order_context, token}, {:exit, _reason}, socket),
     do: {:noreply, ContextRuntime.failed(socket, token)}
+
+  def handle_async({:build_order_analytics, key}, {:ok, result}, socket) do
+    {:noreply, AnalyticsRuntime.complete(socket, key, result)}
+  end
+
+  def handle_async({:build_order_analytics, key}, {:exit, _reason}, socket) do
+    {:noreply, AnalyticsRuntime.failed(socket, key)}
+  end
 
   @impl true
   def handle_event("open-ticket-context", %{"member" => navigation_value}, socket) do
@@ -204,6 +215,10 @@ defmodule AiurWeb.BuildOrderLive do
           model={@model}
           adhoc={@adhoc_overlay}
           now={@now}
+          analytics_scope={@bo_analytics_scope}
+          analytics_model={@bo_analytics_model}
+          analytics_unavailable={@bo_analytics_unavailable}
+          analytics_loading={@bo_analytics_loading?}
         />
       </section>
 

@@ -5,10 +5,18 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   lifecycle rows. Pure `model/2` is driven by an already-built dataset so it is
   unit-testable against a fixture; `load/1` resolves the live telemetry file,
   concurrency cap, core count, and host memory before delegating to it.
+
+  The same model serves two scopes. The live-session view passes
+  `session: :current` and gets absolute timestamps over one daemon boot. The
+  Build Order view passes a member ticket set and `timeline: :active`, which
+  aggregates every session the build touched and reports elapsed *active* time
+  rather than calendar time — see `Aiur.RunTelemetry.Timeline` for why that
+  distinction is load-bearing. Both feed the same `Charts`, whose axis already
+  labels ticks as elapsed time.
   """
 
   alias Aiur.RunTelemetry
-  alias Aiur.RunTelemetry.Dataset
+  alias Aiur.RunTelemetry.{Dataset, Timeline}
 
   @default_buckets 180
   @max_series_actors 8
@@ -28,18 +36,84 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
           kpis: map()
         }
 
-  @doc "Loads the live run telemetry and builds the analytics model, or reports why it is unavailable."
+  @doc """
+  Loads the durable run telemetry and builds the analytics model, or reports why
+  it is unavailable.
+
+  Scope options:
+
+    * `:session` — `:current` narrows to one daemon boot, `:all` (default) keeps
+      every session in the stream.
+    * `:tickets` — a list or `MapSet` of bare ticket-number strings to scope to.
+    * `:timeline` — `:absolute` (default) or `:active` to elide idle gaps.
+    * `:scope_total` — burn-up denominator when the scope knows its own size
+      (a Build Order's member count) rather than inferring it from telemetry.
+  """
   @spec load(keyword()) :: {:ok, model()} | {:unavailable, atom()}
   def load(opts \\ []) do
     file = Keyword.get(opts, :telemetry_file) || RunTelemetry.telemetry_file()
 
     case Dataset.build(file) do
-      {:ok, dataset} -> {:ok, model(dataset, runtime_opts(opts))}
+      {:ok, dataset} -> dataset |> scope(opts) |> analyzable(opts)
       {:error, {:no_telemetry_files, _paths}} -> {:unavailable, :no_telemetry}
     end
   rescue
     _error -> {:unavailable, :error}
   end
+
+  # A readable stream that contains nothing for this scope is "no telemetry", not
+  # a zero-cost build: rendering empty charts and zeroed KPIs would claim a build
+  # burned nothing when in truth none of its members has run yet.
+  defp analyzable(dataset, opts) do
+    if Enum.empty?(Map.get(dataset, :tickets, %{})) and not any_agent_actor?(dataset) do
+      {:unavailable, :no_telemetry}
+    else
+      {:ok, model(dataset, runtime_opts(opts))}
+    end
+  end
+
+  defp any_agent_actor?(dataset) do
+    dataset |> Map.get(:actors, %{}) |> Enum.any?(fn {key, actor} -> actor_kind(key, actor) == :agent end)
+  end
+
+  # ---- scope ----
+
+  defp scope(dataset, opts) do
+    boot_id = session_boot_id(dataset, Keyword.get(opts, :session, :all))
+    tickets = ticket_set(Keyword.get(opts, :tickets))
+
+    if is_nil(boot_id) and is_nil(tickets) do
+      dataset
+    else
+      Dataset.filter(dataset, boot_id: boot_id, tickets: tickets)
+    end
+  end
+
+  defp session_boot_id(_dataset, :all), do: nil
+
+  # The current boot is the live session whenever the daemon is writing. When the
+  # stream predates this boot — a dashboard opened before anything was recorded —
+  # the newest boot in the stream is still the most recent session, and showing it
+  # beats blanking the page.
+  defp session_boot_id(dataset, :current) do
+    boots = Dataset.boot_ids(dataset)
+    current = current_boot_id()
+
+    if current in boots, do: current, else: List.last(boots)
+  end
+
+  defp current_boot_id do
+    RunTelemetry.boot_id()
+  rescue
+    _error -> nil
+  catch
+    _kind, _reason -> nil
+  end
+
+  defp ticket_set(nil), do: nil
+  defp ticket_set(%MapSet{} = tickets), do: tickets
+  defp ticket_set(tickets) when is_list(tickets), do: tickets |> Enum.filter(&is_binary/1) |> MapSet.new()
+  defp ticket_set(_tickets), do: nil
 
   @doc "Builds the analytics view model from an already-reduced telemetry dataset."
   @spec model(map(), keyword()) :: model()
@@ -52,7 +126,10 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
     actors = Map.get(dataset, :actors, %{})
     tickets = Map.get(dataset, :tickets, %{})
     {t0, t1} = window(dataset, actors, opts)
-    bw = max((t1 - t0) / buckets, 1)
+    timeline = timeline(dataset, actors, {t0, t1}, opts)
+    axis0 = Timeline.project(timeline, t0)
+    axis1 = Timeline.project(timeline, t1)
+    bw = max((axis1 - axis0) / buckets, 1)
 
     summaries = actors |> Enum.map(fn {key, a} -> actor_summary(key, a) end) |> Enum.sort_by(& &1.cpu_seconds, :desc)
 
@@ -65,14 +142,23 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
 
     display_keys = MapSet.new(display, & &1.key)
 
-    bucketed = Map.new(actors, fn {key, a} -> {key, {actor_kind(key, a), bucket_actor(Map.get(a, :samples, []), t0, bw, buckets)}} end)
-    series = build_series(bucketed, display, display_keys, t0, bw, buckets)
-    kpis = compute_kpis(series, tickets, cap, cores, host_mem, bw)
-    rows = tickets |> Enum.map(fn {id, t} -> ticket_row(id, t) end) |> Enum.reject(&is_nil/1) |> Enum.sort_by(& &1.start_ms)
+    bucketed =
+      Map.new(actors, fn {key, a} ->
+        {key, {actor_kind(key, a), bucket_actor(Map.get(a, :samples, []), timeline, axis0, bw, buckets)}}
+      end)
+
+    series = build_series(bucketed, display, display_keys, axis0, bw, buckets)
+    kpis = compute_kpis(series, tickets, %{cap: cap, cores: cores, host_mem: host_mem, bw: bw, dataset: dataset}, opts)
+
+    rows =
+      tickets
+      |> Enum.map(fn {id, t} -> ticket_row(id, t, timeline) end)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.sort_by(& &1.start_ms)
 
     %{
       available?: true,
-      window: %{start_ms: t0, end_ms: t1, buckets: buckets},
+      window: %{start_ms: axis0, end_ms: axis1, buckets: buckets},
       cap: cap,
       cores: cores,
       cpu_ceiling: cores * 100,
@@ -107,17 +193,18 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
 
   # ---- bucketing ----
 
-  defp bucket_actor(samples, t0, bw, buckets) do
+  defp bucket_actor(samples, timeline, axis0, bw, buckets) do
     samples
-    |> Enum.reduce(%{}, fn s, acc -> accumulate_sample(acc, s, t0, bw, buckets) end)
+    |> Enum.reduce(%{}, fn s, acc -> accumulate_sample(acc, s, timeline, axis0, bw, buckets) end)
     |> Map.new(fn {b, {cs, cn, rs, rn}} -> {b, %{cpu: mean(cs, cn), rss: mean(rs, rn)}} end)
   end
 
-  defp accumulate_sample(acc, sample, t0, bw, buckets) do
+  defp accumulate_sample(acc, sample, timeline, axis0, bw, buckets) do
     ts = Map.get(sample, :timestamp_ms)
 
     if is_integer(ts) and Map.get(sample, :availability) == "measured" do
-      add_cell(acc, bucket_index(ts, t0, bw, buckets), num(Map.get(sample, "cpu_percent")), num(Map.get(sample, "rss_bytes")))
+      index = bucket_index(Timeline.project(timeline, ts), axis0, bw, buckets)
+      add_cell(acc, index, num(Map.get(sample, "cpu_percent")), num(Map.get(sample, "rss_bytes")))
     else
       acc
     end
@@ -168,36 +255,52 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
 
   # ---- KPIs ----
 
-  defp compute_kpis(series, tickets, cap, cores, host_mem, bw) do
-    ceiling = cores * 100
+  defp compute_kpis(series, tickets, ctx, opts) do
+    ceiling = ctx.cores * 100
     concs = Enum.map(series, & &1.conc)
     peak_conc = Enum.max([0 | concs])
     conc_now = List.last(concs) || 0
     mean_cpu = mean(Enum.sum(Enum.map(series, & &1.total_cpu)), length(series))
     mem_now = (List.last(series) || %{}) |> Map.get(:total_mem, 0)
-    bucket_hours = bw / 1000 / 3600
-    wasted = series |> Enum.reduce(0.0, fn s, acc -> acc + max(cap - s.conc, 0) * bucket_hours end)
+    bucket_hours = ctx.bw / 1000 / 3600
+    wasted = series |> Enum.reduce(0.0, fn s, acc -> acc + max(ctx.cap - s.conc, 0) * bucket_hours end)
     merged = Enum.count(tickets, fn {_id, t} -> merged?(t) end)
-    total = map_size(tickets)
+    # A Build Order knows its own size; telemetry only knows the tickets that ran,
+    # so inferring scope from it would report a build complete before it started.
+    total = Keyword.get(opts, :scope_total) || map_size(tickets)
 
     %{
       peak_conc: peak_conc,
       conc_now: conc_now,
-      cap: cap,
+      cap: ctx.cap,
       mean_util_pct: pct(mean_cpu, ceiling),
-      mem_headroom_pct: max(round((1 - mem_now / max(host_mem, 1)) * 100), 0),
+      mem_headroom_pct: max(round((1 - mem_now / max(ctx.host_mem, 1)) * 100), 0),
       mem_now_bytes: mem_now,
       merged: merged,
       done: merged,
       total: total,
       done_pct: pct(merged, total),
-      wasted_slot_hours: round1(wasted)
+      wasted_slot_hours: round1(wasted),
+      sessions: ctx.dataset |> Dataset.boot_ids() |> length(),
+      active_ms: round(ctx.bw * length(series)),
+      cpu_hours: round1(cpu_hours(ctx.dataset))
     }
+  end
+
+  # Total CPU burned by the scope's agent actors, from the per-actor profile so it
+  # is independent of bucket resolution.
+  defp cpu_hours(dataset) do
+    dataset
+    |> Map.get(:actors, %{})
+    |> Enum.filter(fn {key, actor} -> actor_kind(key, actor) == :agent end)
+    |> Enum.map(fn {key, actor} -> actor_summary(key, actor).cpu_seconds end)
+    |> Enum.sum()
+    |> Kernel./(3600)
   end
 
   # ---- ticket lifecycle rows ----
 
-  defp ticket_row(id, ticket) do
+  defp ticket_row(id, ticket, timeline) do
     intervals = Map.get(ticket, :intervals, [])
     starts = intervals |> Enum.map(&Map.get(&1, :start_ms)) |> Enum.filter(&is_integer/1)
 
@@ -209,13 +312,14 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
       work_ms = phase_start(intervals, ["implement", "agent_spinup", "build_test"]) || start_ms
       merged_at = phase_start(intervals, ["pr_merged"])
       end_ms = merged_at || Enum.max([start_ms | ends])
+      project = &Timeline.project(timeline, &1)
 
       %{
         id: id,
-        start_ms: start_ms,
-        work_ms: work_ms,
-        end_ms: end_ms,
-        merged_at: merged_at,
+        start_ms: project.(start_ms),
+        work_ms: project.(work_ms),
+        end_ms: project.(end_ms),
+        merged_at: merged_at && project.(merged_at),
         status: ticket_status(intervals, merged_at)
       }
     end
@@ -246,7 +350,33 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
     end
   end
 
-  # ---- window ----
+  # ---- window + axis ----
+
+  # The axis the model is drawn on. `:absolute` keeps wall-clock milliseconds,
+  # which is right for one continuous session. `:active` elides the idle
+  # stretches between sessions so a multi-week Build Order is charted over the
+  # hours it was actually running.
+  defp timeline(dataset, actors, window, opts) do
+    case Keyword.get(opts, :timeline, :absolute) do
+      :active -> Timeline.active(activity_ms(dataset, actors, window), opts)
+      _absolute -> Timeline.identity()
+    end
+  end
+
+  defp activity_ms(dataset, actors, {t0, t1}) do
+    sample_ms =
+      actors
+      |> Enum.flat_map(fn {_key, a} -> Map.get(a, :samples, []) end)
+      |> Enum.map(&Map.get(&1, :timestamp_ms))
+
+    ticket_ms =
+      dataset
+      |> Map.get(:tickets, %{})
+      |> Enum.flat_map(fn {_id, t} -> Map.get(t, :intervals, []) end)
+      |> Enum.flat_map(fn iv -> [Map.get(iv, :start_ms), Map.get(iv, :end_ms)] end)
+
+    Enum.filter(sample_ms ++ ticket_ms, &(is_integer(&1) and &1 >= t0 and &1 <= t1))
+  end
 
   defp window(dataset, actors, opts) do
     {full0, full1} = full_window(dataset, actors)
