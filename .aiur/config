@@ -43,6 +43,19 @@ agent:
   # (~12). 1.5 → holds once load passes ~18. Raise/lower while ramping.
   max_load_average: 1.5
   max_turns: 12
+  # Lifetime dispatch latch (#1305). 0 disables it, which let #1091 burn 85 cold
+  # dispatches on a ticket that was functionally done in 53 minutes (~20% of them
+  # productive). Hitting this cap signals a structurally-stuck ticket that needs an
+  # operator, not more turns.
+  max_dispatches_per_ticket: 20
+  # Per-complexity turn ceiling; a level set here replaces `max_turns` for that
+  # ticket (it is an override, not a floor). Only the trivial levels are tightened —
+  # 4 and 5 are deliberately left unset so they keep falling back to `max_turns: 12`
+  # rather than being raised.
+  max_turns_by_complexity:
+    1: 4
+    2: 8
+    3: 12
   # A silent turn (e.g. a long `mix test --cover` run with no intermediate agent
   # output) is killed after this. Raised from the 5-min default so flake-fix /
   # full-suite validation runs can complete. turn_timeout_ms already defaults to 60 min.
