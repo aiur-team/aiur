@@ -56,20 +56,21 @@ defmodule Aiur.Usage.Headless.Codex.TurnUsage do
 
       usage ->
         dimensions = Tokens.dimensions(usage)
-        [Adapter.build_envelope(__MODULE__, context, source_facts(dimensions, context, ingested_at))]
+        [Adapter.build_envelope(__MODULE__, context, source_facts(dimensions, Tokens.context_tier(usage), context, ingested_at))]
     end
   end
 
   def extract(_payload, _raw, _context, _ingested_at), do: []
 
-  defp source_facts(dimensions, context, ingested_at) do
+  defp source_facts(dimensions, context_tier, context, ingested_at) do
     [
       source_event_id: source_event_id(dimensions, context),
       ingested_at: ingested_at,
       measurement_kind: :delta,
       counter_scope: :turn,
       update_kind: :full,
-      tokens: dimensions
+      tokens: dimensions,
+      context_tier: context_tier
     ]
   end
 

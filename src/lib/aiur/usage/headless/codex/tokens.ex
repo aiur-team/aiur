@@ -10,6 +10,8 @@ defmodule Aiur.Usage.Headless.Codex.Tokens do
 
   alias Aiur.Usage.Headless.Adapter
 
+  @long_context_threshold 272_000
+
   @total_token_usage_paths [
     ["params", "msg", "payload", "info", "total_token_usage"],
     [:params, :msg, :payload, :info, :total_token_usage],
@@ -66,6 +68,18 @@ defmodule Aiur.Usage.Headless.Codex.Tokens do
   def measurement?(dimensions) do
     Enum.any?(dimensions, fn {_dimension, value} -> is_integer(value) end)
   end
+
+  @doc "Returns the occurrence pricing tier for one provider-reported request usage."
+  @spec context_tier(map() | nil) :: :short_context | :long_context | nil
+  def context_tier(usage) when is_map(usage) do
+    case dimensions(usage).input do
+      input when is_integer(input) and input > @long_context_threshold -> :long_context
+      input when is_integer(input) -> :short_context
+      nil -> nil
+    end
+  end
+
+  def context_tier(_usage), do: nil
 
   defp turn_completed?(payload) do
     method = Map.get(payload, "method") || Map.get(payload, :method)
