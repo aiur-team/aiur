@@ -11,7 +11,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   alias Aiur.RunTelemetry.Dataset
 
   @default_buckets 180
-  @max_series_actors 12
+  @max_series_actors 8
   @default_host_mem_bytes 32 * 1024 * 1024 * 1024
   @default_cap 10
 
@@ -56,7 +56,14 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
     bw = max((t1 - t0) / buckets, 1)
 
     summaries = actors |> Enum.map(fn {key, a} -> actor_summary(key, a) end) |> Enum.sort_by(& &1.cpu_seconds, :desc)
-    display = summaries |> Enum.filter(&(&1.kind == :agent and &1.cpu_seconds > 0)) |> Enum.take(@max_series_actors)
+
+    display =
+      summaries
+      |> Enum.filter(&(&1.kind == :agent and &1.cpu_seconds > 0))
+      |> Enum.take(@max_series_actors)
+      |> Enum.with_index(1)
+      |> Enum.map(fn {actor, i} -> Map.put(actor, :color_i, i) end)
+
     display_keys = MapSet.new(display, & &1.key)
 
     bucketed = Map.new(actors, fn {key, a} -> {key, {actor_kind(key, a), bucket_actor(Map.get(a, :samples, []), t0, bw, buckets)}} end)

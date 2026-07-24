@@ -39,12 +39,12 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
       id: :analytics,
       label: "Analytics",
       icon: "↗",
-      description: "Telemetry analytics are coming soon.",
+      description: "Live run utilization.",
       path: "/analytics",
-      type: :document,
-      owner: :document,
-      availability: :unavailable,
-      active_actions: []
+      type: :live,
+      owner: :analytics,
+      availability: :available,
+      active_actions: [:analytics]
     }
   ]
 
@@ -86,14 +86,5 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
 
   def navigation_mode(_current_route, _target_route), do: :navigate
 
-  defp resolve_runtime_availability(%{id: :analytics} = route, analytics) do
-    route
-    |> Map.put(:availability, analytics_availability(analytics))
-    |> Map.put(:description, Map.get(analytics, :message) || route.description)
-  end
-
   defp resolve_runtime_availability(route, _analytics), do: route
-
-  defp analytics_availability(%{available?: true}), do: :available
-  defp analytics_availability(_analytics), do: :unavailable
 end
