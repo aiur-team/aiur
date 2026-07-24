@@ -2,10 +2,10 @@ defmodule Aiur.Usage.Headless.AdaptersTest do
   use ExUnit.Case, async: true
 
   alias Aiur.{TrackerIdentity, UsageEnvelope}
-  alias Aiur.UsageAggregate.Key
   alias Aiur.Usage.Headless.{Catalog, Compatibility, Context, Normalizer}
   alias Aiur.Usage.Headless.Claude.RequestUsage
   alias Aiur.Usage.Headless.Codex.{ThreadUsage, TurnUsage}
+  alias Aiur.UsageAggregate.Key
   alias Aiur.UsageEnvelope.RelationshipRegistry
 
   @ingested_at ~U[2026-07-17 12:00:02Z]
