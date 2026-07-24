@@ -2101,6 +2101,33 @@ sweep_stale_tmp_artifacts() {
   return 0
 }
 
+# A stop only reaps the daemon whose node name matches this project root's
+# instance key (keys are sha256(project_root), so instances can't reap each
+# other). A daemon launched from a different directory therefore survives a stop
+# invoked elsewhere — the silent orphan that keeps holding the dashboard port and
+# serving stale code/credentials. Surface it loudly (we warn, not reap, to
+# respect the deliberate isolation) so the operator can stop it explicitly.
+warn_other_aiur_daemons() {
+  local self_node="$1" me pids pid cmd node port found=0
+  me="${USER:-$(id -un 2>/dev/null)}"
+  pids="$(pgrep -u "$me" -f -- "-name aiur-${me}" 2>/dev/null || true)"
+  for pid in $pids; do
+    cmd="$(pid_command "$pid")"
+    case "$cmd" in *beam.smp*) : ;; *) continue ;; esac
+    node="$(printf '%s' "$cmd" | grep -oE -- '-name [^ ]+' | awk '{print $2}' | head -1)"
+    [ -z "$node" ] && continue
+    [ "$node" = "$self_node" ] && continue
+    port="$(ss -tlnpH 2>/dev/null | awk -v p="pid=$pid," '$0 ~ p {print $4}' \
+      | grep -oE '[0-9]+$' | head -1 || true)"
+    if [ "$found" -eq 0 ]; then
+      echo "aiur: heads up — another aiur daemon is still running that this stop did not touch" >&2
+      echo "      (launched from a different directory, so it has a different instance key):" >&2
+      found=1
+    fi
+    echo "      pid=$pid node=$node${port:+ dashboard-port=$port} — stop it with:  kill $pid" >&2
+  done
+}
+
 # Stop the running session: kill this instance's tmux + BEAM, then sweep.
 cmd_stop() {
   resolve_release
@@ -2129,6 +2156,7 @@ cmd_stop() {
     [ "$has_session" -eq 0 ] && \
     [ ! -f "$(aiur_crash_marker_path)" ]; then
     echo "aiur: no running aiur node at ${AIUR_RELEASE_NODE}; nothing stopped" >&2
+    warn_other_aiur_daemons "$AIUR_RELEASE_NODE"
     print_global_config_control_hint
     return 1
   fi
@@ -2178,6 +2206,7 @@ cmd_stop() {
   sweep_dead_tmux_sockets
   sweep_stale_tmp_artifacts
   rm -f "$(aiur_instance_record_path)" 2>/dev/null || true
+  warn_other_aiur_daemons "$AIUR_RELEASE_NODE"
 }
 
 # --- dispatch ----------------------------------------------------------------
