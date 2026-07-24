@@ -3,7 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistryTest do
 
   alias AiurWeb.OperatorControlCenter.{DecisionPath, RouteRegistry}
 
-  test "declares live and document routes with one active-match policy each" do
+  test "declares live routes with one active-match policy each" do
     analytics = %{available?: true, path: "/analytics", message: "Open analytics."}
 
     assert Enum.map(RouteRegistry.routes(analytics), & &1.id) == [
@@ -33,19 +33,21 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistryTest do
     refute RouteRegistry.active?(units, :decisions)
 
     assert {:ok, analytics_route} = RouteRegistry.route(:analytics, analytics)
-    assert RouteRegistry.document?(analytics_route)
+    assert RouteRegistry.live?(analytics_route)
     assert RouteRegistry.available?(analytics_route)
-    assert analytics_route.description == "Open analytics."
-    assert analytics_route.active_actions == []
+    assert analytics_route.description == "Live run utilization."
+    assert analytics_route.active_actions == [:analytics]
   end
 
-  test "keeps Analytics named but non-navigable when telemetry is unavailable" do
-    analytics = %{available?: false, path: nil, message: "Run with debug telemetry first."}
+  test "keeps Analytics always navigable so the live page owns its empty state" do
+    analytics = %{available?: false, path: nil, message: "ignored now"}
 
     assert {:ok, route} = RouteRegistry.route(:analytics, analytics)
-    refute RouteRegistry.available?(route)
+    assert RouteRegistry.available?(route)
+    assert RouteRegistry.live?(route)
     assert route.path == "/analytics"
-    assert route.description == "Run with debug telemetry first."
+    assert route.owner == :analytics
+    assert route.description == "Live run utilization."
   end
 
   test "keeps direct Decision URLs inside the Commands route" do
@@ -65,7 +67,7 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistryTest do
     assert RouteRegistry.navigation_mode(build_order, build_order) == :patch
     assert RouteRegistry.navigation_mode(units, build_order) == :navigate
     assert RouteRegistry.navigation_mode(build_order, units) == :navigate
-    assert RouteRegistry.navigation_mode(units, analytics_route) == :document
+    assert RouteRegistry.navigation_mode(units, analytics_route) == :navigate
   end
 
   test "preserves shareable retained-page state without exposing it to non-All filters" do

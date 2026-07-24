@@ -88,7 +88,8 @@ defmodule AiurWeb.FinancialDataAccessTest do
              "/decisions",
              "/decisions/:decision_id",
              "/build-orders",
-             "/build-orders/:root_number"
+             "/build-orders/:root_number",
+             "/analytics"
            ]
 
     for route <- live_routes do

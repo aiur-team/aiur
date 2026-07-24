@@ -42,8 +42,7 @@ for (const { width, isMobile } of routeShellViewports) {
       await openFixture(page)
       await page.goto('/?analytics=unavailable')
       await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
-      await expect(page.getByRole('link', { name: 'Analytics' })).toHaveCount(0)
-      await expect(page.locator('.shell-nav-item.is-unavailable', { hasText: 'Analytics' }).first()).toHaveAttribute('aria-disabled', 'true')
+      await expect(page.getByRole('link', { name: 'Analytics' })).toHaveAttribute('href', '/analytics')
 
       await page.goto('/')
 

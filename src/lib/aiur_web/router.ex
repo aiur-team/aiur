@@ -114,13 +114,8 @@ defmodule AiurWeb.Router do
       live("/decisions/:decision_id", DashboardLive, :decision)
       live("/build-orders", BuildOrderLive, :build_orders)
       live("/build-orders/:root_number", BuildOrderLive, :build_order)
+      live("/analytics", AnalyticsLive, :analytics)
     end
-  end
-
-  scope "/", AiurWeb do
-    pipe_through([:dashboard_auth, :secure_document])
-
-    get("/analytics", TelemetryDashboardController, :show)
   end
 
   # Agent-write endpoints driven from the browser/API. Gated read-only by

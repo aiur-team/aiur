@@ -508,11 +508,10 @@ defmodule AiurWeb.DashboardLiveTest do
     assert length(Floki.find(Floki.parse_document!(unavailable_units), ~s(nav[aria-label^="Aiur"]))) == 2
     assert length(Floki.find(Floki.parse_document!(unavailable_units), ~s(a[aria-current="page"]))) == 2
     assert unavailable_units =~ ~s(<h1 id="route-title">Units</h1>)
-    refute unavailable_units =~ ~s(href="/analytics")
+    assert unavailable_units =~ ~s(href="/analytics")
     assert unavailable_units =~ ~s(href="/build-orders")
     assert unavailable_units =~ ~s(data-phx-link="redirect")
-    assert unavailable_units =~ "Telemetry analytics are unavailable."
-    assert length(Floki.find(Floki.parse_document!(unavailable_units), ~s([aria-disabled="true"]))) == 2
+    assert Floki.find(Floki.parse_document!(unavailable_units), ~s([aria-disabled="true"])) == []
 
     assert available_units =~ ~s(href="/analytics")
     assert Floki.find(Floki.parse_document!(available_units), ~s([aria-disabled="true"])) == []
