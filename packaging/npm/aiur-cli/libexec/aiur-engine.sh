@@ -394,6 +394,23 @@ load_dotenv() {
 }
 
 run_argv=()
+# Default dashboard bind host. Prefer this machine's Tailscale IPv4 so the
+# dashboard is reachable across the tailnet by default (no per-project config);
+# fall back to loopback when Tailscale is absent, or when dashboard credentials
+# are unset (a non-loopback bind requires them, so we stay on loopback rather
+# than refuse to start). An explicit `--host` always overrides this.
+default_dashboard_host() {
+  local ip=""
+  if command -v tailscale >/dev/null 2>&1; then
+    ip="$(tailscale ip -4 2>/dev/null | grep -m1 -E '^100\.[0-9]+\.[0-9]+\.[0-9]+$' || true)"
+  fi
+  if [ -n "$ip" ] && [ -n "${AIUR_DASHBOARD_USERNAME:-}" ] && [ -n "${AIUR_DASHBOARD_PASSWORD:-}" ]; then
+    printf '%s' "$ip"
+  else
+    printf '127.0.0.1'
+  fi
+}
+
 build_run_argv() {
   local mode="$1"
   shift
@@ -409,7 +426,7 @@ build_run_argv() {
   done
 
   local injected=()
-  [ "$has_host" -eq 1 ] || injected+=(--host 127.0.0.1)
+  [ "$has_host" -eq 1 ] || injected+=(--host "$(default_dashboard_host)")
   if [ "$mode" = "background" ] && [ "$has_interactive" -eq 0 ]; then
     [ "$has_headless" -eq 1 ] || injected+=(--headless)
   else
