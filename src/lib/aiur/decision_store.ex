@@ -134,6 +134,14 @@ defmodule Aiur.DecisionStore do
     GenServer.call(server, {:dismiss, decision_id, opts}, timeout)
   end
 
+  @doc "Durably expires an open Decision that no live agent can act on."
+  @spec expire(String.t(), String.t(), keyword(), GenServer.server(), timeout()) ::
+          {:ok, map()} | {:error, term()}
+  def expire(decision_id, reason_class, opts \\ [], server \\ __MODULE__, timeout \\ @request_timeout)
+      when is_binary(decision_id) and is_binary(reason_class) and is_list(opts) do
+    GenServer.call(server, {:expire, decision_id, reason_class, opts}, timeout)
+  end
+
   @doc "Durably records an ordered correction to the active Decision action."
   @spec revise(String.t(), map(), keyword(), GenServer.server(), timeout()) ::
           {:ok, map()} | {:error, term()}
@@ -506,6 +514,14 @@ defmodule Aiur.DecisionStore do
 
   def handle_call({:dismiss, decision_id, opts}, _from, state) do
     handle_dismiss(decision_id, opts, state)
+  end
+
+  def handle_call({:expire, _decision_id, _reason_class, _opts}, _from, %{writable?: false} = state) do
+    {:reply, {:error, {:store_unavailable, state.health}}, state}
+  end
+
+  def handle_call({:expire, decision_id, reason_class, opts}, _from, state) do
+    handle_expire(decision_id, reason_class, opts, state)
   end
 
   def handle_call({:revise, _decision_id, _payload, _opts}, _from, %{writable?: false} = state) do
@@ -897,7 +913,9 @@ defmodule Aiur.DecisionStore do
     end
   end
 
-  defp require_answerable(%Decision{decision_status: :resolved}), do: {:error, {:conflict, :resolved}}
+  defp require_answerable(%Decision{decision_status: status}) when status in [:expired, :resolved],
+    do: {:error, {:conflict, status}}
+
   defp require_answerable(%Decision{}), do: :ok
 
   defp fetch_actor(opts) do
@@ -1028,6 +1046,31 @@ defmodule Aiur.DecisionStore do
 
   defp persist_dismissal(decision, actor, state) do
     case build_and_persist_event(:decision_dismissed, decision, %{actor: actor}, DateTime.utc_now(), state) do
+      {:ok, next_state, updated} ->
+        {:reply, {:ok, %{status: :accepted, decision: updated}}, next_state}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
+  end
+
+  defp handle_expire(decision_id, reason_class, opts, state) do
+    with {:ok, decision} <- fetch_decision(state, decision_id) do
+      case decision.decision_status do
+        :open -> persist_expiration(decision, reason_class, opts, state)
+        :expired -> {:reply, {:ok, %{status: :duplicate, decision: decision}}, state}
+        status -> {:reply, {:error, {:conflict, status}}, state}
+      end
+    else
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  defp persist_expiration(decision, reason_class, opts, state) do
+    occurred_at = Keyword.get(opts, :now, DateTime.utc_now())
+    data = %{reason_class: reason_class, actor: @system_follow_up_actor}
+
+    case build_and_persist_event(:decision_expired, decision, data, occurred_at, state) do
       {:ok, next_state, updated} ->
         {:reply, {:ok, %{status: :accepted, decision: updated}}, next_state}
 
@@ -1507,6 +1550,7 @@ defmodule Aiur.DecisionStore do
   end
 
   defp lifecycle_version(decision, %{actor: _actor}), do: decision.version
+  defp lifecycle_version(decision, %{reason_class: _reason_class}), do: decision.version
 
   defp lifecycle_version(decision, _data), do: Decision.active_answer(decision).decision_version
 
@@ -1538,6 +1582,7 @@ defmodule Aiur.DecisionStore do
   end
 
   defp lifecycle_slug(:answer_recorded), do: "answered"
+  defp lifecycle_slug(:decision_expired), do: "expired"
   defp lifecycle_slug(:decision_dismissed), do: "dismissed"
   defp lifecycle_slug(:enriched), do: "enriched"
   defp lifecycle_slug(:revision_recorded), do: "revision-recorded"
@@ -2951,7 +2996,7 @@ defmodule Aiur.DecisionStore do
 
   defp recent_decision_sort_key(%Decision{} = decision) do
     {
-      decision.decision_status in [:dismissed, :resolved],
+      decision.decision_status in [:expired, :dismissed, :resolved],
       not decision.blocking,
       -urgency_rank(decision.urgency),
       -datetime_sort_key(decision.created_at),
