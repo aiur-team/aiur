@@ -13,6 +13,7 @@ defmodule Aiur.CodingAgent do
   session starts.
   """
 
+  alias Aiur.CodingAgent.Models
   alias Aiur.Config
   alias Aiur.Config.RoutingValue
   alias Aiur.Issue
@@ -93,6 +94,11 @@ defmodule Aiur.CodingAgent do
           "gpt-5.5-mini",
           "gpt-5.4-mini"
         ],
+        # codex has no generic model alias of its own, so aiur derives one per
+        # family from the ids above and resolves it to the newest member (see
+        # `resolve_model/2`). `codex:sol` therefore keeps following the latest
+        # `*-sol` release instead of naming a version that will be retired.
+        model_aliases: :derived,
         efforts: ["none", "low", "medium", "high", "xhigh", "max"]
       },
       "claude" => %{
@@ -119,6 +125,11 @@ defmodule Aiur.CodingAgent do
         # (`claude-repl`), which drives the `claude` CLI directly, instead.
         resumable: false,
         models: ["opus", "sonnet", "haiku", "opus-4-8", "sonnet-4-6", "haiku-4-5"],
+        # `claude --model` resolves `opus`/`sonnet`/`haiku` to the newest
+        # version in that family itself, so the generic tags above are passed
+        # through untouched rather than pinned to a version aiur happens to
+        # know about.
+        model_aliases: :native,
         efforts: []
       },
       "claude-repl" => %{
@@ -153,6 +164,7 @@ defmodule Aiur.CodingAgent do
         # when that transcript is gone (issue #613, follow-up to #378).
         resumable: true,
         models: ["opus", "sonnet", "haiku", "opus-4-8", "sonnet-4-6", "haiku-4-5"],
+        model_aliases: :native,
         efforts: ["low", "medium", "high", "xhigh", "max"]
       }
     }
@@ -211,16 +223,79 @@ defmodule Aiur.CodingAgent do
   contributes only its own `model:<backend>[-<variant>]` labels, so a
   hyphenated backend (`claude-repl`) is never seeded by selecting a
   shorter-named one (`claude`).
+
+  Derived family aliases are seeded ahead of the pinned versions, because
+  the alias is the tag an Executor should reach for by default — a pinned
+  tag expires with its version.
   """
   @spec override_labels([backend()]) :: [String.t()]
   def override_labels(selected) do
     backends()
     |> Map.take(selected)
     |> Enum.flat_map(fn {backend, entry} ->
-      variant_labels = Enum.map(Map.get(entry, :models, []), &"model:#{backend}-#{&1}")
+      variant_labels = Enum.map(seedable_models(backend, entry), &"model:#{backend}-#{&1}")
       ["model:#{backend}" | variant_labels]
     end)
   end
+
+  @doc """
+  Generic model tags for a backend that name a family rather than a version.
+  Empty when the backend's own CLI already resolves aliases (`:native`, the
+  default) — those alias strings are simply part of `models` and are handed
+  to the CLI verbatim.
+  """
+  @spec model_aliases(backend()) :: [String.t()]
+  def model_aliases(backend) do
+    entry = Map.get(backends(), backend, %{})
+
+    case Map.get(entry, :model_aliases, :native) do
+      :derived -> Models.aliases(Map.get(entry, :models, []))
+      _native -> []
+    end
+  end
+
+  @doc """
+  Every model string worth offering or seeding a label for on a backend:
+  its derived family aliases first, then the concrete versions.
+  """
+  @spec seedable_models(backend()) :: [String.t()]
+  def seedable_models(backend), do: seedable_models(backend, Map.get(backends(), backend, %{}))
+
+  defp seedable_models(backend, entry), do: model_aliases(backend) ++ Map.get(entry, :models, [])
+
+  @doc """
+  Turns a generic model tag into the newest concrete model in that family,
+  and passes anything else through unchanged.
+
+  Only backends whose aliases aiur derives (`model_aliases: :derived`) are
+  rewritten. A `:native` backend's alias is left alone so its own CLI
+  resolves it — re-pointing `opus` at whichever version aiur's registry
+  lists would reintroduce exactly the staleness the alias avoids. An
+  unrecognized string is also passed through untouched: aiur's model list
+  is expected to lag the provider, so a model it has never heard of is far
+  more likely new than wrong (see
+  `Aiur.AgentRunner.SessionLifecycle`, which surfaces it to the Executor).
+  """
+  @spec resolve_model(backend(), String.t() | nil) :: String.t() | nil
+  def resolve_model(_backend, nil), do: nil
+
+  def resolve_model(backend, model) when is_binary(model) do
+    entry = Map.get(backends(), backend, %{})
+
+    case Map.get(entry, :model_aliases, :native) do
+      :derived -> Models.latest(Map.get(entry, :models, []), model) || model
+      _native -> model
+    end
+  end
+
+  @doc """
+  Whether a model string is one this build of aiur knows about for a
+  backend — a listed version or a derived family alias. A `false` answer
+  means "not in aiur's list", not "invalid": the list goes stale by design.
+  """
+  @spec known_model?(backend(), term()) :: boolean()
+  def known_model?(backend, model) when is_binary(model), do: model in seedable_models(backend)
+  def known_model?(_backend, _model), do: false
 
   @doc """
   Resolve the backend for an issue: a `model:<backend>` override label

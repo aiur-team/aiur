@@ -1,7 +1,7 @@
 defmodule Aiur.AgentRunner.SessionLifecycle do
   @moduledoc false
   require Logger
-  alias Aiur.{AgentPubSub, CodingAgent, Config, Issue, Tracker}
+  alias Aiur.{AgentPubSub, Alerts, CodingAgent, Config, Issue, Tracker}
   alias Aiur.AgentRunner.{MessageHandler, SessionResume, TurnLoop}
   alias Aiur.Claude.{DisplayTailer, RemoteControl, Telemetry}
   alias Aiur.LiveConversation.Source
@@ -152,6 +152,8 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     effort = Keyword.fetch!(session_opts, :effort)
 
     Logger.info("Resolved backend for #{Aiur.AgentRunner.issue_context(issue)} backend=#{session_backend} model=#{inspect(model)} effort=#{inspect(effort)} remote_control=#{rc?}")
+
+    maybe_alert_unsupported_model(issue, workspace, worker_host, session_backend, model)
 
     maybe_trust_remote_control_workspace(workspace, rc?, worker_host, fn ws ->
       Aiur.Orchestrator.ensure_remote_control_trust(orchestrator, ws)
@@ -584,7 +586,6 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
           {String.t(), boolean(), keyword()}
   def resolve_session_options(issue, opts, worker_host) do
     backend = CodingAgent.backend_for(issue)
-    model = CodingAgent.model_for(issue)
     effort = CodingAgent.effort_for(issue)
 
     rc? =
@@ -592,6 +593,13 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
          Config.agent_remote_control?()) and CodingAgent.remote_control?(backend)
 
     session_backend = remote_session_backend(backend, rc?)
+
+    # Resolved against the transport that actually receives the string, so a
+    # generic tag (`codex:sol`) becomes the newest version in that family
+    # while an explicitly pinned one stays pinned. An unrecognized model is
+    # passed through unchanged and surfaced in `run_session/5` rather than
+    # swapped for something else.
+    model = CodingAgent.resolve_model(session_backend, CodingAgent.model_for(issue))
 
     # Rejoin the prior agent thread across an aiur restart instead of cold-
     # starting a fresh conversation that re-discovers the work (issue #378).
@@ -942,6 +950,45 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   end
 
   defp supported_effort(_backend, _effort), do: nil
+
+  # A model aiur doesn't recognize is far more likely to be newer than this
+  # build than to be wrong, so it is never blocked and never quietly swapped
+  # for the backend default — either would hide the real problem. Instead the
+  # Executor gets one attention naming both remediations: let `aiur init`
+  # discover the new tag, or repoint a retired pin at a generic family tag.
+  @spec maybe_alert_unsupported_model(Issue.t(), Path.t() | nil, worker_host(), String.t(), String.t() | nil) :: :ok
+  defp maybe_alert_unsupported_model(issue, workspace, worker_host, backend, model) when is_binary(model) do
+    if CodingAgent.known_model?(backend, model) do
+      :ok
+    else
+      reason = unsupported_model_reason(backend, model)
+      Logger.warning("Unknown model #{inspect(model)} for backend #{backend}: #{reason}")
+
+      Alerts.emit_system("ticket.#{issue.identifier}.agent.attention.unsupported_model",
+        issue: issue,
+        workspace: workspace,
+        worker_host: worker_host,
+        reason: reason,
+        needs_attention: true,
+        severity: "warning"
+      )
+
+      :ok
+    end
+  end
+
+  defp maybe_alert_unsupported_model(_issue, _workspace, _worker_host, _backend, _model), do: :ok
+
+  defp unsupported_model_reason(backend, model) do
+    generic = List.first(CodingAgent.model_aliases(backend)) || List.first(CodingAgent.seedable_models(backend))
+
+    "Model #{inspect(model)} is not one aiur knows for the #{backend} backend " <>
+      "(known: #{Enum.join(CodingAgent.seedable_models(backend), ", ")}). It is being passed to the backend " <>
+      "unchanged — aiur is not substituting a different model. If it is a newly released model, run `aiur init` " <>
+      "and accept the offer to create its model tags. If it is a retired version, repoint the issue label or the " <>
+      "`agent.routing` entry at a generic tag such as #{inspect(generic)}, which always resolves to the newest " <>
+      "model in that family."
+  end
 
   defp maybe_put_attempt_id(session, attempt_id) when is_binary(attempt_id), do: Map.put(session, :attempt_id, attempt_id)
   defp maybe_put_attempt_id(session, _attempt_id), do: session
