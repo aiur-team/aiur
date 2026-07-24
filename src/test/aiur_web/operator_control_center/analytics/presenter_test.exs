@@ -1,0 +1,126 @@
+defmodule AiurWeb.OperatorControlCenter.Analytics.PresenterTest do
+  use ExUnit.Case, async: true
+
+  alias AiurWeb.OperatorControlCenter.Analytics.Presenter
+
+  @t0 1_000_000
+
+  defp sample(actor, actor_type, ts, cpu, rss) do
+    %{
+      "cpu_percent" => cpu,
+      "rss_bytes" => rss,
+      actor: actor,
+      actor_type: actor_type,
+      timestamp_ms: ts,
+      availability: "measured"
+    }
+  end
+
+  defp profile(cpu_mean, cpu_max, rss_max, count) do
+    %{
+      "cpu_percent" => %{count: count, mean: cpu_mean, max: cpu_max, min: 0.0, median: cpu_mean, p95: cpu_max},
+      "rss_bytes" => %{count: count, mean: rss_max, max: rss_max, min: 0.0, median: rss_max, p95: rss_max}
+    }
+  end
+
+  # Two agents active across the run plus an always-on daemon baseline; one ticket merges.
+  defp dataset do
+    times = for i <- 0..10, do: @t0 + i * 60_000
+
+    %{
+      actors: %{
+        "_daemon" => %{
+          samples: Enum.map(times, &sample("_daemon", "daemon", &1, 30.0, 100_000_000)),
+          profile: profile(30.0, 40.0, 100_000_000, 11)
+        },
+        "ticket:5" => %{
+          samples: Enum.map(times, &sample("ticket:5", "agent", &1, 50.0, 200_000_000)),
+          profile: profile(50.0, 120.0, 220_000_000, 11)
+        },
+        "ticket:6" => %{
+          samples: Enum.map(times, &sample("ticket:6", "agent", &1, 20.0, 150_000_000)),
+          profile: profile(20.0, 60.0, 160_000_000, 11)
+        }
+      },
+      tickets: %{
+        "5" => %{
+          intervals: [
+            %{phase: "dispatch", status: "point", start_ms: @t0, end_ms: nil},
+            %{phase: "implement", status: "measured", start_ms: @t0 + 60_000, end_ms: @t0 + 360_000},
+            %{phase: "pr_merged", status: "point", start_ms: @t0 + 480_000, end_ms: nil}
+          ]
+        },
+        "6" => %{
+          intervals: [
+            %{phase: "dispatch", status: "point", start_ms: @t0 + 30_000, end_ms: nil},
+            %{phase: "implement", status: "measured", start_ms: @t0 + 90_000, end_ms: @t0 + 540_000},
+            %{phase: "rework_start", status: "point", start_ms: @t0 + 570_000, end_ms: nil}
+          ]
+        }
+      },
+      provenance: %{time_range: %{start: iso(@t0 - 600_000), end: iso(@t0 + 1_800_000)}}
+    }
+  end
+
+  defp iso(ms), do: ms |> DateTime.from_unix!(:millisecond) |> DateTime.to_iso8601()
+
+  defp model(opts \\ []) do
+    Presenter.model(dataset(), Keyword.merge([cap: 4, cores: 4, host_mem_bytes: 1_000_000_000, buckets: 10], opts))
+  end
+
+  test "builds an available model with the requested bucket count" do
+    m = model()
+    assert m.available? == true
+    assert length(m.series) == 10
+    assert m.cpu_ceiling == 400
+  end
+
+  test "stacks only agent units and folds the daemon into the baseline" do
+    m = model()
+    assert Enum.map(m.actors, & &1.key) |> Enum.sort() == ["ticket:5", "ticket:6"]
+    refute Enum.any?(m.actors, &(&1.kind == :daemon))
+    # Daemon CPU lands in the baseline, never in a unit series.
+    assert Enum.any?(m.series, &(&1.exec_cpu > 0))
+    assert Enum.all?(m.series, &(not Map.has_key?(&1.per, "_daemon")))
+    assert Enum.all?(m.series, &(map_size(&1.per) == 2))
+  end
+
+  test "humanizes agent labels and ranks units by CPU-seconds" do
+    m = model()
+    top = List.first(m.actors)
+    assert top.key == "ticket:5"
+    assert top.label == "#5"
+    assert top.peak_cpu == 120.0
+  end
+
+  test "peak concurrency counts simultaneously active agents against the cap" do
+    m = model()
+    assert m.kpis.peak_conc == 2
+    assert m.kpis.cap == 4
+  end
+
+  test "counts merged tickets and derives lifecycle status from real phases" do
+    m = model()
+    assert m.kpis.total == 2
+    assert m.kpis.merged == 1
+
+    by_id = Map.new(m.tickets, &{&1.id, &1})
+    assert by_id["5"].status == :merged
+    assert by_id["5"].merged_at == @t0 + 480_000
+    assert by_id["6"].status == :rework
+  end
+
+  test "wasted capacity accumulates idle slot-hours under the cap" do
+    m = model()
+    assert m.kpis.wasted_slot_hours > 0
+    assert is_number(m.kpis.mean_util_pct)
+    assert m.kpis.mem_headroom_pct >= 0 and m.kpis.mem_headroom_pct <= 100
+  end
+
+  test "full range widens the window beyond the active run" do
+    run = model()
+    full = model(range: :full)
+    assert full.window.start_ms <= run.window.start_ms
+    assert full.window.end_ms >= run.window.end_ms
+  end
+end
