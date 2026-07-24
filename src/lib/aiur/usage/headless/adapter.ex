@@ -90,19 +90,35 @@ defmodule Aiur.Usage.Headless.Adapter do
   def build_envelope(adapter, %Context{} = context, source_facts) when is_list(source_facts) do
     attributes = envelope_attributes(adapter, context, source_facts)
 
-    case UsageEnvelope.new(attributes) do
-      {:ok, envelope} -> {:ok, envelope}
+    with :ok <- observed_price_dimensions(attributes),
+         {:ok, envelope} <- UsageEnvelope.new(attributes) do
+      {:ok, envelope}
+    else
       {:error, :missing_usage_measurement} -> {:coverage, coverage(adapter, :missing_usage_measurement, :tokens)}
+      {:error, field} when field in [:context_tier, :cache_write_duration] -> {:coverage, coverage(adapter, :ambiguous_measurement_semantics, field)}
       {:error, _reason} -> {:coverage, coverage(adapter, :ambiguous_measurement_semantics, :envelope)}
     end
   end
 
+  defp observed_price_dimensions(%{provider: :codex, context_tier: tier})
+       when tier in [:short_context, :long_context],
+       do: :ok
+
+  defp observed_price_dimensions(%{provider: :codex}), do: {:error, :context_tier}
+
+  defp observed_price_dimensions(%{provider: :claude, cache_write_duration: duration})
+       when duration in [:five_minutes, :one_hour, :not_applicable],
+       do: :ok
+
+  defp observed_price_dimensions(%{provider: :claude}), do: {:error, :cache_write_duration}
+
   defp envelope_attributes(adapter, context, source_facts) do
     source_event_id = Keyword.fetch!(source_facts, :source_event_id)
+    provider = adapter.provider()
 
     %{
       idempotency_key: idempotency_key(adapter, context, source_event_id),
-      provider: adapter.provider(),
+      provider: provider,
       source: adapter.source(),
       source_version: adapter.source_version(),
       source_event_id: source_event_id,
@@ -122,6 +138,8 @@ defmodule Aiur.Usage.Headless.Adapter do
       effort: context.effort,
       requested_model: context.requested_model,
       resolved_model: context.resolved_model,
+      context_tier: Keyword.get(source_facts, :context_tier, default_context_tier(provider)),
+      cache_write_duration: Keyword.get(source_facts, :cache_write_duration, default_cache_write_duration(provider)),
       account_generation: context.account_generation,
       tokens: Keyword.fetch!(source_facts, :tokens),
       relationship_revision: adapter.relationship_revision(),
@@ -129,6 +147,12 @@ defmodule Aiur.Usage.Headless.Adapter do
       coverage_reasons: Keyword.get(source_facts, :coverage_reasons, [])
     }
   end
+
+  defp default_context_tier(:codex), do: nil
+  defp default_context_tier(:claude), do: :not_applicable
+
+  defp default_cache_write_duration(:codex), do: :not_applicable
+  defp default_cache_write_duration(:claude), do: nil
 
   defp attribution(%Context{} = context) do
     %{

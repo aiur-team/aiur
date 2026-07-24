@@ -55,20 +55,22 @@ defmodule Aiur.Usage.Headless.Codex.ThreadUsage do
 
       usage ->
         dimensions = Tokens.dimensions(usage)
-        [Adapter.build_envelope(__MODULE__, context, source_facts(dimensions, context, ingested_at))]
+        context_tier = payload |> Tokens.last() |> Tokens.context_tier()
+        [Adapter.build_envelope(__MODULE__, context, source_facts(dimensions, context_tier, context, ingested_at))]
     end
   end
 
   def extract(_payload, _raw, _context, _ingested_at), do: []
 
-  defp source_facts(dimensions, context, ingested_at) do
+  defp source_facts(dimensions, context_tier, context, ingested_at) do
     [
       source_event_id: source_event_id(dimensions, context),
       ingested_at: ingested_at,
       measurement_kind: :absolute,
       counter_scope: :thread,
       update_kind: :full,
-      tokens: dimensions
+      tokens: dimensions,
+      context_tier: context_tier
     ]
   end
 

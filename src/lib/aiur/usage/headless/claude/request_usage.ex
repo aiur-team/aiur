@@ -75,7 +75,7 @@ defmodule Aiur.Usage.Headless.Claude.RequestUsage do
   end
 
   defp envelope(usage, payload, raw, context, ingested_at) do
-    dimensions = dimensions(usage)
+    {dimensions, cache_write_duration} = dimensions(usage)
     {cost, cost_reasons} = cost(payload, raw)
     partial? = is_nil(dimensions.cached_input) or is_nil(dimensions.cache_creation_input)
 
@@ -88,21 +88,53 @@ defmodule Aiur.Usage.Headless.Claude.RequestUsage do
       counter_scope: @counter_scope,
       update_kind: if(partial?, do: :partial, else: :full),
       tokens: dimensions,
+      cache_write_duration: cache_write_duration,
       cost: cost,
       coverage_reasons: coverage_reasons(partial?, cost_reasons)
     )
   end
 
   defp dimensions(usage) do
-    %{
-      input: Adapter.token(usage, ["input_tokens", :input_tokens, "prompt_tokens", :prompt_tokens]),
-      cached_input: Adapter.token(usage, ["cache_read_input_tokens", :cache_read_input_tokens, "cache_read_tokens", :cache_read_tokens]),
-      cache_creation_input: Adapter.token(usage, ["cache_creation_input_tokens", :cache_creation_input_tokens, "cache_creation_tokens", :cache_creation_tokens]),
-      output: Adapter.token(usage, ["output_tokens", :output_tokens, "completion_tokens", :completion_tokens]),
-      reasoning_output: nil,
-      provider_reported_total: Adapter.token(usage, ["total_tokens", :total_tokens, "total", :total])
-    }
+    {cache_creation_input, cache_write_duration} = cache_creation(usage)
+
+    {%{
+       input: Adapter.token(usage, ["input_tokens", :input_tokens, "prompt_tokens", :prompt_tokens]),
+       cached_input: Adapter.token(usage, ["cache_read_input_tokens", :cache_read_input_tokens, "cache_read_tokens", :cache_read_tokens]),
+       cache_creation_input: cache_creation_input,
+       output: Adapter.token(usage, ["output_tokens", :output_tokens, "completion_tokens", :completion_tokens]),
+       reasoning_output: nil,
+       provider_reported_total: Adapter.token(usage, ["total_tokens", :total_tokens, "total", :total])
+     }, cache_write_duration}
   end
+
+  defp cache_creation(usage) do
+    case Map.get(usage, "cache_creation") || Map.get(usage, :cache_creation) do
+      breakdown when is_map(breakdown) ->
+        five_minutes = Adapter.token(breakdown, ["ephemeral_5m_input_tokens", :ephemeral_5m_input_tokens])
+        one_hour = Adapter.token(breakdown, ["ephemeral_1h_input_tokens", :ephemeral_1h_input_tokens])
+        {sum_cache_creation(five_minutes, one_hour), cache_write_duration(five_minutes, one_hour)}
+
+      _absent ->
+        tokens = Adapter.token(usage, ["cache_creation_input_tokens", :cache_creation_input_tokens, "cache_creation_tokens", :cache_creation_tokens])
+        {tokens, if(is_integer(tokens) and tokens > 0, do: :five_minutes, else: :not_applicable)}
+    end
+  end
+
+  defp sum_cache_creation(nil, nil), do: nil
+  defp sum_cache_creation(five_minutes, one_hour), do: (five_minutes || 0) + (one_hour || 0)
+
+  defp cache_write_duration(five_minutes, one_hour) when is_integer(five_minutes) and five_minutes > 0 and one_hour in [nil, 0],
+    do: :five_minutes
+
+  defp cache_write_duration(five_minutes, one_hour) when is_integer(one_hour) and one_hour > 0 and five_minutes in [nil, 0],
+    do: :one_hour
+
+  defp cache_write_duration(five_minutes, one_hour) when five_minutes in [nil, 0] and one_hour in [nil, 0],
+    do: :not_applicable
+
+  # One envelope cannot partition cache writes across both TTL prices. Preserve
+  # the tokens with an unknown duration rather than selecting either price.
+  defp cache_write_duration(_five_minutes, _one_hour), do: nil
 
   defp usage_map(payload) do
     candidate = Map.get(payload, "usage") || Map.get(payload, :usage) || nested_usage(payload)
@@ -114,7 +146,10 @@ defmodule Aiur.Usage.Headless.Claude.RequestUsage do
     Map.get(params, "usage") || Map.get(params, :usage)
   end
 
-  defp measurement?(usage), do: usage |> dimensions() |> Enum.any?(fn {_dimension, value} -> is_integer(value) end)
+  defp measurement?(usage) do
+    {dimensions, _cache_write_duration} = dimensions(usage)
+    Enum.any?(dimensions, fn {_dimension, value} -> is_integer(value) end)
+  end
 
   defp cost(payload, raw) do
     decoded = Map.get(payload, "cost_usd") || Map.get(payload, :cost_usd) || nested_cost(payload)

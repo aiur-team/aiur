@@ -249,7 +249,13 @@ defmodule Aiur.UsageEnvelopeTest do
     end
 
     test "claude retains cache_write_duration and round-trips through the codec" do
-      {:ok, envelope} = UsageEnvelope.new(claude_attributes(%{cache_write_duration: :one_hour}))
+      {:ok, envelope} =
+        UsageEnvelope.new(
+          claude_attributes(%{
+            cache_write_duration: :one_hour,
+            tokens: %{attributes().tokens | cache_creation_input: 2}
+          })
+        )
 
       assert envelope.context_tier == nil
       assert envelope.cache_write_duration == :one_hour
@@ -259,13 +265,26 @@ defmodule Aiur.UsageEnvelopeTest do
     end
 
     test "claude retains a five_minutes cache_write_duration and round-trips through the codec" do
-      {:ok, envelope} = UsageEnvelope.new(claude_attributes(%{cache_write_duration: :five_minutes}))
+      {:ok, envelope} =
+        UsageEnvelope.new(
+          claude_attributes(%{
+            cache_write_duration: :five_minutes,
+            tokens: %{attributes().tokens | cache_creation_input: 2}
+          })
+        )
 
       assert envelope.cache_write_duration == :five_minutes
       assert envelope.context_tier == nil
 
       assert {:ok, decoded} = envelope |> Codec.encode() |> Codec.decode()
       assert decoded == envelope
+    end
+
+    test "claude accepts not_applicable for an observation without cache creation" do
+      assert {:ok, envelope} =
+               UsageEnvelope.new(claude_attributes(%{cache_write_duration: :not_applicable}))
+
+      assert envelope.cache_write_duration == :not_applicable
     end
 
     test "rejects a claude partition that mixes providers or uses an unknown duration" do
