@@ -93,39 +93,29 @@ defmodule AiurWeb.Layouts do
               }
             };
 
+            // The server owns the collapsed state (assigns -> data-nav-collapsed on
+            // the shell). This hook only mirrors it to localStorage and replays the
+            // stored value once on mount, so cross-navigation persistence survives
+            // without any client-written attribute for LiveView to strip.
             Hooks.NavToggle = {
               mounted: function () {
-                var shell = this.el.closest(".dashboard-shell");
-                var updateButton = (collapsed) => {
-                  var label = collapsed ? "Show navigation" : "Hide navigation";
-                  this.el.setAttribute("aria-pressed", collapsed ? "true" : "false");
-                  this.el.setAttribute("aria-label", label);
-                  this.el.setAttribute("title", label);
-                };
-                var collapsed = false;
                 try {
-                  if (shell && window.localStorage.getItem("aiur-nav-collapsed") === "true") {
-                    shell.setAttribute("data-nav-collapsed", "true");
-                    collapsed = true;
+                  var stored = window.localStorage.getItem("aiur-nav-collapsed");
+                  if (stored === "true" || stored === "false") {
+                    var collapsed = stored === "true";
+                    if (collapsed !== (this.el.getAttribute("aria-pressed") === "true")) {
+                      this.pushEvent("restore-nav", { collapsed: collapsed });
+                    }
                   }
                 } catch (_error) {}
-                updateButton(collapsed);
-
-                this.onClick = () => {
-                  if (!shell) return;
-                  var collapsed = shell.getAttribute("data-nav-collapsed") === "true";
-                  var next = collapsed ? "false" : "true";
-                  shell.setAttribute("data-nav-collapsed", next);
-                  updateButton(next === "true");
-                  try {
-                    window.localStorage.setItem("aiur-nav-collapsed", next);
-                  } catch (_error) {}
-                };
-
-                this.el.addEventListener("click", this.onClick);
               },
-              destroyed: function () {
-                this.el.removeEventListener("click", this.onClick);
+              updated: function () {
+                try {
+                  window.localStorage.setItem(
+                    "aiur-nav-collapsed",
+                    this.el.getAttribute("aria-pressed") === "true" ? "true" : "false"
+                  );
+                } catch (_error) {}
               }
             };
 

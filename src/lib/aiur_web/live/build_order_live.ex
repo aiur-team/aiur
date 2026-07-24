@@ -4,6 +4,7 @@ defmodule AiurWeb.BuildOrderLive do
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
   alias Aiur.BuildOrder.GraphProjection.Snapshot
+
   alias Aiur.TrackerIdentity
 
   alias AiurWeb.BuildOrder.{
@@ -25,6 +26,7 @@ defmodule AiurWeb.BuildOrderLive do
     BuildOrderSelected,
     BuildOrderTicketContext,
     DashboardShell,
+    NavState,
     RouteRegistry
   }
 
@@ -33,6 +35,7 @@ defmodule AiurWeb.BuildOrderLive do
 
   @impl true
   def mount(_params, _session, socket) do
+    socket = NavState.assign_nav(socket)
     connected = connected?(socket)
     source = Application.get_env(:aiur, :build_order_data_source, DataSource)
     request_epoch = "build-order-live-#{System.unique_integer([:positive])}"
@@ -149,6 +152,13 @@ defmodule AiurWeb.BuildOrderLive do
   end
 
   @impl true
+  def handle_event("toggle-nav", _params, socket), do: {:noreply, NavState.toggle(socket)}
+
+  @impl true
+  def handle_event("restore-nav", %{"collapsed" => collapsed}, socket),
+    do: {:noreply, NavState.restore(socket, collapsed)}
+
+  @impl true
   def handle_event("open-ticket-context", %{"member" => navigation_value}, socket) do
     {:noreply, ContextRuntime.open(socket, navigation_value)}
   end
@@ -195,6 +205,7 @@ defmodule AiurWeb.BuildOrderLive do
       now={@now}
       tracker_kind={@tracker_kind}
       agent_kind={@agent_kind}
+      nav_collapsed={@nav_collapsed}
     >
       <section
         id="build-order-page"

@@ -10,12 +10,13 @@ defmodule AiurWeb.AnalyticsLive do
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
   alias AiurWeb.OperatorControlCenter.Analytics.{Charts, Presenter, Styles}
-  alias AiurWeb.OperatorControlCenter.{DashboardShell, RouteRegistry}
+  alias AiurWeb.OperatorControlCenter.{DashboardShell, NavState, RouteRegistry}
 
   @impl true
   def mount(_params, _session, socket) do
     {:ok,
      socket
+     |> NavState.assign_nav()
      |> assign(:current_route, RouteRegistry.current_route(:analytics))
      |> assign(:analytics, AiurWeb.Presenter.analytics_navigation())
      |> assign(:tracker_kind, kind(&Aiur.Config.tracker_kind/0, "tracker unavailable"))
@@ -24,6 +25,13 @@ defmodule AiurWeb.AnalyticsLive do
      |> assign(:sort, :cpu)
      |> load_model()}
   end
+
+  @impl true
+  def handle_event("toggle-nav", _params, socket), do: {:noreply, NavState.toggle(socket)}
+
+  @impl true
+  def handle_event("restore-nav", %{"collapsed" => collapsed}, socket),
+    do: {:noreply, NavState.restore(socket, collapsed)}
 
   @impl true
   def handle_event("toggle_unit", %{"key" => key}, socket) do
@@ -57,6 +65,7 @@ defmodule AiurWeb.AnalyticsLive do
       now={@now}
       tracker_kind={@tracker_kind}
       agent_kind={@agent_kind}
+      nav_collapsed={@nav_collapsed}
     >
       {Phoenix.HTML.raw("<style>" <> Styles.css() <> "</style>")}
 

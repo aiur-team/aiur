@@ -6,6 +6,7 @@ defmodule AiurWeb.DashboardLive do
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
   alias Aiur.AgentChat
+
   alias Aiur.AgentPubSub
   alias Aiur.BuildOrder.TicketDetail.State, as: TicketDetailState
   alias Aiur.BuildOrder.TicketDetailCache
@@ -38,6 +39,7 @@ defmodule AiurWeb.DashboardLive do
     DecisionInbox,
     DecisionPath,
     History,
+    NavState,
     Overview,
     PayloadLoader,
     ProviderMeterSource,
@@ -69,6 +71,7 @@ defmodule AiurWeb.DashboardLive do
 
   @impl true
   def mount(_params, _session, socket) do
+    socket = NavState.assign_nav(socket)
     connected = connected?(socket)
 
     if connected do
@@ -259,6 +262,13 @@ defmodule AiurWeb.DashboardLive do
   # otherwise consume. Ignore that noise — and any future message added to a
   # topic this view does not own — rather than crashing every open dashboard.
   def handle_info(_message, socket), do: {:noreply, socket}
+
+  @impl true
+  def handle_event("toggle-nav", _params, socket), do: {:noreply, NavState.toggle(socket)}
+
+  @impl true
+  def handle_event("restore-nav", %{"collapsed" => collapsed}, socket),
+    do: {:noreply, NavState.restore(socket, collapsed)}
 
   @impl true
   def handle_event("filter-decisions", %{"filter" => filter}, socket) do
@@ -599,6 +609,7 @@ defmodule AiurWeb.DashboardLive do
       tracker_kind={tracker_kind()}
       agent_kind={agent_kind()}
       nav_counts={nav_counts(@units_view, @retained_counts)}
+      nav_collapsed={@nav_collapsed}
     >
       <Overview.decisions_banner decisions={@payload.decisions} retained_counts={@retained_counts} />
       <Overview.error error={@payload.fleet[:error]} />
