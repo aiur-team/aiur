@@ -151,13 +151,12 @@ defmodule Aiur.RunTelemetry.Dataset do
       samples ->
         [
           {key,
-           %{
-             actor
-             | samples: samples,
-               profile: resource_profile(samples),
-               gaps: resource_gaps(samples, []),
-               availability: availability_counts(samples)
-           }}
+           Map.merge(actor, %{
+             samples: samples,
+             profile: resource_profile(samples),
+             gaps: resource_gaps(samples, []),
+             availability: availability_counts(samples)
+           })}
         ]
     end
   end
@@ -174,7 +173,7 @@ defmodule Aiur.RunTelemetry.Dataset do
   defp rescope_ticket(id, ticket, boot_id) do
     case Enum.filter(Map.get(ticket, :events, []), &in_boot?(&1.boot_id, boot_id)) do
       [] -> []
-      events -> [{id, %{ticket | events: events, intervals: lifecycle_intervals(events)}}]
+      events -> [{id, Map.merge(ticket, %{events: events, intervals: lifecycle_intervals(events)})}]
     end
   end
 
