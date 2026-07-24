@@ -560,14 +560,23 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   end
 
   defp apply_ci_poll_result(state, issue, %{decision: :failed} = result) do
-    if retryable_test_failure?(state, issue, result) do
-      state
-      |> remember_ci_test_failure_retry(issue, result)
-      |> defer_ci_test_failure(issue)
-    else
-      state
-      |> clear_ci_test_failure_retry(issue)
-      |> transition_ci_failure(issue, result)
+    cond do
+      human_review_ci_replay?(state, issue, result) ->
+        log_replayed_human_review_ci_failure(issue, result)
+
+        state
+        |> remember_ci_approved_head(issue, result)
+        |> Reconciler.refresh_running_issue_state(issue)
+
+      retryable_test_failure?(state, issue, result) ->
+        state
+        |> remember_ci_test_failure_retry(issue, result)
+        |> defer_ci_test_failure(issue)
+
+      true ->
+        state
+        |> clear_ci_test_failure_retry(issue)
+        |> transition_ci_failure(issue, result)
     end
   end
 
@@ -688,6 +697,39 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       {approved_head, nil} when is_binary(approved_head) -> true
       _ -> false
     end
+  end
+
+  # Human review is a terminal operator disposition for the head under review,
+  # including inherited CI failures the operator explicitly dismissed before the
+  # handoff. Every restart re-delivers the same historical CI results, so a
+  # failure for the reviewed head must leave the ticket in review; only a
+  # failure on a head review has not seen supersedes that disposition.
+  defp human_review_ci_replay?(%State{} = state, %Issue{} = issue, result) do
+    HumanReview.human_review_state?(issue.state) and not ci_head_superseded?(state, issue, result)
+  end
+
+  defp ci_head_superseded?(%State{} = state, %Issue{} = issue, result) do
+    case {Map.get(state.ci_lifecycle.approved_heads, ci_target_for_issue(issue)), Map.get(result, :head_sha)} do
+      {reviewed_head, observed_head} when is_binary(reviewed_head) and is_binary(observed_head) ->
+        reviewed_head != observed_head
+
+      _ ->
+        false
+    end
+  end
+
+  # Held failures are never silently swallowed: the reviewed head and the failing
+  # checks stay in the log so a genuine red PR in review is still visible.
+  defp log_replayed_human_review_ci_failure(%Issue{} = issue, result) do
+    checks =
+      result
+      |> Map.get(:failures, [])
+      |> Enum.map_join(", ", &Map.get(&1, :name, "unknown"))
+
+    Logger.info(
+      "CI failure held for reviewed head: #{State.issue_context(issue)} " <>
+        "head=#{inspect(Map.get(result, :head_sha))} checks=#{inspect(checks)}"
+    )
   end
 
   defp remember_ci_approved_head(%State{} = state, %Issue{} = issue, %{head_sha: head_sha})

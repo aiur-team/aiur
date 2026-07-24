@@ -248,6 +248,84 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       assert event.message =~ "CI failed: lint, coverage"
     end
 
+    test "a replayed CI failure for the reviewed head keeps the ticket in human review" do
+      identifier = unique_identifier("ci-replay-human-review")
+      recorder = start_recorder()
+      issue = issue(identifier, "human-review")
+
+      state =
+        issue
+        |> running_state(recorder, :paused, paused_reason: :ci_wait)
+        |> with_approved_head(identifier, "reviewed-head")
+
+      failure = %{
+        decision: :failed,
+        head_sha: "reviewed-head",
+        pr_number: 99,
+        failures: [%{name: "lint", result: "failure", excerpt: "inherited lint failure"}]
+      }
+
+      # Each Aiur restart re-delivers the same historical result for the same
+      # head; none of them may override the operator-approved handoff.
+      next = Enum.reduce(1..3, state, fn _replay, acc -> poll_ci(acc, issue, failure) end)
+      sync_recorder(recorder)
+
+      refute_received {:recorded, _position, {:tracker_update, ^identifier, "rework", _opts}}
+      assert next.running[identifier].issue.state == "human-review"
+      assert next.ci_lifecycle.approved_heads == %{identifier => "reviewed-head"}
+    end
+
+    test "a CI failure observed after a dismissed-failure handoff anchors the reviewed head" do
+      identifier = unique_identifier("ci-dismissed-human-review")
+      recorder = start_recorder()
+      issue = issue(identifier, "human-review")
+
+      # The #99 shape: CI never passed, the operator dismissed the inherited
+      # failures, and the agent flipped the label, so no head was ever approved.
+      state = running_state(issue, recorder, :paused, paused_reason: :ci_wait)
+
+      next =
+        poll_ci(state, issue, %{
+          decision: :failed,
+          head_sha: "dismissed-head",
+          pr_number: 99,
+          failures: [%{name: "coverage", result: "failure"}]
+        })
+
+      sync_recorder(recorder)
+
+      refute_received {:recorded, _position, {:tracker_update, ^identifier, "rework", _opts}}
+      assert next.running[identifier].issue.state == "human-review"
+      assert next.ci_lifecycle.approved_heads == %{identifier => "dismissed-head"}
+      assert CIApprovalStore.load().approved_heads == %{identifier => "dismissed-head"}
+    end
+
+    test "a CI failure on a head review has not seen still moves the ticket to rework" do
+      identifier = unique_identifier("ci-new-head-human-review")
+      topic = "ticket.#{identifier}.ci.failed"
+      recorder = start_recorder(topic)
+      issue = issue(identifier, "human-review")
+
+      state =
+        issue
+        |> running_state(recorder, :paused, paused_reason: :ci_wait)
+        |> with_approved_head(identifier, "reviewed-head")
+
+      next =
+        poll_ci(state, issue, %{
+          decision: :failed,
+          head_sha: "pushed-head",
+          pr_number: 99,
+          failures: [%{name: "lint", result: "failure", excerpt: "lint failed"}]
+        })
+
+      sync_recorder(recorder)
+
+      assert_received {:recorded, 1, {:tracker_update, ^identifier, "rework", [expected_state: "human-review"]}}
+      assert next.running[identifier].issue.state == "rework"
+      assert next.ci_lifecycle.approved_heads == %{}
+    end
+
     test "pending CI is idempotent for an existing ci-wait ticket" do
       identifier = unique_identifier("ci-idempotent")
       recorder = start_recorder()
@@ -466,6 +544,10 @@ defmodule Aiur.OrchestratorCILifecycleTest do
   end
 
   defp maybe_route_ci_terminal(state, _issue, _result), do: state
+
+  defp with_approved_head(%State{} = state, identifier, head_sha) do
+    %{state | ci_lifecycle: %{state.ci_lifecycle | approved_heads: %{identifier => head_sha}}}
+  end
 
   defp running_state(issue, pid, status, attrs) do
     entry =
