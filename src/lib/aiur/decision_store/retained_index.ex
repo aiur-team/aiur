@@ -3,7 +3,7 @@ defmodule Aiur.DecisionStore.RetainedIndex do
 
   alias Aiur.Decision
 
-  @lifecycle_statuses [:open, :decided, :acknowledged, :resolved]
+  @lifecycle_statuses [:open, :dismissed, :decided, :acknowledged, :resolved]
   @search_bucket_width 3
 
   @type t :: %{
@@ -25,17 +25,32 @@ defmodule Aiur.DecisionStore.RetainedIndex do
   @spec build(%{String.t() => Decision.t()}, %{optional(String.t()) => [Decision.t()]}) :: t()
   def build(current, histories \\ %{}) do
     Enum.reduce(current, empty(), fn {_decision_id, decision}, index ->
-      add(index, decision, first_accepted_key(decision, Map.get(histories, decision.decision_id)))
+      if operator_command?(decision) do
+        add(index, decision, first_accepted_key(decision, Map.get(histories, decision.decision_id)))
+      else
+        index
+      end
     end)
   end
 
   @spec update(t(), Decision.t() | nil, Decision.t()) :: t()
   def update(index, prior, %Decision{} = decision) do
-    key = Map.get(index.audit_keys, decision.decision_id, audit_key(prior || decision))
+    indexed? = Map.has_key?(index.audit_keys, decision.decision_id)
 
-    index
-    |> remove(prior)
-    |> add(decision, key)
+    case {indexed?, operator_command?(decision)} do
+      {false, false} ->
+        index
+
+      {false, true} ->
+        add(index, decision, audit_key(prior || decision))
+
+      {true, false} ->
+        remove(index, prior || decision)
+
+      {true, true} ->
+        key = Map.fetch!(index.audit_keys, decision.decision_id)
+        index |> remove(prior) |> add(decision, key)
+    end
   end
 
   @spec all(t(), :audit | :current) :: :gb_sets.set()
@@ -177,6 +192,14 @@ defmodule Aiur.DecisionStore.RetainedIndex do
   end
 
   defp ticket_identifier(%Decision{ticket: ticket}), do: ticket && Map.get(ticket, :identifier)
+
+  # Delivery and persistence failures are operational alerts about an existing
+  # Command. They must never become a second operator-facing Command themselves.
+  defp operator_command?(%Decision{legacy_attention: %{slug: slug}}) when is_binary(slug) do
+    not String.starts_with?(slug, ["decision-delivery-", "decision-lifecycle-persistence-"])
+  end
+
+  defp operator_command?(%Decision{}), do: true
 
   defp increment_counts(counts, %Decision{decision_status: :open, blocking: blocking}) do
     %{counts | open: counts.open + 1, blocking: counts.blocking + if(blocking, do: 1, else: 0)}

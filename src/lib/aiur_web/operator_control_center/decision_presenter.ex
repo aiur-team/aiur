@@ -127,6 +127,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
   end
 
   defp lifecycle(%{delivery_status: :failed}), do: :delivery_failed
+  defp lifecycle(%{decision_status: :dismissed}), do: :resolved
   defp lifecycle(%{decision_status: :resolved}), do: :resolved
   defp lifecycle(%{decision_status: :acknowledged}), do: :acknowledged
   defp lifecycle(%{delivery_status: status}) when status in [:delivered, :consumed], do: :delivered

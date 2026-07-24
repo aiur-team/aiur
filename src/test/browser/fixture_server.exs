@@ -29,6 +29,7 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
         <script defer src="/assets/phoenix_live_view.js"></script>
         <script defer src="/aiur-dom-svg-layout-loader.js"></script>
         <script defer src="/assets/ticket-context-dialog-hook.js"></script>
+        <script defer src="/assets/build-order-grid-hook.js"></script>
         <script defer src="/assets/browser_harness.js"></script>
         <link rel="stylesheet" href="/dashboard.css" />
         <script>
@@ -52,6 +53,10 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
 
             if (window.AiurTicketContextDialogHook) {
               window.BrowserHarnessHooks.TicketContextDialog = window.AiurTicketContextDialogHook;
+            }
+
+            if (window.AiurBuildOrderGridHook) {
+              window.BrowserHarnessHooks.BuildOrderGrid = window.AiurBuildOrderGridHook;
             }
 
             window.liveSocket = new window.LiveView.LiveSocket("/live", window.Phoenix.Socket, {
@@ -125,6 +130,10 @@ defmodule Aiur.BrowserHarness.FixtureLive do
   use Phoenix.LiveView, layout: {Aiur.BrowserHarness.FixtureLayout, :app}
 
   alias Aiur.BrowserHarness.Fixtures
+  alias Aiur.BuildOrder.Icon
+  alias Aiur.TrackerIdentity
+  alias AiurWeb.BuildOrderViewModel
+  alias AiurWeb.BuildOrderViewModel.{Edge, Node}
   alias AiurWeb.OperatorControlCenter.BuildOrderGraph
 
   @impl true
@@ -264,9 +273,8 @@ defmodule Aiur.BrowserHarness.FixtureLive do
             root_id="fixture-build-order-root"
             provider_generation={@graph_generation}
             dom_generation={@graph_generation}
-            nodes={graph_nodes(@fixture)}
-            edges={graph_edges(@fixture)}
-            layout_assets={layout_assets(@graph_layout_mode)}
+            model={fixture_graph_model(@fixture)}
+            adhoc={nil}
           />
           <p :if={!@graph_mounted} id="graph-unmounted" role="status">Graph unmounted</p>
         </div>
@@ -275,82 +283,116 @@ defmodule Aiur.BrowserHarness.FixtureLive do
     """
   end
 
-  defp graph_nodes(fixture) do
+  # Build a real `BuildOrderViewModel` sized to the fixture so the redesigned
+  # CSS-grid graph renders one semantic ticket card per member, distributed
+  # across epic columns (lanes) × execution-wave rows (phases). The grid is
+  # synchronous — there is no worker geometry to await — so the only synthetic
+  # inputs the grid model needs are lane, phase, progress and status per card.
+  @fixture_lanes ~w(dashboard-ui runtime plan-graph accounting)
+
+  defp fixture_graph_model(fixture) do
     size = length(fixture.nodes)
-    per_phase = nodes_per_phase(size)
+    waves = fixture_wave_count(size)
 
-    Enum.map(fixture.nodes, fn node ->
-      ordinal = node.ordinal || 1
+    nodes =
+      fixture.nodes
+      |> Enum.with_index(1)
+      |> Enum.map(fn {node, ordinal} -> fixture_node(node, ordinal, size, waves) end)
 
-      %{
-        id: node.id,
-        title: "Fixture #{ordinal}",
-        summary: "Semantic card #{ordinal}",
-        lane: rem(ordinal - 1, 2),
-        phase: node_phase(size, ordinal, per_phase)
+    node_ids = MapSet.new(nodes, & &1.card.identifier)
+
+    edges =
+      nodes
+      |> Enum.with_index(1)
+      |> Enum.flat_map(fn {node, ordinal} ->
+        target = "fixture-node-#{String.pad_leading(Integer.to_string(ordinal + waves), 3, "0")}"
+
+        if MapSet.member?(node_ids, target),
+          do: [fixture_edge(node.card.identifier, target, ordinal)],
+          else: []
+      end)
+
+    %BuildOrderViewModel{
+      status: :ready,
+      root: %{identity: fixture_identity(0), generation: 1},
+      nodes: nodes,
+      edges: edges,
+      generations: %{planning: 1, activity: 1}
+    }
+  end
+
+  # A balanced ~sqrt(size) grid so both dimensions grow with the graph.
+  defp fixture_wave_count(size), do: max(1, round(:math.sqrt(size)))
+
+  defp fixture_node(node, ordinal, size, waves) do
+    identifier = node.id
+    identity = fixture_identity(ordinal)
+    lane = Enum.at(@fixture_lanes, rem(ordinal - 1, min(length(@fixture_lanes), max(2, div(size, 20) + 2))))
+    phase = rem(ordinal - 1, waves) + 1
+    {status_key, status_text, progress} = fixture_status(ordinal)
+
+    %Node{
+      key: {:fixture, identifier},
+      identity: identity,
+      title: "Fixture #{ordinal}",
+      url: "https://github.com/owner/repo/issues/#{ordinal}",
+      plan: %{complexity: rem(ordinal - 1, 5) + 1},
+      execution: %{},
+      activity: %{},
+      readiness: %{},
+      lane_icon: nil,
+      status_icon: %Icon{key: status_key, text: status_text},
+      health: %{},
+      observed_at: %{},
+      provenance: %{},
+      card: %{
+        identifier: identifier,
+        lane: lane,
+        phase: phase,
+        progress: progress,
+        status_text: status_text
       }
-    end)
+    }
   end
 
-  # Small graphs keep the original 4-column layout (phase cycles every two cards)
-  # so BO-013/route interaction specs stay pinned. Larger graphs fill a balanced
-  # ~sqrt(size) grid: `per_phase` consecutive cards share a partition column and
-  # each successive column advances the build order. `elk.partitioning` maps
-  # phase onto a layered column, so keeping both the column count and the
-  # per-column stack near sqrt(size) holds every layout coordinate under the
-  # worker's MAX_COORDINATE bound for 20/50/100 instead of a false overflow.
-  defp node_phase(size, ordinal, _per_phase) when size <= 20, do: rem(div(ordinal - 1, 2), 4)
-  defp node_phase(_size, ordinal, per_phase), do: div(ordinal - 1, per_phase)
-
-  defp nodes_per_phase(size), do: max(1, round(:math.sqrt(size)))
-
-  defp graph_edges(fixture) do
-    states = [:cleared, :blocking, :terminal_unsatisfied, :unknown, :cyclic]
-    graph_edges(length(fixture.nodes), fixture, states)
+  # Cycle four representative states so every wave carries mixed completion.
+  defp fixture_status(ordinal) do
+    case rem(ordinal, 4) do
+      0 -> {:status_completed, "merged", 100}
+      1 -> {:status_working, "agent live", 40}
+      2 -> {:status_ready, "dependency-ready", 0}
+      _ -> {:status_blocking, "blocked", 0}
+    end
   end
 
-  # Small graphs keep the original star topology (edges fan out from the first
-  # two cards) so BO-013/route edge-state specs stay pinned.
-  defp graph_edges(size, fixture, states) when size <= 20 do
-    edges =
-      fixture.edges
-      |> Enum.with_index()
-      |> Enum.map(fn {_edge, index} ->
-        source = Enum.at(fixture.nodes, rem(index, 2)).id
-        target = Enum.at(fixture.nodes, index + 1).id
+  defp fixture_edge(source, target, ordinal) do
+    state = if rem(ordinal, 2) == 0, do: :cleared, else: :blocking
 
-        %{id: "fixture-edge-#{index + 1}", source: source, target: target, state: Enum.at(states, rem(index, length(states)))}
-      end)
-
-    [%{id: "fixture-missing-endpoint", source: "missing:fixture-node", target: "fixture-node-001", state: :unknown} | edges]
+    %Edge{
+      id: "fixture-edge-#{ordinal}",
+      source: fixture_identity(ordinal),
+      target: fixture_identity(ordinal + 1),
+      source_key: {:fixture, source},
+      target_key: {:fixture, target},
+      kind: :native,
+      state: state,
+      source_connection: :blocked_by,
+      text: "Fixture relationship",
+      diagnostics: []
+    }
   end
 
-  # Larger graphs connect each card to the same row of the next partition column
-  # (node i -> i + per_phase), so every dependency spans exactly one column and
-  # ELK routes it between adjacent layers with no dummy nodes. A dependency that
-  # crossed many columns (as the star topology does) would stack routing dummies
-  # vertically in the intermediate columns until a coordinate exceeds
-  # MAX_COORDINATE — a false overflow instead of real worker geometry.
-  defp graph_edges(size, fixture, states) do
-    per_phase = nodes_per_phase(size)
-    nodes = fixture.nodes
-    last = size - 1
-
-    edges =
-      fixture.edges
-      |> Enum.with_index()
-      |> Enum.map(fn {_edge, index} ->
-        source = Enum.at(nodes, index).id
-        target = Enum.at(nodes, min(index + per_phase, last)).id
-
-        %{id: "fixture-edge-#{index + 1}", source: source, target: target, state: Enum.at(states, rem(index, length(states)))}
-      end)
-
-    [%{id: "fixture-missing-endpoint", source: "missing:fixture-node", target: "fixture-node-001", state: :unknown} | edges]
+  defp fixture_identity(number) do
+    struct!(TrackerIdentity,
+      status: :joinable,
+      kind: :github,
+      owner: "owner",
+      repository: "repo",
+      provider_id: "NODE-owner-repo-#{number}",
+      identifier: to_string(number),
+      reason: nil
+    )
   end
-
-  defp layout_assets(:fallback), do: %{client: "", worker: "", engine: ""}
-  defp layout_assets(:worker), do: nil
 end
 
 defmodule Aiur.BrowserHarness.TicketContextLive do
@@ -790,6 +832,14 @@ defmodule Aiur.BrowserHarness.UnitsLive do
     {:noreply, push_patch(socket, to: units_path(selection))}
   end
 
+  def handle_event("select-all-units-filters", _params, socket) do
+    {:noreply, push_patch(socket, to: units_path(UnitsPresenter.select_all_filters()))}
+  end
+
+  def handle_event("select-no-units-filters", _params, socket) do
+    {:noreply, push_patch(socket, to: units_path(UnitsPresenter.select_no_filters()))}
+  end
+
   def handle_event("reset-units-filters", _params, socket) do
     {:noreply, push_patch(socket, to: units_path(UnitsURL.zero_result_reset()))}
   end
@@ -800,6 +850,10 @@ defmodule Aiur.BrowserHarness.UnitsLive do
       {:error, :not_found} -> {:noreply, socket}
     end
   end
+
+  def handle_event("show-agent-log", _params, socket), do: {:noreply, socket}
+
+  def handle_event("read-conversation", _params, socket), do: {:noreply, socket}
 
   def handle_event("close-ticket-context", _params, socket) do
     {:noreply, socket |> assign(:context, nil) |> assign(:selected_row, nil)}
@@ -1098,6 +1152,7 @@ defmodule Aiur.BrowserHarness.FixtureAssets do
   def phoenix(conn, _params), do: serve_embedded(conn, "/vendor/phoenix/phoenix.js")
   def phoenix_live_view(conn, _params), do: serve_embedded(conn, "/vendor/phoenix_live_view/phoenix_live_view.js")
   def ticket_context_dialog_hook(conn, _params), do: serve_embedded(conn, "/ticket-context-dialog-hook.js")
+  def build_order_grid_hook(conn, _params), do: serve_embedded(conn, "/build-order-grid-hook.js")
   def harness(conn, _params), do: serve_file(conn, "browser_harness.js")
   def worker(conn, _params), do: serve_file(conn, "browser_worker.js")
 
@@ -1412,6 +1467,7 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     get("/assets/phoenix.js", Aiur.BrowserHarness.FixtureAssets, :phoenix)
     get("/assets/phoenix_live_view.js", Aiur.BrowserHarness.FixtureAssets, :phoenix_live_view)
     get("/assets/ticket-context-dialog-hook.js", Aiur.BrowserHarness.FixtureAssets, :ticket_context_dialog_hook)
+    get("/assets/build-order-grid-hook.js", Aiur.BrowserHarness.FixtureAssets, :build_order_grid_hook)
     get("/assets/browser_harness.js", Aiur.BrowserHarness.FixtureAssets, :harness)
     get("/assets/browser_worker.js", Aiur.BrowserHarness.FixtureAssets, :worker)
   end

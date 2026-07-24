@@ -177,6 +177,51 @@ defmodule Aiur.DecisionStoreTest do
     DecisionStore.request(payload, Keyword.merge([ticket: @ticket, source: @source], opts), pid)
   end
 
+  test "dismiss is durable, idempotent, historic, and write-gated", %{dir: dir} do
+    pid = start_store!(dir)
+
+    assert {:ok, %{decision: decision}} =
+             request(pid, %{
+               "question" => "Use blue or green?",
+               "blocking" => true,
+               "options" => [
+                 %{"id" => "blue", "label" => "Blue"},
+                 %{"id" => "green", "label" => "Green"}
+               ]
+             })
+
+    opts = [actor: %{kind: :operator, id: "dashboard"}]
+
+    assert {:ok, %{status: :accepted, decision: dismissed}} =
+             DecisionStore.dismiss(decision.decision_id, opts, pid)
+
+    assert dismissed.decision_status == :dismissed
+    assert dismissed.answer == nil
+
+    assert {:ok, %{status: :duplicate, decision: replayed}} =
+             DecisionStore.dismiss(decision.decision_id, opts, pid)
+
+    assert replayed.decision_status == :dismissed
+
+    assert {:ok, %{decisions: [historic], total: 1}} =
+             DecisionStore.retained_query(
+               %{limit: 25, cursor: nil, lifecycle: :historic, search: nil, ticket: nil},
+               pid
+             )
+
+    assert historic.decision_id == decision.decision_id
+
+    :sys.replace_state(pid, &%{&1 | writable?: false, health: {:corrupt, 1, :test}})
+
+    assert {:error, {:store_unavailable, {:corrupt, 1, :test}}} =
+             DecisionStore.dismiss(decision.decision_id, opts, pid)
+
+    GenServer.stop(pid)
+    restarted = start_store!(dir)
+    assert {:ok, durable} = DecisionStore.get(decision.decision_id, restarted)
+    assert durable.decision_status == :dismissed
+  end
+
   defp decision_index_key(decision) do
     urgency = %{low: 0, normal: 1, high: 2, critical: 3}
 
@@ -779,6 +824,40 @@ defmodule Aiur.DecisionStoreTest do
   end
 
   describe "legacy attention projection and enrichment" do
+    test "internal delivery alerts never appear as operator Commands", %{dir: dir} do
+      pid = start_store!(dir)
+      slug = "decision-delivery-act-1"
+
+      payload = %{
+        "question" => "Decision action remains actionable after turn_failed.",
+        "blocking" => true,
+        "kind" => "legacy_attention",
+        "source_id" => "legacy_attention:#{slug}"
+      }
+
+      assert {:ok, %{status: :accepted, decision: decision}} =
+               DecisionStore.project_attention(
+                 payload,
+                 [
+                   ticket: @ticket,
+                   source: @source,
+                   legacy_attention: %{
+                     slug: slug,
+                     topic: "ticket.979.agent.attention.#{slug}"
+                   }
+                 ],
+                 pid
+               )
+
+      assert {:ok, %{decisions: [], total: 0, counts: %{open: 0, blocking: 0}}} =
+               DecisionStore.retained_query(
+                 %{limit: 25, cursor: nil, lifecycle: nil, search: nil, ticket: nil},
+                 pid
+               )
+
+      assert {:ok, ^decision} = DecisionStore.get(decision.decision_id, pid)
+    end
+
     test "a minimal attention creates one custom-response-only Decision", %{dir: dir} do
       pid = start_store!(dir)
 
@@ -1813,6 +1892,16 @@ defmodule Aiur.DecisionStoreTest do
       _queued = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :queued))
       item = correlated_queue_item(decision, action, attempt_id, 93)
       assert {:ok, :accepted} = DecisionStore.record_delivery(item, pid)
+
+      assert {:ok, %{decision: advanced}} =
+               request(
+                 pid,
+                 answerable_request("answer-lifecycle")
+                 |> Map.merge(%{"question" => "Deploy now with the latest context?", "version" => 2})
+               )
+
+      assert advanced.version == 2
+      assert Aiur.Decision.active_answer(advanced).action_id == action.action_id
 
       :ok = Exchange.subscribe("ticket.979.agent.decision.acknowledged")
       :ok = Exchange.subscribe("ticket.979.agent.decision.resolved")

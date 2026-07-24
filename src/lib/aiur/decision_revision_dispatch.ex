@@ -125,7 +125,8 @@ defmodule Aiur.DecisionRevisionDispatch do
     payload = %{
       kind: :text,
       body: render(decision),
-      delivery_policy: :checkpoint,
+      delivery_policy: :interrupt,
+      fallback: :queue_next,
       action_id: revision.action_id,
       correlation: correlation,
       retry_failed: retry_failed

@@ -3,7 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
 
   use Phoenix.Component
 
-  alias AiurWeb.OperatorControlCenter.{DecisionCard, DecisionPath}
+  alias AiurWeb.OperatorControlCenter.DecisionCard
 
   @filter_specs [
     {:open, "Open"},
@@ -34,10 +34,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
       |> assign(:visible_decisions, decisions)
       |> assign(:counts, filter_counts(assigns.retained_counts, assigns.page, assigns.filter))
       |> assign(:filter_specs, @filter_specs)
-      |> assign(:search, Map.get(assigns.query, :search, ""))
       |> assign(:page_health, get_in(assigns.page, [:health, :status]))
-      |> assign(:pagination, Map.get(assigns.page, :pagination, %{}))
-      |> assign(:next_path, next_path(assigns.page, assigns.query, assigns.filter))
 
     ~H"""
     <section class="section-card decision-inbox" aria-labelledby="decision-inbox-title">
@@ -54,22 +51,6 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
         />
       </div>
 
-      <form :if={@filter == :all} class="command-search" role="search" phx-submit="search-commands">
-        <label for="command-search">Search retained Commands</label>
-        <div class="command-search-controls">
-          <input
-            id="command-search"
-            name="search"
-            value={@search}
-            maxlength="200"
-            placeholder="Command ID or ticket ID"
-            autocomplete="off"
-          />
-          <button type="submit" class="btn secondary">Search</button>
-          <.link :if={@search != ""} patch={DecisionPath.inbox(:all)} class="btn ghost">Clear</.link>
-        </div>
-      </form>
-
       <div class="decision-list">
         <div :if={@provider_health != :ok or @page_health == :unavailable} class="empty-state">
           Command projection is currently unavailable. Unit state remains live.
@@ -78,7 +59,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
           Retained Commands are partial; showing the last validated audit prefix.
         </div>
         <div :if={@provider_health == :ok and @page_health != :unavailable and @visible_decisions == []} class="empty-state">
-          No Commands match this filter.
+          {empty_message(@filter)}
         </div>
         <DecisionCard.decision_card
           :for={decision <- @visible_decisions}
@@ -93,10 +74,6 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
         />
       </div>
 
-      <nav :if={map_size(@pagination) > 0} class="command-pagination" aria-label="Retained Command pages">
-        <span class="muted">{pagination_label(@pagination)}</span>
-        <.link :if={@next_path} patch={@next_path} class="btn ghost">Next page</.link>
-      </nav>
     </section>
     """
   end
@@ -139,9 +116,18 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
   defp filtered(decisions, :blocking), do: Enum.filter(decisions, &blocking?/1)
   defp filtered(decisions, :undelivered), do: Enum.filter(decisions, &undelivered?/1)
   defp filtered(decisions, :supervisor), do: Enum.filter(decisions, &supervisor_decision?/1)
-  defp filtered(decisions, :resolved), do: Enum.filter(decisions, &(&1.decision_status == :resolved))
+
+  # The inbox is actionable work, while answered and dismissed Commands belong
+  # exclusively to the compact audit feed below. Keeping historic Commands out
+  # of both All and Resolved prevents the same action from reading as an open
+  # card and as a history row at the same time.
+  defp filtered(_decisions, :resolved), do: []
+
   defp filtered(decisions, :superseded), do: Enum.filter(decisions, &Map.get(&1, :superseded?, false))
-  defp filtered(decisions, _filter), do: decisions
+  defp filtered(decisions, _filter), do: Enum.filter(decisions, &open?/1)
+
+  defp empty_message(:resolved), do: "Resolved Commands are shown in Command history below."
+  defp empty_message(_filter), do: "No Commands match this filter."
 
   defp visible_decisions(decisions, selected, selected_id, filter) do
     filtered =
@@ -161,25 +147,5 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
 
   defp supervisor_decision?(decision) do
     get_in(decision, [:answer, :actor, :kind]) == :supervisor
-  end
-
-  defp next_path(page, query, filter) do
-    case get_in(page, [:pagination, :next_cursor]) do
-      cursor when is_binary(cursor) ->
-        query = query |> Map.take([:search]) |> Map.put(:cursor, cursor)
-        DecisionPath.inbox(filter, query)
-
-      _cursor ->
-        nil
-    end
-  end
-
-  defp pagination_label(%{label: label}) when is_binary(label), do: command_vocabulary(label)
-  defp pagination_label(_pagination), do: "Retained Command page"
-
-  defp command_vocabulary(label) do
-    label
-    |> String.replace("Decisions", "Commands")
-    |> String.replace("Decision", "Command")
   end
 end

@@ -143,28 +143,17 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderTicketContextTest do
     refute html =~ "Bounded relationship 101</button>"
   end
 
-  test "preserves every base detail and history presentation state" do
-    for {detail, expected} <- [
-          # Healthy detail + history collapse to a compact chip, not narrated prose.
-          {:available, "ticket-context-fresh-chip"},
-          {:stale, "Ticket detail is stale."},
-          {:missing, "Ticket detail has not been loaded."},
-          {:unavailable, "Ticket detail is unavailable."}
-        ] do
+  test "keeps projection health out of the ticket context surface" do
+    for detail <- [:available, :stale, :missing, :unavailable] do
       html = render(detail, :available)
-      assert html =~ expected
       assert html =~ "Logs"
+      refute html =~ "Ticket detail"
     end
 
-    for {history, expected} <- [
-          {:available, "ticket-context-fresh-chip"},
-          {:known_empty, "No history has been recorded yet."},
-          {:missing_source, "Ticket history is not available from its source."},
-          {:restart_unknown, "Activity continuity is unknown after restart."},
-          {:stale, "Ticket history is stale."},
-          {:unavailable, "Ticket history is unavailable."}
-        ] do
-      assert render(:available, history) =~ expected
+    for history <- [:available, :known_empty, :missing_source, :restart_unknown, :stale, :unavailable] do
+      html = render(:available, history)
+      refute html =~ "Ticket history"
+      refute html =~ "Activity continuity"
     end
   end
 

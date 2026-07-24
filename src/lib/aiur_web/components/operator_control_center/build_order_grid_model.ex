@@ -42,7 +42,8 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
           columns: [map()],
           waves: [map()],
           cards: [card()],
-          edges: [map()]
+          edges: [map()],
+          planning?: boolean()
         }
   def build(model, adhoc) do
     planning? = planning?(model)

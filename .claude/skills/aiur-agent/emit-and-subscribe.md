@@ -35,6 +35,77 @@ attention needs a durable Decision contract, immediately follow it with
 structured request behind the projection and returns its terminal
 `decision_id`, `version`, and status.
 
+### Requesting an operator decision
+
+When work genuinely needs operator direction, emit `decision.requested` with
+enough structure for the Commands dashboard to present the decision without
+reconstructing context from the transcript:
+
+If the question has two to five bounded alternatives, you **must** encode them
+as `options` before emitting an `attention.*` or `pause.request` event. If you
+can phrase the question as “A or B?”, A and B belong in `options` so the
+Executor can answer with one click. An attention or operator-decision pause
+does not replace `decision.requested`; never leave the alternatives only in an
+attention message, pause question, workpad, or recommendation payload. Use a
+free-text-only Decision only when predefined choices would genuinely be
+misleading.
+
+```jsonc
+{
+  "question": "Which implementation shape should this use?",
+  "blocking": true,
+  "context": {
+    "short_summary": "A one-line explanation of the choice.",
+    "long_context_markdown": "The relevant constraints, tradeoffs, and scope."
+  },
+  "options": [
+    {
+      "id": "a",
+      "label": "First option",
+      "description": "What this option does.",
+      "benefits": "Why it may be preferable.",
+      "drawbacks": "What it costs.",
+      "risk": "low"
+    },
+    {
+      "id": "b",
+      "label": "Second option",
+      "description": "What this option does.",
+      "benefits": "Why it may be preferable.",
+      "drawbacks": "What it costs.",
+      "risk": "low"
+    }
+  ],
+  "recommendation": {
+    "option_id": "a",
+    "reason": "Why this is the recommended option."
+  },
+  "authority": "human_required",
+  "urgency": "normal",
+  "reversibility": "reversible",
+  "kind": "product",
+  "consequence_of_delay": "What remains blocked while the decision is open."
+}
+```
+
+Populate the summary, long context, options, and recommendation whenever they
+apply; do not emit only a question and force the operator to infer the rest.
+`context.long_context_markdown` must give the Executor enough evidence to make
+the choice without opening the agent transcript: what triggered the decision,
+relevant constraints and observed facts, tradeoffs, and what each outcome
+changes. Avoid repeating the question or filling this field with generic prose.
+
+For example, an inherited-CI question should offer options such as “Proceed to
+human review” and “Remain held”, with the preferred option in
+`recommendation.option_id`, rather than emitting only “Should it proceed or
+remain held?” through an attention and pause.
+
+If the Executor message says the decision was dismissed and instructs you to
+use your best judgement, proceed autonomously with the best supported option.
+After completing that work, emit `decision.resolved` for the dismissed request
+using the correlation supplied by Aiur when available; do not keep waiting for
+another answer.
+
 Or, on failure:
 
 ```jsonc

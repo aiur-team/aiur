@@ -211,7 +211,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     refute superseded =~ "Resolved"
   end
 
-  test "renders path artifacts as text and only links trusted http URLs" do
+  test "omits links and artifacts from the focused Command detail" do
     decision = %{
       decision_id: "dec-artifacts",
       version: 1,
@@ -242,8 +242,9 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
 
     html = render_component(&DecisionDetail.decision_detail/1, %{decision: decision, history: [], writable: false})
 
-    assert html =~ "src/lib/aiur_web/router.ex"
-    assert html =~ ~s(href="https://example.test/evidence")
+    assert html =~ "Recorded context"
+    refute html =~ "src/lib/aiur_web/router.ex"
+    refute html =~ ~s(href="https://example.test/evidence")
     refute html =~ ~s(href="javascript:alert)
   end
 
@@ -395,6 +396,23 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     refute html =~ "currently unavailable"
   end
 
+  test "renders answered and dismissed Commands once as compact green history rows" do
+    answered = inbox_decision("dec-history-answered", decision_status: :decided, answer: action_answer(:operator))
+    dismissed = inbox_decision("dec-history-dismissed", decision_status: :dismissed)
+
+    html =
+      render_component(&History.history/1, %{
+        entries: [],
+        decisions: [answered, dismissed],
+        provider_health: :ok
+      })
+
+    assert html =~ ~s(class="history-item" data-severity="good")
+    assert html =~ "Answered"
+    assert html =~ "Dismissed — agent proceeds with best judgement"
+    refute html =~ ~s(class="decision-card)
+  end
+
   test "Commands inbox exposes only the four primary filters with canonical retained counts" do
     html =
       render_inbox(
@@ -413,16 +431,56 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     refute html =~ ~r/>Superseded\s+<span class="count num">/
   end
 
-  test "renders a writable canonical answer form with destructive confirmation" do
+  test "renders a writable canonical answer form without a confirmation footer" do
     decision = action_decision(reversibility: :irreversible, kind: "destructive_op")
 
     html = render_component(&DecisionAction.decision_action/1, %{decision: decision, state: %{}, writable: true})
 
     assert html =~ ~s(phx-submit="answer-decision")
     assert html =~ ~s(name="answer[choice]")
-    assert html =~ "Persisted before dispatch"
-    assert html =~ "I understand this Command is irreversible or destructive."
-    assert html =~ "Record answer"
+    refute html =~ "Persisted before dispatch"
+    refute html =~ "Durable command"
+    refute html =~ "Answer this Command"
+    refute html =~ "Rationale"
+    refute html =~ "I understand this Command is irreversible or destructive."
+    refute html =~ "Choose an option"
+    assert html =~ ">Decision</button>"
+  end
+
+  test "renders recommended card-face choices with Decision and Dismiss actions" do
+    decision = action_decision([])
+
+    html =
+      render_component(&DecisionAction.decision_action/1, %{
+        decision: decision,
+        state: %{},
+        writable: true,
+        compact: true
+      })
+
+    assert html =~ ~s(class="decision-action compact")
+    assert html =~ ~s(value="option:ship")
+    assert html =~ ~s(checked)
+    assert html =~ "Recommended"
+    assert html =~ ~s(phx-submit="answer-decision")
+    assert html =~ ~s(phx-click="dismiss-decision")
+    assert html =~ ">Decision</button>"
+  end
+
+  test "dismissed historic card offers a change choice answer without another dismiss" do
+    decision = action_decision(decision_status: :dismissed)
+
+    html =
+      render_component(&DecisionAction.decision_action/1, %{
+        decision: decision,
+        state: %{},
+        writable: true,
+        compact: true
+      })
+
+    assert html =~ ~s(phx-submit="answer-decision")
+    assert html =~ "Change choice"
+    refute html =~ ~s(phx-click="dismiss-decision")
   end
 
   test "renders canonical answer evidence and gates failed-delivery retry by writable mode" do
@@ -450,7 +508,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     readonly = render_component(&DecisionAction.decision_action/1, %{decision: decision, state: %{}, writable: false})
 
     assert writable =~ "Checks are green"
-    assert writable =~ "Delivery · Failed"
+    assert writable =~ "Delivery failed"
     assert writable =~ ~s(phx-click="retry-decision")
     assert writable =~ "Target agent unavailable"
     refute readonly =~ ~s(phx-click="retry-decision")
@@ -567,7 +625,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     refute readonly =~ ~s(phx-submit="handle-revision-follow-up")
   end
 
-  test "keeps every secondary lifecycle state visible under the primary All filter" do
+  test "moves answered and dismissed Commands out of the inbox into history" do
     operator_answer = action_answer(:operator)
     supervisor_answer = action_answer(:supervisor)
 
@@ -591,6 +649,11 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
         lifecycle: :resolved,
         answer: operator_answer
       ),
+      inbox_decision("dec-dismissed",
+        decision_status: :dismissed,
+        delivery_status: :not_dispatched,
+        lifecycle: :resolved
+      ),
       inbox_decision(
         "dec-superseded",
         decision_status: :decided,
@@ -604,14 +667,14 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     all = render_inbox(decisions, :all)
     resolved = render_inbox(decisions, :resolved)
 
-    assert all =~ "Question dec-undelivered"
-    assert all =~ "Question dec-supervisor"
-    assert all =~ "Question dec-superseded"
-    assert all =~ "Dispatch pending"
-    assert all =~ "Supervisor answer"
-    assert all =~ "Superseded"
-    assert resolved =~ "Question dec-resolved"
-    refute resolved =~ "Question dec-superseded"
+    assert all =~ "Question dec-open"
+    refute all =~ "Question dec-undelivered"
+    refute all =~ "Question dec-supervisor"
+    refute all =~ "Question dec-resolved"
+    refute all =~ "Question dec-dismissed"
+    refute all =~ "Question dec-superseded"
+    assert resolved =~ "Resolved Commands are shown in Command history below."
+    refute resolved =~ ~s(class="decision-card)
   end
 
   test "renders trusted provenance, exact confidence, and bounded option previews without prose inference" do
@@ -636,7 +699,8 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
 
     html = render_inbox([decision], :all)
 
-    assert html =~ "codex · resolved-model"
+    assert html =~ ">Codex</span>"
+    assert html =~ ">resolved-model</span>"
     assert html =~ "0% confidence"
     assert html =~ "Selected · Second option"
     assert html =~ "First option"
@@ -644,7 +708,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     refute html =~ "Hidden third option"
   end
 
-  test "Command detail renders canonical runtime provenance and exact supervisor confidence" do
+  test "Command detail prioritizes context and events over diagnostic metadata" do
     answer = action_answer(:supervisor) |> Map.put(:supervisor_basis, %{"confidence" => 37})
 
     decision =
@@ -670,13 +734,12 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
         writable: false
       })
 
-    assert html =~ "Command metadata"
-    assert html =~ "Supervisor confidence"
-    assert html =~ "37%"
-    assert html =~ "codex-app-server"
-    assert html =~ "gpt-resolved"
-    assert html =~ "attempt-37"
-    refute html =~ "Runtime provenance was not recorded"
+    assert html =~ "Context"
+    assert html =~ "Event timeline"
+    refute html =~ "Command metadata"
+    refute html =~ "Command latency"
+    refute html =~ "Runtime provenance"
+    refute html =~ "Links &amp; artifacts"
   end
 
   defp action_decision(attrs) do

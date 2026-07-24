@@ -29,11 +29,23 @@ export async function assertNoDocumentOverflow(page) {
 }
 
 export async function assertControlsRemainReachable(page) {
-  const { controls, width } = await page.evaluate(() => ({
-    controls: Array.from(document.querySelectorAll('button')).map((button) => button.getBoundingClientRect().right),
-    width: window.innerWidth
-  }))
-  expect(controls.every((right) => right <= width)).toBe(true)
+  const { controls, width } = await page.evaluate(() => {
+    const insideHorizontalScroller = (element) => {
+      for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
+        if (ancestor.scrollWidth > ancestor.clientWidth) return true
+      }
+      return false
+    }
+
+    return {
+      controls: Array.from(document.querySelectorAll('button')).map((button) => ({
+        right: button.getBoundingClientRect().right,
+        scrollReachable: insideHorizontalScroller(button)
+      })),
+      width: window.innerWidth
+    }
+  })
+  expect(controls.every(({ right, scrollReachable }) => right <= width || scrollReachable)).toBe(true)
 }
 
 export async function reconnectLiveView(page) {

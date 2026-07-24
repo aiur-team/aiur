@@ -3414,6 +3414,7 @@ defmodule Aiur.OrchestratorStatusTest do
              )
 
     assert is_integer(request_id)
+    assert_receive {:agent_queue_updated, "MT-PAUSED", ^request_id, _delivery}, 500
     assert_receive {:resume_agent, resume_request_id, generation}, 500
 
     status = Orchestrator.max_concurrent_agents(orchestrator_name)
@@ -3425,6 +3426,56 @@ defmodule Aiur.OrchestratorStatusTest do
     status = Orchestrator.max_concurrent_agents(orchestrator_name)
     assert status.active == 1
     assert status.paused == 0
+  end
+
+  test "a Decision answer is queued before its paused agent is resumed" do
+    orchestrator_name = Module.concat(__MODULE__, :DecisionPausedQueueFirstOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    parent = self()
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | session_max_concurrent_agents: 2,
+          running: %{
+            "issue-paused-decision" => running_entry("issue-paused-decision", "MT-DECISION", :paused, parent)
+          }
+      }
+    end)
+
+    payload = %{
+      kind: :text,
+      body: "Durable Executor answer for ticket MT-DECISION",
+      action_id: "act_queue_first",
+      correlation: %{
+        decision_id: "dec_queue_first",
+        decision_version: 1,
+        action_id: "act_queue_first",
+        actor: %{kind: :operator, id: "operator-1"}
+      },
+      delivery_policy: :interrupt,
+      fallback: :queue_next
+    }
+
+    assert {:ok, %{status: :accepted, item: item}} =
+             Orchestrator.send_correlated_operator_message(
+               orchestrator_name,
+               "MT-DECISION",
+               payload
+             )
+
+    # Both signals come from the orchestrator process. Mailbox ordering proves
+    # the durable input is visible before any worker wake can start a turn.
+    assert_receive {:agent_queue_updated, "MT-DECISION", item_id, true}, 500
+    assert item_id == item.id
+    assert_receive {:resume_agent, _request_id, _generation}, 500
+
+    assert %{id: ^item_id, action_id: "act_queue_first"} =
+             :sys.get_state(pid).queue_store.items[item_id]
   end
 
   test "chat-send to a paused agent errors when no slot is free" do

@@ -35,19 +35,18 @@ defmodule AiurWeb.OperatorControlCenter.TicketContextTest do
     assert html =~ "Open — None"
     assert html =~ "40%"
     assert html =~ "Checkin"
-    # Timestamp spray collapsed to a single relative time per event.
-    assert html =~ "Progress:"
-    assert html =~ "Run id"
-    assert html =~ "run-42"
-    assert html =~ "Latest evidence: Agent event / progress.checkin"
-    assert html =~ "Evidence:"
-    refute html =~ "Progress occurred:"
-    refute html =~ "Evidence observed:"
-    # Healthy detail + history collapse to a compact chip, not narrated prose.
-    assert html =~ "ticket-context-fresh-chip"
-    refute html =~ "Ticket detail is current."
+    refute html =~ "Run id"
+    refute html =~ "run-42"
+    refute html =~ "Latest evidence"
+    refute html =~ "Session id"
+    assert html =~ "Last activity"
+    assert html =~ "0 linked tickets"
     assert html =~ "Logs are truncated to the newest safe entries."
-    assert html =~ ~s(<ol class="ticket-context-logs")
+    assert html =~ ~s(<table class="ticket-context-logs")
+    assert html =~ "Activity"
+    assert html =~ "Detail"
+    assert html =~ "40% complete"
+    assert html =~ "<details>"
     assert html =~ ~s(<time datetime="2026-07-16T12:00:00Z")
     # Available destinations are now header CTAs.
     assert html =~ "ticket-context-cta"
@@ -85,12 +84,12 @@ defmodule AiurWeb.OperatorControlCenter.TicketContextTest do
     refute html =~ ~s(data-origin-id=)
   end
 
-  test "renders region mode and truthful missing, stale, restart, and unavailable states" do
-    for {detail, history, expected} <- [
-          {:missing, :known_empty, "Ticket detail has not been loaded."},
-          {:stale, :stale, "Ticket detail is stale."},
-          {:unavailable, :restart_unknown, "Activity continuity is unknown after restart."},
-          {:unavailable, :unavailable, "Ticket history is unavailable."}
+  test "renders region mode without projection-health narration" do
+    for {detail, history} <- [
+          {:missing, :known_empty},
+          {:stale, :stale},
+          {:unavailable, :restart_unknown},
+          {:unavailable, :unavailable}
         ] do
       html =
         render_component(&TicketContext.ticket_context/1, %{
@@ -102,7 +101,9 @@ defmodule AiurWeb.OperatorControlCenter.TicketContextTest do
       assert html =~ ~s(role="region")
       refute html =~ ~s(aria-modal="true")
       refute html =~ ~s(phx-hook="TicketContextDialog")
-      assert html =~ expected
+      refute html =~ "Ticket detail"
+      refute html =~ "Ticket history"
+      refute html =~ "Activity continuity"
     end
   end
 
@@ -164,7 +165,7 @@ defmodule AiurWeb.OperatorControlCenter.TicketContextTest do
   test "omits the Dependencies section when the ticket has no relationships" do
     html = render_component(&TicketContext.ticket_context/1, %{id: "ticket-context-no-deps", context: context(), mode: :region})
 
-    refute html =~ ">Dependencies<"
+    refute html =~ "ticket-context-dependencies"
   end
 
   test "normalizes direct View inputs before rendering text, logs, evidence, or provenance" do
@@ -199,7 +200,7 @@ defmodule AiurWeb.OperatorControlCenter.TicketContextTest do
     refute html =~ "/home/private"
     refute html =~ "raw output"
     assert html =~ "Progress updated"
-    assert html =~ "Latest evidence is unknown."
+    refute html =~ "Latest evidence"
   end
 
   defp context(overrides \\ []) do
@@ -247,7 +248,8 @@ defmodule AiurWeb.OperatorControlCenter.TicketContextTest do
             label: "Progress updated",
             source: :exchange,
             occurred_at: @observed_at,
-            observed_at: @observed_at
+            observed_at: @observed_at,
+            details: %{percent: 40}
           }
         ],
         truncated?: true,

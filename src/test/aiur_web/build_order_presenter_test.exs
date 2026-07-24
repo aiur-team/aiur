@@ -226,7 +226,7 @@ defmodule AiurWeb.BuildOrderPresenterTest do
 
     assert first == second
     assert Enum.map(first.lane_groups, &{&1.key, &1.label}) == [{"runtime", "Runtime"}, {:unassigned, "Unassigned"}]
-    assert Enum.map(first.phase_groups, &{&1.key, &1.label}) == [{3, "Phase 3"}, {:unphased, "Unphased"}]
+    assert Enum.map(first.phase_groups, &{&1.key, &1.label}) == [{3, "Wave 3"}, {:unphased, "Unphased"}]
     assert :missing_lane in Enum.map(node(first, 1).diagnostics, & &1.code)
     assert :missing_phase in Enum.map(node(first, 1).diagnostics, & &1.code)
   end

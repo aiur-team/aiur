@@ -15,12 +15,24 @@ defmodule AiurWeb.OperatorControlCenter.UnitsFiltersTest do
     assert html =~ ~s(phx-click="select-units-scope")
     assert html =~ ~s(phx-value-scope="unfinished")
     assert html =~ ~r/aria-pressed="true"[^>]+phx-value-scope="unfinished"/
-    assert html =~ ~r/aria-pressed="false"[^>]+phx-value-scope="live"/
+    refute html =~ ~s(phx-value-scope="live")
+    refute html =~ ~s(phx-value-condition="stuck")
+    refute html =~ "<legend>Scope</legend>"
+    refute html =~ "<legend>Conditions</legend>"
     assert html =~ ~r/aria-pressed="true"[^>]+phx-value-condition="active"/
     assert html =~ ~r/aria-pressed="true"[^>]+phx-value-condition="paused"/
     assert html =~ ~r/aria-pressed="false"[^>]+phx-value-condition="alert"/
     assert html =~ ~r/>Active<\/span>\s*<span class="units-filter-count num" aria-label="3">\s*3\s*<\/span>/
     assert html =~ ~r/>Queued<\/span>\s*<span class="units-filter-count num" aria-label="2">\s*2\s*<\/span>/
+
+    assert position(html, ~s(phx-value-condition="finished")) <
+             position(html, ~s(phx-value-scope="unfinished"))
+
+    assert position(html, ~s(phx-value-scope="unfinished")) <
+             position(html, ~s(class="units-filter-divider"))
+
+    assert html =~ ~s(phx-click="select-all-units-filters")
+    assert html =~ ~s(phx-click="select-no-units-filters")
   end
 
   test "renders lower-bound counts and names unavailable counts without exact zeros" do
@@ -44,5 +56,10 @@ defmodule AiurWeb.OperatorControlCenter.UnitsFiltersTest do
     assert unavailable =~ ~s(aria-label="Count unavailable")
     assert unavailable =~ "disabled"
     refute unavailable =~ ~r/units-filter-count num[^>]*>0</
+  end
+
+  defp position(html, needle) do
+    {position, _length} = :binary.match(html, needle)
+    position
   end
 end

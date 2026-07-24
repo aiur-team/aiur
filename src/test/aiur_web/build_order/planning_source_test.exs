@@ -6,6 +6,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.PlanningSource
   alias AiurWeb.BuildOrderPresenter
+  alias AiurWeb.OperatorControlCenter.BuildOrderGridModel
 
   @pack """
   {
@@ -72,7 +73,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     {:ok, snapshot} = PlanningSource.demand(root.identity)
     model = BuildOrderPresenter.present(snapshot, :unavailable, :unavailable)
 
-    grid = AiurWeb.OperatorControlCenter.BuildOrderGridModel.build(model, nil)
+    grid = BuildOrderGridModel.build(model, nil)
 
     assert grid.planning?
     assert Enum.all?(grid.cards, &(&1.state == :planned))

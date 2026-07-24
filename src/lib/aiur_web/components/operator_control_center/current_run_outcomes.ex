@@ -4,7 +4,7 @@ defmodule AiurWeb.OperatorControlCenter.CurrentRunOutcomes do
   current-run outcome view. Cards are keyed by outcome id so live inserts and
   enrichment keep focus, scroll, and screen-reader stability. This component
   displays only the presented facts; it never qualifies, filters, or classifies
-  outcomes, and it preserves the real authenticated Analytics route.
+  outcomes.
   """
 
   use Phoenix.Component
@@ -13,7 +13,6 @@ defmodule AiurWeb.OperatorControlCenter.CurrentRunOutcomes do
 
   attr(:view, :map, required: true)
   attr(:announcement, :string, default: nil)
-  attr(:analytics, :map, required: true)
 
   @spec current_run_outcomes(map()) :: Phoenix.LiveView.Rendered.t()
   def current_run_outcomes(assigns) do
@@ -24,21 +23,16 @@ defmodule AiurWeb.OperatorControlCenter.CurrentRunOutcomes do
     <section
       id="current-run-outcomes"
       class="section-card current-run-outcomes-card"
-      aria-labelledby="current-run-outcomes-title"
+      aria-label="Current run outcomes"
     >
       <header class="section-header current-run-outcomes-header">
         <div>
           <p class="section-eyebrow">Current run</p>
-          <h2 id="current-run-outcomes-title" tabindex="-1">{@view.heading}</h2>
-          <p>Repository merges from this run.</p>
         </div>
         <div class="recent-subtitle-actions">
           <span :if={@state == :partial} class="chip attention">Partial</span>
           <span :if={@state == :stale} class="chip attention">Stale</span>
           <span :if={@view.truncated?} class="chip">{truncation_label(@view)}</span>
-          <a :if={analytics_path(@analytics)} class="link-pill" href={analytics_path(@analytics)}>
-            Open analytics report
-          </a>
         </div>
       </header>
 
@@ -114,9 +108,6 @@ defmodule AiurWeb.OperatorControlCenter.CurrentRunOutcomes do
     </section>
     """
   end
-
-  defp analytics_path(%{available?: true, path: path}) when is_binary(path), do: path
-  defp analytics_path(_analytics), do: nil
 
   defp truncation_label(%{limit: limit}) when is_integer(limit) and limit > 0, do: "Showing first #{limit}"
   defp truncation_label(_view), do: "Truncated"

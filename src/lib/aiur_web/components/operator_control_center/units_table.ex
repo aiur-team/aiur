@@ -24,9 +24,24 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
     <div class="units-results" aria-describedby="units-filter-note">
       <div :if={@status == :loading} class="units-state empty-state">Loading Units…</div>
 
-      <div :if={@status == :unavailable} class="units-state error-card" role="alert">
-        <h3>Units unavailable</h3>
-        <p>{@message || "The Units catalog cannot be read right now."}</p>
+      <div :if={@status == :unavailable} class="units-table-wrap">
+        <table class="units-table">
+          <caption class="sr-only">Units catalog</caption>
+          <thead>
+            <tr>
+              <th class="ut-col-id">ID</th>
+              <th class="ut-col-unit">Unit</th>
+              <th class="ut-col-ticket">Ticket</th>
+              <th class="ut-col-latest">Latest</th>
+              <th class="ut-col-cmd">Command</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="units-row units-empty-row">
+              <td class="units-empty-cell" colspan="5">No active agents</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
 
       <div :if={@status == :empty} class="units-state empty-state">
@@ -75,13 +90,13 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
                 phx-value-unit={token}
                 data-ticket-context-origin
               >
-                <span :if={row_tone(row)} class={["ut-alert", row_tone(row)]} aria-hidden="true">△</span>
+                <span :if={row_tone(row)} class={["ut-alert", row_tone(row)]} aria-hidden="true">{icon(:warning)}</span>
                 <span class="ut-id-num mono num">{id_number(row.identity)}</span>
               </td>
 
               <td data-label="Unit" class="ut-unit-cell ut-open" phx-click="inspect-unit" phx-value-unit={token}>
                 <div class="ut-pill-row">
-                  <span class={["u-pill", "u-agent", agent_class(row.agent_family)]}>{agent_label(row.agent_family)}</span>
+                  <span class={["u-pill", "u-agent", agent_class(agent_family(row))]}>{agent_label(agent_family(row))}</span>
                   <span :if={is_integer(row.complexity)} class="u-pill u-cx">Cx:{row.complexity}</span>
                 </div>
                 <div class="ut-pill-row">
@@ -95,6 +110,9 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
                 <span :if={present?(row.build_lane)} class={["u-lane", lane_class(row.build_lane)]}>
                   <span class="u-lane-dot" aria-hidden="true"></span>{String.upcase(row.build_lane)}
                 </span>
+                <span :if={!present?(row.build_lane) && present?(row.tracker_state)} class="u-lane is-state">
+                  <span class="u-lane-dot" aria-hidden="true"></span>{row.tracker_state |> to_string() |> String.replace("-", " ") |> String.upcase()}
+                </span>
               </td>
 
               <td data-label="Latest" class="ut-latest-cell ut-open" phx-click="inspect-unit" phx-value-unit={token}>
@@ -104,14 +122,24 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
                 </div>
                 <span class="ut-pbar" aria-hidden="true"><i class={progress_tone(row)} style={"width:#{progress_width(row.progress)}%"}></i></span>
                 <div class="ut-latest-meta mono num">
-                  <span>{progress_pct(row.progress)}</span>
-                  <span>{runtime(row, @now)}</span>
+                  <span><span class="sr-only">Progress </span>{progress_pct(row.progress)}</span>
+                  <span><span class="sr-only">Runtime </span>{runtime(row, @now)}</span>
                 </div>
               </td>
 
               <td data-label="Command" class="ut-cmd-cell">
                 <nav class="units-actions" aria-label={"Actions for #{identity_label(row.identity)}"}>
                   <.unit_control token={token} row={row} control={Map.get(@controls, token)} writable={@writable} />
+                  <button
+                    :if={running?(row)}
+                    id={"units-agent-log-#{token}"}
+                    type="button"
+                    class="units-icon-action"
+                    phx-click="show-agent-log"
+                    phx-value-unit={token}
+                    aria-label={"Read agent log for #{identity_label(row.identity)}"}
+                    title="Read agent log"
+                  >{icon(:log)}</button>
                   <button
                     id={"units-conversation-#{token}"}
                     type="button"
@@ -213,6 +241,16 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   defp icon(:lock),
     do: Phoenix.HTML.raw(~s(<svg #{@icon_svg}><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>))
 
+  defp icon(:warning),
+    do: Phoenix.HTML.raw(~s(<svg #{@icon_svg}><path d="M12 3 2.8 20h18.4L12 3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>))
+
+  defp icon(:log),
+    do: Phoenix.HTML.raw(~s(<svg #{@icon_svg}><path d="M8 6h11M8 12h11M8 18h11"/><path d="M4 6h.01M4 12h.01M4 18h.01"/></svg>))
+
+  # A unit is running when its correlated fleet entry is in the running bucket;
+  # only then is there a live agent log to read.
+  defp running?(row), do: get_in(row, [:runtime, :bucket]) == :running
+
   # Remote control deep-link, present only when the agent exposes one.
   defp remote_control_url(%{live_conversation: %{remote_control_url: url}}) when is_binary(url) and url != "", do: url
   defp remote_control_url(%{remote_control_url: url}) when is_binary(url) and url != "", do: url
@@ -307,6 +345,10 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
 
   defp agent_label(_family), do: "Agent"
 
+  defp agent_family(%{agent_family: family}) when family in [:claude, :codex], do: family
+  defp agent_family(%{backend: backend}) when backend in [:claude, :codex], do: backend
+  defp agent_family(_row), do: nil
+
   defp agent_class(:claude), do: "is-claude"
   defp agent_class(:codex), do: "is-codex"
   defp agent_class(_family), do: "is-generic"
@@ -354,7 +396,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   defp progress_tone(_row), do: nil
 
   defp present?(value), do: not is_nil(value) and value != ""
-  defp known(value, fallback \\ "Unknown")
+  defp known(value, fallback)
   defp known(value, _fallback) when is_binary(value) and value != "", do: value
   defp known(_value, fallback), do: fallback
 end

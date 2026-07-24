@@ -99,6 +99,7 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryPresenter do
       currency: Map.get(source, :currency),
       scope: present_scope(Map.get(source, :scope, %{})),
       tokens: present_tokens(Map.get(source, :tokens, %{})),
+      providers: present_providers(get_in(source, [:contributors, :by_provider]) || [], subscription_currencies),
       api_equivalent: present_api_equivalent(Map.get(source, :api_equivalent_estimate, %{}), subscription_currencies),
       provider_reported: present_provider_reported(Map.get(source, :provider_reported_estimate, %{})),
       disclosure: disclosure(subscription_currencies),
@@ -210,6 +211,15 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryPresenter do
   end
 
   defp present_tokens(_tokens), do: %{entries: [], total: 0, any?: false}
+
+  defp present_providers(entries, subscription_currencies) when is_list(entries) do
+    Map.new(entries, fn entry ->
+      provider = Map.get(entry, :key)
+      {provider, present_contributor(entry, :by_provider, subscription_currencies)}
+    end)
+  end
+
+  defp present_providers(_entries, _subscription_currencies), do: %{}
 
   defp token_label(dimension) do
     dimension |> to_string() |> String.replace("_", " ") |> String.capitalize()

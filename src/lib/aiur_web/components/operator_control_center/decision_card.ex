@@ -3,7 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
 
   use Phoenix.Component
 
-  alias AiurWeb.OperatorControlCenter.{DecisionDetail, DecisionPath, LifecycleComponents}
+  alias AiurWeb.OperatorControlCenter.{DecisionAction, DecisionDetail, DecisionPath}
   alias Phoenix.LiveView.JS
 
   attr(:decision, :map, required: true)
@@ -22,13 +22,14 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
       |> assign(:age, age(assigns.decision.created_at, assigns.now))
       |> assign(:collapsed_path, DecisionPath.inbox(assigns.filter, assigns.query))
       |> assign(:detail_path, DecisionPath.detail(assigns.decision.decision_id, assigns.filter, assigns.query))
-      |> assign(:source_label, source_label(assigns.decision))
       |> assign(:recommendation_label, recommendation_label(assigns.decision))
       |> assign(:option_previews, Enum.take(assigns.decision.options, 2))
       |> assign(:selected_answer_label, selected_answer_label(assigns.decision))
       |> assign(:supervisor_answer?, supervisor_answer?(assigns.decision))
       |> assign(:confidence, supervisor_confidence(assigns.decision))
-      |> assign(:provenance_label, provenance_label(assigns.decision))
+      |> assign(:agent_label, agent_label(assigns.decision))
+      |> assign(:model_label, model_label(assigns.decision))
+      |> assign(:status_badge, status_badge(assigns.decision))
 
     ~H"""
     <article
@@ -60,23 +61,31 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
             <span :if={length(@decision.options) > 2} class="chip faint">+{length(@decision.options) - 2} more</span>
           </div>
           <div class="decision-card-foot">
-            <span class={["chip", @decision.blocking && "blocking"]}><span class="chip-dot"></span>{if @decision.blocking, do: "Blocking", else: "Non-blocking"}</span>
-            <span class="chip age">◷ {@age}</span>
-            <span class="actor-tag"><span class="actor-glyph ticket">TA</span>{@source_label}</span>
-            <span class="chip">{option_count_label(@decision.options)}</span>
+            <span class={["chip cmd-blocking", @decision.blocking && "blocking"]}><span class="chip-dot"></span>{if @decision.blocking, do: "Blocking", else: "Non-blocking"}</span>
+            <span class="chip age">{@age}</span>
+            <span :if={@agent_label} class={["chip cmd-agent", agent_class(@decision)]}>{@agent_label}</span>
+            <span :if={@model_label} class="chip mono">{@model_label}</span>
+            <span class="chip mono faint">{@decision.ticket[:identifier] || @decision.decision_id}</span>
             <span :if={@recommendation_label} class="recommendation-chip">SA recommends <b>{@recommendation_label}</b></span>
             <span :if={@selected_answer_label} class="chip accent">Selected · {@selected_answer_label}</span>
             <span :if={@supervisor_answer?} class="chip super">Supervisor answer</span>
             <span :if={is_integer(@confidence)} class="chip super">{@confidence}% confidence</span>
-            <span :if={@provenance_label} class="chip mono">{@provenance_label}</span>
             <span :if={Map.get(@decision, :superseded?, false)} class="chip super">Superseded</span>
           </div>
         </div>
         <div class="decision-card-side">
-          <LifecycleComponents.lifecycle_chip lifecycle={@decision.lifecycle} />
-          <span class="expand-hint">{if @selected, do: "Collapse", else: "Details"} <span aria-hidden="true">⌄</span></span>
+          <span :if={@status_badge} class={["cmd-status-badge", @status_badge.tone]}><span class="chip-dot"></span>{@status_badge.label}</span>
+          <span class="expand-hint">{expand_label(@decision, @selected)} <span aria-hidden="true">⌄</span></span>
         </div>
       </.link>
+
+      <DecisionAction.decision_action
+        :if={!@selected and @decision.decision_status in [:open, :dismissed]}
+        decision={@decision}
+        state={@action_state}
+        writable={@writable}
+        compact
+      />
 
       <div phx-mounted={@selected && JS.focus(to: "#decision-detail-#{@decision.decision_id}")}>
         <DecisionDetail.decision_detail
@@ -98,10 +107,52 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
   defp severity(%{lifecycle: :resolved}), do: "good"
   defp severity(_decision), do: "attention"
 
-  defp option_count_label([]), do: "Free-form response"
-  defp option_count_label(options), do: "#{length(options)} options"
+  defp expand_label(_decision, true), do: "Collapse"
+  defp expand_label(%{answer: answer}, false) when is_map(answer), do: "Change choice"
+  defp expand_label(_decision, false), do: "Details"
 
-  defp source_label(decision), do: decision.source[:agent_id] || "Ticket agent"
+  # Top-right status badge: reflects where the command sits in its lifecycle so
+  # answered/dismissed cards read as historic at a glance.
+  defp status_badge(%{decision_status: :open}), do: %{label: "Recorded · open", tone: "is-open"}
+  defp status_badge(%{decision_status: :decided}), do: %{label: "Answered", tone: "is-answered"}
+  defp status_badge(%{decision_status: :acknowledged}), do: %{label: "Acknowledged", tone: "is-answered"}
+  defp status_badge(%{decision_status: :dismissed}), do: %{label: "Dismissed", tone: "is-dismissed"}
+  defp status_badge(%{decision_status: :resolved}), do: %{label: "Resolved", tone: "is-resolved"}
+  defp status_badge(_decision), do: nil
+
+  defp agent_label(decision) do
+    case agent_family(decision) do
+      value when is_binary(value) and value != "" ->
+        value |> String.replace("_", " ") |> String.capitalize()
+
+      _other ->
+        nil
+    end
+  end
+
+  defp model_label(decision) do
+    provenance = Map.get(decision, :provenance)
+
+    case map_value(provenance, :resolved_model) || map_value(provenance, :requested_model) do
+      value when is_binary(value) and value != "" -> value
+      _other -> nil
+    end
+  end
+
+  defp agent_class(decision) do
+    case agent_family(decision) do
+      value when is_binary(value) ->
+        "is-" <> (value |> String.downcase() |> String.replace(~r/[^a-z0-9]+/, "-"))
+
+      _other ->
+        "is-generic"
+    end
+  end
+
+  defp agent_family(decision) do
+    provenance = Map.get(decision, :provenance)
+    map_value(provenance, :agent_family) || map_value(provenance, :backend)
+  end
 
   defp selected_answer_label(%{answer: nil}), do: nil
 
@@ -135,19 +186,6 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
   end
 
   defp supervisor_confidence(_decision), do: nil
-
-  defp provenance_label(decision) do
-    provenance = Map.get(decision, :provenance)
-    backend = map_value(provenance, :backend) || map_value(provenance, :agent_family)
-    model = map_value(provenance, :resolved_model) || map_value(provenance, :requested_model)
-
-    case {backend, model} do
-      {backend, model} when is_binary(backend) and is_binary(model) -> "#{backend} · #{model}"
-      {backend, _model} when is_binary(backend) -> backend
-      {_backend, model} when is_binary(model) -> model
-      _unknown -> nil
-    end
-  end
 
   defp map_value(map, key) when is_map(map), do: Map.get(map, key, Map.get(map, Atom.to_string(key)))
   defp map_value(_map, _key), do: nil

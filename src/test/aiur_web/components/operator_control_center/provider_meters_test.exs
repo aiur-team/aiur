@@ -62,7 +62,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersTest do
     view = Presenter.present(authorized(), %{codex: snapshot})
     html = render(view, Presenter.announcement(view))
 
-    assert html =~ "Account identity unknown"
+    refute html =~ "Account identity unknown"
     refute html =~ ~s(aria-valuenow)
     refute html =~ "<dt>Plan</dt>"
   end

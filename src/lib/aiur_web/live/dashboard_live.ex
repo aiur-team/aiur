@@ -32,7 +32,6 @@ defmodule AiurWeb.DashboardLive do
     AgentLogModal,
     CapacityPresenter,
     ConversationDrawer,
-    CurrentRunOutcomes,
     CurrentRunOutcomesPresenter,
     DashboardShell,
     DecisionEvents,
@@ -43,7 +42,6 @@ defmodule AiurWeb.DashboardLive do
     PayloadLoader,
     ProviderMeterSource,
     ProviderMetersPresenter,
-    RecentOutcomes,
     RouteRegistry,
     RunSummaryPresenter,
     RunSummaryStrip,
@@ -309,6 +307,14 @@ defmodule AiurWeb.DashboardLive do
   end
 
   def handle_event("toggle-units-condition", _params, socket), do: {:noreply, socket}
+
+  def handle_event("select-all-units-filters", _params, socket) do
+    {:noreply, push_patch(socket, to: units_path(UnitsPresenter.select_all_filters()))}
+  end
+
+  def handle_event("select-no-units-filters", _params, socket) do
+    {:noreply, push_patch(socket, to: units_path(UnitsPresenter.select_no_filters()))}
+  end
 
   def handle_event("reset-units-filters", _params, socket) do
     {:noreply, push_patch(socket, to: units_path(UnitsURL.zero_result_reset()))}
@@ -607,7 +613,7 @@ defmodule AiurWeb.DashboardLive do
           <p>{selected_decision_error_message(@selected_decision_status, @selected_decision_id)}</p>
         </div>
         <DecisionInbox.decision_inbox
-          decisions={@decision_page.decisions}
+          decisions={Enum.reject(@decision_page.decisions, &(&1.decision_id == @selected_decision_id))}
           selected_decision={@selected_decision}
           selected_decision_id={@selected_decision_id}
           filter={@decision_filter}
@@ -620,18 +626,25 @@ defmodule AiurWeb.DashboardLive do
           page={@decision_page}
           query={@decision_query}
         />
-        <History.history entries={@payload.history} provider_health={@payload.provider_health.history} />
+        <History.history
+          entries={Enum.reject(@payload.history, &(&1.decision_id == @selected_decision_id))}
+          decisions={@decision_page.decisions}
+          provider_health={@payload.provider_health.history}
+        />
       </div>
 
       <div :if={@live_action not in [:decisions, :decision]} class="control-panel">
-        <RunSummaryStrip.run_summary_strip />
+        <RunSummaryStrip.run_summary_strip
+          run={@run_summary}
+          usage={@usage_summary}
+          meters={@provider_meters_view}
+          now={@now}
+        />
 
         <section class="section-card units-card" aria-labelledby="route-title">
           <p id="units-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true">
             {@units_announcement}
           </p>
-          <p class="units-count-summary">{units_count_summary(@units_view)}</p>
-
           <UnitsFilters.units_filters
             selection={@units_selection}
             counts={@units_view[:counts] || %{}}
@@ -640,29 +653,7 @@ defmodule AiurWeb.DashboardLive do
           <UnitsTable.units_table view={@units_view} now={@now} controls={@unit_controls} writable={@writable} />
         </section>
 
-        <CurrentRunOutcomes.current_run_outcomes
-          view={@current_run_outcomes}
-          announcement={@current_run_outcomes_announcement}
-          analytics={@payload.analytics}
-        />
       </div>
-
-      <section :if={@live_action == :index} class="section-card recent-card" aria-labelledby="recent-title">
-        <header class="section-header">
-          <div>
-            <p class="section-eyebrow">Durable outcomes</p>
-            <h2 id="recent-title">Recent</h2>
-            <p>Repository merges and recorded Command actions from durable projections.</p>
-          </div>
-        </header>
-        <RecentOutcomes.recent_outcomes
-          outcomes={@payload.recent_outcomes}
-          provider_health={@payload.provider_health.recent_outcomes}
-          reconciliation={@payload.recent_outcomes_reconciliation}
-          analytics={@payload.analytics}
-        />
-        <History.history entries={@payload.history} provider_health={@payload.provider_health.history} />
-      </section>
 
       <AgentLogModal.agent_log_modal
         modal={@agent_log_modal}
@@ -803,18 +794,6 @@ defmodule AiurWeb.DashboardLive do
     do: Map.put(counts, key, value)
 
   defp put_nav_count(counts, _key, _value), do: counts
-
-  defp units_count_summary(%{count_status: :unavailable}),
-    do: "Observed and selected-scope counts unavailable"
-
-  defp units_count_summary(%{count_status: :partial, total_count: total, counts: %{scope: scope}}),
-    do: "At least #{total} observed · at least #{scope} in selected scope"
-
-  defp units_count_summary(%{total_count: total, counts: %{scope: scope}})
-       when is_integer(total) and is_integer(scope),
-       do: "#{total} observed · #{scope} in selected scope"
-
-  defp units_count_summary(_view), do: "Observed and selected-scope counts unavailable"
 
   defp assign_units_selection(socket, params) do
     selection = UnitsURL.decode(params)
@@ -1816,7 +1795,7 @@ defmodule AiurWeb.DashboardLive do
   defp put_filter_query(query, :open), do: Map.put(query, "lifecycle", "open")
 
   defp put_filter_query(query, :blocking), do: query |> Map.put("lifecycle", "open") |> Map.put("blocking", true)
-  defp put_filter_query(query, :resolved), do: Map.put(query, "lifecycle", "resolved")
+  defp put_filter_query(query, :resolved), do: Map.put(query, "lifecycle", "historic")
   defp put_filter_query(query, _filter), do: query
 
   defp maybe_put_query(query, key, value) when is_binary(value) do

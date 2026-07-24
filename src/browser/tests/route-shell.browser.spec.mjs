@@ -16,7 +16,7 @@ test('Build Order navigation returns to the production Units route', async ({ pa
   await page.getByRole('link', { name: 'Units' }).click()
   await expect(page).toHaveURL(/\/$/)
   await expect(page.locator('#route-title')).toHaveText('Units')
-  await expect(page.locator('#units-title')).toBeVisible()
+  await expect(page.locator('.units-card')).toBeVisible()
   await expect(page.locator('#route-shell-action')).toHaveCount(0)
 })
 
@@ -78,8 +78,13 @@ for (const { width, isMobile } of routeShellViewports) {
       await expect(page.getByRole('link', { name: 'Commands' })).toHaveAttribute('aria-current', 'page')
       await expect(page.locator('#route-shell-action')).toBeVisible()
 
-      await page.getByRole('button', { name: 'Toggle color theme' }).click()
-      await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+      // The theme + nav toggles live in the desktop sidebar, which the compact
+      // layout hides below 960px in favour of the fixed bottom nav. Only
+      // exercise the sidebar theme toggle where the sidebar is present.
+      if (width >= 960) {
+        await page.getByRole('button', { name: 'Toggle color theme' }).click()
+        await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+      }
 
       await page.evaluate(() => { document.documentElement.style.fontSize = '200%' })
       await nextPaint(page)

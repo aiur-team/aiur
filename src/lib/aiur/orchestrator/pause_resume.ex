@@ -891,21 +891,30 @@ defmodule Aiur.Orchestrator.PauseResume do
   @doc false
   @spec resume_paused_issue(State.t(), map(), boolean()) :: {{:ok, :resumed} | {:error, term()}, State.t()}
   def resume_paused_issue(%State{} = state, running_entry, operator? \\ true) do
+    case resume_paused_issue_preflight(state, running_entry) do
+      :ok -> send_resume_control_message(state, running_entry, operator?)
+      {:error, reason} -> {{:error, reason}, state}
+    end
+  end
+
+  @doc false
+  @spec resume_paused_issue_preflight(State.t(), map()) :: :ok | {:error, :max_concurrent_agents_reached}
+  def resume_paused_issue_preflight(%State{} = state, running_entry) do
     cond do
       # A CI-wait pause releases its reservation; other pauses retain one.
       # In both cases, resume must wait if the active count is already at the
       # cap (for example, after CI-wait capacity was filled by other work).
       State.active_running_count(state.running) >= Slots.max_concurrent_agent_limit(state) ->
-        {{:error, :max_concurrent_agents_reached}, state}
+        {:error, :max_concurrent_agents_reached}
 
       not DispatchPolicy.state_slots_available?(Map.get(running_entry, :issue), state) ->
-        {{:error, :max_concurrent_agents_reached}, state}
+        {:error, :max_concurrent_agents_reached}
 
       not Slots.resume_worker_slot_available?(state, Map.get(running_entry, :worker_host)) ->
-        {{:error, :max_concurrent_agents_reached}, state}
+        {:error, :max_concurrent_agents_reached}
 
       true ->
-        send_resume_control_message(state, running_entry, operator?)
+        :ok
     end
   end
 

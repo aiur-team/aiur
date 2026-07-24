@@ -34,10 +34,7 @@ defmodule AiurWeb.OperatorControlCenter.TicketContext do
       |> assign(:origin_id, origin_id)
       |> assign(:heading_id, "#{assigns.id}-title")
       |> assign(:capabilities, context.capabilities)
-      |> assign(:detail_message, detail_message(context.detail.state))
-      |> assign(:history_message, history_message(context.history.state))
       |> assign(:progress_message, progress_message(context.progress))
-      |> assign(:evidence_message, evidence_message(context.latest_evidence))
 
     ~H"""
     <div :if={@dialog?} class="modal-backdrop ticket-context-backdrop">
@@ -58,10 +55,7 @@ defmodule AiurWeb.OperatorControlCenter.TicketContext do
           capabilities={@capabilities}
           heading_id={@heading_id}
           close_event={@close_event}
-          detail_message={@detail_message}
-          history_message={@history_message}
           progress_message={@progress_message}
-          evidence_message={@evidence_message}
           extension={@extension}
         />
       </section>
@@ -73,10 +67,7 @@ defmodule AiurWeb.OperatorControlCenter.TicketContext do
         capabilities={@capabilities}
         heading_id={@heading_id}
         close_event={nil}
-        detail_message={@detail_message}
-        history_message={@history_message}
         progress_message={@progress_message}
-        evidence_message={@evidence_message}
         extension={@extension}
       />
     </section>
@@ -87,10 +78,7 @@ defmodule AiurWeb.OperatorControlCenter.TicketContext do
   attr(:capabilities, :list, required: true)
   attr(:heading_id, :string, required: true)
   attr(:close_event, :any, default: nil)
-  attr(:detail_message, :string, required: true)
-  attr(:history_message, :string, required: true)
   attr(:progress_message, :string, required: true)
-  attr(:evidence_message, :string, required: true)
   attr(:extension, :list, default: [])
 
   defp context_content(assigns) do
@@ -117,11 +105,6 @@ defmodule AiurWeb.OperatorControlCenter.TicketContext do
 
     <p :if={@context.description} class="ticket-context-description">{@context.description}</p>
 
-    <p class="ticket-context-status" role="status" aria-live="polite">
-      <span :if={current?(@context)} class="chip ticket-context-fresh-chip">Current</span>
-      <span :if={!current?(@context)}>{@detail_message} {@history_message}</span>
-    </p>
-
     <section
       :if={dependencies?(@context.dependencies)}
       class="ticket-context-dependencies"
@@ -147,20 +130,17 @@ defmodule AiurWeb.OperatorControlCenter.TicketContext do
       <section class="detail-block" aria-labelledby={"#{@heading_id}-facts"}>
         <h3 id={"#{@heading_id}-facts"}>Ticket facts</h3>
         <dl class="metadata-list ticket-context-metadata">
-          <div><dt>Lifecycle</dt><dd>{lifecycle_label(@context.lifecycle)}</dd></div>
-          <div><dt>Detail</dt><dd>{state_label(@context.detail.state)}</dd></div>
-          <div><dt>History</dt><dd>{state_label(@context.history.state)}</dd></div>
-          <div><dt>Updated</dt><dd><.timestamp value={@context.detail.observed_at} /></dd></div>
+          <div><dt>State</dt><dd>{lifecycle_label(@context.lifecycle)}</dd></div>
+          <div><dt>Progress</dt><dd>{@progress_message}</dd></div>
+          <div><dt>Last activity</dt><dd><.timestamp value={last_activity_at(@context)} /></dd></div>
+          <div><dt>Dependencies</dt><dd>{dependency_count(@context.dependencies)}</dd></div>
         </dl>
       </section>
 
       <section class="detail-block" aria-labelledby={"#{@heading_id}-activity"}>
-        <h3 id={"#{@heading_id}-activity"}>Progress and evidence</h3>
+        <h3 id={"#{@heading_id}-activity"}>Progress</h3>
         <p class="ticket-context-progress">{@progress_message}</p>
         <meter :if={is_integer(@context.progress.percent)} min="0" max="100" value={@context.progress.percent}>{@context.progress.percent}%</meter>
-        <.activity_timing label="Progress" activity={@context.progress} />
-        <p class="ticket-context-evidence">{@evidence_message}</p>
-        <.activity_timing label="Evidence" activity={@context.latest_evidence} />
       </section>
     </div>
 
@@ -173,17 +153,27 @@ defmodule AiurWeb.OperatorControlCenter.TicketContext do
       </header>
       <p :if={@context.logs.entries == []} class="empty-state compact">No safe Log entries are available.</p>
       <p :if={@context.logs.truncated?} class="ticket-context-status" role="status">Logs are truncated to the newest safe entries.</p>
-      <ol :if={@context.logs.entries != []} class="ticket-context-logs">
-        <li :for={entry <- @context.logs.entries}>
-          <article>
-            <header>
-              <strong>{entry.label}</strong>
-              <span class="chip mono">{state_label(entry.source)}</span>
-              <.timestamp value={entry.occurred_at || entry.observed_at} />
-            </header>
-          </article>
-        </li>
-      </ol>
+      <div :if={@context.logs.entries != []} class="ticket-context-logs-wrap">
+        <table class="ticket-context-logs">
+          <thead><tr><th>Activity</th><th>Detail</th><th>When</th></tr></thead>
+          <tbody>
+            <tr :for={entry <- @context.logs.entries}>
+              <td>
+                <details>
+                  <summary><strong>{entry.label}</strong></summary>
+                  <dl>
+                    <div><dt>Event</dt><dd>{state_label(entry.kind)}</dd></div>
+                    <div><dt>Source</dt><dd>{state_label(entry.source)}</dd></div>
+                    <div><dt>Observed</dt><dd><.timestamp value={entry.observed_at} /></dd></div>
+                  </dl>
+                </details>
+              </td>
+              <td>{activity_detail(entry)}</td>
+              <td><.timestamp value={entry.occurred_at || entry.observed_at} /></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </section>
 
     <nav
@@ -211,26 +201,6 @@ defmodule AiurWeb.OperatorControlCenter.TicketContext do
     """
   end
 
-  attr(:label, :string, required: true)
-  attr(:activity, :map, required: true)
-
-  defp activity_timing(assigns) do
-    provenance = Map.get(assigns.activity, :provenance, %{})
-    assigns = assign(assigns, :provenance, provenance)
-
-    ~H"""
-    <p class="ticket-context-provenance">
-      <span>{@label}:</span> <.timestamp value={@activity.occurred_at || @activity.observed_at} />
-    </p>
-    <dl :if={is_map(@provenance) and map_size(@provenance) > 0} class="ticket-context-provenance-list">
-      <div :for={{key, value} <- @provenance}>
-        <dt>{state_label(key)}</dt>
-        <dd>{provenance_value(value)}</dd>
-      </div>
-    </dl>
-    """
-  end
-
   defp relative(%DateTime{} = value) do
     diff = DateTime.diff(DateTime.utc_now(), value, :second)
 
@@ -252,43 +222,39 @@ defmodule AiurWeb.OperatorControlCenter.TicketContext do
   defp cta_label(%{kind: :commands}), do: "View command"
   defp cta_label(capability), do: capability.label
 
-  defp current?(%{detail: %{state: :available}, history: %{state: :available}}), do: true
-  defp current?(_context), do: false
-
   defp dependencies?(%{blocked_by: blocked_by, blocking: blocking}),
     do: blocked_by != [] or blocking != []
 
   defp dependencies?(_dependencies), do: false
-
-  defp detail_message(:available), do: "Ticket detail is current."
-  defp detail_message(:stale), do: "Ticket detail is stale."
-  defp detail_message(:missing), do: "Ticket detail has not been loaded."
-  defp detail_message(_state), do: "Ticket detail is unavailable."
-
-  defp history_message(:available), do: "Ticket history is current."
-  defp history_message(:known_empty), do: "No history has been recorded yet."
-  defp history_message(:missing_source), do: "Ticket history is not available from its source."
-  defp history_message(:restart_unknown), do: "Activity continuity is unknown after restart."
-  defp history_message(:stale), do: "Ticket history is stale."
-  defp history_message(_state), do: "Ticket history is unavailable."
 
   defp progress_message(%{status: :known, percent: percent, source: source}) when is_integer(percent),
     do: "#{percent}% · #{state_label(source)}"
 
   defp progress_message(_progress), do: "Progress is unknown."
 
-  defp evidence_message(%{status: :known, source: %{kind: kind, name: name}}),
-    do: "Latest evidence: #{state_label(kind)} / #{name}"
+  defp activity_detail(%{details: %{percent: percent}}), do: "#{percent}% complete"
 
-  defp evidence_message(_evidence), do: "Latest evidence is unknown."
+  defp activity_detail(%{details: %{severity: severity, needs_attention: true}}),
+    do: "#{state_label(severity)} · needs attention"
+
+  defp activity_detail(%{details: %{severity: severity}}), do: state_label(severity)
+  defp activity_detail(%{kind: kind}), do: state_label(kind)
+
+  defp last_activity_at(%{logs: %{entries: [entry | _]}}), do: entry.occurred_at || entry.observed_at
+  defp last_activity_at(%{progress: progress}), do: progress.occurred_at || progress.observed_at
+  defp last_activity_at(_context), do: nil
+
+  defp dependency_count(%{blocked_by: blocked_by, blocking: blocking}) do
+    count = length(blocked_by) + length(blocking)
+    if count == 1, do: "1 linked ticket", else: "#{count} linked tickets"
+  end
+
+  defp dependency_count(_dependencies), do: "0 linked tickets"
 
   defp lifecycle_label(%{state: state, reason: reason}), do: "#{state_label(state)} — #{state_label(reason)}"
   defp lifecycle_label(_lifecycle), do: "Unknown"
   defp state_label(nil), do: "Unknown"
   defp state_label(value), do: value |> to_string() |> String.replace("_", " ") |> String.capitalize()
-  defp provenance_value(value) when is_integer(value), do: Integer.to_string(value)
-  defp provenance_value(value) when is_binary(value), do: value
-  defp provenance_value(_value), do: "Unknown"
 
   defp capability_focus_key(capability) do
     variant = Map.get(capability, :variant) || :default

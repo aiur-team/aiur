@@ -101,6 +101,19 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
     end
   end
 
+  @doc "Selects every filter exposed before the Units filter-bar divider."
+  @spec select_all_filters() :: UnitsPolicy.selection()
+  def select_all_filters do
+    UnitsPolicy.normalize_selection(%{
+      scope: :unfinished,
+      conditions: [:active, :alert, :paused, :queued, :finished]
+    })
+  end
+
+  @doc "Clears every visible Units filter."
+  @spec select_no_filters() :: UnitsPolicy.selection()
+  def select_no_filters, do: UnitsPolicy.normalize_selection(%{scope: :none, conditions: []})
+
   @spec row_token(map()) :: String.t() | nil
   def row_token(%{identity: %TrackerIdentity{} = identity}) do
     case TrackerIdentity.github_key(identity) do

@@ -6,7 +6,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
 
   import Phoenix.Component, only: [assign: 3]
 
-  alias Aiur.DecisionStore
+  alias Aiur.{DecisionAttention, DecisionStore, Issue, Orchestrator}
   alias AiurWeb.Endpoint
   alias Phoenix.LiveView.Socket
 
@@ -27,6 +27,29 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
     case selected_open_decision(socket, decision_id) do
       {:ok, decision} -> socket |> put_form(decision_id, form, decision) |> submit_answer(decision, form, reload_fun)
       :error -> put_error(reload_fun.(socket), decision_id, "This Command is no longer open.")
+    end
+  end
+
+  @spec dismiss(Socket.t(), String.t(), reload_fun()) :: Socket.t()
+  def dismiss(socket, decision_id, reload_fun) when is_function(reload_fun, 1) do
+    case selected_open_decision(socket, decision_id) do
+      {:ok, decision} ->
+        result = safe_dismiss(decision_id)
+
+        if match?({:ok, %{status: :accepted}}, result) do
+          resolve_legacy_attention(decision)
+          notify_dismissal(decision)
+        end
+
+        socket = reload_fun.(socket)
+
+        case result do
+          {:ok, accepted} -> put_notice(socket, decision_id, dismiss_notice(accepted))
+          {:error, reason} -> put_error(socket, decision_id, command_error(reason))
+        end
+
+      :error ->
+        put_error(reload_fun.(socket), decision_id, "This Command is no longer open.")
     end
   end
 
@@ -61,25 +84,26 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   def actor, do: %{kind: :operator, id: dashboard_operator_id()}
 
   defp submit_answer(socket, decision, form, reload_fun) do
-    with :ok <- require_confirmation(decision, form),
-         {:ok, answer} <- answer_content(form) do
-      {idempotency_key, socket} = ensure_action_key(socket, decision.decision_id)
+    case answer_content(form) do
+      {:ok, answer} ->
+        {idempotency_key, socket} = ensure_action_key(socket, decision.decision_id)
 
-      payload =
-        answer
-        |> Map.put("idempotency_key", idempotency_key)
-        |> Map.put("expected_version", decision.version)
-        |> maybe_put_rationale(Map.get(form, "rationale"))
+        payload =
+          answer
+          |> Map.put("idempotency_key", idempotency_key)
+          |> Map.put("expected_version", decision.version)
+          |> maybe_put_rationale(Map.get(form, "rationale"))
 
-      result = safe_answer(decision.decision_id, payload)
-      socket = reload_fun.(socket)
+        result = safe_answer(decision.decision_id, payload)
+        socket = reload_fun.(socket)
 
-      case result do
-        {:ok, accepted} -> put_notice(socket, decision.decision_id, answer_notice(accepted))
-        {:error, reason} -> put_error(socket, decision.decision_id, command_error(reason))
-      end
-    else
-      {:error, message} -> put_error(socket, decision.decision_id, message)
+        case result do
+          {:ok, accepted} -> put_notice(socket, decision.decision_id, answer_notice(accepted))
+          {:error, reason} -> put_error(socket, decision.decision_id, command_error(reason))
+        end
+
+      {:error, message} ->
+        put_error(socket, decision.decision_id, message)
     end
   end
 
@@ -88,6 +112,24 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
          decision_id
        ),
        do: {:ok, decision}
+
+  defp selected_open_decision(%{assigns: %{decisions: decisions}}, decision_id) when is_list(decisions) do
+    case Enum.find(decisions, &(&1.decision_id == decision_id and &1.decision_status in [:open, :dismissed])) do
+      nil -> :error
+      decision -> {:ok, decision}
+    end
+  end
+
+  defp selected_open_decision(
+         %{assigns: %{selected_decision_id: nil, decision_page: %{decisions: decisions}}},
+         decision_id
+       )
+       when is_list(decisions) do
+    case Enum.find(decisions, &(&1.decision_id == decision_id and &1.decision_status in [:open, :dismissed])) do
+      nil -> :error
+      decision -> {:ok, decision}
+    end
+  end
 
   defp selected_open_decision(_socket, _decision_id), do: :error
 
@@ -121,19 +163,6 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
 
   defp answer_content(_form), do: {:error, "Choose an option or a custom response."}
 
-  defp require_confirmation(decision, form) do
-    if confirmation_required?(decision) and Map.get(form, "confirmed") != "true" do
-      {:error, "Confirm that you understand this irreversible or destructive action."}
-    else
-      :ok
-    end
-  end
-
-  defp confirmation_required?(decision) do
-    Map.get(decision, :reversibility) == :irreversible or
-      Map.get(decision, :kind) == "destructive_op"
-  end
-
   defp maybe_put_rationale(payload, rationale) when is_binary(rationale) do
     case String.trim(rationale) do
       "" -> payload
@@ -147,6 +176,36 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
     DecisionStore.answer(decision_id, payload, [actor: actor()], decision_store())
   catch
     :exit, _reason -> {:error, :store_unavailable}
+  end
+
+  defp safe_dismiss(decision_id) do
+    DecisionStore.dismiss(decision_id, [actor: actor()], decision_store())
+  catch
+    :exit, _reason -> {:error, :store_unavailable}
+  end
+
+  defp resolve_legacy_attention(%{legacy_attention: %{slug: slug}, ticket: ticket}) when is_binary(slug) do
+    issue = %Issue{identifier: ticket.identifier, title: ticket.title, url: ticket.url}
+    DecisionAttention.resolve(decision_attention(), issue, slug)
+  catch
+    :exit, _reason -> {:error, :attention_registry_unavailable}
+  end
+
+  defp resolve_legacy_attention(_decision), do: :ok
+
+  defp notify_dismissal(decision) do
+    Orchestrator.send_operator_message(orchestrator(), decision.ticket.identifier, %{
+      kind: :text,
+      body: dismissal_text(),
+      delivery_policy: :interrupt,
+      fallback: :queue_next
+    })
+  catch
+    :exit, _reason -> {:error, :orchestrator_unavailable}
+  end
+
+  defp dismissal_text do
+    "The operator dismissed this decision. Proceed with your best judgement per the aiur-agent skill, then record decision.resolved."
   end
 
   defp safe_retry_dispatch(decision_id, action_id) do
@@ -231,6 +290,9 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
 
   defp answer_notice(_accepted), do: "Answer recorded. Durable dispatch is pending."
 
+  defp dismiss_notice(%{status: :duplicate}), do: "This Command was already dismissed."
+  defp dismiss_notice(_accepted), do: "Command dismissed. The live agent was told to use its best judgement."
+
   defp retry_notice(:scheduled), do: "A durable delivery retry was scheduled."
   defp retry_notice(:already_dispatching), do: "A delivery attempt is already in progress."
 
@@ -268,4 +330,6 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   defp command_error(_reason), do: "The command was rejected. Canonical state was refreshed."
 
   defp decision_store, do: Endpoint.config(:decision_store) || DecisionStore
+  defp decision_attention, do: Endpoint.config(:decision_attention) || DecisionAttention
+  defp orchestrator, do: Endpoint.config(:orchestrator) || Orchestrator
 end

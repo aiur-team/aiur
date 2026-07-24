@@ -59,6 +59,8 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryPresenterTest do
       assert view.currency == "USD"
       assert Enum.any?(view.tokens.entries, &match?(%{label: "Input", count: 1000}, &1))
       assert view.tokens.total == 1500
+      assert view.providers.claude.tokens.total == 1500
+      assert [%{currency: "USD", amount: "2.50"}] = view.providers.claude.api_equivalent
 
       # API-equivalent and provider-reported are distinct, never combined.
       assert [%{currency: "USD", amount: "2.50"}] = view.api_equivalent.by_currency

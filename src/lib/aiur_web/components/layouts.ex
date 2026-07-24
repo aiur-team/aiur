@@ -16,6 +16,8 @@ defmodule AiurWeb.Layouts do
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="csrf-token" content={@csrf_token} />
+        <link rel="icon" type="image/png" href="/aiur-logo.png" />
+        <link rel="apple-touch-icon" href="/aiur-logo.png" />
         <title>Aiur Operator Control Center</title>
         <script>
           (function () {
@@ -94,18 +96,27 @@ defmodule AiurWeb.Layouts do
             Hooks.NavToggle = {
               mounted: function () {
                 var shell = this.el.closest(".dashboard-shell");
+                var updateButton = (collapsed) => {
+                  var label = collapsed ? "Show navigation" : "Hide navigation";
+                  this.el.setAttribute("aria-pressed", collapsed ? "true" : "false");
+                  this.el.setAttribute("aria-label", label);
+                  this.el.setAttribute("title", label);
+                };
+                var collapsed = false;
                 try {
                   if (shell && window.localStorage.getItem("aiur-nav-collapsed") === "true") {
                     shell.setAttribute("data-nav-collapsed", "true");
+                    collapsed = true;
                   }
                 } catch (_error) {}
+                updateButton(collapsed);
 
                 this.onClick = () => {
                   if (!shell) return;
                   var collapsed = shell.getAttribute("data-nav-collapsed") === "true";
                   var next = collapsed ? "false" : "true";
                   shell.setAttribute("data-nav-collapsed", next);
-                  this.el.setAttribute("aria-pressed", next);
+                  updateButton(next === "true");
                   try {
                     window.localStorage.setItem("aiur-nav-collapsed", next);
                   } catch (_error) {}

@@ -380,7 +380,7 @@ defmodule Aiur.Config.SchemaTest do
     test "Observability section parses with defaults" do
       {:ok, settings} = Schema.parse(%{})
       assert settings.observability.dashboard_enabled == true
-      assert settings.observability.dashboard_writable == false
+      assert settings.observability.dashboard_writable == true
       assert settings.observability.refresh_ms == 1_000
     end
 

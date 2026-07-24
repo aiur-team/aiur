@@ -3,6 +3,14 @@ import { expect, test } from '@playwright/test'
 import { openFixture } from './support/browser-helpers.mjs'
 import { dashboardCredentials } from './support/layout-worker.mjs'
 
+// The Build Order graph is a synchronous CSS-grid canvas drawn by the
+// `BuildOrderGrid` client hook. The hook owns zoom (a CSS transform on the grid
+// stage, stepped in 10% increments and clamped to 10%–160%), fit (scale the
+// full grid width into the viewport), native-scroll pan, and dependency
+// highlighting on hover / pin. Cards stay keyboard-openable (Enter/Space opens
+// their ticket context). These specs exercise that contract against both the
+// production route and the synthetic fixture graph.
+
 async function openCatalog(page) {
   await page.goto('/build-orders')
   await expect(page.locator('#build-order-page')).toHaveAttribute('data-build-order-catalog-state', 'ready')
@@ -10,86 +18,155 @@ async function openCatalog(page) {
 }
 
 async function openGraph(page, title) {
-  await page.locator('.bo-catalog-entry', { hasText: title }).getByRole('link', { name: 'Open graph' }).click()
-  return page.locator('#selected-build-order-graph')
+  await page.locator('.bo-catalog-link', { hasText: title }).click()
+  const graph = page.locator('#selected-build-order-graph')
+  await expect(graph.locator('[data-bo-card]').first()).toBeVisible()
+  return graph
 }
 
-function scaleVar(graph) {
-  return graph.locator('[data-graph-content]').evaluate((node) => node.style.getPropertyValue('--bo-graph-scale') || '1')
+function stageTransform(graph) {
+  return graph.locator('[data-bo-grid-stage]').evaluate((node) => node.style.transform || 'none')
 }
 
-test('unit: transform policy enforces zoom bounds, grid, fit, and pan clamp', async ({ page }) => {
-  await page.context().setHTTPCredentials(dashboardCredentials)
-  await page.goto('/build-orders')
+test('zoom is stepped, clamped, fit-bounded, and reset by keyboard on the ready canvas', async ({ browser }) => {
+  const context = await browser.newContext({ httpCredentials: dashboardCredentials })
+  const page = await context.newPage()
 
-  const result = await page.evaluate(async () => {
-    const policy = await import('/aiur-dom-svg-layout/interaction-policy.js')
-    return {
-      clampHigh: policy.clampZoom(9),
-      clampLow: policy.clampZoom(0.01),
-      stepUp: Number(policy.stepZoom(1, 1).toFixed(2)),
-      stepCapped: policy.stepZoom(1.5, 1),
-      stepFloor: policy.stepZoom(0.5, -1),
-      fitShrinks: policy.fitZoom({ width: 4000, height: 2000 }, { width: 800, height: 600 }),
-      fitNoUpscale: policy.fitZoom({ width: 100, height: 100 }, { width: 800, height: 600 }),
-      pan: policy.clampPan({ x: 1e6, y: -1e6 }, { width: 2000, height: 1500 }, { width: 800, height: 600 }, 1)
-    }
-  })
+  try {
+    await openFixture(page)
+    const graph = page.locator('#fixture-build-order-graph')
+    await expect(graph.locator('[data-bo-card]').first()).toBeVisible()
 
-  expect(result.clampHigh).toBe(1.6)
-  expect(result.clampLow).toBe(0.4)
-  expect(result.stepUp).toBe(1.2)
-  expect(result.stepCapped).toBe(1.6)
-  expect(result.stepFloor).toBe(0.4)
-  expect(result.fitShrinks).toBeLessThan(1)
-  expect(result.fitShrinks).toBeGreaterThanOrEqual(0.4)
-  expect(result.fitNoUpscale).toBe(1)
-  expect(result.pan.x).toBeLessThan(1e6)
-  expect(result.pan.y).toBeGreaterThan(-1e6)
+    const readout = graph.locator('[data-bo-zoom-level]')
+    const viewport = graph.locator('[data-bo-grid-viewport]')
+    const zoomIn = graph.getByRole('button', { name: 'Zoom in' })
+    const zoomOut = graph.getByRole('button', { name: 'Zoom out' })
+
+    // Keyboard 0 resets to 100% so the stepping assertions start from a known scale.
+    await viewport.focus()
+    await page.keyboard.press('0')
+    await expect(readout).toHaveText('100%')
+
+    // Button zoom in steps by 10% and applies a matching CSS transform.
+    await zoomIn.click()
+    await expect(readout).toHaveText('110%')
+    expect(await stageTransform(graph)).toBe('scale(1.1)')
+
+    // Zoom in clamps at 160% and disables the control at the upper bound.
+    while (!(await zoomIn.isDisabled())) await zoomIn.click()
+    await expect(readout).toHaveText('160%')
+    await expect(zoomIn).toBeDisabled()
+
+    // Keyboard reset returns to 100%.
+    await viewport.focus()
+    await page.keyboard.press('0')
+    await expect(readout).toHaveText('100%')
+
+    // Zoom out clamps at 10% and disables the control at the lower bound.
+    while (!(await zoomOut.isDisabled())) await zoomOut.click()
+    await expect(readout).toHaveText('10%')
+    await expect(zoomOut).toBeDisabled()
+
+    // Fit scales the whole grid width into the viewport, never upscaling past 100%.
+    await graph.getByRole('button', { name: 'Fit graph to view' }).click()
+    const fitted = await stageTransform(graph)
+    const fittedScale = fitted === 'none' ? 1 : Number(fitted.match(/scale\(([^)]+)\)/)[1])
+    expect(fittedScale).toBeLessThanOrEqual(1)
+  } finally {
+    await context.close()
+  }
 })
 
-test('keyboard navigation, chain highlight, selection, and Escape stay accessible without mutations', async ({ browser }) => {
+test('only a modifier wheel zooms and a background drag pans the canvas', async ({ browser }) => {
+  const context = await browser.newContext({ httpCredentials: dashboardCredentials })
+  const page = await context.newPage()
+
+  try {
+    await openFixture(page)
+    // A large graph overflows the viewport so pan has room to move.
+    await page.goto('/fixture?size=100')
+    await expect(page.locator('#fixture-counts')).toContainText('nodes: 100')
+    const graph = page.locator('#fixture-build-order-graph')
+    await expect(graph.locator('[data-bo-card]').first()).toBeVisible()
+
+    const readout = graph.locator('[data-bo-zoom-level]')
+    await graph.locator('[data-bo-grid-viewport]').focus()
+    await page.keyboard.press('0')
+    await expect(readout).toHaveText('100%')
+
+    // Plain wheel scrolls the page and does not capture zoom; a modifier wheel zooms.
+    const wheeled = await graph.evaluate((element) => {
+      const vp = element.querySelector('[data-bo-grid-viewport]')
+      const read = () => element.querySelector('[data-bo-zoom-level]').textContent
+      vp.dispatchEvent(new WheelEvent('wheel', { deltaY: -120, bubbles: true, cancelable: true }))
+      const afterPlain = read()
+      vp.dispatchEvent(new WheelEvent('wheel', { deltaY: -120, ctrlKey: true, bubbles: true, cancelable: true }))
+      return { afterPlain, afterModifier: read() }
+    })
+    expect(wheeled.afterPlain).toBe('100%')
+    expect(wheeled.afterModifier).toBe('110%')
+
+    // Zoom in until the scaled content overflows, then a background pointer drag
+    // scrolls the viewport in place.
+    const zoomIn = graph.getByRole('button', { name: 'Zoom in' })
+    while (!(await zoomIn.isDisabled())) await zoomIn.click()
+    const panned = await graph.evaluate((element) => {
+      const vp = element.querySelector('[data-bo-grid-viewport]')
+      vp.scrollLeft = 0
+      vp.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 1, button: 0, clientX: 300, clientY: 200, bubbles: true }))
+      vp.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, clientX: 120, clientY: 150, bubbles: true }))
+      vp.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, bubbles: true }))
+      return { scrollLeft: vp.scrollLeft, overflowing: vp.scrollWidth > vp.clientWidth }
+    })
+    expect(panned.overflowing).toBe(true)
+    expect(panned.scrollLeft).toBeGreaterThan(0)
+  } finally {
+    await context.close()
+  }
+})
+
+test('cards stay keyboard-openable and dependency highlight pins without mutations', async ({ browser }) => {
   const context = await browser.newContext({ httpCredentials: dashboardCredentials, viewport: { width: 1280, height: 900 } })
   const page = await context.newPage()
 
   try {
     await openCatalog(page)
     const graph = await openGraph(page, 'Release dashboard')
-    await expect(graph.locator('[data-graph-node]')).toHaveCount(7)
+    await expect(graph.locator('[data-bo-card]')).toHaveCount(7)
 
-    // Every card is focusable and carries a stable node id, independent of coords.
-    const cards = graph.locator('[data-graph-node]')
+    // Every card is focusable and carries a stable node id independent of coordinates.
+    const cards = graph.locator('[data-bo-card]')
     await expect(cards.first()).toHaveAttribute('tabindex', '0')
 
-    // Focusing the readiness target highlights its dependency closure and dims the rest.
-    const target = graph.locator('.bo-layout-card', { hasText: 'Readiness target' })
-    await target.focus()
-    await expect(target).toHaveClass(/is-graph-active/)
-    await expect(graph.locator('.bo-layout-card.is-graph-chain')).not.toHaveCount(0)
-    await expect(graph.locator('.bo-layout-card.is-graph-dimmed')).not.toHaveCount(0)
+    // Hovering a card highlights its dependency chain and marks it as the source.
+    const target = graph.locator('.bo-node', { hasText: 'Readiness target' })
+    await target.hover()
+    await expect(target).toHaveClass(/is-hl-source/)
+    await expect(graph.locator('.bo-node.is-hl-linked')).not.toHaveCount(0)
 
-    // Arrow keys move focus in DOM (semantic) order.
-    const focusedBefore = await graph.locator('[data-graph-node]:focus').getAttribute('data-graph-node')
-    await page.keyboard.press('ArrowRight')
-    const focusedAfter = await graph.locator('[data-graph-node]:focus').getAttribute('data-graph-node')
-    expect(focusedAfter).not.toBe(focusedBefore)
+    // Clicking the blocks tag pins the highlight and locks the graph.
+    await target.locator('[data-bo-pin]').click()
+    await expect(graph).toHaveClass(/is-locked/)
+    await expect(target).toHaveClass(/is-pinned/)
+    // Clicking the tag again releases the pin.
+    await target.locator('[data-bo-pin]').click()
+    await expect(graph).not.toHaveClass(/is-locked/)
 
-    // Space pins a persistent selection with aria-current; Escape clears it.
+    // Enter on a focused openable card opens its ticket context dialog.
     await target.focus()
-    await page.keyboard.press(' ')
-    await expect(target).toHaveClass(/is-graph-selected/)
-    await expect(target).toHaveAttribute('aria-current', 'true')
+    await page.keyboard.press('Enter')
+    const dialog = page.getByRole('dialog', { name: 'Readiness target' })
+    await expect(dialog).toBeVisible()
     await page.keyboard.press('Escape')
-    await expect(graph.locator('.bo-layout-card[aria-current="true"]')).toHaveCount(0)
+    await expect(dialog).toHaveCount(0)
 
     // No interaction ever introduces a mutation: still only context navigation.
     const clicks = await page.locator('[phx-click]').evaluateAll((els) => els.map((el) => el.getAttribute('phx-click')))
     expect(clicks.every((event) => event === 'open-ticket-context')).toBe(true)
     await expect(page.locator('form')).toHaveCount(0)
 
-    // Accessibility remains clean while a selection/highlight is active.
-    await target.focus()
-    await page.keyboard.press(' ')
+    // Accessibility stays clean while a highlight is active.
+    await target.hover()
     const results = await new AxeBuilder({ page }).analyze()
     expect(results.violations).toEqual([])
   } finally {
@@ -97,109 +174,49 @@ test('keyboard navigation, chain highlight, selection, and Escape stay accessibl
   }
 })
 
-test('bounded zoom, fit, reset, modifier-only wheel, and pointer pan operate on the ready canvas', async ({ browser }) => {
-  const context = await browser.newContext({ httpCredentials: dashboardCredentials })
-  const page = await context.newPage()
-
-  try {
-    await openFixture(page)
-    const graph = page.locator('#fixture-build-order-graph')
-    await expect(graph).toHaveClass(/is-layout-ready/)
-
-    const readout = graph.locator('[data-graph-zoom-level]')
-    const zoomIn = graph.getByRole('button', { name: 'Zoom graph in' })
-    const zoomOut = graph.getByRole('button', { name: 'Zoom graph out' })
-
-    // Button zoom in steps by 20%.
-    await zoomIn.click()
-    await expect(readout).toHaveText('120%')
-    expect(Number(await scaleVar(graph))).toBeCloseTo(1.2, 5)
-
-    // Zoom in clamps at 160% and disables the control at the bound.
-    while (!(await zoomIn.isDisabled())) await zoomIn.click()
-    await expect(readout).toHaveText('160%')
-    await expect(zoomIn).toBeDisabled()
-
-    // Reset returns to 100%.
-    await graph.getByRole('button', { name: 'Reset graph zoom and pan' }).click()
-    await expect(readout).toHaveText('100%')
-
-    // Zoom out clamps at 40%.
-    while (!(await zoomOut.isDisabled())) await zoomOut.click()
-    await expect(readout).toHaveText('40%')
-    await expect(zoomOut).toBeDisabled()
-
-    // Fit shrinks a large graph to within the viewport (never upscales past 100%).
-    await graph.getByRole('button', { name: 'Fit graph to view' }).click()
-    expect(Number(await scaleVar(graph))).toBeLessThanOrEqual(1)
-
-    // Plain wheel does not capture; modifier wheel zooms.
-    await graph.getByRole('button', { name: 'Reset graph zoom and pan' }).click()
-    const wheeled = await graph.evaluate((element) => {
-      const vp = element.querySelector('[data-graph-viewport]')
-      vp.dispatchEvent(new WheelEvent('wheel', { deltaY: -120, bubbles: true, cancelable: true }))
-      const afterPlain = element.querySelector('[data-graph-content]').style.getPropertyValue('--bo-graph-scale')
-      vp.dispatchEvent(new WheelEvent('wheel', { deltaY: -120, ctrlKey: true, bubbles: true, cancelable: true }))
-      const afterModifier = element.querySelector('[data-graph-content]').style.getPropertyValue('--bo-graph-scale')
-      return { afterPlain, afterModifier }
-    })
-    expect(wheeled.afterPlain).toBe('1')
-    expect(Number(wheeled.afterModifier)).toBeCloseTo(1.2, 5)
-
-    // Pointer drag on the canvas background pans.
-    await graph.getByRole('button', { name: 'Reset graph zoom and pan' }).click()
-    const panned = await graph.evaluate((element) => {
-      const vp = element.querySelector('[data-graph-viewport]')
-      vp.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 1, button: 0, clientX: 120, clientY: 120, bubbles: true }))
-      window.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, clientX: 190, clientY: 160, bubbles: true }))
-      window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, bubbles: true }))
-      return element.querySelector('[data-graph-content]').style.getPropertyValue('--bo-graph-pan-x')
-    })
-    expect(panned).not.toBe('0px')
-  } finally {
-    await context.close()
-  }
-})
-
-test('interaction state resets deterministically when the selected root changes', async ({ browser }) => {
+test('zoom state is isolated per selected root', async ({ browser }) => {
   const context = await browser.newContext({ httpCredentials: dashboardCredentials })
   const page = await context.newPage()
 
   try {
     await openCatalog(page)
     const graph = await openGraph(page, 'Release dashboard')
-    await expect(graph.locator('[data-graph-node]')).toHaveCount(7)
-    await graph.getByRole('button', { name: 'Zoom graph in' }).click()
-    await expect(graph.locator('[data-graph-zoom-level]')).toHaveText('120%')
+    await expect(graph).toHaveAttribute('data-bo-grid-key', '42:7')
+    await graph.getByRole('button', { name: 'Zoom in' }).click()
+    await expect(graph.locator('[data-bo-zoom-level]')).toHaveText('110%')
 
-    await page.getByRole('link', { name: 'All Build Orders' }).click()
+    await page.getByRole('link', { name: 'Back to all Build Orders' }).click()
     await openGraph(page, 'Stale planning lane')
 
+    // A different root gets its own grid key and its own fresh zoom state — the
+    // previous root's 110% never bleeds across.
     const next = page.locator('#selected-build-order-graph')
-    await expect(next).toHaveAttribute('data-layout-root-id', '43')
-    await expect(next.locator('[data-graph-zoom-level]')).toHaveText('100%')
+    await expect(next).toHaveAttribute('data-bo-grid-key', '43:8')
+    await expect(next.locator('[data-bo-zoom-level]')).toHaveText('100%')
   } finally {
     await context.close()
   }
 })
 
-test('reduced motion disables canvas transitions without disabling interaction', async ({ browser }) => {
+test('reduced motion collapses canvas transitions without disabling interaction', async ({ browser }) => {
   const context = await browser.newContext({ httpCredentials: dashboardCredentials, reducedMotion: 'reduce' })
   const page = await context.newPage()
 
   try {
     await openFixture(page)
     const graph = page.locator('#fixture-build-order-graph')
-    await expect(graph).toHaveClass(/is-layout-ready/)
+    await expect(graph.locator('[data-bo-card]').first()).toBeVisible()
 
     // Reduced motion collapses the canvas transition to effectively zero. Some
     // global resets use a 1e-05s sentinel rather than 0s, so assert near-zero.
-    const duration = await graph.locator('[data-graph-content]').evaluate((node) => getComputedStyle(node).transitionDuration)
+    const duration = await graph.locator('[data-bo-grid-stage]').evaluate((node) => getComputedStyle(node).transitionDuration)
     expect(parseFloat(duration)).toBeLessThan(0.05)
 
     // Interaction still works under reduced motion.
-    await graph.getByRole('button', { name: 'Zoom graph in' }).click()
-    await expect(graph.locator('[data-graph-zoom-level]')).toHaveText('120%')
+    await graph.locator('[data-bo-grid-viewport]').focus()
+    await page.keyboard.press('0')
+    await graph.getByRole('button', { name: 'Zoom in' }).click()
+    await expect(graph.locator('[data-bo-zoom-level]')).toHaveText('110%')
   } finally {
     await context.close()
   }

@@ -17,6 +17,16 @@ defmodule Aiur.Docs.ControlCenterFixture.Provider do
   def handle_call({:recent_audit_history, limit}, _from, state) do
     {:reply, %{records: Enum.take(state.history, limit), contexts: %{}, revisions: %{}}, state}
   end
+
+  # Mirror Aiur.DecisionStore's :retained_counts reply so the dashboard's
+  # PayloadLoader can render the overview counts. Derived from the synthetic
+  # decisions this provider holds.
+  def handle_call(:retained_counts, _from, %{decisions: decisions} = state) do
+    open = Enum.count(decisions, &(&1.decision_status == :open))
+    blocking = Enum.count(decisions, &(&1.decision_status == :open and &1.blocking))
+    counts = %{open: open, blocking: blocking, total: length(decisions)}
+    {:reply, {:ok, %{counts: counts, health: :writable}}, state}
+  end
 end
 
 defmodule Aiur.Docs.ControlCenterFixture do

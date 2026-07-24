@@ -13,53 +13,63 @@ defmodule AiurWeb.OperatorControlCenter.UnitsFilters do
   def units_filters(assigns) do
     assigns =
       assigns
-      |> assign(:scopes, UnitsPolicy.scopes())
-      |> assign(:conditions, UnitsPolicy.conditions())
+      |> assign(:scopes, [:unfinished])
+      |> assign(:conditions, Enum.reject(UnitsPolicy.conditions(), &(&1 == :stuck)))
 
     ~H"""
     <div class="units-filters">
-      <fieldset class="units-filter-group">
-        <legend>Scope</legend>
-        <div class="units-filter-list" role="group" aria-label="Units scope">
-          <button
-            :for={scope <- @scopes}
-            type="button"
-            class={["units-filter", "scope", @selection.scope == scope && "is-selected"]}
-            aria-pressed={to_string(@selection.scope == scope)}
-            disabled={@count_status == :unavailable}
-            phx-click="select-units-scope"
-            phx-value-scope={scope}
-          >
-            {label(scope)}
-          </button>
-        </div>
-      </fieldset>
-
-      <fieldset class="units-filter-group">
-        <legend>Conditions</legend>
-        <div class="units-filter-list" role="group" aria-label="Unit conditions">
-          <button
-            :for={condition <- @conditions}
-            type="button"
-            class={[
-              "units-filter",
-              "condition",
-              condition_class(condition),
-              UnitsPolicy.selected?(@selection, condition) && "is-selected"
-            ]}
-            aria-pressed={to_string(UnitsPolicy.selected?(@selection, condition))}
-            disabled={@count_status == :unavailable}
-            phx-click="toggle-units-condition"
-            phx-value-condition={condition}
-          >
-            <span class="units-filter-dot" aria-hidden="true"></span>
-            <span>{label(condition)}</span>
-            <span class="units-filter-count num" aria-label={count_aria_label(@counts, condition, @count_status)}>
-              {count_label(@counts, condition, @count_status)}
-            </span>
-          </button>
-        </div>
-      </fieldset>
+      <div class="units-filter-list" role="group" aria-label="Unit filters">
+        <button
+          :for={condition <- @conditions}
+          type="button"
+          class={[
+            "units-filter",
+            "condition",
+            condition_class(condition),
+            UnitsPolicy.selected?(@selection, condition) && "is-selected"
+          ]}
+          aria-pressed={to_string(UnitsPolicy.selected?(@selection, condition))}
+          disabled={@count_status == :unavailable}
+          phx-click="toggle-units-condition"
+          phx-value-condition={condition}
+        >
+          <span class="units-filter-dot" aria-hidden="true"></span>
+          <span>{label(condition)}</span>
+          <span class="units-filter-count num" aria-label={count_aria_label(@counts, condition, @count_status)}>
+            {count_label(@counts, condition, @count_status)}
+          </span>
+        </button>
+        <button
+          :for={scope <- @scopes}
+          type="button"
+          class={["units-filter", "scope", @selection.scope == scope && "is-selected"]}
+          aria-pressed={to_string(@selection.scope == scope)}
+          disabled={@count_status == :unavailable}
+          phx-click="select-units-scope"
+          phx-value-scope={scope}
+        >
+          {label(scope)}
+        </button>
+        <span class="units-filter-divider" aria-hidden="true"></span>
+        <button
+          type="button"
+          class="units-filter scope bulk"
+          aria-label="Select all preceding filters"
+          disabled={@count_status == :unavailable}
+          phx-click="select-all-units-filters"
+        >
+          All
+        </button>
+        <button
+          type="button"
+          class="units-filter scope bulk"
+          aria-label="Select no filters"
+          disabled={@count_status == :unavailable}
+          phx-click="select-no-units-filters"
+        >
+          None
+        </button>
+      </div>
     </div>
     """
   end
@@ -84,5 +94,4 @@ defmodule AiurWeb.OperatorControlCenter.UnitsFilters do
     do: "At least #{Map.get(counts, condition, 0)}"
 
   defp count_aria_label(counts, condition, _status), do: "#{Map.get(counts, condition, 0)}"
-
 end

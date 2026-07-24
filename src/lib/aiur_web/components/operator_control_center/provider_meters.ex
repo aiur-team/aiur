@@ -53,7 +53,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeters do
     >
       <header class="provider-meter-header">
         <h3 id={"provider-meter-#{@card.provider}-title"}>{@card.provider_label}</h3>
-        <span class={["provider-meter-badge", "state-#{@card.state}"]}>{@card.status_label}</span>
+        <span :if={@card.state != :unknown} class={["provider-meter-badge", "state-#{@card.state}"]}>{@card.status_label}</span>
       </header>
 
       <dl class="provider-meter-identity compact">
@@ -78,14 +78,6 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeters do
       <p :if={@card.state == :loading} class="provider-meter-state empty-state">
         Loading account meters…
       </p>
-
-      <div :if={@card.state == :unknown} class="provider-meter-state readonly-banner" role="status">
-        <span aria-hidden="true">◉</span>
-        <span>
-          <b>Account identity unknown.</b>
-          No plan, tier, or quota is shown for an unresolved account.
-        </span>
-      </div>
 
       <div :if={@card.state == :error} class="provider-meter-state error-card" role="alert">
         <h4>Provider meter error</h4>

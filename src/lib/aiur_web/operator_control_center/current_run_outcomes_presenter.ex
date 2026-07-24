@@ -171,11 +171,7 @@ defmodule AiurWeb.OperatorControlCenter.CurrentRunOutcomesPresenter do
       is_binary(run_id(source)) and is_integer(membership_generation(source))
   end
 
-  defp heading(source, state, retained?) do
-    if finished_this_run?(source, state, retained?),
-      do: "Finished this run",
-      else: neutral_heading()
-  end
+  defp heading(_source, _state, _retained?), do: neutral_heading()
 
   defp neutral_heading, do: "Current-run outcomes"
 

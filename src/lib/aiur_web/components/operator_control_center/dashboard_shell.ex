@@ -21,9 +21,6 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
         <div class="brand-row">
           <img class="brand-mini-logo" src="/aiur-logo.png" alt="Aiur" />
           <span class="brand-wordmark"><b>aiur</b></span>
-          <span class="status-badge status-badge-live brand-live">
-            <span class="status-badge-dot"></span>Live
-          </span>
           <span class="status-badge status-badge-offline brand-live">
             <span class="status-badge-dot"></span>Offline
           </span>
@@ -41,6 +38,24 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
               </svg>
               <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
+              </svg>
+            </span>
+          </button>
+          <button
+            id="nav-toggle"
+            class="tool-btn icon-only"
+            type="button"
+            phx-hook="NavToggle"
+            aria-label="Hide navigation"
+            aria-pressed="false"
+            title="Hide navigation"
+          >
+            <span class="nav-toggle-icon" aria-hidden="true">
+              <svg class="nav-hide-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M15 18l-6-6 6-6" />
+              </svg>
+              <svg class="nav-show-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 18l6-6-6-6" />
               </svg>
             </span>
           </button>
@@ -145,13 +160,13 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
     <span
       :if={!@available}
       class="shell-nav-item is-unavailable"
-      aria-label={"#{@route.label} unavailable"}
+      aria-label={"#{@route.label} coming soon"}
       aria-disabled="true"
       title={@route.description}
     >
       <span class="shell-nav-icon" aria-hidden="true">{nav_icon(@route.id)}</span>
       <span class="shell-nav-label">{@route.label}</span>
-      <span class="shell-nav-state">Unavailable</span>
+      <span class="shell-nav-state">Coming soon</span>
     </span>
     """
   end
@@ -178,15 +193,11 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
   end
 
   defp nav_icon(:commands) do
-    Phoenix.HTML.raw(
-      ~s(<svg #{@nav_svg_attrs}><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>)
-    )
+    Phoenix.HTML.raw(~s(<svg #{@nav_svg_attrs}><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>))
   end
 
   defp nav_icon(:build_order) do
-    Phoenix.HTML.raw(
-      ~s(<svg #{@nav_svg_attrs}><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="8" r="3"/><path d="M6 9v6"/><path d="M18 11a9 9 0 0 1-9 9"/></svg>)
-    )
+    Phoenix.HTML.raw(~s(<svg #{@nav_svg_attrs}><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="8" r="3"/><path d="M6 9v6"/><path d="M18 11a9 9 0 0 1-9 9"/></svg>))
   end
 
   defp nav_icon(:analytics) do

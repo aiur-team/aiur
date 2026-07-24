@@ -46,7 +46,11 @@ test('ticket context keeps semantic content, touch targets, and origin focus acc
       const close = dialog.getByRole('button', { name: 'Close' })
       const commands = dialog.getByRole('link', { name: 'View command' })
 
-      await expect(dialog.getByRole('status')).toContainText('Current')
+      // The dialog surfaces the ticket's detail recency in the Ticket facts
+      // section (the standalone freshness status banner was removed in the
+      // redesign): a current, available detail renders its last activity.
+      await expect(dialog.getByRole('heading', { name: 'Ticket facts' })).toBeVisible()
+      await expect(dialog.getByText('Last activity')).toBeVisible()
       await expect(dialog.getByText('Progress updated')).toBeVisible()
       await expect(dialog.getByRole('heading', { name: 'Blocked by' })).toBeVisible()
       await expect(dialog.getByRole('heading', { name: 'Blocking' })).toBeVisible()
@@ -134,7 +138,10 @@ test('relationship replacement, stale completion, generation, root, and removal 
   await dialog.getByRole('button', { name: 'Downstream ticket' }).click()
   dialog = page.getByRole('dialog', { name: 'Downstream ticket' })
   await expect(dialog.getByRole('heading', { name: 'Downstream ticket' })).toBeFocused()
-  await expect(dialog.getByRole('status')).toContainText('Ticket detail is stale.')
+  // A stale/unauthorized detail degrades gracefully: the dialog still renders the
+  // ticket facts, and surfaces the degraded capabilities per-destination (the
+  // detail no longer shows a standalone freshness status banner).
+  await expect(dialog.getByRole('heading', { name: 'Ticket facts' })).toBeVisible()
   await expect(dialog.getByText('Chat is stale.')).toBeVisible()
   await expect(dialog.getByText('Commands are unauthorized.')).toBeVisible()
 

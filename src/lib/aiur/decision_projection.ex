@@ -254,6 +254,14 @@ defmodule Aiur.DecisionProjection do
     end
   end
 
+  defp transition(%Decision{decision_status: :open} = decision, %DecisionEvent{type: :decision_dismissed}) do
+    {:ok, %{decision | decision_status: :dismissed, delivery_status: :not_dispatched}}
+  end
+
+  defp transition(%Decision{decision_status: :dismissed} = decision, %DecisionEvent{type: :decision_dismissed}) do
+    {:ok, decision}
+  end
+
   defp transition(%Decision{} = decision, %DecisionEvent{type: :revision_recorded, data: revision} = event) do
     with :ok <- require_current_version(decision, event.decision_version),
          {:ok, _answer} <- require_answer(decision),

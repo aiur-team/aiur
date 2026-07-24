@@ -8,9 +8,9 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
 
   use Phoenix.Component
 
+  alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.TicketContextSelection
   alias AiurWeb.OperatorControlCenter.{BuildOrderEpicIcon, BuildOrderGridModel}
-  alias Aiur.TrackerIdentity
 
   attr(:id, :string, required: true)
   attr(:root_id, :string, required: true)
@@ -82,9 +82,9 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
 
       <div class="bo-grid-viewport" data-bo-grid-viewport tabindex="0" role="group" aria-label="Build order graph canvas">
         <div class="bo-grid-scale" data-bo-grid-scale>
-          <div class="bo-grid-stage" data-bo-grid-stage>
-            <div class="bo-grid-lanes" style={@columns_style} role="row" aria-label="Epics">
-              <div class="bo-grid-corner" aria-hidden="true"></div>
+          <div class="bo-grid-stage" data-bo-grid-stage role="grid" aria-labelledby={"#{@id}-title"}>
+            <div class="bo-grid-lanes" style={@columns_style} role="row">
+              <div class="bo-grid-corner" role="columnheader" aria-hidden="true"></div>
               <div :for={col <- @columns} class="bo-epic" role="columnheader">
                 <BuildOrderEpicIcon.build_order_epic_icon lane={col.lane} class="bo-epic-icon" colored />
                 <span class="bo-epic-label">{col.label}</span>
@@ -92,7 +92,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
               </div>
             </div>
 
-            <div class="bo-grid-body" data-bo-grid-body>
+            <div class="bo-grid-body" data-bo-grid-body role="rowgroup">
               <svg class="bo-grid-edges" data-bo-grid-edges aria-hidden="true" focusable="false"></svg>
               <div :for={wave <- @waves} class="bo-grid-wave-row" style={@columns_style} role="row">
                 <div class="bo-wave" role="rowheader">
@@ -134,7 +134,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
       |> assign(:origin_id, origin_id(assigns.model, assigns.card))
 
     ~H"""
-    <article
+    <div
       class={["bo-node", "is-#{@card.state}", @nav_value && "is-openable"]}
       id={@origin_id}
       data-bo-card={@card.id}
@@ -151,10 +151,8 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
         <span
           class="bo-node-blocks"
           data-bo-pin
-          role="button"
-          tabindex="-1"
           title={blocks_title(@card.blocks)}
-          aria-label={blocks_title(@card.blocks)}
+          aria-hidden="true"
         ><span class="bo-node-blocks-fill" style={blocks_style(@card.blocks)}>{@card.blocks}</span></span>
       </div>
       <div class="bo-node-title">{@card.title}</div>
@@ -164,7 +162,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
         <span class="bo-node-word">{@card.status_word}</span>
       </div>
       <span class="bo-node-bar" aria-hidden="true"><i style={"width:#{@card.progress || 0}%"}></i></span>
-    </article>
+    </div>
     """
   end
 
@@ -238,7 +236,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
   defp card_aria(card, nav_value) do
     prefix = if nav_value, do: ["Open ticket context:"], else: []
 
-    (prefix ++ [card.id, card.title, "#{card.progress}%", card.status_word])
+    (prefix ++ [card.id, card.title, "#{card.progress}%", card.status_word, blocks_title(card.blocks)])
     |> Enum.reject(&(&1 in [nil, ""]))
     |> Enum.join(" · ")
   end

@@ -99,6 +99,8 @@ defmodule Aiur.DecisionRevisionDispatchTest do
       assert_receive {:step, :sent, :orchestrator, "985", payload}
       revision = List.last(decision.revisions)
       assert payload.action_id == revision.action_id
+      assert payload.delivery_policy == :interrupt
+      assert payload.fallback == :queue_next
       assert payload.correlation.prior_action_id == revision.prior_action_id
       assert payload.correlation.revision_sequence == 1
       assert payload.correlation.attempt_id == "revision-attempt-1"
