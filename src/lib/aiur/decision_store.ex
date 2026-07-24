@@ -1055,14 +1055,18 @@ defmodule Aiur.DecisionStore do
   end
 
   defp handle_expire(decision_id, reason_class, opts, state) do
-    with {:ok, decision} <- fetch_decision(state, decision_id) do
-      case decision.decision_status do
-        :open -> persist_expiration(decision, reason_class, opts, state)
-        :expired -> {:reply, {:ok, %{status: :duplicate, decision: decision}}, state}
-        status -> {:reply, {:error, {:conflict, status}}, state}
-      end
-    else
-      {:error, reason} -> {:reply, {:error, reason}, state}
+    case fetch_decision(state, decision_id) do
+      {:ok, %{decision_status: :open} = decision} ->
+        persist_expiration(decision, reason_class, opts, state)
+
+      {:ok, %{decision_status: :expired} = decision} ->
+        {:reply, {:ok, %{status: :duplicate, decision: decision}}, state}
+
+      {:ok, decision} ->
+        {:reply, {:error, {:conflict, decision.decision_status}}, state}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
     end
   end
 
