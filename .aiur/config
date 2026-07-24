@@ -60,13 +60,13 @@ agent:
   # output) is killed after this. Raised from the 5-min default so flake-fix /
   # full-suite validation runs can complete. turn_timeout_ms already defaults to 60 min.
   stall_timeout_ms: 3600000
-  # Complexity labels select a Codex 5.6 model and reasoning effort.
+  # Complexity labels select the latest Codex model in each family and a reasoning effort.
   routing:
-    1: "codex:gpt-5.6-luna:low"
-    2: "codex:gpt-5.6-luna:medium"
-    3: "codex:gpt-5.6-terra:high"
-    4: "codex:gpt-5.6-terra:xhigh"
-    5: "codex:gpt-5.6-sol:max"
+    1: "codex:luna:low"
+    2: "codex:luna:medium"
+    3: "codex:terra:high"
+    4: "codex:terra:xhigh"
+    5: "codex:sol:max"
   codex:
     command: codex app-server
     approval_policy: never

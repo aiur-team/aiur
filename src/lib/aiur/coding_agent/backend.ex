@@ -76,6 +76,7 @@ defmodule Aiur.CodingAgent.Backend do
           required(:remote_control) => boolean(),
           required(:resumable) => boolean(),
           required(:models) => [String.t()],
+          optional(:model_aliases) => :derived | [String.t()],
           required(:efforts) => [String.t()],
           optional(:immediate_delivery) => boolean(),
           optional(:remote_transport) => CodingAgent.backend(),

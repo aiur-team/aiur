@@ -23,7 +23,7 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
       }
 
       {"claude-repl", true, session_opts} =
-        SessionLifecycle.resolve_session_options(issue, [], nil)
+        SessionLifecycle.resolve_session_options(issue, [model_catalog: fn _backend -> {:error, :offline} end], nil)
 
       assert {:ok, session} =
                SessionLifecycle.start_agent_session(
@@ -48,6 +48,61 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
       refute SessionLifecycle.should_display_tail?("codex", true, "101")
       refute SessionLifecycle.should_display_tail?("claude-repl", false, "101")
       refute SessionLifecycle.should_display_tail?("claude-repl", true, nil)
+    end
+  end
+
+  describe "model resolution" do
+    test "resolves a Codex family alias to the latest installed model" do
+      issue = %Issue{
+        id: "issue-latest-model",
+        identifier: "LATEST-MODEL",
+        selected_backend: "codex",
+        labels: ["model:codex-sol"]
+      }
+
+      {_backend, _remote_control?, opts} =
+        SessionLifecycle.resolve_session_options(
+          issue,
+          [model_catalog: fn "codex" -> {:ok, ["gpt-5.6-sol", "gpt-5.7-sol"]} end],
+          nil
+        )
+
+      assert Keyword.fetch!(opts, :model) == "gpt-5.7-sol"
+    end
+
+    test "surfaces a retired pin and passes it through without downgrading" do
+      parent = self()
+
+      issue = %Issue{
+        id: "issue-retired-model",
+        identifier: "RETIRED-MODEL",
+        selected_backend: "codex",
+        labels: ["model:codex-gpt-5.4"]
+      }
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          {_backend, _remote_control?, opts} =
+            SessionLifecycle.resolve_session_options(
+              issue,
+              [
+                model_catalog: fn "codex" -> {:ok, ["gpt-5.7-sol"]} end,
+                unsupported_model_alert: fn topic, message, alert_opts ->
+                  send(parent, {:unsupported_model, topic, message, alert_opts})
+                  :ok
+                end
+              ],
+              nil
+            )
+
+          assert Keyword.fetch!(opts, :model) == "gpt-5.4"
+        end)
+
+      assert log =~ "not reported by the installed codex CLI"
+
+      assert_received {:unsupported_model, "ticket.RETIRED-MODEL.agent.unsupported_model", message, alert_opts}
+      assert message =~ "Run `aiur init`"
+      assert alert_opts[:needs_attention]
     end
   end
 

@@ -328,9 +328,25 @@ defmodule Aiur.CodingAgentTest do
     test "override_labels seeds bare haiku and cheaper codex variants" do
       labels = CodingAgent.override_labels()
       assert "model:claude-haiku" in labels
+      assert "model:codex-sol" in labels
+      assert "model:codex-terra" in labels
+      assert "model:codex-luna" in labels
+      assert "model:codex-mini" in labels
       assert "model:codex-gpt-5.4" in labels
       assert "model:codex-gpt-5.5-mini" in labels
       assert "model:codex-gpt-5.4-mini" in labels
+    end
+
+    test "resolves derived aliases from a live catalog while preserving pins" do
+      models = ["gpt-5.7-sol", "gpt-5.6-sol", "gpt-5.5"]
+
+      assert CodingAgent.resolve_model("codex", "sol", models) == {:ok, "gpt-5.7-sol"}
+      assert CodingAgent.resolve_model("codex", "gpt-5.6-sol", models) == {:ok, "gpt-5.6-sol"}
+      assert CodingAgent.resolve_model("codex", "retired-model", models) == {:unsupported, "retired-model"}
+    end
+
+    test "passes native Claude aliases through unchanged" do
+      assert CodingAgent.resolve_model("claude", "opus", ["opus", "opus-4-8"]) == {:ok, "opus"}
     end
   end
 

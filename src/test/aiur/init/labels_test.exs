@@ -193,4 +193,51 @@ defmodule Aiur.Init.LabelsTest do
     messages = for {:puts, msg} <- Process.info(self(), :messages) |> elem(1), do: msg
     refute Enum.any?(messages, fn m -> m =~ "model:remote" end)
   end
+
+  test "offers a newly discovered upstream model without a registry change" do
+    parent = self()
+
+    existing =
+      all_lifecycle_labels() ++
+        Labels.complexity_labels() ++ Labels.model_labels(["codex"]) ++ Labels.effort_labels()
+
+    deps = %{
+      list_labels: fn _tracker -> {:ok, existing} end,
+      discover_models: fn ["codex"] -> %{"codex" => {:ok, ["gpt-5.7-sol"]}} end,
+      create_labels: fn _tracker, labels ->
+        send(parent, {:create_called, labels})
+        :ok
+      end
+    }
+
+    answers = %{confirm: %{"Create the newly available model labels?" => true}}
+
+    assert :ok = InitLabels.setup_labels(io(parent, answers), deps, %{kind: "github", repo: "o/r"}, ["codex"])
+    assert_received {:confirm, "Create the newly available model labels?"}
+    assert_received {:create_called, ["model:codex-gpt-5.7-sol"]}
+  end
+
+  test "does not offer discovery when current or offline" do
+    parent = self()
+
+    existing =
+      all_lifecycle_labels() ++
+        Labels.complexity_labels() ++ Labels.model_labels(["codex"]) ++ Labels.effort_labels()
+
+    for discovery <- [
+          %{"codex" => {:ok, Aiur.CodingAgent.models("codex")}},
+          %{"codex" => {:error, :offline}}
+        ] do
+      deps = %{
+        list_labels: fn _tracker -> {:ok, existing} end,
+        discover_models: fn ["codex"] -> discovery end,
+        create_labels: fn _tracker, labels -> send(parent, {:create_called, labels}) end
+      }
+
+      assert :ok = InitLabels.setup_labels(io(parent, %{}), deps, %{kind: "github", repo: "o/r"}, ["codex"])
+    end
+
+    refute_received {:confirm, "Create the newly available model labels?"}
+    refute_received {:create_called, _labels}
+  end
 end

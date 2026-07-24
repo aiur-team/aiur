@@ -15,6 +15,7 @@ defmodule Aiur.CodingAgent do
 
   alias Aiur.Config
   alias Aiur.Config.RoutingValue
+  alias Aiur.CodingAgent.Models
   alias Aiur.Issue
   alias Aiur.ModelAvailability
 
@@ -93,6 +94,7 @@ defmodule Aiur.CodingAgent do
           "gpt-5.5-mini",
           "gpt-5.4-mini"
         ],
+        model_aliases: :derived,
         efforts: ["none", "low", "medium", "high", "xhigh", "max"]
       },
       "claude" => %{
@@ -118,7 +120,8 @@ defmodule Aiur.CodingAgent do
         # headless backend stays a clean start. Resume on the REPL transport
         # (`claude-repl`), which drives the `claude` CLI directly, instead.
         resumable: false,
-        models: ["opus", "sonnet", "haiku", "opus-4-8", "sonnet-4-6", "haiku-4-5"],
+        models: ["opus-4-8", "sonnet-4-6", "haiku-4-5"],
+        model_aliases: ["opus", "sonnet", "haiku"],
         efforts: []
       },
       "claude-repl" => %{
@@ -152,7 +155,8 @@ defmodule Aiur.CodingAgent do
         # the persisted handle's id and `ReplAgent` degrades to a clean start
         # when that transcript is gone (issue #613, follow-up to #378).
         resumable: true,
-        models: ["opus", "sonnet", "haiku", "opus-4-8", "sonnet-4-6", "haiku-4-5"],
+        models: ["opus-4-8", "sonnet-4-6", "haiku-4-5"],
+        model_aliases: ["opus", "sonnet", "haiku"],
         efforts: ["low", "medium", "high", "xhigh", "max"]
       }
     }
@@ -183,6 +187,67 @@ defmodule Aiur.CodingAgent do
       {:ok, entry} -> Map.get(entry, :efforts, [])
       :error -> []
     end
+  end
+
+  @doc "Concrete model ids in the built-in offline fallback catalog."
+  @spec models(backend()) :: [String.t()]
+  def models(backend) do
+    case Map.fetch(backends(), backend) do
+      {:ok, entry} -> Map.get(entry, :models, [])
+      :error -> []
+    end
+  end
+
+  @doc "App-server family used to discover models for a backend."
+  @spec catalog_family(backend()) :: String.t() | nil
+  def catalog_family(backend), do: family_for(backend)
+
+  @doc "Stable model aliases for a backend, mapped to their concrete target when Aiur resolves them."
+  @spec model_aliases(backend(), [String.t()] | nil) :: %{String.t() => String.t()}
+  def model_aliases(backend, available_models \\ nil) do
+    case Map.fetch(backends(), backend) do
+      {:ok, %{model_aliases: :derived}} ->
+        Models.aliases(available_models || models(backend))
+
+      {:ok, %{model_aliases: aliases}} when is_list(aliases) ->
+        Map.new(aliases, &{&1, &1})
+
+      _ ->
+        %{}
+    end
+  end
+
+  @doc """
+  Resolve a generic alias against the supplied live catalog.
+
+  Native aliases pass through unchanged. Explicit ids remain pinned. A model
+  absent from a successfully queried catalog is returned with `:unsupported`
+  so dispatch can surface remediation without silently changing the request.
+  """
+  @spec resolve_model(backend(), String.t() | nil, [String.t()]) ::
+          {:ok, String.t() | nil} | {:unsupported, String.t()}
+  def resolve_model(_backend, nil, _available_models), do: {:ok, nil}
+
+  def resolve_model(backend, model, available_models) when is_binary(model) and is_list(available_models) do
+    aliases = model_aliases(backend, available_models)
+
+    cond do
+      Map.has_key?(aliases, model) -> {:ok, Map.fetch!(aliases, model)}
+      model in available_models -> {:ok, model}
+      true -> {:unsupported, model}
+    end
+  end
+
+  @doc "Resolve aliases from the built-in catalog without declaring unknown pins unsupported."
+  @spec resolve_model_offline(backend(), String.t() | nil) :: String.t() | nil
+  def resolve_model_offline(_backend, nil), do: nil
+  def resolve_model_offline(backend, model), do: Map.get(model_aliases(backend), model, model)
+
+  @doc "Whether a model is a concrete id or stable alias in the supplied catalog."
+  @spec known_model?(backend(), String.t(), [String.t()] | nil) :: boolean()
+  def known_model?(backend, model, available_models \\ nil) when is_binary(model) do
+    models = available_models || models(backend)
+    model in models or Map.has_key?(model_aliases(backend, models), model)
   end
 
   @doc """
@@ -218,8 +283,10 @@ defmodule Aiur.CodingAgent do
     |> Map.take(selected)
     |> Enum.flat_map(fn {backend, entry} ->
       variant_labels = Enum.map(Map.get(entry, :models, []), &"model:#{backend}-#{&1}")
-      ["model:#{backend}" | variant_labels]
+      alias_labels = Enum.map(Map.keys(model_aliases(backend)), &"model:#{backend}-#{&1}")
+      ["model:#{backend}" | alias_labels ++ variant_labels]
     end)
+    |> Enum.uniq()
   end
 
   @doc """

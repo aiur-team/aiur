@@ -22,6 +22,7 @@ defmodule Aiur.Init.Labels do
          existing = Enum.uniq(existing ++ required),
          :ok <- maybe_create_complexity_labels(io, deps, tracker, existing),
          :ok <- maybe_create_model_labels(io, deps, tracker, existing, kinds),
+         :ok <- maybe_create_discovered_model_labels(io, deps, tracker, existing, kinds),
          :ok <- maybe_create_effort_labels(io, deps, tracker, existing) do
       maybe_create_remote_label(io, deps, tracker, existing, kinds)
     end
@@ -91,6 +92,36 @@ defmodule Aiur.Init.Labels do
         Format.print_hint(io, "Optional: These will override complexity label model choices.")
         create_or_skip(io, deps, tracker, labels, missing, "Create the model labels?", true)
     end
+  end
+
+  # Stage 3a — offer models reported by the installed app-servers but absent
+  # from Aiur's offline baseline. Discovery is best-effort and failures stay
+  # silent so an offline `aiur init` remains fully usable.
+  defp maybe_create_discovered_model_labels(io, deps, tracker, existing, kinds) do
+    discover_models = Map.get(deps, :discover_models, fn _backends -> %{} end)
+    baseline = Labels.model_labels(kinds)
+
+    missing =
+      kinds
+      |> discover_models.()
+      |> Labels.discovered_model_labels()
+      |> Kernel.--(baseline)
+      |> Kernel.--(existing)
+
+    case missing do
+      [] ->
+        :ok
+
+      labels ->
+        io.puts.("\nNew model tags are available from your installed agent CLIs:")
+        print_label_list(io, labels)
+        Format.print_hint(io, "Optional: Create these tags now, or re-run `aiur init` later.")
+        create_or_skip(io, deps, tracker, labels, labels, "Create the newly available model labels?", false)
+    end
+  rescue
+    _error -> :ok
+  catch
+    _kind, _reason -> :ok
   end
 
   # Stage 3b — optional per-ticket effort override labels (backend-independent).

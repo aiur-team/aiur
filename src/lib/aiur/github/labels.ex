@@ -83,6 +83,22 @@ defmodule Aiur.GitHub.Labels do
   @spec model_labels([String.t()]) :: [String.t()]
   def model_labels(backends), do: CodingAgent.override_labels(backends)
 
+  @doc "Model labels derived from a live backend catalog."
+  @spec discovered_model_labels(%{optional(String.t()) => {:ok, [String.t()]} | {:error, term()}}) :: [String.t()]
+  def discovered_model_labels(catalog) when is_map(catalog) do
+    catalog
+    |> Enum.flat_map(fn
+      {backend, {:ok, models}} ->
+        aliases = Map.keys(CodingAgent.model_aliases(backend, models))
+        Enum.map(Enum.uniq(aliases ++ models), &"model:#{backend}-#{&1}")
+
+      {_backend, {:error, _reason}} ->
+        []
+    end)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
   # The `model:remote` flag (force remote-control on at launch) only
   # makes sense when the claude backend is chosen; it pairs with a
   # `model:claude-<variant>` tag rather than selecting a backend itself.

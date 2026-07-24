@@ -32,9 +32,11 @@ This directory contains the Elixir agent orchestration service that polls Linear
   then the `agent.kind` default. Resolve once at `start_session` and read `session[:backend]`
   for dispatch — never re-resolve from global config mid-session.
 - Issue labels select the model in three layers: `model:claude`/`model:codex` (CLI default model),
-  `model:claude-opus` (family default), `model:claude-opus-4-8` (exact version). The variant
-  string is threaded verbatim through `start_session` into each adapter's model flag; the
-  registry in `Aiur.CodingAgent` is the single source for known backends and their seedable labels.
+  `model:claude-opus`/`model:codex-sol` (latest model in a family), and
+  `model:claude-opus-4-8`/`model:codex-gpt-5.6-sol` (exact version). Claude resolves its
+  native aliases; Aiur resolves Codex aliases from the installed CLI's model catalog before
+  `start_session`. Explicit versions remain pinned, and `aiur init` offers newly discovered
+  model labels without making CLI availability a setup requirement.
 - Orchestrator behavior is stateful and concurrency-sensitive; preserve retry, reconciliation, and cleanup semantics.
 - Follow `docs/logging.md` for logging conventions and required issue/session context fields.
 

@@ -1,7 +1,7 @@
 defmodule Aiur.AgentRunner.SessionLifecycle do
   @moduledoc false
   require Logger
-  alias Aiur.{AgentPubSub, CodingAgent, Config, Issue, Tracker}
+  alias Aiur.{AgentPubSub, Alerts, CodingAgent, Config, Issue, ModelCatalog, Tracker}
   alias Aiur.AgentRunner.{MessageHandler, SessionResume, TurnLoop}
   alias Aiur.Claude.{DisplayTailer, RemoteControl, Telemetry}
   alias Aiur.LiveConversation.Source
@@ -584,7 +584,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
           {String.t(), boolean(), keyword()}
   def resolve_session_options(issue, opts, worker_host) do
     backend = CodingAgent.backend_for(issue)
-    model = CodingAgent.model_for(issue)
+    model = resolve_requested_model(issue, backend, CodingAgent.model_for(issue), opts)
     effort = CodingAgent.effort_for(issue)
 
     rc? =
@@ -613,6 +613,51 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
       |> SessionResume.maybe_put_resume_thread_id(resume_thread_id)
 
     {session_backend, rc?, session_opts}
+  end
+
+  defp resolve_requested_model(_issue, _backend, nil, _opts), do: nil
+
+  defp resolve_requested_model(issue, backend, model, opts) do
+    catalog_fun = Keyword.get(opts, :model_catalog, &ModelCatalog.models/1)
+
+    case catalog_fun.(backend) do
+      {:ok, available_models} ->
+        case CodingAgent.resolve_model(backend, model, available_models) do
+          {:ok, resolved} ->
+            resolved
+
+          {:unsupported, requested} ->
+            warn_unsupported_model(issue, backend, requested, available_models, opts)
+            requested
+        end
+
+      {:error, _reason} ->
+        CodingAgent.resolve_model_offline(backend, model)
+    end
+  rescue
+    _error -> CodingAgent.resolve_model_offline(backend, model)
+  catch
+    _kind, _reason -> CodingAgent.resolve_model_offline(backend, model)
+  end
+
+  defp warn_unsupported_model(issue, backend, model, available_models, opts) do
+    message =
+      "Model #{inspect(model)} is not reported by the installed #{backend} CLI. " <>
+        "Aiur will pass it through without downgrading. Run `aiur init` to discover and create current model tags, " <>
+        "and update `agent.routing` if it pins a retired version."
+
+    Logger.warning(message <> " Available models: #{inspect(available_models)}")
+
+    alert_fun = Keyword.get(opts, :unsupported_model_alert, &Alerts.emit_custom/3)
+
+    alert_fun.("ticket.#{issue.identifier}.agent.unsupported_model", message,
+      issue: issue,
+      needs_attention: true
+    )
+  rescue
+    _error -> :ok
+  catch
+    _kind, _reason -> :ok
   end
 
   # Mirror the full claude transcript into the opencode pane for an RC claude-repl
