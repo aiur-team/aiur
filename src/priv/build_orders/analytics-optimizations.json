@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "build_order_id": "its-everdred/aiur:analytics-optimizations",
+  "title": "Analytics optimizations",
+  "subtitle": "Unblock CI, land the fleet-leverage levers, and split analytics into live-session and build-order scopes",
+  "repository": "its-everdred/aiur",
+  "root_number": 9001,
+  "plan_version": 1,
+  "permanent": false,
+  "workstreams": [
+    {
+      "id": "ci-health",
+      "title": "CI health"
+    },
+    {
+      "id": "fleet-leverage",
+      "title": "Fleet leverage"
+    },
+    {
+      "id": "dashboard-ui",
+      "title": "Dashboard UI"
+    },
+    {
+      "id": "analytics",
+      "title": "Analytics"
+    },
+    {
+      "id": "accounting",
+      "title": "Accounting"
+    }
+  ],
+  "tickets": [
+    {
+      "id": "AO-001",
+      "title": "Raise CI aggregate coverage above the 85% gate",
+      "lane": "ci-health",
+      "phase": 1,
+      "complexity": 2,
+      "number": 1297,
+      "depends_on": [],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1297"
+    },
+    {
+      "id": "AO-002",
+      "title": "Enable dormant dispatch latch and complexity turn caps",
+      "lane": "fleet-leverage",
+      "phase": 1,
+      "complexity": 1,
+      "number": 1305,
+      "depends_on": [],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1305"
+    },
+    {
+      "id": "AO-003",
+      "title": "Stop CI replay reverting human-review tickets to rework",
+      "lane": "ci-health",
+      "phase": 2,
+      "complexity": 2,
+      "number": 1298,
+      "depends_on": ["AO-001"],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1298"
+    },
+    {
+      "id": "AO-004",
+      "title": "Fix nav show/hide toggle reverting on LiveView patch",
+      "lane": "dashboard-ui",
+      "phase": 2,
+      "complexity": 2,
+      "number": 1306,
+      "depends_on": ["AO-001"],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1306"
+    },
+    {
+      "id": "AO-005",
+      "title": "Populate context_tier and cache_write_duration from provider adapters",
+      "lane": "accounting",
+      "phase": 2,
+      "complexity": 3,
+      "number": 1277,
+      "depends_on": ["AO-001"],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1277"
+    },
+    {
+      "id": "AO-006",
+      "title": "Auto-discover model tags at init; prefer generic aliases",
+      "lane": "fleet-leverage",
+      "phase": 2,
+      "complexity": 4,
+      "number": 1307,
+      "depends_on": ["AO-002"],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1307"
+    },
+    {
+      "id": "AO-007",
+      "title": "Expire stale commands and correct the awaiting-commands banner",
+      "lane": "dashboard-ui",
+      "phase": 3,
+      "complexity": 3,
+      "number": 1303,
+      "depends_on": ["AO-004"],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1303"
+    },
+    {
+      "id": "AO-008",
+      "title": "Split analytics into live-session view and build-order pane",
+      "lane": "analytics",
+      "phase": 4,
+      "complexity": 4,
+      "number": 1304,
+      "depends_on": ["AO-007"],
+      "document_url": "https://github.com/its-everdred/aiur/issues/1304"
+    }
+  ]
+}
