@@ -374,6 +374,17 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     refute empty_html =~ "decisions-banner"
   end
 
+  test "decision banner count equals the open Commands list even when only some block" do
+    html =
+      render_component(&Overview.decisions_banner/1, %{
+        decisions: [],
+        retained_counts: %{open: 3, blocking: 1, health: %{status: :available}}
+      })
+
+    assert html =~ "3 units awaiting commands"
+    refute html =~ "1 unit awaiting commands"
+  end
+
   defp fleet_row(identifier, waiting_reason, attrs \\ []) do
     Map.merge(
       %{
@@ -413,6 +424,21 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     refute html =~ ~s(class="decision-card)
   end
 
+  test "renders expired Commands as non-actionable history" do
+    expired = inbox_decision("dec-history-expired", decision_status: :expired)
+
+    html =
+      render_component(&History.history/1, %{
+        entries: [],
+        decisions: [expired],
+        provider_health: :ok
+      })
+
+    assert html =~ "Expired"
+    assert html =~ "agent is no longer running"
+    refute html =~ ~s(class="decision-card)
+  end
+
   test "Commands inbox exposes only the four primary filters with canonical retained counts" do
     html =
       render_inbox(
@@ -421,7 +447,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
         %{total: 701, open: 503, blocking: 401}
       )
 
-    assert html =~ ~r/All\s+<span class="count num">701<\/span>/
+    assert html =~ ~r/All\s+<span class="count num">503<\/span>/
     assert html =~ ~r/Open\s+<span class="count num">503<\/span>/
     assert html =~ ~r/Blocking\s+<span class="count num">401<\/span>/
     assert html =~ "Commands inbox"

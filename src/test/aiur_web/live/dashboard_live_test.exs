@@ -633,7 +633,7 @@ defmodule AiurWeb.DashboardLiveTest do
         selected_decision_health: %{status: :partial, partial?: true}
       )
 
-    assert html =~ "4 units awaiting commands"
+    assert html =~ "73 units awaiting commands"
     assert html =~ "Issue commands"
     assert html =~ "Partial retained Command counts"
     assert html =~ "Partial retained Command data"
@@ -1166,6 +1166,46 @@ defmodule AiurWeb.DashboardLiveTest do
     invalid_html = render_patch(view, "/decisions?cursor=not-a-valid-cursor")
     assert invalid_html =~ "Command projection is currently unavailable"
     assert Process.alive?(view.pid)
+  end
+
+  test "All Commands pages open records before filtering so its count matches the list" do
+    orchestrator_name = Module.concat(__MODULE__, :OpenPageOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :OpenPageDecisionStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 5_080}}}
+      end)
+
+    decisions =
+      for index <- 0..26 do
+        request_dashboard_decision(store, "open-page-#{index}", "reversible", now: DateTime.add(~U[2026-07-13 08:00:00Z], index, :second))
+      end
+
+    Enum.each(Enum.drop(decisions, 2), fn decision ->
+      assert {:ok, %{status: :accepted}} =
+               DecisionStore.dismiss(
+                 decision.decision_id,
+                 [actor: %{kind: :operator, id: "dashboard"}],
+                 store
+               )
+    end)
+
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name,
+      control_center_cache: false
+    )
+
+    {:ok, view, html} = live(build_conn(), "/decisions")
+
+    assert html =~ ~r/All\s+<span class="count num">2<\/span>/
+    assert has_element?(view, "#decision-#{Enum.at(decisions, 0).decision_id}")
+    assert has_element?(view, "#decision-#{Enum.at(decisions, 1).decision_id}")
+    refute has_element?(view, "#decision-#{Enum.at(decisions, 2).decision_id}")
   end
 
   test "a direct Decision URL resolves a retained record outside the 50-item overview" do

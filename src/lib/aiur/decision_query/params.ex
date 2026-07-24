@@ -12,6 +12,7 @@ defmodule Aiur.DecisionQuery.Params do
   @lifecycle_by_name %{
     "open" => :open,
     "historic" => :historic,
+    "expired" => :expired,
     "dismissed" => :dismissed,
     "decided" => :decided,
     "acknowledged" => :acknowledged,
@@ -24,7 +25,7 @@ defmodule Aiur.DecisionQuery.Params do
           authority: Decision.authority() | nil,
           blocking: boolean() | nil,
           kind: String.t() | nil,
-          lifecycle: :open | :historic | :dismissed | :decided | :acknowledged | :resolved | nil,
+          lifecycle: :open | :historic | :expired | :dismissed | :decided | :acknowledged | :resolved | nil,
           search: String.t() | nil,
           ticket: String.t() | nil
         }
