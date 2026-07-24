@@ -220,6 +220,13 @@ On every observation:
   independent reviewers, and merge/rework lanes. Keep every dependency-ready,
   conflict-free lane occupied; when live concurrency is below the run target,
   identify the exact limiting gate and prioritize removing it;
+- dispatch in parallel **across** distinct build lanes, but **serialize within a
+  shared-file clique**. Tickets that all edit one hot file do not run as
+  independent lanes: they collide, and the resulting merge thrash is the most
+  expensive waste class in a run — far costlier than the concurrency it buys. The
+  known hotspot on this repo is the dashboard-ui clique around
+  `dashboard_live.ex`; treat any file that several ready tickets all name as the
+  same kind of clique and admit those tickets one at a time;
 - let default-on AIMD govern effective slots under the session ceiling; use
   `"$AIUR_CMD" set max-agents <n>` to keep the ceiling at the recorded maximum.
   Lower it only for measured pressure AIMD/build gates do not capture, record a
