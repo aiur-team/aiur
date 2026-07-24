@@ -6,12 +6,16 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.BuildOrder.SelectedRoot
   alias AiurWeb.BuildOrder.RouteState
-  alias AiurWeb.OperatorControlCenter.{BuildOrderBreakdown, BuildOrderGraph}
+  alias AiurWeb.OperatorControlCenter.{BuildOrderAnalytics, BuildOrderBreakdown, BuildOrderGraph}
 
   attr(:route_state, :any, required: true)
   attr(:model, :any, default: nil)
   attr(:adhoc, :any, default: nil)
   attr(:now, :any, required: true)
+  attr(:analytics_scope, :map, required: true)
+  attr(:analytics_model, :any, default: nil)
+  attr(:analytics_unavailable, :any, default: nil)
+  attr(:analytics_loading, :boolean, default: false)
 
   @spec build_order_selected(map()) :: Phoenix.LiveView.Rendered.t()
   def build_order_selected(assigns) do
@@ -61,6 +65,14 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
         />
 
         <BuildOrderBreakdown.build_order_breakdown :if={@model.status != :empty} model={@model} adhoc={@adhoc} />
+
+        <BuildOrderAnalytics.build_order_analytics
+          :if={@model.status != :empty}
+          scope={@analytics_scope}
+          model={@analytics_model}
+          unavailable={@analytics_unavailable}
+          loading={@analytics_loading}
+        />
 
         <ul :if={@model.diagnostics != []} class="bo-diagnostics" aria-label="Build Order diagnostics">
           <li :for={diagnostic <- @model.diagnostics}>{diagnostic.text}</li>

@@ -14,6 +14,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
   alias AiurWeb.Endpoint
 
   @endpoint Endpoint
+  @telemetry_fixtures Path.expand("../../fixtures/run_telemetry", __DIR__)
 
   defmodule FakeDataSource do
     use GenServer
@@ -811,4 +812,86 @@ defmodule AiurWeb.BuildOrderLiveTest do
 
   defp restore_application_env(key, nil), do: Application.delete_env(:aiur, key)
   defp restore_application_env(key, value), do: Application.put_env(:aiur, key, value)
+
+  test "the Build Order analytics pane renders under the breakdown and names its scope", %{first: first} do
+    put_telemetry_file(@telemetry_fixtures)
+
+    members = [breakdown_member(7, phase: 1, lane: "plan-graph", complexity: 3)]
+    selected = selected_snapshot(first, SelectedRoot.new(root(first, "Root forty-two"), members, health(1, :healthy)), 1, :healthy)
+    install_source(catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy), selected: [selected])
+
+    assert {:ok, view, html} = live(build_conn(), "/build-orders/42")
+
+    assert html =~ "Build Order analytics"
+    # The two surfaces must be unmistakable: this one is build-scoped, /analytics is session-scoped.
+    assert html =~ "this Build Order"
+    assert has_element?(view, ".bo-analytics")
+    # The breakdown it sits under is still there.
+    assert has_element?(view, "section.bo-breakdown")
+  end
+
+  test "a Build Order whose members have never run says so instead of charting zeros", %{first: first} do
+    put_telemetry_file(@telemetry_fixtures)
+
+    # Ticket 7 has no telemetry; the stream itself is perfectly readable.
+    members = [breakdown_member(7, phase: 1, lane: "plan-graph", complexity: 3)]
+    selected = selected_snapshot(first, SelectedRoot.new(root(first, "Root forty-two"), members, health(1, :healthy)), 1, :healthy)
+    install_source(catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy), selected: [selected])
+
+    assert {:ok, view, _html} = live(build_conn(), "/build-orders/42")
+    html = render_async(view)
+
+    assert html =~ "No telemetry for this Build Order yet"
+    # A zeroed KPI strip would read as "this build burned nothing".
+    refute html =~ "CPU burned"
+  end
+
+  test "a Build Order whose members have run aggregates their telemetry across sessions", %{first: first} do
+    put_telemetry_file(@telemetry_fixtures)
+
+    # 930 and 931 are the tickets in the two-session telemetry fixture.
+    members = [
+      breakdown_member(930, phase: 1, lane: "plan-graph", complexity: 3),
+      breakdown_member(931, phase: 2, lane: "dashboard-ui", complexity: 4)
+    ]
+
+    selected = selected_snapshot(first, SelectedRoot.new(root(first, "Root forty-two"), members, health(1, :healthy)), 1, :healthy)
+    install_source(catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy), selected: [selected])
+
+    assert {:ok, view, _html} = live(build_conn(), "/build-orders/42")
+    html = render_async(view)
+
+    assert html =~ "Sessions"
+    assert html =~ "CPU burned"
+    assert html =~ "Member lifecycle"
+    assert html =~ "<svg"
+    refute html =~ "No telemetry for this Build Order yet"
+  end
+
+  test "an unreadable telemetry stream leaves the rest of the Build Order page intact", %{first: first} do
+    put_telemetry_file("/nonexistent/telemetry.ndjson")
+
+    members = [breakdown_member(7, phase: 1, lane: "plan-graph", complexity: 3)]
+    selected = selected_snapshot(first, SelectedRoot.new(root(first, "Root forty-two"), members, health(1, :healthy)), 1, :healthy)
+    install_source(catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy), selected: [selected])
+
+    assert {:ok, view, _html} = live(build_conn(), "/build-orders/42")
+    html = render_async(view)
+
+    assert html =~ "No telemetry for this Build Order yet"
+    assert has_element?(view, "#selected-build-order-graph")
+    assert has_element?(view, "section.bo-breakdown")
+  end
+
+  defp put_telemetry_file(path) do
+    previous = Application.get_env(:aiur, :analytics_telemetry_file)
+    Application.put_env(:aiur, :analytics_telemetry_file, path)
+
+    on_exit(fn ->
+      case previous do
+        nil -> Application.delete_env(:aiur, :analytics_telemetry_file)
+        value -> Application.put_env(:aiur, :analytics_telemetry_file, value)
+      end
+    end)
+  end
 end

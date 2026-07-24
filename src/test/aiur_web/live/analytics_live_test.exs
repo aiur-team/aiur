@@ -70,5 +70,27 @@ defmodule AiurWeb.AnalyticsLiveTest do
   end
 
   defp reset_env(key, nil), do: Application.delete_env(:aiur, key)
+
+  test "names its scope so it cannot be confused with the Build Order pane" do
+    Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
+
+    {:ok, _view, html} = live(build_conn(), "/analytics")
+
+    assert html =~ "this session"
+    assert html =~ "Build Order page"
+  end
+
+  test "charts only the current session, not every session in the durable stream" do
+    # The stream is append-only across daemon boots and is never rotated, so it
+    # holds boot-a and boot-b. The live page is the current run only; ticket 931
+    # ran in the earlier session and must not appear here.
+    Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
+
+    {:ok, _view, html} = live(build_conn(), "/analytics")
+
+    assert html =~ ">#930<"
+    refute html =~ ">#931<"
+  end
+
   defp reset_env(key, value), do: Application.put_env(:aiur, key, value)
 end
