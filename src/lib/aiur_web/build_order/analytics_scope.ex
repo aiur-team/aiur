@@ -95,16 +95,13 @@ defmodule AiurWeb.BuildOrder.AnalyticsScope do
   end
 
   defp member_numbers(members) do
-    Enum.flat_map(members, fn member ->
-      case member.identity do
-        %TrackerIdentity{identifier: identifier} = identity when is_binary(identifier) ->
-          if TrackerIdentity.joinable?(identity), do: [identifier], else: []
-
-        _no_identity ->
-          []
-      end
-    end)
+    Enum.flat_map(members, &member_number/1)
   end
+
+  defp member_number(%{identity: %TrackerIdentity{identifier: identifier} = identity}) when is_binary(identifier),
+    do: if(TrackerIdentity.joinable?(identity), do: [identifier], else: [])
+
+  defp member_number(_member), do: []
 
   defp authority_epoch(route_state) do
     case RouteState.selected_snapshot(route_state) do

@@ -76,13 +76,14 @@ defmodule AiurWeb.BuildOrder.AnalyticsRuntime do
       socket
       |> assign(:bo_analytics_loading?, false)
       |> assign(:bo_analytics_loaded_at, System.monotonic_time(:millisecond))
-      |> then(fn socket ->
-        if socket.assigns.bo_analytics_model, do: socket, else: assign(socket, :bo_analytics_unavailable, :error)
-      end)
+      |> preserve_model_or_mark_unavailable()
     else
       socket
     end
   end
+
+  defp preserve_model_or_mark_unavailable(%{assigns: %{bo_analytics_model: model}} = socket) when not is_nil(model), do: socket
+  defp preserve_model_or_mark_unavailable(socket), do: assign(socket, :bo_analytics_unavailable, :error)
 
   # --- reconciliation ------------------------------------------------------
 
