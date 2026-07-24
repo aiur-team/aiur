@@ -108,13 +108,15 @@ defmodule AiurWeb.OperatorControlCenter.History do
     end
   end
 
-  defp historic?(decision), do: Map.get(decision, :decision_status) in [:decided, :acknowledged, :resolved, :dismissed]
+  defp historic?(decision), do: Map.get(decision, :decision_status) in [:expired, :decided, :acknowledged, :resolved, :dismissed]
 
+  defp decision_status(%{decision_status: :expired}), do: "Expired"
   defp decision_status(%{decision_status: :decided}), do: "Answered"
   defp decision_status(%{decision_status: :acknowledged}), do: "Acknowledged"
   defp decision_status(%{decision_status: :resolved}), do: "Resolved"
   defp decision_status(%{decision_status: :dismissed}), do: "Dismissed"
 
+  defp decision_choice(%{decision_status: :expired}), do: "Expired — agent is no longer running"
   defp decision_choice(%{decision_status: :dismissed}), do: "Dismissed — agent proceeds with best judgement"
   defp decision_choice(%{answer: %{custom_response: response}}) when is_binary(response), do: response
 

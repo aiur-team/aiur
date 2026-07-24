@@ -386,6 +386,21 @@ defmodule Aiur.ApplicationTest do
       end
     end
 
+    test "Decision expiry starts after its durable store and live-agent source" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        mods = modules(AiurApp.child_specs(opts))
+        decision_store = Enum.find_index(mods, &(&1 == Aiur.DecisionStore))
+        orchestrator = Enum.find_index(mods, &(&1 == Aiur.Orchestrator))
+        expiry = Enum.find_index(mods, &(&1 == Aiur.DecisionExpiry))
+
+        assert decision_store < expiry
+        assert orchestrator < expiry
+      end
+    end
+
     test "recent merge persistence starts before the GitHub-polling orchestrator" do
       for opts <- [
             [interactive_cli?: true, headless?: false, dashboard?: true],

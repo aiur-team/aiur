@@ -108,8 +108,6 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
     """
   end
 
-  defp banner_title(1, _open), do: "1 unit awaiting commands"
-  defp banner_title(blocking, _open) when blocking > 1, do: "#{blocking} units awaiting commands"
   defp banner_title(_blocking, 1), do: "1 unit awaiting commands"
   defp banner_title(_blocking, open), do: "#{open} units awaiting commands"
 
