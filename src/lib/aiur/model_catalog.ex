@@ -18,8 +18,8 @@ defmodule Aiur.ModelCatalog do
   alias Aiur.AppServer.Messages
   alias Aiur.AppServer.Rpc
   alias Aiur.Claude.Config, as: ClaudeConfig
-  alias Aiur.CodingAgent
   alias Aiur.Codex.Config, as: CodexConfig
+  alias Aiur.CodingAgent
 
   # Distinct from `Messages.initialize_id/0` so the initialize reply is never
   # mistaken for the model list.
