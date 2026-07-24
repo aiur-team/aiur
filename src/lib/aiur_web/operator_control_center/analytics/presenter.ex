@@ -36,7 +36,6 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
     case Dataset.build(file) do
       {:ok, dataset} -> {:ok, model(dataset, runtime_opts(opts))}
       {:error, {:no_telemetry_files, _paths}} -> {:unavailable, :no_telemetry}
-      {:error, _reason} -> {:unavailable, :error}
     end
   rescue
     _error -> {:unavailable, :error}
