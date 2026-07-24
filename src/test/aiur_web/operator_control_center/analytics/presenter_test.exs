@@ -123,4 +123,56 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.PresenterTest do
     assert full.window.start_ms <= run.window.start_ms
     assert full.window.end_ms >= run.window.end_ms
   end
+
+  test "an hours range narrows to the recent tail of the run" do
+    run = model()
+    tail = model(range: 0.05)
+    assert tail.available? == true
+    assert tail.window.end_ms - tail.window.start_ms <= run.window.end_ms - run.window.start_ms
+  end
+
+  test "falls back to the agent sample window when no ticket intervals exist" do
+    dataset = %{
+      actors: %{
+        "ticket:9" => %{
+          samples: [sample("ticket:9", "agent", @t0 + 60_000, 40.0, 1_000_000), sample("ticket:9", "agent", @t0 + 120_000, 40.0, 1_000_000)],
+          profile: profile(40.0, 50.0, 1_000_000, 2)
+        }
+      },
+      tickets: %{},
+      provenance: %{time_range: %{start: iso(@t0 - 600_000), end: iso(@t0 + 1_800_000)}}
+    }
+
+    m = Presenter.model(dataset, cap: 2, cores: 2, host_mem_bytes: 1_000_000_000, buckets: 10)
+    assert m.available? == true
+    assert m.window.start_ms <= @t0 + 60_000
+    assert m.kpis.total == 0
+  end
+
+  test "folds an operator baseline, marks paused tickets, and survives a missing provenance window" do
+    dataset = %{
+      actors: %{
+        "_operator" => %{samples: [sample("_operator", "operator", @t0 + 60_000, 15.0, 500_000)], profile: profile(15.0, 20.0, 500_000, 1)},
+        "ticket:7" => %{
+          samples: [sample("ticket:7", "agent", @t0 + 60_000, 40.0, 1_000_000), sample("ticket:7", "agent", @t0 + 120_000, 45.0, 1_100_000)],
+          profile: profile(42.0, 60.0, 1_100_000, 2)
+        }
+      },
+      tickets: %{
+        "7" => %{
+          intervals: [
+            %{phase: "dispatch", status: "point", start_ms: @t0, end_ms: nil},
+            %{phase: "implement", status: "measured", start_ms: @t0 + 60_000, end_ms: @t0 + 120_000},
+            %{phase: "agent_pause", status: "point", start_ms: @t0 + 130_000, end_ms: nil}
+          ]
+        }
+      },
+      provenance: %{}
+    }
+
+    m = Presenter.model(dataset, cap: 3, cores: 3, host_mem_bytes: 1_000_000_000, buckets: 8)
+    assert m.available? == true
+    assert Map.new(m.tickets, &{&1.id, &1})["7"].status == :paused
+    assert Enum.any?(m.series, &(&1.exec_cpu > 0))
+  end
 end
