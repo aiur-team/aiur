@@ -73,11 +73,9 @@ defmodule Aiur.DecisionExpiry do
   end
 
   defp fetch_active_identifiers do
-    try do
-      {:ok, GenServer.call(Aiur.Orchestrator, :list_active_identifiers, @orchestrator_timeout)}
-    catch
-      :exit, reason -> {:error, {:orchestrator_unavailable, reason}}
-    end
+    {:ok, GenServer.call(Aiur.Orchestrator, :list_active_identifiers, @orchestrator_timeout)}
+  catch
+    :exit, reason -> {:error, {:orchestrator_unavailable, reason}}
   end
 
   defp decisions(opts) do
@@ -88,11 +86,9 @@ defmodule Aiur.DecisionExpiry do
   end
 
   defp fetch_decisions do
-    try do
-      {:ok, DecisionStore.list()}
-    catch
-      :exit, reason -> {:error, {:decision_store_unavailable, reason}}
-    end
+    {:ok, DecisionStore.list()}
+  catch
+    :exit, reason -> {:error, {:decision_store_unavailable, reason}}
   end
 
   defp expired_candidate?(decision, active, now, grace_seconds) do
