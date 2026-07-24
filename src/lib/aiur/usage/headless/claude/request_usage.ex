@@ -132,8 +132,9 @@ defmodule Aiur.Usage.Headless.Claude.RequestUsage do
   defp cache_write_duration(five_minutes, one_hour) when five_minutes in [nil, 0] and one_hour in [nil, 0],
     do: :not_applicable
 
-  # One envelope cannot partition cache writes across both TTL prices. Preserve
-  # the tokens with an unknown duration rather than selecting either price.
+  # One envelope cannot partition cache writes across both TTL prices. Leave
+  # the duration unknown so the adapter emits bounded coverage rather than
+  # selecting either price.
   defp cache_write_duration(_five_minutes, _one_hour), do: nil
 
   defp usage_map(payload) do

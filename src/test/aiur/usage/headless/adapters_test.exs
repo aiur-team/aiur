@@ -163,6 +163,28 @@ defmodule Aiur.Usage.Headless.AdaptersTest do
       assert_partition_round_trip(envelope, :cache_write_duration, :one_hour)
     end
 
+    test "rejects mixed cache-write TTLs as an ambiguous observation" do
+      payload = %{
+        "method" => "turn/completed",
+        "params" => %{
+          "usage" => %{
+            "cache_creation" => %{
+              "ephemeral_5m_input_tokens" => 10,
+              "ephemeral_1h_input_tokens" => 20
+            }
+          }
+        }
+      }
+
+      assert [
+               {:coverage,
+                %{
+                  class: :ambiguous_measurement_semantics,
+                  field: :cache_write_duration
+                }}
+             ] = RequestUsage.extract(payload, Jason.encode!(payload), claude_context(), @ingested_at)
+    end
+
     test "missing cache dimensions stay nil and mark partial coverage rather than zero" do
       payload = %{"method" => "turn/completed", "params" => %{"usage" => %{"input_tokens" => 100, "output_tokens" => 10}}}
       raw = Jason.encode!(payload)
