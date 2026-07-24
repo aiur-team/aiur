@@ -4335,15 +4335,25 @@ defmodule AiurWeb.DashboardLiveTest do
     metrics = restart.()
 
     on_exit(fn ->
-      case GenServer.whereis(name) do
-        nil -> :ok
-        pid -> GenServer.stop(pid)
-      end
-
+      stop_registered_metrics(name)
       File.rm_rf!(dir)
     end)
 
     {metrics, restart}
+  end
+
+  # This helper exists for tests that deliberately replace the same-name
+  # DecisionMetrics process, so the pid resolved by whereis/1 can already be
+  # terminating by the time stop/1 runs. The desired end state — no process
+  # registered under this name — is what the teardown wants, so an exit here is
+  # success, not a failure of the test that already passed its assertions.
+  defp stop_registered_metrics(name) do
+    case GenServer.whereis(name) do
+      nil -> :ok
+      pid -> GenServer.stop(pid)
+    end
+  catch
+    :exit, _reason -> :ok
   end
 
   defp start_recent_merge_store(name) do
