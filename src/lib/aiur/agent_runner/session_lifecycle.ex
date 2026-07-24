@@ -956,8 +956,9 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   # for the backend default — either would hide the real problem. Instead the
   # Executor gets one attention naming both remediations: let `aiur init`
   # discover the new tag, or repoint a retired pin at a generic family tag.
+  @doc false
   @spec maybe_alert_unsupported_model(Issue.t(), Path.t() | nil, worker_host(), String.t(), String.t() | nil) :: :ok
-  defp maybe_alert_unsupported_model(issue, workspace, worker_host, backend, model) when is_binary(model) do
+  def maybe_alert_unsupported_model(issue, workspace, worker_host, backend, model) when is_binary(model) do
     if CodingAgent.known_model?(backend, model) do
       :ok
     else
@@ -977,7 +978,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     end
   end
 
-  defp maybe_alert_unsupported_model(_issue, _workspace, _worker_host, _backend, _model), do: :ok
+  def maybe_alert_unsupported_model(_issue, _workspace, _worker_host, _backend, _model), do: :ok
 
   defp unsupported_model_reason(backend, model) do
     generic = List.first(CodingAgent.model_aliases(backend)) || List.first(CodingAgent.seedable_models(backend))

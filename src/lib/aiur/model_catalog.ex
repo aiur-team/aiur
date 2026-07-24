@@ -93,7 +93,13 @@ defmodule Aiur.ModelCatalog do
   @spec probe_app_server(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   defp probe_app_server(family, opts) do
     with {:ok, executable, args} <- resolve_command(family) do
-      port = Port.open({:spawn_executable, executable}, [:binary, :exit_status, :hide, {:line, @port_line_bytes}, args: args])
+      # `stderr_to_stdout` keeps an app-server's own diagnostics out of the
+      # wizard's terminal — they arrive as non-JSON lines and are skipped.
+      port =
+        Port.open(
+          {:spawn_executable, executable},
+          [:binary, :exit_status, :stderr_to_stdout, {:line, @port_line_bytes}, args: args]
+        )
 
       try do
         Rpc.send_line(port, Messages.initialize_frame())
@@ -119,8 +125,8 @@ defmodule Aiur.ModelCatalog do
     receive do
       {^port, {:data, {:eol, chunk}}} ->
         case decode_model_list(buffered <> chunk) do
-          {:ok, result} -> {:ok, result}
           :skip -> await_model_list(port, deadline, "")
+          resolved -> resolved
         end
 
       {^port, {:data, {:noeol, chunk}}} ->
@@ -134,13 +140,14 @@ defmodule Aiur.ModelCatalog do
   end
 
   # Only the matching response id resolves the probe. Anything else on the
-  # stream — the initialize reply, notifications, a non-JSON banner line —
-  # is skipped rather than treated as an answer.
+  # stream — the initialize reply, notifications, a stderr banner line — is
+  # skipped rather than treated as an answer. A JSON-RPC error under our own
+  # id ends the probe immediately: a backend whose app-server does not serve
+  # `model/list` must not cost the wizard the full timeout.
   defp decode_model_list(line) do
-    with {:ok, %{"id" => @model_list_id} = message} <- Jason.decode(line),
-         %{"result" => result} when is_map(result) <- message do
-      {:ok, result}
-    else
+    case Jason.decode(line) do
+      {:ok, %{"id" => @model_list_id, "result" => result}} when is_map(result) -> {:ok, result}
+      {:ok, %{"id" => @model_list_id, "error" => error}} -> {:error, {:model_list_error, error}}
       _other -> :skip
     end
   end
@@ -149,11 +156,23 @@ defmodule Aiur.ModelCatalog do
     System.monotonic_time(:millisecond) + Keyword.get(opts, :timeout_ms, @probe_timeout_ms)
   end
 
+  # Closing the port EOFs the app-server's stdin, which is how both CLIs exit.
+  # Lines that had already been queued stay in the caller's mailbox, so they are
+  # drained too — otherwise a probe from a long-lived process would leak port
+  # messages into its `handle_info`.
   defp close_port(port) do
     if Port.info(port), do: Port.close(port)
-    :ok
+    flush_port(port)
   rescue
-    ArgumentError -> :ok
+    ArgumentError -> flush_port(port)
+  end
+
+  defp flush_port(port) do
+    receive do
+      {^port, _payload} -> flush_port(port)
+    after
+      0 -> :ok
+    end
   end
 
   defp resolve_command(family) do

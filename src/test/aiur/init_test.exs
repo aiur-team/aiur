@@ -163,6 +163,9 @@ defmodule Aiur.InitTest do
         check_agent_auth: fn _kind -> :ok end,
         install_claude_app_server: fn -> :ok end,
         claude_version: fn -> {:ok, "1.1.0"} end,
+        # No installed CLI to ask in the wizard tests; discovery degrading to an
+        # error is the offline path, and init must finish through it.
+        discover_models: fn _backend -> {:error, :offline} end,
         repo_root: fn -> dir end,
         github_login: fn -> "octocat" end,
         github_bot_account_default: fn -> nil end,

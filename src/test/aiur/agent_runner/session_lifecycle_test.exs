@@ -40,6 +40,72 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
     end
   end
 
+  describe "model resolution in resolve_session_options/3" do
+    test "a generic codex tag reaches the backend as the newest version in that family" do
+      issue = %Issue{id: "issue-alias", identifier: "ALIAS", selected_backend: "codex", labels: ["model:codex-sol"]}
+
+      {"codex", false, session_opts} = SessionLifecycle.resolve_session_options(issue, [], nil)
+
+      model = Keyword.fetch!(session_opts, :model)
+      refute model == "sol"
+      assert model == Aiur.CodingAgent.resolve_model("codex", "sol")
+    end
+
+    test "an explicitly pinned codex tag still pins that exact version" do
+      issue = %Issue{id: "issue-pin", identifier: "PIN", selected_backend: "codex", labels: ["model:codex-gpt-5.4"]}
+
+      {"codex", false, session_opts} = SessionLifecycle.resolve_session_options(issue, [], nil)
+
+      assert Keyword.fetch!(session_opts, :model) == "gpt-5.4"
+    end
+
+    test "a claude alias is handed over untouched so the claude CLI resolves it" do
+      issue = %Issue{id: "issue-native", identifier: "NATIVE", selected_backend: "claude", labels: ["model:claude-opus"]}
+
+      {"claude", false, session_opts} = SessionLifecycle.resolve_session_options(issue, [], nil)
+
+      assert Keyword.fetch!(session_opts, :model) == "opus"
+    end
+
+    test "a model aiur doesn't know is passed through, never swapped for a different one" do
+      # Silently substituting the backend default would hide a retired pin and
+      # run work on a model nobody asked for.
+      issue = %Issue{id: "issue-unknown", identifier: "UNKNOWN", selected_backend: "codex", labels: ["model:codex-gpt-9.9-nova"]}
+
+      {"codex", false, session_opts} = SessionLifecycle.resolve_session_options(issue, [], nil)
+
+      assert Keyword.fetch!(session_opts, :model) == "gpt-9.9-nova"
+    end
+  end
+
+  describe "maybe_alert_unsupported_model/5" do
+    test "an unknown model warns with both remediations named" do
+      issue = %Issue{id: "issue-unsupported", identifier: "UNSUPPORTED"}
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert :ok = SessionLifecycle.maybe_alert_unsupported_model(issue, "/ws", nil, "codex", "gpt-9.9-nova")
+        end)
+
+      assert log =~ "gpt-9.9-nova"
+      # The operator has to be able to act on this without reading the source:
+      # either let init add the new tag, or move off a retired pin.
+      assert log =~ "aiur init"
+      assert log =~ "agent.routing"
+      assert log =~ "passed to the backend"
+    end
+
+    test "a known model and an unpinned model stay silent" do
+      issue = %Issue{id: "issue-known", identifier: "KNOWN"}
+
+      assert ExUnit.CaptureLog.capture_log(fn ->
+               assert :ok = SessionLifecycle.maybe_alert_unsupported_model(issue, "/ws", nil, "codex", "sol")
+               assert :ok = SessionLifecycle.maybe_alert_unsupported_model(issue, "/ws", nil, "codex", "gpt-5.4")
+               assert :ok = SessionLifecycle.maybe_alert_unsupported_model(issue, "/ws", nil, "codex", nil)
+             end) == ""
+    end
+  end
+
   describe "should_display_tail?/3" do
     test "is true only for RC claude-repl sessions with an identifier" do
       assert SessionLifecycle.should_display_tail?("claude-repl", true, "101")
