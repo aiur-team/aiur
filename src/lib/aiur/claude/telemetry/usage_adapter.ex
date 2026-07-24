@@ -109,6 +109,8 @@ defmodule Aiur.Claude.Telemetry.UsageAdapter do
       effort: attributes["effort"],
       requested_model: nil,
       resolved_model: attributes["model"],
+      context_tier: :not_applicable,
+      cache_write_duration: cache_write_duration(attributes["cache_creation_tokens"]),
       account_generation: %{
         provider: :claude,
         backend: :remote_control,
@@ -146,6 +148,9 @@ defmodule Aiur.Claude.Telemetry.UsageAdapter do
       coverage: :full
     }
   end
+
+  defp cache_write_duration(tokens) when is_integer(tokens) and tokens > 0, do: :five_minutes
+  defp cache_write_duration(_tokens), do: :not_applicable
 
   defp optional_coverage(normalized) do
     Enum.flat_map(@optional_fields, fn {field, source_key} ->

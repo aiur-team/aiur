@@ -5,6 +5,7 @@ defmodule Aiur.Usage.Headless.AdaptersTest do
   alias Aiur.Usage.Headless.{Catalog, Compatibility, Context, Normalizer}
   alias Aiur.Usage.Headless.Claude.RequestUsage
   alias Aiur.Usage.Headless.Codex.{ThreadUsage, TurnUsage}
+  alias Aiur.UsageAggregate.Key
   alias Aiur.UsageEnvelope.RelationshipRegistry
 
   @ingested_at ~U[2026-07-17 12:00:02Z]
@@ -23,6 +24,8 @@ defmodule Aiur.Usage.Headless.AdaptersTest do
       assert envelope.counter_scope == :thread
       assert envelope.update_kind == :full
       assert envelope.relationship_revision == "codex-thread-usage-2026-07"
+      assert envelope.context_tier == :short_context
+      assert envelope.cache_write_duration == :not_applicable
 
       assert envelope.tokens == %{
                input: 1200,
@@ -39,6 +42,8 @@ defmodule Aiur.Usage.Headless.AdaptersTest do
 
       assert {:ok, %{canonical_total: 1500, input_total: 1200, output_total: 300, status: :authoritative, coverage: :full}} =
                UsageEnvelope.reconcile(envelope, Catalog.relationship_catalog())
+
+      assert_partition_round_trip(envelope, :context_tier, :short_context)
     end
   end
 
@@ -73,6 +78,33 @@ defmodule Aiur.Usage.Headless.AdaptersTest do
       assert delta.counter_scope == :turn
       assert delta.tokens.input == 210
       assert delta.tokens.provider_reported_total == 300
+      assert delta.context_tier == :short_context
+    end
+
+    test "uses the request input threshold for the long-context partition" do
+      {payload, raw} = fixture("codex-app-server-2026-07-token-count.json")
+
+      payload =
+        payload
+        |> put_in(["params", "msg", "info", "last_token_usage", "input_tokens"], 272_001)
+        |> put_in(["params", "msg", "info", "total_token_usage", "input_tokens"], 273_001)
+
+      assert [{:ok, envelope}] = ThreadUsage.extract(payload, raw, context(), @ingested_at)
+      assert envelope.context_tier == :long_context
+      assert_partition_round_trip(envelope, :context_tier, :long_context)
+    end
+
+    test "rejects a codex observation whose request input tier is unavailable" do
+      {payload, raw} = fixture("codex-app-server-2026-07-token-count.json")
+      payload = update_in(payload, ["params", "msg", "info"], &Map.delete(&1, "last_token_usage"))
+
+      assert [
+               {:coverage,
+                %{
+                  class: :ambiguous_measurement_semantics,
+                  field: :context_tier
+                }}
+             ] = ThreadUsage.extract(payload, raw, context(), @ingested_at)
     end
   end
 
@@ -85,6 +117,8 @@ defmodule Aiur.Usage.Headless.AdaptersTest do
       assert envelope.provider == :claude
       assert envelope.source == "claude.app_server.turn_completion"
       assert envelope.measurement_kind == :delta
+      assert envelope.context_tier == :not_applicable
+      assert envelope.cache_write_duration == :five_minutes
 
       assert envelope.tokens == %{
                input: 100,
@@ -102,6 +136,53 @@ defmodule Aiur.Usage.Headless.AdaptersTest do
 
       assert {:ok, %{canonical_total: 160, input_total: 150, output_total: 10, status: :derived, coverage: :full}} =
                UsageEnvelope.reconcile(envelope, Catalog.relationship_catalog())
+
+      assert_partition_round_trip(envelope, :cache_write_duration, :five_minutes)
+    end
+
+    test "retains a one-hour cache creation bucket" do
+      payload = %{
+        "method" => "turn/completed",
+        "params" => %{
+          "usage" => %{
+            "input_tokens" => 100,
+            "cache_creation" => %{
+              "ephemeral_5m_input_tokens" => 0,
+              "ephemeral_1h_input_tokens" => 20
+            },
+            "output_tokens" => 10
+          }
+        }
+      }
+
+      assert [{:ok, envelope}] =
+               RequestUsage.extract(payload, Jason.encode!(payload), claude_context(), @ingested_at)
+
+      assert envelope.tokens.cache_creation_input == 20
+      assert envelope.cache_write_duration == :one_hour
+      assert_partition_round_trip(envelope, :cache_write_duration, :one_hour)
+    end
+
+    test "rejects mixed cache-write TTLs as an ambiguous observation" do
+      payload = %{
+        "method" => "turn/completed",
+        "params" => %{
+          "usage" => %{
+            "cache_creation" => %{
+              "ephemeral_5m_input_tokens" => 10,
+              "ephemeral_1h_input_tokens" => 20
+            }
+          }
+        }
+      }
+
+      assert [
+               {:coverage,
+                %{
+                  class: :ambiguous_measurement_semantics,
+                  field: :cache_write_duration
+                }}
+             ] = RequestUsage.extract(payload, Jason.encode!(payload), claude_context(), @ingested_at)
     end
 
     test "missing cache dimensions stay nil and mark partial coverage rather than zero" do
@@ -113,6 +194,8 @@ defmodule Aiur.Usage.Headless.AdaptersTest do
       assert envelope.tokens.cached_input == nil
       assert envelope.tokens.cache_creation_input == nil
       refute envelope.tokens.cached_input == 0
+      assert envelope.context_tier == :not_applicable
+      assert envelope.cache_write_duration == :not_applicable
       assert :partial_update in envelope.coverage_reasons
       assert envelope.cost == nil
     end
@@ -233,6 +316,15 @@ defmodule Aiur.Usage.Headless.AdaptersTest do
   defp fixture(name) do
     raw = @fixtures |> Path.join(name) |> File.read!()
     {Jason.decode!(raw), raw}
+  end
+
+  defp assert_partition_round_trip(envelope, field, expected) do
+    dims = Key.dims(envelope)
+    assert dims[field] == expected
+
+    cell = {{dims, {:token, :input}}, envelope.tokens.input}
+    assert {:ok, {{decoded_dims, {:token, :input}}, _value}} = cell |> Key.encode_cell() |> Key.decode_cell()
+    assert decoded_dims[field] == expected
   end
 
   defp context(overrides \\ []) do

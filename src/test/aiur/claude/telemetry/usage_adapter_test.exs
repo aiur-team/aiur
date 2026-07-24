@@ -27,6 +27,8 @@ defmodule Aiur.Claude.Telemetry.UsageAdapterTest do
     assert envelope.effort == "high"
     assert envelope.requested_model == nil
     assert envelope.resolved_model == "claude-sonnet-4-6"
+    assert envelope.context_tier == :not_applicable
+    assert envelope.cache_write_duration == :five_minutes
     assert envelope.attribution.run_id == "run-1116"
     assert envelope.attribution.tracker_identity == tracker_identity()
     assert envelope.attribution.attempt_id == "attempt-1"
@@ -129,6 +131,7 @@ defmodule Aiur.Claude.Telemetry.UsageAdapterTest do
            ]
 
     assert Enum.all?(coverage, &(&1.class == :optional_field_absent))
+    assert envelope.cache_write_duration == :not_applicable
   end
 
   test "fails closed with bounded coverage for unsupported contracts and identity gaps" do
