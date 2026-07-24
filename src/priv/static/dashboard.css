@@ -173,7 +173,11 @@ textarea:focus-visible,
 .app-shell {
   max-width: 1440px;
   margin-inline: auto;
-  padding: 1rem 1.15rem;
+  /* Block padding is a fixed 16px (not rem) so the sticky sidebar's resting
+     offset and its sticky `top` stay in lockstep even while a root font-size
+     change is mid-reflow; a rem here lets the two diverge transiently. Page zoom
+     still scales px, so real zoom behaviour is unchanged. */
+  padding: 16px 1.15rem;
 }
 
 .dashboard-shell {
@@ -3675,6 +3679,20 @@ html[data-theme="light"] .toggle-icon .moon {
   background: color-mix(in srgb, var(--attention) 10%, var(--surface));
 }
 
+/* The alert/blocked row tints warm and lighten the cell background, which drops
+   faint pill text below WCAG AA 4.5:1 on those rows only. Nudge the affected
+   pill colours toward --fg (theme-safe) so contrast holds over the tint without
+   changing the palette on ordinary rows. */
+.units-row.has-alert .u-model,
+.units-row.is-blocked .u-model {
+  color: color-mix(in srgb, var(--fg) 35%, var(--muted));
+}
+
+.units-row.has-alert .u-prio.is-med,
+.units-row.is-blocked .u-prio.is-med {
+  color: color-mix(in srgb, var(--fg) 30%, #d98f5b);
+}
+
 .units-identity {
   display: flex;
   align-items: flex-start;
@@ -3787,6 +3805,7 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .units-icon-action {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -3800,6 +3819,20 @@ html[data-theme="light"] .toggle-icon .moon {
   background: var(--pill-bg);
   color: var(--muted);
   cursor: pointer;
+}
+
+/* Keep the visible icon compact (2.2rem) but expand the pointer/tap target to
+   the 44px accessibility minimum via a transparent centered overlay. */
+.units-icon-action::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  transform: translate(-50%, -50%);
 }
 
 /* Keep the pause/resume control square — it would otherwise inherit the taller
@@ -4873,7 +4906,9 @@ html[data-theme="light"] .toggle-icon .moon {
 
   .shell-sidebar {
     position: sticky;
-    top: 1rem;
+    /* Match .app-shell's fixed 16px block padding so the sticky offset equals
+       the resting offset regardless of root-font-size reflow timing. */
+    top: 16px;
   }
 }
 
@@ -6448,6 +6483,7 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .bo-grid-zbtn {
+  position: relative;
   min-width: 2rem;
   height: 2rem;
   padding: 0 0.6rem;
@@ -6458,6 +6494,21 @@ html[data-theme="light"] .toggle-icon .moon {
   font: inherit;
   font-size: 0.82rem;
   cursor: pointer;
+}
+
+/* Keep the compact 32px zoom chrome but guarantee a 44px pointer target with a
+   transparent centered overlay (same pattern as .units-icon-action) so touch
+   input never falls below the WCAG target size on narrow viewports. */
+.bo-grid-zbtn::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  transform: translate(-50%, -50%);
 }
 
 .bo-grid-zbtn:hover:not(:disabled) {
@@ -6666,7 +6717,9 @@ html[data-theme="light"] .toggle-icon .moon {
 .bo-node.is-merged {
   border-color: var(--line);
   background: var(--surface-3);
-  color: var(--faint);
+  /* --muted (not --faint) keeps the "done/dim" read while clearing WCAG AA
+     4.5:1 against --surface-3 (--faint is only 4.27:1 on this brighter fill). */
+  color: var(--muted);
 }
 
 .bo-node.is-blocked {
@@ -6834,7 +6887,13 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .bo-node.is-merged .bo-node-pct {
-  color: var(--faint);
+  color: var(--muted);
+}
+
+/* On the brighter merged fill (--surface-3), keep the small meta text at
+   --muted so it clears WCAG AA 4.5:1; --faint reads at only 4.27:1 there. */
+.bo-node.is-merged .bo-node-cx {
+  color: var(--muted);
 }
 
 .bo-node-word {

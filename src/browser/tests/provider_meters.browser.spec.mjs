@@ -35,7 +35,13 @@ test('Provider meters expose semantic meters, machine-readable resets, and stay 
       // window and the unknown Claude account carry no implied value.
       await expect(codex.getByRole('progressbar', { name: 'Primary usage' })).toHaveAttribute('aria-valuenow', '40')
       await expect(codex).toContainText('Not supported')
-      await expect(claude).toContainText('Account identity unknown')
+      // The unknown Claude account reports an unknown auth mode and omits the
+      // account-generation identity entirely rather than implying a value.
+      const claudeAuthMode = claude
+        .locator('.provider-meter-identity > div')
+        .filter({ has: page.locator('dt', { hasText: 'Auth mode' }) })
+      await expect(claudeAuthMode.locator('dd')).toHaveText('Unknown')
+      await expect(claude.locator('dt', { hasText: 'Account generation' })).toHaveCount(0)
       await expect(claude.getByRole('progressbar')).toHaveCount(0)
 
       // Reset time is machine-readable and human-visible. Scope to the Resets

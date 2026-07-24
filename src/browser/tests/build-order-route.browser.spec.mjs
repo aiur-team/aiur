@@ -3,7 +3,14 @@ import { expect, test } from '@playwright/test'
 import { assertNoDocumentOverflow } from './support/browser-helpers.mjs'
 import { dashboardCredentials } from './support/layout-worker.mjs'
 
-const layoutClientPath = /^\/vendor\/layout\/client-v1\/[a-f0-9]{64}\/aiur-layout-client\.js$/
+// The Build Order route renders a synchronous CSS-grid graph (epic columns ×
+// execution-wave rows of ticket cards) drawn by the `BuildOrderGrid` client
+// hook. There is no layout worker, no ELK geometry round-trip, and no
+// `data-layout-*` health state: the semantic cards are always in document flow,
+// and the hook only measures rendered card boxes to route dependency edges and
+// owns zoom/pan/fit. These specs assert the route's catalog, selected-graph
+// truth, ticket-context navigation, URL history, and access control against
+// that rendered contract.
 
 async function openCatalog(page) {
   const stylesheet = page.waitForResponse((response) => new URL(response.url()).pathname === '/dashboard.css')
@@ -15,36 +22,26 @@ async function openCatalog(page) {
 }
 
 async function openCatalogEntry(page, title) {
-  const entry = page.locator('.bo-catalog-entry', { hasText: title })
-  await entry.getByRole('link', { name: 'Open graph' }).click()
+  await page.locator('.bo-catalog-link', { hasText: title }).click()
 }
 
-async function interceptProductionLayoutClient(context, source) {
-  const requests = []
-
-  await context.route('**/vendor/layout/client-v1/*/aiur-layout-client.js', async (route) => {
-    const pathname = new URL(route.request().url()).pathname
-
-    if (!layoutClientPath.test(pathname)) return route.continue()
-
-    requests.push(pathname)
-    await route.fulfill({ status: 200, contentType: 'application/javascript', body: source })
-  })
-
-  return requests
+async function openSelectedGraph(page, title) {
+  await openCatalogEntry(page, title)
+  const graph = page.locator('#selected-build-order-graph')
+  await expect(graph.locator('[data-bo-card]').first()).toBeVisible()
+  return graph
 }
 
 test('production dependency context relationships remain clickable', async ({ page }) => {
   await page.context().setHTTPCredentials(dashboardCredentials)
   await openCatalog(page)
-  await openCatalogEntry(page, 'Release dashboard')
+  const graph = await openSelectedGraph(page, 'Release dashboard')
 
-  const graph = page.locator('#selected-build-order-graph')
-  const target = graph.locator('.bo-layout-card', { hasText: 'Readiness target' })
-  await target.getByRole('button', { name: /Open cached context/ }).click()
+  await graph.locator('.bo-node', { hasText: 'Readiness target' }).click()
 
   const dialog = page.getByRole('dialog', { name: 'Readiness target' })
-  const dependency = dialog.getByRole('button', { name: 'Completed dependency' })
+  await expect(dialog).toBeVisible()
+  const dependency = dialog.getByRole('button', { name: 'Completed dependency', exact: true })
   await expect(dependency).toBeVisible()
   await dependency.click()
   await expect(page.getByRole('dialog', { name: 'Completed dependency' })).toBeVisible()
@@ -61,78 +58,93 @@ test('production Build Order route keeps catalog, graph truth, context, and URL 
   try {
     await openCatalog(page)
 
-    await expect(page.getByRole('heading', { name: 'Build Order catalog' })).toBeVisible()
-    await expect(page.locator('.bo-catalog-entry')).toHaveCount(3)
-    await expect(page.locator('.bo-catalog-entry', { hasText: 'Unqualified root' })).toContainText('Invalid entry')
-    await expect(page.getByRole('link', { name: 'Open graph' })).toHaveCount(2)
+    // The catalog is a table: every healthy root is a navigable link, an
+    // unqualified root stays visible but is not linkable.
+    await expect(page.locator('.bo-catalog-table tbody tr')).toHaveCount(3)
+    await expect(page.locator('.bo-catalog-link')).toHaveCount(2)
+    await expect(page.locator('.bo-catalog-invalid', { hasText: 'Untitled Build Order' })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Release dashboard' })).toHaveAttribute('href', '/build-orders/42')
 
-    await openCatalogEntry(page, 'Release dashboard')
+    const graph = await openSelectedGraph(page, 'Release dashboard')
     await expect(page).toHaveURL(/\/build-orders\/42$/)
     await expect(page.locator('#build-order-page')).toHaveAttribute('data-build-order-status', 'selected')
     await expect(page.getByRole('heading', { name: 'Release dashboard' })).toBeVisible()
 
-    const graph = page.locator('#selected-build-order-graph')
-    await expect(graph.locator('[data-layout-node]')).toHaveCount(7)
-    await expect(graph).toHaveAttribute('data-layout-root-id', '42')
-    await expect(graph).toHaveAttribute('data-layout-provider-generation', '7')
-    await expect(graph.getByRole('heading', { name: 'Dependency summary' })).toBeVisible()
+    // Every planning member renders as a semantic card in document flow.
+    await expect(graph.locator('[data-bo-card]')).toHaveCount(7)
+    await expect(graph).toHaveAttribute('data-bo-grid-key', '42:7')
 
-    for (const state of ['cleared', 'blocking', 'terminal_unsatisfied', 'unknown', 'cyclic']) {
-      await expect(graph.locator(`[data-layout-edge-state="${state}"]`).first()).toBeVisible()
+    // The dependency summary reports the graph truth (Phase renamed to Wave).
+    const summaryPair = (label) => page.locator('.bo-summary-grid div', { has: page.locator('dt', { hasText: label }) }).locator('dd')
+    await expect(summaryPair('Members')).toHaveText('7')
+    await expect(summaryPair('External')).toHaveText('1')
+    await expect(summaryPair('Waves')).toHaveText('1')
+
+    // Runtime dependency edges carry both cleared and blocking states, and the
+    // epic columns / execution waves are labelled.
+    for (const state of ['cleared', 'blocking']) {
+      await expect(graph.locator(`[data-bo-edge-state="${state}"]`).first()).toBeVisible()
     }
+    await expect(graph.locator('.bo-epic-label', { hasText: 'Dashboard UI' })).toBeVisible()
+    await expect(graph.locator('.bo-wave-n', { hasText: 'W1' })).toBeVisible()
 
-    await expect(graph.getByText('External reference').first()).toBeVisible()
-    await expect(graph.getByText('Dependency is outside the configured repository.').first()).toBeVisible()
-    await expect(graph.locator('.bo-layout-card', { hasText: 'Readiness target' }).locator('.bo-layout-card-meta-line')).toContainText('Review')
-    await expect(graph.locator('.bo-layout-card', { hasText: 'Readiness target' }).getByText('60%', { exact: true })).toBeVisible()
-    await expect(graph.getByRole('region', { name: 'Lane 6' }).locator('.bo-layout-card', { hasText: 'Unknown dependency' })).toBeVisible()
+    // The readiness target card exposes its progress and status word.
+    const target = graph.locator('.bo-node', { hasText: 'Readiness target' })
+    await expect(target).toHaveAttribute('data-bo-state', 'plain')
+    await expect(target.locator('.bo-node-pct')).toHaveText('60%')
 
-    const target = graph.locator('.bo-layout-card', { hasText: 'Readiness target' })
-    const contextTrigger = target.getByRole('button', { name: /Open cached context/ })
-    await contextTrigger.focus()
+    // Enter on a focused, openable card opens its ticket context dialog.
+    await target.focus()
     await page.keyboard.press('Enter')
 
     const dialog = page.getByRole('dialog', { name: 'Readiness target' })
     await expect(dialog).toBeVisible()
     await expect(dialog.getByRole('heading', { name: 'Readiness target' })).toBeFocused()
     await expect(dialog.getByRole('heading', { name: 'Blocked by' })).toBeVisible()
-    await expect(dialog.getByRole('link', { name: 'Open in GitHub' })).toHaveAttribute('href', 'https://github.com/owner/repo/issues/5')
+    await expect(dialog.getByRole('link', { name: /Open in GitHub/ })).toHaveAttribute('href', 'https://github.com/owner/repo/issues/5')
 
-    await dialog.getByRole('button', { name: 'Completed dependency' }).click()
+    // Following a relationship replaces the dialog subject; Back restores it.
+    await dialog.getByRole('button', { name: 'Completed dependency', exact: true }).click()
     const replacement = page.getByRole('dialog', { name: 'Completed dependency' })
     await expect(replacement).toBeVisible()
     await replacement.getByRole('button', { name: 'Back' }).click()
     await expect(page.getByRole('dialog', { name: 'Readiness target' })).toBeVisible()
 
-    const clock = page.locator('time.status-badge')
+    // The header clock keeps ticking while the dialog is open, and focus stays
+    // trapped on the dialog title.
+    const clock = page.locator('time.status-badge').first()
     const clockBeforeTick = await clock.getAttribute('datetime')
     await expect.poll(() => clock.getAttribute('datetime')).not.toBe(clockBeforeTick)
     await expect(dialog.getByRole('heading', { name: 'Readiness target' })).toBeFocused()
 
+    // Escape closes the dialog and restores focus to the origin card.
     await page.keyboard.press('Escape')
     await expect(dialog).toHaveCount(0)
-    await expect(contextTrigger).toBeFocused()
+    await expect(target).toBeFocused()
 
-    await page.getByRole('link', { name: 'All Build Orders' }).click()
+    // Navigating back to the catalog and into a stale root swaps the graph.
+    await page.getByRole('link', { name: 'Back to all Build Orders' }).click()
     await expect(page).toHaveURL(/\/build-orders$/)
     await openCatalogEntry(page, 'Stale planning lane')
 
     await expect(page).toHaveURL(/\/build-orders\/43$/)
     await expect(page.locator('#build-order-page')).toHaveAttribute('data-build-order-status', 'selected_stale')
     await expect(page.getByRole('heading', { name: 'Stale last-known-good graph' })).toBeVisible()
-    await expect(page.locator('#selected-build-order-graph [data-layout-node]')).toHaveCount(1)
+    await expect(page.locator('#selected-build-order-graph [data-bo-card]')).toHaveCount(1)
 
     await page.goBack()
     await expect(page).toHaveURL(/\/build-orders$/)
-    await expect(page.getByRole('heading', { name: 'Build Order catalog' })).toBeVisible()
+    await expect(page.locator('.bo-catalog-table')).toBeVisible()
     await page.goForward()
     await expect(page).toHaveURL(/\/build-orders\/43$/)
     await expect(page.getByRole('heading', { name: 'Stale planning lane' })).toBeVisible()
 
     await page.reload()
     await expect(page.locator('#build-order-page')).toHaveAttribute('data-build-order-root', '43')
-    await expect(page.locator('#selected-build-order-graph [data-layout-node]')).toHaveCount(1)
+    await expect(page.locator('#selected-build-order-graph [data-bo-card]')).toHaveCount(1)
 
+    // The read-only route never mutates: the only phx-click is context navigation
+    // and there are no forms.
     const mutationEvents = await page.locator('[phx-click]').evaluateAll((elements) =>
       elements.map((element) => element.getAttribute('phx-click')).filter(Boolean)
     )
@@ -147,117 +159,50 @@ test('production Build Order route keeps catalog, graph truth, context, and URL 
   }
 })
 
-test('production route preserves semantic fallback when layout work fails', async ({ browser }) => {
+test('production route renders semantic graph cards without a layout round-trip', async ({ browser }) => {
   const context = await browser.newContext({ httpCredentials: dashboardCredentials })
-  const clientModules = await interceptProductionLayoutClient(context, `
-    export function createLayoutWorkerClient() {
-      return {
-        dispose() {},
-        layout(request) {
-          return Promise.resolve({
-            type: 'error',
-            version: 1,
-            requestId: request.requestId,
-            generation: request.generation,
-            error: { code: 'forced_route_fallback', message: 'Forced production-route fallback.' }
-          })
-        }
-      }
-    }
-  `)
   const page = await context.newPage()
 
   try {
     await page.goto('/build-orders/42')
-    await expect.poll(() => clientModules.length).toBe(1)
-    expect(clientModules[0]).toMatch(layoutClientPath)
     const graph = page.locator('#selected-build-order-graph')
-    await expect(graph).toHaveAttribute('data-layout-health', 'fallback')
-    await expect(graph).toHaveAttribute('data-layout-failure', 'forced_route_fallback')
-    await expect(graph.locator('[data-layout-node]')).toHaveCount(7)
-    await expect(graph.getByRole('heading', { name: 'Dependency summary' })).toBeVisible()
-    await expect(graph.locator('svg[aria-hidden="true"] path')).toHaveCount(0)
+
+    // The semantic cards are in document flow immediately — there is no worker
+    // geometry to await and no fallback health state to degrade to. Even before
+    // the LiveView socket connects, the server-rendered grid carries every card.
+    await expect(graph.locator('[data-bo-card]')).toHaveCount(7)
+    await expect(graph.getByRole('heading', { name: 'Build order graph' })).toBeAttached()
+
+    // The dependency edge data is embedded for the client hook to route; no SVG
+    // path exists until the hook measures the rendered cards.
+    await expect(graph.locator('[data-bo-grid-edge-data] [data-bo-edge-source]')).toHaveCount(6)
   } finally {
     await context.close()
   }
 })
 
-test('production route rejects old-root layout completion after live navigation', async ({ browser }) => {
+test('production route swaps the selected graph deterministically across live navigation', async ({ browser }) => {
   const context = await browser.newContext({ httpCredentials: dashboardCredentials })
-  await context.addInitScript(() => {
-    window.__aiurRouteLayoutRequests = []
-    window.__aiurRouteLayoutResolvers = []
-  })
-  const clientModules = await interceptProductionLayoutClient(context, `
-    export function createLayoutWorkerClient() {
-      return {
-        dispose() {},
-        layout(request) {
-          globalThis.__aiurRouteLayoutRequests.push(request)
-          return new Promise((resolve) => globalThis.__aiurRouteLayoutResolvers.push(() => resolve({
-            type: 'result',
-            version: 1,
-            requestId: request.requestId,
-            generation: request.generation,
-            nodes: request.nodes.map((node, index) => ({
-              ...node,
-              x: (index % 4) * 220 + 1,
-              y: Math.floor(index / 4) * 160 + 1
-            })),
-            edges: request.edges.map((edge, index) => ({
-              id: edge.id,
-              sections: [{
-                startPoint: { x: index * 2 + 1, y: 1 },
-                bendPoints: [],
-                endPoint: { x: index * 2 + 2, y: 2 }
-              }]
-            }))
-          })))
-        }
-      }
-    }
-  `)
   const page = await context.newPage()
 
   try {
-    await page.goto('/build-orders/42')
-    await expect.poll(() => clientModules.length).toBe(1)
-    expect(clientModules[0]).toMatch(layoutClientPath)
-    await expect.poll(() => page.evaluate(() =>
-      window.__aiurRouteLayoutRequests.some((request) => request.nodes.length === 7)
-    )).toBe(true)
+    await page.goto('/build-orders')
+    await expect(page.locator('#build-order-page')).toHaveAttribute('data-build-order-catalog-state', 'ready')
+    await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
 
-    await page.getByRole('link', { name: 'All Build Orders' }).click()
+    const first = await openSelectedGraph(page, 'Release dashboard')
+    await expect(first).toHaveAttribute('data-bo-grid-key', '42:7')
+    await expect(first.locator('[data-bo-card]')).toHaveCount(7)
+
+    // Live navigation to a different root replaces the whole graph — the old
+    // root's cards never bleed into the new selection.
+    await page.getByRole('link', { name: 'Back to all Build Orders' }).click()
     await openCatalogEntry(page, 'Stale planning lane')
-    const currentGraph = page.locator('#selected-build-order-graph')
-    await expect(currentGraph).toHaveAttribute('data-layout-root-id', '43')
-    await expect.poll(() => page.evaluate(() =>
-      window.__aiurRouteLayoutRequests.some((request) => request.nodes.length === 1)
-    )).toBe(true)
 
-    const oldRootRequest = await page.evaluate(() =>
-      window.__aiurRouteLayoutRequests.findIndex((request) => request.nodes.length === 7)
-    )
-
-    await page.evaluate((index) => window.__aiurRouteLayoutResolvers[index](), oldRootRequest)
-    await expect(currentGraph).toHaveAttribute('data-layout-root-id', '43')
-    await expect(currentGraph).not.toHaveClass(/is-layout-ready/)
-
-    await expect.poll(async () => {
-      await page.evaluate(() => window.__aiurRouteLayoutRequests.forEach((request, index) => {
-        if (request.nodes.length === 1) window.__aiurRouteLayoutResolvers[index]()
-      }))
-      return currentGraph.getAttribute('data-layout-health')
-    }).toBe('ready')
-    await expect(currentGraph).toHaveAttribute('data-layout-provider-generation', '8')
-
-    const currentRequestCount = await page.evaluate(() => window.__aiurRouteLayoutRequests.length)
-    const clock = page.locator('time.status-badge')
-    const clockBeforeTick = await clock.getAttribute('datetime')
-    await expect.poll(() => clock.getAttribute('datetime')).not.toBe(clockBeforeTick)
-    await expect.poll(() => page.evaluate(() => window.__aiurRouteLayoutRequests.length)).toBe(currentRequestCount)
-    await expect(currentGraph).toHaveClass(/is-layout-ready/)
-    await expect(currentGraph).toHaveAttribute('data-layout-health', 'ready')
+    const second = page.locator('#selected-build-order-graph')
+    await expect(page.locator('#build-order-page')).toHaveAttribute('data-build-order-root', '43')
+    await expect(second.locator('[data-bo-card]')).toHaveCount(1)
+    await expect(second).toHaveAttribute('data-bo-grid-key', '43:8')
   } finally {
     await context.close()
   }
@@ -281,7 +226,7 @@ test('production Build Order routes enforce Basic Auth and reject malformed loca
     await page.goto('/build-orders/01')
     await expect(page.locator('#build-order-page')).toHaveAttribute('data-build-order-status', 'invalid_parameter')
     await expect(page.getByRole('heading', { name: 'Invalid Build Order URL' })).toBeVisible()
-    await expect(page.locator('[data-layout-node]')).toHaveCount(0)
+    await expect(page.locator('[data-bo-card]')).toHaveCount(0)
   } finally {
     await authenticated.close()
   }
