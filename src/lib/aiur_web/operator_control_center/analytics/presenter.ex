@@ -110,23 +110,23 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
 
   defp bucket_actor(samples, t0, bw, buckets) do
     samples
-    |> Enum.reduce(%{}, fn s, acc ->
-      ts = Map.get(s, :timestamp_ms)
+    |> Enum.reduce(%{}, fn s, acc -> accumulate_sample(acc, s, t0, bw, buckets) end)
+    |> Map.new(fn {b, {cs, cn, rs, rn}} -> {b, %{cpu: mean(cs, cn), rss: mean(rs, rn)}} end)
+  end
 
-      if is_integer(ts) and Map.get(s, :availability) == "measured" do
-        b = ts |> bucket_index(t0, bw, buckets)
-        cpu = num(Map.get(s, "cpu_percent"))
-        rss = num(Map.get(s, "rss_bytes"))
+  defp accumulate_sample(acc, sample, t0, bw, buckets) do
+    ts = Map.get(sample, :timestamp_ms)
 
-        Map.update(acc, b, {cpu || 0.0, bool01(cpu), rss || 0.0, bool01(rss)}, fn {cs, cn, rs, rn} ->
-          {cs + (cpu || 0.0), cn + bool01(cpu), rs + (rss || 0.0), rn + bool01(rss)}
-        end)
-      else
-        acc
-      end
-    end)
-    |> Map.new(fn {b, {cs, cn, rs, rn}} ->
-      {b, %{cpu: mean(cs, cn), rss: mean(rs, rn)}}
+    if is_integer(ts) and Map.get(sample, :availability) == "measured" do
+      add_cell(acc, bucket_index(ts, t0, bw, buckets), num(Map.get(sample, "cpu_percent")), num(Map.get(sample, "rss_bytes")))
+    else
+      acc
+    end
+  end
+
+  defp add_cell(acc, b, cpu, rss) do
+    Map.update(acc, b, {cpu || 0.0, bool01(cpu), rss || 0.0, bool01(rss)}, fn {cs, cn, rs, rn} ->
+      {cs + (cpu || 0.0), cn + bool01(cpu), rs + (rss || 0.0), rn + bool01(rss)}
     end)
   end
 
@@ -134,32 +134,37 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
 
   defp build_series(bucketed, display, display_keys, t0, bw, buckets) do
     for b <- 0..(buckets - 1) do
-      {exec, other, total_cpu, total_mem, conc, per} =
-        Enum.reduce(bucketed, {0.0, 0.0, 0.0, 0.0, 0, %{}}, fn {key, {kind, arr}}, {ex, ot, tc, tm, cc, per} ->
-          cell = Map.get(arr, b, %{cpu: 0.0, rss: 0.0})
-          cpu = cell.cpu
-          tc = tc + cpu
-          tm = tm + cell.rss
-          cc = if kind == :agent and cpu > 0, do: cc + 1, else: cc
-
-          cond do
-            kind in [:operator, :daemon] -> {ex + cpu, ot, tc, tm, cc, per}
-            MapSet.member?(display_keys, key) -> {ex, ot, tc, tm, cc, Map.put(per, key, cpu)}
-            true -> {ex, ot + cpu, tc, tm, cc, per}
-          end
-        end)
-
-      %{
-        idx: b,
-        t_ms: round(t0 + b * bw + bw / 2),
-        exec_cpu: round1(exec),
-        other_cpu: round1(other),
-        total_cpu: round1(total_cpu),
-        total_mem: round(total_mem),
-        conc: conc,
-        per: Map.new(display, fn a -> {a.key, round1(Map.get(per, a.key, 0.0))} end)
-      }
+      bucketed
+      |> Enum.reduce({0.0, 0.0, 0.0, 0.0, 0, %{}}, &fold_cell(&1, &2, b, display_keys))
+      |> series_bucket(b, t0, bw, display)
     end
+  end
+
+  defp fold_cell({key, {kind, arr}}, {ex, ot, tc, tm, cc, per}, b, display_keys) do
+    cell = Map.get(arr, b, %{cpu: 0.0, rss: 0.0})
+    cpu = cell.cpu
+    tc = tc + cpu
+    tm = tm + cell.rss
+    cc = if kind == :agent and cpu > 0, do: cc + 1, else: cc
+
+    cond do
+      kind in [:operator, :daemon] -> {ex + cpu, ot, tc, tm, cc, per}
+      MapSet.member?(display_keys, key) -> {ex, ot, tc, tm, cc, Map.put(per, key, cpu)}
+      true -> {ex, ot + cpu, tc, tm, cc, per}
+    end
+  end
+
+  defp series_bucket({exec, other, total_cpu, total_mem, conc, per}, b, t0, bw, display) do
+    %{
+      idx: b,
+      t_ms: round(t0 + b * bw + bw / 2),
+      exec_cpu: round1(exec),
+      other_cpu: round1(other),
+      total_cpu: round1(total_cpu),
+      total_mem: round(total_mem),
+      conc: conc,
+      per: Map.new(display, fn a -> {a.key, round1(Map.get(per, a.key, 0.0))} end)
+    }
   end
 
   # ---- KPIs ----
@@ -273,9 +278,10 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
       |> Enum.flat_map(fn iv -> [Map.get(iv, :start_ms), Map.get(iv, :end_ms)] end)
       |> Enum.filter(&is_integer/1)
 
-    cond do
-      ticket_ms != [] -> bbox(ticket_ms, {full0, full1})
-      true -> agent_window(actors, {full0, full1})
+    if ticket_ms != [] do
+      bbox(ticket_ms, {full0, full1})
+    else
+      agent_window(actors, {full0, full1})
     end
   end
 
@@ -395,17 +401,18 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   end
 
   defp host_mem_bytes do
-    if Code.ensure_loaded?(:memsup) and function_exported?(:memsup, :get_system_memory_data, 0) do
-      case apply(:memsup, :get_system_memory_data, []) |> Keyword.get(:total_memory) do
-        total when is_integer(total) and total > 0 -> total
-        _ -> @default_host_mem_bytes
-      end
-    else
-      @default_host_mem_bytes
+    case File.read("/proc/meminfo") do
+      {:ok, content} -> meminfo_total(content)
+      _ -> @default_host_mem_bytes
     end
   rescue
     _ -> @default_host_mem_bytes
-  catch
-    _, _ -> @default_host_mem_bytes
+  end
+
+  defp meminfo_total(content) do
+    case Regex.run(~r/MemTotal:\s+(\d+)\s*kB/, content) do
+      [_, kb] -> String.to_integer(kb) * 1024
+      _ -> @default_host_mem_bytes
+    end
   end
 end
