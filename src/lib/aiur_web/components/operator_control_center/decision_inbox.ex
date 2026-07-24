@@ -102,7 +102,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
     resolved = if filter == :resolved, do: get_in(page, [:pagination, :total])
 
     %{
-      all: Map.get(retained_counts, :total),
+      all: Map.get(retained_counts, :open),
       open: Map.get(retained_counts, :open),
       blocking: Map.get(retained_counts, :blocking),
       resolved: resolved

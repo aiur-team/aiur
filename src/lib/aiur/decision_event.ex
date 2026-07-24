@@ -33,6 +33,7 @@ defmodule Aiur.DecisionEvent do
   @types [
     :requested,
     :enriched,
+    :decision_expired,
     :decision_dismissed,
     :answer_recorded,
     :revision_recorded,
@@ -55,6 +56,7 @@ defmodule Aiur.DecisionEvent do
   @type type ::
           :requested
           | :enriched
+          | :decision_expired
           | :decision_dismissed
           | :answer_recorded
           | :revision_recorded
@@ -252,6 +254,14 @@ defmodule Aiur.DecisionEvent do
     end
   end
 
+  defp normalize_data(:decision_expired, raw, _decision_id, _version, _trusted_provenance) when is_map(raw) do
+    with {:ok, reason_class} <- bounded_required(get(raw, :reason_class), @reason_max, :reason_class),
+         {:ok, actor} <- normalize_actor(get(raw, :actor)),
+         :ok <- require_system_actor(actor) do
+      {:ok, %{reason_class: reason_class, actor: actor}}
+    end
+  end
+
   defp normalize_data(:answer_recorded, raw, decision_id, version, _trusted_provenance) when is_map(raw) do
     with {:ok, answer} <- DecisionAnswer.from_json_safe(raw),
          true <- answer.decision_id == decision_id and answer.decision_version == version do
@@ -414,6 +424,9 @@ defmodule Aiur.DecisionEvent do
 
   defp decode_actor_kind(_other), do: {:error, {:actor_kind, :invalid}}
 
+  defp require_system_actor(%{kind: :system}), do: :ok
+  defp require_system_actor(_actor), do: {:error, {:actor_kind, :not_system}}
+
   defp require_supervisor_actor(%{kind: :supervisor}), do: :ok
   defp require_supervisor_actor(_actor), do: {:error, {:actor_kind, :not_supervisor}}
 
@@ -475,6 +488,13 @@ defmodule Aiur.DecisionEvent do
 
   defp data_to_json_safe(:decision_dismissed, data) do
     %{"actor" => %{"kind" => Atom.to_string(data.actor.kind), "id" => data.actor.id}}
+  end
+
+  defp data_to_json_safe(:decision_expired, data) do
+    %{
+      "reason_class" => data.reason_class,
+      "actor" => %{"kind" => Atom.to_string(data.actor.kind), "id" => data.actor.id}
+    }
   end
 
   defp data_to_json_safe(:revision_recorded, %DecisionRevision{} = revision),

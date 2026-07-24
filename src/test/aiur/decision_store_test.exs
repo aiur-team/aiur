@@ -222,11 +222,54 @@ defmodule Aiur.DecisionStoreTest do
     assert durable.decision_status == :dismissed
   end
 
+  test "expiration is durable, idempotent, historic, and auditable", %{dir: dir} do
+    pid = start_store!(dir)
+    created_at = ~U[2026-07-24 12:00:00Z]
+    expired_at = DateTime.add(created_at, 600, :second)
+
+    assert {:ok, %{decision: decision}} =
+             request(pid, %{"question" => "Still waiting?", "blocking" => true}, now: created_at)
+
+    assert {:ok, %{status: :accepted, decision: expired}} =
+             DecisionStore.expire(decision.decision_id, "agent_not_running", [now: expired_at], pid)
+
+    assert expired.decision_status == :expired
+    assert expired.answer == nil
+
+    assert {:ok, %{status: :duplicate, decision: duplicate}} =
+             DecisionStore.expire(decision.decision_id, "agent_not_running", [], pid)
+
+    assert duplicate.decision_status == :expired
+
+    answer_payload = %{"idempotency_key" => "too-late", "expected_version" => 1, "custom_response" => "Ship"}
+    assert {:error, {:conflict, :expired}} = answer(pid, decision.decision_id, answer_payload)
+
+    assert {:ok, %{decisions: [historic], total: 1}} =
+             DecisionStore.retained_query(
+               %{limit: 25, cursor: nil, lifecycle: :historic, search: nil, ticket: nil},
+               pid
+             )
+
+    assert historic.decision_id == decision.decision_id
+
+    assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, pid)
+
+    assert [
+             %DecisionEvent{type: :requested},
+             %DecisionEvent{type: :decision_expired, data: %{reason_class: "agent_not_running"}}
+           ] = audit
+
+    GenServer.stop(pid)
+    restarted = start_store!(dir)
+    assert {:ok, replayed} = DecisionStore.get(decision.decision_id, restarted)
+    assert replayed.decision_status == :expired
+  end
+
   defp decision_index_key(decision) do
     urgency = %{low: 0, normal: 1, high: 2, critical: 3}
 
     {
-      decision.decision_status == :resolved,
+      decision.decision_status in [:expired, :dismissed, :resolved],
       not decision.blocking,
       -Map.fetch!(urgency, decision.urgency),
       -DateTime.to_unix(decision.created_at, :microsecond),

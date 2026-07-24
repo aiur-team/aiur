@@ -4,8 +4,8 @@ defmodule Aiur.DecisionStore.RetainedSnapshot.QueryPlan do
   alias Aiur.Decision
   alias Aiur.DecisionStore.RetainedIndex
 
-  @lifecycle_statuses [:open, :dismissed, :decided, :acknowledged, :resolved]
-  @historic_statuses [:dismissed, :decided, :acknowledged, :resolved]
+  @lifecycle_statuses [:open, :expired, :dismissed, :decided, :acknowledged, :resolved]
+  @historic_statuses [:expired, :dismissed, :decided, :acknowledged, :resolved]
   @maximum_candidate_reads 1_000
 
   @spec build(map(), map()) :: map()

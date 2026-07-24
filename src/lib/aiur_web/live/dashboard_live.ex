@@ -1796,6 +1796,7 @@ defmodule AiurWeb.DashboardLive do
 
   defp put_filter_query(query, :blocking), do: query |> Map.put("lifecycle", "open") |> Map.put("blocking", true)
   defp put_filter_query(query, :resolved), do: Map.put(query, "lifecycle", "historic")
+  defp put_filter_query(query, :all), do: Map.put(query, "lifecycle", "open")
   defp put_filter_query(query, _filter), do: query
 
   defp maybe_put_query(query, key, value) when is_binary(value) do
