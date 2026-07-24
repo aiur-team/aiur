@@ -394,6 +394,23 @@ load_dotenv() {
 }
 
 run_argv=()
+# Default dashboard bind host. Prefer this machine's Tailscale IPv4 so the
+# dashboard is reachable across the tailnet by default (no per-project config);
+# fall back to loopback when Tailscale is absent, or when dashboard credentials
+# are unset (a non-loopback bind requires them, so we stay on loopback rather
+# than refuse to start). An explicit `--host` always overrides this.
+default_dashboard_host() {
+  local ip=""
+  if command -v tailscale >/dev/null 2>&1; then
+    ip="$(tailscale ip -4 2>/dev/null | grep -m1 -E '^100\.[0-9]+\.[0-9]+\.[0-9]+$' || true)"
+  fi
+  if [ -n "$ip" ] && [ -n "${AIUR_DASHBOARD_USERNAME:-}" ] && [ -n "${AIUR_DASHBOARD_PASSWORD:-}" ]; then
+    printf '%s' "$ip"
+  else
+    printf '127.0.0.1'
+  fi
+}
+
 build_run_argv() {
   local mode="$1"
   shift
@@ -409,7 +426,7 @@ build_run_argv() {
   done
 
   local injected=()
-  [ "$has_host" -eq 1 ] || injected+=(--host 127.0.0.1)
+  [ "$has_host" -eq 1 ] || injected+=(--host "$(default_dashboard_host)")
   if [ "$mode" = "background" ] && [ "$has_interactive" -eq 0 ]; then
     [ "$has_headless" -eq 1 ] || injected+=(--headless)
   else
@@ -2084,6 +2101,33 @@ sweep_stale_tmp_artifacts() {
   return 0
 }
 
+# A stop only reaps the daemon whose node name matches this project root's
+# instance key (keys are sha256(project_root), so instances can't reap each
+# other). A daemon launched from a different directory therefore survives a stop
+# invoked elsewhere — the silent orphan that keeps holding the dashboard port and
+# serving stale code/credentials. Surface it loudly (we warn, not reap, to
+# respect the deliberate isolation) so the operator can stop it explicitly.
+warn_other_aiur_daemons() {
+  local self_node="$1" me pids pid cmd node port found=0
+  me="${USER:-$(id -un 2>/dev/null)}"
+  pids="$(pgrep -u "$me" -f -- "-name aiur-${me}" 2>/dev/null || true)"
+  for pid in $pids; do
+    cmd="$(pid_command "$pid")"
+    case "$cmd" in *beam.smp*) : ;; *) continue ;; esac
+    node="$(printf '%s' "$cmd" | grep -oE -- '-name [^ ]+' | awk '{print $2}' | head -1)"
+    [ -z "$node" ] && continue
+    [ "$node" = "$self_node" ] && continue
+    port="$(ss -tlnpH 2>/dev/null | awk -v p="pid=$pid," '$0 ~ p {print $4}' \
+      | grep -oE '[0-9]+$' | head -1 || true)"
+    if [ "$found" -eq 0 ]; then
+      echo "aiur: heads up — another aiur daemon is still running that this stop did not touch" >&2
+      echo "      (launched from a different directory, so it has a different instance key):" >&2
+      found=1
+    fi
+    echo "      pid=$pid node=$node${port:+ dashboard-port=$port} — stop it with:  kill $pid" >&2
+  done
+}
+
 # Stop the running session: kill this instance's tmux + BEAM, then sweep.
 cmd_stop() {
   resolve_release
@@ -2112,6 +2156,7 @@ cmd_stop() {
     [ "$has_session" -eq 0 ] && \
     [ ! -f "$(aiur_crash_marker_path)" ]; then
     echo "aiur: no running aiur node at ${AIUR_RELEASE_NODE}; nothing stopped" >&2
+    warn_other_aiur_daemons "$AIUR_RELEASE_NODE"
     print_global_config_control_hint
     return 1
   fi
@@ -2161,6 +2206,7 @@ cmd_stop() {
   sweep_dead_tmux_sockets
   sweep_stale_tmp_artifacts
   rm -f "$(aiur_instance_record_path)" 2>/dev/null || true
+  warn_other_aiur_daemons "$AIUR_RELEASE_NODE"
 }
 
 # --- dispatch ----------------------------------------------------------------
