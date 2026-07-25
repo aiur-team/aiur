@@ -123,7 +123,7 @@ defmodule Aiur.Workspace.ProvisionerTest do
     assert File.read!(notes) == "preserve this work\\n"
   end
 
-  test "refuses an after_create hook that leaves a logs-only workspace non-Git" do
+  test "refuses an after_create hook that leaves a logs-only workspace non-Git, then self-heals on retry" do
     test_root = Path.join(System.tmp_dir!(), "prov_completion_#{System.unique_integer([:positive])}")
     workspace_root = Path.join(test_root, "workspaces")
 
@@ -143,9 +143,27 @@ defmodule Aiur.Workspace.ProvisionerTest do
     assert {:error, {:workspace_ambiguous, ^workspace, :unproven_contents}} =
              Workspace.create_for_issue("PROOF-1")
 
-    refute File.regular?(Provisioner.workspace_ready_marker_path(workspace))
-    assert File.read!(Path.join(workspace, "README.md")) == "initialized"
-    assert File.read!(log_path) == "{\"event\":\"startup\"}\n"
+    # #1317: a hook that exits 0 without producing a real checkout must not
+    # leave a permanently stuck workspace behind for the next dispatch to
+    # inherit — the failed attempt is torn down so a later provision can
+    # start clean instead of hitting the same ambiguity forever.
+    refute File.exists?(workspace)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "memory",
+      workspace_root: workspace_root,
+      hook_after_create: """
+      git init --quiet -b main .
+      git config user.email test@example.com
+      git config user.name "Test User"
+      printf initialized > README.md
+      git add README.md
+      git commit --quiet -m init
+      """
+    )
+
+    assert {:ok, ^workspace} = Workspace.create_for_issue("PROOF-1")
+    assert File.exists?(Path.join(workspace, ".git"))
   end
 
   test "ensure_workspace/5 marks a logs-only directory for initial provisioning" do
