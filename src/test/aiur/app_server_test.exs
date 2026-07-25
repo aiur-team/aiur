@@ -998,7 +998,7 @@ defmodule Aiur.AppServerTest do
 
       File.chmod!(codex_binary, 0o755)
 
-      write_workflow_file!(Workflow.workflow_file_path(),
+      write_workflow_file_synced!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
         command: "#{codex_binary} app-server"
       )
