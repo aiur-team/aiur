@@ -11,12 +11,16 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
   attr(:tracker_kind, :string, required: true)
   attr(:agent_kind, :string, required: true)
   attr(:nav_counts, :map, default: %{})
+  # Server-owned so a LiveView re-render cannot revert it. A client-only
+  # attribute on this element is stripped by the next DOM patch, which is what
+  # made the toggle spring back open (#1306).
+  attr(:nav_collapsed, :boolean, default: false)
   slot(:inner_block, required: true)
 
   @spec dashboard_shell(map()) :: Phoenix.LiveView.Rendered.t()
   def dashboard_shell(assigns) do
     ~H"""
-    <section class="dashboard-shell">
+    <section class="dashboard-shell" data-nav-collapsed={to_string(@nav_collapsed)}>
       <aside class="shell-sidebar" aria-label="Aiur navigation">
         <div class="brand-row">
           <img class="brand-mini-logo" src="/aiur-logo.png" alt="Aiur" />
@@ -46,16 +50,16 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
             class="tool-btn icon-only"
             type="button"
             phx-hook="NavToggle"
-            aria-label="Hide navigation"
-            aria-pressed="false"
-            title="Hide navigation"
+            phx-click="toggle-nav"
+            aria-label={nav_toggle_label(@nav_collapsed)}
+            aria-pressed={to_string(@nav_collapsed)}
+            title={nav_toggle_label(@nav_collapsed)}
           >
             <span class="nav-toggle-icon" aria-hidden="true">
-              <svg class="nav-hide-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M15 18l-6-6 6-6" />
-              </svg>
-              <svg class="nav-show-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M9 18l6-6-6-6" />
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="4" width="18" height="16" rx="2" />
+                <path d="M9 4v16" />
+                <path :if={!@nav_collapsed} d="M3 4h6v16H3z" fill="currentColor" stroke="none" />
               </svg>
             </span>
           </button>
@@ -209,6 +213,9 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
   defp nav_icon(_id) do
     Phoenix.HTML.raw(~s(<svg #{@nav_svg_attrs}><circle cx="12" cy="12" r="9"/></svg>))
   end
+
+  defp nav_toggle_label(true), do: "Show navigation"
+  defp nav_toggle_label(_collapsed), do: "Hide navigation"
 
   defp clock_value(%DateTime{} = now), do: Calendar.strftime(now, "%H:%M:%S")
   defp clock_value(_now), do: "--:--:--"

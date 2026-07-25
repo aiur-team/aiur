@@ -143,12 +143,16 @@ test('production Build Order route keeps catalog, graph truth, context, and URL 
     await expect(page.locator('#build-order-page')).toHaveAttribute('data-build-order-root', '43')
     await expect(page.locator('#selected-build-order-graph [data-bo-card]')).toHaveCount(1)
 
-    // The read-only route never mutates: the only phx-click is context navigation
-    // and there are no forms.
+    // The read-only route never mutates. Context navigation and the shell's
+    // sidebar collapse toggle are the only permitted phx-clicks — neither writes
+    // data; `toggle-nav` flips a per-session view preference held in assigns.
+    // Anything else appearing here means a real mutation reached a read-only
+    // route, which is what this assertion exists to catch.
+    const readOnlyEvents = ['open-ticket-context', 'toggle-nav']
     const mutationEvents = await page.locator('[phx-click]').evaluateAll((elements) =>
       elements.map((element) => element.getAttribute('phx-click')).filter(Boolean)
     )
-    expect(mutationEvents.every((event) => event === 'open-ticket-context')).toBe(true)
+    expect(mutationEvents.every((event) => readOnlyEvents.includes(event))).toBe(true)
     await expect(page.locator('form')).toHaveCount(0)
     await assertNoDocumentOverflow(page)
 

@@ -403,6 +403,10 @@ defmodule AiurWeb.DashboardLiveTest do
     assigns = %{
       payload: payload,
       now: DateTime.utc_now(),
+      # This helper renders DashboardLive directly, bypassing mount/3, so it has
+      # to seed every assign mount/3 seeds — including the server-owned sidebar
+      # collapse state the shell reads.
+      nav_collapsed: false,
       agent_log_modal: nil,
       drafts: %{},
       chat_errors: %{},
