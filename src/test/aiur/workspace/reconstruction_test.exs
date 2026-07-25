@@ -1,6 +1,8 @@
 defmodule Aiur.Workspace.ReconstructionTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
+
   alias Aiur.{AgentEventLog, Workspace.Reconstruction}
   alias Aiur.Workspace.Provisioner
 
@@ -30,6 +32,55 @@ defmodule Aiur.Workspace.ReconstructionTest do
     log = File.read!(Path.join([workspace, "logs", "agent.ndjson"]))
     assert log =~ "before reconstruction"
     assert log =~ "during reconstruction"
+    assert File.ls!(root) == ["ticket"]
+  end
+
+  # #1317: a successful staged clone (e.g. after_create/before_run cloning
+  # into the sibling stage dir) was observed landing at the destination as an
+  # empty/logs-only workspace instead of the real checkout, with no error
+  # anywhere. The suspected mechanism was a concurrent AgentEventLog write
+  # recreating `workspace` mid-flight, since only promotion itself (not the
+  # whole staging window) held the log lock. This proves the lock now spans
+  # the entire reconstruction: a concurrent writer is blocked until the
+  # reconstruction finishes, and the promoted content is never dropped.
+  test "a concurrent alert write during staging never drops the promoted checkout", %{
+    root: root,
+    workspace: workspace
+  } do
+    parent = self()
+
+    reconstruction =
+      Task.async(fn ->
+        Reconstruction.run(workspace, fn stage ->
+          send(parent, :prepare_started)
+
+          receive do
+            :continue_prepare -> :ok
+          end
+
+          File.write!(Path.join(stage, "README.md"), "rebuilt\n")
+          :ok
+        end)
+      end)
+
+    assert_receive :prepare_started, 5_000
+
+    writer =
+      Task.async(fn ->
+        AgentEventLog.write(workspace, nil, %{event: "alert", last_message: "concurrent during staging"})
+      end)
+
+    # The writer must not observe/recreate `workspace` while the
+    # reconstruction is still staging — it has to wait for the same log lock.
+    refute Task.yield(writer, 100)
+
+    send(reconstruction.pid, :continue_prepare)
+
+    assert :ok = Task.await(reconstruction, 5_000)
+    assert :ok = Task.await(writer, 5_000)
+
+    assert File.read!(Path.join(workspace, "README.md")) == "rebuilt\n"
+    assert File.read!(Path.join([workspace, "logs", "agent.ndjson"])) =~ "concurrent during staging"
     assert File.ls!(root) == ["ticket"]
   end
 
@@ -113,22 +164,32 @@ defmodule Aiur.Workspace.ReconstructionTest do
       end
     end
 
-    assert {:error, {:workspace_log_merge_failed, :simulated_midstream_write_failure}} =
-             Reconstruction.run(
-               workspace,
-               fn stage ->
-                 staged_log = Path.join([stage, "logs", "provider", "large.trace"])
-                 File.mkdir_p!(Path.dirname(staged_log))
-                 File.write!(Path.join(stage, "README.md"), "replacement\n")
-                 File.write!(staged_log, "after\n")
-                 :ok
-               end,
-               write_fun: write_fun
-             )
+    log =
+      capture_log(fn ->
+        assert {:error, {:workspace_log_merge_failed, :simulated_midstream_write_failure}} =
+                 Reconstruction.run(
+                   workspace,
+                   fn stage ->
+                     staged_log = Path.join([stage, "logs", "provider", "large.trace"])
+                     File.mkdir_p!(Path.dirname(staged_log))
+                     File.write!(Path.join(stage, "README.md"), "replacement\n")
+                     File.write!(staged_log, "after\n")
+                     :ok
+                   end,
+                   write_fun: write_fun
+                 )
+      end)
 
     assert File.read!(original_readme) == "original\n"
     assert File.read!(original_log) =~ "before\n"
     assert File.ls!(root) == ["ticket"]
+
+    # #1317: a promotion failure must be loud, not just a returned tuple that
+    # a caller can drop — this was previously the only signal, and the actual
+    # incident it papers over left no trace anywhere in the daemon log.
+    assert log =~ "Workspace promotion failed"
+    assert log =~ "workspace_log_merge_failed"
+    assert log =~ ":simulated_midstream_write_failure"
   end
 
   test "rolls back the promoted workspace when a streamed log write raises", %{root: root, workspace: workspace} do

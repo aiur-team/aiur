@@ -1,6 +1,8 @@
 defmodule Aiur.Workspace.Reconstruction do
   @moduledoc false
 
+  require Logger
+
   alias Aiur.PathSafety
 
   @log_copy_chunk_size 64 * 1024
@@ -12,6 +14,11 @@ defmodule Aiur.Workspace.Reconstruction do
   @spec run(Path.t(), (Path.t() -> :ok | {:error, term()})) :: :ok | {:error, term()}
   def run(workspace, prepare), do: run(workspace, prepare, [])
 
+  # Held for the whole staging window, not just promotion: without this, a
+  # concurrent AgentEventLog write for this same workspace (e.g. an alert
+  # fired while a multi-minute clone is staging) can recreate `workspace`
+  # mid-flight and land the promotion rename against a moving target,
+  # dropping the freshly staged checkout (#1317).
   @doc false
   @spec run(Path.t(), (Path.t() -> :ok | {:error, term()}), keyword()) :: :ok | {:error, term()}
   def run(workspace, prepare, opts) when is_binary(workspace) and is_function(prepare, 1) and is_list(opts) do
@@ -19,21 +26,23 @@ defmodule Aiur.Workspace.Reconstruction do
     stage = Path.join(stage_root, Path.basename(workspace))
     write_fun = Keyword.get(opts, :write_fun, &IO.binwrite/2)
 
-    try do
-      File.mkdir_p!(Path.dirname(workspace))
-      File.rm_rf!(stage_root)
-      File.mkdir_p!(stage)
+    with_log_lock(workspace, fn ->
+      try do
+        File.mkdir_p!(Path.dirname(workspace))
+        File.rm_rf!(stage_root)
+        File.mkdir_p!(stage)
 
-      case prepare.(stage) do
-        :ok -> promote(stage, stage_root, workspace, write_fun)
-        {:error, _reason} = error -> cleanup_stage(stage_root, error)
-        other -> cleanup_stage(stage_root, {:error, {:invalid_reconstruction_result, other}})
+        case prepare.(stage) do
+          :ok -> promote(stage, stage_root, workspace, write_fun)
+          {:error, _reason} = error -> cleanup_stage(stage_root, error)
+          other -> cleanup_stage(stage_root, {:error, {:invalid_reconstruction_result, other}})
+        end
+      rescue
+        error ->
+          File.rm_rf(stage_root)
+          {:error, error}
       end
-    rescue
-      error ->
-        File.rm_rf(stage_root)
-        {:error, error}
-    end
+    end)
   end
 
   @doc false
@@ -76,15 +85,24 @@ defmodule Aiur.Workspace.Reconstruction do
     end
   end
 
+  # Always called from inside run/3's with_log_lock, so no lock of its own is
+  # needed here. A promotion failure must be loud: it means a staged checkout
+  # that finished cloning did not land at the destination, which otherwise
+  # only shows up as an empty/logs-only workspace with no error anywhere.
   defp promote(stage, stage_root, workspace, write_fun) do
-    with_log_lock(workspace, fn ->
-      backup = sibling_path(workspace, "previous")
-      File.rm_rf!(backup)
+    backup = sibling_path(workspace, "previous")
+    File.rm_rf!(backup)
 
-      result = promote_stage(stage, workspace, backup, write_fun)
-      File.rm_rf!(stage_root)
-      result
-    end)
+    result = promote_stage(stage, workspace, backup, write_fun)
+    log_promotion_failure(workspace, stage, result)
+    File.rm_rf!(stage_root)
+    result
+  end
+
+  defp log_promotion_failure(_workspace, _stage, :ok), do: :ok
+
+  defp log_promotion_failure(workspace, stage, {:error, reason}) do
+    Logger.error("Workspace promotion failed workspace=#{workspace} stage=#{stage} reason=#{inspect(reason)}")
   end
 
   defp promote_stage(stage, workspace, backup, write_fun) do
