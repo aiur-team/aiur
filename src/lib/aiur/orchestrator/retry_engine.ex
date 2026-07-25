@@ -319,9 +319,11 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
       Logger.warning("Giving up on issue_id=#{issue_id} issue_identifier=#{identifier} after #{failed_attempts} failed attempt(s); max_retry_attempts=#{Config.max_retry_attempts()}#{error_suffix}")
 
-      Alerts.emit_system("ticket.#{identifier}.agent.retry_exhausted",
+      alert_message = retry_exhausted_alert_message(error)
+
+      Alerts.emit_custom("ticket.#{identifier}.agent.retry_exhausted", alert_message,
         issue: identifier,
-        reason: "Agent retry attempts were exhausted; the ticket needs Executor review.",
+        reason: alert_message,
         needs_attention: true,
         severity: "warning"
       )
@@ -896,6 +898,18 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
   defp pick_retry_error(previous_retry, metadata) do
     metadata[:error] || Map.get(previous_retry, :error)
+  end
+
+  # The generic "retry budget exhausted" alert text alone forces the operator
+  # to grep the daemon log to find the actual failure (e.g. a workspace
+  # provisioning error); fold the last recorded error into the operator-facing
+  # message so it is visible without leaving the alert.
+  defp retry_exhausted_alert_message(error) when is_binary(error) do
+    "Agent retry attempts were exhausted; the ticket needs Executor review. Last error: #{error}"
+  end
+
+  defp retry_exhausted_alert_message(_error) do
+    "Agent retry attempts were exhausted; the ticket needs Executor review."
   end
 
   defp pick_retry_poll_failures(previous_retry, metadata) do

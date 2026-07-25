@@ -1,6 +1,7 @@
 defmodule Aiur.Orchestrator.RetryEngineTest do
   use Aiur.TestSupport
 
+  alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.{Issue, TrackerIdentity}
   alias Aiur.Orchestrator.RetryEngine
   alias Aiur.Orchestrator.State
@@ -183,6 +184,33 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
       retry = next.retry_attempts["issue-3"]
       assert retry.tracker_identity == nil
       Process.cancel_timer(retry.timer_ref)
+    end
+  end
+
+  describe "retry_exhausted alert (#1317)" do
+    test "give-up alert includes the underlying error, not just a generic headline" do
+      # The Publisher contamination filter's tracked_fn is process-global
+      # (:persistent_term) and can be left pointed at another test's narrow
+      # set; reset it so this ticket's alert isn't silently filtered.
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe("ticket.MT-ALERT-1.agent.retry_exhausted")
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      RetryEngine.schedule_issue_retry(%State{}, "issue-alert-1", Config.max_retry_attempts() + 1, %{
+        identifier: "MT-ALERT-1",
+        # Mirrors what handle_agent_down/3 records: "agent exited: #{inspect(reason)}".
+        error: "agent exited: {:workspace_git_metadata_unwritable, \"/ws/.aiur-git-index-write-probe-1\", {:git_index_probe_failed, 128}}",
+        delay_type: :failure
+      })
+
+      assert_receive {:event, %{topic: "ticket.MT-ALERT-1.agent.retry_exhausted"} = event}, 500
+      refute event["message"] == "Agent retry budget exhausted"
+      assert event["message"] =~ "git_index_probe_failed"
+      assert event["reason"] =~ "git_index_probe_failed"
     end
   end
 
