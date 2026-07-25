@@ -254,6 +254,45 @@ defmodule Aiur.Config do
     settings!().max_log_history_mb
   end
 
+  @doc false
+  @spec build_order_ticket_detail_cache_options() :: keyword()
+  def build_order_ticket_detail_cache_options do
+    build_order = settings!().build_order
+
+    [
+      freshness_ms: build_order.ticket_detail_freshness_ms,
+      max_entries: build_order.ticket_detail_max_entries,
+      max_description_bytes: build_order.ticket_detail_max_description_bytes
+    ]
+  end
+
+  @doc false
+  @spec build_order_ticket_history_options() :: keyword()
+  def build_order_ticket_history_options do
+    build_order = settings!().build_order
+
+    [
+      history_limit: build_order.ticket_history_limit,
+      max_identities: build_order.ticket_history_max_identities,
+      stale_after_ms: build_order.ticket_history_stale_after_ms
+    ]
+  end
+
+  @doc false
+  @spec build_order_graph_projection_options() :: keyword()
+  def build_order_graph_projection_options do
+    build_order = settings!().build_order
+
+    [
+      catalog_refresh_ms: build_order.graph_catalog_refresh_ms,
+      selected_refresh_ms: build_order.graph_selected_refresh_ms,
+      demand_refresh_ms: build_order.graph_demand_refresh_ms,
+      refresh_timeout_ms: build_order.graph_refresh_timeout_ms,
+      max_selected_roots: build_order.graph_max_selected_roots,
+      max_inflight: build_order.graph_max_inflight
+    ]
+  end
+
   @spec workspace_hooks() :: map()
   def workspace_hooks do
     hooks = settings!().hooks
@@ -270,6 +309,16 @@ defmodule Aiur.Config do
   @spec hook_timeout_ms() :: pos_integer()
   def hook_timeout_ms do
     settings!().hooks.timeout_ms
+  end
+
+  @doc false
+  @spec usage_ledger_durability_timeout() :: timeout()
+  def usage_ledger_durability_timeout do
+    case Application.get_env(:aiur, :usage_ledger_durability_timeout, :infinity) do
+      :infinity -> :infinity
+      timeout when is_integer(timeout) and timeout > 0 -> timeout
+      _other -> :infinity
+    end
   end
 
   @spec max_concurrent_agents() :: pos_integer()

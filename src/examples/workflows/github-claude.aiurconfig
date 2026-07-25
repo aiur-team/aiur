@@ -18,6 +18,21 @@ tracker:
     planning_root_limit: 100
     planning_page_budget: 4
     planning_call_budget: 4
+build_order:
+  # Supervised configured-repository detail and sanitized typed-history providers.
+  # Restart clears retained snapshots; selected tickets reload on demand.
+  ticket_detail_freshness_ms: 30000
+  graph_catalog_refresh_ms: 60000
+  graph_selected_refresh_ms: 15000
+  graph_demand_refresh_ms: 5000
+  graph_refresh_timeout_ms: 30000
+  graph_max_selected_roots: 32
+  graph_max_inflight: 4
+  ticket_detail_max_entries: 32
+  ticket_detail_max_description_bytes: 16384
+  ticket_history_limit: 50
+  ticket_history_max_identities: 100
+  ticket_history_stale_after_ms: 60000
 workspace:
   root: ~/code/aiur-workspaces
 hooks:

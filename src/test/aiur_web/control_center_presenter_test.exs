@@ -1,7 +1,7 @@
 defmodule AiurWeb.ControlCenterPresenterTest do
   use Aiur.TestSupport
 
-  alias Aiur.{Decision, DecisionAnswer}
+  alias Aiur.{Decision, DecisionAnswer, DecisionHistory}
   alias AiurWeb.ControlCenterPresenter
 
   test "composes real decision and fleet projections without inventing lifecycle data" do
@@ -67,6 +67,22 @@ defmodule AiurWeb.ControlCenterPresenterTest do
     assert payload.provider_health.recent_outcomes == :ok
     assert payload.provider_health.decision_latency == :unavailable
     assert payload.fleet.running != []
+  end
+
+  test "the unavailable fleet contract contains no synthetic financial facts" do
+    payload =
+      ControlCenterPresenter.state_payload(:unused, 10,
+        fleet_fun: fn -> exit(:fleet_down) end,
+        decisions_fun: fn -> [] end,
+        history_fun: fn -> [] end,
+        recent_merges_fun: fn ->
+          %{merges: [], health: :ready, reconciliation: %{status: :complete, partial?: false}}
+        end,
+        decision_metrics_fun: fn -> %{} end
+      )
+
+    assert payload.fleet.agent_totals == %{seconds_running: 0}
+    refute Map.has_key?(payload.fleet, :rate_limits)
   end
 
   test "associates canonical latency by exact decision id and distinguishes missing samples" do
@@ -166,6 +182,62 @@ defmodule AiurWeb.ControlCenterPresenterTest do
     refute Map.has_key?(outcome, :agent)
     assert payload.overview.recent_repository_merges == 1
     assert payload.recent_outcomes_reconciliation == %{status: :complete, partial?: false}
+  end
+
+  test "preserves trusted canonical history provenance, confidence, and supersession" do
+    supervisor_basis = %{
+      confidence: 0,
+      alternatives_considered: ["Wait"],
+      reversibility_belief: :reversible,
+      policy_basis: %{
+        authority: :supervisor_allowed,
+        kind: "architecture",
+        reversibility: :reversible,
+        checks: %{authority_delegable: true, kind_allowed: true, reversibility_allowed: true},
+        allow_non_reversible: false
+      }
+    }
+
+    history = [
+      DecisionHistory.project_record(%{
+        decision_id: "dec-canonical-history",
+        ticket: %{identifier: "AIUR-1113", title: "Commands", url: nil},
+        question: "Use the canonical history projection?",
+        change_kind: :superseded,
+        created_at: ~U[2026-07-15 12:00:00Z],
+        superseded_by: "action-replacement",
+        provenance: %{
+          schema_version: 1,
+          source: "agent_runner",
+          captured_at: "2026-07-15T11:59:00Z",
+          agent_family: "codex",
+          backend: "codex-app-server",
+          requested_model: "gpt-requested",
+          resolved_model: "gpt-resolved"
+        },
+        answer: %{
+          action_id: "action-original",
+          actor: %{kind: :supervisor, id: "supervising-agent"},
+          supervisor_basis: supervisor_basis,
+          accepted_at: ~U[2026-07-15 12:00:00Z]
+        }
+      })
+    ]
+
+    payload =
+      ControlCenterPresenter.compose(
+        fleet_payload(),
+        [],
+        history,
+        %{merges: [], health: :ready, reconciliation: %{status: :complete, partial?: false}}
+      )
+
+    assert [entry] = payload.history
+    assert entry.provenance["backend"] == "codex-app-server"
+    assert entry.provenance["resolved_model"] == "gpt-resolved"
+    assert entry.supervisor_basis["confidence"] == 0
+    assert entry.superseded_by == "action-replacement"
+    assert entry.change == :superseded
   end
 
   test "maps OCC-3 semantic and delivery axes into an honest display lifecycle" do

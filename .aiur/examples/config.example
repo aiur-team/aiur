@@ -7,6 +7,10 @@ tracker:
   terminal_states: [done, cancelled, canceled]
 {{TRACKER_PROVIDER}}
   # provider block (filled above): github {repo, label_prefix, bot_account, trusted_accounts} | linear {api_key, project_slug, assignee}
+  # bot_account is an IDENTITY, not a credential: GITHUB_TOKEN (in .env) is the credential Aiur
+  # authenticates with; bot_account is the login Aiur recognizes as its own to suppress self-triggered
+  # comment/event loops. Prefer a dedicated bot account (e.g. its-applekid) when operators also comment
+  # from a trusted CODEOWNER account — reusing one login makes agent-vs-human provenance ambiguous.
 
 # === Coding agents ===
 agent:
@@ -21,7 +25,7 @@ agent:
   # max_turns_by_complexity: {1: 4, 2: 8, 3: 12, 4: 20, 5: 30}  # overrides max_turns for labeled tickets
   max_agent_duration_minutes: {{MAX_AGENT_DURATION}}  # safety checkpoint; 0 = never auto-pause
   # synthetic_load_process_cap: null     # per-agent cap for `yes`/`stress` load generators; null = cores/4, 0 = disabled
-  routing: {{ROUTING}}                   # complexity:<N> label -> backend[:model[:effort]], e.g. codex:gpt-5.6-terra:high
+  routing: {{ROUTING}}                   # complexity:<N> label -> backend[:model[:effort]]; prefer a family alias (codex:terra:high, claude:opus) over a pinned version, which expires
 {{RATE_LIMIT_FALLBACK}}  # opt-in default-ticket fallback order; explicit labels/routing are never changed
   claude:
     command: aiur-claude
@@ -86,6 +90,23 @@ alerts:
 #   enabled: false           # true = act on comments on watched/commanded PRs repo-wide
 #   watch_label: watch        # label a PR `<label_prefix>:watch` (e.g. agent:watch) to monitor all its code-owner/trusted comments
 #   command_prefix: /aiur     # a trusted comment starting with this (or mentioning github.bot_account) handles that one comment, no label needed
+
+# === Build Order providers (optional; in-memory only) ===
+# Supervised providers fetch configured-repository detail and retain sanitized typed ticket history.
+# Restarting Aiur clears their snapshots; consumers receive unavailable state until a new read succeeds.
+# build_order:
+#   ticket_detail_freshness_ms: 30000       # 1..300000; reuse a healthy detail during this window
+#   graph_catalog_refresh_ms: 60000         # daemon-owned root-catalog reconciliation interval
+#   graph_selected_refresh_ms: 15000        # refresh interval while a selected root has demand
+#   graph_demand_refresh_ms: 5000           # selection/reconnect threshold; must not exceed selected refresh
+#   graph_refresh_timeout_ms: 30000         # bounded provider task timeout
+#   graph_max_selected_roots: 32            # in-memory retained LKG roots; lost on daemon restart
+#   graph_max_inflight: 4                    # provider refreshes shared by all connected consumers
+#   ticket_detail_max_entries: 32            # 1..100; retained ticket identities, independent of browser count
+#   ticket_detail_max_description_bytes: 16384 # 1..16384; bounded sanitized provider description
+#   ticket_history_limit: 50                  # 1..100; retained allowlisted recent-history entries per ticket
+#   ticket_history_max_identities: 100        # 1..100; retained configured-repository ticket histories
+#   ticket_history_stale_after_ms: 60000      # 1..300000; freshness window for typed activity evidence
 
 # --- advanced (top-level; defaults shown, uncomment to override) ---
 # debug: false                           # true = always run in debug mode (verbose logs + debug UI), no --debug flag needed; --debug still wins

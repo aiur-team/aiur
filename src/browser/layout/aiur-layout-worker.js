@@ -11,7 +11,7 @@ const MAX_BEND_POINTS = MAX_SECTION_POINTS - 2
 const MAX_ROUTE_POINTS = 8_000
 const MAX_DIAGNOSTICS = 10
 const MAX_DIMENSION = 4_096
-const MAX_COORDINATE = 4_095
+const MAX_COORDINATE = 65_535
 const generatedIdPatterns = {
   request_: /^request_[1-9][0-9]*_[0-9]+$/,
   node_: /^node_[0-9]+$/,

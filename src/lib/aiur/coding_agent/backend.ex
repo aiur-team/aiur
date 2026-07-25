@@ -65,6 +65,11 @@ defmodule Aiur.CodingAgent.Backend do
       persistent-REPL transport).
     * `:fallback_backend` — the backend a failed spawn degrades to,
       once, so a transport failure never strands an issue.
+    * `:model_aliases` — whether generic model tags are `:native` (the
+      backend's own CLI resolves `opus` to the newest opus, so aiur
+      passes them through) or `:derived` (aiur synthesizes a family
+      alias per `Aiur.CodingAgent.Models` and resolves it to the newest
+      version itself). Defaults to `:native`.
   """
   @type capabilities :: %{
           required(:adapter) => module(),
@@ -72,9 +77,11 @@ defmodule Aiur.CodingAgent.Backend do
           required(:family) => String.t(),
           required(:can_interrupt) => boolean(),
           required(:safe_checkpoints) => [atom()],
+          optional(:control_application_confirmation) => :confirmed | :request_only | :unsupported,
           required(:remote_control) => boolean(),
           required(:resumable) => boolean(),
           required(:models) => [String.t()],
+          optional(:model_aliases) => :native | :derived,
           required(:efforts) => [String.t()],
           optional(:immediate_delivery) => boolean(),
           optional(:remote_transport) => CodingAgent.backend(),

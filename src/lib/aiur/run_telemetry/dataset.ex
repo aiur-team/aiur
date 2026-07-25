@@ -67,6 +67,128 @@ defmodule Aiur.RunTelemetry.Dataset do
     end
   end
 
+  @doc """
+  Narrows an already-reduced dataset to one session and/or one ticket set.
+
+  Scoping the reduced dataset rather than re-reading the stream per scope keeps a
+  single parse and a single interval-pairing path; only the per-actor statistics
+  are recomputed, so `profile` reflects the surviving samples instead of the
+  whole stream.
+
+  Options:
+
+    * `:boot_id` — keep only records written by that daemon boot. Externally
+      anchored GitHub records survive regardless: they carry no boot of their own
+      and dropping them would silently erase merges from a session's view.
+    * `:tickets` — a `MapSet` of bare ticket-number strings. Non-ticket actors
+      (the daemon and executor baselines) are always retained; they are shared
+      orchestration overhead, not per-ticket cost.
+
+  An actor or ticket left with nothing in scope is dropped rather than kept as an
+  empty shell.
+  """
+  @spec filter(dataset(), keyword()) :: dataset()
+  def filter(dataset, opts) when is_map(dataset) and is_list(opts) do
+    boot_id = Keyword.get(opts, :boot_id)
+    tickets = Keyword.get(opts, :tickets)
+
+    records = dataset |> Map.get(:records, []) |> Enum.filter(&keep_record?(&1, boot_id, tickets))
+    actors = dataset |> Map.get(:actors, %{}) |> filter_actors(boot_id, tickets)
+    scoped_tickets = dataset |> Map.get(:tickets, %{}) |> filter_tickets(boot_id, tickets)
+
+    Map.merge(dataset, %{
+      records: records,
+      restarts: Enum.filter(records, &(&1.kind == "restart")),
+      actors: actors,
+      tickets: scoped_tickets,
+      findings: dataset |> Map.get(:findings, []) |> Enum.filter(&Map.has_key?(scoped_tickets, &1.ticket)),
+      provenance: rescope_provenance(Map.get(dataset, :provenance, %{}), records)
+    })
+  end
+
+  @doc "Distinct daemon boots represented in a dataset, oldest first."
+  @spec boot_ids(dataset()) :: [String.t()]
+  def boot_ids(dataset) when is_map(dataset) do
+    dataset
+    |> Map.get(:records, [])
+    |> Enum.reject(&(&1.boot_id == "github"))
+    |> Enum.group_by(& &1.boot_id, & &1.timestamp_ms)
+    |> Enum.sort_by(fn {_boot_id, stamps} -> Enum.max(stamps, fn -> 0 end) end)
+    |> Enum.map(fn {boot_id, _stamps} -> boot_id end)
+  end
+
+  defp keep_record?(record, boot_id, tickets) do
+    in_boot?(record.boot_id, boot_id) and in_tickets?(Map.get(record.attributes, "ticket"), tickets)
+  end
+
+  defp in_boot?(_record_boot, nil), do: true
+  defp in_boot?("github", _boot_id), do: true
+  defp in_boot?(record_boot, boot_id), do: record_boot == boot_id
+
+  # A record with no ticket (a restart, a host-level warning) is scope-neutral.
+  defp in_tickets?(nil, _tickets), do: true
+  defp in_tickets?(_ticket, nil), do: true
+  defp in_tickets?(ticket, tickets), do: MapSet.member?(tickets, ticket)
+
+  defp filter_actors(actors, boot_id, tickets) do
+    actors
+    |> Enum.filter(fn {key, _actor} -> actor_in_scope?(key, tickets) end)
+    |> Enum.flat_map(fn {key, actor} -> rescope_actor(key, actor, boot_id) end)
+    |> Map.new()
+  end
+
+  defp actor_in_scope?(_key, nil), do: true
+  defp actor_in_scope?("ticket:" <> number, tickets), do: MapSet.member?(tickets, number)
+  defp actor_in_scope?(_key, _tickets), do: true
+
+  defp rescope_actor(key, actor, nil), do: [{key, actor}]
+
+  defp rescope_actor(key, actor, boot_id) do
+    case Enum.filter(Map.get(actor, :samples, []), &(&1.boot_id == boot_id)) do
+      [] ->
+        []
+
+      samples ->
+        [
+          {key,
+           Map.merge(actor, %{
+             samples: samples,
+             profile: resource_profile(samples),
+             gaps: resource_gaps(samples, []),
+             availability: availability_counts(samples)
+           })}
+        ]
+    end
+  end
+
+  defp filter_tickets(tickets, boot_id, ticket_set) do
+    tickets
+    |> Enum.filter(fn {id, _ticket} -> is_nil(ticket_set) or MapSet.member?(ticket_set, id) end)
+    |> Enum.flat_map(fn {id, ticket} -> rescope_ticket(id, ticket, boot_id) end)
+    |> Map.new()
+  end
+
+  defp rescope_ticket(id, ticket, nil), do: [{id, ticket}]
+
+  defp rescope_ticket(id, ticket, boot_id) do
+    case Enum.filter(Map.get(ticket, :events, []), &in_boot?(&1.boot_id, boot_id)) do
+      [] -> []
+      events -> [{id, Map.merge(ticket, %{events: events, intervals: lifecycle_intervals(events)})}]
+    end
+  end
+
+  defp rescope_provenance(provenance, records) do
+    time_range =
+      case records do
+        [] -> nil
+        records -> %{start: hd(records).timestamp_iso, end: List.last(records).timestamp_iso}
+      end
+
+    provenance
+    |> Map.put(:time_range, time_range)
+    |> Map.put(:record_count, length(records))
+  end
+
   defp discover_files(inputs) do
     inputs
     |> Enum.flat_map(fn input ->

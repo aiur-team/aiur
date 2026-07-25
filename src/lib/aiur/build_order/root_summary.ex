@@ -12,6 +12,10 @@ defmodule Aiur.BuildOrder.RootSummary do
           labels: [String.t()],
           created_at: DateTime.t() | nil,
           updated_at: DateTime.t() | nil,
+          member_count: non_neg_integer() | nil,
+          epic_count: non_neg_integer() | nil,
+          phase_count: non_neg_integer() | nil,
+          progress: non_neg_integer() | nil,
           diagnostics: [Diagnostic.t()]
         }
 
@@ -23,6 +27,10 @@ defmodule Aiur.BuildOrder.RootSummary do
             labels: [],
             created_at: nil,
             updated_at: nil,
+            member_count: nil,
+            epic_count: nil,
+            phase_count: nil,
+            progress: nil,
             diagnostics: []
 
   @spec new(term()) :: t()
@@ -52,6 +60,10 @@ defmodule Aiur.BuildOrder.RootSummary do
       labels: labels(Map.get(attributes, :labels, [])),
       created_at: datetime(Map.get(attributes, :created_at)),
       updated_at: datetime(Map.get(attributes, :updated_at)),
+      member_count: count(Map.get(attributes, :member_count)),
+      epic_count: count(Map.get(attributes, :epic_count)),
+      phase_count: count(Map.get(attributes, :phase_count)),
+      progress: percent(Map.get(attributes, :progress)),
       diagnostics: diagnostics
     }
   end
@@ -109,6 +121,12 @@ defmodule Aiur.BuildOrder.RootSummary do
 
   defp labels(labels) when is_list(labels), do: Enum.filter(labels, &is_binary/1)
   defp labels(_labels), do: []
+
+  defp count(value) when is_integer(value) and value >= 0, do: value
+  defp count(_value), do: nil
+
+  defp percent(value) when is_integer(value) and value in 0..100, do: value
+  defp percent(_value), do: nil
   defp datetime(%DateTime{} = datetime), do: datetime
   defp datetime(_datetime), do: nil
 end

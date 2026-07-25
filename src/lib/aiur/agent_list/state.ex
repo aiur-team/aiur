@@ -97,11 +97,9 @@ defmodule Aiur.AgentList.State do
       # AgentPubSub fires on every transcript event; duplicates are
       # harmless because MapSet.put is idempotent.
       agents_with_content: MapSet.new(),
-      # Per-identifier most recent event for the agent-list `Latest`
-      # column (R5/U21). Populated from `DebugLog` broadcasts —
-      # every published event on a `ticket.<id>.…` topic updates the
-      # entry for that ticket. Map value shape:
-      # `%{topic: String.t(), message: String.t(), timestamp: DateTime.t()}`.
+      # Per-identifier presentation maps derived from the daemon-owned
+      # TicketActivity projection. AgentList joins through trusted tracker
+      # identity and never folds raw event bodies into these maps.
       latest_event_by_id: %{},
       # Per-identifier count of currently-open `attention.*` slugs,
       # driving the `❗` / `❗N` slot in the State column. Refreshed
@@ -110,19 +108,14 @@ defmodule Aiur.AgentList.State do
       # enough that polling on summary updates beats per-event
       # incremental tracking).
       open_attentions_by_id: %{},
-      # Per-identifier ring of recent progress samples for the
-      # `[bar] ETA` column (R2). Agents publish
-      # `ticket.<id>.agent.progress` with `%{percent: 0..100}` payload
-      # and `Aiur.ProgressTracker` derives the bar + ETA on render.
-      # Sample shape: `[{percent, monotonic_ms}, …]` newest first,
-      # bounded by ProgressTracker.@max_samples.
       progress_by_id: %{},
-      # Per-identifier active workflow phase, driving the running-state
-      # status emoji (#68). Populated from
-      # `ticket.<id>.agent.phase.<brainstorm|plan|work|review>.start`
-      # publishes (last `.start` wins); the matching `.end` clears it.
-      # Value is one of `:brainstorm | :plan | :work | :review`.
       phase_by_identifier: %{},
+      activity_status_by_identifier: %{},
+      ticket_activity_generation: -1,
+      ticket_activity_by_identity: %{},
+      ticket_activity_presented: %{},
+      ticket_activity_snapshot_fun: Keyword.get(opts, :ticket_activity_snapshot_fun, &Aiur.TicketActivity.snapshots/0),
+      ticket_activity_subscribe_fun: Keyword.get(opts, :ticket_activity_subscribe_fun, &Aiur.TicketActivity.subscribe/0),
       warm_status_dark_mode?: warm_status_dark_mode_default(),
       # Ring buffer of warmth-related aiur_perf events (debug mode
       # only). Capped at @warmth_event_cap to avoid unbounded growth.

@@ -1,9 +1,10 @@
 defmodule Aiur.AgentRunner.SessionLifecycle do
   @moduledoc false
   require Logger
-  alias Aiur.{AgentPubSub, CodingAgent, Config, Issue, Tracker}
-  alias Aiur.AgentRunner.{SessionResume, TurnLoop}
-  alias Aiur.Claude.{DisplayTailer, RemoteControl}
+  alias Aiur.{AgentPubSub, Alerts, CodingAgent, Config, Issue, Tracker}
+  alias Aiur.AgentRunner.{MessageHandler, SessionResume, TurnLoop}
+  alias Aiur.Claude.{DisplayTailer, RemoteControl, Telemetry}
+  alias Aiur.LiveConversation.Source
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Workspace.Ownership
   @type worker_host :: String.t() | nil
@@ -27,6 +28,25 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   end
 
   defp report_repl_session(_recipient, _issue, _session), do: :ok
+
+  @doc false
+  @spec report_session_execution(pid() | nil, Issue.t(), map()) :: :ok
+  def report_session_execution(recipient, %Issue{id: issue_id}, session)
+      when is_binary(issue_id) and is_pid(recipient) and is_map(session) do
+    send(
+      recipient,
+      {:session_execution_info, issue_id,
+       %{
+         backend: session_backend(session),
+         requested_model: Map.get(session, :model),
+         effort: Map.get(session, :effort)
+       }}
+    )
+
+    :ok
+  end
+
+  def report_session_execution(_recipient, _issue, _session), do: :ok
 
   defp report_pause_containment(recipient, %Issue{id: issue_id}, %{containment: containment, metadata: metadata})
        when is_pid(recipient) and is_binary(issue_id) and is_map(containment) do
@@ -133,6 +153,8 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
 
     Logger.info("Resolved backend for #{Aiur.AgentRunner.issue_context(issue)} backend=#{session_backend} model=#{inspect(model)} effort=#{inspect(effort)} remote_control=#{rc?}")
 
+    maybe_alert_unsupported_model(issue, workspace, worker_host, session_backend, model)
+
     maybe_trust_remote_control_workspace(workspace, rc?, worker_host, fn ws ->
       Aiur.Orchestrator.ensure_remote_control_trust(orchestrator, ws)
     end)
@@ -207,7 +229,17 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   # have escaped containment discovery, so its expectation must stay
   # fail-closed for the guardian to reap or prove it gone.
   defp pre_spawn_start_error?(reason)
-       when reason in [:bash_not_found, :no_tmux, :no_tmux_executable, :remote_control_requires_dashboard],
+       when reason in [
+              :bash_not_found,
+              :no_tmux,
+              :no_tmux_executable,
+              :remote_control_requires_dashboard,
+              :receiver_unavailable,
+              :missing_tracker_identity,
+              :remote_worker_unsupported,
+              :invalid_correlation,
+              :capability_unavailable
+            ],
        do: true
 
   # Codex and Claude reject their workspace root before invoking their spawn
@@ -227,7 +259,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
          session_context,
          start_fun
        ) do
-    case start_agent_session(workspace, session_context.session_opts, start_fun) do
+    case start_with_telemetry(workspace, issue, worker_host, ownership, session_context.session_opts, start_fun) do
       {:ok, session} ->
         run_contained_session(
           session,
@@ -246,6 +278,70 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
         record_session_start_failure(issue, session_context, reason)
         error
     end
+  end
+
+  defp start_with_telemetry(workspace, issue, worker_host, ownership, session_opts, start_fun) do
+    case prepare_telemetry_launch(issue, worker_host, ownership, session_opts) do
+      {:ok, telemetry_launch} ->
+        launch_opts = with_telemetry_launch_opts(session_opts, telemetry_launch, issue, worker_host, ownership)
+
+        case start_agent_session(workspace, launch_opts, start_fun) do
+          {:ok, session} ->
+            revoke_unclaimed_telemetry_launch(session, telemetry_launch)
+            {:ok, session}
+
+          {:error, _reason} = error ->
+            _ = Telemetry.revoke(telemetry_launch)
+            error
+        end
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp prepare_telemetry_launch(_issue, _worker_host, nil, _session_opts), do: {:ok, nil}
+
+  defp prepare_telemetry_launch(issue, worker_host, ownership, session_opts) do
+    if Keyword.get(session_opts, :backend) in ["claude", "claude-repl"] do
+      Telemetry.prepare_launch(issue,
+        attempt_id: Keyword.get(session_opts, :attempt_id),
+        workspace_ownership: ownership,
+        backend: Keyword.get(session_opts, :backend),
+        worker_host: worker_host
+      )
+    else
+      {:ok, nil}
+    end
+  end
+
+  defp with_telemetry_launch_opts(session_opts, nil, _issue, _worker_host, _ownership), do: session_opts
+
+  defp with_telemetry_launch_opts(session_opts, telemetry_launch, issue, worker_host, ownership) do
+    fallback_launch_fun = fn fallback_backend ->
+      Telemetry.prepare_launch(issue,
+        attempt_id: Keyword.get(session_opts, :attempt_id),
+        workspace_ownership: ownership,
+        backend: fallback_backend,
+        worker_host: worker_host
+      )
+    end
+
+    session_opts
+    |> Keyword.put(:telemetry_launch, telemetry_launch)
+    |> Keyword.put(:telemetry_fallback_launch_fun, fallback_launch_fun)
+  end
+
+  defp revoke_unclaimed_telemetry_launch(_session, nil), do: :ok
+
+  defp revoke_unclaimed_telemetry_launch(%{telemetry_launch: %{id: id}}, %{id: id}) when is_reference(id), do: :ok
+
+  defp revoke_unclaimed_telemetry_launch(_session, telemetry_launch) do
+    # A REPL can fall back to the headless adapter after a failed pane spawn.
+    # Never reuse a capability whose trusted backend correlation says REPL for
+    # that replacement process; the fallback remains visibly uncovered until a
+    # fresh, correctly correlated launch is prepared.
+    Telemetry.revoke(telemetry_launch)
   end
 
   defp run_contained_session(
@@ -293,13 +389,24 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
          ownership,
          session_context
        ) do
+    report_session_execution(codex_update_recipient, issue, session)
+
     # Persist the live session handle so the next aiur restart can resume it.
     SessionResume.persist_session_handle(session, issue.identifier, worker_host)
     SessionResume.log_resume_outcome(issue, session, Keyword.get(session_context.session_opts, :resume_thread_id))
     report_repl_session(codex_update_recipient, issue, session)
     report_pause_containment(codex_update_recipient, issue, session)
 
-    display_tailer = maybe_start_display_tailer(session, issue, session_context.rc?)
+    display_authority? =
+      should_display_tail?(session_backend(session), session_context.rc?, issue.identifier)
+
+    opts =
+      opts
+      |> put_live_conversation_session_id(session)
+      |> maybe_put_display_authority(display_authority?)
+
+    display_tailer = maybe_start_display_tailer(session, issue, session_context.rc?, opts)
+    opts = maybe_put_display_source_resolver(opts, display_tailer)
 
     # A resumed thread already carries the original task + full prior turn
     # history, so its first turn must continue rather than replay the
@@ -307,40 +414,104 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     opts = Keyword.put(opts, :resumed, SessionResume.session_resumed?(session))
 
     try do
-      TurnLoop.run_turns(
-        session,
-        workspace,
+      result =
+        TurnLoop.run_turns(
+          session,
+          workspace,
+          issue,
+          codex_update_recipient,
+          opts,
+          session_context.issue_state_fetcher,
+          session_context.orchestrator,
+          worker_host,
+          1,
+          session_context.max_turns
+        )
+
+      # The provider may have fallen back (for example, from claude-repl to
+      # claude). Conversation ingestion keys every event by the backend tagged
+      # on the actual session, so terminal health must close that same source.
+      MessageHandler.finish_live_conversation(
         issue,
-        codex_update_recipient,
-        opts,
-        session_context.issue_state_fetcher,
-        session_context.orchestrator,
-        worker_host,
-        1,
-        session_context.max_turns
+        session_backend(session),
+        result,
+        current_display_source_opts(opts, display_tailer)
       )
+
+      result
+    catch
+      kind, reason ->
+        MessageHandler.mark_live_conversation_degraded(
+          issue,
+          session_backend(session),
+          current_display_source_opts(opts, display_tailer)
+        )
+
+        :erlang.raise(kind, reason, __STACKTRACE__)
     after
       stop_display_tailer(display_tailer)
       stop_session_with_ownership(session, ownership)
     end
   end
 
+  defp put_live_conversation_session_id(opts, %{thread_id: thread_id})
+       when is_binary(thread_id) and thread_id != "" do
+    Keyword.put(opts, :session_id, thread_id)
+  end
+
+  defp put_live_conversation_session_id(opts, _session), do: opts
+
+  defp maybe_put_display_authority(opts, true),
+    do: Keyword.put(opts, :live_conversation_authority, :display_tailer)
+
+  defp maybe_put_display_authority(opts, false), do: opts
+
+  defp current_display_source_opts(opts, nil), do: opts
+
+  defp current_display_source_opts(opts, display_tailer) do
+    case DisplayTailer.current_session(display_tailer) do
+      session_id when is_binary(session_id) and session_id != "" ->
+        Keyword.put(opts, :session_id, session_id)
+
+      _other ->
+        opts
+    end
+  catch
+    :exit, _reason -> opts
+  end
+
+  defp maybe_put_display_source_resolver(opts, nil), do: opts
+
+  defp maybe_put_display_source_resolver(opts, display_tailer) do
+    opts
+    |> Keyword.put(:live_conversation_source_resolver, fn ->
+      DisplayTailer.current_session(display_tailer)
+    end)
+    |> Keyword.put(:live_conversation_operator_buffer, fn item, occurred_at ->
+      DisplayTailer.buffer_operator_delivery(display_tailer, item, occurred_at)
+    end)
+  end
+
   @doc false
   @spec stop_session_with_ownership(map(), Ownership.lease() | nil, (map() -> term())) :: term()
   def stop_session_with_ownership(session, ownership, stop_fun \\ &CodingAgent.stop_session/1)
       when is_map(session) and is_function(stop_fun, 1) do
-    case stop_fun.(session) do
-      {:ok, :cleanup_proven} ->
-        _ = Ownership.mark_provider_cleanup_succeeded(ownership)
-        :ok
+    try do
+      case stop_fun.(session) do
+        {:ok, :cleanup_proven} ->
+          _ = Ownership.mark_provider_cleanup_succeeded(ownership)
+          :ok
 
-      :ok ->
-        _ = Ownership.mark_provider_cleanup_unknown(ownership)
-        :ok
+        :ok ->
+          _ = Ownership.mark_provider_cleanup_unknown(ownership)
+          :ok
 
-      cleanup_failure ->
-        _ = Ownership.mark_provider_cleanup_unknown(ownership)
-        cleanup_failure
+        cleanup_failure ->
+          _ = Ownership.mark_provider_cleanup_unknown(ownership)
+          cleanup_failure
+      end
+    after
+      Telemetry.revoke(Map.get(session, :telemetry_launch))
     end
   catch
     kind, reason ->
@@ -415,7 +586,6 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
           {String.t(), boolean(), keyword()}
   def resolve_session_options(issue, opts, worker_host) do
     backend = CodingAgent.backend_for(issue)
-    model = CodingAgent.model_for(issue)
     effort = CodingAgent.effort_for(issue)
 
     rc? =
@@ -423,6 +593,13 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
          Config.agent_remote_control?()) and CodingAgent.remote_control?(backend)
 
     session_backend = remote_session_backend(backend, rc?)
+
+    # Resolved against the transport that actually receives the string, so a
+    # generic tag (`codex:sol`) becomes the newest version in that family
+    # while an explicitly pinned one stays pinned. An unrecognized model is
+    # passed through unchanged and surfaced in `run_session/5` rather than
+    # swapped for something else.
+    model = CodingAgent.resolve_model(session_backend, CodingAgent.model_for(issue))
 
     # Rejoin the prior agent thread across an aiur restart instead of cold-
     # starting a fresh conversation that re-discovers the work (issue #378).
@@ -450,37 +627,144 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   # agent, so the pane and Remote Control channel are two views of one conversation.
   # Headless/codex/RC-off sessions stream their own rich transcript and are left
   # untouched. Started UNLINKED with `owner: self()` so display failure never affects the run.
-  defp maybe_start_display_tailer(session, issue, rc?) do
+  defp maybe_start_display_tailer(session, issue, rc?, opts) do
     backend = session_backend(session)
 
     if should_display_tail?(backend, rc?, issue.identifier) do
-      identifier = issue.identifier
-
       # DISPLAY-ONLY: broadcast straight to the opencode pane's transcript
       # topic. Do NOT route through codex_message_handler — that also does
       # per-record AgentEventLog.write (disk) and send_codex_update (to the
       # shared run recipient), so a `from: :start` backfill burst would hammer
       # both. The pane render only needs the transcript broadcast.
-      on_message = fn
-        %{transcript_event: event} -> AgentPubSub.broadcast_transcript(identifier, event)
-        _ -> :ok
-      end
+      on_message = display_tailer_handler(issue, backend, opts)
+      on_source = display_tailer_source_handler(issue, backend, opts)
+      on_operator_delivery = display_tailer_operator_delivery_handler(issue, backend, opts)
+
+      # Until a hook identifies a readable transcript, the sole authoritative
+      # RC conversation source is unavailable. Ordinary provider activation is
+      # suppressed by `:live_conversation_authority` and cannot clear this.
+      _ = MessageHandler.mark_live_conversation_degraded(issue, backend, opts)
 
       case DisplayTailer.start(
-             identifier: identifier,
+             identifier: issue.identifier,
              on_message: on_message,
+             on_source: on_source,
+             on_operator_delivery: on_operator_delivery,
+             initial_session_id: Keyword.get(opts, :session_id),
+             log_context: "#{Aiur.AgentRunner.issue_context(issue)} backend=#{backend}",
              owner: self()
            ) do
         {:ok, pid} ->
           pid
 
         {:error, reason} ->
-          Logger.warning("display_tailer start_failed issue_identifier=#{issue.identifier} reason=#{inspect(reason)}")
+          Logger.warning(
+            "display_tailer start_failed #{Aiur.AgentRunner.issue_context(issue)} " <>
+              "backend=#{backend} session=#{opaque_live_session(opts)} " <>
+              "reason_class=#{Lifecycle.reason_class(reason)}"
+          )
+
           nil
       end
     else
       nil
     end
+  end
+
+  @doc false
+  @spec display_tailer_handler(Issue.t(), String.t(), keyword()) :: (map() -> :ok)
+  def display_tailer_handler(%Issue{identifier: identifier} = issue, backend, opts)
+      when is_binary(identifier) and is_binary(backend) and is_list(opts) do
+    fn
+      %{
+        source_session_id: session_id,
+        projection_ingress: :display_backfill,
+        transcript_event: event
+      }
+      when is_binary(session_id) and is_map(event) ->
+        AgentPubSub.broadcast_transcript(identifier, event)
+
+      %{source_session_id: session_id, transcript_event: event}
+      when is_binary(session_id) and is_map(event) ->
+        AgentPubSub.broadcast_transcript(identifier, event)
+
+        MessageHandler.observe_display_transcript(
+          issue,
+          event,
+          backend,
+          Keyword.put(opts, :session_id, session_id)
+        )
+
+      _ ->
+        :ok
+    end
+  end
+
+  @doc false
+  @spec display_tailer_source_handler(Issue.t(), String.t(), keyword()) ::
+          (DisplayTailer.source_event() -> :ok | {:error, term()})
+  def display_tailer_source_handler(%Issue{} = issue, backend, opts)
+      when is_binary(backend) and is_list(opts) do
+    fn
+      {:available, prior_session, next_session, %{backfill?: backfill?}}
+      when is_boolean(backfill?) ->
+        opts = Keyword.put(opts, :live_conversation_history_known?, not backfill?)
+
+        MessageHandler.replace_live_conversation_source(
+          issue,
+          backend,
+          prior_session,
+          next_session,
+          opts
+        )
+
+      {:available, prior_session, next_session} ->
+        MessageHandler.replace_live_conversation_source(
+          issue,
+          backend,
+          prior_session,
+          next_session,
+          opts
+        )
+
+      {:unavailable, prior_session, next_session, _reason} ->
+        opts = Keyword.put(opts, :live_conversation_history_known?, false)
+
+        _ =
+          MessageHandler.replace_live_conversation_source(
+            issue,
+            backend,
+            prior_session,
+            next_session,
+            opts
+          )
+
+        MessageHandler.mark_live_conversation_degraded(
+          issue,
+          backend,
+          Keyword.put(opts, :session_id, next_session)
+        )
+
+      _other ->
+        :ok
+    end
+  end
+
+  defp display_tailer_operator_delivery_handler(issue, backend, opts) do
+    fn item, occurred_at, session_id ->
+      opts =
+        opts
+        |> Keyword.put(:session_id, session_id)
+        |> Keyword.put(:occurred_at, occurred_at)
+        |> Keyword.delete(:live_conversation_authority)
+
+      MessageHandler.observe_operator_delivery(issue, item, backend, opts)
+    end
+  end
+
+  defp opaque_live_session(opts) do
+    Source.opaque_session_id(Keyword.get(opts, :session_id)) ||
+      "session:unresolved"
   end
 
   # Only a backend that declares the `rc_display_tail` capability (the
@@ -615,23 +899,102 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
 
     Logger.warning("#{backend} start_session failed (#{inspect(reason)}); falling back to #{fallback}")
 
-    fallback_opts = opts |> Keyword.put(:backend, fallback) |> Keyword.delete(:remote_control)
-    adapter_opts = Keyword.delete(fallback_opts, :attempt_id)
+    {telemetry_launch, fallback_opts} = Keyword.pop(opts, :telemetry_launch)
+    _ = Telemetry.revoke(telemetry_launch)
+    {fallback_launch_fun, fallback_opts} = Keyword.pop(fallback_opts, :telemetry_fallback_launch_fun)
 
-    case start_fun.(workspace, adapter_opts) do
-      {:ok, session} -> {:ok, tag_session(session, fallback, fallback_opts)}
-      {:error, _} = error -> error
+    with {:ok, fallback_launch} <- prepare_fallback_telemetry(fallback_launch_fun, fallback) do
+      fallback_opts =
+        fallback_opts
+        |> Keyword.put(:backend, fallback)
+        |> Keyword.delete(:remote_control)
+        |> maybe_put_telemetry_launch_opt(fallback_launch)
+
+      case start_fun.(workspace, Keyword.delete(fallback_opts, :attempt_id)) do
+        {:ok, session} ->
+          {:ok, tag_session(session, fallback, fallback_opts)}
+
+        {:error, _} = error ->
+          _ = Telemetry.revoke(fallback_launch)
+          error
+      end
     end
   end
+
+  defp prepare_fallback_telemetry(fun, fallback) when is_function(fun, 1), do: fun.(fallback)
+  defp prepare_fallback_telemetry(_fun, _fallback), do: {:ok, nil}
+
+  defp maybe_put_telemetry_launch_opt(opts, nil), do: opts
+  defp maybe_put_telemetry_launch_opt(opts, launch), do: Keyword.put(opts, :telemetry_launch, launch)
 
   defp tag_session(session, backend, opts) do
     session
     |> Map.put(:backend, backend)
+    |> Map.put(:model, Keyword.get(opts, :model))
+    |> Map.put(:effort, supported_effort(backend, Keyword.get(opts, :effort)))
     |> maybe_put_attempt_id(Keyword.get(opts, :attempt_id))
+    |> maybe_put_telemetry_launch_session(Keyword.get(opts, :telemetry_launch))
+  end
+
+  defp supported_effort(backend, effort) when is_binary(effort) do
+    if effort in CodingAgent.efforts(backend) do
+      effort
+    else
+      Logger.warning(
+        "Ignoring effort #{inspect(effort)} for backend #{backend}: not in its supported efforts " <>
+          "#{inspect(CodingAgent.efforts(backend))} (pair a model:<effort> label with model:remote to run on a transport that supports effort)"
+      )
+
+      nil
+    end
+  end
+
+  defp supported_effort(_backend, _effort), do: nil
+
+  # A model aiur doesn't recognize is far more likely to be newer than this
+  # build than to be wrong, so it is never blocked and never quietly swapped
+  # for the backend default — either would hide the real problem. Instead the
+  # Executor gets one attention naming both remediations: let `aiur init`
+  # discover the new tag, or repoint a retired pin at a generic family tag.
+  @doc false
+  @spec maybe_alert_unsupported_model(Issue.t(), Path.t() | nil, worker_host(), String.t(), String.t() | nil) :: :ok
+  def maybe_alert_unsupported_model(issue, workspace, worker_host, backend, model) when is_binary(model) do
+    if CodingAgent.known_model?(backend, model) do
+      :ok
+    else
+      reason = unsupported_model_reason(backend, model)
+      Logger.warning("Unknown model #{inspect(model)} for backend #{backend}: #{reason}")
+
+      Alerts.emit_system("ticket.#{issue.identifier}.agent.attention.unsupported_model",
+        issue: issue,
+        workspace: workspace,
+        worker_host: worker_host,
+        reason: reason,
+        needs_attention: true,
+        severity: "warning"
+      )
+
+      :ok
+    end
+  end
+
+  def maybe_alert_unsupported_model(_issue, _workspace, _worker_host, _backend, _model), do: :ok
+
+  defp unsupported_model_reason(backend, model) do
+    generic = List.first(CodingAgent.model_aliases(backend)) || List.first(CodingAgent.seedable_models(backend))
+
+    "Model #{inspect(model)} is not one aiur knows for the #{backend} backend " <>
+      "(known: #{Enum.join(CodingAgent.seedable_models(backend), ", ")}). It is being passed to the backend " <>
+      "unchanged — aiur is not substituting a different model. If it is a newly released model, run `aiur init` " <>
+      "and accept the offer to create its model tags. If it is a retired version, repoint the issue label or the " <>
+      "`agent.routing` entry at a generic tag such as #{inspect(generic)}, which always resolves to the newest " <>
+      "model in that family."
   end
 
   defp maybe_put_attempt_id(session, attempt_id) when is_binary(attempt_id), do: Map.put(session, :attempt_id, attempt_id)
   defp maybe_put_attempt_id(session, _attempt_id), do: session
+  defp maybe_put_telemetry_launch_session(session, %{id: id}) when is_reference(id), do: Map.put(session, :telemetry_launch, %{id: id})
+  defp maybe_put_telemetry_launch_session(session, _launch), do: session
 
   @doc false
   @spec session_workspace(map()) :: Path.t() | nil

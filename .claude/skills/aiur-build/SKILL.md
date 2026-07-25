@@ -1,6 +1,6 @@
 ---
 name: aiur-build
-description: "Research and decompose a large feature into a durable, reviewable Aiur planning pack: requirements, versioned design evidence, technical decisions, worker-ready ticket contracts, typed dependency/conflict graph, validation report, and Executor handoff. Use when asked to break a feature into Aiur tickets, plan an epic/build order, reproduce a large-feature planning process, or prepare work for a later aiur-run. This skill is planning-only unless the user separately authorizes GitHub issue materialization; it never implements the feature or runs Aiur."
+description: "Research and decompose a large feature into a durable, reviewable Aiur planning pack: requirements, versioned design evidence, technical decisions, worker-ready ticket contracts, typed dependency/conflict graph leveled into barrier-safe parallel phases within an agreed depth budget, validation report, and Executor handoff. Use when asked to break a feature into Aiur tickets, plan an epic/build order, reproduce a large-feature planning process, or prepare work for a later aiur-run. This skill is planning-only unless the user separately authorizes GitHub issue materialization; it never implements the feature or runs Aiur."
 ---
 
 # Build an Aiur Planning Pack
@@ -210,6 +210,32 @@ Planning is complete when a relevant pass adds neither and all gates pass.
 ## Optional GitHub materialization
 
 Only when explicitly authorized:
+
+Use the skill-owned publisher as the public entry point. It consumes the same
+canonical `build-order.json`, sibling `publication.json`, approved root
+template, and ticket documents enforced above; dry-run is the default and the
+two mutation stages remain explicit:
+
+```bash
+python3 <loaded-skill-directory>/scripts/publish_build_order.py \
+  --build docs/build-orders/<slug>/build-order.json \
+  --approved-sha <APPROVED_SHA> \
+  --green-authority-sha <GREEN_AUTHORITY_SHA>
+
+# only after the dry-run is reviewed and publication is explicitly authorized
+python3 <loaded-skill-directory>/scripts/publish_build_order.py --apply \
+  --build docs/build-orders/<slug>/build-order.json \
+  --approved-sha <APPROVED_SHA> \
+  --green-authority-sha <GREEN_AUTHORITY_SHA>
+```
+
+The default driver owns canonical root/ticket creation, approved H1/body
+rendering, marker deduplication, projected labels, native root membership,
+`depends_on` edges, bounded requery, and the core receipt. A pack may provide
+`scripts/publication_adapter.py` protocol version 1 only to declare extensions
+such as an additional non-member issue, external blocker edges, a bounded label
+creation allowlist, or reconciliation-comment policy. An adapter must export
+`publication_extension()` data; it must not replace the mutation driver.
 
 1. requery GitHub, deduplicate existing work, and freeze every reference-only
    issue that the user did not authorize for mutation or reuse; treat a closed

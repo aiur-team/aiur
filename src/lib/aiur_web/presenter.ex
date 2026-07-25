@@ -17,6 +17,10 @@ defmodule AiurWeb.Presenter do
     |> Map.merge(auxiliary_payload(opts))
   end
 
+  @doc "Returns the current dashboard navigation contract for telemetry analytics."
+  @spec analytics_navigation(keyword()) :: map()
+  def analytics_navigation(opts \\ []), do: analytics_payload(opts)
+
   defp orchestrator_payload(orchestrator, snapshot_timeout_ms) do
     case Orchestrator.snapshot(orchestrator, snapshot_timeout_ms) do
       %{} = snapshot ->
@@ -31,8 +35,8 @@ defmodule AiurWeb.Presenter do
           running: Enum.map(snapshot.running, &running_entry_payload/1),
           retrying: Enum.map(snapshot.retrying, &retry_entry_payload/1),
           idle: Enum.map(idle, &idle_entry_payload/1),
-          agent_totals: snapshot.agent_totals,
-          rate_limits: snapshot.rate_limits
+          agent_totals: public_agent_totals(snapshot.agent_totals),
+          capacity: capacity_payload(Map.get(snapshot, :capacity))
         }
 
       :timeout ->
@@ -283,6 +287,7 @@ defmodule AiurWeb.Presenter do
       worker_host: Map.get(entry, :worker_host),
       workspace_path: Map.get(entry, :workspace_path),
       session_id: entry.session_id,
+      live_conversation: Map.get(entry, :live_conversation),
       turn_count: Map.get(entry, :turn_count, 0),
       runtime_seconds: Map.get(entry, :runtime_seconds, 0),
       work_state: Map.get(entry, :work_state, :working),
@@ -297,14 +302,11 @@ defmodule AiurWeb.Presenter do
       stale_for_seconds: Map.get(entry, :stale_for_seconds),
       waiting_reason: Map.get(entry, :waiting_reason, :active),
       open_decision_count: Map.get(entry, :open_decision_count, 0),
+      open_decision_count_health: Map.get(entry, :open_decision_count_health, :unknown),
       ci: ci_payload(Map.get(entry, :ci_result)),
-      review: review_status(entry.state),
-      tokens: %{
-        input_tokens: entry.agent_input_tokens,
-        output_tokens: entry.agent_output_tokens,
-        total_tokens: entry.agent_total_tokens
-      }
+      review: review_status(entry.state)
     }
+    |> Map.merge(public_execution_facts(entry))
     |> maybe_put_tracker_identity(entry)
   end
 
@@ -326,9 +328,11 @@ defmodule AiurWeb.Presenter do
       tracker_paused: false,
       waiting_reason: Map.get(entry, :waiting_reason, :backing_off),
       open_decision_count: Map.get(entry, :open_decision_count, 0),
+      open_decision_count_health: Map.get(entry, :open_decision_count_health, :unknown),
       ci: ci_payload(Map.get(entry, :ci_result)),
       review: review_status(Map.get(entry, :state))
     }
+    |> Map.merge(public_execution_facts(entry))
     |> maybe_put_tracker_identity(entry)
   end
 
@@ -346,10 +350,25 @@ defmodule AiurWeb.Presenter do
       queue_depth: Map.get(entry, :queue_depth, 0),
       waiting_reason: Map.get(entry, :waiting_reason, :active),
       open_decision_count: Map.get(entry, :open_decision_count, 0),
+      open_decision_count_health: Map.get(entry, :open_decision_count_health, :unknown),
       ci: ci_payload(Map.get(entry, :ci_result)),
       review: review_status(entry.state)
     }
+    |> Map.merge(public_execution_facts(entry))
     |> maybe_put_tracker_identity(entry)
+  end
+
+  defp public_execution_facts(entry) do
+    Map.take(entry, [
+      :backend,
+      :agent_family,
+      :requested_model,
+      :resolved_model,
+      :effort,
+      :complexity,
+      :build_lane,
+      :labels
+    ])
   end
 
   defp maybe_put_tracker_identity(payload, entry_or_identity) do
@@ -400,6 +419,7 @@ defmodule AiurWeb.Presenter do
       worker_host: Map.get(running, :worker_host),
       workspace_path: Map.get(running, :workspace_path),
       session_id: running.session_id,
+      live_conversation: Map.get(running, :live_conversation),
       turn_count: Map.get(running, :turn_count, 0),
       state: running.state,
       queue_depth: Map.get(running, :queue_depth, 0),
@@ -411,16 +431,39 @@ defmodule AiurWeb.Presenter do
       stale_for_seconds: Map.get(running, :stale_for_seconds),
       waiting_reason: Map.get(running, :waiting_reason, :active),
       open_decision_count: Map.get(running, :open_decision_count, 0),
+      open_decision_count_health: Map.get(running, :open_decision_count_health, :unknown),
       ci: ci_payload(Map.get(running, :ci_result)),
-      review: review_status(running.state),
-      tokens: %{
-        input_tokens: running.agent_input_tokens,
-        output_tokens: running.agent_output_tokens,
-        total_tokens: running.agent_total_tokens
-      }
+      review: review_status(running.state)
     }
     |> maybe_put_tracker_identity(running)
   end
+
+  defp public_agent_totals(totals) when is_map(totals),
+    do: %{seconds_running: Map.get(totals, :seconds_running, 0)}
+
+  defp public_agent_totals(_totals), do: %{seconds_running: 0}
+
+  # The authoritative runtime max-agent capacity as returned by
+  # `Aiur.Orchestrator.Slots.max_concurrent_agent_status/1`. Only positive
+  # integer facts are surfaced; anything else is treated as absent so the
+  # dashboard labels it unknown rather than deriving capacity from rows.
+  defp capacity_payload(%{} = capacity) do
+    %{
+      active: non_negative_integer(Map.get(capacity, :active)),
+      max: positive_integer(Map.get(capacity, :max)),
+      configured: positive_integer(Map.get(capacity, :configured)),
+      session_override?: Map.get(capacity, :session_override?) == true,
+      draining?: Map.get(capacity, :draining?) == true
+    }
+  end
+
+  defp capacity_payload(_capacity), do: nil
+
+  defp positive_integer(value) when is_integer(value) and value > 0, do: value
+  defp positive_integer(_value), do: nil
+
+  defp non_negative_integer(value) when is_integer(value) and value >= 0, do: value
+  defp non_negative_integer(_value), do: nil
 
   defp retry_issue_payload(retry) do
     %{
@@ -432,6 +475,7 @@ defmodule AiurWeb.Presenter do
       state: Map.get(retry, :state),
       waiting_reason: Map.get(retry, :waiting_reason, :backing_off),
       open_decision_count: Map.get(retry, :open_decision_count, 0),
+      open_decision_count_health: Map.get(retry, :open_decision_count_health, :unknown),
       ci: ci_payload(Map.get(retry, :ci_result)),
       review: review_status(Map.get(retry, :state))
     }

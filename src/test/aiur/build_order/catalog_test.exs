@@ -10,6 +10,7 @@ defmodule Aiur.BuildOrder.CatalogTest do
     BuildOrder.ProviderHealth,
     BuildOrder.RootSummary,
     BuildOrder.SelectedRoot,
+    BuildOrder.TicketDetailCache,
     TrackerIdentity
   }
 
@@ -174,6 +175,44 @@ defmodule Aiur.BuildOrder.CatalogTest do
     assert {:ok, ^valid} = Catalog.select(catalog, relocated)
   end
 
+  test "catalog projections remain body-free and contain no detail-cache contract" do
+    root = root(1)
+    catalog = Catalog.new([root], ProviderHealth.new(1, :healthy, true))
+
+    refute Map.has_key?(root, :description)
+    refute Map.has_key?(root, :detail)
+    refute Map.has_key?(catalog, :ticket_detail)
+    refute Map.has_key?(catalog, :subscription)
+  end
+
+  test "catalog construction does not demand detail through the reader, cache, or event seam" do
+    parent = self()
+    root = root(1)
+    {:ok, invocations} = Agent.start_link(fn -> 0 end)
+    {:ok, task_supervisor} = Task.Supervisor.start_link()
+
+    {:ok, _cache} =
+      TicketDetailCache.start_link(
+        name: nil,
+        task_supervisor: task_supervisor,
+        configured_repo: @configured,
+        reader: fn _identity ->
+          Agent.update(invocations, &(&1 + 1))
+          send(parent, :detail_provider_invoked)
+          flunk("catalog construction must not demand detail")
+        end
+      )
+
+    assert :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, TicketDetailCache.topic(root.identity))
+
+    catalog = Catalog.new([root], ProviderHealth.new(1, :healthy, true))
+
+    assert catalog.entries == [root]
+    assert Agent.get(invocations, & &1) == 0
+    refute_received :detail_provider_invoked
+    refute_received {:ticket_detail_updated, _state}
+  end
+
   test "catalog lookup case-folds canonical GitHub repository identity" do
     valid = root(1)
     mixed_case = %{valid.identity | owner: "Owner", repository: "Repo"}
@@ -202,15 +241,15 @@ defmodule Aiur.BuildOrder.CatalogTest do
     assert length(
              SelectedRoot.new(
                root,
-               List.duplicate(member, 100),
+               List.duplicate(member, 1000),
                ProviderHealth.new(1, :healthy, true)
              ).members
-           ) == 100
+           ) == 1000
 
     selected =
-      SelectedRoot.new(root, List.duplicate(member, 101), ProviderHealth.new(1, :healthy, true))
+      SelectedRoot.new(root, List.duplicate(member, 1001), ProviderHealth.new(1, :healthy, true))
 
-    assert length(selected.members) == 100
+    assert length(selected.members) == 1000
     assert [%{code: :member_overflow}] = selected.diagnostics
     refute SelectedRoot.structurally_valid?(selected)
     assert SelectedRoot.status(selected) == :structurally_invalid

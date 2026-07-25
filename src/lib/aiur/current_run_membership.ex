@@ -34,6 +34,21 @@ defmodule Aiur.CurrentRunMembership do
   @spec freshness() :: map()
   def freshness, do: Store.freshness()
 
+  @doc false
+  @spec projection_checkpoint() :: %{run_id: String.t(), checkpoint: map() | nil}
+  def projection_checkpoint, do: Store.projection_checkpoint()
+
+  @doc false
+  @spec put_projection_checkpoint(String.t(), map()) :: :ok | {:error, :different_run}
+  def put_projection_checkpoint(run_id, checkpoint),
+    do: Store.put_projection_checkpoint(run_id, checkpoint)
+
+  @doc false
+  @spec put_projection_checkpoint_fenced(String.t(), map()) ::
+          :ok | {:error, :different_run | :checkpoint_expired}
+  def put_projection_checkpoint_fenced(run_id, checkpoint),
+    do: Store.put_projection_checkpoint_fenced(run_id, checkpoint)
+
   @spec mark_reconciled(:fresh | :unavailable) :: :ok
   def mark_reconciled(status), do: Store.mark_reconciled(status)
 

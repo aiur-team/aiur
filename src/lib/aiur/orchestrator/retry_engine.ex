@@ -7,13 +7,15 @@ defmodule Aiur.Orchestrator.RetryEngine do
   require Logger
   import Bitwise, only: [<<<: 2]
 
-  alias Aiur.{Alerts, Config, CurrentRunMembership, Issue, Tracker, TrackerIdentity}
+  alias Aiur.{AgentPubSub, Alerts, Config, CurrentRunMembership, Issue, Tracker, TrackerIdentity}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Workspace.Ownership
 
   alias Aiur.Orchestrator.{
+    ControlLifecycle,
+    ControlLifecycleStore,
     DispatchPolicy,
     MembershipLifecycle,
     Reconciler,
@@ -50,6 +52,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
       issue_id ->
         running_entry = Map.fetch!(running, issue_id)
+        state = expire_pending_control(state, running_entry, issue_id)
         state = TokenAccounting.record_session_completion_totals(state, running_entry)
         session_id = State.running_entry_session_id(running_entry)
 
@@ -101,6 +104,24 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
         StatusReport.notify_dashboard(state)
         {:noreply, state}
+    end
+  end
+
+  defp expire_pending_control(state, running_entry, issue_id) do
+    case ControlLifecycle.current_pending(state.control_lifecycle, issue_id) do
+      nil ->
+        state
+
+      pending ->
+        case ControlLifecycle.expire(state.control_lifecycle, pending.request_id, :worker_unavailable, now: DateTime.utc_now()) do
+          {:ok, expired, lifecycle} ->
+            :ok = ControlLifecycleStore.save(lifecycle)
+            AgentPubSub.broadcast_control_lifecycle(Map.get(running_entry, :identifier), ControlLifecycle.event_payload(expired))
+            %{state | control_lifecycle: lifecycle}
+
+          {:ignored, lifecycle} ->
+            %{state | control_lifecycle: lifecycle}
+        end
     end
   end
 
@@ -298,9 +319,11 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
       Logger.warning("Giving up on issue_id=#{issue_id} issue_identifier=#{identifier} after #{failed_attempts} failed attempt(s); max_retry_attempts=#{Config.max_retry_attempts()}#{error_suffix}")
 
-      Alerts.emit_system("ticket.#{identifier}.agent.retry_exhausted",
+      alert_message = retry_exhausted_alert_message(error)
+
+      Alerts.emit_custom("ticket.#{identifier}.agent.retry_exhausted", alert_message,
         issue: identifier,
-        reason: "Agent retry attempts were exhausted; the ticket needs Executor review.",
+        reason: alert_message,
         needs_attention: true,
         severity: "warning"
       )
@@ -875,6 +898,18 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
   defp pick_retry_error(previous_retry, metadata) do
     metadata[:error] || Map.get(previous_retry, :error)
+  end
+
+  # The generic "retry budget exhausted" alert text alone forces the operator
+  # to grep the daemon log to find the actual failure (e.g. a workspace
+  # provisioning error); fold the last recorded error into the operator-facing
+  # message so it is visible without leaving the alert.
+  defp retry_exhausted_alert_message(error) when is_binary(error) do
+    "Agent retry attempts were exhausted; the ticket needs Executor review. Last error: #{error}"
+  end
+
+  defp retry_exhausted_alert_message(_error) do
+    "Agent retry attempts were exhausted; the ticket needs Executor review."
   end
 
   defp pick_retry_poll_failures(previous_retry, metadata) do

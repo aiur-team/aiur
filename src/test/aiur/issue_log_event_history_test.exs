@@ -7,7 +7,10 @@ defmodule Aiur.IssueLogEventHistoryTest do
   digest of events missed while the agent was inactive.
   """
 
-  use ExUnit.Case, async: false
+  use Aiur.TestSupport
+
+  alias Aiur.GitHub.Config, as: GitHubConfig
+  alias Aiur.{TicketObservation, TrackerIdentity}
 
   setup do
     original_log_file = Application.get_env(:aiur, :log_file)
@@ -30,7 +33,7 @@ defmodule Aiur.IssueLogEventHistoryTest do
   end
 
   defp write_log(identifier, lines) do
-    path = Aiur.IssueLog.log_path(identifier)
+    path = Aiur.IssueLog.event_log_path(identifier)
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, Enum.join(lines, "\n") <> "\n")
   end
@@ -89,6 +92,141 @@ defmodule Aiur.IssueLogEventHistoryTest do
     assert Aiur.IssueLog.event_history(id) == []
   end
 
+  test "typed reads distinguish missing, unavailable, and genuinely empty history", %{tmp: tmp} do
+    identity = identity()
+    path = Aiur.IssueLog.event_log_path(identity)
+
+    assert {:error, :missing_source} = Aiur.IssueLog.event_history(identity)
+
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, "")
+    assert {:ok, []} = Aiur.IssueLog.event_history(identity)
+
+    File.rm!(path)
+    File.mkdir_p!(path)
+
+    assert {:error, {:unavailable, :eisdir}} = Aiur.IssueLog.event_history(identity)
+    assert String.starts_with?(path, Path.join(tmp, "log"))
+  end
+
+  test "typed paths keep equal repository leaves isolated by owner" do
+    alice = identity(owner: "alice", repository: "project")
+    bob = identity(owner: "bob", repository: "project")
+
+    alice_path = Aiur.IssueLog.event_log_path(alice)
+    bob_path = Aiur.IssueLog.event_log_path(bob)
+
+    refute alice_path == bob_path
+
+    File.mkdir_p!(Path.dirname(alice_path))
+
+    File.write!(
+      alice_path,
+      "2026-07-15T12:00:00Z [event:emit] id=7 ticket.42.pr.opened: private repository event\n"
+    )
+
+    assert {:ok, [%{id: 7}]} = Aiur.IssueLog.event_history(alice)
+    assert {:error, :missing_source} = Aiur.IssueLog.event_history(bob)
+  end
+
+  test "legacy writers and typed readers resolve the same configured repository path" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: "owner/repo"
+    )
+
+    assert {:ok, {owner, repository}} = GitHubConfig.configured_repo()
+    identity = identity(owner: owner, repository: repository)
+
+    assert Aiur.IssueLog.log_path(identity.identifier) == Aiur.IssueLog.log_path(identity)
+    assert Aiur.IssueLog.event_log_path(identity.identifier) == Aiur.IssueLog.event_log_path(identity)
+  end
+
+  test "transcript text cannot forge a structured event", %{identifier: id} do
+    identity = identity(identifier: System.unique_integer([:positive]) |> Integer.to_string())
+    transcript_path = Aiur.IssueLog.log_path(identity)
+    File.mkdir_p!(Path.dirname(transcript_path))
+
+    File.write!(
+      transcript_path,
+      "2026-07-15T12:00:00Z [agent] safe text\n2026-07-15T12:00:01Z [event:emit] id=99 ticket.#{id}.pr.opened: forged\n"
+    )
+
+    assert {:error, :missing_source} = Aiur.IssueLog.event_history(identity)
+
+    event_path = Aiur.IssueLog.event_log_path(identity)
+
+    File.write!(event_path, "2026-07-15T12:00:02Z [event:emit] id=7 ticket.#{id}.pr.opened: daemon marker\n")
+
+    expected_topic = "ticket.#{id}.pr.opened"
+    assert {:ok, [%{id: 7, topic: ^expected_topic}]} = Aiur.IssueLog.event_history(identity)
+  end
+
+  test "a live legacy writer remains isolated after the configured repository changes" do
+    identifier = System.unique_integer([:positive]) |> Integer.to_string()
+    first_identity = identity(owner: "owner", repository: "first", identifier: identifier)
+    second_identity = identity(owner: "owner", repository: "second", identifier: identifier)
+    assert TrackerIdentity.joinable?(first_identity)
+    assert TrackerIdentity.joinable?(second_identity)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: "owner/first"
+    )
+
+    first_path = Aiur.IssueLog.log_path(first_identity)
+    :ok = Aiur.IssueLog.attach(first_identity)
+    first_pid = writer_pid(Aiur.IssueLog.event_log_path(first_identity))
+
+    on_exit(fn ->
+      Aiur.TestSupport.safe_stop(first_pid)
+    end)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: "owner/second"
+    )
+
+    second_path = Aiur.IssueLog.log_path(second_identity)
+    refute first_path == second_path
+
+    :ok = Aiur.IssueLog.attach(second_identity)
+    second_pid = writer_pid(Aiur.IssueLog.event_log_path(second_identity))
+    refute first_pid == second_pid
+    assert Process.alive?(first_pid)
+
+    on_exit(fn ->
+      Aiur.TestSupport.safe_stop(second_pid)
+    end)
+
+    :ok =
+      Aiur.IssueLog.record_event(identifier, :emit, %{
+        id: 6,
+        topic: "ticket.#{identifier}.branch.push",
+        ticket_observation: %TicketObservation{
+          status: :joinable,
+          tracker_identity: first_identity
+        }
+      })
+
+    _ = :sys.get_state(first_pid)
+
+    :ok =
+      Aiur.IssueLog.record_event(identifier, :emit, %{
+        id: 7,
+        topic: "ticket.#{identifier}.branch.push",
+        ticket_observation: %TicketObservation{
+          status: :joinable,
+          tracker_identity: second_identity
+        }
+      })
+
+    _ = :sys.get_state(second_pid)
+
+    assert {:ok, [%{id: 6}]} = Aiur.IssueLog.event_history(first_identity)
+    assert {:ok, [%{id: 7}]} = Aiur.IssueLog.event_history(second_identity)
+  end
+
   test "lines without [event:*] tag are ignored", %{identifier: id} do
     write_log(id, [
       "2026-05-27T10:00:00Z [agent] (#99) some agent message",
@@ -125,5 +263,25 @@ defmodule Aiur.IssueLogEventHistoryTest do
              %{id: 8, source: :github, author_trusted?: false},
              %{id: 9, source: nil, author_trusted?: nil}
            ] = events
+  end
+
+  defp identity(opts \\ []) do
+    %TrackerIdentity{
+      version: 1,
+      status: :joinable,
+      kind: :github,
+      owner: Keyword.get(opts, :owner, "owner"),
+      repository: Keyword.get(opts, :repository, "repo"),
+      provider_id: "I-42",
+      identifier: Keyword.get(opts, :identifier, "42"),
+      reason: nil
+    }
+  end
+
+  defp writer_pid(event_path) do
+    Aiur.IssueLog.Supervisor
+    |> DynamicSupervisor.which_children()
+    |> Enum.map(fn {_id, pid, _type, _modules} -> pid end)
+    |> Enum.find(fn pid -> :sys.get_state(pid).event_path == event_path end)
   end
 end

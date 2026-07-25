@@ -92,6 +92,20 @@ defmodule Aiur.Events.BranchRefStore do
   @spec reset(GenServer.server()) :: :ok | :error
   def reset(server \\ __MODULE__), do: GenServer.call(server, :reset)
 
+  @doc """
+  Blocks until any persistence retry queued by a prior write has resolved.
+
+  Writes reply as soon as their own attempt either lands or gets queued for
+  retry (see `@persist_retry_initial_ms`/`@persist_retry_max_ms`), so a
+  caller that needs the eventual outcome of a write that returned `:error`
+  under transient disk pressure — not just this write's immediate result —
+  has no signal to wait on otherwise. This waits on the actual retry
+  succeeding rather than guessing at a wall-clock deadline.
+  """
+  @spec await_settled(GenServer.server(), timeout()) :: :ok
+  def await_settled(server \\ __MODULE__, timeout \\ 10_000),
+    do: GenServer.call(server, :await_settled, timeout)
+
   @impl true
   def init(opts) do
     with {:ok, path} <- store_path(opts),
@@ -105,7 +119,8 @@ defmodule Aiur.Events.BranchRefStore do
          pending_persist: nil,
          persist_retry_ref: nil,
          persist_retry_token: nil,
-         persist_retry_delay_ms: @persist_retry_initial_ms
+         persist_retry_delay_ms: @persist_retry_initial_ms,
+         settle_waiters: []
        }}
     else
       {:error, {:load_failed, reason}} ->
@@ -193,6 +208,14 @@ defmodule Aiur.Events.BranchRefStore do
     |> Map.put(:refs, %{})
     |> Map.put(:pending_unblocks, %{})
     |> persist_reply(:ok)
+  end
+
+  def handle_call(:await_settled, _from, %{persist_retry_ref: nil} = state) do
+    {:reply, :ok, state}
+  end
+
+  def handle_call(:await_settled, from, state) do
+    {:noreply, %{state | settle_waiters: [from | state.settle_waiters]}}
   end
 
   @impl true
@@ -360,12 +383,15 @@ defmodule Aiur.Events.BranchRefStore do
   defp clear_retry(state) do
     if state.persist_retry_ref, do: Process.cancel_timer(state.persist_retry_ref)
 
+    Enum.each(state.settle_waiters, &GenServer.reply(&1, :ok))
+
     %{
       state
       | pending_persist: nil,
         persist_retry_ref: nil,
         persist_retry_token: nil,
-        persist_retry_delay_ms: @persist_retry_initial_ms
+        persist_retry_delay_ms: @persist_retry_initial_ms,
+        settle_waiters: []
     }
   end
 

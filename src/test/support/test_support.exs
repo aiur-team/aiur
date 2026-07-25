@@ -1,4 +1,6 @@
 defmodule Aiur.TestSupport do
+  import ExUnit.Assertions
+
   @workflow_prompt "You are an agent for this repository."
 
   defmacro __using__(_opts) do
@@ -29,6 +31,8 @@ defmodule Aiur.TestSupport do
         only: [
           write_workflow_file!: 1,
           write_workflow_file!: 2,
+          write_workflow_file_synced!: 1,
+          write_workflow_file_synced!: 2,
           restore_env: 2,
           stop_default_http_server: 0,
           ensure_workflow_store_running: 0
@@ -82,7 +86,7 @@ defmodule Aiur.TestSupport do
         # through it, so a sibling never calls into a torn-down store — the #780
         # `WorkspaceAndConfigTest` flake: `GenServer.call(WorkflowStore, :current)`
         # exiting `:shutdown`. Then reload it onto this test's config path.
-        Aiur.TestSupport.ensure_workflow_store_running()
+        Aiur.TestSupport.ensure_runtime_children_running()
         if Process.whereis(Aiur.WorkflowStore), do: Aiur.WorkflowStore.force_reload()
         stop_default_http_server()
 
@@ -155,6 +159,30 @@ defmodule Aiur.TestSupport do
     :ok
   end
 
+  @doc """
+  Like `write_workflow_file!/2`, but waits for `WorkflowStore`'s pubsub
+  confirmation instead of trusting its best-effort `force_reload`.
+
+  `write_workflow_file!/2` fires a `force_reload` wrapped in `catch :exit, _
+  -> :ok`, so under host CPU contention a `GenServer.call` that outlasts its
+  default timeout is swallowed silently — the write looks like it landed, but
+  `WorkflowStore` only actually catches up whenever it next gets scheduled.
+  A caller that immediately reads `Config` afterward can race that catch-up
+  and observe the config as it stood before this write. Waiting for the
+  `{:workflow_config_updated, _}` broadcast removes the guess: it fires only
+  once the reload has genuinely completed, however long that took.
+  """
+  def write_workflow_file_synced!(path, overrides \\ []) do
+    ensure_workflow_store_running()
+    :ok = Aiur.WorkflowStore.subscribe()
+    {:ok, _workflow, generation_before} = Aiur.WorkflowStore.current_with_generation()
+
+    write_workflow_file!(path, overrides)
+
+    assert_receive {:workflow_config_updated, generation}, 15_000
+    assert generation > generation_before
+  end
+
   # Mirror the real `.aiur/` layout in tests: drop the canonical alert
   # definitions next to the generated config so `Alerts` resolves its default
   # `<config-dir>/alerts` the same way a real run does. Tests that need
@@ -206,10 +234,19 @@ defmodule Aiur.TestSupport do
   end
 
   def stop_default_http_server do
-    if is_nil(Process.whereis(Aiur.Supervisor)) do
-      :ok
-    else
-      stop_default_http_server_child()
+    case Process.whereis(Aiur.Supervisor) do
+      supervisor when is_pid(supervisor) ->
+        stop_default_http_server(supervisor)
+
+      nil ->
+        ensure_aiur_supervisor_running()
+    end
+  end
+
+  defp stop_default_http_server(supervisor) do
+    case stop_default_http_server_child() do
+      :ok -> :ok
+      :supervisor_unavailable -> recover_stopped_supervisor(supervisor, &ensure_aiur_supervisor_running/0)
     end
   end
 
@@ -230,6 +267,54 @@ defmodule Aiur.TestSupport do
       _ ->
         :ok
     end
+  catch
+    :exit, _reason -> :supervisor_unavailable
+  end
+
+  @doc """
+  Stops a server during test teardown, tolerating a process that has already
+  exited.
+
+  `start_link`ed servers are linked to the test process, so when the test
+  finishes its exit propagates over the link and tears the server down. An
+  `on_exit/1` callback runs *afterward* in a separate process, so a
+  `Process.alive?/1` / `Process.whereis/1` guard around `GenServer.stop/1` is a
+  TOCTOU race: the guard observes the server alive, the link teardown then kills
+  it, and the stop crashes with `no process`. Under coverage instrumentation the
+  teardown window widens and the race trips intermittently. `safe_stop/1`
+  catches that `:exit` instead of guarding, so an already-dead process is a
+  no-op. Accepts a pid or a registered name.
+  """
+  @spec safe_stop(GenServer.server()) :: :ok
+  def safe_stop(server) do
+    GenServer.stop(server)
+    :ok
+  catch
+    :exit, _reason -> :ok
+  end
+
+  @doc false
+  @spec await_process_down(pid(), timeout()) :: :ok | :error
+  def await_process_down(process, timeout \\ 2_000) when is_pid(process) do
+    ref = Process.monitor(process)
+
+    receive do
+      {:DOWN, ^ref, :process, ^process, _reason} -> :ok
+    after
+      timeout ->
+        Process.demonitor(ref, [:flush])
+        :error
+    end
+  end
+
+  @doc """
+  Restores the shared application children that ordinary tests rely on after a
+  sibling intentionally stopped one for an unavailable-service case.
+  """
+  def ensure_runtime_children_running do
+    ensure_aiur_supervisor_running()
+    ensure_pubsub_running()
+    ensure_workflow_store_running()
   end
 
   @doc """
@@ -248,13 +333,54 @@ defmodule Aiur.TestSupport do
     end
   end
 
-  defp restart_workflow_store do
-    case Supervisor.restart_child(Aiur.Supervisor, Aiur.WorkflowStore) do
+  defp ensure_pubsub_running(retries \\ 1) do
+    case Process.whereis(Aiur.PubSub) do
+      pid when is_pid(pid) ->
+        :ok
+
+      nil ->
+        case restart_pubsub_child() do
+          {:ok, pid} when is_pid(pid) ->
+            :ok
+
+          {:error, {:already_started, pid}} when is_pid(pid) ->
+            :ok
+
+          :supervisor_unavailable when retries > 0 ->
+            ensure_aiur_supervisor_running()
+            ensure_pubsub_running(retries - 1)
+
+          _ ->
+            pubsub_status()
+        end
+    end
+  end
+
+  defp pubsub_status do
+    case Process.whereis(Aiur.PubSub) do
+      pid when is_pid(pid) -> :ok
+      nil -> :error
+    end
+  end
+
+  defp restart_workflow_store(retries \\ 1) do
+    case restart_workflow_store_child() do
       {:ok, pid} when is_pid(pid) ->
         :ok
 
       {:error, {:already_started, pid}} when is_pid(pid) ->
         :ok
+
+      # The application supervisor can terminate after the initial
+      # `Process.whereis/1` check and before the synchronous restart call.
+      # Bring it back and retry the child once so a suite sibling cannot leak
+      # that narrow shutdown race into an unrelated test setup.
+      :supervisor_unavailable when retries > 0 ->
+        ensure_aiur_supervisor_running()
+        restart_workflow_store(retries - 1)
+
+      :supervisor_unavailable ->
+        :error
 
       # A restart can race a sibling (already-present / running / restarting) or
       # genuinely fail — `WorkflowStore.init/1` reads the workflow file and stops
@@ -268,17 +394,85 @@ defmodule Aiur.TestSupport do
     end
   end
 
+  defp restart_workflow_store_child do
+    Supervisor.restart_child(Aiur.Supervisor, Aiur.WorkflowStore)
+  catch
+    :exit, _reason -> :supervisor_unavailable
+  end
+
+  defp restart_pubsub_child do
+    Supervisor.restart_child(Aiur.Supervisor, Phoenix.PubSub.Supervisor)
+  catch
+    :exit, _reason -> :supervisor_unavailable
+  end
+
   defp ensure_aiur_supervisor_running do
     case Process.whereis(Aiur.Supervisor) do
       pid when is_pid(pid) ->
-        :ok
+        registered_supervisor_status(pid, &restart_aiur_application/0)
 
       nil ->
-        case Application.ensure_all_started(:aiur) do
-          {:ok, _apps} -> :ok
-          {:error, {:already_started, _app}} -> :ok
-        end
+        restart_aiur_application()
     end
+  end
+
+  defp restart_aiur_application do
+    ensure_aiur_application_started(&verify_or_restart_aiur_application/0)
+  end
+
+  defp verify_or_restart_aiur_application do
+    case Process.whereis(Aiur.Supervisor) do
+      supervisor when is_pid(supervisor) ->
+        registered_supervisor_status(supervisor, &stop_and_start_aiur_application/0)
+
+      nil ->
+        stop_and_start_aiur_application()
+    end
+  end
+
+  defp registered_supervisor_status(supervisor, recovery) do
+    if supervisor_accepting_calls?(supervisor),
+      do: :ok,
+      else: recover_stopped_supervisor(supervisor, recovery)
+  end
+
+  defp recover_stopped_supervisor(supervisor, recovery) do
+    with :ok <- await_process_down(supervisor), do: recovery.()
+  end
+
+  defp stop_and_start_aiur_application do
+    case Application.stop(:aiur) do
+      :ok -> start_aiur_application()
+      {:error, {:not_started, :aiur}} -> start_aiur_application()
+      {:error, _reason} -> :error
+    end
+  end
+
+  defp start_aiur_application do
+    ensure_aiur_application_started(&aiur_supervisor_status/0)
+  end
+
+  defp ensure_aiur_application_started(on_started) do
+    case Application.ensure_all_started(:aiur) do
+      {:ok, _apps} -> on_started.()
+      {:error, {:already_started, _app}} -> on_started.()
+      {:error, {:aiur, {:already_started, _app}}} -> on_started.()
+      {:error, _reason} -> :error
+    end
+  end
+
+  defp aiur_supervisor_status do
+    case Process.whereis(Aiur.Supervisor) do
+      supervisor when is_pid(supervisor) -> if(supervisor_accepting_calls?(supervisor), do: :ok, else: :error)
+      nil -> :error
+    end
+  end
+
+  defp supervisor_accepting_calls?(supervisor) do
+    Supervisor.which_children(supervisor)
+    true
+  catch
+    :exit, _reason -> false
   end
 
   defp workflow_content(overrides) do

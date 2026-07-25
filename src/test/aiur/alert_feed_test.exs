@@ -76,6 +76,7 @@ defmodule Aiur.AlertFeedTest do
     {"event":"alert","timestamp":"2026-07-12T01:00:00Z","topic":"ticket.42.agent.attention.scope-question","reason":"Executor decision required: Which scope owns this?","severity":"warning","needs_attention":true,"source_ticket_id":"42"}
     {"event":"alert","timestamp":"2026-07-12T01:00:30Z","topic":"ticket.42.agent.attention.scope-question","reason":"Executor decision required: Which scope owns this now?","severity":"warning","needs_attention":true,"source_ticket_id":"42"}
     {"event":"alert","timestamp":"2026-07-12T01:01:00Z","topic":"ticket.42.agent.paused","reason":"Paused","severity":"warning","needs_attention":true,"source_ticket_id":"42"}
+    {"event":"alert","timestamp":"2026-07-12T01:01:30Z","topic":"ticket.42.agent.attention.decision-delivery-act-1","reason":"Decision delivery failed","severity":"warning","needs_attention":true,"source_ticket_id":"42"}
     {"event":"alert","timestamp":"2026-07-12T01:02:00Z","topic":"ticket.43.agent.attention.done","reason":"Executor decision required: Already handled?","severity":"warning","needs_attention":true,"source_ticket_id":"43"}
     {"event":"alert","timestamp":"2026-07-12T01:03:00Z","topic":"ticket.43.agent.attention.done.resolved","reason":"Executor decision resolved.","severity":"info","needs_attention":false,"source_ticket_id":"43"}
     """)

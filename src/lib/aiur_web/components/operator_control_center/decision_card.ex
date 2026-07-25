@@ -3,7 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
 
   use Phoenix.Component
 
-  alias AiurWeb.OperatorControlCenter.{DecisionDetail, DecisionPath, LifecycleComponents}
+  alias AiurWeb.OperatorControlCenter.{DecisionAction, DecisionDetail, DecisionPath}
   alias Phoenix.LiveView.JS
 
   attr(:decision, :map, required: true)
@@ -13,16 +13,23 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
   attr(:action_state, :map, default: %{})
   attr(:writable, :boolean, required: true)
   attr(:filter, :atom, default: :all)
+  attr(:query, :map, default: %{})
 
   @spec decision_card(map()) :: Phoenix.LiveView.Rendered.t()
   def decision_card(assigns) do
     assigns =
       assigns
       |> assign(:age, age(assigns.decision.created_at, assigns.now))
-      |> assign(:collapsed_path, DecisionPath.inbox(assigns.filter))
-      |> assign(:detail_path, DecisionPath.detail(assigns.decision.decision_id, assigns.filter))
-      |> assign(:source_label, source_label(assigns.decision))
+      |> assign(:collapsed_path, DecisionPath.inbox(assigns.filter, assigns.query))
+      |> assign(:detail_path, DecisionPath.detail(assigns.decision.decision_id, assigns.filter, assigns.query))
       |> assign(:recommendation_label, recommendation_label(assigns.decision))
+      |> assign(:option_previews, Enum.take(assigns.decision.options, 2))
+      |> assign(:selected_answer_label, selected_answer_label(assigns.decision))
+      |> assign(:supervisor_answer?, supervisor_answer?(assigns.decision))
+      |> assign(:confidence, supervisor_confidence(assigns.decision))
+      |> assign(:agent_label, agent_label(assigns.decision))
+      |> assign(:model_label, model_label(assigns.decision))
+      |> assign(:status_badge, status_badge(assigns.decision))
 
     ~H"""
     <article
@@ -44,19 +51,41 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
           </div>
           <h3>{@decision.question}</h3>
           <p :if={present?(@decision.context.short)} class="decision-context">{@decision.context.short}</p>
+          <div :if={@option_previews != []} class="decision-option-preview" aria-label="Command option preview">
+            <span
+              :for={option <- @option_previews}
+              class={["chip", selected_option?(@decision, option) && "accent"]}
+            >
+              {if selected_option?(@decision, option), do: "Selected · ", else: ""}{option.label}
+            </span>
+            <span :if={length(@decision.options) > 2} class="chip faint">+{length(@decision.options) - 2} more</span>
+          </div>
           <div class="decision-card-foot">
-            <span class={["chip", @decision.blocking && "blocking"]}><span class="chip-dot"></span>{if @decision.blocking, do: "Blocking", else: "Non-blocking"}</span>
-            <span class="chip age">◷ {@age}</span>
-            <span class="actor-tag"><span class="actor-glyph ticket">TA</span>{@source_label}</span>
-            <span class="chip">{option_count_label(@decision.options)}</span>
+            <span class={["chip cmd-blocking", @decision.blocking && "blocking"]}><span class="chip-dot"></span>{if @decision.blocking, do: "Blocking", else: "Non-blocking"}</span>
+            <span class="chip age">{@age}</span>
+            <span :if={@agent_label} class={["chip cmd-agent", agent_class(@decision)]}>{@agent_label}</span>
+            <span :if={@model_label} class="chip mono">{@model_label}</span>
+            <span class="chip mono faint">{@decision.ticket[:identifier] || @decision.decision_id}</span>
             <span :if={@recommendation_label} class="recommendation-chip">SA recommends <b>{@recommendation_label}</b></span>
+            <span :if={@selected_answer_label} class="chip accent">Selected · {@selected_answer_label}</span>
+            <span :if={@supervisor_answer?} class="chip super">Supervisor answer</span>
+            <span :if={is_integer(@confidence)} class="chip super">{@confidence}% confidence</span>
+            <span :if={Map.get(@decision, :superseded?, false)} class="chip super">Superseded</span>
           </div>
         </div>
         <div class="decision-card-side">
-          <LifecycleComponents.lifecycle_chip lifecycle={@decision.lifecycle} />
-          <span class="expand-hint">{if @selected, do: "Collapse", else: "Details"} <span aria-hidden="true">⌄</span></span>
+          <span :if={@status_badge} class={["cmd-status-badge", @status_badge.tone]}><span class="chip-dot"></span>{@status_badge.label}</span>
+          <span class="expand-hint">{expand_label(@decision, @selected)} <span aria-hidden="true">⌄</span></span>
         </div>
       </.link>
+
+      <DecisionAction.decision_action
+        :if={!@selected and @decision.decision_status in [:open, :dismissed]}
+        decision={@decision}
+        state={@action_state}
+        writable={@writable}
+        compact
+      />
 
       <div phx-mounted={@selected && JS.focus(to: "#decision-detail-#{@decision.decision_id}")}>
         <DecisionDetail.decision_detail
@@ -66,6 +95,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
           action_state={@action_state}
           writable={@writable}
           filter={@filter}
+          query={@query}
         />
       </div>
     </article>
@@ -77,10 +107,89 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
   defp severity(%{lifecycle: :resolved}), do: "good"
   defp severity(_decision), do: "attention"
 
-  defp option_count_label([]), do: "Free-form response"
-  defp option_count_label(options), do: "#{length(options)} options"
+  defp expand_label(_decision, true), do: "Collapse"
+  defp expand_label(%{answer: answer}, false) when is_map(answer), do: "Change choice"
+  defp expand_label(_decision, false), do: "Details"
 
-  defp source_label(decision), do: decision.source[:agent_id] || "Ticket agent"
+  # Top-right status badge: reflects where the command sits in its lifecycle so
+  # answered/dismissed cards read as historic at a glance.
+  defp status_badge(%{decision_status: :open}), do: %{label: "Recorded · open", tone: "is-open"}
+  defp status_badge(%{decision_status: :expired}), do: %{label: "Expired", tone: "is-dismissed"}
+  defp status_badge(%{decision_status: :decided}), do: %{label: "Answered", tone: "is-answered"}
+  defp status_badge(%{decision_status: :acknowledged}), do: %{label: "Acknowledged", tone: "is-answered"}
+  defp status_badge(%{decision_status: :dismissed}), do: %{label: "Dismissed", tone: "is-dismissed"}
+  defp status_badge(%{decision_status: :resolved}), do: %{label: "Resolved", tone: "is-resolved"}
+  defp status_badge(_decision), do: nil
+
+  defp agent_label(decision) do
+    case agent_family(decision) do
+      value when is_binary(value) and value != "" ->
+        value |> String.replace("_", " ") |> String.capitalize()
+
+      _other ->
+        nil
+    end
+  end
+
+  defp model_label(decision) do
+    provenance = Map.get(decision, :provenance)
+
+    case map_value(provenance, :resolved_model) || map_value(provenance, :requested_model) do
+      value when is_binary(value) and value != "" -> value
+      _other -> nil
+    end
+  end
+
+  defp agent_class(decision) do
+    case agent_family(decision) do
+      value when is_binary(value) ->
+        "is-" <> (value |> String.downcase() |> String.replace(~r/[^a-z0-9]+/, "-"))
+
+      _other ->
+        "is-generic"
+    end
+  end
+
+  defp agent_family(decision) do
+    provenance = Map.get(decision, :provenance)
+    map_value(provenance, :agent_family) || map_value(provenance, :backend)
+  end
+
+  defp selected_answer_label(%{answer: nil}), do: nil
+
+  defp selected_answer_label(%{answer: answer, options: options}) do
+    case Map.get(answer, :selected_option_id) do
+      option_id when is_binary(option_id) ->
+        case Enum.find(options, &(&1.id == option_id)) do
+          nil -> "Option #{option_id}"
+          option -> option.label
+        end
+
+      _option_id ->
+        if present?(Map.get(answer, :custom_response)), do: "Custom response", else: "Recorded response"
+    end
+  end
+
+  defp selected_option?(%{answer: answer}, option) when is_map(answer),
+    do: Map.get(answer, :selected_option_id) == option.id
+
+  defp selected_option?(_decision, _option), do: false
+
+  defp supervisor_answer?(%{answer: answer}) when is_map(answer) do
+    get_in(answer, [:actor, :kind]) in [:supervisor, "supervisor"]
+  end
+
+  defp supervisor_answer?(_decision), do: false
+
+  defp supervisor_confidence(%{answer: answer}) when is_map(answer) do
+    confidence = answer |> Map.get(:supervisor_basis) |> map_value(:confidence)
+    if is_integer(confidence) and confidence in 0..100, do: confidence
+  end
+
+  defp supervisor_confidence(_decision), do: nil
+
+  defp map_value(map, key) when is_map(map), do: Map.get(map, key, Map.get(map, Atom.to_string(key)))
+  defp map_value(_map, _key), do: nil
 
   defp recommendation_label(%{recommendation: nil}), do: nil
 

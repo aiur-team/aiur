@@ -1,91 +1,88 @@
 defmodule Aiur.AgentList.AppPhaseTrackingTest do
   @moduledoc """
-  `phase_by_identifier` folds `ticket.<id>.agent.phase.<phase>.start`
-  and `.end` publishes into a per-id active-phase map that drives the
-  running-state status emoji (#68):
-
-    - `.start` sets the phase (last start wins).
-    - `.end` clears it only when it matches the currently-tracked
-      phase, so a late `.end` for a superseded phase can't wipe a newer
-      `.start`.
+  AgentList renders the typed TicketActivity stage and leaves stale or unknown
+  stage state out of the active-phase marker.
   """
 
   use ExUnit.Case, async: false
 
+  alias Aiur.{AgentEvents, TrackerIdentity}
   alias Aiur.AgentList.App
 
   setup do
     parent = self()
-    write_fun = fn iodata -> send(parent, {:rendered, IO.iodata_to_binary(iodata)}) end
+    identity = identity()
 
     {:ok, pid} =
       App.start_link(
-        write_fun: write_fun,
+        write_fun: fn iodata -> send(parent, {:rendered, IO.iodata_to_binary(iodata)}) end,
         name: nil,
         subscribe?: false,
         debug?: false
       )
 
-    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
-    %{pid: pid}
+    summary =
+      AgentEvents.agent_summary("42", :running, 0, %{
+        work_state: :working,
+        tracker_identity: identity
+      })
+
+    send(pid, {:running_changed, [summary]})
+    on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
+    %{pid: pid, identity: identity}
   end
 
-  defp send_phase(pid, id, phase, edge) do
-    send(
-      pid,
-      {:event_debug,
-       %{
-         kind: :publish,
-         topic: "ticket.#{id}.agent.phase.#{phase}.#{edge}",
-         id: System.unique_integer([:positive]),
-         identifier: nil,
-         body: %{},
-         at: System.monotonic_time(:millisecond)
-       }}
-    )
+  test "fresh stages drive the phase marker and newer clear removes it", context do
+    send_activity(context, 0, :work, :fresh)
+    assert phase(context.pid) == :work
 
-    Process.sleep(20)
+    send_activity(context, 1, nil, :fresh)
+    assert phase(context.pid) == nil
   end
 
-  defp phase_of(pid, id) do
-    App.snapshot(pid).phase_by_identifier |> Map.get(id)
+  test "stale stage remains visible as stale evidence but not as an active phase", context do
+    send_activity(context, 0, :review, :stale)
+
+    snapshot = App.snapshot(context.pid)
+    assert phase(context.pid) == nil
+    assert snapshot.activity_status_by_identifier["42"].stage == :stale
+    assert snapshot.latest_event_by_id["42"].stale?
   end
 
-  test "phase.start sets the active phase, last start wins", %{pid: pid} do
-    send_phase(pid, "P1", "brainstorm", "start")
-    assert phase_of(pid, "P1") == :brainstorm
+  defp send_activity(%{pid: pid, identity: identity}, generation, stage, freshness) do
+    now = DateTime.utc_now()
 
-    send_phase(pid, "P1", "plan", "start")
-    assert phase_of(pid, "P1") == :plan
+    snapshot = %{
+      identity: identity,
+      status: freshness,
+      progress: %{status: :unknown},
+      stage: %{status: :known, freshness: freshness, value: stage, observed_at: now},
+      latest_evidence: %{
+        status: :known,
+        source: %{kind: :agent_alert, name: "phase.review.start"},
+        attributes: %{stage: :review, transition: :start},
+        observed_at: now
+      }
+    }
 
-    send_phase(pid, "P1", "work", "start")
-    assert phase_of(pid, "P1") == :work
+    send(pid, {
+      :ticket_activity_changed,
+      %{generation: generation, identity: identity, snapshot: snapshot}
+    })
   end
 
-  test "phase.end clears the active phase when it matches", %{pid: pid} do
-    send_phase(pid, "P2", "review", "start")
-    assert phase_of(pid, "P2") == :review
+  defp phase(pid), do: App.snapshot(pid).phase_by_identifier["42"]
 
-    send_phase(pid, "P2", "review", "end")
-    assert phase_of(pid, "P2") == nil
-  end
-
-  test "a late .end for a superseded phase does not wipe the newer phase", %{pid: pid} do
-    send_phase(pid, "P3", "plan", "start")
-    send_phase(pid, "P3", "work", "start")
-    assert phase_of(pid, "P3") == :work
-
-    # `.end` for the superseded `plan` phase must not clear the active
-    # `work` phase.
-    send_phase(pid, "P3", "plan", "end")
-    assert phase_of(pid, "P3") == :work
-  end
-
-  test "phases for different identifiers are tracked independently", %{pid: pid} do
-    send_phase(pid, "P4", "brainstorm", "start")
-    send_phase(pid, "P5", "review", "start")
-
-    assert phase_of(pid, "P4") == :brainstorm
-    assert phase_of(pid, "P5") == :review
+  defp identity do
+    %TrackerIdentity{
+      version: 1,
+      status: :joinable,
+      kind: :github,
+      owner: "owner",
+      repository: "repo",
+      provider_id: "I-42",
+      identifier: "42",
+      reason: nil
+    }
   end
 end

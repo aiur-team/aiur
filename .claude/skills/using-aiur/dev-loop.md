@@ -44,8 +44,14 @@ matching branch, and exits non-zero when no branch or more than one branch exist
 3. Run the scoped local pre-PR verification gate before opening or finalizing
    the PR: `mix compile --warnings-as-errors`, `mix format`, and affected tests
    only (the test files for modules you touched plus directly related tests),
-   each run with `mix test --max-cases 4`. Do not run Credo locally; CI's
-   `make ci` is the authoritative full lint and full-suite gate.
+   each run with `mix test --max-cases 4`. Compute that scoped set
+   deterministically instead of guessing it: from the workspace root run
+   `cd src && mise exec -- mix aiur.affected_tests`, which maps the modules you
+   changed to their sibling test files and prints the exact root-runnable test
+   command (or advises `make ci` when the change cannot be scoped safely).
+   Running only the affected tests also keeps full-suite log volume out of your
+   context. Do not run Credo locally; CI's `make ci` is the authoritative full
+   lint and full-suite gate.
 4. Fix every verification failure from the scoped local gate before continuing.
    Do not gate PR-opening on a clean full-suite `mix test` run or loop on
    unrelated suite flakes; CI runs the full `make ci` on every PR and is the

@@ -5,12 +5,14 @@ defmodule Aiur.Orchestrator.Lifecycle do
   Every function runs synchronously inside the orchestrator GenServer process.
   """
 
-  alias Aiur.{CIApprovalStore, Config, ProcessReaper}
+  alias Aiur.{CIApprovalStore, Config, LiveConversation, ProcessReaper}
   alias Aiur.Events.{Exchange, Publisher}
 
   alias Aiur.Orchestrator.{
     AgentTeardown,
+    ControlLifecycleStore,
     DispatchPolicy,
+    PauseResume,
     RemoteControlMode,
     Slots,
     State,
@@ -20,6 +22,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
   }
 
   @poll_transition_render_delay_ms 20
+  @control_ack_timeout_ms 30_000
   @orchestrator_topics [
     "ticket.*.pr.review_comment",
     "ticket.*.issue.commented",
@@ -59,6 +62,12 @@ defmodule Aiur.Orchestrator.Lifecycle do
     now_ms = System.monotonic_time(:millisecond)
     config = Config.settings!()
 
+    control_lifecycle =
+      ControlLifecycleStore.load()
+      |> ControlLifecycleStore.expire_unresolved_on_recovery()
+
+    :ok = ControlLifecycleStore.save(control_lifecycle)
+
     state = %State{
       poll_interval_ms: config.polling.interval_seconds * 1_000,
       max_concurrent_agents: config.agent.max_concurrent_agents,
@@ -78,7 +87,8 @@ defmodule Aiur.Orchestrator.Lifecycle do
         |> Map.put(:poll_cache, %{})
         |> Map.put(:rewakes, %{}),
       agent_totals: @empty_agent_totals,
-      agent_rate_limits: nil
+      agent_rate_limits: nil,
+      control_lifecycle: control_lifecycle
     }
 
     state = WorkspaceCleanup.run_terminal_workspace_cleanup(state)
@@ -87,6 +97,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
     TrackedSet.reset([])
     install_event_tracked_fn(tracked_issue?)
     subscribe_to_orchestrator_topics()
+    _ = LiveConversation.subscribe_restarts()
 
     {:ok, schedule_initial_tick(state, Keyword.get(opts, :initial_poll?, true))}
   end
@@ -116,6 +127,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
   @spec handle_tick(State.t()) :: {:noreply, State.t()}
   def handle_tick(%State{} = state) do
     state = refresh_runtime_config(state)
+    state = PauseResume.expire_pending_controls(state, DateTime.utc_now(), @control_ack_timeout_ms)
 
     state = %{
       state

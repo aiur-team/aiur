@@ -4,6 +4,7 @@ defmodule Aiur.DecisionStoreTest do
   import ExUnit.CaptureLog
 
   alias Aiur.{AlertFeed, Boot, DecisionEvent, DecisionHistory, DecisionLog, DecisionPubSub, DecisionStore}
+  alias Aiur.DecisionStore.RetainedSnapshot
   alias Aiur.Events.{Exchange, IdGenerator}
   alias AiurWeb.ControlCenterPresenter
 
@@ -63,12 +64,15 @@ defmodule Aiur.DecisionStoreTest do
       |> Enum.map(&decision_index_key(&1.data))
       |> :gb_sets.from_list()
 
+    retained_index = RetainedSnapshot.build_index(current)
+
     :sys.replace_state(pid, fn state ->
       %{
         state
         | audit_history: Map.new(records, &{&1.decision_id, [&1]}),
           current: current,
           decision_index: decision_index,
+          retained_index: retained_index,
           recent_audit: records |> Enum.reverse() |> Enum.take(50)
       }
     end)
@@ -92,6 +96,14 @@ defmodule Aiur.DecisionStoreTest do
 
     assert MapSet.new(payload.decisions, & &1.decision_id) ==
              MapSet.new(10_000..9_951//-1, &"dec-#{&1}")
+
+    assert {:ok, %{decisions: page, has_next?: true, total: 10_000, counts: %{open: 10_000, blocking: 0}}} =
+             DecisionStore.retained_query(
+               %{limit: 2, cursor: nil, lifecycle: nil, search: nil, ticket: nil},
+               pid
+             )
+
+    assert length(page) == 2
   end
 
   test "resolving a cached decision backfills the untouched 51st open decision", %{dir: dir} do
@@ -165,11 +177,99 @@ defmodule Aiur.DecisionStoreTest do
     DecisionStore.request(payload, Keyword.merge([ticket: @ticket, source: @source], opts), pid)
   end
 
+  test "dismiss is durable, idempotent, historic, and write-gated", %{dir: dir} do
+    pid = start_store!(dir)
+
+    assert {:ok, %{decision: decision}} =
+             request(pid, %{
+               "question" => "Use blue or green?",
+               "blocking" => true,
+               "options" => [
+                 %{"id" => "blue", "label" => "Blue"},
+                 %{"id" => "green", "label" => "Green"}
+               ]
+             })
+
+    opts = [actor: %{kind: :operator, id: "dashboard"}]
+
+    assert {:ok, %{status: :accepted, decision: dismissed}} =
+             DecisionStore.dismiss(decision.decision_id, opts, pid)
+
+    assert dismissed.decision_status == :dismissed
+    assert dismissed.answer == nil
+
+    assert {:ok, %{status: :duplicate, decision: replayed}} =
+             DecisionStore.dismiss(decision.decision_id, opts, pid)
+
+    assert replayed.decision_status == :dismissed
+
+    assert {:ok, %{decisions: [historic], total: 1}} =
+             DecisionStore.retained_query(
+               %{limit: 25, cursor: nil, lifecycle: :historic, search: nil, ticket: nil},
+               pid
+             )
+
+    assert historic.decision_id == decision.decision_id
+
+    :sys.replace_state(pid, &%{&1 | writable?: false, health: {:corrupt, 1, :test}})
+
+    assert {:error, {:store_unavailable, {:corrupt, 1, :test}}} =
+             DecisionStore.dismiss(decision.decision_id, opts, pid)
+
+    GenServer.stop(pid)
+    restarted = start_store!(dir)
+    assert {:ok, durable} = DecisionStore.get(decision.decision_id, restarted)
+    assert durable.decision_status == :dismissed
+  end
+
+  test "expiration is durable, idempotent, historic, and auditable", %{dir: dir} do
+    pid = start_store!(dir)
+    created_at = ~U[2026-07-24 12:00:00Z]
+    expired_at = DateTime.add(created_at, 600, :second)
+
+    assert {:ok, %{decision: decision}} =
+             request(pid, %{"question" => "Still waiting?", "blocking" => true}, now: created_at)
+
+    assert {:ok, %{status: :accepted, decision: expired}} =
+             DecisionStore.expire(decision.decision_id, "agent_not_running", [now: expired_at], pid)
+
+    assert expired.decision_status == :expired
+    assert expired.answer == nil
+
+    assert {:ok, %{status: :duplicate, decision: duplicate}} =
+             DecisionStore.expire(decision.decision_id, "agent_not_running", [], pid)
+
+    assert duplicate.decision_status == :expired
+
+    answer_payload = %{"idempotency_key" => "too-late", "expected_version" => 1, "custom_response" => "Ship"}
+    assert {:error, {:conflict, :expired}} = answer(pid, decision.decision_id, answer_payload)
+
+    assert {:ok, %{decisions: [historic], total: 1}} =
+             DecisionStore.retained_query(
+               %{limit: 25, cursor: nil, lifecycle: :historic, search: nil, ticket: nil},
+               pid
+             )
+
+    assert historic.decision_id == decision.decision_id
+
+    assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, pid)
+
+    assert [
+             %DecisionEvent{type: :requested},
+             %DecisionEvent{type: :decision_expired, data: %{reason_class: "agent_not_running"}}
+           ] = audit
+
+    GenServer.stop(pid)
+    restarted = start_store!(dir)
+    assert {:ok, replayed} = DecisionStore.get(decision.decision_id, restarted)
+    assert replayed.decision_status == :expired
+  end
+
   defp decision_index_key(decision) do
     urgency = %{low: 0, normal: 1, high: 2, critical: 3}
 
     {
-      decision.decision_status == :resolved,
+      decision.decision_status in [:expired, :dismissed, :resolved],
       not decision.blocking,
       -Map.fetch!(urgency, decision.urgency),
       -DateTime.to_unix(decision.created_at, :microsecond),
@@ -217,6 +317,9 @@ defmodule Aiur.DecisionStoreTest do
       pid
     )
   end
+
+  defp dispatch_fence_size({:dispatch_action, fence, false}),
+    do: fence |> :erlang.term_to_binary() |> byte_size()
 
   defp enrich(pid, decision_id, patch, expected_version, opts \\ []) do
     DecisionStore.enrich(
@@ -565,13 +668,35 @@ defmodule Aiur.DecisionStoreTest do
 
     test "enrichment after an answer preserves its lifecycle and never redispatches", %{dir: dir} do
       parent = self()
+      dispatches = :counters.new(1, [])
+      release_scheduled_work = :atomics.new(1, [])
 
       dispatcher = fn _decision, _opts ->
-        send(parent, :dispatched)
+        :counters.add(dispatches, 1, 1)
+        send(parent, {:dispatched, :counters.get(dispatches, 1)})
         {:ok, %{status: :accepted, item: %{id: 101}}}
       end
 
-      pid = start_store!(dir, dispatcher: dispatcher, dispatch_delay_ms: 0)
+      dispatch_scheduler = fn recipient, message, delay_ms ->
+        send(parent, {:dispatch_scheduled, recipient, message, delay_ms})
+
+        if :atomics.get(release_scheduled_work, 1) == 1,
+          do: send(recipient, message)
+
+        make_ref()
+      end
+
+      store_opts = [
+        dispatcher: dispatcher,
+        dispatch_delay_ms: 0,
+        reconcile_delay_ms: 0,
+        dispatch_scheduler: dispatch_scheduler
+      ]
+
+      pid = start_store!(dir, store_opts)
+
+      assert_receive {:dispatch_scheduled, ^pid, {:reconcile_dispatches, []}, 0}, 2_000
+
       assert {:ok, %{decision: v1}} = request(pid, answerable_request("enrich-after-answer"))
 
       answer_payload = %{
@@ -581,14 +706,23 @@ defmodule Aiur.DecisionStoreTest do
       }
 
       assert {:ok, %{action: accepted}} = answer(pid, v1.decision_id, answer_payload)
-      assert_receive :dispatched, 1_000
+      assert_receive {:dispatch_scheduled, ^pid, scheduled_dispatch, 0}, 2_000
+      assert match?({:dispatch_action, _fence, false}, scheduled_dispatch)
+      send(pid, scheduled_dispatch)
+      assert_receive {:dispatched, 1}, 2_000
       settled = wait_for_decision(pid, v1.decision_id, &(&1.delivery_status == :queued))
+
+      GenServer.stop(pid)
+      replayed_pid = start_store!(dir, store_opts)
+
+      assert_receive {:dispatch_scheduled, ^replayed_pid, {:reconcile_dispatches, [%{request_version: 1}]} = scheduled_reconciliation, 0},
+                     2_000
 
       patch = %{"context" => %{"short_summary" => "Additional context"}}
 
       assert {:ok, %{status: :accepted, decision: enriched}} =
                enrich(
-                 pid,
+                 replayed_pid,
                  v1.decision_id,
                  patch,
                  1
@@ -600,15 +734,173 @@ defmodule Aiur.DecisionStoreTest do
       assert enriched.dispatch_attempts == settled.dispatch_attempts
 
       assert {:ok, %{status: :duplicate, decision: replayed}} =
-               enrich(pid, v1.decision_id, patch, 1)
+               enrich(replayed_pid, v1.decision_id, patch, 1)
 
       assert replayed.answer == accepted
       assert replayed.delivery_status == :queued
-      refute_receive :dispatched, 100
+      assert replayed.dispatch_attempts == settled.dispatch_attempts
+
+      :atomics.put(release_scheduled_work, 1, 1)
+      send(replayed_pid, scheduled_reconciliation)
+
+      refute_receive {:dispatch_scheduled, ^replayed_pid, _message, _delay_ms}, 100
+      refute_receive {:dispatched, 2}, 100
+      assert :counters.get(dispatches, 1) == 1
+    end
+
+    test "pending first delivery survives enrichment before restart reconciliation", %{dir: dir} do
+      parent = self()
+      dispatches = :counters.new(1, [])
+      release_scheduled_work = :atomics.new(1, [])
+
+      dispatcher = fn decision, _opts ->
+        :counters.add(dispatches, 1, 1)
+        send(parent, {:pending_dispatched, :counters.get(dispatches, 1), decision.version})
+        {:ok, %{status: :accepted, item: %{id: 102}}}
+      end
+
+      dispatch_scheduler = fn recipient, message, delay_ms ->
+        send(parent, {:dispatch_scheduled, recipient, message, delay_ms})
+
+        if :atomics.get(release_scheduled_work, 1) == 1,
+          do: send(recipient, message)
+
+        make_ref()
+      end
+
+      store_opts = [
+        dispatcher: dispatcher,
+        dispatch_delay_ms: 0,
+        reconcile_delay_ms: 0,
+        dispatch_scheduler: dispatch_scheduler
+      ]
+
+      pid = start_store!(dir, store_opts)
+      assert_receive {:dispatch_scheduled, ^pid, {:reconcile_dispatches, []}, 0}, 2_000
+      assert {:ok, %{decision: v1}} = request(pid, answerable_request("enrich-pending-answer"))
+
+      answer_payload = %{
+        "idempotency_key" => "pending-answer-before-enrichment",
+        "expected_version" => 1,
+        "option_id" => "ship"
+      }
+
+      assert {:ok, %{action: accepted}} = answer(pid, v1.decision_id, answer_payload)
+      assert_receive {:dispatch_scheduled, ^pid, {:dispatch_action, _fence, false}, 0}, 2_000
+      GenServer.stop(pid)
+
+      replayed_pid = start_store!(dir, store_opts)
+
+      assert_receive {:dispatch_scheduled, ^replayed_pid, {:reconcile_dispatches, [%{request_version: 1}]} = scheduled_reconciliation, 0},
+                     2_000
+
+      patch = %{"context" => %{"short_summary" => "Context before first delivery"}}
+
+      assert {:ok, %{status: :accepted, decision: enriched}} =
+               enrich(replayed_pid, v1.decision_id, patch, 1)
+
+      assert enriched.version == 2
+      assert enriched.answer == accepted
+      assert enriched.delivery_status == :pending
+      assert enriched.dispatch_attempts == []
+
+      :atomics.put(release_scheduled_work, 1, 1)
+      send(replayed_pid, scheduled_reconciliation)
+
+      assert_receive {:pending_dispatched, 1, 1}, 2_000
+      settled = wait_for_decision(replayed_pid, v1.decision_id, &(&1.delivery_status == :queued))
+      assert settled.version == 2
+      assert settled.answer == accepted
+      assert Enum.map(settled.dispatch_attempts, & &1.status) == [:queued]
+      refute_receive {:pending_dispatched, 2, _version}, 100
+      assert :counters.get(dispatches, 1) == 1
+    end
+
+    test "dispatch lifecycle fences stay bounded across repeated retries", %{dir: dir} do
+      parent = self()
+      attempts = :counters.new(1, [])
+
+      dispatcher = fn _decision, _opts ->
+        :counters.add(attempts, 1, 1)
+        send(parent, {:dispatch_attempted, :counters.get(attempts, 1)})
+        {:error, :unavailable}
+      end
+
+      scheduler = fn recipient, message, delay_ms ->
+        send(parent, {:dispatch_scheduled, recipient, message, delay_ms})
+        make_ref()
+      end
+
+      pid =
+        start_store!(dir,
+          dispatcher: dispatcher,
+          dispatch_delay_ms: 0,
+          reconcile_delay_ms: 0,
+          retry_delays_ms: List.duplicate(0, 25),
+          dispatch_scheduler: scheduler
+        )
+
+      assert_receive {:dispatch_scheduled, ^pid, {:reconcile_dispatches, []}, 0}, 2_000
+      assert {:ok, %{decision: decision}} = request(pid, answerable_request("bounded-dispatch-fence"))
+
+      payload = %{"idempotency_key" => "bounded-fence", "expected_version" => 1, "custom_response" => "Proceed"}
+      assert {:ok, _result} = answer(pid, decision.decision_id, payload)
+      assert_receive {:dispatch_scheduled, ^pid, initial_dispatch, 0}, 2_000
+      send(pid, initial_dispatch)
+      assert_receive {:dispatch_attempted, 1}, 2_000
+      assert_receive {:dispatch_scheduled, ^pid, first_retry, 0}, 2_000
+
+      baseline_size = dispatch_fence_size(first_retry)
+
+      sizes =
+        Enum.reduce(2..20, {first_retry, [baseline_size]}, fn attempt, {scheduled, sizes} ->
+          send(pid, scheduled)
+          assert_receive {:dispatch_attempted, ^attempt}, 2_000
+          assert_receive {:dispatch_scheduled, ^pid, next_retry, 0}, 2_000
+          {next_retry, [dispatch_fence_size(next_retry) | sizes]}
+        end)
+        |> elem(1)
+
+      assert Enum.max(sizes) <= baseline_size + 64
+      assert :counters.get(attempts, 1) == 20
     end
   end
 
   describe "legacy attention projection and enrichment" do
+    test "internal delivery alerts never appear as operator Commands", %{dir: dir} do
+      pid = start_store!(dir)
+      slug = "decision-delivery-act-1"
+
+      payload = %{
+        "question" => "Decision action remains actionable after turn_failed.",
+        "blocking" => true,
+        "kind" => "legacy_attention",
+        "source_id" => "legacy_attention:#{slug}"
+      }
+
+      assert {:ok, %{status: :accepted, decision: decision}} =
+               DecisionStore.project_attention(
+                 payload,
+                 [
+                   ticket: @ticket,
+                   source: @source,
+                   legacy_attention: %{
+                     slug: slug,
+                     topic: "ticket.979.agent.attention.#{slug}"
+                   }
+                 ],
+                 pid
+               )
+
+      assert {:ok, %{decisions: [], total: 0, counts: %{open: 0, blocking: 0}}} =
+               DecisionStore.retained_query(
+                 %{limit: 25, cursor: nil, lifecycle: nil, search: nil, ticket: nil},
+                 pid
+               )
+
+      assert {:ok, ^decision} = DecisionStore.get(decision.decision_id, pid)
+    end
+
     test "a minimal attention creates one custom-response-only Decision", %{dir: dir} do
       pid = start_store!(dir)
 
@@ -1239,7 +1531,7 @@ defmodule Aiur.DecisionStoreTest do
       refute_receive {:reconciled, _, _}, 100
     end
 
-    test "transient dispatch failure is durable and retried with a new attempt", %{dir: dir} do
+    test "transient dispatch failure is retried after request enrichment", %{dir: dir} do
       parent = self()
       counter = :counters.new(1, [])
 
@@ -1253,22 +1545,45 @@ defmodule Aiur.DecisionStoreTest do
           else: {:ok, %{status: :accepted, item: %{id: 88}}}
       end
 
+      dispatch_scheduler = fn recipient, message, delay_ms ->
+        send(parent, {:retry_scheduled, recipient, message, delay_ms})
+        make_ref()
+      end
+
       pid =
         start_store!(dir,
           dispatcher: dispatcher,
           dispatch_delay_ms: 0,
-          retry_delays_ms: [0]
+          reconcile_delay_ms: 0,
+          retry_delays_ms: [0],
+          dispatch_scheduler: dispatch_scheduler
         )
 
-      assert {:ok, %{decision: decision}} = request(pid, answerable_request("answer-retry"))
+      assert_receive {:retry_scheduled, ^pid, {:reconcile_dispatches, []}, 0}, 2_000
+      assert {:ok, %{decision: decision}} = request(pid, answerable_request("answer-retry-enrichment"))
       payload = %{"idempotency_key" => "retry-1", "expected_version" => 1, "custom_response" => "Proceed"}
       assert {:ok, _result} = answer(pid, decision.decision_id, payload)
 
+      assert_receive {:retry_scheduled, ^pid, first_dispatch, 0}, 2_000
+      send(pid, first_dispatch)
       assert_receive {:attempted, 1, first_attempt}, 1_000
+      assert_receive {:retry_scheduled, ^pid, scheduled_retry, 0}, 2_000
+
+      patch = %{"context" => %{"short_summary" => "Context before retry"}}
+
+      assert {:ok, %{status: :accepted, decision: enriched}} =
+               enrich(pid, decision.decision_id, patch, 1)
+
+      assert enriched.version == 2
+      assert enriched.delivery_status == :failed
+      assert Enum.map(enriched.dispatch_attempts, & &1.status) == [:failed]
+
+      send(pid, scheduled_retry)
       assert_receive {:attempted, 2, second_attempt}, 1_000
       refute first_attempt == second_attempt
 
       settled = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :queued))
+      assert settled.version == 2
       assert Enum.map(settled.dispatch_attempts, & &1.status) == [:failed, :queued]
       assert hd(settled.dispatch_attempts).failure_reason_class == "orchestrator_unavailable"
     end
@@ -1456,6 +1771,10 @@ defmodule Aiur.DecisionStoreTest do
       assert {:ok, _result} = answer(pid, decision.decision_id, payload)
       assert_receive {:handoff_before_settlement, dispatcher_pid, item}, 1_000
 
+      assert {:ok, :accepted} = DecisionStore.validate_delivery(item, pid)
+      assert {:ok, before_delivery} = DecisionStore.get(decision.decision_id, pid)
+      assert before_delivery.dispatch_attempts == []
+
       assert {:ok, :accepted} = DecisionStore.record_delivery(item, pid)
       delivered = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :delivered))
       assert [%{attempt_id: attempt_id, status: :delivered}] = delivered.dispatch_attempts
@@ -1616,6 +1935,16 @@ defmodule Aiur.DecisionStoreTest do
       _queued = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :queued))
       item = correlated_queue_item(decision, action, attempt_id, 93)
       assert {:ok, :accepted} = DecisionStore.record_delivery(item, pid)
+
+      assert {:ok, %{decision: advanced}} =
+               request(
+                 pid,
+                 answerable_request("answer-lifecycle")
+                 |> Map.merge(%{"question" => "Deploy now with the latest context?", "version" => 2})
+               )
+
+      assert advanced.version == 2
+      assert Aiur.Decision.active_answer(advanced).action_id == action.action_id
 
       :ok = Exchange.subscribe("ticket.979.agent.decision.acknowledged")
       :ok = Exchange.subscribe("ticket.979.agent.decision.resolved")

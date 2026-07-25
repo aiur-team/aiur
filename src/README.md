@@ -150,6 +150,40 @@ Build Order planning reads use finite `github.planning_root_limit`,
 They default to `100`, `4`, and `4`; all values must be positive and may not
 exceed those hard limits, so a provider generation never silently truncates.
 
+The optional root-level `build_order` section configures three supervised,
+in-memory configured-repository stores. Ticket detail defaults to a 30-second
+freshness window, 32 retained identities, and 16,384 sanitized description
+bytes. `ticket_detail_freshness_ms` accepts `1..300000`,
+`ticket_detail_max_entries` accepts `1..100`, and
+`ticket_detail_max_description_bytes` accepts `1..16384`.
+
+Recent ticket history retains only allowlisted, sanitized event metadata from
+the typed IssueLog and Exchange seams; it never stores agent transcripts or
+workspace paths. `ticket_history_limit` defaults to `50` and accepts `1..100`;
+`ticket_history_max_identities` defaults to `100` and accepts `1..100`; and
+`ticket_history_stale_after_ms` defaults to `60000` and accepts `1..300000`.
+History snapshots are in-memory and restart as unavailable until fresh typed
+evidence is observed.
+
+The planning graph projection owns provider polling independently of connected
+browsers. Its public settings and inclusive bounds are:
+
+- `graph_catalog_refresh_ms`: default `60000`, range `1..3600000`.
+- `graph_selected_refresh_ms`: default `15000`, range `1..300000`, while a
+  selected root has active demand.
+- `graph_demand_refresh_ms`: default `5000`, range `1..300000`; it must not
+  exceed `graph_selected_refresh_ms`.
+- `graph_refresh_timeout_ms`: default `30000`, range `1..120000`.
+- `graph_max_selected_roots`: default `32`, range `1..100` retained
+  last-known-good roots.
+- `graph_max_inflight`: default `4`, range `1..16` provider refreshes shared by
+  all consumers.
+
+Restarting Aiur clears ticket detail and every catalog or selected-root graph
+generation. Each store reports unavailable after restart until a new complete
+provider read succeeds; no stale graph generation is reconstructed or exposed
+as an empty graph.
+
 Copy one of the starter pairs (config + prompt template) and edit it for your project:
 
 - [examples/workflows/linear-codex.aiurconfig](examples/workflows/linear-codex.aiurconfig)

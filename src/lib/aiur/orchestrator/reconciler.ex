@@ -11,6 +11,7 @@ defmodule Aiur.Orchestrator.Reconciler do
 
   alias Aiur.Orchestrator.{
     DispatchPolicy,
+    LifecycleFence,
     MembershipLifecycle,
     PauseResume,
     RateLimitFallback,
@@ -147,12 +148,18 @@ defmodule Aiur.Orchestrator.Reconciler do
       )
       when is_function(observe_membership_fun, 2) and is_function(mark_reconciled_fun, 1) do
     if DispatchPolicy.terminal_issue_state?(issue.state, terminal_states) do
-      reconcile_terminal_issue_state(
-        state,
-        issue,
-        observe_membership_fun,
-        mark_reconciled_fun
-      )
+      case LifecycleFence.reconcile_observed_state(state, issue) do
+        :admit ->
+          reconcile_terminal_issue_state(
+            state,
+            issue,
+            observe_membership_fun,
+            mark_reconciled_fun
+          )
+
+        {:fenced, next_state} ->
+          next_state
+      end
     else
       reconcile_nonterminal_issue_state(state, issue, active_states, observe_membership_fun)
     end
@@ -215,6 +222,43 @@ defmodule Aiur.Orchestrator.Reconciler do
       Issue.paused?(issue) ->
         PauseResume.pause_issue_for_label_override(state, issue)
 
+      true ->
+        reconcile_routable_nonterminal_issue_state(
+          state,
+          issue,
+          active_states,
+          observe_membership_fun
+        )
+    end
+  end
+
+  defp reconcile_routable_nonterminal_issue_state(
+         state,
+         issue,
+         active_states,
+         observe_membership_fun
+       ) do
+    case LifecycleFence.reconcile_observed_state(state, issue) do
+      {:fenced, next_state} ->
+        next_state
+
+      :admit ->
+        reconcile_unfenced_nonterminal_issue_state(
+          state,
+          issue,
+          active_states,
+          observe_membership_fun
+        )
+    end
+  end
+
+  defp reconcile_unfenced_nonterminal_issue_state(
+         state,
+         issue,
+         active_states,
+         observe_membership_fun
+       ) do
+    cond do
       DispatchPolicy.active_issue_state?(issue.state, active_states) ->
         maybe_reactivate_or_refresh(state, issue)
 

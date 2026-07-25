@@ -9,10 +9,40 @@ defmodule AiurWeb.StaticAssetController do
   alias Plug.Conn
 
   @spec dashboard_css(Conn.t(), map()) :: Conn.t()
-  def dashboard_css(conn, _params), do: serve(conn, "/dashboard.css")
+  def dashboard_css(conn, _params), do: serve(conn, "/dashboard.css", revalidate?: true)
+
+  @spec ticket_context_dialog_hook(Conn.t(), map()) :: Conn.t()
+  def ticket_context_dialog_hook(conn, _params), do: serve(conn, "/ticket-context-dialog-hook.js", revalidate?: true)
+
+  @spec build_order_grid_hook(Conn.t(), map()) :: Conn.t()
+  def build_order_grid_hook(conn, _params), do: serve(conn, "/build-order-grid-hook.js", revalidate?: true)
+
+  @spec dom_svg_layout_adapter(Conn.t(), map()) :: Conn.t()
+  def dom_svg_layout_adapter(conn, _params), do: serve(conn, "/aiur-dom-svg-layout-adapter.js", revalidate?: true)
+
+  @spec dom_svg_layout_module(Conn.t(), map()) :: Conn.t()
+  def dom_svg_layout_module(conn, %{"module" => module}), do: serve(conn, "/aiur-dom-svg-layout/#{module}", revalidate?: true)
+
+  @spec dom_svg_layout_loader(Conn.t(), map()) :: Conn.t()
+  def dom_svg_layout_loader(conn, _params), do: serve(conn, "/aiur-dom-svg-layout-loader.js", revalidate?: true)
 
   @spec aiur_logo(Conn.t(), map()) :: Conn.t()
   def aiur_logo(conn, _params), do: serve(conn, "/aiur-logo.png")
+
+  @spec codex_color_svg(Conn.t(), map()) :: Conn.t()
+  def codex_color_svg(conn, _params), do: serve(conn, "/codex-color.svg", revalidate?: true)
+
+  @spec claude_symbol_svg(Conn.t(), map()) :: Conn.t()
+  def claude_symbol_svg(conn, _params), do: serve(conn, "/claude-symbol.svg", revalidate?: true)
+
+  @spec codex_token_svg(Conn.t(), map()) :: Conn.t()
+  def codex_token_svg(conn, _params), do: serve(conn, "/codex-token.svg", revalidate?: true)
+
+  @spec claude_token_svg(Conn.t(), map()) :: Conn.t()
+  def claude_token_svg(conn, _params), do: serve(conn, "/claude-token.svg", revalidate?: true)
+
+  @spec bungee_font(Conn.t(), map()) :: Conn.t()
+  def bungee_font(conn, _params), do: serve(conn, "/bungee.woff2")
 
   @spec phoenix_html_js(Conn.t(), map()) :: Conn.t()
   def phoenix_html_js(conn, _params), do: serve(conn, "/vendor/phoenix_html/phoenix_html.js")
@@ -42,6 +72,10 @@ defmodule AiurWeb.StaticAssetController do
   end
 
   defp cache_control(options) do
+    if Keyword.get(options, :revalidate?, false), do: "private, max-age=0, must-revalidate", else: cache_control_with_lifetime(options)
+  end
+
+  defp cache_control_with_lifetime(options) do
     visibility = if Keyword.get(options, :private?, false), do: "private", else: "public"
     immutable = if Keyword.get(options, :immutable?, false), do: ", immutable", else: ""
     "#{visibility}, max-age=31536000#{immutable}"

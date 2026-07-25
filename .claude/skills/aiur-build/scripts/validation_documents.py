@@ -49,8 +49,14 @@ def validate_document(
     except (OSError, UnicodeError, IndexError) as exc:
         report.error(f"{ticket_id}.document cannot be read: {exc}")
         return
-    if not re.match(rf"^#\s+{re.escape(ticket_id)}(?:\s|\u2014|-)", first_line):
-        report.error(f"{ticket_id}.document heading must begin with '# {ticket_id}'")
+    if not re.match(
+        rf"^#\s+(?:BO:\s+)?{re.escape(ticket_id)}(?:\s|\u2014|-)",
+        first_line,
+    ):
+        report.error(
+            f"{ticket_id}.document heading must begin with '# {ticket_id}' "
+            f"or '# BO: {ticket_id}'"
+        )
     kind = ticket.get("kind")
     if isinstance(kind, str) and not re.search(
         rf"(?m)^\*\*Kind:\*\*\s+{re.escape(kind)}\s*$", text

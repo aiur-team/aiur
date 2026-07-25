@@ -17,6 +17,13 @@ config :aiur, AiurWeb.Endpoint,
   check_origin: false,
   server: false
 
+# Demo / pre-ticket planning mode: render a Build Order in the spatial dashboard
+# straight from a local planning pack (no GitHub issues). Enable at build time
+# with AIUR_BUILD_ORDER_DEMO=1. Remove this block + priv/build_orders to delete.
+if System.get_env("AIUR_BUILD_ORDER_DEMO") in ~w(1 true) do
+  config :aiur, :build_order_data_source, AiurWeb.BuildOrder.PlanningSource
+end
+
 if config_env() == :test do
   # Library code must never register real pids/panes into the reaper during
   # unit tests — a draining sweep would kill live host processes. Reaper
@@ -32,6 +39,11 @@ if config_env() == :test do
   # Orchestrators that exercise polling start themselves with the production
   # default, but this singleton must not poll across sequential test boundaries.
   config :aiur, :orchestrator_initial_poll?, false
+
+  # The shared app's Ad Hoc overlay poller must not reach GitHub across
+  # sequential test boundaries; tests that exercise it start their own named
+  # instance with an injected request_fun.
+  config :aiur, :build_order_adhoc_poll?, false
 
   # Suite-global :log_file isolation. The :aiur app boots BEFORE
   # test/test_helper.exs runs (mix test starts apps first), and

@@ -8,6 +8,7 @@ defmodule Aiur.Codex.Frames do
   @thread_start_id 2
   @turn_start_id 3
   @rate_limits_read_id 4
+  @account_read_id 5
 
   @spec thread_start_id() :: 2
   def thread_start_id, do: @thread_start_id
@@ -18,12 +19,24 @@ defmodule Aiur.Codex.Frames do
   @spec rate_limits_read_id() :: 4
   def rate_limits_read_id, do: @rate_limits_read_id
 
+  @spec account_read_id() :: 5
+  def account_read_id, do: @account_read_id
+
   @spec rate_limits_read_frame() :: map()
   def rate_limits_read_frame do
     %{
       "method" => "account/rateLimits/read",
       "id" => rate_limits_read_id(),
       "params" => nil
+    }
+  end
+
+  @spec account_read_frame() :: map()
+  def account_read_frame do
+    %{
+      "method" => "account/read",
+      "id" => account_read_id(),
+      "params" => %{}
     }
   end
 

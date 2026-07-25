@@ -81,7 +81,7 @@ defmodule Aiur.Claude.RemoteControlTest do
       process_group_id = System.unique_integer([:positive])
       {:ok, identity} = Agent.start_link(fn -> :original end)
 
-      on_exit(fn -> if Process.alive?(identity), do: Agent.stop(identity) end)
+      on_exit(fn -> Aiur.TestSupport.safe_stop(identity) end)
 
       reaper = fn group, expected_identity, :group ->
         send(parent, {:identity_signal_barrier, self(), group, expected_identity})

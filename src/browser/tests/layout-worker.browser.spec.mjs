@@ -727,7 +727,7 @@ test('worker validates direct boundary and client response matrices before geome
         ['missingEdge', (response) => { response.edges = [] }],
         ['extraEdge', (response) => { response.edges.push({ ...response.edges[0], id: 'edge_99' }) }],
         ['nonFiniteCoordinate', (response) => { response.nodes[0].x = NaN }],
-        ['outOfRangeCoordinate', (response) => { response.nodes[0].y = 4_097 }],
+        ['outOfRangeCoordinate', (response) => { response.nodes[0].y = 65_537 }],
         ['excessSections', (response) => { response.edges[0].sections = Array.from({ length: 17 }, () => section) }],
         ['excessPoints', (response) => { response.edges[0].sections = [{ ...section, bendPoints: Array.from({ length: 63 }, () => ({ x: 1, y: 1 })) }] }],
         ['excessDiagnostics', (response) => { response.diagnostics = Array.from({ length: 11 }, () => ({ code: 'external_stubs', count: 1 })) }],
@@ -837,13 +837,19 @@ test('worker rejects malformed engine identities and denied subresources with re
   recoveryPage.on('pageerror', (error) => recoveryErrors.push(error.message))
 
   try {
+    await openFixture(recoveryPage)
+    // The recovery block below exercises the standalone worker client module; it
+    // only needs the fixture rendered. The graph itself is the synchronous grid
+    // (no layout worker adapter), so assert the grid is present rather than a
+    // removed `data-layout-health` state.
+    await expect(recoveryPage.locator('#fixture-build-order-graph[data-bo-grid]')).toBeVisible()
+
     await recoveryContext.route(urls.engine, (route) => {
       engineRequests += 1
       return engineRequests === 1
         ? route.fulfill({ status: 404, contentType: 'application/javascript', body: '' })
         : route.continue()
     })
-    await openFixture(recoveryPage)
 
     const result = await recoveryPage.evaluate(async (payload) => {
       const { createLayoutWorkerClient } = await import(payload.urls.client)
@@ -1071,6 +1077,108 @@ test('worker and client reject legal geometry that exceeds the response byte cap
     expect(result.workerOverflow).toMatchObject({ type: 'error', error: { code: 'layout_overflow' } })
     expect(result.clientOverflow).toMatchObject({ type: 'error', error: { code: 'malformed_response' } })
     expect(pageErrors).toEqual([])
+  } finally {
+    await context.close()
+  }
+})
+
+// Regression for #1270: the real Build Order graph (#1084 shape — 54 nodes,
+// 106 edges, 8 phase partitions, real card dimensions) laid out to a canvas
+// wider than the former 4095px coordinate cap, so the worker threw
+// `layout_overflow` (and the client's coordinate validation would have rejected
+// it), collapsing the graph to the document-flow fallback with zero edges. The
+// previous large-graph coverage only exercised the fixture's deliberately
+// bounded sqrt-grid shape, which never crosses the cap — that gap is why the
+// overflow shipped. This drives a genuinely deep, wide-card graph end to end
+// through client + worker and asserts geometry is produced (not an overflow
+// error), with at least one coordinate beyond the old 4095 bound so the test
+// fails against the pre-fix caps and passes only once they accommodate the
+// real dataset.
+function realWorldBuildOrderRequest() {
+  const NODE_COUNT = 54
+  const PHASES = 8
+  const PER_PHASE = Math.ceil(NODE_COUNT / PHASES)
+  const nodes = Array.from({ length: NODE_COUNT }, (_, index) => ({
+    id: `node_${index}`,
+    // Real Build Order cards are 14-18rem wide with multi-line content, far
+    // larger than the 120x48 synthetic fixtures used elsewhere; a deep chain of
+    // these is what pushes the layered canvas past the old bound.
+    width: 260,
+    height: 150,
+    lane: index % 3,
+    phase: Math.min(Math.floor(index / PER_PHASE), PHASES - 1)
+  }))
+
+  const edges = []
+  const addEdge = (source, target) => edges.push({ id: `edge_${edges.length}`, source: `node_${source}`, target: `node_${target}` })
+  for (let index = 1; index < NODE_COUNT; index++) addEdge(index - 1, index) // dependency spine (depth)
+  for (let index = 2; index < NODE_COUNT; index++) addEdge(index - 2, index) // skip dependencies
+  addEdge(0, 6) // one cross-phase long dependency -> 106 edges total
+
+  return {
+    type: 'layout',
+    version: 1,
+    requestId: `request_30_${NODE_COUNT}`,
+    generation: 30,
+    constraints: {
+      lanes: [{ index: 0 }, { index: 1 }, { index: 2 }],
+      phases: Array.from({ length: PHASES }, (_, index) => ({ index }))
+    },
+    nodes,
+    edges,
+    options: {
+      direction: 'RIGHT',
+      edgeRouting: 'ORTHOGONAL',
+      randomSeed: 1,
+      thoroughness: 1,
+      considerModelOrder: true,
+      favorStraightEdges: true
+    }
+  }
+}
+
+test('client and worker lay out the real #1084 Build Order shape past the former coordinate cap', async ({ browser }) => {
+  const urls = await layoutAssetUrls()
+  const context = await browser.newContext({ httpCredentials: dashboardCredentials })
+  const page = await context.newPage()
+
+  try {
+    await openFixture(page)
+
+    const result = await page.evaluate(async (payload) => {
+      const { createLayoutWorkerClient } = await import(payload.urls.client)
+      const client = createLayoutWorkerClient({ workerUrl: payload.urls.worker, engineUrl: payload.urls.engine })
+      const response = await client.layout(payload.request)
+      client.dispose()
+      return response
+    }, { urls, request: realWorldBuildOrderRequest() })
+
+    // Layout succeeds instead of collapsing to the fallback: the client returns
+    // a result envelope (a `layout_overflow` throw surfaces as `type: 'error'`).
+    expect(result.type).toBe('result')
+    expect(result.nodes).toHaveLength(54)
+    expect(result.edges).toHaveLength(106)
+
+    // Edges are actually routed — the fallback draws none, so every edge must
+    // carry at least one section with routed points (SVG edge children).
+    expect(result.edges.every((edge) => edge.sections.length > 0)).toBe(true)
+    const routedPoints = result.edges.flatMap((edge) =>
+      edge.sections.flatMap((section) => [section.startPoint, ...section.bendPoints, section.endPoint]))
+    expect(routedPoints.length).toBeGreaterThan(0)
+
+    const coordinates = [
+      ...result.nodes.flatMap((node) => [node.x, node.y]),
+      ...routedPoints.flatMap((point) => [point.x, point.y])
+    ]
+
+    // The graph genuinely exceeds the former 4095px cap; without the raised
+    // bound the worker throws and the client rejects, so this line pins the
+    // regression rather than merely re-testing an already-bounded graph.
+    expect(Math.max(...coordinates)).toBeGreaterThan(4_096)
+
+    // Coordinates remain finite, positive, and inside the raised guard — the
+    // cap still bounds runaway geometry, it is only sized for the real dataset.
+    expect(coordinates.every((value) => Number.isFinite(value) && value >= 1 && value <= 65_536)).toBe(true)
   } finally {
     await context.close()
   }

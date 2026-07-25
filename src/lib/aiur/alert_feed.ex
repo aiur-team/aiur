@@ -263,7 +263,7 @@ defmodule Aiur.AlertFeed do
       [_, identifier, slug] ->
         question = attention_question(alert)
 
-        if question == "" do
+        if question == "" or internal_decision_alert?(slug) do
           nil
         else
           %{
@@ -281,6 +281,10 @@ defmodule Aiur.AlertFeed do
   end
 
   defp to_decision_attention(_alert), do: nil
+
+  defp internal_decision_alert?(slug) do
+    String.starts_with?(slug, ["decision-delivery-", "decision-lifecycle-persistence-"])
+  end
 
   defp attention_question(alert) do
     alert

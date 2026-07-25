@@ -1,7 +1,8 @@
 defmodule Aiur.Orchestrator.ReconcilerTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Aiur.Issue
+  alias Aiur.Orchestrator
   alias Aiur.Orchestrator.Reconciler
   alias Aiur.Orchestrator.State
   alias Aiur.TrackerIdentity
@@ -94,12 +95,14 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
     end
   end
 
-  defp drain_resume_agent_messages(acc \\ []) do
-    receive do
-      {:resume_agent, _request_id} -> drain_resume_agent_messages([:resume | acc])
-    after
-      0 -> acc
-    end
+  defp paused_control do
+    %{
+      status: :paused,
+      can_interrupt: true,
+      application_confirmation: :confirmed,
+      generation: 1,
+      version: 0
+    }
   end
 
   defp tracker_identity(provider_id) do
@@ -138,13 +141,18 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
 
   describe "maybe_reactivate_or_refresh/2 before_run_failure recovery" do
     test "resumes a before_run_failure pause on an active-state issue" do
-      issue = %Issue{id: "issue-brf", identifier: "issue-brf", state: "rework"}
+      issue = %Issue{
+        id: "issue-brf",
+        identifier: "issue-brf",
+        state: "rework",
+        tracker_identity: tracker_identity("I-before-run-failure")
+      }
 
       entry = %{
         pid: self(),
         identifier: "issue-brf",
         issue: issue,
-        control: %{status: :paused},
+        control: paused_control(),
         paused_reason: :before_run_failure
       }
 
@@ -155,18 +163,30 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
       # The parked agent is blocked in AgentRunner.wait_for_before_run_resume/3;
       # a transient hook failure must self-heal by delivering the resume signal
       # to its live pid, not sit paused forever.
-      assert_received {:resume_agent, _request_id}
-      assert get_in(result.running, ["issue-brf", :control, :status]) == :working
+      assert_receive {:resume_agent, request_id, 1}
+
+      assert {:noreply, resumed_state} =
+               Orchestrator.handle_info(
+                 {:worker_control_state, "issue-brf", :working, %{request_id: request_id, generation: 1}},
+                 result
+               )
+
+      assert get_in(resumed_state.running, ["issue-brf", :control, :status]) == :working
     end
 
     test "auto-recovery of a persistently-failing before_run hook is bounded" do
-      issue = %Issue{id: "issue-brf-loop", identifier: "issue-brf-loop", state: "rework"}
+      issue = %Issue{
+        id: "issue-brf-loop",
+        identifier: "issue-brf-loop",
+        state: "rework",
+        tracker_identity: tracker_identity("I-before-run-failure-loop")
+      }
 
       entry = %{
         pid: self(),
         identifier: "issue-brf-loop",
         issue: issue,
-        control: %{status: :paused},
+        control: paused_control(),
         paused_reason: :before_run_failure
       }
 
@@ -174,33 +194,40 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
 
       polls = 20
 
-      final_state =
-        Enum.reduce(1..polls, state, fn _poll, acc ->
+      {final_state, resume_signals} =
+        Enum.reduce(1..polls, {state, 0}, fn _poll, {acc, resume_signals} ->
           acc = Reconciler.maybe_reactivate_or_refresh(acc, issue)
-          current = acc.running["issue-brf-loop"]
 
-          # Simulate the agent re-running the hook, failing again, and re-parking
-          # itself — but only on the polls that actually resumed it.
-          if get_in(current, [:control, :status]) == :working do
-            reparked =
-              current
-              |> put_in([:control, :status], :paused)
-              |> Map.put(:paused_reason, :before_run_failure)
+          receive do
+            {:resume_agent, request_id, 1} ->
+              assert {:noreply, resumed_state} =
+                       Orchestrator.handle_info(
+                         {:worker_control_state, "issue-brf-loop", :working, %{request_id: request_id, generation: 1}},
+                         acc
+                       )
 
-            %{acc | running: Map.put(acc.running, "issue-brf-loop", reparked)}
-          else
-            acc
+              current = resumed_state.running["issue-brf-loop"]
+
+              # Simulate the agent re-running the hook, failing again, and
+              # re-parking itself after it acknowledges the resume.
+              reparked =
+                current
+                |> put_in([:control, :status], :paused)
+                |> Map.put(:paused_reason, :before_run_failure)
+
+              {%{resumed_state | running: Map.put(resumed_state.running, "issue-brf-loop", reparked)}, resume_signals + 1}
+          after
+            0 ->
+              {acc, resume_signals}
           end
         end)
 
-      resume_signals = drain_resume_agent_messages()
-
-      assert resume_signals != [],
+      assert resume_signals > 0,
              "a transient failure must get at least one automatic recovery attempt"
 
       # A persistent merge conflict must not resume on every poll forever; the
       # reconciler gives up well before the polling loop would.
-      assert length(resume_signals) < polls,
+      assert resume_signals < polls,
              "before_run_failure recovery must be bounded, not retry every poll forever"
 
       assert get_in(final_state.running["issue-brf-loop"], [:control, :status]) == :paused

@@ -72,12 +72,17 @@ defmodule Aiur.AgentEvents do
 
   @type transcript_message :: {:transcript_event, transcript_event()}
   @type alert_message :: {:alert, alert_event()}
+  @type control_lifecycle_message :: {:control_lifecycle, map()}
   @type running_change_message :: {:running_changed, [agent_summary()]}
   @type status_change_message :: {:status_changed, %{identifier: agent_identifier(), status: atom()}}
 
   @typedoc "Any message that may be received on a Aiur agent topic."
   @type message ::
-          transcript_message() | alert_message() | running_change_message() | status_change_message()
+          transcript_message()
+          | alert_message()
+          | control_lifecycle_message()
+          | running_change_message()
+          | status_change_message()
 
   @doc """
   Canonical short tag name for a transcript role. Used by the

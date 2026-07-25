@@ -16,7 +16,9 @@ defmodule AiurWeb.Layouts do
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="csrf-token" content={@csrf_token} />
-        <title>Aiur Executor Control Center</title>
+        <link rel="icon" type="image/png" href="/aiur-logo.png" />
+        <link rel="apple-touch-icon" href="/aiur-logo.png" />
+        <title>Aiur Operator Control Center</title>
         <script>
           (function () {
             try {
@@ -30,6 +32,10 @@ defmodule AiurWeb.Layouts do
         <script defer src="/vendor/phoenix_html/phoenix_html.js"></script>
         <script defer src="/vendor/phoenix/phoenix.js"></script>
         <script defer src="/vendor/phoenix_live_view/phoenix_live_view.js"></script>
+        <script defer src="/aiur-dom-svg-layout-loader.js"></script>
+        <script defer src="/ticket-context-dialog-hook.js"></script>
+        <script defer src="/conversation-drawer-hook.js"></script>
+        <script defer src="/build-order-grid-hook.js"></script>
         <script>
           window.addEventListener("DOMContentLoaded", function () {
             var csrfToken = document
@@ -87,6 +93,32 @@ defmodule AiurWeb.Layouts do
               }
             };
 
+            // The server owns the collapsed state (assigns -> data-nav-collapsed on
+            // the shell). This hook only mirrors it to localStorage and replays the
+            // stored value once on mount, so cross-navigation persistence survives
+            // without any client-written attribute for LiveView to strip.
+            Hooks.NavToggle = {
+              mounted: function () {
+                try {
+                  var stored = window.localStorage.getItem("aiur-nav-collapsed");
+                  if (stored === "true" || stored === "false") {
+                    var collapsed = stored === "true";
+                    if (collapsed !== (this.el.getAttribute("aria-pressed") === "true")) {
+                      this.pushEvent("restore-nav", { collapsed: collapsed });
+                    }
+                  }
+                } catch (_error) {}
+              },
+              updated: function () {
+                try {
+                  window.localStorage.setItem(
+                    "aiur-nav-collapsed",
+                    this.el.getAttribute("aria-pressed") === "true" ? "true" : "false"
+                  );
+                } catch (_error) {}
+              }
+            };
+
             Hooks.ThemeToggle = {
               mounted: function () {
                 this.onClick = () => {
@@ -106,6 +138,22 @@ defmodule AiurWeb.Layouts do
                 this.el.removeEventListener("click", this.onClick);
               }
             };
+
+            if (window.AiurTicketContextDialogHook) {
+              Hooks.TicketContextDialog = window.AiurTicketContextDialogHook;
+            }
+
+            if (window.AiurConversationDrawerHook) {
+              Hooks.ConversationDrawer = window.AiurConversationDrawerHook;
+            }
+
+            if (window.AiurDomSvgLayout) {
+              Hooks.DomSvgLayout = window.AiurDomSvgLayout.createLiveViewHook();
+            }
+
+            if (window.AiurBuildOrderGridHook) {
+              Hooks.BuildOrderGrid = window.AiurBuildOrderGridHook;
+            }
 
             var liveSocket = new window.LiveView.LiveSocket("/live", window.Phoenix.Socket, {
               hooks: Hooks,

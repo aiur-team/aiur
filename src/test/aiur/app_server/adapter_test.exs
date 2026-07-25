@@ -130,6 +130,28 @@ defmodule Aiur.AppServer.AdapterTest do
     assert result.session_id == "thread-1-turn-1"
   end
 
+  test "acknowledges provider delivery only after turn/start succeeds" do
+    port = cat_port()
+    parent = self()
+    send(self(), {port, {:data, {:eol, Jason.encode!(%{"method" => "turn/completed"})}}})
+
+    assert {:ok, _result} =
+             Adapter.run_turn(StubBackend, session(port), "prompt", issue(),
+               on_provider_delivery: fn metadata ->
+                 send(parent, {:provider_delivered, metadata})
+               end
+             )
+
+    assert_receive {:provider_delivered, %{transport: :app_server, turn_id: "turn-1"}}
+
+    failed_session = session(port, %{start_turn_result: {:error, :boom}})
+
+    assert {:error, {:turn_start_failed, :boom}} =
+             Adapter.run_turn(StubBackend, failed_session, "prompt", issue(), on_provider_delivery: fn _metadata -> send(parent, :unexpected_delivery) end)
+
+    refute_receive :unexpected_delivery, 50
+  end
+
   test "run_turn passes paused payload through with session_id" do
     port = cat_port()
     send(self(), {port, {:data, {:eol, Jason.encode!(%{"method" => "pause"})}}})
@@ -356,6 +378,18 @@ defmodule Aiur.AppServer.AdapterTest do
   test "start_port/2 starts bash in the requested workspace" do
     assert {:ok, port} = Adapter.start_port(File.cwd!(), "printf '%s\\n' ready")
     assert_receive {^port, {:data, {:eol, "ready"}}}, 1_000
+  end
+
+  test "start_port/4 accepts string-valued launch environment" do
+    assert {:ok, port} =
+             Adapter.start_port(
+               File.cwd!(),
+               "printf '%s\\n' \"$CLAUDE_CODE_ENABLE_TELEMETRY\"",
+               fn _port -> :ok end,
+               env: [{"CLAUDE_CODE_ENABLE_TELEMETRY", "1"}]
+             )
+
+    assert_receive {^port, {:data, {:eol, "1"}}}, 1_000
   end
 
   test "registers a spawned port before start_port returns" do

@@ -42,7 +42,12 @@ defmodule Aiur.DecisionDispatch do
     payload = %{
       kind: :text,
       body: render(decision),
-      delivery_policy: :checkpoint,
+      # A Decision answer is authoritative input that can change the work an
+      # active agent is about to commit or hand off. Interrupt capable
+      # backends should steer immediately; other backends retain the durable
+      # queue item for the next safe checkpoint.
+      delivery_policy: :interrupt,
+      fallback: :queue_next,
       action_id: answer.action_id,
       correlation: correlation,
       retry_failed: retry_failed

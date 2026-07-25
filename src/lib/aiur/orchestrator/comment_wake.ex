@@ -294,7 +294,47 @@ defmodule Aiur.Orchestrator.CommentWake do
         event
       )
     else
-      state
+      protect_active_comment_delivery(state, running_entry, issue_number, source, event)
+    end
+  end
+
+  defp protect_active_comment_delivery(state, running_entry, issue_number, source, event) do
+    cond do
+      not trusted_comment_event?(event) ->
+        state
+
+      benign_review_pass_comment?(event) ->
+        state
+
+      true ->
+        identifier = to_string(issue_number)
+
+        protected_state =
+          Orchestrator.enqueue_event_digest_item(state, identifier, [event], event)
+
+        issue_key = rework_issue_key(running_entry, issue_number)
+
+        case transition_comment_issue_to_rework(
+               issue_key,
+               issue_number,
+               source,
+               event,
+               Map.get(running_entry, :telemetry_attempt_id)
+             ) do
+          :ok ->
+            protected_state
+
+          {:error, reason} ->
+            Logger.warning(
+              "#{source} active rework transition deferred behind delivery fence: " <>
+                "issue_identifier=#{issue_number} reason=#{inspect(reason)}"
+            )
+
+            protected_state
+
+          {:skip, _reason} ->
+            protected_state
+        end
     end
   end
 

@@ -36,7 +36,7 @@ defmodule Aiur.Workspace.OwnershipReconcilerTest do
     reconciler_name = Module.concat(__MODULE__, :Reconciler)
     {:ok, alive} = Agent.start_link(fn -> true end)
 
-    on_exit(fn -> if Process.alive?(alive), do: Agent.stop(alive) end)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(alive) end)
 
     {:ok, second_store} =
       start_supervised({Store, name: second_store_name, state_dir: root, sync_fun: fn -> :ok end})
@@ -196,7 +196,7 @@ defmodule Aiur.Workspace.OwnershipReconcilerTest do
 
     on_exit(fn ->
       File.rm_rf(root)
-      if Process.alive?(sync_calls), do: Agent.stop(sync_calls)
+      Aiur.TestSupport.safe_stop(sync_calls)
     end)
 
     sync_fun = fn ->

@@ -6,10 +6,10 @@ defmodule Aiur.Config.Schema.Observability do
   @primary_key false
   embedded_schema do
     field(:dashboard_enabled, :boolean, default: true)
-    # Read-only by default: the dashboard's agent-write paths (Executor chat,
-    # pause) are disabled until a deliberate dashboard parity pass. Flip to
-    # `true` to re-enable them. See issue #371.
-    field(:dashboard_writable, :boolean, default: false)
+    # The dashboard is an authenticated operator surface and its controls are
+    # live by default. HTTP startup still refuses writable non-loopback binds
+    # without configured dashboard credentials.
+    field(:dashboard_writable, :boolean, default: true)
     field(:refresh_ms, :integer, default: 1_000)
     field(:render_interval_ms, :integer, default: 16)
   end

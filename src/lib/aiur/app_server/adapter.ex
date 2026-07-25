@@ -35,6 +35,13 @@ defmodule Aiur.AppServer.Adapter do
   def run_turn(backend, %{port: _port} = session, prompt, issue, opts) do
     on_message = Keyword.get(opts, :on_message, &Messages.default_on_message/1)
     on_safe_checkpoint = Keyword.get(opts, :on_safe_checkpoint, fn _checkpoint -> :noop end)
+    on_provider_delivery = Keyword.get(opts, :on_provider_delivery, fn _metadata -> :ok end)
+
+    callbacks = %{
+      on_message: on_message,
+      on_provider_delivery: on_provider_delivery,
+      on_safe_checkpoint: on_safe_checkpoint
+    }
 
     tool_executor =
       Keyword.get(opts, :tool_executor, fn tool, arguments ->
@@ -46,21 +53,26 @@ defmodule Aiur.AppServer.Adapter do
         {:paused, %{request_id: :containment, turn_id: nil, details: :pause_latched_before_turn}}
 
       false ->
-        run_started_turn(backend, session, prompt, issue, on_message, on_safe_checkpoint, tool_executor)
+        run_started_turn(backend, session, prompt, issue, callbacks, tool_executor)
     end
   end
 
-  defp run_started_turn(backend, session, prompt, issue, on_message, on_safe_checkpoint, tool_executor) do
+  defp run_started_turn(backend, session, prompt, issue, callbacks, tool_executor) do
     metadata = session.metadata
     thread_id = session.thread_id
 
     case backend.start_turn(session, prompt, issue) do
       {:ok, turn_id} ->
+        TurnState.safe_invoke_success_callback(callbacks.on_provider_delivery, %{
+          transport: :app_server,
+          turn_id: turn_id
+        })
+
         session_id = "#{thread_id}-#{turn_id}"
         Logger.info("#{backend.backend_label()} session started for #{Messages.issue_context(issue)} session_id=#{session_id}")
 
         Messages.emit_message(
-          on_message,
+          callbacks.on_message,
           :session_started,
           %{
             session_id: session_id,
@@ -74,8 +86,8 @@ defmodule Aiur.AppServer.Adapter do
           Map.merge(
             %{
               backend: backend,
-              on_message: on_message,
-              on_safe_checkpoint: on_safe_checkpoint,
+              on_message: callbacks.on_message,
+              on_safe_checkpoint: callbacks.on_safe_checkpoint,
               tool_executor: tool_executor,
               timeout_ms: Config.agent_turn_timeout_ms(),
               pending_line: "",
@@ -92,11 +104,21 @@ defmodule Aiur.AppServer.Adapter do
           |> TurnState.initialize_turn_tracking()
 
         loop_result = TurnLoop.receive_loop(session, state)
-        handle_turn_result(backend, issue, session_id, thread_id, turn_id, metadata, on_message, loop_result)
+
+        handle_turn_result(
+          backend,
+          issue,
+          session_id,
+          thread_id,
+          turn_id,
+          metadata,
+          callbacks.on_message,
+          loop_result
+        )
 
       {:error, reason} ->
         Logger.warning("#{backend.backend_label()} turn start failed for #{Messages.issue_context(issue)}: #{inspect(reason)}")
-        Messages.emit_message(on_message, :startup_failed, %{reason: reason}, metadata)
+        Messages.emit_message(callbacks.on_message, :startup_failed, %{reason: reason}, metadata)
         {:error, {:turn_start_failed, reason}}
     end
   end
@@ -104,11 +126,11 @@ defmodule Aiur.AppServer.Adapter do
   defp pause_latched?(session), do: Aiur.PauseContainment.paused?(Map.get(session, :containment))
 
   @spec start_port(Path.t(), String.t()) :: {:ok, port()} | {:error, :bash_not_found}
-  def start_port(workspace, command), do: start_port(workspace, command, fn _port -> :ok end)
+  def start_port(workspace, command), do: start_port(workspace, command, fn _port -> :ok end, [])
 
   @doc false
-  @spec start_port(Path.t(), String.t(), (port() -> term())) :: {:ok, port()} | {:error, :bash_not_found}
-  def start_port(workspace, command, on_port_started) when is_function(on_port_started, 1) do
+  @spec start_port(Path.t(), String.t(), (port() -> term()), keyword()) :: {:ok, port()} | {:error, :bash_not_found}
+  def start_port(workspace, command, on_port_started, opts \\ []) when is_function(on_port_started, 1) and is_list(opts) do
     executable = System.find_executable("bash")
 
     if is_nil(executable) do
@@ -129,7 +151,7 @@ defmodule Aiur.AppServer.Adapter do
             :stderr_to_stdout,
             args: [~c"-lc", String.to_charlist(AgentEnvironment.scrub_shell_command(command))],
             cd: String.to_charlist(workspace),
-            env: AgentEnvironment.workspace_env(workspace),
+            env: AgentEnvironment.workspace_env(workspace) ++ port_env(Keyword.get(opts, :env, [])),
             line: @port_line_bytes
           ]
         )
@@ -151,6 +173,32 @@ defmodule Aiur.AppServer.Adapter do
       end
     end
   end
+
+  # Launch adapters describe ephemeral environment values as strings because
+  # tmux and System.cmd use strings. `Port.open/2` is stricter: it accepts
+  # charlists only. Normalize at this one boundary so a capability-bearing
+  # launch never fails (or renders its options in an argument error) before
+  # the owned process starts.
+  defp port_env(env) when is_list(env) do
+    Enum.flat_map(env, fn
+      {name, value} when is_binary(name) and is_binary(value) ->
+        [{String.to_charlist(name), String.to_charlist(value)}]
+
+      {name, false} when is_binary(name) ->
+        [{String.to_charlist(name), false}]
+
+      {name, value} when is_list(name) and is_list(value) ->
+        [{name, value}]
+
+      {name, false} when is_list(name) ->
+        [{name, false}]
+
+      _ ->
+        []
+    end)
+  end
+
+  defp port_env(_env), do: []
 
   defp terminate_uncontained_port(port) do
     case :erlang.port_info(port, :os_pid) do

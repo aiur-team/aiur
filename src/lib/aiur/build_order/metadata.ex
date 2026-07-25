@@ -106,6 +106,15 @@ defmodule Aiur.BuildOrder.Metadata do
   end
 
   defp parse_phase(_label), do: :error
-  defp parse_lane("build-lane:" <> lane) when lane in @lanes, do: {:ok, lane}
+  # Accept any well-formed lane slug, not only the built-in `@lanes`. Lanes are
+  # a planner's choice (the dashboard renders a column per distinct lane and
+  # falls back to a generic icon for unknown ones), so a build order may define
+  # its own epics. `@lanes`/`lanes/0` still name the built-ins for ordering.
+  defp parse_lane("build-lane:" <> lane) do
+    if valid_lane_slug?(lane), do: {:ok, lane}, else: :error
+  end
+
   defp parse_lane(_label), do: :error
+
+  defp valid_lane_slug?(lane), do: Regex.match?(~r/^[a-z0-9][a-z0-9-]{0,63}$/, lane)
 end

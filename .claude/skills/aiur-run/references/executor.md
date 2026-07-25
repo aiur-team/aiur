@@ -99,15 +99,23 @@ The objective is the fastest safe convergence on the bounded outcome. Achieve
 that by continuously maximizing useful parallelism, not by chasing an agent
 count detached from ready work.
 
-- Treat `set max-agents` as the session safety ceiling, not a steady-state
-  target below known capacity. When
+- Treat `set max-agents` as a runtime admission ceiling, not a steady-state
+  target below known capacity and not a fixed program-wide cap. Recompute it
+  from dependency-ready width, serialization constraints, model capacity, CPU,
+  memory, file descriptors, and build-gate pressure. When
   `agent.target_load_average` is enabled, let Aiur's AIMD controller adjust the
   effective slots beneath the recorded maximum ceiling. Keep that ceiling high
-  enough to admit every ready independent lane.
+  enough to admit every ready independent lane — newly-ready Build Order work
+  may use more than five agents when the graph and the machine allow it.
 - Manually ramp the ceiling as the primary controller only when AIMD is
-  disabled. Target sustained CPU utilization first, then memory, build
-  serialization, provider quota, review capacity, or dependency width as the
-  next limiting resource.
+  disabled. Target sustained CPU utilization first, then memory, file
+  descriptors, build serialization, model/provider capacity, review capacity,
+  or dependency width as the next limiting resource.
+- Measure live state before each recompute with the daemon plus host evidence:
+  `aiurdev agents`/`aiurdev status`, CPU idle and run-queue depth, available
+  memory, FD and build pressure, and occupied agent slots. Distinguish current
+  worker-owned browser/test processes from stale PID-1 daemons with no live
+  owner; count the latter as recoverable capacity, not scheduled load.
 - Lower the cap only when measured CPU saturation reduces throughput, memory or
   file descriptors approach unsafe bounds, build contention stops useful
   progress, providers throttle, or review quality declines. Record the exact
@@ -263,6 +271,16 @@ human controlling the run before creating or commenting. Diagnostic reads and
 the draft do not require publication authority. Link only public/safe source
 tickets; otherwise keep an opaque local correlation in the handoff.
 
+Filing a reproducible defect and dispatching it are separate decisions.
+Diagnose and file first; then decide whether to dispatch it now. Free capacity
+is necessary but not sufficient — the ticket must also be explicitly
+authorized/in-boundary or a direct P0/P1 acceptance blocker, and dispatching it
+must not displace ready critical-path work. Incidental reliability findings
+such as an orphaned-daemon cleanup stay in the deferred ledger even when a
+capacity audit shows idle slots. Base the call on the measured live state from
+the capacity policy and record the dispatch-or-defer outcome and its reason in
+the decision ledger.
+
 ## Decisions and handoff
 
 Record decisions that affect scheduling, recovery, ticket creation, review,
@@ -284,6 +302,10 @@ A resumable handoff contains:
   across handoffs of the same run; a later run receives a new ID.
 - the ten-minute capacity timer identity, latest audit path/timestamp, current
   useful count versus target, and last below-target limiting gate/action.
+- the adaptive quiet-audit wait state: the floor/ceiling/backoff bounds, the
+  last wake reason, its audit outcome and intervention/no-action result, and the
+  next planned interval, plus any dispatch-or-defer decision recorded for a
+  discovered Aiur defect.
 
 The one-hour retrospective is a hard cadence independent of ordinary wakeups.
 Review the preceding hour, not merely the latest poll. Classify each wake as

@@ -15,10 +15,10 @@ defmodule Aiur.AgentRunner.QueueDrain do
 
   require Logger
 
-  alias Aiur.{AgentPubSub, Alerts, DecisionStore, Issue, OperatorWaitLog, PauseContainment}
-  alias Aiur.AgentRunner.{CheckpointDelivery, EventsDigest, MessageHandler, SessionLifecycle}
+  alias Aiur.{AgentPubSub, Alerts, DecisionStore, Issue, PauseContainment}
+  alias Aiur.AgentRunner.{EventsDigest, MessageHandler, SessionLifecycle, TurnCallbacks}
   alias Aiur.AgentRunner.{ToolExecutor, TurnAlerts, TurnLoop, TurnStreams}
-  alias Aiur.Codex.DynamicTool
+  alias Aiur.Codex.{DynamicTool, SessionRecovery}
   alias Aiur.CodingAgent
 
   @max_delivery_correlation_attempts 3
@@ -37,9 +37,26 @@ defmodule Aiur.AgentRunner.QueueDrain do
         opts \\ []
       ) do
     receive do
-      {:pause_agent, request_id} when is_integer(request_id) ->
+      {:pause_agent, request_id, generation} when is_integer(request_id) and is_integer(generation) ->
         Logger.info("Agent already paused for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{request_id}")
 
+        MessageHandler.send_control_state(codex_update_recipient, issue, :paused, %{
+          kind: :operator_pause,
+          request_id: request_id,
+          generation: generation
+        })
+
+        wait_for_operator_message(
+          app_session,
+          issue,
+          message_handler,
+          orchestrator,
+          codex_update_recipient,
+          opts
+        )
+
+      {:pause_agent, request_id} when is_integer(request_id) ->
+        Logger.info("Agent already paused for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{request_id}")
         MessageHandler.send_control_state(codex_update_recipient, issue, :paused)
 
         wait_for_operator_message(
@@ -109,9 +126,26 @@ defmodule Aiur.AgentRunner.QueueDrain do
           opts
         )
 
-      {:pause_agent, request_id} when is_integer(request_id) ->
+      {:pause_agent, request_id, generation} when is_integer(request_id) and is_integer(generation) ->
         Logger.info("Agent already paused for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{request_id}")
 
+        MessageHandler.send_control_state(codex_update_recipient, issue, :paused, %{
+          kind: :operator_pause,
+          request_id: request_id,
+          generation: generation
+        })
+
+        wait_for_operator_message(
+          app_session,
+          issue,
+          message_handler,
+          orchestrator,
+          codex_update_recipient,
+          opts
+        )
+
+      {:pause_agent, request_id} when is_integer(request_id) ->
+        Logger.info("Agent already paused for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{request_id}")
         MessageHandler.send_control_state(codex_update_recipient, issue, :paused)
 
         wait_for_operator_message(
@@ -123,7 +157,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
           opts
         )
 
-      {:resume_agent, request_id} when is_integer(request_id) ->
+      {:resume_agent, request_id, generation} when is_integer(request_id) and is_integer(generation) ->
         Logger.info("Resuming paused agent for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{request_id}")
 
         # A stale containment latch makes the next app-server turn return an
@@ -131,10 +165,29 @@ defmodule Aiur.AgentRunner.QueueDrain do
         # after the orchestrator admitted this resume, so an Executor pause
         # remains protected until an actual resume reaches the worker.
         _ = PauseContainment.release_target(issue.identifier)
-        MessageHandler.send_control_state(codex_update_recipient, issue, :working)
+
+        MessageHandler.send_control_state(codex_update_recipient, issue, :working, %{
+          request_id: request_id,
+          generation: generation
+        })
+
         # An explicit resume drains the agent queue so restored items
         # land in the same turn instead of being deferred until the next
         # checkpoint of an initial-prompt turn.
+        claim_and_run_or_continue(
+          app_session,
+          issue,
+          message_handler,
+          orchestrator,
+          codex_update_recipient,
+          opts
+        )
+
+      {:resume_agent, request_id} when is_integer(request_id) ->
+        Logger.info("Resuming paused agent for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{request_id}")
+        _ = PauseContainment.release_target(issue.identifier)
+        MessageHandler.send_control_state(codex_update_recipient, issue, :working)
+
         claim_and_run_or_continue(
           app_session,
           issue,
@@ -156,20 +209,20 @@ defmodule Aiur.AgentRunner.QueueDrain do
   def claim_after_queue_update(_orchestrator, _issue_identifier, false), do: :ignored
 
   @doc false
-  @spec record_operator_delivery(map(), map(), GenServer.server()) ::
+  @spec prepare_operator_delivery(map(), map(), GenServer.server()) ::
           :ok | {:error, {:retry | :failed, term()}}
-  def record_operator_delivery(item, issue, decision_store \\ DecisionStore)
+  def prepare_operator_delivery(item, issue, decision_store \\ DecisionStore)
 
-  def record_operator_delivery(
+  def prepare_operator_delivery(
         %{category: :operator_message, id: request_id, action_id: action_id, correlation: correlation} = item,
         %{identifier: identifier},
         decision_store
       )
       when is_integer(request_id) and is_binary(identifier) and is_binary(action_id) and is_map(correlation) do
-    case DecisionStore.record_delivery(item, decision_store) do
-      {:ok, status} when status in [:accepted, :duplicate] ->
+    case DecisionStore.validate_delivery(item, decision_store) do
+      {:ok, :accepted} ->
         resolve_delivery_correlation_attention(identifier, action_id)
-        OperatorWaitLog.record_delivered(request_id, identifier)
+        :ok
 
       {:ok, :ignored} ->
         correlation_delivery_failed(item, identifier, action_id, :decision_correlation_ignored)
@@ -179,18 +232,66 @@ defmodule Aiur.AgentRunner.QueueDrain do
     end
   end
 
-  def record_operator_delivery(
+  def prepare_operator_delivery(
         %{category: :operator_message, id: request_id},
-        %{
-          identifier: identifier
-        },
+        %{identifier: identifier},
         _decision_store
       )
       when is_integer(request_id) and is_binary(identifier) do
-    OperatorWaitLog.record_delivered(request_id, identifier)
+    :ok
   end
 
-  def record_operator_delivery(_item, _issue, _decision_store), do: :ok
+  def prepare_operator_delivery(_item, _issue, _decision_store), do: :ok
+
+  @doc false
+  @spec record_provider_delivery(map(), map(), GenServer.server()) :: :ok
+  def record_provider_delivery(item, issue, decision_store \\ DecisionStore)
+
+  def record_provider_delivery(
+        %{category: :operator_message, id: request_id, action_id: action_id, correlation: correlation} = item,
+        %{identifier: identifier},
+        decision_store
+      )
+      when is_integer(request_id) and is_binary(identifier) and is_binary(action_id) and is_map(correlation) do
+    case DecisionStore.record_delivery(item, decision_store) do
+      {:ok, status} when status in [:accepted, :duplicate] ->
+        resolve_delivery_correlation_attention(identifier, action_id)
+
+      {:ok, :ignored} ->
+        provider_delivery_correlation_failed(identifier, action_id, :decision_correlation_ignored)
+
+      {:error, reason} ->
+        provider_delivery_correlation_failed(identifier, action_id, reason)
+    end
+
+    :ok
+  end
+
+  def record_provider_delivery(_item, _issue, _decision_store), do: :ok
+
+  @doc false
+  @spec acknowledge_provider_delivery(GenServer.server(), map(), map()) ::
+          :ok | {:error, term()}
+  def acknowledge_provider_delivery(orchestrator, item, provider_metadata)
+      when is_map(item) and is_map(provider_metadata) do
+    item
+    |> delivery_item_ids()
+    |> Enum.reduce_while(:ok, fn item_id, :ok ->
+      case Aiur.Orchestrator.acknowledge_queue_item_delivery(
+             orchestrator,
+             item_id,
+             provider_metadata
+           ) do
+        :ok -> {:cont, :ok}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp delivery_item_ids(%{id: item_id} = item) do
+    delivery = Map.get(item, :delivery, %{})
+    Map.get(delivery, :coalesced_item_ids, [item_id])
+  end
 
   @doc false
   @spec settle_operator_delivery_failure(GenServer.server(), map(), {:retry | :failed, term()}) ::
@@ -231,6 +332,22 @@ defmodule Aiur.AgentRunner.QueueDrain do
     {:error, {:failed, reason}}
   end
 
+  defp provider_delivery_correlation_failed(identifier, action_id, reason) do
+    Logger.warning("Provider delivery reached issue=#{identifier} action_id=#{action_id}, but durable decision evidence failed reason=#{inspect(reason)}")
+
+    _ =
+      Alerts.emit_custom(
+        delivery_correlation_attention_topic(identifier, action_id),
+        "Provider received the decision answer, but its durable delivery evidence failed.",
+        issue: identifier,
+        reason: "Decision action #{action_id} reached the provider but could not be durably marked delivered: #{inspect(reason)}.",
+        needs_attention: true,
+        severity: "warning"
+      )
+
+    :ok
+  end
+
   defp resolve_delivery_correlation_attention(identifier, action_id) do
     _ =
       Alerts.emit_custom(
@@ -263,6 +380,19 @@ defmodule Aiur.AgentRunner.QueueDrain do
   @doc false
   @spec queue_item_text(map()) :: String.t()
   def queue_item_text(%{category: :operator_message, body: %{text: text}}), do: text
+
+  def queue_item_text(
+        %{
+          category: :coordination_event,
+          event_type: :events_digest,
+          body: %{events: events, urgent: true}
+        } = item
+      )
+      when is_list(events) do
+    events
+    |> EventsDigest.render(Map.get(item, :target_issue_identifier))
+    |> String.replace("<aiur:events>", "<aiur:events urgent=\"true\">", global: false)
+  end
 
   def queue_item_text(
         %{
@@ -429,7 +559,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
          codex_update_recipient,
          opts
        ) do
-    case record_operator_delivery(item, issue) do
+    case prepare_operator_delivery(item, issue) do
       :ok ->
         run_recorded_queue_item_turn(
           app_session,
@@ -448,6 +578,11 @@ defmodule Aiur.AgentRunner.QueueDrain do
     end
   end
 
+  defp maybe_broadcast_turn_completed(turn_id, issue) when is_binary(turn_id),
+    do: AgentPubSub.broadcast_turn_event(issue.identifier, :turn_completed, %{turn_id: turn_id})
+
+  defp maybe_broadcast_turn_completed(_turn_id, _issue), do: :ok
+
   defp run_recorded_queue_item_turn(
          app_session,
          issue,
@@ -463,17 +598,19 @@ defmodule Aiur.AgentRunner.QueueDrain do
 
     backend = SessionLifecycle.session_backend(app_session)
 
-    message_handler =
-      MessageHandler.build(
-        codex_update_recipient,
+    callbacks =
+      TurnCallbacks.build(
+        app_session,
         issue,
-        workspace,
-        worker_host,
-        backend,
-        turn_id
+        opts
+        |> Keyword.put(:workspace, workspace)
+        |> Keyword.put(:worker_host, worker_host)
+        |> Keyword.put(:recipient, codex_update_recipient)
+        |> Keyword.put(:orchestrator, orchestrator)
+        |> Keyword.put(:turn_id, turn_id)
       )
 
-    safe_checkpoint_handler = CheckpointDelivery.safe_checkpoint_handler(issue, orchestrator)
+    message_handler = callbacks.on_message
 
     MessageHandler.send_control_state(codex_update_recipient, issue, :working)
     aiur_turn_id = TurnStreams.open(issue)
@@ -486,8 +623,9 @@ defmodule Aiur.AgentRunner.QueueDrain do
         text,
         issue,
         on_message: message_handler,
-        on_safe_checkpoint: safe_checkpoint_handler,
-        on_operator_message: CheckpointDelivery.operator_immediate_handler(issue, orchestrator),
+        on_safe_checkpoint: callbacks.on_safe_checkpoint,
+        on_operator_message: callbacks.on_operator_message,
+        on_provider_delivery: provider_delivery_callback(orchestrator, item, issue),
         tool_executor:
           ToolExecutor.build(
             issue,
@@ -502,11 +640,16 @@ defmodule Aiur.AgentRunner.QueueDrain do
 
     case result do
       {:ok, _turn_session} ->
+        maybe_observe_accepted_operator_delivery(
+          issue,
+          item,
+          backend,
+          callbacks.live_opts
+        )
+
         :ok = Aiur.Orchestrator.consume_delivered_queue_items(orchestrator, issue.identifier)
 
-        if is_binary(turn_id) do
-          AgentPubSub.broadcast_turn_event(issue.identifier, :turn_completed, %{turn_id: turn_id})
-        end
+        maybe_broadcast_turn_completed(turn_id, issue)
 
         drain_operator_messages(
           app_session,
@@ -545,31 +688,82 @@ defmodule Aiur.AgentRunner.QueueDrain do
 
         :ok
 
-      {:error, :port_closed} = error when backend == "codex" ->
+      {:error, {:turn_start_failed, {:response_error, %{"code" => -32_003}}}} ->
         :ok = Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier)
-        error
 
-      {:error, {:port_exit, _status}} = error when backend == "codex" ->
-        :ok = Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier)
-        error
+        Logger.info(
+          "Queued item delivery hit provider active turn for #{Aiur.AgentRunner.issue_context(issue)} " <>
+            "request_id=#{item.id} decision=restore_pending reason=active_turn"
+        )
 
-      {:error, reason} = error ->
-        :ok = Aiur.Orchestrator.fail_delivered_queue_items(orchestrator, issue.identifier, reason)
+        :ok
 
-        if is_binary(turn_id) do
-          AgentPubSub.broadcast_turn_event(issue.identifier, :turn_failed, %{
-            turn_id: turn_id,
-            reason: reason
-          })
-        end
-
-        error
+      {:error, reason} ->
+        settle_failed_queue_item_turn(orchestrator, issue, turn_id, backend, reason, opts)
     end
+  end
+
+  # A recoverable Codex session failure (closed port, port exit, or exact
+  # active-turn desync) routes through the one confirmed restore-and-replace
+  # boundary: the durable item is restored to pending and the recoverable error
+  # is returned so the runner clean-exits for a fresh transport. Issue #1238
+  # showed the old `:ok = restore_delivered_queue_items(...)` hard match raised a
+  # MatchError on a transient `{:error, :unavailable}`, converting recovery into
+  # an abnormal exit that consumed a failure retry. Claude and genuine provider
+  # failures keep the fail-and-broadcast settlement.
+  defp settle_failed_queue_item_turn(orchestrator, issue, turn_id, "codex", reason, opts) do
+    if SessionRecovery.recoverable?(reason) do
+      TurnLoop.confirm_restore_for_replacement(orchestrator, issue, opts, {:error, reason})
+    else
+      fail_queue_item_turn(orchestrator, issue, turn_id, reason)
+      {:error, reason}
+    end
+  end
+
+  defp settle_failed_queue_item_turn(orchestrator, issue, turn_id, _backend, reason, _opts) do
+    fail_queue_item_turn(orchestrator, issue, turn_id, reason)
+    {:error, reason}
+  end
+
+  defp fail_queue_item_turn(orchestrator, issue, turn_id, reason) do
+    :ok = Aiur.Orchestrator.fail_delivered_queue_items(orchestrator, issue.identifier, reason)
+
+    if is_binary(turn_id) do
+      AgentPubSub.broadcast_turn_event(issue.identifier, :turn_failed, %{
+        turn_id: turn_id,
+        reason: reason
+      })
+    end
+
+    :ok
+  end
+
+  defp maybe_observe_accepted_operator_delivery(
+         issue,
+         %{category: :operator_message} = item,
+         backend,
+         opts
+       ) do
+    opts = Keyword.put(opts, :occurred_at, operator_delivery_occurred_at(item))
+    MessageHandler.observe_operator_delivery(issue, item, backend, opts)
+  end
+
+  defp maybe_observe_accepted_operator_delivery(_issue, _item, _backend, _opts), do: :ok
+
+  defp operator_delivery_occurred_at(item) do
+    Enum.find([Map.get(item, :delivered_at), Map.get(item, :inserted_at)], &is_struct(&1, DateTime))
   end
 
   defp queue_item_turn_id(%{turn_id: turn_id}) when is_binary(turn_id), do: turn_id
   defp queue_item_turn_id(%{body: %{turn_id: turn_id}}) when is_binary(turn_id), do: turn_id
   defp queue_item_turn_id(_item), do: nil
+
+  defp provider_delivery_callback(orchestrator, item, issue) do
+    fn provider_metadata ->
+      :ok = record_provider_delivery(item, issue)
+      acknowledge_provider_delivery(orchestrator, item, provider_metadata)
+    end
+  end
 
   defp coding_agent_run_turn(opts), do: Keyword.get(opts, :run_turn, &CodingAgent.run_turn/4)
 end

@@ -120,6 +120,16 @@ defmodule Aiur.AiurAgentSkillTest do
     end
   end
 
+  test "bounded operator questions require clickable Decision options" do
+    skill = File.read!(Path.join(@claude_skill, "SKILL.md"))
+    relay = File.read!(Path.join(@claude_skill, "emit-and-subscribe.md"))
+
+    assert skill =~ "A question phrased as “A or B?” must produce clickable A/B options"
+    assert relay =~ "you **must** encode them"
+    assert relay =~ "does not replace `decision.requested`"
+    assert relay =~ "free-text-only Decision only when predefined choices would genuinely be"
+  end
+
   test "blocker guidance keeps unblocked work moving" do
     shared_prompt = File.read!(Path.join(@repo_root, "src/prompts/shared-agent-instructions.md"))
     repo_prompt = File.read!(Path.join(@repo_root, ".aiur/prompt.md"))

@@ -181,6 +181,101 @@ defmodule Aiur.CodingAgentTest do
     end
   end
 
+  describe "effort_for/1 (model:<effort> override label)" do
+    test "a model:<effort> label sets effort with no routing configured" do
+      assert CodingAgent.effort_for(issue(["model:low"])) == "low"
+      assert CodingAgent.effort_for(issue(["model:medium"])) == "medium"
+      assert CodingAgent.effort_for(issue(["model:high"])) == "high"
+      assert CodingAgent.effort_for(issue(["model:xhigh"])) == "xhigh"
+      assert CodingAgent.effort_for(issue(["model:max"])) == "max"
+    end
+
+    test "the first well-formed effort label wins when several are present" do
+      assert CodingAgent.effort_for(issue(["model:low", "model:max"])) == "low"
+    end
+
+    test "an unsupported effort spec is ignored (no effort, not a backend)" do
+      assert CodingAgent.effort_for(issue(["model:ultra"])) == nil
+      assert CodingAgent.override_backend(issue(["model:ultra"])) == nil
+    end
+
+    test "an effort label never selects a backend or pins a model" do
+      assert CodingAgent.override_backend(issue(["model:xhigh"])) == nil
+      assert CodingAgent.model_for(issue(["model:xhigh"])) == nil
+    end
+  end
+
+  describe "override_effort_labels/0" do
+    test "yields one model:<effort> label per supported effort" do
+      assert CodingAgent.override_effort_labels() ==
+               ["model:low", "model:medium", "model:high", "model:xhigh", "model:max"]
+    end
+
+    test "override_labels/0 seeds the effort labels" do
+      labels = CodingAgent.override_labels()
+      assert "model:low" in labels
+      assert "model:xhigh" in labels
+      assert "model:max" in labels
+    end
+  end
+
+  describe "generic model aliases" do
+    test "codex gets a derived family alias per tier because its CLI has none" do
+      aliases = CodingAgent.model_aliases("codex")
+      assert "sol" in aliases
+      assert "terra" in aliases
+      assert "luna" in aliases
+    end
+
+    test "claude has no derived aliases — its own CLI resolves opus/sonnet/haiku" do
+      # Re-pointing `opus` at whichever version this registry lists would
+      # reintroduce exactly the staleness the alias exists to avoid.
+      assert CodingAgent.model_aliases("claude") == []
+      assert CodingAgent.model_aliases("claude-repl") == []
+    end
+
+    test "a generic codex tag resolves to the newest version in that family" do
+      resolved = CodingAgent.resolve_model("codex", "sol")
+      assert resolved != "sol"
+      assert String.ends_with?(resolved, "-sol")
+      assert resolved == Enum.find(CodingAgent.backends()["codex"].models, &String.ends_with?(&1, "-sol"))
+    end
+
+    test "an explicitly pinned codex model still pins" do
+      assert CodingAgent.resolve_model("codex", "gpt-5.4") == "gpt-5.4"
+    end
+
+    test "a claude alias passes through untouched so the claude CLI resolves it" do
+      assert CodingAgent.resolve_model("claude", "opus") == "opus"
+      assert CodingAgent.resolve_model("claude-repl", "opus") == "opus"
+    end
+
+    test "a model this build has never heard of passes through rather than being swapped" do
+      # aiur's list lags the provider by design, so an unknown model is more
+      # likely new than wrong. SessionLifecycle surfaces it to the Executor.
+      assert CodingAgent.resolve_model("codex", "gpt-9.9-nova") == "gpt-9.9-nova"
+      assert CodingAgent.resolve_model("codex", nil) == nil
+    end
+
+    test "known_model?/2 covers both aliases and pinned versions, and nothing else" do
+      assert CodingAgent.known_model?("codex", "sol")
+      assert CodingAgent.known_model?("codex", "gpt-5.4")
+      assert CodingAgent.known_model?("claude", "opus")
+      refute CodingAgent.known_model?("codex", "gpt-9.9-nova")
+      refute CodingAgent.known_model?("codex", nil)
+    end
+
+    test "override_labels/1 seeds the alias tags ahead of the pinned ones" do
+      labels = CodingAgent.override_labels(["codex"])
+
+      assert "model:codex-sol" in labels
+      assert "model:codex-gpt-5.6-sol" in labels
+
+      assert Enum.find_index(labels, &(&1 == "model:codex-sol")) <
+               Enum.find_index(labels, &(&1 == "model:codex-gpt-5.6-sol"))
+    end
+  end
+
   describe "complexity_level/1" do
     test "highest well-formed complexity wins" do
       assert CodingAgent.complexity_level(issue(["complexity:2", "complexity:5"])) == 5
@@ -221,6 +316,13 @@ defmodule Aiur.CodingAgentTest do
       # an out-of-band interrupt, so it advertises the capability.
       assert CodingAgent.can_interrupt?("claude-repl")
       assert CodingAgent.safe_checkpoints("claude-repl") == []
+    end
+
+    test "control confirmation is declared by each supported backend" do
+      assert CodingAgent.control_application_confirmation("codex") == :confirmed
+      assert CodingAgent.control_application_confirmation("claude") == :confirmed
+      assert CodingAgent.control_application_confirmation("claude-repl") == :confirmed
+      assert CodingAgent.control_application_confirmation("unknown") == :unsupported
     end
 
     test "effort vocabulary comes from the registry" do

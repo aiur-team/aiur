@@ -72,6 +72,40 @@ defmodule Aiur.Init.TemplatesTest do
     assert rendered =~ "base_build_file: prewarm"
   end
 
+  test "build_fills renders github bot_account when present and omits it when blank" do
+    base = %{
+      agents: ["claude"],
+      routing: %{1 => "claude", 2 => "claude", 3 => "claude", 4 => "claude", 5 => "claude"},
+      permission_mode: "bypassPermissions",
+      workspace_root: "~/.aiur/workspaces/owner/repo",
+      max_agents: 1,
+      max_turns: "none",
+      max_duration: 60,
+      pre_warmed: 0,
+      polling: 30,
+      prompt_file: "prompt.md",
+      prewarm: %{enabled: false},
+      alerts: %{enabled: false, use_os_default_sounds: false}
+    }
+
+    with_account =
+      Templates.fill_template(
+        "{{TRACKER_PROVIDER}}",
+        Templates.build_fills(Map.put(base, :tracker, %{kind: "github", repo: "owner/repo", bot_account: "its-applekid"}))
+      )
+
+    assert with_account =~ "repo: owner/repo"
+    assert with_account =~ "bot_account: its-applekid"
+
+    without_account =
+      Templates.fill_template(
+        "{{TRACKER_PROVIDER}}",
+        Templates.build_fills(Map.put(base, :tracker, %{kind: "github", repo: "owner/repo", bot_account: nil}))
+      )
+
+    refute without_account =~ "bot_account:"
+  end
+
   test "build_fills writes the ordered rate-limit fallback when selected" do
     fills =
       Templates.build_fills(%{

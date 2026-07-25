@@ -6,7 +6,6 @@ defmodule AiurWeb.OperatorControlCenter.RevisionCommands do
   import Phoenix.Component, only: [assign: 3]
 
   alias Aiur.DecisionStore
-  alias AiurWeb.ControlCenterPresenter
   alias AiurWeb.Endpoint
   alias AiurWeb.OperatorControlCenter.DecisionCommands
   alias Phoenix.LiveView.Socket
@@ -16,7 +15,7 @@ defmodule AiurWeb.OperatorControlCenter.RevisionCommands do
   @spec change(Socket.t(), String.t(), map()) :: Socket.t()
   def change(socket, decision_id, form) do
     case answered_decision(socket, decision_id) do
-      {:ok, _decision} -> put_revision_form(socket, decision_id, form)
+      {:ok, decision} -> put_revision_form(socket, decision_id, form, decision)
       :error -> socket
     end
   end
@@ -24,11 +23,15 @@ defmodule AiurWeb.OperatorControlCenter.RevisionCommands do
   @spec revise(Socket.t(), String.t(), map(), reload_fun()) :: Socket.t()
   def revise(socket, decision_id, form, reload_fun) when is_function(reload_fun, 1) do
     form = normalize_revision_form(form)
-    socket = put_revision_form(socket, decision_id, form)
 
     case answered_decision(socket, decision_id) do
-      {:ok, decision} -> submit_revision(socket, decision, form, reload_fun)
-      :error -> put_revision_error(reload_fun.(socket), decision_id, "This decision no longer has an active answer.")
+      {:ok, decision} ->
+        socket
+        |> put_revision_form(decision_id, form, decision)
+        |> submit_revision(decision, form, reload_fun)
+
+      :error ->
+        put_revision_error(reload_fun.(socket), decision_id, "This Command no longer has an active answer.")
     end
   end
 
@@ -47,16 +50,21 @@ defmodule AiurWeb.OperatorControlCenter.RevisionCommands do
     detail = follow_up_detail(form)
     socket = put_follow_up_detail(socket, decision_id, detail)
 
-    if detail == "" do
-      put_follow_up_error(socket, decision_id, "Record how the follow-up was handled before closing it.")
-    else
-      result = safe_handle_follow_up(decision_id, action_id, detail)
-      socket = reload_fun.(socket)
+    cond do
+      detail == "" ->
+        put_follow_up_error(socket, decision_id, "Record how the follow-up was handled before closing it.")
 
-      case result do
-        {:ok, %{status: status}} -> put_follow_up_notice(socket, decision_id, follow_up_notice(status))
-        {:error, reason} -> put_follow_up_error(socket, decision_id, command_error(reason))
-      end
+      selected_decision(socket, decision_id) == :error ->
+        put_follow_up_error(reload_fun.(socket), decision_id, "This Command detail is no longer available.")
+
+      true ->
+        result = safe_handle_follow_up(decision_id, action_id, detail)
+        socket = reload_fun.(socket)
+
+        case result do
+          {:ok, %{status: status}} -> put_follow_up_notice(socket, decision_id, follow_up_notice(status))
+          {:error, reason} -> put_follow_up_error(socket, decision_id, command_error(reason))
+        end
     end
   end
 
@@ -86,12 +94,22 @@ defmodule AiurWeb.OperatorControlCenter.RevisionCommands do
     end
   end
 
-  defp answered_decision(socket, decision_id) do
-    case ControlCenterPresenter.find_decision(socket.assigns.payload, decision_id) do
-      {:ok, %{answer: answer} = decision} when not is_nil(answer) -> {:ok, decision}
-      _result -> :error
-    end
-  end
+  defp answered_decision(
+         %{assigns: %{selected_decision: %{decision_id: decision_id, answer: answer} = decision}},
+         decision_id
+       )
+       when not is_nil(answer),
+       do: {:ok, decision}
+
+  defp answered_decision(_socket, _decision_id), do: :error
+
+  defp selected_decision(
+         %{assigns: %{selected_decision: %{decision_id: decision_id} = decision}},
+         decision_id
+       ),
+       do: {:ok, decision}
+
+  defp selected_decision(_socket, _decision_id), do: :error
 
   defp normalize_revision_form(form) when is_map(form) do
     Map.take(form, ["choice", "custom_response", "reason", "confirmed"])
@@ -117,7 +135,7 @@ defmodule AiurWeb.OperatorControlCenter.RevisionCommands do
 
   defp revision_reason(form) do
     case form |> Map.get("reason") |> trim_string() do
-      "" -> {:error, "Explain why this decision is being revised."}
+      "" -> {:error, "Explain why this Command is being revised."}
       reason -> {:ok, reason}
     end
   end
@@ -165,9 +183,10 @@ defmodule AiurWeb.OperatorControlCenter.RevisionCommands do
     end
   end
 
-  defp put_revision_form(socket, decision_id, form) do
+  defp put_revision_form(socket, decision_id, form, decision) do
     update_state(socket, decision_id, fn state ->
       state
+      |> Map.put(:decision_identity, decision_identity(decision))
       |> Map.put(:revision_form, normalize_revision_form(form))
       |> Map.delete(:revision_error)
       |> Map.delete(:revision_notice)
@@ -216,6 +235,10 @@ defmodule AiurWeb.OperatorControlCenter.RevisionCommands do
     assign(socket, :decision_actions, Map.put(socket.assigns.decision_actions, decision_id, state))
   end
 
+  defp decision_identity(decision) do
+    {Map.get(decision, :version), Map.get(decision, :active_action_id)}
+  end
+
   defp revision_notice(%{status: :duplicate}),
     do: "This durable revision was already recorded. Canonical state was refreshed."
 
@@ -237,7 +260,7 @@ defmodule AiurWeb.OperatorControlCenter.RevisionCommands do
     do: "The revision sequence changed. Review the refreshed state before trying again."
 
   defp command_error({:conflict, {:stale_version, _expected, current}}),
-    do: "This decision changed to version #{current}. Review the refreshed state before revising."
+    do: "This Command changed to version #{current}. Review the refreshed state before revising."
 
   defp command_error({:conflict, {:idempotency_conflict, _action_id}}),
     do: "This revision token was already used with different content. Refresh before trying again."
@@ -245,10 +268,10 @@ defmodule AiurWeb.OperatorControlCenter.RevisionCommands do
   defp command_error({:revision_invalid, {:answer_invalid, {:option_id, :unknown}}}),
     do: "That revision option is no longer available."
 
-  defp command_error({:store_unavailable, _reason}), do: "Decision storage is read-only or unavailable."
-  defp command_error(:store_unavailable), do: "Decision storage is currently unavailable."
+  defp command_error({:store_unavailable, _reason}), do: "Command storage is read-only or unavailable."
+  defp command_error(:store_unavailable), do: "Command storage is currently unavailable."
   defp command_error(:follow_up_not_required), do: "This revision follow-up is no longer open."
-  defp command_error(:not_found), do: "This decision no longer exists."
+  defp command_error(:not_found), do: "This Command no longer exists."
   defp command_error(_reason), do: "The revision command was rejected. Canonical state was refreshed."
 
   defp trim_string(value) when is_binary(value), do: String.trim(value)

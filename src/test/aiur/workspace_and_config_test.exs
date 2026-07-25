@@ -1476,12 +1476,19 @@ defmodule Aiur.WorkspaceAndConfigTest do
                  Client.graphql(
                    "query Viewer { viewer { id } }",
                    %{},
+                   operation_name: "QuietAuthIsolation",
                    request_fun: request_fun,
                    quiet_auth_errors?: true
                  )
       end)
 
-    assert auth_log == ""
+    # Regression for #1149. `capture_log/1` captures the global Logger, so any
+    # background process logging during the window (e.g. GithubCommentsPoller's
+    # "target refresh skipped" warning) lands in `auth_log` too. Assert that the
+    # client stayed quiet about *this* request rather than that nothing at all
+    # logged — an emptiness check fails on unrelated concurrent output.
+    refute auth_log =~
+             "Linear GraphQL request failed status=401 operation=QuietAuthIsolation"
 
     outage_log =
       ExUnit.CaptureLog.capture_log(fn ->
@@ -1922,8 +1929,8 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert config.server.port == 0
 
     # Dashboard is read-only by default until the parity pass (#371).
-    assert config.observability.dashboard_writable == false
-    refute Config.dashboard_writable?()
+    assert config.observability.dashboard_writable == true
+    assert Config.dashboard_writable?()
 
     assert Config.supervisor_decision_policy() == %{
              allowed_kinds: [],
@@ -2334,6 +2341,15 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert CodingAgent.backend_for(override_issue) == "codex"
     assert CodingAgent.model_for(override_issue) == "gpt-5.6-sol"
     assert CodingAgent.effort_for(override_issue) == nil
+
+    # A model:<effort> override label wins over the routed effort.
+    effort_label_issue = %Issue{labels: ["complexity:4", "model:xhigh"]}
+    assert CodingAgent.effort_for(effort_label_issue) == "xhigh"
+
+    # It applies even alongside a model:<backend> override that otherwise
+    # suppresses routing effort.
+    effort_with_backend = %Issue{labels: ["complexity:4", "model:codex", "model:high"]}
+    assert CodingAgent.effort_for(effort_with_backend) == "high"
   end
 
   test "remote_control opt-in defaults OFF and parses an explicit true" do

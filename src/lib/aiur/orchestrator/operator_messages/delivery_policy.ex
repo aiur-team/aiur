@@ -62,14 +62,28 @@ defmodule Aiur.Orchestrator.OperatorMessages.DeliveryPolicy do
   def notify_running_queue_update(_running_entry, _item), do: :ok
 
   @spec event_digest_delivery_opts(map() | nil, term()) :: keyword()
-  def event_digest_delivery_opts(running_entry, event_or_events) do
+  def event_digest_delivery_opts(running_entry, event_or_events),
+    do: event_digest_delivery_opts(running_entry, event_or_events, false)
+
+  # A blocker-critical digest must reach the running agent even while a parent
+  # turn is live. Since the safe-checkpoint second-`turn/start` path is now
+  # locked out, request `interrupt_requested: true` so the acknowledged
+  # `turn/interrupt` steering primitive (single writer) carries the urgency.
+  @spec event_digest_delivery_opts(map() | nil, term(), boolean()) :: keyword()
+  def event_digest_delivery_opts(running_entry, event_or_events, blocker_critical?) do
     if queue_wake_required?(running_entry) or
-         trusted_comment_wake_required?(running_entry, event_or_events) do
+         trusted_comment_wake_required?(running_entry, event_or_events) or
+         blocker_interrupt_required?(running_entry, blocker_critical?) do
       [source: :system, priority: :now, interrupt_requested: true]
     else
       [source: :system]
     end
   end
+
+  defp blocker_interrupt_required?(running_entry, true),
+    do: State.active_running_entry?(running_entry)
+
+  defp blocker_interrupt_required?(_running_entry, _blocker_critical?), do: false
 
   @doc false
   @spec comment_event_topic?(map()) :: boolean()
@@ -100,15 +114,17 @@ defmodule Aiur.Orchestrator.OperatorMessages.DeliveryPolicy do
       State.active_running_entry?(running_entry) and
         trusted_comment_event_digest?(event_or_events)
 
-  defp trusted_comment_event_digest?(events) when is_list(events),
+  @doc false
+  @spec trusted_comment_event_digest?(term()) :: boolean()
+  def trusted_comment_event_digest?(events) when is_list(events),
     do: Enum.any?(events, &trusted_comment_event_digest?/1)
 
-  defp trusted_comment_event_digest?(event) when is_map(event) do
+  def trusted_comment_event_digest?(event) when is_map(event) do
     comment_event_topic?(event) and CommentWake.trusted_comment_event?(event) and
       not CommentWake.benign_review_pass_comment?(event)
   end
 
-  defp trusted_comment_event_digest?(_event), do: false
+  def trusted_comment_event_digest?(_event), do: false
 
   defp queue_wake_required?(running_entry) do
     State.sleeping_running_entry?(running_entry) or

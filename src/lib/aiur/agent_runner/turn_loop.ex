@@ -3,15 +3,23 @@ defmodule Aiur.AgentRunner.TurnLoop do
 
   require Logger
 
-  alias Aiur.AgentRunner.{CheckpointDelivery, MessageHandler, QueueDrain, SessionLifecycle}
+  alias Aiur.AgentRunner.{MessageHandler, QueueDrain, SessionLifecycle, TurnCallbacks}
   alias Aiur.AgentRunner.{SessionResume, ToolExecutor, TurnAlerts, TurnPrompt, TurnStreams}
-  alias Aiur.Codex.DynamicTool
+  alias Aiur.Codex.{DynamicTool, SessionRecovery}
   alias Aiur.CodingAgent
   alias Aiur.Config
   alias Aiur.Issue
   alias Aiur.RunTelemetry.Lifecycle
 
   @type worker_host :: String.t() | nil
+
+  # A briefly overloaded orchestrator queue GenServer answers restore/fail/
+  # consume with `{:error, :unavailable}` / `:timeout`. For the Codex recovery
+  # restore that gates a clean replacement exit, retry that transient result a
+  # bounded number of times before giving up, so a genuinely dead orchestrator
+  # cannot spin the runner Task forever.
+  @restore_confirm_attempts 5
+  @restore_confirm_backoff_ms 250
 
   @doc false
   @spec run_turns(
@@ -53,18 +61,18 @@ defmodule Aiur.AgentRunner.TurnLoop do
 
     prompt = TurnPrompt.build_turn_prompt(issue, opts, turn_number, max_turns)
 
-    message_handler =
-      MessageHandler.build(
-        codex_update_recipient,
+    callbacks =
+      TurnCallbacks.build(
+        app_session,
         issue,
-        workspace,
-        worker_host,
-        SessionLifecycle.session_backend(app_session),
-        nil,
-        attempt_id: Keyword.get(opts, :telemetry_attempt_id)
+        opts
+        |> Keyword.put(:workspace, workspace)
+        |> Keyword.put(:worker_host, worker_host)
+        |> Keyword.put(:recipient, codex_update_recipient)
+        |> Keyword.put(:orchestrator, orchestrator)
       )
 
-    safe_checkpoint_handler = CheckpointDelivery.safe_checkpoint_handler(issue, orchestrator)
+    message_handler = callbacks.on_message
 
     MessageHandler.send_control_state(codex_update_recipient, issue, :working)
     aiur_turn_id = TurnStreams.open(issue)
@@ -86,8 +94,8 @@ defmodule Aiur.AgentRunner.TurnLoop do
         prompt,
         issue,
         on_message: message_handler,
-        on_safe_checkpoint: safe_checkpoint_handler,
-        on_operator_message: CheckpointDelivery.operator_immediate_handler(issue, orchestrator),
+        on_safe_checkpoint: callbacks.on_safe_checkpoint,
+        on_operator_message: callbacks.on_operator_message,
         tool_executor: ToolExecutor.build(issue, workspace, worker_host, app_session, attempt_id: lifecycle_attempt_id)
       )
 
@@ -145,34 +153,36 @@ defmodule Aiur.AgentRunner.TurnLoop do
         MessageHandler.send_control_state(codex_update_recipient, issue, :paused, pause_payload)
         wait_for_resume(turn_context, app_session, message_handler)
 
-      {:error, :port_closed} = error when backend == "codex" ->
-        best_effort_queue_bookkeeping(
-          Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier),
-          :restore,
-          issue
-        )
+      {:error, reason} = error ->
+        settle_turn_error(turn_context, backend, reason, error)
+    end
+  end
 
-        error
+  # Codex recoverable session failures (closed port, port exit, or exact
+  # active-turn desync) must not fail the durable queue item: restore it and
+  # let the top-level runner clean-exit so the orchestrator replaces the stale
+  # session and a fresh transport redelivers the item once. The restore is the
+  # gate — issue #1238 showed that best-effort swallowing of an
+  # `{:error, :unavailable}` restore stranded the claimed item `:delivered`,
+  # unclaimable by the replacement. Confirm the restore before reporting clean
+  # recovery; Claude and genuine provider failures keep the best-effort fail
+  # settlement and its retry-exhaustion path.
+  defp settle_turn_error(turn_context, backend, reason, error) do
+    %{issue: issue, workspace: workspace, worker_host: worker_host, orchestrator: orchestrator, opts: opts} =
+      turn_context
 
-      {:error, {:port_exit, _status}} = error when backend == "codex" ->
-        best_effort_queue_bookkeeping(
-          Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier),
-          :restore,
-          issue
-        )
+    if backend == "codex" and SessionRecovery.recoverable?(reason) do
+      confirm_restore_for_replacement(orchestrator, issue, opts, error)
+    else
+      TurnAlerts.maybe_emit_more_tokens_alert(issue, workspace, worker_host, reason)
 
-        error
+      best_effort_queue_bookkeeping(
+        Aiur.Orchestrator.fail_delivered_queue_items(orchestrator, issue.identifier, reason),
+        :fail,
+        issue
+      )
 
-      {:error, reason} ->
-        TurnAlerts.maybe_emit_more_tokens_alert(issue, workspace, worker_host, reason)
-
-        best_effort_queue_bookkeeping(
-          Aiur.Orchestrator.fail_delivered_queue_items(orchestrator, issue.identifier, reason),
-          :fail,
-          issue
-        )
-
-        {:error, reason}
+      error
     end
   end
 
@@ -208,6 +218,51 @@ defmodule Aiur.AgentRunner.TurnLoop do
     Logger.warning("Orchestrator #{op}_delivered_queue_items unavailable for #{Aiur.AgentRunner.issue_context(issue)}: #{inspect(reason)}; continuing without crashing the agent")
 
     :ok
+  end
+
+  # The one confirmed restore-and-replace boundary shared by the primary-turn
+  # (`run_turns`) and queue-drain (`run_recorded_queue_item_turn`) seams. It
+  # returns the original recoverable error — the clean-replacement-exit signal —
+  # ONLY after the delivered queue item is durably restored to pending. If the
+  # orchestrator restore RPC never confirms, it surfaces a non-recoverable
+  # `:queue_restore_unconfirmed` error instead of faking clean recovery, so the
+  # claimed item is never silently stranded `:delivered`.
+  @doc false
+  @spec confirm_restore_for_replacement(GenServer.server(), Issue.t(), keyword(), {:error, term()}) ::
+          {:error, term()}
+  def confirm_restore_for_replacement(orchestrator, issue, opts, recoverable_error) do
+    case confirm_restore_delivered(orchestrator, issue, opts) do
+      :ok -> recoverable_error
+      {:error, _reason} = restore_error -> restore_error
+    end
+  end
+
+  @doc false
+  @spec confirm_restore_delivered(GenServer.server(), Issue.t(), keyword()) :: :ok | {:error, term()}
+  def confirm_restore_delivered(orchestrator, issue, opts \\ []) do
+    attempts = Keyword.get(opts, :restore_confirm_attempts, @restore_confirm_attempts)
+    backoff_ms = Keyword.get(opts, :restore_confirm_backoff_ms, @restore_confirm_backoff_ms)
+    confirm_restore_delivered(orchestrator, issue, attempts, backoff_ms)
+  end
+
+  defp confirm_restore_delivered(orchestrator, issue, attempts, backoff_ms) do
+    case Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier) do
+      :ok ->
+        :ok
+
+      {:error, reason} when attempts > 1 ->
+        Logger.warning("Codex recovery restore unavailable for #{Aiur.AgentRunner.issue_context(issue)}: #{inspect(reason)}; retrying before replacement (#{attempts - 1} attempt(s) left)")
+
+        if backoff_ms > 0, do: Process.sleep(backoff_ms)
+        confirm_restore_delivered(orchestrator, issue, attempts - 1, backoff_ms)
+
+      {:error, reason} ->
+        Logger.error(
+          "Codex recovery restore could not be confirmed for #{Aiur.AgentRunner.issue_context(issue)}: #{inspect(reason)}; refusing to report clean recovery so the queue item is not stranded delivered"
+        )
+
+        {:error, {:queue_restore_unconfirmed, reason}}
+    end
   end
 
   defp finalize_turn_completion(turn_context, app_session, turn_session) do

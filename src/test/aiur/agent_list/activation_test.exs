@@ -29,10 +29,45 @@ defmodule Aiur.AgentList.ActivationTest do
       command_template: "echo open",
       pane_manager: pane_manager,
       attach_state: %{"A" => %{attach_count: 1}},
-      opened_panes: MapSet.new()
+      opened_panes: MapSet.new(),
+      progress_by_id: %{}
     }
 
     assert :ok = Activation.activate_selected(state, :new_pane)
     assert_receive {:opened, "A", "echo open A"}
+  end
+
+  test "does not open a completed agent even when stale warmth remains" do
+    {:ok, pane_manager} = PaneManager.start_link(self())
+
+    state = %{
+      summaries: [%{identifier: "A", title: "Title", work_state: :completed}],
+      selection_index: 0,
+      command_template: "echo open",
+      pane_manager: pane_manager,
+      attach_state: %{"A" => %{attach_count: 1}},
+      opened_panes: MapSet.new(),
+      progress_by_id: %{}
+    }
+
+    assert :ok = Activation.activate_selected(state, :new_pane)
+    refute_receive {:opened, "A", _command}, 100
+  end
+
+  test "does not open a 100% row when its roster work state is stale" do
+    {:ok, pane_manager} = PaneManager.start_link(self())
+
+    state = %{
+      summaries: [%{identifier: "A", title: "Title", work_state: :working}],
+      selection_index: 0,
+      command_template: "echo open",
+      pane_manager: pane_manager,
+      attach_state: %{"A" => %{attach_count: 1}},
+      opened_panes: MapSet.new(),
+      progress_by_id: %{"A" => [{100, 123}]}
+    }
+
+    assert :ok = Activation.activate_selected(state, :new_pane)
+    refute_receive {:opened, "A", _command}, 100
   end
 end

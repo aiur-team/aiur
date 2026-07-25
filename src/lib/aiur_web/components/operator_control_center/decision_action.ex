@@ -6,6 +6,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
   attr(:decision, :map, required: true)
   attr(:state, :map, default: %{})
   attr(:writable, :boolean, required: true)
+  attr(:compact, :boolean, default: false)
 
   @spec decision_action(map()) :: Phoenix.LiveView.Rendered.t()
   def decision_action(assigns) do
@@ -16,30 +17,20 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
       assign(assigns,
         form: form,
         choice: choice,
-        open?: assigns.decision.decision_status == :open,
-        confirmation_required?: confirmation_required?(assigns.decision),
+        answerable?: assigns.decision.decision_status in [:open, :dismissed],
+        dismissible?: assigns.decision.decision_status == :open,
         error: Map.get(assigns.state, :error),
         notice: Map.get(assigns.state, :notice)
       )
 
     ~H"""
-    <section class="decision-action" aria-labelledby={"decision-action-title-#{@decision.decision_id}"}>
-      <header class="decision-action-header">
-        <div>
-          <p class="section-eyebrow">Durable command</p>
-          <h4 id={"decision-action-title-#{@decision.decision_id}"}>{action_title(@decision)}</h4>
-        </div>
-        <div class="decision-axis" aria-label="Canonical decision and delivery state">
-          <span class={axis_chip(@decision.decision_status)}>Decision · {humanize(@decision.decision_status)}</span>
-          <span class={axis_chip(@decision.delivery_status)}>Delivery · {humanize(@decision.delivery_status)}</span>
-        </div>
-      </header>
+    <section class={["decision-action", @compact && "compact"]} aria-label="Command actions">
 
       <p :if={@error} class="decision-action-message error" role="alert">{@error}</p>
       <p :if={@notice} class="decision-action-message success" role="status">{@notice}</p>
 
       <form
-        :if={@writable and @open?}
+        :if={@writable and @answerable?}
         id={"decision-answer-form-#{@decision.decision_id}"}
         class="decision-answer-form"
         phx-change="decision-action-change"
@@ -88,32 +79,26 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
             rows="4"
             maxlength="4000"
             required
-            placeholder="State the decision clearly…"
+            placeholder="State the Command response clearly…"
           >{Map.get(@form, "custom_response", "")}</textarea>
         </label>
 
-        <label class="decision-action-field">
-          <span>Rationale <small>optional</small></span>
-          <textarea name="answer[rationale]" rows="2" maxlength="4000" placeholder="Why this choice?">{Map.get(@form, "rationale", "")}</textarea>
-        </label>
-
-        <label :if={@confirmation_required?} class="decision-confirmation">
-          <input
-            type="checkbox"
-            name="answer[confirmed]"
-            value="true"
-            checked={Map.get(@form, "confirmed") == "true"}
-          />
-          <span>I understand this decision is irreversible or destructive.</span>
-        </label>
-
         <footer class="decision-action-footer">
-          <span>Persisted before dispatch · version {@decision.version}</span>
-          <button class="btn" type="submit" phx-disable-with="Recording…">Record answer</button>
+          <div class="decision-action-buttons">
+            <button
+              :if={@dismissible?}
+              class="btn ghost"
+              type="button"
+              phx-click="dismiss-decision"
+              phx-value-decision-id={@decision.decision_id}
+              phx-disable-with="Dismissing…"
+            >Dismiss</button>
+            <button class="btn" type="submit" phx-disable-with="Recording…">{if @decision.decision_status == :dismissed, do: "Change choice", else: "Decision"}</button>
+          </div>
         </footer>
       </form>
 
-      <div :if={!@open? and @decision.answer} class="decision-answer-summary">
+      <div :if={!@answerable? and @decision.answer} class="decision-answer-summary">
         <div>
           <span class="decision-answer-label">{if Map.get(@decision, :revision_sequence, 0) > 0, do: "Current revised answer", else: "Recorded answer"}</span>
           <strong>{answer_label(@decision)}</strong>
@@ -151,9 +136,6 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
     "option:#{option_id}"
   end
 
-  defp action_title(%{decision_status: :open}), do: "Answer this decision"
-  defp action_title(_decision), do: "Answer lifecycle"
-
   defp answer_label(%{answer: %{selected_option_id: option_id}} = decision) when is_binary(option_id) do
     case Enum.find(decision.options, &(&1.id == option_id)) do
       nil -> "Option #{option_id}"
@@ -165,18 +147,9 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
 
   defp answer_label(_decision), do: "Unavailable"
 
-  defp confirmation_required?(decision) do
-    Map.get(decision, :reversibility) == :irreversible or Map.get(decision, :kind) == "destructive_op"
-  end
-
   defp recommended?(%{recommendation: nil}, _option), do: false
   defp recommended?(decision, option), do: decision.recommendation.option_id == option.id
   defp present?(value), do: is_binary(value) and String.trim(value) != ""
-
-  defp axis_chip(status) when status in [:resolved, :acknowledged, :delivered, :consumed], do: "chip good"
-  defp axis_chip(status) when status in [:failed], do: "chip blocking"
-  defp axis_chip(status) when status in [:decided, :pending, :queued], do: "chip accent"
-  defp axis_chip(_status), do: "chip attention"
 
   defp failure_copy(nil), do: "The durable action remains available for an explicit retry."
   defp failure_copy(reason), do: "#{humanize(reason)}. The durable action remains available for an explicit retry."

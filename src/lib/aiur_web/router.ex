@@ -16,6 +16,7 @@ defmodule AiurWeb.Router do
 
   pipeline :browser do
     plug(:fetch_session)
+    plug(AiurWeb.FinancialDataAccess, :persist_session)
     plug(:fetch_live_flash)
     plug(:put_root_layout, html: {AiurWeb.Layouts, :root})
     plug(:protect_from_forgery)
@@ -87,7 +88,17 @@ defmodule AiurWeb.Router do
     pipe_through(:dashboard_auth)
 
     get("/dashboard.css", StaticAssetController, :dashboard_css)
+    get("/ticket-context-dialog-hook.js", StaticAssetController, :ticket_context_dialog_hook)
+    get("/build-order-grid-hook.js", StaticAssetController, :build_order_grid_hook)
+    get("/aiur-dom-svg-layout-adapter.js", StaticAssetController, :dom_svg_layout_adapter)
+    get("/aiur-dom-svg-layout-loader.js", StaticAssetController, :dom_svg_layout_loader)
+    get("/aiur-dom-svg-layout/:module", StaticAssetController, :dom_svg_layout_module)
     get("/aiur-logo.png", StaticAssetController, :aiur_logo)
+    get("/codex-color.svg", StaticAssetController, :codex_color_svg)
+    get("/claude-symbol.svg", StaticAssetController, :claude_symbol_svg)
+    get("/codex-token.svg", StaticAssetController, :codex_token_svg)
+    get("/claude-token.svg", StaticAssetController, :claude_token_svg)
+    get("/bungee.woff2", StaticAssetController, :bungee_font)
     get("/vendor/phoenix_html/phoenix_html.js", StaticAssetController, :phoenix_html_js)
     get("/vendor/phoenix/phoenix.js", StaticAssetController, :phoenix_js)
     get("/vendor/phoenix_live_view/phoenix_live_view.js", StaticAssetController, :phoenix_live_view_js)
@@ -97,15 +108,14 @@ defmodule AiurWeb.Router do
   scope "/", AiurWeb do
     pipe_through([:dashboard_auth, :browser])
 
-    live("/", DashboardLive, :index)
-    live("/decisions", DashboardLive, :decisions)
-    live("/decisions/:decision_id", DashboardLive, :decision)
-  end
-
-  scope "/", AiurWeb do
-    pipe_through([:dashboard_auth, :secure_document])
-
-    get("/analytics", TelemetryDashboardController, :show)
+    live_session :dashboard, on_mount: AiurWeb.FinancialDataAccess do
+      live("/", DashboardLive, :index)
+      live("/decisions", DashboardLive, :decisions)
+      live("/decisions/:decision_id", DashboardLive, :decision)
+      live("/build-orders", BuildOrderLive, :build_orders)
+      live("/build-orders/:root_number", BuildOrderLive, :build_order)
+      live("/analytics", AnalyticsLive, :analytics)
+    end
   end
 
   # Agent-write endpoints driven from the browser/API. Gated read-only by
@@ -146,26 +156,7 @@ defmodule AiurWeb.Router do
 
   @doc false
   @spec dashboard_basic_auth(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
-  def dashboard_basic_auth(conn, opts) do
-    username = System.get_env("AIUR_DASHBOARD_USERNAME")
-    password = System.get_env("AIUR_DASHBOARD_PASSWORD")
-    auth_required? = Keyword.get_lazy(opts, :required?, &dashboard_auth_required?/0)
-
-    cond do
-      present?(username) and present?(password) ->
-        Plug.BasicAuth.basic_auth(conn, username: username, password: password, realm: "Aiur")
-
-      auth_required? ->
-        conn
-        |> Plug.BasicAuth.request_basic_auth(realm: "Aiur")
-        |> Plug.Conn.halt()
-
-      true ->
-        conn
-    end
-  end
-
-  defp present?(value), do: is_binary(value) and String.trim(value) != ""
+  def dashboard_basic_auth(conn, opts), do: AiurWeb.FinancialDataAccess.authenticate_request(conn, opts)
 
   # Origin/Referer allowlist. Parses exact origins and accepts the configured
   # dashboard host or loopback equivalents Executors typically use.
@@ -197,12 +188,6 @@ defmodule AiurWeb.Router do
 
   defp dashboard_writable? do
     AiurWeb.Endpoint.config(:dashboard_writable) == true
-  rescue
-    _ -> false
-  end
-
-  defp dashboard_auth_required? do
-    AiurWeb.Endpoint.config(:dashboard_auth_required) == true
   rescue
     _ -> false
   end

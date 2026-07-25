@@ -51,6 +51,8 @@ defmodule Aiur.DecisionStore do
     SecretRedactor
   }
 
+  alias Aiur.DecisionQuery.Params, as: DecisionQueryParams
+  alias Aiur.DecisionStore.RetainedSnapshot
   alias Aiur.Events.{IdGenerator, Publisher}
 
   @ndjson_filename "decisions.ndjson"
@@ -62,6 +64,8 @@ defmodule Aiur.DecisionStore do
   @default_retry_delays_ms [250, 1_000, 5_000]
   @recent_audit_limit 50
   @recent_decision_limit 50
+  @maximum_legacy_page_limit 200
+  @maximum_legacy_page_offset 1_000_000
   @transient_failure_classes ["orchestrator_unavailable", "orchestrator_timeout"]
   @revision_transient_failure_classes @transient_failure_classes ++
                                         ["target_agent_unavailable", "target_revalidation_failed"]
@@ -122,6 +126,22 @@ defmodule Aiur.DecisionStore do
     GenServer.call(server, {:answer, decision_id, payload, opts}, timeout)
   end
 
+  @doc "Durably dismisses an open Decision without recording an answer."
+  @spec dismiss(String.t(), keyword(), GenServer.server(), timeout()) ::
+          {:ok, map()} | {:error, term()}
+  def dismiss(decision_id, opts \\ [], server \\ __MODULE__, timeout \\ @request_timeout)
+      when is_binary(decision_id) and is_list(opts) do
+    GenServer.call(server, {:dismiss, decision_id, opts}, timeout)
+  end
+
+  @doc "Durably expires an open Decision that no live agent can act on."
+  @spec expire(String.t(), String.t(), keyword(), GenServer.server(), timeout()) ::
+          {:ok, map()} | {:error, term()}
+  def expire(decision_id, reason_class, opts \\ [], server \\ __MODULE__, timeout \\ @request_timeout)
+      when is_binary(decision_id) and is_binary(reason_class) and is_list(opts) do
+    GenServer.call(server, {:expire, decision_id, reason_class, opts}, timeout)
+  end
+
   @doc "Durably records an ordered correction to the active Decision action."
   @spec revise(String.t(), map(), keyword(), GenServer.server(), timeout()) ::
           {:ok, map()} | {:error, term()}
@@ -152,7 +172,16 @@ defmodule Aiur.DecisionStore do
     GenServer.call(server, {:retry_dispatch, decision_id, action_id})
   end
 
-  @doc "Synchronously persist the backend-handoff edge for one correlated queue item."
+  @doc "Synchronously validate one correlated item before attempting provider delivery."
+  @spec validate_delivery(map(), GenServer.server()) ::
+          {:ok, :accepted | :ignored} | {:error, term()}
+  def validate_delivery(item, server \\ __MODULE__) when is_map(item) do
+    GenServer.call(server, {:validate_delivery, item}, @request_timeout)
+  catch
+    :exit, _reason -> {:error, :store_unavailable}
+  end
+
+  @doc "Synchronously persist provider-confirmed delivery for one correlated queue item."
   @spec record_delivery(map(), GenServer.server()) :: {:ok, :accepted | :duplicate | :ignored} | {:error, term()}
   def record_delivery(item, server \\ __MODULE__) when is_map(item) do
     GenServer.call(server, {:transport_transition, :delivered, item, nil}, @request_timeout)
@@ -192,6 +221,43 @@ defmodule Aiur.DecisionStore do
   @spec list(GenServer.server()) :: [Decision.t()]
   def list(server \\ __MODULE__) do
     GenServer.call(server, :list)
+  end
+
+  @doc "Returns one exact retained Decision and its health from one serialized store snapshot."
+  @spec retained_lookup(String.t(), GenServer.server()) ::
+          {:ok, %{decision: Decision.t() | nil, health: term()}} | {:error, :store_unavailable}
+  def retained_lookup(decision_id, server \\ __MODULE__) when is_binary(decision_id) do
+    GenServer.call(server, {:retained_lookup, decision_id})
+  end
+
+  @doc "Returns a bounded retained Decision page, available total metadata, and canonical counts atomically."
+  @spec retained_query(map(), GenServer.server()) :: {:ok, map()} | {:error, :store_unavailable | :invalid_query}
+  def retained_query(query, server \\ __MODULE__) when is_map(query) do
+    GenServer.call(server, {:retained_query, query})
+  end
+
+  @doc false
+  @spec retained_legacy_page(map(), non_neg_integer(), pos_integer(), GenServer.server()) ::
+          {:ok, map()} | {:error, :store_unavailable | :invalid_query}
+  def retained_legacy_page(query, offset, limit, server \\ __MODULE__)
+      when is_map(query) and is_integer(offset) and is_integer(limit) do
+    GenServer.call(server, {:retained_legacy_page, query, offset, limit})
+  end
+
+  @doc "Returns canonical retained open and blocking counts from one serialized store snapshot."
+  @spec retained_counts(GenServer.server()) ::
+          {:ok,
+           %{
+             counts: %{
+               open: non_neg_integer(),
+               blocking: non_neg_integer(),
+               total: non_neg_integer()
+             },
+             health: term()
+           }}
+          | {:error, :store_unavailable}
+  def retained_counts(server \\ __MODULE__) do
+    GenServer.call(server, :retained_counts)
   end
 
   @doc "Returns a bounded dashboard window, prioritizing unresolved and blocking Decisions."
@@ -268,6 +334,7 @@ defmodule Aiur.DecisionStore do
       dispatch_delay_ms: Keyword.get(opts, :dispatch_delay_ms, @default_dispatch_delay_ms),
       reconcile_delay_ms: Keyword.get(opts, :reconcile_delay_ms, @default_reconcile_delay_ms),
       retry_delays_ms: Keyword.get(opts, :retry_delays_ms, @default_retry_delays_ms),
+      dispatch_scheduler: Keyword.get(opts, :dispatch_scheduler, &Process.send_after/3),
       revision_follow_up_projector: revision_projector,
       revision_follow_up_resolver: revision_resolver,
       event_id_reserver: Keyword.get(opts, :event_id_reserver, &IdGenerator.reserve_durable_id/0),
@@ -285,7 +352,12 @@ defmodule Aiur.DecisionStore do
   def handle_continue(:schedule_reconciliation, state) do
     if state.writable? do
       reproject_failure_attentions(state)
-      Process.send_after(self(), :reconcile_dispatches, state.reconcile_delay_ms)
+
+      schedule_dispatch_work(
+        state,
+        {:reconcile_dispatches, dispatch_fences(state)},
+        state.reconcile_delay_ms
+      )
     end
 
     {:noreply, state}
@@ -312,6 +384,7 @@ defmodule Aiur.DecisionStore do
           projection_path: projection_path,
           current: current,
           decision_index: build_decision_index(current),
+          retained_index: RetainedSnapshot.build_index(current, history),
           # The store keeps histories newest-first so every accepted append is
           # O(1). The public history call reverses them back to audit order.
           history: reverse_histories(history),
@@ -355,6 +428,7 @@ defmodule Aiur.DecisionStore do
       projection_path: nil,
       current: %{},
       decision_index: :gb_sets.empty(),
+      retained_index: RetainedSnapshot.build_index(%{}),
       history: %{},
       audit_history: %{},
       recent_audit: [],
@@ -434,6 +508,22 @@ defmodule Aiur.DecisionStore do
     handle_answer(decision_id, payload, opts, state)
   end
 
+  def handle_call({:dismiss, _decision_id, _opts}, _from, %{writable?: false} = state) do
+    {:reply, {:error, {:store_unavailable, state.health}}, state}
+  end
+
+  def handle_call({:dismiss, decision_id, opts}, _from, state) do
+    handle_dismiss(decision_id, opts, state)
+  end
+
+  def handle_call({:expire, _decision_id, _reason_class, _opts}, _from, %{writable?: false} = state) do
+    {:reply, {:error, {:store_unavailable, state.health}}, state}
+  end
+
+  def handle_call({:expire, decision_id, reason_class, opts}, _from, state) do
+    handle_expire(decision_id, reason_class, opts, state)
+  end
+
   def handle_call({:revise, _decision_id, _payload, _opts}, _from, %{writable?: false} = state) do
     {:reply, {:error, {:store_unavailable, state.health}}, state}
   end
@@ -461,9 +551,9 @@ defmodule Aiur.DecisionStore do
 
       {:ok, decision} ->
         if lifecycle_append_failed?(state, action_id) do
-          schedule_append_reconciliation(decision, action_id, 0)
+          schedule_append_reconciliation(state, decision, action_id, 0)
         else
-          schedule_dispatch(decision, true, 0)
+          schedule_dispatch(state, decision, true, 0)
         end
 
         {:reply, {:ok, :scheduled}, state}
@@ -475,6 +565,14 @@ defmodule Aiur.DecisionStore do
 
   def handle_call({:transport_transition, _type, _item, _reason}, _from, %{writable?: false} = state) do
     {:reply, {:error, {:store_unavailable, state.health}}, state}
+  end
+
+  def handle_call({:validate_delivery, _item}, _from, %{writable?: false} = state) do
+    {:reply, {:error, {:store_unavailable, state.health}}, state}
+  end
+
+  def handle_call({:validate_delivery, item}, _from, state) do
+    {:reply, validate_transport_delivery(state, item), state}
   end
 
   def handle_call({:transport_transition, type, item, reason}, _from, state) do
@@ -500,6 +598,53 @@ defmodule Aiur.DecisionStore do
 
   def handle_call(:list, _from, state) do
     {:reply, Map.values(state.current), state}
+  end
+
+  def handle_call({:retained_lookup, decision_id}, _from, state) do
+    {:reply, RetainedSnapshot.lookup(state.current, state.health, decision_id), state}
+  end
+
+  def handle_call({:retained_query, query}, _from, state) do
+    {ordering, query} = Map.pop(query, :ordering, :audit)
+
+    reply =
+      case DecisionQueryParams.parse(query) do
+        {:ok, normalized} ->
+          RetainedSnapshot.query(
+            state.current,
+            state.retained_index,
+            state.health,
+            Map.put(normalized, :ordering, ordering)
+          )
+
+        {:error, _reason} ->
+          {:error, :invalid_query}
+      end
+
+    {:reply, reply, state}
+  end
+
+  def handle_call({:retained_legacy_page, query, offset, limit}, _from, state) do
+    reply =
+      with :ok <- valid_legacy_page?(offset, limit),
+           {:ok, normalized} <- DecisionQueryParams.parse(legacy_query_params(query)),
+           true <- is_nil(normalized.cursor) do
+        RetainedSnapshot.legacy_page(
+          state.current,
+          state.retained_index,
+          state.health,
+          Map.merge(normalized, %{limit: limit, ordering: :current}),
+          offset
+        )
+      else
+        _invalid -> {:error, :invalid_query}
+      end
+
+    {:reply, reply, state}
+  end
+
+  def handle_call(:retained_counts, _from, state) do
+    {:reply, RetainedSnapshot.counts(state.retained_index, state.health), state}
   end
 
   def handle_call({:recent_decisions, limit}, _from, state) do
@@ -768,7 +913,9 @@ defmodule Aiur.DecisionStore do
     end
   end
 
-  defp require_answerable(%Decision{decision_status: :resolved}), do: {:error, {:conflict, :resolved}}
+  defp require_answerable(%Decision{decision_status: status}) when status in [:expired, :resolved],
+    do: {:error, {:conflict, status}}
+
   defp require_answerable(%Decision{}), do: :ok
 
   defp fetch_actor(opts) do
@@ -884,6 +1031,58 @@ defmodule Aiur.DecisionStore do
     end
   end
 
+  defp handle_dismiss(decision_id, opts, state) do
+    with {:ok, decision} <- fetch_decision(state, decision_id),
+         {:ok, actor} <- fetch_actor(opts) do
+      case decision.decision_status do
+        :open -> persist_dismissal(decision, actor, state)
+        :dismissed -> {:reply, {:ok, %{status: :duplicate, decision: decision}}, state}
+        status -> {:reply, {:error, {:conflict, status}}, state}
+      end
+    else
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  defp persist_dismissal(decision, actor, state) do
+    case build_and_persist_event(:decision_dismissed, decision, %{actor: actor}, DateTime.utc_now(), state) do
+      {:ok, next_state, updated} ->
+        {:reply, {:ok, %{status: :accepted, decision: updated}}, next_state}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
+  end
+
+  defp handle_expire(decision_id, reason_class, opts, state) do
+    case fetch_decision(state, decision_id) do
+      {:ok, %{decision_status: :open} = decision} ->
+        persist_expiration(decision, reason_class, opts, state)
+
+      {:ok, %{decision_status: :expired} = decision} ->
+        {:reply, {:ok, %{status: :duplicate, decision: decision}}, state}
+
+      {:ok, decision} ->
+        {:reply, {:error, {:conflict, decision.decision_status}}, state}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
+  end
+
+  defp persist_expiration(decision, reason_class, opts, state) do
+    occurred_at = Keyword.get(opts, :now, DateTime.utc_now())
+    data = %{reason_class: reason_class, actor: @system_follow_up_actor}
+
+    case build_and_persist_event(:decision_expired, decision, data, occurred_at, state) do
+      {:ok, next_state, updated} ->
+        {:reply, {:ok, %{status: :accepted, decision: updated}}, next_state}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
+  end
+
   defp dispatch_status(%Decision{delivery_status: :pending}), do: :dispatch_pending
   defp dispatch_status(%Decision{delivery_status: status}), do: status
 
@@ -986,6 +1185,7 @@ defmodule Aiur.DecisionStore do
           state
           | current: Map.put(state.current, current.decision_id, updated),
             decision_index: update_decision_index(state.decision_index, current, updated),
+            retained_index: RetainedSnapshot.update_index(state.retained_index, current, updated),
             history: Map.update(state.history, current.decision_id, [event.data.decision], &[event.data.decision | &1]),
             audit_history: Map.update(state.audit_history, current.decision_id, [event], &(&1 ++ [event])),
             recent_audit: remember_recent_audit(state.recent_audit, event)
@@ -1259,6 +1459,12 @@ defmodule Aiur.DecisionStore do
                 Map.get(state.current, decision.decision_id),
                 current
               ),
+            retained_index:
+              RetainedSnapshot.update_index(
+                state.retained_index,
+                Map.get(state.current, decision.decision_id),
+                current
+              ),
             history: Map.update(state.history, decision.decision_id, [decision], &[decision | &1]),
             audit_history: Map.update(state.audit_history, decision.decision_id, [event], &(&1 ++ [event])),
             recent_audit: remember_recent_audit(state.recent_audit, event)
@@ -1304,6 +1510,7 @@ defmodule Aiur.DecisionStore do
         state
         | current: Map.put(state.current, decision.decision_id, updated),
           decision_index: update_decision_index(state.decision_index, decision, updated),
+          retained_index: RetainedSnapshot.update_index(state.retained_index, decision, updated),
           audit_history: Map.update(state.audit_history, decision.decision_id, [event], &(&1 ++ [event])),
           recent_audit: remember_recent_audit(state.recent_audit, event)
       }
@@ -1320,7 +1527,13 @@ defmodule Aiur.DecisionStore do
 
     next_state =
       Enum.reduce(lifecycle_events, next_state, fn {decision, event}, state_acc ->
-        resolve_lifecycle_append_failure(state_acc, decision, event.data.action_id)
+        case Map.get(event.data, :action_id) do
+          action_id when is_binary(action_id) ->
+            resolve_lifecycle_append_failure(state_acc, decision, action_id)
+
+          _action_id ->
+            state_acc
+        end
       end)
 
     if next_state.writable? do
@@ -1339,6 +1552,9 @@ defmodule Aiur.DecisionStore do
       nil -> decision.version
     end
   end
+
+  defp lifecycle_version(decision, %{actor: _actor}), do: decision.version
+  defp lifecycle_version(decision, %{reason_class: _reason_class}), do: decision.version
 
   defp lifecycle_version(decision, _data), do: Decision.active_answer(decision).decision_version
 
@@ -1370,6 +1586,8 @@ defmodule Aiur.DecisionStore do
   end
 
   defp lifecycle_slug(:answer_recorded), do: "answered"
+  defp lifecycle_slug(:decision_expired), do: "expired"
+  defp lifecycle_slug(:decision_dismissed), do: "dismissed"
   defp lifecycle_slug(:enriched), do: "enriched"
   defp lifecycle_slug(:revision_recorded), do: "revision-recorded"
   defp lifecycle_slug(:dispatch_queued), do: "queued"
@@ -1526,6 +1744,26 @@ defmodule Aiur.DecisionStore do
 
       {:error, reason} ->
         {{:error, reason}, state}
+    end
+  end
+
+  defp validate_transport_delivery(state, item) do
+    case correlated_transport_context(state, item) do
+      {:ok, _decision, %{status: status}, _context}
+      when status in [:queued, :restored, :delivered] ->
+        {:ok, :accepted}
+
+      {:ok, _decision, %{status: status}, _context} ->
+        {:error, {:delivery_attempt_not_ready, status}}
+
+      {:ok, _decision, :missing_attempt, _context} ->
+        {:ok, :accepted}
+
+      {:ok, :ignored} ->
+        {:ok, :ignored}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -1832,25 +2070,23 @@ defmodule Aiur.DecisionStore do
   end
 
   @impl true
-  def handle_info(:reconcile_dispatches, state) do
+  def handle_info({:reconcile_dispatches, fences}, state) do
     next_state =
-      state.current
-      |> Map.values()
-      |> Enum.reduce(state, &reconcile_decision/2)
+      Enum.reduce(fences, state, &reconcile_scheduled_decision/2)
 
     {:noreply, next_state}
   end
 
-  def handle_info({:dispatch_action, decision_id, retry_failed?}, state) do
-    {:noreply, maybe_start_dispatch(state, decision_id, retry_failed?)}
+  def handle_info({:dispatch_action, fence, retry_failed?}, state) do
+    {:noreply, maybe_start_dispatch(state, fence, retry_failed?)}
   end
 
-  def handle_info({:reconcile_queue_action, decision_id}, state) do
-    {:noreply, maybe_start_dispatch(state, decision_id, false, :reconcile_queue)}
+  def handle_info({:reconcile_queue_action, fence}, state) do
+    {:noreply, maybe_start_dispatch(state, fence, false, :reconcile_queue)}
   end
 
-  def handle_info({:reconcile_lifecycle_append, decision_id, action_id}, state) do
-    {:noreply, maybe_reconcile_lifecycle_append(state, decision_id, action_id)}
+  def handle_info({:reconcile_lifecycle_append, fence, action_id}, state) do
+    {:noreply, maybe_reconcile_lifecycle_append(state, fence, action_id)}
   end
 
   def handle_info({:dispatch_result, decision_id, action_id, attempt_id, result}, state) do
@@ -1893,16 +2129,30 @@ defmodule Aiur.DecisionStore do
     end
   end
 
-  defp reconcile_decision(decision, state) do
+  defp reconcile_scheduled_decision(%{decision_id: decision_id} = fence, state) do
+    case fetch_decision(state, decision_id) do
+      {:ok, current} ->
+        dispatch_current? = dispatch_fence_current?(fence, current, :normal)
+        reconcile_queue? = dispatch_current? and fence.request_version == current.version
+        reconcile_decision(current, state, dispatch_current?, reconcile_queue?)
+
+      {:error, _reason} ->
+        state
+    end
+  end
+
+  defp reconcile_decision(decision, state, dispatch_current?, reconcile_queue?) do
     state = ensure_revision_follow_up_required(state, decision)
     current = Map.fetch!(state.current, decision.decision_id)
     state = ensure_superseded_revision_follow_ups(state, current)
     current = Map.fetch!(state.current, decision.decision_id)
     state = schedule_revision_follow_up_work(state, current)
 
-    state
-    |> maybe_schedule_after_answer(current, false)
-    |> maybe_schedule_queue_reconciliation(current)
+    state = if dispatch_current?, do: maybe_schedule_after_answer(state, current, false), else: state
+
+    # Request enrichment may advance the version without changing delivery state.
+    # Pending first delivery can follow it; queued reconciliation cannot.
+    if reconcile_queue?, do: maybe_schedule_queue_reconciliation(state, current), else: state
   end
 
   defp schedule_revision_follow_up_work(state, decision) do
@@ -2015,7 +2265,7 @@ defmodule Aiur.DecisionStore do
         state
 
       true ->
-        schedule_dispatch(decision, retry_failed?, state.dispatch_delay_ms)
+        schedule_dispatch(state, decision, retry_failed?, state.dispatch_delay_ms)
         state
     end
   end
@@ -2034,28 +2284,91 @@ defmodule Aiur.DecisionStore do
         state
 
       true ->
-        Process.send_after(self(), {:reconcile_queue_action, decision.decision_id}, 0)
+        schedule_dispatch_work(state, {:reconcile_queue_action, dispatch_fence(decision)}, 0)
         state
     end
   end
 
-  defp schedule_dispatch(decision, retry_failed?, delay_ms) do
-    Process.send_after(self(), {:dispatch_action, decision.decision_id, retry_failed?}, delay_ms)
+  defp schedule_dispatch(state, decision, retry_failed?, delay_ms) do
+    schedule_dispatch_work(state, {:dispatch_action, dispatch_fence(decision), retry_failed?}, delay_ms)
   end
 
-  defp maybe_reconcile_lifecycle_append(state, decision_id, action_id) do
+  defp schedule_dispatch_work(state, message, delay_ms) do
+    state.dispatch_scheduler.(self(), message, delay_ms)
+  end
+
+  defp dispatch_fences(state) do
+    Enum.map(state.current, fn {_decision_id, decision} -> dispatch_fence(decision) end)
+  end
+
+  defp dispatch_fence(decision) do
+    %{
+      decision_id: decision.decision_id,
+      request_version: decision.version,
+      lifecycle: dispatch_lifecycle(decision)
+    }
+  end
+
+  defp dispatch_lifecycle(decision) do
+    {
+      dispatch_answer_identity(decision),
+      decision.active_action_id,
+      decision.revision_sequence,
+      decision.revision_result,
+      decision.decision_status,
+      decision.delivery_status,
+      dispatch_attempt_identity(decision)
+    }
+  end
+
+  defp dispatch_attempt_identity(decision) do
+    case List.last(Decision.active_dispatch_attempts(decision)) do
+      nil ->
+        nil
+
+      attempt ->
+        {
+          attempt.action_id,
+          attempt.attempt_id,
+          attempt.queue_item_id,
+          attempt.run_id,
+          attempt.status,
+          attempt.failure_reason_class
+        }
+    end
+  end
+
+  defp dispatch_answer_identity(decision) do
+    case Decision.active_answer(decision) do
+      nil -> nil
+      answer -> {answer.action_id, answer.decision_version, answer.content_hash}
+    end
+  end
+
+  defp dispatch_fence_current?(fence, decision, mode) do
+    lifecycle_current? =
+      fence.decision_id == decision.decision_id and
+        fence.lifecycle == dispatch_lifecycle(decision)
+
+    lifecycle_current? and
+      (mode != :reconcile_queue or fence.request_version == decision.version)
+  end
+
+  defp maybe_reconcile_lifecycle_append(state, %{decision_id: decision_id} = fence, action_id) do
     with {:ok, decision} <- fetch_decision(state, decision_id),
+         true <- dispatch_fence_current?(fence, decision, :recover_append),
          %DecisionAnswer{action_id: ^action_id} <- Decision.active_answer(decision),
          true <- lifecycle_append_failed?(state, action_id) do
-      maybe_start_dispatch(state, decision_id, true, :recover_append)
+      maybe_start_dispatch(state, fence, true, :recover_append)
     else
       _other -> state
     end
   end
 
-  defp maybe_start_dispatch(state, decision_id, retry_failed?, mode \\ :normal) do
+  defp maybe_start_dispatch(state, %{decision_id: decision_id} = fence, retry_failed?, mode \\ :normal) do
     with true <- state.writable?,
          {:ok, decision} <- fetch_decision(state, decision_id),
+         true <- dispatch_fence_current?(fence, decision, mode),
          %DecisionAnswer{} = answer <- Decision.active_answer(decision),
          false <- MapSet.member?(state.dispatching_decisions, decision_id),
          false <- MapSet.member?(state.dispatching, answer.action_id),
@@ -2385,7 +2698,7 @@ defmodule Aiur.DecisionStore do
 
     case Enum.at(state.retry_delays_ms, retry_count) do
       delay when is_integer(delay) and delay >= 0 ->
-        schedule_append_reconciliation(decision, action_id, delay)
+        schedule_append_reconciliation(state, decision, action_id, delay)
         next_state
 
       _other ->
@@ -2419,8 +2732,8 @@ defmodule Aiur.DecisionStore do
     end
   end
 
-  defp schedule_append_reconciliation(decision, action_id, delay_ms) do
-    Process.send_after(self(), {:reconcile_lifecycle_append, decision.decision_id, action_id}, delay_ms)
+  defp schedule_append_reconciliation(state, decision, action_id, delay_ms) do
+    schedule_dispatch_work(state, {:reconcile_lifecycle_append, dispatch_fence(decision), action_id}, delay_ms)
   end
 
   defp lifecycle_append_failure_topic(decision, action_id) do
@@ -2447,7 +2760,7 @@ defmodule Aiur.DecisionStore do
 
     case Enum.at(state.retry_delays_ms, retry_count) do
       delay when is_integer(delay) and delay >= 0 ->
-        schedule_dispatch(decision, false, delay)
+        schedule_dispatch(state, decision, false, delay)
         next_state
 
       _other ->
@@ -2687,7 +3000,7 @@ defmodule Aiur.DecisionStore do
 
   defp recent_decision_sort_key(%Decision{} = decision) do
     {
-      decision.decision_status == :resolved,
+      decision.decision_status in [:expired, :dismissed, :resolved],
       not decision.blocking,
       -urgency_rank(decision.urgency),
       -datetime_sort_key(decision.created_at),
@@ -2716,5 +3029,18 @@ defmodule Aiur.DecisionStore do
       limit when is_integer(limit) and limit > 0 -> limit
       _invalid -> @default_legacy_question_version_limit
     end
+  end
+
+  defp valid_legacy_page?(offset, limit)
+       when offset >= 0 and offset <= @maximum_legacy_page_offset and limit >= 1 and
+              limit <= @maximum_legacy_page_limit,
+       do: :ok
+
+  defp valid_legacy_page?(_offset, _limit), do: {:error, :invalid_query}
+
+  defp legacy_query_params(query) do
+    query
+    |> Map.drop([:limit, "limit", :ordering])
+    |> Map.put(:limit, 1)
   end
 end

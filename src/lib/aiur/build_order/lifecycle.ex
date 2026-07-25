@@ -1,21 +1,45 @@
 defmodule Aiur.BuildOrder.ProviderHealth do
   @moduledoc "Completeness and freshness facts for one provider generation."
 
-  @type state :: :healthy | :stale | :unavailable
+  @type state :: :healthy | :stale | :unavailable | :structurally_invalid
   @type t :: %__MODULE__{
           generation: pos_integer() | :unknown,
           state: state(),
-          complete?: boolean()
+          complete?: boolean(),
+          refreshing?: boolean(),
+          observed_at: DateTime.t() | nil,
+          last_success_at: DateTime.t() | nil,
+          last_attempt_at: DateTime.t() | nil,
+          failure: atom() | nil,
+          retry_count: non_neg_integer(),
+          next_retry_at: DateTime.t() | nil
         }
 
-  defstruct generation: :unknown, state: :unavailable, complete?: false
+  defstruct generation: :unknown,
+            state: :unavailable,
+            complete?: false,
+            refreshing?: false,
+            observed_at: nil,
+            last_success_at: nil,
+            last_attempt_at: nil,
+            failure: nil,
+            retry_count: 0,
+            next_retry_at: nil
 
   @spec new(term(), term(), term()) :: t()
-  def new(generation, state, complete?) do
+  @spec new(term(), term(), term(), keyword()) :: t()
+  def new(generation, state, complete?, opts \\ []) do
     %__MODULE__{
       generation: normalize_generation(generation),
       state: normalize_state(state),
-      complete?: complete? == true
+      complete?: complete? == true,
+      refreshing?: Keyword.get(opts, :refreshing?, false) == true,
+      observed_at: datetime(Keyword.get(opts, :observed_at)),
+      last_success_at: datetime(Keyword.get(opts, :last_success_at)),
+      last_attempt_at: datetime(Keyword.get(opts, :last_attempt_at)),
+      failure: failure(Keyword.get(opts, :failure)),
+      retry_count: retry_count(Keyword.get(opts, :retry_count, 0)),
+      next_retry_at: datetime(Keyword.get(opts, :next_retry_at))
     }
   end
 
@@ -28,8 +52,14 @@ defmodule Aiur.BuildOrder.ProviderHealth do
 
   defp normalize_generation(value) when is_integer(value) and value > 0, do: value
   defp normalize_generation(_value), do: :unknown
-  defp normalize_state(state) when state in [:healthy, :stale, :unavailable], do: state
+  defp normalize_state(state) when state in [:healthy, :stale, :unavailable, :structurally_invalid], do: state
   defp normalize_state(_state), do: :unavailable
+  defp datetime(%DateTime{} = value), do: value
+  defp datetime(_value), do: nil
+  defp failure(value) when is_atom(value), do: value
+  defp failure(_value), do: nil
+  defp retry_count(value) when is_integer(value) and value >= 0, do: value
+  defp retry_count(_value), do: 0
 end
 
 defmodule Aiur.BuildOrder.Lifecycle do
