@@ -5157,28 +5157,24 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
     # BranchRefStore persists through a disk-backed GenServer. Under full-suite
     # IO load a write can transiently fail; on failure it rolls the in-memory
-    # state back and re-persists on a scheduled retry (production recovers the
-    # same way via PushRouting.reconcile_durable_unblocks). Drive these
-    # singleton operations to convergence so a saturated box does not surface
-    # as a spurious failure of an assertion that reads the store immediately.
-    defp reset_branch_refs, do: assert_eventually(fn -> BranchRefStore.reset() == :ok end)
+    # state back and queues a retry (production recovers the same way via
+    # PushRouting.reconcile_durable_unblocks). `await_settled/0` blocks on
+    # that retry actually landing instead of guessing at a wall-clock
+    # deadline, so a saturated box does not surface as a spurious failure of
+    # an assertion that reads the store immediately.
+    defp reset_branch_refs do
+      BranchRefStore.reset()
+      :ok = BranchRefStore.await_settled()
+    end
 
-    defp record_blocker_ref,
-      do: assert_eventually(fn -> BranchRefStore.record(blocker_ref(), blocker_sha()) == :ok end)
+    defp record_blocker_ref do
+      BranchRefStore.record(blocker_ref(), blocker_sha())
+      :ok = BranchRefStore.await_settled()
+    end
 
-    defp assert_ready_unblock(expected),
-      do: assert_eventually(fn -> BranchRefStore.ready_unblock("99") == expected end)
-
-    defp assert_eventually(fun, attempts \\ 50)
-    defp assert_eventually(fun, 0), do: assert(fun.())
-
-    defp assert_eventually(fun, attempts) do
-      if fun.() do
-        :ok
-      else
-        Process.sleep(20)
-        assert_eventually(fun, attempts - 1)
-      end
+    defp assert_ready_unblock(expected) do
+      :ok = BranchRefStore.await_settled()
+      assert BranchRefStore.ready_unblock("99") == expected
     end
 
     defp blocker_pause_fields do

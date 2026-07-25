@@ -1,4 +1,6 @@
 defmodule Aiur.TestSupport do
+  import ExUnit.Assertions
+
   @workflow_prompt "You are an agent for this repository."
 
   defmacro __using__(_opts) do
@@ -29,6 +31,8 @@ defmodule Aiur.TestSupport do
         only: [
           write_workflow_file!: 1,
           write_workflow_file!: 2,
+          write_workflow_file_synced!: 1,
+          write_workflow_file_synced!: 2,
           restore_env: 2,
           stop_default_http_server: 0,
           ensure_workflow_store_running: 0
@@ -153,6 +157,30 @@ defmodule Aiur.TestSupport do
     end
 
     :ok
+  end
+
+  @doc """
+  Like `write_workflow_file!/2`, but waits for `WorkflowStore`'s pubsub
+  confirmation instead of trusting its best-effort `force_reload`.
+
+  `write_workflow_file!/2` fires a `force_reload` wrapped in `catch :exit, _
+  -> :ok`, so under host CPU contention a `GenServer.call` that outlasts its
+  default timeout is swallowed silently — the write looks like it landed, but
+  `WorkflowStore` only actually catches up whenever it next gets scheduled.
+  A caller that immediately reads `Config` afterward can race that catch-up
+  and observe the config as it stood before this write. Waiting for the
+  `{:workflow_config_updated, _}` broadcast removes the guess: it fires only
+  once the reload has genuinely completed, however long that took.
+  """
+  def write_workflow_file_synced!(path, overrides \\ []) do
+    ensure_workflow_store_running()
+    :ok = Aiur.WorkflowStore.subscribe()
+    {:ok, _workflow, generation_before} = Aiur.WorkflowStore.current_with_generation()
+
+    write_workflow_file!(path, overrides)
+
+    assert_receive {:workflow_config_updated, generation}, 15_000
+    assert generation > generation_before
   end
 
   # Mirror the real `.aiur/` layout in tests: drop the canonical alert
