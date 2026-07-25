@@ -196,11 +196,13 @@ defmodule Aiur.OrchestratorStatusTest do
 
       refute_received {:startup_cleanup_fetch_issues_by_states, _opts}
       assert log =~ "Skipping startup terminal workspace cleanup: :missing_linear_api_token"
-      # No global `refute log =~ "[warning]"/"[error]"` here: `capture_log`
-      # captures the whole BEAM's log stream, so an unrelated concurrent test
-      # emitting a warning/error pollutes this assertion (the #594 flake class).
-      # The positive assertion above already proves the missing-token skip is
-      # demoted to debug.
+      # A blanket `refute log =~ "[warning]"/"[error]"` would pollute on an
+      # unrelated concurrent test's warning: `capture_log` captures the whole
+      # BEAM's log stream, not just this process's (the #594 flake class). But
+      # the positive assertion above matches regardless of level, so it alone
+      # doesn't prove this path stays at debug — scope the refute to this
+      # path's own message instead of the whole captured stream.
+      refute log =~ ~r/\[(warning|error)\].*Skipping startup terminal workspace cleanup/
     after
       restore_application_env(:linear_client_module, previous_linear_client)
       restore_application_env(:startup_cleanup_test_pid, previous_test_pid)
