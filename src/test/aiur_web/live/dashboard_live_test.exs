@@ -411,7 +411,7 @@ defmodule AiurWeb.DashboardLiveTest do
       drafts: %{},
       chat_errors: %{},
       decision_actions: %{},
-      writable: false,
+      writable: Keyword.get(opts, :writable, false),
       live_action: Keyword.get(opts, :live_action, :index),
       decision_filter: :all,
       fleet_filters: FleetFilters.default(),
@@ -424,6 +424,48 @@ defmodule AiurWeb.DashboardLiveTest do
     assigns
     |> DashboardLive.render()
     |> Phoenix.LiveViewTest.rendered_to_string()
+  end
+
+  defp global_pause_fleet(globally_paused) do
+    %{
+      generated_at: "2026-07-26T12:00:00Z",
+      counts: %{running: 0, retrying: 0, idle: 0},
+      running: [],
+      retrying: [],
+      idle: [],
+      agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+      rate_limits: nil,
+      globally_paused: globally_paused
+    }
+  end
+
+  describe "global pause nav toggle" do
+    test "renders a pause affordance while the daemon is running and writable" do
+      html = render_payload(global_pause_fleet(false), writable: true)
+
+      assert html =~ ~s(id="global-pause-toggle")
+      assert html =~ ~s(phx-click="toggle-global-pause")
+      assert html =~ ~s(aria-pressed="false")
+      assert html =~ "Pause all agents"
+      refute html =~ "global-pause-toggle is-paused"
+      refute html =~ ~s|aria-label="Resume all agents (globally paused)"|
+    end
+
+    test "renders a resume affordance while the daemon is globally paused" do
+      html = render_payload(global_pause_fleet(true), writable: true)
+
+      assert html =~ "global-pause-toggle is-paused"
+      assert html =~ ~s(aria-pressed="true")
+      assert html =~ "Resume all agents (globally paused)"
+    end
+
+    test "disables the toggle when the dashboard is read-only" do
+      html = render_payload(global_pause_fleet(false), writable: false)
+
+      assert html =~ ~s(id="global-pause-toggle")
+      assert html =~ ~s(aria-disabled="true")
+      assert html =~ "disabled"
+    end
   end
 
   test "does not present untyped status rows as a healthy Units catalog" do
@@ -515,10 +557,12 @@ defmodule AiurWeb.DashboardLiveTest do
     assert unavailable_units =~ ~s(href="/analytics")
     assert unavailable_units =~ ~s(href="/build-orders")
     assert unavailable_units =~ ~s(data-phx-link="redirect")
-    assert Floki.find(Floki.parse_document!(unavailable_units), ~s([aria-disabled="true"])) == []
+    # Scope to nav anchors: the global-pause toggle is a button that is
+    # legitimately disabled in this read-only render, and is not a nav route.
+    assert Floki.find(Floki.parse_document!(unavailable_units), ~s(a[aria-disabled="true"])) == []
 
     assert available_units =~ ~s(href="/analytics")
-    assert Floki.find(Floki.parse_document!(available_units), ~s([aria-disabled="true"])) == []
+    assert Floki.find(Floki.parse_document!(available_units), ~s(a[aria-disabled="true"])) == []
 
     assert commands =~ ~s(<h1 id="route-title">Commands</h1>)
     assert length(Floki.find(Floki.parse_document!(commands), ~s(a[aria-current="page"]))) == 2

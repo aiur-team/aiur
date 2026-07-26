@@ -17,6 +17,7 @@ defmodule AiurWeb.DashboardLive do
   alias Aiur.CurrentRunSummary
   alias Aiur.DecisionPubSub
   alias Aiur.LiveConversation
+  alias Aiur.Orchestrator.GlobalPause
   alias Aiur.Orchestrator.Slots
   alias Aiur.TicketActivity
   alias Aiur.TrackerIdentity
@@ -479,6 +480,24 @@ defmodule AiurWeb.DashboardLive do
 
   def handle_event("capacity-set", _params, socket), do: {:noreply, socket}
 
+  def handle_event("toggle-global-pause", _params, socket) do
+    handle_writable_event(socket, fn -> {:noreply, toggle_global_pause(socket)} end)
+  end
+
+  defp toggle_global_pause(socket) do
+    target = not global_paused?(socket.assigns.payload)
+    _ = GlobalPause.set_global_pause(capacity_orchestrator(), target)
+    # The orchestrator broadcasts an observability update on success; reload so
+    # the nav toggle reflects the new state even if the broadcast is missed.
+    reload_after_action(socket)
+  end
+
+  defp global_paused?(payload) when is_map(payload) do
+    payload |> Map.get(:fleet, %{}) |> Map.get(:globally_paused, false) == true
+  end
+
+  defp global_paused?(_payload), do: false
+
   defp pause_agent_action(socket, modal) do
     key = agent_log_key(modal)
 
@@ -610,6 +629,8 @@ defmodule AiurWeb.DashboardLive do
       agent_kind={agent_kind()}
       nav_counts={nav_counts(@units_view, @retained_counts)}
       nav_collapsed={@nav_collapsed}
+      globally_paused={global_paused?(@payload)}
+      writable={@writable}
     >
       <Overview.decisions_banner decisions={@payload.decisions} retained_counts={@retained_counts} />
       <Overview.error error={@payload.fleet[:error]} />

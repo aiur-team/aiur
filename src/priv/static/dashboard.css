@@ -1534,12 +1534,26 @@ textarea:focus-visible,
   font-size: 0.66rem;
 }
 
-.brand-row #theme-toggle {
+.brand-row #global-pause-toggle {
   margin-left: auto;
 }
 
 .brand-row #nav-toggle {
   margin-left: -0.15rem;
+}
+
+/* The global pause switch reads OFF (muted, like its sibling toggles) and flips
+   to a filled warning accent when the whole daemon is halted, so a paused fleet
+   is unmistakable from the nav. Disabled when the dashboard is read-only. */
+.global-pause-toggle.is-paused {
+  border-color: var(--warning, #d08a2a);
+  color: var(--warning, #d08a2a);
+  background: color-mix(in srgb, var(--warning, #d08a2a) 16%, transparent);
+}
+
+.global-pause-toggle[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .tool-btn.icon-only {

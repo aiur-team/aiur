@@ -15,6 +15,10 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
   # attribute on this element is stripped by the next DOM patch, which is what
   # made the toggle spring back open (#1306).
   attr(:nav_collapsed, :boolean, default: false)
+  # The single global pause switch. Server-owned (mirrors the orchestrator's
+  # state), writable-gated like every other control surface.
+  attr(:globally_paused, :boolean, default: false)
+  attr(:writable, :boolean, default: false)
   slot(:inner_block, required: true)
 
   @spec dashboard_shell(map()) :: Phoenix.LiveView.Rendered.t()
@@ -28,6 +32,26 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
           <span class="status-badge status-badge-offline brand-live">
             <span class="status-badge-dot"></span>Offline
           </span>
+          <button
+            id="global-pause-toggle"
+            class={"tool-btn icon-only global-pause-toggle" <> if(@globally_paused, do: " is-paused", else: "")}
+            type="button"
+            phx-click="toggle-global-pause"
+            disabled={not @writable}
+            aria-disabled={to_string(not @writable)}
+            aria-pressed={to_string(@globally_paused)}
+            aria-label={global_pause_label(@globally_paused)}
+            title={global_pause_label(@globally_paused)}
+          >
+            <span class="global-pause-icon" aria-hidden="true">
+              <svg :if={@globally_paused} viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                <path d="M8 5v14l11-7z" />
+              </svg>
+              <svg :if={!@globally_paused} viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                <rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" />
+              </svg>
+            </span>
+          </button>
           <button
             id="theme-toggle"
             class="tool-btn icon-only"
@@ -216,6 +240,9 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
 
   defp nav_toggle_label(true), do: "Show navigation"
   defp nav_toggle_label(_collapsed), do: "Hide navigation"
+
+  defp global_pause_label(true), do: "Resume all agents (globally paused)"
+  defp global_pause_label(_paused), do: "Pause all agents"
 
   defp clock_value(%DateTime{} = now), do: Calendar.strftime(now, "%H:%M:%S")
   defp clock_value(_now), do: "--:--:--"
