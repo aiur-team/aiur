@@ -18,6 +18,17 @@ defmodule Aiur.Docs.ControlCenterFixture.Provider do
     {:reply, %{records: Enum.take(state.history, limit), contexts: %{}, revisions: %{}}, state}
   end
 
+  # Per-decision latency lookup (Aiur.DecisionMetrics.snapshot/2).
+  def handle_call({:snapshot, decision_id}, _from, %{metrics: metrics} = state) when is_binary(decision_id) do
+    reply =
+      case Map.fetch(metrics, decision_id) do
+        {:ok, sample} -> {:ok, sample}
+        :error -> {:error, :not_found}
+      end
+
+    {:reply, reply, state}
+  end
+
   # Mirror Aiur.DecisionStore's :retained_counts reply so the dashboard's
   # PayloadLoader can render the overview counts. Derived from the synthetic
   # decisions this provider holds.
@@ -26,6 +37,29 @@ defmodule Aiur.Docs.ControlCenterFixture.Provider do
     blocking = Enum.count(decisions, &(&1.decision_status == :open and &1.blocking))
     counts = %{open: open, blocking: blocking, total: length(decisions)}
     {:reply, {:ok, %{counts: counts, health: :writable}}, state}
+  end
+
+  # Mirror Aiur.DecisionStore's {:retained_query, query} paged reply so the
+  # Commands view can list decisions. The synthetic set is small, so return a
+  # single bounded page without cursor pagination.
+  def handle_call({:retained_query, query}, _from, %{decisions: decisions} = state) do
+    limit = Map.get(query, :limit, 25)
+    page = Enum.take(decisions, limit)
+    open = Enum.count(decisions, &(&1.decision_status == :open))
+    blocking = Enum.count(decisions, &(&1.decision_status == :open and &1.blocking))
+
+    snapshot = %{
+      decisions: page,
+      next_key: nil,
+      has_next?: false,
+      total: length(decisions),
+      partial?: false,
+      partial_reason: nil,
+      counts: %{open: open, blocking: blocking, total: length(decisions)},
+      health: :writable
+    }
+
+    {:reply, {:ok, snapshot}, state}
   end
 end
 
