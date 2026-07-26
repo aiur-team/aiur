@@ -46,6 +46,27 @@ defmodule Aiur.Orchestrator.SlotsTest do
 
       assert Slots.available_slots(state) == 1
     end
+
+    test "reports no slots when globally paused, regardless of free capacity" do
+      state = %State{max_concurrent_agents: 3, running: %{}, globally_paused: true}
+
+      assert Slots.available_slots(state) == 0
+    end
+  end
+
+  describe "launch_globally_paused?/0" do
+    test "defaults to false with no launch flag" do
+      Application.delete_env(:aiur, :launch_globally_paused)
+
+      refute Slots.launch_globally_paused?()
+    end
+
+    test "is true when the launch flag is set" do
+      Application.put_env(:aiur, :launch_globally_paused, true)
+      on_exit(fn -> Application.delete_env(:aiur, :launch_globally_paused) end)
+
+      assert Slots.launch_globally_paused?()
+    end
   end
 
   describe "max_concurrent_agent_status/1" do
