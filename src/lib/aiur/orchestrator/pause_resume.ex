@@ -22,6 +22,14 @@ defmodule Aiur.Orchestrator.PauseResume do
   alias Aiur.RunTelemetry.Lifecycle
   require Logger
 
+  # Attribution marker for agents held by the global pause switch, distinct
+  # from every per-agent pause reason. Unpause resumes only these entries, so
+  # an operator's individual pause is never overridden. See `Aiur.Orchestrator.GlobalPause`.
+  @global_pause_reason :global_pause
+
+  @spec global_pause_reason() :: :global_pause
+  def global_pause_reason, do: @global_pause_reason
+
   @spec pause_agent(String.t() | TrackerIdentity.t()) :: {:ok, integer()} | {:error, term()}
   def pause_agent(issue_identifier), do: pause_agent(Aiur.Orchestrator, issue_identifier)
 
@@ -54,6 +62,13 @@ defmodule Aiur.Orchestrator.PauseResume do
     do: control_api_call(server, {:control_lifecycle, issue_identifier})
 
   @spec resume_issue_call(State.t(), String.t()) :: {:reply, term(), State.t()}
+  # Global-hold-wins: while the daemon is globally paused, an individual resume
+  # cannot override the single switch. Unpause the daemon to resume agents.
+  def resume_issue_call(%State{globally_paused: true} = state, issue_identifier)
+      when is_binary(issue_identifier) do
+    {:reply, {:error, :globally_paused}, state}
+  end
+
   def resume_issue_call(%State{} = state, issue_identifier) do
     {reply, state} = resume_issue(state, issue_identifier)
     StatusReport.notify_dashboard(state)
@@ -68,6 +83,14 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   @spec request_control_call(State.t(), String.t(), :pause | :resume, pos_integer()) ::
           {:reply, {:ok, pos_integer()} | {:error, term()}, State.t()}
+  # Global-hold-wins: block an individual resume while globally paused; a global
+  # unpause is the only way out. Pause requests still pass through so an operator
+  # can mark an agent to stay paused after the daemon unpauses.
+  def request_control_call(%State{globally_paused: true} = state, issue_identifier, :resume, request_id)
+      when is_binary(issue_identifier) and is_integer(request_id) and request_id > 0 do
+    {:reply, {:error, :globally_paused}, state}
+  end
+
   def request_control_call(%State{} = state, issue_identifier, action, request_id)
       when is_binary(issue_identifier) and action in [:pause, :resume] and is_integer(request_id) and request_id > 0 do
     case State.find_running_by_identifier(state.running, issue_identifier) do
@@ -83,6 +106,67 @@ defmodule Aiur.Orchestrator.PauseResume do
       nil ->
         {:reply, {:error, :no_running_agent}, state}
     end
+  end
+
+  @doc """
+  Request a pause on every running agent that the global switch should hold.
+
+  Skips agents that are already individually paused, deactivated, completed, or
+  carry an in-flight pause request — so a per-agent pause is never overridden.
+  Held agents are tagged with `#{inspect(@global_pause_reason)}` so `resume_running_from_global/1`
+  can resume exactly this set.
+  """
+  @spec pause_running_for_global(State.t()) :: State.t()
+  def pause_running_for_global(%State{} = state) do
+    state.running
+    |> Map.values()
+    |> Enum.reduce(state, fn entry, state ->
+      if globally_pausable?(state, entry) do
+        {_reply, state} = request_pause(state, entry, Map.get(entry, :issue), @global_pause_reason)
+        state
+      else
+        state
+      end
+    end)
+  end
+
+  @doc """
+  Resume only the agents the global switch is holding.
+
+  An agent is globally held when it is paused with reason `#{inspect(@global_pause_reason)}`
+  or carries an in-flight global-pause request. Individually paused agents are
+  left untouched, preserving the operator's per-agent pause.
+  """
+  @spec resume_running_from_global(State.t()) :: State.t()
+  def resume_running_from_global(%State{} = state) do
+    state.running
+    |> Enum.filter(fn {_id, entry} -> globally_held?(state, entry) end)
+    |> Enum.map(fn {_id, entry} -> Map.get(entry, :identifier) end)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.reduce(state, fn identifier, state ->
+      {_reply, state} = resume_issue(state, identifier)
+      state
+    end)
+  end
+
+  defp globally_pausable?(state, entry) do
+    not State.paused_running_entry?(entry) and
+      not State.deactivated_running_entry?(entry) and
+      not State.completed_provenance?(entry) and
+      not pending_pause_request?(state, entry)
+  end
+
+  defp globally_held?(state, entry) do
+    applied_global_hold?(entry) or pending_global_hold?(state, entry)
+  end
+
+  defp applied_global_hold?(entry) do
+    State.paused_running_entry?(entry) and Map.get(entry, :paused_reason) == @global_pause_reason
+  end
+
+  defp pending_global_hold?(state, entry) do
+    pending_pause_request?(state, entry) and
+      match?(%{reason: @global_pause_reason}, Map.get(entry, :pending_pause_reason))
   end
 
   @spec control_lifecycle_call(State.t(), String.t()) :: {:reply, {:ok, map()} | {:error, term()}, State.t()}
@@ -581,6 +665,7 @@ defmodule Aiur.Orchestrator.PauseResume do
     if Map.get(running_entry, :paused_reason) in [
          :agent_pause_request,
          :ci_wait,
+         :global_pause,
          :input_required,
          :label_override,
          :operator_pause,

@@ -7,7 +7,7 @@ defmodule Aiur.Orchestrator do
   alias Aiur.{Alerts, Issue}
   alias Aiur.Orchestrator.{AgentTeardown, AutoSubscriptions, CiLifecycle, CommentWake}
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, EventTopics, HumanReview, Interrupts}
-  alias Aiur.Orchestrator.{Lifecycle, PauseResume, PushRouting, RetryEngine}
+  alias Aiur.Orchestrator.{GlobalPause, Lifecycle, PauseResume, PushRouting, RetryEngine}
   alias Aiur.Orchestrator.{RuntimeWatchdog, Slots, State, StatusReport}
   alias Aiur.Orchestrator.{TokenAccounting, TrackedSet, TrackerHealth, WorkspaceCleanup}
 
@@ -405,6 +405,12 @@ defmodule Aiur.Orchestrator do
   def set_max_concurrent_agents(server, next),
     do: Slots.set_max_concurrent_agents(server, next)
 
+  @spec globally_paused?() :: boolean()
+  def globally_paused?, do: GlobalPause.globally_paused?()
+
+  @spec set_global_pause(boolean()) :: {:ok, map()} | {:error, term()}
+  def set_global_pause(on?) when is_boolean(on?), do: GlobalPause.set_global_pause(on?)
+
   @spec control_capabilities(String.t()) :: {:ok, map()} | {:error, term()}
   def control_capabilities(identifier), do: OM.control_capabilities(identifier)
   @spec control_capabilities(GenServer.server(), String.t()) :: {:ok, map()} | {:error, term()}
@@ -608,6 +614,13 @@ defmodule Aiur.Orchestrator do
   def handle_call({:set_max_concurrent_agents, n}, _from, state)
       when is_integer(n) and n > 0,
       do: Slots.set_max_concurrent_agents_call(state, n)
+
+  def handle_call(:globally_paused?, _from, state),
+    do: GlobalPause.globally_paused_call(state)
+
+  def handle_call({:set_global_pause, on?}, _from, state)
+      when is_boolean(on?),
+      do: GlobalPause.set_global_pause_call(state, on?)
 
   def handle_call({:claim_next_queue_item, issue_identifier}, _from, state)
       when is_binary(issue_identifier),
