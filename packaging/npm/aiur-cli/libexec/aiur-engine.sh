@@ -309,7 +309,7 @@ build_init_cmd() {
 
 usage() {
   cat <<'EOF'
-Usage: aiur [--interactive] [--no-dashboard] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [path-to-.aiurconfig]
+Usage: aiur [--interactive] [--no-dashboard] [--pause] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [path-to-.aiurconfig]
        aiur run [--bg] [--no-dashboard] [--debug]  explicit launch form (foreground unless --bg)
        aiur init [--force]   scaffold .aiurconfig (interactive setup wizard)
        aiur --bg [--no-dashboard] [--debug]   start detached; dashboard on unless suppressed
@@ -319,7 +319,8 @@ Usage: aiur [--interactive] [--no-dashboard] [--max-agents <n>] [--logs-root <pa
        aiur alerts [--needs-attention]  show structured alert feed
        aiur watch [--full|--changes] [--interval <secs>]  server-side status board
        aiur set max-agents <n>   change the concurrent-agent cap at runtime
-       aiur pause <ids|--all> | resume <ids|--all>
+       aiur pause | resume             flip the global pause switch (whole daemon)
+       aiur pause <ids|--all> | resume <ids|--all>  per-agent pause/resume
        aiur message <id> <text>  send Executor text to a running agent
        aiur --todo <ids...> [--only]  queue tickets; optionally dequeue all other pending tickets
        aiur cleanup-stale [--dry-run]  list/reap stale manual-smoke leftovers
@@ -1816,8 +1817,16 @@ cmd_status() {
 cmd_pause_resume() {
   local command="$1"
   shift
+
+  # Bare `aiur pause` / `aiur resume` (no IDs, no --all) flips the single
+  # global pause switch: a daemon-wide halt distinct from per-agent pause.
+  if [ "$#" -eq 0 ]; then
+    run_control_rpc "Aiur.AgentControlCLI.${command}_global()"
+    return
+  fi
+
   if ! parse_issue_targets "$@"; then
-    echo "aiur: $command expects issue IDs or --all (e.g. aiur $command 44 45,46; aiur $command --all)" >&2
+    echo "aiur: $command expects issue IDs or --all (e.g. aiur $command 44 45,46; aiur $command --all; or bare aiur $command for the global switch)" >&2
     exit 64
   fi
 

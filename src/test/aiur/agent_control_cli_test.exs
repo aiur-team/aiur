@@ -521,6 +521,30 @@ defmodule Aiur.AgentControlCLITest do
     assert resume_output =~ "__AIUR_CONTROL_EXIT__:0"
   end
 
+  describe "global pause switch" do
+    test "pause_global halts the daemon and resume_global lifts it", %{orchestrator: pid} do
+      :sys.replace_state(pid, fn state -> %{state | globally_paused: false} end)
+
+      pause_output = capture_io(fn -> AgentControlCLI.pause_global() end)
+      assert pause_output =~ "aiur: global pause ON"
+      assert pause_output =~ "__AIUR_CONTROL_EXIT__:0"
+      assert :sys.get_state(pid).globally_paused
+
+      resume_output = capture_io(fn -> AgentControlCLI.resume_global() end)
+      assert resume_output =~ "aiur: global pause OFF"
+      assert resume_output =~ "__AIUR_CONTROL_EXIT__:0"
+      refute :sys.get_state(pid).globally_paused
+    end
+
+    test "status surfaces the global pause banner only while paused", %{orchestrator: pid} do
+      :sys.replace_state(pid, fn state -> %{state | globally_paused: true} end)
+      assert capture_io(fn -> AgentControlCLI.status() end) =~ "GLOBALLY PAUSED"
+
+      :sys.replace_state(pid, fn state -> %{state | globally_paused: false} end)
+      refute capture_io(fn -> AgentControlCLI.status() end) =~ "GLOBALLY PAUSED"
+    end
+  end
+
   test "pause and resume emit control messages and successful summaries", %{orchestrator: pid} do
     parent = self()
 
