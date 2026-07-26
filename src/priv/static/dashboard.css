@@ -4927,6 +4927,11 @@ html[data-theme="light"] .toggle-icon .moon {
     right: max(0.65rem, env(safe-area-inset-right));
     bottom: max(0.65rem, env(safe-area-inset-bottom));
     left: max(0.65rem, env(safe-area-inset-left));
+    /* Cap the pill width and center it so it no longer spans the full row and
+       overlaps content on wider (tablet) breakpoints; on a phone it stays
+       full-width via the left/right insets. */
+    max-width: 26rem;
+    margin-inline: auto;
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 0.2rem;
