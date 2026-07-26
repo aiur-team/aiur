@@ -244,6 +244,30 @@ defmodule AiurWeb.PresenterTest do
     assert running_row.open_decision_count_health == :available
   end
 
+  test "surfaces the global pause switch and a run_paused row for a globally held agent" do
+    orchestrator_name = Module.concat(__MODULE__, :GlobalPauseOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    held_entry =
+      "issue-held"
+      |> running_entry("MT-950", :paused)
+      |> Map.put(:paused_reason, :global_pause)
+
+    :sys.replace_state(pid, fn state ->
+      %{state | running: %{"issue-held" => held_entry}, globally_paused: true}
+    end)
+
+    payload = Presenter.state_payload(orchestrator_name, 1_000)
+
+    assert payload.globally_paused == true
+    assert [running_row] = payload.running
+    assert running_row.waiting_reason == :run_paused
+  end
+
   test "open decision count names an unattached SubscriptionStore as unavailable" do
     orchestrator_name = Module.concat(__MODULE__, :UnavailableDecisionCountOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)

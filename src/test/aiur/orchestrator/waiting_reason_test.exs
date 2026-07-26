@@ -56,6 +56,23 @@ defmodule Aiur.Orchestrator.WaitingReasonTest do
              }) == :paused
     end
 
+    test "a globally-paused agent is classified as run_paused, distinct from an individual pause" do
+      assert WaitingReason.for_running(%{
+               tracker_state: "in-progress",
+               pause_reason: :global_pause,
+               work_state: :paused,
+               stale_for_seconds: 999_999,
+               stall_timeout_seconds: 3600
+             }) == :run_paused
+
+      # An operator's own pause stays :paused, so the two causes remain distinguishable.
+      assert WaitingReason.for_running(%{
+               tracker_state: "in-progress",
+               pause_reason: :operator_pause,
+               work_state: :paused
+             }) == :paused
+    end
+
     test "a zero stall timeout never triggers unresponsive" do
       assert WaitingReason.for_running(%{
                tracker_state: "in-progress",
