@@ -24,6 +24,7 @@ defmodule Aiur.CLI do
     headless: :boolean,
     no_dashboard: :boolean,
     max_agents: :integer,
+    pause: :boolean,
     force: :boolean,
     todo: :boolean,
     only: :boolean
@@ -153,7 +154,8 @@ defmodule Aiur.CLI do
          :ok <- maybe_set_max_agents(opts),
          :ok <- maybe_set_interactive(opts),
          :ok <- maybe_set_headless(opts),
-         :ok <- maybe_disable_dashboard(opts) do
+         :ok <- maybe_disable_dashboard(opts),
+         :ok <- maybe_set_pause(opts) do
       run(workflow_path, deps)
     end
   end
@@ -209,7 +211,7 @@ defmodule Aiur.CLI do
 
   @spec usage_message() :: String.t()
   defp usage_message do
-    "Usage: aiur [--interactive] [--headless] [--no-dashboard] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [config-path]\n       aiur init [--force]\n       aiur --todo <id> [<id> ...] [--only]"
+    "Usage: aiur [--interactive] [--headless] [--no-dashboard] [--pause] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [config-path]\n       aiur init [--force]\n       aiur --todo <id> [<id> ...] [--only]"
   end
 
   @spec runtime_deps() :: deps()
@@ -350,6 +352,17 @@ defmodule Aiur.CLI do
   defp maybe_disable_dashboard(opts) do
     if Keyword.get(opts, :no_dashboard, false) do
       Application.put_env(:aiur, :no_dashboard, true)
+    end
+
+    :ok
+  end
+
+  # `--pause` cold-starts the daemon globally paused: no agents provision even
+  # with `agent:todo` tickets, until the operator unpauses. Read once in
+  # `Orchestrator.init/1` via `Slots.launch_globally_paused?/0`.
+  defp maybe_set_pause(opts) do
+    if Keyword.get(opts, :pause, false) do
+      Application.put_env(:aiur, :launch_globally_paused, true)
     end
 
     :ok
