@@ -1660,6 +1660,12 @@ html[data-theme="light"] .toggle-icon .moon {
   flex-wrap: wrap;
 }
 
+/* Desktop keeps its theme toggle in the sidebar's brand row, so this copy only
+   appears once the sidebar is hidden. See the 959px block below. */
+.topbar-controls {
+  display: none;
+}
+
 .status-badge,
 .tool-btn {
   display: inline-flex;
@@ -5036,11 +5042,32 @@ html[data-theme="light"] .toggle-icon .moon {
     border-inline-start: 1px solid var(--line);
   }
 
-  /* Slightly tighter than the sidebar's 2.05rem so two controls plus four
-     route cells still fit a 360px phone without squeezing the labels. */
+  /* Slightly tighter than the sidebar's 2.05rem so the control plus four route
+     cells still fit a 360px phone without squeezing the labels. */
   .shell-nav-controls .tool-btn.icon-only {
     width: 1.9rem;
     height: 1.9rem;
+  }
+
+  .topbar-controls {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  /* Sit on the title's line, not on a line of its own: no wrapping, and the
+     title takes the slack so the toggle stays pinned to the right. */
+  .topbar {
+    flex-wrap: nowrap;
+    align-items: center;
+  }
+
+  .topbar .route-context {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .topbar .toolbar {
+    flex: none;
   }
 }
 
@@ -5053,9 +5080,11 @@ html[data-theme="light"] .toggle-icon .moon {
     gap: 0.6rem;
   }
 
+  /* Was `width: 100%` to give the clock its own line. The clock is gone and the
+     only occupant is now the theme toggle, which belongs on the title's line. */
   .toolbar {
-    width: 100%;
-    justify-content: flex-start;
+    width: auto;
+    justify-content: flex-end;
   }
 
   .bo-catalog-entry {

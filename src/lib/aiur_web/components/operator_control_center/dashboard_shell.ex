@@ -7,7 +7,6 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
 
   attr(:route, :map, required: true)
   attr(:routes, :list, required: true)
-  attr(:now, :any, required: true)
   attr(:tracker_kind, :string, required: true)
   attr(:agent_kind, :string, required: true)
   attr(:nav_counts, :map, default: %{})
@@ -73,7 +72,12 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
             <p :if={@route.description not in [nil, ""]}>{@route.description}</p>
           </div>
           <div class="toolbar">
-            <time class="status-badge mono num" datetime={datetime_value(@now)}>{clock_value(@now)}</time>
+            <%!-- Below 960px the sidebar is hidden, so this is the only theme
+                  toggle on screen; it sits inline with the route title rather
+                  than in the nav pill, which is reserved for routes + pause. --%>
+            <div class="topbar-controls">
+              <.theme_button id="theme-toggle-mobile" />
+            </div>
           </div>
         </header>
 
@@ -96,7 +100,6 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
               globally_paused={@globally_paused}
               writable={@writable}
             />
-            <.theme_button id="theme-toggle-mobile" />
           </div>
         </:trailing>
       </.navigation>
@@ -282,9 +285,4 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
 
   defp global_pause_label(true), do: "Resume all agents (globally paused)"
   defp global_pause_label(_paused), do: "Pause all agents"
-
-  defp clock_value(%DateTime{} = now), do: Calendar.strftime(now, "%H:%M:%S")
-  defp clock_value(_now), do: "--:--:--"
-  defp datetime_value(%DateTime{} = now), do: DateTime.to_iso8601(now)
-  defp datetime_value(_now), do: nil
 end

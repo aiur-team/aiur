@@ -624,7 +624,6 @@ defmodule AiurWeb.DashboardLive do
     <DashboardShell.dashboard_shell
       route={@current_route}
       routes={RouteRegistry.routes(@payload.analytics)}
-      now={@now}
       tracker_kind={tracker_kind()}
       agent_kind={agent_kind()}
       nav_counts={nav_counts(@units_view, @retained_counts)}

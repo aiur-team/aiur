@@ -62,7 +62,6 @@ defmodule AiurWeb.AnalyticsLive do
     <DashboardShell.dashboard_shell
       route={@current_route}
       routes={RouteRegistry.routes(@analytics)}
-      now={@now}
       tracker_kind={@tracker_kind}
       agent_kind={@agent_kind}
       nav_collapsed={@nav_collapsed}

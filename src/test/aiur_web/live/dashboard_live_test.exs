@@ -467,9 +467,11 @@ defmodule AiurWeb.DashboardLiveTest do
       assert html =~ "disabled"
     end
 
-    # The sidebar hosting the desktop copy is `display: none` below 960px, so a
-    # single instance would leave phones with no way to pause the fleet.
-    test "mirrors the pause and theme controls into the mobile nav" do
+    # The sidebar hosting the desktop copies is `display: none` below 960px, so
+    # a single instance would leave phones with no way to pause the fleet or
+    # switch themes. The two controls land in different places: pause joins the
+    # nav pill, theme sits in the topbar inline with the route title.
+    test "mirrors the pause and theme controls for the mobile layout" do
       html = render_payload(global_pause_fleet(false), writable: true)
       doc = Floki.parse_document!(html)
 
@@ -479,8 +481,11 @@ defmodule AiurWeb.DashboardLiveTest do
       assert Floki.find(mobile_nav, "#global-pause-toggle-mobile") != [],
              "the mobile nav must carry its own global pause toggle"
 
-      assert Floki.find(mobile_nav, "#theme-toggle-mobile") != [],
-             "the mobile nav must carry its own theme toggle"
+      assert Floki.find(doc, ".topbar .toolbar .topbar-controls #theme-toggle-mobile") != [],
+             "the mobile theme toggle belongs in the topbar, inline with the route title"
+
+      refute Floki.find(mobile_nav, "#theme-toggle-mobile") != [],
+             "the theme toggle moved out of the nav pill"
 
       # The desktop copies stay in the sidebar, and ids remain unique so
       # LiveView can patch each instance independently.
@@ -490,6 +495,17 @@ defmodule AiurWeb.DashboardLiveTest do
       for id <- ~w(global-pause-toggle global-pause-toggle-mobile theme-toggle theme-toggle-mobile) do
         assert length(Floki.find(doc, "##{id}")) == 1, "duplicate DOM id: #{id}"
       end
+    end
+
+    # The clock pill was the topbar's only occupant and forced itself onto its
+    # own line on narrow viewports.
+    test "the topbar carries no clock" do
+      doc =
+        global_pause_fleet(false)
+        |> render_payload(writable: true)
+        |> Floki.parse_document!()
+
+      assert Floki.find(doc, ".topbar time") == []
     end
 
     test "the mobile pause toggle mirrors paused state and read-only gating" do
