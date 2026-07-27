@@ -83,6 +83,36 @@ defmodule Aiur.Docs.ControlCenterFixture.Provider do
     {:reply, {:ok, snapshot}, state}
   end
 
+  # Mirror Aiur.DecisionStore's dismiss so the Commands view's Dismiss button
+  # works against synthetic data instead of killing the provider.
+  def handle_call({:dismiss, decision_id, _opts}, _from, %{decisions: decisions} = state) do
+    case Enum.find(decisions, &(&1.decision_id == decision_id)) do
+      nil ->
+        {:reply, {:error, :not_found}, state}
+
+      %{decision_status: :dismissed} = decision ->
+        {:reply, {:ok, %{status: :duplicate, decision: decision}}, state}
+
+      %{decision_status: :open} = decision ->
+        updated = %{decision | decision_status: :dismissed}
+        decisions = Enum.map(decisions, &if(&1.decision_id == decision_id, do: updated, else: &1))
+        {:reply, {:ok, %{status: :accepted, decision: updated}}, %{state | decisions: decisions}}
+
+      %{decision_status: status} ->
+        {:reply, {:error, {:conflict, status}}, state}
+    end
+  end
+
+  # Every provider here is `start_link`ed from the run process, so ANY unmatched
+  # call takes the whole fixture down — that is how a single dashboard button
+  # killed the server twice. Fail the one call instead of the process; the
+  # dashboard already degrades on an error reply. Keep adding real clauses
+  # above as the control surface grows, but never let drift be fatal again.
+  def handle_call(request, _from, state) do
+    IO.warn("docs fixture has no clause for #{inspect(request)} — returning an error reply")
+    {:reply, {:error, :unsupported_in_docs_fixture}, state}
+  end
+
   defp globally_paused?(state) do
     state |> Map.get(:snapshot, %{}) |> Map.get(:globally_paused, false) == true
   end

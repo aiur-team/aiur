@@ -467,11 +467,10 @@ defmodule AiurWeb.DashboardLiveTest do
       assert html =~ "disabled"
     end
 
-    # The sidebar hosting the desktop copies is `display: none` below 960px, so
-    # a single instance would leave phones with no way to pause the fleet or
-    # switch themes. The two controls land in different places: pause joins the
-    # nav pill, theme sits in the topbar inline with the route title.
-    test "mirrors the pause and theme controls for the mobile layout" do
+    # The sidebar is `display: none` below 960px, so pause needs a second
+    # instance in the mobile nav pill. The theme toggle does not: it lives in
+    # the topbar at every resolution, so exactly one ever renders.
+    test "places the pause and theme controls for both layouts" do
       html = render_payload(global_pause_fleet(false), writable: true)
       doc = Floki.parse_document!(html)
 
@@ -481,18 +480,23 @@ defmodule AiurWeb.DashboardLiveTest do
       assert Floki.find(mobile_nav, "#global-pause-toggle-mobile") != [],
              "the mobile nav must carry its own global pause toggle"
 
-      assert Floki.find(doc, ".topbar .toolbar .topbar-controls #theme-toggle-mobile") != [],
-             "the mobile theme toggle belongs in the topbar, inline with the route title"
+      assert Floki.find(doc, "aside.shell-sidebar #global-pause-toggle") != [],
+             "the sidebar keeps the desktop pause toggle"
 
-      refute Floki.find(mobile_nav, "#theme-toggle-mobile") != [],
-             "the theme toggle moved out of the nav pill"
+      assert Floki.find(doc, ".topbar .toolbar .topbar-controls #theme-toggle") != [],
+             "the theme toggle lives in the topbar, inline with the route title"
 
-      # The desktop copies stay in the sidebar, and ids remain unique so
-      # LiveView can patch each instance independently.
-      assert Floki.find(doc, "aside.shell-sidebar #global-pause-toggle") != []
-      assert Floki.find(doc, "aside.shell-sidebar #theme-toggle") != []
+      assert Floki.find(doc, "aside.shell-sidebar #theme-toggle") == [],
+             "the theme toggle moved out of the sidebar brand row"
 
-      for id <- ~w(global-pause-toggle global-pause-toggle-mobile theme-toggle theme-toggle-mobile) do
+      assert Floki.find(mobile_nav, "#theme-toggle") == [],
+             "the theme toggle is not duplicated into the nav pill"
+
+      # One theme toggle total, and ids stay unique so LiveView can patch each
+      # instance independently.
+      assert length(Floki.find(doc, "[phx-hook=\"ThemeToggle\"]")) == 1
+
+      for id <- ~w(global-pause-toggle global-pause-toggle-mobile theme-toggle) do
         assert length(Floki.find(doc, "##{id}")) == 1, "duplicate DOM id: #{id}"
       end
     end

@@ -36,7 +36,6 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
             globally_paused={@globally_paused}
             writable={@writable}
           />
-          <.theme_button id="theme-toggle" />
           <button
             id="nav-toggle"
             class="tool-btn icon-only"
@@ -72,11 +71,11 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
             <p :if={@route.description not in [nil, ""]}>{@route.description}</p>
           </div>
           <div class="toolbar">
-            <%!-- Below 960px the sidebar is hidden, so this is the only theme
-                  toggle on screen; it sits inline with the route title rather
-                  than in the nav pill, which is reserved for routes + pause. --%>
+            <%!-- The single theme toggle, at every resolution: top right,
+                  inline with the route title. The nav pill is reserved for
+                  routes plus the global pause switch. --%>
             <div class="topbar-controls">
-              <.theme_button id="theme-toggle-mobile" />
+              <.theme_button id="theme-toggle" />
             </div>
           </div>
         </header>

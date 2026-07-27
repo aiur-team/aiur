@@ -291,9 +291,14 @@ textarea:focus-visible,
   color: var(--accent-ink);
 }
 
+/* Was a hardcoded light salmon ink, which is only legible against the dark
+   theme — in light mode it landed at 1.19:1 and the count was invisible. The
+   themed `--blocking-*` family is the right semantic home anyway (this badge
+   counts blocking decisions) and carries a per-theme ink: 5.2:1 in light,
+   7.7:1 in dark. */
 .shell-nav-count.is-attention {
-  background: color-mix(in srgb, #f2836b 26%, transparent);
-  color: #f5b8a8;
+  background: var(--blocking-soft);
+  color: var(--blocking-ink);
 }
 
 .shell-nav-mobile {
@@ -1519,10 +1524,16 @@ textarea:focus-visible,
   font-weight: 400;
 }
 
+/* The sidebar column is capped at 15rem, and this row is not allowed to spill
+   past it — an unwrapped row overflowed into `.shell-main` and printed the
+   brand over the route title. Wrapping plus a shrinkable status badge keeps
+   every control inside the column at any content width. */
 .brand-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.55rem;
+  min-width: 0;
   padding: 0.35rem 0.2rem 0.6rem 0.35rem;
 }
 
@@ -1532,6 +1543,8 @@ textarea:focus-visible,
   padding: 0 0.7rem;
   border-radius: 999px;
   font-size: 0.66rem;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .brand-row #global-pause-toggle {
@@ -1660,10 +1673,10 @@ html[data-theme="light"] .toggle-icon .moon {
   flex-wrap: wrap;
 }
 
-/* Desktop keeps its theme toggle in the sidebar's brand row, so this copy only
-   appears once the sidebar is hidden. See the 959px block below. */
+/* The one and only theme toggle, at every resolution. */
 .topbar-controls {
-  display: none;
+  display: inline-flex;
+  align-items: center;
 }
 
 .status-badge,
@@ -2213,8 +2226,8 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .chip.cmd-blocking.blocking {
-  color: #f2836b;
-  border-color: rgba(242, 131, 107, 0.45);
+  color: var(--blocking-ink);
+  border-color: var(--blocking-line);
 }
 
 .chip.cmd-agent.is-claude {
@@ -3183,7 +3196,7 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .u-lane.is-lane-billing {
-  color: #f2836b;
+  color: var(--blocking-ink);
 }
 
 .u-lane.is-state {
@@ -3909,8 +3922,8 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .units-icon-action.tone-error {
-  border-color: color-mix(in srgb, #f2836b 55%, transparent);
-  color: #f2836b;
+  border-color: color-mix(in srgb, var(--blocking) 55%, transparent);
+  color: var(--blocking-ink);
 }
 
 .units-action {
@@ -5047,11 +5060,6 @@ html[data-theme="light"] .toggle-icon .moon {
   .shell-nav-controls .tool-btn.icon-only {
     width: 1.9rem;
     height: 1.9rem;
-  }
-
-  .topbar-controls {
-    display: inline-flex;
-    align-items: center;
   }
 
   /* Sit on the title's line, not on a line of its own: no wrapping, and the
