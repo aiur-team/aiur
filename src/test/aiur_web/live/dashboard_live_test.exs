@@ -466,6 +466,44 @@ defmodule AiurWeb.DashboardLiveTest do
       assert html =~ ~s(aria-disabled="true")
       assert html =~ "disabled"
     end
+
+    # The sidebar hosting the desktop copy is `display: none` below 960px, so a
+    # single instance would leave phones with no way to pause the fleet.
+    test "mirrors the pause and theme controls into the mobile nav" do
+      html = render_payload(global_pause_fleet(false), writable: true)
+      doc = Floki.parse_document!(html)
+
+      mobile_nav = Floki.find(doc, "nav.shell-nav-mobile")
+      assert mobile_nav != []
+
+      assert Floki.find(mobile_nav, "#global-pause-toggle-mobile") != [],
+             "the mobile nav must carry its own global pause toggle"
+
+      assert Floki.find(mobile_nav, "#theme-toggle-mobile") != [],
+             "the mobile nav must carry its own theme toggle"
+
+      # The desktop copies stay in the sidebar, and ids remain unique so
+      # LiveView can patch each instance independently.
+      assert Floki.find(doc, "aside.shell-sidebar #global-pause-toggle") != []
+      assert Floki.find(doc, "aside.shell-sidebar #theme-toggle") != []
+
+      for id <- ~w(global-pause-toggle global-pause-toggle-mobile theme-toggle theme-toggle-mobile) do
+        assert length(Floki.find(doc, "##{id}")) == 1, "duplicate DOM id: #{id}"
+      end
+    end
+
+    test "the mobile pause toggle mirrors paused state and read-only gating" do
+      paused = render_payload(global_pause_fleet(true), writable: true)
+      mobile_paused = paused |> Floki.parse_document!() |> Floki.find("#global-pause-toggle-mobile")
+
+      assert Floki.attribute(mobile_paused, "aria-pressed") == ["true"]
+      assert Floki.attribute(mobile_paused, "class") |> List.first() =~ "is-paused"
+
+      readonly = render_payload(global_pause_fleet(false), writable: false)
+      mobile_readonly = readonly |> Floki.parse_document!() |> Floki.find("#global-pause-toggle-mobile")
+
+      assert Floki.attribute(mobile_readonly, "aria-disabled") == ["true"]
+    end
   end
 
   test "does not present untyped status rows as a healthy Units catalog" do

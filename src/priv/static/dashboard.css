@@ -4947,7 +4947,11 @@ html[data-theme="light"] .toggle-icon .moon {
     max-width: 26rem;
     margin-inline: auto;
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    /* Four equal route cells plus one auto cell for the control cluster, so the
+       pause and theme toggles ride along in the nav instead of vanishing with
+       the hidden sidebar. `auto` keeps them at their natural icon width rather
+       than stealing a fifth of the row from the route labels. */
+    grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
     gap: 0.2rem;
     padding: 0.3rem;
     border: 1px solid var(--line-strong);
@@ -4995,6 +4999,22 @@ html[data-theme="light"] .toggle-icon .moon {
 
   .shell-nav-mobile .shell-nav-item.is-active {
     box-shadow: inset 0 -3px var(--accent-line);
+  }
+
+  .shell-nav-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding-inline: 0.15rem 0.05rem;
+    margin-inline-start: 0.15rem;
+    border-inline-start: 1px solid var(--line);
+  }
+
+  /* Slightly tighter than the sidebar's 2.05rem so two controls plus four
+     route cells still fit a 360px phone without squeezing the labels. */
+  .shell-nav-controls .tool-btn.icon-only {
+    width: 1.9rem;
+    height: 1.9rem;
   }
 }
 
