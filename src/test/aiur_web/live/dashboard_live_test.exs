@@ -504,6 +504,29 @@ defmodule AiurWeb.DashboardLiveTest do
 
       assert Floki.attribute(mobile_readonly, "aria-disabled") == ["true"]
     end
+
+    # `.global-pause-icon` shipped with no stylesheet rule, so the inline SVG —
+    # which carries no intrinsic dimensions — collapsed and the button rendered
+    # as an empty circle on every breakpoint. Guard the whole class of bug: any
+    # icon wrapper the shell renders must have its SVG sized in dashboard.css.
+    test "every icon wrapper in the shell has an svg sizing rule" do
+      css = File.read!(Path.expand("../../../priv/static/dashboard.css", __DIR__))
+
+      wrapper_classes =
+        global_pause_fleet(false)
+        |> render_payload(writable: true)
+        |> Floki.parse_document!()
+        |> Floki.find(".dashboard-shell span[class$='-icon']")
+        |> Enum.flat_map(&Floki.attribute([&1], "class"))
+        |> Enum.uniq()
+
+      assert wrapper_classes != [], "expected the shell to render icon wrappers"
+
+      for class <- wrapper_classes do
+        assert Regex.match?(~r/\.#{Regex.escape(class)}\s+svg\s*\{[^}]*\bwidth\s*:/, css),
+               "#{class} renders an inline SVG but dashboard.css has no `.#{class} svg { width: ... }` rule, so it collapses to nothing"
+      end
+    end
   end
 
   test "does not present untyped status rows as a healthy Units catalog" do

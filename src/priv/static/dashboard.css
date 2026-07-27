@@ -1579,6 +1579,20 @@ textarea:focus-visible,
   height: 16px;
 }
 
+/* Sized like its sibling toggles. Inline SVGs carry no intrinsic dimensions, so
+   without these the pause glyph collapses and the button renders empty. */
+.global-pause-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.global-pause-icon svg {
+  display: block;
+  width: 15px;
+  height: 15px;
+}
+
 .nav-toggle-icon {
   display: inline-flex;
   align-items: center;
