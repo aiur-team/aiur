@@ -42,11 +42,32 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         now: @now
       })
 
-    assert html =~ "Unavailable"
+    assert html =~ "N/A"
     refute html =~ "ETA unavailable"
     assert html =~ "Codex"
     assert html =~ "Claude"
     refute html =~ "$0.00"
+
+    # Still no synthetic zeroes: a count that genuinely is not known must not
+    # borrow the empty run's "0".
+    refute html =~ "0 remain"
+  end
+
+  # `:empty` is the presenter's confirmed "no active Aiur run" — the daemon
+  # answered, and the answer is zero. Rendering that as "Unavailable" told
+  # operators something was broken when nothing was.
+  test "an empty run reads as a real zero, not as unavailable" do
+    html =
+      render_component(&RunSummaryStrip.run_summary_strip/1, %{
+        run: %{state: :empty, counts: %{remaining: 0}, progress: %{}},
+        usage: %{state: :locked},
+        meters: %{state: :locked, cards: []},
+        now: @now
+      })
+
+    assert html =~ "0 remain"
+    assert html =~ "0% · no active run"
+    assert html =~ ~s(<i style="width:0%">)
   end
 
   test "hides spend for subscription accounts" do
