@@ -16,7 +16,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         now: @now
       })
 
-    assert html =~ "3 units"
     assert html =~ "4 remain"
     assert html =~ "$8.75"
     assert html =~ "20m elapsed"
@@ -26,6 +25,12 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     assert html =~ "40% · resets in 30m"
     refute html =~ "$50.47"
     refute html =~ "0.89M"
+
+    # The Live stat was dropped: it duplicated what the Units table already
+    # shows, and the extra column pushed the head row past the card's edge at
+    # the narrow end of the grid.
+    refute html =~ ~s(<span class="rs-stat-label">Live</span>)
+    refute html =~ "3 units"
   end
 
   test "names unavailable values instead of presenting synthetic zeroes" do

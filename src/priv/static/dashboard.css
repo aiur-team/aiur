@@ -3381,10 +3381,15 @@ html[data-theme="light"] .toggle-icon .moon {
   box-shadow: var(--shadow-sm);
 }
 
+/* The stats cluster must be able to drop below the name and shrink: at the
+   narrow end of the 3-column grid a long value ("Unavailable") is wider than
+   its track, and without wrapping it spilled past the card's rounded edge. */
 .rs-head {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.5rem;
+  min-width: 0;
 }
 
 .rs-logo {
@@ -3402,13 +3407,16 @@ html[data-theme="light"] .toggle-icon .moon {
 .rs-head-stats {
   margin-left: auto;
   display: flex;
-  gap: 1.1rem;
+  flex-wrap: wrap;
+  gap: 0.35rem 1.1rem;
+  min-width: 0;
 }
 
 .rs-stat {
   display: flex;
   flex-direction: column;
   gap: 0.04rem;
+  min-width: 0;
 }
 
 .rs-stat-label {
@@ -3430,6 +3438,10 @@ html[data-theme="light"] .toggle-icon .moon {
   font-weight: 700;
   letter-spacing: -0.01em;
   color: var(--fg);
+  /* Last resort once wrapping is exhausted: a single long word still has to
+     break rather than push through the card border. */
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .rs-stat-spend {
