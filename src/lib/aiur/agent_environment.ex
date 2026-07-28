@@ -153,7 +153,7 @@ defmodule Aiur.AgentEnvironment do
   # `Aiur.ProviderMeterRefresh`. Falls back to the scheduler's own default when
   # config is unavailable, so a mis-set config cannot make the adapter hammer
   # the endpoint.
-  @default_usage_interval_seconds 60
+  @default_usage_interval_seconds 300
 
   defp usage_ttl_ms do
     seconds =

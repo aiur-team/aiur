@@ -14,13 +14,18 @@ defmodule Aiur.ProviderMeterRefreshTest do
     assert_receive {:observed, :all}, 1_000
   end
 
-  # Observing costs a provider session, and a fleet consuming nothing cannot
-  # have moved its own usage.
-  test "no refresh happens while no agents are running" do
+  # Claude is one cached HTTPS read of the account usage endpoint, independent
+  # of any agent, so it keeps refreshing on an idle daemon. Codex means opening
+  # an app-server session — real work — and a fleet consuming nothing cannot
+  # have moved its own usage, so it is not re-observed while idle.
+  test "an idle fleet keeps refreshing Claude but stops re-observing Codex" do
     start_refresh(agents_running?: false, baseline_delay_ms: 10, interval_ms: 20)
 
     assert_receive {:observed, :all}, 1_000
-    refute_receive {:observed, :all}, 200
+
+    assert_receive {:observed, :claude}, 1_000
+    assert_receive {:observed, :claude}, 1_000
+    refute_receive {:observed, :all}, 100
   end
 
   test "refreshes continue while agents are running" do

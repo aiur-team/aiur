@@ -23,7 +23,9 @@ defmodule Aiur.ProviderMeterRefresh do
   alias Aiur.Config
   alias Aiur.ProviderMeterProbe
 
-  @default_interval_ms 60_000
+  # Matches polling.usage_interval_seconds's measured 300s default: the
+  # provider usage endpoint allows roughly one request per two minutes.
+  @default_interval_ms 300_000
   # Long enough after boot that the providers' own supervision tree is up,
   # short enough that an operator opening a surface early still sees values.
   @default_baseline_delay_ms 5_000
@@ -71,7 +73,7 @@ defmodule Aiur.ProviderMeterRefresh do
   end
 
   def handle_info(:refresh, state) do
-    if state.agents_running?.(), do: observe(state)
+    observe(state, refresh_target(state))
     schedule_refresh(state)
 
     {:noreply, state}
@@ -85,11 +87,18 @@ defmodule Aiur.ProviderMeterRefresh do
     {:noreply, state}
   end
 
+  # Claude is read from the account usage endpoint — one cached HTTPS GET,
+  # independent of any agent — so it refreshes every tick and its meter stays
+  # live on an idle daemon. Codex is read by opening a short app-server session,
+  # which is real work, so it stays gated on the fleet running something: a
+  # fleet consuming nothing cannot have moved its own usage.
+  defp refresh_target(state), do: if(state.agents_running?.(), do: :all, else: :claude)
+
   # An observer failure must never take the scheduler down: a provider being
   # unreachable is an expected condition, and the retained observation keeps
   # displaying with its true age.
-  defp observe(state) do
-    _ = state.observer.(:all)
+  defp observe(state, target \\ :all) do
+    _ = state.observer.(target)
     :ok
   rescue
     _error -> :ok

@@ -159,6 +159,27 @@ defmodule Aiur.Config.SchemaTest do
       {:ok, settings} = Schema.parse(%{"polling" => %{"interval_seconds" => 60}})
       assert settings.polling.interval_seconds == 60
     end
+
+    # Measured: the provider usage endpoint serves roughly one request per two
+    # minutes. Below that the excess is rejected and the meters quietly stop
+    # updating, so the floor is enforced rather than merely documented.
+    test "usage_interval_seconds is floored at the endpoint's real limit" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"polling" => %{"usage_interval_seconds" => 60}})
+
+      assert message =~ "polling.usage_interval_seconds"
+      assert message =~ "at least 120 seconds"
+
+      assert {:error, _} = Schema.parse(%{"polling" => %{"usage_interval_seconds" => 119}})
+
+      {:ok, settings} = Schema.parse(%{"polling" => %{"usage_interval_seconds" => 120}})
+      assert settings.polling.usage_interval_seconds == 120
+    end
+
+    test "usage_interval_seconds defaults above the floor" do
+      {:ok, settings} = Schema.parse(%{})
+      assert settings.polling.usage_interval_seconds == 300
+    end
   end
 
   # FI-CFG-029 / FI-CFG-035: $ENV token grammar
