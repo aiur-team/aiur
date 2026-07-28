@@ -62,9 +62,15 @@ defmodule Aiur.ProviderMeterProjectionIntegrationTest do
     view = ProviderMeterProjection.provider_view(projection, provider)
 
     cond do
-      view.state == :observed -> view
-      attempts == 0 -> flunk("projection never observed #{provider}")
-      true -> Process.sleep(10) && await_observed(projection, provider, attempts - 1)
+      view.state == :observed ->
+        view
+
+      attempts == 0 ->
+        flunk("projection never observed #{provider}")
+
+      true ->
+        Process.sleep(10)
+        await_observed(projection, provider, attempts - 1)
     end
   end
 

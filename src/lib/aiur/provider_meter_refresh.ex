@@ -101,8 +101,11 @@ defmodule Aiur.ProviderMeterRefresh do
 
   defp configured_interval_ms do
     case Config.settings() do
-      %{polling: %{usage_interval_seconds: seconds}} when is_integer(seconds) and seconds > 0 -> seconds * 1_000
-      _other -> @default_interval_ms
+      {:ok, %{polling: %{usage_interval_seconds: seconds}}} when is_integer(seconds) and seconds > 0 ->
+        seconds * 1_000
+
+      _unset_or_unavailable ->
+        @default_interval_ms
     end
   rescue
     _error -> @default_interval_ms

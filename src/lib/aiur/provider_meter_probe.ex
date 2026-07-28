@@ -133,9 +133,15 @@ defmodule Aiur.ProviderMeterProbe do
 
   defp poll_until(provider, before, deadline, opts) do
     cond do
-      observed_at(provider, opts) != before -> :ok
-      System.monotonic_time(:millisecond) >= deadline -> :timeout
-      true -> Process.sleep(200) && poll_until(provider, before, deadline, opts)
+      observed_at(provider, opts) != before ->
+        :ok
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        :timeout
+
+      true ->
+        Process.sleep(200)
+        poll_until(provider, before, deadline, opts)
     end
   end
 

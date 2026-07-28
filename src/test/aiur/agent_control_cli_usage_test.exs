@@ -11,10 +11,7 @@ defmodule Aiur.AgentControlCLIUsageTest do
     projection = :"cli_usage_#{System.unique_integer([:positive])}"
 
     {:ok, pid} =
-      start_supervised(
-        {ProviderMeterProjection,
-         [name: projection, subscribe?: false, clock: fn -> ~U[2026-07-27 12:05:00Z] end]}
-      )
+      start_supervised({ProviderMeterProjection, [name: projection, subscribe?: false, clock: fn -> ~U[2026-07-27 12:05:00Z] end]})
 
     %{projection: projection, pid: pid}
   end
