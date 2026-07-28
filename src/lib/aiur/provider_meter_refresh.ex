@@ -174,12 +174,13 @@ defmodule Aiur.ProviderMeterRefresh do
     elapsed_ms < state.grace_ms
   end
 
-  # Claude is read from the account usage endpoint — one cached HTTPS GET,
-  # independent of any agent — so it refreshes every tick and its meter stays
-  # live on an idle daemon. Codex is read by opening a short app-server session,
-  # which is real work, so it stays gated on the fleet running something: a
-  # fleet consuming nothing cannot have moved its own usage.
-  defp refresh_target(state), do: if(state.agents_running?.(), do: :all, else: :claude)
+  # Both providers refresh on every tick now that ticks only happen while
+  # someone is watching. Codex costs more than Claude — it opens a short
+  # app-server session rather than making an HTTP call — but an operator looking
+  # at a meter wants both numbers, and the watch gate already bounds how often
+  # that cost is paid. `agents_running?` is retained: it is still the honest
+  # answer to "is this fleet consuming anything", and callers inject it.
+  defp refresh_target(_state), do: :all
 
   # An observer failure must never take the scheduler down: a provider being
   # unreachable is an expected condition, and the retained observation keeps

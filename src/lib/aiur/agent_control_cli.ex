@@ -631,7 +631,8 @@ defmodule Aiur.AgentControlCLI do
     case DateTime.diff(resets_at, DateTime.utc_now()) do
       seconds when seconds <= 0 -> ""
       seconds when seconds < 3_600 -> ", resets in #{div(seconds, 60)}m"
-      seconds -> ", resets in #{div(seconds, 3_600)}h"
+      seconds when seconds < 86_400 -> ", resets in #{div(seconds, 3_600)}h"
+      seconds -> ", resets in #{div(seconds, 86_400)}d #{div(rem(seconds, 86_400), 3_600)}h"
     end
   end
 

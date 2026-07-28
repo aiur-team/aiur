@@ -14,19 +14,16 @@ defmodule Aiur.ProviderMeterRefreshTest do
     assert_receive {:observed, :all}, 1_000
   end
 
-  # Claude is one cached HTTPS read of the account usage endpoint, independent
-  # of any agent, so it keeps refreshing on an idle daemon. Codex means opening
-  # an app-server session — real work — and a fleet consuming nothing cannot
-  # have moved its own usage, so it is not re-observed while idle.
-  test "an idle fleet keeps refreshing Claude but stops re-observing Codex" do
+  # Both providers refresh while someone is watching, whether or not the fleet
+  # is busy: an operator looking at a meter wants both numbers, and an idle
+  # daemon is exactly when the question "how much is left?" gets asked.
+  test "an idle fleet still refreshes both providers while watched" do
     pid = start_refresh(agents_running?: false, baseline_delay_ms: 10, interval_ms: 20)
     ProviderMeterRefresh.watching_started(pid)
 
     assert_receive {:observed, :all}, 1_000
-
-    assert_receive {:observed, :claude}, 1_000
-    assert_receive {:observed, :claude}, 1_000
-    refute_receive {:observed, :all}, 100
+    assert_receive {:observed, :all}, 1_000
+    assert_receive {:observed, :all}, 1_000
   end
 
   test "refreshes continue while agents are running" do
@@ -123,11 +120,11 @@ defmodule Aiur.ProviderMeterRefreshTest do
     # Baseline still fires (it ignores agent state by design)...
     assert_receive {:observed, :all}, 1_000
 
-    # ...and with someone watching, refreshes do run — but target Claude only,
-    # because the orchestrator answered "unavailable" so Codex stays untouched.
+    # ...and with someone watching, refreshes keep running even though the
+    # orchestrator is unavailable — that answer gates nothing any more, it just
+    # must not crash the scheduler.
     ProviderMeterRefresh.watching_started(pid)
-    assert_receive {:observed, :claude}, 1_000
-    refute_receive {:observed, :all}, 300
+    assert_receive {:observed, :all}, 1_000
     assert Process.alive?(pid)
   end
 

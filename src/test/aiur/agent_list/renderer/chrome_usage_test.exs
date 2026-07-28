@@ -52,6 +52,27 @@ defmodule Aiur.AgentList.Renderer.ChromeUsageTest do
     refute row =~ "0%"
   end
 
+  # A weekly window reading "167h" makes the reader divide to learn it is a week
+  # away.
+  test "a reset more than a day out reads in days" do
+    view = %{
+      state: :observed,
+      age_seconds: 5,
+      windows: %{
+        "r" => %{
+          kind: :rate_limit,
+          standing: :allowed,
+          resets_at: DateTime.add(DateTime.utc_now(), 167 * 3_600 + 1_800, :second)
+        }
+      }
+    }
+
+    row = text(Chrome.usage_row(%{claude: view}, @width))
+
+    assert row =~ "resets in 6d"
+    refute row =~ "167h"
+  end
+
   test "a limited standing reads as limited, not as unknown" do
     view = %{state: :observed, age_seconds: 5, windows: %{"r" => %{kind: :rate_limit, standing: :rejected}}}
 

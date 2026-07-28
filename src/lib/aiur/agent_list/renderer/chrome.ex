@@ -108,7 +108,10 @@ defmodule Aiur.AgentList.Renderer.Chrome do
     case DateTime.diff(resets_at, DateTime.utc_now()) do
       seconds when seconds <= 0 -> nil
       seconds when seconds < 3_600 -> "· resets in #{div(seconds, 60)}m"
-      seconds -> "· resets in #{div(seconds, 3_600)}h"
+      seconds when seconds < 86_400 -> "· resets in #{div(seconds, 3_600)}h"
+      # Days once there are any: a weekly window reading "167h" makes the reader
+      # divide to learn it is a week away. The header is tight, so hours only.
+      seconds -> "· resets in #{div(seconds, 86_400)}d #{div(rem(seconds, 86_400), 3_600)}h"
     end
   end
 

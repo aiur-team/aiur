@@ -135,6 +135,7 @@ end
 defmodule Aiur.Docs.ControlCenterFixture do
   alias Aiur.{Decision, DecisionAnswer, RecentMerge}
   alias Aiur.Docs.ControlCenterFixture.Provider
+  alias Aiur.ProviderMeters.Store, as: ProviderMeterStore
   alias AiurWeb.FinancialDataAccess.Generation
 
   @port String.to_integer(System.get_env("AIUR_DOCS_PORT", "4099"))
@@ -173,6 +174,13 @@ defmodule Aiur.Docs.ControlCenterFixture do
     # so it returns :error and every request 401s regardless of what is typed.
     {:ok, _} = Generation.start_link([])
     {:ok, _} = AiurWeb.FinancialData.start_link([])
+
+    # Codex reaches the projection the long way round — its app-server session
+    # ingests into the meter store, which broadcasts — so both of these must be
+    # running or the Codex card stays N/A while the probe silently succeeds.
+    # Claude needs neither: it broadcasts its own reading.
+    {:ok, _} = Aiur.ProviderAccountGeneration.start_link([])
+    {:ok, _} = ProviderMeterStore.start_link([])
 
     {:ok, _} = Aiur.ProviderMeterProjection.start_link([])
     {:ok, _} = Aiur.ProviderMeterRefresh.start_link(baseline_delay_ms: 500)

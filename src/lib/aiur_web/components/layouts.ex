@@ -7,7 +7,10 @@ defmodule AiurWeb.Layouts do
 
   @spec root(map()) :: Phoenix.LiveView.Rendered.t()
   def root(assigns) do
-    assigns = assign(assigns, :csrf_token, Plug.CSRFProtection.get_csrf_token())
+    assigns =
+      assigns
+      |> assign(:csrf_token, Plug.CSRFProtection.get_csrf_token())
+      |> assign(:page_title, page_title())
 
     ~H"""
     <!DOCTYPE html>
@@ -18,7 +21,7 @@ defmodule AiurWeb.Layouts do
         <meta name="csrf-token" content={@csrf_token} />
         <link rel="icon" type="image/png" href="/aiur-logo.png" />
         <link rel="apple-touch-icon" href="/aiur-logo.png" />
-        <title>Aiur Operator Control Center</title>
+        <title>{@page_title}</title>
         <script>
           (function () {
             try {
@@ -211,4 +214,33 @@ defmodule AiurWeb.Layouts do
     </main>
     """
   end
+
+  # Names the repo this daemon is running against, so several instances are
+  # tellable apart in a tab strip — the reason the old fixed title was useless.
+  # Uses the same identity the TUI's Project row shows rather than resolving the
+  # repo a second way.
+  defp page_title do
+    case repo_label() do
+      nil -> "Aiur Dashboard"
+      label -> "Aiur: #{label} Dashboard"
+    end
+  end
+
+  defp repo_label do
+    case Aiur.Tracker.project_identity() do
+      value when is_binary(value) and value != "" -> value |> repo_name() |> capitalize()
+      _unavailable -> nil
+    end
+  rescue
+    _error -> nil
+  catch
+    _kind, _reason -> nil
+  end
+
+  # `project_identity/0` may carry an owner ("owner/repo"); the tab only has
+  # room for the part that distinguishes one instance from another.
+  defp repo_name(value), do: value |> String.split("/") |> List.last()
+
+  defp capitalize(<<first::utf8, rest::binary>>), do: String.upcase(<<first::utf8>>) <> rest
+  defp capitalize(value), do: value
 end

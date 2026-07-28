@@ -103,6 +103,61 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     assert html =~ "0 remain"
   end
 
+  # Codex reports an account-wide limit alongside per-model ones. Only the
+  # account-wide bucket governs whether work can proceed, and a row per model
+  # turns a glanceable card into a table.
+  test "only the account-wide rate limit is shown, not per-model ones" do
+    meters = %{
+      state: :authorized,
+      cards: [
+        %{
+          provider: :codex,
+          provider_label: "Codex",
+          state: :ready,
+          windows: [
+            scoped_window("codex:primary", 12),
+            scoped_window("codex_bengalfox:primary", 88)
+          ]
+        }
+      ]
+    }
+
+    html =
+      render_component(&RunSummaryStrip.run_summary_strip/1, %{
+        run: %{state: :loading},
+        usage: %{state: :ready, providers: %{}},
+        meters: meters,
+        now: @now
+      })
+
+    assert html =~ "12%"
+    refute html =~ "88%"
+  end
+
+  test "falls back to whatever exists when no account-wide window is reported" do
+    meters = %{
+      state: :authorized,
+      cards: [
+        %{
+          provider: :codex,
+          provider_label: "Codex",
+          state: :ready,
+          windows: [scoped_window("codex_bengalfox:primary", 88)]
+        }
+      ]
+    }
+
+    html =
+      render_component(&RunSummaryStrip.run_summary_strip/1, %{
+        run: %{state: :loading},
+        usage: %{state: :ready, providers: %{}},
+        meters: meters,
+        now: @now
+      })
+
+    assert html =~ "88%"
+  end
+
   test "hides spend for subscription accounts" do
     meters =
       update_in(meters_view(), [:cards], fn cards ->
@@ -203,6 +258,20 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
           resets_at: DateTime.add(@now, 30, :minute)
         }
       ]
+    }
+  end
+
+  # Mirrors the shape ProviderMetersPresenter emits: the rendered percentage
+  # comes from `meter.now`, and `coverage_label` is required by the meta
+  # renderer.
+  defp scoped_window(limit_id, percent) do
+    %{
+      limit_id: limit_id,
+      kind: :rate_limit,
+      name: "Primary",
+      coverage_label: "Supported",
+      meter: %{kind: :exact, now: percent},
+      resets_at: DateTime.add(@now, 30, :minute)
     }
   end
 end

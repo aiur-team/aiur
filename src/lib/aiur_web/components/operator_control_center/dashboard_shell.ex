@@ -18,6 +18,9 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
   # state), writable-gated like every other control surface.
   attr(:globally_paused, :boolean, default: false)
   attr(:writable, :boolean, default: false)
+  # Rendered above the route heading, for anything that should be read before
+  # the page it interrupts.
+  slot(:banner)
   slot(:inner_block, required: true)
 
   @spec dashboard_shell(map()) :: Phoenix.LiveView.Rendered.t()
@@ -65,9 +68,20 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
       </aside>
 
       <div class="shell-main">
+        <%!-- Above the route heading, not below it: an alert that needs acting
+              on should be the first thing read, not something found after the
+              title it interrupts. --%>
+        {render_slot(@banner)}
+
         <header class="topbar">
           <div class="route-context">
-            <h1 id="route-title">{@route.label}</h1>
+            <%!-- The same glyph the nav uses for this route, so the heading and
+                  the nav item read as the same thing. Decorative: the heading
+                  text already names the route. --%>
+            <h1 id="route-title">
+              <span class="route-title-icon" aria-hidden="true">{nav_icon(@route.id)}</span>
+              <span>{@route.label}</span>
+            </h1>
             <p :if={@route.description not in [nil, ""]}>{@route.description}</p>
           </div>
           <div class="toolbar">

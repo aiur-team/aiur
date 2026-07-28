@@ -645,7 +645,10 @@ defmodule AiurWeb.DashboardLive do
       globally_paused={global_paused?(@payload)}
       writable={@writable}
     >
-      <Overview.decisions_banner decisions={@payload.decisions} retained_counts={@retained_counts} />
+      <:banner>
+        <Overview.decisions_banner decisions={@payload.decisions} retained_counts={@retained_counts} />
+      </:banner>
+
       <Overview.error error={@payload.fleet[:error]} />
 
       <div :if={@live_action in [:decisions, :decision]} class="control-panel">
