@@ -165,6 +165,10 @@ defmodule Aiur.Application do
       Aiur.Events.Publisher,
       Aiur.ProviderAccountGeneration,
       Aiur.ProviderMeters.Store,
+      # Reads the store's observations and serves them to consumer surfaces
+      # without a binding. Starts after the store so no accepted observation
+      # is broadcast before there is anything retaining it.
+      Aiur.ProviderMeterProjection,
       Aiur.UsageLedger,
       # Owns the one destructive storage seam: retention/compaction of retired
       # raw usage. Starts after the raw ledger it reads but before the aggregate,
