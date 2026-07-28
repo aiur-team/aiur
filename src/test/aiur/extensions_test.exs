@@ -557,7 +557,10 @@ defmodule Aiur.ExtensionsTest do
                }
              ],
              "idle" => [],
-             "agent_totals" => %{"seconds_running" => 42.5}
+             "agent_totals" => %{"seconds_running" => 42.5},
+             # The global pause switch rides along on every state payload so
+             # API consumers can tell a quiet fleet from a held one.
+             "globally_paused" => false
            }
 
     conn = get(build_conn(), "/api/v1/MT-HTTP")

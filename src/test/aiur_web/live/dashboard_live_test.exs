@@ -411,7 +411,7 @@ defmodule AiurWeb.DashboardLiveTest do
       drafts: %{},
       chat_errors: %{},
       decision_actions: %{},
-      writable: false,
+      writable: Keyword.get(opts, :writable, false),
       live_action: Keyword.get(opts, :live_action, :index),
       decision_filter: :all,
       fleet_filters: FleetFilters.default(),
@@ -424,6 +424,129 @@ defmodule AiurWeb.DashboardLiveTest do
     assigns
     |> DashboardLive.render()
     |> Phoenix.LiveViewTest.rendered_to_string()
+  end
+
+  defp global_pause_fleet(globally_paused) do
+    %{
+      generated_at: "2026-07-26T12:00:00Z",
+      counts: %{running: 0, retrying: 0, idle: 0},
+      running: [],
+      retrying: [],
+      idle: [],
+      agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+      rate_limits: nil,
+      globally_paused: globally_paused
+    }
+  end
+
+  describe "global pause nav toggle" do
+    test "renders a pause affordance while the daemon is running and writable" do
+      html = render_payload(global_pause_fleet(false), writable: true)
+
+      assert html =~ ~s(id="global-pause-toggle")
+      assert html =~ ~s(phx-click="toggle-global-pause")
+      assert html =~ ~s(aria-pressed="false")
+      assert html =~ "Pause all agents"
+      refute html =~ "global-pause-toggle is-paused"
+      refute html =~ ~s|aria-label="Resume all agents (globally paused)"|
+    end
+
+    test "renders a resume affordance while the daemon is globally paused" do
+      html = render_payload(global_pause_fleet(true), writable: true)
+
+      assert html =~ "global-pause-toggle is-paused"
+      assert html =~ ~s(aria-pressed="true")
+      assert html =~ "Resume all agents (globally paused)"
+    end
+
+    test "disables the toggle when the dashboard is read-only" do
+      html = render_payload(global_pause_fleet(false), writable: false)
+
+      assert html =~ ~s(id="global-pause-toggle")
+      assert html =~ ~s(aria-disabled="true")
+      assert html =~ "disabled"
+    end
+
+    # The sidebar is `display: none` below 960px, so pause needs a second
+    # instance in the mobile nav pill. The theme toggle does not: it lives in
+    # the topbar at every resolution, so exactly one ever renders.
+    test "places the pause and theme controls for both layouts" do
+      html = render_payload(global_pause_fleet(false), writable: true)
+      doc = Floki.parse_document!(html)
+
+      mobile_nav = Floki.find(doc, "nav.shell-nav-mobile")
+      assert mobile_nav != []
+
+      assert Floki.find(mobile_nav, "#global-pause-toggle-mobile") != [],
+             "the mobile nav must carry its own global pause toggle"
+
+      assert Floki.find(doc, "aside.shell-sidebar #global-pause-toggle") != [],
+             "the sidebar keeps the desktop pause toggle"
+
+      assert Floki.find(doc, ".topbar .toolbar .topbar-controls #theme-toggle") != [],
+             "the theme toggle lives in the topbar, inline with the route title"
+
+      assert Floki.find(doc, "aside.shell-sidebar #theme-toggle") == [],
+             "the theme toggle moved out of the sidebar brand row"
+
+      assert Floki.find(mobile_nav, "#theme-toggle") == [],
+             "the theme toggle is not duplicated into the nav pill"
+
+      # One theme toggle total, and ids stay unique so LiveView can patch each
+      # instance independently.
+      assert length(Floki.find(doc, "[phx-hook=\"ThemeToggle\"]")) == 1
+
+      for id <- ~w(global-pause-toggle global-pause-toggle-mobile theme-toggle) do
+        assert length(Floki.find(doc, "##{id}")) == 1, "duplicate DOM id: #{id}"
+      end
+    end
+
+    # The clock pill was the topbar's only occupant and forced itself onto its
+    # own line on narrow viewports.
+    test "the topbar carries no clock" do
+      doc =
+        global_pause_fleet(false)
+        |> render_payload(writable: true)
+        |> Floki.parse_document!()
+
+      assert Floki.find(doc, ".topbar time") == []
+    end
+
+    test "the mobile pause toggle mirrors paused state and read-only gating" do
+      paused = render_payload(global_pause_fleet(true), writable: true)
+      mobile_paused = paused |> Floki.parse_document!() |> Floki.find("#global-pause-toggle-mobile")
+
+      assert Floki.attribute(mobile_paused, "aria-pressed") == ["true"]
+      assert Floki.attribute(mobile_paused, "class") |> List.first() =~ "is-paused"
+
+      readonly = render_payload(global_pause_fleet(false), writable: false)
+      mobile_readonly = readonly |> Floki.parse_document!() |> Floki.find("#global-pause-toggle-mobile")
+
+      assert Floki.attribute(mobile_readonly, "aria-disabled") == ["true"]
+    end
+
+    # `.global-pause-icon` shipped with no stylesheet rule, so the inline SVG —
+    # which carries no intrinsic dimensions — collapsed and the button rendered
+    # as an empty circle on every breakpoint. Guard the whole class of bug: any
+    # icon wrapper the shell renders must have its SVG sized in dashboard.css.
+    test "every icon wrapper in the shell has an svg sizing rule" do
+      css = File.read!(Path.expand("../../../priv/static/dashboard.css", __DIR__))
+
+      wrapper_classes =
+        global_pause_fleet(false)
+        |> render_payload(writable: true)
+        |> Floki.parse_document!()
+        |> Floki.find(".dashboard-shell span[class$='-icon']")
+        |> Enum.flat_map(&Floki.attribute([&1], "class"))
+        |> Enum.uniq()
+
+      assert wrapper_classes != [], "expected the shell to render icon wrappers"
+
+      for class <- wrapper_classes do
+        assert Regex.match?(~r/\.#{Regex.escape(class)}\s+svg\s*\{[^}]*\bwidth\s*:/, css),
+               "#{class} renders an inline SVG but dashboard.css has no `.#{class} svg { width: ... }` rule, so it collapses to nothing"
+      end
+    end
   end
 
   test "does not present untyped status rows as a healthy Units catalog" do
@@ -515,10 +638,12 @@ defmodule AiurWeb.DashboardLiveTest do
     assert unavailable_units =~ ~s(href="/analytics")
     assert unavailable_units =~ ~s(href="/build-orders")
     assert unavailable_units =~ ~s(data-phx-link="redirect")
-    assert Floki.find(Floki.parse_document!(unavailable_units), ~s([aria-disabled="true"])) == []
+    # Scope to nav anchors: the global-pause toggle is a button that is
+    # legitimately disabled in this read-only render, and is not a nav route.
+    assert Floki.find(Floki.parse_document!(unavailable_units), ~s(a[aria-disabled="true"])) == []
 
     assert available_units =~ ~s(href="/analytics")
-    assert Floki.find(Floki.parse_document!(available_units), ~s([aria-disabled="true"])) == []
+    assert Floki.find(Floki.parse_document!(available_units), ~s(a[aria-disabled="true"])) == []
 
     assert commands =~ ~s(<h1 id="route-title">Commands</h1>)
     assert length(Floki.find(Floki.parse_document!(commands), ~s(a[aria-current="page"]))) == 2

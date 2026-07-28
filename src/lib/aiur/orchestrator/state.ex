@@ -56,6 +56,7 @@ defmodule Aiur.Orchestrator.State do
           github_command_scan_since: String.t() | nil,
           github_connectivity: map(),
           github_poll_delays: map(),
+          globally_paused: boolean(),
           control_lifecycle: ControlLifecycle.t()
         }
 
@@ -100,6 +101,7 @@ defmodule Aiur.Orchestrator.State do
     github_command_scan_since: nil,
     github_connectivity: %{},
     github_poll_delays: %{},
+    globally_paused: false,
     control_lifecycle: %ControlLifecycle{}
   ]
 

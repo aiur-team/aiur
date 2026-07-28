@@ -11,6 +11,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
   alias Aiur.BuildOrder.TicketDetail.State
   alias Aiur.BuildOrder.TicketHistory
   alias Aiur.TrackerIdentity
+  alias AiurWeb.BuildOrder.Runtime
   alias AiurWeb.Endpoint
 
   @endpoint Endpoint
@@ -166,7 +167,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     refute Enum.any?(calls, &match?({:demand, _}, &1))
   end
 
-  test "a UI-only tick advances source age and the shell clock without polling providers" do
+  test "a UI-only tick re-derives from the display clock without polling providers" do
     observed_at = DateTime.utc_now() |> DateTime.truncate(:second)
     clock = start_supervised!({Agent, fn -> observed_at end})
     Application.put_env(:aiur, :build_order_display_clock, fn -> Agent.get(clock, & &1) end)
@@ -177,18 +178,20 @@ defmodule AiurWeb.BuildOrderLiveTest do
       |> put_in([Access.key(:health)], health(1, :healthy, observed_at: observed_at))
 
     source = install_source(catalog: catalog)
-    assert {:ok, view, html} = live(build_conn(), "/build-orders")
+    assert {:ok, view, _html} = live(build_conn(), "/build-orders")
     render_async(view, 2_000)
-
-    assert html =~ Calendar.strftime(observed_at, "%H:%M:%S")
 
     calls_before_tick = FakeDataSource.calls(source)
 
     Agent.update(clock, &DateTime.add(&1, 7, :second))
     send(view.pid, :build_order_ui_tick)
-    advanced_html = render(view)
+    _advanced = render(view)
 
-    assert advanced_html =~ Calendar.strftime(DateTime.add(observed_at, 7, :second), "%H:%M:%S")
+    # The invariant is that a display-only tick re-derives from the assigned
+    # clock without touching the data source. It previously also asserted the
+    # topbar clock advanced; that clock has been removed, and the catalog route
+    # renders no other absolute time, so only the no-polling guard remains.
+    assert Runtime.display_now() == DateTime.add(observed_at, 7, :second)
     assert FakeDataSource.calls(source) == calls_before_tick
   end
 

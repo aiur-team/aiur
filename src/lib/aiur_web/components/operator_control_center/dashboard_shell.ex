@@ -7,7 +7,6 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
 
   attr(:route, :map, required: true)
   attr(:routes, :list, required: true)
-  attr(:now, :any, required: true)
   attr(:tracker_kind, :string, required: true)
   attr(:agent_kind, :string, required: true)
   attr(:nav_counts, :map, default: %{})
@@ -15,6 +14,10 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
   # attribute on this element is stripped by the next DOM patch, which is what
   # made the toggle spring back open (#1306).
   attr(:nav_collapsed, :boolean, default: false)
+  # The single global pause switch. Server-owned (mirrors the orchestrator's
+  # state), writable-gated like every other control surface.
+  attr(:globally_paused, :boolean, default: false)
+  attr(:writable, :boolean, default: false)
   slot(:inner_block, required: true)
 
   @spec dashboard_shell(map()) :: Phoenix.LiveView.Rendered.t()
@@ -28,23 +31,11 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
           <span class="status-badge status-badge-offline brand-live">
             <span class="status-badge-dot"></span>Offline
           </span>
-          <button
-            id="theme-toggle"
-            class="tool-btn icon-only"
-            type="button"
-            phx-hook="ThemeToggle"
-            aria-label="Toggle color theme"
-            title="Toggle color theme"
-          >
-            <span class="toggle-icon" aria-hidden="true">
-              <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
-              </svg>
-              <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
-              </svg>
-            </span>
-          </button>
+          <.global_pause_button
+            id="global-pause-toggle"
+            globally_paused={@globally_paused}
+            writable={@writable}
+          />
           <button
             id="nav-toggle"
             class="tool-btn icon-only"
@@ -80,7 +71,12 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
             <p :if={@route.description not in [nil, ""]}>{@route.description}</p>
           </div>
           <div class="toolbar">
-            <time class="status-badge mono num" datetime={datetime_value(@now)}>{clock_value(@now)}</time>
+            <%!-- The single theme toggle, at every resolution: top right,
+                  inline with the route title. The nav pill is reserved for
+                  routes plus the global pause switch. --%>
+            <div class="topbar-controls">
+              <.theme_button id="theme-toggle" />
+            </div>
           </div>
         </header>
 
@@ -95,8 +91,75 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
         nav_counts={@nav_counts}
         class="shell-nav shell-nav-mobile"
         label="Aiur mobile routes"
-      />
+      >
+        <:trailing>
+          <div class="shell-nav-controls">
+            <.global_pause_button
+              id="global-pause-toggle-mobile"
+              globally_paused={@globally_paused}
+              writable={@writable}
+            />
+          </div>
+        </:trailing>
+      </.navigation>
     </section>
+    """
+  end
+
+  # The sidebar that normally hosts these controls is `display: none` below
+  # 960px, so both are rendered a second time inside the mobile nav pill.
+  # Duplicated markup needs distinct DOM ids — LiveView patches by id, and the
+  # `ThemeToggle` hook is `this.el`-scoped so two instances coexist safely.
+  attr(:id, :string, required: true)
+  attr(:globally_paused, :boolean, required: true)
+  attr(:writable, :boolean, required: true)
+
+  defp global_pause_button(assigns) do
+    ~H"""
+    <button
+      id={@id}
+      class={"tool-btn icon-only global-pause-toggle" <> if(@globally_paused, do: " is-paused", else: "")}
+      type="button"
+      phx-click="toggle-global-pause"
+      disabled={not @writable}
+      aria-disabled={to_string(not @writable)}
+      aria-pressed={to_string(@globally_paused)}
+      aria-label={global_pause_label(@globally_paused)}
+      title={global_pause_label(@globally_paused)}
+    >
+      <span class="global-pause-icon" aria-hidden="true">
+        <svg :if={@globally_paused} viewBox="0 0 24 24" fill="currentColor" stroke="none">
+          <path d="M8 5v14l11-7z" />
+        </svg>
+        <svg :if={!@globally_paused} viewBox="0 0 24 24" fill="currentColor" stroke="none">
+          <rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" />
+        </svg>
+      </span>
+    </button>
+    """
+  end
+
+  attr(:id, :string, required: true)
+
+  defp theme_button(assigns) do
+    ~H"""
+    <button
+      id={@id}
+      class="tool-btn icon-only"
+      type="button"
+      phx-hook="ThemeToggle"
+      aria-label="Toggle color theme"
+      title="Toggle color theme"
+    >
+      <span class="toggle-icon" aria-hidden="true">
+        <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+        </svg>
+        <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
+        </svg>
+      </span>
+    </button>
     """
   end
 
@@ -105,6 +168,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
   attr(:nav_counts, :map, default: %{})
   attr(:class, :string, required: true)
   attr(:label, :string, required: true)
+  slot(:trailing)
 
   defp navigation(assigns) do
     ~H"""
@@ -117,6 +181,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
           active={route.id == @current_route.id}
         />
       <% end %>
+      {render_slot(@trailing)}
     </nav>
     """
   end
@@ -217,8 +282,6 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
   defp nav_toggle_label(true), do: "Show navigation"
   defp nav_toggle_label(_collapsed), do: "Hide navigation"
 
-  defp clock_value(%DateTime{} = now), do: Calendar.strftime(now, "%H:%M:%S")
-  defp clock_value(_now), do: "--:--:--"
-  defp datetime_value(%DateTime{} = now), do: DateTime.to_iso8601(now)
-  defp datetime_value(_now), do: nil
+  defp global_pause_label(true), do: "Resume all agents (globally paused)"
+  defp global_pause_label(_paused), do: "Pause all agents"
 end

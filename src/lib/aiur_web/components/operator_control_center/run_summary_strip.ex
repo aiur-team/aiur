@@ -12,9 +12,12 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   def run_summary_strip(assigns) do
     cards = provider_cards(assigns.usage, assigns.meters)
 
+    run_state = Map.get(assigns.run, :state)
+
     assigns =
       assigns
-      |> assign(:run_ready?, Map.get(assigns.run, :state) in [:ready, :stale])
+      |> assign(:run_state, run_state)
+      |> assign(:run_ready?, run_state in [:ready, :stale])
       |> assign(:usage_ready?, Map.get(assigns.usage, :state) in [:ready, :partial, :stale])
       |> assign(:cards, cards)
       |> assign(:spend_total, provider_spend_total(cards))
@@ -26,15 +29,14 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
           <img class="rs-logo" src="/aiur-logo.png" alt="" aria-hidden="true" />
           <span class="rs-name">Summary</span>
           <div class="rs-head-stats">
-            <div class="rs-stat"><span class="rs-stat-label">Live</span><span class="rs-stat-val">{count(@run_ready?, @run, :live, "units")}</span></div>
-            <div class="rs-stat"><span class="rs-stat-label">Tickets</span><span class="rs-stat-val">{count(@run_ready?, @run, :remaining, "remain")}</span></div>
+            <div class="rs-stat"><span class="rs-stat-label">Tickets</span><span class="rs-stat-val">{count(@run_state, @run, :remaining, "remain")}</span></div>
             <div :if={@spend_total} class="rs-stat"><span class="rs-stat-label">Spend</span><span class="rs-stat-val rs-stat-spend">{@spend_total}</span></div>
           </div>
         </div>
         <div class="rs-progress">
           <div class="rs-limit-top">
             <span class="rs-limit-label">Progress</span>
-            <span class="rs-limit-meta">{if @run_ready?, do: @run.elapsed.label <> " elapsed", else: "Unavailable"}</span>
+            <span class="rs-limit-meta">{progress_meta(@run_state, @run)}</span>
             <span :if={eta = eta_label(@run_ready?, @run)} class="rs-limit-meta">{eta}</span>
           </div>
           <div class="rs-meter"><i style={"width:#{run_percent(@run)}%"}></i></div>
@@ -65,11 +67,11 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
         <div class="rs-head-stats">
           <div class="rs-stat">
             <span class="rs-stat-label">Tokens</span>
-            <span class="rs-stat-val">{if @usage_ready?, do: tokens(@usage), else: "Unavailable"}</span>
+            <span class="rs-stat-val">{if @usage_ready?, do: tokens(@usage), else: "N/A"}</span>
           </div>
           <div :if={@show_spend?} class="rs-stat">
             <span class="rs-stat-label">Spend</span>
-            <span class="rs-stat-val rs-stat-spend">{if @usage_ready?, do: money(@usage), else: "Unavailable"}</span>
+            <span class="rs-stat-val rs-stat-spend">{if @usage_ready?, do: money(@usage), else: "N/A"}</span>
           </div>
         </div>
       </div>
@@ -77,7 +79,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
         <div :if={@windows == []} class="rs-limit">
           <div class="rs-limit-top">
             <span class="rs-limit-label">Limits</span>
-            <span :if={provider_status(@card)} class="rs-limit-meta">{provider_status(@card)}</span>
+            <span class="rs-limit-meta">{provider_status(@card)}</span>
           </div>
           <div class="rs-meter"><i style="width:0%"></i></div>
         </div>
@@ -100,7 +102,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   end
 
   defp provider_cards(_usage, _meters) do
-    for provider <- [:codex, :claude], do: %{provider: provider, provider_label: provider_label(provider), status_label: "Unavailable", windows: []}
+    for provider <- [:codex, :claude], do: %{provider: provider, provider_label: provider_label(provider), status_label: "N/A", windows: []}
   end
 
   defp provider_usage(%{usage: usage}), do: usage
@@ -109,15 +111,28 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   defp provider_spend?(%{auth_mode: %{value: :api_key}}), do: true
   defp provider_spend?(_card), do: false
 
-  defp provider_status(%{state: :unknown}), do: nil
+  # An unknown-identity meter used to render no label at all above a 0%-wide
+  # bar, which reads as a real "0% consumed". Name it instead.
+  defp provider_status(%{state: :unknown}), do: "N/A"
   defp provider_status(%{status_label: label}) when is_binary(label) and label != "", do: label
-  defp provider_status(_card), do: nil
+  defp provider_status(_card), do: "N/A"
 
   defp rate_windows(%{windows: windows}) when is_list(windows), do: windows |> Enum.filter(&(&1.kind == :rate_limit)) |> Enum.take(2)
   defp rate_windows(_card), do: []
 
-  defp count(true, %{counts: counts}, key, suffix), do: "#{Map.get(counts, key, 0)} #{suffix}"
-  defp count(_ready, _run, _key, _suffix), do: "Unavailable"
+  defp count(state, %{counts: counts}, key, suffix) when state in [:ready, :stale],
+    do: "#{Map.get(counts, key, 0)} #{suffix}"
+
+  # An empty run is a *known* zero, not missing data: the daemon confirmed there
+  # is no active run. Naming it "Unavailable" reads as a failure when nothing is
+  # wrong. This is not a synthetic zero — the loading and unavailable states,
+  # where the count genuinely isn't known, still say so.
+  defp count(:empty, _run, _key, suffix), do: "0 #{suffix}"
+  defp count(_state, _run, _key, _suffix), do: "N/A"
+
+  defp progress_meta(state, run) when state in [:ready, :stale], do: run.elapsed.label <> " elapsed"
+  defp progress_meta(:empty, _run), do: "0% · no active run"
+  defp progress_meta(_state, _run), do: "N/A"
 
   defp run_percent(%{progress: %{kind: :exact, percent: percent}}) when is_integer(percent), do: percent
   defp run_percent(%{progress: %{kind: :lower_bound, lower_bound_percent: percent}}) when is_integer(percent), do: percent
@@ -149,13 +164,13 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   end
 
   defp tokens(%{tokens: %{total: total}}), do: compact_number(total)
-  defp tokens(_usage), do: "Unknown"
+  defp tokens(_usage), do: "N/A"
 
   defp money(%{api_equivalent: amounts}), do: money_list(amounts)
-  defp money(_usage), do: "Unknown"
+  defp money(_usage), do: "N/A"
 
   defp money_list([%{currency: currency, amount: amount}]), do: currency_amount(currency, amount)
-  defp money_list([]), do: "Unknown"
+  defp money_list([]), do: "N/A"
   defp money_list(amounts), do: Enum.map_join(amounts, " + ", &currency_amount(&1.currency, &1.amount))
 
   defp currency_amount("USD", amount), do: "$#{amount}"
@@ -164,7 +179,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   defp compact_number(number) when is_integer(number) and number >= 1_000_000, do: "#{Float.round(number / 1_000_000, 2)}M"
   defp compact_number(number) when is_integer(number) and number >= 1_000, do: "#{Float.round(number / 1_000, 1)}K"
   defp compact_number(number) when is_integer(number), do: Integer.to_string(number)
-  defp compact_number(_number), do: "Unknown"
+  defp compact_number(_number), do: "N/A"
 
   defp meter_percent(%{meter: %{kind: :exact, now: percent}}), do: percent
   defp meter_percent(_window), do: 0

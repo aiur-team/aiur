@@ -21,6 +21,8 @@ defmodule Aiur.AgentControlCLI do
   def status do
     case Orchestrator.status() do
       statuses when is_list(statuses) ->
+        print_global_pause_banner()
+
         statuses
         |> Enum.filter(&visible_status_row?/1)
         |> print_status_table()
@@ -361,6 +363,29 @@ defmodule Aiur.AgentControlCLI do
   @spec resume(:all | [String.t()]) :: :ok
   def resume(targets), do: control(:resume, targets)
 
+  # The global pause switch — `aiur pause` / `aiur resume` with no targets. A
+  # single daemon-wide halt distinct from per-agent pause: it stops all
+  # provisioning and holds every running agent, and unpause resumes only the
+  # agents it held (never overriding an operator's per-agent pause).
+  @spec pause_global() :: :ok
+  def pause_global, do: set_global_pause(true)
+
+  @spec resume_global() :: :ok
+  def resume_global, do: set_global_pause(false)
+
+  defp set_global_pause(on?) do
+    case Orchestrator.set_global_pause(on?) do
+      {:ok, %{globally_paused: paused}} ->
+        IO.puts("aiur: global pause #{if paused, do: "ON — no agents will be provisioned", else: "OFF — agents resuming"}")
+        exit_marker(0)
+
+      {:error, reason} ->
+        verb = if on?, do: "pause", else: "resume"
+        IO.puts(:stderr, "aiur: failed to #{verb} the daemon (#{format_reason(reason)})")
+        exit_marker(1)
+    end
+  end
+
   @spec message(String.t(), String.t()) :: :ok
   def message(issue, text) when is_binary(issue) and is_binary(text) do
     issue
@@ -540,6 +565,16 @@ defmodule Aiur.AgentControlCLI do
         to_string(status.title || "")
       ])
     end)
+  end
+
+  # Surface the global pause switch above the status table so an operator sees
+  # at a glance that the whole daemon is halted (silent otherwise).
+  defp print_global_pause_banner do
+    if Orchestrator.globally_paused?() do
+      IO.puts("GLOBALLY PAUSED — no agents will be provisioned (run `aiur resume` to lift)")
+    end
+
+    :ok
   end
 
   defp print_build_gate_status do

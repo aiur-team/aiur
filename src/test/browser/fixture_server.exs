@@ -103,7 +103,6 @@ defmodule Aiur.BrowserHarness.RouteShellLive do
       <DashboardShell.dashboard_shell
         route={@current_route}
         routes={RouteRegistry.routes(@analytics)}
-        now={~U[2026-07-15 12:00:00Z]}
         tracker_kind="fixture"
         agent_kind="fixture"
       >

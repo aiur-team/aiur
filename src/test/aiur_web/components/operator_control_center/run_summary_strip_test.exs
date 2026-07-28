@@ -16,7 +16,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         now: @now
       })
 
-    assert html =~ "3 units"
     assert html =~ "4 remain"
     assert html =~ "$8.75"
     assert html =~ "20m elapsed"
@@ -26,6 +25,12 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     assert html =~ "40% · resets in 30m"
     refute html =~ "$50.47"
     refute html =~ "0.89M"
+
+    # The Live stat was dropped: it duplicated what the Units table already
+    # shows, and the extra column pushed the head row past the card's edge at
+    # the narrow end of the grid.
+    refute html =~ ~s(<span class="rs-stat-label">Live</span>)
+    refute html =~ "3 units"
   end
 
   test "names unavailable values instead of presenting synthetic zeroes" do
@@ -37,11 +42,32 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         now: @now
       })
 
-    assert html =~ "Unavailable"
+    assert html =~ "N/A"
     refute html =~ "ETA unavailable"
     assert html =~ "Codex"
     assert html =~ "Claude"
     refute html =~ "$0.00"
+
+    # Still no synthetic zeroes: a count that genuinely is not known must not
+    # borrow the empty run's "0".
+    refute html =~ "0 remain"
+  end
+
+  # `:empty` is the presenter's confirmed "no active Aiur run" — the daemon
+  # answered, and the answer is zero. Rendering that as "Unavailable" told
+  # operators something was broken when nothing was.
+  test "an empty run reads as a real zero, not as unavailable" do
+    html =
+      render_component(&RunSummaryStrip.run_summary_strip/1, %{
+        run: %{state: :empty, counts: %{remaining: 0}, progress: %{}},
+        usage: %{state: :locked},
+        meters: %{state: :locked, cards: []},
+        now: @now
+      })
+
+    assert html =~ "0 remain"
+    assert html =~ "0% · no active run"
+    assert html =~ ~s(<i style="width:0%">)
   end
 
   test "hides spend for subscription accounts" do

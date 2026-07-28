@@ -36,7 +36,8 @@ defmodule AiurWeb.Presenter do
           retrying: Enum.map(snapshot.retrying, &retry_entry_payload/1),
           idle: Enum.map(idle, &idle_entry_payload/1),
           agent_totals: public_agent_totals(snapshot.agent_totals),
-          capacity: capacity_payload(Map.get(snapshot, :capacity))
+          capacity: capacity_payload(Map.get(snapshot, :capacity)),
+          globally_paused: Map.get(snapshot, :globally_paused, false) == true
         }
 
       :timeout ->

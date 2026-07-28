@@ -130,6 +130,7 @@ defmodule Aiur.Orchestrator.StatusReport do
        idle: idle,
        agent_totals: state.agent_totals,
        capacity: Slots.max_concurrent_agent_status(state),
+       globally_paused: state.globally_paused == true,
        rate_limits: Map.get(state, :agent_rate_limits),
        polling: %{
          checking?: state.poll_check_in_progress == true,

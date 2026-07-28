@@ -291,9 +291,14 @@ textarea:focus-visible,
   color: var(--accent-ink);
 }
 
+/* Was a hardcoded light salmon ink, which is only legible against the dark
+   theme — in light mode it landed at 1.19:1 and the count was invisible. The
+   themed `--blocking-*` family is the right semantic home anyway (this badge
+   counts blocking decisions) and carries a per-theme ink: 5.2:1 in light,
+   7.7:1 in dark. */
 .shell-nav-count.is-attention {
-  background: color-mix(in srgb, #f2836b 26%, transparent);
-  color: #f5b8a8;
+  background: var(--blocking-soft);
+  color: var(--blocking-ink);
 }
 
 .shell-nav-mobile {
@@ -1519,10 +1524,16 @@ textarea:focus-visible,
   font-weight: 400;
 }
 
+/* The sidebar column is capped at 15rem, and this row is not allowed to spill
+   past it — an unwrapped row overflowed into `.shell-main` and printed the
+   brand over the route title. Wrapping plus a shrinkable status badge keeps
+   every control inside the column at any content width. */
 .brand-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.55rem;
+  min-width: 0;
   padding: 0.35rem 0.2rem 0.6rem 0.35rem;
 }
 
@@ -1532,14 +1543,30 @@ textarea:focus-visible,
   padding: 0 0.7rem;
   border-radius: 999px;
   font-size: 0.66rem;
+  min-width: 0;
+  overflow: hidden;
 }
 
-.brand-row #theme-toggle {
+.brand-row #global-pause-toggle {
   margin-left: auto;
 }
 
 .brand-row #nav-toggle {
   margin-left: -0.15rem;
+}
+
+/* The global pause switch reads OFF (muted, like its sibling toggles) and flips
+   to a filled warning accent when the whole daemon is halted, so a paused fleet
+   is unmistakable from the nav. Disabled when the dashboard is read-only. */
+.global-pause-toggle.is-paused {
+  border-color: var(--warning, #d08a2a);
+  color: var(--warning, #d08a2a);
+  background: color-mix(in srgb, var(--warning, #d08a2a) 16%, transparent);
+}
+
+.global-pause-toggle[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .tool-btn.icon-only {
@@ -1563,6 +1590,20 @@ textarea:focus-visible,
   display: block;
   width: 16px;
   height: 16px;
+}
+
+/* Sized like its sibling toggles. Inline SVGs carry no intrinsic dimensions, so
+   without these the pause glyph collapses and the button renders empty. */
+.global-pause-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.global-pause-icon svg {
+  display: block;
+  width: 15px;
+  height: 15px;
 }
 
 .nav-toggle-icon {
@@ -1630,6 +1671,12 @@ html[data-theme="light"] .toggle-icon .moon {
   justify-content: flex-end;
   gap: 0.45rem;
   flex-wrap: wrap;
+}
+
+/* The one and only theme toggle, at every resolution. */
+.topbar-controls {
+  display: inline-flex;
+  align-items: center;
 }
 
 .status-badge,
@@ -2179,8 +2226,8 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .chip.cmd-blocking.blocking {
-  color: #f2836b;
-  border-color: rgba(242, 131, 107, 0.45);
+  color: var(--blocking-ink);
+  border-color: var(--blocking-line);
 }
 
 .chip.cmd-agent.is-claude {
@@ -3149,7 +3196,7 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .u-lane.is-lane-billing {
-  color: #f2836b;
+  color: var(--blocking-ink);
 }
 
 .u-lane.is-state {
@@ -3353,10 +3400,15 @@ html[data-theme="light"] .toggle-icon .moon {
   box-shadow: var(--shadow-sm);
 }
 
+/* The stats cluster must be able to drop below the name and shrink: at the
+   narrow end of the 3-column grid a long value ("Unavailable") is wider than
+   its track, and without wrapping it spilled past the card's rounded edge. */
 .rs-head {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.5rem;
+  min-width: 0;
 }
 
 .rs-logo {
@@ -3374,13 +3426,16 @@ html[data-theme="light"] .toggle-icon .moon {
 .rs-head-stats {
   margin-left: auto;
   display: flex;
-  gap: 1.1rem;
+  flex-wrap: wrap;
+  gap: 0.35rem 1.1rem;
+  min-width: 0;
 }
 
 .rs-stat {
   display: flex;
   flex-direction: column;
   gap: 0.04rem;
+  min-width: 0;
 }
 
 .rs-stat-label {
@@ -3402,6 +3457,10 @@ html[data-theme="light"] .toggle-icon .moon {
   font-weight: 700;
   letter-spacing: -0.01em;
   color: var(--fg);
+  /* Last resort once wrapping is exhausted: a single long word still has to
+     break rather than push through the card border. */
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .rs-stat-spend {
@@ -3863,8 +3922,8 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .units-icon-action.tone-error {
-  border-color: color-mix(in srgb, #f2836b 55%, transparent);
-  color: #f2836b;
+  border-color: color-mix(in srgb, var(--blocking) 55%, transparent);
+  color: var(--blocking-ink);
 }
 
 .units-action {
@@ -4933,7 +4992,11 @@ html[data-theme="light"] .toggle-icon .moon {
     max-width: 26rem;
     margin-inline: auto;
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    /* Four equal route cells plus one auto cell for the control cluster, so the
+       pause and theme toggles ride along in the nav instead of vanishing with
+       the hidden sidebar. `auto` keeps them at their natural icon width rather
+       than stealing a fifth of the row from the route labels. */
+    grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
     gap: 0.2rem;
     padding: 0.3rem;
     border: 1px solid var(--line-strong);
@@ -4982,6 +5045,38 @@ html[data-theme="light"] .toggle-icon .moon {
   .shell-nav-mobile .shell-nav-item.is-active {
     box-shadow: inset 0 -3px var(--accent-line);
   }
+
+  .shell-nav-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding-inline: 0.15rem 0.05rem;
+    margin-inline-start: 0.15rem;
+    border-inline-start: 1px solid var(--line);
+  }
+
+  /* Slightly tighter than the sidebar's 2.05rem so the control plus four route
+     cells still fit a 360px phone without squeezing the labels. */
+  .shell-nav-controls .tool-btn.icon-only {
+    width: 1.9rem;
+    height: 1.9rem;
+  }
+
+  /* Sit on the title's line, not on a line of its own: no wrapping, and the
+     title takes the slack so the toggle stays pinned to the right. */
+  .topbar {
+    flex-wrap: nowrap;
+    align-items: center;
+  }
+
+  .topbar .route-context {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .topbar .toolbar {
+    flex: none;
+  }
 }
 
 @media (max-width: 760px) {
@@ -4993,9 +5088,11 @@ html[data-theme="light"] .toggle-icon .moon {
     gap: 0.6rem;
   }
 
+  /* Was `width: 100%` to give the clock its own line. The clock is gone and the
+     only occupant is now the theme toggle, which belongs on the title's line. */
   .toolbar {
-    width: 100%;
-    justify-content: flex-start;
+    width: auto;
+    justify-content: flex-end;
   }
 
   .bo-catalog-entry {

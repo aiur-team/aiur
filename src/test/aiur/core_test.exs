@@ -297,7 +297,21 @@ defmodule Aiur.CoreTest do
     try do
       Workflow.clear_workflow_file_path()
 
-      assert Workflow.workflow_file_path() == Path.join([File.cwd!(), ".aiur", "config"])
+      repo_local_default = Path.join([File.cwd!(), ".aiur", "config"])
+      candidates = Workflow.config_path_candidates()
+
+      # Asserting the resolved path equals the repo-local default directly is
+      # environment-dependent: discovery falls back to `~/.aiur/config`, so a
+      # developer machine with a real global config resolves to *that* — correct
+      # behavior, not a failure. Assert the contract instead: the repo-local path
+      # leads the candidate list, discovery drives the unset-app-env result, and
+      # the repo-local path is what comes back when nothing exists on disk.
+      assert List.first(candidates) == repo_local_default
+      assert Workflow.workflow_file_path() == Workflow.resolve_config_path(candidates)
+
+      absent_a = Path.join(System.tmp_dir!(), "aiur-absent-a-#{System.unique_integer([:positive])}")
+      absent_b = Path.join(System.tmp_dir!(), "aiur-absent-b-#{System.unique_integer([:positive])}")
+      assert Workflow.resolve_config_path([absent_a, absent_b]) == absent_a
     after
       Workflow.set_workflow_file_path(original_workflow_path)
     end

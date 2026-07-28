@@ -327,6 +327,36 @@ defmodule Aiur.CLITest do
     assert Application.get_env(:aiur, :no_dashboard) == true
   end
 
+  test "--pause records the global-pause launch override" do
+    previous = Application.get_env(:aiur, :launch_globally_paused)
+
+    on_exit(fn ->
+      if is_nil(previous),
+        do: Application.delete_env(:aiur, :launch_globally_paused),
+        else: Application.put_env(:aiur, :launch_globally_paused, previous)
+    end)
+
+    Application.delete_env(:aiur, :launch_globally_paused)
+
+    assert :ok = CLI.evaluate([@ack_flag, "--pause", ".aiurconfig"], passthrough_deps())
+    assert Application.get_env(:aiur, :launch_globally_paused) == true
+  end
+
+  test "no --pause flag leaves the global-pause override unset" do
+    previous = Application.get_env(:aiur, :launch_globally_paused)
+
+    on_exit(fn ->
+      if is_nil(previous),
+        do: Application.delete_env(:aiur, :launch_globally_paused),
+        else: Application.put_env(:aiur, :launch_globally_paused, previous)
+    end)
+
+    Application.delete_env(:aiur, :launch_globally_paused)
+
+    assert :ok = CLI.evaluate([@ack_flag, ".aiurconfig"], passthrough_deps())
+    assert is_nil(Application.get_env(:aiur, :launch_globally_paused))
+  end
+
   test "--max-agents N records the orchestrator launch override" do
     previous = Application.get_env(:aiur, :max_concurrent_agents_override)
 
