@@ -70,6 +70,39 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     assert html =~ ~s(<i style="width:0%">)
   end
 
+  # An unknown ticket count is a head-row stat with no row of its own, so an
+  # empty one is noise. Progress and Limits each own a labelled row and a meter,
+  # so they keep their N/A — dropping those would leave a card that looks like
+  # it has nothing to report at all.
+  test "an unknown ticket count is hidden, while progress and limits keep their N/A" do
+    html =
+      render_component(&RunSummaryStrip.run_summary_strip/1, %{
+        run: %{state: :loading},
+        usage: %{state: :locked},
+        meters: %{state: :locked, cards: []},
+        now: @now
+      })
+
+    refute html =~ "Tickets"
+
+    assert html =~ "Progress"
+    assert html =~ "Limits"
+    assert html =~ "N/A"
+  end
+
+  test "a known ticket count is shown" do
+    html =
+      render_component(&RunSummaryStrip.run_summary_strip/1, %{
+        run: %{state: :empty, counts: %{remaining: 0}, progress: %{}},
+        usage: %{state: :locked},
+        meters: %{state: :locked, cards: []},
+        now: @now
+      })
+
+    assert html =~ "Tickets"
+    assert html =~ "0 remain"
+  end
+
   test "hides spend for subscription accounts" do
     meters =
       update_in(meters_view(), [:cards], fn cards ->

@@ -29,7 +29,15 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
           <img class="rs-logo" src="/aiur-logo.png" alt="" aria-hidden="true" />
           <span class="rs-name">Summary</span>
           <div class="rs-head-stats">
-            <div class="rs-stat"><span class="rs-stat-label">Tickets</span><span class="rs-stat-val">{count(@run_state, @run, :remaining, "remain")}</span></div>
+            <%!-- An unknown ticket count is dropped rather than shown as N/A: it
+                  is a head-row stat with no row of its own, so an empty one is
+                  noise. Progress and Limits keep their N/A because each owns a
+                  labelled row and a meter — silently dropping those would leave
+                  a card that looks like it has nothing to report. --%>
+            <div :if={known_count?(@run_state)} class="rs-stat">
+              <span class="rs-stat-label">Tickets</span>
+              <span class="rs-stat-val">{count(@run_state, @run, :remaining, "remain")}</span>
+            </div>
             <div :if={@spend_total} class="rs-stat"><span class="rs-stat-label">Spend</span><span class="rs-stat-val rs-stat-spend">{@spend_total}</span></div>
           </div>
         </div>
@@ -119,6 +127,9 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
 
   defp rate_windows(%{windows: windows}) when is_list(windows), do: windows |> Enum.filter(&(&1.kind == :rate_limit)) |> Enum.take(2)
   defp rate_windows(_card), do: []
+
+  # Whether the run actually reported a count, as opposed to not being known yet.
+  defp known_count?(state), do: state in [:ready, :stale, :empty]
 
   defp count(state, %{counts: counts}, key, suffix) when state in [:ready, :stale],
     do: "#{Map.get(counts, key, 0)} #{suffix}"
