@@ -36,9 +36,69 @@ defmodule Aiur.AgentList.Renderer.Chrome do
       project_row(Map.get(state, :project_label), inner_width),
       Text.eol(),
       dashboard_row(Map.get(state, :dashboard_url), inner_width),
+      Text.eol(),
+      usage_row(Map.get(state, :provider_usage), inner_width),
       Text.eol()
     ]
   end
+
+  @doc """
+  Limit headroom for each provider, as a bar plus the age of the observation.
+
+  Meters are observed from live agent sessions, so a bar with no age cannot be
+  told apart from a current one. A provider that has never been observed reads
+  as `n/a` and draws no bar — an empty bar would read as "0% consumed".
+  """
+  @spec usage_row(term(), term()) :: term()
+  def usage_row(usage, inner_width) when is_map(usage) and map_size(usage) > 0 do
+    case usage |> Enum.sort_by(fn {provider, _view} -> provider end) |> Enum.map(&usage_segment/1) do
+      [] -> metadata_row_iolist("Usage:", "n/a", Style.gray(), inner_width)
+      segments -> metadata_row_iolist("Usage:", Enum.join(segments, "  "), Style.cyan(), inner_width)
+    end
+  end
+
+  def usage_row(_usage, inner_width), do: metadata_row_iolist("Usage:", "n/a", Style.gray(), inner_width)
+
+  defp usage_segment({provider, %{state: :observed} = view}) do
+    case usage_percent(view) do
+      nil -> "#{provider_abbrev(provider)} n/a"
+      percent -> "#{provider_abbrev(provider)} #{usage_bar(percent)} #{round(percent)}% #{age_suffix(view[:age_seconds])}"
+    end
+  end
+
+  defp usage_segment({provider, _view}), do: "#{provider_abbrev(provider)} n/a"
+
+  # The worst-consumed rate-limit window is the one that will stop work first,
+  # so it is the number worth the header's single line.
+  defp usage_percent(%{windows: windows}) when is_map(windows) do
+    windows
+    |> Map.values()
+    |> Enum.filter(&(Map.get(&1, :kind) == :rate_limit))
+    |> Enum.map(&Map.get(&1, :used_percent))
+    |> Enum.filter(&is_number/1)
+    |> case do
+      [] -> nil
+      percents -> Enum.max(percents)
+    end
+  end
+
+  defp usage_percent(_view), do: nil
+
+  @bar_cells 10
+
+  defp usage_bar(percent) do
+    filled = percent |> max(0) |> min(100) |> Kernel./(100) |> Kernel.*(@bar_cells) |> round()
+    String.duplicate("█", filled) <> String.duplicate("░", @bar_cells - filled)
+  end
+
+  defp age_suffix(nil), do: "(age n/a)"
+  defp age_suffix(seconds) when seconds < 60, do: "(#{seconds}s)"
+  defp age_suffix(seconds) when seconds < 3_600, do: "(#{div(seconds, 60)}m)"
+  defp age_suffix(seconds), do: "(#{div(seconds, 3_600)}h)"
+
+  defp provider_abbrev(:codex), do: "codex"
+  defp provider_abbrev(:claude), do: "claude"
+  defp provider_abbrev(other), do: to_string(other)
 
   @spec agents_row(term(), term(), term(), term(), term(), term()) :: term()
   def agents_row(_kind, count, max, focused?, alert?, inner_width)

@@ -1814,6 +1814,13 @@ cmd_status() {
   run_control_rpc "Aiur.AgentControlCLI.status()"
 }
 
+# `aiur usage` — Codex/Claude limit headroom from the daemon's meter
+# projection, each value carrying the age of its observation.
+cmd_usage() {
+  [ "$#" -eq 0 ] || die "usage does not accept arguments"
+  run_control_rpc "Aiur.AgentControlCLI.usage()"
+}
+
 cmd_pause_resume() {
   local command="$1"
   shift
@@ -2269,6 +2276,10 @@ aiur_engine_main() {
     status)
       shift
       cmd_status "$@"
+      ;;
+    usage)
+      shift
+      cmd_usage "$@"
       ;;
     agents)
       shift

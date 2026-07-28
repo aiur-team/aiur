@@ -40,7 +40,7 @@ defmodule Aiur.Workflow do
   @spec config_path_candidates() :: [Path.t(), ...]
   def config_path_candidates do
     cwd = File.cwd!()
-    home = Path.expand("~")
+    home = home_dir()
 
     [
       Path.join([cwd, @aiur_dir, @config_basename]),
@@ -48,6 +48,19 @@ defmodule Aiur.Workflow do
       Path.join([home, @aiur_dir, @config_basename]),
       Path.join(home, @legacy_config_file_name)
     ]
+  end
+
+  # Read HOME at call time rather than via `Path.expand("~")`, which resolves
+  # the home the VM captured at boot and ignores any later `System.put_env`.
+  # The test helper sandboxes HOME precisely so a suite run cannot discover the
+  # developer's real `~/.aiur/config` — with the cached expansion that sandbox
+  # silently did nothing, and background pollers issued real tracker requests
+  # against whatever account the developer had configured.
+  defp home_dir do
+    case System.get_env("HOME") do
+      home when is_binary(home) and home != "" -> home
+      _unset -> Path.expand("~")
+    end
   end
 
   @doc false

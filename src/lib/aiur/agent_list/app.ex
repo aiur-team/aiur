@@ -343,6 +343,7 @@ defmodule Aiur.AgentList.App do
     # RenderState.build/1 owns the explicit threading for:
     # :summaries :selection_index :selection_focus :help_visible?
     # :max_agents_alert? :columns :rows :project_label :dashboard_url
+    # :provider_usage
     # :agent_kind :agent_count :max_agents :visible_sessions :debug_mode?
     # :perf_summary :warmth_events :debug_events :attach_state :started_slots
     # :fully_warmed_slots :opened_panes :agents_with_content
