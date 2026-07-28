@@ -28,6 +28,42 @@ defmodule Aiur.AgentList.Renderer.ChromeUsageTest do
     refute row =~ "█"
   end
 
+  # Claude's CLI reports a standing and a reset time but no utilization, so a
+  # bar is impossible for it. Name what is known instead of drawing an empty
+  # bar, which would read as "0% consumed".
+  test "a provider with a standing but no percentage names the standing" do
+    view = %{
+      state: :observed,
+      age_seconds: 30,
+      windows: %{
+        "rate-limit" => %{
+          kind: :rate_limit,
+          standing: :allowed,
+          resets_at: DateTime.add(DateTime.utc_now(), 7_200, :second)
+        }
+      }
+    }
+
+    row = text(Chrome.usage_row(%{claude: view}, @width))
+
+    assert row =~ "claude ok"
+    assert row =~ "resets in 1h" or row =~ "resets in 2h"
+    refute row =~ "░"
+    refute row =~ "0%"
+  end
+
+  test "a limited standing reads as limited, not as unknown" do
+    view = %{state: :observed, age_seconds: 5, windows: %{"r" => %{kind: :rate_limit, standing: :rejected}}}
+
+    assert text(Chrome.usage_row(%{claude: view}, @width)) =~ "claude limited"
+  end
+
+  test "an unknown standing still reads n/a" do
+    view = %{state: :observed, age_seconds: 5, windows: %{"r" => %{kind: :rate_limit, standing: :unknown}}}
+
+    assert text(Chrome.usage_row(%{claude: view}, @width)) =~ "claude n/a"
+  end
+
   test "no usage at all still renders the row as n/a" do
     assert text(Chrome.usage_row(%{}, @width)) =~ "Usage:"
     assert text(Chrome.usage_row(%{}, @width)) =~ "n/a"

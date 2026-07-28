@@ -608,12 +608,34 @@ defmodule Aiur.AgentControlCLI do
 
   defp usage_windows(_view), do: []
 
+  # Claude's CLI reports a standing and a reset time but no utilization, so a
+  # bar is not available for it. Name what is known rather than drawing an empty
+  # bar, which would read as "0% consumed".
   defp usage_window_line({id, window}) do
     case Map.get(window, :used_percent) do
       percent when is_number(percent) -> "#{String.pad_trailing(id, 10)} #{usage_bar(percent)} #{round(percent)}%"
-      _unknown -> "#{String.pad_trailing(id, 10)} unknown"
+      _unknown -> "#{String.pad_trailing(id, 10)} #{window_standing_line(window)}"
     end
   end
+
+  defp window_standing_line(window) do
+    case Map.get(window, :standing) do
+      :allowed -> "allowed#{cli_reset_suffix(Map.get(window, :resets_at))}"
+      :allowed_warning -> "near limit#{cli_reset_suffix(Map.get(window, :resets_at))}"
+      :rejected -> "limited#{cli_reset_suffix(Map.get(window, :resets_at))}"
+      _unknown -> "unknown"
+    end
+  end
+
+  defp cli_reset_suffix(%DateTime{} = resets_at) do
+    case DateTime.diff(resets_at, DateTime.utc_now()) do
+      seconds when seconds <= 0 -> ""
+      seconds when seconds < 3_600 -> ", resets in #{div(seconds, 60)}m"
+      seconds -> ", resets in #{div(seconds, 3_600)}h"
+    end
+  end
+
+  defp cli_reset_suffix(_resets_at), do: ""
 
   # Same 10-cell bar the TUI header draws, so the two surfaces read alike.
   @spec usage_bar(number()) :: String.t()

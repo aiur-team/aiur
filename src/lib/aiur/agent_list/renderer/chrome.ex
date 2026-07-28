@@ -59,9 +59,13 @@ defmodule Aiur.AgentList.Renderer.Chrome do
 
   def usage_row(_usage, inner_width), do: metadata_row_iolist("Usage:", "n/a", Style.gray(), inner_width)
 
+  # Codex reports a consumed fraction, so it gets a bar. Claude reports only a
+  # standing and a reset time — its CLI exposes no utilization at all — so it
+  # gets those instead. Rendering an empty bar for Claude would read as "0%
+  # consumed", which is a claim the data does not support.
   defp usage_segment({provider, %{state: :observed} = view}) do
     case usage_percent(view) do
-      nil -> "#{provider_abbrev(provider)} n/a"
+      nil -> "#{provider_abbrev(provider)} #{standing_summary(view)}"
       percent -> "#{provider_abbrev(provider)} #{usage_bar(percent)} #{round(percent)}% #{age_suffix(view[:age_seconds])}"
     end
   end
@@ -83,6 +87,32 @@ defmodule Aiur.AgentList.Renderer.Chrome do
   end
 
   defp usage_percent(_view), do: nil
+
+  # A provider that reports standing without a percentage still has something
+  # worth the header's space: whether it is allowed, and when the window resets.
+  defp standing_summary(view) do
+    windows = view |> Map.get(:windows, %{}) |> Map.values() |> Enum.filter(&(Map.get(&1, :kind) == :rate_limit))
+
+    case Enum.find(windows, &Map.get(&1, :standing)) do
+      nil -> "n/a"
+      window -> [standing_word(window.standing), reset_suffix(Map.get(window, :resets_at))] |> Enum.reject(&is_nil/1) |> Enum.join(" ")
+    end
+  end
+
+  defp standing_word(:allowed), do: "ok"
+  defp standing_word(:allowed_warning), do: "near limit"
+  defp standing_word(:rejected), do: "limited"
+  defp standing_word(_standing), do: "n/a"
+
+  defp reset_suffix(%DateTime{} = resets_at) do
+    case DateTime.diff(resets_at, DateTime.utc_now()) do
+      seconds when seconds <= 0 -> nil
+      seconds when seconds < 3_600 -> "· resets in #{div(seconds, 60)}m"
+      seconds -> "· resets in #{div(seconds, 3_600)}h"
+    end
+  end
+
+  defp reset_suffix(_resets_at), do: nil
 
   @bar_cells 10
 
