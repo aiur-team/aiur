@@ -164,7 +164,10 @@ test('cards stay keyboard-openable and dependency highlight pins without mutatio
     // and the shell's sidebar collapse toggle. Neither writes data — `toggle-nav`
     // flips a per-session view preference held in assigns. Any other event here
     // means a real mutation reached this route.
-    const readOnlyEvents = ['open-ticket-context', 'toggle-nav']
+    // `toggle-global-pause` is shell chrome present on every route: it mutates
+    // daemon-wide provisioning, not Build Order data, and is disabled unless
+    // the dashboard is writable.
+    const readOnlyEvents = ['open-ticket-context', 'toggle-nav', 'toggle-global-pause']
     const clicks = await page.locator('[phx-click]').evaluateAll((els) => els.map((el) => el.getAttribute('phx-click')))
     expect(clicks.every((event) => readOnlyEvents.includes(event))).toBe(true)
     await expect(page.locator('form')).toHaveCount(0)

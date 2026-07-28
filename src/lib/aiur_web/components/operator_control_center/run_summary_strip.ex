@@ -79,7 +79,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
         <div :if={@windows == []} class="rs-limit">
           <div class="rs-limit-top">
             <span class="rs-limit-label">Limits</span>
-            <span :if={provider_status(@card)} class="rs-limit-meta">{provider_status(@card)}</span>
+            <span class="rs-limit-meta">{provider_status(@card)}</span>
           </div>
           <div class="rs-meter"><i style="width:0%"></i></div>
         </div>
