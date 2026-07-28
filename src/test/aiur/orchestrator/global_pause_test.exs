@@ -52,8 +52,7 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
         base_state(
           globally_paused: true,
           running: %{
-            individual =>
-              paused_entry(individual, :operator_pause),
+            individual => paused_entry(individual, :operator_pause),
             held => paused_entry(held, :global_pause)
           }
         )
@@ -108,10 +107,12 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
   describe "idempotency and projection" do
     test "re-pausing or re-unpausing is a no-op" do
       already_paused = base_state(globally_paused: true, running: %{})
+
       assert {:reply, {:ok, %{globally_paused: true}}, ^already_paused} =
                GlobalPause.set_global_pause_call(already_paused, true)
 
       already_running = base_state(globally_paused: false, running: %{})
+
       assert {:reply, {:ok, %{globally_paused: false}}, ^already_running} =
                GlobalPause.set_global_pause_call(already_running, false)
     end
@@ -121,6 +122,7 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
 
       assert {:reply, true, ^state} = GlobalPause.globally_paused_call(state)
       assert GlobalPause.global_pause_status(state) == %{globally_paused: true}
+
       assert GlobalPause.global_pause_status(%{state | globally_paused: false}) ==
                %{globally_paused: false}
     end
@@ -138,8 +140,7 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
   defp apply_worker_pause(state, issue_id, request_id, kind) do
     {:noreply, applied} =
       Aiur.Orchestrator.handle_info(
-        {:worker_control_state, issue_id, :paused,
-         %{request_id: request_id, generation: 101, kind: kind}},
+        {:worker_control_state, issue_id, :paused, %{request_id: request_id, generation: 101, kind: kind}},
         state
       )
 
