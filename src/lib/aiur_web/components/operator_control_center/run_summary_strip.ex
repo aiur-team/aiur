@@ -29,7 +29,15 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
           <img class="rs-logo" src="/aiur-logo.png" alt="" aria-hidden="true" />
           <span class="rs-name">Summary</span>
           <div class="rs-head-stats">
-            <div class="rs-stat"><span class="rs-stat-label">Tickets</span><span class="rs-stat-val">{count(@run_state, @run, :remaining, "remain")}</span></div>
+            <%!-- An unknown ticket count is dropped rather than shown as N/A: it
+                  is a head-row stat with no row of its own, so an empty one is
+                  noise. Progress and Limits keep their N/A because each owns a
+                  labelled row and a meter — silently dropping those would leave
+                  a card that looks like it has nothing to report. --%>
+            <div :if={known_count?(@run_state)} class="rs-stat">
+              <span class="rs-stat-label">Tickets</span>
+              <span class="rs-stat-val">{count(@run_state, @run, :remaining, "remain")}</span>
+            </div>
             <div :if={@spend_total} class="rs-stat"><span class="rs-stat-label">Spend</span><span class="rs-stat-val rs-stat-spend">{@spend_total}</span></div>
           </div>
         </div>
@@ -67,7 +75,12 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
         <div class="rs-head-stats">
           <div class="rs-stat">
             <span class="rs-stat-label">Tokens</span>
-            <span class="rs-stat-val">{if @usage_ready?, do: tokens(@usage), else: "N/A"}</span>
+            <span class="rs-stat-val">
+              <%!-- The per-provider token glyph. Decorative: the label already
+                    says Tokens, and the count carries the meaning. --%>
+              <img class="rs-token-ic" src={provider_token_icon(@card.provider)} alt="" aria-hidden="true" />
+              {if @usage_ready?, do: tokens(@usage), else: "N/A"}
+            </span>
           </div>
           <div :if={@show_spend?} class="rs-stat">
             <span class="rs-stat-label">Spend</span>
@@ -85,7 +98,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
         </div>
         <div :for={window <- @windows} class="rs-limit">
           <div class="rs-limit-top">
-            <span class="rs-limit-label">{window.name}</span>
+            <span class="rs-limit-label">{window_label(window, @windows)}</span>
             <span class="rs-limit-meta">{window_meta(window, @now)}</span>
           </div>
           <div class="rs-meter"><i style={"width:#{meter_percent(window)}%"}></i></div>
@@ -117,8 +130,60 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   defp provider_status(%{status_label: label}) when is_binary(label) and label != "", do: label
   defp provider_status(_card), do: "N/A"
 
-  defp rate_windows(%{windows: windows}) when is_list(windows), do: windows |> Enum.filter(&(&1.kind == :rate_limit)) |> Enum.take(2)
+  # Codex reports an account-wide limit alongside per-model ones
+  # (`codex:primary` vs `codex_bengalfox:primary`). Only the account-wide bucket
+  # is shown: it is the one that governs whether work can proceed at all, and
+  # listing a row per model turns a glanceable card into a table. Per-model
+  # limits remain in the projection for anything that wants them.
+  defp rate_windows(%{windows: windows} = card) when is_list(windows) do
+    rate_limits = Enum.filter(windows, &(&1.kind == :rate_limit))
+
+    case Enum.filter(rate_limits, &account_wide?(&1, Map.get(card, :provider))) do
+      [] -> Enum.take(rate_limits, 2)
+      account_wide -> Enum.take(account_wide, 2)
+    end
+  end
+
   defp rate_windows(_card), do: []
+
+  # Account-wide windows carry the bare provider scope; a per-model one suffixes
+  # it with the model's codename.
+  defp account_wide?(window, provider) do
+    case Map.get(window, :limit_id) do
+      nil -> true
+      limit_id -> limit_id |> to_string() |> String.split(":") |> List.first() == to_string(provider)
+    end
+  end
+
+  # Codex reports several limits that share a `name`: an account-wide one and a
+  # per-model one both come through as "Primary", differing only in the scope
+  # prefix of their id (`codex:primary` vs `codex_bengalfox:primary`). They are
+  # genuinely different limits — they read alike only while both sit unused —
+  # so they are both shown, and the scope is what distinguishes them.
+  defp window_label(window, windows) do
+    name = Map.get(window, :name, "Limit")
+
+    if Enum.count(windows, &(Map.get(&1, :name) == name)) > 1 do
+      window |> Map.get(:limit_id) |> window_scope() || name
+    else
+      name
+    end
+  end
+
+  # `limit_id` is "<scope>:<name>"; the scope is the part worth showing when the
+  # name cannot tell two windows apart.
+  defp window_scope(nil), do: nil
+
+  defp window_scope(limit_id) do
+    limit_id
+    |> to_string()
+    |> String.split(":")
+    |> List.first()
+    |> String.replace("_", " ")
+  end
+
+  # Whether the run actually reported a count, as opposed to not being known yet.
+  defp known_count?(state), do: state in [:ready, :stale, :empty]
 
   defp count(state, %{counts: counts}, key, suffix) when state in [:ready, :stale],
     do: "#{Map.get(counts, key, 0)} #{suffix}"
@@ -193,12 +258,28 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   end
 
   defp reset_text(_reset, _now), do: "reset unavailable"
-  defp duration(seconds) when seconds < 3_600, do: "#{max(div(seconds, 60), 1)}m"
-  defp duration(seconds), do: "#{div(seconds, 3_600)}h #{div(rem(seconds, 3_600), 60)}m"
+  # Days once there are any: a weekly window reading "167h 59m" makes the reader
+  # divide to learn it is a week away.
+  @seconds_per_day 86_400
+  @seconds_per_hour 3_600
+
+  defp duration(seconds) when seconds < @seconds_per_hour, do: "#{max(div(seconds, 60), 1)}m"
+
+  defp duration(seconds) when seconds < @seconds_per_day do
+    "#{div(seconds, @seconds_per_hour)}h #{div(rem(seconds, @seconds_per_hour), 60)}m"
+  end
+
+  defp duration(seconds) do
+    "#{div(seconds, @seconds_per_day)}d #{div(rem(seconds, @seconds_per_day), @seconds_per_hour)}h #{div(rem(seconds, @seconds_per_hour), 60)}m"
+  end
 
   defp provider_logo(:codex), do: "/codex-color.svg"
   defp provider_logo(:claude), do: "/claude-symbol.svg"
   defp provider_logo(_provider), do: "/aiur-logo.png"
+
+  defp provider_token_icon(:codex), do: "/codex-token.svg"
+  defp provider_token_icon(:claude), do: "/claude-token.svg"
+  defp provider_token_icon(_provider), do: "/aiur-logo.png"
   defp provider_label(:codex), do: "Codex"
   defp provider_label(:claude), do: "Claude"
 end

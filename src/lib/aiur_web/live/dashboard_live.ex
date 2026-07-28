@@ -19,6 +19,7 @@ defmodule AiurWeb.DashboardLive do
   alias Aiur.LiveConversation
   alias Aiur.Orchestrator.GlobalPause
   alias Aiur.Orchestrator.Slots
+  alias Aiur.ProviderMeterRefresh
   alias Aiur.TicketActivity
   alias Aiur.TrackerIdentity
   alias Aiur.Usage.GroupedScopes
@@ -480,6 +481,19 @@ defmodule AiurWeb.DashboardLive do
 
   def handle_event("capacity-set", _params, socket), do: {:noreply, socket}
 
+  # Provider usage is polled from a rate-limited endpoint, so it is polled only
+  # while a surface is actually being watched. Registration is by pid and
+  # monitored on the other side, so a closed tab withdraws itself.
+  def handle_event("usage-watch-start", _params, socket) do
+    ProviderMeterRefresh.watching_started()
+    {:noreply, socket}
+  end
+
+  def handle_event("usage-watch-stop", _params, socket) do
+    ProviderMeterRefresh.watching_stopped()
+    {:noreply, socket}
+  end
+
   def handle_event("toggle-global-pause", _params, socket) do
     handle_writable_event(socket, fn -> {:noreply, toggle_global_pause(socket)} end)
   end
@@ -631,7 +645,10 @@ defmodule AiurWeb.DashboardLive do
       globally_paused={global_paused?(@payload)}
       writable={@writable}
     >
-      <Overview.decisions_banner decisions={@payload.decisions} retained_counts={@retained_counts} />
+      <:banner>
+        <Overview.decisions_banner decisions={@payload.decisions} retained_counts={@retained_counts} />
+      </:banner>
+
       <Overview.error error={@payload.fleet[:error]} />
 
       <div :if={@live_action in [:decisions, :decision]} class="control-panel">
@@ -664,7 +681,12 @@ defmodule AiurWeb.DashboardLive do
         />
       </div>
 
-      <div :if={@live_action not in [:decisions, :decision]} class="control-panel">
+      <div
+        :if={@live_action not in [:decisions, :decision]}
+        id="usage-watch"
+        phx-hook="UsageWatch"
+        class="control-panel"
+      >
         <RunSummaryStrip.run_summary_strip
           run={@run_summary}
           usage={@usage_summary}

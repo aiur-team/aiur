@@ -86,7 +86,13 @@ defmodule Aiur.AgentEnvironment do
         # Without this, agents that try "manual CLI verification" by
         # running `./scripts/aiurdev --test` reset the Executor’s sandbox
         # tickets and kill the parent BEAM mid-run.
-        {~c"AIUR_AGENT_WORKSPACE", String.to_charlist(workspace)}
+        {~c"AIUR_AGENT_WORKSPACE", String.to_charlist(workspace)},
+        # `aiur-claude` reads provider quota from `/api/oauth/usage`, which
+        # rate-limits: asking per session and per in-turn event earns a 429, and
+        # a 429 means no reading at all. Hand it the operator's configured usage
+        # cadence so the adapter caches for exactly as long as the daemon waits
+        # between observations, instead of the two picking separate rhythms.
+        {~c"AIUR_CLAUDE_USAGE_TTL_MS", String.to_charlist(usage_ttl_ms())}
       ] ++
         Enum.map(mix_scheduler_env(), fn {name, value} ->
           {String.to_charlist(name), String.to_charlist(value)}
@@ -142,6 +148,26 @@ defmodule Aiur.AgentEnvironment do
   end
 
   def base_env(_), do: []
+
+  # Mirrors `polling.usage_interval_seconds`, the same setting that paces
+  # `Aiur.ProviderMeterRefresh`. Falls back to the scheduler's own default when
+  # config is unavailable, so a mis-set config cannot make the adapter hammer
+  # the endpoint.
+  @default_usage_interval_seconds 300
+
+  defp usage_ttl_ms do
+    seconds =
+      case Aiur.Config.settings() do
+        {:ok, %{polling: %{usage_interval_seconds: value}}} when is_integer(value) and value > 0 -> value
+        _unavailable -> @default_usage_interval_seconds
+      end
+
+    Integer.to_string(seconds * 1_000)
+  rescue
+    _error -> Integer.to_string(@default_usage_interval_seconds * 1_000)
+  catch
+    _kind, _reason -> Integer.to_string(@default_usage_interval_seconds * 1_000)
+  end
 
   defp mix_scheduler_env do
     cap = Config.mix_scheduler_cap()

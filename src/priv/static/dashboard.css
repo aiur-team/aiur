@@ -319,10 +319,42 @@ textarea:focus-visible,
   text-transform: uppercase;
 }
 
+/* Bungee, the wordmark's face, so a route heading reads as part of the brand
+   rather than as body copy. Bungee is caps-only — its lowercase codepoints map
+   to the same glyphs, measured identical for "Units" and "UNITS" — so no
+   `text-transform` is applied: it would change nothing on screen while making
+   the accessible name and any copied text shout. The face is wide, so the
+   negative tracking the old sans used would crowd it. */
 .route-context h1 {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
   margin: 0.25rem 0 0;
-  font-size: clamp(1.5rem, 3vw, 2.2rem);
-  letter-spacing: -0.04em;
+  font-family: "Bungee", "Space Grotesk", "Avenir Next", sans-serif;
+  font-size: clamp(1.15rem, 2.2vw, 1.6rem);
+  font-weight: 400;
+  letter-spacing: 0.02em;
+}
+
+/* Mirrors the nav item's icon tile so the heading and the nav entry read as
+   the same thing. Sized from the heading so it tracks the clamp above. */
+.route-title-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 1.5em;
+  height: 1.5em;
+  border-radius: 0.42em;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--accent-ink);
+}
+
+.route-title-icon svg {
+  display: block;
+  width: 0.82em;
+  height: 0.82em;
 }
 
 .route-context > p:last-child {
@@ -3403,9 +3435,12 @@ html[data-theme="light"] .toggle-icon .moon {
 /* The stats cluster must be able to drop below the name and shrink: at the
    narrow end of the 3-column grid a long value ("Unavailable") is wider than
    its track, and without wrapping it spilled past the card's rounded edge. */
+/* Top-aligned, not centred: the stat block on a provider card is taller than
+   the name, and centring pushed the logo and name down so they no longer lined
+   up with Summary's. */
 .rs-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   flex-wrap: wrap;
   gap: 0.5rem;
   min-width: 0;
@@ -3472,7 +3507,8 @@ html[data-theme="light"] .toggle-icon .moon {
   height: 1.05rem;
   flex: none;
   object-fit: contain;
-  margin: 0 0.15rem;
+  margin: 0 0.15rem 0 0;
+  vertical-align: -0.15em;
 }
 
 .rs-limits {
@@ -3537,7 +3573,40 @@ html[data-theme="light"] .toggle-icon .moon {
   vertical-align: -2px;
 }
 
+/* Summary / Codex / Claude stay side by side down to phone widths: the three
+   are read as a set, and stacking them pushed the provider cards below the
+   fold on exactly the screens where headroom matters most. The cards carry a
+   name, one stat and a meter, so they survive a ~110px column; the head row
+   already wraps its stats. Only below 380px is there genuinely not enough
+   room, and they stack. */
 @media (max-width: 720px) {
+  .run-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.5rem;
+  }
+
+  .rs-block {
+    padding: 0.7rem 0.6rem;
+  }
+
+  .rs-head {
+    gap: 0.35rem;
+  }
+
+  .rs-head-stats {
+    gap: 0.2rem 0.5rem;
+  }
+
+  .rs-name {
+    font-size: 0.82rem;
+  }
+}
+
+/* True phone widths keep full-width stacked sections: three ~110px cards on a
+   390px screen are legible in a screenshot but cramped in the hand, and the
+   provider cards are reference data rather than something scanned at a glance.
+   Tablets and split-view windows above this keep the three-up row. */
+@media (max-width: 480px) {
   .run-summary {
     grid-template-columns: 1fr;
   }
@@ -5156,9 +5225,11 @@ html[data-theme="light"] .toggle-icon .moon {
     flex-wrap: wrap;
   }
 
+  /* Keep the CTA on the right at its own width. Stretching it full-width made
+     it read as a page-wide action bar rather than the banner's affordance. */
   .decision-banner-cta {
-    width: 100%;
-    margin-left: 0;
+    width: auto;
+    margin-left: auto;
     justify-content: center;
   }
 

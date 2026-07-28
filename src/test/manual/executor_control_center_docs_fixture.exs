@@ -135,6 +135,8 @@ end
 defmodule Aiur.Docs.ControlCenterFixture do
   alias Aiur.{Decision, DecisionAnswer, RecentMerge}
   alias Aiur.Docs.ControlCenterFixture.Provider
+  alias Aiur.ProviderMeters.Store, as: ProviderMeterStore
+  alias AiurWeb.FinancialDataAccess.Generation
 
   @port String.to_integer(System.get_env("AIUR_DOCS_PORT", "4099"))
 
@@ -151,9 +153,37 @@ defmodule Aiur.Docs.ControlCenterFixture do
 
     {:ok, _} = Application.ensure_all_started(:bandit)
     {:ok, _} = Application.ensure_all_started(:phoenix_live_view)
+    # The Claude meter reads its quota over HTTP; without this every request
+    # fails and the card reads N/A for a reason that has nothing to do with the
+    # account.
+    {:ok, _} = Application.ensure_all_started(:req)
     {:ok, _} = Supervisor.start_link([{Phoenix.PubSub, name: Aiur.PubSub}], strategy: :one_for_one)
 
     decisions = decisions()
+
+    # Real provider meters, not synthetic ones. The projection reads Claude's
+    # account usage endpoint directly, so it needs no agents and no daemon —
+    # which makes this fixture the cheapest way to see actual quota on a
+    # surface. Dashboard auth is configured because the meter cards sit behind
+    # the financial-data capability, and that capability can only be granted by
+    # a real session proof.
+    System.put_env("AIUR_DASHBOARD_USERNAME", "aiur")
+    System.put_env("AIUR_DASHBOARD_PASSWORD", "aiur")
+
+    # Without this the credential check cannot mint a configuration generation,
+    # so it returns :error and every request 401s regardless of what is typed.
+    {:ok, _} = Generation.start_link([])
+    {:ok, _} = AiurWeb.FinancialData.start_link([])
+
+    # Codex reaches the projection the long way round — its app-server session
+    # ingests into the meter store, which broadcasts — so both of these must be
+    # running or the Codex card stays N/A while the probe silently succeeds.
+    # Claude needs neither: it broadcasts its own reading.
+    {:ok, _} = Aiur.ProviderAccountGeneration.start_link([])
+    {:ok, _} = ProviderMeterStore.start_link([])
+
+    {:ok, _} = Aiur.ProviderMeterProjection.start_link([])
+    {:ok, _} = Aiur.ProviderMeterRefresh.start_link(baseline_delay_ms: 500)
 
     start_provider(:docs_orchestrator, snapshot: fleet_snapshot())
 
@@ -199,7 +229,9 @@ defmodule Aiur.Docs.ControlCenterFixture do
         url: [host: "127.0.0.1", port: @port],
         secret_key_base: String.duplicate("d", 64),
         dashboard_writable: writable,
-        dashboard_auth_required: false,
+        # Auth on: the meter cards are gated behind the financial-data
+        # capability, which is only granted to a session carrying a real proof.
+        dashboard_auth_required: true,
         orchestrator: :docs_orchestrator,
         decision_store: :docs_decisions,
         decision_metrics: :docs_metrics,
