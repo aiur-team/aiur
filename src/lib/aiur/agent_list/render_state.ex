@@ -4,7 +4,7 @@ defmodule Aiur.AgentList.RenderState do
   """
 
   alias Aiur.AgentList.Summaries
-  alias Aiur.{Config, HttpServer, Tracker}
+  alias Aiur.{Config, HttpServer, ProviderMeterProjection, Tracker}
 
   @spec build(map()) :: map()
   def build(state) do
@@ -19,6 +19,7 @@ defmodule Aiur.AgentList.RenderState do
     |> Map.put(:rows, rows)
     |> Map.put(:project_label, project_label())
     |> Map.put(:dashboard_url, dashboard_url())
+    |> Map.put(:provider_usage, provider_usage())
     |> Map.put(:agent_kind, agent_kind())
     |> Map.put(:agent_count, Summaries.active_agent_count(state.summaries))
     |> Map.put(:max_agents, max_agents_from_state(state))
@@ -92,6 +93,15 @@ defmodule Aiur.AgentList.RenderState do
     case safe_call(base_url_fun) do
       url when is_binary(url) -> url <> "/"
       _ -> nil
+    end
+  end
+
+  # The projection already degrades to unknown views when it is not running, so
+  # the header renders "n/a" rather than the TUI failing to draw a frame.
+  defp provider_usage do
+    case safe_call(&ProviderMeterProjection.snapshot/0) do
+      usage when is_map(usage) -> usage
+      _unavailable -> %{}
     end
   end
 

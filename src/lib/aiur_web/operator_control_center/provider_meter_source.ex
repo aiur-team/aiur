@@ -15,13 +15,12 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeterSource do
   account's facts.
   """
 
-  alias Aiur.ProviderMeters
+  alias Aiur.ProviderMeterProjection
   alias Aiur.ProviderMeterSnapshot
   alias AiurWeb.FinancialData
 
   @server AiurWeb.FinancialData
   @providers [:codex, :claude]
-  @backend :app_server
   @max_age_ms 5_000
 
   @type context :: term()
@@ -81,15 +80,22 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeterSource do
 
   defp loader(provider, binding, snapshot_fun), do: fn -> snapshot_fun.(provider, binding) end
 
-  # `ProviderMeters.snapshot/3` always returns a struct, so a resolvable binding
-  # produces the account's projection and an unresolved binding produces the
-  # explicit unknown-identity snapshot without reaching the store with a nil
-  # binding.
-  defp snapshot(provider, nil), do: ProviderMeterSnapshot.unknown(provider, @backend)
-  defp snapshot(provider, binding), do: ProviderMeters.snapshot(provider, @backend, binding)
+  # Read the daemon-owned projection rather than the binding-scoped store.
+  #
+  # Bindings are minted per session and held in that session's process
+  # dictionary, so no daemon-wide binding exists for a web connection to
+  # resolve — a binding-scoped read here could only ever produce the
+  # unknown-identity snapshot, which is why meters never rendered. The
+  # projection retains accepted observations and hands back the same struct
+  # with the account generation projected out, so this layer needs no
+  # capability at all.
+  #
+  # Authorization is unchanged: the read still happens inside the facade's
+  # loader closure, so a denied context never reaches the projection.
+  defp snapshot(provider, _binding), do: ProviderMeterProjection.redacted_snapshot(provider)
 
-  # No consumer-facing accessor exposes the daemon's active binding yet; a
-  # provider without one renders the explicit unknown-identity state.
+  # Retained so the facade's loader signature stays stable; the projection is
+  # binding-free, so there is nothing to resolve.
   defp provider_binding(_provider), do: nil
 
   defp key(provider), do: {:provider_meter, provider}

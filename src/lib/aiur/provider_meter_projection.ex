@@ -81,6 +81,24 @@ defmodule Aiur.ProviderMeterProjection do
     server |> snapshot() |> Map.fetch!(provider)
   end
 
+  @doc """
+  The retained observation as a `ProviderMeterSnapshot` with the account
+  generation projected out, for consumers that already speak that struct.
+
+  A provider with no observation yields the explicit unknown snapshot, which is
+  what the surfaces already render as "not observed".
+  """
+  @spec redacted_snapshot(GenServer.server(), provider()) :: ProviderMeterSnapshot.t()
+  def redacted_snapshot(server \\ __MODULE__, provider) when provider in @providers do
+    if GenServer.whereis(server) do
+      GenServer.call(server, {:redacted_snapshot, provider}, @call_timeout)
+    else
+      ProviderMeterSnapshot.unknown(provider, @backend)
+    end
+  catch
+    :exit, _reason -> ProviderMeterSnapshot.unknown(provider, @backend)
+  end
+
   @doc false
   @spec providers() :: [provider()]
   def providers, do: @providers
@@ -98,6 +116,16 @@ defmodule Aiur.ProviderMeterProjection do
     views = Map.new(@providers, fn provider -> {provider, view(Map.get(state.observations, provider), provider, now)} end)
 
     {:reply, views, state}
+  end
+
+  def handle_call({:redacted_snapshot, provider}, _from, state) do
+    reply =
+      case Map.get(state.observations, provider) do
+        nil -> ProviderMeterSnapshot.unknown(provider, @backend)
+        snapshot -> %{snapshot | provider_account_generation: nil}
+      end
+
+    {:reply, reply, state}
   end
 
   @impl true

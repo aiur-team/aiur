@@ -587,6 +587,18 @@ defmodule AiurEngineTest do
     assert resumed =~ "Aiur.AgentControlCLI.resume(:all)"
   end
 
+  test "usage RPCs the usage expression" do
+    rel = fake_release()
+    {out, _} = run_engine_real(["usage"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", tmp_state()}])
+    assert out =~ "Aiur.AgentControlCLI.usage()"
+  end
+
+  test "usage rejects arguments" do
+    {out, code} = run_engine_real(["usage", "codex"], [{"AIUR_RELEASE_DIR", fake_release()}])
+    assert code != 0
+    assert out =~ "usage does not accept arguments"
+  end
+
   test "status RPCs the status expression" do
     rel = fake_release()
     {out, _} = run_engine_real(["status"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", tmp_state()}])

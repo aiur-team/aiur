@@ -1,7 +1,7 @@
 defmodule Aiur.AgentControlCLI do
   @moduledoc false
 
-  alias Aiur.{AgentChat, AlertFeed, BuildGate, Config, Orchestrator, PauseContainment}
+  alias Aiur.{AgentChat, AlertFeed, BuildGate, Config, Orchestrator, PauseContainment, ProviderMeterProjection}
   alias Aiur.Codex.EventHumanizer, as: CodexEventHumanizer
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.StatePolicy
@@ -566,6 +566,70 @@ defmodule Aiur.AgentControlCLI do
       ])
     end)
   end
+
+  @doc """
+  Print Codex and Claude limit headroom from the daemon-owned meter projection.
+
+  Every value carries the age of the observation, because meters are observed
+  from live agent sessions: a number with no age cannot be told apart from a
+  current one. A provider never observed prints as unknown, never as zero.
+  """
+  @spec usage(GenServer.server()) :: :ok
+  def usage(server \\ ProviderMeterProjection) do
+    server
+    |> ProviderMeterProjection.snapshot()
+    |> Enum.sort_by(fn {provider, _view} -> provider end)
+    |> Enum.each(&print_provider_usage/1)
+
+    exit_marker(0)
+  end
+
+  defp print_provider_usage({provider, %{state: :unknown}}) do
+    IO.puts("#{provider_label(provider)}  no observation yet")
+  end
+
+  defp print_provider_usage({provider, view}) do
+    windows = usage_windows(view)
+
+    if windows == [] do
+      IO.puts("#{provider_label(provider)}  observed #{age_label(view.age_seconds)}, no limit windows reported")
+    else
+      Enum.each(windows, fn window ->
+        IO.puts("#{provider_label(provider)}  #{usage_window_line(window)}  (#{age_label(view.age_seconds)})")
+      end)
+    end
+  end
+
+  defp usage_windows(%{windows: windows}) when is_map(windows) do
+    windows
+    |> Enum.filter(fn {_id, window} -> Map.get(window, :kind) == :rate_limit end)
+    |> Enum.sort_by(fn {id, _window} -> id end)
+  end
+
+  defp usage_windows(_view), do: []
+
+  defp usage_window_line({id, window}) do
+    case Map.get(window, :used_percent) do
+      percent when is_number(percent) -> "#{String.pad_trailing(id, 10)} #{usage_bar(percent)} #{round(percent)}%"
+      _unknown -> "#{String.pad_trailing(id, 10)} unknown"
+    end
+  end
+
+  # Same 10-cell bar the TUI header draws, so the two surfaces read alike.
+  @spec usage_bar(number()) :: String.t()
+  def usage_bar(percent) when is_number(percent) do
+    filled = percent |> max(0) |> min(100) |> Kernel./(10) |> round()
+    String.duplicate("█", filled) <> String.duplicate("░", 10 - filled)
+  end
+
+  defp age_label(nil), do: "age unknown"
+  defp age_label(seconds) when seconds < 60, do: "#{seconds}s ago"
+  defp age_label(seconds) when seconds < 3_600, do: "#{div(seconds, 60)}m ago"
+  defp age_label(seconds), do: "#{div(seconds, 3_600)}h ago"
+
+  defp provider_label(:codex), do: "codex "
+  defp provider_label(:claude), do: "claude"
+  defp provider_label(other), do: to_string(other)
 
   # Surface the global pause switch above the status table so an operator sees
   # at a glance that the whole daemon is halted (silent otherwise).
