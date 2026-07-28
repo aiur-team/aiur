@@ -119,6 +119,36 @@ defmodule AiurWeb.Layouts do
               }
             };
 
+            // Provider usage is polled from a rate-limited endpoint, so it is
+            // polled only while someone is actually looking. Report focus to
+            // the server; it keeps polling for a grace period after the last
+            // watcher looks away, and stops entirely once a tab is abandoned.
+            Hooks.UsageWatch = {
+              mounted: function () {
+                this.report = () => {
+                  var watching = document.visibilityState === "visible" && document.hasFocus();
+                  if (watching === this.lastReported) return;
+                  this.lastReported = watching;
+                  this.pushEvent(watching ? "usage-watch-start" : "usage-watch-stop", {});
+                };
+
+                this.onVisibility = this.report;
+                this.onFocus = this.report;
+                this.onBlur = this.report;
+
+                document.addEventListener("visibilitychange", this.onVisibility);
+                window.addEventListener("focus", this.onFocus);
+                window.addEventListener("blur", this.onBlur);
+
+                this.report();
+              },
+              destroyed: function () {
+                document.removeEventListener("visibilitychange", this.onVisibility);
+                window.removeEventListener("focus", this.onFocus);
+                window.removeEventListener("blur", this.onBlur);
+              }
+            };
+
             Hooks.ThemeToggle = {
               mounted: function () {
                 this.onClick = () => {

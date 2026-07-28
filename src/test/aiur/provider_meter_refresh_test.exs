@@ -19,7 +19,8 @@ defmodule Aiur.ProviderMeterRefreshTest do
   # an app-server session — real work — and a fleet consuming nothing cannot
   # have moved its own usage, so it is not re-observed while idle.
   test "an idle fleet keeps refreshing Claude but stops re-observing Codex" do
-    start_refresh(agents_running?: false, baseline_delay_ms: 10, interval_ms: 20)
+    pid = start_refresh(agents_running?: false, baseline_delay_ms: 10, interval_ms: 20)
+    ProviderMeterRefresh.watching_started(pid)
 
     assert_receive {:observed, :all}, 1_000
 
@@ -29,7 +30,8 @@ defmodule Aiur.ProviderMeterRefreshTest do
   end
 
   test "refreshes continue while agents are running" do
-    start_refresh(agents_running?: true, baseline_delay_ms: 10, interval_ms: 20)
+    pid = start_refresh(agents_running?: true, baseline_delay_ms: 10, interval_ms: 20)
+    ProviderMeterRefresh.watching_started(pid)
 
     assert_receive {:observed, :all}, 1_000
     assert_receive {:observed, :all}, 1_000
@@ -59,6 +61,8 @@ defmodule Aiur.ProviderMeterRefreshTest do
           raise "provider unreachable"
         end
       )
+
+    ProviderMeterRefresh.watching_started(pid)
 
     assert_receive :observed_boom, 1_000
     assert_receive :observed_boom, 1_000
@@ -118,7 +122,11 @@ defmodule Aiur.ProviderMeterRefreshTest do
 
     # Baseline still fires (it ignores agent state by design)...
     assert_receive {:observed, :all}, 1_000
-    # ...but no refresh follows, because the orchestrator answered "unavailable".
+
+    # ...and with someone watching, refreshes do run — but target Claude only,
+    # because the orchestrator answered "unavailable" so Codex stays untouched.
+    ProviderMeterRefresh.watching_started(pid)
+    assert_receive {:observed, :claude}, 1_000
     refute_receive {:observed, :all}, 300
     assert Process.alive?(pid)
   end
@@ -134,6 +142,103 @@ defmodule Aiur.ProviderMeterRefreshTest do
     assert ProviderMeterRefresh.refresh_now() == :ok
   end
 
+  describe "watch gating" do
+    # Polling exists to keep a surface current. With nobody looking, it is pure
+    # cost against a rate-limited endpoint.
+    test "no refresh happens when nobody is watching" do
+      start_refresh(agents_running?: true, baseline_delay_ms: :never, interval_ms: 20)
+
+      refute_receive {:observed, _target}, 300
+    end
+
+    test "a watcher gaining focus is observed immediately, then on the interval" do
+      pid = start_refresh(agents_running?: true, baseline_delay_ms: :never, interval_ms: 30)
+
+      ProviderMeterRefresh.watching_started(pid)
+
+      # Immediate, rather than waiting out the interval for a stale number.
+      assert_receive {:observed, :all}, 500
+      assert_receive {:observed, :all}, 1_000
+    end
+
+    test "polling continues through the grace period, then stops" do
+      pid = start_refresh(agents_running?: true, baseline_delay_ms: :never, interval_ms: 20, grace_ms: 300)
+
+      ProviderMeterRefresh.watching_started(pid)
+      assert_receive {:observed, :all}, 500
+
+      ProviderMeterRefresh.watching_stopped(pid)
+
+      # Still inside the grace window: a glance away must not cost a stale meter.
+      assert_receive {:observed, :all}, 500
+
+      # Past it: an abandoned tab stops costing requests.
+      Process.sleep(400)
+      flush()
+      refute_receive {:observed, _target}, 300
+    end
+
+    # A closed tab never sends a tidy goodbye, so the watcher must withdraw
+    # itself when its process dies.
+    test "a watcher that dies stops counting as watching" do
+      pid = start_refresh(agents_running?: true, baseline_delay_ms: :never, interval_ms: 20, grace_ms: 0)
+      test_pid = self()
+
+      watcher =
+        spawn(fn ->
+          ProviderMeterRefresh.watching_started(pid)
+          send(test_pid, :registered)
+          Process.sleep(:infinity)
+        end)
+
+      assert_receive :registered, 1_000
+      assert_receive {:observed, :all}, 1_000
+
+      Process.exit(watcher, :kill)
+      Process.sleep(150)
+      flush()
+
+      refute_receive {:observed, _target}, 300
+    end
+
+    test "several watchers hold polling open until the last one leaves" do
+      pid = start_refresh(agents_running?: true, baseline_delay_ms: :never, interval_ms: 20, grace_ms: 0)
+      test_pid = self()
+
+      other =
+        spawn(fn ->
+          ProviderMeterRefresh.watching_started(pid)
+          send(test_pid, :other_registered)
+          receive do: (:leave -> ProviderMeterRefresh.watching_stopped(pid))
+          send(test_pid, :other_left)
+          Process.sleep(:infinity)
+        end)
+
+      assert_receive :other_registered, 1_000
+      ProviderMeterRefresh.watching_started(pid)
+      assert_receive {:observed, :all}, 1_000
+
+      # One leaves; the other is still looking, so polling continues.
+      ProviderMeterRefresh.watching_stopped(pid)
+      assert_receive {:observed, :all}, 1_000
+
+      send(other, :leave)
+      assert_receive :other_left, 1_000
+      Process.sleep(100)
+      flush()
+
+      refute_receive {:observed, _target}, 300
+    end
+  end
+
+  defp flush do
+    receive do
+      {:observed, _target} -> flush()
+    after
+      0 -> :ok
+    end
+  end
+
   defp start_refresh(opts) do
     interval_ms = Keyword.get(opts, :interval_ms, 60_000)
 
@@ -143,7 +248,8 @@ defmodule Aiur.ProviderMeterRefreshTest do
         observer: Keyword.get(opts, :observer, collector()),
         agents_running_fun: fn -> Keyword.fetch!(opts, :agents_running?) end,
         interval_fun: fn -> interval_ms end,
-        baseline_delay_ms: Keyword.get(opts, :baseline_delay_ms, 10)
+        baseline_delay_ms: Keyword.get(opts, :baseline_delay_ms, 10),
+        grace_ms: Keyword.get(opts, :grace_ms, 60_000)
       )
 
     pid
