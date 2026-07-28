@@ -75,6 +75,86 @@ defmodule Aiur.ProviderMeterProjectionTest do
            "the opaque account generation must not reach a consumer view"
   end
 
+  test "the redacted snapshot strips the account generation but keeps the facts", %{projection: projection, pid: pid} do
+    send(pid, {:provider_meter_changed, snapshot(:claude, ~U[2026-07-27 11:58:00Z], %{"5h" => %{used_percent: 42}})})
+
+    redacted = ProviderMeterProjection.redacted_snapshot(projection, :claude)
+
+    assert redacted.provider == :claude
+    assert redacted.provider_account_generation == nil
+    assert redacted.windows == %{"5h" => %{used_percent: 42}}
+    assert redacted.observed_at == ~U[2026-07-27 11:58:00Z]
+  end
+
+  test "the redacted snapshot of a never-observed provider is the explicit unknown", %{projection: projection} do
+    redacted = ProviderMeterProjection.redacted_snapshot(projection, :codex)
+
+    assert redacted.provider == :codex
+    assert redacted.provider_account_generation == nil
+    assert redacted.windows == %{}
+    # Reuses ProviderMeterSnapshot.unknown/2 so the existing presenters keep
+    # rendering their established not-available card; its failure reason is
+    # that constructor's, not one this module invents.
+    assert redacted.health.state == :unavailable
+  end
+
+  test "a redacted read of an unavailable projection is unknown, not a crash" do
+    redacted = ProviderMeterProjection.redacted_snapshot(:"absent_#{System.unique_integer([:positive])}", :claude)
+
+    assert redacted.provider == :claude
+    assert redacted.health.state == :unavailable
+  end
+
+  # An observation whose predecessor carried no timestamp must still land —
+  # otherwise a provider that first reported without one could never update.
+  test "an observation replaces a predecessor that had no timestamp", %{projection: projection, pid: pid} do
+    send(pid, {:provider_meter_changed, %{snapshot(:codex, ~U[2026-07-27 11:00:00Z]) | observed_at: nil}})
+    send(pid, {:provider_meter_changed, snapshot(:codex, ~U[2026-07-27 11:30:00Z])})
+
+    assert ProviderMeterProjection.provider_view(projection, :codex).observed_at == ~U[2026-07-27 11:30:00Z]
+  end
+
+  test "an observation with no timestamp is ignored rather than retained", %{projection: projection, pid: pid} do
+    send(pid, {:provider_meter_changed, %{snapshot(:codex, ~U[2026-07-27 11:00:00Z]) | observed_at: nil}})
+
+    assert ProviderMeterProjection.provider_view(projection, :codex).state == :unknown
+  end
+
+  test "unrelated messages do not disturb the projection", %{projection: projection, pid: pid} do
+    send(pid, :some_unrelated_message)
+    send(pid, {:provider_meter_changed, %{provider: :nonsense}})
+
+    assert ProviderMeterProjection.provider_view(projection, :codex).state == :unknown
+    assert Process.alive?(pid)
+  end
+
+  test "exposes its provider set and backend" do
+    assert ProviderMeterProjection.providers() == [:codex, :claude]
+    assert ProviderMeterProjection.backend() == :app_server
+  end
+
+  # The default-arity reads resolve the app-supervised server rather than
+  # requiring every caller to thread one; the CLI and TUI rely on that.
+  test "it is supervisable and readable without a server argument" do
+    spec = ProviderMeterProjection.child_spec([])
+
+    assert spec.id == ProviderMeterProjection
+    assert spec.restart == :permanent
+
+    assert is_map(ProviderMeterProjection.snapshot())
+    assert ProviderMeterProjection.provider_view(:codex).provider == :codex
+    assert ProviderMeterProjection.redacted_snapshot(:codex).provider == :codex
+  end
+
+  test "an anonymous projection can run without a registered name" do
+    {:ok, pid} = ProviderMeterProjection.start_link(name: nil, subscribe?: false)
+
+    assert is_pid(pid)
+    assert ProviderMeterProjection.snapshot(pid).claude.state == :unknown
+
+    GenServer.stop(pid)
+  end
+
   test "an unavailable projection degrades to unknown rather than raising" do
     views = ProviderMeterProjection.snapshot(:"never_started_#{System.unique_integer([:positive])}")
 

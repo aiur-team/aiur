@@ -26,6 +26,24 @@ defmodule Aiur.ProviderMeterProbeTest do
     end
   end
 
+  defmodule ExplodingCloseAgent do
+    @moduledoc false
+
+    def start_session(_workspace, _opts) do
+      send(Process.get(:probe_test_pid), {:session_started, "usage-probe"})
+      {:ok, %{fake: true}}
+    end
+
+    def stop_session(_session), do: raise("close failed")
+  end
+
+  defmodule OddReturnAgent do
+    @moduledoc false
+
+    def start_session(_workspace, _opts), do: :something_unexpected
+    def stop_session(_session), do: :ok
+  end
+
   setup do
     projection = :"probe_proj_#{System.unique_integer([:positive])}"
     {:ok, pid} = start_supervised({ProviderMeterProjection, [name: projection, subscribe?: false]})
@@ -95,6 +113,28 @@ defmodule Aiur.ProviderMeterProbeTest do
     outcomes = ProviderMeterProbe.observe(:all, opts(ctx))
 
     assert Enum.map(outcomes, & &1.provider) == [:codex, :claude]
+  end
+
+  # A close that blows up must not turn the probe into a crash — the session is
+  # being abandoned either way.
+  test "a failing session close is contained", ctx do
+    assert [%{observed?: false}] = ProviderMeterProbe.observe(:codex, opts(ctx, codex_agent: ExplodingCloseAgent))
+  end
+
+  # An unexpected atom return is surfaced verbatim rather than flattened, so a
+  # new failure shape from the agent is diagnosable from the outcome alone.
+  test "an unexpected start_session return is reported, not read as success", ctx do
+    assert [%{observed?: false, reason: :something_unexpected}] =
+             ProviderMeterProbe.observe(:codex, opts(ctx, codex_agent: OddReturnAgent))
+  end
+
+  # Without an explicit workspace the probe derives one under the configured
+  # workspace root; the app-server rejects any cwd outside it.
+  test "a probe with no explicit workspace derives one under the workspace root", ctx do
+    outcome = ctx |> opts() |> Keyword.delete(:workspace) |> then(&ProviderMeterProbe.observe(:codex, &1))
+
+    assert [%{provider: :codex}] = outcome
+    assert_received {:session_started, "usage-probe"}
   end
 
   defp snapshot(provider) do

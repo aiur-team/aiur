@@ -44,6 +44,32 @@ defmodule Aiur.AgentControlCLIUsageTest do
     assert output =~ "1m ago"
   end
 
+  test "a window with no percentage is named unknown rather than drawn as zero", ctx do
+    send_observation(ctx.pid, :codex, ~U[2026-07-27 12:04:30Z], %{"session" => %{kind: :rate_limit, name: :primary}})
+
+    output = capture_io(fn -> AgentControlCLI.usage(ctx.projection) end)
+
+    assert output =~ "unknown"
+    refute output =~ "0%"
+  end
+
+  test "non-rate-limit windows are not reported as limits", ctx do
+    send_observation(ctx.pid, :codex, ~U[2026-07-27 12:04:00Z], %{"spend" => %{kind: :budget, used_percent: 90}})
+
+    output = capture_io(fn -> AgentControlCLI.usage(ctx.projection) end)
+
+    assert output =~ "no limit windows reported"
+    refute output =~ "90%"
+  end
+
+  test "ages scale from seconds through hours", ctx do
+    send_observation(ctx.pid, :claude, ~U[2026-07-27 12:04:45Z], %{"s" => window(10)})
+    assert capture_io(fn -> AgentControlCLI.usage(ctx.projection) end) =~ "15s ago"
+
+    send_observation(ctx.pid, :codex, ~U[2026-07-27 09:05:00Z], %{"s" => window(10)})
+    assert capture_io(fn -> AgentControlCLI.usage(ctx.projection) end) =~ "3h ago"
+  end
+
   test "the bar saturates rather than overflowing" do
     assert AgentControlCLI.usage_bar(0) == String.duplicate("░", 10)
     assert AgentControlCLI.usage_bar(100) == String.duplicate("█", 10)
