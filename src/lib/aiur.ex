@@ -169,6 +169,10 @@ defmodule Aiur.Application do
       # without a binding. Starts after the store so no accepted observation
       # is broadcast before there is anything retaining it.
       Aiur.ProviderMeterProjection,
+      # Decides when usage is observed: one baseline after boot, then only
+      # while agents are running. Starts after the projection so a baseline
+      # observation always has somewhere to land.
+      Aiur.ProviderMeterRefresh,
       Aiur.UsageLedger,
       # Owns the one destructive storage seam: retention/compaction of retired
       # raw usage. Starts after the raw ledger it reads but before the aggregate,

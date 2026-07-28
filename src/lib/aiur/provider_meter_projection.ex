@@ -75,9 +75,15 @@ defmodule Aiur.ProviderMeterProjection do
     :exit, _reason -> unknown_views()
   end
 
-  @doc "The projection for one provider. Never raises; unknown when unavailable."
-  @spec snapshot(GenServer.server(), provider()) :: view()
-  def snapshot(server, provider) when provider in @providers do
+  @doc """
+  The projection for one provider. Never raises; unknown when unavailable.
+
+  Deliberately not an arity overload of `snapshot/1`: a provider atom is also a
+  valid process name, so `snapshot(:codex)` would silently read a *server*
+  named `:codex` and return every provider's view instead of failing.
+  """
+  @spec provider_view(GenServer.server(), provider()) :: view()
+  def provider_view(server \\ __MODULE__, provider) when provider in @providers do
     server |> snapshot() |> Map.fetch!(provider)
   end
 

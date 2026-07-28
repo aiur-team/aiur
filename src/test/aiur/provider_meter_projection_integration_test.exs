@@ -59,7 +59,7 @@ defmodule Aiur.ProviderMeterProjectionIntegrationTest do
   end
 
   defp await_observed(projection, provider, attempts \\ 50) do
-    view = ProviderMeterProjection.snapshot(projection, provider)
+    view = ProviderMeterProjection.provider_view(projection, provider)
 
     cond do
       view.state == :observed -> view

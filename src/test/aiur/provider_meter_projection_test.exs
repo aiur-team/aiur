@@ -15,7 +15,7 @@ defmodule Aiur.ProviderMeterProjectionTest do
   end
 
   test "a provider with no observation reads as unknown, not as zero", %{projection: projection} do
-    view = ProviderMeterProjection.snapshot(projection, :claude)
+    view = ProviderMeterProjection.provider_view(projection, :claude)
 
     assert view.state == :unknown
     assert view.observed_at == nil
@@ -27,7 +27,7 @@ defmodule Aiur.ProviderMeterProjectionTest do
   test "an accepted observation becomes readable with its age", %{projection: projection, pid: pid} do
     send(pid, {:provider_meter_changed, snapshot(:claude, ~U[2026-07-27 11:58:00Z], %{"5h" => %{used_percent: 42}})})
 
-    view = ProviderMeterProjection.snapshot(projection, :claude)
+    view = ProviderMeterProjection.provider_view(projection, :claude)
 
     assert view.state == :observed
     assert view.observed_at == ~U[2026-07-27 11:58:00Z]
@@ -40,7 +40,7 @@ defmodule Aiur.ProviderMeterProjectionTest do
   test "an observation stays readable after its session ends", %{projection: projection, pid: pid} do
     send(pid, {:provider_meter_changed, snapshot(:codex, ~U[2026-07-27 11:00:00Z])})
 
-    view = ProviderMeterProjection.snapshot(projection, :codex)
+    view = ProviderMeterProjection.provider_view(projection, :codex)
 
     assert view.state == :observed
     assert view.age_seconds == 3_600
@@ -61,13 +61,13 @@ defmodule Aiur.ProviderMeterProjectionTest do
     send(pid, {:provider_meter_changed, snapshot(:claude, ~U[2026-07-27 11:59:00Z])})
     send(pid, {:provider_meter_changed, snapshot(:claude, ~U[2026-07-27 11:00:00Z])})
 
-    assert ProviderMeterProjection.snapshot(projection, :claude).observed_at == ~U[2026-07-27 11:59:00Z]
+    assert ProviderMeterProjection.provider_view(projection, :claude).observed_at == ~U[2026-07-27 11:59:00Z]
   end
 
   test "the projection carries no account generation", %{projection: projection, pid: pid} do
     send(pid, {:provider_meter_changed, snapshot(:claude, ~U[2026-07-27 11:59:00Z])})
 
-    view = ProviderMeterProjection.snapshot(projection, :claude)
+    view = ProviderMeterProjection.provider_view(projection, :claude)
 
     refute Map.has_key?(view, :provider_account_generation)
 
