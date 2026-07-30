@@ -35,6 +35,7 @@ defmodule Aiur.DecisionEvent do
     :enriched,
     :decision_expired,
     :decision_dismissed,
+    :decision_deferred,
     :answer_recorded,
     :revision_recorded,
     :dispatch_queued,
@@ -58,6 +59,7 @@ defmodule Aiur.DecisionEvent do
           | :enriched
           | :decision_expired
           | :decision_dismissed
+          | :decision_deferred
           | :answer_recorded
           | :revision_recorded
           | :dispatch_queued
@@ -249,6 +251,12 @@ defmodule Aiur.DecisionEvent do
   end
 
   defp normalize_data(:decision_dismissed, raw, _decision_id, _version, _trusted_provenance) when is_map(raw) do
+    with {:ok, actor} <- normalize_actor(get(raw, :actor)) do
+      {:ok, %{actor: actor}}
+    end
+  end
+
+  defp normalize_data(:decision_deferred, raw, _decision_id, _version, _trusted_provenance) when is_map(raw) do
     with {:ok, actor} <- normalize_actor(get(raw, :actor)) do
       {:ok, %{actor: actor}}
     end
@@ -487,6 +495,10 @@ defmodule Aiur.DecisionEvent do
   defp data_to_json_safe(:answer_recorded, %DecisionAnswer{} = answer), do: DecisionAnswer.to_json_safe(answer)
 
   defp data_to_json_safe(:decision_dismissed, data) do
+    %{"actor" => %{"kind" => Atom.to_string(data.actor.kind), "id" => data.actor.id}}
+  end
+
+  defp data_to_json_safe(:decision_deferred, data) do
     %{"actor" => %{"kind" => Atom.to_string(data.actor.kind), "id" => data.actor.id}}
   end
 

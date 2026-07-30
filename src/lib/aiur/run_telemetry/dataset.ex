@@ -379,7 +379,7 @@ defmodule Aiur.RunTelemetry.Dataset do
     schema_version = Map.get(decoded, "schema_version")
 
     cond do
-      schema_version != RunTelemetry.schema_version() ->
+      not supported_schema_version?(schema_version) ->
         {:warning,
          warning(:unsupported_schema, path, line_number, %{
            schema_version: schema_version
@@ -398,6 +398,11 @@ defmodule Aiur.RunTelemetry.Dataset do
         normalize_record(decoded, path, line_number)
     end
   end
+
+  defp supported_schema_version?(schema_version) when is_integer(schema_version),
+    do: schema_version in 1..RunTelemetry.schema_version()
+
+  defp supported_schema_version?(_schema_version), do: false
 
   defp missing_required_fields(decoded) do
     required = ~w(kind timestamp boot_id sequence record_id attributes)
@@ -734,6 +739,7 @@ defmodule Aiur.RunTelemetry.Dataset do
         {ticket,
          %{
            ticket: ticket,
+           complexity: dispatch_complexity(ticket_events),
            events: ticket_events,
            intervals: lifecycle_intervals(ticket_events),
            findings: Map.get(findings_by_ticket, ticket, [])
@@ -759,6 +765,7 @@ defmodule Aiur.RunTelemetry.Dataset do
           outcome: Map.get(attributes, "outcome"),
           command_class: Map.get(attributes, "command_class"),
           cause: Map.get(attributes, "cause"),
+          complexity: normalize_complexity(Map.get(attributes, "complexity")),
           source: Map.get(attributes, "source"),
           source_id: Map.get(attributes, "source_id"),
           timestamp: record.timestamp_iso,
@@ -772,6 +779,24 @@ defmodule Aiur.RunTelemetry.Dataset do
     else
       _other -> []
     end
+  end
+
+  defp normalize_complexity(value) when is_integer(value) and value in 1..5, do: value
+
+  defp normalize_complexity(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {value, ""} when value in 1..5 -> value
+      _other -> nil
+    end
+  end
+
+  defp normalize_complexity(_value), do: nil
+
+  defp dispatch_complexity(events) do
+    Enum.find_value(events, fn
+      %{event: "dispatch", complexity: complexity} when is_integer(complexity) -> complexity
+      _event -> nil
+    end)
   end
 
   defp lifecycle_intervals(events) do
@@ -847,6 +872,7 @@ defmodule Aiur.RunTelemetry.Dataset do
       attempt_id: event.attempt_id,
       operation_id: event.operation_id,
       command_class: event.command_class,
+      complexity: event.complexity,
       cause: event.cause,
       source_id: event.source_id,
       start_at: event.timestamp,

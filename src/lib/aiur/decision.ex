@@ -36,7 +36,7 @@ defmodule Aiur.Decision do
       runtime/session context when this Decision version was accepted.
     * `content_hash` — hash of the normalized payload (excludes
       `decision_id`/`version`/`created_at`), used for dedup/idempotency.
-    * `decision_status` — `:open | :expired | :dismissed | :decided | :acknowledged | :resolved`.
+    * `decision_status` — `:open | :deferred | :expired | :dismissed | :decided | :acknowledged | :resolved`.
     * `delivery_status` — transport evidence, independent of decision state.
     * `answer` — the immutable original accepted `Aiur.DecisionAnswer`, or `nil`.
     * `active_action_id` — the original answer action or newest revision action.
@@ -64,7 +64,7 @@ defmodule Aiur.Decision do
 
   @type artifact :: %{kind: :path | :url, value: String.t()}
   @type legacy_attention :: %{slug: String.t(), topic: String.t()}
-  @type decision_status :: :open | :expired | :dismissed | :decided | :acknowledged | :resolved
+  @type decision_status :: :open | :deferred | :expired | :dismissed | :decided | :acknowledged | :resolved
   @type delivery_status :: :not_dispatched | :pending | :queued | :delivered | :consumed | :failed
   @type revision_result :: :recorded | :dispatched | :no_longer_applicable
 

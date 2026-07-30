@@ -6,7 +6,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
 
   import Phoenix.Component, only: [assign: 3]
 
-  alias Aiur.{DecisionAttention, DecisionStore, Issue, Orchestrator}
+  alias Aiur.{DecisionAttention, DecisionStore, ExecutorEvents, Issue}
   alias AiurWeb.Endpoint
   alias Phoenix.LiveView.Socket
 
@@ -30,23 +30,11 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
     end
   end
 
-  @spec dismiss(Socket.t(), String.t(), reload_fun()) :: Socket.t()
-  def dismiss(socket, decision_id, reload_fun) when is_function(reload_fun, 1) do
+  @spec defer(Socket.t(), String.t(), reload_fun()) :: Socket.t()
+  def defer(socket, decision_id, reload_fun) when is_function(reload_fun, 1) do
     case selected_open_decision(socket, decision_id) do
       {:ok, decision} ->
-        result = safe_dismiss(decision_id)
-
-        if match?({:ok, %{status: :accepted}}, result) do
-          resolve_legacy_attention(decision)
-          notify_dismissal(decision)
-        end
-
-        socket = reload_fun.(socket)
-
-        case result do
-          {:ok, accepted} -> put_notice(socket, decision_id, dismiss_notice(accepted))
-          {:error, reason} -> put_error(socket, decision_id, command_error(reason))
-        end
+        defer_selected(socket, decision_id, decision, reload_fun)
 
       :error ->
         put_error(reload_fun.(socket), decision_id, "This Command is no longer open.")
@@ -108,13 +96,14 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   end
 
   defp selected_open_decision(
-         %{assigns: %{selected_decision: %{decision_id: decision_id, decision_status: :open} = decision}},
+         %{assigns: %{selected_decision: %{decision_id: decision_id, decision_status: status} = decision}},
          decision_id
-       ),
+       )
+       when status in [:open, :deferred],
        do: {:ok, decision}
 
   defp selected_open_decision(%{assigns: %{decisions: decisions}}, decision_id) when is_list(decisions) do
-    case Enum.find(decisions, &(&1.decision_id == decision_id and &1.decision_status in [:open, :dismissed])) do
+    case Enum.find(decisions, &(&1.decision_id == decision_id and &1.decision_status in [:open, :deferred, :dismissed])) do
       nil -> :error
       decision -> {:ok, decision}
     end
@@ -125,7 +114,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
          decision_id
        )
        when is_list(decisions) do
-    case Enum.find(decisions, &(&1.decision_id == decision_id and &1.decision_status in [:open, :dismissed])) do
+    case Enum.find(decisions, &(&1.decision_id == decision_id and &1.decision_status in [:open, :deferred, :dismissed])) do
       nil -> :error
       decision -> {:ok, decision}
     end
@@ -178,10 +167,34 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
     :exit, _reason -> {:error, :store_unavailable}
   end
 
-  defp safe_dismiss(decision_id) do
-    DecisionStore.dismiss(decision_id, [actor: actor()], decision_store())
+  defp safe_defer(decision_id) do
+    DecisionStore.defer(decision_id, [actor: actor()], decision_store())
   catch
     :exit, _reason -> {:error, :store_unavailable}
+  end
+
+  defp defer_selected(socket, decision_id, decision, reload_fun) do
+    # An already-deferred decision means the operator clicked "Notify Executor
+    # again": force a fresh Exchange publish past the journal dedup.
+    renotify? = decision.decision_status == :deferred
+    result = safe_defer(decision_id)
+    socket = reload_fun.(socket)
+    defer_result(socket, decision_id, decision, result, renotify?)
+  end
+
+  defp defer_result(socket, decision_id, decision, {:ok, %{decision: deferred} = accepted}, renotify?) do
+    case ExecutorEvents.publish_deferred(deferred, renotify: renotify?) do
+      {:ok, _event_id, _subscribers} ->
+        resolve_legacy_attention(decision)
+        put_notice(socket, decision_id, defer_notice(accepted))
+
+      {:error, _reason} ->
+        put_error(socket, decision_id, "The Command is deferred, but the Executor notification failed. Retry the notification.")
+    end
+  end
+
+  defp defer_result(socket, decision_id, _decision, {:error, reason}, _renotify?) do
+    put_error(socket, decision_id, command_error(reason))
   end
 
   defp resolve_legacy_attention(%{legacy_attention: %{slug: slug}, ticket: ticket}) when is_binary(slug) do
@@ -192,21 +205,6 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   end
 
   defp resolve_legacy_attention(_decision), do: :ok
-
-  defp notify_dismissal(decision) do
-    Orchestrator.send_operator_message(orchestrator(), decision.ticket.identifier, %{
-      kind: :text,
-      body: dismissal_text(),
-      delivery_policy: :interrupt,
-      fallback: :queue_next
-    })
-  catch
-    :exit, _reason -> {:error, :orchestrator_unavailable}
-  end
-
-  defp dismissal_text do
-    "The operator dismissed this decision. Proceed with your best judgement per the aiur-agent skill, then record decision.resolved."
-  end
 
   defp safe_retry_dispatch(decision_id, action_id) do
     DecisionStore.retry_dispatch(decision_id, action_id, decision_store())
@@ -290,8 +288,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
 
   defp answer_notice(_accepted), do: "Answer recorded. Durable dispatch is pending."
 
-  defp dismiss_notice(%{status: :duplicate}), do: "This Command was already dismissed."
-  defp dismiss_notice(_accepted), do: "Command dismissed. The live agent was told to use its best judgement."
+  defp defer_notice(%{status: :duplicate}), do: "This Command is already deferred to the Executor."
+  defp defer_notice(_accepted), do: "Command deferred to the Executor. It remains available for an answer."
 
   defp retry_notice(:scheduled), do: "A durable delivery retry was scheduled."
   defp retry_notice(:already_dispatching), do: "A delivery attempt is already in progress."
@@ -331,5 +329,4 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
 
   defp decision_store, do: Endpoint.config(:decision_store) || DecisionStore
   defp decision_attention, do: Endpoint.config(:decision_attention) || DecisionAttention
-  defp orchestrator, do: Endpoint.config(:orchestrator) || Orchestrator
 end

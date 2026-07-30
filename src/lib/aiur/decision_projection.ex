@@ -262,6 +262,14 @@ defmodule Aiur.DecisionProjection do
     {:ok, decision}
   end
 
+  defp transition(%Decision{decision_status: :open} = decision, %DecisionEvent{type: :decision_deferred}) do
+    {:ok, %{decision | decision_status: :deferred, delivery_status: :not_dispatched}}
+  end
+
+  defp transition(%Decision{decision_status: :deferred} = decision, %DecisionEvent{type: :decision_deferred}) do
+    {:ok, decision}
+  end
+
   defp transition(%Decision{decision_status: :open} = decision, %DecisionEvent{type: :decision_expired}) do
     {:ok, %{decision | decision_status: :expired, delivery_status: :not_dispatched}}
   end

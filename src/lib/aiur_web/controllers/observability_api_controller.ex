@@ -5,14 +5,20 @@ defmodule AiurWeb.ObservabilityApiController do
 
   use Phoenix.Controller, formats: [:json]
 
+  alias Aiur.AgentEventFeed
   alias Aiur.Claude.HookEvents
   alias Aiur.Orchestrator
-  alias AiurWeb.{Endpoint, Presenter}
+  alias AiurWeb.{Endpoint, Presenter, StreamDeckGrid}
   alias Plug.Conn
 
   @spec state(Conn.t(), map()) :: Conn.t()
   def state(conn, _params) do
     json(conn, Presenter.state_payload(orchestrator(), snapshot_timeout_ms()))
+  end
+
+  @spec streamdeck_grid(Conn.t(), map()) :: Conn.t()
+  def streamdeck_grid(conn, _params) do
+    json(conn, StreamDeckGrid.payload(orchestrator(), snapshot_timeout_ms()))
   end
 
   @spec issue(Conn.t(), map()) :: Conn.t()
@@ -23,6 +29,16 @@ defmodule AiurWeb.ObservabilityApiController do
 
       {:error, :issue_not_found} ->
         error_response(conn, 404, "issue_not_found", "Issue not found")
+    end
+  end
+
+  @spec events(Conn.t(), map()) :: Conn.t()
+  def events(conn, %{"issue_identifier" => issue_identifier} = params) do
+    case AgentEventFeed.list(issue_identifier, Map.drop(params, ["issue_identifier"])) do
+      {:ok, payload} -> json(conn, payload)
+      {:error, :invalid_limit} -> error_response(conn, 422, "invalid_limit", "limit must be an integer from 1 to 50")
+      {:error, :invalid_cursor} -> error_response(conn, 422, "invalid_cursor", "cursor must be a non-negative integer")
+      {:error, _reason} -> error_response(conn, 503, "events_unavailable", "Event feed is unavailable")
     end
   end
 
@@ -46,6 +62,26 @@ defmodule AiurWeb.ObservabilityApiController do
     issue_identifier
     |> send_operator_message(text)
     |> render_send_message_response(conn, issue_identifier)
+  end
+
+  @doc """
+  Pause or resume an agent through the orchestrator control API.
+
+  Prioritizing an agent is intentionally out of scope: Aiur has no
+  server-side queue-priority state to expose or mutate.
+  """
+  @spec pause(Conn.t(), map()) :: Conn.t()
+  def pause(conn, %{"issue_identifier" => issue_identifier}) do
+    issue_identifier
+    |> pause_agent()
+    |> render_control_response(conn, issue_identifier, :pause)
+  end
+
+  @spec resume(Conn.t(), map()) :: Conn.t()
+  def resume(conn, %{"issue_identifier" => issue_identifier}) do
+    issue_identifier
+    |> resume_agent()
+    |> render_control_response(conn, issue_identifier, :resume)
   end
 
   # Opencode Ctrl+C bridge. The tmux key binding POSTs the pane id here;
@@ -130,6 +166,12 @@ defmodule AiurWeb.ObservabilityApiController do
     Orchestrator.send_operator_message(orchestrator(), issue_identifier, %{kind: :text, body: text})
   end
 
+  defp pause_agent(issue_identifier),
+    do: Orchestrator.pause_agent(orchestrator(), issue_identifier)
+
+  defp resume_agent(issue_identifier),
+    do: Orchestrator.resume_agent(orchestrator(), issue_identifier)
+
   defp render_send_message_response({:ok, request_id}, conn, issue_identifier) do
     conn
     |> put_status(202)
@@ -151,4 +193,41 @@ defmodule AiurWeb.ObservabilityApiController do
   defp render_send_message_response({:error, reason}, conn, _issue_identifier) do
     error_response(conn, 503, "send_failed", inspect(reason))
   end
+
+  defp render_control_response({:ok, result}, conn, issue_identifier, action) do
+    conn
+    |> put_status(202)
+    |> json(%{
+      action: Atom.to_string(action),
+      issue_identifier: issue_identifier,
+      result: control_result(result)
+    })
+  end
+
+  defp render_control_response({:error, :no_running_agent}, conn, _issue_identifier, _action) do
+    error_response(conn, 409, "agent_not_running", "Agent is not currently running")
+  end
+
+  defp render_control_response({:error, :invalid_identifier}, conn, _issue_identifier, _action) do
+    error_response(conn, 422, "invalid_identifier", "Issue identifier is invalid")
+  end
+
+  defp render_control_response({:error, reason}, conn, _issue_identifier, _action)
+       when reason in [
+              :already_inactive,
+              :control_request_conflict,
+              :max_concurrent_agents_reached,
+              :not_resumable,
+              :globally_paused,
+              :stale_generation
+            ] do
+    error_response(conn, 409, "control_conflict", inspect(reason))
+  end
+
+  defp render_control_response({:error, reason}, conn, _issue_identifier, _action) do
+    error_response(conn, 503, "control_failed", inspect(reason))
+  end
+
+  defp control_result(result) when is_atom(result), do: Atom.to_string(result)
+  defp control_result(result), do: result
 end

@@ -117,6 +117,20 @@ browser count, with bounded retained roots and provider work. Restart clears all
 ticket detail, ticket history, and graph snapshots remain unavailable until fresh provider
 evidence succeeds.
 
+## Project layout
+
+Aiur's Elixir application lives in `src/`. Node packages are standalone projects under
+`packages/`, so each package owns its own manifest and lockfile. The Stream Deck package is
+currently a scaffold; build it with:
+
+```bash
+cd packages/streamdeck
+npm ci
+npm run lint
+npm test
+npm run build
+```
+
 ## Running Aiur
 
 Aiur works best in codebases with clear setup instructions, automated validation, and workflow

@@ -315,7 +315,8 @@ When `server.port` (or CLI `--port`) is set, Aiur exposes:
 - Read-only telemetry analytics at `/analytics` when the current run has a
   `telemetry.ndjson` input; this route uses the same dashboard basic auth,
   reducer, and self-contained renderer as the CLI artifact and is served with
-  `Cache-Control: no-store`
+  `Cache-Control: no-store`. Drag across any time chart to zoom the five
+  time-series charts together; use Reset to return to the full selected range.
 
 ### Supervisor Decision API
 
