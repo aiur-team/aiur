@@ -5,14 +5,20 @@ defmodule AiurWeb.ObservabilityApiController do
 
   use Phoenix.Controller, formats: [:json]
 
+  alias Aiur.AgentEventFeed
   alias Aiur.Claude.HookEvents
   alias Aiur.Orchestrator
-  alias AiurWeb.{Endpoint, Presenter}
+  alias AiurWeb.{Endpoint, Presenter, StreamDeckGrid}
   alias Plug.Conn
 
   @spec state(Conn.t(), map()) :: Conn.t()
   def state(conn, _params) do
     json(conn, Presenter.state_payload(orchestrator(), snapshot_timeout_ms()))
+  end
+
+  @spec streamdeck_grid(Conn.t(), map()) :: Conn.t()
+  def streamdeck_grid(conn, _params) do
+    json(conn, StreamDeckGrid.payload(orchestrator(), snapshot_timeout_ms()))
   end
 
   @spec issue(Conn.t(), map()) :: Conn.t()
@@ -23,6 +29,16 @@ defmodule AiurWeb.ObservabilityApiController do
 
       {:error, :issue_not_found} ->
         error_response(conn, 404, "issue_not_found", "Issue not found")
+    end
+  end
+
+  @spec events(Conn.t(), map()) :: Conn.t()
+  def events(conn, %{"issue_identifier" => issue_identifier} = params) do
+    case AgentEventFeed.list(issue_identifier, Map.drop(params, ["issue_identifier"])) do
+      {:ok, payload} -> json(conn, payload)
+      {:error, :invalid_limit} -> error_response(conn, 422, "invalid_limit", "limit must be an integer from 1 to 50")
+      {:error, :invalid_cursor} -> error_response(conn, 422, "invalid_cursor", "cursor must be a non-negative integer")
+      {:error, _reason} -> error_response(conn, 503, "events_unavailable", "Event feed is unavailable")
     end
   end
 

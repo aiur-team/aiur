@@ -4,8 +4,7 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
   import Plug.Conn
   import Plug.Test
 
-  alias Aiur.Claude.HookEvents
-  alias Aiur.DecisionStore
+  alias Aiur.{Claude.HookEvents, DecisionStore, IssueLog}
 
   defmodule ControlOrchestrator do
     use GenServer
@@ -121,6 +120,16 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
         :ets.delete(AiurWeb.Endpoint, key)
       else
         Phoenix.Config.put(AiurWeb.Endpoint, key, previous_value)
+      end
+    end
+  end
+
+  defp config_change_if_running(changed) do
+    if Process.whereis(AiurWeb.Endpoint) do
+      try do
+        AiurWeb.Endpoint.config_change(changed, [])
+      rescue
+        ArgumentError -> :ok
       end
     end
   end
@@ -273,6 +282,73 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
     end
   end
 
+  test "GET /api/v1/:issue_identifier/events returns a bounded durable feed" do
+    original_log_file = Application.get_env(:aiur, :log_file)
+    tmp = Path.join(System.tmp_dir!(), "aiur-events-api-#{System.unique_integer([:positive])}")
+    Application.put_env(:aiur, :log_file, Path.join(tmp, "log/aiur.log"))
+
+    on_exit(fn ->
+      if original_log_file, do: Application.put_env(:aiur, :log_file, original_log_file), else: Application.delete_env(:aiur, :log_file)
+      File.rm_rf!(tmp)
+    end)
+
+    identifier = "events-api"
+    path = IssueLog.transcript_path(identifier)
+    File.mkdir_p!(Path.dirname(path))
+
+    File.write!(
+      path,
+      Jason.encode!(%{"role" => "assistant", "body" => "ready", "timestamp" => "2026-07-30T00:00:00Z", "payload" => nil}) <> "\n"
+    )
+
+    conn = call(conn(:get, "/api/v1/#{identifier}/events?limit=1"))
+    assert conn.status == 200
+    assert %{"events" => [%{"badge" => "AGENT", "body" => "ready"}], "pagination" => %{"limit" => 1}} = Jason.decode!(conn.resp_body)
+
+    invalid = call(conn(:get, "/api/v1/#{identifier}/events?cursor=not-a-cursor"))
+    assert invalid.status == 422
+    assert Jason.decode!(invalid.resp_body)["error"]["code"] == "invalid_cursor"
+  end
+
+  test "GET /api/v1/streamdeck/grid returns the grid projection" do
+    conn = call(conn(:get, "/api/v1/streamdeck/grid"))
+
+    assert conn.status == 200
+
+    payload = Jason.decode!(conn.resp_body)
+
+    assert is_list(payload["agents"])
+    assert is_integer(payload["total"])
+    assert payload["columns_per_page"] == 4
+    assert payload["rows_per_column"] == 2
+    assert payload["agents_per_page"] == 8
+  end
+
+  test "GET /api/v1/streamdeck/grid uses the sibling read auth pipeline" do
+    previous_username = System.get_env("AIUR_DASHBOARD_USERNAME")
+    previous_password = System.get_env("AIUR_DASHBOARD_PASSWORD")
+
+    on_exit(fn ->
+      config_change_if_running(dashboard_auth_required: false)
+      restore_env("AIUR_DASHBOARD_USERNAME", previous_username)
+      restore_env("AIUR_DASHBOARD_PASSWORD", previous_password)
+    end)
+
+    System.put_env("AIUR_DASHBOARD_USERNAME", "streamdeck-user")
+    System.put_env("AIUR_DASHBOARD_PASSWORD", "streamdeck-password")
+    AiurWeb.Endpoint.config_change([dashboard_auth_required: true], [])
+
+    assert call(conn(:get, "/api/v1/streamdeck/grid")).status == 401
+
+    authorized_conn =
+      :get
+      |> conn("/api/v1/streamdeck/grid")
+      |> put_req_header("authorization", "Basic " <> Base.encode64("streamdeck-user:streamdeck-password"))
+      |> call()
+
+    assert authorized_conn.status == 200
+  end
+
   defp install_decision_history!(count) do
     original_state = :sys.get_state(DecisionStore)
 
@@ -289,6 +365,9 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
       _pid -> :sys.replace_state(DecisionStore, fn _state -> original_state end)
     end
   end
+
+  defp restore_env(key, nil), do: System.delete_env(key)
+  defp restore_env(key, value), do: System.put_env(key, value)
 
   defp decision_histories(count) do
     %{

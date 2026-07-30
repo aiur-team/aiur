@@ -1674,7 +1674,9 @@ defmodule Aiur.OrchestratorStatusTest do
                attempt: 2,
                due_in_ms: due_in_ms,
                identifier: "MT-500",
-               error: "agent exited: :boom"
+               error: "agent exited: :boom",
+               priority: nil,
+               progress_percent: 0
              }
            ] = snapshot.retrying
 

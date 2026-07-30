@@ -677,7 +677,7 @@ defmodule Aiur.AgentRunnerTest do
              ]
     end
 
-    test "includes unaddressed review threads even before the latest workpad handoff" do
+    test "excludes unaddressed review threads from before the latest workpad handoff" do
       issue = %Aiur.Issue{id: "35", identifier: "35", title: "Resume comments"}
 
       fetchers = %{
@@ -727,7 +727,7 @@ defmodule Aiur.AgentRunnerTest do
       events = AgentRunner.current_comment_context_events_for_test(issue, fetchers)
       summaries = Enum.map(events, & &1.summary)
 
-      assert "old unresolved review directive" in summaries
+      refute "old unresolved review directive" in summaries
       refute "old flat inline directive" in summaries
     end
 

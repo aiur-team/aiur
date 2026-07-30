@@ -1571,7 +1571,7 @@ defmodule Aiur.DecisionStore do
     topic = "ticket.#{decision.ticket.identifier}.agent.decision.#{lifecycle_slug(event.type)}"
 
     try do
-      Publisher.publish_persisted(topic, DecisionEvent.to_json_safe(event), cursor_event_id)
+      Publisher.publish_persisted(topic, DecisionEvent.to_json_safe(event), cursor_event_id, digest_source: :orchestrator)
     rescue
       error -> Logger.warning("aiur_decision_store phase=lifecycle_publisher_failed error=#{Exception.message(error)}")
     end
@@ -2870,7 +2870,7 @@ defmodule Aiur.DecisionStore do
     payload = DecisionProjection.to_json_safe(decision)
 
     try do
-      Publisher.publish_persisted(topic, payload, event_id)
+      Publisher.publish_persisted(topic, payload, event_id, digest_source: :orchestrator)
     rescue
       error -> Logger.warning("aiur_decision_store phase=notify_publisher_failed error=#{Exception.message(error)}")
     end
