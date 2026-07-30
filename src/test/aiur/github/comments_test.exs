@@ -95,6 +95,17 @@ defmodule Aiur.GitHub.CommentsTest do
     end
   end
 
+  test "conditionally skips an unchanged repo-wide command stream" do
+    request_fun = fn %{method: :get, etag: etag, url: url} ->
+      assert url =~ "/pulls/comments"
+      assert etag == ~s("scan-etag")
+      {:ok, %{status: 304, headers: [{"etag", ~s("scan-etag")}]}}
+    end
+
+    assert {:not_modified, ~s("scan-etag")} =
+             Comments.fetch_recent_repo_review_comments_conditional(etag: ~s("scan-etag"), request_fun: request_fun)
+  end
+
   describe "comment_query/1" do
     test "builds query string with defaults" do
       query = Comments.comment_query([])

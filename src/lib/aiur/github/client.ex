@@ -130,9 +130,17 @@ defmodule Aiur.GitHub.Client do
           {:ok, [map()]} | {:error, term()}
   def fetch_recent_repo_review_comments(opts \\ []), do: Comments.fetch_recent_repo_review_comments(opts)
 
+  @spec fetch_recent_repo_review_comments_conditional(keyword()) ::
+          {:ok, [map()], String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
+  def fetch_recent_repo_review_comments_conditional(opts \\ []), do: Comments.fetch_recent_repo_review_comments_conditional(opts)
+
   @spec fetch_recent_repo_issue_comments(keyword()) ::
           {:ok, [map()]} | {:error, term()}
   def fetch_recent_repo_issue_comments(opts \\ []), do: Comments.fetch_recent_repo_issue_comments(opts)
+
+  @spec fetch_recent_repo_issue_comments_conditional(keyword()) ::
+          {:ok, [map()], String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
+  def fetch_recent_repo_issue_comments_conditional(opts \\ []), do: Comments.fetch_recent_repo_issue_comments_conditional(opts)
 
   @spec fetch_issue_comments(String.t() | integer(), keyword()) ::
           {:ok, [map()]} | {:error, term()}
