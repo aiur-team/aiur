@@ -1,9 +1,10 @@
-.PHONY: help all setup deps build fmt fmt-check lint test coverage ci dialyzer e2e regression
+.PHONY: help all setup deps build fmt fmt-check lint test coverage coverage-partition coverage-report ci dialyzer e2e regression
 
 MIX ?= mix
+TEST_PARTITIONS ?= 4
 
 help:
-	@echo "Targets: setup, deps, fmt, fmt-check, lint, test, coverage, dialyzer, e2e, regression, ci"
+	@echo "Targets: setup, deps, fmt, fmt-check, lint, test, coverage, coverage-partition, coverage-report, dialyzer, e2e, regression, ci"
 
 setup:
 	$(MIX) setup
@@ -26,8 +27,14 @@ lint:
 coverage:
 	$(MIX) test --cover
 
+coverage-partition:
+	$(MIX) test --cover --partitions $(TEST_PARTITIONS)
+
 test:
 	$(MIX) test
+
+coverage-report:
+	$(MIX) test.coverage
 
 dialyzer:
 	$(MIX) deps.get
