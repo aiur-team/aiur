@@ -3,27 +3,32 @@ defmodule Aiur.Events.Sanitizer do
   alias Aiur.SecretRedactor
 
   @moduledoc """
-  Four-layer scrub of GitHub-sourced event payloads before they reach
+  Six-layer scrub of GitHub-sourced event payloads before they reach
   any consumer (per-issue log, dashboard panel, agent digest):
 
-    1. **Truncation** — bound user-content fields so a 50KB commit
-       comment doesn't bloat every downstream surface. Commit subjects
-       ≤ 200 chars; comment / PR-review bodies ≤ 500 chars; overflow
-       trimmed at the nearest codepoint boundary and suffixed with `…`.
+    1. **Instruction-carrier stripping** — zero-width / invisible Unicode,
+       HTML comments, and large base64 blobs are removed before persistence.
+       This is a first line of defense only; least-privilege credentials and
+       the human merge gate are the durable controls against irreversible
+       effects from hostile text.
     2. **Secret-pattern redaction** — well-known credential prefixes
        (sk-, ghp_, xoxb-, github_pat_, gho_/ghu_/ghs_, AWS access keys,
        generic Stripe / Google API keys, JWT tokens) replaced with
        `[REDACTED:<pattern>]` BEFORE truncation runs, so the redacted
        match never straddles the truncation boundary.
-    3. **HTML escape** — `<`, `>`, `&`, `"`, `'` escaped to entity refs
+    3. **Truncation** — bound user-content fields so a 50KB commit
+       comment doesn't bloat every downstream surface. Commit subjects
+       ≤ 200 chars; comment / PR-review bodies ≤ 500 chars; overflow
+       trimmed at the nearest codepoint boundary and suffixed with `…`.
+    4. **HTML escape** — `<`, `>`, `&`, `"`, `'` escaped to entity refs
        so a comment body containing `</external-content>` can't break
        out of the wrapper the digest renderer adds at presentation
        time.
-    4. **CODEOWNERS trust flag** — `author_trusted?` boolean added to
+    5. **CODEOWNERS trust flag** — `author_trusted?` boolean added to
        the payload based on `Aiur.GitHub.CodeOwners.allowed?/1`. Events
        from non-CODEOWNERS authors stay visible to the Executor (log +
        dashboard) but the agent-digest renderer skips them.
-    5. **`<external-content>` wrapper** — applied at render time
+    6. **`<external-content>` wrapper** — applied at render time
        (see `Aiur.AgentRunner.render_events_digest/2`); not part of
        this pure module because the wrap is a presentation concern.
 
@@ -52,9 +57,12 @@ defmodule Aiur.Events.Sanitizer do
   @commit_subject_max 200
   @comment_body_max 500
   @pr_review_body_max 500
+  @invisible_unicode ~r/[\x{00AD}\x{034F}\x{061C}\x{180E}\x{200B}-\x{200F}\x{202A}-\x{202E}\x{2060}-\x{206F}\x{FE00}-\x{FE0F}\x{FEFF}\x{E0001}-\x{E007F}\x{E0100}-\x{E01EF}]/u
+  @html_comment ~r/<!--.*?(?:-->|$)/s
+  @large_base64_candidate ~r/(?:[A-Za-z0-9+\/_-]{4}[\r\n]*){32,}(?:[A-Za-z0-9+\/_-]{2,3}|==|=)?/
 
   @doc """
-  Apply the redact-then-truncate-then-escape pass over a payload's
+  Apply the strip-then-redact-truncate-escape pass over a payload's
   GitHub-sourced user-content fields. Returns the sanitized payload.
   Idempotent.
   """
@@ -207,18 +215,60 @@ defmodule Aiur.Events.Sanitizer do
     end
   end
 
-  # Single per-string pipeline: redact secrets, truncate to the field's
+  # Single per-string pipeline: strip known hidden-instruction carriers,
+  # redact secrets, truncate to the field's
   # cap at a codepoint boundary, then HTML-escape so the rendered digest
   # can safely embed the content inside `<external-content>…</external-content>`
   # without an attacker breaking out via `</external-content>`.
   defp clean(text, field) when is_binary(text) do
     text
+    |> strip_instruction_carriers()
     |> redact()
     |> truncate(field)
     |> html_escape()
   end
 
   defp redact(text) when is_binary(text), do: SecretRedactor.redact(text)
+
+  defp strip_instruction_carriers(text) do
+    text
+    |> String.replace(@invisible_unicode, "")
+    |> String.replace(@html_comment, "")
+    |> String.replace(@large_base64_candidate, &strip_large_base64_candidate/1)
+  end
+
+  defp strip_large_base64_candidate(candidate) do
+    if base64_blob?(candidate), do: "[STRIPPED:base64]", else: candidate
+  end
+
+  # A long run of one alphanumeric character is not a base64 carrier. Require
+  # an encoding marker or the case-diverse alphabet expected of an encoded blob
+  # before removing it so ordinary long prose and truncation behavior remain
+  # intact.
+  defp base64_blob?(candidate) do
+    normalized = String.replace(candidate, ~r/\s/, "")
+    diversity = base64_character_diversity(normalized)
+    url_safe_markers = Regex.scan(~r/[-_]/, normalized) |> length()
+
+    base64_encoded?(normalized) and
+      (normalized =~ ~r/[+\/=]/ or
+         url_safe_markers >= 2 or
+         (url_safe_markers == 0 and normalized =~ ~r/[A-Z]/ and normalized =~ ~r/[a-z]/ and diversity >= 12))
+  end
+
+  defp base64_character_diversity(candidate), do: candidate |> String.graphemes() |> MapSet.new() |> MapSet.size()
+
+  defp base64_encoded?(candidate) do
+    Enum.any?(
+      [
+        fn -> Base.decode64(candidate) end,
+        fn -> Base.decode64(candidate, padding: false) end,
+        fn -> Base.url_decode64(candidate) end,
+        fn -> Base.url_decode64(candidate, padding: false) end
+      ],
+      &match?({:ok, _}, &1.())
+    )
+  end
 
   defp truncate(text, :commit_subject), do: codepoint_truncate(text, @commit_subject_max)
   defp truncate(text, :comment_body), do: codepoint_truncate(text, @comment_body_max)

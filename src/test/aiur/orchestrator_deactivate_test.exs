@@ -4514,6 +4514,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
                       %{
                         topic: "ticket.733.pr.review_comment",
                         source: :github,
+                        author_trusted?: true,
                         message: "/aiur fix the nil case",
                         issue_number: "733"
                       }},

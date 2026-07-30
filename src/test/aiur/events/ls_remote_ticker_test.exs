@@ -114,6 +114,7 @@ defmodule Aiur.Events.LsRemoteTickerTest do
     assert_receive :polled, 500
 
     assert_receive {:published, "ticket.99.branch.push", payload, opts}, 500
+    assert payload.source == :system
     assert payload.ref == ref_a
     assert payload.sha == "sha2"
     assert payload.repo == "owner/aiur"
