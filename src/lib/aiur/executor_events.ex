@@ -16,18 +16,39 @@ defmodule Aiur.ExecutorEvents do
   alias Aiur.Events.Exchange
   alias Aiur.Events.IdGenerator
   alias Aiur.Events.Publisher
+  alias Aiur.Events.Sanitizer
   alias Aiur.Events.Topic
   alias Aiur.JSONSafe
   alias Aiur.JsonStore
 
   @default_topic "executor.#"
 
-  @spec publish_deferred(Decision.t()) :: {:ok, pos_integer(), non_neg_integer()} | {:error, term()}
-  def publish_deferred(%Decision{} = decision) do
+  @doc """
+  Publish an `executor.decision.deferred` event for a decision.
+
+  The decision_id dedup gates only the journal append: a repeat call for an
+  already-journaled decision is a no-op returning the cached event id. An
+  explicit `renotify: true` (the dashboard's "Notify Executor again") always
+  publishes a fresh event — new event id, same decision_id, `renotify: true`
+  attribute — so listeners whose cursor already passed the original id are
+  woken again.
+  """
+  @spec publish_deferred(Decision.t(), keyword()) :: {:ok, pos_integer(), non_neg_integer()} | {:error, term()}
+  def publish_deferred(%Decision{} = decision, opts \\ []) do
+    renotify? = Keyword.get(opts, :renotify, false)
+
     case deferred_event_id(decision.decision_id) do
-      {:ok, id} -> {:ok, id, 0}
-      :not_found -> publish("executor.decision.deferred", deferred_payload(decision), source: :internal)
-      {:error, reason} -> {:error, reason}
+      {:ok, _id} when renotify? ->
+        publish("executor.decision.deferred", deferred_payload(decision, true), source: :internal)
+
+      {:ok, id} ->
+        {:ok, id, 0}
+
+      :not_found ->
+        publish("executor.decision.deferred", deferred_payload(decision, false), source: :internal)
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -121,10 +142,42 @@ defmodule Aiur.ExecutorEvents do
     id = Map.get(event, :id) || Map.get(event, "id")
 
     if not is_integer(id) or id > (last_seen_event_id() || 0) do
-      IO.puts(Jason.encode!(event))
+      IO.puts(Jason.encode!(scrub_untrusted_output(event)))
       advance_cursor(id)
     end
   end
+
+  # Deferred payloads carry agent-authored free text (title/options/context)
+  # whose provenance includes GitHub content. Before the JSON line reaches the
+  # Executor session, run the Sanitizer's instruction-carrier strip pass over
+  # those fields and name them in a top-level "untrusted_fields" key so the
+  # consumer treats them as data, not instructions.
+  @untrusted_deferred_fields ~w(title options context)
+
+  @doc false
+  @spec scrub_untrusted_output(map()) :: map()
+  def scrub_untrusted_output(event) when is_map(event) do
+    topic = Map.get(event, :topic) || Map.get(event, "topic")
+
+    if topic == "executor.decision.deferred" do
+      [:title, :options, :context, "title", "options", "context"]
+      |> Enum.reduce(event, fn key, acc ->
+        case Map.fetch(acc, key) do
+          {:ok, value} -> Map.put(acc, key, deep_strip(value))
+          :error -> acc
+        end
+      end)
+      |> Map.put("untrusted_fields", @untrusted_deferred_fields)
+    else
+      event
+    end
+  end
+
+  defp deep_strip(text) when is_binary(text), do: Sanitizer.strip_untrusted_text(text)
+  defp deep_strip(list) when is_list(list), do: Enum.map(list, &deep_strip/1)
+  defp deep_strip(%_struct{} = struct), do: struct |> Map.from_struct() |> deep_strip()
+  defp deep_strip(map) when is_map(map), do: Map.new(map, fn {key, value} -> {key, deep_strip(value)} end)
+  defp deep_strip(other), do: other
 
   defp advance_cursor(id) when is_integer(id) do
     state = subscription_state()
@@ -157,7 +210,7 @@ defmodule Aiur.ExecutorEvents do
   defp source_name(source) when is_atom(source), do: Atom.to_string(source)
   defp source_name(source), do: source
 
-  defp deferred_payload(decision) do
+  defp deferred_payload(decision, renotify?) do
     %{
       decision_id: decision.decision_id,
       issue_identifier: decision.ticket.identifier,
@@ -165,7 +218,8 @@ defmodule Aiur.ExecutorEvents do
       options: decision.options,
       context: decision.context,
       deferred_at: DateTime.utc_now() |> DateTime.to_iso8601(),
-      provenance: :operator_dashboard
+      provenance: :operator_dashboard,
+      renotify: renotify?
     }
   end
 

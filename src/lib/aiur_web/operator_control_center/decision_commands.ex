@@ -174,13 +174,16 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   end
 
   defp defer_selected(socket, decision_id, decision, reload_fun) do
+    # An already-deferred decision means the operator clicked "Notify Executor
+    # again": force a fresh Exchange publish past the journal dedup.
+    renotify? = decision.decision_status == :deferred
     result = safe_defer(decision_id)
     socket = reload_fun.(socket)
-    defer_result(socket, decision_id, decision, result)
+    defer_result(socket, decision_id, decision, result, renotify?)
   end
 
-  defp defer_result(socket, decision_id, decision, {:ok, %{decision: deferred} = accepted}) do
-    case ExecutorEvents.publish_deferred(deferred) do
+  defp defer_result(socket, decision_id, decision, {:ok, %{decision: deferred} = accepted}, renotify?) do
+    case ExecutorEvents.publish_deferred(deferred, renotify: renotify?) do
       {:ok, _event_id, _subscribers} ->
         resolve_legacy_attention(decision)
         put_notice(socket, decision_id, defer_notice(accepted))
@@ -190,7 +193,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
     end
   end
 
-  defp defer_result(socket, decision_id, _decision, {:error, reason}) do
+  defp defer_result(socket, decision_id, _decision, {:error, reason}, _renotify?) do
     put_error(socket, decision_id, command_error(reason))
   end
 
