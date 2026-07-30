@@ -47,6 +47,7 @@ defmodule Aiur.DecisionStore do
     DecisionRevision,
     DecisionRevisionDispatch,
     DecisionValidation,
+    ExecutorEvents,
     JsonStore,
     SecretRedactor
   }
@@ -358,6 +359,7 @@ defmodule Aiur.DecisionStore do
   @impl true
   def handle_continue(:schedule_reconciliation, state) do
     if state.writable? do
+      reconcile_deferred_executor_notifications(state)
       reproject_failure_attentions(state)
 
       schedule_dispatch_work(
@@ -1614,6 +1616,10 @@ defmodule Aiur.DecisionStore do
       error -> Logger.warning("aiur_decision_store phase=lifecycle_publisher_failed error=#{Exception.message(error)}")
     end
 
+    if event.type == :decision_deferred do
+      notify_deferred_executor(decision)
+    end
+
     try do
       DecisionPubSub.broadcast_changed(decision.decision_id, decision.version)
     rescue
@@ -1621,6 +1627,22 @@ defmodule Aiur.DecisionStore do
     end
 
     :ok
+  end
+
+  defp reconcile_deferred_executor_notifications(state) do
+    state.current
+    |> Map.values()
+    |> Enum.filter(&(&1.decision_status == :deferred))
+    |> Enum.each(&notify_deferred_executor/1)
+  end
+
+  defp notify_deferred_executor(decision) do
+    case ExecutorEvents.publish_deferred(decision) do
+      {:ok, _id, _subscribers} -> :ok
+      {:error, reason} -> Logger.warning("aiur_decision_store phase=executor_notification_failed reason=#{inspect(reason)}")
+    end
+  rescue
+    error -> Logger.warning("aiur_decision_store phase=executor_notification_failed error=#{Exception.message(error)}")
   end
 
   defp lifecycle_slug(:answer_recorded), do: "answered"

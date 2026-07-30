@@ -29,7 +29,7 @@ defmodule Aiur.ExecutorEventsTest do
     assert_receive {:event, %{id: ^id, topic: "executor.notify.release", message: "ready"}}, 500
 
     :ok = ExecutorEvents.subscribe("executor.#")
-    assert [%{"id" => ^id, "topic" => "executor.notify.release"}] = ExecutorEvents.replay(["executor.#"], nil)
+    assert {:ok, [%{"id" => ^id, "topic" => "executor.notify.release"}]} = ExecutorEvents.replay(["executor.#"], nil)
   end
 
   test "reconnect replay starts after the persisted Executor cursor" do
@@ -40,7 +40,9 @@ defmodule Aiur.ExecutorEventsTest do
     JsonStore.write!(cursor_path, %{"subscribed_to" => ["executor.#"], "last_seen_event_id" => first_id})
 
     assert ExecutorEvents.last_seen_event_id() == first_id
-    assert [%{"id" => ^second_id, "topic" => "executor.notify.second"}] = ExecutorEvents.replay(ExecutorEvents.subscriptions(), ExecutorEvents.last_seen_event_id())
+
+    assert {:ok, [%{"id" => ^second_id, "topic" => "executor.notify.second"}]} =
+             ExecutorEvents.replay(ExecutorEvents.subscriptions(), ExecutorEvents.last_seen_event_id())
   end
 
   test "rejects GitHub-sourced executor events" do
@@ -49,6 +51,11 @@ defmodule Aiur.ExecutorEventsTest do
 
     assert {:error, :executor_namespace_rejects_github_source} =
              ExecutorEvents.publish("executor.notify.untrusted", %{message: "nope"}, source: %{"kind" => "github"})
+
+    assert {:error, :executor_namespace_rejects_github_source} =
+             ExecutorEvents.publish("executor.notify.untrusted", %{message: "nope", source: "github"})
+
+    assert {:ok, []} = ExecutorEvents.replay(["executor.#"], nil)
   end
 
   test "publishes deferred decisions with dashboard provenance" do
@@ -95,6 +102,8 @@ defmodule Aiur.ExecutorEventsTest do
     assert {:error, :invalid_topic} = ExecutorEvents.subscribe("executor..notify")
     assert {:error, :invalid_topic} = ExecutorEvents.unsubscribe(".executor.notify")
     assert {:error, :invalid_topic} = ExecutorEvents.publish("", %{message: "nope"})
+    assert {:error, :invalid_topic} = ExecutorEvents.publish("ticket.42.agent.decision.requested", %{message: "nope"})
+    assert {:error, :invalid_topic} = ExecutorEvents.subscribe("#")
   end
 
   test "listener delivers live events and advances the persisted cursor" do
@@ -104,6 +113,20 @@ defmodule Aiur.ExecutorEventsTest do
     assert eventually(fn -> "executor.#" in Exchange.bindings_for(listener) end)
     assert {:ok, id, _count} = ExecutorEvents.publish("executor.notify.live", %{message: "wake"})
     assert eventually(fn -> ExecutorEvents.last_seen_event_id() == id end)
+  end
+
+  test "fails replay closed when the executor journal has interior corruption" do
+    journal_path = Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.executor.events.ndjson")
+
+    File.mkdir_p!(Path.dirname(journal_path))
+
+    File.write!(
+      journal_path,
+      ~s({"id":1,"topic":"executor.notify.before"}\nnot-json\n{"id":2,"topic":"executor.notify.after"}\n)
+    )
+
+    assert {:error, {:corrupt, 2, _reason}} = ExecutorEvents.replay(["executor.#"], nil)
+    assert ExecutorEvents.last_seen_event_id() == nil
   end
 
   defp eventually(fun, attempts \\ 50)

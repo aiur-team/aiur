@@ -2576,6 +2576,40 @@ defmodule AiurWeb.DashboardLiveTest do
     assert :empty = OperatorMessages.claim_next_checkpoint_queue_item(orchestrator, "988")
   end
 
+  test "a deferred detail command remains answerable" do
+    orchestrator_name = Module.concat(__MODULE__, :DeferredDetailOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :DeferredDetailStore)
+    store = start_decision_store(decision_store_name, fn _decision, _opts -> {:ok, %{status: :accepted, item: %{id: 5_074}}} end)
+    decision = request_queue_decision(store, "deferred-detail", "987")
+
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name,
+      control_center_cache: false,
+      dashboard_writable: true
+    )
+
+    {:ok, view, html} = live(build_conn(), "/decisions/#{decision.decision_id}")
+    assert html =~ ~s(phx-click="defer-decision")
+
+    _html =
+      view
+      |> element("#decision-#{decision.decision_id} button[phx-click=\"defer-decision\"]")
+      |> render_click()
+
+    html =
+      render_submit(view, "answer-decision", %{
+        "decision_id" => decision.decision_id,
+        "answer" => %{"choice" => "option:ship", "rationale" => "The Executor can still receive the final answer"}
+      })
+
+    assert html =~ "Answer recorded"
+    assert {:ok, %{decision_status: :decided}} = DecisionStore.get(decision.decision_id, store)
+  end
+
   test "human dashboard revision traverses the corrective queue and lifecycle projections" do
     orchestrator_name = Module.concat(__MODULE__, :RevisionCapstoneOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :RevisionCapstoneDecisionStore)

@@ -129,7 +129,7 @@ defmodule Aiur.Events.Publisher do
   fan-out, IssueLog marker, and debug broadcast behavior as `publish/3`.
   """
   @spec publish_persisted(String.t(), map(), pos_integer(), keyword()) ::
-          {:ok, pos_integer(), non_neg_integer()}
+          {:ok, pos_integer(), non_neg_integer()} | {:error, :executor_namespace_rejects_github_source}
   def publish_persisted(topic, payload, id, opts \\ [])
       when is_binary(topic) and is_map(payload) and is_integer(id) do
     if executor_topic_from_github?(topic, payload, opts) do

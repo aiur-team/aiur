@@ -96,9 +96,10 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   end
 
   defp selected_open_decision(
-         %{assigns: %{selected_decision: %{decision_id: decision_id, decision_status: :open} = decision}},
+         %{assigns: %{selected_decision: %{decision_id: decision_id, decision_status: status} = decision}},
          decision_id
-       ),
+       )
+       when status in [:open, :deferred],
        do: {:ok, decision}
 
   defp selected_open_decision(%{assigns: %{decisions: decisions}}, decision_id) when is_list(decisions) do

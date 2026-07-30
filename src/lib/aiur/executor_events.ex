@@ -7,6 +7,9 @@ defmodule Aiur.ExecutorEvents do
   an Executor is a run principal, not another managed ticket agent.
   """
 
+  require Logger
+
+  alias Aiur.Alerts
   alias Aiur.Config.Paths
   alias Aiur.Decision
   alias Aiur.DecisionLog
@@ -21,19 +24,11 @@ defmodule Aiur.ExecutorEvents do
 
   @spec publish_deferred(Decision.t()) :: {:ok, pos_integer(), non_neg_integer()} | {:error, term()}
   def publish_deferred(%Decision{} = decision) do
-    publish(
-      "executor.decision.deferred",
-      %{
-        decision_id: decision.decision_id,
-        issue_identifier: decision.ticket.identifier,
-        title: decision.question,
-        options: decision.options,
-        context: decision.context,
-        deferred_at: DateTime.utc_now() |> DateTime.to_iso8601(),
-        provenance: :operator_dashboard
-      },
-      source: :internal
-    )
+    case deferred_event_id(decision.decision_id) do
+      {:ok, id} -> {:ok, id, 0}
+      :not_found -> publish("executor.decision.deferred", deferred_payload(decision), source: :internal)
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   @spec publish(String.t(), map(), keyword()) :: {:ok, pos_integer(), non_neg_integer()} | {:error, term()}
@@ -42,7 +37,8 @@ defmodule Aiur.ExecutorEvents do
 
     with :ok <- validate_topic(topic),
          :ok <- reject_github_source(source),
-         id when is_integer(id) <- IdGenerator.next_id(),
+         :ok <- reject_github_payload_source(payload),
+         {:ok, id} <- IdGenerator.reserve_durable_id(),
          event <- payload |> JSONSafe.normalize() |> Map.merge(%{"id" => id, "topic" => topic, "source" => source_name(source)}),
          :ok <- append_event(event) do
       Publisher.publish_persisted(topic, payload, id, source: source)
@@ -81,21 +77,31 @@ defmodule Aiur.ExecutorEvents do
 
     try do
       Enum.each(patterns, &Exchange.subscribe/1)
-      replay(patterns, last_seen_event_id()) |> Enum.each(&deliver/1)
-      receive_events(patterns)
+
+      case replay(patterns, last_seen_event_id()) do
+        {:ok, events} ->
+          Enum.each(events, &deliver/1)
+          receive_events(patterns)
+
+        {:error, reason} ->
+          raise "Executor event journal is unavailable: #{inspect(reason)}"
+      end
     after
       Enum.each(patterns, &safe_unsubscribe/1)
     end
   end
 
   @doc false
-  @spec replay([String.t()], non_neg_integer() | nil) :: [map()]
+  @spec replay([String.t()], non_neg_integer() | nil) :: {:ok, [map()]} | {:error, term()}
   def replay(patterns, cursor) when is_list(patterns) do
     cursor = cursor || 0
 
-    journal_events()
-    |> Enum.filter(&(Map.get(&1, "id", 0) > cursor and matches_any?(patterns, Map.get(&1, "topic"))))
-    |> Enum.sort_by(&Map.get(&1, "id", 0))
+    with {:ok, events} <- journal_events() do
+      {:ok,
+       events
+       |> Enum.filter(&(Map.get(&1, "id", 0) > cursor and matches_any?(patterns, Map.get(&1, "topic"))))
+       |> Enum.sort_by(&Map.get(&1, "id", 0))}
+    end
   end
 
   defp receive_events(patterns) do
@@ -129,7 +135,8 @@ defmodule Aiur.ExecutorEvents do
   defp advance_cursor(_id), do: :ok
 
   defp validate_topic(topic) do
-    if String.trim(topic) == "" or String.starts_with?(topic, ".") or String.ends_with?(topic, ".") or String.contains?(topic, "..") do
+    if not String.starts_with?(topic, "executor.") or String.trim(topic) == "" or String.starts_with?(topic, ".") or
+         String.ends_with?(topic, ".") or String.contains?(topic, "..") do
       {:error, :invalid_topic}
     else
       :ok
@@ -141,17 +148,63 @@ defmodule Aiur.ExecutorEvents do
   defp reject_github_source(%{"kind" => "github"}), do: {:error, :executor_namespace_rejects_github_source}
   defp reject_github_source(_source), do: :ok
 
+  defp reject_github_payload_source(payload) do
+    payload
+    |> Map.get(:source, Map.get(payload, "source"))
+    |> reject_github_source()
+  end
+
   defp source_name(source) when is_atom(source), do: Atom.to_string(source)
   defp source_name(source), do: source
+
+  defp deferred_payload(decision) do
+    %{
+      decision_id: decision.decision_id,
+      issue_identifier: decision.ticket.identifier,
+      title: decision.question,
+      options: decision.options,
+      context: decision.context,
+      deferred_at: DateTime.utc_now() |> DateTime.to_iso8601(),
+      provenance: :operator_dashboard
+    }
+  end
+
+  defp deferred_event_id(decision_id) do
+    with {:ok, events} <- journal_events() do
+      case Enum.find(events, &(&1["topic"] == "executor.decision.deferred" and &1["decision_id"] == decision_id)) do
+        %{"id" => id} when is_integer(id) -> {:ok, id}
+        _event -> :not_found
+      end
+    end
+  end
 
   defp replay_validator(%{"id" => id, "topic" => topic} = event) when is_integer(id) and is_binary(topic), do: {:ok, event}
   defp replay_validator(_event), do: {:error, :invalid_executor_event}
 
   defp journal_events do
     case DecisionLog.replay(journal_path(), &replay_validator/1) do
-      {:ok, events, _corruption} -> events
-      {:error, _reason} -> []
+      {:ok, events, nil} ->
+        {:ok, events}
+
+      {:ok, _events, {:corrupt, line, reason}} ->
+        report_corruption(line, reason)
+        {:error, {:corrupt, line, reason}}
+
+      {:error, reason} ->
+        Logger.error("aiur_executor_events phase=journal_unavailable reason=#{inspect(reason)}")
+        {:error, {:journal_unavailable, reason}}
     end
+  end
+
+  defp report_corruption(line, reason) do
+    Logger.error("aiur_executor_events phase=journal_corrupt path=#{journal_path()} line=#{line} reason=#{inspect(reason)}")
+
+    _ =
+      Alerts.emit_custom(
+        "executor_events.corrupted",
+        "Executor event journal is corrupt at #{journal_path()} line #{line}; listener replay is stopped.",
+        needs_attention: true
+      )
   end
 
   defp append_event(event) do

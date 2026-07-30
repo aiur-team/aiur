@@ -126,6 +126,9 @@ the quiet-state safety floor; the stream is an additive wake channel, not a
 replacement for health audits. Executor-directed general coordination can use
 `executor-emit <topic> --payload '<json>'`, with persistent bindings managed by
 `executor-subscribe`, `executor-unsubscribe`, and `executor-subscriptions`.
+Bindings are restricted to the internal `executor.*` namespace. A newly added
+binding begins at the Executor's current persisted replay cursor; reconnects
+replay every missed event after that cursor.
 
 The timer and alert path are additive: an urgent alert is handled immediately,
 while the cadence still provides a quiet-state floor. Do not depend on PR or
