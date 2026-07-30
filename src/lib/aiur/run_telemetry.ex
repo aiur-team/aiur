@@ -51,6 +51,10 @@ defmodule Aiur.RunTelemetry do
     Path.join(Path.dirname(log_file), @filename)
   end
 
+  @doc false
+  @spec telemetry_retention() :: [max_bytes: pos_integer(), max_age_days: pos_integer()]
+  def telemetry_retention, do: Aiur.Config.telemetry_retention()
+
   @doc "Best-effort append of one telemetry record."
   @spec record(atom() | String.t(), map()) :: :ok
   def record(kind, attributes \\ %{}), do: record(kind, attributes, [])

@@ -361,6 +361,13 @@ readers keep valid records from every selected stream and report malformed lines
 unknown record kinds, unsupported future schemas, attribution gaps, and unavailable
 platform metrics as warnings instead of discarding the rest of the run.
 
+Before a new writer starts, Aiur prunes old **whole boots** from the stream. The
+default retention window is 30 days and 64 MiB (`observability.telemetry_retention_max_age_days`
+and `observability.telemetry_retention_max_bytes`); these defaults retain useful
+cross-session Build Order history without allowing a long-running operator stream to
+grow indefinitely. Size is a whole-boot target: if one boot alone exceeds it, Aiur
+keeps that boot intact rather than truncating lifecycle intervals mid-session.
+
 From the repository root, generate the canonical analytics artifact from one file,
 one session directory, or several session roots:
 

@@ -14,6 +14,7 @@ defmodule Aiur.RunTelemetry.Writer do
   alias Aiur.Events.Exchange
   alias Aiur.RunTelemetry
   alias Aiur.RunTelemetry.Lifecycle
+  alias Aiur.RunTelemetry.Retention
 
   @external_event_patterns [
     "ticket.*.pr.opened",
@@ -71,10 +72,17 @@ defmodule Aiur.RunTelemetry.Writer do
 
     path = Keyword.get(opts, :path, RunTelemetry.telemetry_file())
     clock = Keyword.get(opts, :clock, &DateTime.utc_now/0)
+    boot_id = Keyword.get_lazy(opts, :boot_id, &RunTelemetry.boot_id/0)
+    retention = Keyword.get_lazy(opts, :retention, &RunTelemetry.telemetry_retention/0)
+
+    case Retention.prune(path, retention |> Keyword.put(:now, clock.()) |> Keyword.put(:protected_boot_id, boot_id)) do
+      :ok -> :ok
+      {:error, reason} -> Logger.warning("run_telemetry retention_failed path=#{path} reason=#{inspect(reason)}")
+    end
 
     state = %{
       path: path,
-      boot_id: Keyword.get_lazy(opts, :boot_id, &RunTelemetry.boot_id/0),
+      boot_id: boot_id,
       sequence: 0,
       shared_sequence?: not Keyword.has_key?(opts, :boot_id),
       clock: clock,

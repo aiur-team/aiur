@@ -53,7 +53,13 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   def load(opts \\ []) do
     file = Keyword.get(opts, :telemetry_file) || RunTelemetry.telemetry_file()
 
-    case Dataset.build(file) do
+    dataset_opts =
+      case Keyword.get(opts, :session, :all) do
+        :current -> [session: :current, boot_id: current_boot_id()]
+        _other -> []
+      end
+
+    case Dataset.build(file, dataset_opts) do
       {:ok, dataset} -> dataset |> scope(opts) |> analyzable(opts)
       {:error, {:no_telemetry_files, _paths}} -> {:unavailable, :no_telemetry}
     end
