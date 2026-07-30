@@ -365,10 +365,15 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     issues_by_target = ci_issues_by_target(issues)
     targets = Map.keys(issues_by_target)
 
-    state =
-      if targets == [],
-        do: TrackerHealth.note_github_poll_quiet(state, :ci),
-        else: TrackerHealth.note_github_poll_active(state, :ci)
+    if targets == [] do
+      TrackerHealth.note_github_poll_quiet(state, :ci)
+    else
+      poll_github_ci_targets(state, issues_by_target, targets, poller, opts)
+    end
+  end
+
+  defp poll_github_ci_targets(state, issues_by_target, targets, poller, opts) do
+    state = TrackerHealth.note_github_poll_active(state, :ci)
 
     poll_opts =
       Keyword.put(

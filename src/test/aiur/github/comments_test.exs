@@ -81,6 +81,22 @@ defmodule Aiur.GitHub.CommentsTest do
       assert {:ok, [%{"id" => 1}], ~s("fresh-etag")} =
                Comments.fetch_issue_comments_conditional(3, request_fun: request_fun)
     end
+
+    test "follows all pages after a changed conditional response" do
+      request_fun = fn %{method: :get, url: url} ->
+        if String.contains?(url, "page=2") do
+          {:ok, %{status: 200, body: [%{"id" => 2}], headers: []}}
+        else
+          next =
+            ~s(<https://api.github.com/repos/owner/repo/issues/3/comments?per_page=100&page=2>; rel="next")
+
+          {:ok, %{status: 200, body: [%{"id" => 1}], headers: [{"etag", ~s("fresh-etag")}, {"link", next}]}}
+        end
+      end
+
+      assert {:ok, [%{"id" => 1}, %{"id" => 2}], ~s("fresh-etag")} =
+               Comments.fetch_issue_comments_conditional(3, request_fun: request_fun)
+    end
   end
 
   describe "fetch_recent_repo_review_comments/1" do

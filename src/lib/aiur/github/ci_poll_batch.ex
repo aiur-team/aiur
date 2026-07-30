@@ -12,6 +12,14 @@ defmodule Aiur.GitHub.CIPollBatch do
   def fetch(targets, opts \\ []) when is_list(targets) do
     targets = targets |> Enum.map(&to_string/1) |> Enum.uniq()
 
+    if targets == [] do
+      {:ok, %{}}
+    else
+      do_fetch(targets, opts)
+    end
+  end
+
+  defp do_fetch(targets, opts) do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token(opts) do
       if length(targets) > @targets_per_query do

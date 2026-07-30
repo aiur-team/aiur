@@ -40,6 +40,12 @@ defmodule Aiur.GitHub.CIPollBatchTest do
     assert %{"state" => "success", "statuses" => [%{"context" => "legacy", "state" => "success"}]} = batch.commit_status
   end
 
+  test "does not query GitHub without CI targets" do
+    request_fun = fn _request -> flunk("empty target batch must not make a request") end
+
+    assert {:ok, %{}} = CIPollBatch.fetch([], request_fun: request_fun)
+  end
+
   defp pull_request do
     %{
       "number" => 77,

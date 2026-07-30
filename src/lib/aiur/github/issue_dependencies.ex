@@ -261,7 +261,8 @@ defmodule Aiur.GitHub.IssueDependencies do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token(opts) do
       request_fun = Keyword.get(opts, :graph_request_fun, Keyword.get(opts, :request_fun, &Transport.default_request_fun/1))
-      variables = Map.merge(%{"owner" => owner, "repo" => repo}, cursors)
+      cursor_variables = Map.new(cursors, fn {node, cursor} -> {"after_#{node}", cursor} end)
+      variables = Map.merge(%{"owner" => owner, "repo" => repo}, cursor_variables)
 
       case Transport.github_graphql(request_fun, token, blocking_query(nodes), variables) do
         {:ok, body} ->
@@ -303,8 +304,7 @@ defmodule Aiur.GitHub.IssueDependencies do
               |> Enum.filter(&is_integer/1)
               |> Enum.map(&to_string/1)
 
-            next_cursors =
-              if has_next and is_binary(cursor), do: Map.put(cursors, "after_#{node}", cursor), else: cursors
+            next_cursors = if has_next and is_binary(cursor), do: Map.put(cursors, node, cursor), else: cursors
 
             if has_next and not is_binary(cursor) do
               {:halt, {:error, :dependency_graph_pagination_missing_cursor}}

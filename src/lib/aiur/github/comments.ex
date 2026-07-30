@@ -91,8 +91,31 @@ defmodule Aiur.GitHub.Comments do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
       query = comment_query(opts)
       url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/comments?#{query}"
+      etag = Keyword.get(opts, :etag)
+      request = %{method: :get, url: url, token: token}
+      request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
 
-      Transport.fetch_json_list_conditional(request_fun, token, url, Keyword.get(opts, :etag))
+      case request_fun.(request) do
+        {:ok, %{status: 200, body: body} = response} when is_list(body) ->
+          with {:ok, comments} <-
+                 fetch_repo_comment_stream(
+                   request_fun,
+                   token,
+                   Transport.parse_next_page_url(Map.get(response, :headers, [])),
+                   body
+                 ) do
+            {:ok, comments, Transport.header(Map.get(response, :headers, []), "etag") || etag}
+          end
+
+        {:ok, %{status: 304} = response} ->
+          {:not_modified, Transport.header(Map.get(response, :headers, []), "etag") || etag}
+
+        {:ok, %{status: _status} = response} ->
+          {:error, Errors.github_status_error(response)}
+
+        {:error, reason} ->
+          {:error, Errors.classify_error({:error, reason})}
+      end
     end
   end
 
