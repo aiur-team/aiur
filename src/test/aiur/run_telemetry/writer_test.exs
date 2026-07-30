@@ -179,20 +179,28 @@ defmodule Aiur.RunTelemetry.WriterTest do
   end
 
   test "startup retention keeps an oversized complete boot parseable", %{path: path} do
-    {:ok, first} = Writer.start_link(name: nil, path: path, boot_id: "oversized")
+    old_clock = fn -> ~U[2026-07-01 12:00:00Z] end
+    current_clock = fn -> ~U[2026-07-01 12:01:00Z] end
+
+    {:ok, first} = Writer.start_link(name: nil, path: path, boot_id: "oversized", clock: old_clock)
 
     assert :ok =
-             Writer.record(first, :resource, %{
-               actor: "_daemon",
-               rss_bytes: 1,
-               detail: String.duplicate("x", 8_192)
-             })
+             Writer.record(
+               first,
+               :resource,
+               %{
+                 actor: "_daemon",
+                 rss_bytes: 1,
+                 detail: String.duplicate("x", 8_192)
+               },
+               timestamp: old_clock.()
+             )
 
     assert :ok = Writer.flush(first)
     :ok = GenServer.stop(first)
 
     {:ok, second} =
-      Writer.start_link(name: nil, path: path, boot_id: "current", retention: [max_bytes: 1])
+      Writer.start_link(name: nil, path: path, boot_id: "current", clock: current_clock, retention: [max_bytes: 1])
 
     assert :ok = Writer.flush(second)
     assert File.stat!(path).size > 1
