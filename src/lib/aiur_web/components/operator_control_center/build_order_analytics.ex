@@ -26,12 +26,14 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderAnalytics do
   attr(:model, :any, default: nil)
   attr(:unavailable, :any, default: nil)
   attr(:loading, :boolean, default: false)
+  attr(:time_domain, :any, default: nil)
 
   @spec build_order_analytics(map()) :: Phoenix.LiveView.Rendered.t()
   def build_order_analytics(assigns) do
     assigns =
       assigns
       |> assign(:selected, selected_keys(assigns.model))
+      |> assign(:chart_model, chart_model(assigns.model, assigns.time_domain))
       |> assign(:state, pane_state(assigns))
 
     ~H"""
@@ -44,6 +46,11 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderAnalytics do
           <p class="an-scope-note">{scope_note(@scope, @model)}</p>
         </div>
         <span class="an-scope">Scope: <b>this Build Order</b></span>
+      </div>
+
+      <div :if={!is_nil(@chart_model) and !is_nil(@time_domain)} class="an-zoombar" role="status">
+        <span>Zoomed to {time_domain_label(@chart_model, @time_domain)}</span>
+        <button type="button" phx-click="reset-time-domain">Reset</button>
       </div>
 
       <div :if={not is_nil(@state)} class="an-empty" role="status">
@@ -67,7 +74,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderAnalytics do
               <p class="an-card-sub">Every member ticket across the build's life — the wait rail into a work bar coloured by status, capped by an end marker.</p>
             </div>
           </div>
-          <div class="an-chart">{Phoenix.HTML.raw(Charts.gantt(@model))}</div>
+          <div id="build-order-gantt-chart" class="an-chart" phx-hook="TimeBrush">{Phoenix.HTML.raw(Charts.gantt(@chart_model))}</div>
         </section>
 
         <section class="an-card wide">
@@ -77,7 +84,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderAnalytics do
               <p class="an-card-sub">Stacked CPU over active build time. The baseline layer is daemon/executor overhead shared with anything else running in those sessions, not cost this build incurred alone.</p>
             </div>
           </div>
-          <div class="an-chart">{Phoenix.HTML.raw(Charts.cpu_stack(@model, @selected))}</div>
+          <div id="build-order-cpu-chart" class="an-chart" phx-hook="TimeBrush">{Phoenix.HTML.raw(Charts.cpu_stack(@chart_model, @selected))}</div>
         </section>
 
         <section class="an-card">
@@ -87,7 +94,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderAnalytics do
               <p class="an-card-sub">Members running at once against the global cap. The shaded band is capacity that went to something other than this build.</p>
             </div>
           </div>
-          <div class="an-chart">{Phoenix.HTML.raw(Charts.concurrency(@model))}</div>
+          <div id="build-order-concurrency-chart" class="an-chart" phx-hook="TimeBrush">{Phoenix.HTML.raw(Charts.concurrency(@chart_model))}</div>
         </section>
 
         <section class="an-card">
@@ -97,7 +104,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderAnalytics do
               <p class="an-card-sub">Aggregate resident memory for this build's members against the host ceiling.</p>
             </div>
           </div>
-          <div class="an-chart">{Phoenix.HTML.raw(Charts.memory(@model))}</div>
+          <div id="build-order-memory-chart" class="an-chart" phx-hook="TimeBrush">{Phoenix.HTML.raw(Charts.memory(@chart_model))}</div>
         </section>
 
         <section class="an-card scroll">
@@ -117,7 +124,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderAnalytics do
               <p class="an-card-sub">Members merged against the Build Order's full membership — including members that have not run yet.</p>
             </div>
           </div>
-          <div class="an-chart">{Phoenix.HTML.raw(Charts.burnup(@model))}</div>
+          <div id="build-order-burnup-chart" class="an-chart" phx-hook="TimeBrush">{Phoenix.HTML.raw(Charts.burnup(@chart_model))}</div>
         </section>
       </div>
     </section>
@@ -126,6 +133,26 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderAnalytics do
 
   defp selected_keys(nil), do: MapSet.new()
   defp selected_keys(model), do: MapSet.new(model.actors, & &1.key)
+
+  defp chart_model(nil, _time_domain), do: nil
+  defp chart_model(model, time_domain), do: Charts.with_time_domain(model, time_domain)
+
+  defp time_domain_label(model, {t0, t1}) do
+    origin = Map.get(model.window, :axis_origin_ms, model.window.start_ms)
+    "#{elapsed(t0 - origin)}–#{elapsed(t1 - origin)}"
+  end
+
+  defp elapsed(ms) do
+    minutes = ms |> max(0) |> div(60_000)
+    hours = div(minutes, 60)
+    remainder = rem(minutes, 60)
+
+    cond do
+      hours > 0 and remainder > 0 -> "#{hours}h #{remainder}m"
+      hours > 0 -> "#{hours}h"
+      true -> "#{remainder}m"
+    end
+  end
 
   defp kpi_items(model, scope) do
     k = model.kpis

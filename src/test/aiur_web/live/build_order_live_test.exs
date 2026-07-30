@@ -871,6 +871,31 @@ defmodule AiurWeb.BuildOrderLiveTest do
     refute html =~ "No telemetry for this Build Order yet"
   end
 
+  test "the Build Order's active timeline accepts and resets a shared time domain", %{first: first} do
+    put_telemetry_file(@telemetry_fixtures)
+
+    members = [
+      breakdown_member(930, phase: 1, lane: "plan-graph", complexity: 3),
+      breakdown_member(931, phase: 2, lane: "dashboard-ui", complexity: 4)
+    ]
+
+    selected = selected_snapshot(first, SelectedRoot.new(root(first, "Root forty-two"), members, health(1, :healthy)), 1, :healthy)
+    install_source(catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy), selected: [selected])
+
+    assert {:ok, view, _html} = live(build_conn(), "/build-orders/42")
+    html = render_async(view)
+    [_, start_ms] = Regex.run(~r/data-time-start="(\d+)"/, html)
+    [_, end_ms] = Regex.run(~r/data-time-end="(\d+)"/, html)
+    start_ms = String.to_integer(start_ms)
+    end_ms = String.to_integer(end_ms)
+    span = end_ms - start_ms
+
+    zoomed = render_hook(view, "time-domain", %{"t0" => start_ms + div(span, 4), "t1" => end_ms - div(span, 4)})
+
+    assert zoomed =~ ~s(class="an-zoombar")
+    refute render_click(view, "reset-time-domain", %{}) =~ ~s(class="an-zoombar")
+  end
+
   test "an unreadable telemetry stream leaves the rest of the Build Order page intact", %{first: first} do
     put_telemetry_file("/nonexistent/telemetry.ndjson")
 

@@ -69,6 +69,24 @@ defmodule AiurWeb.AnalyticsLiveTest do
     assert render_click(view, "toggle_unit", %{"key" => "ticket:404"}) =~ "Run analytics"
   end
 
+  test "a time-domain hook event zooms every time chart and reset restores the full range" do
+    Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
+
+    {:ok, view, html} = live(build_conn(), "/analytics")
+
+    refute html =~ ~s(class="an-zoombar")
+
+    zoomed = render_hook(view, "time-domain", %{"t0" => 1_783_728_061_000, "t1" => 1_783_728_065_000})
+
+    assert zoomed =~ ~s(class="an-zoombar")
+    assert length(Regex.scan(~r/data-time-start="1783728061000"/, zoomed)) == 5
+    assert zoomed =~ "phx-click=\"reset-time-domain\""
+
+    reset = render_click(view, "reset-time-domain", %{})
+
+    refute reset =~ ~s(class="an-zoombar")
+  end
+
   defp reset_env(key, nil), do: Application.delete_env(:aiur, key)
 
   test "names its scope so it cannot be confused with the Build Order pane" do

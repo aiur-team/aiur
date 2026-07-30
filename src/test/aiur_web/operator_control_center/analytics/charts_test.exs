@@ -102,4 +102,32 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.ChartsTest do
   test "burnup renders the scope line" do
     assert Charts.burnup(model()) =~ "scope"
   end
+
+  test "a shared time domain crops every time chart while preserving the elapsed axis origin" do
+    m = model()
+    domain = {@t0 + 120_000, @t0 + 360_000}
+    zoomed = Charts.with_time_domain(m, domain)
+
+    assert zoomed.window.start_ms == elem(domain, 0)
+    assert zoomed.window.end_ms == elem(domain, 1)
+    assert zoomed.window.axis_origin_ms == m.window.start_ms
+    assert Enum.all?(zoomed.series, &(&1.t_ms >= elem(domain, 0) and &1.t_ms <= elem(domain, 1)))
+
+    for chart <- [
+          Charts.gantt(zoomed),
+          Charts.cpu_stack(zoomed, MapSet.new(m.actors, & &1.key)),
+          Charts.concurrency(zoomed),
+          Charts.memory(zoomed),
+          Charts.burnup(zoomed)
+        ] do
+      assert chart =~ "data-time-brush=\"true\""
+      assert chart =~ "3m"
+    end
+
+    assert Charts.concurrency(m) =~ "now"
+  end
+
+  test "rejects a degenerate time domain" do
+    assert Charts.with_time_domain(model(), {@t0 + 60_000, @t0 + 60_001}).window == model().window
+  end
 end
