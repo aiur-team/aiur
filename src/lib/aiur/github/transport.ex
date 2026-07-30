@@ -5,6 +5,9 @@ defmodule Aiur.GitHub.Transport do
 
   alias Aiur.GitHub
   alias Aiur.GitHub.Errors
+  alias Aiur.GitHub.GraphQLErrors
+
+  require Logger
 
   @base_url "https://api.github.com"
   @graphql_url "#{@base_url}/graphql"
@@ -139,7 +142,8 @@ defmodule Aiur.GitHub.Transport do
           {:ok, map()} | {:error, term()}
   def github_graphql(request_fun, token, query, variables, opts \\ []) do
     case github_graphql_response(request_fun, token, query, variables, opts) do
-      {:ok, body, _response} ->
+      {:ok, body, response} ->
+        log_rate_budget_pressure(response)
         {:ok, body}
 
       {:error, :invalid_graphql_response, _response} ->
@@ -232,9 +236,11 @@ defmodule Aiur.GitHub.Transport do
 
     case request_fun.(request) do
       {:ok, %{status: 200, body: body} = response} when is_list(body) ->
+        log_rate_budget_pressure(response)
         {:ok, body, header(Map.get(response, :headers, []), "etag") || etag}
 
       {:ok, %{status: 304} = response} ->
+        log_rate_budget_pressure(response)
         {:not_modified, header(Map.get(response, :headers, []), "etag") || etag}
 
       {:ok, %{status: _status} = response} ->
@@ -304,6 +310,29 @@ defmodule Aiur.GitHub.Transport do
   end
 
   def header(_headers, _name), do: nil
+
+  defp log_rate_budget_pressure(response) do
+    remaining = GraphQLErrors.rate_limit_remaining(response)
+    limit = header(Map.get(response, :headers, []), "x-ratelimit-limit") |> parse_nonnegative_integer()
+
+    if is_integer(remaining) and is_integer(limit) and limit > 0 and remaining * 10 <= limit do
+      resource = header(Map.get(response, :headers, []), "x-ratelimit-resource") || "unknown"
+      reset_at = GraphQLErrors.rate_limit_reset(response) || "unknown"
+
+      Logger.warning("github_rate_budget_pressure resource=#{resource} remaining=#{remaining} limit=#{limit} reset_at=#{reset_at}")
+    end
+  end
+
+  defp parse_nonnegative_integer(value) when is_integer(value) and value >= 0, do: value
+
+  defp parse_nonnegative_integer(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {integer, ""} when integer >= 0 -> integer
+      _ -> nil
+    end
+  end
+
+  defp parse_nonnegative_integer(_value), do: nil
 
   @spec poll_interval(list() | map()) :: pos_integer()
   def poll_interval(headers) do

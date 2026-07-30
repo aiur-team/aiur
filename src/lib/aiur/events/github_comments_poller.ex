@@ -157,29 +157,46 @@ defmodule Aiur.Events.GithubCommentsPoller do
   end
 
   defp poll_issue_comments(target, since, etag, repo, opts) do
-    request_opts = opts |> Keyword.put(:since, since) |> Keyword.put(:etag, etag)
+    case batch_value(opts, target, :issue_comments) do
+      {:ok, comments} ->
+        {publish_issue_comments(target, comments, repo), newest_comment_datetime(comments), :ok, etag}
 
-    case Client.fetch_issue_comments_conditional(target, request_opts) do
-      {:ok, comments, next_etag} ->
-        count =
-          comments
-          |> Enum.reject(&CommentFilter.agent_workpad?/1)
-          |> Enum.map(&publish_issue_comment(target, &1, repo))
-          |> Enum.count(&match?({:ok, _, _}, &1))
+      :missing ->
+        request_opts = opts |> Keyword.put(:since, since) |> Keyword.put(:etag, etag)
 
-        {count, newest_comment_datetime(comments), :ok, next_etag}
+        case Client.fetch_issue_comments_conditional(target, request_opts) do
+          {:ok, comments, next_etag} ->
+            {publish_issue_comments(target, comments, repo), newest_comment_datetime(comments), :ok, next_etag}
 
-      {:not_modified, next_etag} ->
-        {0, nil, :ok, next_etag}
+          {:not_modified, next_etag} ->
+            {0, nil, :ok, next_etag}
 
-      {:error, reason} ->
-        Logger.warning("GithubCommentsPoller issue comments failed: issue=#{target} reason=#{inspect(reason)}")
+          {:error, reason} ->
+            Logger.warning("GithubCommentsPoller issue comments failed: issue=#{target} reason=#{inspect(reason)}")
 
-        {0, nil, {:error, {:issue_comments, reason}}, etag}
+            {0, nil, {:error, {:issue_comments, reason}}, etag}
+        end
     end
   end
 
+  defp publish_issue_comments(target, comments, repo) do
+    comments
+    |> Enum.reject(&CommentFilter.agent_workpad?/1)
+    |> Enum.map(&publish_issue_comment(target, &1, repo))
+    |> Enum.count(&match?({:ok, _, _}, &1))
+  end
+
   defp poll_pr_comments(target, since, etags, repo, opts) do
+    case batch_value(opts, target, :open_pull_request) do
+      {:ok, pr} ->
+        poll_pr_comments_for_open_pull_request(target, pr, since, etags, repo, opts)
+
+      :missing ->
+        poll_pr_comments_from_rest(target, since, etags, repo, opts)
+    end
+  end
+
+  defp poll_pr_comments_from_rest(target, since, etags, repo, opts) do
     case open_pull_request_for_target(target, opts) do
       {:ok, pr} ->
         poll_pr_comments_for_open_pull_request(target, pr, since, etags, repo, opts)
@@ -236,42 +253,66 @@ defmodule Aiur.Events.GithubCommentsPoller do
     do: {0, nil, [:ok], %{}}
 
   defp poll_pr_issue_comments(target, pr_number, since, etag, repo, opts) do
-    request_opts = opts |> Keyword.put(:since, since) |> Keyword.put(:etag, etag)
+    case batch_value(opts, target, :pr_issue_comments) do
+      {:ok, comments} ->
+        {publish_pr_issue_comments(target, pr_number, comments, repo), newest_comment_datetime(comments), :ok, etag}
 
-    case Client.fetch_issue_comments_conditional(pr_number, request_opts) do
-      {:ok, comments, next_etag} ->
-        count =
-          comments
-          |> Enum.reject(&CommentFilter.agent_workpad?/1)
-          |> Enum.map(&publish_pr_issue_comment(target, pr_number, &1, repo))
-          |> Enum.count(&match?({:ok, _, _}, &1))
+      :missing ->
+        request_opts = opts |> Keyword.put(:since, since) |> Keyword.put(:etag, etag)
 
-        {count, newest_comment_datetime(comments), :ok, next_etag}
+        case Client.fetch_issue_comments_conditional(pr_number, request_opts) do
+          {:ok, comments, next_etag} ->
+            {publish_pr_issue_comments(target, pr_number, comments, repo), newest_comment_datetime(comments), :ok, next_etag}
 
-      {:not_modified, next_etag} ->
-        {0, nil, :ok, next_etag}
+          {:not_modified, next_etag} ->
+            {0, nil, :ok, next_etag}
 
-      {:error, reason} ->
-        Logger.warning("GithubCommentsPoller PR conversation comments failed: issue=#{target} pr=#{pr_number} reason=#{inspect(reason)}")
+          {:error, reason} ->
+            Logger.warning("GithubCommentsPoller PR conversation comments failed: issue=#{target} pr=#{pr_number} reason=#{inspect(reason)}")
 
-        {0, nil, {:error, {:pr_issue_comments, reason}}, etag}
+            {0, nil, {:error, {:pr_issue_comments, reason}}, etag}
+        end
     end
   end
 
+  defp publish_pr_issue_comments(target, pr_number, comments, repo) do
+    comments
+    |> Enum.reject(&CommentFilter.agent_workpad?/1)
+    |> Enum.map(&publish_pr_issue_comment(target, pr_number, &1, repo))
+    |> Enum.count(&match?({:ok, _, _}, &1))
+  end
+
   defp poll_unaddressed_pr_review_threads(target, pr_number, repo, opts) do
-    case Client.fetch_unaddressed_pr_review_thread_comments(pr_number, opts) do
+    case batch_value(opts, target, :review_thread_comments) do
       {:ok, comments} ->
-        count =
-          comments
-          |> Enum.map(&publish_pr_review_comment(target, pr_number, &1, repo))
-          |> Enum.count(&match?({:ok, _, _}, &1))
+        {publish_pr_review_comments(target, pr_number, comments, repo), :ok}
 
-        {count, :ok}
+      :missing ->
+        case Client.fetch_unaddressed_pr_review_thread_comments(pr_number, opts) do
+          {:ok, comments} ->
+            {publish_pr_review_comments(target, pr_number, comments, repo), :ok}
 
-      {:error, reason} ->
-        Logger.warning("GithubCommentsPoller PR review threads failed: issue=#{target} pr=#{pr_number} reason=#{inspect(reason)}")
+          {:error, reason} ->
+            Logger.warning("GithubCommentsPoller PR review threads failed: issue=#{target} pr=#{pr_number} reason=#{inspect(reason)}")
 
-        {0, {:error, {:pr_review_threads, reason}}}
+            {0, {:error, {:pr_review_threads, reason}}}
+        end
+    end
+  end
+
+  defp publish_pr_review_comments(target, pr_number, comments, repo) do
+    comments
+    |> Enum.map(&publish_pr_review_comment(target, pr_number, &1, repo))
+    |> Enum.count(&match?({:ok, _, _}, &1))
+  end
+
+  defp batch_value(opts, target, key) do
+    with %{} = batch <- Keyword.get(opts, :comment_batch),
+         %{} = target_batch <- Map.get(batch, target),
+         {:ok, value} <- Map.fetch(target_batch, key) do
+      {:ok, value}
+    else
+      _ -> :missing
     end
   end
 

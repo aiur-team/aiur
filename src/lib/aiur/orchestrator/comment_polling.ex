@@ -8,6 +8,7 @@ defmodule Aiur.Orchestrator.CommentPolling do
 
   alias Aiur.{Alerts, Config}
   alias Aiur.Events.{GithubCommentsPoller, GithubFirehose}
+  alias Aiur.GitHub.CommentPollBatch
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.CommentPolling.TargetSelection
   alias Aiur.Orchestrator.State
@@ -156,6 +157,8 @@ defmodule Aiur.Orchestrator.CommentPolling do
       |> TargetSelection.put_open_pull_requests_by_target(human_review_targets)
       |> TargetSelection.put_open_pull_requests_by_target(watch_targets)
 
+    poll_opts = put_comment_batch(poll_opts, targets)
+
     case GithubCommentsPoller.poll(targets, poll_opts) do
       {:ok, %{since: since, etags: etags, count: count, errors: errors}} ->
         if count > 0,
@@ -183,6 +186,23 @@ defmodule Aiur.Orchestrator.CommentPolling do
                 errors
               )
         }
+    end
+  end
+
+  defp put_comment_batch(opts, targets) do
+    fetcher = Keyword.get(opts, :comment_batch_fetcher, &CommentPollBatch.fetch/2)
+
+    case fetcher.(targets, opts) do
+      {:ok, batch} when is_map(batch) ->
+        Keyword.put(opts, :comment_batch, batch)
+
+      {:error, reason} ->
+        Logger.warning("Github comment GraphQL batch failed; falling back to conditional REST reads reason=#{inspect(reason)}")
+        opts
+
+      other ->
+        Logger.warning("Github comment GraphQL batch returned unexpected value; falling back to conditional REST reads value=#{inspect(other)}")
+        opts
     end
   end
 

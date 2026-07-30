@@ -8,6 +8,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
   alias Aiur.{CIApprovalStore, Config, Issue, Tracker}
   alias Aiur.Events.{GithubCIPoller, IdGenerator, Publisher, Sanitizer, UniversalSubscriptions}
+  alias Aiur.GitHub.CIPollBatch
 
   alias Aiur.Orchestrator.{
     AgentTeardown,
@@ -337,6 +338,8 @@ defmodule Aiur.Orchestrator.CiLifecycle do
         Map.get(state.ci_lifecycle, :base_repair_invalidations, %{})
       )
 
+    poll_opts = put_ci_batch(poll_opts, targets)
+
     case poller.(targets, poll_opts) do
       {:ok, %{results: results, errors: errors}} when is_list(results) and is_list(errors) ->
         state =
@@ -354,6 +357,27 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       other ->
         Logger.warning("GithubCIPoller returned unexpected value=#{inspect(other)}")
         state
+    end
+  end
+
+  defp put_ci_batch(opts, targets) when is_list(opts) do
+    if Keyword.has_key?(opts, :ci_poller), do: opts, else: put_ci_batch_fetch(opts, targets)
+  end
+
+  defp put_ci_batch_fetch(opts, targets) do
+    fetcher = Keyword.get(opts, :ci_batch_fetcher, &CIPollBatch.fetch/2)
+
+    case fetcher.(targets, opts) do
+      {:ok, batch} when is_map(batch) ->
+        Keyword.put(opts, :ci_batch, batch)
+
+      {:error, reason} ->
+        Logger.warning("Github CI GraphQL batch failed; falling back to REST reads reason=#{inspect(reason)}")
+        opts
+
+      other ->
+        Logger.warning("Github CI GraphQL batch returned unexpected value; falling back to REST reads value=#{inspect(other)}")
+        opts
     end
   end
 

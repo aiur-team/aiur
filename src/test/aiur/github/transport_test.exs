@@ -1,6 +1,8 @@
 defmodule Aiur.GitHub.TransportTest do
   use Aiur.TestSupport
 
+  import ExUnit.CaptureLog
+
   alias Aiur.GitHub.Transport
 
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
@@ -99,6 +101,26 @@ defmodule Aiur.GitHub.TransportTest do
 
     assert {:error, {:github, :auth, %{status: 401, message: "Bad credentials"}}} =
              Transport.github_graphql(http_error, "token", "query", %{})
+  end
+
+  test "logs pressure from rate-limit headers on successful GraphQL reads" do
+    request_fun = fn _ ->
+      {:ok,
+       %{
+         status: 200,
+         headers: [
+           {"x-ratelimit-resource", "graphql"},
+           {"x-ratelimit-remaining", "499"},
+           {"x-ratelimit-limit", "5000"},
+           {"x-ratelimit-reset", "1785416400"}
+         ],
+         body: %{"data" => %{"ok" => true}}
+       }}
+    end
+
+    log = capture_log(fn -> assert {:ok, %{"data" => %{"ok" => true}}} = Transport.github_graphql(request_fun, "token", "query", %{}) end)
+
+    assert log =~ "github_rate_budget_pressure resource=graphql remaining=499 limit=5000"
   end
 
   test "returns GraphQL response headers for bounded provider observation" do
