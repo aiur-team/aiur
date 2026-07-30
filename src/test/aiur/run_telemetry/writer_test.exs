@@ -92,6 +92,20 @@ defmodule Aiur.RunTelemetry.WriterTest do
     assert Enum.map(records, & &1["kind"]) == ["restart", "resource"]
   end
 
+  test "writer normalizes opaque batch values and ignores unrelated mailbox messages", %{path: path} do
+    {:ok, writer} = Writer.start_link(name: nil, path: path, boot_id: "normalized")
+
+    send(writer, {:event, %{}})
+    send(writer, :unrelated)
+
+    assert :ok = Writer.record_batch(writer, [{42, %{actor: "_daemon"}}], timestamp: :not_a_timestamp)
+    assert :ok = Writer.flush(writer)
+
+    records = read_records(path)
+    assert Enum.map(records, & &1["kind"]) == ["restart", "42"]
+    assert {:ok, _timestamp, 0} = DateTime.from_iso8601(Enum.at(records, 1)["timestamp"])
+  end
+
   test "an unwritable target never terminates the writer or caller", %{root: root} do
     parent_file = Path.join(root, "not-a-directory")
     File.mkdir_p!(root)
