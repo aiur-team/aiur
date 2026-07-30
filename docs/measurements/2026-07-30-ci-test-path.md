@@ -1,11 +1,10 @@
 # CI test-path measurements — #1378
 
 This record keeps the test-path optimization loop reproducible. Durations are
-the full GitHub Actions test-path critical path: from the first test runner
-starting until the aggregate `test` job completes tmux regression. Before
-sharding this is the `test` job duration; after sharding it includes the longest
-partition plus regression. The unchanged full-suite `coverage` job remains a
-separate required PR gate and reports the repository-wide 85% threshold.
+the full GitHub Actions merge-blocking path: from the first coverage partition
+starting until the `test` job completes tmux regression. The coverage gate
+aggregates all four partition exports before the regression job can run, so it
+still measures repository-wide coverage against the 85% threshold.
 
 ## Method
 
@@ -28,8 +27,10 @@ separate required PR gate and reports the repository-wide 85% threshold.
 | Sharding coverage 2 | [30561142819](https://github.com/its-everdred/aiur/actions/runs/30561142819) | Fail-closed export validation | n/a | n/a | rejected: aggregate coverage 84.97% |
 | Sharding coverage 3 | [30562961337](https://github.com/its-everdred/aiur/actions/runs/30562961337) | Deterministic seed | n/a | n/a | rejected: aggregate coverage 84.96% |
 | Sharding coverage 4 | [30563044432](https://github.com/its-everdred/aiur/actions/runs/30563044432) | Repeat deterministic seed | n/a | n/a | rejected: aggregate coverage 84.94% |
-| Final stability 1 | pending | Final configuration | pending | pending | pending |
-| Final stability 2 | pending | Final configuration | pending | pending | pending |
+| Plain sharding + serial coverage | [30564536867](https://github.com/its-everdred/aiur/actions/runs/30564536867) | Plain partitions alongside a separate full coverage run | 5m 00s plain test path; 13m 15s coverage | n/a | rejected: merge-blocking coverage path stayed serial and the suite ran twice |
+| Coverage margin validation | [30568674588](https://github.com/its-everdred/aiur/actions/runs/30568674588) | Add stable scheduled-path tests before retrying partitioned coverage | 12m 37s serial coverage | +21s | coverage passed at 85.09%; workflow invalid for stability because an unrelated AppServer partition flaked |
+| Final stability 1 | pending | 4-way coverage partitions + merged 85% gate | pending | pending | pending |
+| Final stability 2 | pending | Repeat final configuration | pending | pending | pending |
 
 Baseline median: **12m 16s**.
 
@@ -38,6 +39,9 @@ Baseline median: **12m 16s**.
 The historical row is context only, not a substitute for the three committed
 baseline runs. The four rejected coverage-partition trials demonstrate that
 the full suite's aggregate coverage is slightly lower when partitioned; the
-threshold was not changed. A final run is accepted only when all four plain
-test partitions and the aggregate regression job pass, and the separate full
-coverage job reports the single repository-wide coverage threshold.
+threshold was not changed. The rejected plain-sharding trial made only an
+optional path faster, so the final configuration instead runs the suite once
+with coverage enabled in four partitions, verifies every export is present, and
+merges them before applying the single repository-wide threshold. A final run
+is accepted only when all four coverage partitions, the merged 85% gate, and
+the regression job pass.
