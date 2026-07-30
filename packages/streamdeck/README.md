@@ -82,11 +82,14 @@ local sidecar build:
 
 ```dotenv
 AIUR_PHOENIX_URL=http://127.0.0.1:4000
-AIUR_PHOENIX_USERNAME=operator
-AIUR_PHOENIX_PASSWORD=replace-with-a-secret
+AIUR_DASHBOARD_USERNAME=operator
+AIUR_DASHBOARD_PASSWORD=replace-with-a-secret
 AIUR_STREAMDECK_JPEG_QUALITY=95
 ```
 
+`AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD` are the same HTTP
+Basic Auth credentials used by the Phoenix dashboard. Keep them in this
+EnvironmentFile; do not put them in the unit or commit a populated copy.
 `AIUR_STREAMDECK_JPEG_QUALITY` accepts the sidecar's 1–100 JPEG quality
 setting. Start at 95 (the Node library's reference quality), then lower it
 only if USB throughput is a problem. The sidecar coalesces and serializes
