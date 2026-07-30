@@ -7,8 +7,8 @@ defmodule AiurWeb.StreamdeckChannelTest do
 
   alias Aiur.AgentEvents
   alias Aiur.AgentPubSub
-  alias Aiur.ProviderMeterSnapshot
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
+  alias Aiur.ProviderMeterSnapshot
   alias AiurWeb.{Endpoint, StreamdeckAuth, StreamdeckProjection, StreamdeckSocket}
 
   @endpoint Endpoint
