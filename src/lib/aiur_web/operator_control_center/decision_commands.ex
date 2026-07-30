@@ -34,23 +34,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   def defer(socket, decision_id, reload_fun) when is_function(reload_fun, 1) do
     case selected_open_decision(socket, decision_id) do
       {:ok, decision} ->
-        result = safe_defer(decision_id)
-        socket = reload_fun.(socket)
-
-        case result do
-          {:ok, %{decision: deferred} = accepted} ->
-            case ExecutorEvents.publish_deferred(deferred) do
-              {:ok, _event_id, _subscribers} ->
-                resolve_legacy_attention(decision)
-                put_notice(socket, decision_id, defer_notice(accepted))
-
-              {:error, _reason} ->
-                put_error(socket, decision_id, "The Command is deferred, but the Executor notification failed. Retry the notification.")
-            end
-
-          {:error, reason} ->
-            put_error(socket, decision_id, command_error(reason))
-        end
+        defer_selected(socket, decision_id, decision, reload_fun)
 
       :error ->
         put_error(reload_fun.(socket), decision_id, "This Command is no longer open.")
@@ -186,6 +170,27 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
     DecisionStore.defer(decision_id, [actor: actor()], decision_store())
   catch
     :exit, _reason -> {:error, :store_unavailable}
+  end
+
+  defp defer_selected(socket, decision_id, decision, reload_fun) do
+    result = safe_defer(decision_id)
+    socket = reload_fun.(socket)
+    defer_result(socket, decision_id, decision, result)
+  end
+
+  defp defer_result(socket, decision_id, decision, {:ok, %{decision: deferred} = accepted}) do
+    case ExecutorEvents.publish_deferred(deferred) do
+      {:ok, _event_id, _subscribers} ->
+        resolve_legacy_attention(decision)
+        put_notice(socket, decision_id, defer_notice(accepted))
+
+      {:error, _reason} ->
+        put_error(socket, decision_id, "The Command is deferred, but the Executor notification failed. Retry the notification.")
+    end
+  end
+
+  defp defer_result(socket, decision_id, _decision, {:error, reason}) do
+    put_error(socket, decision_id, command_error(reason))
   end
 
   defp resolve_legacy_attention(%{legacy_attention: %{slug: slug}, ticket: ticket}) when is_binary(slug) do

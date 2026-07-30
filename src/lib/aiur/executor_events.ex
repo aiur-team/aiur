@@ -7,9 +7,14 @@ defmodule Aiur.ExecutorEvents do
   an Executor is a run principal, not another managed ticket agent.
   """
 
-  alias Aiur.{Decision, DecisionLog, JSONSafe}
   alias Aiur.Config.Paths
-  alias Aiur.Events.{Exchange, IdGenerator, Publisher, Topic}
+  alias Aiur.Decision
+  alias Aiur.DecisionLog
+  alias Aiur.Events.Exchange
+  alias Aiur.Events.IdGenerator
+  alias Aiur.Events.Publisher
+  alias Aiur.Events.Topic
+  alias Aiur.JSONSafe
   alias Aiur.JsonStore
 
   @default_topic "executor.#"
