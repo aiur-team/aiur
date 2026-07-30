@@ -3,7 +3,7 @@ defmodule AiurWeb.StreamdeckChannel do
 
   use Phoenix.Channel
 
-  alias Aiur.{AgentPubSub, DecisionPubSub}
+  alias Aiur.{AgentPubSub, DecisionPubSub, ProviderMeterSnapshot}
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
   alias AiurWeb.{Endpoint, FinancialDataAccess, StreamdeckProjection, StreamdeckTranscriptRelay}
 
@@ -75,8 +75,8 @@ defmodule AiurWeb.StreamdeckChannel do
     {:noreply, socket}
   end
 
-  def handle_info({:provider_meter_changed, _snapshot}, socket) do
-    push(socket, "usage", StreamdeckProjection.provider_meters())
+  def handle_info({:provider_meter_changed, %ProviderMeterSnapshot{} = snapshot}, socket) do
+    push(socket, "usage", StreamdeckProjection.provider_meters(snapshot))
     {:noreply, socket}
   end
 

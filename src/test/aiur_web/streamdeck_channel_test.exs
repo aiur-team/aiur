@@ -259,9 +259,28 @@ defmodule AiurWeb.StreamdeckChannelTest do
 
   test "provider changes reach the joined socket through the redacted usage projection" do
     joined_socket()
-    ProviderMeterEvents.broadcast(ProviderMeterSnapshot.empty(:codex, :app_server, "streamdeck-test-generation"))
 
-    assert_push("usage", %{"claude" => %{"state" => "unknown"}, "codex" => %{"state" => "observed"}})
+    snapshot = %{
+      ProviderMeterSnapshot.empty(:codex, :app_server, "streamdeck-test-generation")
+      | observed_at: ~U[2026-07-30 12:00:00Z],
+        auth_mode: :subscription,
+        freshness: :fresh,
+        plan: %{tier: "updated"}
+    }
+
+    ProviderMeterEvents.broadcast(snapshot)
+
+    assert_push("usage", %{
+      "claude" => %{"state" => "unknown"},
+      "codex" => %{
+        "state" => "observed",
+        "provider" => "codex",
+        "auth_mode" => "subscription",
+        "freshness" => "fresh",
+        "observed_at" => "2026-07-30T12:00:00Z",
+        "plan" => %{"tier" => "updated"}
+      }
+    })
   end
 
   test "decision changes reach the joined socket through the decision summary" do

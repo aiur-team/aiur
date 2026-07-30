@@ -1,7 +1,7 @@
 defmodule AiurWeb.StreamdeckProjection do
   @moduledoc false
 
-  alias Aiur.{DecisionMetrics, Orchestrator, ProviderMeterProjection}
+  alias Aiur.{DecisionMetrics, Orchestrator, ProviderMeterProjection, ProviderMeterSnapshot}
   alias AiurWeb.Endpoint
 
   @version 1
@@ -59,6 +59,12 @@ defmodule AiurWeb.StreamdeckProjection do
 
   @spec provider_meters() :: map()
   def provider_meters, do: provider_meters_fun() |> safe_call(%{}) |> external_value()
+
+  @spec provider_meters(ProviderMeterSnapshot.t()) :: map()
+  def provider_meters(%ProviderMeterSnapshot{provider: provider} = snapshot) when provider in [:codex, :claude] do
+    provider_meters()
+    |> Map.put(Atom.to_string(provider), provider_meter(snapshot))
+  end
 
   @spec decisions() :: map()
   def decisions, do: decisions_fun() |> safe_call(%{count: 0}) |> external_value()
@@ -122,6 +128,22 @@ defmodule AiurWeb.StreamdeckProjection do
 
   defp decisions_fun do
     endpoint_config(:streamdeck_decisions_fun) || fn -> %{count: DecisionMetrics.snapshots() |> map_size()} end
+  end
+
+  defp provider_meter(snapshot) do
+    %{
+      provider: snapshot.provider,
+      state: if(is_nil(snapshot.observed_at), do: :unknown, else: :observed),
+      observed_at: snapshot.observed_at,
+      auth_mode: snapshot.auth_mode,
+      plan: snapshot.plan,
+      freshness: snapshot.freshness,
+      health: snapshot.health,
+      windows: snapshot.windows
+    }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+    |> external_value()
   end
 
   defp orchestrator, do: endpoint_config(:orchestrator) || Orchestrator
