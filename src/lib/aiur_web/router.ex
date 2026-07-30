@@ -147,6 +147,7 @@ defmodule AiurWeb.Router do
     pipe_through(:dashboard_auth)
 
     get("/api/v1/state", ObservabilityApiController, :state)
+    get("/api/v1/:issue_identifier/events", ObservabilityApiController, :events)
     get("/api/v1/:issue_identifier", ObservabilityApiController, :issue)
     match(:*, "/", ObservabilityApiController, :method_not_allowed)
     match(:*, "/api/v1/state", ObservabilityApiController, :method_not_allowed)
