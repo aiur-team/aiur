@@ -5,6 +5,13 @@ defmodule Aiur.RunTelemetry.Writer do
   The writer owns a strictly increasing sequence within each daemon boot. A
   failed append advances the sequence anyway, making any later recovery gap
   visible to the offline reducer instead of silently reusing an identity.
+
+  Admission control bounds the pending mailbox to a fixed number of *messages*
+  (a `record_batch/3` cast counts as one message regardless of how many records
+  it carries). Records refused at admission are counted and surfaced as a
+  single `warning` record (`reason: :admission_overflow`) once the writer
+  drains. `handle_info/2` events (subscribed GitHub anchors) bypass admission
+  entirely and are always appended.
   """
 
   use GenServer
@@ -24,6 +31,11 @@ defmodule Aiur.RunTelemetry.Writer do
 
   @max_pending_casts 256
   @admission_key {__MODULE__, :pending_casts}
+
+  # Atomics slots shared between callers and the writer process.
+  @pending_index 1
+  @dropped_index 2
+  @overflow_logged_index 3
 
   @type server :: GenServer.server()
 
@@ -85,7 +97,7 @@ defmodule Aiur.RunTelemetry.Writer do
       write_warning_emitted: false
     }
 
-    Process.put(@admission_key, :atomics.new(1, signed: false))
+    Process.put(@admission_key, :atomics.new(3, signed: false))
 
     attributes = %{
       event: :daemon_restart,
@@ -101,7 +113,7 @@ defmodule Aiur.RunTelemetry.Writer do
   def handle_cast({:record, kind, attributes, timestamp, admission}, state) do
     state = append(state, kind, attributes, timestamp)
     release_admission(admission)
-    {:noreply, state}
+    {:noreply, maybe_emit_overflow_marker(state, admission)}
   end
 
   def handle_cast({:record_batch, records, timestamp, admission}, state) do
@@ -113,7 +125,7 @@ defmodule Aiur.RunTelemetry.Writer do
 
     state = append_many(state, batch)
     release_admission(admission)
-    {:noreply, state}
+    {:noreply, maybe_emit_overflow_marker(state, admission)}
   end
 
   @impl true
@@ -179,12 +191,41 @@ defmodule Aiur.RunTelemetry.Writer do
 
   defp enqueue_cast(server, message) do
     with pid when is_pid(pid) <- server_pid(server),
-         {:ok, counter} <- admission_counter(pid),
-         true <- admit?(counter) do
-      GenServer.cast(pid, append_admission(message, counter))
+         {:ok, counter} <- admission_counter(pid) do
+      if admit?(counter) do
+        GenServer.cast(pid, append_admission(message, counter))
+      else
+        note_overflow(counter)
+      end
     end
 
     :ok
+  end
+
+  defp note_overflow(counter) do
+    :atomics.add(counter, @dropped_index, 1)
+
+    if :atomics.compare_exchange(counter, @overflow_logged_index, 0, 1) == :ok do
+      Logger.warning(
+        "run_telemetry admission_overflow cap=#{@max_pending_casts} messages; " <>
+          "dropping records until the writer drains"
+      )
+    end
+
+    :ok
+  end
+
+  # After the pending queue drains, surface any records dropped at admission as
+  # one warning record so the offline reducer can see the gap. Resetting the
+  # once-flag lets a later, distinct overload log again.
+  defp maybe_emit_overflow_marker(state, counter) do
+    with 0 <- :atomics.get(counter, @pending_index),
+         dropped when dropped > 0 <- :atomics.exchange(counter, @dropped_index, 0) do
+      :atomics.put(counter, @overflow_logged_index, 0)
+      append(state, :warning, %{reason: :admission_overflow, dropped_count: dropped}, state.clock.())
+    else
+      _other -> state
+    end
   end
 
   defp append_admission({:record, kind, attributes, timestamp}, admission),
@@ -206,16 +247,16 @@ defmodule Aiur.RunTelemetry.Writer do
   defp server_pid(server), do: GenServer.whereis(server)
 
   defp admit?(counter) do
-    current = :atomics.get(counter, 1)
+    current = :atomics.get(counter, @pending_index)
 
     cond do
       current >= @max_pending_casts -> false
-      :atomics.compare_exchange(counter, 1, current, current + 1) == :ok -> true
+      :atomics.compare_exchange(counter, @pending_index, current, current + 1) == :ok -> true
       true -> admit?(counter)
     end
   end
 
-  defp release_admission(counter), do: :atomics.sub(counter, 1, 1)
+  defp release_admission(counter), do: :atomics.sub(counter, @pending_index, 1)
 
   defp write_file(path, contents), do: File.write(path, contents, [:append])
 
