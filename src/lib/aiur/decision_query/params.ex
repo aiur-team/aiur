@@ -11,6 +11,7 @@ defmodule Aiur.DecisionQuery.Params do
   @query_fields ~w(authority blocking cursor kind lifecycle limit search ticket)
   @lifecycle_by_name %{
     "open" => :open,
+    "deferred" => :deferred,
     "historic" => :historic,
     "expired" => :expired,
     "dismissed" => :dismissed,
@@ -25,7 +26,7 @@ defmodule Aiur.DecisionQuery.Params do
           authority: Decision.authority() | nil,
           blocking: boolean() | nil,
           kind: String.t() | nil,
-          lifecycle: :open | :historic | :expired | :dismissed | :decided | :acknowledged | :resolved | nil,
+          lifecycle: :open | :deferred | :historic | :expired | :dismissed | :decided | :acknowledged | :resolved | nil,
           search: String.t() | nil,
           ticket: String.t() | nil
         }

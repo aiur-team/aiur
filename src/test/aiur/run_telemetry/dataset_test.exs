@@ -161,6 +161,39 @@ defmodule Aiur.RunTelemetry.DatasetTest do
     assert [%{status: "broken", missing: ["agent_resume"]}] = out_of_order.findings
   end
 
+  test "normalizes dispatch complexity and ignores malformed tiers" do
+    path = temporary_stream!()
+
+    records = [
+      lifecycle_record(1, "dispatch", "point", ~U[2026-07-11 01:00:00Z], "complexity-string", %{complexity: "4"}),
+      lifecycle_record(2, "agent_pause", "point", ~U[2026-07-11 01:00:01Z], "complexity-bad", %{complexity: "high"}),
+      lifecycle_record(3, "dispatch", "point", ~U[2026-07-11 01:00:02Z], "complexity-out-of-range", %{ticket: "941", complexity: 6}),
+      lifecycle_record(4, "build_test", "end", ~U[2026-07-11 01:00:03Z], "orphan-end", %{ticket: "941"})
+    ]
+
+    File.write!(path, Enum.map_join(records, "\n", &Jason.encode!/1) <> "\n")
+
+    assert {:ok, dataset} = Dataset.build(path)
+    assert dataset.tickets["940"].complexity == 4
+    assert Enum.find(dataset.tickets["940"].events, &(&1.event == "dispatch")).complexity == 4
+    assert Enum.find(dataset.tickets["940"].events, &(&1.event == "agent_pause")).complexity == nil
+    assert dataset.tickets["941"].complexity == nil
+    assert Enum.any?(dataset.tickets["941"].intervals, &(&1.status == "orphan_end"))
+  end
+
+  test "degrades malformed, unsupported, and invalid-timestamp records independently" do
+    path = temporary_stream!()
+
+    unsupported = lifecycle_record(1, "dispatch", "point", ~U[2026-07-11 02:00:00Z]) |> Map.put(:schema_version, nil)
+    invalid_timestamp = lifecycle_record(2, "dispatch", "point", ~U[2026-07-11 02:00:01Z]) |> Map.put(:timestamp, "not-a-timestamp")
+
+    File.write!(path, Enum.map_join([[], unsupported, invalid_timestamp], "\n", &Jason.encode!/1) <> "\n")
+
+    assert {:ok, dataset} = Dataset.build(path)
+    warning_types = MapSet.new(dataset.warnings, & &1.type)
+    assert MapSet.subset?(MapSet.new([:invalid_record, :unsupported_schema, :invalid_timestamp]), warning_types)
+  end
+
   test "preserves repeated runtime transitions while deduplicating replayable boundaries" do
     path = temporary_stream!()
 
@@ -210,12 +243,88 @@ defmodule Aiur.RunTelemetry.DatasetTest do
     assert [%{status: "resolved", comment_source_id: "comment:1"}] = dataset.findings
   end
 
+  test "accepts writer admission_overflow markers as plain warning records" do
+    path = temporary_stream!()
+
+    overflow_marker = %{
+      schema_version: 1,
+      kind: "warning",
+      timestamp: "2026-07-11T01:00:01Z",
+      recorded_at: "2026-07-11T01:00:01Z",
+      boot_id: "test-boot",
+      sequence: 2,
+      record_id: "test-boot:2",
+      attributes: %{reason: "admission_overflow", dropped_count: 17}
+    }
+
+    records = [lifecycle_record(1, "dispatch", "start", ~U[2026-07-11 01:00:00Z]), overflow_marker]
+    File.write!(path, Enum.map_join(records, "\n", &Jason.encode!/1) <> "\n")
+
+    assert {:ok, dataset} = Dataset.build(path, now: ~U[2026-07-11 01:10:00Z])
+
+    marker = Enum.find(dataset.records, &(&1.kind == "warning"))
+    assert marker.attributes["reason"] == "admission_overflow"
+    assert marker.attributes["dropped_count"] == 17
+    refute Enum.any?(dataset.warnings, &(&1.type in [:invalid_record, :unknown_kind, :malformed_line]))
+  end
+
   test "returns an explicit error when no telemetry file exists" do
     empty = Path.join(System.tmp_dir!(), "aiur-empty-dataset-#{System.unique_integer([:positive])}")
     File.mkdir_p!(empty)
     on_exit(fn -> File.rm_rf!(empty) end)
 
     assert {:error, {:no_telemetry_files, [^empty]}} = Dataset.build(empty)
+  end
+
+  test "current-session reads stop at the newest boot boundary" do
+    path = temporary_stream!()
+
+    old_records =
+      for sequence <- 1..5_000 do
+        lifecycle_record(sequence, "old_event", "point", ~U[2026-07-11 01:00:00Z], "old-#{sequence}")
+        |> Map.put(:boot_id, "old-boot")
+        |> Map.put(:record_id, "old-boot:#{sequence}")
+      end
+
+    current_records = [
+      restart_record("current-boot", ~U[2026-07-11 02:00:00Z]),
+      lifecycle_record(2, "current_event", "point", ~U[2026-07-11 02:00:01Z], "current-event")
+      |> Map.put(:boot_id, "current-boot")
+      |> Map.put(:record_id, "current-boot:2")
+    ]
+
+    File.write!(path, Enum.map_join(old_records ++ current_records, "\n", &Jason.encode!/1) <> "\n")
+
+    assert {:ok, dataset} = Dataset.build(path, session: :current)
+    assert Dataset.boot_ids(dataset) == ["current-boot"]
+    assert Enum.map(dataset.records, & &1.record_id) == ["current-boot:1", "current-boot:2"]
+    assert dataset.warnings == []
+  end
+
+  test "current-session retains valid records beside a malformed trailing line" do
+    path = temporary_stream!()
+
+    records = [
+      restart_record("current-boot", ~U[2026-07-11 02:00:00Z]),
+      lifecycle_record(2, "current_event", "point", ~U[2026-07-11 02:00:01Z], "current-event")
+      |> Map.put(:boot_id, "current-boot")
+      |> Map.put(:record_id, "current-boot:2")
+    ]
+
+    File.write!(path, Enum.map_join(records, "\n", &Jason.encode!/1) <> "\nnot-json\n")
+
+    assert {:ok, dataset} = Dataset.build(path, session: :current)
+    assert Enum.map(dataset.records, & &1.record_id) == ["current-boot:1", "current-boot:2"]
+    assert [%{type: :malformed_line}] = dataset.warnings
+  end
+
+  test "current-session bounds an unterminated tail line" do
+    path = temporary_stream!()
+    File.write!(path, String.duplicate("x", 1_048_577))
+
+    assert {:ok, dataset} = Dataset.build(path, session: :current)
+    assert dataset.records == []
+    assert [%{type: :tail_line_too_large, max_bytes: 1_048_576}] = dataset.warnings
   end
 
   defp temporary_stream! do
@@ -247,6 +356,19 @@ defmodule Aiur.RunTelemetry.DatasetTest do
           },
           extra_attributes
         )
+    }
+  end
+
+  defp restart_record(boot_id, timestamp) do
+    %{
+      schema_version: 1,
+      kind: "restart",
+      timestamp: DateTime.to_iso8601(timestamp),
+      recorded_at: DateTime.to_iso8601(timestamp),
+      boot_id: boot_id,
+      sequence: 1,
+      record_id: "#{boot_id}:1",
+      attributes: %{event: "daemon_restart"}
     }
   end
 

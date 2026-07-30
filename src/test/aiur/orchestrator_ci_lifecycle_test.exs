@@ -404,6 +404,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       assert [%{body: %{events: [event]}}] = AgentQueueStore.list_pending(next.queue_store, identifier)
       assert event.topic == "ticket.#{identifier}.ci.rewake"
+      assert event.source == :system
       assert event.message =~ "Check CI once"
       assert event.message =~ "return to agent:ci-wait"
     end
