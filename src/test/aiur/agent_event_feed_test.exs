@@ -208,6 +208,53 @@ defmodule Aiur.AgentEventFeedTest do
              AgentEventFeed.list(identifier)
   end
 
+  test "keeps malformed records and incomplete provider changes as messages", %{identifier: identifier} do
+    write_events(identifier, [
+      %{"payload" => %{}},
+      event("tool", "edit lib/incomplete.ex", %{"tool" => "edit", "changes" => [%{"path" => "lib/incomplete.ex"}]}),
+      event("tool", "edit lib/empty.ex", %{"tool" => "edit", "changes" => [%{"path" => "lib/empty.ex", "diff" => ""}]})
+    ])
+
+    assert {:ok, %{events: events}} = AgentEventFeed.list(identifier)
+
+    assert Enum.map(events, &Map.take(&1, [:type, :body, :badge])) == [
+             %{type: "message", body: "edit lib/empty.ex", badge: "EMIT"},
+             %{type: "message", body: "edit lib/incomplete.ex", badge: "EMIT"},
+             %{type: "message", body: "", badge: "INFO"}
+           ]
+  end
+
+  test "derives a diff path and accepts a zero cursor", %{identifier: identifier} do
+    diff = "+++ lib/derived.ex\n-old\n+new"
+
+    write_events(identifier, [
+      event("assistant", "first"),
+      event("tool", "edit lib/derived.ex", %{"tool" => "edit", "changes" => [%{"diff" => diff}]})
+    ])
+
+    assert {:ok, %{events: [%{type: "diff", path: "lib/derived.ex", additions: 1, deletions: 1, line: "new"}]}} =
+             AgentEventFeed.list(identifier, %{"limit" => 1})
+
+    assert {:ok, %{events: []}} = AgentEventFeed.list(identifier, %{"limit" => 1, "cursor" => "0"})
+  end
+
+  test "derives diff metadata from real headers and retains event context", %{identifier: identifier} do
+    write_events(identifier, [
+      event("tool", "edit lib/header.ex", %{
+        "tool" => "edit",
+        "changes" => [%{"diff" => "--- a/lib/header.ex\n+++ b/lib/header.ex\n-old"}]
+      }),
+      event("tool", "edit lib/fallback.ex", %{
+        "tool" => "edit",
+        "changes" => [%{"diff" => "-old\n+new"}]
+      })
+    ])
+
+    assert {:ok, %{events: [fallback, header]}} = AgentEventFeed.list(identifier)
+    assert %{type: "diff", path: "edit lib/fallback.ex", additions: 1, deletions: 1, line: "new"} = fallback
+    assert %{type: "diff", path: "lib/header.ex", additions: 0, deletions: 1, line: "old"} = header
+  end
+
   defp write_events(identifier, events) do
     path = IssueLog.transcript_path(identifier)
     File.mkdir_p!(Path.dirname(path))
