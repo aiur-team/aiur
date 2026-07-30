@@ -367,6 +367,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   defp enqueue_agent_event(context, name, message, payload, identifier, topic) do
     event_payload =
       payload
+      |> Map.put(:source, :agent)
       |> Map.put("message", message)
       |> Map.put("name", name)
       |> Map.put("issue", identifier)

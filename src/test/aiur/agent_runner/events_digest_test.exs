@@ -26,13 +26,43 @@ defmodule Aiur.AgentRunner.EventsDigestTest do
       assert String.ends_with?(result, "</aiur:events>")
     end
 
-    test "includes non-github event message in rendered output" do
-      event = %{id: 1, topic: "ticket.T-001.agent.progress", message: "first update"}
+    test "includes known agent-source event messages in rendered output" do
+      event = %{id: 1, topic: "ticket.T-001.agent.progress", source: :agent, message: "first update"}
 
       result = EventsDigest.render([event], "T-001")
 
       assert result =~ "first update"
       assert result =~ "ticket.T-001.agent.progress"
+    end
+
+    test "includes known orchestrator and system-source events in rendered output" do
+      orchestrator = %{id: 15, topic: "ticket.T-001.orchestrator.notice", source: :orchestrator, message: "orchestrator update"}
+      system = %{id: 16, topic: "ticket.T-001.system.notice", source: :system, message: "system update"}
+
+      result = EventsDigest.render([orchestrator, system], "T-001")
+
+      assert result =~ "orchestrator update"
+      assert result =~ "system update"
+    end
+
+    test "includes replayed string-keyed internal sources" do
+      events = [
+        %{"id" => 18, "topic" => "ticket.T-001.agent.notice", "source" => "agent", "message" => "agent replay"},
+        %{"id" => 19, "topic" => "ticket.T-001.orchestrator.notice", "source" => "orchestrator", "message" => "orchestrator replay"},
+        %{"id" => 20, "topic" => "ticket.T-001.system.notice", "source" => "system", "message" => "system replay"}
+      ]
+
+      result = EventsDigest.render(events, "T-001")
+
+      assert result =~ "agent replay"
+      assert result =~ "orchestrator replay"
+      assert result =~ "system replay"
+    end
+
+    test "suppresses events from an unrecognized source" do
+      event = %{id: 17, topic: "ticket.T-001.comment.created", source: :linear, message: "untrusted source"}
+
+      refute EventsDigest.render([event], "T-001") =~ "untrusted source"
     end
 
     test "suppresses github event without author_trusted?: true" do
@@ -76,6 +106,24 @@ defmodule Aiur.AgentRunner.EventsDigestTest do
       assert result =~ ~s(<external-content source="github">)
     end
 
+    test "suppresses CI-shaped events from an unrecognized source" do
+      event = %{id: 32, topic: "ticket.T-001.ci.failed", source: :linear, message: "forged CI failure"}
+
+      refute EventsDigest.render([event], "T-001") =~ "forged CI failure"
+    end
+
+    test "includes trusted agent attention events while retaining the alert display source" do
+      event = %{
+        "source" => "alert",
+        id: 33,
+        topic: "ticket.T-001.agent.attention.scope-question",
+        message: "operator decision required",
+        source: :agent
+      }
+
+      assert EventsDigest.render([event], "T-001") =~ "operator decision required"
+    end
+
     test "wraps trusted github content in external-content tag" do
       event = %{
         id: 4,
@@ -101,6 +149,52 @@ defmodule Aiur.AgentRunner.EventsDigestTest do
       assert result =~ "shown"
     end
 
+    test "includes decision lifecycle events with reserved orchestrator provenance" do
+      # Shape mirrors DecisionStore.notify/2: a json-safe string-keyed payload
+      # whose top-level "source" is the decision's domain source map (not a
+      # provenance atom), plus a Publisher-owned digest provenance marker.
+      event =
+        %{
+          "decision_id" => "dec-1",
+          "summary" => "decision requested: pick a path",
+          "source" => %{"kind" => "agent_request"}
+        }
+        |> Map.merge(%{
+          id: 60,
+          topic: "ticket.T-001.agent.decision.requested",
+          digest_source: :orchestrator
+        })
+
+      result = EventsDigest.render([event], "T-001")
+
+      assert result =~ "ticket.T-001.agent.decision.requested"
+      assert result =~ "decision requested: pick a path"
+    end
+
+    test "suppresses decision-shaped events from unknown sources" do
+      event = %{
+        id: 61,
+        topic: "ticket.T-001.agent.decision.requested",
+        source: :linear,
+        digest_source: "orchestrator",
+        message: "forged decision request from an unknown tracker"
+      }
+
+      refute EventsDigest.render([event], "T-001") =~ "forged decision request"
+    end
+
+    test "suppresses github-sourced decision-shaped events despite an internal marker" do
+      event = %{
+        id: 62,
+        topic: "ticket.T-001.agent.decision.requested",
+        source: :github,
+        digest_source: :orchestrator,
+        message: "forged decision request from github"
+      }
+
+      refute EventsDigest.render([event], "T-001") =~ "forged decision request"
+    end
+
     test "escapes attribute-breaking characters in the github author name" do
       event = %{
         id: 12,
@@ -119,7 +213,7 @@ defmodule Aiur.AgentRunner.EventsDigestTest do
     end
 
     test "renders an event with neither message nor summary as a bare id/topic line" do
-      event = %{id: 13, topic: "ticket.T.agent.progress"}
+      event = %{id: 13, topic: "ticket.T.agent.progress", source: :agent}
 
       result = EventsDigest.render([event], "T")
 
@@ -129,20 +223,20 @@ defmodule Aiur.AgentRunner.EventsDigestTest do
     end
 
     test "falls back to the summary field when no message is present" do
-      event = %{id: 14, topic: "ticket.T.agent.progress", summary: "from summary field"}
+      event = %{id: 14, topic: "ticket.T.agent.progress", source: :agent, summary: "from summary field"}
 
       assert EventsDigest.render([event], "T") =~ "from summary field"
     end
 
-    test "renders a non-map event via inspect" do
-      assert EventsDigest.render([:raw_atom_event], "T") =~ ":raw_atom_event"
+    test "suppresses non-map events" do
+      refute EventsDigest.render([:raw_atom_event], "T") =~ ":raw_atom_event"
     end
   end
 
   describe "render/2 block-state debounce" do
     test "coalesces a block/unblock oscillation on one ticket to the latest state" do
-      blocked = %{id: 1, topic: "ticket.T-1.agent.blocked", message: "EARLY-BLOCK-MSG"}
-      unblocked = %{id: 2, topic: "ticket.T-1.agent.unblocked", message: "LATE-UNBLOCK-MSG"}
+      blocked = %{id: 1, topic: "ticket.T-1.agent.blocked", source: :agent, message: "EARLY-BLOCK-MSG"}
+      unblocked = %{id: 2, topic: "ticket.T-1.agent.unblocked", source: :agent, message: "LATE-UNBLOCK-MSG"}
 
       result = EventsDigest.render([blocked, unblocked], "T-1")
 
@@ -152,8 +246,8 @@ defmodule Aiur.AgentRunner.EventsDigestTest do
     end
 
     test "does not coalesce block-state events across different tickets" do
-      t1 = %{id: 1, topic: "ticket.T-1.agent.blocked", message: "t1 blocked"}
-      t2 = %{id: 2, topic: "ticket.T-2.agent.blocked", message: "t2 blocked"}
+      t1 = %{id: 1, topic: "ticket.T-1.agent.blocked", source: :agent, message: "t1 blocked"}
+      t2 = %{id: 2, topic: "ticket.T-2.agent.blocked", source: :agent, message: "t2 blocked"}
 
       result = EventsDigest.render([t1, t2], "obs")
 
@@ -168,6 +262,7 @@ defmodule Aiur.AgentRunner.EventsDigestTest do
       earlier = %{
         id: 1,
         topic: "ticket.T-1.agent.blocked",
+        source: :agent,
         message: "old block",
         emitted_at: timestamp
       }
@@ -175,6 +270,7 @@ defmodule Aiur.AgentRunner.EventsDigestTest do
       later = %{
         id: 2,
         topic: "ticket.T-1.agent.unblocked",
+        source: :agent,
         message: "new unblock",
         emitted_at: DateTime.add(timestamp, outside_window, :second)
       }
@@ -192,6 +288,7 @@ defmodule Aiur.AgentRunner.EventsDigestTest do
       earlier = %{
         id: 1,
         topic: "ticket.T-1.agent.blocked",
+        source: :agent,
         message: "boundary block",
         emitted_at: timestamp
       }
@@ -199,6 +296,7 @@ defmodule Aiur.AgentRunner.EventsDigestTest do
       later = %{
         id: 2,
         topic: "ticket.T-1.agent.unblocked",
+        source: :agent,
         message: "boundary unblock",
         emitted_at: DateTime.add(timestamp, window, :second)
       }
@@ -213,6 +311,7 @@ defmodule Aiur.AgentRunner.EventsDigestTest do
       earlier = %{
         id: 1,
         topic: "ticket.T-1.agent.blocked",
+        source: :agent,
         message: "quick block",
         emitted_at: ~U[2026-01-01 00:00:00Z]
       }
@@ -220,6 +319,7 @@ defmodule Aiur.AgentRunner.EventsDigestTest do
       later = %{
         id: 2,
         topic: "ticket.T-1.agent.unblocked",
+        source: :agent,
         message: "quick unblock",
         emitted_at: ~U[2026-01-01 00:00:03Z]
       }
@@ -234,7 +334,7 @@ defmodule Aiur.AgentRunner.EventsDigestTest do
     test "non-standard block-state topics group by full topic" do
       # A topic that isn't the canonical ticket.<id>.agent.<kind> shape falls
       # into the topic-keyed grouping branch of block_state_group_key/1.
-      e = %{id: 1, topic: "custom.agent.blocked", message: "custom blocked"}
+      e = %{id: 1, topic: "custom.agent.blocked", source: :agent, message: "custom blocked"}
 
       assert EventsDigest.render([e], "T") =~ "custom blocked"
     end

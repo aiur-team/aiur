@@ -3,10 +3,9 @@ defmodule Aiur.AgentRunner.CommentContext do
   Fetches and normalises GitHub comment context for agent bootstrap.
 
   Collects issue comments after the `## Agent Workpad` cutoff, PR review
-  comments, unaddressed review threads, and converts them to event maps
-  suitable for the bootstrap digest. The `Sanitizer.scrub` pass and the
-  workpad-cutoff + unaddressed-review-thread exception (#634→#642→#682) are
-  preserved verbatim.
+  comments, and unaddressed review threads after the latest workpad cutoff,
+  then converts them to event maps suitable for the bootstrap digest. The
+  `Sanitizer.scrub` pass is applied before events enter the digest.
   """
 
   require Logger
@@ -18,9 +17,9 @@ defmodule Aiur.AgentRunner.CommentContext do
   @doc """
   Return comment-context events for `issue`.
 
-  Fetches issue and PR comments, applies the workpad cutoff, and collects
-  unaddressed review threads regardless of that cutoff. Results are deduped
-  by `(topic, comment_id)`.
+  Fetches issue and PR comments, applying the workpad cutoff to every comment
+  source including unaddressed review threads. Results are deduped by
+  `(topic, comment_id)`.
   """
   @spec events(Issue.t(), map()) :: [map()]
   def events(issue, fetchers \\ comment_context_fetchers())
@@ -76,7 +75,8 @@ defmodule Aiur.AgentRunner.CommentContext do
       fetch_unaddressed_review_thread_events(
         "ticket.#{identifier}.pr.review_comment",
         Map.get(fetchers, :unaddressed_pr_review_thread_comments),
-        pr_number
+        pr_number,
+        cutoff
       )
   end
 
@@ -107,13 +107,15 @@ defmodule Aiur.AgentRunner.CommentContext do
     end
   end
 
-  defp fetch_unaddressed_review_thread_events(_topic, nil, _pr_number), do: []
+  defp fetch_unaddressed_review_thread_events(_topic, nil, _pr_number, _cutoff), do: []
 
-  defp fetch_unaddressed_review_thread_events(topic, fetch_fun, pr_number)
+  defp fetch_unaddressed_review_thread_events(topic, fetch_fun, pr_number, cutoff)
        when is_function(fetch_fun, 1) do
     case fetch_fun.(pr_number) do
       {:ok, comments} when is_list(comments) ->
-        comments_to_events(comments, topic)
+        comments
+        |> comments_after_workpad(cutoff)
+        |> comments_to_events(topic)
 
       {:error, reason} ->
         Logger.warning("comment_context fetch_failed topic=#{topic} source=unaddressed_review_threads reason=#{inspect(reason)}")

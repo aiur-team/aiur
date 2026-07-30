@@ -199,7 +199,7 @@ defmodule Aiur.IssueLog do
   end
 
   defp parse_event_line(line) do
-    # Matches the optional `src=…` / `trust=…` flag segments between
+    # Matches the optional `src=…` / `trust=…` / `digest=…` flag segments between
     # `id=…` and the topic. Flags are surfaced as fields on the parsed
     # event so bootstrap replays carry the same `author_trusted?` +
     # `source` signal that the render-side filter and `<external-content>`
@@ -230,7 +230,8 @@ defmodule Aiur.IssueLog do
       ts: ts,
       summary: summary,
       source: flags |> Map.get("src") |> maybe_atomize_source(),
-      author_trusted?: flags |> Map.get("trust") |> maybe_atomize_bool()
+      author_trusted?: flags |> Map.get("trust") |> maybe_atomize_bool(),
+      digest_source: flags |> Map.get("digest") |> maybe_atomize_digest_source()
     }
   end
 
@@ -257,6 +258,14 @@ defmodule Aiur.IssueLog do
   defp maybe_atomize_bool("true"), do: true
   defp maybe_atomize_bool("false"), do: false
   defp maybe_atomize_bool(_), do: nil
+
+  # `digest=` is written only by IssueLog from Publisher's reserved envelope
+  # field. Rehydrate its fixed vocabulary to atoms so EventsDigest never
+  # treats an arbitrary string from an unknown event source as trusted.
+  defp maybe_atomize_digest_source("agent"), do: :agent
+  defp maybe_atomize_digest_source("orchestrator"), do: :orchestrator
+  defp maybe_atomize_digest_source("system"), do: :system
+  defp maybe_atomize_digest_source(_), do: nil
 
   defp parse_line(line) do
     case Regex.run(~r/\A([0-9T:\-\.Z]+) \[([a-z]+)\] (.*)\z/, line) do
@@ -834,7 +843,7 @@ defmodule Aiur.IssueLog do
     Map.get(event, key) || Map.get(event, Atom.to_string(key)) || default
   end
 
-  # `src=`/`trust=` are appended in a fixed order before the `topic`
+  # `src=`/`trust=`/`digest=` are appended in a fixed order before the `topic`
   # so `Aiur.IssueLog.event_history/2` can reconstruct the security-
   # sensitive flags on bootstrap. Without them, U2 replays would
   # bypass the U7 CODEOWNERS filter and `<external-content>` wrapper.
@@ -843,6 +852,7 @@ defmodule Aiur.IssueLog do
       []
       |> append_flag("src", event_field(event, :source, nil))
       |> append_flag("trust", event_field(event, :author_trusted?, nil))
+      |> append_flag("digest", event_field(event, :digest_source, nil))
       |> Enum.join(" ")
 
     if flags == "", do: "", else: " " <> flags
