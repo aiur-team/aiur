@@ -722,6 +722,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     if TelemetryLifecycle.enabled?() do
       TelemetryLifecycle.record(issue.identifier, lifecycle_attempt_id, :dispatch, :point, %{
         outcome: :requested,
+        complexity: CodingAgent.complexity_level(issue),
         worker_host: worker_host,
         remote: is_binary(worker_host),
         retry_attempt: RetryEngine.normalize_retry_attempt(attempt)
