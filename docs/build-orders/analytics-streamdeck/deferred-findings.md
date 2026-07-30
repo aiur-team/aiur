@@ -18,3 +18,7 @@ Discoveries preserved without expanding the active boundary.
   boundary — protocol drift would keep tests green while the real path broke.
 - PR #1371, P2: restore_runtime_config reaches into Phoenix endpoint ETS
   internals; a Phoenix upgrade could silently break config restoration.
+- From #1385 review (P2, significant): NO required-status-check protection
+  exists on develop or main — the ruleset requires review only. Green-CI-
+  before-merge is currently Executor policy, not enforced config. Operator
+  decision: add required checks to the ruleset (also a merge-queue prereq).
