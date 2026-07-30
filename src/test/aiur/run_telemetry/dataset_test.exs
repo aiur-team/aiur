@@ -276,6 +276,57 @@ defmodule Aiur.RunTelemetry.DatasetTest do
     assert {:error, {:no_telemetry_files, [^empty]}} = Dataset.build(empty)
   end
 
+  test "current-session reads stop at the newest boot boundary" do
+    path = temporary_stream!()
+
+    old_records =
+      for sequence <- 1..5_000 do
+        lifecycle_record(sequence, "old_event", "point", ~U[2026-07-11 01:00:00Z], "old-#{sequence}")
+        |> Map.put(:boot_id, "old-boot")
+        |> Map.put(:record_id, "old-boot:#{sequence}")
+      end
+
+    current_records = [
+      restart_record("current-boot", ~U[2026-07-11 02:00:00Z]),
+      lifecycle_record(2, "current_event", "point", ~U[2026-07-11 02:00:01Z], "current-event")
+      |> Map.put(:boot_id, "current-boot")
+      |> Map.put(:record_id, "current-boot:2")
+    ]
+
+    File.write!(path, Enum.map_join(old_records ++ current_records, "\n", &Jason.encode!/1) <> "\n")
+
+    assert {:ok, dataset} = Dataset.build(path, session: :current)
+    assert Dataset.boot_ids(dataset) == ["current-boot"]
+    assert Enum.map(dataset.records, & &1.record_id) == ["current-boot:1", "current-boot:2"]
+    assert dataset.warnings == []
+  end
+
+  test "current-session retains valid records beside a malformed trailing line" do
+    path = temporary_stream!()
+
+    records = [
+      restart_record("current-boot", ~U[2026-07-11 02:00:00Z]),
+      lifecycle_record(2, "current_event", "point", ~U[2026-07-11 02:00:01Z], "current-event")
+      |> Map.put(:boot_id, "current-boot")
+      |> Map.put(:record_id, "current-boot:2")
+    ]
+
+    File.write!(path, Enum.map_join(records, "\n", &Jason.encode!/1) <> "\nnot-json\n")
+
+    assert {:ok, dataset} = Dataset.build(path, session: :current)
+    assert Enum.map(dataset.records, & &1.record_id) == ["current-boot:1", "current-boot:2"]
+    assert [%{type: :malformed_line}] = dataset.warnings
+  end
+
+  test "current-session bounds an unterminated tail line" do
+    path = temporary_stream!()
+    File.write!(path, String.duplicate("x", 1_048_577))
+
+    assert {:ok, dataset} = Dataset.build(path, session: :current)
+    assert dataset.records == []
+    assert [%{type: :tail_line_too_large, max_bytes: 1_048_576}] = dataset.warnings
+  end
+
   defp temporary_stream! do
     root = Path.join(System.tmp_dir!(), "aiur-dataset-#{System.unique_integer([:positive])}")
     File.mkdir_p!(root)
@@ -305,6 +356,19 @@ defmodule Aiur.RunTelemetry.DatasetTest do
           },
           extra_attributes
         )
+    }
+  end
+
+  defp restart_record(boot_id, timestamp) do
+    %{
+      schema_version: 1,
+      kind: "restart",
+      timestamp: DateTime.to_iso8601(timestamp),
+      recorded_at: DateTime.to_iso8601(timestamp),
+      boot_id: boot_id,
+      sequence: 1,
+      record_id: "#{boot_id}:1",
+      attributes: %{event: "daemon_restart"}
     }
   end
 
