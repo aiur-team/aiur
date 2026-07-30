@@ -71,6 +71,11 @@ scripts/aiurdev run --bg --debug --host 0.0.0.0 --port 4000 --max-agents <n>
   stricter than credo. Coverage gate 85%.
 - Sandbox fixture issue **#99 must stay open and never be dispatched**
   (test_reset.ex restores its file on every `aiur --test`).
+- **Do NOT run the full `mix test --cover` suite locally** — it is
+  processor-intensive and competes with the fleet. Let CI run it. Agents may
+  run a single focused test file as a self-check, but coverage/full-suite
+  verification is CI's job (push and read the check). Applies to Executor and
+  every dispatched/spawned agent.
 
 ## Ticket state (as of last update)
 
