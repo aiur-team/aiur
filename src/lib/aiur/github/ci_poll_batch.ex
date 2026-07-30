@@ -15,7 +15,9 @@ defmodule Aiur.GitHub.CIPollBatch do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token(opts) do
       if length(targets) > @targets_per_query do
-        Logger.warning("Github CI GraphQL batch overflow: targets=#{length(targets)} pages=1")
+        Logger.warning(
+          "Github CI GraphQL batch target overflow: targets=#{length(targets)} complete_pull_request_pagination=true"
+        )
       end
 
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
