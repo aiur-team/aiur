@@ -352,7 +352,7 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
       log =
         capture_log(fn ->
           send(pid, {:worker_control_state, "l17", :paused, %{kind: :usage_limit_exhausted}})
-          assert :paused = get_in(:sys.get_state(pid).running["l17"], [:control, :status])
+          assert :paused = get_in(:sys.get_state(pid, 15_000).running["l17"], [:control, :status])
         end)
 
       refute_receive {:resume_agent, _}, 100
