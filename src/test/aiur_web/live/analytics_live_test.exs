@@ -37,11 +37,12 @@ defmodule AiurWeb.AnalyticsLiveTest do
   test "shows the empty state when no run telemetry is available" do
     Application.put_env(:aiur, :analytics_telemetry_file, "/nonexistent/telemetry.ndjson")
 
-    {:ok, _view, html} = live(build_conn(), "/analytics")
+    {:ok, view, html} = live(build_conn(), "/analytics")
 
     assert html =~ "Run analytics"
     assert html =~ "No run telemetry to analyze yet"
     refute html =~ "Peak concurrency"
+    refute render_hook(view, "time-domain", %{"t0" => 1, "t1" => 2}) =~ ~s(class="an-zoombar")
   end
 
   test "renders the KPI strip and inline SVG charts from telemetry" do
@@ -91,6 +92,12 @@ defmodule AiurWeb.AnalyticsLiveTest do
     assert length(Regex.scan(~r/data-time-start="1783728061000"/, patched)) == 5
     assert length(Regex.scan(~r/data-time-end="1783728065000"/, patched)) == 5
 
+    nav_patched = render_click(view, "toggle-nav", %{})
+    assert nav_patched =~ ~s(class="an-zoombar")
+
+    restored = render_hook(view, "restore-nav", %{"collapsed" => false})
+    assert restored =~ ~s(class="an-zoombar")
+
     reset = render_click(view, "reset-time-domain", %{})
 
     refute reset =~ ~s(class="an-zoombar")
@@ -106,6 +113,18 @@ defmodule AiurWeb.AnalyticsLiveTest do
     html = render_hook(view, "time-domain", %{"t0" => 1_783_728_061_000, "t1" => 1_783_728_061_001})
 
     refute html =~ ~s(class="an-zoombar")
+  end
+
+  test "a full-range domain event leaves the charts unzoomed" do
+    Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
+
+    {:ok, view, html} = live(build_conn(), "/analytics")
+    [_, start_ms] = Regex.run(~r/data-time-start="(\d+)"/, html)
+    [_, end_ms] = Regex.run(~r/data-time-end="(\d+)"/, html)
+
+    full_range = render_hook(view, "time-domain", %{"t0" => start_ms, "t1" => end_ms})
+
+    refute full_range =~ ~s(class="an-zoombar")
   end
 
   defp reset_env(key, nil), do: Application.delete_env(:aiur, key)

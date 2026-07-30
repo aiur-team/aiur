@@ -146,7 +146,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.ChartsTest do
   test "normalizes reversed hook values to the available axis and rejects malformed domains" do
     m = model()
 
-    assert Charts.normalize_time_domain(m, {"1600000", "400000"}) == {m.window.start_ms, m.window.end_ms}
+    assert Charts.normalize_time_domain(m, {"1600000", "400000"}) == nil
     assert Charts.normalize_time_domain(m, {@t0 + 360_000.0, @t0 + 120_000.0}) == {@t0 + 120_000, @t0 + 360_000}
     assert Charts.normalize_time_domain(m, {"not-a-time", @t0 + 120_000}) == nil
     assert Charts.normalize_time_domain(m, :not_a_domain) == nil

@@ -908,6 +908,9 @@ defmodule AiurWeb.BuildOrderLiveTest do
     refute reset =~ ~s(class="an-zoombar")
     assert length(Regex.scan(~r/data-time-start="#{start_ms}"/, reset)) == 5
     assert length(Regex.scan(~r/data-time-end="#{end_ms}"/, reset)) == 5
+
+    full_range = render_hook(view, "time-domain", %{"t0" => start_ms, "t1" => end_ms})
+    refute full_range =~ ~s(class="an-zoombar")
   end
 
   test "an unreadable telemetry stream leaves the rest of the Build Order page intact", %{first: first} do

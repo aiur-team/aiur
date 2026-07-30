@@ -36,7 +36,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
          lo = max(min(t0, t1), start_ms),
          hi = min(max(t0, t1), end_ms),
          true <- hi - lo >= minimum_domain_ms(start_ms, end_ms) do
-      {lo, hi}
+      if lo == start_ms and hi == end_ms, do: nil, else: {lo, hi}
     else
       _invalid -> nil
     end
