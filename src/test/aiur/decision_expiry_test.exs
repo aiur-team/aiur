@@ -50,6 +50,30 @@ defmodule Aiur.DecisionExpiryTest do
     refute_receive :expired
   end
 
+  test "scheduled sweeps use the supplied sources" do
+    test_pid = self()
+
+    {:ok, pid} =
+      DecisionExpiry.start_link(
+        name: nil,
+        initial_delay_ms: 60_000,
+        interval_ms: 60_000,
+        active_identifiers_fun: fn -> {:ok, []} end,
+        decisions_fun: fn -> {:ok, [decision("orphan", "DONE-1", DateTime.add(@now, -600, :second))]} end,
+        expire_fun: fn decision_id, reason_class, occurred_at ->
+          send(test_pid, {:expired, decision_id, reason_class, occurred_at})
+          {:ok, %{status: :accepted}}
+        end,
+        now: @now,
+        grace_seconds: 300
+      )
+
+    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+
+    send(pid, :sweep)
+    assert_receive {:expired, _decision_id, "agent_not_running", @now}
+  end
+
   defp decision(source_id, ticket_identifier, created_at, status \\ :open) do
     assert {:ok, decision} =
              DecisionValidation.normalize(

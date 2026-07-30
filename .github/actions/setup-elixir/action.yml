@@ -1,0 +1,21 @@
+name: Setup Elixir
+description: Install the project toolchain, restore dependencies, and fetch deps.
+
+runs:
+  using: composite
+  steps:
+    - name: Set up mise tools
+      uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+      with:
+        install: true
+        cache: true
+    - name: Cache deps
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      with:
+        path: src/deps
+        key: ${{ runner.os }}-mix-${{ hashFiles('src/mix.lock') }}
+        restore-keys: ${{ runner.os }}-mix-
+    - name: Fetch deps
+      shell: bash
+      working-directory: src
+      run: make deps
