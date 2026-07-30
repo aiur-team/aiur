@@ -125,6 +125,16 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
     end
   end
 
+  defp config_change_if_running(changed) do
+    if Process.whereis(AiurWeb.Endpoint) do
+      try do
+        AiurWeb.Endpoint.config_change(changed, [])
+      rescue
+        ArgumentError -> :ok
+      end
+    end
+  end
+
   defp control_conn(identifier, action) do
     :post
     |> conn("/api/v1/#{identifier}/#{action}")
@@ -292,7 +302,7 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
     previous_password = System.get_env("AIUR_DASHBOARD_PASSWORD")
 
     on_exit(fn ->
-      AiurWeb.Endpoint.config_change([dashboard_auth_required: false], [])
+      config_change_if_running(dashboard_auth_required: false)
       restore_env("AIUR_DASHBOARD_USERNAME", previous_username)
       restore_env("AIUR_DASHBOARD_PASSWORD", previous_password)
     end)
