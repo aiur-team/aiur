@@ -28,7 +28,9 @@ defmodule Aiur.Config.Schema.Observability do
         :render_interval_ms,
         :telemetry_retention_max_bytes,
         :telemetry_retention_max_age_days
-      ], empty_values: [])
+      ],
+      empty_values: []
+    )
     |> validate_number(:refresh_ms, greater_than: 0)
     |> validate_number(:render_interval_ms, greater_than: 0)
     |> validate_number(:telemetry_retention_max_bytes, greater_than: 0)
