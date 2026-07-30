@@ -8,7 +8,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
   alias Aiur.{CIApprovalStore, Config, Issue, Tracker}
   alias Aiur.Events.{GithubCIPoller, IdGenerator, Publisher, Sanitizer, UniversalSubscriptions}
-  alias Aiur.GitHub.CIPollBatch
+  alias Aiur.GitHub.{CIPollBatch, Client}
 
   alias Aiur.Orchestrator.{
     AgentTeardown,
@@ -308,22 +308,42 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   end
 
   defp do_poll_github_ci(%State{} = state, opts) do
-    issue_fetcher = Keyword.get(opts, :ci_issue_fetcher, &Tracker.fetch_issues_by_states/1)
     poller = Keyword.get(opts, :ci_poller, &GithubCIPoller.poll/2)
 
-    case issue_fetcher.(@ci_poll_states) do
-      {:ok, issues} when is_list(issues) ->
+    case fetch_ci_issues(state, opts) do
+      {:ok, issues, state} ->
         state
         |> prune_ci_lifecycle_state(issues)
         |> poll_github_ci_targets(issues, poller, opts)
 
-      {:error, reason} ->
+      {:error, reason, state} ->
         Logger.warning("GithubCIPoller target refresh skipped; reason=#{inspect(reason)}")
         TrackerHealth.note_github_connectivity_failure(state, :ci, reason)
 
       other ->
         Logger.warning("GithubCIPoller target refresh returned unexpected value=#{inspect(other)}")
         state
+    end
+  end
+
+  defp fetch_ci_issues(%State{} = state, opts) do
+    case Keyword.fetch(opts, :ci_issue_fetcher) do
+      {:ok, fetcher} ->
+        case fetcher.(@ci_poll_states) do
+          {:ok, issues} when is_list(issues) -> {:ok, issues, state}
+          {:error, reason} -> {:error, reason, state}
+          other -> {:error, {:unexpected_ci_targets, other}, state}
+        end
+
+      :error ->
+        case Client.fetch_issues_by_states_conditional(
+               @ci_poll_states,
+               state.github_issue_list_cache,
+               opts
+             ) do
+          {:ok, issues, cache} -> {:ok, issues, %{state | github_issue_list_cache: cache}}
+          {:error, reason} -> {:error, reason, state}
+        end
     end
   end
 

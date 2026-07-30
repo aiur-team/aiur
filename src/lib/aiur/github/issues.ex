@@ -22,6 +22,22 @@ defmodule Aiur.GitHub.Issues do
     if state_names == [], do: {:ok, []}, else: do_fetch_issues_by_states(state_names, opts)
   end
 
+  @doc """
+  Fetches issue lists conditionally, retaining one ETag and materialized page
+  per label/page URL. A 304 therefore reuses the complete cached list instead
+  of treating the first page as a complete result.
+  """
+  @spec fetch_issues_by_states_conditional([String.t()], map(), keyword()) ::
+          {:ok, [Issue.t()], map()} | {:error, term()}
+  def fetch_issues_by_states_conditional(state_names, cache, opts \\ [])
+      when is_list(state_names) and is_map(cache) do
+    if state_names == [] do
+      {:ok, [], cache}
+    else
+      do_fetch_issues_by_states_conditional(state_names, cache, opts)
+    end
+  end
+
   @spec fetch_issue_states_by_ids([String.t()], keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
   def fetch_issue_states_by_ids(issue_ids, opts \\ []) when is_list(issue_ids) do
     if issue_ids == [], do: {:ok, []}, else: do_fetch_issue_states_by_ids(issue_ids, opts)
@@ -135,6 +151,158 @@ defmodule Aiur.GitHub.Issues do
 
       fetch_issues_for_each_label(labels, request_fun, token, owner, repo, prefix)
     end
+  end
+
+  defp do_fetch_issues_by_states_conditional(state_names, cache, opts) do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token() do
+      prefix = GitHub.Config.label_prefix()
+      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+
+      state_names
+      |> Enum.map(&StatePolicy.state_label(prefix, &1))
+      |> Enum.reduce_while({:ok, %{}, cache}, fn label, {:ok, issues_by_id, cache} ->
+        url =
+          "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues?labels=#{URI.encode(label)}&state=open&per_page=100"
+
+        case fetch_label_issue_pages_conditional(
+               request_fun,
+               url,
+               token,
+               owner,
+               repo,
+               prefix,
+               Map.get(cache, label, %{})
+             ) do
+          {:ok, issues, label_cache} ->
+            merged =
+              Map.merge(issues_by_id, Map.new(issues, &{&1.id, &1}), fn _key, old, _new -> old end)
+            {:cont, {:ok, merged, Map.put(cache, label, label_cache)}}
+
+          {:error, _reason} = error ->
+            {:halt, error}
+        end
+      end)
+      |> case do
+        {:ok, issues_by_id, updated_cache} -> {:ok, Map.values(issues_by_id), updated_cache}
+        error -> error
+      end
+    end
+  end
+
+  defp fetch_label_issue_pages_conditional(request_fun, first_url, token, owner, repo, prefix, label_cache) do
+    cached_pages = Map.get(label_cache, :pages, %{})
+    fetch_label_issue_pages_conditional(
+      request_fun,
+      first_url,
+      token,
+      owner,
+      repo,
+      prefix,
+      cached_pages,
+      %{},
+      []
+    )
+  end
+
+  defp fetch_label_issue_pages_conditional(
+         request_fun,
+         url,
+         token,
+         owner,
+         repo,
+         prefix,
+         cached_pages,
+         next_pages,
+         acc
+       ) do
+    cached_page = Map.get(cached_pages, url, %{})
+    etag = Map.get(cached_page, :etag)
+    request = %{method: :get, url: url, token: token}
+    request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
+
+    case request_fun.(request) do
+      {:ok, %{status: 200, body: body} = response} when is_list(body) ->
+        page = %{
+          etag: Transport.header(Map.get(response, :headers, []), "etag") || etag,
+          issues: Enum.map(body, &normalize_issue(&1, owner, repo, prefix)),
+          next_url: Transport.parse_next_page_url(Map.get(response, :headers, []))
+        }
+
+        continue_conditional_pages(
+          request_fun,
+          token,
+          owner,
+          repo,
+          prefix,
+          cached_pages,
+          Map.put(next_pages, url, page),
+          acc ++ page.issues,
+          page.next_url
+        )
+
+      {:ok, %{status: 304}} when is_list(cached_page[:issues]) ->
+        next_url = cached_page[:next_url]
+        continue_conditional_pages(
+          request_fun,
+          token,
+          owner,
+          repo,
+          prefix,
+          cached_pages,
+          Map.put(next_pages, url, cached_page),
+          acc ++ cached_page.issues,
+          next_url
+        )
+
+      {:ok, %{status: 304}} ->
+        # A process restart should not turn a conditional response into an
+        # incomplete list. Retry once without the stale ETag.
+        fetch_label_issue_pages_conditional(
+          request_fun,
+          url,
+          token,
+          owner,
+          repo,
+          prefix,
+          Map.delete(cached_pages, url),
+          next_pages,
+          acc
+        )
+
+      {:ok, %{status: _status} = response} ->
+        {:error, Errors.github_status_error(response)}
+
+      {:error, reason} ->
+        {:error, Errors.classify_error({:error, reason})}
+    end
+  end
+
+  defp continue_conditional_pages(
+         _request_fun,
+         _token,
+         _owner,
+         _repo,
+         _prefix,
+         _cached_pages,
+         pages,
+         issues,
+         nil
+       ),
+    do: {:ok, issues, %{pages: pages}}
+
+  defp continue_conditional_pages(request_fun, token, owner, repo, prefix, cached_pages, pages, issues, next_url) do
+    fetch_label_issue_pages_conditional(
+      request_fun,
+      next_url,
+      token,
+      owner,
+      repo,
+      prefix,
+      cached_pages,
+      pages,
+      issues
+    )
   end
 
   @spec do_fetch_issue_states_by_ids([String.t()], keyword()) :: {:ok, [Issue.t()]} | {:error, term()}

@@ -135,8 +135,9 @@ defmodule Aiur.Orchestrator.CommentPolling do
   end
 
   defp do_poll_github_comments(%State{} = state, opts) do
-    case TargetSelection.github_comment_poll_targets(state, opts) do
-      {:ok, targets, human_review_targets, watch_targets} ->
+    case TargetSelection.github_comment_poll_targets_with_cache(state, opts) do
+      {:ok, targets, human_review_targets, watch_targets, cache} ->
+        state = %{state | github_issue_list_cache: cache}
         poll_github_comment_targets(state, targets, human_review_targets, watch_targets, opts)
 
       {:error, reason} ->

@@ -7,6 +7,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   require Logger
 
   alias Aiur.{AgentRunner, Alerts, CodingAgent, Config, DispatchBudgetStore, Issue, RepoBase, Tracker}
+  alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.CycleFetchCache
   alias Aiur.Orchestrator
 
@@ -69,8 +70,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
     state = CommandScan.scan_pr_commands(state)
     state = PrAnchored.maybe_stop_closed_pr_anchored_agents(state)
 
-    case Tracker.fetch_candidate_issues() do
-      {:ok, issues} ->
+    case fetch_candidate_issues(state) do
+      {:ok, issues, state} ->
         state =
           state
           |> IssueSync.sync_polled_issue_state(issues)
@@ -83,9 +84,26 @@ defmodule Aiur.Orchestrator.Dispatcher do
         state = dispatch_or_hold(state, issues)
         %{state | initial_dispatch_cycle: false}
 
-      {:error, reason} ->
+      {:error, reason, state} ->
         TrackerHealth.log_tracker_fetch_error(reason)
         state
+    end
+  end
+
+  defp fetch_candidate_issues(%State{} = state) do
+    if Config.tracker_kind() == "github" do
+      case GitHubClient.fetch_issues_by_states_conditional(
+             Config.active_states(),
+             state.github_issue_list_cache
+           ) do
+        {:ok, issues, cache} -> {:ok, issues, %{state | github_issue_list_cache: cache}}
+        {:error, reason} -> {:error, reason, state}
+      end
+    else
+      case Tracker.fetch_candidate_issues() do
+        {:ok, issues} -> {:ok, issues, state}
+        {:error, reason} -> {:error, reason, state}
+      end
     end
   end
 
