@@ -115,6 +115,34 @@ defmodule Aiur.RunTelemetry.WriterTest do
     assert length(read_records(path)) > 1
   end
 
+  test "malformed submissions and ignored messages remain fail-open", %{path: path} do
+    assert :ok = Writer.record(self(), :resource, %{})
+    assert :ok = Writer.record(:missing_writer, :resource, %{})
+    assert :ok = Writer.record(:missing_writer, :resource, %{}, :invalid)
+    assert :ok = Writer.record(:missing_writer, :resource, :invalid)
+    assert :ok = Writer.flush(:missing_writer)
+
+    {:ok, writer} = Writer.start_link(name: nil, path: path, boot_id: "defensive")
+
+    assert :ok = Writer.record_batch(writer, [:invalid_record])
+    assert :ok = Writer.record_batch(writer, [{123, %{event: :invalid_kind}}])
+    assert :ok = Writer.record(writer, :resource, %{}, timestamp: :invalid_timestamp)
+    send(writer, {:event, %{}})
+    send(writer, :ignored_message)
+
+    assert :ok = Writer.flush(writer)
+    assert length(read_records(path)) == 3
+  end
+
+  test "writer catches failures from the append function", %{path: path} do
+    write_fun = fn _path, _contents -> throw(:writer_exploded) end
+    {:ok, writer} = Writer.start_link(name: nil, path: path, boot_id: "exception", write_fun: write_fun)
+
+    assert :ok = Writer.record(writer, :resource, %{actor: "test"})
+    assert :ok = Writer.flush(writer)
+    assert Process.alive?(writer)
+  end
+
   test "an unwritable target never terminates the writer or caller", %{root: root} do
     parent_file = Path.join(root, "not-a-directory")
     File.mkdir_p!(root)
