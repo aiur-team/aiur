@@ -122,7 +122,9 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.ChartsTest do
     assert zoomed.window.start_ms == elem(domain, 0)
     assert zoomed.window.end_ms == elem(domain, 1)
     assert zoomed.window.axis_origin_ms == m.window.start_ms
-    assert Enum.all?(zoomed.series, &(&1.t_ms >= elem(domain, 0) and &1.t_ms <= elem(domain, 1)))
+    timestamps = Enum.map(zoomed.series, & &1.t_ms)
+    assert Enum.count(timestamps, &(&1 < elem(domain, 0))) <= 1
+    assert Enum.count(timestamps, &(&1 > elem(domain, 1))) <= 1
     assert Charts.time_domain_label(zoomed, domain) == "3m–7m"
 
     for chart <- [
@@ -137,6 +139,17 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.ChartsTest do
     end
 
     assert Charts.concurrency(m) =~ "now"
+  end
+
+  test "a domain strictly between two samples keeps the boundary samples so lines reach the plot edges" do
+    m = model()
+    [a, b | _] = Enum.drop(m.series, 3)
+    gap = b.t_ms - a.t_ms
+    domain = {a.t_ms + div(gap, 3), b.t_ms - div(gap, 3)}
+    zoomed = Charts.with_time_domain(m, domain)
+
+    assert zoomed.window.start_ms == elem(domain, 0)
+    assert Enum.map(zoomed.series, & &1.t_ms) == [a.t_ms, b.t_ms]
   end
 
   test "rejects a degenerate time domain" do

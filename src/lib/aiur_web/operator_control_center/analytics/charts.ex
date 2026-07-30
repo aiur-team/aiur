@@ -23,9 +23,18 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
         %{
           model
           | window: window |> Map.put(:start_ms, t0) |> Map.put(:end_ms, t1) |> Map.put(:axis_origin_ms, original_start) |> Map.put(:now_ms, now_ms),
-            series: Enum.filter(model.series, &(&1.t_ms >= t0 and &1.t_ms <= t1))
+            series: crop_series(model.series, t0, t1)
         }
     end
+  end
+
+  # Keeps in-domain samples plus one boundary sample on each side (the last
+  # before t0 and the first after t1) so chart lines reach the plot edges even
+  # when the zoom lands between samples.
+  defp crop_series(series, t0, t1) do
+    {before, rest} = Enum.split_while(series, &(&1.t_ms < t0))
+    {inside, after_domain} = Enum.split_while(rest, &(&1.t_ms <= t1))
+    Enum.take(before, -1) ++ inside ++ Enum.take(after_domain, 1)
   end
 
   @doc "Normalizes hook event values to a non-degenerate chart-axis domain."

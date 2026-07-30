@@ -32,8 +32,17 @@
   };
 
   Brush.prototype.updated = function () {
-    this.clearSelection();
+    // LiveView repatches the chart every refresh tick; an in-flight drag must
+    // survive the swap, so re-adopt the new SVG and redraw from drag state.
     this.capture();
+    if (this.drag && this.selection && this.svg && this.target) {
+      if (this.selection.parentNode !== this.svg) this.svg.appendChild(this.selection);
+      this.drawSelection();
+    } else if (!this.drag) {
+      // No drag in flight (e.g. the domain assign reset to full range): drop
+      // any stale selection rectangle so the reset path still clears cleanly.
+      this.clearSelection();
+    }
   };
 
   Brush.prototype.destroy = function () {
