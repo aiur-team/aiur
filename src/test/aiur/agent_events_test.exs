@@ -134,6 +134,12 @@ defmodule Aiur.AgentEventsTest do
 
       assert AgentEvents.streamdeck_bucket(%{streamdeck_source: :queued}) == :queued
     end
+
+    test "uses the documented precedence when a row matches multiple buckets" do
+      assert AgentEvents.streamdeck_bucket(%{open_decision_count: 1, work_state: :error, tracker_paused: true, streamdeck_source: :retrying}) == :alert
+      assert AgentEvents.streamdeck_bucket(%{work_state: :error, tracker_paused: true, streamdeck_source: :running}) == :stuck
+      assert AgentEvents.streamdeck_bucket(%{waiting_reason: :unresponsive, tracker_paused: true, streamdeck_source: :running}) == :stuck
+    end
   end
 
   describe "agent_summary/4" do

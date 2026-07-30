@@ -203,6 +203,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   defp retry_snapshot(%State{} = state, {issue_id, %{attempt: attempt, due_at_ms: due_at_ms} = retry}, now_ms, activity_by_identity) do
     identifier = Map.get(retry, :identifier)
     issue = Map.get(state.last_polled_issues, issue_id)
+    tracker_identity = retry_snapshot_tracker_identity(retry, issue)
     {open_decision_count, open_decision_count_health} = open_decision_count(identifier)
 
     %{
@@ -210,7 +211,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       attempt: attempt,
       due_in_ms: max(0, due_at_ms - now_ms),
       identifier: identifier,
-      tracker_identity: retry_snapshot_tracker_identity(retry, issue),
+      tracker_identity: tracker_identity,
       state: issue && issue.state,
       tag: issue && State.issue_tag(issue),
       title: issue && issue.title,
@@ -221,8 +222,8 @@ defmodule Aiur.Orchestrator.StatusReport do
       waiting_reason: WaitingReason.for_retry(),
       open_decision_count: open_decision_count,
       open_decision_count_health: open_decision_count_health,
-      priority: Map.get(issue || %{}, :priority),
-      progress_percent: progress_percent(Issue.tracker_identity(issue), activity_by_identity),
+      priority: Map.get(issue || %{}, :priority) || Map.get(retry, :priority),
+      progress_percent: progress_percent(tracker_identity, activity_by_identity),
       ci_result: cached_ci_result(state, identifier)
     }
     |> Map.merge(issue_execution_facts(issue))

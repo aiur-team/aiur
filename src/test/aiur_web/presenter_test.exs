@@ -244,7 +244,7 @@ defmodule AiurWeb.PresenterTest do
     assert running_row.open_decision_count_health == :available
   end
 
-  test "snapshot carries the current activity progress estimate" do
+  test "snapshot carries fresh activity progress, including retained retry identities" do
     original_activity_state = :sys.get_state(TicketActivity)
     orchestrator_name = Module.concat(__MODULE__, :ActivityProgressOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
@@ -294,11 +294,12 @@ defmodule AiurWeb.PresenterTest do
               attempt: 1,
               timer_ref: nil,
               due_at_ms: System.monotonic_time(:millisecond) + 5_000,
-              identifier: "1002"
+              identifier: "1002",
+              tracker_identity: retry_identity,
+              priority: 1
             }
           },
           last_polled_issues: %{
-            "issue-retry" => %Issue{id: "issue-retry", identifier: "1002", state: "in-progress", tracker_identity: retry_identity},
             "issue-idle" => %Issue{id: "issue-idle", identifier: "1003", state: "todo", tracker_identity: idle_identity}
           }
       }
@@ -306,7 +307,7 @@ defmodule AiurWeb.PresenterTest do
 
     assert %{
              running: [%{progress_percent: 60}],
-             retrying: [%{progress_percent: 40}],
+             retrying: [%{progress_percent: 40, priority: 1}],
              idle: [%{progress_percent: 20}]
            } = Orchestrator.snapshot(orchestrator_name, 1_000)
   end
