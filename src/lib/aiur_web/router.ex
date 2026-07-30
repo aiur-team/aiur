@@ -150,6 +150,7 @@ defmodule AiurWeb.Router do
   scope "/", AiurWeb do
     pipe_through(:dashboard_auth)
 
+    post("/api/v1/streamdeck/token", StreamdeckSessionController, :create)
     get("/api/v1/state", ObservabilityApiController, :state)
     get("/api/v1/streamdeck/grid", ObservabilityApiController, :streamdeck_grid)
     get("/api/v1/:issue_identifier", ObservabilityApiController, :issue)
