@@ -318,6 +318,10 @@ Usage: aiur [--interactive] [--no-dashboard] [--pause] [--max-agents <n>] [--log
        aiur agents           show each agent's state + current activity
        aiur alerts [--needs-attention]  show structured alert feed
        aiur watch [--full|--changes] [--interval <secs>]  server-side status board
+       aiur executor-listen [--topic <pattern>]  stream Executor events as JSON lines
+       aiur executor-emit <topic> --payload <json>  publish an Executor event
+       aiur executor-subscribe|executor-unsubscribe <pattern>
+       aiur executor-subscriptions  list persistent Executor bindings
        aiur set max-agents <n>   change the concurrent-agent cap at runtime
        aiur pause | resume             flip the global pause switch (whole daemon)
        aiur pause <ids|--all> | resume <ids|--all>  per-agent pause/resume
@@ -1746,6 +1750,19 @@ run_control_rpc() {
   return "$exit_code"
 }
 
+# A streaming Executor listener must retain the RPC process and its stdout. It
+# intentionally bypasses the one-shot control timeout and exit-marker wrapper.
+run_control_stream() {
+  local expression="$1"
+  resolve_release || return $?
+  prepare_distribution || die "distribution setup failed; cannot contact aiur"
+  resolve_control_identity_from_records
+  if [ "${AIUR_CONTROL_ADOPTED_RECORD:-0}" -eq 1 ]; then
+    prepare_distribution || die "distribution setup failed; cannot contact aiur"
+  fi
+  exec "$release_bin" rpc "$expression"
+}
+
 elixir_list_literal() {
   local first=1 item
   printf '['
@@ -1941,6 +1958,59 @@ cmd_watch() {
   else
     run_control_rpc "$expression"
   fi
+}
+
+cmd_executor_listen() {
+  local topic="executor.#" arg
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --topic) shift; topic="${1:-}" ;;
+      --topic=*) topic="${arg#--topic=}" ;;
+      *) echo "aiur: executor-listen accepts --topic <pattern>" >&2; exit 64 ;;
+    esac
+    [ -n "$topic" ] || { echo "aiur: executor-listen requires a topic" >&2; exit 64; }
+    shift
+  done
+  local encoded
+  encoded="$(printf '%s' "$topic" | base64 | tr -d '\n')"
+  run_control_stream "Aiur.AgentControlCLI.executor_listen(topic: Base.decode64!(\"$encoded\"))"
+}
+
+cmd_executor_emit() {
+  local topic="${1:-}" payload="" arg
+  shift 2>/dev/null || true
+  [ -n "$topic" ] || { echo "aiur: executor-emit requires a topic" >&2; exit 64; }
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --payload) shift; payload="${1:-}" ;;
+      --payload=*) payload="${arg#--payload=}" ;;
+      *) echo "aiur: executor-emit accepts only --payload <json>" >&2; exit 64 ;;
+    esac
+    shift
+  done
+  [ -n "$payload" ] || { echo "aiur: executor-emit requires --payload <json>" >&2; exit 64; }
+  local topic_encoded payload_encoded
+  topic_encoded="$(printf '%s' "$topic" | base64 | tr -d '\n')"
+  payload_encoded="$(printf '%s' "$payload" | base64 | tr -d '\n')"
+  run_control_rpc "Aiur.AgentControlCLI.executor_emit(Base.decode64!(\"$topic_encoded\"), Base.decode64!(\"$payload_encoded\"))"
+}
+
+cmd_executor_subscription() {
+  local action="$1" topic="${2:-}"
+  [ -n "$topic" ] && [ "$#" -eq 2 ] || { echo "aiur: $action requires one topic pattern" >&2; exit 64; }
+  local encoded
+  encoded="$(printf '%s' "$topic" | base64 | tr -d '\n')"
+  case "$action" in
+    executor-subscribe) run_control_rpc "Aiur.AgentControlCLI.executor_subscribe(Base.decode64!(\"$encoded\"))" ;;
+    executor-unsubscribe) run_control_rpc "Aiur.AgentControlCLI.executor_unsubscribe(Base.decode64!(\"$encoded\"))" ;;
+  esac
+}
+
+cmd_executor_subscriptions() {
+  [ "$#" -eq 0 ] || { echo "aiur: executor-subscriptions does not accept arguments" >&2; exit 64; }
+  run_control_rpc "Aiur.AgentControlCLI.executor_subscriptions()"
 }
 
 watch_validate_interval() {
@@ -2292,6 +2362,22 @@ aiur_engine_main() {
     watch)
       shift
       cmd_watch "$@"
+      ;;
+    executor-listen)
+      shift
+      cmd_executor_listen "$@"
+      ;;
+    executor-emit)
+      shift
+      cmd_executor_emit "$@"
+      ;;
+    executor-subscribe | executor-unsubscribe)
+      shift
+      cmd_executor_subscription "$cmd" "$@"
+      ;;
+    executor-subscriptions)
+      shift
+      cmd_executor_subscriptions "$@"
       ;;
     set)
       shift

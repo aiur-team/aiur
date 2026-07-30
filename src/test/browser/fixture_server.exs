@@ -28,6 +28,7 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
         <script defer src="/assets/phoenix.js"></script>
         <script defer src="/assets/phoenix_live_view.js"></script>
         <script defer src="/aiur-dom-svg-layout-loader.js"></script>
+        <script defer src="/assets/time-brush-hook.js"></script>
         <script defer src="/assets/ticket-context-dialog-hook.js"></script>
         <script defer src="/assets/build-order-grid-hook.js"></script>
         <script defer src="/assets/browser_harness.js"></script>
@@ -1152,6 +1153,7 @@ defmodule Aiur.BrowserHarness.FixtureAssets do
   def phoenix_live_view(conn, _params), do: serve_embedded(conn, "/vendor/phoenix_live_view/phoenix_live_view.js")
   def ticket_context_dialog_hook(conn, _params), do: serve_embedded(conn, "/ticket-context-dialog-hook.js")
   def build_order_grid_hook(conn, _params), do: serve_embedded(conn, "/build-order-grid-hook.js")
+  def time_brush_hook(conn, _params), do: serve_embedded(conn, "/time-brush-hook.js")
   def harness(conn, _params), do: serve_file(conn, "browser_harness.js")
   def worker(conn, _params), do: serve_file(conn, "browser_worker.js")
 
@@ -1467,6 +1469,7 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     get("/assets/phoenix_live_view.js", Aiur.BrowserHarness.FixtureAssets, :phoenix_live_view)
     get("/assets/ticket-context-dialog-hook.js", Aiur.BrowserHarness.FixtureAssets, :ticket_context_dialog_hook)
     get("/assets/build-order-grid-hook.js", Aiur.BrowserHarness.FixtureAssets, :build_order_grid_hook)
+    get("/assets/time-brush-hook.js", Aiur.BrowserHarness.FixtureAssets, :time_brush_hook)
     get("/assets/browser_harness.js", Aiur.BrowserHarness.FixtureAssets, :harness)
     get("/assets/browser_worker.js", Aiur.BrowserHarness.FixtureAssets, :worker)
   end

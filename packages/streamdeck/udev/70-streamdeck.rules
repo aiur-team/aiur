@@ -1,0 +1,6 @@
+# Elgato Stream Deck family (VID 0x0fd9)
+#
+# Keep both rules. hidraw nodes do not have an idVendor of their own; ATTRS{}
+# walks up to the USB parent, which is why the hidraw rule is effective.
+SUBSYSTEM=="usb", ATTRS{idVendor}=="0fd9", TAG+="uaccess", GROUP="users", MODE="0660"
+KERNEL=="hidraw*", ATTRS{idVendor}=="0fd9", TAG+="uaccess", GROUP="users", MODE="0660"

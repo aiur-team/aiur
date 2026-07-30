@@ -9,6 +9,8 @@ defmodule Aiur.IssueLogEventHistoryTest do
 
   use Aiur.TestSupport
 
+  alias Aiur.AgentRunner.EventsDigest
+
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.{TicketObservation, TrackerIdentity}
 
@@ -249,20 +251,22 @@ defmodule Aiur.IssueLogEventHistoryTest do
     assert [%{id: 5, topic: "ticket.99.branch.push", summary: ""}] = events
   end
 
-  test "parses src= and trust= flags into typed event fields", %{identifier: id} do
+  test "parses source, trust, and reserved digest flags into typed event fields", %{identifier: id} do
     write_log(id, [
       "2026-05-27T10:00:00Z [event:emit] id=7 src=github trust=true ticket.99.issue.commented: comment body",
       "2026-05-27T10:00:01Z [event:emit] id=8 src=github trust=false ticket.99.issue.commented: comment body",
-      "2026-05-27T10:00:02Z [event:emit] id=9 ticket.99.branch.push: push abc"
+      "2026-05-27T10:00:02Z [event:emit] id=9 digest=orchestrator ticket.99.agent.decision.requested: durable decision"
     ])
 
     events = Aiur.IssueLog.event_history(id)
 
     assert [
-             %{id: 7, source: :github, author_trusted?: true},
-             %{id: 8, source: :github, author_trusted?: false},
-             %{id: 9, source: nil, author_trusted?: nil}
+             %{id: 7, source: :github, author_trusted?: true, digest_source: nil},
+             %{id: 8, source: :github, author_trusted?: false, digest_source: nil},
+             %{id: 9, source: nil, author_trusted?: nil, digest_source: :orchestrator}
            ] = events
+
+    assert EventsDigest.render([Enum.at(events, 2)], "99") =~ "durable decision"
   end
 
   defp identity(opts \\ []) do
