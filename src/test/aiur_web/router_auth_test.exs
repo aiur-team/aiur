@@ -41,6 +41,18 @@ defmodule AiurWeb.RouterAuthTest do
     assert get_resp_header(conn, "www-authenticate") == ["Basic realm=\"Aiur\""]
   end
 
+  test "pause and resume writes require basic auth" do
+    System.put_env("AIUR_DASHBOARD_USERNAME", "operator")
+    System.put_env("AIUR_DASHBOARD_PASSWORD", "secret")
+
+    for action <- ["pause", "resume"] do
+      response = Router.call(conn(:post, "/api/v1/MT-1/#{action}"), Router.init([]))
+
+      assert response.status == 401
+      assert get_resp_header(response, "www-authenticate") == ["Basic realm=\"Aiur\""]
+    end
+  end
+
   test "fails closed when writable dashboard credentials disappear after startup" do
     System.put_env("AIUR_DASHBOARD_USERNAME", "operator")
     System.put_env("AIUR_DASHBOARD_PASSWORD", "secret")
