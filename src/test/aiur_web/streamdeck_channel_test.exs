@@ -7,7 +7,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
 
   alias Aiur.AgentEvents
   alias Aiur.AgentPubSub
-  alias AiurWeb.{Endpoint, StreamdeckAuth, StreamdeckSocket}
+  alias AiurWeb.{Endpoint, StreamdeckAuth, StreamdeckProjection, StreamdeckSocket}
 
   @endpoint Endpoint
 
@@ -50,6 +50,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
 
   test "only a socket authenticated by dashboard credentials can join" do
     assert :error = StreamdeckSocket.connect(%{}, socket(StreamdeckSocket, "untrusted", %{}), %{})
+    assert :error = StreamdeckSocket.connect(%{"token" => "not-a-token"}, socket(StreamdeckSocket, "untrusted", %{}), %{})
 
     assert {:error, %{reason: "unauthorized"}} =
              join(socket(StreamdeckSocket, "untrusted", %{}), "streamdeck:fleet")
@@ -57,6 +58,25 @@ defmodule AiurWeb.StreamdeckChannelTest do
     assert {:ok, token} = StreamdeckAuth.issue_token()
     assert {:ok, authenticated} = StreamdeckSocket.connect(%{"token" => token}, socket(StreamdeckSocket, "trusted", %{}), %{})
     assert {:ok, _reply, _socket} = subscribe_and_join(authenticated, "streamdeck:fleet")
+  end
+
+  test "socket tokens are invalidated when dashboard credentials change" do
+    assert {:ok, token} = StreamdeckAuth.issue_token()
+
+    System.put_env("AIUR_DASHBOARD_PASSWORD", "rotated-secret")
+
+    assert :error = StreamdeckAuth.verify_token(token)
+  end
+
+  test "the token endpoint fails closed when dashboard credentials are absent" do
+    System.delete_env("AIUR_DASHBOARD_USERNAME")
+    System.delete_env("AIUR_DASHBOARD_PASSWORD")
+
+    response = Endpoint.call(conn(:post, "/api/v1/streamdeck/token"), Endpoint.init([]))
+
+    assert response.status == 401
+    assert %{"error" => %{"code" => "authentication_required"}} = Jason.decode!(response.resp_body)
+    assert {:error, :authentication_required} = StreamdeckAuth.issue_token()
   end
 
   test "the short-lived socket token is issued only after dashboard Basic authentication" do
@@ -143,6 +163,25 @@ defmodule AiurWeb.StreamdeckChannelTest do
     assert_push("transcript", %{"identifier" => "AIUR-2", "body" => "second"})
   end
 
+  test "focus validates identifiers and unfocus stops the focused subscription" do
+    socket = joined_socket()
+
+    invalid = push(socket, "focus", %{"identifier" => ""})
+    assert_reply(invalid, :error, %{reason: "invalid_identifier"})
+
+    initial_unfocus = push(socket, "unfocus", %{})
+    assert_reply(initial_unfocus, :ok, %{"focused" => nil})
+
+    focus = push(socket, "focus", %{"identifier" => "AIUR-1"})
+    assert_reply(focus, :ok, %{"focused" => "AIUR-1"})
+
+    unfocus = push(socket, "unfocus", %{})
+    assert_reply(unfocus, :ok, %{"focused" => nil})
+
+    AgentPubSub.broadcast_transcript("AIUR-1", AgentEvents.transcript_event(:assistant, "ignored"))
+    refute_push("transcript", _payload, 50)
+  end
+
   test "focused alerts and control updates are projected without exposing the internal topic" do
     socket = joined_socket()
     focus = push(socket, "focus", %{"identifier" => "AIUR-1"})
@@ -203,6 +242,31 @@ defmodule AiurWeb.StreamdeckChannelTest do
     send(socket.channel_pid, {:decision_changed, "dec-1", 2})
 
     assert_push("decisions", %{"count" => 2})
+
+    send(socket.channel_pid, :decision_metrics_changed)
+    assert_push("decisions", %{"count" => 2})
+  end
+
+  test "external projections convert source values to JSON-safe payloads" do
+    timestamp = ~U[2026-07-30 12:00:00Z]
+
+    assert %{
+             "identifier" => "AIUR-3",
+             "status" => "paused",
+             "alert_count" => 3,
+             "tracker_paused" => true,
+             "backend" => "codex"
+           } =
+             StreamdeckProjection.agent(%{
+               "identifier" => "AIUR-3",
+               "status" => :paused,
+               "alert_count" => 3,
+               "tracker_paused" => true,
+               "backend" => :codex
+             })
+
+    assert %{"identifier" => "AIUR-3", "role" => "assistant", "timestamp" => "2026-07-30T12:00:00Z"} =
+             StreamdeckProjection.transcript("AIUR-3", %{role: :assistant, timestamp: timestamp})
   end
 
   defp joined_socket do

@@ -10,11 +10,13 @@ defmodule AiurWeb.StreamdeckAuth do
 
   @spec issue_token() :: {:ok, String.t()} | {:error, :authentication_required}
   def issue_token do
-    with {:ok, config} <- Proof.configuration([required?: true], @access_version) do
-      expires_at_ms = System.system_time(:millisecond) + @token_max_age * 1_000
-      {:ok, Phoenix.Token.sign(Endpoint, @token_salt, %{generation: config.generation, expires_at_ms: expires_at_ms})}
-    else
-      _ -> {:error, :authentication_required}
+    case Proof.configuration([required?: true], @access_version) do
+      {:ok, config} ->
+        expires_at_ms = System.system_time(:millisecond) + @token_max_age * 1_000
+        {:ok, Phoenix.Token.sign(Endpoint, @token_salt, %{generation: config.generation, expires_at_ms: expires_at_ms})}
+
+      _ ->
+        {:error, :authentication_required}
     end
   end
 
