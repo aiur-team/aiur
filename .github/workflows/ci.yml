@@ -17,19 +17,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Set up mise tools
-        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
-        with:
-          install: true
-          cache: true
-      - name: Cache deps
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: src/deps
-          key: ${{ runner.os }}-mix-${{ hashFiles('src/mix.lock') }}
-          restore-keys: ${{ runner.os }}-mix-
-      - name: Fetch deps
-        run: make deps
+      - name: Set up Elixir
+        uses: ./.github/actions/setup-elixir
       - name: Build release
         run: make build
 
@@ -41,19 +30,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Set up mise tools
-        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
-        with:
-          install: true
-          cache: true
-      - name: Cache deps
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: src/deps
-          key: ${{ runner.os }}-mix-${{ hashFiles('src/mix.lock') }}
-          restore-keys: ${{ runner.os }}-mix-
-      - name: Fetch deps
-        run: make deps
+      - name: Set up Elixir
+        uses: ./.github/actions/setup-elixir
       - name: Format check
         run: make fmt-check
       - name: Credo + specs
@@ -72,19 +50,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Set up mise tools
-        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
-        with:
-          install: true
-          cache: true
-      - name: Cache deps
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: src/deps
-          key: ${{ runner.os }}-mix-${{ hashFiles('src/mix.lock') }}
-          restore-keys: ${{ runner.os }}-mix-
-      - name: Fetch deps
-        run: make deps
+      - name: Set up Elixir
+        uses: ./.github/actions/setup-elixir
       - name: Test coverage partition
         env:
           MIX_TEST_PARTITION: ${{ matrix.partition }}
@@ -109,19 +76,8 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Require successful coverage partitions
         run: test "${{ needs.coverage-partition.result }}" = success
-      - name: Set up mise tools
-        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
-        with:
-          install: true
-          cache: true
-      - name: Cache deps
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: src/deps
-          key: ${{ runner.os }}-mix-${{ hashFiles('src/mix.lock') }}
-          restore-keys: ${{ runner.os }}-mix-
-      - name: Fetch deps
-        run: make deps
+      - name: Set up Elixir
+        uses: ./.github/actions/setup-elixir
       - name: Download partition coverage
         uses: actions/download-artifact@v4
         with:
@@ -148,19 +104,8 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Require successful coverage gate
         run: test "${{ needs.coverage.result }}" = success
-      - name: Set up mise tools
-        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
-        with:
-          install: true
-          cache: true
-      - name: Cache deps
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: src/deps
-          key: ${{ runner.os }}-mix-${{ hashFiles('src/mix.lock') }}
-          restore-keys: ${{ runner.os }}-mix-
-      - name: Fetch deps
-        run: make deps
+      - name: Set up Elixir
+        uses: ./.github/actions/setup-elixir
       - name: Install tmux for regression test
         run: sudo apt-get update && sudo apt-get install -y tmux
       - name: Agent teardown reaping regression (#423)
@@ -174,25 +119,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Set up mise tools
-        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
-        with:
-          install: true
-          cache: true
-      - name: Cache deps
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: src/deps
-          key: ${{ runner.os }}-mix-${{ hashFiles('src/mix.lock') }}
-          restore-keys: ${{ runner.os }}-mix-
+      - name: Set up Elixir
+        uses: ./.github/actions/setup-elixir
       - name: Cache PLT
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: src/_build/dev/*.plt*
           key: ${{ runner.os }}-plt-${{ hashFiles('src/mix.lock') }}
           restore-keys: ${{ runner.os }}-plt-
-      - name: Fetch deps
-        run: make deps
       - name: Dialyzer
         run: make dialyzer
 
@@ -208,25 +142,13 @@ jobs:
           node-version: "20"
           cache: npm
           cache-dependency-path: src/browser/package-lock.json
-      - name: Set up mise tools
-        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
-        with:
-          install: true
-          cache: true
-      - name: Cache Elixir dependencies
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: src/deps
-          key: ${{ runner.os }}-mix-${{ hashFiles('src/mix.lock') }}
-          restore-keys: ${{ runner.os }}-mix-
+      - name: Set up Elixir
+        uses: ./.github/actions/setup-elixir
       - name: Cache Playwright browser
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('src/browser/package-lock.json') }}
-      - name: Fetch Elixir dependencies
-        working-directory: src
-        run: make deps
       - name: Install browser harness dependencies
         working-directory: src/browser
         run: npm ci
