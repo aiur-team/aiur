@@ -14,9 +14,9 @@ defmodule Aiur.AgentEventFeed do
       directional action. Alerts are notifications, and reasoning is internal
       context.
 
-  The feed never invents a diff. Only a tool payload that already contains a
-  unified diff is rendered as a diff entry; every other payload remains a
-  message.
+  The feed never invents a diff. Only a provider `changes[].diff` value is
+  rendered as a diff entry; every other payload remains a message. In
+  particular, pane-oriented tool output is not proof of a file change.
   """
 
   alias Aiur.IssueLog
@@ -67,27 +67,17 @@ defmodule Aiur.AgentEventFeed do
   defp entry(%{"role" => role} = event), do: message_entry(event, role_atom(role))
   defp entry(_event), do: %{type: "message", badge: "INFO", role: "system", body: ""}
 
-  defp diff_entry(event, %{"tool" => "edit", "changes" => changes} = payload) when is_list(changes) do
-    Enum.find_value(changes, &provider_diff_entry(event, &1)) || output_diff_entry(event, payload)
+  defp diff_entry(event, %{"tool" => "edit", "changes" => changes}) when is_list(changes) do
+    Enum.find_value(changes, &provider_diff_entry(event, &1)) || message_entry(event, :tool)
   end
 
-  defp diff_entry(event, payload), do: output_diff_entry(event, payload)
+  defp diff_entry(event, _payload), do: message_entry(event, :tool)
 
   defp provider_diff_entry(event, %{"diff" => output} = change) when is_binary(output) and output != "" do
     diff_entry(event, output, Map.get(change, "path"))
   end
 
   defp provider_diff_entry(_event, _change), do: nil
-
-  defp output_diff_entry(event, %{"tool" => "edit", "output" => output}) when is_binary(output) do
-    if unified_diff?(output) do
-      diff_entry(event, output, nil)
-    else
-      message_entry(event, :tool)
-    end
-  end
-
-  defp output_diff_entry(event, _payload), do: message_entry(event, :tool)
 
   defp diff_entry(event, output, path) do
     %{
@@ -140,10 +130,6 @@ defmodule Aiur.AgentEventFeed do
   defp role_atom(role) when is_atom(role), do: role
   defp role_atom(role) when is_binary(role) and role in ["user", "assistant", "system", "command", "alert", "reasoning", "tool"], do: String.to_existing_atom(role)
   defp role_atom(_), do: :system
-
-  defp unified_diff?(output) do
-    String.starts_with?(output, "@@ ") or String.contains?(output, "\n@@ ")
-  end
 
   defp diff_path(output, fallback) do
     output

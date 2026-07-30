@@ -57,6 +57,13 @@ defmodule AiurWeb.RouterAuthTest do
     assert authorized.status == 200
   end
 
+  test "event-feed writes return the standard method-not-allowed response" do
+    conn = Router.call(conn(:post, "/api/v1/agent-1/events"), Router.init([]))
+
+    assert conn.status == 405
+    assert Jason.decode!(conn.resp_body)["error"]["code"] == "method_not_allowed"
+  end
+
   test "fails closed when writable dashboard credentials disappear after startup" do
     System.put_env("AIUR_DASHBOARD_USERNAME", "operator")
     System.put_env("AIUR_DASHBOARD_PASSWORD", "secret")

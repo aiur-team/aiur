@@ -148,6 +148,7 @@ defmodule AiurWeb.Router do
 
     get("/api/v1/state", ObservabilityApiController, :state)
     get("/api/v1/:issue_identifier/events", ObservabilityApiController, :events)
+    match(:*, "/api/v1/:issue_identifier/events", ObservabilityApiController, :method_not_allowed)
     get("/api/v1/:issue_identifier", ObservabilityApiController, :issue)
     match(:*, "/", ObservabilityApiController, :method_not_allowed)
     match(:*, "/api/v1/state", ObservabilityApiController, :method_not_allowed)

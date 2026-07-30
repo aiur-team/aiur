@@ -34,8 +34,11 @@ defmodule Aiur.IssueLog do
 
   # Cap on how many recent events we keep in memory for `history/2`.
   @history_limit 100
-  @tail_chunk_bytes 65_536
   @max_transcript_record_bytes 16_384
+  # The API permits a page of up to 50 records. Read enough for that many
+  # capped records, while retaining a fixed ceiling independent of log size.
+  @max_tail_page_events 50
+  @max_tail_bytes @max_transcript_record_bytes * @max_tail_page_events
   @truncated_body_chars 1_000
   @truncated_diff_chars 2_000
 
@@ -106,9 +109,10 @@ defmodule Aiur.IssueLog do
 
   `:before` is the exclusive byte offset returned as `:next_cursor` by the
   previous call. It is intentionally a file offset rather than an event id:
-  transcript producers do not share an event-id sequence. At most the final
-  #{@tail_chunk_bytes} bytes before that offset are read, so a busy or historic
-  transcript cannot turn a Stream Deck refresh into a full-log scan.
+  transcript producers do not share an event-id sequence. The read is capped
+  at the requested page's number of maximum-size records (and never more than
+  #{@max_tail_bytes} bytes), so a busy or historic transcript cannot turn a
+  Stream Deck refresh into a full-log scan.
   """
   @spec read_tail(AgentEvents.agent_identifier() | TrackerIdentity.t(), keyword()) ::
           {:ok, %{events: [map()], next_cursor: String.t() | nil}} | {:error, atom()}
@@ -120,7 +124,7 @@ defmodule Aiur.IssueLog do
          {:ok, cursor} <- parse_tail_cursor(before),
          {:ok, %{size: size}} <- File.stat(transcript_path(identifier)) do
       end_offset = min(cursor || size, size)
-      start_offset = max(end_offset - @tail_chunk_bytes, 0)
+      start_offset = max(end_offset - tail_chunk_bytes(limit), 0)
 
       with {:ok, bytes} <- read_tail_chunk(transcript_path(identifier), start_offset, end_offset - start_offset) do
         {:ok, tail_page(bytes, start_offset, limit)}
@@ -356,6 +360,7 @@ defmodule Aiur.IssueLog do
            file: file,
            event_file: event_file,
            transcript_file: transcript_file,
+           transcript_path: transcript_path,
            path: path,
            event_path: event_path,
            history: :queue.new(),
@@ -550,7 +555,13 @@ defmodule Aiur.IssueLog do
     # workflow repository here could make an existing writer append to a
     # different repository's same-number ticket log after a config reload.
     write_line(state.file, line)
-    write_transcript_line(state.transcript_file, history_item)
+
+    state =
+      case write_transcript_line(state.transcript_file, history_item, state.identifier) do
+        :ok -> state
+        {:error, _reason} -> reopen_transcript_and_retry(state, history_item)
+      end
+
     state = push_history(state, history_item)
     {:noreply, state}
   end
@@ -567,11 +578,36 @@ defmodule Aiur.IssueLog do
     _ -> :ok
   end
 
-  defp write_transcript_line(file, event) do
+  defp write_transcript_line(file, event, identifier) do
     encoded = event |> persisted_transcript() |> bounded_transcript() |> json_safe() |> encode_transcript()
-    IO.write(file, encoded <> "\n")
+
+    case IO.write(file, encoded <> "\n") do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("IssueLog transcript write failed identifier=#{identifier} reason=#{inspect(reason)}")
+        {:error, reason}
+    end
   rescue
-    _ -> :ok
+    error ->
+      Logger.warning("IssueLog transcript write failed identifier=#{identifier} reason=#{Exception.message(error)}")
+      {:error, error}
+  end
+
+  defp reopen_transcript_and_retry(state, event) do
+    _ = File.close(state.transcript_file)
+
+    case File.open(state.transcript_path, [:append, :utf8]) do
+      {:ok, transcript_file} ->
+        state = %{state | transcript_file: transcript_file}
+        _ = write_transcript_line(transcript_file, event, state.identifier)
+        state
+
+      {:error, reason} ->
+        Logger.warning("IssueLog transcript reopen failed identifier=#{state.identifier} reason=#{inspect(reason)}")
+        state
+    end
   end
 
   # A tail page has a fixed byte budget. This is a second, defensive cap after
@@ -676,6 +712,8 @@ defmodule Aiur.IssueLog do
       end
     end
   end
+
+  defp tail_chunk_bytes(limit), do: min(limit * @max_transcript_record_bytes, @max_tail_bytes)
 
   defp open_log_files(path, event_path, transcript_path) do
     with {:ok, file} <- open_primary_log(path),

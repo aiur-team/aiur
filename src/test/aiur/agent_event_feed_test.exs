@@ -1,6 +1,8 @@
 defmodule Aiur.AgentEventFeedTest do
   use Aiur.TestSupport
 
+  import ExUnit.CaptureLog
+
   alias Aiur.{AgentEventFeed, IssueLog}
 
   setup do
@@ -45,11 +47,11 @@ defmodule Aiur.AgentEventFeedTest do
     assert Enum.map(second, & &1.body) == ["message 5", "message 4", "message 3"]
   end
 
-  test "renders only real unified-diff payloads as diffs", %{identifier: identifier} do
+  test "renders only provider file-change records as diffs", %{identifier: identifier} do
     diff = "--- a/lib/example.ex\n+++ b/lib/example.ex\n@@ -1 +1 @@\n-old\n+new"
 
     write_events(identifier, [
-      event("tool", "edit lib/example.ex", %{"tool" => "edit", "output" => diff}),
+      event("tool", "edit lib/example.ex", %{"tool" => "edit", "changes" => [%{"path" => "lib/example.ex", "diff" => diff}], "output" => diff}),
       event("tool", "edit lib/replaced.ex", %{"tool" => "edit", "output" => "whole file content"})
     ])
 
@@ -112,6 +114,32 @@ defmodule Aiur.AgentEventFeedTest do
     assert File.stat!(transcript_path).size < 16_384
   end
 
+  test "writer recovers durable transcript writes after an I/O failure", %{identifier: identifier} do
+    tmp = Path.dirname(IssueLog.transcript_path(identifier))
+
+    {:ok, pid} =
+      IssueLog.start_link(
+        identifier: identifier,
+        path: Path.join(tmp, "#{identifier}.log"),
+        event_path: Path.join(tmp, "#{identifier}.events.log"),
+        transcript_path: IssueLog.transcript_path(identifier)
+      )
+
+    on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
+
+    :ok = File.close(:sys.get_state(pid).transcript_file)
+
+    log =
+      capture_log(fn ->
+        send(pid, {:transcript_event, Aiur.AgentEvents.transcript_event(:assistant, "will not persist")})
+        _ = :sys.get_state(pid)
+      end)
+
+    assert log =~ "IssueLog transcript write failed identifier=#{identifier}"
+    assert Process.alive?(pid)
+    assert {:ok, %{events: [%{body: "will not persist"}]}} = AgentEventFeed.list(identifier)
+  end
+
   test "large logs have bounded response size and tail-query time", %{identifier: identifier} do
     write_events(identifier, Enum.map(1..5_000, &event("assistant", String.duplicate("x", 80) <> " #{&1}")))
     started = System.monotonic_time(:microsecond)
@@ -121,6 +149,15 @@ defmodule Aiur.AgentEventFeedTest do
     assert length(payload.events) == 7
     assert byte_size(Jason.encode!(payload)) < 2_000
     assert elapsed_us < 250_000
+  end
+
+  test "largest page includes fifty bounded records", %{identifier: identifier} do
+    write_events(identifier, Enum.map(1..50, &event("assistant", String.duplicate("x", 2_000) <> " #{&1}")))
+
+    assert {:ok, %{events: events, pagination: %{limit: 50, next_cursor: nil}}} = AgentEventFeed.list(identifier, %{"limit" => 50})
+    assert length(events) == 50
+    assert String.ends_with?(hd(events).body, " 50")
+    assert String.ends_with?(List.last(events).body, " 1")
   end
 
   test "rejects invalid page controls", %{identifier: identifier} do
@@ -137,17 +174,25 @@ defmodule Aiur.AgentEventFeedTest do
     assert AgentEventFeed.badge("unknown") == "SYSTEM"
   end
 
-  test "keeps malformed payloads as messages and falls back to a removed diff line", %{identifier: identifier} do
+  test "keeps malformed payloads as messages and renders provider deleted lines", %{identifier: identifier} do
     diff = "@@ -1 +0,0 @@\n-old"
 
     write_events(identifier, [
-      event("tool", "edit lib/removed.ex", %{"tool" => "edit", "output" => diff}),
+      event("tool", "edit lib/removed.ex", %{"tool" => "edit", "changes" => [%{"path" => "lib/removed.ex", "diff" => diff}], "output" => diff}),
       event("assistant", "plain message", "not a payload map")
     ])
 
     assert {:ok, %{events: [message, diff]}} = AgentEventFeed.list(identifier)
     assert %{type: "message", body: "plain message", badge: "AGENT"} = message
-    assert %{type: "diff", path: "edit lib/removed.ex", additions: 0, deletions: 1, line: "old"} = diff
+    assert %{type: "diff", path: "lib/removed.ex", additions: 0, deletions: 1, line: "old"} = diff
+  end
+
+  test "does not expose Claude's pane-generated edit text as a diff", %{identifier: identifier} do
+    pane_diff = "@@ lib/aiur.ex @@\n-old\n+new"
+
+    write_events(identifier, [event("tool", "edit lib/aiur.ex", %{"tool" => "edit", "output" => pane_diff})])
+
+    assert {:ok, %{events: [%{type: "message", body: "edit lib/aiur.ex"}]}} = AgentEventFeed.list(identifier)
   end
 
   test "renders a provider-marked Codex file change without a unified hunk", %{identifier: identifier} do
