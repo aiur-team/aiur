@@ -99,6 +99,7 @@ jobs:
 
   test:
     needs: test-partition
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -106,6 +107,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Require successful test partitions
+        run: test "${{ needs.test-partition.result }}" = success
       - name: Set up mise tools
         uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
         with:
@@ -125,6 +128,11 @@ jobs:
           pattern: coverage-*
           path: src/cover
           merge-multiple: true
+      - name: Verify partition coverage exports
+        run: |
+          for partition in 1 2 3 4; do
+            test -s "cover/${partition}.coverdata"
+          done
       - name: Aggregate partition coverage
         run: make coverage-report
       - name: Install tmux for regression test
