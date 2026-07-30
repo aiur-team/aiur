@@ -158,6 +158,18 @@ Known incident signatures:
 
 ### Hourly meta-analysis (operator-directed)
 
+**Organizing frame — perpetual bottleneck hunt (operator philosophy,
+verbatim intent): there will always be a next bottleneck; this check is
+never complete.** Each hour, name THE single thing currently costing the
+most wall-clock across the run, quantify it, and propose one way to reduce
+or eliminate it. When one falls, find the next. Observed chain so far:
+red develop base → serial 1-by-1 merges (→ native merge queue, watching
+for flake-halts) → likely next: test-suite runtime (#1378) or flaky-test
+ejections ({#1007,#1016,#1330}) → possibly the Executor itself not keeping
+up with 20+ agents (then: more background-agent delegation, or the
+#1380 executor event bus replacing polling). Always answer: what is the
+latest thing taking the most time, and how do we shrink it?
+
 Every hourly retrospective must include a **meta-analysis note**: what
 classes of problem recurred in the past hour, and a candidate systemic fix
 so the next hour is smoother — not just per-incident firefighting. Look for
