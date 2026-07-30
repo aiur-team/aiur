@@ -1,0 +1,1873 @@
+{
+  "schema_version": 1,
+  "build_order_id": "its-everdred/aiur:analytics-streamdeck",
+  "ticket_prefix": "AS",
+  "plan_version": 1,
+  "repository": "its-everdred/aiur",
+  "researched_at_commit": "76477691bc3cbc2a2bddd01d5fe4c8c686fffdf1",
+  "workstreams": [
+    {
+      "id": "analytics",
+      "title": "Analytics"
+    },
+    {
+      "id": "streamdeck",
+      "title": "Streamdeck"
+    },
+    {
+      "id": "security",
+      "title": "Security"
+    }
+  ],
+  "github_root": null,
+  "github_reconciliation": null,
+  "label_projection": {
+    "build_order": "build-order",
+    "workstreams": {
+      "analytics": "build-lane:analytics",
+      "streamdeck": "build-lane:streamdeck",
+      "security": "build-lane:security"
+    },
+    "phases": {
+      "1": "phase:1",
+      "2": "phase:2",
+      "3": "phase:3",
+      "4": "phase:4",
+      "5": "phase:5",
+      "6": "phase:6"
+    },
+    "complexities": {
+      "2": "complexity:2",
+      "3": "complexity:3",
+      "4": "complexity:4"
+    },
+    "required_ticket_labels": [
+      "model:codex"
+    ],
+    "forbidden_labels": [
+      "agent:in-progress",
+      "agent:rework",
+      "agent:merging"
+    ]
+  },
+  "feature_boundary": {
+    "acceptance_criteria": [
+      "A run without --debug records telemetry and /analytics renders real charts of that run",
+      "The /streamdeck emulator drives and reflects the live fleet with no hardware",
+      "The physical Stream Deck + (if the spike passes) renders and controls the fleet through suspend and replug",
+      "Only allowlisted operators can cause dispatch, steer prompts, or merge"
+    ],
+    "critical_path_ticket_ids": [
+      "AS-101",
+      "AS-102",
+      "AS-201",
+      "AS-213",
+      "AS-215",
+      "AS-217"
+    ],
+    "required_documentation": [
+      "packages/streamdeck README + operator install docs",
+      "telemetry_enabled config docs",
+      "security boundary docs"
+    ],
+    "required_cleanup": [],
+    "end_to_end_proof": [
+      "AS-217 evidence set",
+      "/analytics rendering real telemetry of this very run"
+    ],
+    "completion_condition": "All three branches implemented, reviewed, green on develop, merged, documented; AS-217 evidence recorded and /analytics shows this run's real telemetry."
+  },
+  "external_gates": [],
+  "design_evidence": [
+    {
+      "id": "DESIGN-001",
+      "source": "repo:executor-handoff:docs/research/streamdeck-architecture.md",
+      "captured_at": "2026-07-30T00:00:00Z",
+      "artifact": "evidence/streamdeck-architecture.md",
+      "sha256": "5b3d4a80da2a01efd5ad9a950b7f81a59997011db3def32ba11307b4dc2920c3"
+    },
+    {
+      "id": "DESIGN-002",
+      "source": "repo:executor-handoff:docs/research/analytics-tickets.md",
+      "captured_at": "2026-07-30T00:00:00Z",
+      "artifact": "evidence/analytics-tickets.md",
+      "sha256": "8a6e8f99cd7833b5e042e31119c72b0bcadfedb07874f57b87c98410bd97230a"
+    },
+    {
+      "id": "DESIGN-003",
+      "source": "repo:executor-handoff:docs/research/security-trust-boundary.md",
+      "captured_at": "2026-07-30T00:00:00Z",
+      "artifact": "evidence/security-trust-boundary.md",
+      "sha256": "071987ce667eb98b6d70e6f5186aaa9a903d98046c2fd391010bc7aaf1a150db"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "DEC-001",
+      "summary": "Direct-HID Node sidecar over OpenDeck plugin host",
+      "status": "accepted",
+      "rationale": "No Linux Elgato runtime; OpenDeck SD+ strip support is weeks old with fresh regressions; official HID spec published; single-process device ownership. OpenDeck remains the fallback if the LCD path fails the spike.",
+      "design_evidence_refs": [
+        "DESIGN-001"
+      ]
+    },
+    {
+      "id": "DEC-002",
+      "summary": "Telemetry existence decoupled from --debug",
+      "status": "accepted",
+      "rationale": "Time-series charts need persisted history; --debug keeps controlling richness, a config default controls existence; #991 and retention are hard blockers.",
+      "design_evidence_refs": [
+        "DESIGN-002"
+      ]
+    },
+    {
+      "id": "DEC-003",
+      "summary": "Explicit login allowlist, never author_association",
+      "status": "accepted",
+      "rationale": "CONTRIBUTOR is permanently earned by one merged PR; label provenance requires the timeline API; fail closed on ambiguity.",
+      "design_evidence_refs": [
+        "DESIGN-003"
+      ]
+    },
+    {
+      "id": "DEC-004",
+      "summary": "packages/ with standalone Node package, no workspace/task runner",
+      "status": "accepted",
+      "rationale": "apps/ collides with the Elixir umbrella convention; one package does not justify workspace ceremony; JS coverage stays out of the Mix gate.",
+      "design_evidence_refs": [
+        "DESIGN-001"
+      ]
+    }
+  ],
+  "requirements": [
+    {
+      "id": "REQ-001",
+      "summary": "Run telemetry records by default, bounded on both write and read sides",
+      "disposition": "ticket",
+      "ticket_ids": [
+        "AS-101",
+        "AS-102",
+        "AS-103"
+      ],
+      "reason": null
+    },
+    {
+      "id": "REQ-002",
+      "summary": "The Analytics page reaches design parity (complexity chart, brush-to-zoom)",
+      "disposition": "ticket",
+      "ticket_ids": [
+        "AS-104",
+        "AS-105"
+      ],
+      "reason": null
+    },
+    {
+      "id": "REQ-003",
+      "summary": "The Stream Deck architecture choice is validated on real hardware before device work",
+      "disposition": "ticket",
+      "ticket_ids": [
+        "AS-201"
+      ],
+      "reason": null
+    },
+    {
+      "id": "REQ-004",
+      "summary": "Aiur hosts a Node package in a packages/ monorepo layout without disturbing Elixir CI",
+      "disposition": "ticket",
+      "ticket_ids": [
+        "AS-202"
+      ],
+      "reason": null
+    },
+    {
+      "id": "REQ-005",
+      "summary": "Aiur exposes read and control surfaces sufficient for an external controller",
+      "disposition": "ticket",
+      "ticket_ids": [
+        "AS-203",
+        "AS-204",
+        "AS-205",
+        "AS-206"
+      ],
+      "reason": null
+    },
+    {
+      "id": "REQ-006",
+      "summary": "The Stream Deck surface logic and browser emulator work with no hardware",
+      "disposition": "ticket",
+      "ticket_ids": [
+        "AS-207",
+        "AS-208",
+        "AS-209",
+        "AS-210",
+        "AS-211",
+        "AS-212"
+      ],
+      "reason": null
+    },
+    {
+      "id": "REQ-007",
+      "summary": "A physical Stream Deck + renders and controls the fleet reliably day to day",
+      "disposition": "ticket",
+      "ticket_ids": [
+        "AS-213",
+        "AS-214",
+        "AS-215",
+        "AS-216"
+      ],
+      "reason": null
+    },
+    {
+      "id": "REQ-008",
+      "summary": "The full workflow is proven end to end with durable evidence",
+      "disposition": "ticket",
+      "ticket_ids": [
+        "AS-217"
+      ],
+      "reason": null
+    },
+    {
+      "id": "REQ-009",
+      "summary": "Only allowlisted operators can cause agent dispatch",
+      "disposition": "ticket",
+      "ticket_ids": [
+        "AS-301",
+        "AS-303"
+      ],
+      "reason": null
+    },
+    {
+      "id": "REQ-010",
+      "summary": "Untrusted tracker text cannot steer agent prompts",
+      "disposition": "ticket",
+      "ticket_ids": [
+        "AS-302"
+      ],
+      "reason": null
+    },
+    {
+      "id": "REQ-011",
+      "summary": "No merge can land without an allowlisted human approval of the latest push",
+      "disposition": "ticket",
+      "ticket_ids": [
+        "AS-304"
+      ],
+      "reason": null
+    }
+  ],
+  "tickets": [
+    {
+      "id": "AS-101",
+      "kind": "executable",
+      "provenance": "planned",
+      "introduced_in_plan_version": 1,
+      "discovered_from": null,
+      "title": "Bound RunTelemetry.Writer mailbox under load",
+      "document": "tickets/AS-101-bound-runtelemetry-writer-mailbox-under.md",
+      "outcome": "The telemetry Writer stays bounded in memory under a sustained fleet-scale cast rate.",
+      "scope": [
+        "Scope and acceptance as contracted in GitHub issue #991"
+      ],
+      "non_goals": [
+        "Sibling-ticket scope per the dependency edges"
+      ],
+      "phase_hint": 1,
+      "complexity_points": 2,
+      "complexity_rationale": "Sized from the researched contract in issue #991",
+      "risk": "medium",
+      "capability_requirements": [
+        "backend"
+      ],
+      "workstream": "analytics",
+      "requirement_refs": [
+        "REQ-001"
+      ],
+      "depends_on": [],
+      "serializes_with": [],
+      "suggested_after": [],
+      "contains": [],
+      "external_gates": [],
+      "read_surfaces": [
+        "see issue #991"
+      ],
+      "write_surfaces": [
+        "see issue #991"
+      ],
+      "contract_surfaces": [
+        "see issue #991"
+      ],
+      "safety_surfaces": [],
+      "conflict_exceptions": [],
+      "decision_refs": [
+        "DEC-002"
+      ],
+      "design_evidence_refs": [
+        "DESIGN-002"
+      ],
+      "acceptance": {
+        "agent_gate": [
+          "Issue #991 acceptance checklist passes in the issue workspace"
+        ],
+        "at_merge_gate": [
+          "CI green on current develop"
+        ],
+        "human_or_e2e": []
+      },
+      "github": null
+    },
+    {
+      "id": "AS-102",
+      "kind": "executable",
+      "provenance": "planned",
+      "introduced_in_plan_version": 1,
+      "discovered_from": null,
+      "title": "Record run telemetry by default",
+      "document": "tickets/AS-102-record-run-telemetry-by-default.md",
+      "outcome": "A run without --debug produces a telemetry stream and /analytics renders real charts.",
+      "scope": [
+        "Scope and acceptance as contracted in GitHub issue #1338"
+      ],
+      "non_goals": [
+        "Sibling-ticket scope per the dependency edges"
+      ],
+      "phase_hint": 2,
+      "complexity_points": 3,
+      "complexity_rationale": "Sized from the researched contract in issue #1338",
+      "risk": "medium",
+      "capability_requirements": [
+        "backend"
+      ],
+      "workstream": "analytics",
+      "requirement_refs": [
+        "REQ-001"
+      ],
+      "depends_on": [
+        "AS-101"
+      ],
+      "serializes_with": [],
+      "suggested_after": [],
+      "contains": [],
+      "external_gates": [],
+      "read_surfaces": [
+        "see issue #1338"
+      ],
+      "write_surfaces": [
+        "see issue #1338"
+      ],
+      "contract_surfaces": [
+        "see issue #1338"
+      ],
+      "safety_surfaces": [],
+      "conflict_exceptions": [],
+      "decision_refs": [
+        "DEC-002"
+      ],
+      "design_evidence_refs": [
+        "DESIGN-002"
+      ],
+      "acceptance": {
+        "agent_gate": [
+          "Issue #1338 acceptance checklist passes in the issue workspace"
+        ],
+        "at_merge_gate": [
+          "CI green on current develop"
+        ],
+        "human_or_e2e": []
+      },
+      "github": null
+    },
+    {
+      "id": "AS-103",
+      "kind": "executable",
+      "provenance": "planned",
+      "introduced_in_plan_version": 1,
+      "discovered_from": null,
+      "title": "Bound telemetry stream growth",
+      "document": "tickets/AS-103-bound-telemetry-stream-growth.md",
+      "outcome": "The telemetry file stays bounded via whole-boot pruning and current-session reads avoid full parses.",
+      "scope": [
+        "Scope and acceptance as contracted in GitHub issue #1339"
+      ],
+      "non_goals": [
+        "Sibling-ticket scope per the dependency edges"
+      ],
+      "phase_hint": 2,
+      "complexity_points": 3,
+      "complexity_rationale": "Sized from the researched contract in issue #1339",
+      "risk": "medium",
+      "capability_requirements": [
+        "backend"
+      ],
+      "workstream": "analytics",
+      "requirement_refs": [
+        "REQ-001"
+      ],
+      "depends_on": [
+        "AS-101"
+      ],
+      "serializes_with": [],
+      "suggested_after": [],
+      "contains": [],
+      "external_gates": [],
+      "read_surfaces": [
+        "see issue #1339"
+      ],
+      "write_surfaces": [
+        "see issue #1339"
+      ],
+      "contract_surfaces": [
+        "see issue #1339"
+      ],
+      "safety_surfaces": [],
+      "conflict_exceptions": [],
+      "decision_refs": [],
+      "design_evidence_refs": [
+        "DESIGN-002"
+      ],
+      "acceptance": {
+        "agent_gate": [
+          "Issue #1339 acceptance checklist passes in the issue workspace"
+        ],
+        "at_merge_gate": [
+          "CI green on current develop"
+        ],
+        "human_or_e2e": []
+      },
+      "github": null
+    },
+    {
+      "id": "AS-104",
+      "kind": "executable",
+      "provenance": "planned",
+      "introduced_in_plan_version": 1,
+      "discovered_from": null,
+      "title": "Add the Complexity breakdown chart",
+      "document": "tickets/AS-104-add-the-complexity-breakdown-chart.md",
+      "outcome": "Analytics shows ticket count and average wall-clock per complexity tier from real data.",
+      "scope": [
+        "Scope and acceptance as contracted in GitHub issue #1340"
+      ],
+      "non_goals": [
+        "Sibling-ticket scope per the dependency edges"
+      ],
+      "phase_hint": 3,
+      "complexity_points": 2,
+      "complexity_rationale": "Sized from the researched contract in issue #1340",
+      "risk": "low",
+      "capability_requirements": [
+        "backend",
+        "frontend"
+      ],
+      "workstream": "analytics",
+      "requirement_refs": [
+        "REQ-002"
+      ],
+      "depends_on": [
+        "AS-102"
+      ],
+      "serializes_with": [],
+      "suggested_after": [],
+      "contains": [],
+      "external_gates": [],
+      "read_surfaces": [
+        "see issue #1340"
+      ],
+      "write_surfaces": [
+        "see issue #1340"
+      ],
+      "contract_surfaces": [
+        "see issue #1340"
+      ],
+      "safety_surfaces": [],
+      "conflict_exceptions": [],
+      "decision_refs": [],
+      "design_evidence_refs": [
+        "DESIGN-002"
+      ],
+      "acceptance": {
+        "agent_gate": [
+          "Issue #1340 acceptance checklist passes in the issue workspace"
+        ],
+        "at_merge_gate": [
+          "CI green on current develop"
+        ],
+        "human_or_e2e": []
+      },
+      "github": null
+    },
+    {
+      "id": "AS-105",
+      "kind": "executable",
+      "provenance": "planned",
+      "introduced_in_plan_version": 1,
+      "discovered_from": null,
+      "title": "Brush-to-zoom with a shared time domain",
+      "document": "tickets/AS-105-brush-to-zoom-with-a-shared-time-domain.md",
+      "outcome": "Dragging any time chart zooms all five to one shared window with a working reset.",
+      "scope": [
+        "Scope and acceptance as contracted in GitHub issue #1341"
+      ],
+      "non_goals": [
+        "Sibling-ticket scope per the dependency edges"
+      ],
+      "phase_hint": 3,
+      "complexity_points": 3,
+      "complexity_rationale": "Sized from the researched contract in issue #1341",
+      "risk": "medium",
+      "capability_requirements": [
+        "frontend"
+      ],
+      "workstream": "analytics",
+      "requirement_refs": [
+        "REQ-002"
+      ],
+      "depends_on": [
+        "AS-102"
+      ],
+      "serializes_with": [
+        "AS-211",
+        "AS-212"
+      ],
+      "suggested_after": [],
+      "contains": [],
+      "external_gates": [],
+      "read_surfaces": [
+        "see issue #1341"
+      ],
+      "write_surfaces": [
+        "src/priv/static/dashboard.css",
+        "analytics hooks"
+      ],
+      "contract_surfaces": [
+        "see issue #1341"
+      ],
+      "safety_surfaces": [
+        "dashboard-ui clique"
+      ],
+      "conflict_exceptions": [],
+      "decision_refs": [],
+      "design_evidence_refs": [
+        "DESIGN-002"
+      ],
+      "acceptance": {
+        "agent_gate": [
+          "Issue #1341 acceptance checklist passes in the issue workspace"
+        ],
+        "at_merge_gate": [
+          "CI green on current develop"
+        ],
+        "human_or_e2e": []
+      },
+      "github": null
+    },
+    {
+      "id": "AS-201",
+      "kind": "audit",
+      "provenance": "planned",
+      "introduced_in_plan_version": 1,
+      "discovered_from": null,
+      "title": "Spike: SD+ direct-HID go/no-go",
+      "document": "tickets/AS-201-spike--sd--direct-hid-go-no-go.md",
+      "outcome": "A one-day hardware spike answers whether the direct-HID sidecar path works on this Arch host.",
+      "scope": [
+        "Scope and acceptance as contracted in GitHub issue #1342"
+      ],
+      "non_goals": [
+        "Sibling-ticket scope per the dependency edges"
+      ],
+      "phase_hint": 1,
+      "complexity_points": 2,
+      "complexity_rationale": "Sized from the researched contract in issue #1342",
+      "risk": "high",
+      "capability_requirements": [
+        "research"
+      ],
+      "workstream": "streamdeck",
+      "requirement_refs": [
+        "REQ-003"
+      ],
+      "depends_on": [],
+      "serializes_with": [],
+      "suggested_after": [],
+      "contains": [],
+      "external_gates": [],
+      "read_surfaces": [
+        "see issue #1342"
+      ],
+      "write_surfaces": [
+        "see issue #1342"
+      ],
+      "contract_surfaces": [
+        "see issue #1342"
+      ],
+      "safety_surfaces": [],
+      "conflict_exceptions": [],
+      "decision_refs": [
+        "DEC-001"
+      ],
+      "design_evidence_refs": [
+        "DESIGN-001"
+      ],
+      "acceptance": {
+        "agent_gate": [
+          "Issue #1342 acceptance checklist passes in the issue workspace"
+        ],
+        "at_merge_gate": [
+          "CI green on current develop"
+        ],
+        "human_or_e2e": [
+          "Hardware evidence per issue #1342"
+        ]
+      },
+      "github": null
+    },
+    {
+      "id": "AS-202",
+      "kind": "executable",
+      "provenance": "planned",
+      "introduced_in_plan_version": 1,
+      "discovered_from": null,
+      "title": "Scaffold packages/streamdeck",
+      "document": "tickets/AS-202-scaffold-packages-streamdeck.md",
+      "outcome": "packages/streamdeck exists with Node toolchain and a green CI job; Elixir gates unchanged.",
+      "scope": [
+        "Scope and acceptance as contracted in GitHub issue #1343"
+      ],
+      "non_goals": [
+        "Sibling-ticket scope per the dependency edges"
+      ],
+      "phase_hint": 1,
+      "complexity_points": 2,
+      "complexity_rationale": "Sized from the researched contract in issue #1343",
+      "risk": "low",
+      "capability_requirements": [
+        "infra"
+      ],
+      "workstream": "streamdeck",
+      "requirement_refs": [
+        "REQ-004"
+      ],
+      "depends_on": [],
+      "serializes_with": [],
+      "suggested_after": [],
+      "contains": [],
+      "external_gates": [],
+      "read_surfaces": [
+        "see issue #1343"
+      ],
+      "write_surfaces": [
+        ".github/workflows/ci.yml",
+        "packages/streamdeck/**",
+        "mise.toml"
+      ],
+      "contract_surfaces": [
+        "see issue #1343"
+      ],
+      "safety_surfaces": [
+        "root CI files"
+      ],
+      "conflict_exceptions": [],
+      "decision_refs": [
+        "DEC-004"
+      ],
+      "design_evidence_refs": [
+        "DESIGN-001"
+      ],
+      "acceptance": {
+        "agent_gate": [
+          "Issue #1343 acceptance checklist passes in the issue workspace"
+        ],
+        "at_merge_gate": [
+          "CI green on current develop"
+        ],
+        "human_or_e2e": []
+      },
+      "github": null
+    },
+    {
+      "id": "AS-203",
+      "kind": "executable",
+      "provenance": "planned",
+      "introduced_in_plan_version": 1,
+      "discovered_from": null,
+      "title": "HTTP pause/resume endpoints",
+      "document": "tickets/AS-203-http-pause-resume-endpoints.md",
+      "outcome": "External controllers can pause and resume agents over the authenticated API.",
+      "scope": [
+        "Scope and acceptance as contracted in GitHub issue #1344"
+      ],
+      "non_goals": [
+        "Sibling-ticket scope per the dependency edges"
+      ],
+      "phase_hint": 2,
+      "complexity_points": 2,
+      "complexity_rationale": "Sized from the researched contract in issue #1344",
+      "risk": "low",
+      "capability_requirements": [
+        "backend"
+      ],
+      "workstream": "streamdeck",
+      "requirement_refs": [
+        "REQ-005"
+      ],
+      "depends_on": [],
+      "serializes_with": [],
+      "suggested_after": [],
+      "contains": [],
+      "external_gates": [],
+      "read_surfaces": [
+        "see issue #1344"
+      ],
+      "write_surfaces": [
+        "see issue #1344"
+      ],
+      "contract_surfaces": [
+        "see issue #1344"
+      ],
+      "safety_surfaces": [],
+      "conflict_exceptions": [],
+      "decision_refs": [],
+      "design_evidence_refs": [
+        "DESIGN-001"
+      ],
+      "acceptance": {
+        "agent_gate": [
+          "Issue #1344 acceptance checklist passes in the issue workspace"
+        ],
+        "at_merge_gate": [
+          "CI green on current develop"
+        ],
+        "human_or_e2e": []
+      },
+      "github": null
+    },
+    {
+      "id": "AS-204",
+      "kind": "executable",
+      "provenance": "planned",
+      "introduced_in_plan_version": 1,
+      "discovered_from": null,
+      "title": "Stream Deck grid projection endpoint",
+      "document": "tickets/AS-204-stream-deck-grid-projection-endpoint.md",
+      "outcome": "One endpoint returns the fleet pre-sorted and bucket-mapped for an 8-key grid.",
+      "scope": [
+        "Scope and acceptance as contracted in GitHub issue #1345"
+      ],
+      "non_goals": [
+        "Sibling-ticket scope per the dependency edges"
+      ],
+      "phase_hint": 2,
+      "complexity_points": 3,
+      "complexity_rationale": "Sized from the researched contract in issue #1345",
+      "risk": "medium",
+      "capability_requirements": [
+        "backend"
+      ],
+      "workstream": "streamdeck",
+      "requirement_refs": [
+        "REQ-005"
+      ],
+      "depends_on": [],
+      "serializes_with": [],
+      "suggested_after": [],
+      "contains": [],
+      "external_gates": [],
+      "read_surfaces": [
+        "see issue #1345"
+      ],
+      "write_surfaces": [
+        "see issue #1345"
+      ],
+      "contract_surfaces": [
+        "see issue #1345"
+      ],
+      "safety_surfaces": [],
+      "conflict_exceptions": [],
+      "decision_refs": [],
+      "design_evidence_refs": [
+        "DESIGN-001"
+      ],
+      "acceptance": {
+        "agent_gate": [
+          "Issue #1345 acceptance checklist passes in the issue workspace"
+        ],
+        "at_merge_gate": [
+          "CI green on current develop"
+        ],
+        "human_or_e2e": []
+      },
+      "github": null
+    },
+    {
+      "id": "AS-205",
+      "kind": "executable",
+      "provenance": "planned",
+      "introduced_in_plan_version": 1,
+      "discovered_from": null,
+      "title": "Phoenix Channel for pushed fleet state",
+      "document": "tickets/AS-205-phoenix-channel-for-pushed-fleet-state.md",
+      "outcome": "An external client joins one channel and receives snapshot plus pushed fleet/provider updates.",
+      "scope": [
+        "Scope and acceptance as contracted in GitHub issue #1346"
+      ],
+      "non_goals": [
+        "Sibling-ticket scope per the dependency edges"
+      ],
+      "phase_hint": 2,
+      "complexity_points": 3,
+      "complexity_rationale": "Sized from the researched contract in issue #1346",
+      "risk": "medium",
+      "capability_requirements": [
+        "backend"
+      ],
+      "workstream": "streamdeck",
+      "requirement_refs": [
+        "REQ-005"
+      ],
+      "depends_on": [],
+      "serializes_with": [],
+      "suggested_after": [],
+      "contains": [],
+      "external_gates": [],
+      "read_surfaces": [
+        "see issue #1346"
+      ],
+      "write_surfaces": [
+        "see issue #1346"
+      ],
+      "contract_surfaces": [
+        "see issue #1346"
+      ],
+      "safety_surfaces": [],
+      "conflict_exceptions": [],
+      "decision_refs": [],
+      "design_evidence_refs": [
+        "DESIGN-001"
+      ],
+      "acceptance": {
+        "agent_gate": [
+          "Issue #1346 acceptance checklist passes in the issue workspace"
+        ],
+        "at_merge_gate": [
+          "CI green on current develop"
+        ],
+        "human_or_e2e": []
+      },
+      "github": null
+    },
+    {
+      "id": "AS-206",
+      "kind": "executable",
+      "provenance": "planned",
+      "introduced_in_plan_version": 1,
+      "discovered_from": null,
+      "title": "Per-agent classified event feed",
+      "document": "tickets/AS-206-per-agent-classified-event-feed.md",
+      "outcome": "A bounded endpoint serves per-agent events with the five-badge classification and typed transcript entries.",
+      "scope": [
+        "Scope and acceptance as contracted in GitHub issue #1347"
+      ],
+      "non_goals": [
+        "Sibling-ticket scope per the dependency edges"
+      ],
+      "phase_hint": 2,
+      "complexity_points": 3,
+      "complexity_rationale": "Sized from the researched contract in issue #1347",
+      "risk": "medium",
+      "capability_requirements": [
+        "backend"
+      ],
+      "workstream": "streamdeck",
+      "requirement_refs": [
+        "REQ-005"
+      ],
+      "depends_on": [],
+      "serializes_with": [],
+      "suggested_after": [],
+      "contains": [],
+      "external_gates": [],
+      "read_surfaces": [
+        "see issue #1347"
+      ],
+      "write_surfaces": [
+        "see issue #1347"
+      ],
+      "contract_surfaces": [
+        "see issue #1347"
+      ],
+      "safety_surfaces": [],
+      "conflict_exceptions": [],
+      "decision_refs": [],
+      "design_evidence_refs": [
+        "DESIGN-001"
+      ],
+      "acceptance": {
+        "agent_gate": [
+          "Issue #1347 acceptance checklist passes in the issue workspace"
+        ],
+        "at_merge_gate": [
+          "CI green on current develop"
+        ],
+        "human_or_e2e": []
+      },
+      "github": null
+    },
+    {
+      "id": "AS-207",
+      "kind": "executable",
+      "provenance": "planned",
+      "introduced_in_plan_version": 1,
+      "discovered_from": null,
+      "title": "Mode state machine (grid/cmd/logs)",
+      "document": "tickets/AS-207-mode-state-machine--grid-cmd-logs.md",
+      "outcome": "A pure, fully unit-tested module owns the three-mode state machine and its transitions.",
+      "scope": [
+        "Scope and acceptance as contracted in GitHub issue #1348"
+      ],
+      "non_goals": [
+        "Sibling-ticket scope per the dependency edges"
+      ],
+      "phase_hint": 2,
+      "complexity_points": 3,
+      "complexity_rationale": "Sized from the researched contract in issue #1348",
+      "risk": "low",
+      "capability_requirements": [
+        "frontend"
+      ],
+      "workstream": "streamdeck",
+      "requirement_refs": [
+        "REQ-006"
+      ],
+      "depends_on": [
+        "AS-202"
+      ],
+      "serializes_with": [],
+      "suggested_after": [],
+      "contains": [],
+      "external_gates": [],
+      "read_surfaces": [
+        "see issue #1348"
+      ],
+      "write_surfaces": [
+        "see issue #1348"
+      ],
+      "contract_surfaces": [
+        "see issue #1348"
+      ],
+      "safety_surfaces": [],
+      "conflict_exceptions": [],
+      "decision_refs": [],
+      "design_evidence_refs": [
+        "DESIGN-001"
+      ],
+      "acceptance": {
+        "agent_gate": [
+          "Issue #1348 acceptance checklist passes in the issue workspace"
+        ],
+        "at_merge_gate": [
+          "CI green on current develop"
+        ],
+        "human_or_e2e": []
+      },
+      "github": null
+    },
+    {
+      "id": "AS-208",
+      "kind": "executable",
+      "provenance": "planned",
+      "introduced_in_plan_version": 1,
+      "discovered_from": null,
+      "title": "Dial semantics and paging math",
+      "document": "tickets/AS-208-dial-semantics-and-paging-math.md",
+      "outcome": "Dial assignment, press-vs-turn, and all paging formulas are implemented pure and tested.",
+      "scope": [
+        "Scope and acceptance as contracted in GitHub issue #1349"
+      ],
+      "non_goals": [
+        "Sibling-ticket scope per the dependency edges"
+      ],
+      "phase_hint": 2,
+      "complexity_points": 3,
+      "complexity_rationale": "Sized from the researched contract in issue #1349",
+      "risk": "low",
+      "capability_requirements": [
+        "frontend"
+      ],
+      "workstream": "streamdeck",
+      "requirement_refs": [
+        "REQ-006"
+      ],
+      "depends_on": [
+        "AS-202",
+        "AS-207"
+      ],
+      "serializes_with": [],
+      "suggested_after": [],
+      "contains": [],
+      "external_gates": [],
+      "read_surfaces": [
+        "see issue #1349"
+      ],
+      "write_surfaces": [
+        "see issue #1349"
+      ],
+      "contract_surfaces": [
+        "see issue #1349"
+      ],
+      "safety_surfaces": [],
+      "conflict_exceptions": [],
+      "decision_refs": [],
+      "design_evidence_refs": [
+        "DESIGN-001"
+      ],
+      "acceptance": {
+        "agent_gate": [
+          "Issue #1349 acceptance checklist passes in the issue workspace"
+        ],
+        "at_merge_gate": [
+          "CI green on current develop"
+        ],
+        "human_or_e2e": []
+      },
+      "github": null
+    },
+    {
+      "id": "AS-209",
+      "kind": "executable",
+      "provenance": "planned",
+      "introduced_in_plan_version": 1,
+      "discovered_from": null,
+      "title": "Key content model, column-major layout",
+      "document": "tickets/AS-209-key-content-model--column-major-layout.md",
+      "outcome": "A pure function maps the sorted fleet to 8 key descriptors with the column-major layout.",
+      "scope": [
+        "Scope and acceptance as contracted in GitHub issue #1350"
+      ],
+      "non_goals": [
+        "Sibling-ticket scope per the dependency edges"
+      ],
+      "phase_hint": 3,
+      "complexity_points": 2,
+      "complexity_rationale": "Sized from the researched contract in issue #1350",
+      "risk": "low",
+      "capability_requirements": [
+        "frontend"
+      ],
+      "workstream": "streamdeck",
+      "requirement_refs": [
+        "REQ-006"
+      ],
+      "depends_on": [
+        "AS-202",
+        "AS-204"
+      ],
+      "serializes_with": [],
+      "suggested_after": [],
+      "contains": [],
+      "external_gates": [],
+      "read_surfaces": [
+        "see issue #1350"
+      ],
+      "write_surfaces": [
+        "see issue #1350"
+      ],
+      "contract_surfaces": [
+        "see issue #1350"
+      ],
+      "safety_surfaces": [],
+      "conflict_exceptions": [],
+      "decision_refs": [],
+      "design_evidence_refs": [
+        "DESIGN-001"
+      ],
+      "acceptance": {
+        "agent_gate": [
+          "Issue #1350 acceptance checklist passes in the issue workspace"
+        ],
+        "at_merge_gate": [
+          "CI green on current develop"
+        ],
+        "human_or_e2e": []
+      },
+      "github": null
+    },
+    {
+      "id": "AS-210",
+      "kind": "executable",
+      "provenance": "planned",
+      "introduced_in_plan_version": 1,
+      "discovered_from": null,
+      "title": "Event flattening and 2-line scroll window",
+      "document": "tickets/AS-210-event-flattening-and-2-line-scroll-windo.md",
+      "outcome": "The logs-mode flattened sequence, scroll window, visibility, and hint bounds are pure and tested.",
+      "scope": [
+        "Scope and acceptance as contracted in GitHub issue #1351"
+      ],
+      "non_goals": [
+        "Sibling-ticket scope per the dependency edges"
+      ],
+      "phase_hint": 3,
+      "complexity_points": 3,
+      "complexity_rationale": "Sized from the researched contract in issue #1351",
+      "risk": "low",
+      "capability_requirements": [
+        "frontend"
+      ],
+      "workstream": "streamdeck",
+      "requirement_refs": [
+        "REQ-006"
+      ],
+      "depends_on": [
+        "AS-202",
+        "AS-206",
+        "AS-207"
+      ],
+      "serializes_with": [],
+      "suggested_after": [],
+      "contains": [],
+      "external_gates": [],
+      "read_surfaces": [
+        "see issue #1351"
+      ],
+      "write_surfaces": [
+        "see issue #1351"
+      ],
+      "contract_surfaces": [
+        "see issue #1351"
+      ],
+      "safety_surfaces": [],
+      "conflict_exceptions": [],
+      "decision_refs": [],
+      "design_evidence_refs": [
+        "DESIGN-001"
+      ],
+      "acceptance": {
+        "agent_gate": [
+          "Issue #1351 acceptance checklist passes in the issue workspace"
+        ],
+        "at_merge_gate": [
+          "CI green on current develop"
+        ],
+        "human_or_e2e": []
+      },
+      "github": null
+    },
+    {
+      "id": "AS-211",
+      "kind": "executable",
+      "provenance": "planned",
+      "introduced_in_plan_version": 1,
+      "discovered_from": null,
+      "title": "/streamdeck LiveView emulator page",
+      "document": "tickets/AS-211-streamdeck-liveview-emulator-page.md",
+      "outcome": "/streamdeck renders the faithful SD+ chassis from live fleet state in both themes.",
+      "scope": [
+        "Scope and acceptance as contracted in GitHub issue #1352"
+      ],
+      "non_goals": [
+        "Sibling-ticket scope per the dependency edges"
+      ],
+      "phase_hint": 4,
+      "complexity_points": 3,
+      "complexity_rationale": "Sized from the researched contract in issue #1352",
+      "risk": "medium",
+      "capability_requirements": [
+        "frontend"
+      ],
+      "workstream": "streamdeck",
+      "requirement_refs": [
+        "REQ-006"
+      ],
+      "depends_on": [
+        "AS-204",
+        "AS-209"
+      ],
+      "serializes_with": [
+        "AS-105"
+      ],
+      "suggested_after": [],
+      "contains": [],
+      "external_gates": [],
+      "read_surfaces": [
+        "see issue #1352"
+      ],
+      "write_surfaces": [
+        "src/lib/aiur_web/router.ex",
+        "route_registry.ex",
+        "src/priv/static/dashboard.css"
+      ],
+      "contract_surfaces": [
+        "see issue #1352"
+      ],
+      "safety_surfaces": [
+        "dashboard-ui clique"
+      ],
+      "conflict_exceptions": [],
+      "decision_refs": [],
+      "design_evidence_refs": [
+        "DESIGN-001"
+      ],
+      "acceptance": {
+        "agent_gate": [
+          "Issue #1352 acceptance checklist passes in the issue workspace"
+        ],
+        "at_merge_gate": [
+          "CI green on current develop"
+        ],
+        "human_or_e2e": []
+      },
+      "github": null
+    },
+    {
+      "id": "AS-212",
+      "kind": "executable",
+      "provenance": "planned",
+      "introduced_in_plan_version": 1,
+      "discovered_from": null,
+      "title": "Emulator interaction hooks",
+      "document": "tickets/AS-212-emulator-interaction-hooks.md",
+      "outcome": "Dial drag/wheel/keyboard, press detection, and mic hold work in the browser and survive LiveView patches.",
+      "scope": [
+        "Scope and acceptance as contracted in GitHub issue #1353"
+      ],
+      "non_goals": [
+        "Sibling-ticket scope per the dependency edges"
+      ],
+      "phase_hint": 4,
+      "complexity_points": 3,
+      "complexity_rationale": "Sized from the researched contract in issue #1353",
+      "risk": "medium",
+      "capability_requirements": [
+        "frontend"
+      ],
+      "workstream": "streamdeck",
+      "requirement_refs": [
+        "REQ-006"
+      ],
+      "depends_on": [
+        "AS-207",
+        "AS-208",
+        "AS-211"
+      ],
+      "serializes_with": [
+        "AS-105"
+      ],
+      "suggested_after": [],
+      "contains": [],
+      "external_gates": [],
+      "read_surfaces": [
+        "see issue #1353"
+      ],
+      "write_surfaces": [
+        "src/priv/static/dashboard.css",
+        "streamdeck hooks"
+      ],
+      "contract_surfaces": [
+        "see issue #1353"
+      ],
+      "safety_surfaces": [
+        "dashboard-ui clique"
+      ],
+      "conflict_exceptions": [],
+      "decision_refs": [],
+      "design_evidence_refs": [
+        "DESIGN-001"
+      ],
+      "acceptance": {
+        "agent_gate": [
+          "Issue #1353 acceptance checklist passes in the issue workspace"
+        ],
+        "at_merge_gate": [
+          "CI green on current develop"
+        ],
+        "human_or_e2e": []
+      },
+      "github": null
+    },
+    {
+      "id": "AS-213",
+      "kind": "executable",
+      "provenance": "planned",
+      "introduced_in_plan_version": 1,
+      "discovered_from": null,
+      "title": "Device transport and lifecycle",
+      "document": "tickets/AS-213-device-transport-and-lifecycle.md",
+      "outcome": "The sidecar owns a locked, reset-safe, suspend- and hotplug-resilient device handle.",
+      "scope": [
+        "Scope and acceptance as contracted in GitHub issue #1354"
+      ],
+      "non_goals": [
+        "Sibling-ticket scope per the dependency edges"
+      ],
+      "phase_hint": 3,
+      "complexity_points": 4,
+      "complexity_rationale": "Sized from the researched contract in issue #1354",
+      "risk": "high",
+      "capability_requirements": [
+        "backend",
+        "hardware"
+      ],
+      "workstream": "streamdeck",
+      "requirement_refs": [
+        "REQ-007"
+      ],
+      "depends_on": [
+        "AS-201",
+        "AS-202"
+      ],
+      "serializes_with": [],
+      "suggested_after": [],
+      "contains": [],
+      "external_gates": [],
+      "read_surfaces": [
+        "see issue #1354"
+      ],
+      "write_surfaces": [
+        "see issue #1354"
+      ],
+      "contract_surfaces": [
+        "see issue #1354"
+      ],
+      "safety_surfaces": [],
+      "conflict_exceptions": [],
+      "decision_refs": [
+        "DEC-001"
+      ],
+      "design_evidence_refs": [
+        "DESIGN-001"
+      ],
+      "acceptance": {
+        "agent_gate": [
+          "Issue #1354 acceptance checklist passes in the issue workspace"
+        ],
+        "at_merge_gate": [
+          "CI green on current develop"
+        ],
+        "human_or_e2e": [
+          "Hardware evidence per issue #1354"
+        ]
+      },
+      "github": null
+    },
+    {
+      "id": "AS-214",
+      "kind": "executable",
+      "provenance": "planned",
+      "introduced_in_plan_version": 1,
+      "discovered_from": null,
+      "title": "Key rendering pipeline",
+      "document": "tickets/AS-214-key-rendering-pipeline.md",
+      "outcome": "Physical keys render descriptors via serialized, cached, dirty-tracked JPEG writes.",
+      "scope": [
+        "Scope and acceptance as contracted in GitHub issue #1355"
+      ],
+      "non_goals": [
+        "Sibling-ticket scope per the dependency edges"
+      ],
+      "phase_hint": 4,
+      "complexity_points": 4,
+      "complexity_rationale": "Sized from the researched contract in issue #1355",
+      "risk": "high",
+      "capability_requirements": [
+        "backend",
+        "hardware"
+      ],
+      "workstream": "streamdeck",
+      "requirement_refs": [
+        "REQ-007"
+      ],
+      "depends_on": [
+        "AS-201",
+        "AS-209",
+        "AS-213"
+      ],
+      "serializes_with": [],
+      "suggested_after": [],
+      "contains": [],
+      "external_gates": [],
+      "read_surfaces": [
+        "see issue #1355"
+      ],
+      "write_surfaces": [
+        "see issue #1355"
+      ],
+      "contract_surfaces": [
+        "see issue #1355"
+      ],
+      "safety_surfaces": [],
+      "conflict_exceptions": [],
+      "decision_refs": [
+        "DEC-001"
+      ],
+      "design_evidence_refs": [
+        "DESIGN-001"
+      ],
+      "acceptance": {
+        "agent_gate": [
+          "Issue #1355 acceptance checklist passes in the issue workspace"
+        ],
+        "at_merge_gate": [
+          "CI green on current develop"
+        ],
+        "human_or_e2e": [
+          "Hardware evidence per issue #1355"
+        ]
+      },
+      "github": null
+    },
+    {
+      "id": "AS-215",
+      "kind": "executable",
+      "provenance": "planned",
+      "introduced_in_plan_version": 1,
+      "discovered_from": null,
+      "title": "Touch strip rendering",
+      "document": "tickets/AS-215-touch-strip-rendering.md",
+      "outcome": "The 4-segment strip renders per-mode content through independent partial-region writes.",
+      "scope": [
+        "Scope and acceptance as contracted in GitHub issue #1356"
+      ],
+      "non_goals": [
+        "Sibling-ticket scope per the dependency edges"
+      ],
+      "phase_hint": 4,
+      "complexity_points": 4,
+      "complexity_rationale": "Sized from the researched contract in issue #1356",
+      "risk": "high",
+      "capability_requirements": [
+        "backend",
+        "hardware"
+      ],
+      "workstream": "streamdeck",
+      "requirement_refs": [
+        "REQ-007"
+      ],
+      "depends_on": [
+        "AS-201",
+        "AS-205",
+        "AS-211",
+        "AS-213"
+      ],
+      "serializes_with": [],
+      "suggested_after": [],
+      "contains": [],
+      "external_gates": [],
+      "read_surfaces": [
+        "see issue #1356"
+      ],
+      "write_surfaces": [
+        "see issue #1356"
+      ],
+      "contract_surfaces": [
+        "see issue #1356"
+      ],
+      "safety_surfaces": [],
+      "conflict_exceptions": [],
+      "decision_refs": [
+        "DEC-001"
+      ],
+      "design_evidence_refs": [
+        "DESIGN-001"
+      ],
+      "acceptance": {
+        "agent_gate": [
+          "Issue #1356 acceptance checklist passes in the issue workspace"
+        ],
+        "at_merge_gate": [
+          "CI green on current develop"
+        ],
+        "human_or_e2e": [
+          "Hardware evidence per issue #1356"
+        ]
+      },
+      "github": null
+    },
+    {
+      "id": "AS-216",
+      "kind": "executable",
+      "provenance": "planned",
+      "introduced_in_plan_version": 1,
+      "discovered_from": null,
+      "title": "Packaging: udev, systemd, operator docs",
+      "document": "tickets/AS-216-packaging--udev--systemd--operator-docs.md",
+      "outcome": "The sidecar installs and survives reboot, suspend, and replug from documented operator steps.",
+      "scope": [
+        "Scope and acceptance as contracted in GitHub issue #1357"
+      ],
+      "non_goals": [
+        "Sibling-ticket scope per the dependency edges"
+      ],
+      "phase_hint": 5,
+      "complexity_points": 2,
+      "complexity_rationale": "Sized from the researched contract in issue #1357",
+      "risk": "low",
+      "capability_requirements": [
+        "infra"
+      ],
+      "workstream": "streamdeck",
+      "requirement_refs": [
+        "REQ-007"
+      ],
+      "depends_on": [
+        "AS-213"
+      ],
+      "serializes_with": [],
+      "suggested_after": [],
+      "contains": [],
+      "external_gates": [],
+      "read_surfaces": [
+        "see issue #1357"
+      ],
+      "write_surfaces": [
+        "see issue #1357"
+      ],
+      "contract_surfaces": [
+        "see issue #1357"
+      ],
+      "safety_surfaces": [],
+      "conflict_exceptions": [],
+      "decision_refs": [],
+      "design_evidence_refs": [
+        "DESIGN-001"
+      ],
+      "acceptance": {
+        "agent_gate": [
+          "Issue #1357 acceptance checklist passes in the issue workspace"
+        ],
+        "at_merge_gate": [
+          "CI green on current develop"
+        ],
+        "human_or_e2e": [
+          "Hardware evidence per issue #1357"
+        ]
+      },
+      "github": null
+    },
+    {
+      "id": "AS-217",
+      "kind": "capstone",
+      "provenance": "planned",
+      "introduced_in_plan_version": 1,
+      "discovered_from": null,
+      "title": "End-to-end proof: emulator and device",
+      "document": "tickets/AS-217-end-to-end-proof--emulator-and-device.md",
+      "outcome": "Every emulator and device workflow step is evidenced against live fleet state.",
+      "scope": [
+        "Scope and acceptance as contracted in GitHub issue #1358"
+      ],
+      "non_goals": [
+        "Sibling-ticket scope per the dependency edges"
+      ],
+      "phase_hint": 6,
+      "complexity_points": 2,
+      "complexity_rationale": "Sized from the researched contract in issue #1358",
+      "risk": "medium",
+      "capability_requirements": [
+        "integration"
+      ],
+      "workstream": "streamdeck",
+      "requirement_refs": [
+        "REQ-008"
+      ],
+      "depends_on": [
+        "AS-203",
+        "AS-205",
+        "AS-208",
+        "AS-210",
+        "AS-212",
+        "AS-214",
+        "AS-215",
+        "AS-216",
+        "AS-103",
+        "AS-104",
+        "AS-105",
+        "AS-302",
+        "AS-303",
+        "AS-304"
+      ],
+      "serializes_with": [],
+      "suggested_after": [],
+      "contains": [],
+      "external_gates": [],
+      "read_surfaces": [
+        "see issue #1358"
+      ],
+      "write_surfaces": [
+        "see issue #1358"
+      ],
+      "contract_surfaces": [
+        "see issue #1358"
+      ],
+      "safety_surfaces": [],
+      "conflict_exceptions": [],
+      "decision_refs": [],
+      "design_evidence_refs": [
+        "DESIGN-001"
+      ],
+      "acceptance": {
+        "agent_gate": [
+          "Issue #1358 acceptance checklist passes in the issue workspace"
+        ],
+        "at_merge_gate": [
+          "CI green on current develop"
+        ],
+        "human_or_e2e": [
+          "Hardware evidence per issue #1358"
+        ]
+      },
+      "github": null
+    },
+    {
+      "id": "AS-301",
+      "kind": "executable",
+      "provenance": "planned",
+      "introduced_in_plan_version": 1,
+      "discovered_from": null,
+      "title": "Server-side dispatch allowlist + provenance",
+      "document": "tickets/AS-301-server-side-dispatch-allowlist---provena.md",
+      "outcome": "Dispatch requires an allowlisted issue creator or label applier, verified via the timeline API, failing closed.",
+      "scope": [
+        "Scope and acceptance as contracted in GitHub issue #1359"
+      ],
+      "non_goals": [
+        "Sibling-ticket scope per the dependency edges"
+      ],
+      "phase_hint": 1,
+      "complexity_points": 3,
+      "complexity_rationale": "Sized from the researched contract in issue #1359",
+      "risk": "medium",
+      "capability_requirements": [
+        "backend",
+        "security"
+      ],
+      "workstream": "security",
+      "requirement_refs": [
+        "REQ-009"
+      ],
+      "depends_on": [],
+      "serializes_with": [],
+      "suggested_after": [],
+      "contains": [],
+      "external_gates": [],
+      "read_surfaces": [
+        "see issue #1359"
+      ],
+      "write_surfaces": [
+        "see issue #1359"
+      ],
+      "contract_surfaces": [
+        "see issue #1359"
+      ],
+      "safety_surfaces": [],
+      "conflict_exceptions": [],
+      "decision_refs": [
+        "DEC-003"
+      ],
+      "design_evidence_refs": [
+        "DESIGN-003"
+      ],
+      "acceptance": {
+        "agent_gate": [
+          "Issue #1359 acceptance checklist passes in the issue workspace"
+        ],
+        "at_merge_gate": [
+          "CI green on current develop"
+        ],
+        "human_or_e2e": []
+      },
+      "github": null
+    },
+    {
+      "id": "AS-302",
+      "kind": "executable",
+      "provenance": "planned",
+      "introduced_in_plan_version": 1,
+      "discovered_from": null,
+      "title": "Fail-closed digest trust + injection stripping",
+      "document": "tickets/AS-302-fail-closed-digest-trust---injection-str.md",
+      "outcome": "Digest trust defaults closed, review threads respect the workpad cutoff, and injection carriers are stripped.",
+      "scope": [
+        "Scope and acceptance as contracted in GitHub issue #1360"
+      ],
+      "non_goals": [
+        "Sibling-ticket scope per the dependency edges"
+      ],
+      "phase_hint": 1,
+      "complexity_points": 3,
+      "complexity_rationale": "Sized from the researched contract in issue #1360",
+      "risk": "medium",
+      "capability_requirements": [
+        "backend",
+        "security"
+      ],
+      "workstream": "security",
+      "requirement_refs": [
+        "REQ-010"
+      ],
+      "depends_on": [],
+      "serializes_with": [],
+      "suggested_after": [],
+      "contains": [],
+      "external_gates": [],
+      "read_surfaces": [
+        "see issue #1360"
+      ],
+      "write_surfaces": [
+        "see issue #1360"
+      ],
+      "contract_surfaces": [
+        "see issue #1360"
+      ],
+      "safety_surfaces": [],
+      "conflict_exceptions": [],
+      "decision_refs": [
+        "DEC-003"
+      ],
+      "design_evidence_refs": [
+        "DESIGN-003"
+      ],
+      "acceptance": {
+        "agent_gate": [
+          "Issue #1360 acceptance checklist passes in the issue workspace"
+        ],
+        "at_merge_gate": [
+          "CI green on current develop"
+        ],
+        "human_or_e2e": []
+      },
+      "github": null
+    },
+    {
+      "id": "AS-303",
+      "kind": "executable",
+      "provenance": "planned",
+      "introduced_in_plan_version": 1,
+      "discovered_from": null,
+      "title": "CODEOWNERS degradation and drift alerts",
+      "document": "tickets/AS-303-codeowners-degradation-and-drift-alerts.md",
+      "outcome": "CODEOWNERS failure or allowlist drift raises needs-attention alerts and the trust set is operator-visible.",
+      "scope": [
+        "Scope and acceptance as contracted in GitHub issue #1361"
+      ],
+      "non_goals": [
+        "Sibling-ticket scope per the dependency edges"
+      ],
+      "phase_hint": 2,
+      "complexity_points": 2,
+      "complexity_rationale": "Sized from the researched contract in issue #1361",
+      "risk": "low",
+      "capability_requirements": [
+        "backend",
+        "security"
+      ],
+      "workstream": "security",
+      "requirement_refs": [
+        "REQ-009"
+      ],
+      "depends_on": [
+        "AS-301"
+      ],
+      "serializes_with": [],
+      "suggested_after": [],
+      "contains": [],
+      "external_gates": [],
+      "read_surfaces": [
+        "see issue #1361"
+      ],
+      "write_surfaces": [
+        "see issue #1361"
+      ],
+      "contract_surfaces": [
+        "see issue #1361"
+      ],
+      "safety_surfaces": [],
+      "conflict_exceptions": [],
+      "decision_refs": [
+        "DEC-003"
+      ],
+      "design_evidence_refs": [
+        "DESIGN-003"
+      ],
+      "acceptance": {
+        "agent_gate": [
+          "Issue #1361 acceptance checklist passes in the issue workspace"
+        ],
+        "at_merge_gate": [
+          "CI green on current develop"
+        ],
+        "human_or_e2e": []
+      },
+      "github": null
+    },
+    {
+      "id": "AS-304",
+      "kind": "executable",
+      "provenance": "planned",
+      "introduced_in_plan_version": 1,
+      "discovered_from": null,
+      "title": "Human-only merge gate + trigger guard",
+      "document": "tickets/AS-304-human-only-merge-gate---trigger-guard.md",
+      "outcome": "Rulesets enforce human-only merges, mergers are attributed, and CI guards workflow triggers.",
+      "scope": [
+        "Scope and acceptance as contracted in GitHub issue #1362"
+      ],
+      "non_goals": [
+        "Sibling-ticket scope per the dependency edges"
+      ],
+      "phase_hint": 2,
+      "complexity_points": 3,
+      "complexity_rationale": "Sized from the researched contract in issue #1362",
+      "risk": "medium",
+      "capability_requirements": [
+        "backend",
+        "security"
+      ],
+      "workstream": "security",
+      "requirement_refs": [
+        "REQ-011"
+      ],
+      "depends_on": [
+        "AS-301"
+      ],
+      "serializes_with": [],
+      "suggested_after": [],
+      "contains": [],
+      "external_gates": [],
+      "read_surfaces": [
+        "see issue #1362"
+      ],
+      "write_surfaces": [
+        "see issue #1362"
+      ],
+      "contract_surfaces": [
+        "see issue #1362"
+      ],
+      "safety_surfaces": [],
+      "conflict_exceptions": [],
+      "decision_refs": [
+        "DEC-003"
+      ],
+      "design_evidence_refs": [
+        "DESIGN-003"
+      ],
+      "acceptance": {
+        "agent_gate": [
+          "Issue #1362 acceptance checklist passes in the issue workspace"
+        ],
+        "at_merge_gate": [
+          "CI green on current develop"
+        ],
+        "human_or_e2e": []
+      },
+      "github": null
+    }
+  ],
+  "epic_acceptance": {
+    "owner_ticket_id": "AS-217",
+    "evidence": [
+      "AS-217 numbered emulator + device evidence set",
+      "/analytics screenshot showing real telemetry of the executing run",
+      "Security branch: deny-path tests + ruleset verification check green"
+    ]
+  }
+}
