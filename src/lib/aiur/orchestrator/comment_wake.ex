@@ -60,7 +60,11 @@ defmodule Aiur.Orchestrator.CommentWake do
       Keyword.get(opts, :mark_reconciled_fun, &CurrentRunMembership.mark_reconciled/1)
 
     set_terminal_verification_pending_fun =
-      Keyword.get(opts, :set_terminal_verification_pending_fun, &CurrentRunMembership.set_terminal_verification_pending/2)
+      Keyword.get(
+        opts,
+        :set_terminal_verification_pending_fun,
+        &CurrentRunMembership.set_terminal_verification_pending/2
+      )
 
     merger_allowed_fun =
       Keyword.get(opts, :merger_allowed_fun, &CodeOwners.allowed?/1)
@@ -70,19 +74,21 @@ defmodule Aiur.Orchestrator.CommentWake do
 
     merged_by_login = Keyword.get(opts, :merged_by_login)
 
-    Logger.info("PR merge received: issue_identifier=#{identifier} merged_by=#{inspect(merged_by_login)}")
-
-    unless merger_allowed_fun.(merged_by_login) do
-      emit_alert_fun.("ticket.#{identifier}.merge.unauthorized_merger",
-        issue: to_string(identifier),
-        reason: "PR merged by #{inspect(merged_by_login)} who is not in the merge allowlist.",
-        needs_attention: true,
-        severity: "warning"
-      )
-    end
+    Logger.info(
+      "PR merge received: issue_identifier=#{identifier} merged_by=#{inspect(merged_by_login)}"
+    )
 
     case update_issue_state_fun.(to_string(identifier), "done") do
       :ok ->
+        unless merger_allowed_fun.(merged_by_login) do
+          emit_alert_fun.("ticket.#{identifier}.merge.unauthorized_merger",
+            issue: to_string(identifier),
+            reason: "PR merged by #{inspect(merged_by_login)} who is not in the merge allowlist.",
+            needs_attention: true,
+            severity: "warning"
+          )
+        end
+
         complete_merged_issue(
           state,
           identifier,
@@ -94,7 +100,9 @@ defmodule Aiur.Orchestrator.CommentWake do
         )
 
       {:error, reason} ->
-        Logger.warning("PR merge terminal transition skipped: issue_identifier=#{identifier} reason=#{inspect(reason)}")
+        Logger.warning(
+          "PR merge terminal transition skipped: issue_identifier=#{identifier} reason=#{inspect(reason)}"
+        )
 
         state
     end
@@ -202,8 +210,18 @@ defmodule Aiur.Orchestrator.CommentWake do
     state
   end
 
-  defp safely_mark_membership_unavailable(mark_reconciled_fun, set_terminal_verification_pending_fun, identity) do
-    _ = safely_set_terminal_verification_pending(set_terminal_verification_pending_fun, identity, true)
+  defp safely_mark_membership_unavailable(
+         mark_reconciled_fun,
+         set_terminal_verification_pending_fun,
+         identity
+       ) do
+    _ =
+      safely_set_terminal_verification_pending(
+        set_terminal_verification_pending_fun,
+        identity,
+        true
+      )
+
     _ = mark_reconciled_fun.(:unavailable)
     :ok
   rescue
@@ -218,15 +236,27 @@ defmodule Aiur.Orchestrator.CommentWake do
          pending?
        ) do
     if TrackerIdentity.joinable?(identity) do
-      invoke_terminal_verification_marker(set_terminal_verification_pending_fun, identity, pending?)
+      invoke_terminal_verification_marker(
+        set_terminal_verification_pending_fun,
+        identity,
+        pending?
+      )
     else
       :ok
     end
   end
 
-  defp safely_set_terminal_verification_pending(_set_terminal_verification_pending_fun, _identity, _pending?), do: :ok
+  defp safely_set_terminal_verification_pending(
+         _set_terminal_verification_pending_fun,
+         _identity,
+         _pending?
+       ), do: :ok
 
-  defp invoke_terminal_verification_marker(set_terminal_verification_pending_fun, identity, pending?) do
+  defp invoke_terminal_verification_marker(
+         set_terminal_verification_pending_fun,
+         identity,
+         pending?
+       ) do
     case set_terminal_verification_pending_fun.(identity, pending?) do
       :ok -> :ok
       _ -> :error
@@ -265,12 +295,16 @@ defmodule Aiur.Orchestrator.CommentWake do
         seed_idle_comment_wake_event(state, issue_number, event)
 
       {:skip, reason} ->
-        Logger.info("#{source} ignored for idle issue: issue_identifier=#{issue_number} reason=#{inspect(reason)}")
+        Logger.info(
+          "#{source} ignored for idle issue: issue_identifier=#{issue_number} reason=#{inspect(reason)}"
+        )
 
         state
 
       {:error, reason} ->
-        Logger.warning("#{source} rework transition skipped; state update failed: issue_identifier=#{issue_number} reason=#{inspect(reason)}")
+        Logger.warning(
+          "#{source} rework transition skipped; state update failed: issue_identifier=#{issue_number} reason=#{inspect(reason)}"
+        )
 
         schedule_comment_rework_retry(state, issue_number, source, event, attempt, reason)
     end
@@ -369,7 +403,9 @@ defmodule Aiur.Orchestrator.CommentWake do
     max_attempts = comment_rework_max_attempts()
 
     if attempt >= max_attempts do
-      Logger.warning("#{source} rework transition retry exhausted: issue_identifier=#{issue_number} attempts=#{attempt} reason=#{inspect(reason)}")
+      Logger.warning(
+        "#{source} rework transition retry exhausted: issue_identifier=#{issue_number} attempts=#{attempt} reason=#{inspect(reason)}"
+      )
     else
       next_attempt = attempt + 1
       delay_ms = comment_rework_retry_delay_ms(attempt)
@@ -380,7 +416,9 @@ defmodule Aiur.Orchestrator.CommentWake do
         delay_ms
       )
 
-      Logger.info("#{source} rework transition retry scheduled: issue_identifier=#{issue_number} attempt=#{next_attempt}/#{max_attempts} delay_ms=#{delay_ms}")
+      Logger.info(
+        "#{source} rework transition retry scheduled: issue_identifier=#{issue_number} attempt=#{next_attempt}/#{max_attempts} delay_ms=#{delay_ms}"
+      )
     end
 
     state
@@ -402,13 +440,17 @@ defmodule Aiur.Orchestrator.CommentWake do
         dispatch_reworked_comment_issue(state, issue)
 
       {:skip, reason} ->
-        Logger.info("Trusted comment dispatch deferred: issue_identifier=#{identifier} reason=#{inspect(reason)}")
+        Logger.info(
+          "Trusted comment dispatch deferred: issue_identifier=#{identifier} reason=#{inspect(reason)}"
+        )
 
         Orchestrator.schedule_poll_cycle_start()
         state
 
       {:error, reason} ->
-        Logger.warning("Trusted comment dispatch deferred: issue_identifier=#{identifier} reason=#{inspect(reason)}")
+        Logger.warning(
+          "Trusted comment dispatch deferred: issue_identifier=#{identifier} reason=#{inspect(reason)}"
+        )
 
         Orchestrator.schedule_poll_cycle_start()
         state
@@ -516,7 +558,9 @@ defmodule Aiur.Orchestrator.CommentWake do
       {:error, reason} ->
         context = comment_reactivation_context(running_entry, issue_number)
 
-        Logger.warning("#{source} reactivation skipped; state update failed: #{context} reason=#{inspect(reason)}")
+        Logger.warning(
+          "#{source} reactivation skipped; state update failed: #{context} reason=#{inspect(reason)}"
+        )
 
         state
     end
@@ -590,7 +634,9 @@ defmodule Aiur.Orchestrator.CommentWake do
         state
 
       {:error, reason} ->
-        Logger.warning("#{source} reactivation skipped; issue refresh failed: #{context} reason=#{inspect(reason)}")
+        Logger.warning(
+          "#{source} reactivation skipped; issue refresh failed: #{context} reason=#{inspect(reason)}"
+        )
 
         state
     end
@@ -633,13 +679,16 @@ defmodule Aiur.Orchestrator.CommentWake do
     identifier = Map.get(running_entry, :identifier)
     issue_id = get_in(running_entry, [:issue, Access.key(:id)])
 
-    Logger.warning("#{source} reactivation deferred: issue_id=#{issue_id} issue_identifier=#{identifier} reason=#{inspect(reason)}")
+    Logger.warning(
+      "#{source} reactivation deferred: issue_id=#{issue_id} issue_identifier=#{identifier} reason=#{inspect(reason)}"
+    )
 
     Alerts.emit_system("ticket.#{identifier}.agent.review_feedback_delivery_deferred",
       issue: identifier,
       workspace: Map.get(running_entry, :workspace_path),
       worker_host: Map.get(running_entry, :worker_host),
-      reason: "Trusted review feedback moved the ticket to rework, but the agent could not resume: #{inspect(reason)}.",
+      reason:
+        "Trusted review feedback moved the ticket to rework, but the agent could not resume: #{inspect(reason)}.",
       needs_attention: true,
       severity: "warning"
     )

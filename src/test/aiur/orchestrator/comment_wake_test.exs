@@ -141,7 +141,12 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
           set_terminal_verification_pending_fun: fn _identity, _pending? -> :ok end,
           terminate_running_issue_fun: fn current_state, issue_id, true ->
             assert_receive {:membership_recorded, ^identity, :completed}
-            %{current_state | running: Map.delete(current_state.running, issue_id), claimed: MapSet.new()}
+
+            %{
+              current_state
+              | running: Map.delete(current_state.running, issue_id),
+                claimed: MapSet.new()
+            }
           end,
           merger_allowed_fun: fn _login -> true end
         )
@@ -156,13 +161,19 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
 
       CommentWake.mark_pr_merged_issue_done(state, "nonexistent-123",
         merged_by_login: "its-everdred",
+        update_issue_state_fun: fn _id, "done" -> :ok end,
         merger_allowed_fun: fn login ->
           send(parent, {:checked_allowlist, login})
           true
+        end,
+        emit_alert_fun: fn _name, _opts ->
+          send(parent, :unexpected_alert)
+          :ok
         end
       )
 
       assert_receive {:checked_allowlist, "its-everdred"}
+      refute_receive :unexpected_alert
     end
 
     test "emits unauthorized-merger alert when merged_by_login is not allowlisted" do
@@ -171,6 +182,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
 
       CommentWake.mark_pr_merged_issue_done(state, "nonexistent-123",
         merged_by_login: "unknown-bot",
+        update_issue_state_fun: fn _id, "done" -> :ok end,
         merger_allowed_fun: fn login ->
           send(parent, {:checked_allowlist, login})
           false
@@ -184,6 +196,91 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       assert_receive {:checked_allowlist, "unknown-bot"}
       assert_receive {:alert_emitted, "ticket.nonexistent-123.merge.unauthorized_merger", opts}
       assert Keyword.get(opts, :needs_attention) == true
+      assert Keyword.get(opts, :severity) == "warning"
+      assert Keyword.get(opts, :issue) == "nonexistent-123"
+      assert Keyword.get(opts, :reason) =~ "unknown-bot"
+    end
+
+    test "emits unauthorized-merger alert when merged_by_login is nil" do
+      state = base_state()
+      parent = self()
+
+      CommentWake.mark_pr_merged_issue_done(state, "nonexistent-123",
+        merged_by_login: nil,
+        update_issue_state_fun: fn _id, "done" -> :ok end,
+        merger_allowed_fun: fn login ->
+          send(parent, {:checked_allowlist, login})
+          false
+        end,
+        emit_alert_fun: fn name, opts ->
+          send(parent, {:alert_emitted, name, opts})
+          :ok
+        end
+      )
+
+      assert_receive {:checked_allowlist, nil}
+      assert_receive {:alert_emitted, "ticket.nonexistent-123.merge.unauthorized_merger", opts}
+      assert Keyword.get(opts, :needs_attention) == true
+    end
+
+    test "does not emit alert when tracker update fails (no double-alert on retry)" do
+      state = base_state()
+      parent = self()
+
+      CommentWake.mark_pr_merged_issue_done(state, "nonexistent-123",
+        merged_by_login: "unknown-bot",
+        update_issue_state_fun: fn _id, "done" -> {:error, :unavailable} end,
+        merger_allowed_fun: fn _login -> false end,
+        emit_alert_fun: fn _name, _opts ->
+          send(parent, :unexpected_alert)
+          :ok
+        end
+      )
+
+      refute_receive :unexpected_alert
+    end
+
+    test "emits alert and still terminates running issue when merger is not allowlisted" do
+      issue = %Issue{
+        id: "issue-unauthorized-merge",
+        identifier: "99",
+        state: "in-progress",
+        tracker_identity: tracker_identity("99")
+      }
+
+      state = %{
+        base_state()
+        | running: %{
+            issue.id => %{pid: nil, ref: nil, identifier: issue.identifier, issue: issue}
+          },
+          claimed: MapSet.new([issue.id])
+      }
+
+      parent = self()
+
+      result =
+        CommentWake.mark_pr_merged_issue_done(state, issue.identifier,
+          merged_by_login: "bad-actor",
+          merger_allowed_fun: fn login ->
+            send(parent, {:checked, login})
+            false
+          end,
+          emit_alert_fun: fn name, _opts ->
+            send(parent, {:alert, name})
+            :ok
+          end,
+          update_issue_state_fun: fn _id, "done" -> :ok end,
+          clear_session_handle_fun: fn _id -> :ok end,
+          observe_membership_fun: fn _identity, _lc -> :ok end,
+          set_terminal_verification_pending_fun: fn _identity, _pending? -> :ok end,
+          terminate_running_issue_fun: fn s, id, true ->
+            %{s | running: Map.delete(s.running, id), claimed: MapSet.new()}
+          end
+        )
+
+      assert_receive {:checked, "bad-actor"}
+      assert_receive {:alert, "ticket.99.merge.unauthorized_merger"}
+      refute Map.has_key?(result.running, issue.id)
     end
   end
 

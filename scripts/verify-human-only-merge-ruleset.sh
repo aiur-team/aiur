@@ -22,7 +22,8 @@ if ! jq -e '
   .enforcement == "active" and
   (.bypass_actors == null or .bypass_actors == []) and
   (.conditions.ref_name.include | index("refs/heads/main")) and
-  (.conditions.ref_name.include | index("refs/heads/develop"))
+  (.conditions.ref_name.include | index("refs/heads/develop")) and
+  ((.conditions.ref_name.exclude // []) | map(select(. == "refs/heads/main" or . == "refs/heads/develop")) | length == 0)
 ' >/dev/null <<<"$ruleset"; then
   echo "ruleset must actively protect main and develop with no bypass actors" >&2
   exit 1
