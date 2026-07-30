@@ -43,6 +43,31 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
     assert batch.review_thread_comments == []
   end
 
+  test "omits an overflowed comment connection so the poller can fetch it completely" do
+    request_fun = fn %{method: :post} ->
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "data" => %{
+             "repository" => %{
+               "target_42" =>
+                 issue([comment(1, "first page")])
+                 |> put_in(["comments", "pageInfo"], %{"hasNextPage" => true, "endCursor" => "next"}),
+               "pullRequests" => %{
+                 "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil},
+                 "nodes" => []
+               }
+             }
+           }
+         }
+       }}
+    end
+
+    assert {:ok, %{"42" => batch}} = CommentPollBatch.fetch(["42"], request_fun: request_fun)
+    refute Map.has_key?(batch, :issue_comments)
+  end
+
   defp issue(comments), do: %{"comments" => %{"nodes" => comments}}
 
   defp pull_request(number, branch, comments) do

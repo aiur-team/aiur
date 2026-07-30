@@ -90,7 +90,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
   defp issue_alias(target) do
     """
     target_#{target}: issueOrPullRequest(number: #{target}) {
-      ... on Issue { comments(first: 100) { nodes { #{comment_fields()} } } }
+      ... on Issue { comments(first: 100) { pageInfo { hasNextPage endCursor } nodes { #{comment_fields()} } } }
       ... on PullRequest { #{pull_request_fields()} }
     }
     """
@@ -99,7 +99,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
   defp pull_request_fields do
     """
     number state headRefName headRefOid baseRefName
-    comments(first: 100) { nodes { #{comment_fields()} } }
+    comments(first: 100) { pageInfo { hasNextPage endCursor } nodes { #{comment_fields()} } }
     reviewThreads(first: 100) {
       pageInfo { hasNextPage endCursor }
       nodes { id isResolved path line comments(last: 20) { nodes { #{thread_comment_fields()} } } }
@@ -136,11 +136,25 @@ defmodule Aiur.GitHub.CommentPollBatch do
       direct = Map.get(issues, target, %{})
       pull_request = pull_request_for_target(target, direct, pull_requests)
 
-      batch = %{
-        issue_comments: Map.get(direct, :comments, []),
-        open_pull_request: pull_request,
-        pr_issue_comments: if(is_map(pull_request), do: Map.get(pull_request, :comments, []), else: [])
-      }
+      batch = %{open_pull_request: pull_request}
+
+      batch =
+        put_comments_if_complete(
+          batch,
+          :issue_comments,
+          direct,
+          target,
+          "issue_comments"
+        )
+
+      batch =
+        put_comments_if_complete(
+          batch,
+          :pr_issue_comments,
+          pull_request || %{},
+          target,
+          "pull_request_comments"
+        )
 
       batch =
         if review_threads_overflow?(pull_request) do
@@ -169,7 +183,11 @@ defmodule Aiur.GitHub.CommentPollBatch do
   defp normalize_issue_or_pull_request(%{"headRefName" => _} = pull_request), do: normalize_pull_request(pull_request)
 
   defp normalize_issue_or_pull_request(issue) do
-    %{kind: :issue, comments: normalize_comments(get_in(issue, ["comments", "nodes"]))}
+    %{
+      kind: :issue,
+      comments: normalize_comments(get_in(issue, ["comments", "nodes"])),
+      comments_overflow: comments_overflow?(issue)
+    }
   end
 
   defp normalize_pull_request(pull_request) do
@@ -180,6 +198,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
       "head" => %{"ref" => Map.get(pull_request, "headRefName"), "sha" => Map.get(pull_request, "headRefOid")},
       "base" => %{"ref" => Map.get(pull_request, "baseRefName")},
       comments: normalize_comments(get_in(pull_request, ["comments", "nodes"])),
+      comments_overflow: comments_overflow?(pull_request),
       review_threads: Map.get(get_in(pull_request, ["reviewThreads"]), "nodes", []),
       review_threads_page_info: Map.get(get_in(pull_request, ["reviewThreads"]), "pageInfo", %{})
     }
@@ -204,6 +223,18 @@ defmodule Aiur.GitHub.CommentPollBatch do
     do: Map.get(page_info, "hasNextPage") == true
 
   defp review_threads_overflow?(_pull_request), do: false
+
+  defp put_comments_if_complete(batch, key, source, target, label) do
+    if comments_overflow?(source) do
+      Logger.warning("Github comment GraphQL batch overflow: #{label} target=#{target}")
+      batch
+    else
+      Map.put(batch, key, Map.get(source, :comments, []))
+    end
+  end
+
+  defp comments_overflow?(source) when is_map(source), do: Map.get(source, :comments_overflow, false)
+  defp comments_overflow?(_source), do: false
 
   defp positive_number?(target) do
     case Integer.parse(target) do
