@@ -153,6 +153,7 @@ defmodule Aiur.ExecutorEvents do
   # those fields and name them in a top-level "untrusted_fields" key so the
   # consumer treats them as data, not instructions.
   @untrusted_deferred_fields ~w(title options context)
+  @untrusted_deferred_field_keys [:title, :options, :context, "title", "options", "context"]
 
   @doc false
   @spec scrub_untrusted_output(map()) :: map()
@@ -160,16 +161,22 @@ defmodule Aiur.ExecutorEvents do
     topic = Map.get(event, :topic) || Map.get(event, "topic")
 
     if topic == "executor.decision.deferred" do
-      [:title, :options, :context, "title", "options", "context"]
-      |> Enum.reduce(event, fn key, acc ->
-        case Map.fetch(acc, key) do
-          {:ok, value} -> Map.put(acc, key, deep_strip(value))
-          :error -> acc
-        end
-      end)
+      event
+      |> scrub_deferred_fields()
       |> Map.put("untrusted_fields", @untrusted_deferred_fields)
     else
       event
+    end
+  end
+
+  defp scrub_deferred_fields(event) do
+    Enum.reduce(@untrusted_deferred_field_keys, event, &scrub_deferred_field/2)
+  end
+
+  defp scrub_deferred_field(key, event) do
+    case Map.fetch(event, key) do
+      {:ok, value} -> Map.put(event, key, deep_strip(value))
+      :error -> event
     end
   end
 

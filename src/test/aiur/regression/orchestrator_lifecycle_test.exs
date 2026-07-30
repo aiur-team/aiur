@@ -25,6 +25,8 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
 
     def fetch_candidate_issues, do: {:ok, issues()}
 
+    def fetch_classified_issue_comments(_issue_id), do: {:ok, []}
+
     def fetch_open_pull_request_for_branch(_issue_id), do: {:ok, nil}
 
     defp agent, do: Application.fetch_env!(:aiur, :hermetic_rework_agent)
