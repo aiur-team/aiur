@@ -1066,6 +1066,7 @@ defmodule Aiur.ExtensionsTest do
 
     {:ok, view, html} = live(build_conn(), "/?v=1&scope=unfinished")
     assert html =~ "Units"
+    assert Floki.parse_document!(html) |> Floki.find("title") |> Floki.text() =~ "Dashboard"
     assert html =~ "1100"
     assert html =~ "1101"
     assert html =~ "Progress"

@@ -156,6 +156,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     assert {:ok, _view, html} = live(build_conn(), "/build-orders")
 
     assert has_element?(_view, "#route-title", "Build Order")
+    assert Floki.parse_document!(html) |> Floki.find("h1#route-title") |> Floki.text() =~ "Build Order"
     assert html =~ ~s(data-build-order-status="catalog")
     assert html =~ "bo-catalog-table"
     assert html =~ "Root forty-two"
