@@ -261,49 +261,56 @@ defmodule Aiur.GitHub.CodeOwners do
   end
 
   defp compare_allowed_users(state, codeowners) do
-    configured = state.allowed_users_fun.()
+    case state.allowed_users_fun.() do
+      configured when is_list(configured) ->
+        compare_configured_allowed_users(state, configured, codeowners)
 
-    if is_list(configured) do
-      configured = normalize_logins(configured)
-      codeowners = normalize_logins(MapSet.to_list(codeowners))
-
-      if MapSet.size(configured) == 0 do
+      _ ->
         %{state | drift: nil}
-      else
-        drift = if MapSet.equal?(configured, codeowners), do: nil, else: {codeowners, configured}
-
-        if drift && state.drift != drift do
-          {owners, allowed_users} = drift
-
-          state.alert_fun.(
-            "github.codeowners.allowlist_drift",
-            "CODEOWNERS trust #{format_logins(owners)} diverges from dispatch allowed_users #{format_logins(allowed_users)}.",
-            reason: "CODEOWNERS and tracker.allowed_users must converge",
-            needs_attention: true,
-            severity: "warning"
-          )
-        end
-
-        %{state | drift: drift}
-      end
-    else
-      %{state | drift: nil}
     end
   end
 
+  defp compare_configured_allowed_users(state, configured, codeowners) do
+    configured = normalize_logins(configured)
+    codeowners = normalize_logins(MapSet.to_list(codeowners))
+
+    if MapSet.size(configured) == 0 do
+      %{state | drift: nil}
+    else
+      drift = if MapSet.equal?(configured, codeowners), do: nil, else: {codeowners, configured}
+      maybe_alert_drift(state, drift)
+    end
+  end
+
+  defp maybe_alert_drift(%{drift: drift} = state, drift), do: state
+
+  defp maybe_alert_drift(state, nil), do: %{state | drift: nil}
+
+  defp maybe_alert_drift(state, {owners, allowed_users} = drift) do
+    state.alert_fun.(
+      "github.codeowners.allowlist_drift",
+      "CODEOWNERS trust #{format_logins(owners)} diverges from dispatch allowed_users #{format_logins(allowed_users)}.",
+      reason: "CODEOWNERS and tracker.allowed_users must converge",
+      needs_attention: true,
+      severity: "warning"
+    )
+
+    %{state | drift: drift}
+  end
+
   defp configured_allowed_users do
-    case Aiur.Workflow.current() do
-      {:ok, %{config: config}} when is_map(config) ->
-        case get_in(config, ["tracker", "github", "allowed_users"]) do
-          users when is_list(users) ->
-            if MapSet.size(normalize_logins(users)) > 0, do: users, else: nil
+    with {:ok, %{config: config}} when is_map(config) <- Aiur.Workflow.current(),
+         users when is_list(users) <- get_in(config, ["tracker", "github", "allowed_users"]) do
+      nonempty_allowed_users(users)
+    else
+      _ -> nil
+    end
+  end
 
-          _ ->
-            nil
-        end
-
-      _ ->
-        nil
+  defp nonempty_allowed_users(users) do
+    case MapSet.size(normalize_logins(users)) do
+      0 -> nil
+      _ -> users
     end
   end
 
