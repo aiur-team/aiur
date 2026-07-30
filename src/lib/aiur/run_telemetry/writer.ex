@@ -178,12 +178,8 @@ defmodule Aiur.RunTelemetry.Writer do
   end
 
   defp enqueue_cast(server, message) do
-    case admission_counter(server) do
-      {:ok, counter} ->
-        if admit?(counter), do: GenServer.cast(server, append_admission(message, counter))
-
-      :unavailable ->
-        if mailbox_available?(server), do: GenServer.cast(server, append_admission(message, nil))
+    with {:ok, counter} <- admission_counter(server), true <- admit?(counter) do
+      GenServer.cast(server, append_admission(message, counter))
     end
 
     :ok
@@ -196,21 +192,12 @@ defmodule Aiur.RunTelemetry.Writer do
     do: {:record_batch, records, timestamp, admission}
 
   defp admission_counter(server) do
-    case server_pid(server) do
-      pid when is_pid(pid) ->
-        case Process.info(pid, :dictionary) do
-          {:dictionary, dictionary} ->
-            case List.keyfind(dictionary, @admission_key, 0) do
-              {@admission_key, counter} -> {:ok, counter}
-              nil -> :unavailable
-            end
-
-          _other ->
-            :unavailable
-        end
-
-      _other ->
-        :unavailable
+    with pid when is_pid(pid) <- server_pid(server),
+         {:dictionary, dictionary} <- Process.info(pid, :dictionary),
+         {@admission_key, counter} <- List.keyfind(dictionary, @admission_key, 0) do
+      {:ok, counter}
+    else
+      _other -> :unavailable
     end
   end
 
@@ -227,20 +214,6 @@ defmodule Aiur.RunTelemetry.Writer do
     end
   end
 
-  defp mailbox_available?(server) do
-    case server_pid(server) do
-      pid when is_pid(pid) ->
-        case Process.info(pid, :message_queue_len) do
-          {:message_queue_len, length} -> length < @max_pending_casts
-          _other -> false
-        end
-
-      _other ->
-        false
-    end
-  end
-
-  defp release_admission(nil), do: :ok
   defp release_admission(counter), do: :atomics.sub(counter, 1, 1)
 
   defp write_file(path, contents), do: File.write(path, contents, [:append])
