@@ -32,10 +32,10 @@ defmodule Aiur.GitHub.IssueDependencies do
 
   require Logger
 
-  alias Aiur.GitHub.Client
+  alias Aiur.GitHub.{Client, Transport}
 
   @max_depth 100
-  @max_api_calls 200
+  @graph_frontier_size 100
 
   @doc """
   Declares `blocker_number` as blocking `current_number`. Resolves the
@@ -55,8 +55,7 @@ defmodule Aiur.GitHub.IssueDependencies do
   @spec declare(integer() | String.t(), integer() | String.t(), keyword()) ::
           {:ok, map() | :already_present} | {:error, term()}
   def declare(current_number, blocker_number, opts \\ []) do
-    request_fun = Keyword.get(opts, :request_fun)
-    client_opts = if request_fun, do: [request_fun: request_fun], else: []
+    client_opts = Keyword.take(opts, [:request_fun, :graph_request_fun])
 
     with {:ok, blocker_issue} <- fetch_blocker(blocker_number, client_opts),
          blocker_id when is_integer(blocker_id) <- Map.get(blocker_issue, "id"),
@@ -170,58 +169,123 @@ defmodule Aiur.GitHub.IssueDependencies do
   defp cycle_check(current_number, blocker_number, client_opts) do
     state = %{
       current: to_string(current_number),
-      visited: MapSet.new(),
-      api_calls: 0
+      visited: MapSet.new()
     }
 
-    bfs([{to_string(blocker_number), 0}], state, client_opts)
-  end
+    queue = [{to_string(blocker_number), 0}]
 
-  defp bfs([], _state, _opts), do: :ok
-
-  defp bfs(_queue, %{api_calls: calls}, _opts) when calls >= @max_api_calls do
-    {:error, :rate_limited}
-  end
-
-  defp bfs([{_node, depth} | rest], state, opts) when depth > @max_depth do
-    bfs(rest, state, opts)
-  end
-
-  defp bfs([{node, depth} | rest], state, opts) do
     cond do
-      node == state.current -> {:error, :cycle_detected}
-      MapSet.member?(state.visited, node) -> bfs(rest, state, opts)
-      true -> bfs_expand(node, depth, rest, state, opts)
+      Keyword.has_key?(client_opts, :graph_request_fun) -> graph_bfs(queue, state, client_opts)
+      Keyword.has_key?(client_opts, :request_fun) -> rest_bfs(queue, Map.put(state, :api_calls, 0), client_opts)
+      true -> graph_bfs(queue, state, client_opts)
     end
   end
 
-  defp bfs_expand(node, depth, rest, state, opts) do
-    visited_state = %{state | visited: MapSet.put(state.visited, node)}
+  # The request-function seam deliberately keeps the REST traversal available
+  # for deterministic unit tests and callers that provide a REST-only adapter.
+  # Production calls use the GraphQL frontier batch above.
+  defp rest_bfs([], _state, _opts), do: :ok
+  defp rest_bfs(_queue, %{api_calls: calls}, _opts) when calls >= 200, do: {:error, :rate_limited}
+  defp rest_bfs([{_node, depth} | rest], state, opts) when depth > @max_depth, do: rest_bfs(rest, state, opts)
 
-    case Client.fetch_blocking(node, opts) do
-      {:ok, blocking} ->
-        next_nodes =
-          blocking
+  defp rest_bfs([{node, depth} | rest], state, opts) do
+    cond do
+      node == state.current ->
+        {:error, :cycle_detected}
+
+      MapSet.member?(state.visited, node) ->
+        rest_bfs(rest, state, opts)
+
+      true ->
+        state = %{state | visited: MapSet.put(state.visited, node)}
+
+        case Client.fetch_blocking(node, opts) do
+          {:ok, blocking} ->
+            next = blocking |> Enum.map(&Map.get(&1, "number")) |> Enum.filter(&is_integer/1) |> Enum.map(&{to_string(&1), depth + 1})
+            rest_bfs(rest ++ next, %{state | api_calls: state.api_calls + 1}, opts)
+
+          {:error, reason} ->
+            if github_http_status?(reason, 404),
+              do: rest_bfs(rest, %{state | api_calls: state.api_calls + 1}, opts),
+              else: {:error, :cycle_check_inconclusive}
+        end
+    end
+  end
+
+  defp graph_bfs([], _state, _opts), do: :ok
+
+  defp graph_bfs(queue, state, opts) do
+    {current_depth, later} = Enum.split_while(queue, fn {_node, depth} -> depth == elem(hd(queue), 1) end)
+    depth = current_depth |> hd() |> elem(1)
+
+    nodes =
+      current_depth
+      |> Enum.map(&elem(&1, 0))
+      |> Enum.reject(&MapSet.member?(state.visited, &1))
+      |> Enum.uniq()
+
+    cond do
+      Enum.any?(nodes, &(&1 == state.current)) ->
+        {:error, :cycle_detected}
+
+      depth > @max_depth or nodes == [] ->
+        graph_bfs(later, state, opts)
+
+      true ->
+        graph_bfs_frontiers(nodes, depth, later, %{state | visited: MapSet.union(state.visited, MapSet.new(nodes))}, opts)
+    end
+  end
+
+  defp graph_bfs_frontiers(nodes, depth, later, state, opts) do
+    nodes
+    |> Enum.chunk_every(@graph_frontier_size)
+    |> Enum.reduce_while({:ok, []}, fn frontier, {:ok, acc} ->
+      case fetch_blocking_graph(frontier, opts) do
+        {:ok, edges} -> {:cont, {:ok, acc ++ edges}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, edges} -> graph_bfs(later ++ Enum.map(edges, &{&1, depth + 1}), state, opts)
+      {:error, _reason} -> {:error, :cycle_check_inconclusive}
+    end
+  end
+
+  defp fetch_blocking_graph(nodes, opts) do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token(opts) do
+      request_fun = Keyword.get(opts, :graph_request_fun, Keyword.get(opts, :request_fun, &Transport.default_request_fun/1))
+
+      case Transport.github_graphql(request_fun, token, blocking_query(nodes), %{"owner" => owner, "repo" => repo}) do
+        {:ok, body} -> blocking_edges(body, nodes)
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  defp blocking_query(nodes) do
+    aliases = Enum.map_join(nodes, "\n", fn node -> "issue_#{node}: issue(number: #{node}) { blocking(first: 100) { nodes { number } } }" end)
+
+    "query AiurDependencyClosure($owner: String!, $repo: String!) { repository(owner: $owner, name: $repo) { #{aliases} } }"
+  end
+
+  defp blocking_edges(body, nodes) do
+    repository = get_in(body, ["data", "repository"])
+
+    if is_map(repository) do
+      edges =
+        Enum.flat_map(nodes, fn node ->
+          repository
+          |> get_in(["issue_#{node}", "blocking", "nodes"])
+          |> List.wrap()
           |> Enum.map(&Map.get(&1, "number"))
-          |> Enum.reject(&is_nil/1)
-          |> Enum.map(&{to_string(&1), depth + 1})
+          |> Enum.filter(&is_integer/1)
+          |> Enum.map(&to_string/1)
+        end)
 
-        bfs(rest ++ next_nodes, %{visited_state | api_calls: state.api_calls + 1}, opts)
-
-      {:error, reason} ->
-        bfs_error(reason, rest, visited_state, state, opts)
-    end
-  end
-
-  defp bfs_error(reason, rest, visited_state, state, opts) do
-    if github_http_status?(reason, 404) do
-      # Issue was deleted from GitHub — no outgoing edges to follow.
-      # Treat as a leaf, not an inconclusive cycle check.
-      bfs(rest, %{visited_state | api_calls: state.api_calls + 1}, opts)
+      {:ok, edges}
     else
-      # Transient API failure mid-BFS — we can't prove no cycle. Bail out with
-      # :cycle_check_inconclusive rather than POST optimistically.
-      {:error, :cycle_check_inconclusive}
+      {:error, :dependency_graph_missing}
     end
   end
 
