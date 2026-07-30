@@ -116,6 +116,7 @@ defmodule AiurWeb.Router do
       live("/build-orders", BuildOrderLive, :build_orders)
       live("/build-orders/:root_number", BuildOrderLive, :build_order)
       live("/analytics", AnalyticsLive, :analytics)
+      live("/streamdeck", StreamdeckLive, :streamdeck)
     end
   end
 

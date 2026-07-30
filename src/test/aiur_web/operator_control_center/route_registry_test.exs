@@ -10,7 +10,8 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistryTest do
              :units,
              :commands,
              :build_order,
-             :analytics
+             :analytics,
+             :streamdeck
            ]
 
     assert {:ok, units} = RouteRegistry.route(:units, analytics)
@@ -89,5 +90,16 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistryTest do
     assert RouteRegistry.available?(build_order)
     assert RouteRegistry.active?(build_order, :build_orders)
     assert RouteRegistry.active?(build_order, :build_order)
+  end
+
+  test "registers Streamdeck+ as an always-available LiveView" do
+    assert {:ok, streamdeck} = RouteRegistry.route(:streamdeck, %{})
+    assert streamdeck.label == "Streamdeck+"
+    assert streamdeck.description == "Stream Deck + control surface"
+    assert streamdeck.path == "/streamdeck"
+    assert streamdeck.owner == :streamdeck
+    assert streamdeck.active_actions == [:streamdeck]
+    assert RouteRegistry.available?(streamdeck)
+    assert RouteRegistry.live?(streamdeck)
   end
 end
