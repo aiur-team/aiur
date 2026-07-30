@@ -90,6 +90,7 @@ defmodule AiurWeb.Router do
     get("/dashboard.css", StaticAssetController, :dashboard_css)
     get("/ticket-context-dialog-hook.js", StaticAssetController, :ticket_context_dialog_hook)
     get("/build-order-grid-hook.js", StaticAssetController, :build_order_grid_hook)
+    get("/time-brush-hook.js", StaticAssetController, :time_brush_hook)
     get("/aiur-dom-svg-layout-adapter.js", StaticAssetController, :dom_svg_layout_adapter)
     get("/aiur-dom-svg-layout-loader.js", StaticAssetController, :dom_svg_layout_loader)
     get("/aiur-dom-svg-layout/:module", StaticAssetController, :dom_svg_layout_module)

@@ -922,6 +922,7 @@ defmodule Aiur.ExtensionsTest do
     html = html_response(get(build_conn(), "/"), 200)
     assert html =~ "/dashboard.css"
     assert html =~ "/ticket-context-dialog-hook.js"
+    assert html =~ "/time-brush-hook.js"
     assert html =~ "/aiur-dom-svg-layout-loader.js"
     assert html =~ "/vendor/phoenix_html/phoenix_html.js"
     assert html =~ "/vendor/phoenix/phoenix.js"
@@ -941,6 +942,10 @@ defmodule Aiur.ExtensionsTest do
     dialog_hook_conn = get(build_conn(), "/ticket-context-dialog-hook.js")
     assert response(dialog_hook_conn, 200) =~ "AiurTicketContextDialogHook"
     assert Plug.Conn.get_resp_header(dialog_hook_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
+
+    time_brush_hook_conn = get(build_conn(), "/time-brush-hook.js")
+    assert response(time_brush_hook_conn, 200) =~ "AiurTimeBrushHook"
+    assert Plug.Conn.get_resp_header(time_brush_hook_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
 
     adapter_conn = get(build_conn(), "/aiur-dom-svg-layout-adapter.js")
     adapter = response(adapter_conn, 200)
@@ -1060,6 +1065,7 @@ defmodule Aiur.ExtensionsTest do
     )
 
     {:ok, view, html} = live(build_conn(), "/?v=1&scope=unfinished")
+    assert html =~ "Units"
     assert Floki.parse_document!(html) |> Floki.find("title") |> Floki.text() =~ "Dashboard"
     assert html =~ "1100"
     assert html =~ "1101"
