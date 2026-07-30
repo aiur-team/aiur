@@ -155,7 +155,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
   test "mounts the catalog without demanding any selected root", %{source: source} do
     assert {:ok, _view, html} = live(build_conn(), "/build-orders")
 
-    assert html =~ ~s(<h1 id="route-title">Build Order</h1>)
+    assert Floki.parse_document!(html) |> Floki.find("h1#route-title") |> Floki.text() =~ "Build Order"
     assert html =~ ~s(data-build-order-status="catalog")
     assert html =~ "bo-catalog-table"
     assert html =~ "Root forty-two"
