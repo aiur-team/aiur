@@ -101,23 +101,29 @@ defmodule Aiur.RunTelemetry.Retention do
   defp retain_by_size(groups, opts) do
     case Keyword.get(opts, :max_bytes) do
       max_bytes when is_integer(max_bytes) and max_bytes > 0 ->
-        {retained, _size} =
-          Enum.reduce(Enum.reverse(groups), {[], 0}, fn group, {retained, size} ->
-            group_size = byte_size(group.contents)
-
-            protected? = group.boot_id == Keyword.get(opts, :protected_boot_id)
-
-            if protected? or retained == [] or size + group_size <= max_bytes do
-              {[group | retained], size + group_size}
-            else
-              {retained, size}
-            end
-          end)
-
-        retained
+        retain_newest_groups(groups, max_bytes, Keyword.get(opts, :protected_boot_id))
 
       _other ->
         groups
+    end
+  end
+
+  defp retain_newest_groups(groups, max_bytes, protected_boot_id) do
+    {retained, _size} =
+      Enum.reduce(Enum.reverse(groups), {[], 0}, fn group, acc ->
+        retain_group(group, acc, max_bytes, protected_boot_id)
+      end)
+
+    retained
+  end
+
+  defp retain_group(group, {retained, size}, max_bytes, protected_boot_id) do
+    group_size = byte_size(group.contents)
+
+    if group.boot_id == protected_boot_id or retained == [] or size + group_size <= max_bytes do
+      {[group | retained], size + group_size}
+    else
+      {retained, size}
     end
   end
 

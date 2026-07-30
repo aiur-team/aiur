@@ -2,7 +2,7 @@ defmodule Aiur.RunTelemetry.WriterTest do
   use ExUnit.Case, async: false
 
   alias Aiur.RunTelemetry
-  alias Aiur.RunTelemetry.{Dataset, Writer}
+  alias Aiur.RunTelemetry.{Dataset, Retention, Writer}
 
   setup do
     root = Path.join(System.tmp_dir!(), "aiur-telemetry-writer-#{System.unique_integer([:positive])}")
@@ -176,6 +176,35 @@ defmodule Aiur.RunTelemetry.WriterTest do
     assert {:ok, dataset} = Dataset.build(path)
     assert Dataset.boot_ids(dataset) == ["resumed"]
     refute Enum.any?(dataset.warnings, &(&1.type == :sequence_gap))
+  end
+
+  test "startup retention keeps an oversized complete boot parseable", %{path: path} do
+    {:ok, first} = Writer.start_link(name: nil, path: path, boot_id: "oversized")
+
+    assert :ok =
+             Writer.record(first, :resource, %{
+               actor: "_daemon",
+               rss_bytes: 1,
+               detail: String.duplicate("x", 8_192)
+             })
+
+    assert :ok = Writer.flush(first)
+    :ok = GenServer.stop(first)
+
+    {:ok, second} =
+      Writer.start_link(name: nil, path: path, boot_id: "current", retention: [max_bytes: 1])
+
+    assert :ok = Writer.flush(second)
+    assert File.stat!(path).size > 1
+
+    assert {:ok, dataset} = Dataset.build(path)
+    assert Dataset.boot_ids(dataset) == ["oversized", "current"]
+    assert dataset.warnings == []
+  end
+
+  test "retention treats absent or invalid targets as no-ops", %{path: path} do
+    assert :ok = Retention.prune(path)
+    assert :ok = Retention.prune(:not_a_path, :not_options)
   end
 
   test "sanitizes subscribed GitHub anchors before appending", %{path: path} do

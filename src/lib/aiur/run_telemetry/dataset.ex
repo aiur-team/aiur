@@ -302,14 +302,9 @@ defmodule Aiur.RunTelemetry.Dataset do
     case :file.read(device, bytes) do
       {:ok, chunk} ->
         {next_carry, lines} = split_tail_chunk(chunk <> carry, next_offset == 0)
+        {oversized_lines, lines} = Enum.split_with(lines, &(byte_size(&1) > @max_tail_line_bytes))
         state = consume_tail_lines(Enum.reverse(lines), state, requested_boot_id)
-
-        state =
-          if byte_size(next_carry) > @max_tail_line_bytes do
-            Map.put(state, :tail_line_too_large?, true)
-          else
-            state
-          end
+        state = mark_oversized_tail_line(state, next_carry, oversized_lines)
 
         if next_offset == 0 or state.done? or state.tail_line_too_large? do
           state
@@ -339,31 +334,35 @@ defmodule Aiur.RunTelemetry.Dataset do
     end
   end
 
+  defp mark_oversized_tail_line(state, carry, oversized_lines) do
+    if byte_size(carry) > @max_tail_line_bytes or oversized_lines != [] do
+      Map.put(state, :tail_line_too_large?, true)
+    else
+      state
+    end
+  end
+
   defp consume_tail_lines(lines, state, requested_boot_id) do
-    Enum.reduce_while(lines, state, fn line, state ->
-      boot_id = boot_id_from_line(line)
+    Enum.reduce_while(lines, state, &consume_tail_line(&1, &2, requested_boot_id))
+  end
 
-      cond do
-        is_nil(state.boot_id) and is_binary(boot_id) ->
-          chosen_boot_id = if boot_id == requested_boot_id, do: requested_boot_id, else: boot_id
-          {:cont, %{state | boot_id: chosen_boot_id, lines: [line | state.lines]}}
+  defp consume_tail_line(line, %{boot_id: nil} = state, requested_boot_id) do
+    boot_id = boot_id_from_line(line)
+    chosen_boot_id = if boot_id == requested_boot_id, do: requested_boot_id, else: boot_id
+    {:cont, %{state | boot_id: chosen_boot_id, lines: [line | state.lines]}}
+  end
 
-        is_nil(state.boot_id) ->
-          {:cont, %{state | lines: [line | state.lines]}}
-
-        is_nil(boot_id) or boot_id == state.boot_id ->
-          {:cont, %{state | lines: [line | state.lines]}}
-
-        true ->
-          {:halt, %{state | done?: true}}
-      end
-    end)
+  defp consume_tail_line(line, state, _requested_boot_id) do
+    case boot_id_from_line(line) do
+      nil -> {:cont, %{state | lines: [line | state.lines]}}
+      boot_id when boot_id == state.boot_id -> {:cont, %{state | lines: [line | state.lines]}}
+      _other -> {:halt, %{state | done?: true}}
+    end
   end
 
   defp boot_id_from_line(line) do
-    with {:ok, %{"boot_id" => boot_id}} when is_binary(boot_id) <- Jason.decode(line) do
-      boot_id
-    else
+    case Jason.decode(line) do
+      {:ok, %{"boot_id" => boot_id}} when is_binary(boot_id) -> boot_id
       _other -> nil
     end
   end

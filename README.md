@@ -138,7 +138,9 @@ repo-local Executor skills available to it, then ask it to "run aiur" — see
 [Using Aiur with a coding agent](#using-aiur-with-a-coding-agent).
 
 See [src/README.md](src/README.md) for setup, configuration, and the `aiur` command
-reference (foreground, background, and `stop` modes on Linux and macOS).
+reference (foreground, background, and `stop` modes on Linux and macOS). It also documents
+the default 64 MiB / 30-day telemetry retention window, which preserves complete boots for
+useful cross-session history.
 
 ---
 
