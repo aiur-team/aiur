@@ -366,6 +366,22 @@ defmodule Aiur.AgentControlCLITest do
     assert populated_output =~ "__AIUR_CONTROL_EXIT__:0"
   end
 
+  test "status prints the resolved CODEOWNERS trust snapshot", %{orchestrator: pid} do
+    path = Path.join(File.cwd!(), ".github/CODEOWNERS")
+
+    Application.put_env(:aiur, :agent_control_cli_trust_snapshot_fun, fn ->
+      %{trusted: ["its-applekid", "its-everdred"], source: :file, path: path}
+    end)
+
+    on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_trust_snapshot_fun) end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~ "COMMENT TRUST source=file trusted=[@its-applekid, @its-everdred] path=.github/CODEOWNERS"
+    assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    assert Process.alive?(pid)
+  end
+
   test "status reports active build-gate contention" do
     gate_dir = Path.join(System.tmp_dir!(), "aiur-build-gate-status-#{System.unique_integer([:positive])}")
     lock_dir = BuildGate.lock_dir(gate_dir)

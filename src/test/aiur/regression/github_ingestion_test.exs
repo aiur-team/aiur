@@ -542,7 +542,7 @@ defmodule Aiur.Regression.GithubIngestionTest do
       :sys.get_state(pid)
 
       assert_receive {:published, "ticket.77.branch.push", payload_77, opts_77}, 2000
-      assert payload_77 == %{ref: "refs/heads/aiur/77", sha: "sha2", actor: nil, commits: [], repo: repo}
+      assert payload_77 == %{source: :system, ref: "refs/heads/aiur/77", sha: "sha2", actor: nil, commits: [], repo: repo}
       assert opts_77[:issue_number] == "77"
 
       assert_receive {:published, "ticket.88.branch.push", _, _}, 2000
