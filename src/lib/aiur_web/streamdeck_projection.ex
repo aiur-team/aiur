@@ -62,8 +62,13 @@ defmodule AiurWeb.StreamdeckProjection do
 
   @spec provider_meters(ProviderMeterSnapshot.t()) :: map()
   def provider_meters(%ProviderMeterSnapshot{provider: provider} = snapshot) when provider in [:codex, :claude] do
-    provider_meters()
-    |> Map.put(Atom.to_string(provider), provider_meter(snapshot))
+    meters = provider_meters()
+
+    if newer_provider_observation?(snapshot, Map.get(meters, Atom.to_string(provider))) do
+      Map.put(meters, Atom.to_string(provider), provider_meter(snapshot))
+    else
+      meters
+    end
   end
 
   @spec decisions() :: map()
@@ -135,6 +140,7 @@ defmodule AiurWeb.StreamdeckProjection do
       provider: snapshot.provider,
       state: if(is_nil(snapshot.observed_at), do: :unknown, else: :observed),
       observed_at: snapshot.observed_at,
+      age_seconds: age_seconds(snapshot.observed_at),
       auth_mode: snapshot.auth_mode,
       plan: snapshot.plan,
       freshness: snapshot.freshness,
@@ -145,6 +151,23 @@ defmodule AiurWeb.StreamdeckProjection do
     |> Map.new()
     |> external_value()
   end
+
+  defp newer_provider_observation?(%ProviderMeterSnapshot{observed_at: nil}, _current), do: false
+  defp newer_provider_observation?(%ProviderMeterSnapshot{}, nil), do: true
+  defp newer_provider_observation?(%ProviderMeterSnapshot{}, %{"observed_at" => nil}), do: true
+
+  defp newer_provider_observation?(%ProviderMeterSnapshot{observed_at: observed_at}, %{"observed_at" => current_observed_at}) do
+    with {:ok, current_observed_at, _offset} <- DateTime.from_iso8601(current_observed_at) do
+      DateTime.compare(observed_at, current_observed_at) != :lt
+    else
+      _ -> true
+    end
+  end
+
+  defp newer_provider_observation?(%ProviderMeterSnapshot{}, _current), do: true
+
+  defp age_seconds(nil), do: nil
+  defp age_seconds(observed_at), do: DateTime.diff(DateTime.utc_now(), observed_at) |> max(0)
 
   defp orchestrator, do: endpoint_config(:orchestrator) || Orchestrator
   defp snapshot_timeout_ms, do: endpoint_config(:snapshot_timeout_ms) || 15_000

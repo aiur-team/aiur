@@ -283,6 +283,33 @@ defmodule AiurWeb.StreamdeckChannelTest do
     })
   end
 
+  test "unobserved provider events retain the current usage projection" do
+    joined_socket()
+    ProviderMeterEvents.broadcast(ProviderMeterSnapshot.empty(:codex, :app_server, "streamdeck-test-generation"))
+
+    assert_push("usage", %{"claude" => %{"state" => "unknown"}, "codex" => %{"state" => "observed"}})
+  end
+
+  test "older provider events retain the newer usage projection" do
+    newer_observed_at = ~U[2026-07-30 12:01:00Z]
+
+    configure_endpoint(
+      streamdeck_provider_meters_fun: fn ->
+        %{codex: %{state: :observed, observed_at: newer_observed_at}, claude: %{state: :unknown}}
+      end
+    )
+
+    joined_socket()
+
+    ProviderMeterEvents.broadcast(%{
+      ProviderMeterSnapshot.empty(:codex, :app_server, "streamdeck-test-generation")
+      | observed_at: ~U[2026-07-30 12:00:00Z],
+        plan: %{tier: "older"}
+    })
+
+    assert_push("usage", %{"codex" => %{"state" => "observed", "observed_at" => "2026-07-30T12:01:00Z"}})
+  end
+
   test "decision changes reach the joined socket through the decision summary" do
     socket = joined_socket()
     send(socket.channel_pid, {:decision_changed, "dec-1", 2})
@@ -320,6 +347,12 @@ defmodule AiurWeb.StreamdeckChannelTest do
     {:ok, _reply, socket} = subscribe_and_join(socket, "streamdeck:fleet")
     assert_push("snapshot", _payload)
     socket
+  end
+
+  defp configure_endpoint(overrides) do
+    config = Application.get_env(:aiur, Endpoint, []) |> Keyword.merge(overrides)
+    Application.put_env(:aiur, Endpoint, config)
+    Endpoint.config_change(config, [])
   end
 
   defp authenticated_socket do
