@@ -10,8 +10,14 @@ defmodule Aiur.RunTelemetry.Writer do
   (a `record_batch/3` cast counts as one message regardless of how many records
   it carries). Records refused at admission are counted and surfaced as a
   single `warning` record (`reason: :admission_overflow`) once the writer
-  drains. `handle_info/2` events (subscribed GitHub anchors) bypass admission
-  entirely and are always appended.
+  drains. Overflow uses a drop-newest policy, so all caller cast kinds share
+  the same admission budget. `handle_info/2` events (subscribed GitHub
+  anchors) bypass admission entirely and are always appended.
+
+  The admission counter is discovered from the Writer process dictionary on
+  each caller cast. That keeps named-server lookup restart-safe; replacing it
+  with a persistent-term registry is intentionally deferred because this
+  debug-only path would need explicit stale-pid cleanup.
   """
 
   use GenServer
