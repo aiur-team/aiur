@@ -57,9 +57,9 @@ defmodule Aiur.Events.Sanitizer do
   @commit_subject_max 200
   @comment_body_max 500
   @pr_review_body_max 500
-  @invisible_unicode ~r/[\x{00AD}\x{034F}\x{061C}\x{180E}\x{200B}-\x{200F}\x{202A}-\x{202E}\x{2060}-\x{206F}\x{FE00}-\x{FE0F}\x{FEFF}]/u
+  @invisible_unicode ~r/[\x{00AD}\x{034F}\x{061C}\x{180E}\x{200B}-\x{200F}\x{202A}-\x{202E}\x{2060}-\x{206F}\x{FE00}-\x{FE0F}\x{FEFF}\x{E0001}-\x{E007F}\x{E0100}-\x{E01EF}]/u
   @html_comment ~r/<!--.*?(?:-->|$)/s
-  @large_base64_candidate ~r/(?:[A-Za-z0-9+\/_-]{4}[\r\n]*){32,}(?:==|=)?/
+  @large_base64_candidate ~r/(?:[A-Za-z0-9+\/_-]{4}[\r\n]*){32,}(?:[A-Za-z0-9+\/_-]{2,3}|==|=)?/
 
   @doc """
   Apply the strip-then-redact-truncate-escape pass over a payload's

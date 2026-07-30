@@ -189,6 +189,59 @@ defmodule Aiur.AgentRunner.CommentContextTest do
       assert issue |> CommentContext.events(fetchers) |> Enum.map(& &1.id) == [3]
     end
 
+    test "applies the workpad cutoff across supported review-thread timestamp keys" do
+      issue = %Issue{identifier: "CC-17", id: "gid-cc17"}
+      workpad = %{"id" => 1, "body" => "## Agent Workpad", "updated_at" => "2025-06-01T00:00:00Z", :authoritative => false}
+
+      for {timestamp_key, id} <- [
+            {:updated_at, 2},
+            {"updatedAt", 3},
+            {:updatedAt, 4},
+            {"created_at", 5},
+            {:created_at, 6},
+            {"createdAt", 7},
+            {:createdAt, 8}
+          ] do
+        thread =
+          %{"id" => id, "body" => "current #{id}", :authoritative => true}
+          |> Map.put(timestamp_key, "2025-07-01T00:00:00Z")
+
+        stale_thread =
+          %{"id" => id + 100, "body" => "stale #{id}", :authoritative => true}
+          |> Map.put(timestamp_key, "2025-05-01T00:00:00Z")
+
+        fetchers = %{
+          issue_comments: fn
+            "CC-17" -> {:ok, [workpad]}
+            7 -> {:ok, []}
+          end,
+          open_pr: fn _ -> {:ok, %{"number" => 7}} end,
+          pr_review_comments: fn _ -> {:ok, []} end,
+          unaddressed_pr_review_thread_comments: fn _ -> {:ok, [stale_thread, thread]} end
+        }
+
+        assert issue |> CommentContext.events(fetchers) |> Enum.map(& &1.id) == [id]
+      end
+    end
+
+    test "retains a review thread with no parseable timestamp after the workpad cutoff" do
+      issue = %Issue{identifier: "CC-18", id: "gid-cc18"}
+      workpad = %{"id" => 1, "body" => "## Agent Workpad", "updated_at" => "2025-06-01T00:00:00Z", :authoritative => false}
+      thread = %{"id" => 2, "body" => "timestamp unavailable", "updated_at" => "not-a-date", :authoritative => true}
+
+      fetchers = %{
+        issue_comments: fn
+          "CC-18" -> {:ok, [workpad]}
+          7 -> {:ok, []}
+        end,
+        open_pr: fn _ -> {:ok, %{"number" => 7}} end,
+        pr_review_comments: fn _ -> {:ok, []} end,
+        unaddressed_pr_review_thread_comments: fn _ -> {:ok, [thread]} end
+      }
+
+      assert issue |> CommentContext.events(fetchers) |> Enum.map(& &1.id) == [2]
+    end
+
     test "continues when a PR review-comment fetch errors" do
       issue = %Issue{identifier: "CC-15", id: "gid-cc15"}
       comment = %{"id" => 1, "body" => "issue", "updated_at" => "2025-01-01T00:00:00Z", :authoritative => true}
