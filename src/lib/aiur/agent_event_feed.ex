@@ -74,7 +74,7 @@ defmodule Aiur.AgentEventFeed do
   defp diff_entry(event, _payload), do: message_entry(event, :tool)
 
   defp provider_diff_entry(event, %{"diff" => output} = change) when is_binary(output) and output != "" do
-    diff_entry(event, output, Map.get(change, "path"))
+    diff_entry(event, output, non_empty_path(Map.get(change, "path")))
   end
 
   defp provider_diff_entry(_event, _change), do: nil
@@ -133,6 +133,9 @@ defmodule Aiur.AgentEventFeed do
   defp role_atom(role) when is_atom(role), do: role
   defp role_atom(role) when is_binary(role) and role in ["user", "assistant", "system", "command", "alert", "reasoning", "tool"], do: String.to_existing_atom(role)
   defp role_atom(_), do: :system
+
+  defp non_empty_path(path) when is_binary(path) and path != "", do: path
+  defp non_empty_path(_path), do: nil
 
   defp diff_path(output) do
     output

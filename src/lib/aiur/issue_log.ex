@@ -38,7 +38,7 @@ defmodule Aiur.IssueLog do
   # The API permits a page of up to 50 records. Read enough for that many
   # capped records, while retaining a fixed ceiling independent of log size.
   @max_tail_page_events 50
-  @max_tail_bytes @max_transcript_record_bytes * @max_tail_page_events
+  @max_tail_bytes (@max_transcript_record_bytes + 1) * @max_tail_page_events
   @truncated_body_chars 1_000
   @truncated_diff_chars 2_000
 
@@ -686,7 +686,7 @@ defmodule Aiur.IssueLog do
   defp bounded_edit_change(change) when is_map(change) do
     case Map.get(change, :diff) || Map.get(change, "diff") do
       diff when is_binary(diff) and diff != "" ->
-        [%{path: Map.get(change, :path) || Map.get(change, "path") || "", diff: String.slice(diff, 0, @truncated_diff_chars)}]
+        [%{diff: String.slice(diff, 0, @truncated_diff_chars)} |> maybe_put_path(Map.get(change, :path) || Map.get(change, "path"))]
 
       _ ->
         []
@@ -694,6 +694,9 @@ defmodule Aiur.IssueLog do
   end
 
   defp bounded_edit_change(_change), do: []
+
+  defp maybe_put_path(change, path) when is_binary(path) and path != "", do: Map.put(change, :path, path)
+  defp maybe_put_path(change, _path), do: change
 
   defp read_tail_chunk(path, start_offset, byte_count) do
     with {:ok, file} <- File.open(path, [:read, :binary]) do
@@ -705,7 +708,7 @@ defmodule Aiur.IssueLog do
     end
   end
 
-  defp tail_chunk_bytes(limit), do: min(limit * @max_transcript_record_bytes, @max_tail_bytes)
+  defp tail_chunk_bytes(limit), do: min(limit * (@max_transcript_record_bytes + 1), @max_tail_bytes)
 
   defp open_log_files(path, event_path, transcript_path) do
     with {:ok, file} <- open_primary_log(path),

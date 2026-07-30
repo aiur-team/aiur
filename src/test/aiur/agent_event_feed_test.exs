@@ -80,7 +80,8 @@ defmodule Aiur.AgentEventFeedTest do
 
     on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
 
-    payload = %{tool: "edit", input: %{changes: [%{path: "a.ex", diff: "+new"}]}, output: "+new"}
+    diff = "--- a/a.ex\n+++ b/a.ex\n+new"
+    payload = %{tool: "edit", input: %{changes: [%{diff: diff}]}, output: diff}
     event = Aiur.AgentEvents.transcript_event(:tool, "edit a.ex", payload: payload)
     send(pid, {:transcript_event, event})
     send(pid, {:alert, Aiur.AgentEvents.alert_event("phase.review.start", "reviewing")})
@@ -151,13 +152,18 @@ defmodule Aiur.AgentEventFeedTest do
     assert elapsed_us < 250_000
   end
 
-  test "largest page includes fifty bounded records", %{identifier: identifier} do
-    write_events(identifier, Enum.map(1..50, &event("assistant", String.duplicate("x", 2_000) <> " #{&1}")))
+  test "largest page includes fifty maximum-size records", %{identifier: identifier} do
+    empty_record = event("assistant", "")
+    body = String.duplicate("x", 16_384 - byte_size(Jason.encode!(empty_record)))
+    record = event("assistant", body)
+    assert byte_size(Jason.encode!(record)) == 16_384
+
+    write_events(identifier, List.duplicate(record, 50))
 
     assert {:ok, %{events: events, pagination: %{limit: 50, next_cursor: nil}}} = AgentEventFeed.list(identifier, %{"limit" => 50})
     assert length(events) == 50
-    assert String.ends_with?(hd(events).body, " 50")
-    assert String.ends_with?(List.last(events).body, " 1")
+    assert hd(events).body == body
+    assert List.last(events).body == body
   end
 
   test "rejects invalid page controls", %{identifier: identifier} do
