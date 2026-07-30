@@ -1,7 +1,5 @@
 export type BucketId = "running" | "paused" | "stuck" | "alert" | "queued";
 export type Vendor = "claude" | "codex";
-export type Mode = "standard";
-
 export interface BucketStyle {
   readonly accent: string;
   readonly glow: string;
@@ -152,7 +150,6 @@ const EMPTY_KEY: EmptyKey = Object.freeze({ kind: "empty" });
 export function layoutKeys(
   agents: readonly AgentInput[],
   columnOffset: number,
-  _mode: Mode = "standard",
 ): KeyDescriptor[] {
   return Array.from({ length: KEYS_PER_PAGE }, (_, i) => {
     const col = i % COLUMNS;
