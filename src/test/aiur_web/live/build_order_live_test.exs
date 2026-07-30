@@ -924,6 +924,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     html = render_async(view)
 
     assert html =~ "No telemetry for this Build Order yet"
+    refute render_hook(view, "time-domain", %{"t0" => 1, "t1" => 2}) =~ ~s(class="an-zoombar")
     assert has_element?(view, "#selected-build-order-graph")
     assert has_element?(view, "section.bo-breakdown")
   end

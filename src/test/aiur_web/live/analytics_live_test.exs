@@ -115,6 +115,20 @@ defmodule AiurWeb.AnalyticsLiveTest do
     refute html =~ ~s(class="an-zoombar")
   end
 
+  test "changing the existing range control clears an active time zoom" do
+    Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
+
+    {:ok, view, _html} = live(build_conn(), "/analytics")
+
+    assert render_hook(view, "time-domain", %{"t0" => 1_783_728_061_000, "t1" => 1_783_728_065_000}) =~
+             ~s(class="an-zoombar")
+
+    full_log = render_click(view, "range", %{"range" => "full"})
+
+    refute full_log =~ ~s(class="an-zoombar")
+    assert full_log =~ ~s(phx-value-range="full")
+  end
+
   test "a full-range domain event leaves the charts unzoomed" do
     Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
 
