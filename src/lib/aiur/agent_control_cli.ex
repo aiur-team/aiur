@@ -4,7 +4,7 @@ defmodule Aiur.AgentControlCLI do
   alias Aiur.{AgentChat, AlertFeed, BuildGate, Config, Orchestrator, PauseContainment, ProviderMeterProjection}
   alias Aiur.Codex.EventHumanizer, as: CodexEventHumanizer
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.GitHub.StatePolicy
+  alias Aiur.GitHub.{CodeOwners, StatePolicy}
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   import Aiur.EventHumanizerHelpers, only: [map_value: 2]
 
@@ -22,6 +22,7 @@ defmodule Aiur.AgentControlCLI do
     case Orchestrator.status() do
       statuses when is_list(statuses) ->
         print_global_pause_banner()
+        print_codeowners_trust()
 
         statuses
         |> Enum.filter(&visible_status_row?/1)
@@ -663,6 +664,38 @@ defmodule Aiur.AgentControlCLI do
 
     :ok
   end
+
+  defp print_codeowners_trust do
+    try do
+      snapshot =
+        Application.get_env(:aiur, :agent_control_cli_trust_snapshot_fun, fn ->
+          if Process.whereis(CodeOwners), do: CodeOwners.trust_snapshot(), else: nil
+        end).()
+
+      case snapshot do
+        %{trusted: trusted, source: source} = snapshot when is_list(trusted) ->
+          source = source |> to_string() |> String.downcase()
+          path = snapshot |> Map.get(:path) |> trust_path()
+          accounts = Enum.map_join(trusted, ", ", &"@#{&1}")
+          suffix = if path, do: " path=#{path}", else: ""
+          IO.puts("COMMENT TRUST source=#{source} trusted=[#{accounts}]#{suffix}")
+
+        _ ->
+          :ok
+      end
+    catch
+      :exit, _reason -> :ok
+    end
+  end
+
+  defp trust_path(path) when is_binary(path) do
+    case Path.relative_to_cwd(path) do
+      relative when relative != path -> relative
+      _ -> path
+    end
+  end
+
+  defp trust_path(_path), do: nil
 
   defp print_build_gate_status do
     case BuildGate.status() do
