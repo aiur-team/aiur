@@ -87,7 +87,10 @@ defmodule Aiur.AgentEventFeed do
       timestamp: Map.get(event, "timestamp"),
       msg_id: Map.get(event, "msg_id"),
       turn_id: Map.get(event, "turn_id"),
-      path: path || diff_path(output, Map.get(event, "body", "")),
+      # A tool's display body is not structured file metadata. Keep the path
+      # absent when neither the provider change nor its unified diff supplies
+      # one instead of misrepresenting text such as "edit Foo" as a path.
+      path: path || diff_path(output),
       additions: changed_line_count(output, "+"),
       deletions: changed_line_count(output, "-"),
       line: changed_line(output)
@@ -131,10 +134,10 @@ defmodule Aiur.AgentEventFeed do
   defp role_atom(role) when is_binary(role) and role in ["user", "assistant", "system", "command", "alert", "reasoning", "tool"], do: String.to_existing_atom(role)
   defp role_atom(_), do: :system
 
-  defp diff_path(output, fallback) do
+  defp diff_path(output) do
     output
     |> String.split("\n")
-    |> Enum.find_value(fallback, fn
+    |> Enum.find_value(fn
       "+++ b/" <> path -> path
       "+++ " <> path -> path
       _ -> nil

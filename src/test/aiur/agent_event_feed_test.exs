@@ -251,7 +251,7 @@ defmodule Aiur.AgentEventFeedTest do
     ])
 
     assert {:ok, %{events: [fallback, header]}} = AgentEventFeed.list(identifier)
-    assert %{type: "diff", path: "edit lib/fallback.ex", additions: 1, deletions: 1, line: "new"} = fallback
+    assert %{type: "diff", path: nil, additions: 1, deletions: 1, line: "new"} = fallback
     assert %{type: "diff", path: "lib/header.ex", additions: 0, deletions: 1, line: "old"} = header
   end
 
