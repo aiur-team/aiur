@@ -1570,8 +1570,13 @@ defmodule Aiur.DecisionStore do
   defp notify_lifecycle(decision, event, cursor_event_id) do
     topic = "ticket.#{decision.ticket.identifier}.agent.decision.#{lifecycle_slug(event.type)}"
 
+    # Top-level `source:` stamp in the payload (not publish opts — those land
+    # under `ticket_observation.source`) so EventsDigest's fail-closed
+    # allowlist keeps decision lifecycle events in blocked agents' digests.
+    payload = event |> DecisionEvent.to_json_safe() |> Map.put(:source, :orchestrator)
+
     try do
-      Publisher.publish_persisted(topic, DecisionEvent.to_json_safe(event), cursor_event_id)
+      Publisher.publish_persisted(topic, payload, cursor_event_id)
     rescue
       error -> Logger.warning("aiur_decision_store phase=lifecycle_publisher_failed error=#{Exception.message(error)}")
     end
@@ -2867,7 +2872,12 @@ defmodule Aiur.DecisionStore do
 
   defp notify(decision, event_id) do
     topic = "ticket.#{decision.ticket.identifier}.agent.decision.requested"
-    payload = DecisionProjection.to_json_safe(decision)
+    # Top-level `source:` stamp (payload, not opts) so the fail-closed digest
+    # allowlist admits decision.requested events for blocked agents.
+    payload =
+      decision
+      |> DecisionProjection.to_json_safe()
+      |> Map.put(:source, :orchestrator)
 
     try do
       Publisher.publish_persisted(topic, payload, event_id)

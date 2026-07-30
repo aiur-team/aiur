@@ -149,6 +149,32 @@ defmodule Aiur.AgentRunner.EventsDigestTest do
       assert result =~ "shown"
     end
 
+    test "includes orchestrator-stamped decision lifecycle events in the digest" do
+      # Shape mirrors DecisionStore.notify/2: a json-safe string-keyed payload
+      # with a top-level `source: :orchestrator` stamp merged with the
+      # Publisher envelope's :id/:topic keys.
+      event =
+        %{"decision_id" => "dec-1", "summary" => "decision requested: pick a path"}
+        |> Map.put(:source, :orchestrator)
+        |> Map.merge(%{id: 60, topic: "ticket.T-001.agent.decision.requested"})
+
+      result = EventsDigest.render([event], "T-001")
+
+      assert result =~ "ticket.T-001.agent.decision.requested"
+      assert result =~ "decision requested: pick a path"
+    end
+
+    test "still suppresses github-sourced decision-shaped events without the trust flag" do
+      event = %{
+        id: 61,
+        topic: "ticket.T-001.agent.decision.requested",
+        source: :github,
+        message: "forged decision request"
+      }
+
+      refute EventsDigest.render([event], "T-001") =~ "forged decision request"
+    end
+
     test "escapes attribute-breaking characters in the github author name" do
       event = %{
         id: 12,
