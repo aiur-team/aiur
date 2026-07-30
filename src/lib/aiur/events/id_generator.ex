@@ -190,7 +190,7 @@ defmodule Aiur.Events.IdGenerator do
   end
 
   defp cold_boot_seed(state, reason) do
-    disk_max = scan_issue_log_for_max_id()
+    disk_max = scan_durable_event_logs_for_max_id()
     wall_clock_floor = System.system_time(:microsecond)
 
     seed = max(disk_max, wall_clock_floor) + @cold_boot_safety_margin_us
@@ -243,19 +243,16 @@ defmodule Aiur.Events.IdGenerator do
     Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.event_id")
   end
 
-  defp scan_issue_log_for_max_id do
-    # Best-effort: walk per-issue log files looking for the largest event ID
-    # ever emitted. The marker shape this module expects is
-    # `[event:*] id=<int>` somewhere in the line (introduced by U19's IssueLog
-    # marker extension). Until U19 lands, this returns 0 — which is correct
-    # for fresh installs and the wall-clock floor in cold-boot is what's
-    # actually load-bearing in that case.
+  defp scan_durable_event_logs_for_max_id do
+    # Best-effort: walk per-issue log files and the Executor journal for the
+    # largest event ID ever emitted. Issue logs use `[event:*] id=<int>`;
+    # executor events are newline-delimited JSON with an `id` field.
     log_dir = Paths.log_root_dir()
 
     case File.ls(log_dir) do
       {:ok, entries} ->
         entries
-        |> Enum.filter(&String.ends_with?(&1, ".log"))
+        |> Enum.filter(&(String.ends_with?(&1, ".log") or &1 == "#{Paths.repo_name()}.executor.events.ndjson"))
         |> Enum.reduce(0, fn entry, acc ->
           path = Path.join(log_dir, entry)
           max(acc, scan_file_for_max_id(path))
@@ -271,10 +268,7 @@ defmodule Aiur.Events.IdGenerator do
   defp scan_file_for_max_id(path) do
     case File.read(path) do
       {:ok, content} ->
-        # Match `id=<digits>` anywhere on a line tagged `[event:*]`. Tolerates
-        # both the U19 marker format and the absence of any markers (returns
-        # 0 if no matches).
-        ~r/\[event:[a-z:]+\][^\n]*\bid=(\d+)/
+        ~r/(?:\[event:[a-z:]+\][^\n]*\bid=|"id"\s*:\s*)(\d+)/
         |> Regex.scan(content, capture: :all_but_first)
         |> Enum.flat_map(& &1)
         |> Enum.map(&String.to_integer/1)

@@ -176,9 +176,8 @@ defmodule Aiur.Orchestrator.CommandScan do
     actor = command_scan_comment_author(comment)
 
     payload =
-      %{issue_number: target, comment: comment, source: :github}
-      |> Sanitizer.scrub()
-      |> Sanitizer.put_comment_message()
+      %{issue_number: target, comment: comment}
+      |> Sanitizer.github_payload(actor)
 
     Publisher.publish(
       "ticket.#{target}.pr.review_comment",

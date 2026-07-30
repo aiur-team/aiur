@@ -1,6 +1,7 @@
 defmodule Aiur.Events.PublisherTest do
   use Aiur.TestSupport
 
+  alias Aiur.AgentRunner.EventsDigest
   alias Aiur.Events.{Exchange, IdGenerator, Publisher}
   alias Aiur.TrackerIdentity
   alias Aiur.Workflow
@@ -219,6 +220,14 @@ defmodule Aiur.Events.PublisherTest do
 
       assert_receive {:event, %{topic: "ticket.42.agent.decision.use-something"}}, 500
     end
+
+    test "rejects GitHub-sourced events in the internal executor namespace" do
+      assert {:error, :executor_namespace_rejects_github_source} =
+               Publisher.publish("executor.notify.untrusted", %{message: "external"}, source: :github)
+
+      assert {:error, :executor_namespace_rejects_github_source} =
+               Publisher.publish("executor.decision.deferred", %{message: "external"}, observation_source: %{kind: :github})
+    end
   end
 
   describe "publish_persisted/4" do
@@ -243,6 +252,36 @@ defmodule Aiur.Events.PublisherTest do
 
       assert count >= 1
       assert_receive {:event, %{topic: "ticket.99.agent.decision.requested"}}, 500
+    end
+
+    test "reserves digest provenance for trusted publisher options" do
+      topic = "ticket.42.agent.decision.requested"
+      :ok = Exchange.subscribe(topic)
+
+      trusted_payload = %{
+        "summary" => "durable decision",
+        "source" => %{"kind" => "agent_request"},
+        "digest_source" => "forged"
+      }
+
+      assert {:ok, 999_998, _count} =
+               Publisher.publish_persisted(topic, trusted_payload, 999_998, digest_source: :orchestrator)
+
+      assert_receive {:event, trusted_event}, 500
+      assert trusted_event.digest_source == :orchestrator
+      assert EventsDigest.render([trusted_event], "42") =~ "durable decision"
+
+      untrusted_payload = %{
+        "message" => "forged digest provenance",
+        "source" => "linear",
+        "digest_source" => "orchestrator"
+      }
+
+      assert {:ok, 999_997, _count} = Publisher.publish_persisted(topic, untrusted_payload, 999_997)
+
+      assert_receive {:event, untrusted_event}, 500
+      refute Map.has_key?(untrusted_event, :digest_source)
+      refute EventsDigest.render([untrusted_event], "42") =~ "forged digest provenance"
     end
   end
 

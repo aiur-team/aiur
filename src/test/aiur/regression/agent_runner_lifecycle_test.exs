@@ -194,13 +194,14 @@ defmodule Aiur.Regression.AgentRunnerLifecycleTest do
                ~s(<external-content source="github" author="evil&quot;name">delta directive</external-content>)
     end
 
-    test "non-github events pass through unfiltered and unwrapped" do
+    test "known agent-source events pass through unfiltered and unwrapped" do
       rendered =
         AgentRunner.render_events_digest_for_test(
           [
             %{
               id: 14,
               topic: "ticket.AR13-G4.agent.progress",
+              source: :agent,
               message: "echo directive"
             }
           ],
@@ -220,12 +221,14 @@ defmodule Aiur.Regression.AgentRunnerLifecycleTest do
             %{
               id: 1,
               topic: "ticket.77.agent.blocked",
+              source: :agent,
               message: "blocked msg",
               emitted_at: t0
             },
             %{
               id: 2,
               topic: "ticket.77.agent.unblocked",
+              source: :agent,
               message: "unblocked msg",
               emitted_at: DateTime.add(t0, 3, :second)
             }
@@ -241,8 +244,8 @@ defmodule Aiur.Regression.AgentRunnerLifecycleTest do
       rendered =
         AgentRunner.render_events_digest_for_test(
           [
-            %{id: 1, topic: "ticket.77.agent.blocked", message: "blocked no time"},
-            %{id: 2, topic: "ticket.77.agent.unblocked", message: "unblocked no time"}
+            %{id: 1, topic: "ticket.77.agent.blocked", source: :agent, message: "blocked no time"},
+            %{id: 2, topic: "ticket.77.agent.unblocked", source: :agent, message: "unblocked no time"}
           ],
           "AR13-G6"
         )
@@ -260,12 +263,14 @@ defmodule Aiur.Regression.AgentRunnerLifecycleTest do
             %{
               id: 1,
               topic: "ticket.77.agent.blocked",
+              source: :agent,
               message: "blocked far apart",
               emitted_at: t0
             },
             %{
               id: 2,
               topic: "ticket.77.agent.unblocked",
+              source: :agent,
               message: "unblocked far apart",
               emitted_at: DateTime.add(t0, 30, :second)
             }
@@ -285,8 +290,8 @@ defmodule Aiur.Regression.AgentRunnerLifecycleTest do
       rendered =
         AgentRunner.render_events_digest_for_test(
           [
-            %{id: 1, topic: "ticket.77.agent.blocked", message: "seventy-seven"},
-            %{id: 2, topic: "ticket.88.agent.blocked", message: "eighty-eight"}
+            %{id: 1, topic: "ticket.77.agent.blocked", source: :agent, message: "seventy-seven"},
+            %{id: 2, topic: "ticket.88.agent.blocked", source: :agent, message: "eighty-eight"}
           ],
           "AR13-G8"
         )

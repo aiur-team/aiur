@@ -101,7 +101,7 @@ defmodule Aiur.Alerts do
 
   @spec emit_system(String.t(), keyword()) :: :ok | {:error, term()}
   def emit_system(name, opts \\ []) when is_binary(name) do
-    do_emit(name, nil, opts)
+    do_emit(name, nil, Keyword.put(opts, :event_source, :system))
   end
 
   @spec emit_custom(String.t(), String.t()) :: :ok | {:error, term()}
@@ -112,7 +112,7 @@ defmodule Aiur.Alerts do
   @spec emit_custom(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
   def emit_custom(name, message, opts)
       when is_binary(name) and is_binary(message) do
-    do_emit(name, message, opts)
+    do_emit(name, message, Keyword.put_new(opts, :event_source, :agent))
   end
 
   def emit_custom(_name, _message, _opts), do: {:error, :invalid_alert}
@@ -252,7 +252,8 @@ defmodule Aiur.Alerts do
       "severity" => metadata.severity,
       "needs_attention" => metadata.needs_attention,
       "source_ticket_id" => metadata.source_ticket_id,
-      "topic" => topic
+      "topic" => topic,
+      source: Keyword.get(opts, :event_source, :system)
     }
 
     Publisher.publish(topic, payload,

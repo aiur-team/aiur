@@ -980,7 +980,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     event = %{
       id: IdGenerator.next_id(),
       topic: "ticket.#{identifier}.ci.rewake",
-      source: :runtime,
+      source: :system,
       reason: :ci_wait_timeout,
       timeout_minutes: Config.ci_wait_rewake_minutes(),
       message: message
