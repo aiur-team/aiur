@@ -79,4 +79,27 @@ defmodule Aiur.AgentResourceGuardTest do
 
     assert AgentResourceGuard.collect_descendants(1, children_fun: children) == [2, 3, 4]
   end
+
+  test "scheduled enforcement runs with injected process sources" do
+    test_pid = self()
+
+    {:ok, pid} =
+      AgentResourceGuard.start_link(
+        name: nil,
+        interval_ms: 60_000,
+        enforce_opts: [
+          cap: 1,
+          entries_fun: fn ->
+            send(test_pid, :guard_enforced)
+            []
+          end
+        ]
+      )
+
+    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+
+    send(pid, :tick)
+    assert_receive :guard_enforced
+    assert Process.alive?(pid)
+  end
 end
