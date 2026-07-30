@@ -2,6 +2,7 @@
 
 MIX ?= mix
 TEST_PARTITIONS ?= 4
+TEST_SEED ?= 0
 
 help:
 	@echo "Targets: setup, deps, fmt, fmt-check, lint, test, coverage, dialyzer, e2e, regression, ci"
@@ -28,7 +29,7 @@ coverage:
 	$(MIX) test --cover
 
 coverage-partition:
-	$(MIX) test --cover --partitions $(TEST_PARTITIONS)
+	$(MIX) test --cover --partitions $(TEST_PARTITIONS) --seed $(TEST_SEED)
 
 coverage-report:
 	$(MIX) test.coverage
