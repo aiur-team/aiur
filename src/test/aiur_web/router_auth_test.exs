@@ -58,10 +58,29 @@ defmodule AiurWeb.RouterAuthTest do
   end
 
   test "event-feed writes return the standard method-not-allowed response" do
-    conn = Router.call(conn(:post, "/api/v1/agent-1/events"), Router.init([]))
+    System.put_env("AIUR_DASHBOARD_USERNAME", "operator")
+    System.put_env("AIUR_DASHBOARD_PASSWORD", "secret")
+
+    conn =
+      :post
+      |> conn("/api/v1/agent-1/events")
+      |> put_req_header("authorization", "Basic " <> Base.encode64("operator:secret"))
+      |> Router.call(Router.init([]))
 
     assert conn.status == 405
     assert Jason.decode!(conn.resp_body)["error"]["code"] == "method_not_allowed"
+  end
+
+  test "pause and resume writes require basic auth" do
+    System.put_env("AIUR_DASHBOARD_USERNAME", "operator")
+    System.put_env("AIUR_DASHBOARD_PASSWORD", "secret")
+
+    for action <- ["pause", "resume"] do
+      response = Router.call(conn(:post, "/api/v1/MT-1/#{action}"), Router.init([]))
+
+      assert response.status == 401
+      assert get_resp_header(response, "www-authenticate") == ["Basic realm=\"Aiur\""]
+    end
   end
 
   test "fails closed when writable dashboard credentials disappear after startup" do

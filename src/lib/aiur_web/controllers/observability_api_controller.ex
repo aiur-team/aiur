@@ -59,6 +59,26 @@ defmodule AiurWeb.ObservabilityApiController do
     |> render_send_message_response(conn, issue_identifier)
   end
 
+  @doc """
+  Pause or resume an agent through the orchestrator control API.
+
+  Prioritizing an agent is intentionally out of scope: Aiur has no
+  server-side queue-priority state to expose or mutate.
+  """
+  @spec pause(Conn.t(), map()) :: Conn.t()
+  def pause(conn, %{"issue_identifier" => issue_identifier}) do
+    issue_identifier
+    |> pause_agent()
+    |> render_control_response(conn, issue_identifier, :pause)
+  end
+
+  @spec resume(Conn.t(), map()) :: Conn.t()
+  def resume(conn, %{"issue_identifier" => issue_identifier}) do
+    issue_identifier
+    |> resume_agent()
+    |> render_control_response(conn, issue_identifier, :resume)
+  end
+
   # Opencode Ctrl+C bridge. The tmux key binding POSTs the pane id here;
   # the orchestrator derives the 3-state action from the agent's live
   # state. Any error degrades to `close_pane` so a failed bridge call
@@ -141,6 +161,12 @@ defmodule AiurWeb.ObservabilityApiController do
     Orchestrator.send_operator_message(orchestrator(), issue_identifier, %{kind: :text, body: text})
   end
 
+  defp pause_agent(issue_identifier),
+    do: Orchestrator.pause_agent(orchestrator(), issue_identifier)
+
+  defp resume_agent(issue_identifier),
+    do: Orchestrator.resume_agent(orchestrator(), issue_identifier)
+
   defp render_send_message_response({:ok, request_id}, conn, issue_identifier) do
     conn
     |> put_status(202)
@@ -162,4 +188,41 @@ defmodule AiurWeb.ObservabilityApiController do
   defp render_send_message_response({:error, reason}, conn, _issue_identifier) do
     error_response(conn, 503, "send_failed", inspect(reason))
   end
+
+  defp render_control_response({:ok, result}, conn, issue_identifier, action) do
+    conn
+    |> put_status(202)
+    |> json(%{
+      action: Atom.to_string(action),
+      issue_identifier: issue_identifier,
+      result: control_result(result)
+    })
+  end
+
+  defp render_control_response({:error, :no_running_agent}, conn, _issue_identifier, _action) do
+    error_response(conn, 409, "agent_not_running", "Agent is not currently running")
+  end
+
+  defp render_control_response({:error, :invalid_identifier}, conn, _issue_identifier, _action) do
+    error_response(conn, 422, "invalid_identifier", "Issue identifier is invalid")
+  end
+
+  defp render_control_response({:error, reason}, conn, _issue_identifier, _action)
+       when reason in [
+              :already_inactive,
+              :control_request_conflict,
+              :max_concurrent_agents_reached,
+              :not_resumable,
+              :globally_paused,
+              :stale_generation
+            ] do
+    error_response(conn, 409, "control_conflict", inspect(reason))
+  end
+
+  defp render_control_response({:error, reason}, conn, _issue_identifier, _action) do
+    error_response(conn, 503, "control_failed", inspect(reason))
+  end
+
+  defp control_result(result) when is_atom(result), do: Atom.to_string(result)
+  defp control_result(result), do: result
 end
