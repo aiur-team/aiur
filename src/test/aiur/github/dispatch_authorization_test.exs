@@ -155,6 +155,56 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
     assert Agent.get(counter, & &1) == 2
   end
 
+  test "fails closed when the timeline contains no matching trigger-label event" do
+    denied = authorize_with_events(issue(), [labeled_event(10, "agent:rework", "trusted", "2026-01-01T00:00:00Z")], ["trusted"])
+
+    refute denied.dispatch_authorized?
+  end
+
+  test "fails closed when the timeline request errors" do
+    denied =
+      DispatchAuthorization.authorize(issue(), "owner", "repo", "agent",
+        allowed_users: ["trusted"],
+        token: "test-token",
+        request_fun: fn _request -> {:error, :timeout} end
+      )
+
+    refute denied.dispatch_authorized?
+  end
+
+  test "fails closed when the timeline response is malformed" do
+    denied =
+      DispatchAuthorization.authorize(issue(), "owner", "repo", "agent",
+        allowed_users: ["trusted"],
+        token: "test-token",
+        request_fun: fn _request -> :malformed_response end
+      )
+
+    refute denied.dispatch_authorized?
+  end
+
+  test "fails closed when timeline pagination exceeds the provenance budget" do
+    request_fun = fn %{url: url} ->
+      next = "<#{url}&page=next>; rel=\"next\""
+      {:ok, %{status: 200, headers: [{"link", next}], body: []}}
+    end
+
+    denied =
+      DispatchAuthorization.authorize(issue(), "owner", "repo", "agent",
+        allowed_users: ["trusted"],
+        token: "test-token",
+        request_fun: request_fun
+      )
+
+    refute denied.dispatch_authorized?
+  end
+
+  test "accepts numeric timeline event ids encoded as strings" do
+    authorized = authorize_with_events(issue(), [labeled_event("10", "agent:todo", "trusted", "2026-01-01T00:00:00Z")], ["trusted"])
+
+    assert authorized.dispatch_authorized?
+  end
+
   test "fails closed when the latest matching label event has no actor" do
     :ok = AgentPubSub.subscribe_agent("42")
 
