@@ -3,6 +3,7 @@ defmodule Aiur.DecisionStoreTest do
 
   import ExUnit.CaptureLog
 
+  alias Aiur.AgentRunner.EventsDigest
   alias Aiur.{AlertFeed, Boot, DecisionEvent, DecisionHistory, DecisionLog, DecisionPubSub, DecisionStore}
   alias Aiur.DecisionStore.RetainedSnapshot
   alias Aiur.Events.{Exchange, IdGenerator}
@@ -1993,7 +1994,8 @@ defmodule Aiur.DecisionStoreTest do
       assert {:ok, %{status: :accepted, decision_status: :acknowledged}} =
                DecisionStore.agent_lifecycle(:acknowledged, lifecycle_payload, lifecycle_opts, pid)
 
-      assert_receive {:event, %{topic: "ticket.979.agent.decision.acknowledged"}}, 500
+      assert_receive {:event, %{topic: "ticket.979.agent.decision.acknowledged", digest_source: :orchestrator} = acknowledged}, 500
+      assert EventsDigest.render([acknowledged], "979") =~ "ticket.979.agent.decision.acknowledged"
 
       assert {:ok, %{status: :duplicate}} =
                DecisionStore.agent_lifecycle(:acknowledged, lifecycle_payload, lifecycle_opts, pid)
@@ -2176,11 +2178,13 @@ defmodule Aiur.DecisionStoreTest do
                       %{
                         "question" => "Deploy now?",
                         topic: "ticket.979.agent.decision.requested",
+                        digest_source: :orchestrator,
                         id: cursor_event_id
-                      }},
+                      } = request_event},
                      500
 
       assert cursor_event_id > 0
+      assert EventsDigest.render([request_event], "979") =~ "ticket.979.agent.decision.requested"
 
       [persisted] =
         dir

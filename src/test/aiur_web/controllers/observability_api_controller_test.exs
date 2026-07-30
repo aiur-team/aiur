@@ -4,8 +4,7 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
   import Plug.Conn
   import Plug.Test
 
-  alias Aiur.Claude.HookEvents
-  alias Aiur.DecisionStore
+  alias Aiur.{Claude.HookEvents, DecisionStore, IssueLog}
 
   defmodule ControlOrchestrator do
     use GenServer
@@ -281,6 +280,34 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
     for row <- Map.get(payload, "running", []) do
       refute Map.has_key?(row, "tokens")
     end
+  end
+
+  test "GET /api/v1/:issue_identifier/events returns a bounded durable feed" do
+    original_log_file = Application.get_env(:aiur, :log_file)
+    tmp = Path.join(System.tmp_dir!(), "aiur-events-api-#{System.unique_integer([:positive])}")
+    Application.put_env(:aiur, :log_file, Path.join(tmp, "log/aiur.log"))
+
+    on_exit(fn ->
+      if original_log_file, do: Application.put_env(:aiur, :log_file, original_log_file), else: Application.delete_env(:aiur, :log_file)
+      File.rm_rf!(tmp)
+    end)
+
+    identifier = "events-api"
+    path = IssueLog.transcript_path(identifier)
+    File.mkdir_p!(Path.dirname(path))
+
+    File.write!(
+      path,
+      Jason.encode!(%{"role" => "assistant", "body" => "ready", "timestamp" => "2026-07-30T00:00:00Z", "payload" => nil}) <> "\n"
+    )
+
+    conn = call(conn(:get, "/api/v1/#{identifier}/events?limit=1"))
+    assert conn.status == 200
+    assert %{"events" => [%{"badge" => "AGENT", "body" => "ready"}], "pagination" => %{"limit" => 1}} = Jason.decode!(conn.resp_body)
+
+    invalid = call(conn(:get, "/api/v1/#{identifier}/events?cursor=not-a-cursor"))
+    assert invalid.status == 422
+    assert Jason.decode!(invalid.resp_body)["error"]["code"] == "invalid_cursor"
   end
 
   test "GET /api/v1/streamdeck/grid returns the grid projection" do

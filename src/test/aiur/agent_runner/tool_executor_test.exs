@@ -526,7 +526,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       executor = ToolExecutor.build(issue, nil, nil)
       executor.("emit_event", %{"name" => "progress", "message" => "check"})
 
-      assert_receive {:event, %{topic: topic}}, 2_000
+      assert_receive {:event, %{topic: topic, source: :agent}}, 2_000
       assert topic == "ticket.#{identifier}.agent.progress"
     end
   end

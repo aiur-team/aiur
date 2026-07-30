@@ -40,6 +40,9 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Styles do
     .an-card-title{margin:0;font-size:.98rem;font-weight:700;color:var(--fg);letter-spacing:-.01em}
     .an-card-sub{margin:.2rem 0 0;font-size:.78rem;line-height:1.4;color:var(--muted);max-width:64ch}
     .an-chart{width:100%;min-width:0}
+    .an-zoombar{display:flex;align-items:center;justify-content:space-between;gap:.65rem;border:1px solid var(--accent-line);border-radius:var(--radius);background:var(--accent-soft);padding:.45rem .65rem;color:var(--accent-ink);font-family:var(--an-mono);font-size:.68rem;font-weight:600}
+    .an-zoombar button{appearance:none;border:1px solid var(--accent-line);border-radius:999px;background:var(--surface);color:var(--accent-ink);font:inherit;font-weight:700;padding:.18rem .55rem;cursor:pointer}
+    .an-zoombar button:hover{border-color:var(--accent-ink)}
     .an-seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden;flex:none}
     .an-seg button{appearance:none;border:0;background:transparent;color:var(--muted);font-family:var(--an-mono);font-size:.68rem;font-weight:600;padding:.3rem .6rem;cursor:pointer;border-right:1px solid var(--line)}
     .an-seg button:last-child{border-right:0}
