@@ -106,6 +106,16 @@ Consolidation clusters: {1007,1016,1330} {1018,1059} {927,928,1337}
 - Cliques: dashboard-ui (#1352/#1353 + any dashboard ticket) — serialize;
   #1343 alone touches root/CI files — land before other streamdeck work.
 
+## Pending operator event: org transfer
+
+The operator intends to transfer its-everdred/aiur to an organization.
+When it happens: (1) verify its-applekid has org access immediately or the
+fleet token 404s; (2) sweep hardcoded `its-everdred/aiur` references
+(.aiur/config tracker, build-order pack `repository`, scripts, docs);
+(3) re-verify branch protection/rulesets (#1362); (4) #1381's Phase 0
+switches to trialing the now-available NATIVE merge queue (see the
+2026-07-30 comment on #1381). Prefer a quiet point in the run.
+
 ## Monitoring quick reference
 
 ```bash
