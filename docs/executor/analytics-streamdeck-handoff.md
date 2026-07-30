@@ -114,6 +114,25 @@ Wake immediately on needs-attention alerts / agent-state changes / PR-CI
 results; otherwise adaptive quiet audit. Never satisfy the 10-min capacity
 audit by waking ci-wait/blocked tickets.
 
+### Hourly meta-analysis (operator-directed)
+
+Every hourly retrospective must include a **meta-analysis note**: what
+classes of problem recurred in the past hour, and a candidate systemic fix
+so the next hour is smoother — not just per-incident firefighting. Look for
+patterns, not one-offs. Examples:
+- Repeated failing/flaky tests across tickets → file a larger test-fix /
+  refactor ticket (or a shared-fixture/harness fix) rather than patching each.
+- Repeated stale-base or merge thrash → tighten clique serialization or land
+  a base-refresh cadence.
+- Repeated same-file conflicts → re-partition write surfaces / split a ticket.
+- Repeated token/scope/permission stalls → fix the credential once.
+- Repeated model failures on a ticket class → adjust the codex→claude
+  fallback trigger for that class.
+Record the pattern, the proposed systemic fix, and whether it was filed or
+deferred, in the retrospective log alongside the action/no-action counts.
+File at most one or two evidence-backed systemic tickets per pattern under
+normal issue authority; do not expand the active feature boundary with them.
+
 ## Context you'd otherwise have to rediscover
 
 - Analytics emptiness root cause + piping map:
