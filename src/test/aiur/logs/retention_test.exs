@@ -73,4 +73,24 @@ defmodule Aiur.Logs.RetentionTest do
 
     assert %{deleted: 0} = Retention.sweep(pid)
   end
+
+  test "manual ticks sweep and ignore unrelated messages", %{root: root} do
+    test_pid = self()
+
+    pid =
+      start_sweeper(root,
+        interval_ms: 60_000,
+        cap_mb_fun: fn ->
+          send(test_pid, :retention_swept)
+          1
+        end,
+        current_session_fun: fn -> nil end
+      )
+
+    send(pid, :tick)
+    assert_receive :retention_swept
+
+    send(pid, :unrelated)
+    assert Process.alive?(pid)
+  end
 end
