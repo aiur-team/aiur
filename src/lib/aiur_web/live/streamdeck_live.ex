@@ -31,6 +31,12 @@ defmodule AiurWeb.StreamdeckLive do
   def handle_event("restore-nav", %{"collapsed" => collapsed}, socket),
     do: {:noreply, NavState.restore(socket, collapsed)}
 
+  def handle_event("dial-press", %{"index" => _index, "action" => _action}, socket),
+    do: {:noreply, socket}
+
+  def handle_event("mic-hold", %{"active" => _active}, socket),
+    do: {:noreply, socket}
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -41,7 +47,7 @@ defmodule AiurWeb.StreamdeckLive do
       agent_kind={@agent_kind}
       nav_collapsed={@nav_collapsed}
     >
-      <section id="streamdeck-page" class="sd-stage" aria-label="Stream Deck emulator">
+      <section id="streamdeck-page" class="sd-stage" aria-label="Stream Deck emulator" phx-hook="StreamdeckEmulator">
         <div class="sd-device" role="group" aria-label="Stream Deck + control surface">
           <header class="sd-brand">
             <span class="sd-brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
@@ -86,12 +92,22 @@ defmodule AiurWeb.StreamdeckLive do
 
           <div class="sd-well">
             <div id="sd-knobs" class="sd-knobs" role="group" aria-label="Control dials">
-              <div :for={knob <- @knobs} class="sd-knob-wrap">
-                <div class="sd-knob" style={"--a: #{knob.angle}deg"} role="img" aria-label={"#{knob.label}: #{knob.value}"}>
+              <div :for={{knob, idx} <- Enum.with_index(@knobs)} class="sd-knob-wrap">
+                <div
+                  class="sd-knob"
+                  style={"--a: #{knob.angle}deg; touch-action: none;"}
+                  role="slider"
+                  tabindex="0"
+                  aria-label={knob_aria_label(knob, idx)}
+                  aria-valuemin="0"
+                  aria-valuemax="100"
+                  aria-valuenow={knob.value}
+                  data-value={knob.value}
+                >
                   <span class="sd-knob-marker" aria-hidden="true"></span>
                   <span class="sd-knob-inner">{knob.value}</span>
                 </div>
-                <span>{knob.label}</span>
+                <span aria-hidden="true">{knob.label}</span>
               </div>
             </div>
           </div>
@@ -139,6 +155,16 @@ defmodule AiurWeb.StreamdeckLive do
       %{label: "Page", value: "01", angle: 36}
     ]
   end
+
+  # Dial 0 presses BACK, dial 3 cycles the focused window. Labels convey this.
+  defp knob_aria_label(%{label: label, value: value}, 0),
+    do: "#{label}: #{value} — press to go back"
+
+  defp knob_aria_label(%{label: label, value: value}, 3),
+    do: "#{label}: #{value} — press to cycle window"
+
+  defp knob_aria_label(%{label: label, value: value}, _),
+    do: "#{label}: #{value}"
 
   defp kind(provider, fallback) do
     case provider.() do

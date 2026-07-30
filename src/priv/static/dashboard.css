@@ -7497,6 +7497,18 @@ html[data-theme="light"] .toggle-icon .moon {
   border-radius: 50%;
   background: radial-gradient(circle at 35% 28%, #4b4d53, #232428 53%, #101114 72%);
   box-shadow: 0 5px 9px rgba(0, 0, 0, 0.55), inset 0 1px rgba(255, 255, 255, 0.15);
+  touch-action: none;
+  cursor: grab;
+}
+
+.sd-knob:focus-visible {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: 3px;
+}
+
+.sd-knob.press {
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.55), inset 0 1px rgba(255, 255, 255, 0.15), 0 0 0 3px var(--accent-ink);
+  transition: box-shadow 80ms ease-in;
 }
 
 .sd-knob::before {
