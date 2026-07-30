@@ -107,7 +107,7 @@ defmodule Aiur.AgentRunner.CommentContextTest do
 
       assert "ticket.CC-10.issue.commented" in topics
       assert "ticket.CC-10.pr.review_comment" in topics
-      # Unaddressed review threads are collected regardless of the workpad cutoff.
+      # With no workpad cutoff, all unaddressed review threads are collected.
       assert 100 in ids
       assert 200 in ids
       assert 300 in ids
@@ -167,6 +167,26 @@ defmodule Aiur.AgentRunner.CommentContextTest do
       }
 
       assert CommentContext.events(issue, fetchers) == []
+    end
+
+    test "excludes unaddressed review threads from before the workpad cutoff" do
+      issue = %Issue{identifier: "CC-16", id: "gid-cc16"}
+
+      workpad = %{"id" => 1, "body" => "## Agent Workpad", "updated_at" => "2025-06-01T00:00:00Z", :authoritative => false}
+      stale_thread = %{"id" => 2, "body" => "already handled", "updated_at" => "2025-05-01T00:00:00Z", :authoritative => true}
+      current_thread = %{"id" => 3, "body" => "still needs attention", "updated_at" => "2025-07-01T00:00:00Z", :authoritative => true}
+
+      fetchers = %{
+        issue_comments: fn
+          "CC-16" -> {:ok, [workpad]}
+          7 -> {:ok, []}
+        end,
+        open_pr: fn _ -> {:ok, %{"number" => 7}} end,
+        pr_review_comments: fn _ -> {:ok, []} end,
+        unaddressed_pr_review_thread_comments: fn _ -> {:ok, [stale_thread, current_thread]} end
+      }
+
+      assert issue |> CommentContext.events(fetchers) |> Enum.map(& &1.id) == [3]
     end
 
     test "continues when a PR review-comment fetch errors" do
