@@ -19,7 +19,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
   @spec read_load(number() | nil, number() | nil) :: float() | :unavailable
   def read_load(hard_threshold, target)
-      when (is_number(hard_threshold) and hard_threshold > 0) or (is_number(target) and target > 0),
+      when (is_number(hard_threshold) and hard_threshold > 0) or
+             (is_number(target) and target > 0),
       do: SystemLoad.avg1()
 
   def read_load(_hard_threshold, _target), do: :unavailable
@@ -113,16 +114,25 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
           queued_work?: boolean()
         }
 
-  @spec load_envelope(integer() | nil, integer() | nil, number() | :unavailable, envelope_options()) ::
+  @spec load_envelope(
+          integer() | nil,
+          integer() | nil,
+          number() | :unavailable,
+          envelope_options()
+        ) ::
           {pos_integer(), integer() | nil}
-  def load_envelope(_effective, _last_decrease_ms, _load, %{target: nil, static_limit: static_limit}),
-    do: {static_limit, nil}
+  def load_envelope(_effective, _last_decrease_ms, _load, %{
+        target: nil,
+        static_limit: static_limit
+      }),
+      do: {static_limit, nil}
 
   def load_envelope(effective, last_decrease_ms, :unavailable, %{static_limit: static_limit}) do
     {normalize_load_envelope_limit(effective, static_limit), last_decrease_ms}
   end
 
-  def load_envelope(effective, last_decrease_ms, load, %{static_limit: static_limit} = options) when is_number(load) do
+  def load_envelope(effective, last_decrease_ms, load, %{static_limit: static_limit} = options)
+      when is_number(load) do
     effective = normalize_load_envelope_limit(effective, static_limit)
     adjust_load_envelope(effective, last_decrease_ms, load, options)
   end
@@ -136,7 +146,15 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
           SystemCpu.snapshot() | :unavailable,
           boolean()
         ) :: State.t()
-  def update_load_envelope(%State{} = state, load, target, schedulers, now_ms, cpu_snapshot, queued_work?) do
+  def update_load_envelope(
+        %State{} = state,
+        load,
+        target,
+        schedulers,
+        now_ms,
+        cpu_snapshot,
+        queued_work?
+      ) do
     envelope_state = state.load_envelope_state
     cpu_headroom = SystemCpu.headroom(envelope_state.cpu_snapshot, cpu_snapshot)
 
@@ -167,7 +185,12 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     }
   end
 
-  defp adjust_load_envelope(effective, last_decrease_ms, load, %{schedulers: schedulers} = options) do
+  defp adjust_load_envelope(
+         effective,
+         last_decrease_ms,
+         load,
+         %{schedulers: schedulers} = options
+       ) do
     recovering? = is_integer(last_decrease_ms)
 
     if recovering? and options.queued_work? and
@@ -192,7 +215,10 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     decrease_load_envelope(effective, last_decrease_ms, options)
   end
 
-  defp decrease_load_envelope(effective, last_decrease_ms, %{cooldown_ms: cooldown_ms, now_ms: now_ms}) do
+  defp decrease_load_envelope(effective, last_decrease_ms, %{
+         cooldown_ms: cooldown_ms,
+         now_ms: now_ms
+       }) do
     if cooldown_elapsed?(last_decrease_ms, cooldown_ms, now_ms) do
       reduced = max(div(effective + 1, 2), 1)
       {reduced, next_decrease_time(effective, reduced, last_decrease_ms, now_ms)}
@@ -201,7 +227,9 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     end
   end
 
-  defp next_decrease_time(effective, reduced, _last_decrease_ms, now_ms) when reduced < effective, do: now_ms
+  defp next_decrease_time(effective, reduced, _last_decrease_ms, now_ms) when reduced < effective,
+    do: now_ms
+
   defp next_decrease_time(_effective, _reduced, last_decrease_ms, _now_ms), do: last_decrease_ms
 
   defp clear_cpu_headroom?(%{idle_percent: idle_percent, runnable: runnable}, schedulers)
@@ -215,17 +243,22 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     {next, if(next == static_limit, do: nil, else: last_decrease_ms)}
   end
 
-  defp next_cpu_snapshot(_previous, %{total: _total, idle: _idle, runnable: _runnable} = current), do: current
+  defp next_cpu_snapshot(_previous, %{total: _total, idle: _idle, runnable: _runnable} = current),
+    do: current
+
   defp next_cpu_snapshot(_previous, _current), do: nil
 
   defp normalize_load_envelope_limit(effective, static_limit)
-       when is_integer(effective) and effective > 0 and is_integer(static_limit) and static_limit > 0,
+       when is_integer(effective) and effective > 0 and is_integer(static_limit) and
+              static_limit > 0,
        do: min(effective, static_limit)
 
   defp normalize_load_envelope_limit(_effective, static_limit), do: static_limit
 
   defp cooldown_elapsed?(nil, _cooldown_ms, _now_ms), do: true
-  defp cooldown_elapsed?(last_decrease_ms, cooldown_ms, now_ms), do: now_ms - last_decrease_ms >= cooldown_ms
+
+  defp cooldown_elapsed?(last_decrease_ms, cooldown_ms, now_ms),
+    do: now_ms - last_decrease_ms >= cooldown_ms
 
   @spec sort_issues_for_dispatch([term()]) :: [term()]
   def sort_issues_for_dispatch(issues) when is_list(issues) do
@@ -328,7 +361,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
     Enum.count(running, fn
       {_id, %{issue: %Issue{state: state_name}} = entry} ->
-        normalize_issue_state(state_name) == normalized_state and State.active_running_entry?(entry)
+        normalize_issue_state(state_name) == normalized_state and
+          State.active_running_entry?(entry)
 
       _ ->
         false
@@ -348,6 +382,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
       )
       when is_binary(id) and is_binary(identifier) and is_binary(title) and is_binary(state_name) do
     issue_routable_to_worker?(issue) and
+      issue_dispatch_authorized?(issue) and
       issue_not_paused?(issue) and
       active_issue_state?(state_name, active_states) and
       !terminal_issue_state?(state_name, terminal_states)
@@ -370,6 +405,12 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
       do: assigned_to_worker
 
   def issue_routable_to_worker?(_issue), do: true
+
+  @spec issue_dispatch_authorized?(term()) :: boolean()
+  def issue_dispatch_authorized?(%Issue{dispatch_authorized?: authorized?})
+      when is_boolean(authorized?), do: authorized?
+
+  def issue_dispatch_authorized?(_issue), do: false
 
   @spec todo_issue_blocked_by_non_terminal?(term(), MapSet.t()) :: boolean()
   def todo_issue_blocked_by_non_terminal?(

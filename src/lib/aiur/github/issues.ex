@@ -5,7 +5,7 @@ defmodule Aiur.GitHub.Issues do
 
   require Logger
   alias Aiur.{BuildOrder.Bounded, Config, GitHub, Issue, TrackerIdentity}
-  alias Aiur.GitHub.{Errors, Labels, StatePolicy, Transport}
+  alias Aiur.GitHub.{DispatchAuthorization, Errors, Labels, StatePolicy, Transport}
 
   @max_issue_response_bytes 65_536
 
@@ -22,7 +22,8 @@ defmodule Aiur.GitHub.Issues do
     if state_names == [], do: {:ok, []}, else: do_fetch_issues_by_states(state_names, opts)
   end
 
-  @spec fetch_issue_states_by_ids([String.t()], keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
+  @spec fetch_issue_states_by_ids([String.t()], keyword()) ::
+          {:ok, [Issue.t()]} | {:error, term()}
   def fetch_issue_states_by_ids(issue_ids, opts \\ []) when is_list(issue_ids) do
     if issue_ids == [], do: {:ok, []}, else: do_fetch_issue_states_by_ids(issue_ids, opts)
   end
@@ -125,7 +126,8 @@ defmodule Aiur.GitHub.Issues do
     end
   end
 
-  @spec do_fetch_issues_by_states([String.t()], keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
+  @spec do_fetch_issues_by_states([String.t()], keyword()) ::
+          {:ok, [Issue.t()]} | {:error, term()}
   def do_fetch_issues_by_states(state_names, opts) do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token() do
@@ -133,34 +135,54 @@ defmodule Aiur.GitHub.Issues do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
       labels = Enum.map(state_names, &StatePolicy.state_label(prefix, &1))
 
-      fetch_issues_for_each_label(labels, request_fun, token, owner, repo, prefix)
+      with {:ok, issues} <-
+             fetch_issues_for_each_label(labels, request_fun, token, owner, repo, prefix) do
+        {:ok, authorize_dispatches(issues, request_fun, token, owner, repo, prefix)}
+      end
     end
   end
 
-  @spec do_fetch_issue_states_by_ids([String.t()], keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
+  @spec do_fetch_issue_states_by_ids([String.t()], keyword()) ::
+          {:ok, [Issue.t()]} | {:error, term()}
   def do_fetch_issue_states_by_ids(issue_ids, opts) do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token() do
       prefix = GitHub.Config.label_prefix()
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
 
-      do_fetch_issues_by_id_list(issue_ids, request_fun, token, owner, repo, prefix)
+      with {:ok, issues} <-
+             do_fetch_issues_by_id_list(issue_ids, request_fun, token, owner, repo, prefix) do
+        {:ok, authorize_dispatches(issues, request_fun, token, owner, repo, prefix)}
+      end
     end
   end
 
   @spec do_list_issues(function(), String.t(), String.t(), String.t(), String.t(), String.t()) ::
           {:ok, [Issue.t()]} | {:error, term()}
   def do_list_issues(request_fun, url, token, owner, repo, prefix) do
-    with {:ok, issues, _next_url} <- fetch_label_issue_page(request_fun, url, token, owner, repo, prefix) do
+    with {:ok, issues, _next_url} <-
+           fetch_label_issue_page(request_fun, url, token, owner, repo, prefix) do
       {:ok, issues}
     end
   end
 
   defp fetch_label_issue_pages(request_fun, url, token, owner, repo, prefix, acc) do
-    with {:ok, issues, next_url} <- fetch_label_issue_page(request_fun, url, token, owner, repo, prefix) do
+    with {:ok, issues, next_url} <-
+           fetch_label_issue_page(request_fun, url, token, owner, repo, prefix) do
       case next_url do
-        nil -> {:ok, acc ++ issues}
-        next_url -> fetch_label_issue_pages(request_fun, next_url, token, owner, repo, prefix, acc ++ issues)
+        nil ->
+          {:ok, acc ++ issues}
+
+        next_url ->
+          fetch_label_issue_pages(
+            request_fun,
+            next_url,
+            token,
+            owner,
+            repo,
+            prefix,
+            acc ++ issues
+          )
       end
     end
   end
@@ -168,7 +190,9 @@ defmodule Aiur.GitHub.Issues do
   defp fetch_label_issue_page(request_fun, url, token, owner, repo, prefix) do
     case request_fun.(%{method: :get, url: url, token: token}) do
       {:ok, %{status: 200, body: body} = response} when is_list(body) ->
-        {:ok, Enum.map(body, &normalize_issue(&1, owner, repo, prefix)), Transport.parse_next_page_url(Map.get(response, :headers, []))}
+        revision = response_header(Map.get(response, :headers, []), "etag")
+
+        {:ok, Enum.map(body, &normalize_issue(&1, owner, repo, prefix, revision)), Transport.parse_next_page_url(Map.get(response, :headers, []))}
 
       {:ok, %{status: status} = response} ->
         Logger.error("GitHub API request failed status=#{status}")
@@ -212,8 +236,9 @@ defmodule Aiur.GitHub.Issues do
         ) :: {:cont, {:ok, [Issue.t()]}} | {:halt, {:error, term()}}
   def reduce_fetch_issue(request_fun, url, token, owner, repo, prefix, acc) do
     case request_fun.(%{method: :get, url: url, token: token}) do
-      {:ok, %{status: 200, body: body}} when is_map(body) ->
-        {:cont, {:ok, [normalize_issue(body, owner, repo, prefix) | acc]}}
+      {:ok, %{status: 200, body: body} = response} when is_map(body) ->
+        revision = response_header(Map.get(response, :headers, []), "etag")
+        {:cont, {:ok, [normalize_issue(body, owner, repo, prefix, revision) | acc]}}
 
       {:ok, %{status: 404}} ->
         {:cont, {:ok, acc}}
@@ -228,6 +253,10 @@ defmodule Aiur.GitHub.Issues do
 
   @spec normalize_issue(map(), String.t(), String.t(), String.t()) :: Issue.t()
   def normalize_issue(gh_issue, owner, repo, prefix) when is_map(gh_issue) do
+    normalize_issue(gh_issue, owner, repo, prefix, nil)
+  end
+
+  defp normalize_issue(gh_issue, owner, repo, prefix, dispatch_revision) when is_map(gh_issue) do
     number = gh_issue["number"]
     labels = gh_issue["labels"] || []
     label_names = Enum.map(labels, &(&1["name"] || ""))
@@ -243,6 +272,9 @@ defmodule Aiur.GitHub.Issues do
       branch_name: nil,
       url: gh_issue["html_url"],
       assignee_id: get_in(gh_issue, ["assignee", "login"]),
+      creator_login: get_in(gh_issue, ["user", "login"]),
+      dispatch_revision: dispatch_revision,
+      dispatch_authorized?: false,
       paused: paused_label?(label_names, prefix),
       labels: Enum.map(label_names, &String.downcase/1),
       assigned_to_worker: true,
@@ -314,10 +346,49 @@ defmodule Aiur.GitHub.Issues do
 
   defp normalize_label_name(_label), do: ""
 
+  defp response_header(headers, name) when is_list(headers) do
+    Enum.find_value(headers, fn
+      {key, value} when is_binary(key) ->
+        if String.downcase(key) == name, do: header_value(value)
+
+      _ ->
+        nil
+    end)
+  end
+
+  defp response_header(headers, name) when is_map(headers) do
+    Enum.find_value(headers, fn {key, value} ->
+      if String.downcase(to_string(key)) == name, do: header_value(value)
+    end)
+  end
+
+  defp response_header(_headers, _name), do: nil
+
+  defp header_value([value | _]), do: header_value(value)
+  defp header_value(value) when is_binary(value), do: value
+  defp header_value(_value), do: nil
+
+  defp authorize_dispatches(issues, request_fun, token, owner, repo, prefix) do
+    Enum.map(issues, fn issue ->
+      DispatchAuthorization.authorize(
+        issue,
+        owner,
+        repo,
+        prefix,
+        request_fun: request_fun,
+        token: token
+      )
+    end)
+  end
+
   defp tracker_identity(gh_issue, owner, repo) do
     case GitHub.Config.configured_repo() do
       {:ok, {configured_owner, configured_repo}} ->
-        case TrackerIdentity.from_github(gh_issue, {configured_owner, configured_repo}, {owner, repo}) do
+        case TrackerIdentity.from_github(
+               gh_issue,
+               {configured_owner, configured_repo},
+               {owner, repo}
+             ) do
           {:ok, identity} ->
             identity
 
