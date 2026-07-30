@@ -32,7 +32,7 @@ defmodule Aiur.TicketActivity do
 
   @spec snapshots(keyword()) :: map()
   def snapshots(opts \\ []) do
-    GenServer.call(Keyword.get(opts, :server, __MODULE__), {:snapshots, now(opts)})
+    GenServer.call(Keyword.get(opts, :server, __MODULE__), {:snapshots, now(opts)}, Keyword.get(opts, :timeout, 5_000))
   end
 
   @spec subscribe() :: :ok | {:error, term()}

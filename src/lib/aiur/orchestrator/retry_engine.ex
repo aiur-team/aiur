@@ -73,6 +73,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
               |> schedule_issue_retry(issue_id, 1, %{
                 identifier: running_entry.identifier,
                 tracker_identity: Issue.tracker_identity(Map.get(running_entry, :issue)),
+                priority: Map.get(Map.get(running_entry, :issue) || %{}, :priority),
                 delay_type: :continuation,
                 prior_work: prior_work_for_retry?(running_entry),
                 worker_host: Map.get(running_entry, :worker_host),
@@ -88,6 +89,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
               schedule_issue_retry(state, issue_id, next_attempt, %{
                 identifier: running_entry.identifier,
                 tracker_identity: Issue.tracker_identity(Map.get(running_entry, :issue)),
+                priority: Map.get(Map.get(running_entry, :issue) || %{}, :priority),
                 error: "agent exited: #{inspect(reason)}",
                 prior_work: prior_work_for_retry?(running_entry),
                 worker_host: Map.get(running_entry, :worker_host),
@@ -307,6 +309,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
     worker_host = pick_retry_worker_host(previous_retry, metadata)
     workspace_path = pick_retry_workspace_path(previous_retry, metadata)
     tracker_identity = pick_retry_tracker_identity(previous_retry, metadata)
+    priority = pick_retry_priority(previous_retry, metadata)
     prior_work? = pick_retry_prior_work(previous_retry, metadata)
     old_timer = Map.get(previous_retry, :timer_ref)
     retry_poll_failures = pick_retry_poll_failures(previous_retry, metadata)
@@ -385,6 +388,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
               worker_host: worker_host,
               workspace_path: workspace_path,
               tracker_identity: tracker_identity,
+              priority: priority,
               terminal_membership_pending?: metadata[:terminal_membership_pending?] == true
             })
       }
@@ -416,6 +420,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
           worker_host: Map.get(retry_entry, :worker_host),
           workspace_path: Map.get(retry_entry, :workspace_path),
           tracker_identity: Map.get(retry_entry, :tracker_identity),
+          priority: Map.get(retry_entry, :priority),
           terminal_membership_pending?: Map.get(retry_entry, :terminal_membership_pending?, false)
         }
 
@@ -813,6 +818,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
          Map.merge(metadata, %{
            identifier: issue.identifier,
            tracker_identity: Issue.tracker_identity(issue),
+           priority: issue.priority,
            error: "no available orchestrator slots",
            delay_type: :capacity_wait
          })
@@ -931,6 +937,14 @@ defmodule Aiur.Orchestrator.RetryEngine do
       Map.get(metadata, :tracker_identity)
     else
       Map.get(previous_retry, :tracker_identity)
+    end
+  end
+
+  defp pick_retry_priority(previous_retry, metadata) do
+    if Map.has_key?(metadata, :priority) do
+      Map.get(metadata, :priority)
+    else
+      Map.get(previous_retry, :priority)
     end
   end
 

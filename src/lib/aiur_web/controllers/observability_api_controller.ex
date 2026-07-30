@@ -8,12 +8,17 @@ defmodule AiurWeb.ObservabilityApiController do
   alias Aiur.AgentEventFeed
   alias Aiur.Claude.HookEvents
   alias Aiur.Orchestrator
-  alias AiurWeb.{Endpoint, Presenter}
+  alias AiurWeb.{Endpoint, Presenter, StreamDeckGrid}
   alias Plug.Conn
 
   @spec state(Conn.t(), map()) :: Conn.t()
   def state(conn, _params) do
     json(conn, Presenter.state_payload(orchestrator(), snapshot_timeout_ms()))
+  end
+
+  @spec streamdeck_grid(Conn.t(), map()) :: Conn.t()
+  def streamdeck_grid(conn, _params) do
+    json(conn, StreamDeckGrid.payload(orchestrator(), snapshot_timeout_ms()))
   end
 
   @spec issue(Conn.t(), map()) :: Conn.t()
