@@ -133,6 +133,23 @@ deferred, in the retrospective log alongside the action/no-action counts.
 File at most one or two evidence-backed systemic tickets per pattern under
 normal issue authority; do not expand the active feature boundary with them.
 
+### Daily skill-improvement review (operator-directed)
+
+Once per day, review the accumulated hourly meta-analysis notes and ask
+whether any Aiur skill would benefit from what we learned — most importantly
+`.claude/skills/aiur-run` (SKILL.md + references/executor.md) and its
+siblings (`aiur-build`, `aiur-monitor`, `aiur-agent`). The hourly notes catch
+recurring run-level problems; this daily pass asks whether the *playbook that
+governs future runs* should change so the next Executor never rediscovers the
+same lesson. Examples: a recurring stale-base pattern → add a base-freshness
+step to the run loop; a credential/scope stall → add a preflight scope check;
+a flaky-test class → add a "quarantine + file refactor ticket" rung to the
+recovery ladder. Capture each candidate as a concrete skill-doc edit (which
+file, what change, why), and either file it as a skills-improvement ticket or
+record it in the deferred ledger. These are process/tooling improvements
+outside the active feature boundary — never let them expand this build
+order's scope.
+
 ## Context you'd otherwise have to rediscover
 
 - Analytics emptiness root cause + piping map:
