@@ -14,7 +14,8 @@ then join `streamdeck:fleet`.
 This adds no device credential: the token can only be minted after dashboard
 Basic authentication, expires after five minutes, is signed by the endpoint,
 and stops verifying when the dashboard username, password, or signing key
-changes. A joined channel closes when that five-minute token window expires.
+changes. A joined channel closes when that five-minute token window expires or
+the dashboard credential configuration changes.
 The WebSocket handshake therefore avoids placing a reusable dashboard password
 in the upgrade URL while retaining the same authorization boundary. Use
 HTTPS/WSS when the dashboard is exposed beyond loopback.
@@ -31,7 +32,7 @@ Every payload is JSON and uses `version: 1` in the initial `snapshot` event.
 | `decisions` | `{count}` | Updated decision summary. |
 | `transcript` | `{identifier, role, body, sequence, timestamp}` | Latest sampled line for the focused agent. |
 | `alert` | `{identifier, name, message, severity, needs_attention, timestamp}` | Focused agent alert. |
-| `control` | `{identifier, state}` | Focused agent's redacted control lifecycle state. |
+| `control` | `{identifier, state}` | Focused agent's redacted control state. `state` may contain `action`, `status`, and lifecycle timestamps (`requested_at`, `accepted_at`, `applied_at`, `rejected_at`, `expiry`); request, tracker, and requester details are never exposed. |
 
 An agent item may contain `identifier`, `status`, `alert_count`, `title`,
 `runtime_seconds`, `turn_count`, `work_state`, `pause_reason`,

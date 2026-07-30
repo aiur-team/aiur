@@ -7,6 +7,8 @@ defmodule AiurWeb.StreamdeckChannelTest do
 
   alias Aiur.AgentEvents
   alias Aiur.AgentPubSub
+  alias Aiur.ProviderMeterSnapshot
+  alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
   alias AiurWeb.{Endpoint, StreamdeckAuth, StreamdeckProjection, StreamdeckSocket}
 
   @endpoint Endpoint
@@ -66,6 +68,24 @@ defmodule AiurWeb.StreamdeckChannelTest do
     System.put_env("AIUR_DASHBOARD_PASSWORD", "rotated-secret")
 
     assert :error = StreamdeckAuth.verify_token(token)
+  end
+
+  test "a joined channel closes when dashboard credentials change" do
+    assert {:ok, token} = StreamdeckAuth.issue_token()
+    assert {:ok, socket} = StreamdeckSocket.connect(%{"token" => token}, socket(StreamdeckSocket, "authenticated", %{}), %{})
+    assert {:ok, _reply, socket} = subscribe_and_join(socket, "streamdeck:fleet")
+    monitor = Process.monitor(socket.channel_pid)
+
+    focus = push(socket, "focus", %{"identifier" => "AIUR-1"})
+    assert_reply(focus, :ok, %{"focused" => "AIUR-1"})
+    relay = :sys.get_state(socket.channel_pid).assigns.transcript_relay
+    relay_monitor = Process.monitor(relay)
+
+    System.put_env("AIUR_DASHBOARD_PASSWORD", "rotated-secret")
+    assert :error = StreamdeckAuth.verify_token(token)
+
+    assert_receive {:DOWN, ^monitor, :process, _pid, :normal}, 200
+    assert_receive {:DOWN, ^relay_monitor, :process, ^relay, :normal}, 200
   end
 
   test "the token endpoint fails closed when dashboard credentials are absent" do
@@ -197,11 +217,18 @@ defmodule AiurWeb.StreamdeckChannelTest do
       "needs_attention" => false
     })
 
-    AgentPubSub.broadcast_control_lifecycle("AIUR-1", %{status: :paused, reason: "operator"})
+    AgentPubSub.broadcast_control_lifecycle("AIUR-1", %{
+      action: :pause,
+      status: :paused,
+      request_id: "internal-request",
+      issue_id: 123,
+      requester: "operator",
+      reason: "operator"
+    })
 
     assert_push("control", %{
       "identifier" => "AIUR-1",
-      "state" => %{"status" => "paused", "reason" => "operator"}
+      "state" => %{"action" => "pause", "status" => "paused"}
     })
   end
 
@@ -231,8 +258,8 @@ defmodule AiurWeb.StreamdeckChannelTest do
   end
 
   test "provider changes reach the joined socket through the redacted usage projection" do
-    socket = joined_socket()
-    send(socket.channel_pid, {:provider_meter_changed, :ignored_internal_snapshot})
+    joined_socket()
+    ProviderMeterEvents.broadcast(ProviderMeterSnapshot.empty(:codex, :app_server, "streamdeck-test-generation"))
 
     assert_push("usage", %{"claude" => %{"state" => "unknown"}, "codex" => %{"state" => "observed"}})
   end

@@ -94,7 +94,22 @@ defmodule AiurWeb.StreamdeckProjection do
 
   @spec control(String.t(), map()) :: map()
   def control(identifier, payload) when is_binary(identifier) and is_map(payload) do
-    %{identifier: identifier, state: payload} |> external_value()
+    %{
+      identifier: identifier,
+      state:
+        %{
+          action: field(payload, :action),
+          status: field(payload, :status),
+          requested_at: field(payload, :requested_at),
+          accepted_at: field(payload, :accepted_at),
+          applied_at: field(payload, :applied_at),
+          rejected_at: field(payload, :rejected_at),
+          expiry: field(payload, :expiry)
+        }
+        |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+        |> Map.new()
+    }
+    |> external_value()
   end
 
   defp snapshot_fun do

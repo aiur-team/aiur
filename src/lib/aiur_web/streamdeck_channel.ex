@@ -5,18 +5,25 @@ defmodule AiurWeb.StreamdeckChannel do
 
   alias Aiur.{AgentPubSub, DecisionPubSub}
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
-  alias AiurWeb.{Endpoint, StreamdeckProjection, StreamdeckTranscriptRelay}
+  alias AiurWeb.{Endpoint, FinancialDataAccess, StreamdeckProjection, StreamdeckTranscriptRelay}
 
   @impl true
   def join(
         "streamdeck:fleet",
         _payload,
-        %{assigns: %{streamdeck_authenticated: true, streamdeck_expires_at_ms: expires_at_ms}} = socket
+        %{
+          assigns: %{
+            streamdeck_authenticated: true,
+            streamdeck_expires_at_ms: expires_at_ms,
+            streamdeck_generation: _generation
+          }
+        } = socket
       ) do
     :ok = AgentPubSub.subscribe_running()
     :ok = AgentPubSub.subscribe_status()
     :ok = ProviderMeterEvents.subscribe_observed()
     :ok = DecisionPubSub.subscribe()
+    :ok = FinancialDataAccess.subscribe_to_configuration_changes()
 
     send(self(), :streamdeck_snapshot)
     Process.send_after(self(), :streamdeck_auth_expired, max(expires_at_ms - System.system_time(:millisecond), 0))
@@ -48,6 +55,11 @@ defmodule AiurWeb.StreamdeckChannel do
   end
 
   def handle_info(:streamdeck_auth_expired, socket), do: {:stop, :normal, socket}
+
+  def handle_info({FinancialDataAccess, :configuration_changed, generation}, %{assigns: %{streamdeck_generation: generation}} = socket),
+    do: {:noreply, socket}
+
+  def handle_info({FinancialDataAccess, :configuration_changed, _generation}, socket), do: {:stop, :normal, socket}
 
   def handle_info({:running_changed, summaries}, socket) when is_list(summaries) do
     push(socket, "fleet", %{"agents" => StreamdeckProjection.fleet_agents(summaries)})
@@ -87,6 +99,14 @@ defmodule AiurWeb.StreamdeckChannel do
   end
 
   def handle_info(_message, socket), do: {:noreply, socket}
+
+  @impl true
+  def terminate(_reason, %{assigns: %{transcript_relay: relay}}) when is_pid(relay) do
+    :ok = GenServer.stop(relay, :normal)
+    :ok
+  end
+
+  def terminate(_reason, _socket), do: :ok
 
   defp push_decisions(socket) do
     push(socket, "decisions", StreamdeckProjection.decisions())
