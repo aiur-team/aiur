@@ -203,6 +203,42 @@ defmodule Aiur.AgentEvents do
   def state_emoji("sleeping"), do: "💤"
   def state_emoji(_), do: "⚫"
 
+  @doc """
+  Maps an orchestrator snapshot row to the five Stream Deck fleet buckets.
+
+  The mapping deliberately has one home beside the canonical `work_state`
+  semantics above, so the grid cannot drift from the agent-list meaning of
+  `:working`, `:paused`, `:sleeping`, and the terminal states.
+
+    * `:alert` — unresolved operator attentions (`open_decision_count > 0`)
+      take priority because the Executor needs to act.
+    * `:stuck` — retrying, errored, or watchdog-unresponsive work needs
+      intervention before ordinary live work.
+    * `:running` — a live, non-quiescent orchestrator slot is actively working.
+    * `:paused` — explicit pauses and quiescent live states (`:sleeping`,
+      `:done`, `:deactivated`, and `:completed`) hold work without active
+      progress.
+    * `:queued` — all remaining tracker-active rows have no live slot; their
+      dependency readiness is projected separately.
+  """
+  @spec streamdeck_bucket(map()) :: :alert | :stuck | :running | :paused | :queued
+  def streamdeck_bucket(%{} = agent) do
+    work_state = Map.get(agent, :work_state)
+
+    cond do
+      positive_integer?(Map.get(agent, :open_decision_count)) -> :alert
+      Map.get(agent, :streamdeck_source) == :retrying -> :stuck
+      work_state == :error -> :stuck
+      Map.get(agent, :waiting_reason) == :unresponsive -> :stuck
+      Map.get(agent, :tracker_paused) == true -> :paused
+      work_state in [:paused, :sleeping, :done, :deactivated, :completed] -> :paused
+      Map.get(agent, :streamdeck_source) == :running -> :running
+      true -> :queued
+    end
+  end
+
+  defp positive_integer?(value), do: is_integer(value) and value > 0
+
   @spec agent_topic(agent_identifier()) :: String.t()
   def agent_topic(identifier) when is_binary(identifier), do: "agent:" <> identifier
 

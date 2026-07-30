@@ -41,7 +41,8 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     :retry_attempt,
     :workspace_owner,
     :workspace_generation,
-    :workspace_phase
+    :workspace_phase,
+    :complexity
   ]
 
   @doc "Creates an opaque identity for one dispatched worker attempt."
