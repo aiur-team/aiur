@@ -76,6 +76,25 @@ defmodule Aiur.RunTelemetry.WriterTest do
            ]
   end
 
+  test "named writers keep admission tied to the current process", %{path: path} do
+    name = :"writer-#{System.unique_integer([:positive])}"
+    {:ok, first} = Writer.start_link(name: name, path: path, boot_id: "named-1")
+
+    assert :ok = Writer.record(name, :resource, %{actor: "first"})
+    assert :ok = Writer.flush(name)
+    assert :ok = GenServer.stop(first)
+
+    {:ok, second} = Writer.start_link(name: name, path: path, boot_id: "named-2")
+
+    for index <- 1..256 do
+      assert :ok = Writer.record(name, :resource, %{actor: index})
+    end
+
+    assert :ok = Writer.flush(name)
+    assert Process.alive?(second)
+    assert length(read_records(path)) == 259
+  end
+
   test "bounds the mailbox while a write is slow", %{path: path} do
     test_pid = self()
     writes = :atomics.new(1, signed: false)

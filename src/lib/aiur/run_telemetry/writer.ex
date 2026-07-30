@@ -178,8 +178,10 @@ defmodule Aiur.RunTelemetry.Writer do
   end
 
   defp enqueue_cast(server, message) do
-    with {:ok, counter} <- admission_counter(server), true <- admit?(counter) do
-      GenServer.cast(server, append_admission(message, counter))
+    with pid when is_pid(pid) <- server_pid(server),
+         {:ok, counter} <- admission_counter(pid),
+         true <- admit?(counter) do
+      GenServer.cast(pid, append_admission(message, counter))
     end
 
     :ok
@@ -191,9 +193,8 @@ defmodule Aiur.RunTelemetry.Writer do
   defp append_admission({:record_batch, records, timestamp}, admission),
     do: {:record_batch, records, timestamp, admission}
 
-  defp admission_counter(server) do
-    with pid when is_pid(pid) <- server_pid(server),
-         {:dictionary, dictionary} <- Process.info(pid, :dictionary),
+  defp admission_counter(pid) do
+    with {:dictionary, dictionary} <- Process.info(pid, :dictionary),
          {@admission_key, counter} <- List.keyfind(dictionary, @admission_key, 0) do
       {:ok, counter}
     else
