@@ -95,6 +95,12 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
                active_states,
                terminal_states
              )
+
+      refute DispatchPolicy.candidate_issue?(
+               issue("untrusted", dispatch_authorized?: false),
+               active_states,
+               terminal_states
+             )
     end
   end
 
