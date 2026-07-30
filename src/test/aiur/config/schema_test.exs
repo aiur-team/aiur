@@ -67,6 +67,29 @@ defmodule Aiur.Config.SchemaTest do
     end
   end
 
+  describe "GitHub dispatch allowlist" do
+    test "accepts explicit GitHub logins and defaults to an empty explicit list" do
+      assert {:ok, defaults} = Schema.parse(%{})
+      assert defaults.tracker.github.allowed_users == []
+
+      assert {:ok, settings} =
+               Schema.parse(%{
+                 "tracker" => %{
+                   "github" => %{"allowed_users" => ["its-everdred", "its-applekid"]}
+                 }
+               })
+
+      assert settings.tracker.github.allowed_users == ["its-everdred", "its-applekid"]
+    end
+
+    test "rejects blank dispatch allowlist entries" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"tracker" => %{"github" => %{"allowed_users" => [""]}}})
+
+      assert message =~ "tracker.github.allowed_users"
+    end
+  end
+
   describe "agent rate_limit_fallback" do
     test "defaults to claude" do
       assert {:ok, defaults} = Schema.parse(%{})
@@ -128,7 +151,10 @@ defmodule Aiur.Config.SchemaTest do
   describe "StringOrMap" do
     test "casts strings and maps, rejects everything else" do
       assert {:ok, "untrusted"} = StringOrMap.cast("untrusted")
-      assert {:ok, %{"type" => "workspaceWrite"}} = StringOrMap.cast(%{"type" => "workspaceWrite"})
+
+      assert {:ok, %{"type" => "workspaceWrite"}} =
+               StringOrMap.cast(%{"type" => "workspaceWrite"})
+
       assert :error = StringOrMap.cast(123)
       assert :error = StringOrMap.cast([:list])
       assert :error = StringOrMap.cast(nil)

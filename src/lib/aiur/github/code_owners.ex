@@ -97,6 +97,12 @@ defmodule Aiur.GitHub.CodeOwners do
     GenServer.call(server, :snapshot)
   end
 
+  @doc false
+  @spec codeowners_snapshot(GenServer.server()) :: [String.t()]
+  def codeowners_snapshot(server \\ __MODULE__) do
+    GenServer.call(server, :codeowners_snapshot)
+  end
+
   @impl true
   def init(opts) do
     state = %{
@@ -104,6 +110,7 @@ defmodule Aiur.GitHub.CodeOwners do
       # preserves an actually-empty allowlist. allowed?/1 never matches
       # this sentinel because it's not a valid GitHub login.
       allowlist: MapSet.new(["__codeowners_bootstrap__"]),
+      codeowners: MapSet.new(),
       codeowners_path: Keyword.get(opts, :path, default_codeowners_path()),
       request_fun: Keyword.get(opts, :request_fun),
       refresh_seconds: Keyword.get(opts, :refresh_seconds, @default_refresh_seconds),
@@ -132,6 +139,10 @@ defmodule Aiur.GitHub.CodeOwners do
 
   def handle_call(:snapshot, _from, state) do
     {:reply, MapSet.to_list(state.allowlist), state}
+  end
+
+  def handle_call(:codeowners_snapshot, _from, state) do
+    {:reply, MapSet.to_list(state.codeowners), state}
   end
 
   @impl true
@@ -169,7 +180,7 @@ defmodule Aiur.GitHub.CodeOwners do
     new_allowlist = MapSet.union(resolved, trusted_set)
 
     if MapSet.size(new_allowlist) > 0 do
-      %{state | allowlist: new_allowlist, empty_alerted: false}
+      %{state | allowlist: new_allowlist, codeowners: resolved, empty_alerted: false}
     else
       # No CODEOWNERS entries and no bot_account/trusted_accounts. Rather than
       # silently trust nobody — which disables the whole review-comment → rework
@@ -182,7 +193,7 @@ defmodule Aiur.GitHub.CodeOwners do
 
       case owner do
         owner when is_binary(owner) ->
-          %{state | allowlist: MapSet.new([owner])}
+          %{state | allowlist: MapSet.new([owner]), codeowners: resolved}
 
         _ ->
           Logger.error(
@@ -190,7 +201,7 @@ defmodule Aiur.GitHub.CodeOwners do
               "keeping previous allowlist (review-comment trust disabled)"
           )
 
-          state
+          %{state | codeowners: resolved}
       end
     end
   end

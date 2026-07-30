@@ -13,6 +13,7 @@ defmodule Aiur.Config.Schema.Github do
     field(:label_prefix, :string, default: "agent")
     field(:bot_account, :string)
     field(:trusted_accounts, {:array, :string}, default: [])
+    field(:allowed_users, {:array, :string}, default: [])
     field(:planning_root_limit, :integer, default: @max_planning_root_limit)
     field(:planning_page_budget, :integer, default: @max_planning_page_budget)
     field(:planning_call_budget, :integer, default: @max_planning_call_budget)
@@ -28,6 +29,7 @@ defmodule Aiur.Config.Schema.Github do
         :label_prefix,
         :bot_account,
         :trusted_accounts,
+        :allowed_users,
         :planning_root_limit,
         :planning_page_budget,
         :planning_call_budget
@@ -35,6 +37,11 @@ defmodule Aiur.Config.Schema.Github do
       empty_values: []
     )
     |> validate_required([:planning_root_limit, :planning_page_budget, :planning_call_budget])
+    |> validate_change(:allowed_users, fn :allowed_users, users ->
+      if Enum.all?(users, &(is_binary(&1) and String.trim(&1) != "")),
+        do: [],
+        else: [allowed_users: "must contain non-empty GitHub logins"]
+    end)
     |> validate_number(:planning_root_limit,
       greater_than: 0,
       less_than_or_equal_to: @max_planning_root_limit

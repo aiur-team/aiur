@@ -147,6 +147,19 @@ defmodule Aiur.GitHub.Config do
   end
 
   @doc """
+  Returns the explicit dispatch allowlist, or the running CODEOWNERS-derived
+  allowlist when it is absent. An unavailable or empty fallback denies all
+  dispatches rather than opening the trust boundary.
+  """
+  @spec allowed_users() :: [String.t()]
+  def allowed_users do
+    case normalize_logins(section_value("allowed_users")) do
+      [] -> codeowners_users()
+      users -> users
+    end
+  end
+
+  @doc """
   Whether opt-in repo-wide PR comment watching is enabled (`pr_watch.enabled`).
   When false, aiur only reacts to comments on its own `aiur/<id>` PRs.
   """
@@ -194,6 +207,27 @@ defmodule Aiur.GitHub.Config do
     |> Map.get(String.to_existing_atom(key))
   end
 
+  defp normalize_logins(accounts) when is_list(accounts) do
+    accounts
+    |> Enum.filter(&is_binary/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq_by(&String.downcase/1)
+  end
+
+  defp normalize_logins(account) when is_binary(account), do: normalize_logins([account])
+  defp normalize_logins(_accounts), do: []
+
+  defp codeowners_users do
+    if Process.whereis(Aiur.GitHub.CodeOwners) do
+      Aiur.GitHub.CodeOwners.codeowners_snapshot()
+    else
+      []
+    end
+  catch
+    :exit, _reason -> []
+  end
+
   defp parse_configured_repo(value) do
     case String.split(String.trim(value), "/") do
       [owner, repo] when owner != "" and repo != "" -> {:ok, {owner, repo}}
@@ -220,7 +254,8 @@ defmodule Aiur.GitHub.Config do
   # token, but an exhausted core quota still wedges the fleet (#617). Treat a
   # 200 response with remaining=0 as unusable so boot can fall back from a stale
   # `.env` token to `gh` keyring auth when available.
-  defp valid_github_token?(token, request_fun) when is_binary(token) and is_function(request_fun, 2) do
+  defp valid_github_token?(token, request_fun)
+       when is_binary(token) and is_function(request_fun, 2) do
     case request_fun.("https://api.github.com/rate_limit",
            headers: [
              {"Authorization", "Bearer #{token}"},

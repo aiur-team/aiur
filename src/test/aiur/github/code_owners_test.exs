@@ -73,6 +73,8 @@ defmodule Aiur.GitHub.CodeOwnersTest do
       assert "alice" in snap
       assert "its-everdred" in snap
       refute "aiur-bot" in snap
+
+      assert CodeOwners.codeowners_snapshot(name) == ["alice"]
     end
 
     test "trusted accounts survive CODEOWNERS team resolution failures", %{path: path} do
