@@ -7,6 +7,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   require Logger
 
   alias Aiur.{AgentRunner, Alerts, CodingAgent, Config, DispatchBudgetStore, Issue, RepoBase, Tracker}
+  alias Aiur.GitHub.CycleFetchCache
   alias Aiur.Orchestrator
 
   alias Aiur.Orchestrator.{
@@ -41,15 +42,21 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   @spec maybe_dispatch(State.t()) :: State.t()
   def maybe_dispatch(%State{} = state) do
-    state = Reconciler.reconcile_running_lifecycle(state)
+    CycleFetchCache.start_cycle()
 
-    case TrackerHealth.ensure_tracker_preflight(state) do
-      {:ok, state} ->
-        do_maybe_dispatch(state)
+    try do
+      state = Reconciler.reconcile_running_lifecycle(state)
 
-      {:error, reason, state} ->
-        TrackerHealth.log_tracker_preflight_error(reason)
-        state
+      case TrackerHealth.ensure_tracker_preflight(state) do
+        {:ok, state} ->
+          do_maybe_dispatch(state)
+
+        {:error, reason, state} ->
+          TrackerHealth.log_tracker_preflight_error(reason)
+          state
+      end
+    after
+      CycleFetchCache.end_cycle()
     end
   end
 
