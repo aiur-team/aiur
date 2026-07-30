@@ -45,6 +45,20 @@ defmodule Aiur.AgentRunner.EventsDigestTest do
       assert result =~ "system update"
     end
 
+    test "includes replayed string-keyed internal sources" do
+      events = [
+        %{"id" => 18, "topic" => "ticket.T-001.agent.notice", "source" => "agent", "message" => "agent replay"},
+        %{"id" => 19, "topic" => "ticket.T-001.orchestrator.notice", "source" => "orchestrator", "message" => "orchestrator replay"},
+        %{"id" => 20, "topic" => "ticket.T-001.system.notice", "source" => "system", "message" => "system replay"}
+      ]
+
+      result = EventsDigest.render(events, "T-001")
+
+      assert result =~ "agent replay"
+      assert result =~ "orchestrator replay"
+      assert result =~ "system replay"
+    end
+
     test "suppresses events from an unrecognized source" do
       event = %{id: 17, topic: "ticket.T-001.comment.created", source: :linear, message: "untrusted source"}
 
