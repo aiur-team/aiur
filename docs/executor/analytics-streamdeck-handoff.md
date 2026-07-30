@@ -1,0 +1,127 @@
+# Executor handoff — Analytics + Streamdeck build order
+
+Living document. A replacement Executor (Claude or Codex) resumes from here.
+Branch `executor-handoff` off `origin/develop` is the research+handoff branch
+for this build order; keep updating it as the run proceeds.
+Last update: 2026-07-30, pre-launch (build order not yet created).
+
+## Role and authority envelope
+
+You are the **Aiur Executor** per `.claude/skills/aiur-run` (+
+`references/executor.md`). Operator: its-everdred (Kevin).
+
+Recorded authority:
+- **Scope**: the "Analytics + Streamdeck" build order (three independent
+  branches: Analytics #991+#1338–#1341; Streamdeck #1342–#1356 + pending
+  packaging/proof tickets; Security ~4 tickets TBD from
+  `docs/research/security-trust-boundary.md`). Branches must never share a
+  critical path.
+- **Ticket creation**: YES — standing directive: "add tickets along the way
+  to have agents resolve issues you find, unless they're truly preventing
+  aiur agents completely then you own the ticket and unblock." Executor
+  self-fixes ONLY fleet-blocking issues (#1313/#1231/#852-class, launch
+  config); everything else becomes a ticket.
+- **Review**: YES — `/ce-code-review` via background agents once base is
+  current + CI green on the exact head.
+- **Merge**: merge into `develop` under green CI + review (operator has
+  repeatedly authorized merge-to-develop this session).
+- **Models**: default every ticket to **Codex**; fall back to Claude only
+  when Codex fails or stalls.
+- **Concurrency**: maximize useful parallelism; serialize the dashboard-ui
+  clique (`dashboard_live.ex`, `router.ex`, `route_registry.ex`,
+  `dashboard.css`) and the monorepo scaffolding ticket #1343.
+- **--debug**: YES (also required so the run records its own telemetry
+  pre-#1338).
+- **Cadences**: adaptive quiet audit + hard 10-min capacity audit + hourly
+  retrospective, one stable run ID, via
+  `<skill>/scripts/executor-retrospective.sh`.
+- **Terminal condition**: all three branches implemented, reviewed, green
+  on develop, merged, documented; end-to-end proof includes `/analytics`
+  rendering real charts **of this very run**, and the streamdeck emulator
+  (+ device if #1342 passes) driven by live fleet state.
+
+## Launch
+
+```bash
+cd ~/github/everdred/aiur   # NOTE: verify branch state first (see Hazards)
+AIUR_DASHBOARD_USERNAME=… AIUR_DASHBOARD_PASSWORD=…   # set in .env; report to operator
+scripts/aiurdev run --bg --debug --host 0.0.0.0 --port 4000 --max-agents <n>
+```
+
+- Dashboard external URL (operator bookmark): **http://100.89.62.105:4000/**
+- `.aiur/config` pins `server.host: 100.81.109.51` — a **stale tailnet IP**;
+  that's why nothing was reachable. Use `--host 0.0.0.0` (survives tailnet
+  IP changes) rather than editing the file.
+- Non-loopback + writable requires BOTH dashboard env creds or the HTTP
+  server refuses to start (`http_server.ex:102-122`).
+- Usage endpoint floor: min 120 s between Claude usage polls (enforced in
+  config schema); polling is watch-gated.
+
+## Hazards / repo state
+
+- `~/github/everdred/aiur` was shared with another agent (branch
+  `croptracker`, then `build-order-improvements`) with uncommitted edits to
+  `.aiur/prompt.md`, `src/config/config.exs`, `run_summary_strip.ex`,
+  `dashboard.css`. **Do not clobber.** Verify `git status` before building;
+  coordinate with operator if still dirty.
+- Worktrees: `../aiur-worktrees/pre-warm-fix` (fix/pre-warm, clean),
+  `../aiur-worktrees/executor-handoff` (this branch).
+- `pkill -f`/`pgrep -f` self-match → exit 144; use `pgrep -x beam.smp`.
+- `mix` project lives in `src/`; run via `mise exec --`. `mix lint` is
+  stricter than credo. Coverage gate 85%.
+- Sandbox fixture issue **#99 must stay open and never be dispatched**
+  (test_reset.ex restores its file on every `aiur --test`).
+
+## Ticket state (as of last update)
+
+Filed: #1338 #1339 #1340 #1341 (analytics) · #1342–#1356 (streamdeck, see
+`docs/research/streamdeck-architecture.md` for the layer map). #1337
+(prewarm) exists, deliberately not started.
+Pending to file: streamdeck packaging/udev/systemd ticket + end-to-end
+proof ticket; ~4 security tickets (research pack in
+`docs/research/security-trust-boundary.md`, GitHub-side research re-running).
+**#1342 needs a body update**: recommendation flipped from OpenDeck-first to
+direct-HID Node sidecar first (see architecture doc §Decision + Spike
+order); spike steps changed.
+
+Backlog decisions awaiting operator: close #1084 (54/54 closed, proof gate
+unverified), #1311 (8/8 closed), #963 (premise deleted), #1175 (already
+fixed), #1315 (dup of #1325). Do-not-dispatch: #1067, #927, #928, #99.
+Consolidation clusters: {1007,1016,1330} {1018,1059} {927,928,1337}
+{1182,1245}.
+
+## Dependency skeleton for /aiur-build
+
+- Analytics: #991 → #1338 → {#1340, #1341}; #1339 ∥ after #991.
+- Streamdeck: #1342 (gate) and #1343 (scaffold) first; then Elixir
+  {#1344,#1345,#1346,#1347} ∥ core {#1348,#1349} → {#1350,#1351} →
+  emulator #1352 → #1353; device {#1354 → #1355,#1356} blocked by #1342.
+  #1345→#1350; #1347→#1351; #1346→#1356 (provider segments).
+- Security: independent of both; file then wave by files touched.
+- Cliques: dashboard-ui (#1352/#1353 + any dashboard ticket) — serialize;
+  #1343 alone touches root/CI files — land before other streamdeck work.
+
+## Monitoring quick reference
+
+```bash
+AIUR_CMD=scripts/aiurdev
+"$AIUR_CMD" status; "$AIUR_CMD" watch --full; "$AIUR_CMD" alerts --needs-attention
+RETRO=".claude/skills/aiur-run/scripts/executor-retrospective.sh"
+export AIUR_EXECUTOR_RUN_ID=analytics-streamdeck-2026-07   # keep stable
+```
+
+Wake immediately on needs-attention alerts / agent-state changes / PR-CI
+results; otherwise adaptive quiet audit. Never satisfy the 10-min capacity
+audit by waking ci-wait/blocked tickets.
+
+## Context you'd otherwise have to rediscover
+
+- Analytics emptiness root cause + piping map:
+  `docs/research/analytics-tickets.md`.
+- Stream Deck architecture decision (direct-HID sidecar), full HID facts,
+  failure modes, monorepo/CI facts: `docs/research/streamdeck-architecture.md`.
+- Security trust-boundary map + planned 4 tickets:
+  `docs/research/security-trust-boundary.md`.
+- Design source: Claude Design project "Aiur Operator Control Center"
+  (id 5e62b9a9-39c1-4ca2-9a76-6dff123a088c) — analytics.js + streamdeck
+  panel JS/CSS already fully extracted into the research docs and tickets.
