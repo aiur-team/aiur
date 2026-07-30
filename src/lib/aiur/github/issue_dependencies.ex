@@ -22,12 +22,12 @@ defmodule Aiur.GitHub.IssueDependencies do
       enqueue is the cheap way to keep complexity O(V+E) instead of
       O(V*E))
     * 100-hop depth bound — sane upper limit
-    * 200-API-call budget — defends against pathological graphs that
-      would otherwise exhaust the rate limit
+    * GraphQL frontier batches — up to 100 issues per request, with
+      connection pagination so wide dependency sets remain complete
 
-  If the budget is exhausted without finding a cycle, return
-  `{:error, :rate_limited}` rather than POST optimistically — letting
-  the agent know the check was inconclusive is the right call.
+  If GitHub cannot provide a complete graph, return
+  `{:error, :cycle_check_inconclusive}` rather than POST optimistically —
+  letting the agent know the check was inconclusive is the right call.
   """
 
   require Logger
@@ -252,38 +252,70 @@ defmodule Aiur.GitHub.IssueDependencies do
   end
 
   defp fetch_blocking_graph(nodes, opts) do
+    fetch_blocking_graph_pages(nodes, %{}, [], opts)
+  end
+
+  defp fetch_blocking_graph_pages([], _cursors, edges, _opts), do: {:ok, edges}
+
+  defp fetch_blocking_graph_pages(nodes, cursors, edges, opts) do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token(opts) do
       request_fun = Keyword.get(opts, :graph_request_fun, Keyword.get(opts, :request_fun, &Transport.default_request_fun/1))
+      variables = Map.merge(%{"owner" => owner, "repo" => repo}, cursors)
 
-      case Transport.github_graphql(request_fun, token, blocking_query(nodes), %{"owner" => owner, "repo" => repo}) do
-        {:ok, body} -> blocking_edges(body, nodes)
+      case Transport.github_graphql(request_fun, token, blocking_query(nodes), variables) do
+        {:ok, body} ->
+          with {:ok, {page_edges, next_cursors}} <- blocking_page(body, nodes) do
+            fetch_blocking_graph_pages(Map.keys(next_cursors), next_cursors, edges ++ page_edges, opts)
+          end
+
         {:error, reason} -> {:error, reason}
       end
     end
   end
 
   defp blocking_query(nodes) do
-    aliases = Enum.map_join(nodes, "\n", fn node -> "issue_#{node}: issue(number: #{node}) { blocking(first: 100) { nodes { number } } }" end)
+    variables = Enum.map_join(nodes, ", ", fn node -> "$after_#{node}: String" end)
 
-    "query AiurDependencyClosure($owner: String!, $repo: String!) { repository(owner: $owner, name: $repo) { #{aliases} } }"
+    aliases =
+      Enum.map_join(nodes, "\n", fn node ->
+        "issue_#{node}: issue(number: #{node}) { blocking(first: 100, after: $after_#{node}) { nodes { number } pageInfo { hasNextPage endCursor } } }"
+      end)
+
+    "query AiurDependencyClosure($owner: String!, $repo: String!, #{variables}) { repository(owner: $owner, name: $repo) { #{aliases} } }"
   end
 
-  defp blocking_edges(body, nodes) do
+  defp blocking_page(body, nodes) do
     repository = get_in(body, ["data", "repository"])
 
     if is_map(repository) do
-      edges =
-        Enum.flat_map(nodes, fn node ->
-          repository
-          |> get_in(["issue_#{node}", "blocking", "nodes"])
-          |> List.wrap()
-          |> Enum.map(&Map.get(&1, "number"))
-          |> Enum.filter(&is_integer/1)
-          |> Enum.map(&to_string/1)
-        end)
+      nodes
+      |> Enum.reduce_while({:ok, {[], %{}}}, fn node, {:ok, {edges, cursors}} ->
+        case get_in(repository, ["issue_#{node}", "blocking"]) do
+          nil ->
+            {:cont, {:ok, {edges, cursors}}}
 
-      {:ok, edges}
+          %{"nodes" => blocking, "pageInfo" => %{"hasNextPage" => has_next, "endCursor" => cursor}}
+          when is_list(blocking) and is_boolean(has_next) ->
+            next_edges =
+              blocking
+              |> Enum.map(&Map.get(&1, "number"))
+              |> Enum.filter(&is_integer/1)
+              |> Enum.map(&to_string/1)
+
+            next_cursors =
+              if has_next and is_binary(cursor), do: Map.put(cursors, "after_#{node}", cursor), else: cursors
+
+            if has_next and not is_binary(cursor) do
+              {:halt, {:error, :dependency_graph_pagination_missing_cursor}}
+            else
+              {:cont, {:ok, {edges ++ next_edges, next_cursors}}}
+            end
+
+          _other ->
+            {:halt, {:error, :dependency_graph_missing}}
+        end
+      end)
     else
       {:error, :dependency_graph_missing}
     end
