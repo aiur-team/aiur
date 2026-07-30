@@ -161,6 +161,24 @@ defmodule Aiur.RunTelemetry.DatasetTest do
     assert [%{status: "broken", missing: ["agent_resume"]}] = out_of_order.findings
   end
 
+  test "normalizes dispatch complexity and ignores malformed tiers" do
+    path = temporary_stream!()
+
+    records = [
+      lifecycle_record(1, "dispatch", "point", ~U[2026-07-11 01:00:00Z], "complexity-string", %{complexity: "4"}),
+      lifecycle_record(2, "agent_pause", "point", ~U[2026-07-11 01:00:01Z], "complexity-bad", %{complexity: "high"}),
+      lifecycle_record(3, "dispatch", "point", ~U[2026-07-11 01:00:02Z], "complexity-out-of-range", %{ticket: "941", complexity: 6})
+    ]
+
+    File.write!(path, Enum.map_join(records, "\n", &Jason.encode!/1) <> "\n")
+
+    assert {:ok, dataset} = Dataset.build(path)
+    assert dataset.tickets["940"].complexity == 4
+    assert Enum.find(dataset.tickets["940"].events, &(&1.event == "dispatch")).complexity == 4
+    assert Enum.find(dataset.tickets["940"].events, &(&1.event == "agent_pause")).complexity == nil
+    assert dataset.tickets["941"].complexity == nil
+  end
+
   test "preserves repeated runtime transitions while deduplicating replayable boundaries" do
     path = temporary_stream!()
 
