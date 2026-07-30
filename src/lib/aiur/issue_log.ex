@@ -34,6 +34,13 @@ defmodule Aiur.IssueLog do
 
   # Cap on how many recent events we keep in memory for `history/2`.
   @history_limit 100
+  @max_transcript_record_bytes 16_384
+  # The API permits a page of up to 50 records. Read enough for that many
+  # capped records, while retaining a fixed ceiling independent of log size.
+  @max_tail_page_events 50
+  @max_tail_bytes (@max_transcript_record_bytes + 1) * @max_tail_page_events
+  @truncated_body_chars 1_000
+  @truncated_diff_chars 2_000
 
   @doc """
   Ensure a writer is running for `identifier`. Returns `:ok` on success;
@@ -46,6 +53,7 @@ defmodule Aiur.IssueLog do
         identity.identifier,
         log_path(identity),
         event_log_path(identity),
+        transcript_path(identity),
         writer_key(identity)
       )
     else
@@ -54,7 +62,7 @@ defmodule Aiur.IssueLog do
   end
 
   def attach(identifier) when is_binary(identifier) do
-    attach_writer(identifier, log_path(identifier), event_log_path(identifier), writer_key(identifier))
+    attach_writer(identifier, log_path(identifier), event_log_path(identifier), transcript_path(identifier), writer_key(identifier))
   end
 
   @doc """
@@ -93,6 +101,38 @@ defmodule Aiur.IssueLog do
 
       _ ->
         []
+    end
+  end
+
+  @doc """
+  Reads a bounded, newest-first page from the durable JSONL transcript.
+
+  `:before` is the exclusive byte offset returned as `:next_cursor` by the
+  previous call. It is intentionally a file offset rather than an event id:
+  transcript producers do not share an event-id sequence. The read is capped
+  at the requested page's number of maximum-size records (and never more than
+  #{@max_tail_bytes} bytes), so a busy or historic transcript cannot turn a
+  Stream Deck refresh into a full-log scan.
+  """
+  @spec read_tail(AgentEvents.agent_identifier() | TrackerIdentity.t(), keyword()) ::
+          {:ok, %{events: [map()], next_cursor: String.t() | nil}} | {:error, atom()}
+  def read_tail(identifier, opts \\ []) do
+    limit = Keyword.get(opts, :limit, 7)
+    before = Keyword.get(opts, :before)
+
+    with true <- is_integer(limit) and limit > 0,
+         {:ok, cursor} <- parse_tail_cursor(before),
+         {:ok, %{size: size}} <- File.stat(transcript_path(identifier)) do
+      end_offset = min(cursor || size, size)
+      start_offset = max(end_offset - tail_chunk_bytes(limit), 0)
+
+      with {:ok, bytes} <- read_tail_chunk(transcript_path(identifier), start_offset, end_offset - start_offset) do
+        {:ok, tail_page(bytes, start_offset, limit)}
+      end
+    else
+      false -> {:error, :invalid_limit}
+      {:error, :enoent} -> {:ok, %{events: [], next_cursor: nil}}
+      {:error, _reason} = error -> error
     end
   end
 
@@ -273,6 +313,27 @@ defmodule Aiur.IssueLog do
     end
   end
 
+  @doc """
+  Returns the durable JSONL transcript path used by the classified events API.
+
+  Unlike the human-readable `.log`, this sidecar preserves the complete
+  transcript event, including its provider payload.
+  """
+  @spec transcript_path(AgentEvents.agent_identifier() | TrackerIdentity.t()) :: String.t()
+  def transcript_path(identifier) when is_binary(identifier) do
+    issue_log_path(configured_repository_scope(), identifier, ".agent_events.jsonl")
+  end
+
+  def transcript_path(%TrackerIdentity{} = identity) do
+    case TrackerIdentity.github_key(identity) do
+      {:github, owner, repository, _provider_id} ->
+        issue_log_path(repository_scope(owner, repository), identity.identifier, ".agent_events.jsonl")
+
+      nil ->
+        raise ArgumentError, "IssueLog path requires a joinable tracker identity"
+    end
+  end
+
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
     identifier = Keyword.fetch!(opts, :identifier)
@@ -285,43 +346,37 @@ defmodule Aiur.IssueLog do
     identifier = Keyword.fetch!(opts, :identifier)
     path = Keyword.get(opts, :path, log_path(identifier))
     event_path = Keyword.get(opts, :event_path, event_log_path(identifier))
+    transcript_path = Keyword.get(opts, :transcript_path, transcript_path(identifier))
     :ok = File.mkdir_p(Path.dirname(path))
 
-    case File.open(path, [:append, :utf8]) do
-      {:ok, file} ->
-        case File.open(event_path, [:append, :utf8]) do
-          {:ok, event_file} ->
-            :ok = AgentPubSub.subscribe_agent(identifier)
-            Logger.debug("IssueLog attached identifier=#{identifier} path=#{path}")
+    case open_log_files(path, event_path, transcript_path) do
+      {:ok, file, event_file, transcript_file} ->
+        :ok = AgentPubSub.subscribe_agent(identifier)
+        Logger.debug("IssueLog attached identifier=#{identifier} path=#{path}")
 
-            {:ok,
-             %{
-               identifier: identifier,
-               file: file,
-               event_file: event_file,
-               path: path,
-               event_path: event_path,
-               history: :queue.new(),
-               history_size: 0
-             }}
-
-          {:error, reason} ->
-            _ = File.close(file)
-            Logger.warning("IssueLog event open failed identifier=#{identifier} path=#{event_path} reason=#{inspect(reason)}")
-            {:stop, reason}
-        end
+        {:ok,
+         %{
+           identifier: identifier,
+           file: file,
+           event_file: event_file,
+           transcript_file: transcript_file,
+           transcript_path: transcript_path,
+           path: path,
+           event_path: event_path,
+           history: :queue.new(),
+           history_size: 0
+         }}
 
       {:error, reason} ->
-        Logger.warning("IssueLog open failed identifier=#{identifier} path=#{path} reason=#{inspect(reason)}")
-
         {:stop, reason}
     end
   end
 
   @impl true
-  def terminate(_reason, %{file: file, event_file: event_file}) when not is_nil(file) do
+  def terminate(_reason, %{file: file, event_file: event_file, transcript_file: transcript_file}) when not is_nil(file) do
     _ = File.close(file)
     _ = File.close(event_file)
+    _ = File.close(transcript_file)
     :ok
   end
 
@@ -406,8 +461,8 @@ defmodule Aiur.IssueLog do
     :ok
   end
 
-  defp attach_writer(identifier, path, event_path, key) do
-    case ensure_writer(identifier, path, event_path, key) do
+  defp attach_writer(identifier, path, event_path, transcript_path, key) do
+    case ensure_writer(identifier, path, event_path, transcript_path, key) do
       :ok ->
         :ok
 
@@ -427,31 +482,31 @@ defmodule Aiur.IssueLog do
 
   defp event_identity(_event, _identifier), do: :error
 
-  defp ensure_writer(identifier, path, event_path, key) do
+  defp ensure_writer(identifier, path, event_path, transcript_path, key) do
     case Registry.lookup(Aiur.IssueLog.Registry, key) do
       [] ->
-        start_writer(identifier, path, event_path, key)
+        start_writer(identifier, path, event_path, transcript_path, key)
 
       [{pid, _}] ->
         if writer_path(pid) == path do
           :ok
         else
-          replace_writer(identifier, pid, path, event_path, key)
+          replace_writer(identifier, pid, path, event_path, transcript_path, key)
         end
     end
   end
 
-  defp replace_writer(identifier, pid, path, event_path, key) do
+  defp replace_writer(identifier, pid, path, event_path, transcript_path, key) do
     case DynamicSupervisor.terminate_child(@supervisor, pid) do
-      :ok -> start_writer(identifier, path, event_path, key)
-      {:error, :not_found} -> start_writer(identifier, path, event_path, key)
+      :ok -> start_writer(identifier, path, event_path, transcript_path, key)
+      {:error, :not_found} -> start_writer(identifier, path, event_path, transcript_path, key)
     end
   end
 
-  defp start_writer(identifier, path, event_path, key) do
+  defp start_writer(identifier, path, event_path, transcript_path, key) do
     DynamicSupervisor.start_child(
       @supervisor,
-      {__MODULE__, identifier: identifier, path: path, event_path: event_path, writer_key: key}
+      {__MODULE__, identifier: identifier, path: path, event_path: event_path, transcript_path: transcript_path, writer_key: key}
     )
     |> normalize_start_result()
   end
@@ -500,6 +555,13 @@ defmodule Aiur.IssueLog do
     # workflow repository here could make an existing writer append to a
     # different repository's same-number ticket log after a config reload.
     write_line(state.file, line)
+
+    state =
+      case write_transcript_line(state.transcript_file, history_item, state.identifier) do
+        :ok -> state
+        {:error, _reason} -> reopen_transcript_and_retry(state, history_item)
+      end
+
     state = push_history(state, history_item)
     {:noreply, state}
   end
@@ -514,6 +576,239 @@ defmodule Aiur.IssueLog do
     IO.write(file, line)
   rescue
     _ -> :ok
+  end
+
+  defp write_transcript_line(file, event, identifier) do
+    encoded = event |> persisted_transcript() |> bounded_transcript() |> json_safe() |> encode_transcript()
+    :ok = IO.write(file, encoded <> "\n")
+  rescue
+    error ->
+      Logger.warning("IssueLog transcript write failed identifier=#{identifier} reason=#{Exception.message(error)}")
+      {:error, error}
+  end
+
+  defp reopen_transcript_and_retry(state, event) do
+    _ = File.close(state.transcript_file)
+
+    case File.open(state.transcript_path, [:append, :utf8]) do
+      {:ok, transcript_file} ->
+        state = %{state | transcript_file: transcript_file}
+        _ = write_transcript_line(transcript_file, event, state.identifier)
+        state
+
+      {:error, reason} ->
+        Logger.warning("IssueLog transcript reopen failed identifier=#{state.identifier} reason=#{inspect(reason)}")
+        state
+    end
+  end
+
+  # A tail page has a fixed byte budget. This is a second, defensive cap after
+  # `bounded_transcript/1`, which prevents unbounded provider payloads from
+  # being encoded in the first place.
+  defp encode_transcript(record) do
+    encoded = Jason.encode!(record)
+
+    if byte_size(encoded) <= @max_transcript_record_bytes do
+      encoded
+    else
+      record
+      |> Map.take(["role", "timestamp", "msg_id", "sequence", "turn_id"])
+      |> Map.put("body", truncated_body(Map.get(record, "body", "")))
+      |> Map.put("payload", %{"truncated" => true})
+      |> Jason.encode!()
+    end
+  end
+
+  defp truncated_body(body) when is_binary(body) do
+    if String.length(body) > @truncated_body_chars,
+      do: String.slice(body, 0, @truncated_body_chars) <> "…",
+      else: body
+  end
+
+  defp truncated_body(body), do: inspect(body)
+
+  defp persisted_transcript({:transcript_event, event}) when is_map(event), do: event
+
+  defp persisted_transcript({:alert, event}) when is_map(event) do
+    %{
+      role: :alert,
+      body: Map.get(event, :message, ""),
+      timestamp: Map.get(event, :timestamp, DateTime.utc_now()),
+      msg_id: nil,
+      sequence: nil,
+      turn_id: nil,
+      payload: event
+    }
+  end
+
+  defp persisted_transcript(event) when is_map(event), do: event
+
+  # The feed needs a message body and, for edit tools, the provider's real
+  # unified diff. Shell output and generic tool payloads can be arbitrarily
+  # large, so drop them before JSON encoding rather than paying their memory
+  # cost only to reject an oversized record afterward.
+  defp bounded_transcript(%{role: :tool, payload: %{tool: "edit", output: output} = payload} = event) when is_binary(output) do
+    %{event | body: truncated_body(event.body), payload: bounded_edit_payload(payload, output)}
+  end
+
+  defp bounded_transcript(%{body: body} = event) do
+    %{event | body: truncated_body(body), payload: nil}
+  end
+
+  defp json_safe(%DateTime{} = value), do: DateTime.to_iso8601(value)
+
+  defp json_safe(%{} = value) do
+    Map.new(value, fn {key, item} -> {to_string(key), json_safe(item)} end)
+  end
+
+  defp json_safe(value) when is_list(value), do: Enum.map(value, &json_safe/1)
+  defp json_safe(value) when is_atom(value), do: Atom.to_string(value)
+  defp json_safe(value), do: value
+
+  defp bounded_edit_payload(payload, output) do
+    %{tool: "edit", output: String.slice(output, 0, @truncated_diff_chars)}
+    |> maybe_put_edit_changes(Map.get(payload, :input) || Map.get(payload, "input"))
+  end
+
+  defp maybe_put_edit_changes(payload, input) when is_map(input) do
+    case Map.get(input, :changes) || Map.get(input, "changes") do
+      changes when is_list(changes) ->
+        diffs = Enum.flat_map(changes, &bounded_edit_change/1)
+        if diffs == [], do: payload, else: Map.put(payload, :changes, diffs)
+
+      _ ->
+        payload
+    end
+  end
+
+  defp maybe_put_edit_changes(payload, _input), do: payload
+
+  defp bounded_edit_change(change) when is_map(change) do
+    case Map.get(change, :diff) || Map.get(change, "diff") do
+      diff when is_binary(diff) and diff != "" ->
+        [%{diff: String.slice(diff, 0, @truncated_diff_chars)} |> maybe_put_path(Map.get(change, :path) || Map.get(change, "path"))]
+
+      _ ->
+        []
+    end
+  end
+
+  defp bounded_edit_change(_change), do: []
+
+  defp maybe_put_path(change, path) when is_binary(path) and path != "", do: Map.put(change, :path, path)
+  defp maybe_put_path(change, _path), do: change
+
+  defp read_tail_chunk(path, start_offset, byte_count) do
+    with {:ok, file} <- File.open(path, [:read, :binary]) do
+      try do
+        :file.pread(file, start_offset, byte_count)
+      after
+        :ok = File.close(file)
+      end
+    end
+  end
+
+  defp tail_chunk_bytes(limit), do: min(limit * (@max_transcript_record_bytes + 1), @max_tail_bytes)
+
+  defp open_log_files(path, event_path, transcript_path) do
+    with {:ok, file} <- open_primary_log(path),
+         {:ok, event_file} <- open_event_log(event_path, file),
+         {:ok, transcript_file} <- open_transcript_log(transcript_path, file, event_file) do
+      {:ok, file, event_file, transcript_file}
+    end
+  end
+
+  defp open_primary_log(path) do
+    case File.open(path, [:append, :utf8]) do
+      {:ok, file} ->
+        {:ok, file}
+
+      {:error, reason} ->
+        Logger.warning("IssueLog open failed path=#{path} reason=#{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  defp open_event_log(path, file) do
+    case File.open(path, [:append, :utf8]) do
+      {:ok, event_file} ->
+        {:ok, event_file}
+
+      {:error, reason} ->
+        _ = File.close(file)
+        Logger.warning("IssueLog event open failed path=#{path} reason=#{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  defp open_transcript_log(path, file, event_file) do
+    case File.open(path, [:append, :utf8]) do
+      {:ok, transcript_file} ->
+        {:ok, transcript_file}
+
+      {:error, reason} ->
+        _ = File.close(event_file)
+        _ = File.close(file)
+        Logger.warning("IssueLog transcript open failed path=#{path} reason=#{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  defp parse_tail_cursor(nil), do: {:ok, nil}
+  defp parse_tail_cursor(cursor) when is_integer(cursor) and cursor >= 0, do: {:ok, cursor}
+
+  defp parse_tail_cursor(cursor) when is_binary(cursor) do
+    case Integer.parse(cursor) do
+      {value, ""} when value >= 0 -> {:ok, value}
+      _ -> {:error, :invalid_cursor}
+    end
+  end
+
+  defp parse_tail_cursor(_), do: {:error, :invalid_cursor}
+
+  defp tail_page(bytes, start_offset, limit) do
+    {first, rest} = split_tail_lines(bytes, start_offset)
+
+    events =
+      rest
+      |> line_offsets(first)
+      |> Enum.flat_map(fn {line, offset} ->
+        case Jason.decode(line) do
+          {:ok, %{} = event} -> [{event, offset}]
+          _ -> []
+        end
+      end)
+      |> Enum.reverse()
+      |> Enum.take(limit)
+
+    next_cursor =
+      case List.last(events) do
+        {_event, 0} -> nil
+        {_event, offset} -> Integer.to_string(offset)
+        nil -> if(start_offset > 0, do: Integer.to_string(start_offset), else: nil)
+      end
+
+    %{events: Enum.map(events, &elem(&1, 0)), next_cursor: next_cursor}
+  end
+
+  # The first line in a nonzero byte slice may begin in the middle of a JSON
+  # document, so discard it. Keep its byte length so offsets stay absolute.
+  defp split_tail_lines(bytes, 0), do: {0, String.split(bytes, "\n", trim: true)}
+
+  defp split_tail_lines(bytes, start_offset) do
+    case String.split(bytes, "\n", parts: 2) do
+      [_partial, rest] -> {start_offset + byte_size(bytes) - byte_size(rest), String.split(rest, "\n", trim: true)}
+      [_partial] -> {start_offset + byte_size(bytes), []}
+    end
+  end
+
+  defp line_offsets(lines, initial_offset) do
+    {records, _offset} =
+      Enum.map_reduce(lines, initial_offset, fn line, offset ->
+        {{line, offset}, offset + byte_size(line) + 1}
+      end)
+
+    records
   end
 
   defp format_transcript(role, body, event) do
