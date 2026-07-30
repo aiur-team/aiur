@@ -7,8 +7,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
   require Logger
 
   alias Aiur.{AgentRunner, Alerts, CodingAgent, Config, DispatchBudgetStore, Issue, RepoBase, Tracker}
-  alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.CycleFetchCache
+  alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.Orchestrator
 
   alias Aiur.Orchestrator.{
@@ -92,7 +92,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   defp fetch_candidate_issues(%State{} = state) do
     if Config.tracker_kind() == "github" do
-      case GitHubClient.fetch_issues_by_states_conditional(
+      case GitHubTracker.fetch_issues_by_states_conditional(
              Config.active_states(),
              issue_list_cache(state)
            ) do

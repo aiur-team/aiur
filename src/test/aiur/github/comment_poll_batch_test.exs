@@ -13,11 +13,13 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
     :ok
   end
 
-  test "batches target issues with matching readable ticket pull requests" do
+  test "batches target issues with per-target headRefName pull request aliases" do
     request_fun = fn %{method: :post, url: url, body: body} ->
       assert url == "https://api.github.com/graphql"
-      assert body["query"] =~ "target_42: issueOrPullRequest(number: 42)"
-      assert body["variables"] == %{"owner" => "owner", "repo" => "repo", "cursor" => nil}
+      assert body["query"] =~ "target_0: issueOrPullRequest(number: 42)"
+      assert body["query"] =~ ~s(branch_0: pullRequests(headRefName: "aiur/42-comment-batch", states: OPEN)
+      refute body["query"] =~ "states: OPEN, after:"
+      assert body["variables"] == %{"owner" => "owner", "repo" => "repo"}
 
       {:ok,
        %{
@@ -25,9 +27,9 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
          body: %{
            "data" => %{
              "repository" => %{
-               "target_42" => issue([comment(1, "issue comment")]),
-               "pullRequests" => %{
-                 "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil},
+               "target_0" => issue([comment(1, "issue comment")]),
+               "branch_0" => %{
+                 "pageInfo" => %{"hasNextPage" => false},
                  "nodes" => [pull_request(77, "aiur/42-comment-batch", [comment(2, "PR comment")])]
                }
              }
@@ -36,7 +38,12 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
        }}
     end
 
-    assert {:ok, %{"42" => batch}} = CommentPollBatch.fetch(["42"], request_fun: request_fun)
+    assert {:ok, %{"42" => batch}} =
+             CommentPollBatch.fetch(["42"],
+               request_fun: request_fun,
+               branch_names_by_target: %{"42" => "aiur/42-comment-batch"}
+             )
+
     assert [%{"body" => "issue comment"}] = batch.issue_comments
     assert %{"number" => 77, "head" => %{"ref" => "aiur/42-comment-batch"}} = batch.open_pull_request
     assert [%{"body" => "PR comment"}] = batch.pr_issue_comments
@@ -51,21 +58,67 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
          body: %{
            "data" => %{
              "repository" => %{
-               "target_42" =>
+               "target_0" =>
                  issue([comment(1, "first page")])
                  |> put_in(["comments", "pageInfo"], %{"hasNextPage" => true, "endCursor" => "next"}),
-               "pullRequests" => %{
-                 "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil},
-                 "nodes" => []
-               }
+               "branch_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => []}
              }
            }
          }
        }}
     end
 
-    assert {:ok, %{"42" => batch}} = CommentPollBatch.fetch(["42"], request_fun: request_fun)
+    assert {:ok, %{"42" => batch}} =
+             CommentPollBatch.fetch(["42"],
+               request_fun: request_fun,
+               branch_names_by_target: %{"42" => "aiur/42-comment-batch"}
+             )
+
     refute Map.has_key?(batch, :issue_comments)
+    assert batch.open_pull_request == nil
+  end
+
+  test "omits a target whose legacy branch guess finds no PR so REST can resolve it" do
+    request_fun = fn %{method: :post, body: body} ->
+      assert body["query"] =~ ~s(branch_0: pullRequests(headRefName: "aiur/42", states: OPEN)
+
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "data" => %{
+             "repository" => %{
+               "target_0" => issue([comment(1, "issue comment")]),
+               "branch_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => []}
+             }
+           }
+         }
+       }}
+    end
+
+    assert {:ok, batch} = CommentPollBatch.fetch(["42"], request_fun: request_fun)
+    refute Map.has_key?(batch, "42")
+  end
+
+  test "uses the direct pull request node when the target number is the PR itself" do
+    request_fun = fn %{method: :post} ->
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "data" => %{
+             "repository" => %{
+               "target_0" => pull_request(77, "feature/watched", [comment(3, "watched PR comment")]),
+               "branch_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => []}
+             }
+           }
+         }
+       }}
+    end
+
+    assert {:ok, %{"77" => batch}} = CommentPollBatch.fetch(["77"], request_fun: request_fun)
+    assert %{"number" => 77, "head" => %{"ref" => "feature/watched"}} = batch.open_pull_request
+    assert [%{"body" => "watched PR comment"}] = batch.pr_issue_comments
   end
 
   defp issue(comments), do: %{"comments" => %{"nodes" => comments}}

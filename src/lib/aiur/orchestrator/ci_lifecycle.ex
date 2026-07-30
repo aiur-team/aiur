@@ -39,7 +39,8 @@ defmodule Aiur.Orchestrator.CiLifecycle do
           state
         end
 
-      _ -> state
+      _ ->
+        state
     end
   end
 
@@ -382,7 +383,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
         Map.get(state.ci_lifecycle, :base_repair_invalidations, %{})
       )
 
-    poll_opts = put_ci_batch(poll_opts, targets)
+    poll_opts = put_ci_batch(poll_opts, targets, issues_by_target)
 
     case poller.(targets, poll_opts) do
       {:ok, %{results: results, errors: errors}} when is_list(results) and is_list(errors) ->
@@ -404,12 +405,13 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     end
   end
 
-  defp put_ci_batch(opts, targets) when is_list(opts) do
-    if Keyword.has_key?(opts, :ci_poller), do: opts, else: put_ci_batch_fetch(opts, targets)
+  defp put_ci_batch(opts, targets, issues_by_target) when is_list(opts) do
+    if Keyword.has_key?(opts, :ci_poller), do: opts, else: put_ci_batch_fetch(opts, targets, issues_by_target)
   end
 
-  defp put_ci_batch_fetch(opts, targets) do
+  defp put_ci_batch_fetch(opts, targets, issues_by_target) do
     fetcher = Keyword.get(opts, :ci_batch_fetcher, &CIPollBatch.fetch/2)
+    opts = Keyword.put_new(opts, :branch_names_by_target, ci_branch_names_by_target(issues_by_target))
 
     case fetcher.(targets, opts) do
       {:ok, batch} when is_map(batch) ->
@@ -423,6 +425,16 @@ defmodule Aiur.Orchestrator.CiLifecycle do
         Logger.warning("Github CI GraphQL batch returned unexpected value; falling back to REST reads value=#{inspect(other)}")
         opts
     end
+  end
+
+  defp ci_branch_names_by_target(issues_by_target) do
+    Enum.reduce(issues_by_target, %{}, fn
+      {target, %Issue{branch_name: branch_name}}, acc when is_binary(branch_name) and branch_name != "" ->
+        Map.put(acc, target, branch_name)
+
+      {_target, _issue}, acc ->
+        acc
+    end)
   end
 
   defp ci_issues_by_target(issues) do

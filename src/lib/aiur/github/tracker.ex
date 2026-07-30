@@ -48,6 +48,18 @@ defmodule Aiur.GitHub.Tracker do
   @spec fetch_issues_by_states([String.t()], keyword()) :: {:ok, [term()]} | {:error, term()}
   def fetch_issues_by_states(states, opts), do: client_module().fetch_issues_by_states(states, opts)
 
+  @spec fetch_issues_by_states_conditional([String.t()], map()) ::
+          {:ok, [term()], map()} | {:error, term()}
+  def fetch_issues_by_states_conditional(states, cache) do
+    client = client_module()
+
+    if function_exported?(client, :fetch_issues_by_states_conditional, 2) do
+      client.fetch_issues_by_states_conditional(states, cache)
+    else
+      with {:ok, issues} <- client.fetch_issues_by_states(states), do: {:ok, issues, cache}
+    end
+  end
+
   @spec fetch_issue_states_by_ids([String.t()]) :: {:ok, [term()]} | {:error, term()}
   def fetch_issue_states_by_ids(issue_ids),
     do: client_module().fetch_issue_states_by_ids(issue_ids)

@@ -6,7 +6,10 @@ defmodule Aiur.GitHub.CIPollBatch do
   alias Aiur.GitHub.Transport
   alias Aiur.TicketBranch
 
+  # One headRefName-keyed alias per target keeps every query bounded by the
+  # requested targets instead of scanning the repository's open PR list.
   @targets_per_query 100
+  @pull_requests_per_branch 5
 
   @spec fetch([String.t()], keyword()) :: {:ok, map()} | {:error, term()}
   def fetch(targets, opts \\ []) when is_list(targets) do
@@ -22,33 +25,54 @@ defmodule Aiur.GitHub.CIPollBatch do
   defp do_fetch(targets, opts) do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token(opts) do
-      if length(targets) > @targets_per_query do
-        Logger.warning(
-          "Github CI GraphQL batch target overflow: targets=#{length(targets)} complete_pull_request_pagination=true"
-        )
+      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+      chunks = targets |> Enum.map(&target_entry(&1, opts)) |> Enum.chunk_every(@targets_per_query)
+
+      if length(chunks) > 1 do
+        Logger.warning("Github CI GraphQL batch alias overflow: targets=#{length(targets)} calls=#{length(chunks)}")
       end
 
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      fetch_target_chunk(request_fun, token, owner, repo, targets)
+      Enum.reduce_while(chunks, {:ok, %{}}, fn chunk, {:ok, acc} ->
+        case fetch_chunk(request_fun, token, owner, repo, chunk) do
+          {:ok, batch} -> {:cont, {:ok, Map.merge(acc, batch)}}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+      end)
     end
   end
 
-  defp fetch_target_chunk(request_fun, token, owner, repo, targets) do
-    fetch_pages(request_fun, token, owner, repo, targets, nil, [])
+  defp target_entry(target, opts) do
+    case known_branch(target, opts) do
+      nil -> %{target: target, branch: TicketBranch.legacy_branch_name(target), known_branch: false}
+      branch -> %{target: target, branch: branch, known_branch: true}
+    end
   end
 
-  defp fetch_pages(request_fun, token, owner, repo, targets, cursor, pull_requests) do
-    case Transport.github_graphql(request_fun, token, query(), %{"owner" => owner, "repo" => repo, "cursor" => cursor}) do
-      {:ok, body} ->
-        with {:ok, %{nodes: nodes, page_info: page_info}} <- parse_page(body) do
-          pull_requests = pull_requests ++ Enum.map(nodes, &normalize_pull_request/1)
+  defp known_branch(target, opts) do
+    branch =
+      opts |> Keyword.get(:branch_names_by_target, %{}) |> Map.get(target) ||
+        opts |> Keyword.get(:open_pull_requests_by_target, %{}) |> open_pull_request_head_ref(target)
 
-          if Map.get(page_info, "hasNextPage") == true do
-            Logger.warning("Github CI GraphQL batch overflow: pull_requests_page=true")
-            fetch_pages(request_fun, token, owner, repo, targets, Map.get(page_info, "endCursor"), pull_requests)
-          else
-            {:ok, match_targets(targets, pull_requests)}
-          end
+    if is_binary(branch) and branch != "", do: branch, else: nil
+  end
+
+  defp open_pull_request_head_ref(%{} = open_pull_requests, target) do
+    case Map.get(open_pull_requests, target) do
+      %{} = pull_request -> get_in(pull_request, ["head", "ref"])
+      _other -> nil
+    end
+  end
+
+  defp open_pull_request_head_ref(_open_pull_requests, _target), do: nil
+
+  defp fetch_chunk(request_fun, token, owner, repo, entries) do
+    indexed = Enum.with_index(entries)
+
+    case Transport.github_graphql(request_fun, token, query(indexed), %{"owner" => owner, "repo" => repo}) do
+      {:ok, body} ->
+        case get_in(body, ["data", "repository"]) do
+          %{} = repository -> {:ok, match_entries(indexed, repository)}
+          _other -> {:error, :ci_poll_batch_missing}
         end
 
       {:error, reason} ->
@@ -56,26 +80,34 @@ defmodule Aiur.GitHub.CIPollBatch do
     end
   end
 
-  defp query do
+  defp query(indexed) do
+    aliases = Enum.map_join(indexed, "\n", fn {entry, index} -> branch_alias(entry, index) end)
+
     """
-    query AiurCIPollBatch($owner: String!, $repo: String!, $cursor: String) {
+    query AiurCIPollBatch($owner: String!, $repo: String!) {
       repository(owner: $owner, name: $repo) {
-        pullRequests(first: 100, states: OPEN, after: $cursor) {
-          pageInfo { hasNextPage endCursor }
+        #{aliases}
+      }
+    }
+    """
+  end
+
+  defp branch_alias(%{branch: branch}, index) do
+    """
+    branch_#{index}: pullRequests(headRefName: "#{escape_graphql_string(branch)}", states: OPEN, first: #{@pull_requests_per_branch}) {
+      pageInfo { hasNextPage }
+      nodes {
+        number state headRefName headRefOid baseRefName
+        commits(last: 1) {
           nodes {
-            number state headRefName headRefOid baseRefName
-            commits(last: 1) {
-              nodes {
-                commit {
-                  statusCheckRollup {
-                    contexts(first: 100) {
-                      pageInfo { hasNextPage endCursor }
-                      nodes {
-                        __typename
-                        ... on CheckRun { name status conclusion detailsUrl startedAt completedAt output { summary text } }
-                        ... on StatusContext { context state targetUrl createdAt description }
-                      }
-                    }
+            commit {
+              statusCheckRollup {
+                contexts(first: 100) {
+                  pageInfo { hasNextPage endCursor }
+                  nodes {
+                    __typename
+                    ... on CheckRun { name status conclusion detailsUrl startedAt completedAt output { summary text } }
+                    ... on StatusContext { context state targetUrl createdAt description }
                   }
                 }
               }
@@ -87,28 +119,52 @@ defmodule Aiur.GitHub.CIPollBatch do
     """
   end
 
-  defp parse_page(body) do
-    with %{} = pull_requests <- get_in(body, ["data", "repository", "pullRequests"]),
-         nodes when is_list(nodes) <- Map.get(pull_requests, "nodes"),
-         %{} = page_info <- Map.get(pull_requests, "pageInfo") do
-      {:ok, %{nodes: nodes, page_info: page_info}}
+  defp escape_graphql_string(value) do
+    value |> String.replace("\\", "\\\\") |> String.replace("\"", "\\\"")
+  end
+
+  defp match_entries(indexed, repository) do
+    Enum.reduce(indexed, %{}, fn {entry, index}, acc ->
+      case Map.get(repository, "branch_#{index}") do
+        %{"nodes" => nodes} = connection when is_list(nodes) ->
+          put_entry_result(acc, entry, nodes, Map.get(connection, "pageInfo") || %{})
+
+        _other ->
+          Logger.warning("Github CI GraphQL batch alias missing: target=#{entry.target}")
+          acc
+      end
+    end)
+  end
+
+  defp put_entry_result(acc, entry, nodes, page_info) do
+    if Map.get(page_info, "hasNextPage") == true do
+      # More open PRs share the head branch than one page covers; leave the
+      # target to REST fallback so the truncated listing is never trusted.
+      Logger.warning("Github CI GraphQL batch overflow: head_ref_pull_requests target=#{entry.target}")
+      acc
     else
-      _ -> {:error, :ci_poll_batch_missing}
+      put_first_pull_request(acc, entry, List.first(nodes))
     end
   end
 
-  defp match_targets(targets, pull_requests) do
-    Enum.reduce(targets, %{}, fn target, acc ->
-      pull_request =
-        Enum.find(pull_requests, fn pr -> TicketBranch.ticket_branch?(get_in(pr, [:pull_request, "head", "ref"]), target) end)
+  # The legacy `aiur/<id>` branch guess found nothing. The ticket may use a
+  # suffixed branch this cycle does not know, so leave the target to REST
+  # fallback rather than claiming no PR exists.
+  defp put_first_pull_request(acc, %{known_branch: false}, nil), do: acc
 
-      if contexts_overflow?(pull_request) do
-        Logger.warning("Github CI GraphQL batch overflow: status_contexts target=#{target}")
-        acc
-      else
-        Map.put(acc, target, pull_request || %{pull_request: nil, check_runs: [], commit_status: empty_commit_status()})
-      end
-    end)
+  defp put_first_pull_request(acc, entry, nil) do
+    Map.put(acc, entry.target, %{pull_request: nil, check_runs: [], commit_status: empty_commit_status()})
+  end
+
+  defp put_first_pull_request(acc, entry, node) do
+    result = normalize_pull_request(node)
+
+    if Map.get(result, :contexts_overflow) do
+      Logger.warning("Github CI GraphQL batch overflow: status_contexts target=#{entry.target}")
+      acc
+    else
+      Map.put(acc, entry.target, result)
+    end
   end
 
   defp normalize_pull_request(node) do
@@ -177,7 +233,4 @@ defmodule Aiur.GitHub.CIPollBatch do
 
   defp normalize_optional_string(nil), do: nil
   defp normalize_optional_string(value), do: value |> to_string() |> String.downcase()
-
-  defp contexts_overflow?(%{contexts_overflow: true}), do: true
-  defp contexts_overflow?(_pull_request), do: false
 end

@@ -162,8 +162,11 @@ defmodule Aiur.GitHub.Issues do
       state_names
       |> Enum.map(&StatePolicy.state_label(prefix, &1))
       |> Enum.reduce_while({:ok, %{}, cache}, fn label, {:ok, issues_by_id, cache} ->
+        # Percent-encode reserved characters (":" -> "%3A") so the locally
+        # built first-page URL matches GitHub's Link-header pagination URLs,
+        # which key the conditional page cache.
         url =
-          "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues?labels=#{URI.encode(label)}&state=open&per_page=100"
+          "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues?labels=#{URI.encode(label, &URI.char_unreserved?/1)}&state=open&per_page=100"
 
         case fetch_label_issue_pages_conditional(
                request_fun,
@@ -177,6 +180,7 @@ defmodule Aiur.GitHub.Issues do
           {:ok, issues, label_cache} ->
             merged =
               Map.merge(issues_by_id, Map.new(issues, &{&1.id, &1}), fn _key, old, _new -> old end)
+
             {:cont, {:ok, merged, Map.put(cache, label, label_cache)}}
 
           {:error, _reason} = error ->
@@ -192,6 +196,7 @@ defmodule Aiur.GitHub.Issues do
 
   defp fetch_label_issue_pages_conditional(request_fun, first_url, token, owner, repo, prefix, label_cache) do
     cached_pages = Map.get(label_cache, :pages, %{})
+
     fetch_label_issue_pages_conditional(
       request_fun,
       first_url,
@@ -241,34 +246,36 @@ defmodule Aiur.GitHub.Issues do
           page.next_url
         )
 
-      {:ok, %{status: 304}} when is_list(cached_page[:issues]) ->
-        next_url = cached_page[:next_url]
-        continue_conditional_pages(
-          request_fun,
-          token,
-          owner,
-          repo,
-          prefix,
-          cached_pages,
-          Map.put(next_pages, url, cached_page),
-          acc ++ cached_page.issues,
-          next_url
-        )
-
       {:ok, %{status: 304}} ->
-        # A process restart should not turn a conditional response into an
-        # incomplete list. Retry once without the stale ETag.
-        fetch_label_issue_pages_conditional(
-          request_fun,
-          url,
-          token,
-          owner,
-          repo,
-          prefix,
-          Map.delete(cached_pages, url),
-          next_pages,
-          acc
-        )
+        case cached_page do
+          %{issues: issues} when is_list(issues) ->
+            continue_conditional_pages(
+              request_fun,
+              token,
+              owner,
+              repo,
+              prefix,
+              cached_pages,
+              Map.put(next_pages, url, cached_page),
+              acc ++ issues,
+              Map.get(cached_page, :next_url)
+            )
+
+          _ ->
+            # A process restart should not turn a conditional response into an
+            # incomplete list. Retry once without the stale ETag.
+            fetch_label_issue_pages_conditional(
+              request_fun,
+              url,
+              token,
+              owner,
+              repo,
+              prefix,
+              Map.delete(cached_pages, url),
+              next_pages,
+              acc
+            )
+        end
 
       {:ok, %{status: _status} = response} ->
         {:error, Errors.github_status_error(response)}
@@ -289,7 +296,7 @@ defmodule Aiur.GitHub.Issues do
          issues,
          nil
        ),
-    do: {:ok, issues, %{pages: pages}}
+       do: {:ok, issues, %{pages: pages}}
 
   defp continue_conditional_pages(request_fun, token, owner, repo, prefix, cached_pages, pages, issues, next_url) do
     fetch_label_issue_pages_conditional(
