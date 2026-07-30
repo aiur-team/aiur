@@ -26,7 +26,8 @@ defmodule Aiur.GitHub.CycleFetchCache do
     :ok
   end
 
-  @spec fetch(term(), (-> {:ok, term()} | {:error, term()})) :: {:ok, term()} | {:error, term()}
+  @spec fetch(term(), (-> {:ok, term()} | {:not_modified, term()} | {:error, term()})) ::
+          {:ok, term()} | {:not_modified, term()} | {:error, term()}
   def fetch(key, fetcher) when is_function(fetcher, 0) do
     case :ets.whereis(@table) do
       :undefined -> fetcher.()
@@ -47,14 +48,17 @@ defmodule Aiur.GitHub.CycleFetchCache do
         result
 
       [] ->
-        case fetcher.() do
-          {:ok, _value} = result ->
-            true = :ets.insert(table, {key, result})
-            result
+        result = fetcher.()
 
-          result ->
-            result
+        if cacheable_result?(result) do
+          true = :ets.insert(table, {key, result})
         end
+
+        result
     end
   end
+
+  defp cacheable_result?({:ok, _value}), do: true
+  defp cacheable_result?({:not_modified, _etag}), do: true
+  defp cacheable_result?(_result), do: false
 end

@@ -34,4 +34,18 @@ defmodule Aiur.GitHub.CycleFetchCacheTest do
     assert {:error, :temporary} = CycleFetchCache.fetch(:key, fn -> {:error, :temporary} end)
     assert {:ok, :recovered} = CycleFetchCache.fetch(:key, fn -> {:ok, :recovered} end)
   end
+
+  test "shares conditional not-modified responses" do
+    assert :ok = CycleFetchCache.start_cycle()
+
+    fetcher = fn ->
+      send(self(), :fetched)
+      {:not_modified, "etag"}
+    end
+
+    assert {:not_modified, "etag"} = CycleFetchCache.fetch(:key, fetcher)
+    assert {:not_modified, "etag"} = CycleFetchCache.fetch(:key, fetcher)
+    assert_received :fetched
+    refute_received :fetched
+  end
 end
