@@ -140,6 +140,9 @@ repo-local Executor skills available to it, then ask it to "run aiur" — see
 See [src/README.md](src/README.md) for setup, configuration, and the `aiur` command
 reference (foreground, background, and `stop` modes on Linux and macOS).
 
+For the Stream Deck emulator and optional hardware acceptance flow, see the
+[Stream Deck end-to-end proof runbook](docs/research/streamdeck-end-to-end-proof.md).
+
 ---
 
 ## Upstream
