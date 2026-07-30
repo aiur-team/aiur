@@ -1,16 +1,17 @@
 # Aiur Stream Deck sidecar
 
-This package runs the direct-HID Node sidecar for an Elgato Stream Deck on
-Arch Linux. The sidecar owns the device and connects to the Aiur Phoenix
-surface. It is deliberately an always-running, hotplug-aware user service:
-the process stays alive when the deck is unplugged or absent and #1354
-reopens it when udev reports a new device.
+This package ships the deployment artifacts and operator runbook for the
+direct-HID Node sidecar for an Elgato Stream Deck on Arch Linux. The sidecar
+owns the device and connects to the Aiur Phoenix surface. It is deliberately
+an always-running, hotplug-aware user service: the process stays alive when
+the deck is unplugged or absent and #1354 reopens it when udev reports a new
+device.
 
-The examples below assume the built sidecar is installed at
-`~/.local/share/aiur/streamdeck`. If the package is checked out locally, build
-it with the package's normal `npm ci` and `npm run build` commands, then copy
-the resulting `dist/` and runtime dependencies to that directory. The unit
-expects `dist/index.js`.
+Build and install the sidecar runtime from the #1354 implementation before
+enabling this unit. The examples below assume its built artifact is installed
+at `~/.local/share/aiur/streamdeck`; copy its `dist/` and runtime dependencies
+there. The unit expects `dist/index.js`. This ticket's rules, unit, and README
+do not contain the runtime JavaScript or a populated credential file.
 
 ## Prerequisites
 
