@@ -157,9 +157,8 @@ defmodule AiurWeb.StreamdeckProjection do
   defp newer_provider_observation?(%ProviderMeterSnapshot{}, %{"observed_at" => nil}), do: true
 
   defp newer_provider_observation?(%ProviderMeterSnapshot{observed_at: observed_at}, %{"observed_at" => current_observed_at}) do
-    with {:ok, current_observed_at, _offset} <- DateTime.from_iso8601(current_observed_at) do
-      DateTime.compare(observed_at, current_observed_at) != :lt
-    else
+    case DateTime.from_iso8601(current_observed_at) do
+      {:ok, current_observed_at, _offset} -> DateTime.compare(observed_at, current_observed_at) != :lt
       _ -> true
     end
   end
