@@ -11,3 +11,10 @@ Discoveries preserved without expanding the active boundary.
 - aiur-claude npm publish gap (1.0.0 lacks rate-limit support) — unrelated.
 - No dependabot/renovate config exists (pre-existing; Renovate recommended).
 - 17 legacy hardcoded text colors in dashboard.css (allowlisted by theme test).
+
+## From PR reviews (run-time)
+- PR #1371 (AS-203/#1344), P2: ControlOrchestrator test mock speaks the raw
+  GenServer call-tuple protocol instead of stubbing the Orchestrator API
+  boundary — protocol drift would keep tests green while the real path broke.
+- PR #1371, P2: restore_runtime_config reaches into Phoenix endpoint ETS
+  internals; a Phoenix upgrade could silently break config restoration.
