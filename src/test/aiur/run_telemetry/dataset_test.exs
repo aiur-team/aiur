@@ -243,6 +243,31 @@ defmodule Aiur.RunTelemetry.DatasetTest do
     assert [%{status: "resolved", comment_source_id: "comment:1"}] = dataset.findings
   end
 
+  test "accepts writer admission_overflow markers as plain warning records" do
+    path = temporary_stream!()
+
+    overflow_marker = %{
+      schema_version: 1,
+      kind: "warning",
+      timestamp: "2026-07-11T01:00:01Z",
+      recorded_at: "2026-07-11T01:00:01Z",
+      boot_id: "test-boot",
+      sequence: 2,
+      record_id: "test-boot:2",
+      attributes: %{reason: "admission_overflow", dropped_count: 17}
+    }
+
+    records = [lifecycle_record(1, "dispatch", "start", ~U[2026-07-11 01:00:00Z]), overflow_marker]
+    File.write!(path, Enum.map_join(records, "\n", &Jason.encode!/1) <> "\n")
+
+    assert {:ok, dataset} = Dataset.build(path, now: ~U[2026-07-11 01:10:00Z])
+
+    marker = Enum.find(dataset.records, &(&1.kind == "warning"))
+    assert marker.attributes["reason"] == "admission_overflow"
+    assert marker.attributes["dropped_count"] == 17
+    refute Enum.any?(dataset.warnings, &(&1.type in [:invalid_record, :unknown_kind, :malformed_line]))
+  end
+
   test "returns an explicit error when no telemetry file exists" do
     empty = Path.join(System.tmp_dir!(), "aiur-empty-dataset-#{System.unique_integer([:positive])}")
     File.mkdir_p!(empty)

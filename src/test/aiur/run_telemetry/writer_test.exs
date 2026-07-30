@@ -134,12 +134,84 @@ defmodule Aiur.RunTelemetry.WriterTest do
 
     write_count = :atomics.get(writes, 1)
     assert write_count > 2
-    assert write_count <= 257
+    # restart + admitted records + one admission_overflow marker on drain
+    assert write_count <= 258
     assert length(read_records(path)) == write_count
 
     assert :ok = Writer.record(writer, :resource, %{actor: :after_drain})
     assert :ok = Writer.flush(writer)
     assert :atomics.get(writes, 1) == write_count + 1
+  end
+
+  test "overflow logs once on entry and drains into one marker record", %{path: path} do
+    import ExUnit.CaptureLog
+
+    writes = :atomics.new(1, signed: false)
+    blocked = :atomics.new(1, signed: false)
+
+    write_fun = fn path, contents ->
+      :atomics.add(writes, 1, 1)
+
+      if :atomics.get(blocked, 1) == 1 do
+        receive do
+          :release -> :ok
+        end
+      end
+
+      File.write(path, contents, [:append])
+    end
+
+    {:ok, writer} = Writer.start_link(name: nil, path: path, boot_id: "overflow", write_fun: write_fun)
+
+    overload = fn dropped ->
+      :atomics.put(blocked, 1, 1)
+      # One record occupies the writer inside the blocked write; 255 more fill
+      # the pending window; every further record is refused at admission.
+      capture_log(fn ->
+        for index <- 1..(256 + dropped) do
+          assert :ok = Writer.record(writer, :resource, %{actor: index})
+        end
+      end)
+    end
+
+    log = overload.(40)
+    assert length(Regex.scan(~r/admission_overflow/, log)) == 1
+
+    :atomics.put(blocked, 1, 0)
+    send(writer, :release)
+    assert :ok = Writer.flush(writer)
+
+    markers =
+      path
+      |> read_records()
+      |> Enum.filter(&(&1["kind"] == "warning" and &1["attributes"]["reason"] == "admission_overflow"))
+
+    assert [%{"attributes" => %{"dropped_count" => 40}}] = markers
+
+    # A later, distinct overload logs again and produces its own marker.
+    second_log = overload.(3)
+    assert length(Regex.scan(~r/admission_overflow/, second_log)) == 1
+
+    :atomics.put(blocked, 1, 0)
+    send(writer, :release)
+    assert :ok = Writer.flush(writer)
+
+    dropped_counts =
+      path
+      |> read_records()
+      |> Enum.filter(&(&1["kind"] == "warning" and &1["attributes"]["reason"] == "admission_overflow"))
+      |> Enum.map(& &1["attributes"]["dropped_count"])
+
+    assert dropped_counts == [40, 3]
+  end
+
+  test "no overflow marker is written when nothing was dropped", %{path: path} do
+    {:ok, writer} = Writer.start_link(name: nil, path: path, boot_id: "quiet")
+
+    assert :ok = Writer.record(writer, :resource, %{actor: "calm"})
+    assert :ok = Writer.flush(writer)
+
+    refute Enum.any?(read_records(path), &(&1["kind"] == "warning"))
   end
 
   test "malformed submissions and ignored messages remain fail-open", %{path: path} do
