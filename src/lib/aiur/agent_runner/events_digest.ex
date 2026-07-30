@@ -64,7 +64,7 @@ defmodule Aiur.AgentRunner.EventsDigest do
   # is excluded until it has an explicit trust policy.
   defp author_trusted_for_digest?(event) when is_map(event) do
     if ci_lifecycle_event?(event_field(event, :topic), event_field(event, :source)) or
-         decision_lifecycle_event?(event_field(event, :topic), event_field(event, :source)) do
+         internal_digest_source?(event_field(event, :source), event_field(event, :digest_source)) do
       true
     else
       case event_field(event, :source) do
@@ -91,27 +91,17 @@ defmodule Aiur.AgentRunner.EventsDigest do
 
   defp ci_lifecycle_event?(_, _), do: false
 
-  # Decision lifecycle events are constructed and published only by
-  # DecisionStore (orchestrator-side); their payloads carry a domain
-  # `source` map (the decision's source record), not a provenance atom,
-  # so they cannot be admitted via the source allowlist above. Trust is
-  # granted by topic instead — unless the event is explicitly stamped
-  # `source: :github` (firehose provenance), which stays fail-closed.
-  # This keeps decision lifecycle events in blocked agents' digests
-  # without mutating the published payload shape that DecisionMetrics,
-  # delivery, and dashboard consumers decode.
-  defp decision_lifecycle_event?(topic, source) when is_binary(topic) do
-    if source in [:github, "github"] do
-      false
-    else
-      case String.split(topic, ".") do
-        ["ticket", identifier, "agent", "decision", slug] when identifier != "" and slug != "" -> true
-        _ -> false
-      end
-    end
-  end
+  # Some orchestrator payloads (notably decision lifecycle events) own a
+  # domain `source` map. Publisher sets this separate, reserved provenance
+  # marker after dropping any payload-supplied value, so those events retain
+  # their schema without a topic-only exception that could admit a future
+  # untrusted tracker source. GitHub remains external even if a malformed
+  # event carries an internal marker.
+  defp internal_digest_source?(source, digest_source)
+       when source not in [:github, "github"] and digest_source in [:agent, :orchestrator, :system],
+       do: true
 
-  defp decision_lifecycle_event?(_, _), do: false
+  defp internal_digest_source?(_, _), do: false
 
   # Coalesce block/unblock oscillation: group by (ticket_id, kind); within the
   # configured debounce window (default 10s), only the latest survives in

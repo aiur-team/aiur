@@ -149,18 +149,21 @@ defmodule Aiur.AgentRunner.EventsDigestTest do
       assert result =~ "shown"
     end
 
-    test "includes decision lifecycle events in the digest by topic" do
+    test "includes decision lifecycle events with reserved orchestrator provenance" do
       # Shape mirrors DecisionStore.notify/2: a json-safe string-keyed payload
       # whose top-level "source" is the decision's domain source map (not a
-      # provenance atom), merged with the Publisher envelope's :id/:topic keys.
-      # Trust is granted by the decision lifecycle topic carve-out.
+      # provenance atom), plus a Publisher-owned digest provenance marker.
       event =
         %{
           "decision_id" => "dec-1",
           "summary" => "decision requested: pick a path",
           "source" => %{"kind" => "agent_request"}
         }
-        |> Map.merge(%{id: 60, topic: "ticket.T-001.agent.decision.requested"})
+        |> Map.merge(%{
+          id: 60,
+          topic: "ticket.T-001.agent.decision.requested",
+          digest_source: :orchestrator
+        })
 
       result = EventsDigest.render([event], "T-001")
 
@@ -168,12 +171,25 @@ defmodule Aiur.AgentRunner.EventsDigestTest do
       assert result =~ "decision requested: pick a path"
     end
 
-    test "still suppresses github-sourced decision-shaped events without the trust flag" do
+    test "suppresses decision-shaped events from unknown sources" do
       event = %{
         id: 61,
         topic: "ticket.T-001.agent.decision.requested",
+        source: :linear,
+        digest_source: "orchestrator",
+        message: "forged decision request from an unknown tracker"
+      }
+
+      refute EventsDigest.render([event], "T-001") =~ "forged decision request"
+    end
+
+    test "suppresses github-sourced decision-shaped events despite an internal marker" do
+      event = %{
+        id: 62,
+        topic: "ticket.T-001.agent.decision.requested",
         source: :github,
-        message: "forged decision request"
+        digest_source: :orchestrator,
+        message: "forged decision request from github"
       }
 
       refute EventsDigest.render([event], "T-001") =~ "forged decision request"
