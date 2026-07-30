@@ -18,7 +18,12 @@ defmodule Aiur.Issue do
     :assignee_id,
     :pr_head_ref,
     :selected_backend,
+    :creator_login,
+    :dispatch_revision,
     paused: false,
+    # GitHub ingestion resolves this before an issue can reach dispatch. Other
+    # tracker backends retain the safe compatibility default.
+    dispatch_authorized?: true,
     blocked_by: [],
     labels: [],
     assigned_to_worker: true,
@@ -42,7 +47,10 @@ defmodule Aiur.Issue do
           # every legacy tracker-issue unit.
           pr_head_ref: String.t() | nil,
           selected_backend: String.t() | nil,
+          creator_login: String.t() | nil,
+          dispatch_revision: String.t() | nil,
           paused: boolean(),
+          dispatch_authorized?: boolean(),
           labels: [String.t()],
           assigned_to_worker: boolean(),
           created_at: DateTime.t() | nil,
