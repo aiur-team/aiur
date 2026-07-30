@@ -127,6 +127,10 @@ defmodule AiurWeb.Router do
     match(:*, "/api/v1/refresh", ObservabilityApiController, :method_not_allowed)
     post("/api/v1/:issue_identifier/messages", ObservabilityApiController, :send_message)
     match(:*, "/api/v1/:issue_identifier/messages", ObservabilityApiController, :method_not_allowed)
+    post("/api/v1/:issue_identifier/pause", ObservabilityApiController, :pause)
+    match(:*, "/api/v1/:issue_identifier/pause", ObservabilityApiController, :method_not_allowed)
+    post("/api/v1/:issue_identifier/resume", ObservabilityApiController, :resume)
+    match(:*, "/api/v1/:issue_identifier/resume", ObservabilityApiController, :method_not_allowed)
   end
 
   # Machine-to-machine write surfaces that are NOT browser-facing and must keep
@@ -146,10 +150,13 @@ defmodule AiurWeb.Router do
   scope "/", AiurWeb do
     pipe_through(:dashboard_auth)
 
+    post("/api/v1/streamdeck/token", StreamdeckSessionController, :create)
     get("/api/v1/state", ObservabilityApiController, :state)
+    get("/api/v1/streamdeck/grid", ObservabilityApiController, :streamdeck_grid)
     get("/api/v1/:issue_identifier", ObservabilityApiController, :issue)
     match(:*, "/", ObservabilityApiController, :method_not_allowed)
     match(:*, "/api/v1/state", ObservabilityApiController, :method_not_allowed)
+    match(:*, "/api/v1/streamdeck/grid", ObservabilityApiController, :method_not_allowed)
     match(:*, "/api/v1/:issue_identifier", ObservabilityApiController, :method_not_allowed)
     match(:*, "/*path", ObservabilityApiController, :not_found)
   end

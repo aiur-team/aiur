@@ -2,7 +2,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   @moduledoc """
   Reshapes the durable `Aiur.RunTelemetry` dataset into the analytics view
   model: a bucketed per-actor resource series, run KPIs, and per-ticket
-  lifecycle rows. Pure `model/2` is driven by an already-built dataset so it is
+  lifecycle rows plus a dispatch-time complexity breakdown. Pure `model/2` is driven by an already-built dataset so it is
   unit-testable against a fixture; `load/1` resolves the live telemetry file,
   concurrency cap, core count, and host memory before delegating to it.
 
@@ -33,6 +33,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
           actors: [map()],
           series: [map()],
           tickets: [map()],
+          complexity_breakdown: [map()],
           kpis: map()
         }
 
@@ -149,6 +150,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
 
     series = build_series(bucketed, display, display_keys, axis0, bw, buckets)
     kpis = compute_kpis(series, tickets, %{cap: cap, cores: cores, host_mem: host_mem, bw: bw, dataset: dataset}, opts)
+    complexity_breakdown = complexity_breakdown(tickets)
 
     rows =
       tickets
@@ -166,6 +168,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
       actors: display,
       series: series,
       tickets: rows,
+      complexity_breakdown: complexity_breakdown,
       kpis: kpis
     }
   end
@@ -339,6 +342,56 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   defp merged?(ticket) do
     ticket |> Map.get(:intervals, []) |> Enum.any?(&(Map.get(&1, :phase) == "pr_merged"))
   end
+
+  # Complexity is recorded on the dispatch lifecycle event, so this grouping
+  # remains historical even if a tracker label changes after the run. A ticket
+  # contributes to its tier's count when it was dispatched; its average uses
+  # the observed wall-clock span from dispatch through the latest lifecycle
+  # boundary (open work is therefore still useful, but naturally provisional).
+  defp complexity_breakdown(tickets) do
+    samples =
+      tickets
+      |> Enum.map(fn {_id, ticket} -> {Map.get(ticket, :complexity), ticket_wall_clock_ms(ticket)} end)
+      |> Enum.filter(fn {complexity, _duration_ms} -> is_integer(complexity) and complexity in 1..5 end)
+
+    for tier <- 1..5 do
+      tier_samples = Enum.filter(samples, fn {complexity, _duration_ms} -> complexity == tier end)
+      durations = tier_samples |> Enum.map(&elem(&1, 1)) |> Enum.filter(&is_integer/1)
+
+      %{
+        tier: tier,
+        count: length(tier_samples),
+        average_wall_clock_ms: average_integer(durations)
+      }
+    end
+  end
+
+  defp ticket_wall_clock_ms(ticket) do
+    intervals = Map.get(ticket, :intervals, [])
+
+    dispatch_ms =
+      ticket
+      |> Map.get(:events, [])
+      |> Enum.find_value(fn
+        %{event: "dispatch", timestamp_ms: timestamp_ms} when is_integer(timestamp_ms) -> timestamp_ms
+        _event -> nil
+      end)
+
+    starts = intervals |> Enum.map(&Map.get(&1, :start_ms)) |> Enum.filter(&is_integer/1)
+
+    ends =
+      intervals
+      |> Enum.flat_map(fn interval -> [Map.get(interval, :end_ms), Map.get(interval, :start_ms)] end)
+      |> Enum.filter(&is_integer/1)
+
+    start_ms = dispatch_ms || Enum.min(starts, fn -> nil end)
+    end_ms = Enum.max(ends, fn -> nil end)
+
+    if is_integer(start_ms) and is_integer(end_ms), do: max(end_ms - start_ms, 0)
+  end
+
+  defp average_integer([]), do: nil
+  defp average_integer(values), do: round(Enum.sum(values) / length(values))
 
   defp phase_start(intervals, phases) do
     intervals
