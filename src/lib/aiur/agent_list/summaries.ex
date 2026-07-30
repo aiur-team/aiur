@@ -131,14 +131,16 @@ defmodule Aiur.AgentList.Summaries do
   # back to the original string for non-numeric identifiers (test
   # fixtures like "MT-FOCUS" or future namespaced ids) so they group
   # together rather than crash the sort.
-  defp identifier_sort_key(nil), do: {1, ""}
+  @doc "Natural sort key shared by fleet surfaces for ticket identifiers."
+  @spec identifier_sort_key(term()) :: {0 | 1, integer() | String.t()}
+  def identifier_sort_key(nil), do: {1, ""}
 
-  defp identifier_sort_key(identifier) when is_binary(identifier) do
+  def identifier_sort_key(identifier) when is_binary(identifier) do
     case Integer.parse(identifier) do
       {n, ""} -> {0, n}
       _ -> {1, identifier}
     end
   end
 
-  defp identifier_sort_key(other), do: {1, to_string(other)}
+  def identifier_sort_key(other), do: {1, to_string(other)}
 end

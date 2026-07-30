@@ -16,6 +16,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
   attr(:analytics_model, :any, default: nil)
   attr(:analytics_unavailable, :any, default: nil)
   attr(:analytics_loading, :boolean, default: false)
+  attr(:time_domain, :any, default: nil)
 
   @spec build_order_selected(map()) :: Phoenix.LiveView.Rendered.t()
   def build_order_selected(assigns) do
@@ -72,6 +73,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
           model={@analytics_model}
           unavailable={@analytics_unavailable}
           loading={@analytics_loading}
+          time_domain={@time_domain}
         />
 
         <ul :if={@model.diagnostics != []} class="bo-diagnostics" aria-label="Build Order diagnostics">

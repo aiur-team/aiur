@@ -4,7 +4,8 @@ defmodule Aiur.DecisionStore.RetainedSnapshot.QueryPlan do
   alias Aiur.Decision
   alias Aiur.DecisionStore.RetainedIndex
 
-  @lifecycle_statuses [:open, :expired, :dismissed, :decided, :acknowledged, :resolved]
+  @lifecycle_statuses [:deferred, :expired, :dismissed, :decided, :acknowledged, :resolved]
+  @open_statuses [:open, :deferred]
   @historic_statuses [:expired, :dismissed, :decided, :acknowledged, :resolved]
   @maximum_candidate_reads 1_000
 
@@ -36,6 +37,12 @@ defmodule Aiur.DecisionStore.RetainedSnapshot.QueryPlan do
   defp candidate(index, %{search: search} = query) when is_binary(search),
     do: RetainedIndex.search(index, search, ordering(query))
 
+  defp candidate(index, %{lifecycle: :open} = query) do
+    @open_statuses
+    |> Enum.map(&RetainedIndex.lifecycle(index, &1, ordering(query)))
+    |> Enum.reduce(:gb_sets.empty(), &:gb_sets.union/2)
+  end
+
   defp candidate(index, %{lifecycle: lifecycle} = query) when lifecycle in @lifecycle_statuses,
     do: RetainedIndex.lifecycle(index, lifecycle, ordering(query))
 
@@ -52,6 +59,7 @@ defmodule Aiur.DecisionStore.RetainedSnapshot.QueryPlan do
   end
 
   defp lifecycle_match?(_decision, nil), do: true
+  defp lifecycle_match?(decision, :open), do: decision.decision_status in @open_statuses
   defp lifecycle_match?(decision, :historic), do: decision.decision_status in @historic_statuses
   defp lifecycle_match?(decision, lifecycle), do: decision.decision_status == lifecycle
   defp ticket_match?(_decision, nil), do: true

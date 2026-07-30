@@ -10,6 +10,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     BuildOrderGraph,
     BuildOrderIcon,
     DecisionAction,
+    DecisionCard,
     DecisionDetail,
     DecisionInbox,
     DecisionLatency,
@@ -473,7 +474,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert html =~ ">Decision</button>"
   end
 
-  test "renders recommended card-face choices with Decision and Dismiss actions" do
+  test "renders recommended card-face choices with Decision and Defer-to-Executor actions" do
     decision = action_decision([])
 
     html =
@@ -489,7 +490,8 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert html =~ ~s(checked)
     assert html =~ "Recommended"
     assert html =~ ~s(phx-submit="answer-decision")
-    assert html =~ ~s(phx-click="dismiss-decision")
+    assert html =~ ~s(phx-click="defer-decision")
+    assert html =~ "Defer to Executor"
     assert html =~ ">Decision</button>"
   end
 
@@ -506,7 +508,41 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
 
     assert html =~ ~s(phx-submit="answer-decision")
     assert html =~ "Change choice"
-    refute html =~ ~s(phx-click="dismiss-decision")
+    refute html =~ ~s(phx-click="defer-decision")
+  end
+
+  test "deferred card stays answerable with a distinct Executor badge" do
+    decision =
+      action_decision(decision_status: :deferred)
+      |> Map.merge(%{
+        created_at: ~U[2026-07-30 12:00:00Z],
+        ticket: %{identifier: "1380", title: "Deferred decision", url: nil},
+        context: %{short: nil, long_markdown: nil},
+        question: "Which release train should ship?",
+        urgency: :normal,
+        source: %{agent_id: nil},
+        blocking: false,
+        artifacts: [],
+        revision_sequence: 0,
+        superseded?: false,
+        provenance: nil
+      })
+
+    html = render_component(&DecisionAction.decision_action/1, %{decision: decision, state: %{}, writable: true, compact: true})
+
+    assert html =~ ~s(phx-submit="answer-decision")
+    assert html =~ "Change choice"
+    assert html =~ ~s(phx-click="defer-decision")
+    assert html =~ "Notify Executor again"
+
+    card_html =
+      render_component(&DecisionCard.decision_card/1, %{
+        decision: decision,
+        writable: true,
+        now: ~U[2026-07-30 12:00:00Z]
+      })
+
+    assert card_html =~ "Deferred to Executor"
   end
 
   test "renders canonical answer evidence and gates failed-delivery retry by writable mode" do

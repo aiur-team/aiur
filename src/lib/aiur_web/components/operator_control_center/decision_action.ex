@@ -17,8 +17,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
       assign(assigns,
         form: form,
         choice: choice,
-        answerable?: assigns.decision.decision_status in [:open, :dismissed],
-        dismissible?: assigns.decision.decision_status == :open,
+        answerable?: assigns.decision.decision_status in [:open, :deferred, :dismissed],
+        deferrable?: assigns.decision.decision_status in [:open, :deferred],
         error: Map.get(assigns.state, :error),
         notice: Map.get(assigns.state, :notice)
       )
@@ -86,14 +86,14 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
         <footer class="decision-action-footer">
           <div class="decision-action-buttons">
             <button
-              :if={@dismissible?}
+              :if={@deferrable?}
               class="btn ghost"
               type="button"
-              phx-click="dismiss-decision"
+              phx-click="defer-decision"
               phx-value-decision-id={@decision.decision_id}
-              phx-disable-with="Dismissing…"
-            >Dismiss</button>
-            <button class="btn" type="submit" phx-disable-with="Recording…">{if @decision.decision_status == :dismissed, do: "Change choice", else: "Decision"}</button>
+              phx-disable-with="Deferring…"
+            >{if @decision.decision_status == :deferred, do: "Notify Executor again", else: "Defer to Executor"}</button>
+            <button class="btn" type="submit" phx-disable-with="Recording…">{if @decision.decision_status in [:dismissed, :deferred], do: "Change choice", else: "Decision"}</button>
           </div>
         </footer>
       </form>

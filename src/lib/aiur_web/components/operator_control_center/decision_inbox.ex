@@ -138,7 +138,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
     if is_nil(selected), do: filtered, else: [selected | filtered]
   end
 
-  defp open?(decision), do: decision.decision_status == :open
+  defp open?(decision), do: decision.decision_status in [:open, :deferred]
   defp blocking?(decision), do: decision.blocking and open?(decision)
 
   defp undelivered?(decision) do

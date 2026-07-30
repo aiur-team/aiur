@@ -161,6 +161,39 @@ defmodule Aiur.RunTelemetry.DatasetTest do
     assert [%{status: "broken", missing: ["agent_resume"]}] = out_of_order.findings
   end
 
+  test "normalizes dispatch complexity and ignores malformed tiers" do
+    path = temporary_stream!()
+
+    records = [
+      lifecycle_record(1, "dispatch", "point", ~U[2026-07-11 01:00:00Z], "complexity-string", %{complexity: "4"}),
+      lifecycle_record(2, "agent_pause", "point", ~U[2026-07-11 01:00:01Z], "complexity-bad", %{complexity: "high"}),
+      lifecycle_record(3, "dispatch", "point", ~U[2026-07-11 01:00:02Z], "complexity-out-of-range", %{ticket: "941", complexity: 6}),
+      lifecycle_record(4, "build_test", "end", ~U[2026-07-11 01:00:03Z], "orphan-end", %{ticket: "941"})
+    ]
+
+    File.write!(path, Enum.map_join(records, "\n", &Jason.encode!/1) <> "\n")
+
+    assert {:ok, dataset} = Dataset.build(path)
+    assert dataset.tickets["940"].complexity == 4
+    assert Enum.find(dataset.tickets["940"].events, &(&1.event == "dispatch")).complexity == 4
+    assert Enum.find(dataset.tickets["940"].events, &(&1.event == "agent_pause")).complexity == nil
+    assert dataset.tickets["941"].complexity == nil
+    assert Enum.any?(dataset.tickets["941"].intervals, &(&1.status == "orphan_end"))
+  end
+
+  test "degrades malformed, unsupported, and invalid-timestamp records independently" do
+    path = temporary_stream!()
+
+    unsupported = lifecycle_record(1, "dispatch", "point", ~U[2026-07-11 02:00:00Z]) |> Map.put(:schema_version, nil)
+    invalid_timestamp = lifecycle_record(2, "dispatch", "point", ~U[2026-07-11 02:00:01Z]) |> Map.put(:timestamp, "not-a-timestamp")
+
+    File.write!(path, Enum.map_join([[], unsupported, invalid_timestamp], "\n", &Jason.encode!/1) <> "\n")
+
+    assert {:ok, dataset} = Dataset.build(path)
+    warning_types = MapSet.new(dataset.warnings, & &1.type)
+    assert MapSet.subset?(MapSet.new([:invalid_record, :unsupported_schema, :invalid_timestamp]), warning_types)
+  end
+
   test "preserves repeated runtime transitions while deduplicating replayable boundaries" do
     path = temporary_stream!()
 
@@ -208,6 +241,31 @@ defmodule Aiur.RunTelemetry.DatasetTest do
 
     assert {:ok, dataset} = Dataset.build(path, now: ~U[2026-07-11 01:10:00Z])
     assert [%{status: "resolved", comment_source_id: "comment:1"}] = dataset.findings
+  end
+
+  test "accepts writer admission_overflow markers as plain warning records" do
+    path = temporary_stream!()
+
+    overflow_marker = %{
+      schema_version: 1,
+      kind: "warning",
+      timestamp: "2026-07-11T01:00:01Z",
+      recorded_at: "2026-07-11T01:00:01Z",
+      boot_id: "test-boot",
+      sequence: 2,
+      record_id: "test-boot:2",
+      attributes: %{reason: "admission_overflow", dropped_count: 17}
+    }
+
+    records = [lifecycle_record(1, "dispatch", "start", ~U[2026-07-11 01:00:00Z]), overflow_marker]
+    File.write!(path, Enum.map_join(records, "\n", &Jason.encode!/1) <> "\n")
+
+    assert {:ok, dataset} = Dataset.build(path, now: ~U[2026-07-11 01:10:00Z])
+
+    marker = Enum.find(dataset.records, &(&1.kind == "warning"))
+    assert marker.attributes["reason"] == "admission_overflow"
+    assert marker.attributes["dropped_count"] == 17
+    refute Enum.any?(dataset.warnings, &(&1.type in [:invalid_record, :unknown_kind, :malformed_line]))
   end
 
   test "returns an explicit error when no telemetry file exists" do
