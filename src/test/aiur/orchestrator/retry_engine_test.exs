@@ -133,11 +133,13 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
         RetryEngine.schedule_issue_retry(%State{}, "issue-new", 1, %{
           identifier: "repo#new",
           tracker_identity: identity,
+          priority: 1,
           delay_type: :continuation
         })
 
       retry = next.retry_attempts["issue-new"]
       assert retry.tracker_identity == identity
+      assert retry.priority == 1
       Process.cancel_timer(retry.timer_ref)
     end
 

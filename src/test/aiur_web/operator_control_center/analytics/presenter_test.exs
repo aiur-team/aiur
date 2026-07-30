@@ -44,6 +44,8 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.PresenterTest do
       },
       tickets: %{
         "5" => %{
+          complexity: 3,
+          events: [%{event: "dispatch", timestamp_ms: @t0}],
           intervals: [
             %{phase: "dispatch", status: "point", start_ms: @t0, end_ms: nil},
             %{phase: "implement", status: "measured", start_ms: @t0 + 60_000, end_ms: @t0 + 360_000},
@@ -51,6 +53,8 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.PresenterTest do
           ]
         },
         "6" => %{
+          complexity: 1,
+          events: [%{event: "dispatch", timestamp_ms: @t0 + 30_000}],
           intervals: [
             %{phase: "dispatch", status: "point", start_ms: @t0 + 30_000, end_ms: nil},
             %{phase: "implement", status: "measured", start_ms: @t0 + 90_000, end_ms: @t0 + 540_000},
@@ -108,6 +112,14 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.PresenterTest do
     assert by_id["5"].status == :merged
     assert by_id["5"].merged_at == @t0 + 480_000
     assert by_id["6"].status == :rework
+  end
+
+  test "groups dispatch-time complexity with average wall-clock and emdash-ready empty tiers" do
+    breakdown = model().complexity_breakdown
+
+    assert Enum.find(breakdown, &(&1.tier == 1)) == %{tier: 1, count: 1, average_wall_clock_ms: 540_000}
+    assert Enum.find(breakdown, &(&1.tier == 3)) == %{tier: 3, count: 1, average_wall_clock_ms: 480_000}
+    assert Enum.find(breakdown, &(&1.tier == 2)) == %{tier: 2, count: 0, average_wall_clock_ms: nil}
   end
 
   test "wasted capacity accumulates idle slot-hours under the cap" do
