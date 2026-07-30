@@ -181,6 +181,16 @@ defmodule AiurWeb.AnalyticsLive do
             </div>
             <div class="an-chart">{Phoenix.HTML.raw(Charts.burnup(@model))}</div>
           </section>
+
+          <section class="an-card wide">
+            <div class="an-card-head">
+              <div>
+                <h3 class="an-card-title">Complexity breakdown</h3>
+                <p class="an-card-sub">Ticket count by dispatch-time complexity tier with average wall-clock.</p>
+              </div>
+            </div>
+            <div class="an-chart">{Phoenix.HTML.raw(Charts.complexity_breakdown(@model))}</div>
+          </section>
         </div>
       </section>
     </DashboardShell.dashboard_shell>

@@ -16,7 +16,7 @@ defmodule Aiur.RunTelemetry.LifecycleTest do
     recorder = recorder(self())
 
     assert :ok =
-             Lifecycle.record("930", "930:attempt", :agent_spinup, :end, %{outcome: :failed, reason_class: :timeout, raw_output: "secret"},
+             Lifecycle.record("930", "930:attempt", :agent_spinup, :end, %{outcome: :failed, reason_class: :timeout, complexity: 3, raw_output: "secret"},
                recorder: recorder,
                timestamp: ~U[2026-07-11 12:00:00Z]
              )
@@ -28,6 +28,7 @@ defmodule Aiur.RunTelemetry.LifecycleTest do
     assert attributes.boundary == "end"
     assert attributes.outcome == "failed"
     assert attributes.reason_class == "timeout"
+    assert attributes.complexity == 3
     assert is_binary(attributes.event_key)
     refute Map.has_key?(attributes, :raw_output)
     assert opts[:timestamp] == ~U[2026-07-11 12:00:00Z]
