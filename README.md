@@ -117,6 +117,20 @@ browser count, with bounded retained roots and provider work. Restart clears all
 ticket detail, ticket history, and graph snapshots remain unavailable until fresh provider
 evidence succeeds.
 
+## Project layout
+
+Aiur's Elixir application lives in `src/`. Node packages are standalone projects under
+`packages/`, so each package owns its own manifest and lockfile. The Stream Deck package is
+currently a scaffold; build it with:
+
+```bash
+cd packages/streamdeck
+npm ci
+npm run lint
+npm test
+npm run build
+```
+
 ## Running Aiur
 
 Aiur works best in codebases with clear setup instructions, automated validation, and workflow
@@ -138,7 +152,9 @@ repo-local Executor skills available to it, then ask it to "run aiur" — see
 [Using Aiur with a coding agent](#using-aiur-with-a-coding-agent).
 
 See [src/README.md](src/README.md) for setup, configuration, and the `aiur` command
-reference (foreground, background, and `stop` modes on Linux and macOS).
+reference (foreground, background, and `stop` modes on Linux and macOS). It also documents
+the default 64 MiB / 30-day telemetry retention window, which preserves complete boots for
+useful cross-session history.
 
 For the Stream Deck emulator and optional hardware acceptance flow, see the
 [Stream Deck end-to-end proof runbook](docs/research/streamdeck-end-to-end-proof.md).

@@ -11,7 +11,8 @@ defmodule Aiur.RunTelemetry do
   alias Aiur.RunTelemetry.Writer
 
   @filename "telemetry.ndjson"
-  @schema_version 1
+  # Version 2 adds the dispatch-time complexity estimate to lifecycle records.
+  @schema_version 2
   @boot_state_key {__MODULE__, :boot_state}
 
   @doc "Current durable telemetry schema version."
@@ -50,6 +51,10 @@ defmodule Aiur.RunTelemetry do
 
     Path.join(Path.dirname(log_file), @filename)
   end
+
+  @doc false
+  @spec telemetry_retention() :: [max_bytes: pos_integer(), max_age_days: pos_integer()]
+  def telemetry_retention, do: Aiur.Config.telemetry_retention()
 
   @doc "Best-effort append of one telemetry record."
   @spec record(atom() | String.t(), map()) :: :ok

@@ -3,6 +3,7 @@ defmodule Aiur.DecisionStoreTest do
 
   import ExUnit.CaptureLog
 
+  alias Aiur.AgentRunner.EventsDigest
   alias Aiur.{AlertFeed, Boot, DecisionEvent, DecisionHistory, DecisionLog, DecisionPubSub, DecisionStore}
   alias Aiur.DecisionStore.RetainedSnapshot
   alias Aiur.Events.{Exchange, IdGenerator}
@@ -220,6 +221,34 @@ defmodule Aiur.DecisionStoreTest do
     restarted = start_store!(dir)
     assert {:ok, durable} = DecisionStore.get(decision.decision_id, restarted)
     assert durable.decision_status == :dismissed
+  end
+
+  test "deferral is durable, idempotent, and remains answerable", %{dir: dir} do
+    pid = start_store!(dir)
+
+    assert {:ok, %{decision: decision}} = request(pid, %{"question" => "Use the release train?", "blocking" => true})
+    opts = [actor: %{kind: :operator, id: "dashboard"}]
+
+    assert {:ok, %{status: :accepted, decision: deferred}} = DecisionStore.defer(decision.decision_id, opts, pid)
+    assert deferred.decision_status == :deferred
+    assert deferred.answer == nil
+
+    assert {:ok, %{status: :duplicate, decision: replayed}} = DecisionStore.defer(decision.decision_id, opts, pid)
+    assert replayed.decision_status == :deferred
+
+    GenServer.stop(pid)
+    restarted = start_store!(dir)
+    assert {:ok, durable} = DecisionStore.get(decision.decision_id, restarted)
+    assert durable.decision_status == :deferred
+
+    assert {:ok, %{decision: answerable}} =
+             answer(restarted, decision.decision_id, %{
+               "idempotency_key" => "deferred-answer",
+               "expected_version" => 1,
+               "custom_response" => "Use the release train"
+             })
+
+    assert answerable.decision_status == :decided
   end
 
   test "expiration is durable, idempotent, historic, and auditable", %{dir: dir} do
@@ -1965,7 +1994,8 @@ defmodule Aiur.DecisionStoreTest do
       assert {:ok, %{status: :accepted, decision_status: :acknowledged}} =
                DecisionStore.agent_lifecycle(:acknowledged, lifecycle_payload, lifecycle_opts, pid)
 
-      assert_receive {:event, %{topic: "ticket.979.agent.decision.acknowledged"}}, 500
+      assert_receive {:event, %{topic: "ticket.979.agent.decision.acknowledged", digest_source: :orchestrator} = acknowledged}, 500
+      assert EventsDigest.render([acknowledged], "979") =~ "ticket.979.agent.decision.acknowledged"
 
       assert {:ok, %{status: :duplicate}} =
                DecisionStore.agent_lifecycle(:acknowledged, lifecycle_payload, lifecycle_opts, pid)
@@ -2148,11 +2178,13 @@ defmodule Aiur.DecisionStoreTest do
                       %{
                         "question" => "Deploy now?",
                         topic: "ticket.979.agent.decision.requested",
+                        digest_source: :orchestrator,
                         id: cursor_event_id
-                      }},
+                      } = request_event},
                      500
 
       assert cursor_event_id > 0
+      assert EventsDigest.render([request_event], "979") =~ "ticket.979.agent.decision.requested"
 
       [persisted] =
         dir

@@ -1,10 +1,10 @@
 defmodule Aiur.AgentControlCLI do
   @moduledoc false
 
-  alias Aiur.{AgentChat, AlertFeed, BuildGate, Config, Orchestrator, PauseContainment, ProviderMeterProjection}
+  alias Aiur.{AgentChat, AlertFeed, BuildGate, Config, ExecutorEvents, Orchestrator, PauseContainment, ProviderMeterProjection}
   alias Aiur.Codex.EventHumanizer, as: CodexEventHumanizer
+  alias Aiur.GitHub.{CodeOwners, StatePolicy}
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.GitHub.StatePolicy
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   import Aiur.EventHumanizerHelpers, only: [map_value: 2]
 
@@ -22,6 +22,7 @@ defmodule Aiur.AgentControlCLI do
     case Orchestrator.status() do
       statuses when is_list(statuses) ->
         print_global_pause_banner()
+        print_codeowners_trust()
 
         statuses
         |> Enum.filter(&visible_status_row?/1)
@@ -94,6 +95,55 @@ defmodule Aiur.AgentControlCLI do
     |> Enum.each(&IO.puts(Jason.encode!(&1)))
 
     exit_marker(0)
+  end
+
+  @spec executor_emit(String.t(), String.t()) :: :ok
+  def executor_emit(topic, payload_json) when is_binary(topic) and is_binary(payload_json) do
+    case Jason.decode(payload_json) do
+      {:ok, %{} = payload} ->
+        case ExecutorEvents.publish(topic, payload, source: :executor_cli) do
+          {:ok, id, _subscribers} ->
+            IO.puts(Jason.encode!(%{id: id, topic: topic}))
+            exit_marker(0)
+
+          {:error, reason} ->
+            IO.puts(:stderr, "aiur: executor event rejected (#{format_reason(reason)})")
+            exit_marker(1)
+        end
+
+      _ ->
+        IO.puts(:stderr, "aiur: executor-emit payload must be a JSON object")
+        exit_marker(64)
+    end
+  end
+
+  @spec executor_subscribe(String.t()) :: :ok
+  def executor_subscribe(topic) when is_binary(topic) do
+    executor_subscription_result(ExecutorEvents.subscribe(topic), "subscribed", topic)
+  end
+
+  @spec executor_unsubscribe(String.t()) :: :ok
+  def executor_unsubscribe(topic) when is_binary(topic) do
+    executor_subscription_result(ExecutorEvents.unsubscribe(topic), "unsubscribed", topic)
+  end
+
+  @spec executor_subscriptions() :: :ok
+  def executor_subscriptions do
+    ExecutorEvents.subscriptions() |> Enum.each(&IO.puts/1)
+    exit_marker(0)
+  end
+
+  @spec executor_listen(keyword()) :: no_return()
+  def executor_listen(opts \\ []), do: ExecutorEvents.listen(opts)
+
+  defp executor_subscription_result(:ok, action, topic) do
+    IO.puts("#{action} #{topic}")
+    exit_marker(0)
+  end
+
+  defp executor_subscription_result({:error, reason}, _action, _topic) do
+    IO.puts(:stderr, "aiur: executor subscription rejected (#{format_reason(reason)})")
+    exit_marker(1)
   end
 
   # Absolute set of the concurrent-agent cap on a live node — `aiur set
@@ -663,6 +713,36 @@ defmodule Aiur.AgentControlCLI do
 
     :ok
   end
+
+  defp print_codeowners_trust do
+    snapshot =
+      Application.get_env(:aiur, :agent_control_cli_trust_snapshot_fun, fn ->
+        if Process.whereis(CodeOwners), do: CodeOwners.trust_snapshot(), else: nil
+      end).()
+
+    case snapshot do
+      %{trusted: trusted, source: source} = snapshot when is_list(trusted) ->
+        source = source |> to_string() |> String.downcase()
+        path = snapshot |> Map.get(:path) |> trust_path()
+        accounts = Enum.map_join(trusted, ", ", &"@#{&1}")
+        suffix = if path, do: " path=#{path}", else: ""
+        IO.puts("COMMENT TRUST source=#{source} trusted=[#{accounts}]#{suffix}")
+
+      _ ->
+        :ok
+    end
+  catch
+    :exit, _reason -> :ok
+  end
+
+  defp trust_path(path) when is_binary(path) do
+    case Path.relative_to_cwd(path) do
+      relative when relative != path -> relative
+      _ -> path
+    end
+  end
+
+  defp trust_path(_path), do: nil
 
   defp print_build_gate_status do
     case BuildGate.status() do
