@@ -60,6 +60,37 @@ defmodule Aiur.RunTelemetry.LifecycleTest do
     refute Map.has_key?(attributes, :raw_pid)
   end
 
+  test "normalizes string keys and opaque metadata values safely" do
+    recorder = recorder(self())
+    timestamp = ~U[2026-07-11 12:00:00Z]
+
+    assert :ok =
+             Lifecycle.record(
+               "931",
+               nil,
+               "agent_pause",
+               "point",
+               %{
+                 "complexity" => "4",
+                 "source_id" => 7,
+                 cause: true,
+                 operation_id: %{private: "value"},
+                 workspace_phase: timestamp,
+                 raw_output: "secret"
+               },
+               recorder: recorder
+             )
+
+    assert_receive {:recorded, :lifecycle, attributes, _opts}
+    assert attributes.attempt_id == nil
+    assert attributes.complexity == "4"
+    assert attributes.source_id == 7
+    assert attributes.cause == true
+    assert attributes.operation_id == "unknown"
+    assert attributes.workspace_phase == DateTime.to_iso8601(timestamp)
+    refute Map.has_key?(attributes, :raw_output)
+  end
+
   test "correlates Codex build/test starts and completions without storing commands" do
     recorder = recorder(self())
     tracker = make_ref()
