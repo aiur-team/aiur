@@ -33,11 +33,15 @@ defmodule Aiur.GitHub.CIPollBatch do
       end
 
       Enum.reduce_while(chunks, {:ok, %{}}, fn chunk, {:ok, acc} ->
-        case fetch_chunk(request_fun, token, owner, repo, chunk) do
-          {:ok, batch} -> {:cont, {:ok, Map.merge(acc, batch)}}
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
+        reduce_ci_chunk(request_fun, token, owner, repo, chunk, acc)
       end)
+    end
+  end
+
+  defp reduce_ci_chunk(request_fun, token, owner, repo, chunk, acc) do
+    case fetch_chunk(request_fun, token, owner, repo, chunk) do
+      {:ok, batch} -> {:cont, {:ok, Map.merge(acc, batch)}}
+      {:error, reason} -> {:halt, {:error, reason}}
     end
   end
 

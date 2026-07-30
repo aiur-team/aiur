@@ -291,34 +291,37 @@ defmodule Aiur.GitHub.IssueDependencies do
     repository = get_in(body, ["data", "repository"])
 
     if is_map(repository) do
-      nodes
-      |> Enum.reduce_while({:ok, {[], %{}}}, fn node, {:ok, {edges, cursors}} ->
-        case get_in(repository, ["issue_#{node}", "blocking"]) do
-          nil ->
-            {:cont, {:ok, {edges, cursors}}}
-
-          %{"nodes" => blocking, "pageInfo" => %{"hasNextPage" => has_next, "endCursor" => cursor}}
-          when is_list(blocking) and is_boolean(has_next) ->
-            next_edges =
-              blocking
-              |> Enum.map(&Map.get(&1, "number"))
-              |> Enum.filter(&is_integer/1)
-              |> Enum.map(&to_string/1)
-
-            next_cursors = if has_next and is_binary(cursor), do: Map.put(cursors, node, cursor), else: cursors
-
-            if has_next and not is_binary(cursor) do
-              {:halt, {:error, :dependency_graph_pagination_missing_cursor}}
-            else
-              {:cont, {:ok, {edges ++ next_edges, next_cursors}}}
-            end
-
-          _other ->
-            {:halt, {:error, :dependency_graph_missing}}
-        end
+      Enum.reduce_while(nodes, {:ok, {[], %{}}}, fn node, {:ok, {edges, cursors}} ->
+        accumulate_blocking_node(repository, node, edges, cursors)
       end)
     else
       {:error, :dependency_graph_missing}
+    end
+  end
+
+  defp accumulate_blocking_node(repository, node, edges, cursors) do
+    case get_in(repository, ["issue_#{node}", "blocking"]) do
+      nil ->
+        {:cont, {:ok, {edges, cursors}}}
+
+      %{"nodes" => blocking, "pageInfo" => %{"hasNextPage" => has_next, "endCursor" => cursor}}
+      when is_list(blocking) and is_boolean(has_next) ->
+        next_edges =
+          blocking
+          |> Enum.map(&Map.get(&1, "number"))
+          |> Enum.filter(&is_integer/1)
+          |> Enum.map(&to_string/1)
+
+        next_cursors = if has_next and is_binary(cursor), do: Map.put(cursors, node, cursor), else: cursors
+
+        if has_next and not is_binary(cursor) do
+          {:halt, {:error, :dependency_graph_pagination_missing_cursor}}
+        else
+          {:cont, {:ok, {edges ++ next_edges, next_cursors}}}
+        end
+
+      _other ->
+        {:halt, {:error, :dependency_graph_missing}}
     end
   end
 

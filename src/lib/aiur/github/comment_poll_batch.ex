@@ -27,11 +27,15 @@ defmodule Aiur.GitHub.CommentPollBatch do
 
       chunks
       |> Enum.reduce_while({:ok, %{}}, fn chunk, {:ok, acc} ->
-        case fetch_target_chunk(request_fun, token, owner, repo, chunk, opts) do
-          {:ok, batch} -> {:cont, {:ok, Map.merge(acc, batch)}}
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
+        reduce_comment_chunk(request_fun, token, owner, repo, chunk, opts, acc)
       end)
+    end
+  end
+
+  defp reduce_comment_chunk(request_fun, token, owner, repo, chunk, opts, acc) do
+    case fetch_target_chunk(request_fun, token, owner, repo, chunk, opts) do
+      {:ok, batch} -> {:cont, {:ok, Map.merge(acc, batch)}}
+      {:error, reason} -> {:halt, {:error, reason}}
     end
   end
 
