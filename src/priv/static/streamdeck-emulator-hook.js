@@ -8,6 +8,8 @@
 //
 // Patch-survival pattern follows #1306: state is captured in beforeUpdate and
 // restored in updated, so LiveView re-renders cannot revert local interaction.
+// Key/mic event bindings are torn down in beforeUpdate and rebuilt in updated
+// to avoid duplicate-listener accumulation across patches.
 (function () {
   "use strict";
 
@@ -46,10 +48,13 @@
     this.isDragging = false;
     this.dragAngle = 0;
     this.accumulatedDeg = 0;
+    this._activePid = null;
+    this._pressTimer = null;
 
     this._onPointerDown = this._onPointerDown.bind(this);
     this._onPointerMove = this._onPointerMove.bind(this);
     this._onPointerUp = this._onPointerUp.bind(this);
+    this._onPointerCancel = this._onPointerCancel.bind(this);
     this._onWheel = this._onWheel.bind(this);
     this._onKeydown = this._onKeydown.bind(this);
 
@@ -67,6 +72,7 @@
   Knob.prototype._onPointerDown = function (e) {
     e.preventDefault();
     this.knobEl.setPointerCapture(e.pointerId);
+    this._activePid = e.pointerId;
     var c = this._centre();
     this.dragAngle = angleDeg(c.x, c.y, e.clientX, e.clientY);
     this.accumulatedDeg = 0;
@@ -74,7 +80,7 @@
 
     this.knobEl.addEventListener("pointermove", this._onPointerMove);
     this.knobEl.addEventListener("pointerup", this._onPointerUp);
-    this.knobEl.addEventListener("pointercancel", this._onPointerUp);
+    this.knobEl.addEventListener("pointercancel", this._onPointerCancel);
   };
 
   Knob.prototype._onPointerMove = function (e) {
@@ -87,16 +93,26 @@
     this._step(delta / DRAG_DIVISOR);
   };
 
-  Knob.prototype._onPointerUp = function () {
+  Knob.prototype._onPointerUp = function (e) {
     if (!this.isDragging) return;
-    this.isDragging = false;
-    this.knobEl.removeEventListener("pointermove", this._onPointerMove);
-    this.knobEl.removeEventListener("pointerup", this._onPointerUp);
-    this.knobEl.removeEventListener("pointercancel", this._onPointerUp);
-
+    this._endDrag();
     if (this.accumulatedDeg < PRESS_THRESHOLD_DEG) {
       this._press();
     }
+  };
+
+  // A cancelled gesture is never a press — only reset drag state.
+  Knob.prototype._onPointerCancel = function () {
+    if (!this.isDragging) return;
+    this._endDrag();
+  };
+
+  Knob.prototype._endDrag = function () {
+    this.isDragging = false;
+    this._activePid = null;
+    this.knobEl.removeEventListener("pointermove", this._onPointerMove);
+    this.knobEl.removeEventListener("pointerup", this._onPointerUp);
+    this.knobEl.removeEventListener("pointercancel", this._onPointerCancel);
   };
 
   Knob.prototype._onWheel = function (e) {
@@ -131,19 +147,35 @@
 
   Knob.prototype._press = function () {
     var action = PRESS_ACTIONS[this.index];
+    // Dials without a press action do not flash or emit an event.
     if (!action) return;
 
     var el = this.knobEl;
+    // Cancel any in-flight press timer before starting a new one so rapid
+    // presses don't race: the previous setTimeout would remove the class the
+    // new press just added.
+    clearTimeout(this._pressTimer);
     el.classList.remove("press");
     // Force reflow so the class removal takes effect before re-adding.
     void el.offsetWidth;
     el.classList.add("press");
-    setTimeout(function () { el.classList.remove("press"); }, PRESS_FLASH_MS);
+    this._pressTimer = setTimeout(function () { el.classList.remove("press"); }, PRESS_FLASH_MS);
 
     this.hook.pushEvent("dial-press", { index: this.index, action: action });
   };
 
   Knob.prototype.destroy = function () {
+    // Cancel any outstanding press animation timer.
+    clearTimeout(this._pressTimer);
+    this._pressTimer = null;
+
+    // Release pointer capture and clean up dynamic drag listeners in case
+    // destroy() is called while a drag is in progress (e.g., mid-patch).
+    if (this.isDragging && this._activePid != null) {
+      try { this.knobEl.releasePointerCapture(this._activePid); } catch (_) {}
+    }
+    this._endDrag();
+
     this.knobEl.removeEventListener("pointerdown", this._onPointerDown);
     this.knobEl.removeEventListener("wheel", this._onWheel);
     this.knobEl.removeEventListener("keydown", this._onKeydown);
@@ -164,6 +196,10 @@
       this._knobs = [];
       this._micActive = false;
       this._knobState = null;
+      this._keyHandlers = [];
+      this._micSegment = null;
+      this._onMicDown = null;
+      this._onMicUp = null;
 
       this._bindKeys();
       this._bindMic();
@@ -171,9 +207,13 @@
     },
 
     beforeUpdate() {
-      // Capture local state before LiveView patches the DOM.
+      // Capture local state before LiveView patches the DOM, then tear down all
+      // bindings. updated() will re-bind and restore — no double-listener risk.
       this._knobState = this._knobs.map(function (k) { return k.snapshotState(); });
+      this._pendingMicActive = this._micActive;
       this._destroyKnobs();
+      this._unbindKeys();
+      this._unbindMic();
     },
 
     updated() {
@@ -185,6 +225,11 @@
         var state = this._knobState;
         this._knobs.forEach(function (k, i) { k.restoreState(state[i]); });
         this._knobState = null;
+      }
+      // Restore mic active state if the user was holding during the patch.
+      if (this._pendingMicActive) {
+        this._setMic(true);
+        this._pendingMicActive = false;
       }
     },
 
@@ -210,20 +255,24 @@
       this._keyHandlers = [];
       var keys = Array.prototype.slice.call(this.el.querySelectorAll(".sd-key:not(.is-empty)"));
       keys.forEach(function (key) {
+        var timer = null;
         var handler = function () {
+          // Cancel any outstanding removal timer so rapid clicks don't race.
+          clearTimeout(timer);
           key.classList.remove("is-flashing");
           // Force reflow so the animation restarts on rapid repeat clicks.
           void key.offsetWidth;
           key.classList.add("is-flashing");
-          setTimeout(function () { key.classList.remove("is-flashing"); }, 500);
+          timer = setTimeout(function () { key.classList.remove("is-flashing"); }, 500);
         };
         key.addEventListener("click", handler);
-        self._keyHandlers.push({ el: key, handler: handler });
+        self._keyHandlers.push({ el: key, handler: handler, timer: function () { return timer; } });
       });
     },
 
     _unbindKeys() {
       (this._keyHandlers || []).forEach(function (entry) {
+        clearTimeout(entry.timer());
         entry.el.removeEventListener("click", entry.handler);
       });
       this._keyHandlers = [];
@@ -257,6 +306,8 @@
       seg.removeEventListener("pointerleave", this._onMicUp);
       seg.removeEventListener("pointercancel", this._onMicUp);
       this._micSegment = null;
+      this._onMicDown = null;
+      this._onMicUp = null;
     },
 
     _setMic(active) {
