@@ -233,7 +233,12 @@ defmodule Aiur.GitHub.CommentPollBatch do
     end
   end
 
-  defp comments_overflow?(source) when is_map(source), do: Map.get(source, :comments_overflow, false)
+  defp comments_overflow?(%{comments_overflow: overflow}) when is_boolean(overflow), do: overflow
+
+  defp comments_overflow?(source) when is_map(source) do
+    get_in(source, ["comments", "pageInfo", "hasNextPage"]) == true
+  end
+
   defp comments_overflow?(_source), do: false
 
   defp positive_number?(target) do
