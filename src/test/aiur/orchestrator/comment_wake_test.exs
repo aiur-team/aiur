@@ -142,11 +142,48 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
           terminate_running_issue_fun: fn current_state, issue_id, true ->
             assert_receive {:membership_recorded, ^identity, :completed}
             %{current_state | running: Map.delete(current_state.running, issue_id), claimed: MapSet.new()}
-          end
+          end,
+          merger_allowed_fun: fn _login -> true end
         )
 
       refute Map.has_key?(result.running, issue.id)
       refute MapSet.member?(result.claimed, issue.id)
+    end
+
+    test "does not raise alert when merged_by_login is allowlisted" do
+      state = base_state()
+      parent = self()
+
+      CommentWake.mark_pr_merged_issue_done(state, "nonexistent-123",
+        merged_by_login: "its-everdred",
+        merger_allowed_fun: fn login ->
+          send(parent, {:checked_allowlist, login})
+          true
+        end
+      )
+
+      assert_receive {:checked_allowlist, "its-everdred"}
+    end
+
+    test "emits unauthorized-merger alert when merged_by_login is not allowlisted" do
+      state = base_state()
+      parent = self()
+
+      CommentWake.mark_pr_merged_issue_done(state, "nonexistent-123",
+        merged_by_login: "unknown-bot",
+        merger_allowed_fun: fn login ->
+          send(parent, {:checked_allowlist, login})
+          false
+        end,
+        emit_alert_fun: fn name, opts ->
+          send(parent, {:alert_emitted, name, opts})
+          :ok
+        end
+      )
+
+      assert_receive {:checked_allowlist, "unknown-bot"}
+      assert_receive {:alert_emitted, "ticket.nonexistent-123.merge.unauthorized_merger", opts}
+      assert Keyword.get(opts, :needs_attention) == true
     end
   end
 

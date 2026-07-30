@@ -11,6 +11,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   alias Aiur.Alerts
   alias Aiur.CurrentRunMembership
   alias Aiur.Events.UniversalSubscriptions
+  alias Aiur.GitHub.CodeOwners
   alias Aiur.Issue
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, PrAnchored, State}
@@ -60,6 +61,25 @@ defmodule Aiur.Orchestrator.CommentWake do
 
     set_terminal_verification_pending_fun =
       Keyword.get(opts, :set_terminal_verification_pending_fun, &CurrentRunMembership.set_terminal_verification_pending/2)
+
+    merger_allowed_fun =
+      Keyword.get(opts, :merger_allowed_fun, &CodeOwners.allowed?/1)
+
+    emit_alert_fun =
+      Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2)
+
+    merged_by_login = Keyword.get(opts, :merged_by_login)
+
+    Logger.info("PR merge received: issue_identifier=#{identifier} merged_by=#{inspect(merged_by_login)}")
+
+    unless merger_allowed_fun.(merged_by_login) do
+      emit_alert_fun.("ticket.#{identifier}.merge.unauthorized_merger",
+        issue: to_string(identifier),
+        reason: "PR merged by #{inspect(merged_by_login)} who is not in the merge allowlist.",
+        needs_attention: true,
+        severity: "warning"
+      )
+    end
 
     case update_issue_state_fun.(to_string(identifier), "done") do
       :ok ->
