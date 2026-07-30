@@ -2,10 +2,9 @@ defmodule AiurWeb.PresenterTest do
   use Aiur.TestSupport
 
   alias Aiur.Events.SubscriptionStore
-  alias Aiur.{Issue, TicketActivity, TicketObservation, TrackerIdentity}
+  alias Aiur.{Issue, RecentMerge, TicketActivity, TicketObservation, TrackerIdentity}
   alias Aiur.Orchestrator
   alias Aiur.TicketActivity.Projection
-  alias Aiur.RecentMerge
   alias AiurWeb.Presenter
 
   defp running_entry(issue_id, identifier, status, issue_state \\ "In Progress") do

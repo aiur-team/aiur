@@ -219,7 +219,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       waiting_reason: WaitingReason.for_retry(),
       open_decision_count: open_decision_count,
       open_decision_count_health: open_decision_count_health,
-      priority: Map.get(issue, :priority),
+      priority: Map.get(issue || %{}, :priority),
       progress_percent: progress_percent(Issue.tracker_identity(issue), activity_by_identity),
       ci_result: cached_ci_result(state, identifier)
     }
@@ -342,17 +342,19 @@ defmodule Aiur.Orchestrator.StatusReport do
   defp activity_by_identity do
     with pid when is_pid(pid) <- Process.whereis(TicketActivity),
          %{entries: entries} when is_list(entries) <- TicketActivity.snapshots() do
-      Enum.reduce(entries, %{}, fn entry, acc ->
-        case TrackerIdentity.github_key(Map.get(entry, :identity)) do
-          nil -> acc
-          identity_key -> Map.put(acc, identity_key, entry)
-        end
-      end)
+      Enum.reduce(entries, %{}, &put_activity_entry/2)
     else
       _ -> %{}
     end
   catch
     :exit, _ -> %{}
+  end
+
+  defp put_activity_entry(entry, acc) do
+    case TrackerIdentity.github_key(Map.get(entry, :identity)) do
+      nil -> acc
+      identity_key -> Map.put(acc, identity_key, entry)
+    end
   end
 
   defp progress_percent(identity, activity_by_identity) do
