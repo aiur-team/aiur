@@ -190,6 +190,11 @@ describe("progress bar colour", () => {
     expect(progressBarColor(100)).toBe("hsl(125 72% 50%)");
   });
 
+  it("clamps when called directly with out-of-range values", () => {
+    expect(progressBarColor(-10)).toBe("hsl(0 72% 50%)");
+    expect(progressBarColor(150)).toBe("hsl(125 72% 50%)");
+  });
+
   it("clamps progress_percent below 0 to 0", () => {
     const keys = layoutKeys([agent("x", { progress_percent: -10 })], 0);
     const footer = agentKey(keys[0]!).footer as ProgressFooter;
@@ -258,6 +263,12 @@ describe("bucket styles", () => {
       label: "Queued",
     });
     expect(BUCKET_STYLES.queued.pulseSeconds).toBeUndefined();
+  });
+
+  it("BUCKET_STYLES is deeply frozen — runtime mutation throws in strict mode", () => {
+    expect(Object.isFrozen(BUCKET_STYLES)).toBe(true);
+    expect(Object.isFrozen(BUCKET_STYLES.running)).toBe(true);
+    expect(Object.isFrozen(BUCKET_STYLES.alert)).toBe(true);
   });
 
   it("agent key carries the correct style for its bucket", () => {

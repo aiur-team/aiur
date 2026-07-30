@@ -50,6 +50,10 @@ export interface AgentInput {
   readonly bucket: BucketId;
   readonly progress_percent: number;
   readonly priority: boolean;
+  /**
+   * When absent, treated as true (no known dependency blocks this agent).
+   * Explicitly set to false for agents waiting on a dependency.
+   */
   readonly dependency_ready?: boolean;
 }
 
@@ -57,43 +61,44 @@ const COLUMNS = 4;
 const ROWS = 2;
 const KEYS_PER_PAGE = COLUMNS * ROWS;
 
-export const BUCKET_STYLES: Record<BucketId, BucketStyle> = {
-  running: {
+export const BUCKET_STYLES: Readonly<Record<BucketId, Readonly<BucketStyle>>> = Object.freeze({
+  running: Object.freeze({
     accent: "#4fd6c4",
     glow: "rgba(79,214,196,0.35)",
     face: "#112524",
     label: "Running",
-  },
-  paused: {
+  }),
+  paused: Object.freeze({
     accent: "#8fbcff",
     glow: "rgba(143,188,255,0.32)",
     face: "#142035",
     label: "Paused",
-  },
-  stuck: {
+  }),
+  stuck: Object.freeze({
     accent: "#e3b341",
     glow: "rgba(227,179,65,0.38)",
     face: "#2a2112",
     label: "Stuck",
     pulseSeconds: 1.4,
-  },
-  alert: {
+  }),
+  alert: Object.freeze({
     accent: "#ff7b72",
     glow: "rgba(255,123,114,0.4)",
     face: "#2d1718",
     label: "Alert",
     pulseSeconds: 1.6,
-  },
-  queued: {
+  }),
+  queued: Object.freeze({
     accent: "#c69bff",
     glow: "rgba(198,155,255,0.32)",
     face: "#20172f",
     label: "Queued",
-  },
-};
+  }),
+});
 
 export function progressBarColor(percent: number): string {
-  const hue = (percent / 100) * 125;
+  const p = Math.max(0, Math.min(100, percent));
+  const hue = (p / 100) * 125;
   return `hsl(${hue} 72% 50%)`;
 }
 
