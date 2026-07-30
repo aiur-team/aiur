@@ -219,6 +219,16 @@ defmodule Aiur.Orchestrator.Reconciler do
         record_membership(issue, :replaced, observe_membership_fun)
         Orchestrator.terminate_running_issue(state, issue.id, false)
 
+      !DispatchPolicy.issue_dispatch_authorized?(issue) ->
+        Logger.warning([
+          "Issue dispatch authorization was revoked: ",
+          State.issue_context(issue),
+          "; stopping active agent"
+        ])
+
+        record_membership(issue, :replaced, observe_membership_fun)
+        Orchestrator.terminate_running_issue(state, issue.id, false)
+
       Issue.paused?(issue) ->
         PauseResume.pause_issue_for_label_override(state, issue)
 

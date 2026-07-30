@@ -12,8 +12,8 @@ tracker:
     # Required for server-side dispatch authorization. When omitted, Aiur uses
     # the currently resolved CODEOWNERS set and denies dispatch if unavailable.
     allowed_users:
-      - your-github-login
-      - another-trusted-login
+      - its-everdred
+      - its-applekid
     # Optional: trusted human Executor logins whose GitHub comments reach
     # agent event digests even when CODEOWNERS team expansion is unavailable.
     # trusted_accounts:

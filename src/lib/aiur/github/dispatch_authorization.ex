@@ -87,9 +87,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
           timeline_decision(issue, label, events)
 
         {:error, reason} ->
-          decision = {:ambiguous, reason}
-          cache_decision(issue, label, "ambiguous:#{inspect(reason)}", decision)
-          decision
+          {:ambiguous, reason}
       end
     else
       {:ambiguous, :missing_github_token}
@@ -202,10 +200,9 @@ defmodule Aiur.GitHub.DispatchAuthorization do
 
   defp label_matches?(_event_label, _label), do: false
 
-  defp cached_decision(%Issue{id: id, updated_at: updated_at, dispatch_revision: revision}, label)
-       when is_binary(id) and is_binary(revision) do
+  defp cached_decision(%Issue{id: id, updated_at: updated_at}, label) when is_binary(id) do
     cache = cache()
-    fingerprint = {id, label, updated_at, revision}
+    fingerprint = {id, label, updated_at}
 
     with event_id when is_binary(event_id) <- Map.get(cache.fingerprints, fingerprint),
          decision when not is_nil(decision) <- Map.get(cache.decisions, {id, label, event_id}) do
@@ -216,14 +213,14 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   defp cached_decision(_issue, _label), do: nil
 
   defp cache_decision(
-         %Issue{id: id, updated_at: updated_at, dispatch_revision: revision},
+         %Issue{id: id, updated_at: updated_at},
          label,
          event_id,
          decision
        )
-       when is_binary(id) and is_binary(revision) do
+       when is_binary(id) do
     cache = cache()
-    fingerprint = {id, label, updated_at, revision}
+    fingerprint = {id, label, updated_at}
 
     updated = %{
       fingerprints: Map.put(cache.fingerprints, fingerprint, event_id),
@@ -248,7 +245,8 @@ defmodule Aiur.GitHub.DispatchAuthorization do
 
   defp log_decision(decision, issue, source, actor, event_id, reason \\ nil) do
     Logger.info(
-      "GitHub dispatch authorization decision=#{decision} issue=#{issue.identifier || issue.id} " <>
+      "GitHub dispatch authorization decision=#{decision} issue_id=#{inspect(issue.id)} " <>
+        "issue_identifier=#{inspect(issue.identifier)} " <>
         "creator=#{inspect(issue.creator_login)} source=#{source} actor=#{inspect(actor)} " <>
         "label_event_id=#{inspect(event_id)} reason=#{inspect(reason)}"
     )
@@ -260,13 +258,18 @@ defmodule Aiur.GitHub.DispatchAuthorization do
     %{issue | dispatch_authorized?: false}
   end
 
-  defp maybe_alert_ambiguity(%Issue{id: id, updated_at: updated_at, dispatch_revision: revision} = issue, reason)
+  defp maybe_alert_ambiguity(%Issue{id: id, updated_at: updated_at} = issue, reason)
        when is_binary(id) do
-    alert_key = {id, updated_at, revision, reason}
+    alert_key = {id, updated_at, reason}
     cache = cache()
 
     unless Map.has_key?(cache.alerted, alert_key) do
-      :persistent_term.put(@cache_key, %{cache | alerted: Map.put(cache.alerted, alert_key, true)})
+      alerted =
+        cache.alerted
+        |> bounded_alert_cache()
+        |> Map.put(alert_key, true)
+
+      :persistent_term.put(@cache_key, %{cache | alerted: alerted})
       alert_ambiguity(issue, reason)
     end
   end
@@ -276,6 +279,9 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   defp cache do
     :persistent_term.get(@cache_key, %{fingerprints: %{}, decisions: %{}, alerted: %{}})
   end
+
+  defp bounded_alert_cache(alerted) when map_size(alerted) >= @max_cache_entries, do: %{}
+  defp bounded_alert_cache(alerted), do: alerted
 
   defp alert_ambiguity(issue, reason) do
     Alerts.emit_custom(

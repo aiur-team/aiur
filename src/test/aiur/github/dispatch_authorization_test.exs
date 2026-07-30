@@ -94,7 +94,7 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
     assert Agent.get(counter, & &1) == 1
   end
 
-  test "does not reuse a cached decision after the issue list ETag changes" do
+  test "does not reuse a cached decision after an issue update" do
     counter = start_supervised!({Agent, fn -> 0 end})
 
     request_fun = fn _request ->
@@ -110,13 +110,43 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
       {:ok, %{status: 200, body: events}}
     end
 
-    assert DispatchAuthorization.authorize(issue(dispatch_revision: "\"v1\""), "owner", "repo", "agent",
+    assert DispatchAuthorization.authorize(issue(updated_at: ~U[2026-01-01 00:00:00Z]), "owner", "repo", "agent",
              allowed_users: ["trusted"],
              token: "test-token",
              request_fun: request_fun
            ).dispatch_authorized?
 
-    refute DispatchAuthorization.authorize(issue(dispatch_revision: "\"v2\""), "owner", "repo", "agent",
+    refute DispatchAuthorization.authorize(issue(updated_at: ~U[2026-01-02 00:00:00Z]), "owner", "repo", "agent",
+             allowed_users: ["trusted"],
+             token: "test-token",
+             request_fun: request_fun
+           ).dispatch_authorized?
+
+    assert Agent.get(counter, & &1) == 2
+  end
+
+  test "retries an ambiguous timeline fetch on the next poll" do
+    counter = start_supervised!({Agent, fn -> 0 end})
+
+    request_fun = fn _request ->
+      case Agent.get_and_update(counter, fn number -> {number, number + 1} end) do
+        0 -> {:ok, %{status: 429, body: %{"message" => "rate limited"}}}
+        1 -> {:ok, %{status: 200, body: [labeled_event(10, "agent:todo", "trusted", "2026-01-01T00:00:00Z")]}}
+      end
+    end
+
+    :ok = AgentPubSub.subscribe_agent("42")
+    issue = issue()
+
+    refute DispatchAuthorization.authorize(issue, "owner", "repo", "agent",
+             allowed_users: ["trusted"],
+             token: "test-token",
+             request_fun: request_fun
+           ).dispatch_authorized?
+
+    assert_receive {:alert, %{name: "github.dispatch_authorization.ambiguous", needs_attention: true}}, 500
+
+    assert DispatchAuthorization.authorize(issue, "owner", "repo", "agent",
              allowed_users: ["trusted"],
              token: "test-token",
              request_fun: request_fun
