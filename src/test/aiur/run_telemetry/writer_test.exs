@@ -76,6 +76,22 @@ defmodule Aiur.RunTelemetry.WriterTest do
            ]
   end
 
+  test "writer tolerates malformed caller values while retaining valid batch entries", %{path: path} do
+    name = {:global, {__MODULE__, System.unique_integer([:positive])}}
+    {:ok, writer} = Writer.start_link(name: name, path: path, boot_id: "guarded")
+
+    assert :ok = Writer.record(writer, :resource, :not_a_map, :not_options)
+
+    assert :ok =
+             Writer.record_batch(writer, [{:resource, %{actor: "_daemon", rss_bytes: 42}}, :not_a_record])
+
+    assert :ok = Writer.flush(writer)
+    assert :ok = Writer.flush(:writer_that_does_not_exist)
+
+    records = read_records(path)
+    assert Enum.map(records, & &1["kind"]) == ["restart", "resource"]
+  end
+
   test "an unwritable target never terminates the writer or caller", %{root: root} do
     parent_file = Path.join(root, "not-a-directory")
     File.mkdir_p!(root)
