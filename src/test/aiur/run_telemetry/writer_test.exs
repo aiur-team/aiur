@@ -76,6 +76,172 @@ defmodule Aiur.RunTelemetry.WriterTest do
            ]
   end
 
+  test "named writers keep admission tied to the current process", %{path: path} do
+    name = :"writer-#{System.unique_integer([:positive])}"
+    {:ok, first} = Writer.start_link(name: name, path: path, boot_id: "named-1")
+
+    assert :ok = Writer.record(name, :resource, %{actor: "first"})
+    assert :ok = Writer.flush(name)
+    assert :ok = GenServer.stop(first)
+
+    {:ok, second} = Writer.start_link(name: name, path: path, boot_id: "named-2")
+
+    for index <- 1..256 do
+      assert :ok = Writer.record(name, :resource, %{actor: index})
+    end
+
+    assert :ok = Writer.flush(name)
+    assert Process.alive?(second)
+    assert length(read_records(path)) == 259
+  end
+
+  test "bounds the mailbox while a write is slow", %{path: path} do
+    test_pid = self()
+    writes = :atomics.new(1, signed: false)
+    blocked = :atomics.new(1, signed: false)
+
+    write_fun = fn path, contents ->
+      count = :atomics.add_get(writes, 1, 1)
+      send(test_pid, {:write_started, count, self()})
+
+      if count == 2 and :atomics.get(blocked, 1) == 1 do
+        receive do
+          :release -> :ok
+        end
+      end
+
+      File.write(path, contents, [:append])
+    end
+
+    {:ok, writer} = Writer.start_link(name: nil, path: path, boot_id: "bounded", write_fun: write_fun)
+    assert_receive {:write_started, 1, ^writer}, 2_000
+
+    :atomics.put(blocked, 1, 1)
+    assert :ok = Writer.record(writer, :resource, %{actor: "first"})
+    assert_receive {:write_started, 2, ^writer}, 2_000
+
+    1..5_000
+    |> Task.async_stream(fn index -> Writer.record(writer, :resource, %{actor: index}) end, max_concurrency: 16)
+    |> Enum.to_list()
+
+    assert {:message_queue_len, queue_len} = Process.info(writer, :message_queue_len)
+    assert queue_len <= 256
+    assert queue_len < 5_000
+
+    :atomics.put(blocked, 1, 0)
+    send(writer, :release)
+    assert :ok = Writer.flush(writer)
+
+    write_count = :atomics.get(writes, 1)
+    assert write_count > 2
+    # restart + admitted records + one admission_overflow marker on drain
+    assert write_count <= 258
+    assert length(read_records(path)) == write_count
+
+    assert :ok = Writer.record(writer, :resource, %{actor: :after_drain})
+    assert :ok = Writer.flush(writer)
+    assert :atomics.get(writes, 1) == write_count + 1
+  end
+
+  test "overflow logs once on entry and drains into one marker record", %{path: path} do
+    import ExUnit.CaptureLog
+
+    writes = :atomics.new(1, signed: false)
+    blocked = :atomics.new(1, signed: false)
+
+    write_fun = fn path, contents ->
+      :atomics.add(writes, 1, 1)
+
+      if :atomics.get(blocked, 1) == 1 do
+        receive do
+          :release -> :ok
+        end
+      end
+
+      File.write(path, contents, [:append])
+    end
+
+    {:ok, writer} = Writer.start_link(name: nil, path: path, boot_id: "overflow", write_fun: write_fun)
+
+    overload = fn dropped ->
+      :atomics.put(blocked, 1, 1)
+      # One record occupies the writer inside the blocked write; 255 more fill
+      # the pending window; every further record is refused at admission.
+      capture_log(fn ->
+        for index <- 1..(256 + dropped) do
+          assert :ok = Writer.record(writer, :resource, %{actor: index})
+        end
+      end)
+    end
+
+    log = overload.(40)
+    assert length(Regex.scan(~r/admission_overflow/, log)) == 1
+
+    :atomics.put(blocked, 1, 0)
+    send(writer, :release)
+    assert :ok = Writer.flush(writer)
+
+    markers =
+      path
+      |> read_records()
+      |> Enum.filter(&(&1["kind"] == "warning" and &1["attributes"]["reason"] == "admission_overflow"))
+
+    assert [%{"attributes" => %{"dropped_count" => 40}}] = markers
+
+    # A later, distinct overload logs again and produces its own marker.
+    second_log = overload.(3)
+    assert length(Regex.scan(~r/admission_overflow/, second_log)) == 1
+
+    :atomics.put(blocked, 1, 0)
+    send(writer, :release)
+    assert :ok = Writer.flush(writer)
+
+    dropped_counts =
+      path
+      |> read_records()
+      |> Enum.filter(&(&1["kind"] == "warning" and &1["attributes"]["reason"] == "admission_overflow"))
+      |> Enum.map(& &1["attributes"]["dropped_count"])
+
+    assert dropped_counts == [40, 3]
+  end
+
+  test "no overflow marker is written when nothing was dropped", %{path: path} do
+    {:ok, writer} = Writer.start_link(name: nil, path: path, boot_id: "quiet")
+
+    assert :ok = Writer.record(writer, :resource, %{actor: "calm"})
+    assert :ok = Writer.flush(writer)
+
+    refute Enum.any?(read_records(path), &(&1["kind"] == "warning"))
+  end
+
+  test "malformed submissions and ignored messages remain fail-open", %{path: path} do
+    assert :ok = Writer.record(self(), :resource, %{})
+    assert :ok = Writer.record(:missing_writer, :resource, %{})
+    assert :ok = Writer.record(:missing_writer, :resource, %{}, :invalid)
+    assert :ok = Writer.record(:missing_writer, :resource, :invalid)
+    assert :ok = Writer.flush(:missing_writer)
+
+    {:ok, writer} = Writer.start_link(name: nil, path: path, boot_id: "defensive")
+
+    assert :ok = Writer.record_batch(writer, [:invalid_record])
+    assert :ok = Writer.record_batch(writer, [{123, %{event: :invalid_kind}}])
+    assert :ok = Writer.record(writer, :resource, %{}, timestamp: :invalid_timestamp)
+    send(writer, {:event, %{}})
+    send(writer, :ignored_message)
+
+    assert :ok = Writer.flush(writer)
+    assert length(read_records(path)) == 3
+  end
+
+  test "writer catches failures from the append function", %{path: path} do
+    write_fun = fn _path, _contents -> throw(:writer_exploded) end
+    {:ok, writer} = Writer.start_link(name: nil, path: path, boot_id: "exception", write_fun: write_fun)
+
+    assert :ok = Writer.record(writer, :resource, %{actor: "test"})
+    assert :ok = Writer.flush(writer)
+    assert Process.alive?(writer)
+  end
+
   test "an unwritable target never terminates the writer or caller", %{root: root} do
     parent_file = Path.join(root, "not-a-directory")
     File.mkdir_p!(root)
