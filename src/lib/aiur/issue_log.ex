@@ -36,7 +36,8 @@ defmodule Aiur.IssueLog do
   @history_limit 100
   @tail_chunk_bytes 65_536
   @max_transcript_record_bytes 16_384
-  @truncated_body_chars 3_000
+  @truncated_body_chars 1_000
+  @truncated_diff_chars 2_000
 
   @doc """
   Ensure a writer is running for `identifier`. Returns `:ok` on success;
@@ -49,6 +50,7 @@ defmodule Aiur.IssueLog do
         identity.identifier,
         log_path(identity),
         event_log_path(identity),
+        transcript_path(identity),
         writer_key(identity)
       )
     else
@@ -57,7 +59,7 @@ defmodule Aiur.IssueLog do
   end
 
   def attach(identifier) when is_binary(identifier) do
-    attach_writer(identifier, log_path(identifier), event_log_path(identifier), writer_key(identifier))
+    attach_writer(identifier, log_path(identifier), event_log_path(identifier), transcript_path(identifier), writer_key(identifier))
   end
 
   @doc """
@@ -483,8 +485,8 @@ defmodule Aiur.IssueLog do
     :ok
   end
 
-  defp attach_writer(identifier, path, event_path, key) do
-    case ensure_writer(identifier, path, event_path, key) do
+  defp attach_writer(identifier, path, event_path, transcript_path, key) do
+    case ensure_writer(identifier, path, event_path, transcript_path, key) do
       :ok ->
         :ok
 
@@ -504,31 +506,31 @@ defmodule Aiur.IssueLog do
 
   defp event_identity(_event, _identifier), do: :error
 
-  defp ensure_writer(identifier, path, event_path, key) do
+  defp ensure_writer(identifier, path, event_path, transcript_path, key) do
     case Registry.lookup(Aiur.IssueLog.Registry, key) do
       [] ->
-        start_writer(identifier, path, event_path, key)
+        start_writer(identifier, path, event_path, transcript_path, key)
 
       [{pid, _}] ->
         if writer_path(pid) == path do
           :ok
         else
-          replace_writer(identifier, pid, path, event_path, key)
+          replace_writer(identifier, pid, path, event_path, transcript_path, key)
         end
     end
   end
 
-  defp replace_writer(identifier, pid, path, event_path, key) do
+  defp replace_writer(identifier, pid, path, event_path, transcript_path, key) do
     case DynamicSupervisor.terminate_child(@supervisor, pid) do
-      :ok -> start_writer(identifier, path, event_path, key)
-      {:error, :not_found} -> start_writer(identifier, path, event_path, key)
+      :ok -> start_writer(identifier, path, event_path, transcript_path, key)
+      {:error, :not_found} -> start_writer(identifier, path, event_path, transcript_path, key)
     end
   end
 
-  defp start_writer(identifier, path, event_path, key) do
+  defp start_writer(identifier, path, event_path, transcript_path, key) do
     DynamicSupervisor.start_child(
       @supervisor,
-      {__MODULE__, identifier: identifier, path: path, event_path: event_path, writer_key: key}
+      {__MODULE__, identifier: identifier, path: path, event_path: event_path, transcript_path: transcript_path, writer_key: key}
     )
     |> normalize_start_result()
   end
@@ -595,15 +597,15 @@ defmodule Aiur.IssueLog do
   end
 
   defp write_transcript_line(file, event) do
-    encoded = event |> persisted_transcript() |> json_safe() |> encode_transcript()
+    encoded = event |> persisted_transcript() |> bounded_transcript() |> json_safe() |> encode_transcript()
     IO.write(file, encoded <> "\n")
   rescue
     _ -> :ok
   end
 
-  # A tail page has a fixed byte budget. Persist an explicit, honest truncated
-  # message rather than allowing one oversized provider payload to become an
-  # unparseable boundary record that hides the rest of the feed.
+  # A tail page has a fixed byte budget. This is a second, defensive cap after
+  # `bounded_transcript/1`, which prevents unbounded provider payloads from
+  # being encoded in the first place.
   defp encode_transcript(record) do
     encoded = Jason.encode!(record)
 
@@ -618,7 +620,12 @@ defmodule Aiur.IssueLog do
     end
   end
 
-  defp truncated_body(body) when is_binary(body), do: String.slice(body, 0, @truncated_body_chars) <> "…"
+  defp truncated_body(body) when is_binary(body) do
+    if String.length(body) > @truncated_body_chars,
+      do: String.slice(body, 0, @truncated_body_chars) <> "…",
+      else: body
+  end
+
   defp truncated_body(body), do: inspect(body)
 
   defp persisted_transcript({:transcript_event, event}) when is_map(event), do: event
@@ -636,6 +643,18 @@ defmodule Aiur.IssueLog do
   end
 
   defp persisted_transcript(event) when is_map(event), do: event
+
+  # The feed needs a message body and, for edit tools, the provider's real
+  # unified diff. Shell output and generic tool payloads can be arbitrarily
+  # large, so drop them before JSON encoding rather than paying their memory
+  # cost only to reject an oversized record afterward.
+  defp bounded_transcript(%{role: :tool, payload: %{tool: "edit", output: output}} = event) when is_binary(output) do
+    %{event | body: truncated_body(event.body), payload: %{tool: "edit", output: String.slice(output, 0, @truncated_diff_chars)}}
+  end
+
+  defp bounded_transcript(%{body: body} = event) do
+    %{event | body: truncated_body(body), payload: nil}
+  end
 
   defp json_safe(%DateTime{} = value), do: DateTime.to_iso8601(value)
 
