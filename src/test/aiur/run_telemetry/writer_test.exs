@@ -2,7 +2,7 @@ defmodule Aiur.RunTelemetry.WriterTest do
   use ExUnit.Case, async: false
 
   alias Aiur.RunTelemetry
-  alias Aiur.RunTelemetry.Writer
+  alias Aiur.RunTelemetry.{Dataset, Retention, Writer}
 
   setup do
     root = Path.join(System.tmp_dir!(), "aiur-telemetry-writer-#{System.unique_integer([:positive])}")
@@ -74,6 +74,36 @@ defmodule Aiur.RunTelemetry.WriterTest do
              "2026-07-11T12:00:00Z",
              "2026-07-11T12:00:00Z"
            ]
+  end
+
+  test "writer tolerates malformed caller values while retaining valid batch entries", %{path: path} do
+    name = {:global, {__MODULE__, System.unique_integer([:positive])}}
+    {:ok, writer} = Writer.start_link(name: name, path: path, boot_id: "guarded")
+
+    assert :ok = Writer.record(writer, :resource, :not_a_map, :not_options)
+
+    assert :ok =
+             Writer.record_batch(writer, [{:resource, %{actor: "_daemon", rss_bytes: 42}}, :not_a_record])
+
+    assert :ok = Writer.flush(writer)
+    assert :ok = Writer.flush(:writer_that_does_not_exist)
+
+    records = read_records(path)
+    assert Enum.map(records, & &1["kind"]) == ["restart", "resource"]
+  end
+
+  test "writer normalizes opaque batch values and ignores unrelated mailbox messages", %{path: path} do
+    {:ok, writer} = Writer.start_link(name: nil, path: path, boot_id: "normalized")
+
+    send(writer, {:event, %{}})
+    send(writer, :unrelated)
+
+    assert :ok = Writer.record_batch(writer, [{42, %{actor: "_daemon"}}], timestamp: :not_a_timestamp)
+    assert :ok = Writer.flush(writer)
+
+    records = read_records(path)
+    assert Enum.map(records, & &1["kind"]) == ["restart", "42"]
+    assert {:ok, _timestamp, 0} = DateTime.from_iso8601(Enum.at(records, 1)["timestamp"])
   end
 
   test "named writers keep admission tied to the current process", %{path: path} do
@@ -274,6 +304,112 @@ defmodule Aiur.RunTelemetry.WriterTest do
     assert Enum.map(records, & &1["sequence"]) == [1, 2, 3]
     assert Enum.at(records, 0)["attributes"]["event"] == "daemon_restart"
     assert Enum.at(records, 2)["attributes"]["event"] == "telemetry_writer_restart"
+  end
+
+  test "startup retention prunes only complete old boots before appending", %{path: path} do
+    {:ok, first} = Writer.start_link(name: nil, path: path, boot_id: "boot-1")
+    assert :ok = Writer.record(first, :resource, %{actor: "_daemon", rss_bytes: 1})
+    assert :ok = Writer.record(first, :warning, %{reason: :admission_overflow, dropped_count: 7})
+    assert :ok = Writer.flush(first)
+    :ok = GenServer.stop(first)
+
+    first_boot_size = File.stat!(path).size
+
+    {:ok, second} = Writer.start_link(name: nil, path: path, boot_id: "boot-2")
+    assert :ok = Writer.record(second, :resource, %{actor: "_daemon", rss_bytes: 2})
+    assert :ok = Writer.flush(second)
+    :ok = GenServer.stop(second)
+
+    two_boot_size = File.stat!(path).size
+    retention = [max_bytes: two_boot_size - first_boot_size]
+
+    {:ok, third} = Writer.start_link(name: nil, path: path, boot_id: "boot-3", retention: retention)
+    assert :ok = Writer.record(third, :resource, %{actor: "_daemon", rss_bytes: 3})
+    assert :ok = Writer.flush(third)
+    :ok = GenServer.stop(third)
+
+    {:ok, fourth} = Writer.start_link(name: nil, path: path, boot_id: "boot-4", retention: retention)
+    assert :ok = Writer.record(fourth, :resource, %{actor: "_daemon", rss_bytes: 4})
+    assert :ok = Writer.flush(fourth)
+
+    assert File.stat!(path).size <= two_boot_size
+    assert {:ok, dataset} = Dataset.build(path)
+    assert Dataset.boot_ids(dataset) == ["boot-3", "boot-4"]
+    assert dataset.warnings == []
+  end
+
+  test "startup retention drops boots outside the configured age window", %{path: path} do
+    old_clock = fn -> ~U[2026-07-01 12:00:00Z] end
+    current_clock = fn -> ~U[2026-07-11 12:00:00Z] end
+
+    {:ok, old} = Writer.start_link(name: nil, path: path, boot_id: "old", clock: old_clock)
+    assert :ok = Writer.record(old, :resource, %{actor: "_daemon", rss_bytes: 1})
+    assert :ok = Writer.flush(old)
+    :ok = GenServer.stop(old)
+
+    {:ok, current} =
+      Writer.start_link(
+        name: nil,
+        path: path,
+        boot_id: "current",
+        clock: current_clock,
+        retention: [max_age_days: 1]
+      )
+
+    assert :ok = Writer.flush(current)
+    assert {:ok, dataset} = Dataset.build(path)
+    assert Dataset.boot_ids(dataset) == ["current"]
+  end
+
+  test "startup retention never prunes the boot a restarted writer resumes", %{path: path} do
+    {:ok, first} = Writer.start_link(name: nil, path: path, boot_id: "resumed")
+    assert :ok = Writer.record(first, :resource, %{actor: "_daemon", rss_bytes: 1})
+    assert :ok = Writer.flush(first)
+    :ok = GenServer.stop(first)
+
+    {:ok, second} = Writer.start_link(name: nil, path: path, boot_id: "resumed", retention: [max_bytes: 1])
+    assert :ok = Writer.flush(second)
+
+    assert {:ok, dataset} = Dataset.build(path)
+    assert Dataset.boot_ids(dataset) == ["resumed"]
+    refute Enum.any?(dataset.warnings, &(&1.type == :sequence_gap))
+  end
+
+  test "startup retention keeps an oversized complete boot parseable", %{path: path} do
+    old_clock = fn -> ~U[2026-07-01 12:00:00Z] end
+    current_clock = fn -> ~U[2026-07-01 12:01:00Z] end
+
+    {:ok, first} = Writer.start_link(name: nil, path: path, boot_id: "oversized", clock: old_clock)
+
+    assert :ok =
+             Writer.record(
+               first,
+               :resource,
+               %{
+                 actor: "_daemon",
+                 rss_bytes: 1,
+                 detail: String.duplicate("x", 8_192)
+               },
+               timestamp: old_clock.()
+             )
+
+    assert :ok = Writer.flush(first)
+    :ok = GenServer.stop(first)
+
+    {:ok, second} =
+      Writer.start_link(name: nil, path: path, boot_id: "current", clock: current_clock, retention: [max_bytes: 1])
+
+    assert :ok = Writer.flush(second)
+    assert File.stat!(path).size > 1
+
+    assert {:ok, dataset} = Dataset.build(path)
+    assert Dataset.boot_ids(dataset) == ["oversized", "current"]
+    assert dataset.warnings == []
+  end
+
+  test "retention treats absent or invalid targets as no-ops", %{path: path} do
+    assert :ok = Retention.prune(path)
+    assert :ok = Retention.prune(:not_a_path, :not_options)
   end
 
   test "sanitizes subscribed GitHub anchors before appending", %{path: path} do

@@ -21,6 +21,8 @@ defmodule Aiur.RunTelemetry.Dataset do
   @default_sample_interval_ms 5_000
   @default_gap_threshold_multiplier 1.5
   @default_review_resume_grace_seconds 300
+  @tail_chunk_bytes 64 * 1024
+  @max_tail_line_bytes 1 * 1024 * 1024
 
   @type dataset :: map()
 
@@ -34,7 +36,7 @@ defmodule Aiur.RunTelemetry.Dataset do
     if files == [] do
       {:error, {:no_telemetry_files, inputs}}
     else
-      {file_records, parse_warnings} = read_files(files)
+      {file_records, parse_warnings} = read_files(files, opts)
       {github_records, github_warnings} = github_records(Keyword.get(opts, :github_events, []))
 
       {records, dedupe_warnings} =
@@ -208,15 +210,23 @@ defmodule Aiur.RunTelemetry.Dataset do
     |> Enum.sort()
   end
 
-  defp read_files(files) do
+  defp read_files(files, opts) do
     Enum.reduce(files, {[], []}, fn file, {records, warnings} ->
-      {file_records, file_warnings} = read_file(file)
+      {file_records, file_warnings} = read_file(file, opts)
       {file_records ++ records, file_warnings ++ warnings}
     end)
     |> then(fn {records, warnings} -> {Enum.reverse(records), Enum.reverse(warnings)} end)
   end
 
-  defp read_file(file) do
+  defp read_file(file, opts) do
+    if Keyword.get(opts, :session) == :current do
+      read_current_file(file, Keyword.get(opts, :boot_id))
+    else
+      read_full_file(file)
+    end
+  end
+
+  defp read_full_file(file) do
     file
     |> File.stream!(:line, [])
     |> Stream.with_index(1)
@@ -229,6 +239,132 @@ defmodule Aiur.RunTelemetry.Dataset do
   rescue
     error ->
       {[], [%{type: :file_read_error, path: file, reason: exception_class(error)}]}
+  end
+
+  # The current-session view is normally the tail boot. Read backward in bounded
+  # chunks until a different boot id appears, then feed only those lines through
+  # the ordinary validator/reducer. Historical boots are never decoded here.
+  defp read_current_file(file, requested_boot_id) do
+    case File.open(file, [:read, :binary]) do
+      {:ok, device} ->
+        try do
+          case :file.position(device, :eof) do
+            {:ok, size} ->
+              state =
+                read_tail_chunks(
+                  device,
+                  size,
+                  "",
+                  %{boot_id: nil, lines: [], done?: false, tail_line_too_large?: false},
+                  requested_boot_id
+                )
+
+              {records, warnings} =
+                state.lines
+                |> Enum.with_index(1)
+                |> Enum.reduce({[], []}, fn {line, line_number}, {records, warnings} ->
+                  case parse_line(line, file, line_number) do
+                    {:ok, record} -> {[record | records], warnings}
+                    {:warning, warning} -> {records, [warning | warnings]}
+                  end
+                end)
+
+              warnings =
+                if state.tail_line_too_large? do
+                  [%{type: :tail_line_too_large, path: file, max_bytes: @max_tail_line_bytes} | warnings]
+                else
+                  warnings
+                end
+
+              {Enum.reverse(records), Enum.reverse(warnings)}
+
+            {:error, reason} ->
+              {[], [%{type: :file_read_error, path: file, reason: reason}]}
+          end
+        after
+          File.close(device)
+        end
+
+      {:error, reason} ->
+        {[], [%{type: :file_read_error, path: file, reason: reason}]}
+    end
+  rescue
+    error -> {[], [%{type: :file_read_error, path: file, reason: exception_class(error)}]}
+  end
+
+  defp read_tail_chunks(_device, _offset, _carry, %{done?: true} = state, _requested_boot_id), do: state
+
+  defp read_tail_chunks(device, offset, carry, state, requested_boot_id) do
+    bytes = min(offset, @tail_chunk_bytes)
+    next_offset = offset - bytes
+    {:ok, _position} = :file.position(device, next_offset)
+
+    case :file.read(device, bytes) do
+      {:ok, chunk} ->
+        {next_carry, lines} = split_tail_chunk(chunk <> carry, next_offset == 0)
+        {oversized_lines, lines} = Enum.split_with(lines, &(byte_size(&1) > @max_tail_line_bytes))
+        state = consume_tail_lines(Enum.reverse(lines), state, requested_boot_id)
+        state = mark_oversized_tail_line(state, next_carry, oversized_lines)
+
+        if next_offset == 0 or state.done? or state.tail_line_too_large? do
+          state
+        else
+          read_tail_chunks(device, next_offset, next_carry, state, requested_boot_id)
+        end
+
+      :eof ->
+        state
+
+      {:error, _reason} ->
+        state
+    end
+  end
+
+  defp split_tail_chunk(data, first_chunk?) do
+    lines = String.split(data, "\n", trim: false)
+    lines = if String.ends_with?(data, "\n"), do: Enum.drop(lines, -1), else: lines
+
+    if first_chunk? do
+      {"", lines}
+    else
+      case lines do
+        [] -> {"", []}
+        [carry | complete] -> {carry, complete}
+      end
+    end
+  end
+
+  defp mark_oversized_tail_line(state, carry, oversized_lines) do
+    if byte_size(carry) > @max_tail_line_bytes or oversized_lines != [] do
+      Map.put(state, :tail_line_too_large?, true)
+    else
+      state
+    end
+  end
+
+  defp consume_tail_lines(lines, state, requested_boot_id) do
+    Enum.reduce_while(lines, state, &consume_tail_line(&1, &2, requested_boot_id))
+  end
+
+  defp consume_tail_line(line, %{boot_id: nil} = state, requested_boot_id) do
+    boot_id = boot_id_from_line(line)
+    chosen_boot_id = if boot_id == requested_boot_id, do: requested_boot_id, else: boot_id
+    {:cont, %{state | boot_id: chosen_boot_id, lines: [line | state.lines]}}
+  end
+
+  defp consume_tail_line(line, state, _requested_boot_id) do
+    case boot_id_from_line(line) do
+      nil -> {:cont, %{state | lines: [line | state.lines]}}
+      boot_id when boot_id == state.boot_id -> {:cont, %{state | lines: [line | state.lines]}}
+      _other -> {:halt, %{state | done?: true}}
+    end
+  end
+
+  defp boot_id_from_line(line) do
+    case Jason.decode(line) do
+      {:ok, %{"boot_id" => boot_id}} when is_binary(boot_id) -> boot_id
+      _other -> nil
+    end
   end
 
   defp parse_line(line, path, line_number) do

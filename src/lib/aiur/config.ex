@@ -24,6 +24,8 @@ defmodule Aiur.Config do
   """
 
   @default_base_branch "main"
+  @default_telemetry_retention_max_bytes 64 * 1024 * 1024
+  @default_telemetry_retention_max_age_days 30
 
   @type codex_runtime_settings :: %{
           approval_policy: String.t(),
@@ -585,6 +587,21 @@ defmodule Aiur.Config do
   @spec observability_render_interval_ms() :: pos_integer()
   def observability_render_interval_ms do
     settings!().observability.render_interval_ms
+  end
+
+  @doc "Retention limits for the durable run-telemetry stream."
+  @spec telemetry_retention() :: [max_bytes: pos_integer(), max_age_days: pos_integer()]
+  def telemetry_retention do
+    case settings() do
+      {:ok, %{observability: observability}} ->
+        [
+          max_bytes: Map.get(observability, :telemetry_retention_max_bytes, @default_telemetry_retention_max_bytes),
+          max_age_days: Map.get(observability, :telemetry_retention_max_age_days, @default_telemetry_retention_max_age_days)
+        ]
+
+      _other ->
+        [max_bytes: @default_telemetry_retention_max_bytes, max_age_days: @default_telemetry_retention_max_age_days]
+    end
   end
 
   @spec validate!() :: :ok | {:error, term()}
