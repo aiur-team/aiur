@@ -127,6 +127,20 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
     end
   end
 
+  test "GET /api/v1/streamdeck/grid returns the grid projection" do
+    conn = call(conn(:get, "/api/v1/streamdeck/grid"))
+
+    assert conn.status == 200
+
+    payload = Jason.decode!(conn.resp_body)
+
+    assert is_list(payload["agents"])
+    assert is_integer(payload["total"])
+    assert payload["columns_per_page"] == 4
+    assert payload["rows_per_column"] == 2
+    assert payload["agents_per_page"] == 8
+  end
+
   defp install_decision_history!(count) do
     original_state = :sys.get_state(DecisionStore)
 

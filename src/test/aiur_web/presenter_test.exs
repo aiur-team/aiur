@@ -2,8 +2,9 @@ defmodule AiurWeb.PresenterTest do
   use Aiur.TestSupport
 
   alias Aiur.Events.SubscriptionStore
-  alias Aiur.{Issue, TrackerIdentity}
+  alias Aiur.{Issue, TicketActivity, TicketObservation, TrackerIdentity}
   alias Aiur.Orchestrator
+  alias Aiur.TicketActivity.Projection
   alias Aiur.RecentMerge
   alias AiurWeb.Presenter
 
@@ -242,6 +243,44 @@ defmodule AiurWeb.PresenterTest do
     assert [running_row] = payload.running
     assert running_row.open_decision_count == 1
     assert running_row.open_decision_count_health == :available
+  end
+
+  test "snapshot carries the current activity progress estimate" do
+    original_activity_state = :sys.get_state(TicketActivity)
+    orchestrator_name = Module.concat(__MODULE__, :ActivityProgressOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
+    identity = tracker_identity("1001")
+    now = DateTime.utc_now()
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+      :sys.replace_state(TicketActivity, fn _state -> original_activity_state end)
+    end)
+
+    observation = %TicketObservation{
+      status: :joinable,
+      reason: nil,
+      tracker_identity: identity,
+      source: %{kind: :agent_event, name: "progress"},
+      event_id: 1,
+      provenance: %{run_id: "run-activity", attempt: 1},
+      occurred_at: now,
+      observed_at: now,
+      attributes: %{percent: 60}
+    }
+
+    {:accepted, activity_projection} = Projection.new() |> Projection.apply(observation)
+
+    :sys.replace_state(TicketActivity, fn state -> %{state | projection: activity_projection} end)
+
+    entry =
+      "issue-activity"
+      |> running_entry("1001", :working)
+      |> put_in([:issue, Access.key(:tracker_identity)], identity)
+
+    :sys.replace_state(pid, fn state -> %{state | running: %{"issue-activity" => entry}} end)
+
+    assert %{running: [%{progress_percent: 60}]} = Orchestrator.snapshot(orchestrator_name, 1_000)
   end
 
   test "surfaces the global pause switch and a run_paused row for a globally held agent" do

@@ -119,6 +119,19 @@ defmodule Aiur.AgentEventsTest do
     end
   end
 
+  describe "streamdeck_bucket/1" do
+    test "prioritizes attention, intervention, activity, and queued readiness states" do
+      assert AgentEvents.streamdeck_bucket(%{open_decision_count: 1, streamdeck_source: :running}) == :alert
+      assert AgentEvents.streamdeck_bucket(%{work_state: :error, streamdeck_source: :running}) == :stuck
+      assert AgentEvents.streamdeck_bucket(%{waiting_reason: :unresponsive, streamdeck_source: :running}) == :stuck
+      assert AgentEvents.streamdeck_bucket(%{streamdeck_source: :retrying}) == :stuck
+      assert AgentEvents.streamdeck_bucket(%{work_state: :working, streamdeck_source: :running}) == :running
+      assert AgentEvents.streamdeck_bucket(%{tracker_paused: true, streamdeck_source: :running}) == :paused
+      assert AgentEvents.streamdeck_bucket(%{work_state: :completed, streamdeck_source: :running}) == :paused
+      assert AgentEvents.streamdeck_bucket(%{streamdeck_source: :queued}) == :queued
+    end
+  end
+
   describe "agent_summary/4" do
     test "merges extras and filters nil values" do
       summary =
