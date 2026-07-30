@@ -127,6 +127,10 @@ defmodule AiurWeb.Router do
     match(:*, "/api/v1/refresh", ObservabilityApiController, :method_not_allowed)
     post("/api/v1/:issue_identifier/messages", ObservabilityApiController, :send_message)
     match(:*, "/api/v1/:issue_identifier/messages", ObservabilityApiController, :method_not_allowed)
+    post("/api/v1/:issue_identifier/pause", ObservabilityApiController, :pause)
+    match(:*, "/api/v1/:issue_identifier/pause", ObservabilityApiController, :method_not_allowed)
+    post("/api/v1/:issue_identifier/resume", ObservabilityApiController, :resume)
+    match(:*, "/api/v1/:issue_identifier/resume", ObservabilityApiController, :method_not_allowed)
   end
 
   # Machine-to-machine write surfaces that are NOT browser-facing and must keep
