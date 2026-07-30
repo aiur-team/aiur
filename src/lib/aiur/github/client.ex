@@ -138,6 +138,11 @@ defmodule Aiur.GitHub.Client do
           {:ok, [map()]} | {:error, term()}
   def fetch_issue_comments(issue_number, opts \\ []), do: Comments.fetch_issue_comments(issue_number, opts)
 
+  @spec fetch_issue_comments_conditional(String.t() | integer(), keyword()) ::
+          {:ok, [map()], String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
+  def fetch_issue_comments_conditional(issue_number, opts \\ []),
+    do: Comments.fetch_issue_comments_conditional(issue_number, opts)
+
   @spec fetch_pull_request_head_ref(String.t() | integer(), keyword()) ::
           {:ok, String.t()} | {:error, term()}
   def fetch_pull_request_head_ref(pr_number, opts \\ []),

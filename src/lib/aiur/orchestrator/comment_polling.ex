@@ -152,11 +152,12 @@ defmodule Aiur.Orchestrator.CommentPolling do
     poll_opts =
       opts
       |> Keyword.put_new(:since, state.github_comments_since)
+      |> Keyword.put_new(:etags, state.github_comment_etags)
       |> TargetSelection.put_open_pull_requests_by_target(human_review_targets)
       |> TargetSelection.put_open_pull_requests_by_target(watch_targets)
 
     case GithubCommentsPoller.poll(targets, poll_opts) do
-      {:ok, %{since: since, count: count, errors: errors}} ->
+      {:ok, %{since: since, etags: etags, count: count, errors: errors}} ->
         if count > 0,
           do: Logger.debug("aiur_perf github_comments_poller published count=#{count}")
 
@@ -174,6 +175,7 @@ defmodule Aiur.Orchestrator.CommentPolling do
         %{
           state
           | github_comments_since: TargetSelection.merge_comment_cursors(state.github_comments_since, since),
+            github_comment_etags: Map.merge(state.github_comment_etags, etags),
             github_comment_issue_updated_at:
               TargetSelection.remember_polled_human_review_targets(
                 state.github_comment_issue_updated_at,

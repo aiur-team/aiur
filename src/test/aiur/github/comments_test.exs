@@ -58,6 +58,31 @@ defmodule Aiur.GitHub.CommentsTest do
     end
   end
 
+  describe "fetch_issue_comments_conditional/2" do
+    test "sends the saved ETag and treats 304 as a successful unchanged response" do
+      request_fun = fn %{method: :get, etag: etag} = request ->
+        assert request.url =~ "/issues/3/comments"
+        assert etag == ~s("prior-etag")
+        {:ok, %{status: 304, headers: [{"etag", ~s("prior-etag")}]}}
+      end
+
+      assert {:not_modified, ~s("prior-etag")} =
+               Comments.fetch_issue_comments_conditional(3,
+                 etag: ~s("prior-etag"),
+                 request_fun: request_fun
+               )
+    end
+
+    test "returns the response ETag with a materialized comments list" do
+      request_fun = fn %{method: :get} ->
+        {:ok, %{status: 200, body: [%{"id" => 1}], headers: [{"etag", ~s("fresh-etag")}]}}
+      end
+
+      assert {:ok, [%{"id" => 1}], ~s("fresh-etag")} =
+               Comments.fetch_issue_comments_conditional(3, request_fun: request_fun)
+    end
+  end
+
   describe "fetch_recent_repo_review_comments/1" do
     test "returns paginated review comments" do
       request_fun = fn %{method: :get, url: url} ->

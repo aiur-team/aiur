@@ -218,6 +218,33 @@ defmodule Aiur.GitHub.Transport do
     end
   end
 
+  @doc """
+  Fetches a JSON list conditionally and preserves the response ETag.
+
+  A `304 Not Modified` is a successful, budget-free response. Callers keep
+  their last materialized value and use the returned ETag on the next request.
+  """
+  @spec fetch_json_list_conditional(function(), String.t(), String.t(), String.t() | nil) ::
+          {:ok, [term()], String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
+  def fetch_json_list_conditional(request_fun, token, url, etag \\ nil) do
+    request = %{method: :get, url: url, token: token}
+    request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
+
+    case request_fun.(request) do
+      {:ok, %{status: 200, body: body} = response} when is_list(body) ->
+        {:ok, body, header(Map.get(response, :headers, []), "etag") || etag}
+
+      {:ok, %{status: 304} = response} ->
+        {:not_modified, header(Map.get(response, :headers, []), "etag") || etag}
+
+      {:ok, %{status: _status} = response} ->
+        {:error, Errors.github_status_error(response)}
+
+      {:error, reason} ->
+        {:error, Errors.classify_error({:error, reason})}
+    end
+  end
+
   @spec fetch_json_map(function(), String.t(), String.t()) :: {:ok, map()} | {:error, term()}
   def fetch_json_map(request_fun, token, url) do
     case request_fun.(%{method: :get, url: url, token: token}) do

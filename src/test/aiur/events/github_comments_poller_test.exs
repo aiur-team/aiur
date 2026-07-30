@@ -64,6 +64,39 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
     refute String.contains?(readable_pulls_url, "head=")
   end
 
+  test "keeps a per-target issue ETag when comments are unchanged" do
+    parent = self()
+
+    request_fun = fn request ->
+      send(parent, {:requested, request})
+
+      cond do
+        String.contains?(request.url, "/issues/42/comments?") ->
+          assert request.etag == ~s("previous-etag")
+          {:ok, %{status: 304, headers: [{"etag", ~s("previous-etag")}]}}
+
+        String.contains?(request.url, "/pulls?") ->
+          {:ok, %{status: 200, body: []}}
+      end
+    end
+
+    assert {:ok,
+            %{
+              count: 0,
+              errors: [],
+              etags: %{"42" => %{issue: ~s("previous-etag")}}
+            }} =
+             GithubCommentsPoller.poll(["42"],
+               since: "2026-06-24T11:00:00Z",
+               etags: %{"42" => %{issue: ~s("previous-etag")}},
+               repo: "owner/repo",
+               request_fun: request_fun
+             )
+
+    assert_receive {:requested, %{url: issue_comments_url}}
+    assert String.contains?(issue_comments_url, "/issues/42/comments?")
+  end
+
   test "polls issue comments directly and publishes issue.commented" do
     :ok = Exchange.subscribe("ticket.42.issue.commented")
     codeowners = ensure_codeowners!("* @its-everdred\n")
