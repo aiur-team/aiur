@@ -11,7 +11,8 @@ defmodule Aiur.RunTelemetry do
   alias Aiur.RunTelemetry.Writer
 
   @filename "telemetry.ndjson"
-  @schema_version 1
+  # Version 2 adds the dispatch-time complexity estimate to lifecycle records.
+  @schema_version 2
   @boot_state_key {__MODULE__, :boot_state}
 
   @doc "Current durable telemetry schema version."

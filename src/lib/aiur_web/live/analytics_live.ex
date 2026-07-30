@@ -23,6 +23,7 @@ defmodule AiurWeb.AnalyticsLive do
      |> assign(:agent_kind, kind(&Aiur.Config.agent_kind/0, "agent unavailable"))
      |> assign(:range, :run)
      |> assign(:sort, :cpu)
+     |> assign(:time_domain, nil)
      |> load_model()}
   end
 
@@ -53,7 +54,18 @@ defmodule AiurWeb.AnalyticsLive do
   end
 
   def handle_event("range", %{"range" => range}, socket) do
-    {:noreply, socket |> assign(:range, range_atom(range)) |> load_model()}
+    {:noreply, socket |> assign(:range, range_atom(range)) |> assign(:time_domain, nil) |> load_model()}
+  end
+
+  def handle_event("time-domain", params, %{assigns: %{model: model}} = socket) when not is_nil(model) do
+    domain = Charts.normalize_time_domain(model, {Map.get(params, "t0"), Map.get(params, "t1")})
+    {:noreply, assign_time_domain(socket, domain)}
+  end
+
+  def handle_event("time-domain", _params, socket), do: {:noreply, socket}
+
+  def handle_event("reset-time-domain", _params, socket) do
+    {:noreply, assign_time_domain(socket, nil)}
   end
 
   @impl true
@@ -87,6 +99,11 @@ defmodule AiurWeb.AnalyticsLive do
           </div>
         </div>
 
+        <div :if={!is_nil(@time_domain)} class="an-zoombar" role="status">
+          <span>Zoomed to {Charts.time_domain_label(@chart_model, @time_domain)}</span>
+          <button type="button" phx-click="reset-time-domain">Reset</button>
+        </div>
+
         <div :if={!@unavailable} class="an-kpis">
           <div :for={k <- kpi_items(@model)} class={["an-kpi", k.tone]}>
             <span class="an-kpi-label">{k.label}</span>
@@ -103,7 +120,7 @@ defmodule AiurWeb.AnalyticsLive do
                 <p class="an-card-sub">Lifecycle per ticket — the wait rail into a work bar coloured by status, capped by an end marker.</p>
               </div>
             </div>
-            <div class="an-chart">{Phoenix.HTML.raw(Charts.gantt(@model))}</div>
+            <div id="analytics-gantt-chart" class="an-chart" phx-hook="TimeBrush">{Phoenix.HTML.raw(Charts.gantt(@chart_model))}</div>
           </section>
 
           <section class="an-card wide">
@@ -113,7 +130,7 @@ defmodule AiurWeb.AnalyticsLive do
                 <p class="an-card-sub">Stacked CPU across the daemon/executor baseline and each unit ticket. The dashed line is the machine ceiling.</p>
               </div>
             </div>
-            <div class="an-chart">{Phoenix.HTML.raw(Charts.cpu_stack(@model, @selected))}</div>
+            <div id="analytics-cpu-chart" class="an-chart" phx-hook="TimeBrush">{Phoenix.HTML.raw(Charts.cpu_stack(@chart_model, @selected))}</div>
             <div class="an-legend">
               <div class="an-legend-head">
                 <span class="an-legend-title">Units</span>
@@ -144,7 +161,7 @@ defmodule AiurWeb.AnalyticsLive do
                 <p class="an-card-sub">Active units against the cap. The shaded band above the line is wasted capacity.</p>
               </div>
             </div>
-            <div class="an-chart">{Phoenix.HTML.raw(Charts.concurrency(@model))}</div>
+            <div id="analytics-concurrency-chart" class="an-chart" phx-hook="TimeBrush">{Phoenix.HTML.raw(Charts.concurrency(@chart_model))}</div>
           </section>
 
           <section class="an-card">
@@ -154,7 +171,7 @@ defmodule AiurWeb.AnalyticsLive do
                 <p class="an-card-sub">Aggregate resident memory against the host ceiling — the real limiter on running more units.</p>
               </div>
             </div>
-            <div class="an-chart">{Phoenix.HTML.raw(Charts.memory(@model))}</div>
+            <div id="analytics-memory-chart" class="an-chart" phx-hook="TimeBrush">{Phoenix.HTML.raw(Charts.memory(@chart_model))}</div>
           </section>
 
           <section class="an-card scroll">
@@ -179,7 +196,17 @@ defmodule AiurWeb.AnalyticsLive do
                 <p class="an-card-sub">Cumulative tickets merged against total scope over the run.</p>
               </div>
             </div>
-            <div class="an-chart">{Phoenix.HTML.raw(Charts.burnup(@model))}</div>
+            <div id="analytics-burnup-chart" class="an-chart" phx-hook="TimeBrush">{Phoenix.HTML.raw(Charts.burnup(@chart_model))}</div>
+          </section>
+
+          <section class="an-card wide">
+            <div class="an-card-head">
+              <div>
+                <h3 class="an-card-title">Complexity breakdown</h3>
+                <p class="an-card-sub">Ticket count by dispatch-time complexity tier with average wall-clock.</p>
+              </div>
+            </div>
+            <div class="an-chart">{Phoenix.HTML.raw(Charts.complexity_breakdown(@model))}</div>
           </section>
         </div>
       </section>
@@ -198,12 +225,22 @@ defmodule AiurWeb.AnalyticsLive do
 
     case Presenter.load(opts) do
       {:ok, model} ->
-        assign(socket, model: model, selected: MapSet.new(model.actors, & &1.key), unavailable: nil, now: now)
+        domain = Charts.normalize_time_domain(model, socket.assigns.time_domain)
+
+        socket
+        |> assign(model: model, selected: MapSet.new(model.actors, & &1.key), unavailable: nil, now: now)
+        |> assign_time_domain(domain)
 
       {:unavailable, reason} ->
-        assign(socket, model: nil, selected: MapSet.new(), unavailable: reason, now: now)
+        assign(socket, model: nil, chart_model: nil, time_domain: nil, selected: MapSet.new(), unavailable: reason, now: now)
     end
   end
+
+  defp assign_time_domain(%{assigns: %{model: model}} = socket, domain) when not is_nil(model) do
+    assign(socket, time_domain: domain, chart_model: Charts.with_time_domain(model, domain))
+  end
+
+  defp assign_time_domain(socket, _domain), do: socket
 
   defp kpi_items(model) do
     k = model.kpis

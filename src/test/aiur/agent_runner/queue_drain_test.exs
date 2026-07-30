@@ -223,7 +223,7 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
     end
 
     test "renders an events_digest coordination event via EventsDigest" do
-      event = %{id: 1, topic: "ticket.QD-01.agent.progress", message: "progress note"}
+      event = %{id: 1, topic: "ticket.QD-01.agent.progress", source: :agent, message: "progress note"}
       item = %{category: :coordination_event, event_type: :events_digest, body: %{events: [event]}}
 
       result = QueueDrain.queue_item_text(item)
@@ -233,7 +233,7 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
     end
 
     test "renders an urgent events_digest with the urgent attribute" do
-      event = %{id: 1, topic: "ticket.QD-01.agent.progress", message: "blocker note"}
+      event = %{id: 1, topic: "ticket.QD-01.agent.progress", source: :agent, message: "blocker note"}
 
       item = %{
         category: :coordination_event,

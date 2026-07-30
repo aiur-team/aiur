@@ -84,6 +84,9 @@ defmodule Aiur.Events.Publisher do
       `bot_self_loop?` and dedup gates still apply, and the orchestrator
       and live agents self-gate by subscription, so untracked-issue
       comments published this way reach no reactivation target.
+    * `:digest_source` — trusted internal provenance for the agent digest.
+      Reserved payload keys are stripped before this option is applied, so
+      external content cannot grant itself digest access.
   """
   @spec publish(String.t(), map(), keyword()) ::
           {:ok, pos_integer(), non_neg_integer()} | :filtered | :deduped | {:error, :decision_requires_durable_publish}
@@ -157,10 +160,16 @@ defmodule Aiur.Events.Publisher do
 
   defp event_with_observation(topic, payload, id, opts) do
     payload
-    |> Map.drop([:ticket_observation, "ticket_observation"])
+    |> Map.drop([:ticket_observation, "ticket_observation", :digest_source, "digest_source"])
     |> Map.merge(%{id: id, topic: topic})
+    |> maybe_put_digest_source(Keyword.get(opts, :digest_source))
     |> Map.put(:ticket_observation, ticket_observation(payload, id, opts))
   end
+
+  defp maybe_put_digest_source(event, source) when source in [:agent, :orchestrator, :system],
+    do: Map.put(event, :digest_source, source)
+
+  defp maybe_put_digest_source(event, _source), do: event
 
   defp observation_options(opts, id) do
     [event_id: id, observed_at: observation_time(opts)]

@@ -205,7 +205,7 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
     end
 
     test "delivers a blocker-critical events digest with the urgent attribute" do
-      event = %{id: 9, topic: "ticket.CD.agent.progress", message: "blocker critical text"}
+      event = %{id: 9, topic: "ticket.CD.agent.progress", source: :agent, message: "blocker critical text"}
       item = %{id: 7, body: %{events: [event]}, target_issue_identifier: "CD-DIGEST"}
       orch = start_fake(blocker: {:ok, item})
       handler = CheckpointDelivery.safe_checkpoint_handler(issue(), orch, "codex")

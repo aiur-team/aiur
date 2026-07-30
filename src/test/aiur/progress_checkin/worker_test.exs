@@ -76,6 +76,7 @@ defmodule Aiur.ProgressCheckin.WorkerTest do
 
     assert_receive {:published, _topic, payload}, 500
 
+    assert payload.source == :system
     assert payload["source"] == "operator"
     assert payload["kind"] == "progress_request"
     assert is_binary(payload["message"])

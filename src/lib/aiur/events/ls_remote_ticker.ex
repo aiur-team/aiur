@@ -172,6 +172,7 @@ defmodule Aiur.Events.LsRemoteTicker do
         Logger.info("aiur_perf ls_remote_ticker phase=publish_push ref=#{ref} sha=#{sha} topic=#{topic} ticket=#{id}")
 
         payload = %{
+          source: :system,
           ref: ref,
           sha: sha,
           actor: nil,
@@ -185,6 +186,7 @@ defmodule Aiur.Events.LsRemoteTicker do
         Logger.info("aiur_perf ls_remote_ticker phase=publish_push ref=#{ref} sha=#{sha} topic=#{topic}")
 
         payload = %{
+          source: :system,
           ref: ref,
           sha: sha,
           actor: nil,
