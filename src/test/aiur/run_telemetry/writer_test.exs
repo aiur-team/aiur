@@ -112,7 +112,11 @@ defmodule Aiur.RunTelemetry.WriterTest do
     :atomics.put(blocked, 1, 0)
     send(writer, :release)
     assert :ok = Writer.flush(writer)
-    assert length(read_records(path)) > 1
+
+    write_count = :atomics.get(writes, 1)
+    assert write_count > 2
+    assert write_count <= 257
+    assert length(read_records(path)) == write_count
   end
 
   test "malformed submissions and ignored messages remain fail-open", %{path: path} do
