@@ -112,9 +112,12 @@ The operator intends to transfer its-everdred/aiur to an organization.
 When it happens: (1) verify its-applekid has org access immediately or the
 fleet token 404s; (2) sweep hardcoded `its-everdred/aiur` references
 (.aiur/config tracker, build-order pack `repository`, scripts, docs);
-(3) re-verify branch protection/rulesets (#1362); (4) #1381's Phase 0
-switches to trialing the now-available NATIVE merge queue (see the
-2026-07-30 comment on #1381). Prefer a quiet point in the run.
+(3) re-verify branch protection/rulesets (#1362); (4) the Executor trials the NATIVE merge queue directly —
+#1381 is DEQUEUED by operator decision; write no code up front. Watch for
+edge cases, especially flaky tests halting the queue (a flake in a
+speculative batch ejects innocent PRs and stalls the line — the
+{#1007,#1016,#1330} cluster is live) and queue depth at ~13-min CI cycles.
+File tickets only for observed gaps. Prefer a quiet point in the run.
 
 ## Monitoring quick reference
 
