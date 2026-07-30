@@ -25,6 +25,8 @@ defmodule Aiur.TestSupport do
 
       # Backend config aliases for tests
       alias Aiur.Codex.Config, as: CodexConfig
+      alias Aiur.Events.Publisher, as: EventsPublisher
+      alias Aiur.Events.SubscriptionStore, as: EventsSubscriptionStore
       alias Aiur.Linear.Config, as: LinearConfig
 
       import Aiur.TestSupport,
@@ -68,8 +70,8 @@ defmodule Aiur.TestSupport do
         # production-safe defaults and restore those defaults at teardown;
         # otherwise a filtering/enqueue stub can silently affect an unrelated
         # Exchange test that happens to run later in the VM.
-        Aiur.Events.Publisher.set_tracked_fn(fn _ -> true end)
-        Aiur.Events.SubscriptionStore.set_enqueue_fn(nil)
+        EventsPublisher.set_tracked_fn(fn _ -> true end)
+        EventsSubscriptionStore.set_enqueue_fn(nil)
 
         File.mkdir_p!(workflow_root)
         Application.put_env(:aiur, :build_gate_dir_override, Path.join(workflow_root, "build-gate"))
@@ -117,8 +119,8 @@ defmodule Aiur.TestSupport do
           Application.delete_env(:aiur, :server_port_override)
           Application.delete_env(:aiur, :memory_tracker_issues)
           Application.delete_env(:aiur, :memory_tracker_recipient)
-          Aiur.Events.Publisher.set_tracked_fn(fn _ -> true end)
-          Aiur.Events.SubscriptionStore.set_enqueue_fn(nil)
+          EventsPublisher.set_tracked_fn(fn _ -> true end)
+          EventsSubscriptionStore.set_enqueue_fn(nil)
           File.rm_rf(workflow_root)
 
           # Reload the store onto the restored baseline so the next test never
