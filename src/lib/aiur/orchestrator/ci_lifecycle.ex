@@ -326,10 +326,6 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       {:error, reason, state} ->
         Logger.warning("GithubCIPoller target refresh skipped; reason=#{inspect(reason)}")
         TrackerHealth.note_github_connectivity_failure(state, :ci, reason)
-
-      other ->
-        Logger.warning("GithubCIPoller target refresh returned unexpected value=#{inspect(other)}")
-        state
     end
   end
 

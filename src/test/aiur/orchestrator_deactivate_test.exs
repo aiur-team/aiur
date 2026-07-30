@@ -4463,8 +4463,10 @@ defmodule Aiur.OrchestratorDeactivateTest do
         )
 
       # No targets at all (no running, no human-review, watch disabled) ->
-      # the poller is never invoked.
-      assert next == state
+      # the poller is never invoked. Quiet-cycle bookkeeping (poll backoff and
+      # the per-cycle issue-list cache) may still advance.
+      assert %{next | github_poll_delays: %{}, ci_lifecycle: state.ci_lifecycle} == state
+      assert Map.keys(next.github_poll_delays) in [[], [{:quiet, :comments}]]
       refute_receive :unexpected_watch_fetch, 100
       refute_receive {:unexpected_request, _url}, 100
     after

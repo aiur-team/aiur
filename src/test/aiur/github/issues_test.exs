@@ -130,9 +130,7 @@ defmodule Aiur.GitHub.IssuesTest do
       end
 
       assert {:ok, issues, updated_cache} =
-               Issues.fetch_issues_by_states_conditional(["ci-wait"], cache,
-                 request_fun: request_fun
-               )
+               Issues.fetch_issues_by_states_conditional(["ci-wait"], cache, request_fun: request_fun)
 
       assert Enum.map(issues, & &1.id) |> Enum.sort() == ["1", "2"]
       assert updated_cache == cache

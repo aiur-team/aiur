@@ -270,7 +270,8 @@ defmodule Aiur.GitHub.IssueDependencies do
             fetch_blocking_graph_pages(Map.keys(next_cursors), next_cursors, edges ++ page_edges, opts)
           end
 
-        {:error, reason} -> {:error, reason}
+        {:error, reason} ->
+          {:error, reason}
       end
     end
   end

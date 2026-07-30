@@ -7,13 +7,11 @@
   # unreachable from the inferred call sites.
   {"lib/aiur/agent_list/app.ex"},
   {"lib/aiur/http_server.ex", :pattern_match_cov},
-  {"lib/aiur/opencode/slot.ex", :pattern_match_cov},
 
   # `call_with_opaque` / `call_without_opaque`: MapSet/Map opaque-type
   # interop. The runtime works; dialyzer's opaque tracking gets confused.
   {"lib/aiur/github/code_owners.ex", :call_without_opaque},
   {"lib/aiur/github/issue_dependencies.ex", :call_with_opaque},
-  {"lib/aiur/github/issue_dependencies.ex", :call_without_opaque},
   {"lib/aiur/orchestrator/lifecycle.ex", :call_without_opaque},
   {"lib/aiur_web/build_order_presenter.ex", :call_without_opaque},
   {"lib/aiur_web/components/operator_control_center/build_order_breakdown.ex",

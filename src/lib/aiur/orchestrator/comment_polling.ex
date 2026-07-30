@@ -137,7 +137,8 @@ defmodule Aiur.Orchestrator.CommentPolling do
           state
         end
 
-      _ -> state
+      _ ->
+        state
     end
   end
 
@@ -214,6 +215,11 @@ defmodule Aiur.Orchestrator.CommentPolling do
         Logger.warning("Github comment GraphQL batch returned unexpected value; falling back to conditional REST reads value=#{inspect(other)}")
         opts
     end
+  rescue
+    exception ->
+      Logger.warning("Github comment GraphQL batch raised; falling back to conditional REST reads error=#{inspect(exception)}")
+
+      opts
   end
 
   # The comments poller aggregates per-target failures as

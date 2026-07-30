@@ -57,6 +57,7 @@ defmodule Aiur.Orchestrator.CommentPollingTest do
       # review_issue_fetcher returns empty list so no targets are built
       opts = [review_issue_fetcher: fn _states -> {:ok, []} end, watch_pull_request_fetcher: fn _label -> {:ok, []} end]
       result = CommentPolling.poll_github_comments(state, opts)
+
       assert %{delay_ms: 120_000, next_poll_at_ms: next_poll_at_ms} =
                result.github_poll_delays[{:quiet, :comments}]
 
