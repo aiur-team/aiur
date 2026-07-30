@@ -38,5 +38,5 @@ logs/
 packages/streamdeck/node_modules/
 packages/streamdeck/coverage/
 packages/streamdeck/dist/
-*.streamDeckPlugin
+/packages/streamdeck/**/*.streamDeckPlugin
 .aiur-design-import/
