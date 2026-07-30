@@ -580,15 +580,7 @@ defmodule Aiur.IssueLog do
 
   defp write_transcript_line(file, event, identifier) do
     encoded = event |> persisted_transcript() |> bounded_transcript() |> json_safe() |> encode_transcript()
-
-    case IO.write(file, encoded <> "\n") do
-      :ok ->
-        :ok
-
-      {:error, reason} ->
-        Logger.warning("IssueLog transcript write failed identifier=#{identifier} reason=#{inspect(reason)}")
-        {:error, reason}
-    end
+    :ok = IO.write(file, encoded <> "\n")
   rescue
     error ->
       Logger.warning("IssueLog transcript write failed identifier=#{identifier} reason=#{Exception.message(error)}")
