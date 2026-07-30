@@ -149,13 +149,17 @@ defmodule Aiur.AgentRunner.EventsDigestTest do
       assert result =~ "shown"
     end
 
-    test "includes orchestrator-stamped decision lifecycle events in the digest" do
+    test "includes decision lifecycle events in the digest by topic" do
       # Shape mirrors DecisionStore.notify/2: a json-safe string-keyed payload
-      # with a top-level `source: :orchestrator` stamp merged with the
-      # Publisher envelope's :id/:topic keys.
+      # whose top-level "source" is the decision's domain source map (not a
+      # provenance atom), merged with the Publisher envelope's :id/:topic keys.
+      # Trust is granted by the decision lifecycle topic carve-out.
       event =
-        %{"decision_id" => "dec-1", "summary" => "decision requested: pick a path"}
-        |> Map.put(:source, :orchestrator)
+        %{
+          "decision_id" => "dec-1",
+          "summary" => "decision requested: pick a path",
+          "source" => %{"kind" => "agent_request"}
+        }
         |> Map.merge(%{id: 60, topic: "ticket.T-001.agent.decision.requested"})
 
       result = EventsDigest.render([event], "T-001")
