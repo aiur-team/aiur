@@ -252,6 +252,42 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
     time_svg(@w, h, inner, "Burn-up of merged tickets", {t0, t1, ml, @w - mr, mt, mt + ph})
   end
 
+  @doc "Ticket count and average observed wall-clock by dispatch-time complexity tier."
+  @spec complexity_breakdown(map()) :: String.t()
+  def complexity_breakdown(%{complexity_breakdown: tiers}) do
+    h = 250
+    {ml, mr, mt, mb} = {40, 18, 20, 62}
+    pw = @w - ml - mr
+    ph = h - mt - mb
+    vmax = tiers |> Enum.map(& &1.count) |> Enum.max(fn -> 1 end) |> max(1)
+    groupw = pw / max(length(tiers), 1)
+    barw = min(groupw * 0.48, 64)
+
+    bars =
+      tiers
+      |> Enum.with_index()
+      |> Enum.map_join("", fn {tier, index} ->
+        x = ml + index * groupw + (groupw - barw) / 2
+        bar_h = tier.count / vmax * ph
+        y = mt + ph - bar_h
+        color = "var(--an-s#{tier.tier})"
+        count_label = if tier.count > 0, do: to_string(tier.count), else: "—"
+        average_label = (tier.average_wall_clock_ms && fmt_elapsed(tier.average_wall_clock_ms)) || "—"
+        center = x + barw / 2
+
+        ~s|<rect x="#{r2(x)}" y="#{r2(y)}" width="#{r2(barw)}" height="#{r2(bar_h)}" rx="3" fill="#{color}" fill-opacity="0.85"><title>Complexity #{tier.tier}: #{count_label} tickets, average #{average_label}</title></rect>| <>
+          text(center, max(y - 7, mt + 9), count_label, anchor: "middle", fill: "var(--fg)") <>
+          text(center, mt + ph + 17, "C#{tier.tier}", anchor: "middle", fill: "var(--fg)") <>
+          text(center, mt + ph + 34, average_label, anchor: "middle", fill: "var(--muted)")
+      end)
+
+    inner =
+      y_grid(vmax, fn value -> mt + ph - value / vmax * ph end, ml, @w - mr, &to_string(round(&1))) <>
+        bars
+
+    svg(@w, h, inner, "Complexity breakdown")
+  end
+
   # ---- shared builders ----
 
   defp stacked_areas(series, layers, xf, yf) do

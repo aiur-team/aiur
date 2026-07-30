@@ -158,4 +158,23 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.ChartsTest do
 
     refute Charts.cpu_stack(m, MapSet.new(m.actors, & &1.key)) =~ ">now<"
   end
+
+  test "complexity breakdown renders counts, average wall-clock, and em dashes" do
+    m =
+      Map.put(model(), :complexity_breakdown, [
+        %{tier: 1, count: 2, average_wall_clock_ms: 90_000},
+        %{tier: 2, count: 0, average_wall_clock_ms: nil},
+        %{tier: 3, count: 1, average_wall_clock_ms: 3_600_000},
+        %{tier: 4, count: 0, average_wall_clock_ms: nil},
+        %{tier: 5, count: 0, average_wall_clock_ms: nil}
+      ])
+
+    svg = Charts.complexity_breakdown(m)
+    assert svg =~ "Complexity breakdown"
+    assert svg =~ "Complexity 1: 2 tickets"
+    assert svg =~ "1m"
+    assert svg =~ "—"
+    assert svg =~ "var(--an-s1)"
+    refute svg =~ "#3987e5"
+  end
 end

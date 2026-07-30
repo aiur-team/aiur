@@ -12,12 +12,14 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     previous_loadavg = Application.get_env(:aiur, :loadavg_source_override)
     previous_fd_sample = Application.get_env(:aiur, :file_descriptor_sample_override)
     previous_proc_stat = Application.get_env(:aiur, :proc_stat_source_override)
+    previous_lifecycle_recorder = Application.get_env(:aiur, :run_telemetry_lifecycle_recorder)
 
     on_exit(fn ->
       restore_app_env(:meminfo_source_override, previous_meminfo)
       restore_app_env(:loadavg_source_override, previous_loadavg)
       restore_app_env(:file_descriptor_sample_override, previous_fd_sample)
       restore_app_env(:proc_stat_source_override, previous_proc_stat)
+      restore_app_env(:run_telemetry_lifecycle_recorder, previous_lifecycle_recorder)
     end)
 
     :ok
@@ -201,6 +203,40 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   end
 
   describe "dispatch attempt provenance" do
+    test "records the dispatch-time complexity estimate" do
+      test_pid = self()
+
+      Application.put_env(:aiur, :run_telemetry_lifecycle_recorder, fn kind, attributes, opts ->
+        send(test_pid, {:lifecycle_recorded, kind, attributes, opts})
+        :ok
+      end)
+
+      issue = %Issue{
+        id: "complexity-dispatch",
+        identifier: "repo#complexity-dispatch",
+        state: "todo",
+        labels: ["complexity:4"],
+        selected_backend: "codex"
+      }
+
+      runner = fn dispatched_issue, recipient, opts ->
+        send(test_pid, {:agent_runner_run, dispatched_issue, recipient, opts})
+        :ok
+      end
+
+      Dispatcher.do_dispatch_issue(
+        %State{max_concurrent_agents: 1, effective_concurrent_agents: 1},
+        issue,
+        nil,
+        nil,
+        runner: runner
+      )
+
+      assert_receive {:lifecycle_recorded, :lifecycle, attributes, _opts}
+      assert attributes.event == "dispatch"
+      assert attributes.complexity == 4
+    end
+
     test "consumes the ownership wakeup envelope when redispatching" do
       issue = %Issue{id: "ownership-envelope", identifier: "repo#ownership-envelope", state: "todo", selected_backend: "codex"}
       test_pid = self()
