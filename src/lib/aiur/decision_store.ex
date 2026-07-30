@@ -47,6 +47,7 @@ defmodule Aiur.DecisionStore do
     DecisionRevision,
     DecisionRevisionDispatch,
     DecisionValidation,
+    ExecutorEvents,
     JsonStore,
     SecretRedactor
   }
@@ -132,6 +133,13 @@ defmodule Aiur.DecisionStore do
   def dismiss(decision_id, opts \\ [], server \\ __MODULE__, timeout \\ @request_timeout)
       when is_binary(decision_id) and is_list(opts) do
     GenServer.call(server, {:dismiss, decision_id, opts}, timeout)
+  end
+
+  @doc "Durably defers an open Decision to the Executor without recording an answer."
+  @spec defer(String.t(), keyword(), GenServer.server(), timeout()) :: {:ok, map()} | {:error, term()}
+  def defer(decision_id, opts \\ [], server \\ __MODULE__, timeout \\ @request_timeout)
+      when is_binary(decision_id) and is_list(opts) do
+    GenServer.call(server, {:defer, decision_id, opts}, timeout)
   end
 
   @doc "Durably expires an open Decision that no live agent can act on."
@@ -351,6 +359,7 @@ defmodule Aiur.DecisionStore do
   @impl true
   def handle_continue(:schedule_reconciliation, state) do
     if state.writable? do
+      reconcile_deferred_executor_notifications(state)
       reproject_failure_attentions(state)
 
       schedule_dispatch_work(
@@ -514,6 +523,14 @@ defmodule Aiur.DecisionStore do
 
   def handle_call({:dismiss, decision_id, opts}, _from, state) do
     handle_dismiss(decision_id, opts, state)
+  end
+
+  def handle_call({:defer, _decision_id, _opts}, _from, %{writable?: false} = state) do
+    {:reply, {:error, {:store_unavailable, state.health}}, state}
+  end
+
+  def handle_call({:defer, decision_id, opts}, _from, state) do
+    handle_defer(decision_id, opts, state)
   end
 
   def handle_call({:expire, _decision_id, _reason_class, _opts}, _from, %{writable?: false} = state) do
@@ -1054,6 +1071,29 @@ defmodule Aiur.DecisionStore do
     end
   end
 
+  defp handle_defer(decision_id, opts, state) do
+    with {:ok, decision} <- fetch_decision(state, decision_id),
+         {:ok, actor} <- fetch_actor(opts) do
+      case decision.decision_status do
+        :open -> persist_deferral(decision, actor, state)
+        :deferred -> {:reply, {:ok, %{status: :duplicate, decision: decision}}, state}
+        status -> {:reply, {:error, {:conflict, status}}, state}
+      end
+    else
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  defp persist_deferral(decision, actor, state) do
+    case build_and_persist_event(:decision_deferred, decision, %{actor: actor}, DateTime.utc_now(), state) do
+      {:ok, next_state, updated} ->
+        {:reply, {:ok, %{status: :accepted, decision: updated}}, next_state}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
+  end
+
   defp handle_expire(decision_id, reason_class, opts, state) do
     case fetch_decision(state, decision_id) do
       {:ok, %{decision_status: :open} = decision} ->
@@ -1576,6 +1616,10 @@ defmodule Aiur.DecisionStore do
       error -> Logger.warning("aiur_decision_store phase=lifecycle_publisher_failed error=#{Exception.message(error)}")
     end
 
+    if event.type == :decision_deferred do
+      notify_deferred_executor(decision)
+    end
+
     try do
       DecisionPubSub.broadcast_changed(decision.decision_id, decision.version)
     rescue
@@ -1585,9 +1629,26 @@ defmodule Aiur.DecisionStore do
     :ok
   end
 
+  defp reconcile_deferred_executor_notifications(state) do
+    state.current
+    |> Map.values()
+    |> Enum.filter(&(&1.decision_status == :deferred))
+    |> Enum.each(&notify_deferred_executor/1)
+  end
+
+  defp notify_deferred_executor(decision) do
+    case ExecutorEvents.publish_deferred(decision) do
+      {:ok, _id, _subscribers} -> :ok
+      {:error, reason} -> Logger.warning("aiur_decision_store phase=executor_notification_failed reason=#{inspect(reason)}")
+    end
+  rescue
+    error -> Logger.warning("aiur_decision_store phase=executor_notification_failed error=#{Exception.message(error)}")
+  end
+
   defp lifecycle_slug(:answer_recorded), do: "answered"
   defp lifecycle_slug(:decision_expired), do: "expired"
   defp lifecycle_slug(:decision_dismissed), do: "dismissed"
+  defp lifecycle_slug(:decision_deferred), do: "deferred"
   defp lifecycle_slug(:enriched), do: "enriched"
   defp lifecycle_slug(:revision_recorded), do: "revision-recorded"
   defp lifecycle_slug(:dispatch_queued), do: "queued"

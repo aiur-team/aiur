@@ -79,6 +79,19 @@ defmodule Aiur.Events.Sanitizer do
   def scrub(other), do: other
 
   @doc """
+  Layer-1 strip pass only: remove known hidden-instruction carriers
+  (invisible Unicode, HTML comments, large base64 blobs) from a single
+  free-text field without redacting, truncating, or HTML-escaping it.
+
+  Used by surfaces that emit user-authored text as data (for example the
+  `executor-listen` JSON stream) where escaping would corrupt the payload
+  but instruction carriers must still be removed.
+  """
+  @spec strip_untrusted_text(term()) :: term()
+  def strip_untrusted_text(text) when is_binary(text), do: strip_instruction_carriers(text)
+  def strip_untrusted_text(other), do: other
+
+  @doc """
   Prepare a GitHub-sourced payload for `Aiur.Events.Publisher.publish/3`.
 
   Applies the full external-content pipeline in this exact order
