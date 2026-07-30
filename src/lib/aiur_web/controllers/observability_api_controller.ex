@@ -5,8 +5,8 @@ defmodule AiurWeb.ObservabilityApiController do
 
   use Phoenix.Controller, formats: [:json]
 
-  alias Aiur.Claude.HookEvents
   alias Aiur.AgentEventFeed
+  alias Aiur.Claude.HookEvents
   alias Aiur.Orchestrator
   alias AiurWeb.{Endpoint, Presenter}
   alias Plug.Conn

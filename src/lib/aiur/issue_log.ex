@@ -122,18 +122,8 @@ defmodule Aiur.IssueLog do
       end_offset = min(cursor || size, size)
       start_offset = max(end_offset - @tail_chunk_bytes, 0)
 
-      case File.open(transcript_path(identifier), [:read, :binary]) do
-        {:ok, file} ->
-          result =
-            with {:ok, bytes} <- :file.pread(file, start_offset, end_offset - start_offset) do
-              {:ok, tail_page(bytes, start_offset, limit)}
-            end
-
-          :ok = File.close(file)
-          result
-
-        {:error, reason} ->
-          {:error, reason}
+      with {:ok, bytes} <- read_tail_chunk(transcript_path(identifier), start_offset, end_offset - start_offset) do
+        {:ok, tail_page(bytes, start_offset, limit)}
       end
     else
       false -> {:error, :invalid_limit}
@@ -355,43 +345,24 @@ defmodule Aiur.IssueLog do
     transcript_path = Keyword.get(opts, :transcript_path, transcript_path(identifier))
     :ok = File.mkdir_p(Path.dirname(path))
 
-    case File.open(path, [:append, :utf8]) do
-      {:ok, file} ->
-        case File.open(event_path, [:append, :utf8]) do
-          {:ok, event_file} ->
-            case File.open(transcript_path, [:append, :utf8]) do
-              {:ok, transcript_file} ->
-                :ok = AgentPubSub.subscribe_agent(identifier)
-                Logger.debug("IssueLog attached identifier=#{identifier} path=#{path}")
+    case open_log_files(path, event_path, transcript_path) do
+      {:ok, file, event_file, transcript_file} ->
+        :ok = AgentPubSub.subscribe_agent(identifier)
+        Logger.debug("IssueLog attached identifier=#{identifier} path=#{path}")
 
-                {:ok,
-                 %{
-                   identifier: identifier,
-                   file: file,
-                   event_file: event_file,
-                   transcript_file: transcript_file,
-                   path: path,
-                   event_path: event_path,
-                   history: :queue.new(),
-                   history_size: 0
-                 }}
-
-              {:error, reason} ->
-                _ = File.close(event_file)
-                _ = File.close(file)
-                Logger.warning("IssueLog transcript open failed identifier=#{identifier} path=#{transcript_path} reason=#{inspect(reason)}")
-                {:stop, reason}
-            end
-
-          {:error, reason} ->
-            _ = File.close(file)
-            Logger.warning("IssueLog event open failed identifier=#{identifier} path=#{event_path} reason=#{inspect(reason)}")
-            {:stop, reason}
-        end
+        {:ok,
+         %{
+           identifier: identifier,
+           file: file,
+           event_file: event_file,
+           transcript_file: transcript_file,
+           path: path,
+           event_path: event_path,
+           history: :queue.new(),
+           history_size: 0
+         }}
 
       {:error, reason} ->
-        Logger.warning("IssueLog open failed identifier=#{identifier} path=#{path} reason=#{inspect(reason)}")
-
         {:stop, reason}
     end
   end
@@ -648,8 +619,8 @@ defmodule Aiur.IssueLog do
   # unified diff. Shell output and generic tool payloads can be arbitrarily
   # large, so drop them before JSON encoding rather than paying their memory
   # cost only to reject an oversized record afterward.
-  defp bounded_transcript(%{role: :tool, payload: %{tool: "edit", output: output}} = event) when is_binary(output) do
-    %{event | body: truncated_body(event.body), payload: %{tool: "edit", output: String.slice(output, 0, @truncated_diff_chars)}}
+  defp bounded_transcript(%{role: :tool, payload: %{tool: "edit", output: output} = payload} = event) when is_binary(output) do
+    %{event | body: truncated_body(event.body), payload: bounded_edit_payload(payload, output)}
   end
 
   defp bounded_transcript(%{body: body} = event) do
@@ -665,6 +636,90 @@ defmodule Aiur.IssueLog do
   defp json_safe(value) when is_list(value), do: Enum.map(value, &json_safe/1)
   defp json_safe(value) when is_atom(value), do: Atom.to_string(value)
   defp json_safe(value), do: value
+
+  defp bounded_edit_payload(payload, output) do
+    %{tool: "edit", output: String.slice(output, 0, @truncated_diff_chars)}
+    |> maybe_put_edit_changes(Map.get(payload, :input) || Map.get(payload, "input"))
+  end
+
+  defp maybe_put_edit_changes(payload, input) when is_map(input) do
+    case Map.get(input, :changes) || Map.get(input, "changes") do
+      changes when is_list(changes) ->
+        diffs = Enum.flat_map(changes, &bounded_edit_change/1)
+        if diffs == [], do: payload, else: Map.put(payload, :changes, diffs)
+
+      _ ->
+        payload
+    end
+  end
+
+  defp maybe_put_edit_changes(payload, _input), do: payload
+
+  defp bounded_edit_change(change) when is_map(change) do
+    case Map.get(change, :diff) || Map.get(change, "diff") do
+      diff when is_binary(diff) and diff != "" ->
+        [%{path: Map.get(change, :path) || Map.get(change, "path") || "", diff: String.slice(diff, 0, @truncated_diff_chars)}]
+
+      _ ->
+        []
+    end
+  end
+
+  defp bounded_edit_change(_change), do: []
+
+  defp read_tail_chunk(path, start_offset, byte_count) do
+    with {:ok, file} <- File.open(path, [:read, :binary]) do
+      try do
+        :file.pread(file, start_offset, byte_count)
+      after
+        :ok = File.close(file)
+      end
+    end
+  end
+
+  defp open_log_files(path, event_path, transcript_path) do
+    with {:ok, file} <- open_primary_log(path),
+         {:ok, event_file} <- open_event_log(event_path, file),
+         {:ok, transcript_file} <- open_transcript_log(transcript_path, file, event_file) do
+      {:ok, file, event_file, transcript_file}
+    end
+  end
+
+  defp open_primary_log(path) do
+    case File.open(path, [:append, :utf8]) do
+      {:ok, file} ->
+        {:ok, file}
+
+      {:error, reason} ->
+        Logger.warning("IssueLog open failed path=#{path} reason=#{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  defp open_event_log(path, file) do
+    case File.open(path, [:append, :utf8]) do
+      {:ok, event_file} ->
+        {:ok, event_file}
+
+      {:error, reason} ->
+        _ = File.close(file)
+        Logger.warning("IssueLog event open failed path=#{path} reason=#{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  defp open_transcript_log(path, file, event_file) do
+    case File.open(path, [:append, :utf8]) do
+      {:ok, transcript_file} ->
+        {:ok, transcript_file}
+
+      {:error, reason} ->
+        _ = File.close(event_file)
+        _ = File.close(file)
+        Logger.warning("IssueLog transcript open failed path=#{path} reason=#{inspect(reason)}")
+        {:error, reason}
+    end
+  end
 
   defp parse_tail_cursor(nil), do: {:ok, nil}
   defp parse_tail_cursor(cursor) when is_integer(cursor) and cursor >= 0, do: {:ok, cursor}

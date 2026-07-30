@@ -41,6 +41,22 @@ defmodule AiurWeb.RouterAuthTest do
     assert get_resp_header(conn, "www-authenticate") == ["Basic realm=\"Aiur\""]
   end
 
+  test "event-feed reads use the dashboard authentication pipeline" do
+    System.put_env("AIUR_DASHBOARD_USERNAME", "operator")
+    System.put_env("AIUR_DASHBOARD_PASSWORD", "secret")
+
+    unauthorized = Router.call(conn(:get, "/api/v1/agent-1/events"), Router.init([]))
+    assert unauthorized.status == 401
+
+    authorized =
+      :get
+      |> conn("/api/v1/agent-1/events")
+      |> put_req_header("authorization", "Basic " <> Base.encode64("operator:secret"))
+      |> Router.call(Router.init([]))
+
+    assert authorized.status == 200
+  end
+
   test "fails closed when writable dashboard credentials disappear after startup" do
     System.put_env("AIUR_DASHBOARD_USERNAME", "operator")
     System.put_env("AIUR_DASHBOARD_PASSWORD", "secret")

@@ -67,26 +67,42 @@ defmodule Aiur.AgentEventFeed do
   defp entry(%{"role" => role} = event), do: message_entry(event, role_atom(role))
   defp entry(_event), do: %{type: "message", badge: "INFO", role: "system", body: ""}
 
-  defp diff_entry(event, %{"tool" => "edit", "output" => output}) when is_binary(output) do
+  defp diff_entry(event, %{"tool" => "edit", "changes" => changes} = payload) when is_list(changes) do
+    Enum.find_value(changes, &provider_diff_entry(event, &1)) || output_diff_entry(event, payload)
+  end
+
+  defp diff_entry(event, payload), do: output_diff_entry(event, payload)
+
+  defp provider_diff_entry(event, %{"diff" => output} = change) when is_binary(output) and output != "" do
+    diff_entry(event, output, Map.get(change, "path"))
+  end
+
+  defp provider_diff_entry(_event, _change), do: nil
+
+  defp output_diff_entry(event, %{"tool" => "edit", "output" => output}) when is_binary(output) do
     if unified_diff?(output) do
-      %{
-        type: "diff",
-        badge: badge(:tool),
-        role: "tool",
-        timestamp: Map.get(event, "timestamp"),
-        msg_id: Map.get(event, "msg_id"),
-        turn_id: Map.get(event, "turn_id"),
-        path: diff_path(output, Map.get(event, "body", "")),
-        additions: changed_line_count(output, "+"),
-        deletions: changed_line_count(output, "-"),
-        line: changed_line(output)
-      }
+      diff_entry(event, output, nil)
     else
       message_entry(event, :tool)
     end
   end
 
-  defp diff_entry(event, _payload), do: message_entry(event, :tool)
+  defp output_diff_entry(event, _payload), do: message_entry(event, :tool)
+
+  defp diff_entry(event, output, path) do
+    %{
+      type: "diff",
+      badge: badge(:tool),
+      role: "tool",
+      timestamp: Map.get(event, "timestamp"),
+      msg_id: Map.get(event, "msg_id"),
+      turn_id: Map.get(event, "turn_id"),
+      path: path || diff_path(output, Map.get(event, "body", "")),
+      additions: changed_line_count(output, "+"),
+      deletions: changed_line_count(output, "-"),
+      line: changed_line(output)
+    }
+  end
 
   defp message_entry(event, role) do
     %{

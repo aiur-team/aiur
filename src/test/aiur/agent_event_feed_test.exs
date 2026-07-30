@@ -78,13 +78,14 @@ defmodule Aiur.AgentEventFeedTest do
 
     on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
 
-    payload = %{tool: "edit", output: "--- a/a.ex\n+++ b/a.ex\n@@ -1 +1 @@\n-old\n+new"}
+    payload = %{tool: "edit", input: %{changes: [%{path: "a.ex", diff: "+new"}]}, output: "+new"}
     event = Aiur.AgentEvents.transcript_event(:tool, "edit a.ex", payload: payload)
     send(pid, {:transcript_event, event})
     send(pid, {:alert, Aiur.AgentEvents.alert_event("phase.review.start", "reviewing")})
     _ = :sys.get_state(pid)
+    :ok = GenServer.stop(pid)
 
-    assert {:ok, %{events: [alert, %{type: "diff", path: "a.ex"}]}} = AgentEventFeed.list(identifier)
+    assert {:ok, %{events: [alert, %{type: "diff", path: "a.ex", additions: 1, line: "new"}]}} = AgentEventFeed.list(identifier)
     assert %{type: "message", role: "alert", badge: "INFO", body: "reviewing"} = alert
   end
 
@@ -124,7 +125,42 @@ defmodule Aiur.AgentEventFeedTest do
 
   test "rejects invalid page controls", %{identifier: identifier} do
     assert {:error, :invalid_limit} = AgentEventFeed.list(identifier, %{"limit" => "0"})
+    assert {:error, :invalid_limit} = AgentEventFeed.list(identifier, %{"limit" => 51})
     assert {:error, :invalid_cursor} = AgentEventFeed.list(identifier, %{"cursor" => "bad"})
+    assert {:error, :invalid_cursor} = AgentEventFeed.list(identifier, %{"cursor" => -1})
+    assert {:error, :invalid_limit} = AgentEventFeed.list(identifier, [])
+  end
+
+  test "badge maps atoms, persisted strings, and unknown roles safely" do
+    assert AgentEventFeed.badge(:command) == "EMIT"
+    assert AgentEventFeed.badge("user") == "CONSUME"
+    assert AgentEventFeed.badge("unknown") == "SYSTEM"
+  end
+
+  test "keeps malformed payloads as messages and falls back to a removed diff line", %{identifier: identifier} do
+    diff = "@@ -1 +0,0 @@\n-old"
+
+    write_events(identifier, [
+      event("tool", "edit lib/removed.ex", %{"tool" => "edit", "output" => diff}),
+      event("assistant", "plain message", "not a payload map")
+    ])
+
+    assert {:ok, %{events: [message, diff]}} = AgentEventFeed.list(identifier)
+    assert %{type: "message", body: "plain message", badge: "AGENT"} = message
+    assert %{type: "diff", path: "edit lib/removed.ex", additions: 0, deletions: 1, line: "old"} = diff
+  end
+
+  test "renders a provider-marked Codex file change without a unified hunk", %{identifier: identifier} do
+    write_events(identifier, [
+      event("tool", "edit lib/x.ex", %{
+        "tool" => "edit",
+        "output" => "+ defmodule X do\n",
+        "changes" => [%{"path" => "lib/x.ex", "diff" => "+ defmodule X do\n"}]
+      })
+    ])
+
+    assert {:ok, %{events: [%{type: "diff", path: "lib/x.ex", additions: 1, deletions: 0, line: " defmodule X do"}]}} =
+             AgentEventFeed.list(identifier)
   end
 
   defp write_events(identifier, events) do
