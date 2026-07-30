@@ -1,0 +1,148 @@
+defmodule AiurWeb.StreamdeckProjection do
+  @moduledoc false
+
+  alias Aiur.{DecisionMetrics, Orchestrator, ProviderMeterProjection}
+  alias AiurWeb.Endpoint
+
+  @version 1
+
+  @spec snapshot() :: map()
+  def snapshot do
+    %{
+      version: @version,
+      fleet: fleet(),
+      usage: provider_meters(),
+      decisions: decisions()
+    }
+    |> external_value()
+  end
+
+  @spec fleet_agents([map()]) :: [map()]
+  def fleet_agents(summaries) when is_list(summaries), do: Enum.map(summaries, &agent/1)
+
+  @spec fleet() :: map()
+  def fleet, do: %{agents: fleet_agents()} |> external_value()
+
+  defp fleet_agents do
+    case safe_call(snapshot_fun(), %{agents: []}) do
+      %{agents: agents} when is_list(agents) -> fleet_agents(agents)
+      %{running: running, retrying: retrying, idle: idle} -> snapshot_agents(running, retrying, idle)
+      _ -> []
+    end
+  end
+
+  defp snapshot_agents(running, retrying, idle) do
+    Enum.map(running, &agent(Map.put(&1, :status, :running))) ++
+      Enum.map(retrying, &agent(Map.put(&1, :status, :retrying))) ++
+      Enum.map(idle, &agent(Map.put(&1, :status, :queued)))
+  end
+
+  @spec agent(map()) :: map()
+  def agent(summary) when is_map(summary) do
+    %{
+      identifier: field(summary, :identifier),
+      status: field(summary, :status) || :unknown,
+      alert_count: field(summary, :alert_count) || 0,
+      title: field(summary, :title),
+      runtime_seconds: field(summary, :runtime_seconds),
+      turn_count: field(summary, :turn_count),
+      work_state: field(summary, :work_state),
+      pause_reason: field(summary, :pause_reason),
+      tracker_paused: field(summary, :tracker_paused),
+      backend: field(summary, :backend),
+      model: field(summary, :model)
+    }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+    |> external_value()
+  end
+
+  @spec provider_meters() :: map()
+  def provider_meters, do: provider_meters_fun() |> safe_call(%{}) |> external_value()
+
+  @spec decisions() :: map()
+  def decisions, do: decisions_fun() |> safe_call(%{count: 0}) |> external_value()
+
+  @spec transcript(String.t(), map()) :: map()
+  def transcript(identifier, event) when is_binary(identifier) and is_map(event) do
+    %{
+      identifier: identifier,
+      role: Map.get(event, :role),
+      body: Map.get(event, :body),
+      sequence: Map.get(event, :sequence),
+      timestamp: Map.get(event, :timestamp)
+    }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+    |> external_value()
+  end
+
+  @spec alert(String.t(), map()) :: map()
+  def alert(identifier, event) when is_binary(identifier) and is_map(event) do
+    %{
+      identifier: identifier,
+      name: field(event, :name),
+      message: field(event, :message),
+      severity: field(event, :severity),
+      needs_attention: field(event, :needs_attention),
+      timestamp: field(event, :timestamp)
+    }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+    |> external_value()
+  end
+
+  @spec control(String.t(), map()) :: map()
+  def control(identifier, payload) when is_binary(identifier) and is_map(payload) do
+    %{identifier: identifier, state: payload} |> external_value()
+  end
+
+  defp snapshot_fun do
+    endpoint_config(:streamdeck_snapshot_fun) || fn -> Orchestrator.snapshot(orchestrator(), snapshot_timeout_ms()) end
+  end
+
+  defp provider_meters_fun do
+    endpoint_config(:streamdeck_provider_meters_fun) || fn -> ProviderMeterProjection.snapshot() end
+  end
+
+  defp decisions_fun do
+    endpoint_config(:streamdeck_decisions_fun) || fn -> %{count: DecisionMetrics.snapshots() |> map_size()} end
+  end
+
+  defp orchestrator, do: endpoint_config(:orchestrator) || Orchestrator
+  defp snapshot_timeout_ms, do: endpoint_config(:snapshot_timeout_ms) || 15_000
+
+  defp safe_call(fun, fallback) when is_function(fun, 0) do
+    fun.()
+  rescue
+    _error -> fallback
+  catch
+    :exit, _reason -> fallback
+  end
+
+  defp external_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
+  defp external_value(nil), do: nil
+  defp external_value(value) when is_boolean(value), do: value
+  defp external_value(value) when is_atom(value), do: Atom.to_string(value)
+  defp external_value(value) when is_list(value), do: Enum.map(value, &external_value/1)
+
+  defp external_value(value) when is_map(value) do
+    value
+    |> maybe_from_struct()
+    |> Map.new(fn {key, nested} -> {to_string(key), external_value(nested)} end)
+  end
+
+  defp external_value(value), do: value
+
+  defp maybe_from_struct(value) do
+    if is_struct(value), do: Map.from_struct(value), else: value
+  end
+
+  defp field(map, key), do: Map.get(map, key, Map.get(map, Atom.to_string(key)))
+
+  defp endpoint_config(key) do
+    Endpoint.config(key) || Application.get_env(:aiur, Endpoint, []) |> Keyword.get(key)
+  rescue
+    _error -> Application.get_env(:aiur, Endpoint, []) |> Keyword.get(key)
+  end
+end
