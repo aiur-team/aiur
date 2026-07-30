@@ -22,6 +22,9 @@ defmodule Aiur.RunTelemetry.Writer do
     "ticket.*.pr.review_comment"
   ]
 
+  @max_pending_casts 256
+  @admission_key {__MODULE__, :pending_casts}
+
   @type server :: GenServer.server()
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -39,7 +42,7 @@ defmodule Aiur.RunTelemetry.Writer do
   def record(server, kind, attributes, opts)
       when (is_atom(kind) or is_binary(kind)) and is_map(attributes) and is_list(opts) do
     timestamp = Keyword.get(opts, :timestamp, DateTime.utc_now())
-    GenServer.cast(server, {:record, kind, attributes, timestamp})
+    enqueue_cast(server, {:record, kind, attributes, timestamp})
     :ok
   catch
     :exit, _reason -> :ok
@@ -51,7 +54,7 @@ defmodule Aiur.RunTelemetry.Writer do
   @spec record_batch(server(), [{atom() | String.t(), map()}], keyword()) :: :ok
   def record_batch(server, records, opts \\ []) when is_list(records) and is_list(opts) do
     timestamp = Keyword.get(opts, :timestamp, DateTime.utc_now())
-    GenServer.cast(server, {:record_batch, records, timestamp})
+    enqueue_cast(server, {:record_batch, records, timestamp})
     :ok
   catch
     :exit, _reason -> :ok
@@ -78,8 +81,11 @@ defmodule Aiur.RunTelemetry.Writer do
       sequence: 0,
       shared_sequence?: not Keyword.has_key?(opts, :boot_id),
       clock: clock,
+      write_fun: Keyword.get(opts, :write_fun, &write_file/2),
       write_warning_emitted: false
     }
+
+    Process.put(@admission_key, :atomics.new(1, signed: false))
 
     attributes = %{
       event: :daemon_restart,
@@ -92,18 +98,22 @@ defmodule Aiur.RunTelemetry.Writer do
   end
 
   @impl true
-  def handle_cast({:record, kind, attributes, timestamp}, state) do
-    {:noreply, append(state, kind, attributes, timestamp)}
+  def handle_cast({:record, kind, attributes, timestamp, admission}, state) do
+    state = append(state, kind, attributes, timestamp)
+    release_admission(admission)
+    {:noreply, state}
   end
 
-  def handle_cast({:record_batch, records, timestamp}, state) do
+  def handle_cast({:record_batch, records, timestamp, admission}, state) do
     batch =
       Enum.flat_map(records, fn
         {kind, attributes} when is_map(attributes) -> [{kind, attributes, timestamp}]
         _other -> []
       end)
 
-    {:noreply, append_many(state, batch)}
+    state = append_many(state, batch)
+    release_admission(admission)
+    {:noreply, state}
   end
 
   @impl true
@@ -149,7 +159,7 @@ defmodule Aiur.RunTelemetry.Writer do
     contents = lines |> Enum.reverse() |> IO.iodata_to_binary()
 
     with :ok <- File.mkdir_p(Path.dirname(state.path)),
-         :ok <- File.write(state.path, contents, [:append]) do
+         :ok <- state.write_fun.(state.path, contents) do
       %{state | write_warning_emitted: false}
     else
       {:error, reason} -> warn_write_failure(state, reason)
@@ -166,6 +176,74 @@ defmodule Aiur.RunTelemetry.Writer do
     Logger.warning("run_telemetry write_failed path=#{state.path} reason=#{inspect(reason)}")
     %{state | write_warning_emitted: true}
   end
+
+  defp enqueue_cast(server, message) do
+    case admission_counter(server) do
+      {:ok, counter} ->
+        if admit?(counter), do: GenServer.cast(server, append_admission(message, counter))
+
+      :unavailable ->
+        if mailbox_available?(server), do: GenServer.cast(server, append_admission(message, nil))
+    end
+
+    :ok
+  end
+
+  defp append_admission({:record, kind, attributes, timestamp}, admission),
+    do: {:record, kind, attributes, timestamp, admission}
+
+  defp append_admission({:record_batch, records, timestamp}, admission),
+    do: {:record_batch, records, timestamp, admission}
+
+  defp admission_counter(server) do
+    case server_pid(server) do
+      pid when is_pid(pid) ->
+        case Process.info(pid, :dictionary) do
+          {:dictionary, dictionary} ->
+            case List.keyfind(dictionary, @admission_key, 0) do
+              {@admission_key, counter} -> {:ok, counter}
+              nil -> :unavailable
+            end
+
+          _other ->
+            :unavailable
+        end
+
+      _other ->
+        :unavailable
+    end
+  end
+
+  defp server_pid(server) when is_pid(server), do: server
+  defp server_pid(server), do: GenServer.whereis(server)
+
+  defp admit?(counter) do
+    current = :atomics.get(counter, 1)
+
+    cond do
+      current >= @max_pending_casts -> false
+      :atomics.compare_exchange(counter, 1, current, current + 1) == :ok -> true
+      true -> admit?(counter)
+    end
+  end
+
+  defp mailbox_available?(server) do
+    case server_pid(server) do
+      pid when is_pid(pid) ->
+        case Process.info(pid, :message_queue_len) do
+          {:message_queue_len, length} -> length < @max_pending_casts
+          _other -> false
+        end
+
+      _other ->
+        false
+    end
+  end
+
+  defp release_admission(nil), do: :ok
+  defp release_admission(counter), do: :atomics.sub(counter, 1, 1)
+
+  defp write_file(path, contents), do: File.write(path, contents, [:append])
 
   defp existing_records?(path) do
     case File.stat(path) do

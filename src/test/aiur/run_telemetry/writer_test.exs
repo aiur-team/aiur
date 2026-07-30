@@ -76,6 +76,45 @@ defmodule Aiur.RunTelemetry.WriterTest do
            ]
   end
 
+  test "bounds the mailbox while a write is slow", %{path: path} do
+    test_pid = self()
+    writes = :atomics.new(1, signed: false)
+    blocked = :atomics.new(1, signed: false)
+
+    write_fun = fn path, contents ->
+      count = :atomics.add_get(writes, 1, 1)
+      send(test_pid, {:write_started, count, self()})
+
+      if count == 2 and :atomics.get(blocked, 1) == 1 do
+        receive do
+          :release -> :ok
+        end
+      end
+
+      File.write(path, contents, [:append])
+    end
+
+    {:ok, writer} = Writer.start_link(name: nil, path: path, boot_id: "bounded", write_fun: write_fun)
+    assert_receive {:write_started, 1, ^writer}, 2_000
+
+    :atomics.put(blocked, 1, 1)
+    assert :ok = Writer.record(writer, :resource, %{actor: "first"})
+    assert_receive {:write_started, 2, ^writer}, 2_000
+
+    1..5_000
+    |> Task.async_stream(fn index -> Writer.record(writer, :resource, %{actor: index}) end, max_concurrency: 16)
+    |> Enum.to_list()
+
+    assert {:message_queue_len, queue_len} = Process.info(writer, :message_queue_len)
+    assert queue_len <= 256
+    assert queue_len < 5_000
+
+    :atomics.put(blocked, 1, 0)
+    send(writer, :release)
+    assert :ok = Writer.flush(writer)
+    assert length(read_records(path)) > 1
+  end
+
   test "an unwritable target never terminates the writer or caller", %{root: root} do
     parent_file = Path.join(root, "not-a-directory")
     File.mkdir_p!(root)
