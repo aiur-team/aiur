@@ -127,7 +127,11 @@ defmodule Aiur.AgentEventsTest do
       assert AgentEvents.streamdeck_bucket(%{streamdeck_source: :retrying}) == :stuck
       assert AgentEvents.streamdeck_bucket(%{work_state: :working, streamdeck_source: :running}) == :running
       assert AgentEvents.streamdeck_bucket(%{tracker_paused: true, streamdeck_source: :running}) == :paused
-      assert AgentEvents.streamdeck_bucket(%{work_state: :completed, streamdeck_source: :running}) == :paused
+
+      for work_state <- [:paused, :sleeping, :done, :deactivated, :completed] do
+        assert AgentEvents.streamdeck_bucket(%{work_state: work_state, streamdeck_source: :running}) == :paused
+      end
+
       assert AgentEvents.streamdeck_bucket(%{streamdeck_source: :queued}) == :queued
     end
   end

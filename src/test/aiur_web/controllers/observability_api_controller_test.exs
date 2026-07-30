@@ -141,6 +141,31 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
     assert payload["agents_per_page"] == 8
   end
 
+  test "GET /api/v1/streamdeck/grid uses the sibling read auth pipeline" do
+    previous_username = System.get_env("AIUR_DASHBOARD_USERNAME")
+    previous_password = System.get_env("AIUR_DASHBOARD_PASSWORD")
+
+    on_exit(fn ->
+      AiurWeb.Endpoint.config_change([dashboard_auth_required: false], [])
+      restore_env("AIUR_DASHBOARD_USERNAME", previous_username)
+      restore_env("AIUR_DASHBOARD_PASSWORD", previous_password)
+    end)
+
+    System.put_env("AIUR_DASHBOARD_USERNAME", "streamdeck-user")
+    System.put_env("AIUR_DASHBOARD_PASSWORD", "streamdeck-password")
+    AiurWeb.Endpoint.config_change([dashboard_auth_required: true], [])
+
+    assert call(conn(:get, "/api/v1/streamdeck/grid")).status == 401
+
+    authorized_conn =
+      :get
+      |> conn("/api/v1/streamdeck/grid")
+      |> put_req_header("authorization", "Basic " <> Base.encode64("streamdeck-user:streamdeck-password"))
+      |> call()
+
+    assert authorized_conn.status == 200
+  end
+
   defp install_decision_history!(count) do
     original_state = :sys.get_state(DecisionStore)
 
@@ -157,6 +182,9 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
       _pid -> :sys.replace_state(DecisionStore, fn _state -> original_state end)
     end
   end
+
+  defp restore_env(key, nil), do: System.delete_env(key)
+  defp restore_env(key, value), do: System.put_env(key, value)
 
   defp decision_histories(count) do
     %{

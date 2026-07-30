@@ -15,6 +15,23 @@ defmodule AiurWeb.StreamDeckGridTest do
            }
   end
 
+  test "tolerates an incomplete snapshot" do
+    assert StreamDeckGrid.project(%{}).agents == []
+  end
+
+  test "projects unavailable and timed-out snapshots as API errors" do
+    assert StreamDeckGrid.payload(:missing_streamdeck_orchestrator, 1) == %{
+             error: %{code: "snapshot_unavailable", message: "Snapshot unavailable"}
+           }
+
+    server = :streamdeck_grid_timeout_server
+    start_supervised!({__MODULE__.TimeoutServer, name: server})
+
+    assert StreamDeckGrid.payload(server, 0) == %{
+             error: %{code: "snapshot_timeout", message: "Snapshot timed out"}
+           }
+  end
+
   test "projects fewer than eight agents with the column-major contract metadata" do
     payload = StreamDeckGrid.project(%{running: [agent("1"), agent("2")], retrying: [], idle: [agent("3")]})
 
@@ -82,6 +99,19 @@ defmodule AiurWeb.StreamDeckGridTest do
            }
   end
 
+  test "normalizes vendor and invalid activity values" do
+    [agent] =
+      StreamDeckGrid.project(%{
+        running: [agent("123", agent_family: "claude", backend: "codex", progress_percent: 101, priority: "high")],
+        retrying: [],
+        idle: []
+      }).agents
+
+    assert agent.vendor == "claude"
+    assert agent.progress_percent == 0
+    refute agent.priority
+  end
+
   test "only flags positive priority ranks" do
     [unprioritized, prioritized] = StreamDeckGrid.project(%{running: [agent("1", priority: 0), agent("2", priority: 1)], retrying: [], idle: []}).agents
 
@@ -103,5 +133,19 @@ defmodule AiurWeb.StreamDeckGridTest do
       },
       Map.new(attrs)
     )
+  end
+
+  defmodule TimeoutServer do
+    use GenServer
+
+    def start_link(opts), do: GenServer.start_link(__MODULE__, :ok, opts)
+
+    def child_spec(opts), do: %{id: Keyword.fetch!(opts, :name), start: {__MODULE__, :start_link, [opts]}}
+
+    @impl true
+    def init(:ok), do: {:ok, :ok}
+
+    @impl true
+    def handle_call(:snapshot, _from, state), do: {:noreply, state}
   end
 end

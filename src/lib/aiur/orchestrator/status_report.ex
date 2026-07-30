@@ -15,6 +15,8 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias Aiur.Orchestrator.WaitingReason
   alias AiurWeb.ObservabilityPubSub
 
+  @activity_snapshot_timeout_ms 100
+
   @spec snapshot_api() :: map() | :timeout | :unavailable
   def snapshot_api, do: snapshot_api(Aiur.Orchestrator, 15_000)
 
@@ -341,7 +343,7 @@ defmodule Aiur.Orchestrator.StatusReport do
 
   defp activity_by_identity do
     with pid when is_pid(pid) <- Process.whereis(TicketActivity),
-         %{entries: entries} when is_list(entries) <- TicketActivity.snapshots() do
+         %{entries: entries} when is_list(entries) <- TicketActivity.snapshots(timeout: @activity_snapshot_timeout_ms) do
       Enum.reduce(entries, %{}, &put_activity_entry/2)
     else
       _ -> %{}
@@ -358,8 +360,8 @@ defmodule Aiur.Orchestrator.StatusReport do
   end
 
   defp progress_percent(identity, activity_by_identity) do
-    case get_in(activity_by_identity, [TrackerIdentity.github_key(identity), :progress, :percent]) do
-      percent when is_integer(percent) and percent in 0..100 -> percent
+    case get_in(activity_by_identity, [TrackerIdentity.github_key(identity), :progress]) do
+      %{freshness: :fresh, percent: percent} when is_integer(percent) and percent in 0..100 -> percent
       _ -> 0
     end
   end
