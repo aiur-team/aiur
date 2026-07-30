@@ -155,7 +155,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
   test "mounts the catalog without demanding any selected root", %{source: source} do
     assert {:ok, _view, html} = live(build_conn(), "/build-orders")
 
-    assert html =~ ~s(<h1 id="route-title">Build Order</h1>)
+    assert has_element?(_view, "#route-title", "Build Order")
     assert html =~ ~s(data-build-order-status="catalog")
     assert html =~ "bo-catalog-table"
     assert html =~ "Root forty-two"
@@ -903,7 +903,11 @@ defmodule AiurWeb.BuildOrderLiveTest do
     assert length(Regex.scan(~r/data-time-start="#{expected_start}"/, patched)) == 5
     assert length(Regex.scan(~r/data-time-end="#{expected_end}"/, patched)) == 5
 
-    refute render_click(view, "reset-time-domain", %{}) =~ ~s(class="an-zoombar")
+    reset = render_click(view, "reset-time-domain", %{})
+
+    refute reset =~ ~s(class="an-zoombar")
+    assert length(Regex.scan(~r/data-time-start="#{start_ms}"/, reset)) == 5
+    assert length(Regex.scan(~r/data-time-end="#{end_ms}"/, reset)) == 5
   end
 
   test "an unreadable telemetry stream leaves the rest of the Build Order page intact", %{first: first} do

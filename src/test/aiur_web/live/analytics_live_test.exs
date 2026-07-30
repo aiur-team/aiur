@@ -74,6 +74,9 @@ defmodule AiurWeb.AnalyticsLiveTest do
 
     {:ok, view, html} = live(build_conn(), "/analytics")
 
+    [_, full_start] = Regex.run(~r/data-time-start="(\d+)"/, html)
+    [_, full_end] = Regex.run(~r/data-time-end="(\d+)"/, html)
+
     refute html =~ ~s(class="an-zoombar")
 
     zoomed = render_hook(view, "time-domain", %{"t0" => 1_783_728_061_000, "t1" => 1_783_728_065_000})
@@ -91,6 +94,8 @@ defmodule AiurWeb.AnalyticsLiveTest do
     reset = render_click(view, "reset-time-domain", %{})
 
     refute reset =~ ~s(class="an-zoombar")
+    assert length(Regex.scan(~r/data-time-start="#{full_start}"/, reset)) == 5
+    assert length(Regex.scan(~r/data-time-end="#{full_end}"/, reset)) == 5
   end
 
   test "a degenerate domain event leaves the full chart range intact" do

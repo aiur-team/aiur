@@ -88,6 +88,17 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.ChartsTest do
     assert svg =~ "#6"
   end
 
+  test "gantt does not render work before a ticket reaches its work phase" do
+    svg =
+      Charts.gantt(%{
+        window: %{start_ms: 1_000, end_ms: 2_000},
+        tickets: [%{id: 5, start_ms: 1_000, work_ms: 3_000, end_ms: 4_000, status: :merged}]
+      })
+
+    assert svg =~ "#5"
+    refute svg =~ ~s|fill="var(--good)"|
+  end
+
   test "cost renders ranked bars for every sort metric" do
     m = model()
     sel = MapSet.new(m.actors, & &1.key)
@@ -112,6 +123,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.ChartsTest do
     assert zoomed.window.end_ms == elem(domain, 1)
     assert zoomed.window.axis_origin_ms == m.window.start_ms
     assert Enum.all?(zoomed.series, &(&1.t_ms >= elem(domain, 0) and &1.t_ms <= elem(domain, 1)))
+    assert Charts.time_domain_label(zoomed, domain) == "3m–7m"
 
     for chart <- [
           Charts.gantt(zoomed),
@@ -129,5 +141,21 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.ChartsTest do
 
   test "rejects a degenerate time domain" do
     assert Charts.with_time_domain(model(), {@t0 + 60_000, @t0 + 60_001}).window == model().window
+  end
+
+  test "normalizes reversed hook values to the available axis and rejects malformed domains" do
+    m = model()
+
+    assert Charts.normalize_time_domain(m, {"1600000", "400000"}) == {m.window.start_ms, m.window.end_ms}
+    assert Charts.normalize_time_domain(m, {@t0 + 360_000.0, @t0 + 120_000.0}) == {@t0 + 120_000, @t0 + 360_000}
+    assert Charts.normalize_time_domain(m, {"not-a-time", @t0 + 120_000}) == nil
+    assert Charts.normalize_time_domain(m, :not_a_domain) == nil
+    assert Charts.with_time_domain(m, nil) == m
+  end
+
+  test "omits the now marker when the shared domain no longer contains it" do
+    m = update_in(model().window, &Map.put(&1, :now_ms, @t0 + 900_000))
+
+    refute Charts.cpu_stack(m, MapSet.new(m.actors, & &1.key)) =~ ">now<"
   end
 end

@@ -634,7 +634,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
     assert length(Floki.find(Floki.parse_document!(unavailable_units), ~s(nav[aria-label^="Aiur"]))) == 2
     assert length(Floki.find(Floki.parse_document!(unavailable_units), ~s(a[aria-current="page"]))) == 2
-    assert unavailable_units =~ ~s(<h1 id="route-title">Units</h1>)
+    assert Floki.find(Floki.parse_document!(unavailable_units), "#route-title") |> Floki.text() =~ "Units"
     assert unavailable_units =~ ~s(href="/analytics")
     assert unavailable_units =~ ~s(href="/build-orders")
     assert unavailable_units =~ ~s(data-phx-link="redirect")
@@ -645,7 +645,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert available_units =~ ~s(href="/analytics")
     assert Floki.find(Floki.parse_document!(available_units), ~s(a[aria-disabled="true"])) == []
 
-    assert commands =~ ~s(<h1 id="route-title">Commands</h1>)
+    assert Floki.find(Floki.parse_document!(commands), "#route-title") |> Floki.text() =~ "Commands"
     assert length(Floki.find(Floki.parse_document!(commands), ~s(a[aria-current="page"]))) == 2
   end
 

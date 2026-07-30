@@ -100,7 +100,7 @@ defmodule AiurWeb.AnalyticsLive do
         </div>
 
         <div :if={!is_nil(@time_domain)} class="an-zoombar" role="status">
-          <span>Zoomed to {time_domain_label(@chart_model, @time_domain)}</span>
+          <span>Zoomed to {Charts.time_domain_label(@chart_model, @time_domain)}</span>
           <button type="button" phx-click="reset-time-domain">Reset</button>
         </div>
 
@@ -231,23 +231,6 @@ defmodule AiurWeb.AnalyticsLive do
   end
 
   defp assign_time_domain(socket, _domain), do: socket
-
-  defp time_domain_label(model, {t0, t1}) do
-    origin = Map.get(model.window, :axis_origin_ms, model.window.start_ms)
-    "#{elapsed(t0 - origin)}–#{elapsed(t1 - origin)}"
-  end
-
-  defp elapsed(ms) do
-    minutes = ms |> max(0) |> div(60_000)
-    hours = div(minutes, 60)
-    remainder = rem(minutes, 60)
-
-    cond do
-      hours > 0 and remainder > 0 -> "#{hours}h #{remainder}m"
-      hours > 0 -> "#{hours}h"
-      true -> "#{remainder}m"
-    end
-  end
 
   defp kpi_items(model) do
     k = model.kpis

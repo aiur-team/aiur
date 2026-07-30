@@ -44,6 +44,13 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
 
   def normalize_time_domain(_model, _domain), do: nil
 
+  @doc "Formats a selected domain against the model's stable axis origin."
+  @spec time_domain_label(map(), {integer(), integer()}) :: String.t()
+  def time_domain_label(%{window: window}, {t0, t1}) do
+    origin = Map.get(window, :axis_origin_ms, window.start_ms)
+    "#{elapsed(t0 - origin)}–#{elapsed(t1 - origin)}"
+  end
+
   @doc "Stacked per-unit CPU over the run: daemon/executor baseline, selected unit tickets, and an aggregated remainder, under the machine ceiling."
   @spec cpu_stack(map(), MapSet.t()) :: String.t()
   def cpu_stack(model, selected) do
@@ -79,7 +86,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
         x_axis(t0, t1, xf, ml, @w - mr, mt + ph, axis_origin(window)) <>
         now_marker(t0, t1, now_ms(window), xf, mt, mt + ph)
 
-    time_svg(@w, h, inner, "Per-unit CPU over the run", t0, t1, ml, @w - mr, mt, mt + ph)
+    time_svg(@w, h, inner, "Per-unit CPU over the run", {t0, t1, ml, @w - mr, mt, mt + ph})
   end
 
   @doc "Active units against the concurrency cap; the shaded band above the line is wasted capacity."
@@ -108,7 +115,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
         x_axis(t0, t1, xf, ml, @w - mr, mt + ph, axis_origin(window)) <>
         now_marker(t0, t1, now_ms(window), xf, mt, mt + ph)
 
-    time_svg(@w, h, inner, "Concurrency against the cap", t0, t1, ml, @w - mr, mt, mt + ph)
+    time_svg(@w, h, inner, "Concurrency against the cap", {t0, t1, ml, @w - mr, mt, mt + ph})
   end
 
   @doc "Aggregate resident memory over the run against the host ceiling."
@@ -134,7 +141,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
         x_axis(t0, t1, xf, ml, @w - mr, mt + ph, axis_origin(window)) <>
         now_marker(t0, t1, now_ms(window), xf, mt, mt + ph)
 
-    time_svg(@w, h, inner, "Memory over the run", t0, t1, ml, @w - mr, mt, mt + ph)
+    time_svg(@w, h, inner, "Memory over the run", {t0, t1, ml, @w - mr, mt, mt + ph})
   end
 
   @doc "Per-ticket lifecycle: a wait rail into a work bar coloured by status, capped by an end marker."
@@ -161,8 +168,15 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
         end_ms = clamp(r.end_ms, t0, t1)
         wx = r2(xf.(start_ms))
         ww = r2(max(xf.(work_ms) - xf.(start_ms), 0))
-        bx = r2(xf.(work_ms))
-        bw = r2(max(xf.(end_ms) - xf.(work_ms), 2))
+
+        work_bar =
+          if r.work_ms < t1 do
+            bx = r2(xf.(work_ms))
+            bw = r2(max(xf.(end_ms) - xf.(work_ms), 2))
+            ~s|<rect x="#{bx}" y="#{r2(y + 3)}" width="#{bw}" height="#{rowh - 8}" rx="3" fill="#{color}" fill-opacity="0.85"/>|
+          else
+            ""
+          end
 
         end_marker =
           if r.end_ms >= t0 and r.end_ms <= t1 do
@@ -173,7 +187,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
 
         text(ml - 6, y + rowh / 2 + 3, "##{r.id}", anchor: "end", fill: "var(--muted)") <>
           ~s|<rect x="#{wx}" y="#{r2(y + rowh / 2 - 1.5)}" width="#{ww}" height="3" rx="1.5" fill="var(--faint)" opacity="0.5"/>| <>
-          ~s|<rect x="#{bx}" y="#{r2(y + 3)}" width="#{bw}" height="#{rowh - 8}" rx="3" fill="#{color}" fill-opacity="0.85"/>| <>
+          work_bar <>
           end_marker
       end)
 
@@ -182,7 +196,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
         bars <>
         now_marker(t0, t1, now_ms(window), xf, mt, mt + ph)
 
-    time_svg(@w, h, inner, "Per-ticket lifecycle", t0, t1, ml, @w - mr, mt, mt + ph)
+    time_svg(@w, h, inner, "Per-ticket lifecycle", {t0, t1, ml, @w - mr, mt, mt + ph})
   end
 
   @doc "Ranked cost per unit ticket, sortable by CPU-seconds, peak CPU, or peak memory."
@@ -235,7 +249,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
         x_axis(t0, t1, xf, ml, @w - mr, mt + ph, axis_origin(window)) <>
         now_marker(t0, t1, now_ms(window), xf, mt, mt + ph)
 
-    time_svg(@w, h, inner, "Burn-up of merged tickets", t0, t1, ml, @w - mr, mt, mt + ph)
+    time_svg(@w, h, inner, "Burn-up of merged tickets", {t0, t1, ml, @w - mr, mt, mt + ph})
   end
 
   # ---- shared builders ----
@@ -318,7 +332,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
     ~s|<svg viewBox="0 0 #{w} #{h}" role="img" aria-label="#{label}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;display:block;overflow:visible">#{inner}</svg>|
   end
 
-  defp time_svg(w, h, inner, label, t0, t1, x0, x1, y0, y1) do
+  defp time_svg(w, h, inner, label, {t0, t1, x0, x1, y0, y1}) do
     brush =
       ~s|<rect class="an-time-brush-target" data-time-brush="true" x="#{x0}" y="#{y0}" width="#{x1 - x0}" height="#{y1 - y0}" fill="transparent" style="cursor:crosshair;touch-action:none"/>|
 
@@ -349,6 +363,18 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
   end
 
   defp integer(_value), do: nil
+
+  defp elapsed(ms) do
+    minutes = ms |> max(0) |> div(60_000)
+    hours = div(minutes, 60)
+    remainder = rem(minutes, 60)
+
+    cond do
+      hours > 0 and remainder > 0 -> "#{hours}h #{remainder}m"
+      hours > 0 -> "#{hours}h"
+      true -> "#{remainder}m"
+    end
+  end
 
   defp text(x, y, body, opts) do
     anchor = Keyword.get(opts, :anchor, "start")
