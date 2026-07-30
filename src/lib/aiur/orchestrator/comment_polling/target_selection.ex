@@ -177,7 +177,7 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelection do
       {:ok, fetcher} ->
         case fetcher.(@comment_poll_review_states) do
           {:ok, issues} when is_list(issues) ->
-            {:ok, human_review_targets_from_issues(state, issues, opts), state.github_issue_list_cache}
+            {:ok, human_review_targets_from_issues(state, issues, opts), issue_list_cache(state)}
 
           {:error, _reason} = error ->
             error
@@ -189,13 +189,17 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelection do
       :error ->
         case GitHubClient.fetch_issues_by_states_conditional(
                @comment_poll_review_states,
-               state.github_issue_list_cache,
+               issue_list_cache(state),
                opts
              ) do
           {:ok, issues, cache} -> {:ok, human_review_targets_from_issues(state, issues, opts), cache}
           {:error, _reason} = error -> error
         end
     end
+  end
+
+  defp issue_list_cache(%State{ci_lifecycle: ci_lifecycle}) do
+    ci_lifecycle |> Map.get(:poll_cache, %{}) |> Map.get(:issue_list_cache, %{})
   end
 
   defp human_review_targets_from_issues(state, issues, opts) do

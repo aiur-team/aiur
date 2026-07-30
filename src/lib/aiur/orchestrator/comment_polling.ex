@@ -10,6 +10,7 @@ defmodule Aiur.Orchestrator.CommentPolling do
   alias Aiur.Events.{GithubCommentsPoller, GithubFirehose}
   alias Aiur.GitHub.CommentPollBatch
   alias Aiur.Orchestrator
+  alias Aiur.Orchestrator.TrackerHealth
   alias Aiur.Orchestrator.CommentPolling.TargetSelection
   alias Aiur.Orchestrator.State
 
@@ -129,7 +130,13 @@ defmodule Aiur.Orchestrator.CommentPolling do
   @spec poll_github_comments(State.t(), keyword()) :: State.t()
   def poll_github_comments(%State{} = state, opts \\ []) do
     case Config.tracker_kind() do
-      "github" -> do_poll_github_comments(state, opts)
+      "github" ->
+        if map_size(state.running) > 0 or TrackerHealth.github_source_due?(state, :comments) do
+          do_poll_github_comments(state, opts)
+        else
+          state
+        end
+
       _ -> state
     end
   end
@@ -137,7 +144,7 @@ defmodule Aiur.Orchestrator.CommentPolling do
   defp do_poll_github_comments(%State{} = state, opts) do
     case TargetSelection.github_comment_poll_targets_with_cache(state, opts) do
       {:ok, targets, human_review_targets, watch_targets, cache} ->
-        state = %{state | github_issue_list_cache: cache}
+        state = put_in(state.ci_lifecycle.poll_cache[:issue_list_cache], cache)
         poll_github_comment_targets(state, targets, human_review_targets, watch_targets, opts)
 
       {:error, reason} ->
@@ -147,10 +154,12 @@ defmodule Aiur.Orchestrator.CommentPolling do
   end
 
   defp poll_github_comment_targets(%State{} = state, [], _human_review_targets, _watch_targets, _opts),
-    do: state
+    do: TrackerHealth.note_github_poll_quiet(state, :comments)
 
   defp poll_github_comment_targets(%State{} = state, targets, human_review_targets, watch_targets, opts)
        when is_list(targets) do
+    state = TrackerHealth.note_github_poll_active(state, :comments)
+
     poll_opts =
       opts
       |> Keyword.put_new(:since, state.github_comments_since)

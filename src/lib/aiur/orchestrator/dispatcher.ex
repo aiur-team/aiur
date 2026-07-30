@@ -94,9 +94,9 @@ defmodule Aiur.Orchestrator.Dispatcher do
     if Config.tracker_kind() == "github" do
       case GitHubClient.fetch_issues_by_states_conditional(
              Config.active_states(),
-             state.github_issue_list_cache
+             issue_list_cache(state)
            ) do
-        {:ok, issues, cache} -> {:ok, issues, %{state | github_issue_list_cache: cache}}
+        {:ok, issues, cache} -> {:ok, issues, put_issue_list_cache(state, cache)}
         {:error, reason} -> {:error, reason, state}
       end
     else
@@ -105,6 +105,14 @@ defmodule Aiur.Orchestrator.Dispatcher do
         {:error, reason} -> {:error, reason, state}
       end
     end
+  end
+
+  defp issue_list_cache(%State{ci_lifecycle: ci_lifecycle}) do
+    ci_lifecycle |> Map.get(:poll_cache, %{}) |> Map.get(:issue_list_cache, %{})
+  end
+
+  defp put_issue_list_cache(%State{} = state, cache) do
+    update_in(state.ci_lifecycle.poll_cache, &Map.put(&1 || %{}, :issue_list_cache, cache))
   end
 
   # The base is readied before CPU admission so per-issue workspaces can use it

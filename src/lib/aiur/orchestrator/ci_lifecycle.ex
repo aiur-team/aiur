@@ -32,7 +32,13 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   @spec poll_github_ci(State.t(), keyword()) :: State.t()
   def poll_github_ci(%State{} = state, opts \\ []) do
     case Config.tracker_kind() do
-      "github" -> do_poll_github_ci(state, opts)
+      "github" ->
+        if map_size(state.running) > 0 or TrackerHealth.github_source_due?(state, :ci) do
+          do_poll_github_ci(state, opts)
+        else
+          state
+        end
+
       _ -> state
     end
   end
@@ -338,18 +344,31 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       :error ->
         case Client.fetch_issues_by_states_conditional(
                @ci_poll_states,
-               state.github_issue_list_cache,
+               issue_list_cache(state),
                opts
              ) do
-          {:ok, issues, cache} -> {:ok, issues, %{state | github_issue_list_cache: cache}}
+          {:ok, issues, cache} -> {:ok, issues, put_issue_list_cache(state, cache)}
           {:error, reason} -> {:error, reason, state}
         end
     end
   end
 
+  defp issue_list_cache(%State{ci_lifecycle: ci_lifecycle}) do
+    ci_lifecycle |> Map.get(:poll_cache, %{}) |> Map.get(:issue_list_cache, %{})
+  end
+
+  defp put_issue_list_cache(%State{} = state, cache) do
+    update_in(state.ci_lifecycle.poll_cache, &Map.put(&1 || %{}, :issue_list_cache, cache))
+  end
+
   defp poll_github_ci_targets(%State{} = state, issues, poller, opts) do
     issues_by_target = ci_issues_by_target(issues)
     targets = Map.keys(issues_by_target)
+
+    state =
+      if targets == [],
+        do: TrackerHealth.note_github_poll_quiet(state, :ci),
+        else: TrackerHealth.note_github_poll_active(state, :ci)
 
     poll_opts =
       Keyword.put(
@@ -822,7 +841,12 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
     approved_heads = Map.take(state.ci_lifecycle.approved_heads, targets)
     test_failure_heads = Map.take(state.ci_lifecycle.test_failure_heads, targets)
-    poll_cache = state.ci_lifecycle |> Map.get(:poll_cache, %{}) |> Map.take(targets)
+    existing_poll_cache = Map.get(state.ci_lifecycle, :poll_cache, %{})
+
+    poll_cache =
+      existing_poll_cache
+      |> Map.take(targets)
+      |> maybe_keep_issue_list_cache(existing_poll_cache)
 
     # Base repair invalidations intentionally survive while their ticket is in
     # rework (and therefore absent from this CI-only target list). The marker is
@@ -830,7 +854,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
     if approved_heads == state.ci_lifecycle.approved_heads and
          test_failure_heads == state.ci_lifecycle.test_failure_heads and
-         poll_cache == Map.get(state.ci_lifecycle, :poll_cache, %{}) do
+         poll_cache == existing_poll_cache do
       state
     else
       ci_lifecycle =
@@ -840,6 +864,13 @@ defmodule Aiur.Orchestrator.CiLifecycle do
         |> Map.put(:poll_cache, poll_cache)
 
       persist_ci_lifecycle_state(%{state | ci_lifecycle: ci_lifecycle})
+    end
+  end
+
+  defp maybe_keep_issue_list_cache(poll_cache, existing_poll_cache) do
+    case Map.fetch(existing_poll_cache, :issue_list_cache) do
+      {:ok, cache} -> Map.put(poll_cache, :issue_list_cache, cache)
+      :error -> poll_cache
     end
   end
 
