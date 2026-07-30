@@ -86,13 +86,16 @@ defmodule Aiur.Events.Publisher do
       comments published this way reach no reactivation target.
   """
   @spec publish(String.t(), map(), keyword()) ::
-          {:ok, pos_integer(), non_neg_integer()} | :filtered | :deduped | {:error, :decision_requires_durable_publish}
+          {:ok, pos_integer(), non_neg_integer()} | :filtered | :deduped | {:error, :decision_requires_durable_publish | :executor_namespace_rejects_github_source}
   def publish(topic, payload, opts \\ []) when is_binary(topic) and is_map(payload) do
     actor = Keyword.get(opts, :actor)
 
     cond do
       durable_decision_topic?(topic) ->
         {:error, :decision_requires_durable_publish}
+
+      executor_topic_from_github?(topic, payload, opts) ->
+        {:error, :executor_namespace_rejects_github_source}
 
       bot_self_loop?(actor) ->
         :filtered
@@ -129,13 +132,24 @@ defmodule Aiur.Events.Publisher do
           {:ok, pos_integer(), non_neg_integer()}
   def publish_persisted(topic, payload, id, opts \\ [])
       when is_binary(topic) and is_map(payload) and is_integer(id) do
-    event = event_with_observation(topic, payload, id, opts)
+    if executor_topic_from_github?(topic, payload, opts) do
+      {:error, :executor_namespace_rejects_github_source}
+    else
+      event = event_with_observation(topic, payload, id, opts)
 
-    subscribers = Exchange.publish(topic, event)
-    record_emit_marker(topic, event, opts)
-    DebugLog.broadcast(:publish, topic, id: id, body: payload)
-    {:ok, id, subscribers}
+      subscribers = Exchange.publish(topic, event)
+      record_emit_marker(topic, event, opts)
+      DebugLog.broadcast(:publish, topic, id: id, body: payload)
+      {:ok, id, subscribers}
+    end
   end
+
+  defp executor_topic_from_github?("executor." <> _rest, payload, opts) do
+    source = Keyword.get(opts, :source) || Keyword.get(opts, :observation_source) || Map.get(payload, :source) || Map.get(payload, "source")
+    source in [:github, "github"] or match?(%{kind: :github}, source) or match?(%{"kind" => "github"}, source)
+  end
+
+  defp executor_topic_from_github?(_topic, _payload, _opts), do: false
 
   # Reserved Decision lifecycle names must only ever reach Exchange through
   # `Aiur.DecisionStore`'s persist-before-notify path (via

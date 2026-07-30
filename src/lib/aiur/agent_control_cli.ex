@@ -1,7 +1,7 @@
 defmodule Aiur.AgentControlCLI do
   @moduledoc false
 
-  alias Aiur.{AgentChat, AlertFeed, BuildGate, Config, Orchestrator, PauseContainment, ProviderMeterProjection}
+  alias Aiur.{AgentChat, AlertFeed, BuildGate, Config, ExecutorEvents, Orchestrator, PauseContainment, ProviderMeterProjection}
   alias Aiur.Codex.EventHumanizer, as: CodexEventHumanizer
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.StatePolicy
@@ -94,6 +94,55 @@ defmodule Aiur.AgentControlCLI do
     |> Enum.each(&IO.puts(Jason.encode!(&1)))
 
     exit_marker(0)
+  end
+
+  @spec executor_emit(String.t(), String.t()) :: :ok
+  def executor_emit(topic, payload_json) when is_binary(topic) and is_binary(payload_json) do
+    case Jason.decode(payload_json) do
+      {:ok, %{} = payload} ->
+        case ExecutorEvents.publish(topic, payload, source: :executor_cli) do
+          {:ok, id, _subscribers} ->
+            IO.puts(Jason.encode!(%{id: id, topic: topic}))
+            exit_marker(0)
+
+          {:error, reason} ->
+            IO.puts(:stderr, "aiur: executor event rejected (#{format_reason(reason)})")
+            exit_marker(1)
+        end
+
+      _ ->
+        IO.puts(:stderr, "aiur: executor-emit payload must be a JSON object")
+        exit_marker(64)
+    end
+  end
+
+  @spec executor_subscribe(String.t()) :: :ok
+  def executor_subscribe(topic) when is_binary(topic) do
+    executor_subscription_result(ExecutorEvents.subscribe(topic), "subscribed", topic)
+  end
+
+  @spec executor_unsubscribe(String.t()) :: :ok
+  def executor_unsubscribe(topic) when is_binary(topic) do
+    executor_subscription_result(ExecutorEvents.unsubscribe(topic), "unsubscribed", topic)
+  end
+
+  @spec executor_subscriptions() :: :ok
+  def executor_subscriptions do
+    ExecutorEvents.subscriptions() |> Enum.each(&IO.puts/1)
+    exit_marker(0)
+  end
+
+  @spec executor_listen(keyword()) :: no_return()
+  def executor_listen(opts \\ []), do: ExecutorEvents.listen(opts)
+
+  defp executor_subscription_result(:ok, action, topic) do
+    IO.puts("#{action} #{topic}")
+    exit_marker(0)
+  end
+
+  defp executor_subscription_result({:error, reason}, _action, _topic) do
+    IO.puts(:stderr, "aiur: executor subscription rejected (#{format_reason(reason)})")
+    exit_marker(1)
   end
 
   # Absolute set of the concurrent-agent cap on a live node — `aiur set

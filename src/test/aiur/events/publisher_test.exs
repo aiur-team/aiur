@@ -219,6 +219,14 @@ defmodule Aiur.Events.PublisherTest do
 
       assert_receive {:event, %{topic: "ticket.42.agent.decision.use-something"}}, 500
     end
+
+    test "rejects GitHub-sourced events in the internal executor namespace" do
+      assert {:error, :executor_namespace_rejects_github_source} =
+               Publisher.publish("executor.notify.untrusted", %{message: "external"}, source: :github)
+
+      assert {:error, :executor_namespace_rejects_github_source} =
+               Publisher.publish("executor.decision.deferred", %{message: "external"}, observation_source: %{kind: :github})
+    end
   end
 
   describe "publish_persisted/4" do
