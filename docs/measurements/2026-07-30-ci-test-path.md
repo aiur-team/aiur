@@ -29,8 +29,9 @@ still measures repository-wide coverage against the 85% threshold.
 | Sharding coverage 4 | [30563044432](https://github.com/its-everdred/aiur/actions/runs/30563044432) | Repeat deterministic seed | n/a | n/a | rejected: aggregate coverage 84.94% |
 | Plain sharding + serial coverage | [30564536867](https://github.com/its-everdred/aiur/actions/runs/30564536867) | Plain partitions alongside a separate full coverage run | 5m 00s plain test path; 13m 15s coverage | n/a | rejected: merge-blocking coverage path stayed serial and the suite ran twice |
 | Coverage margin validation | [30568674588](https://github.com/its-everdred/aiur/actions/runs/30568674588) | Add stable scheduled-path tests before retrying partitioned coverage | 12m 37s serial coverage | +21s | coverage passed at 85.09%; workflow invalid for stability because an unrelated AppServer partition flaked |
-| Final stability 1 | pending | 4-way coverage partitions + merged 85% gate | pending | pending | pending |
-| Final stability 2 | pending | Repeat final configuration | pending | pending | pending |
+| Final configuration | [30569993184](https://github.com/its-everdred/aiur/actions/runs/30569993184) | 4-way coverage partitions + merged 85% gate | 7m 15s | -5m 01s | passed; 85% gate intact |
+| Final stability 1 | pending | Repeat final configuration after setup deduplication | pending | pending | pending |
+| Final stability 2 | pending | Repeat final configuration unchanged | pending | pending | pending |
 
 Baseline median: **12m 16s**.
 
