@@ -33,4 +33,10 @@ logs/
 
 # Local Netlify folder
 .netlify
+
+# Stream Deck package build and dependency artifacts.
+packages/streamdeck/node_modules/
+packages/streamdeck/coverage/
+packages/streamdeck/dist/
+*.streamDeckPlugin
 .aiur-design-import/
