@@ -88,6 +88,10 @@ AIUR_DASHBOARD_PASSWORD=replace-with-a-secret
 AIUR_STREAMDECK_JPEG_QUALITY=95
 ```
 
+Use `http://` only for a Phoenix endpoint on the same machine (such as the
+loopback example above). A non-loopback endpoint must use `https://`; never
+send the dashboard credentials over plaintext HTTP.
+
 `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD` are the same HTTP
 Basic Auth credentials used by the Phoenix dashboard. Keep them in this
 EnvironmentFile; do not put them in the unit or commit a populated copy.
