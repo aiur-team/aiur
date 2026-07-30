@@ -61,9 +61,11 @@ defmodule AiurWeb.StreamdeckProjection do
   def provider_meters, do: provider_meters_fun() |> safe_call(%{}) |> external_value()
 
   @spec provider_meters(ProviderMeterSnapshot.t()) :: map()
-  def provider_meters(%ProviderMeterSnapshot{provider: provider} = snapshot) when provider in [:codex, :claude] do
-    meters = provider_meters()
+  def provider_meters(%ProviderMeterSnapshot{} = snapshot), do: merge_provider_meter(provider_meters(), snapshot)
 
+  @doc false
+  @spec merge_provider_meter(map(), ProviderMeterSnapshot.t()) :: map()
+  def merge_provider_meter(meters, %ProviderMeterSnapshot{provider: provider} = snapshot) when provider in [:codex, :claude] do
     if newer_provider_observation?(snapshot, Map.get(meters, Atom.to_string(provider))) do
       Map.put(meters, Atom.to_string(provider), provider_meter(snapshot))
     else
