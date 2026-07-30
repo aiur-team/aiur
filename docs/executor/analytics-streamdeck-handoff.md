@@ -3,7 +3,7 @@
 Living document. A replacement Executor (Claude or Codex) resumes from here.
 Branch `executor-handoff` off `origin/develop` is the research+handoff branch
 for this build order; keep updating it as the run proceeds.
-Last update: 2026-07-30, pre-launch (build order not yet created).
+Last update: 2026-07-30. Build order root: #1363. Pack: docs/build-orders/analytics-streamdeck/ (validated, 0 errors). All 26 members carry model:codex.
 
 ## Role and authority envelope
 
