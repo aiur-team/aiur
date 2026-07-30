@@ -65,7 +65,8 @@ export type ModeAction =
   | { type: "mic.down" }
   | { type: "mic.up" }
   | { type: "mic.leave" }
-  | { type: "mic.cancel" };
+  | { type: "mic.cancel" }
+  | { type: "live-refresh.started"; timer: LiveRefreshTimer };
 
 export interface ModeTransition {
   state: StreamDeckModeState;
@@ -138,6 +139,10 @@ export const transitionMode = (state: StreamDeckModeState, action: ModeAction): 
 
   if (isMicRelease(action) && state.mode === "cmd") {
     return { state: { ...state, micHeld: false }, effects: [] };
+  }
+
+  if (action.type === "live-refresh.started" && state.mode === "logs") {
+    return { state: { ...state, liveRefreshTimer: action.timer }, effects: [] };
   }
 
   return { state, effects: [] };

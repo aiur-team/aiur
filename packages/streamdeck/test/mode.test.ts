@@ -36,9 +36,23 @@ describe("Stream Deck mode state", () => {
     });
   });
 
+  it("clamps a negative newestChatIndex to 0 when entering logs", () => {
+    expect(
+      transitionMode(commandState(), { type: "command.press", command: "logs", bounds: { newestChatIndex: -5 } }).state.chatIndex,
+    ).toBe(0);
+  });
+
+  it("registers a live-refresh timer in logs mode", () => {
+    const timer = { id: "live-refresh" };
+    const logsState = transitionMode(commandState(), { type: "command.press", command: "logs" }).state;
+
+    expect(transitionMode(logsState, { type: "live-refresh.started", timer }).state.liveRefreshTimer).toBe(timer);
+  });
+
   it("returns from logs to commands and exposes the timer cleanup effect", () => {
     const timer = { id: "live-refresh" };
-    const state = { ...commandState(), mode: "logs" as const, liveRefreshTimer: timer };
+    const logsState = transitionMode(commandState(), { type: "command.press", command: "logs" }).state;
+    const state = transitionMode(logsState, { type: "live-refresh.started", timer }).state;
 
     expect(transitionMode(state, { type: "back" })).toEqual({
       state: { ...state, mode: "cmd", liveRefreshTimer: null, micHeld: false },
