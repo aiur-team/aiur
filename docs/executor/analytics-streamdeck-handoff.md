@@ -119,6 +119,30 @@ Wake immediately on needs-attention alerts / agent-state changes / PR-CI
 results; otherwise adaptive quiet audit. Never satisfy the 10-min capacity
 audit by waking ci-wait/blocked tickets.
 
+**HARD RULE (postmortem 2026-07-30): every wake — timer tick, task
+notification, or operator ping — starts with `watch --full` (read the
+ACTIONABLE section first) + `alerts --needs-attention`, BEFORE the thing
+that woke you.** Failure mode observed: the Executor spent ~5 ticks polling
+one PR's CI check while 13 agents sat paused and 4 claims were released by
+tracker 403s — the operator saw a red board the Executor called quiet.
+A single in-flight blocker (merge-gate CI) does not make the fleet quiet;
+polling one metric is not an audit. The 10-minute capacity audit is these
+two commands, run unconditionally.
+
+Known incident signatures:
+- `orchestrator.retry_poll.exhausted` + HTTP 403 = GITHUB_TOKEN rate limit
+  (5000/hr shared by daemon + all agents = #678 live). While GITHUB_TOKEN
+  is set, aiur uses ONLY it — the keyring is not a fallback. Recovery:
+  wait for the hourly reset (check `gh api rate_limit` AS the token), then
+  `resume` every paused ticket. If it recurs in the same run, promote #678
+  as a P1 fleet-blocker.
+- Mass `ticket.*.agent.paused` after tracker failures: agents do not
+  auto-resume when the tracker recovers — the Executor must `resume` each.
+- Alerts persist across restarts and tokens (full-history scan, #1231):
+  check the timestamp before acting; e.g. a push-blocked alert may predate
+  a token fix and the push may have since succeeded (verify branch head vs
+  PR head before intervening).
+
 ### Hourly meta-analysis (operator-directed)
 
 Every hourly retrospective must include a **meta-analysis note**: what
