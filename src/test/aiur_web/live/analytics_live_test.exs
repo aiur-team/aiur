@@ -80,11 +80,27 @@ defmodule AiurWeb.AnalyticsLiveTest do
 
     assert zoomed =~ ~s(class="an-zoombar")
     assert length(Regex.scan(~r/data-time-start="1783728061000"/, zoomed)) == 5
+    assert length(Regex.scan(~r/data-time-end="1783728065000"/, zoomed)) == 5
     assert zoomed =~ "phx-click=\"reset-time-domain\""
+
+    patched = render_click(view, "sort", %{"by" => "mem"})
+    assert patched =~ ~s(class="an-zoombar")
+    assert length(Regex.scan(~r/data-time-start="1783728061000"/, patched)) == 5
+    assert length(Regex.scan(~r/data-time-end="1783728065000"/, patched)) == 5
 
     reset = render_click(view, "reset-time-domain", %{})
 
     refute reset =~ ~s(class="an-zoombar")
+  end
+
+  test "a degenerate domain event leaves the full chart range intact" do
+    Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
+
+    {:ok, view, _html} = live(build_conn(), "/analytics")
+
+    html = render_hook(view, "time-domain", %{"t0" => 1_783_728_061_000, "t1" => 1_783_728_061_001})
+
+    refute html =~ ~s(class="an-zoombar")
   end
 
   defp reset_env(key, nil), do: Application.delete_env(:aiur, key)

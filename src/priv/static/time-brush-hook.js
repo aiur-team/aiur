@@ -18,19 +18,17 @@
     this.onPointerDown = this.onPointerDown.bind(this);
     this.onPointerMove = this.onPointerMove.bind(this);
     this.onPointerUp = this.onPointerUp.bind(this);
-    this.onKeydown = this.onKeydown.bind(this);
+    this.onPointerCancel = this.onPointerCancel.bind(this);
   }
 
   Brush.prototype.capture = function () {
     this.svg = this.el.querySelector('svg[data-time-brush="true"]');
     this.target = this.svg && this.svg.querySelector('[data-time-brush="true"]');
-    if (this.el.tabIndex < 0) this.el.tabIndex = 0;
   };
 
   Brush.prototype.mount = function () {
     this.capture();
     this.el.addEventListener("pointerdown", this.onPointerDown);
-    this.el.addEventListener("keydown", this.onKeydown);
   };
 
   Brush.prototype.updated = function () {
@@ -41,13 +39,6 @@
   Brush.prototype.destroy = function () {
     this.clearSelection();
     this.el.removeEventListener("pointerdown", this.onPointerDown);
-    this.el.removeEventListener("keydown", this.onKeydown);
-  };
-
-  Brush.prototype.onKeydown = function (event) {
-    if (event.key !== "Escape") return;
-    event.preventDefault();
-    this.hook.pushEvent("reset-time-domain", {});
   };
 
   Brush.prototype.onPointerDown = function (event) {
@@ -70,7 +61,7 @@
     this.el.setPointerCapture(event.pointerId);
     this.el.addEventListener("pointermove", this.onPointerMove);
     this.el.addEventListener("pointerup", this.onPointerUp);
-    this.el.addEventListener("pointercancel", this.onPointerUp);
+    this.el.addEventListener("pointercancel", this.onPointerCancel);
   };
 
   Brush.prototype.onPointerMove = function (event) {
@@ -84,6 +75,8 @@
   Brush.prototype.onPointerUp = function (event) {
     if (!this.drag || event.pointerId !== this.drag.pointerId) return;
     var drag = this.drag;
+    var current = this.chartX(event);
+    if (current != null) drag.current = current;
     var width = Math.abs(drag.current - drag.start);
     var domain = this.domainFor(drag.start, drag.current);
     this.clearSelection();
@@ -93,13 +86,17 @@
     }
   };
 
+  Brush.prototype.onPointerCancel = function (event) {
+    if (this.drag && event.pointerId === this.drag.pointerId) this.clearSelection();
+  };
+
   Brush.prototype.clearSelection = function () {
     if (this.selection && this.selection.parentNode) this.selection.parentNode.removeChild(this.selection);
     this.selection = null;
     this.drag = null;
     this.el.removeEventListener("pointermove", this.onPointerMove);
     this.el.removeEventListener("pointerup", this.onPointerUp);
-    this.el.removeEventListener("pointercancel", this.onPointerUp);
+    this.el.removeEventListener("pointercancel", this.onPointerCancel);
   };
 
   Brush.prototype.chartX = function (event) {

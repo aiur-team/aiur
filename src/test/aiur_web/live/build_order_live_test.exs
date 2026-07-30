@@ -893,6 +893,16 @@ defmodule AiurWeb.BuildOrderLiveTest do
     zoomed = render_hook(view, "time-domain", %{"t0" => start_ms + div(span, 4), "t1" => end_ms - div(span, 4)})
 
     assert zoomed =~ ~s(class="an-zoombar")
+    expected_start = start_ms + div(span, 4)
+    expected_end = end_ms - div(span, 4)
+    assert length(Regex.scan(~r/data-time-start="#{expected_start}"/, zoomed)) == 5
+    assert length(Regex.scan(~r/data-time-end="#{expected_end}"/, zoomed)) == 5
+
+    patched = render_click(view, "toggle-nav", %{})
+    assert patched =~ ~s(class="an-zoombar")
+    assert length(Regex.scan(~r/data-time-start="#{expected_start}"/, patched)) == 5
+    assert length(Regex.scan(~r/data-time-end="#{expected_end}"/, patched)) == 5
+
     refute render_click(view, "reset-time-domain", %{}) =~ ~s(class="an-zoombar")
   end
 

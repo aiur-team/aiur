@@ -141,6 +141,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
   @spec gantt(map()) :: String.t()
   def gantt(model) do
     %{tickets: rows, window: %{start_ms: t0, end_ms: t1} = window} = model
+    rows = Enum.filter(rows, &(&1.end_ms >= t0 and &1.start_ms <= t1))
     rowh = 18
     {ml, mr, mt, mb} = {52, 14, 6, 20}
     n = max(length(rows), 1)
@@ -155,15 +156,25 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
       |> Enum.map_join("", fn {r, i} ->
         y = mt + i * rowh
         color = status_color(r.status)
-        wx = r2(xf.(r.start_ms))
-        ww = r2(max(xf.(r.work_ms) - xf.(r.start_ms), 0))
-        bx = r2(xf.(r.work_ms))
-        bw = r2(max(xf.(r.end_ms) - xf.(r.work_ms), 2))
+        start_ms = clamp(r.start_ms, t0, t1)
+        work_ms = clamp(r.work_ms, t0, t1)
+        end_ms = clamp(r.end_ms, t0, t1)
+        wx = r2(xf.(start_ms))
+        ww = r2(max(xf.(work_ms) - xf.(start_ms), 0))
+        bx = r2(xf.(work_ms))
+        bw = r2(max(xf.(end_ms) - xf.(work_ms), 2))
+
+        end_marker =
+          if r.end_ms >= t0 and r.end_ms <= t1 do
+            ~s|<circle cx="#{r2(xf.(end_ms))}" cy="#{r2(y + rowh / 2)}" r="3" fill="#{color}" stroke="var(--surface)" stroke-width="1"/>|
+          else
+            ""
+          end
 
         text(ml - 6, y + rowh / 2 + 3, "##{r.id}", anchor: "end", fill: "var(--muted)") <>
           ~s|<rect x="#{wx}" y="#{r2(y + rowh / 2 - 1.5)}" width="#{ww}" height="3" rx="1.5" fill="var(--faint)" opacity="0.5"/>| <>
           ~s|<rect x="#{bx}" y="#{r2(y + 3)}" width="#{bw}" height="#{rowh - 8}" rx="3" fill="#{color}" fill-opacity="0.85"/>| <>
-          ~s|<circle cx="#{r2(xf.(r.end_ms))}" cy="#{r2(y + rowh / 2)}" r="3" fill="#{color}" stroke="var(--surface)" stroke-width="1"/>|
+          end_marker
       end)
 
     inner =
