@@ -1,6 +1,9 @@
 defmodule Aiur.TestSupport do
   import ExUnit.Assertions
 
+  alias Aiur.Events.Publisher, as: EventsPublisher
+  alias Aiur.Events.SubscriptionStore, as: EventsSubscriptionStore
+
   @workflow_prompt "You are an agent for this repository."
 
   defmacro __using__(_opts) do
