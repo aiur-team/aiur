@@ -2,9 +2,10 @@
 
 This record keeps the test-path optimization loop reproducible. Durations are
 the full GitHub Actions test-path critical path: from the first test runner
-starting until the aggregate `test` job completes its coverage gate and tmux
-regression. Before sharding this is the `test` job duration; after sharding it
-includes the longest partition plus aggregation and regression.
+starting until the aggregate `test` job completes tmux regression. Before
+sharding this is the `test` job duration; after sharding it includes the longest
+partition plus regression. The unchanged full-suite `coverage` job remains a
+separate required PR gate and reports the repository-wide 85% threshold.
 
 ## Method
 
@@ -12,7 +13,7 @@ includes the longest partition plus aggregation and regression.
   full suite locally.
 - Change one lever at a time, then compare the same job path with the
   immediately preceding measurement.
-- Keep the 85% aggregate coverage gate required for every pull request.
+- Keep the 85% coverage gate required for every pull request.
 - Re-run the final configuration to check for flakes.
 
 ## Measurements
@@ -32,5 +33,6 @@ Baseline median: pending.
 ## Interpretation notes
 
 The historical row is context only, not a substitute for the three committed
-baseline runs. A partition run is accepted only when all four partitions pass
-and the aggregation job reports the single repository-wide coverage threshold.
+baseline runs. A partition run is accepted only when all four partitions and
+the aggregate regression job pass; the separate coverage job must also report
+the single repository-wide coverage threshold.

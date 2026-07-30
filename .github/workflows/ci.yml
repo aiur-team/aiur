@@ -85,17 +85,11 @@ jobs:
           restore-keys: ${{ runner.os }}-mix-
       - name: Fetch deps
         run: make deps
-      - name: Test partition with coverage export
+      - name: Test partition
         env:
           MIX_TEST_PARTITION: ${{ matrix.partition }}
           TEST_PARTITIONS: 4
-        run: make coverage-partition
-      - name: Upload partition coverage
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-${{ matrix.partition }}
-          path: src/cover/${{ matrix.partition }}.coverdata
-          if-no-files-found: error
+        run: make test-partition
 
   test:
     needs: test-partition
@@ -122,23 +116,34 @@ jobs:
           restore-keys: ${{ runner.os }}-mix-
       - name: Fetch deps
         run: make deps
-      - name: Download partition coverage
-        uses: actions/download-artifact@v4
-        with:
-          pattern: coverage-*
-          path: src/cover
-          merge-multiple: true
-      - name: Verify partition coverage exports
-        run: |
-          for partition in 1 2 3 4; do
-            test -s "cover/${partition}.coverdata"
-          done
-      - name: Aggregate partition coverage
-        run: make coverage-report
       - name: Install tmux for regression test
         run: sudo apt-get update && sudo apt-get install -y tmux
       - name: Agent teardown reaping regression (#423)
         run: make regression
+
+  coverage:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Set up mise tools
+        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+        with:
+          install: true
+          cache: true
+      - name: Cache deps
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: src/deps
+          key: ${{ runner.os }}-mix-${{ hashFiles('src/mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-
+      - name: Fetch deps
+        run: make deps
+      - name: Test with coverage
+        run: make coverage
 
   dialyzer:
     runs-on: ubuntu-latest
