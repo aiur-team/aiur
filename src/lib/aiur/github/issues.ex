@@ -5,7 +5,7 @@ defmodule Aiur.GitHub.Issues do
 
   require Logger
   alias Aiur.{BuildOrder.Bounded, Config, GitHub, Issue, TrackerIdentity}
-  alias Aiur.GitHub.{Errors, Labels, StatePolicy, Transport}
+  alias Aiur.GitHub.{DispatchAuthorization, Errors, Labels, StatePolicy, Transport}
 
   @max_issue_response_bytes 65_536
 
@@ -370,7 +370,7 @@ defmodule Aiur.GitHub.Issues do
 
   defp authorize_dispatches(issues, request_fun, token, owner, repo, prefix) do
     Enum.map(issues, fn issue ->
-      Aiur.GitHub.DispatchAuthorization.authorize(
+      DispatchAuthorization.authorize(
         issue,
         owner,
         repo,

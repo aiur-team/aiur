@@ -33,32 +33,41 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   end
 
   defp authorize_label_applier(issue, owner, repo, prefix, allowed_users, opts) do
-    case issue.state do
-      state when is_binary(state) and state != "" ->
-        label = StatePolicy.state_label(prefix, state)
+    case trigger_label(issue, prefix) do
+      {:ok, label} ->
+        issue
+        |> label_applier_decision(label, owner, repo, opts)
+        |> apply_label_decision(issue, allowed_users)
 
-        case cached_decision(issue, label) || fetch_decision(issue, label, owner, repo, opts) do
-          {:verified, actor, event_id} ->
-            authorized? = member?(allowed_users, actor)
-
-            log_decision(
-              if(authorized?, do: :allow, else: :deny),
-              issue,
-              "label_applier",
-              actor,
-              event_id
-            )
-
-            %{issue | dispatch_authorized?: authorized?}
-
-          {:ambiguous, reason} ->
-            deny_ambiguous(issue, reason)
-        end
-
-      _ ->
+      :error ->
         deny_ambiguous(issue, :missing_trigger_label)
     end
   end
+
+  defp trigger_label(%Issue{state: state}, prefix) when is_binary(state) and state != "",
+    do: {:ok, StatePolicy.state_label(prefix, state)}
+
+  defp trigger_label(_issue, _prefix), do: :error
+
+  defp label_applier_decision(issue, label, owner, repo, opts) do
+    cached_decision(issue, label) || fetch_decision(issue, label, owner, repo, opts)
+  end
+
+  defp apply_label_decision({:verified, actor, event_id}, issue, allowed_users) do
+    authorized? = member?(allowed_users, actor)
+
+    log_decision(
+      if(authorized?, do: :allow, else: :deny),
+      issue,
+      "label_applier",
+      actor,
+      event_id
+    )
+
+    %{issue | dispatch_authorized?: authorized?}
+  end
+
+  defp apply_label_decision({:ambiguous, reason}, issue, _allowed_users), do: deny_ambiguous(issue, reason)
 
   defp trusted_creator(login, allowed_users) when is_binary(login),
     do: member?(allowed_users, login)
@@ -66,12 +75,12 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   defp trusted_creator(_login, _allowed_users), do: false
 
   defp fetch_decision(issue, label, owner, repo, opts) do
-    request_fun = Keyword.get(opts, :request_fun, &Aiur.GitHub.Transport.default_request_fun/1)
+    request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
     token = Keyword.get(opts, :token, Config.token())
 
     if is_binary(token) and token != "" do
       url =
-        "#{Aiur.GitHub.Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue.id}/timeline?per_page=100"
+        "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue.id}/timeline?per_page=100"
 
       case fetch_timeline_pages(request_fun, token, url, @max_timeline_pages, []) do
         {:ok, events} ->
@@ -132,34 +141,34 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   end
 
   defp latest_label_event(events, label) do
-    if Enum.all?(events, &is_map/1) do
-      events
-      |> Enum.reduce_while({:ok, []}, fn event, {:ok, matching} ->
-        if labeled_with_name?(event, label) do
-          case event_sort_key(event) do
-            {:ok, sort_key} -> {:cont, {:ok, [{sort_key, event} | matching]}}
-            :error -> {:halt, :invalid}
-          end
-        else
-          {:cont, {:ok, matching}}
-        end
-      end)
-      |> case do
-        {:ok, []} ->
-          :missing
+    if Enum.all?(events, &is_map/1), do: matching_label_event(events, label), else: :invalid
+  end
 
-        {:ok, matching} ->
-          {_sort_key, event} = Enum.max_by(matching, &elem(&1, 0))
-          %{"id" => id} = event
-          %{id: to_string(id), actor: get_in(event, ["actor", "login"])}
+  defp matching_label_event(events, label) do
+    events
+    |> Enum.reduce_while({:ok, []}, &collect_matching_event(&1, label, &2))
+    |> latest_matching_event()
+  end
 
-        :invalid ->
-          :invalid
+  defp collect_matching_event(event, label, {:ok, matching}) do
+    if labeled_with_name?(event, label) do
+      case event_sort_key(event) do
+        {:ok, sort_key} -> {:cont, {:ok, [{sort_key, event} | matching]}}
+        :error -> {:halt, :invalid}
       end
     else
-      :invalid
+      {:cont, {:ok, matching}}
     end
   end
+
+  defp latest_matching_event({:ok, []}), do: :missing
+
+  defp latest_matching_event({:ok, matching}) do
+    {_sort_key, %{"id" => id} = event} = Enum.max_by(matching, &elem(&1, 0))
+    %{id: to_string(id), actor: get_in(event, ["actor", "login"])}
+  end
+
+  defp latest_matching_event(:invalid), do: :invalid
 
   defp labeled_with_name?(event, label) do
     (Map.get(event, "event") || Map.get(event, "type")) == "labeled" and

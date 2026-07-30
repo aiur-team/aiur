@@ -5,6 +5,8 @@ defmodule Aiur.GitHub.Config do
 
   @behaviour Aiur.TrackerConfig
 
+  alias Aiur.GitHub.CodeOwners
+
   @default_label_prefix "agent"
 
   @spec repo() :: String.t() | nil
@@ -219,8 +221,8 @@ defmodule Aiur.GitHub.Config do
   defp normalize_logins(_accounts), do: []
 
   defp codeowners_users do
-    if Process.whereis(Aiur.GitHub.CodeOwners) do
-      Aiur.GitHub.CodeOwners.codeowners_snapshot()
+    if Process.whereis(CodeOwners) do
+      CodeOwners.codeowners_snapshot()
     else
       []
     end
