@@ -192,9 +192,8 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
 
     File.mkdir_p!(source)
     File.write!(Path.join(source, "README.md"), "# test")
-    File.write!(codex, script)
+    File.write!(codex, String.replace(script, "__TRACE_FILE__", trace))
     File.chmod!(codex, 0o755)
-    System.put_env("AIUR_PROVIDER_LIFECYCLE_TRACE", trace)
 
     write_workflow_file!(Workflow.workflow_file_path(),
       workspace_root: workspace_root,
@@ -204,7 +203,6 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
     )
 
     on_exit(fn ->
-      System.delete_env("AIUR_PROVIDER_LIFECYCLE_TRACE")
       File.rm_rf(root)
     end)
 
@@ -383,7 +381,7 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
   defp shell_script(turn_start_case) do
     """
     #!/bin/sh
-    trace_file="$AIUR_PROVIDER_LIFECYCLE_TRACE"
+    trace_file="__TRACE_FILE__"
     turn_start_count=0
 
     request_id() {
