@@ -190,7 +190,7 @@ defmodule Aiur.GitHub.CodeOwners do
 
     new_allowlist = MapSet.union(resolved, trusted_set)
     state = maybe_alert_degradation(state, degradation)
-    state = compare_allowed_users(state, resolved)
+    state = compare_allowed_users_if_healthy(state, degradation, resolved)
 
     if MapSet.size(new_allowlist) > 0 do
       %{
@@ -269,6 +269,11 @@ defmodule Aiur.GitHub.CodeOwners do
         %{state | drift: nil}
     end
   end
+
+  defp compare_allowed_users_if_healthy(state, nil, codeowners),
+    do: compare_allowed_users(state, codeowners)
+
+  defp compare_allowed_users_if_healthy(state, _degradation, _codeowners), do: %{state | drift: nil}
 
   defp compare_configured_allowed_users(state, configured, codeowners) do
     configured = normalize_logins(configured)
@@ -413,7 +418,12 @@ defmodule Aiur.GitHub.CodeOwners do
 
   defp parsable_line?(line) do
     tokens = String.split(line, ~r/\s+/, trim: true)
-    length(tokens) >= 2 and Enum.all?(Enum.drop(tokens, 1), &valid_owner_token?/1)
+
+    case tokens do
+      [] -> true
+      [_pattern] -> true
+      [_pattern | owners] -> Enum.all?(owners, &valid_owner_token?/1)
+    end
   end
 
   defp first_unparseable_line(lines) do

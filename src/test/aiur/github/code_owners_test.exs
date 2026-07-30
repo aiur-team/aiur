@@ -71,7 +71,7 @@ defmodule Aiur.GitHub.CodeOwnersTest do
     for {label, contents, expected_message} <- [
           {"missing", nil, "CODEOWNERS is missing"},
           {"empty", "\n# comment only\n", "CODEOWNERS is empty"},
-          {"unparseable", "*\n", "CODEOWNERS is unparseable near line 1"}
+          {"unparseable", "* invalid-owner\n", "CODEOWNERS is unparseable near line 1"}
         ] do
       test "#{label} CODEOWNERS raises a needs-attention degradation alert", %{path: path} do
         if unquote(contents) do
@@ -91,7 +91,7 @@ defmodule Aiur.GitHub.CodeOwnersTest do
     end
 
     test "unparseable alert identifies the original source line", %{path: path} do
-      File.write!(path, "# header\n*\n")
+      File.write!(path, "# header\n* invalid-owner\n")
       configure_bot_account("aiur-bot")
 
       parent = self()
@@ -101,6 +101,39 @@ defmodule Aiur.GitHub.CodeOwnersTest do
       assert_receive {:codeowners_alert, "github.codeowners.degraded", message, _opts}
       assert message =~ "unparseable near line 2"
       assert CodeOwners.trust_snapshot(name).degradation == {:unparseable, 2}
+    end
+
+    test "ownerless pattern lines preserve the valid CODEOWNERS entries", %{path: path} do
+      File.write!(path, "docs/\n* @alice\n")
+      configure_bot_account("aiur-bot")
+
+      parent = self()
+      alert_fun = fn name, message, opts -> send(parent, {:codeowners_alert, name, message, opts}) end
+      {_pid, name} = start_owners(path, alert_fun: alert_fun)
+
+      refute_receive {:codeowners_alert, "github.codeowners.degraded", _, _}
+      trust = CodeOwners.trust_snapshot(name)
+      assert trust.codeowners == ["alice"]
+      assert trust.source == :file
+      assert trust.degradation == nil
+    end
+
+    test "degraded CODEOWNERS does not produce a misleading allowlist drift alert", %{path: path} do
+      File.write!(path, "* invalid-owner\n")
+      configure_bot_account("aiur-bot")
+
+      parent = self()
+      alert_fun = fn name, message, opts -> send(parent, {:codeowners_alert, name, message, opts}) end
+
+      {_pid, name} =
+        start_owners(path,
+          allowed_users_fun: fn -> ["alice"] end,
+          alert_fun: alert_fun
+        )
+
+      assert_receive {:codeowners_alert, "github.codeowners.degraded", _, _}
+      refute_receive {:codeowners_alert, "github.codeowners.allowlist_drift", _, _}
+      assert CodeOwners.trust_snapshot(name).drift == nil
     end
 
     test "matching allowed_users does not alert, while drift names both sets", %{path: path} do
