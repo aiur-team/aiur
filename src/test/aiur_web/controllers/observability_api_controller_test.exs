@@ -7,6 +7,39 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
   alias Aiur.Claude.HookEvents
   alias Aiur.DecisionStore
 
+  defmodule ControlOrchestrator do
+    use GenServer
+
+    def start_link(opts) do
+      GenServer.start_link(__MODULE__, opts, name: Keyword.fetch!(opts, :name))
+    end
+
+    def init(opts), do: {:ok, opts}
+
+    def handle_call(:snapshot, _from, state), do: {:reply, %{}, state}
+
+    def handle_call({:pause_agent, issue_identifier}, _from, state) do
+      notify_call(state, :pause, issue_identifier)
+      {:reply, control_result(state, :pause_agent, issue_identifier), state}
+    end
+
+    def handle_call({:resume_agent, issue_identifier}, _from, state) do
+      notify_call(state, :resume, issue_identifier)
+      {:reply, control_result(state, :resume_agent, issue_identifier), state}
+    end
+
+    defp notify_call(state, action, issue_identifier) do
+      if recipient = Keyword.get(state, :recipient), do: send(recipient, {:control_call, action, issue_identifier})
+    end
+
+    defp control_result(state, action, issue_identifier) do
+      case Keyword.get(state, action, {:error, :no_running_agent}) do
+        fun when is_function(fun, 1) -> fun.(issue_identifier)
+        result -> result
+      end
+    end
+  end
+
   # api_write endpoints require a loopback Origin + the X-Aiur-Request header.
   defp hook_conn(identifier, payload) do
     :post
@@ -17,6 +50,11 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
   end
 
   defp call(conn), do: AiurWeb.Endpoint.call(conn, AiurWeb.Endpoint.init([]))
+
+  defp json_response(conn, status) do
+    assert conn.status == status
+    Jason.decode!(conn.resp_body)
+  end
 
   # AiurWeb.Endpoint is normally the Aiur.HttpServer supervised child, but
   # Aiur.TestSupport's setup terminates that child and never restarts it. So
@@ -34,6 +72,20 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
     runtime_auth_required =
       if Process.whereis(AiurWeb.Endpoint) do
         AiurWeb.Endpoint.config(:dashboard_auth_required, missing)
+      else
+        missing
+      end
+
+    runtime_orchestrator =
+      if Process.whereis(AiurWeb.Endpoint) do
+        AiurWeb.Endpoint.config(:orchestrator, missing)
+      else
+        missing
+      end
+
+    runtime_dashboard_writable =
+      if Process.whereis(AiurWeb.Endpoint) do
+        AiurWeb.Endpoint.config(:dashboard_writable, missing)
       else
         missing
       end
@@ -56,6 +108,8 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
     on_exit(fn ->
       Application.put_env(:aiur, AiurWeb.Endpoint, endpoint_config)
       restore_runtime_config(:dashboard_auth_required, runtime_auth_required, missing)
+      restore_runtime_config(:orchestrator, runtime_orchestrator, missing)
+      restore_runtime_config(:dashboard_writable, runtime_dashboard_writable, missing)
     end)
 
     :ok
@@ -64,11 +118,31 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
   defp restore_runtime_config(key, previous_value, missing) do
     if Process.whereis(AiurWeb.Endpoint) do
       if previous_value == missing do
-        AiurWeb.Endpoint.config_change([], [key])
+        :ets.delete(AiurWeb.Endpoint, key)
       else
-        AiurWeb.Endpoint.config_change([{key, previous_value}], [])
+        Phoenix.Config.put(AiurWeb.Endpoint, key, previous_value)
       end
     end
+  end
+
+  defp control_conn(identifier, action) do
+    :post
+    |> conn("/api/v1/#{identifier}/#{action}")
+    |> put_req_header("origin", "http://127.0.0.1")
+    |> put_req_header("x-aiur-request", "1")
+  end
+
+  defp start_control_orchestrator(opts \\ []) do
+    name = Module.concat(__MODULE__, "ControlOrchestrator#{System.unique_integer([:positive])}")
+    start_supervised!({ControlOrchestrator, Keyword.put(opts, :name, name)})
+    name
+  end
+
+  defp configure_endpoint(orchestrator, opts \\ []) do
+    dashboard_writable = Keyword.get(opts, :dashboard_writable, true)
+
+    Phoenix.Config.put(AiurWeb.Endpoint, :orchestrator, orchestrator)
+    Phoenix.Config.put(AiurWeb.Endpoint, :dashboard_writable, dashboard_writable)
   end
 
   describe "POST /api/v1/:id/claude-hook" do
@@ -103,6 +177,78 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
         |> call()
 
       assert conn.status == 403
+    end
+  end
+
+  describe "POST /api/v1/:id/pause and /resume" do
+    test "delegates pause and resume and returns their successful results" do
+      orchestrator =
+        start_control_orchestrator(
+          pause_agent: {:ok, 17},
+          resume_agent: {:ok, :started},
+          recipient: self()
+        )
+
+      configure_endpoint(orchestrator)
+
+      assert json_response(call(control_conn("MT-CONTROL", "pause")), 202) == %{
+               "action" => "pause",
+               "issue_identifier" => "MT-CONTROL",
+               "result" => 17
+             }
+
+      assert_receive {:control_call, :pause, "MT-CONTROL"}
+
+      assert json_response(call(control_conn("MT-CONTROL", "resume")), 202) == %{
+               "action" => "resume",
+               "issue_identifier" => "MT-CONTROL",
+               "result" => "started"
+             }
+
+      assert_receive {:control_call, :resume, "MT-CONTROL"}
+    end
+
+    test "returns 409 when pause or resume has no running agent" do
+      orchestrator = start_control_orchestrator()
+      configure_endpoint(orchestrator)
+
+      for action <- ["pause", "resume"] do
+        assert json_response(call(control_conn("MT-MISSING", action)), 409) == %{
+                 "error" => %{
+                   "code" => "agent_not_running",
+                   "message" => "Agent is not currently running"
+                 }
+               }
+      end
+    end
+
+    test "refuses both controls when the dashboard is read-only" do
+      orchestrator = start_control_orchestrator(pause_agent: {:ok, 17}, resume_agent: {:ok, :resumed})
+      configure_endpoint(orchestrator, dashboard_writable: false)
+
+      for action <- ["pause", "resume"] do
+        assert json_response(call(control_conn("MT-CONTROL", action)), 403) == %{
+                 "error" => "dashboard is read-only"
+               }
+      end
+    end
+
+    test "returns 405 for non-POST methods" do
+      orchestrator = start_control_orchestrator(pause_agent: {:ok, 17}, resume_agent: {:ok, :resumed})
+      configure_endpoint(orchestrator)
+
+      for action <- ["pause", "resume"] do
+        conn =
+          :get
+          |> conn("/api/v1/MT-CONTROL/#{action}")
+          |> put_req_header("origin", "http://127.0.0.1")
+          |> put_req_header("x-aiur-request", "1")
+          |> call()
+
+        assert json_response(conn, 405) == %{
+                 "error" => %{"code" => "method_not_allowed", "message" => "Method not allowed"}
+               }
+      end
     end
   end
 
