@@ -273,6 +273,51 @@ defmodule Aiur.Events.SubscriptionStoreTest do
     end
   end
 
+  describe "enqueue failure handling" do
+    test "cursor does not advance when enqueue fails", %{identifier: id} do
+      on_exit(fn -> SubscriptionStore.set_enqueue_fn(nil) end)
+
+      SubscriptionStore.set_enqueue_fn(fn _id, _ev -> {:error, :timeout} end)
+      :ok = SubscriptionStore.attach(id)
+      :ok = SubscriptionStore.add_subscription(id, "ticket.42.#", "test")
+      [{pid, _}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, id)
+
+      send(pid, {:event, %{id: 100, topic: "ticket.42.branch.push"}})
+      # Sync call ensures the message is processed before we snapshot.
+      _ = SubscriptionStore.snapshot(id)
+
+      assert SubscriptionStore.snapshot(id).last_seen_event_id == nil
+    end
+
+    test "a later successful event cannot leapfrog a failed event", %{identifier: id} do
+      test_pid = self()
+      on_exit(fn -> SubscriptionStore.set_enqueue_fn(nil) end)
+
+      :ok = SubscriptionStore.attach(id)
+      :ok = SubscriptionStore.add_subscription(id, "ticket.42.#", "test")
+      :ok = SubscriptionStore.advance_cursor(id, 99)
+      [{pid, _}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, id)
+
+      # Event 100 fails enqueue.
+      SubscriptionStore.set_enqueue_fn(fn _id, _ev -> {:error, :timeout} end)
+      send(pid, {:event, %{id: 100, topic: "ticket.42.branch.push"}})
+      _ = SubscriptionStore.snapshot(id)
+
+      # Event 101 succeeds enqueue.
+      SubscriptionStore.set_enqueue_fn(fn _id, ev ->
+        send(test_pid, {:enqueued, ev})
+        :ok
+      end)
+
+      send(pid, {:event, %{id: 101, topic: "ticket.42.branch.push"}})
+      assert_receive {:enqueued, %{id: 101}}, 500
+      _ = SubscriptionStore.snapshot(id)
+
+      # Cursor must not have advanced past the stalled event 100.
+      assert SubscriptionStore.snapshot(id).last_seen_event_id == 99
+    end
+  end
+
   describe "cursor redelivery defense" do
     test "events with id <= last_seen_event_id are dropped on handle_info", %{identifier: id} do
       test_pid = self()
