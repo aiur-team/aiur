@@ -15,7 +15,7 @@ target_branch: develop
 ## Goal Capsule
 
 - **Objective:** Give an operator one master switch that pauses an entire aiur run — halting all agents and preventing new agent provisioning — as a state distinct from, and non-destructive to, per-agent pause.
-- **Product authority:** Issue [#1332](https://github.com/its-everdred/aiur/issues/1332); requirements settled by the issue author (away — synthesized, no open product questions).
+- **Product authority:** Issue [#1332](https://github.com/aiur-team/aiur/issues/1332); requirements settled by the issue author (away — synthesized, no open product questions).
 - **Open blockers:** None. Target branch: `develop`.
 
 ---

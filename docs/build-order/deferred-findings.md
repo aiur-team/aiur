@@ -8,7 +8,7 @@ critical-path capacity, or prevent completion.
 
 - Severity: P2 separate capability
 - Evidence: GitHub-first planning decision and issue
-  [#1067](https://github.com/its-everdred/aiur/issues/1067)
+  [#1067](https://github.com/aiur-team/aiur/issues/1067)
 - Affected component: Linear tracker/planning materialization
 - Why non-blocking: Build Order v1 is explicitly GitHub-only.
 - Future disposition: Human scopes a separate parity run after the current

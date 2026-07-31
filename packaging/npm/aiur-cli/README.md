@@ -105,4 +105,4 @@ prints that confirmed URL, or an explicit listener-unavailable warning.
 
 _Command macro, delegate micro, maximize APM._
 
-[github.com/its-everdred/aiur](https://github.com/its-everdred/aiur)
+[github.com/aiur-team/aiur](https://github.com/aiur-team/aiur)
