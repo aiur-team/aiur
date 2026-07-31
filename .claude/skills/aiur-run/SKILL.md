@@ -373,6 +373,31 @@ load change, recompute ready width and the safe concurrency ceiling immediately.
 Dispatch the newly ready batch in the same observation; never wait for the next
 reporting tick merely to restore utilization.
 
+### Hourly meta-analysis
+
+Alongside the wake/outcome retrospective above, run an hourly meta-analysis of
+the work itself (proven repeatedly in the 2026-07 analytics-streamdeck run):
+
+1. name THE single thing currently costing the most wall-clock, quantified —
+   minutes lost, CI cycles burned, agents idle. Breadth summaries are not the
+   deliverable; the organizing question is "what is the latest thing taking the
+   most time, and how do we shrink it?" There is always a next bottleneck; when
+   one falls, the next entry names its successor;
+2. classify recurring problems, not incidents — ask what CLASS of failure
+   recurred this hour (the reference lists the known classes);
+3. when a class recurs (rule of thumb: 3+ reproductions, or 2 with a shared
+   root cause), file ONE systemic ticket attacking the class instead of
+   patching more instances, recording the reproductions that justify it. At
+   most 1-2 evidence-backed systemic tickets per pattern, and never expand the
+   active feature boundary with them;
+4. write the entry — bottleneck, number, proposed reduction, filed vs deferred
+   — in a durable retrospective log (e.g.
+   `docs/executor/hourly-retrospectives.md` on the run's research/handoff
+   branch); a replacement Executor resumes from it;
+5. daily, review the accumulated notes and ask whether any Aiur skill should
+   change so the next run never rediscovers the lesson; land the concrete
+   skill-doc edit as a small PR.
+
 ### Merge mechanics
 
 Branch protection measures the identity of the **pusher**, not the commit
