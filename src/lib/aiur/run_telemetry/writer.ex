@@ -108,7 +108,10 @@ defmodule Aiur.RunTelemetry.Writer do
       shared_sequence?: not Keyword.has_key?(opts, :boot_id),
       clock: clock,
       write_fun: Keyword.get(opts, :write_fun, &write_file/2),
-      write_warning_emitted: false
+      write_warning_emitted: false,
+      retention: retention,
+      bytes_since_prune: 0,
+      prune_interval_bytes: prune_interval(retention)
     }
 
     Process.put(@admission_key, :atomics.new(3, signed: false))
@@ -186,7 +189,8 @@ defmodule Aiur.RunTelemetry.Writer do
 
     with :ok <- File.mkdir_p(Path.dirname(state.path)),
          :ok <- state.write_fun.(state.path, contents) do
-      %{state | write_warning_emitted: false}
+      state = %{state | bytes_since_prune: state.bytes_since_prune + byte_size(contents), write_warning_emitted: false}
+      maybe_prune(state)
     else
       {:error, reason} -> warn_write_failure(state, reason)
     end
@@ -271,6 +275,38 @@ defmodule Aiur.RunTelemetry.Writer do
   end
 
   defp release_admission(counter), do: :atomics.sub(counter, @pending_index, 1)
+
+  # Runs at-most-once per prune_interval_bytes written. The current boot is always
+  # protected, so this only removes fully-written old boots that exceed the cap.
+  defp maybe_prune(%{prune_interval_bytes: nil} = state), do: state
+
+  defp maybe_prune(%{bytes_since_prune: n, prune_interval_bytes: threshold} = state) when n < threshold, do: state
+
+  defp maybe_prune(state) do
+    opts = state.retention |> Keyword.put(:now, state.clock.()) |> Keyword.put(:protected_boot_id, state.boot_id)
+
+    case Retention.prune(state.path, opts) do
+      :ok -> :ok
+      {:error, reason} -> Logger.warning("run_telemetry retention_failed path=#{state.path} reason=#{inspect(reason)}")
+    end
+
+    %{state | bytes_since_prune: 0}
+  end
+
+  # Default interval: max_bytes / 8, minimum 1 MiB. Overridable via :prune_interval_bytes
+  # in the retention keyword list — useful for testing without writing large payloads.
+  defp prune_interval(retention) do
+    case Keyword.get(retention, :prune_interval_bytes) do
+      n when is_integer(n) and n > 0 ->
+        n
+
+      _other ->
+        case Keyword.get(retention, :max_bytes) do
+          bytes when is_integer(bytes) and bytes > 0 -> max(div(bytes, 8), 1024 * 1024)
+          _other -> nil
+        end
+    end
+  end
 
   defp write_file(path, contents), do: File.write(path, contents, [:append])
 

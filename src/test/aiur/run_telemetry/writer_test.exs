@@ -407,6 +407,29 @@ defmodule Aiur.RunTelemetry.WriterTest do
     assert dataset.warnings == []
   end
 
+  test "periodic retention prunes accumulated old boots during a running session", %{path: path} do
+    {:ok, old} = Writer.start_link(name: nil, path: path, boot_id: "old-boot")
+    assert :ok = Writer.record(old, :resource, %{actor: "_daemon", rss_bytes: 1})
+    assert :ok = Writer.flush(old)
+    :ok = GenServer.stop(old)
+
+    old_size = File.stat!(path).size
+
+    # max_bytes allows the old boot to survive init but not a second append cycle;
+    # prune_interval_bytes is tiny so the first write triggers the check.
+    retention = [max_bytes: old_size, prune_interval_bytes: 1]
+
+    {:ok, current} = Writer.start_link(name: nil, path: path, boot_id: "current", retention: retention)
+    # Write one record — should trigger periodic prune (bytes_since_prune >= 1)
+    assert :ok = Writer.record(current, :resource, %{actor: "_daemon", rss_bytes: 2})
+    assert :ok = Writer.flush(current)
+
+    # File now contains current boot restart + resource, old boot pruned
+    assert {:ok, dataset} = Dataset.build(path)
+    assert Dataset.boot_ids(dataset) == ["current"]
+    assert dataset.warnings == []
+  end
+
   test "retention treats absent or invalid targets as no-ops", %{path: path} do
     assert :ok = Retention.prune(path)
     assert :ok = Retention.prune(:not_a_path, :not_options)

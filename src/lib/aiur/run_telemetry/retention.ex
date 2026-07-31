@@ -4,16 +4,21 @@ defmodule Aiur.RunTelemetry.Retention do
   # Retention intentionally runs before a new Writer appends its restart marker.
   # That is the one point where no live writer owns the stream, so replacing the
   # file cannot strand buffered appends on an old inode.
+  #
+  # Periodic in-writer pruning (see Writer.maybe_prune/1) uses the same path so
+  # old-boot pruning also occurs during long-running sessions, not only at boot.
 
   @spec prune(Path.t(), keyword()) :: :ok | {:error, term()}
   def prune(path, opts \\ [])
 
   def prune(path, opts) when is_binary(path) and is_list(opts) do
-    with {:ok, contents} <- File.read(path),
-         groups <- boot_groups(contents),
-         retained <- groups |> retain_by_age(opts) |> retain_by_size(opts),
-         :ok <- replace_if_changed(path, contents, contents_for(retained)) do
-      :ok
+    with {:ok, groups} <- read_boot_groups(path),
+         retained <- groups |> retain_by_age(opts) |> retain_by_size(opts) do
+      if length(retained) < length(groups) do
+        write_retained(path, retained)
+      else
+        :ok
+      end
     else
       {:error, :enoent} -> :ok
       {:error, reason} -> {:error, reason}
@@ -22,35 +27,32 @@ defmodule Aiur.RunTelemetry.Retention do
 
   def prune(_path, _opts), do: :ok
 
-  defp boot_groups(contents) do
-    contents
-    |> stream_lines()
-    |> Enum.reduce({[], []}, fn line, {groups, current} ->
-      case restart_metadata(line) do
-        {:ok, timestamp, boot_id} when current != [] ->
-          {[new_group(current) | groups], [{line, timestamp, boot_id}]}
+  # Streams the file line-by-line so large files are never fully loaded into RAM.
+  defp read_boot_groups(path) do
+    groups =
+      path
+      |> File.stream!(:line, [])
+      |> Enum.reduce({[], []}, fn line, {groups, current} ->
+        case restart_metadata(line) do
+          {:ok, timestamp, boot_id} when current != [] ->
+            {[new_group(current) | groups], [{line, timestamp, boot_id}]}
 
-        {:ok, timestamp, boot_id} ->
-          {groups, [{line, timestamp, boot_id}]}
+          {:ok, timestamp, boot_id} ->
+            {groups, [{line, timestamp, boot_id}]}
 
-        :error ->
-          {groups, [{line, nil, nil} | current]}
-      end
-    end)
-    |> then(fn {groups, current} ->
-      groups = if current == [], do: groups, else: [new_group(current) | groups]
-      Enum.reverse(groups)
-    end)
-  end
+          :error ->
+            {groups, [{line, nil, nil} | current]}
+        end
+      end)
+      |> then(fn {groups, current} ->
+        groups = if current == [], do: groups, else: [new_group(current) | groups]
+        Enum.reverse(groups)
+      end)
 
-  defp stream_lines(contents) do
-    lines = String.split(contents, "\n", trim: false)
-    last_index = length(lines) - 1
-
-    lines
-    |> Enum.with_index()
-    |> Enum.reject(fn {line, index} -> line == "" and index == last_index and String.ends_with?(contents, "\n") end)
-    |> Enum.map(fn {line, index} -> if index == last_index, do: line, else: line <> "\n" end)
+    {:ok, groups}
+  rescue
+    e in File.Error -> {:error, e.reason}
+    error -> {:error, inspect(error)}
   end
 
   defp new_group(lines) do
@@ -128,11 +130,11 @@ defmodule Aiur.RunTelemetry.Retention do
   end
 
   defp contents_for(groups), do: groups |> Enum.map(& &1.contents) |> IO.iodata_to_binary()
-  defp replace_if_changed(_path, contents, contents), do: :ok
 
-  defp replace_if_changed(path, _old_contents, contents) do
+  defp write_retained(path, retained) do
     directory = Path.dirname(path)
     temporary = Path.join(directory, ".#{Path.basename(path)}.#{System.unique_integer([:positive])}.tmp")
+    contents = contents_for(retained)
 
     with :ok <- File.write(temporary, contents, [:binary]),
          :ok <- File.rename(temporary, path) do
