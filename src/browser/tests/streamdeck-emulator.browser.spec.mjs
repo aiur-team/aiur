@@ -118,7 +118,9 @@ test('key click triggers is-flashing animation; rapid repeat restarts it', async
   await expect(key).toHaveClass(/is-flashing/, { timeout: 500 })
 
   // Second rapid click: remove + reflow + re-add should work.
-  await key.click()
+  // The key already has is-flashing (CSS animation active), so force the click
+  // to bypass Playwright's stability check — that's exactly what we're testing.
+  await key.click({ force: true })
   // Still present (or re-added); the test confirms the branch ran without throwing.
   await expect(key).toHaveClass(/is-flashing/, { timeout: 500 })
 })
@@ -247,14 +249,10 @@ test('dial and knob state survive a LiveView patch (regression for #1306)', asyn
   expect(valueBeforePatch).toBeGreaterThan(0)
 
   // Force a LiveView patch by toggling the nav — this triggers a re-render.
-  const navToggle = page.getByRole('button', { name: /collapse|expand/i })
-  if (await navToggle.isVisible()) {
-    await navToggle.click()
-    await navToggle.click()
-  } else {
-    // Use a LiveView pushEvent to trigger an innocuous server round-trip.
-    await page.evaluate(() => window.liveSocket?.pushEvent('restore-nav', { collapsed: false }))
-  }
+  // The nav toggle button is labelled "Hide navigation" or "Show navigation".
+  const navToggle = page.getByRole('button', { name: /navigation/i }).first()
+  await navToggle.click({ force: true })
+  await navToggle.click({ force: true })
 
   // Wait briefly for any patch to settle.
   await page.waitForTimeout(200)

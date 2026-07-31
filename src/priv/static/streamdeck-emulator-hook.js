@@ -211,6 +211,9 @@
       this._onMicUp = null;
       this._mode = "grid";
       this._modeHistory = [];
+      // Version counter guards against a patch's beforeUpdate/updated window
+      // overwriting a mode change that happened mid-patch (race condition).
+      this._modeVersion = 0;
 
       this._bindKeys();
       this._bindMic();
@@ -224,6 +227,8 @@
       this._pendingMicActive = this._micActive;
       this._pendingMode = this._mode;
       this._pendingModeHistory = this._modeHistory.slice();
+      // Record the version so updated() can detect mid-patch mode changes.
+      this._pendingModeVersion = this._modeVersion;
       this._destroyKnobs();
       this._unbindKeys();
       this._unbindMic();
@@ -239,12 +244,17 @@
         this._knobs.forEach(function (k, i) { k.restoreState(state[i]); });
         this._knobState = null;
       }
-      // Restore mode state (server patch must not reset the active mode view).
+      // Restore mode state only if it did not change during the patch window.
+      // A mid-patch user action (e.g. a second back press) increments _modeVersion;
+      // if the version drifted, respect the user's more-recent intent.
       if (this._pendingMode) {
-        this._modeHistory = this._pendingModeHistory || [];
-        this._setMode(this._pendingMode, false);
+        if (this._modeVersion === this._pendingModeVersion) {
+          this._modeHistory = this._pendingModeHistory || [];
+          this._setMode(this._pendingMode, false);
+        }
         this._pendingMode = null;
         this._pendingModeHistory = null;
+        this._pendingModeVersion = null;
       }
       // Restore mic active state if the user was holding during the patch.
       // Use _restoringMic flag to suppress the redundant server pushEvent —
@@ -376,6 +386,7 @@
         this._modeHistory.push(this._mode);
       }
       this._mode = mode;
+      this._modeVersion++;
       var device = this.el.querySelector(".sd-device");
       if (device) device.setAttribute("data-mode", mode);
       var views = Array.prototype.slice.call(this.el.querySelectorAll("[data-mode-view]"));

@@ -54,11 +54,10 @@ defmodule AiurWeb.StreamdeckLive do
             <span>STREAM DECK</span>
           </header>
 
-          <div id="sd-keys" class="sd-keys" data-mode-view="grid" role="list" aria-label="Agent keys">
-            <article
+          <ul id="sd-keys" class="sd-keys" data-mode-view="grid" aria-label="Agent keys">
+            <li
               :for={key <- @keys}
               class={["sd-key", key.empty? && "is-empty", "st-#{key.bucket}"]}
-              role="listitem"
               aria-hidden={to_string(key.empty?)}
               data-streamdeck-key={key.slot}
             >
@@ -79,8 +78,8 @@ defmodule AiurWeb.StreamdeckLive do
                   <span class="sd-progress" aria-label={"#{key.progress}% complete"}><i style={"width: #{key.progress}%"}></i></span>
                 </div>
               </div>
-            </article>
-          </div>
+            </li>
+          </ul>
 
           <div id="sd-cmd-view" class="sd-cmd-view" data-mode-view="cmd" role="group" aria-label="Agent commands" aria-hidden="true">
             <p class="sd-mode-label">Commands</p>
