@@ -29,7 +29,7 @@ mise_bin="${AIUR_MISE_BIN:-$(command -v mise 2>/dev/null || true)}"
 require_mise() {
   if [ -z "$mise_bin" ] || [ ! -x "$mise_bin" ]; then
     echo "❌ mise not found on PATH. Install mise (https://mise.jdx.dev) or set AIUR_MISE_BIN." >&2
-    exit 64
+    return 64
   fi
 }
 
@@ -39,7 +39,7 @@ require_mise() {
 ensure_pinned_opencode() {
   local opencode_dir
 
-  require_mise
+  require_mise || return 64
   opencode_dir="$("$mise_bin" where -C "$repo_root" opencode 2>/dev/null || true)"
 
   if [ -z "$opencode_dir" ] || [ ! -x "$opencode_dir/opencode" ]; then
@@ -77,7 +77,7 @@ elixir_deps_ready() {
 
 ensure_elixir_deps() {
   if ! elixir_deps_ready; then
-    require_mise
+    require_mise || return 64
     echo "🔨 fetching and compiling Hex dependencies" >&2
     (cd "$elixir_dir" && "$mise_bin" exec -- mix deps.get && "$mise_bin" exec -- mix compile) >&2
   fi
@@ -134,7 +134,7 @@ release_build_lock() {
 build_aiur() {
   local log_file status=0
 
-  require_mise
+  require_mise || return 64
   echo "🔨 rebuilding bin/aiur (compile + release)" >&2
   log_file="$(mktemp "${TMPDIR:-/tmp}/aiurdev-release.XXXXXX")"
 
@@ -302,7 +302,7 @@ if [ "${1:-}" = "build" ]; then
     echo "🔨 force-rebuild aiur app + release (keeping dep artifacts)" >&2
     rm -rf "$elixir_dir/_build/dev/rel"
     ensure_elixir_deps || build_status=$?
-    require_mise
+    require_mise || build_status=$?
   fi
   if [ "$build_status" -eq 0 ]; then
     build_aiur || build_status=$?
@@ -392,7 +392,7 @@ fi
 
 if [ "$test_single" -eq 1 ] || [ "$test3_mode" -eq 1 ]; then
   reset_cmd=(mix aiur.test.reset)
-  require_mise
+  require_mise || exit 64
   echo "🛑 stopping any running aiur" >&2
   "$engine" stop >/dev/null 2>&1 || true
 
