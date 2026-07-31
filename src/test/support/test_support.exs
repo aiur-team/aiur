@@ -1,6 +1,9 @@
 defmodule Aiur.TestSupport do
   import ExUnit.Assertions
 
+  alias Aiur.Events.Publisher, as: EventsPublisher
+  alias Aiur.Events.SubscriptionStore, as: EventsSubscriptionStore
+
   @workflow_prompt "You are an agent for this repository."
 
   defmacro __using__(_opts) do
@@ -25,6 +28,8 @@ defmodule Aiur.TestSupport do
 
       # Backend config aliases for tests
       alias Aiur.Codex.Config, as: CodexConfig
+      alias Aiur.Events.Publisher, as: EventsPublisher
+      alias Aiur.Events.SubscriptionStore, as: EventsSubscriptionStore
       alias Aiur.Linear.Config, as: LinearConfig
 
       import Aiur.TestSupport,
@@ -62,6 +67,14 @@ defmodule Aiur.TestSupport do
         previous_workflow_file_path = Application.get_env(:aiur, :workflow_file_path)
         previous_log_file = Application.get_env(:aiur, :log_file)
         previous_build_gate_dir = Application.get_env(:aiur, :build_gate_dir_override)
+
+        # These callbacks live in :persistent_term so they outlast the test
+        # process that installed them. Start every TestSupport case from the
+        # production-safe defaults and restore those defaults at teardown;
+        # otherwise a filtering/enqueue stub can silently affect an unrelated
+        # Exchange test that happens to run later in the VM.
+        EventsPublisher.set_tracked_fn(fn _ -> true end)
+        EventsSubscriptionStore.set_enqueue_fn(nil)
 
         File.mkdir_p!(workflow_root)
         Application.put_env(:aiur, :build_gate_dir_override, Path.join(workflow_root, "build-gate"))
@@ -109,6 +122,8 @@ defmodule Aiur.TestSupport do
           Application.delete_env(:aiur, :server_port_override)
           Application.delete_env(:aiur, :memory_tracker_issues)
           Application.delete_env(:aiur, :memory_tracker_recipient)
+          EventsPublisher.set_tracked_fn(fn _ -> true end)
+          EventsSubscriptionStore.set_enqueue_fn(nil)
           File.rm_rf(workflow_root)
 
           # Reload the store onto the restored baseline so the next test never
