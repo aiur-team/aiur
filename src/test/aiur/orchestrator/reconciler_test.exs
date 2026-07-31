@@ -93,6 +93,45 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
 
       assert_received {^identity, :replaced}
     end
+
+    test "stops an active worker when refreshed dispatch authorization is denied" do
+      parent = self()
+      identity = tracker_identity("I-authorization-denied")
+
+      issue = %Issue{
+        id: "issue-authorization-denied",
+        identifier: "I-authorization-denied",
+        state: "in-progress",
+        tracker_identity: identity,
+        dispatch_authorized?: false
+      }
+
+      entry = %{
+        pid: nil,
+        ref: make_ref(),
+        identifier: issue.identifier,
+        issue: issue,
+        started_at: DateTime.utc_now()
+      }
+
+      state = %State{running: %{issue.id => entry}, claimed: MapSet.new([issue.id])}
+
+      result =
+        Reconciler.reconcile_issue_state(
+          issue,
+          state,
+          MapSet.new(["in-progress"]),
+          MapSet.new(),
+          fn observed_identity, lifecycle ->
+            send(parent, {observed_identity, lifecycle})
+            :ok
+          end
+        )
+
+      assert_received {^identity, :replaced}
+      refute Map.has_key?(result.running, issue.id)
+      refute MapSet.member?(result.claimed, issue.id)
+    end
   end
 
   defp paused_control do
