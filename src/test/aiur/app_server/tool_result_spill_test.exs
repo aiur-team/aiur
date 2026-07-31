@@ -92,20 +92,22 @@ defmodule Aiur.AppServer.ToolResultSpillTest do
 
     attacker =
       Task.async(fn ->
-        Enum.each(1..300, fn _ ->
-          try do
-            File.rm_rf!(results)
-            File.ln_s!(outside, results)
-            Process.sleep(1)
-            File.rm!(results)
-            File.mkdir!(results)
-            File.chmod!(results, 0o700)
-          rescue
-            _ -> :ok
-          end
-        end)
+        swaps =
+          Enum.reduce(1..300, 0, fn _, acc ->
+            try do
+              File.rm_rf!(results)
+              File.ln_s!(outside, results)
+              Process.sleep(1)
+              File.rm!(results)
+              File.mkdir!(results)
+              File.chmod!(results, 0o700)
+              acc + 1
+            rescue
+              _ -> acc
+            end
+          end)
 
-        send(parent, :attacker_done)
+        send(parent, {:attacker_done, swaps})
       end)
 
     result = big_result()
@@ -114,13 +116,16 @@ defmodule Aiur.AppServer.ToolResultSpillTest do
       ToolResultSpill.maybe_spill(result, %{workspace: workspace, response_id: "swap-#{i}"})
     end)
 
-    receive do
-      :attacker_done -> :ok
-    after
-      15_000 -> flunk("attacker task timed out")
-    end
+    swaps =
+      receive do
+        {:attacker_done, n} -> n
+      after
+        15_000 -> flunk("attacker task timed out")
+      end
 
     Task.await(attacker, 15_000)
+
+    assert swaps > 0, "no symlink swaps completed — adversarial scenario was not exercised"
 
     outside_files = File.ls!(outside)
     assert outside_files == [], "files escaped workspace: #{inspect(outside_files)}"

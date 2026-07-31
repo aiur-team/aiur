@@ -191,11 +191,13 @@ defmodule Aiur.Workspace.GitMetadata do
       if String.starts_with?(canonical <> "/", canonical_root <> "/") do
         :ok
       else
-        _ = File.rm(path)
+        _ = File.rm(canonical)
         {:error, {:path_escaped_root, root}}
       end
     else
-      {:error, reason} -> {:error, {:path_verification_failed, reason}}
+      {:error, reason} ->
+        _ = File.rm(path)
+        {:error, {:path_verification_failed, reason}}
     end
   end
 

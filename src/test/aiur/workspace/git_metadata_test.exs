@@ -136,33 +136,38 @@ defmodule Aiur.Workspace.GitMetadataTest do
 
     attacker =
       Task.async(fn ->
-        Enum.each(1..300, fn _ ->
-          try do
-            File.rm_rf!(info)
-            File.ln_s!(outside, info)
-            Process.sleep(1)
-            File.rm!(info)
-            File.mkdir!(info)
-            File.write!(exclude, "# restored\n")
-          rescue
-            _ -> :ok
-          end
-        end)
+        swaps =
+          Enum.reduce(1..300, 0, fn _, acc ->
+            try do
+              File.rm_rf!(info)
+              File.ln_s!(outside, info)
+              Process.sleep(1)
+              File.rm!(info)
+              File.mkdir!(info)
+              File.write!(exclude, "# restored\n")
+              acc + 1
+            rescue
+              _ -> acc
+            end
+          end)
 
-        send(parent, :attacker_done)
+        send(parent, {:attacker_done, swaps})
       end)
 
     Enum.each(1..50, fn _ ->
       GitMetadata.ensure_tool_results_excluded(repo)
     end)
 
-    receive do
-      :attacker_done -> :ok
-    after
-      15_000 -> flunk("attacker task timed out")
-    end
+    swaps =
+      receive do
+        {:attacker_done, n} -> n
+      after
+        15_000 -> flunk("attacker task timed out")
+      end
 
     Task.await(attacker, 15_000)
+
+    assert swaps > 0, "no symlink swaps completed — adversarial scenario was not exercised"
 
     outside_files = File.ls!(outside)
     assert outside_files == [], "files escaped git dir: #{inspect(outside_files)}"

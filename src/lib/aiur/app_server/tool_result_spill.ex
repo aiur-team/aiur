@@ -112,11 +112,13 @@ defmodule Aiur.AppServer.ToolResultSpill do
       if String.starts_with?(canonical <> "/", canonical_root <> "/") do
         :ok
       else
-        _ = File.rm(path)
+        _ = File.rm(canonical)
         {:error, :path_escaped_workspace}
       end
     else
-      {:error, reason} -> {:error, {:path_verification_failed, reason}}
+      {:error, reason} ->
+        _ = File.rm(path)
+        {:error, {:path_verification_failed, reason}}
     end
   end
 
