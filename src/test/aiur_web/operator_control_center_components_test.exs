@@ -421,7 +421,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
 
     assert html =~ ~s(class="history-item" data-severity="good")
     assert html =~ "Answered"
-    assert html =~ "Dismissed — agent proceeds with best judgement"
+    assert html =~ "Acknowledged — closed without a recorded answer"
     refute html =~ ~s(class="decision-card)
   end
 
@@ -697,6 +697,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert writable =~ "Hold the rollout"
     assert writable =~ "No longer applicable"
     assert writable =~ "Revise Command"
+    assert writable =~ "Revising sets new direction — it does not undo what already happened."
     assert writable =~ "Executor follow-up required"
     assert writable =~ ~s(phx-submit="revise-decision")
     assert writable =~ ~s(phx-submit="handle-revision-follow-up")

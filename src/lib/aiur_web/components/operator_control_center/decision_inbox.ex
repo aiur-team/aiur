@@ -56,7 +56,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
           Command projection is currently unavailable. Unit state remains live.
         </div>
         <div :if={@page_health == :partial} class="empty-state compact" role="status">
-          Retained Commands are partial; showing the most recent verified entries.
+          Retained Commands are partial; showing the last validated audit prefix.
         </div>
         <div :if={@provider_health == :ok and @page_health != :unavailable and @visible_decisions == []} class="empty-state">
           {empty_message(@filter)}

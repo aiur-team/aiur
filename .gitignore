@@ -40,3 +40,5 @@ packages/streamdeck/coverage/
 packages/streamdeck/dist/
 /packages/streamdeck/**/*.streamDeckPlugin
 .aiur-design-import/
+
+.aiur-base-built

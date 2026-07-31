@@ -44,6 +44,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionRevisionAction do
       <header class="decision-action-header">
         <div>
           <h4 id={"decision-revision-title-#{@decision.decision_id}"}>Revise Command</h4>
+          <p class="decision-action-hint">Revising sets new direction — it does not undo what already happened.</p>
         </div>
         <span class="chip super">Revision {@decision.revision_sequence}</span>
       </header>
