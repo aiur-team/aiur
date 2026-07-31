@@ -532,7 +532,7 @@ GitHub firehose poll  ───────▶│ Aiur.Events.GithubFirehose    
 
 - **Origin document:** [docs/brainstorms/2026-05-24-aiur-event-publishing-subscriptions-requirements.md](../brainstorms/2026-05-24-aiur-event-publishing-subscriptions-requirements.md)
 - **Foundation plan (predecessor):** [docs/plans/2026-05-24-001-feat-event-system-foundation-plan.md](2026-05-24-001-feat-event-system-foundation-plan.md)
-- **Tracking issue:** [#22 Aiur: agent event publishing and subscriptions](https://github.com/its-everdred/aiur/issues/22)
+- **Tracking issue:** [#22 Aiur: agent event publishing and subscriptions](https://github.com/aiur-team/aiur/issues/22)
 - **Related code:**
   - `elixir/lib/aiur/events/subscription_store.ex`
   - `elixir/lib/aiur/events/exchange.ex`

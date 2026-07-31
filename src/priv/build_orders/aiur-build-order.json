@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "build_order_id": "its-everdred/aiur:build-order-dashboard",
+  "build_order_id": "aiur-team/aiur:build-order-dashboard",
   "title": "Aiur Build Order dashboard",
   "subtitle": "The build-order feature that ships this dashboard \u2014 permanent plan pack (8 phases)",
-  "repository": "its-everdred/aiur",
+  "repository": "aiur-team/aiur",
   "root_number": 1084,
   "plan_version": 1,
   "permanent": true,
@@ -40,7 +40,7 @@
       "depends_on": [
         "BO-004"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1085"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1085"
     },
     {
       "id": "BO-002",
@@ -52,7 +52,7 @@
       "depends_on": [
         "BO-001"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1091"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1091"
     },
     {
       "id": "BO-003",
@@ -64,7 +64,7 @@
       "depends_on": [
         "BO-002"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1092"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1092"
     },
     {
       "id": "BO-004",
@@ -74,7 +74,7 @@
       "complexity": 3,
       "number": 1086,
       "depends_on": [],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1086"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1086"
     },
     {
       "id": "BO-017",
@@ -86,7 +86,7 @@
       "depends_on": [
         "BO-004"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1104"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1104"
     },
     {
       "id": "BO-005",
@@ -98,7 +98,7 @@
       "depends_on": [
         "BO-017"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1093"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1093"
     },
     {
       "id": "BO-006",
@@ -110,7 +110,7 @@
       "depends_on": [
         "BO-005"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1094"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1094"
     },
     {
       "id": "BO-007",
@@ -124,7 +124,7 @@
         "BO-003",
         "BO-005"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1095"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1095"
     },
     {
       "id": "BO-008",
@@ -134,7 +134,7 @@
       "complexity": 4,
       "number": 1087,
       "depends_on": [],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1087"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1087"
     },
     {
       "id": "BO-009",
@@ -147,7 +147,7 @@
         "BO-001",
         "BO-008"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1096"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1096"
     },
     {
       "id": "BO-010",
@@ -160,7 +160,7 @@
         "BO-008",
         "BO-009"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1097"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1097"
     },
     {
       "id": "BO-011",
@@ -173,7 +173,7 @@
         "BO-007",
         "BO-018"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1098"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1098"
     },
     {
       "id": "BO-016",
@@ -185,7 +185,7 @@
       "depends_on": [
         "BO-004"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1103"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1103"
     },
     {
       "id": "BO-019",
@@ -197,7 +197,7 @@
       "depends_on": [
         "BO-005"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1106"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1106"
     },
     {
       "id": "BO-018",
@@ -211,7 +211,7 @@
         "BO-016",
         "BO-019"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1105"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1105"
     },
     {
       "id": "BO-012",
@@ -226,7 +226,7 @@
         "BO-010",
         "BO-011"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1099"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1099"
     },
     {
       "id": "BO-013",
@@ -239,7 +239,7 @@
         "BO-008",
         "BO-012"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1100"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1100"
     },
     {
       "id": "BO-014",
@@ -252,7 +252,7 @@
         "BO-008",
         "BO-013"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1101"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1101"
     },
     {
       "id": "BO-015",
@@ -268,7 +268,7 @@
         "DASH-023",
         "DASH-033"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1102"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1102"
     },
     {
       "id": "BO-020",
@@ -281,7 +281,7 @@
         "BO-003",
         "BO-012"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1107"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1107"
     },
     {
       "id": "DASH-001",
@@ -293,7 +293,7 @@
       "depends_on": [
         "BO-008"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1108"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1108"
     },
     {
       "id": "DASH-002",
@@ -305,7 +305,7 @@
       "depends_on": [
         "BO-017"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1109"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1109"
     },
     {
       "id": "DASH-003",
@@ -319,7 +319,7 @@
         "DASH-016",
         "BO-018"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1110"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1110"
     },
     {
       "id": "DASH-004",
@@ -331,7 +331,7 @@
       "depends_on": [
         "BO-004"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1111"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1111"
     },
     {
       "id": "DASH-005",
@@ -344,7 +344,7 @@
         "DASH-003",
         "DASH-004"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1112"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1112"
     },
     {
       "id": "DASH-006",
@@ -354,7 +354,7 @@
       "complexity": 3,
       "number": 1088,
       "depends_on": [],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1088"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1088"
     },
     {
       "id": "DASH-007",
@@ -368,7 +368,7 @@
         "DASH-006",
         "DASH-017"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1113"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1113"
     },
     {
       "id": "DASH-008",
@@ -381,7 +381,7 @@
         "BO-017",
         "DASH-018"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1114"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1114"
     },
     {
       "id": "DASH-009",
@@ -393,7 +393,7 @@
       "depends_on": [
         "DASH-008"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1115"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1115"
     },
     {
       "id": "DASH-010",
@@ -406,7 +406,7 @@
         "DASH-008",
         "DASH-019"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1116"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1116"
     },
     {
       "id": "DASH-011",
@@ -418,7 +418,7 @@
       "depends_on": [
         "DASH-008"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1117"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1117"
     },
     {
       "id": "DASH-012",
@@ -430,7 +430,7 @@
       "depends_on": [
         "DASH-018"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1118"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1118"
     },
     {
       "id": "DASH-013",
@@ -442,7 +442,7 @@
       "depends_on": [
         "DASH-012"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1119"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1119"
     },
     {
       "id": "DASH-014",
@@ -454,7 +454,7 @@
       "depends_on": [
         "DASH-016"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1120"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1120"
     },
     {
       "id": "DASH-015",
@@ -469,7 +469,7 @@
         "DASH-020",
         "DASH-021"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1121"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1121"
     },
     {
       "id": "DASH-016",
@@ -482,7 +482,7 @@
         "DASH-002",
         "BO-005"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1122"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1122"
     },
     {
       "id": "DASH-017",
@@ -492,7 +492,7 @@
       "complexity": 3,
       "number": 1089,
       "depends_on": [],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1089"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1089"
     },
     {
       "id": "DASH-018",
@@ -502,7 +502,7 @@
       "complexity": 3,
       "number": 1090,
       "depends_on": [],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1090"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1090"
     },
     {
       "id": "DASH-019",
@@ -514,7 +514,7 @@
       "depends_on": [
         "BO-004"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1123"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1123"
     },
     {
       "id": "DASH-020",
@@ -526,7 +526,7 @@
       "depends_on": [
         "DASH-012"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1124"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1124"
     },
     {
       "id": "DASH-021",
@@ -538,7 +538,7 @@
       "depends_on": [
         "DASH-001"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1125"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1125"
     },
     {
       "id": "DASH-022",
@@ -551,7 +551,7 @@
         "DASH-003",
         "DASH-014"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1126"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1126"
     },
     {
       "id": "DASH-023",
@@ -567,7 +567,7 @@
         "DASH-031",
         "DASH-021"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1127"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1127"
     },
     {
       "id": "DASH-024",
@@ -579,7 +579,7 @@
       "depends_on": [
         "DASH-009"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1128"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1128"
     },
     {
       "id": "DASH-025",
@@ -591,7 +591,7 @@
       "depends_on": [
         "DASH-024"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1129"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1129"
     },
     {
       "id": "DASH-026",
@@ -603,7 +603,7 @@
       "depends_on": [
         "BO-017"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1130"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1130"
     },
     {
       "id": "DASH-027",
@@ -616,7 +616,7 @@
         "DASH-003",
         "DASH-026"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1131"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1131"
     },
     {
       "id": "DASH-028",
@@ -628,7 +628,7 @@
       "depends_on": [
         "DASH-003"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1132"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1132"
     },
     {
       "id": "DASH-029",
@@ -642,7 +642,7 @@
         "BO-017",
         "DASH-018"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1133"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1133"
     },
     {
       "id": "DASH-030",
@@ -655,7 +655,7 @@
         "DASH-011",
         "DASH-024"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1134"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1134"
     },
     {
       "id": "DASH-031",
@@ -674,7 +674,7 @@
         "DASH-029",
         "DASH-030"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1135"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1135"
     },
     {
       "id": "DASH-032",
@@ -687,7 +687,7 @@
         "DASH-002",
         "DASH-014"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1136"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1136"
     },
     {
       "id": "DASH-033",
@@ -708,7 +708,7 @@
         "DASH-031",
         "DASH-034"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1137"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1137"
     },
     {
       "id": "DASH-034",
@@ -722,7 +722,7 @@
         "DASH-007",
         "DASH-032"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1138"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1138"
     }
   ],
   "completed": true

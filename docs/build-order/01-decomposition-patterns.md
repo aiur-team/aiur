@@ -3,8 +3,8 @@
 This synthesis comes from document reviews of:
 
 - `ethereum-optimism/actions` PR #513;
-- `its-everdred/aiur` PR #732; and
-- `its-everdred/aiur` PR #971.
+- `aiur-team/aiur` PR #732; and
+- `aiur-team/aiur` PR #971.
 
 The reusable workflow is a traceable funnel:
 
