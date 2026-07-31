@@ -109,6 +109,10 @@ export const openUsbBackend = async (device: UsbDeviceLike, options: UsbBackendO
     sendFeatureReport: (report) =>
       device.controlOut(REQTYPE_CLASS_INTERFACE_OUT, HID_SET_REPORT, featureValue(report[0] ?? 0), wIndex, report),
 
+    // NOTE: unlike hidapi, a raw USB GET_REPORT returns exactly the bytes the
+    // device sends for this `wValue`; whether the leading byte is the report ID
+    // is device-dependent. The consumer (#1355, serial/firmware) must confirm
+    // the byte-0 offset against real hardware and size `length` accordingly.
     getFeatureReport: (reportId, length) =>
       device.controlIn(REQTYPE_CLASS_INTERFACE_IN, HID_GET_REPORT, featureValue(reportId), wIndex, length),
 

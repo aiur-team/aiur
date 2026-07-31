@@ -24,7 +24,7 @@ import { spawn } from "node:child_process";
 import net from "node:net";
 import process from "node:process";
 
-import { findByIds, InEndpoint, LibUSBException, OutEndpoint, usb } from "usb";
+import { findByIds, InEndpoint, type Interface, LibUSBException, OutEndpoint, usb } from "usb";
 
 import { parseBrightness } from "./device-path.js";
 import { POLL_INTERVAL_MS, PRODUCT_ID, VENDOR_ID } from "./report.js";
@@ -51,18 +51,34 @@ const openStreamDeckDevice = async (): Promise<UsbDeviceLike> => {
   }
 
   device.open();
-  device.timeout = CONTROL_TIMEOUT_MS;
-  device.setAutoDetachKernelDriver(true);
+  // Everything after open() must close the handle on failure, or a leaked open
+  // handle makes the next reconnect attempt fail with LIBUSB_ERROR_BUSY — a
+  // self-inflicted "present but won't open" that would trip the operator alert.
+  let inEndpoint: InEndpoint;
+  let outEndpoint: OutEndpoint;
+  let iface: Interface;
+  try {
+    device.timeout = CONTROL_TIMEOUT_MS;
+    device.setAutoDetachKernelDriver(true);
 
-  const iface = device.interface(HID_INTERFACE);
-  const inEndpoint = iface.endpoints.find((endpoint): endpoint is InEndpoint => endpoint.direction === "in");
-  const outEndpoint = iface.endpoints.find((endpoint): endpoint is OutEndpoint => endpoint.direction === "out");
-  if (inEndpoint === undefined || outEndpoint === undefined) {
+    iface = device.interface(HID_INTERFACE);
+    const foundIn = iface.endpoints.find((endpoint): endpoint is InEndpoint => endpoint.direction === "in");
+    const foundOut = iface.endpoints.find((endpoint): endpoint is OutEndpoint => endpoint.direction === "out");
+    if (foundIn === undefined || foundOut === undefined) {
+      throw new Error("Stream Deck + interface is missing an interrupt endpoint");
+    }
+    inEndpoint = foundIn;
+    outEndpoint = foundOut;
+    // A read timeout means "no event pending", so bound the poll to the interval.
+    inEndpoint.timeout = POLL_INTERVAL_MS;
+    // Bulk OUT (the 1024-byte key-stream reset, image chunks) can legitimately
+    // take longer than the control timeout; use no timeout so a slow-but-healthy
+    // write is not misread as a failure.
+    outEndpoint.timeout = 0;
+  } catch (error) {
     device.close();
-    throw new Error("Stream Deck + interface is missing an interrupt endpoint");
+    throw error;
   }
-  // A read timeout means "no event pending", so bound the poll to the interval.
-  inEndpoint.timeout = POLL_INTERVAL_MS;
 
   return {
     claim: async () => {
