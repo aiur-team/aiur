@@ -418,7 +418,11 @@ defmodule Aiur.Events.SubscriptionStore do
 
           pid ->
             try do
-              GenServer.call(pid, {:enqueue_event_digest, identifier, event}, 1_000)
+              case GenServer.call(pid, {:enqueue_event_digest, identifier, event}, 1_000) do
+                :ok -> :ok
+                {:error, _} = err -> err
+                other -> {:error, {:unexpected_return, other}}
+              end
             catch
               :exit, reason -> {:error, {:exit, reason}}
             end
@@ -428,6 +432,7 @@ defmodule Aiur.Events.SubscriptionStore do
 
   defp stall_min(nil, id) when is_integer(id), do: id
   defp stall_min(current, id) when is_integer(current) and is_integer(id), do: min(current, id)
+  defp stall_min(current, _), do: current
 
   @impl true
   def terminate(_reason, state) do
