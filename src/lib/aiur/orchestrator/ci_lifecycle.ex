@@ -836,38 +836,28 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
   defp maybe_rewake_current_ci_wait(state, issue) do
     case Map.get(state.running, issue.id) do
-      %{control: %{status: :paused}, paused_reason: :ci_wait} = running_entry ->
-        cond do
-          not ci_wait_state?(issue.state) ->
-            state
-
-          Issue.paused?(issue) ->
-            Reconciler.refresh_running_entry_issue(state, issue, running_entry)
-
-          not DispatchPolicy.issue_routable_to_worker?(issue) ->
-            state
-
-          true ->
-            transition_ci_wait_fallback(state, issue)
-        end
-
-      %{control: %{status: :deactivated}, paused_reason: :ci_wait} = running_entry ->
-        cond do
-          not ci_wait_state?(issue.state) ->
-            state
-
-          Issue.paused?(issue) ->
-            Reconciler.refresh_running_entry_issue(state, issue, running_entry)
-
-          not DispatchPolicy.issue_routable_to_worker?(issue) ->
-            state
-
-          true ->
-            transition_ci_wait_fallback(state, issue)
-        end
+      %{control: %{status: status}, paused_reason: :ci_wait} = running_entry
+      when status in [:paused, :deactivated] ->
+        rewake_ci_wait_entry(state, issue, running_entry)
 
       _ ->
         state
+    end
+  end
+
+  defp rewake_ci_wait_entry(state, issue, running_entry) do
+    cond do
+      not ci_wait_state?(issue.state) ->
+        state
+
+      Issue.paused?(issue) ->
+        Reconciler.refresh_running_entry_issue(state, issue, running_entry)
+
+      not DispatchPolicy.issue_routable_to_worker?(issue) ->
+        state
+
+      true ->
+        transition_ci_wait_fallback(state, issue)
     end
   end
 
