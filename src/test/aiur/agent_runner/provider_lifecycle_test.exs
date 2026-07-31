@@ -224,9 +224,12 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
 
   defp two_turn_opts(issue) do
     counter = start_supervised!({Agent, fn -> 0 end})
+    orchestrator_name = Module.concat(__MODULE__, :"Orchestrator#{System.unique_integer([:positive])}")
+    start_supervised!({Orchestrator, name: orchestrator_name})
 
     [
       max_turns: 2,
+      orchestrator: orchestrator_name,
       issue_state_fetcher: fn [_issue_id] ->
         turn = Agent.get_and_update(counter, fn count -> {count + 1, count + 1} end)
         state = if turn == 1, do: issue.state, else: "Done"

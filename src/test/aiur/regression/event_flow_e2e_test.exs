@@ -197,6 +197,8 @@ defmodule Aiur.Regression.EventFlowE2eTest do
                  "ticket.55.agent.decision.foo"
                ])
 
+      refute_receive {:enqueued, ^ticket_2, _}, 100
+
       :ok = SubscriptionStore.stop(ticket_2)
     end
   end
