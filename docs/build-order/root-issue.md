@@ -17,7 +17,7 @@ this root's remaining count or ETA.
 ## Approved planning authority
 
 - Approved planning commit:
-  [`4d8de9508206e08e314f2730cd916501a3b4cafd`](https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd)
+  [`4d8de9508206e08e314f2730cd916501a3b4cafd`](https://github.com/aiur-team/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd)
 - Planning pack: `docs/build-order/`
 - Read first: `docs/build-order/README.md`
 - Executor handoff: `docs/build-order/EXECUTOR-HANDOFF.md`
@@ -58,5 +58,5 @@ this root with state reason `COMPLETED` only after BO-015 satisfies the terminal
 condition for all 54 members. Incidental non-blockers remain deferred.
 
 <!-- aiur-planning-issue
-{"schema":2,"logical_id":"its-everdred/aiur:build-order-dashboard","plan_version":1,"approved_planning_commit":"4d8de9508206e08e314f2730cd916501a3b4cafd"}
+{"schema":2,"logical_id":"aiur-team/aiur:build-order-dashboard","plan_version":1,"approved_planning_commit":"4d8de9508206e08e314f2730cd916501a3b4cafd"}
 -->
