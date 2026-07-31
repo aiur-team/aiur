@@ -69,6 +69,16 @@ defmodule Mix.Tasks.Aiur.AffectedTests.DefaultOriginTest do
       System.delete_env("AIUR_BASE_BRANCH")
     end
   end
+
+  test "default config_fn delegates to Aiur.Config.base_branch/0" do
+    System.delete_env("AIUR_BASE_BRANCH")
+
+    try do
+      assert AffectedTests.default_origin() == "origin/" <> Aiur.Config.base_branch()
+    after
+      System.delete_env("AIUR_BASE_BRANCH")
+    end
+  end
 end
 
 defmodule Mix.Tasks.Aiur.AffectedTests.XrefSinksTest do
