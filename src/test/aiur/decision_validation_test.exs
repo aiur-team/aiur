@@ -3,7 +3,7 @@ defmodule Aiur.DecisionValidationTest do
 
   alias Aiur.DecisionValidation
 
-  @ticket %{identifier: "979", title: "OCC-1", url: "https://github.com/aiur-team/aiur/issues/979"}
+  @ticket %{identifier: "979", title: "OCC-1", url: "https://github.com/its-everdred/aiur/issues/979"}
   @source %{agent_id: "agent-1", session_id: "session-1", event_id: nil}
 
   defp normalize(payload, opts \\ []) do
@@ -210,7 +210,7 @@ defmodule Aiur.DecisionValidationTest do
       ticket = %{
         identifier: "979",
         title: "Leaked #{secret}",
-        url: "https://github.com/aiur-team/aiur/issues/979?token=#{secret}"
+        url: "https://github.com/its-everdred/aiur/issues/979?token=#{secret}"
       }
 
       assert {:ok, decision} = normalize(%{"question" => "Q?", "blocking" => true}, ticket: ticket)
@@ -394,7 +394,7 @@ defmodule Aiur.DecisionValidationTest do
     end
 
     test "an allowlisted artifact URL passes" do
-      payload = %{"question" => "Q?", "blocking" => true, "artifacts" => ["https://github.com/aiur-team/aiur"]}
+      payload = %{"question" => "Q?", "blocking" => true, "artifacts" => ["https://github.com/its-everdred/aiur"]}
       assert {:ok, decision} = normalize(payload)
       assert [%{kind: :url}] = decision.artifacts
     end
@@ -408,11 +408,11 @@ defmodule Aiur.DecisionValidationTest do
       payload = %{
         "question" => "Q?",
         "blocking" => true,
-        "artifacts" => [%{"kind" => "url", "value" => "https://github.com/aiur-team/aiur"}]
+        "artifacts" => [%{"kind" => "url", "value" => "https://github.com/its-everdred/aiur"}]
       }
 
       assert {:ok, decision} = normalize(payload)
-      assert [%{kind: :url, value: "https://github.com/aiur-team/aiur"}] = decision.artifacts
+      assert [%{kind: :url, value: "https://github.com/its-everdred/aiur"}] = decision.artifacts
     end
   end
 

@@ -8,7 +8,7 @@ defmodule Aiur.DecisionDeliveryIntegrationTest do
   @ticket %{
     identifier: "981",
     title: "OCC-3",
-    url: "https://github.com/aiur-team/aiur/issues/981"
+    url: "https://github.com/its-everdred/aiur/issues/981"
   }
   @source %{agent_id: "agent-981", session_id: "session-981", event_id: nil}
   @actor %{kind: :operator, id: "operator-1"}

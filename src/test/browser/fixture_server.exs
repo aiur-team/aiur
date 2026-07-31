@@ -1005,7 +1005,7 @@ defmodule Aiur.BrowserHarness.UnitsLive do
       %{
         identity: identity,
         title: "Unit #{identity.identifier}",
-        url: "https://github.com/aiur-team/aiur/issues/#{identity.identifier}",
+        url: "https://github.com/its-everdred/aiur/issues/#{identity.identifier}",
         lifecycle: :active,
         terminal?: false,
         replacement_boundary?: false,
@@ -1068,7 +1068,7 @@ defmodule Aiur.BrowserHarness.UnitsLive do
   defp context(row) do
     %View{
       identity: row.identity,
-      repository: "aiur-team/aiur",
+      repository: "its-everdred/aiur",
       identifier: row.identity.identifier,
       title: row.title,
       description: "Bounded ticket context from the accepted shared presentation.",

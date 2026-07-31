@@ -175,13 +175,13 @@ defmodule Aiur.AgentList.RendererTest do
     # render/1 must thread in from state. These tests guard against the
     # regression where project_label lived only on state and the link was
     # silently dead in every live render.
-    @issue_link "\e]8;;https://github.com/aiur-team/aiur/issues/414\e\\"
+    @issue_link "\e]8;;https://github.com/its-everdred/aiur/issues/414\e\\"
 
     test "wraps a numeric identifier in an OSC 8 link to its GitHub issue" do
       summaries = [%{identifier: "414", status: :running, alert_count: 0}]
 
       raw =
-        render(base_state(%{summaries: summaries, project_label: "aiur-team/aiur"}))
+        render(base_state(%{summaries: summaries, project_label: "its-everdred/aiur"}))
 
       assert raw =~ @issue_link
     end
@@ -194,7 +194,7 @@ defmodule Aiur.AgentList.RendererTest do
           base_state(%{
             summaries: summaries,
             selection_index: 0,
-            project_label: "aiur-team/aiur"
+            project_label: "its-everdred/aiur"
           })
         )
 
@@ -216,7 +216,7 @@ defmodule Aiur.AgentList.RendererTest do
       summaries = [%{identifier: "MT-1", status: :running, alert_count: 0}]
 
       raw =
-        render(base_state(%{summaries: summaries, project_label: "aiur-team/aiur"}))
+        render(base_state(%{summaries: summaries, project_label: "its-everdred/aiur"}))
 
       refute raw =~ "\e]8;;"
     end

@@ -90,7 +90,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawerTest do
     html = render(Presenter.present(row(), snapshot()))
 
     assert html =~ "not participating"
-    assert html =~ "aiur-team/aiur #1110"
+    assert html =~ "its-everdred/aiur #1110"
     assert html =~ "Responsive Units interface"
   end
 

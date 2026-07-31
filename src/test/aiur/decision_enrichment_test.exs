@@ -4,7 +4,7 @@ defmodule Aiur.DecisionEnrichmentTest do
   alias Aiur.{DecisionAnswer, DecisionEnrichment, DecisionRevision, DecisionValidation}
 
   @actor %{kind: :supervisor, id: "supervising-agent"}
-  @ticket %{identifier: "984", title: "OCC-7", url: "https://github.com/aiur-team/aiur/issues/984"}
+  @ticket %{identifier: "984", title: "OCC-7", url: "https://github.com/its-everdred/aiur/issues/984"}
   @source %{agent_id: "agent-1", session_id: "session-1", event_id: "request-1"}
   @now ~U[2026-07-12 12:00:00Z]
 
@@ -25,7 +25,7 @@ defmodule Aiur.DecisionEnrichmentTest do
       ],
       "recommendation" => %{"option_id" => "a", "reason" => "Preserves ownership"},
       "consequence_of_delay" => "The agent stays blocked.",
-      "artifacts" => ["https://github.com/aiur-team/aiur/issues/984"]
+      "artifacts" => ["https://github.com/its-everdred/aiur/issues/984"]
     }
 
     assert {:ok, enrichment} = normalize(current, patch)

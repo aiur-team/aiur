@@ -4,7 +4,7 @@ defmodule Aiur.DecisionRevisionStoreTest do
   alias Aiur.{Decision, DecisionEvent, DecisionPubSub, DecisionStore}
   alias Aiur.Events.IdGenerator
 
-  @ticket %{identifier: "985", title: "OCC-8", url: "https://github.com/aiur-team/aiur/issues/985"}
+  @ticket %{identifier: "985", title: "OCC-8", url: "https://github.com/its-everdred/aiur/issues/985"}
   @source %{agent_id: "agent-1", session_id: "session-1", event_id: "request-1"}
   @actor %{kind: :operator, id: "operator-1"}
 

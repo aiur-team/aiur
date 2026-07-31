@@ -9,7 +9,7 @@ defmodule Aiur.DecisionApiIntegrationTest do
 
   @token String.duplicate("t", 32)
   @policy %{allowed_kinds: ["architecture"], allow_non_reversible: false}
-  @ticket %{identifier: "984", title: "OCC-7", url: "https://github.com/aiur-team/aiur/issues/984"}
+  @ticket %{identifier: "984", title: "OCC-7", url: "https://github.com/its-everdred/aiur/issues/984"}
   @source %{agent_id: "agent-984", session_id: "session-984", event_id: nil}
 
   setup do

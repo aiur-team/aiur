@@ -68,7 +68,7 @@ defmodule Aiur.AlertFeedTest do
   end
 
   test "projects only active legacy decision attentions", %{root: root} do
-    project_root = Path.join(root, "aiur-team/aiur")
+    project_root = Path.join(root, "its-everdred/aiur")
     log = Path.join(project_root, "42/logs/agent.ndjson")
     File.mkdir_p!(Path.dirname(log))
 
@@ -94,7 +94,7 @@ defmodule Aiur.AlertFeedTest do
   end
 
   test "normalizes legacy persisted decision copy at the presentation boundary", %{root: root} do
-    project_root = Path.join(root, "aiur-team/aiur")
+    project_root = Path.join(root, "its-everdred/aiur")
     log = Path.join(project_root, "42/logs/agent.ndjson")
     File.mkdir_p!(Path.dirname(log))
 

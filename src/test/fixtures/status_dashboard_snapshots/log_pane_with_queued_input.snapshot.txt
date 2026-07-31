@@ -9,7 +9,7 @@
 │
 \e[1m├─ Agent log: MT-001 - Fix the login flow (in-progress)\e[0m
 │
-\e[90m│   \e[0m\e[1mURL: \e[0m\e[36mhttps://github.com/aiur-team/aiur/issues/0\e[0m
+\e[90m│   \e[0m\e[1mURL: \e[0m\e[36mhttps://github.com/its-everdred/aiur/issues/0\e[0m
 │
 │   \e[36m[22:46:39] \e[0m\e[96m\e[1maiur\e[0m\e[90m · \e[0m\e[36m\e[1mIssue prompt\e[0m
 │       \e[36mFix the login flow\e[0m

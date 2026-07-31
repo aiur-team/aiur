@@ -4,10 +4,10 @@ defmodule Aiur.AgentList.Renderer.LinksTest do
   alias Aiur.AgentList.Renderer.Links
 
   test "ticket_url builds issue URLs for numeric ids only" do
-    assert Links.ticket_url("aiur-team/aiur", "830") ==
-             "https://github.com/aiur-team/aiur/issues/830"
+    assert Links.ticket_url("its-everdred/aiur", "830") ==
+             "https://github.com/its-everdred/aiur/issues/830"
 
-    assert Links.ticket_url("aiur-team/aiur", "abc") == nil
+    assert Links.ticket_url("its-everdred/aiur", "abc") == nil
     assert Links.ticket_url(nil, "830") == nil
   end
 

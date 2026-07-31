@@ -150,7 +150,7 @@ defmodule AiurWeb.ControlCenterPresenterTest do
     recent_merges = %{
       merges: [
         %{
-          repository: "aiur-team/aiur",
+          repository: "its-everdred/aiur",
           number: 971,
           title: "Operator Control Center PRD",
           summary: "Defines the OCC surfaces.",
@@ -308,7 +308,7 @@ defmodule AiurWeb.ControlCenterPresenterTest do
   test "isolates malformed provider elements without blacking out healthy panels" do
     valid_decision = decision("dec-valid", blocking: false, urgency: :normal)
     history = [nil, %{decision_id: "dec-valid", question: "Healthy history"}]
-    merges = %{merges: [nil, %{repository: "aiur-team/aiur", number: 987}], health: :ready}
+    merges = %{merges: [nil, %{repository: "its-everdred/aiur", number: 987}], health: :ready}
 
     payload = ControlCenterPresenter.compose(fleet_payload(), [nil, valid_decision], history, merges)
 

@@ -68,8 +68,8 @@ defmodule Aiur.DecisionArtifactTest do
 
   describe "remote URLs" do
     test "an allowlisted HTTPS host passes" do
-      assert {:ok, %{kind: :url, value: "https://github.com/aiur-team/aiur"}} =
-               DecisionArtifact.validate("https://github.com/aiur-team/aiur", [])
+      assert {:ok, %{kind: :url, value: "https://github.com/its-everdred/aiur"}} =
+               DecisionArtifact.validate("https://github.com/its-everdred/aiur", [])
     end
 
     test "a dot-delimited subdomain of an allowlisted host passes" do

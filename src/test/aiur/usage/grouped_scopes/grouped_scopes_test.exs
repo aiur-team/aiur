@@ -73,7 +73,7 @@ defmodule Aiur.Usage.GroupedScopesTest do
         ])
 
       snap = project(source, Scope.explicit_ticket_set([Support.identity(42)]))
-      # Only the aiur-team/aiur #42 cell is in scope, not acme/other #42.
+      # Only the its-everdred/aiur #42 cell is in scope, not acme/other #42.
       assert snap.tokens == %{input: 1_000_000}
     end
   end
