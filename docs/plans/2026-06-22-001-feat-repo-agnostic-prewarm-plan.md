@@ -25,7 +25,7 @@ rebuilding on every `main` advance (preempting stale in-flight builds).
 
 The PR also lands the cheapest audit-backed fork-reducers so a `--debug` run survives 16 tickets;
 the structural `:emfile`/process-efficiency fixes are deferred to
-[#409](https://github.com/its-everdred/aiur/issues/409).
+[#409](https://github.com/aiur-team/aiur/issues/409).
 
 ---
 
@@ -83,7 +83,7 @@ workspace materialization from base.
 
 ### Deferred to Follow-Up Work
 
-- **Structural `:emfile` / process-efficiency fixes → [#409](https://github.com/its-everdred/aiur/issues/409)** (after this PR merges):
+- **Structural `:emfile` / process-efficiency fixes → [#409](https://github.com/aiur-team/aiur/issues/409)** (after this PR merges):
   opencode-serve pooling, AttachPool N×M fan-out cap, event-driven pane-death, `capture-pane`→`pipe-pane`,
   per-identifier SessionWriter subscription. This PR ships only the *cheap* reducers (U8).
 
@@ -633,7 +633,7 @@ enabled, `--debug` (now safe). Capture phase timings + first-message; compare to
 - Measurement: [docs/measurements/2026-06-22-prewarm-run-findings.md](docs/measurements/2026-06-22-prewarm-run-findings.md)
 - Reference only (reuse RepoBase via `git show feat/warm-main-base:…`):
   [docs/plans/2026-06-17-001-feat-warm-main-base-plan.md](docs/plans/2026-06-17-001-feat-warm-main-base-plan.md)
-- Deferred follow-up: [#409](https://github.com/its-everdred/aiur/issues/409)
+- Deferred follow-up: [#409](https://github.com/aiur-team/aiur/issues/409)
 - Key code anchors: `src/lib/aiur/{workspace,orchestrator,init,config,tmux,pane_manager}.ex`,
   `src/lib/aiur/opencode/{slot,attach_pool}.ex`, `src/lib/aiur/agent_list/{app,renderer}.ex`,
   `src/lib/aiur/config/schema.ex`
