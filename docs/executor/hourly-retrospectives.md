@@ -198,3 +198,217 @@ Ticket supply, a config ceiling, a halted prewarm gate, and a slow ramp
 are four very different faults with one identical symptom, and none of
 them logged anything. That is the systemic finding, more than any
 individual limit.
+
+*Wall 5 — reached.* At 19 concurrent agents the box hit load **14.09** on
+16 cores (~88%), with memory at 10 of 31 GB and the GitHub core budget at
+4668/5000. The configured gate holds dispatch at `max_load_average: 1.5 ×
+12 schedulers = 18`, so ~19-20 agents is this machine's natural ceiling
+and the gate is correctly sized for it. Neither memory nor the API budget
+came close. **Answer to the operator's question: yes, this box runs 20+
+agents comfortably; CPU is the real ceiling and everything below it was
+configuration.**
+
+---
+
+## 2026-07-31, ~22:30 — the merge path (resolved, with a correction)
+
+**Bottleneck: nothing could merge — but only for Executor-authored PRs.**
+
+#1401 sat at `reviewDecision: REVIEW_REQUIRED` / `BLOCKED` with all 13
+checks green, approved three times by a code owner, authored by the agent
+account. GitHub's real reason surfaced **only** on a `--admin` attempt:
+
+```
+New changes require approval from someone other than its-everdred
+because they were the last pusher.
+```
+
+Root cause: `require_last_push_approval` measures the **pusher**, not the
+commit author. `git -c credential.helper=…` inline overrides silently fall
+back to the cached `gh` credential, so commits authored as its-applekid
+were pushed as its-everdred, making the operator's approval a
+self-approval. Neither a token-bearing remote URL nor an API-created
+commit could re-attribute an already-poisoned branch. Resolved by creating
+a **fresh ref via the API** under the agent token (#1419) — its only push
+event belongs to its-applekid, and it went straight to `APPROVED`.
+
+**Correction to a claim I made earlier.** I reported that the merge gate
+"survived the transfer intact" on the evidence that the ruleset matched
+spec — all three rules on, 0 bypass actors. That is configuration, not
+function; merges were already broken when I said it. #1407 later merged
+normally, proving the gate works for agent-pushed PRs and that the fault
+was mine alone. Filed as #1405, then rescoped down from P1.
+
+**Security gap found while investigating, and this one matters:** #1407
+merged while five checks were still `pending`. The `human-only-merge-gate`
+ruleset contains only `deletion`, `non_fast_forward`, and `pull_request`
+rules — there is **no `required_status_checks` rule at all**. Nothing
+prevents merging a PR with failing CI. That is a live hole in the gate
+#1362/#1398 are hardening, and it is the finding most worth the operator's
+attention before a release.
+
+### Meta-analysis — silent failure with a misleading symptom
+
+Five separate faults tonight, one shared shape: none of them reported a
+reason. Four presented as "the fleet is idle" (#1404, the config ceiling,
+the ramp governor, ticket supply); the fifth presented as "CI must still
+be running." In every case diagnosis required reading source, not
+telemetry.
+
+- Systemic fix proposed: an Executor-facing alert when a PR is green +
+  approved but still `BLOCKED`, carrying GitHub's actual rule-violation
+  message. And for #1404, log the prewarm hold reason once per N ticks and
+  surface `prewarm: warming` in `status`/`watch`.
+- Candidate skill edit for the daily review: add **"verify a merge
+  actually completes"** to the post-transfer and post-config-change
+  checklist. Verifying that a ruleset matches spec is not evidence that
+  merges function — I made exactly that error tonight.
+
+### Filed this hour
+
+- #1404 prewarm gate silently halts the fleet (P1)
+- #1405 merge gate / push attribution (rescoped from P1)
+- #1406 `usage-probe` workspace never created
+- Closed as provably dead: #1175, #963, #1315, #1311. Closed complete: #1342.
+
+---
+
+## 2026-07-31, 22:50 — flake tax on the merge queue
+
+**Bottleneck: the flake class is now the throughput limit.**
+
+Quantified this hour. Every one of these is the same family — a named
+global (GenServer, `:persistent_term`, or the shared `Orchestrator`) that
+one test mutates while another reads:
+
+| Test | Symptom | Global |
+|---|---|---|
+| `core_test.exs:2946` | 2 `turn/start` where 1 expected | shared `Orchestrator` |
+| `provider_lifecycle_test.exs:126` | 3 turns where 2 expected | shared `Orchestrator` |
+| `github_client_test.exs:1924` | `{:ok, …}` vs `{:error, …}` | leaked `:persistent_term` |
+| `orchestrator_deactivate_test.exs:5546` | `BranchRefStore.ready_unblock("99")` → `nil` | named GenServer |
+
+That is 4 distinct tests across 3 modules, and tonight produced **7+
+reproductions** between them. The rename PR alone burned three full CI
+cycles (~40 min) on flakes unrelated to its diff — it touches no file
+under `src/test` at all.
+
+The cost has changed shape. A flake used to cost one re-run. With the
+merge queue enabled it ejects the whole speculative group, and with CI at
+~13 min per cycle a single bad roll costs more wall-clock than the change
+under test. At 19 agents producing PRs faster than they can be verified,
+this is now the binding constraint on throughput — ahead of CI runtime,
+ahead of review capacity.
+
+**Reduction proposed:** land #1391. Its delta already root-causes two of
+these correctly (per-test supervised `Orchestrator` under a unique name;
+`DispatchAuthorization.clear_cache()` for the leaked `:persistent_term`).
+It is blocked only on the 5x before/after measurement. `BranchRefStore` is
+a *new* member of the cluster found tonight and should be folded in —
+same shape, named GenServer with no per-test isolation.
+
+Until it lands: keep merge-queue max group size at 1 so a flake isolates
+to the PR that hit it, and re-run rather than investigate when the failing
+test is in the known set.
+
+### Meta-analysis — what recurred
+
+**Reviews are catching real defects, not style.** Six PRs reviewed this
+hour, five sent back. The findings were substantive, and three share a
+shape worth naming: *the PR body asserts something the diff does not do.*
+
+- #1402 body: "All four dial assignments implemented" — the diff contains
+  no dial-index-to-action mapping at all.
+- #1408 body: "Both hard blockers are merged into develop" — true on
+  paper, but `Retention.prune/2` runs once at boot and never again, so the
+  documented disk cap is not actually enforced in the always-on regime the
+  PR itself creates.
+- #1415 body implies the #1347 contract is consumed — the module invents
+  an input shape the shipped feed never emits.
+
+Systemic fix proposed: reviewers must diff the PR body's claims against
+the diff explicitly, not just review the diff. Three of five rejections
+this hour would have been caught by that one check. Candidate skill edit
+for the daily review: add "verify every claim in the PR body against the
+diff; a claim the diff does not support is a P1" to the review rung of
+`.claude/skills/aiur-run`.
+
+**Second shape: tests that cannot fail.** #1402's "syncs without rotating"
+assertion is `f(x) === f(x)` — it calls the same helper the implementation
+calls. #1408's `telemetry_enabled: false` test hand-pokes the
+`:persistent_term` that the broken wiring was supposed to set, bypassing
+exactly the code path that is broken. Both would pass against a wrong
+implementation. Worth adding to the same rung: *does this test
+discriminate, or would it pass against a trivially wrong implementation?*
+
+### Filed / merged this hour
+
+- Merged: #1407 (dashboard route-title assertions, ticket #1382).
+- Approved: #1413 (build gate skips unresolvable writable roots, #1313) —
+  fleet-critical; verified locally at 65 tests / 0 failures.
+- Rework: #1402, #1408 (P0), #1415 (P0).
+- Dispatched Tier B with serialization notes: #1270 (owns the dashboard-ui
+  clique exclusively, told to split across three PRs rather than attempt
+  48 findings at once), #1389 (told to reconcile with in-flight #619
+  before touching `comment_wake.ex`).
+
+---
+
+## 2026-07-31, later — merge path broken
+
+**Bottleneck: nothing can merge.**
+
+Quantified: every PR in the repo sits at `reviewDecision: REVIEW_REQUIRED`
+/ `mergeStateStatus: BLOCKED` regardless of approvals or checks. #1401 is
+green on all 13 checks, approved three times by a code owner, authored by
+the agent account — and still blocked. Filed as #1405.
+
+Root cause: `require_last_push_approval` measures the **pusher**, not the
+commit author. Agent commits are authored as its-applekid but the pushes
+authenticated as its-everdred, so the operator's approval counts as a
+self-approval. An inline `git -c credential.helper=` override silently
+fell back to the cached `gh` credential; pushing over an explicit
+`https://its-applekid:TOKEN@github.com/...` remote did **not** fix the
+attribution either, which is the part still unexplained.
+
+Why this outranks the flake as tonight's bottleneck: a flake costs a
+re-run, a broken merge gate costs every merge. The overnight run can
+produce green PRs all night and land none of them.
+
+**Reduction proposed:** determine why push attribution stays on the human
+identity even with a token-bearing remote (#1405 item 1). Until that is
+known, the two-identity model #1362 depends on does not actually hold.
+
+### Meta-analysis — the recurring class tonight
+
+**Silent failure with a misleading symptom.** Four separate faults tonight
+presented as "the fleet is idle" (#1404 prewarm halt, a config ceiling,
+the ramp governor, ticket supply), and a fifth presented as "CI must still
+be running" (#1405). None logged a reason. In every case the diagnosis
+required reading source, not telemetry.
+
+- Systemic fix proposed: an Executor-facing alert whenever a PR is green +
+  approved but still `BLOCKED`, carrying GitHub's actual rule-violation
+  message — which today is only visible on a `--admin` merge attempt. And
+  for #1404, log the prewarm hold reason at least once per N ticks and
+  surface `prewarm: warming` in `status`/`watch`.
+- Candidate skill edit for the daily review: add "verify a merge actually
+  works" to the post-transfer / post-config-change checklist. Verifying
+  that the *ruleset matches spec* is not evidence that merges function —
+  I made exactly that error tonight and reported the gate as healthy when
+  it was not.
+
+**Flake class, still live.** `provider_lifecycle_test.exs:126` (left 3,
+right 2 — the duplicate-turn race) and `core_test.exs:2946` both fired
+again tonight, plus `github_client_test.exs:1924`. That is 3 more
+reproductions on top of the 4 already recorded, all in the
+shared-Orchestrator / leaked-`:persistent_term` family. #1391 remains the
+consolidated fix and is blocked only on its 5x measurement. Priority
+unchanged but the evidence for it keeps accumulating.
+
+### Filed this hour
+
+- #1404 prewarm gate silently halts the fleet (P1)
+- #1405 merge gate unsatisfiable post-transfer (P1)
+- #1406 `usage-probe` workspace never created
+- Closed as dead: #1175, #963, #1315, #1311. Closed as complete: #1342.
