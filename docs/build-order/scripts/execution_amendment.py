@@ -76,7 +76,7 @@ EXPECTED_LANES = {
 LANE_ANCHORS = {
     "L1": {
         "logical_id": "BO-007",
-        "issue_url": "https://github.com/its-everdred/aiur/issues/1095",
+        "issue_url": "https://github.com/aiur-team/aiur/issues/1095",
         "policy_line": 132,
         "one_writer_packet": (
             "one dedicated BuildOrderLive vertical plus its namespaced CSS and "
@@ -85,7 +85,7 @@ LANE_ANCHORS = {
     },
     "L2": {
         "logical_id": "BO-018",
-        "issue_url": "https://github.com/its-everdred/aiur/issues/1105",
+        "issue_url": "https://github.com/aiur-team/aiur/issues/1105",
         "policy_line": 133,
         "one_writer_packet": (
             "one DashboardLive/OCC CSS/component owner plus the shared focus hook"
@@ -93,19 +93,19 @@ LANE_ANCHORS = {
     },
     "L3": {
         "logical_id": "DASH-014",
-        "issue_url": "https://github.com/its-everdred/aiur/issues/1120",
+        "issue_url": "https://github.com/aiur-team/aiur/issues/1120",
         "policy_line": 134,
         "one_writer_packet": "pure run-state projections plus one runtime child",
     },
     "L4": {
         "logical_id": "DASH-024",
-        "issue_url": "https://github.com/its-everdred/aiur/issues/1128",
+        "issue_url": "https://github.com/aiur-team/aiur/issues/1128",
         "policy_line": 135,
         "one_writer_packet": "usage accounting modules plus one accounting child",
     },
     "L5": {
         "logical_id": "BO-015",
-        "issue_url": "https://github.com/its-everdred/aiur/issues/1102",
+        "issue_url": "https://github.com/aiur-team/aiur/issues/1102",
         "policy_line": 136,
         "one_writer_packet": "the shipped-harness convergence and parity capstone",
     },

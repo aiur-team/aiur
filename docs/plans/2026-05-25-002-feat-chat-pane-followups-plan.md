@@ -466,5 +466,5 @@ All process commands return nothing. PID file absent or empty.
 - **Prior parity plan (for AE re-run on each unit's verification):** `docs/plans/2026-05-25-001-feat-chat-pane-native-parity-plan.md`
 - **Events foundation brainstorm:** `docs/brainstorms/2026-05-24-aiur-event-publishing-subscriptions-requirements.md`
 - **Manual-testing definition:** `AGENTS.md#manual-testing--the-only-definition` (committed in `c3d58f0`)
-- **PR #98:** `https://github.com/its-everdred/aiur/pull/98`
+- **PR #98:** `https://github.com/aiur-team/aiur/pull/98`
 - **ce-doc-review findings (round 1) that drove this v2 revision:** captured inline above in Key Technical Decisions and Risks & Dependencies.

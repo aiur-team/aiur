@@ -1,6 +1,6 @@
 # Split analytics: live-session view vs build-order-scoped long-run pane
 
-Issue: [#1304](https://github.com/its-everdred/aiur/issues/1304) · complexity:4 · base `develop`
+Issue: [#1304](https://github.com/aiur-team/aiur/issues/1304) · complexity:4 · base `develop`
 
 ## Problem
 
