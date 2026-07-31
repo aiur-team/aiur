@@ -64,6 +64,9 @@ export interface FlatDiff {
 
 export type FlatEntry = FlatHeader | FlatMessage | FlatDiff;
 
+const CHAT_WINDOW_SIZE = 2;
+const EVENTS_WINDOW_SIZE = 8;
+
 // ---------------------------------------------------------------------------
 // Flattening
 // ---------------------------------------------------------------------------
@@ -137,7 +140,7 @@ export const flattenEvents = (events: readonly LogEvent[]): FlattenResult => {
     }
   }
 
-  const chatMax = Math.max(0, flat.length - 2);
+  const chatMax = Math.max(0, flat.length - CHAT_WINDOW_SIZE);
   return { flat, headerIndices, chatMax, newestChatIndex: chatMax };
 };
 
@@ -150,7 +153,7 @@ export const flattenEvents = (events: readonly LogEvent[]): FlattenResult => {
  * Safe at both ends: never throws, never returns more than two entries.
  */
 export const chatWindow = (flat: readonly FlatEntry[], chatIndex: number): readonly FlatEntry[] =>
-  flat.slice(chatIndex, chatIndex + 2);
+  flat.slice(chatIndex, chatIndex + CHAT_WINDOW_SIZE);
 
 // ---------------------------------------------------------------------------
 // 8-key event window visibility
@@ -167,13 +170,13 @@ export const chatWindow = (flat: readonly FlatEntry[], chatIndex: number): reado
  * - Always clamp the result to `[0, maxStart]`.
  */
 export const ensureVisible = (windowStart: number, selection: number, eventCount: number): number => {
-  const maxStart = Math.max(0, eventCount - 8);
+  const maxStart = Math.max(0, eventCount - EVENTS_WINDOW_SIZE);
 
   let start = windowStart;
   if (selection < start) {
     start = selection;
-  } else if (selection > start + 7) {
-    start = Math.min(selection - 7, maxStart);
+  } else if (selection > start + EVENTS_WINDOW_SIZE - 1) {
+    start = Math.min(selection - (EVENTS_WINDOW_SIZE - 1), maxStart);
   }
 
   return Math.max(0, Math.min(start, maxStart));
@@ -204,7 +207,7 @@ export const backArrows = (chatIndex: number, chatMax: number): ArrowVisibility 
  * Right: the event window can scroll toward newer events.
  */
 export const eventsArrows = (windowStart: number, eventCount: number): ArrowVisibility => {
-  const maxStart = Math.max(0, eventCount - 8);
+  const maxStart = Math.max(0, eventCount - EVENTS_WINDOW_SIZE);
   return {
     left: windowStart > 0,
     right: windowStart < maxStart,

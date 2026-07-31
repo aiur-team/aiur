@@ -6,6 +6,7 @@ import {
   ensureVisible,
   eventsArrows,
   flattenEvents,
+  type FlatDiff,
   type FlatEntry,
   type LogEvent,
   type TranscriptDiff,
@@ -133,15 +134,13 @@ describe("flattenEvents — diff entries", () => {
 
   it("omits lineSign when line does not start with + or -", () => {
     const { flat } = flattenEvents([event("e", [diff("src/baz.ts", 1, 0, " context line")])]);
-    const entry = flat[1] as { lineSign?: unknown };
-    expect(entry.lineSign).toBeUndefined();
+    expect((flat[1] as FlatDiff).lineSign).toBeUndefined();
   });
 
   it("omits line and lineSign when no line is provided", () => {
     const { flat } = flattenEvents([event("e", [diff("src/qux.ts", 5, 2)])]);
-    const entry = flat[1] as { line?: unknown; lineSign?: unknown };
-    expect(entry.line).toBeUndefined();
-    expect(entry.lineSign).toBeUndefined();
+    expect((flat[1] as FlatDiff).line).toBeUndefined();
+    expect((flat[1] as FlatDiff).lineSign).toBeUndefined();
   });
 
   it("preserves path, additions, and deletions", () => {
