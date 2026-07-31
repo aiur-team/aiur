@@ -47,7 +47,7 @@ export interface RgbColor {
  */
 export type FillIndexBase = "raw" | "key-count-offset";
 
-import { KEY_COUNT, assertKeyIndex } from "./keyImage.js";
+import { KEY_COUNT, assertKeyIndex, type KeyReport } from "./keyImage.js";
 
 /** Full RGB fill feature-report length, in bytes. */
 export const KEY_FILL_REPORT_LENGTH = 32;
@@ -81,7 +81,7 @@ export function buildKeyFillReport(
   keyIndex: number,
   color: RgbColor,
   base: FillIndexBase = DEFAULT_FILL_INDEX_BASE,
-): Buffer {
+): KeyReport {
   assertKeyIndex(keyIndex);
   assertChannel(color.r, "r");
   assertChannel(color.g, "g");
@@ -94,7 +94,9 @@ export function buildKeyFillReport(
   report.writeUInt8(color.r, 3);
   report.writeUInt8(color.g, 4);
   report.writeUInt8(color.b, 5);
-  return report;
+  // Feature report: the transport must send this via `sendFeatureReport()`,
+  // never `hid.write()`.
+  return { kind: "feature", data: report };
 }
 
 /** Solid black — the canonical blackout fill for empty keys. */

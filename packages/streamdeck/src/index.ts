@@ -1,6 +1,6 @@
 export const placeholder = "streamdeck";
 export * from "./mode.js";
-export * from "./keys.js";
+export * from "./keys/descriptor.js";
 export * from "./keys/keyImage.js";
 export * from "./keys/keyFill.js";
 export * from "./keys/keyContent.js";

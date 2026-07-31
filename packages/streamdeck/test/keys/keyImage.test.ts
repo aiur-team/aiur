@@ -12,6 +12,10 @@ import {
   buildKeyImageReports,
 } from "../../src/keys/keyImage.js";
 
+// The byte-level assertions work on the raw report buffers.
+const buffers = (keyIndex: number, jpeg: Uint8Array): Buffer[] =>
+  buildKeyImageReports(keyIndex, jpeg).map((r) => r.data);
+
 describe("key image chunking (0x07)", () => {
   it("exposes the spec constants", () => {
     expect(KEY_REPORT_LENGTH).toBe(1024);
@@ -25,8 +29,10 @@ describe("key image chunking (0x07)", () => {
 
   it("encodes a single-chunk image with the exact header", () => {
     const jpeg = new Uint8Array([1, 2, 3, 4, 5]);
-    const [report, ...rest] = buildKeyImageReports(3, jpeg);
+    const [first, ...rest] = buildKeyImageReports(3, jpeg);
     expect(rest).toHaveLength(0);
+    expect(first.kind).toBe("output"); // image chunks are OUTPUT reports
+    const report = first.data;
     expect(report).toHaveLength(KEY_REPORT_LENGTH);
     expect(report.readUInt8(0)).toBe(0x02);
     expect(report.readUInt8(1)).toBe(0x07);
@@ -42,7 +48,7 @@ describe("key image chunking (0x07)", () => {
   it("splits a large image into zero-based pages with is_last on the final chunk", () => {
     const jpeg = new Uint8Array(KEY_MAX_PAYLOAD * 2 + 10);
     for (let i = 0; i < jpeg.length; i += 1) jpeg[i] = i % 256;
-    const reports = buildKeyImageReports(0, jpeg);
+    const reports = buffers(0, jpeg);
     expect(reports).toHaveLength(3);
 
     expect(reports[0].readUInt16LE(6)).toBe(0);
@@ -66,14 +72,14 @@ describe("key image chunking (0x07)", () => {
 
   it("emits exactly one full-payload terminating report when size is a multiple of the max", () => {
     const jpeg = new Uint8Array(KEY_MAX_PAYLOAD);
-    const reports = buildKeyImageReports(1, jpeg);
+    const reports = buffers(1, jpeg);
     expect(reports).toHaveLength(1);
     expect(reports[0].readUInt8(3)).toBe(1);
     expect(reports[0].readUInt16LE(4)).toBe(KEY_MAX_PAYLOAD);
   });
 
   it("emits a single terminating report for an empty image", () => {
-    const reports = buildKeyImageReports(7, new Uint8Array(0));
+    const reports = buffers(7, new Uint8Array(0));
     expect(reports).toHaveLength(1);
     expect(reports[0].readUInt8(3)).toBe(1);
     expect(reports[0].readUInt16LE(4)).toBe(0);

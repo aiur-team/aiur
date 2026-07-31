@@ -15,7 +15,7 @@ import {
   type Footer,
   type KeyDescriptor,
   type Vendor,
-} from "../keys.js";
+} from "./descriptor.js";
 import { BLACK, type RgbColor } from "./keyFill.js";
 
 /** The two title rows a key renders; either may be empty. */

@@ -48,14 +48,16 @@ describe("buildContentReports", () => {
   it("builds one feature report for a fill", () => {
     const reports = buildContentReports(1, fill(4, 5, 6), "raw");
     expect(reports).toHaveLength(1);
-    expect(reports[0]).toHaveLength(32);
-    expect(reports[0].readUInt8(1)).toBe(0x06);
+    expect(reports[0].kind).toBe("feature"); // routes to sendFeatureReport()
+    expect(reports[0].data).toHaveLength(32);
+    expect(reports[0].data.readUInt8(1)).toBe(0x06);
   });
 
-  it("builds the 0x07 chunk sequence for an image", () => {
+  it("builds the 0x07 chunk sequence of output reports for an image", () => {
     const reports = buildContentReports(1, image([1, 2, 3]), "raw");
     expect(reports).toHaveLength(1);
-    expect(reports[0]).toHaveLength(1024);
-    expect(reports[0].readUInt8(1)).toBe(0x07);
+    expect(reports[0].kind).toBe("output"); // routes to hid.write()
+    expect(reports[0].data).toHaveLength(1024);
+    expect(reports[0].data.readUInt8(1)).toBe(0x07);
   });
 });

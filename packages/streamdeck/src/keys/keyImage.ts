@@ -31,6 +31,21 @@
  * | 8      | 1016 | JPEG chunk                              |
  */
 
+/**
+ * How a report must be delivered over hidraw. The Plus mixes two transport
+ * kinds on the same key stream: `0x02` image chunks go out via `hid.write()`
+ * (an OUTPUT report), while the `0x03` RGB fill goes out via
+ * `sendFeatureReport()` (a FEATURE report). The bytes alone do not tell the
+ * transport (#1354/#1423) which call to make, so every report is tagged.
+ */
+export type ReportKind = "output" | "feature";
+
+/** A single built HID report plus the transport call it must be written with. */
+export interface KeyReport {
+  readonly kind: ReportKind;
+  readonly data: Buffer;
+}
+
 /** Full HID output report length, in bytes (host zero-pads to this). */
 export const KEY_REPORT_LENGTH = 1024;
 
@@ -73,10 +88,10 @@ export function assertKeyIndex(index: number): void {
  * meaningful image and callers should prefer the RGB fast path (`keyFill.ts`)
  * for solid fills rather than encoding a solid JPEG.
  */
-export function buildKeyImageReports(keyIndex: number, jpeg: Uint8Array): Buffer[] {
+export function buildKeyImageReports(keyIndex: number, jpeg: Uint8Array): KeyReport[] {
   assertKeyIndex(keyIndex);
 
-  const reports: Buffer[] = [];
+  const reports: KeyReport[] = [];
   const total = jpeg.length;
   let offset = 0;
   let page = 0;
@@ -98,7 +113,7 @@ export function buildKeyImageReports(keyIndex: number, jpeg: Uint8Array): Buffer
       report.set(jpeg.subarray(offset, offset + chunkLength), KEY_HEADER_LENGTH);
     }
 
-    reports.push(report);
+    reports.push({ kind: "output", data: report });
     offset += chunkLength;
     page += 1;
   } while (offset < total);

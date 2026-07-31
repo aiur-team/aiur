@@ -14,7 +14,7 @@
  * repaints the other seven — provided the encoder is deterministic for
  * unchanged descriptors, which the cache's content-identity diff assumes.
  */
-import { type KeyDescriptor } from "../keys.js";
+import { type KeyDescriptor } from "./descriptor.js";
 import { KEY_COUNT } from "./keyImage.js";
 import { KeyCache, type KeyPaint } from "./keyCache.js";
 import { type KeyContent } from "./keyContent.js";

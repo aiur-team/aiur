@@ -1,27 +1,34 @@
 import { describe, expect, it } from "vitest";
 
-import { type AgentInput, type AgentKey, layoutKeys } from "../../src/keys.js";
+import { type AgentKey } from "../../src/keys/descriptor.js";
 import {
   type AgentKeyFace,
   DEFAULT_TITLE_LINE_CHARS,
   composeKeyFace,
   wrapTitle,
 } from "../../src/keys/keyFace.js";
+import { agentKey } from "./descriptorFixtures.js";
 
-const descriptorFor = (input: Partial<AgentInput> & Pick<AgentInput, "bucket">): AgentKey => {
-  const agent: AgentInput = {
-    identifier: input.identifier ?? "1355",
-    vendor: input.vendor ?? "claude",
+interface DescriptorInput {
+  readonly bucket: AgentKey["bucket"];
+  readonly identifier?: string;
+  readonly title?: string | null;
+  readonly vendor?: AgentKey["vendor"];
+  readonly progress_percent?: number;
+  readonly priority?: boolean;
+  readonly dependency_ready?: boolean;
+}
+
+const descriptorFor = (input: DescriptorInput): AgentKey =>
+  agentKey({
     bucket: input.bucket,
-    progress_percent: input.progress_percent ?? 40,
-    priority: input.priority ?? false,
+    identifier: input.identifier,
     title: input.title,
-    dependency_ready: input.dependency_ready,
-  };
-  const key = layoutKeys([agent], 0)[0];
-  if (key.kind !== "agent") throw new Error("expected agent key");
-  return key;
-};
+    vendor: input.vendor,
+    progressPercent: input.progress_percent,
+    priority: input.priority,
+    dependencyReady: input.dependency_ready,
+  });
 
 describe("wrapTitle", () => {
   it("returns two empty lines for blank input", () => {

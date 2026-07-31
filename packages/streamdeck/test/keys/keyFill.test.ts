@@ -19,8 +19,10 @@ describe("RGB key fill fast path (0x03 0x06)", () => {
     expect(BLACK).toEqual({ r: 0, g: 0, b: 0 });
   });
 
-  it("builds a 32-byte report with the raw index by default", () => {
-    const report = buildKeyFillReport(2, { r: 10, g: 20, b: 30 });
+  it("builds a 32-byte feature report with the raw index by default", () => {
+    const built = buildKeyFillReport(2, { r: 10, g: 20, b: 30 });
+    expect(built.kind).toBe("feature"); // RGB fill is a FEATURE report
+    const report = built.data;
     expect(report).toHaveLength(32);
     expect(report.readUInt8(0)).toBe(0x03);
     expect(report.readUInt8(1)).toBe(0x06);
@@ -35,7 +37,7 @@ describe("RGB key fill fast path (0x03 0x06)", () => {
     expect(fillDeviceIndex(0, "raw")).toBe(0);
     expect(fillDeviceIndex(0, "key-count-offset")).toBe(8);
     expect(fillDeviceIndex(3, "key-count-offset")).toBe(11);
-    const report = buildKeyFillReport(3, BLACK, "key-count-offset");
+    const report = buildKeyFillReport(3, BLACK, "key-count-offset").data;
     expect(report.readUInt8(2)).toBe(11);
   });
 

@@ -9,7 +9,7 @@
  * recognise "still solid black" as clean without hashing a bitmap.
  */
 import { type RgbColor, buildKeyFillReport, type FillIndexBase } from "./keyFill.js";
-import { buildKeyImageReports } from "./keyImage.js";
+import { buildKeyImageReports, type KeyReport } from "./keyImage.js";
 
 export type KeyContent =
   | { readonly kind: "fill"; readonly color: RgbColor }
@@ -55,7 +55,7 @@ export function buildContentReports(
   keyIndex: number,
   content: KeyContent,
   base: FillIndexBase,
-): Buffer[] {
+): KeyReport[] {
   if (content.kind === "fill") {
     return [buildKeyFillReport(keyIndex, content.color, base)];
   }

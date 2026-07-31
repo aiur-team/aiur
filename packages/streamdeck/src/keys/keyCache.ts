@@ -14,7 +14,7 @@
  * handle. Callers that need to force a repaint (e.g. after a device reset drops
  * the on-screen image) call {@link invalidate}.
  */
-import { KEY_COUNT, assertKeyIndex } from "./keyImage.js";
+import { KEY_COUNT, assertKeyIndex, type KeyReport } from "./keyImage.js";
 import { DEFAULT_FILL_INDEX_BASE, type FillIndexBase } from "./keyFill.js";
 import {
   type KeyContent,
@@ -23,10 +23,19 @@ import {
   contentEquals,
 } from "./keyContent.js";
 
-/** A pending repaint of a single key: its index and ordered HID reports. */
+/**
+ * A pending repaint of a single key: its index, the ordered HID reports, and a
+ * {@link commit} thunk. The cache is NOT updated when the paint is produced —
+ * the key stays dirty until {@link commit} runs. The write path calls
+ * {@link commit} only after every report has reached the device; a failed or
+ * partial write leaves it uncalled, so the key is still dirty and repaints on
+ * the next render rather than being wrongly cached as painted (which would blank
+ * it until the process restarts).
+ */
 export interface KeyPaint {
   readonly index: number;
-  readonly reports: Buffer[];
+  readonly reports: KeyReport[];
+  readonly commit: () => void;
 }
 
 export class KeyCache {
@@ -45,15 +54,25 @@ export class KeyCache {
   }
 
   /**
-   * Offer new content for one key. If it differs from the cached copy, store a
-   * defensive snapshot and return the ordered reports; otherwise return `null`
-   * and leave the cache untouched — the key is not repainted.
+   * Offer new content for one key. If it differs from the cached copy, return a
+   * {@link KeyPaint} whose reports render it and whose {@link KeyPaint.commit}
+   * stores a defensive snapshot; otherwise return `null`. The cache is NOT
+   * mutated here — it changes only when the returned paint's `commit()` runs
+   * after a successful write, so a failed write cannot leave the key cached as
+   * painted when the pixels never landed.
    */
-  paint(keyIndex: number, content: KeyContent): Buffer[] | null {
+  paint(keyIndex: number, content: KeyContent): KeyPaint | null {
     assertKeyIndex(keyIndex);
     if (!this.isDirty(keyIndex, content)) return null;
-    this.current[keyIndex] = cloneContent(content);
-    return buildContentReports(keyIndex, content, this.fillIndexBase);
+    const reports = buildContentReports(keyIndex, content, this.fillIndexBase);
+    const snapshot = cloneContent(content);
+    return {
+      index: keyIndex,
+      reports,
+      commit: () => {
+        this.current[keyIndex] = snapshot;
+      },
+    };
   }
 
   /**
@@ -66,8 +85,8 @@ export class KeyCache {
     for (let index = 0; index < KEY_COUNT; index += 1) {
       const content = next.get(index);
       if (content === undefined) continue;
-      const reports = this.paint(index, content);
-      if (reports !== null) paints.push({ index, reports });
+      const paint = this.paint(index, content);
+      if (paint !== null) paints.push(paint);
     }
     return paints;
   }
