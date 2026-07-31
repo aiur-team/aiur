@@ -559,6 +559,15 @@ defmodule Aiur.Config do
     settings!().observability.dashboard_enabled
   end
 
+  @doc "Whether run telemetry recording is active. True by default; set `observability.telemetry_enabled: false` to opt out."
+  @spec telemetry_enabled?() :: boolean()
+  def telemetry_enabled? do
+    case settings() do
+      {:ok, %{observability: observability}} -> Map.get(observability, :telemetry_enabled, true)
+      _other -> true
+    end
+  end
+
   # Whether the dashboard may drive agents (Executor chat, pause). Read-only by
   # default until a deliberate dashboard parity pass — see issue #371.
   @spec dashboard_writable?() :: boolean()

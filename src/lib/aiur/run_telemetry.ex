@@ -1,12 +1,13 @@
 defmodule Aiur.RunTelemetry do
   @moduledoc """
-  Debug-gated facade for daemon-owned run telemetry.
+  Facade for daemon-owned run telemetry.
 
   Callers use this module without coordinating with the telemetry supervisor.
-  When debug mode is off, or while the writer is unavailable, recording is a
+  When telemetry is disabled, or while the writer is unavailable, recording is a
   fail-open no-op so diagnostics can never become an orchestration dependency.
   """
 
+  alias Aiur.Config
   alias Aiur.LogFile
   alias Aiur.RunTelemetry.Writer
 
@@ -64,7 +65,7 @@ defmodule Aiur.RunTelemetry do
   @spec record(atom() | String.t(), map(), keyword()) :: :ok
   def record(kind, attributes, opts)
       when (is_atom(kind) or is_binary(kind)) and is_map(attributes) and is_list(opts) do
-    if LogFile.debug_enabled?() do
+    if Config.telemetry_enabled?() do
       writer = Keyword.get(opts, :writer, Writer)
       Writer.record(writer, kind, attributes, Keyword.delete(opts, :writer))
     end
@@ -83,7 +84,7 @@ defmodule Aiur.RunTelemetry do
   def record_batch(records, opts \\ [])
 
   def record_batch(records, opts) when is_list(records) and is_list(opts) do
-    if LogFile.debug_enabled?() do
+    if Config.telemetry_enabled?() do
       writer = Keyword.get(opts, :writer, Writer)
       Writer.record_batch(writer, records, Keyword.delete(opts, :writer))
     end

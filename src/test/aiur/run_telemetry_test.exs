@@ -80,22 +80,17 @@ defmodule Aiur.RunTelemetryTest do
   defp restore_persistent_term(key, :unset), do: :persistent_term.erase(key)
   defp restore_persistent_term(key, value), do: :persistent_term.put(key, value)
 
-  test "record/2 is a no-op with no file when debug is disabled", %{root: root} do
-    System.delete_env("AIUR_DEBUG")
-
+  test "record/2 is fail-open with no file when the writer is not started", %{root: root} do
     assert :ok = RunTelemetry.record(:lifecycle, %{event: :dispatch})
     assert :ok = RunTelemetry.record_batch([{:resource, %{actor: "_daemon"}}])
     refute File.exists?(Path.join(root, "log/telemetry.ndjson"))
   end
 
-  test "record/2 remains fail-open when debug is enabled but the writer is absent" do
-    System.put_env("AIUR_DEBUG", "1")
-
+  test "record/2 remains fail-open when the writer is absent" do
     assert :ok = RunTelemetry.record(:lifecycle, %{event: :dispatch})
   end
 
-  test "debug-enabled facade writes through the supervised writer", %{root: root} do
-    System.put_env("AIUR_DEBUG", "1")
+  test "facade writes through the supervised writer without --debug", %{root: root} do
     RunTelemetry.start_boot()
 
     start_supervised!(
@@ -119,7 +114,6 @@ defmodule Aiur.RunTelemetryTest do
   end
 
   test "supervised sampling and lifecycle evidence generate an offline dashboard", %{root: root} do
-    System.put_env("AIUR_DEBUG", "1")
     RunTelemetry.start_boot()
     test_pid = self()
     telemetry_path = Path.join(root, "log/telemetry.ndjson")

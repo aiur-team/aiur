@@ -429,10 +429,10 @@ defmodule Aiur.ApplicationTest do
       end
     end
 
-    test "debug mode inserts telemetry after Exchange and before Publisher in both shapes" do
+    test "telemetry_enabled inserts telemetry supervisor after Exchange and before Publisher in both shapes" do
       for opts <- [
-            [interactive_cli?: true, headless?: false, dashboard?: true, debug?: true],
-            [interactive_cli?: false, headless?: true, dashboard?: false, debug?: true]
+            [interactive_cli?: true, headless?: false, dashboard?: true, telemetry?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false, telemetry?: true]
           ] do
         mods = modules(AiurApp.child_specs(opts))
         exchange = Enum.find_index(mods, &(&1 == Aiur.Events.Exchange))
@@ -444,13 +444,23 @@ defmodule Aiur.ApplicationTest do
       end
     end
 
-    test "non-debug child lists contain no telemetry process" do
+    test "telemetry disabled removes telemetry supervisor" do
       for opts <- [
-            [interactive_cli?: true, headless?: false, dashboard?: true, debug?: false],
-            [interactive_cli?: false, headless?: true, dashboard?: false, debug?: false]
+            [interactive_cli?: true, headless?: false, dashboard?: true, telemetry?: false],
+            [interactive_cli?: false, headless?: true, dashboard?: false, telemetry?: false]
           ] do
         mods = modules(AiurApp.child_specs(opts))
         refute Aiur.RunTelemetry.Supervisor in mods
+      end
+    end
+
+    test "telemetry supervisor is present by default (no telemetry? opt)" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        mods = modules(AiurApp.child_specs(opts))
+        assert Aiur.RunTelemetry.Supervisor in mods
       end
     end
   end

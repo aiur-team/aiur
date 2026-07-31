@@ -1,13 +1,13 @@
 defmodule Aiur.RunTelemetry.Lifecycle do
   @moduledoc """
-  Sanitized lifecycle boundaries for debug run telemetry.
+  Sanitized lifecycle boundaries for run telemetry.
 
   Runtime owners emit only identifiers, phase outcomes, and coarse reason or
   command classes. Prompts, command text, command output, and comment bodies
   are deliberately excluded from the record contract.
   """
 
-  alias Aiur.LogFile
+  alias Aiur.Config
   alias Aiur.Orchestrator.CommentWake
   alias Aiur.Protocol.MapAccess
   alias Aiur.RunTelemetry
@@ -56,7 +56,7 @@ defmodule Aiur.RunTelemetry.Lifecycle do
   @spec enabled?(keyword()) :: boolean()
   def enabled?(opts \\ []) when is_list(opts) do
     Keyword.has_key?(opts, :recorder) or lifecycle_recorder_override?() or
-      LogFile.debug_enabled?()
+      Config.telemetry_enabled?()
   end
 
   @doc "Records one lifecycle start, end, or point without propagating failures."
