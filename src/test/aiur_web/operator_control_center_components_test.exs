@@ -495,6 +495,25 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert html =~ ">Decision</button>"
   end
 
+  test "free-form attention offers acknowledge-without-decision alongside the response form" do
+    decision = action_decision(options: [], recommendation: nil)
+
+    html = render_component(&DecisionAction.decision_action/1, %{decision: decision, state: %{}, writable: true})
+
+    assert html =~ ~s(phx-click="dismiss-decision")
+    assert html =~ ">Acknowledge</button>"
+    assert html =~ ~s(phx-submit="answer-decision")
+  end
+
+  test "optioned command does not offer acknowledge-without-decision" do
+    decision = action_decision([])
+
+    html = render_component(&DecisionAction.decision_action/1, %{decision: decision, state: %{}, writable: true})
+
+    refute html =~ ~s(phx-click="dismiss-decision")
+    refute html =~ ">Acknowledge</button>"
+  end
+
   test "dismissed historic card offers a change choice answer without another dismiss" do
     decision = action_decision(decision_status: :dismissed)
 

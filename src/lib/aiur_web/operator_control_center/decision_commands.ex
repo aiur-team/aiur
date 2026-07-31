@@ -41,6 +41,17 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
     end
   end
 
+  @spec dismiss(Socket.t(), String.t(), reload_fun()) :: Socket.t()
+  def dismiss(socket, decision_id, reload_fun) when is_function(reload_fun, 1) do
+    case selected_open_decision(socket, decision_id) do
+      {:ok, decision} ->
+        dismiss_selected(socket, decision_id, decision, reload_fun)
+
+      :error ->
+        put_error(reload_fun.(socket), decision_id, "This Command is no longer open.")
+    end
+  end
+
   @spec reject_incomplete(Socket.t()) :: Socket.t()
   def reject_incomplete(socket) do
     put_error(
@@ -167,6 +178,26 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
     :exit, _reason -> {:error, :store_unavailable}
   end
 
+  defp safe_dismiss(decision_id) do
+    DecisionStore.dismiss(decision_id, [actor: actor()], decision_store())
+  catch
+    :exit, _reason -> {:error, :store_unavailable}
+  end
+
+  defp dismiss_selected(socket, decision_id, decision, reload_fun) do
+    result = safe_dismiss(decision_id)
+    socket = reload_fun.(socket)
+
+    case result do
+      {:ok, accepted} ->
+        resolve_legacy_attention(decision)
+        put_notice(socket, decision_id, dismiss_notice(accepted))
+
+      {:error, reason} ->
+        put_error(socket, decision_id, command_error(reason))
+    end
+  end
+
   defp safe_defer(decision_id) do
     DecisionStore.defer(decision_id, [actor: actor()], decision_store())
   catch
@@ -287,6 +318,11 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
     do: "Answer recorded and consumed by the target queue."
 
   defp answer_notice(_accepted), do: "Answer recorded. Durable dispatch is pending."
+
+  defp dismiss_notice(%{status: :duplicate}), do: "This Command was already acknowledged."
+
+  defp dismiss_notice(_accepted),
+    do: "Command acknowledged and closed without a recorded answer."
 
   defp defer_notice(%{status: :duplicate}), do: "This Command is already deferred to the Executor."
   defp defer_notice(_accepted), do: "Command deferred to the Executor. It remains available for an answer."

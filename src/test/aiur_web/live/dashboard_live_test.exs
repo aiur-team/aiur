@@ -2609,6 +2609,52 @@ defmodule AiurWeb.DashboardLiveTest do
     assert {:ok, %{decision_status: :decided}} = DecisionStore.get(decision.decision_id, store)
   end
 
+  test "free-form attention acknowledges without recording an answer" do
+    orchestrator_name = Module.concat(__MODULE__, :AckFreeFormOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :AckFreeFormStore)
+    store = start_decision_store(decision_store_name, fn _decision, _opts -> {:error, :unexpected_dispatch} end)
+
+    {:ok, %{decision: decision}} =
+      DecisionStore.request(
+        %{
+          "source_id" => "dashboard-ack-free-form",
+          "question" => "Heads up: the run finished.",
+          "blocking" => false,
+          "urgency" => "normal",
+          "reversibility" => "reversible",
+          "options" => []
+        },
+        [
+          ticket: %{identifier: "987", title: "Operator Control Center", url: nil},
+          source: %{agent_id: "agent-987", session_id: "session-987", event_id: "event-ack"}
+        ],
+        store
+      )
+
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name,
+      control_center_cache: false,
+      dashboard_writable: true
+    )
+
+    {:ok, view, html} = live(build_conn(), "/decisions/#{decision.decision_id}")
+    assert html =~ ~s(phx-click="dismiss-decision")
+
+    html =
+      view
+      |> element("#decision-#{decision.decision_id} button[phx-click=\"dismiss-decision\"]")
+      |> render_click()
+
+    assert html =~ "acknowledged"
+    assert {:ok, dismissed} = DecisionStore.get(decision.decision_id, store)
+    assert dismissed.decision_status == :dismissed
+    assert dismissed.answer == nil
+  end
+
   test "human dashboard revision traverses the corrective queue and lifecycle projections" do
     orchestrator_name = Module.concat(__MODULE__, :RevisionCapstoneOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :RevisionCapstoneDecisionStore)
