@@ -7,6 +7,8 @@ defmodule Aiur.BuildGate do
   and reads the advisory records for Executor status.
   """
 
+  require Logger
+
   alias Aiur.Config
   alias Aiur.PathSafety
 
@@ -461,12 +463,24 @@ defmodule Aiur.BuildGate do
   end
 
   defp canonicalize_writable_roots(roots) when is_list(roots) do
-    Enum.reduce_while(roots, {:ok, []}, fn root, {:ok, canonical_roots} ->
-      case root |> Path.expand() |> PathSafety.canonicalize() do
-        {:ok, canonical_root} -> {:cont, {:ok, [canonical_root | canonical_roots]}}
-        {:error, reason} -> {:halt, unavailable(root, :canonicalize_writable_root, reason)}
-      end
+    {canonical_roots, dropped} =
+      Enum.reduce(roots, {[], []}, fn root, {good, bad} ->
+        case root |> Path.expand() |> PathSafety.canonicalize() do
+          {:ok, canonical_root} -> {[canonical_root | good], bad}
+          {:error, reason} -> {good, [{root, reason} | bad]}
+        end
+      end)
+
+    Enum.each(dropped, fn {root, reason} ->
+      Logger.warning("build_gate skipped_unresolvable_writable_root path=#{root} reason=#{inspect(reason)}")
     end)
+
+    if canonical_roots == [] and dropped != [] do
+      {first_root, first_reason} = List.last(dropped)
+      unavailable(first_root, :canonicalize_writable_root, first_reason)
+    else
+      {:ok, canonical_roots}
+    end
   end
 
   defp canonicalize_writable_roots(roots),

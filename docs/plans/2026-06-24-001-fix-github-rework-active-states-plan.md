@@ -3,7 +3,7 @@ title: "fix: GitHub rework active-state dispatch"
 type: fix
 status: active
 date: 2026-06-24
-origin: https://github.com/its-everdred/aiur/issues/484
+origin: https://github.com/aiur-team/aiur/issues/484
 ---
 
 # fix: GitHub rework active-state dispatch
@@ -122,6 +122,6 @@ Make the GitHub tracker fetch candidate issues from the configured active-state 
 
 ## Sources & References
 
-- Origin issue: https://github.com/its-everdred/aiur/issues/484
+- Origin issue: https://github.com/aiur-team/aiur/issues/484
 - Related code: `src/lib/aiur/github/client.ex`
 - Related tests: `src/test/aiur/github_client_test.exs`

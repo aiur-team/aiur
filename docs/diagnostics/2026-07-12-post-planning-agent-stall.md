@@ -27,7 +27,7 @@ runner remains visible, but neither creates the planning boundary deadlock.
 ### #987: planning contract reproduced in the transcript
 
 The app-server transcript at
-`~/code/aiur-workspaces/its-everdred/aiur/987/logs/agent.ndjson` records:
+`~/code/aiur-workspaces/aiur-team/aiur/987/logs/agent.ndjson` records:
 
 - 13:45-14:35Z: repeated progress turns remain at 10-20% in `plan`.
 - 14:35:32Z: the agent reports `Reviewed plan is published and awaiting
