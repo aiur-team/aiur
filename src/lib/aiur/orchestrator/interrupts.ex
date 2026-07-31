@@ -110,35 +110,27 @@ defmodule Aiur.Orchestrator.Interrupts do
         # on the now-paused agent closes the pane. A deactivated (human-review)
         # agent has no active turn and no recoverable state — any Ctrl+C closes
         # the finished pane immediately.
-        if State.deactivated_running_entry?(running_entry) do
-          # Remove the entry from running so AttachPool reclaims the slot on
-          # the next seed (the entry disappears from retain_ids). PaneManager
-          # broadcasts agent_inactive and performs the real pane close/deselect,
-          # superseding the bridge's hide_pane fallback. Without this deletion,
-          # repeated human-review completions accumulate retained-but-hidden
-          # slots and eventually exhaust the pre-warm pool.
-          issue_id = State.find_running_key_by_identifier(state.running, issue_identifier)
-
-          new_state =
-            if issue_id,
-              do: %{state | running: Map.delete(state.running, issue_id)},
-              else: state
-
-          {{:ok, :close_pane}, new_state}
-        else
-          working? = ActiveTurns.active_turn_ids(issue_identifier) != []
-
-          action =
-            pane_interrupt_action_no_pane(
-              State.paused_running_entry?(running_entry),
-              working?
-            )
-
-          perform_pane_interrupt(action, state, running_entry, issue_identifier, nil)
-        end
+        pane_interrupt_no_repl(state, running_entry, issue_identifier)
 
       _ ->
         {{:error, :not_running}, state}
+    end
+  end
+
+  # Removes the deactivated entry so AttachPool reclaims the slot on the next
+  # seed (the entry disappears from retain_ids). PaneManager broadcasts
+  # agent_inactive and performs the real pane close/deselect. Without this
+  # deletion, repeated human-review completions accumulate retained-but-hidden
+  # slots and eventually exhaust the pre-warm pool.
+  defp pane_interrupt_no_repl(state, running_entry, issue_identifier) do
+    if State.deactivated_running_entry?(running_entry) do
+      issue_id = State.find_running_key_by_identifier(state.running, issue_identifier)
+      new_state = if issue_id, do: %{state | running: Map.delete(state.running, issue_id)}, else: state
+      {{:ok, :close_pane}, new_state}
+    else
+      working? = ActiveTurns.active_turn_ids(issue_identifier) != []
+      action = pane_interrupt_action_no_pane(State.paused_running_entry?(running_entry), working?)
+      perform_pane_interrupt(action, state, running_entry, issue_identifier, nil)
     end
   end
 
