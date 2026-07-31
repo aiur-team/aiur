@@ -45,7 +45,9 @@ export const parseUdevBlock = (lines: readonly string[]): "device-added" | "devi
   for (const line of lines) {
     const eq = line.indexOf("=");
     if (eq > 0) {
-      props.set(line.slice(0, eq), line.slice(eq + 1));
+      // Trim the value so a stray CR (were a monitor ever to emit CRLF) does
+      // not defeat the vendor comparison below.
+      props.set(line.slice(0, eq), line.slice(eq + 1).trim());
     }
   }
 

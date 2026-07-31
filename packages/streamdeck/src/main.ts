@@ -16,38 +16,23 @@ import { open, readFile, readdir } from "node:fs/promises";
 import net from "node:net";
 import process from "node:process";
 
+import { findStreamDeckPath, parseBrightness, type DevicePathFs } from "./device-path.js";
 import { openHidrawBackend } from "./hidraw-backend.js";
-import { PRODUCT_ID, VENDOR_ID } from "./report.js";
 import { startRuntime } from "./runtime.js";
 
-/** HID_ID token udev/sysfs expose, e.g. `0003:00000FD9:00000084`. */
-const hidId = (vendor: number, product: number): string =>
-  `${vendor.toString(16).toUpperCase().padStart(8, "0")}:${product.toString(16).toUpperCase().padStart(8, "0")}`;
-
-/** Scans `/sys/class/hidraw` for the Stream Deck + node, returning `/dev/hidrawN`. */
-const findDevicePath = async (): Promise<string | null> => {
-  const wanted = hidId(VENDOR_ID, PRODUCT_ID);
-  const nodes = await readdir("/sys/class/hidraw").catch(() => [] as string[]);
-  for (const node of nodes) {
-    const uevent = await readFile(`/sys/class/hidraw/${node}/device/uevent`, "utf8").catch(() => "");
-    if (uevent.toUpperCase().includes(wanted)) {
-      return `/dev/${node}`;
-    }
-  }
-  return null;
-};
+const pathFs: DevicePathFs = { readdir, readFile };
 
 export const main = async (): Promise<void> => {
-  const brightness = Number.parseInt(process.env.AIUR_STREAMDECK_BRIGHTNESS ?? "80", 10);
-  const initialPath = await findDevicePath();
+  const brightness = parseBrightness(process.env.AIUR_STREAMDECK_BRIGHTNESS);
+  const initialPath = await findStreamDeckPath(pathFs);
 
   await startRuntime({
     spawn,
     net,
-    brightness: Number.isFinite(brightness) ? brightness : 80,
+    brightness,
     devicePresentAtStart: initialPath !== null,
     openBackend: async () => {
-      const path = (await findDevicePath()) ?? initialPath;
+      const path = (await findStreamDeckPath(pathFs)) ?? initialPath;
       if (path === null) {
         throw new Error("Stream Deck + not found: no matching /dev/hidraw node");
       }

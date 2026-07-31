@@ -16,6 +16,10 @@ describe("parseUdevBlock", () => {
     expect(parseUdevBlock(["ACTION=add", "ID_VENDOR_ID=0FD9"])).toBe("device-added");
   });
 
+  it("tolerates a trailing CR on property values", () => {
+    expect(parseUdevBlock(["ACTION=add\r", "ID_VENDOR_ID=0fd9\r"])).toBe("device-added");
+  });
+
   it("ignores a different vendor", () => {
     expect(parseUdevBlock(["ACTION=add", "ID_VENDOR_ID=1234"])).toBeNull();
   });

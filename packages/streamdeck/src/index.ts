@@ -9,4 +9,5 @@ export * from "./sleep-source.js";
 export * from "./udev-source.js";
 export type * from "./backend.js";
 export * from "./hidraw-backend.js";
+export * from "./device-path.js";
 export * from "./runtime.js";

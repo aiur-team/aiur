@@ -268,6 +268,22 @@ describe("startRuntime", () => {
     expect(h.hasTimer()).toBe(false); // did not reschedule against the stale handle
   });
 
+  it("keeps the effect chain alive when an effect throws", async () => {
+    const backend = makeBackend();
+    const repaint = vi.fn(async () => {
+      throw new Error("render boom");
+    });
+    const h = makeHarness({ devicePresentAtStart: true, openBackend: async () => backend, repaint });
+    await startRuntime(h.env);
+    await tick();
+    expect(h.logs.some((l) => l.message.includes("effect failed: repaint"))).toBe(true);
+
+    // A later event's effects still run despite the earlier rejection.
+    h.signal();
+    await tick();
+    expect(h.env.exit).toHaveBeenCalledOnce();
+  });
+
   it("tolerates an input report with no onInput hook", async () => {
     const reads: RawRead[] = [{ kind: "bytes", data: new Uint8Array(14) }];
     let i = 0;

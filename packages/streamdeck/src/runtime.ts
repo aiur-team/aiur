@@ -100,7 +100,12 @@ export const startRuntime = async (env: RuntimeEnv): Promise<Runtime> => {
     const { state: next, effects } = transitionLifecycle(state, event);
     state = next;
     for (const effect of effects) {
-      effectChain = effectChain.then(() => perform(effect));
+      // Guard each effect so a throwing effect (e.g. a rejecting repaint hook)
+      // is logged and never poisons the chain, which would silently drop every
+      // subsequent effect and leave an unhandled rejection.
+      effectChain = effectChain
+        .then(() => perform(effect))
+        .catch((cause) => env.log({ level: "error", message: `effect failed: ${effect.type}`, cause }));
     }
   };
 
