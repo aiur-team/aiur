@@ -29,10 +29,18 @@ defmodule Aiur.Cost.PricerTest do
   end
 
   test "prices claude input/cached/output at catalog rates", %{catalog: catalog} do
-    tokens = %{input_tokens: 1_000_000, cached_input_tokens: 1_000_000, output_tokens: 1_000_000}
+    # input_tokens includes the cached portion; the non-cached remainder
+    # (3M - 1M = 2M) is billed at input rate, the 1M cached at cached rate.
+    tokens = %{input_tokens: 3_000_000, cached_input_tokens: 1_000_000, output_tokens: 1_000_000}
     {:ok, usd} = Pricer.usd(catalog, claude_meta(), tokens)
-    # 5.00 + 0.50 + 25.00
-    assert Decimal.equal?(usd, Decimal.new("30.50"))
+    # (2M * 5.00) + (1M * 0.50) + (1M * 25.00) = 10.00 + 0.50 + 25.00
+    assert Decimal.equal?(usd, Decimal.new("35.50"))
+  end
+
+  test "cached tokens are not double-counted (fully-cached input costs only the cache rate)", %{catalog: catalog} do
+    tokens = %{input_tokens: 1_000_000, cached_input_tokens: 1_000_000, output_tokens: 0}
+    {:ok, usd} = Pricer.usd(catalog, claude_meta(), tokens)
+    assert Decimal.equal?(usd, Decimal.new("0.50"))
   end
 
   test "zero-token dimensions need no price entry", %{catalog: catalog} do

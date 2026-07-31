@@ -97,14 +97,22 @@ defmodule Aiur.Cost.Observation do
   defp cached_tokens(_usage), do: 0
 
   defp context_window(message) do
-    case first_path(message, @context_window_paths) do
+    case first_path(roots(message), @context_window_paths) do
       value when is_integer(value) and value > 0 -> value
       _ -> nil
     end
   end
 
   defp thread_id(message, envelope) do
-    envelope_thread_id(envelope) || first_path(message, @thread_id_paths) |> to_thread_id()
+    envelope_thread_id(envelope) || to_thread_id(first_path(roots(message), @thread_id_paths))
+  end
+
+  # Codex nests the usage payload under `message.payload.params...`, but internal
+  # messages can carry `params` at the top level. Search both so the paths below
+  # (rooted at `params`/`tokenUsage`) resolve in either shape — the same tolerance
+  # `TokenAccounting.Payloads` applies for the token counts.
+  defp roots(message) do
+    Enum.filter([message, Map.get(message, :payload), Map.get(message, "payload")], &is_map/1)
   end
 
   defp envelope_thread_id(%UsageEnvelope{attribution: %{thread_id: id}}) when is_binary(id) and id != "", do: id
@@ -141,8 +149,10 @@ defmodule Aiur.Cost.Observation do
     end
   end
 
-  defp first_path(map, paths) do
-    Enum.find_value(paths, fn path -> path_get(map, path) end)
+  defp first_path(roots, paths) when is_list(roots) do
+    Enum.find_value(paths, fn path ->
+      Enum.find_value(roots, fn root -> path_get(root, path) end)
+    end)
   end
 
   defp path_get(map, path) when is_map(map) do

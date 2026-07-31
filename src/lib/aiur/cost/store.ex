@@ -100,7 +100,14 @@ defmodule Aiur.Cost.Store do
   """
   @spec record(String.t(), map()) :: :ok
   def record(identifier, %{thread_id: _} = observation) when is_binary(identifier) do
-    :ok = attach(identifier)
+    # Fast-path the common case (store already running) with a cheap Registry
+    # read, so the hot per-message path doesn't serialize a no-op start_child
+    # through the DynamicSupervisor once the store exists.
+    case registry_lookup(identifier) do
+      [{_pid, _}] -> :ok
+      [] -> attach(identifier)
+    end
+
     GenServer.cast(via(identifier), {:record, observation})
   catch
     :exit, _reason -> :ok
@@ -154,9 +161,28 @@ defmodule Aiur.Cost.Store do
         active_thread: tid
     }
 
-    :ok = persist(state)
-    state = maybe_broadcast(state)
-    {:noreply, state}
+    # Coalesce the durable write and the UI broadcast on the same bucket change.
+    # Codex emits a usage update on nearly every streamed message; persisting +
+    # fsyncing each one would be severe write amplification on the hot path. The
+    # total is idempotent absolute high-water, so a bucket-gated flush loses at
+    # most sub-bucket increments (< $1 / < 1% context), and terminate/2 always
+    # flushes the latest on clean shutdown.
+    snapshot = build_snapshot(state)
+    key = throttle_key(snapshot)
+
+    if key == state.last_broadcast do
+      {:noreply, state}
+    else
+      :ok = persist(snapshot, state)
+      AgentPubSub.broadcast_cost(state.identifier, snapshot)
+      {:noreply, %{state | last_broadcast: key}}
+    end
+  rescue
+    error ->
+      # A malformed observation must never take the store down and drop the
+      # accumulated total; log and keep the last good state.
+      Logger.warning("Cost.Store(#{state.identifier}) record failed: " <> Exception.message(error))
+      {:noreply, state}
   end
 
   @impl true
@@ -166,7 +192,7 @@ defmodule Aiur.Cost.Store do
 
   @impl true
   def terminate(_reason, state) do
-    _ = persist(state)
+    _ = persist(build_snapshot(state), state)
     :ok
   end
 
@@ -223,27 +249,21 @@ defmodule Aiur.Cost.Store do
 
   defp percent(_tokens, _limit), do: nil
 
-  # ── broadcast (throttled) ────────────────────────────────────────────
+  # ── throttle ─────────────────────────────────────────────────────────
 
-  defp maybe_broadcast(state) do
-    snapshot = build_snapshot(state)
-    key = {snapshot.context.percent_used, usd_bucket(snapshot.cost.usd)}
-
-    if key == state.last_broadcast do
-      state
-    else
-      AgentPubSub.broadcast_cost(state.identifier, snapshot)
-      %{state | last_broadcast: key}
-    end
+  # Re-emit only when the context percent (integer) or whole-dollar spend
+  # changes, so a long turn produces a bounded handful of status rows rather
+  # than one per streamed cent. Both components are monotonic in practice.
+  defp throttle_key(snapshot) do
+    {snapshot.context.percent_used, usd_bucket(snapshot.cost.usd)}
   end
 
-  defp usd_bucket(%Decimal{} = d), do: d |> Decimal.round(2) |> Decimal.to_string(:normal)
+  defp usd_bucket(%Decimal{} = d), do: d |> Decimal.round(0, :down) |> Decimal.to_integer()
   defp usd_bucket(_other), do: nil
 
   # ── persistence ──────────────────────────────────────────────────────
 
-  defp persist(state) do
-    snapshot = build_snapshot(state)
+  defp persist(snapshot, state) do
     JsonStore.write!(state.path, to_disk(snapshot, state))
     :ok
   rescue

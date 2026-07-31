@@ -65,6 +65,15 @@ defmodule Aiur.Cost.ObservationTest do
     assert obs.meta.pricing_effective_date == ~D[2026-07-30]
   end
 
+  test "resolves thread id + context window through the payload wrapper" do
+    # Real codex usage nests params under `payload`.
+    message = %{"payload" => codex_message()}
+    assert {:ok, obs} = Observation.from_message("codex", message, [])
+    assert obs.thread_id == "thread-1"
+    assert obs.context_window == 256_000
+    assert obs.input_tokens == 400
+  end
+
   test "skips messages without token usage" do
     assert :skip = Observation.from_message("codex", %{"params" => %{"foo" => 1}}, [])
   end

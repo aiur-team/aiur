@@ -61,8 +61,14 @@ defmodule Aiur.Cost.Pricer do
   def usd(nil, _meta, _tokens), do: {:error, :price_table_unavailable}
 
   def usd(catalog, meta, tokens) when is_map(catalog) and is_map(meta) do
+    # Providers report `input_tokens` as the full prompt count *including* the
+    # cached portion (cached_input ⊂ input). Bill the non-cached remainder at the
+    # input rate and the cached tokens at the cached rate, so cached tokens are
+    # priced exactly once. Matches `Aiur.Usage.Pricing.Components` subset logic.
+    billable = billable_tokens(tokens)
+
     Enum.reduce_while(@dimension_map, {:ok, Decimal.new(0)}, fn {token_key, dimension}, {:ok, acc} ->
-      count = Map.get(tokens, token_key, 0)
+      count = Map.get(billable, token_key, 0)
 
       cond do
         not is_integer(count) or count <= 0 ->
@@ -78,6 +84,12 @@ defmodule Aiur.Cost.Pricer do
   end
 
   def usd(_catalog, _meta, _tokens), do: {:error, :invalid_pricing_meta}
+
+  defp billable_tokens(tokens) do
+    input = Map.get(tokens, :input_tokens, 0)
+    cached = Map.get(tokens, :cached_input_tokens, 0)
+    Map.put(tokens, :input_tokens, max(0, input - cached))
+  end
 
   defp component_amount(catalog, meta, dimension, count) do
     query = %{

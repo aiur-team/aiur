@@ -259,16 +259,22 @@ defmodule Aiur.Opencode.SessionWriter do
 
   # Per-ticket token/cost status row (#132). Rendered as a system standalone
   # row so it shows in the chat scrollback whether or not the side panel is
-  # open, refreshing as new (throttled) cost snapshots arrive. Not streamed by
-  # the live bridge, so there's no double-render to dedup against.
+  # open, refreshing as new (throttled, bucket-gated) cost snapshots arrive.
+  # Skipped while a live stream is open: the same gate the transcript/alert/
+  # event-row paths use, so a status row can't splice into the middle of the
+  # actively streaming assistant turn.
   def handle_info({:cost_updated, snapshot}, state) when is_map(snapshot) do
-    case write_system_standalone(state, CostRow.compact(snapshot)) do
-      {:ok, _message_id} ->
-        {:noreply, reset_fk_failures(state)}
+    if live_stream_active?(state) do
+      {:noreply, state}
+    else
+      case write_system_standalone(state, CostRow.compact(snapshot)) do
+        {:ok, _message_id} ->
+          {:noreply, reset_fk_failures(state)}
 
-      {:error, reason} ->
-        log_session_write_failure("cost_row_failed", state.identifier, reason)
-        handle_write_failure(state, reason)
+        {:error, reason} ->
+          log_session_write_failure("cost_row_failed", state.identifier, reason)
+          handle_write_failure(state, reason)
+      end
     end
   end
 
