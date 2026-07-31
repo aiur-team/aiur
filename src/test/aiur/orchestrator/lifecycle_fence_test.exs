@@ -78,6 +78,32 @@ defmodule Aiur.Orchestrator.LifecycleFenceTest do
     assert :admit = LifecycleFence.reconcile_observed_state(state, observed, terminal_states)
   end
 
+  test "a terminal observed state admits even when authoritative_state is also terminal" do
+    issue_id = "issue-fence-terminal-both"
+    identifier = "LF-4"
+
+    state = %State{
+      running: %{
+        issue_id => %{
+          identifier: identifier,
+          issue: %Issue{id: issue_id, identifier: identifier, state: "closed"},
+          control: %{status: :working},
+          lifecycle_fence: %{
+            authoritative_state: "closed",
+            generation: 1,
+            opened_at: DateTime.utc_now(),
+            pending_item_ids: MapSet.new([100])
+          }
+        }
+      }
+    }
+
+    observed = %Issue{id: issue_id, identifier: identifier, state: "closed"}
+    terminal_states = MapSet.new(["closed", "done", "cancelled", "canceled"])
+
+    assert :admit = LifecycleFence.reconcile_observed_state(state, observed, terminal_states)
+  end
+
   test "a matching handoff state remains fenced until provider delivery" do
     issue_id = "issue-matching-handoff"
     issue = %Issue{id: issue_id, identifier: "LF-2", state: "human-review"}

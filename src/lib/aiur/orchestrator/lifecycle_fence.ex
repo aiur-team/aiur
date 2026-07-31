@@ -78,22 +78,24 @@ defmodule Aiur.Orchestrator.LifecycleFence do
         actual_state = normalize_state(issue.state)
 
         cond do
-          actual_state == authoritative_state ->
-            {:fenced, state}
-
-          actual_state == "rework" ->
-            {:fenced, adopt_authoritative_rework(state, issue_id, issue)}
-
           DispatchPolicy.terminal_issue_state?(actual_state, terminal_states) ->
             # The tracker is reporting a terminal state (e.g. closed by the Executor after merge).
             # This is authoritative: no queued item will arrive to release the fence because the
             # issue is already done. Admit so the reconciler can tear down the entry normally.
+            # Checked first so a terminal observed state always wins, even if authoritative_state
+            # is also terminal (which would otherwise cause the matching-state branch to hold the fence).
             Logger.info(
               "Terminal tracker state observed while lifecycle fence is active; admitting for teardown: " <>
                 "#{State.issue_context(issue)} observed_state=#{actual_state} authoritative_state=#{authoritative_state}"
             )
 
             :admit
+
+          actual_state == authoritative_state ->
+            {:fenced, state}
+
+          actual_state == "rework" ->
+            {:fenced, adopt_authoritative_rework(state, issue_id, issue)}
 
           true ->
             {:fenced,
