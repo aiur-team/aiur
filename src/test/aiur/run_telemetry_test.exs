@@ -5,7 +5,6 @@ defmodule Aiur.RunTelemetryTest do
   alias Aiur.RunTelemetry.{Dashboard, Lifecycle, Writer}
 
   setup do
-    original_debug = System.get_env("AIUR_DEBUG")
     original_log_file = Application.get_env(:aiur, :log_file)
 
     root = Path.join(System.tmp_dir!(), "aiur-run-telemetry-#{System.unique_integer([:positive])}")
@@ -14,11 +13,6 @@ defmodule Aiur.RunTelemetryTest do
 
     on_exit(fn ->
       File.rm_rf!(root)
-
-      case original_debug do
-        nil -> System.delete_env("AIUR_DEBUG")
-        value -> System.put_env("AIUR_DEBUG", value)
-      end
 
       case original_log_file do
         nil -> Application.delete_env(:aiur, :log_file)
@@ -88,6 +82,25 @@ defmodule Aiur.RunTelemetryTest do
 
   test "record/2 remains fail-open when the writer is absent" do
     assert :ok = RunTelemetry.record(:lifecycle, %{event: :dispatch})
+  end
+
+  test "facade respects telemetry_enabled: false — record/2 is a no-op when disabled", %{root: root} do
+    enabled_key = {Aiur.RunTelemetry, :telemetry_enabled}
+    original = :persistent_term.get(enabled_key, :unset)
+
+    on_exit(fn ->
+      case original do
+        :unset -> :persistent_term.erase(enabled_key)
+        value -> :persistent_term.put(enabled_key, value)
+      end
+    end)
+
+    RunTelemetry.start_boot()
+    :persistent_term.put(enabled_key, false)
+
+    assert :ok = RunTelemetry.record(:lifecycle, %{ticket: "disabled-test"})
+    assert :ok = RunTelemetry.record_batch([{:lifecycle, %{ticket: "disabled-test"}}])
+    refute File.exists?(Path.join(root, "log/telemetry.ndjson"))
   end
 
   test "facade writes through the supervised writer without --debug", %{root: root} do

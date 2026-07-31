@@ -563,7 +563,7 @@ defmodule Aiur.Config do
   @spec telemetry_enabled?() :: boolean()
   def telemetry_enabled? do
     case settings() do
-      {:ok, %{observability: observability}} -> Map.get(observability, :telemetry_enabled, true)
+      {:ok, %{observability: observability}} -> observability.telemetry_enabled
       _other -> true
     end
   end

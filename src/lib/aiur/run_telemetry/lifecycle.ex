@@ -7,7 +7,6 @@ defmodule Aiur.RunTelemetry.Lifecycle do
   are deliberately excluded from the record contract.
   """
 
-  alias Aiur.Config
   alias Aiur.Orchestrator.CommentWake
   alias Aiur.Protocol.MapAccess
   alias Aiur.RunTelemetry
@@ -56,7 +55,7 @@ defmodule Aiur.RunTelemetry.Lifecycle do
   @spec enabled?(keyword()) :: boolean()
   def enabled?(opts \\ []) when is_list(opts) do
     Keyword.has_key?(opts, :recorder) or lifecycle_recorder_override?() or
-      Config.telemetry_enabled?()
+      RunTelemetry.telemetry_enabled?()
   end
 
   @doc "Records one lifecycle start, end, or point without propagating failures."

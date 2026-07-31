@@ -15,6 +15,7 @@ defmodule Aiur.RunTelemetry do
   # Version 2 adds the dispatch-time complexity estimate to lifecycle records.
   @schema_version 2
   @boot_state_key {__MODULE__, :boot_state}
+  @telemetry_enabled_key {__MODULE__, :telemetry_enabled}
 
   @doc "Current durable telemetry schema version."
   @spec schema_version() :: pos_integer()
@@ -23,8 +24,15 @@ defmodule Aiur.RunTelemetry do
   @doc false
   @spec start_boot() :: :ok
   def start_boot do
+    :persistent_term.put(@telemetry_enabled_key, Config.telemetry_enabled?())
     :persistent_term.put(@boot_state_key, new_boot_state())
     :ok
+  end
+
+  @doc "Whether telemetry recording is enabled; reads the boot-time cached value after start_boot/0."
+  @spec telemetry_enabled?() :: boolean()
+  def telemetry_enabled? do
+    :persistent_term.get(@telemetry_enabled_key, true)
   end
 
   @doc "Delegates to `Aiur.Boot.run_id/0` so telemetry never reports a stale id after a test reboot."
@@ -65,7 +73,7 @@ defmodule Aiur.RunTelemetry do
   @spec record(atom() | String.t(), map(), keyword()) :: :ok
   def record(kind, attributes, opts)
       when (is_atom(kind) or is_binary(kind)) and is_map(attributes) and is_list(opts) do
-    if Config.telemetry_enabled?() do
+    if telemetry_enabled?() do
       writer = Keyword.get(opts, :writer, Writer)
       Writer.record(writer, kind, attributes, Keyword.delete(opts, :writer))
     end
@@ -84,7 +92,7 @@ defmodule Aiur.RunTelemetry do
   def record_batch(records, opts \\ [])
 
   def record_batch(records, opts) when is_list(records) and is_list(opts) do
-    if Config.telemetry_enabled?() do
+    if telemetry_enabled?() do
       writer = Keyword.get(opts, :writer, Writer)
       Writer.record_batch(writer, records, Keyword.delete(opts, :writer))
     end
