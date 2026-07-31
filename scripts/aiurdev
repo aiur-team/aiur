@@ -180,9 +180,9 @@ ensure_built() {
 
   [ "${AIUR_SKIP_BUILD:-0}" = "1" ] && return 0
 
+  trap 'release_build_lock' EXIT
   acquire_build_lock
   ensure_built_locked || status=$?
-  release_build_lock
   return "$status"
 }
 
@@ -205,11 +205,11 @@ ensure_control_surface() {
   # must not wait behind that rebuild lock just to query or stop the daemon.
   release_ready && return 0
 
+  trap 'release_build_lock' EXIT
   acquire_build_lock
   if ! release_ready; then
     ensure_built_locked || status=$?
   fi
-  release_build_lock
   return "$status"
 }
 
@@ -291,6 +291,7 @@ fi
 
 # `aiurdev build` force-rebuilds; otherwise rebuild only when stale.
 if [ "${1:-}" = "build" ]; then
+  trap 'release_build_lock' EXIT
   acquire_build_lock
   build_status=0
   if [ "${2:-}" = "--deps" ]; then
@@ -306,7 +307,6 @@ if [ "${1:-}" = "build" ]; then
   if [ "$build_status" -eq 0 ]; then
     build_aiur || build_status=$?
   fi
-  release_build_lock
   exit "$build_status"
 fi
 
@@ -491,11 +491,11 @@ if [ "${#passthrough[@]}" -gt 0 ]; then
       # for a dev release that became incomplete before its RPC launcher exec.
       rm -f "$control_retry_signal"
       echo "⏳ dev release changed during control command; waiting for rebuild and retrying" >&2
+      trap 'release_build_lock' EXIT
       acquire_build_lock
       if ! release_ready; then
         ensure_built_locked
       fi
-      release_build_lock
       export AIUR_CONTROL_RELEASE_RETRYABLE=0
       exec "$engine" "${passthrough[@]}"
     fi
