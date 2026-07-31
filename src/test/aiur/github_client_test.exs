@@ -1,7 +1,7 @@
 defmodule Aiur.GitHub.ClientTest do
   use Aiur.TestSupport
 
-  alias Aiur.GitHub.Client
+  alias Aiur.GitHub.{Client, DispatchAuthorization}
   alias Aiur.Workflow
 
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
@@ -10,6 +10,7 @@ defmodule Aiur.GitHub.ClientTest do
     prev_token = System.get_env("GITHUB_TOKEN")
     prev_cached_token = :persistent_term.get(@token_cache_key, :unset)
     :persistent_term.erase(@token_cache_key)
+    DispatchAuthorization.clear_cache()
     System.put_env("GITHUB_TOKEN", "test-gh-token")
 
     on_exit(fn ->

@@ -3,10 +3,10 @@
   "version": "0.0.0",
   "description": "AI Unit Runtime for Executors.",
   "license": "Apache-2.0",
-  "homepage": "https://github.com/its-everdred/aiur",
+  "homepage": "https://github.com/aiur-team/aiur",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/its-everdred/aiur.git"
+    "url": "git+https://github.com/aiur-team/aiur.git"
   },
   "bin": {
     "aiur": "bin/aiur.js"

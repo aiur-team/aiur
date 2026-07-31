@@ -59,6 +59,15 @@ const COLUMNS = 4;
 const ROWS = 2;
 const KEYS_PER_PAGE = COLUMNS * ROWS;
 
+/**
+ * Bucket design tokens. Accents map 1:1 to OCC CSS custom properties
+ * (docs/build-order/prototype/Aiur Operator Control Center.html):
+ *   running → --ack, paused → --accent-ink, stuck → --attn,
+ *   alert → --block, queued → --super.
+ * Glow = accent RGB at higher opacity (0.32–0.40) for physical-device readability.
+ * Face = --bg (#16171a) tinted with accent at ~8–10%.
+ * Full derivation: docs/design/streamdeck-bucket-tokens.md
+ */
 export const BUCKET_STYLES: Readonly<Record<BucketId, Readonly<BucketStyle>>> = Object.freeze({
   running: Object.freeze({
     accent: "#4fd6c4",
