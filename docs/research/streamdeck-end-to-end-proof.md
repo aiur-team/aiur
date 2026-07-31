@@ -82,25 +82,40 @@ alone should not require guessing which agent or meter was checked.
 
 ## Browser coverage audit
 
-Run the package CI commands above and the browser harness from `src/browser`:
+Run the targeted streamdeck browser spec (added by #1353) from `src/browser`:
 
 ```bash
 cd src/browser
+node scripts/run-browser-tests.mjs tests/streamdeck-emulator.browser.spec.mjs
+```
+
+Then run the full suite to confirm nothing regressed:
+
+```bash
 npm test
 ```
 
-The final merged state must contain named browser coverage for the emulator
-interactions in steps 2–6. During acceptance, inspect the test list rather than
-assuming that the aggregate command covers them:
+Inspect the test list to verify which workflow steps are covered:
 
 ```bash
 rg -n -i 'streamdeck|stream deck|dial|pager|logs mode|pause|resume' \
   tests ../test/browser
 ```
 
-If any of steps 2–6 lacks a headless test after #1352/#1353 land, record the
-gap as a separate non-blocking issue and link it from #1358. Do not add an
-unplanned test extension to this proof ticket. The headless tests corroborate
+**Known coverage state after #1352/#1353 merge:**
+
+| Step | Headless coverage |
+|------|-------------------|
+| 2 | Grid fleet display / bucketing | None yet — see finding [#1395](https://github.com/its-everdred/aiur/issues/1395) |
+| 3 | Dial drag, wheel, keyboard input | Covered by `streamdeck-emulator.browser.spec.mjs` |
+| 3 | Pager dots / window cycling | Not yet covered — see #1395 |
+| 4 | Key → cmd mode; pause/resume agent | Not yet covered — see #1395 |
+| 5 | Logs mode scroll; hint arrow bounds | Not yet covered — see #1395 |
+| 6 | Back-navigation logs → cmd → grid | Not yet covered — see #1395 |
+
+If any of steps 2–6 still lacks a headless test when you run the proof, record
+each gap as a separate non-blocking issue and link it from #1358. Do not add
+unplanned test extensions to this proof ticket. The headless tests corroborate
 the interaction contract; they do not replace the live-fleet screenshots in
 the table above.
 
