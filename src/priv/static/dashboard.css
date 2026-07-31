@@ -5062,9 +5062,9 @@ html[data-theme="light"] .toggle-icon .moon {
     margin-inline: auto;
     display: grid;
     /* Five equal route cells plus one auto cell for the control cluster, so the
-       pause and theme toggles ride along in the nav instead of vanishing with
-       the hidden sidebar. `auto` keeps them at their natural icon width rather
-       than stealing a fifth of the row from the route labels. */
+       pause toggle rides along in the nav instead of vanishing with the hidden
+       sidebar. `auto` keeps it at its natural icon width rather than stealing
+       space from the route labels. */
     grid-template-columns: repeat(5, minmax(0, 1fr)) auto;
     gap: 0.2rem;
     padding: 0.3rem;
