@@ -217,7 +217,7 @@ defmodule Aiur.Events.SubscriptionStore do
   @doc false
   # Provided so tests can stub the enqueue call without invoking the
   # full orchestrator. Default behaviour: route to Aiur.Orchestrator.
-  @spec set_enqueue_fn((String.t(), map() -> :ok) | nil) :: :ok
+  @spec set_enqueue_fn((String.t(), map() -> :ok | {:error, term()}) | nil) :: :ok
   def set_enqueue_fn(fun) when is_function(fun, 2) or is_nil(fun) do
     :persistent_term.put({__MODULE__, :enqueue_fn}, fun)
   end
@@ -232,7 +232,8 @@ defmodule Aiur.Events.SubscriptionStore do
       path: path,
       subscribed_to: [],
       last_seen_event_id: nil,
-      open_attentions: []
+      open_attentions: [],
+      stalled_before: nil
     }
 
     # Synchronous load + re-register bindings during init so attach/1
@@ -350,17 +351,37 @@ defmodule Aiur.Events.SubscriptionStore do
       # Redelivery after restart — already consumed.
       {:noreply, state}
     else
-      enqueue_event(state.identifier, event)
-      Aiur.IssueLog.record_event(state.identifier, :consumed, event)
       topic = Map.get(event, :topic) || Map.get(event, "topic") || "(unknown)"
 
-      DebugLog.broadcast(:receive, topic,
-        id: event_id,
-        identifier: state.identifier,
-        body: event
-      )
+      new_state =
+        case enqueue_event(state.identifier, event) do
+          :ok ->
+            Aiur.IssueLog.record_event(state.identifier, :consumed, event)
 
-      new_state = advance_cursor_inline(state, event_id)
+            DebugLog.broadcast(:receive, topic,
+              id: event_id,
+              identifier: state.identifier,
+              body: event
+            )
+
+            # Only advance the durable cursor after a successful enqueue, and
+            # only when no earlier event is stalled — advancing past a failed
+            # event would make it permanently unrecoverable.
+            if is_nil(state.stalled_before) do
+              advance_cursor_inline(state, event_id)
+            else
+              state
+            end
+
+          {:error, reason} ->
+            Logger.warning(
+              "SubscriptionStore(#{state.identifier}): enqueue failed for event #{inspect(event_id)} on topic #{topic}: #{inspect(reason)}; " <>
+                "cursor held at #{cursor}, event will replay on restart"
+            )
+
+            %{state | stalled_before: stall_min(state.stalled_before, event_id)}
+        end
+
       {:noreply, new_state}
     end
   end
@@ -380,26 +401,33 @@ defmodule Aiur.Events.SubscriptionStore do
     case :persistent_term.get({__MODULE__, :enqueue_fn}, nil) do
       fun when is_function(fun, 2) ->
         try do
-          fun.(identifier, event)
+          case fun.(identifier, event) do
+            :ok -> :ok
+            {:error, _} = err -> err
+            other -> {:error, {:unexpected_return, other}}
+          end
         rescue
-          _ -> :ok
+          e -> {:error, {:raised, e}}
         end
 
       _ ->
         # Default route: orchestrator's handle_call
         case Process.whereis(Aiur.Orchestrator) do
           nil ->
-            :ok
+            {:error, :no_orchestrator}
 
           pid ->
             try do
               GenServer.call(pid, {:enqueue_event_digest, identifier, event}, 1_000)
             catch
-              :exit, _ -> :ok
+              :exit, reason -> {:error, {:exit, reason}}
             end
         end
     end
   end
+
+  defp stall_min(nil, id) when is_integer(id), do: id
+  defp stall_min(current, id) when is_integer(current) and is_integer(id), do: min(current, id)
 
   @impl true
   def terminate(_reason, state) do
