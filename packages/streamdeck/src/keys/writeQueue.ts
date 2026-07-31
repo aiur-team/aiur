@@ -93,6 +93,12 @@ export class KeyWriteQueue {
         }
       }
     } finally {
+      // Race-free by construction: the only `await` is inside the loop body.
+      // Once `shift()` returns undefined the loop exits and this reset runs in
+      // the same synchronous continuation, so no `enqueue()` can observe an
+      // empty queue with `draining` still true and then be stranded. Keep it
+      // that way — do not introduce an `await` between the final `shift()` and
+      // this reset, or a late enqueue could deadlock.
       this.draining = false;
     }
   }

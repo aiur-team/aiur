@@ -33,6 +33,10 @@ describe("KeyCache dirty tracking", () => {
       ]),
     );
     expect(first.map((p) => p.index)).toEqual([0, 1, 3]);
+    // Each paint carries real, non-empty reports (fill -> 1, image -> >=1).
+    expect(first.every((p) => p.reports.length >= 1)).toBe(true);
+    expect(first[0].reports[0].readUInt8(1)).toBe(0x06); // fill command
+    expect(first[1].reports[0].readUInt8(1)).toBe(0x07); // image command
 
     // One key changes -> exactly one paint.
     const second = cache.paintAll(
@@ -65,6 +69,14 @@ describe("KeyCache dirty tracking", () => {
     jpeg[0] = 0; // mutate caller buffer
     // Cache still sees the original content as clean.
     expect(cache.isDirty(0, { kind: "image", jpeg: new Uint8Array([5, 6, 7]) })).toBe(false);
+  });
+
+  it("does not alias the caller's fill colour after paint", () => {
+    const cache = new KeyCache();
+    const color = { r: 100, g: 50, b: 25 };
+    cache.paint(0, { kind: "fill", color });
+    color.r = 0; // mutate caller's colour
+    expect(cache.isDirty(0, { kind: "fill", color: { r: 100, g: 50, b: 25 } })).toBe(false);
   });
 
   it("honours the configured fill index base", () => {
