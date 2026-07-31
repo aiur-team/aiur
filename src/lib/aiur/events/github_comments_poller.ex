@@ -199,10 +199,13 @@ defmodule Aiur.Events.GithubCommentsPoller do
         {thread_count, thread_result} =
           poll_unaddressed_pr_review_threads(target, pr_number, repo, opts)
 
+        {review_count, review_result} =
+          poll_pr_review_submissions(target, pr_number, repo, opts)
+
         {
-          conversation_count + thread_count,
+          conversation_count + thread_count + review_count,
           conversation_newest,
-          [conversation_result, thread_result]
+          [conversation_result, thread_result, review_result]
         }
 
       nil ->
@@ -246,6 +249,55 @@ defmodule Aiur.Events.GithubCommentsPoller do
 
         {0, {:error, {:pr_review_threads, reason}}}
     end
+  end
+
+  # Actionable states: CHANGES_REQUESTED for explicit rework requests, COMMENTED
+  # for review-body-only feedback that did not use the "Request changes" button.
+  # APPROVED and DISMISSED are excluded — neither requires agent rework.
+  @actionable_review_states ~w(CHANGES_REQUESTED COMMENTED)
+
+  defp poll_pr_review_submissions(target, pr_number, repo, opts) do
+    case Client.fetch_pull_request_reviews(pr_number, opts) do
+      {:ok, reviews} ->
+        count =
+          reviews
+          |> Enum.filter(&actionable_review?/1)
+          |> most_recent_per_reviewer()
+          |> Enum.map(&publish_pr_review_submission(target, pr_number, &1, repo))
+          |> Enum.count(&match?({:ok, _, _}, &1))
+
+        {count, :ok}
+
+      {:error, reason} ->
+        Logger.warning("GithubCommentsPoller PR reviews failed: issue=#{target} pr=#{pr_number} reason=#{inspect(reason)}")
+
+        {0, {:error, {:pr_reviews, reason}}}
+    end
+  end
+
+  defp actionable_review?(%{"state" => state}), do: state in @actionable_review_states
+  defp actionable_review?(_review), do: false
+
+  defp most_recent_per_reviewer(reviews) do
+    reviews
+    |> Enum.group_by(&get_in(&1, ["user", "login"]))
+    |> Enum.map(fn {_login, reviewer_reviews} ->
+      Enum.max_by(reviewer_reviews, &Map.get(&1, "submitted_at", ""), fn a, b -> a >= b end)
+    end)
+  end
+
+  defp publish_pr_review_submission(target, pr_number, review, repo) when is_map(review) do
+    actor = get_in(review, ["user", "login"])
+    review_id = Map.get(review, "id")
+    dedup_key = GithubKeys.pr_review_dedup_key(repo, pr_number, review_id)
+
+    publish_comment(
+      "ticket.#{target}.pr.review_comment",
+      %{issue_number: target, comment: review},
+      actor,
+      issue_number: target,
+      dedup_key: dedup_key
+    )
   end
 
   defp publish_issue_comment(target, comment, repo) when is_map(comment) do
