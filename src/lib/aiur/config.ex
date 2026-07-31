@@ -454,11 +454,6 @@ defmodule Aiur.Config do
     settings!().agent.ci_wait_rewake_minutes
   end
 
-  @spec max_parked_ci_wait_agents() :: pos_integer() | nil
-  def max_parked_ci_wait_agents do
-    settings!().agent.max_parked_ci_wait_agents
-  end
-
   @doc """
   Maximum known synthetic load-generator descendants allowed per agent process
   tree. `nil` in config derives from available schedulers; `0` disables the

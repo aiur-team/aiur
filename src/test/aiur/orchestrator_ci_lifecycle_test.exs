@@ -601,60 +601,6 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       refute Map.has_key?(next.ci_lifecycle.rewakes, identifier)
     end
 
-    test "live runner at the park cap is deactivated instead of parked" do
-      write_workflow_file_synced!(Workflow.workflow_file_path(),
-        tracker_kind: "github",
-        tracker_repo: "owner/repo",
-        tracker_label_prefix: "agent",
-        tracker_active_states: ["todo", "in-progress", "rework", "merging"],
-        tracker_terminal_states: ["done", "cancelled", "canceled"],
-        max_parked_ci_wait_agents: 1
-      )
-
-      identifier = unique_identifier("cap-active")
-      parked_id = unique_identifier("cap-parked")
-      recorder = start_recorder()
-      issue = issue(identifier, "ci-wait")
-
-      parked_issue = issue(parked_id, "ci-wait")
-
-      parked_entry = %{
-        pid: nil,
-        ref: nil,
-        identifier: parked_id,
-        issue: parked_issue,
-        started_at: DateTime.utc_now(),
-        paused_reason: :ci_wait,
-        control: %{
-          status: :paused,
-          can_interrupt: false,
-          safe_checkpoints: [],
-          application_confirmation: :confirmed,
-          generation: 200,
-          version: 0
-        }
-      }
-
-      base = running_state(issue, recorder, :working, [])
-
-      state = %{
-        base
-        | running: Map.put(base.running, parked_id, parked_entry),
-          claimed: MapSet.new([issue.id, parked_id])
-      }
-
-      ref = Process.monitor(recorder)
-      next = CiLifecycle.pause_issue_for_ci_wait(state, issue)
-
-      assert_receive {:DOWN, ^ref, :process, ^recorder, :killed}
-      refute_received {:recorded, _seq, {:pause_agent, _request_id}}
-
-      entry = Map.fetch!(next.running, identifier)
-      assert entry.control.status == :deactivated
-      assert entry.paused_reason == :ci_wait
-      assert Map.has_key?(next.ci_lifecycle.rewakes, identifier)
-    end
-
     test "tracker recording ignores unrelated process traffic" do
       recorder = start_recorder()
 
