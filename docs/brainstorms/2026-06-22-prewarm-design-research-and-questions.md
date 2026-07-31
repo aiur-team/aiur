@@ -285,7 +285,7 @@ workers fall back to the existing cold-clone path (and the opt-in agent prompt f
 8. **Tests** (TDD per unit: detection, RepoBase staleness, gate, materialization, render-pipeline)
    + full gate (`make -C src all`) + a **throttled manual re-measurement** (4–6 agents, raised
    `ulimit`) to confirm the boot→first-message win the crash hid.
-9. **Deferred follow-up — issue [#409](https://github.com/its-everdred/aiur/issues/409)** (NOT in this
+9. **Deferred follow-up — issue [#409](https://github.com/aiur-team/aiur/issues/409)** (NOT in this
    PR; `enhancement`+`needs-triage`, no `agent:` label — schedule **after this PR merges**): the
    structural `:emfile`/process-efficiency reductions — pool `opencode-serve` to one shared serve, cap
    the AttachPool N×M fan-out (256→~M SessionWriters), event-driven pane-death (replaces the batched
@@ -300,7 +300,7 @@ All settled; this is the design of record:
 - **Automation (Q1):** detect toolchain → aiur auto-fills the one-time base build; **aiur (Elixir) owns the per-workspace copy**; agent-prompt fallback for undetected/exotic. Opt-in at end of `aiur init`.
 - **Copy owner (Q2):** aiur-in-Elixir copy; cold-clone path kept as the opt-out fallback.
 - **First run / freshness (Q3):** loading bar (opt-in at init OR a config pre-warm flag → first launch); **rebuild on every main advance, preempt in-flight stale builds, no debounce**; launch-during-build resumes the bar at the live phase.
-- **`:emfile` (Q4):** `ulimit` bump + cheap fork-reducers **including decoupling `aiur_screen_grab` from `--debug`** in this PR; structural fixes → [#409](https://github.com/its-everdred/aiur/issues/409).
+- **`:emfile` (Q4):** `ulimit` bump + cheap fork-reducers **including decoupling `aiur_screen_grab` from `--debug`** in this PR; structural fixes → [#409](https://github.com/aiur-team/aiur/issues/409).
 - **Detection breadth:** **Elixir + Node + Go + Rust + Python** (agent-prompt fallback otherwise).
 - **Copy mechanism:** **`cp --reflink=auto -a` (Linux) / `cp -c` (macOS)**, platform-detected, degrading to full copy on ext4.
 - **Consent:** **show the auto-detected build command for confirmation** before writing it into config / first run.
