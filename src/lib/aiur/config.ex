@@ -598,8 +598,21 @@ defmodule Aiur.Config do
     settings!().observability.render_interval_ms
   end
 
-  @doc "Retention limits for the durable run-telemetry stream."
-  @spec telemetry_retention() :: [max_bytes: pos_integer(), max_age_days: pos_integer()]
+  @doc """
+  Retention limits for the durable run-telemetry stream.
+
+  - `:max_bytes` — maximum file size in bytes. Whole boot groups are pruned
+    from oldest to newest until the file fits. Defaults to 64 MiB.
+  - `:max_age_days` — maximum age of a retained boot in days. Defaults to 30.
+  - `:prune_interval_bytes` — periodic in-writer pruning fires after this many
+    bytes have been written since the last prune. Defaults to `max(max_bytes/8, 1 MiB)`.
+    Set this lower in tests to trigger pruning without writing large payloads.
+  """
+  @spec telemetry_retention() :: [
+          max_bytes: pos_integer(),
+          max_age_days: pos_integer(),
+          prune_interval_bytes: pos_integer()
+        ]
   def telemetry_retention do
     case settings() do
       {:ok, %{observability: observability}} ->

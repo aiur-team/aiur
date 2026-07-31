@@ -276,14 +276,16 @@ defmodule Aiur.RunTelemetry.Writer do
 
   defp release_admission(counter), do: :atomics.sub(counter, @pending_index, 1)
 
-  # Runs at-most-once per prune_interval_bytes written. The current boot is always
-  # protected, so this only removes fully-written old boots that exceed the cap.
   defp maybe_prune(%{prune_interval_bytes: nil} = state), do: state
-
   defp maybe_prune(%{bytes_since_prune: n, prune_interval_bytes: threshold} = state) when n < threshold, do: state
 
   defp maybe_prune(state) do
-    opts = state.retention |> Keyword.put(:now, state.clock.()) |> Keyword.put(:protected_boot_id, state.boot_id)
+    # Roll the current segment: append a restart marker to close the current
+    # segment so any data before this point is pruneable as a completed group.
+    # The fresh restart marker re-anchors the current boot in the file, so the
+    # subsequent prune (which does not protect any boot) leaves it parseable.
+    state = write_segment_boundary(state)
+    opts = state.retention |> Keyword.put(:now, state.clock.())
 
     case Retention.prune(state.path, opts) do
       :ok -> :ok
@@ -295,6 +297,39 @@ defmodule Aiur.RunTelemetry.Writer do
     error ->
       Logger.warning("run_telemetry retention_raised path=#{state.path} reason=#{inspect(error)}")
       %{state | bytes_since_prune: 0}
+  end
+
+  defp write_segment_boundary(state) do
+    sequence = next_sequence(state)
+    timestamp = state.clock.()
+
+    envelope = %{
+      schema_version: RunTelemetry.schema_version(),
+      kind: "restart",
+      timestamp: normalize_timestamp(timestamp),
+      recorded_at: normalize_timestamp(timestamp),
+      boot_id: state.boot_id,
+      sequence: sequence,
+      record_id: "#{state.boot_id}:#{sequence}",
+      attributes: %{
+        event: "daemon_restart",
+        daemon_pid: System.pid(),
+        daemon_started_at: RunTelemetry.boot_started_at(),
+        existing_records: true
+      }
+    }
+
+    {:ok, encoded} = Jason.encode(Aiur.JSONSafe.normalize(envelope))
+    contents = encoded <> "\n"
+
+    case state.write_fun.(state.path, contents) do
+      :ok ->
+        %{state | sequence: sequence, bytes_since_prune: state.bytes_since_prune + byte_size(contents)}
+
+      {:error, reason} ->
+        Logger.warning("run_telemetry segment_roll_failed path=#{state.path} reason=#{inspect(reason)}")
+        state
+    end
   end
 
   # Default interval: max_bytes / 8, minimum 1 MiB. Overridable via :prune_interval_bytes

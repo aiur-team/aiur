@@ -3,17 +3,38 @@ defmodule Aiur.RunTelemetry.Retention do
 
   require Logger
 
-  # Retention intentionally runs before a new Writer appends its restart marker.
-  # That is the one point where no live writer owns the stream, so replacing the
-  # file cannot strand buffered appends on an old inode.
+  # Retention.prune/2 rewrites the stream by atomic rename. It is safe to call
+  # while the Writer is running because the Writer appends with per-call File.write
+  # (no persistent handle), so no open handle crosses the rename.
   #
-  # Periodic in-writer pruning (see Writer.maybe_prune/1) uses the same path so
-  # old-boot pruning also occurs during long-running sessions, not only at boot.
+  # Boot-time pruning (Writer.init/1) runs before the restart marker is written.
+  # Periodic in-writer pruning (Writer.maybe_prune/1) first writes a segment
+  # boundary (a new restart marker) to close the current segment, then prunes
+  # without protecting the current boot. This keeps the file bounded even when a
+  # single boot generates data exceeding max_bytes.
+
+  @copy_chunk_bytes 64 * 1024
 
   @spec prune(Path.t(), keyword()) :: :ok | {:error, term()}
   def prune(path, opts \\ [])
 
   def prune(path, opts) when is_binary(path) and is_list(opts) do
+    # Fast path: skip the full parse when the file is already within the size
+    # limit and no age-based eviction is configured.
+    if skip_scan?(path, opts), do: :ok, else: do_prune(path, opts)
+  end
+
+  def prune(_path, _opts), do: :ok
+
+  defp skip_scan?(path, opts) do
+    max_bytes = Keyword.get(opts, :max_bytes)
+
+    is_nil(Keyword.get(opts, :max_age_days)) and
+      is_integer(max_bytes) and max_bytes > 0 and
+      match?({:ok, %{size: size}} when size <= max_bytes, File.stat(path))
+  end
+
+  defp do_prune(path, opts) do
     with {:ok, groups} <- read_boot_groups(path),
          retained <- groups |> retain_by_age(opts) |> retain_by_size(opts) do
       if length(retained) < length(groups) do
@@ -27,44 +48,55 @@ defmodule Aiur.RunTelemetry.Retention do
     end
   end
 
-  def prune(_path, _opts), do: :ok
-
-  # Streams the file line-by-line so large files are never fully loaded into RAM.
+  # Scans line-by-line, recording byte offsets for each boot group without
+  # materialising line content. Peak memory is O(group_count * metadata), not
+  # O(file_size).
   defp read_boot_groups(path) do
-    groups =
+    initial = {[], {0, nil, nil}, 0}
+
+    {groups_acc, {grp_start, started_at, boot_id}, total_offset} =
       path
       |> File.stream!(:line, [])
-      |> Enum.reduce({[], []}, fn line, {groups, current} ->
-        case restart_metadata(line) do
-          {:ok, timestamp, boot_id} when current != [] ->
-            {[new_group(current) | groups], [{line, timestamp, boot_id}]}
+      |> Enum.reduce(initial, fn line, {groups, {grp_start, started_at, boot_id}, offset} ->
+        size = byte_size(line)
+        next_offset = offset + size
 
-          {:ok, timestamp, boot_id} ->
-            {groups, [{line, timestamp, boot_id}]}
+        case restart_metadata(line) do
+          {:ok, timestamp, new_boot_id} when offset > grp_start ->
+            group = %{
+              start_offset: grp_start,
+              size: offset - grp_start,
+              started_at: started_at,
+              boot_id: boot_id
+            }
+
+            {[group | groups], {offset, timestamp, new_boot_id}, next_offset}
+
+          {:ok, timestamp, new_boot_id} ->
+            {groups, {offset, timestamp, new_boot_id}, next_offset}
 
           :error ->
-            {groups, [{line, nil, nil} | current]}
+            {groups, {grp_start, started_at, boot_id}, next_offset}
         end
       end)
-      |> then(fn {groups, current} ->
-        groups = if current == [], do: groups, else: [new_group(current) | groups]
-        Enum.reverse(groups)
-      end)
 
-    {:ok, groups}
+    all_groups =
+      if total_offset > grp_start do
+        last = %{
+          start_offset: grp_start,
+          size: total_offset - grp_start,
+          started_at: started_at,
+          boot_id: boot_id
+        }
+
+        Enum.reverse([last | groups_acc])
+      else
+        Enum.reverse(groups_acc)
+      end
+
+    {:ok, all_groups}
   rescue
     e in File.Error -> {:error, e.reason}
-    error -> {:error, error}
-  end
-
-  defp new_group(lines) do
-    lines = Enum.reverse(lines)
-
-    %{
-      contents: Enum.map(lines, &elem(&1, 0)) |> IO.iodata_to_binary(),
-      started_at: Enum.find_value(lines, fn {_line, timestamp, _boot_id} -> timestamp end),
-      boot_id: Enum.find_value(lines, fn {_line, _timestamp, boot_id} -> boot_id end)
-    }
   end
 
   defp restart_metadata(line) do
@@ -100,8 +132,10 @@ defmodule Aiur.RunTelemetry.Retention do
     end
   end
 
-  # A single boot may legitimately be larger than the target. Keep that whole
-  # boot rather than turning a valid interval stream into a partial one.
+  # Retains the newest contiguous sequence of boots that fits within max_bytes.
+  # Breaks at the first group that does not fit — older groups are dropped even
+  # if they would individually fit, preserving a contiguous history window.
+  # A single oversized boot is always kept regardless of size.
   defp retain_by_size(groups, opts) do
     case Keyword.get(opts, :max_bytes) do
       max_bytes when is_integer(max_bytes) and max_bytes > 0 ->
@@ -114,41 +148,95 @@ defmodule Aiur.RunTelemetry.Retention do
 
   defp retain_newest_groups(groups, max_bytes, protected_boot_id) do
     {retained, _size} =
-      Enum.reduce(Enum.reverse(groups), {[], 0}, fn group, acc ->
-        retain_group(group, acc, max_bytes, protected_boot_id)
+      Enum.reduce_while(Enum.reverse(groups), {[], 0}, fn group, {retained, size} ->
+        group_size = group.size
+
+        cond do
+          group.boot_id == protected_boot_id ->
+            {:cont, {[group | retained], size + group_size}}
+
+          retained == [] or size + group_size <= max_bytes ->
+            {:cont, {[group | retained], size + group_size}}
+
+          true ->
+            {:halt, {retained, size}}
+        end
       end)
 
     retained
   end
 
-  defp retain_group(group, {retained, size}, max_bytes, protected_boot_id) do
-    group_size = byte_size(group.contents)
-
-    if group.boot_id == protected_boot_id or retained == [] or size + group_size <= max_bytes do
-      {[group | retained], size + group_size}
-    else
-      {retained, size}
-    end
-  end
-
-  defp contents_for(groups), do: groups |> Enum.map(& &1.contents) |> IO.iodata_to_binary()
-
+  # Copies retained byte ranges from the source file to a temp file, then
+  # atomically renames. Peak memory is O(@copy_chunk_bytes), not O(file_size).
   defp write_retained(path, retained) do
     directory = Path.dirname(path)
     temporary = Path.join(directory, ".#{Path.basename(path)}.#{System.unique_integer([:positive])}.tmp")
-    contents = contents_for(retained)
 
-    with :ok <- File.write(temporary, contents, [:binary]),
-         :ok <- File.rename(temporary, path) do
-      :ok
-    else
-      {:error, reason} ->
-        case File.rm(temporary) do
-          :ok -> :ok
-          {:error, rm_reason} -> Logger.warning("run_telemetry temp_file_leaked path=#{temporary} reason=#{inspect(rm_reason)}")
+    with {:ok, src} <- :file.open(path, [:read, :binary]) do
+      outcome =
+        case :file.open(temporary, [:write, :binary]) do
+          {:ok, dst} ->
+            result = copy_groups(src, dst, retained)
+            :file.close(dst)
+            result
+
+          {:error, reason} ->
+            {:error, reason}
         end
 
-        {:error, reason}
+      :file.close(src)
+
+      case outcome do
+        :ok ->
+          case File.rename(temporary, path) do
+            :ok ->
+              :ok
+
+            {:error, reason} ->
+              File.rm(temporary)
+              {:error, reason}
+          end
+
+        {:error, reason} ->
+          case File.rm(temporary) do
+            :ok ->
+              :ok
+
+            {:error, rm_reason} ->
+              Logger.warning("run_telemetry temp_file_leaked path=#{temporary} reason=#{inspect(rm_reason)}")
+          end
+
+          {:error, reason}
+      end
+    end
+  end
+
+  defp copy_groups(_src, _dst, []), do: :ok
+
+  defp copy_groups(src, dst, [%{start_offset: offset, size: size} | rest]) do
+    case copy_range(src, dst, offset, size) do
+      :ok -> copy_groups(src, dst, rest)
+      error -> error
+    end
+  end
+
+  defp copy_range(_src, _dst, _offset, 0), do: :ok
+
+  defp copy_range(src, dst, offset, remaining) do
+    chunk = min(remaining, @copy_chunk_bytes)
+
+    case :file.pread(src, offset, chunk) do
+      {:ok, data} ->
+        case :file.write(dst, data) do
+          :ok -> copy_range(src, dst, offset + byte_size(data), remaining - byte_size(data))
+          {:error, _} = error -> error
+        end
+
+      :eof ->
+        :ok
+
+      {:error, _} = error ->
+        error
     end
   end
 end

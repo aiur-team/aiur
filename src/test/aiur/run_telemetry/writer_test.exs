@@ -415,19 +415,47 @@ defmodule Aiur.RunTelemetry.WriterTest do
 
     old_size = File.stat!(path).size
 
-    # max_bytes is old_size: old boot fits at init, but the restart marker written
-    # during init pushes the total over the cap so maybe_prune fires on that first
-    # append and removes the old boot. prune_interval_bytes: 1 ensures the threshold
-    # is crossed after any single write.
+    # max_bytes equals old_size so the old boot fits at startup, but the restart
+    # marker appended during init pushes the total over the cap. With
+    # prune_interval_bytes: 1 the threshold is crossed immediately, triggering a
+    # segment roll + prune that removes the old boot.
     retention = [max_bytes: old_size, prune_interval_bytes: 1]
 
     {:ok, current} = Writer.start_link(name: nil, path: path, boot_id: "current", retention: retention)
     assert :ok = Writer.flush(current)
 
-    # Old boot already pruned by the periodic prune triggered during init's restart-marker append
     assert {:ok, dataset} = Dataset.build(path)
     assert Dataset.boot_ids(dataset) == ["current"]
     assert dataset.warnings == []
+  end
+
+  test "periodic retention bounds a single boot that exceeds the cap three times over", %{path: path} do
+    # Measure one restart + one resource record so we can set a deterministic cap.
+    {:ok, probe} = Writer.start_link(name: nil, path: path, boot_id: "probe")
+    assert :ok = Writer.record(probe, :resource, %{actor: "_daemon", rss_bytes: 1})
+    assert :ok = Writer.flush(probe)
+    :ok = GenServer.stop(probe)
+
+    one_boot_size = File.stat!(path).size
+    File.rm!(path)
+
+    # Cap = one boot's worth; prune fires after every record.
+    # Writing 6 records (3x cap) in a single boot must leave the file bounded.
+    retention = [max_bytes: one_boot_size, prune_interval_bytes: 1]
+
+    {:ok, writer} = Writer.start_link(name: nil, path: path, boot_id: "big-boot", retention: retention)
+
+    for _ <- 1..6 do
+      assert :ok = Writer.record(writer, :resource, %{actor: "_daemon", rss_bytes: 1})
+    end
+
+    assert :ok = Writer.flush(writer)
+
+    # File stays bounded: at most one full boot + one segment boundary per prune cycle.
+    assert File.stat!(path).size < one_boot_size * 3
+    assert {:ok, dataset} = Dataset.build(path)
+    assert dataset.warnings == []
+    assert Dataset.boot_ids(dataset) == ["big-boot"]
   end
 
   test "periodic retention failure does not crash or stall the writer", %{path: path, root: root} do
