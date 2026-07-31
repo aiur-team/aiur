@@ -119,6 +119,7 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
   end
 
   @doc false
+  @spec default_origin() :: String.t()
   def default_origin do
     case System.get_env("AIUR_BASE_BRANCH") do
       branch when is_binary(branch) and branch != "" -> "origin/#{branch}"

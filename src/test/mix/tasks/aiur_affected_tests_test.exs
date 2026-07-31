@@ -21,6 +21,14 @@ defmodule Mix.Tasks.Aiur.AffectedTestsTest do
              "# no affected test files detected for the documentation-only change"
            ]
   end
+end
+
+# Env-mutation tests require async: false to avoid races on the process-global
+# AIUR_BASE_BRANCH env var.
+defmodule Mix.Tasks.Aiur.AffectedTests.DefaultOriginTest do
+  use ExUnit.Case, async: false
+
+  alias Mix.Tasks.Aiur.AffectedTests
 
   test "default_origin uses AIUR_BASE_BRANCH when set" do
     System.put_env("AIUR_BASE_BRANCH", "develop")
@@ -34,6 +42,11 @@ defmodule Mix.Tasks.Aiur.AffectedTestsTest do
 
   test "default_origin falls back to origin/main when AIUR_BASE_BRANCH is unset" do
     System.delete_env("AIUR_BASE_BRANCH")
-    assert AffectedTests.default_origin() == "origin/main"
+
+    try do
+      assert AffectedTests.default_origin() == "origin/main"
+    after
+      System.delete_env("AIUR_BASE_BRANCH")
+    end
   end
 end
