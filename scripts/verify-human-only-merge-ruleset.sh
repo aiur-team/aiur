@@ -20,12 +20,27 @@ ruleset="$(gh api "repos/$repo/rulesets/$ruleset_id")"
 
 if ! jq -e '
   .enforcement == "active" and
-  (.bypass_actors == null or .bypass_actors == []) and
+  (.conditions.ref_name.include | type == "array") and
   (.conditions.ref_name.include | index("refs/heads/main")) and
-  (.conditions.ref_name.include | index("refs/heads/develop")) and
-  ((.conditions.ref_name.exclude // []) | map(select(. == "refs/heads/main" or . == "refs/heads/develop")) | length == 0)
+  (.conditions.ref_name.include | index("refs/heads/develop"))
 ' >/dev/null <<<"$ruleset"; then
-  echo "ruleset must actively protect main and develop with no bypass actors" >&2
+  echo "ruleset must actively protect main and develop" >&2
+  exit 1
+fi
+
+if ! jq -e '
+  (.conditions.ref_name | has("exclude")) and
+  .conditions.ref_name.exclude == []
+' >/dev/null <<<"$ruleset"; then
+  echo "ruleset ref_name.exclude must be present and exactly empty" >&2
+  exit 1
+fi
+
+if ! jq -e '
+  has("bypass_actors") and
+  .bypass_actors == []
+' >/dev/null <<<"$ruleset"; then
+  echo "ruleset bypass_actors must be visible, present, and exactly empty" >&2
   exit 1
 fi
 

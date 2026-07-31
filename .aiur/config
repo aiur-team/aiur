@@ -14,6 +14,8 @@ tracker:
     repo: its-everdred/aiur
     label_prefix: agent
     bot_account: its-applekid
+    human_mergers:
+      - its-everdred
     # Finite Build Order planning-graph safeguards. Defaults accept exactly 100 roots/members.
     planning_root_limit: 100
     planning_page_budget: 4

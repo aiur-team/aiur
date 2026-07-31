@@ -11,7 +11,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   alias Aiur.Alerts
   alias Aiur.CurrentRunMembership
   alias Aiur.Events.UniversalSubscriptions
-  alias Aiur.GitHub.CodeOwners
+  alias Aiur.GitHub.Config
   alias Aiur.Issue
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, PrAnchored, State}
@@ -67,41 +67,106 @@ defmodule Aiur.Orchestrator.CommentWake do
       )
 
     merger_allowed_fun =
-      Keyword.get(opts, :merger_allowed_fun, &CodeOwners.allowed?/1)
+      Keyword.get(opts, :merger_allowed_fun, &Config.human_merger_allowed?/1)
 
     emit_alert_fun =
-      Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2)
+      Keyword.get(opts, :emit_alert_fun, &emit_merge_alert/2)
 
     merged_by_login = Keyword.get(opts, :merged_by_login)
 
     Logger.info("PR merge received: issue_identifier=#{identifier} merged_by=#{inspect(merged_by_login)}")
 
-    case update_issue_state_fun.(to_string(identifier), "done") do
-      :ok ->
-        unless merger_allowed_fun.(merged_by_login) do
-          emit_alert_fun.("ticket.#{identifier}.merge.unauthorized_merger",
-            issue: to_string(identifier),
-            reason: "PR merged by #{inspect(merged_by_login)} who is not in the merge allowlist.",
-            needs_attention: true,
-            severity: "warning"
+    terminal_state =
+      case update_issue_state_fun.(to_string(identifier), "done") do
+        :ok ->
+          complete_merged_issue(
+            state,
+            identifier,
+            clear_session_handle_fun,
+            observe_membership_fun,
+            terminate_running_issue_fun,
+            mark_reconciled_fun,
+            set_terminal_verification_pending_fun
           )
-        end
 
-        complete_merged_issue(
-          state,
-          identifier,
-          clear_session_handle_fun,
-          observe_membership_fun,
-          terminate_running_issue_fun,
-          mark_reconciled_fun,
-          set_terminal_verification_pending_fun
+        {:error, reason} ->
+          Logger.warning("PR merge terminal transition skipped: issue_identifier=#{identifier} reason=#{inspect(reason)}")
+
+          state
+      end
+
+    audit_merge_attribution(
+      identifier,
+      merged_by_login,
+      merger_allowed_fun,
+      emit_alert_fun
+    )
+
+    terminal_state
+  end
+
+  defp emit_merge_alert(name, opts) do
+    {message, alert_opts} = Keyword.pop!(opts, :message)
+    Alerts.emit_custom(name, message, Keyword.put(alert_opts, :event_source, :system))
+  end
+
+  defp audit_merge_attribution(
+         identifier,
+         merged_by_login,
+         merger_allowed_fun,
+         emit_alert_fun
+       ) do
+    case safely_check_merger(merger_allowed_fun, merged_by_login) do
+      {:ok, true} ->
+        :ok
+
+      {:ok, false} ->
+        safely_emit_merge_alert(
+          emit_alert_fun,
+          "ticket.#{identifier}.merge.unauthorized_merger",
+          message: "Unauthorized PR merger #{inspect(merged_by_login)} detected for ticket #{identifier}.",
+          issue: to_string(identifier),
+          reason: "PR merged by #{inspect(merged_by_login)} who is not in the human merger allowlist.",
+          needs_attention: true,
+          severity: "critical"
         )
 
       {:error, reason} ->
-        Logger.warning("PR merge terminal transition skipped: issue_identifier=#{identifier} reason=#{inspect(reason)}")
+        Logger.error(
+          "PR merge attribution check failed: issue_identifier=#{identifier} " <>
+            "merged_by=#{inspect(merged_by_login)} reason=#{inspect(reason)}"
+        )
 
-        state
+        safely_emit_merge_alert(
+          emit_alert_fun,
+          "ticket.#{identifier}.merge.attribution_check_failed",
+          message: "PR merge attribution check failed for ticket #{identifier}.",
+          issue: to_string(identifier),
+          reason: "PR merged by #{inspect(merged_by_login)}, but the human merger allowlist check failed: #{inspect(reason)}.",
+          needs_attention: true,
+          severity: "critical"
+        )
     end
+  end
+
+  defp safely_check_merger(merger_allowed_fun, merged_by_login) do
+    {:ok, merger_allowed_fun.(merged_by_login) == true}
+  rescue
+    error -> {:error, {:exception, Exception.message(error)}}
+  catch
+    kind, reason -> {:error, {kind, reason}}
+  end
+
+  defp safely_emit_merge_alert(emit_alert_fun, name, opts) do
+    emit_alert_fun.(name, opts)
+  rescue
+    error ->
+      Logger.error("PR merge attribution alert failed: name=#{name} reason=#{Exception.message(error)}")
+      :error
+  catch
+    kind, reason ->
+      Logger.error("PR merge attribution alert failed: name=#{name} reason=#{inspect({kind, reason})}")
+      :error
   end
 
   defp complete_merged_issue(

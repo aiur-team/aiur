@@ -16,6 +16,10 @@ the rate-limit work in #678. This ticket deliberately records the posture and
 does not broaden the merge-boundary change into an authentication migration.
 
 The CI ruleset audit is deliberately separate from the daemon. Its
-`RULESET_AUDITOR_TOKEN` secret has repository Administration: read only and is
-available only to trusted pushes on protected branches; it cannot alter rules,
-merge pull requests, or access Actions, Secrets, or Workflows.
+isolated `RULESET_AUDITOR_TOKEN` secret needs repository Administration: write
+visibility because GitHub otherwise omits `bypass_actors` from ruleset GET
+responses. The audit workflow performs only read operations and receives the
+credential only on trusted pushes to protected branches, but the credential's
+capability means it must not be reused as the daemon token. The daemon remains
+forbidden from receiving Administration, Actions, Secrets, or Workflows
+permission.

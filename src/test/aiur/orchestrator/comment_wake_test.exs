@@ -1,6 +1,8 @@
 defmodule Aiur.Orchestrator.CommentWakeTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
+
   alias Aiur.{Issue, TrackerIdentity}
   alias Aiur.Orchestrator.{CommentWake, State}
 
@@ -196,7 +198,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       assert_receive {:checked_allowlist, "unknown-bot"}
       assert_receive {:alert_emitted, "ticket.nonexistent-123.merge.unauthorized_merger", opts}
       assert Keyword.get(opts, :needs_attention) == true
-      assert Keyword.get(opts, :severity) == "warning"
+      assert Keyword.get(opts, :severity) == "critical"
       assert Keyword.get(opts, :issue) == "nonexistent-123"
       assert Keyword.get(opts, :reason) =~ "unknown-bot"
     end
@@ -223,21 +225,43 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       assert Keyword.get(opts, :needs_attention) == true
     end
 
-    test "does not emit alert when tracker update fails (no double-alert on retry)" do
+    test "still emits unauthorized-merger alert when tracker update fails" do
       state = base_state()
       parent = self()
 
-      CommentWake.mark_pr_merged_issue_done(state, "nonexistent-123",
-        merged_by_login: "unknown-bot",
-        update_issue_state_fun: fn _id, "done" -> {:error, :unavailable} end,
-        merger_allowed_fun: fn _login -> false end,
-        emit_alert_fun: fn _name, _opts ->
-          send(parent, :unexpected_alert)
-          :ok
-        end
-      )
+      result =
+        CommentWake.mark_pr_merged_issue_done(state, "nonexistent-123",
+          merged_by_login: "unknown-bot",
+          update_issue_state_fun: fn _id, "done" -> {:error, :unavailable} end,
+          merger_allowed_fun: fn _login -> false end,
+          emit_alert_fun: fn name, opts ->
+            send(parent, {:alert_emitted, name, opts})
+            :ok
+          end
+        )
 
-      refute_receive :unexpected_alert
+      assert_receive {:alert_emitted, "ticket.nonexistent-123.merge.unauthorized_merger", opts}
+      assert Keyword.get(opts, :needs_attention) == true
+      assert Keyword.get(opts, :severity) == "critical"
+      assert result == state
+    end
+
+    test "default emitter supplies an explicit system alert message" do
+      state = base_state()
+
+      log =
+        capture_log(fn ->
+          assert CommentWake.mark_pr_merged_issue_done(state, "nonexistent-123",
+                   merged_by_login: "unknown-bot",
+                   update_issue_state_fun: fn _id, "done" -> :ok end,
+                   merger_allowed_fun: fn _login -> false end
+                 ) == state
+        end)
+
+      assert log =~
+               "[alert] (#nonexistent-123) ticket.nonexistent-123.merge.unauthorized_merger"
+
+      assert log =~ "Unauthorized PR merger \"unknown-bot\" detected for ticket nonexistent-123."
     end
 
     test "emits alert and still terminates running issue when merger is not allowlisted" do
@@ -281,6 +305,52 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       assert_receive {:checked, "bad-actor"}
       assert_receive {:alert, "ticket.99.merge.unauthorized_merger"}
       refute Map.has_key?(result.running, issue.id)
+    end
+
+    test "still terminates a merged issue when the merger allowlist check exits" do
+      issue = %Issue{
+        id: "issue-attribution-failure",
+        identifier: "100",
+        state: "in-progress",
+        tracker_identity: tracker_identity("100")
+      }
+
+      state = %{
+        base_state()
+        | running: %{
+            issue.id => %{pid: nil, ref: nil, identifier: issue.identifier, issue: issue}
+          },
+          claimed: MapSet.new([issue.id])
+      }
+
+      parent = self()
+
+      result =
+        CommentWake.mark_pr_merged_issue_done(state, issue.identifier,
+          merged_by_login: "its-everdred",
+          merger_allowed_fun: fn _login -> exit(:timeout) end,
+          emit_alert_fun: fn name, opts ->
+            send(parent, {:alert, name, opts})
+            :ok
+          end,
+          update_issue_state_fun: fn _id, "done" -> :ok end,
+          clear_session_handle_fun: fn _id -> :ok end,
+          observe_membership_fun: fn _identity, _lifecycle -> :ok end,
+          set_terminal_verification_pending_fun: fn _identity, _pending? -> :ok end,
+          terminate_running_issue_fun: fn current_state, issue_id, true ->
+            %{
+              current_state
+              | running: Map.delete(current_state.running, issue_id),
+                claimed: MapSet.new()
+            }
+          end
+        )
+
+      assert_receive {:alert, "ticket.100.merge.attribution_check_failed", opts}
+      assert Keyword.get(opts, :needs_attention) == true
+      assert Keyword.get(opts, :severity) == "critical"
+      refute Map.has_key?(result.running, issue.id)
+      refute MapSet.member?(result.claimed, issue.id)
     end
   end
 
