@@ -44,7 +44,7 @@ Out of scope:
 
 **Files:** `.github/workflows/publish-image.yml`
 
-**Goal:** Publish `ghcr.io/its-everdred/aiur:latest`, the full commit SHA tag, and release tag refs.
+**Goal:** Publish `ghcr.io/aiur-team/aiur:latest`, the full commit SHA tag, and release tag refs.
 
 **Test scenarios:** Workflow syntax follows existing pinned-action conventions and uses `packages: write`.
 

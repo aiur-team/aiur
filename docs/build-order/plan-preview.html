@@ -226,7 +226,7 @@ footer{margin-top:26px;border-top:1px solid var(--line);padding-top:14px;font-fa
       <div class="hd-mark">A</div>
       <div>
         <h1>Build Order — plan preview</h1>
-        <div class="sub">its-everdred/aiur : aiur-dashboard-program · 54 core members + 31 ad hoc · plan v1 · researched @ 9849f329</div>
+        <div class="sub">aiur-team/aiur : aiur-dashboard-program · 54 core members + 31 ad hoc · plan v1 · researched @ 9849f329</div>
       </div>
     </div>
     <div style="display:flex;align-items:center;gap:.8rem">
@@ -632,9 +632,9 @@ function openDrawer(id){
     <div>${downs.length?downs.map(d=>`<span class="dep-chip${d.ext?" ext":""}" data-go="${d.ext?"":d.id}">${displayId(d.id)}${d.ext?" ↗":""}</span>`).join(""):'<span class="pill">nothing downstream</span>'}</div>
     <h4>Sources</h4>
     <div class="source-links">
-      <a class="source-link" href="https://github.com/its-everdred/aiur/issues/${issue}" target="_blank" rel="noopener noreferrer"><span>Issue</span><span>#${issue} ↗</span></a>
+      <a class="source-link" href="https://github.com/aiur-team/aiur/issues/${issue}" target="_blank" rel="noopener noreferrer"><span>Issue</span><span>#${issue} ↗</span></a>
       ${pr
-        ? `<a class="source-link" href="https://github.com/its-everdred/aiur/pull/${pr}" target="_blank" rel="noopener noreferrer"><span>Pull request</span><span>#${pr} ↗</span></a>`
+        ? `<a class="source-link" href="https://github.com/aiur-team/aiur/pull/${pr}" target="_blank" rel="noopener noreferrer"><span>Pull request</span><span>#${pr} ↗</span></a>`
         : '<span class="source-link unavailable" aria-disabled="true"><span>Pull request</span><span>not opened</span></span>'}
     </div>
     <h4>Ticket document</h4>

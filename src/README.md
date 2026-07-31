@@ -66,7 +66,7 @@ configured limit.
 ## Quickstart
 
 ```bash
-git clone https://github.com/its-everdred/aiur
+git clone https://github.com/aiur-team/aiur
 cd aiur
 npm run setup                    # installs the toolchain (mise + erlang/elixir) and symlinks aiurdev
 #   (or, if you already have mise:  mise run setup)
