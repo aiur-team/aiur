@@ -1,5 +1,7 @@
 export const placeholder = "streamdeck";
+export * from "./keys.js";
 export * from "./mode.js";
+export * from "./logs.js";
 export * from "./report.js";
 export * from "./read.js";
 export * from "./lifecycle.js";
