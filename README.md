@@ -131,6 +131,9 @@ npm test
 npm run build
 ```
 
+For the emulator and optional hardware acceptance flow, see the
+[Stream Deck end-to-end proof runbook](docs/research/streamdeck-end-to-end-proof.md).
+
 ## Running Aiur
 
 Aiur works best in codebases with clear setup instructions, automated validation, and workflow
@@ -155,9 +158,6 @@ See [src/README.md](src/README.md) for setup, configuration, and the `aiur` comm
 reference (foreground, background, and `stop` modes on Linux and macOS). It also documents
 the default 64 MiB / 30-day telemetry retention window, which preserves complete boots for
 useful cross-session history.
-
-For the Stream Deck emulator and optional hardware acceptance flow, see the
-[Stream Deck end-to-end proof runbook](docs/research/streamdeck-end-to-end-proof.md).
 
 ---
 

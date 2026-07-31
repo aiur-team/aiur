@@ -99,7 +99,7 @@ Inspect the test list to verify which workflow steps are covered:
 
 ```bash
 rg -n -i 'streamdeck|stream deck|dial|pager|logs mode|pause|resume' \
-  tests ../test/browser
+  tests ../test/aiur_web
 ```
 
 **Known coverage state after #1352/#1353 merge:**
