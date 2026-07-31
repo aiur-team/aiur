@@ -51,8 +51,15 @@ Increment 2 — subsystem C (mid-ticket switching):
   `known_backends()` (like `switch_model_on_ratelimit`), not `["", "claude"]`.
 
 Increment 3 — subsystem D (presentation):
-- Drive `run_summary_strip`, `units_table`, `provider_meters_presenter`, the
-  per-provider SVG routes/controller, and dashboard CSS from the descriptor.
+- DONE: registry `presentation` descriptor (label, logo, token_icon, css_class,
+  order) on the codex/claude entries + `provider_descriptors/0`,
+  `provider_families/0`, `provider_descriptor/1` accessors. `run_summary_strip`,
+  `units_table`, and `provider_meters_presenter` now render from the descriptor
+  (behaviour identical for codex/claude — 47 presentation tests green).
+- REMAINING: the per-provider SVG routes (`router.ex`) + `static_asset_controller`
+  handlers, and the per-provider `dashboard.css` rules. The descriptor already
+  centralizes the paths/classes; these static assets are a lower-risk follow-up
+  (a new backend still needs its SVG files + one route + one CSS rule until then).
 
 Increment 4 — subsystem B (usage/metering/pricing):
 - Replace `@agent_families`, `@providers`, adapter catalog, and per-provider
