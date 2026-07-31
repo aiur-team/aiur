@@ -116,8 +116,19 @@ defmodule AiurWeb.StreamdeckLive do
     ]
   end
 
-  defp key(slot, bucket, vendor, ticket, title, label, progress, opts \\ []) do
-    %{slot: slot, bucket: bucket, vendor: vendor, ticket: ticket, title: title, label: label, progress: progress, priority?: Keyword.get(opts, :priority?, false), dependency: Keyword.get(opts, :dependency), empty?: false}
+  defp key(slot, bucket, vendor, ticket, title, label, progress, opts) do
+    %{
+      slot: slot,
+      bucket: bucket,
+      vendor: vendor,
+      ticket: ticket,
+      title: title,
+      label: label,
+      progress: progress,
+      priority?: Keyword.get(opts, :priority?, false),
+      dependency: Keyword.get(opts, :dependency),
+      empty?: false
+    }
   end
 
   defp empty_key(slot), do: %{slot: slot, bucket: "empty", empty?: true}
