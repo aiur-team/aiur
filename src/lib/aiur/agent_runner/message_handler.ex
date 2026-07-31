@@ -20,6 +20,8 @@ defmodule Aiur.AgentRunner.MessageHandler do
   }
 
   alias Aiur.AgentRunner.QueueDrain
+  alias Aiur.Cost.Observation, as: CostObservation
+  alias Aiur.Cost.Store, as: CostStore
   alias Aiur.Protocol.MapAccess
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Usage.Headless.Emitter
@@ -85,11 +87,31 @@ defmodule Aiur.AgentRunner.MessageHandler do
   # Emit a DASH-008 usage envelope for each supported headless usage event. This
   # runs on the unconditional per-message path, so emission is independent of
   # dashboard clients, TUI mode, or --debug. The emitter fails closed and never
-  # propagates a fault into the worker turn.
+  # propagates a fault into the worker turn. The resulting envelopes are also
+  # folded into the durable per-ticket cost total (#132).
   defp observe_usage(issue, backend, message, turn_id, lifecycle_opts) do
-    Emitter.observe(issue, backend, message, Keyword.put(lifecycle_opts, :turn_id, turn_id))
+    outcome = Emitter.observe(issue, backend, message, Keyword.put(lifecycle_opts, :turn_id, turn_id))
+    observe_cost(issue, backend, message, outcome)
     :ok
   end
+
+  # Fold one absolute token snapshot into the per-ticket cost store. Fail-closed:
+  # cost accounting must never propagate a fault into the worker turn.
+  defp observe_cost(%Issue{identifier: identifier}, backend, message, outcome) when is_binary(identifier) do
+    case CostObservation.from_message(backend, message, envelopes_from(outcome)) do
+      {:ok, observation} -> CostStore.record(identifier, observation)
+      :skip -> :ok
+    end
+  rescue
+    _error -> :ok
+  catch
+    _kind, _reason -> :ok
+  end
+
+  defp observe_cost(_issue, _backend, _message, _outcome), do: :ok
+
+  defp envelopes_from(%{envelopes: envelopes}) when is_list(envelopes), do: envelopes
+  defp envelopes_from(_outcome), do: []
 
   defp maybe_broadcast_transcript(%Issue{identifier: identifier}, {:ok, event})
        when is_binary(identifier) do

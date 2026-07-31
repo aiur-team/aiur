@@ -78,6 +78,15 @@ defmodule Aiur.AgentPubSub do
   end
 
   @doc """
+  Broadcast a per-ticket cost snapshot on the agent topic so the opencode
+  session writer (and any live stream) can render the running token/cost row.
+  """
+  @spec broadcast_cost(AgentEvents.agent_identifier(), map()) :: :ok
+  def broadcast_cost(identifier, snapshot) when is_binary(identifier) and is_map(snapshot) do
+    do_broadcast(AgentEvents.agent_topic(identifier), {:cost_updated, snapshot})
+  end
+
+  @doc """
   Single global topic that fires `{:agent_chat_active, identifier}`
   every time an agent emits any transcript event. AgentList uses this
   to promote its 🔘 → ⚪ marker once the agent has actually produced

@@ -34,6 +34,7 @@ defmodule Aiur.Opencode.SessionWriter do
   require Logger
 
   alias Aiur.{AgentPubSub, IssueLog}
+  alias Aiur.Cost.Row, as: CostRow
   alias Aiur.Events.DebugLog
   alias Aiur.Opencode.{ActiveTurns, ApiClient, Db, EventRow, Protocol, TurnMarkers}
 
@@ -253,6 +254,21 @@ defmodule Aiur.Opencode.SessionWriter do
       handle_matching_event_debug(state, entry)
     else
       {:noreply, state}
+    end
+  end
+
+  # Per-ticket token/cost status row (#132). Rendered as a system standalone
+  # row so it shows in the chat scrollback whether or not the side panel is
+  # open, refreshing as new (throttled) cost snapshots arrive. Not streamed by
+  # the live bridge, so there's no double-render to dedup against.
+  def handle_info({:cost_updated, snapshot}, state) when is_map(snapshot) do
+    case write_system_standalone(state, CostRow.compact(snapshot)) do
+      {:ok, _message_id} ->
+        {:noreply, reset_fk_failures(state)}
+
+      {:error, reason} ->
+        log_session_write_failure("cost_row_failed", state.identifier, reason)
+        handle_write_failure(state, reason)
     end
   end
 
