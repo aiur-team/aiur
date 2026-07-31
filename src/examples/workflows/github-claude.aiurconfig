@@ -14,6 +14,9 @@ tracker:
     allowed_users:
       - your-github-login
       - your-teammate-login
+    # Required for human-only merge attribution. Keep machine identities out.
+    human_mergers:
+      - your-github-login
     # Optional: trusted human Executor logins whose GitHub comments reach
     # agent event digests even when CODEOWNERS team expansion is unavailable.
     # trusted_accounts:

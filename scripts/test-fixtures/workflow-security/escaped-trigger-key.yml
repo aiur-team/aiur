@@ -1,0 +1,6 @@
+name: unsafe escaped trigger
+
+"on":
+  "pull_request\u005ftarget":
+
+jobs: {}

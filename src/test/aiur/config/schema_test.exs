@@ -90,6 +90,29 @@ defmodule Aiur.Config.SchemaTest do
     end
   end
 
+  describe "GitHub human merger allowlist" do
+    test "accepts explicit human GitHub logins and defaults to deny all" do
+      assert {:ok, defaults} = Schema.parse(%{})
+      assert defaults.tracker.github.human_mergers == []
+
+      assert {:ok, settings} =
+               Schema.parse(%{
+                 "tracker" => %{
+                   "github" => %{"human_mergers" => ["its-everdred"]}
+                 }
+               })
+
+      assert settings.tracker.github.human_mergers == ["its-everdred"]
+    end
+
+    test "rejects blank human merger allowlist entries" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"tracker" => %{"github" => %{"human_mergers" => [""]}}})
+
+      assert message =~ "tracker.github.human_mergers"
+    end
+  end
+
   describe "agent rate_limit_fallback" do
     test "defaults to claude" do
       assert {:ok, defaults} = Schema.parse(%{})

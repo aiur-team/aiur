@@ -128,6 +128,15 @@ defmodule Aiur.GitHub.ConfigTest do
     assert Config.token() == "raw-env-token"
   end
 
+  test "human merger allowlist is explicit and case-insensitive" do
+    allowed = ["its-everdred"]
+
+    assert Config.human_merger_allowed?("ITS-EVERDRED", allowed)
+    refute Config.human_merger_allowed?("its-applekid", allowed)
+    refute Config.human_merger_allowed?(nil, allowed)
+    refute Config.human_merger_allowed?("its-everdred", [])
+  end
+
   defp authorization_token(opts) do
     opts
     |> Keyword.fetch!(:headers)
