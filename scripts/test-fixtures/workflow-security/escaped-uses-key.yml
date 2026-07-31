@@ -1,0 +1,10 @@
+name: unsafe escaped uses key
+
+"on":
+  pull_request:
+
+jobs:
+  unsafe:
+    runs-on: ubuntu-latest
+    steps:
+      - "u\u0073es": actions/checkout@v4
