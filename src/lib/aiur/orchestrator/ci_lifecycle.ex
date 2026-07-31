@@ -45,7 +45,8 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   def maybe_resume_for_ci_terminal(%State{} = state, identifier, outcome)
       when is_binary(identifier) and outcome in [:passed, :failed] do
     case State.find_running_by_identifier(state.running, identifier) do
-      %{control: %{status: :paused}, paused_reason: :ci_wait} = running_entry ->
+      %{control: %{status: status}, paused_reason: :ci_wait} = running_entry
+      when status in [:paused, :deactivated] ->
         revalidate_ci_terminal_wake(
           state,
           running_entry,
@@ -130,6 +131,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
         state
         |> Reconciler.refresh_running_entry_issue(issue, running_entry)
         |> AgentTeardown.deactivate_running_issue(issue.id)
+        |> set_running_paused_reason(issue.id, :ci_wait)
         |> arm_ci_wait_rewake(issue)
 
       %{control: %{status: :deactivated}} = running_entry ->
@@ -930,10 +932,15 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   end
 
   defp maybe_resume_ci_wait_runner(state, running_entry, identifier) do
-    if Issue.paused?(Map.get(running_entry, :issue)) do
+    issue = Map.get(running_entry, :issue)
+
+    if Issue.paused?(issue) do
       state
     else
-      resume_ci_wait_runner(state, running_entry, identifier)
+      case get_in(running_entry, [:control, :status]) do
+        :deactivated -> Reconciler.maybe_reactivate_or_refresh(state, issue)
+        _ -> resume_ci_wait_runner(state, running_entry, identifier)
+      end
     end
   end
 
@@ -1007,6 +1014,13 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   end
 
   defp ci_event_dedup_key(_target, _outcome, _head_sha), do: nil
+
+  defp set_running_paused_reason(state, issue_id, reason) do
+    case Map.get(state.running, issue_id) do
+      nil -> state
+      entry -> %{state | running: Map.put(state.running, issue_id, Map.put(entry, :paused_reason, reason))}
+    end
+  end
 
   defp ci_wait_rewakes(%State{} = state), do: Map.get(state.ci_lifecycle, :rewakes, %{})
 

@@ -86,6 +86,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       entry = Map.fetch!(next.running, identifier)
       assert entry.control.status == :deactivated
+      assert entry.paused_reason == :ci_wait
       assert entry.pid == nil
       assert entry.ref == nil
       assert entry.completed_provenance
@@ -93,6 +94,23 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       assert %{token: token, timer_ref: timer_ref} = next.ci_lifecycle.rewakes[identifier]
       assert is_reference(token)
       assert is_reference(timer_ref)
+    end
+
+    test "a deactivated+ci-wait entry is woken by the CI terminal event" do
+      identifier = unique_identifier("deactivated-terminal-wake")
+      recorder = start_recorder()
+      issue = issue(identifier, "ci-wait")
+
+      state = running_state(issue, recorder, :deactivated, paused_reason: :ci_wait)
+      armed = CiLifecycle.pause_issue_for_ci_wait(state, issue)
+
+      in_progress_issue = %{issue | state: "in-progress"}
+      RecordingGitHubClient.return_issues([in_progress_issue])
+
+      next = CiLifecycle.maybe_resume_for_ci_terminal(armed, identifier, :passed)
+
+      assert next.running[identifier].issue.state == "in-progress"
+      refute Map.has_key?(next.ci_lifecycle.rewakes, identifier)
     end
 
     test "pending CI writes ci-wait and waits for live-runner pause evidence" do
