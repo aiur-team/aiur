@@ -133,7 +133,9 @@ defmodule Aiur.Orchestrator.CiLifecycle do
         |> arm_ci_wait_rewake(issue)
 
       %{control: %{status: :deactivated}} = running_entry ->
-        Reconciler.refresh_running_entry_issue(state, issue, running_entry)
+        state
+        |> Reconciler.refresh_running_entry_issue(issue, Map.put(running_entry, :paused_reason, :ci_wait))
+        |> arm_ci_wait_rewake(issue)
 
       %{control: %{status: :paused}, paused_reason: :ci_wait} = running_entry ->
         state
@@ -149,8 +151,19 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
       running_entry when is_map(running_entry) ->
         Logger.info("CI wait detected: #{State.issue_context(issue)}; pausing active agent")
-        {_reply, state} = PauseResume.request_pause(state, running_entry, issue, :ci_wait)
-        arm_ci_wait_rewake(state, issue)
+
+        if ci_wait_park_cap_reached?(state) do
+          Logger.warning("CI wait park cap reached: #{State.issue_context(issue)}; deactivating runner to free resources")
+          state = AgentTeardown.deactivate_running_issue(state, issue.id)
+          deactivated = Map.get(state.running, issue.id)
+
+          state
+          |> Reconciler.refresh_running_entry_issue(issue, Map.put(deactivated, :paused_reason, :ci_wait))
+          |> arm_ci_wait_rewake(issue)
+        else
+          {_reply, state} = PauseResume.request_pause(state, running_entry, issue, :ci_wait)
+          arm_ci_wait_rewake(state, issue)
+        end
 
       _ ->
         state
@@ -849,6 +862,14 @@ defmodule Aiur.Orchestrator.CiLifecycle do
             transition_ci_wait_fallback(state, issue)
         end
 
+      %{control: %{status: :deactivated}, paused_reason: :ci_wait} ->
+        cond do
+          not ci_wait_state?(issue.state) -> state
+          Issue.paused?(issue) -> state
+          not DispatchPolicy.issue_routable_to_worker?(issue) -> state
+          true -> transition_ci_wait_fallback(state, issue)
+        end
+
       _ ->
         state
     end
@@ -997,6 +1018,13 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   end
 
   defp ci_event_dedup_key(_target, _outcome, _head_sha), do: nil
+
+  defp ci_wait_park_cap_reached?(%State{} = state) do
+    case Config.max_parked_ci_wait_agents() do
+      nil -> false
+      max -> State.ci_wait_running_count(state.running) >= max
+    end
+  end
 
   defp ci_wait_rewakes(%State{} = state), do: Map.get(state.ci_lifecycle, :rewakes, %{})
 
