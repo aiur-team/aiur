@@ -104,6 +104,33 @@ defmodule Aiur.Orchestrator.LifecycleFenceTest do
     assert :admit = LifecycleFence.reconcile_observed_state(state, observed, terminal_states)
   end
 
+  test "public 2-arity reconcile_observed_state admits on terminal state via DispatchPolicy" do
+    issue_id = "issue-fence-terminal-public"
+    identifier = "LF-5"
+
+    state = %State{
+      running: %{
+        issue_id => %{
+          identifier: identifier,
+          issue: %Issue{id: issue_id, identifier: identifier, state: "in-progress"},
+          control: %{status: :working},
+          lifecycle_fence: %{
+            authoritative_state: "in-progress",
+            generation: 1,
+            opened_at: DateTime.utc_now(),
+            pending_item_ids: MapSet.new([101])
+          }
+        }
+      }
+    }
+
+    # Use "done" — a state guaranteed to be in DispatchPolicy.terminal_state_set()
+    # regardless of Closed/non-Closed config variants.
+    observed = %Issue{id: issue_id, identifier: identifier, state: "done"}
+
+    assert :admit = LifecycleFence.reconcile_observed_state(state, observed)
+  end
+
   test "a matching handoff state remains fenced until provider delivery" do
     issue_id = "issue-matching-handoff"
     issue = %Issue{id: issue_id, identifier: "LF-2", state: "human-review"}
