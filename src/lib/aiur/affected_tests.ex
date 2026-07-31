@@ -85,11 +85,11 @@ defmodule Aiur.AffectedTests do
   defp recognized?(path) do
     library_source?(path) or
       (String.starts_with?(path, "src/test/") and String.ends_with?(path, "_test.exs")) or
-      documentation?(path) or
+      ignorable?(path) or
       forces_full?(path)
   end
 
-  defp documentation?(path) do
+  defp ignorable?(path) do
     String.starts_with?(path, "docs/") or
       String.ends_with?(path, ".md") or
       String.starts_with?(path, ".aiur/")
