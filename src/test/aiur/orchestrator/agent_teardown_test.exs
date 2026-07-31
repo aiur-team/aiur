@@ -57,6 +57,25 @@ defmodule Aiur.Orchestrator.AgentTeardownTest do
       assert %{control: %{status: :deactivated}} = new_state.running["issue-3"]
     end
 
+    test "evicted prior deactivated entries are also removed from state.claimed" do
+      # Evicted entries left in state.claimed permanently block rework dispatch:
+      # dispatch_policy checks !MapSet.member?(claimed, issue.id) and the normal
+      # terminate_running_issue cleanup path never fires for evicted entries.
+      entry_a = working_entry("1") |> Map.put(:control, %{status: :deactivated})
+      entry_b = working_entry("2")
+
+      state = %State{
+        running: %{"issue-1" => entry_a, "issue-2" => entry_b},
+        claimed: MapSet.new(["issue-1", "issue-2"])
+      }
+
+      new_state = AgentTeardown.deactivate_running_issue(state, "issue-2")
+
+      refute Map.has_key?(new_state.running, "issue-1")
+      refute MapSet.member?(new_state.claimed, "issue-1")
+      assert MapSet.member?(new_state.claimed, "issue-2")
+    end
+
     test "is idempotent on already-deactivated entry" do
       entry = working_entry("730") |> Map.put(:control, %{status: :deactivated})
       state = %State{running: %{"issue-730" => entry}}

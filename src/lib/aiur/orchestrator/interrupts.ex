@@ -136,7 +136,18 @@ defmodule Aiur.Orchestrator.Interrupts do
   defp pane_interrupt_no_repl(state, running_entry, issue_identifier) do
     if State.deactivated_running_entry?(running_entry) do
       issue_id = State.find_running_key_by_identifier(state.running, issue_identifier)
-      new_state = if issue_id, do: %{state | running: Map.delete(state.running, issue_id)}, else: state
+
+      new_state =
+        if issue_id do
+          %{
+            state
+            | running: Map.delete(state.running, issue_id),
+              claimed: MapSet.delete(state.claimed, issue_id)
+          }
+        else
+          state
+        end
+
       {{:ok, :close_pane}, new_state}
     else
       working? = ActiveTurns.active_turn_ids(issue_identifier) != []

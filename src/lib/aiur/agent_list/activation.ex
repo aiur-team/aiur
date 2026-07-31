@@ -50,13 +50,16 @@ defmodule Aiur.AgentList.Activation do
 
   defp activate_selected_agent_if_warm(state, identifier, summary, mode) do
     cond do
-      completed?(state, summary) ->
-        log_completed_block(identifier)
-
       Summaries.deactivated?(summary) ->
         # A deactivated row has no warm pane; reactivate and open asynchronously.
+        # Must check deactivated? BEFORE completed? because seed_deactivated_progress
+        # forces progress_by_id to [{100, _}], making completed? always true for
+        # deactivated entries and rendering this branch unreachable otherwise.
         Logger.info("[user-action] reactivate_on_enter identifier=#{identifier} source=agent_list")
         reactivate_and_open(state, identifier, summary, mode)
+
+      completed?(state, summary) ->
+        log_completed_block(identifier)
 
       not warm_identifier?(state, identifier) ->
         Logger.info("[user-action] open_blocked identifier=#{identifier} source=agent_list reason=not_warm")

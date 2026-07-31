@@ -54,6 +54,27 @@ defmodule Aiur.AgentList.ActivationTest do
     refute_receive {:opened, "A", _command}, 100
   end
 
+  test "opens a deactivated row even when seed_deactivated_progress has forced 100% progress" do
+    # seed_deactivated_progress sets progress_by_id to [{100, _}] for all
+    # deactivated summaries. Without the deactivated?-before-completed? cond
+    # order, completed?(state, summary) returns true for every deactivated row
+    # and the deactivated branch is unreachable — Enter silently does nothing.
+    {:ok, pane_manager} = PaneManager.start_link(self())
+
+    state = %{
+      summaries: [%{identifier: "A", title: "Title", work_state: :deactivated}],
+      selection_index: 0,
+      command_template: "echo open",
+      pane_manager: pane_manager,
+      attach_state: %{"A" => %{attach_count: 1}},
+      opened_panes: MapSet.new(),
+      progress_by_id: %{"A" => [{100, System.monotonic_time(:millisecond)}]}
+    }
+
+    assert :ok = Activation.activate_selected(state, :new_pane)
+    assert_receive {:opened, "A", "echo open A"}
+  end
+
   test "does not open a 100% row when its roster work state is stale" do
     {:ok, pane_manager} = PaneManager.start_link(self())
 

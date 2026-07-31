@@ -25,16 +25,18 @@ defmodule Aiur.Orchestrator.InterruptsTest do
       ref: nil
     }
 
-    state = %State{running: %{"issue-730" => deactivated_entry}}
+    state = %State{running: %{"issue-730" => deactivated_entry}, claimed: MapSet.new(["issue-730"])}
 
     assert {{:ok, :close_pane}, new_state} = Interrupts.pane_interrupt_reply(state, "730")
     refute Map.has_key?(new_state.running, "issue-730")
+    refute MapSet.member?(new_state.claimed, "issue-730")
   end
 
-  test "pane_interrupt_reply on deactivated entry WITH repl_pane_id returns close_pane and removes from running" do
+  test "pane_interrupt_reply on deactivated entry WITH repl_pane_id returns close_pane and removes from running and claimed" do
     # A persistent-REPL agent whose pane was kept open for inspection has
     # repl_pane_id set. Before the fix it took the REPL branch and never
-    # reached the deactivated-eviction path.
+    # reached the deactivated-eviction path. The claimed cleanup is also
+    # required so rework dispatch can re-admit the issue.
     deactivated_entry = %{
       identifier: "730",
       control: %{status: :deactivated},
@@ -43,10 +45,11 @@ defmodule Aiur.Orchestrator.InterruptsTest do
       ref: nil
     }
 
-    state = %State{running: %{"issue-730" => deactivated_entry}}
+    state = %State{running: %{"issue-730" => deactivated_entry}, claimed: MapSet.new(["issue-730"])}
 
     assert {{:ok, :close_pane}, new_state} = Interrupts.pane_interrupt_reply(state, "730")
     refute Map.has_key?(new_state.running, "issue-730")
+    refute MapSet.member?(new_state.claimed, "issue-730")
   end
 
   test "pane_interrupt_reply on paused entry WITH repl_pane_id does NOT remove from running" do

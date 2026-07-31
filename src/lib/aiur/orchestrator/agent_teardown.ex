@@ -176,9 +176,22 @@ defmodule Aiur.Orchestrator.AgentTeardown do
       for {id, entry} <- state.running,
           id != current_issue_id,
           State.deactivated_running_entry?(entry),
-          do: id
+          do: {id, entry}
 
-    %{state | running: Map.drop(state.running, to_evict)}
+    # Reap the OS subtree of each evicted entry. The current entry's
+    # repl_os_pid is intentionally left alive (its open pane depends on it);
+    # these older entries no longer have a pane to preserve.
+    Enum.each(to_evict, fn {_id, entry} ->
+      RemoteControl.graceful_kill_tree(Map.get(entry, :repl_os_pid))
+    end)
+
+    evict_ids = Enum.map(to_evict, &elem(&1, 0))
+
+    %{
+      state
+      | running: Map.drop(state.running, evict_ids),
+        claimed: Enum.reduce(evict_ids, state.claimed, &MapSet.delete(&2, &1))
+    }
   end
 
   @doc false
@@ -237,7 +250,11 @@ defmodule Aiur.Orchestrator.AgentTeardown do
   @doc false
   @spec kill_repl_session_os_only(map()) :: :ok
   def kill_repl_session_os_only(running_entry) do
-    RemoteControl.graceful_kill_tree(Map.get(running_entry, :headless_os_pid))
+    case RemoteControl.graceful_kill_tree(Map.get(running_entry, :headless_os_pid)) do
+      :ok -> :ok
+      {:error, reason} -> Logger.warning("headless pid kill failed on deactivation", reason: reason)
+    end
+
     :ok
   end
 end
