@@ -135,6 +135,15 @@ Rules:
 - One check-in per request — don't fan out multiple. If two requests arrived in the same digest, reply to the most recent.
 - After replying, continue whatever you were doing.
 
+### Planning-to-work auto-transition
+
+When you complete `ce-plan` on a ticket that is still active, proceed directly to
+`ce-work` — the planning-to-work transition is authorized on active tickets without
+an operator message. Pause only if `ce-plan` surfaced an unresolved operator decision,
+a dependency blocker, or a scope question that genuinely requires human input before
+implementation can begin. Interactive CE phase menus do not end an autonomous ticket
+turn unless a real operator decision is required.
+
 ### Manual CLI verification from agent turns
 
 Agent issue workspaces must not run `scripts/aiurdev --test` or `--test3`

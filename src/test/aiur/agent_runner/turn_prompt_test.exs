@@ -118,5 +118,48 @@ defmodule Aiur.AgentRunner.TurnPromptTest do
       assert uncapped =~ "continuation turn #4"
       refute uncapped =~ "continuation turn #4 of"
     end
+
+    # Regression: agents must not stall at the ce-plan → ce-work boundary waiting
+    # for an operator message. All three prompt paths must carry the authorization.
+
+    test "cold-start prompt authorizes the planning-to-work transition (shared instructions)" do
+      issue = %Issue{id: "1041", identifier: "1041", title: "Auto-transition", state: "in-progress"}
+      prompt = TurnPrompt.build_turn_prompt(issue, [], 1, nil)
+
+      assert prompt =~ "ce-plan"
+      assert prompt =~ "ce-work"
+      assert prompt =~ "planning-to-work transition is authorized"
+    end
+
+    test "in-process continuation turn authorizes the planning-to-work transition" do
+      issue = %Issue{id: "1041", identifier: "1041", title: "Auto-transition", state: "in-progress"}
+      prompt = TurnPrompt.build_turn_prompt(issue, [], 2, nil)
+
+      assert prompt =~ "planning-to-work transition is authorized"
+    end
+
+    test "resumed-session prompt authorizes the planning-to-work transition" do
+      issue = %Issue{id: "1041", identifier: "1041", title: "Auto-transition", state: "in-progress"}
+      prompt = TurnPrompt.build_turn_prompt(issue, [resumed: true], 1, nil)
+
+      assert prompt =~ "planning-to-work transition is authorized"
+    end
+
+    # Plain control-only resume (aiur restart) vs. resume-with-continue:
+    # The :resumed path is a pure "you were reattached" nudge — it does NOT replay
+    # the cold-start ticket contract, because the thread already carries it. The
+    # in-process continuation (turn N>1) behaves identically for the transition
+    # rule. There is no separate "resume-with-continue" option; the authorization
+    # is always present in both paths.
+    test "plain resumed prompt does not replay the cold-start ticket contract" do
+      issue = %Issue{id: "1041", identifier: "1041", title: "Resume semantics", state: "in-progress"}
+      resumed_prompt = TurnPrompt.build_turn_prompt(issue, [resumed: true], 1, nil)
+      cold_prompt = TurnPrompt.build_turn_prompt(issue, [], 1, nil)
+
+      refute resumed_prompt =~ issue.title,
+             "resumed prompt must not replay the ticket contract (thread already has it)"
+
+      assert cold_prompt =~ issue.title
+    end
   end
 end

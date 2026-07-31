@@ -24,6 +24,7 @@ defmodule Aiur.AgentRunner.TurnPrompt do
     - This is continuation turn ##{turn_number}#{turn_of(max_turns)} for the current agent run.
     - Resume from the current workspace and workpad state instead of restarting from scratch.
     - The original task instructions and prior turn context are already present in this thread, so do not restate them before acting.
+    - If you just completed `ce-plan`, proceed directly to `ce-work` — the planning-to-work transition is authorized on active tickets without an operator message. Pause only if planning surfaced an unresolved operator decision or dependency blocker.
     - If manual `scripts/aiurdev --test` / `--test3` is blocked inside this agent workspace, stop that verification path and report it; do not retry from `/tmp`, a copied harness, or another clone.
     - Focus on the remaining ticket work and do not end the turn while the issue stays active unless you are truly blocked.
     """
@@ -65,6 +66,7 @@ defmodule Aiur.AgentRunner.TurnPrompt do
     - Aiur restarted and reattached this agent to its prior session, so the full original task instructions and every prior turn are already present in this thread.
     - Do not restart from scratch and do not re-read the issue, labels, or workpad to rebuild context you already have — continue from where you left off.
     - Reconcile against the current workspace and workpad state (a few things may have changed while aiur was down), then resume the remaining ticket work.
+    - If the prior turn completed `ce-plan`, proceed directly to `ce-work` — the planning-to-work transition is authorized on active tickets without an operator message. Pause only if planning surfaced an unresolved operator decision or dependency blocker.
     - If manual `scripts/aiurdev --test` / `--test3` is blocked inside this agent workspace, stop that verification path and report it; do not retry from `/tmp`, a copied harness, or another clone.
     - Do not end the turn while the issue stays active unless you are truly blocked.
     """
