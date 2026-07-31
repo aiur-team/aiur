@@ -959,6 +959,33 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
       stop_codeowners(codeowners)
     end
 
+    test "deduplicates PR review submissions on repeated polls" do
+      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      codeowners = ensure_codeowners!("* @its-everdred\n")
+
+      review = pr_review(9_020, "its-everdred", "CHANGES_REQUESTED", "please rework")
+
+      assert {:ok, %{count: 1, errors: []}} =
+               GithubCommentsPoller.poll(["42"],
+                 since: "2026-06-24T11:00:00Z",
+                 repo: "owner/repo",
+                 request_fun: request_fun_with_reviews([review])
+               )
+
+      assert_receive {:event, %{topic: "ticket.42.pr.review_comment", comment: %{"id" => 9_020}}},
+                     500
+
+      assert {:ok, %{count: 0, errors: []}} =
+               GithubCommentsPoller.poll(["42"],
+                 since: "2026-06-24T11:00:00Z",
+                 repo: "owner/repo",
+                 request_fun: request_fun_with_reviews([review])
+               )
+
+      refute_receive {:event, %{topic: "ticket.42.pr.review_comment"}}, 100
+      stop_codeowners(codeowners)
+    end
+
     test "reports an error and zero count when PR reviews fetch fails" do
       codeowners = ensure_codeowners!("* @its-everdred\n")
 

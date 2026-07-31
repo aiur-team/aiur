@@ -41,7 +41,9 @@ defmodule Aiur.Events.GithubCommentsPoller do
           result
 
         {{:exit, reason}, target} ->
-          Logger.warning("GithubCommentsPoller target task exited: issue=#{target} reason=#{inspect(reason)}")
+          Logger.warning(
+            "GithubCommentsPoller target task exited: issue=#{target} reason=#{inspect(reason)}"
+          )
 
           failed_target_result(
             target,
@@ -152,7 +154,9 @@ defmodule Aiur.Events.GithubCommentsPoller do
         {count, newest_comment_datetime(comments), :ok}
 
       {:error, reason} ->
-        Logger.warning("GithubCommentsPoller issue comments failed: issue=#{target} reason=#{inspect(reason)}")
+        Logger.warning(
+          "GithubCommentsPoller issue comments failed: issue=#{target} reason=#{inspect(reason)}"
+        )
 
         {0, nil, {:error, {:issue_comments, reason}}}
     end
@@ -169,7 +173,9 @@ defmodule Aiur.Events.GithubCommentsPoller do
             poll_pr_comments_for_open_pull_request(target, pr, since, repo, opts)
 
           {:error, reason} ->
-            Logger.warning("GithubCommentsPoller PR lookup/comments failed: issue=#{target} reason=#{inspect(reason)}")
+            Logger.warning(
+              "GithubCommentsPoller PR lookup/comments failed: issue=#{target} reason=#{inspect(reason)}"
+            )
 
             {0, nil, [{:error, {:pr_lookup, reason}}]}
         end
@@ -228,7 +234,9 @@ defmodule Aiur.Events.GithubCommentsPoller do
         {count, newest_comment_datetime(comments), :ok}
 
       {:error, reason} ->
-        Logger.warning("GithubCommentsPoller PR conversation comments failed: issue=#{target} pr=#{pr_number} reason=#{inspect(reason)}")
+        Logger.warning(
+          "GithubCommentsPoller PR conversation comments failed: issue=#{target} pr=#{pr_number} reason=#{inspect(reason)}"
+        )
 
         {0, nil, {:error, {:pr_issue_comments, reason}}}
     end
@@ -245,7 +253,9 @@ defmodule Aiur.Events.GithubCommentsPoller do
         {count, :ok}
 
       {:error, reason} ->
-        Logger.warning("GithubCommentsPoller PR review threads failed: issue=#{target} pr=#{pr_number} reason=#{inspect(reason)}")
+        Logger.warning(
+          "GithubCommentsPoller PR review threads failed: issue=#{target} pr=#{pr_number} reason=#{inspect(reason)}"
+        )
 
         {0, {:error, {:pr_review_threads, reason}}}
     end
@@ -269,7 +279,9 @@ defmodule Aiur.Events.GithubCommentsPoller do
         {count, :ok}
 
       {:error, reason} ->
-        Logger.warning("GithubCommentsPoller PR reviews failed: issue=#{target} pr=#{pr_number} reason=#{inspect(reason)}")
+        Logger.warning(
+          "GithubCommentsPoller PR reviews failed: issue=#{target} pr=#{pr_number} reason=#{inspect(reason)}"
+        )
 
         {0, {:error, {:pr_reviews, reason}}}
     end
@@ -280,6 +292,7 @@ defmodule Aiur.Events.GithubCommentsPoller do
 
   defp most_recent_per_reviewer(reviews) do
     reviews
+    |> Enum.filter(&(get_in(&1, ["user", "login"]) != nil))
     |> Enum.group_by(&get_in(&1, ["user", "login"]))
     |> Enum.map(fn {_login, reviewer_reviews} ->
       Enum.max_by(reviewer_reviews, &Map.get(&1, "submitted_at", ""), fn a, b -> a >= b end)
@@ -309,7 +322,8 @@ defmodule Aiur.Events.GithubCommentsPoller do
       %{issue_number: target, comment: comment},
       actor,
       issue_number: target,
-      dedup_key: GithubKeys.comment_dedup_key(repo, "issue_comment", parent_number, Map.get(comment, "id"))
+      dedup_key:
+        GithubKeys.comment_dedup_key(repo, "issue_comment", parent_number, Map.get(comment, "id"))
     )
   end
 
@@ -321,7 +335,8 @@ defmodule Aiur.Events.GithubCommentsPoller do
       %{issue_number: target, comment: comment},
       actor,
       issue_number: target,
-      dedup_key: GithubKeys.comment_dedup_key(repo, "issue_comment", pr_number, Map.get(comment, "id"))
+      dedup_key:
+        GithubKeys.comment_dedup_key(repo, "issue_comment", pr_number, Map.get(comment, "id"))
     )
   end
 
