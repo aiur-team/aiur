@@ -80,9 +80,6 @@ defmodule Aiur.Regression.EventFlowE2eTest do
       :ok = SubscriptionStore.attach(ticket_2)
       :ok = SubscriptionStore.add_subscription(ticket_2, "ticket.1.#", "auto:blocked_by(1)")
 
-      # Allow Exchange.subscribe to register in the binding table
-      Process.sleep(50)
-
       Publisher.publish(
         "ticket.1.branch.push",
         %{sha: "abc-#{System.unique_integer([:positive])}", actor: "alice"},
@@ -90,7 +87,7 @@ defmodule Aiur.Regression.EventFlowE2eTest do
       )
 
       assert_receive {:enqueued, ^ticket_2, %{topic: "ticket.1.branch.push", actor: "alice"}},
-                     500
+                     2_000
 
       :ok = SubscriptionStore.stop(ticket_2)
     end
@@ -100,7 +97,6 @@ defmodule Aiur.Regression.EventFlowE2eTest do
 
       :ok = SubscriptionStore.attach(ticket_3)
       # No subscription added — ticket 3 has not declared #1 as a blocker
-      Process.sleep(50)
 
       Publisher.publish("ticket.1.branch.push", %{sha: "abc"}, issue_number: 1)
 
@@ -112,7 +108,6 @@ defmodule Aiur.Regression.EventFlowE2eTest do
       ticket_3 = "e2e-3-late-#{System.unique_integer([:positive])}"
 
       :ok = SubscriptionStore.attach(ticket_3)
-      Process.sleep(50)
 
       # First push — ticket 3 NOT yet subscribed; should be dropped
       Publisher.publish("ticket.1.branch.push", %{sha: "first"}, issue_number: 1)
@@ -120,11 +115,10 @@ defmodule Aiur.Regression.EventFlowE2eTest do
 
       # Mid-work: ticket 3 declares blocker → adds subscription
       :ok = SubscriptionStore.add_subscription(ticket_3, "ticket.1.#", "manual:late-discovery")
-      Process.sleep(50)
 
       # Next push reaches ticket 3
       Publisher.publish("ticket.1.branch.push", %{sha: "second"}, issue_number: 1)
-      assert_receive {:enqueued, ^ticket_3, %{sha: "second"}}, 500
+      assert_receive {:enqueued, ^ticket_3, %{sha: "second"}}, 2_000
 
       :ok = SubscriptionStore.stop(ticket_3)
     end
@@ -136,7 +130,6 @@ defmodule Aiur.Regression.EventFlowE2eTest do
 
       :ok = SubscriptionStore.attach(ticket_2)
       :ok = SubscriptionStore.add_subscription(ticket_2, "ticket.42.pr.opened", "test")
-      Process.sleep(50)
 
       stub_firehose = fn _req ->
         {:ok,
@@ -162,7 +155,7 @@ defmodule Aiur.Regression.EventFlowE2eTest do
 
       {:ok, %{count: 1}} = GithubFirehose.poll(request_fun: stub_firehose)
 
-      assert_receive {:enqueued, ^ticket_2, %{topic: "ticket.42.pr.opened"}}, 500
+      assert_receive {:enqueued, ^ticket_2, %{topic: "ticket.42.pr.opened"}}, 2_000
 
       :ok = SubscriptionStore.stop(ticket_2)
     end
@@ -174,7 +167,6 @@ defmodule Aiur.Regression.EventFlowE2eTest do
 
       :ok = SubscriptionStore.attach(ticket_2)
       :ok = SubscriptionStore.add_subscription(ticket_2, "ticket.99.#", "test")
-      Process.sleep(50)
 
       Publisher.set_tracked_fn(fn n -> to_string(n) != "99" end)
 
@@ -191,20 +183,12 @@ defmodule Aiur.Regression.EventFlowE2eTest do
 
       :ok = SubscriptionStore.attach(ticket_2)
       :ok = SubscriptionStore.add_subscription(ticket_2, "ticket.55.#", "test")
-      Process.sleep(50)
 
       for topic <- ["ticket.55.branch.push", "ticket.55.pr.opened", "ticket.55.agent.decision.foo"] do
         Publisher.publish(topic, %{topic_emitted: topic}, issue_number: 55)
       end
 
-      received =
-        for _ <- 1..3 do
-          receive do
-            {:enqueued, ^ticket_2, event} -> Map.get(event, :topic_emitted) || Map.get(event, :topic)
-          after
-            500 -> nil
-          end
-        end
+      received = for _ <- 1..3, do: receive_enqueued_topic(ticket_2)
 
       assert Enum.sort(received) ==
                Enum.sort([
@@ -213,7 +197,14 @@ defmodule Aiur.Regression.EventFlowE2eTest do
                  "ticket.55.agent.decision.foo"
                ])
 
+      refute_receive {:enqueued, ^ticket_2, _}, 100
+
       :ok = SubscriptionStore.stop(ticket_2)
     end
+  end
+
+  defp receive_enqueued_topic(ticket) do
+    assert_receive {:enqueued, ^ticket, event}, 2_000
+    Map.get(event, :topic_emitted) || Map.get(event, :topic)
   end
 end
