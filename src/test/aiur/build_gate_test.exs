@@ -731,6 +731,91 @@ defmodule Aiur.BuildGateTest do
     assert lock_dir == context.lock_dir
   end
 
+  test "preflight succeeds with one unresolvable and one valid writable root, warning about the bad one",
+       context do
+    # Create a mode-000 directory; PathSafety.canonicalize fails with :eacces on
+    # any child of it. Use gate_dir as the valid root (no overlap with lock_dir).
+    restricted = Path.join(System.tmp_dir!(), "aiur-restricted-#{:crypto.strong_rand_bytes(6) |> Base.url_encode64(padding: false)}")
+    File.mkdir!(restricted)
+    File.chmod!(restricted, 0o000)
+
+    on_exit(fn ->
+      File.chmod(restricted, 0o700)
+      File.rm_rf(restricted)
+    end)
+
+    valid_root = context.gate_dir
+    bad_root = Path.join(restricted, "subpath")
+
+    assert {:ok, _canonical_gate_dir} =
+             BuildGate.prepare_writable_root(
+               gate_dir: context.gate_dir,
+               lock_dir: context.lock_dir,
+               writable_roots: [bad_root, valid_root],
+               slots: 2
+             )
+  end
+
+  test "preflight fails when all writable roots are unresolvable", context do
+    # Create a mode-000 directory so PathSafety.canonicalize fails with :eacces
+    # on any path rooted inside it.
+    restricted = Path.join(System.tmp_dir!(), "aiur-restricted-#{:crypto.strong_rand_bytes(6) |> Base.url_encode64(padding: false)}")
+    File.mkdir!(restricted)
+    File.chmod!(restricted, 0o000)
+
+    on_exit(fn ->
+      File.chmod(restricted, 0o700)
+      File.rm_rf(restricted)
+    end)
+
+    bad_root_a = Path.join(restricted, "a")
+    bad_root_b = Path.join(restricted, "b")
+
+    assert {:error, {:build_gate_unavailable, details}} =
+             BuildGate.prepare_writable_root(
+               gate_dir: context.gate_dir,
+               lock_dir: context.lock_dir,
+               writable_roots: [bad_root_a, bad_root_b],
+               slots: 2
+             )
+
+    assert %{operation: :canonicalize_writable_root} = details
+  end
+
+  test "preflight rejects a lock namespace overlapping an effective writable root, even with unresolvable roots in the list",
+       context do
+    # Create a mode-000 directory so one root genuinely fails canonicalization.
+    restricted = Path.join(System.tmp_dir!(), "aiur-restricted-#{:crypto.strong_rand_bytes(6) |> Base.url_encode64(padding: false)}")
+    File.mkdir!(restricted)
+    File.chmod!(restricted, 0o000)
+
+    on_exit(fn ->
+      File.chmod(restricted, 0o700)
+      File.rm_rf(restricted)
+    end)
+
+    # valid_root is /tmp — it overlaps the lock_dir which lives under /tmp.
+    valid_root = Path.dirname(context.gate_dir)
+    bad_root = Path.join(restricted, "subpath")
+    assert {:ok, canonical_root} = Aiur.PathSafety.canonicalize(valid_root)
+
+    assert {:error, {:build_gate_unavailable, details}} =
+             BuildGate.prepare_writable_root(
+               gate_dir: context.gate_dir,
+               lock_dir: context.lock_dir,
+               writable_roots: [bad_root, valid_root],
+               slots: 2
+             )
+
+    assert %{
+             operation: :separate_lock_namespace,
+             path: lock_dir,
+             reason: {:overlaps_writable_root, ^canonical_root}
+           } = details
+
+    assert lock_dir == context.lock_dir
+  end
+
   test "an unavailable gate directory fails closed without running Mix", context do
     invalid_gate_dir = Path.join(context.gate_dir, "not-a-directory")
     File.write!(invalid_gate_dir, "regular file")
