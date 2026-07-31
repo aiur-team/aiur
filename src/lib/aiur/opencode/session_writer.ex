@@ -272,17 +272,18 @@ defmodule Aiur.Opencode.SessionWriter do
     if live_stream_active?(state) do
       {:noreply, state}
     else
-      # Replace-in-place: drop the previous cost row before writing the new one
-      # so the operator sees a single refreshing line, not an accumulating stack.
-      delete_prev_cost_row(state)
-
-      case write_system_standalone(state, CostRow.compact(snapshot)) do
+      # Replace-in-place: drop the previous cost row and write the new one so the
+      # operator sees a single refreshing line, not an accumulating stack.
+      case write_cost_row(state, CostRow.compact(snapshot)) do
         {:ok, message_id} ->
           {:noreply, reset_fk_failures(%{state | cost_row_msg_id: message_id})}
 
         {:error, reason} ->
+          # The delete+insert is atomic (see write_cost_row/2): a failed insert
+          # rolls the delete back, so the prior row survives. Keep cost_row_msg_id
+          # so the next update still replaces that row rather than leaking it.
           log_session_write_failure("cost_row_failed", state.identifier, reason)
-          handle_write_failure(%{state | cost_row_msg_id: nil}, reason)
+          handle_write_failure(state, reason)
       end
     end
   end
@@ -555,14 +556,26 @@ defmodule Aiur.Opencode.SessionWriter do
   # `assistant_message_data`'s `mode: build` / `agent: build` fields so
   # opencode-attach renders the row without the `▣ Build · issue-N`
   # chrome that wraps codex turn messages.
-  # Best-effort removal of the prior cost row. A failure here (e.g. the session
-  # was reaped) must not block writing the fresh row, so we ignore the result;
-  # the FK guard on the subsequent insert handles a dead session.
-  defp delete_prev_cost_row(%{cost_row_msg_id: nil}), do: :ok
+  # First cost row: nothing to replace, plain insert.
+  defp write_cost_row(%{cost_row_msg_id: nil} = state, body) do
+    write_system_standalone(state, body)
+  end
 
-  defp delete_prev_cost_row(%{cost_row_msg_id: msg_id, session_id: session_id}) do
-    _ = Db.delete_message(session_id, msg_id)
-    :ok
+  # Atomic replace: delete the prior row and insert the new one in a single
+  # transaction. `with_transaction/1` only rolls back on a raised error (an
+  # `{:error, _}` return would still COMMIT), so a failed insert throws to force
+  # ROLLBACK — leaving the prior row intact rather than a blank gap in the pane.
+  defp write_cost_row(%{cost_row_msg_id: prev_id, session_id: session_id} = state, body) do
+    Db.with_transaction(fn conn ->
+      _ = Db.delete_message(conn, session_id, prev_id)
+
+      case write_system_standalone_in_txn(conn, state, body) do
+        {:ok, message_id} -> {:ok, message_id}
+        {:error, reason} -> throw({:cost_row_write_failed, reason})
+      end
+    end)
+  catch
+    {:cost_row_write_failed, reason} -> {:error, reason}
   end
 
   defp write_system_standalone(state, body) when is_binary(body) do
