@@ -344,48 +344,44 @@ defmodule Aiur.Events.SubscriptionStore do
   @impl true
   def handle_info({:event, event}, state) do
     event_id = Map.get(event, :id) || Map.get(event, "id")
-
     cursor = state.last_seen_event_id || 0
 
     if is_integer(event_id) and event_id <= cursor do
       # Redelivery after restart — already consumed.
       {:noreply, state}
     else
-      topic = Map.get(event, :topic) || Map.get(event, "topic") || "(unknown)"
-
-      new_state =
-        case enqueue_event(state.identifier, event) do
-          :ok ->
-            Aiur.IssueLog.record_event(state.identifier, :consumed, event)
-
-            DebugLog.broadcast(:receive, topic,
-              id: event_id,
-              identifier: state.identifier,
-              body: event
-            )
-
-            # Only advance the durable cursor after a successful enqueue, and
-            # only when no earlier event is stalled — advancing past a failed
-            # event would make it permanently unrecoverable.
-            if is_nil(state.stalled_before) do
-              advance_cursor_inline(state, event_id)
-            else
-              state
-            end
-
-          {:error, reason} ->
-            Logger.warning(
-              "SubscriptionStore(#{state.identifier}): enqueue failed for event #{inspect(event_id)} on topic #{topic}: #{inspect(reason)}; " <>
-                "cursor held at #{cursor}, event will replay on restart"
-            )
-
-            %{state | stalled_before: stall_min(state.stalled_before, event_id)}
-        end
-
-      {:noreply, new_state}
+      {:noreply, process_new_event(state, event, event_id, cursor)}
     end
   end
 
+  defp process_new_event(state, event, event_id, cursor) do
+    topic = Map.get(event, :topic) || Map.get(event, "topic") || "(unknown)"
+
+    case enqueue_event(state.identifier, event) do
+      :ok ->
+        Aiur.IssueLog.record_event(state.identifier, :consumed, event)
+        DebugLog.broadcast(:receive, topic, id: event_id, identifier: state.identifier, body: event)
+        # Only advance the durable cursor after a successful enqueue, and
+        # only when no earlier event is stalled — advancing past a failed
+        # event would make it permanently unrecoverable.
+        advance_if_unstalled(state, event_id)
+
+      {:error, reason} ->
+        Logger.warning(
+          "SubscriptionStore(#{state.identifier}): enqueue failed for event #{inspect(event_id)} on topic #{topic}: #{inspect(reason)}; " <>
+            "cursor held at #{cursor}, event will replay on restart"
+        )
+
+        %{state | stalled_before: stall_min(state.stalled_before, event_id)}
+    end
+  end
+
+  defp advance_if_unstalled(%{stalled_before: nil} = state, event_id),
+    do: advance_cursor_inline(state, event_id)
+
+  defp advance_if_unstalled(state, _event_id), do: state
+
+  @impl true
   def handle_info(_other, state), do: {:noreply, state}
 
   defp advance_cursor_inline(state, event_id) when is_integer(event_id) do
@@ -399,33 +395,37 @@ defmodule Aiur.Events.SubscriptionStore do
 
   defp enqueue_event(identifier, event) do
     case :persistent_term.get({__MODULE__, :enqueue_fn}, nil) do
-      fun when is_function(fun, 2) ->
+      fun when is_function(fun, 2) -> call_enqueue_fn(fun, identifier, event)
+      _ -> call_orchestrator_enqueue(identifier, event)
+    end
+  end
+
+  defp call_enqueue_fn(fun, identifier, event) do
+    try do
+      case fun.(identifier, event) do
+        :ok -> :ok
+        {:error, _} = err -> err
+        other -> {:error, {:unexpected_return, other}}
+      end
+    rescue
+      e -> {:error, {:raised, e}}
+    end
+  end
+
+  defp call_orchestrator_enqueue(identifier, event) do
+    case Process.whereis(Aiur.Orchestrator) do
+      nil ->
+        {:error, :no_orchestrator}
+
+      pid ->
         try do
-          case fun.(identifier, event) do
+          case GenServer.call(pid, {:enqueue_event_digest, identifier, event}, 1_000) do
             :ok -> :ok
             {:error, _} = err -> err
             other -> {:error, {:unexpected_return, other}}
           end
-        rescue
-          e -> {:error, {:raised, e}}
-        end
-
-      _ ->
-        # Default route: orchestrator's handle_call
-        case Process.whereis(Aiur.Orchestrator) do
-          nil ->
-            {:error, :no_orchestrator}
-
-          pid ->
-            try do
-              case GenServer.call(pid, {:enqueue_event_digest, identifier, event}, 1_000) do
-                :ok -> :ok
-                {:error, _} = err -> err
-                other -> {:error, {:unexpected_return, other}}
-              end
-            catch
-              :exit, reason -> {:error, {:exit, reason}}
-            end
+        catch
+          :exit, reason -> {:error, {:exit, reason}}
         end
     end
   end

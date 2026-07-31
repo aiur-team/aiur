@@ -75,14 +75,12 @@ defmodule Aiur.Orchestrator.AutoSubscriptions do
              blockee_str,
              default_blockee_subscriptions(blocker_str),
              "blocker:auto"
-           ),
-         :ok <-
-           attach_and_subscribe(
-             blocker_str,
-             default_blocker_subscriptions(blockee_str),
-             "blockee:auto"
            ) do
-      :ok
+      attach_and_subscribe(
+        blocker_str,
+        default_blocker_subscriptions(blockee_str),
+        "blockee:auto"
+      )
     end
   end
 
@@ -116,24 +114,15 @@ defmodule Aiur.Orchestrator.AutoSubscriptions do
   end
 
   defp attach_and_subscribe(identifier, topics, reason) do
-    try do
-      with :ok <- SubscriptionStore.attach(identifier) do
-        failed =
-          Enum.reduce(topics, [], fn topic, acc ->
-            case SubscriptionStore.add_subscription(identifier, topic, reason) do
-              :ok -> acc
-              {:error, _} = err -> [{topic, err} | acc]
-            end
-          end)
+    with :ok <- SubscriptionStore.attach(identifier) do
+      Enum.each(topics, fn topic ->
+        SubscriptionStore.add_subscription(identifier, topic, reason)
+      end)
 
-        case failed do
-          [] -> :ok
-          _ -> {:error, {:subscription_failures, identifier, Enum.reverse(failed)}}
-        end
-      end
-    catch
-      :exit, reason -> {:error, {:exit, reason}}
+      :ok
     end
+  catch
+    :exit, reason -> {:error, {:exit, reason}}
   end
 
   defp remove_auto_subscriptions(identifier, topics, expected_reason) do

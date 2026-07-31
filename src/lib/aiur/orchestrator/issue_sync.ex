@@ -430,22 +430,7 @@ defmodule Aiur.Orchestrator.IssueSync do
       state =
         Enum.reduce(added_blocker_ids, state, fn blocker_id, state_acc ->
           blocker = current_blockers[blocker_id]
-
-          case AutoSubscriptions.auto_subscribe_for_dependency(issue, blocker) do
-            :ok ->
-              enqueue_dependency_event(state_acc, issue, blocker, :dependency_added)
-
-            {:error, reason} ->
-              blocker_id = blocker["identifier"] || Map.get(blocker, :identifier)
-
-              Logger.warning(
-                "IssueSync: subscription failed for dependency_added " <>
-                  "(#{issue.identifier} blocked by #{blocker_id}): " <>
-                  "#{inspect(reason)}; event will emit on next reconcile"
-              )
-
-              state_acc
-          end
+          subscribe_and_maybe_enqueue_dependency(state_acc, issue, blocker)
         end)
 
       state =
@@ -772,6 +757,26 @@ defmodule Aiur.Orchestrator.IssueSync do
     end
   end
 
+  defp subscribe_and_maybe_enqueue_dependency(state_acc, issue, blocker) do
+    case AutoSubscriptions.auto_subscribe_for_dependency(issue, blocker) do
+      :ok ->
+        enqueue_dependency_event(state_acc, issue, blocker, :dependency_added)
+
+      {:error, reason} ->
+        blocker_id = blocker["identifier"] || Map.get(blocker, :identifier)
+
+        Logger.warning(
+          "IssueSync: subscription failed for dependency_added " <>
+            "(#{issue.identifier} blocked by #{blocker_id}): " <>
+            "#{inspect(reason)}; event will emit on next reconcile"
+        )
+
+        state_acc
+    end
+  end
+
+  # Public because `PushRouting` enqueues a `:blocker_became_terminal` event
+  # through it; keep it exported even though this module is its main caller.
   @doc false
   @spec enqueue_dependency_event(State.t(), Issue.t(), map(), atom()) :: State.t()
   def enqueue_dependency_event(%State{} = state, %Issue{} = issue, blocker, update_kind)
