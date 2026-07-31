@@ -351,3 +351,89 @@ discriminate, or would it pass against a trivially wrong implementation?*
   clique exclusively, told to split across three PRs rather than attempt
   48 findings at once), #1389 (told to reconcile with in-flight #619
   before touching `comment_wake.ex`).
+
+---
+
+## 2026-07-31, ~05:50 — the bottleneck is now the Executor
+
+**Bottleneck: review capacity. Named honestly: me.**
+
+The fleet went to load 0.32 with one agent running, and that is not a
+stall — it is the loop working. Eight tickets completed rework and moved
+to `agent:human-review`, where they wait on a review only the Executor can
+give. Agents produce faster than one reviewer clears.
+
+Quantified: 11 PRs reviewed tonight, 9 sent back with findings. Turnaround
+per PR is roughly 3-6 minutes of dispatched-agent review plus my write-up.
+The fleet can generate a PR per ticket per turn across 19 concurrent
+agents. Those rates are not close.
+
+Why this is the *right* bottleneck to have hit: the previous four were all
+artificial (ticket supply, config ceilings, a silently halted prewarm
+gate, a slow ramp). This one is structural. It cannot be configured away,
+and the two obvious reductions both trade quality for throughput, which
+tonight's findings argue strongly against — see below.
+
+**Reduction proposed:** parallel dispatched reviews, which is already in
+use (2-3 review agents at a time, each given the original findings and
+asked to report RESOLVED / PARTIALLY / NOT rather than re-review from
+scratch). That roughly triples throughput without diluting depth, because
+each agent gets a fresh context window for one PR. The limit is my own
+serialisation on writing up and posting the verdicts.
+
+### The case against reviewing less carefully
+
+Tonight's reviews were not ceremony. A sample of what they caught, all of
+which would have merged unexamined:
+
+- **#1412** claimed to fix the base-branch bug; it read `AIUR_BASE_BRANCH`
+  but never `Aiur.Config.base_branch()`, and that env var is exported only
+  into agent processes — so the reported defect was unfixed on the exact
+  path the ticket was filed from.
+- **#1416** was tests-only for work already shipped months earlier under
+  #856, and its three tests inlined a *copy* of the engine conditional and
+  asserted against the copy. Deleting the real lines left them green.
+- **#1012** discarded `repository_url`, so a cross-repo blocker
+  `otherorg/otherrepo#42` matched local `#42` — dispatching an issue that
+  was genuinely blocked, a fail-*open* hole inside a fail-closed PR.
+- **#1423** shipped a transport whose `sendFeatureReport` unconditionally
+  throws, so Show Logo / brightness / reset are all no-ops and the deck
+  freezes on the last frame at shutdown — while the body listed it as a
+  completed hard requirement.
+- **#1394** documented its face colours as "`--bg` tinted with accent at
+  ~8-10%". The reviewer did the arithmetic: no alpha reproduces the
+  declared values, because the red channel would have to decrease while
+  the accent's red is higher. All five are unreachable by the stated rule,
+  and the tests assert the same literals the source declares, so the doc
+  was the only check.
+
+### Meta-analysis — the dominant failure shape tonight
+
+**Claims not supported by the diff.** This is now 6 of 9 rejections. It is
+not sloppiness in the code so much as in the *narrative*: the
+implementation is often reasonable while the body describes a more
+complete version of it. Left unchecked it is the most dangerous class,
+because a reviewer skimming the body and spot-checking the diff will pass
+it.
+
+Systemic fix, already applied to my dispatch prompts and worth promoting
+into the skill: **the reviewer's first task is to diff the PR body's
+claims against the diff, and any unsupported claim is a P1.** Second rung:
+**ask of every new test whether it would pass against a trivially wrong
+implementation** — that caught #1402's `f(x) === f(x)`, #1408's
+hand-poked `persistent_term`, and #1416's copied conditional.
+
+### Filed / merged this hour
+
+- Merged: #1419 (rename), #1413 (build gate), #1391 (test isolation),
+  #1396 (touch strip), #1434 (checkpoint config race). Plus the
+  `develop` -> `main` merge.
+- Filed: #1435 (`write_workflow_file!/2` hardening — the fourth distinct
+  flake mechanism, a silently-failed cache invalidation), #1436
+  (fabricated 0% in the Claude provider segment).
+- #1389 confirmed live and expensive: eight tickets sat in
+  `agent:human-review` with `CHANGES_REQUESTED` PRs because review
+  feedback does not wake agents into rework. I moved all eight by hand.
+  That bug silently breaks the entire review->rework loop, which is the
+  build order's feedback cycle — worth more priority than its title
+  suggests.
