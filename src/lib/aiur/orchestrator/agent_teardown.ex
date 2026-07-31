@@ -209,12 +209,15 @@ defmodule Aiur.Orchestrator.AgentTeardown do
 
   # Like kill_repl_session but leaves the REPL pane open. Used on the
   # human-review deactivation path so the finished conversation stays
-  # visible for operator inspection. OS subtrees are still reaped to
-  # prevent orphaned processes after the runner task dies.
+  # visible for operator inspection.
+  #
+  # Does NOT kill repl_os_pid: for persistent-REPL agents, `exec claude`
+  # makes claude the pane's top process, so killing repl_os_pid would
+  # close the pane via tmux's remain-on-exit behavior. Headless pids have
+  # no associated pane and are safe to reap.
   @doc false
   @spec kill_repl_session_os_only(map()) :: :ok
   def kill_repl_session_os_only(running_entry) do
-    RemoteControl.graceful_kill_tree(Map.get(running_entry, :repl_os_pid))
     RemoteControl.graceful_kill_tree(Map.get(running_entry, :headless_os_pid))
     :ok
   end

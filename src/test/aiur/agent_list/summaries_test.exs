@@ -100,8 +100,6 @@ defmodule Aiur.AgentList.SummariesTest do
 
     %{slot_ids: slot_ids, retain_ids: retain_ids} = Summaries.id_sets(summaries)
     assert slot_ids == ["active"]
-    assert "paused" in retain_ids
-    assert "done" in retain_ids
-    refute "active" in retain_ids
+    assert retain_ids == ["paused", "done"]
   end
 end
