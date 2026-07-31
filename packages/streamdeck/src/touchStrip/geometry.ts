@@ -37,16 +37,22 @@ export enum SegmentIndex {
 
 /**
  * The four project-owned segment rectangles, left to right. Each is a full-
- * height 200x100 column. Immutable and shared; callers must not mutate.
+ * height 200x100 column. Immutable and shared; callers must not mutate — both
+ * the array and every region object are frozen, so `segmentRegion(i).x = 5`
+ * fails loudly (in strict mode) rather than silently corrupting the shared
+ * global.
  */
 export const SEGMENT_REGIONS: readonly Region[] = Object.freeze([
-  { x: 0, y: 0, width: SEGMENT_WIDTH, height: STRIP_HEIGHT },
-  { x: SEGMENT_WIDTH, y: 0, width: SEGMENT_WIDTH, height: STRIP_HEIGHT },
-  { x: SEGMENT_WIDTH * 2, y: 0, width: SEGMENT_WIDTH, height: STRIP_HEIGHT },
-  { x: SEGMENT_WIDTH * 3, y: 0, width: SEGMENT_WIDTH, height: STRIP_HEIGHT },
+  Object.freeze({ x: 0, y: 0, width: SEGMENT_WIDTH, height: STRIP_HEIGHT }),
+  Object.freeze({ x: SEGMENT_WIDTH, y: 0, width: SEGMENT_WIDTH, height: STRIP_HEIGHT }),
+  Object.freeze({ x: SEGMENT_WIDTH * 2, y: 0, width: SEGMENT_WIDTH, height: STRIP_HEIGHT }),
+  Object.freeze({ x: SEGMENT_WIDTH * 3, y: 0, width: SEGMENT_WIDTH, height: STRIP_HEIGHT }),
 ]);
 
-/** Region for a given segment index. */
+/** Region for a given segment index. Throws on an out-of-range index. */
 export function segmentRegion(index: SegmentIndex): Region {
+  if (!Number.isInteger(index) || index < 0 || index >= SEGMENT_COUNT) {
+    throw new RangeError(`segment index out of range: ${String(index)}`);
+  }
   return SEGMENT_REGIONS[index];
 }

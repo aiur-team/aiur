@@ -49,7 +49,15 @@ describe("touch-strip segment geometry", () => {
     }
   });
 
-  it("exposes a frozen, immutable region table", () => {
+  it("exposes a frozen, immutable region table down to each region object", () => {
     expect(Object.isFrozen(SEGMENT_REGIONS)).toBe(true);
+    for (const r of SEGMENT_REGIONS) {
+      expect(Object.isFrozen(r)).toBe(true);
+    }
+  });
+
+  it("rejects an out-of-range segment index", () => {
+    expect(() => segmentRegion(-1 as SegmentIndex)).toThrow(RangeError);
+    expect(() => segmentRegion(SEGMENT_COUNT as SegmentIndex)).toThrow(RangeError);
   });
 });

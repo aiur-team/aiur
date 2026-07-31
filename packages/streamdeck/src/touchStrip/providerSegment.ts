@@ -30,7 +30,20 @@
  * `duration_minutes`. We classify session vs weekly by duration rather than by
  * label string, because the label is provider-defined and not a stable
  * contract: the shortest-duration window is the session, the longest is the
- * weekly. When durations are absent we cannot classify and report neither.
+ * weekly.
+ *
+ * ## Duration-less providers
+ *
+ * Not every adapter populates `duration_minutes`. Codex does
+ * (`windowDurationMins`), but Claude's app-server adapter emits a single
+ * `"rate-limit"` window with `used_percent`/`resets_at` and no duration
+ * (`src/lib/aiur/claude/rate_limit_adapter.ex`). Duration is the ordering key,
+ * so a lone duration-less window cannot be ordered against a peer — but it is
+ * still the provider's one real reading. We therefore fall back to treating a
+ * SINGLE unclassifiable window as the session (never a fabricated weekly), so
+ * Claude shows its real usage instead of a permanent "awaiting data". Two or
+ * more duration-less windows stay ambiguous and are reported as no data rather
+ * than guessed.
  */
 
 /** One observed rate-limit window, as projected. */
@@ -93,12 +106,13 @@ function classifyWindows(windows: Readonly<Record<string, ProviderMeterWindow>>)
   session: ProviderMeterWindow | null;
   weekly: ProviderMeterWindow | null;
 } {
+  const all = Object.values(windows);
   let session: ProviderMeterWindow | null = null;
   let weekly: ProviderMeterWindow | null = null;
   let sessionDuration = Infinity;
   let weeklyDuration = -Infinity;
 
-  for (const window of Object.values(windows)) {
+  for (const window of all) {
     const duration = window.duration_minutes;
     if (typeof duration !== "number" || !Number.isFinite(duration)) continue;
     if (duration < sessionDuration) {
@@ -109,6 +123,15 @@ function classifyWindows(windows: Readonly<Record<string, ProviderMeterWindow>>)
       weeklyDuration = duration;
       weekly = window;
     }
+  }
+
+  // Duration-less fallback: a provider (Claude) may report exactly one window
+  // with no `duration_minutes`. There is nothing to order it against, but it is
+  // the provider's one real reading, so treat it as the session. Only applies
+  // when the duration pass classified nothing AND there is a single window —
+  // multiple duration-less windows stay ambiguous, never guessed.
+  if (session === null && weekly === null && all.length === 1) {
+    session = all[0];
   }
 
   // A single classifiable window is the session, not simultaneously the weekly.

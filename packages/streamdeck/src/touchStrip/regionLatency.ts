@@ -8,6 +8,13 @@
  * and are additive on top. It exists to back the ticket's "single-segment vs
  * full-strip latency" acceptance with a real, reproducible number rather than an
  * asserted claim, and to let CI re-measure the regression later.
+ *
+ * Scope caveat: this measures REPORT-ENCODING COST ONLY. The full-strip figure
+ * is four times the single-segment figure by construction (the same work looped
+ * four times), so the ~4x ratio is arithmetic, not an empirical strip finding.
+ * The real single-vs-full win is fewer USB transfers — 8 reports for one 200x100
+ * segment vs 32 for the whole strip — which only becomes measurable once the
+ * hidraw transport (#1354) lands. Re-measure end-to-end there.
  */
 import { buildRegionReports } from "../imageWriter/headerGenerator.js";
 import { SEGMENT_COUNT, SegmentIndex, segmentRegion } from "./geometry.js";
