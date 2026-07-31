@@ -116,9 +116,14 @@ defmodule Aiur.Workspace.GitMetadata do
       |> Enum.join("\n")
 
     case Remote.run_remote_command(worker_host, script, Config.settings!().hooks.timeout_ms) do
-      {:ok, {_output, 0}} -> :ok
-      {:ok, {output, status}} -> {:error, {:workspace_git_metadata_unwritable, workspace, worker_host, status, output}}
-      {:error, reason} -> {:error, {:workspace_git_metadata_unwritable, workspace, worker_host, reason}}
+      {:ok, {_output, 0}} ->
+        :ok
+
+      {:ok, {output, status}} ->
+        {:error, {:workspace_git_metadata_unwritable, workspace, worker_host, status, output}}
+
+      {:error, reason} ->
+        {:error, {:workspace_git_metadata_unwritable, workspace, worker_host, reason}}
     end
   end
 
@@ -188,40 +193,43 @@ defmodule Aiur.Workspace.GitMetadata do
   defp verify_contains(root, path) do
     # Fast check: is the containing directory still a real directory (not swapped to symlink)?
     case File.lstat(Path.dirname(path)) do
-      {:ok, %File.Stat{type: :symlink}} ->
-        case PathSafety.canonicalize(path) do
-          {:ok, canonical} -> _ = File.rm(canonical)
-          {:error, _} -> _ = File.rm(path)
-        end
-
-        {:error, {:path_escaped_root, root}}
-
-      {:ok, %File.Stat{type: :directory}} ->
-        # PathSafety.canonicalize returns the assembled logical path on :enoent, so assert
-        # the file actually exists to avoid a false-safe result after a since-removed symlink.
-        with {:ok, canonical_root} <- PathSafety.canonicalize(root),
-             {:ok, canonical} <- PathSafety.canonicalize(path) do
-          cond do
-            not String.starts_with?(canonical <> "/", canonical_root <> "/") ->
-              _ = File.rm(canonical)
-              {:error, {:path_escaped_root, root}}
-
-            not File.exists?(canonical) ->
-              {:error, :path_verification_failed}
-
-            true ->
-              :ok
-          end
-        else
-          {:error, reason} ->
-            _ = File.rm(path)
-            {:error, {:path_verification_failed, reason}}
-        end
-
-      _ ->
-        _ = File.rm(path)
-        {:error, {:path_escaped_root, root}}
+      {:ok, %File.Stat{type: :symlink}} -> verify_contains_cleanup_escaped(root, path)
+      {:ok, %File.Stat{type: :directory}} -> verify_contains_in_directory(root, path)
+      _ -> git_cleanup_and_error(path, {:path_escaped_root, root})
     end
+  end
+
+  # Containing directory is a symlink: resolve through it to find and remove the escaped file.
+  defp verify_contains_cleanup_escaped(root, path) do
+    case PathSafety.canonicalize(path) do
+      {:ok, canonical} -> _ = File.rm(canonical)
+      {:error, _} -> _ = File.rm(path)
+    end
+
+    {:error, {:path_escaped_root, root}}
+  end
+
+  # Containing directory is real: verify the file exists there and is inside the root.
+  # PathSafety.canonicalize returns the assembled logical path on :enoent, so we must also
+  # assert the file actually exists; otherwise an escape through a since-removed symlink
+  # would be falsely reported as safe.
+  defp verify_contains_in_directory(root, path) do
+    with {:ok, canonical_root} <- PathSafety.canonicalize(root),
+         {:ok, canonical} <- PathSafety.canonicalize(path) do
+      if not String.starts_with?(canonical <> "/", canonical_root <> "/") do
+        _ = File.rm(canonical)
+        {:error, {:path_escaped_root, root}}
+      else
+        if File.exists?(canonical), do: :ok, else: {:error, :path_verification_failed}
+      end
+    else
+      {:error, reason} -> git_cleanup_and_error(path, {:path_verification_failed, reason})
+    end
+  end
+
+  defp git_cleanup_and_error(path, reason) do
+    _ = File.rm(path)
+    {:error, reason}
   end
 
   defp write_and_close(io, contents) do
@@ -288,7 +296,9 @@ defmodule Aiur.Workspace.GitMetadata do
   end
 
   defp expand_git_dir(workspace, git_dir) do
-    if Path.type(git_dir) == :absolute, do: Path.expand(git_dir), else: Path.expand(git_dir, workspace)
+    if Path.type(git_dir) == :absolute,
+      do: Path.expand(git_dir),
+      else: Path.expand(git_dir, workspace)
   end
 
   defp ensure_git_dir_inside_workspace(git_dir, workspace) do
@@ -318,7 +328,12 @@ defmodule Aiur.Workspace.GitMetadata do
   defp current_branch_ref_lock_paths(workspace, git_dir) do
     case Checkout.current_branch(workspace) do
       branch when is_binary(branch) and branch != "" ->
-        [Path.join([git_dir, "refs", "remotes", "origin"] ++ ref_lock_segments(String.split(branch, "/", trim: true)))]
+        [
+          Path.join(
+            [git_dir, "refs", "remotes", "origin"] ++
+              ref_lock_segments(String.split(branch, "/", trim: true))
+          )
+        ]
 
       _ ->
         []
@@ -354,7 +369,9 @@ defmodule Aiur.Workspace.GitMetadata do
             :ok
           else
             {output, status} ->
-              {:error, {:workspace_git_metadata_unwritable, probe_path, {:git_index_probe_failed, status, String.trim(output)}}}
+              {:error,
+               {:workspace_git_metadata_unwritable, probe_path,
+                {:git_index_probe_failed, status, String.trim(output)}}}
           end
         after
           git(workspace, ["reset", "-q", "--", probe_name])
@@ -373,5 +390,6 @@ defmodule Aiur.Workspace.GitMetadata do
     end
   end
 
-  defp git(workspace, args), do: System.cmd("git", ["-C", workspace | args], stderr_to_stdout: true)
+  defp git(workspace, args),
+    do: System.cmd("git", ["-C", workspace | args], stderr_to_stdout: true)
 end

@@ -46,7 +46,8 @@ defmodule Aiur.AppServer.ToolResultSpill do
          :ok <- GitMetadata.ensure_tool_results_excluded(canonical_workspace),
          {:ok, runtime_dir} <- ensure_private_directory(canonical_workspace, @runtime_dir),
          {:ok, results_dir} <- ensure_private_directory(runtime_dir, @results_dir),
-         {:ok, %{candidate: ^results_dir}} <- PathSafety.contained?(canonical_workspace, results_dir) do
+         {:ok, %{candidate: ^results_dir}} <-
+           PathSafety.contained?(canonical_workspace, results_dir) do
       {:ok, canonical_workspace, results_dir}
     else
       false -> {:error, :workspace_not_directory}
@@ -110,45 +111,43 @@ defmodule Aiur.AppServer.ToolResultSpill do
     # Fast check: is the containing directory still a real directory (not swapped to symlink)?
     # This single lstat runs quickly enough to detect the symlink while it is still present.
     case File.lstat(Path.dirname(path)) do
-      {:ok, %File.Stat{type: :symlink}} ->
-        # Directory was swapped — resolve through the symlink to find and remove the escaped file.
-        case PathSafety.canonicalize(path) do
-          {:ok, canonical} -> _ = File.rm(canonical)
-          {:error, _} -> _ = File.rm(path)
-        end
-
-        {:error, :path_escaped_workspace}
-
-      {:ok, %File.Stat{type: :directory}} ->
-        # Directory is real — verify the file exists there and is inside the workspace.
-        # PathSafety.canonicalize returns the assembled logical path on :enoent, so we must
-        # also assert the file actually exists; otherwise an escape through a since-removed
-        # symlink would be falsely reported as safe.
-        with {:ok, canonical_root} <- PathSafety.canonicalize(root),
-             {:ok, canonical} <- PathSafety.canonicalize(path) do
-          cond do
-            not String.starts_with?(canonical <> "/", canonical_root <> "/") ->
-              _ = File.rm(canonical)
-              {:error, :path_escaped_workspace}
-
-            not File.exists?(canonical) ->
-              # File is not at its canonical location; it likely escaped via a symlink that
-              # has since been removed.  We cannot locate it for cleanup at this point.
-              {:error, :path_verification_failed}
-
-            true ->
-              :ok
-          end
-        else
-          {:error, reason} ->
-            _ = File.rm(path)
-            {:error, {:path_verification_failed, reason}}
-        end
-
-      _ ->
-        _ = File.rm(path)
-        {:error, :path_escaped_workspace}
+      {:ok, %File.Stat{type: :symlink}} -> verify_contains_cleanup_escaped(path)
+      {:ok, %File.Stat{type: :directory}} -> verify_contains_in_directory(root, path)
+      _ -> cleanup_and_error(path, :path_escaped_workspace)
     end
+  end
+
+  # Containing directory is a symlink: resolve through it to find and remove the escaped file.
+  defp verify_contains_cleanup_escaped(path) do
+    case PathSafety.canonicalize(path) do
+      {:ok, canonical} -> _ = File.rm(canonical)
+      {:error, _} -> _ = File.rm(path)
+    end
+
+    {:error, :path_escaped_workspace}
+  end
+
+  # Containing directory is real: verify the file exists there and is inside the workspace.
+  # PathSafety.canonicalize returns the assembled logical path on :enoent, so we must also
+  # assert the file actually exists; otherwise an escape through a since-removed symlink
+  # would be falsely reported as safe.
+  defp verify_contains_in_directory(root, path) do
+    with {:ok, canonical_root} <- PathSafety.canonicalize(root),
+         {:ok, canonical} <- PathSafety.canonicalize(path) do
+      if not String.starts_with?(canonical <> "/", canonical_root <> "/") do
+        _ = File.rm(canonical)
+        {:error, :path_escaped_workspace}
+      else
+        if File.exists?(canonical), do: :ok, else: {:error, :path_verification_failed}
+      end
+    else
+      {:error, reason} -> cleanup_and_error(path, {:path_verification_failed, reason})
+    end
+  end
+
+  defp cleanup_and_error(path, reason) do
+    _ = File.rm(path)
+    {:error, reason}
   end
 
   defp verify_destination(canonical_workspace, directory, path) do
@@ -157,7 +156,8 @@ defmodule Aiur.AppServer.ToolResultSpill do
     with {:ok, %File.Stat{type: :directory}} <- File.lstat(runtime_dir),
          {:ok, %File.Stat{type: :directory}} <- File.lstat(directory),
          {:error, :enoent} <- File.lstat(path),
-         {:ok, %{root: ^canonical_workspace, candidate: ^path}} <- PathSafety.contained?(canonical_workspace, path) do
+         {:ok, %{root: ^canonical_workspace, candidate: ^path}} <-
+           PathSafety.contained?(canonical_workspace, path) do
       :ok
     else
       {:ok, %File.Stat{type: :symlink}} -> {:error, :symlinked_spill_directory}
@@ -167,8 +167,14 @@ defmodule Aiur.AppServer.ToolResultSpill do
   end
 
   defp bounded_result(path) do
-    message = "Tool result exceeded #{@max_inline_frame_bytes} inline bytes and was saved as JSON to #{path}. Read the file from disk in chunks."
-    %{"success" => true, "output" => message, "contentItems" => [%{"type" => "inputText", "text" => message}]}
+    message =
+      "Tool result exceeded #{@max_inline_frame_bytes} inline bytes and was saved as JSON to #{path}. Read the file from disk in chunks."
+
+    %{
+      "success" => true,
+      "output" => message,
+      "contentItems" => [%{"type" => "inputText", "text" => message}]
+    }
   end
 
   defp bounded_failure do
