@@ -88,23 +88,12 @@ defmodule Aiur.AppServerTest do
       workspace = Path.join(workspace_root, "MT-1001")
       codex_binary = Path.join(test_root, "fake-codex")
       trace_file = Path.join(test_root, "codex-supported-turn-policies.trace")
-      previous_trace = System.get_env("SYMP_TEST_CODEx_TRACE")
-
-      on_exit(fn ->
-        if is_binary(previous_trace) do
-          System.put_env("SYMP_TEST_CODEx_TRACE", previous_trace)
-        else
-          System.delete_env("SYMP_TEST_CODEx_TRACE")
-        end
-      end)
-
-      System.put_env("SYMP_TEST_CODEx_TRACE", trace_file)
       File.mkdir_p!(workspace)
       assert {:ok, canonical_workspace} = Aiur.PathSafety.canonicalize(workspace)
 
       File.write!(codex_binary, """
       #!/bin/sh
-      trace_file="${SYMP_TEST_CODEx_TRACE:-/tmp/codex-supported-turn-policies.trace}"
+      trace_file="#{trace_file}"
       count=0
 
       while IFS= read -r line; do
@@ -198,22 +187,11 @@ defmodule Aiur.AppServerTest do
       workspace = Path.join(workspace_root, "MT-88")
       codex_binary = Path.join(test_root, "fake-codex")
       trace_file = Path.join(test_root, "codex-input.trace")
-      previous_trace = System.get_env("SYMP_TEST_CODEx_TRACE")
-
-      on_exit(fn ->
-        if is_binary(previous_trace) do
-          System.put_env("SYMP_TEST_CODEx_TRACE", previous_trace)
-        else
-          System.delete_env("SYMP_TEST_CODEx_TRACE")
-        end
-      end)
-
-      System.put_env("SYMP_TEST_CODEx_TRACE", trace_file)
       File.mkdir_p!(workspace)
 
       File.write!(codex_binary, """
       #!/bin/sh
-      trace_file="${SYMP_TEST_CODEx_TRACE:-/tmp/codex-input.trace}"
+      trace_file="#{trace_file}"
       count=0
       while IFS= read -r line; do
         count=$((count + 1))
@@ -340,22 +318,11 @@ defmodule Aiur.AppServerTest do
       workspace = Path.join(workspace_root, "MT-89")
       codex_binary = Path.join(test_root, "fake-codex")
       trace_file = Path.join(test_root, "codex-auto-approve.trace")
-      previous_trace = System.get_env("SYMP_TEST_CODex_TRACE")
-
-      on_exit(fn ->
-        if is_binary(previous_trace) do
-          System.put_env("SYMP_TEST_CODex_TRACE", previous_trace)
-        else
-          System.delete_env("SYMP_TEST_CODex_TRACE")
-        end
-      end)
-
-      System.put_env("SYMP_TEST_CODex_TRACE", trace_file)
       File.mkdir_p!(workspace)
 
       File.write!(codex_binary, """
       #!/bin/sh
-      trace_file="${SYMP_TEST_CODex_TRACE:-/tmp/codex-auto-approve.trace}"
+      trace_file="#{trace_file}"
       count=0
       while IFS= read -r line; do
         count=$((count + 1))
@@ -502,22 +469,11 @@ defmodule Aiur.AppServerTest do
       workspace = Path.join(workspace_root, "MT-717")
       codex_binary = Path.join(test_root, "fake-codex")
       trace_file = Path.join(test_root, "codex-tool-user-input-auto-approve.trace")
-      previous_trace = System.get_env("SYMP_TEST_CODEx_TRACE")
-
-      on_exit(fn ->
-        if is_binary(previous_trace) do
-          System.put_env("SYMP_TEST_CODEx_TRACE", previous_trace)
-        else
-          System.delete_env("SYMP_TEST_CODEx_TRACE")
-        end
-      end)
-
-      System.put_env("SYMP_TEST_CODEx_TRACE", trace_file)
       File.mkdir_p!(workspace)
 
       File.write!(codex_binary, """
       #!/bin/sh
-      trace_file="${SYMP_TEST_CODEx_TRACE:-/tmp/codex-tool-user-input-auto-approve.trace}"
+      trace_file="#{trace_file}"
       count=0
       while IFS= read -r line; do
         count=$((count + 1))
@@ -677,22 +633,11 @@ defmodule Aiur.AppServerTest do
       workspace = Path.join(workspace_root, "MT-719")
       codex_binary = Path.join(test_root, "fake-codex")
       trace_file = Path.join(test_root, "codex-tool-user-input-options.trace")
-      previous_trace = System.get_env("SYMP_TEST_CODEx_TRACE")
-
-      on_exit(fn ->
-        if is_binary(previous_trace) do
-          System.put_env("SYMP_TEST_CODEx_TRACE", previous_trace)
-        else
-          System.delete_env("SYMP_TEST_CODEx_TRACE")
-        end
-      end)
-
-      System.put_env("SYMP_TEST_CODEx_TRACE", trace_file)
       File.mkdir_p!(workspace)
 
       File.write!(codex_binary, """
       #!/bin/sh
-      trace_file="${SYMP_TEST_CODEx_TRACE:-/tmp/codex-tool-user-input-options.trace}"
+      trace_file="#{trace_file}"
       count=0
       while IFS= read -r line; do
         count=$((count + 1))
@@ -850,22 +795,11 @@ defmodule Aiur.AppServerTest do
       workspace = Path.join(workspace_root, "MT-90")
       codex_binary = Path.join(test_root, "fake-codex")
       trace_file = Path.join(test_root, "codex-tool-call.trace")
-      previous_trace = System.get_env("SYMP_TEST_CODEx_TRACE")
-
-      on_exit(fn ->
-        if is_binary(previous_trace) do
-          System.put_env("SYMP_TEST_CODEx_TRACE", previous_trace)
-        else
-          System.delete_env("SYMP_TEST_CODEx_TRACE")
-        end
-      end)
-
-      System.put_env("SYMP_TEST_CODEx_TRACE", trace_file)
       File.mkdir_p!(workspace)
 
       File.write!(codex_binary, """
       #!/bin/sh
-      trace_file="${SYMP_TEST_CODEx_TRACE:-/tmp/codex-tool-call.trace}"
+      trace_file="#{trace_file}"
       count=0
       while IFS= read -r line; do
         count=$((count + 1))
@@ -902,9 +836,11 @@ defmodule Aiur.AppServerTest do
         command: "#{codex_binary} app-server"
       )
 
+      issue_identifier = "MT-90-#{System.unique_integer([:positive])}"
+
       issue = %Issue{
         id: "issue-tool-call",
-        identifier: "MT-90",
+        identifier: issue_identifier,
         title: "Unsupported tool call",
         description: "Ensure unsupported tool calls do not stall a turn",
         state: "In Progress",
@@ -951,22 +887,11 @@ defmodule Aiur.AppServerTest do
       workspace = Path.join(workspace_root, "MT-90A")
       codex_binary = Path.join(test_root, "fake-codex")
       trace_file = Path.join(test_root, "codex-supported-tool-call.trace")
-      previous_trace = System.get_env("SYMP_TEST_CODEx_TRACE")
-
-      on_exit(fn ->
-        if is_binary(previous_trace) do
-          System.put_env("SYMP_TEST_CODEx_TRACE", previous_trace)
-        else
-          System.delete_env("SYMP_TEST_CODEx_TRACE")
-        end
-      end)
-
-      System.put_env("SYMP_TEST_CODEx_TRACE", trace_file)
       File.mkdir_p!(workspace)
 
       File.write!(codex_binary, """
       #!/bin/sh
-      trace_file="${SYMP_TEST_CODEx_TRACE:-/tmp/codex-supported-tool-call.trace}"
+      trace_file="#{trace_file}"
       count=0
       while IFS= read -r line; do
         count=$((count + 1))
@@ -1003,9 +928,11 @@ defmodule Aiur.AppServerTest do
         command: "#{codex_binary} app-server"
       )
 
+      issue_identifier = "MT-90A-#{System.unique_integer([:positive])}"
+
       issue = %Issue{
         id: "issue-supported-tool-call",
-        identifier: "MT-90A",
+        identifier: issue_identifier,
         title: "Supported tool call",
         description: "Ensure supported tool calls return tool output",
         state: "In Progress",
@@ -1073,22 +1000,11 @@ defmodule Aiur.AppServerTest do
       workspace = Path.join(workspace_root, "MT-90B")
       codex_binary = Path.join(test_root, "fake-codex")
       trace_file = Path.join(test_root, "codex-tool-call-failed.trace")
-      previous_trace = System.get_env("SYMP_TEST_CODEx_TRACE")
-
-      on_exit(fn ->
-        if is_binary(previous_trace) do
-          System.put_env("SYMP_TEST_CODEx_TRACE", previous_trace)
-        else
-          System.delete_env("SYMP_TEST_CODEx_TRACE")
-        end
-      end)
-
-      System.put_env("SYMP_TEST_CODEx_TRACE", trace_file)
       File.mkdir_p!(workspace)
 
       File.write!(codex_binary, """
       #!/bin/sh
-      trace_file="${SYMP_TEST_CODEx_TRACE:-/tmp/codex-tool-call-failed.trace}"
+      trace_file="#{trace_file}"
       count=0
       while IFS= read -r line; do
         count=$((count + 1))
@@ -1125,9 +1041,11 @@ defmodule Aiur.AppServerTest do
         command: "#{codex_binary} app-server"
       )
 
+      issue_identifier = "MT-90B-#{System.unique_integer([:positive])}"
+
       issue = %Issue{
         id: "issue-tool-call-failed",
-        identifier: "MT-90B",
+        identifier: issue_identifier,
         title: "Tool call failed",
         description: "Ensure supported tool failures emit a distinct event",
         state: "In Progress",

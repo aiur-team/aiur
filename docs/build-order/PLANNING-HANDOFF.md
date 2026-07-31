@@ -27,7 +27,7 @@ until the branch, draft PR, issues, and handoff all reconcile.
 
 ## Non-negotiable authority and scope
 
-- Work only in the configured `its-everdred/aiur` GitHub repository.
+- Work only in the configured `aiur-team/aiur` GitHub repository.
 - Planning and issue materialization are authorized; implementation and an
   Aiur run are not.
 - Do not merge `build-order-research` or `aiur-executor-skills` to `main`.
@@ -50,9 +50,9 @@ until the branch, draft PR, issues, and handoff all reconcile.
 ## Branches and draft PRs
 
 - Planning: `build-order-research`, draft PR
-  [#1064](https://github.com/its-everdred/aiur/pull/1064).
+  [#1064](https://github.com/aiur-team/aiur/pull/1064).
 - Reusable skills: PR
-  [#1065](https://github.com/its-everdred/aiur/pull/1065), final reviewed source
+  [#1065](https://github.com/aiur-team/aiur/pull/1065), final reviewed source
   head `6447f9c193d2322d63f54a58b9c54e0a72d3e98f`, squash-merged to `main` as
   `ed1846c4bc76d4657095da57951a0dbf3e914c3d`.
 - Current shipped dashboard baseline: `origin/main` at
@@ -100,8 +100,8 @@ The user supplied these prior planning PRs as examples of large-feature
 decomposition and durable handoff structure:
 
 - [ethereum-optimism/actions#513](https://github.com/ethereum-optimism/actions/pull/513)
-- [its-everdred/aiur#971](https://github.com/its-everdred/aiur/pull/971)
-- [its-everdred/aiur#732](https://github.com/its-everdred/aiur/pull/732)
+- [aiur-team/aiur#971](https://github.com/aiur-team/aiur/pull/971)
+- [aiur-team/aiur#732](https://github.com/aiur-team/aiur/pull/732)
 
 Review them with a document-review lens, but do not treat any one format as a
 schema. The reusable pattern is finite acceptance, worker-ready ticket

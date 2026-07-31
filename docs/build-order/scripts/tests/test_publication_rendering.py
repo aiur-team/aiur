@@ -682,7 +682,7 @@ class FinalCommentTests(unittest.TestCase):
         subprocess.run(
             [
                 "git", "-C", str(fixture.base), "remote", "set-url", "origin",
-                "git@github.com:its-everdred/aiur.git",
+                "git@github.com:aiur-team/aiur.git",
             ],
             check=True,
         )
@@ -711,7 +711,7 @@ class FinalCommentTests(unittest.TestCase):
             )
         self.assertIn(
             "validated receipt repository must equal configured GitHub origin "
-            "its-everdred/aiur",
+            "aiur-team/aiur",
             report.errors,
         )
 
