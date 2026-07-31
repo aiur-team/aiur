@@ -437,3 +437,43 @@ hand-poked `persistent_term`, and #1416's copied conditional.
   That bug silently breaks the entire review->rework loop, which is the
   build order's feedback cycle — worth more priority than its title
   suggests.
+
+---
+
+## 2026-07-31, afternoon — a new failure signature: secondary rate limits
+
+**Bottleneck: fleet dispatch was dead for ~35 minutes on a signature the
+existing runbook could not diagnose.**
+
+The daemon logged `GitHub auth preflight failed ... HTTP 403 and the REST
+rate limit is exhausted` on every poll — while `gh api rate_limit` for the
+same token showed **4768/5000 remaining**. The contradiction is the
+finding: GitHub's **secondary rate limiter** (burst/concurrency abuse
+detection) 403s real calls with "API rate limit exceeded for user ID …"
+while the primary quota endpoint reports headroom. The existing runbook
+signature — `retry_poll.exhausted` + 403 = hourly budget exhausted, wait
+for reset — is wrong for this case: there is no reset time to wait for,
+and the budget check gives a false all-clear.
+
+Trigger was plausibly tonight's shape of load: the fleet's 30s polling
+plus a dozen parallel review agents each running bursts of `gh` calls.
+Secondary limits key on concurrency and burst rate, not hourly volume.
+
+**Recovery that worked:** stop probing with anything that retries hot,
+poll the *actual* resource (`gh api repos/aiur-team/aiur`) once a minute
+until it succeeds, then resume the fleet. Cleared in ~35 minutes. A
+post-recovery daemon restart was also needed — the daemon self-reported
+"may be scheduler-saturated" after sustained preflight failures, which is
+itself worth a defect ticket if it recurs.
+
+**Runbook addition (also belongs in the skill on the next pass):** when a
+403 coexists with a healthy `rate_limit` reading, it is a secondary limit.
+Do not rotate tokens, do not wait for the hourly reset, do not restart the
+daemon first — reduce burst concurrency and poll the real endpoint until
+it clears. Distinguishing check:
+`gh api rate_limit` healthy + `gh api repos/<owner>/<repo>` failing.
+
+**Systemic note:** parallel review agents multiply `gh` burst rate
+invisibly. Consider a shared `gh` call budget or stagger for dispatched
+agents; #1388's ETag work reduces steady-state volume but not burst
+concurrency, which is what secondary limits measure.
