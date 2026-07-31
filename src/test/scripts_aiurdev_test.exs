@@ -1734,8 +1734,9 @@ defmodule ScriptsAiurdevTest do
       ])
 
     assert out =~ "mise not found"
+
     refute File.exists?(lock_dir),
-          "lock should be released even when require_mise calls exit 64"
+           "lock should be released even when require_mise calls exit 64"
 
     # Second run: should be able to acquire and use the lock without hanging
     # (which would fail if the lock from the first run was left behind)
@@ -1747,7 +1748,8 @@ defmodule ScriptsAiurdevTest do
       ])
 
     assert out =~ "mise not found"
+
     refute File.exists?(lock_dir),
-          "lock should still be released after the second run"
+           "lock should still be released after the second run"
   end
 end
