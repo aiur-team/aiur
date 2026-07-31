@@ -2,8 +2,8 @@
 date: 2026-05-19
 status: requirements
 related:
-  - issue: its-everdred/aiur#34
-  - pr: its-everdred/aiur#51
+  - issue: aiur-team/aiur#34
+  - pr: aiur-team/aiur#51
 ---
 
 # Conversation Pane Layout Redux — Requirements
@@ -131,5 +131,5 @@ Issue #34's "Closing a pane leaves the slot empty; tmux auto-expands neighbors" 
 - `elixir/lib/aiur/tmux.ex`
 - `scripts/aiur.tmux.conf`
 - `elixir/test/aiur/pane_manager_test.exs`
-- Issue: https://github.com/its-everdred/aiur/issues/34
-- Prior PR: https://github.com/its-everdred/aiur/pull/51
+- Issue: https://github.com/aiur-team/aiur/issues/34
+- Prior PR: https://github.com/aiur-team/aiur/pull/51
