@@ -73,11 +73,15 @@ defmodule Aiur.AgentList.RosterTest do
 
     assert new_state.latest_event_by_id == %{}
     assert new_state.phase_by_identifier == %{}
-    assert new_state.progress_by_id == %{}
+    # "gone" is trimmed (not visible); "work" has no activity; "done" is
+    # deactivated so seed_deactivated_progress pins it to 100%.
+    assert [{100, _}] = new_state.progress_by_id["done"]
+    refute Map.has_key?(new_state.progress_by_id, "work")
+    refute Map.has_key?(new_state.progress_by_id, "gone")
     assert new_state.agents_with_content == MapSet.new(["work", "done"])
   end
 
-  test "fold never invents completion progress for deactivated rows" do
+  test "fold seeds 100% progress for deactivated rows regardless of prior samples" do
     existing = %{
       state()
       | progress_by_id: %{
@@ -93,7 +97,10 @@ defmodule Aiur.AgentList.RosterTest do
 
     {new_state, _slot_ids, _retain_ids} = Roster.fold(existing, summaries)
 
-    assert new_state.progress_by_id == %{}
+    # reconcile rebuilds from activity (none here → empty), then
+    # seed_deactivated_progress pins both to 100%.
+    assert [{100, _}] = new_state.progress_by_id["missing"]
+    assert [{100, _}] = new_state.progress_by_id["already"]
   end
 
   test "fold rebuilds open attention counts to zero when store has no data" do

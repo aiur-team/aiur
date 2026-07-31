@@ -149,17 +149,36 @@ defmodule Aiur.Orchestrator.AgentTeardown do
           |> Map.put(:control, Map.put(existing_control, :status, :deactivated))
           |> maybe_preserve_completed_provenance(completed_provenance?)
 
-        new_state = %{
-          state
-          | running: Map.put(state.running, issue_id, new_entry),
-            retry_attempts: Map.delete(state.retry_attempts, issue_id)
-        }
+        new_state =
+          %{
+            state
+            | running: Map.put(state.running, issue_id, new_entry),
+              retry_attempts: Map.delete(state.retry_attempts, issue_id)
+          }
+          |> evict_prior_deactivated(issue_id)
 
         # Drop the id from the publisher's tracked set so in-flight events
         # from the just-killed codex task don't pass the gate and overwrite
-        # the synthetic 100 bar sample U4 seeds.
+        # the synthetic 100 bar sample.
         Orchestrator.refresh_tracked_set(new_state)
     end
+  end
+
+  # Removes all previously-deactivated entries from state.running except the
+  # one just deactivated (current_issue_id). Without this, each human-review
+  # completion accumulates a retained AttachPool slot indefinitely (until the
+  # PR is merged or the daemon restarts), and a pool of 3 pre-warmed sessions
+  # would be exhausted by 3 sequential completions. The most recently finished
+  # agent's pane remains open for inspection; older ones are freed immediately
+  # so the pool stays available for new dispatches.
+  defp evict_prior_deactivated(%State{} = state, current_issue_id) do
+    to_evict =
+      for {id, entry} <- state.running,
+          id != current_issue_id,
+          State.deactivated_running_entry?(entry),
+          do: id
+
+    %{state | running: Map.drop(state.running, to_evict)}
   end
 
   @doc false

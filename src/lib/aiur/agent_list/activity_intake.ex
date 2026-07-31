@@ -6,6 +6,7 @@ defmodule Aiur.AgentList.ActivityIntake do
   only as presentation inputs for the existing renderer.
   """
 
+  alias Aiur.AgentList.Summaries
   alias Aiur.TrackerIdentity
 
   @spec load(map(), map()) :: map()
@@ -51,6 +52,31 @@ defmodule Aiur.AgentList.ActivityIntake do
     state
     |> Map.merge(Map.drop(presentation, [:presented]))
     |> Map.put(:ticket_activity_presented, presentation.presented)
+    |> seed_deactivated_progress()
+  end
+
+  # Forces progress_by_id to 100% for any deactivated (human-review) summary,
+  # regardless of what the agent last emitted. Runs at the end of every
+  # reconcile so the bar stays green even if a stale activity snapshot
+  # overwrites the prior 100% sample.
+  defp seed_deactivated_progress(state) do
+    now_ms = System.monotonic_time(:millisecond)
+
+    state
+    |> Map.get(:summaries, [])
+    |> Enum.filter(&Summaries.deactivated?/1)
+    |> Enum.reduce(state, fn summary, acc ->
+      case Map.get(summary, :identifier) do
+        id when is_binary(id) ->
+          case get_in(acc, [:progress_by_id, id]) do
+            [{100, _} | _] -> acc
+            _ -> put_in(acc, [:progress_by_id, id], [{100, now_ms}])
+          end
+
+        _ ->
+          acc
+      end
+    end)
   end
 
   defp apply_entry(state, payload) do

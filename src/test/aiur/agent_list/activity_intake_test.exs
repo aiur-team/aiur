@@ -23,7 +23,7 @@ defmodule Aiur.AgentList.ActivityIntakeTest do
     assert state.activity_status_by_identifier["42"].snapshot == :fresh
   end
 
-  test "unknown activity stays unknown and never becomes zero or complete" do
+  test "deactivated summary with unknown activity gets progress pinned to 100%" do
     ticket = identity()
 
     state =
@@ -41,7 +41,9 @@ defmodule Aiur.AgentList.ActivityIntakeTest do
         ]
       })
 
-    assert state.progress_by_id == %{}
+    # seed_deactivated_progress forces 100% for any deactivated summary,
+    # overriding whatever (possibly unknown) activity the tracker reports.
+    assert [{100, _}] = state.progress_by_id["42"]
     assert state.phase_by_identifier == %{}
     assert state.latest_event_by_id == %{}
 
@@ -51,6 +53,16 @@ defmodule Aiur.AgentList.ActivityIntakeTest do
              stage: :unknown,
              evidence: :unknown
            }
+  end
+
+  test "deactivated summary keeps 100% progress even when activity reports a lower value" do
+    ticket = identity()
+
+    state =
+      state([summary("42", ticket, :deactivated)])
+      |> ActivityIntake.load(%{generation: 0, entries: [activity(ticket, 80, :review)]})
+
+    assert [{100, _}] = state.progress_by_id["42"]
   end
 
   test "stale stage is not presented as active and stale evidence is explicit" do

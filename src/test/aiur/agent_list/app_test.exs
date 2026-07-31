@@ -385,7 +385,7 @@ defmodule Aiur.AgentList.AppTest do
   end
 
   describe "deactivated state visibility" do
-    test "deactivated summaries stay visible without invented progress", %{app: app} do
+    test "deactivated summaries stay visible and show 100% progress bar", %{app: app} do
       send_running_change(app, [
         AgentEvents.agent_summary("DA-WORK", :running, 0, %{work_state: :working}),
         AgentEvents.agent_summary("DA-DEACT", :running, 0, %{work_state: :deactivated})
@@ -400,9 +400,9 @@ defmodule Aiur.AgentList.AppTest do
       assert "DA-WORK" in identifiers
       assert "DA-DEACT" in identifiers
 
-      # TicketActivity is the sole progress owner; absent shared evidence
-      # remains unknown for both lifecycle states.
-      assert Map.get(snapshot.progress_by_id, "DA-DEACT", []) == []
+      # Deactivated rows get 100% progress seeded by seed_deactivated_progress.
+      # Working rows with no TicketActivity evidence remain unknown.
+      assert [{100, _}] = Map.get(snapshot.progress_by_id, "DA-DEACT", [])
       assert Map.get(snapshot.progress_by_id, "DA-WORK", []) == []
     end
 
@@ -447,9 +447,9 @@ defmodule Aiur.AgentList.AppTest do
 
       assert Enum.sort(identifiers) == ["DA-1", "DA-2", "DA-3"]
 
-      # Lifecycle completion never manufactures shared activity evidence.
+      # Deactivated rows always get 100% progress seeded.
       for id <- identifiers do
-        assert Map.get(snapshot.progress_by_id, id, []) == []
+        assert [{100, _}] = Map.get(snapshot.progress_by_id, id, [])
       end
     end
 

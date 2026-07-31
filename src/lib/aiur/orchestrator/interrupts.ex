@@ -90,8 +90,24 @@ defmodule Aiur.Orchestrator.Interrupts do
   @doc false
   @spec pane_interrupt_reply(State.t(), String.t()) :: {term(), State.t()}
   def pane_interrupt_reply(state, issue_identifier) do
-    case State.find_running_by_identifier(state.running, issue_identifier) do
-      %{repl_pane_id: pane_id} = entry when is_binary(pane_id) ->
+    entry = State.find_running_by_identifier(state.running, issue_identifier)
+    pane_id = is_map(entry) && Map.get(entry, :repl_pane_id)
+
+    cond do
+      not is_map(entry) ->
+        {{:error, :not_running}, state}
+
+      # Deactivated (human-review) agents have no active turn and no recoverable
+      # state — any Ctrl+C closes the finished pane immediately. Check this
+      # BEFORE dispatching on repl_pane_id so that a persistent-REPL agent
+      # whose pane was kept open for inspection follows the same close path as
+      # one without a pane.
+      State.deactivated_running_entry?(entry) ->
+        pane_interrupt_no_repl(state, entry, issue_identifier)
+
+      is_binary(pane_id) ->
+        # opencode/codex REPL pane: inspect turn activity and queue depth to
+        # decide whether to send a native interrupt, pause, or close the pane.
         action =
           pane_interrupt_action(
             State.paused_running_entry?(entry),
@@ -100,20 +116,15 @@ defmodule Aiur.Orchestrator.Interrupts do
 
         perform_pane_interrupt(action, state, entry, issue_identifier, pane_id)
 
-      running_entry when is_map(running_entry) ->
+      true ->
         # opencode/codex own their queue and turn; Aiur cannot see them via
         # AgentQueueStore. The one turn-activity signal Aiur owns is
         # ActiveTurns — a live aiur-mediated codex turn registers there. So a
         # Ctrl+C on a working agent sends opencode's native interrupt (the
         # caller forwards Esc to the pane), which drains its queued message and
         # keeps it working. Only a genuinely idle agent pauses; a second press
-        # on the now-paused agent closes the pane. A deactivated (human-review)
-        # agent has no active turn and no recoverable state — any Ctrl+C closes
-        # the finished pane immediately.
-        pane_interrupt_no_repl(state, running_entry, issue_identifier)
-
-      _ ->
-        {{:error, :not_running}, state}
+        # on the now-paused agent closes the pane.
+        pane_interrupt_no_repl(state, entry, issue_identifier)
     end
   end
 
