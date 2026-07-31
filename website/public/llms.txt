@@ -103,10 +103,10 @@ For a headless run, use `aiur --bg`. Useful controls include `aiur status`,
 
 ## Next steps
 
-- Read the full [Aiur README](https://github.com/its-everdred/aiur/blob/main/src/README.md)
+- Read the full [Aiur README](https://github.com/aiur-team/aiur/blob/main/src/README.md)
   for configuration, commands, tracker adapters, and troubleshooting.
-- Browse starter configs in the [workflow examples](https://github.com/its-everdred/aiur/tree/main/src/examples/workflows).
+- Browse starter configs in the [workflow examples](https://github.com/aiur-team/aiur/tree/main/src/examples/workflows).
 - Install [opencode](https://opencode.ai) separately if you want Aiur's live
   Executor chat panes.
-- Review the [project repository](https://github.com/its-everdred/aiur) and its
+- Review the [project repository](https://github.com/aiur-team/aiur) and its
   safety warning before using Aiur with production code or credentials.
