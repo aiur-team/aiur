@@ -36,6 +36,49 @@ defmodule Aiur.Orchestrator.AutoSubscriptionsTest do
     refute Enum.any?(blocker_topics, &(&1["reason"] == "blockee:auto"))
   end
 
+  describe "auto_subscribe_for_dependency failure injection" do
+    setup do
+      on_exit(fn -> AutoSubscriptions.set_add_subscription_fn(nil) end)
+      :ok
+    end
+
+    test "returns {:error, _} when add_subscription fails for any topic" do
+      blockee_id = "blockee-#{System.unique_integer([:positive])}"
+      blocker_id = "blocker-#{System.unique_integer([:positive])}"
+      blockee = %Issue{identifier: blockee_id}
+      blocker = %{"identifier" => blocker_id}
+
+      # Inject a failing add_subscription — simulates GenServer exit or store rejection
+      AutoSubscriptions.set_add_subscription_fn(fn _id, _topic, _reason ->
+        {:error, :simulated_store_failure}
+      end)
+
+      assert {:error, _} = AutoSubscriptions.auto_subscribe_for_dependency(blockee, blocker)
+    end
+
+    test "no subscriptions are recorded when add_subscription fails" do
+      blockee_id = "blockee-#{System.unique_integer([:positive])}"
+      blocker_id = "blocker-#{System.unique_integer([:positive])}"
+      blockee = %Issue{identifier: blockee_id}
+      blocker = %{"identifier" => blocker_id}
+
+      # Attach the stores first so snapshots work, then override the add fn
+      :ok = SubscriptionStore.attach(blockee_id)
+      :ok = SubscriptionStore.attach(blocker_id)
+      on_exit(fn -> SubscriptionStore.stop(blockee_id) end)
+      on_exit(fn -> SubscriptionStore.stop(blocker_id) end)
+
+      AutoSubscriptions.set_add_subscription_fn(fn _id, _topic, _reason ->
+        {:error, :simulated_store_failure}
+      end)
+
+      {:error, _} = AutoSubscriptions.auto_subscribe_for_dependency(blockee, blocker)
+
+      blockee_topics = blockee_id |> SubscriptionStore.snapshot() |> Map.fetch!(:subscribed_to)
+      assert blockee_topics == []
+    end
+  end
+
   describe "auto_subscribe_for_dependency" do
     test "returns :ok and registers subscriptions on both sides" do
       blockee_id = "blockee-#{System.unique_integer([:positive])}"

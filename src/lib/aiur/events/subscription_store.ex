@@ -60,6 +60,9 @@ defmodule Aiur.Events.SubscriptionStore do
   alias Aiur.Events.{DebugLog, Exchange, IdGenerator}
   alias Aiur.JsonStore
 
+  @max_stall_attempts 3
+  @stall_base_retry_ms 1_000
+
   @registry Aiur.Events.SubscriptionStoreRegistry
   @supervisor Aiur.Events.SubscriptionStoreSupervisor
 
@@ -233,7 +236,7 @@ defmodule Aiur.Events.SubscriptionStore do
       subscribed_to: [],
       last_seen_event_id: nil,
       open_attentions: [],
-      stalled_before: nil
+      stall: nil
     }
 
     # Synchronous load + re-register bindings during init so attach/1
@@ -347,12 +350,43 @@ defmodule Aiur.Events.SubscriptionStore do
     cursor = state.last_seen_event_id || 0
 
     if is_integer(event_id) and event_id <= cursor do
-      # Redelivery after restart — already consumed.
       {:noreply, state}
     else
       {:noreply, process_new_event(state, event, event_id, cursor)}
     end
   end
+
+  @impl true
+  def handle_info({:retry_stalled}, %{stall: nil} = state), do: {:noreply, state}
+
+  @impl true
+  def handle_info({:retry_stalled}, state) do
+    %{event: event, event_id: event_id, attempt: attempt} = state.stall
+    topic = Map.get(event, :topic) || Map.get(event, "topic") || "(unknown)"
+
+    new_state =
+      case enqueue_event(state.identifier, event) do
+        :ok ->
+          Aiur.IssueLog.record_event(state.identifier, :consumed, event)
+          DebugLog.broadcast(:receive, topic, id: event_id, identifier: state.identifier, body: event)
+          advance_cursor_inline(%{state | stall: nil}, event_id)
+
+        {:error, reason} ->
+          if attempt >= @max_stall_attempts or error_kind(reason) == :permanent do
+            emit_dead_letter_alert(state.identifier, event_id, topic, reason, attempt)
+            advance_cursor_inline(%{state | stall: nil}, event_id)
+          else
+            next_attempt = attempt + 1
+            Process.send_after(self(), {:retry_stalled}, @stall_base_retry_ms * next_attempt)
+            %{state | stall: %{state.stall | attempt: next_attempt}}
+          end
+      end
+
+    {:noreply, new_state}
+  end
+
+  @impl true
+  def handle_info(_other, state), do: {:noreply, state}
 
   defp process_new_event(state, event, event_id, cursor) do
     topic = Map.get(event, :topic) || Map.get(event, "topic") || "(unknown)"
@@ -361,28 +395,58 @@ defmodule Aiur.Events.SubscriptionStore do
       :ok ->
         Aiur.IssueLog.record_event(state.identifier, :consumed, event)
         DebugLog.broadcast(:receive, topic, id: event_id, identifier: state.identifier, body: event)
-        # Only advance the durable cursor after a successful enqueue, and
-        # only when no earlier event is stalled — advancing past a failed
-        # event would make it permanently unrecoverable.
+        # Advance only when no earlier event is stalled — leapfrogging a
+        # failed event would make it permanently unrecoverable on restart.
         advance_if_unstalled(state, event_id)
 
       {:error, reason} ->
-        Logger.warning(
-          "SubscriptionStore(#{state.identifier}): enqueue failed for event #{inspect(event_id)} on topic #{topic}: #{inspect(reason)}; " <>
-            "cursor held at #{cursor}, event will replay on restart"
-        )
+        case error_kind(reason) do
+          :permanent ->
+            emit_dead_letter_alert(state.identifier, event_id, topic, reason, 1)
+            advance_cursor_inline(state, event_id)
 
-        %{state | stalled_before: stall_min(state.stalled_before, event_id)}
+          :transient ->
+            Logger.warning(
+              "SubscriptionStore(#{state.identifier}): enqueue failed for event #{inspect(event_id)} " <>
+                "on topic #{topic}: #{inspect(reason)}; cursor held at #{cursor}, scheduling retry"
+            )
+
+            if state.stall == nil do
+              Process.send_after(self(), {:retry_stalled}, @stall_base_retry_ms)
+              %{state | stall: %{event: event, event_id: event_id, attempt: 1}}
+            else
+              state
+            end
+        end
     end
   end
 
-  defp advance_if_unstalled(%{stalled_before: nil} = state, event_id),
+  defp advance_if_unstalled(%{stall: nil} = state, event_id),
     do: advance_cursor_inline(state, event_id)
 
   defp advance_if_unstalled(state, _event_id), do: state
 
-  @impl true
-  def handle_info(_other, state), do: {:noreply, state}
+  defp error_kind(:no_orchestrator), do: :transient
+  defp error_kind({:exit, {:timeout, _}}), do: :transient
+  defp error_kind({:exit, _}), do: :permanent
+  defp error_kind({:raised, _}), do: :permanent
+  defp error_kind(_), do: :transient
+
+  defp emit_dead_letter_alert(identifier, event_id, topic, reason, attempts) do
+    Logger.warning(
+      "SubscriptionStore(#{identifier}): giving up on event #{inspect(event_id)} " <>
+        "on topic #{topic} after #{attempts} attempt(s): #{inspect(reason)}; " <>
+        "advancing cursor past failed event"
+    )
+
+    _ =
+      Aiur.Alerts.emit_system(
+        "system.subscription_store.event_dead_lettered",
+        reason: "enqueue failed after #{attempts} attempt(s) for event #{inspect(event_id)} on #{topic}: #{inspect(reason)}",
+        needs_attention: true,
+        severity: "warning"
+      )
+  end
 
   defp advance_cursor_inline(state, event_id) when is_integer(event_id) do
     new_cursor = max(state.last_seen_event_id || 0, event_id)
@@ -429,10 +493,6 @@ defmodule Aiur.Events.SubscriptionStore do
         end
     end
   end
-
-  defp stall_min(nil, id) when is_integer(id), do: id
-  defp stall_min(current, id) when is_integer(current) and is_integer(id), do: min(current, id)
-  defp stall_min(current, _), do: current
 
   @impl true
   def terminate(_reason, state) do
