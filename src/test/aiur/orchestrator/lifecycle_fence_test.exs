@@ -131,6 +131,32 @@ defmodule Aiur.Orchestrator.LifecycleFenceTest do
     assert :admit = LifecycleFence.reconcile_observed_state(state, observed)
   end
 
+  test "a non-terminal diverging observed state remains fenced (restore_nonterminal path)" do
+    issue_id = "issue-fence-nonterminal-diverge"
+    identifier = "LF-6"
+
+    state = %State{
+      running: %{
+        issue_id => %{
+          identifier: identifier,
+          issue: %Issue{id: issue_id, identifier: identifier, state: "in-progress"},
+          control: %{status: :working},
+          lifecycle_fence: %{
+            authoritative_state: "in-progress",
+            generation: 1,
+            opened_at: DateTime.utc_now(),
+            pending_item_ids: MapSet.new([102])
+          }
+        }
+      }
+    }
+
+    # Observed state is non-terminal, non-matching, non-rework: should stay fenced.
+    observed = %Issue{id: issue_id, identifier: identifier, state: "human-review"}
+
+    assert {:fenced, _} = LifecycleFence.reconcile_observed_state(state, observed)
+  end
+
   test "a matching handoff state remains fenced until provider delivery" do
     issue_id = "issue-matching-handoff"
     issue = %Issue{id: issue_id, identifier: "LF-2", state: "human-review"}
