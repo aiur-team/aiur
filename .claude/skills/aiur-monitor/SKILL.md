@@ -106,6 +106,20 @@ scripts/aiurdev set max-agents <n>
 Maximize useful parallel work, not raw workers. Blocked or contract-conflicting
 tickets should not consume capacity merely to fill the board.
 
+## Feed the hourly meta-analysis
+
+The Executor's hourly meta-analysis (see the Executor reference) names the
+single largest wall-clock cost and classifies recurring failure classes. The
+monitor's role is observation: accumulate the per-hour evidence that analysis
+consumes — counts, timestamps, and recurrences of the same symptom or failure
+class — rather than performing the analysis itself. Note when the same class
+of problem (not the same incident) repeats across tickets or hours.
+
+If no Executor is active, the monitor itself files the systemic ticket when a
+class crosses the threshold (3+ reproductions, or 2 with a shared root cause),
+recording the reproductions that justify it, under the normal issue-creation
+authority rules.
+
 ## Report shape
 
 Lead with the outcome and urgent action, then include the Aiur board in a
