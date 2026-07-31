@@ -1,6 +1,6 @@
 # Upstream → fork issue sync — design / requirements
 
-- Issue: [#344](https://github.com/its-everdred/aiur/issues/344)
+- Issue: [#344](https://github.com/aiur-team/aiur/issues/344)
 - Status: **Design — awaiting operator decision. No implementation yet.**
 - Date: 2026-06-22
 

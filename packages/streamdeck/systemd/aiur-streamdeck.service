@@ -1,6 +1,6 @@
 [Unit]
 Description=Aiur Stream Deck sidecar
-Documentation=https://github.com/its-everdred/aiur/tree/develop/packages/streamdeck
+Documentation=https://github.com/aiur-team/aiur/tree/develop/packages/streamdeck
 After=graphical-session.target
 
 [Service]

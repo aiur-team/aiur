@@ -57,7 +57,7 @@ agent:
 # === Workspace & per-repo agent prompt ===
 workspace:
   root: {{WORKSPACE_ROOT}}               # where agents clone and work
-  # bootstrap_image: ghcr.io/its-everdred/aiur:latest  # optional: seed missing build caches from this image after checkout refresh
+  # bootstrap_image: ghcr.io/aiur-team/aiur:latest  # optional: seed missing build caches from this image after checkout refresh
   # bootstrap_image_pull: true            # pull the image before seeding; false uses the local image if present
 prompt_file: {{PROMPT_FILE}}             # per-repo agent prompt appended to each turn
 

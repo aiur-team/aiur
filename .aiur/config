@@ -11,7 +11,7 @@ tracker:
     - cancelled
     - canceled
   github:
-    repo: its-everdred/aiur
+    repo: aiur-team/aiur
     label_prefix: agent
     bot_account: its-applekid
     human_mergers:
