@@ -113,13 +113,34 @@ defmodule Aiur.Orchestrator.AutoSubscriptions do
     auto_unsubscribe_for_dependency(blockee, blocker)
   end
 
+  @doc false
+  # Allows tests to inject a failing add_subscription without killing the
+  # real GenServer — same pattern as SubscriptionStore.set_enqueue_fn/1.
+  @spec set_add_subscription_fn((String.t(), String.t(), String.t() -> :ok | {:error, term()}) | nil) :: :ok
+  def set_add_subscription_fn(fun) when is_function(fun, 3) or is_nil(fun) do
+    :persistent_term.put({__MODULE__, :add_subscription_fn}, fun)
+  end
+
+  defp add_subscription_fn do
+    :persistent_term.get({__MODULE__, :add_subscription_fn}, nil) ||
+      (&SubscriptionStore.add_subscription/3)
+  end
+
   defp attach_and_subscribe(identifier, topics, reason) do
     with :ok <- SubscriptionStore.attach(identifier) do
-      Enum.each(topics, fn topic ->
-        SubscriptionStore.add_subscription(identifier, topic, reason)
-      end)
+      add_fn = add_subscription_fn()
 
-      :ok
+      Enum.reduce_while(topics, :ok, fn topic, :ok ->
+        try do
+          case add_fn.(identifier, topic, reason) do
+            :ok -> {:cont, :ok}
+            {:error, _} = err -> {:halt, {:error, {:add_subscription_failed, topic, err}}}
+          end
+        catch
+          :exit, exit_reason ->
+            {:halt, {:error, {:add_subscription_failed, topic, exit_reason}}}
+        end
+      end)
     end
   catch
     :exit, reason -> {:error, {:exit, reason}}
@@ -127,7 +148,11 @@ defmodule Aiur.Orchestrator.AutoSubscriptions do
 
   defp remove_auto_subscriptions(identifier, topics, expected_reason) do
     Enum.each(topics, fn topic ->
-      _ = SubscriptionStore.remove_subscription(identifier, topic, expected_reason)
+      try do
+        _ = SubscriptionStore.remove_subscription(identifier, topic, expected_reason)
+      catch
+        :exit, _ -> :ok
+      end
     end)
   end
 

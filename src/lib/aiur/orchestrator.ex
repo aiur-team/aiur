@@ -742,7 +742,7 @@ defmodule Aiur.Orchestrator do
   @spec retry_candidate_issue?(Issue.t(), MapSet.t()) :: boolean()
   defdelegate retry_candidate_issue?(issue, terminal_states), to: DispatchPolicy
 
-  @spec subscribe_for_declared_blocker(String.t() | integer(), String.t() | integer()) :: :ok
+  @spec subscribe_for_declared_blocker(String.t() | integer(), String.t() | integer()) :: :ok | {:error, term()}
   def subscribe_for_declared_blocker(blockee_identifier, blocker_identifier),
     do: AutoSubscriptions.subscribe_for_declared_blocker(blockee_identifier, blocker_identifier)
 

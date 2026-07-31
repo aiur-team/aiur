@@ -318,6 +318,64 @@ defmodule Aiur.Events.SubscriptionStoreTest do
     end
   end
 
+  describe "stall retry and dead-letter" do
+    test "cursor advances when retry succeeds after initial transient failure", %{identifier: id} do
+      test_pid = self()
+      on_exit(fn -> SubscriptionStore.set_enqueue_fn(nil) end)
+
+      {:ok, counter} = Agent.start_link(fn -> 0 end)
+      on_exit(fn -> Agent.stop(counter) end)
+
+      SubscriptionStore.set_enqueue_fn(fn _id, ev ->
+        n = Agent.get_and_update(counter, fn n -> {n + 1, n + 1} end)
+
+        if n == 1,
+          do: {:error, :timeout},
+          else: send(test_pid, {:enqueued, ev}) && :ok
+      end)
+
+      :ok = SubscriptionStore.attach(id)
+      :ok = SubscriptionStore.add_subscription(id, "ticket.42.#", "test")
+      :ok = SubscriptionStore.advance_cursor(id, 99)
+      [{pid, _}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, id)
+
+      # First delivery: transient failure, cursor holds
+      send(pid, {:event, %{id: 100, topic: "ticket.42.branch.push"}})
+      _ = SubscriptionStore.snapshot(id)
+      assert SubscriptionStore.snapshot(id).last_seen_event_id == 99
+
+      # Manually trigger a retry (avoids 1-second real timer)
+      send(pid, {:retry_stalled})
+      assert_receive {:enqueued, %{id: 100}}, 500
+      _ = SubscriptionStore.snapshot(id)
+
+      assert SubscriptionStore.snapshot(id).last_seen_event_id == 100
+    end
+
+    test "cursor advances past failed event after max retry attempts (dead-letter)", %{identifier: id} do
+      on_exit(fn -> SubscriptionStore.set_enqueue_fn(nil) end)
+
+      SubscriptionStore.set_enqueue_fn(fn _id, _ev -> {:error, :timeout} end)
+      :ok = SubscriptionStore.attach(id)
+      :ok = SubscriptionStore.add_subscription(id, "ticket.42.#", "test")
+      :ok = SubscriptionStore.advance_cursor(id, 99)
+      [{pid, _}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, id)
+
+      # Initial failure (attempt 1)
+      send(pid, {:event, %{id: 100, topic: "ticket.42.branch.push"}})
+      _ = SubscriptionStore.snapshot(id)
+      assert SubscriptionStore.snapshot(id).last_seen_event_id == 99
+
+      # Retries 1, 2, 3 — on attempt 3 the latch dead-letters and releases cursor
+      Enum.each(1..3, fn _ ->
+        send(pid, {:retry_stalled})
+        _ = SubscriptionStore.snapshot(id)
+      end)
+
+      assert SubscriptionStore.snapshot(id).last_seen_event_id == 100
+    end
+  end
+
   describe "cursor redelivery defense" do
     test "events with id <= last_seen_event_id are dropped on handle_info", %{identifier: id} do
       test_pid = self()
