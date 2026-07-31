@@ -91,6 +91,64 @@ defmodule AiurEngineTest do
              "AIUR_OPERATOR_PID AIUR_NOFILE_SOFT_LIMIT ERL_CRASH_DUMP ERL_CRASH_DUMP_SECONDS"
   end
 
+  test "ERL_CRASH_DUMP is set to run log dir path when AIUR_LOGS_ROOT is non-empty" do
+    {out, 0} =
+      run_sourced_engine(
+        ~S"""
+        unset ERL_CRASH_DUMP ERL_CRASH_DUMP_SECONDS
+        AIUR_LOGS_ROOT=/tmp/aiur-test-run-852
+        if [ -n "${AIUR_LOGS_ROOT:-}" ]; then
+          export ERL_CRASH_DUMP="${ERL_CRASH_DUMP:-$AIUR_LOGS_ROOT/erl_crash.dump}"
+          export ERL_CRASH_DUMP_SECONDS="${ERL_CRASH_DUMP_SECONDS:-30}"
+        fi
+        echo "DUMP=$ERL_CRASH_DUMP"
+        echo "SECS=$ERL_CRASH_DUMP_SECONDS"
+        """,
+        []
+      )
+
+    assert out =~ "DUMP=/tmp/aiur-test-run-852/erl_crash.dump"
+    assert out =~ "SECS=30"
+  end
+
+  test "ERL_CRASH_DUMP respects an executor-supplied override" do
+    {out, 0} =
+      run_sourced_engine(
+        ~S"""
+        AIUR_LOGS_ROOT=/tmp/aiur-test-run-852
+        if [ -n "${AIUR_LOGS_ROOT:-}" ]; then
+          export ERL_CRASH_DUMP="${ERL_CRASH_DUMP:-$AIUR_LOGS_ROOT/erl_crash.dump}"
+          export ERL_CRASH_DUMP_SECONDS="${ERL_CRASH_DUMP_SECONDS:-30}"
+        fi
+        echo "DUMP=$ERL_CRASH_DUMP"
+        echo "SECS=$ERL_CRASH_DUMP_SECONDS"
+        """,
+        [{"ERL_CRASH_DUMP", "/custom/path/crash.dump"}, {"ERL_CRASH_DUMP_SECONDS", "60"}]
+      )
+
+    assert out =~ "DUMP=/custom/path/crash.dump"
+    assert out =~ "SECS=60"
+  end
+
+  test "ERL_CRASH_DUMP is not set when AIUR_LOGS_ROOT is absent" do
+    {out, 0} =
+      run_sourced_engine(
+        ~S"""
+        unset AIUR_LOGS_ROOT ERL_CRASH_DUMP ERL_CRASH_DUMP_SECONDS
+        if [ -n "${AIUR_LOGS_ROOT:-}" ]; then
+          export ERL_CRASH_DUMP="${ERL_CRASH_DUMP:-$AIUR_LOGS_ROOT/erl_crash.dump}"
+          export ERL_CRASH_DUMP_SECONDS="${ERL_CRASH_DUMP_SECONDS:-30}"
+        fi
+        echo "DUMP=${ERL_CRASH_DUMP:-unset}"
+        echo "SECS=${ERL_CRASH_DUMP_SECONDS:-unset}"
+        """,
+        []
+      )
+
+    assert out =~ "DUMP=unset"
+    assert out =~ "SECS=unset"
+  end
+
   test "sourced-engine runs isolate the node identity so reaps can't hit a live host node" do
     # The engine's launch/stop paths reap any BEAM holding their node name
     # (`kill_beams_matching "-name $AIUR_RELEASE_NODE"`). When `mix test` sources
