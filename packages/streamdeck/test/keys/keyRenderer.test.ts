@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { type KeyDescriptor } from "../../src/keys/descriptor.js";
+import { type KeyDescriptor } from "../../src/keys.js";
 import { KeyCache, type KeyPaint } from "../../src/keys/keyCache.js";
 import { type KeyContent } from "../../src/keys/keyContent.js";
 import { type KeyEncoder, KeyRenderer } from "../../src/keys/keyRenderer.js";

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { type AgentKey } from "../../src/keys/descriptor.js";
+import { type AgentKey } from "../../src/keys.js";
 import {
   type AgentKeyFace,
   DEFAULT_TITLE_LINE_CHARS,

@@ -4,7 +4,8 @@
  *
  * This is the key analogue of the touch strip's `stripLayout`: a pure,
  * pixel-independent description of a key's visual elements derived from the
- * #1350 descriptor — vendor badge, ticket number, a two-line title, and the
+ * #1350 descriptor (`../keys.js`) — vendor badge, ticket number, a two-line
+ * title, and the
  * bucket-appropriate footer. It deliberately does NOT rasterise; the device
  * path's canvas encoder turns a {@link KeyFace} into pixels and the JPEG the
  * `0x07` chunker uploads. Keeping composition separate keeps it deterministic
@@ -15,7 +16,7 @@ import {
   type Footer,
   type KeyDescriptor,
   type Vendor,
-} from "./descriptor.js";
+} from "../keys.js";
 import { BLACK, type RgbColor } from "./keyFill.js";
 
 /** The two title rows a key renders; either may be empty. */
@@ -116,7 +117,7 @@ function composeAgentFace(agent: AgentKey, lineChars: number): AgentKeyFace {
     glow: agent.style.glow,
     pulseSeconds: agent.style.pulseSeconds ?? null,
     vendor: agent.vendor,
-    ticketNumber: agent.ticketNumber,
+    ticketNumber: agent.identifier,
     titleLines: wrapTitle(agent.title, lineChars),
     priority: agent.priority,
     footer: agent.footer,
