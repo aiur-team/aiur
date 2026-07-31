@@ -482,11 +482,16 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
     select_backend(issue, backend)
   end
 
-  # The backend actually engaged for this issue — the running entry's own
-  # `selected_backend`, pinned at engage, not current config. This survives a
-  # config change mid-flight (revert still strips the label really added) and is
-  # unambiguous when an operator's own `model:<backend>` override also sits on
-  # the issue (that override must not be mistaken for the fallback-owned label).
+  # The backend whose `model:<backend>` label revert must strip. Prefer the
+  # running entry's `selected_backend` when it is still pinned to the engaged
+  # fallback, since that is unambiguous even when an operator's own
+  # `model:<backend>` override also sits on the issue (so we must not use
+  # `override_backend/1`, which would pick the first label and could strip the
+  # operator's). When `selected_backend` is not set (a reloaded entry drops the
+  # in-memory field), fall back to the configured fallback — correct as long as
+  # the fallback config has not changed since engage, which is the normal case;
+  # a config change between engage and revert is a rare edge that could orphan
+  # the label, and is not handled here.
   defp engaged_fallback(%Issue{selected_backend: backend}, _opts) when is_binary(backend), do: backend
   defp engaged_fallback(_issue, opts), do: fallback_backend(opts)
 
