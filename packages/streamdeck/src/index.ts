@@ -1,5 +1,6 @@
 export const placeholder = "streamdeck";
 export * from "./mode.js";
+<<<<<<< HEAD
 export * from "./report.js";
 export * from "./read.js";
 export * from "./lifecycle.js";
@@ -12,3 +13,13 @@ export * from "./hidraw-backend.js";
 export * from "./usb-backend.js";
 export * from "./device-path.js";
 export * from "./runtime.js";
+=======
+export * from "./imageWriter/headerGenerator.js";
+export * from "./touchStrip/geometry.js";
+export * from "./touchStrip/segmentCache.js";
+export * from "./touchStrip/summarySegment.js";
+export * from "./touchStrip/providerSegment.js";
+export * from "./touchStrip/pagerSegment.js";
+export * from "./touchStrip/stripLayout.js";
+export * from "./touchStrip/stripRenderer.js";
+>>>>>>> origin/develop

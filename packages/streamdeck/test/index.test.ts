@@ -1,9 +1,17 @@
 import { describe, expect, it } from "vitest";
 
-import { placeholder } from "../src/index.js";
+import {
+  StripRenderer,
+  buildRegionReports,
+  composeStrip,
+  summaryModel,
+} from "../src/index.js";
 
 describe("Stream Deck package", () => {
-  it("has a working package scaffold", () => {
-    expect(placeholder).toBe("streamdeck");
+  it("re-exports the touch-strip public surface", () => {
+    expect(typeof buildRegionReports).toBe("function");
+    expect(typeof composeStrip).toBe("function");
+    expect(typeof summaryModel).toBe("function");
+    expect(typeof StripRenderer).toBe("function");
   });
 });
