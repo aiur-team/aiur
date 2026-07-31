@@ -747,13 +747,19 @@ defmodule Aiur.BuildGateTest do
     valid_root = context.gate_dir
     bad_root = Path.join(restricted, "subpath")
 
-    assert {:ok, _canonical_gate_dir} =
-             BuildGate.prepare_writable_root(
-               gate_dir: context.gate_dir,
-               lock_dir: context.lock_dir,
-               writable_roots: [bad_root, valid_root],
-               slots: 2
-             )
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert {:ok, _canonical_gate_dir} =
+                 BuildGate.prepare_writable_root(
+                   gate_dir: context.gate_dir,
+                   lock_dir: context.lock_dir,
+                   writable_roots: [bad_root, valid_root],
+                   slots: 2
+                 )
+      end)
+
+    assert log =~ "build_gate skipped_unresolvable_writable_root"
+    assert log =~ bad_root
   end
 
   test "preflight fails when all writable roots are unresolvable", context do
