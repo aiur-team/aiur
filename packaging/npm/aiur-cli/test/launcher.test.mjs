@@ -573,6 +573,22 @@ function runControl(launcher, releaseDir, env, args = ["pause", "--all"]) {
   });
 }
 
+test("bare pause/resume flip the global switch; targeted forms stay per-agent", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+  const env = { AIUR_FAKE_RPC_MODE: "ok", AIUR_FAKE_EPMD_REGISTERED: "1" };
+
+  expect(runControl(launcher, releaseDir, env, ["pause"]).status).toBe(0);
+  expect(runControl(launcher, releaseDir, env, ["resume"]).status).toBe(0);
+  expect(runControl(launcher, releaseDir, env, ["pause", "--all"]).status).toBe(0);
+  expect(runControl(launcher, releaseDir, env, ["resume", "44"]).status).toBe(0);
+
+  const capture = readFileSync(captureFile, "utf8");
+  expect(capture).toContain("Aiur.AgentControlCLI.pause_global()");
+  expect(capture).toContain("Aiur.AgentControlCLI.resume_global()");
+  expect(capture).toContain("Aiur.AgentControlCLI.pause(:all)");
+  expect(capture).toContain('Aiur.AgentControlCLI.resume(["44"])');
+});
+
 test("control rpc surfaces the real error when the node is up but the rpc fails", () => {
   const { launcher, releaseDir } = setupControlRpc();
   const result = runControl(launcher, releaseDir, {

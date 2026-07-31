@@ -30,6 +30,8 @@ defmodule AiurWeb.BuildOrderLive do
     RouteRegistry
   }
 
+  alias AiurWeb.OperatorControlCenter.Analytics.Charts
+
   @context_events TicketContextSelection.event_names()
   @ui_tick_ms 1_000
 
@@ -48,6 +50,7 @@ defmodule AiurWeb.BuildOrderLive do
       |> ContextRuntime.initialize(request_epoch)
       |> UsageRuntime.initialize()
       |> AnalyticsRuntime.initialize()
+      |> assign(:time_domain, nil)
       |> assign(:now, Runtime.display_now())
       |> assign(:tracker_kind, Runtime.tracker_kind())
       |> assign(:agent_kind, Runtime.agent_kind())
@@ -78,6 +81,7 @@ defmodule AiurWeb.BuildOrderLive do
       |> SourceRuntime.assign_model()
       |> UsageRuntime.sync_scope()
       |> AnalyticsRuntime.sync_scope()
+      |> assign(:time_domain, nil)
 
     {:noreply, socket}
   end
@@ -144,7 +148,7 @@ defmodule AiurWeb.BuildOrderLive do
     do: {:noreply, ContextRuntime.failed(socket, token)}
 
   def handle_async({:build_order_analytics, key}, {:ok, result}, socket) do
-    {:noreply, AnalyticsRuntime.complete(socket, key, result)}
+    {:noreply, socket |> AnalyticsRuntime.complete(key, result) |> reconcile_time_domain()}
   end
 
   def handle_async({:build_order_analytics, key}, {:exit, _reason}, socket) do
@@ -188,6 +192,17 @@ defmodule AiurWeb.BuildOrderLive do
     {:noreply, UsageRuntime.close_drill(socket)}
   end
 
+  def handle_event("time-domain", params, %{assigns: %{bo_analytics_model: model}} = socket) when not is_nil(model) do
+    domain = Charts.normalize_time_domain(model, {Map.get(params, "t0"), Map.get(params, "t1")})
+    {:noreply, assign(socket, :time_domain, domain)}
+  end
+
+  def handle_event("time-domain", _params, socket), do: {:noreply, socket}
+
+  def handle_event("reset-time-domain", _params, socket) do
+    {:noreply, assign(socket, :time_domain, nil)}
+  end
+
   def handle_event(_event, _params, socket), do: {:noreply, socket}
 
   @impl true
@@ -202,7 +217,6 @@ defmodule AiurWeb.BuildOrderLive do
     <DashboardShell.dashboard_shell
       route={@current_route}
       routes={RouteRegistry.routes(@analytics)}
-      now={@now}
       tracker_kind={@tracker_kind}
       agent_kind={@agent_kind}
       nav_collapsed={@nav_collapsed}
@@ -230,6 +244,7 @@ defmodule AiurWeb.BuildOrderLive do
           analytics_model={@bo_analytics_model}
           analytics_unavailable={@bo_analytics_unavailable}
           analytics_loading={@bo_analytics_loading?}
+          time_domain={@time_domain}
         />
       </section>
 
@@ -244,4 +259,9 @@ defmodule AiurWeb.BuildOrderLive do
   end
 
   defp schedule_ui_tick, do: Process.send_after(self(), :build_order_ui_tick, @ui_tick_ms)
+
+  defp reconcile_time_domain(%{assigns: %{bo_analytics_model: nil}} = socket), do: assign(socket, :time_domain, nil)
+
+  defp reconcile_time_domain(%{assigns: %{bo_analytics_model: model, time_domain: domain}} = socket),
+    do: assign(socket, :time_domain, Charts.normalize_time_domain(model, domain))
 end

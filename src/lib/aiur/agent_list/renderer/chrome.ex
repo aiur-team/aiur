@@ -36,9 +36,102 @@ defmodule Aiur.AgentList.Renderer.Chrome do
       project_row(Map.get(state, :project_label), inner_width),
       Text.eol(),
       dashboard_row(Map.get(state, :dashboard_url), inner_width),
+      Text.eol(),
+      usage_row(Map.get(state, :provider_usage), inner_width),
       Text.eol()
     ]
   end
+
+  @doc """
+  Limit headroom for each provider, as a bar plus the age of the observation.
+
+  Meters are observed from live agent sessions, so a bar with no age cannot be
+  told apart from a current one. A provider that has never been observed reads
+  as `n/a` and draws no bar — an empty bar would read as "0% consumed".
+  """
+  @spec usage_row(term(), term()) :: term()
+  def usage_row(usage, inner_width) when is_map(usage) and map_size(usage) > 0 do
+    case usage |> Enum.sort_by(fn {provider, _view} -> provider end) |> Enum.map(&usage_segment/1) do
+      [] -> metadata_row_iolist("Usage:", "n/a", Style.gray(), inner_width)
+      segments -> metadata_row_iolist("Usage:", Enum.join(segments, "  "), Style.cyan(), inner_width)
+    end
+  end
+
+  def usage_row(_usage, inner_width), do: metadata_row_iolist("Usage:", "n/a", Style.gray(), inner_width)
+
+  # Codex reports a consumed fraction, so it gets a bar. Claude reports only a
+  # standing and a reset time — its CLI exposes no utilization at all — so it
+  # gets those instead. Rendering an empty bar for Claude would read as "0%
+  # consumed", which is a claim the data does not support.
+  defp usage_segment({provider, %{state: :observed} = view}) do
+    case usage_percent(view) do
+      nil -> "#{provider_abbrev(provider)} #{standing_summary(view)}"
+      percent -> "#{provider_abbrev(provider)} #{usage_bar(percent)} #{round(percent)}% #{age_suffix(view[:age_seconds])}"
+    end
+  end
+
+  defp usage_segment({provider, _view}), do: "#{provider_abbrev(provider)} n/a"
+
+  # The worst-consumed rate-limit window is the one that will stop work first,
+  # so it is the number worth the header's single line.
+  defp usage_percent(%{windows: windows}) when is_map(windows) do
+    windows
+    |> Map.values()
+    |> Enum.filter(&(Map.get(&1, :kind) == :rate_limit))
+    |> Enum.map(&Map.get(&1, :used_percent))
+    |> Enum.filter(&is_number/1)
+    |> case do
+      [] -> nil
+      percents -> Enum.max(percents)
+    end
+  end
+
+  defp usage_percent(_view), do: nil
+
+  # A provider that reports standing without a percentage still has something
+  # worth the header's space: whether it is allowed, and when the window resets.
+  defp standing_summary(view) do
+    windows = view |> Map.get(:windows, %{}) |> Map.values() |> Enum.filter(&(Map.get(&1, :kind) == :rate_limit))
+
+    case Enum.find(windows, &Map.get(&1, :standing)) do
+      nil -> "n/a"
+      window -> [standing_word(window.standing), reset_suffix(Map.get(window, :resets_at))] |> Enum.reject(&is_nil/1) |> Enum.join(" ")
+    end
+  end
+
+  defp standing_word(:allowed), do: "ok"
+  defp standing_word(:allowed_warning), do: "near limit"
+  defp standing_word(:rejected), do: "limited"
+  defp standing_word(_standing), do: "n/a"
+
+  defp reset_suffix(%DateTime{} = resets_at) do
+    case DateTime.diff(resets_at, DateTime.utc_now()) do
+      seconds when seconds <= 0 -> nil
+      seconds when seconds < 3_600 -> "· resets in #{div(seconds, 60)}m"
+      seconds when seconds < 86_400 -> "· resets in #{div(seconds, 3_600)}h"
+      # Days once there are any: a weekly window reading "167h" makes the reader
+      # divide to learn it is a week away. The header is tight, so hours only.
+      seconds -> "· resets in #{div(seconds, 86_400)}d #{div(rem(seconds, 86_400), 3_600)}h"
+    end
+  end
+
+  defp reset_suffix(_resets_at), do: nil
+
+  @bar_cells 10
+
+  defp usage_bar(percent) do
+    filled = percent |> max(0) |> min(100) |> Kernel./(100) |> Kernel.*(@bar_cells) |> round()
+    String.duplicate("█", filled) <> String.duplicate("░", @bar_cells - filled)
+  end
+
+  defp age_suffix(nil), do: "(age n/a)"
+  defp age_suffix(seconds) when seconds < 60, do: "(#{seconds}s)"
+  defp age_suffix(seconds) when seconds < 3_600, do: "(#{div(seconds, 60)}m)"
+  defp age_suffix(seconds), do: "(#{div(seconds, 3_600)}h)"
+
+  defp provider_abbrev(:codex), do: "codex"
+  defp provider_abbrev(:claude), do: "claude"
+  defp provider_abbrev(other), do: to_string(other)
 
   @spec agents_row(term(), term(), term(), term(), term(), term()) :: term()
   def agents_row(_kind, count, max, focused?, alert?, inner_width)

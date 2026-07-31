@@ -11,6 +11,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
   alias Aiur.BuildOrder.TicketDetail.State
   alias Aiur.BuildOrder.TicketHistory
   alias Aiur.TrackerIdentity
+  alias AiurWeb.BuildOrder.Runtime
   alias AiurWeb.Endpoint
 
   @endpoint Endpoint
@@ -154,7 +155,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
   test "mounts the catalog without demanding any selected root", %{source: source} do
     assert {:ok, _view, html} = live(build_conn(), "/build-orders")
 
-    assert html =~ ~s(<h1 id="route-title">Build Order</h1>)
+    assert Floki.parse_document!(html) |> Floki.find("h1#route-title") |> Floki.text() =~ "Build Order"
     assert html =~ ~s(data-build-order-status="catalog")
     assert html =~ "bo-catalog-table"
     assert html =~ "Root forty-two"
@@ -166,7 +167,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     refute Enum.any?(calls, &match?({:demand, _}, &1))
   end
 
-  test "a UI-only tick advances source age and the shell clock without polling providers" do
+  test "a UI-only tick re-derives from the display clock without polling providers" do
     observed_at = DateTime.utc_now() |> DateTime.truncate(:second)
     clock = start_supervised!({Agent, fn -> observed_at end})
     Application.put_env(:aiur, :build_order_display_clock, fn -> Agent.get(clock, & &1) end)
@@ -177,18 +178,20 @@ defmodule AiurWeb.BuildOrderLiveTest do
       |> put_in([Access.key(:health)], health(1, :healthy, observed_at: observed_at))
 
     source = install_source(catalog: catalog)
-    assert {:ok, view, html} = live(build_conn(), "/build-orders")
+    assert {:ok, view, _html} = live(build_conn(), "/build-orders")
     render_async(view, 2_000)
-
-    assert html =~ Calendar.strftime(observed_at, "%H:%M:%S")
 
     calls_before_tick = FakeDataSource.calls(source)
 
     Agent.update(clock, &DateTime.add(&1, 7, :second))
     send(view.pid, :build_order_ui_tick)
-    advanced_html = render(view)
+    _advanced = render(view)
 
-    assert advanced_html =~ Calendar.strftime(DateTime.add(observed_at, 7, :second), "%H:%M:%S")
+    # The invariant is that a display-only tick re-derives from the assigned
+    # clock without touching the data source. It previously also asserted the
+    # topbar clock advanced; that clock has been removed, and the catalog route
+    # renders no other absolute time, so only the no-polling guard remains.
+    assert Runtime.display_now() == DateTime.add(observed_at, 7, :second)
     assert FakeDataSource.calls(source) == calls_before_tick
   end
 
@@ -868,6 +871,48 @@ defmodule AiurWeb.BuildOrderLiveTest do
     refute html =~ "No telemetry for this Build Order yet"
   end
 
+  test "the Build Order's active timeline accepts and resets a shared time domain", %{first: first} do
+    put_telemetry_file(@telemetry_fixtures)
+
+    members = [
+      breakdown_member(930, phase: 1, lane: "plan-graph", complexity: 3),
+      breakdown_member(931, phase: 2, lane: "dashboard-ui", complexity: 4)
+    ]
+
+    selected = selected_snapshot(first, SelectedRoot.new(root(first, "Root forty-two"), members, health(1, :healthy)), 1, :healthy)
+    install_source(catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy), selected: [selected])
+
+    assert {:ok, view, _html} = live(build_conn(), "/build-orders/42")
+    html = render_async(view)
+    [_, start_ms] = Regex.run(~r/data-time-start="(\d+)"/, html)
+    [_, end_ms] = Regex.run(~r/data-time-end="(\d+)"/, html)
+    start_ms = String.to_integer(start_ms)
+    end_ms = String.to_integer(end_ms)
+    span = end_ms - start_ms
+
+    zoomed = render_hook(view, "time-domain", %{"t0" => start_ms + div(span, 4), "t1" => end_ms - div(span, 4)})
+
+    assert zoomed =~ ~s(class="an-zoombar")
+    expected_start = start_ms + div(span, 4)
+    expected_end = end_ms - div(span, 4)
+    assert length(Regex.scan(~r/data-time-start="#{expected_start}"/, zoomed)) == 5
+    assert length(Regex.scan(~r/data-time-end="#{expected_end}"/, zoomed)) == 5
+
+    patched = render_click(view, "toggle-nav", %{})
+    assert patched =~ ~s(class="an-zoombar")
+    assert length(Regex.scan(~r/data-time-start="#{expected_start}"/, patched)) == 5
+    assert length(Regex.scan(~r/data-time-end="#{expected_end}"/, patched)) == 5
+
+    reset = render_click(view, "reset-time-domain", %{})
+
+    refute reset =~ ~s(class="an-zoombar")
+    assert length(Regex.scan(~r/data-time-start="#{start_ms}"/, reset)) == 5
+    assert length(Regex.scan(~r/data-time-end="#{end_ms}"/, reset)) == 5
+
+    full_range = render_hook(view, "time-domain", %{"t0" => start_ms, "t1" => end_ms})
+    refute full_range =~ ~s(class="an-zoombar")
+  end
+
   test "an unreadable telemetry stream leaves the rest of the Build Order page intact", %{first: first} do
     put_telemetry_file("/nonexistent/telemetry.ndjson")
 
@@ -879,6 +924,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     html = render_async(view)
 
     assert html =~ "No telemetry for this Build Order yet"
+    refute render_hook(view, "time-domain", %{"t0" => 1, "t1" => 2}) =~ ~s(class="an-zoombar")
     assert has_element?(view, "#selected-build-order-graph")
     assert has_element?(view, "section.bo-breakdown")
   end

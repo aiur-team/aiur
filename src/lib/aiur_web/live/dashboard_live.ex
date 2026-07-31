@@ -17,7 +17,9 @@ defmodule AiurWeb.DashboardLive do
   alias Aiur.CurrentRunSummary
   alias Aiur.DecisionPubSub
   alias Aiur.LiveConversation
+  alias Aiur.Orchestrator.GlobalPause
   alias Aiur.Orchestrator.Slots
+  alias Aiur.ProviderMeterRefresh
   alias Aiur.TicketActivity
   alias Aiur.TrackerIdentity
   alias Aiur.Usage.GroupedScopes
@@ -479,6 +481,37 @@ defmodule AiurWeb.DashboardLive do
 
   def handle_event("capacity-set", _params, socket), do: {:noreply, socket}
 
+  # Provider usage is polled from a rate-limited endpoint, so it is polled only
+  # while a surface is actually being watched. Registration is by pid and
+  # monitored on the other side, so a closed tab withdraws itself.
+  def handle_event("usage-watch-start", _params, socket) do
+    ProviderMeterRefresh.watching_started()
+    {:noreply, socket}
+  end
+
+  def handle_event("usage-watch-stop", _params, socket) do
+    ProviderMeterRefresh.watching_stopped()
+    {:noreply, socket}
+  end
+
+  def handle_event("toggle-global-pause", _params, socket) do
+    handle_writable_event(socket, fn -> {:noreply, toggle_global_pause(socket)} end)
+  end
+
+  defp toggle_global_pause(socket) do
+    target = not global_paused?(socket.assigns.payload)
+    _ = GlobalPause.set_global_pause(capacity_orchestrator(), target)
+    # The orchestrator broadcasts an observability update on success; reload so
+    # the nav toggle reflects the new state even if the broadcast is missed.
+    reload_after_action(socket)
+  end
+
+  defp global_paused?(payload) when is_map(payload) do
+    payload |> Map.get(:fleet, %{}) |> Map.get(:globally_paused, false) == true
+  end
+
+  defp global_paused?(_payload), do: false
+
   defp pause_agent_action(socket, modal) do
     key = agent_log_key(modal)
 
@@ -605,13 +638,17 @@ defmodule AiurWeb.DashboardLive do
     <DashboardShell.dashboard_shell
       route={@current_route}
       routes={RouteRegistry.routes(@payload.analytics)}
-      now={@now}
       tracker_kind={tracker_kind()}
       agent_kind={agent_kind()}
       nav_counts={nav_counts(@units_view, @retained_counts)}
       nav_collapsed={@nav_collapsed}
+      globally_paused={global_paused?(@payload)}
+      writable={@writable}
     >
-      <Overview.decisions_banner decisions={@payload.decisions} retained_counts={@retained_counts} />
+      <:banner>
+        <Overview.decisions_banner decisions={@payload.decisions} retained_counts={@retained_counts} />
+      </:banner>
+
       <Overview.error error={@payload.fleet[:error]} />
 
       <div :if={@live_action in [:decisions, :decision]} class="control-panel">
@@ -644,7 +681,12 @@ defmodule AiurWeb.DashboardLive do
         />
       </div>
 
-      <div :if={@live_action not in [:decisions, :decision]} class="control-panel">
+      <div
+        :if={@live_action not in [:decisions, :decision]}
+        id="usage-watch"
+        phx-hook="UsageWatch"
+        class="control-panel"
+      >
         <RunSummaryStrip.run_summary_strip
           run={@run_summary}
           usage={@usage_summary}

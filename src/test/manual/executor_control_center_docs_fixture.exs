@@ -10,12 +10,44 @@ defmodule Aiur.Docs.ControlCenterFixture.Provider do
   def handle_call(:snapshot, _from, %{snapshot: snapshot} = state), do: {:reply, snapshot, state}
   def handle_call(:snapshots, _from, state), do: {:reply, state.metrics, state}
 
+  # Mirror Aiur.Orchestrator.GlobalPause's control API. Without these clauses the
+  # provider FunctionClauseErrors on the first tap of the nav pause toggle, and
+  # because `start_provider/2` links it to the script process, that crash takes
+  # the whole fixture server down.
+  def handle_call(:globally_paused?, _from, state) do
+    {:reply, globally_paused?(state), state}
+  end
+
+  def handle_call({:set_global_pause, on?}, _from, state) when is_boolean(on?) do
+    # The real switch holds every running agent that is not already individually
+    # paused, so the synthetic fleet mirrors that: running rows gain a
+    # `:global_pause` reason on pause and shed exactly that reason on resume.
+    snapshot =
+      state
+      |> Map.fetch!(:snapshot)
+      |> Map.put(:globally_paused, on?)
+      |> Map.update(:running, [], fn running -> Enum.map(running, &apply_global_pause(&1, on?)) end)
+
+    {:reply, {:ok, %{globally_paused: on?}}, %{state | snapshot: snapshot}}
+  end
+
   def handle_call({:recent_decisions, limit}, _from, state) do
     {:reply, Enum.take(state.decisions, limit), state}
   end
 
   def handle_call({:recent_audit_history, limit}, _from, state) do
     {:reply, %{records: Enum.take(state.history, limit), contexts: %{}, revisions: %{}}, state}
+  end
+
+  # Per-decision latency lookup (Aiur.DecisionMetrics.snapshot/2).
+  def handle_call({:snapshot, decision_id}, _from, %{metrics: metrics} = state) when is_binary(decision_id) do
+    reply =
+      case Map.fetch(metrics, decision_id) do
+        {:ok, sample} -> {:ok, sample}
+        :error -> {:error, :not_found}
+      end
+
+    {:reply, reply, state}
   end
 
   # Mirror Aiur.DecisionStore's :retained_counts reply so the dashboard's
@@ -27,11 +59,84 @@ defmodule Aiur.Docs.ControlCenterFixture.Provider do
     counts = %{open: open, blocking: blocking, total: length(decisions)}
     {:reply, {:ok, %{counts: counts, health: :writable}}, state}
   end
+
+  # Mirror Aiur.DecisionStore's {:retained_query, query} paged reply so the
+  # Commands view can list decisions. The synthetic set is small, so return a
+  # single bounded page without cursor pagination.
+  def handle_call({:retained_query, query}, _from, %{decisions: decisions} = state) do
+    limit = Map.get(query, :limit, 25)
+    page = Enum.take(decisions, limit)
+    open = Enum.count(decisions, &(&1.decision_status == :open))
+    blocking = Enum.count(decisions, &(&1.decision_status == :open and &1.blocking))
+
+    snapshot = %{
+      decisions: page,
+      next_key: nil,
+      has_next?: false,
+      total: length(decisions),
+      partial?: false,
+      partial_reason: nil,
+      counts: %{open: open, blocking: blocking, total: length(decisions)},
+      health: :writable
+    }
+
+    {:reply, {:ok, snapshot}, state}
+  end
+
+  # Mirror Aiur.DecisionStore's dismiss so the Commands view's Dismiss button
+  # works against synthetic data instead of killing the provider.
+  def handle_call({:dismiss, decision_id, _opts}, _from, %{decisions: decisions} = state) do
+    case Enum.find(decisions, &(&1.decision_id == decision_id)) do
+      nil ->
+        {:reply, {:error, :not_found}, state}
+
+      %{decision_status: :dismissed} = decision ->
+        {:reply, {:ok, %{status: :duplicate, decision: decision}}, state}
+
+      %{decision_status: :open} = decision ->
+        updated = %{decision | decision_status: :dismissed}
+        decisions = Enum.map(decisions, &if(&1.decision_id == decision_id, do: updated, else: &1))
+        {:reply, {:ok, %{status: :accepted, decision: updated}}, %{state | decisions: decisions}}
+
+      %{decision_status: status} ->
+        {:reply, {:error, {:conflict, status}}, state}
+    end
+  end
+
+  # Every provider here is `start_link`ed from the run process, so ANY unmatched
+  # call takes the whole fixture down — that is how a single dashboard button
+  # killed the server twice. Fail the one call instead of the process; the
+  # dashboard already degrades on an error reply. Keep adding real clauses
+  # above as the control surface grows, but never let drift be fatal again.
+  def handle_call(request, _from, state) do
+    IO.warn("docs fixture has no clause for #{inspect(request)} — returning an error reply")
+    {:reply, {:error, :unsupported_in_docs_fixture}, state}
+  end
+
+  defp globally_paused?(state) do
+    state |> Map.get(:snapshot, %{}) |> Map.get(:globally_paused, false) == true
+  end
+
+  defp apply_global_pause(agent, true) do
+    if Map.get(agent, :pause_reason) do
+      agent
+    else
+      Map.merge(agent, %{pause_reason: :global_pause, waiting_reason: :run_paused, work_state: :paused})
+    end
+  end
+
+  defp apply_global_pause(%{pause_reason: :global_pause} = agent, false) do
+    Map.merge(agent, %{pause_reason: nil, waiting_reason: :active, work_state: :working})
+  end
+
+  defp apply_global_pause(agent, false), do: agent
 end
 
 defmodule Aiur.Docs.ControlCenterFixture do
   alias Aiur.{Decision, DecisionAnswer, RecentMerge}
   alias Aiur.Docs.ControlCenterFixture.Provider
+  alias Aiur.ProviderMeters.Store, as: ProviderMeterStore
+  alias AiurWeb.FinancialDataAccess.Generation
 
   @port String.to_integer(System.get_env("AIUR_DOCS_PORT", "4099"))
 
@@ -48,9 +153,37 @@ defmodule Aiur.Docs.ControlCenterFixture do
 
     {:ok, _} = Application.ensure_all_started(:bandit)
     {:ok, _} = Application.ensure_all_started(:phoenix_live_view)
+    # The Claude meter reads its quota over HTTP; without this every request
+    # fails and the card reads N/A for a reason that has nothing to do with the
+    # account.
+    {:ok, _} = Application.ensure_all_started(:req)
     {:ok, _} = Supervisor.start_link([{Phoenix.PubSub, name: Aiur.PubSub}], strategy: :one_for_one)
 
     decisions = decisions()
+
+    # Real provider meters, not synthetic ones. The projection reads Claude's
+    # account usage endpoint directly, so it needs no agents and no daemon —
+    # which makes this fixture the cheapest way to see actual quota on a
+    # surface. Dashboard auth is configured because the meter cards sit behind
+    # the financial-data capability, and that capability can only be granted by
+    # a real session proof.
+    System.put_env("AIUR_DASHBOARD_USERNAME", "aiur")
+    System.put_env("AIUR_DASHBOARD_PASSWORD", "aiur")
+
+    # Without this the credential check cannot mint a configuration generation,
+    # so it returns :error and every request 401s regardless of what is typed.
+    {:ok, _} = Generation.start_link([])
+    {:ok, _} = AiurWeb.FinancialData.start_link([])
+
+    # Codex reaches the projection the long way round — its app-server session
+    # ingests into the meter store, which broadcasts — so both of these must be
+    # running or the Codex card stays N/A while the probe silently succeeds.
+    # Claude needs neither: it broadcasts its own reading.
+    {:ok, _} = Aiur.ProviderAccountGeneration.start_link([])
+    {:ok, _} = ProviderMeterStore.start_link([])
+
+    {:ok, _} = Aiur.ProviderMeterProjection.start_link([])
+    {:ok, _} = Aiur.ProviderMeterRefresh.start_link(baseline_delay_ms: 500)
 
     start_provider(:docs_orchestrator, snapshot: fleet_snapshot())
 
@@ -96,7 +229,9 @@ defmodule Aiur.Docs.ControlCenterFixture do
         url: [host: "127.0.0.1", port: @port],
         secret_key_base: String.duplicate("d", 64),
         dashboard_writable: writable,
-        dashboard_auth_required: false,
+        # Auth on: the meter cards are gated behind the financial-data
+        # capability, which is only granted to a session carrying a real proof.
+        dashboard_auth_required: true,
         orchestrator: :docs_orchestrator,
         decision_store: :docs_decisions,
         decision_metrics: :docs_metrics,

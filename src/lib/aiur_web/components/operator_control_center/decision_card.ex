@@ -80,7 +80,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
       </.link>
 
       <DecisionAction.decision_action
-        :if={!@selected and @decision.decision_status in [:open, :dismissed]}
+        :if={!@selected and @decision.decision_status in [:open, :deferred, :dismissed]}
         decision={@decision}
         state={@action_state}
         writable={@writable}
@@ -114,6 +114,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
   # Top-right status badge: reflects where the command sits in its lifecycle so
   # answered/dismissed cards read as historic at a glance.
   defp status_badge(%{decision_status: :open}), do: %{label: "Recorded · open", tone: "is-open"}
+  defp status_badge(%{decision_status: :deferred}), do: %{label: "Deferred to Executor", tone: "is-open"}
   defp status_badge(%{decision_status: :expired}), do: %{label: "Expired", tone: "is-dismissed"}
   defp status_badge(%{decision_status: :decided}), do: %{label: "Answered", tone: "is-answered"}
   defp status_badge(%{decision_status: :acknowledged}), do: %{label: "Acknowledged", tone: "is-answered"}

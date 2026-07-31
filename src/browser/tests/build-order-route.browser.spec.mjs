@@ -110,11 +110,14 @@ test('production Build Order route keeps catalog, graph truth, context, and URL 
     await replacement.getByRole('button', { name: 'Back' }).click()
     await expect(page.getByRole('dialog', { name: 'Readiness target' })).toBeVisible()
 
-    // The header clock keeps ticking while the dialog is open, and focus stays
-    // trapped on the dialog title.
-    const clock = page.locator('time.status-badge').first()
-    const clockBeforeTick = await clock.getAttribute('datetime')
-    await expect.poll(() => clock.getAttribute('datetime')).not.toBe(clockBeforeTick)
+    // Focus stays trapped on the dialog title while it is open.
+    //
+    // This previously also polled the topbar clock to prove the LiveView kept
+    // ticking behind the dialog. That clock has been removed — it claimed its
+    // own line above the route title on narrow viewports — and the route
+    // renders no other self-advancing element, so the liveness half of this
+    // assertion has no subject. Polling the absent element hung for the full
+    // test timeout rather than failing.
     await expect(dialog.getByRole('heading', { name: 'Readiness target' })).toBeFocused()
 
     // Escape closes the dialog and restores focus to the origin card.
@@ -148,7 +151,10 @@ test('production Build Order route keeps catalog, graph truth, context, and URL 
     // data; `toggle-nav` flips a per-session view preference held in assigns.
     // Anything else appearing here means a real mutation reached a read-only
     // route, which is what this assertion exists to catch.
-    const readOnlyEvents = ['open-ticket-context', 'toggle-nav']
+    // `toggle-global-pause` is shell chrome, not a route action: it lives in the
+    // sidebar on every route, mutates daemon-wide provisioning rather than any
+    // Build Order data, and is disabled unless the dashboard is writable.
+    const readOnlyEvents = ['open-ticket-context', 'toggle-nav', 'toggle-global-pause']
     const mutationEvents = await page.locator('[phx-click]').evaluateAll((elements) =>
       elements.map((element) => element.getAttribute('phx-click')).filter(Boolean)
     )

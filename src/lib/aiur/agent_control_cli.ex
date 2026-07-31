@@ -1,10 +1,10 @@
 defmodule Aiur.AgentControlCLI do
   @moduledoc false
 
-  alias Aiur.{AgentChat, AlertFeed, BuildGate, Config, Orchestrator, PauseContainment}
+  alias Aiur.{AgentChat, AlertFeed, BuildGate, Config, ExecutorEvents, Orchestrator, PauseContainment, ProviderMeterProjection}
   alias Aiur.Codex.EventHumanizer, as: CodexEventHumanizer
+  alias Aiur.GitHub.{CodeOwners, StatePolicy}
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.GitHub.StatePolicy
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   import Aiur.EventHumanizerHelpers, only: [map_value: 2]
 
@@ -21,6 +21,9 @@ defmodule Aiur.AgentControlCLI do
   def status do
     case Orchestrator.status() do
       statuses when is_list(statuses) ->
+        print_global_pause_banner()
+        print_codeowners_trust()
+
         statuses
         |> Enum.filter(&visible_status_row?/1)
         |> print_status_table()
@@ -92,6 +95,55 @@ defmodule Aiur.AgentControlCLI do
     |> Enum.each(&IO.puts(Jason.encode!(&1)))
 
     exit_marker(0)
+  end
+
+  @spec executor_emit(String.t(), String.t()) :: :ok
+  def executor_emit(topic, payload_json) when is_binary(topic) and is_binary(payload_json) do
+    case Jason.decode(payload_json) do
+      {:ok, %{} = payload} ->
+        case ExecutorEvents.publish(topic, payload, source: :executor_cli) do
+          {:ok, id, _subscribers} ->
+            IO.puts(Jason.encode!(%{id: id, topic: topic}))
+            exit_marker(0)
+
+          {:error, reason} ->
+            IO.puts(:stderr, "aiur: executor event rejected (#{format_reason(reason)})")
+            exit_marker(1)
+        end
+
+      _ ->
+        IO.puts(:stderr, "aiur: executor-emit payload must be a JSON object")
+        exit_marker(64)
+    end
+  end
+
+  @spec executor_subscribe(String.t()) :: :ok
+  def executor_subscribe(topic) when is_binary(topic) do
+    executor_subscription_result(ExecutorEvents.subscribe(topic), "subscribed", topic)
+  end
+
+  @spec executor_unsubscribe(String.t()) :: :ok
+  def executor_unsubscribe(topic) when is_binary(topic) do
+    executor_subscription_result(ExecutorEvents.unsubscribe(topic), "unsubscribed", topic)
+  end
+
+  @spec executor_subscriptions() :: :ok
+  def executor_subscriptions do
+    ExecutorEvents.subscriptions() |> Enum.each(&IO.puts/1)
+    exit_marker(0)
+  end
+
+  @spec executor_listen(keyword()) :: no_return()
+  def executor_listen(opts \\ []), do: ExecutorEvents.listen(opts)
+
+  defp executor_subscription_result(:ok, action, topic) do
+    IO.puts("#{action} #{topic}")
+    exit_marker(0)
+  end
+
+  defp executor_subscription_result({:error, reason}, _action, _topic) do
+    IO.puts(:stderr, "aiur: executor subscription rejected (#{format_reason(reason)})")
+    exit_marker(1)
   end
 
   # Absolute set of the concurrent-agent cap on a live node — `aiur set
@@ -361,6 +413,29 @@ defmodule Aiur.AgentControlCLI do
   @spec resume(:all | [String.t()]) :: :ok
   def resume(targets), do: control(:resume, targets)
 
+  # The global pause switch — `aiur pause` / `aiur resume` with no targets. A
+  # single daemon-wide halt distinct from per-agent pause: it stops all
+  # provisioning and holds every running agent, and unpause resumes only the
+  # agents it held (never overriding an operator's per-agent pause).
+  @spec pause_global() :: :ok
+  def pause_global, do: set_global_pause(true)
+
+  @spec resume_global() :: :ok
+  def resume_global, do: set_global_pause(false)
+
+  defp set_global_pause(on?) do
+    case Orchestrator.set_global_pause(on?) do
+      {:ok, %{globally_paused: paused}} ->
+        IO.puts("aiur: global pause #{if paused, do: "ON — no agents will be provisioned", else: "OFF — agents resuming"}")
+        exit_marker(0)
+
+      {:error, reason} ->
+        verb = if on?, do: "pause", else: "resume"
+        IO.puts(:stderr, "aiur: failed to #{verb} the daemon (#{format_reason(reason)})")
+        exit_marker(1)
+    end
+  end
+
   @spec message(String.t(), String.t()) :: :ok
   def message(issue, text) when is_binary(issue) and is_binary(text) do
     issue
@@ -541,6 +616,133 @@ defmodule Aiur.AgentControlCLI do
       ])
     end)
   end
+
+  @doc """
+  Print Codex and Claude limit headroom from the daemon-owned meter projection.
+
+  Every value carries the age of the observation, because meters are observed
+  from live agent sessions: a number with no age cannot be told apart from a
+  current one. A provider never observed prints as unknown, never as zero.
+  """
+  @spec usage(GenServer.server()) :: :ok
+  def usage(server \\ ProviderMeterProjection) do
+    server
+    |> ProviderMeterProjection.snapshot()
+    |> Enum.sort_by(fn {provider, _view} -> provider end)
+    |> Enum.each(&print_provider_usage/1)
+
+    exit_marker(0)
+  end
+
+  defp print_provider_usage({provider, %{state: :unknown}}) do
+    IO.puts("#{provider_label(provider)}  no observation yet")
+  end
+
+  defp print_provider_usage({provider, view}) do
+    windows = usage_windows(view)
+
+    if windows == [] do
+      IO.puts("#{provider_label(provider)}  observed #{age_label(view.age_seconds)}, no limit windows reported")
+    else
+      Enum.each(windows, fn window ->
+        IO.puts("#{provider_label(provider)}  #{usage_window_line(window)}  (#{age_label(view.age_seconds)})")
+      end)
+    end
+  end
+
+  defp usage_windows(%{windows: windows}) when is_map(windows) do
+    windows
+    |> Enum.filter(fn {_id, window} -> Map.get(window, :kind) == :rate_limit end)
+    |> Enum.sort_by(fn {id, _window} -> id end)
+  end
+
+  defp usage_windows(_view), do: []
+
+  # Claude's CLI reports a standing and a reset time but no utilization, so a
+  # bar is not available for it. Name what is known rather than drawing an empty
+  # bar, which would read as "0% consumed".
+  defp usage_window_line({id, window}) do
+    case Map.get(window, :used_percent) do
+      percent when is_number(percent) -> "#{String.pad_trailing(id, 10)} #{usage_bar(percent)} #{round(percent)}%"
+      _unknown -> "#{String.pad_trailing(id, 10)} #{window_standing_line(window)}"
+    end
+  end
+
+  defp window_standing_line(window) do
+    case Map.get(window, :standing) do
+      :allowed -> "allowed#{cli_reset_suffix(Map.get(window, :resets_at))}"
+      :allowed_warning -> "near limit#{cli_reset_suffix(Map.get(window, :resets_at))}"
+      :rejected -> "limited#{cli_reset_suffix(Map.get(window, :resets_at))}"
+      _unknown -> "unknown"
+    end
+  end
+
+  defp cli_reset_suffix(%DateTime{} = resets_at) do
+    case DateTime.diff(resets_at, DateTime.utc_now()) do
+      seconds when seconds <= 0 -> ""
+      seconds when seconds < 3_600 -> ", resets in #{div(seconds, 60)}m"
+      seconds when seconds < 86_400 -> ", resets in #{div(seconds, 3_600)}h"
+      seconds -> ", resets in #{div(seconds, 86_400)}d #{div(rem(seconds, 86_400), 3_600)}h"
+    end
+  end
+
+  defp cli_reset_suffix(_resets_at), do: ""
+
+  # Same 10-cell bar the TUI header draws, so the two surfaces read alike.
+  @spec usage_bar(number()) :: String.t()
+  def usage_bar(percent) when is_number(percent) do
+    filled = percent |> max(0) |> min(100) |> Kernel./(10) |> round()
+    String.duplicate("█", filled) <> String.duplicate("░", 10 - filled)
+  end
+
+  defp age_label(nil), do: "age unknown"
+  defp age_label(seconds) when seconds < 60, do: "#{seconds}s ago"
+  defp age_label(seconds) when seconds < 3_600, do: "#{div(seconds, 60)}m ago"
+  defp age_label(seconds), do: "#{div(seconds, 3_600)}h ago"
+
+  defp provider_label(:codex), do: "codex "
+  defp provider_label(:claude), do: "claude"
+  defp provider_label(other), do: to_string(other)
+
+  # Surface the global pause switch above the status table so an operator sees
+  # at a glance that the whole daemon is halted (silent otherwise).
+  defp print_global_pause_banner do
+    if Orchestrator.globally_paused?() do
+      IO.puts("GLOBALLY PAUSED — no agents will be provisioned (run `aiur resume` to lift)")
+    end
+
+    :ok
+  end
+
+  defp print_codeowners_trust do
+    snapshot =
+      Application.get_env(:aiur, :agent_control_cli_trust_snapshot_fun, fn ->
+        if Process.whereis(CodeOwners), do: CodeOwners.trust_snapshot(), else: nil
+      end).()
+
+    case snapshot do
+      %{trusted: trusted, source: source} = snapshot when is_list(trusted) ->
+        source = source |> to_string() |> String.downcase()
+        path = snapshot |> Map.get(:path) |> trust_path()
+        accounts = Enum.map_join(trusted, ", ", &"@#{&1}")
+        suffix = if path, do: " path=#{path}", else: ""
+        IO.puts("COMMENT TRUST source=#{source} trusted=[#{accounts}]#{suffix}")
+
+      _ ->
+        :ok
+    end
+  catch
+    :exit, _reason -> :ok
+  end
+
+  defp trust_path(path) when is_binary(path) do
+    case Path.relative_to_cwd(path) do
+      relative when relative != path -> relative
+      _ -> path
+    end
+  end
+
+  defp trust_path(_path), do: nil
 
   defp print_build_gate_status do
     case BuildGate.status() do

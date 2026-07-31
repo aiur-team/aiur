@@ -111,7 +111,7 @@ asserts an **untrusted** commenter on an open human PR is **refused** PR-anchore
 
 ## Context / sources
 
-- PR: https://github.com/its-everdred/aiur/pull/687 — closes #686
+- PR: https://github.com/aiur-team/aiur/pull/687 — closes #686
 - Plan (on the PR branch): `docs/plans/2026-06-26-001-feat-repo-wide-pr-comment-watch-plan.md`
 - Key files: `src/lib/aiur/orchestrator.ex` (routing fork + `trusted_comment_event?/1`),
   `src/lib/aiur/events/github_comments_poller.ex` (`publish_comment/4`),

@@ -4,6 +4,12 @@ defmodule Aiur.Orchestrator.StateTest do
   alias Aiur.{Issue, TrackerIdentity}
   alias Aiur.Orchestrator.{OperatorMessages, PauseResume, State}
 
+  describe "global pause field" do
+    test "defaults to unpaused" do
+      refute %State{}.globally_paused
+    end
+  end
+
   describe "running entry predicates" do
     test "classify entries by control status" do
       assert State.active_running_entry?(%{control: %{status: :working}})

@@ -164,6 +164,14 @@ defmodule Aiur.Orchestrator.Slots do
     end
   end
 
+  # `--pause` at launch lands in `:launch_globally_paused` (set by `Aiur.CLI`).
+  # When true, the orchestrator cold-starts globally paused and never provisions
+  # agents until the operator unpauses. Distinct from per-agent pause state.
+  @spec launch_globally_paused?() :: boolean()
+  def launch_globally_paused? do
+    Application.get_env(:aiur, :launch_globally_paused, false) == true
+  end
+
   @spec max_concurrent_agent_limit(State.t()) :: pos_integer()
   def max_concurrent_agent_limit(%State{} = state) do
     cond do
@@ -207,6 +215,8 @@ defmodule Aiur.Orchestrator.Slots do
   # cannot auto-claim replacement work. CI-wait is the exception: the daemon
   # owns that wait, so the parked runner releases normal dispatch capacity.
   @spec available_slots(State.t()) :: non_neg_integer()
+  def available_slots(%State{globally_paused: true}), do: 0
+
   def available_slots(%State{} = state) do
     used =
       State.active_running_count(state.running) +

@@ -16,7 +16,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         now: @now
       })
 
-    assert html =~ "3 units"
     assert html =~ "4 remain"
     assert html =~ "$8.75"
     assert html =~ "20m elapsed"
@@ -26,6 +25,12 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     assert html =~ "40% · resets in 30m"
     refute html =~ "$50.47"
     refute html =~ "0.89M"
+
+    # The Live stat was dropped: it duplicated what the Units table already
+    # shows, and the extra column pushed the head row past the card's edge at
+    # the narrow end of the grid.
+    refute html =~ ~s(<span class="rs-stat-label">Live</span>)
+    refute html =~ "3 units"
   end
 
   test "names unavailable values instead of presenting synthetic zeroes" do
@@ -37,11 +42,120 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         now: @now
       })
 
-    assert html =~ "Unavailable"
+    assert html =~ "N/A"
     refute html =~ "ETA unavailable"
     assert html =~ "Codex"
     assert html =~ "Claude"
     refute html =~ "$0.00"
+
+    # Still no synthetic zeroes: a count that genuinely is not known must not
+    # borrow the empty run's "0".
+    refute html =~ "0 remain"
+  end
+
+  # `:empty` is the presenter's confirmed "no active Aiur run" — the daemon
+  # answered, and the answer is zero. Rendering that as "Unavailable" told
+  # operators something was broken when nothing was.
+  test "an empty run reads as a real zero, not as unavailable" do
+    html =
+      render_component(&RunSummaryStrip.run_summary_strip/1, %{
+        run: %{state: :empty, counts: %{remaining: 0}, progress: %{}},
+        usage: %{state: :locked},
+        meters: %{state: :locked, cards: []},
+        now: @now
+      })
+
+    assert html =~ "0 remain"
+    assert html =~ "0% · no active run"
+    assert html =~ ~s(<i style="width:0%">)
+  end
+
+  # An unknown ticket count is a head-row stat with no row of its own, so an
+  # empty one is noise. Progress and Limits each own a labelled row and a meter,
+  # so they keep their N/A — dropping those would leave a card that looks like
+  # it has nothing to report at all.
+  test "an unknown ticket count is hidden, while progress and limits keep their N/A" do
+    html =
+      render_component(&RunSummaryStrip.run_summary_strip/1, %{
+        run: %{state: :loading},
+        usage: %{state: :locked},
+        meters: %{state: :locked, cards: []},
+        now: @now
+      })
+
+    refute html =~ "Tickets"
+
+    assert html =~ "Progress"
+    assert html =~ "Limits"
+    assert html =~ "N/A"
+  end
+
+  test "a known ticket count is shown" do
+    html =
+      render_component(&RunSummaryStrip.run_summary_strip/1, %{
+        run: %{state: :empty, counts: %{remaining: 0}, progress: %{}},
+        usage: %{state: :locked},
+        meters: %{state: :locked, cards: []},
+        now: @now
+      })
+
+    assert html =~ "Tickets"
+    assert html =~ "0 remain"
+  end
+
+  # Codex reports an account-wide limit alongside per-model ones. Only the
+  # account-wide bucket governs whether work can proceed, and a row per model
+  # turns a glanceable card into a table.
+  test "only the account-wide rate limit is shown, not per-model ones" do
+    meters = %{
+      state: :authorized,
+      cards: [
+        %{
+          provider: :codex,
+          provider_label: "Codex",
+          state: :ready,
+          windows: [
+            scoped_window("codex:primary", 12),
+            scoped_window("codex_bengalfox:primary", 88)
+          ]
+        }
+      ]
+    }
+
+    html =
+      render_component(&RunSummaryStrip.run_summary_strip/1, %{
+        run: %{state: :loading},
+        usage: %{state: :ready, providers: %{}},
+        meters: meters,
+        now: @now
+      })
+
+    assert html =~ "12%"
+    refute html =~ "88%"
+  end
+
+  test "falls back to whatever exists when no account-wide window is reported" do
+    meters = %{
+      state: :authorized,
+      cards: [
+        %{
+          provider: :codex,
+          provider_label: "Codex",
+          state: :ready,
+          windows: [scoped_window("codex_bengalfox:primary", 88)]
+        }
+      ]
+    }
+
+    html =
+      render_component(&RunSummaryStrip.run_summary_strip/1, %{
+        run: %{state: :loading},
+        usage: %{state: :ready, providers: %{}},
+        meters: meters,
+        now: @now
+      })
+
+    assert html =~ "88%"
   end
 
   test "hides spend for subscription accounts" do
@@ -144,6 +258,20 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
           resets_at: DateTime.add(@now, 30, :minute)
         }
       ]
+    }
+  end
+
+  # Mirrors the shape ProviderMetersPresenter emits: the rendered percentage
+  # comes from `meter.now`, and `coverage_label` is required by the meta
+  # renderer.
+  defp scoped_window(limit_id, percent) do
+    %{
+      limit_id: limit_id,
+      kind: :rate_limit,
+      name: "Primary",
+      coverage_label: "Supported",
+      meter: %{kind: :exact, now: percent},
+      resets_at: DateTime.add(@now, 30, :minute)
     }
   end
 end

@@ -42,10 +42,15 @@ defmodule Aiur.GitHub.CodeOwnersTest do
 
       {_pid, name} = start_owners(path)
       snap = CodeOwners.snapshot(name)
+      trust = CodeOwners.trust_snapshot(name)
 
       assert "alice" in snap
       assert "bob" in snap
       assert "aiur-bot" in snap
+      assert trust.codeowners == ["alice", "bob"]
+      assert trust.trusted == Enum.sort(snap)
+      assert trust.source == :file
+      assert trust.path == path
     end
 
     test "missing file → allowlist is bot-only", %{path: path} do
@@ -63,6 +68,124 @@ defmodule Aiur.GitHub.CodeOwnersTest do
       assert CodeOwners.snapshot(name) == ["aiur-bot"]
     end
 
+    for {label, contents, expected_message} <- [
+          {"missing", nil, "CODEOWNERS is missing"},
+          {"empty", "\n# comment only\n", "CODEOWNERS is empty"},
+          {"unparseable", "* invalid-owner\n", "CODEOWNERS is unparseable near line 1"}
+        ] do
+      test "#{label} CODEOWNERS raises a needs-attention degradation alert", %{path: path} do
+        if unquote(contents) do
+          File.write!(path, unquote(contents))
+        end
+
+        configure_bot_account("aiur-bot")
+        parent = self()
+        alert_fun = fn name, message, opts -> send(parent, {:codeowners_alert, name, message, opts}) end
+        {_pid, name} = start_owners(path, alert_fun: alert_fun)
+
+        assert_receive {:codeowners_alert, "github.codeowners.degraded", message, opts}
+        assert message =~ unquote(expected_message)
+        assert Keyword.get(opts, :needs_attention) == true
+        assert CodeOwners.trust_snapshot(name).source == :fallback
+      end
+    end
+
+    test "unparseable alert identifies the original source line", %{path: path} do
+      File.write!(path, "# header\n* invalid-owner\n")
+      configure_bot_account("aiur-bot")
+
+      parent = self()
+      alert_fun = fn name, message, opts -> send(parent, {:codeowners_alert, name, message, opts}) end
+      {_pid, name} = start_owners(path, alert_fun: alert_fun)
+
+      assert_receive {:codeowners_alert, "github.codeowners.degraded", message, _opts}
+      assert message =~ "unparseable near line 2"
+      assert CodeOwners.trust_snapshot(name).degradation == {:unparseable, 2}
+    end
+
+    test "ownerless pattern lines preserve the valid CODEOWNERS entries", %{path: path} do
+      File.write!(path, "docs/\n* @alice\n")
+      configure_bot_account("aiur-bot")
+
+      parent = self()
+      alert_fun = fn name, message, opts -> send(parent, {:codeowners_alert, name, message, opts}) end
+      {_pid, name} = start_owners(path, alert_fun: alert_fun)
+
+      refute_receive {:codeowners_alert, "github.codeowners.degraded", _, _}
+      trust = CodeOwners.trust_snapshot(name)
+      assert trust.codeowners == ["alice"]
+      assert trust.source == :file
+      assert trust.degradation == nil
+    end
+
+    test "degraded CODEOWNERS does not produce a misleading allowlist drift alert", %{path: path} do
+      File.write!(path, "* invalid-owner\n")
+      configure_bot_account("aiur-bot")
+
+      parent = self()
+      alert_fun = fn name, message, opts -> send(parent, {:codeowners_alert, name, message, opts}) end
+
+      {_pid, name} =
+        start_owners(path,
+          allowed_users_fun: fn -> ["alice"] end,
+          alert_fun: alert_fun
+        )
+
+      assert_receive {:codeowners_alert, "github.codeowners.degraded", _, _}
+      refute_receive {:codeowners_alert, "github.codeowners.allowlist_drift", _, _}
+      assert CodeOwners.trust_snapshot(name).drift == nil
+    end
+
+    test "matching allowed_users does not alert, while drift names both sets", %{path: path} do
+      File.write!(path, "* @alice @bob\n")
+      configure_bot_account("aiur-bot")
+
+      parent = self()
+      alert_fun = fn name, message, opts -> send(parent, {:codeowners_alert, name, message, opts}) end
+
+      {_pid, matching_name} =
+        start_owners(path, allowed_users_fun: fn -> ["bob", "alice"] end, alert_fun: alert_fun)
+
+      refute_receive {:codeowners_alert, "github.codeowners.allowlist_drift", _, _}
+      assert CodeOwners.trust_snapshot(matching_name).drift == nil
+
+      {_pid, fallback_name} =
+        start_owners(path, allowed_users_fun: fn -> [] end, alert_fun: alert_fun)
+
+      refute_receive {:codeowners_alert, "github.codeowners.allowlist_drift", _, _}
+      assert CodeOwners.trust_snapshot(fallback_name).drift == nil
+
+      {_pid, drifted_name} =
+        start_owners(path, allowed_users_fun: fn -> ["alice", "mallory"] end, alert_fun: alert_fun)
+
+      assert_receive {:codeowners_alert, "github.codeowners.allowlist_drift", message, opts}
+      assert message =~ "CODEOWNERS trust [@alice, @bob]"
+      assert message =~ "allowed_users [@alice, @mallory]"
+      assert Keyword.get(opts, :needs_attention) == true
+
+      assert CodeOwners.trust_snapshot(drifted_name).drift ==
+               {MapSet.new(["alice", "bob"]), MapSet.new(["alice", "mallory"])}
+    end
+
+    test "refresh compares the newly resolved CODEOWNERS set", %{path: path} do
+      File.write!(path, "* @alice\n")
+      configure_bot_account("aiur-bot")
+
+      parent = self()
+      alert_fun = fn name, message, opts -> send(parent, {:codeowners_alert, name, message, opts}) end
+
+      {_pid, name} =
+        start_owners(path, allowed_users_fun: fn -> ["alice"] end, alert_fun: alert_fun)
+
+      refute_receive {:codeowners_alert, "github.codeowners.allowlist_drift", _, _}
+      File.write!(path, "* @bob\n")
+      :ok = CodeOwners.refresh(name)
+
+      assert_receive {:codeowners_alert, "github.codeowners.allowlist_drift", message, _opts}
+      assert message =~ "CODEOWNERS trust [@bob]"
+      assert CodeOwners.trust_snapshot(name).codeowners == ["bob"]
+    end
+
     test "trusted accounts are included without becoming bot self-loop authors", %{path: path} do
       File.write!(path, "* @alice\n")
       configure_github(trusted_accounts: ["its-everdred"])
@@ -73,6 +196,8 @@ defmodule Aiur.GitHub.CodeOwnersTest do
       assert "alice" in snap
       assert "its-everdred" in snap
       refute "aiur-bot" in snap
+
+      assert CodeOwners.codeowners_snapshot(name) == ["alice"]
     end
 
     test "trusted accounts survive CODEOWNERS team resolution failures", %{path: path} do

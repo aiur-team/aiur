@@ -66,7 +66,7 @@ configured limit.
 ## Quickstart
 
 ```bash
-git clone https://github.com/its-everdred/aiur
+git clone https://github.com/aiur-team/aiur
 cd aiur
 npm run setup                    # installs the toolchain (mise + erlang/elixir) and symlinks aiurdev
 #   (or, if you already have mise:  mise run setup)
@@ -315,7 +315,8 @@ When `server.port` (or CLI `--port`) is set, Aiur exposes:
 - Read-only telemetry analytics at `/analytics` when the current run has a
   `telemetry.ndjson` input; this route uses the same dashboard basic auth,
   reducer, and self-contained renderer as the CLI artifact and is served with
-  `Cache-Control: no-store`
+  `Cache-Control: no-store`. Drag across any time chart to zoom the five
+  time-series charts together; use Reset to return to the full selected range.
 
 ### Supervisor Decision API
 
@@ -360,6 +361,13 @@ Each daemon start appends a restart marker with a new boot identity. Schema 1
 readers keep valid records from every selected stream and report malformed lines,
 unknown record kinds, unsupported future schemas, attribution gaps, and unavailable
 platform metrics as warnings instead of discarding the rest of the run.
+
+Before a new writer starts, Aiur prunes old **whole boots** from the stream. The
+default retention window is 30 days and 64 MiB (`observability.telemetry_retention_max_age_days`
+and `observability.telemetry_retention_max_bytes`); these defaults retain useful
+cross-session Build Order history without allowing a long-running operator stream to
+grow indefinitely. Size is a whole-boot target: if one boot alone exceeds it, Aiur
+keeps that boot intact rather than truncating lifecycle intervals mid-session.
 
 From the repository root, generate the canonical analytics artifact from one file,
 one session directory, or several session roots:

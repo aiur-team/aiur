@@ -67,6 +67,29 @@ defmodule Aiur.Config.SchemaTest do
     end
   end
 
+  describe "GitHub dispatch allowlist" do
+    test "accepts explicit GitHub logins and defaults to an empty explicit list" do
+      assert {:ok, defaults} = Schema.parse(%{})
+      assert defaults.tracker.github.allowed_users == []
+
+      assert {:ok, settings} =
+               Schema.parse(%{
+                 "tracker" => %{
+                   "github" => %{"allowed_users" => ["its-everdred", "its-applekid"]}
+                 }
+               })
+
+      assert settings.tracker.github.allowed_users == ["its-everdred", "its-applekid"]
+    end
+
+    test "rejects blank dispatch allowlist entries" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"tracker" => %{"github" => %{"allowed_users" => [""]}}})
+
+      assert message =~ "tracker.github.allowed_users"
+    end
+  end
+
   describe "agent rate_limit_fallback" do
     test "defaults to claude" do
       assert {:ok, defaults} = Schema.parse(%{})
@@ -128,7 +151,10 @@ defmodule Aiur.Config.SchemaTest do
   describe "StringOrMap" do
     test "casts strings and maps, rejects everything else" do
       assert {:ok, "untrusted"} = StringOrMap.cast("untrusted")
-      assert {:ok, %{"type" => "workspaceWrite"}} = StringOrMap.cast(%{"type" => "workspaceWrite"})
+
+      assert {:ok, %{"type" => "workspaceWrite"}} =
+               StringOrMap.cast(%{"type" => "workspaceWrite"})
+
       assert :error = StringOrMap.cast(123)
       assert :error = StringOrMap.cast([:list])
       assert :error = StringOrMap.cast(nil)
@@ -158,6 +184,27 @@ defmodule Aiur.Config.SchemaTest do
     test "parses interval_seconds normally" do
       {:ok, settings} = Schema.parse(%{"polling" => %{"interval_seconds" => 60}})
       assert settings.polling.interval_seconds == 60
+    end
+
+    # Measured: the provider usage endpoint serves roughly one request per two
+    # minutes. Below that the excess is rejected and the meters quietly stop
+    # updating, so the floor is enforced rather than merely documented.
+    test "usage_interval_seconds is floored at the endpoint's real limit" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"polling" => %{"usage_interval_seconds" => 60}})
+
+      assert message =~ "polling.usage_interval_seconds"
+      assert message =~ "at least 120 seconds"
+
+      assert {:error, _} = Schema.parse(%{"polling" => %{"usage_interval_seconds" => 119}})
+
+      {:ok, settings} = Schema.parse(%{"polling" => %{"usage_interval_seconds" => 120}})
+      assert settings.polling.usage_interval_seconds == 120
+    end
+
+    test "usage_interval_seconds defaults above the floor" do
+      {:ok, settings} = Schema.parse(%{})
+      assert settings.polling.usage_interval_seconds == 300
     end
   end
 
@@ -382,6 +429,8 @@ defmodule Aiur.Config.SchemaTest do
       assert settings.observability.dashboard_enabled == true
       assert settings.observability.dashboard_writable == true
       assert settings.observability.refresh_ms == 1_000
+      assert settings.observability.telemetry_retention_max_bytes == 64 * 1024 * 1024
+      assert settings.observability.telemetry_retention_max_age_days == 30
     end
 
     test "Observability section accepts explicit values" do
@@ -390,13 +439,17 @@ defmodule Aiur.Config.SchemaTest do
           "observability" => %{
             "dashboard_enabled" => false,
             "dashboard_writable" => true,
-            "refresh_ms" => 500
+            "refresh_ms" => 500,
+            "telemetry_retention_max_bytes" => 1_024,
+            "telemetry_retention_max_age_days" => 7
           }
         })
 
       assert settings.observability.dashboard_enabled == false
       assert settings.observability.dashboard_writable == true
       assert settings.observability.refresh_ms == 500
+      assert settings.observability.telemetry_retention_max_bytes == 1_024
+      assert settings.observability.telemetry_retention_max_age_days == 7
     end
 
     test "Server section parses with defaults" do

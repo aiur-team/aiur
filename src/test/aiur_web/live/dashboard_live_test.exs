@@ -411,7 +411,7 @@ defmodule AiurWeb.DashboardLiveTest do
       drafts: %{},
       chat_errors: %{},
       decision_actions: %{},
-      writable: false,
+      writable: Keyword.get(opts, :writable, false),
       live_action: Keyword.get(opts, :live_action, :index),
       decision_filter: :all,
       fleet_filters: FleetFilters.default(),
@@ -424,6 +424,129 @@ defmodule AiurWeb.DashboardLiveTest do
     assigns
     |> DashboardLive.render()
     |> Phoenix.LiveViewTest.rendered_to_string()
+  end
+
+  defp global_pause_fleet(globally_paused) do
+    %{
+      generated_at: "2026-07-26T12:00:00Z",
+      counts: %{running: 0, retrying: 0, idle: 0},
+      running: [],
+      retrying: [],
+      idle: [],
+      agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+      rate_limits: nil,
+      globally_paused: globally_paused
+    }
+  end
+
+  describe "global pause nav toggle" do
+    test "renders a pause affordance while the daemon is running and writable" do
+      html = render_payload(global_pause_fleet(false), writable: true)
+
+      assert html =~ ~s(id="global-pause-toggle")
+      assert html =~ ~s(phx-click="toggle-global-pause")
+      assert html =~ ~s(aria-pressed="false")
+      assert html =~ "Pause all agents"
+      refute html =~ "global-pause-toggle is-paused"
+      refute html =~ ~s|aria-label="Resume all agents (globally paused)"|
+    end
+
+    test "renders a resume affordance while the daemon is globally paused" do
+      html = render_payload(global_pause_fleet(true), writable: true)
+
+      assert html =~ "global-pause-toggle is-paused"
+      assert html =~ ~s(aria-pressed="true")
+      assert html =~ "Resume all agents (globally paused)"
+    end
+
+    test "disables the toggle when the dashboard is read-only" do
+      html = render_payload(global_pause_fleet(false), writable: false)
+
+      assert html =~ ~s(id="global-pause-toggle")
+      assert html =~ ~s(aria-disabled="true")
+      assert html =~ "disabled"
+    end
+
+    # The sidebar is `display: none` below 960px, so pause needs a second
+    # instance in the mobile nav pill. The theme toggle does not: it lives in
+    # the topbar at every resolution, so exactly one ever renders.
+    test "places the pause and theme controls for both layouts" do
+      html = render_payload(global_pause_fleet(false), writable: true)
+      doc = Floki.parse_document!(html)
+
+      mobile_nav = Floki.find(doc, "nav.shell-nav-mobile")
+      assert mobile_nav != []
+
+      assert Floki.find(mobile_nav, "#global-pause-toggle-mobile") != [],
+             "the mobile nav must carry its own global pause toggle"
+
+      assert Floki.find(doc, "aside.shell-sidebar #global-pause-toggle") != [],
+             "the sidebar keeps the desktop pause toggle"
+
+      assert Floki.find(doc, ".topbar .toolbar .topbar-controls #theme-toggle") != [],
+             "the theme toggle lives in the topbar, inline with the route title"
+
+      assert Floki.find(doc, "aside.shell-sidebar #theme-toggle") == [],
+             "the theme toggle moved out of the sidebar brand row"
+
+      assert Floki.find(mobile_nav, "#theme-toggle") == [],
+             "the theme toggle is not duplicated into the nav pill"
+
+      # One theme toggle total, and ids stay unique so LiveView can patch each
+      # instance independently.
+      assert length(Floki.find(doc, "[phx-hook=\"ThemeToggle\"]")) == 1
+
+      for id <- ~w(global-pause-toggle global-pause-toggle-mobile theme-toggle) do
+        assert length(Floki.find(doc, "##{id}")) == 1, "duplicate DOM id: #{id}"
+      end
+    end
+
+    # The clock pill was the topbar's only occupant and forced itself onto its
+    # own line on narrow viewports.
+    test "the topbar carries no clock" do
+      doc =
+        global_pause_fleet(false)
+        |> render_payload(writable: true)
+        |> Floki.parse_document!()
+
+      assert Floki.find(doc, ".topbar time") == []
+    end
+
+    test "the mobile pause toggle mirrors paused state and read-only gating" do
+      paused = render_payload(global_pause_fleet(true), writable: true)
+      mobile_paused = paused |> Floki.parse_document!() |> Floki.find("#global-pause-toggle-mobile")
+
+      assert Floki.attribute(mobile_paused, "aria-pressed") == ["true"]
+      assert Floki.attribute(mobile_paused, "class") |> List.first() =~ "is-paused"
+
+      readonly = render_payload(global_pause_fleet(false), writable: false)
+      mobile_readonly = readonly |> Floki.parse_document!() |> Floki.find("#global-pause-toggle-mobile")
+
+      assert Floki.attribute(mobile_readonly, "aria-disabled") == ["true"]
+    end
+
+    # `.global-pause-icon` shipped with no stylesheet rule, so the inline SVG —
+    # which carries no intrinsic dimensions — collapsed and the button rendered
+    # as an empty circle on every breakpoint. Guard the whole class of bug: any
+    # icon wrapper the shell renders must have its SVG sized in dashboard.css.
+    test "every icon wrapper in the shell has an svg sizing rule" do
+      css = File.read!(Path.expand("../../../priv/static/dashboard.css", __DIR__))
+
+      wrapper_classes =
+        global_pause_fleet(false)
+        |> render_payload(writable: true)
+        |> Floki.parse_document!()
+        |> Floki.find(".dashboard-shell span[class$='-icon']")
+        |> Enum.flat_map(&Floki.attribute([&1], "class"))
+        |> Enum.uniq()
+
+      assert wrapper_classes != [], "expected the shell to render icon wrappers"
+
+      for class <- wrapper_classes do
+        assert Regex.match?(~r/\.#{Regex.escape(class)}\s+svg\s*\{[^}]*\bwidth\s*:/, css),
+               "#{class} renders an inline SVG but dashboard.css has no `.#{class} svg { width: ... }` rule, so it collapses to nothing"
+      end
+    end
   end
 
   test "does not present untyped status rows as a healthy Units catalog" do
@@ -511,16 +634,18 @@ defmodule AiurWeb.DashboardLiveTest do
 
     assert length(Floki.find(Floki.parse_document!(unavailable_units), ~s(nav[aria-label^="Aiur"]))) == 2
     assert length(Floki.find(Floki.parse_document!(unavailable_units), ~s(a[aria-current="page"]))) == 2
-    assert unavailable_units =~ ~s(<h1 id="route-title">Units</h1>)
+    assert Floki.parse_document!(unavailable_units) |> Floki.find("h1#route-title") |> Floki.text() =~ "Units"
     assert unavailable_units =~ ~s(href="/analytics")
     assert unavailable_units =~ ~s(href="/build-orders")
     assert unavailable_units =~ ~s(data-phx-link="redirect")
-    assert Floki.find(Floki.parse_document!(unavailable_units), ~s([aria-disabled="true"])) == []
+    # Scope to nav anchors: the global-pause toggle is a button that is
+    # legitimately disabled in this read-only render, and is not a nav route.
+    assert Floki.find(Floki.parse_document!(unavailable_units), ~s(a[aria-disabled="true"])) == []
 
     assert available_units =~ ~s(href="/analytics")
-    assert Floki.find(Floki.parse_document!(available_units), ~s([aria-disabled="true"])) == []
+    assert Floki.find(Floki.parse_document!(available_units), ~s(a[aria-disabled="true"])) == []
 
-    assert commands =~ ~s(<h1 id="route-title">Commands</h1>)
+    assert Floki.parse_document!(commands) |> Floki.find("h1#route-title") |> Floki.text() =~ "Commands"
     assert length(Floki.find(Floki.parse_document!(commands), ~s(a[aria-current="page"]))) == 2
   end
 
@@ -2405,7 +2530,7 @@ defmodule AiurWeb.DashboardLiveTest do
            end) == [:requested, :answer_recorded, :dispatch_queued, :delivered, :acknowledged, :resolved]
   end
 
-  test "card-face dismiss closes locally and interrupts a capable live agent" do
+  test "card-face deferral persists and publishes to the Executor without waking the ticket agent" do
     orchestrator_name = Module.concat(__MODULE__, :DismissCapstoneOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :DismissCapstoneDecisionStore)
     orchestrator = start_queue_orchestrator(orchestrator_name, "987")
@@ -2421,28 +2546,20 @@ defmodule AiurWeb.DashboardLiveTest do
     )
 
     {:ok, view, html} = live(build_conn(), "/decisions")
-    assert html =~ ~s(phx-click="dismiss-decision")
+    assert :ok = Exchange.subscribe("executor.#")
+    assert html =~ ~s(phx-click="defer-decision")
 
     _html =
       view
-      |> element("#decision-#{live_decision.decision_id} button[phx-click=\"dismiss-decision\"]")
+      |> element("#decision-#{live_decision.decision_id} button[phx-click=\"defer-decision\"]")
       |> render_click()
 
-    assert {:ok, dismissed} = DecisionStore.get(live_decision.decision_id, store)
-    assert dismissed.decision_status == :dismissed
-    assert dismissed.answer == nil
-
-    assert {:ok, item} = OperatorMessages.claim_next_queue_item(orchestrator, "987")
-
-    assert item.category == :operator_message
-    assert item.delivery.consume_at == :safe_checkpoint
-    assert item.delivery.interrupt_requested == true
-    assert item.body.text =~ "operator dismissed this decision"
-    assert item.body.text =~ "best judgement"
-
-    historic = render_patch(view, "/decisions?filter=resolved")
-    assert historic =~ live_decision.decision_id
-    assert historic =~ "Dismissed"
+    assert {:ok, deferred} = DecisionStore.get(live_decision.decision_id, store)
+    assert deferred.decision_status == :deferred
+    assert deferred.answer == nil
+    assert_receive {:event, %{topic: "executor.decision.deferred", decision_id: decision_id, issue_identifier: "987", provenance: :operator_dashboard}}, 500
+    assert decision_id == live_decision.decision_id
+    assert :empty = OperatorMessages.claim_next_queue_item(orchestrator, "987")
 
     :sys.replace_state(orchestrator, &%{&1 | running: %{}})
     gone_decision = request_queue_decision(store, "dashboard-dismiss-gone", "988")
@@ -2450,13 +2567,47 @@ defmodule AiurWeb.DashboardLiveTest do
 
     _html =
       gone_view
-      |> element("#decision-#{gone_decision.decision_id} button[phx-click=\"dismiss-decision\"]")
+      |> element("#decision-#{gone_decision.decision_id} button[phx-click=\"defer-decision\"]")
       |> render_click()
 
-    assert {:ok, gone_dismissed} = DecisionStore.get(gone_decision.decision_id, store)
-    assert gone_dismissed.decision_status == :dismissed
+    assert {:ok, gone_deferred} = DecisionStore.get(gone_decision.decision_id, store)
+    assert gone_deferred.decision_status == :deferred
     refute_receive {:agent_queue_updated, "988", _queue_item_id, _delivery}, 200
     assert :empty = OperatorMessages.claim_next_checkpoint_queue_item(orchestrator, "988")
+  end
+
+  test "a deferred detail command remains answerable" do
+    orchestrator_name = Module.concat(__MODULE__, :DeferredDetailOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :DeferredDetailStore)
+    store = start_decision_store(decision_store_name, fn _decision, _opts -> {:ok, %{status: :accepted, item: %{id: 5_074}}} end)
+    decision = request_queue_decision(store, "deferred-detail", "987")
+
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name,
+      control_center_cache: false,
+      dashboard_writable: true
+    )
+
+    {:ok, view, html} = live(build_conn(), "/decisions/#{decision.decision_id}")
+    assert html =~ ~s(phx-click="defer-decision")
+
+    _html =
+      view
+      |> element("#decision-#{decision.decision_id} button[phx-click=\"defer-decision\"]")
+      |> render_click()
+
+    html =
+      render_submit(view, "answer-decision", %{
+        "decision_id" => decision.decision_id,
+        "answer" => %{"choice" => "option:ship", "rationale" => "The Executor can still receive the final answer"}
+      })
+
+    assert html =~ "Answer recorded"
+    assert {:ok, %{decision_status: :decided}} = DecisionStore.get(decision.decision_id, store)
   end
 
   test "human dashboard revision traverses the corrective queue and lifecycle projections" do

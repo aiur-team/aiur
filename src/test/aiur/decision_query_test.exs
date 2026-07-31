@@ -205,18 +205,27 @@ defmodule Aiur.DecisionQueryTest do
     store: store
   } do
     open = request!(store, "open", ~U[2026-07-13 08:00:00Z], blocking: true)
+    deferred = request!(store, "deferred", ~U[2026-07-13 08:00:30Z], blocking: true)
     resolved = request!(store, "resolved", ~U[2026-07-13 08:01:00Z], blocking: true)
 
     :sys.replace_state(store, fn state ->
-      current = Map.fetch!(state.current, resolved.decision_id)
-      current = Map.put(state.current, resolved.decision_id, %{current | decision_status: :resolved})
+      current =
+        state.current
+        |> Map.update!(deferred.decision_id, &%{&1 | decision_status: :deferred})
+        |> Map.update!(resolved.decision_id, &%{&1 | decision_status: :resolved})
+
       %{state | current: current, retained_index: RetainedSnapshot.build_index(current)}
     end)
 
-    assert {:ok, %{decisions: [open_row], filters: %{lifecycle: :open}}} =
+    assert {:ok, %{decisions: open_rows, filters: %{lifecycle: :open}}} =
              DecisionQuery.list(%{"lifecycle" => "open", "ticket" => "1088"}, store: store)
 
-    assert open_row.decision_id == open.decision_id
+    assert MapSet.new(open_rows, & &1.decision_id) == MapSet.new([open.decision_id, deferred.decision_id])
+
+    assert {:ok, %{decisions: [deferred_row], filters: %{lifecycle: :deferred}}} =
+             DecisionQuery.list(%{"lifecycle" => "deferred"}, store: store)
+
+    assert deferred_row.decision_id == deferred.decision_id
 
     search = String.slice(open.decision_id, 0, 12)
     assert {:ok, %{decisions: [search_row]}} = DecisionQuery.list(%{"search" => search}, store: store)
@@ -225,7 +234,7 @@ defmodule Aiur.DecisionQueryTest do
     assert {:ok, %{pagination: %{total: 1}}} =
              DecisionQuery.list(%{"search" => search}, store: store)
 
-    assert {:ok, %{open: 1, blocking: 1, scope: %{label: "All retained decisions"}}} =
+    assert {:ok, %{open: 2, blocking: 2, scope: %{label: "All retained decisions"}}} =
              DecisionQuery.counts(store: store)
   end
 

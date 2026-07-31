@@ -12,9 +12,12 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   def run_summary_strip(assigns) do
     cards = provider_cards(assigns.usage, assigns.meters)
 
+    run_state = Map.get(assigns.run, :state)
+
     assigns =
       assigns
-      |> assign(:run_ready?, Map.get(assigns.run, :state) in [:ready, :stale])
+      |> assign(:run_state, run_state)
+      |> assign(:run_ready?, run_state in [:ready, :stale])
       |> assign(:usage_ready?, Map.get(assigns.usage, :state) in [:ready, :partial, :stale])
       |> assign(:cards, cards)
       |> assign(:spend_total, provider_spend_total(cards))
@@ -26,15 +29,22 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
           <img class="rs-logo" src="/aiur-logo.png" alt="" aria-hidden="true" />
           <span class="rs-name">Summary</span>
           <div class="rs-head-stats">
-            <div class="rs-stat"><span class="rs-stat-label">Live</span><span class="rs-stat-val">{count(@run_ready?, @run, :live, "units")}</span></div>
-            <div class="rs-stat"><span class="rs-stat-label">Tickets</span><span class="rs-stat-val">{count(@run_ready?, @run, :remaining, "remain")}</span></div>
+            <%!-- An unknown ticket count is dropped rather than shown as N/A: it
+                  is a head-row stat with no row of its own, so an empty one is
+                  noise. Progress and Limits keep their N/A because each owns a
+                  labelled row and a meter — silently dropping those would leave
+                  a card that looks like it has nothing to report. --%>
+            <div :if={known_count?(@run_state)} class="rs-stat">
+              <span class="rs-stat-label">Tickets</span>
+              <span class="rs-stat-val">{count(@run_state, @run, :remaining, "remain")}</span>
+            </div>
             <div :if={@spend_total} class="rs-stat"><span class="rs-stat-label">Spend</span><span class="rs-stat-val rs-stat-spend">{@spend_total}</span></div>
           </div>
         </div>
         <div class="rs-progress">
           <div class="rs-limit-top">
             <span class="rs-limit-label">Progress</span>
-            <span class="rs-limit-meta">{if @run_ready?, do: @run.elapsed.label <> " elapsed", else: "Unavailable"}</span>
+            <span class="rs-limit-meta">{progress_meta(@run_state, @run)}</span>
             <span :if={eta = eta_label(@run_ready?, @run)} class="rs-limit-meta">{eta}</span>
           </div>
           <div class="rs-meter"><i style={"width:#{run_percent(@run)}%"}></i></div>
@@ -65,11 +75,16 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
         <div class="rs-head-stats">
           <div class="rs-stat">
             <span class="rs-stat-label">Tokens</span>
-            <span class="rs-stat-val">{if @usage_ready?, do: tokens(@usage), else: "Unavailable"}</span>
+            <span class="rs-stat-val">
+              <%!-- The per-provider token glyph. Decorative: the label already
+                    says Tokens, and the count carries the meaning. --%>
+              <img class="rs-token-ic" src={provider_token_icon(@card.provider)} alt="" aria-hidden="true" />
+              {if @usage_ready?, do: tokens(@usage), else: "N/A"}
+            </span>
           </div>
           <div :if={@show_spend?} class="rs-stat">
             <span class="rs-stat-label">Spend</span>
-            <span class="rs-stat-val rs-stat-spend">{if @usage_ready?, do: money(@usage), else: "Unavailable"}</span>
+            <span class="rs-stat-val rs-stat-spend">{if @usage_ready?, do: money(@usage), else: "N/A"}</span>
           </div>
         </div>
       </div>
@@ -77,13 +92,13 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
         <div :if={@windows == []} class="rs-limit">
           <div class="rs-limit-top">
             <span class="rs-limit-label">Limits</span>
-            <span :if={provider_status(@card)} class="rs-limit-meta">{provider_status(@card)}</span>
+            <span class="rs-limit-meta">{provider_status(@card)}</span>
           </div>
           <div class="rs-meter"><i style="width:0%"></i></div>
         </div>
         <div :for={window <- @windows} class="rs-limit">
           <div class="rs-limit-top">
-            <span class="rs-limit-label">{window.name}</span>
+            <span class="rs-limit-label">{window_label(window, @windows)}</span>
             <span class="rs-limit-meta">{window_meta(window, @now)}</span>
           </div>
           <div class="rs-meter"><i style={"width:#{meter_percent(window)}%"}></i></div>
@@ -100,7 +115,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   end
 
   defp provider_cards(_usage, _meters) do
-    for provider <- [:codex, :claude], do: %{provider: provider, provider_label: provider_label(provider), status_label: "Unavailable", windows: []}
+    for provider <- [:codex, :claude], do: %{provider: provider, provider_label: provider_label(provider), status_label: "N/A", windows: []}
   end
 
   defp provider_usage(%{usage: usage}), do: usage
@@ -109,15 +124,80 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   defp provider_spend?(%{auth_mode: %{value: :api_key}}), do: true
   defp provider_spend?(_card), do: false
 
-  defp provider_status(%{state: :unknown}), do: nil
+  # An unknown-identity meter used to render no label at all above a 0%-wide
+  # bar, which reads as a real "0% consumed". Name it instead.
+  defp provider_status(%{state: :unknown}), do: "N/A"
   defp provider_status(%{status_label: label}) when is_binary(label) and label != "", do: label
-  defp provider_status(_card), do: nil
+  defp provider_status(_card), do: "N/A"
 
-  defp rate_windows(%{windows: windows}) when is_list(windows), do: windows |> Enum.filter(&(&1.kind == :rate_limit)) |> Enum.take(2)
+  # Codex reports an account-wide limit alongside per-model ones
+  # (`codex:primary` vs `codex_bengalfox:primary`). Only the account-wide bucket
+  # is shown: it is the one that governs whether work can proceed at all, and
+  # listing a row per model turns a glanceable card into a table. Per-model
+  # limits remain in the projection for anything that wants them.
+  defp rate_windows(%{windows: windows} = card) when is_list(windows) do
+    rate_limits = Enum.filter(windows, &(&1.kind == :rate_limit))
+
+    case Enum.filter(rate_limits, &account_wide?(&1, Map.get(card, :provider))) do
+      [] -> Enum.take(rate_limits, 2)
+      account_wide -> Enum.take(account_wide, 2)
+    end
+  end
+
   defp rate_windows(_card), do: []
 
-  defp count(true, %{counts: counts}, key, suffix), do: "#{Map.get(counts, key, 0)} #{suffix}"
-  defp count(_ready, _run, _key, _suffix), do: "Unavailable"
+  # Account-wide windows carry the bare provider scope; a per-model one suffixes
+  # it with the model's codename.
+  defp account_wide?(window, provider) do
+    case Map.get(window, :limit_id) do
+      nil -> true
+      limit_id -> limit_id |> to_string() |> String.split(":") |> List.first() == to_string(provider)
+    end
+  end
+
+  # Codex reports several limits that share a `name`: an account-wide one and a
+  # per-model one both come through as "Primary", differing only in the scope
+  # prefix of their id (`codex:primary` vs `codex_bengalfox:primary`). They are
+  # genuinely different limits — they read alike only while both sit unused —
+  # so they are both shown, and the scope is what distinguishes them.
+  defp window_label(window, windows) do
+    name = Map.get(window, :name, "Limit")
+
+    if Enum.count(windows, &(Map.get(&1, :name) == name)) > 1 do
+      window |> Map.get(:limit_id) |> window_scope() || name
+    else
+      name
+    end
+  end
+
+  # `limit_id` is "<scope>:<name>"; the scope is the part worth showing when the
+  # name cannot tell two windows apart.
+  defp window_scope(nil), do: nil
+
+  defp window_scope(limit_id) do
+    limit_id
+    |> to_string()
+    |> String.split(":")
+    |> List.first()
+    |> String.replace("_", " ")
+  end
+
+  # Whether the run actually reported a count, as opposed to not being known yet.
+  defp known_count?(state), do: state in [:ready, :stale, :empty]
+
+  defp count(state, %{counts: counts}, key, suffix) when state in [:ready, :stale],
+    do: "#{Map.get(counts, key, 0)} #{suffix}"
+
+  # An empty run is a *known* zero, not missing data: the daemon confirmed there
+  # is no active run. Naming it "Unavailable" reads as a failure when nothing is
+  # wrong. This is not a synthetic zero — the loading and unavailable states,
+  # where the count genuinely isn't known, still say so.
+  defp count(:empty, _run, _key, suffix), do: "0 #{suffix}"
+  defp count(_state, _run, _key, _suffix), do: "N/A"
+
+  defp progress_meta(state, run) when state in [:ready, :stale], do: run.elapsed.label <> " elapsed"
+  defp progress_meta(:empty, _run), do: "0% · no active run"
+  defp progress_meta(_state, _run), do: "N/A"
 
   defp run_percent(%{progress: %{kind: :exact, percent: percent}}) when is_integer(percent), do: percent
   defp run_percent(%{progress: %{kind: :lower_bound, lower_bound_percent: percent}}) when is_integer(percent), do: percent
@@ -149,13 +229,13 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   end
 
   defp tokens(%{tokens: %{total: total}}), do: compact_number(total)
-  defp tokens(_usage), do: "Unknown"
+  defp tokens(_usage), do: "N/A"
 
   defp money(%{api_equivalent: amounts}), do: money_list(amounts)
-  defp money(_usage), do: "Unknown"
+  defp money(_usage), do: "N/A"
 
   defp money_list([%{currency: currency, amount: amount}]), do: currency_amount(currency, amount)
-  defp money_list([]), do: "Unknown"
+  defp money_list([]), do: "N/A"
   defp money_list(amounts), do: Enum.map_join(amounts, " + ", &currency_amount(&1.currency, &1.amount))
 
   defp currency_amount("USD", amount), do: "$#{amount}"
@@ -164,7 +244,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   defp compact_number(number) when is_integer(number) and number >= 1_000_000, do: "#{Float.round(number / 1_000_000, 2)}M"
   defp compact_number(number) when is_integer(number) and number >= 1_000, do: "#{Float.round(number / 1_000, 1)}K"
   defp compact_number(number) when is_integer(number), do: Integer.to_string(number)
-  defp compact_number(_number), do: "Unknown"
+  defp compact_number(_number), do: "N/A"
 
   defp meter_percent(%{meter: %{kind: :exact, now: percent}}), do: percent
   defp meter_percent(_window), do: 0
@@ -178,12 +258,28 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   end
 
   defp reset_text(_reset, _now), do: "reset unavailable"
-  defp duration(seconds) when seconds < 3_600, do: "#{max(div(seconds, 60), 1)}m"
-  defp duration(seconds), do: "#{div(seconds, 3_600)}h #{div(rem(seconds, 3_600), 60)}m"
+  # Days once there are any: a weekly window reading "167h 59m" makes the reader
+  # divide to learn it is a week away.
+  @seconds_per_day 86_400
+  @seconds_per_hour 3_600
+
+  defp duration(seconds) when seconds < @seconds_per_hour, do: "#{max(div(seconds, 60), 1)}m"
+
+  defp duration(seconds) when seconds < @seconds_per_day do
+    "#{div(seconds, @seconds_per_hour)}h #{div(rem(seconds, @seconds_per_hour), 60)}m"
+  end
+
+  defp duration(seconds) do
+    "#{div(seconds, @seconds_per_day)}d #{div(rem(seconds, @seconds_per_day), @seconds_per_hour)}h #{div(rem(seconds, @seconds_per_hour), 60)}m"
+  end
 
   defp provider_logo(:codex), do: "/codex-color.svg"
   defp provider_logo(:claude), do: "/claude-symbol.svg"
   defp provider_logo(_provider), do: "/aiur-logo.png"
+
+  defp provider_token_icon(:codex), do: "/codex-token.svg"
+  defp provider_token_icon(:claude), do: "/claude-token.svg"
+  defp provider_token_icon(_provider), do: "/aiur-logo.png"
   defp provider_label(:codex), do: "Codex"
   defp provider_label(:claude), do: "Claude"
 end

@@ -9,6 +9,11 @@ tracker:
   github:
     repo: your-org/your-repo
     label_prefix: agent
+    # Required for server-side dispatch authorization. When omitted, Aiur uses
+    # the currently resolved CODEOWNERS set and denies dispatch if unavailable.
+    allowed_users:
+      - your-github-login
+      - your-teammate-login
     # Optional: trusted human Executor logins whose GitHub comments reach
     # agent event digests even when CODEOWNERS team expansion is unavailable.
     # trusted_accounts:
@@ -33,6 +38,10 @@ build_order:
   ticket_history_limit: 50
   ticket_history_max_identities: 100
   ticket_history_stale_after_ms: 60000
+observability:
+  # Retain useful cross-session telemetry without splitting an individual boot.
+  telemetry_retention_max_bytes: 67108864
+  telemetry_retention_max_age_days: 30
 workspace:
   root: ~/code/aiur-workspaces
 hooks:

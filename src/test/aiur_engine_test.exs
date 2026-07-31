@@ -556,10 +556,24 @@ defmodule AiurEngineTest do
     path
   end
 
-  test "pause without targets exits 64 with guidance" do
-    {out, code} = run_engine_real(["pause"], [{"AIUR_RELEASE_DIR", fake_release()}])
+  # Bare `pause`/`resume` used to be a usage error. It is now the global switch,
+  # so only *malformed* targets still earn exit 64.
+  test "pause with malformed targets exits 64 with guidance" do
+    {out, code} = run_engine_real(["pause", "not-an-id"], [{"AIUR_RELEASE_DIR", fake_release()}])
     assert code == 64
     assert out =~ "expects issue IDs or --all"
+    assert out =~ "bare aiur pause for the global switch"
+  end
+
+  test "bare pause/resume RPC the global switch into the node" do
+    rel = fake_release()
+    state = tmp_state()
+
+    {paused, _} = run_engine_real(["pause"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", state}])
+    assert paused =~ "Aiur.AgentControlCLI.pause_global()"
+
+    {resumed, _} = run_engine_real(["resume"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", state}])
+    assert resumed =~ "Aiur.AgentControlCLI.resume_global()"
   end
 
   test "pause/resume RPC the AgentControlCLI expression into the node" do
@@ -571,6 +585,18 @@ defmodule AiurEngineTest do
 
     {resumed, _} = run_engine_real(["resume", "--all"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", state}])
     assert resumed =~ "Aiur.AgentControlCLI.resume(:all)"
+  end
+
+  test "usage RPCs the usage expression" do
+    rel = fake_release()
+    {out, _} = run_engine_real(["usage"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", tmp_state()}])
+    assert out =~ "Aiur.AgentControlCLI.usage()"
+  end
+
+  test "usage rejects arguments" do
+    {out, code} = run_engine_real(["usage", "codex"], [{"AIUR_RELEASE_DIR", fake_release()}])
+    assert code != 0
+    assert out =~ "usage does not accept arguments"
   end
 
   test "status RPCs the status expression" do

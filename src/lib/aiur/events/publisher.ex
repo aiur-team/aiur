@@ -84,15 +84,21 @@ defmodule Aiur.Events.Publisher do
       `bot_self_loop?` and dedup gates still apply, and the orchestrator
       and live agents self-gate by subscription, so untracked-issue
       comments published this way reach no reactivation target.
+    * `:digest_source` — trusted internal provenance for the agent digest.
+      Reserved payload keys are stripped before this option is applied, so
+      external content cannot grant itself digest access.
   """
   @spec publish(String.t(), map(), keyword()) ::
-          {:ok, pos_integer(), non_neg_integer()} | :filtered | :deduped | {:error, :decision_requires_durable_publish}
+          {:ok, pos_integer(), non_neg_integer()} | :filtered | :deduped | {:error, :decision_requires_durable_publish | :executor_namespace_rejects_github_source}
   def publish(topic, payload, opts \\ []) when is_binary(topic) and is_map(payload) do
     actor = Keyword.get(opts, :actor)
 
     cond do
       durable_decision_topic?(topic) ->
         {:error, :decision_requires_durable_publish}
+
+      executor_topic_from_github?(topic, payload, opts) ->
+        {:error, :executor_namespace_rejects_github_source}
 
       bot_self_loop?(actor) ->
         :filtered
@@ -126,16 +132,27 @@ defmodule Aiur.Events.Publisher do
   fan-out, IssueLog marker, and debug broadcast behavior as `publish/3`.
   """
   @spec publish_persisted(String.t(), map(), pos_integer(), keyword()) ::
-          {:ok, pos_integer(), non_neg_integer()}
+          {:ok, pos_integer(), non_neg_integer()} | {:error, :executor_namespace_rejects_github_source}
   def publish_persisted(topic, payload, id, opts \\ [])
       when is_binary(topic) and is_map(payload) and is_integer(id) do
-    event = event_with_observation(topic, payload, id, opts)
+    if executor_topic_from_github?(topic, payload, opts) do
+      {:error, :executor_namespace_rejects_github_source}
+    else
+      event = event_with_observation(topic, payload, id, opts)
 
-    subscribers = Exchange.publish(topic, event)
-    record_emit_marker(topic, event, opts)
-    DebugLog.broadcast(:publish, topic, id: id, body: payload)
-    {:ok, id, subscribers}
+      subscribers = Exchange.publish(topic, event)
+      record_emit_marker(topic, event, opts)
+      DebugLog.broadcast(:publish, topic, id: id, body: payload)
+      {:ok, id, subscribers}
+    end
   end
+
+  defp executor_topic_from_github?("executor." <> _rest, payload, opts) do
+    source = Keyword.get(opts, :source) || Keyword.get(opts, :observation_source) || Map.get(payload, :source) || Map.get(payload, "source")
+    source in [:github, "github"] or match?(%{kind: :github}, source) or match?(%{"kind" => "github"}, source)
+  end
+
+  defp executor_topic_from_github?(_topic, _payload, _opts), do: false
 
   # Reserved Decision lifecycle names must only ever reach Exchange through
   # `Aiur.DecisionStore`'s persist-before-notify path (via
@@ -157,10 +174,16 @@ defmodule Aiur.Events.Publisher do
 
   defp event_with_observation(topic, payload, id, opts) do
     payload
-    |> Map.drop([:ticket_observation, "ticket_observation"])
+    |> Map.drop([:ticket_observation, "ticket_observation", :digest_source, "digest_source"])
     |> Map.merge(%{id: id, topic: topic})
+    |> maybe_put_digest_source(Keyword.get(opts, :digest_source))
     |> Map.put(:ticket_observation, ticket_observation(payload, id, opts))
   end
+
+  defp maybe_put_digest_source(event, source) when source in [:agent, :orchestrator, :system],
+    do: Map.put(event, :digest_source, source)
+
+  defp maybe_put_digest_source(event, _source), do: event
 
   defp observation_options(opts, id) do
     [event_id: id, observed_at: observation_time(opts)]
