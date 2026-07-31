@@ -19,6 +19,7 @@ alerts, and events; planning documents preserve approved intent.
 - Recovery ladder
 - Pull-request review loop
 - Merge mechanics
+- Hourly meta-analysis
 - Aiur bug-report policy
 - Decisions and handoff
 
@@ -306,6 +307,46 @@ and `require_last_push_approval`, the only in-gate path is a bot approval, which
 defeats the gate; `--admin` does not bypass it. The current workaround is a
 documented ruleset window: back up the ruleset, disable it, merge, restore it,
 and re-read the ruleset to confirm restoration rather than trusting the write.
+
+## Hourly meta-analysis
+
+The wake/outcome retrospective tunes monitoring cadence; this practice tunes
+the run. Every hour (established on the 2026-07 analytics-streamdeck run,
+where it repeatedly paid for itself):
+
+1. **Name THE single thing currently costing the most wall-clock**, quantified:
+   minutes lost, CI cycles burned, agents idle. Breadth summaries are
+   explicitly not the deliverable; the organizing question is "what is the
+   latest thing taking the most time, and how do we shrink it?" There is
+   always a next bottleneck — this check is never complete. When one falls,
+   the next entry names its successor.
+2. **Classify recurring problems, not incidents.** Ask what CLASS of failure
+   recurred this hour. Known classes worth pattern-matching against:
+   - silent failure with a misleading symptom — seven distinct faults in one
+     run all presented as "the fleet is idle" and none logged a reason;
+   - PR bodies claiming more than the diff delivers;
+   - tests that cannot fail;
+   - flaky-test families sharing one mechanism: shared globals, leaked
+     persistent state, silently-failed cache invalidation;
+   - identity/gate mechanics: pusher vs author, opener vs committer.
+3. **Reflect the pattern into higher-level solution tickets.** When the same
+   class recurs — rule of thumb: 3+ reproductions, or 2 with a shared root
+   cause — file ONE systemic ticket attacking the class rather than continuing
+   to patch instances: a consolidated test-isolation refactor instead of
+   per-test fixes, a shared-helper hardening instead of per-file migrations,
+   an alerting gap instead of another manual check. Record in the ticket the
+   reproductions that justify it. File at most 1-2 evidence-backed systemic
+   tickets per pattern, and never expand the active feature boundary with
+   them — process/infra tickets ride alongside the build order; feature
+   tickets need operator sign-off.
+4. **Write the entry down** in a durable retrospective log, e.g.
+   `docs/executor/hourly-retrospectives.md` on the run's research/handoff
+   branch: the bottleneck, the number, the proposed reduction, what was filed
+   vs deferred. The log is what makes the daily skill-review pass possible and
+   what a replacement Executor resumes from.
+5. **Daily**, review the accumulated hourly notes and ask whether any Aiur
+   skill should change so the next run never rediscovers the lesson. Capture
+   that as a concrete skill-doc edit and land it as a small PR.
 
 ## Aiur bug-report policy
 
