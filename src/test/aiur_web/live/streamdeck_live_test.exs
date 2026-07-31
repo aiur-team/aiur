@@ -41,4 +41,43 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ "Codex"
     assert html =~ "Pager"
   end
+
+  test "renders queued key footer (dependency chip) and active key footer (status dot)" do
+    {:ok, _view, html} = live(build_conn(), "/streamdeck")
+
+    # Slot 5 is queued with dependency: "Blocked"
+    assert html =~ "Blocked"
+    # Non-queued slots render the status dot + progress bar footer
+    assert html =~ ~s(class="sd-status-dot")
+    assert html =~ ~s(class="sd-progress")
+  end
+
+  test "renders priority star, mic indicator, and live segment class" do
+    {:ok, _view, html} = live(build_conn(), "/streamdeck")
+
+    # Slots 1 and 4 have priority?: true
+    assert html =~ "★"
+    # Claude segment always shows the mic dot
+    assert html =~ ~s(class="sd-mic")
+    # Codex segment is live?: true
+    assert html =~ "is-live"
+  end
+
+  test "mounts successfully even when Config raises (kind/2 rescue path)" do
+    # In the test environment there is no .aiurconfig, so tracker_kind and
+    # agent_kind both raise. The rescue branch in kind/2 catches the error and
+    # returns the fallback string; if it did not, mount would raise and live/2
+    # would return an error tuple rather than {:ok, view, html}.
+    assert {:ok, _view, _html} = live(build_conn(), "/streamdeck")
+  end
+
+  test "toggle-nav collapses and restore-nav restores the sidebar" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+
+    collapsed = render_click(view, "toggle-nav", %{})
+    assert collapsed =~ ~s(data-nav-collapsed="true")
+
+    restored = render_hook(view, "restore-nav", %{"collapsed" => false})
+    assert restored =~ ~s(data-nav-collapsed="false")
+  end
 end

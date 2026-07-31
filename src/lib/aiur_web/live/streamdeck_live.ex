@@ -52,7 +52,7 @@ defmodule AiurWeb.StreamdeckLive do
             <article
               :for={key <- @keys}
               class={["sd-key", key.empty? && "is-empty", "st-#{key.bucket}"]}
-              role={!key.empty? && "listitem"}
+              role={if key.empty?, do: "presentation", else: "listitem"}
               aria-hidden={to_string(key.empty?)}
               data-streamdeck-key={key.slot}
             >
