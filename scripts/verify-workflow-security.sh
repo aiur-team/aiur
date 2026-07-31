@@ -58,6 +58,32 @@ fail_on_scanner_error() {
   fi
 }
 
+# Raw-text checks cannot safely interpret escapes in double-quoted YAML keys.
+# Reject them rather than letting an encoded trigger or `uses` key bypass grep.
+for pin_path in "${pin_paths[@]}"; do
+  if output="$(scan_yaml "$pin_path" '"[^"]*\\[^\"]*"[[:space:]]*:' 2>&1)"; then
+    echo "$output"
+    echo "workflow security guard: escaped double-quoted YAML keys are forbidden" >&2
+    exit 1
+  else
+    status="$?"
+    fail_on_scanner_error "$status" "$output"
+  fi
+done
+
+# Explicit mapping keys can put `? uses` and its `:` on separate lines, which
+# has no reliable raw-text equivalent to the simple key scanner below.
+for pin_path in "${pin_paths[@]}"; do
+  if output="$(scan_yaml "$pin_path" '^[[:space:]-]*\?[[:space:]]' 2>&1)"; then
+    echo "$output"
+    echo "workflow security guard: explicit YAML mapping keys are forbidden" >&2
+    exit 1
+  else
+    status="$?"
+    fail_on_scanner_error "$status" "$output"
+  fi
+done
+
 # Bare-substring scan catches flow-map and list-form YAML in addition to key-colon form.
 if output="$(scan_yaml "$workflow_path" 'pull_request_target|workflow_run' 2>&1)"; then
   echo "$output"
@@ -110,7 +136,15 @@ for pin_path in "${pin_paths[@]}"; do
           remaining="${remaining#"$reference"}"
         fi
 
-        if [[ "$reference" == ./* || "$reference" == docker://* ]]; then
+        if [[ "$reference" == ./* ]]; then
+          if [[ "$reference" != ./.github/actions/* ]]; then
+            line_unpinned=1
+          fi
+
+          continue
+        fi
+
+        if [[ "$reference" == docker://* ]]; then
           continue
         fi
 
@@ -128,7 +162,7 @@ for pin_path in "${pin_paths[@]}"; do
 
     if [[ -n "$unpinned" ]]; then
       printf '%s' "$unpinned"
-      echo "workflow security guard: third-party actions must use full commit SHA pins" >&2
+      echo "workflow security guard: third-party actions must use full commit SHA pins and local actions must live under .github/actions" >&2
       exit 1
     fi
   else

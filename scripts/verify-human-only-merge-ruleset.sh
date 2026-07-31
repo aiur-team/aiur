@@ -19,12 +19,13 @@ fi
 ruleset="$(gh api "repos/$repo/rulesets/$ruleset_id")"
 
 if ! jq -e '
+  .target == "branch" and
   .enforcement == "active" and
   (.conditions.ref_name.include | type == "array") and
   (.conditions.ref_name.include | index("refs/heads/main")) and
   (.conditions.ref_name.include | index("refs/heads/develop"))
 ' >/dev/null <<<"$ruleset"; then
-  echo "ruleset must actively protect main and develop" >&2
+  echo "ruleset must target branches and actively protect main and develop" >&2
   exit 1
 fi
 

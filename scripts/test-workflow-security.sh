@@ -38,6 +38,18 @@ expect_rejection \
 expect_rejection \
   "$fixture_root/flow-mapping.yml" \
   "third-party actions must use full commit SHA pins"
+expect_rejection \
+  "$fixture_root/escaped-trigger-key.yml" \
+  "escaped double-quoted YAML keys are forbidden"
+expect_rejection \
+  "$fixture_root/escaped-uses-key.yml" \
+  "escaped double-quoted YAML keys are forbidden"
+expect_rejection \
+  "$fixture_root/explicit-uses-key.yml" \
+  "explicit YAML mapping keys are forbidden"
+expect_rejection \
+  "$fixture_root/outside-local-action.yml" \
+  "local actions must live under .github/actions"
 
 if output="$(
   PATH="$fixture_root/failing-grep:$PATH" \

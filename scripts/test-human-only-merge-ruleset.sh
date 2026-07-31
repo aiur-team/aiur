@@ -40,6 +40,11 @@ expect_rejected() {
 run_verifier "$declaration"
 
 expect_rejected \
+  "tag-target" \
+  '.target = "tag"' \
+  "ruleset must target branches and actively protect main and develop"
+
+expect_rejected \
   "missing-ref-exclusions" \
   'del(.conditions.ref_name.exclude)' \
   "ruleset ref_name.exclude must be present and exactly empty"
