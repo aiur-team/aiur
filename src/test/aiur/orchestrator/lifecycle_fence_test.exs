@@ -46,6 +46,38 @@ defmodule Aiur.Orchestrator.LifecycleFenceTest do
     assert pending_item_ids == MapSet.new([41])
   end
 
+  test "a terminal tracker state observed while fence is active admits for teardown" do
+    issue_id = "issue-fence-terminal"
+    identifier = "LF-3"
+
+    state = %State{
+      running: %{
+        issue_id => %{
+          identifier: identifier,
+          issue: %Issue{
+            id: issue_id,
+            identifier: identifier,
+            state: "in-progress"
+          },
+          control: %{status: :working},
+          lifecycle_fence: %{
+            authoritative_state: "in-progress",
+            generation: 1,
+            opened_at: DateTime.utc_now(),
+            pending_item_ids: MapSet.new([99])
+          }
+        }
+      }
+    }
+
+    # Simulate the Executor closing the issue out-of-band (normal post-merge flow).
+    # The fence is still active waiting for a queued item, but the tracker says closed.
+    observed = %Issue{id: issue_id, identifier: identifier, state: "closed"}
+    terminal_states = MapSet.new(["closed", "done", "cancelled", "canceled"])
+
+    assert :admit = LifecycleFence.reconcile_observed_state(state, observed, terminal_states)
+  end
+
   test "a matching handoff state remains fenced until provider delivery" do
     issue_id = "issue-matching-handoff"
     issue = %Issue{id: issue_id, identifier: "LF-2", state: "human-review"}

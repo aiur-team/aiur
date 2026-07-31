@@ -67,6 +67,11 @@ defmodule Aiur.Orchestrator.LifecycleFence do
 
   @spec reconcile_observed_state(State.t(), Issue.t()) :: :admit | {:fenced, State.t()}
   def reconcile_observed_state(%State{} = state, %Issue{} = issue) do
+    reconcile_observed_state(state, issue, DispatchPolicy.terminal_state_set())
+  end
+
+  @spec reconcile_observed_state(State.t(), Issue.t(), MapSet.t()) :: :admit | {:fenced, State.t()}
+  def reconcile_observed_state(%State{} = state, %Issue{} = issue, terminal_states) do
     case running_fence(state, issue) do
       {issue_id, %{authoritative_state: authoritative_state}}
       when is_binary(authoritative_state) ->
@@ -78,6 +83,17 @@ defmodule Aiur.Orchestrator.LifecycleFence do
 
           actual_state == "rework" ->
             {:fenced, adopt_authoritative_rework(state, issue_id, issue)}
+
+          DispatchPolicy.terminal_issue_state?(actual_state, terminal_states) ->
+            # The tracker is reporting a terminal state (e.g. closed by the Executor after merge).
+            # This is authoritative: no queued item will arrive to release the fence because the
+            # issue is already done. Admit so the reconciler can tear down the entry normally.
+            Logger.info(
+              "Terminal tracker state observed while lifecycle fence is active; admitting for teardown: " <>
+                "#{State.issue_context(issue)} observed_state=#{actual_state} authoritative_state=#{authoritative_state}"
+            )
+
+            :admit
 
           true ->
             {:fenced,
@@ -187,25 +203,13 @@ defmodule Aiur.Orchestrator.LifecycleFence do
   end
 
   defp restore_authoritative_state(state, issue, actual_state, authoritative_state)
-       when actual_state == "closed" do
-    retain_terminal_handoff(state, issue, actual_state, authoritative_state)
-  end
-
-  defp restore_authoritative_state(state, issue, actual_state, authoritative_state)
        when is_binary(actual_state) do
-    if DispatchPolicy.terminal_issue_state?(
-         actual_state,
-         DispatchPolicy.terminal_state_set()
-       ) do
-      retain_terminal_handoff(state, issue, actual_state, authoritative_state)
-    else
-      restore_nonterminal_authoritative_state(
-        state,
-        issue,
-        actual_state,
-        authoritative_state
-      )
-    end
+    restore_nonterminal_authoritative_state(
+      state,
+      issue,
+      actual_state,
+      authoritative_state
+    )
   end
 
   defp restore_authoritative_state(state, issue, actual_state, authoritative_state) do
@@ -275,16 +279,6 @@ defmodule Aiur.Orchestrator.LifecycleFence do
 
         state
     end
-  end
-
-  defp retain_terminal_handoff(state, issue, actual_state, authoritative_state) do
-    Logger.warning(
-      "Terminal lifecycle handoff held locally while authoritative input is undelivered: " <>
-        "#{State.issue_context(issue)} observed_state=#{actual_state} " <>
-        "authoritative_state=#{authoritative_state} decision=keep_runner_without_reopening"
-    )
-
-    state
   end
 
   defp refresh_cached_authoritative_state(state, issue, authoritative_state) do
