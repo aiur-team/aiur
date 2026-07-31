@@ -186,18 +186,41 @@ defmodule Aiur.Workspace.GitMetadata do
   end
 
   defp verify_contains(root, path) do
-    with {:ok, canonical_root} <- PathSafety.canonicalize(root),
-         {:ok, canonical} <- PathSafety.canonicalize(path) do
-      if String.starts_with?(canonical <> "/", canonical_root <> "/") do
-        :ok
-      else
-        _ = File.rm(canonical)
+    # Fast check: is the containing directory still a real directory (not swapped to symlink)?
+    case File.lstat(Path.dirname(path)) do
+      {:ok, %File.Stat{type: :symlink}} ->
+        case PathSafety.canonicalize(path) do
+          {:ok, canonical} -> _ = File.rm(canonical)
+          {:error, _} -> _ = File.rm(path)
+        end
+
         {:error, {:path_escaped_root, root}}
-      end
-    else
-      {:error, reason} ->
+
+      {:ok, %File.Stat{type: :directory}} ->
+        # PathSafety.canonicalize returns the assembled logical path on :enoent, so assert
+        # the file actually exists to avoid a false-safe result after a since-removed symlink.
+        with {:ok, canonical_root} <- PathSafety.canonicalize(root),
+             {:ok, canonical} <- PathSafety.canonicalize(path) do
+          cond do
+            not String.starts_with?(canonical <> "/", canonical_root <> "/") ->
+              _ = File.rm(canonical)
+              {:error, {:path_escaped_root, root}}
+
+            not File.exists?(canonical) ->
+              {:error, :path_verification_failed}
+
+            true ->
+              :ok
+          end
+        else
+          {:error, reason} ->
+            _ = File.rm(path)
+            {:error, {:path_verification_failed, reason}}
+        end
+
+      _ ->
         _ = File.rm(path)
-        {:error, {:path_verification_failed, reason}}
+        {:error, {:path_escaped_root, root}}
     end
   end
 

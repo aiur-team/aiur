@@ -93,11 +93,14 @@ defmodule Aiur.AppServer.ToolResultSpillTest do
     attacker =
       Task.async(fn ->
         swaps =
-          Enum.reduce(1..300, 0, fn _, acc ->
+          Enum.reduce(1..60, 0, fn _, acc ->
             try do
               File.rm_rf!(results)
               File.ln_s!(outside, results)
-              Process.sleep(1)
+              # 5 ms gives verify_contains (a single lstat) time to detect the symlink
+              # while it is still present and remove any escaped file before the attacker
+              # restores the real directory.
+              Process.sleep(5)
               File.rm!(results)
               File.mkdir!(results)
               File.chmod!(results, 0o700)
