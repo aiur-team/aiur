@@ -7,6 +7,11 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text"],
       include: ["src/**/*.{ts,tsx,mts,cts}"],
+      // main.ts is the process entry point: it only wires real Node primitives
+      // (net, child_process, fs, process) into the fully-tested startRuntime.
+      // It has no branching logic of its own, so it is excluded here rather
+      // than covered through brittle module mocks of Node built-ins.
+      exclude: ["src/main.ts"],
       thresholds: {
         branches: 100,
         functions: 100,

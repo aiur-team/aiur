@@ -7,7 +7,7 @@ After=graphical-session.target
 Type=simple
 # The sidecar stays resident while the deck is absent and receives hotplug
 # events from #1354. Restart is for an unexpected process failure only.
-ExecStart=/usr/bin/env node %h/.local/share/aiur/streamdeck/dist/index.js
+ExecStart=/usr/bin/env node %h/.local/share/aiur/streamdeck/dist/main.js
 EnvironmentFile=%h/.config/aiur/streamdeck.env
 Restart=on-failure
 RestartSec=5s

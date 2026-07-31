@@ -10,8 +10,11 @@ device.
 Build and install the sidecar runtime from the #1354 implementation before
 enabling this unit. The examples below assume its built artifact is installed
 at `~/.local/share/aiur/streamdeck`; copy its `dist/` and runtime dependencies
-there. The unit expects `dist/index.js`. This ticket's rules, unit, and README
-do not contain the runtime JavaScript or a populated credential file.
+there. The unit expects `dist/main.js`. This ticket's rules, unit, and README
+do not contain a populated credential file.
+
+`AIUR_STREAMDECK_BRIGHTNESS` (0–100, default 80) sets the brightness the
+sidecar reapplies on open and on resume.
 
 ## Prerequisites
 

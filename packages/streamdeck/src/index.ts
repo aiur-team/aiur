@@ -1,2 +1,12 @@
 export const placeholder = "streamdeck";
 export * from "./mode.js";
+export * from "./report.js";
+export * from "./read.js";
+export * from "./lifecycle.js";
+export * from "./lock.js";
+export * from "./line-source.js";
+export * from "./sleep-source.js";
+export * from "./udev-source.js";
+export type * from "./backend.js";
+export * from "./hidraw-backend.js";
+export * from "./runtime.js";
