@@ -96,12 +96,19 @@ defmodule Aiur.Config.SchemaTest do
       assert defaults.agent.rate_limit_fallback == "claude"
     end
 
-    test "rejects a resumable target that could replace the codex session handle" do
-      assert {:error, {:invalid_workflow_config, message}} =
+    test "accepts any registered backend distinct from the primary" do
+      assert {:ok, settings} =
                Schema.parse(%{"agent" => %{"rate_limit_fallback" => "claude-repl"}})
 
-      assert message =~ "rate_limit_fallback"
-      assert message =~ "must be \"claude\""
+      assert settings.agent.rate_limit_fallback == "claude-repl"
+    end
+
+    test "accepts a non-default primary/fallback pair" do
+      assert {:ok, settings} =
+               Schema.parse(%{"agent" => %{"rate_limit_primary" => "claude", "rate_limit_fallback" => "codex"}})
+
+      assert settings.agent.rate_limit_primary == "claude"
+      assert settings.agent.rate_limit_fallback == "codex"
     end
 
     test "accepts an empty string to disable" do
@@ -109,12 +116,12 @@ defmodule Aiur.Config.SchemaTest do
       assert settings.agent.rate_limit_fallback == ""
     end
 
-    test "rejects codex as the fallback target" do
+    test "rejects a fallback equal to the primary" do
       assert {:error, {:invalid_workflow_config, message}} =
                Schema.parse(%{"agent" => %{"rate_limit_fallback" => "codex"}})
 
       assert message =~ "rate_limit_fallback"
-      assert message =~ "must be \"claude\""
+      assert message =~ "must differ from rate_limit_primary"
     end
 
     test "rejects an unknown backend" do
@@ -122,7 +129,15 @@ defmodule Aiur.Config.SchemaTest do
                Schema.parse(%{"agent" => %{"rate_limit_fallback" => "bogus"}})
 
       assert message =~ "rate_limit_fallback"
-      assert message =~ "must be \"claude\""
+      assert message =~ "must be a registered backend"
+    end
+
+    test "rejects an unknown primary backend" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"agent" => %{"rate_limit_primary" => "bogus"}})
+
+      assert message =~ "rate_limit_primary"
+      assert message =~ "must be a registered backend"
     end
   end
 

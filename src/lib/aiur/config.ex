@@ -103,14 +103,14 @@ defmodule Aiur.Config do
   def switch_model_on_ratelimit, do: settings!().agent.switch_model_on_ratelimit || []
 
   @doc """
-  The headless Claude backend used by the automatic codex usage-limit fallback
-  (`Aiur.Orchestrator.RateLimitFallback`) when an already-running codex agent
-  hits `usage_limit_exhausted`, or `nil` when disabled
-  (`agent.rate_limit_fallback: ""`). The only enabled value is `"claude"`.
-  Unlike
+  The registered backend the automatic usage-limit fallback reroutes *to*
+  (`Aiur.Orchestrator.RateLimitFallback`) when an already-running agent on
+  `rate_limit_primary_backend/0` hits `usage_limit_exhausted`, or `nil` when
+  disabled (`agent.rate_limit_fallback: ""`). Any registered backend distinct
+  from the primary is accepted; the default is `"claude"`. Unlike
   `switch_model_on_ratelimit/0` (opt-in, only ever applies to a new claim),
   this is default-on and reroutes a running local agent, reverting at a safe
-  turn boundary once `Aiur.ModelAvailability` confirms codex recovery.
+  turn boundary once `Aiur.ModelAvailability` confirms the primary recovered.
   """
   @spec rate_limit_fallback_backend() :: String.t() | nil
   def rate_limit_fallback_backend do
@@ -119,6 +119,16 @@ defmodule Aiur.Config do
       _ -> nil
     end
   end
+
+  @doc """
+  The registered backend the usage-limit fallback reroutes *from* — the pair's
+  primary. Only an already-running agent on this backend that hits
+  `usage_limit_exhausted` is eligible for the reroute to
+  `rate_limit_fallback_backend/0`. Defaults to `"codex"`, preserving the
+  historical codex -> claude reroute.
+  """
+  @spec rate_limit_primary_backend() :: String.t()
+  def rate_limit_primary_backend, do: settings!().agent.rate_limit_primary
 
   @doc """
   Setting #2: whether dispatched agents attach a `claude remote-control`
