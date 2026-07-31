@@ -2,7 +2,7 @@
 status: completed
 type: fix
 created: 2026-06-22
-github_issue: its-everdred/aiur#432
+github_issue: aiur-team/aiur#432
 ---
 
 # fix: Trust the prewarm base mise.toml and surface base_build failures (resolves #432)
@@ -85,4 +85,4 @@ In scope:
 
 - Work stays on branch `fix/432-prewarm-base-trust` in the worktree `~/github/everdred/aiur-432-prewarm-trust` (the main checkout is in use by a running aiur).
 - **Singleton (#431):** before launching `aiurdev`/`aiur` for any manual verification, run `pgrep -f 'rel/aiur/.*beam'` and never start a second instance while one is up — another agent is working #431 and will launch aiur. `mix compile` / `mix test` do not launch the orchestrator and are safe.
-- End: open a PR off `main`; file the `workspace_env` trust-path bug (and any other findings) as `agent:todo` on `its-everdred/aiur`.
+- End: open a PR off `main`; file the `workspace_env` trust-path bug (and any other findings) as `agent:todo` on `aiur-team/aiur`.

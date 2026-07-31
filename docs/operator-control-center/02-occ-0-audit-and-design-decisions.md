@@ -8,7 +8,7 @@
 
 **Date:** 2026-07-12
 
-**Source:** [Operator Control Center planning PR #971](https://github.com/its-everdred/aiur/pull/971), especially `00-prd.md` and `01-brainstorm-and-decomposition.md`
+**Source:** [Operator Control Center planning PR #971](https://github.com/aiur-team/aiur/pull/971), especially `00-prd.md` and `01-brainstorm-and-decomposition.md`
 
 This note resolves the phase-0 questions that block OCC-1 through OCC-9. It
 records current ownership and the few new seams OCC needs; it does not define

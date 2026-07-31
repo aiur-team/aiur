@@ -73,7 +73,7 @@ review path. Finalization is deliberately separate:
 
 ```bash
 RECEIPT_SHA=<exact-pushed-receipt-commit>
-RECEIPT_URL="https://github.com/its-everdred/aiur/commit/$RECEIPT_SHA"
+RECEIPT_URL="https://github.com/aiur-team/aiur/commit/$RECEIPT_SHA"
 
 python3 .claude/skills/aiur-build/scripts/publish_build_order.py --finalize \
   --build docs/build-order/build-order.json \
@@ -103,7 +103,7 @@ issues, labels, membership, or dependencies.
    filtered. Any open, closed, or PR-shaped marker collision stops publication.
    Never reopen a closed match or create a replacement identity.
 2. Create or reconcile one non-dispatchable root for
-   `its-everdred/aiur:build-order-dashboard` from `root-issue.md`.
+   `aiur-team/aiur:build-order-dashboard` from `root-issue.md`.
 3. Create/reconcile BO-001 through BO-020 and DASH-001 through DASH-034 from
    every `tickets[].document` path in the approved `build-order.json`.
 4. Add all 54 member issues as direct native sub-issues without silently
@@ -215,24 +215,24 @@ Verify the receipt-bound live comment directly:
 ```bash
 # Immediately before the only finalization mutation (pending only):
 python3 docs/build-order/scripts/publication_comment.py --state pending \
-  its-everdred/aiur:build-order-dashboard 1 \
+  aiur-team/aiur:build-order-dashboard 1 \
   <APPROVED_SHA> <RECEIPT_SHA> <RECEIPT_URL> \
-  https://github.com/its-everdred/aiur/issues/<ROOT_NUMBER> \
-  its-everdred/aiur
+  https://github.com/aiur-team/aiur/issues/<ROOT_NUMBER> \
+  aiur-team/aiur
 
 # Immediately after the successful receipt is appended (pending + successful):
 python3 docs/build-order/scripts/publication_comment.py \
-  its-everdred/aiur:build-order-dashboard 1 \
+  aiur-team/aiur:build-order-dashboard 1 \
   <APPROVED_SHA> <RECEIPT_SHA> <RECEIPT_URL> \
-  https://github.com/its-everdred/aiur/issues/<ROOT_NUMBER> \
-  its-everdred/aiur
+  https://github.com/aiur-team/aiur/issues/<ROOT_NUMBER> \
+  aiur-team/aiur
 ```
 
 Generated BO and DASH bodies use the approved ticket document verbatim beneath
 this preamble and marker:
 
 ```markdown
-> Approved planning authority: [`<APPROVED_SHA>`](https://github.com/its-everdred/aiur/commit/<APPROVED_SHA>)
+> Approved planning authority: [`<APPROVED_SHA>`](https://github.com/aiur-team/aiur/commit/<APPROVED_SHA>)
 
 <!-- aiur-planning-issue
 {"schema":2,"logical_id":"<LOGICAL_ID>","plan_version":1,"approved_planning_commit":"<APPROVED_SHA>"}
