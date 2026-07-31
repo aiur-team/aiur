@@ -588,7 +588,8 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
              ]
            }}
 
-        String.contains?(url, "/pulls?") and not String.contains?(url, "aiur%2F43") and not String.contains?(url, "aiur/43") ->
+        String.contains?(url, "/pulls?") and not String.contains?(url, "aiur%2F43") and
+            not String.contains?(url, "aiur/43") ->
           {:ok, %{status: 200, body: []}}
 
         String.contains?(url, "/issues/43/comments?") ->
@@ -783,7 +784,10 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
                         topic: "ticket.42.pr.review_comment",
                         author_trusted?: true,
                         source: :github,
-                        comment: %{"state" => "CHANGES_REQUESTED", "body" => "please rework this section"}
+                        comment: %{
+                          "state" => "CHANGES_REQUESTED",
+                          "body" => "please rework this section"
+                        }
                       }},
                      500
 
@@ -877,7 +881,15 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
       codeowners = ensure_codeowners!("* @its-everdred\n")
 
       older = pr_review(9_006, "its-everdred", "COMMENTED", "first pass", "2026-06-24T10:00:00Z")
-      newer = pr_review(9_007, "its-everdred", "CHANGES_REQUESTED", "second pass", "2026-06-24T12:00:00Z")
+
+      newer =
+        pr_review(
+          9_007,
+          "its-everdred",
+          "CHANGES_REQUESTED",
+          "second pass",
+          "2026-06-24T12:00:00Z"
+        )
 
       assert {:ok, %{count: 1, errors: []}} =
                GithubCommentsPoller.poll(["42"],
@@ -897,6 +909,33 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
       stop_codeowners(codeowners)
     end
 
+    test "does not publish pr.review_comment when reviewer's latest is APPROVED after CHANGES_REQUESTED" do
+      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      codeowners = ensure_codeowners!("* @its-everdred\n")
+
+      older =
+        pr_review(
+          9_010,
+          "its-everdred",
+          "CHANGES_REQUESTED",
+          "please fix",
+          "2026-06-24T10:00:00Z"
+        )
+
+      newer =
+        pr_review(9_011, "its-everdred", "APPROVED", "lgtm after fixes", "2026-06-24T14:00:00Z")
+
+      assert {:ok, %{count: 0, errors: []}} =
+               GithubCommentsPoller.poll(["42"],
+                 since: "2026-06-24T11:00:00Z",
+                 repo: "owner/repo",
+                 request_fun: request_fun_with_reviews([older, newer])
+               )
+
+      refute_receive {:event, %{topic: "ticket.42.pr.review_comment"}}, 100
+      stop_codeowners(codeowners)
+    end
+
     test "publishes one review per reviewer when multiple trusted reviewers" do
       :ok = Exchange.subscribe("ticket.42.pr.review_comment")
       codeowners = ensure_codeowners!("* @its-everdred @other-reviewer\n")
@@ -911,8 +950,12 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
                  request_fun: request_fun_with_reviews([review_a, review_b])
                )
 
-      assert_receive {:event, %{topic: "ticket.42.pr.review_comment", comment: %{"id" => 9_008}}}, 500
-      assert_receive {:event, %{topic: "ticket.42.pr.review_comment", comment: %{"id" => 9_009}}}, 500
+      assert_receive {:event, %{topic: "ticket.42.pr.review_comment", comment: %{"id" => 9_008}}},
+                     500
+
+      assert_receive {:event, %{topic: "ticket.42.pr.review_comment", comment: %{"id" => 9_009}}},
+                     500
+
       stop_codeowners(codeowners)
     end
 

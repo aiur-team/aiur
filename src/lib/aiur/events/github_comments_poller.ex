@@ -261,8 +261,8 @@ defmodule Aiur.Events.GithubCommentsPoller do
       {:ok, reviews} ->
         count =
           reviews
-          |> Enum.filter(&actionable_review?/1)
           |> most_recent_per_reviewer()
+          |> Enum.filter(&actionable_review?/1)
           |> Enum.map(&publish_pr_review_submission(target, pr_number, &1, repo))
           |> Enum.count(&match?({:ok, _, _}, &1))
 
