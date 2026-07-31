@@ -452,6 +452,7 @@ defmodule Aiur.Config.SchemaTest do
       assert settings.observability.dashboard_enabled == true
       assert settings.observability.dashboard_writable == true
       assert settings.observability.refresh_ms == 1_000
+      assert settings.observability.telemetry_enabled == true
       assert settings.observability.telemetry_retention_max_bytes == 64 * 1024 * 1024
       assert settings.observability.telemetry_retention_max_age_days == 30
     end
@@ -463,6 +464,7 @@ defmodule Aiur.Config.SchemaTest do
             "dashboard_enabled" => false,
             "dashboard_writable" => true,
             "refresh_ms" => 500,
+            "telemetry_enabled" => false,
             "telemetry_retention_max_bytes" => 1_024,
             "telemetry_retention_max_age_days" => 7
           }
@@ -471,6 +473,7 @@ defmodule Aiur.Config.SchemaTest do
       assert settings.observability.dashboard_enabled == false
       assert settings.observability.dashboard_writable == true
       assert settings.observability.refresh_ms == 500
+      assert settings.observability.telemetry_enabled == false
       assert settings.observability.telemetry_retention_max_bytes == 1_024
       assert settings.observability.telemetry_retention_max_age_days == 7
     end
