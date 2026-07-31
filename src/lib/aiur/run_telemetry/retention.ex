@@ -193,7 +193,14 @@ defmodule Aiur.RunTelemetry.Retention do
               :ok
 
             {:error, reason} ->
-              File.rm(temporary)
+              case File.rm(temporary) do
+                :ok ->
+                  :ok
+
+                {:error, rm_reason} ->
+                  Logger.warning("run_telemetry temp_file_leaked path=#{temporary} reason=#{inspect(rm_reason)}")
+              end
+
               {:error, reason}
           end
 
@@ -233,7 +240,7 @@ defmodule Aiur.RunTelemetry.Retention do
         end
 
       :eof ->
-        :ok
+        {:error, :unexpected_eof}
 
       {:error, _} = error ->
         error

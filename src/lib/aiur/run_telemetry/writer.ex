@@ -284,15 +284,20 @@ defmodule Aiur.RunTelemetry.Writer do
     # segment so any data before this point is pruneable as a completed group.
     # The fresh restart marker re-anchors the current boot in the file, so the
     # subsequent prune (which does not protect any boot) leaves it parseable.
-    state = write_segment_boundary(state)
-    opts = state.retention |> Keyword.put(:now, state.clock.())
+    # If the boundary write fails (sequence unchanged), skip pruning to avoid
+    # cutting mid-segment without a clean group boundary.
+    rolled = write_segment_boundary(state)
 
-    case Retention.prune(state.path, opts) do
-      :ok -> :ok
-      {:error, reason} -> Logger.warning("run_telemetry retention_failed path=#{state.path} reason=#{inspect(reason)}")
+    if rolled.sequence != state.sequence do
+      opts = rolled.retention |> Keyword.put(:now, rolled.clock.())
+
+      case Retention.prune(rolled.path, opts) do
+        :ok -> :ok
+        {:error, reason} -> Logger.warning("run_telemetry retention_failed path=#{rolled.path} reason=#{inspect(reason)}")
+      end
     end
 
-    %{state | bytes_since_prune: 0}
+    %{rolled | bytes_since_prune: 0}
   rescue
     error ->
       Logger.warning("run_telemetry retention_raised path=#{state.path} reason=#{inspect(error)}")
