@@ -438,7 +438,7 @@ defmodule Aiur.Orchestrator.State do
   @spec ci_wait_running_count(term()) :: non_neg_integer()
   def ci_wait_running_count(running) when is_map(running) do
     Enum.count(running, fn
-      {_issue_id, %{paused_reason: :ci_wait}} -> true
+      {_issue_id, %{paused_reason: :ci_wait, control: %{status: :paused}}} -> true
       _ -> false
     end)
   end

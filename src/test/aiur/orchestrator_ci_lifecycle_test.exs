@@ -539,6 +539,68 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       refute Map.has_key?(next.ci_lifecycle.rewakes, identifier)
     end
 
+    test "deactivated ci-wait rewake does not wake when issue is no longer in ci-wait state" do
+      identifier = unique_identifier("deactivated-rewake-state-guard")
+      recorder = start_recorder()
+      issue = issue(identifier, "ci-wait")
+
+      state = running_state(issue, recorder, :deactivated, [])
+      armed = CiLifecycle.pause_issue_for_ci_wait(state, issue)
+      %{token: token} = armed.ci_lifecycle.rewakes[identifier]
+
+      transitioned_issue = %{issue | state: "in-progress"}
+      issue_fetcher = fn [^identifier] -> {:ok, [transitioned_issue]} end
+
+      next = CiLifecycle.handle_ci_wait_rewake(armed, identifier, token, issue_fetcher: issue_fetcher)
+
+      sync_recorder(recorder)
+
+      refute_received {:recorded, _position, _message}
+      assert next.running[identifier].control.status == :deactivated
+      refute Map.has_key?(next.ci_lifecycle.rewakes, identifier)
+    end
+
+    test "deactivated ci-wait rewake does not wake when issue is operator-paused" do
+      identifier = unique_identifier("deactivated-rewake-paused-guard")
+      recorder = start_recorder()
+      issue = %{issue(identifier, "ci-wait") | paused: true}
+
+      state = running_state(issue, recorder, :deactivated, [])
+      armed = CiLifecycle.pause_issue_for_ci_wait(state, issue)
+      %{token: token} = armed.ci_lifecycle.rewakes[identifier]
+
+      issue_fetcher = fn [^identifier] -> {:ok, [issue]} end
+
+      next = CiLifecycle.handle_ci_wait_rewake(armed, identifier, token, issue_fetcher: issue_fetcher)
+
+      sync_recorder(recorder)
+
+      refute_received {:recorded, _position, _message}
+      assert next.running[identifier].control.status == :deactivated
+      assert next.running[identifier].issue.paused
+      refute Map.has_key?(next.ci_lifecycle.rewakes, identifier)
+    end
+
+    test "deactivated ci-wait rewake does not wake when issue is routed away from this worker" do
+      identifier = unique_identifier("deactivated-rewake-routed-guard")
+      recorder = start_recorder()
+      issue = %{issue(identifier, "ci-wait") | assigned_to_worker: false}
+
+      state = running_state(issue, recorder, :deactivated, [])
+      armed = CiLifecycle.pause_issue_for_ci_wait(state, issue)
+      %{token: token} = armed.ci_lifecycle.rewakes[identifier]
+
+      issue_fetcher = fn [^identifier] -> {:ok, [issue]} end
+
+      next = CiLifecycle.handle_ci_wait_rewake(armed, identifier, token, issue_fetcher: issue_fetcher)
+
+      sync_recorder(recorder)
+
+      refute_received {:recorded, _position, _message}
+      assert next.running[identifier].control.status == :deactivated
+      refute Map.has_key?(next.ci_lifecycle.rewakes, identifier)
+    end
+
     test "live runner at the park cap is deactivated instead of parked" do
       write_workflow_file_synced!(Workflow.workflow_file_path(),
         tracker_kind: "github",
