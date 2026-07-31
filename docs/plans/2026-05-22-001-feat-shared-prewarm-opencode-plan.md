@@ -3,7 +3,7 @@ title: "feat: Shared opencode pre-warm — multi-agent attach with lazy expansio
 type: feat
 status: active
 date: 2026-05-22
-origin: https://github.com/its-everdred/aiur/issues/85
+origin: https://github.com/aiur-team/aiur/issues/85
 ---
 
 # feat: Shared opencode pre-warm — multi-agent attach with lazy expansion
@@ -540,8 +540,8 @@ SlotPolicy.bump() ← start next Slot's pre-warm
 
 ## Sources & References
 
-- Origin issue: [#85](https://github.com/its-everdred/aiur/issues/85)
-- Related issue: [#84](https://github.com/its-everdred/aiur/issues/84) — done-agent restart (out of scope here)
+- Origin issue: [#85](https://github.com/aiur-team/aiur/issues/85)
+- Related issue: [#84](https://github.com/aiur-team/aiur/issues/84) — done-agent restart (out of scope here)
 - Recent PR: #83 (replay transaction batching) — already on main
 - Prior work: PR #65 (slot/opencode-as-pane work)
 - Spike notes captured in #85's "Spike already done" section
