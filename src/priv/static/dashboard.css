@@ -7531,6 +7531,11 @@ html[data-theme="light"] .toggle-icon .moon {
   50% { box-shadow: 0 0 25px var(--sd-glow), inset 0 1px rgba(255, 255, 255, 0.2); }
 }
 
+@keyframes sd-flash {
+  0% { filter: brightness(2.1); transform: scale(0.97); }
+  100% { filter: brightness(1); transform: scale(1); }
+}
+
 @keyframes sd-mic-pulse {
   0%, 100% { opacity: 0.5; transform: scale(0.85); }
   50% { opacity: 1; transform: scale(1.25); }
