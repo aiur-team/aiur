@@ -18,6 +18,7 @@ alerts, and events; planning documents preserve approved intent.
 - Capacity policy
 - Recovery ladder
 - Pull-request review loop
+- Merge mechanics
 - Aiur bug-report policy
 - Decisions and handoff
 
@@ -76,7 +77,10 @@ critical path.
 The Executor continuously:
 
 1. keeps every ready, independent ticket moving without violating hard
-   dependencies, conflicts, or the configured capacity limit;
+   dependencies, conflicts, or the configured capacity limit, and checks before
+   dispatch that a ticket's deliverable does not already exist — work shipped
+   months earlier or sitting in an open draft PR turns into agent busywork or a
+   worker that pauses repeatedly with nothing to do;
 2. watches agent state, activity age, alerts, host capacity, review state, and
    integration risk;
 3. diagnoses stuck or misbehaving agents and attempts the least invasive
@@ -137,10 +141,40 @@ count detached from ready work.
   ceiling, CPU/load, available memory, build serialization, provider quota,
   and review capacity. A below-target audit must name the limiting gate and
   trigger the highest-leverage in-scope scheduling or recovery action.
+- Know the host's measured ceiling instead of inferring one. A 16-core/31 GB
+  machine saturates at roughly 19-20 concurrent agents (load ~14, memory
+  10/31 GB, GitHub budget 4668/5000); CPU is the binding resource and memory and
+  API budget are not close at that concurrency. `max_load_average` is multiplied
+  by the scheduler count, so `1.5` on 16 cores means "hold at load ~18", not a
+  1.5 load cap.
+- The daemon's adaptive dispatch envelope resets to one slot on every start and
+  widens by `load_ramp_step` per below-target sample, so a restarted fleet takes
+  tens of minutes to reach a high ceiling. Do not read that ramp as idleness or
+  measure capacity immediately after a restart.
 - Prefer runtime overrides to editing committed configuration during a run.
+  Committed configuration can still win, though:
+  `agent.max_concurrent_agents` silently floors `--max-agents`.
 - Record material cap changes and their observed reason.
 
 ## Recovery ladder
+
+A fleet-wide quiet board is a blockage, not idleness, and none of its causes
+log anything. Clear the fleet-level gates before triaging any single agent: run
+bare `aiurdev resume` first, because the global pause switch survives daemon
+restarts and reboots while per-ticket `resume <id>` exits 0 with no effect;
+check `agent.max_concurrent_agents` against the requested ceiling; confirm the
+prewarm marker `~/.aiur/repo/<owner>/<repo>/.aiur-base-built` exists, since a
+failed base build holds every dispatch tick silently (issue #1404) and a repo
+rename orphans that path; and allow for the post-restart dispatch ramp.
+
+Alerts persist across daemon restarts and tokens (#1231), so the actionable list
+keeps naming long-merged tickets. Check alert timestamps and trust the live
+state table over the alert list.
+
+Review feedback does not wake agents into rework (#1389). Tickets stay in
+`agent:human-review` with `CHANGES_REQUESTED` pull requests and nothing picks
+them up, which breaks the entire review-to-rework loop. After posting reviews,
+relabel `agent:human-review` to `agent:rework` by hand.
 
 For an agent with stale activity, ignored feedback, repeated retries, or a
 ticket it will not pick up:
@@ -226,21 +260,52 @@ bounded attempt does not materially converge, apply the takeover rule above
 instead of issuing the same directive indefinitely. Once all conditions hold:
 
 1. reserve or rebalance capacity for multiple independent background reviewers;
-2. use `ce-code-review` when Compound Engineering is available, adding the
+2. diff the pull request body's claims against the diff **first**. Any claim the
+   diff does not support is a P1; this is the most common defect class by a wide
+   margin — a transport described as feature-complete whose `sendFeatureReport`
+   unconditionally throws, a design document whose stated colour derivation is
+   arithmetically impossible, a "fix" that never reads the config it claims to;
+3. ask of every new test whether it would pass against a trivially wrong
+   implementation. Real examples: `f(x) === f(x)` assertions, a test hand-poking
+   the same `:persistent_term` the broken wiring should have set, and tests
+   asserting against an inlined *copy* of the code under test that stayed green
+   after the real code was deleted;
+4. use `ce-code-review` when Compound Engineering is available, adding the
    relevant security, data, frontend, backend, or design lens for the change;
-3. reconcile duplicates and contradictions, classifying each finding under the
+5. reconcile duplicates and contradictions, classifying each finding under the
    convergence policy before routing it;
-4. return contained findings to the existing ticket as rework; create a new
+6. return contained findings to the existing ticket as rework; create a new
    ticket only for an independent P0/P1 feature blocker;
-5. confirm the event bus or tracker transition wakes the owning agent and that
+7. confirm the event bus or tracker transition wakes the owning agent and that
    it acknowledges the rework;
-6. require the worker to restore the same branch-freshness and CI gate after
+8. require the worker to restore the same branch-freshness and CI gate after
    fixes, rerun targeted review, then apply the recorded merge policy.
 
 If tooling or an explicit resource limit prevents parallel review, record the
 degraded review and compensate before merge. Do not equate green CI with
 feature acceptance. The integration/capstone owner must still produce the
 evidence named by the planning handoff.
+
+## Merge mechanics
+
+Branch protection measures the identity of the **pusher**, not the commit
+author, and `require_last_push_approval` evaluates that identity. An inline
+`git -c credential.helper=` override silently falls back to the cached `gh`
+credential, and adding a token-bearing remote URL later does not repair a branch
+whose last push already carries the wrong identity. Push with an explicit
+token-bearing URL from the first push, and open agent pull requests with the
+agent's own token: GitHub counts the PR **opener**, not the commit author, when
+deciding self-approval.
+
+The repository ruleset has no `required_status_checks` rule, so nothing prevents
+merging with failing CI. Verify checks by hand before every merge.
+
+A solo operator cannot merge `develop` into `main` through the gate
+(issue #1437). With a two-owner CODEOWNERS entry plus `require_code_owner_review`
+and `require_last_push_approval`, the only in-gate path is a bot approval, which
+defeats the gate; `--admin` does not bypass it. The current workaround is a
+documented ruleset window: back up the ruleset, disable it, merge, restore it,
+and re-read the ruleset to confirm restoration rather than trusting the write.
 
 ## Aiur bug-report policy
 
