@@ -4,6 +4,8 @@ defmodule Aiur.Orchestrator.AutoSubscriptions do
   All functions execute inside the orchestrator GenServer process.
   """
 
+  require Logger
+
   alias Aiur.Events.SubscriptionStore
   alias Aiur.Issue
   alias Aiur.Orchestrator.{IssueSync, State}
@@ -16,24 +18,27 @@ defmodule Aiur.Orchestrator.AutoSubscriptions do
   # subscriptions-requirements.md (Subscriptions section). Idempotent via
   # SubscriptionStore.add_subscription's existing duplicate short-circuit.
 
-  @spec auto_subscribe_for_dependency(term(), term()) :: :ok
+  @spec auto_subscribe_for_dependency(term(), term()) :: :ok | {:error, term()}
   def auto_subscribe_for_dependency(blockee, blocker) when is_map(blocker) do
     with blockee_identifier when is_binary(blockee_identifier) <- blockee_identifier_for(blockee),
-         blocker_identifier when is_binary(blocker_identifier) <- blocker_identifier_for(blocker) do
-      attach_and_subscribe(
-        blockee_identifier,
-        default_blockee_subscriptions(blocker_identifier),
-        "blocker:auto"
-      )
-
-      attach_and_subscribe(
-        blocker_identifier,
-        default_blocker_subscriptions(blockee_identifier),
-        "blockee:auto"
-      )
+         blocker_identifier when is_binary(blocker_identifier) <- blocker_identifier_for(blocker),
+         :ok <-
+           attach_and_subscribe(
+             blockee_identifier,
+             default_blockee_subscriptions(blocker_identifier),
+             "blocker:auto"
+           ),
+         :ok <-
+           attach_and_subscribe(
+             blocker_identifier,
+             default_blocker_subscriptions(blockee_identifier),
+             "blockee:auto"
+           ) do
+      :ok
+    else
+      nil -> :ok
+      {:error, _} = err -> err
     end
-
-    :ok
   end
 
   def auto_subscribe_for_dependency(_blockee, _blocker), do: :ok
@@ -59,24 +64,26 @@ defmodule Aiur.Orchestrator.AutoSubscriptions do
   Idempotent: SubscriptionStore.add_subscription short-circuits on
   duplicate `(identifier, topic)`.
   """
-  @spec subscribe_for_declared_blocker(String.t() | integer(), String.t() | integer()) :: :ok
+  @spec subscribe_for_declared_blocker(String.t() | integer(), String.t() | integer()) ::
+          :ok | {:error, term()}
   def subscribe_for_declared_blocker(blockee_identifier, blocker_identifier) do
     blockee_str = to_string(blockee_identifier)
     blocker_str = to_string(blocker_identifier)
 
-    attach_and_subscribe(
-      blockee_str,
-      default_blockee_subscriptions(blocker_str),
-      "blocker:auto"
-    )
-
-    attach_and_subscribe(
-      blocker_str,
-      default_blocker_subscriptions(blockee_str),
-      "blockee:auto"
-    )
-
-    :ok
+    with :ok <-
+           attach_and_subscribe(
+             blockee_str,
+             default_blockee_subscriptions(blocker_str),
+             "blocker:auto"
+           ),
+         :ok <-
+           attach_and_subscribe(
+             blocker_str,
+             default_blocker_subscriptions(blockee_str),
+             "blockee:auto"
+           ) do
+      :ok
+    end
   end
 
   @spec auto_unsubscribe_for_dependency(term(), term()) :: :ok
@@ -109,11 +116,24 @@ defmodule Aiur.Orchestrator.AutoSubscriptions do
   end
 
   defp attach_and_subscribe(identifier, topics, reason) do
-    :ok = SubscriptionStore.attach(identifier)
+    try do
+      with :ok <- SubscriptionStore.attach(identifier) do
+        failed =
+          Enum.reduce(topics, [], fn topic, acc ->
+            case SubscriptionStore.add_subscription(identifier, topic, reason) do
+              :ok -> acc
+              {:error, _} = err -> [{topic, err} | acc]
+            end
+          end)
 
-    Enum.each(topics, fn topic ->
-      _ = SubscriptionStore.add_subscription(identifier, topic, reason)
-    end)
+        case failed do
+          [] -> :ok
+          _ -> {:error, {:subscription_failures, identifier, Enum.reverse(failed)}}
+        end
+      end
+    catch
+      :exit, reason -> {:error, {:exit, reason}}
+    end
   end
 
   defp remove_auto_subscriptions(identifier, topics, expected_reason) do
