@@ -100,7 +100,7 @@ defmodule Aiur.Events.Publisher do
       executor_topic_from_github?(topic, payload, opts) ->
         {:error, :executor_namespace_rejects_github_source}
 
-      bot_self_loop?(actor) and not authoritative_merge_topic?(topic) ->
+      filtered_bot_self_loop?(topic, actor) ->
         :filtered
 
       not Keyword.get(opts, :bypass_contamination, false) and
@@ -289,6 +289,9 @@ defmodule Aiur.Events.Publisher do
   end
 
   defp authoritative_merge_topic?(topic), do: String.ends_with?(topic, ".pr.merged")
+
+  defp filtered_bot_self_loop?(topic, actor),
+    do: bot_self_loop?(actor) and not authoritative_merge_topic?(topic)
 
   defp tracked?(nil), do: true
 
