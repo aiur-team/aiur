@@ -150,8 +150,51 @@ capacity audit that reads only the CLI flag will overstate capacity by
 2x. The daily skill review should consider having `aiurdev run` warn when
 `--max-agents` exceeds the configured `max_concurrent_agents`.
 
-*Wall 3 — predicted, not yet reached.* The GitHub REST budget: 5000
-req/hr shared by the daemon and every agent on one token. 5s polling with
-20 agents demanded ~70k req/hr and 403'd the fleet three times; 30s cut it
-~6x. Read volume scales with agent count, so at 32 agents this is the
-likely first *real* wall. Measuring next.
+*Wall 3 — the actual blocker, and it was masked as idleness.* Filed as
+#1404. Zero agents provisioned for ~1 hour. The prewarm gate
+(`dispatch_policy.ex:57`, `prewarm_gate(true, _warming) -> :hold`) holds
+on every poll tick and **logs nothing**, so a broken fleet is
+indistinguishable from a quiet one. Worse, `dispatcher.ex:602-605` casts
+`RepoBase.refresh_async()` then calls `RepoBase.status()` in the same
+tick; the cast lands first and sets `phase: :building`, which makes the
+fail-open cold-clone clause at `dispatch_policy.ex:56` structurally
+unreachable. A permanently failing base build therefore becomes a
+permanent silent halt.
+
+The org rename is what exposed it. `tracker.github.repo` re-slugs
+`base_path`, and the old base at `~/.aiur/repo/its-everdred/aiur/` had a
+stale `.aiur-base-built` marker from Jul 27 that was skipping the build
+entirely. The fresh `aiur-team` clone had no marker, so the build ran for
+the first time in days — and failed every tick on
+`cannot get bootfile .../start.boot`, the daemon's own release ERTS env
+leaking into the `sh -lc` build child. That failure had been latent across
+~8 daemon sessions, invisible behind the marker.
+
+Fix applied: `touch ~/.aiur/repo/aiur-team/aiur/.aiur-base-built`. Fleet
+went 0 -> 13 -> 18 agents within minutes, no restart needed.
+
+*Wall 4 — the ramp governor.* Even once unblocked, the adaptive envelope
+starts at **1 slot on every daemon start**
+(`dispatch_policy.ex:48`) and widens by `load_ramp_step` per below-target
+sample. Defaults are step 1 / target 1.0 / cooldown 60s, so a restarted
+fleet needs ~30 minutes to reach 32 — and `target_load_average: 1.0` is
+~6% utilisation on a 16-core box. I restarted the daemon four times while
+diagnosing and measured seconds later each time, which made a ramping
+fleet look like a dead one. Retuned to step 4 / target 6.0 / cooldown 20s.
+
+*Wall 5 — still not reached.* At 18 concurrent agents: load 7.46 (~47% of
+16 cores), 10 GB of 31 GB used, GitHub core budget 4668/5000 with 30s
+polling. **No hardware wall yet.** The REST budget remains the predicted
+first real one, but it is not close at this concurrency.
+
+### Bottom line on the capacity question
+
+Four walls found; **none of them hardware**. Every one was a default or a
+piece of stale state tuned for a smaller machine or a different repo slug.
+The honest answer to "can this box run 20+ agents" is yes, comfortably —
+what stops it is configuration that fails silently. The recurring shape is
+worth naming: *every one of these presented as "the fleet is idle."*
+Ticket supply, a config ceiling, a halted prewarm gate, and a slow ramp
+are four very different faults with one identical symptom, and none of
+them logged anything. That is the systemic finding, more than any
+individual limit.
