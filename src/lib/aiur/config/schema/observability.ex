@@ -12,6 +12,7 @@ defmodule Aiur.Config.Schema.Observability do
     field(:dashboard_writable, :boolean, default: true)
     field(:refresh_ms, :integer, default: 1_000)
     field(:render_interval_ms, :integer, default: 16)
+    field(:telemetry_enabled, :boolean, default: true)
     field(:telemetry_retention_max_bytes, :integer, default: 64 * 1024 * 1024)
     field(:telemetry_retention_max_age_days, :integer, default: 30)
   end
@@ -26,6 +27,7 @@ defmodule Aiur.Config.Schema.Observability do
         :dashboard_writable,
         :refresh_ms,
         :render_interval_ms,
+        :telemetry_enabled,
         :telemetry_retention_max_bytes,
         :telemetry_retention_max_age_days
       ],

@@ -281,6 +281,17 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       issue = %Issue{id: identifier, identifier: identifier, state: "todo", selected_backend: "codex"}
       test_pid = self()
 
+      enabled_key = {Aiur.RunTelemetry, :telemetry_enabled}
+      original_pt = :persistent_term.get(enabled_key, :unset)
+
+      on_exit(fn ->
+        case original_pt do
+          :unset -> :persistent_term.erase(enabled_key)
+          value -> :persistent_term.put(enabled_key, value)
+        end
+      end)
+
+      :persistent_term.put(enabled_key, false)
       refute TelemetryLifecycle.enabled?()
 
       runner = fn dispatched_issue, recipient, opts ->
@@ -328,6 +339,17 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       issue = %Issue{id: issue_id, identifier: nil, state: "todo", selected_backend: "codex"}
       test_pid = self()
 
+      enabled_key = {Aiur.RunTelemetry, :telemetry_enabled}
+      original_pt = :persistent_term.get(enabled_key, :unset)
+
+      on_exit(fn ->
+        case original_pt do
+          :unset -> :persistent_term.erase(enabled_key)
+          value -> :persistent_term.put(enabled_key, value)
+        end
+      end)
+
+      :persistent_term.put(enabled_key, false)
       refute TelemetryLifecycle.enabled?()
 
       runner = fn dispatched_issue, recipient, opts ->
