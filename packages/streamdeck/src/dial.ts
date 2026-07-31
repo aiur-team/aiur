@@ -11,6 +11,8 @@
  *   3 (D) – in grid: page columns; in logs: scroll events; press = cycle window/page
  */
 
+import type { ModeDialState, StreamDeckMode } from "./mode.js";
+
 // ---------------------------------------------------------------------------
 // Value range constants
 // ---------------------------------------------------------------------------
@@ -38,28 +40,34 @@ export const DIAL_STEP = 4;
 export const PRESS_THRESHOLD_DEGREES = 8;
 
 // ---------------------------------------------------------------------------
+// Value helpers
+// ---------------------------------------------------------------------------
+
+export const clampDial = (value: number): number => Math.max(DIAL_MIN, Math.min(DIAL_MAX, value));
+
+// ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
 
 /**
  * CSS `rotate` value for the physical knob given a 0–100 dial value.
  * The resting position (value 0) is –135 deg; value 100 is +135 deg.
+ * Input is clamped so out-of-range stored values never produce bogus CSS.
  */
 export const dialRotationCss = (value: number): string =>
-  `${-135 + (value / 100) * DIAL_SWEEP_DEGREES}deg`;
+  `${-135 + (clampDial(value) / 100) * DIAL_SWEEP_DEGREES}deg`;
 
 // ---------------------------------------------------------------------------
-// Value helpers
+// Drag and step helpers
 // ---------------------------------------------------------------------------
-
-export const clampDial = (value: number): number => Math.max(DIAL_MIN, Math.min(DIAL_MAX, value));
 
 /**
  * Applies a drag-delta (degrees) to an existing dial value.
- * Raw pointer drag → divide by DIAL_DRAG_DIVISOR → add to current value → clamp.
+ * Returns a float — round only at render time so that many small pointer
+ * moves accumulate correctly instead of rounding to zero.
  */
 export const applyDragDelta = (currentValue: number, deltaDegrees: number): number =>
-  clampDial(Math.round(currentValue + deltaDegrees / DIAL_DRAG_DIVISOR));
+  clampDial(currentValue + deltaDegrees / DIAL_DRAG_DIVISOR);
 
 /**
  * Applies a wheel or keyboard-arrow step (+1 or –1 multiplied by DIAL_STEP).
@@ -77,6 +85,36 @@ export const applyStep = (currentValue: number, direction: 1 | -1): number =>
  */
 export const isPress = (accumulatedAbsRotationDegrees: number): boolean =>
   accumulatedAbsRotationDegrees < PRESS_THRESHOLD_DEGREES;
+
+// ---------------------------------------------------------------------------
+// Dial press / turn router
+// ---------------------------------------------------------------------------
+
+/**
+ * The action produced by pressing a dial.
+ *   0 → BACK
+ *   1 → null (free-rotating; no press action)
+ *   2 → null (free-rotating; no press action)
+ *   3 → cycle (cycle window in grid mode, cycle event page in logs mode)
+ */
+export type DialPressAction = "BACK" | "cycle" | null;
+
+export const dialPressAction = (dialIndex: 0 | 1 | 2 | 3): DialPressAction => {
+  if (dialIndex === 0) return "BACK";
+  if (dialIndex === 3) return "cycle";
+  return null;
+};
+
+/**
+ * The column or event offset produced by turning dial 3, dispatched by mode.
+ * Pass agentCount for grid/cmd and eventCount for logs.
+ */
+export const dial3TurnOffset = (
+  dial3Value: number,
+  mode: StreamDeckMode,
+  count: number,
+): number =>
+  mode === "logs" ? eventOffsetFromDial(dial3Value, count) : columnOffsetFromDial(dial3Value, count);
 
 // ---------------------------------------------------------------------------
 // Paging math — grid mode (dial 3)
@@ -98,10 +136,12 @@ export const windowCount = (agentCount: number): number =>
 
 /**
  * Column offset derived from dial 3's value (0–100).
- * offset = round((dial3Value / 100) * maxOffset)
+ * dial3Value is clamped before use so out-of-range inputs cannot produce
+ * offsets outside [0, maxOffset].
+ * offset = round((clamp(dial3Value) / 100) * maxOffset)
  */
 export const columnOffsetFromDial = (dial3Value: number, agentCount: number): number =>
-  Math.round((dial3Value / 100) * maxColumnOffset(agentCount));
+  Math.round((clampDial(dial3Value) / 100) * maxColumnOffset(agentCount));
 
 /**
  * The stop position for a window index.
@@ -113,16 +153,18 @@ export const windowStopPosition = (windowIndex: number, agentCount: number): num
 /**
  * The current window index for a given column offset.
  * Current window = the highest window whose stop position is ≤ columnOffset.
+ *
+ * O(1) derivation: stopPosition(w) = min(w * 4, maxOffset).
+ * - If offset >= maxOffset, every window qualifies → highest = windowCount − 1.
+ * - Otherwise offset < maxOffset, so uncapped stops apply: w * 4 ≤ offset → w ≤ floor(offset / 4).
  */
 export const currentWindow = (columnOffset: number, agentCount: number): number => {
-  const count = windowCount(agentCount);
-  let result = 0;
+  const clampedOffset = Math.max(0, columnOffset);
+  const maxOff = maxColumnOffset(agentCount);
 
-  for (let w = 0; w < count; w++) {
-    if (windowStopPosition(w, agentCount) <= columnOffset) result = w;
-  }
+  if (clampedOffset >= maxOff) return windowCount(agentCount) - 1;
 
-  return result;
+  return Math.min(Math.floor(clampedOffset / 4), windowCount(agentCount) - 1);
 };
 
 /**
@@ -164,9 +206,11 @@ export const maxEventOffset = (eventCount: number): number => Math.max(0, eventC
 
 /**
  * Event offset derived from dial 3's value (0–100) in logs mode.
+ * dial3Value is clamped before use so out-of-range inputs cannot escape the
+ * valid offset range.
  */
 export const eventOffsetFromDial = (dial3Value: number, eventCount: number): number =>
-  Math.round((dial3Value / 100) * maxEventOffset(eventCount));
+  Math.round((clampDial(dial3Value) / 100) * maxEventOffset(eventCount));
 
 /**
  * Cycles to the next event page in logs mode and back-computes the dial value
@@ -204,18 +248,26 @@ export const dial3ValueFromEventOffset = (eventOffset: number, eventCount: numbe
 // ---------------------------------------------------------------------------
 
 /**
- * Returns the dial values after a reset action.
- * Dials 0–2 return to zero; dial 3 is view-state and is excluded from the
- * return value — callers manage it separately via the offset reset path.
+ * Result of a reset action. Field names mirror ModeDialState so spreads are
+ * type-safe. Dial 3 is included (reset to its back-computed position for
+ * offset 0) so callers get a single object covering all four dials.
+ *
+ * DialResetResult must remain assignable to ModeDialState — the exported
+ * helper below enforces this at compile time.
  */
 export interface DialResetResult {
-  dial0Value: number;
-  dial1Value: number;
-  dial2Value: number;
+  dial0Rotation: number;
+  dial1Rotation: number;
+  dial2Rotation: number;
+  dial3Rotation: number;
 }
 
+/** Compile-time assertion: DialResetResult must satisfy ModeDialState. */
+export const _assertDialResetSatisfiesModeDialState = (r: DialResetResult): ModeDialState => r;
+
 export const resetDials = (): DialResetResult => ({
-  dial0Value: 0,
-  dial1Value: 0,
-  dial2Value: 0,
+  dial0Rotation: 0,
+  dial1Rotation: 0,
+  dial2Rotation: 0,
+  dial3Rotation: 0,
 });

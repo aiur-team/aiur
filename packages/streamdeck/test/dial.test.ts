@@ -1,3 +1,5 @@
+import type { ModeDialState } from "../src/mode.js";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -7,6 +9,7 @@ import {
   DIAL_STEP,
   DIAL_SWEEP_DEGREES,
   PRESS_THRESHOLD_DEGREES,
+  _assertDialResetSatisfiesModeDialState,
   applyDragDelta,
   applyStep,
   clampDial,
@@ -14,8 +17,10 @@ import {
   currentWindow,
   cycleEventPage,
   cycleWindow,
+  dial3TurnOffset,
   dial3ValueFromEventOffset,
   dial3ValueFromOffset,
+  dialPressAction,
   dialRotationCss,
   eventOffsetFromDial,
   isPress,
@@ -27,27 +32,34 @@ import {
 } from "../src/dial.js";
 
 // ---------------------------------------------------------------------------
-// Constants
+// Constants — real behaviour assertions, not tautologies
 // ---------------------------------------------------------------------------
 
 describe("dial constants", () => {
-  it("has a 270-degree sweep", () => {
-    expect(DIAL_SWEEP_DEGREES).toBe(270);
+  it("full 270° sweep maps to value 100 via applyDragDelta", () => {
+    expect(applyDragDelta(0, DIAL_SWEEP_DEGREES)).toBe(100);
   });
 
-  it("has a drag divisor of 2.7", () => {
-    expect(DIAL_DRAG_DIVISOR).toBe(2.7);
+  it("full reverse 270° sweep maps to value 0 via applyDragDelta", () => {
+    expect(applyDragDelta(100, -DIAL_SWEEP_DEGREES)).toBe(0);
   });
 
-  it("has a step of 4", () => {
-    expect(DIAL_STEP).toBe(4);
+  it("drag divisor: 2.7 deg = 1 value unit", () => {
+    expect(applyDragDelta(0, DIAL_DRAG_DIVISOR)).toBeCloseTo(1, 5);
   });
 
-  it("has a press threshold of 8 degrees", () => {
-    expect(PRESS_THRESHOLD_DEGREES).toBe(8);
+  it("step of 4 applied by applyStep", () => {
+    expect(applyStep(50, 1) - 50).toBe(DIAL_STEP);
   });
 
-  it("has value range 0–100", () => {
+  it("press threshold: 7.9 deg is a press, 8 deg is not", () => {
+    expect(isPress(PRESS_THRESHOLD_DEGREES - 0.1)).toBe(true);
+    expect(isPress(PRESS_THRESHOLD_DEGREES)).toBe(false);
+  });
+
+  it("value range 0–100", () => {
+    expect(clampDial(DIAL_MIN)).toBe(0);
+    expect(clampDial(DIAL_MAX)).toBe(100);
     expect(DIAL_MIN).toBe(0);
     expect(DIAL_MAX).toBe(100);
   });
@@ -68,6 +80,14 @@ describe("dialRotationCss", () => {
 
   it("returns 0deg at value 50", () => {
     expect(dialRotationCss(50)).toBe("0deg");
+  });
+
+  it("clamps out-of-range values — 200 is treated as 100", () => {
+    expect(dialRotationCss(200)).toBe("135deg");
+  });
+
+  it("clamps out-of-range values — -50 is treated as 0", () => {
+    expect(dialRotationCss(-50)).toBe("-135deg");
   });
 });
 
@@ -110,6 +130,12 @@ describe("applyDragDelta", () => {
   it("handles negative delta (turning back)", () => {
     expect(applyDragDelta(50, -27)).toBe(40);
   });
+
+  it("accumulates correctly — 100 one-degree moves equal one 100-degree move", () => {
+    let v = 0;
+    for (let i = 0; i < 100; i++) v = applyDragDelta(v, 1);
+    expect(v).toBeCloseTo(applyDragDelta(0, 100), 5);
+  });
 });
 
 describe("applyStep", () => {
@@ -148,6 +174,44 @@ describe("isPress", () => {
   it("returns false above 8 degrees", () => {
     expect(isPress(8.1)).toBe(false);
     expect(isPress(270)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Dial press / turn router
+// ---------------------------------------------------------------------------
+
+describe("dialPressAction", () => {
+  it("dial 0 returns BACK", () => {
+    expect(dialPressAction(0)).toBe("BACK");
+  });
+
+  it("dial 1 returns null (no press action)", () => {
+    expect(dialPressAction(1)).toBeNull();
+  });
+
+  it("dial 2 returns null (no press action)", () => {
+    expect(dialPressAction(2)).toBeNull();
+  });
+
+  it("dial 3 returns cycle", () => {
+    expect(dialPressAction(3)).toBe("cycle");
+  });
+});
+
+describe("dial3TurnOffset", () => {
+  it("dispatches to columnOffsetFromDial in grid mode", () => {
+    expect(dial3TurnOffset(100, "grid", 32)).toBe(columnOffsetFromDial(100, 32));
+    expect(dial3TurnOffset(50, "grid", 32)).toBe(columnOffsetFromDial(50, 32));
+  });
+
+  it("dispatches to columnOffsetFromDial in cmd mode", () => {
+    expect(dial3TurnOffset(100, "cmd", 32)).toBe(columnOffsetFromDial(100, 32));
+  });
+
+  it("dispatches to eventOffsetFromDial in logs mode", () => {
+    expect(dial3TurnOffset(100, "logs", 20)).toBe(eventOffsetFromDial(100, 20));
+    expect(dial3TurnOffset(50, "logs", 20)).toBe(eventOffsetFromDial(50, 20));
   });
 });
 
@@ -220,6 +284,12 @@ describe("columnOffsetFromDial", () => {
   it("returns 0 for any dial value when agentCount is 0", () => {
     expect(columnOffsetFromDial(100, 0)).toBe(0);
   });
+
+  it("clamps out-of-range dial values — -1 and 101 stay within valid offset", () => {
+    const count = 32;
+    expect(columnOffsetFromDial(-1, count)).toBe(0);
+    expect(columnOffsetFromDial(101, count)).toBe(maxColumnOffset(count));
+  });
 });
 
 describe("windowStopPosition", () => {
@@ -280,10 +350,22 @@ describe("cycleWindow", () => {
     expect(result.dial3Value).toBe(0);
   });
 
-  it("does not visually rotate — dial3Value is back-computed, not incremented", () => {
-    // After cycle the stored dial3Value must equal what dial3ValueFromOffset gives
-    const { columnOffset, dial3Value } = cycleWindow(0, 32);
-    expect(dial3Value).toBe(dial3ValueFromOffset(columnOffset, 32));
+  it("sync without rotating — round-trip invariant: columnOffsetFromDial(dial3Value) === columnOffset", () => {
+    for (const n of [0, 1, 8, 9, 17, 32]) {
+      const { columnOffset, dial3Value } = cycleWindow(0, n);
+      expect(columnOffsetFromDial(dial3Value, n)).toBe(columnOffset);
+    }
+  });
+
+  it("returns to window 0 within windowCount presses for all agentCounts 0..40", () => {
+    for (let n = 0; n <= 40; n++) {
+      const count = windowCount(n);
+      let offset = 0;
+      for (let i = 0; i < count; i++) {
+        ({ columnOffset: offset } = cycleWindow(offset, n));
+      }
+      expect(offset).toBe(0);
+    }
   });
 });
 
@@ -338,6 +420,11 @@ describe("eventOffsetFromDial", () => {
     expect(eventOffsetFromDial(100, 8)).toBe(0);
     expect(eventOffsetFromDial(100, 0)).toBe(0);
   });
+
+  it("clamps out-of-range dial values — -1 and 101 stay within valid offset", () => {
+    expect(eventOffsetFromDial(-1, 20)).toBe(0);
+    expect(eventOffsetFromDial(101, 20)).toBe(maxEventOffset(20));
+  });
 });
 
 describe("cycleEventPage", () => {
@@ -368,9 +455,11 @@ describe("cycleEventPage", () => {
     expect(result.dial3Value).toBe(100);
   });
 
-  it("does not visually rotate — dial3Value is back-computed from offset", () => {
-    const { eventOffset, dial3Value } = cycleEventPage(0, 20);
-    expect(dial3Value).toBe(dial3ValueFromEventOffset(eventOffset, 20));
+  it("sync without rotating — round-trip invariant: eventOffsetFromDial(dial3Value) === eventOffset", () => {
+    for (const n of [0, 8, 9, 16, 20, 100]) {
+      const { eventOffset, dial3Value } = cycleEventPage(0, n);
+      expect(eventOffsetFromDial(dial3Value, n)).toBe(eventOffset);
+    }
   });
 });
 
@@ -393,11 +482,26 @@ describe("dial3ValueFromEventOffset", () => {
 // ---------------------------------------------------------------------------
 
 describe("resetDials", () => {
-  it("returns dials 0, 1, and 2 set to zero", () => {
-    expect(resetDials()).toEqual({ dial0Value: 0, dial1Value: 0, dial2Value: 0 });
+  it("returns all four dial rotations set to zero", () => {
+    expect(resetDials()).toEqual({
+      dial0Rotation: 0,
+      dial1Rotation: 0,
+      dial2Rotation: 0,
+      dial3Rotation: 0,
+    });
   });
 
-  it("does not include dial 3 (view-state, managed separately)", () => {
-    expect(resetDials()).not.toHaveProperty("dial3Value");
+  it("result satisfies ModeDialState (compile-time verified via _assertDialResetSatisfiesModeDialState)", () => {
+    const result = resetDials();
+    // Structural check: assign to ModeDialState — type error if fields diverge.
+    const _modeDialState: ModeDialState = result;
+    void _modeDialState;
+    expect(result.dial0Rotation).toBe(0);
+    expect(result.dial3Rotation).toBe(0);
+  });
+
+  it("_assertDialResetSatisfiesModeDialState returns the input as ModeDialState", () => {
+    const result = resetDials();
+    expect(_assertDialResetSatisfiesModeDialState(result)).toBe(result);
   });
 });
