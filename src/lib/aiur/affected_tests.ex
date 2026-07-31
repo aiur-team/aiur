@@ -90,7 +90,9 @@ defmodule Aiur.AffectedTests do
   end
 
   defp documentation?(path) do
-    String.starts_with?(path, "docs/") or String.ends_with?(path, ".md")
+    String.starts_with?(path, "docs/") or
+      String.ends_with?(path, ".md") or
+      String.starts_with?(path, ".aiur/")
   end
 
   @spec forces_full?(path) :: boolean()

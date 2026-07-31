@@ -63,7 +63,8 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
     sinks =
       changed
       |> Enum.filter(fn path ->
-        String.starts_with?(path, "src/lib/") and String.ends_with?(path, ".ex")
+        String.starts_with?(path, "src/lib/") and String.ends_with?(path, ".ex") and
+          File.exists?(Path.join(root, path))
       end)
       |> Enum.map(&String.replace_prefix(&1, "src/", ""))
 
@@ -108,10 +109,20 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
   defp requested_or_default_base(_root, [base | _]), do: {:ok, base}
 
   defp requested_or_default_base(root, []) do
-    case git(root, ["merge-base", "HEAD", "origin/main"]) do
+    origin = default_origin()
+
+    case git(root, ["merge-base", "HEAD", origin]) do
       {:ok, [sha]} -> {:ok, sha}
       {:ok, other} -> {:error, "git merge-base returned #{inspect(other)}"}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc false
+  def default_origin do
+    case System.get_env("AIUR_BASE_BRANCH") do
+      branch when is_binary(branch) and branch != "" -> "origin/#{branch}"
+      _ -> "origin/main"
     end
   end
 

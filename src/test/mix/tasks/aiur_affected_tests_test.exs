@@ -21,4 +21,19 @@ defmodule Mix.Tasks.Aiur.AffectedTestsTest do
              "# no affected test files detected for the documentation-only change"
            ]
   end
+
+  test "default_origin uses AIUR_BASE_BRANCH when set" do
+    System.put_env("AIUR_BASE_BRANCH", "develop")
+
+    try do
+      assert AffectedTests.default_origin() == "origin/develop"
+    after
+      System.delete_env("AIUR_BASE_BRANCH")
+    end
+  end
+
+  test "default_origin falls back to origin/main when AIUR_BASE_BRANCH is unset" do
+    System.delete_env("AIUR_BASE_BRANCH")
+    assert AffectedTests.default_origin() == "origin/main"
+  end
 end
