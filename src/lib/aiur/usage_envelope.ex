@@ -11,7 +11,9 @@ defmodule Aiur.UsageEnvelope do
 
   @version 1
   @max_opaque_bytes 256
-  @providers [:codex, :claude]
+  # Registry-derived at compile time: the provider families that meter, so a new
+  # backend's envelopes validate without editing this list.
+  @providers Aiur.CodingAgent.provider_families()
   @backends [:app_server, :remote_control, :unknown]
   @transports [:app_server, :otlp, :remote_control, :unknown]
   @measurement_kinds [:delta, :absolute]

@@ -239,6 +239,20 @@ defmodule Aiur.CodingAgent do
   @spec provider_families() :: [atom()]
   def provider_families, do: Enum.map(provider_descriptors(), & &1.provider)
 
+  @doc """
+  Map from the headless app-server backend name to its provider family atom
+  (e.g. `%{"codex" => :codex, "claude" => :claude}`), derived from the registry's
+  metered providers. Keyed by the family-primary backend name (`Atom.to_string`
+  of the provider), so REPL/remote transports that share a family (`claude-repl`)
+  are excluded — they are metered under their family via the primary, not as a
+  separate provider. Drives usage attribution so a new metered backend books to
+  its own provider with no per-provider `case`.
+  """
+  @spec provider_family_map() :: %{String.t() => atom()}
+  def provider_family_map do
+    for %{provider: provider} <- provider_descriptors(), into: %{}, do: {Atom.to_string(provider), provider}
+  end
+
   @doc "Presentation descriptor for one provider family atom, or `nil` if none."
   @spec provider_descriptor(atom()) :: provider_descriptor() | nil
   def provider_descriptor(provider) when is_atom(provider) do
