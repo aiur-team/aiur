@@ -340,15 +340,21 @@ require `observability.dashboard_writable: true`, an exact dashboard/loopback
 [OCC-7 supervisor Decision API contract](../docs/operator-control-center/06-occ-7-supervisor-decision-api-contract.md)
 for routes, payloads, retry semantics, and audit guarantees.
 
-## Debug run telemetry
+## Run telemetry
 
-`aiur --debug` (or config-level `debug: true`) starts daemon-owned run telemetry.
-The daemon continuously records resource samples for itself, locally attributable
-ticket process trees, and the Executor process when it can be identified. It also
-records sanitized ticket lifecycle boundaries such as dispatch, workspace setup,
-implementation, build/test, PR/review, pause/resume, and rework. Debug-off runs do
-not start the telemetry writer or sampler and do not scan procfs or create a
-telemetry file.
+Aiur records daemon-owned run telemetry by default. The daemon continuously
+records resource samples for itself, locally attributable ticket process trees,
+and the Executor process when it can be identified. It also records sanitized
+ticket lifecycle boundaries such as dispatch, workspace setup, implementation,
+build/test, PR/review, pause/resume, and rework. Prompt text, command text, and
+output are never included.
+
+To opt out, set `observability.telemetry_enabled: false` in your config; the
+telemetry writer and sampler will not start and no file will be created. The
+setting is read once at daemon startup — a restart is required to apply a change.
+
+`--debug` (or config-level `debug: true`) controls **log verbosity and evidence
+capture**, not whether telemetry is recorded.
 
 The append-only schema-versioned stream is written beside `aiur.log` as
 `telemetry.ndjson`. A default run therefore writes to:
