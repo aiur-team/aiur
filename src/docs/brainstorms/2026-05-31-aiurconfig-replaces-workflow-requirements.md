@@ -29,7 +29,7 @@ config from cwd. aiur's own `WORKFLOW.md` files are converted in the same change
 
 ## Actors
 
-- A1. Operator: runs `scripts/aiur` against `its-everdred/aiur`; owns the local
+- A1. Operator: runs `scripts/aiur` against `aiur-team/aiur`; owns the local
   orchestration config (currently `local-workflows/WORKFLOW.aiur.local.md`).
 - A2. Coding agent: receives the rendered prompt per issue; behavior is driven by
   `prompts/shared-agent-instructions.md` (always prepended) plus the per-repo

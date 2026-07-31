@@ -2,7 +2,7 @@
 status: active
 type: fix
 created: 2026-06-24
-origin: https://github.com/its-everdred/aiur/issues/443
+origin: https://github.com/aiur-team/aiur/issues/443
 issue: 443
 ---
 
