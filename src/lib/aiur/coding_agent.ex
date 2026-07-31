@@ -99,7 +99,17 @@ defmodule Aiur.CodingAgent do
         # `resolve_model/2`). `codex:sol` therefore keeps following the latest
         # `*-sol` release instead of naming a version that will be retired.
         model_aliases: :derived,
-        efforts: ["none", "low", "medium", "high", "xhigh", "max"]
+        efforts: ["none", "low", "medium", "high", "xhigh", "max"],
+        # Provider-level presentation descriptor, keyed by family, used by every
+        # dashboard/strip surface so a new backend renders from its registry
+        # entry rather than a per-provider `case`. `order` fixes card ordering.
+        presentation: %{
+          order: 0,
+          label: "Codex",
+          logo: "/codex-color.svg",
+          token_icon: "/codex-token.svg",
+          css_class: "is-codex"
+        }
       },
       "claude" => %{
         adapter: Aiur.Claude.CodingAgent,
@@ -130,7 +140,14 @@ defmodule Aiur.CodingAgent do
         # through untouched rather than pinned to a version aiur happens to
         # know about.
         model_aliases: :native,
-        efforts: []
+        efforts: [],
+        presentation: %{
+          order: 1,
+          label: "Claude",
+          logo: "/claude-symbol.svg",
+          token_icon: "/claude-token.svg",
+          css_class: "is-claude"
+        }
       },
       "claude-repl" => %{
         adapter: Aiur.Claude.ReplAgent,
@@ -181,6 +198,51 @@ defmodule Aiur.CodingAgent do
       {:ok, entry} -> Map.get(entry, :family)
       :error -> nil
     end
+  end
+
+  @typedoc """
+  A provider's presentation descriptor: everything a dashboard/strip surface
+  needs to render one provider (label, logo + token SVG paths, CSS class) plus
+  the resolved `provider` family atom and a stable `order` for card layout.
+  """
+  @type provider_descriptor :: %{
+          provider: atom(),
+          order: non_neg_integer(),
+          label: String.t(),
+          logo: String.t(),
+          token_icon: String.t(),
+          css_class: String.t()
+        }
+
+  @doc """
+  Provider presentation descriptors, one per family that declares a
+  `:presentation` entry in the registry, ordered by their `order` field.
+  Presentation is family-level (`claude` and `claude-repl` share one), so the
+  list is deduplicated by provider family. Drives every provider-facing surface
+  so a new backend renders from its registry entry with no per-provider `case`.
+  """
+  @spec provider_descriptors() :: [provider_descriptor()]
+  def provider_descriptors do
+    backends()
+    |> Map.values()
+    |> Enum.flat_map(fn entry ->
+      case Map.get(entry, :presentation) do
+        %{} = presentation -> [Map.put(presentation, :provider, String.to_atom(entry.family))]
+        _ -> []
+      end
+    end)
+    |> Enum.uniq_by(& &1.provider)
+    |> Enum.sort_by(& &1.order)
+  end
+
+  @doc "Provider family atoms with a presentation descriptor, in card order."
+  @spec provider_families() :: [atom()]
+  def provider_families, do: Enum.map(provider_descriptors(), & &1.provider)
+
+  @doc "Presentation descriptor for one provider family atom, or `nil` if none."
+  @spec provider_descriptor(atom()) :: provider_descriptor() | nil
+  def provider_descriptor(provider) when is_atom(provider) do
+    Enum.find(provider_descriptors(), &(&1.provider == provider))
   end
 
   @doc """

@@ -11,6 +11,34 @@ defmodule Aiur.CodingAgentTest do
 
   defp issue(labels), do: %Issue{labels: labels}
 
+  describe "provider presentation descriptors (registry-driven rendering)" do
+    test "provider_families/0 lists families in card order, deduped across a shared family" do
+      # claude and claude-repl share family :claude, so it appears once.
+      assert CodingAgent.provider_families() == [:codex, :claude]
+    end
+
+    test "provider_descriptor/1 exposes the fields every provider surface renders from" do
+      codex = CodingAgent.provider_descriptor(:codex)
+      assert codex.label == "Codex"
+      assert codex.logo == "/codex-color.svg"
+      assert codex.token_icon == "/codex-token.svg"
+      assert codex.css_class == "is-codex"
+
+      claude = CodingAgent.provider_descriptor(:claude)
+      assert claude.label == "Claude"
+      assert claude.css_class == "is-claude"
+    end
+
+    test "provider_descriptor/1 is nil for an unknown provider (surfaces fall back generically)" do
+      assert CodingAgent.provider_descriptor(:nonesuch) == nil
+    end
+
+    test "provider_descriptors/0 carries the resolved provider family atom and is card-ordered" do
+      assert [%{provider: :codex, order: 0}, %{provider: :claude, order: 1}] =
+               CodingAgent.provider_descriptors()
+    end
+  end
+
   describe "select_for_dispatch/2" do
     test "uses the first configured, available fallback from an ordered list" do
       assert {:ok, %Issue{selected_backend: "claude"}} =

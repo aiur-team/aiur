@@ -4,6 +4,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   use Phoenix.Component
 
   alias Aiur.BuildOrder.Bounded
+  alias Aiur.CodingAgent
   alias Aiur.TrackerIdentity
   alias AiurWeb.OperatorControlCenter.{UnitsControlPolicy, UnitsPresenter}
 
@@ -345,13 +346,30 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
 
   defp agent_label(_family), do: "Agent"
 
-  defp agent_family(%{agent_family: family}) when family in [:claude, :codex], do: family
-  defp agent_family(%{backend: backend}) when backend in [:claude, :codex], do: backend
+  # A row names its provider family via `:agent_family` (metering) or `:backend`
+  # (control), preferring the former. Both are matched against the registry's
+  # provider families rather than a hardcoded `[:claude, :codex]`, so a new
+  # backend's rows classify with no edit here.
+  defp agent_family(row) when is_map(row) do
+    cond do
+      family = provider_or_nil(Map.get(row, :agent_family)) -> family
+      backend = provider_or_nil(Map.get(row, :backend)) -> backend
+      true -> nil
+    end
+  end
+
   defp agent_family(_row), do: nil
 
-  defp agent_class(:claude), do: "is-claude"
-  defp agent_class(:codex), do: "is-codex"
-  defp agent_class(_family), do: "is-generic"
+  defp provider_or_nil(value) do
+    if value in CodingAgent.provider_families(), do: value, else: nil
+  end
+
+  defp agent_class(family) do
+    case CodingAgent.provider_descriptor(family) do
+      %{css_class: class} -> class
+      _ -> "is-generic"
+    end
+  end
 
   defp model_label(%{resolved_model: model}) when is_binary(model) and model != "", do: model
   defp model_label(%{requested_model: model}) when is_binary(model) and model != "", do: model
