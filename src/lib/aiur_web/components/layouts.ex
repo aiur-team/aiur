@@ -40,6 +40,7 @@ defmodule AiurWeb.Layouts do
         <script defer src="/conversation-drawer-hook.js"></script>
         <script defer src="/build-order-grid-hook.js"></script>
         <script defer src="/time-brush-hook.js"></script>
+        <script defer src="/streamdeck-emulator-hook.js"></script>
         <script>
           window.addEventListener("DOMContentLoaded", function () {
             var csrfToken = document
@@ -191,6 +192,10 @@ defmodule AiurWeb.Layouts do
 
             if (window.AiurTimeBrushHook) {
               Hooks.TimeBrush = window.AiurTimeBrushHook.createLiveViewHook();
+            }
+
+            if (window.AiurStreamdeckEmulatorHook) {
+              Hooks.StreamdeckEmulator = window.AiurStreamdeckEmulatorHook;
             }
 
             var liveSocket = new window.LiveView.LiveSocket("/live", window.Phoenix.Socket, {

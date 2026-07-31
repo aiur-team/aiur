@@ -144,6 +144,10 @@ For GitHub trackers, `github.trusted_accounts` can name Executor accounts whose
 comments should reach agent event digests even when CODEOWNERS team expansion is
 unavailable. Keep it separate from `github.bot_account`: bot-account authors are
 filtered as self-loops, while trusted accounts are allowed human Executors.
+`github.human_mergers` is a separate, explicit human-only allowlist used for
+post-merge attribution. It never inherits CODEOWNERS, bot accounts, trusted
+accounts, or dispatch `allowed_users`; an absent list treats every merger as
+unallowlisted and raises a needs-attention alert without undoing terminal state.
 
 Build Order planning reads use finite `github.planning_root_limit`,
 `github.planning_page_budget`, and `github.planning_call_budget` safeguards.
