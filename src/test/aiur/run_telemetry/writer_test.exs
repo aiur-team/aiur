@@ -415,19 +415,41 @@ defmodule Aiur.RunTelemetry.WriterTest do
 
     old_size = File.stat!(path).size
 
-    # max_bytes allows the old boot to survive init but not a second append cycle;
-    # prune_interval_bytes is tiny so the first write triggers the check.
+    # max_bytes is old_size: old boot fits at init, but the restart marker written
+    # during init pushes the total over the cap so maybe_prune fires on that first
+    # append and removes the old boot. prune_interval_bytes: 1 ensures the threshold
+    # is crossed after any single write.
     retention = [max_bytes: old_size, prune_interval_bytes: 1]
 
     {:ok, current} = Writer.start_link(name: nil, path: path, boot_id: "current", retention: retention)
-    # Write one record — should trigger periodic prune (bytes_since_prune >= 1)
-    assert :ok = Writer.record(current, :resource, %{actor: "_daemon", rss_bytes: 2})
     assert :ok = Writer.flush(current)
 
-    # File now contains current boot restart + resource, old boot pruned
+    # Old boot already pruned by the periodic prune triggered during init's restart-marker append
     assert {:ok, dataset} = Dataset.build(path)
     assert Dataset.boot_ids(dataset) == ["current"]
     assert dataset.warnings == []
+  end
+
+  test "periodic retention failure does not crash or stall the writer", %{path: path, root: root} do
+    import ExUnit.CaptureLog
+
+    # The path reported to Retention.prune must be a directory so File.stream! raises
+    # EISDIR. The write_fun redirects actual appends to a separate file so writes succeed.
+    actual_file = Path.join(root, "actual.ndjson")
+    dir_path = Path.join(root, "dir-as-path")
+    File.mkdir_p!(dir_path)
+    write_fun = fn _path, data -> File.write(actual_file, data, [:append]) end
+    retention = [max_bytes: 1, prune_interval_bytes: 1]
+
+    log =
+      capture_log(fn ->
+        {:ok, w} = Writer.start_link(name: nil, path: dir_path, boot_id: "err-boot", retention: retention, write_fun: write_fun)
+        assert :ok = Writer.record(w, :resource, %{actor: "_daemon", rss_bytes: 1})
+        assert :ok = Writer.flush(w)
+        assert Process.alive?(w)
+      end)
+
+    assert log =~ "retention_failed"
   end
 
   test "retention treats absent or invalid targets as no-ops", %{path: path} do

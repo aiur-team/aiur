@@ -1,6 +1,8 @@
 defmodule Aiur.RunTelemetry.Retention do
   @moduledoc false
 
+  require Logger
+
   # Retention intentionally runs before a new Writer appends its restart marker.
   # That is the one point where no live writer owns the stream, so replacing the
   # file cannot strand buffered appends on an old inode.
@@ -52,7 +54,7 @@ defmodule Aiur.RunTelemetry.Retention do
     {:ok, groups}
   rescue
     e in File.Error -> {:error, e.reason}
-    error -> {:error, inspect(error)}
+    error -> {:error, error}
   end
 
   defp new_group(lines) do
@@ -141,7 +143,11 @@ defmodule Aiur.RunTelemetry.Retention do
       :ok
     else
       {:error, reason} ->
-        File.rm(temporary)
+        case File.rm(temporary) do
+          :ok -> :ok
+          {:error, rm_reason} -> Logger.warning("run_telemetry temp_file_leaked path=#{temporary} reason=#{inspect(rm_reason)}")
+        end
+
         {:error, reason}
     end
   end

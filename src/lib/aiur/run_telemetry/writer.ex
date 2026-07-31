@@ -291,6 +291,10 @@ defmodule Aiur.RunTelemetry.Writer do
     end
 
     %{state | bytes_since_prune: 0}
+  rescue
+    error ->
+      Logger.warning("run_telemetry retention_raised path=#{state.path} reason=#{inspect(error)}")
+      %{state | bytes_since_prune: 0}
   end
 
   # Default interval: max_bytes / 8, minimum 1 MiB. Overridable via :prune_interval_bytes
