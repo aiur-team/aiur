@@ -112,6 +112,11 @@ function classifyWindows(windows: Readonly<Record<string, ProviderMeterWindow>>)
   }
 
   // A single classifiable window is the session, not simultaneously the weekly.
+  // Reference identity is safe here: the strict `<` / `>` comparisons above keep
+  // the first-seen window on ties, so with only one classifiable window — or
+  // several of equal duration — `session` and `weekly` point at the SAME object
+  // and this nulls the duplicate weekly. Two windows of *distinct* durations
+  // always resolve to two different objects and both survive.
   if (session !== null && session === weekly) {
     weekly = null;
   }

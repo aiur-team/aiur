@@ -16,8 +16,7 @@
  * and never repaints the other three — provided the encoder is deterministic
  * for unchanged content, which the cache's byte-identity diff assumes.
  */
-import { SEGMENT_COUNT, SegmentIndex, segmentRegion } from "./geometry.js";
-import { buildRegionReports } from "../imageWriter/headerGenerator.js";
+import { SEGMENT_COUNT, SegmentIndex } from "./geometry.js";
 import { SegmentCache, type SegmentPaint } from "./segmentCache.js";
 import { composeStrip, type SegmentContent, type StripData } from "./stripLayout.js";
 
@@ -56,60 +55,4 @@ export class StripRenderer {
   invalidate(index?: SegmentIndex): void {
     this.cache.invalidate(index);
   }
-}
-
-/** Timing for {@link measureUpdateLatency}, in milliseconds. */
-export interface UpdateLatency {
-  /** Time to build region reports for a single 200x100 segment. */
-  readonly singleSegmentMs: number;
-  /** Time to build region reports for all four segments (a full strip). */
-  readonly fullStripMs: number;
-  /** Reports produced for the single-segment write. */
-  readonly singleSegmentReports: number;
-  /** Reports produced across all four full-strip writes. */
-  readonly fullStripReports: number;
-}
-
-/**
- * Measure the region-write encoding cost of a single-segment update versus a
- * full four-segment repaint, using a representative per-segment JPEG size. This
- * isolates the touch-strip's own encoding path (the part this package owns);
- * canvas encoding and hidraw transfer live in #1354/#1355. It exists to back
- * the ticket's "single-segment vs full-strip latency" acceptance with a real,
- * reproducible number rather than an asserted claim.
- *
- * `now` is injected (default `performance.now`) so callers can supply a
- * deterministic clock in tests.
- */
-export function measureUpdateLatency(
-  jpegBytesPerSegment: number,
-  iterations = 1000,
-  now: () => number = () => performance.now(),
-): UpdateLatency {
-  const jpeg = new Uint8Array(Math.max(0, Math.floor(jpegBytesPerSegment)));
-  const region = segmentRegion(SegmentIndex.First);
-
-  const singleStart = now();
-  let singleReports = 0;
-  for (let i = 0; i < iterations; i += 1) {
-    singleReports = buildRegionReports(region, jpeg).length;
-  }
-  const singleSegmentMs = (now() - singleStart) / iterations;
-
-  const fullStart = now();
-  let fullReports = 0;
-  for (let i = 0; i < iterations; i += 1) {
-    fullReports = 0;
-    for (let index = 0 as SegmentIndex; index < SEGMENT_COUNT; index += 1) {
-      fullReports += buildRegionReports(segmentRegion(index), jpeg).length;
-    }
-  }
-  const fullStripMs = (now() - fullStart) / iterations;
-
-  return {
-    singleSegmentMs,
-    fullStripMs,
-    singleSegmentReports: singleReports,
-    fullStripReports: fullReports,
-  };
 }
