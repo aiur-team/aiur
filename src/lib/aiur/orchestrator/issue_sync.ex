@@ -4,6 +4,8 @@ defmodule Aiur.Orchestrator.IssueSync do
   All functions execute inside the orchestrator GenServer process.
   """
 
+  require Logger
+
   alias Aiur.{AgentQueue, AgentQueueStore, AlertFeed, Alerts, CodingAgent, Config, CurrentRunMembership, DispatchBudgetStore, Issue, Tracker, TrackerIdentity}
   alias Aiur.Config.Paths
   alias Aiur.Orchestrator
@@ -427,27 +429,32 @@ defmodule Aiur.Orchestrator.IssueSync do
 
       state =
         Enum.reduce(added_blocker_ids, state, fn blocker_id, state_acc ->
-          AutoSubscriptions.auto_subscribe_for_dependency(issue, current_blockers[blocker_id])
+          blocker = current_blockers[blocker_id]
 
-          enqueue_dependency_event(
-            state_acc,
-            issue,
-            current_blockers[blocker_id],
-            :dependency_added
-          )
+          case AutoSubscriptions.auto_subscribe_for_dependency(issue, blocker) do
+            :ok ->
+              enqueue_dependency_event(state_acc, issue, blocker, :dependency_added)
+
+            {:error, reason} ->
+              blocker_id = blocker["identifier"] || Map.get(blocker, :identifier)
+
+              Logger.warning(
+                "IssueSync: subscription failed for dependency_added " <>
+                  "(#{issue.identifier} blocked by #{blocker_id}): " <>
+                  "#{inspect(reason)}; event will emit on next reconcile"
+              )
+
+              state_acc
+          end
         end)
 
       state =
         Enum.reduce(removed_blocker_ids, state, fn blocker_id, state_acc ->
-          AutoSubscriptions.auto_unsubscribe_for_dependency(issue, previous_blockers[blocker_id])
+          blocker = previous_blockers[blocker_id]
+          AutoSubscriptions.auto_unsubscribe_for_dependency(issue, blocker)
 
-          enqueue_dependency_event(
-            state_acc,
-            issue,
-            previous_blockers[blocker_id],
-            :dependency_removed
-          )
-          |> PushRouting.maybe_resume_blockee_on_cleared_dependency(issue, previous_blockers[blocker_id], :removed)
+          enqueue_dependency_event(state_acc, issue, blocker, :dependency_removed)
+          |> PushRouting.maybe_resume_blockee_on_cleared_dependency(issue, blocker, :removed)
         end)
 
       Enum.reduce(shared_blocker_ids, state, fn blocker_id, state_acc ->

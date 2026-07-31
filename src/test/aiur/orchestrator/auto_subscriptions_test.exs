@@ -2,6 +2,7 @@ defmodule Aiur.Orchestrator.AutoSubscriptionsTest do
   use ExUnit.Case, async: true
 
   alias Aiur.Events.SubscriptionStore
+  alias Aiur.Issue
   alias Aiur.Orchestrator.AutoSubscriptions
 
   test "declared blockers receive the reserved force-push subscription" do
@@ -33,5 +34,38 @@ defmodule Aiur.Orchestrator.AutoSubscriptionsTest do
     blocker_topics = blocker |> SubscriptionStore.snapshot() |> Map.fetch!(:subscribed_to)
     refute Enum.any?(blockee_topics, &(&1["reason"] == "blocker:auto"))
     refute Enum.any?(blocker_topics, &(&1["reason"] == "blockee:auto"))
+  end
+
+  describe "auto_subscribe_for_dependency" do
+    test "returns :ok and registers subscriptions on both sides" do
+      blockee_id = "blockee-#{System.unique_integer([:positive])}"
+      blocker_id = "blocker-#{System.unique_integer([:positive])}"
+      blockee = %Issue{identifier: blockee_id}
+      blocker = %{"identifier" => blocker_id}
+
+      assert :ok = AutoSubscriptions.auto_subscribe_for_dependency(blockee, blocker)
+
+      on_exit(fn -> SubscriptionStore.stop(blockee_id) end)
+      on_exit(fn -> SubscriptionStore.stop(blocker_id) end)
+
+      blockee_topics =
+        blockee_id |> SubscriptionStore.snapshot() |> Map.fetch!(:subscribed_to) |> Enum.map(& &1["topic"])
+
+      blocker_topics =
+        blocker_id |> SubscriptionStore.snapshot() |> Map.fetch!(:subscribed_to) |> Enum.map(& &1["topic"])
+
+      # Blockee subscribes to the blocker's events.
+      assert "ticket.#{blocker_id}.agent.unblocked" in blockee_topics
+      assert "ticket.#{blocker_id}.branch.push" in blockee_topics
+
+      # Blocker subscribes to blockee's block-state events.
+      assert "ticket.#{blockee_id}.agent.blocked" in blocker_topics
+      assert "ticket.#{blockee_id}.agent.unblocked" in blocker_topics
+    end
+
+    test "returns :ok when blockee or blocker has no binary identifier (no-op)" do
+      assert :ok = AutoSubscriptions.auto_subscribe_for_dependency(%Issue{identifier: nil}, %{"identifier" => "blocker"})
+      assert :ok = AutoSubscriptions.auto_subscribe_for_dependency(%Issue{identifier: "blockee"}, %{})
+    end
   end
 end
