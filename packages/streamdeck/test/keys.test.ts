@@ -156,10 +156,10 @@ describe("footer variants", () => {
     expect((agentKey(keys[0]!).footer as QueuedFooter).unblocked).toBe(false);
   });
 
-  it("queued footer defaults to unblocked=true when dependency_ready is absent", () => {
+  it("queued footer defaults to unblocked=false when dependency_ready is absent (fail-closed)", () => {
     const a: AgentInput = { identifier: "q", vendor: "codex", bucket: "queued", progress_percent: 0, priority: false };
     const keys = layoutKeys([a], 0);
-    expect((agentKey(keys[0]!).footer as QueuedFooter).unblocked).toBe(true);
+    expect((agentKey(keys[0]!).footer as QueuedFooter).unblocked).toBe(false);
   });
 
   it("non-queued agents use the progress footer with a status dot and bar", () => {

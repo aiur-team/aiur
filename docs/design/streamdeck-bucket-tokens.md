@@ -16,24 +16,25 @@ Mapped from the OCC CSS custom properties (dark-mode values):
 
 ## Glow colours (outer ring)
 
-Same RGB as each bucket's accent, at a higher opacity than the OCC web soft
-variants (`--*-soft` are 0.14–0.15) so the glow reads on the physical device's
-backlit display. Opacity values are in the 0.32–0.40 range used consistently
-across the stream deck emulator prototypes.
+Same RGB as each bucket's accent — each triple is the hex-decoded accent channel.
+The alpha values (0.32–0.40) are chosen to be readable on the physical device's
+backlit display; they are design constants, not derived from any other source.
+The OCC web palette uses `--*-soft` variants at 0.14–0.15, which are too faint
+at device brightness levels.
 
-| Bucket  | Glow                      | Derived from accent RGB |
-|---------|---------------------------|-------------------------|
-| running | `rgba(79,214,196,0.35)`   | `#4fd6c4` at α=0.35     |
-| paused  | `rgba(143,188,255,0.32)`  | `#8fbcff` at α=0.32     |
-| stuck   | `rgba(227,179,65,0.38)`   | `#e3b341` at α=0.38     |
-| alert   | `rgba(255,123,114,0.40)`  | `#ff7b72` at α=0.40     |
-| queued  | `rgba(198,155,255,0.32)`  | `#c69bff` at α=0.32     |
+| Bucket  | Glow                      | Accent RGB basis                  |
+|---------|---------------------------|-----------------------------------|
+| running | `rgba(79,214,196,0.35)`   | `#4fd6c4` → 79,214,196, α chosen |
+| paused  | `rgba(143,188,255,0.32)`  | `#8fbcff` → 143,188,255, α chosen |
+| stuck   | `rgba(227,179,65,0.38)`   | `#e3b341` → 227,179,65, α chosen  |
+| alert   | `rgba(255,123,114,0.40)`  | `#ff7b72` → 255,123,114, α chosen |
+| queued  | `rgba(198,155,255,0.32)`  | `#c69bff` → 198,155,255, α chosen |
 
 ## Face colours (inner gradient base)
 
-Dark tinted surfaces: the OCC base background `--bg: #16171a` tinted with each
-bucket's accent at approximately 8–10% intensity, producing a near-black with a
-hue cast that matches the bucket.
+Dark surfaces chosen to give each bucket a distinct hue cast against a near-black
+background. These are design constants; they are not derivable from the OCC
+base background (`--bg: #16171a`) by a simple alpha-blend formula.
 
 | Bucket  | Face      | Hue cast |
 |---------|-----------|----------|

@@ -49,8 +49,9 @@ export interface AgentInput {
   readonly progress_percent: number;
   readonly priority: boolean;
   /**
-   * When absent, treated as true (no known dependency blocks this agent).
-   * Explicitly set to false for agents waiting on a dependency.
+   * Explicitly set to true when no dependency blocks this agent.
+   * Absent or false means blocked — fail-closed so a projection bug cannot
+   * silently paint every blocked agent as Unblocked.
    */
   readonly dependency_ready?: boolean;
 }
@@ -64,9 +65,9 @@ const KEYS_PER_PAGE = COLUMNS * ROWS;
  * (docs/build-order/prototype/Aiur Operator Control Center.html):
  *   running → --ack, paused → --accent-ink, stuck → --attn,
  *   alert → --block, queued → --super.
- * Glow = accent RGB at higher opacity (0.32–0.40) for physical-device readability.
- * Face = --bg (#16171a) tinted with accent at ~8–10%.
- * Full derivation: docs/design/streamdeck-bucket-tokens.md
+ * Glow = accent RGB with a chosen alpha (0.32–0.40) for physical-device readability.
+ * Face = chosen near-black constants with per-bucket hue casts (not alpha-blended).
+ * See docs/design/streamdeck-bucket-tokens.md for provenance.
  */
 export const BUCKET_STYLES: Readonly<Record<BucketId, Readonly<BucketStyle>>> = Object.freeze({
   running: Object.freeze({
@@ -118,7 +119,7 @@ function buildFooter(agent: AgentInput): Footer {
     return {
       kind: "queued",
       label: BUCKET_STYLES.queued.label,
-      unblocked: agent.dependency_ready ?? true,
+      unblocked: agent.dependency_ready === true,
     };
   }
   const pct = clampPercent(agent.progress_percent);
