@@ -126,8 +126,8 @@ defmodule Aiur.AgentRunner.TurnPromptTest do
       issue = %Issue{id: "1041", identifier: "1041", title: "Auto-transition", state: "in-progress"}
       prompt = TurnPrompt.build_turn_prompt(issue, [], 1, nil)
 
-      assert prompt =~ "ce-plan"
-      assert prompt =~ "ce-work"
+      # Confirm this is the cold-start path (shared instructions present) not a continuation
+      assert prompt =~ "## Shared Agent Instructions"
       assert prompt =~ "planning-to-work transition is authorized"
     end
 
