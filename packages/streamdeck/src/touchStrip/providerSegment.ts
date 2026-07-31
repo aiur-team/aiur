@@ -90,6 +90,10 @@ function clampPercent(value: number | undefined): number {
   return value;
 }
 
+function hasUsedPercent(window: ProviderMeterWindow): boolean {
+  return typeof window.used_percent === "number" && Number.isFinite(window.used_percent);
+}
+
 function toUsageWindow(window: ProviderMeterWindow): UsageWindow {
   return {
     usedPercent: clampPercent(window.used_percent),
@@ -130,7 +134,13 @@ function classifyWindows(windows: Readonly<Record<string, ProviderMeterWindow>>)
   // the provider's one real reading, so treat it as the session. Only applies
   // when the duration pass classified nothing AND there is a single window —
   // multiple duration-less windows stay ambiguous, never guessed.
-  if (session === null && weekly === null && all.length === 1) {
+  //
+  // The lone window must also carry a finite `used_percent`. Without it,
+  // `clampPercent(undefined)` renders a confident "0% used" — which reads as
+  // "plenty of headroom" when the truth is unknown (#1436). An honest "no data"
+  // beats a fabricated zero on a glanceable surface, so a duration-less window
+  // with no percentage stays unclassified and the segment reports hasData:false.
+  if (session === null && weekly === null && all.length === 1 && hasUsedPercent(all[0])) {
     session = all[0];
   }
 
