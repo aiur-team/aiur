@@ -159,7 +159,7 @@ DASH-025 + DASH-030 + orangekid's **DASH-013 #1119** — the one cross-machine
 join). Capstones last: DASH-023 #1127, DASH-033 #1137, BO-015 #1102.
 
 ### Restart recipe (macbook-fable)
-1. `git -C /Users/kevinweaver/github.com/its-everdred/aiur checkout develop && git pull`
+1. `git -C /Users/kevinweaver/github.com/aiur-team/aiur checkout develop && git pull`
 2. `scripts/aiurdev build` (rebuild on current develop — DASH-003/014/024/026/029
    are in the base).
 3. Queue ONLY the intended set: `scripts/aiurdev --todo <ids>` (e.g. re-run
@@ -925,7 +925,7 @@ issue bodies, mappings, routing labels, lifecycle partitions, and all 43
 comments. The final pre-run work is to land planning PR #1064 on current
 `develop`, verify its CI, and rebuild prewarm from that exact integration tip.
 Shared GATE-001/GATE-002 evidence is recorded on root #1084 in
-https://github.com/its-everdred/aiur/issues/1084#issuecomment-4984606240;
+https://github.com/aiur-team/aiur/issues/1084#issuecomment-4984606240;
 GATE-003 and GATE-004 remain ticket-specific blockers.
 
 All restart prerequisites through the live execution receipt, `develop` push
@@ -1104,7 +1104,7 @@ Terra; never dispatch Claude.
     binary browser artifacts, no CI invocation of the failure-evidence
     verifier, and recursive cleanup of a caller-owned artifact directory. The
     deduplicated review is recorded at
-    `https://github.com/its-everdred/aiur/pull/1145#issuecomment-4964932068`;
+    `https://github.com/aiur-team/aiur/pull/1145#issuecomment-4964932068`;
     #1087 returned to `agent:rework` rather than merging a green-but-incomplete
     harness. Keep all fixes on #1087; do not file five follow-up tickets.
 12. At 20:05 PDT Claude refreshed the committed OCC design and plan preview
@@ -1124,7 +1124,7 @@ Terra; never dispatch Claude.
     credential-shaped strings could enter allowlisted identity fields, and the
     required store-backed lifecycle/history matrix was incomplete. The
     deduplicated review is at
-    `https://github.com/its-everdred/aiur/pull/1147#issuecomment-4965018879`;
+    `https://github.com/aiur-team/aiur/pull/1147#issuecomment-4965018879`;
     #1089 returned to `agent:rework` and resumed. Keep every fix on #1089.
     At the same snapshot #1086/#1143 and #1090/#1141 are green and in dual
     Executor review, #1088/#1144 is rerunning its failed test, and #1087/#1145
@@ -1148,7 +1148,7 @@ Terra; never dispatch Claude.
     nested identity, noncanonical/contradictory structs could be marked
     joinable, and rate-limit fallback redispatch dropped identity metadata.
     The packet is at
-    `https://github.com/its-everdred/aiur/pull/1143#issuecomment-4965070307`;
+    `https://github.com/aiur-team/aiur/pull/1143#issuecomment-4965070307`;
     #1086 resumed and owns every fix.
 16. Dual review returned #1090/#1141 to rework for the provider-account
     generation lifecycle as a whole: authenticated startup did not seed a
@@ -1156,14 +1156,14 @@ Terra; never dispatch Claude.
     teardown boundaries could preserve/cross stale generations, and five
     related continuity/degradation cases violated the ticket contract. The
     single consolidated packet is at
-    `https://github.com/its-everdred/aiur/pull/1141#issuecomment-4965072012`;
+    `https://github.com/aiur-team/aiur/pull/1141#issuecomment-4965072012`;
     #1090 resumed. Do not split these findings into new tickets.
 17. Dual review returned #1088/#1144 to rework despite green CI: the default
     query path named the wrong store module, response paging still performed
     unbounded store/metrics reads, partial detail health was hidden, canonical
     counts did not reach the UI, and required property/replay/security coverage
     was absent. The consolidated packet is at
-    `https://github.com/its-everdred/aiur/pull/1144#issuecomment-4965131360`;
+    `https://github.com/aiur-team/aiur/pull/1144#issuecomment-4965131360`;
     keep all fixes on #1088.
 18. At 20:34 PDT the Executor diagnosed a production CI-wake loss on
     #1087/#1145. The agent posted its review-resolution PR comment under the
@@ -1334,7 +1334,7 @@ Terra; never dispatch Claude.
     full-store GenServer scan, corrupt-prefix health propagation, canonical
     inbox chip counts, and true property/generative coverage remained unmet.
     The deduplicated packet is at
-    `https://github.com/its-everdred/aiur/pull/1144#issuecomment-4966048101`.
+    `https://github.com/aiur-team/aiur/pull/1144#issuecomment-4966048101`.
     Preserve its new replay/security tests, but keep every remaining finding
     on #1088 rather than filing follow-up tickets. Its implementation slot was
     immediately backfilled by #1104/BO-017.
@@ -1344,7 +1344,7 @@ Terra; never dispatch Claude.
     in an ordinary between-turn or paused-session gap, and abnormal termination
     can leave an unmonitored active-turn entry that parks every retry forever.
     The consolidated packet is at
-    `https://github.com/its-everdred/aiur/pull/1039#issuecomment-4966093657`.
+    `https://github.com/aiur-team/aiur/pull/1039#issuecomment-4966093657`.
     Keep #1030 in rework: require a monitor-backed generation lease spanning
     SessionLifecycle/after-run, exception-safe turn closure, and sequential-
     turn, paused-session, and owner-death regressions. This is the existing
@@ -1369,7 +1369,7 @@ Terra; never dispatch Claude.
     must prove exact old-reader/new-record replay, complete three-field deletion
     rejection, malformed-marker/tamper rejection, legacy integer/string replay,
     and numeric publisher-cursor behavior. The durable decision is at
-    `https://github.com/its-everdred/aiur/issues/1089#issuecomment-4966200021`;
+    `https://github.com/aiur-team/aiur/issues/1089#issuecomment-4966200021`;
     do not substitute a two-phase rollout or weaken complete anti-stripping.
 37. At 00:03 PDT BO-017/PR #1156 exact head `3bc75ee5` completed its second
     review wave. The security/API/reliability reviewer confirmed the earlier
@@ -3169,9 +3169,9 @@ historical OPEN receipt as though it were a fresh publication snapshot.
 
 ## Identity and objective
 
-- Build Order: `its-everdred/aiur:build-order-dashboard`
+- Build Order: `aiur-team/aiur:build-order-dashboard`
 - Plan version: 1
-- Repository: `its-everdred/aiur`
+- Repository: `aiur-team/aiur`
 - Researched commit: `9849f32963c2a65367bce565b3f5ede3777c218f`
 - Approved planning commit: `4d8de9508206e08e314f2730cd916501a3b4cafd`
 - GitHub root: marker-resolved #1084 at pending publication; always re-resolve

@@ -10,7 +10,7 @@ The isolated skill-only PR #1065 was finally reviewed at source head
 the bounded publication contract required by this pack.
 
 The Build Order planning authority for this issue body is
-[`4d8de9508206e08e314f2730cd916501a3b4cafd`](https://github.com/its-everdred/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd).
+[`4d8de9508206e08e314f2730cd916501a3b4cafd`](https://github.com/aiur-team/aiur/commit/4d8de9508206e08e314f2730cd916501a3b4cafd).
 
 ## Why human-blocked
 
