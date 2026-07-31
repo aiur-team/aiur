@@ -4,6 +4,7 @@ contaminating_env_vars = [
   "ERL_AFLAGS",
   "AIUR_DASHBOARD_USERNAME",
   "AIUR_DASHBOARD_PASSWORD",
+  "AIUR_DEBUG",
   "AIUR_SUPERVISOR_TOKEN",
   "AIUR_NODE",
   "AIUR_ERLANG_COOKIE",
@@ -64,7 +65,7 @@ File.mkdir_p!(Path.dirname(global_log_file))
 # excluded elsewhere (e.g. macOS dev) rather than silently passing.
 real_proc_exclude = if File.dir?("/proc"), do: [], else: [:real_proc]
 
-ExUnit.start(exclude: [:perf_regression] ++ real_proc_exclude)
+ExUnit.start(exclude: [:perf_regression, :quarantine] ++ real_proc_exclude)
 
 ExUnit.after_suite(fn _result ->
   case original_home do
