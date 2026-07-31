@@ -28,6 +28,7 @@ defmodule Aiur.ProviderMeterProbe do
   alias Aiur.ProviderMeterProjection
   alias Aiur.ProviderMeters.Events
   alias Aiur.ProviderMeterSnapshot
+  alias Aiur.Workspace
 
   # How long to hold a probe session open waiting for the provider to push its
   # rate-limit notification. Generous enough for a cold app-server start,
@@ -138,13 +139,21 @@ defmodule Aiur.ProviderMeterProbe do
   # The app-server refuses a cwd outside the configured workspace root, so the
   # probe gets its own directory under that root rather than borrowing an
   # agent's workspace (which could be mid-checkout) or the daemon's cwd.
+  #
+  # The directory is placed in the same owner/repo-namespaced tree that
+  # `Workspace.create_for_issue/1` uses for real tickets — not at the bare root
+  # of the workspaces tree — and is created on demand here. A bare-root
+  # `<workspace_root>/usage-probe` is owned by no machinery: nothing creates it,
+  # and the app-server then fails to `cd` into a directory that never existed
+  # (#1406). Folding it into the owner-scoped layout makes it created and located
+  # exactly like any other workspace.
   defp probe_workspace(opts) do
     case Keyword.get(opts, :workspace) do
       workspace when is_binary(workspace) ->
         {:ok, workspace}
 
       _unset ->
-        workspace = Path.join(Config.workspace_root(), @probe_identifier)
+        workspace = Workspace.workspace_path_under(Config.workspace_root(), @probe_identifier)
 
         case File.mkdir_p(workspace) do
           :ok -> {:ok, workspace}

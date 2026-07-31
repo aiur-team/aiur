@@ -6,10 +6,11 @@ defmodule Aiur.ProviderMeterProbeTest do
   defmodule FakeAgent do
     @moduledoc false
 
-    def start_session(_workspace, opts) do
+    def start_session(workspace, opts) do
       case Process.get(:probe_start_result, :ok) do
         :ok ->
           send(Process.get(:probe_test_pid), {:session_started, Keyword.get(opts, :identifier)})
+          send(Process.get(:probe_test_pid), {:session_workspace, workspace})
           {:ok, %{fake: true}}
 
         {:error, _reason} = error ->
@@ -130,11 +131,22 @@ defmodule Aiur.ProviderMeterProbeTest do
 
   # Without an explicit workspace the probe derives one under the configured
   # workspace root; the app-server rejects any cwd outside it.
-  test "a probe with no explicit workspace derives one under the workspace root", ctx do
+  #
+  # The derived directory must also be created on demand: a path that nothing
+  # creates leaves the app-server unable to `cd` into it every probe cycle
+  # (#1406). Assert both the location (under the workspace root, via the same
+  # repo-namespaced layout real tickets use) and that it exists on disk.
+  test "a probe with no explicit workspace derives one under the workspace root and creates it", ctx do
     outcome = ctx |> opts() |> Keyword.delete(:workspace) |> then(&ProviderMeterProbe.observe(:codex, &1))
 
     assert [%{provider: :codex}] = outcome
     assert_received {:session_started, "usage-probe"}
+    assert_received {:session_workspace, workspace}
+
+    expected = Aiur.Workspace.workspace_path_under(Aiur.Config.workspace_root(), "usage-probe")
+    assert workspace == expected
+    assert String.starts_with?(workspace, Aiur.Config.workspace_root())
+    assert File.dir?(workspace)
   end
 
   defp snapshot(provider) do
