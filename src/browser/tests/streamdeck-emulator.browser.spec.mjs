@@ -117,10 +117,14 @@ test('key click triggers is-flashing animation; rapid repeat restarts it', async
   await key.click()
   await expect(key).toHaveClass(/is-flashing/, { timeout: 500 })
 
-  // Second rapid click: remove + reflow + re-add should work.
-  // The key already has is-flashing (CSS animation active), so force the click
-  // to bypass Playwright's stability check — that's exactly what we're testing.
-  await key.click({ force: true })
+  // Second rapid click: dispatch directly to exercise the remove+reflow+re-add
+  // branch. After the first click, mode shifted to cmd so the keys container is
+  // display:none — Playwright's click (even with force:true) refuses to target
+  // elements inside a hidden parent. page.evaluate dispatches without that check.
+  await page.evaluate(() => {
+    const k = document.querySelector('.sd-key:not(.is-empty)')
+    k.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+  })
   // Still present (or re-added); the test confirms the branch ran without throwing.
   await expect(key).toHaveClass(/is-flashing/, { timeout: 500 })
 })
@@ -204,7 +208,12 @@ test('mode transitions: grid → cmd (key click) → logs (cycle-window) → bac
   await expect(device).toHaveAttribute('data-mode', 'cmd')
 
   // Dial 0 press (back) again → grid mode.
-  await page.mouse.move(d0cx, d0cy)
+  // Re-fetch bounding box: the layout reflowed when keys became hidden (cmd mode),
+  // so cached coordinates from the logs-mode capture may miss the knob.
+  const d0box2 = await dial0.boundingBox()
+  const d0cx2 = d0box2.x + d0box2.width / 2
+  const d0cy2 = d0box2.y + d0box2.height / 2
+  await page.mouse.move(d0cx2, d0cy2)
   await page.mouse.down()
   await page.mouse.up()
   await expect(device).toHaveAttribute('data-mode', 'grid')

@@ -75,7 +75,7 @@ defmodule AiurWeb.StreamdeckLive do
                 </div>
                 <div :if={!key.empty? and key.bucket != "queued"} class="sd-key-footer">
                   <span class="sd-status-dot" aria-hidden="true"></span><span>{key.label}</span>
-                  <span class="sd-progress" aria-label={"#{key.progress}% complete"}><i style={"width: #{key.progress}%"}></i></span>
+                  <span class="sd-progress" role="progressbar" aria-valuenow={key.progress} aria-valuemin="0" aria-valuemax="100" aria-label={"#{key.progress}% complete"}><i style={"width: #{key.progress}%"}></i></span>
                 </div>
               </div>
             </li>
