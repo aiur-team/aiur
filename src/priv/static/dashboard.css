@@ -7290,6 +7290,7 @@ html[data-theme="light"] .toggle-icon .moon {
   line-height: 1.12;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
 }
 
 .sd-key-footer {
@@ -7391,9 +7392,6 @@ html[data-theme="light"] .toggle-icon .moon {
   background: transparent;
 }
 
-.sd-key.is-flashing {
-  animation: sd-flash 0.45s ease-out;
-}
 
 .sd-screen {
   display: grid;
@@ -7554,6 +7552,11 @@ html[data-theme="light"] .toggle-icon .moon {
 html[data-theme="light"] .sd-device {
   --fg: rgba(255, 255, 255, 0.87);
   --muted: rgba(255, 255, 255, 0.45);
+  --accent-ink: #8fbcff;
+  --attention-ink: #f1cf6f;
+  --accent: #2f86ff;
+  --super: #c69bff;
+  --good: #3fb950;
 }
 
 @media (max-width: 560px) {
