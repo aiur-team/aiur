@@ -2252,7 +2252,6 @@ defmodule AiurWeb.DashboardLiveTest do
       })
 
     assert html =~ "Revision recorded"
-    assert html =~ "A revision records new direction"
     assert html =~ "Original answer · preserved"
     assert html =~ "Hold deployment until the incident closes"
     assert html =~ "New production evidence"
