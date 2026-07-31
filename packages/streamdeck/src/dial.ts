@@ -224,11 +224,15 @@ export const cycleEventPage = (
 
   if (maxOff === 0) return { eventOffset: 0, dial3Value: 0 };
 
+  // Mirror the guard in currentWindow: clamp negative offsets to 0 so stale
+  // or out-of-range state never produces a phantom mid-page result.
+  const safeOffset = Math.max(0, currentEventOffset);
+
   // When at or beyond the clamped maximum, wrap back to 0; otherwise advance
   // by one page and clamp. Using >= maxOff (not a page-number comparison) avoids
   // the stuck-at-last-page bug that occurs when the clamped offset falls
   // mid-page according to floor division.
-  const offset = currentEventOffset >= maxOff ? 0 : Math.min(currentEventOffset + 8, maxOff);
+  const offset = safeOffset >= maxOff ? 0 : Math.min(safeOffset + 8, maxOff);
 
   return { eventOffset: offset, dial3Value: dial3ValueFromEventOffset(offset, eventCount) };
 };
@@ -252,8 +256,9 @@ export const dial3ValueFromEventOffset = (eventOffset: number, eventCount: numbe
  * type-safe. Dial 3 is included (reset to its back-computed position for
  * offset 0) so callers get a single object covering all four dials.
  *
- * DialResetResult must remain assignable to ModeDialState — the exported
- * helper below enforces this at compile time.
+ * DialResetResult is a structural superset of ModeDialState (adds dial1/dial2
+ * which the mode machine does not track). The exported type-level function
+ * below enforces at compile time that the superset relationship holds.
  */
 export interface DialResetResult {
   dial0Rotation: number;
@@ -262,7 +267,11 @@ export interface DialResetResult {
   dial3Rotation: number;
 }
 
-/** Compile-time assertion: DialResetResult must satisfy ModeDialState. */
+/**
+ * Compile-time assertion: DialResetResult must be assignable to ModeDialState.
+ * If ModeDialState gains required fields not in DialResetResult, this errors.
+ * @internal
+ */
 export const _assertDialResetSatisfiesModeDialState = (r: DialResetResult): ModeDialState => r;
 
 export const resetDials = (): DialResetResult => ({

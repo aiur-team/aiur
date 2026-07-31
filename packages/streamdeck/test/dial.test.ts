@@ -136,6 +136,12 @@ describe("applyDragDelta", () => {
     for (let i = 0; i < 100; i++) v = applyDragDelta(v, 1);
     expect(v).toBeCloseTo(applyDragDelta(0, 100), 5);
   });
+
+  it("accumulates correctly with fractional steps — 77 × 1.3° moves equal one 100.1° move", () => {
+    let v = 0;
+    for (let i = 0; i < 77; i++) v = applyDragDelta(v, 1.3);
+    expect(v).toBeCloseTo(applyDragDelta(0, 77 * 1.3), 5);
+  });
 });
 
 describe("applyStep", () => {
@@ -327,6 +333,11 @@ describe("currentWindow", () => {
   it("returns 0 for 0 agents", () => {
     expect(currentWindow(0, 0)).toBe(0);
   });
+
+  it("returns 0 for negative columnOffset (clamp guard)", () => {
+    expect(currentWindow(-1, 32)).toBe(0);
+    expect(currentWindow(-100, 32)).toBe(0);
+  });
 });
 
 describe("cycleWindow", () => {
@@ -455,6 +466,20 @@ describe("cycleEventPage", () => {
     expect(result.dial3Value).toBe(100);
   });
 
+  it("clamps negative currentEventOffset to 0 before advancing", () => {
+    // Negative offset should behave as offset 0 — advance to page 1 (offset 8), not phantom page 7.
+    const result = cycleEventPage(-1, 20);
+    expect(result.eventOffset).toBe(8);
+    expect(result.dial3Value).toBe(dial3ValueFromEventOffset(8, 20));
+  });
+
+  it("mid-page offset triggers Math.min clamping — advance from 5 clamps at maxEventOffset 12", () => {
+    // min(5 + 8, 12) = 12
+    const result = cycleEventPage(5, 20);
+    expect(result.eventOffset).toBe(12);
+    expect(result.dial3Value).toBe(100);
+  });
+
   it("sync without rotating — round-trip invariant: eventOffsetFromDial(dial3Value) === eventOffset", () => {
     for (const n of [0, 8, 9, 16, 20, 100]) {
       const { eventOffset, dial3Value } = cycleEventPage(0, n);
@@ -491,7 +516,7 @@ describe("resetDials", () => {
     });
   });
 
-  it("result satisfies ModeDialState (compile-time verified via _assertDialResetSatisfiesModeDialState)", () => {
+  it("result satisfies ModeDialState (compile-time via _assertDialResetSatisfiesModeDialState)", () => {
     const result = resetDials();
     // Structural check: assign to ModeDialState — type error if fields diverge.
     const _modeDialState: ModeDialState = result;
