@@ -205,7 +205,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
   defp issue(id, state) do
     %Issue{
       id: id,
-      identifier: "its-everdred/aiur##{id}",
+      identifier: "aiur-team/aiur##{id}",
       state: state,
       tracker_identity: %TrackerIdentity{
         version: 1,

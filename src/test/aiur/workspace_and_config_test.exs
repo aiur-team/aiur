@@ -1176,13 +1176,13 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
-        workspace_bootstrap_image: "ghcr.io/its-everdred/aiur:latest",
+        workspace_bootstrap_image: "ghcr.io/aiur-team/aiur:latest",
         workspace_bootstrap_image_pull: true,
         hook_before_run: "echo before > before-run.log"
       )
 
-      assert Config.settings!().workspace.bootstrap_image == "ghcr.io/its-everdred/aiur:latest"
-      assert Config.workspace_bootstrap_image() == "ghcr.io/its-everdred/aiur:latest"
+      assert Config.settings!().workspace.bootstrap_image == "ghcr.io/aiur-team/aiur:latest"
+      assert Config.workspace_bootstrap_image() == "ghcr.io/aiur-team/aiur:latest"
       assert Config.workspace_bootstrap_image_pull?()
 
       assert {:ok, workspace} = Workspace.create_for_issue("MT-IMAGE")
@@ -1193,7 +1193,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
       assert File.read!(Path.join([workspace, "src", "_build", "from-image.txt"])) == "warm build\n"
 
       trace = File.read!(trace_file)
-      assert trace =~ "ARGV:pull ghcr.io/its-everdred/aiur:latest"
+      assert trace =~ "ARGV:pull ghcr.io/aiur-team/aiur:latest"
       assert trace =~ "ARGV:run --rm --user"
       assert trace =~ "--volume #{workspace}:/workspace"
     after
@@ -1229,7 +1229,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
-        workspace_bootstrap_image: "ghcr.io/its-everdred/aiur:latest"
+        workspace_bootstrap_image: "ghcr.io/aiur-team/aiur:latest"
       )
 
       assert {:ok, workspace} = Workspace.create_for_issue("MT-IMAGE-EXISTING")

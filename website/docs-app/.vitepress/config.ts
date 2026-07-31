@@ -72,7 +72,7 @@ export default defineConfig({
       }
     ],
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/its-everdred/aiur' }
+      { icon: 'github', link: 'https://github.com/aiur-team/aiur' }
     ],
     footer: {
       message: 'Command macro, delegate micro, maximize APM.',

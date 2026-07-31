@@ -9,7 +9,7 @@ defmodule Aiur.DecisionStoreTest do
   alias Aiur.Events.{Exchange, IdGenerator}
   alias AiurWeb.ControlCenterPresenter
 
-  @ticket %{identifier: "979", title: "OCC-1", url: "https://github.com/its-everdred/aiur/issues/979"}
+  @ticket %{identifier: "979", title: "OCC-1", url: "https://github.com/aiur-team/aiur/issues/979"}
   @source %{agent_id: "agent-1", session_id: "session-1", event_id: nil}
 
   setup do
@@ -484,7 +484,7 @@ defmodule Aiur.DecisionStoreTest do
       ticket = %{
         identifier: "979",
         title: "Leaked #{secret}",
-        url: "https://github.com/its-everdred/aiur/issues/979?token=#{secret}"
+        url: "https://github.com/aiur-team/aiur/issues/979?token=#{secret}"
       }
 
       payload = %{
@@ -1381,7 +1381,7 @@ defmodule Aiur.DecisionStoreTest do
         "question" => "Deploy now?",
         "blocking" => true,
         "source_id" => "retry-1",
-        "artifacts" => ["https://github.com/its-everdred/aiur"]
+        "artifacts" => ["https://github.com/aiur-team/aiur"]
       }
 
       assert {:ok, %{status: :accepted, decision: accepted}} = request(pid1, payload)

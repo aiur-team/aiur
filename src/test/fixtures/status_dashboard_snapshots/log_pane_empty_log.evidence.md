@@ -10,7 +10,7 @@
 │
 ├─ Agent log: MT-001 - Fix the login flow (in-progress)
 │
-│   URL: https://github.com/its-everdred/aiur/issues/0
+│   URL: https://github.com/aiur-team/aiur/issues/0
 │
 │   [n/a] system · Log
 │       No displayable chat events yet.

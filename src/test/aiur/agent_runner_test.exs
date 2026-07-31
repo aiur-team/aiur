@@ -202,7 +202,7 @@ defmodule Aiur.AgentRunnerTest do
 
     test "falls back to id when identifier is nil" do
       issue = %{identifier: nil, id: "412", title: "Fix it"}
-      assert AgentRunner.rc_session_name(issue, "its-everdred/aiur") == "Aiur: Aiur #412 - Fix it"
+      assert AgentRunner.rc_session_name(issue, "aiur-team/aiur") == "Aiur: Aiur #412 - Fix it"
     end
 
     test "preserves existing casing in the repo short name" do

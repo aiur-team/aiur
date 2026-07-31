@@ -179,7 +179,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
             tracker_identity: identity,
             state: "in-progress",
             title: "Render Units",
-            url: "https://github.com/its-everdred/aiur/issues/41",
+            url: "https://github.com/aiur-team/aiur/issues/41",
             backend: "codex",
             agent_family: "codex",
             requested_model: "gpt-5.6",
@@ -200,7 +200,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
       decisions: [
         %{
           lifecycle: :recorded,
-          ticket: %{identifier: "41", url: "https://github.com/its-everdred/aiur/issues/41"}
+          ticket: %{identifier: "41", url: "https://github.com/aiur-team/aiur/issues/41"}
         }
       ]
     }

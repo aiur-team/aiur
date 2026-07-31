@@ -3336,7 +3336,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert_receive {:conversation_subscribed, ^handle}
     assert html =~ ~s(id="units-conversation-drawer")
     assert html =~ "not participating"
-    assert html =~ "its-everdred/aiur #1110"
+    assert html =~ "aiur-team/aiur #1110"
     assert html =~ "Reviewing the drawer"
     refute html =~ handle
     refute html =~ "units-ticket-context"
@@ -3891,7 +3891,7 @@ defmodule AiurWeb.DashboardLiveTest do
           tracker_identity: identity,
           state: "in-progress",
           title: "Responsive Units interface",
-          url: "https://github.com/its-everdred/aiur/issues/1110",
+          url: "https://github.com/aiur-team/aiur/issues/1110",
           labels: ["complexity:3", "build-lane:L2"],
           backend: :codex,
           agent_family: :codex,
@@ -3987,7 +3987,7 @@ defmodule AiurWeb.DashboardLiveTest do
         title: title,
         description: "Bounded reusable ticket context",
         lifecycle: Lifecycle.from_github("OPEN", nil),
-        url: "https://github.com/its-everdred/aiur/issues/#{identity.identifier}",
+        url: "https://github.com/aiur-team/aiur/issues/#{identity.identifier}",
         created_at: observed_at,
         updated_at: observed_at,
         observed_at: observed_at
@@ -4271,7 +4271,7 @@ defmodule AiurWeb.DashboardLiveTest do
       generation: Keyword.get(opts, :generation, 3),
       state: if(outcomes == [], do: :healthy_empty, else: :healthy),
       run: %{id: Keyword.get(opts, :run_id, "run-1"), started_at: ~U[2026-07-17 10:00:00Z], observed_at: ~U[2026-07-17 12:00:00Z]},
-      repository: "its-everdred/aiur",
+      repository: "aiur-team/aiur",
       membership: %{generation: 4, signature: "sig"},
       outcomes: outcomes,
       counts: %{input: length(outcomes), invalid: 0, deduplicated: length(outcomes), qualified: length(outcomes), returned: length(outcomes)},
@@ -4297,11 +4297,11 @@ defmodule AiurWeb.DashboardLiveTest do
 
     %{
       id: "merge-#{number}",
-      repository: "its-everdred/aiur",
+      repository: "aiur-team/aiur",
       number: number,
       title: "Ship #{number}",
       summary: "A short safe summary for #{number}.",
-      url: "https://github.com/its-everdred/aiur/pull/#{number}",
+      url: "https://github.com/aiur-team/aiur/pull/#{number}",
       head_ref: "aiur/#{number}-slug",
       head_sha: "abc#{number}",
       merge_commit_sha: "def#{number}",

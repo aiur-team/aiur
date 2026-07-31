@@ -9,7 +9,7 @@
 │
 \e[1m├─ Agent log: MT-001 - Fix the login flow (in-progress)\e[0m
 │
-\e[90m│   \e[0m\e[1mURL: \e[0m\e[36mhttps://github.com/its-everdred/aiur/issues/0\e[0m
+\e[90m│   \e[0m\e[1mURL: \e[0m\e[36mhttps://github.com/aiur-team/aiur/issues/0\e[0m
 │
 │   \e[90m[n/a] \e[0m\e[35m\e[1msystem\e[0m\e[90m · \e[0m\e[90m\e[1mLog\e[0m
 │       \e[90mNo displayable chat events yet.\e[0m

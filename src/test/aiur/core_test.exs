@@ -1008,7 +1008,7 @@ defmodule Aiur.CoreTest do
 
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_kind: "github",
-      tracker_repo: "its-everdred/aiur",
+      tracker_repo: "aiur-team/aiur",
       tracker_active_states: ["todo", "in-progress"],
       tracker_terminal_states: ["done"],
       max_retry_backoff_ms: 100

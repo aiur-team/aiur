@@ -7,7 +7,7 @@ defmodule Aiur.DecisionRevisionDispatchTest do
     ticket: %{
       identifier: "tracker-id-985",
       title: "OCC-8",
-      url: "https://github.com/its-everdred/aiur/issues/985"
+      url: "https://github.com/aiur-team/aiur/issues/985"
     }
   }
   @terminal_states MapSet.new(["done", "canceled"])

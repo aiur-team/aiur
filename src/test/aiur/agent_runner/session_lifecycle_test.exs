@@ -384,7 +384,7 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
     test "builds, scrubs, and clamps the remote-control name" do
       issue = %Issue{identifier: "7", id: "gid-7", title: "a\t'b'\n  `c` " <> String.duplicate("x", 100)}
 
-      name = SessionLifecycle.rc_session_name(issue, "its-everdred/aiur")
+      name = SessionLifecycle.rc_session_name(issue, "aiur-team/aiur")
 
       assert String.starts_with?(name, "Aiur: Aiur #7 - a b c")
       assert String.length(name) == 60

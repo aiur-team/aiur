@@ -85,15 +85,15 @@ defmodule AiurWeb.OperatorControlCenter.DecisionProviderTest do
             source:
               Map.merge(current.source, %{
                 account_id: "account-private",
-                capability_url: "https://github.com/its-everdred/aiur?capability=private",
+                capability_url: "https://github.com/aiur-team/aiur?capability=private",
                 credential: secret,
                 prompt: "raw system prompt"
               }),
             artifacts: [
               safe_artifact,
-              %{kind: :url, value: "https://github.com/its-everdred/aiur/evidence"},
-              %{kind: :url, value: "https://github.com/its-everdred/aiur/evidence?capability=private"},
-              %{kind: :url, value: "https://github.com/its-everdred/aiur/evidence#capability=private"}
+              %{kind: :url, value: "https://github.com/aiur-team/aiur/evidence"},
+              %{kind: :url, value: "https://github.com/aiur-team/aiur/evidence?capability=private"},
+              %{kind: :url, value: "https://github.com/aiur-team/aiur/evidence#capability=private"}
             ],
             provenance: provenance
         }
@@ -111,7 +111,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionProviderTest do
     assert detail.question == SecretRedactor.redact("Can #{secret} be rendered?")
     refute Map.has_key?(detail.source, :session_id)
     refute Map.has_key?(detail.source, :event_id)
-    assert detail.artifacts == [safe_artifact, %{kind: :url, value: "https://github.com/its-everdred/aiur/evidence"}]
+    assert detail.artifacts == [safe_artifact, %{kind: :url, value: "https://github.com/aiur-team/aiur/evidence"}]
 
     assert detail.provenance ==
              Map.drop(provenance, [:session_id])
@@ -132,7 +132,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionProviderTest do
           "account-private",
           "invocation-private",
           "raw system prompt",
-          "https://github.com/its-everdred/aiur?capability=private",
+          "https://github.com/aiur-team/aiur?capability=private",
           "evidence?capability=private",
           "evidence#capability=private",
           secret

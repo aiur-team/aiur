@@ -12,7 +12,7 @@ defmodule Aiur.DecisionProjectionTest do
     DecisionValidation
   }
 
-  @ticket %{identifier: "979", title: "OCC-1", url: "https://github.com/its-everdred/aiur/issues/979"}
+  @ticket %{identifier: "979", title: "OCC-1", url: "https://github.com/aiur-team/aiur/issues/979"}
   @source %{agent_id: "agent-1", session_id: "session-1", event_id: "evt-1"}
 
   defp build_decision(payload_overrides \\ %{}, opts \\ []) do

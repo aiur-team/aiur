@@ -110,7 +110,7 @@ defmodule Aiur.DecisionHistoryTest do
     assert {:ok, decision} =
              DecisionValidation.normalize(
                %{"question" => "Keep provenance?", "blocking" => true, "source_id" => "history-provenance"},
-               ticket: %{identifier: "979", title: "OCC-1", url: "https://github.com/its-everdred/aiur/issues/979"},
+               ticket: %{identifier: "979", title: "OCC-1", url: "https://github.com/aiur-team/aiur/issues/979"},
                source: %{agent_id: "agent-1", session_id: "session-1", event_id: "evt-1"},
                provenance: provenance,
                now: ~U[2026-07-13 12:00:00Z]
@@ -301,7 +301,7 @@ defmodule Aiur.DecisionHistoryTest do
       %{
         decision_id: "dec_1",
         version: 1,
-        ticket: %{identifier: "983", title: "OCC-6", url: "https://github.com/its-everdred/aiur/issues/983"},
+        ticket: %{identifier: "983", title: "OCC-6", url: "https://github.com/aiur-team/aiur/issues/983"},
         source: %{agent_id: "agent-1", session_id: "session-1", event_id: nil},
         question: "Ship it?",
         created_at: ~U[2026-07-12 12:00:00Z]

@@ -14,7 +14,7 @@ defmodule Aiur.AgentList.Renderer.TableTest do
 
     layout =
       Map.merge(Layout.compute([summary], 120), %{
-        project_label: "its-everdred/aiur",
+        project_label: "aiur-team/aiur",
         phase_by_identifier: %{},
         open_attentions_by_id: %{},
         latest_event_by_id: %{},
@@ -29,7 +29,7 @@ defmodule Aiur.AgentList.Renderer.TableTest do
     unselected = Table.render_row(summary, false, 120, layout, %{"1" => "⚪"}) |> IO.iodata_to_binary()
 
     assert selected =~ IO.ANSI.reverse()
-    assert selected =~ "\e]8;;https://github.com/its-everdred/aiur/issues/1"
+    assert selected =~ "\e]8;;https://github.com/aiur-team/aiur/issues/1"
     assert unselected =~ "│" <> IO.ANSI.reset()
   end
 end

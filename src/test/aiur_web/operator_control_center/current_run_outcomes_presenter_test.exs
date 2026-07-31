@@ -149,16 +149,16 @@ defmodule AiurWeb.OperatorControlCenter.CurrentRunOutcomesPresenterTest do
       [row] =
         Presenter.present(healthy_snapshot(outcomes: [outcome(number: 5, id: "merge-5", identity: identity, url: "javascript:alert(1)")])).outcomes
 
-      assert row.ticket_identity == "its-everdred/aiur #1138"
+      assert row.ticket_identity == "aiur-team/aiur #1138"
       assert row.id == "current-run-outcome-merge-5"
       assert row.url == nil
     end
 
     test "keeps trusted https PR links" do
       [row] =
-        Presenter.present(healthy_snapshot(outcomes: [outcome(number: 5, url: "https://github.com/its-everdred/aiur/pull/5")])).outcomes
+        Presenter.present(healthy_snapshot(outcomes: [outcome(number: 5, url: "https://github.com/aiur-team/aiur/pull/5")])).outcomes
 
-      assert row.url == "https://github.com/its-everdred/aiur/pull/5"
+      assert row.url == "https://github.com/aiur-team/aiur/pull/5"
     end
 
     test "observed_run_id is shown as provenance only for live-observed outcomes and never selects a card" do
@@ -236,7 +236,7 @@ defmodule AiurWeb.OperatorControlCenter.CurrentRunOutcomesPresenterTest do
         started_at: ~U[2026-07-17 10:00:00Z],
         observed_at: ~U[2026-07-17 12:00:00Z]
       },
-      repository: "its-everdred/aiur",
+      repository: "aiur-team/aiur",
       membership: %{generation: Keyword.get(opts, :membership_generation, 4), signature: "sig"},
       outcomes: outcomes,
       counts: Keyword.get(opts, :counts, %{input: length(outcomes), invalid: 0, deduplicated: length(outcomes), qualified: length(outcomes), returned: length(outcomes)}),
@@ -270,11 +270,11 @@ defmodule AiurWeb.OperatorControlCenter.CurrentRunOutcomesPresenterTest do
 
     %{
       id: Keyword.get(opts, :id, "merge-#{Keyword.get(opts, :number, 1)}"),
-      repository: "its-everdred/aiur",
+      repository: "aiur-team/aiur",
       number: Keyword.get(opts, :number, 1),
       title: Keyword.get(opts, :title, "Ship the thing"),
       summary: Keyword.get(opts, :summary, "A short safe summary."),
-      url: Keyword.get(opts, :url, "https://github.com/its-everdred/aiur/pull/#{Keyword.get(opts, :number, 1)}"),
+      url: Keyword.get(opts, :url, "https://github.com/aiur-team/aiur/pull/#{Keyword.get(opts, :number, 1)}"),
       head_ref: "aiur/1138-slug",
       head_sha: "abc123",
       merge_commit_sha: "def456",

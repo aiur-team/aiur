@@ -5,7 +5,7 @@ defmodule Aiur.DecisionApiTest do
   alias Aiur.DecisionStore.RetainedSnapshot
   alias AiurWeb.OperatorControlCenter.DecisionPresenter
 
-  @ticket %{identifier: "984", title: "OCC-7", url: "https://github.com/its-everdred/aiur/issues/984"}
+  @ticket %{identifier: "984", title: "OCC-7", url: "https://github.com/aiur-team/aiur/issues/984"}
   @source %{agent_id: "agent-1", session_id: "session-1", event_id: nil}
   @policy %{allowed_kinds: ["architecture"], allow_non_reversible: false}
 

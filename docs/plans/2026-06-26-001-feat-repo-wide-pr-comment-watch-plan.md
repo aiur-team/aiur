@@ -8,7 +8,7 @@ date: "2026-06-26"
 
 ## Summary
 
-Let aiur act as a live review partner on PRs **across the whole repo it is pointed at** — not just the `aiur/<id>` PRs it created — but strictly opt-in. Two triggers: a persistent `agent:watch` PR label (monitor all code-owner/trusted comments) and a one-off per-comment command (`/aiur …` or a mention of the configured bot account) that needs no label. A triggered agent works the PR's **existing branch directly** (PR-anchored), differentiates respond-vs-code (replies by default; codes only when a change is clearly intended), replies on the exact review thread with the existing read-after-write verification, and does not auto-resolve. Detection is **poll-based** (the webhook is deferred — see Scope). Origin: `its-everdred/aiur#686` and `AIUR-COMMENT-WAKEUP-HANDOFF.md` (conversational brainstorm; no requirements doc).
+Let aiur act as a live review partner on PRs **across the whole repo it is pointed at** — not just the `aiur/<id>` PRs it created — but strictly opt-in. Two triggers: a persistent `agent:watch` PR label (monitor all code-owner/trusted comments) and a one-off per-comment command (`/aiur …` or a mention of the configured bot account) that needs no label. A triggered agent works the PR's **existing branch directly** (PR-anchored), differentiates respond-vs-code (replies by default; codes only when a change is clearly intended), replies on the exact review thread with the existing read-after-write verification, and does not auto-resolve. Detection is **poll-based** (the webhook is deferred — see Scope). Origin: `aiur-team/aiur#686` and `AIUR-COMMENT-WAKEUP-HANDOFF.md` (conversational brainstorm; no requirements doc).
 
 ---
 

@@ -16,8 +16,8 @@ defmodule AiurWeb.OperatorControlCenter.CurrentRunOutcomesTest do
     refute html =~ "Finished this run"
     assert html =~ ~s(id="current-run-outcome-merge-42")
     assert html =~ "PR #42"
-    assert html =~ "its-everdred/aiur #1138"
-    assert html =~ ~s(href="https://github.com/its-everdred/aiur/pull/42")
+    assert html =~ "aiur-team/aiur #1138"
+    assert html =~ ~s(href="https://github.com/aiur-team/aiur/pull/42")
     assert html =~ ~s(rel="noopener noreferrer")
     refute html =~ "Open analytics report"
     refute html =~ "aiur.team"
@@ -93,7 +93,7 @@ defmodule AiurWeb.OperatorControlCenter.CurrentRunOutcomesTest do
       generation: 3,
       state: Keyword.get(opts, :state, if(outcomes == [], do: :healthy_empty, else: :healthy)),
       run: %{id: Keyword.get(opts, :run_id, "run-1"), started_at: ~U[2026-07-17 10:00:00Z], observed_at: ~U[2026-07-17 12:00:00Z]},
-      repository: "its-everdred/aiur",
+      repository: "aiur-team/aiur",
       membership: %{generation: 4, signature: "sig"},
       outcomes: outcomes,
       counts: %{input: length(outcomes), invalid: 0, deduplicated: length(outcomes), qualified: length(outcomes), returned: length(outcomes)},
@@ -127,11 +127,11 @@ defmodule AiurWeb.OperatorControlCenter.CurrentRunOutcomesTest do
 
     %{
       id: Keyword.get(opts, :id, "merge-#{number}"),
-      repository: "its-everdred/aiur",
+      repository: "aiur-team/aiur",
       number: number,
       title: "Ship the thing",
       summary: "A short safe summary.",
-      url: "https://github.com/its-everdred/aiur/pull/#{number}",
+      url: "https://github.com/aiur-team/aiur/pull/#{number}",
       head_ref: "aiur/1138-slug",
       head_sha: "abc123",
       merge_commit_sha: "def456",

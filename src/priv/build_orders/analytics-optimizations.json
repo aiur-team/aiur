@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "build_order_id": "its-everdred/aiur:analytics-optimizations",
+  "build_order_id": "aiur-team/aiur:analytics-optimizations",
   "title": "Analytics optimizations",
   "subtitle": "Unblock CI, land the fleet-leverage levers, and split analytics into live-session and build-order scopes",
-  "repository": "its-everdred/aiur",
+  "repository": "aiur-team/aiur",
   "root_number": 9001,
   "plan_version": 1,
   "permanent": false,
@@ -38,7 +38,7 @@
       "complexity": 2,
       "number": 1297,
       "depends_on": [],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1297"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1297"
     },
     {
       "id": "AO-002",
@@ -48,7 +48,7 @@
       "complexity": 1,
       "number": 1305,
       "depends_on": [],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1305"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1305"
     },
     {
       "id": "AO-003",
@@ -58,7 +58,7 @@
       "complexity": 2,
       "number": 1298,
       "depends_on": ["AO-001"],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1298"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1298"
     },
     {
       "id": "AO-004",
@@ -68,7 +68,7 @@
       "complexity": 2,
       "number": 1306,
       "depends_on": ["AO-001"],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1306"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1306"
     },
     {
       "id": "AO-005",
@@ -78,7 +78,7 @@
       "complexity": 3,
       "number": 1277,
       "depends_on": ["AO-001"],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1277"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1277"
     },
     {
       "id": "AO-006",
@@ -88,7 +88,7 @@
       "complexity": 4,
       "number": 1307,
       "depends_on": ["AO-002"],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1307"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1307"
     },
     {
       "id": "AO-007",
@@ -98,7 +98,7 @@
       "complexity": 3,
       "number": 1303,
       "depends_on": ["AO-004"],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1303"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1303"
     },
     {
       "id": "AO-008",
@@ -108,7 +108,7 @@
       "complexity": 4,
       "number": 1304,
       "depends_on": ["AO-007"],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1304"
+      "document_url": "https://github.com/aiur-team/aiur/issues/1304"
     }
   ]
 }

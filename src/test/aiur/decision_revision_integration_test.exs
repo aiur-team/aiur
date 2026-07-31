@@ -3,7 +3,7 @@ defmodule Aiur.DecisionRevisionIntegrationTest do
 
   alias Aiur.{Decision, DecisionEvent, DecisionHistory, DecisionPubSub, DecisionStore}
 
-  @ticket %{identifier: "985", title: "OCC-8", url: "https://github.com/its-everdred/aiur/issues/985"}
+  @ticket %{identifier: "985", title: "OCC-8", url: "https://github.com/aiur-team/aiur/issues/985"}
   @source %{agent_id: "agent-1", session_id: "session-1", event_id: "request-1"}
   @operator %{kind: :operator, id: "operator-1"}
   @target_agent %{kind: :agent, id: "agent-1"}

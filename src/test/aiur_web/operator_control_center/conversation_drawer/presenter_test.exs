@@ -66,7 +66,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer.PresenterTest do
     view = Presenter.present(row(), snapshot())
 
     assert view.heading.title == "Responsive Units interface"
-    assert view.heading.identity_label == "its-everdred/aiur #1110"
+    assert view.heading.identity_label == "aiur-team/aiur #1110"
     assert view.participation_notice =~ "not participating"
 
     metadata = Map.new(view.metadata, &{&1.key, &1.value})

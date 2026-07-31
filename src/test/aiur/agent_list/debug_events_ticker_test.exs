@@ -364,7 +364,7 @@ defmodule Aiur.AgentList.DebugEventsTickerTest do
       state =
         build_state(
           columns: 50,
-          project_label: "its-everdred/aiur",
+          project_label: "aiur-team/aiur",
           debug_events: events
         )
 
