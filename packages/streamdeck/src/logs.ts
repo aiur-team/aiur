@@ -117,7 +117,7 @@ const MAX_BODY_LENGTH = 120;
 
 /** Normalise a body string: collapse newlines to spaces, cap length. */
 const clampBody = (s: string): string => {
-  const oneLine = s.replace(/\r?\n/g, " ").trim();
+  const oneLine = s.replace(/\r\n|\r|\n/g, " ").trim();
   return oneLine.length <= MAX_BODY_LENGTH ? oneLine : oneLine.slice(0, MAX_BODY_LENGTH);
 };
 

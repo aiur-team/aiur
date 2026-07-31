@@ -193,6 +193,13 @@ describe("flattenEvents — diff entries", () => {
     const { flat } = flattenEvents([event("e", [diff("a/b.ts", 10, 4)])]);
     expect(flat[1]).toMatchObject({ kind: "diff", path: "a/b.ts", additions: 10, deletions: 4 });
   });
+
+  it("truncates a long diff line to MAX_BODY_LENGTH and preserves lineSign", () => {
+    const longLine = "+" + "x".repeat(200);
+    const { flat } = flattenEvents([event("e", [diff("f.ts", 1, 0, longLine)])]);
+    expect((flat[1] as FlatDiff).line?.length).toBe(120);
+    expect((flat[1] as FlatDiff).lineSign).toBe("+");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -264,6 +271,11 @@ describe("ensureVisible", () => {
   it("moves windowStart forward when selection is past windowStart + 7", () => {
     // selection = 10, windowStart = 0, maxStart = 20 - 8 = 12 → min(10 - 7, 12) = 3
     expect(ensureVisible(0, 10, 20)).toBe(3);
+  });
+
+  it("triggers scroll at selection = windowStart + 8 (exact first out-of-window slot)", () => {
+    // selection = 8, windowStart = 0, maxStart = 12 → min(8 - 7, 12) = 1
+    expect(ensureVisible(0, 8, 20)).toBe(1);
   });
 
   it("does not change windowStart when selection is already visible", () => {
