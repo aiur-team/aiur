@@ -134,7 +134,7 @@ defmodule Aiur.Workspace.GitMetadata do
          path = Path.join(info_dir, "exclude"),
          {:ok, contents} <- read_optional_regular_file(path) do
       missing = Enum.reject(exclusions, &exclusion_present?(contents, &1))
-      write_exclusions(info_dir, path, contents, missing)
+      write_exclusions(git_dir, info_dir, path, contents, missing)
     end
   end
 
@@ -161,9 +161,9 @@ defmodule Aiur.Workspace.GitMetadata do
     end
   end
 
-  defp write_exclusions(_info_dir, _path, _contents, []), do: :ok
+  defp write_exclusions(_git_dir, _info_dir, _path, _contents, []), do: :ok
 
-  defp write_exclusions(info_dir, path, contents, exclusions) do
+  defp write_exclusions(git_dir, info_dir, path, contents, exclusions) do
     tmp = Path.join(info_dir, ".exclude-#{System.unique_integer([:positive])}.tmp")
 
     try do
@@ -172,14 +172,30 @@ defmodule Aiur.Workspace.GitMetadata do
            {:ok, %File.Stat{type: :directory}} <- File.lstat(info_dir),
            {:ok, final_state} <- regular_or_missing(path),
            true <- final_state in [:regular, :missing],
-           :ok <- File.rename(tmp, path) do
+           :ok <- File.rename(tmp, path),
+           :ok <- verify_contains(git_dir, path) do
         :ok
       else
         false -> {:error, {:invalid_git_exclude, path}}
+        {:ok, _} -> {:error, {:invalid_git_info, info_dir}}
         {:error, reason} -> {:error, reason}
       end
     after
       _ = File.rm(tmp)
+    end
+  end
+
+  defp verify_contains(root, path) do
+    with {:ok, canonical_root} <- PathSafety.canonicalize(root),
+         {:ok, canonical} <- PathSafety.canonicalize(path) do
+      if String.starts_with?(canonical <> "/", canonical_root <> "/") do
+        :ok
+      else
+        _ = File.rm(path)
+        {:error, {:path_escaped_root, root}}
+      end
+    else
+      {:error, reason} -> {:error, {:path_verification_failed, reason}}
     end
   end
 

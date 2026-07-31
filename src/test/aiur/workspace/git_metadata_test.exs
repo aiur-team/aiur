@@ -124,6 +124,50 @@ defmodule Aiur.Workspace.GitMetadataTest do
     assert outside_git_dir == Path.expand(git_dir)
   end
 
+  test "no bytes land outside git dir under concurrent info-dir swap", %{tmp: tmp} do
+    repo = init_repo!(Path.join(tmp, "repo"))
+    outside = Path.join(tmp, "outside-info")
+    File.mkdir_p!(outside)
+
+    info = Path.join([repo, ".git", "info"])
+    exclude = Path.join(info, "exclude")
+
+    parent = self()
+
+    attacker =
+      Task.async(fn ->
+        Enum.each(1..300, fn _ ->
+          try do
+            File.rm_rf!(info)
+            File.ln_s!(outside, info)
+            Process.sleep(1)
+            File.rm!(info)
+            File.mkdir!(info)
+            File.write!(exclude, "# restored\n")
+          rescue
+            _ -> :ok
+          end
+        end)
+
+        send(parent, :attacker_done)
+      end)
+
+    Enum.each(1..50, fn _ ->
+      GitMetadata.ensure_tool_results_excluded(repo)
+    end)
+
+    receive do
+      :attacker_done -> :ok
+    after
+      15_000 -> flunk("attacker task timed out")
+    end
+
+    Task.await(attacker, 15_000)
+
+    outside_files = File.ls!(outside)
+    assert outside_files == [], "files escaped git dir: #{inspect(outside_files)}"
+  end
+
   defp init_repo!(repo) do
     File.mkdir_p!(repo)
     git!(["init", "--quiet", "-b", "main", repo])

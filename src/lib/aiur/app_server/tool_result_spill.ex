@@ -88,7 +88,8 @@ defmodule Aiur.AppServer.ToolResultSpill do
       with {:ok, io} <- :file.open(String.to_charlist(tmp), [:write, :binary, :raw, :exclusive]),
            :ok <- write_and_sync(io, tmp, contents),
            :ok <- verify_destination(canonical_workspace, directory, path),
-           :ok <- File.rename(tmp, path) do
+           :ok <- File.rename(tmp, path),
+           :ok <- verify_contains(canonical_workspace, path) do
         {:ok, path}
       end
     after
@@ -103,6 +104,20 @@ defmodule Aiur.AppServer.ToolResultSpill do
     end
   after
     :ok = :file.close(io)
+  end
+
+  defp verify_contains(root, path) do
+    with {:ok, canonical_root} <- PathSafety.canonicalize(root),
+         {:ok, canonical} <- PathSafety.canonicalize(path) do
+      if String.starts_with?(canonical <> "/", canonical_root <> "/") do
+        :ok
+      else
+        _ = File.rm(path)
+        {:error, :path_escaped_workspace}
+      end
+    else
+      {:error, reason} -> {:error, {:path_verification_failed, reason}}
+    end
   end
 
   defp verify_destination(canonical_workspace, directory, path) do
