@@ -1,57 +1,78 @@
 defmodule Aiur.Usage.Pricing.Dimensions do
   @moduledoc false
 
-  @type t :: %{
-          context_tier: term(),
-          cache_write_duration: term()
-        }
+  alias Aiur.CodingAgent
 
-  @spec from_options(:codex | :claude, keyword()) :: t()
-  def from_options(:codex, options) do
-    %{
-      context_tier: Keyword.get(options, :context_tier),
-      cache_write_duration: Keyword.get(options, :cache_write_duration, :not_applicable)
-    }
+  @type t :: %{context_tier: term(), cache_write_duration: term()}
+
+  @spec from_options(atom(), keyword()) :: t()
+  def from_options(provider, options) do
+    provider
+    |> dimensions()
+    |> Enum.into(%{}, fn {dimension, %{default: default}} ->
+      {dimension, Keyword.get(options, dimension, default)}
+    end)
   end
 
-  def from_options(:claude, options) do
-    %{
-      context_tier: Keyword.get(options, :context_tier, :not_applicable),
-      cache_write_duration: Keyword.get(options, :cache_write_duration)
-    }
+  @spec validate(atom(), t()) :: :ok | {:error, atom()}
+  def validate(provider, pricing_dimensions) when is_map(pricing_dimensions) do
+    provider
+    |> dimensions()
+    |> Enum.reduce_while(:ok, fn {dimension, policy}, :ok ->
+      value = Map.get(pricing_dimensions, dimension)
+
+      case validate_dimension(value, policy, dimension) do
+        :ok -> {:cont, :ok}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
   end
 
-  @spec validate(:codex | :claude, t()) :: :ok | {:error, atom()}
-  def validate(:codex, %{context_tier: nil}),
-    do: {:error, :missing_context_tier}
+  def validate(_provider, _pricing_dimensions), do: {:error, :unsupported_context_tier}
 
-  def validate(:codex, %{context_tier: tier})
-      when tier not in [:short_context, :long_context],
-      do: {:error, :unsupported_context_tier}
+  @spec for_component(atom(), atom(), t()) :: t()
+  def for_component(provider, token_dimension, pricing_dimensions) do
+    case component_dimensions(provider, token_dimension) do
+      nil -> pricing_dimensions
+      component -> normalize_for_component(pricing_dimensions, component)
+    end
+  end
 
-  def validate(:codex, %{cache_write_duration: duration})
-      when duration != :not_applicable,
-      do: {:error, :unsupported_cache_write_duration}
+  defp dimensions(provider) do
+    case CodingAgent.provider_pricing(provider) do
+      %{dimensions: dimensions} when is_map(dimensions) -> dimensions
+      _ -> %{}
+    end
+  end
 
-  def validate(:codex, _dimensions), do: :ok
+  defp component_dimensions(provider, token_dimension) do
+    case CodingAgent.provider_pricing(provider) do
+      %{component_dimensions: component_dimensions} when is_map(component_dimensions) ->
+        Map.get(component_dimensions, token_dimension, Map.get(component_dimensions, :default))
 
-  def validate(:claude, %{context_tier: tier})
-      when tier != :not_applicable,
-      do: {:error, :unsupported_context_tier}
+      _ ->
+        nil
+    end
+  end
 
-  def validate(:claude, %{cache_write_duration: nil}),
-    do: {:error, :missing_cache_write_duration}
+  defp validate_dimension(nil, %{required: true}, :context_tier), do: {:error, :missing_context_tier}
+  defp validate_dimension(nil, %{required: true}, :cache_write_duration), do: {:error, :missing_cache_write_duration}
 
-  def validate(:claude, %{cache_write_duration: duration})
-      when duration not in [:five_minutes, :one_hour],
-      do: {:error, :unsupported_cache_write_duration}
+  defp validate_dimension(value, %{allowed: allowed}, dimension) do
+    if value in allowed, do: :ok, else: unsupported_dimension(dimension)
+  end
 
-  def validate(:claude, _dimensions), do: :ok
+  defp validate_dimension(_value, _policy, :context_tier), do: {:error, :unsupported_context_tier}
+  defp validate_dimension(_value, _policy, :cache_write_duration), do: {:error, :unsupported_cache_write_duration}
 
-  @spec for_component(:codex | :claude, atom(), t()) :: t()
-  def for_component(:claude, dimension, dimensions)
-      when dimension != :cache_creation_input,
-      do: %{dimensions | cache_write_duration: :not_applicable}
+  defp unsupported_dimension(:context_tier), do: {:error, :unsupported_context_tier}
+  defp unsupported_dimension(:cache_write_duration), do: {:error, :unsupported_cache_write_duration}
 
-  def for_component(_provider, _dimension, dimensions), do: dimensions
+  defp normalize_for_component(pricing_dimensions, component_dimensions) do
+    Enum.reduce(component_dimensions, pricing_dimensions, fn {dimension, allowed}, result ->
+      if Map.get(result, dimension) in allowed,
+        do: result,
+        else: Map.put(result, dimension, List.first(allowed))
+    end)
+  end
 end

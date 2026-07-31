@@ -8,6 +8,8 @@ defmodule Aiur.CodingAgentTest do
   alias Aiur.Codex.NotificationPolicy
   alias Aiur.CodingAgent
   alias Aiur.Issue
+  alias Aiur.Usage.Headless.Catalog
+  alias Aiur.Usage.Pricing.Dimensions
 
   defp issue(labels), do: %Issue{labels: labels}
 
@@ -36,6 +38,20 @@ defmodule Aiur.CodingAgentTest do
     test "provider_descriptors/0 carries the resolved provider family atom and is card-ordered" do
       assert [%{provider: :codex, order: 0}, %{provider: :claude, order: 1}] =
                CodingAgent.provider_descriptors()
+    end
+
+    test "provider descriptor owns metering, pricing, and account-generation policies" do
+      assert %{dimensions: %{context_tier: %{required: true}}} = CodingAgent.provider_pricing(:codex)
+      assert %{dimensions: %{cache_write_duration: %{required: true}}} = CodingAgent.provider_pricing(:claude)
+
+      assert %{trusted_sources: [:codex_app_server]} = CodingAgent.provider_account_generation(:codex)
+      assert %{trusted_sources: [:claude_app_server]} = CodingAgent.provider_account_generation(:claude)
+
+      assert Dimensions.from_options(:codex, []) == %{context_tier: nil, cache_write_duration: :not_applicable}
+      assert Dimensions.from_options(:claude, []) == %{context_tier: :not_applicable, cache_write_duration: nil}
+
+      assert Catalog.adapters_for(:codex) == [Aiur.Usage.Headless.Codex.ThreadUsage, Aiur.Usage.Headless.Codex.TurnUsage]
+      assert Catalog.adapters_for(:claude) == [Aiur.Usage.Headless.Claude.RequestUsage]
     end
   end
 

@@ -14,6 +14,7 @@ defmodule Aiur.Usage.Headless.Adapter do
   or emit a guessed identity, scope, or zero.
   """
 
+  alias Aiur.CodingAgent
   alias Aiur.Usage.Headless.Context
   alias Aiur.UsageEnvelope
   alias Aiur.UsageEnvelope.RelationshipRegistry
@@ -33,7 +34,7 @@ defmodule Aiur.Usage.Headless.Adapter do
 
   @type coverage :: %{
           schema_version: 1,
-          provider: :codex | :claude,
+          provider: atom(),
           source: String.t(),
           source_version: String.t(),
           class: coverage_class(),
@@ -43,7 +44,7 @@ defmodule Aiur.Usage.Headless.Adapter do
   @type result :: {:ok, UsageEnvelope.t()} | {:coverage, coverage()}
 
   @doc "The provider whose events this adapter maps."
-  @callback provider() :: :codex | :claude
+  @callback provider() :: atom()
 
   @doc "The exact source identifier this adapter is pinned to."
   @callback source() :: String.t()
@@ -100,17 +101,19 @@ defmodule Aiur.Usage.Headless.Adapter do
     end
   end
 
-  defp observed_price_dimensions(%{provider: :codex, context_tier: tier})
-       when tier in [:short_context, :long_context],
-       do: :ok
+  defp observed_price_dimensions(%{provider: provider} = attributes) do
+    case CodingAgent.provider_pricing(provider) do
+      %{dimensions: dimensions} when is_map(dimensions) ->
+        Enum.reduce_while(dimensions, :ok, fn {field, %{allowed: allowed, required: required}}, :ok ->
+          if not required or Map.get(attributes, field) in allowed,
+            do: {:cont, :ok},
+            else: {:halt, {:error, field}}
+        end)
 
-  defp observed_price_dimensions(%{provider: :codex}), do: {:error, :context_tier}
-
-  defp observed_price_dimensions(%{provider: :claude, cache_write_duration: duration})
-       when duration in [:five_minutes, :one_hour, :not_applicable],
-       do: :ok
-
-  defp observed_price_dimensions(%{provider: :claude}), do: {:error, :cache_write_duration}
+      _ ->
+        {:error, :context_tier}
+    end
+  end
 
   defp envelope_attributes(adapter, context, source_facts) do
     source_event_id = Keyword.fetch!(source_facts, :source_event_id)
@@ -148,11 +151,17 @@ defmodule Aiur.Usage.Headless.Adapter do
     }
   end
 
-  defp default_context_tier(:codex), do: nil
-  defp default_context_tier(:claude), do: :not_applicable
+  defp default_context_tier(provider), do: pricing_default(provider, :context_tier)
+  defp default_cache_write_duration(provider), do: pricing_default(provider, :cache_write_duration)
 
-  defp default_cache_write_duration(:codex), do: :not_applicable
-  defp default_cache_write_duration(:claude), do: nil
+  defp pricing_default(provider, dimension) do
+    with %{dimensions: dimensions} <- CodingAgent.provider_pricing(provider),
+         %{default: default} <- Map.get(dimensions, dimension) do
+      default
+    else
+      _ -> nil
+    end
+  end
 
   defp attribution(%Context{} = context) do
     %{

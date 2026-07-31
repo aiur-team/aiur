@@ -7,7 +7,7 @@ defmodule Aiur.UsageEnvelope do
   payloads nor derives cross-message deltas.
   """
 
-  alias Aiur.{TrackerIdentity, UsageEnvelope.ExactMoney, UsageEnvelope.RelationshipRegistry}
+  alias Aiur.{CodingAgent, TrackerIdentity, UsageEnvelope.ExactMoney, UsageEnvelope.RelationshipRegistry}
 
   @version 1
   @max_opaque_bytes 256
@@ -19,10 +19,8 @@ defmodule Aiur.UsageEnvelope do
   @measurement_kinds [:delta, :absolute]
   @counter_scopes [:request, :turn, :thread, :session]
   @update_kinds [:full, :partial]
-  @agent_families [:codex, :claude]
+  @agent_families @providers
   @auth_modes [:api_key, :chatgpt, :unknown]
-  @context_tiers [:short_context, :long_context, :not_applicable]
-  @cache_write_durations [:five_minutes, :one_hour, :not_applicable]
   @freshnesses [:current, :unknown]
   @healths [:healthy, :unknown, :unavailable]
   @account_reasons [
@@ -423,34 +421,24 @@ defmodule Aiur.UsageEnvelope do
   defp optional_opaque_result(nil, _error), do: {:ok, nil}
   defp optional_opaque_result(value, error), do: opaque(value, error)
 
-  # Occurrence-time price-partition context an adapter may supply. Both are
-  # optional (absent when the adapter cannot determine them) but, when present,
-  # must match the provider's price-affecting partition exactly: codex retains a
-  # `context_tier`, claude retains a `cache_write_duration`, and each provider's
-  # other partition is `:not_applicable`.
+  # Occurrence-time price-partition context is optional when an adapter cannot
+  # determine it. When present it is checked against the owning provider's
+  # registry descriptor, so a new provider does not need a validator clause.
   defp context_tier(nil, _provider), do: {:ok, nil}
-
-  defp context_tier(value, provider) do
-    with {:ok, tier} <- enum(value, @context_tiers, :invalid_context_tier) do
-      valid_context_tier(provider, tier)
-    end
-  end
-
-  defp valid_context_tier(:codex, tier) when tier in [:short_context, :long_context], do: {:ok, tier}
-  defp valid_context_tier(:claude, :not_applicable), do: {:ok, :not_applicable}
-  defp valid_context_tier(_provider, _tier), do: {:error, :invalid_context_tier}
+  defp context_tier(value, provider), do: provider_dimension(value, provider, :context_tier, :invalid_context_tier)
 
   defp cache_write_duration(nil, _provider), do: {:ok, nil}
+  defp cache_write_duration(value, provider), do: provider_dimension(value, provider, :cache_write_duration, :invalid_cache_write_duration)
 
-  defp cache_write_duration(value, provider) do
-    with {:ok, duration} <- enum(value, @cache_write_durations, :invalid_cache_write_duration) do
-      valid_cache_write_duration(provider, duration)
+  defp provider_dimension(value, provider, dimension, error) do
+    with %{dimensions: dimensions} <- CodingAgent.provider_pricing(provider),
+         %{allowed: allowed} <- Map.get(dimensions, dimension),
+         normalized when not is_nil(normalized) <- normalize_atom(value, allowed) do
+      {:ok, normalized}
+    else
+      _ -> {:error, error}
     end
   end
-
-  defp valid_cache_write_duration(:claude, duration) when duration in [:five_minutes, :one_hour, :not_applicable], do: {:ok, duration}
-  defp valid_cache_write_duration(:codex, :not_applicable), do: {:ok, :not_applicable}
-  defp valid_cache_write_duration(_provider, _duration), do: {:error, :invalid_cache_write_duration}
 
   defp tracker_identity(nil), do: {:ok, nil}
 

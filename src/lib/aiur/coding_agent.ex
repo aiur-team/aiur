@@ -109,6 +109,21 @@ defmodule Aiur.CodingAgent do
           logo: "/codex-color.svg",
           token_icon: "/codex-token.svg",
           css_class: "is-codex"
+        },
+        pricing: %{
+          dimensions: %{
+            context_tier: %{allowed: [:short_context, :long_context], default: nil, required: true},
+            cache_write_duration: %{allowed: [:not_applicable], default: :not_applicable, required: false}
+          },
+          component_dimensions: %{
+            default: %{context_tier: [:short_context, :long_context], cache_write_duration: [:not_applicable]}
+          }
+        },
+        usage: %{adapters: [Aiur.Usage.Headless.Codex.ThreadUsage, Aiur.Usage.Headless.Codex.TurnUsage]},
+        account_generation: %{
+          backends: [:app_server],
+          trusted_sources: [:codex_app_server],
+          auth_modes: ~w(apikey chatgpt chatgptAuthTokens headers agentIdentity personalAccessToken bedrockApiKey)
         }
       },
       "claude" => %{
@@ -147,6 +162,22 @@ defmodule Aiur.CodingAgent do
           logo: "/claude-symbol.svg",
           token_icon: "/claude-token.svg",
           css_class: "is-claude"
+        },
+        pricing: %{
+          dimensions: %{
+            context_tier: %{allowed: [:not_applicable], default: :not_applicable, required: false},
+            cache_write_duration: %{allowed: [:five_minutes, :one_hour, :not_applicable], default: nil, required: true}
+          },
+          component_dimensions: %{
+            default: %{context_tier: [:not_applicable], cache_write_duration: [:not_applicable]},
+            cache_creation_input: %{context_tier: [:not_applicable], cache_write_duration: [:five_minutes, :one_hour]}
+          }
+        },
+        usage: %{adapters: [Aiur.Usage.Headless.Claude.RequestUsage]},
+        account_generation: %{
+          backends: [:app_server],
+          trusted_sources: [:claude_app_server],
+          auth_modes: ~w(subscription api_key)
         }
       },
       "claude-repl" => %{
@@ -201,9 +232,9 @@ defmodule Aiur.CodingAgent do
   end
 
   @typedoc """
-  A provider's presentation descriptor: everything a dashboard/strip surface
-  needs to render one provider (label, logo + token SVG paths, CSS class) plus
-  the resolved `provider` family atom and a stable `order` for card layout.
+  A provider descriptor combines presentation and its registry-owned metering,
+  pricing, and account-generation capabilities. The resolved `provider` family
+  atom and stable `order` keep card layout deterministic.
   """
   @type provider_descriptor :: %{
           provider: atom(),
@@ -211,7 +242,10 @@ defmodule Aiur.CodingAgent do
           label: String.t(),
           logo: String.t(),
           token_icon: String.t(),
-          css_class: String.t()
+          css_class: String.t(),
+          pricing: map(),
+          usage: map(),
+          account_generation: map()
         }
 
   @doc """
@@ -227,8 +261,17 @@ defmodule Aiur.CodingAgent do
     |> Map.values()
     |> Enum.flat_map(fn entry ->
       case Map.get(entry, :presentation) do
-        %{} = presentation -> [Map.put(presentation, :provider, String.to_atom(entry.family))]
-        _ -> []
+        %{} = presentation ->
+          [
+            presentation
+            |> Map.put(:provider, String.to_atom(entry.family))
+            |> Map.put(:pricing, Map.get(entry, :pricing, %{}))
+            |> Map.put(:usage, Map.get(entry, :usage, %{}))
+            |> Map.put(:account_generation, Map.get(entry, :account_generation, %{}))
+          ]
+
+        _ ->
+          []
       end
     end)
     |> Enum.uniq_by(& &1.provider)
@@ -257,6 +300,24 @@ defmodule Aiur.CodingAgent do
   @spec provider_descriptor(atom()) :: provider_descriptor() | nil
   def provider_descriptor(provider) when is_atom(provider) do
     Enum.find(provider_descriptors(), &(&1.provider == provider))
+  end
+
+  @doc "Registry-supplied pricing policy for one provider family, or `nil` when it is not metered."
+  @spec provider_pricing(atom()) :: map() | nil
+  def provider_pricing(provider) when is_atom(provider) do
+    case provider_descriptor(provider) do
+      %{pricing: pricing} when is_map(pricing) -> pricing
+      _ -> nil
+    end
+  end
+
+  @doc "Registry-supplied account-generation policy for one provider family."
+  @spec provider_account_generation(atom()) :: map() | nil
+  def provider_account_generation(provider) when is_atom(provider) do
+    case provider_descriptor(provider) do
+      %{account_generation: policy} when is_map(policy) -> policy
+      _ -> nil
+    end
   end
 
   @doc """
