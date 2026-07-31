@@ -348,9 +348,10 @@ describe("cycleEventPage", () => {
     expect(result.dial3Value).toBe(dial3ValueFromEventOffset(8, 20));
   });
 
-  it("wraps from last page back to offset 0", () => {
-    // 20 events: page starting at offset 16 → next wraps to page 0 (offset 0)
-    const result = cycleEventPage(16, 20);
+  it("wraps from clamped final offset back to offset 0", () => {
+    // 20 events: maxEventOffset = 12 (not 16 — 16 is unreachable).
+    // Cycling from offset 12 must wrap to 0, not stay stuck at 12.
+    const result = cycleEventPage(12, 20);
     expect(result.eventOffset).toBe(0);
     expect(result.dial3Value).toBe(0);
   });

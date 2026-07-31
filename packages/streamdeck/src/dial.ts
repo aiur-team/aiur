@@ -138,10 +138,8 @@ export const cycleWindow = (
   const current = currentWindow(currentColumnOffset, agentCount);
   const next = (current + 1) % count;
   const offset = windowStopPosition(next, agentCount);
-  const maxOff = maxColumnOffset(agentCount);
-  const dial3Value = maxOff === 0 ? 0 : clampDial(Math.round((offset / maxOff) * 100));
 
-  return { columnOffset: offset, dial3Value };
+  return { columnOffset: offset, dial3Value: dial3ValueFromOffset(offset, agentCount) };
 };
 
 /**
@@ -182,14 +180,13 @@ export const cycleEventPage = (
 
   if (maxOff === 0) return { eventOffset: 0, dial3Value: 0 };
 
-  const pageSize = 8;
-  const currentPage = Math.floor(currentEventOffset / pageSize);
-  const totalPages = Math.ceil(eventCount / pageSize);
-  const nextPage = (currentPage + 1) % totalPages;
-  const offset = Math.min(nextPage * pageSize, maxOff);
-  const dial3Value = clampDial(Math.round((offset / maxOff) * 100));
+  // When at or beyond the clamped maximum, wrap back to 0; otherwise advance
+  // by one page and clamp. Using >= maxOff (not a page-number comparison) avoids
+  // the stuck-at-last-page bug that occurs when the clamped offset falls
+  // mid-page according to floor division.
+  const offset = currentEventOffset >= maxOff ? 0 : Math.min(currentEventOffset + 8, maxOff);
 
-  return { eventOffset: offset, dial3Value };
+  return { eventOffset: offset, dial3Value: dial3ValueFromEventOffset(offset, eventCount) };
 };
 
 /**
