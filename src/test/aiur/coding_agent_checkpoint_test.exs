@@ -83,7 +83,15 @@ defmodule Aiur.CodingAgentCheckpointTest do
         System.delete_env("SYMP_TEST_CODEX_TRACE")
       end)
 
-      write_workflow_file!(Workflow.workflow_file_path(),
+      # Synced, not best-effort: `write_workflow_file!/2` fires a `force_reload`
+      # wrapped in `catch :exit, _ -> :ok`, so under CI contention a call that
+      # outlasts its 5s GenServer timeout is swallowed silently. `Config` then
+      # still serves the pre-write cache and `start_session/1` spawns the
+      # DEFAULT provider command (`codex app-server` / `aiur-claude`) instead of
+      # this fixture — neither exists on a CI runner, so bash exits 127 and the
+      # session fails with `{:port_exit, 127}` or, when the exit lands before
+      # the `initialize` write, `:port_closed`.
+      write_workflow_file_synced!(Workflow.workflow_file_path(),
         agent_kind: "codex",
         command: "#{binary} app-server",
         agent_turn_timeout_ms: 80
@@ -131,7 +139,9 @@ defmodule Aiur.CodingAgentCheckpointTest do
         System.delete_env("SYMP_TEST_CODEX_TRACE")
       end)
 
-      write_workflow_file!(Workflow.workflow_file_path(),
+      # Synced: see the note above — a swallowed `force_reload` leaves `Config`
+      # serving the pre-write cache and spawns the default provider command.
+      write_workflow_file_synced!(Workflow.workflow_file_path(),
         agent_kind: "codex",
         command: "#{binary} app-server",
         agent_turn_timeout_ms: 1_000
@@ -194,7 +204,9 @@ defmodule Aiur.CodingAgentCheckpointTest do
       System.put_env(trace_env, trace_file)
       on_exit(fn -> System.delete_env(trace_env) end)
 
-      write_workflow_file!(Workflow.workflow_file_path(),
+      # Synced: see the note above — a swallowed `force_reload` leaves `Config`
+      # serving the pre-write cache and spawns the default provider command.
+      write_workflow_file_synced!(Workflow.workflow_file_path(),
         agent_kind: Atom.to_string(backend),
         command: "#{binary} app-server",
         agent_turn_timeout_ms: 2_000
