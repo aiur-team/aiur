@@ -77,4 +77,19 @@ defmodule Aiur.Cost.ObservationTest do
   test "skips messages without token usage" do
     assert :skip = Observation.from_message("codex", %{"params" => %{"foo" => 1}}, [])
   end
+
+  test "skips messages with token usage but no resolvable thread id" do
+    # Without a stable thread id the store cannot key a per-thread high-water,
+    # so an id-less message would clamp a distinct session to the prior total.
+    # Recording nothing is safer than freezing the running total.
+    message = %{
+      "params" => %{
+        "tokenUsage" => %{
+          "total" => %{"input_tokens" => 400, "output_tokens" => 40, "total_tokens" => 440}
+        }
+      }
+    }
+
+    assert :skip = Observation.from_message("codex", message, [])
+  end
 end

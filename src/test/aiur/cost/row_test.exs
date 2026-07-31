@@ -14,14 +14,9 @@ defmodule Aiur.Cost.RowTest do
     assert Row.compact(snapshot()) == "Context 84,300 / 256K (33%) · $4.27 spent"
   end
 
-  test "panel block has two aligned lines" do
-    assert Row.panel(snapshot()) == "Context  84,300 / 256,000 tokens  (33%)\nCost     $4.27 spent"
-  end
-
   test "omits cost when usd is unavailable" do
     snap = put_in(snapshot().cost.usd, nil)
     assert Row.compact(snap) == "Context 84,300 / 256K (33%)"
-    assert Row.panel(snap) == "Context  84,300 / 256,000 tokens  (33%)"
   end
 
   test "handles missing context limit" do

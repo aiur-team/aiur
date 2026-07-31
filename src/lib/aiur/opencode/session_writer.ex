@@ -62,7 +62,12 @@ defmodule Aiur.Opencode.SessionWriter do
     # succeed. Without this guard the writer logs an FK debug line on
     # every transcript event for the remainder of the BEAM's life,
     # filling aiur.log with noise. Counter resets on any success.
-    consecutive_fk_failures: 0
+    consecutive_fk_failures: 0,
+    # Message id of the last per-ticket cost status row (#132). The cost row is
+    # a single live-refreshing line: before writing an updated snapshot we
+    # delete this previous row, so the scrollback holds one current line rather
+    # than accumulating a stack of stale ones on every bucket change.
+    cost_row_msg_id: nil
   ]
 
   @fk_failure_stop_threshold 5
@@ -267,13 +272,17 @@ defmodule Aiur.Opencode.SessionWriter do
     if live_stream_active?(state) do
       {:noreply, state}
     else
+      # Replace-in-place: drop the previous cost row before writing the new one
+      # so the operator sees a single refreshing line, not an accumulating stack.
+      delete_prev_cost_row(state)
+
       case write_system_standalone(state, CostRow.compact(snapshot)) do
-        {:ok, _message_id} ->
-          {:noreply, reset_fk_failures(state)}
+        {:ok, message_id} ->
+          {:noreply, reset_fk_failures(%{state | cost_row_msg_id: message_id})}
 
         {:error, reason} ->
           log_session_write_failure("cost_row_failed", state.identifier, reason)
-          handle_write_failure(state, reason)
+          handle_write_failure(%{state | cost_row_msg_id: nil}, reason)
       end
     end
   end
@@ -546,6 +555,16 @@ defmodule Aiur.Opencode.SessionWriter do
   # `assistant_message_data`'s `mode: build` / `agent: build` fields so
   # opencode-attach renders the row without the `▣ Build · issue-N`
   # chrome that wraps codex turn messages.
+  # Best-effort removal of the prior cost row. A failure here (e.g. the session
+  # was reaped) must not block writing the fresh row, so we ignore the result;
+  # the FK guard on the subsequent insert handles a dead session.
+  defp delete_prev_cost_row(%{cost_row_msg_id: nil}), do: :ok
+
+  defp delete_prev_cost_row(%{cost_row_msg_id: msg_id, session_id: session_id}) do
+    _ = Db.delete_message(session_id, msg_id)
+    :ok
+  end
+
   defp write_system_standalone(state, body) when is_binary(body) do
     Db.with_conn(fn conn -> write_system_standalone_in_txn(conn, state, body) end)
   end

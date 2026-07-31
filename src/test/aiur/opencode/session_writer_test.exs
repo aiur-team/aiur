@@ -58,6 +58,52 @@ defmodule Aiur.Opencode.SessionWriterTest do
     end
   end
 
+  describe "cost status row (#132)" do
+    setup [:db_fixture]
+
+    defp cost_snapshot do
+      %{
+        context: %{tokens: 84_300, limit: 256_000, percent_used: 33},
+        cost: %{input_tokens: 412_300, output_tokens: 38_900, cached_input_tokens: 220_100, usd: Decimal.new("4.27")}
+      }
+    end
+
+    test "writes a single compact system row for a cost snapshot", %{session_id: session_id} do
+      state = build_state(session_id)
+
+      {:noreply, state} = SessionWriter.handle_info({:cost_updated, cost_snapshot()}, state)
+
+      assert count_messages(session_id) == 1
+      assert message_role(session_id) == "system"
+      refute is_nil(state.cost_row_msg_id)
+    end
+
+    test "replaces the prior row in place rather than appending", %{session_id: session_id} do
+      state = build_state(session_id)
+
+      {:noreply, state} = SessionWriter.handle_info({:cost_updated, cost_snapshot()}, state)
+      first_id = state.cost_row_msg_id
+
+      updated = put_in(cost_snapshot().cost.usd, Decimal.new("5.01"))
+      {:noreply, state} = SessionWriter.handle_info({:cost_updated, updated}, state)
+
+      # The scrollback keeps exactly one live-refreshing cost row.
+      assert count_messages(session_id) == 1
+      refute state.cost_row_msg_id == first_id
+    end
+
+    test "is suppressed while a live aiur turn streams", %{session_id: session_id} do
+      state = build_state(session_id)
+      :ok = ActiveTurns.put("test-id", "t-cost-live")
+      on_exit(fn -> ActiveTurns.mark_closed("test-id", "t-cost-live", :test_cleanup) end)
+
+      {:noreply, state} = SessionWriter.handle_info({:cost_updated, cost_snapshot()}, state)
+
+      assert count_messages(session_id) == 0
+      assert is_nil(state.cost_row_msg_id)
+    end
+  end
+
   describe "turn grouping (U1)" do
     setup [:db_fixture]
 

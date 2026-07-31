@@ -45,6 +45,10 @@ defmodule Aiur.Cost.Store do
     "not_applicable" => :not_applicable
   }
 
+  # Persist at least this often even without a bucket change, so an unclean exit
+  # loses at most this window of sub-bucket increments (see handle_cast).
+  @persist_floor_ms 10_000
+
   @empty_thread %{
     "input_tokens" => 0,
     "cached_input_tokens" => 0,
@@ -103,6 +107,14 @@ defmodule Aiur.Cost.Store do
     # Fast-path the common case (store already running) with a cheap Registry
     # read, so the hot per-message path doesn't serialize a no-op start_child
     # through the DynamicSupervisor once the store exists.
+    #
+    # `attach/1` is synchronous (a DynamicSupervisor call): the child's name is
+    # registered inside `start_link` before it returns, so by the time we cast
+    # the via-name resolves. In the worst case two callers race the empty-lookup
+    # and both attach — one gets `{:already_started, _}` — but both still resolve
+    # the same registered name. Even if a cast were ever dropped, the absolute
+    # high-water accounting self-heals on the next observation, so no total is
+    # lost; a swallowed `:exit` here only means one skipped update.
     case registry_lookup(identifier) do
       [{_pid, _}] -> :ok
       [] -> attach(identifier)
@@ -135,7 +147,8 @@ defmodule Aiur.Cost.Store do
       threads: %{},
       meta: empty_meta(),
       active_thread: nil,
-      last_broadcast: nil
+      last_broadcast: nil,
+      last_persist_ms: nil
     }
 
     {:ok, load_persisted(state)}
@@ -165,17 +178,30 @@ defmodule Aiur.Cost.Store do
     # Codex emits a usage update on nearly every streamed message; persisting +
     # fsyncing each one would be severe write amplification on the hot path. The
     # total is idempotent absolute high-water, so a bucket-gated flush loses at
-    # most sub-bucket increments (< $1 / < 1% context), and terminate/2 always
-    # flushes the latest on clean shutdown.
+    # most sub-bucket increments (< $1 / < 1% context).
+    #
+    # The UI broadcast stays bucket-gated (bounded scrollback rows), but
+    # persistence also honours a time-based floor: if >= @persist_floor_ms have
+    # elapsed since the last write we flush even without a bucket change. Without
+    # it, a cheap ticket that never crosses a whole-dollar / integer-percent
+    # boundary would keep only its first observation on an unclean exit
+    # (kill -9 / BEAM crash), where terminate/2 never runs.
     snapshot = build_snapshot(state)
     key = throttle_key(snapshot)
+    now_ms = System.monotonic_time(:millisecond)
 
-    if key == state.last_broadcast do
-      {:noreply, state}
-    else
-      :ok = persist(snapshot, state)
-      AgentPubSub.broadcast_cost(state.identifier, snapshot)
-      {:noreply, %{state | last_broadcast: key}}
+    cond do
+      key != state.last_broadcast ->
+        :ok = persist(snapshot, state)
+        AgentPubSub.broadcast_cost(state.identifier, snapshot)
+        {:noreply, %{state | last_broadcast: key, last_persist_ms: now_ms}}
+
+      persist_floor_elapsed?(state.last_persist_ms, now_ms) ->
+        :ok = persist(snapshot, state)
+        {:noreply, %{state | last_persist_ms: now_ms}}
+
+      true ->
+        {:noreply, state}
     end
   rescue
     error ->
@@ -260,6 +286,9 @@ defmodule Aiur.Cost.Store do
 
   defp usd_bucket(%Decimal{} = d), do: d |> Decimal.round(0, :down) |> Decimal.to_integer()
   defp usd_bucket(_other), do: nil
+
+  defp persist_floor_elapsed?(nil, _now_ms), do: true
+  defp persist_floor_elapsed?(last_ms, now_ms), do: now_ms - last_ms >= @persist_floor_ms
 
   # ── persistence ──────────────────────────────────────────────────────
 

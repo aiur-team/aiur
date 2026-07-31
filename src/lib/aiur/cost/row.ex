@@ -1,12 +1,22 @@
 defmodule Aiur.Cost.Row do
   @moduledoc """
-  Renders a per-ticket cost snapshot into the operator-facing strings shown in
+  Renders a per-ticket cost snapshot into the operator-facing string shown in
   the opencode agent pane.
 
-  `compact/1` is the single line used above the chat scrollback (side-panel
-  closed, the common state). `panel/1` is the two-line block for the open side
-  panel. Both read the same snapshot, so the numbers are identical across
-  surfaces.
+  `compact/1` is the single status line rendered above the chat scrollback. It
+  stays visible whether or not the native TUI side panel is open, so the same
+  numbers are seen in both panel states.
+
+  ## Deferred: distinct side-panel-open block
+
+  The ticket also sketched a taller two-line block for when the side panel is
+  open. That surface is deferred: side-panel open/closed is native-TUI *client*
+  state and is not exposed to Aiur's server-side `SessionWriter` (which writes
+  into opencode's SQLite session), so we cannot know which layout to emit
+  without a change inside the opencode client. Rather than ship an unwired
+  `panel/1` that no render path calls, we render only the single `compact/1`
+  line, which already satisfies the acceptance criterion of showing the same
+  numbers in both panel states.
   """
 
   @type snapshot :: %{
@@ -39,35 +49,6 @@ defmodule Aiur.Cost.Row do
       nil -> context_part
       usd -> context_part <> " · $#{usd} spent"
     end
-  end
-
-  @doc "Two-line side-panel block."
-  @spec panel(snapshot()) :: String.t()
-  def panel(snapshot) when is_map(snapshot) do
-    context = fetch(snapshot, :context, %{})
-    tokens = fetch(context, :tokens, nil)
-    limit = fetch(context, :limit, nil)
-    percent = fetch(context, :percent_used, nil)
-
-    context_line =
-      case {tokens, limit} do
-        {t, l} when is_integer(t) and is_integer(l) and l > 0 ->
-          "Context  #{commas(t)} / #{commas(l)} tokens  (#{percent_text(percent)})"
-
-        {t, _} when is_integer(t) ->
-          "Context  #{commas(t)} tokens"
-
-        _ ->
-          "Context  —"
-      end
-
-    cost_line =
-      case usd(snapshot) do
-        nil -> nil
-        usd -> "Cost     $#{usd} spent"
-      end
-
-    [context_line, cost_line] |> Enum.reject(&is_nil/1) |> Enum.join("\n")
   end
 
   defp usd(snapshot) do

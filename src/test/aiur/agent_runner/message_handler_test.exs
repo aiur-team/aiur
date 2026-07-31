@@ -495,6 +495,98 @@ defmodule Aiur.AgentRunner.MessageHandlerTest do
     end
   end
 
+  describe "observe_cost/4 (per-ticket cost wiring, #132)" do
+    setup do
+      tmp = Path.join(System.tmp_dir!(), "aiur-cost-mh-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(tmp)
+      prior = Application.get_env(:aiur, :log_file)
+      Application.put_env(:aiur, :log_file, Path.join(tmp, "aiur.log"))
+
+      on_exit(fn ->
+        if prior, do: Application.put_env(:aiur, :log_file, prior), else: Application.delete_env(:aiur, :log_file)
+        File.rm_rf!(tmp)
+      end)
+
+      :ok
+    end
+
+    test "folds a usage message + priced envelope into the store and broadcasts a non-nil usd" do
+      identifier = "MH-cost-#{System.unique_integer([:positive])}"
+      issue = %Issue{id: "gid-cost", identifier: identifier}
+      :ok = AgentPubSub.subscribe_agent(identifier)
+
+      on_exit(fn -> Aiur.Cost.Store.stop(identifier) end)
+
+      # Realistic codex `thread/tokenUsage/updated` notification carrying the
+      # cumulative absolute totals the observation extractor reads.
+      message = %{
+        "params" => %{
+          "thread_id" => "thread-cost-1",
+          "tokenUsage" => %{
+            "total" => %{
+              "input_tokens" => 400,
+              "output_tokens" => 40,
+              "total_tokens" => 440,
+              "cached_input_tokens" => 220
+            },
+            "model_context_window" => 256_000
+          }
+        }
+      }
+
+      # A fully-priced envelope, the exact `%{envelopes: [...]}` outcome shape the
+      # usage emitter returns. If that contract drifts, envelopes_from/1 falls to
+      # [] and this assertion fails.
+      outcome = %{envelopes: [priced_envelope()], coverages: []}
+
+      assert :ok = MessageHandler.observe_cost(issue, "claude", message, outcome)
+
+      assert_receive {:cost_updated, snapshot}, 2_000
+      assert snapshot.context.tokens == 440
+      assert snapshot.context.limit == 256_000
+      assert snapshot.cost.input_tokens == 400
+      assert snapshot.cost.cached_input_tokens == 220
+      refute is_nil(snapshot.cost.usd)
+      assert Decimal.gt?(snapshot.cost.usd, Decimal.new(0))
+    end
+
+    test "envelopes_from/1 tolerates a non-map outcome without a dollar figure crash" do
+      # Guards the fallback branch: an unexpected outcome yields no envelopes, so
+      # the observation carries no pricing metadata and no store is priced — but
+      # nothing raises.
+      issue = %Issue{id: "gid-cost-2", identifier: "MH-cost-#{System.unique_integer([:positive])}"}
+      assert MessageHandler.envelopes_from(:skip) == []
+      assert :ok = MessageHandler.observe_cost(issue, "codex", %{"params" => %{}}, :skip)
+    end
+  end
+
+  defp priced_envelope do
+    %Aiur.UsageEnvelope{
+      idempotency_key: "k-cost",
+      provider: :claude,
+      source: :thread_token_usage,
+      source_version: "v2",
+      source_event_id: "e-cost",
+      source_sequence: 1,
+      ingested_at: ~U[2026-07-30 12:00:00Z],
+      measurement_kind: :absolute,
+      counter_scope: :thread,
+      counter_epoch: 0,
+      update_kind: :full,
+      attribution: %{thread_id: "thread-cost-1"},
+      agent_family: :claude,
+      backend: :app_server,
+      transport: :app_server,
+      auth_mode: :api_key,
+      account_generation: %{},
+      tokens: %{},
+      relationship_revision: "claude-remote-control-2026-07",
+      resolved_model: "claude-opus-4-8",
+      pricing_effective_date: ~D[2026-07-30],
+      context_tier: :not_applicable
+    }
+  end
+
   defp tracker_identity(identifier) do
     %TrackerIdentity{
       status: :joinable,

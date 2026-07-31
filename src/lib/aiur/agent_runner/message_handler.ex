@@ -97,7 +97,15 @@ defmodule Aiur.AgentRunner.MessageHandler do
 
   # Fold one absolute token snapshot into the per-ticket cost store. Fail-closed:
   # cost accounting must never propagate a fault into the worker turn.
-  defp observe_cost(%Issue{identifier: identifier}, backend, message, outcome) when is_binary(identifier) do
+  #
+  # Public (`@doc false`) so the wiring seam is directly testable: this and
+  # `envelopes_from/1` are the load-bearing contract between the usage emitter's
+  # `%{envelopes: [...]}` outcome and the cost store. If that shape ever drifts,
+  # `envelopes_from/1` would silently yield `[]` and the dollar figure would
+  # vanish — the integration test asserts a non-nil usd through exactly this path.
+  @doc false
+  @spec observe_cost(Issue.t() | term(), String.t(), map(), term()) :: :ok
+  def observe_cost(%Issue{identifier: identifier}, backend, message, outcome) when is_binary(identifier) do
     case CostObservation.from_message(backend, message, envelopes_from(outcome)) do
       {:ok, observation} -> CostStore.record(identifier, observation)
       :skip -> :ok
@@ -108,10 +116,12 @@ defmodule Aiur.AgentRunner.MessageHandler do
     _kind, _reason -> :ok
   end
 
-  defp observe_cost(_issue, _backend, _message, _outcome), do: :ok
+  def observe_cost(_issue, _backend, _message, _outcome), do: :ok
 
-  defp envelopes_from(%{envelopes: envelopes}) when is_list(envelopes), do: envelopes
-  defp envelopes_from(_outcome), do: []
+  @doc false
+  @spec envelopes_from(term()) :: [Aiur.UsageEnvelope.t()]
+  def envelopes_from(%{envelopes: envelopes}) when is_list(envelopes), do: envelopes
+  def envelopes_from(_outcome), do: []
 
   defp maybe_broadcast_transcript(%Issue{identifier: identifier}, {:ok, event})
        when is_binary(identifier) do

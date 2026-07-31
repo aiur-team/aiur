@@ -48,7 +48,10 @@ defmodule Aiur.Cost.StoreTest do
     assert snap.context.tokens == 66_000
     assert snap.context.limit == 200_000
     assert snap.context.percent_used == 33
-    assert Decimal.gt?(snap.cost.usd, Decimal.new(0))
+    # Exact catalog math (claude-opus: input $5.00/M, cached $0.50/M, output $25.00/M):
+    # non-cached input (60k-30k)=30k * 5.00 + cached 30k * 0.50 + output 6k * 25.00
+    # = 0.15 + 0.015 + 0.15 = 0.315
+    assert Decimal.equal?(snap.cost.usd, Decimal.new("0.315"))
   end
 
   test "running total spans threads (a new session keeps the total)", %{id: id} do

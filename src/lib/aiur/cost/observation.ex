@@ -50,7 +50,14 @@ defmodule Aiur.Cost.Observation do
   @doc """
   Builds an absolute observation from a normalized message and the usage
   envelopes the emitter produced for it. Returns `:skip` when the message
-  carries no cumulative token total.
+  carries no cumulative token total, or when no stable `thread_id` can be
+  resolved.
+
+  Skipping the id-less case is deliberate: the store keeps a high-water
+  **per thread**, so folding an id-less message under a shared literal bucket
+  would clamp a genuinely distinct session to the prior high-water and freeze
+  the per-ticket total — silently defeating the session-switch acceptance
+  criterion. Recording nothing is safer than recording a wrong (frozen) total.
   """
   @spec from_message(String.t(), map(), [UsageEnvelope.t()]) :: {:ok, t()} | :skip
   def from_message(backend, message, envelopes)
@@ -61,19 +68,21 @@ defmodule Aiur.Cost.Observation do
     output = Payloads.get_token_usage(usage, :output)
     total = Payloads.get_token_usage(usage, :total)
 
-    if is_nil(input) and is_nil(output) and is_nil(total) do
-      :skip
-    else
-      envelope = first_envelope(envelopes)
-      {:ok, build(backend, message, envelope, usage, {input, output, total})}
+    envelope = first_envelope(envelopes)
+    tid = thread_id(message, envelope)
+
+    cond do
+      is_nil(input) and is_nil(output) and is_nil(total) -> :skip
+      is_nil(tid) -> :skip
+      true -> {:ok, build(backend, message, envelope, usage, tid, {input, output, total})}
     end
   end
 
   def from_message(_backend, _message, _envelopes), do: :skip
 
-  defp build(backend, message, envelope, usage, {input, output, total}) do
+  defp build(backend, message, envelope, usage, tid, {input, output, total}) do
     %{
-      thread_id: thread_id(message, envelope),
+      thread_id: tid,
       input_tokens: input || 0,
       cached_input_tokens: cached_tokens(usage),
       output_tokens: output || 0,
@@ -120,7 +129,7 @@ defmodule Aiur.Cost.Observation do
 
   defp to_thread_id(id) when is_binary(id) and id != "", do: id
   defp to_thread_id(id) when is_integer(id), do: Integer.to_string(id)
-  defp to_thread_id(_id), do: "unknown"
+  defp to_thread_id(_id), do: nil
 
   defp meta(backend, %UsageEnvelope{} = envelope) do
     %{

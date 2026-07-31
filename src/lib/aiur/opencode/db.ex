@@ -146,6 +146,27 @@ defmodule Aiur.Opencode.Db do
   end
 
   @doc """
+  Delete one message and all of its parts. Used to replace a live-refreshing
+  status row (e.g. the #132 per-ticket cost line) in place: the previous row is
+  removed before the new one is inserted, so the scrollback keeps a single
+  current line rather than accumulating a stack of stale ones. No-op semantics —
+  deleting an already-absent id succeeds.
+  """
+  @spec delete_message(String.t(), String.t()) :: :ok | {:error, term()}
+  def delete_message(session_id, message_id)
+      when is_binary(session_id) and is_binary(message_id) do
+    with_conn(fn conn -> delete_message(conn, session_id, message_id) end)
+  end
+
+  @spec delete_message(Connection.t(), String.t(), String.t()) :: :ok | {:error, term()}
+  def delete_message(conn, session_id, message_id)
+      when is_binary(session_id) and is_binary(message_id) do
+    with :ok <- exec_with_retry(conn, "DELETE FROM part WHERE message_id = ? AND session_id = ?", [message_id, session_id]) do
+      exec_with_retry(conn, "DELETE FROM message WHERE id = ? AND session_id = ?", [message_id, session_id])
+    end
+  end
+
+  @doc """
   Read one message + all its parts back. Used by the synthetic-stream
   round-trip in `Aiur.Opencode.ChatCompletions` to replay just-written
   rows as SSE deltas.
