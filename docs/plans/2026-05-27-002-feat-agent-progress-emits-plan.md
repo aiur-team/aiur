@@ -234,7 +234,7 @@ Tightened constraints from the brainstorm:
 
 - **Origin document:** [docs/brainstorms/2026-05-27-aiur-progress-event-emits-requirements.md](../brainstorms/2026-05-27-aiur-progress-event-emits-requirements.md)
 - **Related plan (predecessor):** [docs/plans/2026-05-27-001-feat-subscriptions-and-inbox-plan.md](2026-05-27-001-feat-subscriptions-and-inbox-plan.md) (PR #130 merged; this plan reuses the ProgressTracker + renderer plumbing shipped there)
-- **Related issue:** [#68 Replace status color circles with phase-specific emojis](https://github.com/its-everdred/aiur/issues/68) — complementary, not blocking. Both consume `phase.*` events; this plan handles the bar/ETA columns, #68 handles the state-column emojis.
+- **Related issue:** [#68 Replace status color circles with phase-specific emojis](https://github.com/aiur-team/aiur/issues/68) — complementary, not blocking. Both consume `phase.*` events; this plan handles the bar/ETA columns, #68 handles the state-column emojis.
 - **Related code:**
   - `elixir/lib/aiur/progress_tracker.ex`
   - `elixir/lib/aiur/agent_list/renderer.ex`

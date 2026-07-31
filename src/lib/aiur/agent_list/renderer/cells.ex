@@ -16,7 +16,7 @@ defmodule Aiur.AgentList.Renderer.Cells do
 
   # Wrap a padded ID cell in an OSC 8 hyperlink to the ticket's
   # web page when the renderer knows the project (e.g.
-  # "its-everdred/aiur") AND the identifier looks like a GitHub
+  # "aiur-team/aiur") AND the identifier looks like a GitHub
   # issue number. Terminals that support OSC 8 (iTerm2, WezTerm,
   # Ghostty, etc.) render the cell as a click-to-open link; those
   # that don't ignore the escapes and display the digits as plain

@@ -230,7 +230,7 @@ Aiur currently calls the person or agent driving a run the “operator.” The c
 
 ## Sources & References
 
-- Issue #1034 and confirmed Executor decision: https://github.com/its-everdred/aiur/issues/1034#issuecomment-4954756737
+- Issue #1034 and confirmed Executor decision: https://github.com/aiur-team/aiur/issues/1034#issuecomment-4954756737
 - Related UI/capstone work: #987, #1026
 - Active docs coordination: #1022 / PR #1040, #1033
 - Related code: `src/lib/aiur_web/`, `src/lib/aiur/decision_attention.ex`, `src/prompts/shared-agent-instructions.md`

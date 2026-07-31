@@ -340,7 +340,7 @@ flowchart TB
 - **Technical decisions:** `docs/build-order/05-technical-decisions.md` (DEC-007, DEC-013)
 - **Existing isolation precedent:** `website/scripts/capture-executor-control-center.mjs`
 - **Synthetic Phoenix precedent:** `src/test/manual/executor_control_center_docs_fixture.exs`
-- **Approved planning authority:** https://github.com/its-everdred/aiur/tree/4d8de9508206e08e314f2730cd916501a3b4cafd/docs/build-order
+- **Approved planning authority:** https://github.com/aiur-team/aiur/tree/4d8de9508206e08e314f2730cd916501a3b4cafd/docs/build-order
 - **Playwright browser management:** https://playwright.dev/docs/browsers
 - **Playwright web-server lifecycle:** https://playwright.dev/docs/test-webserver
 - **axe-core Playwright package:** https://github.com/dequelabs/axe-core-npm
