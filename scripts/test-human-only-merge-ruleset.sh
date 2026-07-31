@@ -63,3 +63,19 @@ expect_rejected \
   "nonempty-bypass-actors" \
   '.bypass_actors = [{"actor_id": 1, "actor_type": "Integration", "bypass_mode": "always"}]' \
   "ruleset bypass_actors must be visible, present, and exactly empty"
+expect_rejected \
+  "missing-required-checks-rule" \
+  '.rules |= map(select(.type != "required_status_checks"))' \
+  "ruleset must require every blocking GitHub Actions status check"
+expect_rejected \
+  "missing-workflow-security-check" \
+  '(.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks) |= map(select(.context != "workflow security"))' \
+  "ruleset must require every blocking GitHub Actions status check"
+expect_rejected \
+  "missing-coverage-partition" \
+  '(.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks) |= map(select(.context != "coverage (4/4)"))' \
+  "ruleset must require every blocking GitHub Actions status check"
+expect_rejected \
+  "untrusted-check-source" \
+  '(.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks[0].integration_id) = 1' \
+  "ruleset must require every blocking GitHub Actions status check"

@@ -55,3 +55,31 @@ if ! jq -e '
   echo "ruleset must require current CODEOWNER approval and dismiss stale reviews" >&2
   exit 1
 fi
+
+required_checks='[
+  "browser harness",
+  "build",
+  "coverage",
+  "coverage (1/4)",
+  "coverage (2/4)",
+  "coverage (3/4)",
+  "coverage (4/4)",
+  "dialyzer",
+  "layout release smoke",
+  "lint",
+  "streamdeck",
+  "test",
+  "workflow security"
+]'
+
+if ! jq -e --argjson required_checks "$required_checks" '
+  [.rules[] | select(.type == "required_status_checks") | .parameters] |
+  length == 1 and
+  .[0].do_not_enforce_on_create == false and
+  .[0].strict_required_status_checks_policy == false and
+  (.[0].required_status_checks | map(.context) | sort) == ($required_checks | sort) and
+  (.[0].required_status_checks | all(.integration_id == 15368))
+' >/dev/null <<<"$ruleset"; then
+  echo "ruleset must require every blocking GitHub Actions status check" >&2
+  exit 1
+fi

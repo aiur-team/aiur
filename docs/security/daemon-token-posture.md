@@ -15,11 +15,5 @@ Token issuance, refresh, and client migration are tracked by #1375, alongside
 the rate-limit work in #678. This ticket deliberately records the posture and
 does not broaden the merge-boundary change into an authentication migration.
 
-The CI ruleset audit is deliberately separate from the daemon. Its
-isolated `RULESET_AUDITOR_TOKEN` secret needs repository Administration: write
-visibility because GitHub otherwise omits `bypass_actors` from ruleset GET
-responses. The audit workflow performs only read operations and receives the
-credential only on trusted pushes to protected branches, but the credential's
-capability means it must not be reused as the daemon token. The daemon remains
-forbidden from receiving Administration, Actions, Secrets, or Workflows
-permission.
+Ruleset administration remains an operator-only action. No Administration
+credential is stored in Actions or given to the daemon.

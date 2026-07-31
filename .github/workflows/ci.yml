@@ -22,28 +22,6 @@ jobs:
       - name: Test human-only merge ruleset verifier
         run: bash scripts/test-human-only-merge-ruleset.sh
 
-  ruleset-security:
-    name: ruleset security
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Verify human-only merge ruleset
-        # GitHub omits bypass_actors from GET responses unless the credential
-        # has ruleset write visibility, so this must be an isolated auditor
-        # credential rather than the daemon token.
-        env:
-          GH_TOKEN: ${{ secrets.RULESET_AUDITOR_TOKEN }}
-        run: |
-          test -n "$GH_TOKEN" || {
-            echo "RULESET_AUDITOR_TOKEN with Administration:write is required to audit repository rulesets" >&2
-            exit 1
-          }
-          bash scripts/verify-human-only-merge-ruleset.sh
-
   build:
     runs-on: ubuntu-latest
     defaults:

@@ -13,15 +13,15 @@ with GitHub repository-administration permission applies or updates it with:
 scripts/apply-human-only-merge-ruleset.sh
 ```
 
-`scripts/verify-human-only-merge-ruleset.sh` reads the live GitHub ruleset and
-fails closed when any of those conditions drift. CI invokes it only after a
-trusted push to `main` or `develop`, using the separate
-`RULESET_AUDITOR_TOKEN` secret. GitHub omits `bypass_actors` from ruleset
-responses unless the caller has ruleset write visibility, so a fine-grained
-token used for this audit needs repository Administration: write even though
-the workflow performs only read operations. The token must be an isolated
-auditor credential available only to trusted protected-branch pushes; it is
-never exposed to pull-request code or the Aiur daemon.
+The declaration also requires every blocking CI job to succeed, with GitHub
+Actions fixed as the expected check source. Branches do not need to be rebased
+onto the latest target-branch commit before merging, but the exact proposed
+head commit must have successful checks.
+
+`scripts/verify-human-only-merge-ruleset.sh` lets an administrator verify the
+live GitHub ruleset on demand. It is deliberately not run in CI: GitHub hides
+`bypass_actors` unless the caller has ruleset write visibility, and placing
+that Administration credential in Actions would expand the CI trust boundary.
 
 The verifier requires both `conditions.ref_name.exclude` and `bypass_actors`
 to be present and exactly `[]`. Missing or `null` properties fail the audit:
@@ -36,6 +36,6 @@ the dispatch `allowed_users`; absent configuration denies every merger and
 raises a critical needs-attention alert. This repository permits only
 `its-everdred`.
 
-The verifier intentionally has no maintenance-window override. Temporarily
-disabling last-push approval creates the stale-approval merge path this control
-exists to prevent, so operators must stop toggling it even for legacy PRs.
+The declaration is the required steady state. The solo-operator release-merge
+deadlock and any auditable, time-bounded maintenance procedure are tracked in
+#1437 rather than encoded as a CI exception here.
