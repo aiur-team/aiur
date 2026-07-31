@@ -48,13 +48,13 @@ defmodule AiurWeb.StreamdeckLive do
       nav_collapsed={@nav_collapsed}
     >
       <section id="streamdeck-page" class="sd-stage" aria-label="Stream Deck emulator" phx-hook="StreamdeckEmulator">
-        <div class="sd-device" role="group" aria-label="Stream Deck + control surface">
+        <div class="sd-device" role="group" aria-label="Stream Deck + control surface" data-mode="grid">
           <header class="sd-brand">
             <span class="sd-brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
             <span>STREAM DECK</span>
           </header>
 
-          <div id="sd-keys" class="sd-keys" role="list" aria-label="Agent keys">
+          <div id="sd-keys" class="sd-keys" data-mode-view="grid" role="list" aria-label="Agent keys">
             <article
               :for={key <- @keys}
               class={["sd-key", key.empty? && "is-empty", "st-#{key.bucket}"]}
@@ -80,6 +80,23 @@ defmodule AiurWeb.StreamdeckLive do
                 </div>
               </div>
             </article>
+          </div>
+
+          <div id="sd-cmd-view" class="sd-cmd-view" data-mode-view="cmd" role="group" aria-label="Agent commands" aria-hidden="true">
+            <p class="sd-mode-label">Commands</p>
+            <ul class="sd-cmd-list" aria-label="Available commands">
+              <li class="sd-cmd-item">Run tests</li>
+              <li class="sd-cmd-item">Deploy staging</li>
+              <li class="sd-cmd-item">View logs</li>
+              <li class="sd-cmd-item">Open PR</li>
+            </ul>
+          </div>
+
+          <div id="sd-logs-view" class="sd-logs-view" data-mode-view="logs" role="log" aria-label="Agent logs" aria-hidden="true">
+            <p class="sd-mode-label">Logs</p>
+            <div class="sd-log-body">
+              <p class="sd-log-line">No recent log output.</p>
+            </div>
           </div>
 
           <div id="sd-screen" class="sd-screen" role="group" aria-label="Touch strip">

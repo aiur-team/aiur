@@ -10,6 +10,10 @@
 // restored in updated, so LiveView re-renders cannot revert local interaction.
 // Key/mic event bindings are torn down in beforeUpdate and rebuilt in updated
 // to avoid duplicate-listener accumulation across patches.
+//
+// Mode machine (local-first, no server round-trip):
+//   grid → (key click) → cmd → (cycle-window) → logs
+//   any → (back) → previous mode in history stack
 (function () {
   "use strict";
 
@@ -19,6 +23,9 @@
   var KEY_STEP = 4;
   // 270-degree physical sweep maps to full [0..100] range.
   var DRAG_DIVISOR = 2.7;
+
+  // Mode cycle order. cycle-window advances forward; back retreats via history.
+  var MODES = ["grid", "cmd", "logs"];
 
   // Index → server-side press action. Dials 1 and 2 have no press action.
   var PRESS_ACTIONS = { 0: "back", 3: "cycle-window" };
@@ -161,6 +168,8 @@
     el.classList.add("press");
     this._pressTimer = setTimeout(function () { el.classList.remove("press"); }, PRESS_FLASH_MS);
 
+    // Handle local mode transition before pushing to server.
+    this.hook._handleLocalDialPress(action);
     this.hook.pushEvent("dial-press", { index: this.index, action: action });
   };
 
@@ -200,6 +209,8 @@
       this._micSegment = null;
       this._onMicDown = null;
       this._onMicUp = null;
+      this._mode = "grid";
+      this._modeHistory = [];
 
       this._bindKeys();
       this._bindMic();
@@ -211,6 +222,8 @@
       // bindings. updated() will re-bind and restore — no double-listener risk.
       this._knobState = this._knobs.map(function (k) { return k.snapshotState(); });
       this._pendingMicActive = this._micActive;
+      this._pendingMode = this._mode;
+      this._pendingModeHistory = this._modeHistory.slice();
       this._destroyKnobs();
       this._unbindKeys();
       this._unbindMic();
@@ -226,9 +239,20 @@
         this._knobs.forEach(function (k, i) { k.restoreState(state[i]); });
         this._knobState = null;
       }
+      // Restore mode state (server patch must not reset the active mode view).
+      if (this._pendingMode) {
+        this._modeHistory = this._pendingModeHistory || [];
+        this._setMode(this._pendingMode, false);
+        this._pendingMode = null;
+        this._pendingModeHistory = null;
+      }
       // Restore mic active state if the user was holding during the patch.
+      // Use _restoringMic flag to suppress the redundant server pushEvent —
+      // the server already knows mic is active.
       if (this._pendingMicActive) {
+        this._restoringMic = true;
         this._setMic(true);
+        this._restoringMic = false;
         this._pendingMicActive = false;
       }
     },
@@ -264,6 +288,11 @@
           void key.offsetWidth;
           key.classList.add("is-flashing");
           timer = setTimeout(function () { key.classList.remove("is-flashing"); }, 500);
+
+          // Key click in grid mode transitions to cmd view.
+          if (self._mode === "grid") {
+            self._setMode("cmd");
+          }
         };
         key.addEventListener("click", handler);
         self._keyHandlers.push({ el: key, handler: handler, timer: function () { return timer; } });
@@ -320,7 +349,40 @@
       } else {
         seg.classList.remove("is-live");
       }
-      this.pushEvent("mic-hold", { active: active });
+      // Skip the server push when restoring across a patch — the server already
+      // knows the mic state; a duplicate push would double-fire mic-hold.
+      if (!this._restoringMic) {
+        this.pushEvent("mic-hold", { active: active });
+      }
+    },
+
+    // Advance or retreat the mode machine. Called from key click handlers and
+    // Knob._press() for local transitions before the server event is pushed.
+    _handleLocalDialPress(action) {
+      if (action === "back") {
+        var prev = this._modeHistory.pop();
+        this._setMode(prev !== undefined ? prev : "grid", false);
+      } else if (action === "cycle-window") {
+        var idx = MODES.indexOf(this._mode);
+        var next = MODES[(idx + 1) % MODES.length];
+        this._setMode(next);
+      }
+    },
+
+    // Set the active mode. Updates data-mode on .sd-device and aria-hidden on
+    // each data-mode-view panel. Pass pushHistory=false when restoring state.
+    _setMode(mode, pushHistory) {
+      if (pushHistory !== false && this._mode !== mode) {
+        this._modeHistory.push(this._mode);
+      }
+      this._mode = mode;
+      var device = this.el.querySelector(".sd-device");
+      if (device) device.setAttribute("data-mode", mode);
+      var views = Array.prototype.slice.call(this.el.querySelectorAll("[data-mode-view]"));
+      views.forEach(function (view) {
+        var isActive = view.getAttribute("data-mode-view") === mode;
+        view.setAttribute("aria-hidden", isActive ? "false" : "true");
+      });
     }
   };
 })();

@@ -7598,3 +7598,68 @@ html[data-theme="light"] .sd-device {
     transform-origin: 1px 20px;
   }
 }
+
+/* Mode-view visibility. The hook sets data-mode on .sd-device; each panel
+   carries data-mode-view matching one mode name. Hidden panels get
+   display:none so they take no space and are skipped by assistive tech. */
+.sd-cmd-view,
+.sd-logs-view {
+  display: none;
+}
+
+.sd-device[data-mode="cmd"] .sd-keys,
+.sd-device[data-mode="logs"] .sd-keys {
+  display: none;
+}
+
+.sd-device[data-mode="cmd"] .sd-cmd-view {
+  display: block;
+}
+
+.sd-device[data-mode="logs"] .sd-logs-view {
+  display: block;
+}
+
+.sd-mode-label {
+  margin: 0 0 0.5rem;
+  color: var(--muted);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.sd-cmd-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.sd-cmd-item {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: var(--fg);
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.sd-cmd-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.sd-log-body {
+  max-height: 6rem;
+  overflow-y: auto;
+}
+
+.sd-log-line {
+  margin: 0;
+  color: var(--muted);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.62rem;
+  line-height: 1.5;
+}

@@ -17,28 +17,40 @@ test('dial drag rotates the knob and updates aria-valuenow', async ({ page }) =>
   const knob = page.locator('.sd-knob').first()
   await expect(knob).toBeVisible()
 
+  // Start at a mid-range value so we have room to increase.
   const initialValue = parseInt(await knob.getAttribute('aria-valuenow'), 10)
 
-  // Drag from centre rightward then downward — a clockwise sweep that increases the value.
+  // Drag a wide clockwise arc that accumulates well over 8° (press threshold)
+  // and sweeps enough angle to guarantee an increase, even from a high initial.
   const box = await knob.boundingBox()
   const cx = box.x + box.width / 2
   const cy = box.y + box.height / 2
 
-  await page.mouse.move(cx, cy - 20)
+  // Start directly above centre and sweep clockwise (right then down).
+  await page.mouse.move(cx, cy - 30)
   await page.mouse.down()
-  // Sweep clockwise: move right then down to accumulate angle > 8° threshold.
-  await page.mouse.move(cx + 20, cy)
+  await page.mouse.move(cx + 20, cy - 20)
+  await page.mouse.move(cx + 30, cy)
   await page.mouse.move(cx + 20, cy + 20)
   await page.mouse.move(cx, cy + 30)
   await page.mouse.up()
 
   const newValue = parseInt(await knob.getAttribute('aria-valuenow'), 10)
-  // Clockwise drag should have increased the value (or at minimum not decreased past start).
-  expect(newValue).toBeGreaterThanOrEqual(initialValue)
+  // A sustained clockwise drag must increase the value, not merely match it.
+  expect(newValue).toBeGreaterThan(initialValue)
 })
 
 test('wheel event adjusts the knob value and does not scroll the page', async ({ page }) => {
   await openStreamdeck(page)
+
+  // Make the page scrollable so the scroll-prevention check is not trivially true.
+  await page.evaluate(() => {
+    const spacer = document.createElement('div')
+    spacer.style.height = '2000px'
+    spacer.setAttribute('aria-hidden', 'true')
+    document.querySelector('.shell-content').appendChild(spacer)
+  })
+  await page.waitForTimeout(50)
 
   const knob = page.locator('.sd-knob').first()
   const initialValue = parseInt(await knob.getAttribute('aria-valuenow'), 10)
@@ -55,7 +67,7 @@ test('wheel event adjusts the knob value and does not scroll the page', async ({
   const afterDown = parseInt(await knob.getAttribute('aria-valuenow'), 10)
   expect(afterDown).toBeLessThan(afterUp)
 
-  // Page should not have scrolled (non-passive wheel listener prevented default).
+  // Page must NOT have scrolled: the non-passive listener called preventDefault.
   const scrollY = await page.evaluate(() => window.scrollY)
   expect(scrollY).toBe(0)
 })
@@ -142,6 +154,85 @@ test('mic deactivates on pointerleave (not stuck on drag-exit)', async ({ page }
   await expect(micSegment).not.toHaveClass(/is-live/, { timeout: 500 })
 
   await page.mouse.up()
+})
+
+test('mode transitions: grid → cmd (key click) → logs (cycle-window) → back → back', async ({ page }) => {
+  await openStreamdeck(page)
+
+  const device = page.locator('.sd-device')
+  const keysView = page.locator('[data-mode-view="grid"]')
+  const cmdView = page.locator('[data-mode-view="cmd"]')
+  const logsView = page.locator('[data-mode-view="logs"]')
+
+  // Initial state: grid mode, keys visible, cmd and logs hidden.
+  await expect(device).toHaveAttribute('data-mode', 'grid')
+  await expect(keysView).toBeVisible()
+  await expect(cmdView).not.toBeVisible()
+  await expect(logsView).not.toBeVisible()
+
+  // Click a key to enter cmd mode.
+  const key = page.locator('.sd-key:not(.is-empty)').first()
+  await key.click()
+  await expect(device).toHaveAttribute('data-mode', 'cmd')
+  await expect(keysView).not.toBeVisible()
+  await expect(cmdView).toBeVisible()
+  await expect(logsView).not.toBeVisible()
+
+  // Dial 3 press (cycle-window) → logs mode.
+  const dial3 = page.locator('.sd-knob').nth(3)
+  const d3box = await dial3.boundingBox()
+  const d3cx = d3box.x + d3box.width / 2
+  const d3cy = d3box.y + d3box.height / 2
+  await page.mouse.move(d3cx, d3cy)
+  await page.mouse.down()
+  await page.mouse.up()
+  await expect(device).toHaveAttribute('data-mode', 'logs')
+  await expect(keysView).not.toBeVisible()
+  await expect(cmdView).not.toBeVisible()
+  await expect(logsView).toBeVisible()
+
+  // Dial 0 press (back) → cmd mode.
+  const dial0 = page.locator('.sd-knob').first()
+  const d0box = await dial0.boundingBox()
+  const d0cx = d0box.x + d0box.width / 2
+  const d0cy = d0box.y + d0box.height / 2
+  await page.mouse.move(d0cx, d0cy)
+  await page.mouse.down()
+  await page.mouse.up()
+  await expect(device).toHaveAttribute('data-mode', 'cmd')
+
+  // Dial 0 press (back) again → grid mode.
+  await page.mouse.move(d0cx, d0cy)
+  await page.mouse.down()
+  await page.mouse.up()
+  await expect(device).toHaveAttribute('data-mode', 'grid')
+  await expect(keysView).toBeVisible()
+})
+
+test('dial drag + mode transition both work in the same session', async ({ page }) => {
+  await openStreamdeck(page)
+
+  // First rotate dial 0 to change its value.
+  const knob = page.locator('.sd-knob').first()
+  const box = await knob.boundingBox()
+  const cx = box.x + box.width / 2
+  const cy = box.y + box.height / 2
+
+  await page.mouse.move(cx, cy - 30)
+  await page.mouse.down()
+  await page.mouse.move(cx + 30, cy)
+  await page.mouse.move(cx, cy + 30)
+  await page.mouse.up()
+  const dialValue = parseInt(await knob.getAttribute('aria-valuenow'), 10)
+  expect(dialValue).toBeGreaterThan(0)
+
+  // Then click a key to enter cmd mode.
+  const key = page.locator('.sd-key:not(.is-empty)').first()
+  await key.click()
+  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
+
+  // Dial value should be preserved across the mode change.
+  expect(parseInt(await knob.getAttribute('aria-valuenow'), 10)).toBe(dialValue)
 })
 
 test('dial and knob state survive a LiveView patch (regression for #1306)', async ({ page }) => {
