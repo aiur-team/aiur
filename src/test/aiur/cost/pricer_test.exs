@@ -2,9 +2,10 @@ defmodule Aiur.Cost.PricerTest do
   use ExUnit.Case, async: true
 
   alias Aiur.Cost.Pricer
+  alias Aiur.Usage.PriceTable
 
   setup do
-    {:ok, catalog} = Aiur.Usage.PriceTable.default()
+    {:ok, catalog} = PriceTable.default()
     %{catalog: catalog}
   end
 

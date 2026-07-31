@@ -67,23 +67,25 @@ defmodule Aiur.Cost.Pricer do
     # priced exactly once. Matches `Aiur.Usage.Pricing.Components` subset logic.
     billable = billable_tokens(tokens)
 
-    Enum.reduce_while(@dimension_map, {:ok, Decimal.new(0)}, fn {token_key, dimension}, {:ok, acc} ->
-      count = Map.get(billable, token_key, 0)
-
-      cond do
-        not is_integer(count) or count <= 0 ->
-          {:cont, {:ok, acc}}
-
-        true ->
-          case component_amount(catalog, meta, dimension, count) do
-            {:ok, amount} -> {:cont, {:ok, Decimal.add(acc, amount)}}
-            {:error, reason} -> {:halt, {:error, reason}}
-          end
-      end
+    Enum.reduce_while(@dimension_map, {:ok, Decimal.new(0)}, fn dimension, acc ->
+      price_dimension(catalog, meta, billable, dimension, acc)
     end)
   end
 
   def usd(_catalog, _meta, _tokens), do: {:error, :invalid_pricing_meta}
+
+  defp price_dimension(catalog, meta, billable, {token_key, dimension}, {:ok, acc}) do
+    count = Map.get(billable, token_key, 0)
+
+    if not is_integer(count) or count <= 0 do
+      {:cont, {:ok, acc}}
+    else
+      case component_amount(catalog, meta, dimension, count) do
+        {:ok, amount} -> {:cont, {:ok, Decimal.add(acc, amount)}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end
+  end
 
   defp billable_tokens(tokens) do
     input = Map.get(tokens, :input_tokens, 0)

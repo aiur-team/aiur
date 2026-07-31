@@ -65,21 +65,23 @@ defmodule Aiur.Cost.Observation do
       :skip
     else
       envelope = first_envelope(envelopes)
-
-      {:ok,
-       %{
-         thread_id: thread_id(message, envelope),
-         input_tokens: input || 0,
-         cached_input_tokens: cached_tokens(usage),
-         output_tokens: output || 0,
-         total_tokens: total || (input || 0) + (output || 0),
-         context_window: context_window(message),
-         meta: meta(backend, envelope)
-       }}
+      {:ok, build(backend, message, envelope, usage, {input, output, total})}
     end
   end
 
   def from_message(_backend, _message, _envelopes), do: :skip
+
+  defp build(backend, message, envelope, usage, {input, output, total}) do
+    %{
+      thread_id: thread_id(message, envelope),
+      input_tokens: input || 0,
+      cached_input_tokens: cached_tokens(usage),
+      output_tokens: output || 0,
+      total_tokens: total || (input || 0) + (output || 0),
+      context_window: context_window(message),
+      meta: meta(backend, envelope)
+    }
+  end
 
   defp first_envelope(envelopes) do
     Enum.find(envelopes, &match?(%UsageEnvelope{}, &1))
@@ -93,8 +95,6 @@ defmodule Aiur.Cost.Observation do
       end
     end)
   end
-
-  defp cached_tokens(_usage), do: 0
 
   defp context_window(message) do
     case first_path(roots(message), @context_window_paths) do
