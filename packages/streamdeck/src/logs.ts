@@ -3,18 +3,51 @@
  *
  * No I/O, no timers, no hardware. All functions are pure transforms over the
  * types below.
+ *
+ * ## Input contract
+ *
+ * `LogEvent` models one agent turn — a badge, a summary body, a timestamp,
+ * and its transcript entries. The server-side feed (`AgentEventFeed`) returns
+ * a flat list of individual transcript entries grouped by `turn_id`; the
+ * adapter that constructs `LogEvent[]` from that flat feed is out of scope for
+ * this ticket and will be addressed separately.
+ *
+ * ## Index-space convention
+ *
+ * The mode machine tracks three related indices:
+ * - `eventSelection` — index into the original (newest-first) input array.
+ *   Selects which LogEvent the operator has highlighted in the 8-key window.
+ * - `headerIndices[eventSelection]` — the flat index of that event's header
+ *   entry. Maps selection → position in the scroll strip.
+ * - `chatIndex` — the current scroll offset within `flat`. On logs entry this
+ *   is set to `newestChatIndex` (== `chatMax`), which scrolls the strip to
+ *   show the most recent content. Navigating events with the dial updates
+ *   `chatIndex` to `headerIndices[eventSelection]` so the selected event's
+ *   header is in view.
+ *
+ * Because events[0] is newest, `headerIndices[0]` lands near the end of
+ * `flat`, while `headerIndices[events.length - 1]` is 0 (oldest event's
+ * header is first in the flat sequence). `chatMax` equals the last valid
+ * scroll offset; it is NOT the same as `headerIndices[0]` unless the newest
+ * event has exactly one entry.
  */
+
+import type { StreamDeckEventProjection } from "./mode.js";
 
 // ---------------------------------------------------------------------------
 // Input types — the event list provided by the agent event feed
 // ---------------------------------------------------------------------------
 
-export type Direction = "EMIT" | "CONSUME" | "AGENT" | "SYSTEM" | "INFO";
+/** Direction badge as emitted by AgentEventFeed. */
+export type Badge = "EMIT" | "CONSUME" | "AGENT" | "SYSTEM" | "INFO";
+
+/** Transcript role as stored server-side. */
+export type Role = "user" | "assistant" | "system" | "command" | "alert" | "reasoning" | "tool";
 
 export interface TranscriptMessage {
   type: "message";
-  who: "agent" | "tool" | "ci" | "you";
-  text: string;
+  role: Role;
+  body: string;
 }
 
 export interface TranscriptDiff {
@@ -29,9 +62,10 @@ export interface TranscriptDiff {
 export type TranscriptEntry = TranscriptMessage | TranscriptDiff;
 
 export interface LogEvent {
-  direction: Direction;
-  text: string;
-  relativeTime: string;
+  badge: Badge;
+  /** Summary body for this turn (e.g. first message body or a turn label). */
+  body: string;
+  timestamp: string;
   entries: readonly TranscriptEntry[];
 }
 
@@ -41,15 +75,15 @@ export interface LogEvent {
 
 export interface FlatHeader {
   kind: "event-header";
-  direction: Direction;
-  text: string;
-  relativeTime: string;
+  badge: Badge;
+  body: string;
+  timestamp: string;
 }
 
 export interface FlatMessage {
   kind: "message";
-  who: "agent" | "tool" | "ci" | "you";
-  text: string;
+  role: Role;
+  body: string;
 }
 
 export interface FlatDiff {
@@ -67,16 +101,44 @@ export type FlatEntry = FlatHeader | FlatMessage | FlatDiff;
 const CHAT_WINDOW_SIZE = 2;
 const EVENTS_WINDOW_SIZE = 8;
 
+/**
+ * Maximum characters a body or line field is allowed to contribute to a flat
+ * entry. Content past this point is silently truncated; the 2-line strip
+ * window does not support multi-line bodies.
+ *
+ * Embedded newlines are replaced by a single space before this cap is applied
+ * so a multi-paragraph body does not blank the strip.
+ */
+const MAX_BODY_LENGTH = 120;
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+/** Normalise a body string: collapse newlines to spaces, cap length. */
+const clampBody = (s: string): string => {
+  const oneLine = s.replace(/\r?\n/g, " ").trim();
+  return oneLine.length <= MAX_BODY_LENGTH ? oneLine : oneLine.slice(0, MAX_BODY_LENGTH);
+};
+
 // ---------------------------------------------------------------------------
 // Flattening
 // ---------------------------------------------------------------------------
 
-export interface FlattenResult {
+/**
+ * The flat projection produced by `flattenEvents`. Extends
+ * `StreamDeckEventProjection` so the mode machine can consume it directly
+ * without a separate adapter.
+ */
+export interface FlattenResult extends StreamDeckEventProjection {
   /** The flattened sequence, oldest-first. */
   flat: readonly FlatEntry[];
   /**
    * For each event (in input order), the index in `flat` where its header
    * landed. Length equals the number of input events.
+   *
+   * `headerIndices[0]` is the newest event's header; it lands near the **end**
+   * of `flat`. `headerIndices[events.length - 1]` is always 0.
    */
   headerIndices: readonly number[];
   /**
@@ -117,9 +179,9 @@ export const flattenEvents = (events: readonly LogEvent[]): FlattenResult => {
 
     flat.push({
       kind: "event-header",
-      direction: event.direction,
-      text: event.text,
-      relativeTime: event.relativeTime,
+      badge: event.badge,
+      body: clampBody(event.body),
+      timestamp: event.timestamp,
     });
 
     for (const entry of event.entries) {
@@ -131,11 +193,11 @@ export const flattenEvents = (events: readonly LogEvent[]): FlattenResult => {
           additions: entry.additions,
           deletions: entry.deletions,
         };
-        if (entry.line !== undefined) flatDiff.line = entry.line;
+        if (entry.line !== undefined) flatDiff.line = clampBody(entry.line);
         if (lineSign !== undefined) flatDiff.lineSign = lineSign;
         flat.push(flatDiff);
       } else {
-        flat.push({ kind: "message", who: entry.who, text: entry.text });
+        flat.push({ kind: "message", role: entry.role, body: clampBody(entry.body) });
       }
     }
   }
@@ -150,10 +212,14 @@ export const flattenEvents = (events: readonly LogEvent[]): FlattenResult => {
 
 /**
  * Returns the two (or fewer) flat entries visible at the given `chatIndex`.
- * Safe at both ends: never throws, never returns more than two entries.
+ * Clamps `chatIndex` to `[0, chatMax]` before slicing so out-of-range indices
+ * never produce a blank strip.
  */
-export const chatWindow = (flat: readonly FlatEntry[], chatIndex: number): readonly FlatEntry[] =>
-  flat.slice(chatIndex, chatIndex + CHAT_WINDOW_SIZE);
+export const chatWindow = (flat: readonly FlatEntry[], chatIndex: number): readonly FlatEntry[] => {
+  const chatMax = Math.max(0, flat.length - CHAT_WINDOW_SIZE);
+  const clamped = Math.max(0, Math.min(chatIndex, chatMax));
+  return flat.slice(clamped, clamped + CHAT_WINDOW_SIZE);
+};
 
 // ---------------------------------------------------------------------------
 // 8-key event window visibility

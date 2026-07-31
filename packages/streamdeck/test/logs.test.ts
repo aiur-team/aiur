@@ -6,6 +6,7 @@ import {
   ensureVisible,
   eventsArrows,
   flattenEvents,
+  type Badge,
   type FlatDiff,
   type FlatEntry,
   type LogEvent,
@@ -17,7 +18,7 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-const msg = (text: string, who: TranscriptMessage["who"] = "agent"): TranscriptMessage => ({ type: "message", who, text });
+const msg = (body: string, role: TranscriptMessage["role"] = "assistant"): TranscriptMessage => ({ type: "message", role, body });
 const diff = (path: string, additions: number, deletions: number, line?: string): TranscriptDiff => ({
   type: "diff",
   path,
@@ -26,12 +27,12 @@ const diff = (path: string, additions: number, deletions: number, line?: string)
   ...(line !== undefined ? { line } : {}),
 });
 
-const event = (text: string, entries: LogEvent["entries"] = [], relativeTime = "1m ago"): LogEvent => ({
-  direction: "AGENT",
-  text,
-  relativeTime,
-  entries,
-});
+const event = (
+  body: string,
+  entries: LogEvent["entries"] = [],
+  badge: Badge = "AGENT",
+  timestamp = "2026-01-01T00:00:00Z",
+): LogEvent => ({ badge, body, timestamp, entries });
 
 // ---------------------------------------------------------------------------
 // flattenEvents — empty list
@@ -61,13 +62,14 @@ describe("flattenEvents — ordering", () => {
 
     const { flat } = flattenEvents(events);
 
-    expect(flat[0]).toMatchObject({ kind: "event-header", text: "older" });
-    expect(flat[1]).toMatchObject({ kind: "message", text: "older-entry" });
-    expect(flat[2]).toMatchObject({ kind: "event-header", text: "newer" });
-    expect(flat[3]).toMatchObject({ kind: "message", text: "newer-entry" });
+    expect(flat[0]).toMatchObject({ kind: "event-header", body: "older" });
+    expect(flat[1]).toMatchObject({ kind: "message", body: "older-entry" });
+    expect(flat[2]).toMatchObject({ kind: "event-header", body: "newer" });
+    expect(flat[3]).toMatchObject({ kind: "message", body: "newer-entry" });
   });
 
-  it("records per-event header indices aligned with the input array position", () => {
+  it("records exact per-event header indices aligned with the input array position", () => {
+    // events[0]=newest(e0): 2 msgs → header at flat[3]; events[1](e1): 1 msg → header at flat[1]; events[2]=oldest(e2): 0 msgs → header at flat[0]
     const events: LogEvent[] = [
       event("e0", [msg("m0a"), msg("m0b")]),
       event("e1", [msg("m1a")]),
@@ -76,11 +78,44 @@ describe("flattenEvents — ordering", () => {
 
     const { flat, headerIndices } = flattenEvents(events);
 
-    // Input index 0 is the newest; its header lands last in flat.
-    expect(flat[headerIndices[2]]).toMatchObject({ kind: "event-header", text: "e2" });
-    expect(flat[headerIndices[1]]).toMatchObject({ kind: "event-header", text: "e1" });
-    expect(flat[headerIndices[0]]).toMatchObject({ kind: "event-header", text: "e0" });
+    // e2 (oldest) lands first: flat[0]
+    expect(headerIndices[2]).toBe(0);
+    expect(flat[0]).toMatchObject({ kind: "event-header", body: "e2" });
+
+    // e1 lands at flat[1] (after e2's single header)
+    expect(headerIndices[1]).toBe(1);
+    expect(flat[1]).toMatchObject({ kind: "event-header", body: "e1" });
+
+    // e0 (newest) lands at flat[3] (after e2 header + e1 header + e1 msg)
+    expect(headerIndices[0]).toBe(3);
+    expect(flat[3]).toMatchObject({ kind: "event-header", body: "e0" });
   });
+
+  it("handles a mix of message and diff entries within one event", () => {
+    const events: LogEvent[] = [
+      event("turn", [msg("body text"), diff("src/a.ts", 2, 1, "+new line")]),
+    ];
+    const { flat } = flattenEvents(events);
+
+    expect(flat).toHaveLength(3);
+    expect(flat[0]).toMatchObject({ kind: "event-header" });
+    expect(flat[1]).toMatchObject({ kind: "message", body: "body text" });
+    expect(flat[2]).toMatchObject({ kind: "diff", path: "src/a.ts", lineSign: "+" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// flattenEvents — badge variants
+// ---------------------------------------------------------------------------
+
+describe("flattenEvents — badge variants", () => {
+  it.each(["EMIT", "CONSUME", "AGENT", "SYSTEM", "INFO"] as Badge[])(
+    "passes badge %s through to the flat header",
+    (badge) => {
+      const { flat } = flattenEvents([event("e", [], badge)]);
+      expect(flat[0]).toMatchObject({ kind: "event-header", badge });
+    },
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -115,9 +150,20 @@ describe("flattenEvents — chatMax", () => {
 // ---------------------------------------------------------------------------
 
 describe("flattenEvents — message entries", () => {
-  it("preserves who and text", () => {
-    const { flat } = flattenEvents([event("e", [msg("hello", "you")])]);
-    expect(flat[1]).toEqual({ kind: "message", who: "you", text: "hello" });
+  it("preserves role and body", () => {
+    const { flat } = flattenEvents([event("e", [msg("hello", "user")])]);
+    expect(flat[1]).toEqual({ kind: "message", role: "user", body: "hello" });
+  });
+
+  it("collapses embedded newlines in body to spaces", () => {
+    const { flat } = flattenEvents([event("e", [msg("line one\nline two")])]);
+    expect((flat[1] as { kind: string; body: string }).body).toBe("line one line two");
+  });
+
+  it("truncates body exceeding MAX_BODY_LENGTH", () => {
+    const long = "x".repeat(200);
+    const { flat } = flattenEvents([event("e", [msg(long)])]);
+    expect((flat[1] as { kind: string; body: string }).body.length).toBe(120);
   });
 });
 
@@ -150,14 +196,27 @@ describe("flattenEvents — diff entries", () => {
 });
 
 // ---------------------------------------------------------------------------
+// flattenEvents — structural binding: FlattenResult satisfies StreamDeckEventProjection
+// ---------------------------------------------------------------------------
+
+describe("flattenEvents — StreamDeckEventProjection compatibility", () => {
+  it("result carries newestChatIndex required by StreamDeckEventProjection", () => {
+    const result = flattenEvents([event("e")]);
+    // Assignability verified at compile time via `extends`; this runtime check
+    // confirms the field is present and numeric.
+    expect(typeof result.newestChatIndex).toBe("number");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // chatWindow
 // ---------------------------------------------------------------------------
 
 describe("chatWindow", () => {
   const flat: FlatEntry[] = [
-    { kind: "message", who: "agent", text: "a" },
-    { kind: "message", who: "agent", text: "b" },
-    { kind: "message", who: "agent", text: "c" },
+    { kind: "message", role: "assistant", body: "a" },
+    { kind: "message", role: "assistant", body: "b" },
+    { kind: "message", role: "assistant", body: "c" },
   ];
 
   it("returns the two entries at chatIndex", () => {
@@ -165,12 +224,31 @@ describe("chatWindow", () => {
     expect(chatWindow(flat, 1)).toEqual([flat[1], flat[2]]);
   });
 
-  it("returns one entry at the end of a short list", () => {
-    expect(chatWindow(flat, 2)).toEqual([flat[2]]);
+  it("returns one entry when the flat list has only one entry", () => {
+    const singleEntry: FlatEntry[] = [{ kind: "message", role: "assistant", body: "only" }];
+    expect(chatWindow(singleEntry, 0)).toEqual([singleEntry[0]]);
   });
 
   it("returns an empty array for an empty flat list", () => {
     expect(chatWindow([], 0)).toEqual([]);
+  });
+
+  it("clamps a negative chatIndex to 0", () => {
+    expect(chatWindow(flat, -1)).toEqual([flat[0], flat[1]]);
+  });
+
+  it("clamps an over-bounds chatIndex to chatMax", () => {
+    // chatMax = 3 - 2 = 1; index 99 should be treated as 1
+    expect(chatWindow(flat, 99)).toEqual([flat[1], flat[2]]);
+  });
+
+  it("clamps chatIndex to chatMax even at chatMax + 5", () => {
+    const twoEntry: FlatEntry[] = [
+      { kind: "message", role: "assistant", body: "x" },
+      { kind: "message", role: "assistant", body: "y" },
+    ];
+    // chatMax = 0; any index should return [x, y]
+    expect(chatWindow(twoEntry, 5)).toEqual(twoEntry);
   });
 });
 
@@ -196,6 +274,10 @@ describe("ensureVisible", () => {
 
   it("clamps windowStart to 0 when it would go negative", () => {
     expect(ensureVisible(0, 0, 20)).toBe(0);
+  });
+
+  it("clamps to 0 for a negative selection", () => {
+    expect(ensureVisible(0, -1, 20)).toBe(0);
   });
 
   it("clamps windowStart to maxStart at the upper bound", () => {
