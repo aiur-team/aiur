@@ -115,5 +115,5 @@ The retained-query primitives already expose a truthful scope and health result,
 
 ## Sources & References
 
-- Exact-head review: [#1088 comment](https://github.com/its-everdred/aiur/issues/1088#issuecomment-4974997031)
+- Exact-head review: [#1088 comment](https://github.com/aiur-team/aiur/issues/1088#issuecomment-4974997031)
 - Earlier query and presentation repairs: `docs/plans/2026-07-14-001-fix-retained-decision-query-rework-plan.md`, `docs/plans/2026-07-14-002-fix-retained-decision-presentation-security-plan.md`

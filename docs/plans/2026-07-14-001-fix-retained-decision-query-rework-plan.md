@@ -295,6 +295,6 @@ retained-page response timeout by its row count.
 
 ## Sources & References
 
-- Approved planning authority: [DASH-006 companion ticket](https://github.com/its-everdred/aiur/blob/4d8de9508206e08e314f2730cd916501a3b4cafd/docs/build-order/companion-tickets/DASH-006-decision-lookup.md)
-- Requirements: [DREQ-006](https://github.com/its-everdred/aiur/blob/4d8de9508206e08e314f2730cd916501a3b4cafd/docs/brainstorms/2026-07-12-build-order-requirements.md)
-- Related PR and authoritative rework: #1144, [review comment](https://github.com/its-everdred/aiur/pull/1144#issuecomment-4966514666)
+- Approved planning authority: [DASH-006 companion ticket](https://github.com/aiur-team/aiur/blob/4d8de9508206e08e314f2730cd916501a3b4cafd/docs/build-order/companion-tickets/DASH-006-decision-lookup.md)
+- Requirements: [DREQ-006](https://github.com/aiur-team/aiur/blob/4d8de9508206e08e314f2730cd916501a3b4cafd/docs/brainstorms/2026-07-12-build-order-requirements.md)
+- Related PR and authoritative rework: #1144, [review comment](https://github.com/aiur-team/aiur/pull/1144#issuecomment-4966514666)
