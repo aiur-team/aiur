@@ -24,12 +24,19 @@ defmodule Aiur.RunTelemetry do
   @doc false
   @spec start_boot() :: :ok
   def start_boot do
-    :persistent_term.put(@telemetry_enabled_key, Config.telemetry_enabled?())
-    :persistent_term.put(@boot_state_key, new_boot_state())
+    enabled? = Config.telemetry_enabled?()
+    :persistent_term.put(@telemetry_enabled_key, enabled?)
+    if enabled?, do: :persistent_term.put(@boot_state_key, new_boot_state())
     :ok
   end
 
-  @doc "Whether telemetry recording is enabled; reads the boot-time cached value after start_boot/0."
+  @doc """
+  Whether telemetry recording is enabled.
+
+  The value is cached at boot via `start_boot/0` and does not reflect live
+  config changes — operators must restart the daemon to apply an
+  `observability.telemetry_enabled` change.
+  """
   @spec telemetry_enabled?() :: boolean()
   def telemetry_enabled? do
     :persistent_term.get(@telemetry_enabled_key, true)

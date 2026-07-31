@@ -1,6 +1,7 @@
 defmodule Aiur.RunTelemetryTest do
   use ExUnit.Case, async: false
 
+  alias Aiur.Config
   alias Aiur.RunTelemetry
   alias Aiur.RunTelemetry.{Dashboard, Lifecycle, Writer}
 
@@ -84,26 +85,58 @@ defmodule Aiur.RunTelemetryTest do
     assert :ok = RunTelemetry.record(:lifecycle, %{event: :dispatch})
   end
 
-  test "facade respects telemetry_enabled: false — record/2 is a no-op when disabled", %{root: root} do
+  test "telemetry_enabled: false disables recording via the real boot path", %{root: root} do
     enabled_key = {Aiur.RunTelemetry, :telemetry_enabled}
-    original = :persistent_term.get(enabled_key, :unset)
+    original_workflow_path = Application.get_env(:aiur, :workflow_file_path)
+    original_pt = :persistent_term.get(enabled_key, :unset)
+
+    disabled_config = Path.join(root, "disabled.aiurconfig")
+    File.mkdir_p!(Path.dirname(disabled_config))
+
+    File.write!(disabled_config, """
+    tracker:
+      kind: github
+      github:
+        repo: test-org/test-repo
+        label_prefix: agent
+    observability:
+      telemetry_enabled: false
+    """)
 
     on_exit(fn ->
-      case original do
+      case original_workflow_path do
+        nil -> Application.delete_env(:aiur, :workflow_file_path)
+        value -> Application.put_env(:aiur, :workflow_file_path, value)
+      end
+
+      case original_pt do
         :unset -> :persistent_term.erase(enabled_key)
         value -> :persistent_term.put(enabled_key, value)
       end
     end)
 
-    RunTelemetry.start_boot()
-    :persistent_term.put(enabled_key, false)
+    Application.put_env(:aiur, :workflow_file_path, disabled_config)
+    assert Aiur.Config.telemetry_enabled?() == false
 
+    RunTelemetry.start_boot()
+
+    assert RunTelemetry.telemetry_enabled?() == false
     assert :ok = RunTelemetry.record(:lifecycle, %{ticket: "disabled-test"})
     assert :ok = RunTelemetry.record_batch([{:lifecycle, %{ticket: "disabled-test"}}])
     refute File.exists?(Path.join(root, "log/telemetry.ndjson"))
   end
 
   test "facade writes through the supervised writer without --debug", %{root: root} do
+    original_debug = System.get_env("AIUR_DEBUG")
+    System.delete_env("AIUR_DEBUG")
+
+    on_exit(fn ->
+      case original_debug do
+        nil -> System.delete_env("AIUR_DEBUG")
+        value -> System.put_env("AIUR_DEBUG", value)
+      end
+    end)
+
     RunTelemetry.start_boot()
 
     start_supervised!(
@@ -196,5 +229,36 @@ defmodule Aiur.RunTelemetryTest do
     assert result.dataset.actors["_daemon"].profile["rss_bytes"].max == 1_024
     assert Enum.any?(result.dataset.tickets["930"].events, &(&1.event == "dispatch"))
     assert File.read!(output) =~ "<!doctype html>"
+  end
+
+  test "Config.telemetry_enabled?/0 defaults to true when no config is loaded" do
+    original_path = Application.get_env(:aiur, :workflow_file_path)
+    Application.put_env(:aiur, :workflow_file_path, "/nonexistent/path/that/does/not/exist.aiurconfig")
+
+    on_exit(fn ->
+      case original_path do
+        nil -> Application.delete_env(:aiur, :workflow_file_path)
+        value -> Application.put_env(:aiur, :workflow_file_path, value)
+      end
+    end)
+
+    assert Config.telemetry_enabled?() == true
+  end
+
+  test "lifecycle records exclude prompt, command, and output text" do
+    test_pid = self()
+
+    recorder = fn kind, attributes, _opts ->
+      send(test_pid, {:recorded, kind, attributes})
+      :ok
+    end
+
+    Lifecycle.record("test-ticket", "attempt-1", :dispatch, :point, %{prompt: "secret prompt", command: "secret command", output: "secret output"}, recorder: recorder)
+
+    assert_receive {:recorded, :lifecycle, attributes}
+    json = Jason.encode!(attributes)
+    refute json =~ "prompt"
+    refute json =~ "command"
+    refute json =~ "output"
   end
 end

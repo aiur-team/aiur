@@ -32,7 +32,7 @@ defmodule Aiur.Application do
     :ok = Aiur.LogFile.apply_config_debug()
     :ok = Aiur.LogFile.configure()
     telemetry? = Aiur.Config.telemetry_enabled?()
-    if telemetry?, do: Aiur.RunTelemetry.start_boot()
+    Aiur.RunTelemetry.start_boot()
     Logger.info("aiur_boot phase=start elapsed_ms=0")
     log_process_identity()
     Aiur.Shutdown.record_workspace_root()
