@@ -5,6 +5,7 @@ defmodule Aiur.AgentRunner.MessageHandlerTest do
 
   alias Aiur.{AgentPubSub, Issue, LiveConversation, TrackerIdentity}
   alias Aiur.AgentRunner.MessageHandler
+  alias Aiur.Cost.Store
 
   describe "build/6" do
     test "returns a closure that forwards codex_worker_update to recipient" do
@@ -515,7 +516,7 @@ defmodule Aiur.AgentRunner.MessageHandlerTest do
       issue = %Issue{id: "gid-cost", identifier: identifier}
       :ok = AgentPubSub.subscribe_agent(identifier)
 
-      on_exit(fn -> Aiur.Cost.Store.stop(identifier) end)
+      on_exit(fn -> Store.stop(identifier) end)
 
       # Realistic codex `thread/tokenUsage/updated` notification carrying the
       # cumulative absolute totals the observation extractor reads.
