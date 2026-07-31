@@ -125,9 +125,12 @@ defmodule Aiur.Orchestrator.AgentTeardown do
         # into the chat pane (one per pre-warm slot).
         close_active_chat_streams(identifier, :deactivated)
 
-        # Same brutal-kill gap as terminate_running_issue: reach the
-        # tracked REPL pane + pid before the runner task dies.
-        kill_repl_session(running_entry)
+        # Kill the OS-level claude/node subtree so no orphaned processes
+        # linger after the runner task dies, but leave the REPL pane open
+        # for inspection — the operator still needs to see the finished
+        # conversation. (contrast with terminate_running_issue, which kills
+        # both pane and pids on a hard abort/cancel).
+        kill_repl_session_os_only(running_entry)
 
         if is_pid(pid) do
           terminate_task(pid)
@@ -201,6 +204,18 @@ defmodule Aiur.Orchestrator.AgentTeardown do
     # claude/node grandchildren that reparent to init, so reap the subtree.
     RemoteControl.graceful_kill_tree(Map.get(running_entry, :headless_os_pid))
 
+    :ok
+  end
+
+  # Like kill_repl_session but leaves the REPL pane open. Used on the
+  # human-review deactivation path so the finished conversation stays
+  # visible for operator inspection. OS subtrees are still reaped to
+  # prevent orphaned processes after the runner task dies.
+  @doc false
+  @spec kill_repl_session_os_only(map()) :: :ok
+  def kill_repl_session_os_only(running_entry) do
+    RemoteControl.graceful_kill_tree(Map.get(running_entry, :repl_os_pid))
+    RemoteControl.graceful_kill_tree(Map.get(running_entry, :headless_os_pid))
     :ok
   end
 end

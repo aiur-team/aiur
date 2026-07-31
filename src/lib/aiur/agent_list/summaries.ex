@@ -62,13 +62,15 @@ defmodule Aiur.AgentList.Summaries do
     #   bar / latest / attention chips survive across the human-review
     #   transition.
     # - `slot_ids` (visible minus :paused minus :deactivated): the
-    #   spawn-eligible set. Drives AttachPool seeding so a `:deactivated`
-    #   row releases its warmed opencode pane and AttachPool reclaims the
-    #   slot for newly-queued agents the user starts in its place.
-    # - `retain_ids` (visible :paused, not :deactivated): the keep-pane
+    #   spawn-eligible set. A `:paused` or `:deactivated` row holds its
+    #   slot open so the pane stays visible; it is not eligible for
+    #   re-dispatch. A `:completed` row releases its slot.
+    # - `retain_ids` (visible :paused OR :deactivated): the keep-pane
     #   set. A Ctrl+C pause holds the agent's opencode pane open until an
-    #   explicit close (second Ctrl+C → :deactivated). Passing these to
-    #   seed keeps their attachment instead of detaching on pause.
+    #   explicit close (second Ctrl+C on a paused agent, or any Ctrl+C on
+    #   a deactivated/human-review agent). A `:deactivated` row is also
+    #   retained so the finished pane stays visible for inspection rather
+    #   than closing immediately when the human-review transition fires.
     %{
       visible_ids:
         summaries
@@ -89,8 +91,8 @@ defmodule Aiur.AgentList.Summaries do
         summaries
         |> Enum.filter(fn s ->
           Map.get(s, :status) == :running and
-            paused?(s) and
-            not deactivated?(s)
+            (paused?(s) or deactivated?(s)) and
+            not completed?(s)
         end)
         |> Enum.map(&Map.get(&1, :identifier))
         |> Enum.reject(&is_nil/1)

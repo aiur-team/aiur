@@ -87,7 +87,21 @@ defmodule Aiur.AgentList.SummariesTest do
     assert Summaries.id_sets(summaries) == %{
              visible_ids: ["work", "paused", "done", "completed"],
              slot_ids: ["work"],
-             retain_ids: ["paused"]
+             retain_ids: ["paused", "done"]
            }
+  end
+
+  test "id_sets retains deactivated (human-review) pane alongside paused" do
+    summaries = [
+      %{identifier: "active", status: :running, work_state: :working},
+      %{identifier: "paused", status: :running, work_state: :paused},
+      %{identifier: "done", status: :running, work_state: :deactivated}
+    ]
+
+    %{slot_ids: slot_ids, retain_ids: retain_ids} = Summaries.id_sets(summaries)
+    assert slot_ids == ["active"]
+    assert "paused" in retain_ids
+    assert "done" in retain_ids
+    refute "active" in retain_ids
   end
 end

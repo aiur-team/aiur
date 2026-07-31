@@ -107,14 +107,20 @@ defmodule Aiur.Orchestrator.Interrupts do
         # Ctrl+C on a working agent sends opencode's native interrupt (the
         # caller forwards Esc to the pane), which drains its queued message and
         # keeps it working. Only a genuinely idle agent pauses; a second press
-        # on the now-paused agent closes the pane.
+        # on the now-paused agent closes the pane. A deactivated (human-review)
+        # agent has no active turn and no recoverable state — any Ctrl+C closes
+        # the finished pane immediately.
         working? = ActiveTurns.active_turn_ids(issue_identifier) != []
 
         action =
-          pane_interrupt_action_no_pane(
-            State.paused_running_entry?(running_entry),
-            working?
-          )
+          if State.deactivated_running_entry?(running_entry) do
+            :close_pane
+          else
+            pane_interrupt_action_no_pane(
+              State.paused_running_entry?(running_entry),
+              working?
+            )
+          end
 
         perform_pane_interrupt(action, state, running_entry, issue_identifier, nil)
 
