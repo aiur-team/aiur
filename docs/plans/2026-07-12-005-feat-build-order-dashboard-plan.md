@@ -14,7 +14,7 @@ root, critical path, ETA or terminal condition.
 
 ## Baselines
 
-- Repository: `its-everdred/aiur`
+- Repository: `aiur-team/aiur`
 - Researched code: `9849f32963c2a65367bce565b3f5ede3777c218f`
 - Design HTML SHA-256:
   `23b527eade8c2fad7d37957c248be709091dfd112bbc6e13c6d76cd092d663a3`

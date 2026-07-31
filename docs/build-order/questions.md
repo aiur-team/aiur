@@ -100,7 +100,7 @@ second review are recorded below; full context remains in
 - The opening request is the Build Order brain dump and authoritative product
   intent. No separate brain-dump document is required before planning.
 - Build Order v1 is GitHub-only. Linear parity is separate, human-blocked work
-  tracked in [#1067](https://github.com/its-everdred/aiur/issues/1067) and does
+  tracked in [#1067](https://github.com/aiur-team/aiur/issues/1067) and does
   not affect this feature's scope, critical path, ticket count, or ETA.
 - Work may be committed early and often with 3–7 word commit messages and
   pushed regularly.

@@ -25,7 +25,7 @@ sign-off happen once on the complete `develop` head before any promotion to
 ## Status
 
 - Plan version: 1
-- Build Order ID: `its-everdred/aiur:build-order-dashboard`
+- Build Order ID: `aiur-team/aiur:build-order-dashboard`
 - Researched code: `9849f32963c2a65367bce565b3f5ede3777c218f`
 - One consolidated Build Order (operator decision 2026-07-13): 54 members —
   20 BO tickets (73 points) plus 34 DASH tickets (111 points) — across five
