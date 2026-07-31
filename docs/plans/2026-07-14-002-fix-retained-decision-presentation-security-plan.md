@@ -151,5 +151,5 @@ The query contract is green but the presentation boundary still leaks capability
 
 ## Sources & References
 
-- Exact-head review: [#1088 comment](https://github.com/its-everdred/aiur/issues/1088#issuecomment-4970590437)
+- Exact-head review: [#1088 comment](https://github.com/aiur-team/aiur/issues/1088#issuecomment-4970590437)
 - Prior retained-query rework: `docs/plans/2026-07-14-001-fix-retained-decision-query-rework-plan.md`
