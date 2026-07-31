@@ -127,6 +127,30 @@ jobs:
       - name: Aggregate coverage gate
         run: make coverage-report
 
+  quarantine:
+    name: quarantined tests (non-blocking)
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Set up Elixir
+        uses: ./.github/actions/setup-elixir
+      - name: Cache _build
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: src/_build
+          key: ${{ runner.os }}-quarantine-build-${{ hashFiles('src/mix.lock', 'src/mix.exs') }}
+          restore-keys: ${{ runner.os }}-quarantine-build-
+      - name: Run quarantined tests
+        # `--exclude test` narrows to the tag without failing while the queue
+        # is empty; unlike `--only`, that lets this non-blocking job stay green
+        # until the first confirmed flake is quarantined.
+        run: mix test --include quarantine --exclude test
+
   test:
     needs: coverage
     if: ${{ always() }}
