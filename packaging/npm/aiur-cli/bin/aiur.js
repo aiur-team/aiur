@@ -50,7 +50,7 @@ function resolveReleaseDir() {
     fail(
       `unsupported platform ${process.platform}/${process.arch}. ` +
         "Supported: darwin/linux on arm64/x64. " +
-        "See https://github.com/its-everdred/aiur",
+        "See https://github.com/aiur-team/aiur",
     );
   }
 
@@ -64,7 +64,7 @@ function resolveReleaseDir() {
         `platform package "${pkg}" is not installed. ` +
           "This usually means optional dependencies were skipped " +
           "(--no-optional, a shared lockfile, or a known npm install bug). " +
-          "Reinstall aiur-cli, or see https://github.com/its-everdred/aiur",
+          "Reinstall aiur-cli, or see https://github.com/aiur-team/aiur",
       );
     }
     throw err;
