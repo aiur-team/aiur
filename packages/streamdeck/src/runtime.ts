@@ -26,6 +26,11 @@ import { createSleepSource } from "./sleep-source.js";
 import { createUdevSource } from "./udev-source.js";
 import { keyStreamReset, setBrightness, showLogo, POLL_INTERVAL_MS } from "./report.js";
 
+/** Monitor-subprocess restart backoff floor in milliseconds. */
+export const MONITOR_RESTART_BASE_MS = 500;
+/** Monitor-subprocess restart backoff ceiling in milliseconds. */
+export const MONITOR_RESTART_CAP_MS = 30_000;
+
 /** Structured operator-facing log line. */
 export interface LogEntry {
   level: "info" | "warn" | "error";
@@ -83,6 +88,7 @@ export const startRuntime = async (env: RuntimeEnv): Promise<Runtime> => {
   let state: LifecycleState = createLifecycleState();
   let backend: HidBackend | null = null;
   let pollTimer: unknown = null;
+  let reopenTimer: unknown = null;
   // Effects are performed one at a time in dispatch order: the reducer runs
   // synchronously and mutates `state`, while their (async) side effects are
   // serialized here so, e.g., the startup key-stream reset lands before the
@@ -93,6 +99,13 @@ export const startRuntime = async (env: RuntimeEnv): Promise<Runtime> => {
     if (pollTimer !== null) {
       env.clearTimer(pollTimer);
       pollTimer = null;
+    }
+  };
+
+  const cancelReopen = (): void => {
+    if (reopenTimer !== null) {
+      env.clearTimer(reopenTimer);
+      reopenTimer = null;
     }
   };
 
@@ -139,6 +152,8 @@ export const startRuntime = async (env: RuntimeEnv): Promise<Runtime> => {
   // effect chain above), so they never overlap: there is no in-flight open to
   // invalidate here.
   const openDevice = async (): Promise<void> => {
+    // A pending backoff reopen is now moot: we are opening right now.
+    cancelReopen();
     try {
       backend = await env.openBackend();
       dispatch({ type: "device-opened" });
@@ -151,6 +166,7 @@ export const startRuntime = async (env: RuntimeEnv): Promise<Runtime> => {
 
   const closeDevice = async (): Promise<void> => {
     stopPolling();
+    cancelReopen();
     const closing = backend;
     backend = null;
     // Teardown errors are normal on unplug; swallow them.
@@ -184,30 +200,100 @@ export const startRuntime = async (env: RuntimeEnv): Promise<Runtime> => {
         return;
       case "show-logo":
         return sendFeature(showLogo(), "show-logo");
+      case "schedule-reopen":
+        reopenTimer = env.setTimer(() => {
+          reopenTimer = null;
+          dispatch({ type: "reopen" });
+        }, effect.delayMs);
+        return;
+      case "alert":
+        // Present-but-unusable device: retries have reached the backoff cap and
+        // it still will not open. This is the loud case an operator must see.
+        env.log({
+          level: "error",
+          message: `Stream Deck present but not opening after repeated attempts (${effect.code}); check permissions/udev ACL and cabling`,
+          cause: effect.cause,
+        });
+        return;
       case "stop":
         cleanup();
         env.exit();
         return;
       case "notice":
-        env.log({ level: "warn", message: `lifecycle notice: ${effect.code}`, cause: effect.cause });
+        // Absent is quiet; present-but-won't-open (open-failed, read-error) is
+        // the loud case and logs at error. A recovering write-failed zombie is
+        // a warn — it is expected around suspend and self-heals.
+        env.log({
+          level: effect.code === "suspend-zombie" ? "warn" : "error",
+          message: `lifecycle notice: ${effect.code}`,
+          cause: effect.cause,
+        });
         return;
     }
   };
 
-  const sleepSource: LineSubscription = createSleepSource(env.spawn, {
-    onSleep: () => dispatch({ type: "sleep" }),
-    onWake: () => dispatch({ type: "wake" }),
-    onEnd: (cause) => env.log({ level: "warn", message: "sleep monitor ended", cause }),
-  });
+  // If a monitor subprocess dies (dbus restart, OOM, session change) we would
+  // otherwise lose hotplug and suspend/resume forever behind a single log line.
+  // Supervise each: restart with capped backoff and log the exit at error.
+  const superviseSource = (
+    label: string,
+    start: (onEnd: (cause: unknown) => void) => LineSubscription,
+  ): LineSubscription => {
+    let current: LineSubscription | null = null;
+    let restartTimer: unknown = null;
+    let attempt = 0;
+    let stopped = false;
 
-  const udevSource: LineSubscription = createUdevSource(env.spawn, {
-    onAdded: () => dispatch({ type: "device-added" }),
-    onRemoved: () => dispatch({ type: "device-removed" }),
-    onEnd: (cause) => env.log({ level: "warn", message: "udev monitor ended", cause }),
-  });
+    const spawnOnce = (): void => {
+      current = start((cause) => {
+        current = null;
+        if (stopped) {
+          return;
+        }
+        const delay = Math.min(MONITOR_RESTART_BASE_MS * 2 ** attempt, MONITOR_RESTART_CAP_MS);
+        attempt += 1;
+        env.log({ level: "error", message: `${label} monitor ended; restarting in ${delay}ms`, cause });
+        restartTimer = env.setTimer(() => {
+          restartTimer = null;
+          spawnOnce();
+        }, delay);
+      });
+    };
+
+    spawnOnce();
+
+    return {
+      stop: () => {
+        stopped = true;
+        if (restartTimer !== null) {
+          env.clearTimer(restartTimer);
+          restartTimer = null;
+        }
+        current?.stop();
+        current = null;
+      },
+    };
+  };
+
+  const sleepSource: LineSubscription = superviseSource("sleep", (onEnd) =>
+    createSleepSource(env.spawn, {
+      onSleep: () => dispatch({ type: "sleep" }),
+      onWake: () => dispatch({ type: "wake" }),
+      onEnd,
+    }),
+  );
+
+  const udevSource: LineSubscription = superviseSource("udev", (onEnd) =>
+    createUdevSource(env.spawn, {
+      onAdded: () => dispatch({ type: "device-added" }),
+      onRemoved: () => dispatch({ type: "device-removed" }),
+      onEnd,
+    }),
+  );
 
   const cleanup = (): void => {
     stopPolling();
+    cancelReopen();
     sleepSource.stop();
     udevSource.stop();
     lock.release();

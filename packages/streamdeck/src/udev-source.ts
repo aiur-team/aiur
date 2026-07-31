@@ -15,10 +15,20 @@
  */
 
 import { spawnLineSource, type LineSubscription, type SpawnLike } from "./line-source.js";
-import { VENDOR_ID } from "./report.js";
+import { hidId } from "./device-path.js";
+import { PRODUCT_ID, VENDOR_ID } from "./report.js";
 
 /** Vendor ID as udev reports it: lowercase hex, no `0x`. */
 const VENDOR_HEX = VENDOR_ID.toString(16).padStart(4, "0");
+
+/**
+ * The vendor:product token as it appears inside a `hidraw` event's `HID_ID`
+ * (e.g. `HID_ID=0003:00000FD9:00000084`). `usb`-subsystem events expose
+ * `ID_VENDOR_ID`, but `hidraw`-subsystem events generally do **not** — they
+ * carry `HID_ID` instead — so matching only `ID_VENDOR_ID` silently drops every
+ * hidraw add/remove and breaks replug recovery. We accept either.
+ */
+const HID_ID_TOKEN = hidId(VENDOR_ID, PRODUCT_ID);
 
 export const UDEV_MONITOR_COMMAND = "udevadm";
 export const UDEV_MONITOR_ARGS: readonly string[] = [
@@ -51,7 +61,9 @@ export const parseUdevBlock = (lines: readonly string[]): "device-added" | "devi
     }
   }
 
-  if (props.get("ID_VENDOR_ID")?.toLowerCase() !== VENDOR_HEX) {
+  const vendorMatches = props.get("ID_VENDOR_ID")?.toLowerCase() === VENDOR_HEX;
+  const hidMatches = props.get("HID_ID")?.toUpperCase().includes(HID_ID_TOKEN) ?? false;
+  if (!vendorMatches && !hidMatches) {
     return null;
   }
 

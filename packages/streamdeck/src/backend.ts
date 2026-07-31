@@ -1,18 +1,23 @@
 /**
  * Transport backend interface: the narrow HID surface the lifecycle needs.
  *
- * Two backends are possible and the choice is a hardware fact #1342 could not
- * resolve (its probe never opened the device node):
+ * Two backends implement this interface; the choice turns on a hardware fact
+ * #1342 could not resolve (its probe never opened the device node):
  *
- * - **hidraw over `node:fs`** — the dependency-free default. It can issue
- *   OUTPUT reports (the 1024-byte key-stream reset, image chunks) and read
- *   INPUT reports, but it *cannot* send/receive FEATURE reports: those require
- *   the `HIDIOCSFEATURE`/`HIDIOCGFEATURE` ioctls, which Node's `fs` cannot
- *   perform. Brightness, Show Logo (reset), serial, and firmware are all
- *   feature reports. See {@link file://./hidraw-backend.ts}.
- * - **libusb / node-hid** — required to issue those feature reports. If the
- *   feature-report path is needed on a given host, use a libusb-backed handle;
- *   this interface is the same either way, so only the constructor changes.
+ * - **libusb — the shipped default** ({@link file://./usb-backend.ts}). It moves
+ *   OUTPUT and INPUT reports over the interrupt endpoints *and* issues FEATURE
+ *   reports as class control transfers, so brightness, Show Logo (reset),
+ *   serial, and firmware all work. #1354's acceptance requires those, so this
+ *   is what {@link file://./main.ts} wires.
+ * - **hidraw over `node:fs`** — the dependency-free alternative
+ *   ({@link file://./hidraw-backend.ts}). It can issue OUTPUT reports (the
+ *   1024-byte key-stream reset, image chunks) and read INPUT reports, but it
+ *   *cannot* send/receive FEATURE reports: those require the
+ *   `HIDIOCSFEATURE`/`HIDIOCGFEATURE` ioctls, which Node's `fs` cannot perform.
+ *   Usable only on a host that never needs a feature report.
+ *
+ * The interface is identical either way, so selecting a backend is a single
+ * constructor swap in main.ts.
  *
  * Byte convention: every buffer keeps the report ID at byte 0 in both
  * directions — see {@link file://./report.ts}.

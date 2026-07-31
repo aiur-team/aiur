@@ -16,6 +16,17 @@ describe("parseUdevBlock", () => {
     expect(parseUdevBlock(["ACTION=add", "ID_VENDOR_ID=0FD9"])).toBe("device-added");
   });
 
+  it("matches a hidraw block that carries HID_ID instead of ID_VENDOR_ID", () => {
+    // hidraw-subsystem events expose HID_ID (bus:vendor:product), not
+    // ID_VENDOR_ID; without this the replug hidraw add is silently dropped.
+    expect(parseUdevBlock(["ACTION=add", "HID_ID=0003:00000FD9:00000084"])).toBe("device-added");
+    expect(parseUdevBlock(["ACTION=remove", "HID_ID=0003:00000fd9:00000084"])).toBe("device-removed");
+  });
+
+  it("ignores a hidraw block whose HID_ID is a different device", () => {
+    expect(parseUdevBlock(["ACTION=add", "HID_ID=0003:00001234:00005678"])).toBeNull();
+  });
+
   it("tolerates a trailing CR on property values", () => {
     expect(parseUdevBlock(["ACTION=add\r", "ID_VENDOR_ID=0fd9\r"])).toBe("device-added");
   });

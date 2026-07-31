@@ -57,6 +57,8 @@ interface Harness {
   sleep: { onSleep(): void; onWake(): void };
   runTimer(): void;
   hasTimer(): boolean;
+  timerCount(): number;
+  spawnCalls(): number;
   spawnEnd(kind: "sleep" | "udev", cause: unknown): void;
   stops: number;
 }
@@ -64,7 +66,10 @@ interface Harness {
 const makeHarness = (overrides: Partial<RuntimeEnv> = {}): Harness => {
   const logs: LogEntry[] = [];
   let signalHandler = (): void => undefined;
-  let pending: (() => void) | null = null;
+  // FIFO of scheduled timers (poll, reconnect backoff, monitor restart). Each
+  // runTimer() dequeues and fires the oldest, matching one-shot setTimeout.
+  const timers = new Map<number, () => void>();
+  let nextTimerId = 1;
   const kills = { sleep: 0, udev: 0 };
   const dataListeners: { sleep?: (chunk: string) => void; udev?: (chunk: string) => void } = {};
   const ends: { sleep?: (cause: unknown) => void; udev?: (cause: unknown) => void } = {};
@@ -101,11 +106,12 @@ const makeHarness = (overrides: Partial<RuntimeEnv> = {}): Harness => {
     },
     exit: vi.fn(),
     setTimer: (fn) => {
-      pending = fn;
-      return { id: 1 };
+      const id = nextTimerId++;
+      timers.set(id, fn);
+      return id;
     },
-    clearTimer: () => {
-      pending = null;
+    clearTimer: (handle) => {
+      timers.delete(handle as number);
     },
     log: (entry) => logs.push(entry),
     ...overrides,
@@ -126,11 +132,17 @@ const makeHarness = (overrides: Partial<RuntimeEnv> = {}): Harness => {
       onWake: () => feed("sleep", "PrepareForSleep (false)\n"),
     },
     runTimer: () => {
-      const fn = pending;
-      pending = null;
-      fn?.();
+      const next = timers.entries().next();
+      if (next.done) {
+        return;
+      }
+      const [id, fn] = next.value;
+      timers.delete(id);
+      fn();
     },
-    hasTimer: () => pending !== null,
+    hasTimer: () => timers.size > 0,
+    timerCount: () => timers.size,
+    spawnCalls: () => spawn.mock.calls.length,
     spawnEnd: (kind, cause) => ends[kind]?.(cause),
     get stops() {
       return kills.sleep + kills.udev;
@@ -157,17 +169,50 @@ describe("startRuntime", () => {
     expect(h.hasTimer()).toBe(true); // polling started
   });
 
-  it("logs an open failure and stays absent", async () => {
+  it("reconnects with backoff after an open failure instead of going dead", async () => {
+    let opened = 0;
+    const backend = makeBackend();
+    const h = makeHarness({
+      openBackend: async () => {
+        if (opened++ === 0) {
+          throw new Error("no node");
+        }
+        return backend;
+      },
+    });
+    const runtime = await startRuntime(h.env);
+    h.udev.onAdded();
+    await tick();
+
+    // Logged loudly at error, and a reopen is scheduled — not permanently absent.
+    const notice = h.logs.find((l) => l.message.includes("open-failed"));
+    expect(notice?.level).toBe("error");
+    expect(h.hasTimer()).toBe(true);
+
+    // When the backoff elapses, it opens successfully and starts polling.
+    h.runTimer();
+    await tick();
+    expect(backend.write).toHaveBeenCalled(); // key-stream reset on the reopen
+    expect(h.hasTimer()).toBe(true); // polling now scheduled
+    runtime.stop();
+  });
+
+  it("raises an operator alert once open retries reach the cap", async () => {
     const h = makeHarness({ openBackend: async () => Promise.reject(new Error("no node")) });
     const runtime = await startRuntime(h.env);
     h.udev.onAdded();
     await tick();
 
-    expect(h.logs.some((l) => l.message.includes("open-failed"))).toBe(true);
+    // First failure already happened; drive the remaining retries via the backoff timer.
+    for (let i = 1; i < 5; i++) {
+      h.runTimer();
+      await tick();
+    }
+    expect(h.logs.some((l) => l.level === "error" && l.message.includes("present but not opening"))).toBe(true);
     runtime.stop();
   });
 
-  it("polls: delivers input, then idles, and stops the loop on read error", async () => {
+  it("polls: delivers input, then idles, and recovers with backoff on a read error", async () => {
     const reads: RawRead[] = [
       { kind: "bytes", data: new Uint8Array(14) },
       { kind: "timeout" },
@@ -188,10 +233,12 @@ describe("startRuntime", () => {
     await tick(); // idle reschedules
 
     h.runTimer();
-    await tick(); // error -> close + notice, no reschedule
-    expect(h.logs.some((l) => l.message.includes("read-error"))).toBe(true);
-    expect(h.hasTimer()).toBe(false);
+    await tick(); // error -> close + notice(error) + schedule-reopen
+    const notice = h.logs.find((l) => l.message.includes("read-error"));
+    expect(notice?.level).toBe("error");
     expect(backend.close).toHaveBeenCalled();
+    // The device is still plugged in: a reopen is scheduled rather than left dead.
+    expect(h.hasTimer()).toBe(true);
   });
 
   it("closes before suspend and reopens after resume", async () => {
@@ -236,8 +283,13 @@ describe("startRuntime", () => {
     runtime.notifyWriteFailure(new Error("dead"));
     await tick();
     expect(first.close).toHaveBeenCalled();
-    expect(second.write).toHaveBeenCalled(); // reopened and reset
     expect(h.logs.some((l) => l.message.includes("suspend-zombie"))).toBe(true);
+
+    // Recovery is via the bounded backoff, not an immediate reopen, so a
+    // writes-fail-forever handle cannot cycle at the write cadence.
+    h.runTimer();
+    await tick();
+    expect(second.write).toHaveBeenCalled(); // reopened and reset
   });
 
   it("skips a poll that fires after the state left open", async () => {
@@ -341,11 +393,42 @@ describe("startRuntime", () => {
     expect(h.hasTimer()).toBe(true);
   });
 
-  it("logs when a monitor source ends", async () => {
+  it("restarts a monitor source at error level when it ends, then respawns", async () => {
     const h = makeHarness();
     await startRuntime(h.env);
+    const spawnsAtStart = h.spawnCalls(); // 2: sleep + udev
+
     h.spawnEnd("sleep", new Error("gone"));
     h.spawnEnd("udev", new Error("gone"));
-    expect(h.logs.filter((l) => l.message.includes("ended")).length).toBe(2);
+    const ends = h.logs.filter((l) => l.message.includes("ended; restarting"));
+    expect(ends.length).toBe(2);
+    expect(ends.every((l) => l.level === "error")).toBe(true);
+
+    // Each end scheduled a restart; firing the backoff respawns the monitor.
+    h.runTimer();
+    h.runTimer();
+    expect(h.spawnCalls()).toBe(spawnsAtStart + 2);
+  });
+
+  it("cancels a pending monitor restart on stop", async () => {
+    const h = makeHarness();
+    const runtime = await startRuntime(h.env);
+    h.spawnEnd("sleep", new Error("gone")); // schedules a restart timer
+    expect(h.hasTimer()).toBe(true);
+
+    runtime.stop();
+    expect(h.hasTimer()).toBe(false); // restart timer cleared by cleanup
+  });
+
+  it("does not restart a monitor that ends after the runtime stops", async () => {
+    const h = makeHarness();
+    const runtime = await startRuntime(h.env);
+    runtime.stop();
+    const spawnsAfterStop = h.spawnCalls();
+
+    h.spawnEnd("sleep", new Error("gone"));
+    expect(h.logs.some((l) => l.message.includes("ended; restarting"))).toBe(false);
+    expect(h.hasTimer()).toBe(false);
+    expect(h.spawnCalls()).toBe(spawnsAfterStop);
   });
 });

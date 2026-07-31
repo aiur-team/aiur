@@ -27,7 +27,24 @@ sidecar reapplies on open and on resume.
 
 The sidecar uses the official Stream Deck HID protocol. It must be the only
 process opening the deck; hidraw does not provide kernel-level exclusive
-access.
+access, so the sidecar takes its own advisory lock and refuses to start when
+another instance holds it.
+
+### Transport backend: libusb
+
+The sidecar talks to the deck over **libusb** (the `usb` package, which ships
+N-API prebuilt binaries — no native toolchain needed at install time). libusb
+is required because brightness, reset / "Show Logo", serial, and firmware are
+USB HID **feature reports**, and the `node:fs`/hidraw path cannot issue the
+`HIDIOCSFEATURE`/`HIDIOCGFEATURE` ioctls those need. Over libusb they are plain
+class control transfers, so all four work. OUTPUT reports (images, the
+key-stream reset) and INPUT reports (dials/touch) go over the interrupt
+endpoints.
+
+Because libusb **claims the interface and detaches the kernel hidraw driver**,
+the sidecar is the single owner of the device — do not also open the hidraw
+node. Access is granted by the `uaccess` tag on the **usb**-subsystem device
+(see the udev rules below), not by the hidraw node's ACL.
 
 ## udev permissions
 

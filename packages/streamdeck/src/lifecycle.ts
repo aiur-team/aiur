@@ -22,11 +22,32 @@
  */
 
 /** Connection state of the device handle. */
-export type LinkState = "absent" | "opening" | "open" | "suspended" | "stopped";
+export type LinkState = "absent" | "opening" | "open" | "reconnecting" | "suspended" | "stopped";
 
 export interface LifecycleState {
   link: LinkState;
+  /**
+   * Consecutive open/read/write failures since the last successful open. Drives
+   * the reconnect backoff and resets to 0 on a clean open, a fresh udev add, or
+   * a resume. A physical remove also resets it: the next add starts fresh.
+   */
+  attempt: number;
 }
+
+/** Reconnect backoff floor in milliseconds (first retry). */
+export const RECONNECT_BASE_MS = 250;
+/** Reconnect backoff ceiling in milliseconds. */
+export const RECONNECT_CAP_MS = 5000;
+/**
+ * Failure count at which a present-but-unusable device raises an operator alert.
+ * By this point the backoff has reached {@link RECONNECT_CAP_MS} and the device
+ * is plugged in but persistently refusing to open — worth surfacing loudly.
+ */
+export const RECONNECT_ALERT_AFTER = 5;
+
+/** Backoff delay for the `attempt`-th consecutive failure (0-based). */
+export const reconnectDelayMs = (attempt: number): number =>
+  Math.min(RECONNECT_BASE_MS * 2 ** attempt, RECONNECT_CAP_MS);
 
 /** Events the impure shell feeds the reducer. */
 export type LifecycleEvent =
@@ -46,6 +67,8 @@ export type LifecycleEvent =
   | { type: "sleep" }
   /** logind PrepareForSleep(false): the machine resumed. */
   | { type: "wake" }
+  /** A scheduled reconnect backoff elapsed: try opening again. */
+  | { type: "reopen" }
   /** SIGTERM or SIGINT: shut down and leave the logo up. */
   | { type: "shutdown" };
 
@@ -61,8 +84,12 @@ export type LifecycleEffect =
   | { type: "apply-brightness" }
   /** Repaint the current view. */
   | { type: "repaint" }
-  /** Send the Show Logo feature report before closing on shutdown. */
+  /** Send the Show Logo feature report before closing (shutdown or sleep). */
   | { type: "show-logo" }
+  /** Schedule a reconnect attempt after a backoff delay. */
+  | { type: "schedule-reopen"; delayMs: number }
+  /** Raise a loud, operator-visible alert: the device is present but unusable. */
+  | { type: "alert"; code: NoticeCode; cause?: unknown }
   /** Exit the process. */
   | { type: "stop" }
   /** Emit an operator-facing notice with a stable code and the cause. */
@@ -76,12 +103,39 @@ export interface LifecycleTransition {
 }
 
 /** Initial state: no handle, waiting for the device to appear via udev. */
-export const createLifecycleState = (): LifecycleState => ({ link: "absent" });
+export const createLifecycleState = (): LifecycleState => ({ link: "absent", attempt: 0 });
 
-const to = (link: LinkState, effects: readonly LifecycleEffect[]): LifecycleTransition => ({
-  state: { link },
+const to = (link: LinkState, effects: readonly LifecycleEffect[], attempt = 0): LifecycleTransition => ({
+  state: { link, attempt },
   effects,
 });
+
+/**
+ * Builds a transition into `reconnecting` after a failed open/read/write. The
+ * device is (or was) present, so we do not fall back to `absent` — which only
+ * a fresh udev add could ever leave, and udev will not fire again for a device
+ * that is still plugged in. Instead we schedule a bounded-backoff reopen, log
+ * the failure loudly (`notice`), and once the failures pile up raise an
+ * `alert`. This is the fix for "a transient EIO bricks the sidecar until
+ * replug".
+ */
+const reconnect = (
+  attempt: number,
+  code: NoticeCode,
+  cause: unknown,
+  before: readonly LifecycleEffect[],
+): LifecycleTransition => {
+  const next = attempt + 1;
+  const effects: LifecycleEffect[] = [
+    ...before,
+    { type: "notice", code, cause },
+    { type: "schedule-reopen", delayMs: reconnectDelayMs(attempt) },
+  ];
+  if (next === RECONNECT_ALERT_AFTER) {
+    effects.push({ type: "alert", code, cause });
+  }
+  return to("reconnecting", effects, next);
+};
 
 /**
  * Advances the lifecycle. Every `(state, event)` pair is total: an event with
@@ -107,7 +161,7 @@ export const transitionLifecycle = (state: LifecycleState, event: LifecycleEvent
         case "device-opened":
           return to("open", [{ type: "send-key-stream-reset" }, { type: "apply-brightness" }, { type: "repaint" }]);
         case "open-failed":
-          return to("absent", [{ type: "notice", code: "open-failed", cause: event.error }]);
+          return reconnect(state.attempt, "open-failed", event.error, []);
         case "device-removed":
           return to("absent", [{ type: "close-device" }]);
         case "sleep":
@@ -123,17 +177,36 @@ export const transitionLifecycle = (state: LifecycleState, event: LifecycleEvent
         case "device-removed":
           return to("absent", [{ type: "close-device" }]);
         case "read-error":
-          return to("absent", [{ type: "close-device" }, { type: "notice", code: "read-error", cause: event.error }]);
+          return reconnect(state.attempt, "read-error", event.error, [{ type: "close-device" }]);
         case "write-failed":
-          return to("opening", [
-            { type: "close-device" },
-            { type: "notice", code: "suspend-zombie", cause: event.error },
-            { type: "open-device" },
-          ]);
+          // The classic post-suspend zombie: connected() lies. Close and
+          // reconnect with the same bounded backoff so opens-succeed/writes-fail
+          // cannot drive an unbounded close/open cycle at the write cadence.
+          return reconnect(state.attempt, "suspend-zombie", event.error, [{ type: "close-device" }]);
+        case "sleep":
+          // Leave the logo up before suspending too: skip it and the deck
+          // freezes on the last painted frame while the machine sleeps.
+          return to("suspended", [{ type: "show-logo" }, { type: "close-device" }]);
+        case "shutdown":
+          return to("stopped", [{ type: "show-logo" }, { type: "close-device" }, { type: "stop" }]);
+        default:
+          return { state, effects: [] };
+      }
+
+    case "reconnecting":
+      switch (event.type) {
+        case "reopen":
+          return to("opening", [{ type: "open-device" }], state.attempt);
+        case "device-added":
+          // A fresh udev add means the node is back: reset the backoff and open
+          // now rather than waiting out the scheduled delay.
+          return to("opening", [{ type: "open-device" }]);
+        case "device-removed":
+          return to("absent", [{ type: "close-device" }]);
         case "sleep":
           return to("suspended", [{ type: "close-device" }]);
         case "shutdown":
-          return to("stopped", [{ type: "show-logo" }, { type: "close-device" }, { type: "stop" }]);
+          return to("stopped", [{ type: "close-device" }, { type: "stop" }]);
         default:
           return { state, effects: [] };
       }
