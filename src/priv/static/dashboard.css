@@ -5061,11 +5061,11 @@ html[data-theme="light"] .toggle-icon .moon {
     max-width: 26rem;
     margin-inline: auto;
     display: grid;
-    /* Four equal route cells plus one auto cell for the control cluster, so the
+    /* Five equal route cells plus one auto cell for the control cluster, so the
        pause and theme toggles ride along in the nav instead of vanishing with
        the hidden sidebar. `auto` keeps them at their natural icon width rather
        than stealing a fifth of the row from the route labels. */
-    grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
+    grid-template-columns: repeat(5, minmax(0, 1fr)) auto;
     gap: 0.2rem;
     padding: 0.3rem;
     border: 1px solid var(--line-strong);
@@ -7558,6 +7558,14 @@ html[data-theme="light"] .toggle-icon .moon {
 @keyframes sd-live-pulse {
   0%, 100% { opacity: 0.55; transform: scale(0.8); }
   50% { opacity: 1; transform: scale(1.25); }
+}
+
+/* The device chassis is physically dark regardless of the dashboard theme.
+   Override the ink tokens inside the device so text stays legible on the
+   dark surface when the operator switches to light mode. */
+html[data-theme="light"] .sd-device {
+  --fg: rgba(255, 255, 255, 0.87);
+  --muted: rgba(255, 255, 255, 0.45);
 }
 
 @media (max-width: 560px) {

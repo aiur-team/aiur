@@ -121,19 +121,19 @@ defmodule AiurWeb.StreamdeckLive do
   # its source with the shared pure key-content model once it is available.
   defp preview_key_descriptors do
     [
-      key(1, "running", "Codex", 1352, "Build emulator", "Running", 62, true),
-      key(2, "paused", "Claude", 1345, "Project grid", "Paused", 48, false),
-      key(3, "stuck", "Codex", 1338, "Repair sync", "Stuck", 37, false),
-      key(4, "alert", "Claude", 1331, "Review decision", "Alert", 81, true),
-      key(5, "queued", "Codex", 1350, "Key model", "Queued", 0, false, "Blocked"),
+      key(1, "running", "Codex", 1352, "Build emulator", "Running", 62, priority?: true),
+      key(2, "paused", "Claude", 1345, "Project grid", "Paused", 48, priority?: false),
+      key(3, "stuck", "Codex", 1338, "Repair sync", "Stuck", 37, priority?: false),
+      key(4, "alert", "Claude", 1331, "Review decision", "Alert", 81, priority?: true),
+      key(5, "queued", "Codex", 1350, "Key model", "Queued", 0, priority?: false, dependency: "Blocked"),
       empty_key(6),
       empty_key(7),
       empty_key(8)
     ]
   end
 
-  defp key(slot, bucket, vendor, ticket, title, label, progress, priority?, dependency \\ nil) do
-    %{slot: slot, bucket: bucket, vendor: vendor, ticket: ticket, title: title, label: label, progress: progress, priority?: priority?, dependency: dependency, empty?: false}
+  defp key(slot, bucket, vendor, ticket, title, label, progress, opts \\ []) do
+    %{slot: slot, bucket: bucket, vendor: vendor, ticket: ticket, title: title, label: label, progress: progress, priority?: Keyword.get(opts, :priority?, false), dependency: Keyword.get(opts, :dependency), empty?: false}
   end
 
   defp empty_key(slot), do: %{slot: slot, bucket: "empty", empty?: true}
