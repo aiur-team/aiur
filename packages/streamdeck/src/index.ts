@@ -1,6 +1,7 @@
 export const placeholder = "streamdeck";
 export * from "./keys.js";
 export * from "./mode.js";
+export * from "./logs.js";
 export * from "./imageWriter/headerGenerator.js";
 export * from "./touchStrip/geometry.js";
 export * from "./touchStrip/segmentCache.js";
