@@ -62,9 +62,20 @@ Increment 3 — subsystem D (presentation):
   (a new backend still needs its SVG files + one route + one CSS rule until then).
 
 Increment 4 — subsystem B (usage/metering/pricing):
-- Replace `@agent_families`, `@providers`, adapter catalog, and per-provider
-  pricing/dimension validation with registry-derived data. Highest volume and
-  the hardest (per-provider dimension rules must move to the descriptor).
+- DONE (provider enumeration): `@agent_families` (now
+  `CodingAgent.provider_family_map/0`) in `usage/headless/context.ex`, and the
+  `@providers` lists in `usage_envelope.ex`, `provider_meters/input.ex`
+  (incl. the per-provider `*_app_server` `@sources`), `provider_meter_projection.ex`
+  (compile-time attr so the `in @providers` guards still inline), and
+  `usage/price_table/validator.ex` are all registry-derived. 197 usage tests green.
+- REMAINING (per-provider dimension RULES — the hard part): the pricing/dimension
+  validation that differs by provider (codex context-tiers vs claude
+  cache-write-durations) in `usage/price_table/provider_dimensions.ex`,
+  `usage/pricing/dimensions.ex`, `usage/headless/adapter.ex` defaults,
+  `usage/headless/catalog.ex` adapters, `usage/price_table/data.ex`, and
+  `provider_account_generation/validation.ex` (auth modes / trusted sources).
+  These must move the per-provider rules into a `pricing`/`auth` descriptor on
+  the registry entry.
 
 Increment 5 — subsystem A (config) + E (misc):
 - Registry-driven config-section resolution (`inferred_agent_kind`, fallbacks,
