@@ -75,6 +75,25 @@ describe("providerSegmentModel", () => {
     }
   });
 
+  it("defaults a window's used_percent to 0 when it is absent", () => {
+    const model = providerSegmentModel({
+      provider: "claude",
+      windows: { session: { resets_at: "2026-07-30T16:00:00Z", duration_minutes: 300 } },
+    });
+    expect(model.session).toEqual({ usedPercent: 0, resetsAt: "2026-07-30T16:00:00Z" });
+  });
+
+  it("nulls provider/freshness and defaults windows for a bare meter object", () => {
+    const model = providerSegmentModel({});
+    expect(model).toEqual({
+      provider: null,
+      session: null,
+      weekly: null,
+      freshness: null,
+      hasData: false,
+    });
+  });
+
   it("ignores windows without a duration (cannot be classified)", () => {
     const model = providerSegmentModel({
       provider: "codex",

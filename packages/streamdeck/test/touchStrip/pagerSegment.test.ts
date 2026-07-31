@@ -46,4 +46,10 @@ describe("pagerModel", () => {
     expect(model.windowCount).toBe(3); // ceil(5 / 2)
     expect(model.currentWindow).toBe(0);
   });
+
+  it("falls back to defaults for non-finite inputs", () => {
+    const model = pagerModel(Number.NaN, Number.POSITIVE_INFINITY, Number.NaN);
+    expect(model.windowCount).toBe(1); // agents->0, capacity->1
+    expect(model.currentWindow).toBe(0);
+  });
 });
