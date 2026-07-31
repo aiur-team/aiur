@@ -7,7 +7,7 @@ defmodule Aiur.AgentList.RosterTest do
     State.new(command_template: "cmd")
   end
 
-  test "fold returns slot and retain ids with deactivated excluded from both" do
+  test "fold returns slot and retain ids with deactivated excluded from slot_ids but included in retain_ids" do
     summaries = [
       %{identifier: "work", status: :running, work_state: :working},
       %{identifier: "paused", status: :running, work_state: :paused},
@@ -19,7 +19,7 @@ defmodule Aiur.AgentList.RosterTest do
 
     assert Enum.map(new_state.summaries, & &1.identifier) == [nil, "work", "paused", "done"]
     assert slot_ids == ["work"]
-    assert retain_ids == ["paused"]
+    assert retain_ids == ["paused", "done"]
   end
 
   test "fold flips focus when summaries first arrive and clamps when list shrinks" do
