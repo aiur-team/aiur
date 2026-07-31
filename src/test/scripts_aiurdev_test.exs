@@ -1717,4 +1717,37 @@ defmodule ScriptsAiurdevTest do
       refute File.exists?(receipt)
     end
   end
+
+  test "rebuild helper failure releases the build lock so subsequent runs can proceed" do
+    root = fake_repo()
+    # Simulate a missing or non-executable mise so require_mise will exit 64
+    lock_dir = Path.join([root, "src", "_build", ".aiurdev-build.lock"])
+    missing_mise = Path.join(root, "missing-mise")
+
+    # First run: require_mise will fail during ensure_elixir_deps and the exit trap
+    # should release the lock even though require_mise called exit 64
+    {out, 64} =
+      run_shim(["status"], [
+        {"AIUR_REPO_ROOT", root},
+        {"AIUR_MISE_BIN", missing_mise},
+        {"TMUX", nil}
+      ])
+
+    assert out =~ "mise not found"
+    refute File.exists?(lock_dir),
+          "lock should be released even when require_mise calls exit 64"
+
+    # Second run: should be able to acquire and use the lock without hanging
+    # (which would fail if the lock from the first run was left behind)
+    {out, 64} =
+      run_shim(["status"], [
+        {"AIUR_REPO_ROOT", root},
+        {"AIUR_MISE_BIN", missing_mise},
+        {"TMUX", nil}
+      ])
+
+    assert out =~ "mise not found"
+    refute File.exists?(lock_dir),
+          "lock should still be released after the second run"
+  end
 end
