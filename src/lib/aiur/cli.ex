@@ -6,7 +6,7 @@ defmodule Aiur.CLI do
   alias Aiur.LogFile
 
   @acknowledgement_switch :i_understand_that_this_will_be_running_without_the_usual_guardrails
-  @repo "its-everdred/aiur"
+  @repo "aiur-team/aiur"
   @version Mix.Project.config()[:version]
   @git_rev String.trim(
              case System.cmd("git", ["rev-parse", "--short", "HEAD"], stderr_to_stdout: true) do

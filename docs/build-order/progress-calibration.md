@@ -19,7 +19,7 @@ source or destination without editing the script:
 
 ```bash
 python3 docs/build-order/scripts/capture_progress_estimates.py \
-  --workspace-root ~/code/aiur-workspaces/its-everdred/aiur \
+  --workspace-root ~/code/aiur-workspaces/aiur-team/aiur \
   --publication-root ~/.aiur/logs \
   --output ~/.aiur/analytics/build-order-progress/progress-estimates.ndjson
 ```

@@ -19,7 +19,7 @@ from typing import Any, Iterable
 DEFAULT_WORKSPACE_ROOT = Path(
     os.environ.get(
         "AIUR_BUILD_ORDER_WORKSPACE_ROOT",
-        "~/code/aiur-workspaces/its-everdred/aiur",
+        "~/code/aiur-workspaces/aiur-team/aiur",
     )
 ).expanduser()
 DEFAULT_OUTPUT = Path(
