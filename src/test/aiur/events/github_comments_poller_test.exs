@@ -1008,6 +1008,95 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
 
       stop_codeowners(codeowners)
     end
+
+    test "a transient PR reviews failure does not stall the issue-comment watermark" do
+      # Regression for #1389 P0: if /reviews 403s, the issue-comment since must
+      # still advance. Previously errors == [] gated advance_since unconditionally.
+      :ok = Exchange.subscribe("ticket.42.issue.commented")
+      codeowners = ensure_codeowners!("* @its-everdred\n")
+
+      request_fun = fn %{url: url} ->
+        cond do
+          String.contains?(url, "/issues/42/comments?") ->
+            {:ok,
+             %{
+               status: 200,
+               body: [
+                 %{
+                   "id" => 99_001,
+                   "body" => "looks good to me",
+                   "updated_at" => "2026-06-24T12:00:00Z",
+                   "user" => %{"login" => "its-everdred"}
+                 }
+               ]
+             }}
+
+          String.contains?(url, "/pulls?") ->
+            {:ok, %{status: 200, body: [%{"number" => 77}]}}
+
+          String.contains?(url, "/issues/77/comments?") ->
+            {:ok, %{status: 200, body: []}}
+
+          String.contains?(url, "/graphql") ->
+            empty_review_threads_response()
+
+          String.contains?(url, "/pulls/77/reviews") ->
+            {:error, :timeout}
+        end
+      end
+
+      assert {:ok, %{since: %{"42" => since}, errors: [{"42", {:pr_reviews, _}}]}} =
+               GithubCommentsPoller.poll(["42"],
+                 since: "2026-06-24T11:00:00Z",
+                 repo: "owner/repo",
+                 request_fun: request_fun
+               )
+
+      assert since > "2026-06-24T11:00:00Z", "since must advance past the new comment even when /reviews fails"
+      assert_receive {:event, %{topic: "ticket.42.issue.commented"}}, 500
+      stop_codeowners(codeowners)
+    end
+
+    test "blank-bodied COMMENTED reviews are not published (avoid double-wake for inline-only reviews)" do
+      # GitHub creates an empty COMMENTED review as the container for inline
+      # comments. Those inline comments are already published via review threads;
+      # publishing the blank container too would double-wake the agent.
+      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      codeowners = ensure_codeowners!("* @its-everdred\n")
+
+      blank_commented = pr_review(9_030, "its-everdred", "COMMENTED", "")
+
+      request_fun = request_fun_with_reviews([blank_commented])
+
+      assert {:ok, %{count: 0, errors: []}} =
+               GithubCommentsPoller.poll(["42"],
+                 since: "2026-06-24T11:00:00Z",
+                 repo: "owner/repo",
+                 request_fun: request_fun
+               )
+
+      refute_receive {:event, %{topic: "ticket.42.pr.review_comment"}}, 100
+      stop_codeowners(codeowners)
+    end
+
+    test "COMMENTED review with a body is published" do
+      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      codeowners = ensure_codeowners!("* @its-everdred\n")
+
+      commented_with_body = pr_review(9_032, "its-everdred", "COMMENTED", "minor nit: fix the spacing")
+
+      request_fun = request_fun_with_reviews([commented_with_body])
+
+      assert {:ok, %{count: 1, errors: []}} =
+               GithubCommentsPoller.poll(["42"],
+                 since: "2026-06-24T11:00:00Z",
+                 repo: "owner/repo",
+                 request_fun: request_fun
+               )
+
+      assert_receive {:event, %{topic: "ticket.42.pr.review_comment", comment: %{"id" => 9_032}}}, 500
+      stop_codeowners(codeowners)
+    end
   end
 
   defp ensure_codeowners!(contents) do
