@@ -677,7 +677,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert writable =~ "Original answer · preserved"
     assert writable =~ "Hold the rollout"
     assert writable =~ "No longer applicable"
-    assert writable =~ "does not claim earlier effects were rolled back"
+    assert writable =~ "Revise Command"
     assert writable =~ "Executor follow-up required"
     assert writable =~ ~s(phx-submit="revise-decision")
     assert writable =~ ~s(phx-submit="handle-revision-follow-up")

@@ -65,7 +65,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
             <input type="radio" name="answer[choice]" value="custom" checked={@choice == "custom"} />
             <span class="decision-choice-copy">
               <strong>Custom response</strong>
-              <small>Record a bounded response in your own words.</small>
+              <small>Record a response in your own words.</small>
             </span>
           </label>
         </fieldset>
