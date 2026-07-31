@@ -1,4 +1,5 @@
 export const placeholder = "streamdeck";
+export * from "./dial.js";
 export * from "./keys.js";
 export * from "./mode.js";
 export * from "./logs.js";
