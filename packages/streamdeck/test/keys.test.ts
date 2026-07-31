@@ -285,7 +285,7 @@ describe("bucket styles", () => {
 // ---------------------------------------------------------------------------
 
 describe("agent key fields", () => {
-  it("populates identifier, title, vendor, ticketNumber, and priority", () => {
+  it("populates identifier, title, vendor, and priority", () => {
     const keys = layoutKeys(
       [agent("1350", { title: "My ticket", vendor: "claude", priority: true })],
       0,
@@ -294,7 +294,6 @@ describe("agent key fields", () => {
     expect(key.identifier).toBe("1350");
     expect(key.title).toBe("My ticket");
     expect(key.vendor).toBe("claude");
-    expect(key.ticketNumber).toBe("1350");
     expect(key.priority).toBe(true);
   });
 

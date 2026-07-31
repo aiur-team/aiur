@@ -27,7 +27,6 @@ export interface AgentKey {
   readonly identifier: string;
   readonly title: string;
   readonly vendor: Vendor;
-  readonly ticketNumber: string;
   readonly priority: boolean;
   readonly bucket: BucketId;
   readonly style: BucketStyle;
@@ -137,7 +136,6 @@ function buildAgentKey(agent: AgentInput): AgentKey {
     identifier: agent.identifier,
     title: agent.title ?? "",
     vendor: agent.vendor,
-    ticketNumber: agent.identifier,
     priority: agent.priority,
     bucket: agent.bucket,
     style: BUCKET_STYLES[agent.bucket],
