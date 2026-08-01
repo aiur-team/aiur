@@ -85,12 +85,65 @@ Pre-work drafts may live anywhere (scratch branch, workpad); planning is
 not complete until the docs are on the base branch and the pack renders
 on the Build Order page (`#1444`'s verification rung).
 
+### Planning docs — resolved (operator, 2026-08-01): docs are larvae
+
+Pre-planning docs are a temporary staging space between planning and
+ticket creation. Duplication is solved by TRANSFER OF AUTHORITY, not
+synchronization: exactly one authoritative home per member at any moment
+— the doc before its ticket exists, the ticket after.
+
+```
+builds/<slug>/
+  build-order.json      # members: {id, title, deps, ticket: null|#N, doc: "tickets/AS-101.md"}
+  tickets/AS-101.md     # researched draft ticket body — IS the future issue body
+```
+
+- The research spike writes one doc per future ticket; the deep research
+  IS the ticket draft, no separate artifact.
+- Ticket creation = promotion: doc content becomes the issue body
+  verbatim, the pack records the number, the doc is frozen (marked
+  promoted, never edited again).
+- Dashboard straddle for phased creation falls out for free: member with
+  `ticket: #N` renders live tracker state; `ticket: null` renders the
+  doc. One list, mixed created/uncreated members.
+- Mid-run changes to future tickets: agents edit the doc if uncreated,
+  the ticket if created.
+- User repo docs (planning branches etc.): aiur never reads them.
+  Any copy a developer checks in is inert decoration — nothing consumes
+  it, so drift is harmless. Their version control, their business.
+- THE RULE (goes in the /aiur-build skill): after promotion, edits go to
+  the ticket, never the doc. That sentence is the entire
+  anti-duplication mechanism.
+- No planning PR, no workspace materialization: agents go off the ticket
+  itself, which carries the full researched contract.
+
+### Decisions from 2026-08-01 Q&A
+
+- `status.json`: written on state change (tracker transitions), not
+  periodic.
+- `aiur init`: the per-repo node already exists via the pre-warm
+  question; init just verifies/uses the new `latest/` path (#1443's
+  surface only needs the path check).
+- Sidecars: `.aiur-hex`/`.aiur-mix`/npm cache move beside `latest/` in
+  the same ticket (pure caches, staleness harmless).
+  `.aiur-base-built` is load-bearing where it sits — in-tree it is
+  self-invalidating on re-clone; naively moving it reintroduces the
+  #1404 stale-marker class. It either stays in-tree with a comment
+  saying why, or is upgraded to a SHA-keyed record (clone HEAD +
+  base-build inputs) — never naively moved. [pending final call]
+
 ## Open questions before ticketing
 
-- `status.json` write cadence and schema (folds in the persistence half
-  of #1445; the GitHub-hydration half of #1445 is its data feed).
+- `.aiur-base-built`: keep in-tree (documented) or upgrade to SHA-keyed
+  record? (see Sidecars above)
+- `status.json` schema (fields; folds in the persistence half of #1445;
+  the GitHub-hydration half of #1445 is its data feed).
 - Migration of the two existing packs (July dashboard run, current
-  analytics-streamdeck) into the store.
-- Whether a consumer repo with no docs dir wants the planning PR to
-  create one, and where (`docs/` vs configurable).
-- Whether `aiur init` (#1443's surface) should scaffold the global store.
+  analytics-streamdeck) into `builds/`, and the clone move into
+  `latest/` — one-shot script or lazy per-repo on first touch?
+- Promotion mechanics: does /aiur-build promote (create issue from doc)
+  one phase at a time on operator command, and what marks a doc
+  promoted (frontmatter flag vs move to `tickets/promoted/`)?
+- The completed July pack and current pack use different schemas
+  (canonical vs legacy display shape) — does the new discovery read
+  both, or do we migrate both to one schema (#1445's reader work)?
