@@ -78,7 +78,7 @@ defmodule Aiur.Init do
         Resume.backfill_missing_sections(io, deps, location, tracker, config, effective_target)
         Prewarm.maybe_resume_prewarm(io, deps, tracker, config)
         Aiur.Init.Codeowners.setup_codeowners(io, deps, tracker)
-        provision(io, deps, tracker, Resume.agents_from_config(config))
+        provision(io, deps, tracker, Resume.agents_from_config(config), rate_limit_pair(config))
 
       {:error, reason} ->
         {:error,
@@ -142,11 +142,13 @@ defmodule Aiur.Init do
     end
   end
 
-  defp provision(io, deps, %{kind: "github"} = tracker, agents) do
+  defp provision(io, deps, tracker, agents, pair \\ default_rate_limit_pair())
+
+  defp provision(io, deps, %{kind: "github"} = tracker, agents, pair) do
     Aiur.Init.AgentCli.check_agent_clis(io, deps, agents)
 
     if github_token_present?(deps) do
-      case Aiur.Init.Labels.setup_labels(io, deps, tracker, agents) do
+      case Aiur.Init.Labels.setup_labels(io, deps, tracker, agents, pair) do
         :ok -> final_screen(io)
         :error -> :ok
       end
@@ -157,20 +159,27 @@ defmodule Aiur.Init do
     :ok
   end
 
-  defp provision(io, deps, %{kind: "linear"} = tracker, agents) do
+  defp provision(io, deps, %{kind: "linear"} = tracker, agents, _pair) do
     Aiur.Init.AgentCli.check_agent_clis(io, deps, agents)
     linear_walkthrough(io, tracker)
     final_screen(io)
     :ok
   end
 
-  defp provision(io, deps, _tracker, agents) do
+  defp provision(io, deps, _tracker, agents, _pair) do
     Aiur.Init.AgentCli.check_agent_clis(io, deps, agents)
     final_screen(io)
     :ok
   end
 
   defp github_token_present?(deps), do: deps.github_token.() not in [nil, ""]
+
+  defp default_rate_limit_pair, do: {Aiur.CodingAgent.default_backend(), Aiur.CodingAgent.default_rate_limit_fallback()}
+
+  defp rate_limit_pair(config) do
+    agent = Map.get(config, "agent", %{})
+    {Map.get(agent, "rate_limit_primary", Aiur.CodingAgent.default_backend()), Map.get(agent, "rate_limit_fallback", Aiur.CodingAgent.default_rate_limit_fallback())}
+  end
 
   @spec runtime_deps() :: deps()
   def runtime_deps, do: Runtime.runtime_deps()

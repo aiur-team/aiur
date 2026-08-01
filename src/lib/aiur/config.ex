@@ -114,7 +114,7 @@ defmodule Aiur.Config do
   The registered backend the automatic usage-limit fallback reroutes *to*
   (`Aiur.Orchestrator.RateLimitFallback`) when an already-running agent on
   `rate_limit_primary_backend/0` hits `usage_limit_exhausted`, or `nil` when
-  disabled (`agent.rate_limit_fallback: ""`). Any registered backend distinct
+  disabled (`agent.rate_limit_fallback: ""`). Any registry-declared eligible
   from the primary is accepted; the default is `"claude"`. Unlike
   `switch_model_on_ratelimit/0` (opt-in, only ever applies to a new claim),
   this is default-on and reroutes a running local agent, reverting at a safe
@@ -815,7 +815,7 @@ defmodule Aiur.Config do
 
     Enum.find(Aiur.CodingAgent.configurable_backends(), fn backend ->
       has_section?(config, backend) or Map.has_key?(backend_config_sections(config, agent), backend)
-    end) || Aiur.CodingAgent.default_backend()
+    end) || Aiur.CodingAgent.default_config_backend()
   end
 
   defp backend_config_sections(config, agent) do

@@ -13,11 +13,11 @@ defmodule Aiur.Init.Labels do
   @default_label_prefix "agent"
   @config_file_name ".aiur/config"
 
-  @spec setup_labels(Aiur.Init.io(), Aiur.Init.deps(), map(), [String.t()]) :: :ok | :error
-  def setup_labels(io, deps, %{kind: "github"} = tracker, agents) do
+  @spec setup_labels(Aiur.Init.io(), Aiur.Init.deps(), map(), [String.t()], {String.t(), String.t() | nil}) :: :ok | :error
+  def setup_labels(io, deps, %{kind: "github"} = tracker, agents, {primary, fallback}) do
     kinds = Questions.agent_kinds(agents)
     existing = fetch_existing_labels(deps, tracker)
-    required = required_labels(Map.get(tracker, :label_prefix, @default_label_prefix))
+    required = required_labels(Map.get(tracker, :label_prefix, @default_label_prefix), primary, fallback)
 
     with :ok <- create_required_labels(io, deps, tracker, existing, required),
          existing = Enum.uniq(existing ++ required),
@@ -29,7 +29,11 @@ defmodule Aiur.Init.Labels do
     end
   end
 
-  def setup_labels(_io, _deps, _tracker, _agents), do: :ok
+  def setup_labels(_io, _deps, _tracker, _agents, _pair), do: :ok
+
+  def setup_labels(io, deps, tracker, agents) do
+    setup_labels(io, deps, tracker, agents, {CodingAgent.default_backend(), CodingAgent.default_rate_limit_fallback()})
+  end
 
   # Existing repo labels, fetched once. If we can't read them, treat all as
   # missing — create_labels is idempotent, so already-present labels are skipped.
@@ -56,8 +60,8 @@ defmodule Aiur.Init.Labels do
     end
   end
 
-  defp required_labels(prefix) do
-    Labels.state_labels(prefix) ++ Labels.required_rate_limit_fallback_labels(prefix)
+  defp required_labels(prefix, primary, fallback) do
+    Labels.state_labels(prefix) ++ Labels.required_rate_limit_fallback_labels(prefix, primary, fallback)
   end
 
   # Stage 2 — optional complexity labels.

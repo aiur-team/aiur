@@ -1863,8 +1863,8 @@ defmodule Aiur.InitTest do
       assert Enum.sort(created) == Enum.sort(required)
       refute Enum.any?(created, &String.starts_with?(&1, "complexity:"))
       assert "model:claude" in created
-      assert "model:codex" in created
-      assert "model:claude-repl" in created
+      refute "model:codex" in created
+      refute "model:claude-repl" in created
     end
 
     test "the remote-control stage only appears when claude is supported", %{dir: dir, target: target} do

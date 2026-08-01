@@ -40,15 +40,16 @@ Increment 0 — bug fixes (DONE):
 - #1406 — usage probe workspace never created / at bare root. Fold into the
   owner/repo-namespaced tree via `Workspace.workspace_path_under/2`.
 
-Increment 1 — registry provider descriptor + test-only fake backend:
+Increment 1 — registry provider descriptor + test-only fake backend (DONE):
 - Add family-level descriptor to the registry + accessors (`families/0`,
   `provider_atoms/0`, descriptor lookups).
 - Register a `test`-env-only fake backend + config section to prove the paths.
 
-Increment 2 — subsystem C (mid-ticket switching):
+Increment 2 — subsystem C (mid-ticket switching, DONE):
 - `rate_limit_fallback.ex`: read primary/fallback from config, not module attrs.
 - `config/schema/agent.ex`: validate `rate_limit_fallback` against
-  `known_backends()` (like `switch_model_on_ratelimit`), not `["", "claude"]`.
+  registry fallback-target capability, not `["", "claude"]`; resumable
+  `claude-repl` remains ineligible.
 
 Increment 3 — subsystem D (presentation):
 - DONE: registry `presentation` descriptor (label, logo, token_icon, css_class,
@@ -56,10 +57,8 @@ Increment 3 — subsystem D (presentation):
   `provider_families/0`, `provider_descriptor/1` accessors. `run_summary_strip`,
   `units_table`, and `provider_meters_presenter` now render from the descriptor
   (behaviour identical for codex/claude — 47 presentation tests green).
-- REMAINING: the per-provider SVG routes (`router.ex`) + `static_asset_controller`
-  handlers, and the per-provider `dashboard.css` rules. The descriptor already
-  centralizes the paths/classes; these static assets are a lower-risk follow-up
-  (a new backend still needs its SVG files + one route + one CSS rule until then).
+- DONE: provider assets route through a registry descriptor, and dashboard CSS
+  consumes the descriptor class rather than a provider union.
 
 Increment 4 — subsystem B (usage/metering/pricing):
 - DONE (provider enumeration): `@agent_families` (now
@@ -68,26 +67,27 @@ Increment 4 — subsystem B (usage/metering/pricing):
   (incl. the per-provider `*_app_server` `@sources`), `provider_meter_projection.ex`
   (compile-time attr so the `in @providers` guards still inline), and
   `usage/price_table/validator.ex` are all registry-derived. 197 usage tests green.
-- REMAINING (per-provider dimension RULES — the hard part): the pricing/dimension
-  validation that differs by provider (codex context-tiers vs claude
+- DONE (per-provider dimension rules): pricing/dimension validation that differs
+  by provider (codex context-tiers vs claude
   cache-write-durations) in `usage/price_table/provider_dimensions.ex`,
   `usage/pricing/dimensions.ex`, `usage/headless/adapter.ex` defaults,
   `usage/headless/catalog.ex` adapters, `usage/price_table/data.ex`, and
-  `provider_account_generation/validation.ex` (auth modes / trusted sources).
-  These must move the per-provider rules into a `pricing`/`auth` descriptor on
-  the registry entry.
+  `provider_account_generation/validation.ex` (auth modes / trusted sources)
+  now resolves from the registry's `pricing`/`account_generation` descriptors.
 
-Increment 5 — subsystem A (config) + E (misc):
+Increment 5 — subsystem A (config) + E (misc, DONE):
 - Registry-driven config-section resolution (`inferred_agent_kind`, fallbacks,
   `agent_executable`, install hints, routing order). Ecto embeds stay compile-
-  time but their *set* derives from the registry list.
-- Misc: metadata keys, skill install paths, `model:claude` label fallback,
-  `backend_key`, telemetry dispatch.
+  time but their *set* derives from the registry list. The historical
+  no-section Claude default is also a registry capability.
+- Misc: metadata keys, registry-declared skill install paths, model-label
+  fallback, `backend_key`, telemetry dispatch.
 
 ## Acceptance
 
 Fake backend registered only in the registry (test env) routes, dispatches,
 meters, prices, and renders with zero edits elsewhere. `rate_limit_fallback`
-accepts any registered backend pair. No behaviour change for codex/claude.
+accepts any eligible registered backend pair. No behaviour change for
+codex/claude.
 #1406 and #1436 closed.
 </content>

@@ -130,19 +130,20 @@ defmodule Aiur.Config.SchemaTest do
       assert defaults.agent.rate_limit_fallback == "claude"
     end
 
-    test "accepts any registered backend distinct from the primary" do
-      assert {:ok, settings} =
+    test "rejects claude-repl as a resumable fallback target" do
+      assert {:error, {:invalid_workflow_config, message}} =
                Schema.parse(%{"agent" => %{"rate_limit_fallback" => "claude-repl"}})
 
-      assert settings.agent.rate_limit_fallback == "claude-repl"
+      assert message =~ "rate_limit_fallback"
+      assert message =~ "eligible registered fallback backend"
     end
 
-    test "accepts a non-default primary/fallback pair" do
+    test "accepts a non-default eligible primary/fallback pair" do
       assert {:ok, settings} =
-               Schema.parse(%{"agent" => %{"rate_limit_primary" => "claude", "rate_limit_fallback" => "codex"}})
+               Schema.parse(%{"agent" => %{"rate_limit_primary" => "claude", "rate_limit_fallback" => "fake"}})
 
       assert settings.agent.rate_limit_primary == "claude"
-      assert settings.agent.rate_limit_fallback == "codex"
+      assert settings.agent.rate_limit_fallback == "fake"
     end
 
     test "accepts an empty string to disable" do
@@ -156,6 +157,13 @@ defmodule Aiur.Config.SchemaTest do
 
       assert message =~ "rate_limit_fallback"
       assert message =~ "must differ from rate_limit_primary"
+    end
+
+    test "rejects codex as a resumable fallback target" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"agent" => %{"rate_limit_primary" => "claude", "rate_limit_fallback" => "codex"}})
+
+      assert message =~ "eligible registered fallback backend"
     end
 
     test "rejects an unknown backend" do

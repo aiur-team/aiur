@@ -249,6 +249,7 @@ defmodule Aiur.Config.Schema.Agent do
     backend = Ecto.Changeset.get_field(changeset, :rate_limit_fallback)
     primary = Ecto.Changeset.get_field(changeset, :rate_limit_primary)
     known = Aiur.CodingAgent.known_backends()
+    fallback_targets = Aiur.CodingAgent.rate_limit_fallback_targets()
 
     cond do
       backend in [nil, ""] ->
@@ -259,6 +260,9 @@ defmodule Aiur.Config.Schema.Agent do
 
       backend == primary ->
         Ecto.Changeset.add_error(changeset, :rate_limit_fallback, "must differ from rate_limit_primary (#{inspect(primary)})")
+
+      backend not in fallback_targets ->
+        Ecto.Changeset.add_error(changeset, :rate_limit_fallback, "must be an eligible registered fallback backend; eligible backends: #{inspect(fallback_targets)}")
 
       true ->
         changeset

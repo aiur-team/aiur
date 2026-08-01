@@ -210,8 +210,7 @@ defmodule Aiur.ProviderMeterProbe do
     _kind, _reason -> :ok
   end
 
-  defp probe_agent("codex", opts), do: Keyword.get(opts, :codex_agent, CodingAgent.adapter("codex"))
-  defp probe_agent(backend, _opts), do: CodingAgent.adapter(backend)
+  defp probe_agent(backend, opts), do: Keyword.get(opts, :probe_agent, CodingAgent.adapter(backend))
 
   defp outcome(provider, observed?, reason), do: %{provider: provider, observed?: observed?, reason: reason}
 

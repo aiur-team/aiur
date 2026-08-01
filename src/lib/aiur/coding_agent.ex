@@ -82,6 +82,8 @@ defmodule Aiur.CodingAgent do
         family: "codex",
         default: true,
         rate_limit_fallback: "claude",
+        rate_limit_fallback_target: false,
+        skill_install: %{path: ".codex/skills", link_to: ".claude/skills"},
         configurable: true,
         init_order: 1,
         default_command: "codex app-server",
@@ -146,6 +148,9 @@ defmodule Aiur.CodingAgent do
         adapter: Aiur.Claude.CodingAgent,
         transcript: Aiur.Claude.Transcript,
         family: "claude",
+        config_default: true,
+        rate_limit_fallback_target: true,
+        skill_install: %{path: ".claude/skills"},
         configurable: true,
         init_order: 0,
         default_command: "aiur-claude",
@@ -212,6 +217,9 @@ defmodule Aiur.CodingAgent do
         adapter: Aiur.Claude.ReplAgent,
         transcript: Aiur.Claude.Transcript,
         family: "claude",
+        # A persistent REPL carries the primary session handle. It must never
+        # be selected as a usage-limit replacement for a different session.
+        rate_limit_fallback_target: false,
         # The REPL is launched by its adapter rather than the init wizard, but
         # rate-limit fallback still needs a registry-owned readiness command.
         default_command: "claude",
@@ -262,6 +270,8 @@ defmodule Aiur.CodingAgent do
         adapter: Aiur.Codex.CodingAgent,
         transcript: Aiur.Codex.Transcript,
         family: "fake",
+        skill_install: %{path: ".fake/skills"},
+        rate_limit_fallback_target: true,
         configurable: true,
         init_order: 2,
         default_command: "fake-agent --serve",
@@ -293,7 +303,6 @@ defmodule Aiur.CodingAgent do
           component_dimensions: %{default: %{context_tier: [:not_applicable], cache_write_duration: [:not_applicable]}}
         },
         usage: %{adapters: [Aiur.Usage.Headless.Fake.RequestUsage]},
-        fallback_label: false,
         account_generation: %{backends: [:app_server], trusted_sources: [:fake_app_server], auth_modes: ["fake"]}
       })
     end
@@ -305,11 +314,11 @@ defmodule Aiur.CodingAgent do
   @spec known_backends() :: [backend()]
   def known_backends, do: Map.keys(backends())
 
-  @doc "Backend labels that must exist for configured rate-limit fallback pairs."
-  @spec rate_limit_fallback_backends() :: [backend()]
-  def rate_limit_fallback_backends do
+  @doc "Backends approved by their registry entry as rate-limit fallback targets."
+  @spec rate_limit_fallback_targets() :: [backend()]
+  def rate_limit_fallback_targets do
     backends()
-    |> Enum.filter(fn {_backend, entry} -> Map.get(entry, :fallback_label, true) end)
+    |> Enum.filter(fn {_backend, entry} -> Map.get(entry, :rate_limit_fallback_target, false) end)
     |> Enum.map(&elem(&1, 0))
   end
 
@@ -321,12 +330,30 @@ defmodule Aiur.CodingAgent do
     |> Kernel.||(known_backends() |> List.first())
   end
 
+  @doc "The registry-selected legacy configuration default."
+  @spec default_config_backend() :: backend()
+  def default_config_backend do
+    backends()
+    |> Enum.find_value(fn {backend, entry} -> if Map.get(entry, :config_default, false), do: backend end)
+    |> Kernel.||(default_backend())
+  end
+
   @doc "Registry-selected fallback for the default backend's rate-limit reroute."
   @spec default_rate_limit_fallback() :: backend() | nil
   def default_rate_limit_fallback do
     backends()
     |> Map.get(default_backend(), %{})
     |> Map.get(:rate_limit_fallback)
+  end
+
+  @doc "Workspace skill-install locations declared by registered backends."
+  @spec skill_install_locations() :: [%{optional(:link_to) => String.t(), path: String.t()}]
+  def skill_install_locations do
+    backends()
+    |> Map.values()
+    |> Enum.map(&Map.get(&1, :skill_install))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq_by(& &1.path)
   end
 
   @doc "Backends selectable during init, ordered by registry preference."

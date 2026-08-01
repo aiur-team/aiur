@@ -53,8 +53,8 @@ defmodule Aiur.Claude.CodingAgentTest do
     assert Aiur.CodingAgent.adapter() == Aiur.Claude.CodingAgent
   end
 
-  test "CodingAgent routes to the registry default" do
+  test "CodingAgent routes to Claude by default" do
     write_workflow_file!(Workflow.workflow_file_path(), agent_kind: nil)
-    assert Aiur.CodingAgent.adapter() == Aiur.Codex.CodingAgent
+    assert Aiur.CodingAgent.adapter() == Aiur.Claude.CodingAgent
   end
 end

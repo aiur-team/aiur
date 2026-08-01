@@ -82,6 +82,14 @@ defmodule Aiur.AgentSkillsTest do
     end
   end
 
+  test "installs registry-only backend skills at its declared path", %{workspace: ws} do
+    assert :ok = AgentSkills.install(ws)
+
+    for skill <- AgentSkills.issue_worker_skills() do
+      assert File.exists?(Path.join([ws, ".fake", "skills", skill, "SKILL.md"]))
+    end
+  end
+
   test "does not install operator-only skills into issue-worker workspaces", %{workspace: ws} do
     assert :ok = AgentSkills.install(ws)
 

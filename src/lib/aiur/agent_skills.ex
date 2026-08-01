@@ -19,9 +19,9 @@ defmodule Aiur.AgentSkills do
   would resolve to the build machine's source path and silently no-op once the
   release is relocated, which is exactly the deployment this fixes.) After a
   workspace is populated (warm-base materialize or cold clone), the embedded
-  files are written into `<workspace>/.claude/skills/`, and the repo's Codex
-  convention is mirrored with `.codex/skills/<skill>` symlinks back to the
-  canonical `.claude` copy.
+  files are written into registry-declared workspace skill paths. The shipped
+  Claude and Codex entries retain the `.claude/skills/` canonical copy and
+  `.codex/skills/<skill>` symlink convention.
 
   Installs are idempotent and never clobber a skill the target repo already
   ships (e.g. aiur dogfooding aiur), best-effort so a file error never fails
@@ -31,7 +31,7 @@ defmodule Aiur.AgentSkills do
 
   require Logger
 
-  alias Aiur.Workspace.Remote
+  alias Aiur.{CodingAgent, Workspace.Remote}
 
   # The skills the agent prompt routes issue workers to. This is a deliberate
   # subset of the canonical taxonomy in `Aiur.AiurAgentSkillTest`
@@ -41,12 +41,13 @@ defmodule Aiur.AgentSkills do
   # subset, so the two cannot silently drift.
   @issue_worker_skills ~w(using-aiur aiur-agent aiur-debug design-import)
 
-  @claude_skills_dir ".claude/skills"
-  @codex_skills_dir ".codex/skills"
+  # The bundled source tree is the release build input. Backend workspace paths
+  # are supplied by `CodingAgent.skill_install_locations/0` below.
+  @bundled_skills_dir ".claude/skills"
 
   # src/lib/aiur -> src/lib -> src -> repo root, then `.claude/skills`. Used at
   # compile time only; nothing reads the source tree at runtime.
-  @skills_root Path.expand("../../../#{@claude_skills_dir}", __DIR__)
+  @skills_root Path.expand("../../../#{@bundled_skills_dir}", __DIR__)
 
   # Every file under the bundled skills, read at compile time and keyed by its
   # path relative to the skills root (e.g. "using-aiur/SKILL.md").
@@ -95,10 +96,8 @@ defmodule Aiur.AgentSkills do
 
   def install(_workspace), do: :ok
 
-  defp install_skill(workspace, skill) do
-    install_claude_skill(workspace, skill)
-    link_codex_skill(workspace, skill)
-  end
+  defp install_skill(workspace, skill),
+    do: Enum.each(CodingAgent.skill_install_locations(), &install_skill_at(workspace, skill, &1))
 
   defp remote_skill_script(skill) do
     files = skill_files(skill)
@@ -116,25 +115,43 @@ defmodule Aiur.AgentSkills do
         |> Enum.join("\n")
       end)
 
-    [
-      "dest=\"$workspace/.claude/skills/#{skill}\"",
-      "if [ ! -e \"$dest\" ] && [ ! -L \"$dest\" ]; then",
-      "  mkdir -p \"$(dirname \"$dest\")\"",
-      "  tmp=\"$dest.tmp.$$\"",
-      "  rm -rf \"$tmp\"",
-      "  trap 'rm -rf \"$tmp\"' EXIT",
-      "  mkdir -p \"$tmp\"",
-      indent_script(writes, "  "),
-      "  mv \"$tmp\" \"$dest\"",
-      "  trap - EXIT",
-      "fi",
-      "link=\"$workspace/.codex/skills/#{skill}\"",
-      "if [ ! -e \"$link\" ] && [ ! -L \"$link\" ]; then",
-      "  mkdir -p \"$(dirname \"$link\")\"",
-      "  ln -s \"../../.claude/skills/#{skill}\" \"$link\"",
-      "fi"
-    ]
+    CodingAgent.skill_install_locations()
+    |> Enum.map(&remote_skill_script(&1, skill, writes))
     |> Enum.join("\n")
+  end
+
+  defp remote_skill_script(%{path: path} = location, skill, writes) do
+    dest = "$workspace/#{path}/#{skill}"
+
+    case Map.get(location, :link_to) do
+      nil ->
+        [
+          "dest=\"#{dest}\"",
+          "if [ ! -e \"$dest\" ] && [ ! -L \"$dest\" ]; then",
+          "  mkdir -p \"$(dirname \"$dest\")\"",
+          "  tmp=\"$dest.tmp.$$\"",
+          "  rm -rf \"$tmp\"",
+          "  trap 'rm -rf \"$tmp\"' EXIT",
+          "  mkdir -p \"$tmp\"",
+          indent_script(writes, "  "),
+          "  mv \"$tmp\" \"$dest\"",
+          "  trap - EXIT",
+          "fi"
+        ]
+        |> Enum.join("\n")
+
+      link_to ->
+        target = relative_link_target(path, link_to, skill)
+
+        [
+          "link=\"#{dest}\"",
+          "if [ ! -e \"$link\" ] && [ ! -L \"$link\" ]; then",
+          "  mkdir -p \"$(dirname \"$link\")\"",
+          "  ln -s \"#{target}\" \"$link\"",
+          "fi"
+        ]
+        |> Enum.join("\n")
+    end
   end
 
   defp indent_script(script, prefix) do
@@ -143,11 +160,18 @@ defmodule Aiur.AgentSkills do
     |> Enum.map_join("\n", &(prefix <> &1))
   end
 
-  # Write the embedded skill files into the workspace unless the target repo
-  # already ships its own copy (don't clobber a repo's tuned skill).
-  defp install_claude_skill(workspace, skill) do
-    dest = Path.join([workspace, @claude_skills_dir, skill])
+  # Write the embedded skill files into a registry-declared workspace location
+  # unless the target repo already ships its own copy.
+  defp install_skill_at(workspace, skill, %{path: path} = location) do
+    dest = Path.join([workspace, path, skill])
 
+    case Map.get(location, :link_to) do
+      nil -> install_embedded_skill(dest, skill)
+      link_to -> link_skill(dest, relative_link_target(path, link_to, skill))
+    end
+  end
+
+  defp install_embedded_skill(dest, skill) do
     unless exists?(dest) do
       File.mkdir_p!(Path.dirname(dest))
       stage_and_rename(dest, skill_files(skill))
@@ -184,16 +208,18 @@ defmodule Aiur.AgentSkills do
     end
   end
 
-  # Codex discovers skills under `.codex/skills/`; each entry is a relative
-  # symlink back to the canonical `.claude` copy (the same shape committed in
-  # aiur's own tree), so Codex agents resolve the skill with no second copy.
-  defp link_codex_skill(workspace, skill) do
-    dest = Path.join([workspace, @codex_skills_dir, skill])
-
+  # Linked backend locations share the canonical installed skill without a
+  # duplicate copy. The registry owns both paths.
+  defp link_skill(dest, target) do
     unless exists?(dest) do
       File.mkdir_p!(Path.dirname(dest))
-      File.ln_s!(Path.join("../../.claude/skills", skill), dest)
+      File.ln_s!(target, dest)
     end
+  end
+
+  defp relative_link_target(path, link_to, skill) do
+    parents = path |> Path.split() |> Enum.reject(&(&1 == "."))
+    Path.join(List.duplicate("..", length(parents)) ++ [link_to, skill])
   end
 
   # `File.exists?/1` follows symlinks, so a dangling Codex link would read as

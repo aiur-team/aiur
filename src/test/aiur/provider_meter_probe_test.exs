@@ -60,8 +60,7 @@ defmodule Aiur.ProviderMeterProbeTest do
         projection: ctx.projection,
         workspace: "/tmp/aiur-probe-test",
         observation_window_ms: 60,
-        codex_agent: FakeAgent,
-        claude_agent: FakeAgent
+        probe_agent: FakeAgent
       ],
       extra
     )
@@ -120,14 +119,14 @@ defmodule Aiur.ProviderMeterProbeTest do
   # A close that blows up must not turn the probe into a crash — the session is
   # being abandoned either way.
   test "a failing session close is contained", ctx do
-    assert [%{observed?: false}] = ProviderMeterProbe.observe(:codex, opts(ctx, codex_agent: ExplodingCloseAgent))
+    assert [%{observed?: false}] = ProviderMeterProbe.observe(:codex, opts(ctx, probe_agent: ExplodingCloseAgent))
   end
 
   # An unexpected atom return is surfaced verbatim rather than flattened, so a
   # new failure shape from the agent is diagnosable from the outcome alone.
   test "an unexpected start_session return is reported, not read as success", ctx do
     assert [%{observed?: false, reason: :something_unexpected}] =
-             ProviderMeterProbe.observe(:codex, opts(ctx, codex_agent: OddReturnAgent))
+             ProviderMeterProbe.observe(:codex, opts(ctx, probe_agent: OddReturnAgent))
   end
 
   # Without an explicit workspace the probe derives one under the configured

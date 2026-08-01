@@ -4,8 +4,8 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
   the configured fallback backend after `usage_limit_exhausted`, then reverts at
   a safe turn boundary once `Aiur.ModelAvailability` confirms the primary
   recovered. The backend pair is `agent.rate_limit_primary` /
-  `agent.rate_limit_fallback` (defaults `"codex"` / `"claude"`); any registered
-  backend pair works, and `""` on the fallback disables the reroute.
+  `agent.rate_limit_fallback` (defaults `"codex"` / `"claude"`); any eligible
+  registry-declared fallback target works, and `""` disables the reroute.
 
   A durable `model:<fallback>` label drives existing backend routing, while a
   second marker records Aiur's ownership so Executor-authored overrides remain
@@ -444,7 +444,7 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
   # worker's remote-only workspace, so readiness is only checked there; a
   # worker-hosted entry is left parked rather than moved to a backend that
   # cannot start on that worker. The executable is resolved from the backend's
-  # own config (`agent_executable/1`), so any registered fallback works, not
+  # own config (`agent_executable/1`), so any eligible registered fallback works, not
   # just headless claude.
   defp default_backend_ready?(backend, nil, opts) when is_binary(backend) do
     find_executable = Keyword.get(opts, :find_executable_fun, &System.find_executable/1)

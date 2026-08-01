@@ -7,7 +7,7 @@ defmodule Aiur.ProviderMeters.Input do
   @auth_modes [:subscription, :api_key, :unknown]
   # Per-provider app-server source atoms (`:codex_app_server`, …) derived from
   # the same registry providers, plus the provider-independent sources.
-  @sources [:provider, :adapter, :synthetic] ++
+  @sources [:provider, :adapter, :synthetic, :usage_api] ++
              Enum.map(Aiur.CodingAgent.provider_families(), &:"#{&1}_app_server")
   @window_kinds [:rate_limit, :credit, :spend_control]
   @window_names %{
