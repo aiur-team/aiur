@@ -26,6 +26,7 @@ defmodule Aiur.Config do
   @default_base_branch "main"
   @default_telemetry_retention_max_bytes 64 * 1024 * 1024
   @default_telemetry_retention_max_age_days 30
+  @minimum_telemetry_retention_prune_interval_bytes 1 * 1024 * 1024
 
   @type codex_runtime_settings :: %{
           approval_policy: String.t(),
@@ -615,20 +616,43 @@ defmodule Aiur.Config do
     settings!().observability.render_interval_ms
   end
 
-  @doc "Retention limits for the durable run-telemetry stream."
-  @spec telemetry_retention() :: [max_bytes: pos_integer(), max_age_days: pos_integer()]
+  @doc """
+  Retention limits for the durable run-telemetry stream.
+
+  - `:max_bytes` — maximum file size in bytes. Whole boot groups are pruned
+    from oldest to newest until the file fits. Defaults to 64 MiB.
+  - `:max_age_days` — maximum age of a retained boot in days. Defaults to 30.
+  - `:prune_interval_bytes` — periodic in-writer pruning fires after this many
+    bytes have been written since the last prune. Defaults to `max(max_bytes/8, 1 MiB)`
+    and can be overridden with `observability.telemetry_retention_prune_interval_bytes`.
+  """
+  @spec telemetry_retention() :: [
+          max_bytes: pos_integer(),
+          max_age_days: pos_integer(),
+          prune_interval_bytes: pos_integer()
+        ]
   def telemetry_retention do
     case settings() do
       {:ok, %{observability: observability}} ->
+        max_bytes = Map.get(observability, :telemetry_retention_max_bytes, @default_telemetry_retention_max_bytes)
+
         [
-          max_bytes: Map.get(observability, :telemetry_retention_max_bytes, @default_telemetry_retention_max_bytes),
-          max_age_days: Map.get(observability, :telemetry_retention_max_age_days, @default_telemetry_retention_max_age_days)
+          max_bytes: max_bytes,
+          max_age_days: Map.get(observability, :telemetry_retention_max_age_days, @default_telemetry_retention_max_age_days),
+          prune_interval_bytes: Map.get(observability, :telemetry_retention_prune_interval_bytes) || default_prune_interval(max_bytes)
         ]
 
       _other ->
-        [max_bytes: @default_telemetry_retention_max_bytes, max_age_days: @default_telemetry_retention_max_age_days]
+        [
+          max_bytes: @default_telemetry_retention_max_bytes,
+          max_age_days: @default_telemetry_retention_max_age_days,
+          prune_interval_bytes: default_prune_interval(@default_telemetry_retention_max_bytes)
+        ]
     end
   end
+
+  defp default_prune_interval(max_bytes) when is_integer(max_bytes) and max_bytes > 0,
+    do: max(div(max_bytes, 8), @minimum_telemetry_retention_prune_interval_bytes)
 
   @spec validate!() :: :ok | {:error, term()}
   def validate! do
