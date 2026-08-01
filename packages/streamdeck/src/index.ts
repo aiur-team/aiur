@@ -9,6 +9,7 @@ export * from "./keys/keyContent.js";
 export * from "./keys/keyCache.js";
 export * from "./keys/keyRenderer.js";
 export * from "./keys/keyFace.js";
+export * from "./keys/keyWriter.js";
 export * from "./keys/writeQueue.js";
 export * from "./keys/quality.js";
 export * from "./report.js";

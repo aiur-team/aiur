@@ -19,14 +19,17 @@
  *    - **Success** — every report is written; the paint's {@link KeyPaint.commit}
  *      runs (updating the cache) and the promise resolves.
  *    - **Clean failure** — the write throws on the *first* report, so nothing
- *      reached the wire. The paint rejects with the original error and the queue
- *      keeps draining; `commit` never runs, so the key stays dirty and repaints.
+ *      reached the wire. The paint rejects with the original error. The queue
+ *      HALTS and cancels pending paints: a write failure can mean the runtime is
+ *      closing a post-suspend zombie handle, so continuing to drain would commit
+ *      content sent to that stale backend.
  *    - **Partial failure** — the write throws *after* one or more reports are on
  *      the wire. There is now a truncated transfer the device cannot recover
  *      from on its own, so the paint rejects with {@link PartialKeyWriteError}
  *      and the queue HALTS: every still-pending paint is rejected and no further
  *      report is written. The caller must run the #1354 key-stream + device
- *      reset before enqueuing again. `commit` never runs.
+ *      reset and either construct a fresh writer/queue after reconnect or call
+ *      {@link reset} with a fresh writer. `commit` never runs.
  *
  * Cancellation is only ever observed at key boundaries: {@link clear} drops
  * paints that have not started and can never truncate a transfer already on the
@@ -52,8 +55,9 @@ export class KeyWriteCancelledError extends Error {
 /**
  * A key's report sequence failed after at least one report was already written,
  * leaving a truncated transfer on the wire. The device is presumed wedged; the
- * caller must perform the #1354 key-stream and device reset before writing
- * again.
+ * caller must perform the #1354 key-stream and device reset, then construct a
+ * fresh writer/queue against the reopened backend or pass that writer to
+ * {@link KeyWriteQueue.reset} before writing again.
  */
 export class PartialKeyWriteError extends Error {
   constructor(
@@ -84,7 +88,7 @@ export class KeyWriteQueue {
   private draining = false;
   private halted = false;
 
-  constructor(private readonly write: ReportWriter) {}
+  constructor(private write: ReportWriter) {}
 
   /** Number of paints waiting to start (excludes the one being written). */
   get size(): number {
@@ -92,9 +96,9 @@ export class KeyWriteQueue {
   }
 
   /**
-   * True once a partial write has halted the queue. It stays halted — every
-   * subsequent {@link enqueue} rejects immediately — until the caller has reset
-   * the device and calls {@link reset}.
+   * True once any transport failure has halted the queue. It stays halted until
+   * runtime recovery supplies a fresh writer through {@link reset}; no queued
+   * paint may reuse the backend that reported the failure.
    */
   get isHalted(): boolean {
     return this.halted;
@@ -104,12 +108,13 @@ export class KeyWriteQueue {
    * Enqueue one key paint. The returned promise resolves once every report in
    * the paint has been written and its content committed, or rejects if a write
    * fails, the paint is dropped by {@link clear} before it starts, or the queue
-   * is halted.
+   * is halted. A failure halts the queue so no pending paint can commit against
+   * a backend the runtime is concurrently replacing.
    */
   enqueue(paint: KeyPaint): Promise<void> {
     if (this.halted) {
       return Promise.reject(
-        new KeyWriteCancelledError("queue halted after a partial write; reset the device first"),
+        new KeyWriteCancelledError("queue halted after a transport write failure; reconnect and reset with a fresh writer"),
       );
     }
     return new Promise<void>((resolve, reject) => {
@@ -132,11 +137,17 @@ export class KeyWriteQueue {
   }
 
   /**
-   * Clear the halted flag after the caller has reset the device. Any paints
-   * that were pending when the halt occurred have already been rejected.
+   * Resume after #1354 recovery only with a writer bound to the newly opened
+   * backend. For source compatibility, an argument-less call is a safe no-op
+   * that returns `false`: it can never revive the stale writer captured before
+   * the failed transfer. Calling this while healthy is also a safe no-op, so a
+   * replacement can never split one key's report sequence across backends.
    */
-  reset(): void {
+  reset(replacement?: ReportWriter): boolean {
+    if (replacement === undefined || !this.halted) return false;
+    this.write = replacement;
     this.halted = false;
+    return true;
   }
 
   private async drain(): Promise<void> {
@@ -159,22 +170,22 @@ export class KeyWriteQueue {
           paint.commit();
           job.resolve();
         } catch (error) {
-          if (written === 0) {
-            // Nothing reached the wire — a clean failure. The key stays dirty
-            // (commit never ran) and the next key may proceed safely.
-            job.reject(error);
-            continue;
-          }
-          // A truncated transfer is on the wire. Halt: reject this paint and
-          // every pending one, and stop draining so we never push a fresh key
-          // onto a wedged device.
           this.halted = true;
-          job.reject(new PartialKeyWriteError(paint.index, written, paint.reports.length, error));
+          if (written === 0) {
+            // Nothing reached the wire, but the failed writer can still be a
+            // zombie handle. Do not let pending paints commit while runtime
+            // recovery closes and replaces that backend.
+            job.reject(error);
+          } else {
+            // A truncated transfer is on the wire. Explain that condition to
+            // the active paint while applying the same queue halt below.
+            job.reject(new PartialKeyWriteError(paint.index, written, paint.reports.length, error));
+          }
           const stranded = this.pending.splice(0, this.pending.length);
           for (const queued of stranded) {
             queued.reject(
               new KeyWriteCancelledError(
-                "queue halted after a partial write; reset the device first",
+                "queue halted after a transport write failure; reconnect and reset with a fresh writer",
               ),
             );
           }

@@ -59,6 +59,13 @@ describe("KeyWriteQueue", () => {
     expect(committed).toBe(true);
   });
 
+  it("does not replace a healthy writer between a key's reports", () => {
+    const queue = new KeyWriteQueue(async () => {});
+
+    expect(queue.reset(async () => {})).toBe(false);
+    expect(queue.isHalted).toBe(false);
+  });
+
   it("is all-or-nothing: clear() cannot truncate a paint already writing", async () => {
     const resolvers: Array<() => void> = [];
     const written: KeyReport[] = [];
@@ -91,7 +98,7 @@ describe("KeyWriteQueue", () => {
     expect(written.every((r) => r.data[0] === 0)).toBe(true);
   });
 
-  it("keeps draining after a clean failure on the first report", async () => {
+  it("halts after a clean first-report failure to avoid writes to a recovering backend", async () => {
     const committed: number[] = [];
     const write: ReportWriter = async ({ data }) => {
       if (data[0] === 0) throw new Error("boom");
@@ -101,10 +108,13 @@ describe("KeyWriteQueue", () => {
     const pB = queue.enqueue(paint(1, 1, () => committed.push(1)));
 
     await expect(pA).rejects.toThrow("boom");
-    await expect(pB).resolves.toBeUndefined();
-    // The clean failure never committed key 0; key 1 committed normally.
-    expect(committed).toEqual([1]);
-    expect(queue.isHalted).toBe(false);
+    await expect(pB).rejects.toBeInstanceOf(KeyWriteCancelledError);
+    // No key commits while the runtime is closing/reopening the failed handle.
+    expect(committed).toEqual([]);
+    expect(queue.isHalted).toBe(true);
+    await expect(queue.enqueue(paint(2, 1))).rejects.toBeInstanceOf(KeyWriteCancelledError);
+    expect(queue.reset()).toBe(false);
+    expect(queue.isHalted).toBe(true);
   });
 
   it("halts with PartialKeyWriteError when a write fails mid-sequence", async () => {
@@ -128,13 +138,12 @@ describe("KeyWriteQueue", () => {
     expect(committed).toEqual([]);
     expect(queue.isHalted).toBe(true);
 
-    // Further enqueues reject until the device is reset.
+    // Existing argument-less reset calls are safe no-ops; recovery must provide
+    // a writer for the newly opened backend before this queue can resume.
     await expect(queue.enqueue(paint(2, 1))).rejects.toBeInstanceOf(KeyWriteCancelledError);
-
-    // After a reset the queue accepts work again.
-    queue.reset();
+    expect(queue.reset(async () => {})).toBe(true);
     expect(queue.isHalted).toBe(false);
-    await expect(new KeyWriteQueue(async () => {}).enqueue(paint(2, 1))).resolves.toBeUndefined();
+    await expect(queue.enqueue(paint(2, 1))).resolves.toBeUndefined();
   });
 
   it("carries a default cancellation message", () => {
