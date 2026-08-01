@@ -36,6 +36,11 @@ docs/build-orders/<slug>/
 `README.md` is a generated/read-first index and authority map. It must not claim
 that copied status is live.
 
+This tree is the durable record, not the runtime surface. The dashboard
+discovers packs only from `.aiur/build_orders/<slug>.json` in the checkout the
+daemon runs from; see "Place the pack where the dashboard discovers it" in the
+skill for the discovery projection and its verification step.
+
 `publication.json` is the immutable publication-authority record. It pins the
 trusted branch, canonical root path, repositories authorized for mutation,
 exact reference-only issue URLs, and the tracker's lifecycle-label prefix. See
