@@ -15,11 +15,7 @@ defmodule Aiur.ModelCatalog do
   must never be what stops it from finishing.
   """
 
-  alias Aiur.AppServer.Messages
-  alias Aiur.AppServer.Rpc
-  alias Aiur.Claude.Config, as: ClaudeConfig
-  alias Aiur.Codex.Config, as: CodexConfig
-  alias Aiur.CodingAgent
+  alias Aiur.{AppServer.Messages, AppServer.Rpc, CodingAgent, Config}
 
   # Distinct from `Messages.initialize_id/0` so the initialize reply is never
   # mistaken for the model list.
@@ -44,20 +40,25 @@ defmodule Aiur.ModelCatalog do
   def discover(backend, opts \\ []) do
     probe = Keyword.get(opts, :probe, &probe_app_server/2)
 
-    case CodingAgent.family_for(backend) do
+    case CodingAgent.backends()[backend] do
       nil ->
         {:error, {:unknown_backend, backend}}
 
-      family ->
-        with {:ok, payload} <- probe.(family, opts) do
-          extract(family, payload)
+      %{model_catalog: strategy} = entry when not is_nil(strategy) ->
+        source_backend = Map.get(entry, :model_catalog_backend, backend)
+
+        with {:ok, payload} <- probe.(source_backend, opts) do
+          extract(strategy, payload)
         end
+
+      _ ->
+        {:error, {:model_catalog_unsupported, backend}}
     end
   end
 
   # codex advertises one entry per model; `hidden` entries are the ones its
   # own picker withholds, so aiur withholds them too.
-  defp extract("codex", %{"data" => data}) when is_list(data) do
+  defp extract(:codex, %{"data" => data}) when is_list(data) do
     models =
       data
       |> Enum.reject(&(Map.get(&1, "hidden") == true))
@@ -72,7 +73,7 @@ defmodule Aiur.ModelCatalog do
   # reduced to the `model:claude-<variant>` form aiur's registry and labels
   # use (`claude-sonnet-4-6` -> `sonnet-4-6`); `claude --model` accepts
   # either spelling.
-  defp extract("claude", %{"models" => models}) when is_list(models) do
+  defp extract(:claude, %{"models" => models}) when is_list(models) do
     names =
       Enum.flat_map(models, fn model ->
         aliases = model |> Map.get("aliases", []) |> Enum.filter(&is_binary/1)
@@ -82,7 +83,7 @@ defmodule Aiur.ModelCatalog do
     {:ok, Enum.uniq(names)}
   end
 
-  defp extract(family, _payload), do: {:error, {:unexpected_model_list, family}}
+  defp extract(strategy, _payload), do: {:error, {:unexpected_model_list, strategy}}
 
   defp variant_name(id) when is_binary(id), do: [String.replace_prefix(id, "claude-", "")]
   defp variant_name(_id), do: []
@@ -195,12 +196,8 @@ defmodule Aiur.ModelCatalog do
   # that may not exist yet, so an unreadable command is a normal outcome here,
   # not a bug. Same `rescue` shape `Aiur.Init.AgentCli` uses for its own CLI
   # probes: no command means no discovery, never a crashed wizard.
-  defp command_for(family) do
-    case family do
-      "codex" -> CodexConfig.command()
-      "claude" -> ClaudeConfig.command()
-      _other -> nil
-    end
+  defp command_for(backend) do
+    Config.backend_config(backend)["command"] || get_in(CodingAgent.backends(), [backend, :default_command])
   rescue
     _error -> nil
   end

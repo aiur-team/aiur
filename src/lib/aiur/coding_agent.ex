@@ -82,6 +82,7 @@ defmodule Aiur.CodingAgent do
         configurable: true,
         init_order: 1,
         default_command: "codex app-server",
+        model_catalog: :codex,
         can_interrupt: true,
         safe_checkpoints: [:notification, :tool_result],
         control_application_confirmation: :confirmed,
@@ -145,6 +146,7 @@ defmodule Aiur.CodingAgent do
         configurable: true,
         init_order: 0,
         default_command: "aiur-claude",
+        model_catalog: :claude,
         install_hint: "install it with: npm install -g aiur-claude",
         can_interrupt: true,
         safe_checkpoints: [:notification],
@@ -210,6 +212,8 @@ defmodule Aiur.CodingAgent do
         # The REPL is launched by its adapter rather than the init wizard, but
         # rate-limit fallback still needs a registry-owned readiness command.
         default_command: "claude",
+        model_catalog: :claude,
+        model_catalog_backend: "claude",
         # Executor messages are typed straight into the live pane and the
         # agent's native input queue folds them in, so there is no
         # checkpoint to hold at — `safe_checkpoints` stays empty and
