@@ -54,21 +54,6 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   }
   """
 
-  @canonical_pack """
-  {
-    "build_order_id": "acme/widgets:analytics-streamdeck",
-    "title": "Analytics Stream Deck",
-    "repository": "acme/widgets",
-    "github_root": {"number": 9900, "node_id": "I_live_root"},
-    "tickets": [
-      {"id": "AS-101", "title": "Wire stream", "workstream": "runtime", "phase_hint": 2,
-       "complexity_points": 3, "github_number": 4101, "depends_on": []},
-      {"id": "AS-102", "title": "Render deck", "workstream": "dashboard-ui", "phase_hint": 3,
-       "complexity_points": 2, "github": {"number": 4102, "node_id": "I_live_4102"}, "depends_on": ["AS-101"]}
-    ]
-  }
-  """
-
   setup do
     path = Path.join(System.tmp_dir!(), "planning-source-test-#{System.unique_integer([:positive])}.json")
     File.write!(path, @pack)
@@ -143,7 +128,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
 
     [root] = PlanningSource.catalog().data.entries
     assert root.identity.identifier == "9900"
-    assert root.identity.provider_id == "BO_ROOT"
+    assert root.identity.provider_id == "BO_acme/widgets:analytics-streamdeck"
     assert is_nil(root.progress)
 
     Application.put_env(:aiur, :build_order_planning_membership_snapshot, fn ->
@@ -158,7 +143,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     end)
 
     [hydrated_root] = PlanningSource.catalog().data.entries
-    assert hydrated_root.progress == 50
+    assert is_nil(hydrated_root.progress)
 
     {:ok, hydrated} = PlanningSource.demand(root.identity)
     assert hydrated.generation == 8
@@ -201,7 +186,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     end)
 
     [root] = PlanningSource.catalog().data.entries
-    assert root.progress == 0
+    assert is_nil(root.progress)
 
     {:ok, snapshot} = PlanningSource.demand(root.identity)
     [cancelled, _open] = snapshot.data.members
@@ -278,6 +263,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     [created, draft] = snapshot.data.members
     refute created.draft?
     assert created.lifecycle.state == :closed
+    assert is_nil(created.draft_body)
     assert draft.draft?
     assert draft.lifecycle.state == :open
     assert draft.identity.provider_id == "PLAN_AS-102"
@@ -290,6 +276,69 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert %{state: :planned, icon: "sparkles"} = Enum.find(grid.cards, &(&1.id == "102"))
     assert grid.overall_pct == 60
     assert Enum.find(model.nodes, & &1.card.planned?).draft_body == "# Render deck\n\nDraft ticket body."
+  end
+
+  test "rejects a draft document outside its pack ticket directory" do
+    directory = Path.join(System.tmp_dir!(), "planning-source-document-boundary-#{System.unique_integer([:positive])}")
+    path = Path.join(directory, "build-order.json")
+    outside_document = directory <> ".md"
+
+    File.mkdir_p!(directory)
+    File.write!(outside_document, "must not render")
+    File.write!(path, String.replace(@mixed_pack, "tickets/AS-102.md", "../#{Path.basename(outside_document)}"))
+    Application.put_env(:aiur, :build_order_planning_pack, path)
+
+    on_exit(fn ->
+      File.rm_rf(directory)
+      File.rm(outside_document)
+    end)
+
+    assert PlanningSource.catalog() == nil
+  end
+
+  test "uses live labels for created tickets and pack labels for drafts" do
+    path = Path.join(System.tmp_dir!(), "planning-source-live-labels-#{System.unique_integer([:positive])}.json")
+    File.write!(path, @mixed_pack)
+    Application.put_env(:aiur, :build_order_planning_pack, path)
+
+    on_exit(fn -> File.rm(path) end)
+
+    Application.put_env(:aiur, :build_order_planning_membership_snapshot, fn ->
+      {:ok, identity} =
+        TrackerIdentity.from_github(
+          %{"number" => 4101, "node_id" => "I_live_4101"},
+          {"acme", "widgets"},
+          {"acme", "widgets"}
+        )
+
+      %{
+        generation: 9,
+        health: :healthy,
+        freshness: %{status: :fresh},
+        members: [%{identity: identity, lifecycle: :queued}],
+        labels_by_identity: %{TrackerIdentity.github_key(identity) => ["agent:rework"]}
+      }
+    end)
+
+    [root] = PlanningSource.catalog().data.entries
+    {:ok, snapshot} = PlanningSource.demand(root.identity)
+    [created, draft] = snapshot.data.members
+
+    assert created.labels == ["agent:rework"]
+    assert draft.labels == ["build-lane:dashboard-ui", "phase:2", "complexity:2"]
+  end
+
+  test "rejects members without canonical ticket or document fields" do
+    path = Path.join(System.tmp_dir!(), "planning-source-invalid-schema-#{System.unique_integer([:positive])}.json")
+
+    on_exit(fn -> File.rm(path) end)
+
+    File.write!(path, String.replace(@pack, "\"ticket\": null", "\"ticket\": -1"))
+    Application.put_env(:aiur, :build_order_planning_pack, path)
+    assert PlanningSource.catalog() == nil
+
+    File.write!(path, String.replace(@pack, "\"doc\": \"tickets/T-1.md\"", "\"doc\": \"plan.md\""))
+    assert PlanningSource.catalog() == nil
   end
 
   test "marks membership recovery failures unavailable instead of trusted open state" do
@@ -341,7 +390,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
 
     roots = PlanningSource.catalog().data.entries
     root = Enum.find(roots, &(&1.identity.identifier == "9900"))
-    assert root.identity.provider_id == "BO_ROOT"
+    assert root.identity.provider_id == "BO_acme/widgets:analytics-streamdeck"
     assert Enum.map(roots, & &1.identity.identifier) |> Enum.sort() == ["9900", "9901"]
   end
 
@@ -371,5 +420,35 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
 
     icons = PlanningSource.catalog().data.entries |> Enum.map(& &1.icon)
     assert Enum.uniq(icons) |> length() == 2
+
+    root_ids = PlanningSource.catalog().data.entries |> Enum.map(& &1.identity.identifier)
+    assert Enum.uniq(root_ids) |> length() == 2
+  end
+
+  test "pins active build orders before completed entries sorted by completion date" do
+    directory = Path.join(System.tmp_dir!(), "planning-source-catalog-sort-#{System.unique_integer([:positive])}")
+    active = Path.join([directory, "active", "build-order.json"])
+    recent = Path.join([directory, "recent", "build-order.json"])
+    older = Path.join([directory, "older", "build-order.json"])
+
+    for path <- [active, recent, older], do: File.mkdir_p!(Path.dirname(path))
+
+    File.write!(active, @pack)
+    File.write!(recent, @pack |> String.replace("Demo Plan", "Recent completed") |> String.replace(":demo", ":recent"))
+    File.write!(older, @pack |> String.replace("Demo Plan", "Older completed") |> String.replace(":demo", ":older"))
+    File.write!(Path.join(Path.dirname(recent), "status.json"), ~s({"state":"completed","completed_at":"2026-08-01T12:00:00Z"}))
+    File.write!(Path.join(Path.dirname(older), "status.json"), ~s({"state":"completed","completed_at":"2026-07-31T12:00:00Z"}))
+
+    Application.delete_env(:aiur, :build_order_planning_pack)
+    Application.put_env(:aiur, :build_order_planning_packs, [older, active, recent])
+
+    on_exit(fn ->
+      Application.delete_env(:aiur, :build_order_planning_packs)
+      File.rm_rf(directory)
+    end)
+
+    entries = PlanningSource.catalog().data.entries
+    assert Enum.map(entries, & &1.title) == ["Demo Plan", "Recent completed", "Older completed"]
+    assert Enum.map(entries, & &1.completed?) == [false, true, true]
   end
 end

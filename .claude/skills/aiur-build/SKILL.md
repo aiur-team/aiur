@@ -1,6 +1,6 @@
 ---
 name: aiur-build
-description: "Research and decompose a large feature into a durable, reviewable Aiur planning pack: requirements, versioned design evidence, technical decisions, worker-ready ticket contracts, typed dependency/conflict graph leveled into barrier-safe parallel phases within an agreed depth budget, validation report, and Executor handoff. Use when asked to break a feature into Aiur tickets, plan an epic/build order, reproduce a large-feature planning process, or prepare work for a later aiur-run. This skill is planning-only unless the user separately authorizes GitHub issue materialization; it never implements the feature or runs Aiur."
+description: "Research and decompose a large feature into a durable, reviewable Aiur planning pack: requirements, versioned design evidence, technical decisions, worker-ready ticket contracts, typed dependency/conflict graph leveled into barrier-safe parallel phases within an agreed depth budget, validation report, and Executor handoff. Use when asked to break a feature into Aiur tickets, plan an epic/build order, reproduce a large-feature planning process, or prepare work for a later aiur-run. This skill is planning-only unless the user separately authorizes Executor-owned GitHub ticket promotion; it never implements the feature or runs Aiur."
 ---
 
 # Build an Aiur Planning Pack
@@ -44,7 +44,7 @@ complete instructions before using it.
 3. Create a dedicated planning branch without disturbing unrelated work.
 4. Create `questions-or-commands.md` immediately. Ask concise questions in chat
    and record every unanswered item there so asynchronous work can continue.
-5. Record commit/push permission, GitHub issue-materialization permission, and
+5. Record commit/push permission, GitHub ticket-promotion permission, and
    the planning-only boundary. Never infer permission to create issues or merge.
 6. Allocate a stable `build_order_id`, logical ticket prefix, and `plan_version`
    before tickets receive GitHub numbers.
@@ -63,7 +63,7 @@ Declare precedence for the effort and record exceptions. The default is:
 1. current explicit operator decisions;
 2. captured/versioned design for intended UI behavior;
 3. accepted requirements and ADR/contracts;
-4. GitHub for materialized ticket facts, labels, relationships, and lifecycle;
+4. GitHub for promoted ticket facts, labels, relationships, and lifecycle;
 5. Aiur for runtime agent state, progress, alerts, and events;
 6. planning documents for approved intent, evidence, and the baseline graph.
 
@@ -81,7 +81,7 @@ Follow the detailed reference. At a glance:
 6. `ce-plan` synthesis of implementation units and candidate boundaries;
 7. worker-sized ticket contracts and typed scheduling graph;
 8. mechanical validation plus adversarial document review;
-9. optional GitHub materialization and post-publish reconciliation;
+9. optional Executor-owned GitHub promotion;
 10. durable runtime Executor handoff and stop.
 
 Use parallel researchers for independent evidence tracks, not for fragmented
@@ -139,74 +139,6 @@ derived from hard dependencies, conflicts, current state, and capacity.
 Include an audit/ADR gate when ownership is uncertain and an explicit
 integration/feature-acceptance capstone from day one. Preserve planned versus
 discovered ticket provenance as `plan_version` evolves.
-
-## Validate before approval
-
-Write the canonical planning baseline as `build-order.json` using the planning
-contract and [validated example](references/build-order.example.json). Resolve
-the loaded skill directory, then run its validator. Common repo-local paths are
-`.claude/skills/aiur-build` and `.codex/skills/aiur-build`:
-
-```bash
-python3 <loaded-skill-directory>/scripts/validate_build_order.py \
-  docs/build-orders/<slug>/build-order.json
-```
-
-After GitHub materialization, supply the repository and approved root-body
-template so the validator can derive body expectations with `git show` rather
-than trusting hashes copied into the receipt:
-
-```bash
-python3 <loaded-skill-directory>/scripts/validate_build_order.py \
-  docs/build-orders/<slug>/build-order.json \
-  --repository-root . \
-  --root-document docs/build-orders/<slug>/root-issue.md
-```
-
-For a live start gate, also pass the exact receipt commit and the explicitly
-trusted repository branch recorded by the publication manifest:
-
-```bash
-python3 <loaded-skill-directory>/scripts/validate_build_order.py \
-  docs/build-orders/<slug>/build-order.json \
-  --repository-root . \
-  --root-document docs/build-orders/<slug>/root-issue.md \
-  --receipt-commit <RECEIPT_SHA>
-```
-
-The validator loads the complete immutable authority from `publication.json` at
-both approval and receipt commits: trusted ref, canonical root path, mutation
-repositories, reference-only issue URLs, and tracker lifecycle-label prefix. It
-does not accept caller-supplied authority, and `--root-document` must equal the
-frozen root path.
-Receipt-commit mode also requires an authenticated `gh` CLI. It performs two
-fresh read-only GitHub snapshots and requires exact agreement across every
-mapped issue, all-state marker matches, root membership, and native blockers
-before accepting the immutable v3 receipt. Every authority API request pins
-`--hostname github.com`, API version `2026-03-10`, an explicit read method, and
-a finite timeout. Collection uses explicit GETs capped at 100 pages and 10,000
-items per endpoint plus one shared budget across both snapshots; it never
-delegates an unbounded `--paginate --slurp` read. Receipt extraction also has
-file-count, per-file, aggregate-byte, and Git-operation timeout bounds.
-
-Materialized validation also freezes the current planning documents: every
-ticket document must remain byte-for-byte equal to its approved source, and the
-current root document may differ from its approved full template only through
-deterministic `<APPROVED_SHA>` substitution. Missing, unreadable, unsafe,
-symlinked, or drifted current sources fail closed; remote body expectations
-still come only from `git show` at the approved commit.
-
-Graph validation covers unique IDs, design/decision references, worker-document
-shape, resolved edges, phase contradictions, dispositions, pickability,
-parallel-safety conflicts, capstone ownership, and any GitHub reconciliation
-receipt. Fix errors; explain and disposition warnings. The separate review
-report records whole-pack gates the command cannot prove. Generate human tables
-and diagrams from the same records rather than maintaining competing counts.
-
-Run `ce-doc-review`, or an equivalent adversarial review when CE is unavailable,
-on requirements, decisions, the plan, ticket contracts, and handoff. Run at
-least one pass; repeat after any high-severity or boundary-changing finding.
-Planning is complete when a relevant pass adds neither and all gates pass.
 
 ## Write one canonical runtime pack
 

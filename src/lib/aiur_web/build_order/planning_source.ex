@@ -23,13 +23,15 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.CurrentRunMembership
   alias Aiur.GitHub.Config
+  alias Aiur.Orchestrator.StatusReport
   alias Aiur.RepoBase
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.DataSource
 
   @epoch 1
   @generation 1
-  @root_number 9000
+  @default_root_number_base 100_000
+  @default_root_number_range 800_000_000
 
   # --- catalog ---------------------------------------------------------------
 
@@ -64,7 +66,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   defp selected_snapshot(identity) do
     membership = membership_snapshot()
 
-    case Enum.find(load_packs(), &pack_root?(&1, identity)) do
+    case Enum.find(load_packs(include_drafts?: true), &pack_root?(&1, identity)) do
       %{} = pack ->
         %Snapshot{
           scope: {:selected, identity},
@@ -179,7 +181,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
         draft?: is_nil(ticket.number),
         state: state,
         state_reason: reason,
-        labels: labels(ticket),
+        labels: labels(ticket, identity, membership),
         dependencies: dependencies
       })
     end)
@@ -188,7 +190,19 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   defp issue_url(%TrackerIdentity{owner: owner, repository: repo, identifier: number}),
     do: "https://github.com/#{owner}/#{repo}/issues/#{number}"
 
-  defp labels(ticket) do
+  # Ticket-backed members retain the labels already observed by the
+  # orchestrator. Drafts have no live issue, so their pack metadata is the
+  # authority until promotion.
+  defp labels(%{number: nil} = ticket, _identity, _membership), do: pack_labels(ticket)
+
+  defp labels(ticket, identity, membership) do
+    case live_labels(identity, membership) do
+      [] -> pack_labels(ticket)
+      labels -> labels
+    end
+  end
+
+  defp pack_labels(ticket) do
     ["build-lane:#{ticket.lane}", "phase:#{ticket.phase}"] ++
       if(ticket.complexity, do: ["complexity:#{ticket.complexity}"], else: [])
   end
@@ -285,15 +299,15 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   defp completion_known?(_ticket, %{completed: true}, _membership), do: true
 
   defp completion_known?(ticket, pack, membership) do
-    membership_fresh?(membership) or
+    membership_member?(member_identity(pack, ticket, membership), membership) or
       case status_lifecycle(member_identity(pack, ticket, membership), pack) do
         state when state in [:completed, :cancelled, :open] -> true
         _unknown -> false
       end
   end
 
-  defp membership_fresh?(%{health: :healthy, freshness: %{status: :fresh}}), do: true
-  defp membership_fresh?(_membership), do: false
+  defp membership_member?(identity, %{members: members}) when is_list(members), do: not is_nil(membership_member(identity, members))
+  defp membership_member?(_identity, _membership), do: false
 
   defp membership_lifecycle(identity, %{members: members}) when is_list(members) do
     membership_member(identity, members)
@@ -301,6 +315,21 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   end
 
   defp membership_lifecycle(_identity, _membership), do: nil
+
+  defp live_labels(identity, membership) do
+    labels =
+      membership_member(identity, Map.get(membership, :members, []))
+      |> then(&Map.get(&1 || %{}, :labels, []))
+      |> valid_labels()
+
+    case labels do
+      [] -> membership |> Map.get(:labels_by_identity, %{}) |> Map.get(TrackerIdentity.github_key(identity), []) |> valid_labels()
+      labels -> labels
+    end
+  end
+
+  defp valid_labels(labels) when is_list(labels), do: Enum.filter(labels, &is_binary/1)
+  defp valid_labels(_labels), do: []
 
   defp member_identity(pack, %{number: nil} = ticket, _membership), do: ticket_identity(pack, ticket)
 
@@ -315,7 +344,8 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   defp member_identity(pack, ticket, _membership), do: ticket_identity(pack, ticket)
 
-  defp membership_member(identity, members), do: Enum.find(members, &same_issue?(&1, identity))
+  defp membership_member(identity, members) when is_list(members), do: Enum.find(members, &same_issue?(&1, identity))
+  defp membership_member(_identity, _members), do: nil
 
   # Canonical mappings normally contain the opaque GitHub node id, so the
   # primary match is an exact TrackerIdentity key. Older materialized packs
@@ -336,23 +366,57 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   end
 
   defp membership_snapshot do
-    Application.get_env(:aiur, :build_order_planning_membership_snapshot, &CurrentRunMembership.snapshot/0).()
+    snapshot = Application.get_env(:aiur, :build_order_planning_membership_snapshot, &CurrentRunMembership.snapshot/0).()
+
+    Map.put_new(snapshot, :labels_by_identity, current_poll_labels())
   rescue
     _error -> %{health: :unavailable}
   catch
     _kind, _reason -> %{health: :unavailable}
   end
 
+  # `StatusReport` is the in-memory result of the orchestrator's normal
+  # tracker poll. Reading it adds no GitHub traffic and lets ticket-backed
+  # members show current labels while their issue remains in the run snapshot.
+  defp current_poll_labels do
+    case StatusReport.snapshot_api() do
+      snapshot when is_map(snapshot) ->
+        [:running, :retrying, :idle]
+        |> Enum.flat_map(&Map.get(snapshot, &1, []))
+        |> Enum.reduce(%{}, &put_live_labels/2)
+
+      _unavailable ->
+        %{}
+    end
+  rescue
+    _error -> %{}
+  catch
+    _kind, _reason -> %{}
+  end
+
+  defp put_live_labels(row, labels_by_identity) do
+    case {Map.get(row, :tracker_identity), valid_labels(Map.get(row, :labels))} do
+      {%TrackerIdentity{} = identity, [_ | _] = labels} ->
+        Map.put(labels_by_identity, TrackerIdentity.github_key(identity), labels)
+
+      _row ->
+        labels_by_identity
+    end
+  end
+
   # --- pack loading ----------------------------------------------------------
 
-  defp load_packs do
+  defp load_packs(options \\ []) do
+    include_drafts? = Keyword.get(options, :include_drafts?, false)
+
     pack_paths()
-    |> Enum.map(&load_pack/1)
+    |> Enum.map(&load_pack(&1, include_drafts?))
     |> Enum.flat_map(fn
       {:ok, pack} -> [pack]
       :error -> []
     end)
     |> Enum.sort(&pack_before?/2)
+    |> assign_default_root_numbers()
     |> assign_default_icons()
   end
 
@@ -395,24 +459,27 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
     end
   end
 
-  defp load_pack(path) do
+  defp load_pack(path, include_drafts?) do
     absolute = if Path.type(path) == :absolute, do: path, else: Application.app_dir(:aiur, path)
 
     with {:ok, body} <- File.read(absolute),
          {:ok, json} <- Jason.decode(body),
-         {:ok, repository} <- repository(json) do
-      status = status(path)
-      tickets = tickets(Map.get(json, "tickets", []), Path.dirname(absolute))
+         {:ok, repository} <- repository(json),
+         {:ok, tickets} <- tickets(Map.get(json, "tickets", []), Path.dirname(absolute), include_drafts?) do
+      build_order_id = Map.get(json, "build_order_id", "planning")
+      root_number = Map.get(json, "root_number")
+      status = status(absolute)
 
       {:ok,
        %{
          repository: repository,
-         build_order_id: Map.get(json, "build_order_id", "planning"),
+         build_order_id: build_order_id,
          title: Map.get(json, "title", "Planning build order"),
          icon: pack_icon(json),
          icon_explicit?: is_binary(Map.get(json, "icon")) and Map.get(json, "icon") != "",
-         root_number: root_number(json),
-         root_node_id: root_node_id(json),
+         root_number: root_number || default_root_number(build_order_id),
+         root_number_explicit?: is_integer(root_number),
+         root_node_id: root_node_id(json, build_order_id),
          completed: Map.get(json, "completed", false) == true or status_completed?(status),
          completed_at: status_completed_at(status),
          status: status,
@@ -429,9 +496,35 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
     for %{id: id, number: number} <- tickets, is_integer(number), into: %{}, do: {id, number}
   end
 
-  defp root_number(json), do: Map.get(json, "root_number", @root_number)
+  defp root_node_id(json, build_order_id), do: Map.get(json, "root_node_id") || "BO_#{build_order_id}"
 
-  defp root_node_id(json), do: Map.get(json, "root_node_id")
+  defp assign_default_root_numbers(packs) do
+    {packs, _used_numbers} =
+      Enum.map_reduce(packs, MapSet.new(), fn pack, used_numbers ->
+        root_number =
+          if pack.root_number_explicit? do
+            pack.root_number
+          else
+            unique_default_root_number(pack.build_order_id, used_numbers)
+          end
+
+        {%{pack | root_number: root_number}, MapSet.put(used_numbers, root_number)}
+      end)
+
+    packs
+  end
+
+  defp default_root_number(build_order_id), do: @default_root_number_base + :erlang.phash2(build_order_id, @default_root_number_range)
+
+  defp unique_default_root_number(build_order_id, used_numbers, probe \\ 0) do
+    root_number = default_root_number({build_order_id, probe})
+
+    if MapSet.member?(used_numbers, root_number) do
+      unique_default_root_number(build_order_id, used_numbers, probe + 1)
+    else
+      root_number
+    end
+  end
 
   defp repository(json) do
     case String.split(to_string(Map.get(json, "repository", "")), "/", parts: 2) do
@@ -440,32 +533,54 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
     end
   end
 
-  defp tickets(list, pack_dir) when is_list(list) do
-    Enum.flat_map(list, &ticket(&1, pack_dir))
+  defp tickets(list, pack_dir, include_drafts?) when is_list(list) do
+    Enum.reduce_while(list, {:ok, []}, fn attributes, {:ok, tickets} ->
+      case ticket(attributes, pack_dir, include_drafts?) do
+        {:ok, ticket} -> {:cont, {:ok, [ticket | tickets]}}
+        :error -> {:halt, :error}
+      end
+    end)
+    |> case do
+      {:ok, tickets} -> {:ok, Enum.reverse(tickets)}
+      :error -> :error
+    end
   end
 
-  defp tickets(_list, _pack_dir), do: []
+  defp tickets(_list, _pack_dir, _include_drafts?), do: :error
 
-  defp ticket(%{"id" => id} = attributes, pack_dir) when is_binary(id) do
-    [
-      %{
-        id: id,
-        title: Map.get(attributes, "title", id),
-        lane: to_string(Map.get(attributes, "lane", "unassigned")),
-        phase: Map.get(attributes, "phase", 0),
-        complexity: Map.get(attributes, "complexity"),
-        number: ticket_number(attributes),
-        node_id: nil,
-        depends_on: List.wrap(Map.get(attributes, "depends_on", [])),
-        document_url: nil,
-        document_path: Map.get(attributes, "doc"),
-        draft_body: draft_body(Map.get(attributes, "doc"), pack_dir),
-        icon: Map.get(attributes, "icon")
-      }
-    ]
+  defp ticket(%{"id" => id} = attributes, pack_dir, include_drafts?) when is_binary(id) and id != "" do
+    with {:ok, number} <- ticket_number(attributes),
+         document_path <- Map.get(attributes, "doc"),
+         true <- safe_document_path?(document_path) do
+      {:ok,
+       %{
+         id: id,
+         title: Map.get(attributes, "title", id),
+         lane: to_string(Map.get(attributes, "lane", "unassigned")),
+         phase: Map.get(attributes, "phase", 0),
+         complexity: Map.get(attributes, "complexity"),
+         number: number,
+         node_id: nil,
+         depends_on: List.wrap(Map.get(attributes, "depends_on", [])),
+         document_url: nil,
+         document_path: document_path,
+         draft_body: if(include_drafts? and is_nil(number), do: draft_body(document_path, pack_dir)),
+         icon: Map.get(attributes, "icon")
+       }}
+    else
+      _invalid -> :error
+    end
   end
 
-  defp ticket(_attributes, _pack_dir), do: []
+  defp ticket(_attributes, _pack_dir, _include_drafts?), do: :error
+
+  defp safe_document_path?(path) when is_binary(path) and byte_size(path) in 1..512 do
+    Path.type(path) == :relative and
+      String.starts_with?(path, "tickets/") and
+      not Enum.member?(Path.split(path), "..")
+  end
+
+  defp safe_document_path?(_path), do: false
 
   defp draft_body(path, pack_dir) when is_binary(path) do
     pack_dir = Path.expand(pack_dir)
@@ -529,9 +644,9 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   defp status_lifecycle(_identity, _pack), do: nil
 
-  defp ticket_number(%{"ticket" => ticket}) when is_integer(ticket), do: ticket
-  defp ticket_number(%{"ticket" => nil}), do: nil
-  defp ticket_number(_attributes), do: nil
+  defp ticket_number(%{"ticket" => ticket}) when is_integer(ticket) and ticket > 0, do: {:ok, ticket}
+  defp ticket_number(%{"ticket" => nil}), do: {:ok, nil}
+  defp ticket_number(_attributes), do: :error
 
   @default_icons ["bolt", "cube", "sparkles", "server-stack", "rectangle-group"]
 

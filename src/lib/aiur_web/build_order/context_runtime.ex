@@ -219,7 +219,10 @@ defmodule AiurWeb.BuildOrder.ContextRuntime do
 
   defp context_capabilities(model, %TrackerIdentity{} = identity) do
     case context_node(model, identity) do
-      # Pre-ticket: no GitHub issue yet, so link to the planning document instead.
+      %{card: %{planned?: true}} ->
+        %{}
+
+      # An external planning document may be available for a non-draft member.
       %{document_url: doc} when is_binary(doc) ->
         %{document: %{available?: true, destination: doc, identity: identity, label: "Planning doc"}}
 
