@@ -558,9 +558,8 @@ defmodule Aiur.RepoBase do
       length(parked) == 1 ->
         [temporary] = parked
 
-        with :ok <- finish_migration(temporary, node, base_path) do
-          :ok
-        else
+        case finish_migration(temporary, node, base_path) do
+          :ok -> :ok
           {:error, reason} -> {:error, {:repo_base_migration_recovery_failed, reason}}
         end
 
@@ -572,9 +571,8 @@ defmodule Aiur.RepoBase do
   defp finish_migration(temporary, node, base_path) do
     with :ok <- File.mkdir_p(node),
          :ok <- move_sidecars(temporary, node),
-         :ok <- remove_legacy_marker(temporary),
-         :ok <- File.rename(temporary, base_path) do
-      :ok
+         :ok <- remove_legacy_marker(temporary) do
+      File.rename(temporary, base_path)
     end
   end
 
