@@ -56,7 +56,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
   @doc "A single bounded screen-reader announcement summarising the presented `view`."
   @spec announcement(view()) :: String.t()
   def announcement(%{state: :locked}) do
-    "Provider account meters are locked. Authentication is required to view Codex and Claude account meters."
+    "Provider account meters are locked. Authentication is required to view provider account meters."
   end
 
   def announcement(%{state: :authorized, cards: cards}) when is_list(cards) do

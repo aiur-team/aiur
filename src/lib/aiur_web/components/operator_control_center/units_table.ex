@@ -341,10 +341,12 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   defp id_number(%TrackerIdentity{identifier: identifier}) when is_binary(identifier) and identifier != "", do: identifier
   defp id_number(_identity), do: "—"
 
-  defp agent_label(family) when is_atom(family) and not is_nil(family),
-    do: family |> Atom.to_string() |> String.replace("_", " ") |> String.capitalize()
-
-  defp agent_label(_family), do: "Agent"
+  defp agent_label(family) do
+    case CodingAgent.provider_descriptor(family) do
+      %{label: label} -> label
+      _ -> "Agent"
+    end
+  end
 
   # A row names its provider family via `:agent_family` (metering) or `:backend`
   # (control), preferring the former. Both are matched against the registry's
@@ -360,9 +362,21 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
 
   defp agent_family(_row), do: nil
 
-  defp provider_or_nil(value) do
-    if value in CodingAgent.provider_families(), do: value, else: nil
+  defp provider_or_nil(value) when is_atom(value) do
+    case CodingAgent.provider_descriptor(value) do
+      %{provider: provider} -> provider
+      _ -> nil
+    end
   end
+
+  defp provider_or_nil(value) when is_binary(value) do
+    case CodingAgent.provider_descriptor(value) do
+      %{provider: provider} -> provider
+      _ -> value |> CodingAgent.family_for() |> provider_or_nil()
+    end
+  end
+
+  defp provider_or_nil(_value), do: nil
 
   defp agent_class(family) do
     case CodingAgent.provider_descriptor(family) do

@@ -25,7 +25,7 @@ defmodule Aiur.CodingAgentTest do
     end
 
     test "provider_family_map/0 keys usage attribution by registered backend" do
-      assert CodingAgent.provider_family_map() == %{"codex" => :codex, "claude" => :claude}
+      assert CodingAgent.provider_family_map() == %{"codex" => :codex, "claude" => :claude, "fake" => :fake}
     end
 
     test "provider_descriptor/1 exposes the fields every provider surface renders from" do
@@ -61,7 +61,7 @@ defmodule Aiur.CodingAgentTest do
 
       assert Catalog.adapters_for(:codex) == [Aiur.Usage.Headless.Codex.ThreadUsage, Aiur.Usage.Headless.Codex.TurnUsage]
       assert Catalog.adapters_for(:claude) == [Aiur.Usage.Headless.Claude.RequestUsage]
-      assert Catalog.adapters_for(:fake) == []
+      assert Catalog.adapters_for(:fake) == [Aiur.Usage.Headless.Fake.RequestUsage]
       assert Dimensions.validate(:fake, Dimensions.from_options(:fake, [])) == :ok
     end
   end

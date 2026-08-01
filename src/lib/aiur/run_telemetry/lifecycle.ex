@@ -270,13 +270,14 @@ defmodule Aiur.RunTelemetry.Lifecycle do
 
   defp backend_operation(backend, message) do
     case get_in(CodingAgent.backends(), [backend, :run_telemetry]) do
-      :codex -> codex_operation(message)
-      :claude -> claude_operation(message)
+      decoder when is_function(decoder, 1) -> decoder.(message)
       _ -> :skip
     end
   end
 
-  defp codex_operation(message) do
+  @doc false
+  @spec decode_codex_operation(map()) :: {:start, String.t(), String.t() | nil} | {:complete, String.t(), String.t() | nil, atom()} | :skip
+  def decode_codex_operation(message) do
     method = MapAccess.notification_method(message)
     item = MapAccess.notification_item(message)
 
@@ -295,7 +296,9 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     end
   end
 
-  defp claude_operation(message) do
+  @doc false
+  @spec decode_claude_operation(map()) :: {:start, String.t(), String.t() | nil} | {:complete, String.t(), String.t() | nil, atom()} | :skip
+  def decode_claude_operation(message) do
     with "item/created" <- MapAccess.notification_method(message),
          item when is_map(item) <- MapAccess.notification_item(message) do
       case value(item, :type) do

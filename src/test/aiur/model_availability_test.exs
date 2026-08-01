@@ -61,9 +61,22 @@ defmodule Aiur.ModelAvailabilityTest do
     assert ModelAvailability.backend_key("claude-repl") == "claude"
     assert ModelAvailability.backend_key("claude") == "claude"
 
-    future = DateTime.add(DateTime.utc_now(), 3_600, :second) |> DateTime.to_iso8601()
-    assert :ok = ModelAvailability.mark_limited("claude-repl", future, path: path)
-    refute ModelAvailability.available?("claude", path: path)
+    now = ~U[2026-07-31 12:00:00Z]
+    future = DateTime.add(now, 3_600, :second) |> DateTime.to_iso8601()
+    assert :ok = ModelAvailability.mark_limited("claude-repl", future, path: path, now: now)
+    refute ModelAvailability.available?("claude", path: path, now: now)
+    refute ModelAvailability.available?("claude-repl", path: path, now: now)
+
+    past = DateTime.add(now, -1, :second) |> DateTime.to_iso8601()
+    observed_at = DateTime.add(now, 1, :second)
+
+    assert :ok =
+             ModelAvailability.observe("claude", %{primary: %{usedPercent: 0, windowDurationMins: 60, resetsAt: past}},
+               path: path,
+               now: observed_at
+             )
+
+    assert ModelAvailability.recovery_confirmed?("claude-repl", path: path, now: observed_at)
   end
 
   test "validates fallback backend configuration" do

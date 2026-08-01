@@ -68,17 +68,10 @@ defmodule Aiur.GitHub.Labels do
   @spec marker_labels(String.t()) :: [String.t()]
   def marker_labels(prefix), do: Enum.map(@marker_suffixes, &"#{prefix}:#{&1}")
 
-  @doc "Labels required for the registry's default rate-limit fallback."
+  @doc "Labels required for every registry-supported rate-limit fallback."
   @spec required_rate_limit_fallback_labels(String.t()) :: [String.t()]
   def required_rate_limit_fallback_labels(prefix),
-    do: rate_limit_fallback_marker_labels(prefix) ++ default_rate_limit_fallback_label()
-
-  defp default_rate_limit_fallback_label do
-    case CodingAgent.default_rate_limit_fallback() do
-      backend when is_binary(backend) -> ["model:" <> backend]
-      _ -> []
-    end
-  end
+    do: rate_limit_fallback_marker_labels(prefix) ++ Enum.map(CodingAgent.known_backends(), &("model:" <> &1))
 
   @doc "Whether a prefixed-label suffix is a marker rather than a workflow state."
   @spec marker_suffix?(term()) :: boolean()

@@ -82,7 +82,7 @@ defmodule Aiur.CodingAgent do
         configurable: true,
         init_order: 1,
         default_command: "codex app-server",
-        model_catalog: :codex,
+        model_catalog: &Aiur.ModelCatalog.extract_codex/1,
         can_interrupt: true,
         safe_checkpoints: [:notification, :tool_result],
         control_application_confirmation: :confirmed,
@@ -131,8 +131,8 @@ defmodule Aiur.CodingAgent do
           }
         },
         usage: %{adapters: [Aiur.Usage.Headless.Codex.ThreadUsage, Aiur.Usage.Headless.Codex.TurnUsage]},
-        meter_probe: :session,
-        run_telemetry: :codex,
+        meter_probe: &Aiur.ProviderMeterProbe.probe_session/3,
+        run_telemetry: &Aiur.RunTelemetry.Lifecycle.decode_codex_operation/1,
         account_generation: %{
           backends: [:app_server],
           trusted_sources: [:codex_app_server],
@@ -146,7 +146,7 @@ defmodule Aiur.CodingAgent do
         configurable: true,
         init_order: 0,
         default_command: "aiur-claude",
-        model_catalog: :claude,
+        model_catalog: &Aiur.ModelCatalog.extract_claude/1,
         install_hint: "install it with: npm install -g aiur-claude",
         can_interrupt: true,
         safe_checkpoints: [:notification],
@@ -197,8 +197,8 @@ defmodule Aiur.CodingAgent do
           }
         },
         usage: %{adapters: [Aiur.Usage.Headless.Claude.RequestUsage]},
-        meter_probe: :usage_api,
-        run_telemetry: :claude,
+        meter_probe: &Aiur.ProviderMeterProbe.probe_usage_api/3,
+        run_telemetry: &Aiur.RunTelemetry.Lifecycle.decode_claude_operation/1,
         account_generation: %{
           backends: [:app_server],
           trusted_sources: [:claude_app_server],
@@ -212,7 +212,7 @@ defmodule Aiur.CodingAgent do
         # The REPL is launched by its adapter rather than the init wizard, but
         # rate-limit fallback still needs a registry-owned readiness command.
         default_command: "claude",
-        model_catalog: :claude,
+        model_catalog: &Aiur.ModelCatalog.extract_claude/1,
         model_catalog_backend: "claude",
         # Executor messages are typed straight into the live pane and the
         # agent's native input queue folds them in, so there is no
@@ -230,7 +230,7 @@ defmodule Aiur.CodingAgent do
         # backend. Declared here so the fallback never lives in a
         # dispatch `case`.
         fallback_backend: "claude",
-        run_telemetry: :claude,
+        run_telemetry: &Aiur.RunTelemetry.Lifecycle.decode_claude_operation/1,
         # Only the hook-driven RC REPL needs the pane display tailer; every
         # other backend streams its own rich transcript.
         rc_display_tail: true,
@@ -289,7 +289,7 @@ defmodule Aiur.CodingAgent do
           },
           component_dimensions: %{default: %{context_tier: [:not_applicable], cache_write_duration: [:not_applicable]}}
         },
-        usage: %{adapters: []},
+        usage: %{adapters: [Aiur.Usage.Headless.Fake.RequestUsage]},
         account_generation: %{backends: [:app_server], trusted_sources: [:fake_app_server], auth_modes: ["fake"]}
       })
     end
@@ -428,6 +428,19 @@ defmodule Aiur.CodingAgent do
       %{account_generation: policy} when is_map(policy) -> policy
       _ -> nil
     end
+  end
+
+  @doc "Registry probe callback and backend for one provider family, if declared."
+  @spec provider_meter_probe(atom()) :: {backend(), function()} | nil
+  def provider_meter_probe(provider) when is_atom(provider) do
+    Enum.find_value(backends(), fn {backend, entry} ->
+      with %{provider: ^provider} <- provider_descriptor(entry.family),
+           probe when is_function(probe, 3) <- Map.get(entry, :meter_probe) do
+        {backend, probe}
+      else
+        _ -> nil
+      end
+    end)
   end
 
   @doc """

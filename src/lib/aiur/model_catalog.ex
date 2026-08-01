@@ -44,11 +44,11 @@ defmodule Aiur.ModelCatalog do
       nil ->
         {:error, {:unknown_backend, backend}}
 
-      %{model_catalog: strategy} = entry when not is_nil(strategy) ->
+      %{model_catalog: extract} = entry when is_function(extract, 1) ->
         source_backend = Map.get(entry, :model_catalog_backend, backend)
 
         with {:ok, payload} <- probe.(source_backend, opts) do
-          extract(strategy, payload)
+          extract.(payload)
         end
 
       _ ->
@@ -58,7 +58,9 @@ defmodule Aiur.ModelCatalog do
 
   # codex advertises one entry per model; `hidden` entries are the ones its
   # own picker withholds, so aiur withholds them too.
-  defp extract(:codex, %{"data" => data}) when is_list(data) do
+  @doc false
+  @spec extract_codex(map()) :: result()
+  def extract_codex(%{"data" => data}) when is_list(data) do
     models =
       data
       |> Enum.reject(&(Map.get(&1, "hidden") == true))
@@ -73,7 +75,11 @@ defmodule Aiur.ModelCatalog do
   # reduced to the `model:claude-<variant>` form aiur's registry and labels
   # use (`claude-sonnet-4-6` -> `sonnet-4-6`); `claude --model` accepts
   # either spelling.
-  defp extract(:claude, %{"models" => models}) when is_list(models) do
+  def extract_codex(_payload), do: {:error, {:unexpected_model_list, :codex}}
+
+  @doc false
+  @spec extract_claude(map()) :: result()
+  def extract_claude(%{"models" => models}) when is_list(models) do
     names =
       Enum.flat_map(models, fn model ->
         aliases = model |> Map.get("aliases", []) |> Enum.filter(&is_binary/1)
@@ -83,7 +89,7 @@ defmodule Aiur.ModelCatalog do
     {:ok, Enum.uniq(names)}
   end
 
-  defp extract(strategy, _payload), do: {:error, {:unexpected_model_list, strategy}}
+  def extract_claude(_payload), do: {:error, {:unexpected_model_list, :claude}}
 
   defp variant_name(id) when is_binary(id), do: [String.replace_prefix(id, "claude-", "")]
   defp variant_name(_id), do: []

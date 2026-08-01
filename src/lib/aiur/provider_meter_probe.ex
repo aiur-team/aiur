@@ -49,14 +49,15 @@ defmodule Aiur.ProviderMeterProbe do
   def observe(provider, opts) when is_atom(provider), do: [observe_provider(provider, opts)]
 
   defp observe_provider(provider, opts) do
-    case probe_strategy(provider) do
-      {:session, backend} -> observe_session(provider, backend, opts)
-      :usage_api -> observe_usage_api(provider, opts)
+    case CodingAgent.provider_meter_probe(provider) do
+      {backend, probe} when is_function(probe, 3) -> probe.(provider, backend, opts)
       nil -> outcome(provider, false, :unsupported)
     end
   end
 
-  defp observe_session(provider, backend, opts) do
+  @doc false
+  @spec probe_session(atom(), String.t(), keyword()) :: outcome()
+  def probe_session(provider, backend, opts) do
     before = observed_at(provider, opts)
 
     case open_probe_session(backend, opts) do
@@ -92,7 +93,9 @@ defmodule Aiur.ProviderMeterProbe do
   # event carries no consumed fraction, so a session could only ever report a
   # standing; the account usage endpoint reports the percentage and needs no
   # agent, no turn, and no session-scoped binding.
-  defp observe_usage_api(provider, opts) do
+  @doc false
+  @spec probe_usage_api(atom(), String.t(), keyword()) :: outcome()
+  def probe_usage_api(provider, _backend, opts) do
     case Keyword.get(opts, :usage_api, UsageApi).fetch(usage_api_opts(opts)) do
       {:ok, reading} ->
         publish_usage_api_reading(provider, reading, opts)
@@ -205,19 +208,6 @@ defmodule Aiur.ProviderMeterProbe do
     _error -> :ok
   catch
     _kind, _reason -> :ok
-  end
-
-  defp probe_strategy(provider) do
-    CodingAgent.backends()
-    |> Enum.find_value(fn {backend, entry} ->
-      if entry.family == Atom.to_string(provider) do
-        case Map.get(entry, :meter_probe) do
-          :session -> {:session, backend}
-          :usage_api -> :usage_api
-          _ -> nil
-        end
-      end
-    end)
   end
 
   defp probe_agent("codex", opts), do: Keyword.get(opts, :codex_agent, CodingAgent.adapter("codex"))
