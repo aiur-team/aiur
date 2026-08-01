@@ -290,6 +290,7 @@ defmodule Aiur.CodingAgent do
           component_dimensions: %{default: %{context_tier: [:not_applicable], cache_write_duration: [:not_applicable]}}
         },
         usage: %{adapters: [Aiur.Usage.Headless.Fake.RequestUsage]},
+        fallback_label: false,
         account_generation: %{backends: [:app_server], trusted_sources: [:fake_app_server], auth_modes: ["fake"]}
       })
     end
@@ -300,6 +301,14 @@ defmodule Aiur.CodingAgent do
   @doc "Known backend keys, derived from the registry."
   @spec known_backends() :: [backend()]
   def known_backends, do: Map.keys(backends())
+
+  @doc "Backend labels that must exist for configured rate-limit fallback pairs."
+  @spec rate_limit_fallback_backends() :: [backend()]
+  def rate_limit_fallback_backends do
+    backends()
+    |> Enum.filter(fn {_backend, entry} -> Map.get(entry, :fallback_label, true) end)
+    |> Enum.map(&elem(&1, 0))
+  end
 
   @doc "The registry-selected default backend used when no config section chooses one."
   @spec default_backend() :: backend()
@@ -347,6 +356,11 @@ defmodule Aiur.CodingAgent do
           logo: String.t(),
           token_icon: String.t(),
           css_class: String.t(),
+          command_color: String.t(),
+          command_border: String.t(),
+          unit_color: String.t(),
+          unit_border: String.t(),
+          unit_background: String.t(),
           pricing: map(),
           usage: map(),
           account_generation: map()
@@ -403,7 +417,7 @@ defmodule Aiur.CodingAgent do
   end
 
   @doc "Presentation descriptor for one provider family atom, or `nil` if none."
-  @spec provider_descriptor(atom()) :: provider_descriptor() | nil
+  @spec provider_descriptor(atom() | String.t() | nil) :: provider_descriptor() | nil
   def provider_descriptor(provider) when is_atom(provider) do
     Enum.find(provider_descriptors(), &(&1.provider == provider))
   end
@@ -411,6 +425,8 @@ defmodule Aiur.CodingAgent do
   def provider_descriptor(provider) when is_binary(provider) do
     Enum.find(provider_descriptors(), &(Atom.to_string(&1.provider) == provider))
   end
+
+  def provider_descriptor(_provider), do: nil
 
   @doc "Registry-supplied pricing policy for one provider family, or `nil` when it is not metered."
   @spec provider_pricing(atom()) :: map() | nil

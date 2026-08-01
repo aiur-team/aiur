@@ -46,7 +46,8 @@ defmodule Aiur.GitHub.Labels do
   @spec label_set(String.t(), [String.t()]) :: [String.t()]
   def label_set(prefix, backends) do
     state_labels(prefix) ++
-      marker_labels(prefix) ++
+      required_rate_limit_fallback_labels(prefix) ++
+      (marker_labels(prefix) -- rate_limit_fallback_marker_labels(prefix)) ++
       model_labels(backends) ++ alias_labels(backends) ++ effort_labels() ++ complexity_labels()
   end
 
@@ -71,7 +72,7 @@ defmodule Aiur.GitHub.Labels do
   @doc "Labels required for every registry-supported rate-limit fallback."
   @spec required_rate_limit_fallback_labels(String.t()) :: [String.t()]
   def required_rate_limit_fallback_labels(prefix),
-    do: rate_limit_fallback_marker_labels(prefix) ++ Enum.map(CodingAgent.known_backends(), &("model:" <> &1))
+    do: rate_limit_fallback_marker_labels(prefix) ++ Enum.map(CodingAgent.rate_limit_fallback_backends(), &("model:" <> &1))
 
   @doc "Whether a prefixed-label suffix is a marker rather than a workflow state."
   @spec marker_suffix?(term()) :: boolean()

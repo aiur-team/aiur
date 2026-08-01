@@ -1862,7 +1862,9 @@ defmodule Aiur.InitTest do
       required = Labels.state_labels("agent") ++ Labels.required_rate_limit_fallback_labels("agent")
       assert Enum.sort(created) == Enum.sort(required)
       refute Enum.any?(created, &String.starts_with?(&1, "complexity:"))
-      refute Enum.any?(created, &(&1 != "model:claude" and String.starts_with?(&1, "model:")))
+      assert "model:claude" in created
+      assert "model:codex" in created
+      assert "model:claude-repl" in created
     end
 
     test "the remote-control stage only appears when claude is supported", %{dir: dir, target: target} do
