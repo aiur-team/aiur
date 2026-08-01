@@ -71,10 +71,13 @@ defmodule Aiur.AgentSkills do
   @doc false
   @spec remote_install_script(Path.t()) :: String.t()
   def remote_install_script(workspace) when is_binary(workspace) do
+    locations = CodingAgent.skill_install_locations()
+
     [
       "set -eu",
       Remote.remote_shell_assign("workspace", workspace),
-      Enum.map_join(@issue_worker_skills, "\n", &remote_skill_script/1)
+      Enum.map_join(@issue_worker_skills, "\n", &remote_skill_script(&1, locations)),
+      remote_ignore_script(locations)
     ]
     |> Enum.join("\n")
   end
@@ -87,7 +90,10 @@ defmodule Aiur.AgentSkills do
   """
   @spec install(Path.t() | nil) :: :ok
   def install(workspace) when is_binary(workspace) do
-    Enum.each(@issue_worker_skills, &install_skill(workspace, &1))
+    locations = CodingAgent.skill_install_locations()
+
+    Enum.each(@issue_worker_skills, &install_skill(workspace, &1, locations))
+    ignore_generated_skill_locations(workspace, locations)
   rescue
     error in [ArgumentError, ErlangError, File.Error] ->
       Logger.warning("agent skill install failed workspace=#{workspace} error=#{Exception.message(error)}")
@@ -96,10 +102,10 @@ defmodule Aiur.AgentSkills do
 
   def install(_workspace), do: :ok
 
-  defp install_skill(workspace, skill),
-    do: Enum.each(CodingAgent.skill_install_locations(), &install_skill_at(workspace, skill, &1))
+  defp install_skill(workspace, skill, locations),
+    do: Enum.each(locations, &install_skill_at(workspace, skill, &1))
 
-  defp remote_skill_script(skill) do
+  defp remote_skill_script(skill, locations) do
     files = skill_files(skill)
 
     writes =
@@ -115,7 +121,7 @@ defmodule Aiur.AgentSkills do
         |> Enum.join("\n")
       end)
 
-    CodingAgent.skill_install_locations()
+    locations
     |> Enum.map(&remote_skill_script(&1, skill, writes))
     |> Enum.join("\n")
   end
@@ -221,6 +227,63 @@ defmodule Aiur.AgentSkills do
     parents = path |> Path.split() |> Enum.reject(&(&1 == "."))
     Path.join(List.duplicate("..", length(parents)) ++ [link_to, skill])
   end
+
+  # Installed skills are worker-local runtime support, never source changes in
+  # the target repository. Registry-only locations need the same protection as
+  # the established `.claude` / `.codex` directories so they do not make a
+  # freshly refreshed workspace appear dirty.
+  defp ignore_generated_skill_locations(workspace, locations) do
+    git_metadata = Path.join(workspace, ".git")
+
+    if File.exists?(git_metadata) do
+      exclude = git_exclude_path(workspace, git_metadata)
+      File.mkdir_p!(Path.dirname(exclude))
+
+      existing =
+        case File.read(exclude) do
+          {:ok, contents} -> contents
+          {:error, _reason} -> ""
+        end
+
+      missing =
+        locations
+        |> Enum.map(fn %{path: path} -> "/#{String.trim_trailing(path, "/")}/" end)
+        |> Kernel.--(String.split(existing, "\n", trim: true))
+
+      if missing != [] do
+        prefix = if existing == "" or String.ends_with?(existing, "\n"), do: "", else: "\n"
+        File.write!(exclude, prefix <> Enum.join(missing, "\n") <> "\n", [:append])
+      end
+    end
+  end
+
+  defp git_exclude_path(workspace, git_metadata) do
+    case File.read(git_metadata) do
+      {:ok, "gitdir: " <> git_dir} -> Path.join([Path.expand(String.trim(git_dir), workspace), "info", "exclude"])
+      _ -> Path.join([git_metadata, "info", "exclude"])
+    end
+  end
+
+  defp remote_ignore_script(locations) do
+    paths = locations |> Enum.map(& &1.path) |> Enum.map_join(" ", &shell_quote/1)
+
+    [
+      "if [ -e \"$workspace/.git\" ]; then",
+      "  exclude=$(git -C \"$workspace\" rev-parse --git-path info/exclude 2>/dev/null || true)",
+      "  if [ -n \"$exclude\" ]; then",
+      "    case \"$exclude\" in /*) ;; *) exclude=\"$workspace/$exclude\" ;; esac",
+      "    mkdir -p \"$(dirname \"$exclude\")\"",
+      "    for skill_path in #{paths}; do",
+      "      pattern=\"/$skill_path/\"",
+      "      grep -Fqx \"$pattern\" \"$exclude\" 2>/dev/null || printf '%s\\n' \"$pattern\" >> \"$exclude\"",
+      "    done",
+      "  fi",
+      "fi"
+    ]
+    |> Enum.join("\n")
+  end
+
+  defp shell_quote(value), do: "'" <> String.replace(value, "'", "'\\\"'\\\"'") <> "'"
 
   # `File.exists?/1` follows symlinks, so a dangling Codex link would read as
   # absent and then fail the `ln_s!`. `lstat` detects the node itself.

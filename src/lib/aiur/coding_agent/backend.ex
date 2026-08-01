@@ -99,7 +99,8 @@ defmodule Aiur.CodingAgent.Backend do
           optional(:configurable) => boolean(),
           optional(:init_order) => non_neg_integer(),
           optional(:default_command) => String.t(),
-          optional(:install_hint) => String.t()
+          optional(:install_hint) => String.t(),
+          optional(atom()) => term()
         }
 
   @doc "Start a session in the workspace. See \"Resume contract\"."

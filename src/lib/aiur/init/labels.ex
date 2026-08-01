@@ -31,6 +31,7 @@ defmodule Aiur.Init.Labels do
 
   def setup_labels(_io, _deps, _tracker, _agents, _pair), do: :ok
 
+  @spec setup_labels(Aiur.Init.io(), Aiur.Init.deps(), map(), [String.t()]) :: :ok | :error
   def setup_labels(io, deps, tracker, agents) do
     setup_labels(io, deps, tracker, agents, {CodingAgent.default_backend(), CodingAgent.default_rate_limit_fallback()})
   end
