@@ -3,7 +3,7 @@ defmodule Aiur.ProviderMeters.Store do
 
   use GenServer
 
-  alias Aiur.{ProviderAccountGeneration, ProviderMeterSnapshot}
+  alias Aiur.{CodingAgent, ProviderAccountGeneration, ProviderMeterSnapshot}
   alias Aiur.ProviderMeters.{Events, Input, Reconciler}
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -113,15 +113,16 @@ defmodule Aiur.ProviderMeters.Store do
     end
   end
 
-  defp resolve_generation(state, provider, backend, binding)
-       when provider in [:codex, :claude] and backend == :app_server do
-    case ProviderAccountGeneration.lookup(state.account_generation_owner, provider, backend, binding) do
-      %{generation: generation, freshness: :current, health: :healthy} when is_binary(generation) -> {:ok, generation}
+  defp resolve_generation(state, provider, backend, binding) do
+    with %{backends: backends} when is_list(backends) <- CodingAgent.provider_account_generation(provider),
+         true <- backend in backends,
+         %{generation: generation, freshness: :current, health: :healthy} when is_binary(generation) <-
+           ProviderAccountGeneration.lookup(state.account_generation_owner, provider, backend, binding) do
+      {:ok, generation}
+    else
       _ -> {:error, :unknown_account_generation}
     end
   end
-
-  defp resolve_generation(_state, _provider, _backend, _binding), do: {:error, :unknown_account_generation}
 
   defp refreshed_snapshot(state, provider, backend, generation) do
     key = {provider, backend, generation}

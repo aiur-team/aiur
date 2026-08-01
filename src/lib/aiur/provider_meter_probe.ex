@@ -23,8 +23,7 @@ defmodule Aiur.ProviderMeterProbe do
   """
 
   alias Aiur.Claude.UsageApi
-  alias Aiur.Codex.CodingAgent, as: CodexAgent
-  alias Aiur.Config
+  alias Aiur.{CodingAgent, Config}
   alias Aiur.ProviderMeterProjection
   alias Aiur.ProviderMeters.Events
   alias Aiur.ProviderMeterSnapshot
@@ -37,8 +36,8 @@ defmodule Aiur.ProviderMeterProbe do
   @probe_identifier "usage-probe"
   @backend :app_server
 
-  @type target :: :all | :codex | :claude
-  @type outcome :: %{provider: :codex | :claude, observed?: boolean(), reason: atom() | nil}
+  @type target :: :all | atom()
+  @type outcome :: %{provider: atom(), observed?: boolean(), reason: atom() | nil}
 
   @doc """
   Probe one provider or all of them. Never raises; returns a per-provider outcome.
@@ -46,15 +45,21 @@ defmodule Aiur.ProviderMeterProbe do
   @spec observe(target(), keyword()) :: [outcome()]
   def observe(target \\ :all, opts \\ [])
 
-  def observe(:all, opts), do: Enum.map([:codex, :claude], &observe_provider(&1, opts))
-  def observe(provider, opts) when provider in [:codex, :claude], do: [observe_provider(provider, opts)]
-
-  defp observe_provider(:claude, opts), do: observe_claude(opts)
+  def observe(:all, opts), do: Enum.map(CodingAgent.provider_families(), &observe_provider(&1, opts))
+  def observe(provider, opts) when is_atom(provider), do: [observe_provider(provider, opts)]
 
   defp observe_provider(provider, opts) do
+    case probe_strategy(provider) do
+      {:session, backend} -> observe_session(provider, backend, opts)
+      :usage_api -> observe_usage_api(provider, opts)
+      nil -> outcome(provider, false, :unsupported)
+    end
+  end
+
+  defp observe_session(provider, backend, opts) do
     before = observed_at(provider, opts)
 
-    case open_probe_session(provider, opts) do
+    case open_probe_session(backend, opts) do
       {:ok, session, close} ->
         wait_for_observation(provider, before, opts)
         safe_close(close, session)
@@ -67,9 +72,10 @@ defmodule Aiur.ProviderMeterProbe do
 
   # Codex is probed through the same app-server client the agents use, so the
   # notification path and its account-generation binding are the proven ones.
-  defp open_probe_session(:codex, opts) do
+  defp open_probe_session(backend, opts) do
     with {:ok, workspace} <- probe_workspace(opts),
-         agent = codex_agent(opts),
+         agent = probe_agent(backend, opts),
+         true <- is_atom(agent),
          {:ok, session} <- agent.start_session(workspace, identifier: @probe_identifier) do
       {:ok, session, &agent.stop_session/1}
     else
@@ -86,36 +92,36 @@ defmodule Aiur.ProviderMeterProbe do
   # event carries no consumed fraction, so a session could only ever report a
   # standing; the account usage endpoint reports the percentage and needs no
   # agent, no turn, and no session-scoped binding.
-  defp observe_claude(opts) do
+  defp observe_usage_api(provider, opts) do
     case Keyword.get(opts, :usage_api, UsageApi).fetch(usage_api_opts(opts)) do
       {:ok, reading} ->
-        publish_claude_reading(reading, opts)
-        outcome(:claude, true, nil)
+        publish_usage_api_reading(provider, reading, opts)
+        outcome(provider, true, nil)
 
       {:error, reason} ->
-        outcome(:claude, false, reason)
+        outcome(provider, false, reason)
     end
   rescue
-    _error -> outcome(:claude, false, :probe_failed)
+    _error -> outcome(provider, false, :probe_failed)
   catch
-    _kind, _reason -> outcome(:claude, false, :probe_failed)
+    _kind, _reason -> outcome(provider, false, :probe_failed)
   end
 
   # Published on the same fan-out the store broadcasts on, so the projection
   # retains it exactly like a session-observed reading. The account generation
   # is nil because none was involved — this observation is account-wide, not
   # bound to a session.
-  defp publish_claude_reading(reading, opts) do
+  defp publish_usage_api_reading(provider, reading, opts) do
     observed_at = Keyword.get(opts, :observed_at, DateTime.utc_now())
 
     Events.broadcast(%ProviderMeterSnapshot{
-      provider: :claude,
+      provider: provider,
       backend: @backend,
       provider_account_generation: nil,
       observed_at: observed_at,
       ingested_at: observed_at,
       auth_mode: :subscription,
-      source: :claude_usage_api,
+      source: :usage_api,
       update_kind: :snapshot,
       freshness: :fresh,
       health: %{state: :healthy, failure: nil, last_observed_at: observed_at, last_source_version: nil},
@@ -126,7 +132,7 @@ defmodule Aiur.ProviderMeterProbe do
           name: :primary,
           used_percent: reading.used_percent,
           resets_at: reading.resets_at,
-          source: :claude_usage_api,
+          source: :usage_api,
           observed_at: observed_at,
           coverage: :supported
         }
@@ -201,7 +207,21 @@ defmodule Aiur.ProviderMeterProbe do
     _kind, _reason -> :ok
   end
 
-  defp codex_agent(opts), do: Keyword.get(opts, :codex_agent, CodexAgent)
+  defp probe_strategy(provider) do
+    CodingAgent.backends()
+    |> Enum.find_value(fn {backend, entry} ->
+      if entry.family == Atom.to_string(provider) do
+        case Map.get(entry, :meter_probe) do
+          :session -> {:session, backend}
+          :usage_api -> :usage_api
+          _ -> nil
+        end
+      end
+    end)
+  end
+
+  defp probe_agent("codex", opts), do: Keyword.get(opts, :codex_agent, CodingAgent.adapter("codex"))
+  defp probe_agent(backend, _opts), do: CodingAgent.adapter(backend)
 
   defp outcome(provider, observed?, reason), do: %{provider: provider, observed?: observed?, reason: reason}
 

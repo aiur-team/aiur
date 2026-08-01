@@ -787,7 +787,11 @@ defmodule Aiur.Config do
   end
 
   defp inferred_agent_kind(config) do
-    Enum.find(Aiur.CodingAgent.known_backends(), &has_section?(config, &1)) || Aiur.CodingAgent.default_backend()
+    agent = map_section(config, "agent")
+
+    Enum.find(Aiur.CodingAgent.configurable_backends(), fn backend ->
+      has_section?(config, backend) or Map.has_key?(backend_config_sections(config, agent), backend)
+    end) || Aiur.CodingAgent.default_backend()
   end
 
   defp backend_config_sections(config, agent) do
@@ -795,10 +799,13 @@ defmodule Aiur.Config do
 
     Aiur.CodingAgent.known_backends()
     |> Enum.reduce(explicit, fn backend, sections ->
-      case map_section(config, backend) do
-        section when map_size(section) > 0 -> Map.put_new(sections, backend, section)
-        _ -> sections
-      end
+      section =
+        config
+        |> map_section(backend)
+        |> Map.merge(map_section(agent, backend))
+        |> Map.merge(map_section(explicit, backend))
+
+      if map_size(section) > 0, do: Map.put(sections, backend, section), else: sections
     end)
   end
 

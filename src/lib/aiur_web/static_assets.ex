@@ -88,7 +88,7 @@ defmodule AiurWeb.StaticAssets do
   defp fetch_provider_asset(path) do
     if provider_asset?(path) do
       path
-      |> Path.basename()
+      |> String.trim_leading("/")
       |> then(&read_static_asset("image/svg+xml", Path.join("priv/static", &1)))
     else
       fetch_dom_svg_layout_module(path)

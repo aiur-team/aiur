@@ -97,7 +97,7 @@ defmodule AiurWeb.Router do
     get("/aiur-dom-svg-layout/:module", StaticAssetController, :dom_svg_layout_module)
     get("/aiur-logo.png", StaticAssetController, :aiur_logo)
     get("/bungee.woff2", StaticAssetController, :bungee_font)
-    get("/provider-assets/:provider_asset", StaticAssetController, :provider_asset)
+    get("/provider-assets/*provider_asset", StaticAssetController, :provider_asset)
     get("/vendor/phoenix_html/phoenix_html.js", StaticAssetController, :phoenix_html_js)
     get("/vendor/phoenix/phoenix.js", StaticAssetController, :phoenix_js)
     get("/vendor/phoenix_live_view/phoenix_live_view.js", StaticAssetController, :phoenix_live_view_js)

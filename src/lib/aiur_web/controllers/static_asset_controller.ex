@@ -36,7 +36,11 @@ defmodule AiurWeb.StaticAssetController do
   def aiur_logo(conn, _params), do: serve(conn, "/aiur-logo.png")
 
   @spec provider_asset(Conn.t(), map()) :: Conn.t()
-  def provider_asset(conn, %{"provider_asset" => asset}), do: serve(conn, "/provider-assets/" <> asset, revalidate?: true)
+  def provider_asset(conn, %{"provider_asset" => asset}) when is_list(asset),
+    do: serve(conn, "/provider-assets/" <> Enum.join(asset, "/"), revalidate?: true)
+
+  def provider_asset(conn, %{"provider_asset" => asset}) when is_binary(asset),
+    do: serve(conn, "/provider-assets/" <> asset, revalidate?: true)
 
   @spec bungee_font(Conn.t(), map()) :: Conn.t()
   def bungee_font(conn, _params), do: serve(conn, "/bungee.woff2")

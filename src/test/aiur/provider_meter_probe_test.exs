@@ -110,10 +110,11 @@ defmodule Aiur.ProviderMeterProbeTest do
     assert [%{observed?: false, reason: :probe_failed}] = ProviderMeterProbe.observe(:codex, opts(ctx))
   end
 
-  test "probing :all covers both providers", ctx do
+  test "probing :all covers every registry provider", ctx do
     outcomes = ProviderMeterProbe.observe(:all, opts(ctx))
 
-    assert Enum.map(outcomes, & &1.provider) == [:codex, :claude]
+    assert Enum.map(outcomes, & &1.provider) == [:codex, :claude, :fake]
+    assert List.last(outcomes) == %{provider: :fake, observed?: false, reason: :unsupported}
   end
 
   # A close that blows up must not turn the probe into a crash — the session is

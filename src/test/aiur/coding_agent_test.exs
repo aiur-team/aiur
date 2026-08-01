@@ -19,6 +19,10 @@ defmodule Aiur.CodingAgentTest do
       assert CodingAgent.provider_families() == [:codex, :claude, :fake]
     end
 
+    test "provider_family_map/0 keys usage attribution by registered backend" do
+      assert CodingAgent.provider_family_map() == %{"codex" => :codex, "claude" => :claude}
+    end
+
     test "provider_descriptor/1 exposes the fields every provider surface renders from" do
       codex = CodingAgent.provider_descriptor(:codex)
       assert codex.label == "Codex"

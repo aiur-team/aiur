@@ -129,6 +129,7 @@ defmodule Aiur.CodingAgent do
           }
         },
         usage: %{adapters: [Aiur.Usage.Headless.Codex.ThreadUsage, Aiur.Usage.Headless.Codex.TurnUsage]},
+        meter_probe: :session,
         account_generation: %{
           backends: [:app_server],
           trusted_sources: [:codex_app_server],
@@ -192,6 +193,7 @@ defmodule Aiur.CodingAgent do
           }
         },
         usage: %{adapters: [Aiur.Usage.Headless.Claude.RequestUsage]},
+        meter_probe: :usage_api,
         account_generation: %{
           backends: [:app_server],
           trusted_sources: [:claude_app_server],
@@ -202,6 +204,9 @@ defmodule Aiur.CodingAgent do
         adapter: Aiur.Claude.ReplAgent,
         transcript: Aiur.Claude.Transcript,
         family: "claude",
+        # The REPL is launched by its adapter rather than the init wizard, but
+        # rate-limit fallback still needs a registry-owned readiness command.
+        default_command: "claude",
         # Executor messages are typed straight into the live pane and the
         # agent's native input queue folds them in, so there is no
         # checkpoint to hold at — `safe_checkpoints` stays empty and
@@ -366,17 +371,19 @@ defmodule Aiur.CodingAgent do
   def provider_families, do: Enum.map(provider_descriptors(), & &1.provider)
 
   @doc """
-  Map from the headless app-server backend name to its provider family atom
-  (e.g. `%{"codex" => :codex, "claude" => :claude}`), derived from the registry's
-  metered providers. Keyed by the family-primary backend name (`Atom.to_string`
-  of the provider), so REPL/remote transports that share a family (`claude-repl`)
-  are excluded — they are metered under their family via the primary, not as a
-  separate provider. Drives usage attribution so a new metered backend books to
-  its own provider with no per-provider `case`.
+  Map from each registered headless backend name to its provider family atom
+  (e.g. `%{"codex" => :codex, "claude" => :claude}`). A backend name need not
+  match its family name, so the map is derived from registry keys rather than
+  presentation descriptors. Transports without usage adapters (such as the
+  REPL) are deliberately excluded.
   """
   @spec provider_family_map() :: %{String.t() => atom()}
   def provider_family_map do
-    for %{provider: provider} <- provider_descriptors(), into: %{}, do: {Atom.to_string(provider), provider}
+    for {backend, %{family: family, usage: %{adapters: adapters}}} <- backends(),
+        is_list(adapters),
+        adapters != [],
+        into: %{},
+        do: {backend, String.to_atom(family)}
   end
 
   @doc "Presentation descriptor for one provider family atom, or `nil` if none."
