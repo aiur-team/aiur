@@ -273,6 +273,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
   defp core_status_word(:status_working, _execution, _text), do: "agent live"
   defp core_status_word(:status_ready, _execution, _text), do: "dependency-ready"
   defp core_status_word(:status_paused, %{pause_reason: :ci_wait}, _text), do: "CI waiting"
+  defp core_status_word(:status_waiting, %{waiting_reason: :waiting_for_ci}, _text), do: "CI waiting"
   defp core_status_word(_key, _execution, text) when is_binary(text) and text != "", do: text
   defp core_status_word(_key, _execution, _text), do: "status unavailable"
 

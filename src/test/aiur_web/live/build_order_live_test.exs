@@ -33,7 +33,6 @@ defmodule AiurWeb.BuildOrderLiveTest do
 
     def subscribe_sources(server) do
       :ok = Aiur.AgentPubSub.subscribe_running()
-      :ok = Aiur.AgentPubSub.subscribe_status()
       invoke(server, :subscribe_sources, [])
     end
 
@@ -339,7 +338,14 @@ defmodule AiurWeb.BuildOrderLiveTest do
     assert has_element?(view, ~s([data-bo-card="7"][data-bo-state="working"]), "agent live")
     assert has_element?(view, ~s([data-bo-card="7"]), "30%")
 
-    Agent.update(sources, fn _sources -> sources_for_member(member.identity, :paused, :ci_wait, 60) end)
+    Agent.update(sources, fn _sources -> sources_for_member(member.identity, :paused, :operator_pause, 45) end)
+    :ok = AgentPubSub.broadcast_running_change([])
+
+    render_async(view, 2_000)
+    assert has_element?(view, ~s([data-bo-card="7"][data-bo-state="plain"]), "Paused")
+    assert has_element?(view, ~s([data-bo-card="7"]), "45%")
+
+    Agent.update(sources, fn _sources -> sources_for_ci_wait_member(member.identity, 60) end)
     :ok = AgentPubSub.broadcast_running_change([])
 
     render_async(view, 2_000)
@@ -777,6 +783,12 @@ defmodule AiurWeb.BuildOrderLiveTest do
       },
       adhoc: nil
     }
+  end
+
+  defp sources_for_ci_wait_member(identity, progress) do
+    sources_for_member(identity, :idle, nil, progress)
+    |> put_in([:execution, :running], [])
+    |> put_in([:execution, :idle], [%{tracker_identity: identity, waiting_reason: :waiting_for_ci}])
   end
 
   defp adhoc_source_snapshot do

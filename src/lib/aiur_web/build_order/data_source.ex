@@ -66,7 +66,6 @@ defmodule AiurWeb.BuildOrder.DataSource do
   def subscribe_sources(opts \\ []) do
     with :ok <- call(dependency(opts, :ticket_activity, TicketActivity), :subscribe, []),
          :ok <- call(dependency(opts, :agent_pubsub, AgentPubSub), :subscribe_running, []),
-         :ok <- call(dependency(opts, :agent_pubsub, AgentPubSub), :subscribe_status, []),
          do: call(dependency(opts, :adhoc_source, AdHocSource), :subscribe, [])
   end
 

@@ -31,7 +31,6 @@ defmodule AiurWeb.BuildOrder.DataSourceTest do
 
   defmodule AgentPubSubSpy do
     def subscribe_running, do: notify(:subscribe_running, :ok)
-    def subscribe_status, do: notify(:subscribe_status, :ok)
 
     defp notify(message, result) do
       send(self(), message)
@@ -116,7 +115,6 @@ defmodule AiurWeb.BuildOrder.DataSourceTest do
 
     assert_received :subscribe_activity
     assert_received :subscribe_running
-    assert_received :subscribe_status
     assert_received :subscribe_adhoc
     assert_received :load_activity
     assert_received :load_execution
