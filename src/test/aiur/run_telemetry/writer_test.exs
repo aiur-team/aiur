@@ -407,6 +407,41 @@ defmodule Aiur.RunTelemetry.WriterTest do
     assert dataset.warnings == []
   end
 
+  test "size retention keeps a contiguous newest suffix", %{path: path} do
+    {:ok, old} = Writer.start_link(name: nil, path: path, boot_id: "old")
+    assert :ok = Writer.record(old, :resource, %{actor: "_daemon", rss_bytes: 1})
+    assert :ok = Writer.flush(old)
+    :ok = GenServer.stop(old)
+
+    old_size = File.stat!(path).size
+
+    {:ok, middle} = Writer.start_link(name: nil, path: path, boot_id: "mid")
+
+    assert :ok =
+             Writer.record(middle, :resource, %{
+               actor: "_daemon",
+               detail: String.duplicate("x", 8_192),
+               rss_bytes: 1
+             })
+
+    assert :ok = Writer.flush(middle)
+    :ok = GenServer.stop(middle)
+
+    middle_size = File.stat!(path).size - old_size
+
+    {:ok, newest} = Writer.start_link(name: nil, path: path, boot_id: "new")
+    assert :ok = Writer.record(newest, :resource, %{actor: "_daemon", rss_bytes: 1})
+    assert :ok = Writer.flush(newest)
+    :ok = GenServer.stop(newest)
+
+    newest_size = File.stat!(path).size - old_size - middle_size
+    assert :ok = Retention.prune(path, max_bytes: old_size + newest_size)
+
+    assert {:ok, dataset} = Dataset.build(path)
+    assert Dataset.boot_ids(dataset) == ["new"]
+    assert dataset.warnings == []
+  end
+
   test "periodic retention prunes accumulated old boots during a running session", %{path: path} do
     {:ok, old} = Writer.start_link(name: nil, path: path, boot_id: "old-boot")
     assert :ok = Writer.record(old, :resource, %{actor: "_daemon", rss_bytes: 1})
@@ -445,8 +480,8 @@ defmodule Aiur.RunTelemetry.WriterTest do
 
     {:ok, writer} = Writer.start_link(name: nil, path: path, boot_id: "big-boot", retention: retention)
 
-    for _ <- 1..6 do
-      assert :ok = Writer.record(writer, :resource, %{actor: "_daemon", rss_bytes: 1})
+    for sample <- 1..6 do
+      assert :ok = Writer.record(writer, :resource, %{actor: "_daemon", rss_bytes: 1, sample: sample})
     end
 
     assert :ok = Writer.flush(writer)
@@ -456,6 +491,53 @@ defmodule Aiur.RunTelemetry.WriterTest do
     assert {:ok, dataset} = Dataset.build(path)
     assert dataset.warnings == []
     assert Dataset.boot_ids(dataset) == ["big-boot"]
+    assert Enum.map(Enum.filter(dataset.records, &(&1.kind == "resource")), & &1.attributes["sample"]) == [6]
+    assert dataset.restarts == []
+
+    assert {:ok, current_dataset} = Dataset.build(path, session: :current)
+    assert Enum.map(Enum.filter(current_dataset.records, &(&1.kind == "resource")), & &1.attributes["sample"]) == [6]
+  end
+
+  test "a failed segment boundary skips periodic pruning", %{path: path} do
+    writes = :atomics.new(1, signed: false)
+
+    write_fun = fn target, contents ->
+      if :atomics.add_get(writes, 1, 1) == 2 do
+        {:error, :eio}
+      else
+        File.write(target, contents, [:append])
+      end
+    end
+
+    {:ok, writer} =
+      Writer.start_link(
+        name: nil,
+        path: path,
+        boot_id: "boundary-failure",
+        retention: [max_bytes: 1, prune_interval_bytes: 1],
+        write_fun: write_fun
+      )
+
+    assert Process.alive?(writer)
+    assert {:ok, dataset} = Dataset.build(path)
+    assert dataset.warnings == []
+    assert Dataset.boot_ids(dataset) == ["boundary-failure"]
+  end
+
+  test "segment rolls preserve lifecycle interval pairing", %{path: path} do
+    retention = [max_bytes: 1, prune_interval_bytes: 1]
+    {:ok, writer} = Writer.start_link(name: nil, path: path, boot_id: "lifecycle-roll", retention: retention)
+
+    start = %{ticket: "1339", attempt_id: "attempt", event: "build_test", boundary: "start", operation_id: "build"}
+    finish = %{ticket: "1339", attempt_id: "attempt", event: "build_test", boundary: "end", operation_id: "build"}
+
+    assert :ok = Writer.record(writer, :lifecycle, start)
+    assert :ok = Writer.record(writer, :lifecycle, finish)
+    assert :ok = Writer.flush(writer)
+
+    assert {:ok, dataset} = Dataset.build(path)
+    assert [%{status: "closed"}] = dataset.tickets["1339"].intervals
+    assert dataset.warnings == []
   end
 
   test "periodic retention failure does not crash or stall the writer", %{path: path, root: root} do

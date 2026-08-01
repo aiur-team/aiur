@@ -69,7 +69,11 @@ defmodule Aiur.RunTelemetry do
   end
 
   @doc false
-  @spec telemetry_retention() :: [max_bytes: pos_integer(), max_age_days: pos_integer()]
+  @spec telemetry_retention() :: [
+          max_bytes: pos_integer(),
+          max_age_days: pos_integer(),
+          prune_interval_bytes: pos_integer()
+        ]
   def telemetry_retention, do: Aiur.Config.telemetry_retention()
 
   @doc "Best-effort append of one telemetry record."

@@ -15,6 +15,7 @@ defmodule Aiur.Config.Schema.Observability do
     field(:telemetry_enabled, :boolean, default: true)
     field(:telemetry_retention_max_bytes, :integer, default: 64 * 1024 * 1024)
     field(:telemetry_retention_max_age_days, :integer, default: 30)
+    field(:telemetry_retention_prune_interval_bytes, :integer)
   end
 
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
@@ -29,7 +30,8 @@ defmodule Aiur.Config.Schema.Observability do
         :render_interval_ms,
         :telemetry_enabled,
         :telemetry_retention_max_bytes,
-        :telemetry_retention_max_age_days
+        :telemetry_retention_max_age_days,
+        :telemetry_retention_prune_interval_bytes
       ],
       empty_values: []
     )
@@ -37,5 +39,6 @@ defmodule Aiur.Config.Schema.Observability do
     |> validate_number(:render_interval_ms, greater_than: 0)
     |> validate_number(:telemetry_retention_max_bytes, greater_than: 0)
     |> validate_number(:telemetry_retention_max_age_days, greater_than: 0)
+    |> validate_number(:telemetry_retention_prune_interval_bytes, greater_than: 0)
   end
 end

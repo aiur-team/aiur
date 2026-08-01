@@ -59,7 +59,7 @@ defmodule Aiur.RunTelemetry.Dataset do
       {:ok,
        %{
          records: records,
-         restarts: Enum.filter(records, &(&1.kind == "restart")),
+         restarts: Enum.filter(records, &daemon_restart?/1),
          actors: actors,
          tickets: tickets,
          findings: findings,
@@ -100,7 +100,7 @@ defmodule Aiur.RunTelemetry.Dataset do
 
     Map.merge(dataset, %{
       records: records,
-      restarts: Enum.filter(records, &(&1.kind == "restart")),
+      restarts: Enum.filter(records, &daemon_restart?/1),
       actors: actors,
       tickets: scoped_tickets,
       findings: dataset |> Map.get(:findings, []) |> Enum.filter(&Map.has_key?(scoped_tickets, &1.ticket)),
@@ -122,6 +122,9 @@ defmodule Aiur.RunTelemetry.Dataset do
   defp keep_record?(record, boot_id, tickets) do
     in_boot?(record.boot_id, boot_id) and in_tickets?(Map.get(record.attributes, "ticket"), tickets)
   end
+
+  defp daemon_restart?(%{kind: "restart", attributes: %{"event" => "daemon_restart"}}), do: true
+  defp daemon_restart?(_record), do: false
 
   defp in_boot?(_record_boot, nil), do: true
   defp in_boot?("github", _boot_id), do: true
@@ -242,8 +245,9 @@ defmodule Aiur.RunTelemetry.Dataset do
   end
 
   # The current-session view is normally the tail boot. Read backward in bounded
-  # chunks until a different boot id appears, then feed only those lines through
-  # the ordinary validator/reducer. Historical boots are never decoded here.
+  # chunks until a different boot id or the prior segment boundary appears, then
+  # feed only those lines through the ordinary validator/reducer. Historical
+  # boots and earlier same-boot segments are never decoded here.
   defp read_current_file(file, requested_boot_id) do
     case File.open(file, [:read, :binary]) do
       {:ok, device} ->
@@ -255,7 +259,7 @@ defmodule Aiur.RunTelemetry.Dataset do
                   device,
                   size,
                   "",
-                  %{boot_id: nil, lines: [], done?: false, tail_line_too_large?: false},
+                  %{boot_id: nil, lines: [], done?: false, segment_boundaries: 0, tail_line_too_large?: false},
                   requested_boot_id
                 )
 
@@ -349,15 +353,34 @@ defmodule Aiur.RunTelemetry.Dataset do
   defp consume_tail_line(line, %{boot_id: nil} = state, requested_boot_id) do
     boot_id = boot_id_from_line(line)
     chosen_boot_id = if boot_id == requested_boot_id, do: requested_boot_id, else: boot_id
-    {:cont, %{state | boot_id: chosen_boot_id, lines: [line | state.lines]}}
+    continue_tail_line(line, %{state | boot_id: chosen_boot_id, lines: [line | state.lines]})
   end
 
   defp consume_tail_line(line, state, _requested_boot_id) do
     case boot_id_from_line(line) do
       nil -> {:cont, %{state | lines: [line | state.lines]}}
-      boot_id when boot_id == state.boot_id -> {:cont, %{state | lines: [line | state.lines]}}
+      boot_id when boot_id == state.boot_id -> continue_tail_line(line, %{state | lines: [line | state.lines]})
       _other -> {:halt, %{state | done?: true}}
     end
+  end
+
+  defp continue_tail_line(line, state) do
+    if segment_boundary_line?(line) do
+      state = %{state | segment_boundaries: state.segment_boundaries + 1}
+
+      if state.segment_boundaries >= 2,
+        do: {:halt, %{state | done?: true}},
+        else: {:cont, state}
+    else
+      {:cont, state}
+    end
+  end
+
+  defp segment_boundary_line?(line) do
+    match?(
+      {:ok, %{"kind" => "restart", "attributes" => %{"event" => "segment_boundary"}}},
+      Jason.decode(line)
+    )
   end
 
   defp boot_id_from_line(line) do
@@ -768,6 +791,7 @@ defmodule Aiur.RunTelemetry.Dataset do
           complexity: normalize_complexity(Map.get(attributes, "complexity")),
           source: Map.get(attributes, "source"),
           source_id: Map.get(attributes, "source_id"),
+          segment_continuation: Map.get(attributes, "segment_continuation"),
           timestamp: record.timestamp_iso,
           timestamp_dt: record.timestamp,
           timestamp_ms: record.timestamp_ms,
@@ -806,7 +830,12 @@ defmodule Aiur.RunTelemetry.Dataset do
 
         case event.boundary do
           "start" ->
-            {intervals, Map.put(open, key, event)}
+            open =
+              if event.segment_continuation == "open" and Map.has_key?(open, key),
+                do: open,
+                else: Map.put(open, key, event)
+
+            {intervals, open}
 
           "end" ->
             close_lifecycle_interval(event, intervals, open, key)
@@ -823,9 +852,13 @@ defmodule Aiur.RunTelemetry.Dataset do
   end
 
   defp close_lifecycle_interval(event, intervals, open, key) do
-    case Map.pop(open, key) do
-      {nil, next_open} -> {[point_interval(event, "orphan_end") | intervals], next_open}
-      {started, next_open} -> {[closed_interval(started, event) | intervals], next_open}
+    if event.segment_continuation == "close" do
+      {intervals, open}
+    else
+      case Map.pop(open, key) do
+        {nil, next_open} -> {[point_interval(event, "orphan_end") | intervals], next_open}
+        {started, next_open} -> {[closed_interval(started, event) | intervals], next_open}
+      end
     end
   end
 

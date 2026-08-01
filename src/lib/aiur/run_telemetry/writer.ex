@@ -111,7 +111,8 @@ defmodule Aiur.RunTelemetry.Writer do
       write_warning_emitted: false,
       retention: retention,
       bytes_since_prune: 0,
-      prune_interval_bytes: prune_interval(retention)
+      prune_interval_bytes: prune_interval(retention),
+      open_lifecycles: %{}
     }
 
     Process.put(@admission_key, :atomics.new(3, signed: false))
@@ -165,31 +166,17 @@ defmodule Aiur.RunTelemetry.Writer do
   defp append_many(state, []), do: state
 
   defp append_many(state, records) do
-    {state, lines} =
-      Enum.reduce(records, {state, []}, fn {kind, attributes, timestamp}, {state, lines} ->
-        sequence = next_sequence(state)
-        attributes = maybe_mark_writer_restart(state, kind, attributes, sequence)
-
-        envelope = %{
-          schema_version: RunTelemetry.schema_version(),
-          kind: normalize_kind(kind),
-          timestamp: normalize_timestamp(timestamp),
-          recorded_at: normalize_timestamp(state.clock.()),
-          boot_id: state.boot_id,
-          sequence: sequence,
-          record_id: "#{state.boot_id}:#{sequence}",
-          attributes: attributes
-        }
-
-        {:ok, encoded} = Jason.encode(Aiur.JSONSafe.normalize(envelope))
-        {%{state | sequence: sequence}, [[encoded, "\n"] | lines]}
-      end)
-
-    contents = lines |> Enum.reverse() |> IO.iodata_to_binary()
+    {state, contents} = encode_records(state, records)
 
     with :ok <- File.mkdir_p(Path.dirname(state.path)),
          :ok <- state.write_fun.(state.path, contents) do
-      state = %{state | bytes_since_prune: state.bytes_since_prune + byte_size(contents), write_warning_emitted: false}
+      state = %{
+        state
+        | bytes_since_prune: state.bytes_since_prune + byte_size(contents),
+          open_lifecycles: track_lifecycles(state.open_lifecycles, records),
+          write_warning_emitted: false
+      }
+
       maybe_prune(state)
     else
       {:error, reason} -> warn_write_failure(state, reason)
@@ -280,6 +267,18 @@ defmodule Aiur.RunTelemetry.Writer do
   defp maybe_prune(%{bytes_since_prune: n, prune_interval_bytes: threshold} = state) when n < threshold, do: state
 
   defp maybe_prune(state) do
+    if segment_roll_required?(state) do
+      roll_and_prune(state)
+    else
+      prune_historical_boots(state)
+    end
+  rescue
+    error ->
+      Logger.warning("run_telemetry retention_raised path=#{state.path} reason=#{inspect(error)}")
+      %{state | bytes_since_prune: 0}
+  end
+
+  defp roll_and_prune(state) do
     # Roll the current segment: append a restart marker to close the current
     # segment so any data before this point is pruneable as a completed group.
     # The fresh restart marker re-anchors the current boot in the file, so the
@@ -298,38 +297,55 @@ defmodule Aiur.RunTelemetry.Writer do
     end
 
     %{rolled | bytes_since_prune: 0}
-  rescue
-    error ->
-      Logger.warning("run_telemetry retention_raised path=#{state.path} reason=#{inspect(error)}")
-      %{state | bytes_since_prune: 0}
+  end
+
+  defp prune_historical_boots(state) do
+    opts = state.retention |> Keyword.put(:now, state.clock.()) |> Keyword.put(:protected_boot_id, state.boot_id)
+
+    case Retention.prune(state.path, opts) do
+      :ok ->
+        %{state | bytes_since_prune: 0}
+
+      {:error, reason} ->
+        Logger.warning("run_telemetry retention_failed path=#{state.path} reason=#{inspect(reason)}")
+        %{state | bytes_since_prune: 0}
+    end
+  end
+
+  defp segment_roll_required?(state) do
+    with max_bytes when is_integer(max_bytes) and max_bytes > 0 <- Keyword.get(state.retention, :max_bytes),
+         {:ok, %{size: size}} <- File.stat(state.path) do
+      size > max_bytes
+    else
+      _other -> false
+    end
   end
 
   defp write_segment_boundary(state) do
-    sequence = next_sequence(state)
     timestamp = state.clock.()
+    {closing, reopening, open_lifecycles} = segment_lifecycle_records(state.open_lifecycles, timestamp)
 
-    envelope = %{
-      schema_version: RunTelemetry.schema_version(),
-      kind: "restart",
-      timestamp: normalize_timestamp(timestamp),
-      recorded_at: normalize_timestamp(timestamp),
-      boot_id: state.boot_id,
-      sequence: sequence,
-      record_id: "#{state.boot_id}:#{sequence}",
-      attributes: %{
-        event: "daemon_restart",
-        daemon_pid: System.pid(),
-        daemon_started_at: RunTelemetry.boot_started_at(),
-        existing_records: true
-      }
-    }
+    records =
+      closing ++
+        [
+          {:restart,
+           %{
+             event: "segment_boundary",
+             daemon_pid: System.pid(),
+             daemon_started_at: RunTelemetry.boot_started_at(),
+             existing_records: true
+           }, timestamp}
+        ] ++ reopening
 
-    {:ok, encoded} = Jason.encode(Aiur.JSONSafe.normalize(envelope))
-    contents = encoded <> "\n"
+    {rolled, contents} = encode_records(state, records)
 
     case state.write_fun.(state.path, contents) do
       :ok ->
-        %{state | sequence: sequence, bytes_since_prune: state.bytes_since_prune + byte_size(contents)}
+        %{
+          rolled
+          | bytes_since_prune: state.bytes_since_prune + byte_size(contents),
+            open_lifecycles: open_lifecycles
+        }
 
       {:error, reason} ->
         Logger.warning("run_telemetry segment_roll_failed path=#{state.path} reason=#{inspect(reason)}")
@@ -337,8 +353,9 @@ defmodule Aiur.RunTelemetry.Writer do
     end
   end
 
-  # Default interval: max_bytes / 8, minimum 1 MiB. Overridable via :prune_interval_bytes
-  # in the retention keyword list — useful for testing without writing large payloads.
+  # Default interval: max_bytes / 8, minimum 1 MiB. It can be overridden with
+  # observability.telemetry_retention_prune_interval_bytes (or directly in
+  # the retention keyword list for focused tests).
   defp prune_interval(retention) do
     case Keyword.get(retention, :prune_interval_bytes) do
       n when is_integer(n) and n > 0 ->
@@ -374,7 +391,7 @@ defmodule Aiur.RunTelemetry.Writer do
   defp next_sequence(state), do: state.sequence + 1
 
   defp maybe_mark_writer_restart(%{shared_sequence?: true}, kind, attributes, sequence)
-       when kind in [:restart, "restart"] and sequence > 1 do
+       when kind in [:restart, "restart"] and sequence > 1 and Map.get(attributes, :event) in [:daemon_restart, "daemon_restart"] do
     Map.put(attributes, :event, :telemetry_writer_restart)
   end
 
@@ -387,4 +404,89 @@ defmodule Aiur.RunTelemetry.Writer do
   defp normalize_timestamp(%DateTime{} = timestamp), do: DateTime.to_iso8601(timestamp)
   defp normalize_timestamp(timestamp) when is_binary(timestamp), do: timestamp
   defp normalize_timestamp(_timestamp), do: DateTime.utc_now() |> DateTime.to_iso8601()
+
+  defp encode_records(state, records) do
+    {state, lines} =
+      Enum.reduce(records, {state, []}, fn {kind, attributes, timestamp}, {state, lines} ->
+        sequence = next_sequence(state)
+        attributes = maybe_mark_writer_restart(state, kind, attributes, sequence)
+
+        envelope = %{
+          schema_version: RunTelemetry.schema_version(),
+          kind: normalize_kind(kind),
+          timestamp: normalize_timestamp(timestamp),
+          recorded_at: normalize_timestamp(state.clock.()),
+          boot_id: state.boot_id,
+          sequence: sequence,
+          record_id: "#{state.boot_id}:#{sequence}",
+          attributes: attributes
+        }
+
+        {:ok, encoded} = Jason.encode(Aiur.JSONSafe.normalize(envelope))
+        {%{state | sequence: sequence}, [[encoded, "\n"] | lines]}
+      end)
+
+    {state, lines |> Enum.reverse() |> IO.iodata_to_binary()}
+  end
+
+  defp track_lifecycles(open_lifecycles, records) do
+    Enum.reduce(records, open_lifecycles, fn {kind, attributes, timestamp}, open_lifecycles ->
+      case lifecycle_key(kind, attributes) do
+        {:start, key} -> Map.put(open_lifecycles, key, {attributes, timestamp})
+        {:end, key} -> Map.delete(open_lifecycles, key)
+        :skip -> open_lifecycles
+      end
+    end)
+  end
+
+  defp segment_lifecycle_records(open_lifecycles, timestamp) do
+    open_lifecycles
+    |> Enum.sort_by(fn {key, _value} -> key end)
+    |> Enum.reduce({[], [], %{}}, fn {key, {attributes, _started_at}}, {closing, reopening, continued} ->
+      closing_attributes =
+        attributes
+        |> put_attribute(:boundary, "end")
+        |> put_attribute(:duration_status, "segmented")
+        |> put_attribute(:segment_continuation, "close")
+
+      opening_attributes =
+        attributes
+        |> put_attribute(:boundary, "start")
+        |> put_attribute(:duration_status, "segmented")
+        |> put_attribute(:segment_continuation, "open")
+
+      {
+        [{:lifecycle, closing_attributes, timestamp} | closing],
+        [{:lifecycle, opening_attributes, timestamp} | reopening],
+        Map.put(continued, key, {opening_attributes, timestamp})
+      }
+    end)
+    |> then(fn {closing, reopening, continued} -> {Enum.reverse(closing), Enum.reverse(reopening), continued} end)
+  end
+
+  defp lifecycle_key(kind, attributes) when kind in [:lifecycle, "lifecycle"] and is_map(attributes) do
+    case attribute_value(attributes, :boundary) do
+      boundary when boundary in [:start, "start"] -> {:start, lifecycle_pair_key(attributes)}
+      boundary when boundary in [:end, "end"] -> {:end, lifecycle_pair_key(attributes)}
+      _other -> :skip
+    end
+  end
+
+  defp lifecycle_key(_kind, _attributes), do: :skip
+
+  defp lifecycle_pair_key(attributes) do
+    {
+      attribute_value(attributes, :attempt_id),
+      attribute_value(attributes, :event),
+      attribute_value(attributes, :operation_id)
+    }
+  end
+
+  defp attribute_value(attributes, key), do: Map.get(attributes, key) || Map.get(attributes, Atom.to_string(key))
+
+  defp put_attribute(attributes, key, value) do
+    attributes
+    |> Map.delete(Atom.to_string(key))
+    |> Map.put(key, value)
+  end
 end

@@ -52,31 +52,32 @@ defmodule Aiur.RunTelemetry.Retention do
   # materialising line content. Peak memory is O(group_count * metadata), not
   # O(file_size).
   defp read_boot_groups(path) do
-    initial = {[], {0, nil, nil}, 0}
+    initial = {[], {0, nil, nil, false}, 0}
 
-    {groups_acc, {grp_start, started_at, boot_id}, total_offset} =
+    {groups_acc, {grp_start, started_at, boot_id, segment_boundary?}, total_offset} =
       path
       |> File.stream!(:line, [])
-      |> Enum.reduce(initial, fn line, {groups, {grp_start, started_at, boot_id}, offset} ->
+      |> Enum.reduce(initial, fn line, {groups, {grp_start, started_at, boot_id, segment_boundary?}, offset} ->
         size = byte_size(line)
         next_offset = offset + size
 
         case restart_metadata(line) do
-          {:ok, timestamp, new_boot_id} when offset > grp_start ->
+          {:ok, timestamp, new_boot_id, new_segment_boundary?} when offset > grp_start ->
             group = %{
               start_offset: grp_start,
               size: offset - grp_start,
               started_at: started_at,
-              boot_id: boot_id
+              boot_id: boot_id,
+              segment_boundary?: segment_boundary?
             }
 
-            {[group | groups], {offset, timestamp, new_boot_id}, next_offset}
+            {[group | groups], {offset, timestamp, new_boot_id, new_segment_boundary?}, next_offset}
 
-          {:ok, timestamp, new_boot_id} ->
-            {groups, {offset, timestamp, new_boot_id}, next_offset}
+          {:ok, timestamp, new_boot_id, new_segment_boundary?} ->
+            {groups, {offset, timestamp, new_boot_id, new_segment_boundary?}, next_offset}
 
           :error ->
-            {groups, {grp_start, started_at, boot_id}, next_offset}
+            {groups, {grp_start, started_at, boot_id, segment_boundary?}, next_offset}
         end
       end)
 
@@ -86,7 +87,8 @@ defmodule Aiur.RunTelemetry.Retention do
           start_offset: grp_start,
           size: total_offset - grp_start,
           started_at: started_at,
-          boot_id: boot_id
+          boot_id: boot_id,
+          segment_boundary?: segment_boundary?
         }
 
         Enum.reverse([last | groups_acc])
@@ -103,13 +105,14 @@ defmodule Aiur.RunTelemetry.Retention do
     with {:ok,
           %{
             "kind" => "restart",
-            "attributes" => %{"event" => "daemon_restart"},
+            "attributes" => %{"event" => event},
             "timestamp" => timestamp,
             "boot_id" => boot_id
           }} <-
            Jason.decode(line),
+         true <- event in ["daemon_restart", "segment_boundary"],
          {:ok, parsed, _offset} <- DateTime.from_iso8601(timestamp) do
-      {:ok, parsed, boot_id}
+      {:ok, parsed, boot_id, event == "segment_boundary"}
     else
       _other -> :error
     end
@@ -135,7 +138,9 @@ defmodule Aiur.RunTelemetry.Retention do
   # Retains the newest contiguous sequence of boots that fits within max_bytes.
   # Breaks at the first group that does not fit — older groups are dropped even
   # if they would individually fit, preserving a contiguous history window.
-  # A single oversized boot is always kept regardless of size.
+  # Once a live boot rolls into segments, retain only its newest completed
+  # segment plus boundary so `session: :current` remains a bounded, complete
+  # view rather than a partial selection of that same boot.
   defp retain_by_size(groups, opts) do
     case Keyword.get(opts, :max_bytes) do
       max_bytes when is_integer(max_bytes) and max_bytes > 0 ->
@@ -147,24 +152,39 @@ defmodule Aiur.RunTelemetry.Retention do
   end
 
   defp retain_newest_groups(groups, max_bytes, protected_boot_id) do
-    {retained, _size} =
-      Enum.reduce_while(Enum.reverse(groups), {[], 0}, fn group, {retained, size} ->
+    {retained, _size, _completed_segment?} =
+      Enum.reduce_while(Enum.reverse(groups), {[], 0, false}, fn group, {retained, size, completed_segment?} ->
         group_size = group.size
 
         cond do
+          completed_segment? ->
+            {:halt, {retained, size, completed_segment?}}
+
           group.boot_id == protected_boot_id ->
-            {:cont, {[group | retained], size + group_size}}
+            {:cont, {[group | retained], size + group_size, completed_segment?}}
+
+          preserve_completed_segment?(group, retained) ->
+            {:cont, {[group | retained], size + group_size, true}}
 
           retained == [] or size + group_size <= max_bytes ->
-            {:cont, {[group | retained], size + group_size}}
+            {:cont, {[group | retained], size + group_size, completed_segment?}}
 
           true ->
-            {:halt, {retained, size}}
+            {:halt, {retained, size, completed_segment?}}
         end
       end)
 
     retained
   end
+
+  # A freshly-written segment boundary starts an empty successor group. Keep
+  # its immediately preceding segment as one unit even if the pair exceeds the
+  # size target; otherwise a single oversized sample could be discarded while
+  # the boundary alone survived.
+  defp preserve_completed_segment?(group, [%{boot_id: boot_id, segment_boundary?: true}]),
+    do: group.boot_id == boot_id
+
+  defp preserve_completed_segment?(_group, _retained), do: false
 
   # Copies retained byte ranges from the source file to a temp file, then
   # atomically renames. Peak memory is O(@copy_chunk_bytes), not O(file_size).
@@ -173,48 +193,42 @@ defmodule Aiur.RunTelemetry.Retention do
     temporary = Path.join(directory, ".#{Path.basename(path)}.#{System.unique_integer([:positive])}.tmp")
 
     with {:ok, src} <- :file.open(path, [:read, :binary]) do
-      outcome =
-        case :file.open(temporary, [:write, :binary]) do
-          {:ok, dst} ->
-            result = copy_groups(src, dst, retained)
-            :file.close(dst)
-            result
-
-          {:error, reason} ->
-            {:error, reason}
-        end
-
+      outcome = copy_to_temporary(src, temporary, retained)
       :file.close(src)
+      finalize_temporary(path, temporary, outcome)
+    end
+  end
 
-      case outcome do
-        :ok ->
-          case File.rename(temporary, path) do
-            :ok ->
-              :ok
-
-            {:error, reason} ->
-              case File.rm(temporary) do
-                :ok ->
-                  :ok
-
-                {:error, rm_reason} ->
-                  Logger.warning("run_telemetry temp_file_leaked path=#{temporary} reason=#{inspect(rm_reason)}")
-              end
-
-              {:error, reason}
-          end
-
-        {:error, reason} ->
-          case File.rm(temporary) do
-            :ok ->
-              :ok
-
-            {:error, rm_reason} ->
-              Logger.warning("run_telemetry temp_file_leaked path=#{temporary} reason=#{inspect(rm_reason)}")
-          end
-
-          {:error, reason}
+  defp copy_to_temporary(src, temporary, retained) do
+    with {:ok, dst} <- :file.open(temporary, [:write, :binary]) do
+      try do
+        copy_groups(src, dst, retained)
+      after
+        :file.close(dst)
       end
+    end
+  end
+
+  defp finalize_temporary(path, temporary, :ok) do
+    case File.rename(temporary, path) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        cleanup_temporary(temporary)
+        {:error, reason}
+    end
+  end
+
+  defp finalize_temporary(_path, temporary, {:error, reason}) do
+    cleanup_temporary(temporary)
+    {:error, reason}
+  end
+
+  defp cleanup_temporary(temporary) do
+    case File.rm(temporary) do
+      :ok -> :ok
+      {:error, rm_reason} -> Logger.warning("run_telemetry temp_file_leaked path=#{temporary} reason=#{inspect(rm_reason)}")
     end
   end
 

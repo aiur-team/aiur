@@ -455,6 +455,7 @@ defmodule Aiur.Config.SchemaTest do
       assert settings.observability.telemetry_enabled == true
       assert settings.observability.telemetry_retention_max_bytes == 64 * 1024 * 1024
       assert settings.observability.telemetry_retention_max_age_days == 30
+      assert settings.observability.telemetry_retention_prune_interval_bytes == nil
     end
 
     test "Observability section accepts explicit values" do
@@ -466,7 +467,8 @@ defmodule Aiur.Config.SchemaTest do
             "refresh_ms" => 500,
             "telemetry_enabled" => false,
             "telemetry_retention_max_bytes" => 1_024,
-            "telemetry_retention_max_age_days" => 7
+            "telemetry_retention_max_age_days" => 7,
+            "telemetry_retention_prune_interval_bytes" => 128
           }
         })
 
@@ -476,6 +478,7 @@ defmodule Aiur.Config.SchemaTest do
       assert settings.observability.telemetry_enabled == false
       assert settings.observability.telemetry_retention_max_bytes == 1_024
       assert settings.observability.telemetry_retention_max_age_days == 7
+      assert settings.observability.telemetry_retention_prune_interval_bytes == 128
     end
 
     test "Server section parses with defaults" do
