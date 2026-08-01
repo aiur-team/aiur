@@ -43,6 +43,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
           waves: [map()],
           cards: [card()],
           edges: [map()],
+          overall_pct: 0..100,
           planning?: boolean()
         }
   def build(model, adhoc) do
@@ -53,10 +54,11 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
     cards = annotate_blocks(core_cards ++ adhoc_cards, edges)
 
     %{
-      columns: columns(cards),
+      columns: columns(cards, core_cards),
       waves: waves(core_cards, cards),
       cards: cards,
       edges: edges,
+      overall_pct: completion_percent(core_cards),
       planning?: planning?
     }
   end
@@ -108,7 +110,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
       has_progress: merged or is_integer(Map.get(card, :progress)),
       merged: merged,
       state: core_state(status_key),
-      status_word: core_status_word(status_key, Map.get(card, :status_text)),
+      status_word: core_status_word(status_key, node.execution, Map.get(card, :status_text)),
       adhoc: false
     }
   end
@@ -148,15 +150,16 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
 
   # --- columns (epics) --------------------------------------------------------
 
-  defp columns(cards) do
+  defp columns(cards, core_cards) do
     counts = Enum.frequencies_by(cards, & &1.lane)
+    completion = completion_by(core_cards, :lane)
     order = cards |> Enum.map(& &1.lane) |> Enum.uniq()
     appearance = order |> Enum.with_index() |> Map.new()
 
     order
     |> Enum.sort_by(&lane_order(&1, appearance))
     |> Enum.map(fn lane ->
-      %{lane: lane, label: BuildOrderEpicIcon.label(lane), count: Map.get(counts, lane, 0)}
+      %{lane: lane, label: BuildOrderEpicIcon.label(lane), count: Map.get(counts, lane, 0), pct: Map.get(completion, lane)}
     end)
   end
 
@@ -197,18 +200,23 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
   # fraction; an unknown-progress card contributes nothing. Weight is the card's
   # complexity (points), defaulting to 1 when complexity is unknown.
   defp wave_completion(core_cards) do
-    core_cards
-    |> Enum.group_by(& &1.phase)
-    |> Map.new(fn {phase, cards} ->
-      {weight, done} =
-        Enum.reduce(cards, {0, 0.0}, fn card, {w_acc, d_acc} ->
-          weight = card.complexity || 1
-          {w_acc + weight, d_acc + weight * completion_fraction(card)}
-        end)
+    completion_by(core_cards, :phase)
+  end
 
-      pct = if weight > 0, do: round(done / weight * 100), else: 0
-      {phase, pct}
-    end)
+  defp completion_by(cards, field) do
+    cards
+    |> Enum.group_by(&Map.fetch!(&1, field))
+    |> Map.new(fn {value, grouped} -> {value, completion_percent(grouped)} end)
+  end
+
+  defp completion_percent(cards) do
+    {weight, done} =
+      Enum.reduce(cards, {0, 0.0}, fn card, {w_acc, d_acc} ->
+        weight = card.complexity || 1
+        {w_acc + weight, d_acc + weight * completion_fraction(card)}
+      end)
+
+    if weight > 0, do: round(done / weight * 100), else: 0
   end
 
   defp completion_fraction(%{merged: true}), do: 1.0
@@ -261,11 +269,13 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
   defp core_state(key) when key in [:status_blocking, :status_terminal_unsatisfied, :status_cyclic], do: :blocked
   defp core_state(_key), do: :plain
 
-  defp core_status_word(:status_completed, _text), do: "merged"
-  defp core_status_word(:status_working, _text), do: "agent live"
-  defp core_status_word(:status_ready, _text), do: "dependency-ready"
-  defp core_status_word(_key, text) when is_binary(text) and text != "", do: text
-  defp core_status_word(_key, _text), do: "status unavailable"
+  defp core_status_word(:status_completed, _execution, _text), do: "merged"
+  defp core_status_word(:status_working, _execution, _text), do: "agent live"
+  defp core_status_word(:status_ready, _execution, _text), do: "dependency-ready"
+  defp core_status_word(:status_paused, %{pause_reason: :ci_wait}, _text), do: "CI waiting"
+  defp core_status_word(:status_waiting, %{waiting_reason: :waiting_for_ci}, _text), do: "CI waiting"
+  defp core_status_word(_key, _execution, text) when is_binary(text) and text != "", do: text
+  defp core_status_word(_key, _execution, _text), do: "status unavailable"
 
   defp adhoc_status_word(:merged), do: "merged"
   defp adhoc_status_word(:working), do: "agent live"
