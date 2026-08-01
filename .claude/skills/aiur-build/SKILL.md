@@ -207,6 +207,39 @@ on requirements, decisions, the plan, ticket contracts, and handoff. Run at
 least one pass; repeat after any high-severity or boundary-changing finding.
 Planning is complete when a relevant pass adds neither and all gates pass.
 
+## Place the pack where the dashboard discovers it
+
+`docs/build-orders/<slug>/` is the durable planning record; the dashboard never
+reads it. The daemon's Build Order page discovers packs from
+`.aiur/build_orders/*.json` — first under the working directory the daemon runs
+from, then the global aiur state dir (`$AIUR_BG_STATE_DIR`, default
+`$XDG_CONFIG_HOME/aiur` → `~/.config/aiur`); `AIUR_BUILD_ORDER_DIRS` overrides
+both (`src/lib/aiur_web/build_order/planning_source.ex`, `discovered_packs/0`).
+A pack that exists only in `docs/` or on a research branch is invisible to the
+dashboard and to the current-run summary projection for the entire run.
+
+When the graph is approved, also write a discovery pack to
+`.aiur/build_orders/<slug>.json` in the checkout the daemon actually runs from:
+`build_order_id`, `repository`, `title`, `root_number`, plus either `nodes[]` +
+`dependency_edges[]` (with an optional `document_resolver.path_template`
+containing `{id}`, resolved relative to the repository root above
+`.aiur/build_orders/`) or inline `tickets[]` with titles. Keep the full
+canonical `build-order.json` in `docs/` for validation and publication — that
+copy is the record, but only the `.aiur/` placement renders anywhere. Basenames
+are the shadowing key across the local and global directories, so name the file
+`<slug>.json`, never `build-order.json`.
+
+`build_order_id` embeds the repository slug (`owner/repo:<slug>`) and the
+pack's `repository` field must parse as `owner/repo`. An org or repository
+rename changes both; update the pack (including any global copy) or the
+dashboard lookup mismatches silently.
+
+Verify before declaring the build order planned: with the daemon running, fetch
+the Build Order page (`curl -s http://localhost:<port>/build-orders`) and
+confirm the pack's title and tickets render. If it does not appear, check the
+daemon's working directory — discovery is relative to where the daemon runs,
+not where planning happened.
+
 ## Optional GitHub materialization
 
 Only when explicitly authorized:
