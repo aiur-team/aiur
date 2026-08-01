@@ -61,6 +61,15 @@ defmodule Aiur.ProviderMetersTest do
     assert tombstoned.windows == %{}
   end
 
+  test "a registry-only provider meter resolves its own account generation", %{owner: owner, store: store} do
+    binding = bound_binding(owner, :fake)
+
+    assert {:ok, %ProviderMeterSnapshot{provider: :fake, provider_account_generation: generation}} =
+             Store.ingest(store, update(binding, provider: :fake, windows: [window("fake-session")]))
+
+    assert is_binary(generation)
+  end
+
   property "arbitrary limit IDs preserve full, sparse, tombstone, and out-of-order semantics" do
     check all(
             ids <-
@@ -444,18 +453,21 @@ defmodule Aiur.ProviderMetersTest do
     }
   end
 
-  defp bound_binding(owner) do
-    assert {:ok, binding} = ProviderAccountGeneration.issue_binding(owner, :codex, :app_server)
+  defp bound_binding(owner, provider \\ :codex) do
+    assert {:ok, binding} = ProviderAccountGeneration.issue_binding(owner, provider, :app_server)
 
     assert {:ok, %{generation: generation}} =
-             ProviderAccountGeneration.bind(owner, :codex, :app_server, binding,
-               source: :codex_app_server,
-               auth_mode: "chatgpt"
+             ProviderAccountGeneration.bind(owner, provider, :app_server, binding,
+               source: account_generation_source(provider),
+               auth_mode: if(provider == :fake, do: "fake", else: "chatgpt")
              )
 
     assert is_binary(generation)
     binding
   end
+
+  defp account_generation_source(:codex), do: :codex_app_server
+  defp account_generation_source(:fake), do: :fake_app_server
 
   defp ensure_pubsub do
     unless Process.whereis(Aiur.PubSub) do
