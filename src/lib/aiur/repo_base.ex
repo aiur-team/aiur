@@ -27,6 +27,7 @@ defmodule Aiur.RepoBase do
   @base_record "base-record.json"
   @legacy_built_marker ".aiur-base-built"
   @cache_sidecars [".aiur-hex", ".aiur-mix", ".aiur-npm-cache"]
+  @remote_probe_timeout_ms 30_000
 
   ## ---- Public API ----
 
@@ -164,8 +165,18 @@ defmodule Aiur.RepoBase do
     {:noreply, %{state | build: nil, phase: {:error, {:build_crashed, reason}}}}
   end
 
-  def handle_info({:remote_head, head}, state) do
-    {:noreply, on_remote_head(%{state | probe: nil}, head)}
+  def handle_info({:DOWN, ref, :process, _pid, reason}, %{probe: %{ref: ref}} = state) do
+    {:noreply, state |> clear_probe() |> probe_failed({:probe_crashed, reason})}
+  end
+
+  def handle_info({:remote_head, pid, result}, %{probe: %{pid: pid}} = state) do
+    {:noreply, state |> clear_probe() |> on_remote_head(result)}
+  end
+
+  def handle_info({:probe_timeout, ref}, %{probe: %{ref: ref, pid: pid}} = state) do
+    Process.demonitor(ref, [:flush])
+    Process.exit(pid, :kill)
+    {:noreply, state |> clear_probe() |> probe_failed(:timeout)}
   end
 
   def handle_info(_msg, state), do: {:noreply, state}
@@ -204,6 +215,7 @@ defmodule Aiur.RepoBase do
         cond do
           state.build != nil -> ensure_probe(state, repo_url)
           state.phase == :checking -> state
+          match?({:error, _}, state.phase) -> state
           state.phase == :ready and state.freshness == :fresh -> %{state | freshness: :unknown}
           state.phase == :ready -> probe_freshness(state, repo_url)
           true -> start_build(state, base, repo_url, command)
@@ -216,9 +228,13 @@ defmodule Aiur.RepoBase do
   defp ensure_probe(%{probe: nil} = state, repo_url) do
     parent = self()
 
-    {pid, ref} = spawn_monitor(fn -> send(parent, {:remote_head, remote_head(repo_url)}) end)
+    {pid, ref} =
+      spawn_monitor(fn ->
+        send(parent, {:remote_head, self(), remote_head(repo_url)})
+      end)
 
-    %{state | probe: %{pid: pid, ref: ref}}
+    timer = Process.send_after(self(), {:probe_timeout, ref}, @remote_probe_timeout_ms)
+    %{state | probe: %{pid: pid, ref: ref, timer: timer}}
   end
 
   defp ensure_probe(state, _repo_url), do: state
@@ -231,12 +247,24 @@ defmodule Aiur.RepoBase do
 
   # main advanced past what the base reflects -> preempt any in-flight build and
   # rebuild fresh; otherwise stay put.
-  defp on_remote_head(state, head) do
+  defp on_remote_head(state, {:ok, head}) do
     if advanced?(state, head), do: trigger_build(state), else: confirm_freshness(state)
   end
 
+  defp on_remote_head(state, {:error, reason}), do: probe_failed(state, reason)
+
   defp confirm_freshness(%{phase: :checking} = state), do: %{state | phase: :ready, freshness: :fresh}
   defp confirm_freshness(state), do: state
+
+  # A failed probe must never certify a clone as current. Surface the failure so
+  # the dispatcher deliberately takes its cold-clone fallback for this tick;
+  # later scheduled refreshes can retry the probe/build without handing an
+  # unverified warm base to a workspace.
+  defp probe_failed(%{build: nil, phase: :checking} = state, reason) do
+    %{state | phase: {:error, {:repo_base_remote_probe_failed, reason}}, freshness: :unknown}
+  end
+
+  defp probe_failed(state, _reason), do: state
 
   # in-flight build is targeting an older head
   defp advanced?(%{build: %{head: build_head}}, head)
@@ -424,8 +452,14 @@ defmodule Aiur.RepoBase do
 
   defp remote_head(repo_url) do
     case git(["ls-remote", repo_url, "refs/heads/#{base_branch()}"], nil) do
-      {out, 0} -> out |> String.split() |> List.first()
-      _ -> nil
+      {out, 0} ->
+        case out |> String.split() |> List.first() do
+          head when is_binary(head) and head != "" -> {:ok, head}
+          _ -> {:error, :empty_remote_head}
+        end
+
+      {out, status} ->
+        {:error, {:ls_remote_failed, status, out}}
     end
   end
 
@@ -484,7 +518,7 @@ defmodule Aiur.RepoBase do
     node = repo_node_path(base_path)
 
     with :ok <- recover_interrupted_migration(base_path) do
-      if File.dir?(Path.join(node, ".git")) and not File.exists?(base_path) do
+      if File.dir?(Path.join(node, ".git")) do
         temporary = node <> ".migrating-" <> unique_suffix()
 
         with :ok <- File.rename(node, temporary),
@@ -589,6 +623,11 @@ defmodule Aiur.RepoBase do
 
   defp repo_node_path(base_path), do: Path.dirname(base_path)
   defp base_record_path(base_path), do: Path.join(repo_node_path(base_path), @base_record)
+
+  defp clear_probe(%{probe: %{timer: timer}} = state) do
+    if is_reference(timer), do: Process.cancel_timer(timer)
+    %{state | probe: nil}
+  end
 
   defp unique_suffix do
     :crypto.strong_rand_bytes(12)

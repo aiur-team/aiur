@@ -50,10 +50,13 @@ defmodule Aiur.RepoBaseTest do
       File.write!(Path.join(node, ".aiur-base-built"), "")
       File.mkdir_p!(Path.join(node, ".aiur-hex"))
       File.write!(Path.join(node, ".aiur-hex/cache"), "warm")
+      File.write!(Path.join(node, "latest"), "legacy tracked path")
 
       assert {:ok, ^base} = RepoBase.refresh(base, origin, "touch rebuilt_after_migration")
 
       assert File.dir?(Path.join(base, ".git"))
+      refute File.dir?(Path.join(node, ".git"))
+      assert File.read!(Path.join(base, "latest")) == "legacy tracked path"
       assert File.exists?(Path.join(node, ".aiur-hex/cache"))
       refute File.exists?(Path.join(base, ".aiur-hex/cache"))
       refute File.exists?(Path.join(base, ".aiur-base-built"))
@@ -349,32 +352,49 @@ defmodule Aiur.RepoBaseTest do
     end
 
     test "a remote-head advance past a ready base triggers a rebuild", %{server: pid} do
-      :sys.replace_state(pid, fn s -> %{s | build: nil, phase: :ready, ready_head: "old"} end)
+      :sys.replace_state(pid, fn s ->
+        %{s | build: nil, phase: :ready, ready_head: "old", probe: probe(pid)}
+      end)
 
-      send(pid, {:remote_head, "new"})
+      send(pid, {:remote_head, pid, {:ok, "new"}})
 
       # resolve is disabled in test, so the triggered rebuild resolves to idle.
       assert %{phase: :idle, probe: nil} = :sys.get_state(pid)
     end
 
     test "a remote-head with no advance leaves a ready base untouched", %{server: pid} do
-      :sys.replace_state(pid, fn s -> %{s | build: nil, phase: :ready, ready_head: "same"} end)
+      :sys.replace_state(pid, fn s ->
+        %{s | build: nil, phase: :ready, ready_head: "same", probe: probe(pid)}
+      end)
 
-      send(pid, {:remote_head, "same"})
+      send(pid, {:remote_head, pid, {:ok, "same"}})
 
       assert %{phase: :ready} = :sys.get_state(pid)
     end
 
     test "a matching dispatch freshness check marks the ready base fresh", %{server: pid} do
       :sys.replace_state(pid, fn s ->
-        %{s | build: nil, phase: :checking, ready_head: "same", freshness: :unknown}
+        %{s | build: nil, phase: :checking, ready_head: "same", freshness: :unknown, probe: probe(pid)}
       end)
 
-      send(pid, {:remote_head, "same"})
+      send(pid, {:remote_head, pid, {:ok, "same"}})
 
       assert %{phase: :ready, freshness: :fresh} = :sys.get_state(pid)
     end
+
+    test "a failed freshness check never certifies the warm base", %{server: pid} do
+      :sys.replace_state(pid, fn s ->
+        %{s | build: nil, phase: :checking, ready_head: "same", freshness: :unknown, probe: probe(pid)}
+      end)
+
+      send(pid, {:remote_head, pid, {:error, :timeout}})
+
+      assert %{phase: {:error, {:repo_base_remote_probe_failed, :timeout}}, freshness: :unknown} =
+               :sys.get_state(pid)
+    end
   end
+
+  defp probe(pid), do: %{pid: pid, ref: make_ref(), timer: nil}
 
   describe "git_auth_env/1" do
     test "injects the token as a per-host Authorization header via env config" do
