@@ -110,7 +110,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
       has_progress: merged or is_integer(Map.get(card, :progress)),
       merged: merged,
       state: core_state(status_key),
-      status_word: core_status_word(status_key, Map.get(card, :status_text)),
+      status_word: core_status_word(status_key, node.execution, Map.get(card, :status_text)),
       adhoc: false
     }
   end
@@ -269,11 +269,12 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
   defp core_state(key) when key in [:status_blocking, :status_terminal_unsatisfied, :status_cyclic], do: :blocked
   defp core_state(_key), do: :plain
 
-  defp core_status_word(:status_completed, _text), do: "merged"
-  defp core_status_word(:status_working, _text), do: "agent live"
-  defp core_status_word(:status_ready, _text), do: "dependency-ready"
-  defp core_status_word(_key, text) when is_binary(text) and text != "", do: text
-  defp core_status_word(_key, _text), do: "status unavailable"
+  defp core_status_word(:status_completed, _execution, _text), do: "merged"
+  defp core_status_word(:status_working, _execution, _text), do: "agent live"
+  defp core_status_word(:status_ready, _execution, _text), do: "dependency-ready"
+  defp core_status_word(:status_paused, %{pause_reason: :ci_wait}, _text), do: "CI waiting"
+  defp core_status_word(_key, _execution, text) when is_binary(text) and text != "", do: text
+  defp core_status_word(_key, _execution, _text), do: "status unavailable"
 
   defp adhoc_status_word(:merged), do: "merged"
   defp adhoc_status_word(:working), do: "agent live"
