@@ -222,6 +222,40 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
     identity
   end
 
+  defp health(%{health: :healthy, freshness: %{status: :fresh}} = membership) do
+    ProviderHealth.new(generation(membership), :healthy, true, observed_at: DateTime.utc_now())
+  end
+
+  defp health(%{health: :healthy, freshness: %{status: status}} = membership)
+       when status in [:stale, :unknown] do
+    ProviderHealth.new(generation(membership), :stale, false, observed_at: DateTime.utc_now(), failure: :membership_stale)
+  end
+
+  defp health(%{health: :healthy, freshness: %{status: :unavailable}} = membership) do
+    ProviderHealth.new(generation(membership), :unavailable, false,
+      observed_at: DateTime.utc_now(),
+      failure: :membership_unavailable
+    )
+  end
+
+  defp health(%{health: {:degraded, _reason}} = membership) do
+    ProviderHealth.new(generation(membership), :stale, false, observed_at: DateTime.utc_now(), failure: :membership_stale)
+  end
+
+  defp health(%{health: {:unavailable, _reason}} = membership) do
+    ProviderHealth.new(generation(membership), :unavailable, false,
+      observed_at: DateTime.utc_now(),
+      failure: :membership_unavailable
+    )
+  end
+
+  defp health(%{health: :unavailable} = membership) do
+    ProviderHealth.new(generation(membership), :unavailable, false,
+      observed_at: DateTime.utc_now(),
+      failure: :membership_unavailable
+    )
+  end
+
   defp health(membership), do: ProviderHealth.new(generation(membership), :healthy, true, observed_at: DateTime.utc_now())
 
   defp generation(%{generation: generation}) when is_integer(generation) and generation >= 0, do: @generation + generation
@@ -237,10 +271,10 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   end
 
   defp completed?(ticket, pack, membership) do
-    ticket
-    |> member_identity(pack, membership)
-    |> lifecycle(pack, membership)
-    |> match?({"CLOSED", _reason})
+    match?(
+      {"CLOSED", "COMPLETED"},
+      lifecycle(member_identity(pack, ticket, membership), pack, membership)
+    )
   end
 
   defp membership_lifecycle(identity, %{members: members}) when is_list(members) do
@@ -284,9 +318,9 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   defp membership_snapshot do
     Application.get_env(:aiur, :build_order_planning_membership_snapshot, &CurrentRunMembership.snapshot/0).()
   rescue
-    _error -> %{}
+    _error -> %{health: :unavailable}
   catch
-    _kind, _reason -> %{}
+    _kind, _reason -> %{health: :unavailable}
   end
 
   # --- pack loading ----------------------------------------------------------

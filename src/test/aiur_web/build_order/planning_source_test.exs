@@ -150,4 +150,70 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert Enum.find(grid.waves, &(&1.phase == 2)).pct == 100
     assert Enum.find(grid.waves, &(&1.phase == 3)).pct == 0
   end
+
+  test "does not count cancelled members as completed progress" do
+    path = Path.join(System.tmp_dir!(), "planning-source-cancelled-#{System.unique_integer([:positive])}.json")
+    File.write!(path, @canonical_pack)
+    Application.put_env(:aiur, :build_order_planning_pack, path)
+
+    on_exit(fn -> File.rm(path) end)
+
+    Application.put_env(:aiur, :build_order_planning_membership_snapshot, fn ->
+      {:ok, identity} =
+        TrackerIdentity.from_github(
+          %{"number" => 4101, "node_id" => "I_live_4101"},
+          {"acme", "widgets"},
+          {"acme", "widgets"}
+        )
+
+      %{generation: 8, members: [%{identity: identity, lifecycle: :cancelled}]}
+    end)
+
+    [root] = PlanningSource.catalog().data.entries
+    assert root.progress == 0
+
+    {:ok, snapshot} = PlanningSource.demand(root.identity)
+    [cancelled, _open] = snapshot.data.members
+    assert cancelled.lifecycle.state == :closed
+    assert cancelled.lifecycle.state_reason == :not_planned
+
+    model = BuildOrderPresenter.present(snapshot, :unavailable, :unavailable)
+    assert BuildOrderGridModel.build(model, nil).overall_pct == 0
+  end
+
+  test "marks membership recovery failures unavailable instead of trusted open state" do
+    [root] = PlanningSource.catalog().data.entries
+
+    Application.put_env(:aiur, :build_order_planning_membership_snapshot, fn ->
+      %{generation: 9, health: {:unavailable, :recovery_unavailable}, members: []}
+    end)
+
+    {:ok, snapshot} = PlanningSource.demand(root.identity)
+    assert snapshot.health.state == :unavailable
+    refute snapshot.health.complete?
+
+    model = BuildOrderPresenter.present(snapshot, :unavailable, :unavailable)
+    assert model.status == :provider_unavailable
+  end
+
+  test "discovers canonical packs from the runtime build-order directory" do
+    directory = Path.join(System.tmp_dir!(), "planning-source-discovery-#{System.unique_integer([:positive])}")
+    path = Path.join(directory, "analytics-streamdeck.json")
+    previous_dirs = System.get_env("AIUR_BUILD_ORDER_DIRS")
+
+    File.mkdir_p!(directory)
+    File.write!(path, @canonical_pack)
+    Application.delete_env(:aiur, :build_order_planning_pack)
+    System.put_env("AIUR_BUILD_ORDER_DIRS", directory)
+
+    on_exit(fn ->
+      if previous_dirs, do: System.put_env("AIUR_BUILD_ORDER_DIRS", previous_dirs), else: System.delete_env("AIUR_BUILD_ORDER_DIRS")
+      File.rm(path)
+      File.rmdir(directory)
+    end)
+
+    roots = PlanningSource.catalog().data.entries
+    root = Enum.find(roots, &(&1.identity.identifier == "9900"))
+    assert root.identity.provider_id == "I_live_root"
+  end
 end
