@@ -22,13 +22,30 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   }
   """
 
+  @canonical_pack """
+  {
+    "build_order_id": "acme/widgets:analytics-streamdeck",
+    "title": "Analytics Stream Deck",
+    "repository": "acme/widgets",
+    "github_root": {"number": 9900, "node_id": "I_live_root"},
+    "tickets": [
+      {"id": "AS-101", "title": "Wire stream", "workstream": "runtime", "phase_hint": 2,
+       "complexity_points": 3, "github_number": 4101, "depends_on": []},
+      {"id": "AS-102", "title": "Render deck", "workstream": "dashboard-ui", "phase_hint": 3,
+       "complexity_points": 2, "github": {"number": 4102, "node_id": "I_live_4102"}, "depends_on": ["AS-101"]}
+    ]
+  }
+  """
+
   setup do
     path = Path.join(System.tmp_dir!(), "planning-source-test-#{System.unique_integer([:positive])}.json")
     File.write!(path, @pack)
     Application.put_env(:aiur, :build_order_planning_pack, path)
+    Application.put_env(:aiur, :build_order_planning_membership_snapshot, fn -> %{generation: 0, members: []} end)
 
     on_exit(fn ->
       Application.delete_env(:aiur, :build_order_planning_pack)
+      Application.delete_env(:aiur, :build_order_planning_membership_snapshot)
       File.rm(path)
     end)
 
@@ -84,5 +101,53 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   test "missing pack yields no catalog rather than crashing" do
     Application.put_env(:aiur, :build_order_planning_pack, "/does/not/exist.json")
     assert PlanningSource.catalog() == nil
+  end
+
+  test "normalizes canonical aiur-build fields and hydrates terminal membership without tracker reads" do
+    path = Path.join(System.tmp_dir!(), "planning-source-canonical-#{System.unique_integer([:positive])}.json")
+    File.write!(path, @canonical_pack)
+    Application.put_env(:aiur, :build_order_planning_pack, path)
+
+    on_exit(fn -> File.rm(path) end)
+
+    [root] = PlanningSource.catalog().data.entries
+    assert root.identity.identifier == "9900"
+    assert root.identity.provider_id == "I_live_root"
+
+    Application.put_env(:aiur, :build_order_planning_membership_snapshot, fn ->
+      {:ok, identity} =
+        TrackerIdentity.from_github(
+          %{"number" => 4101, "node_id" => "I_live_4101"},
+          {"acme", "widgets"},
+          {"acme", "widgets"}
+        )
+
+      %{generation: 7, members: [%{identity: identity, lifecycle: :completed}]}
+    end)
+
+    [hydrated_root] = PlanningSource.catalog().data.entries
+    assert hydrated_root.progress == 50
+
+    {:ok, hydrated} = PlanningSource.demand(root.identity)
+    assert hydrated.generation == 8
+    refute hydrated.data.planning?
+
+    [closed, open] = hydrated.data.members
+    assert closed.identity.identifier == "4101"
+    assert closed.identity.provider_id == "I_live_4101"
+    assert closed.lifecycle.state == :closed
+    assert open.identity.identifier == "4102"
+    assert open.identity.provider_id == "I_live_4102"
+    assert open.lifecycle.state == :open
+
+    model = BuildOrderPresenter.present(hydrated, :unavailable, :unavailable)
+    assert Map.keys(model.summary.lanes) |> Enum.sort() == ["dashboard-ui", "runtime"]
+    assert Enum.map(model.phase_groups, & &1.key) == [2, 3]
+
+    grid = BuildOrderGridModel.build(model, nil)
+    assert grid.overall_pct == 60
+    assert Enum.find(grid.columns, &(&1.lane == "runtime")).pct == 100
+    assert Enum.find(grid.waves, &(&1.phase == 2)).pct == 100
+    assert Enum.find(grid.waves, &(&1.phase == 3)).pct == 0
   end
 end

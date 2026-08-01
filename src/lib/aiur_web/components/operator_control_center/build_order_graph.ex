@@ -48,6 +48,14 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
 
       <div :if={@core_waves != [] and not @planning?} class="bo-waves-head" aria-label="Wave completion">
 
+        <div class="bo-wave-seg">
+          <div class="bo-wave-seg-top">
+            <span class="bo-wave-seg-label">Overall</span>
+            <span class="bo-wave-seg-pct">{grid.overall_pct}%</span>
+          </div>
+          <span class="bo-wave-seg-meter" aria-hidden="true"><i style={wave_meter_style(grid.overall_pct)}></i></span>
+        </div>
+
         <div class="bo-waves-strip">
           <div :for={wave <- @core_waves} class="bo-wave-seg">
             <div class="bo-wave-seg-top">
@@ -89,6 +97,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
                 <BuildOrderEpicIcon.build_order_epic_icon lane={col.lane} class="bo-epic-icon" colored />
                 <span class="bo-epic-label">{col.label}</span>
                 <span class="bo-epic-count">{col.count}</span>
+                <span :if={is_integer(col.pct) and not @planning?} class="bo-epic-count">{col.pct}%</span>
               </div>
             </div>
 

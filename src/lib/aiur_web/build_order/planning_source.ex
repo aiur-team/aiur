@@ -9,8 +9,9 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   `config :aiur, :build_order_data_source, AiurWeb.BuildOrder.PlanningSource`.
   Because every downstream surface (RouteState, presenter, caches) joins on a
   GitHub `TrackerIdentity`, planning tickets are given a provisional identity
-  keyed by their numeric ticket id; the pack is marked `planning?: true` so the
-  view renders them as planned (no live progress) rather than as live issues.
+  keyed by their numeric ticket id. Packs with materialized GitHub mappings are
+  hydrated from the daemon's current-run membership projection; pre-ticket packs
+  remain planning-only.
 
   This is read-only demo/planning tooling — it never writes to GitHub. Point it
   at a pack with `:build_order_planning_pack` (an app-relative priv path).
@@ -19,8 +20,10 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   @behaviour AiurWeb.BuildOrder.DataSource
 
   alias Aiur.BuildOrder.{Catalog, Dependency, Member, ProviderHealth, RootSummary, SelectedRoot}
+  alias Aiur.CurrentRunMembership
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.TrackerIdentity
+  alias AiurWeb.BuildOrder.DataSource
 
   @epoch 1
   @generation 1
@@ -38,6 +41,8 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   @impl true
   def catalog do
+    membership = membership_snapshot()
+
     case load_packs() do
       [] ->
         nil
@@ -46,10 +51,10 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
         %Snapshot{
           scope: :catalog,
           repository: hd(packs).repository,
-          generation: @generation,
+          generation: generation(membership),
           authority_epoch: @epoch,
-          data: Catalog.new(Enum.map(packs, &root_summary/1), health()),
-          health: health()
+          data: Catalog.new(Enum.map(packs, &root_summary(&1, membership)), health(membership)),
+          health: health(membership)
         }
     end
   end
@@ -63,25 +68,27 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   def selected(%TrackerIdentity{} = identity), do: {:ok, selected_snapshot(identity)}
 
   defp selected_snapshot(identity) do
+    membership = membership_snapshot()
+
     case Enum.find(load_packs(), &pack_root?(&1, identity)) do
       %{} = pack ->
         %Snapshot{
           scope: {:selected, identity},
           repository: pack.repository,
-          generation: @generation,
+          generation: generation(membership),
           authority_epoch: @epoch,
-          data: SelectedRoot.new(root_summary(pack), members(pack), health(), planning?: not pack.completed),
-          health: health()
+          data: SelectedRoot.new(root_summary(pack, membership), members(pack, membership), health(membership), planning?: not (pack.materialized? or pack.completed)),
+          health: health(membership)
         }
 
       nil ->
         %Snapshot{
           scope: {:selected, identity},
           repository: {"unknown", "unknown"},
-          generation: @generation,
+          generation: generation(membership),
           authority_epoch: @epoch,
           data: nil,
-          health: health()
+          health: health(membership)
         }
     end
   end
@@ -90,15 +97,15 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   defp pack_root?(pack, %TrackerIdentity{owner: owner, repository: repo, identifier: number}),
     do: pack.repository == {owner, repo} and to_string(pack.root_number) == to_string(number)
 
-  # --- runtime sources / context (planning mode: nothing live) ---------------
+  # --- runtime sources / context ---------------------------------------------
 
   @impl true
-  def load_sources, do: %{execution: :unavailable, activity: :unavailable, adhoc: :unavailable}
+  def load_sources, do: DataSource.load_sources()
 
   @impl true
   def load_context(_identity), do: %{detail: :unavailable, history: :unavailable}
 
-  # --- subscriptions: static source, nothing to subscribe to -----------------
+  # --- subscriptions ----------------------------------------------------------
 
   @impl true
   def subscribe_catalog, do: :ok
@@ -111,7 +118,10 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   @impl true
   def release(_identity), do: :ok
   @impl true
-  def subscribe_sources, do: :ok
+  def subscribe_sources do
+    with :ok <- DataSource.subscribe_sources(), do: CurrentRunMembership.subscribe()
+  end
+
   @impl true
   def subscribe_context(_identity), do: :ok
   @impl true
@@ -119,7 +129,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   # --- pack -> structs -------------------------------------------------------
 
-  defp root_summary(pack) do
+  defp root_summary(pack, membership) do
     identity = root_identity(pack)
 
     RootSummary.new(%{
@@ -130,33 +140,34 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
       member_count: length(pack.tickets),
       epic_count: pack.tickets |> Enum.map(& &1.lane) |> Enum.uniq() |> length(),
       phase_count: pack.tickets |> Enum.map(& &1.phase) |> Enum.uniq() |> length(),
-      progress: progress_percent(pack)
+      progress: progress_percent(pack, membership)
     })
   end
 
-  # A pack flagged `completed` has shipped every ticket → 100%. Otherwise a
-  # planning pack is pre-ticket, so completion is 0% (the merged fraction, which
-  # stays correct once tickets materialize).
-  defp progress_percent(%{completed: true}), do: 100
-  defp progress_percent(%{tickets: []}), do: 0
+  defp progress_percent(%{tickets: []}, _membership), do: 0
 
-  defp progress_percent(%{tickets: tickets}) do
-    merged = Enum.count(tickets, &match?(%{github: %{"merged" => true}}, &1))
-    round(merged / length(tickets) * 100)
+  defp progress_percent(%{tickets: tickets} = pack, membership) do
+    completed = Enum.count(tickets, &completed?(&1, pack, membership))
+    round(completed / length(tickets) * 100)
   end
 
-  defp members(pack) do
+  defp members(pack, membership) do
     ids = MapSet.new(pack.tickets, & &1.id)
-    {state, reason} = if pack.completed, do: {"CLOSED", "COMPLETED"}, else: {"OPEN", nil}
+
+    identities =
+      Map.new(pack.tickets, fn ticket ->
+        {ticket.id, member_identity(pack, ticket, membership)}
+      end)
 
     Enum.map(pack.tickets, fn ticket ->
-      identity = ticket_identity(pack, ticket)
+      identity = Map.fetch!(identities, ticket.id)
+      {state, reason} = lifecycle(identity, pack, membership)
 
       dependencies =
         ticket.depends_on
         |> Enum.filter(&MapSet.member?(ids, &1))
         |> Enum.map(fn dep_id ->
-          Dependency.new(identity, ticket_identity(pack, %{id: dep_id}), nil, :blocked_by)
+          Dependency.new(identity, Map.fetch!(identities, dep_id), nil, :blocked_by)
         end)
 
       Member.new(%{
@@ -180,11 +191,11 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
       if(ticket.complexity, do: ["complexity:#{ticket.complexity}"], else: [])
   end
 
-  defp root_identity(pack), do: identity!(pack.repository, pack.root_number, "BO_ROOT")
+  defp root_identity(pack), do: identity!(pack.repository, pack.root_number, pack.root_node_id || "BO_ROOT")
 
   defp ticket_identity(pack, ticket) do
     number = ticket_number(pack, ticket)
-    identity!(pack.repository, number, "PLAN_#{ticket.id}")
+    identity!(pack.repository, number, ticket.node_id || "PLAN_#{ticket.id}")
   end
 
   # Prefer the pack's real GitHub number when present; otherwise derive it from
@@ -211,7 +222,72 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
     identity
   end
 
-  defp health, do: ProviderHealth.new(@generation, :healthy, true, observed_at: DateTime.utc_now())
+  defp health(membership), do: ProviderHealth.new(generation(membership), :healthy, true, observed_at: DateTime.utc_now())
+
+  defp generation(%{generation: generation}) when is_integer(generation) and generation >= 0, do: @generation + generation
+  defp generation(_membership), do: @generation
+
+  defp lifecycle(identity, pack, membership) do
+    case membership_lifecycle(identity, membership) do
+      :completed -> {"CLOSED", "COMPLETED"}
+      :cancelled -> {"CLOSED", "NOT_PLANNED"}
+      _other when pack.completed -> {"CLOSED", "COMPLETED"}
+      _other -> {"OPEN", nil}
+    end
+  end
+
+  defp completed?(ticket, pack, membership) do
+    ticket
+    |> member_identity(pack, membership)
+    |> lifecycle(pack, membership)
+    |> match?({"CLOSED", _reason})
+  end
+
+  defp membership_lifecycle(identity, %{members: members}) when is_list(members) do
+    membership_member(identity, members)
+    |> then(&Map.get(&1 || %{}, :lifecycle))
+  end
+
+  defp membership_lifecycle(_identity, _membership), do: nil
+
+  defp member_identity(pack, ticket, %{members: members}) when is_list(members) do
+    identity = ticket_identity(pack, ticket)
+
+    case membership_member(identity, members) do
+      %{identity: %TrackerIdentity{} = member_identity} -> member_identity
+      _member -> identity
+    end
+  end
+
+  defp member_identity(pack, ticket, _membership), do: ticket_identity(pack, ticket)
+
+  defp membership_member(identity, members), do: Enum.find(members, &same_issue?(&1, identity))
+
+  # Canonical mappings normally contain the opaque GitHub node id, so the
+  # primary match is an exact TrackerIdentity key. Older materialized packs
+  # may have only github_number; their number is still an unambiguous locator
+  # within the pack's repository, and the daemon projection supplies the real
+  # identity without another GitHub read.
+  defp same_issue?(%{identity: %TrackerIdentity{} = member_identity}, %TrackerIdentity{} = pack_identity) do
+    TrackerIdentity.github_key(member_identity) == TrackerIdentity.github_key(pack_identity) ||
+      same_repository_number?(member_identity, pack_identity)
+  end
+
+  defp same_issue?(_member, _pack_identity), do: false
+
+  defp same_repository_number?(%TrackerIdentity{} = left, %TrackerIdentity{} = right) do
+    String.downcase(left.owner || "") == String.downcase(right.owner || "") and
+      String.downcase(left.repository || "") == String.downcase(right.repository || "") and
+      left.identifier == right.identifier
+  end
+
+  defp membership_snapshot do
+    Application.get_env(:aiur, :build_order_planning_membership_snapshot, &CurrentRunMembership.snapshot/0).()
+  rescue
+    _error -> %{}
+  catch
+    _kind, _reason -> %{}
+  end
 
   # --- pack loading ----------------------------------------------------------
 
@@ -226,9 +302,29 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   defp pack_paths do
     case Application.get_env(:aiur, :build_order_planning_pack) do
-      nil -> Application.get_env(:aiur, :build_order_planning_packs, @default_packs)
+      nil -> Application.get_env(:aiur, :build_order_planning_packs, Enum.uniq_by(discovered_packs() ++ @default_packs, &Path.basename/1))
       path -> [path]
     end
+  end
+
+  # Runtime packs are re-discovered for every request. The daemon's checkout is
+  # first so a run-local pack shadows an identically named global pack.
+  defp discovered_packs do
+    discovery_dirs()
+    |> Enum.flat_map(&Path.wildcard(Path.join(&1, "*.json")))
+    |> Enum.uniq_by(&Path.basename/1)
+  end
+
+  defp discovery_dirs do
+    case System.get_env("AIUR_BUILD_ORDER_DIRS") do
+      dirs when is_binary(dirs) and dirs != "" -> String.split(dirs, ":", trim: true)
+      _missing -> [Path.join([File.cwd!(), ".aiur", "build_orders"]), global_build_order_dir()]
+    end
+  end
+
+  defp global_build_order_dir do
+    root = System.get_env("AIUR_BG_STATE_DIR") || System.get_env("XDG_CONFIG_HOME") || Path.expand("~/.config")
+    Path.join(root, "aiur/build_orders")
   end
 
   defp load_pack(path) do
@@ -237,15 +333,18 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
     with {:ok, body} <- File.read(absolute),
          {:ok, json} <- Jason.decode(body),
          {:ok, repository} <- repository(json) do
-      tickets = tickets(Map.get(json, "tickets", []))
+      mapping = issue_mapping(json)
+      tickets = tickets(Map.get(json, "tickets", []), mapping)
 
       {:ok,
        %{
          repository: repository,
          build_order_id: Map.get(json, "build_order_id", "planning"),
          title: Map.get(json, "title", "Planning build order"),
-         root_number: Map.get(json, "root_number", @root_number),
+         root_number: root_number(json, mapping),
+         root_node_id: root_node_id(json, mapping),
          completed: Map.get(json, "completed", false) == true,
+         materialized?: Enum.any?(tickets, &is_integer(&1.number)),
          tickets: tickets,
          numbers: ticket_numbers(tickets)
        }}
@@ -258,6 +357,31 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
     for %{id: id, number: number} <- tickets, is_integer(number), into: %{}, do: {id, number}
   end
 
+  defp root_number(json, mapping) do
+    Map.get(json, "root_number") ||
+      get_in(json, ["github_root", "number"]) ||
+      Map.get(mapping, "root_number") ||
+      mapping_number(Map.get(mapping, "root")) ||
+      mapping_number(Map.get(mapping, Map.get(json, "build_order_id"))) || @root_number
+  end
+
+  defp root_node_id(json, mapping) do
+    get_in(json, ["github_root", "node_id"]) ||
+      mapping_node_id(Map.get(mapping, "root")) ||
+      mapping_node_id(Map.get(mapping, Map.get(json, "build_order_id")))
+  end
+
+  defp issue_mapping(json) do
+    Map.get(json, "issue_mapping") || get_in(json, ["github_reconciliation", "issue_mappings"]) || %{}
+  end
+
+  defp mapping_number(number) when is_integer(number), do: number
+  defp mapping_number(%{"number" => number}) when is_integer(number), do: number
+  defp mapping_number(_mapping), do: nil
+
+  defp mapping_node_id(%{"node_id" => node_id}) when is_binary(node_id) and node_id != "", do: node_id
+  defp mapping_node_id(_mapping), do: nil
+
   defp repository(json) do
     case String.split(to_string(Map.get(json, "repository", "")), "/", parts: 2) do
       [owner, repo] when owner != "" and repo != "" -> {:ok, {owner, repo}}
@@ -265,19 +389,20 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
     end
   end
 
-  defp tickets(list) when is_list(list) do
+  defp tickets(list, mapping) when is_list(list) do
     Enum.flat_map(list, fn
       %{"id" => id} = ticket when is_binary(id) ->
         [
           %{
             id: id,
             title: Map.get(ticket, "title", id),
-            lane: to_string(Map.get(ticket, "lane", "unassigned")),
-            phase: Map.get(ticket, "phase", 0),
-            complexity: Map.get(ticket, "complexity"),
-            number: Map.get(ticket, "number"),
+            lane: to_string(Map.get(ticket, "lane") || Map.get(ticket, "workstream") || "unassigned"),
+            phase: Map.get(ticket, "phase") || Map.get(ticket, "phase_hint") || 0,
+            complexity: Map.get(ticket, "complexity") || Map.get(ticket, "complexity_points"),
+            number: Map.get(ticket, "number") || Map.get(ticket, "github_number") || mapping_number(Map.get(ticket, "github")) || mapping_number(Map.get(mapping, id)),
+            node_id: Map.get(ticket, "github_node_id") || mapping_node_id(Map.get(ticket, "github")) || mapping_node_id(Map.get(mapping, id)),
             depends_on: List.wrap(Map.get(ticket, "depends_on", [])),
-            document_url: Map.get(ticket, "document_url")
+            document_url: Map.get(ticket, "document_url") || get_in(ticket, ["github", "url"])
           }
         ]
 
@@ -286,5 +411,5 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
     end)
   end
 
-  defp tickets(_list), do: []
+  defp tickets(_list, _mapping), do: []
 end
