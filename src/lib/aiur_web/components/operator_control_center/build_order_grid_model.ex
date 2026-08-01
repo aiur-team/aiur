@@ -28,7 +28,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
           progress: 0..100,
           has_progress: boolean(),
           merged: boolean(),
-          state: :merged | :working | :ready | :blocked | :plain,
+          state: :merged | :working | :ready | :blocked | :plain | :planned,
           status_word: String.t(),
           icon: String.t() | nil,
           blocks: non_neg_integer(),
@@ -44,6 +44,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
           waves: [map()],
           cards: [card()],
           edges: [map()],
+          overall_pct: 0..100,
           planning?: boolean()
         }
   def build(model, adhoc) do

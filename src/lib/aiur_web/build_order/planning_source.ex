@@ -19,9 +19,11 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   @behaviour AiurWeb.BuildOrder.DataSource
 
-  alias Aiur.{CurrentRunMembership, RepoBase}
   alias Aiur.BuildOrder.{Catalog, Dependency, Member, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
+  alias Aiur.CurrentRunMembership
+  alias Aiur.GitHub.Config
+  alias Aiur.RepoBase
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.DataSource
 
@@ -157,7 +159,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
     Enum.map(pack.tickets, fn ticket ->
       identity = Map.fetch!(identities, ticket.id)
-      {state, reason} = lifecycle(identity, pack, membership)
+      {state, reason} = lifecycle(ticket, identity, pack, membership)
 
       dependencies =
         ticket.depends_on
@@ -261,7 +263,9 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   defp generation(%{generation: generation}) when is_integer(generation) and generation >= 0, do: @generation + generation
   defp generation(_membership), do: @generation
 
-  defp lifecycle(identity, pack, membership) do
+  defp lifecycle(%{number: nil}, _identity, _pack, _membership), do: {"OPEN", nil}
+
+  defp lifecycle(_ticket, identity, pack, membership) do
     case membership_lifecycle(identity, membership) || status_lifecycle(identity, pack) do
       :completed -> {"CLOSED", "COMPLETED"}
       :cancelled -> {"CLOSED", "NOT_PLANNED"}
@@ -273,7 +277,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   defp completed?(ticket, pack, membership) do
     match?(
       {"CLOSED", "COMPLETED"},
-      lifecycle(member_identity(pack, ticket, membership), pack, membership)
+      lifecycle(ticket, member_identity(pack, ticket, membership), pack, membership)
     )
   end
 
@@ -570,7 +574,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   end
 
   defp configured_repository do
-    Aiur.GitHub.Config.repo()
+    Config.repo()
   rescue
     _error -> nil
   end

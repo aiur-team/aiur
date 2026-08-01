@@ -4,6 +4,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   alias Aiur.BuildOrder.{Catalog, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.{RepoBase, TrackerIdentity}
+  alias Aiur.GitHub.Config
   alias AiurWeb.BuildOrder.PlanningSource
   alias AiurWeb.BuildOrderPresenter
   alias AiurWeb.OperatorControlCenter.BuildOrderGridModel
@@ -236,7 +237,22 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
           {"acme", "widgets"}
         )
 
-      %{generation: 9, health: :healthy, freshness: %{status: :fresh}, members: [%{identity: identity, lifecycle: :completed}]}
+      {:ok, colliding_draft_identity} =
+        TrackerIdentity.from_github(
+          %{"number" => 102, "node_id" => "I_live_102"},
+          {"acme", "widgets"},
+          {"acme", "widgets"}
+        )
+
+      %{
+        generation: 9,
+        health: :healthy,
+        freshness: %{status: :fresh},
+        members: [
+          %{identity: identity, lifecycle: :completed},
+          %{identity: colliding_draft_identity, lifecycle: :completed}
+        ]
+      }
     end)
 
     [root] = PlanningSource.catalog().data.entries
@@ -279,7 +295,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     directory = Path.join(System.tmp_dir!(), "planning-source-discovery-#{System.unique_integer([:positive])}")
     previous_root = Application.get_env(:aiur, :repo_base_root)
     previous_dirs = System.get_env("AIUR_BUILD_ORDER_DIRS")
-    repository = Aiur.GitHub.Config.repo()
+    repository = Config.repo()
 
     Application.put_env(:aiur, :repo_base_root, directory)
     path = Path.join([RepoBase.builds_path("https://github.com/#{repository}.git"), "analytics-streamdeck", "build-order.json"])

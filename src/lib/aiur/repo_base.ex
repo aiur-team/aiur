@@ -210,16 +210,20 @@ defmodule Aiur.RepoBase do
         %{state | phase: :idle}
 
       {:ok, repo_url, base, command} ->
-        state = %{state | base_path: base}
+        state
+        |> Map.put(:base_path, base)
+        |> dispatch_refresh_action(repo_url, base, command)
+    end
+  end
 
-        cond do
-          state.build != nil -> ensure_probe(state, repo_url)
-          state.phase == :checking -> state
-          match?({:error, _}, state.phase) -> state
-          state.phase == :ready and state.freshness == :fresh -> %{state | freshness: :unknown}
-          state.phase == :ready -> probe_freshness(state, repo_url)
-          true -> start_build(state, base, repo_url, command)
-        end
+  defp dispatch_refresh_action(state, repo_url, base, command) do
+    cond do
+      state.build != nil -> ensure_probe(state, repo_url)
+      state.phase == :checking -> state
+      match?({:error, _}, state.phase) -> state
+      state.phase == :ready and state.freshness == :fresh -> %{state | freshness: :unknown}
+      state.phase == :ready -> probe_freshness(state, repo_url)
+      true -> start_build(state, base, repo_url, command)
     end
   end
 
@@ -517,22 +521,26 @@ defmodule Aiur.RepoBase do
   defp migrate_legacy_layout(base_path) do
     node = repo_node_path(base_path)
 
-    with :ok <- recover_interrupted_migration(base_path) do
-      if File.dir?(Path.join(node, ".git")) do
-        temporary = node <> ".migrating-" <> unique_suffix()
+    with :ok <- recover_interrupted_migration(base_path),
+         :ok <- migrate_legacy_node(base_path, node),
+         do: :ok
+  end
 
-        with :ok <- File.rename(node, temporary),
-             :ok <- File.mkdir_p(node),
-             :ok <- move_sidecars(temporary, node),
-             :ok <- remove_legacy_marker(temporary),
-             :ok <- File.rename(temporary, base_path) do
-          :ok
-        else
-          {:error, reason} -> {:error, {:repo_base_migration_failed, reason}}
-        end
-      else
-        :ok
-      end
+  defp migrate_legacy_node(base_path, node) do
+    if File.dir?(Path.join(node, ".git")), do: move_legacy_node(base_path, node), else: :ok
+  end
+
+  defp move_legacy_node(base_path, node) do
+    temporary = node <> ".migrating-" <> unique_suffix()
+
+    with :ok <- File.rename(node, temporary),
+         :ok <- File.mkdir_p(node),
+         :ok <- move_sidecars(temporary, node),
+         :ok <- remove_legacy_marker(temporary),
+         :ok <- File.rename(temporary, base_path) do
+      :ok
+    else
+      {:error, reason} -> {:error, {:repo_base_migration_failed, reason}}
     end
   end
 
@@ -549,28 +557,23 @@ defmodule Aiur.RepoBase do
       |> Path.wildcard()
       |> Enum.filter(&File.dir?(Path.join(&1, ".git")))
 
-    if File.dir?(Path.join(base_path, ".git")) do
+    if File.dir?(Path.join(base_path, ".git")), do: :ok, else: recover_parked_migration(node, base_path, parked)
+  end
+
+  defp recover_parked_migration(_node, _base_path, []), do: :ok
+
+  defp recover_parked_migration(node, base_path, [temporary]) do
+    with :ok <- File.mkdir_p(node),
+         :ok <- move_sidecars(temporary, node),
+         :ok <- remove_legacy_marker(temporary),
+         :ok <- File.rename(temporary, base_path) do
       :ok
     else
-      case parked do
-        [] ->
-          :ok
-
-        [temporary] ->
-          with :ok <- File.mkdir_p(node),
-               :ok <- move_sidecars(temporary, node),
-               :ok <- remove_legacy_marker(temporary),
-               :ok <- File.rename(temporary, base_path) do
-            :ok
-          else
-            {:error, reason} -> {:error, {:repo_base_migration_recovery_failed, reason}}
-          end
-
-        _many ->
-          {:error, :repo_base_migration_recovery_ambiguous}
-      end
+      {:error, reason} -> {:error, {:repo_base_migration_recovery_failed, reason}}
     end
   end
+
+  defp recover_parked_migration(_node, _base_path, _many), do: {:error, :repo_base_migration_recovery_ambiguous}
 
   defp remove_legacy_marker(path) do
     case File.rm_rf(Path.join(path, @legacy_built_marker)) do
@@ -597,29 +600,26 @@ defmodule Aiur.RepoBase do
 
   defp move_sidecars(from, to) do
     Enum.reduce_while(@cache_sidecars, :ok, fn sidecar, :ok ->
-      source = Path.join(from, sidecar)
-      target = Path.join(to, sidecar)
-
-      result =
-        cond do
-          not File.exists?(source) ->
-            :ok
-
-          File.exists?(target) ->
-            case File.rm_rf(source) do
-              {:ok, _removed} -> :ok
-              {:error, reason, _path} -> {:error, reason}
-            end
-
-          true ->
-            File.rename(source, target)
-        end
-
-      case result do
+      case move_sidecar(Path.join(from, sidecar), Path.join(to, sidecar)) do
         :ok -> {:cont, :ok}
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
+  end
+
+  defp move_sidecar(source, target) do
+    cond do
+      not File.exists?(source) -> :ok
+      File.exists?(target) -> discard_sidecar(source)
+      true -> File.rename(source, target)
+    end
+  end
+
+  defp discard_sidecar(source) do
+    case File.rm_rf(source) do
+      {:ok, _removed} -> :ok
+      {:error, reason, _path} -> {:error, reason}
+    end
   end
 
   defp repo_node_path(base_path), do: Path.dirname(base_path)
