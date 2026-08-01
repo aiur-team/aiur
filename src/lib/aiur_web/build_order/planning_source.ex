@@ -19,8 +19,8 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   @behaviour AiurWeb.BuildOrder.DataSource
 
-  alias Aiur.BuildOrder.{Catalog, Dependency, Member, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.CurrentRunMembership
+  alias Aiur.BuildOrder.{Catalog, Dependency, Member, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.DataSource
@@ -424,26 +424,31 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   end
 
   defp tickets(list, mapping) when is_list(list) do
-    Enum.flat_map(list, fn
-      %{"id" => id} = ticket when is_binary(id) ->
-        [
-          %{
-            id: id,
-            title: Map.get(ticket, "title", id),
-            lane: to_string(Map.get(ticket, "lane") || Map.get(ticket, "workstream") || "unassigned"),
-            phase: Map.get(ticket, "phase") || Map.get(ticket, "phase_hint") || 0,
-            complexity: Map.get(ticket, "complexity") || Map.get(ticket, "complexity_points"),
-            number: Map.get(ticket, "number") || Map.get(ticket, "github_number") || mapping_number(Map.get(ticket, "github")) || mapping_number(Map.get(mapping, id)),
-            node_id: Map.get(ticket, "github_node_id") || mapping_node_id(Map.get(ticket, "github")) || mapping_node_id(Map.get(mapping, id)),
-            depends_on: List.wrap(Map.get(ticket, "depends_on", [])),
-            document_url: Map.get(ticket, "document_url") || get_in(ticket, ["github", "url"])
-          }
-        ]
-
-      _other ->
-        []
-    end)
+    Enum.flat_map(list, &ticket(&1, mapping))
   end
 
   defp tickets(_list, _mapping), do: []
+
+  defp ticket(%{"id" => id} = attributes, mapping) when is_binary(id) do
+    github = Map.get(attributes, "github")
+    mapped = Map.get(mapping, id)
+
+    [
+      %{
+        id: id,
+        title: Map.get(attributes, "title", id),
+        lane: to_string(first_value([Map.get(attributes, "lane"), Map.get(attributes, "workstream"), "unassigned"])),
+        phase: first_value([Map.get(attributes, "phase"), Map.get(attributes, "phase_hint"), 0]),
+        complexity: first_value([Map.get(attributes, "complexity"), Map.get(attributes, "complexity_points")]),
+        number: first_value([Map.get(attributes, "number"), Map.get(attributes, "github_number"), mapping_number(github), mapping_number(mapped)]),
+        node_id: first_value([Map.get(attributes, "github_node_id"), mapping_node_id(github), mapping_node_id(mapped)]),
+        depends_on: List.wrap(Map.get(attributes, "depends_on", [])),
+        document_url: first_value([Map.get(attributes, "document_url"), get_in(attributes, ["github", "url"])])
+      }
+    ]
+  end
+
+  defp ticket(_attributes, _mapping), do: []
+
+  defp first_value(values), do: Enum.find(values, & &1)
 end

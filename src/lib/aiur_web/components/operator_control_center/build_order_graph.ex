@@ -33,6 +33,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
       |> assign(:cells, cells)
       |> assign(:columns_style, columns_style(grid.columns, cells))
       |> assign(:core_waves, Enum.filter(grid.waves, & &1.core?))
+      |> assign(:overall_pct, grid.overall_pct)
       |> assign(:planning?, grid.planning?)
 
     ~H"""
@@ -51,9 +52,9 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
         <div class="bo-wave-seg">
           <div class="bo-wave-seg-top">
             <span class="bo-wave-seg-label">Overall</span>
-            <span class="bo-wave-seg-pct">{grid.overall_pct}%</span>
+            <span class="bo-wave-seg-pct">{@overall_pct}%</span>
           </div>
-          <span class="bo-wave-seg-meter" aria-hidden="true"><i style={wave_meter_style(grid.overall_pct)}></i></span>
+          <span class="bo-wave-seg-meter" aria-hidden="true"><i style={wave_meter_style(@overall_pct)}></i></span>
         </div>
 
         <div class="bo-waves-strip">
