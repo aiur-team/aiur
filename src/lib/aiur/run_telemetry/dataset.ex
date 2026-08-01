@@ -830,12 +830,7 @@ defmodule Aiur.RunTelemetry.Dataset do
 
         case event.boundary do
           "start" ->
-            open =
-              if event.segment_continuation == "open" and Map.has_key?(open, key),
-                do: open,
-                else: Map.put(open, key, event)
-
-            {intervals, open}
+            {intervals, retain_lifecycle_start(open, key, event)}
 
           "end" ->
             close_lifecycle_interval(event, intervals, open, key)
@@ -861,6 +856,10 @@ defmodule Aiur.RunTelemetry.Dataset do
       end
     end
   end
+
+  defp retain_lifecycle_start(open, key, %{segment_continuation: "open"}) when is_map_key(open, key), do: open
+
+  defp retain_lifecycle_start(open, key, event), do: Map.put(open, key, event)
 
   defp lifecycle_pair_key(event),
     do: {event.attempt_id, event.event, event.operation_id}
