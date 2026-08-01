@@ -118,6 +118,10 @@ defmodule AiurWeb.BuildOrderLive do
   def handle_info({:build_order_adhoc_updated, _snapshot}, socket),
     do: {:noreply, SourceRuntime.schedule_reload(socket)}
 
+  def handle_info({event, _payload}, socket)
+      when event in [:current_run_membership_changed, :current_run_membership_health_changed],
+      do: {:noreply, SourceRuntime.refresh_live_state(socket)}
+
   def handle_info({event, %{identity: %TrackerIdentity{} = identity}}, socket)
       when event in [:ticket_detail_updated, :ticket_history_updated],
       do: {:noreply, ContextRuntime.refresh_for(socket, identity)}
