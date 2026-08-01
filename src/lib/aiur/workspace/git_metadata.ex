@@ -7,24 +7,31 @@ defmodule Aiur.Workspace.GitMetadata do
   @type worker_host :: String.t() | nil
 
   @doc false
-  @spec ensure_agent_logs_excluded(Path.t(), worker_host()) :: :ok | {:error, term()}
-  def ensure_agent_logs_excluded(workspace, worker_host \\ nil)
-
-  def ensure_agent_logs_excluded(workspace, nil) when is_binary(workspace) do
+  @spec ensure_paths_excluded(Path.t(), [String.t()]) :: :ok | {:error, term()}
+  def ensure_paths_excluded(workspace, exclusions) when is_binary(workspace) and is_list(exclusions) do
     case local_git_metadata_dir(workspace) do
       {:ok, git_dir} ->
         with :ok <- ensure_git_dir_inside_workspace(git_dir, workspace),
-             :ok <- append_exclusions(git_dir, [@agent_logs_exclusion, @tool_results_exclusion]) do
+             :ok <- append_exclusions(git_dir, exclusions) do
           :ok
-        else
-          {:error, reason} -> {:error, {:workspace_git_metadata_unwritable, workspace, reason}}
         end
 
       :not_git ->
         :ok
 
       {:error, reason} ->
-        {:error, {:workspace_git_metadata_unwritable, workspace, reason}}
+        {:error, reason}
+    end
+  end
+
+  @doc false
+  @spec ensure_agent_logs_excluded(Path.t(), worker_host()) :: :ok | {:error, term()}
+  def ensure_agent_logs_excluded(workspace, worker_host \\ nil)
+
+  def ensure_agent_logs_excluded(workspace, nil) when is_binary(workspace) do
+    case ensure_paths_excluded(workspace, [@agent_logs_exclusion, @tool_results_exclusion]) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:workspace_git_metadata_unwritable, workspace, reason}}
     end
   end
 
@@ -37,20 +44,9 @@ defmodule Aiur.Workspace.GitMetadata do
   @doc false
   @spec ensure_tool_results_excluded(Path.t()) :: :ok | {:error, term()}
   def ensure_tool_results_excluded(workspace) when is_binary(workspace) do
-    case local_git_metadata_dir(workspace) do
-      {:ok, git_dir} ->
-        with :ok <- ensure_git_dir_inside_workspace(git_dir, workspace),
-             :ok <- append_exclusions(git_dir, [@tool_results_exclusion]) do
-          :ok
-        else
-          {:error, reason} -> {:error, {:workspace_git_metadata_unwritable, workspace, reason}}
-        end
-
-      :not_git ->
-        :ok
-
-      {:error, reason} ->
-        {:error, {:workspace_git_metadata_unwritable, workspace, reason}}
+    case ensure_paths_excluded(workspace, [@tool_results_exclusion]) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:workspace_git_metadata_unwritable, workspace, reason}}
     end
   end
 

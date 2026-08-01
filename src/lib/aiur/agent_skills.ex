@@ -31,7 +31,7 @@ defmodule Aiur.AgentSkills do
 
   require Logger
 
-  alias Aiur.{CodingAgent, Workspace.Remote}
+  alias Aiur.{CodingAgent, Workspace.GitMetadata, Workspace.Remote}
 
   # The skills the agent prompt routes issue workers to. This is a deliberate
   # subset of the canonical taxonomy in `Aiur.AiurAgentSkillTest`
@@ -233,34 +233,11 @@ defmodule Aiur.AgentSkills do
   # the established `.claude` / `.codex` directories so they do not make a
   # freshly refreshed workspace appear dirty.
   defp ignore_generated_skill_locations(workspace, locations) do
-    git_metadata = Path.join(workspace, ".git")
+    exclusions = Enum.map(locations, fn %{path: path} -> "/#{String.trim_trailing(path, "/")}/" end)
 
-    if File.exists?(git_metadata) do
-      exclude = git_exclude_path(workspace, git_metadata)
-      File.mkdir_p!(Path.dirname(exclude))
-
-      existing =
-        case File.read(exclude) do
-          {:ok, contents} -> contents
-          {:error, _reason} -> ""
-        end
-
-      missing =
-        locations
-        |> Enum.map(fn %{path: path} -> "/#{String.trim_trailing(path, "/")}/" end)
-        |> Kernel.--(String.split(existing, "\n", trim: true))
-
-      if missing != [] do
-        prefix = if existing == "" or String.ends_with?(existing, "\n"), do: "", else: "\n"
-        File.write!(exclude, prefix <> Enum.join(missing, "\n") <> "\n", [:append])
-      end
-    end
-  end
-
-  defp git_exclude_path(workspace, git_metadata) do
-    case File.read(git_metadata) do
-      {:ok, "gitdir: " <> git_dir} -> Path.join([Path.expand(String.trim(git_dir), workspace), "info", "exclude"])
-      _ -> Path.join([git_metadata, "info", "exclude"])
+    case GitMetadata.ensure_paths_excluded(workspace, exclusions) do
+      :ok -> :ok
+      {:error, reason} -> Logger.warning("agent skill exclusion failed workspace=#{workspace} reason=#{inspect(reason)}")
     end
   end
 
@@ -268,15 +245,24 @@ defmodule Aiur.AgentSkills do
     paths = locations |> Enum.map(& &1.path) |> Enum.map_join(" ", &shell_quote/1)
 
     [
-      "if [ -e \"$workspace/.git\" ]; then",
-      "  exclude=$(git -C \"$workspace\" rev-parse --git-path info/exclude 2>/dev/null || true)",
-      "  if [ -n \"$exclude\" ]; then",
-      "    case \"$exclude\" in /*) ;; *) exclude=\"$workspace/$exclude\" ;; esac",
-      "    mkdir -p \"$(dirname \"$exclude\")\"",
-      "    for skill_path in #{paths}; do",
-      "      pattern=\"/$skill_path/\"",
-      "      grep -Fqx \"$pattern\" \"$exclude\" 2>/dev/null || printf '%s\\n' \"$pattern\" >> \"$exclude\"",
-      "    done",
+      "if git -C \"$workspace\" rev-parse --is-inside-work-tree >/dev/null 2>&1; then",
+      "  git_dir=$(git -C \"$workspace\" rev-parse --git-dir)",
+      "  case \"$git_dir\" in /*) ;; *) git_dir=\"$workspace/$git_dir\" ;; esac",
+      "  workspace_real=$(cd \"$workspace\" && pwd -P)",
+      "  git_dir_real=$(cd \"$git_dir\" 2>/dev/null && pwd -P || true)",
+      "  case \"$git_dir_real/\" in \"$workspace_real\"/*) ;; *) git_dir_real=\"\" ;; esac",
+      "  if [ -n \"$git_dir_real\" ]; then",
+      "    info_dir=\"$git_dir_real/info\"",
+      "    exclude=\"$info_dir/exclude\"",
+      "    if [ ! -L \"$info_dir\" ] && { [ ! -e \"$info_dir\" ] || [ -d \"$info_dir\" ]; }; then",
+      "      mkdir -p \"$info_dir\"",
+      "      if [ ! -L \"$exclude\" ] && { [ ! -e \"$exclude\" ] || [ -f \"$exclude\" ]; }; then",
+      "        for skill_path in #{paths}; do",
+      "          pattern=\"/$skill_path/\"",
+      "          grep -Fqx \"$pattern\" \"$exclude\" 2>/dev/null || printf '%s\\n' \"$pattern\" >> \"$exclude\"",
+      "        done",
+      "      fi",
+      "    fi",
       "  fi",
       "fi"
     ]
