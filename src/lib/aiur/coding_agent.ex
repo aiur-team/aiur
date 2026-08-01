@@ -13,9 +13,9 @@ defmodule Aiur.CodingAgent do
   session starts.
   """
 
+  alias Aiur.CodingAgent.Models
   alias Aiur.Config
   alias Aiur.Config.RoutingValue
-  alias Aiur.CodingAgent.Models
   alias Aiur.Issue
   alias Aiur.ModelAvailability
   alias Aiur.ModelCatalog
