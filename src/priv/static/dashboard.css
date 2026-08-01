@@ -463,6 +463,14 @@ textarea:focus-visible,
   border-collapse: collapse;
 }
 
+.bo-catalog-table .bo-catalog-active {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.bo-catalog-table .bo-catalog-completed {
+  opacity: .78;
+}
+
 .bo-catalog-table th:first-child,
 .bo-catalog-table td:first-child {
   white-space: nowrap;
@@ -552,6 +560,15 @@ textarea:focus-visible,
   text-decoration: none;
   font-weight: 600;
   font-size: 0.88rem;
+}
+
+.bo-catalog-icon {
+  display: inline-flex;
+  width: 1.35rem;
+  justify-content: center;
+  margin-right: 0.35rem;
+  color: var(--accent);
+  font-size: 1rem;
 }
 
 .bo-catalog-link::after {

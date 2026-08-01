@@ -210,7 +210,8 @@ defmodule AiurWeb.BuildOrder.ContextRuntime do
       | identity: identity,
         repository: "#{identity.owner}/#{identity.repository}",
         identifier: identity.identifier,
-        title: if(node, do: node.title, else: "Ticket ##{identity.identifier}")
+        title: if(node, do: node.title, else: "Ticket ##{identity.identifier}"),
+        description: if(node, do: Map.get(node, :draft_body), else: nil)
     }
   end
 

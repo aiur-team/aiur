@@ -3,7 +3,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
 
   alias Aiur.BuildOrder.{Catalog, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
-  alias Aiur.TrackerIdentity
+  alias Aiur.{RepoBase, TrackerIdentity}
   alias AiurWeb.BuildOrder.PlanningSource
   alias AiurWeb.BuildOrderPresenter
   alias AiurWeb.OperatorControlCenter.BuildOrderGridModel
@@ -13,11 +13,11 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     "build_order_id": "acme/widgets:demo",
     "title": "Demo Plan",
     "repository": "acme/widgets",
-    "workstreams": [{"id": "core", "title": "Core"}, {"id": "web", "title": "Web"}],
     "tickets": [
       {"id": "T-1", "title": "Foundation", "lane": "core", "phase": 1, "complexity": 3, "depends_on": [],
-       "document_url": "https://github.com/acme/widgets/blob/plan/docs/T-1.md"},
-      {"id": "T-2", "title": "Build on it", "lane": "web", "phase": 2, "complexity": 2, "depends_on": ["T-1"]}
+       "ticket": null, "doc": "tickets/T-1.md"},
+      {"id": "T-2", "title": "Build on it", "lane": "web", "phase": 2, "complexity": 2, "depends_on": ["T-1"],
+       "ticket": null, "doc": "tickets/T-2.md"}
     ]
   }
   """
@@ -27,12 +27,28 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     "build_order_id": "acme/widgets:analytics-streamdeck",
     "title": "Analytics Stream Deck",
     "repository": "acme/widgets",
-    "github_root": {"number": 9900, "node_id": "I_live_root"},
+    "root_number": 9900,
     "tickets": [
-      {"id": "AS-101", "title": "Wire stream", "workstream": "runtime", "phase_hint": 2,
-       "complexity_points": 3, "github_number": 4101, "depends_on": []},
-      {"id": "AS-102", "title": "Render deck", "workstream": "dashboard-ui", "phase_hint": 3,
-       "complexity_points": 2, "github": {"number": 4102, "node_id": "I_live_4102"}, "depends_on": ["AS-101"]}
+      {"id": "AS-101", "title": "Wire stream", "lane": "runtime", "phase": 2,
+       "complexity": 3, "ticket": 4101, "doc": "tickets/AS-101.md", "depends_on": []},
+      {"id": "AS-102", "title": "Render deck", "lane": "dashboard-ui", "phase": 3,
+       "complexity": 2, "ticket": 4102, "doc": "tickets/AS-102.md", "depends_on": ["AS-101"]}
+    ]
+  }
+  """
+
+  @mixed_pack """
+  {
+    "build_order_id": "acme/widgets:analytics-streamdeck",
+    "title": "Analytics Stream Deck",
+    "icon": "bolt",
+    "repository": "acme/widgets",
+    "root_number": 9900,
+    "tickets": [
+      {"id": "AS-101", "title": "Wire stream", "lane": "runtime", "phase": 1,
+       "complexity": 3, "depends_on": [], "ticket": 4101, "doc": "tickets/AS-101.md"},
+      {"id": "AS-102", "title": "Render deck", "lane": "dashboard-ui", "phase": 2,
+       "complexity": 2, "depends_on": ["AS-101"], "ticket": null, "doc": "tickets/AS-102.md", "icon": "sparkles"}
     ]
   }
   """
@@ -79,10 +95,9 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert length(model.edges) == 1
     assert Map.keys(model.summary.lanes) |> Enum.sort() == ["core", "web"]
 
-    # Planning tickets carry their planning-doc URL so the ticket-context modal
-    # can link to it instead of a not-yet-existent GitHub issue.
+    # Planning tickets retain their canonical local draft path.
     node = Enum.find(model.nodes, &(&1.card.identifier == "1"))
-    assert node.document_url == "https://github.com/acme/widgets/blob/plan/docs/T-1.md"
+    assert node.document_path == "tickets/T-1.md"
   end
 
   test "planning tickets render as planned with neutral dependency edges" do
@@ -103,7 +118,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert PlanningSource.catalog() == nil
   end
 
-  test "normalizes canonical aiur-build fields and hydrates terminal membership without tracker reads" do
+  test "hydrates canonical ticket fields from membership without tracker reads" do
     path = Path.join(System.tmp_dir!(), "planning-source-canonical-#{System.unique_integer([:positive])}.json")
     File.write!(path, @canonical_pack)
     Application.put_env(:aiur, :build_order_planning_pack, path)
@@ -112,7 +127,8 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
 
     [root] = PlanningSource.catalog().data.entries
     assert root.identity.identifier == "9900"
-    assert root.identity.provider_id == "I_live_root"
+    assert root.identity.provider_id == "BO_ROOT"
+    assert is_nil(root.progress)
 
     Application.put_env(:aiur, :build_order_planning_membership_snapshot, fn ->
       {:ok, identity} =
@@ -122,7 +138,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
           {"acme", "widgets"}
         )
 
-      %{generation: 7, members: [%{identity: identity, lifecycle: :completed}]}
+      %{generation: 7, health: :healthy, freshness: %{status: :fresh}, members: [%{identity: identity, lifecycle: :completed}]}
     end)
 
     [hydrated_root] = PlanningSource.catalog().data.entries
@@ -137,7 +153,6 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert closed.identity.provider_id == "I_live_4101"
     assert closed.lifecycle.state == :closed
     assert open.identity.identifier == "4102"
-    assert open.identity.provider_id == "I_live_4102"
     assert open.lifecycle.state == :open
 
     model = BuildOrderPresenter.present(hydrated, :unavailable, :unavailable)
@@ -166,7 +181,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
           {"acme", "widgets"}
         )
 
-      %{generation: 8, members: [%{identity: identity, lifecycle: :cancelled}]}
+      %{generation: 8, health: :healthy, freshness: %{status: :fresh}, members: [%{identity: identity, lifecycle: :cancelled}]}
     end)
 
     [root] = PlanningSource.catalog().data.entries
@@ -179,6 +194,70 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
 
     model = BuildOrderPresenter.present(snapshot, :unavailable, :unavailable)
     assert BuildOrderGridModel.build(model, nil).overall_pct == 0
+  end
+
+  test "uses status.json for canonical members when no live membership exists" do
+    directory = Path.join(System.tmp_dir!(), "planning-source-status-#{System.unique_integer([:positive])}")
+    path = Path.join(directory, "build-order.json")
+
+    File.mkdir_p!(directory)
+    File.write!(path, @mixed_pack)
+    File.write!(Path.join(directory, "status.json"), ~s({"members":{"4101":"completed"}}))
+    Application.put_env(:aiur, :build_order_planning_pack, path)
+
+    on_exit(fn -> File.rm_rf(directory) end)
+
+    [root] = PlanningSource.catalog().data.entries
+    assert root.progress == 50
+
+    {:ok, snapshot} = PlanningSource.demand(root.identity)
+    [created, draft] = snapshot.data.members
+    assert created.lifecycle.state == :closed
+    assert draft.lifecycle.state == :open
+  end
+
+  test "renders created members live and uncreated members as planned from one canonical pack" do
+    directory = Path.join(System.tmp_dir!(), "planning-source-mixed-#{System.unique_integer([:positive])}")
+    path = Path.join(directory, "build-order.json")
+    document = Path.join([directory, "tickets", "AS-102.md"])
+
+    File.mkdir_p!(Path.dirname(document))
+    File.write!(document, "# Render deck\n\nDraft ticket body.")
+    File.write!(path, @mixed_pack)
+    Application.put_env(:aiur, :build_order_planning_pack, path)
+
+    on_exit(fn -> File.rm_rf(directory) end)
+
+    Application.put_env(:aiur, :build_order_planning_membership_snapshot, fn ->
+      {:ok, identity} =
+        TrackerIdentity.from_github(
+          %{"number" => 4101, "node_id" => "I_live_4101"},
+          {"acme", "widgets"},
+          {"acme", "widgets"}
+        )
+
+      %{generation: 9, health: :healthy, freshness: %{status: :fresh}, members: [%{identity: identity, lifecycle: :completed}]}
+    end)
+
+    [root] = PlanningSource.catalog().data.entries
+    assert root.icon == "bolt"
+    assert root.progress == 50
+
+    {:ok, snapshot} = PlanningSource.demand(root.identity)
+    [created, draft] = snapshot.data.members
+    refute created.draft?
+    assert created.lifecycle.state == :closed
+    assert draft.draft?
+    assert draft.lifecycle.state == :open
+    assert draft.document_path == "tickets/AS-102.md"
+    assert draft.draft_body == "# Render deck\n\nDraft ticket body."
+
+    model = BuildOrderPresenter.present(snapshot, :unavailable, :unavailable)
+    grid = BuildOrderGridModel.build(model, nil)
+    assert Enum.find(grid.cards, &(&1.id == "4101")).state == :merged
+    assert %{state: :planned, icon: "sparkles"} = Enum.find(grid.cards, &(&1.id == "102"))
+    assert grid.overall_pct == 60
+    assert Enum.find(model.nodes, & &1.card.planned?).draft_body == "# Render deck\n\nDraft ticket body."
   end
 
   test "marks membership recovery failures unavailable instead of trusted open state" do
@@ -198,22 +277,67 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
 
   test "discovers canonical packs from the runtime build-order directory" do
     directory = Path.join(System.tmp_dir!(), "planning-source-discovery-#{System.unique_integer([:positive])}")
-    path = Path.join(directory, "analytics-streamdeck.json")
+    previous_root = Application.get_env(:aiur, :repo_base_root)
     previous_dirs = System.get_env("AIUR_BUILD_ORDER_DIRS")
+    repository = Aiur.GitHub.Config.repo()
 
-    File.mkdir_p!(directory)
+    Application.put_env(:aiur, :repo_base_root, directory)
+    path = Path.join([RepoBase.builds_path("https://github.com/#{repository}.git"), "analytics-streamdeck", "build-order.json"])
+    second_path = Path.join([RepoBase.builds_path("https://github.com/#{repository}.git"), "second-build", "build-order.json"])
+
+    File.mkdir_p!(Path.dirname(path))
+    File.mkdir_p!(Path.dirname(second_path))
     File.write!(path, @canonical_pack)
+
+    File.write!(
+      second_path,
+      @canonical_pack
+      |> String.replace("acme/widgets:analytics-streamdeck", "acme/widgets:second-build")
+      |> String.replace("Analytics Stream Deck", "Second runtime build")
+      |> String.replace("\"root_number\": 9900", "\"root_number\": 9901")
+    )
+
     Application.delete_env(:aiur, :build_order_planning_pack)
-    System.put_env("AIUR_BUILD_ORDER_DIRS", directory)
+    Application.delete_env(:aiur, :build_order_planning_packs)
+    System.delete_env("AIUR_BUILD_ORDER_DIRS")
 
     on_exit(fn ->
+      if previous_root, do: Application.put_env(:aiur, :repo_base_root, previous_root), else: Application.delete_env(:aiur, :repo_base_root)
       if previous_dirs, do: System.put_env("AIUR_BUILD_ORDER_DIRS", previous_dirs), else: System.delete_env("AIUR_BUILD_ORDER_DIRS")
-      File.rm(path)
-      File.rmdir(directory)
+      File.rm_rf(directory)
     end)
 
     roots = PlanningSource.catalog().data.entries
     root = Enum.find(roots, &(&1.identity.identifier == "9900"))
-    assert root.identity.provider_id == "I_live_root"
+    assert root.identity.provider_id == "BO_ROOT"
+    assert Enum.map(roots, & &1.identity.identifier) |> Enum.sort() == ["9900", "9901"]
+  end
+
+  test "assigns distinct deterministic catalog icons when packs omit one" do
+    first = Path.join(System.tmp_dir!(), "planning-source-first-#{System.unique_integer([:positive])}.json")
+    second = Path.join(System.tmp_dir!(), "planning-source-second-#{System.unique_integer([:positive])}.json")
+
+    File.write!(first, @pack)
+
+    File.write!(
+      second,
+      @pack
+      |> String.replace("acme/widgets:demo", "acme/widgets:second-demo")
+      |> String.replace("Demo Plan", "Second Demo Plan")
+      |> String.replace("\"T-1\"", "\"S-1\"")
+      |> String.replace("\"T-2\"", "\"S-2\"")
+    )
+
+    Application.delete_env(:aiur, :build_order_planning_pack)
+    Application.put_env(:aiur, :build_order_planning_packs, [first, second])
+
+    on_exit(fn ->
+      Application.delete_env(:aiur, :build_order_planning_packs)
+      File.rm(first)
+      File.rm(second)
+    end)
+
+    icons = PlanningSource.catalog().data.entries |> Enum.map(& &1.icon)
+    assert Enum.uniq(icons) |> length() == 2
   end
 end

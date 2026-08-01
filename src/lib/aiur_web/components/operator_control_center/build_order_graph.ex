@@ -156,7 +156,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
       phx-value-member={@nav_value}
     >
       <div class="bo-node-top">
-        <BuildOrderEpicIcon.build_order_epic_icon lane={@card.lane} class="bo-node-ic" />
+        <BuildOrderEpicIcon.build_order_epic_icon lane={@card.icon || @card.lane} class="bo-node-ic" />
         <span class="bo-node-id">{@card.id}</span>
         <span
           class="bo-node-blocks"
