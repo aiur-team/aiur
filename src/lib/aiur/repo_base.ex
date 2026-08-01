@@ -566,7 +566,7 @@ defmodule Aiur.RepoBase do
           {:error, reason} -> {:error, {:repo_base_migration_recovery_failed, reason}}
         end
 
-      _many ->
+      true ->
         {:error, :repo_base_migration_recovery_ambiguous}
     end
   end
