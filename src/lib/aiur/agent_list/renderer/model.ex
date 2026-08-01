@@ -4,7 +4,7 @@ defmodule Aiur.AgentList.Renderer.Model do
   It isolates website-family presentation rules from frame composition.
   """
 
-  alias Aiur.AgentList.Renderer.{Style, Text}
+  alias Aiur.{AgentList.Renderer.Style, AgentList.Renderer.Text, CodingAgent}
 
   # Floor width for the MODEL column: holds the longest base name
   # ("Sonnet" = 6). The column reserves this much when shown and expands
@@ -113,10 +113,21 @@ defmodule Aiur.AgentList.Renderer.Model do
 
   @spec family_from_backend(term()) :: term()
   def family_from_backend(summary) do
-    case engine_word(summary) do
-      "codex" -> :codex
-      "claude" -> :claude
-      _ -> nil
+    case Map.get(summary, :backend) do
+      backend when is_binary(backend) ->
+        case CodingAgent.family_for(backend) do
+          family when is_binary(family) ->
+            case CodingAgent.provider_descriptor(family) do
+              %{provider: provider} -> provider
+              _ -> nil
+            end
+
+          _ ->
+            nil
+        end
+
+      _ ->
+        nil
     end
   end
 
@@ -126,6 +137,14 @@ defmodule Aiur.AgentList.Renderer.Model do
   def model_base(:haiku), do: "Haiku"
   def model_base(:codex), do: "Codex"
   def model_base(:claude), do: "Claude"
+
+  def model_base(family) when is_atom(family) do
+    case CodingAgent.provider_descriptor(family) do
+      %{label: label} -> label
+      _ -> ""
+    end
+  end
+
   def model_base(_), do: ""
 
   # Full human-readable version string, or nil when no version is pinned.
@@ -141,6 +160,13 @@ defmodule Aiur.AgentList.Renderer.Model do
     case String.split(model, "-", parts: 2) do
       [_family] -> "Claude " <> model_base(family)
       [_family, version] -> "Claude " <> model_base(family) <> " " <> String.replace(version, "-", ".")
+    end
+  end
+
+  def model_full_name(family, model) when is_atom(family) and is_binary(model) do
+    case model_base(family) do
+      "" -> nil
+      label -> label <> " " <> model
     end
   end
 

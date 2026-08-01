@@ -81,10 +81,18 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     end
   end
 
-  defp headless_os_pid(%{metadata: %{claude_app_server_pid: pid}}) when is_binary(pid) do
-    case Integer.parse(pid) do
-      {n, _} -> n
-      :error -> nil
+  defp headless_os_pid(%{metadata: metadata}) when is_map(metadata) do
+    pid = metadata[:provider_pid] || metadata[:claude_app_server_pid]
+
+    case pid do
+      pid when is_binary(pid) ->
+        case Integer.parse(pid) do
+          {n, _} -> n
+          :error -> nil
+        end
+
+      _ ->
+        nil
     end
   end
 
@@ -551,7 +559,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     metadata = Map.get(session, :metadata, %{})
 
     %{}
-    |> maybe_put_provider_pid(metadata[:codex_app_server_pid] || metadata[:claude_app_server_pid])
+    |> maybe_put_provider_pid(metadata[:provider_pid] || metadata[:codex_app_server_pid] || metadata[:claude_app_server_pid])
     |> maybe_put_provider_pid(Map.get(session, :os_pid))
     |> maybe_put_provider_group(process_group_id(session))
     |> maybe_put_remote_provider(worker_host)

@@ -26,7 +26,7 @@ defmodule Aiur.UsageAggregate.Key do
 
   @type ticket :: {:github, String.t(), String.t(), String.t()} | :unknown
   @type dims :: %{
-          provider: :codex | :claude,
+          provider: atom(),
           run_id: String.t() | nil,
           ticket: ticket(),
           attempt_id: String.t() | nil,

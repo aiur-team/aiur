@@ -32,7 +32,7 @@ defmodule Aiur.ProviderMeterProjection do
   @backend :app_server
   @call_timeout 5_000
 
-  @type provider :: :codex | :claude
+  @type provider :: atom()
 
   @type view :: %{
           provider: provider(),

@@ -36,7 +36,7 @@ defmodule Aiur.Usage.Headless.Context do
   ]
 
   @type account_generation :: %{
-          provider: :codex | :claude,
+          provider: atom(),
           backend: :app_server,
           generation: String.t() | nil,
           freshness: :current | :unknown,
@@ -108,7 +108,7 @@ defmodule Aiur.Usage.Headless.Context do
   end
 
   @doc "Projects a DASH-018 account-generation snapshot into the envelope's account context."
-  @spec project_generation(map(), :codex | :claude) :: account_generation()
+  @spec project_generation(map(), atom()) :: account_generation()
   def project_generation(%{generation: generation, freshness: freshness, health: health, reason: reason}, agent_family) do
     %{
       provider: agent_family,
