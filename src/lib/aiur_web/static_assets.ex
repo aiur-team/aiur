@@ -1,6 +1,8 @@
 defmodule AiurWeb.StaticAssets do
   @moduledoc false
 
+  alias Aiur.CodingAgent
+
   @dashboard_css_path Path.expand("../../priv/static/dashboard.css", __DIR__)
   @dom_svg_layout_adapter_path Path.expand("../../priv/static/aiur-dom-svg-layout-adapter.js", __DIR__)
   @phoenix_html_js_path Application.app_dir(:phoenix_html, "priv/static/phoenix_html.js")
@@ -29,10 +31,6 @@ defmodule AiurWeb.StaticAssets do
     "/build-order-grid-hook.js" => {"application/javascript", "priv/static/build-order-grid-hook.js"},
     "/time-brush-hook.js" => {"application/javascript", "priv/static/time-brush-hook.js"},
     "/streamdeck-emulator-hook.js" => {"application/javascript", "priv/static/streamdeck-emulator-hook.js"},
-    "/codex-color.svg" => {"image/svg+xml", "priv/static/codex-color.svg"},
-    "/claude-symbol.svg" => {"image/svg+xml", "priv/static/claude-symbol.svg"},
-    "/codex-token.svg" => {"image/svg+xml", "priv/static/codex-token.svg"},
-    "/claude-token.svg" => {"image/svg+xml", "priv/static/claude-token.svg"},
     "/bungee.woff2" => {"font/woff2", "priv/static/bungee.woff2"}
   }
 
@@ -83,8 +81,22 @@ defmodule AiurWeb.StaticAssets do
   def fetch(path) when is_binary(path) do
     case Map.fetch(@runtime_static_assets, path) do
       {:ok, {content_type, asset_path}} -> read_static_asset(content_type, asset_path)
-      :error -> fetch_dom_svg_layout_module(path)
+      :error -> fetch_provider_asset(path)
     end
+  end
+
+  defp fetch_provider_asset(path) do
+    if provider_asset?(path) do
+      path
+      |> Path.basename()
+      |> then(&read_static_asset("image/svg+xml", Path.join("priv/static", &1)))
+    else
+      fetch_dom_svg_layout_module(path)
+    end
+  end
+
+  defp provider_asset?(path) do
+    Enum.any?(CodingAgent.provider_descriptors(), fn descriptor -> path in [descriptor.logo, descriptor.token_icon] end)
   end
 
   defp fetch_dom_svg_layout_module(path) do

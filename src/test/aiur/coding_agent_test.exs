@@ -22,8 +22,8 @@ defmodule Aiur.CodingAgentTest do
     test "provider_descriptor/1 exposes the fields every provider surface renders from" do
       codex = CodingAgent.provider_descriptor(:codex)
       assert codex.label == "Codex"
-      assert codex.logo == "/codex-color.svg"
-      assert codex.token_icon == "/codex-token.svg"
+      assert codex.logo == "/provider-assets/codex-color.svg"
+      assert codex.token_icon == "/provider-assets/codex-token.svg"
       assert codex.css_class == "is-codex"
 
       claude = CodingAgent.provider_descriptor(:claude)

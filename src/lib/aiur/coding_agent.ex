@@ -110,8 +110,8 @@ defmodule Aiur.CodingAgent do
         presentation: %{
           order: 0,
           label: "Codex",
-          logo: "/codex-color.svg",
-          token_icon: "/codex-token.svg",
+          logo: "/provider-assets/codex-color.svg",
+          token_icon: "/provider-assets/codex-token.svg",
           css_class: "is-codex"
         },
         pricing: %{
@@ -167,8 +167,8 @@ defmodule Aiur.CodingAgent do
         presentation: %{
           order: 1,
           label: "Claude",
-          logo: "/claude-symbol.svg",
-          token_icon: "/claude-token.svg",
+          logo: "/provider-assets/claude-symbol.svg",
+          token_icon: "/provider-assets/claude-token.svg",
           css_class: "is-claude"
         },
         pricing: %{
@@ -247,7 +247,13 @@ defmodule Aiur.CodingAgent do
         control_application_confirmation: :confirmed,
         remote_control: false,
         resumable: false,
-        presentation: %{order: 2, label: "Fake", logo: "/fake.svg", token_icon: "/fake-token.svg", css_class: "is-fake"},
+        presentation: %{
+          order: 2,
+          label: "Fake",
+          logo: "/provider-assets/codex-color.svg",
+          token_icon: "/provider-assets/codex-token.svg",
+          css_class: "is-fake"
+        },
         pricing: %{
           dimensions: %{
             context_tier: %{allowed: [:not_applicable], default: :not_applicable, required: false},
