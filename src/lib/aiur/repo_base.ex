@@ -549,25 +549,26 @@ defmodule Aiur.RepoBase do
       |> Path.wildcard()
       |> Enum.filter(&File.dir?(Path.join(&1, ".git")))
 
-    cond do
-      File.dir?(Path.join(base_path, ".git")) ->
-        :ok
-
-      parked == [] ->
-        :ok
-
-      [temporary] ->
-        with :ok <- File.mkdir_p(node),
-             :ok <- move_sidecars(temporary, node),
-             :ok <- remove_legacy_marker(temporary),
-             :ok <- File.rename(temporary, base_path) do
+    if File.dir?(Path.join(base_path, ".git")) do
+      :ok
+    else
+      case parked do
+        [] ->
           :ok
-        else
-          {:error, reason} -> {:error, {:repo_base_migration_recovery_failed, reason}}
-        end
 
-      _many ->
-        {:error, :repo_base_migration_recovery_ambiguous}
+        [temporary] ->
+          with :ok <- File.mkdir_p(node),
+               :ok <- move_sidecars(temporary, node),
+               :ok <- remove_legacy_marker(temporary),
+               :ok <- File.rename(temporary, base_path) do
+            :ok
+          else
+            {:error, reason} -> {:error, {:repo_base_migration_recovery_failed, reason}}
+          end
+
+        _many ->
+          {:error, :repo_base_migration_recovery_ambiguous}
+      end
     end
   end
 

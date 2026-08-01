@@ -29,7 +29,8 @@ defmodule Aiur.RepoBaseTest do
       assert {:ok, ^base} = RepoBase.refresh(base, origin, "touch built_ran")
 
       assert File.exists?(Path.join(base, "built_ran")), "base_build command did not run"
-      assert {:ok, record} = node |> Path.join("base-record.json") |> File.read() |> Jason.decode()
+      assert {:ok, record_body} = node |> Path.join("base-record.json") |> File.read()
+      assert {:ok, record} = Jason.decode(record_body)
       assert record["clone_head"] == head(origin)
       assert is_binary(record["prewarm_script_hash"])
       assert is_binary(record["built_at"])
