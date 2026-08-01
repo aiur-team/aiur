@@ -3,8 +3,8 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
 
   alias Aiur.BuildOrder.{Catalog, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
-  alias Aiur.{RepoBase, TrackerIdentity}
   alias Aiur.GitHub.Config
+  alias Aiur.{RepoBase, TrackerIdentity}
   alias AiurWeb.BuildOrder.PlanningSource
   alias AiurWeb.BuildOrderPresenter
   alias AiurWeb.OperatorControlCenter.BuildOrderGridModel
@@ -50,6 +50,21 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
        "complexity": 3, "depends_on": [], "ticket": 4101, "doc": "tickets/AS-101.md"},
       {"id": "AS-102", "title": "Render deck", "lane": "dashboard-ui", "phase": 2,
        "complexity": 2, "depends_on": ["AS-101"], "ticket": null, "doc": "tickets/AS-102.md", "icon": "sparkles"}
+    ]
+  }
+  """
+
+  @canonical_pack """
+  {
+    "build_order_id": "acme/widgets:analytics-streamdeck",
+    "title": "Analytics Stream Deck",
+    "repository": "acme/widgets",
+    "github_root": {"number": 9900, "node_id": "I_live_root"},
+    "tickets": [
+      {"id": "AS-101", "title": "Wire stream", "workstream": "runtime", "phase_hint": 2,
+       "complexity_points": 3, "github_number": 4101, "depends_on": []},
+      {"id": "AS-102", "title": "Render deck", "workstream": "dashboard-ui", "phase_hint": 3,
+       "complexity_points": 2, "github": {"number": 4102, "node_id": "I_live_4102"}, "depends_on": ["AS-101"]}
     ]
   }
   """

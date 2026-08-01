@@ -210,13 +210,11 @@ defmodule Aiur.RepoBase do
         %{state | phase: :idle}
 
       {:ok, repo_url, base, command} ->
-        state
-        |> Map.put(:base_path, base)
-        |> dispatch_refresh_action(repo_url, base, command)
+        dispatch_refresh_state(%{state | base_path: base}, repo_url, base, command)
     end
   end
 
-  defp dispatch_refresh_action(state, repo_url, base, command) do
+  defp dispatch_refresh_state(state, repo_url, base, command) do
     cond do
       state.build != nil -> ensure_probe(state, repo_url)
       state.phase == :checking -> state
@@ -521,23 +519,16 @@ defmodule Aiur.RepoBase do
   defp migrate_legacy_layout(base_path) do
     node = repo_node_path(base_path)
 
-    with :ok <- recover_interrupted_migration(base_path),
-         :ok <- migrate_legacy_node(base_path, node),
-         do: :ok
+    with :ok <- recover_interrupted_migration(base_path) do
+      if File.dir?(Path.join(node, ".git")), do: migrate_legacy_clone(node, base_path), else: :ok
+    end
   end
 
-  defp migrate_legacy_node(base_path, node) do
-    if File.dir?(Path.join(node, ".git")), do: move_legacy_node(base_path, node), else: :ok
-  end
-
-  defp move_legacy_node(base_path, node) do
+  defp migrate_legacy_clone(node, base_path) do
     temporary = node <> ".migrating-" <> unique_suffix()
 
     with :ok <- File.rename(node, temporary),
-         :ok <- File.mkdir_p(node),
-         :ok <- move_sidecars(temporary, node),
-         :ok <- remove_legacy_marker(temporary),
-         :ok <- File.rename(temporary, base_path) do
+         :ok <- finish_migration(temporary, node, base_path) do
       :ok
     else
       {:error, reason} -> {:error, {:repo_base_migration_failed, reason}}
@@ -557,23 +548,33 @@ defmodule Aiur.RepoBase do
       |> Path.wildcard()
       |> Enum.filter(&File.dir?(Path.join(&1, ".git")))
 
-    if File.dir?(Path.join(base_path, ".git")), do: :ok, else: recover_parked_migration(node, base_path, parked)
-  end
+    cond do
+      File.dir?(Path.join(base_path, ".git")) ->
+        :ok
 
-  defp recover_parked_migration(_node, _base_path, []), do: :ok
+      parked == [] ->
+        :ok
 
-  defp recover_parked_migration(node, base_path, [temporary]) do
-    with :ok <- File.mkdir_p(node),
-         :ok <- move_sidecars(temporary, node),
-         :ok <- remove_legacy_marker(temporary),
-         :ok <- File.rename(temporary, base_path) do
-      :ok
-    else
-      {:error, reason} -> {:error, {:repo_base_migration_recovery_failed, reason}}
+      length(parked) == 1 ->
+        [temporary] = parked
+
+        case finish_migration(temporary, node, base_path) do
+          :ok -> :ok
+          {:error, reason} -> {:error, {:repo_base_migration_recovery_failed, reason}}
+        end
+
+      true ->
+        {:error, :repo_base_migration_recovery_ambiguous}
     end
   end
 
-  defp recover_parked_migration(_node, _base_path, _many), do: {:error, :repo_base_migration_recovery_ambiguous}
+  defp finish_migration(temporary, node, base_path) do
+    with :ok <- File.mkdir_p(node),
+         :ok <- move_sidecars(temporary, node),
+         :ok <- remove_legacy_marker(temporary) do
+      File.rename(temporary, base_path)
+    end
+  end
 
   defp remove_legacy_marker(path) do
     case File.rm_rf(Path.join(path, @legacy_built_marker)) do
@@ -600,23 +601,25 @@ defmodule Aiur.RepoBase do
 
   defp move_sidecars(from, to) do
     Enum.reduce_while(@cache_sidecars, :ok, fn sidecar, :ok ->
-      case move_sidecar(Path.join(from, sidecar), Path.join(to, sidecar)) do
+      case move_sidecar(from, to, sidecar) do
         :ok -> {:cont, :ok}
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
 
-  defp move_sidecar(source, target) do
+  defp move_sidecar(from, to, sidecar) do
+    source = Path.join(from, sidecar)
+
     cond do
       not File.exists?(source) -> :ok
-      File.exists?(target) -> discard_sidecar(source)
-      true -> File.rename(source, target)
+      File.exists?(Path.join(to, sidecar)) -> remove_sidecar(source)
+      true -> File.rename(source, Path.join(to, sidecar))
     end
   end
 
-  defp discard_sidecar(source) do
-    case File.rm_rf(source) do
+  defp remove_sidecar(path) do
+    case File.rm_rf(path) do
       {:ok, _removed} -> :ok
       {:error, reason, _path} -> {:error, reason}
     end
@@ -625,8 +628,9 @@ defmodule Aiur.RepoBase do
   defp repo_node_path(base_path), do: Path.dirname(base_path)
   defp base_record_path(base_path), do: Path.join(repo_node_path(base_path), @base_record)
 
-  defp clear_probe(%{probe: %{timer: timer}} = state) do
+  defp clear_probe(%{probe: %{ref: ref, timer: timer}} = state) do
     if is_reference(timer), do: Process.cancel_timer(timer)
+    Process.demonitor(ref, [:flush])
     %{state | probe: nil}
   end
 

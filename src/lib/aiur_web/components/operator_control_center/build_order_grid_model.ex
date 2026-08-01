@@ -35,12 +35,19 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
           adhoc: boolean()
         }
 
+  @type column :: %{
+          lane: String.t(),
+          label: String.t(),
+          count: non_neg_integer(),
+          pct: 0..100
+        }
+
   @doc """
   Builds the grid projection. `model` is a `BuildOrderViewModel` (or nil);
   `adhoc` is the Ad Hoc overlay projection map (`%{rows: [...]}`) or nil.
   """
   @spec build(term(), term()) :: %{
-          columns: [map()],
+          columns: [column()],
           waves: [map()],
           cards: [card()],
           edges: [map()],
@@ -111,7 +118,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
       has_progress: merged or is_integer(Map.get(card, :progress)),
       merged: merged,
       state: core_state(status_key),
-      status_word: core_status_word(status_key, Map.get(card, :status_text)),
+      status_word: core_status_word(status_key, node.execution, Map.get(card, :status_text)),
       icon: Map.get(card, :icon),
       adhoc: false
     }
@@ -273,11 +280,13 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
   defp core_state(key) when key in [:status_blocking, :status_terminal_unsatisfied, :status_cyclic], do: :blocked
   defp core_state(_key), do: :plain
 
-  defp core_status_word(:status_completed, _text), do: "merged"
-  defp core_status_word(:status_working, _text), do: "agent live"
-  defp core_status_word(:status_ready, _text), do: "dependency-ready"
-  defp core_status_word(_key, text) when is_binary(text) and text != "", do: text
-  defp core_status_word(_key, _text), do: "status unavailable"
+  defp core_status_word(:status_completed, _execution, _text), do: "merged"
+  defp core_status_word(:status_working, _execution, _text), do: "agent live"
+  defp core_status_word(:status_ready, _execution, _text), do: "dependency-ready"
+  defp core_status_word(:status_paused, %{pause_reason: :ci_wait}, _text), do: "CI waiting"
+  defp core_status_word(:status_waiting, %{waiting_reason: :waiting_for_ci}, _text), do: "CI waiting"
+  defp core_status_word(_key, _execution, text) when is_binary(text) and text != "", do: text
+  defp core_status_word(_key, _execution, _text), do: "status unavailable"
 
   defp adhoc_status_word(:merged), do: "merged"
   defp adhoc_status_word(:working), do: "agent live"
