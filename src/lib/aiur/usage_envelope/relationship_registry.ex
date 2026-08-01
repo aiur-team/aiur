@@ -7,13 +7,13 @@ defmodule Aiur.UsageEnvelope.RelationshipRegistry do
   how a retained envelope is interpreted.
   """
 
-  alias Aiur.UsageEnvelope
+  alias Aiur.{CodingAgent, UsageEnvelope}
 
   @version 1
   @dimensions [:input, :cached_input, :cache_creation_input, :output, :reasoning_output]
   @input_dimensions [:input, :cached_input, :cache_creation_input]
   @output_dimensions [:output, :reasoning_output]
-  @providers [:codex, :claude]
+  @providers CodingAgent.provider_families()
   @definition_fields [
     :provider,
     :source,
