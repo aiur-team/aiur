@@ -112,7 +112,12 @@ defmodule Aiur.CodingAgent do
           label: "Codex",
           logo: "/provider-assets/codex-color.svg",
           token_icon: "/provider-assets/codex-token.svg",
-          css_class: "is-codex"
+          css_class: "is-codex",
+          command_color: "#8fbcff",
+          command_border: "rgba(143, 188, 255, 0.4)",
+          unit_color: "#8fbcff",
+          unit_border: "rgba(143, 188, 255, 0.4)",
+          unit_background: "rgba(143, 188, 255, 0.12)"
         },
         pricing: %{
           dimensions: %{
@@ -169,7 +174,12 @@ defmodule Aiur.CodingAgent do
           label: "Claude",
           logo: "/provider-assets/claude-symbol.svg",
           token_icon: "/provider-assets/claude-token.svg",
-          css_class: "is-claude"
+          css_class: "is-claude",
+          command_color: "#f2a76b",
+          command_border: "rgba(242, 167, 107, 0.4)",
+          unit_color: "#f0a878",
+          unit_border: "rgba(240, 168, 120, 0.4)",
+          unit_background: "rgba(240, 168, 120, 0.12)"
         },
         pricing: %{
           dimensions: %{
@@ -252,7 +262,12 @@ defmodule Aiur.CodingAgent do
           label: "Fake",
           logo: "/provider-assets/codex-color.svg",
           token_icon: "/provider-assets/codex-token.svg",
-          css_class: "is-fake"
+          css_class: "is-fake",
+          command_color: "#8fbcff",
+          command_border: "rgba(143, 188, 255, 0.4)",
+          unit_color: "#8fbcff",
+          unit_border: "rgba(143, 188, 255, 0.4)",
+          unit_background: "rgba(143, 188, 255, 0.12)"
         },
         pricing: %{
           dimensions: %{
@@ -368,6 +383,10 @@ defmodule Aiur.CodingAgent do
   @spec provider_descriptor(atom()) :: provider_descriptor() | nil
   def provider_descriptor(provider) when is_atom(provider) do
     Enum.find(provider_descriptors(), &(&1.provider == provider))
+  end
+
+  def provider_descriptor(provider) when is_binary(provider) do
+    Enum.find(provider_descriptors(), &(Atom.to_string(&1.provider) == provider))
   end
 
   @doc "Registry-supplied pricing policy for one provider family, or `nil` when it is not metered."

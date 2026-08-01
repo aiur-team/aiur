@@ -97,7 +97,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
 
               <td data-label="Unit" class="ut-unit-cell ut-open" phx-click="inspect-unit" phx-value-unit={token}>
                 <div class="ut-pill-row">
-                  <span class={["u-pill", "u-agent", agent_class(agent_family(row))]}>{agent_label(agent_family(row))}</span>
+                  <span class={["u-pill", "u-agent", agent_class(agent_family(row))]} style={agent_style(agent_family(row))}>{agent_label(agent_family(row))}</span>
                   <span :if={is_integer(row.complexity)} class="u-pill u-cx">Cx:{row.complexity}</span>
                 </div>
                 <div class="ut-pill-row">
@@ -368,6 +368,16 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
     case CodingAgent.provider_descriptor(family) do
       %{css_class: class} -> class
       _ -> "is-generic"
+    end
+  end
+
+  defp agent_style(family) do
+    case CodingAgent.provider_descriptor(family) do
+      %{unit_color: color, unit_border: border, unit_background: background} ->
+        "--provider-unit-color: #{color}; --provider-unit-border: #{border}; --provider-unit-background: #{background}"
+
+      _ ->
+        nil
     end
   end
 

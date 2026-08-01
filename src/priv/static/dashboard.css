@@ -2262,14 +2262,9 @@ html[data-theme="light"] .toggle-icon .moon {
   border-color: var(--blocking-line);
 }
 
-.chip.cmd-agent.is-claude {
-  color: #f2a76b;
-  border-color: rgba(242, 167, 107, 0.4);
-}
-
-.chip.cmd-agent.is-codex {
-  color: #8fbcff;
-  border-color: rgba(143, 188, 255, 0.4);
+.chip.cmd-agent {
+  color: var(--provider-command-color, var(--fg));
+  border-color: var(--provider-command-border, var(--line-strong));
 }
 
 .chip.faint {
@@ -3143,16 +3138,10 @@ html[data-theme="light"] .toggle-icon .moon {
   color: var(--fg);
 }
 
-.u-agent.is-claude {
-  color: #f0a878;
-  border-color: rgba(240, 168, 120, 0.4);
-  background: rgba(240, 168, 120, 0.12);
-}
-
-.u-agent.is-codex {
-  color: #8fbcff;
-  border-color: rgba(143, 188, 255, 0.4);
-  background: rgba(143, 188, 255, 0.12);
+.u-agent {
+  color: var(--provider-unit-color, var(--fg));
+  border-color: var(--provider-unit-border, var(--line-strong));
+  background: var(--provider-unit-background, var(--pill-bg));
 }
 
 .u-cx {
