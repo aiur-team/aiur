@@ -8,7 +8,8 @@ defmodule Aiur.RepoBaseTest do
   setup do
     tmp = Path.join(System.tmp_dir!(), "aiur_rb_#{System.unique_integer([:positive])}")
     origin = Path.join(tmp, "origin")
-    base = Path.join(tmp, "base")
+    node = Path.join(tmp, "repo/owner/project")
+    base = Path.join(node, "latest")
     File.mkdir_p!(origin)
 
     git!(["init", "--quiet", "-b", "main", origin])
@@ -20,16 +21,60 @@ defmodule Aiur.RepoBaseTest do
 
     on_exit(fn -> File.rm_rf!(tmp) end)
 
-    {:ok, tmp: tmp, origin: origin, base: base}
+    {:ok, tmp: tmp, origin: origin, node: node, base: base}
   end
 
   describe "refresh/3" do
-    test "clones and builds on first refresh, marking the base built", %{origin: origin, base: base} do
+    test "clones and builds on first refresh, writing a SHA-keyed base record beside latest", %{origin: origin, node: node, base: base} do
       assert {:ok, ^base} = RepoBase.refresh(base, origin, "touch built_ran")
 
       assert File.exists?(Path.join(base, "built_ran")), "base_build command did not run"
-      assert File.exists?(Path.join(base, ".aiur-base-built")), "built marker missing"
+      assert {:ok, record} = node |> Path.join("base-record.json") |> File.read() |> Jason.decode()
+      assert record["clone_head"] == head(origin)
+      assert is_binary(record["prewarm_script_hash"])
+      assert is_binary(record["built_at"])
+      refute File.exists?(Path.join(base, ".aiur-base-built"))
       assert head(base) == head(origin)
+    end
+
+    test "rebuilds when the prewarm script changes without a new commit", %{origin: origin, base: base} do
+      assert {:ok, ^base} = RepoBase.refresh(base, origin, "touch first_build")
+      assert {:ok, ^base} = RepoBase.refresh(base, origin, "touch second_build")
+
+      assert File.exists?(Path.join(base, "second_build"))
+    end
+
+    test "migrates an existing clone down to latest and leaves sidecars at the repo node", %{origin: origin, node: node, base: base} do
+      File.mkdir_p!(Path.dirname(node))
+      git!(["clone", "--quiet", origin, node])
+      File.write!(Path.join(node, ".aiur-base-built"), "")
+      File.mkdir_p!(Path.join(node, ".aiur-hex"))
+      File.write!(Path.join(node, ".aiur-hex/cache"), "warm")
+      File.write!(Path.join(node, "latest"), "legacy tracked path")
+
+      assert {:ok, ^base} = RepoBase.refresh(base, origin, "touch rebuilt_after_migration")
+
+      assert File.dir?(Path.join(base, ".git"))
+      refute File.dir?(Path.join(node, ".git"))
+      assert File.read!(Path.join(base, "latest")) == "legacy tracked path"
+      assert File.exists?(Path.join(node, ".aiur-hex/cache"))
+      refute File.exists?(Path.join(base, ".aiur-hex/cache"))
+      refute File.exists?(Path.join(base, ".aiur-base-built"))
+      assert File.exists?(Path.join(base, "rebuilt_after_migration"))
+    end
+
+    test "recovers a clone parked by an interrupted migration", %{origin: origin, node: node, base: base} do
+      parked = node <> ".migrating-interrupted"
+      File.mkdir_p!(Path.dirname(node))
+      git!(["clone", "--quiet", origin, parked])
+      File.mkdir_p!(node)
+      File.mkdir_p!(Path.join(node, ".aiur-mix"))
+
+      assert {:ok, ^base} = RepoBase.refresh(base, origin, "touch rebuilt_after_recovery")
+
+      assert File.dir?(Path.join(base, ".git"))
+      assert File.exists?(Path.join(base, "rebuilt_after_recovery"))
+      refute File.exists?(parked)
     end
 
     test "is idempotent when main has not advanced", %{origin: origin, base: base} do
@@ -98,7 +143,7 @@ defmodule Aiur.RepoBaseTest do
     test "returns an error and skips the marker when base_build fails", %{origin: origin, base: base} do
       assert {:error, {:base_build_failed, status, _out}} = RepoBase.refresh(base, origin, "exit 3")
       assert status == 3
-      refute File.exists?(Path.join(base, ".aiur-base-built"))
+      refute File.exists?(Path.join(Path.dirname(base), "base-record.json"))
     end
 
     test "runs base_build with the base mise.toml trusted", %{origin: origin, base: base} do
@@ -108,6 +153,17 @@ defmodule Aiur.RepoBaseTest do
                RepoBase.refresh(base, origin, ~s(printf '%s' "$MISE_TRUSTED_CONFIG_PATHS" > trust_path))
 
       assert File.read!(Path.join(base, "trust_path")) =~ base
+    end
+
+    test "keeps package-manager caches beside latest rather than in the clone", %{origin: origin, node: node, base: base} do
+      command = ~s(mkdir -p "$HEX_HOME" "$MIX_HOME" "$npm_config_cache"; touch "$HEX_HOME/hex" "$MIX_HOME/mix" "$npm_config_cache/npm")
+
+      assert {:ok, ^base} = RepoBase.refresh(base, origin, command)
+
+      for cache <- [".aiur-hex/hex", ".aiur-mix/mix", ".aiur-npm-cache/npm"] do
+        assert File.exists?(Path.join(node, cache))
+        refute File.exists?(Path.join(base, cache))
+      end
     end
 
     test "logs base_build failures at error with the captured output", %{origin: origin, base: base} do
@@ -154,12 +210,17 @@ defmodule Aiur.RepoBaseTest do
   end
 
   describe "base_path/1" do
-    test "slugs the base directory to <owner>/<name> under the base root" do
-      assert RepoBase.base_path("https://github.com/foo/bar.git") |> Path.split() |> Enum.take(-2) ==
-               ["foo", "bar"]
+    test "puts the base clone at <owner>/<name>/latest under the base root" do
+      assert RepoBase.base_path("https://github.com/foo/bar.git") |> Path.split() |> Enum.take(-3) ==
+               ["foo", "bar", "latest"]
 
-      assert RepoBase.base_path("git@github.com:foo/bar.git") |> Path.split() |> Enum.take(-2) ==
-               ["foo", "bar"]
+      assert RepoBase.base_path("git@github.com:foo/bar.git") |> Path.split() |> Enum.take(-3) ==
+               ["foo", "bar", "latest"]
+    end
+
+    test "keeps the build store beside latest in the repository state node" do
+      assert RepoBase.builds_path("https://github.com/foo/bar.git") |> Path.split() |> Enum.take(-3) ==
+               ["foo", "bar", "builds"]
     end
   end
 
@@ -259,7 +320,8 @@ defmodule Aiur.RepoBaseTest do
 
       send(pid, {:build_done, pid, "abc", {:ok, "/base"}})
 
-      assert %{phase: :ready, base_path: "/base", ready_head: "abc", build: nil} = :sys.get_state(pid)
+      assert %{phase: :ready, base_path: "/base", ready_head: "abc", freshness: :unknown, build: nil} =
+               :sys.get_state(pid)
     end
 
     test "build_done error sets the error phase", %{server: pid} do
@@ -290,22 +352,49 @@ defmodule Aiur.RepoBaseTest do
     end
 
     test "a remote-head advance past a ready base triggers a rebuild", %{server: pid} do
-      :sys.replace_state(pid, fn s -> %{s | build: nil, phase: :ready, ready_head: "old"} end)
+      :sys.replace_state(pid, fn s ->
+        %{s | build: nil, phase: :ready, ready_head: "old", probe: probe(pid)}
+      end)
 
-      send(pid, {:remote_head, "new"})
+      send(pid, {:remote_head, pid, {:ok, "new"}})
 
       # resolve is disabled in test, so the triggered rebuild resolves to idle.
       assert %{phase: :idle, probe: nil} = :sys.get_state(pid)
     end
 
     test "a remote-head with no advance leaves a ready base untouched", %{server: pid} do
-      :sys.replace_state(pid, fn s -> %{s | build: nil, phase: :ready, ready_head: "same"} end)
+      :sys.replace_state(pid, fn s ->
+        %{s | build: nil, phase: :ready, ready_head: "same", probe: probe(pid)}
+      end)
 
-      send(pid, {:remote_head, "same"})
+      send(pid, {:remote_head, pid, {:ok, "same"}})
 
       assert %{phase: :ready} = :sys.get_state(pid)
     end
+
+    test "a matching dispatch freshness check marks the ready base fresh", %{server: pid} do
+      :sys.replace_state(pid, fn s ->
+        %{s | build: nil, phase: :checking, ready_head: "same", freshness: :unknown, probe: probe(pid)}
+      end)
+
+      send(pid, {:remote_head, pid, {:ok, "same"}})
+
+      assert %{phase: :ready, freshness: :fresh} = :sys.get_state(pid)
+    end
+
+    test "a failed freshness check never certifies the warm base", %{server: pid} do
+      :sys.replace_state(pid, fn s ->
+        %{s | build: nil, phase: :checking, ready_head: "same", freshness: :unknown, probe: probe(pid)}
+      end)
+
+      send(pid, {:remote_head, pid, {:error, :timeout}})
+
+      assert %{phase: {:error, {:repo_base_remote_probe_failed, :timeout}}, freshness: :unknown} =
+               :sys.get_state(pid)
+    end
   end
+
+  defp probe(pid), do: %{pid: pid, ref: make_ref(), timer: nil}
 
   describe "git_auth_env/1" do
     test "injects the token as a per-host Authorization header via env config" do
