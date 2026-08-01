@@ -556,7 +556,9 @@ defmodule Aiur.RepoBase do
       parked == [] ->
         :ok
 
-      [temporary] ->
+      length(parked) == 1 ->
+        [temporary] = parked
+
         with :ok <- File.mkdir_p(node),
              :ok <- move_sidecars(temporary, node),
              :ok <- remove_legacy_marker(temporary),
