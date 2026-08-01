@@ -16,7 +16,7 @@ defmodule Aiur.CodingAgentTest do
   describe "provider presentation descriptors (registry-driven rendering)" do
     test "provider_families/0 lists families in card order, deduped across a shared family" do
       # claude and claude-repl share family :claude, so it appears once.
-      assert CodingAgent.provider_families() == [:codex, :claude]
+      assert CodingAgent.provider_families() == [:codex, :claude, :fake]
     end
 
     test "provider_descriptor/1 exposes the fields every provider surface renders from" do
@@ -36,7 +36,7 @@ defmodule Aiur.CodingAgentTest do
     end
 
     test "provider_descriptors/0 carries the resolved provider family atom and is card-ordered" do
-      assert [%{provider: :codex, order: 0}, %{provider: :claude, order: 1}] =
+      assert [%{provider: :codex, order: 0}, %{provider: :claude, order: 1}, %{provider: :fake, order: 2}] =
                CodingAgent.provider_descriptors()
     end
 
@@ -52,6 +52,8 @@ defmodule Aiur.CodingAgentTest do
 
       assert Catalog.adapters_for(:codex) == [Aiur.Usage.Headless.Codex.ThreadUsage, Aiur.Usage.Headless.Codex.TurnUsage]
       assert Catalog.adapters_for(:claude) == [Aiur.Usage.Headless.Claude.RequestUsage]
+      assert Catalog.adapters_for(:fake) == []
+      assert Dimensions.validate(:fake, Dimensions.from_options(:fake, [])) == :ok
     end
   end
 
@@ -333,7 +335,7 @@ defmodule Aiur.CodingAgentTest do
 
   describe "registry dispatch" do
     test "known_backends comes from the registry" do
-      assert Enum.sort(CodingAgent.known_backends()) == ["claude", "claude-repl", "codex"]
+      assert Enum.sort(CodingAgent.known_backends()) == ["claude", "claude-repl", "codex", "fake"]
     end
 
     test "adapter and transcript_module resolve per backend" do

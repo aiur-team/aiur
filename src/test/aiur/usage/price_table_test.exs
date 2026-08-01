@@ -72,6 +72,31 @@ defmodule Aiur.Usage.PriceTableTest do
     assert catalog.revision == Data.catalog_revision()
   end
 
+  test "accepts the test-only registry provider without a validator clause" do
+    fake =
+      entry(%{
+        provider: :fake,
+        resolved_model: "fake-1",
+        relationship_revision: "fake-app-server-1",
+        context_tier: :not_applicable,
+        cache_write_duration: :not_applicable
+      })
+
+    assert {:ok, catalog} = PriceTable.new("fake-registry-test", [fake])
+
+    assert {:ok, %{provider: :fake}} =
+             PriceTable.lookup(
+               catalog,
+               query(%{
+                 provider: :fake,
+                 resolved_model: "fake-1",
+                 relationship_revision: "fake-app-server-1",
+                 context_tier: :not_applicable,
+                 cache_write_duration: :not_applicable
+               })
+             )
+  end
+
   test "selects old and new revisions solely from the occurrence date" do
     entries = [
       entry(%{price: "2.50", effective_date: ~D[2026-07-15], price_revision: "price-1"}),

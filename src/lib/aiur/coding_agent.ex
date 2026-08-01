@@ -224,6 +224,43 @@ defmodule Aiur.CodingAgent do
         efforts: ["low", "medium", "high", "xhigh", "max"]
       }
     }
+    |> maybe_add_test_backend()
+  end
+
+  # Acceptance fixture for registry consumers. It intentionally lives only in
+  # the test build and is added exactly like a production provider: no caller
+  # receives a fake-specific branch or fixture hook.
+  if Mix.env() == :test do
+    defp maybe_add_test_backend(backends) do
+      Map.put(backends, "fake", %{
+        adapter: Aiur.Codex.CodingAgent,
+        transcript: Aiur.Codex.Transcript,
+        family: "fake",
+        configurable: true,
+        init_order: 2,
+        default_command: "fake-agent --serve",
+        models: ["fake-1"],
+        model_aliases: :native,
+        efforts: [],
+        can_interrupt: false,
+        safe_checkpoints: [],
+        control_application_confirmation: :confirmed,
+        remote_control: false,
+        resumable: false,
+        presentation: %{order: 2, label: "Fake", logo: "/fake.svg", token_icon: "/fake-token.svg", css_class: "is-fake"},
+        pricing: %{
+          dimensions: %{
+            context_tier: %{allowed: [:not_applicable], default: :not_applicable, required: false},
+            cache_write_duration: %{allowed: [:not_applicable], default: :not_applicable, required: false}
+          },
+          component_dimensions: %{default: %{context_tier: [:not_applicable], cache_write_duration: [:not_applicable]}}
+        },
+        usage: %{adapters: []},
+        account_generation: %{backends: [:app_server], trusted_sources: [:fake_app_server], auth_modes: ["fake"]}
+      })
+    end
+  else
+    defp maybe_add_test_backend(backends), do: backends
   end
 
   @doc "Known backend keys, derived from the registry."
