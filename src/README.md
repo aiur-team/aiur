@@ -376,8 +376,11 @@ Before a new writer starts, Aiur prunes old **whole boots** from the stream. The
 default retention window is 30 days and 64 MiB (`observability.telemetry_retention_max_age_days`
 and `observability.telemetry_retention_max_bytes`); these defaults retain useful
 cross-session Build Order history without allowing a long-running operator stream to
-grow indefinitely. Size is a whole-boot target: if one boot alone exceeds it, Aiur
-keeps that boot intact rather than truncating lifecycle intervals mid-session.
+grow indefinitely. During a long-running daemon boot, the writer closes a telemetry
+segment and prunes at `observability.telemetry_retention_prune_interval_bytes`; it
+defaults to `max(max_bytes / 8, 1 MiB)` (8 MiB with the default cap). Size is a
+whole-boot-segment target: if one segment alone exceeds it, Aiur keeps that segment
+intact rather than truncating lifecycle intervals mid-session.
 
 From the repository root, generate the canonical analytics artifact from one file,
 one session directory, or several session roots:
