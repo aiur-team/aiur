@@ -44,6 +44,18 @@ defmodule Aiur.CurrentRunProjections.WeightFacts do
   defp retained_fact(%{terminal?: true}, fact, entries, retained, stale?) when is_map(fact),
     do: {[fact | entries], retained, stale?}
 
+  # A replaced member has been superseded by another ticket: the status
+  # pipeline will never emit a fact for it again. Serving its retained fact
+  # (or none) is the complete truth, not staleness — without this, one
+  # replaced member with no fact marks the entire run's weight facts stale
+  # forever, which degrades health/ETA to "unhealthy weight facts" while
+  # every live ticket's facts are actually current.
+  defp retained_fact(%{lifecycle: :replaced}, fact, entries, retained, stale?) when is_map(fact),
+    do: {[fact | entries], retained, stale?}
+
+  defp retained_fact(%{lifecycle: :replaced}, nil, entries, retained, stale?),
+    do: {entries, retained, stale?}
+
   defp retained_fact(_member, fact, entries, retained, _stale?) when is_map(fact),
     do: {[fact | entries], retained, true}
 
@@ -64,9 +76,12 @@ defmodule Aiur.CurrentRunProjections.WeightFacts do
   defp race_signature(_members, _status, _facts, %{status_facts: false}), do: nil
 
   defp race_signature(members, status, facts, _availability) do
+    # Replaced members are excluded alongside terminal ones: neither can
+    # appear in a status bucket again, so counting them as active turns a
+    # legitimately absent status/fact row into a permanent race signature.
     active_keys =
       members
-      |> Enum.reject(&(Map.get(&1, :terminal?) == true))
+      |> Enum.reject(&(Map.get(&1, :terminal?) == true or Map.get(&1, :lifecycle) == :replaced))
       |> identity_keys()
 
     status_keys =
