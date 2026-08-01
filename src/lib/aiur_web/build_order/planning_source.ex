@@ -302,6 +302,8 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   defp membership_lifecycle(_identity, _membership), do: nil
 
+  defp member_identity(pack, %{number: nil} = ticket, _membership), do: ticket_identity(pack, ticket)
+
   defp member_identity(pack, ticket, %{members: members}) when is_list(members) do
     identity = ticket_identity(pack, ticket)
 

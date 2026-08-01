@@ -265,6 +265,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert created.lifecycle.state == :closed
     assert draft.draft?
     assert draft.lifecycle.state == :open
+    assert draft.identity.provider_id == "PLAN_AS-102"
     assert draft.document_path == "tickets/AS-102.md"
     assert draft.draft_body == "# Render deck\n\nDraft ticket body."
 
