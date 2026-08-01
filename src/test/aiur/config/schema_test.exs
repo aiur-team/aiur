@@ -14,6 +14,17 @@ defmodule Aiur.Config.SchemaTest do
     end
   end
 
+  describe "agent backend config sections" do
+    test "retains an arbitrary registry-named backend section" do
+      assert {:ok, settings} =
+               Schema.parse(%{
+                 "agent" => %{"backend_configs" => %{"fake" => %{"command" => "fake-agent --serve", "region" => "test"}}}
+               })
+
+      assert settings.agent.backend_configs["fake"] == %{"command" => "fake-agent --serve", "region" => "test"}
+    end
+  end
+
   describe "GitHub planning graph bounds" do
     test "the checked-in GitHub workflow fixture satisfies the planning bounds" do
       fixture = Path.expand("../../fixtures/test.aiurconfig", __DIR__)

@@ -77,6 +77,7 @@ defmodule Aiur.CodingAgent do
         adapter: Aiur.Codex.CodingAgent,
         transcript: Aiur.Codex.Transcript,
         family: "codex",
+        default: true,
         can_interrupt: true,
         safe_checkpoints: [:notification, :tool_result],
         control_application_confirmation: :confirmed,
@@ -221,6 +222,14 @@ defmodule Aiur.CodingAgent do
   @doc "Known backend keys, derived from the registry."
   @spec known_backends() :: [backend()]
   def known_backends, do: Map.keys(backends())
+
+  @doc "The registry-selected default backend used when no config section chooses one."
+  @spec default_backend() :: backend()
+  def default_backend do
+    backends()
+    |> Enum.find_value(fn {backend, entry} -> if Map.get(entry, :default, false), do: backend end)
+    |> Kernel.||(known_backends() |> List.first())
+  end
 
   @doc "Stable agent family for trusted Decision provenance, if the backend is known."
   @spec family_for(backend()) :: String.t() | nil

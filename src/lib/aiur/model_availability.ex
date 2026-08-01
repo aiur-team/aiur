@@ -9,7 +9,7 @@ defmodule Aiur.ModelAvailability do
   make a backend unavailable.
   """
 
-  alias Aiur.Workflow
+  alias Aiur.{CodingAgent, Workflow}
 
   @windows ~w(hourly weekly monthly)
   @unknown_reset_ttl_seconds 3_600
@@ -54,8 +54,12 @@ defmodule Aiur.ModelAvailability do
   end
 
   @spec backend_key(String.t()) :: String.t()
-  def backend_key("claude-repl"), do: "claude"
-  def backend_key(backend), do: backend
+  def backend_key(backend) do
+    case CodingAgent.family_for(backend) do
+      family when is_binary(family) -> family
+      _ -> backend
+    end
+  end
 
   @spec available?(String.t(), keyword()) :: boolean()
   def available?(backend, opts \\ []) when is_binary(backend) do

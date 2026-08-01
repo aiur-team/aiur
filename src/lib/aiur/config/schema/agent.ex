@@ -107,6 +107,10 @@ defmodule Aiur.Config.Schema.Agent do
     field(:max_retry_attempts, :integer, default: 3)
     field(:max_retry_backoff_ms, :integer, default: 300_000)
     field(:max_concurrent_agents_by_state, :map, default: %{})
+    # Provider settings are keyed by the backend's registry name. Built-in
+    # schemas remain as typed compatibility views, while a new backend can keep
+    # its section here without adding another Ecto embed to this module.
+    field(:backend_configs, :map, default: %{})
     field(:routing, :map, default: %{})
     field(:switch_model_on_ratelimit, {:array, :string}, default: [])
     # Automatic reroute for an ALREADY-RUNNING agent on `rate_limit_primary`
@@ -171,6 +175,7 @@ defmodule Aiur.Config.Schema.Agent do
         :max_retry_attempts,
         :max_retry_backoff_ms,
         :max_concurrent_agents_by_state,
+        :backend_configs,
         :routing,
         :switch_model_on_ratelimit,
         :rate_limit_primary,

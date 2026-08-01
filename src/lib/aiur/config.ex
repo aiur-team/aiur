@@ -91,7 +91,14 @@ defmodule Aiur.Config do
 
   @spec agent_kind() :: String.t()
   def agent_kind do
-    settings!().agent.kind || "codex"
+    settings!().agent.kind || Aiur.CodingAgent.default_backend()
+  end
+
+  @doc "Raw settings for a registry-named backend, or an empty map when absent."
+  @spec backend_config(String.t()) :: map()
+  def backend_config(backend) when is_binary(backend) do
+    settings!().agent.backend_configs
+    |> Map.get(backend, %{})
   end
 
   @spec agent_routing() :: %{pos_integer() => String.t()}
@@ -758,7 +765,9 @@ defmodule Aiur.Config do
   end
 
   defp prepare_agent_config(config, agent) do
-    put_default_kind(agent, inferred_agent_kind(config))
+    agent
+    |> Map.put("backend_configs", backend_config_sections(config, agent))
+    |> put_default_kind(inferred_agent_kind(config))
   end
 
   defp put_default_kind(section, kind) do
@@ -778,11 +787,19 @@ defmodule Aiur.Config do
   end
 
   defp inferred_agent_kind(config) do
-    cond do
-      has_section?(config, "claude") -> "claude"
-      has_section?(config, "codex") -> "codex"
-      true -> "claude"
-    end
+    Enum.find(Aiur.CodingAgent.known_backends(), &has_section?(config, &1)) || Aiur.CodingAgent.default_backend()
+  end
+
+  defp backend_config_sections(config, agent) do
+    explicit = map_section(agent, "backend_configs")
+
+    Aiur.CodingAgent.known_backends()
+    |> Enum.reduce(explicit, fn backend, sections ->
+      case map_section(config, backend) do
+        section when map_size(section) > 0 -> Map.put_new(sections, backend, section)
+        _ -> sections
+      end
+    end)
   end
 
   defp has_section?(config, name) do
