@@ -19,9 +19,9 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   @behaviour AiurWeb.BuildOrder.DataSource
 
-  alias Aiur.CurrentRunMembership
   alias Aiur.BuildOrder.{Catalog, Dependency, Member, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
+  alias Aiur.CurrentRunMembership
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.DataSource
 
