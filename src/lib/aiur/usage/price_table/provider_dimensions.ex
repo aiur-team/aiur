@@ -5,10 +5,14 @@ defmodule Aiur.Usage.PriceTable.ProviderDimensions do
 
   @spec validate(atom(), atom(), atom(), atom()) :: :ok | {:error, atom()}
   def validate(provider, token_dimension, context_tier, cache_write_duration) do
-    with {:ok, dimensions} <- component_dimensions(provider, token_dimension),
-         :ok <- validate_dimension(context_tier, dimensions.context_tier, :invalid_price_context_tier),
-         :ok <- validate_dimension(cache_write_duration, dimensions.cache_write_duration, :invalid_cache_write_duration) do
-      :ok
+    case component_dimensions(provider, token_dimension) do
+      {:ok, dimensions} ->
+        with :ok <- validate_dimension(context_tier, dimensions.context_tier, :invalid_price_context_tier) do
+          validate_dimension(cache_write_duration, dimensions.cache_write_duration, :invalid_cache_write_duration)
+        end
+
+      error ->
+        error
     end
   end
 

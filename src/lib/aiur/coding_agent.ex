@@ -13,8 +13,8 @@ defmodule Aiur.CodingAgent do
   session starts.
   """
 
-  alias Aiur.CodingAgent.Models
   alias Aiur.ModelCatalog
+  alias Aiur.CodingAgent.Models
   alias Aiur.ProviderMeterProbe
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Config
