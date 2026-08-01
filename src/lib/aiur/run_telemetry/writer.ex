@@ -391,8 +391,12 @@ defmodule Aiur.RunTelemetry.Writer do
   defp next_sequence(state), do: state.sequence + 1
 
   defp maybe_mark_writer_restart(%{shared_sequence?: true}, kind, attributes, sequence)
-       when kind in [:restart, "restart"] and sequence > 1 and Map.get(attributes, :event) in [:daemon_restart, "daemon_restart"] do
-    Map.put(attributes, :event, :telemetry_writer_restart)
+       when kind in [:restart, "restart"] and sequence > 1 do
+    if Map.get(attributes, :event) in [:daemon_restart, "daemon_restart"] do
+      Map.put(attributes, :event, :telemetry_writer_restart)
+    else
+      attributes
+    end
   end
 
   defp maybe_mark_writer_restart(_state, _kind, attributes, _sequence), do: attributes
