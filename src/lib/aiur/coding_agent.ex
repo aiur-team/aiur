@@ -78,6 +78,8 @@ defmodule Aiur.CodingAgent do
         transcript: Aiur.Codex.Transcript,
         family: "codex",
         default: true,
+        configurable: true,
+        init_order: 1,
         can_interrupt: true,
         safe_checkpoints: [:notification, :tool_result],
         control_application_confirmation: :confirmed,
@@ -131,6 +133,8 @@ defmodule Aiur.CodingAgent do
         adapter: Aiur.Claude.CodingAgent,
         transcript: Aiur.Claude.Transcript,
         family: "claude",
+        configurable: true,
+        init_order: 0,
         can_interrupt: true,
         safe_checkpoints: [:notification],
         control_application_confirmation: :confirmed,
@@ -229,6 +233,15 @@ defmodule Aiur.CodingAgent do
     backends()
     |> Enum.find_value(fn {backend, entry} -> if Map.get(entry, :default, false), do: backend end)
     |> Kernel.||(known_backends() |> List.first())
+  end
+
+  @doc "Backends selectable during init, ordered by registry preference."
+  @spec configurable_backends() :: [backend()]
+  def configurable_backends do
+    backends()
+    |> Enum.filter(fn {_backend, entry} -> Map.get(entry, :configurable, false) end)
+    |> Enum.sort_by(fn {backend, entry} -> {Map.get(entry, :init_order, 9_999), backend} end)
+    |> Enum.map(&elem(&1, 0))
   end
 
   @doc "Stable agent family for trusted Decision provenance, if the backend is known."
