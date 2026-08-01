@@ -112,24 +112,19 @@ defmodule Aiur.AgentList.Renderer.Model do
   end
 
   @spec family_from_backend(term()) :: term()
-  def family_from_backend(summary) do
-    case Map.get(summary, :backend) do
-      backend when is_binary(backend) ->
-        case CodingAgent.family_for(backend) do
-          family when is_binary(family) ->
-            case CodingAgent.provider_descriptor(family) do
-              %{provider: provider} -> provider
-              _ -> nil
-            end
+  def family_from_backend(summary), do: summary |> Map.get(:backend) |> provider_for_backend()
 
-          _ ->
-            nil
-        end
+  defp provider_for_backend(backend) when is_binary(backend), do: backend |> CodingAgent.family_for() |> provider_for_family()
+  defp provider_for_backend(_backend), do: nil
 
-      _ ->
-        nil
+  defp provider_for_family(family) when is_binary(family) do
+    case CodingAgent.provider_descriptor(family) do
+      %{provider: provider} -> provider
+      _ -> nil
     end
   end
+
+  defp provider_for_family(_family), do: nil
 
   @spec model_base(term()) :: term()
   def model_base(:opus), do: "Opus"

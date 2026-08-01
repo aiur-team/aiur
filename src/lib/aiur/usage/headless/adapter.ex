@@ -104,15 +104,15 @@ defmodule Aiur.Usage.Headless.Adapter do
   defp observed_price_dimensions(%{provider: provider} = attributes) do
     case CodingAgent.provider_pricing(provider) do
       %{dimensions: dimensions} when is_map(dimensions) ->
-        Enum.reduce_while(dimensions, :ok, fn {field, %{allowed: allowed, required: required}}, :ok ->
-          if not required or Map.get(attributes, field) in allowed,
-            do: {:cont, :ok},
-            else: {:halt, {:error, field}}
-        end)
+        Enum.reduce_while(dimensions, :ok, &validate_price_dimension(&1, &2, attributes))
 
       _ ->
         {:error, :context_tier}
     end
+  end
+
+  defp validate_price_dimension({field, %{allowed: allowed, required: required}}, :ok, attributes) do
+    if not required or Map.get(attributes, field) in allowed, do: {:cont, :ok}, else: {:halt, {:error, field}}
   end
 
   defp envelope_attributes(adapter, context, source_facts) do
