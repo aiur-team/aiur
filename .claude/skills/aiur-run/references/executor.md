@@ -164,9 +164,10 @@ log anything. Clear the fleet-level gates before triaging any single agent: run
 bare `aiurdev resume` first, because the global pause switch survives daemon
 restarts and reboots while per-ticket `resume <id>` exits 0 with no effect;
 check `agent.max_concurrent_agents` against the requested ceiling; confirm the
-prewarm marker `~/.aiur/repo/<owner>/<repo>/.aiur-base-built` exists, since a
-failed base build holds every dispatch tick silently (issue #1404) and a repo
-rename orphans that path; and allow for the post-restart dispatch ramp.
+prewarm record `~/.aiur/repo/<owner>/<repo>/base-record.json` matches the
+`latest` clone's HEAD and prewarm-script hash, since a failed base build holds
+every dispatch tick silently (issue #1404); and allow for the post-restart
+dispatch ramp.
 
 Alerts persist across daemon restarts and tokens (#1231), so the actionable list
 keeps naming long-merged tickets. Check alert timestamps and trust the live

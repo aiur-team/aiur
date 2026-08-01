@@ -250,10 +250,10 @@ them log anything. Work this ladder before any per-agent triage:
    while it is on;
 2. check `agent.max_concurrent_agents` in `.aiur/config`; it silently floors the
    `--max-agents` flag (a configured 16 beats a passed 32);
-3. check the prewarm gate: `~/.aiur/repo/<owner>/<repo>/.aiur-base-built` must
-   exist. A failed base build holds every dispatch tick and logs nothing
-   (issue #1404). The org slug determines that path, so a repo rename silently
-   orphans it;
+3. check the prewarm gate: `~/.aiur/repo/<owner>/<repo>/base-record.json` must
+   match `latest`'s `HEAD` and the configured prewarm script hash. A failed
+   base build holds every dispatch tick (issue #1404); the repository node
+   carries the clone, cache sidecars, and record across an org rename;
 4. account for the adaptive dispatch envelope: it starts at **1 slot on every
    daemon start** (`dispatch_policy.ex:48`) and widens by `load_ramp_step` per
    below-target sample. With defaults (target 1.0, step 1, cooldown 60s) a

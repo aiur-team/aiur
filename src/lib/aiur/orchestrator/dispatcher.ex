@@ -600,8 +600,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   defp trigger_and_status do
-    RepoBase.refresh_async()
-    RepoBase.status() |> elem(0)
+    RepoBase.refresh_for_dispatch()
   end
 
   defp maybe_choose(state, issues) do

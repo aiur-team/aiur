@@ -1,7 +1,7 @@
 defmodule Aiur.RepoBase do
   @moduledoc """
   Maintains one warm, pre-compiled base checkout of the target repo's base branch (`tracker.base_branch`, default `main`) at
-  `~/.aiur/repo/<owner>/<name>` so per-issue workspaces materialize from it
+  `~/.aiur/repo/<owner>/<name>/latest` so per-issue workspaces materialize from it
   (copy-on-write) instead of cold-cloning + recompiling on every dispatch.
 
   Builds run asynchronously in a spawned worker so the GenServer mailbox stays
@@ -24,7 +24,9 @@ defmodule Aiur.RepoBase do
   alias Aiur.AgentPubSub
   alias Aiur.Config
 
-  @built_marker ".aiur-base-built"
+  @base_record "base-record.json"
+  @legacy_built_marker ".aiur-base-built"
+  @cache_sidecars [".aiur-hex", ".aiur-mix", ".aiur-npm-cache"]
 
   ## ---- Public API ----
 
@@ -36,12 +38,23 @@ defmodule Aiur.RepoBase do
   @doc "Absolute path of the warm base for `repo_url`."
   @spec base_path(String.t()) :: Path.t()
   def base_path(repo_url) when is_binary(repo_url),
+    do: Path.join(repo_path(repo_url), "latest")
+
+  @doc "Absolute path of the per-repository state node for `repo_url`."
+  @spec repo_path(String.t()) :: Path.t()
+  def repo_path(repo_url) when is_binary(repo_url),
     do: Path.join(base_root(), slug(repo_url))
+
+  @doc "Absolute path of the build-order store for `repo_url`."
+  @spec builds_path(String.t()) :: Path.t()
+  def builds_path(repo_url) when is_binary(repo_url),
+    do: Path.join(repo_path(repo_url), "builds")
 
   @doc """
   Current base status as `{phase, base_path | nil}`. Fast and non-blocking —
   the orchestrator gate and the loading UI read this. `phase` is `:idle`,
-  `:cloning`, `:fetching`, `:building`, `:ready`, or `{:error, reason}`.
+  `:cloning`, `:fetching`, `:building`, `:checking`, `:ready`, or
+  `{:error, reason}`.
   """
   @spec status() :: {atom() | {:error, term()}, Path.t() | nil}
   def status, do: GenServer.call(__MODULE__, :status)
@@ -54,6 +67,10 @@ defmodule Aiur.RepoBase do
   """
   @spec refresh_async() :: :ok
   def refresh_async, do: GenServer.cast(__MODULE__, :refresh_async)
+
+  @doc false
+  @spec refresh_for_dispatch() :: atom() | {:error, term()}
+  def refresh_for_dispatch, do: GenServer.call(__MODULE__, :refresh_for_dispatch)
 
   @doc """
   The branch the warm base tracks: `tracker.base_branch` from config, falling
@@ -83,9 +100,11 @@ defmodule Aiur.RepoBase do
   end
 
   defp run_refresh_steps(base_path, repo_url, base_build) do
-    with :ok <- ensure_clone(base_path, repo_url),
+    with :ok <- remove_obsolete_aiur_node(repo_url),
+         :ok <- migrate_legacy_layout(base_path),
+         :ok <- ensure_clone(base_path, repo_url),
          {:ok, changed?} <- fetch_and_reset(base_path) do
-      maybe_build(base_path, base_build, changed? or not built?(base_path))
+      maybe_build(base_path, base_build, changed? or not built?(base_path, base_build))
     end
   end
 
@@ -94,12 +113,17 @@ defmodule Aiur.RepoBase do
   @impl true
   def init(_opts) do
     schedule_poll()
-    {:ok, %{phase: :idle, base_path: nil, build: nil, probe: nil, ready_head: nil}}
+    {:ok, %{phase: :idle, base_path: nil, build: nil, probe: nil, ready_head: nil, freshness: :unknown}}
   end
 
   @impl true
   def handle_call(:status, _from, state) do
     {:reply, {state.phase, state.base_path}, state}
+  end
+
+  def handle_call(:refresh_for_dispatch, _from, state) do
+    state = do_refresh_for_dispatch(state)
+    {:reply, state.phase, state}
   end
 
   @impl true
@@ -127,7 +151,7 @@ defmodule Aiur.RepoBase do
     state = %{state | build: nil}
 
     case result do
-      {:ok, base} -> {:noreply, %{state | phase: :ready, base_path: base, ready_head: head}}
+      {:ok, base} -> {:noreply, %{state | phase: :ready, base_path: base, ready_head: head, freshness: :unknown}}
       {:error, reason} -> {:noreply, %{state | phase: {:error, reason}}}
     end
   end
@@ -158,7 +182,30 @@ defmodule Aiur.RepoBase do
 
         cond do
           state.build != nil -> ensure_probe(state, repo_url)
-          state.phase == :ready -> ensure_probe(state, repo_url)
+          state.phase == :checking -> state
+          state.phase == :ready -> probe_freshness(state, repo_url)
+          true -> start_build(state, base, repo_url, command)
+        end
+    end
+  end
+
+  # Dispatch must not race a ready base against an outstanding `ls-remote`.
+  # A confirmed probe grants one dispatch pass; the following pass starts the
+  # next probe and holds until it resolves. This keeps a remote advance from
+  # creating a workspace off the previous recorded clone head.
+  defp do_refresh_for_dispatch(state) do
+    case resolve() do
+      :disabled ->
+        %{state | phase: :idle}
+
+      {:ok, repo_url, base, command} ->
+        state = %{state | base_path: base}
+
+        cond do
+          state.build != nil -> ensure_probe(state, repo_url)
+          state.phase == :checking -> state
+          state.phase == :ready and state.freshness == :fresh -> %{state | freshness: :unknown}
+          state.phase == :ready -> probe_freshness(state, repo_url)
           true -> start_build(state, base, repo_url, command)
         end
     end
@@ -176,11 +223,20 @@ defmodule Aiur.RepoBase do
 
   defp ensure_probe(state, _repo_url), do: state
 
+  defp probe_freshness(state, repo_url) do
+    state
+    |> ensure_probe(repo_url)
+    |> Map.put(:phase, :checking)
+  end
+
   # main advanced past what the base reflects -> preempt any in-flight build and
   # rebuild fresh; otherwise stay put.
   defp on_remote_head(state, head) do
-    if advanced?(state, head), do: trigger_build(state), else: state
+    if advanced?(state, head), do: trigger_build(state), else: confirm_freshness(state)
   end
+
+  defp confirm_freshness(%{phase: :checking} = state), do: %{state | phase: :ready, freshness: :fresh}
+  defp confirm_freshness(state), do: state
 
   # in-flight build is targeting an older head
   defp advanced?(%{build: %{head: build_head}}, head)
@@ -188,8 +244,8 @@ defmodule Aiur.RepoBase do
        do: head != build_head
 
   # base is ready but main moved past it
-  defp advanced?(%{build: nil, phase: :ready, ready_head: ready_head}, head)
-       when is_binary(head),
+  defp advanced?(%{build: nil, phase: phase, ready_head: ready_head}, head)
+       when phase in [:ready, :checking] and is_binary(head),
        do: head != ready_head
 
   defp advanced?(_state, _head), do: false
@@ -207,7 +263,7 @@ defmodule Aiur.RepoBase do
 
     {pid, ref} = spawn_monitor(fn -> build_worker(parent, base, repo_url, command) end)
 
-    %{state | phase: :building, base_path: base, build: %{pid: pid, ref: ref, head: nil}}
+    %{state | phase: :building, base_path: base, build: %{pid: pid, ref: ref, head: nil}, freshness: :unknown}
   end
 
   defp kill_build(%{build: %{pid: pid, ref: ref}}) do
@@ -222,11 +278,13 @@ defmodule Aiur.RepoBase do
   # (so the GenServer can preempt) and the final result when done.
   defp build_worker(server, base, repo_url, command) do
     result =
-      with :ok <- ensure_clone(base, repo_url),
+      with :ok <- remove_obsolete_aiur_node(repo_url),
+           :ok <- migrate_legacy_layout(base),
+           :ok <- ensure_clone(base, repo_url),
            {:ok, changed?} <- fetch_and_reset(base) do
         head = head_of(base)
         send(server, {:build_head, self(), head})
-        outcome = maybe_build(base, command, changed? or not built?(base))
+        outcome = maybe_build(base, command, changed? or not built?(base, command))
         send(server, {:build_done, self(), head, outcome})
         outcome
       else
@@ -287,8 +345,10 @@ defmodule Aiur.RepoBase do
 
     case run_base_build(base_path, base_build) do
       :ok ->
-        mark_built(base_path)
-        {:ok, base_path}
+        with :ok <- relocate_sidecars(base_path),
+             :ok <- write_base_record(base_path, base_build) do
+          {:ok, base_path}
+        end
 
       {:error, reason} ->
         {:error, reason}
@@ -302,14 +362,14 @@ defmodule Aiur.RepoBase do
     # Same execution shape as workspace hooks: scrub the Executor’s Erlang
     # distribution env at the shell level, then run in the base dir. `base_env/1`
     # trusts the base's mise.toml (MISE_TRUSTED_CONFIG_PATHS) so mise-provided
-    # tools run; the detected command still sets its own HEX_HOME/MIX_HOME so the
-    # base owns the caches workspaces copy.
+    # tools run. Cache homes point at the repository node, outside `latest`, so
+    # materialized workspaces inherit only the repository tree.
     scrubbed = AgentEnvironment.scrub_shell_command(command)
 
     {out, status} =
       System.cmd("sh", ["-lc", scrubbed],
         cd: base_path,
-        env: AgentEnvironment.base_env(base_path),
+        env: base_env(base_path),
         stderr_to_stdout: true
       )
 
@@ -369,8 +429,182 @@ defmodule Aiur.RepoBase do
     end
   end
 
-  defp built?(base_path), do: File.exists?(Path.join(base_path, @built_marker))
-  defp mark_built(base_path), do: File.write!(Path.join(base_path, @built_marker), "")
+  # A boolean marker made a moved clone indistinguishable from a freshly built
+  # one. Keep the record beside `latest`, where it cannot leak into a copied
+  # workspace, and require both inputs that define a valid build to match.
+  defp built?(base_path, base_build) do
+    with {:ok, record_body} <- File.read(base_record_path(base_path)),
+         {:ok, record} <- Jason.decode(record_body),
+         clone_head when is_binary(clone_head) <- Map.get(record, "clone_head"),
+         script_hash when is_binary(script_hash) <- Map.get(record, "prewarm_script_hash"),
+         true <- clone_head == head_of(base_path),
+         true <- script_hash == prewarm_script_hash(base_build) do
+      true
+    else
+      _ -> false
+    end
+  end
+
+  defp write_base_record(base_path, base_build) do
+    with head when is_binary(head) <- head_of(base_path),
+         :ok <- File.mkdir_p(repo_node_path(base_path)),
+         {:ok, body} <-
+           Jason.encode(%{
+             "clone_head" => head,
+             "prewarm_script_hash" => prewarm_script_hash(base_build),
+             "built_at" => DateTime.utc_now() |> DateTime.to_iso8601()
+           }) do
+      target = base_record_path(base_path)
+      temporary = target <> ".tmp-" <> unique_suffix()
+
+      with :ok <- File.write(temporary, body),
+           :ok <- File.rename(temporary, target) do
+        :ok
+      else
+        {:error, reason} ->
+          File.rm(temporary)
+          {:error, {:repo_base_record_write_failed, reason}}
+      end
+    else
+      _ -> {:error, :repo_base_head_unavailable}
+    end
+  end
+
+  defp prewarm_script_hash(base_build) when is_binary(base_build),
+    do: :crypto.hash(:sha256, base_build) |> Base.encode16(case: :lower)
+
+  defp prewarm_script_hash(_base_build), do: :crypto.hash(:sha256, "") |> Base.encode16(case: :lower)
+
+  # The old layout made the repository node itself the clone. Moving a directory
+  # beneath itself is impossible, so temporarily rename it beside the node,
+  # recreate the node, lift sidecars out, and finally move the clone to latest.
+  # The legacy marker is intentionally discarded: no record means one correct
+  # rebuild after migration.
+  defp migrate_legacy_layout(base_path) do
+    node = repo_node_path(base_path)
+
+    with :ok <- recover_interrupted_migration(base_path) do
+      if File.dir?(Path.join(node, ".git")) and not File.exists?(base_path) do
+        temporary = node <> ".migrating-" <> unique_suffix()
+
+        with :ok <- File.rename(node, temporary),
+             :ok <- File.mkdir_p(node),
+             :ok <- move_sidecars(temporary, node),
+             :ok <- remove_legacy_marker(temporary),
+             :ok <- File.rename(temporary, base_path) do
+          :ok
+        else
+          {:error, reason} -> {:error, {:repo_base_migration_failed, reason}}
+        end
+      else
+        :ok
+      end
+    end
+  end
+
+  # If the process dies after parking the old node beside its destination but
+  # before renaming it to `latest`, finish that move on the next touch. The
+  # sidecars may already have been lifted into `node`; keeping that directory
+  # intact makes recovery safe at every point in the migration sequence.
+  defp recover_interrupted_migration(base_path) do
+    node = repo_node_path(base_path)
+
+    parked =
+      node
+      |> Kernel.<>(".migrating-*")
+      |> Path.wildcard()
+      |> Enum.filter(&File.dir?(Path.join(&1, ".git")))
+
+    cond do
+      File.dir?(Path.join(base_path, ".git")) ->
+        :ok
+
+      parked == [] ->
+        :ok
+
+      [temporary] ->
+        with :ok <- File.mkdir_p(node),
+             :ok <- move_sidecars(temporary, node),
+             :ok <- remove_legacy_marker(temporary),
+             :ok <- File.rename(temporary, base_path) do
+          :ok
+        else
+          {:error, reason} -> {:error, {:repo_base_migration_recovery_failed, reason}}
+        end
+
+      _many ->
+        {:error, :repo_base_migration_recovery_ambiguous}
+    end
+  end
+
+  defp remove_legacy_marker(path) do
+    case File.rm_rf(Path.join(path, @legacy_built_marker)) do
+      {:ok, _removed} -> :ok
+      {:error, reason, _path} -> {:error, reason}
+    end
+  end
+
+  defp relocate_sidecars(base_path), do: move_sidecars(base_path, repo_node_path(base_path))
+
+  # aiur's org transfer left exactly one known predecessor node. It is not a
+  # valid state node for the current tracker and can retain the old boolean
+  # marker forever, so clear it lazily when the renamed repository is touched.
+  defp remove_obsolete_aiur_node(repo_url) do
+    if slug(repo_url) == "aiur-team/aiur" do
+      case File.rm_rf(Path.join(base_root(), "its-everdred/aiur")) do
+        {:ok, _removed} -> :ok
+        {:error, reason, _path} -> {:error, {:repo_base_orphan_cleanup_failed, reason}}
+      end
+    else
+      :ok
+    end
+  end
+
+  defp move_sidecars(from, to) do
+    Enum.reduce_while(@cache_sidecars, :ok, fn sidecar, :ok ->
+      source = Path.join(from, sidecar)
+      target = Path.join(to, sidecar)
+
+      result =
+        cond do
+          not File.exists?(source) ->
+            :ok
+
+          File.exists?(target) ->
+            case File.rm_rf(source) do
+              {:ok, _removed} -> :ok
+              {:error, reason, _path} -> {:error, reason}
+            end
+
+          true ->
+            File.rename(source, target)
+        end
+
+      case result do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp repo_node_path(base_path), do: Path.dirname(base_path)
+  defp base_record_path(base_path), do: Path.join(repo_node_path(base_path), @base_record)
+
+  defp unique_suffix do
+    :crypto.strong_rand_bytes(12)
+    |> Base.url_encode64(padding: false)
+  end
+
+  defp base_env(base_path) do
+    node = repo_node_path(base_path)
+
+    AgentEnvironment.base_env(base_path) ++
+      [
+        {"HEX_HOME", Path.join(node, ".aiur-hex")},
+        {"MIX_HOME", Path.join(node, ".aiur-mix")},
+        {"npm_config_cache", Path.join(node, ".aiur-npm-cache")}
+      ]
+  end
 
   ## ---- config / topology ----
 
