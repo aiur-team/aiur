@@ -1554,7 +1554,7 @@ defmodule Aiur.InitTest do
       assert :ok = Init.run(%{force: false}, capturing, deps(parent, dir, target))
 
       assert_received {:multiselect_opts, "Which agents to support", opts}
-      assert opts == ["claude", "codex"]
+      assert opts == ["claude", "codex", "fake"]
     end
 
     test "the location options carry greyed config-path help", %{dir: dir, target: target} do
