@@ -12,34 +12,23 @@ facts.
 - Validation invariants
 - Source-state rules
 
-## Recommended artifact tree
+## Runtime artifact tree
 
 ```text
-docs/build-orders/<slug>/
-  README.md
-  questions-or-commands.md
-  00-brief-and-requirements.md
-  01-research-index.md
-  02-current-target-delta.md
-  03-technical-decisions.md
-  04-test-and-rollout.md
-  deferred-findings.md
-  evidence/
+builds/<slug>/
   build-order.json
-  publication.json            # when GitHub materialization is authorized
-  root-issue.md              # when GitHub materialization is authorized
-  tickets/<ID>-<slug>.md
-  validation-report.md
-  EXECUTOR-HANDOFF.md
+  status.json                 # daemon-owned runtime projection
+  tickets/<ID>.md             # draft issue body until promoted
 ```
 
-`README.md` is a generated/read-first index and authority map. It must not claim
-that copied status is live.
+The pack and ticket drafts live in the per-repository state node. Aiur never
+reads repo-committed planning documents; a developer may maintain such copies
+for their own version control, but they are inert.
 
-This tree is the durable record, not the runtime surface. The dashboard
-discovers packs only from `.aiur/build_orders/<slug>.json` in the checkout the
-daemon runs from; see "Place the pack where the dashboard discovers it" in the
-skill for the discovery projection and its verification step.
+`ticket: null` makes a ticket draft authoritative; an issue number transfers
+authority to that tracker issue. Promotion copies the draft body verbatim,
+records the number in the pack, and freezes the draft: **after promotion, edits
+go to the ticket, never the doc.**
 
 `publication.json` is the immutable publication-authority record. It pins the
 trusted branch, canonical root path, repositories authorized for mutation,
@@ -49,6 +38,15 @@ commits must contain the identical typed record; the CLI root path must equal
 its `root_document` rather than supplying independent authority.
 
 ## Canonical baseline record
+
+The runtime schema is the single canonical schema. Its members use `id`,
+`title`, `lane`, `phase`, `complexity`, `depends_on`, `ticket`, `doc`, and an
+optional presentation `icon`. There is no legacy-to-runtime converter: existing
+packs are hand-converted once by the Executor. A top-level `icon` overrides the
+deterministic distinct default for a Build Order catalog entry.
+
+The historical validation detail below is planning evidence only; it must not
+introduce a second runtime pack schema or a second authority source.
 
 `build-order.json` uses standard JSON so the bundled validator needs no external
 parser. The complete canonical example is

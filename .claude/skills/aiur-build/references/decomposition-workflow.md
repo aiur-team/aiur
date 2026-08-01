@@ -332,9 +332,18 @@ Run the bundled validator, then check semantics it cannot prove:
 Commit a validation report with errors, warnings, reviewed SHA, artifact hashes,
 and any accepted exceptions.
 
-## Stage 8: GitHub materialization
+## Stage 8: Executor-owned GitHub promotion
 
-This stage requires explicit permission.
+This stage requires explicit user permission and is not hardcoded machinery.
+The Executor asks whenever the user wants tickets created and encourages
+promotion of every researched, ready-to-begin ticket. For each selected member,
+create the tracker issue from `tickets/<ID>.md` verbatim, record its number in
+the pack's `ticket` field, and freeze the document. **After promotion, edits go
+to the ticket, never the doc.** Per-phase promotion is optional user complexity,
+not an Aiur-imposed workflow.
+
+The legacy reconciliation list below is historical planning evidence; it must
+not replace the canonical promotion flow above.
 
 - Requery and deduplicate against open/closed work. Stop on a closed canonical
   marker match; never auto-reopen it.
