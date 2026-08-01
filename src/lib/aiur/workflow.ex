@@ -116,6 +116,19 @@ defmodule Aiur.Workflow do
     end
   end
 
+  @doc false
+  @spec resolved_prewarm_file_path(Path.t()) :: Path.t() | nil
+  def resolved_prewarm_file_path(path) when is_binary(path) do
+    with {:ok, content} <- File.read(path),
+         {:ok, config} <- yaml_to_map(content),
+         %{} = prewarm <- Map.get(config, "prewarm"),
+         rel when is_binary(rel) and rel != "" <- Map.get(prewarm, "base_build_file") do
+      Path.expand(rel, Path.dirname(path))
+    else
+      _ -> nil
+    end
+  end
+
   # `.aiurconfig` is pure YAML. An optional `prompt_file:` key points at a
   # sibling markdown template, resolved relative to the config file's directory.
   defp parse(content, path) do
