@@ -126,24 +126,41 @@ builds/<slug>/
   surface only needs the path check).
 - Sidecars: `.aiur-hex`/`.aiur-mix`/npm cache move beside `latest/` in
   the same ticket (pure caches, staleness harmless).
-  `.aiur-base-built` is load-bearing where it sits — in-tree it is
-  self-invalidating on re-clone; naively moving it reintroduces the
-  #1404 stale-marker class. It either stays in-tree with a comment
-  saying why, or is upgraded to a SHA-keyed record (clone HEAD +
-  base-build inputs) — never naively moved. [pending final call]
+- `.aiur-base-built` (operator decision, 2026-08-01): upgraded to a
+  SHA-keyed record beside `latest/` — `{clone_head, prewarm_script_hash,
+  built_at}` — valid only on match. Two jobs: (1) staleness DETECTION
+  (fresh clone, moved node, or edited prewarm script all mismatch and
+  trigger rebuild — kills the #1404 stale-marker class and the
+  boolean-with-no-memory problem); (2) freshness SIGNAL to agents: when
+  the remote base branch has advanced past the recorded clone_head, the
+  daemon knows the base is behind and agents are told to update/rebase
+  before beginning work, instead of silently branching from a stale
+  base.
 
 ## Open questions before ticketing
 
-- `.aiur-base-built`: keep in-tree (documented) or upgrade to SHA-keyed
-  record? (see Sidecars above)
 - `status.json` schema (fields; folds in the persistence half of #1445;
   the GitHub-hydration half of #1445 is its data feed).
 - Migration of the two existing packs (July dashboard run, current
   analytics-streamdeck) into `builds/`, and the clone move into
   `latest/` — one-shot script or lazy per-repo on first touch?
-- Promotion mechanics: does /aiur-build promote (create issue from doc)
-  one phase at a time on operator command, and what marks a doc
-  promoted (frontmatter flag vs move to `tickets/promoted/`)?
-- The completed July pack and current pack use different schemas
-  (canonical vs legacy display shape) — does the new discovery read
-  both, or do we migrate both to one schema (#1445's reader work)?
+- What marks a doc promoted (frontmatter flag vs move to
+  `tickets/promoted/`)? [minor; skill-level detail]
+
+### Promotion — resolved (operator, 2026-08-01): skill-level, no machinery
+
+No hardcoded promotion functionality. The /aiur-build skill makes the
+Executor responsible for converting docs to tickets and managing pack
+state in the meantime. Permission is NOT per-phase — the Executor asks
+whenever the user wants tickets created, and should ENCOURAGE creating
+all tickets whose research is complete and ready to begin work.
+Per-phase creation is complexity the user may or may not introduce;
+aiur does not impose it.
+
+### Schema — resolved (operator, 2026-08-01): one schema, no converter
+
+One canonical pack schema (with `ticket`/`doc` member fields). No
+converter code ships — the Executor hand-converts the existing packs as
+one-time data work when the reader lands: aiur's two packs (July
+dashboard run, analytics-streamdeck) AND the croptracker repo's build
+orders.
