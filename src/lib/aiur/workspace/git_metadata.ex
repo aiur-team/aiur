@@ -12,9 +12,7 @@ defmodule Aiur.Workspace.GitMetadata do
     case local_git_metadata_dir(workspace) do
       {:ok, git_dir} ->
         with :ok <- ensure_git_dir_inside_workspace(git_dir, workspace),
-             :ok <- append_exclusions(git_dir, exclusions) do
-          :ok
-        end
+             do: append_exclusions(git_dir, exclusions)
 
       :not_git ->
         :ok

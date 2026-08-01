@@ -24,8 +24,7 @@ defmodule Aiur.Init.AgentCli do
   @spec check_agent_clis(Aiur.Init.io(), Aiur.Init.deps(), [String.t()]) :: :ok
   def check_agent_clis(io, deps, agents) do
     agents
-    |> Enum.filter(&(&1 in CodingAgent.configurable_backends()))
-    |> Enum.filter(&(not is_nil(agent_executable(&1))))
+    |> Enum.filter(&(&1 in CodingAgent.configurable_backends() and not is_nil(agent_executable(&1))))
     |> Enum.each(&ensure_agent_cli(io, deps, &1))
 
     :ok

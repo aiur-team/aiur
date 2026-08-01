@@ -122,8 +122,7 @@ defmodule Aiur.AgentSkills do
       end)
 
     locations
-    |> Enum.map(&remote_skill_script(&1, skill, writes))
-    |> Enum.join("\n")
+    |> Enum.map_join("\n", &remote_skill_script(&1, skill, writes))
   end
 
   defp remote_skill_script(%{path: path} = location, skill, writes) do
