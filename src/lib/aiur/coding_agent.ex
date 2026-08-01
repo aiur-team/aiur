@@ -78,6 +78,7 @@ defmodule Aiur.CodingAgent do
         transcript: Aiur.Codex.Transcript,
         family: "codex",
         default: true,
+        rate_limit_fallback: "claude",
         configurable: true,
         init_order: 1,
         default_command: "codex app-server",
@@ -299,6 +300,14 @@ defmodule Aiur.CodingAgent do
     backends()
     |> Enum.find_value(fn {backend, entry} -> if Map.get(entry, :default, false), do: backend end)
     |> Kernel.||(known_backends() |> List.first())
+  end
+
+  @doc "Registry-selected fallback for the default backend's rate-limit reroute."
+  @spec default_rate_limit_fallback() :: backend() | nil
+  def default_rate_limit_fallback do
+    backends()
+    |> Map.get(default_backend(), %{})
+    |> Map.get(:rate_limit_fallback)
   end
 
   @doc "Backends selectable during init, ordered by registry preference."

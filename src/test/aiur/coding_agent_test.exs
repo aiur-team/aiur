@@ -19,6 +19,11 @@ defmodule Aiur.CodingAgentTest do
       assert CodingAgent.provider_families() == [:codex, :claude, :fake]
     end
 
+    test "default fallback is owned by the default backend registry entry" do
+      assert CodingAgent.default_backend() == "codex"
+      assert CodingAgent.default_rate_limit_fallback() == "claude"
+    end
+
     test "provider_family_map/0 keys usage attribution by registered backend" do
       assert CodingAgent.provider_family_map() == %{"codex" => :codex, "claude" => :claude}
     end

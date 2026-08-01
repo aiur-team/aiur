@@ -75,7 +75,7 @@ defmodule Aiur.Config.Schema.Agent do
 
   @primary_key false
   embedded_schema do
-    field(:kind, :string, default: "codex")
+    field(:kind, :string, default: Aiur.CodingAgent.default_backend())
     # Setting #2 (RC opt-in), orthogonal to :kind. Only consulted when the
     # resolved backend is RC-capable. This default is the single flip point
     # for always-remote: change `false` here and every dispatch attaches RC.
@@ -121,8 +121,8 @@ defmodule Aiur.Config.Schema.Agent do
     # Both name a registered backend and the pair is validated below; the
     # defaults preserve the historical codex -> claude reroute. "" on the
     # fallback disables it.
-    field(:rate_limit_primary, :string, default: "codex")
-    field(:rate_limit_fallback, :string, default: "claude")
+    field(:rate_limit_primary, :string, default: Aiur.CodingAgent.default_backend())
+    field(:rate_limit_fallback, :string, default: Aiur.CodingAgent.default_rate_limit_fallback())
     field(:complexity_prompts, :map, default: %{})
     field(:max_turns_by_complexity, :map, default: %{})
     # Backend-agnostic turn/stall timeouts (promoted from codex; claude-repl
