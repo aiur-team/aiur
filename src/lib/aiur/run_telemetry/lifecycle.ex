@@ -7,10 +7,10 @@ defmodule Aiur.RunTelemetry.Lifecycle do
   are deliberately excluded from the record contract.
   """
 
+  alias Aiur.CodingAgent
   alias Aiur.Orchestrator.CommentWake
   alias Aiur.Protocol.MapAccess
   alias Aiur.RunTelemetry
-  alias Aiur.CodingAgent
 
   @events ~w(
     dispatch prewarm workspace_setup workspace_ownership agent_spinup implement build_test

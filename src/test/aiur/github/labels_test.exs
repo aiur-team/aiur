@@ -33,19 +33,18 @@ defmodule Aiur.GitHub.LabelsTest do
       assert Labels.marker_suffix?("rate-limit-fallback")
     end
 
-    test "only the chosen backends seed model labels" do
+    test "fallback labels cover every configured fallback backend" do
       labels = Labels.label_set("aiur", ["claude"])
 
       assert "model:claude" in labels
-      refute Enum.any?(labels, &String.starts_with?(&1, "model:codex"))
+      assert "model:codex" in labels
     end
 
-    test "a shorter backend does not seed a hyphenated backend's labels" do
+    test "fallback labels include a hyphenated backend" do
       labels = Labels.label_set("aiur", ["claude"])
 
       assert "model:claude" in labels
-      refute "model:claude-repl" in labels
-      refute Enum.any?(labels, &String.starts_with?(&1, "model:claude-repl"))
+      assert "model:claude-repl" in labels
     end
 
     test "the claude-repl backend seeds its own labels when chosen" do
@@ -53,7 +52,7 @@ defmodule Aiur.GitHub.LabelsTest do
 
       assert "model:claude-repl" in labels
       assert "model:claude-repl-opus-4-8" in labels
-      refute "model:claude" in labels
+      assert "model:claude" in labels
     end
 
     test "state labels honor the configured prefix" do
@@ -66,12 +65,12 @@ defmodule Aiur.GitHub.LabelsTest do
       refute "model:remote" in Labels.label_set("agent", ["codex"])
     end
 
-    test "claude seeds bare haiku and the remote flag, never claude-repl tags" do
+    test "claude seeds bare haiku, the remote flag, and fallback tags" do
       labels = Labels.label_set("agent", ["claude"])
 
       assert "model:claude-haiku" in labels
       assert "model:remote" in labels
-      refute Enum.any?(labels, &String.starts_with?(&1, "model:claude-repl"))
+      assert "model:claude-repl" in labels
     end
 
     test "codex seeds the cheaper model variants" do

@@ -19,8 +19,8 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
 
   require Logger
 
-  alias Aiur.Init.AgentCli
   alias Aiur.{CodingAgent, Config, Issue, ModelAvailability, Tracker}
+  alias Aiur.Init.AgentCli
 
   alias Aiur.Orchestrator.{
     Dispatcher,
