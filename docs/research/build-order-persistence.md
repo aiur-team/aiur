@@ -20,24 +20,38 @@ Both artifacts were parked where their consumers never look.
 
 ## Design (current draft)
 
-### Storage — global per-repo store
+### Storage — consolidate per-repo state under `~/.aiur/repo/<owner>/<repo>/`
+(operator decision, 2026-08-01)
+
+The repo node stops being the clone itself and becomes the parent of all
+per-repo state:
 
 ```
-~/.aiur/build_orders/<owner>/<repo>/<slug>/
-  build-order.json     # canonical pack; what discovery reads
-  status.json          # daemon-written: per-member state, progress %, active|completed
+~/.aiur/repo/<owner>/<repo>/
+  latest/                # the warm base clone (pre-warm target) moves here
+  builds/
+    <slug>/
+      build-order.json   # canonical pack; what discovery reads
+      status.json        # daemon-written: per-member state, progress %, active|completed
 ```
 
-- `~/.aiur/` is already the operator-state home (`logs/`, `repo/`,
-  `build-gate/`). Not `~/.config/aiur` (splits state roots); not inside
-  `~/.aiur/repo/<owner>/<repo>/` (the warm clone is rebuilt/re-cloned —
-  state inside it gets wiped).
-- Owner/repo nesting mirrors `repo/` and workspaces; an org rename is one
-  `mv`; same-slug packs in different repos cannot collide.
-- Repo-local `.aiur/build_orders/` remains as a shadowing dev override;
+- One node per repo holds everything; an org rename is a single `mv`
+  carrying clone and builds together — kills the orphaned-state class
+  (the stale `.aiur-base-built` on the dead `its-everdred/` path is what
+  masked #1404 for ~8 sessions).
+- Build state lives OUTSIDE the git working tree, ending the sidecar
+  leak class (`.aiur-base-built` was committed into two PRs this week).
+- The existing in-tree sidecars (`.aiur-base-built`, `.aiur-hex`,
+  `.aiur-mix`, `.aiur-npm-cache`) should migrate to siblings of
+  `latest/` in a follow-up so the working tree is purely the repo.
+- Requires a `RepoBase.base_path` change (`<node>` -> `<node>/latest`)
+  plus a one-time migration: move existing clones down into `latest/`,
+  import the two known packs into `builds/`, delete the orphaned
+  pre-rename `its-everdred/aiur` node.
+- Repo-local `.aiur/build_orders/` remains a shadowing dev override;
   `/aiur-build` writes to the global store by default.
-- Discovery: `AIUR_BG_STATE_DIR` default moves to `~/.aiur` (or the glob
-  gains the root) so zero env setup is needed.
+- Discovery glob: `~/.aiur/repo/*/*/builds/*/build-order.json` (or via
+  the configured tracker repo directly).
 - Multi-instance safety: a daemon writes `status.json` only for packs
   whose `repository` matches its configured tracker repo.
 
