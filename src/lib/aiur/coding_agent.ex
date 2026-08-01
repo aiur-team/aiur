@@ -131,6 +131,7 @@ defmodule Aiur.CodingAgent do
         },
         usage: %{adapters: [Aiur.Usage.Headless.Codex.ThreadUsage, Aiur.Usage.Headless.Codex.TurnUsage]},
         meter_probe: :session,
+        run_telemetry: :codex,
         account_generation: %{
           backends: [:app_server],
           trusted_sources: [:codex_app_server],
@@ -195,6 +196,7 @@ defmodule Aiur.CodingAgent do
         },
         usage: %{adapters: [Aiur.Usage.Headless.Claude.RequestUsage]},
         meter_probe: :usage_api,
+        run_telemetry: :claude,
         account_generation: %{
           backends: [:app_server],
           trusted_sources: [:claude_app_server],
@@ -224,6 +226,7 @@ defmodule Aiur.CodingAgent do
         # backend. Declared here so the fallback never lives in a
         # dispatch `case`.
         fallback_backend: "claude",
+        run_telemetry: :claude,
         # Only the hook-driven RC REPL needs the pane display tailer; every
         # other backend streams its own rich transcript.
         rc_display_tail: true,

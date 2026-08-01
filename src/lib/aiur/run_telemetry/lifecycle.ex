@@ -10,6 +10,7 @@ defmodule Aiur.RunTelemetry.Lifecycle do
   alias Aiur.Orchestrator.CommentWake
   alias Aiur.Protocol.MapAccess
   alias Aiur.RunTelemetry
+  alias Aiur.CodingAgent
 
   @events ~w(
     dispatch prewarm workspace_setup workspace_ownership agent_spinup implement build_test
@@ -267,7 +268,15 @@ defmodule Aiur.RunTelemetry.Lifecycle do
   defp operation_key(tracker, attempt_id, operation_id),
     do: {__MODULE__, :operation, tracker, attempt_id, operation_id}
 
-  defp backend_operation("codex", message) do
+  defp backend_operation(backend, message) do
+    case get_in(CodingAgent.backends(), [backend, :run_telemetry]) do
+      :codex -> codex_operation(message)
+      :claude -> claude_operation(message)
+      _ -> :skip
+    end
+  end
+
+  defp codex_operation(message) do
     method = MapAccess.notification_method(message)
     item = MapAccess.notification_item(message)
 
@@ -285,10 +294,6 @@ defmodule Aiur.RunTelemetry.Lifecycle do
       _other -> :skip
     end
   end
-
-  defp backend_operation("claude", message), do: claude_operation(message)
-  defp backend_operation("claude-repl", message), do: claude_operation(message)
-  defp backend_operation(_backend, _message), do: :skip
 
   defp claude_operation(message) do
     with "item/created" <- MapAccess.notification_method(message),
