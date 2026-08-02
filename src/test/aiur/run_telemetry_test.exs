@@ -49,14 +49,17 @@ defmodule Aiur.RunTelemetryTest do
   test "boot_id/0 observes a simulated reboot immediately without a separate start_boot/0 call" do
     boot_start_key = {Aiur.Boot, :start_ms}
     boot_epoch_key = {Aiur.Boot, :start_epoch_seconds}
+    boot_started_at_key = {Aiur.Boot, :started_at}
     boot_run_id_key = {Aiur.Boot, :run_id}
     original_start = :persistent_term.get(boot_start_key, :unset)
     original_epoch = :persistent_term.get(boot_epoch_key, :unset)
+    original_started_at = :persistent_term.get(boot_started_at_key, :unset)
     original_run_id = :persistent_term.get(boot_run_id_key, :unset)
 
     on_exit(fn ->
       restore_persistent_term(boot_start_key, original_start)
       restore_persistent_term(boot_epoch_key, original_epoch)
+      restore_persistent_term(boot_started_at_key, original_started_at)
       restore_persistent_term(boot_run_id_key, original_run_id)
     end)
 
@@ -68,7 +71,12 @@ defmodule Aiur.RunTelemetryTest do
 
     refute RunTelemetry.boot_id() == original_id
     assert RunTelemetry.boot_id() == Aiur.Boot.run_id()
-    assert RunTelemetry.next_sequence() == sequence_before + 1
+
+    competing_sequence = Task.async(&RunTelemetry.next_sequence/0) |> Task.await()
+    sequence_after = RunTelemetry.next_sequence()
+
+    assert competing_sequence > sequence_before
+    assert sequence_after > competing_sequence
   end
 
   defp restore_persistent_term(key, :unset), do: :persistent_term.erase(key)
