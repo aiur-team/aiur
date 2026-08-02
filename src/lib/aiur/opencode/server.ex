@@ -4,6 +4,7 @@ defmodule Aiur.Opencode.Server do
   use GenServer
   require Logger
 
+  alias Aiur.AgentEnvironment
   alias Aiur.Opencode.{Config, Protocol}
 
   defstruct [:identifier, :workspace, :port, :host, :base_url, :port_ref, :stdout_buffer, :ready_waiters, :ready?]
@@ -30,14 +31,7 @@ defmodule Aiur.Opencode.Server do
         :binary,
         :exit_status,
         cd: workspace,
-        # Session requests use ticket workspaces as their directory. Keep the
-        # slot's provider config in scope for those directory-scoped requests,
-        # and prevent higher-precedence parent overrides from taking ownership.
-        env: [
-          {~c"OPENCODE_CONFIG", false},
-          {~c"OPENCODE_CONFIG_CONTENT", false},
-          {~c"OPENCODE_CONFIG_DIR", String.to_charlist(workspace)}
-        ],
+        env: launch_env(workspace),
         args: ["-c", command]
       ])
 
@@ -65,6 +59,17 @@ defmodule Aiur.Opencode.Server do
        ready_waiters: [],
        ready?: false
      }}
+  end
+
+  @doc false
+  @spec launch_env(Path.t()) :: [{charlist(), charlist() | false}]
+  def launch_env(workspace) do
+    AgentEnvironment.port_shell_startup_env() ++
+      [
+        {~c"OPENCODE_CONFIG", false},
+        {~c"OPENCODE_CONFIG_CONTENT", false},
+        {~c"OPENCODE_CONFIG_DIR", String.to_charlist(workspace)}
+      ]
   end
 
   @impl true

@@ -1091,7 +1091,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
       assert_receive {:workspace_preflight, ^workspace_path, "worker-01:2200"}
 
       trace = File.read!(trace_file)
-      assert trace =~ "-p 2200 worker-01 bash -lc"
+      assert trace =~ "-p 2200 worker-01 env -u BASH_ENV -u ENV ZDOTDIR=/dev/null bash -c"
       assert trace =~ "~/.aiur-remote-workspaces/owner/repo/MT-GH-REMOTE"
     after
       restore_app_env(:workspace_github_preflight_enabled, previous_enabled)
@@ -3207,7 +3207,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
       assert :ok = Workspace.remove_issue_workspaces("MT-SSH-WS", "worker-01:2200")
 
       trace = File.read!(trace_file)
-      assert trace =~ "-p 2200 worker-01 bash -lc"
+      assert trace =~ "-p 2200 worker-01 env -u BASH_ENV -u ENV ZDOTDIR=/dev/null bash -c"
       assert trace =~ "__AIUR_WORKSPACE__"
       assert trace =~ "~/.aiur-remote-workspaces/project/MT-SSH-WS"
       assert trace =~ "${workspace#~/}"

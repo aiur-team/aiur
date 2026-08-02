@@ -28,7 +28,7 @@ defmodule Aiur.SSH do
 
   @spec remote_shell_command(String.t()) :: String.t()
   def remote_shell_command(command) when is_binary(command) do
-    "bash -lc " <> Aiur.Shell.escape(command)
+    "env -u BASH_ENV -u ENV ZDOTDIR=/dev/null bash -c " <> Aiur.Shell.escape(command)
   end
 
   defp ssh_executable do

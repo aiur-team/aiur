@@ -108,7 +108,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
   # On whole-app shutdown the supervisor brutally kills the AgentRunner
   # tasks, skipping their `after stop_session` cleanup, and the per-issue
   # `kill_repl_session` path never runs. A headless `claude` backend runs
-  # under a `bash -lc` wrapper whose claude/node grandchildren reparent to
+  # under a `bash -c` wrapper whose claude/node grandchildren reparent to
   # init when the bash pid dies, so they survive the shutdown and can still
   # land a commit/push. The orchestrator stops before `Aiur.TaskSupervisor`
   # (later in the child list), so the bash pids are still alive here and

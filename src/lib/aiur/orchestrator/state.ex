@@ -57,6 +57,7 @@ defmodule Aiur.Orchestrator.State do
           github_connectivity: map(),
           github_poll_delays: map(),
           globally_paused: boolean(),
+          orphaned_agent_reap_count: non_neg_integer(),
           control_lifecycle: ControlLifecycle.t()
         }
 
@@ -102,6 +103,7 @@ defmodule Aiur.Orchestrator.State do
     github_connectivity: %{},
     github_poll_delays: %{},
     globally_paused: false,
+    orphaned_agent_reap_count: 0,
     control_lifecycle: %ControlLifecycle{}
   ]
 

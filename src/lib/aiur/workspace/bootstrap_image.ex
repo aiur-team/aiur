@@ -31,7 +31,7 @@ defmodule Aiur.Workspace.BootstrapImage do
       "set -eu",
       Remote.remote_shell_assign("workspace", workspace),
       pull? && "docker pull #{Aiur.Shell.escape(image)}",
-      "docker run --rm --user \"$(id -u):$(id -g)\" --volume \"$workspace:/workspace\" --workdir /workspace --entrypoint /bin/sh #{Aiur.Shell.escape(image)} -lc #{Aiur.Shell.escape(bootstrap_image_copy_script())}"
+      "docker run --rm --user \"$(id -u):$(id -g)\" --volume \"$workspace:/workspace\" --workdir /workspace --entrypoint /bin/sh #{Aiur.Shell.escape(image)} -c #{Aiur.Shell.escape(bootstrap_image_copy_script())}"
     ]
     |> Enum.reject(&(&1 in [nil, false, ""]))
     |> Enum.join("\n")
@@ -78,6 +78,7 @@ defmodule Aiur.Workspace.BootstrapImage do
       Task.async(fn ->
         System.cmd("sh", ["-c", bootstrap_image_script(workspace, image, pull?)],
           cd: workspace,
+          env: Aiur.AgentEnvironment.shell_startup_env(),
           stderr_to_stdout: true
         )
       end)

@@ -16,6 +16,7 @@ defmodule Aiur.AgentEnvironment do
   @aiur_distribution_env_pattern ~r/\AAIUR(?:_.*)?_(?:NODE_NAME|COOKIE)\z/
   @parent_log_env_names ~w(AIUR_LOGS_ROOT AIUR_AGENT_IR_LOGS_PARENT)
   @scheduler_option ~r/(^|\s)\+S\s+\d+(?::\d+)?/
+  @neutral_zdotdir "/dev/null"
 
   @spec erlang_distribution_env_name?(String.t()) :: boolean()
   def erlang_distribution_env_name?(name) when is_binary(name) do
@@ -25,8 +26,27 @@ defmodule Aiur.AgentEnvironment do
   @spec scrub_shell_command(String.t(), keyword()) :: String.t()
   def scrub_shell_command(command, opts \\ []) when is_binary(command) do
     exec_prefix = if Keyword.get(opts, :exec, false), do: "exec ", else: ""
-    "#{scrub_shell_prefix()}; #{exec_prefix}#{command}"
+    "#{shell_startup_prefix()}; #{scrub_shell_prefix()}; #{exec_prefix}#{command}"
   end
+
+  @doc """
+  Startup-file suppression for every shell that Aiur starts on an agent's
+  behalf. These values are deliberately applied at the process boundary, before
+  the shell gets a chance to interpret an operator-controlled startup variable.
+  """
+  @spec shell_startup_env() :: [{String.t(), String.t() | false}]
+  def shell_startup_env, do: [{"BASH_ENV", false}, {"ENV", false}, {"ZDOTDIR", @neutral_zdotdir}]
+
+  @spec port_shell_startup_env() :: [{charlist(), charlist() | false}]
+  def port_shell_startup_env do
+    Enum.map(shell_startup_env(), fn
+      {name, false} -> {String.to_charlist(name), false}
+      {name, value} -> {String.to_charlist(name), String.to_charlist(value)}
+    end)
+  end
+
+  @spec shell_startup_prefix() :: String.t()
+  def shell_startup_prefix, do: "unset BASH_ENV ENV; export ZDOTDIR=#{Aiur.Shell.escape(@neutral_zdotdir)}"
 
   @spec scrub_shell_prefix() :: String.t()
   def scrub_shell_prefix do
@@ -67,6 +87,18 @@ defmodule Aiur.AgentEnvironment do
         {String.to_charlist(name), false}
       end)
 
+    build_gate_env =
+      BuildGate.shell_env()
+      |> Enum.reject(fn {name, _value} -> name == "BASH_ENV" end)
+
+    shell_startup_env =
+      shell_startup_env()
+      |> Kernel.++(build_gate_env)
+      |> Enum.map(fn
+        {name, false} -> {String.to_charlist(name), false}
+        {name, value} -> {String.to_charlist(name), String.to_charlist(value)}
+      end)
+
     workspace_env =
       [
         {~c"HEX_HOME", String.to_charlist(hex)},
@@ -97,9 +129,7 @@ defmodule Aiur.AgentEnvironment do
         Enum.map(mix_scheduler_env(), fn {name, value} ->
           {String.to_charlist(name), String.to_charlist(value)}
         end) ++
-        Enum.map(BuildGate.shell_env(), fn {name, value} ->
-          {String.to_charlist(name), String.to_charlist(value)}
-        end)
+        shell_startup_env
 
     unset_parent_logs ++ workspace_env
   end
