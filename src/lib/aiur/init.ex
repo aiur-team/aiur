@@ -135,7 +135,7 @@ defmodule Aiur.Init do
         Scaffold.setup_env(io, deps, tracker)
         Scaffold.maybe_offer_gitignore(io, deps, location)
         Aiur.Init.Codeowners.setup_codeowners(io, deps, tracker)
-        provision(io, deps, tracker, agents)
+        provision(io, deps, Map.put(tracker, :base_branch, configured_base_branch(config_yaml)), agents)
 
       {:error, reason} ->
         {:error, "Failed to write #{Path.basename(target)}: #{inspect(reason)}"}
@@ -241,10 +241,11 @@ defmodule Aiur.Init do
     io.puts.("       • Check the `repo` scope (Full control of private repositories)")
     io.puts.("     Fine-grained token:")
     io.puts.("       • Repository access → `Only select repositories` → choose this repo")
-    io.puts.("       • Permissions → Repository permissions, set each to `Read and write`:")
-    io.puts.("           – Issues  (creating labels needs this)")
-    io.puts.("           – Contents")
-    io.puts.("           – Pull requests")
+    io.puts.("       • Permissions → Repository permissions:")
+    io.puts.("           – Issues: Read and write  (creating labels needs this)")
+    io.puts.("           – Contents: Read-only")
+    io.puts.("           – Pull requests: Read and write")
+    io.puts.("           – Administration: Read-only (inspecting branch protection and rulesets)")
     io.puts.(IO.ANSI.format([:faint, "     The token's account must have write access to this repo (otherwise GitHub returns 404)."]))
     io.puts.("  2. Put it in #{@env_file_name} as GITHUB_TOKEN=<token> (aiur's bot account).")
     io.puts.("  3. Run `aiur init` again to continue creating repo tags.")
@@ -254,6 +255,15 @@ defmodule Aiur.Init do
     io.puts.("\n✅ aiur is set up. You can now:")
     io.puts.("  1. Add `agent:todo` labels to the issues you want worked.")
     io.puts.("  2. Run `aiur` (foreground) or `aiur --bg` (background) to start agents.")
+  end
+
+  defp configured_base_branch(config_yaml) do
+    with {:ok, config} <- YamlElixir.read_from_string(config_yaml),
+         branch when is_binary(branch) and branch != "" <- get_in(config, ["tracker", "base_branch"]) do
+      branch
+    else
+      _ -> "main"
+    end
   end
 
   defp linear_walkthrough(io, %{kind: "linear"}) do

@@ -366,6 +366,16 @@ defmodule Aiur.AgentControlCLITest do
     assert populated_output =~ "__AIUR_CONTROL_EXIT__:0"
   end
 
+  test "status includes the repository readiness line" do
+    Application.put_env(:aiur, :ci_readiness_check_fun, fn _opts ->
+      {:ok, %{ready?: false, base_branch: "main", issues: [:no_pr_workflow]}}
+    end)
+
+    on_exit(fn -> Application.delete_env(:aiur, :ci_readiness_check_fun) end)
+
+    assert capture_io(fn -> AgentControlCLI.status() end) =~ "CI readiness: not ready for main"
+  end
+
   test "status prints the resolved CODEOWNERS trust snapshot", %{orchestrator: pid} do
     path = Path.join(File.cwd!(), ".github/CODEOWNERS")
 

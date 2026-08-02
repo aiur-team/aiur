@@ -1294,6 +1294,24 @@ defmodule Aiur.InitTest do
       refute Map.has_key?(config["tracker"]["github"] || %{}, "repo")
     end
 
+    test "global init checks the current repository without storing it", %{dir: dir, target: target} do
+      answers = github_answers(%{select: %{@location_label => "global"}, confirm: %{"No pull-request CI workflow found — scaffold .github/workflows/ci.yml?" => false}})
+
+      deps =
+        deps(self(), dir, target, %{
+          github_token: fn -> "ghp_test" end,
+          detect_repo: fn -> "octo/current-repo" end,
+          check_ci_readiness: fn tracker ->
+            send(self(), {:readiness_tracker, tracker})
+            {:ok, %{ready?: false, base_branch: "main", workflow_paths: [], issues: [:no_pr_workflow]}}
+          end
+        })
+
+      assert {:error, _} = Init.run(%{force: false}, io(self(), answers), deps)
+      assert_received {:readiness_tracker, %{repo: "octo/current-repo", base_branch: "main"}}
+      refute Map.has_key?(written_config(target)["tracker"]["github"] || %{}, "repo")
+    end
+
     test "linear writes tracker.linear.* and warns that support is limited", %{dir: dir, target: target} do
       answers = %{
         select: %{@location_label => "repo", "Issue tracker" => "linear"},
@@ -1706,6 +1724,7 @@ defmodule Aiur.InitTest do
       joined = Enum.join(log, "\n")
 
       assert joined =~ "Generate new token (classic)"
+      assert joined =~ "Administration: Read-only"
       assert joined =~ "repo` scope"
       assert joined =~ "Only select repositories"
       assert joined =~ "Read and write"

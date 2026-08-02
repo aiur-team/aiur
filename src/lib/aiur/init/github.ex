@@ -31,16 +31,18 @@ defmodule Aiur.Init.GitHub do
 
   @doc "Checks that the target repository can merge an Aiur-created PR."
   @spec check_ci_readiness(map()) :: {:ok, CiReadiness.result()} | {:error, term()}
-  def check_ci_readiness(%{kind: "github", repo: repo}) when is_binary(repo) do
-    CiReadiness.check(repo: repo, base_branch: Aiur.Config.base_branch())
+  def check_ci_readiness(%{kind: "github", repo: repo} = tracker) when is_binary(repo) do
+    CiReadiness.check(repo: repo, base_branch: Map.get(tracker, :base_branch, "main"))
   end
 
+  def check_ci_readiness(%{kind: "github"}), do: {:error, :missing_github_repo}
   def check_ci_readiness(_tracker), do: {:ok, %{ready?: true}}
 
   @doc false
   @spec ensure_ci_readiness(Aiur.Init.Runtime.io(), Aiur.Init.Runtime.deps(), map()) :: :ok | {:error, String.t()}
   def ensure_ci_readiness(io, deps, %{kind: "github"} = tracker) do
     readiness_check = Map.get(deps, :check_ci_readiness, &check_ci_readiness/1)
+    tracker = resolve_repo_for_readiness(tracker, deps)
 
     case readiness_check.(tracker) do
       {:ok, %{ready?: true} = readiness} ->
@@ -53,11 +55,21 @@ defmodule Aiur.Init.GitHub do
         {:error, "Repository CI readiness is incomplete. Configure the reported gate, then run aiur init again."}
 
       {:error, reason} ->
-        {:error, "Repository CI readiness could not be inspected: #{inspect(reason)}"}
+        {:error, readiness_error_message(reason)}
     end
   end
 
   def ensure_ci_readiness(_io, _deps, _tracker), do: :ok
+
+  defp resolve_repo_for_readiness(%{repo: repo} = tracker, _deps) when is_binary(repo), do: tracker
+  defp resolve_repo_for_readiness(tracker, deps), do: Map.put(tracker, :repo, deps.detect_repo.())
+
+  defp readiness_error_message({:github, :http, %{status: 403}}) do
+    "Repository CI readiness could not be inspected: GitHub denied access to branch protection or rulesets. " <>
+      "Grant the token Administration: Read-only repository permission, then run aiur init again."
+  end
+
+  defp readiness_error_message(reason), do: "Repository CI readiness could not be inspected: #{inspect(reason)}"
 
   defp maybe_scaffold_ci(io, deps, %{workflow_paths: []}) do
     if io.confirm.("No pull-request CI workflow found — scaffold .github/workflows/ci.yml?", true) do

@@ -32,6 +32,32 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     }
   end
 
+  test "first dispatch warns about an unmergeable GitHub repository without blocking dispatch" do
+    readiness = %{ready?: false, base_branch: "develop", issues: [:no_pr_workflow]}
+    emit = fn name, opts -> send(self(), {:ci_readiness_alert, name, opts}) end
+
+    state = Dispatcher.check_initial_ci_readiness(%State{}, "github", "develop", fn _ -> {:ok, readiness} end, emit)
+
+    assert state.ci_readiness_checked
+    assert_receive {:ci_readiness_alert, "system.ci_readiness.not_ready", opts}
+    assert opts[:needs_attention]
+    assert opts[:reason] =~ "no workflow triggers on pull_request"
+  end
+
+  test "first dispatch retries an unavailable readiness check without duplicate alerts" do
+    emit = fn name, _opts -> send(self(), {:ci_readiness_alert, name}) end
+    state = Dispatcher.check_initial_ci_readiness(%State{}, "github", "develop", fn _ -> {:error, :timeout} end, emit)
+
+    refute state.ci_readiness_checked
+    assert state.ci_readiness_unavailable_alerted
+    assert_receive {:ci_readiness_alert, "system.ci_readiness.unavailable"}
+
+    state = Dispatcher.check_initial_ci_readiness(state, "github", "develop", fn _ -> {:error, :timeout} end, emit)
+
+    refute state.ci_readiness_checked
+    refute_receive {:ci_readiness_alert, _}
+  end
+
   defp thrash_budget(state), do: state.dispatch_recovery.codex_thrash_budget
 
   describe "CPU headroom recovery integration" do

@@ -37,6 +37,16 @@ defmodule Aiur.Init.GitHubTest do
     end
   end
 
+  describe "ensure_ci_readiness/3" do
+    test "explains the administration permission needed to inspect a CI gate" do
+      io = %{puts: fn _ -> :ok end, confirm: fn _, _ -> false end}
+      deps = %{check_ci_readiness: fn _ -> {:error, {:github, :http, %{status: 403}}} end, detect_repo: fn -> "o/r" end}
+
+      assert {:error, message} = GitHub.ensure_ci_readiness(io, deps, %{kind: "github", repo: "o/r"})
+      assert message =~ "Administration: Read-only"
+    end
+  end
+
   describe "label_error_message/1" do
     test "403 mentions token scope" do
       msg = GitHub.label_error_message({:github_api_status, 403, "agent:todo"})

@@ -772,7 +772,7 @@ defmodule Aiur.AgentControlCLI do
 
   defp print_ci_readiness do
     if Config.tracker_kind() == "github" do
-      case CiReadiness.check(base_branch: Config.base_branch()) do
+      case CiReadiness.check_fun().(base_branch: Config.base_branch()) do
         {:ok, readiness} -> IO.puts(CiReadiness.format(readiness))
         {:error, reason} -> IO.puts("CI readiness: unavailable (#{inspect(reason)})")
       end

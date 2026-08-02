@@ -9,6 +9,8 @@ defmodule Aiur.GitHub.CiReadiness do
 
   alias Aiur.GitHub.{Errors, Transport}
 
+  @ruleset_page_limit 20
+
   @type issue ::
           :base_branch_missing
           | :no_pr_workflow
@@ -35,6 +37,12 @@ defmodule Aiur.GitHub.CiReadiness do
     end
   end
 
+  @doc false
+  @spec check_fun() :: (keyword() -> {:ok, result()} | {:error, term()})
+  def check_fun do
+    Application.get_env(:aiur, :ci_readiness_check_fun, &check/1)
+  end
+
   defp resolve_repo(nil), do: Transport.parse_repo()
   defp resolve_repo({owner, repo}) when is_binary(owner) and is_binary(repo), do: {:ok, {owner, repo}}
 
@@ -54,13 +62,23 @@ defmodule Aiur.GitHub.CiReadiness do
     base_url = "#{Transport.base_url()}/repos/#{owner}/#{repo}"
 
     with :ok <- branch_exists?(request_fun, token, "#{base_url}/branches/#{URI.encode(base_branch)}"),
+         {:ok, default_branch} <- fetch_default_branch(request_fun, token, base_url),
          {:ok, entries} <- fetch_list(request_fun, token, "#{base_url}/contents/.github/workflows?ref=#{URI.encode(base_branch)}"),
          {:ok, workflows} <- fetch_workflows(request_fun, token, entries, base_branch),
-         {:ok, required_checks} <- fetch_required_checks(request_fun, token, base_url, base_branch) do
+         {:ok, required_checks} <- fetch_required_checks(request_fun, token, base_url, base_branch, default_branch) do
       {:ok, evaluate(base_branch, workflows, required_checks)}
     else
       {:error, :base_branch_missing} -> {:ok, result(base_branch, [], [], [], [:base_branch_missing])}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp fetch_default_branch(request_fun, token, base_url) do
+    case request_fun.(%{method: :get, url: base_url, token: token}) do
+      {:ok, %{status: 200, body: %{"default_branch" => branch}}} when is_binary(branch) -> {:ok, branch}
+      {:ok, %{status: _} = response} -> {:error, Errors.github_status_error(response)}
+      {:error, reason} -> {:error, Errors.classify_error({:error, reason})}
+      _ -> {:error, :invalid_repository_response}
     end
   end
 
@@ -174,11 +192,11 @@ defmodule Aiur.GitHub.CiReadiness do
     url <> separator <> "ref=#{URI.encode(base_branch)}"
   end
 
-  defp fetch_required_checks(request_fun, token, base_url, base_branch) do
+  defp fetch_required_checks(request_fun, token, base_url, base_branch, default_branch) do
     protection_url = "#{base_url}/branches/#{URI.encode(base_branch)}/protection"
 
     with {:ok, protection_checks} <- fetch_protection_checks(request_fun, token, protection_url),
-         {:ok, ruleset_checks} <- fetch_ruleset_checks(request_fun, token, base_url, base_branch) do
+         {:ok, ruleset_checks} <- fetch_ruleset_checks(request_fun, token, base_url, base_branch, default_branch) do
       {:ok, Enum.uniq(protection_checks ++ ruleset_checks)}
     end
   end
@@ -192,18 +210,77 @@ defmodule Aiur.GitHub.CiReadiness do
     end
   end
 
-  defp fetch_ruleset_checks(request_fun, token, base_url, base_branch) do
-    case request_fun.(%{method: :get, url: base_url <> "/rulesets?includes_parents=true", token: token}) do
-      {:ok, %{status: 200, body: rulesets}} when is_list(rulesets) ->
-        rulesets = Enum.filter(rulesets, &ruleset_applies?(&1, base_branch))
-        {:ok, rulesets |> Enum.flat_map(&required_checks_from/1) |> Enum.uniq()}
+  defp fetch_ruleset_checks(request_fun, token, base_url, base_branch, default_branch) do
+    with {:ok, summaries} <-
+           fetch_ruleset_summaries(
+             request_fun,
+             token,
+             base_url,
+             base_url <> "/rulesets?includes_parents=true&per_page=100"
+           ),
+         {:ok, rulesets} <- fetch_ruleset_details(request_fun, token, base_url, summaries) do
+      rulesets = Enum.filter(rulesets, &ruleset_applies?(&1, base_branch, default_branch))
+      {:ok, rulesets |> Enum.flat_map(&required_checks_from/1) |> Enum.uniq()}
+    end
+  end
+
+  defp fetch_ruleset_summaries(request_fun, token, base_url, url, pages_left \\ @ruleset_page_limit, seen \\ [], acc \\ [])
+
+  defp fetch_ruleset_summaries(_request_fun, _token, _base_url, _url, 0, _seen, _acc), do: {:error, :ruleset_pagination_limit}
+
+  defp fetch_ruleset_summaries(request_fun, token, base_url, url, pages_left, seen, acc) do
+    if url in seen do
+      {:error, :ruleset_pagination_cycle}
+    else
+      fetch_ruleset_page(request_fun, token, base_url, url, pages_left, seen, acc)
+    end
+  end
+
+  defp fetch_ruleset_page(request_fun, token, base_url, url, pages_left, seen, acc) do
+    case request_fun.(%{method: :get, url: url, token: token}) do
+      {:ok, %{status: 200, body: rulesets} = response} when is_list(rulesets) ->
+        case Transport.parse_next_page_url(Map.get(response, :headers, %{})) do
+          nil ->
+            {:ok, acc ++ rulesets}
+
+          next_url ->
+            if String.starts_with?(next_url, base_url <> "/rulesets") do
+              fetch_ruleset_summaries(request_fun, token, base_url, next_url, pages_left - 1, [url | seen], acc ++ rulesets)
+            else
+              {:error, :invalid_ruleset_pagination_url}
+            end
+        end
 
       {:ok, %{status: _} = response} ->
         {:error, Errors.github_status_error(response)}
 
       {:error, reason} ->
         {:error, Errors.classify_error({:error, reason})}
+
+      _ ->
+        {:error, :invalid_ruleset_response}
     end
+  end
+
+  defp fetch_ruleset_details(request_fun, token, base_url, summaries) do
+    Enum.reduce_while(summaries, {:ok, []}, fn summary, {:ok, details} ->
+      case Map.get(summary, "id") do
+        id when is_integer(id) or is_binary(id) ->
+          case request_fun.(%{method: :get, url: "#{base_url}/rulesets/#{URI.encode(to_string(id))}", token: token}) do
+            {:ok, %{status: 200, body: detail}} when is_map(detail) -> {:cont, {:ok, [detail | details]}}
+            {:ok, %{status: _} = response} -> {:halt, {:error, Errors.github_status_error(response)}}
+            {:error, reason} -> {:halt, {:error, Errors.classify_error({:error, reason})}}
+            _ -> {:halt, {:error, :invalid_ruleset_response}}
+          end
+
+        _ ->
+          {:halt, {:error, :invalid_ruleset_summary}}
+      end
+    end)
+    |> then(fn
+      {:ok, details} -> {:ok, Enum.reverse(details)}
+      error -> error
+    end)
   end
 
   defp required_checks_from(value) when is_map(value) do
@@ -298,14 +375,34 @@ defmodule Aiur.GitHub.CiReadiness do
 
   defp glob_matches?(_, _), do: false
 
-  defp ruleset_applies?(ruleset, base_branch) do
+  defp ruleset_applies?(ruleset, base_branch, default_branch) do
     ref_name = get_in(ruleset, ["conditions", "ref_name"]) || %{}
     includes = Map.get(ref_name, "include")
     excludes = Map.get(ref_name, "exclude")
     branch_ref = "refs/heads/#{base_branch}"
 
     Map.get(ruleset, "enforcement", "active") == "active" and
-      branch_matches?(includes, branch_ref) and not ignored_branch?(excludes, branch_ref)
+      ruleset_includes_branch?(includes, branch_ref, base_branch, default_branch) and
+      not ruleset_excludes_branch?(excludes, branch_ref, base_branch, default_branch)
+  end
+
+  defp ruleset_includes_branch?(nil, _branch_ref, _base_branch, _default_branch), do: true
+  defp ruleset_excludes_branch?(nil, _branch_ref, _base_branch, _default_branch), do: false
+
+  defp ruleset_includes_branch?(patterns, branch_ref, base_branch, default_branch),
+    do: ruleset_branch_matches?(patterns, branch_ref, base_branch, default_branch)
+
+  defp ruleset_excludes_branch?(patterns, branch_ref, base_branch, default_branch),
+    do: ruleset_branch_matches?(patterns, branch_ref, base_branch, default_branch)
+
+  defp ruleset_branch_matches?(patterns, branch_ref, base_branch, default_branch) do
+    patterns
+    |> List.wrap()
+    |> Enum.any?(fn
+      "~ALL" -> true
+      "~DEFAULT_BRANCH" -> base_branch == default_branch
+      pattern -> glob_matches?(pattern, branch_ref)
+    end)
   end
 
   defp workflow_check_names({_path, source}) do
@@ -325,13 +422,23 @@ defmodule Aiur.GitHub.CiReadiness do
   defp job_runs_on_pull_request?(job) when is_map(job) do
     case Map.get(job, "if") do
       nil -> true
-      "always()" -> true
-      condition when is_binary(condition) -> Regex.match?(~r/github\.event_name\s*==\s*['\"]pull_request['\"]/, condition)
+      condition when is_binary(condition) -> unconditional_pull_request_condition?(condition)
       _ -> false
     end
   end
 
   defp job_runs_on_pull_request?(_job), do: false
+
+  defp unconditional_pull_request_condition?(condition) do
+    condition =
+      condition
+      |> String.trim()
+      |> String.replace_prefix("${{", "")
+      |> String.replace_suffix("}}", "")
+      |> String.trim()
+
+    condition == "always()" or Regex.match?(~r/^github\.event_name\s*==\s*['\"]pull_request['\"]$/, condition)
+  end
 
   defp workflow_path?(path), do: String.ends_with?(path, ".yml") or String.ends_with?(path, ".yaml")
   defp valid_name?(value), do: is_binary(value) and String.trim(value) != ""

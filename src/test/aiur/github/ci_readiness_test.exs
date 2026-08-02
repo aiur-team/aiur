@@ -90,6 +90,26 @@ defmodule Aiur.GitHub.CiReadinessTest do
     assert {:required_check_not_produced, ["ci / required"]} in readiness.issues
   end
 
+  test "does not treat a condition with an extra gate as an unconditional PR check" do
+    workflow =
+      String.replace(
+        @workflow,
+        "runs-on: ubuntu-latest",
+        "if: github.event_name == 'pull_request' && github.actor == 'maintainer'\n      runs-on: ubuntu-latest"
+      )
+
+    readiness = CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", workflow}], ["ci / required"])
+
+    refute readiness.ready?
+    assert {:required_check_not_produced, ["ci / required"]} in readiness.issues
+  end
+
+  test "recognizes an always condition wrapped in GitHub expression delimiters" do
+    workflow = String.replace(@workflow, "runs-on: ubuntu-latest", "if: ${{ always() }}\n      runs-on: ubuntu-latest")
+
+    assert CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", workflow}], ["ci / required"]).ready?
+  end
+
   test "reports a missing configured base branch before inspecting workflows" do
     request_fun = fn %{url: url} ->
       assert url =~ "/branches/develop"
@@ -106,6 +126,7 @@ defmodule Aiur.GitHub.CiReadinessTest do
     request_fun = fn %{url: url} ->
       cond do
         String.ends_with?(url, "/branches/develop") -> {:ok, %{status: 200, body: %{}}}
+        String.ends_with?(url, "/repos/owner/repo") -> {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}
         url =~ "/contents/.github/workflows" -> {:ok, %{status: 200, body: [%{"type" => "file", "path" => ".github/workflows/ci.yml", "url" => "workflow-url"}]}}
         url == "workflow-url?ref=develop" -> {:ok, %{status: 200, body: %{"content" => encoded}}}
         url =~ "/protection" -> {:ok, %{status: 200, body: %{"required_status_checks" => %{"contexts" => ["ci / required"]}}}}
@@ -125,6 +146,9 @@ defmodule Aiur.GitHub.CiReadinessTest do
         String.ends_with?(url, "/branches/develop") ->
           {:ok, %{status: 200, body: %{}}}
 
+        String.ends_with?(url, "/repos/owner/repo") ->
+          {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}
+
         url =~ "/contents/.github/workflows" ->
           {:ok, %{status: 200, body: [%{"type" => "file", "path" => ".github/workflows/ci.yml", "url" => "workflow-url"}]}}
 
@@ -134,22 +158,47 @@ defmodule Aiur.GitHub.CiReadinessTest do
         url =~ "/protection" ->
           {:ok, %{status: 200, body: %{"required_status_checks" => %{"checks" => [%{"context" => "ci / required"}]}}}}
 
-        url =~ "/rulesets" ->
+        String.ends_with?(url, "/rulesets?includes_parents=true&per_page=100") ->
           {:ok,
            %{
              status: 200,
-             body: [
-               %{
-                 "enforcement" => "active",
-                 "conditions" => %{"ref_name" => %{"include" => ["refs/heads/develop"]}},
-                 "rules" => [%{"type" => "required_status_checks", "parameters" => %{"required_status_checks" => [%{"context" => "ci / aggregate"}]}}]
-               }
-             ]
+             body: [%{"id" => 12}],
+             headers: %{"link" => "<https://api.github.com/repos/owner/repo/rulesets?page=2>; rel=\"next\""}
+           }}
+
+        String.ends_with?(url, "/rulesets?page=2") ->
+          {:ok, %{status: 200, body: [%{"id" => 15}]}}
+
+        url =~ "/rulesets/12" ->
+          {:ok,
+           %{
+             status: 200,
+             body: %{
+               "enforcement" => "active",
+               "conditions" => %{"ref_name" => %{"include" => ["~DEFAULT_BRANCH"]}},
+               "rules" => [%{"type" => "required_status_checks", "parameters" => %{"required_status_checks" => [%{"context" => "ci / aggregate"}]}}]
+             }
+           }}
+
+        url =~ "/rulesets/15" ->
+          {:ok,
+           %{
+             status: 200,
+             body: %{
+               "enforcement" => "active",
+               "conditions" => %{"ref_name" => %{"include" => ["~ALL"]}},
+               "rules" => [%{"type" => "required_status_checks", "parameters" => %{"required_status_checks" => [%{"context" => "ci / page two"}]}}]
+             }
            }}
       end
     end
 
-    assert {:ok, %{ready?: false, required_checks: ["ci / aggregate", "ci / required"], issues: [{:required_check_not_produced, ["ci / aggregate"]}]}} =
+    assert {:ok,
+            %{
+              ready?: false,
+              required_checks: ["ci / aggregate", "ci / page two", "ci / required"],
+              issues: [{:required_check_not_produced, ["ci / aggregate", "ci / page two"]}]
+            }} =
              CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop")
   end
 
@@ -161,6 +210,9 @@ defmodule Aiur.GitHub.CiReadinessTest do
         String.ends_with?(url, "/branches/develop") ->
           {:ok, %{status: 200, body: %{}}}
 
+        String.ends_with?(url, "/repos/owner/repo") ->
+          {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}
+
         url =~ "/contents/.github/workflows" ->
           {:ok, %{status: 200, body: [%{"type" => "file", "path" => ".github/workflows/ci.yml", "url" => "workflow-url"}]}}
 
@@ -170,17 +222,18 @@ defmodule Aiur.GitHub.CiReadinessTest do
         url =~ "/protection" ->
           {:ok, %{status: 404, body: %{}}}
 
-        url =~ "/rulesets" ->
+        url =~ "/rulesets?" ->
+          {:ok, %{status: 200, body: [%{"id" => 13}]}}
+
+        url =~ "/rulesets/13" ->
           {:ok,
            %{
              status: 200,
-             body: [
-               %{
-                 "enforcement" => "active",
-                 "conditions" => %{"ref_name" => %{"include" => ["refs/heads/release/**"]}},
-                 "rules" => [%{"type" => "required_status_checks", "parameters" => %{"required_status_checks" => [%{"context" => "ci / aggregate"}]}}]
-               }
-             ]
+             body: %{
+               "enforcement" => "active",
+               "conditions" => %{"ref_name" => %{"include" => ["refs/heads/release/**"]}},
+               "rules" => [%{"type" => "required_status_checks", "parameters" => %{"required_status_checks" => [%{"context" => "ci / aggregate"}]}}]
+             }
            }}
       end
     end
@@ -197,6 +250,9 @@ defmodule Aiur.GitHub.CiReadinessTest do
         String.ends_with?(url, "/branches/develop") ->
           {:ok, %{status: 200, body: %{}}}
 
+        String.ends_with?(url, "/repos/owner/repo") ->
+          {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}
+
         url =~ "/contents/.github/workflows" ->
           {:ok, %{status: 200, body: [%{"type" => "file", "path" => ".github/workflows/ci.yml", "url" => "workflow-url"}]}}
 
@@ -206,17 +262,18 @@ defmodule Aiur.GitHub.CiReadinessTest do
         url =~ "/protection" ->
           {:ok, %{status: 404, body: %{}}}
 
-        url =~ "/rulesets" ->
+        url =~ "/rulesets?" ->
+          {:ok, %{status: 200, body: [%{"id" => 14}]}}
+
+        url =~ "/rulesets/14" ->
           {:ok,
            %{
              status: 200,
-             body: [
-               %{
-                 "enforcement" => "disabled",
-                 "conditions" => %{"ref_name" => %{"include" => ["refs/heads/develop"]}},
-                 "rules" => [%{"type" => "required_status_checks", "parameters" => %{"required_status_checks" => [%{"context" => "ci / required"}]}}]
-               }
-             ]
+             body: %{
+               "enforcement" => "disabled",
+               "conditions" => %{"ref_name" => %{"include" => ["~ALL"]}},
+               "rules" => [%{"type" => "required_status_checks", "parameters" => %{"required_status_checks" => [%{"context" => "ci / required"}]}}]
+             }
            }}
       end
     end

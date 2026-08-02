@@ -86,35 +86,46 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   # Readiness is advisory at dispatch: the operator may be deliberately
   # setting up a repository mid-run, so this must never hold otherwise-valid
-  # tickets. It only runs for the first poll, avoiding a GitHub call per tick.
-  defp maybe_warn_ci_readiness(%State{initial_dispatch_cycle: true, ci_readiness_checked: true} = state), do: state
-
+  # tickets. A transient inspection failure retries on subsequent polls, but
+  # only emits its needs-attention alert once.
   defp maybe_warn_ci_readiness(%State{initial_dispatch_cycle: true} = state) do
-    if Config.tracker_kind() == "github" do
-      case CiReadiness.check(base_branch: Config.base_branch()) do
-        {:ok, %{ready?: true}} ->
-          :ok
+    check_initial_ci_readiness(state, Config.tracker_kind(), Config.base_branch(), CiReadiness.check_fun(), &Alerts.emit_system/2)
+  end
 
-        {:ok, readiness} ->
-          Alerts.emit_system("system.ci_readiness.not_ready",
-            reason: CiReadiness.format(readiness),
-            needs_attention: true,
-            severity: "warning"
-          )
-
-        {:error, reason} ->
-          Alerts.emit_system("system.ci_readiness.unavailable",
-            reason: "CI readiness inspection failed: #{inspect(reason)}",
-            needs_attention: true,
-            severity: "warning"
-          )
-      end
-    end
-
-    %{state | ci_readiness_checked: true}
+  defp maybe_warn_ci_readiness(%State{ci_readiness_unavailable_alerted: true} = state) do
+    check_initial_ci_readiness(state, Config.tracker_kind(), Config.base_branch(), CiReadiness.check_fun(), &Alerts.emit_system/2)
   end
 
   defp maybe_warn_ci_readiness(state), do: state
+
+  @doc false
+  @spec check_initial_ci_readiness(State.t(), String.t() | nil, String.t(), function(), function()) :: State.t()
+  def check_initial_ci_readiness(%State{ci_readiness_checked: true} = state, _kind, _base_branch, _check_fun, _emit_fun), do: state
+
+  def check_initial_ci_readiness(state, "github", base_branch, check_fun, emit_fun) do
+    case check_fun.(base_branch: base_branch) do
+      {:ok, %{ready?: true}} ->
+        %{state | ci_readiness_checked: true}
+
+      {:ok, readiness} ->
+        emit_fun.("system.ci_readiness.not_ready", reason: CiReadiness.format(readiness), needs_attention: true, severity: "warning")
+        %{state | ci_readiness_checked: true}
+
+      {:error, _reason} when state.ci_readiness_unavailable_alerted ->
+        state
+
+      {:error, reason} ->
+        emit_fun.("system.ci_readiness.unavailable",
+          reason: "CI readiness inspection failed: #{inspect(reason)}",
+          needs_attention: true,
+          severity: "warning"
+        )
+
+        %{state | ci_readiness_unavailable_alerted: true}
+    end
+  end
+
+  def check_initial_ci_readiness(state, _kind, _base_branch, _check_fun, _emit_fun), do: %{state | ci_readiness_checked: true}
 
   # The base is readied before CPU admission so per-issue workspaces can use it
   # instead of cold-cloning. A failed build deliberately falls back to dispatch,
