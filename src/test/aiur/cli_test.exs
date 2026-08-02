@@ -297,6 +297,22 @@ defmodule Aiur.CLITest do
     }
   end
 
+  defp configured_deps(max_agents) do
+    Map.put(passthrough_deps(), :configured_max_agents, fn -> max_agents end)
+  end
+
+  defp preserve_max_agents_override do
+    previous = Application.get_env(:aiur, :max_concurrent_agents_override)
+
+    on_exit(fn ->
+      if is_nil(previous),
+        do: Application.delete_env(:aiur, :max_concurrent_agents_override),
+        else: Application.put_env(:aiur, :max_concurrent_agents_override, previous)
+    end)
+
+    Application.delete_env(:aiur, :max_concurrent_agents_override)
+  end
+
   test "enables headless mode when requested" do
     previous = Application.get_env(:aiur, :headless)
 
@@ -370,6 +386,38 @@ defmodule Aiur.CLITest do
 
     assert :ok = CLI.evaluate([@ack_flag, "--max-agents", "4", ".aiurconfig"], passthrough_deps())
     assert Application.get_env(:aiur, :max_concurrent_agents_override) == 4
+  end
+
+  test "--max-agents above the configured ceiling warns and documents CLI precedence" do
+    preserve_max_agents_override()
+
+    stderr =
+      capture_io(:stderr, fn ->
+        assert :ok = CLI.evaluate([@ack_flag, "--max-agents", "20", ".aiurconfig"], configured_deps(8))
+      end)
+
+    assert stderr =~ "warning: --max-agents 20 exceeds agent.max_concurrent_agents (8)"
+    assert stderr =~ "the explicit CLI value wins, so using 20"
+  end
+
+  test "--max-agents at or below the configured ceiling is silent" do
+    preserve_max_agents_override()
+
+    stderr =
+      capture_io(:stderr, fn ->
+        assert :ok = CLI.evaluate([@ack_flag, "--max-agents", "8", ".aiurconfig"], configured_deps(8))
+        assert :ok = CLI.evaluate([@ack_flag, "--max-agents", "4", ".aiurconfig"], configured_deps(8))
+      end)
+
+    assert stderr == ""
+  end
+
+  test "an absent --max-agents flag is silent" do
+    preserve_max_agents_override()
+
+    stderr = capture_io(:stderr, fn -> assert :ok = CLI.evaluate([@ack_flag, ".aiurconfig"], configured_deps(8)) end)
+
+    assert stderr == ""
   end
 
   test "--max-agents rejects a non-positive value" do

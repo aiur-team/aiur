@@ -425,6 +425,10 @@ path parameter and is never browser-cacheable.
   unlabeled tickets continue to use `agent.max_turns`.
 - `agent.max_concurrent_agents` caps active workers only. Paused agents remain visible
   and can keep their panes open without consuming an active slot.
+- An explicit `aiur --max-agents N` launch value takes precedence over
+  `agent.max_concurrent_agents`, including when it is higher. Aiur warns when
+  the values differ so the effective cap is visible; omit the flag or set it at
+  or below the configured value to silence the warning.
 - `agent.switch_model_on_ratelimit` is an opt-in ordered list of configured
   backends, for example `[claude, codex]`. It applies only when no explicit
   `model:` label or complexity-routing rule selected a backend, and only to new

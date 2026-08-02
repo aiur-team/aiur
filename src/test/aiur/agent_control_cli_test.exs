@@ -366,6 +366,35 @@ defmodule Aiur.AgentControlCLITest do
     assert populated_output =~ "__AIUR_CONTROL_EXIT__:0"
   end
 
+  test "status names the config cap and AIMD envelope binding constraints", %{orchestrator: pid} do
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | max_concurrent_agents: 2,
+          effective_concurrent_agents: 2,
+          running: %{
+            "issue-44" => running_entry("issue-44", "repo#44", :working),
+            "issue-45" => running_entry("issue-45", "repo#45", :working)
+          }
+      }
+    end)
+
+    config_output = capture_io(fn -> AgentControlCLI.status() end)
+    assert config_output =~ "AGENTS 2/2 (binding: config max_concurrent_agents)"
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | max_concurrent_agents: 2,
+          effective_concurrent_agents: 1,
+          running: %{"issue-44" => running_entry("issue-44", "repo#44", :working)}
+      }
+    end)
+
+    envelope_output = capture_io(fn -> AgentControlCLI.status() end)
+    assert envelope_output =~ "AGENTS 1/2 (binding: AIMD envelope, effective cap=1)"
+  end
+
   test "status prints the resolved CODEOWNERS trust snapshot", %{orchestrator: pid} do
     path = Path.join(File.cwd!(), ".github/CODEOWNERS")
 
@@ -382,7 +411,7 @@ defmodule Aiur.AgentControlCLITest do
     assert Process.alive?(pid)
   end
 
-  test "status reports active build-gate contention" do
+  test "status reports active build-gate contention", %{orchestrator: pid} do
     gate_dir = Path.join(System.tmp_dir!(), "aiur-build-gate-status-#{System.unique_integer([:positive])}")
     lock_dir = BuildGate.lock_dir(gate_dir)
     previous = Application.get_env(:aiur, :build_gate_dir_override)
@@ -440,7 +469,13 @@ defmodule Aiur.AgentControlCLITest do
 
     assert %{active: 1, queued: 1} = BuildGate.status()
 
+    :sys.replace_state(pid, fn state ->
+      issue = %Issue{id: "issue-idle", identifier: "repo#idle", state: "In Progress", title: "Idle"}
+      %{state | last_polled_issues: %{"issue-idle" => issue}}
+    end)
+
     output = capture_io(fn -> AgentControlCLI.status() end)
+    assert output =~ "AGENTS 0/10 (binding: provisioning, max_concurrent_builds=2)"
     assert output =~ "BUILD GATE 1/2 active, 1 queued"
     File.touch!(release_path)
     assert_receive {^holder, {:exit_status, 0}}, 2_000

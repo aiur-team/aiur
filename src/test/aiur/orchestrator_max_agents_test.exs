@@ -40,6 +40,8 @@ defmodule Aiur.OrchestratorMaxAgentsTest do
 
       assert %{max: 2, configured: 10, session_override?: true} =
                Orchestrator.max_concurrent_agents(name)
+
+      assert %{effective: 2} = Orchestrator.max_concurrent_agents(name)
     end
 
     test "no override leaves the session cap at the configured default" do
@@ -54,7 +56,7 @@ defmodule Aiur.OrchestratorMaxAgentsTest do
       name = Module.concat(__MODULE__, :NoOverride)
       start_orchestrator(name)
 
-      assert %{max: 10, session_override?: false} = Orchestrator.max_concurrent_agents(name)
+      assert %{max: 10, effective: 10, session_override?: false} = Orchestrator.max_concurrent_agents(name)
     end
   end
 

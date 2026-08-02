@@ -206,6 +206,7 @@ defmodule Aiur.Orchestrator.Slots do
       paused: State.paused_running_count(state.running),
       configured: state.max_concurrent_agents || Config.settings!().agent.max_concurrent_agents,
       max: max,
+      effective: effective_concurrent_agent_limit(state),
       session_override?: is_integer(state.session_max_concurrent_agents),
       draining?: active > max
     }

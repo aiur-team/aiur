@@ -24,9 +24,10 @@ defmodule Aiur.AgentControlCLI do
         print_global_pause_banner()
         print_codeowners_trust()
 
-        statuses
-        |> Enum.filter(&visible_status_row?/1)
-        |> print_status_table()
+        visible_statuses = Enum.filter(statuses, &visible_status_row?/1)
+        visible_statuses |> print_status_table()
+
+        print_capacity_status(Orchestrator.max_concurrent_agents(), visible_statuses, BuildGate.status())
 
         print_build_gate_status()
 
@@ -616,6 +617,60 @@ defmodule Aiur.AgentControlCLI do
       ])
     end)
   end
+
+  defp print_capacity_status(
+         %{active: active, max: max, effective: effective, configured: configured} = capacity,
+         statuses,
+         build_gate
+       )
+       when is_integer(active) and is_integer(max) and is_integer(effective) and is_integer(configured) do
+    binding = capacity_binding(capacity, statuses, build_gate)
+
+    suffix =
+      case binding do
+        {:config_cap, _detail} -> "config max_concurrent_agents"
+        {:envelope, detail} -> "AIMD envelope, effective cap=#{detail}"
+        {:provisioning, detail} -> "provisioning, max_concurrent_builds=#{detail}"
+        {:ticket_supply, _detail} -> "ticket supply"
+        {:requested_cap, _detail} -> "requested CLI cap"
+        {:none, _detail} -> "none"
+      end
+
+    IO.puts("AGENTS #{active}/#{max} (binding: #{suffix})")
+  end
+
+  defp print_capacity_status(_capacity, _statuses, _build_gate), do: :ok
+
+  defp capacity_binding(%{active: active, max: max, effective: effective, configured: configured} = capacity, statuses, build_gate) do
+    idle_count = Enum.count(statuses, &(&1.state == :idle))
+
+    cond do
+      effective < max and active >= effective ->
+        {:envelope, effective}
+
+      active >= max and max == configured and not Map.get(capacity, :session_override?, false) ->
+        {:config_cap, configured}
+
+      build_gate_binding?(build_gate, idle_count) ->
+        {:provisioning, build_gate.capacity}
+
+      idle_count == 0 ->
+        {:ticket_supply, 0}
+
+      active >= max ->
+        {:requested_cap, max}
+
+      true ->
+        {:none, nil}
+    end
+  end
+
+  defp build_gate_binding?(%{enabled?: true, capacity: capacity, active: active, queued: queued}, idle_count)
+       when is_integer(capacity) and is_integer(active) and is_integer(queued) and capacity > 0 do
+    idle_count > 0 and (active >= capacity or queued > 0)
+  end
+
+  defp build_gate_binding?(_build_gate, _idle_count), do: false
 
   @doc """
   Print Codex and Claude limit headroom from the daemon-owned meter projection.
