@@ -19,12 +19,10 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   @behaviour AiurWeb.BuildOrder.DataSource
 
-  alias Aiur.BuildOrder.{Catalog, Dependency, Member, ProviderHealth, RootSummary, SelectedRoot}
+  alias Aiur.BuildOrder.{Catalog, Dependency, Member, PackPaths, PackStatus, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.CurrentRunMembership
-  alias Aiur.GitHub.Config
   alias Aiur.Orchestrator.StatusReport
-  alias Aiur.RepoBase
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.DataSource
 
@@ -44,13 +42,15 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
         nil
 
       packs ->
+        {provider_health, source_generation} = provider(membership, packs)
+
         %Snapshot{
           scope: :catalog,
           repository: hd(packs).repository,
-          generation: generation(membership),
+          generation: source_generation,
           authority_epoch: @epoch,
-          data: Catalog.new(Enum.map(packs, &root_summary(&1, membership)), health(membership)),
-          health: health(membership)
+          data: Catalog.new(Enum.map(packs, &root_summary(&1, membership)), provider_health),
+          health: provider_health
         }
     end
   end
@@ -68,23 +68,27 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
     case Enum.find(load_packs(include_drafts?: true), &pack_root?(&1, identity)) do
       %{} = pack ->
+        {provider_health, source_generation} = provider(membership, [pack])
+
         %Snapshot{
           scope: {:selected, identity},
           repository: pack.repository,
-          generation: generation(membership),
+          generation: source_generation,
           authority_epoch: @epoch,
-          data: SelectedRoot.new(root_summary(pack, membership), members(pack, membership), health(membership), planning?: not (pack.materialized? or pack.completed)),
-          health: health(membership)
+          data: SelectedRoot.new(root_summary(pack, membership), members(pack, membership), provider_health, planning?: not (pack.materialized? or pack.completed)),
+          health: provider_health
         }
 
       nil ->
+        {provider_health, source_generation} = provider(membership, [])
+
         %Snapshot{
           scope: {:selected, identity},
           repository: {"unknown", "unknown"},
-          generation: generation(membership),
+          generation: source_generation,
           authority_epoch: @epoch,
           data: nil,
-          health: health(membership)
+          health: provider_health
         }
     end
   end
@@ -115,7 +119,9 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   def release(_identity), do: :ok
   @impl true
   def subscribe_sources do
-    with :ok <- DataSource.subscribe_sources(), do: CurrentRunMembership.subscribe()
+    with :ok <- DataSource.subscribe_sources(),
+         :ok <- CurrentRunMembership.subscribe(),
+         do: PackStatus.subscribe()
   end
 
   @impl true
@@ -238,44 +244,136 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
     identity
   end
 
-  defp health(%{health: :healthy, freshness: %{status: :fresh}} = membership) do
+  defp provider(membership, packs) do
+    pack_status_snapshot = pack_status_health_snapshot()
+    pack_status = pack_status_health(packs, membership, pack_status_snapshot)
+    source_generation = source_generation(membership, pack_status_snapshot)
+
+    health =
+      membership
+      |> membership_health()
+      |> combine_pack_status(pack_status, membership)
+      |> Map.put(:generation, source_generation)
+
+    {health, source_generation}
+  end
+
+  defp membership_health(%{health: :healthy, freshness: %{status: :fresh}} = membership) do
     ProviderHealth.new(generation(membership), :healthy, true, observed_at: DateTime.utc_now())
   end
 
-  defp health(%{health: :healthy, freshness: %{status: status}} = membership)
+  defp membership_health(%{health: :healthy, freshness: %{status: status}} = membership)
        when status in [:stale, :unknown] do
     ProviderHealth.new(generation(membership), :stale, false, observed_at: DateTime.utc_now(), failure: :membership_stale)
   end
 
-  defp health(%{health: :healthy, freshness: %{status: :unavailable}} = membership) do
+  defp membership_health(%{health: :healthy, freshness: %{status: :unavailable}} = membership) do
     ProviderHealth.new(generation(membership), :unavailable, false,
       observed_at: DateTime.utc_now(),
       failure: :membership_unavailable
     )
   end
 
-  defp health(%{health: {:degraded, _reason}} = membership) do
+  defp membership_health(%{health: {:degraded, _reason}} = membership) do
     ProviderHealth.new(generation(membership), :stale, false, observed_at: DateTime.utc_now(), failure: :membership_stale)
   end
 
-  defp health(%{health: {:unavailable, _reason}} = membership) do
+  defp membership_health(%{health: {:unavailable, _reason}} = membership) do
     ProviderHealth.new(generation(membership), :unavailable, false,
       observed_at: DateTime.utc_now(),
       failure: :membership_unavailable
     )
   end
 
-  defp health(%{health: :unavailable} = membership) do
+  defp membership_health(%{health: :unavailable} = membership) do
     ProviderHealth.new(generation(membership), :unavailable, false,
       observed_at: DateTime.utc_now(),
       failure: :membership_unavailable
     )
   end
 
-  defp health(membership), do: ProviderHealth.new(generation(membership), :healthy, true, observed_at: DateTime.utc_now())
+  defp membership_health(membership), do: ProviderHealth.new(generation(membership), :healthy, true, observed_at: DateTime.utc_now())
+
+  defp pack_status_health(packs, membership, snapshot) do
+    {required?, projection_present?, projection_complete?} = pack_status_facts(packs, membership)
+
+    if required? do
+      cond do
+        not projection_complete? and projection_present? ->
+          %{snapshot | state: :stale, complete?: false, failure: :pack_status_incomplete}
+
+        not projection_complete? ->
+          %{snapshot | state: :unavailable, complete?: false, failure: :pack_status_incomplete}
+
+        snapshot.state == :unavailable and projection_present? ->
+          %{snapshot | state: :stale}
+
+        true ->
+          snapshot
+      end
+    end
+  end
+
+  defp pack_status_facts(packs, membership) do
+    Enum.reduce(packs, {false, false, true}, fn pack, facts ->
+      Enum.reduce(pack.tickets, facts, fn ticket, {required?, projection_present?, projection_complete?} ->
+        identity = ticket_identity(pack, ticket)
+        requires_projection? = is_integer(ticket.number) and not membership_member?(identity, membership)
+        known? = status_lifecycle(identity, pack) in [:completed, :cancelled, :open]
+
+        {
+          required? or requires_projection?,
+          projection_present? or known?,
+          projection_complete? and (not requires_projection? or known?)
+        }
+      end)
+    end)
+  end
+
+  defp pack_status_health_snapshot do
+    Application.get_env(:aiur, :build_order_pack_status_health_snapshot, &PackStatus.health/0).()
+  rescue
+    _error -> ProviderHealth.new(:unknown, :unavailable, false, failure: :pack_status_unavailable)
+  catch
+    _kind, _reason -> ProviderHealth.new(:unknown, :unavailable, false, failure: :pack_status_unavailable)
+  end
+
+  defp combine_pack_status(membership_health, nil, _membership), do: membership_health
+
+  defp combine_pack_status(%ProviderHealth{state: :unavailable} = membership_health, _pack_status, _membership),
+    do: membership_health
+
+  defp combine_pack_status(membership_health, %ProviderHealth{state: :healthy}, _membership), do: membership_health
+
+  defp combine_pack_status(membership_health, %ProviderHealth{} = pack_status, membership) do
+    state =
+      if membership_health.state == :stale or pack_status.state == :stale do
+        :stale
+      else
+        :unavailable
+      end
+
+    ProviderHealth.new(generation(membership), state, false,
+      observed_at: pack_status.observed_at,
+      last_success_at: pack_status.last_success_at,
+      last_attempt_at: pack_status.last_attempt_at,
+      failure: pack_status.failure || :pack_status_unavailable,
+      retry_count: pack_status.retry_count,
+      refreshing?: pack_status.refreshing?
+    )
+  end
 
   defp generation(%{generation: generation}) when is_integer(generation) and generation >= 0, do: @generation + generation
   defp generation(_membership), do: @generation
+
+  defp source_generation(membership, %ProviderHealth{generation: pack_generation})
+       when is_integer(pack_generation) and pack_generation > 0 do
+    membership_generation = generation(membership)
+    sum = membership_generation + pack_generation
+    div(sum * (sum + 1), 2) + pack_generation
+  end
+
+  defp source_generation(membership, _pack_status), do: generation(membership)
 
   defp lifecycle(%{number: nil}, _identity, _pack, _membership), do: {"OPEN", nil}
 
@@ -420,44 +518,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
     |> assign_default_icons()
   end
 
-  defp pack_paths do
-    case Application.get_env(:aiur, :build_order_planning_pack) do
-      nil -> Application.get_env(:aiur, :build_order_planning_packs, discovered_packs())
-      path -> [path]
-    end
-  end
-
-  # Runtime packs are re-discovered from the configured repository's state node.
-  # Environment directories remain an explicit test/development override.
-  defp discovered_packs do
-    (state_pack_paths() ++ override_pack_paths())
-    |> Enum.uniq()
-  end
-
-  defp override_pack_paths do
-    case System.get_env("AIUR_BUILD_ORDER_DIRS") do
-      dirs when is_binary(dirs) and dirs != "" ->
-        dirs
-        |> String.split(":", trim: true)
-        |> Enum.flat_map(&Path.wildcard(Path.join(&1, "*.json")))
-
-      _missing ->
-        []
-    end
-  end
-
-  defp state_pack_paths do
-    case configured_repository() do
-      repository when is_binary(repository) and repository != "" ->
-        repository
-        |> then(&RepoBase.builds_path("https://github.com/#{&1}.git"))
-        |> Path.join("*/build-order.json")
-        |> Path.wildcard()
-
-      _missing ->
-        []
-    end
-  end
+  defp pack_paths, do: PackPaths.planning()
 
   defp load_pack(path, include_drafts?) do
     absolute = if Path.type(path) == :absolute, do: path, else: Application.app_dir(:aiur, path)
@@ -602,8 +663,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   defp status(path) do
     path
-    |> Path.dirname()
-    |> Path.join("status.json")
+    |> PackPaths.status_path()
     |> File.read()
     |> case do
       {:ok, body} -> Jason.decode(body)
@@ -625,7 +685,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   defp status_lifecycle(%TrackerIdentity{identifier: identifier}, %{status: status}) do
     state =
       status
-      |> Map.get("members", %{})
+      |> status_members()
       |> Map.get(identifier)
       |> case do
         %{"lifecycle" => lifecycle} -> lifecycle
@@ -643,6 +703,9 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   end
 
   defp status_lifecycle(_identity, _pack), do: nil
+
+  defp status_members(%{"members" => members}) when is_map(members), do: members
+  defp status_members(_status), do: %{}
 
   defp ticket_number(%{"ticket" => ticket}) when is_integer(ticket) and ticket > 0, do: {:ok, ticket}
   defp ticket_number(%{"ticket" => nil}), do: {:ok, nil}
@@ -688,11 +751,5 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
       left.completed and left.completed_at != right.completed_at -> (left.completed_at || "") > (right.completed_at || "")
       true -> left.title < right.title
     end
-  end
-
-  defp configured_repository do
-    Config.repo()
-  rescue
-    _error -> nil
   end
 end

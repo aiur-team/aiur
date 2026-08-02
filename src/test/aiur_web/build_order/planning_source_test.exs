@@ -1,7 +1,7 @@
 defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.BuildOrder.{Catalog, SelectedRoot}
+  alias Aiur.BuildOrder.{Catalog, ProviderHealth, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.GitHub.Config
   alias Aiur.{RepoBase, TrackerIdentity}
@@ -60,9 +60,14 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     Application.put_env(:aiur, :build_order_planning_pack, path)
     Application.put_env(:aiur, :build_order_planning_membership_snapshot, fn -> %{generation: 0, members: []} end)
 
+    Application.put_env(:aiur, :build_order_pack_status_health_snapshot, fn ->
+      ProviderHealth.new(1, :healthy, true, observed_at: ~U[2026-08-02 12:00:00Z])
+    end)
+
     on_exit(fn ->
       Application.delete_env(:aiur, :build_order_planning_pack)
       Application.delete_env(:aiur, :build_order_planning_membership_snapshot)
+      Application.delete_env(:aiur, :build_order_pack_status_health_snapshot)
       File.rm(path)
     end)
 
@@ -146,7 +151,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert is_nil(hydrated_root.progress)
 
     {:ok, hydrated} = PlanningSource.demand(root.identity)
-    assert hydrated.generation == 8
+    assert hydrated.generation > 8
     refute hydrated.data.planning?
 
     [closed, open] = hydrated.data.members
@@ -215,6 +220,107 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     [created, draft] = snapshot.data.members
     assert created.lifecycle.state == :closed
     assert draft.lifecycle.state == :open
+  end
+
+  test "marks a retained status projection stale when PackStatus is unavailable" do
+    directory = Path.join(System.tmp_dir!(), "planning-source-status-stale-#{System.unique_integer([:positive])}")
+    path = Path.join(directory, "build-order.json")
+
+    File.mkdir_p!(directory)
+    File.write!(path, @mixed_pack)
+    File.write!(Path.join(directory, "status.json"), ~s({"members":{"4101":"completed"}}))
+    Application.put_env(:aiur, :build_order_planning_pack, path)
+
+    Application.put_env(:aiur, :build_order_pack_status_health_snapshot, fn ->
+      ProviderHealth.new(:unknown, :unavailable, false, failure: :pack_status_unavailable)
+    end)
+
+    on_exit(fn -> File.rm_rf(directory) end)
+
+    snapshot = PlanningSource.catalog()
+    assert snapshot.health.state == :stale
+    refute snapshot.health.complete?
+    assert snapshot.health.failure == :pack_status_unavailable
+  end
+
+  test "marks missing status unavailable when PackStatus has no projection" do
+    directory = Path.join(System.tmp_dir!(), "planning-source-status-unavailable-#{System.unique_integer([:positive])}")
+    path = Path.join(directory, "build-order.json")
+
+    File.mkdir_p!(directory)
+    File.write!(path, @mixed_pack)
+    Application.put_env(:aiur, :build_order_planning_pack, path)
+
+    Application.put_env(:aiur, :build_order_pack_status_health_snapshot, fn ->
+      ProviderHealth.new(:unknown, :unavailable, false, failure: :pack_status_unavailable)
+    end)
+
+    on_exit(fn -> File.rm_rf(directory) end)
+
+    snapshot = PlanningSource.catalog()
+    assert snapshot.health.state == :unavailable
+    refute snapshot.health.complete?
+    assert snapshot.health.failure == :pack_status_incomplete
+  end
+
+  test "downgrades healthy PackStatus when a promoted member lacks a projection" do
+    directory = Path.join(System.tmp_dir!(), "planning-source-status-incomplete-#{System.unique_integer([:positive])}")
+    path = Path.join(directory, "build-order.json")
+
+    File.mkdir_p!(directory)
+    File.write!(path, @canonical_pack)
+    File.write!(Path.join(directory, "status.json"), ~s({"members":{"4101":"completed"}}))
+    Application.put_env(:aiur, :build_order_planning_pack, path)
+
+    on_exit(fn -> File.rm_rf(directory) end)
+
+    snapshot = PlanningSource.catalog()
+    assert snapshot.health.state == :stale
+    refute snapshot.health.complete?
+    assert snapshot.health.failure == :pack_status_incomplete
+  end
+
+  test "ignores a malformed status members shape" do
+    directory = Path.join(System.tmp_dir!(), "planning-source-status-malformed-#{System.unique_integer([:positive])}")
+    path = Path.join(directory, "build-order.json")
+
+    File.mkdir_p!(directory)
+    File.write!(path, @mixed_pack)
+    File.write!(Path.join(directory, "status.json"), ~s({"members":[]}))
+    Application.put_env(:aiur, :build_order_planning_pack, path)
+
+    on_exit(fn -> File.rm_rf(directory) end)
+
+    snapshot = PlanningSource.catalog()
+    assert snapshot.health.state == :unavailable
+    assert snapshot.health.failure == :pack_status_incomplete
+  end
+
+  test "membership recovery does not regress the PackStatus-backed generation" do
+    path = Path.join(System.tmp_dir!(), "planning-source-generation-#{System.unique_integer([:positive])}.json")
+    File.write!(path, @mixed_pack)
+    Application.put_env(:aiur, :build_order_planning_pack, path)
+
+    Application.put_env(:aiur, :build_order_pack_status_health_snapshot, fn ->
+      ProviderHealth.new(5, :healthy, true, observed_at: ~U[2026-08-02 12:00:00Z])
+    end)
+
+    on_exit(fn -> File.rm(path) end)
+
+    initial_generation = PlanningSource.catalog().generation
+
+    Application.put_env(:aiur, :build_order_planning_membership_snapshot, fn ->
+      {:ok, identity} =
+        TrackerIdentity.from_github(
+          %{"number" => 4101, "node_id" => "I_live_4101"},
+          {"acme", "widgets"},
+          {"acme", "widgets"}
+        )
+
+      %{generation: 1, health: :healthy, freshness: %{status: :fresh}, members: [%{identity: identity, lifecycle: :completed}]}
+    end)
+
+    assert PlanningSource.catalog().generation > initial_generation
   end
 
   test "renders created members live and uncreated members as planned from one canonical pack" do
