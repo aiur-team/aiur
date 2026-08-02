@@ -33,9 +33,10 @@ defmodule Aiur.Events.GithubFirehose do
 
   require Logger
 
-  alias Aiur.{Boot, RecentMerge, RecentMergeStore}
+  alias Aiur.{Boot, RecentMerge, RecentMergeStore, RunTelemetry}
   alias Aiur.Events.{GithubKeys, Publisher, Sanitizer}
   alias Aiur.GitHub.Client
+  alias Aiur.RunTelemetry.Lifecycle
 
   @repo_events_per_page 30
   @max_event_pages 5
@@ -54,6 +55,8 @@ defmodule Aiur.Events.GithubFirehose do
     * `:request_fun` — passed through to `Client.fetch_repo_events/1`
       (test injection)
     * `:repo` — `"owner/repo"` string used for `dedup_key`
+    * `:telemetry_writer` — overrides the telemetry writer for pre-boot PR
+      lifecycle anchors (test injection)
   """
   @spec poll(keyword()) :: {:ok, map()} | {:error, term()}
   def poll(opts \\ []) do
@@ -102,13 +105,25 @@ defmodule Aiur.Events.GithubFirehose do
     end
   end
 
-  defp finish_event_response(%{persistence_errors: []} = processed, result, partial?, pages_fetched, opts) do
+  defp finish_event_response(
+         %{persistence_errors: []} = processed,
+         result,
+         partial?,
+         pages_fetched,
+         opts
+       ) do
     mark_reconciliation(partial?, pages_fetched, opts)
     status = if processed.persistence_attempted?, do: :ok, else: :not_attempted
     {:ok, Map.put(result, :recent_merge_persistence, status)}
   end
 
-  defp finish_event_response(%{persistence_errors: [reason | _]}, result, _partial?, _pages_fetched, _opts) do
+  defp finish_event_response(
+         %{persistence_errors: [reason | _]},
+         result,
+         _partial?,
+         _pages_fetched,
+         _opts
+       ) do
     {:error, {:recent_merge_persistence, reason, result}}
   end
 
@@ -171,16 +186,20 @@ defmodule Aiur.Events.GithubFirehose do
   defp newest_event_id(_events), do: nil
 
   defp process_events(events, opts) do
-    Enum.reduce(events, %{count: 0, persistence_errors: [], persistence_attempted?: false}, fn event, acc ->
-      persistence_result = persist_recent_merge(event, opts)
-      publish_result = publish_one(event, opts)
+    Enum.reduce(
+      events,
+      %{count: 0, persistence_errors: [], persistence_attempted?: false},
+      fn event, acc ->
+        persistence_result = persist_recent_merge(event, opts)
+        publish_result = publish_one(event, opts)
 
-      %{
-        count: acc.count + if(match?({:ok, _, _}, publish_result), do: 1, else: 0),
-        persistence_errors: maybe_add_persistence_error(acc.persistence_errors, persistence_result),
-        persistence_attempted?: acc.persistence_attempted? or persistence_attempted?(persistence_result)
-      }
-    end)
+        %{
+          count: acc.count + if(match?({:ok, _, _}, publish_result), do: 1, else: 0),
+          persistence_errors: maybe_add_persistence_error(acc.persistence_errors, persistence_result),
+          persistence_attempted?: acc.persistence_attempted? or persistence_attempted?(persistence_result)
+        }
+      end
+    )
   end
 
   defp persist_recent_merge(event, opts) do
@@ -230,9 +249,11 @@ defmodule Aiur.Events.GithubFirehose do
       _ -> RecentMergeStore.mark_reconciliation(partial?, pages_fetched)
     end
   rescue
-    error -> Logger.warning("GithubFirehose reconciliation status failed: #{Exception.message(error)}")
+    error ->
+      Logger.warning("GithubFirehose reconciliation status failed: #{Exception.message(error)}")
   catch
-    :exit, reason -> Logger.warning("GithubFirehose reconciliation status exited: #{inspect(reason)}")
+    :exit, reason ->
+      Logger.warning("GithubFirehose reconciliation status exited: #{inspect(reason)}")
   end
 
   defp maybe_put(opts, _key, nil), do: opts
@@ -248,9 +269,47 @@ defmodule Aiur.Events.GithubFirehose do
     # a small jitter window. Real-time events created after boot
     # always pass through. Tests inject `boot_time:` directly.
     if GithubKeys.pre_boot_event?(event, opts) do
+      record_pre_boot_lifecycle_anchor(event, opts)
       :pre_boot_drop
     else
       do_publish_one(event, opts)
+    end
+  end
+
+  # Startup reconciliation deliberately does not replay external events through
+  # Exchange: an old PR open must not wake agents again after an Executor
+  # restart. PR lifecycle facts are different, though. The dashboard's durable
+  # telemetry is the only source for its completion KPIs, and omitting a merge
+  # seen during that reconciliation makes a completed ticket indistinguishable
+  # from one that never opened a PR. Record just the body-free lifecycle anchor
+  # directly, leaving the Exchange replay boundary unchanged.
+  defp record_pre_boot_lifecycle_anchor(event, opts) do
+    with {topic, payload, _publish_opts} <- translate(event, opts),
+         true <- String.starts_with?(topic, "ticket."),
+         %{event: lifecycle_event, timestamp: timestamp} <- lifecycle_anchor(topic, payload) do
+      telemetry_opts =
+        [timestamp: timestamp]
+        |> maybe_put(:writer, Keyword.get(opts, :telemetry_writer))
+
+      _ = RunTelemetry.record(:lifecycle, lifecycle_event, telemetry_opts)
+    else
+      _other -> :ok
+    end
+  rescue
+    _error -> :ok
+  catch
+    _kind, _reason -> :ok
+  end
+
+  defp lifecycle_anchor(topic, payload) do
+    # This is historical reconciliation evidence, not activity from the
+    # daemon boot performing the poll. Mark it so current-session analytics
+    # cannot count an older merge as work completed in this run.
+    event = Map.merge(payload, %{topic: topic, source: :github_reconciliation})
+
+    case Lifecycle.external_anchor(event) do
+      {:ok, attributes, timestamp} -> %{event: attributes, timestamp: timestamp}
+      :skip -> nil
     end
   end
 
@@ -304,17 +363,18 @@ defmodule Aiur.Events.GithubFirehose do
     actor = get_in(event, ["actor", "login"])
     repo_name = get_in(event, ["repo", "name"]) || Keyword.get(opts, :repo)
     pr_number = Map.get(pr, "number")
+    merged? = merged_pull_request_event?(action, Map.get(pr, "merged"))
 
     with {:ticket, id, _push_topic} <- GithubKeys.ref_to_topic("refs/heads/" <> head_ref),
-         topic when is_binary(topic) <- pr_topic(id, action, Map.get(pr, "merged")) do
+         topic when is_binary(topic) <- pr_topic(id, action, merged?) do
       publish_opts = [
         actor: actor,
         issue_number: id,
-        bypass_contamination: action == "closed" and Map.get(pr, "merged") == true,
+        bypass_contamination: merged?,
         dedup_key: GithubKeys.pr_dedup_key(repo_name, pr_number, action, head_sha)
       ]
 
-      {topic, %{action: action, pr: pr}, publish_opts}
+      {topic, %{action: action, pr: pr, timestamp: Map.get(event, "created_at")}, publish_opts}
     else
       _ -> nil
     end
@@ -323,6 +383,12 @@ defmodule Aiur.Events.GithubFirehose do
   defp translate(_event, _opts), do: nil
 
   defp pr_topic(id, "opened", _merged), do: "ticket.#{id}.pr.opened"
-  defp pr_topic(id, "closed", true), do: "ticket.#{id}.pr.merged"
+  defp pr_topic(id, _action, true), do: "ticket.#{id}.pr.merged"
   defp pr_topic(_id, _action, _merged), do: nil
+
+  # GitHub's Events API emits sparse merge notifications as action=merged.
+  # Retain the older closed+merged form for replay compatibility.
+  defp merged_pull_request_event?("merged", _merged), do: true
+  defp merged_pull_request_event?("closed", true), do: true
+  defp merged_pull_request_event?(_action, _merged), do: false
 end
