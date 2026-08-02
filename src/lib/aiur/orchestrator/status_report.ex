@@ -136,8 +136,8 @@ defmodule Aiur.Orchestrator.StatusReport do
        globally_paused: state.globally_paused == true,
        global_pause: %{
          globally_paused: state.globally_paused == true,
-         paused_at: get_in(state, [:global_pause, :paused_at]),
-         source: get_in(state, [:global_pause, :source])
+         paused_at: Map.get(state.global_pause, :paused_at),
+         source: Map.get(state.global_pause, :source)
        },
        rate_limits: Map.get(state, :agent_rate_limits),
        polling: %{
