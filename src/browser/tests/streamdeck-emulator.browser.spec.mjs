@@ -11,6 +11,13 @@ async function openStreamdeck(page) {
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
 }
 
+async function openUnits(page) {
+  await page.goto('/auth/read_only')
+  await page.goto('/units')
+  await expect(page.locator('[data-units-fixture="true"]')).toBeVisible()
+  await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
+}
+
 test('dial drag rotates the knob and updates aria-valuenow', async ({ page }) => {
   await openStreamdeck(page)
 
@@ -283,8 +290,25 @@ test('dial D pages live fleet keys and pager dots', async ({ page }) => {
   await page.mouse.wheel(0, -100)
 
   await expect(keys).toHaveAttribute('data-grid-page', '1')
-  await expect(keys.locator('[data-streamdeck-identifier="1367"]')).toBeVisible()
+  await expect(keys.locator('[data-streamdeck-identifier="1370"]')).toBeVisible()
   await expect(page.locator('#sd-pager-dots [aria-current="page"]')).toHaveAttribute('data-page', '1')
+})
+
+test('emulator and Units stay in sync after a live fleet-size change', async ({ page, context }) => {
+  await openStreamdeck(page)
+
+  const units = await context.newPage()
+  await openUnits(units)
+  await units.getByRole('button', { name: 'Select all preceding filters' }).click()
+
+  const rows = units.locator('#units-rows tr.units-row')
+  const before = Number.parseInt(await units.locator('.units-header p').nth(1).textContent(), 10)
+  await rows.first().locator('td.ut-id-cell').click()
+  await units.locator('#remove-selected-unit').evaluate((button) => button.click())
+
+  await expect(units.locator('.units-header p').nth(1)).toContainText(`${before - 1} observed`)
+  await expect(page.locator('#sd-keys')).toHaveAttribute('data-grid-total', String(before - 1))
+  await units.close()
 })
 
 test('logs mode scrolls event and transcript panes within real bounds', async ({ page }) => {

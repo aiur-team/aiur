@@ -81,6 +81,42 @@ defmodule AiurWeb.StreamdeckLiveTest do
     refute html =~ "Build emulator"
   end
 
+  test "renders grid keys in authoritative column-major order at zero and nonzero offsets" do
+    {:ok, view, html} = live(build_conn(), "/streamdeck")
+
+    assert slot_identifiers(html) |> Enum.take(8) ==
+             ["1352", "1350", "1361", "1363", "1345", "1360", "1362", "1366"]
+
+    html = render_hook(view, "grid-page", %{"value" => "50"})
+
+    assert html =~ ~s(data-grid-column-offset="3")
+
+    assert slot_identifiers(html) |> Enum.take(8) ==
+             ["1363", "1367", "1371", "1373", "1366", "1370", "1372", "1374"]
+  end
+
+  test "preserves raw dial value while deriving offset across fleet shrink and grow", %{snapshot_agent: snapshot_agent} do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+
+    html = render_hook(view, "grid-page", %{"value" => "50"})
+    assert html =~ ~s(data-grid-dial-value="50")
+    assert html =~ ~s(data-grid-column-offset="3")
+
+    Agent.update(snapshot_agent, fn _ -> fleet_snapshot(9) end)
+    send(view.pid, {:running_changed, []})
+    Process.sleep(10)
+    html = render(view)
+    assert html =~ ~s(data-grid-dial-value="50")
+    assert html =~ ~s(data-grid-column-offset="1")
+
+    Agent.update(snapshot_agent, fn _ -> fleet_snapshot(25) end)
+    send(view.pid, {:running_changed, []})
+    Process.sleep(10)
+    html = render(view)
+    assert html =~ ~s(data-grid-dial-value="50")
+    assert html =~ ~s(data-grid-column-offset="5")
+  end
+
   test "refreshes the grid when the fleet topic changes", %{snapshot_agent: snapshot_agent} do
     {:ok, view, html} = live(build_conn(), "/streamdeck")
     assert html =~ "Live running"
@@ -249,5 +285,15 @@ defmodule AiurWeb.StreamdeckLiveTest do
       events: Enum.map(1..10, &%{role: :system, body: "event-#{&1}"}),
       transcript: Enum.map(1..10, &%{role: :assistant, body: "transcript-#{&1}"})
     }
+  end
+
+  defp slot_identifiers(html) do
+    Regex.scan(~r/data-streamdeck-identifier="([^"]+)"/, html, capture: :all_but_first)
+    |> List.flatten()
+  end
+
+  defp fleet_snapshot(total) do
+    agents = for index <- 1..total, do: fixture_agent("fleet-#{index}", "Fleet #{index}", "codex")
+    %{running: [hd(agents)], retrying: [], idle: tl(agents)}
   end
 end

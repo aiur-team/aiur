@@ -18,6 +18,7 @@
   var PRESS_THRESHOLD_DEG = 8;
   var PRESS_FLASH_MS = 160;
   var WHEEL_STEP = 4;
+  var GRID_WHEEL_STEP = 80;
   var KEY_STEP = 4;
   // 270-degree physical sweep maps to full [0..100] range.
   var DRAG_DIVISOR = 2.7;
@@ -50,6 +51,7 @@
     this.index = index;
     this.hook = hook;
     this.value = parseInt(this.knobEl.dataset.value || "0", 10);
+    this.preciseValue = this.value;
     this.isDragging = false;
     this.dragAngle = 0;
     this.accumulatedDeg = 0;
@@ -123,7 +125,8 @@
   Knob.prototype._onWheel = function (e) {
     e.preventDefault();
     var direction = e.deltaY > 0 ? -1 : 1;
-    this._step(direction * WHEEL_STEP);
+    var step = this.index === 3 ? GRID_WHEEL_STEP : WHEEL_STEP;
+    this._step(direction * step);
   };
 
   Knob.prototype._onKeydown = function (e) {
@@ -137,7 +140,8 @@
   };
 
   Knob.prototype._step = function (delta) {
-    this.value = clamp(Math.round(this.value + delta), 0, 100);
+    this.preciseValue = clamp(this.preciseValue + delta, 0, 100);
+    this.value = clamp(Math.round(this.preciseValue), 0, 100);
     this._render();
     // Angle: 0 → -135deg (min), 100 → +135deg (max), centred at top.
     var angle = (this.value / 100) * 270 - 135;
@@ -190,12 +194,13 @@
   };
 
   Knob.prototype.snapshotState = function () {
-    return { value: this.value };
+    return { value: this.value, preciseValue: this.preciseValue };
   };
 
   Knob.prototype.restoreState = function (state) {
     if (!state) return;
-    this.value = state.value;
+    this.preciseValue = Number.isFinite(state.preciseValue) ? state.preciseValue : state.value;
+    this.value = clamp(Math.round(this.preciseValue), 0, 100);
     this._step(0);
   };
 
@@ -286,8 +291,10 @@
 
     _handleDialStep(index, delta) {
       if (!delta) return;
+      var dial = this._knobs && this._knobs[index];
+      var value = dial ? dial.value : 0;
       if (this._mode === "grid" && index === 3) {
-        this._requestGridPage(delta > 0 ? 1 : -1);
+        this._requestGridPage(value);
       } else if (this._mode === "logs" && index === 3) {
         this.pushEvent("logs-scroll", { axis: "events", delta: delta > 0 ? 1 : -1 });
       } else if (this._mode === "logs" && index === 0) {
@@ -295,22 +302,19 @@
       }
     },
 
-    _requestGridPage(delta) {
-      var keys = this.el.querySelector("#sd-keys");
-      if (!keys) return;
-      var page = parseInt(keys.getAttribute("data-grid-page") || "0", 10);
-      var pageCount = parseInt(keys.getAttribute("data-grid-page-count") || "0", 10);
-      if (!Number.isFinite(page) || !Number.isFinite(pageCount) || pageCount < 1) return;
-      this.pushEvent("grid-page", { page: clamp(page + delta, 0, pageCount - 1) });
+    _requestGridPage(value) {
+      if (!Number.isFinite(value)) return;
+      this.pushEvent("grid-page", { value: clamp(value, 0, 100) });
     },
 
     _syncPageKnob() {
       var keys = this.el.querySelector("#sd-keys");
       var knob = this._knobs && this._knobs[3];
       if (!keys || !knob) return;
-      var page = parseInt(keys.getAttribute("data-grid-page") || "0", 10);
-      if (!Number.isFinite(page)) return;
-      knob.value = page + 1;
+      var value = parseInt(keys.getAttribute("data-grid-dial-value") || "0", 10);
+      if (!Number.isFinite(value)) return;
+      knob.preciseValue = value;
+      knob.value = value;
       knob._render();
       knob.knobEl.setAttribute("aria-valuenow", String(knob.value));
     },
@@ -410,7 +414,7 @@
         this._setMode(prev !== undefined ? prev : "grid", false);
       } else if (action === "cycle-window") {
         if (this._mode === "grid") {
-          this._requestGridPage(1);
+          this.pushEvent("grid-page", { action: "cycle" });
           return;
         }
         var idx = MODES.indexOf(this._mode);

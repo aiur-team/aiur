@@ -881,6 +881,9 @@ defmodule Aiur.BrowserHarness.UnitsLive do
         Enum.reject(rows, &same_identity?(Map.get(&1, :identity), selected && selected.identity))
       end)
 
+    Aiur.BrowserHarness.FixtureServer.set_streamdeck_snapshot_size(length(catalog.snapshot.rows))
+    Phoenix.PubSub.broadcast(Aiur.PubSub, "streamdeck:fixture", :streamdeck_fixture_fleet_changed)
+
     {:noreply,
      socket
      |> assign(:catalog, catalog)
@@ -1580,30 +1583,51 @@ defmodule Aiur.BrowserHarness.FixtureServer do
     Process.sleep(:infinity)
   end
 
+  def set_streamdeck_snapshot_size(size) when is_integer(size) and size >= 0 do
+    :persistent_term.put({__MODULE__, :streamdeck_snapshot_size}, size)
+  end
+
   def streamdeck_snapshot do
-    %{
-      running: [streamdeck_agent("1352", "Fixture running", "codex")],
-      retrying: [streamdeck_agent("1338", "Fixture stuck", "codex", work_state: :error)],
-      idle: [
-        streamdeck_agent("1345", "Fixture paused", "claude", work_state: :paused),
-        streamdeck_agent("1350", "Fixture queued", "codex", waiting_reason: :waiting_for_dependency),
-        streamdeck_agent("1331", "Fixture alert", "claude", open_decision_count: 1),
-        streamdeck_agent("1360", "Fixture extra 1", "codex"),
-        streamdeck_agent("1361", "Fixture extra 2", "codex"),
-        streamdeck_agent("1362", "Fixture extra 3", "codex"),
-        streamdeck_agent("1363", "Fixture extra 4", "codex"),
-        streamdeck_agent("1366", "Fixture extra 5", "codex"),
-        streamdeck_agent("1367", "Fixture extra 6", "codex"),
-        streamdeck_agent("1370", "Fixture extra 7", "codex"),
-        streamdeck_agent("1371", "Fixture extra 8", "codex"),
-        streamdeck_agent("1372", "Fixture extra 9", "codex"),
-        streamdeck_agent("1373", "Fixture extra 10", "codex"),
-        streamdeck_agent("1374", "Fixture extra 11", "codex"),
-        streamdeck_agent("1375", "Fixture extra 12", "codex"),
-        streamdeck_agent("1376", "Fixture extra 13", "codex"),
-        streamdeck_agent("1377", "Fixture extra 14", "codex")
-      ]
-    }
+    case :persistent_term.get({__MODULE__, :streamdeck_snapshot_size}, nil) do
+      size when is_integer(size) ->
+        streamdeck_snapshot(size)
+
+      _ ->
+        %{
+          running: [streamdeck_agent("1352", "Fixture running", "codex")],
+          retrying: [streamdeck_agent("1338", "Fixture stuck", "codex", work_state: :error)],
+          idle: [
+            streamdeck_agent("1345", "Fixture paused", "claude", work_state: :paused),
+            streamdeck_agent("1350", "Fixture queued", "codex", waiting_reason: :waiting_for_dependency),
+            streamdeck_agent("1331", "Fixture alert", "claude", open_decision_count: 1),
+            streamdeck_agent("1360", "Fixture extra 1", "codex"),
+            streamdeck_agent("1361", "Fixture extra 2", "codex"),
+            streamdeck_agent("1362", "Fixture extra 3", "codex"),
+            streamdeck_agent("1363", "Fixture extra 4", "codex"),
+            streamdeck_agent("1366", "Fixture extra 5", "codex"),
+            streamdeck_agent("1367", "Fixture extra 6", "codex"),
+            streamdeck_agent("1370", "Fixture extra 7", "codex"),
+            streamdeck_agent("1371", "Fixture extra 8", "codex"),
+            streamdeck_agent("1372", "Fixture extra 9", "codex"),
+            streamdeck_agent("1373", "Fixture extra 10", "codex"),
+            streamdeck_agent("1374", "Fixture extra 11", "codex"),
+            streamdeck_agent("1375", "Fixture extra 12", "codex"),
+            streamdeck_agent("1376", "Fixture extra 13", "codex"),
+            streamdeck_agent("1377", "Fixture extra 14", "codex")
+          ]
+        }
+    end
+  end
+
+  defp streamdeck_snapshot(size) do
+    agents =
+      if size > 0 do
+        for index <- 1..size, do: streamdeck_agent("fixture-#{index}", "Fixture #{index}", "codex")
+      else
+        []
+      end
+
+    %{running: Enum.take(agents, 1), retrying: [], idle: Enum.drop(agents, 1)}
   end
 
   def streamdeck_provider_meters do
@@ -1629,6 +1653,7 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         dashboard_writable: false,
         control_center_cache: false,
         snapshot_timeout_ms: 100,
+        streamdeck_fixture_fleet: true,
         streamdeck_snapshot_fun: &__MODULE__.streamdeck_snapshot/0,
         streamdeck_provider_meters_fun: &__MODULE__.streamdeck_provider_meters/0,
         streamdeck_logs_fun: &__MODULE__.streamdeck_logs/0

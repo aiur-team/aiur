@@ -23,6 +23,8 @@ defmodule AiurWeb.StreamdeckLive do
       |> assign(:current_route, RouteRegistry.current_route(:streamdeck))
       |> assign(:knobs, knob_descriptors())
       |> assign(:grid_page, 0)
+      |> assign(:grid_column_offset, 0)
+      |> assign(:grid_dial_value, 0)
       |> assign(:logs, load_logs())
       |> assign(:control_feedback, nil)
       |> assign(:tracker_kind, kind(&Aiur.Config.tracker_kind/0, "tracker unavailable"))
@@ -33,6 +35,7 @@ defmodule AiurWeb.StreamdeckLive do
       :ok = AgentPubSub.subscribe_running()
       :ok = AgentPubSub.subscribe_status()
       :ok = ProviderMeterEvents.subscribe_observed()
+      maybe_subscribe_fixture_fleet()
       maybe_subscribe_agent(socket.assigns.selected_identifier)
     end
 
@@ -48,7 +51,23 @@ defmodule AiurWeb.StreamdeckLive do
   def handle_event("grid-page", %{"page" => page}, socket) do
     page = parse_integer(page, socket.assigns.grid_page)
     previous_identifier = socket.assigns.selected_identifier
-    socket = assign_grid(socket, socket.assigns.grid, page)
+    socket = assign_grid_window(socket, page)
+    maybe_resubscribe_agent(previous_identifier, socket.assigns.selected_identifier)
+    {:noreply, socket}
+  end
+
+  def handle_event("grid-page", %{"value" => value}, socket) do
+    value = parse_integer(value, socket.assigns.grid_dial_value)
+    previous_identifier = socket.assigns.selected_identifier
+    socket = assign_grid_dial(socket, value)
+    maybe_resubscribe_agent(previous_identifier, socket.assigns.selected_identifier)
+    {:noreply, socket}
+  end
+
+  def handle_event("grid-page", %{"action" => "cycle"}, socket) do
+    page = rem(socket.assigns.grid_page + 1, max(socket.assigns.grid.windows, 1))
+    previous_identifier = socket.assigns.selected_identifier
+    socket = assign_grid_window(socket, page)
     maybe_resubscribe_agent(previous_identifier, socket.assigns.selected_identifier)
     {:noreply, socket}
   end
@@ -83,6 +102,10 @@ defmodule AiurWeb.StreamdeckLive do
     {:noreply, assign(socket, :logs, append_log_event(socket.assigns.logs, "Agent ##{identifier} status updated"))}
   end
 
+  def handle_info(:streamdeck_fixture_fleet_changed, socket) do
+    {:noreply, refresh_grid(socket)}
+  end
+
   def handle_info({:provider_meter_changed, _snapshot}, socket) do
     socket = refresh_grid(socket)
     {:noreply, assign(socket, :logs, append_log_event(socket.assigns.logs, "Provider usage updated"))}
@@ -109,7 +132,7 @@ defmodule AiurWeb.StreamdeckLive do
             <span>STREAM DECK</span>
           </header>
 
-          <ul id="sd-keys" class="sd-keys" data-mode-view="grid" aria-label="Agent keys" data-grid-total={@grid.total} data-grid-windows={@grid.windows} data-grid-page={@grid_page} data-grid-page-count={@grid.windows}>
+          <ul id="sd-keys" class="sd-keys" data-mode-view="grid" aria-label="Agent keys" data-grid-total={@grid.total} data-grid-windows={@grid.windows} data-grid-page={@grid_page} data-grid-page-count={@grid.windows} data-grid-column-offset={@grid_column_offset} data-grid-dial-value={@grid_dial_value}>
             <li
               :for={key <- @keys}
               class={["sd-key", key.empty? && "is-empty", "st-#{key.bucket}"]}
@@ -214,7 +237,9 @@ defmodule AiurWeb.StreamdeckLive do
     grid = load_grid()
     usage = StreamdeckProjection.provider_meters()
     previous_identifier = socket.assigns[:selected_identifier]
-    socket = assign_grid(socket, grid, socket.assigns[:grid_page] || 0, usage)
+    dial_value = socket.assigns[:grid_dial_value] || 0
+    column_offset = column_offset_from_dial(dial_value, grid.total)
+    socket = assign_grid(socket, grid, column_offset, usage, dial_value)
 
     if connected?(socket) do
       maybe_resubscribe_agent(previous_identifier, socket.assigns.selected_identifier)
@@ -223,35 +248,52 @@ defmodule AiurWeb.StreamdeckLive do
     socket
   end
 
-  defp assign_grid(socket, grid, page, usage \\ nil) do
-    page = clamp_page(page, grid.windows)
+  defp assign_grid(socket, grid, column_offset, usage, dial_value) do
+    {dial_value, column_offset} =
+      case dial_value do
+        nil ->
+          {dial_value_from_offset(column_offset, grid.total), clamp_column_offset(column_offset, grid.total)}
+
+        value ->
+          value = clamp(value, 0, 100)
+          {value, column_offset_from_dial(value, grid.total)}
+      end
+
+    page = current_window(column_offset, grid.total)
     usage = usage || StreamdeckProjection.provider_meters()
-    visible_agents = Enum.slice(grid.agents, page * grid.agents_per_page, grid.agents_per_page)
+    visible_agents = Enum.slice(grid.agents, column_offset * grid.rows_per_column, grid.agents_per_page)
 
     socket
     |> assign(:grid, grid)
     |> assign(:grid_page, page)
+    |> assign(:grid_column_offset, column_offset)
+    |> assign(:grid_dial_value, dial_value)
     |> assign(:selected_identifier, selected_identifier(socket, grid, visible_agents))
-    |> assign(:keys, key_descriptors(visible_agents))
+    |> assign(:keys, key_descriptors(grid.agents, column_offset))
     |> assign(:screen, screen_descriptors(grid, usage))
-    |> assign(:knobs, knob_descriptors(page, grid.windows))
+    |> assign(:knobs, knob_descriptors(dial_value, grid.windows))
   end
 
-  defp key_descriptors(agents) do
-    visible_agents = Enum.take(agents, 8)
+  defp assign_grid_dial(socket, value), do: assign_grid(socket, socket.assigns.grid, 0, nil, clamp(value, 0, 100))
 
-    empty_slots =
-      if length(visible_agents) < 8,
-        do: Enum.map((length(visible_agents) + 1)..8, &empty_key/1),
-        else: []
-
-    visible_agents
-    |> Enum.with_index(1)
-    |> Enum.map(fn {agent, slot} -> agent_key(slot, agent) end)
-    |> Kernel.++(empty_slots)
+  defp assign_grid_window(socket, page) do
+    page = clamp_page(page, socket.assigns.grid.windows)
+    column_offset = min(page * 4, max_column_offset(socket.assigns.grid.total))
+    dial_value = dial_value_from_offset(column_offset, socket.assigns.grid.total)
+    assign_grid(socket, socket.assigns.grid, column_offset, nil, dial_value)
   end
 
-  defp key_descriptors(_grid), do: Enum.map(1..8, &empty_key/1)
+  defp key_descriptors(agents, column_offset) do
+    for slot <- 0..7 do
+      column = rem(slot, 4)
+      row = div(slot, 4)
+
+      case Enum.at(agents, (column_offset + column) * 2 + row) do
+        nil -> empty_key(slot + 1)
+        agent -> agent_key(slot + 1, agent)
+      end
+    end
+  end
 
   defp agent_key(slot, agent) do
     bucket = Map.fetch!(agent, :bucket)
@@ -436,6 +478,14 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp maybe_subscribe_agent(_identifier), do: :ok
 
+  defp maybe_subscribe_fixture_fleet do
+    if endpoint_config(:streamdeck_fixture_fleet) do
+      Phoenix.PubSub.subscribe(Aiur.PubSub, "streamdeck:fixture")
+    end
+
+    :ok
+  end
+
   defp maybe_resubscribe_agent(previous, current) when previous == current, do: :ok
 
   defp maybe_resubscribe_agent(previous, current) do
@@ -456,6 +506,24 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp clamp_page(page, windows) when is_integer(page), do: clamp(page, 0, max(windows - 1, 0))
   defp clamp_page(_page, windows), do: clamp_page(0, windows)
+
+  defp max_column_offset(agent_count), do: max(0, ceil(agent_count / 2) - 4)
+  defp clamp_column_offset(offset, agent_count), do: clamp(offset, 0, max_column_offset(agent_count))
+  defp column_offset_from_dial(value, agent_count), do: round(clamp(value, 0, 100) / 100 * max_column_offset(agent_count))
+
+  defp dial_value_from_offset(offset, agent_count) do
+    max_offset = max_column_offset(agent_count)
+    if max_offset == 0, do: 0, else: clamp(round(offset / max_offset * 100), 0, 100)
+  end
+
+  defp current_window(column_offset, agent_count) do
+    max_offset = max_column_offset(agent_count)
+    windows = max(1, ceil(agent_count / 8))
+
+    if column_offset >= max_offset,
+      do: windows - 1,
+      else: min(div(max(column_offset, 0), 4), windows - 1)
+  end
 
   defp pager_pages(0), do: []
   defp pager_pages(windows), do: 0..(windows - 1)
@@ -571,15 +639,15 @@ defmodule AiurWeb.StreamdeckLive do
     _ -> false
   end
 
-  defp knob_descriptors(page \\ 0, windows \\ 0) do
+  defp knob_descriptors(dial_value \\ 0, windows \\ 0) do
     [
       %{label: "Focus", value: "62", angle: 138},
       %{label: "Volume", value: "74", angle: 174},
       %{label: "Speed", value: "48", angle: 78},
       %{
         label: "Page",
-        value: String.pad_leading(to_string(page + 1), 2, "0"),
-        angle: if(windows > 0, do: page / max(windows - 1, 1) * 270 - 135, else: -135)
+        value: String.pad_leading(to_string(dial_value), 2, "0"),
+        angle: if(windows > 0, do: dial_value / 100 * 270 - 135, else: -135)
       }
     ]
   end
