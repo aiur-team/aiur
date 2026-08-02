@@ -18,7 +18,6 @@
   var PRESS_THRESHOLD_DEG = 8;
   var PRESS_FLASH_MS = 160;
   var WHEEL_STEP = 4;
-  var GRID_WHEEL_STEP = 80;
   var KEY_STEP = 4;
   // 270-degree physical sweep maps to full [0..100] range.
   var DRAG_DIVISOR = 2.7;
@@ -125,8 +124,7 @@
   Knob.prototype._onWheel = function (e) {
     e.preventDefault();
     var direction = e.deltaY > 0 ? -1 : 1;
-    var step = this.index === 3 ? GRID_WHEEL_STEP : WHEEL_STEP;
-    this._step(direction * step);
+    this._step(direction * WHEEL_STEP);
   };
 
   Knob.prototype._onKeydown = function (e) {

@@ -287,8 +287,11 @@ test('dial D pages live fleet keys and pager dots', async ({ page }) => {
 
   const dialD = page.locator('.sd-knob').nth(3)
   await dialD.hover()
-  await page.mouse.wheel(0, -100)
+  for (let step = 0; step < 17; step += 1) {
+    await page.mouse.wheel(0, -100)
+  }
 
+  await expect(dialD).toHaveAttribute('aria-valuenow', '68')
   await expect(keys).toHaveAttribute('data-grid-page', '1')
   await expect(keys.locator('[data-streamdeck-identifier="1370"]')).toBeVisible()
   await expect(page.locator('#sd-pager-dots [aria-current="page"]')).toHaveAttribute('data-page', '1')
@@ -307,7 +310,16 @@ test('emulator and Units stay in sync after a live fleet-size change', async ({ 
   await units.locator('#remove-selected-unit').evaluate((button) => button.click())
 
   await expect(units.locator('.units-header p').nth(1)).toContainText(`${before - 1} observed`)
-  await expect(page.locator('#sd-keys')).toHaveAttribute('data-grid-total', String(before - 1))
+
+  const unitIdentifiers = await rows.evaluateAll((elements) =>
+    elements.map((row) => row.querySelector('.ut-id-num').textContent.trim())
+  )
+  const streamdeckIdentifiers = await page.locator('#sd-keys .sd-key:not(.is-empty)').evaluateAll((keys) =>
+    keys.map((key) => key.getAttribute('data-streamdeck-identifier'))
+  )
+
+  expect(streamdeckIdentifiers).toEqual(unitIdentifiers)
+  await expect(page.locator('#sd-keys')).toHaveAttribute('data-grid-total', String(unitIdentifiers.length))
   await units.close()
 })
 

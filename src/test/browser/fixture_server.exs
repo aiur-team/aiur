@@ -881,7 +881,13 @@ defmodule Aiur.BrowserHarness.UnitsLive do
         Enum.reject(rows, &same_identity?(Map.get(&1, :identity), selected && selected.identity))
       end)
 
-    Aiur.BrowserHarness.FixtureServer.set_streamdeck_snapshot_size(length(catalog.snapshot.rows))
+    projected_ids =
+      catalog
+      |> UnitsPresenter.project(socket.assigns.selection)
+      |> Map.get(:rows, [])
+      |> Enum.map(& &1.identity.identifier)
+
+    Aiur.BrowserHarness.FixtureServer.set_streamdeck_snapshot_identities(projected_ids)
     Phoenix.PubSub.broadcast(Aiur.PubSub, "streamdeck:fixture", :streamdeck_fixture_fleet_changed)
 
     {:noreply,
@@ -1583,14 +1589,14 @@ defmodule Aiur.BrowserHarness.FixtureServer do
     Process.sleep(:infinity)
   end
 
-  def set_streamdeck_snapshot_size(size) when is_integer(size) and size >= 0 do
-    :persistent_term.put({__MODULE__, :streamdeck_snapshot_size}, size)
+  def set_streamdeck_snapshot_identities(identifiers) when is_list(identifiers) do
+    :persistent_term.put({__MODULE__, :streamdeck_snapshot_identities}, Enum.map(identifiers, &to_string/1))
   end
 
   def streamdeck_snapshot do
-    case :persistent_term.get({__MODULE__, :streamdeck_snapshot_size}, nil) do
-      size when is_integer(size) ->
-        streamdeck_snapshot(size)
+    case :persistent_term.get({__MODULE__, :streamdeck_snapshot_identities}, nil) do
+      identifiers when is_list(identifiers) ->
+        streamdeck_snapshot(identifiers)
 
       _ ->
         %{
@@ -1619,13 +1625,11 @@ defmodule Aiur.BrowserHarness.FixtureServer do
     end
   end
 
-  defp streamdeck_snapshot(size) do
+  defp streamdeck_snapshot(identifiers) when is_list(identifiers) do
     agents =
-      if size > 0 do
-        for index <- 1..size, do: streamdeck_agent("fixture-#{index}", "Fixture #{index}", "codex")
-      else
-        []
-      end
+      Enum.map(identifiers, fn identifier ->
+        streamdeck_agent(identifier, "Unit #{identifier}", "codex")
+      end)
 
     %{running: Enum.take(agents, 1), retrying: [], idle: Enum.drop(agents, 1)}
   end

@@ -133,10 +133,14 @@ defmodule AiurWeb.StreamdeckLiveTest do
   test "key presses request pause for running and resume for paused agents" do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
 
-    assert render_hook(view, "key-press", %{"identifier" => "1352"}) =~ "Pause requested for #1352"
+    html = render_hook(view, "key-press", %{"identifier" => "1352"})
+    assert html =~ "Pause requested for #1352"
+    assert html =~ ~s(data-grid-selected-identifier="1352")
     assert_receive {:streamdeck_pause, "1352"}
 
-    assert render_hook(view, "key-press", %{"identifier" => "1345"}) =~ "Resume requested for #1345"
+    html = render_hook(view, "key-press", %{"identifier" => "1345"})
+    assert html =~ "Resume requested for #1345"
+    assert html =~ ~s(data-grid-selected-identifier="1345")
     assert_receive {:streamdeck_resume, "1345"}
   end
 

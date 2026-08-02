@@ -36,7 +36,6 @@ defmodule AiurWeb.StreamdeckLive do
       :ok = AgentPubSub.subscribe_status()
       :ok = ProviderMeterEvents.subscribe_observed()
       maybe_subscribe_fixture_fleet()
-      maybe_subscribe_agent(socket.assigns.selected_identifier)
     end
 
     {:ok, socket}
@@ -78,6 +77,8 @@ defmodule AiurWeb.StreamdeckLive do
   end
 
   def handle_event("key-press", params, socket) do
+    socket = select_agent_from_params(socket, params)
+
     if dashboard_writable?() do
       handle_key_press(params, socket)
     else
@@ -132,7 +133,7 @@ defmodule AiurWeb.StreamdeckLive do
             <span>STREAM DECK</span>
           </header>
 
-          <ul id="sd-keys" class="sd-keys" data-mode-view="grid" aria-label="Agent keys" data-grid-total={@grid.total} data-grid-windows={@grid.windows} data-grid-page={@grid_page} data-grid-page-count={@grid.windows} data-grid-column-offset={@grid_column_offset} data-grid-dial-value={@grid_dial_value}>
+          <ul id="sd-keys" class="sd-keys" data-mode-view="grid" aria-label="Agent keys" data-grid-total={@grid.total} data-grid-windows={@grid.windows} data-grid-page={@grid_page} data-grid-page-count={@grid.windows} data-grid-column-offset={@grid_column_offset} data-grid-dial-value={@grid_dial_value} data-grid-selected-identifier={@selected_identifier}>
             <li
               :for={key <- @keys}
               class={["sd-key", key.empty? && "is-empty", "st-#{key.bucket}"]}
@@ -411,6 +412,19 @@ defmodule AiurWeb.StreamdeckLive do
   end
 
   defp handle_key_press(_params, socket), do: {:noreply, socket}
+
+  defp select_agent_from_params(socket, %{"identifier" => identifier}) when is_binary(identifier) do
+    if Enum.any?(socket.assigns.grid.agents, &(to_string(&1.identifier) == identifier)) do
+      previous_identifier = socket.assigns.selected_identifier
+      socket = assign(socket, :selected_identifier, identifier)
+      maybe_resubscribe_agent(previous_identifier, identifier)
+      socket
+    else
+      socket
+    end
+  end
+
+  defp select_agent_from_params(socket, _params), do: socket
 
   defp update_logs(socket, axis, delta) do
     logs = socket.assigns.logs
