@@ -411,6 +411,7 @@ defmodule AiurWeb.DashboardLiveTest do
       drafts: %{},
       chat_errors: %{},
       decision_actions: %{},
+      global_pause_error: Keyword.get(opts, :global_pause_error),
       writable: Keyword.get(opts, :writable, false),
       live_action: Keyword.get(opts, :live_action, :index),
       decision_filter: :all,
@@ -458,6 +459,17 @@ defmodule AiurWeb.DashboardLiveTest do
       assert html =~ ~s(aria-pressed="true")
       assert html =~ "Resume all agents (globally paused)"
       assert html =~ "Aiur is globally paused."
+    end
+
+    test "surfaces a persistence error without claiming the toggle changed" do
+      html =
+        render_payload(global_pause_fleet(false),
+          writable: true,
+          global_pause_error: "Global pause was not changed because its state could not be persisted."
+        )
+
+      assert html =~ ~s(class="readonly-banner global-pause-error")
+      assert html =~ "state could not be persisted"
     end
 
     test "disables the toggle when the dashboard is read-only" do

@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
   use Aiur.TestSupport
 
   alias Aiur.{Issue, TrackerIdentity}
-  alias Aiur.Orchestrator.{GlobalPause, GlobalPauseStore, PauseResume, State}
+  alias Aiur.Orchestrator.{GlobalPause, PauseResume, State}
 
   describe "set_global_pause_call/2 pause" do
     test "holds every working agent and tags them global_pause without overriding an individual pause" do
@@ -159,12 +159,13 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
           else: Application.put_env(:aiur, :global_pause_store_path, previous)
       end)
 
-      paused_at = ~U[2026-08-01 12:00:00Z]
-      assert :ok = GlobalPauseStore.save(%{globally_paused: true, paused_at: paused_at, source: "dashboard"})
-
       name = Module.concat(__MODULE__, :RestoredOrchestrator)
       {:ok, pid} = Orchestrator.start_link(name: name, initial_poll?: false)
-      assert %{globally_paused: true, paused_at: ^paused_at, source: "dashboard"} = GlobalPause.global_pause_status(name)
+      assert {:ok, %{globally_paused: false}} = GlobalPause.global_pause_status(name)
+
+      assert {:ok, %{globally_paused: true, paused_at: paused_at, source: "dashboard"}} =
+               GlobalPause.set_global_pause(name, true, "dashboard")
+
       ref = Process.monitor(pid)
       Process.unlink(pid)
       Process.exit(pid, :kill)
@@ -179,7 +180,15 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
         end
       end)
 
-      assert %{globally_paused: true, paused_at: ^paused_at, source: "dashboard"} = GlobalPause.global_pause_status(name)
+      assert {:ok, %{globally_paused: true, paused_at: ^paused_at, source: "dashboard"}} =
+               GlobalPause.global_pause_status(name)
+    end
+
+    test "does not report an unavailable orchestrator as unpaused" do
+      name = Module.concat(__MODULE__, :MissingOrchestrator)
+
+      assert {:error, :orchestrator_unavailable} = GlobalPause.globally_paused?(name)
+      assert {:error, :orchestrator_unavailable} = GlobalPause.global_pause_status(name)
     end
   end
 

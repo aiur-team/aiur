@@ -489,13 +489,19 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp control_status(action, targets, statuses) when is_list(statuses) do
-    if Orchestrator.global_pause_status().globally_paused do
-      print_global_pause_control_error(action)
-      1
-    else
-      action
-      |> select_targets(targets, statuses)
-      |> control_selected(action, targets)
+    case Orchestrator.global_pause_status() do
+      {:ok, %{globally_paused: true}} ->
+        print_global_pause_control_error(action)
+        1
+
+      {:ok, _status} ->
+        action
+        |> select_targets(targets, statuses)
+        |> control_selected(action, targets)
+
+      {:error, :orchestrator_unavailable} ->
+        print_global_pause_status_unavailable()
+        1
     end
   end
 
@@ -717,16 +723,23 @@ defmodule Aiur.AgentControlCLI do
   # at a glance that the whole daemon is halted (silent otherwise).
   defp print_global_pause_banner do
     case Orchestrator.global_pause_status() do
-      %{globally_paused: true, paused_at: paused_at, source: source} ->
+      {:ok, %{globally_paused: true, paused_at: paused_at, source: source}} ->
         provenance = [format_pause_source(source), format_pause_time(paused_at)] |> Enum.reject(&is_nil/1) |> Enum.join(", ")
         suffix = if provenance == "", do: "", else: " (#{provenance})"
         IO.puts("GLOBALLY PAUSED#{suffix} — no agents will be provisioned (run `aiur resume` to lift)")
 
-      _ ->
+      {:ok, _} ->
         :ok
+
+      {:error, :orchestrator_unavailable} ->
+        print_global_pause_status_unavailable()
     end
 
     :ok
+  end
+
+  defp print_global_pause_status_unavailable do
+    IO.puts(:stderr, "GLOBAL PAUSE STATUS UNAVAILABLE — cannot determine whether aiur is paused")
   end
 
   defp print_global_pause_control_error(action) do

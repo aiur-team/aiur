@@ -96,6 +96,7 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:drafts, %{})
       |> assign(:chat_errors, %{})
       |> assign(:decision_actions, %{})
+      |> assign(:global_pause_error, nil)
       |> assign(:payload_reload_scheduled?, false)
       |> assign(:payload_reload_mode, :cached)
       |> assign(:writable, dashboard_writable?())
@@ -500,10 +501,25 @@ defmodule AiurWeb.DashboardLive do
 
   defp toggle_global_pause(socket) do
     target = not global_paused?(socket.assigns.payload)
-    _ = GlobalPause.set_global_pause(capacity_orchestrator(), target, "dashboard")
-    # The orchestrator broadcasts an observability update on success; reload so
-    # the nav toggle reflects the new state even if the broadcast is missed.
-    reload_after_action(socket)
+
+    case GlobalPause.set_global_pause(capacity_orchestrator(), target, "dashboard") do
+      {:ok, _status} ->
+        # The orchestrator broadcasts an observability update on success; reload
+        # so the nav toggle reflects the new state even if the broadcast is missed.
+        socket
+        |> assign(:global_pause_error, nil)
+        |> reload_after_action()
+
+      {:error, {:global_pause_persistence_failed, _reason}} ->
+        assign(
+          socket,
+          :global_pause_error,
+          "Global pause was not changed because its state could not be persisted. The daemon remains in its previous state; check the daemon log and retry."
+        )
+
+      {:error, reason} ->
+        assign(socket, :global_pause_error, "Global pause could not be changed: #{inspect(reason)}")
+    end
   end
 
   defp global_paused?(payload) when is_map(payload) do
@@ -659,6 +675,10 @@ defmodule AiurWeb.DashboardLive do
       writable={@writable}
     >
       <:banner>
+        <div :if={@global_pause_error} class="readonly-banner global-pause-error" role="alert" aria-live="assertive">
+          <span aria-hidden="true">⚠</span>
+          <span>{@global_pause_error}</span>
+        </div>
         <div :if={global_paused?(@payload)} class="readonly-banner global-pause-banner" role="alert" aria-live="polite">
           <span aria-hidden="true">⏸</span>
           <span><b>Aiur is globally paused.</b> {global_pause_provenance(@payload)}Run <code>aiurdev resume</code> with no ticket ID to lift the global pause.</span>

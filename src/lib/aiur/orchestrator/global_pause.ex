@@ -16,36 +16,36 @@ defmodule Aiur.Orchestrator.GlobalPause do
 
   @call_timeout 15_000
 
-  @doc "Whether the daemon is currently globally paused. False when the orchestrator is unavailable."
-  @spec globally_paused?() :: boolean()
+  @doc "Whether the daemon is currently globally paused, or whether that truth is unavailable."
+  @spec globally_paused?() :: {:ok, boolean()} | {:error, :orchestrator_unavailable}
   def globally_paused?, do: globally_paused?(Aiur.Orchestrator)
 
-  @spec globally_paused?(GenServer.server()) :: boolean()
+  @spec globally_paused?(GenServer.server()) :: {:ok, boolean()} | {:error, :orchestrator_unavailable}
   def globally_paused?(server) do
     if GenServer.whereis(server) do
-      GenServer.call(server, :globally_paused?, 5_000)
+      {:ok, GenServer.call(server, :globally_paused?, 5_000)}
     else
-      false
+      {:error, :orchestrator_unavailable}
     end
   catch
-    :exit, _ -> false
+    :exit, _ -> {:error, :orchestrator_unavailable}
   end
 
   @doc "Returns the global pause state and its recorded provenance."
-  @spec global_pause_status() :: map()
+  @spec global_pause_status() :: {:ok, map()} | {:error, :orchestrator_unavailable}
   def global_pause_status, do: global_pause_status(Aiur.Orchestrator)
 
-  @spec global_pause_status(GenServer.server()) :: map()
+  @spec global_pause_status(GenServer.server()) :: {:ok, map()} | {:error, :orchestrator_unavailable}
   def global_pause_status(%State{} = state), do: global_pause_status_for_state(state)
 
   def global_pause_status(server) do
     if GenServer.whereis(server) do
-      GenServer.call(server, :global_pause_status, 5_000)
+      {:ok, GenServer.call(server, :global_pause_status, 5_000)}
     else
-      %{globally_paused: false, paused_at: nil, source: nil}
+      {:error, :orchestrator_unavailable}
     end
   catch
-    :exit, _ -> %{globally_paused: false, paused_at: nil, source: nil}
+    :exit, _ -> {:error, :orchestrator_unavailable}
   end
 
   @doc """

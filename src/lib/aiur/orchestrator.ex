@@ -405,10 +405,10 @@ defmodule Aiur.Orchestrator do
   def set_max_concurrent_agents(server, next),
     do: Slots.set_max_concurrent_agents(server, next)
 
-  @spec globally_paused?() :: boolean()
+  @spec globally_paused?() :: {:ok, boolean()} | {:error, :orchestrator_unavailable}
   def globally_paused?, do: GlobalPause.globally_paused?()
 
-  @spec global_pause_status() :: map()
+  @spec global_pause_status() :: {:ok, map()} | {:error, :orchestrator_unavailable}
   def global_pause_status, do: GlobalPause.global_pause_status()
 
   @spec set_global_pause(boolean()) :: {:ok, map()} | {:error, term()}
