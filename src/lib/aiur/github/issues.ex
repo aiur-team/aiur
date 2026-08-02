@@ -293,18 +293,8 @@ defmodule Aiur.GitHub.Issues do
   defp attach_blockers(issues, request_fun, token, owner, repo, prefix, opts) do
     cache? = Keyword.get(opts, :cache_blockers, not Keyword.has_key?(opts, :request_fun))
     cache_opts = Keyword.take(opts, [:now_ms, :ttl_ms])
-
-    refreshable_ids =
-      if cache? do
-        Enum.flat_map(issues, fn issue ->
-          case BlockerCache.cached(issue.id, cache_opts) do
-            {:fresh, _blockers} -> []
-            _ -> [issue.id]
-          end
-        end)
-      else
-        Enum.map(issues, & &1.id)
-      end
+    context = %{request_fun: request_fun, token: token_for(Keyword.put_new(opts, :token, token)), owner: owner, repo: repo, prefix: prefix, opts: Keyword.put_new(opts, :token, token)}
+    refreshable_ids = refreshable_blocker_ids(issues, cache?, cache_opts)
 
     scheduled_refreshes =
       BlockerCache.scheduled_refreshes(refreshable_ids, @max_blocker_hydration_requests_per_poll)
@@ -312,17 +302,7 @@ defmodule Aiur.GitHub.Issues do
     {enriched, _remaining_requests} =
       Enum.map_reduce(issues, @max_blocker_hydration_requests_per_poll, fn issue, remaining_requests ->
         {blockers, remaining_requests} =
-          hydrate_blockers(
-            issue,
-            request_fun,
-            cache?,
-            Keyword.put_new(opts, :token, token),
-            remaining_requests,
-            MapSet.member?(scheduled_refreshes, issue.id),
-            owner,
-            repo,
-            prefix
-          )
+          hydrate_blockers(issue, cache?, context, remaining_requests, MapSet.member?(scheduled_refreshes, issue.id))
 
         normalized = Enum.map(blockers, &normalize_blocker(&1, owner, repo, prefix))
         {%{issue | blocked_by: normalized}, remaining_requests}
@@ -331,8 +311,16 @@ defmodule Aiur.GitHub.Issues do
     {:ok, enriched}
   end
 
-  defp hydrate_blockers(issue, request_fun, true, opts, remaining_requests, scheduled?, owner, repo, prefix) do
-    cache_opts = Keyword.take(opts, [:now_ms, :ttl_ms])
+  defp refreshable_blocker_ids(issues, false, _cache_opts), do: Enum.map(issues, & &1.id)
+
+  defp refreshable_blocker_ids(issues, true, cache_opts) do
+    Enum.flat_map(issues, fn issue ->
+      if match?({:fresh, _}, BlockerCache.cached(issue.id, cache_opts)), do: [], else: [issue.id]
+    end)
+  end
+
+  defp hydrate_blockers(issue, true, context, remaining_requests, scheduled?) do
+    cache_opts = Keyword.take(context.opts, [:now_ms, :ttl_ms])
 
     case BlockerCache.cached(issue.id, cache_opts) do
       {:fresh, blockers} ->
@@ -343,24 +331,24 @@ defmodule Aiur.GitHub.Issues do
         {deferred_blockers(stale_or_missing), remaining_requests}
 
       _refreshable ->
-        fetcher = fn -> DependenciesApi.fetch_blocked_by(issue.id, request_fun: request_fun) end
-        hydrate_refreshable_blockers(issue, fetcher, cache_opts, remaining_requests, request_fun, token_for(opts), owner, repo, prefix, opts)
+        fetcher = fn -> DependenciesApi.fetch_blocked_by(issue.id, request_fun: context.request_fun) end
+        hydrate_refreshable_blockers(issue, fetcher, cache_opts, remaining_requests, context)
     end
   end
 
-  defp hydrate_blockers(issue, request_fun, false, opts, remaining_requests, scheduled?, owner, repo, prefix) do
+  defp hydrate_blockers(issue, false, context, remaining_requests, scheduled?) do
     if scheduled? and remaining_requests > 0 do
-      hydrate_uncached_blockers(issue, request_fun, opts, remaining_requests, owner, repo, prefix)
+      hydrate_uncached_blockers(issue, context, remaining_requests)
     else
       blocker_hydration_deferred(issue, :missing)
       {[unknown_blocker()], remaining_requests}
     end
   end
 
-  defp hydrate_uncached_blockers(issue, request_fun, opts, remaining_requests, owner, repo, prefix) do
-    case DependenciesApi.fetch_blocked_by(issue.id, request_fun: request_fun) do
+  defp hydrate_uncached_blockers(issue, context, remaining_requests) do
+    case DependenciesApi.fetch_blocked_by(issue.id, request_fun: context.request_fun) do
       {:ok, blockers} when is_list(blockers) ->
-        annotate_blocker_signoffs(blockers, issue, request_fun, token_for(opts), owner, repo, prefix, opts, remaining_requests - 1)
+        annotate_blocker_signoffs(blockers, issue, context, remaining_requests - 1)
 
       {:error, reason} ->
         blocker_hydration_warning(issue, reason)
@@ -368,11 +356,11 @@ defmodule Aiur.GitHub.Issues do
     end
   end
 
-  defp hydrate_refreshable_blockers(issue, fetcher, cache_opts, remaining_requests, request_fun, token, owner, repo, prefix, opts) do
+  defp hydrate_refreshable_blockers(issue, fetcher, cache_opts, remaining_requests, context) do
     case BlockerCache.fetch(issue.id, fetcher, cache_opts) do
       {:ok, blockers} ->
         {annotated, remaining_requests} =
-          annotate_blocker_signoffs(blockers, issue, request_fun, token, owner, repo, prefix, opts, remaining_requests - 1)
+          annotate_blocker_signoffs(blockers, issue, context, remaining_requests - 1)
 
         :ok = BlockerCache.put(issue.id, annotated, cache_opts)
         {annotated, remaining_requests}
@@ -387,10 +375,10 @@ defmodule Aiur.GitHub.Issues do
     end
   end
 
-  defp annotate_blocker_signoffs(blockers, issue, request_fun, token, owner, repo, prefix, opts, remaining_requests) do
+  defp annotate_blocker_signoffs(blockers, issue, context, remaining_requests) do
     {annotated, remaining_requests} =
       Enum.map_reduce(blockers, remaining_requests, fn blocker, remaining_requests ->
-        annotate_blocker_signoff(blocker, request_fun, token, owner, repo, prefix, opts, remaining_requests)
+        annotate_blocker_signoff(blocker, context, remaining_requests)
       end)
 
     if Enum.any?(annotated, &Map.get(&1, :operator_signoff_deferred?, false)) do
@@ -451,15 +439,14 @@ defmodule Aiur.GitHub.Issues do
 
   defp normalize_blocker(_blocker, _owner, _repo, _prefix), do: %{}
 
-  defp annotate_blocker_signoff(blocker, request_fun, token, owner, repo, prefix, opts, remaining_requests)
-       when is_map(blocker) do
-    if HardwareVerification.outcome_label(blocker, prefix) == HardwareVerification.passed_label(prefix) do
+  defp annotate_blocker_signoff(blocker, context, remaining_requests) when is_map(blocker) do
+    if HardwareVerification.outcome_label(blocker, context.prefix) == HardwareVerification.passed_label(context.prefix) do
       if remaining_requests < @max_timeline_requests_per_blocker do
         {blocker |> Map.put(:operator_signoff_valid?, false) |> Map.put(:operator_signoff_deferred?, true), remaining_requests}
       else
-        context = %{request_fun: request_fun, token: token, owner: owner, repo: repo, issue_number: blocker["number"], prefix: prefix, opts: opts}
+        gate_context = Map.put(context, :issue_number, blocker["number"])
 
-        case HardwareVerificationGate.passing_operator_signoff_identity(context, blocker) do
+        case HardwareVerificationGate.passing_operator_signoff_identity(gate_context, blocker) do
           {:ok, identity} ->
             {blocker |> Map.put(:operator_signoff_valid?, true) |> Map.put(:operator_signoff_identity, identity), remaining_requests - @max_timeline_requests_per_blocker}
 
@@ -472,7 +459,7 @@ defmodule Aiur.GitHub.Issues do
     end
   end
 
-  defp annotate_blocker_signoff(blocker, _request_fun, _token, _owner, _repo, _prefix, _opts, remaining_requests),
+  defp annotate_blocker_signoff(blocker, _context, remaining_requests),
     do: {blocker, remaining_requests}
 
   defp token_for(opts), do: Keyword.get(opts, :token, "")

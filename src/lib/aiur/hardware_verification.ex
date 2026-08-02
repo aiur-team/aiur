@@ -132,19 +132,20 @@ defmodule Aiur.HardwareVerification do
 
   defp verify_terminal_outcome(issue_body, state_name, prefix) do
     if terminal_state?(state_name) and signoff_required?(issue_body, prefix) do
-      case outcome_label(issue_body, prefix) do
-        nil ->
-          {:error, {:operator_signoff_required, outcome_detail(issue_body, prefix)}}
-
-        outcome ->
-          cond do
-            outcome == passed_label(prefix) -> :ok
-            cancellation_state?(state_name) -> :ok
-            true -> {:error, {:operator_no_go_requires_cancellation, outcome_detail(issue_body, prefix)}}
-          end
-      end
+      terminal_outcome_result(outcome_label(issue_body, prefix), issue_body, state_name, prefix)
     else
       :ok
+    end
+  end
+
+  defp terminal_outcome_result(nil, issue_body, _state_name, prefix),
+    do: {:error, {:operator_signoff_required, outcome_detail(issue_body, prefix)}}
+
+  defp terminal_outcome_result(outcome, issue_body, state_name, prefix) do
+    if outcome == passed_label(prefix) or cancellation_state?(state_name) do
+      :ok
+    else
+      {:error, {:operator_no_go_requires_cancellation, outcome_detail(issue_body, prefix)}}
     end
   end
 
@@ -200,18 +201,11 @@ defmodule Aiur.HardwareVerification do
   end
 
   defp match_criterion(line) do
-    line
-    |> criterion_clauses()
-    |> Enum.flat_map(fn clause ->
-      @signals
-      |> Enum.flat_map(fn {signal, pattern} ->
-        if Regex.match?(pattern, clause) and physical_execution?(clause) do
-          [%{signal: signal, evidence: line, operator_action: "Verify this criterion on the physical device."}]
-        else
-          []
-        end
-      end)
-    end)
+    for clause <- criterion_clauses(line),
+        physical_execution?(clause),
+        {signal, pattern} <- @signals,
+        Regex.match?(pattern, clause),
+        do: %{signal: signal, evidence: line, operator_action: "Verify this criterion on the physical device."}
   end
 
   defp verification_heading?(line) do
