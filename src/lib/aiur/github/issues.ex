@@ -295,7 +295,7 @@ defmodule Aiur.GitHub.Issues do
     cache? = Keyword.get(opts, :cache_blockers, not Keyword.has_key?(opts, :request_fun))
     cache_opts = Keyword.take(opts, [:now_ms, :ttl_ms])
     context = %{request_fun: request_fun, token: token_for(Keyword.put_new(opts, :token, token)), owner: owner, repo: repo, prefix: prefix, opts: Keyword.put_new(opts, :token, token)}
-    refreshable_ids = refreshable_blocker_ids(issues, cache?, cache_opts)
+    refreshable_ids = refreshable_blocker_ids(issues, cache?, cache_opts, context)
 
     scheduled_refreshes =
       BlockerCache.scheduled_refreshes(refreshable_ids, @max_hydrations_per_poll)
@@ -312,18 +312,19 @@ defmodule Aiur.GitHub.Issues do
     {:ok, enriched}
   end
 
-  defp refreshable_blocker_ids(issues, false, _cache_opts), do: Enum.map(issues, & &1.id)
+  defp refreshable_blocker_ids(issues, false, _cache_opts, _context), do: Enum.map(issues, & &1.id)
 
-  defp refreshable_blocker_ids(issues, true, cache_opts) do
+  defp refreshable_blocker_ids(issues, true, cache_opts, context) do
     Enum.flat_map(issues, fn issue ->
-      if match?({:fresh, _}, BlockerCache.cached(issue.id, cache_opts)), do: [], else: [issue.id]
+      if match?({:fresh, _}, BlockerCache.cached(blocker_cache_key(issue.id, context), cache_opts)), do: [], else: [issue.id]
     end)
   end
 
   defp hydrate_blockers(issue, true, context, remaining_requests, scheduled?) do
     cache_opts = Keyword.take(context.opts, [:now_ms, :ttl_ms])
+    cache_key = blocker_cache_key(issue.id, context)
 
-    case BlockerCache.cached(issue.id, cache_opts) do
+    case BlockerCache.cached(cache_key, cache_opts) do
       {:fresh, blockers} ->
         {blockers, remaining_requests}
 
@@ -333,7 +334,7 @@ defmodule Aiur.GitHub.Issues do
 
       _refreshable ->
         fetcher = fn -> DependenciesApi.fetch_blocked_by(issue.id, request_fun: context.request_fun) end
-        hydrate_refreshable_blockers(issue, fetcher, cache_opts, remaining_requests, context)
+        hydrate_refreshable_blockers(issue, cache_key, fetcher, cache_opts, remaining_requests, context)
     end
   end
 
@@ -357,13 +358,13 @@ defmodule Aiur.GitHub.Issues do
     end
   end
 
-  defp hydrate_refreshable_blockers(issue, fetcher, cache_opts, remaining_requests, context) do
-    case BlockerCache.fetch(issue.id, fetcher, cache_opts) do
+  defp hydrate_refreshable_blockers(issue, cache_key, fetcher, cache_opts, remaining_requests, context) do
+    case BlockerCache.fetch(cache_key, fetcher, cache_opts) do
       {:ok, blockers} ->
         {annotated, remaining_requests} =
           annotate_blocker_signoffs(blockers, issue, context, remaining_requests - 1)
 
-        :ok = BlockerCache.put(issue.id, annotated, cache_opts)
+        :ok = BlockerCache.put(cache_key, annotated, cache_opts)
         {annotated, remaining_requests}
 
       {:stale, blockers, reason} ->
@@ -468,6 +469,9 @@ defmodule Aiur.GitHub.Issues do
     do: {blocker, remaining_requests}
 
   defp token_for(opts), do: Keyword.get(opts, :token, "")
+
+  defp blocker_cache_key(issue_id, context),
+    do: Enum.join([context.owner, context.repo, context.prefix, issue_id], ":")
 
   @spec extract_state(map(), [String.t()], String.t()) :: String.t() | nil
   def extract_state(%{"state" => "closed"}, _label_names, _prefix), do: "Closed"
