@@ -13,16 +13,28 @@ defmodule Aiur.Orchestrator.GlobalPauseStore do
 
   @default %{globally_paused: false, paused_at: nil, source: nil}
 
-  @spec load() :: %{globally_paused: boolean(), paused_at: DateTime.t() | nil, source: String.t() | nil}
+  @spec load() ::
+          {:ok, %{globally_paused: boolean(), paused_at: DateTime.t() | nil, source: String.t() | nil}}
+          | {:error, term()}
   def load do
-    case JsonStore.read(path_for(), %{}) do
+    case JsonStore.read(path_for(), :missing) do
+      {:ok, :missing} ->
+        {:ok, @default}
+
       {:ok, persisted} ->
-        normalize(persisted)
+        case normalize(persisted) do
+          {:ok, state} -> {:ok, state}
+          {:error, reason} -> read_failed(reason)
+        end
 
       {:error, reason} ->
-        Logger.warning("Global pause state could not be read at #{path_for()}: #{inspect(reason)}; starting unpaused")
-        @default
+        read_failed(reason)
     end
+  end
+
+  defp read_failed(reason) do
+    Logger.error("Global pause state could not be recovered at #{path_for()}: #{inspect(reason)}; holding the daemon globally paused")
+    {:error, {:read_failed, reason}}
   end
 
   @spec save(map()) :: :ok | {:error, term()}
@@ -50,28 +62,55 @@ defmodule Aiur.Orchestrator.GlobalPauseStore do
   end
 
   defp normalize(%{} = persisted) do
-    paused = Map.get(persisted, "globally_paused", Map.get(persisted, :globally_paused, false)) == true
-    paused_at = persisted |> Map.get("paused_at", Map.get(persisted, :paused_at)) |> decode_datetime()
-    source = persisted |> Map.get("source", Map.get(persisted, :source)) |> normalize_source()
-
-    %{globally_paused: paused, paused_at: if(paused, do: paused_at), source: if(paused, do: source)}
+    with {:ok, paused} <- fetch_boolean(persisted, "globally_paused", :globally_paused),
+         {:ok, paused_at} <- fetch_datetime(persisted, "paused_at", :paused_at),
+         {:ok, source} <- fetch_source(persisted, "source", :source) do
+      {:ok, %{globally_paused: paused, paused_at: if(paused, do: paused_at), source: if(paused, do: source)}}
+    end
   end
 
-  defp normalize(_), do: @default
+  defp normalize(_), do: {:error, :invalid_shape}
 
   defp encode_datetime(%DateTime{} = value), do: DateTime.to_iso8601(value)
   defp encode_datetime(_), do: nil
 
-  defp decode_datetime(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, datetime, _offset} -> datetime
-      _ -> nil
+  defp fetch_boolean(persisted, string_key, atom_key) do
+    case Map.fetch(persisted, string_key) do
+      {:ok, value} when is_boolean(value) ->
+        {:ok, value}
+
+      {:ok, _value} ->
+        {:error, {:invalid_field, string_key}}
+
+      :error ->
+        case Map.fetch(persisted, atom_key) do
+          {:ok, value} when is_boolean(value) -> {:ok, value}
+          {:ok, _value} -> {:error, {:invalid_field, atom_key}}
+          :error -> {:error, {:missing_field, string_key}}
+        end
     end
   end
 
-  defp decode_datetime(_), do: nil
+  defp fetch_datetime(persisted, string_key, atom_key) do
+    persisted |> Map.get(string_key, Map.get(persisted, atom_key)) |> decode_datetime()
+  end
 
-  defp normalize_source(value) when is_binary(value) and value != "", do: value
-  defp normalize_source(value) when is_atom(value), do: Atom.to_string(value)
-  defp normalize_source(_), do: nil
+  defp fetch_source(persisted, string_key, atom_key) do
+    persisted |> Map.get(string_key, Map.get(persisted, atom_key)) |> normalize_source()
+  end
+
+  defp decode_datetime(nil), do: {:ok, nil}
+
+  defp decode_datetime(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} -> {:ok, datetime}
+      _ -> {:error, :invalid_paused_at}
+    end
+  end
+
+  defp decode_datetime(_), do: {:error, :invalid_paused_at}
+
+  defp normalize_source(nil), do: {:ok, nil}
+  defp normalize_source(value) when is_binary(value) and value != "", do: {:ok, value}
+  defp normalize_source(_), do: {:error, :invalid_source}
 end

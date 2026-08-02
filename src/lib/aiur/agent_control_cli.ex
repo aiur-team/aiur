@@ -21,16 +21,20 @@ defmodule Aiur.AgentControlCLI do
   def status do
     case Orchestrator.status() do
       statuses when is_list(statuses) ->
-        print_global_pause_banner()
-        print_codeowners_trust()
+        case print_global_pause_banner() do
+          :ok ->
+            print_codeowners_trust()
 
-        statuses
-        |> Enum.filter(&visible_status_row?/1)
-        |> print_status_table()
+            statuses
+            |> Enum.filter(&visible_status_row?/1)
+            |> print_status_table()
 
-        print_build_gate_status()
+            print_build_gate_status()
+            exit_marker(0)
 
-        exit_marker(0)
+          {:error, :unavailable} ->
+            exit_marker(1)
+        end
 
       error ->
         print_orchestrator_status_error(error)
@@ -70,19 +74,23 @@ defmodule Aiur.AgentControlCLI do
   def watch(opts \\ []) do
     case Orchestrator.status() do
       statuses when is_list(statuses) ->
-        print_global_pause_banner()
+        case print_global_pause_banner() do
+          :ok ->
+            rows =
+              statuses
+              |> Enum.filter(&visible_status_row?/1)
+              |> Enum.map(&watch_row/1)
+              |> Enum.sort_by(& &1.sort_key)
 
-        rows =
-          statuses
-          |> Enum.filter(&visible_status_row?/1)
-          |> Enum.map(&watch_row/1)
-          |> Enum.sort_by(& &1.sort_key)
+            alerts = latest_attention_alerts(opts)
+            mode = Keyword.get(opts, :mode, :changes)
+            {changed, removed} = update_watch_baseline(rows)
+            render_watch(rows, alerts, mode, changed, removed)
+            exit_marker(0)
 
-        alerts = latest_attention_alerts(opts)
-        mode = Keyword.get(opts, :mode, :changes)
-        {changed, removed} = update_watch_baseline(rows)
-        render_watch(rows, alerts, mode, changed, removed)
-        exit_marker(0)
+          {:error, :unavailable} ->
+            exit_marker(1)
+        end
 
       error ->
         print_orchestrator_status_error(error)
@@ -734,12 +742,11 @@ defmodule Aiur.AgentControlCLI do
       {:error, :orchestrator_unavailable} ->
         print_global_pause_status_unavailable()
     end
-
-    :ok
   end
 
   defp print_global_pause_status_unavailable do
     IO.puts(:stderr, "GLOBAL PAUSE STATUS UNAVAILABLE — cannot determine whether aiur is paused")
+    {:error, :unavailable}
   end
 
   defp print_global_pause_control_error(action) do

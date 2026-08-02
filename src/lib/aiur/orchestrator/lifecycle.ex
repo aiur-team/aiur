@@ -110,13 +110,23 @@ defmodule Aiur.Orchestrator.Lifecycle do
     {:ok, schedule_initial_tick(state, Keyword.get(opts, :initial_poll?, true))}
   end
 
-  defp initial_global_pause(persisted) do
+  defp initial_global_pause({:ok, persisted}) do
     if Slots.launch_globally_paused?() do
       next = %{globally_paused: true, paused_at: DateTime.utc_now(), source: "CLI --pause"}
       :ok = GlobalPauseStore.save(next)
       next
     else
       persisted
+    end
+  end
+
+  defp initial_global_pause({:error, _reason}) do
+    if Slots.launch_globally_paused?() do
+      next = %{globally_paused: true, paused_at: DateTime.utc_now(), source: "CLI --pause"}
+      :ok = GlobalPauseStore.save(next)
+      next
+    else
+      %{globally_paused: true, paused_at: DateTime.utc_now(), source: "persistence recovery failed"}
     end
   end
 

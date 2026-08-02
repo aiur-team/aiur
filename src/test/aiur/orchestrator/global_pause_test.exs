@@ -2,7 +2,45 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
   use Aiur.TestSupport
 
   alias Aiur.{Issue, TrackerIdentity}
-  alias Aiur.Orchestrator.{GlobalPause, PauseResume, State}
+  alias Aiur.Orchestrator.{GlobalPause, GlobalPauseStore, PauseResume, State}
+
+  describe "GlobalPauseStore recovery" do
+    test "distinguishes a missing store from an unreadable store" do
+      path = Path.join(System.tmp_dir!(), "global-pause-missing-#{System.unique_integer([:positive])}.json")
+      previous = Application.get_env(:aiur, :global_pause_store_path)
+      Application.put_env(:aiur, :global_pause_store_path, path)
+
+      on_exit(fn ->
+        File.rm(path)
+
+        if is_nil(previous),
+          do: Application.delete_env(:aiur, :global_pause_store_path),
+          else: Application.put_env(:aiur, :global_pause_store_path, previous)
+      end)
+
+      assert {:ok, %{globally_paused: false}} = GlobalPauseStore.load()
+
+      File.write!(path, "not json")
+      assert {:error, {:read_failed, _reason}} = GlobalPauseStore.load()
+    end
+
+    test "rejects a decoded store without a boolean pause flag" do
+      path = Path.join(System.tmp_dir!(), "global-pause-invalid-#{System.unique_integer([:positive])}.json")
+      previous = Application.get_env(:aiur, :global_pause_store_path)
+      Application.put_env(:aiur, :global_pause_store_path, path)
+
+      on_exit(fn ->
+        File.rm(path)
+
+        if is_nil(previous),
+          do: Application.delete_env(:aiur, :global_pause_store_path),
+          else: Application.put_env(:aiur, :global_pause_store_path, previous)
+      end)
+
+      File.write!(path, Jason.encode!(%{"globally_paused" => "yes"}))
+      assert {:error, {:read_failed, {:invalid_field, "globally_paused"}}} = GlobalPauseStore.load()
+    end
+  end
 
   describe "set_global_pause_call/2 pause" do
     test "holds every working agent and tags them global_pause without overriding an individual pause" do
@@ -181,6 +219,29 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
       end)
 
       assert {:ok, %{globally_paused: true, paused_at: ^paused_at, source: "dashboard"}} =
+               GlobalPause.global_pause_status(name)
+    end
+
+    test "holds the fleet when persisted pause recovery is corrupt" do
+      path = Path.join(System.tmp_dir!(), "global-pause-corrupt-#{System.unique_integer([:positive])}.json")
+      File.write!(path, "corrupt")
+      previous = Application.get_env(:aiur, :global_pause_store_path)
+      Application.put_env(:aiur, :global_pause_store_path, path)
+
+      name = Module.concat(__MODULE__, :CorruptStoreOrchestrator)
+      {:ok, pid} = Orchestrator.start_link(name: name, initial_poll?: false)
+      Process.unlink(pid)
+
+      on_exit(fn ->
+        if Process.alive?(pid), do: Process.exit(pid, :kill)
+        File.rm(path)
+
+        if is_nil(previous),
+          do: Application.delete_env(:aiur, :global_pause_store_path),
+          else: Application.put_env(:aiur, :global_pause_store_path, previous)
+      end)
+
+      assert {:ok, %{globally_paused: true, source: "persistence recovery failed"}} =
                GlobalPause.global_pause_status(name)
     end
 
