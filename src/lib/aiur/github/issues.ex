@@ -353,7 +353,7 @@ defmodule Aiur.GitHub.Issues do
 
       {:error, reason} ->
         blocker_hydration_warning(issue, reason)
-        {[unknown_blocker()], remaining_requests - 1}
+        {[unknown_blocker()], remaining_after_hydration_failure(remaining_requests, reason)}
     end
   end
 
@@ -368,11 +368,11 @@ defmodule Aiur.GitHub.Issues do
 
       {:stale, blockers, reason} ->
         blocker_hydration_warning(issue, reason)
-        {[unknown_blocker() | blockers], remaining_requests - 1}
+        {[unknown_blocker() | blockers], remaining_after_hydration_failure(remaining_requests, reason)}
 
       {:error, reason} ->
         blocker_hydration_warning(issue, reason)
-        {[unknown_blocker()], remaining_requests - 1}
+        {[unknown_blocker()], remaining_after_hydration_failure(remaining_requests, reason)}
     end
   end
 
@@ -390,6 +390,10 @@ defmodule Aiur.GitHub.Issues do
   end
 
   defp unknown_blocker, do: %{"state" => nil, "labels" => []}
+
+  defp remaining_after_hydration_failure(_remaining_requests, {:github, :rate_limited, _detail}), do: 0
+  defp remaining_after_hydration_failure(_remaining_requests, :rate_limited), do: 0
+  defp remaining_after_hydration_failure(remaining_requests, _reason), do: remaining_requests - 1
 
   defp deferred_blockers({:stale, blockers}), do: [unknown_blocker() | blockers]
   defp deferred_blockers(_missing), do: [unknown_blocker()]
