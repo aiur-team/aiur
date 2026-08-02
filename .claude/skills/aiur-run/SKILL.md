@@ -417,6 +417,19 @@ workaround is a ruleset window — back up the ruleset, disable, merge, restore,
 then **re-read the ruleset to verify restoration** instead of trusting the
 write.
 
+### Ticket close-out
+
+Before closing a ticket, grep for deferred-work markers naming it —
+`git grep -n "Follow-up (#<N>)"`. That is the house convention because
+`credo --strict` in `make lint` forbids `TODO`, so the codebase has zero TODO
+tags and these markers are the only greppable record of work a ticket deferred.
+If one still names the ticket, either the deferred work lands first or the
+marker is re-pointed at a successor ticket that is open. **Never close a ticket
+while live markers still name it.** #1350 closed with `Follow-up (#1350)` still
+live on a hardcoded fixture in `streamdeck_live.ex`; two days later the capstone
+proof failed because the page it named still rendered invented data. The marker
+was correct and greppable — nothing read it.
+
 ## 6. Backstop and defects
 
 Prioritize restoring productive Aiur workers, but do not preserve nominal
