@@ -32,12 +32,13 @@ defmodule Aiur.CLI do
 
   @type ensure_started_result :: {:ok, [atom()]} | {:error, term()}
   @type deps :: %{
-          file_regular?: (String.t() -> boolean()),
-          set_workflow_file_path: (String.t() -> :ok | {:error, term()}),
-          set_logs_root: (String.t() -> :ok | {:error, term()}),
-          set_server_port_override: (non_neg_integer() | nil -> :ok | {:error, term()}),
-          set_server_host_override: (String.t() | nil -> :ok | {:error, term()}),
-          ensure_all_started: (-> ensure_started_result())
+          required(:file_regular?) => (String.t() -> boolean()),
+          required(:set_workflow_file_path) => (String.t() -> :ok | {:error, term()}),
+          required(:set_logs_root) => (String.t() -> :ok | {:error, term()}),
+          required(:set_server_port_override) => (non_neg_integer() | nil -> :ok | {:error, term()}),
+          required(:set_server_host_override) => (String.t() | nil -> :ok | {:error, term()}),
+          required(:ensure_all_started) => (-> ensure_started_result()),
+          optional(:configured_max_agents) => (-> pos_integer())
         }
 
   @spec main([String.t()]) :: :ok | no_return()
@@ -156,7 +157,7 @@ defmodule Aiur.CLI do
          :ok <- maybe_set_headless(opts),
          :ok <- maybe_disable_dashboard(opts),
          :ok <- maybe_set_pause(opts) do
-      run(workflow_path, deps)
+      run(workflow_path, deps, opts)
     end
   end
 
@@ -191,7 +192,10 @@ defmodule Aiur.CLI do
   defp canonicalize_todo_id(id), do: id |> String.to_integer() |> Integer.to_string()
 
   @spec run(String.t(), deps()) :: :ok | {:error, String.t()}
-  def run(workflow_path, deps) do
+  def run(workflow_path, deps), do: run(workflow_path, deps, [])
+
+  @spec run(String.t(), deps(), keyword()) :: :ok | {:error, String.t()}
+  def run(workflow_path, deps, opts) do
     expanded_path = Path.expand(workflow_path)
 
     if deps.file_regular?.(expanded_path) do
@@ -199,6 +203,7 @@ defmodule Aiur.CLI do
 
       case deps.ensure_all_started.() do
         {:ok, _started_apps} ->
+          warn_if_max_agents_exceeds_config(opts, deps)
           :ok
 
         {:error, reason} ->
@@ -222,8 +227,31 @@ defmodule Aiur.CLI do
       set_logs_root: &set_logs_root/1,
       set_server_port_override: &set_server_port_override/1,
       set_server_host_override: &set_server_host_override/1,
-      ensure_all_started: fn -> Application.ensure_all_started(:aiur) end
+      ensure_all_started: fn -> Application.ensure_all_started(:aiur) end,
+      configured_max_agents: &Aiur.Config.max_concurrent_agents/0
     }
+  end
+
+  defp warn_if_max_agents_exceeds_config(opts, deps) do
+    with requested when is_integer(requested) <- last_option_value(opts, :max_agents),
+         configured_max_agents when is_function(configured_max_agents, 0) <- Map.get(deps, :configured_max_agents),
+         ceiling when is_integer(ceiling) and ceiling > 0 <- configured_max_agents.(),
+         true <- requested > ceiling do
+      IO.puts(:stderr, [
+        "warning: --max-agents #{requested} exceeds agent.max_concurrent_agents (#{ceiling}); ",
+        "the explicit CLI value wins, so using #{requested}. ",
+        "Raise the config value or pass --max-agents <= #{ceiling} to silence this."
+      ])
+    else
+      _ -> :ok
+    end
+  end
+
+  defp last_option_value(opts, key) do
+    case Keyword.get_values(opts, key) do
+      [] -> nil
+      values -> List.last(values)
+    end
   end
 
   defp maybe_set_logs_root(opts, deps) do
