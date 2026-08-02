@@ -108,6 +108,33 @@ defmodule Aiur.GitHub.CiReadinessTest do
              CiReadiness.dispatch_check(Keyword.put(opts, :request_fun, fn _request -> flunk("unexpected daemon request") end))
   end
 
+  test "expires an unchanged-config assessment and detects a removed pull request gate" do
+    path = Path.join(System.tmp_dir!(), "aiur-ci-readiness-#{System.unique_integer([:positive])}.json")
+    now = DateTime.utc_now()
+    readiness = CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", @workflow}], ["ci / required"])
+    opts = [repo: "owner/repo", base_branch: "develop", config_fingerprint: "config-a", path: path, now: now]
+
+    on_exit(fn ->
+      File.rm(path)
+      CiReadiness.clear_cached_result()
+    end)
+
+    assert :ok = CiReadiness.persist_assessment(readiness, Keyword.put(opts, :now, DateTime.add(now, -3_601, :second)))
+    assert :ok = CiReadiness.clear_cached_result()
+
+    request_fun = fn %{url: url} ->
+      cond do
+        String.ends_with?(url, "/branches/develop") -> {:ok, %{status: 200, body: %{}}}
+        String.ends_with?(url, "/repos/owner/repo") -> {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}
+        url =~ "/contents/.github/workflows" -> {:ok, %{status: 200, body: []}}
+        true -> flunk("unexpected request: #{url}")
+      end
+    end
+
+    assert {:ok, %{issues: [:no_pr_workflow, :no_required_check]}} =
+             CiReadiness.dispatch_check(Keyword.put(opts, :request_fun, request_fun))
+  end
+
   test "bounds the complete inspection, including a blocked request" do
     request_fun = fn _request ->
       Process.sleep(50)

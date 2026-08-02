@@ -15,6 +15,7 @@ defmodule Aiur.GitHub.CiReadiness do
   @workflow_page_limit 20
   @cache_key {__MODULE__, :results}
   @assessment_file_name "ci-readiness.json"
+  @assessment_ttl_seconds 3_600
   @default_timeout_ms 30_000
   @github_actions_app_id 1_5368
   @operator_token_env "AIUR_CI_READINESS_TOKEN"
@@ -118,6 +119,7 @@ defmodule Aiur.GitHub.CiReadiness do
 
     document = %{
       "version" => 1,
+      "assessed_at" => DateTime.to_iso8601(Keyword.get(opts, :now, DateTime.utc_now())),
       "scope" => scope_to_map(scope),
       "result" => encode_result(result)
     }
@@ -183,6 +185,7 @@ defmodule Aiur.GitHub.CiReadiness do
          {:ok, document} <- Jason.decode(body),
          true <- Map.get(document, "version") == 1,
          ^scope <- map_to_scope(Map.get(document, "scope")),
+         true <- assessment_fresh?(Map.get(document, "assessed_at"), opts),
          {:ok, result} <- decode_result(Map.get(document, "result")) do
       cache_result(result, opts)
       result
@@ -196,6 +199,17 @@ defmodule Aiur.GitHub.CiReadiness do
        do: {repo, base_branch, fingerprint}
 
   defp map_to_scope(_scope), do: :invalid
+
+  defp assessment_fresh?(assessed_at, opts) when is_binary(assessed_at) do
+    with {:ok, assessed_at, _offset} <- DateTime.from_iso8601(assessed_at) do
+      age_seconds = DateTime.diff(Keyword.get(opts, :now, DateTime.utc_now()), assessed_at, :second)
+      age_seconds in 0..@assessment_ttl_seconds
+    else
+      _ -> false
+    end
+  end
+
+  defp assessment_fresh?(_assessed_at, _opts), do: false
 
   defp encode_result(result) do
     %{
