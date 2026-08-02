@@ -637,11 +637,7 @@ defmodule Aiur.RepoBase do
         stale? = stale_migration_lock?(lock)
 
         if stale? do
-          with {:ok, _removed} <- File.rm_rf(lock) do
-            with_migration_lock(node, base_path, migration)
-          else
-            {:error, reason, _path} -> {:error, {:repo_base_migration_lock_reclaim_failed, lock, reason}}
-          end
+          reclaim_stale_migration_lock(lock, node, base_path, migration)
         else
           with :ok <- wait_for_migration_lock(lock, @migration_lock_timeout_ms) do
             migrate_legacy_layout(base_path)
@@ -671,8 +667,32 @@ defmodule Aiur.RepoBase do
 
   defp migration_lock_path(node), do: node <> @migration_lock_suffix
 
+  # Renaming is the ownership transfer: only the caller that moved the exact
+  # stale directory may remove it. Removing `lock` directly would let another
+  # reclaimer delete a fresh lock created between its stale check and removal.
+  defp reclaim_stale_migration_lock(lock, node, base_path, migration) do
+    quarantined = lock <> ".reclaiming-" <> unique_suffix()
+
+    case File.rename(lock, quarantined) do
+      :ok ->
+        with {:ok, _removed} <- File.rm_rf(quarantined) do
+          with_migration_lock(node, base_path, migration)
+        else
+          {:error, reason, _path} -> {:error, {:repo_base_migration_lock_reclaim_failed, lock, reason}}
+        end
+
+      # The original owner released the lock or another reclaimer claimed it.
+      # Either way, start acquisition again without touching the current lock.
+      {:error, :enoent} ->
+        with_migration_lock(node, base_path, migration)
+
+      {:error, reason} ->
+        {:error, {:repo_base_migration_lock_reclaim_failed, lock, reason}}
+    end
+  end
+
   defp write_migration_lock_owner(lock, _node) do
-    owner = Jason.encode!(%{"node" => Atom.to_string(node()), "pid" => System.pid(), "process" => self() |> inspect() |> String.trim_leading("#PID")})
+    owner = Jason.encode!(%{"node" => Atom.to_string(node()), "pid" => System.pid()})
     File.write(Path.join(lock, @migration_lock_owner), owner)
   end
 
@@ -692,25 +712,10 @@ defmodule Aiur.RepoBase do
   end
 
   defp migration_lock_owner_alive?(owner) do
-    with {:ok, %{"node" => owner_node, "pid" => owner_pid, "process" => owner_process}} <- Jason.decode(owner) do
-      if owner_node == Atom.to_string(node()) do
-        local_process_alive?(owner_process)
-      else
-        os_process_alive?(owner_pid)
-      end
+    with {:ok, %{"pid" => owner_pid}} <- Jason.decode(owner) do
+      os_process_alive?(owner_pid)
     else
       _ -> false
-    end
-  end
-
-  defp local_process_alive?(owner_process) do
-    try do
-      owner_process
-      |> String.to_charlist()
-      |> :erlang.list_to_pid()
-      |> Process.alive?()
-    rescue
-      ArgumentError -> false
     end
   end
 

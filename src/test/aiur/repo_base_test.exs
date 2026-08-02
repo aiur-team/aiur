@@ -199,9 +199,11 @@ defmodule Aiur.RepoBaseTest do
       assert File.read!(source) == Jason.encode!(finding("legacy"))
     end
 
-    test "recovers a clone parked by an interrupted migration", %{origin: origin, node: node, base: base} do
+    test "one of concurrent callers claims a stale migration lock before recovery", %{origin: origin, node: node, base: base, tmp: tmp} do
       parked = node <> ".migrating-interrupted"
       lock = node <> ".migration-lock"
+      repo = "https://github.com/owner/project.git"
+      previous_root = Application.get_env(:aiur, :repo_base_root)
       File.mkdir_p!(Path.dirname(node))
       git!(["clone", "--quiet", origin, parked])
       File.mkdir_p!(node)
@@ -209,11 +211,22 @@ defmodule Aiur.RepoBaseTest do
       File.mkdir!(lock)
       File.write!(Path.join(lock, "owner"), "99999999")
       Process.sleep(1_100)
+      Application.put_env(:aiur, :repo_base_root, Path.join(tmp, "repo"))
 
-      assert {:ok, ^base} = RepoBase.refresh(base, origin, "touch rebuilt_after_recovery")
+      on_exit(fn ->
+        case previous_root do
+          nil -> Application.delete_env(:aiur, :repo_base_root)
+          root -> Application.put_env(:aiur, :repo_base_root, root)
+        end
+      end)
 
+      results =
+        1..2
+        |> Task.async_stream(fn _ -> RepoBase.ensure_state_tree(repo) end, max_concurrency: 2, ordered: false)
+        |> Enum.map(fn {:ok, result} -> result end)
+
+      assert Enum.all?(results, &(&1 == :ok))
       assert File.dir?(Path.join(base, ".git"))
-      assert File.exists?(Path.join(base, "rebuilt_after_recovery"))
       refute File.exists?(parked)
       refute File.exists?(lock)
     end
