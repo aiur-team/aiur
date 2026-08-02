@@ -4,7 +4,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
-  alias Aiur.ProviderMeterSnapshot
+  alias Aiur.{AgentEvents, AgentPubSub, ProviderMeterSnapshot}
   alias AiurWeb.Endpoint
 
   @endpoint Endpoint
@@ -23,6 +23,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
         secret_key_base: String.duplicate("s", 64),
         dashboard_writable: true,
         dashboard_auth_required: false,
+        streamdeck_transcript_flush_ms: 1,
         streamdeck_snapshot_fun: fn -> Agent.get(snapshot_agent, & &1) end,
         streamdeck_provider_meters_fun: fn -> Agent.get(meter_agent, & &1) end,
         streamdeck_logs_fun: fn -> fixture_logs() end,
@@ -121,6 +122,40 @@ defmodule AiurWeb.StreamdeckLiveTest do
     end
   end
 
+  test "focused transcript relay drops the prior agent and works across write guards" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+    previous_writable = Endpoint.config(:dashboard_writable)
+
+    try do
+      for {writable, old_identifier, focused_identifier} <- [
+            {true, "1352", "1345"},
+            {false, "1345", "1352"}
+          ] do
+        Phoenix.Config.put(Endpoint, :dashboard_writable, writable)
+        render_hook(view, "key-press", %{"identifier" => focused_identifier})
+
+        AgentPubSub.broadcast_transcript(
+          old_identifier,
+          AgentEvents.transcript_event(:assistant, "stale #{old_identifier}")
+        )
+
+        AgentPubSub.broadcast_transcript(
+          focused_identifier,
+          AgentEvents.transcript_event(:assistant, "focused #{focused_identifier}")
+        )
+
+        Process.sleep(20)
+        html = render(view)
+
+        refute html =~ "stale #{old_identifier}"
+        assert html =~ "focused #{focused_identifier}"
+        assert length(Regex.scan(~r/focused #{focused_identifier}/, html)) == 1
+      end
+    after
+      Phoenix.Config.put(Endpoint, :dashboard_writable, previous_writable)
+    end
+  end
+
   test "missing control injection uses the production AgentChat fallback" do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
     previous_pause = Endpoint.config(:agent_chat_pause_fun)
@@ -177,8 +212,12 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ "transcript-10"
     assert html =~ ~s(id="sd-transcript-hint-down" class="sd-log-hint" aria-hidden="true")
 
-    send(view.pid, {:transcript_event, %{role: :assistant, body: "live transcript", sequence: 99}})
-    Process.sleep(10)
+    AgentPubSub.broadcast_transcript(
+      "1352",
+      AgentEvents.transcript_event(:assistant, "live transcript", sequence: 99)
+    )
+
+    Process.sleep(20)
     html = render_hook(view, "logs-scroll", %{"axis" => "transcript", "delta" => "99"})
     assert html =~ "live transcript"
   end

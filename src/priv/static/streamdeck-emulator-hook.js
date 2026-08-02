@@ -95,7 +95,7 @@
     var delta = normaliseWrap(newAngle - this.dragAngle);
     this.dragAngle = newAngle;
     this.accumulatedDeg += Math.abs(delta);
-    this._step(delta / DRAG_DIVISOR);
+    this._step(delta / DRAG_DIVISOR, false);
   };
 
   Knob.prototype._onPointerUp = function (e) {
@@ -103,6 +103,10 @@
     this._endDrag();
     if (this.accumulatedDeg < PRESS_THRESHOLD_DEG) {
       this._press();
+    } else {
+      // LiveView patches can rebuild the hook while a drag is in progress.
+      // Keep the gesture local until release, then commit its final value once.
+      this.hook._handleDialStep(this.index, this.accumulatedDeg);
     }
   };
 
@@ -136,14 +140,14 @@
     }
   };
 
-  Knob.prototype._step = function (delta) {
+  Knob.prototype._step = function (delta, notify) {
     this.value = clamp(Math.round(this.value + delta), 0, 100);
     this._render();
     // Angle: 0 → -135deg (min), 100 → +135deg (max), centred at top.
     var angle = (this.value / 100) * 270 - 135;
     this.knobEl.style.setProperty("--a", angle + "deg");
     this.knobEl.setAttribute("aria-valuenow", String(this.value));
-    this.hook._handleDialStep(this.index, delta);
+    if (notify !== false) this.hook._handleDialStep(this.index, delta);
   };
 
   Knob.prototype._render = function () {
@@ -210,6 +214,8 @@
       this._onMicUp = null;
       this._mode = "grid";
       this._modeHistory = [];
+      this._pendingPageDialValue = null;
+      this.el.setAttribute("data-streamdeck-mode", this._mode);
       // Version counter guards against a patch's beforeUpdate/updated window
       // overwriting a mode change that happened mid-patch (race condition).
       this._modeVersion = 0;
@@ -235,6 +241,8 @@
 
     updated() {
       // Re-bind after patch and restore local state so patches don't revert dials.
+      var persistedMode = this.el.getAttribute("data-streamdeck-mode");
+      if (MODES.indexOf(persistedMode) !== -1) this._mode = persistedMode;
       this._bindKeys();
       this._bindMic();
       this._bindKnobs();
@@ -243,7 +251,6 @@
         this._knobs.forEach(function (k, i) { k.restoreState(state[i]); });
         this._knobState = null;
       }
-      this._syncPageKnob();
       // Restore mode state only if it did not change during the patch window.
       // A mid-patch user action (e.g. a second back press) increments _modeVersion;
       // if the version drifted, respect the user's more-recent intent.
@@ -255,6 +262,17 @@
         this._pendingMode = null;
         this._pendingModeHistory = null;
         this._pendingModeVersion = null;
+      }
+      // The server template has no local mode assign and therefore renders its
+      // default grid marker on every patch. Reapply the preserved local mode
+      // after the patch, then synchronize the mode-specific page dial.
+      this._applyMode(this._mode);
+      if (this._pendingPageDialValue !== null) {
+        var pendingValue = this._pendingPageDialValue;
+        this._setDialValue(3, pendingValue);
+        var pageSource = this._mode === "logs" ? this.el.querySelector("#sd-log-events") : this.el.querySelector("#sd-keys");
+        var serverValue = pageSource && parseInt(pageSource.getAttribute(this._mode === "logs" ? "data-dial-value" : "data-grid-dial-value") || "-1", 10);
+        if (serverValue === pendingValue) this._pendingPageDialValue = null;
       }
       // Restore mic active state if the user was holding during the patch.
       // Use _restoringMic flag to suppress the redundant server pushEvent —
@@ -286,33 +304,69 @@
 
     _handleDialStep(index, delta) {
       if (!delta) return;
+      var dial = this._knobs && this._knobs[index];
+      var value = dial ? dial.value : 0;
       if (this._mode === "grid" && index === 3) {
-        this._requestGridPage(delta > 0 ? 1 : -1);
+        this._requestGridPage(value);
       } else if (this._mode === "logs" && index === 3) {
-        this.pushEvent("logs-scroll", { axis: "events", delta: delta > 0 ? 1 : -1 });
+        this.pushEvent("logs-scroll", { axis: "events", value: value });
       } else if (this._mode === "logs" && index === 0) {
         this.pushEvent("logs-scroll", { axis: "transcript", delta: delta > 0 ? 1 : -1 });
       }
     },
 
-    _requestGridPage(delta) {
+    _requestGridPage(value) {
+      if (!Number.isFinite(value)) return;
+      this.pushEvent("grid-page", { value: clamp(value, 0, 100) });
+    },
+
+    _requestGridWindowCycle() {
       var keys = this.el.querySelector("#sd-keys");
-      if (!keys) return;
-      var page = parseInt(keys.getAttribute("data-grid-page") || "0", 10);
-      var pageCount = parseInt(keys.getAttribute("data-grid-page-count") || "0", 10);
-      if (!Number.isFinite(page) || !Number.isFinite(pageCount) || pageCount < 1) return;
-      this.pushEvent("grid-page", { page: clamp(page + delta, 0, pageCount - 1) });
+      var dial = this._knobs && this._knobs[3];
+      if (keys && dial) {
+        var total = parseInt(keys.getAttribute("data-grid-total") || "0", 10);
+        var windows = parseInt(keys.getAttribute("data-grid-page-count") || "1", 10);
+        var page = parseInt(keys.getAttribute("data-grid-page") || "0", 10);
+        var maxOffset = Math.max(0, Math.ceil(total / 2) - 4);
+        var nextPage = (page + 1) % Math.max(windows, 1);
+        var offset = Math.min(nextPage * 4, maxOffset);
+        var value = maxOffset === 0 ? 0 : Math.round((offset / maxOffset) * 100);
+        this._pendingPageDialValue = value;
+        this._setDialValue(3, value);
+      }
+      this.pushEvent("grid-page", { action: "cycle" });
+    },
+
+    _requestLogEventCycle() {
+      var events = this.el.querySelector("#sd-log-events");
+      var dial = this._knobs && this._knobs[3];
+      if (events && dial) {
+        var offset = parseInt(events.getAttribute("data-offset") || "0", 10);
+        var maxOffset = parseInt(events.getAttribute("data-max-offset") || "0", 10);
+        var nextOffset = offset >= maxOffset ? 0 : Math.min(offset + 8, maxOffset);
+        var value = maxOffset === 0 ? 0 : Math.round((nextOffset / maxOffset) * 100);
+        this._pendingPageDialValue = value;
+        this._setDialValue(3, value);
+      }
+      this.pushEvent("logs-scroll", { axis: "events", action: "cycle" });
+    },
+
+    _setDialValue(index, value) {
+      var dial = this._knobs && this._knobs[index];
+      if (dial) dial._step(value - dial.value, false);
     },
 
     _syncPageKnob() {
       var keys = this.el.querySelector("#sd-keys");
       var knob = this._knobs && this._knobs[3];
       if (!keys || !knob) return;
-      var page = parseInt(keys.getAttribute("data-grid-page") || "0", 10);
-      if (!Number.isFinite(page)) return;
-      knob.value = page + 1;
+      var source = this._mode === "logs" ? this.el.querySelector("#sd-log-events") : keys;
+      var value = parseInt(source.getAttribute(this._mode === "logs" ? "data-dial-value" : "data-grid-dial-value") || "0", 10);
+      if (!Number.isFinite(value)) return;
+      knob.value = value;
       knob._render();
       knob.knobEl.setAttribute("aria-valuenow", String(knob.value));
+      knob.knobEl.style.setProperty("--a", (value / 100) * 270 - 135 + "deg");
     },
 
     _bindKeys() {
@@ -410,12 +464,14 @@
         this._setMode(prev !== undefined ? prev : "grid", false);
       } else if (action === "cycle-window") {
         if (this._mode === "grid") {
-          this._requestGridPage(1);
-          return;
+          this._requestGridWindowCycle();
+        } else if (this._mode === "logs") {
+          this._requestLogEventCycle();
+        } else {
+          var idx = MODES.indexOf(this._mode);
+          var next = MODES[(idx + 1) % MODES.length];
+          this._setMode(next);
         }
-        var idx = MODES.indexOf(this._mode);
-        var next = MODES[(idx + 1) % MODES.length];
-        this._setMode(next);
       }
     },
 
@@ -427,6 +483,11 @@
       }
       this._mode = mode;
       this._modeVersion++;
+      this._applyMode(mode);
+    },
+
+    _applyMode(mode) {
+      this.el.setAttribute("data-streamdeck-mode", mode);
       var device = this.el.querySelector(".sd-device");
       if (device) device.setAttribute("data-mode", mode);
       var views = Array.prototype.slice.call(this.el.querySelectorAll("[data-mode-view]"));
@@ -434,6 +495,7 @@
         var isActive = view.getAttribute("data-mode-view") === mode;
         view.setAttribute("aria-hidden", isActive ? "false" : "true");
       });
+      this._syncPageKnob();
     }
   };
 })();
