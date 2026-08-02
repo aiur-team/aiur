@@ -7,7 +7,7 @@ engine="$repo_root/packaging/npm/aiur-cli/libexec/aiur-engine.sh"
 parser="$repo_root/src/lib/aiur/cli.ex"
 dev_shim="$repo_root/scripts/aiurdev"
 page="$docs_dir/reference/cli.md"
-source_dev_commands="build"
+source_dev_commands="$(sed -n 's/^if \[ "${1:-}" = "\([a-z-]*\)" \]; then$/\1/p' "$dev_shim" | sort -u)"
 
 fail=0
 
