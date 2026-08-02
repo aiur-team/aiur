@@ -1,7 +1,11 @@
 defmodule Aiur.ProviderMeterProbeTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.{ProviderMeterProbe, ProviderMeterProjection, ProviderMeterSnapshot}
+  alias Aiur.OpenAICompat.ProviderMeterProbe, as: OpenAICompatProbe
+  alias Aiur.ProviderMeterProbe
+  alias Aiur.ProviderMeterProjection
+  alias Aiur.ProviderMeters.Events
+  alias Aiur.ProviderMeterSnapshot
 
   defmodule FakeAgent do
     @moduledoc false
@@ -9,8 +13,8 @@ defmodule Aiur.ProviderMeterProbeTest do
     def start_session(workspace, opts) do
       case Process.get(:probe_start_result, :ok) do
         :ok ->
-          send(Process.get(:probe_test_pid), {:session_started, Keyword.get(opts, :identifier)})
-          send(Process.get(:probe_test_pid), {:session_workspace, workspace})
+          notify({:session_started, Keyword.get(opts, :identifier)})
+          notify({:session_workspace, workspace})
           {:ok, %{fake: true}}
 
         {:error, _reason} = error ->
@@ -22,9 +26,45 @@ defmodule Aiur.ProviderMeterProbeTest do
     end
 
     def stop_session(session) do
-      send(Process.get(:probe_test_pid), {:session_stopped, session})
+      notify({:session_stopped, session})
       :ok
     end
+
+    defp notify(message) do
+      case Process.get(:probe_test_pid) do
+        pid when is_pid(pid) -> send(pid, message)
+        _ -> :ok
+      end
+    end
+  end
+
+  defmodule FakeUsageApi do
+    @moduledoc false
+    def fetch(_opts), do: {:error, :usage_unavailable}
+  end
+
+  defmodule ObservingFakeAgent do
+    @moduledoc false
+
+    def start_session(_workspace, _opts) do
+      observed_at = DateTime.utc_now()
+
+      snapshot = %ProviderMeterSnapshot{
+        provider: :codex,
+        backend: :app_server,
+        provider_account_generation: "gen-1",
+        observed_at: observed_at,
+        auth_mode: :subscription,
+        freshness: :fresh,
+        health: %{state: :healthy, failure: nil, last_observed_at: observed_at, last_source_version: 1},
+        windows: %{"session" => %{kind: :rate_limit, used_percent: 10}}
+      }
+
+      send(Process.get(:probe_projection), {:provider_meter_changed, snapshot})
+      {:ok, %{fake: true}}
+    end
+
+    def stop_session(_session), do: :ok
   end
 
   defmodule ExplodingCloseAgent do
@@ -50,8 +90,18 @@ defmodule Aiur.ProviderMeterProbeTest do
     {:ok, pid} = start_supervised({ProviderMeterProjection, [name: projection, subscribe?: false]})
 
     Process.put(:probe_test_pid, self())
+    Process.put(:probe_projection, pid)
 
     %{projection: projection, pid: pid}
+  end
+
+  # BalanceBaseline persists beside the workflow file; these tests must never
+  # read or write a real one, so every probe opts a throwaway path.
+  defp baseline_path do
+    dir = Path.join(System.tmp_dir!(), "aiur-probe-baseline-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    on_exit(fn -> File.rm_rf(dir) end)
+    Path.join(dir, "balance-baseline.json")
   end
 
   defp opts(ctx, extra \\ []) do
@@ -60,7 +110,10 @@ defmodule Aiur.ProviderMeterProbeTest do
         projection: ctx.projection,
         workspace: "/tmp/aiur-probe-test",
         observation_window_ms: 60,
-        probe_agent: FakeAgent
+        probe_agent: FakeAgent,
+        # Pinned so the probe's dispatch gate reads a fixture rather than the
+        # daemon's live config, which other suites mutate.
+        backend_configs: %{}
       ],
       extra
     )
@@ -82,14 +135,11 @@ defmodule Aiur.ProviderMeterProbeTest do
   end
 
   test "an observation arriving during the window is reported as observed", ctx do
-    task =
-      Task.async(fn ->
-        Process.sleep(20)
-        send(ctx.pid, {:provider_meter_changed, snapshot(:codex)})
-      end)
-
-    [outcome] = ProviderMeterProbe.observe(:codex, opts(ctx, observation_window_ms: 2_000))
-    Task.await(task)
+    [outcome] =
+      ProviderMeterProbe.observe(
+        :codex,
+        opts(ctx, observation_window_ms: 2_000, probe_agent: ObservingFakeAgent)
+      )
 
     assert outcome.observed? == true
     assert outcome.reason == nil
@@ -110,10 +160,207 @@ defmodule Aiur.ProviderMeterProbeTest do
   end
 
   test "probing :all covers every registry provider", ctx do
-    outcomes = ProviderMeterProbe.observe(:all, opts(ctx))
+    outcomes =
+      ProviderMeterProbe.observe(
+        :all,
+        opts(ctx,
+          usage_api: FakeUsageApi,
+          api_key_fetcher: fn _name -> nil end,
+          openai_compat_request_fun: fn _request -> flunk("credential-free batch must not issue a balance request") end
+        )
+      )
 
-    assert Enum.map(outcomes, & &1.provider) == [:codex, :claude, :fake]
-    assert List.last(outcomes) == %{provider: :fake, observed?: false, reason: :unsupported}
+    assert outcomes == [
+             %{provider: :codex, observed?: false, reason: nil},
+             %{provider: :claude, observed?: false, reason: :usage_unavailable},
+             %{provider: :kimi, observed?: false, reason: :session_observation_only},
+             %{provider: :deepseek, observed?: false, reason: :disabled},
+             %{provider: :openrouter, observed?: false, reason: :missing_api_key},
+             %{provider: :fake, observed?: false, reason: :unsupported}
+           ]
+  end
+
+  test "disabled providers without credentials are not probed" do
+    assert [%{provider: :deepseek, observed?: false, reason: :disabled}] =
+             ProviderMeterProbe.observe(:deepseek,
+               api_key_fetcher: fn _env -> nil end,
+               openai_compat_request_fun: fn _request ->
+                 flunk("a keyless disabled provider must not issue a balance request")
+               end
+             )
+  end
+
+  # A meter read is read-only observation, not dispatch: a backend the operator
+  # has not yet enabled must still render its balance so the enable decision is
+  # informed. A disabled provider with a configured API key is probed.
+  test "disabled providers with credentials are still probed for their meter" do
+    parent = self()
+
+    assert [%{provider: :deepseek, observed?: true, reason: nil}] =
+             ProviderMeterProbe.observe(:deepseek,
+               observed_at: ~U[2026-08-01 12:00:00Z],
+               deepseek_in_flight: 0,
+               path: baseline_path(),
+               api_key_fetcher: fn env ->
+                 send(parent, {:credential_requested, env})
+                 "secret"
+               end,
+               openai_compat_request_fun: fn request ->
+                 send(parent, {:request, request})
+                 {:ok, %{status: 200, body: %{"balance_infos" => [%{"currency" => "USD", "total_balance" => "7.25"}]}}}
+               end
+             )
+
+    assert_receive {:credential_requested, "DEEPSEEK_API_KEY"}
+    assert_receive {:request, %{url: "https://api.deepseek.com/user/balance"}}
+  end
+
+  test "DeepSeek probe publishes USD prepaid balance and local concurrency" do
+    :ok = Events.subscribe_observed()
+    parent = self()
+
+    request_fun = fn request ->
+      send(parent, {:request, request})
+
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "is_available" => true,
+           "balance_infos" => [
+             %{"currency" => "CNY", "total_balance" => "10.00"},
+             %{"currency" => "USD", "total_balance" => "7.25"}
+           ]
+         }
+       }}
+    end
+
+    assert [%{observed?: true, reason: nil}] =
+             ProviderMeterProbe.observe(:deepseek,
+               backend_configs: %{"deepseek" => %{"enabled" => true}},
+               observed_at: ~U[2026-08-01 12:00:00Z],
+               deepseek_in_flight: 5,
+               path: baseline_path(),
+               api_key_fetcher: fn "DEEPSEEK_API_KEY" -> "secret" end,
+               openai_compat_request_fun: request_fun
+             )
+
+    assert_receive {:request, request}
+    assert request.url == "https://api.deepseek.com/user/balance"
+    assert request.headers["authorization"] == "Bearer secret"
+
+    assert_receive {:provider_meter_changed, snapshot}
+    assert snapshot.provider == :deepseek
+    assert snapshot.backend == :openai_compat
+    assert snapshot.provider_account_generation == nil
+    assert snapshot.windows["prepaid-balance-usd"].credits.amount == 7.25
+    assert snapshot.windows["local-concurrency"].remaining == 2_495
+  end
+
+  # A prepaid balance renders an honest spend percentage only once a durable
+  # baseline exists. The observation that seeds the baseline has no consumption
+  # evidence yet, so it stays dollar-only; the next observation measures
+  # `used% = (baseline - remaining) / baseline` against the persisted baseline.
+  test "DeepSeek balance attaches a spend percentage once a baseline is seeded" do
+    :ok = Events.subscribe_observed()
+    path = baseline_path()
+
+    request_fun = fn _request ->
+      {:ok, %{status: 200, body: %{"balance_infos" => [%{"currency" => "USD", "total_balance" => "50.00"}]}}}
+    end
+
+    assert [%{observed?: true, reason: nil}] =
+             ProviderMeterProbe.observe(:deepseek,
+               backend_configs: %{},
+               observed_at: ~U[2026-08-01 12:00:00Z],
+               deepseek_in_flight: 0,
+               path: path,
+               api_key_fetcher: fn "DEEPSEEK_API_KEY" -> "secret" end,
+               openai_compat_request_fun: request_fun
+             )
+
+    assert_receive {:provider_meter_changed, seeding}
+    refute Map.has_key?(seeding.windows["prepaid-balance-usd"], :used_percent)
+
+    later_request_fun = fn _request ->
+      {:ok, %{status: 200, body: %{"balance_infos" => [%{"currency" => "USD", "total_balance" => "49.05"}]}}}
+    end
+
+    assert [%{observed?: true, reason: nil}] =
+             ProviderMeterProbe.observe(:deepseek,
+               backend_configs: %{},
+               observed_at: ~U[2026-08-01 12:05:00Z],
+               deepseek_in_flight: 0,
+               path: path,
+               api_key_fetcher: fn "DEEPSEEK_API_KEY" -> "secret" end,
+               openai_compat_request_fun: later_request_fun
+             )
+
+    assert_receive {:provider_meter_changed, measured}
+    assert_in_delta measured.windows["prepaid-balance-usd"].used_percent, 1.9, 0.01
+    assert measured.windows["prepaid-balance-usd"].credits.amount == 49.05
+  end
+
+  test "a configured initial deposit measures spend from the first observation" do
+    :ok = Events.subscribe_observed()
+    path = baseline_path()
+
+    request_fun = fn _request ->
+      {:ok, %{status: 200, body: %{"balance_infos" => [%{"currency" => "USD", "total_balance" => "80.00"}]}}}
+    end
+
+    assert [%{observed?: true, reason: nil}] =
+             ProviderMeterProbe.observe(:deepseek,
+               backend_configs: %{"deepseek" => %{"balance_baseline" => 100.0}},
+               observed_at: ~U[2026-08-01 12:00:00Z],
+               deepseek_in_flight: 0,
+               path: path,
+               api_key_fetcher: fn "DEEPSEEK_API_KEY" -> "secret" end,
+               openai_compat_request_fun: request_fun
+             )
+
+    assert_receive {:provider_meter_changed, snapshot}
+    assert_in_delta snapshot.windows["prepaid-balance-usd"].used_percent, 20.0, 0.01
+  end
+
+  test "OpenRouter probe uses the management key and subtracts usage from credits" do
+    :ok = Events.subscribe_observed()
+    parent = self()
+
+    assert %{observed?: true} =
+             OpenAICompatProbe.probe(:openrouter, "openrouter",
+               observed_at: ~U[2026-08-01 12:00:00Z],
+               path: baseline_path(),
+               api_key_fetcher: fn env ->
+                 send(parent, {:key_env, env})
+                 "management-secret"
+               end,
+               openai_compat_request_fun: fn request ->
+                 send(parent, {:request, request})
+                 {:ok, %{status: 200, body: %{"data" => %{"total_credits" => 100, "total_usage" => 22.5}}}}
+               end
+             )
+
+    assert_receive {:key_env, "OPENROUTER_MANAGEMENT_KEY"}
+    assert_receive {:request, %{url: "https://openrouter.ai/api/v1/credits"}}
+    assert_receive {:provider_meter_changed, snapshot}
+    assert snapshot.windows["credits-remaining"].credits.amount == 77.5
+  end
+
+  test "absent or malformed balance values never fabricate zero credits" do
+    :ok = Events.subscribe_observed()
+
+    assert %{observed?: false, reason: :missing_api_key} =
+             OpenAICompatProbe.probe(:deepseek, "deepseek", path: baseline_path(), api_key_fetcher: fn _ -> nil end)
+
+    assert %{observed?: false, reason: :malformed} =
+             OpenAICompatProbe.probe(:openrouter, "openrouter",
+               path: baseline_path(),
+               api_key_fetcher: fn _ -> "secret" end,
+               openai_compat_request_fun: fn _ -> {:ok, %{status: 200, body: %{"data" => %{}}}} end
+             )
+
+    refute_receive {:provider_meter_changed, _snapshot}
   end
 
   # A close that blows up must not turn the probe into a crash — the session is
@@ -147,20 +394,5 @@ defmodule Aiur.ProviderMeterProbeTest do
     assert workspace == expected
     assert String.starts_with?(workspace, Aiur.Config.workspace_root())
     assert File.dir?(workspace)
-  end
-
-  defp snapshot(provider) do
-    observed_at = DateTime.utc_now()
-
-    %ProviderMeterSnapshot{
-      provider: provider,
-      backend: :app_server,
-      provider_account_generation: "gen-1",
-      observed_at: observed_at,
-      auth_mode: :subscription,
-      freshness: :fresh,
-      health: %{state: :healthy, failure: nil, last_observed_at: observed_at, last_source_version: 1},
-      windows: %{"session" => %{kind: :rate_limit, used_percent: 10}}
-    }
   end
 end

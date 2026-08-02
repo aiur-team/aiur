@@ -411,11 +411,15 @@ run_todo() {
 # mode=foreground attaches the UI and tears down on exit; mode=background leaves
 # the detached tmux session running and returns.
 
-# Load KEY=VALUE pairs from ./.env into the environment so the running release
-# (e.g. GITHUB_TOKEN, dashboard creds) sees what `aiur init` scaffolded there.
-# An already-exported variable always wins, so a shell export overrides the file.
+# Load operator/machine credentials before repo-local settings. Since each file
+# only fills unset names, shell exports win first, then ~/.aiur/.env, then ./.env.
 load_dotenv() {
-  local file=".env" line key val
+  load_dotenv_file "$HOME/.aiur/.env"
+  load_dotenv_file ".env"
+}
+
+load_dotenv_file() {
+  local file="$1" line key val
   [ -f "$file" ] || return 0
   while IFS= read -r line || [ -n "$line" ]; do
     line="${line#"${line%%[![:space:]]*}"}"

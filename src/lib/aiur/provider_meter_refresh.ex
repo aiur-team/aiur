@@ -85,7 +85,8 @@ defmodule Aiur.ProviderMeterRefresh do
       # meters, and when the last of them looked away.
       watchers: %{},
       last_watched_at: nil,
-      baseline_done?: false
+      baseline_done?: false,
+      probe_ref: nil
     }
 
     baseline_delay = Keyword.get(opts, :baseline_delay_ms, @default_baseline_delay_ms)
@@ -106,16 +107,20 @@ defmodule Aiur.ProviderMeterRefresh do
     # Runs once regardless of watchers or agent activity, so the first surface
     # to open finds real values already there. The tick loop is scheduled in
     # init/1, so this must not schedule another or the two would compound.
-    observe(state)
+    state = observe(state)
 
     {:noreply, %{state | baseline_done?: true}}
   end
 
   def handle_info(:refresh, state) do
-    if watched?(state), do: observe(state, refresh_target(state))
+    state = if watched?(state), do: observe(state, refresh_target(state)), else: state
     schedule_refresh(state)
 
     {:noreply, state}
+  end
+
+  def handle_info({:DOWN, ref, :process, _pid, _reason}, %{probe_ref: ref} = state) do
+    {:noreply, %{state | probe_ref: nil}}
   end
 
   # A watcher that closed its tab or crashed stops being one, without needing a
@@ -128,8 +133,7 @@ defmodule Aiur.ProviderMeterRefresh do
 
   @impl true
   def handle_cast(:observe, state) do
-    observe(state)
-    {:noreply, state}
+    {:noreply, observe(state)}
   end
 
   def handle_cast({:watching_started, pid}, state) do
@@ -142,9 +146,7 @@ defmodule Aiur.ProviderMeterRefresh do
 
     # Someone just looked: answer immediately rather than making them wait out
     # the interval for a number that is already stale.
-    observe(state, refresh_target(state))
-
-    {:noreply, state}
+    {:noreply, observe(state, refresh_target(state))}
   end
 
   def handle_cast({:watching_stopped, pid}, state), do: {:noreply, drop_watcher(state, pid)}
@@ -185,8 +187,19 @@ defmodule Aiur.ProviderMeterRefresh do
   # An observer failure must never take the scheduler down: a provider being
   # unreachable is an expected condition, and the retained observation keeps
   # displaying with its true age.
-  defp observe(state, target \\ :all) do
-    _ = state.observer.(target)
+  defp observe(state, target \\ :all)
+
+  defp observe(%{probe_ref: ref} = state, _target) when is_reference(ref), do: state
+
+  defp observe(state, target) do
+    case Task.Supervisor.start_child(Aiur.TaskSupervisor, fn -> safe_observe(state.observer, target) end) do
+      {:ok, pid} -> %{state | probe_ref: Process.monitor(pid)}
+      {:error, _reason} -> state
+    end
+  end
+
+  defp safe_observe(observer, target) do
+    _ = observer.(target)
     :ok
   rescue
     _error -> :ok

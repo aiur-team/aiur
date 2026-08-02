@@ -20,10 +20,10 @@ defmodule Aiur.ProviderMeters.Store do
   @spec record_failure(GenServer.server(), map()) :: {:ok, ProviderMeterSnapshot.t()} | {:error, atom()}
   def record_failure(server, input), do: GenServer.call(server, {:failure, input})
 
-  @spec snapshot(GenServer.server(), atom(), :app_server, reference() | map()) :: ProviderMeterSnapshot.t()
+  @spec snapshot(GenServer.server(), atom(), atom(), reference() | map()) :: ProviderMeterSnapshot.t()
   def snapshot(server, provider, backend, binding), do: GenServer.call(server, {:snapshot, provider, backend, binding})
 
-  @spec subscription_generation(GenServer.server(), atom(), :app_server, reference() | map()) ::
+  @spec subscription_generation(GenServer.server(), atom(), atom(), reference() | map()) ::
           {:ok, String.t()} | {:error, :unknown_account_generation}
   def subscription_generation(server, provider, backend, binding) do
     GenServer.call(server, {:subscription_generation, provider, backend, binding})
