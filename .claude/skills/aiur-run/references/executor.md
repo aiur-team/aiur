@@ -26,6 +26,16 @@ alerts, and events; planning documents preserve approved intent.
 
 ## Establish the authority envelope
 
+Before consulting repository documentation, read
+`~/.aiur/repo/<owner>/<repo>/executor/handoff.md`. It is the current machine's
+run-specific handoff; GitHub and Aiur still provide the authoritative live
+ticket and runtime state. Keep this single living document current whenever the
+operator gives a directive, frames the run's request, supplies context that
+cannot be recovered from the repository/history, or changes the Executor's
+role or authority. A directive not written into the handoff has not been
+recorded. When replacing an Executor, rewrite it wholesale with the next
+Executor's ranked work and hazards; never append another dated checkpoint.
+
 Record these decisions before making the corresponding mutations. Reuse clear
 answers already present in the request or handoff instead of asking again.
 

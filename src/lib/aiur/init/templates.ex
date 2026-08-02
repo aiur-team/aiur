@@ -14,6 +14,10 @@ defmodule Aiur.Init.Templates do
   @prompt_example_template File.read!(@prompt_example_path)
   @repo_placeholder "{{REPO}}"
 
+  @executor_handoff_example_path Path.expand("../../../../.aiur/examples/executor-handoff.md.example", __DIR__)
+  @external_resource @executor_handoff_example_path
+  @executor_handoff_example_template File.read!(@executor_handoff_example_path)
+
   @env_content "GITHUB_TOKEN=\n"
 
   # Embed the annotated example at compile time so the wizard works from a
@@ -68,6 +72,10 @@ defmodule Aiur.Init.Templates do
   @doc "Raw prompt_file template (with the `{{REPO}}` placeholder) that `aiur init` scaffolds."
   @spec prompt_file_template() :: String.t()
   def prompt_file_template, do: @prompt_example_template
+
+  @doc "Raw executor handoff template that `aiur init` seeds in the repository state node."
+  @spec executor_handoff_template() :: String.t()
+  def executor_handoff_template, do: @executor_handoff_example_template
 
   @doc "Prompt_file scaffold with the repo placeholder filled for `repo` (or a neutral fallback)."
   @spec prompt_file_scaffold(String.t() | nil) :: String.t()
