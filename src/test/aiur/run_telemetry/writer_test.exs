@@ -540,6 +540,33 @@ defmodule Aiur.RunTelemetry.WriterTest do
     assert dataset.warnings == []
   end
 
+  test "segment rolls keep queued lifecycle finishes ahead of future-clock boundaries", %{path: path} do
+    retention = [max_bytes: 1, prune_interval_bytes: 1]
+    future_clock = fn -> ~U[2026-07-11 12:00:10Z] end
+    start_timestamp = ~U[2026-07-11 12:00:00Z]
+    finish_timestamp = ~U[2026-07-11 12:00:01Z]
+
+    {:ok, writer} =
+      Writer.start_link(
+        name: nil,
+        path: path,
+        boot_id: "lifecycle-roll-future-clock",
+        clock: future_clock,
+        retention: retention
+      )
+
+    start = %{ticket: "1340", attempt_id: "attempt", event: "build_test", boundary: "start", operation_id: "build"}
+    finish = %{ticket: "1340", attempt_id: "attempt", event: "build_test", boundary: "end", operation_id: "build"}
+
+    assert :ok = Writer.record(writer, :lifecycle, start, timestamp: start_timestamp)
+    assert :ok = Writer.record(writer, :lifecycle, finish, timestamp: finish_timestamp)
+    assert :ok = Writer.flush(writer)
+
+    assert {:ok, dataset} = Dataset.build(path)
+    assert [%{status: "closed"}] = dataset.tickets["1340"].intervals
+    refute Enum.any?(dataset.tickets["1340"].intervals, &(&1.status in ["orphan_end", "open"]))
+  end
+
   test "periodic retention failure does not crash or stall the writer", %{path: path, root: root} do
     import ExUnit.CaptureLog
 
