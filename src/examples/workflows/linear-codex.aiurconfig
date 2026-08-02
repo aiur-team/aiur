@@ -12,10 +12,17 @@ tracker:
 linear:
   api_key: $LINEAR_API_KEY
   project_slug: your-project-slug
+observability:
+  # Set to false to disable run telemetry recording (Analytics page will be empty).
+  # telemetry_enabled: true
+  # Retain useful cross-session telemetry without splitting an individual boot.
+  telemetry_retention_max_bytes: 67108864
+  telemetry_retention_max_age_days: 30
 workspace:
   root: ~/code/aiur-workspaces
 hooks:
   after_create: |
+    # Aiur runs this in an empty atomic staging directory.
     git clone "$THIS_REPOSITORY_URL" .
   before_remove: |
     git status --short
@@ -23,6 +30,7 @@ agent:
   kind: codex
   max_concurrent_agents: 10
   max_turns: 20
+  # max_turns_by_complexity: {1: 6, 2: 12, 3: 20}
 codex:
   command: codex app-server
 prompt_file: linear-codex.prompt.md

@@ -1,7 +1,7 @@
 defmodule Aiur.Workspace.MaterializeTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.Workspace.Materialize
+  alias Aiur.Workspace.{Materialize, Provisioner}
 
   setup do
     tmp = Path.join(System.tmp_dir!(), "aiur_mat_#{System.unique_integer([:positive])}")
@@ -51,5 +51,33 @@ defmodule Aiur.Workspace.MaterializeTest do
     assert :ok = Materialize.materialize_from_base(base, workspace, "my-pr-branch")
     assert File.dir?(workspace)
     assert File.exists?(Path.join(workspace, "README.md"))
+  end
+
+  test "materialization atomically replaces a logs-only workspace without losing the event stream", %{
+    tmp: tmp,
+    base: base
+  } do
+    workspace = Path.join(tmp, "logs-only")
+    log_path = Path.join([workspace, "logs", "agent.ndjson"])
+    File.mkdir_p!(Path.dirname(log_path))
+    File.write!(log_path, "{\"event\":\"alert\"}\n")
+
+    assert :ok = Materialize.materialize_from_base(base, workspace)
+
+    assert File.exists?(Path.join(workspace, "README.md"))
+    assert File.read!(log_path) == "{\"event\":\"alert\"}\n"
+  end
+
+  test "failed materialization leaves logs intact for cold fallback", %{tmp: tmp} do
+    workspace = Path.join(tmp, "failed-materialize-logs")
+    log_path = Path.join([workspace, "logs", "agent.ndjson"])
+    File.mkdir_p!(Path.dirname(log_path))
+    File.write!(log_path, "{\"event\":\"startup\"}\n")
+
+    assert {:error, _reason} = Materialize.materialize_from_base(Path.join(tmp, "missing-base"), workspace)
+    assert File.read!(log_path) == "{\"event\":\"startup\"}\n"
+
+    assert {:ok, ^workspace, true} = Provisioner.cold_fallback_workspace(workspace)
+    assert File.read!(log_path) == "{\"event\":\"startup\"}\n"
   end
 end

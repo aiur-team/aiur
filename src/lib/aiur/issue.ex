@@ -3,9 +3,12 @@ defmodule Aiur.Issue do
   Normalized issue representation used across all tracker backends.
   """
 
+  alias Aiur.TrackerIdentity
+
   defstruct [
     :id,
     :identifier,
+    :tracker_identity,
     :title,
     :description,
     :priority,
@@ -15,7 +18,12 @@ defmodule Aiur.Issue do
     :assignee_id,
     :pr_head_ref,
     :selected_backend,
+    :creator_login,
+    :dispatch_revision,
     paused: false,
+    # GitHub ingestion resolves this before an issue can reach dispatch. Other
+    # tracker backends retain the safe compatibility default.
+    dispatch_authorized?: true,
     blocked_by: [],
     labels: [],
     assigned_to_worker: true,
@@ -26,6 +34,7 @@ defmodule Aiur.Issue do
   @type t :: %__MODULE__{
           id: String.t() | nil,
           identifier: String.t() | nil,
+          tracker_identity: TrackerIdentity.t() | nil,
           title: String.t() | nil,
           description: String.t() | nil,
           priority: integer() | nil,
@@ -38,7 +47,10 @@ defmodule Aiur.Issue do
           # every legacy tracker-issue unit.
           pr_head_ref: String.t() | nil,
           selected_backend: String.t() | nil,
+          creator_login: String.t() | nil,
+          dispatch_revision: String.t() | nil,
           paused: boolean(),
+          dispatch_authorized?: boolean(),
           labels: [String.t()],
           assigned_to_worker: boolean(),
           created_at: DateTime.t() | nil,
@@ -53,4 +65,13 @@ defmodule Aiur.Issue do
   @spec paused?(t()) :: boolean()
   def paused?(%__MODULE__{paused: paused}), do: paused == true
   def paused?(_issue), do: false
+
+  @doc """
+  Returns the issue's explicitly joinable or nonjoinable identity. Legacy and
+  compatibility records remain absent (`nil`) and must not be used as joins.
+  """
+  @spec tracker_identity(t() | map() | term()) :: TrackerIdentity.t() | nil
+  def tracker_identity(%__MODULE__{tracker_identity: identity}), do: identity
+  def tracker_identity(%{tracker_identity: identity}), do: identity
+  def tracker_identity(_issue), do: nil
 end

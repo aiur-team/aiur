@@ -9,7 +9,6 @@ defmodule Aiur.Orchestrator.PushRoutingTest do
       completed: MapSet.new(),
       claimed: MapSet.new(),
       retry_attempts: %{},
-      codex_thrash_budget: %{},
       queue_store: nil,
       last_polled_issues: %{},
       todo_over_capacity_alert_active: false,
@@ -21,7 +20,7 @@ defmodule Aiur.Orchestrator.PushRoutingTest do
       max_concurrent_agents: nil,
       session_max_concurrent_agents: nil,
       effective_concurrent_agents: nil,
-      load_envelope_last_decrease_ms: nil,
+      load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil},
       next_poll_due_at_ms: nil,
       poll_check_in_progress: nil,
       tick_timer_ref: nil,
@@ -42,6 +41,23 @@ defmodule Aiur.Orchestrator.PushRoutingTest do
       state = base_state()
       result = PushRouting.maybe_pause_on_request(state, "unknown-999")
       assert result == state
+    end
+
+    test "keeps a requested pause working until the worker confirms it" do
+      running_entry = %{
+        identifier: "ISSUE-1",
+        pid: self(),
+        issue: %Aiur.Issue{id: "issue-1", identifier: "ISSUE-1", state: "active"},
+        control: %{status: :working}
+      }
+
+      state = %{base_state() | running: %{"issue-1" => running_entry}}
+
+      result = PushRouting.maybe_pause_on_request(state, "ISSUE-1")
+
+      refute_receive {:pause_agent, _request_id}
+      assert result.running["issue-1"].control.status == :working
+      refute Map.has_key?(result.running["issue-1"], :paused_reason)
     end
   end
 

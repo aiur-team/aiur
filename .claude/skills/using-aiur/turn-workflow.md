@@ -6,6 +6,7 @@ GitHub issue state is label-based:
 
 - `agent:todo`
 - `agent:in-progress`
+- `agent:ci-wait`
 - `agent:human-review`
 - `agent:rework`
 - `agent:merging`
@@ -26,10 +27,22 @@ GitHub issue state is label-based:
    `ce-brainstorm` -> `ce-plan` -> `ce-work` -> `ce-code-review`.
 8. Smaller asks may skip brainstorm, plan, or review when the extra step would
    be overhead, but err on the side of using these skills when in doubt.
-9. Move the issue to `Human Review` when implementation work is ready for review.
-10. Move the issue to `Done` only when the issue explicitly says the agent should
+9. Before CI or review handoff, fetch the configured integration base and make
+   its current remote head an ancestor of your exact PR head. Integrate or
+   re-cut and resolve semantic drift yourself; do not leave stale-code updates
+   for the Executor or reviewers.
+10. When implementation and draft-PR self-review are complete and only CI
+    remains, move the issue to `agent:ci-wait` and end the turn. The daemon owns
+    continuous CI polling. Do not loop on `gh pr checks` in a live agent turn.
+    A stub standing where an acceptance criterion should be means the work is
+    not complete — declare the missing dependency with `aiur_declare_blocker`
+    instead of advancing the label.
+11. On a delivered CI pass, recheck current-base ancestry. If the base moved,
+    update and validate your branch and return to `agent:ci-wait`; otherwise
+    mark the PR ready and move the issue to `Human Review`.
+12. Move the issue to `Done` only when the issue explicitly says the agent should
     close it out without human review.
-11. Before ending a turn while the issue remains active, update the handoff with
+13. Before ending a turn while the issue remains active, update the handoff with
     current phase, key decisions, validation completed, and remaining next steps.
 
 ## PR review feedback loop
@@ -102,7 +115,7 @@ actually enter or leave the phase, not retroactively:
 
 Aiur automatically scopes every agent-emitted name under
 `ticket.<your-issue>.agent.`, so you pass the bare phase name and the event bus
-does the rest. (The operator-bar `progress` / `progress.checkin` emits are a
+does the rest. (The Executor-bar `progress` / `progress.checkin` emits are a
 separate protocol — they stay in your per-turn prompt, paired with these phase
 alerts.)
 

@@ -1,0 +1,25 @@
+{
+  "name": "@aiur/streamdeck",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint .",
+    "test": "npm run typecheck:test && vitest run --coverage",
+    "typecheck:test": "tsc -p tsconfig.test.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.0",
+    "@types/node": "^24.13.3",
+    "@vitest/coverage-v8": "^4.1.10",
+    "eslint": "^10.8.0",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^4.1.10"
+  },
+  "dependencies": {
+    "usb": "^2.18.0"
+  }
+}

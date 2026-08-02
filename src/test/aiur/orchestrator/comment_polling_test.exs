@@ -24,7 +24,6 @@ defmodule Aiur.Orchestrator.CommentPollingTest do
       completed: MapSet.new(),
       claimed: MapSet.new(),
       retry_attempts: %{},
-      codex_thrash_budget: %{},
       queue_store: nil,
       last_polled_issues: %{},
       todo_over_capacity_alert_active: false,
@@ -36,7 +35,7 @@ defmodule Aiur.Orchestrator.CommentPollingTest do
       max_concurrent_agents: nil,
       session_max_concurrent_agents: nil,
       effective_concurrent_agents: nil,
-      load_envelope_last_decrease_ms: nil,
+      load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil},
       next_poll_due_at_ms: nil,
       poll_check_in_progress: nil,
       tick_timer_ref: nil,
@@ -76,6 +75,87 @@ defmodule Aiur.Orchestrator.CommentPollingTest do
 
       assert result.events_etag == "abc123"
       assert_receive {:firehose_request, %{etag: "abc123"}}
+    end
+
+    test "persistent merge-store failure retries finitely, degrades, alerts, and advances" do
+      state = %{
+        base_state()
+        | events_etag: "previous-etag",
+          events_last_id: "last-seen"
+      }
+
+      event = %{
+        "id" => "new-merge",
+        "type" => "PullRequestEvent",
+        "created_at" => "2026-07-12T18:00:00Z",
+        "repo" => %{"name" => "owner/repo"},
+        "payload" => %{
+          "action" => "closed",
+          "pull_request" => %{
+            "number" => 42,
+            "title" => "Merged feature",
+            "body" => "Durable outcome",
+            "html_url" => "https://github.com/owner/repo/pull/42",
+            "merged" => true,
+            "merged_at" => "2026-07-12T18:00:00Z",
+            "head" => %{"ref" => "aiur/983-history", "sha" => "head-42"}
+          }
+        }
+      }
+
+      request_fun = fn
+        %{etag: "new-etag"} ->
+          {:ok, %{status: 304, headers: [{"ETag", "new-etag"}], body: ""}}
+
+        %{etag: "previous-etag"} ->
+          {:ok, %{status: 200, headers: [{"ETag", "new-etag"}], body: [event, %{"id" => "last-seen"}]}}
+      end
+
+      {:ok, attempts} = Agent.start_link(fn -> 0 end)
+      parent = self()
+
+      opts = [
+        request_fun: request_fun,
+        recent_merge_fun: fn _merge ->
+          Agent.update(attempts, &(&1 + 1))
+          {:error, {:store_unavailable, {:unavailable, :read_only}}}
+        end,
+        recent_merge_alert_fun: fn topic, message, alert_opts ->
+          send(parent, {:persistence_alert, topic, message, alert_opts})
+          :ok
+        end,
+        boot_time: ~U[2026-07-12 17:00:00Z] |> DateTime.to_unix(),
+        run_id: "current-run"
+      ]
+
+      first = CommentPolling.poll_github_firehose(state, opts)
+      second = CommentPolling.poll_github_firehose(first, opts)
+
+      assert first.events_etag == "previous-etag"
+      assert first.events_last_id == "last-seen"
+      assert second.events_etag == "previous-etag"
+      assert second.events_last_id == "last-seen"
+
+      third = CommentPolling.poll_github_firehose(second, opts)
+
+      assert third.events_etag == "new-etag"
+      assert third.events_last_id == "new-merge"
+      assert third.github_connectivity[:recent_merge_store] == {:transport, 3}
+      assert third.github_poll_delays[:recent_merge_store] == 4_000
+      assert Agent.get(attempts, & &1) == 3
+
+      assert_receive {:persistence_alert, "recent_merge_store.persistence_failed", message, alert_opts}
+      assert message =~ "read-only"
+      assert alert_opts[:needs_attention]
+      refute_receive {:persistence_alert, _, _, _}
+
+      fourth = CommentPolling.poll_github_firehose(third, opts)
+
+      assert fourth.events_etag == "new-etag"
+      assert fourth.events_last_id == "new-merge"
+      assert fourth.github_connectivity[:recent_merge_store] == {:transport, 3}
+      assert Agent.get(attempts, & &1) == 3
+      refute_receive {:persistence_alert, _, _, _}
     end
   end
 

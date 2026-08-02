@@ -6,7 +6,7 @@ defmodule Aiur.OrchestratorRemoteControlTest do
 
   alias Aiur.Issue
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.{RemoteControlMode, State}
 
   @remote_label "model:remote"
 
@@ -41,12 +41,32 @@ defmodule Aiur.OrchestratorRemoteControlTest do
   end
 
   describe "promote (set on): gating before any label op" do
+    test "a missing lifecycle-hook listener rejects promotion without stopping the agent" do
+      agent_pid = spawn(fn -> Process.sleep(:infinity) end)
+      agent_ref = Process.monitor(agent_pid)
+
+      entry =
+        running_entry("CLA-NODASH", ["model:claude"],
+          pid: agent_pid,
+          ref: agent_ref,
+          workspace_path: "/tmp/ws"
+        )
+
+      state = state_with([entry])
+
+      assert {{:error, :remote_control_requires_dashboard}, ^state} =
+               RemoteControlMode.set_remote_control_reply(state, "CLA-NODASH", true, dashboard_url_fun: fn -> nil end)
+
+      assert Process.alive?(agent_pid)
+      Process.exit(agent_pid, :kill)
+    end
+
     test "a claude agent on a remote worker is unsupported in v1" do
       entry = running_entry("CLA-1", ["model:claude"], worker_host: "box-2", workspace_path: "/tmp/ws")
       state = state_with([entry])
 
       assert {{:error, :remote_unsupported}, ^state} =
-               Orchestrator.set_remote_control_for_test(state, "CLA-1", true)
+               RemoteControlMode.set_remote_control_reply(state, "CLA-1", true)
     end
 
     test "an agent with no workspace yet is unavailable" do
@@ -54,7 +74,7 @@ defmodule Aiur.OrchestratorRemoteControlTest do
       state = state_with([entry])
 
       assert {{:error, :workspace_unavailable}, ^state} =
-               Orchestrator.set_remote_control_for_test(state, "CLA-2", true)
+               RemoteControlMode.set_remote_control_reply(state, "CLA-2", true)
     end
 
     test "a codex agent with no workspace is unavailable (codex IS promotable once gates pass)" do
@@ -62,14 +82,14 @@ defmodule Aiur.OrchestratorRemoteControlTest do
       state = state_with([entry])
 
       assert {{:error, :workspace_unavailable}, ^state} =
-               Orchestrator.set_remote_control_for_test(state, "CDX-1", true)
+               RemoteControlMode.set_remote_control_reply(state, "CDX-1", true)
     end
 
     test "an identifier that is not running returns :not_running" do
       state = state_with([running_entry("CLA-3", ["model:claude"], workspace_path: "/tmp/ws")])
 
       assert {{:error, :not_running}, ^state} =
-               Orchestrator.set_remote_control_for_test(state, "GHOST-9", true)
+               RemoteControlMode.set_remote_control_reply(state, "GHOST-9", true)
     end
 
     test "promoting an already-remote agent is an idempotent no-op" do
@@ -77,7 +97,7 @@ defmodule Aiur.OrchestratorRemoteControlTest do
       state = state_with([entry])
 
       assert {{:ok, :on}, ^state} =
-               Orchestrator.set_remote_control_for_test(state, "REM-1", true)
+               RemoteControlMode.set_remote_control_reply(state, "REM-1", true)
     end
   end
 
@@ -87,14 +107,14 @@ defmodule Aiur.OrchestratorRemoteControlTest do
       state = state_with([entry])
 
       assert {{:ok, :off}, ^state} =
-               Orchestrator.set_remote_control_for_test(state, "CLA-4", false)
+               RemoteControlMode.set_remote_control_reply(state, "CLA-4", false)
     end
 
     test "an identifier that is not running returns :not_running" do
       state = state_with([running_entry("REM-2", [@remote_label], workspace_path: "/tmp/ws")])
 
       assert {{:error, :not_running}, ^state} =
-               Orchestrator.set_remote_control_for_test(state, "GHOST-9", false)
+               RemoteControlMode.set_remote_control_reply(state, "GHOST-9", false)
     end
   end
 
@@ -130,7 +150,7 @@ defmodule Aiur.OrchestratorRemoteControlTest do
 
       {result, new_state} =
         capture_and_return(fn ->
-          Orchestrator.set_remote_control_for_test(state, "CLA-FAIL", true)
+          RemoteControlMode.set_remote_control_reply(state, "CLA-FAIL", true, dashboard_url_fun: fn -> "http://127.0.0.1:4000" end)
         end)
 
       assert {:error, {:rc_label_failed, :unsupported}} = result
@@ -176,7 +196,7 @@ defmodule Aiur.OrchestratorRemoteControlTest do
 
       {result, _new_state} =
         capture_and_return(fn ->
-          Orchestrator.set_remote_control_for_test(state, "CLA-P", true)
+          RemoteControlMode.set_remote_control_reply(state, "CLA-P", true, dashboard_url_fun: fn -> "http://127.0.0.1:4000" end)
         end)
 
       assert result == {:ok, :on}
@@ -202,7 +222,7 @@ defmodule Aiur.OrchestratorRemoteControlTest do
 
       {result, _new_state} =
         capture_and_return(fn ->
-          Orchestrator.set_remote_control_for_test(state, "CDX-P", true)
+          RemoteControlMode.set_remote_control_reply(state, "CDX-P", true, dashboard_url_fun: fn -> "http://127.0.0.1:4000" end)
         end)
 
       assert result == {:ok, :on}
@@ -225,7 +245,7 @@ defmodule Aiur.OrchestratorRemoteControlTest do
 
       {result, _new_state} =
         capture_and_return(fn ->
-          Orchestrator.set_remote_control_for_test(state, "REM-P", false)
+          RemoteControlMode.set_remote_control_reply(state, "REM-P", false)
         end)
 
       assert result == {:ok, :off}
@@ -238,20 +258,20 @@ defmodule Aiur.OrchestratorRemoteControlTest do
     test "a labeled entry with no captured URL reads as nil (RC not attached)" do
       entry = running_entry("REM-S", [@remote_label], [])
 
-      assert Orchestrator.remote_control_summary_for_test(entry) == nil
+      assert RemoteControlMode.remote_control_summary(entry) == nil
     end
 
     test "a labeled entry surfaces the captured REPL RC session URL" do
       url = "https://claude.ai/code/session_01LguPUDk5vT6Tt31FH2KUmG"
       entry = running_entry("REM-U", [@remote_label], repl_rc_session_url: url)
 
-      assert Orchestrator.remote_control_summary_for_test(entry) == %{status: :on, session_url: url}
+      assert RemoteControlMode.remote_control_summary(entry) == %{status: :on, session_url: url}
     end
 
     test "a non-remote issue reads as nil" do
       entry = running_entry("CLA-S", ["model:claude"], [])
 
-      assert Orchestrator.remote_control_summary_for_test(entry) == nil
+      assert RemoteControlMode.remote_control_summary(entry) == nil
     end
   end
 

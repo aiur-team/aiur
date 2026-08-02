@@ -325,14 +325,34 @@ defmodule Aiur.WorkflowTest do
       assert Workflow.resolve_config_path(candidates) == repo_new
     end
 
+    # Anchored at the *effective* HOME, not `Path.expand("~")`. The latter
+    # resolves the home the VM captured at boot and ignores a later
+    # `System.put_env`, which silently defeated the suite's HOME sandbox and let
+    # discovery reach the developer's real `~/.aiur/config`.
     test "config_path_candidates is the 4-step precedence list anchored at cwd and home", %{dir: dir} do
+      home = System.get_env("HOME")
+
       File.cd!(dir, fn ->
         assert [repo_new, repo_legacy, global_new, global_legacy] = Workflow.config_path_candidates()
         assert repo_new == Path.join([File.cwd!(), ".aiur", "config"])
         assert repo_legacy == Path.join(File.cwd!(), ".aiurconfig")
-        assert global_new == Path.join([Path.expand("~"), ".aiur", "config"])
-        assert global_legacy == Path.join(Path.expand("~"), ".aiurconfig")
+        assert global_new == Path.join([home, ".aiur", "config"])
+        assert global_legacy == Path.join(home, ".aiurconfig")
       end)
+    end
+
+    test "a runtime HOME change is honored, so the suite's sandbox actually holds", %{dir: dir} do
+      previous_home = System.get_env("HOME")
+      System.put_env("HOME", "/tmp/aiur-home-probe")
+
+      try do
+        File.cd!(dir, fn ->
+          assert [_repo_new, _repo_legacy, global_new, _global_legacy] = Workflow.config_path_candidates()
+          assert global_new == "/tmp/aiur-home-probe/.aiur/config"
+        end)
+      after
+        if previous_home, do: System.put_env("HOME", previous_home), else: System.delete_env("HOME")
+      end
     end
   end
 end

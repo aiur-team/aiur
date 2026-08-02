@@ -391,7 +391,7 @@ function ocHistory(line: OcLine): string {
   }
 }
 
-// Operator typing: deterministic per-char reveal offsets (seconds from
+// Executor typing: deterministic per-char reveal offsets (seconds from
 // typeStart), seeded so the same loopSec always yields the same substring
 // (R-V4/R-V9). Speed varies ~80–120ms/char but is a pure function of index.
 const TYPE_OFFSETS: number[] = (() => {
@@ -439,7 +439,7 @@ function ocInputField(loopSec: number): string[] {
   ];
 }
 
-// The posted operator message — a full-width tinted band with the solid bar.
+// The posted Executor message — a full-width tinted band with the solid bar.
 function ocUserBlock(text: string): string {
   return ocBand(cat(ocBar(), raw(" "), raw(trunc(text, ocW - 2))), "oc-userblock");
 }
@@ -447,7 +447,7 @@ function ocUserBlock(text: string): string {
 // The scrollback transcript in chronological order (oldest first). The history
 // + alert + question head are present the moment the pane opens (R-V on-open);
 // the three options post one-per-second from optStart, each with a greyed
-// elaboration; the operator's posted block lands at sendAt and the reply at
+// elaboration; the Executor’s posted block lands at sendAt and the reply at
 // replyAt. The renderer bottom-anchors this list so the newest line sits just
 // above the input and older lines scroll off the top (real opencode behavior).
 function ocTranscript(loopSec: number): string[] {
@@ -477,7 +477,7 @@ function ocTranscript(loopSec: number): string[] {
 // Render the opencode pane as a fixed-height array of OC_PANE_W-col rows
 // (`rows` total). Pure function of loopSec/spinIdx; the join in renderFrame
 // stitches it beside the abbreviated dashboard. Turns appear whole on the 1Hz
-// repaint; only the operator's input types char-by-char (R-V4) and the chip
+// repaint; only the Executor’s input types char-by-char (R-V4) and the chip
 // spinner ticks. The transcript is bottom-anchored: when it is shorter than the
 // pane the top is padded with blanks; when longer, the oldest lines scroll off.
 export function buildOpencodeLines(
@@ -504,7 +504,7 @@ export function buildOpencodeLines(
   return [ocPlain(chip), ...transcript, ocBlank(), ...field];
 }
 
-// The ticket the operator "takes the wheel" on during the beat (R3).
+// The ticket the Executor "takes the wheel" on during the beat (R3).
 const DRIVEN_ID = 321;
 
 // Selection-cursor row index (0..VISIBLE_TICKETS-1) as a pure function of

@@ -154,8 +154,8 @@ workpad update ~15 min on a codex backend → add `model:claude` to reroute).
 
 ## 8. Phase model and duty split
 
-Phases are aiur-loop runs (nominally 3, more is fine — the brief allows it).
-Within a phase, concurrent tickets never share a file. You (the loop-running
+Phases are bounded `aiur-run` Executor runs (nominally 3, more is fine — the brief allows it).
+Within a phase, concurrent tickets never share a file. You (the Executor
 agent) own everything between conversion and completion: open each phase's
 batch, monitor, keep PRs ready and `v2` green, resolve conflicts, merge one
 at a time (update-branch + fresh CI before each), run at-merge and phase-exit
@@ -178,7 +178,7 @@ merges still work. Full detail: `phasing-and-parallelization.md`.
 
 ## 10. Running aiur
 
-**Review the `aiur-loop` and `aiur-run` skills before your first run.**
+**Review the `aiur-run` skill and its canonical Executor reference before your first run.**
 **Run `aiur build` before every background+debug launch or restart (including
 after pause/resume), and after merging a phase's PRs** — aiur runs on the very
 code being refactored, so the release must be rebuilt to include the latest

@@ -4,12 +4,13 @@ defmodule Aiur.Claude.HookEventsTest do
   alias Aiur.Claude.HookEvents
 
   describe "normalize/1" do
-    test "classifies the three lifecycle events and unknowns" do
+    test "classifies the lifecycle events and unknowns" do
       assert HookEvents.normalize(%{"hook_event_name" => "UserPromptSubmit"}).event ==
                :user_prompt_submit
 
       assert HookEvents.normalize(%{"hook_event_name" => "PostToolUse"}).event == :post_tool_use
       assert HookEvents.normalize(%{"hook_event_name" => "Stop"}).event == :stop
+      assert HookEvents.normalize(%{"hook_event_name" => "StopFailure"}).event == :stop_failure
       assert HookEvents.normalize(%{"hook_event_name" => "Whatever"}).event == :unknown
       assert HookEvents.normalize(%{}).event == :unknown
     end
@@ -66,7 +67,10 @@ defmodule Aiur.Claude.HookEventsTest do
       :ok = HookEvents.subscribe("MT-HOOK-A")
 
       :ok =
-        HookEvents.dispatch("MT-HOOK-B", %{"hook_event_name" => "Stop", "last_assistant_message" => "x"})
+        HookEvents.dispatch("MT-HOOK-B", %{
+          "hook_event_name" => "Stop",
+          "last_assistant_message" => "x"
+        })
 
       refute_receive {:claude_hook, _, _}, 50
     end

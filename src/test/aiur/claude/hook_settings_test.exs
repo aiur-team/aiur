@@ -4,14 +4,14 @@ defmodule Aiur.Claude.HookSettingsTest do
   alias Aiur.Claude.HookSettings
 
   describe "settings/2" do
-    test "wires all three lifecycle hooks to the agent's endpoint" do
+    test "wires all four lifecycle hooks to the agent's endpoint" do
       settings = HookSettings.settings("101", "http://127.0.0.1:4000")
 
       assert settings["hooks"] |> Map.keys() |> Enum.sort() ==
-               ["PostToolUse", "Stop", "UserPromptSubmit"]
+               ["PostToolUse", "Stop", "StopFailure", "UserPromptSubmit"]
 
       command =
-        settings["hooks"]["Stop"]
+        settings["hooks"]["StopFailure"]
         |> hd()
         |> Map.fetch!("hooks")
         |> hd()

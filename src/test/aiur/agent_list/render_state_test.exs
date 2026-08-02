@@ -7,7 +7,8 @@ defmodule Aiur.AgentList.RenderStateTest do
     summaries selection_index selection_focus help_visible? max_agents_alert? columns rows project_label
     dashboard_url agent_kind agent_count max_agents visible_sessions debug_mode? perf_summary warmth_events
     debug_events attach_state started_slots fully_warmed_slots opened_panes agents_with_content
-    latest_event_by_id phase_by_identifier open_attentions_by_id progress_by_id warm_status_dark_mode?
+    latest_event_by_id phase_by_identifier open_attentions_by_id progress_by_id
+    activity_status_by_identifier warm_status_dark_mode?
     remote_control_hint prewarm_active? prewarm_phase truecolor?
   ]a
 
@@ -69,6 +70,15 @@ defmodule Aiur.AgentList.RenderStateTest do
 
     test "returns nil when the call throws" do
       assert RenderState.safe_call(fn -> throw(:nope) end) == nil
+    end
+  end
+
+  describe "dashboard_url/1" do
+    test "renders only a confirmed bound-listener URL" do
+      assert RenderState.dashboard_url(fn -> "http://127.0.0.1:4321" end) ==
+               "http://127.0.0.1:4321/"
+
+      assert RenderState.dashboard_url(fn -> nil end) == nil
     end
   end
 

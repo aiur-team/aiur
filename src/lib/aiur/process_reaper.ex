@@ -69,6 +69,12 @@ defmodule Aiur.ProcessReaper do
   Meta:
     * `:comm` — substring expected in `/proc/<pid>/cmdline`; guards against
       pid reuse. Pane refs need no guard.
+    * `:ticket` / `:backend` — non-sensitive actor attribution for runtime
+      observers such as debug telemetry.
+    * `:worker_host` / `:remote` — identifies roots that execute remotely and
+      therefore cannot be sampled from the daemon host.
+
+  Attribution fields are observer-only and never alter reap behavior.
   """
   @spec register(kind(), ref() | {:os_pid, nil | String.t()}, keyword()) :: :ok
   def register(kind, ref, meta \\ []) when kind in [:agent, :serve] and is_tuple(ref),

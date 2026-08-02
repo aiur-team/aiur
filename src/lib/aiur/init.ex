@@ -78,7 +78,7 @@ defmodule Aiur.Init do
         Resume.backfill_missing_sections(io, deps, location, tracker, config, effective_target)
         Prewarm.maybe_resume_prewarm(io, deps, tracker, config)
         Aiur.Init.Codeowners.setup_codeowners(io, deps, tracker)
-        provision(io, deps, tracker, Resume.agents_from_config(config))
+        provision(io, deps, tracker, Resume.agents_from_config(config), rate_limit_pair(config))
 
       {:error, reason} ->
         {:error,
@@ -89,6 +89,7 @@ defmodule Aiur.Init do
 
   defp fresh_setup(io, deps, location, target) do
     tracker = Questions.prompt_tracker(io, deps, location)
+    tracker = Aiur.Init.BotAccount.maybe_prompt(io, deps, tracker)
     agents = Questions.prompt_agents(io)
     routing = Questions.prompt_routing(io, agents)
     rate_limit_fallback = Questions.prompt_rate_limit_fallback(io, agents)
@@ -101,6 +102,7 @@ defmodule Aiur.Init do
     polling = Questions.prompt_int(io, "How often should aiur check the tracker for new work? (seconds)", 30, 1)
     prompt_file = if location == :global, do: "", else: io.input.("Per-repo agent prompt file", @prompt_basename, nil)
     prewarm = Prewarm.prompt_prewarm(io, deps, location)
+    Prewarm.maybe_first_prewarm(io, deps, tracker, prewarm)
     alerts = Alerts.prompt_alerts(io, deps, target)
 
     fills =
@@ -133,7 +135,6 @@ defmodule Aiur.Init do
         Scaffold.setup_env(io, deps, tracker)
         Scaffold.maybe_offer_gitignore(io, deps, location)
         Aiur.Init.Codeowners.setup_codeowners(io, deps, tracker)
-        Prewarm.maybe_first_prewarm(io, deps, tracker, prewarm)
         provision(io, deps, tracker, agents)
 
       {:error, reason} ->
@@ -141,11 +142,13 @@ defmodule Aiur.Init do
     end
   end
 
-  defp provision(io, deps, %{kind: "github"} = tracker, agents) do
+  defp provision(io, deps, tracker, agents, pair \\ default_rate_limit_pair())
+
+  defp provision(io, deps, %{kind: "github"} = tracker, agents, pair) do
     Aiur.Init.AgentCli.check_agent_clis(io, deps, agents)
 
     if github_token_present?(deps) do
-      case Aiur.Init.Labels.setup_labels(io, deps, tracker, agents) do
+      case Aiur.Init.Labels.setup_labels(io, deps, tracker, agents, pair) do
         :ok -> final_screen(io)
         :error -> :ok
       end
@@ -156,20 +159,27 @@ defmodule Aiur.Init do
     :ok
   end
 
-  defp provision(io, deps, %{kind: "linear"} = tracker, agents) do
+  defp provision(io, deps, %{kind: "linear"} = tracker, agents, _pair) do
     Aiur.Init.AgentCli.check_agent_clis(io, deps, agents)
     linear_walkthrough(io, tracker)
     final_screen(io)
     :ok
   end
 
-  defp provision(io, deps, _tracker, agents) do
+  defp provision(io, deps, _tracker, agents, _pair) do
     Aiur.Init.AgentCli.check_agent_clis(io, deps, agents)
     final_screen(io)
     :ok
   end
 
   defp github_token_present?(deps), do: deps.github_token.() not in [nil, ""]
+
+  defp default_rate_limit_pair, do: {Aiur.CodingAgent.default_backend(), Aiur.CodingAgent.default_rate_limit_fallback()}
+
+  defp rate_limit_pair(config) do
+    agent = Map.get(config, "agent", %{})
+    {Map.get(agent, "rate_limit_primary", Aiur.CodingAgent.default_backend()), Map.get(agent, "rate_limit_fallback", Aiur.CodingAgent.default_rate_limit_fallback())}
+  end
 
   @spec runtime_deps() :: deps()
   def runtime_deps, do: Runtime.runtime_deps()

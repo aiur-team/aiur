@@ -1,11 +1,17 @@
 defmodule Aiur.HttpServerCredentialGateTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias Aiur.HttpServer
 
   setup do
     prev_user = System.get_env("AIUR_DASHBOARD_USERNAME")
     prev_pass = System.get_env("AIUR_DASHBOARD_PASSWORD")
+    # A passing credential gate lets HttpServer.start_link mutate the shared
+    # endpoint application env (dashboard_auth_required, bind config, ...).
+    # Capture and restore it so those writes never leak into later tests.
+    prev_endpoint = Application.get_env(:aiur, AiurWeb.Endpoint)
     System.delete_env("AIUR_DASHBOARD_USERNAME")
     System.delete_env("AIUR_DASHBOARD_PASSWORD")
 
@@ -16,6 +22,11 @@ defmodule Aiur.HttpServerCredentialGateTest do
 
       restore.("AIUR_DASHBOARD_USERNAME", prev_user)
       restore.("AIUR_DASHBOARD_PASSWORD", prev_pass)
+
+      case prev_endpoint do
+        nil -> Application.delete_env(:aiur, AiurWeb.Endpoint)
+        config -> Application.put_env(:aiur, AiurWeb.Endpoint, config)
+      end
     end)
 
     :ok
@@ -54,6 +65,39 @@ defmodule Aiur.HttpServerCredentialGateTest do
       # and `:ignore` from this call would only happen if Config.server_port
       # were negative which it isn't in test env.
       refute match?({:rejected_by_credential_gate, _}, result)
+    end
+  end
+
+  describe "writable dashboard without credentials" do
+    test "refuses to start and explains how to configure authentication" do
+      log =
+        capture_log(fn ->
+          assert :ignore =
+                   HttpServer.start_link(
+                     host: "127.0.0.1",
+                     port: 0,
+                     dashboard_writable: true,
+                     orchestrator: Aiur.Orchestrator
+                   )
+        end)
+
+      assert log =~ "refusing to start with observability.dashboard_writable enabled"
+      assert log =~ "AIUR_DASHBOARD_USERNAME"
+      assert log =~ "AIUR_DASHBOARD_PASSWORD"
+    end
+
+    test "requires both credentials" do
+      System.put_env("AIUR_DASHBOARD_USERNAME", "alice")
+
+      assert capture_log(fn ->
+               assert :ignore =
+                        HttpServer.start_link(
+                          host: "127.0.0.1",
+                          port: 0,
+                          dashboard_writable: true,
+                          orchestrator: Aiur.Orchestrator
+                        )
+             end) =~ "without basic-auth credentials"
     end
   end
 

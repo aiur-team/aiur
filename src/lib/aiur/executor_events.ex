@@ -1,0 +1,308 @@
+defmodule Aiur.ExecutorEvents do
+  @moduledoc """
+  Durable, Executor-scoped events.
+
+  The Exchange provides immediate fan-out, while this small journal and cursor
+  store make an Executor restart safe. It deliberately has no ticket identity:
+  an Executor is a run principal, not another managed ticket agent.
+  """
+
+  require Logger
+
+  alias Aiur.Alerts
+  alias Aiur.Config.Paths
+  alias Aiur.Decision
+  alias Aiur.DecisionLog
+  alias Aiur.Events.Exchange
+  alias Aiur.Events.IdGenerator
+  alias Aiur.Events.Publisher
+  alias Aiur.Events.Sanitizer
+  alias Aiur.Events.Topic
+  alias Aiur.JSONSafe
+  alias Aiur.JsonStore
+
+  @default_topic "executor.#"
+
+  @doc """
+  Publish an `executor.decision.deferred` event for a decision.
+
+  The decision_id dedup gates only the journal append: a repeat call for an
+  already-journaled decision is a no-op returning the cached event id. An
+  explicit `renotify: true` (the dashboard's "Notify Executor again") always
+  publishes a fresh event — new event id, same decision_id, `renotify: true`
+  attribute — so listeners whose cursor already passed the original id are
+  woken again.
+  """
+  @spec publish_deferred(Decision.t(), keyword()) :: {:ok, pos_integer(), non_neg_integer()} | {:error, term()}
+  def publish_deferred(%Decision{} = decision, opts \\ []) do
+    renotify? = Keyword.get(opts, :renotify, false)
+
+    case deferred_event_id(decision.decision_id) do
+      {:ok, _id} when renotify? ->
+        publish("executor.decision.deferred", deferred_payload(decision, true), source: :internal)
+
+      {:ok, id} ->
+        {:ok, id, 0}
+
+      :not_found ->
+        publish("executor.decision.deferred", deferred_payload(decision, false), source: :internal)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @spec publish(String.t(), map(), keyword()) :: {:ok, pos_integer(), non_neg_integer()} | {:error, term()}
+  def publish(topic, payload, opts \\ []) when is_binary(topic) and is_map(payload) do
+    source = Keyword.get(opts, :source, :executor_cli)
+
+    with :ok <- validate_topic(topic),
+         :ok <- reject_github_source(source),
+         :ok <- reject_github_payload_source(payload),
+         {:ok, id} <- IdGenerator.reserve_durable_id(),
+         event <- payload |> JSONSafe.normalize() |> Map.merge(%{"id" => id, "topic" => topic, "source" => source_name(source)}),
+         :ok <- append_event(event) do
+      Publisher.publish_persisted(topic, payload, id, source: source)
+    end
+  end
+
+  @spec subscribe(String.t()) :: :ok | {:error, term()}
+  def subscribe(topic) when is_binary(topic) do
+    with :ok <- validate_topic(topic) do
+      state = subscription_state()
+      subscriptions = Enum.uniq(state["subscribed_to"] ++ [topic])
+      persist_subscription_state(%{state | "subscribed_to" => subscriptions})
+    end
+  end
+
+  @spec unsubscribe(String.t()) :: :ok | {:error, term()}
+  def unsubscribe(topic) when is_binary(topic) do
+    with :ok <- validate_topic(topic) do
+      state = subscription_state()
+      persist_subscription_state(%{state | "subscribed_to" => Enum.reject(state["subscribed_to"], &(&1 == topic))})
+    end
+  end
+
+  @spec subscriptions() :: [String.t()]
+  def subscriptions, do: subscription_state()["subscribed_to"]
+
+  @spec last_seen_event_id() :: non_neg_integer() | nil
+  def last_seen_event_id, do: subscription_state()["last_seen_event_id"]
+
+  @doc "Streams persisted missed events, then live Exchange events, as JSON lines until interrupted."
+  @spec listen(keyword()) :: no_return()
+  def listen(opts \\ []) do
+    topic = Keyword.get(opts, :topic, @default_topic)
+    :ok = subscribe(topic)
+    patterns = subscriptions()
+
+    try do
+      Enum.each(patterns, &Exchange.subscribe/1)
+
+      case replay(patterns, last_seen_event_id()) do
+        {:ok, events} ->
+          Enum.each(events, &deliver/1)
+          receive_events(patterns)
+
+        {:error, reason} ->
+          raise "Executor event journal is unavailable: #{inspect(reason)}"
+      end
+    after
+      Enum.each(patterns, &safe_unsubscribe/1)
+    end
+  end
+
+  @doc false
+  @spec replay([String.t()], non_neg_integer() | nil) :: {:ok, [map()]} | {:error, term()}
+  def replay(patterns, cursor) when is_list(patterns) do
+    cursor = cursor || 0
+
+    with {:ok, events} <- journal_events() do
+      {:ok,
+       events
+       |> Enum.filter(&(Map.get(&1, "id", 0) > cursor and matches_any?(patterns, Map.get(&1, "topic"))))
+       |> Enum.sort_by(&Map.get(&1, "id", 0))}
+    end
+  end
+
+  defp receive_events(patterns) do
+    receive do
+      {:event, event} ->
+        topic = Map.get(event, :topic) || Map.get(event, "topic")
+
+        if matches_any?(patterns, topic) do
+          deliver(event)
+        end
+
+        receive_events(patterns)
+    end
+  end
+
+  defp deliver(event) do
+    id = Map.get(event, :id) || Map.get(event, "id")
+
+    if not is_integer(id) or id > (last_seen_event_id() || 0) do
+      IO.puts(Jason.encode!(scrub_untrusted_output(event)))
+      advance_cursor(id)
+    end
+  end
+
+  # Deferred payloads carry agent-authored free text (title/options/context)
+  # whose provenance includes GitHub content. Before the JSON line reaches the
+  # Executor session, run the Sanitizer's instruction-carrier strip pass over
+  # those fields and name them in a top-level "untrusted_fields" key so the
+  # consumer treats them as data, not instructions.
+  @untrusted_deferred_fields ~w(title options context)
+  @untrusted_deferred_field_keys [:title, :options, :context, "title", "options", "context"]
+
+  @doc false
+  @spec scrub_untrusted_output(map()) :: map()
+  def scrub_untrusted_output(event) when is_map(event) do
+    topic = Map.get(event, :topic) || Map.get(event, "topic")
+
+    if topic == "executor.decision.deferred" do
+      event
+      |> scrub_deferred_fields()
+      |> Map.put("untrusted_fields", @untrusted_deferred_fields)
+    else
+      event
+    end
+  end
+
+  defp scrub_deferred_fields(event) do
+    Enum.reduce(@untrusted_deferred_field_keys, event, &scrub_deferred_field/2)
+  end
+
+  defp scrub_deferred_field(key, event) do
+    case Map.fetch(event, key) do
+      {:ok, value} -> Map.put(event, key, deep_strip(value))
+      :error -> event
+    end
+  end
+
+  defp deep_strip(text) when is_binary(text), do: Sanitizer.strip_untrusted_text(text)
+  defp deep_strip(list) when is_list(list), do: Enum.map(list, &deep_strip/1)
+  defp deep_strip(%_struct{} = struct), do: struct |> Map.from_struct() |> deep_strip()
+  defp deep_strip(map) when is_map(map), do: Map.new(map, fn {key, value} -> {key, deep_strip(value)} end)
+  defp deep_strip(other), do: other
+
+  defp advance_cursor(id) when is_integer(id) do
+    state = subscription_state()
+    current = state["last_seen_event_id"] || 0
+    persist_subscription_state(%{state | "last_seen_event_id" => max(current, id)})
+  end
+
+  defp advance_cursor(_id), do: :ok
+
+  defp validate_topic(topic) do
+    if not String.starts_with?(topic, "executor.") or String.trim(topic) == "" or String.starts_with?(topic, ".") or
+         String.ends_with?(topic, ".") or String.contains?(topic, "..") do
+      {:error, :invalid_topic}
+    else
+      :ok
+    end
+  end
+
+  defp reject_github_source(source) when source in [:github, "github"], do: {:error, :executor_namespace_rejects_github_source}
+  defp reject_github_source(%{kind: :github}), do: {:error, :executor_namespace_rejects_github_source}
+  defp reject_github_source(%{"kind" => "github"}), do: {:error, :executor_namespace_rejects_github_source}
+  defp reject_github_source(_source), do: :ok
+
+  defp reject_github_payload_source(payload) do
+    payload
+    |> Map.get(:source, Map.get(payload, "source"))
+    |> reject_github_source()
+  end
+
+  defp source_name(source) when is_atom(source), do: Atom.to_string(source)
+  defp source_name(source), do: source
+
+  defp deferred_payload(decision, renotify?) do
+    %{
+      decision_id: decision.decision_id,
+      issue_identifier: decision.ticket.identifier,
+      title: decision.question,
+      options: decision.options,
+      context: decision.context,
+      deferred_at: DateTime.utc_now() |> DateTime.to_iso8601(),
+      provenance: :operator_dashboard,
+      renotify: renotify?
+    }
+  end
+
+  defp deferred_event_id(decision_id) do
+    with {:ok, events} <- journal_events() do
+      case Enum.find(events, &(&1["topic"] == "executor.decision.deferred" and &1["decision_id"] == decision_id)) do
+        %{"id" => id} when is_integer(id) -> {:ok, id}
+        _event -> :not_found
+      end
+    end
+  end
+
+  defp replay_validator(%{"id" => id, "topic" => topic} = event) when is_integer(id) and is_binary(topic), do: {:ok, event}
+  defp replay_validator(_event), do: {:error, :invalid_executor_event}
+
+  defp journal_events do
+    case DecisionLog.replay(journal_path(), &replay_validator/1) do
+      {:ok, events, nil} ->
+        {:ok, events}
+
+      {:ok, _events, {:corrupt, line, reason}} ->
+        report_corruption(line, reason)
+        {:error, {:corrupt, line, reason}}
+
+      {:error, reason} ->
+        Logger.error("aiur_executor_events phase=journal_unavailable reason=#{inspect(reason)}")
+        {:error, {:journal_unavailable, reason}}
+    end
+  end
+
+  defp report_corruption(line, reason) do
+    Logger.error("aiur_executor_events phase=journal_corrupt path=#{journal_path()} line=#{line} reason=#{inspect(reason)}")
+
+    _ =
+      Alerts.emit_custom(
+        "executor_events.corrupted",
+        "Executor event journal is corrupt at #{journal_path()} line #{line}; listener replay is stopped.",
+        needs_attention: true
+      )
+  end
+
+  defp append_event(event) do
+    with :ok <- DecisionLog.prepare(Paths.log_root_dir(), journal_path()) do
+      DecisionLog.append(journal_path(), event)
+    end
+  end
+
+  defp subscription_state do
+    case JsonStore.read(subscription_path()) do
+      {:ok, %{} = state} ->
+        %{
+          "subscribed_to" => List.wrap(state["subscribed_to"]),
+          "last_seen_event_id" => state["last_seen_event_id"]
+        }
+
+      _ ->
+        %{"subscribed_to" => [], "last_seen_event_id" => nil}
+    end
+  end
+
+  defp persist_subscription_state(state) do
+    JsonStore.write!(subscription_path(), state)
+    :ok
+  rescue
+    error -> {:error, {:subscription_store_unavailable, Exception.message(error)}}
+  end
+
+  defp matches_any?(patterns, topic) when is_binary(topic), do: Enum.any?(patterns, &Topic.matches?(&1, topic))
+  defp matches_any?(_patterns, _topic), do: false
+
+  defp safe_unsubscribe(topic) do
+    Exchange.unsubscribe(topic)
+  rescue
+    _error -> :ok
+  end
+
+  defp journal_path, do: Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.executor.events.ndjson")
+  defp subscription_path, do: Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.executor.subscriptions.json")
+end

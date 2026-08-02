@@ -1,7 +1,9 @@
 defmodule Aiur.AlertsTest do
   use Aiur.TestSupport
 
-  alias Aiur.{AgentLog, Alerts, Orchestrator}
+  alias Aiur.{AgentLog, Alerts, Orchestrator, TrackerIdentity}
+  alias Aiur.Events.Exchange
+  alias Aiur.Orchestrator.IssueSync
 
   test "emit_system writes a structured alert entry and selects a configured sound" do
     workspace_root =
@@ -70,7 +72,7 @@ defmodule Aiur.AlertsTest do
 
     state = %Orchestrator.State{last_polled_issues: %{"issue-1" => previous_issue}}
 
-    _updated_state = Orchestrator.sync_polled_issue_state_for_test(state, [next_issue])
+    _updated_state = IssueSync.sync_polled_issue_state(state, [next_issue])
 
     assert Path.join(workspace, "logs/agent.ndjson") |> File.read!() =~
              "\"name\":\"ticket.MT-ALERT-2.issue.label.added.agent.in-progress\""
@@ -92,7 +94,7 @@ defmodule Aiur.AlertsTest do
 
     state = %Orchestrator.State{last_polled_issues: %{"issue-1" => previous_issue}}
 
-    _updated_state = Orchestrator.sync_polled_issue_state_for_test(state, [next_issue])
+    _updated_state = IssueSync.sync_polled_issue_state(state, [next_issue])
 
     log = Path.join(workspace, "logs/agent.ndjson") |> File.read!()
 
@@ -155,8 +157,8 @@ defmodule Aiur.AlertsTest do
     ]
 
     state = %Orchestrator.State{}
-    state = Orchestrator.sync_todo_capacity_alert_for_test(state, issues)
-    _state = Orchestrator.sync_todo_capacity_alert_for_test(state, issues)
+    state = IssueSync.sync_todo_capacity_alert(state, issues)
+    _state = IssueSync.sync_todo_capacity_alert(state, issues)
 
     log = Path.join(workspace, "logs/agent.ndjson") |> File.read!()
 
@@ -215,7 +217,7 @@ defmodule Aiur.AlertsTest do
             String.contains?(log, "\"needs_attention\":true") and
             String.contains?(log, "\"severity\":\"warning\"") and
             String.contains?(log, "\"name\":\"ticket.MT-ALERT-5.agent.unpaused\"") and
-            String.contains?(log, "\"reason\":\"Agent resumed; no operator action is needed.\"") and
+            String.contains?(log, "\"reason\":\"Agent resumed; no Executor action is needed.\"") and
             String.contains?(log, "\"needs_attention\":false")
         else
           false
@@ -374,7 +376,7 @@ defmodule Aiur.AlertsTest do
     end
   end
 
-  describe "alerts.yaml loading" do
+  describe "alerts file loading" do
     @tag :tmp_dir
     test "yields {} when the yaml file is unreadable or malformed", %{tmp_dir: tmp_dir} do
       # Point Alerts at a non-existent path; load_yaml falls back to %{}.
@@ -489,7 +491,107 @@ defmodule Aiur.AlertsTest do
     end
   end
 
+  describe "legacy .aiur/alerts.yaml fallback removal" do
+    test "ignores a legacy .aiur/alerts.yaml — canonical file wins, yaml never loaded, warns when only yaml remains" do
+      # The default path (no :alerts_file_path override, no config alerts_file)
+      # resolves to `<config-dir>/alerts`; the sibling `.aiur/alerts.yaml` is the
+      # legacy file that must never be parsed. Both live next to the per-test
+      # config that TestSupport's setup already wrote.
+      config_dir = Path.dirname(Workflow.workflow_file_path())
+      canonical = Path.join(config_dir, "alerts")
+      legacy = Path.join(config_dir, "alerts.yaml")
+
+      # A marker entry that must NEVER surface if the yaml were loaded.
+      File.write!(legacy, """
+      alerts:
+        "legacy.only.topic":
+          message: "LEGACY YAML LOADED"
+      """)
+
+      # Canonical extensionless file present with distinct contents → it wins,
+      # the yaml is ignored, and no deprecation warning fires.
+      File.write!(canonical, """
+      alerts:
+        "canonical.topic":
+          message: "From canonical alerts"
+      """)
+
+      log =
+        capture_log(fn ->
+          defs = Alerts.definitions()
+          assert defs["canonical.topic"].message == "From canonical alerts"
+          refute Map.has_key?(defs, "legacy.only.topic")
+        end)
+
+      refute log =~ "fallback was removed"
+
+      # Remove the canonical file → only the legacy yaml remains. Mappings must
+      # resolve to an empty map (the yaml is still never parsed — no marker
+      # entry leaks) and the one-time deprecation warning must fire, naming the
+      # rename the operator needs to make.
+      File.rm!(canonical)
+
+      log =
+        capture_log(fn ->
+          assert Alerts.definitions() == %{}
+        end)
+
+      assert log =~ "fallback was removed"
+      assert log =~ "Rename #{legacy} to #{canonical}"
+    end
+
+    test "with no alerts file at all the default path resolves to an empty map and emission is a silent no-op" do
+      # No canonical `.aiur/alerts`, no legacy `.aiur/alerts.yaml`, no override:
+      # the default-path branch must resolve cleanly to `%{}` without crashing,
+      # emitting plays no mapped sound, and no deprecation warning fires.
+      config_dir = Path.dirname(Workflow.workflow_file_path())
+      File.rm_rf!(Path.join(config_dir, "alerts"))
+      File.rm_rf!(Path.join(config_dir, "alerts.yaml"))
+
+      topic = "task.no-alerts-file.#{System.unique_integer([:positive])}"
+      probe = fn sound -> send(self(), {:played, sound}) end
+
+      log =
+        capture_log(fn ->
+          assert Alerts.definitions() == %{}
+          assert is_nil(Alerts.definition_for_topic(topic))
+          assert :ok = Alerts.emit_custom(topic, "No mapping present", player: probe)
+        end)
+
+      refute_receive {:played, _sound}, 100
+      refute log =~ "fallback was removed"
+    end
+  end
+
   describe "emit_custom/2 and identifier helpers" do
+    test "custom stage alerts publish a joinable, typed observation" do
+      identifier = "MT-OBSERVATION-#{System.unique_integer([:positive])}"
+      topic = "ticket.#{identifier}.agent.phase.work.start"
+
+      {:ok, identity} =
+        TrackerIdentity.from_github(
+          %{"node_id" => "I_kwDOAlertObservation", "number" => 42},
+          {"owner", "repo"},
+          {"owner", "repo"}
+        )
+
+      :ok = Exchange.subscribe(topic)
+
+      assert :ok =
+               Alerts.emit_custom(topic, "private status",
+                 observation_identity: identity,
+                 observation_source: %{kind: :agent_alert, name: "phase.work.start"},
+                 observation_provenance: %{run_id: "run-alert", session_id: "session-alert"},
+                 occurred_at: "2026-07-13T12:00:00Z"
+               )
+
+      assert_receive {:event, %{ticket_observation: observation}}, 2_000
+      assert observation.status == :joinable
+      assert observation.attributes == %{stage: :work, transition: :start}
+      assert observation.provenance == %{run_id: "run-alert", session_id: "session-alert"}
+      refute Jason.encode!(observation) =~ "private status"
+    end
+
     test "emit_custom/2 forwards to /3 and emits with no extra opts" do
       assert :ok = Alerts.emit_custom("my.test." <> Integer.to_string(System.unique_integer([:positive])), "Custom message")
     end
@@ -892,7 +994,7 @@ defmodule Aiur.AlertsTest do
     } do
       # Exercises two new seams at once: (1) alerts_path precedence — with no
       # :alerts_file_path app-env override set, the config `alerts_file` is used
-      # instead of the bundled alerts.yaml; (2) resolve_sound_path joins a bare
+      # instead of the bundled alerts file; (2) resolve_sound_path joins a bare
       # filename from the mapping onto `sound_dir`.
       sound_dir = Path.join(root, "clips")
       File.mkdir_p!(sound_dir)
@@ -948,7 +1050,7 @@ defmodule Aiur.AlertsTest do
 
     test "a missing config alerts_file falls back to the bundled mapping", %{workspace_root: root} do
       # A typo'd / non-existent custom alerts_file must not silently kill all
-      # alert sounds — alerts_path falls back to the bundled alerts.yaml, so a
+      # alert sounds — alerts_path falls back to the bundled alerts file, so a
       # real bundled topic still resolves its sound.
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: root,

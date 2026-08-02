@@ -9,6 +9,8 @@ defmodule Aiur.Orchestrator.TrackedSet do
 
   use GenServer
 
+  alias Aiur.Orchestrator.State
+
   @table __MODULE__
   @table_opts [
     :named_table,
@@ -45,6 +47,23 @@ defmodule Aiur.Orchestrator.TrackedSet do
     ArgumentError -> true
   end
 
+  @spec refresh(State.t()) :: State.t()
+  def refresh(%State{} = state) do
+    # Deactivated rows remain visible in state but must reject late publisher events.
+    issue_ids =
+      state.running
+      |> Enum.reject(fn {_id, entry} ->
+        get_in(entry, [:control, :status]) == :deactivated
+      end)
+      |> Enum.map(fn {_id, entry} ->
+        entry[:identifier] || Map.get(entry, :identifier)
+      end)
+      |> Enum.reject(&is_nil/1)
+
+    reset(issue_ids)
+    state
+  end
+
   @impl true
   def init(_opts) do
     ensure_table()
@@ -56,12 +75,18 @@ defmodule Aiur.Orchestrator.TrackedSet do
     {:reply, replace_all(issue_ids), state}
   end
 
-  defp call(message) do
+  defp call(message, attempts_left \\ 3) do
     case Process.whereis(__MODULE__) do
       nil -> :ok
       _pid -> GenServer.call(__MODULE__, message)
     end
   catch
+    # A busy-but-alive owner under host load can outlast the call's default
+    # timeout; that is not the same as the owner genuinely being gone, so
+    # retry rather than silently treating a lost write as a no-op. Any other
+    # exit reason (e.g. :noproc) means the owner really isn't there, which is
+    # the legitimate no-op case this helper exists to tolerate.
+    :exit, {:timeout, _} when attempts_left > 1 -> call(message, attempts_left - 1)
     :exit, _reason -> :ok
   end
 

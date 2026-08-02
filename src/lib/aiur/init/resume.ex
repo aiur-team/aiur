@@ -20,27 +20,36 @@ defmodule Aiur.Init.Resume do
   def saved_summary_lines(config) do
     agent = config["agent"] || %{}
     tracker = config["tracker"] || %{}
-    github = tracker["github"] || %{}
     workspace = config["workspace"] || %{}
     polling = config["polling"] || %{}
     permission_mode = get_in(agent, ["claude", "permission_mode"])
 
-    [
-      "tracker: #{tracker["kind"]}",
-      github["repo"] && "repo: #{github["repo"]}",
-      "agent: #{agent["kind"]}",
-      "routing: #{format_routing(agent["routing"])}",
-      permission_mode && "permission_mode: #{permission_mode}",
-      "max_concurrent_agents: #{agent["max_concurrent_agents"]}",
-      "max_turns: #{agent["max_turns"]}",
-      "max_agent_duration_minutes: #{agent["max_agent_duration_minutes"]}",
-      "workspace_root: #{workspace["root"]}",
-      "pre_warmed_sessions: #{config["pre_warmed_sessions"]}",
-      "polling_interval_seconds: #{polling["interval_seconds"]}",
-      alerts_summary_line(config),
-      config["prompt_file"] && "prompt_file: #{config["prompt_file"]}"
-    ]
+    (["tracker: #{tracker["kind"]}"] ++
+       github_summary_lines(tracker["github"] || %{}) ++
+       [
+         "agent: #{agent["kind"]}",
+         "routing: #{format_routing(agent["routing"])}",
+         permission_mode && "permission_mode: #{permission_mode}",
+         "max_concurrent_agents: #{agent["max_concurrent_agents"]}",
+         "max_turns: #{agent["max_turns"]}",
+         "max_agent_duration_minutes: #{agent["max_agent_duration_minutes"]}",
+         "workspace_root: #{workspace["root"]}",
+         "pre_warmed_sessions: #{config["pre_warmed_sessions"]}",
+         "polling_interval_seconds: #{polling["interval_seconds"]}",
+         alerts_summary_line(config),
+         config["prompt_file"] && "prompt_file: #{config["prompt_file"]}"
+       ])
     |> Enum.reject(&is_nil/1)
+  end
+
+  # The github repo/bot_account summary lines, kept out of saved_summary_lines/1
+  # so that function's branch count stays within the credo complexity limit.
+  @spec github_summary_lines(map()) :: [String.t() | nil]
+  defp github_summary_lines(github) do
+    [
+      github["repo"] && "repo: #{github["repo"]}",
+      github["bot_account"] && "bot_account: #{github["bot_account"]}"
+    ]
   end
 
   @spec alerts_summary_line(map()) :: String.t() | nil
@@ -67,7 +76,8 @@ defmodule Aiur.Init.Resume do
     case tracker["kind"] do
       "github" ->
         repo = get_in(config, ["tracker", "github", "repo"]) || deps.detect_repo.()
-        %{kind: "github", repo: repo}
+        label_prefix = get_in(config, ["tracker", "github", "label_prefix"]) || "agent"
+        %{kind: "github", repo: repo, label_prefix: label_prefix}
 
       "linear" ->
         %{
@@ -90,6 +100,7 @@ defmodule Aiur.Init.Resume do
 
     [agent["kind"] | routing_backends]
     |> Enum.reject(&(&1 in [nil, ""]))
+    |> Enum.filter(&(&1 in Questions.agent_kind_choices()))
     |> Questions.agent_kinds()
   end
 

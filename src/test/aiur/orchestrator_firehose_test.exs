@@ -5,6 +5,7 @@ defmodule Aiur.OrchestratorFirehoseTest do
   alias Aiur.GitHub.Connectivity
   alias Aiur.Issue
   alias Aiur.Orchestrator
+  alias Aiur.Orchestrator.{CommentPolling, TrackerHealth}
   alias Aiur.Workflow
 
   setup do
@@ -49,7 +50,7 @@ defmodule Aiur.OrchestratorFirehoseTest do
       events_last_id: "last-seen"
     }
 
-    next = Orchestrator.poll_github_firehose_for_test(state, request_fun: stub)
+    next = CommentPolling.poll_github_firehose(state, request_fun: stub)
 
     assert next.events_etag == ~s("next-etag")
     assert next.events_last_id == "burst-1"
@@ -68,7 +69,7 @@ defmodule Aiur.OrchestratorFirehoseTest do
 
     state =
       Enum.reduce(1..Connectivity.escalation_threshold(), %Orchestrator.State{}, fn _i, acc ->
-        Orchestrator.poll_github_firehose_for_test(acc, request_fun: stub)
+        CommentPolling.poll_github_firehose(acc, request_fun: stub)
       end)
 
     # The streak is tracked as a classified :dns break under the firehose source.
@@ -81,11 +82,11 @@ defmodule Aiur.OrchestratorFirehoseTest do
   test "firehose next poll delay grows with repeated DNS failures" do
     stub = fn _req -> {:error, %Req.TransportError{reason: :nxdomain}} end
 
-    state1 = Orchestrator.poll_github_firehose_for_test(%Orchestrator.State{}, request_fun: stub)
-    assert Orchestrator.github_next_poll_delay_for_test(state1) == 1_000
+    state1 = CommentPolling.poll_github_firehose(%Orchestrator.State{}, request_fun: stub)
+    assert TrackerHealth.github_next_poll_delay_ms(state1) == 1_000
 
-    state2 = Orchestrator.poll_github_firehose_for_test(state1, request_fun: stub)
-    assert Orchestrator.github_next_poll_delay_for_test(state2) == 2_000
+    state2 = CommentPolling.poll_github_firehose(state1, request_fun: stub)
+    assert TrackerHealth.github_next_poll_delay_ms(state2) == 2_000
   end
 
   test "firehose honors Retry-After on rate-limited responses" do
@@ -93,10 +94,10 @@ defmodule Aiur.OrchestratorFirehoseTest do
       {:ok, %{status: 429, headers: [{"Retry-After", "7"}], body: %{"message" => "rate limited"}}}
     end
 
-    state = Orchestrator.poll_github_firehose_for_test(%Orchestrator.State{}, request_fun: stub)
+    state = CommentPolling.poll_github_firehose(%Orchestrator.State{}, request_fun: stub)
 
     assert {:rate_limited, 1} = state.github_connectivity[:firehose]
-    assert Orchestrator.github_next_poll_delay_for_test(state) == 7_000
+    assert TrackerHealth.github_next_poll_delay_ms(state) == 7_000
   end
 
   test "firehose honors X-Poll-Interval on successful responses" do
@@ -104,10 +105,10 @@ defmodule Aiur.OrchestratorFirehoseTest do
       {:ok, %{status: 200, headers: [{"ETag", ~s("e")}, {"X-Poll-Interval", "13"}], body: []}}
     end
 
-    state = Orchestrator.poll_github_firehose_for_test(%Orchestrator.State{}, request_fun: stub)
+    state = CommentPolling.poll_github_firehose(%Orchestrator.State{}, request_fun: stub)
 
     assert state.github_connectivity[:firehose] == nil
-    assert Orchestrator.github_next_poll_delay_for_test(state) == 13_000
+    assert TrackerHealth.github_next_poll_delay_ms(state) == 13_000
   end
 
   test "comments poller honors Retry-After on rate-limited responses" do
@@ -132,14 +133,14 @@ defmodule Aiur.OrchestratorFirehoseTest do
     }
 
     next =
-      Orchestrator.poll_github_comments_for_test(state,
+      CommentPolling.poll_github_comments(state,
         repo: "owner/repo",
         request_fun: request_fun,
         review_issue_fetcher: fn ["human-review", "merging"] -> {:ok, []} end
       )
 
     assert {:rate_limited, 1} = next.github_connectivity[:comments]
-    assert Orchestrator.github_next_poll_delay_for_test(next) == 9_000
+    assert TrackerHealth.github_next_poll_delay_ms(next) == 9_000
   end
 
   test "a recovering poll clears the connectivity streak" do
@@ -151,13 +152,13 @@ defmodule Aiur.OrchestratorFirehoseTest do
       {:ok, %{status: 200, headers: [{"ETag", ~s("e")}], body: body}}
     end
 
-    state = Orchestrator.poll_github_firehose_for_test(%Orchestrator.State{}, request_fun: fail)
+    state = CommentPolling.poll_github_firehose(%Orchestrator.State{}, request_fun: fail)
     assert {:dns, 1} = state.github_connectivity[:firehose]
-    assert Orchestrator.github_next_poll_delay_for_test(state) == 1_000
+    assert TrackerHealth.github_next_poll_delay_ms(state) == 1_000
 
-    recovered = Orchestrator.poll_github_firehose_for_test(state, request_fun: ok)
+    recovered = CommentPolling.poll_github_firehose(state, request_fun: ok)
     assert recovered.github_connectivity[:firehose] == nil
-    assert Orchestrator.github_next_poll_delay_for_test(recovered) == 60_000
+    assert TrackerHealth.github_next_poll_delay_ms(recovered) == 60_000
   end
 
   defp request_page(%{url: url}) do

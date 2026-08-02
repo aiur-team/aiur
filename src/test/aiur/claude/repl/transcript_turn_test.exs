@@ -7,7 +7,10 @@ defmodule Aiur.Claude.Repl.TranscriptTurnTest do
   setup do
     test_pid = self()
     name = Module.concat(__MODULE__, :"Inst#{System.unique_integer([:positive])}")
-    {:ok, _pid} = start_supervised({Tmux, [transport: {:mock, test_pid}, name: name, session: "test"]})
+
+    {:ok, _pid} =
+      start_supervised({Tmux, [transport: {:mock, test_pid}, name: name, session: "test"]})
+
     %{tmux: name}
   end
 
@@ -39,14 +42,35 @@ defmodule Aiur.Claude.Repl.TranscriptTurnTest do
     path
   end
 
-  defp completion_record do
+  defp completion_record(text \\ "done") do
     Jason.encode!(%{
       "type" => "assistant",
       "timestamp" => "2026-06-08T12:00:00.000Z",
       "message" => %{
         "role" => "assistant",
         "stop_reason" => "end_turn",
-        "content" => [%{"type" => "text", "text" => "done"}]
+        "content" => [%{"type" => "text", "text" => text}]
+      }
+    }) <> "\n"
+  end
+
+  defp user_record(text) do
+    Jason.encode!(%{
+      "type" => "user",
+      "timestamp" => "2026-06-08T11:59:59.000Z",
+      "message" => %{"role" => "user", "content" => text}
+    }) <> "\n"
+  end
+
+  defp api_error_record(error \\ "rate_limit") do
+    Jason.encode!(%{
+      "type" => "assistant",
+      "error" => error,
+      "message" => %{
+        "model" => "<synthetic>",
+        "role" => "assistant",
+        "stop_reason" => "stop_sequence",
+        "content" => [%{"type" => "text", "text" => "API request failed"}]
       }
     }) <> "\n"
   end
@@ -98,7 +122,9 @@ defmodule Aiur.Claude.Repl.TranscriptTurnTest do
     respond(tmux, "")
   end
 
-  test "cold start where the jsonl never materializes returns {:error, :no_transcript}", %{tmux: tmux} do
+  test "cold start where the jsonl never materializes returns {:error, :no_transcript}", %{
+    tmux: tmux
+  } do
     # Fresh workspace — no transcript file will ever appear.
     ws = Path.join(System.tmp_dir!(), "tt-cold-#{System.unique_integer([:positive])}")
     File.mkdir_p!(ws)
@@ -141,7 +167,88 @@ defmodule Aiur.Claude.Repl.TranscriptTurnTest do
     assert is_binary(result.turn_id)
   end
 
-  test "pause_agent parks as {:paused, payload} with session_id/thread_id/turn_id even when pause-confirm expires", %{tmux: tmux} do
+  test "acknowledges provider delivery when the submitted prompt reaches the transcript", %{
+    tmux: tmux
+  } do
+    path = temp_transcript()
+    on_exit(fn -> File.rm(path) end)
+    parent = self()
+
+    task =
+      Task.async(fn ->
+        TranscriptTurn.run(turn_session(tmux, path), "do work",
+          poll_interval_ms: 10,
+          on_provider_delivery: fn metadata ->
+            send(parent, {:provider_delivered, metadata})
+          end
+        )
+      end)
+
+    expect_prompt_submit(tmux)
+    refute_receive {:provider_delivered, _metadata}, 50
+
+    File.write!(path, user_record("do work") <> completion_record(), [:append])
+
+    assert {:ok, result} = drain_pane_pid(tmux, task)
+
+    assert_receive {:provider_delivered, %{transport: :claude_transcript, turn_id: turn_id}}
+
+    assert turn_id == result.turn_id
+    refute_receive {:provider_delivered, _metadata}, 50
+  end
+
+  test "API-error transcript record pauses the turn", %{tmux: tmux} do
+    path = temp_transcript()
+    on_exit(fn -> File.rm(path) end)
+
+    task =
+      Task.async(fn ->
+        TranscriptTurn.run(turn_session(tmux, path), "do work", poll_interval_ms: 10)
+      end)
+
+    expect_prompt_submit(tmux)
+    File.write!(path, api_error_record(), [:append])
+
+    assert {:paused, %{kind: :usage_limit_exhausted, reason: reason}} = drain_pane_pid(tmux, task)
+    assert reason =~ "rate_limit"
+  end
+
+  test "assistant quota text still completes the turn", %{tmux: tmux} do
+    path = temp_transcript()
+    on_exit(fn -> File.rm(path) end)
+
+    task =
+      Task.async(fn ->
+        TranscriptTurn.run(turn_session(tmux, path), "do work", poll_interval_ms: 10)
+      end)
+
+    expect_prompt_submit(tmux)
+
+    File.write!(path, completion_record("The rate limit and quota words are in this sentence."), [
+      :append
+    ])
+
+    assert {:ok, %{result: :completed}} = drain_pane_pid(tmux, task)
+  end
+
+  test "non-limit API-error transcript record fails the turn", %{tmux: tmux} do
+    path = temp_transcript()
+    on_exit(fn -> File.rm(path) end)
+
+    task =
+      Task.async(fn ->
+        TranscriptTurn.run(turn_session(tmux, path), "do work", poll_interval_ms: 10)
+      end)
+
+    expect_prompt_submit(tmux)
+    File.write!(path, api_error_record("authentication_failed"), [:append])
+
+    assert {:error, {:turn_failed, %{"error" => "authentication_failed"}}} =
+             drain_pane_pid(tmux, task)
+  end
+
+  test "pause_agent returns an error when pause confirmation expires",
+       %{tmux: tmux} do
     path = temp_transcript()
     on_exit(fn -> File.rm(path) end)
 
@@ -156,11 +263,7 @@ defmodule Aiur.Claude.Repl.TranscriptTurnTest do
 
     send(task.pid, {:pause_agent, 77})
 
-    # No completion record appended — pause-confirm expires
-    assert {:paused, payload} = pump_until_pause(tmux, task)
-    assert payload.request_id == 77
-    assert is_binary(payload.session_id)
-    assert is_binary(payload.thread_id)
-    assert is_binary(payload.turn_id)
+    # No completion record appended — pause remains unconfirmed.
+    assert {:error, :pause_confirmation_timeout} = pump_until_pause(tmux, task)
   end
 end

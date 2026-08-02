@@ -116,8 +116,16 @@ defmodule Aiur.Codex.NotificationPolicyTest do
   end
 
   describe "no_active_turn_error?/1" do
-    test "matches -32600 error code" do
-      assert NotificationPolicy.no_active_turn_error?(%{"code" => -32_600})
+    test "matches the provider no-active-turn shape" do
+      assert NotificationPolicy.no_active_turn_error?(%{
+               "code" => -32_600,
+               "message" => "No active turn to interrupt"
+             })
+
+      assert NotificationPolicy.no_active_turn_error?(%{
+               "code" => -32_600,
+               "data" => %{"detail" => "there is no active turn"}
+             })
     end
 
     test "matches message containing 'no active turn'" do
@@ -125,6 +133,8 @@ defmodule Aiur.Codex.NotificationPolicyTest do
     end
 
     test "returns false for other errors" do
+      refute NotificationPolicy.no_active_turn_error?(%{"code" => -32_600})
+      refute NotificationPolicy.no_active_turn_error?(%{"code" => -32_600, "message" => "invalid request"})
       refute NotificationPolicy.no_active_turn_error?(%{"code" => -32_700})
       refute NotificationPolicy.no_active_turn_error?(%{"message" => "some other error"})
       refute NotificationPolicy.no_active_turn_error?(:timeout)

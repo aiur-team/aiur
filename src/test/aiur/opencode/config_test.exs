@@ -77,7 +77,7 @@ defmodule Aiur.Opencode.ConfigTest do
     end
 
     test "invalid AIUR_OPENCODE_BRIDGE_PORT falls back to workflow config" do
-      write_workflow_file!(Aiur.Workflow.workflow_file_path(), opencode_bridge_port: 5000)
+      write_workflow_file_synced!(Aiur.Workflow.workflow_file_path(), opencode_bridge_port: 5000)
       System.put_env("AIUR_OPENCODE_BRIDGE_PORT", "not-a-port")
 
       assert Config.bridge_port() == 5000

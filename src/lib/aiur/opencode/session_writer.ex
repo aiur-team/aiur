@@ -184,14 +184,14 @@ defmodule Aiur.Opencode.SessionWriter do
   end
 
   # Opencode-origin user input is echoed natively by opencode; writing it
-  # again would double-render the operator's own message.
+  # again would double-render the Executor’s own message.
   def handle_info({:transcript_event, %{role: :user}}, state), do: {:noreply, state}
 
   def handle_info({:transcript_event, event}, state) do
     # While a live aiur turn streams through the bridge, opencode-serve
     # itself persists the streamed completion content — writing the same
     # events here produced a SECOND copy of every command/tool/alert row
-    # that the TUI renders after each segment close (the operator-visible
+    # that the TUI renders after each segment close (the Executor-visible
     # "every agent log appears 2-4x" duplication). Live-stream-covered
     # events are skipped; between turns (and when no marker stream ever
     # opened — both posts failed, logged as post_retry_failed) the SQL
@@ -275,7 +275,7 @@ defmodule Aiur.Opencode.SessionWriter do
   defp step_finish_reason(:turn_failed), do: "error"
   defp step_finish_reason(:turn_cancelled), do: "cancelled"
   # turn_input_required terminates the turn for chat purposes — agent is
-  # awaiting operator input, render as a closed turn rather than leaving
+  # awaiting Executor input, render as a closed turn rather than leaving
   # it open.
   defp step_finish_reason(:turn_input_required), do: "stop"
   defp step_finish_reason(_), do: "stop"

@@ -14,11 +14,231 @@ defmodule Aiur.Config.SchemaTest do
     end
   end
 
+  describe "agent backend config sections" do
+    test "retains an arbitrary registry-named backend section" do
+      assert {:ok, settings} =
+               Schema.parse(%{
+                 "agent" => %{"backend_configs" => %{"fake" => %{"command" => "fake-agent --serve", "region" => "test"}}}
+               })
+
+      assert settings.agent.backend_configs["fake"] == %{"command" => "fake-agent --serve", "region" => "test"}
+    end
+
+    test "DeepSeek routing requires an explicit backend opt-in" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"agent" => %{"routing" => %{"5" => "deepseek"}}})
+
+      assert message =~ "disabled backend"
+
+      assert {:ok, settings} =
+               Schema.parse(%{
+                 "agent" => %{
+                   "backend_configs" => %{"deepseek" => %{"enabled" => true}},
+                   "routing" => %{"5" => "deepseek"}
+                 }
+               })
+
+      assert settings.agent.routing[5] == "deepseek"
+    end
+  end
+
+  describe "prior-work continuation" do
+    test "defaults on for cold backend handoff and remains configurable" do
+      assert {:ok, defaults} = Schema.parse(%{})
+      assert defaults.agent.prior_work_continuation == true
+
+      assert {:ok, disabled} = Schema.parse(%{"agent" => %{"prior_work_continuation" => false}})
+      assert disabled.agent.prior_work_continuation == false
+    end
+  end
+
+  describe "GitHub planning graph bounds" do
+    test "the checked-in GitHub workflow fixture satisfies the planning bounds" do
+      fixture = Path.expand("../../fixtures/test.aiurconfig", __DIR__)
+
+      assert {:ok, config} = YamlElixir.read_from_file(fixture)
+      assert {:ok, settings} = Schema.parse(config)
+
+      assert settings.tracker.github.planning_root_limit == 100
+      assert settings.tracker.github.planning_page_budget == 4
+      assert settings.tracker.github.planning_call_budget == 4
+    end
+
+    test "defaults to finite bounds that permit one hundred roots" do
+      assert {:ok, settings} = Schema.parse(%{})
+
+      assert settings.tracker.github.planning_root_limit == 100
+      assert settings.tracker.github.planning_page_budget == 4
+      assert settings.tracker.github.planning_call_budget == 4
+    end
+
+    test "accepts lower positive planning graph bounds" do
+      assert {:ok, settings} =
+               Schema.parse(%{
+                 "tracker" => %{
+                   "github" => %{
+                     "planning_root_limit" => 25,
+                     "planning_page_budget" => 2,
+                     "planning_call_budget" => 3
+                   }
+                 }
+               })
+
+      assert settings.tracker.github.planning_root_limit == 25
+      assert settings.tracker.github.planning_page_budget == 2
+      assert settings.tracker.github.planning_call_budget == 3
+    end
+
+    test "rejects zero, negative, non-integer, and over-hard-limit planning graph bounds" do
+      invalid = [
+        {"planning_root_limit", [0, -1, 101, "infinite"]},
+        {"planning_page_budget", [0, -1, 5, "infinite"]},
+        {"planning_call_budget", [0, -1, 5, "infinite"]}
+      ]
+
+      for {field, values} <- invalid, value <- values do
+        assert {:error, {:invalid_workflow_config, message}} =
+                 Schema.parse(%{"tracker" => %{"github" => %{field => value}}})
+
+        assert message =~ "tracker.github.#{field}"
+      end
+    end
+  end
+
+  describe "GitHub dispatch allowlist" do
+    test "accepts explicit GitHub logins and defaults to an empty explicit list" do
+      assert {:ok, defaults} = Schema.parse(%{})
+      assert defaults.tracker.github.allowed_users == []
+
+      assert {:ok, settings} =
+               Schema.parse(%{
+                 "tracker" => %{
+                   "github" => %{"allowed_users" => ["its-everdred", "its-applekid"]}
+                 }
+               })
+
+      assert settings.tracker.github.allowed_users == ["its-everdred", "its-applekid"]
+    end
+
+    test "rejects blank dispatch allowlist entries" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"tracker" => %{"github" => %{"allowed_users" => [""]}}})
+
+      assert message =~ "tracker.github.allowed_users"
+    end
+  end
+
+  describe "GitHub human merger allowlist" do
+    test "accepts explicit human GitHub logins and defaults to deny all" do
+      assert {:ok, defaults} = Schema.parse(%{})
+      assert defaults.tracker.github.human_mergers == []
+
+      assert {:ok, settings} =
+               Schema.parse(%{
+                 "tracker" => %{
+                   "github" => %{"human_mergers" => ["its-everdred"]}
+                 }
+               })
+
+      assert settings.tracker.github.human_mergers == ["its-everdred"]
+    end
+
+    test "rejects blank human merger allowlist entries" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"tracker" => %{"github" => %{"human_mergers" => [""]}}})
+
+      assert message =~ "tracker.github.human_mergers"
+    end
+  end
+
+  describe "agent rate_limit_fallback" do
+    test "defaults to claude" do
+      assert {:ok, defaults} = Schema.parse(%{})
+      assert defaults.agent.rate_limit_fallback == "claude"
+    end
+
+    test "rejects claude-repl as a resumable fallback target" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"agent" => %{"rate_limit_fallback" => "claude-repl"}})
+
+      assert message =~ "rate_limit_fallback"
+      assert message =~ "eligible registered fallback backend"
+    end
+
+    test "accepts a non-default eligible primary/fallback pair" do
+      assert {:ok, settings} =
+               Schema.parse(%{"agent" => %{"rate_limit_primary" => "claude", "rate_limit_fallback" => "fake"}})
+
+      assert settings.agent.rate_limit_primary == "claude"
+      assert settings.agent.rate_limit_fallback == "fake"
+    end
+
+    test "accepts an empty string to disable" do
+      assert {:ok, settings} = Schema.parse(%{"agent" => %{"rate_limit_fallback" => ""}})
+      assert settings.agent.rate_limit_fallback == ""
+    end
+
+    test "rejects a fallback equal to the primary" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"agent" => %{"rate_limit_fallback" => "codex"}})
+
+      assert message =~ "rate_limit_fallback"
+      assert message =~ "must differ from rate_limit_primary"
+    end
+
+    test "rejects codex as a resumable fallback target" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"agent" => %{"rate_limit_primary" => "claude", "rate_limit_fallback" => "codex"}})
+
+      assert message =~ "eligible registered fallback backend"
+    end
+
+    test "rejects an unknown backend" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"agent" => %{"rate_limit_fallback" => "bogus"}})
+
+      assert message =~ "rate_limit_fallback"
+      assert message =~ "must be a registered backend"
+    end
+
+    test "rejects an unknown primary backend" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"agent" => %{"rate_limit_primary" => "bogus"}})
+
+      assert message =~ "rate_limit_primary"
+      assert message =~ "must be a registered backend"
+    end
+  end
+
+  describe "agent CI-wait fallback" do
+    test "defaults to five minutes and accepts a positive override" do
+      assert {:ok, defaults} = Schema.parse(%{})
+      assert defaults.agent.ci_wait_rewake_minutes == 5
+
+      assert {:ok, configured} =
+               Schema.parse(%{"agent" => %{"ci_wait_rewake_minutes" => 9}})
+
+      assert configured.agent.ci_wait_rewake_minutes == 9
+    end
+
+    test "rejects zero, negative, and non-integer values with the dotted field path" do
+      for value <- [0, -1, "five"] do
+        assert {:error, {:invalid_workflow_config, message}} =
+                 Schema.parse(%{"agent" => %{"ci_wait_rewake_minutes" => value}})
+
+        assert message =~ "agent.ci_wait_rewake_minutes"
+      end
+    end
+  end
+
   # FI-CFG-005: StringOrMap cast rejects non-string, non-map values
   describe "StringOrMap" do
     test "casts strings and maps, rejects everything else" do
       assert {:ok, "untrusted"} = StringOrMap.cast("untrusted")
-      assert {:ok, %{"type" => "workspaceWrite"}} = StringOrMap.cast(%{"type" => "workspaceWrite"})
+
+      assert {:ok, %{"type" => "workspaceWrite"}} =
+               StringOrMap.cast(%{"type" => "workspaceWrite"})
+
       assert :error = StringOrMap.cast(123)
       assert :error = StringOrMap.cast([:list])
       assert :error = StringOrMap.cast(nil)
@@ -48,6 +268,27 @@ defmodule Aiur.Config.SchemaTest do
     test "parses interval_seconds normally" do
       {:ok, settings} = Schema.parse(%{"polling" => %{"interval_seconds" => 60}})
       assert settings.polling.interval_seconds == 60
+    end
+
+    # Measured: the provider usage endpoint serves roughly one request per two
+    # minutes. Below that the excess is rejected and the meters quietly stop
+    # updating, so the floor is enforced rather than merely documented.
+    test "usage_interval_seconds is floored at the endpoint's real limit" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"polling" => %{"usage_interval_seconds" => 60}})
+
+      assert message =~ "polling.usage_interval_seconds"
+      assert message =~ "at least 120 seconds"
+
+      assert {:error, _} = Schema.parse(%{"polling" => %{"usage_interval_seconds" => 119}})
+
+      {:ok, settings} = Schema.parse(%{"polling" => %{"usage_interval_seconds" => 120}})
+      assert settings.polling.usage_interval_seconds == 120
+    end
+
+    test "usage_interval_seconds defaults above the floor" do
+      {:ok, settings} = Schema.parse(%{})
+      assert settings.polling.usage_interval_seconds == 300
     end
   end
 
@@ -197,6 +438,44 @@ defmodule Aiur.Config.SchemaTest do
       assert settings.events.codeowners_refresh_seconds == 7_200
     end
 
+    test "Decisions section defaults supervisor autonomy to denied" do
+      {:ok, settings} = Schema.parse(%{})
+
+      assert settings.decisions.supervisor_allowed_kinds == []
+      assert settings.decisions.supervisor_allow_non_reversible == false
+    end
+
+    test "Decisions section normalizes an explicit supervisor policy" do
+      {:ok, settings} =
+        Schema.parse(%{
+          "decisions" => %{
+            "supervisor_allowed_kinds" => [" Architecture ", "product", "ARCHITECTURE"],
+            "supervisor_allow_non_reversible" => true
+          }
+        })
+
+      assert settings.decisions.supervisor_allowed_kinds == ["architecture", "product"]
+      assert settings.decisions.supervisor_allow_non_reversible == true
+    end
+
+    test "Decisions section rejects unsafe or unbounded supervisor kinds" do
+      invalid_kind_sets = [
+        [""],
+        ["   "],
+        ["architecture\n"],
+        ["architecture\u0000credential"],
+        [String.duplicate("a", 101)],
+        Enum.map(1..101, &"kind-#{&1}")
+      ]
+
+      for kinds <- invalid_kind_sets do
+        assert {:error, {:invalid_workflow_config, message}} =
+                 Schema.parse(%{"decisions" => %{"supervisor_allowed_kinds" => kinds}})
+
+        assert message =~ "decisions.supervisor_allowed_kinds"
+      end
+    end
+
     test "Hooks section parses with defaults" do
       {:ok, settings} = Schema.parse(%{})
       assert settings.hooks.timeout_ms == 600_000
@@ -232,8 +511,12 @@ defmodule Aiur.Config.SchemaTest do
     test "Observability section parses with defaults" do
       {:ok, settings} = Schema.parse(%{})
       assert settings.observability.dashboard_enabled == true
-      assert settings.observability.dashboard_writable == false
+      assert settings.observability.dashboard_writable == true
       assert settings.observability.refresh_ms == 1_000
+      assert settings.observability.telemetry_enabled == true
+      assert settings.observability.telemetry_retention_max_bytes == 64 * 1024 * 1024
+      assert settings.observability.telemetry_retention_max_age_days == 30
+      assert settings.observability.telemetry_retention_prune_interval_bytes == nil
     end
 
     test "Observability section accepts explicit values" do
@@ -242,13 +525,21 @@ defmodule Aiur.Config.SchemaTest do
           "observability" => %{
             "dashboard_enabled" => false,
             "dashboard_writable" => true,
-            "refresh_ms" => 500
+            "refresh_ms" => 500,
+            "telemetry_enabled" => false,
+            "telemetry_retention_max_bytes" => 1_024,
+            "telemetry_retention_max_age_days" => 7,
+            "telemetry_retention_prune_interval_bytes" => 128
           }
         })
 
       assert settings.observability.dashboard_enabled == false
       assert settings.observability.dashboard_writable == true
       assert settings.observability.refresh_ms == 500
+      assert settings.observability.telemetry_enabled == false
+      assert settings.observability.telemetry_retention_max_bytes == 1_024
+      assert settings.observability.telemetry_retention_max_age_days == 7
+      assert settings.observability.telemetry_retention_prune_interval_bytes == 128
     end
 
     test "Server section parses with defaults" do

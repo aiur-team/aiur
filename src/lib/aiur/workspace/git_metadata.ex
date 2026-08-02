@@ -2,7 +2,52 @@ defmodule Aiur.Workspace.GitMetadata do
   @moduledoc ".git writability probes and stale-lock repair, local and remote, including the git-dir-inside-workspace containment guard."
   alias Aiur.{Config, PathSafety}
   alias Aiur.Workspace.{Checkout, Remote}
+  @agent_logs_exclusion "logs/"
+  @tool_results_exclusion ".aiur-runtime/"
   @type worker_host :: String.t() | nil
+
+  @doc false
+  @spec ensure_paths_excluded(Path.t(), [String.t()]) :: :ok | {:error, term()}
+  def ensure_paths_excluded(workspace, exclusions) when is_binary(workspace) and is_list(exclusions) do
+    case local_git_metadata_dir(workspace) do
+      {:ok, git_dir} ->
+        with :ok <- ensure_git_dir_inside_workspace(git_dir, workspace),
+             do: append_exclusions(git_dir, exclusions)
+
+      :not_git ->
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc false
+  @spec ensure_agent_logs_excluded(Path.t(), worker_host()) :: :ok | {:error, term()}
+  def ensure_agent_logs_excluded(workspace, worker_host \\ nil)
+
+  def ensure_agent_logs_excluded(workspace, nil) when is_binary(workspace) do
+    case ensure_paths_excluded(workspace, [@agent_logs_exclusion, @tool_results_exclusion]) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:workspace_git_metadata_unwritable, workspace, reason}}
+    end
+  end
+
+  # AgentEventLog only writes workspace-local logs. Remote workspaces therefore
+  # have no Aiur-created logs directory to exclude.
+  def ensure_agent_logs_excluded(workspace, worker_host)
+      when is_binary(workspace) and is_binary(worker_host),
+      do: :ok
+
+  @doc false
+  @spec ensure_tool_results_excluded(Path.t()) :: :ok | {:error, term()}
+  def ensure_tool_results_excluded(workspace) when is_binary(workspace) do
+    case ensure_paths_excluded(workspace, [@tool_results_exclusion]) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:workspace_git_metadata_unwritable, workspace, reason}}
+    end
+  end
+
   @spec ensure_git_metadata_writable(Path.t(), worker_host()) :: :ok | {:error, term()}
   def ensure_git_metadata_writable(workspace, worker_host \\ nil)
 
@@ -76,6 +121,98 @@ defmodule Aiur.Workspace.GitMetadata do
          :ok <- ensure_git_dir_inside_workspace(git_dir, workspace) do
       {:ok, git_metadata_probe_paths(workspace, git_dir)}
     end
+  end
+
+  defp append_exclusions(git_dir, exclusions) do
+    with {:ok, info_dir} <- ensure_git_info_directory(git_dir),
+         path = Path.join(info_dir, "exclude"),
+         {:ok, contents} <- read_optional_regular_file(path) do
+      missing = Enum.reject(exclusions, &exclusion_present?(contents, &1))
+      write_exclusions(info_dir, path, contents, missing)
+    end
+  end
+
+  defp ensure_git_info_directory(git_dir) do
+    path = Path.join(git_dir, "info")
+
+    case File.lstat(path) do
+      {:ok, %File.Stat{type: :directory}} ->
+        {:ok, path}
+
+      {:ok, %File.Stat{type: :symlink}} ->
+        {:error, {:symlinked_git_info, path}}
+
+      {:ok, _stat} ->
+        {:error, {:invalid_git_info, path}}
+
+      {:error, :enoent} ->
+        with :ok <- File.mkdir(path),
+             {:ok, %File.Stat{type: :directory}} <- File.lstat(path),
+             do: {:ok, path}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp write_exclusions(_info_dir, _path, _contents, []), do: :ok
+
+  defp write_exclusions(info_dir, path, contents, exclusions) do
+    tmp = Path.join(info_dir, ".exclude-#{System.unique_integer([:positive])}.tmp")
+
+    try do
+      with {:ok, io} <- :file.open(String.to_charlist(tmp), [:write, :binary, :raw, :exclusive]),
+           :ok <- write_and_close(io, contents <> exclusion_suffix(contents, exclusions)),
+           {:ok, %File.Stat{type: :directory}} <- File.lstat(info_dir),
+           {:ok, final_state} <- regular_or_missing(path),
+           true <- final_state in [:regular, :missing],
+           :ok <- File.rename(tmp, path) do
+        :ok
+      else
+        false -> {:error, {:invalid_git_exclude, path}}
+        {:error, reason} -> {:error, reason}
+      end
+    after
+      _ = File.rm(tmp)
+    end
+  end
+
+  defp write_and_close(io, contents) do
+    with :ok <- :file.write(io, contents), do: :file.sync(io)
+  after
+    :ok = :file.close(io)
+  end
+
+  defp read_optional_regular_file(path) do
+    case File.lstat(path) do
+      {:ok, %File.Stat{type: :regular}} -> File.read(path)
+      {:ok, %File.Stat{type: :symlink}} -> {:error, {:symlinked_git_exclude, path}}
+      {:ok, _stat} -> {:error, {:invalid_git_exclude, path}}
+      {:error, :enoent} -> {:ok, ""}
+      {:error, reason} -> {:error, {:git_exclude_unreadable, path, reason}}
+    end
+  end
+
+  defp regular_or_missing(path) do
+    case File.lstat(path) do
+      {:ok, %File.Stat{type: :regular}} -> {:ok, :regular}
+      {:error, :enoent} -> {:ok, :missing}
+      {:ok, _stat} -> {:ok, :invalid}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp exclusion_present?(contents, exclusion) do
+    contents
+    |> String.split("\n")
+    |> Enum.any?(&(String.trim(&1) == exclusion))
+  end
+
+  defp exclusion_suffix("", exclusions), do: Enum.join(exclusions, "\n") <> "\n"
+
+  defp exclusion_suffix(contents, exclusions) do
+    separator = if String.ends_with?(contents, "\n"), do: "", else: "\n"
+    separator <> Enum.join(exclusions, "\n") <> "\n"
   end
 
   defp probe_lock_files(paths) do

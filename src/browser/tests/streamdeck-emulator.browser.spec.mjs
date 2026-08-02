@@ -1,0 +1,372 @@
+import AxeBuilder from '@axe-core/playwright'
+import { expect, test } from '@playwright/test'
+import { dashboardCredentials } from './support/layout-worker.mjs'
+
+async function openStreamdeck(page) {
+  await page.goto('/auth/read_only')
+  await page.goto('/')
+  await page.context().setHTTPCredentials(dashboardCredentials)
+  await page.goto('/streamdeck')
+  await expect(page.locator('#streamdeck-page')).toBeVisible()
+  await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
+}
+
+async function openUnits(page) {
+  await page.goto('/auth/read_only')
+  await page.goto('/units')
+  await expect(page.locator('[data-units-fixture="true"]')).toBeVisible()
+  await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
+}
+
+test('dial drag rotates the knob and updates aria-valuenow', async ({ page }) => {
+  await openStreamdeck(page)
+
+  const knob = page.locator('.sd-knob').first()
+  await expect(knob).toBeVisible()
+
+  // Start at a mid-range value so we have room to increase.
+  const initialValue = parseInt(await knob.getAttribute('aria-valuenow'), 10)
+
+  // Drag a wide clockwise arc that accumulates well over 8° (press threshold)
+  // and sweeps enough angle to guarantee an increase, even from a high initial.
+  const box = await knob.boundingBox()
+  const cx = box.x + box.width / 2
+  const cy = box.y + box.height / 2
+
+  // Start directly above centre and sweep clockwise (right then down).
+  await page.mouse.move(cx, cy - 30)
+  await page.mouse.down()
+  await page.mouse.move(cx + 20, cy - 20)
+  await page.mouse.move(cx + 30, cy)
+  await page.mouse.move(cx + 20, cy + 20)
+  await page.mouse.move(cx, cy + 30)
+  await page.mouse.up()
+
+  const newValue = parseInt(await knob.getAttribute('aria-valuenow'), 10)
+  // A sustained clockwise drag must increase the value, not merely match it.
+  expect(newValue).toBeGreaterThan(initialValue)
+})
+
+test('wheel event adjusts the knob value and does not scroll the page', async ({ page }) => {
+  await openStreamdeck(page)
+
+  // Make the page scrollable so the scroll-prevention check is not trivially true.
+  await page.evaluate(() => {
+    const spacer = document.createElement('div')
+    spacer.style.height = '2000px'
+    spacer.setAttribute('aria-hidden', 'true')
+    document.querySelector('.shell-content').appendChild(spacer)
+  })
+  await page.waitForTimeout(50)
+
+  const knob = page.locator('.sd-knob').first()
+  const initialValue = parseInt(await knob.getAttribute('aria-valuenow'), 10)
+
+  await knob.hover()
+  // Scroll up → value should increase.
+  await page.mouse.wheel(0, -100)
+
+  const afterUp = parseInt(await knob.getAttribute('aria-valuenow'), 10)
+  expect(afterUp).toBeGreaterThan(initialValue)
+
+  // Scroll down → value should decrease.
+  await page.mouse.wheel(0, 100)
+  const afterDown = parseInt(await knob.getAttribute('aria-valuenow'), 10)
+  expect(afterDown).toBeLessThan(afterUp)
+
+  // Page must NOT have scrolled: the non-passive listener called preventDefault.
+  const scrollY = await page.evaluate(() => window.scrollY)
+  expect(scrollY).toBe(0)
+})
+
+test('keyboard arrow keys adjust the focused knob value', async ({ page }) => {
+  await openStreamdeck(page)
+
+  const knob = page.locator('.sd-knob').first()
+  await knob.focus()
+  await expect(knob).toBeFocused()
+
+  const initialValue = parseInt(await knob.getAttribute('aria-valuenow'), 10)
+
+  await page.keyboard.press('ArrowUp')
+  const afterUp = parseInt(await knob.getAttribute('aria-valuenow'), 10)
+  expect(afterUp).toBeGreaterThan(initialValue)
+
+  await page.keyboard.press('ArrowDown')
+  const afterDown = parseInt(await knob.getAttribute('aria-valuenow'), 10)
+  expect(afterDown).toBeLessThan(afterUp)
+})
+
+test('brief dial tap (< 8 degrees) triggers a press flash on dial 0', async ({ page }) => {
+  await openStreamdeck(page)
+
+  // Dial 0 is the first knob (Focus); a press should trigger the .press class.
+  const knob = page.locator('.sd-knob').first()
+  const box = await knob.boundingBox()
+  const cx = box.x + box.width / 2
+  const cy = box.y + box.height / 2
+
+  // Very short click-like gesture: down and up nearly in place (< 8° accumulated).
+  await page.mouse.move(cx, cy)
+  await page.mouse.down()
+  await page.mouse.up()
+
+  // The press class should appear transiently; poll quickly.
+  await expect(knob).toHaveClass(/press/, { timeout: 500 })
+})
+
+test('key click triggers is-flashing animation; rapid repeat restarts it', async ({ page }) => {
+  await openStreamdeck(page)
+
+  const key = page.locator('.sd-key:not(.is-empty)').first()
+  await expect(key).toBeVisible()
+
+  await key.click()
+  await expect(key).toHaveClass(/is-flashing/, { timeout: 500 })
+
+  // Second rapid click: dispatch directly to exercise the remove+reflow+re-add
+  // branch. After the first click, mode shifted to cmd so the keys container is
+  // display:none — Playwright's click (even with force:true) refuses to target
+  // elements inside a hidden parent. page.evaluate dispatches without that check.
+  await page.evaluate(() => {
+    const k = document.querySelector('.sd-key:not(.is-empty)')
+    k.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+  })
+  // Still present (or re-added); the test confirms the branch ran without throwing.
+  await expect(key).toHaveClass(/is-flashing/, { timeout: 500 })
+})
+
+test('mic segment activates on pointerdown and deactivates on pointerup', async ({ page }) => {
+  await openStreamdeck(page)
+
+  const micSegment = page.locator('.sd-screen-segment').filter({ has: page.locator('.sd-mic') })
+  await expect(micSegment).toBeVisible()
+
+  await micSegment.hover()
+  await page.mouse.down()
+  await expect(micSegment).toHaveClass(/is-live/, { timeout: 500 })
+
+  await page.mouse.up()
+  await expect(micSegment).not.toHaveClass(/is-live/, { timeout: 500 })
+})
+
+test('mic deactivates on pointerleave (not stuck on drag-exit)', async ({ page }) => {
+  await openStreamdeck(page)
+
+  const micSegment = page.locator('.sd-screen-segment').filter({ has: page.locator('.sd-mic') })
+  const box = await micSegment.boundingBox()
+  const cx = box.x + box.width / 2
+  const cy = box.y + box.height / 2
+
+  await page.mouse.move(cx, cy)
+  await page.mouse.down()
+  await expect(micSegment).toHaveClass(/is-live/, { timeout: 500 })
+
+  // Move outside the segment without releasing — simulates a drag-exit.
+  await page.mouse.move(0, 0)
+  await expect(micSegment).not.toHaveClass(/is-live/, { timeout: 500 })
+
+  await page.mouse.up()
+})
+
+test('mode transitions: grid → cmd (key click) → logs (cycle-window) → back → back', async ({ page }) => {
+  await openStreamdeck(page)
+
+  const device = page.locator('.sd-device')
+  const keysView = page.locator('[data-mode-view="grid"]')
+  const cmdView = page.locator('[data-mode-view="cmd"]')
+  const logsView = page.locator('[data-mode-view="logs"]')
+
+  // Initial state: grid mode, keys visible, cmd and logs hidden.
+  await expect(device).toHaveAttribute('data-mode', 'grid')
+  await expect(keysView).toBeVisible()
+  await expect(cmdView).not.toBeVisible()
+  await expect(logsView).not.toBeVisible()
+
+  // Click a key to enter cmd mode.
+  const key = page.locator('.sd-key:not(.is-empty)').first()
+  await key.click()
+  await expect(device).toHaveAttribute('data-mode', 'cmd')
+  await expect(keysView).not.toBeVisible()
+  await expect(cmdView).toBeVisible()
+  await expect(logsView).not.toBeVisible()
+
+  // Dial 3 press (cycle-window) → logs mode.
+  const dial3 = page.locator('.sd-knob').nth(3)
+  const d3box = await dial3.boundingBox()
+  const d3cx = d3box.x + d3box.width / 2
+  const d3cy = d3box.y + d3box.height / 2
+  await page.mouse.move(d3cx, d3cy)
+  await page.mouse.down()
+  await page.mouse.up()
+  await expect(device).toHaveAttribute('data-mode', 'logs')
+  await expect(keysView).not.toBeVisible()
+  await expect(cmdView).not.toBeVisible()
+  await expect(logsView).toBeVisible()
+
+  // Dial 0 press (back) → cmd mode.
+  const dial0 = page.locator('.sd-knob').first()
+  const d0box = await dial0.boundingBox()
+  const d0cx = d0box.x + d0box.width / 2
+  const d0cy = d0box.y + d0box.height / 2
+  await page.mouse.move(d0cx, d0cy)
+  await page.mouse.down()
+  await page.mouse.up()
+  await expect(device).toHaveAttribute('data-mode', 'cmd')
+
+  // Dial 0 press (back) again → grid mode.
+  // Re-fetch bounding box: the layout reflowed when keys became hidden (cmd mode),
+  // so cached coordinates from the logs-mode capture may miss the knob.
+  const d0box2 = await dial0.boundingBox()
+  const d0cx2 = d0box2.x + d0box2.width / 2
+  const d0cy2 = d0box2.y + d0box2.height / 2
+  await page.mouse.move(d0cx2, d0cy2)
+  await page.mouse.down()
+  await page.mouse.up()
+  await expect(device).toHaveAttribute('data-mode', 'grid')
+  await expect(keysView).toBeVisible()
+})
+
+test('dial drag + mode transition both work in the same session', async ({ page }) => {
+  await openStreamdeck(page)
+
+  // First rotate dial 0 to change its value.
+  const knob = page.locator('.sd-knob').first()
+  const box = await knob.boundingBox()
+  const cx = box.x + box.width / 2
+  const cy = box.y + box.height / 2
+
+  await page.mouse.move(cx, cy - 30)
+  await page.mouse.down()
+  await page.mouse.move(cx + 30, cy)
+  await page.mouse.move(cx, cy + 30)
+  await page.mouse.up()
+  const dialValue = parseInt(await knob.getAttribute('aria-valuenow'), 10)
+  expect(dialValue).toBeGreaterThan(0)
+
+  // Then click a key to enter cmd mode.
+  const key = page.locator('.sd-key:not(.is-empty)').first()
+  await key.click()
+  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
+
+  // Dial value should be preserved across the mode change.
+  expect(parseInt(await knob.getAttribute('aria-valuenow'), 10)).toBe(dialValue)
+})
+
+test('dial and knob state survive a LiveView patch (regression for #1306)', async ({ page }) => {
+  await openStreamdeck(page)
+
+  const knob = page.locator('.sd-knob').first()
+  await knob.hover()
+
+  // Increase value by scrolling.
+  await page.mouse.wheel(0, -300)
+  const valueBeforePatch = parseInt(await knob.getAttribute('aria-valuenow'), 10)
+  expect(valueBeforePatch).toBeGreaterThan(0)
+
+  // Force a LiveView patch by toggling the nav — this triggers a re-render.
+  // The nav toggle button is labelled "Hide navigation" or "Show navigation".
+  const navToggle = page.getByRole('button', { name: /navigation/i }).first()
+  await navToggle.click({ force: true })
+  await navToggle.click({ force: true })
+
+  // Wait briefly for any patch to settle.
+  await page.waitForTimeout(200)
+
+  const valueAfterPatch = parseInt(await knob.getAttribute('aria-valuenow'), 10)
+  expect(valueAfterPatch).toBe(valueBeforePatch)
+})
+
+test('dial D pages live fleet keys and pager dots', async ({ page }) => {
+  await openStreamdeck(page)
+
+  const keys = page.locator('#sd-keys')
+  await expect(keys).toHaveAttribute('data-grid-page-count', '3')
+  await expect(keys.locator('[data-streamdeck-identifier="1352"]')).toBeVisible()
+  await expect(keys.locator('[data-streamdeck-identifier="1376"]')).toHaveCount(0)
+
+  const dialD = page.locator('.sd-knob').nth(3)
+  await dialD.hover()
+  for (let step = 0; step < 17; step += 1) {
+    await page.mouse.wheel(0, -100)
+  }
+
+  await expect(dialD).toHaveAttribute('aria-valuenow', '68')
+  await expect(keys).toHaveAttribute('data-grid-page', '1')
+  await expect(keys.locator('[data-streamdeck-identifier="1370"]')).toBeVisible()
+  await expect(page.locator('#sd-pager-dots [aria-current="page"]')).toHaveAttribute('data-page', '1')
+})
+
+test('emulator and Units stay in sync after a live fleet-size change', async ({ page, context }) => {
+  await openStreamdeck(page)
+
+  const units = await context.newPage()
+  await openUnits(units)
+  await units.getByRole('button', { name: 'Select all preceding filters' }).click()
+
+  const rows = units.locator('#units-rows tr.units-row')
+  const before = Number.parseInt(await units.locator('.units-header p').nth(1).textContent(), 10)
+  await rows.first().locator('td.ut-id-cell').click()
+  await units.locator('#remove-selected-unit').evaluate((button) => button.click())
+
+  await expect(units.locator('.units-header p').nth(1)).toContainText(`${before - 1} observed`)
+
+  const unitIdentifiers = await rows.evaluateAll((elements) =>
+    elements.map((row) => row.querySelector('.ut-id-num').textContent.trim())
+  )
+  expect(unitIdentifiers).toHaveLength(5)
+  await expect(page.locator('#sd-keys')).toHaveAttribute('data-grid-total', String(unitIdentifiers.length))
+
+  const streamdeckSlots = await page.locator('#sd-keys .sd-key').evaluateAll((keys) =>
+    keys.map((key) => key.classList.contains('is-empty') ? null : key.getAttribute('data-streamdeck-identifier'))
+  )
+  const expectedSlots = Array.from({ length: 8 }, (_, slot) => {
+    const index = (slot % 4) * 2 + Math.floor(slot / 4)
+    return unitIdentifiers[index] ?? null
+  })
+
+  expect(streamdeckSlots).toEqual(expectedSlots)
+  await units.close()
+})
+
+test('logs mode scrolls event and transcript panes within real bounds', async ({ page }) => {
+  await openStreamdeck(page)
+
+  await page.locator('.sd-key:not(.is-empty)').first().click()
+  const dialD = page.locator('.sd-knob').nth(3)
+  const box = await dialD.boundingBox()
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
+  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
+
+  await expect(page.locator('#sd-log-events')).toContainText('event-1')
+  await dialD.hover()
+  await page.mouse.wheel(0, -100)
+  await expect(page.locator('#sd-log-events')).toHaveAttribute('data-offset', '1')
+  await expect(page.locator('#sd-log-events')).toContainText('event-2')
+
+  const dialA = page.locator('.sd-knob').first()
+  await dialA.hover()
+  await page.mouse.wheel(0, -100)
+  await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '1')
+  await expect(page.locator('#sd-log-transcript')).toContainText('transcript-2')
+
+  await page.mouse.wheel(0, 1000)
+  await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '0')
+  await expect(page.locator('#sd-transcript-hint-up')).toHaveAttribute('aria-hidden', 'true')
+})
+
+test('touch strip exposes provider percentages, not only window counts', async ({ page }) => {
+  await openStreamdeck(page)
+
+  await expect(page.locator('.sd-screen-segment').filter({ hasText: 'Claude' })).toContainText('30%')
+  await expect(page.locator('.sd-screen-segment').filter({ hasText: 'Codex' })).toContainText('50%')
+  await expect(page.locator('.sd-screen-segment').filter({ hasText: 'Claude' }).locator('.sd-screen-value')).not.toContainText('windows')
+  await expect(page.locator('.sd-screen-segment').filter({ hasText: 'Codex' }).locator('.sd-screen-value')).not.toContainText('windows')
+})
+
+test('Stream Deck emulator passes automated accessibility checks', async ({ page }) => {
+  await openStreamdeck(page)
+
+  const accessibility = await new AxeBuilder({ page }).analyze()
+  expect(accessibility.violations).toEqual([])
+})

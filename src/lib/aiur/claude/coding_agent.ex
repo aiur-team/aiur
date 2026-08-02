@@ -11,8 +11,11 @@ defmodule Aiur.Claude.CodingAgent do
   @behaviour Aiur.AppServer.Adapter
 
   require Logger
+  alias Aiur.AgentRunner.ToolExecutor
   alias Aiur.AppServer.{Adapter, Messages, OperatorDelivery, Rpc, TurnState}
-  alias Aiur.Claude.NotificationPolicy
+  alias Aiur.Claude.{AccountGeneration, AccountMeters, NotificationPolicy}
+  alias Aiur.Claude.RemoteControl
+  alias Aiur.Codex.AppServerPort
   alias Aiur.Codex.DynamicTool
   alias Aiur.Config
 
@@ -24,32 +27,56 @@ defmodule Aiur.Claude.CodingAgent do
           metadata: map(),
           thread_id: String.t(),
           workspace: Path.t(),
-          model: String.t() | nil
+          model: String.t() | nil,
+          account_generation_binding: reference()
         }
 
   @spec start_session(Path.t(), keyword()) :: {:ok, session()} | {:error, term()}
   @impl Aiur.CodingAgent.Backend
   def start_session(workspace, opts \\ []) do
     model = Keyword.get(opts, :model)
+    identifier = Keyword.get(opts, :identifier)
+    on_provider_started = Keyword.get(opts, :on_provider_started, fn _provider -> :ok end)
+    account_generation_server = Keyword.get(opts, :account_generation_server, Aiur.ProviderAccountGeneration)
 
     with :ok <- validate_workspace_cwd(workspace),
-         {:ok, port} <- start_port(workspace) do
+         {:ok, port} <- start_port(workspace, on_provider_started, Keyword.get(opts, :telemetry_launch)) do
       metadata = port_metadata(port)
-      Aiur.ProcessReaper.register(:agent, {:os_pid, metadata[:claude_app_server_pid]}, comm: "claude")
+
+      Aiur.ProcessReaper.register(:agent, {:os_pid, metadata[:claude_app_server_pid]},
+        comm: "claude",
+        ticket: identifier,
+        backend: "claude",
+        worker_host: nil,
+        remote: false
+      )
+
       expanded_workspace = Path.expand(workspace)
+      account_generation = AccountGeneration.new_binding(account_generation_server)
+
+      lifecycle_session = %{
+        port: port,
+        metadata: metadata,
+        account_generation_binding: account_generation.binding,
+        account_generation_authority: account_generation.authority,
+        account_generation_context: account_generation.context,
+        account_generation_topic: account_generation.topic,
+        account_generation_server: account_generation_server,
+        provider_meter_ingester: Keyword.get(opts, :provider_meter_ingester, &Aiur.ProviderMeters.ingest/1),
+        provider_meter_failure_recorder: Keyword.get(opts, :provider_meter_failure_recorder, &Aiur.ProviderMeters.record_failure/1)
+      }
 
       case do_start_session(port, expanded_workspace) do
         {:ok, thread_id} ->
           {:ok,
-           %{
-             port: port,
-             metadata: metadata,
+           Map.merge(lifecycle_session, %{
              thread_id: thread_id,
              workspace: expanded_workspace,
              model: model
-           }}
+           })}
 
         {:error, reason} ->
+          AccountGeneration.process_stopped(lifecycle_session)
           stop_port(port)
           {:error, reason}
       end
@@ -73,7 +100,9 @@ defmodule Aiur.Claude.CodingAgent do
 
   @spec stop_session(session()) :: :ok
   @impl Aiur.CodingAgent.Backend
-  def stop_session(%{port: port}) when is_port(port) do
+  def stop_session(%{port: port} = session) when is_port(port) do
+    AccountGeneration.process_stopped(session)
+  after
     stop_port(port)
   end
 
@@ -127,14 +156,44 @@ defmodule Aiur.Claude.CodingAgent do
     end
   end
 
-  defp start_port(workspace) do
-    Adapter.start_port(workspace, Aiur.Claude.Config.command())
+  defp start_port(workspace, on_provider_started, %{env: telemetry_env}) when is_list(telemetry_env) do
+    Adapter.start_port(
+      workspace,
+      Aiur.Claude.Config.command(),
+      fn port -> on_provider_started.(provider_metadata(port)) end,
+      env: telemetry_env
+    )
   end
+
+  defp start_port(workspace, on_provider_started, _telemetry_launch) do
+    Adapter.start_port(
+      workspace,
+      Aiur.Claude.Config.command(),
+      fn port -> on_provider_started.(provider_metadata(port)) end
+    )
+  end
+
+  defp provider_metadata(port) do
+    case :erlang.port_info(port, :os_pid) do
+      {:os_pid, os_pid} ->
+        %{root_pid: os_pid}
+        |> maybe_put_process_group(AppServerPort.process_group_for_pid(os_pid))
+        |> Map.put(:descendant_pids, RemoteControl.process_tree(os_pid))
+
+      _ ->
+        %{}
+    end
+  end
+
+  defp maybe_put_process_group(provider, group) when is_integer(group) and group > 0,
+    do: Map.put(provider, :process_group_id, group)
+
+  defp maybe_put_process_group(provider, _group), do: provider
 
   defp port_metadata(port) when is_port(port) do
     case :erlang.port_info(port, :os_pid) do
       {:os_pid, os_pid} ->
-        %{claude_app_server_pid: to_string(os_pid)}
+        %{provider_pid: to_string(os_pid), claude_app_server_pid: to_string(os_pid)}
 
       _ ->
         %{}
@@ -274,7 +333,10 @@ defmodule Aiur.Claude.CodingAgent do
     tool_name = Messages.tool_call_name(params)
     arguments = Messages.tool_call_arguments(params)
 
-    result = Messages.normalize_tool_result(state.tool_executor.(tool_name, arguments))
+    result =
+      state.tool_executor
+      |> ToolExecutor.execute(tool_name, arguments, Messages.tool_call_id(params, id))
+      |> Messages.normalize_tool_result(%{workspace: session.workspace, response_id: id})
 
     send_frame(session.port, %{
       "id" => id,
@@ -291,6 +353,25 @@ defmodule Aiur.Claude.CodingAgent do
     Messages.emit_message(state.on_message, event, %{payload: payload, raw: payload_string}, metadata)
 
     {:continue, OperatorDelivery.maybe_process_safe_checkpoint(session, state, %{kind: :tool_result, method: "item/tool/call"})}
+  end
+
+  def handle_method(
+        session,
+        state,
+        %{"method" => "rate_limit/update"} = payload,
+        _payload_string,
+        method
+      ) do
+    _ = AccountMeters.handle_notification(session, payload)
+
+    Messages.emit_message(
+      state.on_message,
+      :notification,
+      AccountMeters.redacted_message(),
+      metadata_from_message(session.port, %{"method" => "provider_account/rate_limits_changed"})
+    )
+
+    {:continue, OperatorDelivery.maybe_process_safe_checkpoint(session, state, %{kind: :notification, method: method})}
   end
 
   def handle_method(session, state, %{"method" => method} = payload, payload_string, _method)

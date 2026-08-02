@@ -1,6 +1,8 @@
 defmodule Aiur.CLITest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureIO
+
   alias Aiur.CLI
 
   @ack_flag "--i-understand-that-this-will-be-running-without-the-usual-guardrails"
@@ -222,6 +224,46 @@ defmodule Aiur.CLITest do
     assert_received {:workflow_checked, _path}
   end
 
+  test "routes variadic todo IDs and only without starting the workflow" do
+    assert {:todo, ["11", "12", "13"], %{only: true}} =
+             CLI.evaluate(["--todo", "11", "12,13", "--only"], deps())
+  end
+
+  test "deduplicates todo IDs in first-seen order" do
+    assert {:todo, ["11", "12"], %{only: false}} =
+             CLI.evaluate(["--todo", "11", "12", "11"], deps())
+  end
+
+  test "canonicalizes leading-zero todo IDs to match enumerated identifiers" do
+    assert {:todo, ["11"], %{only: false}} =
+             CLI.evaluate(["--todo", "011"], deps())
+  end
+
+  test "dedupes a leading-zero ID against its canonical form" do
+    assert {:todo, ["11"], %{only: false}} =
+             CLI.evaluate(["--todo", "011", "11"], deps())
+  end
+
+  test "rejects todo without IDs" do
+    assert {:error, message} = CLI.evaluate(["--todo"], deps())
+    assert message =~ "aiur --todo <id>"
+  end
+
+  test "rejects invalid todo IDs" do
+    assert {:error, message} = CLI.evaluate(["--todo", "11", "not-an-id"], deps())
+    assert message =~ "aiur --todo <id>"
+  end
+
+  test "rejects only without todo" do
+    assert {:error, message} = CLI.evaluate(["--only"], deps())
+    assert message =~ "aiur --todo <id>"
+  end
+
+  test "rejects run flags combined with todo" do
+    assert {:error, message} = CLI.evaluate(["--todo", "11", "--host", "127.0.0.1"], deps())
+    assert message =~ "aiur --todo <id>"
+  end
+
   test "enables interactive CLI mode when requested" do
     previous_value = Application.get_env(:aiur, :interactive_cli)
 
@@ -257,6 +299,22 @@ defmodule Aiur.CLITest do
     }
   end
 
+  defp configured_deps(max_agents) do
+    Map.put(passthrough_deps(), :configured_max_agents, fn -> max_agents end)
+  end
+
+  defp preserve_max_agents_override do
+    previous = Application.get_env(:aiur, :max_concurrent_agents_override)
+
+    on_exit(fn ->
+      if is_nil(previous),
+        do: Application.delete_env(:aiur, :max_concurrent_agents_override),
+        else: Application.put_env(:aiur, :max_concurrent_agents_override, previous)
+    end)
+
+    Application.delete_env(:aiur, :max_concurrent_agents_override)
+  end
+
   test "enables headless mode when requested" do
     previous = Application.get_env(:aiur, :headless)
 
@@ -272,6 +330,51 @@ defmodule Aiur.CLITest do
     assert Application.get_env(:aiur, :headless) == true
   end
 
+  test "disables dashboard supervision when requested" do
+    previous = Application.get_env(:aiur, :no_dashboard)
+
+    on_exit(fn ->
+      if is_nil(previous),
+        do: Application.delete_env(:aiur, :no_dashboard),
+        else: Application.put_env(:aiur, :no_dashboard, previous)
+    end)
+
+    Application.delete_env(:aiur, :no_dashboard)
+
+    assert :ok = CLI.evaluate([@ack_flag, "--no-dashboard", ".aiurconfig"], passthrough_deps())
+    assert Application.get_env(:aiur, :no_dashboard) == true
+  end
+
+  test "--pause records the global-pause launch override" do
+    previous = Application.get_env(:aiur, :launch_globally_paused)
+
+    on_exit(fn ->
+      if is_nil(previous),
+        do: Application.delete_env(:aiur, :launch_globally_paused),
+        else: Application.put_env(:aiur, :launch_globally_paused, previous)
+    end)
+
+    Application.delete_env(:aiur, :launch_globally_paused)
+
+    assert :ok = CLI.evaluate([@ack_flag, "--pause", ".aiurconfig"], passthrough_deps())
+    assert Application.get_env(:aiur, :launch_globally_paused) == true
+  end
+
+  test "no --pause flag leaves the global-pause override unset" do
+    previous = Application.get_env(:aiur, :launch_globally_paused)
+
+    on_exit(fn ->
+      if is_nil(previous),
+        do: Application.delete_env(:aiur, :launch_globally_paused),
+        else: Application.put_env(:aiur, :launch_globally_paused, previous)
+    end)
+
+    Application.delete_env(:aiur, :launch_globally_paused)
+
+    assert :ok = CLI.evaluate([@ack_flag, ".aiurconfig"], passthrough_deps())
+    assert is_nil(Application.get_env(:aiur, :launch_globally_paused))
+  end
+
   test "--max-agents N records the orchestrator launch override" do
     previous = Application.get_env(:aiur, :max_concurrent_agents_override)
 
@@ -285,6 +388,54 @@ defmodule Aiur.CLITest do
 
     assert :ok = CLI.evaluate([@ack_flag, "--max-agents", "4", ".aiurconfig"], passthrough_deps())
     assert Application.get_env(:aiur, :max_concurrent_agents_override) == 4
+  end
+
+  test "--max-agents above the configured ceiling warns and documents CLI precedence" do
+    preserve_max_agents_override()
+
+    stderr =
+      capture_io(:stderr, fn ->
+        assert :ok = CLI.evaluate([@ack_flag, "--max-agents", "20", ".aiurconfig"], configured_deps(8))
+      end)
+
+    assert stderr =~ "warning: --max-agents 20 exceeds agent.max_concurrent_agents (8)"
+    assert stderr =~ "the explicit CLI value wins, so using 20"
+  end
+
+  test "duplicate --max-agents flags warn and apply the last value" do
+    preserve_max_agents_override()
+
+    stderr =
+      capture_io(:stderr, fn ->
+        assert :ok =
+                 CLI.evaluate(
+                   [@ack_flag, "--max-agents", "4", "--max-agents", "20", ".aiurconfig"],
+                   configured_deps(8)
+                 )
+      end)
+
+    assert stderr =~ "warning: --max-agents 20 exceeds agent.max_concurrent_agents (8)"
+    assert Application.get_env(:aiur, :max_concurrent_agents_override) == 20
+  end
+
+  test "--max-agents at or below the configured ceiling is silent" do
+    preserve_max_agents_override()
+
+    stderr =
+      capture_io(:stderr, fn ->
+        assert :ok = CLI.evaluate([@ack_flag, "--max-agents", "8", ".aiurconfig"], configured_deps(8))
+        assert :ok = CLI.evaluate([@ack_flag, "--max-agents", "4", ".aiurconfig"], configured_deps(8))
+      end)
+
+    assert stderr == ""
+  end
+
+  test "an absent --max-agents flag is silent" do
+    preserve_max_agents_override()
+
+    stderr = capture_io(:stderr, fn -> assert :ok = CLI.evaluate([@ack_flag, ".aiurconfig"], configured_deps(8)) end)
+
+    assert stderr == ""
   end
 
   test "--max-agents rejects a non-positive value" do

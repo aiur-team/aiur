@@ -14,9 +14,10 @@ defmodule Aiur.Claude.HookEvents do
   broadcasts it on a per-agent `Phoenix.PubSub` topic that the agent's `run_turn`
   process subscribes to:
 
-    * `UserPromptSubmit` — claude accepted input (turn start / operator-message receipt)
+    * `UserPromptSubmit` — claude accepted input (turn start / Executor-message receipt)
     * `PostToolUse`      — a tool finished (live progress + liveness heartbeat)
     * `Stop`             — the turn completed; carries `last_assistant_message`
+    * `StopFailure`      — the turn failed at the API boundary; carries a structured error category
 
   A hook POST must never fail claude, so `dispatch/2` always returns `:ok`.
   """
@@ -27,7 +28,7 @@ defmodule Aiur.Claude.HookEvents do
 
   @pubsub Aiur.PubSub
 
-  @type kind :: :user_prompt_submit | :post_tool_use | :stop | :unknown
+  @type kind :: :user_prompt_submit | :post_tool_use | :stop | :stop_failure | :unknown
 
   @type event :: %{
           event: kind(),
@@ -96,6 +97,7 @@ defmodule Aiur.Claude.HookEvents do
   defp classify("UserPromptSubmit"), do: :user_prompt_submit
   defp classify("PostToolUse"), do: :post_tool_use
   defp classify("Stop"), do: :stop
+  defp classify("StopFailure"), do: :stop_failure
   defp classify(_), do: :unknown
 
   defp string_or_nil(value) when is_binary(value), do: value

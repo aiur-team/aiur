@@ -3,15 +3,15 @@ defmodule Aiur.GitHub.Errors do
   GitHub transport, HTTP, and rate-limit error taxonomy.
   """
 
-  alias Aiur.GitHub.Transport
+  alias Aiur.GitHub.GraphQLErrors
 
   @typedoc """
-  The error classification produced by `classify_error/1`. Operators must be
+  The error classification produced by `classify_error/1`. Executors must be
   able to tell these apart to fix flaky GitHub access (#617): a DNS outage and
   an expired token need entirely different remediation.
   """
   @type classification ::
-          :dns | :timeout | :tls | :transport | :auth | :rate_limited | :http
+          :dns | :timeout | :tls | :transport | :auth | :permission | :rate_limited | :http
 
   @doc """
   Classifies a GitHub transport failure or HTTP response into the structured
@@ -63,8 +63,7 @@ defmodule Aiur.GitHub.Errors do
   def classify_transport_reason(reason), do: {:github, :transport, %{reason: reason}}
 
   @spec classify_status(integer(), map()) :: {:github, classification(), map()}
-  def classify_status(401, response),
-    do: {:github, :auth, %{status: 401, message: response_message(response)}}
+  def classify_status(401, response), do: {:github, :auth, %{status: 401, message: response_message(response)}}
 
   def classify_status(403, response) do
     if rate_limited_response?(response, :unknown) do
@@ -93,101 +92,52 @@ defmodule Aiur.GitHub.Errors do
   @spec github_status_error(map()) :: {:github, classification(), map()}
   def github_status_error(%{status: _status} = response), do: classify_error(response)
 
+  @doc "Classifies GraphQL responses with planning-graph provider evidence."
+  @spec github_graph_status_error(map()) :: {:github, classification(), map()}
+  def github_graph_status_error(%{status: status} = response) do
+    detail = Map.put(rate_limit_observation(response), :status, status)
+    {:github, graph_status_classification(status, response), detail}
+  end
+
+  defp graph_status_classification(401, _response), do: :auth
+  defp graph_status_classification(429, _response), do: :rate_limited
+
+  defp graph_status_classification(403, response) do
+    if rate_limited_response?(response, :unknown), do: :rate_limited, else: :permission
+  end
+
+  defp graph_status_classification(_status, _response), do: :http
+
+  @spec graphql_error(map()) :: {:github, :rate_limited | :permission, map()} | :graphql_partial
+  defdelegate graphql_error(response), to: GraphQLErrors
+
   @spec response_message(map()) :: String.t() | nil
   def response_message(%{body: %{"message" => message}}) when is_binary(message), do: message
   def response_message(_response), do: nil
 
   @spec retry_after(map()) :: pos_integer() | nil
-  def retry_after(%{headers: headers}) do
-    case Transport.header(headers, "retry-after") do
-      value when is_binary(value) ->
-        case Integer.parse(value) do
-          {n, _} when n > 0 -> n
-          _ -> nil
-        end
-
-      _ ->
-        nil
-    end
-  end
-
-  def retry_after(_response), do: nil
+  defdelegate retry_after(response), to: GraphQLErrors
 
   @spec rate_limit_poll_interval(map()) :: pos_integer() | nil
-  def rate_limit_poll_interval(%{headers: headers}) do
-    case Transport.header(headers, "x-poll-interval") do
-      value when is_binary(value) ->
-        case Integer.parse(value) do
-          {n, _} when n > 0 -> n
-          _ -> nil
-        end
-
-      _ ->
-        nil
-    end
-  end
-
-  def rate_limit_poll_interval(_response), do: nil
+  defdelegate rate_limit_poll_interval(response), to: GraphQLErrors
 
   @spec rate_limited_response?(map(), atom()) :: boolean()
-  def rate_limited_response?(response, endpoint) do
-    Map.get(response, :status) == 429 or
-      rate_limit_remaining(response) == 0 or
-      (endpoint == :rate_limit and rate_limit_body_remaining(response) == 0) or
-      rate_limit_message?(Map.get(response, :body))
-  end
+  defdelegate rate_limited_response?(response, endpoint), to: GraphQLErrors
 
   @spec rate_limit_remaining(map()) :: integer() | nil
-  def rate_limit_remaining(%{headers: headers}) do
-    case Transport.header(headers, "x-ratelimit-remaining") do
-      value when is_binary(value) ->
-        case Integer.parse(value) do
-          {n, _} -> n
-          _ -> nil
-        end
-
-      value when is_integer(value) ->
-        value
-
-      _ ->
-        nil
-    end
-  end
-
-  def rate_limit_remaining(_response), do: nil
+  defdelegate rate_limit_remaining(response), to: GraphQLErrors
 
   @spec rate_limit_reset(map()) :: String.t() | nil
-  def rate_limit_reset(%{headers: headers}) do
-    with value when is_binary(value) <- Transport.header(headers, "x-ratelimit-reset"),
-         {unix, _} <- Integer.parse(value),
-         {:ok, dt} <- DateTime.from_unix(unix) do
-      DateTime.to_iso8601(dt)
-    else
-      _ -> nil
-    end
-  end
+  defdelegate rate_limit_reset(response), to: GraphQLErrors
 
-  def rate_limit_reset(_response), do: nil
+  @spec rate_limit_observation(map()) :: map()
+  defdelegate rate_limit_observation(response), to: GraphQLErrors
 
   @spec rate_limit_body_remaining(map()) :: integer() | nil
-  def rate_limit_body_remaining(%{body: %{"resources" => %{"core" => %{"remaining" => remaining}}}})
-      when is_integer(remaining),
-      do: remaining
-
-  def rate_limit_body_remaining(%{body: %{"rate" => %{"remaining" => remaining}}})
-      when is_integer(remaining),
-      do: remaining
-
-  def rate_limit_body_remaining(_response), do: nil
+  defdelegate rate_limit_body_remaining(response), to: GraphQLErrors
 
   @spec rate_limit_message?(term()) :: boolean()
-  def rate_limit_message?(%{"message" => message}) when is_binary(message) do
-    message
-    |> String.downcase()
-    |> String.contains?("rate limit")
-  end
-
-  def rate_limit_message?(_body), do: false
+  defdelegate rate_limit_message?(body), to: GraphQLErrors
 
   @spec retryable_github_error?(term()) :: boolean()
   def retryable_github_error?({:github, kind, _detail})

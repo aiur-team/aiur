@@ -21,6 +21,7 @@ defmodule Aiur.InitTest do
     "ticket.*.agent.retry_exhausted",
     "ticket.*.agent.review_feedback_delivery_deferred",
     "ticket.*.agent.paused",
+    "ticket.*.agent.attention.*",
     "ticket.*.agent.unpaused",
     "ticket.*.chat.opened",
     "ticket.*.chat.closed",
@@ -51,18 +52,25 @@ defmodule Aiur.InitTest do
   defp io(parent, answers \\ %{}) do
     %{
       puts: fn message ->
-        send(parent, {:puts, IO.chardata_to_string(message)})
+        message = IO.chardata_to_string(message)
+        send(parent, {:io_trace, {:puts, message}})
+        send(parent, {:puts, message})
         :ok
       end,
       input: fn label, default, _hint ->
+        send(parent, {:io_trace, {:input, label}})
         send(parent, {:input_label, label})
         Map.get(Map.get(answers, :input, %{}), label, default)
       end,
-      select: fn label, _opts, default -> Map.get(Map.get(answers, :select, %{}), label, default) end,
+      select: fn label, _opts, default ->
+        send(parent, {:io_trace, {:select, label}})
+        Map.get(Map.get(answers, :select, %{}), label, default)
+      end,
       multiselect: fn label, _opts, defaults ->
         Map.get(Map.get(answers, :multiselect, %{}), label, defaults)
       end,
       confirm: fn label, default ->
+        send(parent, {:io_trace, {:confirm, label}})
         send(parent, {:confirm, label})
         Map.get(Map.get(answers, :confirm, %{}), label, default)
       end
@@ -143,7 +151,6 @@ defmodule Aiur.InitTest do
           end
         end,
         ensure_env: fn content ->
-          File.write!(Path.join(dir, ".env.example"), content)
           env_path = Path.join(dir, ".env")
 
           if File.regular?(env_path) do
@@ -155,8 +162,13 @@ defmodule Aiur.InitTest do
         end,
         check_agent_auth: fn _kind -> :ok end,
         install_claude_app_server: fn -> :ok end,
+        claude_version: fn -> {:ok, "1.1.0"} end,
+        # No installed CLI to ask in the wizard tests; discovery degrading to an
+        # error is the offline path, and init must finish through it.
+        discover_models: fn _backend -> {:error, :offline} end,
         repo_root: fn -> dir end,
         github_login: fn -> "octocat" end,
+        github_bot_account_default: fn -> nil end,
         github_token: fn -> nil end,
         list_labels: fn _tracker -> {:ok, []} end,
         create_labels: fn tracker, labels ->
@@ -211,6 +223,14 @@ defmodule Aiur.InitTest do
   defp puts_log(acc \\ []) do
     receive do
       {:puts, msg} -> puts_log([msg | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
+
+  defp io_trace(acc \\ []) do
+    receive do
+      {:io_trace, event} -> io_trace([event | acc])
     after
       0 -> Enum.reverse(acc)
     end
@@ -294,6 +314,11 @@ defmodule Aiur.InitTest do
   @location_label "Where will you store aiur settings for this project?"
 
   @reuse_global_alerts_label "Found an existing alerts file at ~/.aiur/alerts — copy it into this repo's .aiur/alerts?"
+
+  @prewarm_command_label "Use this base build command?"
+  @base_build_command_label "Base build command"
+  @alert_sounds_label "Add sound effects for alerts (e.g. an agent is stuck or needs your input)?"
+  @gitignore_label "Add .aiur/ to .gitignore?"
 
   defp github_answers(overrides \\ %{}) do
     base = %{
@@ -386,7 +411,7 @@ defmodule Aiur.InitTest do
   end
 
   describe "pre-warm opt-in" do
-    test "detection + accept writes an enabled prewarm block with the command", %{dir: dir, target: target} do
+    test "use builds immediately before alerts and gitignore, then writes the command", %{dir: dir, target: target} do
       d =
         deps(self(), dir, target, %{
           detect_toolchain: fn ->
@@ -394,19 +419,100 @@ defmodule Aiur.InitTest do
           end
         })
 
-      answers = github_answers(%{select: %{"Use this base build command?" => "use"}})
+      answers = github_answers(%{select: %{@prewarm_command_label => "use"}})
 
       assert :ok = Init.run(%{force: false}, io(self(), answers), d)
 
+      events = io_trace()
+
+      assert [{:select, @prewarm_command_label}, {:puts, build_message} | _] =
+               Enum.drop_while(events, &(&1 != {:select, @prewarm_command_label}))
+
+      assert build_message =~ "Building the warm base now"
+
+      assert [
+               {:puts, ^build_message},
+               {:confirm, @alert_sounds_label},
+               {:confirm, @gitignore_label}
+             ] =
+               Enum.filter(events, fn
+                 {:puts, message} -> message =~ "Building the warm base now"
+                 {:confirm, label} -> label in [@alert_sounds_label, @gitignore_label]
+                 _event -> false
+               end)
+
       # init writes the command to the sibling .aiur/prewarm script and runs the
       # first warm-base build on opt-in
-      assert_received {:prewarm_file, "mise exec -- mix compile"}
       assert_received {:prewarm_build, _url, "mise exec -- mix compile"}
+      assert File.read!(Path.join([dir, ".aiur", "prewarm"])) == "mise exec -- mix compile\n"
 
       config = File.read!(target)
       assert config =~ "enabled: true"
       assert config =~ "base_build_file: prewarm"
       refute config =~ ~s(base_build: ")
+    end
+
+    test "edit builds immediately after the edited command is accepted", %{dir: dir, target: target} do
+      edited_command = "mise exec -- mix deps.get && mise exec -- mix compile"
+
+      d =
+        deps(self(), dir, target, %{
+          detect_toolchain: fn ->
+            {:ok, %{language: :elixir, build_root: "src", command: "mise exec -- mix compile"}}
+          end
+        })
+
+      answers =
+        github_answers(%{
+          select: %{@prewarm_command_label => "edit"},
+          input: %{@base_build_command_label => edited_command}
+        })
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), d)
+
+      events = io_trace()
+
+      assert [
+               {:select, @prewarm_command_label},
+               {:input, @base_build_command_label},
+               {:puts, build_message}
+               | _rest
+             ] = Enum.drop_while(events, &(&1 != {:select, @prewarm_command_label}))
+
+      assert build_message =~ "Building the warm base now"
+      assert_received {:prewarm_build, _url, ^edited_command}
+      assert File.read!(Path.join([dir, ".aiur", "prewarm"])) == edited_command <> "\n"
+    end
+
+    test "skip does not build or write a prewarm command", %{dir: dir, target: target} do
+      d =
+        deps(self(), dir, target, %{
+          detect_toolchain: fn ->
+            {:ok, %{language: :elixir, build_root: "src", command: "mise exec -- mix compile"}}
+          end
+        })
+
+      answers = github_answers(%{select: %{@prewarm_command_label => "skip"}})
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), d)
+
+      events = io_trace()
+
+      assert [{:select, @prewarm_command_label}, {:confirm, @alert_sounds_label} | _] =
+               Enum.drop_while(events, &(&1 != {:select, @prewarm_command_label}))
+
+      refute Enum.any?(events, fn
+               {:puts, message} -> message =~ "Building the warm base now"
+               _event -> false
+             end)
+
+      refute_received {:prewarm_build, _url, _command}
+      refute_received {:prewarm_file, _command}
+      refute File.exists?(Path.join([dir, ".aiur", "prewarm"]))
+
+      config = File.read!(target)
+      assert config =~ "enabled: false"
+      refute config =~ "base_build_file: prewarm"
     end
 
     test "detection miss prints a fallback prompt and leaves prewarm disabled", %{dir: dir, target: target} do
@@ -1297,6 +1403,84 @@ defmodule Aiur.InitTest do
     end
   end
 
+  describe "github bot_account setup (#1152)" do
+    @bot_account_label "GitHub account Aiur's agents post as (bot_account)"
+
+    test "persists the token's detected login accepted as the default", %{dir: dir, target: target} do
+      d = deps(self(), dir, target, %{github_bot_account_default: fn -> "its-applekid" end})
+
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), d)
+
+      assert written_config(target)["tracker"]["github"]["bot_account"] == "its-applekid"
+    end
+
+    test "persists a normalized custom login over the default", %{dir: dir, target: target} do
+      answers = github_answers(%{input: %{@bot_account_label => "@Custom-Bot"}})
+      d = deps(self(), dir, target, %{github_bot_account_default: fn -> "octocat" end})
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), d)
+
+      assert written_config(target)["tracker"]["github"]["bot_account"] == "custom-bot"
+    end
+
+    test "explains the credential-vs-identity distinction during setup", %{dir: dir, target: target} do
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
+
+      log = Enum.join(puts_log(), "\n")
+      assert log =~ "GITHUB_TOKEN"
+      assert log =~ "github.bot_account"
+      assert log =~ ~r/dedicated bot account/i
+    end
+
+    test "a blank answer skips bot_account and writes no key", %{dir: dir, target: target} do
+      answers = github_answers(%{input: %{@bot_account_label => ""}})
+      d = deps(self(), dir, target, %{github_bot_account_default: fn -> nil end})
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), d)
+
+      refute Map.has_key?(written_config(target)["tracker"]["github"], "bot_account")
+      assert Enum.any?(puts_log(), &(&1 =~ ~r/Skipped bot_account/))
+    end
+
+    test "a failed token-identity lookup writes no bot_account and never exposes token material",
+         %{dir: dir, target: target} do
+      secret = "ghp_supersecrettokenvalue"
+
+      d =
+        deps(self(), dir, target, %{
+          # A viewer-login lookup failure surfaces as a nil default, not a raise.
+          github_bot_account_default: fn -> nil end,
+          github_token: fn -> secret end
+        })
+
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), d)
+
+      refute Map.has_key?(written_config(target)["tracker"]["github"], "bot_account")
+      refute File.read!(target) =~ secret
+      refute Enum.any?(puts_log(), &(&1 =~ secret))
+    end
+
+    test "re-running init preserves an existing bot_account and shows it in the summary",
+         %{dir: dir, target: target} do
+      d = deps(self(), dir, target, %{github_bot_account_default: fn -> "its-applekid" end})
+
+      # First run writes bot_account: its-applekid.
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), d)
+      assert written_config(target)["tracker"]["github"]["bot_account"] == "its-applekid"
+      # Drain the first run's recorded prompts/output so the assertions below
+      # only observe the resume run.
+      _ = puts_log()
+      _ = input_labels()
+
+      # Resume must neither re-ask nor rewrite the tracker; the value stands.
+      assert :ok = Init.run(%{force: false}, io(self()), d)
+
+      assert written_config(target)["tracker"]["github"]["bot_account"] == "its-applekid"
+      refute Enum.any?(input_labels(), &(&1 == @bot_account_label))
+      assert Enum.any?(puts_log(), &(&1 =~ ~r/bot_account: its-applekid/))
+    end
+  end
+
   describe "limits and helper text" do
     test "max turns defaults to none (uncapped)", %{dir: dir, target: target} do
       assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
@@ -1328,7 +1512,7 @@ defmodule Aiur.InitTest do
       assert {"Max turns per issue", "none = unlimited"} in hints
 
       assert Enum.any?(hints, fn {label, hint} ->
-               label == "Max agent duration in minutes" and hint == "Fallback for stuck agents: none = never auto-kill"
+               label == "Max agent duration in minutes" and hint == "Safety checkpoint: none = never auto-pause"
              end)
 
       # pre-warm no longer carries a hint
@@ -1351,7 +1535,7 @@ defmodule Aiur.InitTest do
   end
 
   describe "agents, routing, permission mode" do
-    test "the agent multiselect offers only claude and codex (never claude-repl)", %{
+    test "the agent multiselect offers only configurable backends (never claude-repl or deepseek)", %{
       dir: dir,
       target: target
     } do
@@ -1370,7 +1554,11 @@ defmodule Aiur.InitTest do
       assert :ok = Init.run(%{force: false}, capturing, deps(parent, dir, target))
 
       assert_received {:multiselect_opts, "Which agents to support", opts}
-      assert opts == ["claude", "codex"]
+      assert opts == ["claude", "codex", "kimi", "openrouter", "fake"]
+      refute "claude-repl" in opts
+      # DeepSeek is registered but not dispatch-enabled by default, so it must
+      # not be offerable from init.
+      refute "deepseek" in opts
     end
 
     test "the location options carry greyed config-path help", %{dir: dir, target: target} do
@@ -1475,11 +1663,11 @@ defmodule Aiur.InitTest do
   end
 
   describe "closing steps (github)" do
-    test "scaffolds .env and walks through the bot-account token", %{dir: dir, target: target} do
+    test "scaffolds only .env and walks through the bot-account token", %{dir: dir, target: target} do
       assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
 
-      assert File.read!(Path.join(dir, ".env.example")) =~ "GITHUB_TOKEN="
-      assert File.read!(Path.join(dir, ".env")) =~ "GITHUB_TOKEN="
+      assert File.read!(Path.join(dir, ".env")) == "GITHUB_TOKEN=\n"
+      refute File.exists?(Path.join(dir, ".env.example"))
 
       log = puts_log()
       assert Enum.any?(log, &(&1 =~ ~r/bot account/i))
@@ -1618,7 +1806,7 @@ defmodule Aiur.InitTest do
       refute Enum.any?(input_labels(), &(&1 =~ ~r/Press Enter to create/i))
 
       log = puts_log()
-      assert Enum.any?(log, &(&1 =~ ~r/Lifecycle agent tags: created\./))
+      assert Enum.any?(log, &(&1 =~ ~r/Required agent tags: created\./))
       assert Enum.any?(log, &(&1 =~ ~r/Complexity tags: created\./))
       assert Enum.any?(log, &(&1 =~ ~r/Model tags: created\./))
       assert Enum.any?(log, &(&1 =~ ~r/aiur is set up/i))
@@ -1638,7 +1826,7 @@ defmodule Aiur.InitTest do
 
       assert Enum.sort(labels_created()) == Enum.sort(["agent:rework", "complexity:5"])
 
-      # Lifecycle (agent:rework missing) re-prompts its Enter gate; complexity
+      # Required labels (agent:rework missing) re-prompt the Enter gate; complexity
       # (complexity:5 missing) re-asks its confirm. Fully-present stages do not.
       assert Enum.any?(input_labels(), &(&1 =~ ~r/Press Enter to create/i))
       prompts = confirm_prompts()
@@ -1649,13 +1837,13 @@ defmodule Aiur.InitTest do
       assert Enum.any?(puts_log(), &(&1 =~ ~r/Model tags: created\./))
     end
 
-    test "lifecycle labels are gated behind an explicit Enter", %{dir: dir, target: target} do
+    test "required labels are gated behind an explicit Enter", %{dir: dir, target: target} do
       deps = deps(self(), dir, target, %{github_token: fn -> "ghp_test" end})
 
       assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps)
 
       assert Enum.any?(input_labels(), &(&1 =~ ~r/Press Enter to create/i))
-      assert Enum.any?(puts_log(), &(&1 =~ ~r/lifecycle ticket labels are required/i))
+      assert Enum.any?(puts_log(), &(&1 =~ ~r/workflow and automatic-fallback labels are required/i))
     end
 
     test "optional stages can be skipped without creating their labels", %{dir: dir, target: target} do
@@ -1666,6 +1854,7 @@ defmodule Aiur.InitTest do
           confirm: %{
             "Create the complexity labels?" => false,
             "Create the model labels?" => false,
+            "Create the effort labels?" => false,
             "Create the model:remote label?" => false
           }
         })
@@ -1674,9 +1863,12 @@ defmodule Aiur.InitTest do
 
       created = labels_created()
       assert created != []
-      assert Enum.all?(created, &String.starts_with?(&1, "agent:"))
+      required = Labels.state_labels("agent") ++ Labels.required_rate_limit_fallback_labels("agent")
+      assert Enum.sort(created) == Enum.sort(required)
       refute Enum.any?(created, &String.starts_with?(&1, "complexity:"))
-      refute Enum.any?(created, &String.starts_with?(&1, "model:"))
+      assert "model:claude" in created
+      refute "model:codex" in created
+      refute "model:claude-repl" in created
     end
 
     test "the remote-control stage only appears when claude is supported", %{dir: dir, target: target} do
@@ -1773,6 +1965,29 @@ defmodule Aiur.InitTest do
       refute_received {:install, :claude}
     end
 
+    test "an aiur-claude older than the minimum warns and init still completes", %{
+      dir: dir,
+      target: target
+    } do
+      parent = self()
+      d = deps(parent, dir, target, %{claude_version: fn -> {:ok, "1.0.0"} end})
+
+      assert :ok = Init.run(%{force: false}, io(parent, github_answers()), d)
+
+      log = puts_log()
+      assert Enum.any?(log, &(&1 =~ ~r/older than 1\.1\.0/))
+      assert Enum.any?(log, &(&1 =~ ~r/aiur_declare_blocker/))
+    end
+
+    test "a current aiur-claude prints no version warning", %{dir: dir, target: target} do
+      parent = self()
+      d = deps(parent, dir, target, %{claude_version: fn -> {:ok, "1.1.0"} end})
+
+      assert :ok = Init.run(%{force: false}, io(parent, github_answers()), d)
+
+      refute Enum.any?(puts_log(), &(&1 =~ ~r/aiur-claude/ and &1 =~ ~r/older than/))
+    end
+
     test "a failed install prints a manual-install hint and init still completes", %{
       dir: dir,
       target: target
@@ -1791,6 +2006,26 @@ defmodule Aiur.InitTest do
       assert :ok = Init.run(%{force: false}, io(parent, github_answers()), d)
 
       assert Enum.any?(puts_log(), &(&1 =~ ~r/npm install -g aiur-claude/))
+    end
+
+    # A failed install already told the operator how to install it by hand; a
+    # second line about the version it therefore can't read is just noise.
+    test "a failed install doesn't also print a version warning", %{dir: dir, target: target} do
+      parent = self()
+
+      d =
+        deps(parent, dir, target, %{
+          check_agent_auth: fn
+            "claude" -> @missing_claude
+            _ -> :ok
+          end,
+          install_claude_app_server: fn -> {:error, "npm not found on PATH"} end,
+          claude_version: fn -> {:error, "aiur-claude unavailable"} end
+        })
+
+      assert :ok = Init.run(%{force: false}, io(parent, github_answers()), d)
+
+      refute Enum.any?(puts_log(), &(&1 =~ ~r/couldn't check the aiur-claude version/))
     end
   end
 end

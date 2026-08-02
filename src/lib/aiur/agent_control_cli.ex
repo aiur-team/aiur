@@ -1,15 +1,18 @@
 defmodule Aiur.AgentControlCLI do
   @moduledoc false
 
-  alias Aiur.{AgentChat, AlertFeed, BuildGate, Config, Orchestrator, PauseContainment}
+  alias Aiur.{AgentChat, AlertFeed, BuildGate, Config, ExecutorEvents, Orchestrator, PauseContainment, ProviderMeterProjection}
   alias Aiur.Codex.EventHumanizer, as: CodexEventHumanizer
+  alias Aiur.GitHub.{CodeOwners, StatePolicy}
+  alias Aiur.GitHub.Config, as: GitHubConfig
+  alias Aiur.GitHub.Tracker, as: GitHubTracker
   import Aiur.EventHumanizerHelpers, only: [map_value: 2]
 
   @exit_marker "__AIUR_CONTROL_EXIT__:"
 
   # `aiur watch` remembers the last board it reported (per-row signature) in a
   # node-local persistent term so `--changes` can print only state-level deltas
-  # across one-shot RPC invocations. Updated at operator cadence (minutes), so
+  # across one-shot RPC invocations. Updated at Executor cadence (minutes), so
   # the persistent_term churn is negligible.
   @watch_baseline_key {__MODULE__, :watch_baseline}
   @watch_stuck_after_seconds 600
@@ -18,13 +21,22 @@ defmodule Aiur.AgentControlCLI do
   def status do
     case Orchestrator.status() do
       statuses when is_list(statuses) ->
-        statuses
-        |> Enum.filter(&visible_status_row?/1)
-        |> print_status_table()
+        case print_global_pause_banner() do
+          :ok ->
+            print_codeowners_trust()
 
-        print_build_gate_status()
+            statuses
+            |> Enum.filter(&visible_status_row?/1)
+            |> print_status_table()
 
-        exit_marker(0)
+            print_capacity_status(Orchestrator.max_concurrent_agents())
+
+            print_build_gate_status()
+            exit_marker(0)
+
+          {:error, :unavailable} ->
+            exit_marker(1)
+        end
 
       error ->
         print_orchestrator_status_error(error)
@@ -59,22 +71,28 @@ defmodule Aiur.AgentControlCLI do
   # from aiur's own state — the orchestrator status snapshot + the persisted
   # alert feed — with no GitHub round-trip. `mode: :full` prints every row;
   # `mode: :changes` (the default) prints only rows whose state-level signature
-  # changed since the previous call, keeping the periodic operator pull cheap.
+  # changed since the previous call, keeping the periodic Executor pull cheap.
   @spec watch(keyword()) :: :ok
   def watch(opts \\ []) do
     case Orchestrator.status() do
       statuses when is_list(statuses) ->
-        rows =
-          statuses
-          |> Enum.filter(&visible_status_row?/1)
-          |> Enum.map(&watch_row/1)
-          |> Enum.sort_by(& &1.sort_key)
+        case print_global_pause_banner() do
+          :ok ->
+            rows =
+              statuses
+              |> Enum.filter(&visible_status_row?/1)
+              |> Enum.map(&watch_row/1)
+              |> Enum.sort_by(& &1.sort_key)
 
-        alerts = latest_attention_alerts(opts)
-        mode = Keyword.get(opts, :mode, :changes)
-        {changed, removed} = update_watch_baseline(rows)
-        render_watch(rows, alerts, mode, changed, removed)
-        exit_marker(0)
+            alerts = latest_attention_alerts(opts)
+            mode = Keyword.get(opts, :mode, :changes)
+            {changed, removed} = update_watch_baseline(rows)
+            render_watch(rows, alerts, mode, changed, removed)
+            exit_marker(0)
+
+          {:error, :unavailable} ->
+            exit_marker(1)
+        end
 
       error ->
         print_orchestrator_status_error(error)
@@ -89,6 +107,55 @@ defmodule Aiur.AgentControlCLI do
     |> Enum.each(&IO.puts(Jason.encode!(&1)))
 
     exit_marker(0)
+  end
+
+  @spec executor_emit(String.t(), String.t()) :: :ok
+  def executor_emit(topic, payload_json) when is_binary(topic) and is_binary(payload_json) do
+    case Jason.decode(payload_json) do
+      {:ok, %{} = payload} ->
+        case ExecutorEvents.publish(topic, payload, source: :executor_cli) do
+          {:ok, id, _subscribers} ->
+            IO.puts(Jason.encode!(%{id: id, topic: topic}))
+            exit_marker(0)
+
+          {:error, reason} ->
+            IO.puts(:stderr, "aiur: executor event rejected (#{format_reason(reason)})")
+            exit_marker(1)
+        end
+
+      _ ->
+        IO.puts(:stderr, "aiur: executor-emit payload must be a JSON object")
+        exit_marker(64)
+    end
+  end
+
+  @spec executor_subscribe(String.t()) :: :ok
+  def executor_subscribe(topic) when is_binary(topic) do
+    executor_subscription_result(ExecutorEvents.subscribe(topic), "subscribed", topic)
+  end
+
+  @spec executor_unsubscribe(String.t()) :: :ok
+  def executor_unsubscribe(topic) when is_binary(topic) do
+    executor_subscription_result(ExecutorEvents.unsubscribe(topic), "unsubscribed", topic)
+  end
+
+  @spec executor_subscriptions() :: :ok
+  def executor_subscriptions do
+    ExecutorEvents.subscriptions() |> Enum.each(&IO.puts/1)
+    exit_marker(0)
+  end
+
+  @spec executor_listen(keyword()) :: no_return()
+  def executor_listen(opts \\ []), do: ExecutorEvents.listen(opts)
+
+  defp executor_subscription_result(:ok, action, topic) do
+    IO.puts("#{action} #{topic}")
+    exit_marker(0)
+  end
+
+  defp executor_subscription_result({:error, reason}, _action, _topic) do
+    IO.puts(:stderr, "aiur: executor subscription rejected (#{format_reason(reason)})")
+    exit_marker(1)
   end
 
   # Absolute set of the concurrent-agent cap on a live node — `aiur set
@@ -112,6 +179,257 @@ defmodule Aiur.AgentControlCLI do
     exit_marker(1)
   end
 
+  @spec todo([String.t()], keyword()) :: 0 | 1
+  def todo(issue_ids, opts \\ []) when is_list(issue_ids) do
+    deps = Keyword.get(opts, :deps, todo_runtime_deps())
+    only? = Keyword.get(opts, :only, false)
+    emit_exit_marker? = Keyword.get(opts, :emit_exit_marker, false)
+
+    exit_code =
+      case deps.ensure_started.() do
+        :ok ->
+          result =
+            case deps.load_config.() do
+              {:ok, config} ->
+                issue_ids
+                |> normalize_todo_ids()
+                |> queue_todo_issues(config, deps)
+                |> maybe_clear_other_todos(only?, config, deps)
+
+              {:error, reason} ->
+                IO.puts(:stderr, "aiur: unable to queue tickets (#{format_reason(reason)})")
+                todo_result(failures: 1)
+            end
+
+          IO.puts("queued #{result.queued} ticket(s); cleared #{result.cleared} other(s)")
+          if result.failures == 0, do: 0, else: 1
+
+        {:error, :application_not_started} ->
+          IO.puts(:stderr, not_running_message())
+          1
+
+        {:error, reason} ->
+          IO.puts(:stderr, "aiur: unable to queue tickets (#{format_reason(reason)})")
+          IO.puts("queued 0 ticket(s); cleared 0 other(s)")
+          1
+      end
+
+    if emit_exit_marker?, do: exit_marker(exit_code)
+    exit_code
+  end
+
+  defp normalize_todo_ids(issue_ids) do
+    issue_ids
+    |> Enum.map(&(to_string(&1) |> String.trim()))
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+  end
+
+  defp queue_todo_issues(issue_ids, config, deps) do
+    Enum.reduce(issue_ids, todo_result(), &queue_todo_issue(&1, &2, config, deps))
+  end
+
+  defp queue_todo_issue(issue_id, result, config, deps) do
+    case deps.fetch_issue.(issue_id) do
+      {:ok, [issue | _]} -> queue_fetched_todo_issue(issue_id, issue, result, config, deps)
+      {:ok, []} -> todo_failure(result, issue_id, "not found")
+      {:error, reason} -> todo_failure(result, issue_id, format_reason(reason))
+    end
+  end
+
+  defp queue_fetched_todo_issue(issue_id, issue, result, config, deps) do
+    labels = normalized_issue_labels(issue)
+    queue_label = normalized_label(config.queue_label)
+    midflight_labels = Enum.filter(config.active_labels, &(&1 != queue_label and MapSet.member?(labels, &1)))
+
+    cond do
+      terminal_todo_issue?(issue, labels, config) ->
+        todo_failure(result, issue_id, "terminal ticket")
+
+      midflight_labels != [] ->
+        IO.puts("• ##{issue_id} kept #{Enum.join(midflight_labels, ", ")}")
+        select_todo_issue(result, issue_id)
+
+      MapSet.member?(labels, queue_label) ->
+        IO.puts("✓ ##{issue_id} already #{config.queue_label}")
+        result |> select_todo_issue(issue_id) |> Map.update!(:queued, &(&1 + 1))
+
+      true ->
+        add_todo_label(issue_id, result, config, deps)
+    end
+  end
+
+  defp add_todo_label(issue_id, result, config, deps) do
+    case deps.add_label.(issue_id, config.queue_label) do
+      :ok ->
+        IO.puts("✓ ##{issue_id} → #{config.queue_label}")
+        result |> select_todo_issue(issue_id) |> Map.update!(:queued, &(&1 + 1))
+
+      {:error, reason} ->
+        todo_failure(result, issue_id, "failed to add #{config.queue_label}: #{format_reason(reason)}")
+    end
+  end
+
+  defp select_todo_issue(result, issue_id) do
+    Map.update!(result, :selected, &MapSet.put(&1, issue_id))
+  end
+
+  defp todo_failure(result, issue_id, reason) do
+    IO.puts(:stderr, "✗ ##{issue_id} #{reason}")
+    Map.update!(result, :failures, &(&1 + 1))
+  end
+
+  defp maybe_clear_other_todos(result, false, _config, _deps), do: result
+
+  defp maybe_clear_other_todos(%{failures: failures} = result, true, _config, _deps) when failures > 0 do
+    IO.puts(:stderr, "aiur: --only cleanup skipped because #{failures} requested ticket(s) failed")
+    result
+  end
+
+  defp maybe_clear_other_todos(result, true, config, deps) do
+    case deps.fetch_active.(config.active_states) do
+      {:ok, issues} ->
+        issues
+        |> Enum.filter(&clearable_todo?(&1, result, config))
+        |> clear_other_todos(result, config, deps)
+
+      {:error, reason} ->
+        IO.puts(:stderr, "aiur: failed to enumerate active tickets (#{format_reason(reason)})")
+        Map.update!(result, :failures, &(&1 + 1))
+    end
+  end
+
+  defp clearable_todo?(issue, result, config) do
+    issue_id = todo_issue_id(issue)
+    labels = normalized_issue_labels(issue)
+
+    not MapSet.member?(result.selected, issue_id) and
+      not terminal_todo_issue?(issue, labels, config) and
+      MapSet.member?(labels, normalized_label(config.queue_label))
+  end
+
+  # Bound the blast radius of one `--only` cleanup run and stop hammering the
+  # API once GitHub starts throttling us, rather than issuing throttled
+  # DELETEs across the whole batch and leaving a nondeterministic partial
+  # queue.
+  @max_cleanup_batch 50
+  @max_consecutive_rate_limit_failures 3
+
+  defp clear_other_todos(candidates, result, config, deps) do
+    {batch, skipped} = Enum.split(candidates, @max_cleanup_batch)
+
+    if skipped != [] do
+      IO.puts(
+        :stderr,
+        "aiur: --only cleanup capped at #{@max_cleanup_batch} ticket(s); #{length(skipped)} other ticket(s) left untouched"
+      )
+    end
+
+    {result, _consecutive_rate_limited} =
+      Enum.reduce_while(batch, {result, 0}, &clear_other_todo_step(&1, &2, config, deps))
+
+    result
+  end
+
+  defp clear_other_todo_step(issue, {result, consecutive_rate_limited}, config, deps) do
+    issue_id = todo_issue_id(issue)
+
+    case deps.remove_label.(issue_id, config.queue_label) do
+      :ok ->
+        IO.puts("– ##{issue_id} cleared #{config.queue_label}")
+        {:cont, {Map.update!(result, :cleared, &(&1 + 1)), 0}}
+
+      {:error, {:github, :rate_limited, _detail} = reason} ->
+        IO.puts(:stderr, "✗ ##{issue_id} failed to clear #{config.queue_label}: #{format_reason(reason)}")
+        result = Map.update!(result, :failures, &(&1 + 1))
+        consecutive_rate_limited = consecutive_rate_limited + 1
+
+        if consecutive_rate_limited >= @max_consecutive_rate_limit_failures do
+          IO.puts(
+            :stderr,
+            "aiur: --only cleanup stopped after #{consecutive_rate_limited} consecutive rate-limit failures"
+          )
+
+          {:halt, {result, consecutive_rate_limited}}
+        else
+          {:cont, {result, consecutive_rate_limited}}
+        end
+
+      {:error, reason} ->
+        IO.puts(:stderr, "✗ ##{issue_id} failed to clear #{config.queue_label}: #{format_reason(reason)}")
+        {:cont, {Map.update!(result, :failures, &(&1 + 1)), 0}}
+    end
+  end
+
+  defp normalized_issue_labels(issue) do
+    issue
+    |> Map.get(:labels, [])
+    |> Enum.map(&normalized_label/1)
+    |> Enum.reject(&(&1 == ""))
+    |> MapSet.new()
+  end
+
+  defp terminal_todo_issue?(issue, labels, config) do
+    normalized_tracker_state(Map.get(issue, :state)) == "closed" or
+      Enum.any?(config.terminal_labels, &MapSet.member?(labels, &1))
+  end
+
+  defp todo_issue_id(issue) do
+    to_string(Map.get(issue, :identifier) || Map.get(issue, :id) || "")
+  end
+
+  defp todo_result(overrides \\ []) do
+    Map.merge(%{queued: 0, cleared: 0, failures: 0, selected: MapSet.new()}, Map.new(overrides))
+  end
+
+  defp todo_runtime_deps do
+    %{
+      ensure_started: &ensure_todo_runtime_started/0,
+      load_config: &load_todo_config/0,
+      fetch_issue: fn issue_id -> GitHubTracker.fetch_issue_states_by_ids([issue_id]) end,
+      fetch_active: &GitHubTracker.fetch_issues_by_states/1,
+      add_label: &GitHubTracker.add_label/2,
+      remove_label: &GitHubTracker.remove_label/2
+    }
+  end
+
+  defp ensure_todo_runtime_started do
+    case Application.ensure_all_started(:req) do
+      {:ok, _started} ->
+        if application_started?() do
+          _ = GitHubConfig.resolve_token()
+          :ok
+        else
+          {:error, :application_not_started}
+        end
+
+      {:error, reason} ->
+        {:error, {:http_client_start_failed, reason}}
+    end
+  end
+
+  defp load_todo_config do
+    with {:ok, settings} <- Config.settings(),
+         :ok <- require_github_tracker(settings),
+         :ok <- GitHubConfig.validate!() do
+      prefix = GitHubConfig.label_prefix()
+
+      {:ok,
+       %{
+         queue_label: StatePolicy.state_label(prefix, "todo"),
+         active_states: settings.tracker.active_states,
+         active_labels: Enum.map(settings.tracker.active_states, &(StatePolicy.state_label(prefix, &1) |> normalized_label())),
+         terminal_labels: Enum.map(settings.tracker.terminal_states, &(StatePolicy.state_label(prefix, &1) |> normalized_label()))
+       }}
+    end
+  end
+
+  defp require_github_tracker(%{tracker: %{kind: "github"}}), do: :ok
+  defp require_github_tracker(_settings), do: {:error, "--todo requires a GitHub tracker"}
+
+  defp normalized_label(label) when is_binary(label), do: label |> String.trim() |> String.downcase()
+  defp normalized_label(_label), do: ""
+
   defp max_agents_status_suffix(%{active: active} = status) do
     paused = Map.get(status, :paused, 0)
     drain = if Map.get(status, :draining?) == true, do: ", draining", else: ""
@@ -127,6 +445,31 @@ defmodule Aiur.AgentControlCLI do
 
   @spec resume(:all | [String.t()]) :: :ok
   def resume(targets), do: control(:resume, targets)
+
+  # The global pause switch — `aiur pause` / `aiur resume` with no targets. A
+  # single daemon-wide halt distinct from per-agent pause: it stops all
+  # provisioning and holds every running agent, and unpause resumes only the
+  # agents it held (never overriding an operator's per-agent pause).
+  @spec pause_global() :: :ok
+  def pause_global, do: set_global_pause(true)
+
+  @spec resume_global() :: :ok
+  def resume_global, do: set_global_pause(false)
+
+  defp set_global_pause(on?) do
+    source = if(on?, do: "CLI `pause`", else: "CLI `resume`")
+
+    case Orchestrator.set_global_pause(on?, source) do
+      {:ok, %{globally_paused: paused}} ->
+        IO.puts("aiur: global pause #{if paused, do: "ON — no agents will be provisioned", else: "OFF — agents resuming"}")
+        exit_marker(0)
+
+      {:error, reason} ->
+        verb = if on?, do: "pause", else: "resume"
+        IO.puts(:stderr, "aiur: failed to #{verb} the daemon (#{format_reason(reason)})")
+        exit_marker(1)
+    end
+  end
 
   @spec message(String.t(), String.t()) :: :ok
   def message(issue, text) when is_binary(issue) and is_binary(text) do
@@ -177,9 +520,20 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp control_status(action, targets, statuses) when is_list(statuses) do
-    action
-    |> select_targets(targets, statuses)
-    |> control_selected(action, targets)
+    case Orchestrator.global_pause_status() do
+      {:ok, %{globally_paused: true}} ->
+        print_global_pause_control_error(action)
+        1
+
+      {:ok, _status} ->
+        action
+        |> select_targets(targets, statuses)
+        |> control_selected(action, targets)
+
+      {:error, :orchestrator_unavailable} ->
+        print_global_pause_status_unavailable()
+        1
+    end
   end
 
   # A targeted pause can still arm its locally-recorded containment group even
@@ -309,10 +663,247 @@ defmodule Aiur.AgentControlCLI do
     end)
   end
 
+  defp print_capacity_status(%{occupied: occupied, max: max, effective: effective, configured: configured} = capacity)
+       when is_integer(occupied) and is_integer(max) and is_integer(effective) and is_integer(configured) do
+    IO.puts("AGENTS #{occupied}/#{max} (binding: #{capacity_binding_label(capacity_binding(capacity))})")
+  end
+
+  defp print_capacity_status(_capacity), do: :ok
+
+  defp capacity_binding_label({:config_cap, _detail}), do: "config max_concurrent_agents"
+  defp capacity_binding_label({:envelope, detail}), do: "AIMD envelope, effective cap=#{detail}"
+  defp capacity_binding_label({:paused_reservations, detail}), do: "paused reservations=#{detail}"
+  defp capacity_binding_label({:ticket_supply, _detail}), do: "ticket supply"
+  defp capacity_binding_label({:session_cap, _detail}), do: "session max_concurrent_agents"
+  defp capacity_binding_label({:none, _detail}), do: "none"
+
+  defp capacity_binding(%{max: max, effective: effective, configured: configured, occupied: occupied} = capacity) do
+    if capacity_binding_ticket_supply?(capacity) do
+      {:ticket_supply, 0}
+    else
+      capacity_binding_with_capacity(capacity, max, effective, configured, occupied)
+    end
+  end
+
+  defp capacity_binding_with_capacity(capacity, max, effective, configured, occupied) do
+    cond do
+      paused_reservation_binding?(capacity) ->
+        {:paused_reservations, capacity.reserved_paused}
+
+      effective < max and occupied >= effective ->
+        {:envelope, effective}
+
+      occupied >= max and max == configured and not Map.get(capacity, :session_override?, false) ->
+        {:config_cap, configured}
+
+      occupied >= max ->
+        {:session_cap, max}
+
+      true ->
+        {:none, nil}
+    end
+  end
+
+  defp capacity_binding_ticket_supply?(%{available: available, queued_demand?: false})
+       when is_integer(available) and available > 0,
+       do: true
+
+  defp capacity_binding_ticket_supply?(_capacity), do: false
+
+  defp paused_reservation_binding?(%{active: active, effective: effective, available: 0, reserved_paused: reserved_paused})
+       when reserved_paused > 0 and effective > active,
+       do: true
+
+  defp paused_reservation_binding?(_capacity), do: false
+
+  @doc """
+  Print registry provider headroom from the daemon-owned meter projection.
+
+  Every value carries the age of the observation, because meters are observed
+  from live agent sessions: a number with no age cannot be told apart from a
+  current one. A provider never observed prints as unknown, never as zero.
+  """
+  @spec usage(GenServer.server()) :: :ok
+  def usage(server \\ ProviderMeterProjection) do
+    server
+    |> ProviderMeterProjection.snapshot()
+    |> Enum.sort_by(fn {provider, _view} -> provider end)
+    |> Enum.each(&print_provider_usage/1)
+
+    exit_marker(0)
+  end
+
+  defp print_provider_usage({provider, %{state: :unknown}}) do
+    IO.puts("#{provider_label(provider)}  no observation yet")
+  end
+
+  defp print_provider_usage({provider, view}) do
+    windows = usage_windows(view)
+
+    if windows == [] do
+      IO.puts("#{provider_label(provider)}  observed #{age_label(view.age_seconds)}, no limit windows reported")
+    else
+      Enum.each(windows, fn window ->
+        IO.puts("#{provider_label(provider)}  #{usage_window_line(window)}  (#{age_label(view.age_seconds)})")
+      end)
+    end
+  end
+
+  defp usage_windows(%{windows: windows}) when is_map(windows) do
+    windows
+    |> Enum.filter(fn {_id, window} -> Map.get(window, :kind) in [:rate_limit, :credit] end)
+    |> Enum.sort_by(fn {id, _window} -> id end)
+  end
+
+  defp usage_windows(_view), do: []
+
+  # Claude's CLI reports a standing and a reset time but no utilization, so a
+  # bar is not available for it. Name what is known rather than drawing an empty
+  # bar, which would read as "0% consumed".
+  defp usage_window_line({id, window}) do
+    case {
+      Map.get(window, :name),
+      Map.get(window, :kind),
+      Map.get(window, :used),
+      Map.get(window, :limit),
+      Map.get(window, :used_percent),
+      Map.get(window, :credits)
+    } do
+      {name, :rate_limit, used, limit, _percent, _credits}
+      when name in [:concurrency, "Local concurrency"] and is_number(used) and is_number(limit) ->
+        "#{String.pad_trailing(id, 10)} #{used}/#{limit} in flight"
+
+      {_name, :credit, _used, _limit, _percent, %{amount: amount}} when is_number(amount) ->
+        "#{String.pad_trailing(id, 10)} $#{:erlang.float_to_binary(amount / 1, decimals: 2)} remaining"
+
+      {_name, _kind, _used, _limit, percent, _credits} when is_number(percent) ->
+        "#{String.pad_trailing(id, 10)} #{usage_bar(percent)} #{round(percent)}%"
+
+      _unknown ->
+        "#{String.pad_trailing(id, 10)} #{window_standing_line(window)}"
+    end
+  end
+
+  defp window_standing_line(window) do
+    case Map.get(window, :standing) do
+      :allowed -> "allowed#{cli_reset_suffix(Map.get(window, :resets_at))}"
+      :allowed_warning -> "near limit#{cli_reset_suffix(Map.get(window, :resets_at))}"
+      :rejected -> "limited#{cli_reset_suffix(Map.get(window, :resets_at))}"
+      _unknown -> "unknown"
+    end
+  end
+
+  defp cli_reset_suffix(%DateTime{} = resets_at) do
+    case DateTime.diff(resets_at, DateTime.utc_now()) do
+      seconds when seconds <= 0 -> ""
+      seconds when seconds < 3_600 -> ", resets in #{div(seconds, 60)}m"
+      seconds when seconds < 86_400 -> ", resets in #{div(seconds, 3_600)}h"
+      seconds -> ", resets in #{div(seconds, 86_400)}d #{div(rem(seconds, 86_400), 3_600)}h"
+    end
+  end
+
+  defp cli_reset_suffix(_resets_at), do: ""
+
+  # Same 10-cell bar the TUI header draws, so the two surfaces read alike.
+  @spec usage_bar(number()) :: String.t()
+  def usage_bar(percent) when is_number(percent) do
+    filled = percent |> max(0) |> min(100) |> Kernel./(10) |> round()
+    String.duplicate("█", filled) <> String.duplicate("░", 10 - filled)
+  end
+
+  defp age_label(nil), do: "age unknown"
+  defp age_label(seconds) when seconds < 60, do: "#{seconds}s ago"
+  defp age_label(seconds) when seconds < 3_600, do: "#{div(seconds, 60)}m ago"
+  defp age_label(seconds), do: "#{div(seconds, 3_600)}h ago"
+
+  defp provider_label(:codex), do: "codex "
+  defp provider_label(:claude), do: "claude"
+  defp provider_label(other), do: to_string(other)
+
+  # Surface the global pause switch above the status table so an operator sees
+  # at a glance that the whole daemon is halted (silent otherwise).
+  defp print_global_pause_banner do
+    case Orchestrator.global_pause_status() do
+      {:ok, %{globally_paused: true, paused_at: paused_at, source: source}} ->
+        provenance = [format_pause_source(source), format_pause_time(paused_at)] |> Enum.reject(&is_nil/1) |> Enum.join(", ")
+        suffix = if provenance == "", do: "", else: " (#{provenance})"
+        IO.puts("GLOBALLY PAUSED#{suffix} — no agents will be provisioned (run `aiur resume` to lift)")
+
+      {:ok, _} ->
+        :ok
+
+      {:error, :orchestrator_unavailable} ->
+        print_global_pause_status_unavailable()
+    end
+  end
+
+  defp print_global_pause_status_unavailable do
+    IO.puts(:stderr, "GLOBAL PAUSE STATUS UNAVAILABLE — cannot determine whether aiur is paused")
+    {:error, :unavailable}
+  end
+
+  defp print_global_pause_control_error(action) do
+    noun = if action == :pause, do: "pause", else: "resume"
+    IO.puts(:stderr, "error: aiur is globally paused; per-ticket #{noun} has no effect.")
+    IO.puts(:stderr, "       Run `aiurdev resume` (no arguments) to lift the global pause.")
+  end
+
+  defp format_pause_source(source) when is_binary(source) and source != "", do: "set by #{source}"
+  defp format_pause_source(_), do: nil
+
+  defp format_pause_time(%DateTime{} = paused_at), do: "at #{DateTime.to_iso8601(paused_at)}"
+  defp format_pause_time(_), do: nil
+
+  defp print_codeowners_trust do
+    snapshot =
+      Application.get_env(:aiur, :agent_control_cli_trust_snapshot_fun, fn ->
+        if Process.whereis(CodeOwners), do: CodeOwners.trust_snapshot(), else: nil
+      end).()
+
+    case snapshot do
+      %{trusted: trusted, source: source} = snapshot when is_list(trusted) ->
+        source = source |> to_string() |> String.downcase()
+        path = snapshot |> Map.get(:path) |> trust_path()
+        accounts = Enum.map_join(trusted, ", ", &"@#{&1}")
+        suffix = if path, do: " path=#{path}", else: ""
+        IO.puts("COMMENT TRUST source=#{source} trusted=[#{accounts}]#{suffix}")
+
+      _ ->
+        :ok
+    end
+  catch
+    :exit, _reason -> :ok
+  end
+
+  defp trust_path(path) when is_binary(path) do
+    case Path.relative_to_cwd(path) do
+      relative when relative != path -> relative
+      _ -> path
+    end
+  end
+
+  defp trust_path(_path), do: nil
+
   defp print_build_gate_status do
     case BuildGate.status() do
+      %{
+        enabled?: true,
+        capacity: capacity,
+        active: active,
+        queued: queued,
+        degraded?: true,
+        issues: [issue | remaining]
+      } ->
+        suffix = if remaining == [], do: "", else: " (+#{length(remaining)} more)"
+
+        IO.puts(
+          "BUILD GATE DEGRADED #{active}/#{capacity} active, #{queued} queued; " <>
+            "max_concurrent_builds=#{capacity}; reason=#{issue.reason} path=#{issue.path}#{suffix}; " <>
+            "recovery=#{issue.recovery}"
+        )
+
       %{enabled?: true, capacity: capacity, active: active, queued: queued} when active > 0 or queued > 0 ->
-        IO.puts("BUILD GATE #{active}/#{capacity} active, #{queued} queued")
+        IO.puts("BUILD GATE #{active}/#{capacity} active, #{queued} queued (max_concurrent_builds=#{capacity})")
 
       _ ->
         :ok
@@ -663,6 +1254,14 @@ defmodule Aiur.AgentControlCLI do
 
   defp print_orchestrator_status_error(error) do
     IO.puts(:stderr, Map.fetch!(%{timeout: "aiur: timed out while reading agent status", unavailable: "aiur: orchestrator is not running"}, error))
+  end
+
+  defp application_started? do
+    Enum.any?(Application.started_applications(), fn {app, _description, _version} -> app == :aiur end)
+  end
+
+  defp not_running_message do
+    "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry."
   end
 
   defp print_failure(action, status, reason) do

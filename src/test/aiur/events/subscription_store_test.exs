@@ -50,6 +50,19 @@ defmodule Aiur.Events.SubscriptionStoreTest do
     end
   end
 
+  describe "stop/1" do
+    test "is a no-op when the registry is already stopped", %{identifier: id} do
+      :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.Events.SubscriptionStoreRegistry)
+
+      try do
+        assert :ok = SubscriptionStore.stop(id)
+      after
+        {:ok, _pid} =
+          Supervisor.restart_child(Aiur.Supervisor, Aiur.Events.SubscriptionStoreRegistry)
+      end
+    end
+  end
+
   describe "add_subscription/3" do
     test "writes file and registers with Exchange", %{identifier: id} do
       :ok = SubscriptionStore.attach(id)
@@ -144,6 +157,53 @@ defmodule Aiur.Events.SubscriptionStoreTest do
       :ok = SubscriptionStore.add_attention(id, "a")
       :ok = SubscriptionStore.add_attention(id, "a")
       assert SubscriptionStore.snapshot(id).open_attentions == ["a"]
+    end
+  end
+
+  describe "open_attention_count/1" do
+    test "counts open attentions and tracks resolution", %{identifier: id} do
+      :ok = SubscriptionStore.attach(id)
+      assert SubscriptionStore.open_attention_count(id) == 0
+      assert SubscriptionStore.open_attention_count_result(id) == {:ok, 0}
+
+      :ok = SubscriptionStore.add_attention(id, "needs-review")
+      :ok = SubscriptionStore.add_attention(id, "needs-input")
+      assert SubscriptionStore.open_attention_count(id) == 2
+      assert SubscriptionStore.open_attention_count_result(id) == {:ok, 2}
+
+      :ok = SubscriptionStore.resolve_attention(id, "needs-review")
+      assert SubscriptionStore.open_attention_count(id) == 1
+    end
+
+    test "returns 0 for an identifier with no attached store" do
+      assert SubscriptionStore.open_attention_count("no-such-identifier") == 0
+      assert SubscriptionStore.open_attention_count_result("no-such-identifier") == {:error, :unavailable}
+    end
+
+    test "does not call a suspended per-ticket store", %{identifier: id} do
+      :ok = SubscriptionStore.attach(id)
+      :ok = SubscriptionStore.add_attention(id, "needs-review")
+      [{pid, _count}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, id)
+      :ok = :sys.suspend(pid)
+
+      try do
+        task = Task.async(fn -> SubscriptionStore.open_attention_count(id) end)
+        assert Task.await(task, 100) == 1
+      after
+        :ok = :sys.resume(pid)
+      end
+    end
+
+    test "restores the direct-read count from durable state", %{identifier: id} do
+      :ok = SubscriptionStore.attach(id)
+      :ok = SubscriptionStore.add_attention(id, "needs-review")
+      :ok = SubscriptionStore.stop(id)
+      assert SubscriptionStore.open_attention_count(id) == 0
+      assert SubscriptionStore.open_attention_count_result(id) == {:error, :unavailable}
+
+      :ok = SubscriptionStore.attach(id)
+      assert SubscriptionStore.open_attention_count(id) == 1
+      assert SubscriptionStore.open_attention_count_result(id) == {:ok, 1}
     end
   end
 

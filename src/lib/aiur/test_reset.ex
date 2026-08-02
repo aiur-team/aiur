@@ -5,7 +5,7 @@ defmodule Aiur.TestReset do
 
     1. **Pinned ticket IDs** — every action gated on
        `.aiur-test-tickets.json#tickets`. If empty, abort with a clear
-       message directing the operator to populate it.
+       message directing the Executor to populate it.
     2. **Clean git tree** — refuses to run with uncommitted changes;
        `--force` overrides.
     3. **Expected remote** — `git remote get-url origin` must match
@@ -36,6 +36,7 @@ defmodule Aiur.TestReset do
   require Logger
 
   alias Aiur.Config.Paths
+  alias Aiur.GitHub.Labels
   alias Aiur.{JsonStore, TicketBranch}
 
   @tickets_file ".aiur-test-tickets.json"
@@ -70,7 +71,7 @@ defmodule Aiur.TestReset do
   # Refuse direct reset calls from inside an agent workspace unless the current
   # process came through `scripts/aiurdev`'s agent-IR sandbox path. The shim sets
   # AIUR_AGENT_IR_SANDBOX only after redirecting state, logs, runtime pidfiles,
-  # and ports away from the operator instance. Keeping this guard here protects
+  # and ports away from the Executor instance. Keeping this guard here protects
   # older workspace checkouts and manual `mix aiur.test.reset` calls.
   defp guard_not_running_in_agent_workspace(opts) do
     cond do
@@ -580,7 +581,7 @@ defmodule Aiur.TestReset do
   # the agent's uncommitted edits, untracked files, and git state from
   # the prior session. Without this, the agent on the next run starts
   # in a dirty tree and reports "I see uncommitted changes" — exactly
-  # the symptom the operator hit. Fans out across `worker.ssh_hosts`
+  # the symptom the Executor hit. Fans out across `worker.ssh_hosts`
   # when configured.
   #
   # We don't go through `Aiur.Workspace.remove_issue_workspaces/1`
@@ -610,7 +611,7 @@ defmodule Aiur.TestReset do
 
   defp workspace_root_with_fallback do
     # Config.workspace_root/0 returns the raw YAML value — when the
-    # operator wrote `~/code/aiur-workspaces`, that's what we get.
+    # Executor wrote `~/code/aiur-workspaces`, that's what we get.
     # Path.expand/1 resolves `~` against $HOME so the rm path actually
     # points at the real directory. Without this, the rm targets the
     # literal `~/code/aiur-workspaces` (a directory with a tilde in
@@ -767,17 +768,18 @@ defmodule Aiur.TestReset do
   """
   @spec reset_labels_command_args(integer() | String.t()) :: [[String.t()]]
   def reset_labels_command_args(id) do
-    agent_labels =
-      "agent:todo,agent:in-progress,agent:ci-wait,agent:human-review,agent:rework,agent:merging,agent:done,agent:error,agent:cancelled,agent:canceled,agent:paused"
+    reset_labels =
+      Labels.state_labels("agent") ++
+        Labels.paused_labels("agent") ++ Labels.required_rate_limit_fallback_labels("agent")
 
     [
-      ["issue", "edit", to_string(id), "--remove-label", agent_labels],
+      ["issue", "edit", to_string(id), "--remove-label", Enum.join(reset_labels, ",")],
       ["issue", "edit", to_string(id), "--add-label", "agent:todo"]
     ]
   end
 
   defp restore_baseline(opts) do
-    # If the operator passed --force AND any sandbox file has uncommitted
+    # If the Executor passed --force AND any sandbox file has uncommitted
     # local changes, stash them first so destructive checkout doesn't
     # silently lose work.
     if opts.force, do: stash_sandbox_if_dirty(opts)

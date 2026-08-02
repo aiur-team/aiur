@@ -8,15 +8,18 @@ defmodule Aiur.Events.LsRemoteTickerTest do
   use ExUnit.Case, async: false
 
   alias Aiur.AgentRunner.EventsDigest
-  alias Aiur.Events.LsRemoteTicker
+  alias Aiur.Events.{BranchRefStore, LsRemoteTicker}
 
   setup do
+    :ok = BranchRefStore.reset()
     parent = self()
 
     publisher = fn topic, payload, opts ->
       send(parent, {:published, topic, payload, opts})
       {:ok, %{id: 1, subscribers: 0}}
     end
+
+    on_exit(fn -> BranchRefStore.reset() end)
 
     %{publisher: publisher}
   end
@@ -55,6 +58,30 @@ defmodule Aiur.Events.LsRemoteTickerTest do
     refute_receive {:published, _topic, _payload, _opts}, 100
   end
 
+  test "bootstrap restores validated ticket refs without publishing", %{publisher: publisher} do
+    ref = "refs/heads/aiur/99-dependency"
+    sha = String.duplicate("a", 40)
+    ls_remote_fun = ls_remote_returning(%{ref => sha})
+
+    for _restart <- 1..2 do
+      :ok = BranchRefStore.reset()
+
+      {:ok, pid} =
+        LsRemoteTicker.start_link(
+          name: nil,
+          ls_remote_fun: ls_remote_fun,
+          publisher: publisher,
+          repo: "owner/aiur",
+          start_paused?: true
+        )
+
+      tick(pid)
+      assert BranchRefStore.latest("99") == %{ref: ref, sha: sha}
+      refute_receive {:published, _topic, _payload, _opts}, 100
+      GenServer.stop(pid)
+    end
+  end
+
   test "second tick publishes when a known SHA changes", %{publisher: publisher} do
     parent = self()
 
@@ -87,6 +114,7 @@ defmodule Aiur.Events.LsRemoteTickerTest do
     assert_receive :polled, 500
 
     assert_receive {:published, "ticket.99.branch.push", payload, opts}, 500
+    assert payload.source == :system
     assert payload.ref == ref_a
     assert payload.sha == "sha2"
     assert payload.repo == "owner/aiur"

@@ -56,13 +56,20 @@ defmodule Aiur.Codex.DynamicToolTest do
 
     assert Enum.any?(specs, fn
              %{
+               "description" => description,
                "inputSchema" => %{
-                 "properties" => %{"reason" => _, "needs_attention" => _, "severity" => _},
+                 "properties" => %{
+                   "reason" => %{"description" => reason_description},
+                   "needs_attention" => %{"description" => attention_description},
+                   "severity" => _
+                 },
                  "required" => ["name", "message", "reason", "needs_attention"]
                },
                "name" => "emit_alert"
              } ->
-               true
+               description =~ "Executor context" and
+                 reason_description =~ "Executor should relay" and
+                 attention_description =~ "Executor should look or act"
 
              _ ->
                false
@@ -565,7 +572,7 @@ defmodule Aiur.Codex.DynamicToolTest do
 
     assert Jason.decode!(response["output"]) == %{
              "error" => %{
-               "message" => "Linear GraphQL tool execution failed.",
+               "message" => "Aiur tool execution failed.",
                "reason" => ":boom"
              }
            }
@@ -666,7 +673,11 @@ defmodule Aiur.Codex.DynamicToolTest do
     end
 
     test "tool_specs advertises emit_event" do
-      assert Enum.any?(DynamicTool.tool_specs(), &(&1["name"] == "emit_event"))
+      assert Enum.any?(DynamicTool.tool_specs(), fn spec ->
+               spec["name"] == "emit_event" and
+                 spec["description"] =~ "other agents/the Executor" and
+                 spec["description"] =~ "Executor-facing audible alerts"
+             end)
     end
   end
 
@@ -867,8 +878,8 @@ defmodule Aiur.Codex.DynamicToolTest do
     end
   end
 
-  describe "catch-all error payload — Wave 0 characterization" do
-    test "non-linear tool returning unexpected error still renders catch-all message" do
+  describe "catch-all error payload" do
+    test "non-linear tool returning an unexpected error renders the shared catch-all message" do
       response =
         DynamicTool.execute(
           "emit_event",
@@ -878,7 +889,7 @@ defmodule Aiur.Codex.DynamicToolTest do
 
       assert response["success"] == false
       decoded = Jason.decode!(response["output"])
-      assert decoded["error"]["message"] == "Linear GraphQL tool execution failed."
+      assert decoded["error"]["message"] == "Aiur tool execution failed."
       assert decoded["error"]["reason"] == ":unexpected"
     end
   end

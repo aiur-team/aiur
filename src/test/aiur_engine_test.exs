@@ -56,6 +56,41 @@ defmodule AiurEngineTest do
     assert File.read!(@engine) =~ "AIUR_OPENCODE_BRIDGE_PORT"
   end
 
+  test "engine exports the effective soft nofile limit after raising it" do
+    {out, 0} =
+      run_sourced_engine(
+        ~S|test "$AIUR_NOFILE_SOFT_LIMIT" = "$(ulimit -Sn)" && echo NOFILE_MATCH|,
+        [{"AIUR_NOFILE_SOFT_LIMIT", "1"}]
+      )
+
+    assert out =~ "NOFILE_MATCH"
+  end
+
+  test "engine captures a best-effort operator pid and preserves an explicit root" do
+    {out, 0} =
+      run_sourced_engine(
+        ~S|test "$AIUR_OPERATOR_PID" = "$PPID" && echo PARENT_MATCH|,
+        [{"AIUR_OPERATOR_PID", "invalid"}]
+      )
+
+    assert out =~ "PARENT_MATCH"
+
+    {override_out, 0} =
+      run_sourced_engine(
+        ~S|test "$AIUR_OPERATOR_PID" = "4242" && echo OVERRIDE_KEPT|,
+        [{"AIUR_OPERATOR_PID", "4242"}]
+      )
+
+    assert override_out =~ "OVERRIDE_KEPT"
+  end
+
+  test "tmux pane launcher re-exports resource attribution inputs" do
+    engine = File.read!(@engine)
+
+    assert engine =~
+             "AIUR_OPERATOR_PID AIUR_NOFILE_SOFT_LIMIT ERL_CRASH_DUMP ERL_CRASH_DUMP_SECONDS"
+  end
+
   test "sourced-engine runs isolate the node identity so reaps can't hit a live host node" do
     # The engine's launch/stop paths reap any BEAM holding their node name
     # (`kill_beams_matching "-name $AIUR_RELEASE_NODE"`). When `mix test` sources
@@ -114,7 +149,139 @@ defmodule AiurEngineTest do
   test "usage describes init and no longer lists sweep" do
     {out, 0} = run_engine(["--help"], [])
     assert out =~ ~r/aiur init \[--force\]\s+scaffold/
+    assert out =~ "aiur --todo <ids...> [--only]"
+    assert out =~ "aiur run [--bg] [--no-dashboard] [--debug]"
+    assert out =~ "aiur --bg [--no-dashboard] [--debug]"
     refute out =~ "sweep"
+  end
+
+  test "an incomplete dev release returns the retryable control code" do
+    rel = fake_release()
+    state = tmp_state()
+    signal = Path.join(System.tmp_dir!(), "aiur-control-retry-#{System.unique_integer([:positive])}")
+    File.rm!(Path.join([rel, "releases", "0.1.1", "elixir"]))
+
+    on_exit(fn ->
+      File.rm_rf(rel)
+      File.rm_rf(state)
+      File.rm(signal)
+    end)
+
+    {out, 0} =
+      run_sourced_engine(
+        ~s|if run_control_rpc "Aiur.AgentControlCLI.status()"; then code=0; else code=$?; fi; echo "CODE=$code"|,
+        [
+          {"AIUR_RELEASE_DIR", rel},
+          {"AIUR_BG_STATE_DIR", state},
+          {"AIUR_CONTROL_RELEASE_RETRYABLE", "1"},
+          {"AIUR_CONTROL_RELEASE_RETRY_SIGNAL", signal}
+        ]
+      )
+
+    assert out =~ "CODE=75"
+    assert File.exists?(signal)
+    refute out =~ "release elixir launcher not found"
+  end
+
+  test "an rpc launcher removed by an overwrite returns the retryable control code" do
+    rel = fake_release()
+    state = tmp_state()
+    signal = Path.join(System.tmp_dir!(), "aiur-control-retry-#{System.unique_integer([:positive])}")
+    release_bin = Path.join([rel, "bin", "aiur"])
+
+    File.write!(release_bin, "#!/usr/bin/env bash\nrm -f \"$0\" \"#{rel}/releases/0.1.1/elixir\"\nexit 42\n")
+    File.chmod!(release_bin, 0o755)
+
+    on_exit(fn ->
+      File.rm_rf(rel)
+      File.rm_rf(state)
+      File.rm(signal)
+    end)
+
+    {out, 0} =
+      run_sourced_engine(
+        ~s|if run_control_rpc "Aiur.AgentControlCLI.status()"; then code=0; else code=$?; fi; echo "CODE=$code"|,
+        [
+          {"AIUR_RELEASE_DIR", rel},
+          {"AIUR_BG_STATE_DIR", state},
+          {"AIUR_CONTROL_RELEASE_RETRYABLE", "1"},
+          {"AIUR_CONTROL_RELEASE_RETRY_SIGNAL", signal}
+        ]
+      )
+
+    assert out =~ "CODE=75"
+    assert File.exists?(signal)
+    refute out =~ "rpc to"
+  end
+
+  test "--bg controls detachment independently from --no-dashboard" do
+    script = """
+    run_session() {
+      local mode="$1"
+      shift
+      printf 'MODE=%s ARGS=%s\\n' "$mode" "$*"
+    }
+    aiur_engine_main run --bg --no-dashboard --debug
+    aiur_engine_main --bg --no-dashboard --debug
+    aiur_engine_main run --no-dashboard --bg --debug
+    aiur_engine_main --no-dashboard --bg --debug
+    aiur_engine_main run --no-dashboard
+    aiur_engine_main --no-dashboard
+    """
+
+    {out, 0} = run_sourced_engine(script, [])
+
+    assert String.split(out, "\n", trim: true) == [
+             "MODE=background ARGS=--no-dashboard --debug",
+             "MODE=background ARGS=--no-dashboard --debug",
+             "MODE=background ARGS=--no-dashboard --debug",
+             "MODE=background ARGS=--no-dashboard --debug",
+             "MODE=foreground ARGS=--no-dashboard",
+             "MODE=foreground ARGS=--no-dashboard"
+           ]
+  end
+
+  test "run argv keeps dashboard suppression independent from headless mode" do
+    script = """
+    print_run_argv() {
+      local mode="$1"
+      shift
+      build_run_argv "$mode" "$@"
+      printf '%s|' "${run_argv[@]}"
+      printf '\n'
+    }
+    print_run_argv background --host 127.0.0.1
+    print_run_argv background --no-dashboard
+    print_run_argv foreground --no-dashboard
+    """
+
+    {out, 0} = run_sourced_engine(script, [])
+
+    [background, lean_background, foreground] = String.split(out, "\n", trim: true)
+
+    assert background =~ "--headless|"
+    refute background =~ "--no-dashboard|"
+    assert lean_background =~ "--headless|"
+    assert lean_background =~ "--no-dashboard|"
+    assert foreground =~ "--interactive|"
+    assert foreground =~ "--no-dashboard|"
+    refute foreground =~ "--headless|"
+  end
+
+  test "background dashboard status reports a bound URL, explicit suppression, or listener refusal" do
+    script = """
+    probe_dashboard_url() { printf '%s' "$PROBE_URL"; }
+    print_background_dashboard_status 0 /tmp/boot.log
+    PROBE_URL=""
+    print_background_dashboard_status 1 /tmp/boot.log
+    print_background_dashboard_status 0 /tmp/boot.log
+    """
+
+    {out, 0} = run_sourced_engine(script, [{"PROBE_URL", "http://127.0.0.1:4567"}])
+
+    assert out =~ "Dashboard: http://127.0.0.1:4567"
+    assert out =~ "Dashboard disabled by --no-dashboard."
+    assert out =~ "dashboard listener unavailable; inspect /tmp/boot.log"
   end
 
   test "--version is distribution-free so it never collides with a running node" do
@@ -289,6 +456,92 @@ defmodule AiurEngineTest do
     refute out =~ "--cookie"
   end
 
+  test "todo routes through the control rpc" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\nrun_todo --todo 11 012,13 --only|,
+        []
+      )
+
+    assert out =~
+             "RPC:Aiur.AgentControlCLI.todo([\"11\", \"12\", \"13\"], only: true, emit_exit_marker: true)"
+  end
+
+  test "todo control rpc propagates live success and semantic failure codes" do
+    for {rpc_output, expected_code} <- [
+          {"queued 1 ticket(s); cleared 0 other(s)\n__AIUR_CONTROL_EXIT__:0", 0},
+          {"queued 0 ticket(s); cleared 0 other(s)\n__AIUR_CONTROL_EXIT__:1", 1}
+        ] do
+      script = """
+      resolve_release() { release_bin="/bin/true"; release_dir="/tmp"; vsn_dir="/tmp"; RELEASE_NODE="aiur-test@127.0.0.1"; }
+      prepare_distribution() { :; }
+      resolve_control_identity_from_records() { :; }
+      probe_node_liveness() { printf up; }
+      run_release_rpc_with_timeout() {
+        AIUR_CONTROL_RPC_OUTPUT='#{rpc_output}'
+        AIUR_CONTROL_RPC_TIMED_OUT=0
+        return 0
+      }
+      code=0
+      run_todo --todo 123 || code=$?
+      echo "CODE=$code"
+      """
+
+      {out, 0} = run_sourced_engine(script, [])
+
+      assert out =~ "CODE=#{expected_code}"
+      assert out =~ "queued"
+      refute out =~ "returned no exit marker"
+    end
+  end
+
+  test "streaming control rpc reports a stopped daemon" do
+    rel = fake_release()
+    state = tmp_state()
+
+    {out, 1} =
+      run_sourced_engine(
+        ~S|resolve_release() { release_bin="/bin/false"; RELEASE_NODE="aiur-test@127.0.0.1"; }; prepare_distribution() { :; }; resolve_control_identity_from_records() { :; }; probe_node_liveness() { printf down; }; run_control_stream 'Aiur.AgentControlCLI.executor_listen()'|,
+        [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", state}]
+      )
+
+    assert out =~ "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry."
+    refute out =~ "GenServer"
+  end
+
+  test "streaming control rpc preserves an unexpected crash marker" do
+    marker = Path.join(System.tmp_dir!(), "aiur-stream-crash-#{System.unique_integer([:positive])}")
+    File.write!(marker, "reason=boom\n")
+
+    {out, 1} =
+      run_sourced_engine(
+        ~S|resolve_release() { release_bin="/bin/false"; RELEASE_NODE="aiur-test@127.0.0.1"; }; prepare_distribution() { :; }; resolve_control_identity_from_records() { :; }; probe_node_liveness() { printf down; }; aiur_crash_marker_path() { printf '%s' "$CRASH_MARKER"; }; run_control_stream 'Aiur.AgentControlCLI.executor_listen()'|,
+        [{"CRASH_MARKER", marker}]
+      )
+
+    assert out =~ "aiur: background daemon"
+    assert out =~ "reason=boom"
+    refute out =~ "error: aiur is not running"
+  end
+
+  test "todo without IDs exits 64 before resolving a release" do
+    {out, code} = run_engine(["--todo"], [])
+    assert code == 64
+    assert out =~ "--todo expects one or more numeric issue IDs"
+  end
+
+  test "todo rejects nonnumeric IDs" do
+    {out, code} = run_engine(["--todo", "11", "nope"], [])
+    assert code == 64
+    assert out =~ "--todo expects one or more numeric issue IDs"
+  end
+
+  test "only without todo exits 64" do
+    {out, code} = run_engine(["--only"], [])
+    assert code == 64
+    assert out =~ "--only is valid only with --todo"
+  end
+
   # Lifecycle commands generate + validate a cookie, whose owner must equal
   # $USER, so these run as the real user (only the state dir is redirected).
   defp run_engine_real(args, env) do
@@ -353,10 +606,24 @@ defmodule AiurEngineTest do
     path
   end
 
-  test "pause without targets exits 64 with guidance" do
-    {out, code} = run_engine_real(["pause"], [{"AIUR_RELEASE_DIR", fake_release()}])
+  # Bare `pause`/`resume` used to be a usage error. It is now the global switch,
+  # so only *malformed* targets still earn exit 64.
+  test "pause with malformed targets exits 64 with guidance" do
+    {out, code} = run_engine_real(["pause", "not-an-id"], [{"AIUR_RELEASE_DIR", fake_release()}])
     assert code == 64
     assert out =~ "expects issue IDs or --all"
+    assert out =~ "bare aiur pause for the global switch"
+  end
+
+  test "bare pause/resume RPC the global switch into the node" do
+    rel = fake_release()
+    state = tmp_state()
+
+    {paused, _} = run_engine_real(["pause"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", state}])
+    assert paused =~ "Aiur.AgentControlCLI.pause_global()"
+
+    {resumed, _} = run_engine_real(["resume"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", state}])
+    assert resumed =~ "Aiur.AgentControlCLI.resume_global()"
   end
 
   test "pause/resume RPC the AgentControlCLI expression into the node" do
@@ -368,6 +635,18 @@ defmodule AiurEngineTest do
 
     {resumed, _} = run_engine_real(["resume", "--all"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", state}])
     assert resumed =~ "Aiur.AgentControlCLI.resume(:all)"
+  end
+
+  test "usage RPCs the usage expression" do
+    rel = fake_release()
+    {out, _} = run_engine_real(["usage"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", tmp_state()}])
+    assert out =~ "Aiur.AgentControlCLI.usage()"
+  end
+
+  test "usage rejects arguments" do
+    {out, code} = run_engine_real(["usage", "codex"], [{"AIUR_RELEASE_DIR", fake_release()}])
+    assert code != 0
+    assert out =~ "usage does not accept arguments"
   end
 
   test "status RPCs the status expression" do
@@ -479,7 +758,7 @@ defmodule AiurEngineTest do
     refute out =~ "no running aiur node"
   end
 
-  test "down global-config control RPC prints a cwd-keyed hint" do
+  test "down global-config control RPC prints the stopped-daemon error" do
     state = tmp_state()
     caller = Path.join(System.tmp_dir!(), "aiur-control-miss-#{System.unique_integer([:positive])}")
     File.mkdir_p!(caller)
@@ -499,15 +778,10 @@ defmodule AiurEngineTest do
     resolve_release() { release_bin="$RPC"; release_dir=/tmp/nonexistent-aiur-release; }
     prepare_distribution() { aiur_resolve_identity; RELEASE_NODE="$AIUR_RELEASE_NODE"; }
     probe_node_liveness() { printf down; }
-    if run_control_rpc "Aiur.AgentControlCLI.status()"; then
-      code=0
-    else
-      code=$?
-    fi
-    echo "CODE=$code"
+    run_control_rpc "Aiur.AgentControlCLI.status()"
     """
 
-    {out, 0} =
+    {out, 1} =
       run_sourced_engine(script, [
         {"AIUR_BG_STATE_DIR", state},
         {"CALLER", caller},
@@ -517,10 +791,8 @@ defmodule AiurEngineTest do
         {"AIUR_REPO_ROOT", nil}
       ])
 
-    assert out =~ "CODE=1"
-    assert out =~ "no running aiur node at aiur-"
-    assert out =~ "global-config control identity is keyed by cwd #{realpath(caller)}"
-    assert out =~ "run control commands from the launch directory"
+    assert out ==
+             "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry.\n"
   end
 
   test "down control RPC with crash marker reports orphaned-agent guidance" do
@@ -874,12 +1146,13 @@ defmodule AiurEngineTest do
       echo PROBE >> "$EVENTS"
       printf up
     }
+    probe_dashboard_url() { printf 'http://127.0.0.1:4567'; }
     start_beam_death_watchdog() {
       echo "WATCHDOG:$*" >> "$EVENTS"
       printf '424242\\n'
     }
     disown() { echo "DISOWN:$*" >> "$EVENTS"; }
-    run_session background
+    aiur_engine_main run --bg
     """
 
     path = "#{Path.dirname(tmux)}:#{System.get_env("PATH")}"
@@ -894,10 +1167,54 @@ defmodule AiurEngineTest do
       ])
 
     assert out =~ "aiur started in the background"
+    assert out =~ "Dashboard: http://127.0.0.1:4567"
     events_log = File.read!(events)
     assert events_log =~ "PROBE\nWATCHDOG:-name aiur-"
     assert events_log =~ ~r/ 1 1 aiur-\S+ \S+ \S+\.stopping \S+\.last-crash \S+-workspace-root\n/
     assert events_log =~ "DISOWN:424242"
+  end
+
+  test "background launch with --no-dashboard in either-order form reports explicit suppression" do
+    rel = fake_release()
+    state = tmp_state()
+    tmux_state = Path.join(System.tmp_dir!(), "aiur-tmux-state-#{System.unique_integer([:positive])}")
+
+    tmux =
+      fake_tmux_script("""
+      case " $* " in
+        *" new-session "*) touch "#{tmux_state}"; exit 0 ;;
+        *" has-session "*) [ -f "#{tmux_state}" ]; exit $? ;;
+        *) exit 0 ;;
+      esac
+      """)
+
+    on_exit(fn ->
+      File.rm_rf(rel)
+      File.rm_rf(state)
+      File.rm(tmux_state)
+    end)
+
+    script = """
+    sleep() { :; }
+    probe_control_liveness() { printf up; }
+    probe_dashboard_url() { :; }
+    start_beam_death_watchdog() { printf '424242\n'; }
+    disown() { :; }
+    aiur_engine_main --no-dashboard --bg
+    """
+
+    path = "#{Path.dirname(tmux)}:#{System.get_env("PATH")}"
+
+    {out, 0} =
+      run_sourced_engine(script, [
+        {"AIUR_RELEASE_DIR", rel},
+        {"AIUR_BG_STATE_DIR", state},
+        {"PATH", path}
+      ])
+
+    assert out =~ "Dashboard disabled by --no-dashboard."
+    assert out =~ "aiur started in the background"
+    refute out =~ "dashboard listener unavailable"
   end
 
   test "foreground attach filters tmux server-exited noise without process substitution" do
@@ -927,7 +1244,7 @@ defmodule AiurEngineTest do
     probe_control_liveness() { printf up; }
     start_beam_death_watchdog() { printf '424242\\n'; }
     set +e
-    ( run_session foreground )
+    ( run_session foreground --no-dashboard )
     code=$?
     set -e
     echo "CODE=$code"
@@ -1160,7 +1477,7 @@ defmodule AiurEngineTest do
 
     assert out =~ "CODE=1"
     assert out =~ "nothing stopped"
-    assert out =~ "global-config control identity is keyed by cwd #{realpath(caller)}"
+    refute out =~ "global-config control identity is keyed by cwd"
     assert out =~ "NO_SENTINEL"
     refute out =~ "KILL_BEAM:"
     refute out =~ "CWD_REAP:"

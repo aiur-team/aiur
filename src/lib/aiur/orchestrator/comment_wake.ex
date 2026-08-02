@@ -9,10 +9,15 @@ defmodule Aiur.Orchestrator.CommentWake do
   import Bitwise, only: [<<<: 2]
 
   alias Aiur.Alerts
+  alias Aiur.CurrentRunMembership
   alias Aiur.Events.UniversalSubscriptions
-  alias Aiur.{Issue, Tracker}
+  alias Aiur.GitHub.Config
+  alias Aiur.Issue
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, PrAnchored, State}
+  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, PrAnchored, State}
+  alias Aiur.RunTelemetry.Lifecycle
+  alias Aiur.Tracker
+  alias Aiur.TrackerIdentity
 
   @comment_rework_retry_delay_ms 2_000
   @comment_rework_max_attempts 5
@@ -37,25 +42,291 @@ defmodule Aiur.Orchestrator.CommentWake do
     end
   end
 
-  @spec mark_pr_merged_issue_done(State.t(), String.t() | integer()) :: State.t()
-  def mark_pr_merged_issue_done(%State{} = state, identifier) do
-    case Tracker.update_issue_state(to_string(identifier), "done") do
-      :ok ->
-        Orchestrator.clear_session_handle(identifier)
+  @spec mark_pr_merged_issue_done(State.t(), String.t() | integer(), keyword()) :: State.t()
+  def mark_pr_merged_issue_done(%State{} = state, identifier, opts \\ []) when is_list(opts) do
+    update_issue_state_fun =
+      Keyword.get(opts, :update_issue_state_fun, &Tracker.update_issue_state/2)
 
-        case State.find_running_by_identifier(state.running, identifier) do
-          %{issue: %Issue{id: issue_id}} ->
-            Orchestrator.terminate_running_issue(state, issue_id, true)
+    clear_session_handle_fun =
+      Keyword.get(opts, :clear_session_handle_fun, &Orchestrator.clear_session_handle/1)
 
-          _ ->
-            state
-        end
+    observe_membership_fun =
+      Keyword.get(opts, :observe_membership_fun, &MembershipLifecycle.observe/2)
+
+    terminate_running_issue_fun =
+      Keyword.get(opts, :terminate_running_issue_fun, &Orchestrator.terminate_running_issue/3)
+
+    mark_reconciled_fun =
+      Keyword.get(opts, :mark_reconciled_fun, &CurrentRunMembership.mark_reconciled/1)
+
+    set_terminal_verification_pending_fun =
+      Keyword.get(
+        opts,
+        :set_terminal_verification_pending_fun,
+        &CurrentRunMembership.set_terminal_verification_pending/2
+      )
+
+    merger_allowed_fun =
+      Keyword.get(opts, :merger_allowed_fun, &Config.human_merger_allowed?/1)
+
+    emit_alert_fun =
+      Keyword.get(opts, :emit_alert_fun, &emit_merge_alert/2)
+
+    merged_by_login = Keyword.get(opts, :merged_by_login)
+
+    Logger.info("PR merge received: issue_identifier=#{identifier} merged_by=#{inspect(merged_by_login)}")
+
+    terminal_state =
+      case update_issue_state_fun.(to_string(identifier), "done") do
+        :ok ->
+          complete_merged_issue(
+            state,
+            identifier,
+            clear_session_handle_fun,
+            observe_membership_fun,
+            terminate_running_issue_fun,
+            mark_reconciled_fun,
+            set_terminal_verification_pending_fun
+          )
+
+        {:error, reason} ->
+          Logger.warning("PR merge terminal transition skipped: issue_identifier=#{identifier} reason=#{inspect(reason)}")
+
+          state
+      end
+
+    audit_merge_attribution(
+      identifier,
+      merged_by_login,
+      merger_allowed_fun,
+      emit_alert_fun
+    )
+
+    terminal_state
+  end
+
+  defp emit_merge_alert(name, opts) do
+    {message, alert_opts} = Keyword.pop!(opts, :message)
+    Alerts.emit_custom(name, message, Keyword.put(alert_opts, :event_source, :system))
+  end
+
+  defp audit_merge_attribution(
+         identifier,
+         merged_by_login,
+         merger_allowed_fun,
+         emit_alert_fun
+       ) do
+    case safely_check_merger(merger_allowed_fun, merged_by_login) do
+      {:ok, true} ->
+        :ok
+
+      {:ok, false} ->
+        safely_emit_merge_alert(
+          emit_alert_fun,
+          "ticket.#{identifier}.merge.unauthorized_merger",
+          message: "Unauthorized PR merger #{inspect(merged_by_login)} detected for ticket #{identifier}.",
+          issue: to_string(identifier),
+          reason: "PR merged by #{inspect(merged_by_login)} who is not in the human merger allowlist.",
+          needs_attention: true,
+          severity: "critical"
+        )
 
       {:error, reason} ->
-        Logger.warning("PR merge terminal transition skipped: issue_identifier=#{identifier} reason=#{inspect(reason)}")
+        Logger.error(
+          "PR merge attribution check failed: issue_identifier=#{identifier} " <>
+            "merged_by=#{inspect(merged_by_login)} reason=#{inspect(reason)}"
+        )
 
+        safely_emit_merge_alert(
+          emit_alert_fun,
+          "ticket.#{identifier}.merge.attribution_check_failed",
+          message: "PR merge attribution check failed for ticket #{identifier}.",
+          issue: to_string(identifier),
+          reason: "PR merged by #{inspect(merged_by_login)}, but the human merger allowlist check failed: #{inspect(reason)}.",
+          needs_attention: true,
+          severity: "critical"
+        )
+    end
+  end
+
+  defp safely_check_merger(merger_allowed_fun, merged_by_login) do
+    {:ok, merger_allowed_fun.(merged_by_login) == true}
+  rescue
+    error -> {:error, {:exception, Exception.message(error)}}
+  catch
+    kind, reason -> {:error, {kind, reason}}
+  end
+
+  defp safely_emit_merge_alert(emit_alert_fun, name, opts) do
+    emit_alert_fun.(name, opts)
+  rescue
+    error ->
+      Logger.error("PR merge attribution alert failed: name=#{name} reason=#{Exception.message(error)}")
+      :error
+  catch
+    kind, reason ->
+      Logger.error("PR merge attribution alert failed: name=#{name} reason=#{inspect({kind, reason})}")
+      :error
+  end
+
+  defp complete_merged_issue(
+         state,
+         identifier,
+         clear_session_handle_fun,
+         observe_membership_fun,
+         terminate_running_issue_fun,
+         mark_reconciled_fun,
+         set_terminal_verification_pending_fun
+       ) do
+    case State.find_running_by_identifier(state.running, identifier) do
+      %{issue: %Issue{} = issue} ->
+        record_merged_issue_terminal(
+          state,
+          identifier,
+          issue,
+          clear_session_handle_fun,
+          observe_membership_fun,
+          terminate_running_issue_fun,
+          mark_reconciled_fun,
+          set_terminal_verification_pending_fun
+        )
+
+      _ ->
         state
     end
+  end
+
+  defp record_merged_issue_terminal(
+         state,
+         identifier,
+         issue,
+         clear_session_handle_fun,
+         observe_membership_fun,
+         terminate_running_issue_fun,
+         mark_reconciled_fun,
+         set_terminal_verification_pending_fun
+       ) do
+    case MembershipLifecycle.record(issue, :completed, observe_membership_fun) do
+      :ok ->
+        finalize_merged_issue_terminal(
+          state,
+          identifier,
+          issue,
+          clear_session_handle_fun,
+          terminate_running_issue_fun,
+          mark_reconciled_fun,
+          set_terminal_verification_pending_fun
+        )
+
+      {:error, :membership_observation_failed} ->
+        retain_merged_issue_for_terminal_verification(
+          state,
+          issue,
+          mark_reconciled_fun,
+          set_terminal_verification_pending_fun
+        )
+    end
+  end
+
+  defp finalize_merged_issue_terminal(
+         state,
+         identifier,
+         issue,
+         clear_session_handle_fun,
+         terminate_running_issue_fun,
+         mark_reconciled_fun,
+         set_terminal_verification_pending_fun
+       ) do
+    case safely_set_terminal_verification_pending(
+           set_terminal_verification_pending_fun,
+           issue.tracker_identity,
+           false
+         ) do
+      :ok ->
+        clear_session_handle_fun.(identifier)
+        terminate_running_issue_fun.(state, issue.id, true)
+
+      :error ->
+        retain_merged_issue_for_terminal_verification(
+          state,
+          issue,
+          mark_reconciled_fun,
+          set_terminal_verification_pending_fun
+        )
+    end
+  end
+
+  defp retain_merged_issue_for_terminal_verification(
+         state,
+         issue,
+         mark_reconciled_fun,
+         set_terminal_verification_pending_fun
+       ) do
+    safely_mark_membership_unavailable(
+      mark_reconciled_fun,
+      set_terminal_verification_pending_fun,
+      issue.tracker_identity
+    )
+
+    state
+  end
+
+  defp safely_mark_membership_unavailable(
+         mark_reconciled_fun,
+         set_terminal_verification_pending_fun,
+         identity
+       ) do
+    _ =
+      safely_set_terminal_verification_pending(
+        set_terminal_verification_pending_fun,
+        identity,
+        true
+      )
+
+    _ = mark_reconciled_fun.(:unavailable)
+    :ok
+  rescue
+    _error -> :ok
+  catch
+    _kind, _reason -> :ok
+  end
+
+  defp safely_set_terminal_verification_pending(
+         set_terminal_verification_pending_fun,
+         %TrackerIdentity{} = identity,
+         pending?
+       ) do
+    if TrackerIdentity.joinable?(identity) do
+      invoke_terminal_verification_marker(
+        set_terminal_verification_pending_fun,
+        identity,
+        pending?
+      )
+    else
+      :ok
+    end
+  end
+
+  defp safely_set_terminal_verification_pending(
+         _set_terminal_verification_pending_fun,
+         _identity,
+         _pending?
+       ),
+       do: :ok
+
+  defp invoke_terminal_verification_marker(
+         set_terminal_verification_pending_fun,
+         identity,
+         pending?
+       ) do
+    case set_terminal_verification_pending_fun.(identity, pending?) do
+      :ok -> :ok
+      _ -> :error
+    end
+  rescue
+    _error -> :error
+  catch
+    _kind, _reason -> :error
   end
 
   @doc false
@@ -81,7 +352,7 @@ defmodule Aiur.Orchestrator.CommentWake do
           pos_integer()
         ) :: State.t()
   def maybe_transition_idle_issue_to_rework(state, issue_number, source, event, attempt) do
-    case transition_comment_issue_to_rework(issue_number, source, event) do
+    case transition_comment_issue_to_rework(issue_number, issue_number, source, event, nil) do
       :ok ->
         seed_idle_comment_wake_event(state, issue_number, event)
 
@@ -135,7 +406,47 @@ defmodule Aiur.Orchestrator.CommentWake do
         event
       )
     else
-      state
+      protect_active_comment_delivery(state, running_entry, issue_number, source, event)
+    end
+  end
+
+  defp protect_active_comment_delivery(state, running_entry, issue_number, source, event) do
+    cond do
+      not trusted_comment_event?(event) ->
+        state
+
+      benign_review_pass_comment?(event) ->
+        state
+
+      true ->
+        identifier = to_string(issue_number)
+
+        protected_state =
+          Orchestrator.enqueue_event_digest_item(state, identifier, [event], event)
+
+        issue_key = rework_issue_key(running_entry, issue_number)
+
+        case transition_comment_issue_to_rework(
+               issue_key,
+               issue_number,
+               source,
+               event,
+               Map.get(running_entry, :telemetry_attempt_id)
+             ) do
+          :ok ->
+            protected_state
+
+          {:error, reason} ->
+            Logger.warning(
+              "#{source} active rework transition deferred behind delivery fence: " <>
+                "issue_identifier=#{issue_number} reason=#{inspect(reason)}"
+            )
+
+            protected_state
+
+          {:skip, _reason} ->
+            protected_state
+        end
     end
   end
 
@@ -201,11 +512,37 @@ defmodule Aiur.Orchestrator.CommentWake do
     terminal = DispatchPolicy.terminal_state_set()
 
     if DispatchPolicy.should_dispatch_issue?(issue, state, active, terminal) do
-      Dispatcher.dispatch_issue(state, issue)
+      state
+      |> Dispatcher.dispatch_issue(issue)
+      |> maybe_record_comment_rework_resume(issue)
     else
       Orchestrator.schedule_poll_cycle_start()
       state
     end
+  end
+
+  # The successful state transition above captures the comment's rework intent,
+  # but dispatch admission must continue to use the subsequently fetched state.
+  # When that read is stale-but-active, record the intent only after a worker is
+  # actually admitted; Dispatcher records the normal fetched-`rework` case.
+  defp maybe_record_comment_rework_resume(%State{} = state, %Issue{} = issue) do
+    case Map.get(state.running, issue.id) do
+      %{pid: pid, issue: %Issue{} = dispatched_issue} = entry when is_pid(pid) ->
+        if DispatchPolicy.normalize_issue_state(dispatched_issue.state) != "rework" do
+          Lifecycle.record(
+            issue.identifier,
+            Map.get(entry, :telemetry_attempt_id),
+            :agent_resume,
+            :point,
+            %{cause: :rework_dispatch}
+          )
+        end
+
+      _other ->
+        :ok
+    end
+
+    state
   end
 
   defp fetch_comment_dispatch_issue(identifier) do
@@ -253,7 +590,13 @@ defmodule Aiur.Orchestrator.CommentWake do
        ) do
     issue_key = rework_issue_key(running_entry, issue_number)
 
-    case transition_comment_issue_to_rework(issue_key, source, event) do
+    case transition_comment_issue_to_rework(
+           issue_key,
+           issue_number,
+           source,
+           event,
+           Map.get(running_entry, :telemetry_attempt_id)
+         ) do
       :ok ->
         revalidate_comment_reactivation(state, running_entry, issue_number, source)
 
@@ -271,7 +614,7 @@ defmodule Aiur.Orchestrator.CommentWake do
     end
   end
 
-  defp transition_comment_issue_to_rework(issue_number, _source, event) do
+  defp transition_comment_issue_to_rework(issue_key, telemetry_ticket, source, event, attempt_id) do
     cond do
       not trusted_comment_event?(event) ->
         {:skip, :untrusted_author}
@@ -280,7 +623,21 @@ defmodule Aiur.Orchestrator.CommentWake do
         {:skip, :benign_review_pass_comment}
 
       true ->
-        Tracker.update_issue_state(to_string(issue_number), "rework")
+        case Tracker.update_issue_state(to_string(issue_key), "rework") do
+          :ok ->
+            Lifecycle.record(
+              to_string(telemetry_ticket),
+              attempt_id,
+              :rework_start,
+              :point,
+              %{source: source, outcome: :success}
+            )
+
+            :ok
+
+          {:error, _reason} = error ->
+            error
+        end
     end
   end
 

@@ -32,19 +32,21 @@ defmodule Aiur.Claude.Repl.HookTurn do
 
   Sends `prompt` via the hook/RC protocol, then waits on claude lifecycle hook
   events: PostToolUse streams progress and heartbeats the backstop, Stop
-  completes the turn. The loop runs in the caller's process.
+  completes the turn, and StopFailure reports terminal API failures. The loop
+  runs in the caller's process.
   """
   @spec run(map(), String.t(), keyword()) :: {:ok, map()} | {:paused, map()} | {:error, term()}
   def run(session, prompt, opts) do
     # Hook-driven turn: claude v2.1.177 flushes its transcript lazily, so we drive
     # turn detection off lifecycle hooks (Aiur.Claude.HookEvents) instead. Send the
     # prompt, then wait on the agent's hook topic: PostToolUse streams progress and
-    # heartbeats the backstop, Stop completes the turn with `last_assistant_message`.
-    # There is no completion clock — only the Stop event, pane death, or a generous
-    # no-event backstop ends the wait — so a turn that works silently for minutes is
-    # never failed.
+    # heartbeats the backstop, Stop completes the turn with `last_assistant_message`,
+    # and StopFailure ends it with an API error. There is no completion clock — only
+    # a terminal hook, pane death, or a generous no-event backstop ends the wait —
+    # so a turn that works silently for minutes is never failed.
     on_message = Keyword.get(opts, :on_message, fn _ -> :ok end)
     on_operator = Keyword.get(opts, :on_operator_message, fn -> :noop end)
+    on_provider_delivery = Keyword.get(opts, :on_provider_delivery, fn _metadata -> :ok end)
     poll_ms = Keyword.get(opts, :poll_interval_ms, @turn_poll_ms)
     timeout_ms = Keyword.get(opts, :turn_timeout_ms) || Aiur.Config.agent_turn_timeout_ms()
     pause_confirm_ms = Keyword.get(opts, :pause_confirm_ms, @pause_confirm_ms)
@@ -64,13 +66,18 @@ defmodule Aiur.Claude.Repl.HookTurn do
             identifier: identifier,
             on_message: on_message,
             on_operator: on_operator,
+            on_provider_delivery: on_provider_delivery,
             poll_ms: poll_ms,
             pause_confirm_ms: pause_confirm_ms,
             timeout_ms: timeout_ms
           }
 
           loop
-          |> await_hook_turn(deadline, %{session_id: nil, message: nil})
+          |> await_hook_turn(deadline, %{
+            session_id: nil,
+            message: nil,
+            provider_delivered?: false
+          })
           |> finish_hook_turn(on_message)
 
         {:error, reason} ->
@@ -98,25 +105,45 @@ defmodule Aiur.Claude.Repl.HookTurn do
       true ->
         receive do
           {:claude_hook, _id, %{event: :stop} = event} ->
-            if NotificationPolicy.usage_limit_exhausted?(event) do
-              {:paused, NotificationPolicy.usage_limit_pause(event)}
+            delivered_acc =
+              acc
+              |> merge_session(event)
+              |> acknowledge_provider_delivery(loop, event)
+
+            {:ok, %{delivered_acc | message: event.message}}
+
+          {:claude_hook, _id, %{event: :stop_failure} = event} ->
+            _delivered_acc = acknowledge_provider_delivery(acc, loop, event)
+
+            if NotificationPolicy.usage_limit_exhausted?(event.raw) do
+              {:paused, NotificationPolicy.usage_limit_pause(event.raw)}
             else
-              {:ok, %{acc | session_id: event.session_id || acc.session_id, message: event.message}}
+              {:error, {:turn_failed, event.raw}}
             end
 
           {:claude_hook, _id, %{event: :post_tool_use} = event} ->
             # PostToolUse is a liveness heartbeat for turn detection only — the
             # conversation (incl. tool I/O) is painted by Aiur.Claude.DisplayTailer
             # from the transcript jsonl, so nothing is rendered from here.
-            await_hook_turn(loop, reset_deadline(loop), merge_session(acc, event))
+            next_acc =
+              acc
+              |> merge_session(event)
+              |> acknowledge_provider_delivery(loop, event)
+
+            await_hook_turn(loop, reset_deadline(loop), next_acc)
 
           {:claude_hook, _id, %{event: :user_prompt_submit} = event} ->
-            await_hook_turn(loop, reset_deadline(loop), merge_session(acc, event))
+            next_acc =
+              acc
+              |> merge_session(event)
+              |> acknowledge_provider_delivery(loop, event)
+
+            await_hook_turn(loop, reset_deadline(loop), next_acc)
 
           {:claude_hook, _id, _event} ->
             await_hook_turn(loop, reset_deadline(loop), acc)
 
-          # An operator message landed mid-turn. The REPL accepts input while the
+          # An Executor message landed mid-turn. The REPL accepts input while the
           # agent works; type it straight in so claude's native queue folds it.
           {:agent_queue_updated, _identifier, _item_id, true} ->
             Logger.info("repl_hook_turn operator_immediate identifier=#{loop.identifier}")
@@ -129,16 +156,15 @@ defmodule Aiur.Claude.Repl.HookTurn do
           {:agent_queue_updated, _identifier, _item_id} ->
             await_hook_turn(loop, deadline, acc)
 
-          # Pause request: interrupt the live REPL turn (Ctrl+C to the pane) and
-          # park as paused. The interrupted turn still fires a Stop hook, which the
-          # next turn's loop drains harmlessly.
-          {:pause_agent, request_id} when is_integer(request_id) ->
-            case OperatorInject.interrupt(loop.session) do
-              :ok -> :ok
-              {:error, reason} -> Logger.warning("repl_pause interrupt_failed reason=#{inspect(reason)}")
-            end
+          # Pause request: interrupt the live REPL turn (Ctrl+C to the pane).
+          # A tmux delivery failure is not pause evidence; returning an error
+          # lets the orchestrator expire the correlated request instead of
+          # recording a pause while the REPL may still be working.
+          {:pause_agent, request_id, generation} when is_integer(request_id) and is_integer(generation) ->
+            interrupt_for_pause(loop.session, %{request_id: request_id, generation: generation, kind: :operator_pause})
 
-            {:paused, %{request_id: request_id}}
+          {:pause_agent, request_id} when is_integer(request_id) ->
+            interrupt_for_pause(loop.session, %{request_id: request_id})
         after
           loop.poll_ms ->
             await_hook_turn(loop, deadline, acc)
@@ -148,8 +174,36 @@ defmodule Aiur.Claude.Repl.HookTurn do
 
   defp reset_deadline(loop), do: System.monotonic_time(:millisecond) + loop.timeout_ms
 
+  defp interrupt_for_pause(session, payload) do
+    case OperatorInject.interrupt(session) do
+      :ok ->
+        {:paused, payload}
+
+      {:error, reason} ->
+        Logger.warning("repl_pause interrupt_failed reason=#{inspect(reason)}")
+        {:error, {:pause_interrupt_failed, reason}}
+    end
+  end
+
   defp merge_session(acc, %{session_id: sid}) when is_binary(sid), do: %{acc | session_id: sid}
   defp merge_session(acc, _event), do: acc
+
+  defp acknowledge_provider_delivery(%{provider_delivered?: false} = acc, loop, event) do
+    safely_invoke_provider_delivery(loop.on_provider_delivery, %{
+      session_id: event.session_id,
+      transport: :claude_hook
+    })
+
+    %{acc | provider_delivered?: true}
+  end
+
+  defp acknowledge_provider_delivery(acc, _loop, _event), do: acc
+
+  defp safely_invoke_provider_delivery(callback, metadata) do
+    callback.(metadata)
+  rescue
+    _error -> :ok
+  end
 
   # Stop completed the turn. The assistant message is NOT rendered from here —
   # Aiur.Claude.DisplayTailer paints the full conversation from the transcript

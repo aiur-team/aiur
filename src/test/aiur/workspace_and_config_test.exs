@@ -6,6 +6,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   alias Aiur.Events.Exchange
   alias Aiur.Issue
   alias Aiur.Linear.Client
+  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy}
   alias Ecto.Changeset
 
   test "workspace bootstrap can be implemented in after_create hook" do
@@ -23,10 +24,11 @@ defmodule Aiur.WorkspaceAndConfigTest do
       File.mkdir_p!(Path.join(template_repo, "keep"))
       File.write!(Path.join([template_repo, "keep", "file.txt"]), "keep me")
       File.write!(Path.join(template_repo, "README.md"), "hook clone\n")
+      File.write!(Path.join(template_repo, ".gitignore"), "tracked-ignore/\n")
       System.cmd("git", ["-C", template_repo, "init", "-b", "main"])
       System.cmd("git", ["-C", template_repo, "config", "user.name", "Test User"])
       System.cmd("git", ["-C", template_repo, "config", "user.email", "test@example.com"])
-      System.cmd("git", ["-C", template_repo, "add", "README.md", "keep/file.txt"])
+      System.cmd("git", ["-C", template_repo, "add", ".gitignore", "README.md", "keep/file.txt"])
       System.cmd("git", ["-C", template_repo, "commit", "-m", "initial"])
 
       write_workflow_file!(Workflow.workflow_file_path(),
@@ -38,6 +40,21 @@ defmodule Aiur.WorkspaceAndConfigTest do
       assert File.exists?(Path.join(workspace, ".git"))
       assert File.read!(Path.join(workspace, "README.md")) == "hook clone\n"
       assert File.read!(Path.join([workspace, "keep", "file.txt"])) == "keep me"
+
+      assert :ok =
+               Aiur.AgentEventLog.write(workspace, nil, %{
+                 event: "notification",
+                 last_message: "workspace log remains readable"
+               })
+
+      assert File.read!(Path.join(workspace, ".gitignore")) == "tracked-ignore/\n"
+
+      assert {"", 0} =
+               System.cmd("git", ["-C", workspace, "status", "--short", "--", "logs"], stderr_to_stdout: true)
+
+      assert %{path: log_path, messages: messages} = Aiur.AgentLog.read_workspace(workspace)
+      assert log_path == Path.join([workspace, "logs", "agent.ndjson"])
+      assert Enum.any?(messages, &(&1.body =~ "workspace log remains readable"))
     after
       File.rm_rf(test_root)
     end
@@ -129,6 +146,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
       assert cache_root in runtime_settings.turn_sandbox_policy["writableRoots"]
       assert canonical_workspace in runtime_settings.turn_sandbox_policy["writableRoots"]
       assert canonical_git_dir in runtime_settings.turn_sandbox_policy["writableRoots"]
+      assert Aiur.BuildGate.gate_dir() in runtime_settings.turn_sandbox_policy["writableRoots"]
 
       File.write!(codex_binary, """
       #!/bin/sh
@@ -1123,7 +1141,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
       # seeds its bundled agent skills (#689) so a dispatched agent can load them
       # without a filesystem search.
       assert {:ok, entries} = File.ls(workspace)
-      assert Enum.sort(entries) == [".claude", ".codex"]
+      assert Enum.sort(entries) == [".claude", ".codex", ".fake"]
       assert File.exists?(Path.join([workspace, ".claude", "skills", "using-aiur", "SKILL.md"]))
     after
       File.rm_rf(workspace_root)
@@ -1458,12 +1476,19 @@ defmodule Aiur.WorkspaceAndConfigTest do
                  Client.graphql(
                    "query Viewer { viewer { id } }",
                    %{},
+                   operation_name: "QuietAuthIsolation",
                    request_fun: request_fun,
                    quiet_auth_errors?: true
                  )
       end)
 
-    assert auth_log == ""
+    # Regression for #1149. `capture_log/1` captures the global Logger, so any
+    # background process logging during the window (e.g. GithubCommentsPoller's
+    # "target refresh skipped" warning) lands in `auth_log` too. Assert that the
+    # client stayed quiet about *this* request rather than that nothing at all
+    # logged — an emptiness check fails on unrelated concurrent output.
+    refute auth_log =~
+             "Linear GraphQL request failed status=401 operation=QuietAuthIsolation"
 
     outage_log =
       ExUnit.CaptureLog.capture_log(fn ->
@@ -1511,7 +1536,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     }
 
     sorted =
-      Orchestrator.sort_issues_for_dispatch_for_test([
+      DispatchPolicy.sort_issues_for_dispatch([
         issue_lower_priority_older,
         issue_same_priority_newer,
         issue_same_priority_older
@@ -1537,7 +1562,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
       blocked_by: [%{id: "blocker-1", identifier: "MT-1002", state: "In Progress"}]
     }
 
-    refute Orchestrator.should_dispatch_issue_for_test(issue, state)
+    refute DispatchPolicy.should_dispatch_issue?(issue, state)
   end
 
   test "issue assigned to another worker is not dispatch-eligible" do
@@ -1559,7 +1584,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
       assigned_to_worker: false
     }
 
-    refute Orchestrator.should_dispatch_issue_for_test(issue, state)
+    refute DispatchPolicy.should_dispatch_issue?(issue, state)
   end
 
   test "todo issue with terminal blockers remains dispatch-eligible" do
@@ -1579,7 +1604,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
       blocked_by: [%{id: "blocker-2", identifier: "MT-1004", state: "Closed"}]
     }
 
-    assert Orchestrator.should_dispatch_issue_for_test(issue, state)
+    assert DispatchPolicy.should_dispatch_issue?(issue, state)
   end
 
   test "polling does not auto-dispatch when a paused agent reserves the only slot" do
@@ -1604,7 +1629,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
     queued = %Issue{id: "queued-1", identifier: "MT-Q1", title: "Q1", state: "Todo"}
 
-    refute Orchestrator.should_dispatch_issue_for_test(queued, state)
+    refute DispatchPolicy.should_dispatch_issue?(queued, state)
   end
 
   test "per-state slot cap honors the session-aware max, not just the workflow value" do
@@ -1644,10 +1669,10 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
     todo = %Issue{id: "queued-1", identifier: "MT-Q1", title: "Q1", state: "Todo"}
 
-    assert Orchestrator.dispatch_candidate_for_test(todo, state),
+    assert DispatchPolicy.dispatch_candidate?(todo, state),
            "manual start of a queued ticket must be eligible after a session-max bump"
 
-    assert Orchestrator.should_dispatch_issue_for_test(todo, state),
+    assert DispatchPolicy.should_dispatch_issue?(todo, state),
            "polling must also see the bumped cap as the effective per-state limit"
   end
 
@@ -1677,7 +1702,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
     queued = %Issue{id: "queued-1", identifier: "MT-Q1", title: "Q1", state: "Todo"}
 
-    assert Orchestrator.dispatch_candidate_for_test(queued, state)
+    assert DispatchPolicy.dispatch_candidate?(queued, state)
   end
 
   test "dispatch revalidation skips stale todo issue once a non-terminal blocker appears" do
@@ -1700,7 +1725,11 @@ defmodule Aiur.WorkspaceAndConfigTest do
     fetcher = fn ["blocked-2"] -> {:ok, [refreshed_issue]} end
 
     assert {:skip, %Issue{} = skipped_issue} =
-             Orchestrator.revalidate_issue_for_dispatch_for_test(stale_issue, fetcher)
+             Dispatcher.revalidate_issue_for_dispatch(
+               stale_issue,
+               fetcher,
+               DispatchPolicy.terminal_state_set()
+             )
 
     assert skipped_issue.identifier == "MT-1005"
 
@@ -1852,6 +1881,41 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert Config.dashboard_writable?()
   end
 
+  test "telemetry retention derives and accepts its prune interval" do
+    write_workflow_file!(Workflow.workflow_file_path(), observability_retention_max_bytes: 8 * 1024 * 1024)
+
+    assert Config.telemetry_retention() == [
+             max_bytes: 8 * 1024 * 1024,
+             max_age_days: 30,
+             prune_interval_bytes: 1 * 1024 * 1024
+           ]
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      observability_retention_max_bytes: 8 * 1024 * 1024,
+      observability_retention_prune_interval_bytes: 256
+    )
+
+    assert Config.telemetry_retention() == [
+             max_bytes: 8 * 1024 * 1024,
+             max_age_days: 30,
+             prune_interval_bytes: 256
+           ]
+  end
+
+  test "decision supervisor policy round-trips through workflow configuration" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      supervisor_decision_allowed_kinds: [" Architecture ", "PRODUCT", "architecture"],
+      supervisor_decision_allow_non_reversible: true
+    )
+
+    assert :ok = Config.validate!()
+
+    assert Config.supervisor_decision_policy() == %{
+             allowed_kinds: ["architecture", "product"],
+             allow_non_reversible: true
+           }
+  end
+
   test "config reads defaults for optional settings" do
     previous_linear_api_key = System.get_env("LINEAR_API_KEY")
     on_exit(fn -> restore_env("LINEAR_API_KEY", previous_linear_api_key) end)
@@ -1886,8 +1950,13 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert config.server.port == 0
 
     # Dashboard is read-only by default until the parity pass (#371).
-    assert config.observability.dashboard_writable == false
-    refute Config.dashboard_writable?()
+    assert config.observability.dashboard_writable == true
+    assert Config.dashboard_writable?()
+
+    assert Config.supervisor_decision_policy() == %{
+             allowed_kinds: [],
+             allow_non_reversible: false
+           }
 
     assert config.agent.codex.command == "codex app-server"
 
@@ -2176,7 +2245,19 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert {:routing, {"complexity levels must be positive integers", []}} in bad.errors
 
     assert Enum.any?(bad.errors, fn
-             {:routing, {msg, []}} -> msg =~ "unknown backend"
+             {:routing, {msg, []}} -> msg =~ "unknown or disabled backend"
+             _ -> false
+           end)
+
+    # A registered-but-not-dispatch-enabled backend is rejected by the same path
+    # as an unknown one, so routing cannot reach an opt-in-only provider.
+    disabled =
+      {%{}, %{routing: :map}}
+      |> Changeset.cast(%{routing: %{4 => "deepseek"}}, [:routing])
+      |> AgentValidation.validate_agent_routing(:routing)
+
+    assert Enum.any?(disabled.errors, fn
+             {:routing, {msg, []}} -> msg =~ ~s(unknown or disabled backend "deepseek")
              _ -> false
            end)
 
@@ -2236,7 +2317,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
       |> AgentValidation.validate_agent_routing(:routing)
 
     assert Enum.any?(bad_model_backend.errors, fn
-             {:routing, {msg, []}} -> msg =~ "unknown backend"
+             {:routing, {msg, []}} -> msg =~ "unknown or disabled backend"
              _ -> false
            end)
 
@@ -2293,6 +2374,15 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert CodingAgent.backend_for(override_issue) == "codex"
     assert CodingAgent.model_for(override_issue) == "gpt-5.6-sol"
     assert CodingAgent.effort_for(override_issue) == nil
+
+    # A model:<effort> override label wins over the routed effort.
+    effort_label_issue = %Issue{labels: ["complexity:4", "model:xhigh"]}
+    assert CodingAgent.effort_for(effort_label_issue) == "xhigh"
+
+    # It applies even alongside a model:<backend> override that otherwise
+    # suppresses routing effort.
+    effort_with_backend = %Issue{labels: ["complexity:4", "model:codex", "model:high"]}
+    assert CodingAgent.effort_for(effort_with_backend) == "high"
   end
 
   test "remote_control opt-in defaults OFF and parses an explicit true" do
@@ -2359,6 +2449,60 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
     assert {:error, {:invalid_workflow_config, _}} =
              Schema.parse(%{tracker: %{kind: "memory"}, agent: %{max_load_average: 0}})
+  end
+
+  test "agent.min_free_memory_mb is optional and accepts only a positive floor" do
+    assert {:ok, settings} = Schema.parse(%{tracker: %{kind: "memory"}})
+    assert settings.agent.min_free_memory_mb == nil
+
+    assert {:ok, settings} =
+             Schema.parse(%{
+               tracker: %{kind: "memory"},
+               agent: %{min_free_memory_mb: 4_096}
+             })
+
+    assert settings.agent.min_free_memory_mb == 4_096
+
+    for invalid <- [0, -1, "invalid"] do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{
+                 tracker: %{kind: "memory"},
+                 agent: %{min_free_memory_mb: invalid}
+               })
+
+      assert message =~ "agent.min_free_memory_mb"
+    end
+  end
+
+  test "agent.build_start_stagger_seconds defaults off and validates a non-negative interval" do
+    assert {:ok, settings} = Schema.parse(%{tracker: %{kind: "memory"}})
+    assert settings.agent.build_start_stagger_seconds == 0
+
+    assert {:ok, settings} =
+             Schema.parse(%{
+               tracker: %{kind: "memory"},
+               agent: %{build_start_stagger_seconds: 5}
+             })
+
+    assert settings.agent.build_start_stagger_seconds == 5
+
+    assert {:ok, settings} =
+             Schema.parse(%{
+               tracker: %{kind: "memory"},
+               agent: %{build_start_stagger_seconds: 0}
+             })
+
+    assert settings.agent.build_start_stagger_seconds == 0
+
+    for invalid <- [-1, "invalid"] do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{
+                 tracker: %{kind: "memory"},
+                 agent: %{build_start_stagger_seconds: invalid}
+               })
+
+      assert message =~ "agent.build_start_stagger_seconds"
+    end
   end
 
   test "agent load envelope defaults safely, validates tuning, and preserves explicit disable" do
@@ -2440,7 +2584,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
   test "alerts default to enabled with OS sounds off (back-compat) and round-trip overrides" do
     # Back-compat hard requirement: a machine with no `alerts:` section keeps
-    # playing its existing alerts.yaml + ~/alerts sounds, so the defaults must be
+    # playing its existing .aiur/alerts + ~/alerts sounds, so the defaults must be
     # enabled + OS-default sounds OFF. An explicit block must round-trip.
     assert {:ok, settings} = Schema.parse(%{tracker: %{kind: "memory"}})
     assert settings.alerts.enabled == true
@@ -2478,7 +2622,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "agent.max_agent_duration_minutes defaults to 60 and rejects negatives" do
-    # Safety-net cap the orchestrator's overrun watchdog reads; 0 disables.
+    # Safety-checkpoint cap the orchestrator's overrun watchdog reads; 0 disables.
     assert {:ok, settings} = Schema.parse(%{tracker: %{kind: "memory"}})
     assert settings.agent.max_agent_duration_minutes == 60
 
@@ -2514,6 +2658,29 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
     assert {:complexity_prompts, {"complexity levels must be positive integers", []}} in bad.errors
     assert {:complexity_prompts, {"complexity prompt values must be strings", []}} in bad.errors
+  end
+
+  test "max_turns_by_complexity normalizes string levels and rejects bad levels/values" do
+    assert AgentValidation.normalize_max_turns_by_complexity(nil) == %{}
+
+    assert AgentValidation.normalize_max_turns_by_complexity(%{"1" => 3, 5 => 12}) ==
+             %{1 => 3, 5 => 12}
+
+    good =
+      {%{}, %{max_turns_by_complexity: :map}}
+      |> Changeset.cast(%{max_turns_by_complexity: %{1 => 3}}, [:max_turns_by_complexity])
+      |> AgentValidation.validate_max_turns_by_complexity(:max_turns_by_complexity)
+
+    assert good.errors == []
+
+    bad =
+      {%{}, %{max_turns_by_complexity: :map}}
+      |> Changeset.cast(%{max_turns_by_complexity: %{0 => 3, 4 => 0}}, [:max_turns_by_complexity])
+      |> AgentValidation.validate_max_turns_by_complexity(:max_turns_by_complexity)
+
+    assert {:max_turns_by_complexity, {"complexity levels must be positive integers", []}} in bad.errors
+
+    assert {:max_turns_by_complexity, {"max_turns_by_complexity values must be positive integers", []}} in bad.errors
   end
 
   test "schema parse normalizes policy keys and env-backed fallbacks" do
@@ -2683,7 +2850,11 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
       assert runtime_settings.turn_sandbox_policy == %{
                "type" => "workspaceWrite",
-               "writableRoots" => ["relative/path", canonical_issue_workspace],
+               "writableRoots" => [
+                 "relative/path",
+                 canonical_issue_workspace,
+                 Aiur.BuildGate.gate_dir()
+               ],
                "networkAccess" => true
              }
 
@@ -2704,6 +2875,115 @@ defmodule Aiur.WorkspaceAndConfigTest do
     after
       File.rm_rf(test_root)
     end
+  end
+
+  test "local Codex runtime preflights the enabled build-gate root" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-elixir-runtime-build-gate-#{System.unique_integer([:positive])}"
+      )
+
+    previous_gate_dir = Application.get_env(:aiur, :build_gate_dir_override)
+
+    on_exit(fn ->
+      case previous_gate_dir do
+        nil -> Application.delete_env(:aiur, :build_gate_dir_override)
+        path -> Application.put_env(:aiur, :build_gate_dir_override, path)
+      end
+
+      File.rm_rf(test_root)
+    end)
+
+    workspace = Path.join(test_root, "workspace")
+    user_root = Path.join(test_root, "user-root")
+    gate_dir = Path.join(test_root, "shared-gate")
+    File.mkdir_p!(workspace)
+    File.mkdir_p!(user_root)
+    Application.put_env(:aiur, :build_gate_dir_override, gate_dir)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      workspace_root: workspace,
+      max_concurrent_builds: 2,
+      codex_turn_sandbox_policy: %{
+        type: "workspaceWrite",
+        writableRoots: [user_root]
+      }
+    )
+
+    assert {:ok, runtime_settings} = Config.codex_runtime_settings(workspace)
+    assert {:ok, canonical_workspace} = Aiur.PathSafety.canonicalize(workspace)
+    assert {:ok, canonical_gate_dir} = Aiur.PathSafety.canonicalize(gate_dir)
+
+    assert runtime_settings.turn_sandbox_policy["writableRoots"] == [
+             user_root,
+             canonical_workspace,
+             canonical_gate_dir
+           ]
+
+    assert File.dir?(gate_dir)
+    refute Aiur.BuildGate.lock_dir(gate_dir) in runtime_settings.turn_sandbox_policy["writableRoots"]
+    assert File.regular?(Path.join(Aiur.BuildGate.lock_dir(gate_dir), "slot-1.lock"))
+    assert File.regular?(Path.join(Aiur.BuildGate.lock_dir(gate_dir), "slot-2.lock"))
+    assert File.regular?(Path.join(Aiur.BuildGate.lock_dir(gate_dir), "phase-start.lock"))
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      workspace_root: workspace,
+      max_concurrent_builds: 2,
+      codex_turn_sandbox_policy: %{
+        type: "workspaceWrite",
+        writableRoots: [test_root]
+      }
+    )
+
+    assert {:ok, unsafe_root} = Aiur.PathSafety.canonicalize(test_root)
+
+    assert {:error,
+            {:build_gate_unavailable,
+             %{
+               operation: :separate_lock_namespace,
+               path: unsafe_lock_dir,
+               reason: {:overlaps_writable_root, ^unsafe_root}
+             }}} = Config.codex_runtime_settings(workspace)
+
+    assert unsafe_lock_dir == Aiur.BuildGate.lock_dir(gate_dir)
+
+    invalid_gate_path = Path.join(test_root, "not-a-directory")
+    File.write!(invalid_gate_path, "regular file")
+    Application.put_env(:aiur, :build_gate_dir_override, invalid_gate_path)
+
+    assert {:error,
+            {:build_gate_unavailable,
+             %{
+               operation: :create_directory,
+               path: ^invalid_gate_path,
+               reason: :enotdir,
+               recovery: recovery
+             }}} = Config.codex_runtime_settings(workspace)
+
+    assert recovery =~ "repair"
+    assert recovery =~ "max_concurrent_builds: 0"
+    assert recovery =~ "build_start_stagger_seconds: 0"
+    assert recovery =~ "min_free_memory_mb omitted"
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      max_concurrent_builds: 2,
+      codex_turn_sandbox_policy: %{
+        type: "futureSandbox",
+        nested: %{flag: true}
+      }
+    )
+
+    assert {:ok, future_settings} = Config.codex_runtime_settings(workspace)
+
+    assert future_settings.turn_sandbox_policy == %{
+             "type" => "futureSandbox",
+             "nested" => %{"flag" => true}
+           }
+
+    write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_builds: 0)
+    assert {:ok, disabled_settings} = Config.codex_runtime_settings(workspace)
+    refute invalid_gate_path in disabled_settings.turn_sandbox_policy["writableRoots"]
   end
 
   test "path safety returns errors for invalid path segments" do
@@ -2857,6 +3137,19 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
       assert {:error, {:unsafe_turn_sandbox_policy, {:invalid_workspace_root, 123}}} =
                Schema.resolve_runtime_turn_sandbox_policy(settings, 123)
+
+      assert {:error, {:unsafe_turn_sandbox_policy, {:invalid_writable_roots, :not_a_list}}} =
+               Schema.resolve_runtime_turn_sandbox_policy(
+                 settings,
+                 issue_workspace,
+                 additional_writable_roots: :not_a_list
+               )
+
+      assert {:error, {:unsafe_turn_sandbox_policy, {:invalid_writable_roots, :not_a_list}}} =
+               Config.codex_runtime_settings(
+                 issue_workspace,
+                 additional_writable_roots: :not_a_list
+               )
     after
       File.rm_rf(test_root)
     end

@@ -11,8 +11,10 @@ defmodule Aiur.Codex.DynamicTool.Blockers do
   @aiur_declare_blocker_description """
   Declare that another GitHub issue (by number) blocks the issue you
   are working on. Uses GitHub's native Issue Dependencies REST API.
-  Cycle-checked client-side before submission. Returns success if the
-  blocker is already declared (idempotent).
+  Cycle-checked client-side before submission. Returns `pending` once
+  the ordered background operation is admitted; verify GitHub's
+  authoritative dependency state before retrying an indeterminate call.
+  An already-declared blocker remains idempotent.
   """
   @aiur_declare_blocker_input_schema %{
     "type" => "object",

@@ -93,7 +93,8 @@ defmodule Aiur.ProgressCheckin.Worker do
       "source" => "operator",
       "kind" => "progress_request",
       "message" =>
-        "Operator check-in: emit `progress.checkin` with your current 1–10 progress estimate as %{percent: N*10}. Do not change your work plan or ask questions — this is a silent status ping."
+        "Executor check-in: emit `progress.checkin` with your current 1–10 progress estimate as %{percent: N*10}. Do not change your work plan or ask questions — this is a silent status ping.",
+      source: :system
     }
 
     case state.publisher do

@@ -27,7 +27,7 @@ defmodule Aiur.HttpServerPortCollisionTest do
 
       log =
         capture_log(fn ->
-          assert HttpServer.start_link(host: "127.0.0.1", port: port) == :ignore
+          assert HttpServer.start_link(host: "127.0.0.1", port: port, dashboard_writable: false) == :ignore
         end)
 
       assert log =~ "#{port}"
@@ -39,7 +39,10 @@ defmodule Aiur.HttpServerPortCollisionTest do
       on_exit(fn -> :gen_tcp.close(listen) end)
 
       children = [
-        Supervisor.child_spec({HttpServer, [host: "127.0.0.1", port: port]}, id: :collision_http)
+        Supervisor.child_spec(
+          {HttpServer, [host: "127.0.0.1", port: port, dashboard_writable: false]},
+          id: :collision_http
+        )
       ]
 
       capture_log(fn ->

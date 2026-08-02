@@ -4,6 +4,8 @@ contaminating_env_vars = [
   "ERL_AFLAGS",
   "AIUR_DASHBOARD_USERNAME",
   "AIUR_DASHBOARD_PASSWORD",
+  "AIUR_DEBUG",
+  "AIUR_SUPERVISOR_TOKEN",
   "AIUR_NODE",
   "AIUR_ERLANG_COOKIE",
   "AIUR_TMUX_CONF",
@@ -63,7 +65,7 @@ File.mkdir_p!(Path.dirname(global_log_file))
 # excluded elsewhere (e.g. macOS dev) rather than silently passing.
 real_proc_exclude = if File.dir?("/proc"), do: [], else: [:real_proc]
 
-ExUnit.start(exclude: [:perf_regression] ++ real_proc_exclude)
+ExUnit.start(exclude: [:perf_regression, :quarantine] ++ real_proc_exclude)
 
 ExUnit.after_suite(fn _result ->
   case original_home do
@@ -81,3 +83,10 @@ end)
 
 Code.require_file("support/snapshot_support.exs", __DIR__)
 Code.require_file("support/test_support.exs", __DIR__)
+Code.require_file("support/claude_meter_test_support.exs", __DIR__)
+Code.require_file("support/build_order_github_graph_test_adapter.ex", __DIR__)
+Code.require_file("support/browser_harness/fixtures.ex", __DIR__)
+Code.require_file("support/usage_ledger_support.ex", __DIR__)
+Code.require_file("support/usage_aggregate_support.ex", __DIR__)
+Code.require_file("support/fake_usage_adapter.ex", __DIR__)
+Code.require_file("support/grouped_scopes_support.ex", __DIR__)

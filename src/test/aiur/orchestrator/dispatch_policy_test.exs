@@ -35,6 +35,19 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
     end
   end
 
+  describe "read_cpu/1" do
+    test "does not touch procfs when the adaptive envelope is disabled" do
+      Application.put_env(:aiur, :proc_stat_source_override, fn ->
+        flunk("/proc/stat must not be read when the envelope is disabled")
+      end)
+
+      on_exit(fn -> Application.delete_env(:aiur, :proc_stat_source_override) end)
+
+      assert DispatchPolicy.read_cpu(nil) == :unavailable
+      assert DispatchPolicy.read_cpu(0) == :unavailable
+    end
+  end
+
   describe "sort_issues_for_dispatch/1" do
     test "orders by priority rank, missing priority, created_at, then identifier" do
       early = ~U[2026-01-01 00:00:00Z]
@@ -82,6 +95,103 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
                active_states,
                terminal_states
              )
+
+      refute DispatchPolicy.candidate_issue?(
+               issue("untrusted", dispatch_authorized?: false),
+               active_states,
+               terminal_states
+             )
+    end
+  end
+
+  describe "queued_dispatch_demand?/2" do
+    test "finds eligible queued work independently of the current envelope slots" do
+      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 5)
+      state = %State{max_concurrent_agents: 5, effective_concurrent_agents: 1}
+
+      assert DispatchPolicy.queued_dispatch_demand?([issue("queued", [])], state)
+    end
+
+    test "ignores running, claimed, paused, blocked, and unroutable issues" do
+      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 5)
+
+      issues = [
+        issue("running", []),
+        issue("claimed", []),
+        issue("paused", paused: true),
+        issue("blocked", blocked_by: [%{state: "in-progress"}]),
+        issue("remote", assigned_to_worker: false)
+      ]
+
+      state = %State{
+        max_concurrent_agents: 5,
+        running: %{"running" => %{issue: issue("running", []), control: %{status: :working}}},
+        claimed: MapSet.new(["claimed"])
+      }
+
+      refute DispatchPolicy.queued_dispatch_demand?(issues, state)
+    end
+
+    test "ignores demand blocked by per-state capacity" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        max_concurrent_agents: 8,
+        max_concurrent_agents_by_state: %{"todo" => 1}
+      )
+
+      running = %{
+        "active" => %{issue: issue("active", state: "todo"), control: %{status: :working}}
+      }
+
+      state = %State{max_concurrent_agents: 8, running: running}
+
+      refute DispatchPolicy.queued_dispatch_demand?([issue("queued", [])], state)
+    end
+
+    test "ignores demand blocked by worker-host capacity" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        max_concurrent_agents: 8,
+        worker_ssh_hosts: ["worker-a"],
+        worker_max_concurrent_agents_per_host: 1
+      )
+
+      running = %{
+        "active" => %{
+          issue: issue("active", state: "todo"),
+          worker_host: "worker-a",
+          control: %{status: :working}
+        }
+      }
+
+      state = %State{max_concurrent_agents: 8, running: running}
+
+      refute DispatchPolicy.queued_dispatch_demand?([issue("queued", [])], state)
+    end
+  end
+
+  describe "CPU sample continuity" do
+    test "an unavailable sample clears the baseline before recovery can fast-ramp" do
+      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 8, target_load_average: 1.0)
+
+      previous = %{total: 1_000, idle: 800, runnable: 1}
+      current = %{total: 1_200, idle: 960, runnable: 1}
+
+      state = %State{
+        max_concurrent_agents: 8,
+        effective_concurrent_agents: 4,
+        load_envelope_state: %{last_decrease_ms: 1_000, cpu_snapshot: previous}
+      }
+
+      unavailable = DispatchPolicy.update_load_envelope(state, 0.0, 1.0, 8, 2_000, :unavailable, true)
+      assert unavailable.effective_concurrent_agents == 5
+      assert unavailable.load_envelope_state.cpu_snapshot == nil
+
+      reseeded = DispatchPolicy.update_load_envelope(unavailable, 0.0, 1.0, 8, 3_000, current, true)
+      assert reseeded.effective_concurrent_agents == 6
+      assert reseeded.load_envelope_state.cpu_snapshot == current
+
+      disabled = DispatchPolicy.update_load_envelope(state, 99.0, nil, 8, 2_000, :unavailable, true)
+      assert disabled.effective_concurrent_agents == 8
+      assert disabled.load_envelope_state.cpu_snapshot == nil
     end
   end
 

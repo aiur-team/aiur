@@ -1,6 +1,8 @@
 defmodule Aiur.OrchestratorMaxAgentsTest do
   use Aiur.TestSupport
 
+  alias Aiur.Orchestrator.DispatchPolicy
+
   defp running_entry(issue_id, identifier, status) do
     %{
       pid: self(),
@@ -112,13 +114,13 @@ defmodule Aiur.OrchestratorMaxAgentsTest do
         claimed: MapSet.new(Map.keys(running))
       }
 
-      refute Orchestrator.should_dispatch_issue_for_test(candidate, state)
+      refute DispatchPolicy.should_dispatch_issue?(candidate, state)
 
       one_finished = %{state | running: Map.delete(running, "i4")}
-      refute Orchestrator.should_dispatch_issue_for_test(candidate, one_finished)
+      refute DispatchPolicy.should_dispatch_issue?(candidate, one_finished)
 
       below_cap = %{state | running: running |> Map.delete("i4") |> Map.delete("i3")}
-      assert Orchestrator.should_dispatch_issue_for_test(candidate, below_cap)
+      assert DispatchPolicy.should_dispatch_issue?(candidate, below_cap)
     end
 
     test "adaptive capacity blocks normal dispatch before the static cap" do
@@ -136,9 +138,9 @@ defmodule Aiur.OrchestratorMaxAgentsTest do
         claimed: MapSet.new(Map.keys(running))
       }
 
-      refute Orchestrator.should_dispatch_issue_for_test(candidate, state)
+      refute DispatchPolicy.should_dispatch_issue?(candidate, state)
 
-      assert Orchestrator.should_dispatch_issue_for_test(candidate, %{state | running: Map.delete(running, "i2")})
+      assert DispatchPolicy.should_dispatch_issue?(candidate, %{state | running: Map.delete(running, "i2")})
     end
 
     test "returns :unavailable when the orchestrator is not running" do

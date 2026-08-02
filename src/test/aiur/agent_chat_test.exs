@@ -3,6 +3,7 @@ defmodule Aiur.AgentChatTest do
 
   alias Aiur.AgentChat
   alias Aiur.Orchestrator
+  alias Aiur.TrackerIdentity
 
   test "send delegates to orchestrator control path" do
     assert {:error, reason} = AgentChat.send("MT-CHAT", "hello")
@@ -36,6 +37,10 @@ defmodule Aiur.AgentChatTest do
     pid = Process.whereis(Orchestrator)
     original = :sys.get_state(pid)
 
+    store_path = Path.join(System.tmp_dir!(), "aiur_agent_chat_controls_#{System.unique_integer([:positive])}.json")
+    previous_store_path = Application.get_env(:aiur, :control_lifecycle_store_path)
+    Application.put_env(:aiur, :control_lifecycle_store_path, store_path)
+
     entry = %{
       pid: self(),
       ref: make_ref(),
@@ -44,21 +49,50 @@ defmodule Aiur.AgentChatTest do
         id: "repl-rc",
         identifier: "repl-rc",
         state: "In Progress",
-        title: "RC agent"
+        title: "RC agent",
+        tracker_identity: tracker_identity()
       },
       repl_pane_id: "%rc9",
-      control: %{can_interrupt: true, safe_checkpoints: [], status: :working}
+      control: %{
+        can_interrupt: true,
+        safe_checkpoints: [],
+        application_confirmation: :confirmed,
+        generation: 101,
+        version: 0,
+        status: :working
+      }
     }
 
     :sys.replace_state(pid, fn state -> %{state | running: %{"repl-rc" => entry}} end)
-    on_exit(fn -> if Process.alive?(pid), do: :sys.replace_state(pid, fn _ -> original end) end)
 
-    assert {:ok, :paused} = AgentChat.pane_interrupt("%rc9")
+    on_exit(fn ->
+      if is_nil(previous_store_path),
+        do: Application.delete_env(:aiur, :control_lifecycle_store_path),
+        else: Application.put_env(:aiur, :control_lifecycle_store_path, previous_store_path)
+
+      File.rm(store_path)
+      if Process.alive?(pid), do: :sys.replace_state(pid, fn _ -> original end)
+    end)
+
+    assert {:ok, :pause_requested} = AgentChat.pane_interrupt("%rc9")
   end
 
   test "capabilities delegates to orchestrator control path" do
     assert {:ok, capabilities} = AgentChat.capabilities("MT-CHAT")
     assert capabilities.accepted_delivery_policies == [:checkpoint]
     assert capabilities.accepts_operator_messages == false
+  end
+
+  defp tracker_identity do
+    %TrackerIdentity{
+      version: 1,
+      status: :joinable,
+      kind: :github,
+      owner: "its-everdred",
+      repository: "aiur",
+      provider_id: "I_kwDOreplrc",
+      identifier: "101",
+      reason: nil
+    }
   end
 end

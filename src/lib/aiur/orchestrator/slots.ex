@@ -4,7 +4,85 @@ defmodule Aiur.Orchestrator.Slots do
   """
 
   alias Aiur.{Config, Issue}
-  alias Aiur.Orchestrator.{DispatchPolicy, State}
+  alias Aiur.Orchestrator.{DispatchPolicy, State, StatusReport}
+
+  @spec max_concurrent_agents() :: map() | :unavailable
+  def max_concurrent_agents, do: max_concurrent_agents(Aiur.Orchestrator)
+
+  @spec max_concurrent_agents(GenServer.server()) :: map() | :unavailable
+  def max_concurrent_agents(server) do
+    if GenServer.whereis(server) do
+      GenServer.call(server, :max_concurrent_agents, 5_000)
+    else
+      :unavailable
+    end
+  catch
+    :exit, _ -> :unavailable
+  end
+
+  @spec adjust_max_concurrent_agents(integer()) :: {:ok, map()} | {:error, term()}
+  def adjust_max_concurrent_agents(delta),
+    do: adjust_max_concurrent_agents(Aiur.Orchestrator, delta)
+
+  @spec adjust_max_concurrent_agents(GenServer.server(), integer()) ::
+          {:ok, map()} | {:error, term()}
+  def adjust_max_concurrent_agents(server, delta) when is_integer(delta),
+    do: control_api_call(server, {:adjust_max_concurrent_agents, delta})
+
+  @spec set_max_concurrent_agents(pos_integer()) :: {:ok, map()} | {:error, term()}
+  def set_max_concurrent_agents(next),
+    do: set_max_concurrent_agents(Aiur.Orchestrator, next)
+
+  @spec set_max_concurrent_agents(GenServer.server(), pos_integer()) ::
+          {:ok, map()} | {:error, term()}
+  def set_max_concurrent_agents(server, next) when is_integer(next) and next > 0,
+    do: control_api_call(server, {:set_max_concurrent_agents, next})
+
+  @spec max_concurrent_agents_call(State.t()) :: {:reply, map(), State.t()}
+  def max_concurrent_agents_call(%State{} = state) do
+    {:reply, max_concurrent_agent_status(state), state}
+  end
+
+  @spec adjust_max_concurrent_agents_call(State.t(), integer()) ::
+          {:reply, {:ok, map()}, State.t()}
+  def adjust_max_concurrent_agents_call(%State{} = state, delta) when is_integer(delta) do
+    next = max(max_concurrent_agent_limit(state) + delta, 1)
+    apply_session_max_concurrent_agents(state, next)
+  end
+
+  @spec set_max_concurrent_agents_call(State.t(), pos_integer()) ::
+          {:reply, {:ok, map()}, State.t()}
+  def set_max_concurrent_agents_call(%State{} = state, next)
+      when is_integer(next) and next > 0 do
+    apply_session_max_concurrent_agents(state, next)
+  end
+
+  @spec apply_session_max_concurrent_agents(State.t(), pos_integer()) ::
+          {:reply, {:ok, map()}, State.t()}
+  def apply_session_max_concurrent_agents(%State{} = state, next) when is_integer(next) do
+    state = %{state | session_max_concurrent_agents: next}
+    StatusReport.notify_dashboard(state)
+    {:reply, {:ok, max_concurrent_agent_status(state)}, state}
+  end
+
+  defp control_api_call(server, request) do
+    if GenServer.whereis(server) do
+      GenServer.call(server, request, 5_000)
+    else
+      {:error, :unavailable}
+    end
+  catch
+    :exit, {:timeout, _} -> {:error, :timeout}
+    :exit, _ -> {:error, :unavailable}
+  end
+
+  @spec slot_status(State.t()) :: %{active: non_neg_integer(), paused: non_neg_integer()}
+  def slot_status(%State{} = state) do
+    %{
+      active: State.active_running_count(state.running),
+      paused: State.paused_running_count(state.running)
+    }
+  end
 
   @spec select_worker_host(State.t(), String.t() | nil) :: String.t() | :no_worker_capacity | nil
   def select_worker_host(%State{} = state, preferred_worker_host) do
@@ -86,6 +164,14 @@ defmodule Aiur.Orchestrator.Slots do
     end
   end
 
+  # `--pause` at launch lands in `:launch_globally_paused` (set by `Aiur.CLI`).
+  # When true, the orchestrator cold-starts globally paused and never provisions
+  # agents until the operator unpauses. Distinct from per-agent pause state.
+  @spec launch_globally_paused?() :: boolean()
+  def launch_globally_paused? do
+    Application.get_env(:aiur, :launch_globally_paused, false) == true
+  end
+
   @spec max_concurrent_agent_limit(State.t()) :: pos_integer()
   def max_concurrent_agent_limit(%State{} = state) do
     cond do
@@ -113,25 +199,35 @@ defmodule Aiur.Orchestrator.Slots do
   @spec max_concurrent_agent_status(State.t()) :: map()
   def max_concurrent_agent_status(%State{} = state) do
     active = State.active_running_count(state.running)
+    reserved_paused = State.reserved_paused_running_count(state.running)
     max = max_concurrent_agent_limit(state)
 
     %{
       active: active,
       paused: State.paused_running_count(state.running),
+      reserved_paused: reserved_paused,
+      occupied: active + reserved_paused,
       configured: state.max_concurrent_agents || Config.settings!().agent.max_concurrent_agents,
       max: max,
+      effective: effective_concurrent_agent_limit(state),
+      available: available_slots(state),
+      queued_demand?: DispatchPolicy.queued_dispatch_demand?(Map.values(state.last_polled_issues), state),
       session_override?: is_integer(state.session_max_concurrent_agents),
       draining?: active > max
     }
   end
 
-  # Paused agents keep their slot reserved: a deliberate pause should not
-  # free capacity for the polling loop to auto-claim the next agent:todo
-  # ticket. Resuming a paused agent reuses the held slot via
-  # `resume_paused_issue/2`, which bypasses this check.
+  # Deliberate/Executor pauses keep their slot reserved so the polling loop
+  # cannot auto-claim replacement work. CI-wait is the exception: the daemon
+  # owns that wait, so the parked runner releases normal dispatch capacity.
   @spec available_slots(State.t()) :: non_neg_integer()
+  def available_slots(%State{globally_paused: true}), do: 0
+
   def available_slots(%State{} = state) do
-    used = State.active_running_count(state.running) + State.paused_running_count(state.running)
+    used =
+      State.active_running_count(state.running) +
+        State.reserved_paused_running_count(state.running)
+
     max(effective_concurrent_agent_limit(state) - used, 0)
   end
 

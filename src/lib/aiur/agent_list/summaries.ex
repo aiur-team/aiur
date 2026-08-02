@@ -32,6 +32,11 @@ defmodule Aiur.AgentList.Summaries do
     Map.get(summary, :work_state) in [:deactivated, "deactivated"]
   end
 
+  @spec completed?(map()) :: boolean()
+  def completed?(summary) do
+    Map.get(summary, :work_state) in [:completed, "completed"]
+  end
+
   @spec remote_control_on?(map()) :: boolean()
   def remote_control_on?(%{remote_control: %{status: status}})
       when status in [:launching, :on],
@@ -43,7 +48,7 @@ defmodule Aiur.AgentList.Summaries do
   @spec active_agent_count([map()]) :: non_neg_integer()
   def active_agent_count(summaries) when is_list(summaries) do
     Enum.count(summaries, fn
-      %{status: :running} = summary -> not paused?(summary)
+      %{status: :running} = summary -> not (paused?(summary) or completed?(summary) or deactivated?(summary))
       _ -> false
     end)
   end
@@ -75,6 +80,7 @@ defmodule Aiur.AgentList.Summaries do
         |> Enum.filter(fn s ->
           Map.get(s, :status) == :running and
             not paused?(s) and
+            not completed?(s) and
             not deactivated?(s)
         end)
         |> Enum.map(&Map.get(&1, :identifier))
@@ -105,6 +111,9 @@ defmodule Aiur.AgentList.Summaries do
       # 💤 sleeping (idle stream-close) — still alive and mid-turn, just
       # quiet; sorts with :paused, above finished/errored rows.
       :sleeping -> 1
+      # ⏹️ completed — no active turn and no slot reservation; keep it
+      # visible beside other actionable/inactive rows until replacement.
+      :completed -> 2
       # 🔴 error — surface above queued but below healthy
       :error -> 2
       # 🏁 deactivated (awaiting human review) — finished work, lives
@@ -122,14 +131,16 @@ defmodule Aiur.AgentList.Summaries do
   # back to the original string for non-numeric identifiers (test
   # fixtures like "MT-FOCUS" or future namespaced ids) so they group
   # together rather than crash the sort.
-  defp identifier_sort_key(nil), do: {1, ""}
+  @doc "Natural sort key shared by fleet surfaces for ticket identifiers."
+  @spec identifier_sort_key(term()) :: {0 | 1, integer() | String.t()}
+  def identifier_sort_key(nil), do: {1, ""}
 
-  defp identifier_sort_key(identifier) when is_binary(identifier) do
+  def identifier_sort_key(identifier) when is_binary(identifier) do
     case Integer.parse(identifier) do
       {n, ""} -> {0, n}
       _ -> {1, identifier}
     end
   end
 
-  defp identifier_sort_key(other), do: {1, to_string(other)}
+  def identifier_sort_key(other), do: {1, to_string(other)}
 end

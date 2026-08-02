@@ -97,6 +97,21 @@ defmodule Aiur.GitHub.CodeOwners do
     GenServer.call(server, :snapshot)
   end
 
+  @doc """
+  Returns the current comment-trust snapshot, including whether trust comes
+  from a parsed CODEOWNERS file or the safe repository-owner fallback.
+  """
+  @spec trust_snapshot(GenServer.server()) :: map()
+  def trust_snapshot(server \\ __MODULE__) do
+    GenServer.call(server, :trust_snapshot)
+  end
+
+  @doc false
+  @spec codeowners_snapshot(GenServer.server()) :: [String.t()]
+  def codeowners_snapshot(server \\ __MODULE__) do
+    GenServer.call(server, :codeowners_snapshot)
+  end
+
   @impl true
   def init(opts) do
     state = %{
@@ -104,11 +119,18 @@ defmodule Aiur.GitHub.CodeOwners do
       # preserves an actually-empty allowlist. allowed?/1 never matches
       # this sentinel because it's not a valid GitHub login.
       allowlist: MapSet.new(["__codeowners_bootstrap__"]),
+      codeowners: MapSet.new(),
       codeowners_path: Keyword.get(opts, :path, default_codeowners_path()),
       request_fun: Keyword.get(opts, :request_fun),
+      allowed_users_fun: Keyword.get(opts, :allowed_users_fun, &configured_allowed_users/0),
+      alert_fun: Keyword.get(opts, :alert_fun, &Aiur.Alerts.emit_custom/3),
       refresh_seconds: Keyword.get(opts, :refresh_seconds, @default_refresh_seconds),
       timer_ref: nil,
-      empty_alerted: false
+      empty_alerted: false,
+      degradation: nil,
+      degradation_alerted: nil,
+      trust_source: :bootstrap,
+      drift: nil
     }
 
     {:ok, state, {:continue, :initial_refresh}}
@@ -134,6 +156,14 @@ defmodule Aiur.GitHub.CodeOwners do
     {:reply, MapSet.to_list(state.allowlist), state}
   end
 
+  def handle_call(:codeowners_snapshot, _from, state) do
+    {:reply, sorted_logins(state.codeowners), state}
+  end
+
+  def handle_call(:trust_snapshot, _from, state) do
+    {:reply, trust_snapshot_map(state), state}
+  end
+
   @impl true
   def handle_info(:refresh_tick, state) do
     state = do_refresh(state)
@@ -150,39 +180,46 @@ defmodule Aiur.GitHub.CodeOwners do
 
   defp do_refresh(state) do
     trusted_set = trusted_account_set()
-    tokens = parse_codeowners(state.codeowners_path)
+    {tokens, degradation} = parse_codeowners(state.codeowners_path)
 
-    resolved =
-      case tokens do
-        [] ->
-          Logger.warning(
-            "CodeOwners: file missing or empty at #{state.codeowners_path}; " <>
-              "allowlist reduced to bot-only"
-          )
+    if degradation do
+      Logger.warning("CodeOwners: CODEOWNERS degradation=#{inspect(degradation)} path=#{state.codeowners_path}")
+    end
 
-          MapSet.new()
-
-        _ ->
-          resolve_tokens(tokens, state.request_fun)
-      end
+    resolved = if degradation, do: MapSet.new(), else: resolve_tokens(tokens, state.request_fun)
 
     new_allowlist = MapSet.union(resolved, trusted_set)
+    state = maybe_alert_degradation(state, degradation)
+    state = compare_allowed_users_if_healthy(state, degradation, resolved)
 
     if MapSet.size(new_allowlist) > 0 do
-      %{state | allowlist: new_allowlist, empty_alerted: false}
+      %{
+        state
+        | allowlist: new_allowlist,
+          codeowners: resolved,
+          empty_alerted: false,
+          degradation: degradation,
+          trust_source: if(degradation, do: :fallback, else: :file)
+      }
     else
       # No CODEOWNERS entries and no bot_account/trusted_accounts. Rather than
       # silently trust nobody — which disables the whole review-comment → rework
       # loop (#693) by dropping every comment as :untrusted_author — fall back to
       # the repo owner (inherently trusted, unlike an arbitrary third party per
-      # #687) and surface the gap loudly so the operator sets CODEOWNERS /
+      # #687) and surface the gap loudly so the Executor sets CODEOWNERS /
       # trusted_accounts.
       owner = repo_owner_login()
       state = maybe_alert_empty_allowlist(state, owner)
 
       case owner do
         owner when is_binary(owner) ->
-          %{state | allowlist: MapSet.new([owner])}
+          %{
+            state
+            | allowlist: MapSet.new([owner]),
+              codeowners: resolved,
+              degradation: degradation,
+              trust_source: :fallback
+          }
 
         _ ->
           Logger.error(
@@ -190,10 +227,121 @@ defmodule Aiur.GitHub.CodeOwners do
               "keeping previous allowlist (review-comment trust disabled)"
           )
 
-          state
+          %{
+            state
+            | codeowners: resolved,
+              degradation: degradation,
+              trust_source: :fallback
+          }
       end
     end
   end
+
+  defp maybe_alert_degradation(state, nil), do: %{state | degradation_alerted: nil}
+
+  defp maybe_alert_degradation(%{degradation_alerted: degradation} = state, degradation), do: state
+
+  defp maybe_alert_degradation(state, degradation) do
+    message =
+      case degradation do
+        :missing -> "CODEOWNERS is missing"
+        :empty -> "CODEOWNERS is empty"
+        {:unparseable, line} -> "CODEOWNERS is unparseable near line #{line}"
+      end
+
+    state.alert_fun.(
+      "github.codeowners.degraded",
+      "#{message} at #{state.codeowners_path}; comment trust is using the safe fallback.",
+      reason: "CODEOWNERS degradation: #{message}",
+      needs_attention: true,
+      severity: "warning"
+    )
+
+    %{state | degradation_alerted: degradation}
+  end
+
+  defp compare_allowed_users(state, codeowners) do
+    case state.allowed_users_fun.() do
+      configured when is_list(configured) ->
+        compare_configured_allowed_users(state, configured, codeowners)
+
+      _ ->
+        %{state | drift: nil}
+    end
+  end
+
+  defp compare_allowed_users_if_healthy(state, nil, codeowners),
+    do: compare_allowed_users(state, codeowners)
+
+  defp compare_allowed_users_if_healthy(state, _degradation, _codeowners), do: %{state | drift: nil}
+
+  defp compare_configured_allowed_users(state, configured, codeowners) do
+    configured = normalize_logins(configured)
+    codeowners = normalize_logins(MapSet.to_list(codeowners))
+
+    if MapSet.size(configured) == 0 do
+      %{state | drift: nil}
+    else
+      drift = if MapSet.equal?(configured, codeowners), do: nil, else: {codeowners, configured}
+      maybe_alert_drift(state, drift)
+    end
+  end
+
+  defp maybe_alert_drift(%{drift: drift} = state, drift), do: state
+
+  defp maybe_alert_drift(state, nil), do: %{state | drift: nil}
+
+  defp maybe_alert_drift(state, {owners, allowed_users} = drift) do
+    state.alert_fun.(
+      "github.codeowners.allowlist_drift",
+      "CODEOWNERS trust #{format_logins(owners)} diverges from dispatch allowed_users #{format_logins(allowed_users)}.",
+      reason: "CODEOWNERS and tracker.allowed_users must converge",
+      needs_attention: true,
+      severity: "warning"
+    )
+
+    %{state | drift: drift}
+  end
+
+  defp configured_allowed_users do
+    with {:ok, %{config: config}} when is_map(config) <- Aiur.Workflow.current(),
+         users when is_list(users) <- get_in(config, ["tracker", "github", "allowed_users"]) do
+      nonempty_allowed_users(users)
+    else
+      _ -> nil
+    end
+  end
+
+  defp nonempty_allowed_users(users) do
+    case MapSet.size(normalize_logins(users)) do
+      0 -> nil
+      _ -> users
+    end
+  end
+
+  defp trust_snapshot_map(state) do
+    %{
+      trusted: sorted_logins(state.allowlist),
+      codeowners: sorted_logins(state.codeowners),
+      source: state.trust_source,
+      path: state.codeowners_path,
+      degradation: state.degradation,
+      drift: state.drift
+    }
+  end
+
+  defp normalize_logins(logins) do
+    logins
+    |> Enum.filter(&is_binary/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.map(&String.downcase/1)
+    |> MapSet.new()
+  end
+
+  defp sorted_logins(logins), do: logins |> MapSet.new() |> MapSet.to_list() |> Enum.sort()
+
+  defp format_logins(logins), do: logins |> sorted_logins() |> Enum.map_join(", ", &"@#{&1}") |> then(&"[#{&1}]")
 
   # Repo owner login from `owner/name`, lowercased; nil when unknown.
   defp repo_owner_login do
@@ -218,7 +366,7 @@ defmodule Aiur.GitHub.CodeOwners do
         do: "falling back to repo owner @#{owner}",
         else: "no repo owner could be derived; review comments are NOT trusted"
 
-    Aiur.Alerts.emit_custom(
+    state.alert_fun.(
       "github.codeowners.allowlist_empty",
       "Comment-trust allowlist is empty (no .github/CODEOWNERS and no bot_account/trusted_accounts) — " <>
         detail <> ". Set CODEOWNERS or trusted_accounts so review comments drive rework.",
@@ -246,16 +394,45 @@ defmodule Aiur.GitHub.CodeOwners do
   defp parse_codeowners(path) do
     case File.read(path) do
       {:ok, content} ->
-        content
-        |> String.split("\n", trim: true)
-        |> Enum.reject(&comment_or_empty?/1)
-        |> Enum.flat_map(&tokens_on_line/1)
-        |> Enum.uniq()
+        meaningful =
+          content
+          |> String.split("\n")
+          |> Enum.with_index(1)
+          |> Enum.reject(fn {line, _number} -> comment_or_empty?(line) end)
+
+        cond do
+          meaningful == [] ->
+            {[], :empty}
+
+          Enum.any?(meaningful, fn {line, _number} -> not parsable_line?(line) end) ->
+            {[], {:unparseable, first_unparseable_line(meaningful)}}
+
+          true ->
+            {meaningful |> Enum.flat_map(fn {line, _number} -> tokens_on_line(line) end) |> Enum.uniq(), nil}
+        end
 
       {:error, _} ->
-        []
+        {[], :missing}
     end
   end
+
+  defp parsable_line?(line) do
+    tokens = String.split(line, ~r/\s+/, trim: true)
+
+    case tokens do
+      [] -> true
+      [_pattern] -> true
+      [_pattern | owners] -> Enum.all?(owners, &valid_owner_token?/1)
+    end
+  end
+
+  defp first_unparseable_line(lines) do
+    lines
+    |> Enum.find_value(fn {line, number} -> if parsable_line?(line), do: nil, else: number end)
+  end
+
+  defp valid_owner_token?("@" <> rest), do: rest != ""
+  defp valid_owner_token?(token), do: String.contains?(token, "@")
 
   defp comment_or_empty?(line) do
     trimmed = String.trim(line)

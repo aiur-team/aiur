@@ -19,6 +19,7 @@ defmodule Aiur.AgentDirectory do
           AgentEvents.agent_summary(Map.get(entry, :identifier, ""), :running, 0, %{
             tag: Map.get(entry, :tag),
             title: Map.get(entry, :title),
+            tracker_identity: Map.get(entry, :tracker_identity),
             runtime_seconds: Map.get(entry, :runtime_seconds),
             turn_count: Map.get(entry, :turn_count),
             work_state: Map.get(entry, :work_state) || :working

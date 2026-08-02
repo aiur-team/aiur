@@ -75,16 +75,31 @@ defmodule Aiur.Config.Schema.Agent do
 
   @primary_key false
   embedded_schema do
-    field(:kind, :string, default: "codex")
+    field(:kind, :string, default: Aiur.CodingAgent.default_backend())
     # Setting #2 (RC opt-in), orthogonal to :kind. Only consulted when the
     # resolved backend is RC-capable. This default is the single flip point
     # for always-remote: change `false` here and every dispatch attaches RC.
     field(:remote_control, :boolean, default: false)
+    # When true, a re-dispatch of a ticket the orchestrator already ran (a
+    # max_turns recycle or completed-entry replacement) whose codex thread could
+    # not be resumed gets continuation guidance instead of the cold-start prompt,
+    # so it does not re-run brainstorm/plan over work that already exists.
+    field(:prior_work_continuation, :boolean, default: true)
+    # Lifetime cap on (re)dispatches for one ticket. The per-window thrash
+    # breaker resets whenever its window lapses, so a slowly-churning ticket is
+    # never circuit-broken. 0 disables the latch.
+    field(:max_dispatches_per_ticket, :integer, default: 0)
     field(:max_concurrent_agents, :integer, default: 10)
     # Fleet-wide cap for agent-launched `mix compile` / `mix test` commands.
-    # 0 deliberately disables the gate for operators who need unrestricted
+    # 0 deliberately disables the gate for Executors who need unrestricted
     # local verification.
     field(:max_concurrent_builds, :integer, default: 2)
+    # Minimum spacing between local Mix compile/test starts when more than one
+    # build may run concurrently. 0 disables start pacing.
+    field(:build_start_stagger_seconds, :integer, default: 0)
+    # Optional Linux MemAvailable floor shared by normal dispatch and the local
+    # Mix build gate. Omitted means memory admission is disabled.
+    field(:min_free_memory_mb, :integer)
     # nil = uncapped (no per-issue turn limit). A YAML value of `none` /
     # `unlimited` (or an absent key) resolves to nil; any present number must
     # be > 0.
@@ -92,19 +107,37 @@ defmodule Aiur.Config.Schema.Agent do
     field(:max_retry_attempts, :integer, default: 3)
     field(:max_retry_backoff_ms, :integer, default: 300_000)
     field(:max_concurrent_agents_by_state, :map, default: %{})
+    # Provider settings are keyed by the backend's registry name. Built-in
+    # schemas remain as typed compatibility views, while a new backend can keep
+    # its section here without adding another Ecto embed to this module.
+    field(:backend_configs, :map, default: %{})
     field(:routing, :map, default: %{})
     field(:switch_model_on_ratelimit, {:array, :string}, default: [])
+    # Automatic reroute for an ALREADY-RUNNING agent on `rate_limit_primary`
+    # that hits usage_limit_exhausted, reverted at a safe boundary once
+    # ModelAvailability confirms the primary recovered
+    # (Aiur.Orchestrator.RateLimitFallback). Default on, unlike
+    # switch_model_on_ratelimit above (opt-in, applies only to a new claim).
+    # Both name a registered backend and the pair is validated below; the
+    # defaults preserve the historical codex -> claude reroute. "" on the
+    # fallback disables it.
+    field(:rate_limit_primary, :string, default: Aiur.CodingAgent.default_backend())
+    field(:rate_limit_fallback, :string, default: Aiur.CodingAgent.default_rate_limit_fallback())
     field(:complexity_prompts, :map, default: %{})
+    field(:max_turns_by_complexity, :map, default: %{})
     # Backend-agnostic turn/stall timeouts (promoted from codex; claude-repl
     # already reads these via Config.agent_turn_timeout_ms/0).
     field(:turn_timeout_ms, :integer, default: 3_600_000)
     field(:stall_timeout_ms, :integer, default: 3_600_000)
-    # Safety net: hard-kill an agent that has been actively running this
-    # many minutes (paused/blocked time excluded). 0 disables.
+    # Safety checkpoint: pause an agent that has been actively running this
+    # many minutes (paused/blocked time excluded). 0 disables it.
     field(:max_agent_duration_minutes, :integer, default: 60)
+    # A CI-wait pause releases its dispatch slot. If no terminal CI event is
+    # observed in this window, wake the agent for one recovery check.
+    field(:ci_wait_rewake_minutes, :integer, default: 5)
     # Per-scheduler 1-min load ceiling for the dispatch load gate (#465).
     # Enabled by default so high-concurrency runs have protection without
-    # extra operator knowledge; explicit YAML null disables it.
+    # extra Executor knowledge; explicit YAML null disables it.
     field(:max_load_average, :float, default: 1.5)
     # Per-scheduler 1-min load target for the adaptive concurrency envelope.
     # It ramps capacity while below target and backs off before the separate
@@ -132,18 +165,27 @@ defmodule Aiur.Config.Schema.Agent do
       [
         :kind,
         :remote_control,
+        :prior_work_continuation,
+        :max_dispatches_per_ticket,
         :max_concurrent_agents,
         :max_concurrent_builds,
+        :build_start_stagger_seconds,
+        :min_free_memory_mb,
         :max_turns,
         :max_retry_attempts,
         :max_retry_backoff_ms,
         :max_concurrent_agents_by_state,
+        :backend_configs,
         :routing,
         :switch_model_on_ratelimit,
+        :rate_limit_primary,
+        :rate_limit_fallback,
         :complexity_prompts,
+        :max_turns_by_complexity,
         :turn_timeout_ms,
         :stall_timeout_ms,
         :max_agent_duration_minutes,
+        :ci_wait_rewake_minutes,
         :max_load_average,
         :target_load_average,
         :load_ramp_step,
@@ -155,12 +197,16 @@ defmodule Aiur.Config.Schema.Agent do
     )
     |> validate_number(:max_concurrent_agents, greater_than: 0)
     |> validate_number(:max_concurrent_builds, greater_than_or_equal_to: 0)
+    |> validate_number(:build_start_stagger_seconds, greater_than_or_equal_to: 0)
+    |> validate_number(:min_free_memory_mb, greater_than: 0)
     |> validate_number(:max_turns, greater_than: 0)
+    |> validate_number(:max_dispatches_per_ticket, greater_than_or_equal_to: 0)
     |> validate_number(:max_retry_attempts, greater_than: 0)
     |> validate_number(:max_retry_backoff_ms, greater_than: 0)
     |> validate_number(:turn_timeout_ms, greater_than: 0)
     |> validate_number(:stall_timeout_ms, greater_than_or_equal_to: 0)
     |> validate_number(:max_agent_duration_minutes, greater_than_or_equal_to: 0)
+    |> validate_number(:ci_wait_rewake_minutes, greater_than: 0)
     |> validate_number(:max_load_average, greater_than: 0)
     |> validate_number(:target_load_average, greater_than: 0)
     |> validate_number(:load_ramp_step, greater_than: 0)
@@ -171,6 +217,7 @@ defmodule Aiur.Config.Schema.Agent do
     |> AgentValidation.validate_state_limits(:max_concurrent_agents_by_state)
     |> update_change(:routing, &AgentValidation.normalize_agent_routing/1)
     |> AgentValidation.validate_agent_routing(:routing)
+    |> validate_dispatch_selections()
     |> validate_change(:switch_model_on_ratelimit, fn :switch_model_on_ratelimit, backends ->
       known = Aiur.CodingAgent.known_backends()
 
@@ -180,10 +227,76 @@ defmodule Aiur.Config.Schema.Agent do
         true -> [switch_model_on_ratelimit: "contains an unknown backend; known backends: #{inspect(known)}"]
       end
     end)
+    |> validate_change(:rate_limit_primary, fn :rate_limit_primary, backend ->
+      known = Aiur.CodingAgent.known_backends()
+
+      if backend in known,
+        do: [],
+        else: [rate_limit_primary: "must be a registered backend; known backends: #{inspect(known)}"]
+    end)
+    |> validate_rate_limit_fallback()
     |> update_change(:complexity_prompts, &AgentValidation.normalize_complexity_prompts/1)
     |> AgentValidation.validate_complexity_prompts(:complexity_prompts)
+    |> update_change(:max_turns_by_complexity, &AgentValidation.normalize_max_turns_by_complexity/1)
+    |> AgentValidation.validate_max_turns_by_complexity(:max_turns_by_complexity)
     |> cast_embed(:claude, with: &Claude.changeset/2)
     |> cast_embed(:codex, with: &Codex.changeset/2)
+  end
+
+  defp validate_dispatch_selections(changeset) do
+    dispatchable = Aiur.CodingAgent.dispatchable_backends(Ecto.Changeset.get_field(changeset, :backend_configs) || %{})
+
+    changeset
+    |> reject_disabled_backend(:kind, Ecto.Changeset.get_field(changeset, :kind), dispatchable)
+    |> reject_disabled_backends(:switch_model_on_ratelimit, Ecto.Changeset.get_field(changeset, :switch_model_on_ratelimit), dispatchable)
+    |> reject_disabled_backend(:rate_limit_primary, Ecto.Changeset.get_field(changeset, :rate_limit_primary), dispatchable)
+    |> reject_disabled_backend(:rate_limit_fallback, Ecto.Changeset.get_field(changeset, :rate_limit_fallback), dispatchable)
+  end
+
+  defp reject_disabled_backends(changeset, field, values, dispatchable) when is_list(values) do
+    case Enum.find(values, &(&1 not in dispatchable)) do
+      nil -> changeset
+      backend -> Ecto.Changeset.add_error(changeset, field, "backend #{inspect(backend)} is disabled; dispatchable backends: #{inspect(dispatchable)}")
+    end
+  end
+
+  defp reject_disabled_backends(changeset, _field, _values, _dispatchable), do: changeset
+
+  defp reject_disabled_backend(changeset, _field, backend, _dispatchable) when backend in [nil, ""], do: changeset
+
+  defp reject_disabled_backend(changeset, field, backend, dispatchable) do
+    if backend in Aiur.CodingAgent.known_backends() and backend not in dispatchable do
+      Ecto.Changeset.add_error(changeset, field, "backend #{inspect(backend)} is disabled; set agent.backend_configs.#{backend}.enabled: true to opt in")
+    else
+      changeset
+    end
+  end
+
+  # The fallback names a registered backend distinct from the primary, or "" to
+  # disable the reroute. Cross-field (fallback != primary), so it reads the
+  # changeset rather than living in a `validate_change` closure.
+  defp validate_rate_limit_fallback(changeset) do
+    backend = Ecto.Changeset.get_field(changeset, :rate_limit_fallback)
+    primary = Ecto.Changeset.get_field(changeset, :rate_limit_primary)
+    known = Aiur.CodingAgent.known_backends()
+    fallback_targets = Aiur.CodingAgent.rate_limit_fallback_targets()
+
+    cond do
+      backend in [nil, ""] ->
+        changeset
+
+      backend not in known ->
+        Ecto.Changeset.add_error(changeset, :rate_limit_fallback, "must be a registered backend or \"\" to disable; known backends: #{inspect(known)}")
+
+      backend == primary ->
+        Ecto.Changeset.add_error(changeset, :rate_limit_fallback, "must differ from rate_limit_primary (#{inspect(primary)})")
+
+      backend not in fallback_targets ->
+        Ecto.Changeset.add_error(changeset, :rate_limit_fallback, "must be an eligible registered fallback backend; eligible backends: #{inspect(fallback_targets)}")
+
+      true ->
+        changeset
+    end
   end
 
   # A `max_turns` of `none`/`unlimited`/`""` means uncapped — drop the key so

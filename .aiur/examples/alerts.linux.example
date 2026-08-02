@@ -50,6 +50,10 @@ alerts:
     message: Agent paused
     sound:
       - "/usr/share/sounds/freedesktop/stereo/power-unplug.oga"
+  "ticket.*.agent.attention.*":
+    message: Executor decision required
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/dialog-warning.oga"
   "ticket.*.agent.unpaused":
     message: Agent unpaused
     sound:

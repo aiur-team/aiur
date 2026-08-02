@@ -7,7 +7,7 @@ defmodule Aiur.GitHub.Labels do
     * **state** — `<prefix>:<state>` for every agent lifecycle state the
       orchestrator sets and reads.
     * **model** — `Aiur.CodingAgent.override_labels/1` for the backends the
-      operator chose, so an issue can be pinned to a specific agent/model.
+      Executor chose, so an issue can be pinned to a specific agent/model.
     * **complexity** — `complexity:1`..`complexity:5`, routed to an agent via
       `agent.routing`.
 
@@ -20,17 +20,18 @@ defmodule Aiur.GitHub.Labels do
   @base_url "https://api.github.com"
   @api_version "2022-11-28"
 
-  # Agent lifecycle state suffixes the orchestrator manages. Source of truth is
-  # the live label set in `Aiur.TestReset.reset_labels_command_args/1`; keep the
-  # two in sync.
+  # Agent lifecycle state suffixes the orchestrator manages. Test-reset cleanup
+  # consumes `state_labels/1` directly so this remains the single source.
   @state_suffixes ~w(todo in-progress ci-wait human-review rework merging done error cancelled canceled)
 
   # Marker labels. NOT lifecycle states — the orchestrator never treats these as
   # dispatch states. Kept out of `@state_suffixes` so they never enter the state
   # machine, but created by `label_set/2` so `aiur init` seeds them and the
-  # operator can apply them.
+  # Executor can apply them.
   @watch_suffix "watch"
   @paused_suffix "paused"
+  @rate_limit_fallback_suffix "rate-limit-fallback"
+  @marker_suffixes [@watch_suffix, @paused_suffix, @rate_limit_fallback_suffix]
 
   @type request :: %{
           method: :post,
@@ -45,7 +46,9 @@ defmodule Aiur.GitHub.Labels do
   @spec label_set(String.t(), [String.t()]) :: [String.t()]
   def label_set(prefix, backends) do
     state_labels(prefix) ++
-      marker_labels(prefix) ++ model_labels(backends) ++ alias_labels(backends) ++ complexity_labels()
+      required_rate_limit_fallback_labels(prefix) ++
+      (marker_labels(prefix) -- rate_limit_fallback_marker_labels(prefix)) ++
+      model_labels(backends) ++ alias_labels(backends) ++ effort_labels() ++ complexity_labels()
   end
 
   @spec state_labels(String.t()) :: [String.t()]
@@ -59,8 +62,33 @@ defmodule Aiur.GitHub.Labels do
   @spec paused_labels(String.t()) :: [String.t()]
   def paused_labels(prefix), do: ["#{prefix}:#{@paused_suffix}"]
 
+  @doc "The marker that records ownership of an automatic usage-limit fallback."
+  @spec rate_limit_fallback_marker_labels(String.t()) :: [String.t()]
+  def rate_limit_fallback_marker_labels(prefix), do: ["#{prefix}:#{@rate_limit_fallback_suffix}"]
+
   @spec marker_labels(String.t()) :: [String.t()]
-  def marker_labels(prefix), do: watch_labels(prefix) ++ paused_labels(prefix)
+  def marker_labels(prefix), do: Enum.map(@marker_suffixes, &"#{prefix}:#{&1}")
+
+  @doc "Labels required for the configured rate-limit fallback pair."
+  @spec required_rate_limit_fallback_labels(String.t()) :: [String.t()]
+  def required_rate_limit_fallback_labels(prefix),
+    do: required_rate_limit_fallback_labels(prefix, CodingAgent.default_backend(), CodingAgent.default_rate_limit_fallback())
+
+  @spec required_rate_limit_fallback_labels(String.t(), String.t(), String.t() | nil) :: [String.t()]
+  def required_rate_limit_fallback_labels(prefix, _primary, fallback) do
+    rate_limit_fallback_marker_labels(prefix) ++
+      case fallback do
+        backend when is_binary(backend) and backend != "" -> ["model:" <> backend]
+        _ -> []
+      end
+  end
+
+  @doc "Whether a prefixed-label suffix is a marker rather than a workflow state."
+  @spec marker_suffix?(term()) :: boolean()
+  def marker_suffix?(suffix) when is_binary(suffix),
+    do: String.downcase(String.trim(suffix)) in @marker_suffixes
+
+  def marker_suffix?(_suffix), do: false
 
   @spec model_labels([String.t()]) :: [String.t()]
   def model_labels(backends), do: CodingAgent.override_labels(backends)
@@ -77,6 +105,11 @@ defmodule Aiur.GitHub.Labels do
     end
   end
 
+  # Per-ticket effort override labels (`model:xhigh`, ...). Backend-independent,
+  # so they are seeded regardless of which backends the Executor chose.
+  @spec effort_labels() :: [String.t()]
+  def effort_labels, do: CodingAgent.override_effort_labels()
+
   @spec complexity_labels() :: [String.t()]
   def complexity_labels, do: Enum.map(1..5, &"complexity:#{&1}")
 
@@ -84,7 +117,12 @@ defmodule Aiur.GitHub.Labels do
   @spec describe(String.t()) :: String.t()
   def describe("complexity:" <> n), do: "story-point complexity #{n}"
   def describe("model:remote"), do: "Supports claude remote-control"
-  def describe("model:" <> spec), do: "route this issue to #{spec}"
+
+  def describe("model:" <> spec = label) do
+    if label in effort_labels(),
+      do: "run this issue at #{spec} reasoning effort",
+      else: "route this issue to #{spec}"
+  end
 
   def describe(label) do
     case String.split(label, ":", parts: 2) do
@@ -95,6 +133,7 @@ defmodule Aiur.GitHub.Labels do
 
   defp state_description("watch"), do: "aiur watches this PR for comments"
   defp state_description("paused"), do: "suppress aiur work while preserving state"
+  defp state_description("rate-limit-fallback"), do: "tracks automatic usage-limit fallback"
   defp state_description("todo"), do: "ready to be worked"
   defp state_description("in-progress"), do: "agent is working it"
   defp state_description("ci-wait"), do: "awaiting CI before human review"

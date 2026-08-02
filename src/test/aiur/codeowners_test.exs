@@ -3,18 +3,21 @@ defmodule Aiur.CodeownersTest do
 
   alias Aiur.Codeowners
 
-  setup do
-    repo_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-codeowners-test-#{System.unique_integer([:positive])}"
-      )
+  # Use ExUnit's per-test `:tmp_dir` (project-local `tmp/`) instead of the shared
+  # `System.tmp_dir!()` tmpfs: under `--cover` the shared `/tmp` can hit 100% and
+  # fail the setup mkdir/writes. See #1212.
+  @moduletag :tmp_dir
 
-    File.mkdir_p!(repo_root)
+  setup %{tmp_dir: tmp_dir} do
+    # Keep the OS-global (VM-wide) cwd stable across tests: the parent-root
+    # discovery test below changes cwd, and restoring here stops this module
+    # from leaking a stale cwd into later modules if that ever fails to unwind.
+    # The location-order test itself is cwd-independent — it passes `repo_root:`
+    # explicitly, so the `:tmp_dir` switch is its real fix. See #1212.
+    original_cwd = File.cwd!()
+    on_exit(fn -> File.cd!(original_cwd) end)
 
-    on_exit(fn -> File.rm_rf(repo_root) end)
-
-    {:ok, repo_root: repo_root}
+    {:ok, repo_root: tmp_dir}
   end
 
   test "uses GitHub CODEOWNERS location order and last matching rule", %{repo_root: repo_root} do

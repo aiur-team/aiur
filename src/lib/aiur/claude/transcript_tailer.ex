@@ -32,12 +32,16 @@ defmodule Aiur.Claude.TranscriptTailer do
   # equivalent of the JSON-RPC `turn/completed` notification.
   @turn_end_reasons ~w(end_turn stop_sequence max_tokens)
 
+  @type turn_end_signal :: String.t() | {:error, map()}
+
   @type option ::
           {:path, Path.t()}
           | {:on_message, (Aiur.AgentEvents.transcript_event() -> any())}
-          | {:on_turn_end, (String.t() -> any())}
+          | {:on_backfill_message, (Aiur.AgentEvents.transcript_event() -> any())}
+          | {:on_turn_end, (turn_end_signal() -> any())}
           | {:turn_id, String.t() | nil}
           | {:from, :start | :end}
+          | {:backfill_until, non_neg_integer()}
           | {:interval_ms, pos_integer() | nil}
           | {:name, GenServer.name()}
 
@@ -59,6 +63,7 @@ defmodule Aiur.Claude.TranscriptTailer do
   def init(opts) do
     path = Keyword.fetch!(opts, :path)
     on_message = Keyword.fetch!(opts, :on_message)
+    on_backfill_message = Keyword.get(opts, :on_backfill_message, on_message)
     on_turn_end = Keyword.get(opts, :on_turn_end, fn _reason -> :ok end)
     turn_id = Keyword.get(opts, :turn_id)
     interval_ms = Keyword.get(opts, :interval_ms, @default_interval_ms)
@@ -73,6 +78,8 @@ defmodule Aiur.Claude.TranscriptTailer do
       path: path,
       offset: offset,
       on_message: on_message,
+      on_backfill_message: on_backfill_message,
+      backfill_until: Keyword.get(opts, :backfill_until, 0),
       on_turn_end: on_turn_end,
       turn_id: turn_id,
       interval_ms: interval_ms
@@ -105,7 +112,14 @@ defmodule Aiur.Claude.TranscriptTailer do
   defp read_new(state) do
     case File.stat(state.path) do
       {:ok, %{size: size}} ->
-        offset = if size < state.offset, do: 0, else: state.offset
+        state =
+          if size < state.offset do
+            %{state | offset: 0, backfill_until: 0}
+          else
+            state
+          end
+
+        offset = state.offset
 
         if size == offset do
           {0, %{state | offset: offset}}
@@ -122,7 +136,7 @@ defmodule Aiur.Claude.TranscriptTailer do
     case read_chunk(state.path, offset, size - offset) do
       {:ok, chunk} ->
         {complete, consumed} = complete_lines(chunk)
-        emitted = emit_lines(state, complete)
+        emitted = emit_lines(state, complete, offset)
         {emitted, %{state | offset: offset + consumed}}
 
       :error ->
@@ -152,11 +166,11 @@ defmodule Aiur.Claude.TranscriptTailer do
   defp complete_lines(chunk) do
     case last_newline_index(chunk) do
       nil ->
-        {[], 0}
+        {"", 0}
 
       index ->
         complete = binary_part(chunk, 0, index + 1)
-        {String.split(complete, "\n", trim: true), index + 1}
+        {complete, index + 1}
     end
   end
 
@@ -167,29 +181,58 @@ defmodule Aiur.Claude.TranscriptTailer do
     end
   end
 
-  defp emit_lines(state, lines) do
-    Enum.reduce(lines, 0, fn line, acc ->
+  defp emit_lines(_state, "", _offset), do: 0
+
+  defp emit_lines(state, complete, offset) do
+    complete
+    |> :binary.split("\n", [:global])
+    |> Enum.drop(-1)
+    |> Enum.reduce({0, offset}, fn line, {emitted, cursor} ->
+      next_cursor = cursor + byte_size(line) + 1
+
+      callback =
+        if cursor < state.backfill_until do
+          state.on_backfill_message
+        else
+          state.on_message
+        end
+
       case decode(line) do
         {:ok, record} ->
           events = Transcript.extract_disk_record(record, state.turn_id)
-          Enum.each(events, state.on_message)
+          Enum.each(events, callback)
           maybe_fire_turn_end(state, record)
-          acc + length(events)
+          {emitted + length(events), next_cursor}
 
         :error ->
-          acc
+          {emitted, next_cursor}
       end
     end)
+    |> elem(0)
   end
 
-  # An assistant record whose `stop_reason` is terminal is the on-disk
+  # An assistant record with a top-level `error` is Claude's persisted terminal
+  # API-failure signal. Older/system and SDK-result shapes are accepted too.
+  # Otherwise an assistant record whose `stop_reason` is terminal is the on-disk
   # equivalent of the JSON-RPC `turn/completed` notification.
   defp maybe_fire_turn_end(state, record) do
-    case terminal_stop_reason(record) do
+    case terminal_error_record(record) || terminal_stop_reason(record) do
       nil -> :ok
-      reason -> state.on_turn_end.(reason)
+      signal -> state.on_turn_end.(if(is_map(signal), do: {:error, signal}, else: signal))
     end
   end
+
+  defp terminal_error_record(%{"type" => "assistant", "error" => error} = record)
+       when is_binary(error) and error != "",
+       do: record
+
+  defp terminal_error_record(%{"type" => "system", "subtype" => "api_error"} = record), do: record
+
+  defp terminal_error_record(%{"type" => "result", "is_error" => true, "api_error_status" => status} = record)
+       when not is_nil(status),
+       do: record
+
+  defp terminal_error_record(_record), do: nil
 
   defp terminal_stop_reason(record) do
     with "assistant" <- Map.get(record, "type"),

@@ -5,17 +5,19 @@ defmodule Aiur.Claude.HookSettings do
 
   `claude --settings <file>` ADDS a settings source — it composes with the user's
   own settings/hooks rather than replacing them, so our turn-detection hooks fire
-  alongside whatever the operator already configured.
+  alongside whatever the Executor already configured.
   """
 
   alias Aiur.Config.Paths
 
-  # UserPromptSubmit = input received; PostToolUse = progress/heartbeat; Stop = turn done.
-  @events ["UserPromptSubmit", "PostToolUse", "Stop"]
+  # UserPromptSubmit = input received; PostToolUse = progress/heartbeat;
+  # Stop = turn done; StopFailure = terminal API failure.
+  @events ["UserPromptSubmit", "PostToolUse", "Stop", "StopFailure"]
 
   @doc "Settings map for an agent identifier + dashboard base URL."
   @spec settings(String.t(), String.t()) :: map()
-  def settings(identifier, dashboard_url) when is_binary(identifier) and is_binary(dashboard_url) do
+  def settings(identifier, dashboard_url)
+      when is_binary(identifier) and is_binary(dashboard_url) do
     command = hook_command(identifier, dashboard_url)
     entry = [%{"hooks" => [%{"type" => "command", "command" => command}]}]
     %{"hooks" => Map.new(@events, fn name -> {name, entry} end)}
@@ -32,8 +34,10 @@ defmodule Aiur.Claude.HookSettings do
     * **always exit 0** — a non-zero hook can surface errors / alter behaviour.
   """
   @spec hook_command(String.t(), String.t()) :: String.t()
-  def hook_command(identifier, dashboard_url) when is_binary(identifier) and is_binary(dashboard_url) do
-    url = String.trim_trailing(dashboard_url, "/") <> "/api/v1/#{URI.encode(identifier)}/claude-hook"
+  def hook_command(identifier, dashboard_url)
+      when is_binary(identifier) and is_binary(dashboard_url) do
+    url =
+      String.trim_trailing(dashboard_url, "/") <> "/api/v1/#{URI.encode(identifier)}/claude-hook"
 
     "curl -sS -m 2 -o /dev/null " <>
       "-H 'Content-Type: application/json' -H 'Origin: http://127.0.0.1' -H 'X-Aiur-Request: 1' " <>
@@ -60,21 +64,7 @@ defmodule Aiur.Claude.HookSettings do
   has not bound a port yet. Mirrors `Aiur.PaneManager`'s control-url construction.
   """
   @spec dashboard_url() :: String.t() | nil
-  def dashboard_url do
-    case Aiur.HttpServer.bound_port() do
-      port when is_integer(port) and port > 0 -> "http://#{host()}:#{port}"
-      _ -> nil
-    end
-  rescue
-    _ -> nil
-  end
-
-  defp host do
-    case Aiur.Config.server_host() do
-      h when h in ["0.0.0.0", "::", "", nil] -> "127.0.0.1"
-      h when is_binary(h) -> h
-    end
-  end
+  def dashboard_url, do: Aiur.HttpServer.base_url()
 
   defp slug(identifier), do: Paths.sanitize(identifier)
 

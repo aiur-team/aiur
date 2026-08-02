@@ -270,6 +270,9 @@ function setupRealLauncher() {
       "#!/usr/bin/env bash",
       'echo "ELIXIR_ARGS:$*" >>"$AIUR_TEST_OUT"',
       'echo "ARGV_FILE:$(cat "$AIUR_ARGV_FILE")" >>"$AIUR_TEST_OUT"',
+      'echo "DEEPSEEK_API_KEY:${DEEPSEEK_API_KEY:-}" >>"$AIUR_TEST_OUT"',
+      'echo "OPENROUTER_API_KEY:${OPENROUTER_API_KEY:-}" >>"$AIUR_TEST_OUT"',
+      'echo "MOONSHOT_API_KEY:${MOONSHOT_API_KEY:-}" >>"$AIUR_TEST_OUT"',
       "exit 0",
       "",
     ].join("\n"),
@@ -422,6 +425,42 @@ test("launcher routes init to a distribution-free foreground exec", () => {
   expect(capture).toContain("ARGV_FILE:init");
 });
 
+test("launcher loads global provider credentials before repo-local dotenv", () => {
+  const { launcher, releaseDir } = setupRealLauncher();
+  const home = path.join(root, "home");
+  const project = path.join(root, "project");
+  mkdirSync(path.join(home, ".aiur"), { recursive: true });
+  mkdirSync(project, { recursive: true });
+
+  writeFileSync(
+    path.join(home, ".aiur", ".env"),
+    "DEEPSEEK_API_KEY=global-deepseek\nMOONSHOT_API_KEY=global-moonshot\n",
+  );
+  writeFileSync(
+    path.join(project, ".env"),
+    "DEEPSEEK_API_KEY=repo-deepseek\nOPENROUTER_API_KEY=repo-openrouter\n",
+  );
+
+  const result = spawnSync(launcher, ["--todo", "1440"], {
+    cwd: project,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      HOME: home,
+      AIUR_RELEASE_DIR: releaseDir,
+      AIUR_TEST_OUT: captureFile,
+      MOONSHOT_API_KEY: "shell-moonshot",
+    },
+  });
+
+  expect(result.status).toBe(0);
+  const capture = readFileSync(captureFile, "utf8");
+  expect(capture).toContain("DEEPSEEK_API_KEY:global-deepseek");
+  expect(capture).toContain("OPENROUTER_API_KEY:repo-openrouter");
+  expect(capture).toContain("MOONSHOT_API_KEY:shell-moonshot");
+  expect(capture).not.toContain("repo-deepseek");
+});
+
 test("background start is idempotent when the existing tmux session has a live control plane", () => {
   const { result } = runBackgroundLauncher({ existingSession: true, controlReady: true });
 
@@ -524,6 +563,7 @@ function setupControlRpc() {
       '    missing_marker) echo ":ok"; echo "remote diagnostic"; exit 0 ;;',
       '    missing_marker_empty) exit 0 ;;',
       '    hang) trap \'echo cleaned >"$AIUR_FAKE_RPC_CLEANUP"; exit 143\' TERM; while :; do sleep 1; done ;;',
+      '    hang_descendant) setsid bash -c \'trap "" TERM; while :; do sleep 1; done\' & child=$!; echo "$child" >"$AIUR_FAKE_RPC_CHILD"; wait "$child" ;;',
       // Transport fails the way Elixir --rpc-eval does for an unreachable node.
       '    noconnection) echo "--rpc-eval : RPC failed with reason :noconnection" >&2; exit 1 ;;',
       "  esac",
@@ -572,6 +612,22 @@ function runControl(launcher, releaseDir, env, args = ["pause", "--all"]) {
   });
 }
 
+test("bare pause/resume flip the global switch; targeted forms stay per-agent", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+  const env = { AIUR_FAKE_RPC_MODE: "ok", AIUR_FAKE_EPMD_REGISTERED: "1" };
+
+  expect(runControl(launcher, releaseDir, env, ["pause"]).status).toBe(0);
+  expect(runControl(launcher, releaseDir, env, ["resume"]).status).toBe(0);
+  expect(runControl(launcher, releaseDir, env, ["pause", "--all"]).status).toBe(0);
+  expect(runControl(launcher, releaseDir, env, ["resume", "44"]).status).toBe(0);
+
+  const capture = readFileSync(captureFile, "utf8");
+  expect(capture).toContain("Aiur.AgentControlCLI.pause_global()");
+  expect(capture).toContain("Aiur.AgentControlCLI.resume_global()");
+  expect(capture).toContain("Aiur.AgentControlCLI.pause(:all)");
+  expect(capture).toContain('Aiur.AgentControlCLI.resume(["44"])');
+});
+
 test("control rpc surfaces the real error when the node is up but the rpc fails", () => {
   const { launcher, releaseDir } = setupControlRpc();
   const result = runControl(launcher, releaseDir, {
@@ -612,9 +668,30 @@ test("control rpc keeps the friendly hint when the node is genuinely down", () =
   });
 
   expect(result.status).not.toBe(0);
-  expect(result.stderr).toContain("no running aiur node");
+  expect(result.stderr).toContain(
+    "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry.",
+  );
   // A down node gets the clean hint, not the cryptic transport error.
   expect(result.stderr).not.toContain(":noconnection");
+});
+
+test("todo reports a stopped daemon without leaking a GenServer stacktrace", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+  const result = runControl(
+    launcher,
+    releaseDir,
+    {
+      AIUR_FAKE_RPC_MODE: "noconnection",
+      AIUR_FAKE_EPMD_REGISTERED: "0",
+    },
+    ["--todo", "123"],
+  );
+
+  expect(result.status).not.toBe(0);
+  expect(result.stderr.trim()).toBe(
+    "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry.",
+  );
+  expect(result.stderr).not.toContain("GenServer");
 });
 
 test("control rpc propagates the control CLI exit code on a successful rpc", () => {
@@ -757,6 +834,22 @@ test("control rpc timeouts terminate stuck helpers and describe the degraded sto
   expect(capture).toContain("Aiur.AgentControlCLI.status()");
   expect(capture).toContain("Aiur.AgentControlCLI.agents()");
   expect(capture).toContain("Aiur.AgentControlCLI.pause(:all)");
+});
+
+test("control rpc timeouts reap descendants that escape the wrapper process group", () => {
+  if (spawnSync("which", ["setsid"], { encoding: "utf8" }).status !== 0) return;
+
+  const { launcher, releaseDir } = setupControlRpc();
+  const childFile = path.join(root, "rpc-child-pid");
+  const result = runControl(launcher, releaseDir, {
+    AIUR_FAKE_RPC_MODE: "hang_descendant",
+    AIUR_FAKE_RPC_CHILD: childFile,
+    AIUR_CONTROL_RPC_TIMEOUT_SECONDS: "1",
+  });
+
+  expect(result.status).toBe(124);
+  const childPid = Number.parseInt(readFileSync(childFile, "utf8"), 10);
+  expect(() => process.kill(childPid, 0)).toThrow();
 });
 
 // --- Update notifier -------------------------------------------------------

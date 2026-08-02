@@ -25,6 +25,10 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
 
     def fetch_candidate_issues, do: {:ok, issues()}
 
+    def fetch_classified_issue_comments(_issue_id), do: {:ok, []}
+
+    def fetch_open_pull_request_for_branch(_issue_id), do: {:ok, nil}
+
     defp agent, do: Application.fetch_env!(:aiur, :hermetic_rework_agent)
     defp issues, do: Application.get_env(:aiur, :hermetic_rework_issues, [])
     defp recipient, do: Application.get_env(:aiur, :hermetic_rework_recipient)
@@ -321,6 +325,68 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
       assert get_in(next.running["l13"], [:control, :status]) == :paused
       assert next.running["l13"].paused_reason == :max_agent_duration
       assert next.running["l13"].pid == self()
+    end
+
+    test "a stale containment pause is logged and resumed" do
+      name = Module.concat(__MODULE__, :ContainmentPause)
+      pid = start_orchestrator(name)
+      entry = running_entry("l16", "L16", :working)
+      :sys.replace_state(pid, &%{&1 | running: %{"l16" => entry}, claimed: MapSet.new(["l16"])})
+
+      log =
+        capture_log(fn ->
+          send(pid, {:worker_control_state, "l16", :paused, %{request_id: :containment}})
+          assert_receive {:resume_agent, _}, 2_000
+          # A synchronous system call queues after the worker message, so the
+          # capture includes the log emitted by its handler under coverage load.
+          _ = :sys.get_state(pid)
+        end)
+
+      resumed = :sys.get_state(pid).running["l16"]
+      assert resumed.control.status == :working
+      refute Map.has_key?(resumed, :paused_reason)
+      assert log =~ "orchestrator.pause"
+      assert log =~ "issue_identifier=L16"
+      assert log =~ "cause=pause_containment"
+    end
+
+    test "a usage-limit worker pause is logged but not resumed" do
+      name = Module.concat(__MODULE__, :UsageLimitPause)
+      pid = start_orchestrator(name)
+      entry = running_entry("l17", "L17", :working)
+      :sys.replace_state(pid, &%{&1 | running: %{"l17" => entry}, claimed: MapSet.new(["l17"])})
+
+      log =
+        capture_log(fn ->
+          send(pid, {:worker_control_state, "l17", :paused, %{kind: :usage_limit_exhausted}})
+          assert :paused = get_in(:sys.get_state(pid, 15_000).running["l17"], [:control, :status])
+        end)
+
+      refute_receive {:resume_agent, _}, 100
+      paused = :sys.get_state(pid).running["l17"]
+      assert paused.paused_reason == :usage_limit_exhausted
+      assert log =~ "orchestrator.pause"
+      assert log =~ "issue_identifier=L17"
+      assert log =~ "cause=usage_limit_exhausted"
+    end
+
+    test "an operator-attributed containment confirmation remains paused" do
+      name = Module.concat(__MODULE__, :OperatorContainmentPause)
+      pid = start_orchestrator(name)
+
+      entry =
+        "l18"
+        |> running_entry("L18", :paused)
+        |> Map.put(:paused_reason, :operator_pause)
+
+      :sys.replace_state(pid, &%{&1 | running: %{"l18" => entry}, claimed: MapSet.new(["l18"])})
+
+      send(pid, {:worker_control_state, "l18", :paused, %{request_id: :containment}})
+
+      refute_receive {:resume_agent, _}, 100
+      paused = :sys.get_state(pid).running["l18"]
+      assert paused.control.status == :paused
+      assert paused.paused_reason == :operator_pause
     end
 
     test "paused and deactivated entries are excluded from the overrun check" do

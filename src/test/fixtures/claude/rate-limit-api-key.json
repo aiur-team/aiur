@@ -1,0 +1,15 @@
+{
+  "jsonrpc": "2.0",
+  "method": "rate_limit/update",
+  "params": {
+    "turn_id": "synthetic-turn-api-key",
+    "thread_id": "synthetic-thread-api-key",
+    "rate_limit": {
+      "status": "rejected",
+      "used_percent": 100,
+      "resets_at": 1784196000,
+      "account_type": "api_key",
+      "source_version": "9.9.9-test (fake-claude)"
+    }
+  }
+}

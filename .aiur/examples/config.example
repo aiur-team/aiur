@@ -6,17 +6,32 @@ tracker:
   active_states: [todo, in-progress, rework, merging]
   terminal_states: [done, cancelled, canceled]
 {{TRACKER_PROVIDER}}
-  # provider block (filled above): github {repo, label_prefix, bot_account, trusted_accounts} | linear {api_key, project_slug, assignee}
+  # provider block (filled above): github {repo, label_prefix, bot_account, trusted_accounts, human_mergers} | linear {api_key, project_slug, assignee}
+  # bot_account is an IDENTITY, not a credential: GITHUB_TOKEN (in .env) is the credential Aiur
+  # authenticates with; bot_account is the login Aiur recognizes as its own to suppress self-triggered
+  # comment/event loops. Prefer a dedicated bot account (e.g. its-applekid) when operators also comment
+  # from a trusted CODEOWNER account — reusing one login makes agent-vs-human provenance ambiguous.
+  # human_mergers is an explicit human-only list used for post-merge attribution alerts. It never
+  # inherits CODEOWNERS, bot_account, trusted_accounts, or dispatch allowed_users.
 
 # === Coding agents ===
 agent:
-  kind: {{AGENT_KIND}}                   # default backend: codex | claude
+  kind: {{AGENT_KIND}}                   # default registered backend (codex, claude, kimi, deepseek, openrouter)
   max_concurrent_agents: {{MAX_AGENTS}}  # global cap on simultaneously-running agents
-  # max_concurrent_builds: 2             # fleet cap for agent mix compile/test; 0 = unrestricted verification
+  # max_concurrent_builds: 2             # fleet cap for agent mix compile/test; 0 disables only this cap
+  # Coordination errors fail the requested mix command with status 125.
+  # build_start_stagger_seconds: 5       # minimum spacing between concurrent mix compile/test starts; 0 = disabled
+  # min_free_memory_mb: 4096             # hold new dispatch + local mix compile/test below this MemAvailable floor
+  # Full emergency opt-out: set both build settings above to 0 and leave min_free_memory_mb omitted.
   max_turns: {{MAX_TURNS}}               # per-issue turn cap (cost guard); `none` = unlimited
-  max_agent_duration_minutes: {{MAX_AGENT_DURATION}}  # safety net: hard-kill a stuck agent after N min (0 = never)
+  # max_turns_by_complexity: {1: 4, 2: 8, 3: 12, 4: 20, 5: 30}  # overrides max_turns for labeled tickets
+  max_agent_duration_minutes: {{MAX_AGENT_DURATION}}  # safety checkpoint; 0 = never auto-pause
   # synthetic_load_process_cap: null     # per-agent cap for `yes`/`stress` load generators; null = cores/4, 0 = disabled
-  routing: {{ROUTING}}                   # complexity:<N> label -> backend[:model[:effort]], e.g. codex:gpt-5.6-terra:high
+  routing: {{ROUTING}}                   # complexity:<N> label -> backend[:model[:effort]]; prefer a family alias (codex:terra:high, claude:opus) over a pinned version, which expires
+  prior_work_continuation: true           # cold redispatch/backend switch continues from shared workspace context, never a cross-provider transcript
+  # backend_configs:                      # optional overrides keyed by registry instance
+  #   deepseek: {enabled: false}          # disabled by default; set true only when its balance meter is configured
+  #   openrouter: {model: moonshotai/kimi-k2.7-code} # explicit underlying model required
 {{RATE_LIMIT_FALLBACK}}  # opt-in default-ticket fallback order; explicit labels/routing are never changed
   claude:
     command: aiur-claude
@@ -46,7 +61,7 @@ agent:
 # === Workspace & per-repo agent prompt ===
 workspace:
   root: {{WORKSPACE_ROOT}}               # where agents clone and work
-  # bootstrap_image: ghcr.io/its-everdred/aiur:latest  # optional: seed missing build caches from this image after checkout refresh
+  # bootstrap_image: ghcr.io/aiur-team/aiur:latest  # optional: seed missing build caches from this image after checkout refresh
   # bootstrap_image_pull: true            # pull the image before seeding; false uses the local image if present
 prompt_file: {{PROMPT_FILE}}             # per-repo agent prompt appended to each turn
 
@@ -72,7 +87,7 @@ alerts:
   enabled: {{ALERTS_ENABLED}}                  # master switch for alert sound playback (macOS + Linux)
   use_os_default_sounds: {{ALERTS_OS_SOUNDS}}  # true = built-in OS system sounds; false = topic→sound map below
   # sound_dir: ~/alerts                        # custom sound folder: resolves the map's filenames, and (in OS-default mode) a <category>.<ext> file here overrides that category
-  alerts_file: alerts                          # topic→sound map; a relative path resolves next to this config (edit `.aiur/alerts`). Use an absolute or ~/ path to point elsewhere; a missing file falls back to the default `.aiur/alerts.yaml` next to the config
+  alerts_file: alerts                          # topic→sound map; a relative path resolves next to this config (edit `.aiur/alerts`). Use an absolute or ~/ path to point elsewhere; a missing file falls back to the default `.aiur/alerts` next to the config
 
 # === Repo-wide PR comment watching (opt-in; OFF by default) ===
 # Let aiur act on comments across the whole repo, not just its own aiur/<id> PRs.
@@ -82,11 +97,29 @@ alerts:
 #   watch_label: watch        # label a PR `<label_prefix>:watch` (e.g. agent:watch) to monitor all its code-owner/trusted comments
 #   command_prefix: /aiur     # a trusted comment starting with this (or mentioning github.bot_account) handles that one comment, no label needed
 
+# === Build Order providers (optional; in-memory only) ===
+# Supervised providers fetch configured-repository detail and retain sanitized typed ticket history.
+# Restarting Aiur clears their snapshots; consumers receive unavailable state until a new read succeeds.
+# build_order:
+#   ticket_detail_freshness_ms: 30000       # 1..300000; reuse a healthy detail during this window
+#   graph_catalog_refresh_ms: 60000         # daemon-owned root-catalog reconciliation interval
+#   graph_selected_refresh_ms: 15000        # refresh interval while a selected root has demand
+#   graph_demand_refresh_ms: 5000           # selection/reconnect threshold; must not exceed selected refresh
+#   graph_refresh_timeout_ms: 30000         # bounded provider task timeout
+#   graph_max_selected_roots: 32            # in-memory retained LKG roots; lost on daemon restart
+#   graph_max_inflight: 4                    # provider refreshes shared by all connected consumers
+#   ticket_detail_max_entries: 32            # 1..100; retained ticket identities, independent of browser count
+#   ticket_detail_max_description_bytes: 16384 # 1..16384; bounded sanitized provider description
+#   ticket_history_limit: 50                  # 1..100; retained allowlisted recent-history entries per ticket
+#   ticket_history_max_identities: 100        # 1..100; retained configured-repository ticket histories
+#   ticket_history_stale_after_ms: 60000      # 1..300000; freshness window for typed activity evidence
+
 # --- advanced (top-level; defaults shown, uncomment to override) ---
 # debug: false                           # true = always run in debug mode (verbose logs + debug UI), no --debug flag needed; --debug still wins
 # max_log_history_mb: 1000               # cap on total ~/.aiur/logs size (swept every 5 min)
 # opencode: { command: opencode, bridge_port: 4097, bridge_host: 127.0.0.1, model_prefix: aiur }
-# observability: { dashboard_enabled: true, refresh_ms: 1000, render_interval_ms: 16 }
+# observability: { dashboard_enabled: true, refresh_ms: 1000, render_interval_ms: 16, telemetry_enabled: true, telemetry_retention_max_bytes: 67108864, telemetry_retention_max_age_days: 30, telemetry_retention_prune_interval_bytes: 8388608 }
+# decisions: { supervisor_allowed_kinds: [], supervisor_allow_non_reversible: false }
 # server: { host: 127.0.0.1, port: 4000 }
 # worker: { ssh_hosts: [], max_concurrent_agents_per_host: 4 }
 # events: { block_state_debounce_seconds: 10, custom_events_per_turn_max: 5, codeowners_refresh_seconds: 3600 }

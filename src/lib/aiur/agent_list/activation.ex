@@ -27,21 +27,32 @@ defmodule Aiur.AgentList.Activation do
   def attach_selected(state) do
     case Enum.at(state.summaries, state.selection_index) do
       %{identifier: identifier} = summary ->
-        Logger.info("[user-action] attach_selected identifier=#{identifier} source=agent_list")
-        command = "#{state.command_template} #{identifier}"
-        title = Map.get(summary, :title)
-        pane_manager = state.pane_manager
-
-        # `attach_conversation` has a 65 s timeout but would still park App.
-        Task.start(fn -> attempt_attach_then_open(pane_manager, identifier, command, title) end)
+        if completed?(state, summary) do
+          log_completed_block(identifier)
+        else
+          attach_selected_agent(state, identifier, summary)
+        end
 
       _ ->
         :ok
     end
   end
 
+  defp attach_selected_agent(state, identifier, summary) do
+    Logger.info("[user-action] attach_selected identifier=#{identifier} source=agent_list")
+    command = "#{state.command_template} #{identifier}"
+    title = Map.get(summary, :title)
+    pane_manager = state.pane_manager
+
+    # `attach_conversation` has a 65 s timeout but would still park App.
+    Task.start(fn -> attempt_attach_then_open(pane_manager, identifier, command, title) end)
+  end
+
   defp activate_selected_agent_if_warm(state, identifier, summary, mode) do
     cond do
+      completed?(state, summary) ->
+        log_completed_block(identifier)
+
       Summaries.deactivated?(summary) ->
         # A deactivated row has no warm pane; reactivate and open asynchronously.
         Logger.info("[user-action] reactivate_on_enter identifier=#{identifier} source=agent_list")
@@ -113,6 +124,15 @@ defmodule Aiur.AgentList.Activation do
 
   defp warm_identifier?(state, identifier),
     do: match?(%{attach_count: count} when count > 0, Map.get(state.attach_state, identifier))
+
+  defp completed?(state, summary) do
+    Summaries.completed?(summary) or
+      match?([{100, _timestamp} | _], get_in(state, [:progress_by_id, to_string(summary.identifier)]))
+  end
+
+  defp log_completed_block(identifier) do
+    Logger.info("[user-action] open_blocked identifier=#{identifier} source=agent_list reason=completed")
+  end
 
   defp safe_call(function) do
     function.()

@@ -1,0 +1,1611 @@
+{
+  "schema_version": 1,
+  "build_order_id": "its-everdred/croptracker:mvp",
+  "title": "CropTracker v1 MVP",
+  "subtitle": "Read-only watch-only DeFi dashboard — pre-ticket demo plan (plan v2, 9 phases)",
+  "repository": "its-everdred/croptracker",
+  "plan_version": 2,
+  "demo": true,
+  "workstreams": [
+    {
+      "id": "platform",
+      "title": "Platform"
+    },
+    {
+      "id": "core",
+      "title": "Core"
+    },
+    {
+      "id": "web",
+      "title": "Web"
+    },
+    {
+      "id": "data",
+      "title": "Data"
+    },
+    {
+      "id": "api",
+      "title": "Api"
+    },
+    {
+      "id": "billing",
+      "title": "Billing"
+    }
+  ],
+  "tickets": [
+    {
+      "id": "CT-101",
+      "title": "Scaffold pnpm monorepo with TypeScript toolchain",
+      "lane": "platform",
+      "phase": 1,
+      "complexity": 3,
+      "depends_on": [],
+      "ticket": null,
+      "doc": "tickets/CT-101.md"
+    },
+    {
+      "id": "CT-102",
+      "title": "Add CI gate workflow running the pnpm gate",
+      "lane": "platform",
+      "phase": 2,
+      "complexity": 2,
+      "depends_on": [
+        "CT-101"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-102.md"
+    },
+    {
+      "id": "CT-103",
+      "title": "Create domain primitives and AssetAmount types",
+      "lane": "core",
+      "phase": 2,
+      "complexity": 2,
+      "depends_on": [
+        "CT-101"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-103.md"
+    },
+    {
+      "id": "CT-104",
+      "title": "Model canonical PositionSnapshot position tree",
+      "lane": "core",
+      "phase": 3,
+      "complexity": 3,
+      "depends_on": [
+        "CT-103"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-104.md"
+    },
+    {
+      "id": "CT-105",
+      "title": "Model MarketRef canonical registry record",
+      "lane": "core",
+      "phase": 3,
+      "complexity": 2,
+      "depends_on": [
+        "CT-103"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-105.md"
+    },
+    {
+      "id": "CT-106",
+      "title": "Model SemanticEvent taxonomy with evidence links",
+      "lane": "core",
+      "phase": 3,
+      "complexity": 2,
+      "depends_on": [
+        "CT-103"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-106.md"
+    },
+    {
+      "id": "CT-107",
+      "title": "Model wallet, label, and group domain types",
+      "lane": "core",
+      "phase": 3,
+      "complexity": 2,
+      "depends_on": [
+        "CT-103"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-107.md"
+    },
+    {
+      "id": "CT-108",
+      "title": "Build typed config module with tunable caps",
+      "lane": "core",
+      "phase": 2,
+      "complexity": 2,
+      "depends_on": [
+        "CT-101"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-108.md"
+    },
+    {
+      "id": "CT-109",
+      "title": "Define provider interfaces with strict-mode declarations",
+      "lane": "core",
+      "phase": 3,
+      "complexity": 2,
+      "depends_on": [
+        "CT-103"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-109.md"
+    },
+    {
+      "id": "CT-110",
+      "title": "Implement HMAC wallet ID derivation",
+      "lane": "core",
+      "phase": 4,
+      "complexity": 2,
+      "depends_on": [
+        "CT-107"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-110.md"
+    },
+    {
+      "id": "CT-111",
+      "title": "Implement encryption-at-rest helpers for addresses and labels",
+      "lane": "core",
+      "phase": 3,
+      "complexity": 2,
+      "depends_on": [
+        "CT-103"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-111.md"
+    },
+    {
+      "id": "CT-112",
+      "title": "Build log-redaction guard and safe logger factory",
+      "lane": "core",
+      "phase": 3,
+      "complexity": 3,
+      "depends_on": [
+        "CT-103"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-112.md"
+    },
+    {
+      "id": "CT-113",
+      "title": "Set up Postgres and Drizzle migration harness",
+      "lane": "platform",
+      "phase": 3,
+      "complexity": 3,
+      "depends_on": [
+        "CT-102",
+        "CT-108"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-113.md"
+    },
+    {
+      "id": "CT-114",
+      "title": "Create initial wallet, group, and label tables",
+      "lane": "core",
+      "phase": 4,
+      "complexity": 2,
+      "depends_on": [
+        "CT-107",
+        "CT-113"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-114.md"
+    },
+    {
+      "id": "CT-115",
+      "title": "Create rail-agnostic entitlements capability-flag skeleton",
+      "lane": "core",
+      "phase": 2,
+      "complexity": 2,
+      "depends_on": [
+        "CT-101"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-115.md"
+    },
+    {
+      "id": "CT-116",
+      "title": "Create shared API contracts skeleton",
+      "lane": "core",
+      "phase": 2,
+      "complexity": 2,
+      "depends_on": [
+        "CT-101"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-116.md"
+    },
+    {
+      "id": "CT-117",
+      "title": "Scaffold React Vite web app shell",
+      "lane": "web",
+      "phase": 2,
+      "complexity": 2,
+      "depends_on": [
+        "CT-101"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-117.md"
+    },
+    {
+      "id": "CT-118",
+      "title": "Scaffold hosted-api Fastify runtime skeleton",
+      "lane": "platform",
+      "phase": 4,
+      "complexity": 3,
+      "depends_on": [
+        "CT-108",
+        "CT-112",
+        "CT-116"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-118.md"
+    },
+    {
+      "id": "CT-119",
+      "title": "Scaffold selfhost-api composition without premium",
+      "lane": "platform",
+      "phase": 4,
+      "complexity": 2,
+      "depends_on": [
+        "CT-108",
+        "CT-112",
+        "CT-116"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-119.md"
+    },
+    {
+      "id": "CT-120",
+      "title": "Add CI check: selfhost-api builds without premium",
+      "lane": "platform",
+      "phase": 5,
+      "complexity": 3,
+      "depends_on": [
+        "CT-102",
+        "CT-119"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-120.md"
+    },
+    {
+      "id": "CT-121",
+      "title": "Enforce import-boundary lint rules for dependency direction",
+      "lane": "platform",
+      "phase": 2,
+      "complexity": 2,
+      "depends_on": [
+        "CT-101"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-121.md"
+    },
+    {
+      "id": "CT-201",
+      "title": "Implement server HTTP RPC provider with multicall",
+      "lane": "data",
+      "phase": 4,
+      "complexity": 3,
+      "depends_on": [
+        "CT-108",
+        "CT-109"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-201.md"
+    },
+    {
+      "id": "CT-202",
+      "title": "Implement browser injected-wallet RPC provider",
+      "lane": "data",
+      "phase": 4,
+      "complexity": 2,
+      "depends_on": [
+        "CT-109"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-202.md"
+    },
+    {
+      "id": "CT-203",
+      "title": "Create market registry tables and upsert API",
+      "lane": "data",
+      "phase": 4,
+      "complexity": 2,
+      "depends_on": [
+        "CT-105",
+        "CT-113"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-203.md"
+    },
+    {
+      "id": "CT-204",
+      "title": "Build Morpho API market sync job",
+      "lane": "data",
+      "phase": 5,
+      "complexity": 2,
+      "depends_on": [
+        "CT-108",
+        "CT-109",
+        "CT-203"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-204.md"
+    },
+    {
+      "id": "CT-205",
+      "title": "Build Velodrome/Aerodrome Sugar sync job",
+      "lane": "data",
+      "phase": 5,
+      "complexity": 3,
+      "depends_on": [
+        "CT-108",
+        "CT-201",
+        "CT-203"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-205.md"
+    },
+    {
+      "id": "CT-206",
+      "title": "Build Uniswap subgraph market sync job",
+      "lane": "data",
+      "phase": 5,
+      "complexity": 3,
+      "depends_on": [
+        "CT-108",
+        "CT-109",
+        "CT-203"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-206.md"
+    },
+    {
+      "id": "CT-207",
+      "title": "Build DefiLlama baseline market sync job",
+      "lane": "data",
+      "phase": 5,
+      "complexity": 2,
+      "depends_on": [
+        "CT-108",
+        "CT-109",
+        "CT-203"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-207.md"
+    },
+    {
+      "id": "CT-208",
+      "title": "Implement on-chain market discovery floor",
+      "lane": "data",
+      "phase": 5,
+      "complexity": 3,
+      "depends_on": [
+        "CT-201",
+        "CT-203"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-208.md"
+    },
+    {
+      "id": "CT-209",
+      "title": "Persist per-market APY and TVL history",
+      "lane": "data",
+      "phase": 5,
+      "complexity": 2,
+      "depends_on": [
+        "CT-203"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-209.md"
+    },
+    {
+      "id": "CT-210",
+      "title": "Implement price resolution with oracle fallback",
+      "lane": "data",
+      "phase": 5,
+      "complexity": 3,
+      "depends_on": [
+        "CT-108",
+        "CT-109",
+        "CT-201"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-210.md"
+    },
+    {
+      "id": "CT-211",
+      "title": "Add user price override storage and application",
+      "lane": "data",
+      "phase": 6,
+      "complexity": 2,
+      "depends_on": [
+        "CT-113",
+        "CT-210"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-211.md"
+    },
+    {
+      "id": "CT-212",
+      "title": "Implement native and ERC20 balance reader",
+      "lane": "data",
+      "phase": 5,
+      "complexity": 3,
+      "depends_on": [
+        "CT-103",
+        "CT-108",
+        "CT-201"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-212.md"
+    },
+    {
+      "id": "CT-213",
+      "title": "Add baseline spam filter to balances",
+      "lane": "data",
+      "phase": 6,
+      "complexity": 2,
+      "depends_on": [
+        "CT-212"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-213.md"
+    },
+    {
+      "id": "CT-214",
+      "title": "Implement token approvals reader with risk labels",
+      "lane": "data",
+      "phase": 5,
+      "complexity": 3,
+      "depends_on": [
+        "CT-108",
+        "CT-201"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-214.md"
+    },
+    {
+      "id": "CT-215",
+      "title": "Build protocol adapter base and conformance kit",
+      "lane": "data",
+      "phase": 4,
+      "complexity": 3,
+      "depends_on": [
+        "CT-104",
+        "CT-109"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-215.md"
+    },
+    {
+      "id": "CT-216",
+      "title": "Implement Morpho read adapter",
+      "lane": "data",
+      "phase": 5,
+      "complexity": 3,
+      "depends_on": [
+        "CT-201",
+        "CT-215"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-216.md"
+    },
+    {
+      "id": "CT-217",
+      "title": "Implement Aave read adapter",
+      "lane": "data",
+      "phase": 5,
+      "complexity": 3,
+      "depends_on": [
+        "CT-201",
+        "CT-215"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-217.md"
+    },
+    {
+      "id": "CT-218",
+      "title": "Implement Velodrome/Aerodrome read adapter",
+      "lane": "data",
+      "phase": 5,
+      "complexity": 3,
+      "depends_on": [
+        "CT-201",
+        "CT-215"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-218.md"
+    },
+    {
+      "id": "CT-219",
+      "title": "Implement Uniswap v3 read adapter",
+      "lane": "data",
+      "phase": 5,
+      "complexity": 3,
+      "depends_on": [
+        "CT-201",
+        "CT-215"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-219.md"
+    },
+    {
+      "id": "CT-220",
+      "title": "Create transaction, receipt, and log tables",
+      "lane": "data",
+      "phase": 5,
+      "complexity": 4,
+      "depends_on": [
+        "CT-113",
+        "CT-114"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-220.md"
+    },
+    {
+      "id": "CT-221",
+      "title": "Configure Ponder ingestion for watched wallets",
+      "lane": "data",
+      "phase": 5,
+      "complexity": 3,
+      "depends_on": [
+        "CT-108",
+        "CT-112",
+        "CT-114"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-221.md"
+    },
+    {
+      "id": "CT-222",
+      "title": "Build per-wallet asset-delta engine",
+      "lane": "data",
+      "phase": 6,
+      "complexity": 3,
+      "depends_on": [
+        "CT-103",
+        "CT-220"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-222.md"
+    },
+    {
+      "id": "CT-223",
+      "title": "Build decoder pipeline with local ABI registry",
+      "lane": "data",
+      "phase": 4,
+      "complexity": 3,
+      "depends_on": [
+        "CT-106"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-223.md"
+    },
+    {
+      "id": "CT-224",
+      "title": "Add optional Sourcify and 4byte decode providers",
+      "lane": "data",
+      "phase": 5,
+      "complexity": 2,
+      "depends_on": [
+        "CT-108",
+        "CT-109",
+        "CT-223"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-224.md"
+    },
+    {
+      "id": "CT-225",
+      "title": "Build base semantic interpreter with unknown fallback",
+      "lane": "data",
+      "phase": 6,
+      "complexity": 3,
+      "depends_on": [
+        "CT-220",
+        "CT-223"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-225.md"
+    },
+    {
+      "id": "CT-226",
+      "title": "Add Morpho semantic interpreter pack",
+      "lane": "data",
+      "phase": 7,
+      "complexity": 2,
+      "depends_on": [
+        "CT-225"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-226.md"
+    },
+    {
+      "id": "CT-227",
+      "title": "Add Aave semantic interpreter pack",
+      "lane": "data",
+      "phase": 7,
+      "complexity": 2,
+      "depends_on": [
+        "CT-225"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-227.md"
+    },
+    {
+      "id": "CT-228",
+      "title": "Add Velodrome/Aerodrome semantic interpreter pack",
+      "lane": "data",
+      "phase": 7,
+      "complexity": 2,
+      "depends_on": [
+        "CT-225"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-228.md"
+    },
+    {
+      "id": "CT-229",
+      "title": "Add Uniswap semantic interpreter pack",
+      "lane": "data",
+      "phase": 7,
+      "complexity": 2,
+      "depends_on": [
+        "CT-225"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-229.md"
+    },
+    {
+      "id": "CT-230",
+      "title": "Build wallet portfolio assembly service",
+      "lane": "data",
+      "phase": 6,
+      "complexity": 3,
+      "depends_on": [
+        "CT-210",
+        "CT-212",
+        "CT-215"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-230.md"
+    },
+    {
+      "id": "CT-231",
+      "title": "Build snapshot persistence schema and engine",
+      "lane": "data",
+      "phase": 6,
+      "complexity": 3,
+      "depends_on": [
+        "CT-104",
+        "CT-220"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-231.md"
+    },
+    {
+      "id": "CT-232",
+      "title": "Build in-process scheduler with tier cadence",
+      "lane": "data",
+      "phase": 7,
+      "complexity": 3,
+      "depends_on": [
+        "CT-108",
+        "CT-115",
+        "CT-231"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-232.md"
+    },
+    {
+      "id": "CT-301",
+      "title": "Define phase-3 read API contracts",
+      "lane": "api",
+      "phase": 4,
+      "complexity": 2,
+      "depends_on": [
+        "CT-104",
+        "CT-105",
+        "CT-106",
+        "CT-107",
+        "CT-116"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-301.md"
+    },
+    {
+      "id": "CT-302",
+      "title": "Build anonymous lookup endpoint with rate limiting",
+      "lane": "api",
+      "phase": 7,
+      "complexity": 3,
+      "depends_on": [
+        "CT-118",
+        "CT-230",
+        "CT-301",
+        "CT-501"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-302.md"
+    },
+    {
+      "id": "CT-303",
+      "title": "Build server portfolio current-view read endpoints",
+      "lane": "api",
+      "phase": 7,
+      "complexity": 3,
+      "depends_on": [
+        "CT-118",
+        "CT-119",
+        "CT-230",
+        "CT-301"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-303.md"
+    },
+    {
+      "id": "CT-304",
+      "title": "Build market registry read and price override endpoints",
+      "lane": "api",
+      "phase": 6,
+      "complexity": 2,
+      "depends_on": [
+        "CT-118",
+        "CT-119",
+        "CT-203",
+        "CT-210",
+        "CT-301"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-304.md"
+    },
+    {
+      "id": "CT-305",
+      "title": "Build free-window net-worth history endpoint",
+      "lane": "api",
+      "phase": 7,
+      "complexity": 3,
+      "depends_on": [
+        "CT-118",
+        "CT-119",
+        "CT-231",
+        "CT-301",
+        "CT-501"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-305.md"
+    },
+    {
+      "id": "CT-306",
+      "title": "Build activity timeline and event detail endpoints",
+      "lane": "api",
+      "phase": 8,
+      "complexity": 3,
+      "depends_on": [
+        "CT-118",
+        "CT-119",
+        "CT-301",
+        "CT-333",
+        "CT-501"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-306.md"
+    },
+    {
+      "id": "CT-307",
+      "title": "Build watched-wallet CRUD endpoints with cap enforcement",
+      "lane": "api",
+      "phase": 6,
+      "complexity": 3,
+      "depends_on": [
+        "CT-110",
+        "CT-114",
+        "CT-118",
+        "CT-119",
+        "CT-301",
+        "CT-501"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-307.md"
+    },
+    {
+      "id": "CT-308",
+      "title": "Build wallet group and label endpoints",
+      "lane": "api",
+      "phase": 7,
+      "complexity": 2,
+      "depends_on": [
+        "CT-114",
+        "CT-301",
+        "CT-307"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-308.md"
+    },
+    {
+      "id": "CT-309",
+      "title": "Build approvals read endpoint",
+      "lane": "api",
+      "phase": 6,
+      "complexity": 2,
+      "depends_on": [
+        "CT-118",
+        "CT-119",
+        "CT-214",
+        "CT-301"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-309.md"
+    },
+    {
+      "id": "CT-310",
+      "title": "Build portfolio data deletion endpoint",
+      "lane": "api",
+      "phase": 7,
+      "complexity": 3,
+      "depends_on": [
+        "CT-220",
+        "CT-301",
+        "CT-307"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-310.md"
+    },
+    {
+      "id": "CT-311",
+      "title": "Build self-host RPC diagnostics endpoint",
+      "lane": "api",
+      "phase": 5,
+      "complexity": 3,
+      "depends_on": [
+        "CT-119",
+        "CT-201",
+        "CT-301"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-311.md"
+    },
+    {
+      "id": "CT-312",
+      "title": "Build typed web API client and query layer",
+      "lane": "web",
+      "phase": 5,
+      "complexity": 2,
+      "depends_on": [
+        "CT-117",
+        "CT-301"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-312.md"
+    },
+    {
+      "id": "CT-313",
+      "title": "Build web app navigation and route scaffolding",
+      "lane": "web",
+      "phase": 3,
+      "complexity": 2,
+      "depends_on": [
+        "CT-117"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-313.md"
+    },
+    {
+      "id": "CT-314",
+      "title": "Build shared empty, loading, and error state system",
+      "lane": "web",
+      "phase": 3,
+      "complexity": 2,
+      "depends_on": [
+        "CT-117"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-314.md"
+    },
+    {
+      "id": "CT-315",
+      "title": "Build unpriced-asset and unknown-event rendering primitives",
+      "lane": "web",
+      "phase": 7,
+      "complexity": 3,
+      "depends_on": [
+        "CT-117",
+        "CT-304",
+        "CT-312"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-315.md"
+    },
+    {
+      "id": "CT-316",
+      "title": "Build upgrade-moment component library",
+      "lane": "web",
+      "phase": 3,
+      "complexity": 2,
+      "depends_on": [
+        "CT-117"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-316.md"
+    },
+    {
+      "id": "CT-317",
+      "title": "Implement wallet-connect session flow",
+      "lane": "web",
+      "phase": 5,
+      "complexity": 3,
+      "depends_on": [
+        "CT-117",
+        "CT-202"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-317.md"
+    },
+    {
+      "id": "CT-318",
+      "title": "Implement current-view data source abstraction",
+      "lane": "web",
+      "phase": 6,
+      "complexity": 3,
+      "depends_on": [
+        "CT-312",
+        "CT-317",
+        "CT-502"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-318.md"
+    },
+    {
+      "id": "CT-319",
+      "title": "Build landing page with anonymous lookup",
+      "lane": "web",
+      "phase": 6,
+      "complexity": 3,
+      "depends_on": [
+        "CT-312",
+        "CT-313",
+        "CT-314",
+        "CT-502"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-319.md"
+    },
+    {
+      "id": "CT-320",
+      "title": "Build dashboard net worth and value breakdowns",
+      "lane": "web",
+      "phase": 7,
+      "complexity": 3,
+      "depends_on": [
+        "CT-313",
+        "CT-314",
+        "CT-318"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-320.md"
+    },
+    {
+      "id": "CT-321",
+      "title": "Build dashboard position list",
+      "lane": "web",
+      "phase": 8,
+      "complexity": 3,
+      "depends_on": [
+        "CT-315",
+        "CT-320"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-321.md"
+    },
+    {
+      "id": "CT-322",
+      "title": "Build net-worth chart with free history boundary",
+      "lane": "web",
+      "phase": 8,
+      "complexity": 3,
+      "depends_on": [
+        "CT-316",
+        "CT-320",
+        "CT-502"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-322.md"
+    },
+    {
+      "id": "CT-323",
+      "title": "Build position detail page with full tree",
+      "lane": "web",
+      "phase": 8,
+      "complexity": 3,
+      "depends_on": [
+        "CT-313",
+        "CT-315",
+        "CT-318"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-323.md"
+    },
+    {
+      "id": "CT-324",
+      "title": "Build activity timeline with filters",
+      "lane": "web",
+      "phase": 6,
+      "complexity": 3,
+      "depends_on": [
+        "CT-312",
+        "CT-313",
+        "CT-314",
+        "CT-316",
+        "CT-502"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-324.md"
+    },
+    {
+      "id": "CT-325",
+      "title": "Build event detail drawer",
+      "lane": "web",
+      "phase": 8,
+      "complexity": 3,
+      "depends_on": [
+        "CT-315",
+        "CT-324"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-325.md"
+    },
+    {
+      "id": "CT-326",
+      "title": "Build address book with wallet cap moment",
+      "lane": "web",
+      "phase": 6,
+      "complexity": 3,
+      "depends_on": [
+        "CT-312",
+        "CT-313",
+        "CT-316",
+        "CT-502"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-326.md"
+    },
+    {
+      "id": "CT-327",
+      "title": "Build approvals screen",
+      "lane": "web",
+      "phase": 6,
+      "complexity": 2,
+      "depends_on": [
+        "CT-312",
+        "CT-313",
+        "CT-314",
+        "CT-502"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-327.md"
+    },
+    {
+      "id": "CT-328",
+      "title": "Build settings with privacy copy and deletion",
+      "lane": "web",
+      "phase": 6,
+      "complexity": 3,
+      "depends_on": [
+        "CT-312",
+        "CT-313",
+        "CT-314",
+        "CT-502"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-328.md"
+    },
+    {
+      "id": "CT-329",
+      "title": "Build self-host RPC diagnostics and configuration view",
+      "lane": "web",
+      "phase": 6,
+      "complexity": 3,
+      "depends_on": [
+        "CT-312",
+        "CT-313",
+        "CT-314",
+        "CT-502"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-329.md"
+    },
+    {
+      "id": "CT-330",
+      "title": "Integrate wallet-RPC degradation states",
+      "lane": "web",
+      "phase": 8,
+      "complexity": 3,
+      "depends_on": [
+        "CT-314",
+        "CT-318",
+        "CT-320"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-330.md"
+    },
+    {
+      "id": "CT-331",
+      "title": "Compose providers and adapters into API runtimes",
+      "lane": "platform",
+      "phase": 8,
+      "complexity": 3,
+      "depends_on": [
+        "CT-201",
+        "CT-210",
+        "CT-216",
+        "CT-217",
+        "CT-218",
+        "CT-219",
+        "CT-230",
+        "CT-303"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-331.md"
+    },
+    {
+      "id": "CT-332",
+      "title": "Wire scheduler, sync jobs, and ingestion into runtimes",
+      "lane": "platform",
+      "phase": 8,
+      "complexity": 3,
+      "depends_on": [
+        "CT-118",
+        "CT-119",
+        "CT-204",
+        "CT-205",
+        "CT-206",
+        "CT-207",
+        "CT-221",
+        "CT-222",
+        "CT-225",
+        "CT-232"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-332.md"
+    },
+    {
+      "id": "CT-333",
+      "title": "Build event-to-position linking with before/after references",
+      "lane": "data",
+      "phase": 7,
+      "complexity": 3,
+      "depends_on": [
+        "CT-225",
+        "CT-231"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-333.md"
+    },
+    {
+      "id": "CT-334",
+      "title": "Build dashboard token balances with spam filtering",
+      "lane": "web",
+      "phase": 8,
+      "complexity": 2,
+      "depends_on": [
+        "CT-315",
+        "CT-320"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-334.md"
+    },
+    {
+      "id": "CT-401",
+      "title": "Wire Auth.js accounts with Google and Apple sign-in",
+      "lane": "platform",
+      "phase": 5,
+      "complexity": 3,
+      "depends_on": [
+        "CT-113",
+        "CT-118"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-401.md"
+    },
+    {
+      "id": "CT-402",
+      "title": "Bind watched wallets and caps to authenticated accounts",
+      "lane": "platform",
+      "phase": 7,
+      "complexity": 2,
+      "depends_on": [
+        "CT-307",
+        "CT-401"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-402.md"
+    },
+    {
+      "id": "CT-403",
+      "title": "Implement full account deletion across PII and portfolio",
+      "lane": "platform",
+      "phase": 8,
+      "complexity": 2,
+      "depends_on": [
+        "CT-310",
+        "CT-402"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-403.md"
+    },
+    {
+      "id": "CT-404",
+      "title": "Create Stripe billing schema with identity separation",
+      "lane": "billing",
+      "phase": 4,
+      "complexity": 2,
+      "depends_on": [
+        "CT-113"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-404.md"
+    },
+    {
+      "id": "CT-405",
+      "title": "Build Stripe checkout and customer portal endpoints",
+      "lane": "billing",
+      "phase": 5,
+      "complexity": 2,
+      "depends_on": [
+        "CT-118",
+        "CT-301",
+        "CT-404"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-405.md"
+    },
+    {
+      "id": "CT-406",
+      "title": "Process Stripe webhooks into rail-agnostic entitlements",
+      "lane": "billing",
+      "phase": 5,
+      "complexity": 3,
+      "depends_on": [
+        "CT-404",
+        "CT-426"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-406.md"
+    },
+    {
+      "id": "CT-407",
+      "title": "Enforce entitlements server-side across hosted-api routes",
+      "lane": "billing",
+      "phase": 9,
+      "complexity": 3,
+      "depends_on": [
+        "CT-305",
+        "CT-306",
+        "CT-307",
+        "CT-426",
+        "CT-501"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-407.md"
+    },
+    {
+      "id": "CT-408",
+      "title": "Add billing and portfolio identity separation audit tests",
+      "lane": "billing",
+      "phase": 9,
+      "complexity": 2,
+      "depends_on": [
+        "CT-403",
+        "CT-404"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-408.md"
+    },
+    {
+      "id": "CT-409",
+      "title": "Build snapshot time-series engine with watch-start honesty",
+      "lane": "billing",
+      "phase": 6,
+      "complexity": 3,
+      "depends_on": [
+        "CT-104",
+        "CT-220"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-409.md"
+    },
+    {
+      "id": "CT-410",
+      "title": "Build position-level history query module",
+      "lane": "billing",
+      "phase": 7,
+      "complexity": 4,
+      "depends_on": [
+        "CT-209",
+        "CT-409"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-410.md"
+    },
+    {
+      "id": "CT-411",
+      "title": "Build attribution engine core for price versus balance",
+      "lane": "billing",
+      "phase": 4,
+      "complexity": 3,
+      "depends_on": [
+        "CT-104",
+        "CT-106"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-411.md"
+    },
+    {
+      "id": "CT-412",
+      "title": "Attribute rewards, interest, fees, and gas from events",
+      "lane": "billing",
+      "phase": 7,
+      "complexity": 3,
+      "depends_on": [
+        "CT-225",
+        "CT-411"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-412.md"
+    },
+    {
+      "id": "CT-414",
+      "title": "Expose premium net-worth and breakdown history endpoints",
+      "lane": "billing",
+      "phase": 7,
+      "complexity": 2,
+      "depends_on": [
+        "CT-118",
+        "CT-301",
+        "CT-409",
+        "CT-501"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-414.md"
+    },
+    {
+      "id": "CT-415",
+      "title": "Expose position history, attribution, and APY endpoints",
+      "lane": "billing",
+      "phase": 8,
+      "complexity": 3,
+      "depends_on": [
+        "CT-118",
+        "CT-301",
+        "CT-410",
+        "CT-412",
+        "CT-501"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-415.md"
+    },
+    {
+      "id": "CT-416",
+      "title": "Build sign-in and account session UI",
+      "lane": "web",
+      "phase": 6,
+      "complexity": 2,
+      "depends_on": [
+        "CT-312",
+        "CT-313",
+        "CT-401"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-416.md"
+    },
+    {
+      "id": "CT-417",
+      "title": "Build upgrade checkout flow and billing settings",
+      "lane": "web",
+      "phase": 6,
+      "complexity": 3,
+      "depends_on": [
+        "CT-312",
+        "CT-316",
+        "CT-502"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-417.md"
+    },
+    {
+      "id": "CT-418",
+      "title": "Build premium full-history chart variants",
+      "lane": "web",
+      "phase": 9,
+      "complexity": 3,
+      "depends_on": [
+        "CT-322",
+        "CT-414"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-418.md"
+    },
+    {
+      "id": "CT-419",
+      "title": "Build position history and attribution premium views",
+      "lane": "web",
+      "phase": 9,
+      "complexity": 3,
+      "depends_on": [
+        "CT-323",
+        "CT-415"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-419.md"
+    },
+    {
+      "id": "CT-420",
+      "title": "Ship mode-honest privacy copy and account deletion UI",
+      "lane": "web",
+      "phase": 9,
+      "complexity": 2,
+      "depends_on": [
+        "CT-328",
+        "CT-403",
+        "CT-416"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-420.md"
+    },
+    {
+      "id": "CT-421",
+      "title": "Package Docker self-host with compose and README",
+      "lane": "platform",
+      "phase": 9,
+      "complexity": 4,
+      "depends_on": [
+        "CT-117",
+        "CT-119",
+        "CT-329",
+        "CT-331",
+        "CT-332"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-421.md"
+    },
+    {
+      "id": "CT-423",
+      "title": "Build hosted deployment pipeline with migrations and health checks",
+      "lane": "platform",
+      "phase": 9,
+      "complexity": 3,
+      "depends_on": [
+        "CT-102",
+        "CT-117",
+        "CT-118",
+        "CT-332"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-423.md"
+    },
+    {
+      "id": "CT-424",
+      "title": "Run log-redaction audit across hosted flows",
+      "lane": "platform",
+      "phase": 9,
+      "complexity": 2,
+      "depends_on": [
+        "CT-112",
+        "CT-232",
+        "CT-303",
+        "CT-306"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-424.md"
+    },
+    {
+      "id": "CT-425",
+      "title": "Spot-check position accuracy against DeBank and Zerion",
+      "lane": "platform",
+      "phase": 9,
+      "complexity": 2,
+      "depends_on": [
+        "CT-303",
+        "CT-331"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-425.md"
+    },
+    {
+      "id": "CT-426",
+      "title": "Create entitlement persistence and resolution store",
+      "lane": "billing",
+      "phase": 4,
+      "complexity": 2,
+      "depends_on": [
+        "CT-113",
+        "CT-115"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-426.md"
+    },
+    {
+      "id": "CT-427",
+      "title": "Implement premium pre-watch transaction backfill",
+      "lane": "data",
+      "phase": 6,
+      "complexity": 3,
+      "depends_on": [
+        "CT-221",
+        "CT-426",
+        "CT-501"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-427.md"
+    },
+    {
+      "id": "CT-428",
+      "title": "Render pre-watch transaction history distinctly",
+      "lane": "web",
+      "phase": 7,
+      "complexity": 2,
+      "depends_on": [
+        "CT-324",
+        "CT-427"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-428.md"
+    },
+    {
+      "id": "CT-501",
+      "title": "Build entitlement request plugin and gating map",
+      "lane": "api",
+      "phase": 5,
+      "complexity": 3,
+      "depends_on": [
+        "CT-115",
+        "CT-116",
+        "CT-118"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-501.md"
+    },
+    {
+      "id": "CT-502",
+      "title": "Build contracts fixture dataset kit",
+      "lane": "web",
+      "phase": 5,
+      "complexity": 2,
+      "depends_on": [
+        "CT-301"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-502.md"
+    },
+    {
+      "id": "CT-503",
+      "title": "Wire web surfaces to live APIs with e2e smoke",
+      "lane": "web",
+      "phase": 9,
+      "complexity": 3,
+      "depends_on": [
+        "CT-303",
+        "CT-306",
+        "CT-318",
+        "CT-319",
+        "CT-320",
+        "CT-324",
+        "CT-327",
+        "CT-331"
+      ],
+      "ticket": null,
+      "doc": "tickets/CT-503.md"
+    }
+  ]
+}

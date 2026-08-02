@@ -1,0 +1,218 @@
+# Build Order Technical Decisions
+
+This registry is the concise decision authority for plan version 1. Detailed
+rationale and failure semantics live in
+[03-source-of-truth-and-state.md](03-source-of-truth-and-state.md). The
+structured copies in `build-order.json` are validated against ticket usage.
+
+## DEC-001 — Split GitHub plan from Aiur activity
+
+**Status:** accepted
+
+GitHub owns identity, membership, ticket facts, lifecycle, planning labels, and
+native blocker relationships. Aiur owns current execution activity, progress,
+alerts, and events. A pure presenter joins snapshots without changing either
+authority.
+
+## DEC-002 — Use root issue membership
+
+**Status:** accepted for the v1 planning baseline
+
+Discover root issues by one `build-order` label and use their direct native
+sub-issues as members. Canonical identity is the GitHub node ID. V1 is limited
+to the configured repository, direct children, one parent, and 100 members.
+The user may expand this only by resolving the recorded product gate before
+issue dispatch.
+
+## DEC-003 — Use native blockedBy only
+
+**Status:** accepted
+
+Native GitHub `blockedBy` is the only hard dependency truth. Body tables and
+planning diagrams are generated views. Only a blocker closed with the completed
+state reason clears its edge; `NOT_PLANNED`, missing, stale, cyclic, and unknown
+relationships remain unsatisfied or unknown.
+
+## DEC-004 — Keep planning metadata single-valued
+
+**Status:** accepted
+
+Each member has exactly one complexity, positive phase, and controlled lane
+label. A small hidden marker binds logical ID and plan version to the immutable
+approved planning commit, but it may not duplicate membership, dependencies,
+lifecycle, progress, live state, or mutable provenance.
+
+V1 derives deterministic icon keys from lane and lifecycle with a generic
+accessible fallback. The prototype's explicit `icon` field is intentionally
+not copied into GitHub metadata.
+
+## DEC-005 — Publish complete graph generations
+
+**Status:** accepted
+
+A daemon-owned supervised projection performs paginated GitHub reads, validates
+the whole candidate, and swaps it atomically. Failures preserve a stale
+last-known-good snapshot or report unavailable. The root catalog defaults to
+100 roots with explicit page/provider-call ceilings and overflow detection;
+selected graphs retain the 100-direct-member limit. Catalog and selected-root
+refresh defaults are 60 and 15 seconds, and a selection/reconnect demands one
+coalesced refresh when older than 5 seconds. LiveView never polls GitHub.
+
+## DEC-006 — Extract runtime projection from UI ownership
+
+**Status:** accepted
+
+First add repository-qualified identity to normalized issues and existing
+orchestrator StatusReport records; StatusReport remains the owner of execution,
+waiting, backend/model, and worker-lifecycle state. Then propagate one
+versioned identity-bearing observation envelope through progress, stage and
+latest-evidence producers. Move only their reusable fold out of interactive
+AgentList into an always-supervised typed-identity projection. TUI and dashboard
+join the two typed snapshots. Restart without replay yields unknown progress
+rather than zero and never creates a second lifecycle owner.
+
+## DEC-007 — Use an isolated layout-only engine
+
+**Status:** accepted
+
+Keep cards as accessible DOM and edges as SVG. Begin with pinned, vendored
+ELK.js layered layout behind one LiveView hook/adapter and run it in a Web
+Worker at scale. The adapter owns lane/phase constraints, layout inputs,
+geometry application, a transform seam, redraw, and deterministic failure
+fallback. BO-013 exclusively owns fit/pan/zoom interaction policy and controls;
+BO-014 owns responsive preservation and measured hardening. ELK does not own
+product state or rendering.
+
+This choice follows ELK's documented strength for directed layered graphs,
+routed edges, and Web Worker operation. BO-008 establishes the browser harness,
+BO-009 owns reproducible vendoring/worker packaging, BO-010 owns the measured
+DOM/SVG adapter and fallback, and BO-014 proves representative 20/50/100
+fixtures. If the engine fails the accepted budget, the owning ticket records
+the evidence and substitutes a maintained layout-only engine without changing
+the adapter contract.
+
+## DEC-008 — Keep v1 read-only
+
+**Status:** accepted for the v1 planning baseline
+
+Build Order does not mutate GitHub planning data. It inherits dashboard
+authentication and safe URL rules and invokes no mutating Aiur runtime action
+in v1. It may link into existing chat, Commands, and control surfaces.
+Companion components may adopt the reusable context and add actions only
+through their separately owned capability, confirmation, and
+applied-acknowledgement contracts. Dependency editing is a separately
+authorized feature.
+
+Ticket detail, bounded sanitized recent history and accessible base context are
+root-independent configured-repository capabilities. Build Order adds only
+relationship diagnostics and truthful destination links; it never treats
+navigation as proof that a destination action succeeded.
+
+## DEC-009 — Keep companion ownership boundaries separate
+
+**Status:** accepted; the membership split is superseded by DEC-014
+
+Responsive shell, recoverable Units membership/policy/presentation, runtime
+control protocol/UI, Decision query/provenance/Commands, account identity,
+usage envelope/ledger/aggregate/retention, Remote Control transport and
+accounting, cost projection, provider-meter foundation/adapters, run summary,
+financial authorization, the two summary surfaces, and selected-order usage
+integration are companion tickets with their own contract and ownership
+boundaries. Their original standalone membership — outside the Build Order
+root and terminal condition — is superseded by DEC-014's consolidation; the
+ownership boundaries below remain authoritative. BO-016 owns
+configured-repository ticket
+detail, BO-019 owns bounded sanitized recent history, BO-018 owns the accessible
+base context, and BO-011 adapts it to Build Order relationships. BO-012 consumes
+the shared route contract without waiting for companion metrics.
+
+The companion cost contract preserves provider/account-generation groups for
+attribution and exact tier joins, while producing one same-currency
+`api_equivalent_estimate` run/build roll-up across those groups. It never mixes
+currencies or provider-reported and API-equivalent bases, and a combined total
+never receives a synthetic plan tier.
+
+DASH-008 owns the versioned provider/source token-relationship authority rather
+than imposing one cache rule on every backend. Its contract distinguishes
+additive, subset, mutually exclusive, and unknown dimensions plus independent
+provider-total authority. DASH-010 pins Claude base input, cache creation, and
+cache read as additive for the exact supported telemetry version. DASH-011
+prices those Claude dimensions separately, prices subset sources such as Codex
+without double counting the parent slice, and fails closed on unknown or
+contradictory relationships. Provider totals, exact money, source versions,
+and partial coverage remain preserved rather than being repurposed to fill a
+missing dimensional contract.
+
+DASH-009 persists the pinned relationship revision unchanged in canonical
+records and replayed deltas; DASH-024 partitions aggregates by it; DASH-025
+cannot merge it during compaction. DASH-011 resolves each retained revision ID
+through DASH-008's immutable registry, ordered by the existing transitive
+storage dependency chain rather than a redundant direct graph edge.
+
+## DEC-010 — Treat phase as a hint
+
+**Status:** accepted
+
+Phase controls presentation and rollout grouping only. Readiness comes from
+native dependencies, current lifecycle, data health, conflicts, and capacity.
+
+## DEC-011 — Materialize without dispatch
+
+**Status:** accepted
+
+After user review, publish the approved GitHub issues with exactly one
+`complexity:N` and `model:codex-gpt-5.6-terra` on executable work. Do not apply
+`agent:todo`, start Aiur, or otherwise dispatch a ticket during planning.
+
+## DEC-012 — Protect the finite boundary
+
+**Status:** accepted
+
+During later execution, P0/P1 acceptance blockers may be promoted, contained
+review findings return to their existing ticket, and non-blocking defects or
+optimizations go to the deferred ledger. Freeze promotion when created or
+promoted work outpaces completed critical-path work.
+
+## DEC-013 — Gate execution on the real baseline
+
+**Status:** accepted
+
+Planning evidence is pinned to the completed Operator Control Center work on
+`main`, while the current repository config and contribution policy still name
+the divergent `v2` integration branch. No Build Order ticket may be dispatched
+until a human records the configured branch/SHA that contains the accepted OCC
+baseline and the predecessor dashboard run is complete. That baseline gate
+applies to every member of the consolidated Build Order. Build Order execution
+is additionally gated on recording the final reviewed PR #1065 source head
+`6447f9c193d2322d63f54a58b9c54e0a72d3e98f` and its squash-merged `main`
+commit `ed1846c4bc76d4657095da57951a0dbf3e914c3d`, then confirming the landed
+`/aiur-build`, `/aiur-run`, and `/aiur-monitor` skills are discoverable. These
+are external pre-dispatch gates, not feature tickets or additions to the
+completion denominator.
+
+## DEC-014 — Consolidate to a single Build Order
+
+**Status:** accepted (operator direction 2026-07-13)
+
+One GitHub root holds every executable ticket in the program as a direct
+member: all 54 tickets (BO-001..BO-020 and DASH-001..DASH-034) parallelize
+across one graph. Lanes (`build-lane:plan-graph` / `runtime` / `dashboard-ui`
+/ `accounting` / `platform`) and phase hints carry the separation that
+membership previously did; DEC-002's 100-member cap still holds at 54.
+DEC-009's separation of membership is superseded, while its ownership
+boundaries remain in force. BO-015 stays the single program capstone and now
+hard-depends on the graph's sinks, including DASH-033's dashboard-parity
+proof and DASH-023's selected-order usage integration.
+
+## Rejected alternatives
+
+- A draft planning PR as the live graph database: it drifts from GitHub and
+  Aiur.
+- One label per Build Order on every member: it duplicates native parenthood.
+- Per-browser or per-node GitHub polling: it scales with viewers/nodes and can
+  silently clear failed dependency reads.
+- A canvas-only graph: it makes rich accessible ticket cards and focus
+  behavior materially harder.
+- Progress-based dependency completion: it contradicts GitHub lifecycle truth.
+- The prototype's deterministic fixed SVG coordinates as production layout:
+  they are illustrative and do not meet arbitrary graph/viewport constraints.

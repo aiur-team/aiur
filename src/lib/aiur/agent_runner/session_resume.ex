@@ -56,7 +56,7 @@ defmodule Aiur.AgentRunner.SessionResume do
   # Session-lifecycle log carrying full issue context (per docs/logging.md,
   # which scopes issue-context start/completion logging to AgentRunner). Only
   # logs when a resume was attempted, distinguishing a true resume from a
-  # clean-start fallback so an operator can see whether the agent rejoined its
+  # clean-start fallback so an Executor can see whether the agent rejoined its
   # prior thread or restarted cold.
   @doc false
   @spec log_resume_outcome(Issue.t(), map(), String.t() | nil) :: :ok

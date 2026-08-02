@@ -45,8 +45,11 @@ defmodule Aiur.Init.Runtime do
           ensure_env: (String.t() -> {:created | :exists, Path.t()}),
           check_agent_auth: (String.t() -> :ok | {:error, String.t()}),
           install_claude_app_server: (-> :ok | {:error, String.t()}),
+          claude_version: (-> {:ok, String.t()} | {:error, String.t()}),
+          discover_models: (String.t() -> {:ok, [String.t()]} | {:error, term()}),
           repo_root: (-> Path.t()),
           github_login: (-> String.t() | nil),
+          github_bot_account_default: (-> String.t() | nil),
           github_token: (-> String.t() | nil),
           list_labels: (map() -> {:ok, [String.t()]} | {:error, term()}),
           create_labels: (map(), [String.t()] -> :ok | {:error, String.t()})
@@ -96,8 +99,11 @@ defmodule Aiur.Init.Runtime do
       ensure_env: &Scaffold.ensure_env/1,
       check_agent_auth: &Aiur.Init.AgentCli.check_agent_auth/1,
       install_claude_app_server: &Aiur.Init.AgentCli.install_claude_app_server/0,
+      claude_version: &Aiur.Init.AgentCli.claude_version/0,
+      discover_models: &Aiur.ModelCatalog.discover/1,
       repo_root: fn -> Codeowners.repo_root(File.cwd!()) end,
       github_login: &Aiur.Init.GitHub.detect_github_login/0,
+      github_bot_account_default: &Aiur.Init.GitHub.detect_bot_account/0,
       github_token: &GitHubConfig.token/0,
       list_labels: &Aiur.Init.GitHub.list_repo_labels/1,
       create_labels: &Aiur.Init.GitHub.create_labels/2

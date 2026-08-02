@@ -5,6 +5,8 @@ defmodule Aiur.GitHub.Config do
 
   @behaviour Aiur.TrackerConfig
 
+  alias Aiur.GitHub.CodeOwners
+
   @default_label_prefix "agent"
 
   @spec repo() :: String.t() | nil
@@ -20,6 +22,22 @@ defmodule Aiur.GitHub.Config do
         # No repo in config (e.g. the general global config) — auto-detect
         # it from the current repo's git remote.
         Aiur.Git.origin_repo()
+    end
+  end
+
+  @doc """
+  Returns only the repository explicitly configured in `tracker.github.repo`.
+
+  Unlike `repo/0`, this never falls back to the current checkout's git remote;
+  callers using it are establishing a trusted cross-repository identity.
+  """
+  @spec configured_repo() ::
+          {:ok, {String.t(), String.t()}}
+          | {:error, :missing_configured_repository | :invalid_configured_repository}
+  def configured_repo do
+    case section_value("repo") do
+      value when is_binary(value) -> parse_configured_repo(value)
+      _ -> {:error, :missing_configured_repository}
     end
   end
 
@@ -75,6 +93,15 @@ defmodule Aiur.GitHub.Config do
     end
   end
 
+  @spec planning_root_limit() :: pos_integer()
+  def planning_root_limit, do: section_value("planning_root_limit")
+
+  @spec planning_page_budget() :: pos_integer()
+  def planning_page_budget, do: section_value("planning_page_budget")
+
+  @spec planning_call_budget() :: pos_integer()
+  def planning_call_budget, do: section_value("planning_call_budget")
+
   @doc """
   Returns the GitHub login that Aiur posts under (PR comments, dependency
   declarations, etc.). Read from `github.bot_account` in .aiurconfig.
@@ -119,6 +146,47 @@ defmodule Aiur.GitHub.Config do
       _ ->
         []
     end
+  end
+
+  @doc """
+  Returns the explicit dispatch allowlist, or the running CODEOWNERS-derived
+  allowlist when it is absent. An unavailable or empty fallback denies all
+  dispatches rather than opening the trust boundary.
+  """
+  @spec allowed_users() :: [String.t()]
+  def allowed_users do
+    case normalize_logins(section_value("allowed_users")) do
+      [] -> codeowners_users()
+      users -> users
+    end
+  end
+
+  @doc """
+  Returns the explicit human-only merge allowlist. Unlike comment trust and
+  dispatch authorization, this list never inherits CODEOWNERS, bot accounts,
+  or other trusted identities. An absent list denies all mergers.
+  """
+  @spec human_mergers() :: [String.t()]
+  def human_mergers do
+    section_value("human_mergers")
+    |> normalize_logins()
+  end
+
+  @doc """
+  Returns true only when `login` is explicitly configured as a human merger.
+  Login matching is case-insensitive.
+  """
+  @spec human_merger_allowed?(String.t() | nil, [String.t()]) :: boolean()
+  def human_merger_allowed?(login, allowed \\ human_mergers())
+
+  def human_merger_allowed?(nil, _allowed), do: false
+
+  def human_merger_allowed?(login, allowed) when is_binary(login) and is_list(allowed) do
+    normalized_login = login |> String.trim() |> String.downcase()
+
+    Enum.any?(allowed, fn candidate ->
+      is_binary(candidate) and String.downcase(String.trim(candidate)) == normalized_login
+    end)
   end
 
   @doc """
@@ -169,6 +237,34 @@ defmodule Aiur.GitHub.Config do
     |> Map.get(String.to_existing_atom(key))
   end
 
+  defp normalize_logins(accounts) when is_list(accounts) do
+    accounts
+    |> Enum.filter(&is_binary/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq_by(&String.downcase/1)
+  end
+
+  defp normalize_logins(account) when is_binary(account), do: normalize_logins([account])
+  defp normalize_logins(_accounts), do: []
+
+  defp codeowners_users do
+    if Process.whereis(CodeOwners) do
+      CodeOwners.codeowners_snapshot()
+    else
+      []
+    end
+  catch
+    :exit, _reason -> []
+  end
+
+  defp parse_configured_repo(value) do
+    case String.split(String.trim(value), "/") do
+      [owner, repo] when owner != "" and repo != "" -> {:ok, {owner, repo}}
+      _ -> {:error, :invalid_configured_repository}
+    end
+  end
+
   # Query the gh keyring with the env tokens CLEARED so gh returns the stored
   # login rather than echoing the (possibly stale) env var. nil when gh is
   # absent or not logged in via keyring (headless/CI).
@@ -188,7 +284,8 @@ defmodule Aiur.GitHub.Config do
   # token, but an exhausted core quota still wedges the fleet (#617). Treat a
   # 200 response with remaining=0 as unusable so boot can fall back from a stale
   # `.env` token to `gh` keyring auth when available.
-  defp valid_github_token?(token, request_fun) when is_binary(token) and is_function(request_fun, 2) do
+  defp valid_github_token?(token, request_fun)
+       when is_binary(token) and is_function(request_fun, 2) do
     case request_fun.("https://api.github.com/rate_limit",
            headers: [
              {"Authorization", "Bearer #{token}"},

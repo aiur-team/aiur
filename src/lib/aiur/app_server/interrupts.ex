@@ -1,17 +1,17 @@
 defmodule Aiur.AppServer.Interrupts do
   @moduledoc """
-  Shared pause and operator-queue interrupt state machine.
+  Shared pause and Executor-queue interrupt state machine.
   """
 
-  @spec handle_pause_request(map(), map(), integer()) ::
+  @spec handle_pause_request(map(), map(), integer() | map()) ::
           {:continue, map()} | {:error, term()}
-  def handle_pause_request(_session, %{pause_request_id: request_id} = state, request_id)
-      when is_integer(request_id) do
+  def handle_pause_request(_session, %{pause_request_id: request} = state, request)
+      when not is_nil(request) do
     {:continue, state}
   end
 
-  def handle_pause_request(_session, %{pause_request_id: existing_request_id} = state, _request_id)
-      when is_integer(existing_request_id) do
+  def handle_pause_request(_session, %{pause_request_id: existing_request} = state, _request)
+      when not is_nil(existing_request) do
     {:continue, state}
   end
 

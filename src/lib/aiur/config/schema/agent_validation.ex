@@ -1,7 +1,7 @@
 defmodule Aiur.Config.Schema.AgentValidation do
   @moduledoc "Normalizers and changeset validators for the agent section's map fields (state limits, complexity routing, complexity prompts) and normalize_issue_state/1."
 
-  import Ecto.Changeset, only: [validate_change: 3]
+  import Ecto.Changeset, only: [get_field: 2, validate_change: 3]
 
   alias Aiur.Config.RoutingValue
 
@@ -52,7 +52,7 @@ defmodule Aiur.Config.Schema.AgentValidation do
   @doc false
   @spec validate_agent_routing(Ecto.Changeset.t(), atom()) :: Ecto.Changeset.t()
   def validate_agent_routing(changeset, field) do
-    known = Aiur.CodingAgent.known_backends()
+    known = Aiur.CodingAgent.dispatchable_backends(get_field(changeset, :backend_configs) || %{})
 
     validate_change(changeset, field, fn ^field, routing ->
       Enum.flat_map(routing, fn {level, value} ->
@@ -68,7 +68,7 @@ defmodule Aiur.Config.Schema.AgentValidation do
 
       not is_binary(value) or RoutingValue.routing_backend(value) not in known ->
         [
-          {field, "unknown backend #{inspect(value)}; known backends: #{inspect(known)} (optionally backend:model)"}
+          {field, "unknown or disabled backend #{inspect(value)}; dispatchable backends: #{inspect(known)} (optionally backend:model)"}
         ]
 
       RoutingValue.routing_remote_flag?(value) and
@@ -134,6 +134,35 @@ defmodule Aiur.Config.Schema.AgentValidation do
 
           not is_binary(text) ->
             [{field, "complexity prompt values must be strings"}]
+
+          true ->
+            []
+        end
+      end)
+    end)
+  end
+
+  @doc false
+  @spec normalize_max_turns_by_complexity(nil | map()) :: map()
+  def normalize_max_turns_by_complexity(nil), do: %{}
+
+  def normalize_max_turns_by_complexity(caps) when is_map(caps) do
+    Enum.reduce(caps, %{}, fn {level, cap}, acc ->
+      Map.put(acc, normalize_routing_level(level), cap)
+    end)
+  end
+
+  @doc false
+  @spec validate_max_turns_by_complexity(Ecto.Changeset.t(), atom()) :: Ecto.Changeset.t()
+  def validate_max_turns_by_complexity(changeset, field) do
+    validate_change(changeset, field, fn ^field, caps ->
+      Enum.flat_map(caps, fn {level, cap} ->
+        cond do
+          not is_integer(level) or level <= 0 ->
+            [{field, "complexity levels must be positive integers"}]
+
+          not is_integer(cap) or cap <= 0 ->
+            [{field, "max_turns_by_complexity values must be positive integers"}]
 
           true ->
             []

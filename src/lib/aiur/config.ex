@@ -4,6 +4,7 @@ defmodule Aiur.Config do
   legacy `.aiurconfig`).
   """
 
+  alias Aiur.BuildGate
   alias Aiur.Config.Schema
   alias Aiur.Config.Schema.AgentValidation
   alias Aiur.Workflow
@@ -21,6 +22,11 @@ defmodule Aiur.Config do
   No description provided.
   {% endif %}
   """
+
+  @default_base_branch "main"
+  @default_telemetry_retention_max_bytes 64 * 1024 * 1024
+  @default_telemetry_retention_max_age_days 30
+  @minimum_telemetry_retention_prune_interval_bytes 1 * 1024 * 1024
 
   @type codex_runtime_settings :: %{
           approval_policy: String.t(),
@@ -75,10 +81,30 @@ defmodule Aiur.Config do
     settings!().tracker.kind
   end
 
+  @doc "The configured tracker integration branch, defaulting to `main`."
+  @spec base_branch() :: String.t()
+  def base_branch do
+    case settings() do
+      {:ok, %{tracker: %{base_branch: name}}} when is_binary(name) and name != "" -> name
+      _ -> @default_base_branch
+    end
+  end
+
   @spec agent_kind() :: String.t()
   def agent_kind do
-    settings!().agent.kind || "codex"
+    settings!().agent.kind || Aiur.CodingAgent.default_backend()
   end
+
+  @doc "Raw settings for a registry-named backend, or an empty map when absent."
+  @spec backend_config(String.t()) :: map()
+  def backend_config(backend) when is_binary(backend) do
+    settings!().agent.backend_configs
+    |> Map.get(backend, %{})
+  end
+
+  @doc "Raw settings for all registry-named backends."
+  @spec agent_backend_configs() :: map()
+  def agent_backend_configs, do: settings!().agent.backend_configs || %{}
 
   @spec agent_routing() :: %{pos_integer() => String.t()}
   def agent_routing do
@@ -87,6 +113,34 @@ defmodule Aiur.Config do
 
   @spec switch_model_on_ratelimit() :: [String.t()]
   def switch_model_on_ratelimit, do: settings!().agent.switch_model_on_ratelimit || []
+
+  @doc """
+  The registered backend the automatic usage-limit fallback reroutes *to*
+  (`Aiur.Orchestrator.RateLimitFallback`) when an already-running agent on
+  `rate_limit_primary_backend/0` hits `usage_limit_exhausted`, or `nil` when
+  disabled (`agent.rate_limit_fallback: ""`). Any registry-declared eligible
+  from the primary is accepted; the default is `"claude"`. Unlike
+  `switch_model_on_ratelimit/0` (opt-in, only ever applies to a new claim),
+  this is default-on and reroutes a running local agent, reverting at a safe
+  turn boundary once `Aiur.ModelAvailability` confirms the primary recovered.
+  """
+  @spec rate_limit_fallback_backend() :: String.t() | nil
+  def rate_limit_fallback_backend do
+    case settings!().agent.rate_limit_fallback do
+      backend when is_binary(backend) and backend != "" -> backend
+      _ -> nil
+    end
+  end
+
+  @doc """
+  The registered backend the usage-limit fallback reroutes *from* — the pair's
+  primary. Only an already-running agent on this backend that hits
+  `usage_limit_exhausted` is eligible for the reroute to
+  `rate_limit_fallback_backend/0`. Defaults to `"codex"`, preserving the
+  historical codex -> claude reroute.
+  """
+  @spec rate_limit_primary_backend() :: String.t()
+  def rate_limit_primary_backend, do: settings!().agent.rate_limit_primary
 
   @doc """
   Setting #2: whether dispatched agents attach a `claude remote-control`
@@ -100,6 +154,33 @@ defmodule Aiur.Config do
   end
 
   @doc """
+  Lifetime cap on (re)dispatches for a single ticket, or 0 when disabled.
+  """
+  @spec agent_max_dispatches_per_ticket() :: non_neg_integer()
+  def agent_max_dispatches_per_ticket do
+    case settings() do
+      {:ok, settings} -> Map.get(settings.agent, :max_dispatches_per_ticket) || 0
+      _ -> 0
+    end
+  end
+
+  @doc """
+  Whether a recycled re-dispatch that could not resume its thread gets
+  continuation guidance instead of the cold-start prompt. Defaults to true so
+  a non-resumable backend switch picks up the shared workspace without claiming
+  cross-backend conversation continuity.
+  """
+  @spec agent_prior_work_continuation?() :: boolean()
+  def agent_prior_work_continuation? do
+    case settings() do
+      # Map.get, not dot access, so a config cached before this field existed
+      # uses the current default rather than raising after a schema upgrade.
+      {:ok, settings} -> Map.get(settings.agent, :prior_work_continuation, true)
+      _ -> true
+    end
+  end
+
+  @doc """
   Per-complexity-level guidance strings, keyed by complexity level.
   Appended to the end of the rendered prompt for an issue carrying the
   matching `complexity:<n>` label. Returns `%{}` when unset or the config
@@ -110,6 +191,34 @@ defmodule Aiur.Config do
     case settings() do
       {:ok, settings} -> settings.agent.complexity_prompts || %{}
       _ -> %{}
+    end
+  end
+
+  @doc """
+  Per-complexity turn-cap map, keyed by complexity level. `%{}` when unset.
+  """
+  @spec agent_max_turns_by_complexity() :: %{pos_integer() => pos_integer()}
+  def agent_max_turns_by_complexity do
+    case settings() do
+      # Map.get (not dot access) so a config cached before this field existed
+      # returns %{} rather than raising KeyError after a schema upgrade.
+      {:ok, settings} -> Map.get(settings.agent, :max_turns_by_complexity) || %{}
+      _ -> %{}
+    end
+  end
+
+  @doc """
+  Effective turn cap for an issue: the `agent.max_turns_by_complexity` entry for
+  the issue's `complexity:N` level when present, otherwise the flat
+  `agent.max_turns`.
+  """
+  @spec agent_max_turns_for(Aiur.Issue.t()) :: pos_integer() | nil
+  def agent_max_turns_for(%Aiur.Issue{} = issue) do
+    with level when is_integer(level) <- Aiur.CodingAgent.complexity_level(issue),
+         cap when is_integer(cap) <- Map.get(agent_max_turns_by_complexity(), level) do
+      cap
+    else
+      _ -> agent_max_turns()
     end
   end
 
@@ -170,6 +279,45 @@ defmodule Aiur.Config do
     settings!().max_log_history_mb
   end
 
+  @doc false
+  @spec build_order_ticket_detail_cache_options() :: keyword()
+  def build_order_ticket_detail_cache_options do
+    build_order = settings!().build_order
+
+    [
+      freshness_ms: build_order.ticket_detail_freshness_ms,
+      max_entries: build_order.ticket_detail_max_entries,
+      max_description_bytes: build_order.ticket_detail_max_description_bytes
+    ]
+  end
+
+  @doc false
+  @spec build_order_ticket_history_options() :: keyword()
+  def build_order_ticket_history_options do
+    build_order = settings!().build_order
+
+    [
+      history_limit: build_order.ticket_history_limit,
+      max_identities: build_order.ticket_history_max_identities,
+      stale_after_ms: build_order.ticket_history_stale_after_ms
+    ]
+  end
+
+  @doc false
+  @spec build_order_graph_projection_options() :: keyword()
+  def build_order_graph_projection_options do
+    build_order = settings!().build_order
+
+    [
+      catalog_refresh_ms: build_order.graph_catalog_refresh_ms,
+      selected_refresh_ms: build_order.graph_selected_refresh_ms,
+      demand_refresh_ms: build_order.graph_demand_refresh_ms,
+      refresh_timeout_ms: build_order.graph_refresh_timeout_ms,
+      max_selected_roots: build_order.graph_max_selected_roots,
+      max_inflight: build_order.graph_max_inflight
+    ]
+  end
+
   @spec workspace_hooks() :: map()
   def workspace_hooks do
     hooks = settings!().hooks
@@ -188,6 +336,16 @@ defmodule Aiur.Config do
     settings!().hooks.timeout_ms
   end
 
+  @doc false
+  @spec usage_ledger_durability_timeout() :: timeout()
+  def usage_ledger_durability_timeout do
+    case Application.get_env(:aiur, :usage_ledger_durability_timeout, :infinity) do
+      :infinity -> :infinity
+      timeout when is_integer(timeout) and timeout > 0 -> timeout
+      _other -> :infinity
+    end
+  end
+
   @spec max_concurrent_agents() :: pos_integer()
   def max_concurrent_agents do
     settings!().agent.max_concurrent_agents
@@ -200,6 +358,21 @@ defmodule Aiur.Config do
   @spec max_concurrent_builds() :: non_neg_integer()
   def max_concurrent_builds do
     settings!().agent.max_concurrent_builds
+  end
+
+  @doc "Minimum whole-second spacing between concurrent local Mix compile/test starts."
+  @spec build_start_stagger_seconds() :: non_neg_integer()
+  def build_start_stagger_seconds do
+    settings!().agent.build_start_stagger_seconds || 0
+  end
+
+  @doc """
+  Minimum Linux `MemAvailable` headroom required for normal dispatch and local
+  agent Mix verification. `nil` disables memory admission.
+  """
+  @spec min_free_memory_mb() :: pos_integer() | nil
+  def min_free_memory_mb do
+    settings!().agent.min_free_memory_mb
   end
 
   @doc "Scheduler count enforced for every Mix VM launched by an agent."
@@ -298,10 +471,16 @@ defmodule Aiur.Config do
     settings!().agent.max_agent_duration_minutes
   end
 
+  @doc "Minutes before a CI-wait agent is re-woken for one recovery check."
+  @spec ci_wait_rewake_minutes() :: pos_integer()
+  def ci_wait_rewake_minutes do
+    settings!().agent.ci_wait_rewake_minutes
+  end
+
   @doc """
   Maximum known synthetic load-generator descendants allowed per agent process
   tree. `nil` in config derives from available schedulers; `0` disables the
-  guard for operators that prefer manual containment.
+  guard for Executors that prefer manual containment.
   """
   @spec synthetic_load_process_cap() :: non_neg_integer()
   def synthetic_load_process_cap do
@@ -403,11 +582,33 @@ defmodule Aiur.Config do
     settings!().observability.dashboard_enabled
   end
 
-  # Whether the dashboard may drive agents (operator chat, pause). Read-only by
+  @doc "Whether run telemetry recording is active. True by default; set `observability.telemetry_enabled: false` to opt out."
+  @spec telemetry_enabled?() :: boolean()
+  def telemetry_enabled? do
+    case settings_uncached() do
+      {:ok, %{observability: observability}} -> observability.telemetry_enabled
+      _other -> true
+    end
+  end
+
+  # Whether the dashboard may drive agents (Executor chat, pause). Read-only by
   # default until a deliberate dashboard parity pass — see issue #371.
   @spec dashboard_writable?() :: boolean()
   def dashboard_writable? do
     settings!().observability.dashboard_writable
+  end
+
+  @spec supervisor_decision_policy() :: %{
+          allowed_kinds: [String.t()],
+          allow_non_reversible: boolean()
+        }
+  def supervisor_decision_policy do
+    decisions = settings!().decisions
+
+    %{
+      allowed_kinds: decisions.supervisor_allowed_kinds,
+      allow_non_reversible: decisions.supervisor_allow_non_reversible
+    }
   end
 
   @spec observability_refresh_ms() :: pos_integer()
@@ -419,6 +620,44 @@ defmodule Aiur.Config do
   def observability_render_interval_ms do
     settings!().observability.render_interval_ms
   end
+
+  @doc """
+  Retention limits for the durable run-telemetry stream.
+
+  - `:max_bytes` — maximum file size in bytes. Whole boot groups are pruned
+    from oldest to newest until the file fits. Defaults to 64 MiB.
+  - `:max_age_days` — maximum age of a retained boot in days. Defaults to 30.
+  - `:prune_interval_bytes` — periodic in-writer pruning fires after this many
+    bytes have been written since the last prune. Defaults to `max(max_bytes/8, 1 MiB)`
+    and can be overridden with `observability.telemetry_retention_prune_interval_bytes`.
+  """
+  @spec telemetry_retention() :: [
+          max_bytes: pos_integer(),
+          max_age_days: pos_integer(),
+          prune_interval_bytes: pos_integer()
+        ]
+  def telemetry_retention do
+    case settings() do
+      {:ok, %{observability: observability}} ->
+        max_bytes = Map.get(observability, :telemetry_retention_max_bytes, @default_telemetry_retention_max_bytes)
+
+        [
+          max_bytes: max_bytes,
+          max_age_days: Map.get(observability, :telemetry_retention_max_age_days, @default_telemetry_retention_max_age_days),
+          prune_interval_bytes: Map.get(observability, :telemetry_retention_prune_interval_bytes) || default_prune_interval(max_bytes)
+        ]
+
+      _other ->
+        [
+          max_bytes: @default_telemetry_retention_max_bytes,
+          max_age_days: @default_telemetry_retention_max_age_days,
+          prune_interval_bytes: default_prune_interval(@default_telemetry_retention_max_bytes)
+        ]
+    end
+  end
+
+  defp default_prune_interval(max_bytes) when is_integer(max_bytes) and max_bytes > 0,
+    do: max(div(max_bytes, 8), @minimum_telemetry_retention_prune_interval_bytes)
 
   @spec validate!() :: :ok | {:error, term()}
   def validate! do
@@ -432,16 +671,67 @@ defmodule Aiur.Config do
   def codex_runtime_settings(workspace \\ nil, opts \\ []) do
     with {:ok, settings} <- settings(),
          {:ok, approval_policy} <-
-           validate_codex_approval_policy(settings.agent.codex.approval_policy) do
-      with {:ok, turn_sandbox_policy} <-
-             Schema.resolve_runtime_turn_sandbox_policy(settings, workspace, opts) do
-        {:ok,
-         %{
-           approval_policy: approval_policy,
-           thread_sandbox: settings.agent.codex.thread_sandbox,
-           turn_sandbox_policy: turn_sandbox_policy
-         }}
-      end
+           validate_codex_approval_policy(settings.agent.codex.approval_policy),
+         {:ok, turn_sandbox_policy} <- codex_runtime_turn_sandbox_policy(settings, workspace, opts) do
+      {:ok,
+       %{
+         approval_policy: approval_policy,
+         thread_sandbox: settings.agent.codex.thread_sandbox,
+         turn_sandbox_policy: turn_sandbox_policy
+       }}
+    end
+  end
+
+  defp codex_runtime_turn_sandbox_policy(settings, workspace, opts) do
+    with {:ok, turn_sandbox_policy} <-
+           Schema.resolve_runtime_turn_sandbox_policy(settings, workspace, opts) do
+      maybe_add_build_gate_root(turn_sandbox_policy, settings, workspace, opts)
+    end
+  end
+
+  defp maybe_add_build_gate_root(turn_sandbox_policy, settings, workspace, opts) do
+    gate_opts = [
+      slots: settings.agent.max_concurrent_builds,
+      stagger_seconds: settings.agent.build_start_stagger_seconds,
+      min_free_memory_mb: settings.agent.min_free_memory_mb
+    ]
+
+    cond do
+      Keyword.get(opts, :remote, false) ->
+        {:ok, turn_sandbox_policy}
+
+      not BuildGate.enabled?(gate_opts) ->
+        {:ok, turn_sandbox_policy}
+
+      not workspace_write_policy?(turn_sandbox_policy) ->
+        {:ok, turn_sandbox_policy}
+
+      true ->
+        with {:ok, additional_roots} <- additional_writable_roots(opts),
+             {:ok, effective_roots} <- policy_writable_roots(turn_sandbox_policy),
+             {:ok, gate_dir} <-
+               BuildGate.prepare_writable_root(Keyword.put(gate_opts, :writable_roots, effective_roots)) do
+          sandbox_opts = Keyword.put(opts, :additional_writable_roots, additional_roots ++ [gate_dir])
+          Schema.resolve_runtime_turn_sandbox_policy(settings, workspace, sandbox_opts)
+        end
+    end
+  end
+
+  defp workspace_write_policy?(policy) do
+    (Map.get(policy, "type") || Map.get(policy, :type)) == "workspaceWrite"
+  end
+
+  defp policy_writable_roots(policy) do
+    case Map.get(policy, "writableRoots") || Map.get(policy, :writableRoots) || [] do
+      roots when is_list(roots) -> {:ok, roots}
+      roots -> {:error, {:unsafe_turn_sandbox_policy, {:invalid_writable_roots, roots}}}
+    end
+  end
+
+  defp additional_writable_roots(opts) do
+    case Keyword.get(opts, :additional_writable_roots, []) do
+      roots when is_list(roots) -> {:ok, roots}
+      roots -> {:error, {:unsafe_turn_sandbox_policy, {:invalid_writable_roots, roots}}}
     end
   end
 
@@ -467,7 +757,7 @@ defmodule Aiur.Config do
       settings.tracker.kind not in ["linear", "github", "memory"] ->
         {:error, {:unsupported_tracker_kind, settings.tracker.kind}}
 
-      settings.agent.kind not in Aiur.CodingAgent.known_backends() ->
+      settings.agent.kind not in Aiur.CodingAgent.dispatchable_backends(settings.agent.backend_configs) ->
         {:error, {:unsupported_agent_kind, settings.agent.kind}}
 
       settings.tracker.kind == "linear" and not is_binary(settings.tracker.linear.api_key) ->
@@ -504,7 +794,9 @@ defmodule Aiur.Config do
   end
 
   defp prepare_agent_config(config, agent) do
-    put_default_kind(agent, inferred_agent_kind(config))
+    agent
+    |> Map.put("backend_configs", backend_config_sections(config, agent))
+    |> put_default_kind(inferred_agent_kind(config))
   end
 
   defp put_default_kind(section, kind) do
@@ -524,11 +816,26 @@ defmodule Aiur.Config do
   end
 
   defp inferred_agent_kind(config) do
-    cond do
-      has_section?(config, "claude") -> "claude"
-      has_section?(config, "codex") -> "codex"
-      true -> "claude"
-    end
+    agent = map_section(config, "agent")
+
+    Enum.find(Aiur.CodingAgent.configurable_backends(), fn backend ->
+      has_section?(config, backend) or Map.has_key?(backend_config_sections(config, agent), backend)
+    end) || Aiur.CodingAgent.default_config_backend()
+  end
+
+  defp backend_config_sections(config, agent) do
+    explicit = map_section(agent, "backend_configs")
+
+    Aiur.CodingAgent.known_backends()
+    |> Enum.reduce(explicit, fn backend, sections ->
+      section =
+        config
+        |> map_section(backend)
+        |> Map.merge(map_section(agent, backend))
+        |> Map.merge(map_section(explicit, backend))
+
+      if map_size(section) > 0, do: Map.put(sections, backend, section), else: sections
+    end)
   end
 
   defp has_section?(config, name) do

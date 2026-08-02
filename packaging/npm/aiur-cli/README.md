@@ -56,11 +56,20 @@ to the issues you want worked and run `aiur`.
 |---|---|
 | `aiur init` | Interactive setup wizard (scaffold `.aiurconfig`) |
 | `aiur` | Start the workflow in the foreground (local-only bind) |
-| `aiur --bg` | Start a headless BEAM in one detached tmux lifetime session |
+| `aiur --bg` | Start a detached headless BEAM with the web dashboard enabled |
+| `aiur --bg --no-dashboard` | Start a lean detached headless BEAM without the dashboard |
+| `aiur --no-dashboard` | Keep the foreground terminal UI without the dashboard |
 | `aiur status` | Show active agents and their state |
 | `aiur alerts [--needs-attention]` | Show structured alert feed JSON lines |
 | `aiur pause <id…>` / `resume <id…>` | Pause or resume agents by issue ID |
+| `aiur --todo <id…> [--only]` | Queue GitHub tickets; optionally dequeue all other pending tickets |
 | `aiur stop` | Stop the running session |
+
+`aiur --todo` works without a running daemon and derives its repository and
+labels from the current config. `--only` leaves tickets already in progress
+untouched. Concurrent `--only` invocations are not coordinated across
+processes; running two overlapping `aiur --todo ... --only` commands can drop
+each other's tickets, so avoid running them at the same time.
 
 If a control command times out while the daemon is still live, the host may be
 scheduler-saturated. Run `aiur stop` to interrupt that session and its workers,
@@ -76,14 +85,24 @@ single-agent pause.
 - **Smart Alerts** — Customize notifications and sounds when agents finish, stall, or need a decision.
 - **Live Dashboard** — Shareable web view of every agent, event, and progress bar.
 
-Background mode is headless inside Aiur: it skips the interactive agent-list
-pane, chat/prewarm panes, and dashboard unless you explicitly opt into a
-dashboard port. The launcher still keeps one detached tmux session as the BEAM
-lifetime holder. Re-running `aiur --bg` against a live session exits with an
-already-running hint; stale tmux state is cleaned up before restart.
+Background mode is headless inside Aiur: it skips the interactive agent-list and
+chat/prewarm panes, but serves the dashboard at the configured host and port.
+Use `--bg --no-dashboard` for the lean no-listener shape. `--no-dashboard` also
+works in foreground mode without removing the terminal UI. Non-loopback binds
+still require both dashboard Basic Auth environment variables. The launcher
+keeps one detached tmux session as the BEAM lifetime holder. Re-running
+`aiur --bg` against a live session exits with an already-running hint; stale
+tmux state is cleaned up before restart.
+
+Claude Remote Control lifecycle hooks require the HTTP server. Aiur rejects a
+`--no-dashboard` launch when `agent.remote_control` is enabled or an
+`agent.routing` value uses `+remote`; remove the flag or disable that Remote
+Control configuration. Runtime `model:remote` dispatch and live promotion are
+also refused unless the HTTP listener is confirmed bound. A background launch
+prints that confirmed URL, or an explicit listener-unavailable warning.
 
 ---
 
 _Command macro, delegate micro, maximize APM._
 
-[github.com/its-everdred/aiur](https://github.com/its-everdred/aiur)
+[github.com/aiur-team/aiur](https://github.com/aiur-team/aiur)
