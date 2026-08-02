@@ -363,17 +363,18 @@ defmodule Aiur.Events.GithubFirehose do
     actor = get_in(event, ["actor", "login"])
     repo_name = get_in(event, ["repo", "name"]) || Keyword.get(opts, :repo)
     pr_number = Map.get(pr, "number")
+    merged? = merged_pull_request_event?(action, Map.get(pr, "merged"))
 
     with {:ticket, id, _push_topic} <- GithubKeys.ref_to_topic("refs/heads/" <> head_ref),
-         topic when is_binary(topic) <- pr_topic(id, action, Map.get(pr, "merged")) do
+         topic when is_binary(topic) <- pr_topic(id, action, merged?) do
       publish_opts = [
         actor: actor,
         issue_number: id,
-        bypass_contamination: action == "closed" and Map.get(pr, "merged") == true,
+        bypass_contamination: merged?,
         dedup_key: GithubKeys.pr_dedup_key(repo_name, pr_number, action, head_sha)
       ]
 
-      {topic, %{action: action, pr: pr}, publish_opts}
+      {topic, %{action: action, pr: pr, timestamp: Map.get(event, "created_at")}, publish_opts}
     else
       _ -> nil
     end
@@ -382,6 +383,12 @@ defmodule Aiur.Events.GithubFirehose do
   defp translate(_event, _opts), do: nil
 
   defp pr_topic(id, "opened", _merged), do: "ticket.#{id}.pr.opened"
-  defp pr_topic(id, "closed", true), do: "ticket.#{id}.pr.merged"
+  defp pr_topic(id, _action, true), do: "ticket.#{id}.pr.merged"
   defp pr_topic(_id, _action, _merged), do: nil
+
+  # GitHub's Events API emits sparse merge notifications as action=merged.
+  # Retain the older closed+merged form for replay compatibility.
+  defp merged_pull_request_event?("merged", _merged), do: true
+  defp merged_pull_request_event?("closed", true), do: true
+  defp merged_pull_request_event?(_action, _merged), do: false
 end

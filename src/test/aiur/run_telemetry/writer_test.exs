@@ -618,7 +618,7 @@ defmodule Aiur.RunTelemetry.WriterTest do
     assert dataset.warnings == []
   end
 
-  test "periodic retention failure does not crash or stall the writer", %{path: path, root: root} do
+  test "periodic retention failure does not crash or stall the writer", %{path: _path, root: root} do
     import ExUnit.CaptureLog
 
     # The path reported to Retention.prune must be a directory so File.stream! raises
@@ -664,11 +664,9 @@ defmodule Aiur.RunTelemetry.WriterTest do
       "actor" => %{"login" => "merger"},
       "repo" => %{"name" => "owner/repo"},
       "payload" => %{
-        "action" => "closed",
+        "action" => "merged",
         "pull_request" => %{
           "number" => 77,
-          "merged" => true,
-          "merged_at" => "2026-07-11T13:01:00Z",
           "head" => %{"ref" => "aiur/930-analytics", "sha" => "head-77"}
         }
       }
@@ -714,11 +712,9 @@ defmodule Aiur.RunTelemetry.WriterTest do
       "actor" => %{"login" => "merger"},
       "repo" => %{"name" => "owner/repo"},
       "payload" => %{
-        "action" => "closed",
+        "action" => "merged",
         "pull_request" => %{
           "number" => 77,
-          "merged" => true,
-          "merged_at" => "2026-07-11T13:01:00Z",
           "head" => %{"ref" => "aiur/930-analytics", "sha" => "live-head-77"}
         }
       }
