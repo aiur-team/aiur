@@ -170,7 +170,13 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
       | key: :unknown,
         title: "Unknown activity",
         status_icon: %Icon{key: :status_blocking, text: "Blocked"},
-        card: %{known.card | identifier: "#2", progress: :unknown, status_text: "Blocked"}
+        card: %{
+          known.card
+          | identifier: "#2",
+            lifecycle: %{state: :unknown, state_reason: :unknown},
+            progress: :unknown,
+            status_text: "Blocked"
+        }
     }
 
     html =
@@ -190,11 +196,17 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert html =~ "Cx 3"
     assert html =~ ~s(class="bo-node-blocks")
     assert html =~ "width:60%"
+    assert html =~ ~s(class="bo-epic-count">unknown<)
 
-    # Unknown-progress card shows no percent but still renders a (0%) bar and its status word.
+    # Unknown-progress cards expose neither a false percentage nor a zero-width bar.
     assert html =~ ~s(data-bo-card="#2")
     assert html =~ "Blocked"
-    assert html =~ "width:0%"
+    assert html =~ ~s(class="bo-wave-seg-pct">unknown<)
+
+    {:ok, document} = Floki.parse_document(html)
+    [unknown_aria] = Floki.attribute(document, ~s([data-bo-card="#2"]), "aria-label")
+    refute unknown_aria =~ "0%"
+    assert Floki.find(document, ~s([data-bo-card="#2"] .bo-node-bar)) == []
   end
 
   test "renders delivery failure and supersession as explicit lifecycle overrides" do

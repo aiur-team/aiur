@@ -62,6 +62,33 @@ defmodule Aiur.AgentControlCLIUsageTest do
     refute output =~ "90%"
   end
 
+  test "credit windows print an exact dollar balance without a percentage", ctx do
+    send_observation(ctx.pid, :openrouter, ~U[2026-07-27 12:04:30Z], %{
+      "credits" => %{kind: :credit, name: :credits, credits: %{status: :available, amount: 77.5}}
+    })
+
+    output = capture_io(fn -> AgentControlCLI.usage(ctx.projection) end)
+    assert output =~ "$77.50 remaining"
+    refute output =~ "openrouter  0%"
+  end
+
+  test "DeepSeek concurrency prints as a local count rather than provider utilization", ctx do
+    send_observation(ctx.pid, :deepseek, ~U[2026-07-27 12:04:30Z], %{
+      "local-concurrency" => %{
+        kind: :rate_limit,
+        name: "Local concurrency",
+        used: 2,
+        limit: 2_500,
+        used_percent: 0.08
+      }
+    })
+
+    output = capture_io(fn -> AgentControlCLI.usage(ctx.projection) end)
+    assert output =~ "2/2500 in flight"
+    refute output =~ "%"
+    refute output =~ "░"
+  end
+
   test "ages scale from seconds through hours", ctx do
     send_observation(ctx.pid, :claude, ~U[2026-07-27 12:04:45Z], %{"s" => window(10)})
     assert capture_io(fn -> AgentControlCLI.usage(ctx.projection) end) =~ "15s ago"
