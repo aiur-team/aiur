@@ -49,8 +49,7 @@ defmodule Aiur.AgentList.Controls do
 
       true ->
         Logger.info("[user-action] pause_agent identifier=#{identifier} source=agent_list")
-        _ = Orchestrator.pause_agent(state.orchestrator, identifier)
-        state
+        handle_control_result(state, :pause, Orchestrator.pause_agent(state.orchestrator, identifier))
     end
   end
 
@@ -70,9 +69,16 @@ defmodule Aiur.AgentList.Controls do
 
   defp toggle_agent_remote_control(_summary, state), do: rc_hint(state, "Remote Control requires a local Claude agent")
 
-  defp handle_resume_result(state, {:ok, _}), do: state
+  defp handle_resume_result(state, result), do: handle_control_result(state, :resume, result)
 
-  defp handle_resume_result(state, {:error, reason}) do
+  defp handle_control_result(state, _action, {:ok, _}), do: state
+
+  defp handle_control_result(state, action, {:error, :globally_paused}) do
+    noun = if action == :pause, do: "pause", else: "resume"
+    rc_hint(state, "Aiur is globally paused — per-agent #{noun} has no effect; run `aiurdev resume` first")
+  end
+
+  defp handle_control_result(state, _action, {:error, reason}) do
     Logger.info("[user-action] resume_failed reason=#{inspect(reason)}")
     ring_bell(state)
     schedule_max_agents_alert_clear()

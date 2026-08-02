@@ -65,6 +65,9 @@ defmodule Aiur.CodingAgent.Backend do
       persistent-REPL transport).
     * `:fallback_backend` — the backend a failed spawn degrades to,
       once, so a transport failure never strands an issue.
+    * `:remote_worker` — whether sessions and workspace tools can execute on
+      configured SSH workers. Defaults to `true`; direct local transports must
+      opt out so dispatch never hands them a remote-only workspace path.
     * `:model_aliases` — whether generic model tags are `:native` (the
       backend's own CLI resolves `opus` to the newest opus, so aiur
       passes them through) or `:derived` (aiur synthesizes a family
@@ -80,6 +83,7 @@ defmodule Aiur.CodingAgent.Backend do
           optional(:control_application_confirmation) => :confirmed | :request_only | :unsupported,
           required(:remote_control) => boolean(),
           required(:resumable) => boolean(),
+          optional(:remote_worker) => boolean(),
           required(:models) => [String.t()],
           optional(:model_aliases) => :native | :derived,
           required(:efforts) => [String.t()],

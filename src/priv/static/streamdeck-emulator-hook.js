@@ -1,10 +1,8 @@
 // Stream Deck emulator interaction hook.
 //
-// Authority model: local-first. Dial values, mode, and paging offsets are
-// owned by this hook and survive LiveView patches via beforeUpdate/updated.
-// The server is not consulted for individual dial increments — a round trip
-// per degree would be unusable. Server data remains authoritative for fleet
-// state; the hook pushes coarse events (press, key-click) when needed.
+// Authority model: dial gestures are local-first, while fleet page and log
+// offsets are server-authoritative. The hook pushes one coarse event per
+// gesture step and LiveView clamps the resulting state to real bounds.
 //
 // Patch-survival pattern follows #1306: state is captured in beforeUpdate and
 // restored in updated, so LiveView re-renders cannot revert local interaction.
@@ -52,6 +50,7 @@
     this.index = index;
     this.hook = hook;
     this.value = parseInt(this.knobEl.dataset.value || "0", 10);
+    this.preciseValue = this.value;
     this.isDragging = false;
     this.dragAngle = 0;
     this.accumulatedDeg = 0;
@@ -139,12 +138,14 @@
   };
 
   Knob.prototype._step = function (delta) {
-    this.value = clamp(Math.round(this.value + delta), 0, 100);
+    this.preciseValue = clamp(this.preciseValue + delta, 0, 100);
+    this.value = clamp(Math.round(this.preciseValue), 0, 100);
     this._render();
     // Angle: 0 → -135deg (min), 100 → +135deg (max), centred at top.
     var angle = (this.value / 100) * 270 - 135;
     this.knobEl.style.setProperty("--a", angle + "deg");
     this.knobEl.setAttribute("aria-valuenow", String(this.value));
+    this.hook._handleDialStep(this.index, delta);
   };
 
   Knob.prototype._render = function () {
@@ -191,12 +192,13 @@
   };
 
   Knob.prototype.snapshotState = function () {
-    return { value: this.value };
+    return { value: this.value, preciseValue: this.preciseValue };
   };
 
   Knob.prototype.restoreState = function (state) {
     if (!state) return;
-    this.value = state.value;
+    this.preciseValue = Number.isFinite(state.preciseValue) ? state.preciseValue : state.value;
+    this.value = clamp(Math.round(this.preciseValue), 0, 100);
     this._step(0);
   };
 
@@ -244,6 +246,7 @@
         this._knobs.forEach(function (k, i) { k.restoreState(state[i]); });
         this._knobState = null;
       }
+      this._syncPageKnob();
       // Restore mode state only if it did not change during the patch window.
       // A mid-patch user action (e.g. a second back press) increments _modeVersion;
       // if the version drifted, respect the user's more-recent intent.
@@ -284,6 +287,36 @@
       this._knobs = [];
     },
 
+    _handleDialStep(index, delta) {
+      if (!delta) return;
+      var dial = this._knobs && this._knobs[index];
+      var value = dial ? dial.value : 0;
+      if (this._mode === "grid" && index === 3) {
+        this._requestGridPage(value);
+      } else if (this._mode === "logs" && index === 3) {
+        this.pushEvent("logs-scroll", { axis: "events", delta: delta > 0 ? 1 : -1 });
+      } else if (this._mode === "logs" && index === 0) {
+        this.pushEvent("logs-scroll", { axis: "transcript", delta: delta > 0 ? 1 : -1 });
+      }
+    },
+
+    _requestGridPage(value) {
+      if (!Number.isFinite(value)) return;
+      this.pushEvent("grid-page", { value: clamp(value, 0, 100) });
+    },
+
+    _syncPageKnob() {
+      var keys = this.el.querySelector("#sd-keys");
+      var knob = this._knobs && this._knobs[3];
+      if (!keys || !knob) return;
+      var value = parseInt(keys.getAttribute("data-grid-dial-value") || "0", 10);
+      if (!Number.isFinite(value)) return;
+      knob.preciseValue = value;
+      knob.value = value;
+      knob._render();
+      knob.knobEl.setAttribute("aria-valuenow", String(knob.value));
+    },
+
     _bindKeys() {
       var self = this;
       this._keyHandlers = [];
@@ -302,6 +335,11 @@
           // Key click in grid mode transitions to cmd view.
           if (self._mode === "grid") {
             self._setMode("cmd");
+          }
+
+          var identifier = key.getAttribute("data-streamdeck-identifier");
+          if (identifier) {
+            self.pushEvent("key-press", { identifier: identifier });
           }
         };
         key.addEventListener("click", handler);
@@ -373,6 +411,10 @@
         var prev = this._modeHistory.pop();
         this._setMode(prev !== undefined ? prev : "grid", false);
       } else if (action === "cycle-window") {
+        if (this._mode === "grid") {
+          this.pushEvent("grid-page", { action: "cycle" });
+          return;
+        }
         var idx = MODES.indexOf(this._mode);
         var next = MODES[(idx + 1) % MODES.length];
         this._setMode(next);
