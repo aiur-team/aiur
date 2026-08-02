@@ -11,6 +11,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
   setup do
     test_pid = self()
     {:ok, snapshot_agent} = Agent.start_link(fn -> fixture_snapshot() end)
+    {:ok, meter_agent} = Agent.start_link(fn -> fixture_provider_meters() end)
     previous_endpoint = Application.get_env(:aiur, Endpoint)
 
     endpoint_config =
@@ -22,7 +23,8 @@ defmodule AiurWeb.StreamdeckLiveTest do
         dashboard_writable: true,
         dashboard_auth_required: false,
         streamdeck_snapshot_fun: fn -> Agent.get(snapshot_agent, & &1) end,
-        streamdeck_provider_meters_fun: fn -> fixture_provider_meters() end,
+        streamdeck_provider_meters_fun: fn -> Agent.get(meter_agent, & &1) end,
+        streamdeck_logs_fun: fn -> fixture_logs() end,
         agent_chat_pause_fun: fn identifier ->
           send(test_pid, {:streamdeck_pause, identifier})
           {:ok, 1}
@@ -39,9 +41,10 @@ defmodule AiurWeb.StreamdeckLiveTest do
     on_exit(fn ->
       Application.put_env(:aiur, Endpoint, previous_endpoint)
       if Process.alive?(snapshot_agent), do: Agent.stop(snapshot_agent)
+      if Process.alive?(meter_agent), do: Agent.stop(meter_agent)
     end)
 
-    {:ok, snapshot_agent: snapshot_agent}
+    {:ok, snapshot_agent: snapshot_agent, meter_agent: meter_agent}
   end
 
   test "renders the Stream Deck chassis, eight keys, strip, and knobs" do
@@ -101,6 +104,60 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert_receive {:streamdeck_resume, "1345"}
   end
 
+  test "pages the complete fleet and clamps the page at both ends" do
+    {:ok, view, html} = live(build_conn(), "/streamdeck")
+
+    assert html =~ ~s(data-grid-page-count="3")
+    assert html =~ ~s(data-streamdeck-identifier="1352")
+    refute html =~ ~s(data-streamdeck-identifier="1367")
+
+    html = render_hook(view, "grid-page", %{"page" => "1"})
+    assert html =~ ~s(data-grid-page="1")
+    assert html =~ ~s(data-page="1" aria-current="page")
+    assert html =~ ~s(data-streamdeck-identifier="1367")
+
+    html = render_hook(view, "grid-page", %{"page" => "99"})
+    assert html =~ ~s(data-grid-page="2")
+    assert html =~ ~s(data-streamdeck-identifier="1377")
+  end
+
+  test "scrolls bounded event and transcript logs and accepts live transcript events" do
+    {:ok, view, html} = live(build_conn(), "/streamdeck")
+
+    assert html =~ "event-1"
+    assert html =~ "transcript-1"
+
+    html = render_hook(view, "logs-scroll", %{"axis" => "events", "delta" => "1"})
+    assert html =~ ~r{id="sd-log-events"[^>]*data-offset="1"}
+    assert html =~ "event-2"
+    refute html =~ "event-1"
+
+    html = render_hook(view, "logs-scroll", %{"axis" => "transcript", "delta" => "99"})
+    assert html =~ ~r{id="sd-log-transcript"[^>]*data-offset="6"[^>]*data-max-offset="6"}
+    assert html =~ "transcript-10"
+    assert html =~ ~s(id="sd-transcript-hint-down" class="sd-log-hint" aria-hidden="true")
+
+    send(view.pid, {:transcript_event, %{role: :assistant, body: "live transcript", sequence: 99}})
+    Process.sleep(10)
+    html = render_hook(view, "logs-scroll", %{"axis" => "transcript", "delta" => "99"})
+    assert html =~ "live transcript"
+  end
+
+  test "renders provider percentages and refreshes them from the live meter event", %{meter_agent: meter_agent} do
+    {:ok, view, html} = live(build_conn(), "/streamdeck")
+
+    assert html =~ "daily 30%"
+    assert html =~ "daily 50%"
+
+    Agent.update(meter_agent, fn meters ->
+      put_in(meters["claude"]["windows"]["daily"]["used_percent"], 60)
+    end)
+
+    send(view.pid, {:provider_meter_changed, %{}})
+    Process.sleep(10)
+    assert render(view) =~ "daily 60%"
+  end
+
   test "renders the priority star, the mic indicator, and the live segment" do
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
 
@@ -144,7 +201,21 @@ defmodule AiurWeb.StreamdeckLiveTest do
       retrying: [],
       idle: [
         fixture_agent("1345", "Live paused", "claude", work_state: :paused),
-        fixture_agent("1350", "Live queued", "codex", waiting_reason: :waiting_for_dependency)
+        fixture_agent("1350", "Live queued", "codex", waiting_reason: :waiting_for_dependency),
+        fixture_agent("1360", "Extra one", "codex", waiting_reason: :waiting_for_dependency),
+        fixture_agent("1361", "Extra two", "codex", waiting_reason: :waiting_for_dependency),
+        fixture_agent("1362", "Extra three", "codex", waiting_reason: :waiting_for_dependency),
+        fixture_agent("1363", "Extra four", "codex", waiting_reason: :waiting_for_dependency),
+        fixture_agent("1366", "Extra five", "codex", waiting_reason: :waiting_for_dependency),
+        fixture_agent("1367", "Extra six", "codex", waiting_reason: :waiting_for_dependency),
+        fixture_agent("1370", "Extra seven", "codex", waiting_reason: :waiting_for_dependency),
+        fixture_agent("1371", "Extra eight", "codex", waiting_reason: :waiting_for_dependency),
+        fixture_agent("1372", "Extra nine", "codex", waiting_reason: :waiting_for_dependency),
+        fixture_agent("1373", "Extra ten", "codex", waiting_reason: :waiting_for_dependency),
+        fixture_agent("1374", "Extra eleven", "codex", waiting_reason: :waiting_for_dependency),
+        fixture_agent("1375", "Extra twelve", "codex", waiting_reason: :waiting_for_dependency),
+        fixture_agent("1376", "Extra thirteen", "codex", waiting_reason: :waiting_for_dependency),
+        fixture_agent("1377", "Extra fourteen", "codex", waiting_reason: :waiting_for_dependency)
       ]
     }
   end
@@ -168,8 +239,15 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
   defp fixture_provider_meters do
     %{
-      "claude" => %{"state" => "observed", "windows" => %{"daily" => %{"used" => 3}}},
-      "codex" => %{"state" => "observed", "windows" => %{"daily" => %{"used" => 5}}}
+      "claude" => %{"state" => "observed", "windows" => %{"daily" => %{"used_percent" => 30}}},
+      "codex" => %{"state" => "observed", "windows" => %{"daily" => %{"used_percent" => 50}}}
+    }
+  end
+
+  defp fixture_logs do
+    %{
+      events: Enum.map(1..10, &%{role: :system, body: "event-#{&1}"}),
+      transcript: Enum.map(1..10, &%{role: :assistant, body: "transcript-#{&1}"})
     }
   end
 end

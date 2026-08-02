@@ -270,6 +270,58 @@ test('dial and knob state survive a LiveView patch (regression for #1306)', asyn
   expect(valueAfterPatch).toBe(valueBeforePatch)
 })
 
+test('dial D pages live fleet keys and pager dots', async ({ page }) => {
+  await openStreamdeck(page)
+
+  const keys = page.locator('#sd-keys')
+  await expect(keys).toHaveAttribute('data-grid-page-count', '3')
+  await expect(keys.locator('[data-streamdeck-identifier="1352"]')).toBeVisible()
+  await expect(keys.locator('[data-streamdeck-identifier="1376"]')).toHaveCount(0)
+
+  const dialD = page.locator('.sd-knob').nth(3)
+  await dialD.hover()
+  await page.mouse.wheel(0, -100)
+
+  await expect(keys).toHaveAttribute('data-grid-page', '1')
+  await expect(keys.locator('[data-streamdeck-identifier="1367"]')).toBeVisible()
+  await expect(page.locator('#sd-pager-dots [aria-current="page"]')).toHaveAttribute('data-page', '1')
+})
+
+test('logs mode scrolls event and transcript panes within real bounds', async ({ page }) => {
+  await openStreamdeck(page)
+
+  await page.locator('.sd-key:not(.is-empty)').first().click()
+  const dialD = page.locator('.sd-knob').nth(3)
+  const box = await dialD.boundingBox()
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
+  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
+
+  await expect(page.locator('#sd-log-events')).toContainText('event-1')
+  await dialD.hover()
+  await page.mouse.wheel(0, -100)
+  await expect(page.locator('#sd-log-events')).toHaveAttribute('data-offset', '1')
+  await expect(page.locator('#sd-log-events')).toContainText('event-2')
+
+  const dialA = page.locator('.sd-knob').first()
+  await dialA.hover()
+  await page.mouse.wheel(0, -100)
+  await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '1')
+  await expect(page.locator('#sd-log-transcript')).toContainText('transcript-2')
+
+  await page.mouse.wheel(0, 1000)
+  await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '0')
+  await expect(page.locator('#sd-transcript-hint-up')).toHaveAttribute('aria-hidden', 'true')
+})
+
+test('touch strip exposes provider percentages, not only window counts', async ({ page }) => {
+  await openStreamdeck(page)
+
+  await expect(page.locator('.sd-screen-segment').filter({ hasText: 'Claude' })).toContainText('30%')
+  await expect(page.locator('.sd-screen-segment').filter({ hasText: 'Codex' })).toContainText('50%')
+  await expect(page.locator('.sd-screen-segment').filter({ hasText: 'Claude' }).locator('.sd-screen-value')).not.toContainText('windows')
+  await expect(page.locator('.sd-screen-segment').filter({ hasText: 'Codex' }).locator('.sd-screen-value')).not.toContainText('windows')
+})
+
 test('Stream Deck emulator passes automated accessibility checks', async ({ page }) => {
   await openStreamdeck(page)
 

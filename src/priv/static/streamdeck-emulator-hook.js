@@ -1,10 +1,8 @@
 // Stream Deck emulator interaction hook.
 //
-// Authority model: local-first. Dial values, mode, and paging offsets are
-// owned by this hook and survive LiveView patches via beforeUpdate/updated.
-// The server is not consulted for individual dial increments — a round trip
-// per degree would be unusable. Server data remains authoritative for fleet
-// state; the hook pushes coarse events (press, key-click) when needed.
+// Authority model: dial gestures are local-first, while fleet page and log
+// offsets are server-authoritative. The hook pushes one coarse event per
+// gesture step and LiveView clamps the resulting state to real bounds.
 //
 // Patch-survival pattern follows #1306: state is captured in beforeUpdate and
 // restored in updated, so LiveView re-renders cannot revert local interaction.
@@ -145,6 +143,7 @@
     var angle = (this.value / 100) * 270 - 135;
     this.knobEl.style.setProperty("--a", angle + "deg");
     this.knobEl.setAttribute("aria-valuenow", String(this.value));
+    this.hook._handleDialStep(this.index, delta);
   };
 
   Knob.prototype._render = function () {
@@ -244,6 +243,7 @@
         this._knobs.forEach(function (k, i) { k.restoreState(state[i]); });
         this._knobState = null;
       }
+      this._syncPageKnob();
       // Restore mode state only if it did not change during the patch window.
       // A mid-patch user action (e.g. a second back press) increments _modeVersion;
       // if the version drifted, respect the user's more-recent intent.
@@ -282,6 +282,37 @@
     _destroyKnobs() {
       this._knobs.forEach(function (k) { k.destroy(); });
       this._knobs = [];
+    },
+
+    _handleDialStep(index, delta) {
+      if (!delta) return;
+      if (this._mode === "grid" && index === 3) {
+        this._requestGridPage(delta > 0 ? 1 : -1);
+      } else if (this._mode === "logs" && index === 3) {
+        this.pushEvent("logs-scroll", { axis: "events", delta: delta > 0 ? 1 : -1 });
+      } else if (this._mode === "logs" && index === 0) {
+        this.pushEvent("logs-scroll", { axis: "transcript", delta: delta > 0 ? 1 : -1 });
+      }
+    },
+
+    _requestGridPage(delta) {
+      var keys = this.el.querySelector("#sd-keys");
+      if (!keys) return;
+      var page = parseInt(keys.getAttribute("data-grid-page") || "0", 10);
+      var pageCount = parseInt(keys.getAttribute("data-grid-page-count") || "0", 10);
+      if (!Number.isFinite(page) || !Number.isFinite(pageCount) || pageCount < 1) return;
+      this.pushEvent("grid-page", { page: clamp(page + delta, 0, pageCount - 1) });
+    },
+
+    _syncPageKnob() {
+      var keys = this.el.querySelector("#sd-keys");
+      var knob = this._knobs && this._knobs[3];
+      if (!keys || !knob) return;
+      var page = parseInt(keys.getAttribute("data-grid-page") || "0", 10);
+      if (!Number.isFinite(page)) return;
+      knob.value = page + 1;
+      knob._render();
+      knob.knobEl.setAttribute("aria-valuenow", String(knob.value));
     },
 
     _bindKeys() {
@@ -378,6 +409,10 @@
         var prev = this._modeHistory.pop();
         this._setMode(prev !== undefined ? prev : "grid", false);
       } else if (action === "cycle-window") {
+        if (this._mode === "grid") {
+          this._requestGridPage(1);
+          return;
+        }
         var idx = MODES.indexOf(this._mode);
         var next = MODES[(idx + 1) % MODES.length];
         this._setMode(next);
