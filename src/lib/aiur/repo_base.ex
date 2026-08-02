@@ -28,6 +28,9 @@ defmodule Aiur.RepoBase do
   @legacy_built_marker ".aiur-base-built"
   @cache_sidecars [".aiur-hex", ".aiur-mix", ".aiur-npm-cache"]
   @state_entries ["builds", "analytics", "meta"]
+  @migration_lock_suffix ".migration-lock"
+  @migration_lock_wait_ms 10
+  @migration_lock_timeout_ms 30_000
   @remote_probe_timeout_ms 30_000
 
   ## ---- Public API ----
@@ -586,10 +589,59 @@ defmodule Aiur.RepoBase do
   defp migrate_legacy_layout(base_path) do
     node = repo_node_path(base_path)
 
-    with :ok <- recover_interrupted_migration(base_path) do
-      if File.dir?(Path.join(node, ".git")), do: migrate_legacy_clone(node, base_path), else: :ok
+    if migration_required?(node) do
+      with_migration_lock(node, base_path, fn ->
+        with :ok <- recover_interrupted_migration(base_path) do
+          if File.dir?(Path.join(node, ".git")), do: migrate_legacy_clone(node, base_path), else: :ok
+        end
+      end)
+    else
+      :ok
     end
   end
+
+  # `File.mkdir/1` is atomic across BEAM instances on the same host. It makes
+  # the irreversible rename of a legacy clone a single-owner operation, so a
+  # concurrent first finding append waits for the completed layout instead of
+  # racing to rename a path that no longer exists.
+  defp with_migration_lock(node, base_path, migration) do
+    lock = migration_lock_path(node)
+
+    case File.mkdir(lock) do
+      :ok ->
+        try do
+          migration.()
+        after
+          File.rmdir(lock)
+        end
+
+      {:error, :eexist} ->
+        with :ok <- wait_for_migration_lock(lock, @migration_lock_timeout_ms) do
+          migrate_legacy_layout(base_path)
+        end
+
+      {:error, reason} ->
+        {:error, {:repo_base_migration_lock_failed, lock, reason}}
+    end
+  end
+
+  defp wait_for_migration_lock(lock, remaining_ms) when remaining_ms <= 0,
+    do: {:error, {:repo_base_migration_lock_timeout, lock}}
+
+  defp wait_for_migration_lock(lock, remaining_ms) do
+    if File.exists?(lock) do
+      Process.sleep(@migration_lock_wait_ms)
+      wait_for_migration_lock(lock, remaining_ms - @migration_lock_wait_ms)
+    else
+      :ok
+    end
+  end
+
+  defp migration_required?(node) do
+    File.dir?(Path.join(node, ".git")) or File.exists?(migration_lock_path(node)) or parked_migrations(node) != []
+  end
+
+  defp migration_lock_path(node), do: node <> @migration_lock_suffix
 
   defp migrate_legacy_clone(node, base_path) do
     temporary = node <> ".migrating-" <> unique_suffix()
@@ -609,11 +661,7 @@ defmodule Aiur.RepoBase do
   defp recover_interrupted_migration(base_path) do
     node = repo_node_path(base_path)
 
-    parked =
-      node
-      |> Kernel.<>(".migrating-*")
-      |> Path.wildcard()
-      |> Enum.filter(&File.dir?(Path.join(&1, ".git")))
+    parked = parked_migrations(node)
 
     cond do
       File.dir?(Path.join(base_path, ".git")) ->
@@ -642,6 +690,13 @@ defmodule Aiur.RepoBase do
          :ok <- discard_legacy_build_metadata(temporary) do
       File.rename(temporary, base_path)
     end
+  end
+
+  defp parked_migrations(node) do
+    node
+    |> Kernel.<>(".migrating-*")
+    |> Path.wildcard()
+    |> Enum.filter(&File.dir?(Path.join(&1, ".git")))
   end
 
   defp discard_legacy_build_metadata(path) do
@@ -739,36 +794,67 @@ defmodule Aiur.RepoBase do
 
   defp merge_state_directory(source, destination) do
     with {:ok, entries} <- File.ls(source),
-         :ok <-
-           Enum.reduce_while(entries, :ok, fn entry, :ok ->
-             case move_state_entry(Path.join(source, entry), Path.join(destination, entry)) do
-               :ok -> {:cont, :ok}
-               {:error, reason} -> {:halt, {:error, reason}}
-             end
-           end) do
+         :ok <- move_state_directory_entries(entries, source, destination) do
       File.rmdir(source)
     end
   end
 
+  defp move_state_directory_entries(entries, source, destination) do
+    Enum.reduce_while(entries, :ok, fn entry, :ok ->
+      case move_state_entry(Path.join(source, entry), Path.join(destination, entry)) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
   defp merge_findings(source, destination) do
-    with {:ok, contents} <- File.read(source),
-         :ok <- append_file(destination, contents) do
+    with {:ok, destination_contents} <- File.read(destination),
+         :ok <- validate_findings_ledger(destination_contents, destination),
+         {:ok, source_contents} <- File.read(source),
+         :ok <- validate_findings_ledger(source_contents, source),
+         :ok <- append_file(destination, merged_findings_suffix(destination_contents, source_contents)) do
       File.rm(source)
     else
       {:error, reason} -> {:error, reason}
     end
   end
 
+  # A valid final NDJSON record need not end in a newline. Canonicalize both
+  # sides before joining so a later O_APPEND writer cannot join two JSON objects
+  # at a record boundary. Invalid input remains in place for manual repair.
+  defp merged_findings_suffix(destination_contents, source_contents) do
+    normalized_source = normalize_ndjson(source_contents)
+
+    if destination_contents == "" or String.ends_with?(destination_contents, "\n") do
+      normalized_source
+    else
+      "\n" <> normalized_source
+    end
+  end
+
+  defp normalize_ndjson(""), do: ""
+  defp normalize_ndjson(contents), do: if(String.ends_with?(contents, "\n"), do: contents, else: contents <> "\n")
+
+  defp validate_findings_ledger(contents, path) do
+    contents
+    |> String.split("\n", trim: true)
+    |> Enum.with_index(1)
+    |> Enum.reduce_while(:ok, fn {line, line_number}, :ok ->
+      case Jason.decode(line) do
+        {:ok, finding} when is_map(finding) -> {:cont, :ok}
+        _ -> {:halt, {:error, {:invalid_findings_ledger, path, line_number}}}
+      end
+    end)
+  end
+
   defp append_file(path, contents) do
     case File.open(path, [:append, :binary]) do
       {:ok, device} ->
-        write_result = IO.binwrite(device, contents)
-        close_result = File.close(device)
-
-        case {write_result, close_result} do
-          {:ok, :ok} -> :ok
-          {{:error, reason}, _} -> {:error, reason}
-          {_, {:error, reason}} -> {:error, reason}
+        try do
+          IO.binwrite(device, contents)
+        after
+          File.close(device)
         end
 
       {:error, reason} ->

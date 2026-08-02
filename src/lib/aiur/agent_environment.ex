@@ -4,6 +4,7 @@ defmodule Aiur.AgentEnvironment do
   """
 
   alias Aiur.{BuildGate, Config, RepoBase}
+  alias Aiur.Workspace.Remote
 
   # AIUR_RELEASE_NODE + AIUR_INSTANCE_KEY + AIUR_REPO_ROOT are the per-instance
   # identity inputs the engine exports (#431). They MUST be scrubbed too, or an agent
@@ -130,7 +131,7 @@ defmodule Aiur.AgentEnvironment do
         variable = Atom.to_string(name)
 
         [
-          Aiur.Workspace.Remote.remote_shell_assign(variable, path),
+          Remote.remote_shell_assign(variable, path),
           "export #{variable}"
         ]
         |> Enum.join("\n")

@@ -3,7 +3,7 @@ defmodule Aiur.RepoBaseTest do
   # the phase-event test must not race other tests emitting on the same topic.
   use ExUnit.Case, async: false
 
-  alias Aiur.RepoBase
+  alias Aiur.{Findings, RepoBase}
 
   setup do
     tmp = Path.join(System.tmp_dir!(), "aiur_rb_#{System.unique_integer([:positive])}")
@@ -113,8 +113,11 @@ defmodule Aiur.RepoBaseTest do
       end
     end
 
-    test "merges state left by an interrupted legacy migration", %{origin: origin, node: node, base: base} do
+    test "merges state left by an interrupted legacy migration", %{origin: origin, node: node, base: base, tmp: tmp} do
       parked = node <> ".migrating-interrupted"
+      previous_root = Application.get_env(:aiur, :repo_base_root)
+      current_finding = Jason.encode!(finding("current"))
+      legacy_finding = Jason.encode!(finding("legacy"))
       File.mkdir_p!(Path.dirname(node))
       git!(["clone", "--quiet", origin, parked])
       File.mkdir_p!(Path.join([parked, "builds", "legacy-pack"]))
@@ -124,7 +127,7 @@ defmodule Aiur.RepoBaseTest do
       File.write!(Path.join([parked, "builds", "legacy-pack", "pack.json"]), "legacy build\n")
       File.write!(Path.join([parked, "analytics", "runs", "legacy", "summary.json"]), "legacy analytics\n")
       File.write!(Path.join([parked, "analytics", "runs", "current", "summary.json"]), "legacy collision\n")
-      File.write!(Path.join([parked, "meta", "findings.ndjson"]), "{\"slug\":\"legacy\"}\n")
+      File.write!(Path.join([parked, "meta", "findings.ndjson"]), legacy_finding)
       File.write!(Path.join([parked, "meta", "retros", "legacy.md"]), "legacy retrospective\n")
 
       File.mkdir_p!(Path.join([node, "builds", "current-pack"]))
@@ -132,8 +135,16 @@ defmodule Aiur.RepoBaseTest do
       File.mkdir_p!(Path.join([node, "meta", "retros"]))
       File.write!(Path.join([node, "builds", "current-pack", "pack.json"]), "current build\n")
       File.write!(Path.join([node, "analytics", "runs", "current", "summary.json"]), "current analytics\n")
-      File.write!(Path.join([node, "meta", "findings.ndjson"]), "{\"slug\":\"current\"}\n")
+      File.write!(Path.join([node, "meta", "findings.ndjson"]), current_finding)
       File.write!(Path.join([node, "meta", "retros", "current.md"]), "current retrospective\n")
+      Application.put_env(:aiur, :repo_base_root, Path.join(tmp, "repo"))
+
+      on_exit(fn ->
+        case previous_root do
+          nil -> Application.delete_env(:aiur, :repo_base_root)
+          root -> Application.put_env(:aiur, :repo_base_root, root)
+        end
+      end)
 
       assert {:ok, ^base} = RepoBase.refresh(base, origin, "true")
 
@@ -146,8 +157,27 @@ defmodule Aiur.RepoBaseTest do
       assert File.read!(Path.join([node, "meta", "retros", "legacy.md"])) == "legacy retrospective\n"
       assert File.read!(Path.join([node, "meta", "retros", "current.md"])) == "current retrospective\n"
 
-      assert File.read!(Path.join([node, "meta", "findings.ndjson"])) ==
-               "{\"slug\":\"current\"}\n{\"slug\":\"legacy\"}\n"
+      assert File.read!(Path.join([node, "meta", "findings.ndjson"])) == current_finding <> "\n" <> legacy_finding <> "\n"
+      assert {:ok, [current, legacy]} = Findings.all()
+      assert Enum.map([current, legacy], & &1["slug"]) == ["current", "legacy"]
+    end
+
+    test "leaves both ledgers intact when an interrupted migration has corrupt findings", %{origin: origin, node: node, base: base} do
+      parked = node <> ".migrating-interrupted"
+      File.mkdir_p!(Path.dirname(node))
+      git!(["clone", "--quiet", origin, parked])
+      File.mkdir_p!(Path.join(parked, "meta"))
+      File.write!(Path.join([parked, "meta", "findings.ndjson"]), "{not-json}")
+
+      File.mkdir_p!(Path.join(node, "meta"))
+      destination = Path.join([node, "meta", "findings.ndjson"])
+      File.write!(destination, "{\"slug\":\"current\"}")
+
+      assert {:error, {:repo_base_migration_recovery_failed, {:invalid_findings_ledger, _, 1}}} =
+               RepoBase.refresh(base, origin, "true")
+
+      assert File.read!(destination) == "{\"slug\":\"current\"}"
+      assert File.read!(Path.join([parked, "meta", "findings.ndjson"])) == "{not-json}"
     end
 
     test "recovers a clone parked by an interrupted migration", %{origin: origin, node: node, base: base} do
@@ -162,6 +192,28 @@ defmodule Aiur.RepoBaseTest do
       assert File.dir?(Path.join(base, ".git"))
       assert File.exists?(Path.join(base, "rebuilt_after_recovery"))
       refute File.exists?(parked)
+    end
+
+    test "serializes concurrent first finding appends through legacy migration", %{tmp: tmp, node: node} do
+      previous_root = Application.get_env(:aiur, :repo_base_root)
+      repo = "https://github.com/owner/project.git"
+      File.mkdir_p!(Path.join(node, ".git"))
+      Application.put_env(:aiur, :repo_base_root, Path.join(tmp, "repo"))
+
+      on_exit(fn ->
+        case previous_root do
+          nil -> Application.delete_env(:aiur, :repo_base_root)
+          root -> Application.put_env(:aiur, :repo_base_root, root)
+        end
+      end)
+
+      results =
+        [finding("first-migration-one"), finding("first-migration-two")]
+        |> Task.async_stream(&Findings.append(repo, &1), max_concurrency: 2, ordered: false)
+        |> Enum.map(fn {:ok, result} -> result end)
+
+      assert Enum.all?(results, &(&1 == :ok))
+      assert {:ok, ["first-migration-one", "first-migration-two"]} = Findings.slugs()
     end
 
     test "is idempotent when main has not advanced", %{origin: origin, base: base} do
@@ -294,6 +346,21 @@ defmodule Aiur.RepoBaseTest do
       assert_receive {:prewarm_phase, :building}, 5_000
       assert_receive {:prewarm_phase, :ready}, 5_000
     end
+  end
+
+  defp finding(slug) do
+    %{
+      "slug" => slug,
+      "observed_at" => "2026-08-02T04:30:00Z",
+      "scope" => "aiur",
+      "observed_in" => "owner/project",
+      "instance" => "boot-123",
+      "summary" => "a concise observation",
+      "evidence" => ["#1464"],
+      "cost" => "one hour",
+      "ticket" => nil,
+      "status" => "open"
+    }
   end
 
   describe "base_path/1" do
