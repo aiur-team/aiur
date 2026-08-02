@@ -80,6 +80,14 @@ alerts:
     message: Todo queue exceeds capacity
     sound:
       - "~/alerts/advisor/advisor-additional-pylons.wav"
+  "ticket.*.operator.hardware_verification_required":
+    message: Hardware verification required
+    sound:
+      - "~/alerts/advisor/advisor-additional-pylons.wav"
+  "ticket.*.operator.blocker_hydration_failed":
+    message: Dependency verification failed closed
+  "ticket.*.operator.blocker_hydration_deferred":
+    message: Dependency verification deferred
 
   # ---------- Agent state -------------------------------------------------
   "ticket.*.agent.error.tokens_exhausted":

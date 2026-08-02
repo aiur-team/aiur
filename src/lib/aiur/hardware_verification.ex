@@ -217,7 +217,7 @@ defmodule Aiur.HardwareVerification do
   defp criterion_clauses(line) do
     criterion = Regex.replace(~r/^(?:[-*+]\s+|\d+[.)]\s+|\[[ xX]\]\s+)/, line, "")
 
-    Regex.split(~r/(?:[;.!?]+|\b(?:but|however|then|while)\b)/i, criterion, trim: true)
+    Regex.split(~r/(?:[;.!?]+|\b(?:and|but|however|then|while)\b)/i, criterion, trim: true)
   end
 
   defp physical_execution?(clause) do

@@ -215,6 +215,23 @@ defmodule Aiur.Orchestrator.Dispatcher do
     required_label = HardwareVerification.required_label(prefix)
     alerted_label = HardwareVerification.alerted_label(prefix)
 
+    if HardwareVerification.required?(issue) and Config.tracker_kind() != "github" do
+      Alerts.emit_system("ticket.#{issue.identifier}.operator.hardware_verification_required",
+        issue: issue.identifier,
+        reason: "Hardware verification requires a tracker that can durably enforce operator sign-off; #{Config.tracker_kind() || "unknown"} is unsupported.",
+        needs_attention: true,
+        severity: "warning"
+      )
+
+      {:error, :hardware_verification_unsupported_tracker}
+    else
+      route_github_hardware_verification(issue, opts, required_label, alerted_label)
+    end
+  end
+
+  def route_hardware_verification(_issue, _opts), do: :ok
+
+  defp route_github_hardware_verification(issue, opts, required_label, alerted_label) do
     if HardwareVerification.required?(issue) do
       labeler = Keyword.get(opts, :add_label, &Tracker.add_label/2)
       alerter = Keyword.get(opts, :emit_alert, &Alerts.emit_system/2)
@@ -227,8 +244,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
       :ok
     end
   end
-
-  def route_hardware_verification(_issue, _opts), do: :ok
 
   @spec do_dispatch_issue(State.t(), term(), term(), term()) :: State.t()
   def do_dispatch_issue(%State{} = state, issue, attempt, preferred_worker_host) do
