@@ -30,6 +30,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
 
   @ci_readiness_timeout_ms 5_000
+  @ci_readiness_retry_ms 60_000
 
   @spec run_poll_cycle(State.t()) :: {:noreply, State.t()}
   def run_poll_cycle(%State{} = state) do
@@ -90,15 +91,22 @@ defmodule Aiur.Orchestrator.Dispatcher do
   # setting up a repository mid-run, so this must never hold otherwise-valid
   # tickets. A transient inspection failure retries on subsequent polls, but
   # only emits its needs-attention alert once.
-  defp maybe_warn_ci_readiness(%State{initial_dispatch_cycle: true} = state) do
+  @doc false
+  def maybe_warn_ci_readiness(%State{ci_readiness_checked: true} = state), do: state
+
+  def maybe_warn_ci_readiness(%State{ci_readiness_retry_at_ms: retry_at_ms} = state) when is_integer(retry_at_ms) do
+    if retry_at_ms > System.monotonic_time(:millisecond) do
+      state
+    else
+      start_initial_ci_readiness_check(state, Config.tracker_kind(), Config.base_branch(), CiReadiness.check_fun())
+    end
+  end
+
+  def maybe_warn_ci_readiness(%State{initial_dispatch_cycle: true} = state) do
     start_initial_ci_readiness_check(state, Config.tracker_kind(), Config.base_branch(), CiReadiness.check_fun())
   end
 
-  defp maybe_warn_ci_readiness(%State{ci_readiness_unavailable_alerted: true} = state) do
-    start_initial_ci_readiness_check(state, Config.tracker_kind(), Config.base_branch(), CiReadiness.check_fun())
-  end
-
-  defp maybe_warn_ci_readiness(state), do: state
+  def maybe_warn_ci_readiness(state), do: state
 
   @doc false
   @spec start_initial_ci_readiness_check(State.t(), String.t() | nil, String.t(), function()) :: State.t()
@@ -116,7 +124,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
          end) do
       {:ok, pid} ->
         Process.send_after(parent, {:ci_readiness_timeout, token}, @ci_readiness_timeout_ms)
-        %{state | ci_readiness_check_pid: pid, ci_readiness_check_token: token}
+        %{state | ci_readiness_check_pid: pid, ci_readiness_check_token: token, ci_readiness_retry_at_ms: nil}
 
       {:error, reason} ->
         record_ci_readiness_result(state, {:error, reason}, &Alerts.emit_system/2)
@@ -161,7 +169,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   defp record_ci_readiness_result(state, {:ok, %{ready?: true} = readiness}, _emit_fun) do
     CiReadiness.cache_result(readiness)
-    %{state | ci_readiness_checked: true}
+    %{state | ci_readiness_checked: true, ci_readiness_retry_at_ms: nil}
   end
 
   defp record_ci_readiness_result(state, {:ok, readiness}, emit_fun) do
@@ -174,20 +182,34 @@ defmodule Aiur.Orchestrator.Dispatcher do
       severity: "warning"
     )
 
-    %{state | ci_readiness_checked: true}
+    %{state | ci_readiness_checked: true, ci_readiness_retry_at_ms: nil}
   end
 
-  defp record_ci_readiness_result(state, {:error, _reason}, _emit_fun) when state.ci_readiness_unavailable_alerted, do: state
+  defp record_ci_readiness_result(state, {:error, :timeout}, emit_fun) do
+    maybe_emit_ci_readiness_unavailable(state, :timeout, emit_fun)
+
+    %{
+      state
+      | ci_readiness_unavailable_alerted: true,
+        ci_readiness_retry_at_ms: System.monotonic_time(:millisecond) + @ci_readiness_retry_ms
+    }
+  end
 
   defp record_ci_readiness_result(state, {:error, reason}, emit_fun) do
+    CiReadiness.cache_result(CiReadiness.unavailable(Config.base_branch(), reason))
+    maybe_emit_ci_readiness_unavailable(state, reason, emit_fun)
+    %{state | ci_readiness_checked: true, ci_readiness_retry_at_ms: nil}
+  end
+
+  defp maybe_emit_ci_readiness_unavailable(%State{ci_readiness_unavailable_alerted: true}, _reason, _emit_fun), do: :ok
+
+  defp maybe_emit_ci_readiness_unavailable(_state, reason, emit_fun) do
     emit_fun.("system.ci_readiness.unavailable",
       message: "Repository CI readiness could not be inspected",
       reason: "CI readiness inspection failed: #{inspect(reason)}",
       needs_attention: true,
       severity: "warning"
     )
-
-    %{state | ci_readiness_unavailable_alerted: true}
   end
 
   # The base is readied before CPU admission so per-issue workspaces can use it

@@ -73,12 +73,31 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
     refute state.ci_readiness_checked
     assert state.ci_readiness_unavailable_alerted
+    assert is_integer(state.ci_readiness_retry_at_ms)
     assert_receive {:ci_readiness_alert, "system.ci_readiness.unavailable"}
 
     state = Dispatcher.check_initial_ci_readiness(state, "github", "develop", fn _ -> {:error, :timeout} end, emit)
 
     refute state.ci_readiness_checked
     refute_receive {:ci_readiness_alert, _}
+  end
+
+  test "does not launch another readiness scan before the transient retry deadline" do
+    state = %State{ci_readiness_retry_at_ms: System.monotonic_time(:millisecond) + 60_000}
+
+    assert Dispatcher.maybe_warn_ci_readiness(state) == state
+  end
+
+  test "caches an operator-token readiness gap as a completed assessment" do
+    readiness = CiReadiness.unavailable("develop", :ci_readiness_operator_token_required)
+    emit = fn name, opts -> send(self(), {:ci_readiness_alert, name, opts}) end
+
+    state = Dispatcher.check_initial_ci_readiness(%State{}, "github", "develop", fn _ -> {:ok, readiness} end, emit)
+
+    assert state.ci_readiness_checked
+    assert CiReadiness.cached_result() == readiness
+    assert_receive {:ci_readiness_alert, "system.ci_readiness.not_ready", opts}
+    assert opts[:needs_attention]
   end
 
   defp thrash_budget(state), do: state.dispatch_recovery.codex_thrash_budget

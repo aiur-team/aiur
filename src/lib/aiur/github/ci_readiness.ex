@@ -54,10 +54,23 @@ defmodule Aiur.GitHub.CiReadiness do
   @spec dispatch_check(keyword()) :: {:ok, result()} | {:error, term()}
   def dispatch_check(opts) do
     case System.get_env(@operator_token_env) do
-      token when is_binary(token) and token != "" -> check(Keyword.put(opts, :token, token))
-      _ -> check(Keyword.put(opts, :workflow_presence_only, true))
+      token when is_binary(token) and token != "" ->
+        check(Keyword.put(opts, :token, token))
+
+      _ ->
+        case check(Keyword.put(opts, :workflow_presence_only, true)) do
+          {:error, :ci_readiness_operator_token_required} ->
+            {:ok, unavailable(Keyword.get(opts, :base_branch, "main"), :ci_readiness_operator_token_required)}
+
+          result ->
+            result
+        end
     end
   end
+
+  @doc false
+  @spec unavailable(String.t(), term()) :: result()
+  def unavailable(base_branch, reason) when is_binary(base_branch), do: result(base_branch, [], [], [], [{:unavailable, reason}])
 
   @doc false
   @spec cache_result(result()) :: :ok
@@ -217,8 +230,6 @@ defmodule Aiur.GitHub.CiReadiness do
       {:error, reason} -> {:error, Errors.classify_error({:error, reason})}
     end
   end
-
-  defp fetch_workflow_states(_request_fun, _token, _base_url, entries) when not is_list(entries), do: {:error, :invalid_workflow_entries}
 
   defp fetch_workflow_states(request_fun, token, base_url, entries) do
     if workflow_entries?(entries) do
