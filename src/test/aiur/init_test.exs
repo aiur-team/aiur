@@ -92,6 +92,10 @@ defmodule Aiur.InitTest do
         end,
         read_example: fn -> File.read!(@example_file) end,
         detect_repo: fn -> nil end,
+        setup_repo_state: fn tracker ->
+          send(parent, {:repo_state, tracker})
+          :ok
+        end,
         detect_toolchain: fn -> :none end,
         prewarm_build: fn url, cmd ->
           send(parent, {:prewarm_build, url, cmd})
@@ -1269,6 +1273,8 @@ defmodule Aiur.InitTest do
 
     test "github writes tracker.github.* and a routing table", %{dir: dir, target: target} do
       assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
+
+      assert_received {:repo_state, %{kind: "github", repo: "octo/repo"}}
 
       config = written_config(target)
       assert config["tracker"]["kind"] == "github"

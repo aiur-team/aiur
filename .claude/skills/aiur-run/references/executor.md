@@ -370,11 +370,14 @@ where it repeatedly paid for itself):
    tickets per pattern, and never expand the active feature boundary with
    them — process/infra tickets ride alongside the build order; feature
    tickets need operator sign-off.
-4. **Write the entry down** in a durable retrospective log, e.g.
-   `docs/executor/hourly-retrospectives.md` on the run's research/handoff
-   branch: the bottleneck, the number, the proposed reduction, what was filed
-   vs deferred. The log is what makes the daily skill-review pass possible and
-   what a replacement Executor resumes from.
+4. **Write the entry down** in the repository state node: the retrospective is
+   `~/.aiur/repo/<owner>/<repo>/meta/retros/<boot-id>.md`; each actionable item
+   is an append-only `meta/findings.ndjson` record with a reusable slug,
+   evidence references, and its filed ticket (or `ticket: null`). Only a filed
+   finding completes the retrospective loop. These raw records are host-local;
+   periodically promote a regenerated digest of open findings into
+   `docs/executor/` and commit it. That digest is the deliberate git channel
+   between machines, not a sync of host paths or boot IDs.
 5. **Daily**, review the accumulated hourly notes and ask whether any Aiur
    skill should change so the next run never rediscovers the lesson. Capture
    that as a concrete skill-doc edit and land it as a small PR.

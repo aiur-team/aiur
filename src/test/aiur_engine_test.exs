@@ -150,6 +150,7 @@ defmodule AiurEngineTest do
     {out, 0} = run_engine(["--help"], [])
     assert out =~ ~r/aiur init \[--force\]\s+scaffold/
     assert out =~ "aiur --todo <ids...> [--only]"
+    assert out =~ "aiur findings [--unfiled] [--slugs] [--scope aiur|repo]"
     assert out =~ "aiur run [--bg] [--no-dashboard] [--debug]"
     assert out =~ "aiur --bg [--no-dashboard] [--debug]"
     refute out =~ "sweep"
@@ -471,6 +472,18 @@ defmodule AiurEngineTest do
     assert out =~ "Aiur.CLI.main(Aiur.CLI.argv_from_file())"
     refute out =~ "--name"
     refute out =~ "--cookie"
+    refute out =~ "BIN:"
+  end
+
+  test "findings boots distribution-free without requiring a running node" do
+    rel = fake_release()
+    state = Path.join(System.tmp_dir!(), "aiur-st-#{System.unique_integer([:positive])}")
+
+    {out, _} = run_engine(["findings", "--slugs"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", state}])
+
+    assert out =~ "ELIXIR_ARGS:"
+    assert out =~ "Aiur.CLI.main(Aiur.CLI.argv_from_file())"
+    refute out =~ "--name"
     refute out =~ "BIN:"
   end
 

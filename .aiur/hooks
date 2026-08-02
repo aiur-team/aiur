@@ -24,7 +24,13 @@ after_create: |
   else
     git checkout -B "$AIUR_TICKET_BRANCH" "origin/$base_branch"
   fi
-  mkdir -p ./.aiur-hex ./.aiur-mix
+  cache_root="${AIUR_REPO_STATE_PATH:?Aiur must provide a repository state path}"
+  mkdir -p "$cache_root/.aiur-hex" "$cache_root/.aiur-mix" "$cache_root/.aiur-npm-cache"
+  for cache_dir in .aiur-hex .aiur-mix .aiur-npm-cache; do
+    if [ -e "$cache_dir" ]; then
+      if [ -e "$cache_root/$cache_dir" ]; then cp -a "$cache_dir"/. "$cache_root/$cache_dir"/ && rm -rf "$cache_dir"; else mv "$cache_dir" "$cache_root/$cache_dir"; fi
+    fi
+  done
   if [ -f mise.toml ]; then
     mise trust mise.toml >/dev/null 2>&1 || true
     mise install >/dev/null 2>&1 || true
@@ -44,7 +50,7 @@ after_create: |
     # retained so the hook is non-fatal for the agent boot path:
     # if deps prefetch fails, the agent picks it up on first
     # `mix` call, just slower.
-    HEX_HOME="$PWD/.aiur-hex" MIX_HOME="$PWD/.aiur-mix" \
+    HEX_HOME="$cache_root/.aiur-hex" MIX_HOME="$cache_root/.aiur-mix" npm_config_cache="$cache_root/.aiur-npm-cache" \
       MISE_TRUSTED_CONFIG_PATHS="$PWD/mise.toml" \
       bash -c 'cd src && mise exec -- mix local.hex --force --if-missing && mise exec -- mix local.rebar --force --if-missing && mise exec -- mix deps.get && mise exec -- mix compile' \
       2>&1 | tail -200 || true
@@ -52,6 +58,24 @@ after_create: |
 before_run: |
   set -e
   base_branch="${THIS_BASE_BRANCH:-develop}"
+  cache_root="${AIUR_REPO_STATE_PATH:?Aiur must provide a repository state path}"
+  mkdir -p "$cache_root/.aiur-hex" "$cache_root/.aiur-mix" "$cache_root/.aiur-npm-cache"
+  move_sidecars_to_state() {
+    for cache_dir in .aiur-hex .aiur-mix .aiur-npm-cache; do
+      if [ -e "$cache_dir" ]; then
+        if [ -e "$cache_root/$cache_dir" ]; then cp -a "$cache_dir"/. "$cache_root/$cache_dir"/ && rm -rf "$cache_dir"; else mv "$cache_dir" "$cache_root/$cache_dir"; fi
+      fi
+    done
+  }
+  move_sidecars_to_state
+  trap move_sidecars_to_state EXIT
+  if git rev-parse --verify HEAD >/dev/null 2>&1; then
+    tracked_sidecar_changes="$(git diff --name-only HEAD -- .aiur-hex .aiur-mix .aiur-npm-cache)"
+    if [ -n "$tracked_sidecar_changes" ]; then
+      printf '%s\n' "$tracked_sidecar_changes" |
+        git restore --source=HEAD --staged --worktree --pathspec-from-file=-
+    fi
+  fi
   workspace_root="$(pwd -P)"
   git_toplevel="$(git rev-parse --show-toplevel 2>/dev/null || true)"
   if [ -n "$git_toplevel" ]; then
@@ -73,8 +97,8 @@ before_run: |
     fi
   else
     git fetch origin
-    if ! git diff --quiet -- . ':(exclude).aiur-hex/**' ':(exclude).aiur-mix/**' ':(exclude)logs' ||
-       ! git diff --cached --quiet -- . ':(exclude).aiur-hex/**' ':(exclude).aiur-mix/**' ':(exclude)logs'; then
+    if ! git diff --quiet -- . ':(exclude)logs' ||
+       ! git diff --cached --quiet -- . ':(exclude)logs'; then
       # Tracked changes are present. Signal the refusal with exit 65.
       # The Elixir side keys on that status code: a fresh todo dispatch
       # recreates the stale leftover clean; a live/resumed agent's uncommitted
@@ -84,34 +108,6 @@ before_run: |
       echo "Refusing to refresh workspace from origin/$base_branch because tracked source changes are present." >&2
       echo "Leaving uncommitted work in place; skipping the origin/$base_branch refresh for this run." >&2
       exit 65
-    fi
-    # Ticket branches created before package caches became runtime-only can
-    # still track these files. Preserve the complete warm caches outside the
-    # worktree while their tracked paths are reset and the base deletion is
-    # merged, then restore them as ignored runtime state. The exit trap also
-    # restores them if checkout or merge fails.
-    cache_backup="$(mktemp -d "/tmp/aiur-workspace-caches.XXXXXX")"
-    restore_caches() {
-      if [ -n "$cache_backup" ] && [ -d "$cache_backup" ]; then
-        rm -rf ./.aiur-hex ./.aiur-mix
-        for cache_dir in .aiur-hex .aiur-mix; do
-          if [ -e "$cache_backup/$cache_dir" ]; then
-            cp -a "$cache_backup/$cache_dir" ./
-          fi
-        done
-        rm -rf "$cache_backup"
-        cache_backup=""
-      fi
-    }
-    for cache_dir in .aiur-hex .aiur-mix; do
-      if [ -e "$cache_dir" ]; then
-        cp -a "$cache_dir" "$cache_backup"/
-      fi
-    done
-    trap restore_caches 0
-    if ! git diff --quiet HEAD -- .aiur-hex .aiur-mix; then
-      git diff --name-only -z HEAD -- .aiur-hex .aiur-mix |
-        git restore --source=HEAD --staged --worktree --pathspec-from-file=- --pathspec-file-nul
     fi
     current_branch="$(git branch --show-current)"
     if [ "$current_branch" != "$AIUR_TICKET_BRANCH" ]; then
@@ -124,10 +120,7 @@ before_run: |
       fi
     fi
     git merge --no-edit "origin/$base_branch"
-    restore_caches
-    trap - 0
   fi
-  mkdir -p ./.aiur-hex ./.aiur-mix
   if [ -f mise.toml ]; then
     mise trust mise.toml >/dev/null 2>&1 || true
     mise install >/dev/null 2>&1 || true
@@ -146,7 +139,7 @@ before_run: |
     # retained so the hook is non-fatal for the agent boot path:
     # if deps prefetch fails, the agent picks it up on first
     # `mix` call, just slower.
-    HEX_HOME="$PWD/.aiur-hex" MIX_HOME="$PWD/.aiur-mix" \
+    HEX_HOME="$cache_root/.aiur-hex" MIX_HOME="$cache_root/.aiur-mix" npm_config_cache="$cache_root/.aiur-npm-cache" \
       MISE_TRUSTED_CONFIG_PATHS="$PWD/mise.toml" \
       bash -c 'cd src && mise exec -- mix local.hex --force --if-missing && mise exec -- mix local.rebar --force --if-missing && mise exec -- mix deps.get && mise exec -- mix compile' \
       2>&1 | tail -200 || true

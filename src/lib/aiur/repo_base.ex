@@ -51,6 +51,61 @@ defmodule Aiur.RepoBase do
   def builds_path(repo_url) when is_binary(repo_url),
     do: Path.join(repo_path(repo_url), "builds")
 
+  @doc "Absolute path of executor-authored repository metadata for `repo_url`."
+  @spec meta_path(String.t()) :: Path.t()
+  def meta_path(repo_url) when is_binary(repo_url),
+    do: Path.join(repo_path(repo_url), "meta")
+
+  @doc "Absolute path of the append-only executor findings file for `repo_url`."
+  @spec findings_path(String.t()) :: Path.t()
+  def findings_path(repo_url) when is_binary(repo_url),
+    do: Path.join(meta_path(repo_url), "findings.ndjson")
+
+  @doc "Absolute path of per-boot executor retrospectives for `repo_url`."
+  @spec retros_path(String.t()) :: Path.t()
+  def retros_path(repo_url) when is_binary(repo_url),
+    do: Path.join(meta_path(repo_url), "retros")
+
+  @doc "Absolute path of regenerable analytics outputs for `repo_url`."
+  @spec analytics_path(String.t()) :: Path.t()
+  def analytics_path(repo_url) when is_binary(repo_url),
+    do: Path.join(repo_path(repo_url), "analytics")
+
+  @doc "Creates the canonical repository state tree before any writer needs it."
+  @spec ensure_state_tree(String.t()) :: :ok | {:error, term()}
+  def ensure_state_tree(repo_url) when is_binary(repo_url), do: ensure_state_tree_at(repo_path(repo_url))
+
+  defp ensure_state_tree_at(node) do
+    [
+      node,
+      Path.join(node, "latest"),
+      Path.join(node, "builds"),
+      Path.join(node, "analytics"),
+      Path.join(node, "meta"),
+      Path.join([node, "meta", "retros"])
+      | Enum.map(@cache_sidecars, &Path.join(node, &1))
+    ]
+    |> Enum.reduce_while(:ok, fn path, :ok ->
+      case File.mkdir_p(path) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, {:repo_state_tree_create_failed, path, reason}}}
+      end
+    end)
+  end
+
+  @doc """
+  Creates the canonical repository state tree and imports the previous worktree
+  retrospective once when it exists. The source remains untouched: it belongs to
+  an old branch and this import is a durable machine-local copy.
+  """
+  @spec setup_state(String.t(), Path.t() | nil) :: :ok | {:error, term()}
+  def setup_state(repo_url, source_root \\ nil) when is_binary(repo_url) do
+    with :ok <- ensure_state_tree(repo_url),
+         :ok <- import_legacy_retrospective(repo_url, source_root) do
+      :ok
+    end
+  end
+
   @doc """
   Current base status as `{phase, base_path | nil}`. Fast and non-blocking —
   the orchestrator gate and the loading UI read this. `phase` is `:idle`,
@@ -103,6 +158,7 @@ defmodule Aiur.RepoBase do
   defp run_refresh_steps(base_path, repo_url, base_build) do
     with :ok <- remove_obsolete_aiur_node(repo_url),
          :ok <- migrate_legacy_layout(base_path),
+         :ok <- ensure_state_tree_at(repo_node_path(base_path)),
          :ok <- ensure_clone(base_path, repo_url),
          {:ok, changed?} <- fetch_and_reset(base_path) do
       maybe_build(base_path, base_build, changed? or not built?(base_path, base_build))
@@ -310,6 +366,7 @@ defmodule Aiur.RepoBase do
     result =
       with :ok <- remove_obsolete_aiur_node(repo_url),
            :ok <- migrate_legacy_layout(base),
+           :ok <- ensure_state_tree_at(repo_node_path(base)),
            :ok <- ensure_clone(base, repo_url),
            {:ok, changed?} <- fetch_and_reset(base) do
         head = head_of(base)
@@ -585,6 +642,29 @@ defmodule Aiur.RepoBase do
 
   defp relocate_sidecars(base_path), do: move_sidecars(base_path, repo_node_path(base_path))
 
+  defp import_legacy_retrospective(_repo_url, nil), do: :ok
+
+  defp import_legacy_retrospective(repo_url, source_root) when is_binary(source_root) do
+    source = Path.join([source_root, "docs", "executor", "hourly-retrospectives.md"])
+
+    if File.regular?(source) do
+      with {:ok, contents} <- File.read(source) do
+        name = "legacy-" <> (:crypto.hash(:sha256, contents) |> Base.encode16(case: :lower) |> binary_part(0, 12)) <> ".md"
+        destination = Path.join(retros_path(repo_url), name)
+
+        case File.copy(source, destination) do
+          {:ok, _bytes} -> :ok
+          {:error, :eexist} -> :ok
+          {:error, reason} -> {:error, {:legacy_retrospective_import_failed, source, reason}}
+        end
+      else
+        {:error, reason} -> {:error, {:legacy_retrospective_read_failed, source, reason}}
+      end
+    else
+      :ok
+    end
+  end
+
   # aiur's org transfer left exactly one known predecessor node. It is not a
   # valid state node for the current tracker and can retain the old boolean
   # marker forever, so clear it lazily when the renamed repository is touched.
@@ -610,11 +690,22 @@ defmodule Aiur.RepoBase do
 
   defp move_sidecar(from, to, sidecar) do
     source = Path.join(from, sidecar)
+    destination = Path.join(to, sidecar)
 
     cond do
       not File.exists?(source) -> :ok
-      File.exists?(Path.join(to, sidecar)) -> remove_sidecar(source)
-      true -> File.rename(source, Path.join(to, sidecar))
+      File.exists?(destination) -> merge_sidecar(source, destination)
+      true -> File.rename(source, destination)
+    end
+  end
+
+  defp merge_sidecar(source, destination) do
+    with {:ok, _copied} <- File.cp_r(source, destination),
+         :ok <- remove_sidecar(source) do
+      :ok
+    else
+      {:error, reason, _path} -> {:error, reason}
+      {:error, reason} -> {:error, reason}
     end
   end
 

@@ -390,10 +390,13 @@ the work itself (proven repeatedly in the 2026-07 analytics-streamdeck run):
    patching more instances, recording the reproductions that justify it. At
    most 1-2 evidence-backed systemic tickets per pattern, and never expand the
    active feature boundary with them;
-4. write the entry — bottleneck, number, proposed reduction, filed vs deferred
-   — in a durable retrospective log (e.g.
-   `docs/executor/hourly-retrospectives.md` on the run's research/handoff
-   branch); a replacement Executor resumes from it;
+4. append the durable judgment to the repository state node: write the
+   retrospective to `~/.aiur/repo/<owner>/<repo>/meta/retros/<boot-id>.md` and
+   append each actionable finding to `meta/findings.ndjson` with its slug,
+   evidence references, status, and ticket number (or `ticket: null` until it
+   is filed). A finding without a ticket is not a completed retrospective. Raw
+   state remains host-local; periodically regenerate and commit an open-findings
+   digest under `docs/executor/` to share it between machines;
 5. daily, review the accumulated notes and ask whether any Aiur skill should
    change so the next run never rediscovers the lesson; land the concrete
    skill-doc edit as a small PR.

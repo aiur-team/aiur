@@ -223,6 +223,49 @@ defmodule Aiur.RepoBaseTest do
       assert RepoBase.builds_path("https://github.com/foo/bar.git") |> Path.split() |> Enum.take(-3) ==
                ["foo", "bar", "builds"]
     end
+
+    test "exposes sibling meta and analytics state paths" do
+      repo = "https://github.com/foo/bar.git"
+
+      assert RepoBase.meta_path(repo) |> Path.split() |> Enum.take(-3) == ["foo", "bar", "meta"]
+      assert RepoBase.findings_path(repo) |> Path.split() |> Enum.take(-4) == ["foo", "bar", "meta", "findings.ndjson"]
+      assert RepoBase.retros_path(repo) |> Path.split() |> Enum.take(-4) == ["foo", "bar", "meta", "retros"]
+      assert RepoBase.analytics_path(repo) |> Path.split() |> Enum.take(-3) == ["foo", "bar", "analytics"]
+    end
+  end
+
+  describe "setup_state/2" do
+    test "creates the complete state tree and imports a legacy retrospective", %{tmp: tmp} do
+      previous_root = Application.get_env(:aiur, :repo_base_root)
+      state_root = Path.join(tmp, "state")
+      source_root = Path.join(tmp, "source")
+      File.mkdir_p!(Path.join([source_root, "docs", "executor"]))
+      File.write!(Path.join([source_root, "docs", "executor", "hourly-retrospectives.md"]), "legacy notes\n")
+      Application.put_env(:aiur, :repo_base_root, state_root)
+
+      on_exit(fn ->
+        case previous_root do
+          nil -> Application.delete_env(:aiur, :repo_base_root)
+          root -> Application.put_env(:aiur, :repo_base_root, root)
+        end
+      end)
+
+      repo = "https://github.com/foo/bar.git"
+      assert :ok = RepoBase.setup_state(repo, source_root)
+      assert :ok = RepoBase.setup_state(repo, source_root)
+
+      assert File.dir?(RepoBase.base_path(repo))
+      assert File.dir?(RepoBase.builds_path(repo))
+      assert File.dir?(RepoBase.analytics_path(repo))
+      assert File.dir?(RepoBase.retros_path(repo))
+
+      for sidecar <- [".aiur-hex", ".aiur-mix", ".aiur-npm-cache"] do
+        assert File.dir?(Path.join(RepoBase.repo_path(repo), sidecar))
+      end
+
+      assert [imported] = Path.wildcard(Path.join(RepoBase.retros_path(repo), "legacy-*.md"))
+      assert File.read!(imported) == "legacy notes\n"
+    end
   end
 
   describe "base_branch/0" do

@@ -187,7 +187,14 @@ defmodule Aiur.Workspace.Hooks do
     repository_env =
       with "github" <- Config.settings!().tracker.kind,
            repo when is_binary(repo) and repo != "" <- Aiur.GitHub.Config.repo() do
-        [{"THIS_REPOSITORY_URL", "https://github.com/#{repo}.git"}, {"THIS_BASE_BRANCH", RepoBase.base_branch()}]
+        repo_url = "https://github.com/#{repo}.git"
+        :ok = RepoBase.ensure_state_tree(repo_url)
+
+        [
+          {"THIS_REPOSITORY_URL", repo_url},
+          {"THIS_BASE_BRANCH", RepoBase.base_branch()},
+          {"AIUR_REPO_STATE_PATH", RepoBase.repo_path(repo_url)}
+        ]
       else
         _ -> []
       end
