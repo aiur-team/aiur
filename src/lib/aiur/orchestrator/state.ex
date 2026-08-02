@@ -14,6 +14,9 @@ defmodule Aiur.Orchestrator.State do
 
   @type t :: %__MODULE__{
           poll_interval_ms: integer() | nil,
+          snapshot_key: GenServer.server() | nil,
+          snapshot_generation: reference() | nil,
+          snapshot_ready?: boolean(),
           max_concurrent_agents: integer() | nil,
           session_max_concurrent_agents: integer() | nil,
           effective_concurrent_agents: integer() | nil,
@@ -57,6 +60,7 @@ defmodule Aiur.Orchestrator.State do
           github_connectivity: map(),
           github_poll_delays: map(),
           globally_paused: boolean(),
+          global_pause: %{paused_at: DateTime.t() | nil, source: String.t() | nil},
           control_lifecycle: ControlLifecycle.t()
         }
 
@@ -65,6 +69,8 @@ defmodule Aiur.Orchestrator.State do
   # credo:disable-for-next-line Credo.Check.Warning.StructFieldAmount
   defstruct [
     :poll_interval_ms,
+    :snapshot_key,
+    :snapshot_generation,
     :max_concurrent_agents,
     :session_max_concurrent_agents,
     :effective_concurrent_agents,
@@ -102,6 +108,8 @@ defmodule Aiur.Orchestrator.State do
     github_connectivity: %{},
     github_poll_delays: %{},
     globally_paused: false,
+    global_pause: %{paused_at: nil, source: nil},
+    snapshot_ready?: false,
     control_lifecycle: %ControlLifecycle{}
   ]
 

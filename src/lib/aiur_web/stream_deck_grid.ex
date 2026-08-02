@@ -18,10 +18,15 @@ defmodule AiurWeb.StreamDeckGrid do
 
   @spec payload(GenServer.name(), timeout()) :: map()
   def payload(orchestrator, snapshot_timeout_ms) do
-    case Orchestrator.snapshot(orchestrator, snapshot_timeout_ms) do
-      %{} = snapshot -> project(snapshot)
-      :timeout -> %{error: %{code: "snapshot_timeout", message: "Snapshot timed out"}}
-      :unavailable -> %{error: %{code: "snapshot_unavailable", message: "Snapshot unavailable"}}
+    case Orchestrator.dashboard_snapshot(orchestrator, snapshot_timeout_ms) do
+      {status, snapshot, freshness} when status in [:current, :stale] ->
+        snapshot |> project() |> Map.put(:snapshot_freshness, freshness)
+
+      :snapshot_timeout ->
+        %{error: %{code: "snapshot_timeout", message: "Snapshot timed out"}}
+
+      :orchestrator_unavailable ->
+        %{error: %{code: "snapshot_unavailable", message: "Snapshot unavailable"}}
     end
   end
 

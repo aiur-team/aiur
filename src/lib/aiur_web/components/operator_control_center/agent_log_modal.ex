@@ -136,6 +136,7 @@ defmodule AiurWeb.OperatorControlCenter.AgentLogModal do
   def format_error(:timeout), do: "Send timed out."
   def format_error(:unavailable), do: "Orchestrator unavailable."
   def format_error(:ambiguous_identifier), do: "Agent actions require a unique typed target."
+  def format_error(:globally_paused), do: "Aiur is globally paused; per-ticket control has no effect. Resume Aiur globally first."
   def format_error(reason), do: inspect(reason)
 
   defp refresh_from_path(%{path: path} = modal) when is_binary(path) do

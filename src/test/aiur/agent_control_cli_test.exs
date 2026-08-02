@@ -39,9 +39,10 @@ defmodule Aiur.AgentControlCLITest do
     fetch_active_result = Keyword.get(opts, :fetch_active_result, {:ok, active})
     add_result = Keyword.get(opts, :add_result, fn _id, _label -> :ok end)
     remove_result = Keyword.get(opts, :remove_result, fn _id, _label -> :ok end)
+    ensure_started_result = Keyword.get(opts, :ensure_started_result, :ok)
 
     %{
-      ensure_started: fn -> :ok end,
+      ensure_started: fn -> ensure_started_result end,
       load_config: fn -> {:ok, Keyword.get(opts, :config, todo_config())} end,
       fetch_issue: fn id ->
         send(parent, {:todo_fetch_issue, id})
@@ -86,6 +87,10 @@ defmodule Aiur.AgentControlCLITest do
     }
   end
 
+  defp queued_issue(issue_id \\ "issue-queued") do
+    %Issue{id: issue_id, identifier: "repo##{issue_id}", state: "In Progress", title: "Queued"}
+  end
+
   # A running entry shaped for `watch` assertions: lets a test set the tracker
   # state, labels (for the complexity column), last activity timestamp (for age
   # / stuck detection) and last message (for the doing column).
@@ -117,6 +122,45 @@ defmodule Aiur.AgentControlCLITest do
   end
 
   describe "todo/2" do
+    test "mutates the tracker and emits the control exit marker" do
+      issue = %Issue{id: "issue-11", identifier: "11", state: "todo", title: "Queued"}
+
+      {stdout, stderr, exit_code} =
+        capture_todo(["11"],
+          deps: todo_deps(%{"11" => issue}),
+          emit_exit_marker: true
+        )
+
+      assert exit_code == 0
+      assert stderr == ""
+      assert stdout =~ "queued 1 ticket(s); cleared 0 other(s)"
+      assert stdout =~ "__AIUR_CONTROL_EXIT__:0"
+      assert_received {:todo_add_label, "11", "sym:todo"}
+    end
+
+    test "emits a failure marker when tracker mutation fails" do
+      {stdout, stderr, exit_code} =
+        capture_todo(["11"],
+          deps: todo_deps(%{"11" => {:error, :unavailable}}),
+          emit_exit_marker: true
+        )
+
+      assert exit_code == 1
+      assert stderr =~ "orchestrator unavailable"
+      assert stdout =~ "queued 0 ticket(s); cleared 0 other(s)"
+      assert stdout =~ "__AIUR_CONTROL_EXIT__:1"
+    end
+
+    test "reports a stopped application without a summary or stacktrace" do
+      {stdout, stderr, exit_code} =
+        capture_todo(["123"], deps: todo_deps(%{}, ensure_started_result: {:error, :application_not_started}))
+
+      assert exit_code == 1
+      assert stdout == ""
+      assert stderr == "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry.\n"
+      refute stderr =~ "GenServer"
+    end
+
     test "queues requested tickets with config-derived labels and streaming feedback" do
       issues =
         Map.new(~w(11 12 13), fn id ->
@@ -366,6 +410,120 @@ defmodule Aiur.AgentControlCLITest do
     assert populated_output =~ "__AIUR_CONTROL_EXIT__:0"
   end
 
+  test "status names the config cap and AIMD envelope binding constraints", %{orchestrator: pid} do
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | max_concurrent_agents: 2,
+          effective_concurrent_agents: 2,
+          running: %{
+            "issue-44" => running_entry("issue-44", "repo#44", :working),
+            "issue-45" => running_entry("issue-45", "repo#45", :working)
+          },
+          last_polled_issues: %{"issue-queued" => queued_issue()}
+      }
+    end)
+
+    config_output = capture_io(fn -> AgentControlCLI.status() end)
+    assert config_output =~ "AGENTS 2/2 (binding: config max_concurrent_agents)"
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | max_concurrent_agents: 2,
+          effective_concurrent_agents: 1,
+          running: %{"issue-44" => running_entry("issue-44", "repo#44", :working)},
+          last_polled_issues: %{"issue-queued" => queued_issue()}
+      }
+    end)
+
+    envelope_output = capture_io(fn -> AgentControlCLI.status() end)
+    assert envelope_output =~ "AGENTS 1/2 (binding: AIMD envelope, effective cap=1)"
+  end
+
+  test "status treats blocked tracker rows as ticket supply, not dispatch demand", %{orchestrator: pid} do
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | max_concurrent_agents: 2,
+          effective_concurrent_agents: 2,
+          last_polled_issues: %{
+            "issue-paused" => Map.put(queued_issue(), :paused, true),
+            "issue-unauthorized" => Map.put(queued_issue("issue-unauthorized"), :dispatch_authorized?, false)
+          }
+      }
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~ "AGENTS 0/2 (binding: ticket supply)"
+  end
+
+  test "status counts paused reservations as occupied capacity", %{orchestrator: pid} do
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | max_concurrent_agents: 2,
+          effective_concurrent_agents: 2,
+          running: %{
+            "issue-paused" =>
+              running_entry("issue-paused", "repo#paused", :paused)
+              |> Map.put(:paused_reason, :operator_pause),
+            "issue-paused-two" =>
+              running_entry("issue-paused-two", "repo#paused-two", :paused)
+              |> Map.put(:paused_reason, :operator_pause)
+          }
+      }
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~ "AGENTS 2/2 (binding: paused reservations=2)"
+    refute output =~ "binding: ticket supply"
+  end
+
+  test "status does not blame paused reservations when the cap is already binding", %{orchestrator: pid} do
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | max_concurrent_agents: 3,
+          session_max_concurrent_agents: 1,
+          effective_concurrent_agents: 1,
+          running: %{
+            "issue-active" => running_entry("issue-active", "repo#active", :working),
+            "issue-paused" =>
+              running_entry("issue-paused", "repo#paused", :paused)
+              |> Map.put(:paused_reason, :operator_pause)
+          },
+          last_polled_issues: %{"issue-queued" => queued_issue()}
+      }
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~ "AGENTS 2/1 (binding: session max_concurrent_agents)"
+    refute output =~ "paused reservations"
+  end
+
+  test "status uses a source-neutral session cap label", %{orchestrator: pid} do
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | max_concurrent_agents: 3,
+          session_max_concurrent_agents: 1,
+          effective_concurrent_agents: 1,
+          running: %{
+            "issue-44" => running_entry("issue-44", "repo#44", :working)
+          }
+      }
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~ "AGENTS 1/1 (binding: session max_concurrent_agents)"
+    refute output =~ "requested CLI cap"
+  end
+
   test "status prints the resolved CODEOWNERS trust snapshot", %{orchestrator: pid} do
     path = Path.join(File.cwd!(), ".github/CODEOWNERS")
 
@@ -382,7 +540,7 @@ defmodule Aiur.AgentControlCLITest do
     assert Process.alive?(pid)
   end
 
-  test "status reports active build-gate contention" do
+  test "status reports active build-gate contention", %{orchestrator: pid} do
     gate_dir = Path.join(System.tmp_dir!(), "aiur-build-gate-status-#{System.unique_integer([:positive])}")
     lock_dir = BuildGate.lock_dir(gate_dir)
     previous = Application.get_env(:aiur, :build_gate_dir_override)
@@ -440,7 +598,13 @@ defmodule Aiur.AgentControlCLITest do
 
     assert %{active: 1, queued: 1} = BuildGate.status()
 
+    :sys.replace_state(pid, fn state ->
+      issue = %Issue{id: "issue-idle", identifier: "repo#idle", state: "In Progress", title: "Idle"}
+      %{state | last_polled_issues: %{"issue-idle" => issue}}
+    end)
+
     output = capture_io(fn -> AgentControlCLI.status() end)
+    assert output =~ "AGENTS 0/10 (binding: none)"
     assert output =~ "BUILD GATE 1/2 active, 1 queued"
     File.touch!(release_path)
     assert_receive {^holder, {:exit_status, 0}}, 2_000
@@ -558,6 +722,19 @@ defmodule Aiur.AgentControlCLITest do
 
       :sys.replace_state(pid, fn state -> %{state | globally_paused: false} end)
       refute capture_io(fn -> AgentControlCLI.status() end) =~ "GLOBALLY PAUSED"
+    end
+
+    test "targeted controls fail truthfully while globally paused", %{orchestrator: pid} do
+      :sys.replace_state(pid, fn state -> %{state | globally_paused: true} end)
+
+      stderr =
+        capture_io(:stderr, fn ->
+          output = capture_io(fn -> AgentControlCLI.resume(["44"]) end)
+          assert output =~ "__AIUR_CONTROL_EXIT__:1"
+        end)
+
+      assert stderr =~ "error: aiur is globally paused; per-ticket resume has no effect."
+      assert stderr =~ "Run `aiurdev resume` (no arguments) to lift the global pause."
     end
   end
 
@@ -1154,6 +1331,15 @@ defmodule Aiur.AgentControlCLITest do
 
       assert output =~ "(no active agents)"
       assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    end
+
+    test "full board puts the global pause banner before the table", %{orchestrator: pid, watch_root: root} do
+      :sys.replace_state(pid, fn state -> %{state | globally_paused: true, global_pause: %{paused_at: nil, source: "dashboard"}} end)
+
+      output = capture_io(fn -> AgentControlCLI.watch(mode: :full, roots: [root], log_roots: [root]) end)
+
+      assert output =~ "GLOBALLY PAUSED (set by dashboard)"
+      assert String.starts_with?(output, "GLOBALLY PAUSED")
     end
 
     test "full board shows paused label override for idle active-state tickets", %{

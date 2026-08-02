@@ -1,0 +1,30 @@
+defmodule Aiur.OpenAICompat.TranscriptTest do
+  use ExUnit.Case, async: true
+
+  alias Aiur.OpenAICompat.Transcript
+
+  test "extracts normalized assistant, reasoning, command, and tool events" do
+    assert {:ok, %{role: :assistant, body: "done", msg_id: "msg-1"}} =
+             Transcript.extract(%{event: :assistant, payload: %{text: "done", id: "msg-1"}}, "turn-1")
+
+    assert {:ok, %{role: :reasoning, body: "thinking"}} =
+             Transcript.extract(%{event: :reasoning, payload: %{text: "thinking"}}, "turn-1")
+
+    assert {:ok, %{role: :command, body: "git status", payload: %{command: "git status"}}} =
+             Transcript.extract(
+               %{event: :tool_call, payload: %{id: "call-1", name: "exec_command", arguments: %{"command" => "git status"}}},
+               "turn-1"
+             )
+
+    assert {:ok, %{role: :tool, body: "read_file", payload: %{tool: "read_file"}}} =
+             Transcript.extract(
+               %{event: :tool_result, payload: %{id: "call-2", name: "read_file", output: "contents", success: true}},
+               "turn-1"
+             )
+  end
+
+  test "skips usage and unknown events" do
+    assert :skip = Transcript.extract(%{event: :usage, usage: %{}}, "turn")
+    assert :skip = Transcript.extract(%{event: :unknown}, "turn")
+  end
+end

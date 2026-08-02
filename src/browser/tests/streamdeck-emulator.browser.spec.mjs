@@ -11,6 +11,13 @@ async function openStreamdeck(page) {
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
 }
 
+async function openUnits(page) {
+  await page.goto('/auth/read_only')
+  await page.goto('/units')
+  await expect(page.locator('[data-units-fixture="true"]')).toBeVisible()
+  await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
+}
+
 test('dial drag rotates the knob and updates aria-valuenow', async ({ page }) => {
   await openStreamdeck(page)
 
@@ -268,6 +275,94 @@ test('dial and knob state survive a LiveView patch (regression for #1306)', asyn
 
   const valueAfterPatch = parseInt(await knob.getAttribute('aria-valuenow'), 10)
   expect(valueAfterPatch).toBe(valueBeforePatch)
+})
+
+test('dial D pages live fleet keys and pager dots', async ({ page }) => {
+  await openStreamdeck(page)
+
+  const keys = page.locator('#sd-keys')
+  await expect(keys).toHaveAttribute('data-grid-page-count', '3')
+  await expect(keys.locator('[data-streamdeck-identifier="1352"]')).toBeVisible()
+  await expect(keys.locator('[data-streamdeck-identifier="1376"]')).toHaveCount(0)
+
+  const dialD = page.locator('.sd-knob').nth(3)
+  await dialD.hover()
+  for (let step = 0; step < 17; step += 1) {
+    await page.mouse.wheel(0, -100)
+  }
+
+  await expect(dialD).toHaveAttribute('aria-valuenow', '68')
+  await expect(keys).toHaveAttribute('data-grid-page', '1')
+  await expect(keys.locator('[data-streamdeck-identifier="1370"]')).toBeVisible()
+  await expect(page.locator('#sd-pager-dots [aria-current="page"]')).toHaveAttribute('data-page', '1')
+})
+
+test('emulator and Units stay in sync after a live fleet-size change', async ({ page, context }) => {
+  await openStreamdeck(page)
+
+  const units = await context.newPage()
+  await openUnits(units)
+  await units.getByRole('button', { name: 'Select all preceding filters' }).click()
+
+  const rows = units.locator('#units-rows tr.units-row')
+  const before = Number.parseInt(await units.locator('.units-header p').nth(1).textContent(), 10)
+  await rows.first().locator('td.ut-id-cell').click()
+  await units.locator('#remove-selected-unit').evaluate((button) => button.click())
+
+  await expect(units.locator('.units-header p').nth(1)).toContainText(`${before - 1} observed`)
+
+  const unitIdentifiers = await rows.evaluateAll((elements) =>
+    elements.map((row) => row.querySelector('.ut-id-num').textContent.trim())
+  )
+  expect(unitIdentifiers).toHaveLength(5)
+  await expect(page.locator('#sd-keys')).toHaveAttribute('data-grid-total', String(unitIdentifiers.length))
+
+  const streamdeckSlots = await page.locator('#sd-keys .sd-key').evaluateAll((keys) =>
+    keys.map((key) => key.classList.contains('is-empty') ? null : key.getAttribute('data-streamdeck-identifier'))
+  )
+  const expectedSlots = Array.from({ length: 8 }, (_, slot) => {
+    const index = (slot % 4) * 2 + Math.floor(slot / 4)
+    return unitIdentifiers[index] ?? null
+  })
+
+  expect(streamdeckSlots).toEqual(expectedSlots)
+  await units.close()
+})
+
+test('logs mode scrolls classified feed events and flattened transcript panes within real bounds', async ({ page }) => {
+  await openStreamdeck(page)
+
+  await page.locator('.sd-key:not(.is-empty)').first().click()
+  const dialD = page.locator('.sd-knob').nth(3)
+  const box = await dialD.boundingBox()
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
+  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
+
+  await expect(page.locator('#sd-log-events')).toContainText('event-1')
+  await dialD.hover()
+  await page.mouse.wheel(0, -100)
+  await expect(page.locator('#sd-log-events')).toHaveAttribute('data-offset', '1')
+  await expect(page.locator('#sd-log-events')).toContainText('event-2')
+
+  const dialA = page.locator('.sd-knob').first()
+  await dialA.hover()
+  await page.mouse.wheel(0, -100)
+  await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '1')
+  await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-max-offset', '18')
+  await expect(page.locator('#sd-log-transcript [data-log-kind="message"]')).toContainText('event-10')
+
+  await page.mouse.wheel(0, 1000)
+  await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '0')
+  await expect(page.locator('#sd-transcript-hint-up')).toHaveAttribute('aria-hidden', 'true')
+})
+
+test('touch strip exposes provider percentages, not only window counts', async ({ page }) => {
+  await openStreamdeck(page)
+
+  await expect(page.locator('.sd-screen-segment').filter({ hasText: 'Claude' })).toContainText('30%')
+  await expect(page.locator('.sd-screen-segment').filter({ hasText: 'Codex' })).toContainText('50%')
+  await expect(page.locator('.sd-screen-segment').filter({ hasText: 'Claude' }).locator('.sd-screen-value')).not.toContainText('windows')
+  await expect(page.locator('.sd-screen-segment').filter({ hasText: 'Codex' }).locator('.sd-screen-value')).not.toContainText('windows')
 })
 
 test('Stream Deck emulator passes automated accessibility checks', async ({ page }) => {

@@ -76,6 +76,23 @@ defmodule Aiur.AgentEnvironmentTest do
     assert output == "AIUR_AGENT_WORKSPACE=/work/aiur/697\nAIUR_DEBUG=1\n"
   end
 
+  test "scrub_shell_command clears provider API keys while preserving tracker auth" do
+    command =
+      AgentEnvironment.scrub_shell_command("env | grep -E '^(DEEPSEEK_API_KEY|OPENROUTER_API_KEY|OPENROUTER_MANAGEMENT_KEY|GITHUB_TOKEN)=' | sort")
+
+    {output, 0} =
+      System.cmd("bash", ["-lc", command],
+        env: [
+          {"DEEPSEEK_API_KEY", "deepseek-secret"},
+          {"OPENROUTER_API_KEY", "openrouter-secret"},
+          {"OPENROUTER_MANAGEMENT_KEY", "management-secret"},
+          {"GITHUB_TOKEN", "tracker-token"}
+        ]
+      )
+
+    assert output == "GITHUB_TOKEN=tracker-token\n"
+  end
+
   test "scrub_shell_command preserves caller exec choice" do
     refute AgentEnvironment.scrub_shell_command("codex app-server") =~ "; exec codex"
     assert AgentEnvironment.scrub_shell_command("codex app-server", exec: true) =~ "; exec codex app-server"
@@ -152,6 +169,14 @@ defmodule Aiur.AgentEnvironmentTest do
       refute List.keyfind(env, ~c"AIUR_DEBUG", 0)
     end
 
+    test "explicitly unsets provider credentials from local agent ports" do
+      env = AgentEnvironment.workspace_env("/work/aiur/1440")
+
+      for name <- ~w(DEEPSEEK_API_KEY MOONSHOT_API_KEY OPENROUTER_API_KEY OPENROUTER_MANAGEMENT_KEY) do
+        assert {String.to_charlist(name), false} in env
+      end
+    end
+
     test "returns an empty list for a non-binary path so callers can splat safely" do
       assert AgentEnvironment.workspace_env(nil) == []
     end
@@ -168,6 +193,7 @@ defmodule Aiur.AgentEnvironmentTest do
       assert prefix =~ "AIUR_AGENT_MIX_SCHEDULERS='4'"
       assert prefix =~ "ELIXIR_ERL_OPTIONS='+S 4:4'"
       assert prefix =~ "AIUR_BASE_BRANCH='integration'"
+      assert prefix =~ "*_API_KEY"
       refute prefix =~ "elixir/mise.toml"
     end
 
