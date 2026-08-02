@@ -105,7 +105,6 @@ local sidecar build:
 AIUR_PHOENIX_URL=http://127.0.0.1:4000
 AIUR_DASHBOARD_USERNAME=operator
 AIUR_DASHBOARD_PASSWORD=replace-with-a-secret
-AIUR_STREAMDECK_JPEG_QUALITY=95
 ```
 
 Use `http://` only for a Phoenix endpoint on the same machine (such as the
@@ -115,10 +114,12 @@ send the dashboard credentials over plaintext HTTP.
 `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD` are the same HTTP
 Basic Auth credentials used by the Phoenix dashboard. Keep them in this
 EnvironmentFile; do not put them in the unit or commit a populated copy.
-`AIUR_STREAMDECK_JPEG_QUALITY` accepts the sidecar's 1–100 JPEG quality
-setting. Start at 95 (the Node library's reference quality), then lower it
-only if USB throughput is a problem. The sidecar coalesces and serializes
-writes; changing quality does not make concurrent device owners safe.
+The key pipeline exports `resolveJpegQuality()` for the eventual canvas/JPEG
+encoder. Its default is 90, with an accepted range of 1–100; the encoder must
+pass an explicit value when that composition layer lands. There is not yet an
+`AIUR_STREAMDECK_JPEG_QUALITY` sidecar environment setting, so do not document
+or rely on one. The write queue coalesces pending key content and serializes
+writes; changing JPEG quality does not make concurrent device owners safe.
 
 For a user service to start before an interactive login after reboot, enable
 user lingering once:
