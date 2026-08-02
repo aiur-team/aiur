@@ -463,7 +463,36 @@ defmodule AiurEngineTest do
         []
       )
 
-    assert out =~ "RPC:Aiur.AgentControlCLI.todo([\"11\", \"12\", \"13\"], only: true)"
+    assert out =~
+             "RPC:Aiur.AgentControlCLI.todo([\"11\", \"12\", \"13\"], only: true, emit_exit_marker: true)"
+  end
+
+  test "todo control rpc propagates live success and semantic failure codes" do
+    for {rpc_output, expected_code} <- [
+          {"queued 1 ticket(s); cleared 0 other(s)\n__AIUR_CONTROL_EXIT__:0", 0},
+          {"queued 0 ticket(s); cleared 0 other(s)\n__AIUR_CONTROL_EXIT__:1", 1}
+        ] do
+      script = """
+      resolve_release() { release_bin="/bin/true"; release_dir="/tmp"; vsn_dir="/tmp"; RELEASE_NODE="aiur-test@127.0.0.1"; }
+      prepare_distribution() { :; }
+      resolve_control_identity_from_records() { :; }
+      probe_node_liveness() { printf up; }
+      run_release_rpc_with_timeout() {
+        AIUR_CONTROL_RPC_OUTPUT='#{rpc_output}'
+        AIUR_CONTROL_RPC_TIMED_OUT=0
+        return 0
+      }
+      code=0
+      run_todo --todo 123 || code=$?
+      echo "CODE=$code"
+      """
+
+      {out, 0} = run_sourced_engine(script, [])
+
+      assert out =~ "CODE=#{expected_code}"
+      assert out =~ "queued"
+      refute out =~ "returned no exit marker"
+    end
   end
 
   test "streaming control rpc reports a stopped daemon" do
@@ -471,12 +500,27 @@ defmodule AiurEngineTest do
 
     {out, 1} =
       run_sourced_engine(
-        ~S|resolve_release() { release_bin="/bin/false"; }; prepare_distribution() { :; }; resolve_control_identity_from_records() { :; }; probe_node_liveness() { printf down; }; run_control_stream 'Aiur.AgentControlCLI.executor_listen()'|,
+        ~S|resolve_release() { release_bin="/bin/false"; RELEASE_NODE="aiur-test@127.0.0.1"; }; prepare_distribution() { :; }; resolve_control_identity_from_records() { :; }; probe_node_liveness() { printf down; }; run_control_stream 'Aiur.AgentControlCLI.executor_listen()'|,
         [{"AIUR_RELEASE_DIR", rel}]
       )
 
     assert out =~ "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry."
     refute out =~ "GenServer"
+  end
+
+  test "streaming control rpc preserves an unexpected crash marker" do
+    marker = Path.join(System.tmp_dir!(), "aiur-stream-crash-#{System.unique_integer([:positive])}")
+    File.write!(marker, "reason=boom\n")
+
+    {out, 1} =
+      run_sourced_engine(
+        ~S|resolve_release() { release_bin="/bin/false"; RELEASE_NODE="aiur-test@127.0.0.1"; }; prepare_distribution() { :; }; resolve_control_identity_from_records() { :; }; probe_node_liveness() { printf down; }; aiur_crash_marker_path() { printf '%s' "$CRASH_MARKER"; }; run_control_stream 'Aiur.AgentControlCLI.executor_listen()'|,
+        [{"CRASH_MARKER", marker}]
+      )
+
+    assert out =~ "aiur: background daemon"
+    assert out =~ "reason=boom"
+    refute out =~ "error: aiur is not running"
   end
 
   test "todo without IDs exits 64 before resolving a release" do

@@ -403,7 +403,7 @@ run_todo() {
 
   local only_arg="false"
   [ "$parsed_todo_only" -eq 1 ] && only_arg="true"
-  run_control_rpc "Aiur.AgentControlCLI.todo($(elixir_list_literal "${parsed_targets[@]}"), only: $only_arg)"
+  run_control_rpc "Aiur.AgentControlCLI.todo($(elixir_list_literal "${parsed_targets[@]}"), only: $only_arg, emit_exit_marker: true)"
 }
 
 # --- interactive / background run -------------------------------------------
@@ -1633,6 +1633,18 @@ print_not_running_message() {
   echo "error: aiur is not running. Start it with \`aiurdev run\` (or \`aiurdev --bg\`), then retry." >&2
 }
 
+print_control_down_message() {
+  local crash_marker
+  crash_marker="$(aiur_crash_marker_path)"
+  if [ -f "$crash_marker" ]; then
+    echo "aiur: background daemon at ${RELEASE_NODE} is DOWN after an unexpected exit; agents may be orphaned" >&2
+    sed 's/^/  /' "$crash_marker" >&2 2>/dev/null || true
+    echo "aiur: run 'aiur stop' to reap any orphaned agents, then start aiur again" >&2
+  else
+    print_not_running_message
+  fi
+}
+
 kill_control_rpc_process() {
   local pid="$1" grouped="$2" p tree=()
   [ -n "$pid" ] || return 0
@@ -1749,15 +1761,7 @@ run_control_rpc() {
     # down — in both of those cases surface the actual rpc output, never mask it.
     case "$(probe_node_liveness)" in
       down)
-        local crash_marker
-        crash_marker="$(aiur_crash_marker_path)"
-        if [ -f "$crash_marker" ]; then
-          echo "aiur: background daemon at ${RELEASE_NODE} is DOWN after an unexpected exit; agents may be orphaned" >&2
-          sed 's/^/  /' "$crash_marker" >&2 2>/dev/null || true
-          echo "aiur: run 'aiur stop' to reap any orphaned agents, then start aiur again" >&2
-        else
-          print_not_running_message
-        fi
+        print_control_down_message
         ;;
       up)
         [ -n "$output" ] && printf '%s\n' "$output" >&2
@@ -1801,7 +1805,7 @@ run_control_stream() {
     prepare_distribution || die "distribution setup failed; cannot contact aiur"
   fi
   if [ "$(probe_node_liveness)" = "down" ]; then
-    print_not_running_message
+    print_control_down_message
     return 1
   fi
   exec "$release_bin" rpc "$expression"

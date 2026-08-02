@@ -171,34 +171,39 @@ defmodule Aiur.AgentControlCLI do
   def todo(issue_ids, opts \\ []) when is_list(issue_ids) do
     deps = Keyword.get(opts, :deps, todo_runtime_deps())
     only? = Keyword.get(opts, :only, false)
+    emit_exit_marker? = Keyword.get(opts, :emit_exit_marker, false)
 
-    case deps.ensure_started.() do
-      :ok ->
-        result =
-          case deps.load_config.() do
-            {:ok, config} ->
-              issue_ids
-              |> normalize_todo_ids()
-              |> queue_todo_issues(config, deps)
-              |> maybe_clear_other_todos(only?, config, deps)
+    exit_code =
+      case deps.ensure_started.() do
+        :ok ->
+          result =
+            case deps.load_config.() do
+              {:ok, config} ->
+                issue_ids
+                |> normalize_todo_ids()
+                |> queue_todo_issues(config, deps)
+                |> maybe_clear_other_todos(only?, config, deps)
 
-            {:error, reason} ->
-              IO.puts(:stderr, "aiur: unable to queue tickets (#{format_reason(reason)})")
-              todo_result(failures: 1)
-          end
+              {:error, reason} ->
+                IO.puts(:stderr, "aiur: unable to queue tickets (#{format_reason(reason)})")
+                todo_result(failures: 1)
+            end
 
-        IO.puts("queued #{result.queued} ticket(s); cleared #{result.cleared} other(s)")
-        if result.failures == 0, do: 0, else: 1
+          IO.puts("queued #{result.queued} ticket(s); cleared #{result.cleared} other(s)")
+          if result.failures == 0, do: 0, else: 1
 
-      {:error, :application_not_started} ->
-        IO.puts(:stderr, not_running_message())
-        1
+        {:error, :application_not_started} ->
+          IO.puts(:stderr, not_running_message())
+          1
 
-      {:error, reason} ->
-        IO.puts(:stderr, "aiur: unable to queue tickets (#{format_reason(reason)})")
-        IO.puts("queued 0 ticket(s); cleared 0 other(s)")
-        1
-    end
+        {:error, reason} ->
+          IO.puts(:stderr, "aiur: unable to queue tickets (#{format_reason(reason)})")
+          IO.puts("queued 0 ticket(s); cleared 0 other(s)")
+          1
+      end
+
+    if emit_exit_marker?, do: exit_marker(exit_code)
+    exit_code
   end
 
   defp normalize_todo_ids(issue_ids) do
