@@ -1534,6 +1534,7 @@ defmodule Aiur.BrowserHarness.FixtureEndpoint do
 end
 
 defmodule Aiur.BrowserHarness.FixtureServer do
+  alias Aiur.IssueLog
   alias Aiur.BrowserHarness.FixtureEndpoint
 
   @port System.fetch_env!("AIUR_BROWSER_PORT") |> String.to_integer()
@@ -1547,6 +1548,7 @@ defmodule Aiur.BrowserHarness.FixtureServer do
     Application.put_env(:aiur, :workflow_file_path, Path.expand("../fixtures/test.aiurconfig", __DIR__))
     Application.put_env(:aiur, :build_order_data_source, Aiur.BrowserHarness.BuildOrderDataSource)
     configure_forwarded_dashboard()
+    write_streamdeck_feed()
 
     {:ok, _} =
       Supervisor.start_link(
@@ -1613,13 +1615,6 @@ defmodule Aiur.BrowserHarness.FixtureServer do
     }
   end
 
-  def streamdeck_logs do
-    %{
-      events: Enum.map(1..10, &%{role: :system, body: "event-#{&1}"}),
-      transcript: Enum.map(1..10, &%{role: :assistant, body: "transcript-#{&1}"})
-    }
-  end
-
   defp configure_forwarded_dashboard do
     config =
       :aiur
@@ -1630,11 +1625,31 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         control_center_cache: false,
         snapshot_timeout_ms: 100,
         streamdeck_snapshot_fun: &__MODULE__.streamdeck_snapshot/0,
-        streamdeck_provider_meters_fun: &__MODULE__.streamdeck_provider_meters/0,
-        streamdeck_logs_fun: &__MODULE__.streamdeck_logs/0
+        streamdeck_provider_meters_fun: &__MODULE__.streamdeck_provider_meters/0
       )
+      |> Keyword.delete(:streamdeck_logs_fun)
 
     Application.put_env(:aiur, AiurWeb.Endpoint, config)
+  end
+
+  defp write_streamdeck_feed do
+    path = IssueLog.transcript_path("1352")
+    File.mkdir_p!(Path.dirname(path))
+
+    events =
+      Enum.map(10..1, fn index ->
+        %{
+          "role" => "assistant",
+          "body" => "event-#{index}",
+          "timestamp" => "2026-08-02T00:00:00Z",
+          "msg_id" => nil,
+          "sequence" => index,
+          "turn_id" => "fixture-#{index}",
+          "payload" => nil
+        }
+      end)
+
+    File.write!(path, Enum.map_join(events, "\n", &Jason.encode!/1) <> "\n")
   end
 
   defp streamdeck_agent(identifier, title, backend, attrs \\ []) do

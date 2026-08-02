@@ -352,7 +352,7 @@ test('dial D drag, wheel, and keyboard preserve continuous fleet offsets', async
   await expect(keys).toHaveAttribute('data-grid-dial-value', String(afterKeyboard))
 })
 
-test('logs mode scrolls event and transcript panes within real bounds', async ({ page }) => {
+test('logs mode scrolls classified feed events and flattened transcript panes within real bounds', async ({ page }) => {
   await openStreamdeck(page)
 
   await page.locator('.sd-key:not(.is-empty)').first().click()
@@ -379,7 +379,8 @@ test('logs mode scrolls event and transcript panes within real bounds', async ({
   await dialA.hover()
   await page.mouse.wheel(0, -100)
   await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '1')
-  await expect(page.locator('#sd-log-transcript')).toContainText('transcript-2')
+  await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-max-offset', '18')
+  await expect(page.locator('#sd-log-transcript [data-log-kind="message"]')).toContainText('event-10')
 
   await page.mouse.wheel(0, 1000)
   await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '0')
