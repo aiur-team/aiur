@@ -147,11 +147,18 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
       {:ok, pid} = Orchestrator.start_link(name: name, initial_poll?: false)
       assert %{globally_paused: true, paused_at: ^paused_at, source: "dashboard"} = GlobalPause.global_pause_status(name)
       ref = Process.monitor(pid)
+      Process.unlink(pid)
       Process.exit(pid, :kill)
       assert_receive {:DOWN, ^ref, :process, ^pid, :killed}
 
       {:ok, restarted_pid} = Orchestrator.start_link(name: name, initial_poll?: false)
-      on_exit(fn -> if Process.alive?(restarted_pid), do: Process.exit(restarted_pid, :kill) end)
+
+      on_exit(fn ->
+        if Process.alive?(restarted_pid) do
+          Process.unlink(restarted_pid)
+          Process.exit(restarted_pid, :kill)
+        end
+      end)
 
       assert %{globally_paused: true, paused_at: ^paused_at, source: "dashboard"} = GlobalPause.global_pause_status(name)
     end
