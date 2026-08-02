@@ -752,6 +752,19 @@ defmodule Aiur.AgentControlCLITest do
       :sys.replace_state(pid, fn state -> %{state | globally_paused: false} end)
       refute capture_io(fn -> AgentControlCLI.status() end) =~ "GLOBALLY PAUSED"
     end
+
+    test "targeted controls fail truthfully while globally paused", %{orchestrator: pid} do
+      :sys.replace_state(pid, fn state -> %{state | globally_paused: true} end)
+
+      stderr =
+        capture_io(:stderr, fn ->
+          output = capture_io(fn -> AgentControlCLI.resume(["44"]) end)
+          assert output =~ "__AIUR_CONTROL_EXIT__:1"
+        end)
+
+      assert stderr =~ "error: aiur is globally paused; per-ticket resume has no effect."
+      assert stderr =~ "Run `aiurdev resume` (no arguments) to lift the global pause."
+    end
   end
 
   test "pause and resume emit control messages and successful summaries", %{orchestrator: pid} do
@@ -1347,6 +1360,15 @@ defmodule Aiur.AgentControlCLITest do
 
       assert output =~ "(no active agents)"
       assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    end
+
+    test "full board puts the global pause banner before the table", %{orchestrator: pid, watch_root: root} do
+      :sys.replace_state(pid, fn state -> %{state | globally_paused: true, global_pause: %{paused_at: nil, source: "dashboard"}} end)
+
+      output = capture_io(fn -> AgentControlCLI.watch(mode: :full, roots: [root], log_roots: [root]) end)
+
+      assert output =~ "GLOBALLY PAUSED (set by dashboard)"
+      assert String.starts_with?(output, "GLOBALLY PAUSED")
     end
 
     test "full board shows paused label override for idle active-state tickets", %{

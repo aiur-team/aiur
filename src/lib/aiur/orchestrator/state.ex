@@ -61,6 +61,7 @@ defmodule Aiur.Orchestrator.State do
           ci_readiness_unavailable_alerted: boolean() | nil,
           ci_readiness_check_pid: pid() | nil,
           ci_readiness_check_token: reference() | nil,
+          global_pause: %{paused_at: DateTime.t() | nil, source: String.t() | nil},
           control_lifecycle: ControlLifecycle.t()
         }
 
@@ -110,6 +111,7 @@ defmodule Aiur.Orchestrator.State do
     github_connectivity: %{},
     github_poll_delays: %{},
     globally_paused: false,
+    global_pause: %{paused_at: nil, source: nil},
     control_lifecycle: %ControlLifecycle{}
   ]
 
