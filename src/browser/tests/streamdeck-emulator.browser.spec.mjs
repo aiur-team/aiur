@@ -273,6 +273,32 @@ test('dial and knob state survive a LiveView patch (regression for #1306)', asyn
   expect(valueAfterPatch).toBe(valueBeforePatch)
 })
 
+test('an active dial drag commits its final value after a LiveView patch', async ({ page }) => {
+  await openStreamdeck(page)
+
+  const dialD = page.locator('.sd-knob').nth(3)
+  const keys = page.locator('#sd-keys')
+  const box = await dialD.boundingBox()
+  const cx = box.x + box.width / 2
+  const cy = box.y + box.height / 2
+
+  await page.mouse.move(cx, cy - 30)
+  await page.mouse.down()
+  await page.mouse.move(cx + 20, cy - 20)
+
+  // Dispatch an unrelated LiveView event while the pointer is still held.
+  // The hook's beforeUpdate/updated cycle replaces the knob subtree here.
+  const navToggle = page.getByRole('button', { name: /navigation/i }).first()
+  await navToggle.dispatchEvent('click')
+  await page.waitForTimeout(100)
+
+  await page.mouse.move(cx + 30, cy)
+  await page.mouse.up()
+
+  const finalValue = await dialD.getAttribute('aria-valuenow')
+  await expect(keys).toHaveAttribute('data-grid-dial-value', finalValue, { timeout: 1000 })
+})
+
 test('dial D pages live fleet keys and pager dots', async ({ page }) => {
   await openStreamdeck(page)
 
@@ -308,10 +334,12 @@ test('dial D pages live fleet keys and pager dots', async ({ page }) => {
   await expect(keys.locator('[data-streamdeck-identifier="1352"]')).toHaveCount(0)
   await expect(page.locator('#sd-pager-dots [aria-current="page"]')).toHaveAttribute('data-page', '1')
 
+  const angleBeforeCycle = await dialD.evaluate((element) => element.style.getPropertyValue('--a'))
   await dialD.click()
   await expect(keys).toHaveAttribute('data-grid-page', '2')
   await expect(keys).toHaveAttribute('data-grid-dial-value', '100')
   await expect(dialD).toHaveAttribute('aria-valuenow', '100')
+  expect(await dialD.evaluate((element) => element.style.getPropertyValue('--a'))).toBe(angleBeforeCycle)
 
   await dialD.click()
   await expect(keys).toHaveAttribute('data-grid-page', '0')
@@ -384,6 +412,40 @@ test('logs mode scrolls event and transcript panes within real bounds', async ({
   await page.mouse.wheel(0, 1000)
   await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '0')
   await expect(page.locator('#sd-transcript-hint-up')).toHaveAttribute('aria-hidden', 'true')
+})
+
+test('dial A pointer direction controls transcript scroll direction in logs mode', async ({ page }) => {
+  await openStreamdeck(page)
+
+  await page.locator('.sd-key:not(.is-empty)').first().click()
+  const dialD = page.locator('.sd-knob').nth(3)
+  await dialD.click()
+  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
+
+  const dialA = page.locator('.sd-knob').first()
+  const box = await dialA.boundingBox()
+  const cx = box.x + box.width / 2
+  const cy = box.y + box.height / 2
+  const point = (degrees) => {
+    const radians = (degrees * Math.PI) / 180
+    return { x: cx + Math.cos(radians) * 30, y: cy + Math.sin(radians) * 30 }
+  }
+
+  // Positive angular movement is clockwise and advances the transcript.
+  await page.mouse.move(...Object.values(point(-90)))
+  await page.mouse.down()
+  await page.mouse.move(...Object.values(point(0)))
+  await page.mouse.move(...Object.values(point(90)))
+  await page.mouse.up()
+  await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '1')
+
+  // The reverse gesture must move the transcript back toward its origin.
+  await page.mouse.move(...Object.values(point(90)))
+  await page.mouse.down()
+  await page.mouse.move(...Object.values(point(0)))
+  await page.mouse.move(...Object.values(point(-90)))
+  await page.mouse.up()
+  await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '0')
 })
 
 test('touch strip exposes provider percentages, not only window counts', async ({ page }) => {

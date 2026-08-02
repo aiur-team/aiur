@@ -54,6 +54,9 @@
     this.isDragging = false;
     this.dragAngle = 0;
     this.accumulatedDeg = 0;
+    this.netDeltaDeg = 0;
+    this.visualAngle = parseFloat(this.knobEl.style.getPropertyValue("--a"));
+    if (!Number.isFinite(this.visualAngle)) this.visualAngle = (this.value / 100) * 270 - 135;
     this._activePid = null;
     this._pressTimer = null;
 
@@ -82,32 +85,52 @@
     var c = this._centre();
     this.dragAngle = angleDeg(c.x, c.y, e.clientX, e.clientY);
     this.accumulatedDeg = 0;
+    this.netDeltaDeg = 0;
     this.isDragging = true;
 
-    this.knobEl.addEventListener("pointermove", this._onPointerMove);
-    this.knobEl.addEventListener("pointerup", this._onPointerUp);
-    this.knobEl.addEventListener("pointercancel", this._onPointerCancel);
+    this._bindDragListeners();
+  };
+
+  // Listen above the patched subtree so an active gesture survives replacement
+  // of the knob element. Pointer capture still keeps normal browser delivery
+  // semantics, while the document listener is the durable release path.
+  Knob.prototype._bindDragListeners = function () {
+    document.addEventListener("pointermove", this._onPointerMove);
+    document.addEventListener("pointerup", this._onPointerUp);
+    document.addEventListener("pointercancel", this._onPointerCancel);
+  };
+
+  Knob.prototype._unbindDragListeners = function () {
+    document.removeEventListener("pointermove", this._onPointerMove);
+    document.removeEventListener("pointerup", this._onPointerUp);
+    document.removeEventListener("pointercancel", this._onPointerCancel);
   };
 
   Knob.prototype._onPointerMove = function (e) {
     if (!this.isDragging) return;
+    if (this._activePid != null && e.pointerId !== this._activePid) return;
     var c = this._centre();
     var newAngle = angleDeg(c.x, c.y, e.clientX, e.clientY);
     var delta = normaliseWrap(newAngle - this.dragAngle);
     this.dragAngle = newAngle;
     this.accumulatedDeg += Math.abs(delta);
+    this.netDeltaDeg += delta;
     this._step(delta / DRAG_DIVISOR, false);
   };
 
   Knob.prototype._onPointerUp = function (e) {
     if (!this.isDragging) return;
+    if (this._activePid != null && e.pointerId !== this._activePid) return;
+    var accumulatedDeg = this.accumulatedDeg;
+    var netDeltaDeg = this.netDeltaDeg;
     this._endDrag();
-    if (this.accumulatedDeg < PRESS_THRESHOLD_DEG) {
+    if (accumulatedDeg < PRESS_THRESHOLD_DEG) {
       this._press();
     } else {
-      // LiveView patches can rebuild the hook while a drag is in progress.
       // Keep the gesture local until release, then commit its final value once.
-      this.hook._handleDialStep(this.index, this.accumulatedDeg);
+      // Press detection uses absolute travel, but dial A's transcript scroll
+      // needs the signed net movement so opposite turns scroll oppositely.
+      this.hook._handleDialStep(this.index, netDeltaDeg);
     }
   };
 
@@ -118,11 +141,13 @@
   };
 
   Knob.prototype._endDrag = function () {
+    this._unbindDragListeners();
+    if (this._activePid != null) {
+      try { this.knobEl.releasePointerCapture(this._activePid); } catch (_) {}
+    }
     this.isDragging = false;
     this._activePid = null;
-    this.knobEl.removeEventListener("pointermove", this._onPointerMove);
-    this.knobEl.removeEventListener("pointerup", this._onPointerUp);
-    this.knobEl.removeEventListener("pointercancel", this._onPointerCancel);
+    this.netDeltaDeg = 0;
   };
 
   Knob.prototype._onWheel = function (e) {
@@ -146,8 +171,8 @@
     this.value = clamp(Math.round(this.preciseValue), 0, 100);
     this._render();
     // Angle: 0 → -135deg (min), 100 → +135deg (max), centred at top.
-    var angle = (this.value / 100) * 270 - 135;
-    this.knobEl.style.setProperty("--a", angle + "deg");
+    this.visualAngle = (this.value / 100) * 270 - 135;
+    this.knobEl.style.setProperty("--a", this.visualAngle + "deg");
     this.knobEl.setAttribute("aria-valuenow", String(this.value));
     if (notify !== false) this.hook._handleDialStep(this.index, delta);
   };
@@ -178,17 +203,21 @@
     this.hook.pushEvent("dial-press", { index: this.index, action: action });
   };
 
-  Knob.prototype.destroy = function () {
+  Knob.prototype.destroy = function (preserveDrag) {
     // Cancel any outstanding press animation timer.
     clearTimeout(this._pressTimer);
     this._pressTimer = null;
 
     // Release pointer capture and clean up dynamic drag listeners in case
     // destroy() is called while a drag is in progress (e.g., mid-patch).
-    if (this.isDragging && this._activePid != null) {
+    if (this.isDragging && this._activePid != null && !preserveDrag) {
       try { this.knobEl.releasePointerCapture(this._activePid); } catch (_) {}
     }
-    this._endDrag();
+    if (preserveDrag && this.isDragging) {
+      this._unbindDragListeners();
+    } else {
+      this._endDrag();
+    }
 
     this.knobEl.removeEventListener("pointerdown", this._onPointerDown);
     this.knobEl.removeEventListener("wheel", this._onWheel);
@@ -196,7 +225,17 @@
   };
 
   Knob.prototype.snapshotState = function () {
-    return { value: this.value, preciseValue: this.preciseValue };
+    return {
+      value: this.value,
+      preciseValue: this.preciseValue,
+      visualAngle: this.visualAngle,
+      drag: this.isDragging ? {
+        pointerId: this._activePid,
+        dragAngle: this.dragAngle,
+        accumulatedDeg: this.accumulatedDeg,
+        netDeltaDeg: this.netDeltaDeg
+      } : null
+    };
   };
 
   Knob.prototype.restoreState = function (state) {
@@ -205,7 +244,23 @@
     this.value = clamp(Math.round(this.preciseValue), 0, 100);
     this._render();
     this.knobEl.setAttribute("aria-valuenow", String(this.value));
-    this.knobEl.style.setProperty("--a", (this.value / 100) * 270 - 135 + "deg");
+    this.visualAngle = Number.isFinite(state.visualAngle) ? state.visualAngle : (this.value / 100) * 270 - 135;
+    this.knobEl.style.setProperty("--a", this.visualAngle + "deg");
+    if (state.drag) {
+      this.isDragging = true;
+      this._activePid = state.drag.pointerId;
+      this.dragAngle = state.drag.dragAngle;
+      this.accumulatedDeg = state.drag.accumulatedDeg;
+      this.netDeltaDeg = state.drag.netDeltaDeg;
+      this._bindDragListeners();
+    }
+  };
+
+  Knob.prototype._setLogicalValue = function (value) {
+    this.preciseValue = clamp(value, 0, 100);
+    this.value = clamp(Math.round(this.preciseValue), 0, 100);
+    this._render();
+    this.knobEl.setAttribute("aria-valuenow", String(this.value));
   };
 
   window.AiurStreamdeckEmulatorHook = {
@@ -239,7 +294,7 @@
       this._pendingModeHistory = this._modeHistory.slice();
       // Record the version so updated() can detect mid-patch mode changes.
       this._pendingModeVersion = this._modeVersion;
-      this._destroyKnobs();
+      this._destroyKnobs(true);
       this._unbindKeys();
       this._unbindMic();
     },
@@ -302,8 +357,8 @@
       this._knobs = wraps.map(function (wrap, i) { return new Knob(wrap, i, self); });
     },
 
-    _destroyKnobs() {
-      this._knobs.forEach(function (k) { k.destroy(); });
+    _destroyKnobs(preserveDrag) {
+      this._knobs.forEach(function (k) { k.destroy(preserveDrag); });
       this._knobs = [];
     },
 
@@ -359,8 +414,8 @@
     _setDialValue(index, value) {
       var dial = this._knobs && this._knobs[index];
       if (dial) {
-        dial.preciseValue = value;
-        dial._step(0, false);
+        // A page cycle changes the logical position, not the physical marker.
+        dial._setLogicalValue(value);
       }
     },
 
@@ -371,11 +426,7 @@
       var source = this._mode === "logs" ? this.el.querySelector("#sd-log-events") : keys;
       var value = parseInt(source.getAttribute(this._mode === "logs" ? "data-dial-value" : "data-grid-dial-value") || "0", 10);
       if (!Number.isFinite(value)) return;
-      knob.preciseValue = value;
-      knob.value = value;
-      knob._render();
-      knob.knobEl.setAttribute("aria-valuenow", String(knob.value));
-      knob.knobEl.style.setProperty("--a", (value / 100) * 270 - 135 + "deg");
+      knob._setLogicalValue(value);
     },
 
     _bindKeys() {
