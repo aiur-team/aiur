@@ -396,7 +396,7 @@ defmodule AiurWeb.AnalyticsLive do
          {:ok, %Snapshot{data: %SelectedRoot{members: members}}} <-
            Runtime.safe_source_call(source, :demand, [identity], {:error, :unavailable}),
          identities when identities != [] <- member_identities(members),
-         {:ok, usage_scope} <- Scope.explicit_ticket_set(identities) do
+         {:ok, usage_scope} <- Scope.intersection(RunTelemetry.boot_id(), identities) do
       %{
         kind: :build_order,
         root_number: root_number,

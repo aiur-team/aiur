@@ -146,7 +146,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
 
     Application.put_env(:aiur, :analytics_telemetry_file, build_order_route_fixture!(RunTelemetry.boot_id()))
     Application.put_env(:aiur, :analytics_usage_aggregate_source, UsageAggregateSourceStub)
-    Application.put_env(:aiur, :analytics_usage_aggregate_source_snapshot, provider_spend_snapshot(member, non_member))
+    Application.put_env(:aiur, :analytics_usage_aggregate_source_snapshot, provider_spend_snapshot(member, non_member, member))
     Application.put_env(:aiur, :build_order_data_source, {BuildOrderSourceStub, build_order_context(root, member)})
 
     on_exit(fn ->
@@ -170,6 +170,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     assert html =~ ~r/PRs merged<\/span>\s*<span class="an-kpi-val">1</
     assert html =~ "3.50 USD"
     refute html =~ "9.99 USD"
+    refute html =~ "11.00 USD"
   end
 
   test "renders populated complexity tiers from dispatch telemetry" do
@@ -363,7 +364,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     }
   end
 
-  defp provider_spend_snapshot(member \\ nil, non_member \\ nil) do
+  defp provider_spend_snapshot(member \\ nil, non_member \\ nil, prior_session_member \\ nil) do
     member = member || identity(941, "NODE-941")
 
     member_envelope =
@@ -380,6 +381,14 @@ defmodule AiurWeb.AnalyticsLiveTest do
         projection
       end
 
+    projection =
+      if prior_session_member do
+        prior_session_envelope = envelope() |> Map.put(:attribution, attribution(prior_session_member, "earlier-run"))
+        Projection.apply_record(projection, record(3, prior_session_envelope, %{cost: "11.00"}))
+      else
+        projection
+      end
+
     %{
       cells: projection.cells,
       metadata: %{
@@ -391,9 +400,9 @@ defmodule AiurWeb.AnalyticsLiveTest do
     }
   end
 
-  defp attribution(identity) do
+  defp attribution(identity, run_id \\ RunTelemetry.boot_id()) do
     %{
-      run_id: RunTelemetry.boot_id(),
+      run_id: run_id,
       tracker_identity: identity,
       attempt_id: "attempt-1",
       session_id: "session-1",
