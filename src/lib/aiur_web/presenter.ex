@@ -25,8 +25,9 @@ defmodule AiurWeb.Presenter do
     case Orchestrator.snapshot(orchestrator, snapshot_timeout_ms) do
       %{} = snapshot ->
         idle = Map.get(snapshot, :idle, [])
+        globally_paused = Map.get(snapshot, :globally_paused, false) == true
 
-        %{
+        payload = %{
           counts: %{
             running: length(snapshot.running),
             retrying: length(snapshot.retrying),
@@ -37,8 +38,14 @@ defmodule AiurWeb.Presenter do
           idle: Enum.map(idle, &idle_entry_payload/1),
           agent_totals: public_agent_totals(snapshot.agent_totals),
           capacity: capacity_payload(Map.get(snapshot, :capacity)),
-          globally_paused: Map.get(snapshot, :globally_paused, false) == true
+          globally_paused: globally_paused
         }
+
+        if globally_paused do
+          Map.put(payload, :global_pause, public_global_pause(Map.get(snapshot, :global_pause, %{})))
+        else
+          payload
+        end
 
       :timeout ->
         %{error: %{code: "snapshot_timeout", message: "Snapshot timed out"}}
@@ -47,6 +54,15 @@ defmodule AiurWeb.Presenter do
         %{error: %{code: "snapshot_unavailable", message: "Snapshot unavailable"}}
     end
   end
+
+  defp public_global_pause(%{} = pause) do
+    Map.update(pause, :paused_at, nil, fn
+      %DateTime{} = value -> DateTime.to_iso8601(value)
+      value -> value
+    end)
+  end
+
+  defp public_global_pause(_), do: %{globally_paused: false, paused_at: nil, source: nil}
 
   defp auxiliary_payload(opts) do
     %{
