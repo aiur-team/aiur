@@ -4,9 +4,9 @@ defmodule AiurWeb.AnalyticsLiveTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
-  alias Aiur.{RunTelemetry, TrackerIdentity}
   alias Aiur.BuildOrder.{Catalog, Member, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
+  alias Aiur.{RunTelemetry, TrackerIdentity}
   alias Aiur.UsageAggregate.Projection
   alias AiurWeb.Endpoint
 

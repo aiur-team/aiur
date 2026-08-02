@@ -9,13 +9,14 @@ defmodule AiurWeb.AnalyticsLive do
 
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
-  alias Aiur.{RunTelemetry, TrackerIdentity}
   alias Aiur.BuildOrder.{Catalog, Member, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
+  alias Aiur.{RunTelemetry, TrackerIdentity}
   alias Aiur.Usage.GroupedScopes
   alias Aiur.Usage.GroupedScopes.Scope
   alias Aiur.UsageAggregate
-  alias AiurWeb.OperatorControlCenter.Analytics.{Charts, Presenter, Styles}
+  alias AiurWeb.BuildOrder.Runtime
+  alias AiurWeb.{FinancialData, FinancialDataAccess}
 
   alias AiurWeb.OperatorControlCenter.{
     DashboardShell,
@@ -24,8 +25,7 @@ defmodule AiurWeb.AnalyticsLive do
     UsageSummaryPresenter
   }
 
-  alias AiurWeb.BuildOrder.Runtime
-  alias AiurWeb.{FinancialData, FinancialDataAccess}
+  alias AiurWeb.OperatorControlCenter.Analytics.{Charts, Presenter, Styles}
 
   @usage_summary_max_age_ms 30_000
 
