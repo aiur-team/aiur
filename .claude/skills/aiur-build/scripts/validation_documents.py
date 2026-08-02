@@ -13,6 +13,7 @@ from validation_common import (
     resolve_regular_file,
     safe_list,
 )
+from publication_body_limits import MAX_ISSUE_BODY_CHARACTERS
 
 
 REQUIRED_HEADINGS = (
@@ -49,6 +50,12 @@ def validate_document(
     except (OSError, UnicodeError, IndexError) as exc:
         report.error(f"{ticket_id}.document cannot be read: {exc}")
         return
+    if len(text) > MAX_ISSUE_BODY_CHARACTERS:
+        report.warn(
+            f"{ticket_id}.document is {len(text):,} characters, "
+            f"exceeding GitHub's {MAX_ISSUE_BODY_CHARACTERS:,}-character "
+            f"issue body limit by {len(text) - MAX_ISSUE_BODY_CHARACTERS:,}"
+        )
     if not re.match(
         rf"^#\s+(?:BO:\s+)?{re.escape(ticket_id)}(?:\s|\u2014|-)",
         first_line,

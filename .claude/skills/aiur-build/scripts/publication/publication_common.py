@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from publication_paths import resolved_document
+from publication_body_limits import MAX_ISSUE_BODY_CHARACTERS
 
 
 DASH_ID = re.compile(r"^DASH-[0-9]{3,}$", re.ASCII)
@@ -180,6 +181,12 @@ def validate_document(ticket: dict[str, Any], base: Path, report: Report) -> Non
     except (OSError, UnicodeError) as exc:
         report.error(f"{ticket_id}.document cannot be read: {exc}")
         return
+    if len(text) > MAX_ISSUE_BODY_CHARACTERS:
+        report.warn(
+            f"{ticket_id}.document is {len(text):,} characters, "
+            f"exceeding GitHub's {MAX_ISSUE_BODY_CHARACTERS:,}-character "
+            f"issue body limit by {len(text) - MAX_ISSUE_BODY_CHARACTERS:,}"
+        )
     expected_heading = f"# BO: {ticket_id} — {ticket.get('title')}"
     if not text.splitlines() or text.splitlines()[0] != expected_heading:
         report.error(

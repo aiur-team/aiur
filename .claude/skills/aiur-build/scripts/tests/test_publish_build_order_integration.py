@@ -106,6 +106,20 @@ class FakeGitHub:
         }
 
 
+class FailOnceGitHub(FakeGitHub):
+    """Fail the second create so the retry must resume from a checkpoint."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fail_once = True
+
+    def request(self, method, path, payload=None, *, allow_404=False):
+        if method == "POST" and path.endswith("/issues") and self.issues and self.fail_once:
+            self.fail_once = False
+            raise RuntimeError("simulated mid-loop create failure")
+        return super().request(method, path, payload, allow_404=allow_404)
+
+
 class CanonicalPublicationIntegrationTests(unittest.TestCase):
     def test_example_structure_materializes_and_reconciles_without_pack_modules(self) -> None:
         with tempfile.TemporaryDirectory() as name:
@@ -186,6 +200,91 @@ class CanonicalPublicationIntegrationTests(unittest.TestCase):
             self.assertEqual(1, len(materialized["github_reconciliation"]["dependency_edges"]))
             root_number = materialized["github_root"]["number"]
             self.assertEqual(2, len(client.children[root_number]))
+
+    def test_partial_issue_creation_persists_mapping_and_retry_skips_it(self) -> None:
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            pack = root / "docs/build-orders/example"
+            tickets = pack / "example-tickets"
+            tickets.mkdir(parents=True)
+            build = json.loads(
+                (REFERENCES / "build-order.example.json").read_text(encoding="utf-8")
+            )
+            publication = json.loads(
+                (REFERENCES / "publication.example.json").read_text(encoding="utf-8")
+            )
+            publication["mutation_repositories"] = [build["repository"]]
+            build_path = pack / "build-order.json"
+            publication_path = pack / "publication.json"
+            build_path.write_text(json.dumps(build), encoding="utf-8")
+            publication_path.write_text(json.dumps(publication), encoding="utf-8")
+            for ticket in build["tickets"]:
+                source = REFERENCES / ticket["document"]
+                (pack / ticket["document"]).write_text(
+                    source.read_text(encoding="utf-8"), encoding="utf-8",
+                )
+            (pack / "example-design-evidence.md").write_text(
+                (REFERENCES / "example-design-evidence.md").read_text(
+                    encoding="utf-8"
+                ),
+                encoding="utf-8",
+            )
+            root_document = pack / "root-issue.md"
+            template = (
+                "# BO: Example Build Order\n\n"
+                "[`<APPROVED_SHA>`](https://github.com/example/repo/commit/<APPROVED_SHA>)\n\n"
+                "<!-- aiur-planning-issue\n"
+                '{"schema":2,"logical_id":"example/repo:operator-dashboard",'
+                '"plan_version":1,"approved_planning_commit":"<APPROVED_SHA>"}\n'
+                "-->\n"
+            )
+            root_document.write_text(template, encoding="utf-8")
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            subprocess.run(
+                ["git", "-C", str(root), "config", "user.email", "test@example.com"],
+                check=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(root), "config", "user.name", "Test"],
+                check=True,
+            )
+            subprocess.run(["git", "-C", str(root), "add", "docs"], check=True)
+            subprocess.run(
+                ["git", "-C", str(root), "commit", "-qm", "approved"], check=True,
+            )
+            approved = subprocess.run(
+                ["git", "-C", str(root), "rev-parse", "HEAD"],
+                check=True, capture_output=True, text=True,
+            ).stdout.strip()
+            root_document.write_text(
+                template.replace("<APPROVED_SHA>", approved), encoding="utf-8",
+            )
+            driver = load_driver(
+                build_path, publication_path, approved, approved,
+            )
+            labels = {
+                label for spec in driver.context.specs.values()
+                for label in spec.labels
+            }
+            client = FailOnceGitHub(build["repository"], approved, labels)
+            driver.client = client
+            with self.assertRaisesRegex(RuntimeError, "mid-loop"):
+                driver.apply()
+            partial = json.loads(build_path.read_text(encoding="utf-8"))
+            self.assertIsNotNone(partial["tickets"][0]["github"])
+            self.assertIsNone(partial["tickets"][1]["github"])
+
+            fresh_driver = load_driver(
+                build_path, publication_path, approved, approved,
+            )
+            self.assertEqual(
+                partial["tickets"][0]["github"],
+                fresh_driver.context.build["tickets"][0]["github"],
+            )
+            fresh_driver.client = client
+            result = fresh_driver.apply()
+            self.assertEqual("apply-pending", result["mode"])
+            self.assertEqual(3, len(client.issues))
 
 
 if __name__ == "__main__":

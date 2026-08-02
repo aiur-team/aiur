@@ -14,6 +14,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,6 +31,7 @@ from publication_comment import (
     render_pending_comment,
     render_successful_comment,
 )
+from publication_body_limits import format_body_limit_error
 from publication_common import Report, SHA, load_json
 from publication_labels import routing_subset
 from publication_live_graph import API_VERSION, MARKER, MARKER_NAME
@@ -176,6 +178,7 @@ class Publisher:
         self._apply_mutation_count = 0
 
     def dry_run(self) -> dict[str, Any]:
+        self._validate_body_lengths()
         self._check_authority()
         labels = self._pages(f"repos/{self.context.repository}/labels?per_page=100")
         missing = self._validate_label_inventory(labels)
@@ -198,6 +201,10 @@ class Publisher:
         }
 
     def apply(self) -> dict[str, Any]:
+        # This must remain before any GitHub read or mutation.  A pack is a
+        # batch operation: report every oversized member before labels or
+        # issues can leave the pack in a partial state.
+        self._validate_body_lengths()
         self._check_authority()
         labels = self._pages(f"repos/{self.context.repository}/labels?per_page=100")
         missing = self._validate_label_inventory(labels)
@@ -215,6 +222,7 @@ class Publisher:
                 mappings[logical_id] = self._ensure_issue(
                     self.context.specs[logical_id], mappings.get(logical_id),
                 )
+                self._persist_mapping(logical_id, mappings[logical_id])
             if len(mappings) != len(self.context.specs):
                 raise PublicationError(
                     "publication did not materialize every planned identity"
@@ -252,6 +260,14 @@ class Publisher:
             ],
             "next": "review, commit, and push receipts; then run --finalize explicitly",
         }
+
+    def _validate_body_lengths(self) -> None:
+        error = format_body_limit_error({
+            logical_id: spec.body
+            for logical_id, spec in self.context.specs.items()
+        })
+        if error is not None:
+            raise PublicationError(error)
 
     def finalize(self, receipt_commit: str, receipt_url: str) -> dict[str, Any]:
         if not self.context.reconciliation_comment:
@@ -622,6 +638,11 @@ class Publisher:
             number = created.get("number") if isinstance(created, dict) else None
             if type(number) is not int:
                 raise PublicationError(f"create response for {spec.logical_id} lacks issue number")
+            # Record the successful create before any follow-up read or
+            # reconciliation can fail.  The marker scan remains the remote
+            # duplicate guard, while this checkpoint preserves the local
+            # authority pointer across a crashed publication process.
+            self._persist_mapping(spec.logical_id, self._mapping(created))
         else:
             number = mapping["number"]
         raw = self._get(f"{base}/{number}")
@@ -654,6 +675,59 @@ class Publisher:
             if not set(spec.labels).issubset(self._labels(raw)):
                 raise PublicationError(f"{spec.logical_id} did not reconcile labels")
         return self._mapping(raw)
+
+    def _persist_mapping(self, logical_id: str, mapping: dict[str, Any]) -> None:
+        """Checkpoint one issue mapping so an interrupted loop is resumable."""
+        receipt_mapping = self._receipt_mapping(mapping)
+        build = json.loads(json.dumps(self.context.build))
+        publication = json.loads(json.dumps(self.context.publication))
+        if logical_id == self.context.root_id:
+            build["github_root"] = receipt_mapping
+        else:
+            for ticket in build.get("tickets", []):
+                if isinstance(ticket, dict) and ticket.get("id") == logical_id:
+                    ticket["github"] = receipt_mapping
+                    break
+        if self.context.skill_id is not None and logical_id in {
+            self.context.root_id, self.context.skill_id,
+        }:
+            reconciliation = publication.setdefault("github_reconciliation", {})
+            issue_mappings = reconciliation.setdefault("issue_mappings", {})
+            issue_mappings[logical_id] = receipt_mapping
+        self._atomic_write_json(
+            self.context.build_path, build, indent=1,
+        )
+        self.context.build = build
+        if self.context.skill_id is not None:
+            self._atomic_write_json(
+                self.context.publication_path, publication, indent=2,
+            )
+            self.context.publication = publication
+
+    @staticmethod
+    def _atomic_write_json(path: Path, value: dict[str, Any], *, indent: int) -> None:
+        """Replace one checkpoint manifest without exposing a truncated file."""
+        temporary: str | None = None
+        try:
+            descriptor, temporary = tempfile.mkstemp(
+                dir=path.parent, prefix=f".{path.name}.", suffix=".tmp",
+            )
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                stream.write(json.dumps(value, indent=indent) + "\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, path)
+            temporary = None
+        except OSError:
+            raise PublicationError(
+                f"could not checkpoint {path.name} safely"
+            ) from None
+        finally:
+            if temporary is not None:
+                try:
+                    os.unlink(temporary)
+                except OSError:
+                    pass
 
     def _validate_live_issue_identity(self, raw: Any, spec: IssueSpec) -> None:
         if not isinstance(raw, dict) or "pull_request" in raw:
