@@ -153,9 +153,13 @@ defmodule Aiur.GitHub.CiReadinessTest do
     assert {:ok, %{issues: [:no_pr_workflow, :no_required_check]}} =
              CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", branch)
 
-    assert_receive {:readiness_url, branch_url} when branch_url =~ "/branches/feature%2F%23%26gate"
+    assert_receive {:readiness_url, branch_url}
+    assert branch_url =~ "/branches/feature%2F%23%26gate"
+
     assert_receive {:readiness_url, _repo_url}
-    assert_receive {:readiness_url, workflow_url} when workflow_url =~ "?ref=feature%2F%23%26gate"
+
+    assert_receive {:readiness_url, workflow_url}
+    assert workflow_url =~ "?ref=feature%2F%23%26gate"
   end
 
   test "fetches workflow content and required checks through the GitHub transport" do

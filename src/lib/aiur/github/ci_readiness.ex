@@ -394,10 +394,11 @@ defmodule Aiur.GitHub.CiReadiness do
   end
 
   defp ruleset_includes_branch?(nil, _branch_ref, _base_branch, _default_branch), do: true
-  defp ruleset_excludes_branch?(nil, _branch_ref, _base_branch, _default_branch), do: false
 
   defp ruleset_includes_branch?(patterns, branch_ref, base_branch, default_branch),
     do: ruleset_branch_matches?(patterns, branch_ref, base_branch, default_branch)
+
+  defp ruleset_excludes_branch?(nil, _branch_ref, _base_branch, _default_branch), do: false
 
   defp ruleset_excludes_branch?(patterns, branch_ref, base_branch, default_branch),
     do: ruleset_branch_matches?(patterns, branch_ref, base_branch, default_branch)
