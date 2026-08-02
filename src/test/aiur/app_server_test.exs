@@ -1323,7 +1323,7 @@ defmodule Aiur.AppServerTest do
       #!/bin/sh
       trace_file="${SYMP_TEST_SSH_TRACE:-/tmp/aiur-fake-ssh.trace}"
       count=0
-      printf 'ARGV:%s\\n' "$*" >> "$trace_file"
+      printf '%s\\0' "$@" > "${trace_file}.argv"
 
       while IFS= read -r line; do
         count=$((count + 1))
@@ -1378,12 +1378,17 @@ defmodule Aiur.AppServerTest do
       trace = File.read!(trace_file)
       lines = String.split(trace, "\n", trim: true)
 
-      assert argv_line = Enum.find(lines, &String.starts_with?(&1, "ARGV:"))
-      assert argv_line =~ "-T -p 2200 worker-01 bash -lc"
-      assert argv_line =~ "cd "
-      assert argv_line =~ remote_workspace
-      assert argv_line =~ "exec "
-      assert argv_line =~ "fake-remote-codex app-server"
+      ssh_argv =
+        (trace_file <> ".argv")
+        |> File.read!()
+        |> :binary.split(<<0>>, [:global, :trim_all])
+
+      assert ["-T", "-p", "2200", "worker-01", remote_command] = ssh_argv
+      assert remote_command =~ "bash -lc "
+      assert remote_command =~ "cd "
+      assert remote_command =~ remote_workspace
+      assert remote_command =~ "exec "
+      assert remote_command =~ "fake-remote-codex app-server"
 
       expected_turn_policy = %{
         "type" => "workspaceWrite",
