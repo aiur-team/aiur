@@ -7568,10 +7568,24 @@ html[data-theme="light"] .toggle-icon .moon {
 
 /* The device chassis is physically dark regardless of the dashboard theme.
    Override the ink tokens inside the device so text stays legible on the
-   dark surface when the operator switches to light mode. */
+   dark surface when the operator switches to light mode.
+
+   Every token the chassis paints ink with must be pinned back to its dark
+   `:root` value here. A token left unpinned inherits the light-theme root
+   override and lands dark-on-near-black over the `#060708` key face — the
+   "Blocked" dependency chip (`.sd-key-footer b`) measured roughly 2:1 that
+   way. `dashboard_css_theme_test.exs` asserts this list stays complete and
+   byte-identical to `:root`. */
 html[data-theme="light"] .sd-device {
   --fg: rgba(255, 255, 255, 0.87);
   --muted: rgba(255, 255, 255, 0.45);
+  --accent: #2f86ff;
+  --accent-ink: #8fbcff;
+  --attention-ink: #f1cf6f;
+  --blocking-ink: #ffa39c;
+  --blocking-soft: rgba(255, 123, 114, 0.14);
+  --good: #3fb950;
+  --super: #c69bff;
 }
 
 @media (max-width: 560px) {

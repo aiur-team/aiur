@@ -291,7 +291,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
 
   defp nav_icon(:streamdeck) do
     Phoenix.HTML.raw(
-      ~s(<svg #{@nav_svg_attrs}><rect x="2.5" y="5" width="19" height="14" rx="3"/><circle cx="8" cy="10" r="1.2"/><circle cx="16" cy="10" r="1.2"/><circle cx="8" cy="15" r="1.2"/><circle cx="16" cy="15" r="1.2"/></svg>)
+      ~s(<svg #{@nav_svg_attrs}><rect x="2" y="4.5" width="20" height="15" rx="3"/><circle cx="6.5" cy="9.5" r="1.1"/><circle cx="10.5" cy="9.5" r="1.1"/><circle cx="14.5" cy="9.5" r="1.1"/><circle cx="18.5" cy="9.5" r="1.1"/><circle cx="6.5" cy="14.5" r="1.1"/><circle cx="10.5" cy="14.5" r="1.1"/><circle cx="14.5" cy="14.5" r="1.1"/><circle cx="18.5" cy="14.5" r="1.1"/></svg>)
     )
   end
 
