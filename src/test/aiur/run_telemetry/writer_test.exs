@@ -6,7 +6,9 @@ defmodule Aiur.RunTelemetry.WriterTest do
   alias Aiur.RunTelemetry.{Dataset, Retention, Writer}
 
   setup do
-    root = Path.join(System.tmp_dir!(), "aiur-telemetry-writer-#{System.unique_integer([:positive])}")
+    root =
+      Path.join(System.tmp_dir!(), "aiur-telemetry-writer-#{System.unique_integer([:positive])}")
+
     path = Path.join(root, "log/telemetry.ndjson")
     on_exit(fn -> File.rm_rf!(root) end)
     %{path: path, root: root}
@@ -16,7 +18,9 @@ defmodule Aiur.RunTelemetry.WriterTest do
     {:ok, first} = Writer.start_link(name: nil, path: path, boot_id: "boot-1")
 
     assert :ok =
-             Writer.record(first, :lifecycle, %{ticket: "930", event: :dispatch}, timestamp: ~U[2026-07-11 12:00:00Z])
+             Writer.record(first, :lifecycle, %{ticket: "930", event: :dispatch},
+               timestamp: ~U[2026-07-11 12:00:00Z]
+             )
 
     assert :ok = Writer.flush(first)
     :ok = GenServer.stop(first)
@@ -30,7 +34,14 @@ defmodule Aiur.RunTelemetry.WriterTest do
     assert Enum.map(records, & &1["kind"]) == ["restart", "lifecycle", "restart", "resource"]
     assert Enum.map(records, & &1["boot_id"]) == ["boot-1", "boot-1", "boot-2", "boot-2"]
     assert Enum.map(records, & &1["sequence"]) == [1, 2, 1, 2]
-    assert Enum.map(records, & &1["record_id"]) == ["boot-1:1", "boot-1:2", "boot-2:1", "boot-2:2"]
+
+    assert Enum.map(records, & &1["record_id"]) == [
+             "boot-1:1",
+             "boot-1:2",
+             "boot-2:1",
+             "boot-2:2"
+           ]
+
     assert Enum.at(records, 1)["timestamp"] == "2026-07-11T12:00:00Z"
     assert Enum.at(records, 1)["attributes"] == %{"event" => "dispatch", "ticket" => "930"}
     assert Enum.at(records, 2)["attributes"]["existing_records"] == true
@@ -41,7 +52,9 @@ defmodule Aiur.RunTelemetry.WriterTest do
 
     1..20
     |> Task.async_stream(
-      fn index -> Writer.record(writer, :resource, %{actor: "ticket:#{index}", rss_bytes: index}) end,
+      fn index ->
+        Writer.record(writer, :resource, %{actor: "ticket:#{index}", rss_bytes: index})
+      end,
       max_concurrency: 8,
       ordered: false
     )
@@ -77,14 +90,19 @@ defmodule Aiur.RunTelemetry.WriterTest do
            ]
   end
 
-  test "writer tolerates malformed caller values while retaining valid batch entries", %{path: path} do
+  test "writer tolerates malformed caller values while retaining valid batch entries", %{
+    path: path
+  } do
     name = {:global, {__MODULE__, System.unique_integer([:positive])}}
     {:ok, writer} = Writer.start_link(name: name, path: path, boot_id: "guarded")
 
     assert :ok = Writer.record(writer, :resource, :not_a_map, :not_options)
 
     assert :ok =
-             Writer.record_batch(writer, [{:resource, %{actor: "_daemon", rss_bytes: 42}}, :not_a_record])
+             Writer.record_batch(writer, [
+               {:resource, %{actor: "_daemon", rss_bytes: 42}},
+               :not_a_record
+             ])
 
     assert :ok = Writer.flush(writer)
     assert :ok = Writer.flush(:writer_that_does_not_exist)
@@ -93,13 +111,17 @@ defmodule Aiur.RunTelemetry.WriterTest do
     assert Enum.map(records, & &1["kind"]) == ["restart", "resource"]
   end
 
-  test "writer normalizes opaque batch values and ignores unrelated mailbox messages", %{path: path} do
+  test "writer normalizes opaque batch values and ignores unrelated mailbox messages", %{
+    path: path
+  } do
     {:ok, writer} = Writer.start_link(name: nil, path: path, boot_id: "normalized")
 
     send(writer, {:event, %{}})
     send(writer, :unrelated)
 
-    assert :ok = Writer.record_batch(writer, [{42, %{actor: "_daemon"}}], timestamp: :not_a_timestamp)
+    assert :ok =
+             Writer.record_batch(writer, [{42, %{actor: "_daemon"}}], timestamp: :not_a_timestamp)
+
     assert :ok = Writer.flush(writer)
 
     records = read_records(path)
@@ -144,7 +166,9 @@ defmodule Aiur.RunTelemetry.WriterTest do
       File.write(path, contents, [:append])
     end
 
-    {:ok, writer} = Writer.start_link(name: nil, path: path, boot_id: "bounded", write_fun: write_fun)
+    {:ok, writer} =
+      Writer.start_link(name: nil, path: path, boot_id: "bounded", write_fun: write_fun)
+
     assert_receive {:write_started, 1, ^writer}, 2_000
 
     :atomics.put(blocked, 1, 1)
@@ -152,7 +176,9 @@ defmodule Aiur.RunTelemetry.WriterTest do
     assert_receive {:write_started, 2, ^writer}, 2_000
 
     1..5_000
-    |> Task.async_stream(fn index -> Writer.record(writer, :resource, %{actor: index}) end, max_concurrency: 16)
+    |> Task.async_stream(fn index -> Writer.record(writer, :resource, %{actor: index}) end,
+      max_concurrency: 16
+    )
     |> Enum.to_list()
 
     assert {:message_queue_len, queue_len} = Process.info(writer, :message_queue_len)
@@ -192,7 +218,8 @@ defmodule Aiur.RunTelemetry.WriterTest do
       File.write(path, contents, [:append])
     end
 
-    {:ok, writer} = Writer.start_link(name: nil, path: path, boot_id: "overflow", write_fun: write_fun)
+    {:ok, writer} =
+      Writer.start_link(name: nil, path: path, boot_id: "overflow", write_fun: write_fun)
 
     overload = fn dropped ->
       :atomics.put(blocked, 1, 1)
@@ -215,7 +242,9 @@ defmodule Aiur.RunTelemetry.WriterTest do
     markers =
       path
       |> read_records()
-      |> Enum.filter(&(&1["kind"] == "warning" and &1["attributes"]["reason"] == "admission_overflow"))
+      |> Enum.filter(
+        &(&1["kind"] == "warning" and &1["attributes"]["reason"] == "admission_overflow")
+      )
 
     assert [%{"attributes" => %{"dropped_count" => 40}}] = markers
 
@@ -230,7 +259,9 @@ defmodule Aiur.RunTelemetry.WriterTest do
     dropped_counts =
       path
       |> read_records()
-      |> Enum.filter(&(&1["kind"] == "warning" and &1["attributes"]["reason"] == "admission_overflow"))
+      |> Enum.filter(
+        &(&1["kind"] == "warning" and &1["attributes"]["reason"] == "admission_overflow")
+      )
       |> Enum.map(& &1["attributes"]["dropped_count"])
 
     assert dropped_counts == [40, 3]
@@ -266,7 +297,9 @@ defmodule Aiur.RunTelemetry.WriterTest do
 
   test "writer catches failures from the append function", %{path: path} do
     write_fun = fn _path, _contents -> throw(:writer_exploded) end
-    {:ok, writer} = Writer.start_link(name: nil, path: path, boot_id: "exception", write_fun: write_fun)
+
+    {:ok, writer} =
+      Writer.start_link(name: nil, path: path, boot_id: "exception", write_fun: write_fun)
 
     assert :ok = Writer.record(writer, :resource, %{actor: "test"})
     assert :ok = Writer.flush(writer)
@@ -324,12 +357,16 @@ defmodule Aiur.RunTelemetry.WriterTest do
     two_boot_size = File.stat!(path).size
     retention = [max_bytes: two_boot_size - first_boot_size]
 
-    {:ok, third} = Writer.start_link(name: nil, path: path, boot_id: "boot-3", retention: retention)
+    {:ok, third} =
+      Writer.start_link(name: nil, path: path, boot_id: "boot-3", retention: retention)
+
     assert :ok = Writer.record(third, :resource, %{actor: "_daemon", rss_bytes: 3})
     assert :ok = Writer.flush(third)
     :ok = GenServer.stop(third)
 
-    {:ok, fourth} = Writer.start_link(name: nil, path: path, boot_id: "boot-4", retention: retention)
+    {:ok, fourth} =
+      Writer.start_link(name: nil, path: path, boot_id: "boot-4", retention: retention)
+
     assert :ok = Writer.record(fourth, :resource, %{actor: "_daemon", rss_bytes: 4})
     assert :ok = Writer.flush(fourth)
 
@@ -368,7 +405,9 @@ defmodule Aiur.RunTelemetry.WriterTest do
     assert :ok = Writer.flush(first)
     :ok = GenServer.stop(first)
 
-    {:ok, second} = Writer.start_link(name: nil, path: path, boot_id: "resumed", retention: [max_bytes: 1])
+    {:ok, second} =
+      Writer.start_link(name: nil, path: path, boot_id: "resumed", retention: [max_bytes: 1])
+
     assert :ok = Writer.flush(second)
 
     assert {:ok, dataset} = Dataset.build(path)
@@ -380,7 +419,8 @@ defmodule Aiur.RunTelemetry.WriterTest do
     old_clock = fn -> ~U[2026-07-01 12:00:00Z] end
     current_clock = fn -> ~U[2026-07-01 12:01:00Z] end
 
-    {:ok, first} = Writer.start_link(name: nil, path: path, boot_id: "oversized", clock: old_clock)
+    {:ok, first} =
+      Writer.start_link(name: nil, path: path, boot_id: "oversized", clock: old_clock)
 
     assert :ok =
              Writer.record(
@@ -398,7 +438,13 @@ defmodule Aiur.RunTelemetry.WriterTest do
     :ok = GenServer.stop(first)
 
     {:ok, second} =
-      Writer.start_link(name: nil, path: path, boot_id: "current", clock: current_clock, retention: [max_bytes: 1])
+      Writer.start_link(
+        name: nil,
+        path: path,
+        boot_id: "current",
+        clock: current_clock,
+        retention: [max_bytes: 1]
+      )
 
     assert :ok = Writer.flush(second)
     assert File.stat!(path).size > 1
@@ -457,7 +503,9 @@ defmodule Aiur.RunTelemetry.WriterTest do
     # segment roll + prune that removes the old boot.
     retention = [max_bytes: old_size, prune_interval_bytes: 1]
 
-    {:ok, current} = Writer.start_link(name: nil, path: path, boot_id: "current", retention: retention)
+    {:ok, current} =
+      Writer.start_link(name: nil, path: path, boot_id: "current", retention: retention)
+
     assert :ok = Writer.flush(current)
 
     assert {:ok, dataset} = Dataset.build(path)
@@ -465,7 +513,9 @@ defmodule Aiur.RunTelemetry.WriterTest do
     assert dataset.warnings == []
   end
 
-  test "periodic retention bounds a single boot that exceeds the cap three times over", %{path: path} do
+  test "periodic retention bounds a single boot that exceeds the cap three times over", %{
+    path: path
+  } do
     # Measure one restart + one resource record so we can set a deterministic cap.
     {:ok, probe} = Writer.start_link(name: nil, path: path, boot_id: "probe")
     assert :ok = Writer.record(probe, :resource, %{actor: "_daemon", rss_bytes: 1})
@@ -479,10 +529,12 @@ defmodule Aiur.RunTelemetry.WriterTest do
     # Writing 6 records (3x cap) in a single boot must leave the file bounded.
     retention = [max_bytes: one_boot_size, prune_interval_bytes: 1]
 
-    {:ok, writer} = Writer.start_link(name: nil, path: path, boot_id: "big-boot", retention: retention)
+    {:ok, writer} =
+      Writer.start_link(name: nil, path: path, boot_id: "big-boot", retention: retention)
 
     for sample <- 1..6 do
-      assert :ok = Writer.record(writer, :resource, %{actor: "_daemon", rss_bytes: 1, sample: sample})
+      assert :ok =
+               Writer.record(writer, :resource, %{actor: "_daemon", rss_bytes: 1, sample: sample})
     end
 
     assert :ok = Writer.flush(writer)
@@ -492,11 +544,20 @@ defmodule Aiur.RunTelemetry.WriterTest do
     assert {:ok, dataset} = Dataset.build(path)
     assert dataset.warnings == []
     assert Dataset.boot_ids(dataset) == ["big-boot"]
-    assert Enum.map(Enum.filter(dataset.records, &(&1.kind == "resource")), & &1.attributes["sample"]) == [6]
+
+    assert Enum.map(
+             Enum.filter(dataset.records, &(&1.kind == "resource")),
+             & &1.attributes["sample"]
+           ) == [6]
+
     assert dataset.restarts == []
 
     assert {:ok, current_dataset} = Dataset.build(path, session: :current)
-    assert Enum.map(Enum.filter(current_dataset.records, &(&1.kind == "resource")), & &1.attributes["sample"]) == [6]
+
+    assert Enum.map(
+             Enum.filter(current_dataset.records, &(&1.kind == "resource")),
+             & &1.attributes["sample"]
+           ) == [6]
   end
 
   test "a failed segment boundary skips periodic pruning", %{path: path} do
@@ -538,8 +599,21 @@ defmodule Aiur.RunTelemetry.WriterTest do
         clock: fn -> boundary_at end
       )
 
-    start = %{ticket: "1339", attempt_id: "attempt", event: "build_test", boundary: "start", operation_id: "build"}
-    finish = %{ticket: "1339", attempt_id: "attempt", event: "build_test", boundary: "end", operation_id: "build"}
+    start = %{
+      ticket: "1339",
+      attempt_id: "attempt",
+      event: "build_test",
+      boundary: "start",
+      operation_id: "build"
+    }
+
+    finish = %{
+      ticket: "1339",
+      attempt_id: "attempt",
+      event: "build_test",
+      boundary: "end",
+      operation_id: "build"
+    }
 
     assert :ok = Writer.record(writer, :lifecycle, start, timestamp: ~U[2026-07-11 12:00:00Z])
     assert :ok = Writer.record(writer, :lifecycle, finish, timestamp: ~U[2026-07-11 12:00:02Z])
@@ -563,7 +637,15 @@ defmodule Aiur.RunTelemetry.WriterTest do
 
     log =
       capture_log(fn ->
-        {:ok, w} = Writer.start_link(name: nil, path: dir_path, boot_id: "err-boot", retention: retention, write_fun: write_fun)
+        {:ok, w} =
+          Writer.start_link(
+            name: nil,
+            path: dir_path,
+            boot_id: "err-boot",
+            retention: retention,
+            write_fun: write_fun
+          )
+
         assert :ok = Writer.record(w, :resource, %{actor: "_daemon", rss_bytes: 1})
         assert :ok = Writer.flush(w)
         assert Process.alive?(w)
@@ -600,10 +682,13 @@ defmodule Aiur.RunTelemetry.WriterTest do
 
     assert {:ok, %{count: 0}} =
              GithubFirehose.poll(
-               request_fun: fn _request -> {:ok, %{status: 200, headers: [{"ETag", ~s("writer-merge")}], body: [firehose_event]}} end,
+               request_fun: fn _request ->
+                 {:ok,
+                  %{status: 200, headers: [{"ETag", ~s("writer-merge")}], body: [firehose_event]}}
+               end,
                recent_merge_fun: fn _merge -> {:ok, :stored} end,
                boot_time: ~U[2026-07-11 13:03:00Z] |> DateTime.to_unix(),
-               telemetry_record_fun: fn :lifecycle, attributes, opts -> Writer.record(writer, :lifecycle, attributes, opts) end
+               telemetry_writer: writer
              )
 
     assert :ok = Writer.flush(writer)
@@ -616,6 +701,14 @@ defmodule Aiur.RunTelemetry.WriterTest do
     assert merged["timestamp"] == "2026-07-11T13:01:00Z"
     assert merged["attributes"]["event"] == "pr_merged"
     assert merged["attributes"]["pr_number"] == 77
+    assert merged["attributes"]["source"] == "github_reconciliation"
+
+    # The anchor stays durable for full-log reconciliation, but a dashboard
+    # scoped to this daemon boot must not call a historical merge "this run".
+    assert {:ok, dataset} = Dataset.build(path, session: :current, boot_id: "anchors")
+    current = Dataset.filter(dataset, boot_id: "anchors")
+    refute Enum.any?(current.records, &(&1.attributes["event"] == "pr_merged"))
+    assert current.tickets == %{}
   end
 
   defp read_records(path) do

@@ -14,7 +14,14 @@ defmodule AiurWeb.AnalyticsLive do
   alias Aiur.Usage.GroupedScopes.Scope
   alias Aiur.UsageAggregate
   alias AiurWeb.OperatorControlCenter.Analytics.{Charts, Presenter, Styles}
-  alias AiurWeb.OperatorControlCenter.{DashboardShell, NavState, RouteRegistry, UsageSummaryPresenter}
+
+  alias AiurWeb.OperatorControlCenter.{
+    DashboardShell,
+    NavState,
+    RouteRegistry,
+    UsageSummaryPresenter
+  }
+
   alias AiurWeb.{FinancialData, FinancialDataAccess}
 
   @usage_summary_max_age_ms 30_000
@@ -48,7 +55,11 @@ defmodule AiurWeb.AnalyticsLive do
   end
 
   def handle_event("select_all", _params, socket) do
-    all = if socket.assigns.model, do: MapSet.new(socket.assigns.model.actors, & &1.key), else: MapSet.new()
+    all =
+      if socket.assigns.model,
+        do: MapSet.new(socket.assigns.model.actors, & &1.key),
+        else: MapSet.new()
+
     {:noreply, assign(socket, :selected, all)}
   end
 
@@ -61,10 +72,12 @@ defmodule AiurWeb.AnalyticsLive do
   end
 
   def handle_event("range", %{"range" => range}, socket) do
-    {:noreply, socket |> assign(:range, range_atom(range)) |> assign(:time_domain, nil) |> load_model()}
+    {:noreply,
+     socket |> assign(:range, range_atom(range)) |> assign(:time_domain, nil) |> load_model()}
   end
 
-  def handle_event("time-domain", params, %{assigns: %{model: model}} = socket) when not is_nil(model) do
+  def handle_event("time-domain", params, %{assigns: %{model: model}} = socket)
+      when not is_nil(model) do
     domain = Charts.normalize_time_domain(model, {Map.get(params, "t0"), Map.get(params, "t1")})
     {:noreply, assign_time_domain(socket, domain)}
   end
@@ -112,7 +125,7 @@ defmodule AiurWeb.AnalyticsLive do
         </div>
 
         <div :if={!@unavailable} class="an-kpis">
-          <div :for={k <- kpi_items(@model)} class={["an-kpi", k.tone]}>
+          <div :for={k <- kpi_items(@model, @provider_spend)} class={["an-kpi", k.tone]}>
             <span class="an-kpi-label">{k.label}</span>
             <span class="an-kpi-val">{k.val}</span>
             <span class="an-kpi-sub">{k.sub}</span>
@@ -237,11 +250,23 @@ defmodule AiurWeb.AnalyticsLive do
         domain = Charts.normalize_time_domain(model, socket.assigns.time_domain)
 
         socket
-        |> assign(model: model, selected: MapSet.new(model.actors, & &1.key), unavailable: nil, now: now)
+        |> assign(
+          model: model,
+          selected: MapSet.new(model.actors, & &1.key),
+          unavailable: nil,
+          now: now
+        )
         |> assign_time_domain(domain)
 
       {:unavailable, reason} ->
-        assign(socket, model: nil, chart_model: nil, time_domain: nil, selected: MapSet.new(), unavailable: reason, now: now)
+        assign(socket,
+          model: nil,
+          chart_model: nil,
+          time_domain: nil,
+          selected: MapSet.new(),
+          unavailable: reason,
+          now: now
+        )
     end
   end
 
@@ -251,17 +276,42 @@ defmodule AiurWeb.AnalyticsLive do
 
   defp assign_time_domain(socket, _domain), do: socket
 
-  defp kpi_items(model) do
+  defp kpi_items(model, provider_spend) do
     k = model.kpis
 
     [
-      %{label: "Peak concurrency", val: k.peak_conc, sub: "#{k.conc_now} now / #{k.cap} cap", tone: nil},
-      %{label: "Mean utilization", val: "#{k.mean_util_pct}%", sub: "of #{model.cores} cores", tone: nil},
-      %{label: "Memory headroom", val: "#{k.mem_headroom_pct}%", sub: "#{gb(k.mem_now_bytes)} / #{gb(model.host_mem_bytes)}", tone: nil},
+      %{
+        label: "Peak concurrency",
+        val: k.peak_conc,
+        sub: "#{k.conc_now} now / #{k.cap} cap",
+        tone: nil
+      },
+      %{
+        label: "Mean utilization",
+        val: "#{k.mean_util_pct}%",
+        sub: "of #{model.cores} cores",
+        tone: nil
+      },
+      %{
+        label: "Memory headroom",
+        val: "#{k.mem_headroom_pct}%",
+        sub: "#{gb(k.mem_now_bytes)} / #{gb(model.host_mem_bytes)}",
+        tone: nil
+      },
       %{label: "PRs merged", val: k.merged, sub: "this run", tone: nil},
-      %{label: "Tickets done", val: "#{k.done} / #{k.total}", sub: "#{k.done_pct}% complete", tone: nil},
-      provider_spend_item(@provider_spend),
-      %{label: "Wasted capacity", val: "#{k.wasted_slot_hours}h", sub: "idle unit-slots", tone: "block"}
+      %{
+        label: "Tickets done",
+        val: "#{k.done} / #{k.total}",
+        sub: "#{k.done_pct}% complete",
+        tone: nil
+      },
+      provider_spend_item(provider_spend),
+      %{
+        label: "Wasted capacity",
+        val: "#{k.wasted_slot_hours}h",
+        sub: "idle unit-slots",
+        tone: "block"
+      }
     ]
   end
 
@@ -271,7 +321,8 @@ defmodule AiurWeb.AnalyticsLive do
   defp provider_spend_item(%{state: :locked}),
     do: %{label: "Provider spend", val: "Locked", sub: "financial access required", tone: nil}
 
-  defp provider_spend_item(_other), do: %{label: "Provider spend", val: "—", sub: "not available", tone: nil}
+  defp provider_spend_item(_other),
+    do: %{label: "Provider spend", val: "—", sub: "not available", tone: nil}
 
   # Financial data stays behind the same per-connection capability gate used by
   # the Build Order usage summary. The analytics page receives a display-only
@@ -289,14 +340,18 @@ defmodule AiurWeb.AnalyticsLive do
   end
 
   defp load_provider_spend(context) do
+    usage_aggregate = usage_aggregate_source()
+
     with {:ok, scope} <- Scope.this_run(RunTelemetry.boot_id()),
          {:ok, snapshot} <-
            FinancialData.fetch_usage_grouping(
              FinancialData,
              context,
-             {Scope.public(scope), usage_aggregate_generation()},
+             {Scope.public(scope), usage_aggregate_generation(usage_aggregate)},
              @usage_summary_max_age_ms,
-             fn -> UsageAggregate.cells_snapshot() |> GroupedScopes.project(scope, currency: "USD") end
+             fn ->
+               usage_aggregate.cells_snapshot() |> GroupedScopes.project(scope, currency: "USD")
+             end
            ) do
       snapshot |> UsageSummaryPresenter.present() |> provider_spend_view()
     else
@@ -304,17 +359,31 @@ defmodule AiurWeb.AnalyticsLive do
     end
   end
 
-  defp provider_spend_view(%{state: state, provider_reported: %{by_currency: entries}}) when state in [:ready, :partial, :stale] do
+  defp provider_spend_view(%{state: state, provider_reported: %{by_currency: entries}})
+       when state in [:ready, :partial, :stale] do
     case entries do
-      [] -> %{state: :unavailable}
-      _entries -> %{state: :available, amount: Enum.map_join(entries, ", ", &"#{&1.amount} #{&1.currency}"), source: "provider-reported estimate"}
+      [] ->
+        %{state: :unavailable}
+
+      _entries ->
+        %{
+          state: :available,
+          amount: Enum.map_join(entries, ", ", &"#{&1.amount} #{&1.currency}"),
+          source: "provider-reported estimate"
+        }
     end
   end
 
   defp provider_spend_view(_view), do: %{state: :unavailable}
 
-  defp usage_aggregate_generation do
-    UsageAggregate.snapshot().generation
+  # The live route defaults to the daemon-owned aggregate. The configurable
+  # source exists only to keep the route's protected-query contract testable
+  # without mutating the process-global ledger projection.
+  defp usage_aggregate_source,
+    do: Application.get_env(:aiur, :analytics_usage_aggregate_source, UsageAggregate)
+
+  defp usage_aggregate_generation(usage_aggregate) do
+    usage_aggregate.snapshot().generation
   rescue
     _error -> :unknown
   catch

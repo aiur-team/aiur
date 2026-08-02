@@ -4,10 +4,23 @@ defmodule AiurWeb.AnalyticsLiveTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
+  alias Aiur.RunTelemetry
+  alias Aiur.UsageAggregate.Projection
   alias AiurWeb.Endpoint
+
+  import Aiur.TestSupport.UsageAggregate, only: [envelope: 0, record: 3]
 
   @endpoint Endpoint
   @fixtures Path.expand("../../fixtures/run_telemetry", __DIR__)
+
+  defmodule UsageAggregateSourceStub do
+    @moduledoc false
+
+    def cells_snapshot,
+      do: Application.fetch_env!(:aiur, :analytics_usage_aggregate_source_snapshot)
+
+    def snapshot, do: cells_snapshot().metadata
+  end
 
   setup do
     previous_telemetry = Application.get_env(:aiur, :analytics_telemetry_file)
@@ -62,6 +75,49 @@ defmodule AiurWeb.AnalyticsLiveTest do
     refute html =~ "No run telemetry to analyze yet"
   end
 
+  test "renders current-session completion KPIs and protected UsageAggregate provider spend" do
+    previous_username = System.get_env("AIUR_DASHBOARD_USERNAME")
+    previous_password = System.get_env("AIUR_DASHBOARD_PASSWORD")
+    System.put_env("AIUR_DASHBOARD_USERNAME", "operator")
+    System.put_env("AIUR_DASHBOARD_PASSWORD", "analytics-spend-secret")
+
+    on_exit(fn ->
+      restore_env("AIUR_DASHBOARD_USERNAME", previous_username)
+      restore_env("AIUR_DASHBOARD_PASSWORD", previous_password)
+      Application.delete_env(:aiur, :analytics_usage_aggregate_source)
+      Application.delete_env(:aiur, :analytics_usage_aggregate_source_snapshot)
+    end)
+
+    Application.put_env(:aiur, :analytics_telemetry_file, route_fixture!(RunTelemetry.boot_id()))
+    Application.put_env(:aiur, :analytics_usage_aggregate_source, UsageAggregateSourceStub)
+
+    Application.put_env(
+      :aiur,
+      :analytics_usage_aggregate_source_snapshot,
+      provider_spend_snapshot()
+    )
+
+    conn =
+      build_conn()
+      |> Plug.Conn.put_req_header(
+        "authorization",
+        "Basic " <> Base.encode64("operator:analytics-spend-secret")
+      )
+
+    {:ok, _view, html} = live(conn, "/analytics")
+
+    assert html =~ "PRs merged"
+    assert html =~ ~r/PRs merged<\/span>\s*<span class="an-kpi-val">1</
+    assert html =~ "Tickets done"
+    assert html =~ "1 / 1"
+    assert html =~ "100% complete"
+    assert html =~ ">#941<"
+    refute html =~ ">#940<"
+    assert html =~ "Provider spend"
+    assert html =~ "3.50 USD"
+    assert html =~ "provider-reported estimate"
+  end
+
   test "renders populated complexity tiers from dispatch telemetry" do
     path = complexity_fixture!()
     Application.put_env(:aiur, :analytics_telemetry_file, path)
@@ -95,7 +151,8 @@ defmodule AiurWeb.AnalyticsLiveTest do
 
     refute html =~ ~s(class="an-zoombar")
 
-    zoomed = render_hook(view, "time-domain", %{"t0" => 1_783_728_061_000, "t1" => 1_783_728_065_000})
+    zoomed =
+      render_hook(view, "time-domain", %{"t0" => 1_783_728_061_000, "t1" => 1_783_728_065_000})
 
     assert zoomed =~ ~s(class="an-zoombar")
     assert length(Regex.scan(~r/data-time-start="1783728061000"/, zoomed)) == 5
@@ -125,7 +182,8 @@ defmodule AiurWeb.AnalyticsLiveTest do
 
     {:ok, view, _html} = live(build_conn(), "/analytics")
 
-    html = render_hook(view, "time-domain", %{"t0" => 1_783_728_061_000, "t1" => 1_783_728_061_001})
+    html =
+      render_hook(view, "time-domain", %{"t0" => 1_783_728_061_000, "t1" => 1_783_728_061_001})
 
     refute html =~ ~s(class="an-zoombar")
   end
@@ -135,7 +193,10 @@ defmodule AiurWeb.AnalyticsLiveTest do
 
     {:ok, view, _html} = live(build_conn(), "/analytics")
 
-    assert render_hook(view, "time-domain", %{"t0" => 1_783_728_061_000, "t1" => 1_783_728_065_000}) =~
+    assert render_hook(view, "time-domain", %{
+             "t0" => 1_783_728_061_000,
+             "t1" => 1_783_728_065_000
+           }) =~
              ~s(class="an-zoombar")
 
     full_log = render_click(view, "range", %{"range" => "full"})
@@ -182,7 +243,12 @@ defmodule AiurWeb.AnalyticsLiveTest do
   defp reset_env(key, value), do: Application.put_env(:aiur, key, value)
 
   defp complexity_fixture! do
-    root = Path.join(System.tmp_dir!(), "aiur-analytics-complexity-#{System.unique_integer([:positive])}")
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-analytics-complexity-#{System.unique_integer([:positive])}"
+      )
+
     File.mkdir_p!(root)
     path = Path.join(root, "telemetry.ndjson")
 
@@ -197,6 +263,72 @@ defmodule AiurWeb.AnalyticsLiveTest do
     File.write!(path, Enum.map_join(records, "\n", &Jason.encode!/1) <> "\n")
     on_exit(fn -> File.rm_rf!(root) end)
     path
+  end
+
+  defp route_fixture!(current_boot_id) do
+    root =
+      Path.join(System.tmp_dir!(), "aiur-analytics-route-#{System.unique_integer([:positive])}")
+
+    File.mkdir_p!(root)
+    path = Path.join(root, "telemetry.ndjson")
+
+    records = [
+      route_record("prior-boot", 1, "restart", ~U[2026-07-11 00:00:00Z], nil),
+      route_record("prior-boot", 2, "pr_merged", ~U[2026-07-11 00:00:01Z], "940"),
+      route_record(current_boot_id, 1, "restart", ~U[2026-07-11 00:01:00Z], nil),
+      route_record(current_boot_id, 2, "dispatch", ~U[2026-07-11 00:01:01Z], "941"),
+      route_record(current_boot_id, 3, "pr_opened", ~U[2026-07-11 00:01:02Z], "941"),
+      route_record(current_boot_id, 4, "pr_merged", ~U[2026-07-11 00:01:03Z], "941")
+    ]
+
+    File.write!(path, Enum.map_join(records, "\n", &Jason.encode!/1) <> "\n")
+    on_exit(fn -> File.rm_rf!(root) end)
+    path
+  end
+
+  defp route_record(boot_id, sequence, event, timestamp, ticket) do
+    attributes =
+      %{
+        "event" => event,
+        "boundary" => "point",
+        "event_key" => "route-#{boot_id}-#{sequence}"
+      }
+      |> then(fn attributes ->
+        if ticket, do: Map.put(attributes, "ticket", ticket), else: attributes
+      end)
+
+    %{
+      schema_version: 2,
+      kind: if(event == "restart", do: "restart", else: "lifecycle"),
+      timestamp: DateTime.to_iso8601(timestamp),
+      recorded_at: DateTime.to_iso8601(timestamp),
+      boot_id: boot_id,
+      sequence: sequence,
+      record_id: "#{boot_id}:#{sequence}",
+      attributes: attributes
+    }
+  end
+
+  defp provider_spend_snapshot do
+    usage_envelope = envelope()
+
+    usage_envelope = %{
+      usage_envelope
+      | attribution: %{usage_envelope.attribution | run_id: RunTelemetry.boot_id()}
+    }
+
+    projection =
+      Projection.apply_record(Projection.new(), record(1, usage_envelope, %{cost: "3.50"}))
+
+    %{
+      cells: projection.cells,
+      metadata: %{
+        generation: projection.generation,
+        health: :healthy,
+        freshness: %{status: :fresh},
+        retained_interval: %{earliest: 1, latest: 1, status: :retained}
+      }
+    }
   end
 
   defp record(sequence, event, timestamp, extra) do
