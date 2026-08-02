@@ -67,6 +67,7 @@ defmodule Aiur.TestSupport do
         previous_workflow_file_path = Application.get_env(:aiur, :workflow_file_path)
         previous_log_file = Application.get_env(:aiur, :log_file)
         previous_build_gate_dir = Application.get_env(:aiur, :build_gate_dir_override)
+        previous_global_pause_store_path = Application.get_env(:aiur, :global_pause_store_path)
 
         # These callbacks live in :persistent_term so they outlast the test
         # process that installed them. Start every TestSupport case from the
@@ -93,6 +94,17 @@ defmodule Aiur.TestSupport do
         File.mkdir_p!(Path.join(workflow_root, "log"))
         Application.put_env(:aiur, :log_file, Path.join([workflow_root, "log", "aiur.log"]))
 
+        # Global pause is deliberately durable in production, but that makes a
+        # suite-wide test path hazardous: a case that pauses the daemon can
+        # make a later named Orchestrator boot paused. Give every TestSupport
+        # case its own store so persisted control state cannot cross test
+        # boundaries or depend on ExUnit's randomized file order.
+        Application.put_env(
+          :aiur,
+          :global_pause_store_path,
+          Path.join([workflow_root, "state", "global-pause.json"])
+        )
+
         # A prior test may have terminated the shared WorkflowStore singleton
         # (e.g. extensions_test / core_test tear it down) and, on a mid-test
         # failure, left it down. Bring it back up before this test reads config
@@ -117,6 +129,11 @@ defmodule Aiur.TestSupport do
           case previous_build_gate_dir do
             nil -> Application.delete_env(:aiur, :build_gate_dir_override)
             path -> Application.put_env(:aiur, :build_gate_dir_override, path)
+          end
+
+          case previous_global_pause_store_path do
+            nil -> Application.delete_env(:aiur, :global_pause_store_path)
+            path -> Application.put_env(:aiur, :global_pause_store_path, path)
           end
 
           Application.delete_env(:aiur, :server_port_override)

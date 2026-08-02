@@ -1554,7 +1554,7 @@ defmodule Aiur.InitTest do
   end
 
   describe "agents, routing, permission mode" do
-    test "the agent multiselect offers only claude and codex (never claude-repl)", %{
+    test "the agent multiselect offers only configurable backends (never claude-repl or deepseek)", %{
       dir: dir,
       target: target
     } do
@@ -1573,7 +1573,11 @@ defmodule Aiur.InitTest do
       assert :ok = Init.run(%{force: false}, capturing, deps(parent, dir, target))
 
       assert_received {:multiselect_opts, "Which agents to support", opts}
-      assert opts == ["claude", "codex", "fake"]
+      assert opts == ["claude", "codex", "kimi", "openrouter", "fake"]
+      refute "claude-repl" in opts
+      # DeepSeek is registered but not dispatch-enabled by default, so it must
+      # not be offerable from init.
+      refute "deepseek" in opts
     end
 
     test "the location options carry greyed config-path help", %{dir: dir, target: target} do

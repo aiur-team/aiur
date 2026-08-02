@@ -303,6 +303,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
   end
 
   defp backend_label(%ProviderMeterSnapshot{backend: :app_server}), do: "App server"
+  defp backend_label(%ProviderMeterSnapshot{backend: :openai_compat}), do: "OpenAI-compatible API"
   defp backend_label(_snapshot), do: "Backend unknown"
 
   defp status_label(:loading), do: "Loading…"

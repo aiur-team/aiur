@@ -426,6 +426,24 @@ path parameter and is never browser-cacheable.
 ## Configuration notes
 
 - Path values support `~` for the home directory and `$VAR` for environment substitution.
+- Run credentials resolve in this order: exported environment, `~/.aiur/.env`,
+  then repository-local `./.env`. The native provider variables are
+  `MOONSHOT_API_KEY`, `DEEPSEEK_API_KEY`, and `OPENROUTER_API_KEY`;
+  OpenRouter credit polling additionally uses `OPENROUTER_MANAGEMENT_KEY`.
+  Keep values out of workflow YAML and Git.
+- `agent.kind` may name any registered backend, including `kimi`, `deepseek`,
+  and `openrouter`. Per-instance overrides live under
+  `agent.backend_configs.<name>`. DeepSeek is disabled for dispatch until its
+  entry sets `enabled: true`. OpenRouter requires an explicit underlying model
+  through a model label/routing rule or `backend_configs.openrouter.model`.
+  Kimi and DeepSeek have native default models.
+- OpenAI-compatible backends are local-only transports today: when SSH workers
+  are configured, their sessions remain on the orchestrator host. They are
+  deliberately non-resumable, so backend switches continue from shared
+  workspace state rather than a cross-provider transcript.
+- `agent.prior_work_continuation` defaults to `true`; a cold redispatch or
+  backend switch receives continuation guidance based on the existing shared
+  workspace instead of pretending the provider conversation was resumed.
 - Codex defaults to safer policies when omitted (`approval_policy` rejects unprompted
   approvals, `thread_sandbox` is `workspace-write`).
 - Setting `agent.codex.thread_sandbox: danger-full-access` also defaults Codex turns to

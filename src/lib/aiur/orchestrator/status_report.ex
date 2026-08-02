@@ -4,16 +4,24 @@ defmodule Aiur.Orchestrator.StatusReport do
   All functions execute inside the orchestrator GenServer process.
   """
 
-  alias Aiur.{AgentEvents, AgentPubSub, CodingAgent, Config, Issue, TicketActivity, TrackerIdentity}
+  alias Aiur.AgentEvents
+  alias Aiur.AgentPubSub
+  alias Aiur.AgentQueueStore
+  alias Aiur.CodingAgent
+  alias Aiur.Config
   alias Aiur.Events.SubscriptionStore
+  alias Aiur.Issue
+  alias Aiur.Orchestrator.ControlLifecycle
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.Lifecycle
   alias Aiur.Orchestrator.OperatorMessages, as: OM
   alias Aiur.Orchestrator.RemoteControlMode, as: RC
   alias Aiur.Orchestrator.Slots
+  alias Aiur.Orchestrator.SnapshotStore
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.WaitingReason
-  alias AiurWeb.ObservabilityPubSub
+  alias Aiur.TicketActivity
+  alias Aiur.TrackerIdentity
 
   @activity_snapshot_timeout_ms 100
 
@@ -64,6 +72,8 @@ defmodule Aiur.Orchestrator.StatusReport do
 
   @spec notify_dashboard(State.t()) :: :ok
   def notify_dashboard(state) do
+    if state.snapshot_ready? == true, do: :ok = publish_snapshot(state)
+
     state
     |> running_summaries()
     |> AgentPubSub.broadcast_running_change()
@@ -74,7 +84,112 @@ defmodule Aiur.Orchestrator.StatusReport do
       max_concurrent_agents: Slots.max_concurrent_agent_limit(state)
     })
 
-    ObservabilityPubSub.broadcast_update()
+    :ok
+  end
+
+  @spec publish_snapshot(State.t()) :: :ok
+  def publish_snapshot(%State{} = state) do
+    # Projection may call other stores, so run it in SnapshotStore rather than
+    # extending the Orchestrator's dispatch critical path. Project only the
+    # bounded dashboard input, not the entire orchestration state.
+    SnapshotStore.publish_state(
+      state.snapshot_key || self(),
+      state.snapshot_generation,
+      snapshot_input(state)
+    )
+  end
+
+  @doc false
+  @spec snapshot_input(State.t()) :: State.t()
+  def snapshot_input(%State{} = state) do
+    state
+    |> Map.take([
+      :agent_rate_limits,
+      :agent_totals,
+      :effective_concurrent_agents,
+      :global_pause,
+      :globally_paused,
+      :last_polled_issues,
+      :load_envelope_state,
+      :max_concurrent_agents,
+      :next_poll_due_at_ms,
+      :poll_check_in_progress,
+      :poll_interval_ms,
+      :retry_attempts,
+      :running,
+      :session_max_concurrent_agents
+    ])
+    |> then(&struct!(State, &1))
+    |> Map.put(:ci_lifecycle, snapshot_ci_lifecycle(state))
+    |> Map.put(:control_lifecycle, snapshot_control_lifecycle(state))
+    |> Map.put(:queue_store, snapshot_queue_store(state))
+  end
+
+  # The asynchronous projection needs only the cached result for rows it can
+  # render. Keeping the rest of this lifecycle map out of the cast prevents
+  # historical CI data from being copied along with every dashboard refresh.
+  defp snapshot_ci_lifecycle(%State{} = state) do
+    identifiers = snapshot_identifiers(state)
+    poll_cache = state.ci_lifecycle |> Map.get(:poll_cache, %{}) |> Map.take(identifiers)
+
+    %{
+      approved_heads: %{},
+      test_failure_heads: %{},
+      base_repair_invalidations: %{},
+      poll_cache: poll_cache,
+      rewakes: %{}
+    }
+  end
+
+  # A dashboard can show a pending control only for a running issue. Preserve
+  # those records, not the full bounded-but-fleet-wide control history.
+  defp snapshot_control_lifecycle(%State{} = state) do
+    Enum.reduce(state.running, %ControlLifecycle{}, fn {_issue_id, entry}, lifecycle ->
+      issue_id = entry |> Map.get(:issue, %{}) |> Map.get(:id)
+
+      case ControlLifecycle.current_pending(state.control_lifecycle, issue_id) do
+        %{request_id: request_id} = request ->
+          %{
+            lifecycle
+            | pending: Map.put(lifecycle.pending, issue_id, request_id),
+              records: Map.put(lifecycle.records, request_id, request)
+          }
+
+        nil ->
+          lifecycle
+      end
+    end)
+  end
+
+  # Queue depth and visible operator messages are dashboard contract fields.
+  # Copy only the queue entries for rows this snapshot can render so an
+  # unrelated queue backlog cannot inflate the projection cast.
+  defp snapshot_queue_store(%State{} = state) do
+    identifiers = snapshot_identifiers(state)
+
+    {items, pending_ids_by_target} =
+      Enum.reduce(identifiers, {%{}, %{}}, fn identifier, {items, pending_ids_by_target} ->
+        pending = AgentQueueStore.list_pending(state.queue_store, identifier)
+        visible = AgentQueueStore.list_visible_operator_messages(state.queue_store, identifier)
+        queue_items = pending ++ visible
+
+        {
+          Map.merge(items, Map.new(queue_items, &{&1.id, &1})),
+          Map.put(pending_ids_by_target, identifier, Enum.map(pending, & &1.id))
+        }
+      end)
+
+    %AgentQueueStore{items: items, pending_ids_by_target: pending_ids_by_target}
+  end
+
+  defp snapshot_identifiers(%State{} = state) do
+    state.running
+    |> Map.values()
+    |> Enum.map(&Map.get(&1, :identifier))
+    |> Kernel.++(Enum.map(state.last_polled_issues, fn {_issue_id, issue} -> issue.identifier || issue.id end))
+    |> Kernel.++(Enum.map(state.retry_attempts, fn {_issue_id, retry} -> Map.get(retry, :identifier) end))
+    |> Enum.filter(&is_binary/1)
+    |> Enum.uniq()
   end
 
   @spec poll_status(State.t()) :: {:reply, map(), State.t()}
@@ -117,6 +232,13 @@ defmodule Aiur.Orchestrator.StatusReport do
   @spec snapshot(State.t()) :: {:reply, map(), State.t()}
   def snapshot(%State{} = state) do
     state = Lifecycle.refresh_runtime_config(state)
+
+    {:reply, snapshot_payload(state), state}
+  end
+
+  @doc false
+  @spec snapshot_payload(State.t()) :: map()
+  def snapshot_payload(%State{} = state) do
     now = DateTime.utc_now()
     now_ms = System.monotonic_time(:millisecond)
     stall_timeout_seconds = stall_timeout_seconds()
@@ -126,26 +248,25 @@ defmodule Aiur.Orchestrator.StatusReport do
     retrying = Enum.map(state.retry_attempts, &retry_snapshot(state, &1, now_ms, activity_by_identity))
     idle = idle_snapshot(state, activity_by_identity)
 
-    {:reply,
-     %{
-       running: running,
-       retrying: retrying,
-       idle: idle,
-       agent_totals: state.agent_totals,
-       capacity: Slots.max_concurrent_agent_status(state),
-       globally_paused: state.globally_paused == true,
-       global_pause: %{
-         globally_paused: state.globally_paused == true,
-         paused_at: Map.get(state.global_pause, :paused_at),
-         source: Map.get(state.global_pause, :source)
-       },
-       rate_limits: Map.get(state, :agent_rate_limits),
-       polling: %{
-         checking?: state.poll_check_in_progress == true,
-         next_poll_in_ms: next_poll_in_ms(state.next_poll_due_at_ms, now_ms),
-         poll_interval_ms: state.poll_interval_ms
-       }
-     }, state}
+    %{
+      running: running,
+      retrying: retrying,
+      idle: idle,
+      agent_totals: state.agent_totals,
+      capacity: Slots.max_concurrent_agent_status(state),
+      globally_paused: state.globally_paused == true,
+      global_pause: %{
+        globally_paused: state.globally_paused == true,
+        paused_at: Map.get(state.global_pause, :paused_at),
+        source: Map.get(state.global_pause, :source)
+      },
+      rate_limits: Map.get(state, :agent_rate_limits),
+      polling: %{
+        checking?: state.poll_check_in_progress == true,
+        next_poll_in_ms: next_poll_in_ms(state.next_poll_due_at_ms, now_ms),
+        poll_interval_ms: state.poll_interval_ms
+      }
+    }
   end
 
   defp running_snapshot(%State{} = state, {issue_id, metadata}, now, stall_timeout_seconds, activity_by_identity) do

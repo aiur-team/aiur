@@ -9,6 +9,7 @@ defmodule Aiur.Orchestrator do
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, EventTopics, HumanReview, Interrupts}
   alias Aiur.Orchestrator.{GlobalPause, Lifecycle, PauseResume, PushRouting, RetryEngine}
   alias Aiur.Orchestrator.{RuntimeWatchdog, Slots, State, StatusReport}
+  alias Aiur.Orchestrator.SnapshotStore
   alias Aiur.Orchestrator.{TokenAccounting, TrackedSet, TrackerHealth, WorkspaceCleanup}
 
   alias Aiur.Orchestrator.OperatorMessages, as: OM
@@ -520,6 +521,15 @@ defmodule Aiur.Orchestrator do
   def status(server, timeout), do: StatusReport.status_api(server, timeout)
   @spec snapshot(GenServer.server(), timeout()) :: map() | :timeout | :unavailable
   def snapshot(server, timeout), do: StatusReport.snapshot_api(server, timeout)
+
+  @doc """
+  Reads the dashboard snapshot from its read model without calling the
+  Orchestrator process. Before the first published snapshot it returns an
+  explicit unavailable result rather than joining the dispatch mailbox.
+  See `SnapshotStore.read/2` for result states.
+  """
+  @spec dashboard_snapshot(GenServer.server(), timeout()) :: SnapshotStore.result()
+  def dashboard_snapshot(server \\ __MODULE__, timeout \\ 15_000), do: SnapshotStore.read(server, timeout)
 
   @impl true
   def handle_call({:enqueue_event_digest, identifier, event}, _from, state),

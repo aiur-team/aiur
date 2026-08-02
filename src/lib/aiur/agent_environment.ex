@@ -15,7 +15,12 @@ defmodule Aiur.AgentEnvironment do
   @erlang_distribution_env_names ~w(ERL_AFLAGS RELEASE_NODE RELEASE_COOKIE AIUR_RELEASE_NODE AIUR_INSTANCE_KEY AIUR_REPO_ROOT)
   @aiur_distribution_env_pattern ~r/\AAIUR(?:_.*)?_(?:NODE_NAME|COOKIE)\z/
   @parent_log_env_names ~w(AIUR_LOGS_ROOT AIUR_AGENT_IR_LOGS_PARENT)
+<<<<<<< HEAD
   @operator_only_env_names ~w(AIUR_CI_READINESS_TOKEN)
+=======
+  @provider_credential_env_names ~w(DEEPSEEK_API_KEY MOONSHOT_API_KEY OPENROUTER_API_KEY OPENROUTER_MANAGEMENT_KEY)
+  @provider_api_key_pattern ~r/_API_KEY\z/
+>>>>>>> origin/develop
   @scheduler_option ~r/(^|\s)\+S\s+\d+(?::\d+)?/
 
   @spec erlang_distribution_env_name?(String.t()) :: boolean()
@@ -32,16 +37,27 @@ defmodule Aiur.AgentEnvironment do
   @spec scrub_shell_prefix() :: String.t()
   def scrub_shell_prefix do
     "unset ERL_AFLAGS RELEASE_NODE RELEASE_COOKIE AIUR_RELEASE_NODE AIUR_INSTANCE_KEY AIUR_REPO_ROOT " <>
+<<<<<<< HEAD
       "AIUR_LOGS_ROOT AIUR_AGENT_IR_LOGS_PARENT AIUR_CI_READINESS_TOKEN; " <>
+=======
+      "AIUR_LOGS_ROOT AIUR_AGENT_IR_LOGS_PARENT OPENROUTER_MANAGEMENT_KEY; " <>
+>>>>>>> origin/develop
       "for aiur_env_name in $(env | sed 's/=.*//'); do " <>
       "case \"$aiur_env_name\" in " <>
-      "AIUR_NODE_NAME|AIUR_*_NODE_NAME|AIUR_COOKIE|AIUR_*_COOKIE) unset \"$aiur_env_name\" ;; " <>
+      "AIUR_NODE_NAME|AIUR_*_NODE_NAME|AIUR_COOKIE|AIUR_*_COOKIE|*_API_KEY) unset \"$aiur_env_name\" ;; " <>
       "esac; " <>
       "done"
   end
 
   @spec parent_log_env_name?(String.t()) :: boolean()
   def parent_log_env_name?(name) when is_binary(name), do: name in @parent_log_env_names
+
+  @doc false
+  @spec provider_credential_env_names() :: [String.t()]
+  def provider_credential_env_names do
+    inherited = System.get_env() |> Map.keys() |> Enum.filter(&Regex.match?(@provider_api_key_pattern, &1))
+    Enum.uniq(@provider_credential_env_names ++ inherited)
+  end
 
   @doc """
   Return Port-compatible env tuples (`{charlist_name, charlist_value}`) for
@@ -63,8 +79,13 @@ defmodule Aiur.AgentEnvironment do
     mix = Path.join(workspace, ".aiur-mix")
     base_branch = configured_base_branch(opts)
 
+<<<<<<< HEAD
     unset_inherited_env =
       Enum.map(@parent_log_env_names ++ @operator_only_env_names, fn name ->
+=======
+    unset_inherited_credentials =
+      Enum.map(@parent_log_env_names ++ provider_credential_env_names(), fn name ->
+>>>>>>> origin/develop
         {String.to_charlist(name), false}
       end)
 
@@ -102,7 +123,11 @@ defmodule Aiur.AgentEnvironment do
           {String.to_charlist(name), String.to_charlist(value)}
         end)
 
+<<<<<<< HEAD
     unset_inherited_env ++ workspace_env
+=======
+    unset_inherited_credentials ++ workspace_env
+>>>>>>> origin/develop
   end
 
   def workspace_env(_, _opts), do: []
@@ -126,8 +151,13 @@ defmodule Aiur.AgentEnvironment do
       mix_scheduler_env()
       |> Enum.map_join(" ", fn {name, value} -> "#{name}=#{Aiur.Shell.escape(value)}" end)
 
+<<<<<<< HEAD
     "unset AIUR_CI_READINESS_TOKEN && " <>
       "export HEX_HOME=#{Aiur.Shell.escape(hex)} MIX_HOME=#{Aiur.Shell.escape(mix)} " <>
+=======
+    scrub_shell_prefix() <>
+      "; export HEX_HOME=#{Aiur.Shell.escape(hex)} MIX_HOME=#{Aiur.Shell.escape(mix)} " <>
+>>>>>>> origin/develop
       "MISE_TRUSTED_CONFIG_PATHS=#{Aiur.Shell.escape(workspace)} " <>
       "AIUR_BASE_BRANCH=#{Aiur.Shell.escape(base_branch)} #{scheduler_exports}"
   end
