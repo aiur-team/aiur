@@ -70,6 +70,35 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
       assert_receive {:event, %{topic: "ticket.I-paused.agent.attention.state_divergence"} = event}, 500
       assert event["reason"] =~ "local=working tracker=agent:paused"
     end
+
+    test "reports a duration pause while the tracker remains active" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe("ticket.I-duration.agent.attention.state_divergence")
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      issue = %Issue{id: "issue-duration", identifier: "I-duration", state: "rework", paused: false}
+
+      state = %State{
+        running: %{
+          issue.id => %{
+            identifier: issue.identifier,
+            issue: issue,
+            control: %{status: :paused},
+            paused_reason: :max_agent_duration
+          }
+        }
+      }
+
+      _state = Reconciler.report_label_divergence(state, issue)
+
+      assert_receive {:event, %{topic: "ticket.I-duration.agent.attention.state_divergence"} = event}, 500
+      assert event["reason"] =~ "local=paused(max_agent_duration) tracker=agent:rework"
+      assert event["reason"] =~ "operator resume is required"
+    end
   end
 
   describe "reconcile_issue_state/4" do
