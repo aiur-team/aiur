@@ -171,27 +171,51 @@ defmodule Aiur.RepoBaseTest do
 
       File.mkdir_p!(Path.join(node, "meta"))
       destination = Path.join([node, "meta", "findings.ndjson"])
-      File.write!(destination, "{\"slug\":\"current\"}")
+      File.write!(destination, Jason.encode!(finding("current")))
 
       assert {:error, {:repo_base_migration_recovery_failed, {:invalid_findings_ledger, _, 1}}} =
                RepoBase.refresh(base, origin, "true")
 
-      assert File.read!(destination) == "{\"slug\":\"current\"}"
+      assert File.read!(destination) == Jason.encode!(finding("current"))
       assert File.read!(Path.join([parked, "meta", "findings.ndjson"])) == "{not-json}"
+    end
+
+    test "leaves both ledgers intact when the canonical findings ledger is corrupt", %{origin: origin, node: node, base: base} do
+      parked = node <> ".migrating-interrupted"
+      File.mkdir_p!(Path.dirname(node))
+      git!(["clone", "--quiet", origin, parked])
+      File.mkdir_p!(Path.join(parked, "meta"))
+      source = Path.join([parked, "meta", "findings.ndjson"])
+      File.write!(source, Jason.encode!(finding("legacy")))
+
+      File.mkdir_p!(Path.join(node, "meta"))
+      destination = Path.join([node, "meta", "findings.ndjson"])
+      File.write!(destination, "{\"scope\":\"host\"}")
+
+      assert {:error, {:repo_base_migration_recovery_failed, {:invalid_findings_ledger, ^destination, 1}}} =
+               RepoBase.refresh(base, origin, "true")
+
+      assert File.read!(destination) == "{\"scope\":\"host\"}"
+      assert File.read!(source) == Jason.encode!(finding("legacy"))
     end
 
     test "recovers a clone parked by an interrupted migration", %{origin: origin, node: node, base: base} do
       parked = node <> ".migrating-interrupted"
+      lock = node <> ".migration-lock"
       File.mkdir_p!(Path.dirname(node))
       git!(["clone", "--quiet", origin, parked])
       File.mkdir_p!(node)
       File.mkdir_p!(Path.join(node, ".aiur-mix"))
+      File.mkdir!(lock)
+      File.write!(Path.join(lock, "owner"), "99999999")
+      Process.sleep(1_100)
 
       assert {:ok, ^base} = RepoBase.refresh(base, origin, "touch rebuilt_after_recovery")
 
       assert File.dir?(Path.join(base, ".git"))
       assert File.exists?(Path.join(base, "rebuilt_after_recovery"))
       refute File.exists?(parked)
+      refute File.exists?(lock)
     end
 
     test "serializes concurrent first finding appends through legacy migration", %{tmp: tmp, node: node} do
@@ -214,6 +238,9 @@ defmodule Aiur.RepoBaseTest do
 
       assert Enum.all?(results, &(&1 == :ok))
       assert {:ok, ["first-migration-one", "first-migration-two"]} = Findings.slugs()
+      assert File.dir?(Path.join(RepoBase.base_path(repo), ".git"))
+      refute File.dir?(Path.join(RepoBase.repo_path(repo), ".git"))
+      refute File.exists?(RepoBase.repo_path(repo) <> ".migration-lock")
     end
 
     test "is idempotent when main has not advanced", %{origin: origin, base: base} do

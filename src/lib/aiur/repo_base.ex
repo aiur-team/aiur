@@ -23,12 +23,15 @@ defmodule Aiur.RepoBase do
   alias Aiur.AgentEnvironment
   alias Aiur.AgentPubSub
   alias Aiur.Config
+  alias Aiur.Findings
 
   @base_record "base-record.json"
   @legacy_built_marker ".aiur-base-built"
   @cache_sidecars [".aiur-hex", ".aiur-mix", ".aiur-npm-cache"]
   @state_entries ["builds", "analytics", "meta"]
   @migration_lock_suffix ".migration-lock"
+  @migration_lock_owner "owner"
+  @migration_lock_stale_after_s 1
   @migration_lock_wait_ms 10
   @migration_lock_timeout_ms 30_000
   @remote_probe_timeout_ms 30_000
@@ -589,6 +592,14 @@ defmodule Aiur.RepoBase do
   defp migrate_legacy_layout(base_path) do
     node = repo_node_path(base_path)
 
+    if File.dir?(Path.join(base_path, ".git")) do
+      :ok
+    else
+      migrate_legacy_node(node, base_path)
+    end
+  end
+
+  defp migrate_legacy_node(node, base_path) do
     if migration_required?(node) do
       with_migration_lock(node, base_path, fn ->
         with :ok <- recover_interrupted_migration(base_path) do
@@ -609,15 +620,32 @@ defmodule Aiur.RepoBase do
 
     case File.mkdir(lock) do
       :ok ->
-        try do
-          migration.()
-        after
-          File.rmdir(lock)
+        case write_migration_lock_owner(lock, node) do
+          :ok ->
+            try do
+              migration.()
+            after
+              File.rm_rf(lock)
+            end
+
+          {:error, reason} ->
+            File.rm_rf(lock)
+            {:error, {:repo_base_migration_lock_owner_failed, lock, reason}}
         end
 
       {:error, :eexist} ->
-        with :ok <- wait_for_migration_lock(lock, @migration_lock_timeout_ms) do
-          migrate_legacy_layout(base_path)
+        stale? = stale_migration_lock?(lock)
+
+        if stale? do
+          with {:ok, _removed} <- File.rm_rf(lock) do
+            with_migration_lock(node, base_path, migration)
+          else
+            {:error, reason, _path} -> {:error, {:repo_base_migration_lock_reclaim_failed, lock, reason}}
+          end
+        else
+          with :ok <- wait_for_migration_lock(lock, @migration_lock_timeout_ms) do
+            migrate_legacy_layout(base_path)
+          end
         end
 
       {:error, reason} ->
@@ -642,6 +670,62 @@ defmodule Aiur.RepoBase do
   end
 
   defp migration_lock_path(node), do: node <> @migration_lock_suffix
+
+  defp write_migration_lock_owner(lock, _node) do
+    owner = Jason.encode!(%{"node" => Atom.to_string(node()), "pid" => System.pid(), "process" => self() |> inspect() |> String.trim_leading("#PID")})
+    File.write(Path.join(lock, @migration_lock_owner), owner)
+  end
+
+  defp stale_migration_lock?(lock) do
+    lock_old?(lock) and
+      case File.read(Path.join(lock, @migration_lock_owner)) do
+        {:ok, owner} -> not migration_lock_owner_alive?(owner)
+        {:error, _reason} -> true
+      end
+  end
+
+  defp lock_old?(lock) do
+    case File.stat(lock, time: :posix) do
+      {:ok, %{mtime: modified_at}} -> System.os_time(:second) - modified_at >= @migration_lock_stale_after_s
+      {:error, _reason} -> false
+    end
+  end
+
+  defp migration_lock_owner_alive?(owner) do
+    with {:ok, %{"node" => owner_node, "pid" => owner_pid, "process" => owner_process}} <- Jason.decode(owner) do
+      if owner_node == Atom.to_string(node()) do
+        local_process_alive?(owner_process)
+      else
+        os_process_alive?(owner_pid)
+      end
+    else
+      _ -> false
+    end
+  end
+
+  defp local_process_alive?(owner_process) do
+    try do
+      owner_process
+      |> String.to_charlist()
+      |> :erlang.list_to_pid()
+      |> Process.alive?()
+    rescue
+      ArgumentError -> false
+    end
+  end
+
+  defp os_process_alive?(owner_pid) do
+    case Integer.parse(owner_pid) do
+      {pid, ""} when pid > 0 ->
+        case System.cmd("sh", ["-c", "kill -0 \"$1\"", "--", owner_pid], stderr_to_stdout: true) do
+          {_output, 0} -> true
+          _ -> false
+        end
+
+      _ ->
+        false
+    end
+  end
 
   defp migrate_legacy_clone(node, base_path) do
     temporary = node <> ".migrating-" <> unique_suffix()
@@ -842,10 +926,17 @@ defmodule Aiur.RepoBase do
     |> Enum.with_index(1)
     |> Enum.reduce_while(:ok, fn {line, line_number}, :ok ->
       case Jason.decode(line) do
-        {:ok, finding} when is_map(finding) -> {:cont, :ok}
+        {:ok, finding} when is_map(finding) -> validate_ledger_finding(finding, path, line_number)
         _ -> {:halt, {:error, {:invalid_findings_ledger, path, line_number}}}
       end
     end)
+  end
+
+  defp validate_ledger_finding(finding, path, line_number) do
+    case Findings.validate(finding) do
+      :ok -> {:cont, :ok}
+      {:error, _reason} -> {:halt, {:error, {:invalid_findings_ledger, path, line_number}}}
+    end
   end
 
   defp append_file(path, contents) do
