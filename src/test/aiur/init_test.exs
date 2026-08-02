@@ -170,6 +170,7 @@ defmodule Aiur.InitTest do
         github_login: fn -> "octocat" end,
         github_bot_account_default: fn -> nil end,
         github_token: fn -> nil end,
+        check_ci_readiness: fn _tracker -> {:ok, %{ready?: true, base_branch: "main", required_checks: ["ci / required"]}} end,
         list_labels: fn _tracker -> {:ok, []} end,
         create_labels: fn tracker, labels ->
           send(parent, {:labels, tracker, labels})

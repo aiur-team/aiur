@@ -7,6 +7,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   require Logger
 
   alias Aiur.{AgentRunner, Alerts, CodingAgent, Config, DispatchBudgetStore, Issue, RepoBase, Tracker}
+  alias Aiur.GitHub.CiReadiness
   alias Aiur.Orchestrator
 
   alias Aiur.Orchestrator.{
@@ -54,6 +55,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   defp do_maybe_dispatch(%State{} = state) do
+    maybe_warn_ci_readiness(state)
     state = TrackedSet.refresh(state)
     state = CommentPolling.poll_github_firehose(state)
     state = CommentPolling.poll_github_comments(state)
@@ -81,6 +83,36 @@ defmodule Aiur.Orchestrator.Dispatcher do
         state
     end
   end
+
+  # Readiness is advisory at dispatch: the operator may be deliberately
+  # setting up a repository mid-run, so this must never hold otherwise-valid
+  # tickets. It only runs for the first poll, avoiding a GitHub call per tick.
+  defp maybe_warn_ci_readiness(%State{initial_dispatch_cycle: true}) do
+    if Config.tracker_kind() == "github" do
+      case CiReadiness.check(base_branch: Config.base_branch()) do
+        {:ok, %{ready?: true}} ->
+          :ok
+
+        {:ok, readiness} ->
+          Alerts.emit_system("system.ci_readiness.not_ready",
+            reason: CiReadiness.format(readiness),
+            needs_attention: true,
+            severity: "warning"
+          )
+
+        {:error, reason} ->
+          Alerts.emit_system("system.ci_readiness.unavailable",
+            reason: "CI readiness inspection failed: #{inspect(reason)}",
+            needs_attention: true,
+            severity: "warning"
+          )
+      end
+    end
+
+    :ok
+  end
+
+  defp maybe_warn_ci_readiness(_state), do: :ok
 
   # The base is readied before CPU admission so per-issue workspaces can use it
   # instead of cold-cloning. A failed build deliberately falls back to dispatch,

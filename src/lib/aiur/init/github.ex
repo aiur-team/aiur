@@ -8,6 +8,7 @@ defmodule Aiur.Init.GitHub do
   alias Aiur.Codeowners.Edit
   alias Aiur.GitHub.BotIdentity
   alias Aiur.GitHub.Config, as: GitHubConfig
+  alias Aiur.GitHub.CiReadiness
   alias Aiur.GitHub.Labels
   alias Aiur.GitHub.Transport
 
@@ -27,6 +28,52 @@ defmodule Aiur.Init.GitHub do
   end
 
   def create_labels(_tracker, _labels), do: :ok
+
+  @doc "Checks that the target repository can merge an Aiur-created PR."
+  @spec check_ci_readiness(map()) :: {:ok, CiReadiness.result()} | {:error, term()}
+  def check_ci_readiness(%{kind: "github", repo: repo}) when is_binary(repo) do
+    CiReadiness.check(repo: repo, base_branch: Aiur.Config.base_branch())
+  end
+
+  def check_ci_readiness(_tracker), do: {:ok, %{ready?: true}}
+
+  @doc false
+  @spec ensure_ci_readiness(Aiur.Init.Runtime.io(), Aiur.Init.Runtime.deps(), map()) :: :ok | {:error, String.t()}
+  def ensure_ci_readiness(io, deps, %{kind: "github"} = tracker) do
+    readiness_check = Map.get(deps, :check_ci_readiness, &check_ci_readiness/1)
+
+    case readiness_check.(tracker) do
+      {:ok, %{ready?: true} = readiness} ->
+        io.puts.(CiReadiness.format(readiness))
+        :ok
+
+      {:ok, readiness} ->
+        io.puts.("CI readiness setup error: " <> CiReadiness.format(readiness))
+        maybe_scaffold_ci(io, deps, readiness)
+        {:error, "Repository CI readiness is incomplete. Configure the reported gate, then run aiur init again."}
+
+      {:error, reason} ->
+        {:error, "Repository CI readiness could not be inspected: #{inspect(reason)}"}
+    end
+  end
+
+  def ensure_ci_readiness(_io, _deps, _tracker), do: :ok
+
+  defp maybe_scaffold_ci(io, deps, %{workflow_paths: []}) do
+    if io.confirm.("No pull-request CI workflow found — scaffold .github/workflows/ci.yml?", true) do
+      path = Path.join([deps.repo_root.(), ".github", "workflows", "ci.yml"])
+
+      if File.exists?(path) do
+        io.puts.("CI scaffold skipped: #{path} already exists.")
+      else
+        File.mkdir_p!(Path.dirname(path))
+        File.write!(path, CiReadiness.scaffold())
+        io.puts.("Created #{path}. Add required check `ci / required` to branch protection or a ruleset before rerunning init.")
+      end
+    end
+  end
+
+  defp maybe_scaffold_ci(_io, _deps, _readiness), do: :ok
 
   @spec list_repo_labels(map()) :: {:ok, [String.t()]} | {:error, term()}
   def list_repo_labels(%{kind: "github", repo: repo}) do

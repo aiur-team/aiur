@@ -3,7 +3,7 @@ defmodule Aiur.AgentControlCLI do
 
   alias Aiur.{AgentChat, AlertFeed, BuildGate, Config, ExecutorEvents, Orchestrator, PauseContainment, ProviderMeterProjection}
   alias Aiur.Codex.EventHumanizer, as: CodexEventHumanizer
-  alias Aiur.GitHub.{CodeOwners, StatePolicy}
+  alias Aiur.GitHub.{CiReadiness, CodeOwners, StatePolicy}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   import Aiur.EventHumanizerHelpers, only: [map_value: 2]
@@ -28,6 +28,7 @@ defmodule Aiur.AgentControlCLI do
         |> Enum.filter(&visible_status_row?/1)
         |> print_status_table()
 
+        print_ci_readiness()
         print_build_gate_status()
 
         exit_marker(0)
@@ -766,6 +767,15 @@ defmodule Aiur.AgentControlCLI do
 
       _ ->
         :ok
+    end
+  end
+
+  defp print_ci_readiness do
+    if Config.tracker_kind() == "github" do
+      case CiReadiness.check(base_branch: Config.base_branch()) do
+        {:ok, readiness} -> IO.puts(CiReadiness.format(readiness))
+        {:error, reason} -> IO.puts("CI readiness: unavailable (#{inspect(reason)})")
+      end
     end
   end
 
