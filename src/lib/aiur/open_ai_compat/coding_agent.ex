@@ -27,6 +27,7 @@ defmodule Aiur.OpenAICompat.CodingAgent do
   @max_tool_rounds 256
 
   @doc false
+  @spec max_tool_rounds() :: pos_integer()
   def max_tool_rounds, do: @max_tool_rounds
 
   @impl true
