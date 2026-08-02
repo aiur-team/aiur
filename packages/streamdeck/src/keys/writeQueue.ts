@@ -133,7 +133,10 @@ export class KeyWriteQueue {
   clear(): void {
     const dropped = this.pending.splice(0, this.pending.length);
     for (const job of dropped) {
-      job.paint.discard();
+      // An earlier paint for the same key may already be on the wire. Its
+      // completion cannot safely restore the old cache entry once this newer
+      // desired state is cancelled, so force the next render to repaint.
+      job.paint.invalidate();
       job.reject(new KeyWriteCancelledError());
     }
   }

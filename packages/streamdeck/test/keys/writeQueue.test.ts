@@ -77,7 +77,7 @@ describe("KeyWriteQueue", () => {
   it("is all-or-nothing: clear() cannot truncate a paint already writing", async () => {
     const resolvers: Array<() => void> = [];
     const written: KeyReport[] = [];
-    const discarded: number[] = [];
+    const invalidated: number[] = [];
     const write: ReportWriter = (report) =>
       new Promise<void>((resolve) => {
         written.push(report);
@@ -86,7 +86,7 @@ describe("KeyWriteQueue", () => {
 
     const queue = new KeyWriteQueue(write);
     const pA = queue.enqueue(paint(0, 2)); // 2 reports, will be mid-write
-    const pB = queue.enqueue(paint(1, 1, () => {}, () => discarded.push(1))); // still pending, should be dropped
+    const pB = queue.enqueue(paint(1, 1, () => {}, () => {}, () => invalidated.push(1))); // still pending, should be dropped
 
     await flush(); // A's first report is now in flight
     expect(written).toHaveLength(1);
@@ -94,7 +94,7 @@ describe("KeyWriteQueue", () => {
 
     queue.clear(); // drop B; A untouched
     await expect(pB).rejects.toBeInstanceOf(KeyWriteCancelledError);
-    expect(discarded).toEqual([1]);
+    expect(invalidated).toEqual([1]);
     expect(queue.size).toBe(0);
 
     // A completes both of its reports despite the clear.

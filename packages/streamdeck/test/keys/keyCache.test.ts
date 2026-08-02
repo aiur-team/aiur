@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import { KeyCache } from "../../src/keys/keyCache.js";
 import { type KeyContent } from "../../src/keys/keyContent.js";
-import { KeyWriteQueue, PartialKeyWriteError } from "../../src/keys/writeQueue.js";
+import {
+  KeyWriteCancelledError,
+  KeyWriteQueue,
+  PartialKeyWriteError,
+} from "../../src/keys/writeQueue.js";
 
 const fill = (r: number, g: number, b: number): KeyContent => ({ kind: "fill", color: { r, g, b } });
 const image = (bytes: number[]): KeyContent => ({ kind: "image", jpeg: new Uint8Array(bytes) });
@@ -78,6 +82,32 @@ describe("KeyCache dirty tracking", () => {
     await expect(cancelled).rejects.toThrow(/halted/);
 
     // B reached the device before failing, so cached A is no longer trusted.
+    expect(cache.paint(0, fill(1, 1, 1))).not.toBeNull();
+  });
+
+  it("repaints after clear cancels a newer paint during an active same-key write", async () => {
+    const cache = new KeyCache();
+    paintAndCommit(cache, 0, fill(1, 1, 1));
+    const toB = cache.paint(0, fill(2, 2, 2));
+    const toC = cache.paint(0, fill(3, 3, 3));
+    let finishActive: (() => void) | undefined;
+    const queue = new KeyWriteQueue(
+      () =>
+        new Promise<void>((resolve) => {
+          finishActive = resolve;
+        }),
+    );
+
+    const active = queue.enqueue(toB!);
+    const cancelled = queue.enqueue(toC!);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    queue.clear();
+    await expect(cancelled).rejects.toBeInstanceOf(KeyWriteCancelledError);
+    finishActive?.();
+    await active;
+
+    // B reached the device, but C was cancelled while it was active. The old
+    // committed A must not suppress the next render after that ambiguity.
     expect(cache.paint(0, fill(1, 1, 1))).not.toBeNull();
   });
 
