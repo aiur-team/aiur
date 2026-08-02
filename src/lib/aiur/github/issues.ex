@@ -13,6 +13,7 @@ defmodule Aiur.GitHub.Issues do
   # budget rather than multiplying it by the number of candidate issues.
   @max_blocker_hydration_requests_per_poll 20
   @max_timeline_requests_per_blocker 4
+  @max_hydrations_per_poll div(@max_blocker_hydration_requests_per_poll, @max_timeline_requests_per_blocker + 1)
 
   @spec max_issue_response_bytes() :: pos_integer()
   def max_issue_response_bytes, do: @max_issue_response_bytes
@@ -297,7 +298,7 @@ defmodule Aiur.GitHub.Issues do
     refreshable_ids = refreshable_blocker_ids(issues, cache?, cache_opts)
 
     scheduled_refreshes =
-      BlockerCache.scheduled_refreshes(refreshable_ids, @max_blocker_hydration_requests_per_poll)
+      BlockerCache.scheduled_refreshes(refreshable_ids, @max_hydrations_per_poll)
 
     {enriched, _remaining_requests} =
       Enum.map_reduce(issues, @max_blocker_hydration_requests_per_poll, fn issue, remaining_requests ->
