@@ -656,7 +656,7 @@ defmodule Aiur.Orchestrator.IssueSync do
   defp emit_tracker_pause_alert(%State{} = state, %Issue{} = issue) do
     topic = "ticket.#{issue.identifier}.agent.paused"
 
-    unless AlertFeed.active_ticket_attention?(topic) do
+    unless active_attention?(state, topic) do
       Alerts.emit_system(topic,
         issue: issue,
         worker_host: Orchestrator.running_worker_host(state, issue.id),
@@ -664,7 +664,8 @@ defmodule Aiur.Orchestrator.IssueSync do
           "Tracker added agent:paused (tracker pause override); tracker=agent:#{issue.state}. " <>
             "This clears when the operator removes agent:paused.",
         needs_attention: true,
-        severity: "warning"
+        severity: "warning",
+        central: true
       )
     end
   end
@@ -674,13 +675,14 @@ defmodule Aiur.Orchestrator.IssueSync do
   defp resolve_tracker_pause_alert(%State{} = state, %Issue{} = issue, force?) do
     topic = "ticket.#{issue.identifier}.agent.paused"
 
-    if force? or AlertFeed.active_ticket_attention?(topic) do
+    if force? or active_attention?(state, topic) do
       Alerts.emit_system("#{topic}.resolved",
         issue: issue,
         worker_host: Orchestrator.running_worker_host(state, issue.id),
         reason: "Tracker removed agent:paused; the tracker pause override is resolved.",
         needs_attention: false,
-        severity: "info"
+        severity: "info",
+        central: true
       )
     else
       :ok

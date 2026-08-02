@@ -1,7 +1,8 @@
 defmodule Aiur.Orchestrator.IssueSyncTest do
   use Aiur.TestSupport
 
-  alias Aiur.{AlertFeed, Config.Paths, Issue, TrackerIdentity, Workflow}
+  alias Aiur.{AlertFeed, Config, Issue, TrackerIdentity, Workflow}
+  alias Aiur.Config.Paths
   alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.Orchestrator.{IssueSync, State}
 
@@ -406,16 +407,47 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
   test "resolves and rearms a persisted tracker pause after restart" do
     Publisher.set_tracked_fn(fn _ -> true end)
     issue = issue("pause-restart", "rework")
+    paused = %{issue | paused: true}
     topic = "ticket.#{issue.identifier}.agent.paused"
     resolved_topic = "#{topic}.resolved"
+    workspace = Aiur.Workspace.workspace_path_under(Config.workspace_root(), issue.identifier)
+    File.mkdir_p!(workspace)
     :ok = Exchange.subscribe(topic)
     :ok = Exchange.subscribe(resolved_topic)
-    write_central_attention!(topic)
 
     on_exit(fn ->
       Publisher.set_tracked_fn(fn _ -> true end)
       for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
     end)
+
+    _opened =
+      IssueSync.sync_polled_issue_state(
+        %State{},
+        [paused],
+        fn _ -> {:ok, []} end,
+        fn _identity, _lifecycle -> :ok end,
+        MapSet.new(["done"]),
+        fn _ -> :ok end,
+        fn _identity, _pending? -> :ok end
+      )
+
+    assert_receive {:event, %{topic: ^topic}}, 500
+
+    assert Enum.any?(AlertFeed.list(roots: [Config.workspace_root()], log_roots: []), &(&1["topic"] == topic))
+    assert Enum.any?(AlertFeed.list(roots: [], log_roots: [Paths.log_root_dir()]), &(&1["topic"] == topic))
+
+    _restart_with_pause =
+      IssueSync.sync_polled_issue_state(
+        %State{},
+        [paused],
+        fn _ -> {:ok, []} end,
+        fn _identity, _lifecycle -> :ok end,
+        MapSet.new(["done"]),
+        fn _ -> :ok end,
+        fn _identity, _pending? -> :ok end
+      )
+
+    refute_receive {:event, %{topic: ^topic}}, 100
 
     recovered =
       IssueSync.sync_polled_issue_state(
@@ -434,7 +466,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     _ =
       IssueSync.sync_polled_issue_state(
         recovered,
-        [%{issue | paused: true}],
+        [paused],
         fn _ -> {:ok, []} end,
         fn _identity, _lifecycle -> :ok end,
         MapSet.new(["done"]),
