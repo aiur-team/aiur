@@ -71,33 +71,6 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
 
   def announcement(_view), do: "Provider account meters are unavailable."
 
-  @spec meter_window_values(map()) :: [{String.t(), non_neg_integer()}]
-  def meter_window_values(windows) when is_map(windows) do
-    windows
-    |> Enum.map(fn {limit_id, window} ->
-      kind = field(window, :kind)
-      name = field(window, :name, "Meter") || "Meter"
-      {kind_order(kind), name, to_string(limit_id), used_percentage(window)}
-    end)
-    |> Enum.filter(fn {_kind_order, _name, _limit_id, percentage} -> is_integer(percentage) end)
-    |> Enum.sort_by(fn {kind_order, name, limit_id, _percentage} -> {kind_order, name, limit_id} end)
-    |> Enum.map(fn {_kind_order, name, _limit_id, percentage} -> {name, percentage} end)
-  end
-
-  def meter_window_values(_windows), do: []
-
-  @spec used_percentage(map()) :: non_neg_integer() | nil
-  def used_percentage(window) when is_map(window) do
-    coverage = field(window, :coverage, :supported)
-    used_percent = field(window, :used_percent)
-
-    if coverage in [:supported, "supported"] and is_number(used_percent) do
-      clamp_percent(round(used_percent))
-    end
-  end
-
-  def used_percentage(_window), do: nil
-
   # --- locked --------------------------------------------------------------
 
   defp locked(%{state: :locked} = capability) do
@@ -266,12 +239,11 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
   # An exact semantic meter value is exposed only for a supported window with a
   # numeric usage percentage; unsupported and empty-supported windows carry no
   # implied value. Zero is a real exact value, distinct from unknown.
-  defp meter(coverage, used_percent) do
-    case used_percentage(%{coverage: coverage, used_percent: used_percent}) do
-      percentage when is_integer(percentage) -> %{kind: :exact, now: percentage, min: 0, max: 100}
-      _ -> %{kind: :none}
-    end
+  defp meter(:supported, used_percent) when is_number(used_percent) do
+    %{kind: :exact, now: round(clamp_percent(used_percent)), min: 0, max: 100}
   end
+
+  defp meter(_coverage, _used_percent), do: %{kind: :none}
 
   defp clamp_percent(percent) when percent < 0, do: 0
   defp clamp_percent(percent) when percent > 100, do: 100
@@ -329,23 +301,6 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
       _ -> provider |> to_string() |> String.capitalize()
     end
   end
-
-  defp field(map, key, default \\ nil) do
-    Map.get(map, key, Map.get(map, Atom.to_string(key), default))
-  end
-
-  defp kind_order(kind) when is_atom(kind), do: Map.get(@window_kind_order, kind, 9)
-
-  defp kind_order(kind) when is_binary(kind) do
-    case kind do
-      "rate_limit" -> 0
-      "credit" -> 1
-      "spend_control" -> 2
-      _ -> 9
-    end
-  end
-
-  defp kind_order(_kind), do: 9
 
   defp backend_label(%ProviderMeterSnapshot{backend: :app_server}), do: "App server"
   defp backend_label(%ProviderMeterSnapshot{backend: :openai_compat}), do: "OpenAI-compatible API"
