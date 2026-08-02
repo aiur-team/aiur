@@ -11,20 +11,25 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 | `max_log_history_mb` | integer | 1000 | Caps persistent log history in MB. |
 | `prompt_file` | string | nil | Per-repository Liquid prompt template. |
 | `debug` | boolean | false | Enables file logging without the CLI debug flag. |
-| `hooks_file` | file pointer | — | Sibling YAML file merged as the `hooks:` block. |
+| `hooks_file` | file pointer | none | Sibling YAML file merged as the `hooks:` block. |
 
 ## tracker
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
-| `tracker.kind` | string | — | Selects `linear`, `github`, or `memory`. |
+| `tracker.kind` | string | none | Selects `linear`, `github`, or `memory`. |
 | `tracker.base_branch` | string | repo default | Branch agents target with PRs. |
 | `tracker.active_states` | array | tracker-specific | States eligible for dispatch. GitHub values are lifecycle label slugs such as `todo` and `in-progress`, not display names. |
 | `tracker.terminal_states` | array | tracker-specific | States that stop work. GitHub values are lifecycle label slugs such as `done`. |
-| `tracker.github.repo` | string | — | GitHub owner/name used by Aiur. |
+| `tracker.github.repo` | string | none | GitHub owner/name used by Aiur. |
 | `tracker.github.label_prefix` | string | `agent` | Prefixes lifecycle labels. |
 | `tracker.github.bot_account` | string | nil | Login identity Aiur recognizes as its own to suppress self-triggered comment/event loops. This is an identity, not the credential: `GITHUB_TOKEN` is the credential Aiur authenticates with. `aiur init` defaults it to the token's login; prefer a dedicated bot account when operators also comment from a trusted CODEOWNER account. In a non-interactive or `--force` run the wizard applies the detected token login, or omits the key entirely when no login can be detected. Re-running `aiur init` preserves an existing value. |
 | `tracker.github.trusted_accounts` | array | `[]` | Usernames allowed to direct agents. |
+| `tracker.github.allowed_users` | array | `[]` | Explicit comment-trust allowlist. When unset, GitHub CODEOWNERS supplies the trusted human set. |
+| `tracker.github.human_mergers` | array | `[]` | Logins permitted by the human-only merge boundary. |
+| `tracker.github.planning_root_limit` | integer | 100 | Maximum planning roots read for a GitHub Build Order projection. |
+| `tracker.github.planning_page_budget` | integer | 4 | Maximum GitHub pages used for one planning projection. |
+| `tracker.github.planning_call_budget` | integer | 4 | Maximum GitHub calls used for one planning projection. |
 | `tracker.linear.api_key` | string | env fallback | Linear API key; `$VAR` resolves from the environment. |
 | `tracker.linear.project_slug` | string | nil | Linear project polled by Aiur. |
 | `tracker.linear.endpoint` | string | `https://api.linear.app/graphql` | Linear GraphQL endpoint. |
@@ -35,6 +40,7 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `polling.interval_seconds` | integer | 30 | Seconds between tracker polls. |
+| `polling.usage_interval_seconds` | integer | 300 | Seconds between provider-meter refreshes. The minimum is 120 seconds because the usage endpoint rejects faster probing. |
 
 ## workspace
 
@@ -55,17 +61,22 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
-| `agent.kind` | string | claude | Default coding backend; an explicit value wins, otherwise a `claude:` section infers `claude`, a `codex:` section infers `codex`, and no backend section falls back to `claude`. |
+| `agent.kind` | string | codex | Default coding backend. An explicit value wins; legacy backend sections are normalized into the registry-backed configuration. |
 | `agent.remote_control` | boolean | false | Opts RC-capable backends into remote control. |
+| `agent.prior_work_continuation` | boolean | false | Gives a redispatched ticket continuation guidance when its prior Codex thread cannot resume. |
+| `agent.max_dispatches_per_ticket` | integer | 0 | Lifetime dispatch cap per ticket; 0 disables the latch. |
 | `agent.max_concurrent_agents` | integer | 10 | Global simultaneous-agent cap. |
 | `agent.max_concurrent_builds` | integer | 2 | Caps local agent Mix verification; 0 deliberately disables the concurrency cap. |
 | `agent.build_start_stagger_seconds` | integer | 0 | Minimum spacing between local Mix build starts; 0 disables pacing. |
 | `agent.min_free_memory_mb` | integer or nil | nil | Linux `MemAvailable` floor shared by dispatch and the Mix build gate. |
 | `agent.max_concurrent_agents_by_state` | map | `%{}` | Per-state caps overriding the global cap. |
+| `agent.backend_configs` | map | `%{}` | Backend-named configuration blocks. The current registry has configurable Codex and Claude backends. |
 | `agent.routing` | map | `%{}` | Maps complexity levels to backend/model/effort routing. |
 | `agent.switch_model_on_ratelimit` | array | `[]` | Opt-in backend order for a new claim when a model is rate-limited. |
 | `agent.rate_limit_fallback` | string | `claude` | Automatic recovery backend for an already-running Codex agent; `""` disables it. |
+| `agent.rate_limit_primary` | string | `codex` | Backend from which a running-agent usage-limit fallback can reroute. |
 | `agent.complexity_prompts` | map | `%{}` | Adds prompt guidance by complexity level. |
+| `agent.max_turns_by_complexity` | map | `%{}` | Per-complexity turn caps. |
 | `agent.max_turns` | integer or nil | nil | Per-issue turn cap; nil is uncapped. |
 | `agent.max_retry_attempts` | integer | 3 | Failed-turn retry count. |
 | `agent.max_retry_backoff_ms` | integer | 300000 | Retry backoff ceiling in milliseconds. |
@@ -127,8 +138,8 @@ opt-out removes every build safeguard; it is never an automatic error fallback.
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `prewarm.enabled` | boolean | false | Opts into one warm base checkout. |
-| `prewarm.base_build` | string | — | One-time base build command. |
-| `prewarm.base_build_file` | string | — | Sibling script loaded into `base_build`. |
+| `prewarm.base_build` | string | none | One-time base build command. |
+| `prewarm.base_build_file` | string | none | Sibling script loaded into `base_build`. |
 | `prewarm.poll_seconds` | integer | 0 | Base-refresh interval; 0 disables polling. |
 
 ## pr_watch
@@ -161,11 +172,38 @@ opt-out removes every build safeguard; it is never an automatic error fallback.
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `observability.dashboard_enabled` | boolean | true | Reserved compatibility setting; use the launch-time `--no-dashboard` flag to suppress the listener in foreground or background mode. |
-| `observability.dashboard_writable` | boolean | false | Enables dashboard write paths. |
+| `observability.dashboard_writable` | boolean | true | Enables dashboard write paths. |
 | `observability.refresh_ms` | integer | 1000 | Dashboard data refresh interval. |
 | `observability.render_interval_ms` | integer | 16 | Minimum render interval. |
+| `observability.telemetry_enabled` | boolean | true | Writes the durable run-telemetry stream used by analytics. |
+| `observability.telemetry_retention_max_bytes` | integer | 67108864 | Maximum retained telemetry size, 64 MiB. |
+| `observability.telemetry_retention_max_age_days` | integer | 30 | Maximum retained telemetry age. |
+| `observability.telemetry_retention_prune_interval_bytes` | integer or nil | nil | Optional amount of new telemetry before another retention prune. |
 
 `dashboard_writable` is an authorization gate, not an authentication mechanism. Writable or non-loopback dashboards also require `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD`. The supervising-Executor Decision API uses the separate `AIUR_SUPERVISOR_TOKEN` bearer credential.
+
+## build_order
+
+These bounds protect dashboard planning projections. Defaults are intentionally conservative; most operators should leave them unchanged.
+
+| Key | Default | Controls |
+| --- | --- | --- |
+| `build_order.ticket_detail_freshness_ms` | 30000 | Freshness window for tracker ticket detail. |
+| `build_order.ticket_detail_max_entries` | 32 | Retained ticket-detail entries. |
+| `build_order.ticket_detail_max_description_bytes` | 16384 | Maximum retained description size per ticket. |
+| `build_order.ticket_history_limit` | 50 | Retained history entries per ticket. |
+| `build_order.ticket_history_max_identities` | 100 | Maximum ticket identities retained in history. |
+| `build_order.ticket_history_stale_after_ms` | 60000 | Age at which cached ticket history is stale. |
+| `build_order.graph_catalog_refresh_ms` | 60000 | Catalog refresh interval. |
+| `build_order.graph_selected_refresh_ms` | 15000 | Selected Build Order refresh interval. |
+| `build_order.graph_demand_refresh_ms` | 5000 | Fastest demand-driven selected-graph refresh. |
+| `build_order.graph_refresh_timeout_ms` | 30000 | One graph refresh timeout. |
+| `build_order.graph_max_selected_roots` | 32 | Selected roots retained at once. |
+| `build_order.graph_max_inflight` | 4 | Concurrent graph refreshes. |
+
+## Provider availability
+
+The checked-out backend registry currently exposes Codex and Claude. DeepSeek, Kimi, and OpenRouter are not selectable on this commit: their generic OpenAI-compatible transport remains open in [#1440](https://github.com/aiur-team/aiur/issues/1440). There is therefore no current instance declaration, routing target, or model-tag label to configure for them. Do not enable a provider from a design branch or copy an unmerged configuration example into a live workflow. [#1486](https://github.com/aiur-team/aiur/issues/1486) defines the proposed DeepSeek first-charge gate, but it is not a shipped enablement path.
 
 ## decisions
 

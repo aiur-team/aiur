@@ -6,15 +6,21 @@ The terminal agent-list board shows running, paused, and idle ticket rows with r
 
 ## The dashboard
 
-The [Executor Control Center](/guide/executor-control-center) combines the live fleet, durable decision inbox and history, recent outcomes, and a link to offline telemetry analytics. It is read-only by default. Browser writes require an explicit configuration gate, and writable or non-loopback deployments require Basic Auth.
+The [Executor Control Center](/guide/executor-control-center) combines the live fleet, durable decision inbox and history, recent outcomes, provider meters, Build Orders, and analytics. Dashboard writes are enabled by default, but writable or non-loopback deployments require Basic Auth.
 
 ## Alerts
 
 Alerts are defined in the checked-in `.aiur/alerts` file. Each entry is keyed by an event-topic glob pattern and carries a `message` plus an optional `sound` list. Agents raise milestone alerts with `emit_alert`.
 
+## Usage and account meters
+
+Aiur retains token usage by ticket and resolves API-equivalent cost only when it has the provider, model, pricing date, and required pricing dimensions. The built-in price table currently covers the registered Codex and Claude provider families. Dashboard usage views keep unknown or partial pricing explicit instead of converting it to a zero-dollar total.
+
+The dashboard and `aiur usage` show account-meter observations with their age. Codex reports percentage usage for its renewing windows. Claude can report a standing and reset time without a percentage, so Aiur shows that state rather than drawing an empty percentage bar. No prepaid provider is registered in the current build, so the UI does not claim a dollar balance, concurrency cap, or remaining-quota header for DeepSeek, Kimi, or OpenRouter.
+
 ## Pause / resume
 
-Executors can pause and resume agents. A paused agent keeps its slot, so polling cannot auto-claim over it. The concurrency cap can change at runtime with the arrow keys or `aiur set max-agents N`; the space key starts a queued ticket.
+Executors can pause and resume agents. Space toggles the selected ticket pause. Bare `aiur pause` and `aiur resume` operate a separate global switch that stops all provisioning and persists across restart. The concurrency cap can change at runtime with the arrow keys or `aiur set max-agents N`.
 
 ## Remote control
 

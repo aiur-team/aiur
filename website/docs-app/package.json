@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vitepress dev .",
     "build": "vitepress build .",
-    "preview": "vitepress preview ."
+    "preview": "vitepress preview .",
+    "check:cli-reference": "bash scripts/check-cli-reference.sh"
   },
   "devDependencies": {
     "vitepress": "^1.6.3"

@@ -18,13 +18,13 @@ On trackers that support labels, Aiur runs a label-based state machine.
 
 With the default `agent` label prefix, a GitHub ticket follows this lifecycle:
 
-1. `agent:todo` — queued work.
-2. `agent:in-progress` — an isolated run is active.
-3. `agent:ci-wait` — implementation is complete and the central daemon is awaiting terminal PR CI without holding an agent turn or dispatch slot.
-4. `agent:human-review` — CI passed and the PR is ready for human review.
-5. `agent:rework` — CI or reviewer feedback requires another run, looping back through review.
-6. `agent:merging` — the accepted PR is being merged.
-7. `agent:done` — the work is complete.
+1. `agent:todo`: queued work.
+2. `agent:in-progress`: an isolated run is active.
+3. `agent:ci-wait`: implementation is complete and the central daemon is awaiting terminal PR CI without holding an agent turn or dispatch slot.
+4. `agent:human-review`: CI passed and the PR is ready for human review.
+5. `agent:rework`: CI or reviewer feedback requires another run, looping back through review.
+6. `agent:merging`: the accepted PR is being merged.
+7. `agent:done`: the work is complete.
 
 The terminal error and cancellation states are `agent:error` and `agent:cancelled` (also spelled `agent:canceled`). `agent:watch` labels a PR for monitoring; it is deliberately not a dispatch state. Agents keep the Agent Workpad current, move tickets to human review when the PR is ready, and never self-merge.
 
