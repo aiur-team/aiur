@@ -650,7 +650,7 @@ defmodule Aiur.CodingAgent do
   `Aiur.AgentRunner.SessionLifecycle`, which surfaces it to the Executor).
   """
   @spec resolve_model(backend(), String.t() | nil) :: String.t() | nil
-  def resolve_model(_backend, nil), do: nil
+  def resolve_model(backend, nil), do: backend_default_model(backend)
 
   def resolve_model(backend, model) when is_binary(model) do
     entry = Map.get(backends(), backend, %{})
@@ -659,6 +659,16 @@ defmodule Aiur.CodingAgent do
       :derived -> Models.latest(Map.get(entry, :models, []), model) || model
       _native -> model
     end
+  end
+
+  # A bare `model:<backend>` override selects the backend but pins no model, and
+  # the routing table may not name this backend at all (routing is codex/claude
+  # shaped). Fall back to the backend's registered default so the session starts
+  # with a real model instead of `nil` (which would otherwise surface as an
+  # `unsupported_model` attention). OpenAI-compatible backends declare their
+  # default under `openai_compat.default_model`.
+  defp backend_default_model(backend) do
+    get_in(backends(), [backend, :openai_compat, :default_model])
   end
 
   @doc """
@@ -713,7 +723,23 @@ defmodule Aiur.CodingAgent do
   """
   @spec model_for(Issue.t()) :: String.t() | nil
   def model_for(%Issue{} = issue) do
-    override_model(issue) || routing_model(issue)
+    case override_backend(issue) do
+      # With no override, the complexity-routing value names the model for the
+      # routed backend. With an override, fall through to the routing model only
+      # when it targets that same backend: a `model:codex` bare override still
+      # wants the codex routing model, while a `model:deepseek` override must
+      # not inherit a codex-shaped model that is invalid for it. A bare override
+      # for a backend the routing table never names (an OpenAI-compatible one)
+      # therefore yields nil, and `resolve_model/2` supplies the backend default.
+      nil ->
+        override_model(issue) || routing_model(issue)
+
+      backend ->
+        case routing_backend(issue) do
+          ^backend -> routing_model(issue)
+          _other -> override_model(issue)
+        end
+    end
   end
 
   @doc """
