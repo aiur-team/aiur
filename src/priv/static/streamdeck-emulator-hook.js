@@ -128,15 +128,18 @@
       this._press();
     } else {
       // Keep the gesture local until release, then commit its final value once.
-      // Press detection uses absolute travel, but dial A's transcript scroll
-      // needs the signed net movement so opposite turns scroll oppositely.
-      this.hook._handleDialStep(this.index, netDeltaDeg);
+      // Press detection uses absolute travel. Dial A's transcript scroll needs
+      // signed net movement, while the other dials retain their absolute
+      // accumulation so back-and-forth travel still commits a gesture.
+      var commitDelta = this.index === 0 ? netDeltaDeg : accumulatedDeg;
+      this.hook._handleDialStep(this.index, commitDelta);
     }
   };
 
   // A cancelled gesture is never a press — only reset drag state.
-  Knob.prototype._onPointerCancel = function () {
+  Knob.prototype._onPointerCancel = function (e) {
     if (!this.isDragging) return;
+    if (this._activePid != null && e.pointerId !== this._activePid) return;
     this._endDrag();
   };
 
