@@ -81,21 +81,13 @@ defmodule Aiur.Orchestrator.LifecycleFence do
 
         cond do
           DispatchPolicy.terminal_issue_state?(actual_state, terminal_states) ->
-            if terminal_fence_expired?(fence) do
-              Logger.info(
-                "Terminal tracker state observed after lifecycle fence grace; admitting for teardown: " <>
-                  "#{State.issue_context(issue)} observed_state=#{actual_state} authoritative_state=#{authoritative_state}"
-              )
-
-              :admit
-            else
-              Logger.info(
-                "Terminal tracker state observed while lifecycle fence grace is active; keeping runner: " <>
-                  "#{State.issue_context(issue)} observed_state=#{actual_state} authoritative_state=#{authoritative_state}"
-              )
-
-              {:fenced, state}
-            end
+            reconcile_terminal_observation(
+              state,
+              issue,
+              fence,
+              actual_state,
+              authoritative_state
+            )
 
           actual_state == authoritative_state ->
             {:fenced, state}
@@ -320,6 +312,30 @@ defmodule Aiur.Orchestrator.LifecycleFence do
 
   defp normalize_state(state) when is_binary(state), do: DispatchPolicy.normalize_issue_state(state)
   defp normalize_state(_state), do: nil
+
+  defp reconcile_terminal_observation(
+         state,
+         issue,
+         fence,
+         actual_state,
+         authoritative_state
+       ) do
+    if terminal_fence_expired?(fence) do
+      Logger.info(
+        "Terminal tracker state observed after lifecycle fence grace; admitting for teardown: " <>
+          "#{State.issue_context(issue)} observed_state=#{actual_state} authoritative_state=#{authoritative_state}"
+      )
+
+      :admit
+    else
+      Logger.info(
+        "Terminal tracker state observed while lifecycle fence grace is active; keeping runner: " <>
+          "#{State.issue_context(issue)} observed_state=#{actual_state} authoritative_state=#{authoritative_state}"
+      )
+
+      {:fenced, state}
+    end
+  end
 
   defp terminal_fence_expired?(%{opened_at: %DateTime{} = opened_at}) do
     DateTime.diff(DateTime.utc_now(), opened_at, :second) >= @terminal_fence_grace_seconds
