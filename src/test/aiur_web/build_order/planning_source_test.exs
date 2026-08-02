@@ -126,7 +126,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     repository = Config.repo()
 
     File.mkdir_p!(directory)
-    File.write!(matching, String.replace(@pack, "acme/widgets", repository))
+    File.write!(matching, String.replace(@pack, "acme/widgets", String.upcase(repository)))
     File.write!(foreign, @pack)
     Application.delete_env(:aiur, :build_order_planning_pack)
     Application.put_env(:aiur, :build_order_planning_packs, [matching, foreign])
@@ -474,7 +474,12 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     repository = Config.repo()
 
     workspace_pack = @canonical_pack |> String.replace("acme/widgets", repository) |> String.replace("Analytics Stream Deck", "Workspace copy")
-    state_pack = @canonical_pack |> String.replace("acme/widgets", repository) |> String.replace("Analytics Stream Deck", "State copy")
+
+    state_pack =
+      @canonical_pack
+      |> String.replace("acme/widgets", repository)
+      |> String.replace("Analytics Stream Deck", "State copy")
+      |> String.replace("#{repository}:analytics-streamdeck", "#{repository}:state-copy")
 
     Application.put_env(:aiur, :repo_base_root, state_root)
     Application.delete_env(:aiur, :build_order_planning_pack)
@@ -506,6 +511,8 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
 
     assert identity == root.identity
     assert RouteState.status(route) == :selected_loading
+
+    assert {:ok, %Snapshot{data: %SelectedRoot{root: %{title: "Workspace copy"}}}} = PlanningSource.demand(root.identity)
   end
 
   test "assigns distinct deterministic catalog icons when packs omit one" do

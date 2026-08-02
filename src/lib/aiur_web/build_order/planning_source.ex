@@ -431,7 +431,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
     end
   end
 
-  defp tracked_repository?(%{repository: repository}), do: repository == configured_repository_tuple()
+  defp tracked_repository?(%{repository: repository}), do: same_repository?(repository, configured_repository_tuple())
   defp tracked_repository?(_pack), do: false
 
   defp pack_paths do
@@ -598,8 +598,19 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   defp pack_precedence(pack), do: {Map.get(@pack_source_precedence, pack.source, 99), pack.path}
 
   defp same_catalog_pack?(left, right) do
-    left.repository == right.repository and (left.build_order_id == right.build_order_id or left.root_number == right.root_number)
+    same_repository?(left.repository, right.repository) and
+      (left.build_order_id == right.build_order_id or same_explicit_root?(left, right))
   end
+
+  defp same_explicit_root?(left, right) do
+    left.root_number_explicit? and right.root_number_explicit? and left.root_number == right.root_number
+  end
+
+  defp same_repository?({left_owner, left_repo}, {right_owner, right_repo}) do
+    String.downcase(left_owner) == String.downcase(right_owner) and String.downcase(left_repo) == String.downcase(right_repo)
+  end
+
+  defp same_repository?(_left, _right), do: false
 
   defp ticket_numbers(tickets) do
     for %{id: id, number: number} <- tickets, is_integer(number), into: %{}, do: {id, number}
