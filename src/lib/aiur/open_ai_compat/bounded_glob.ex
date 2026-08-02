@@ -62,13 +62,17 @@ defmodule Aiur.OpenAICompat.BoundedGlob do
       relative = Path.relative_to(absolute, workspace)
 
       if Regex.match?(matcher, relative) and inside_workspace?(workspace, relative) do
-        matches = [relative | current]
-        if length(matches) >= limit, do: {:halt, {:halt, matches}}, else: {:cont, {:cont, matches}}
+        keep([relative | current], limit)
       else
         {:cont, {:cont, current}}
       end
     end)
   end
+
+  # Stop the outer reduce as soon as the cap is reached: the port keeps
+  # streaming paths, so an unbounded accumulator is the whole risk here.
+  defp keep(matches, limit) when length(matches) >= limit, do: {:halt, {:halt, matches}}
+  defp keep(matches, _limit), do: {:cont, {:cont, matches}}
 
   defp inside_workspace?(workspace, relative),
     do: match?({:ok, _absolute}, WorkspacePath.resolve(workspace, relative))

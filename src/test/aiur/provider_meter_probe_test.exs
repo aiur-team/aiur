@@ -1,9 +1,11 @@
 defmodule Aiur.ProviderMeterProbeTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.{ProviderMeterProbe, ProviderMeterProjection, ProviderMeterSnapshot}
   alias Aiur.OpenAICompat.ProviderMeterProbe, as: OpenAICompatProbe
+  alias Aiur.ProviderMeterProbe
+  alias Aiur.ProviderMeterProjection
   alias Aiur.ProviderMeters.Events
+  alias Aiur.ProviderMeterSnapshot
 
   defmodule FakeAgent do
     @moduledoc false

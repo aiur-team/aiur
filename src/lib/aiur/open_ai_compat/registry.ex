@@ -1,6 +1,8 @@
 defmodule Aiur.OpenAICompat.Registry do
   @moduledoc false
 
+  alias Aiur.OpenAICompat.ProviderMeterProbe
+
   @spec entries() :: %{String.t() => Aiur.CodingAgent.Backend.capabilities()}
   def entries do
     %{
@@ -107,7 +109,7 @@ defmodule Aiur.OpenAICompat.Registry do
         model_aliases: :native,
         efforts: [],
         pricing: pricing(),
-        meter_probe: &Aiur.OpenAICompat.ProviderMeterProbe.probe/3,
+        meter_probe: &ProviderMeterProbe.probe/3,
         usage_backend: :openai_compat,
         usage_transport: :openai_compat
       },

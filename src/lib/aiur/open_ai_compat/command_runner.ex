@@ -152,12 +152,18 @@ defmodule Aiur.OpenAICompat.CommandRunner do
   defp bind_if_present(_path, _mode), do: []
 
   defp system_link_args do
-    Enum.flat_map(~w(/bin /lib /lib64), fn path ->
-      case File.read_link(path) do
-        {:ok, target} -> ["--symlink", target, path]
-        {:error, _reason} -> if File.dir?(path), do: ["--ro-bind", path, path], else: []
-      end
-    end)
+    Enum.flat_map(~w(/bin /lib /lib64), &system_link_arg/1)
+  end
+
+  defp system_link_arg(path) do
+    case File.read_link(path) do
+      {:ok, target} -> ["--symlink", target, path]
+      {:error, _reason} -> read_only_bind(path)
+    end
+  end
+
+  defp read_only_bind(path) do
+    if File.dir?(path), do: ["--ro-bind", path, path], else: []
   end
 
   defp agent_environment(workspace) do
