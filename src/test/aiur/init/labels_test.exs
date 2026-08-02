@@ -111,6 +111,27 @@ defmodule Aiur.Init.LabelsTest do
     refute_received {:create_called, _optional}
   end
 
+  test "setup provisions the configured rate-limit fallback label" do
+    parent = self()
+
+    deps = %{
+      list_labels: fn _tracker -> {:ok, []} end,
+      discover_models: fn _backend -> {:error, :offline} end,
+      create_labels: fn _tracker, labels ->
+        send(parent, {:create_called, labels})
+        :ok
+      end
+    }
+
+    answers = %{confirm: %{"Create the complexity labels?" => false, "Create the model labels?" => false, "Create the effort labels?" => false}}
+
+    assert :ok = InitLabels.setup_labels(io(parent, answers), deps, %{kind: "github", repo: "o/r"}, ["claude"], {"claude", "codex"})
+
+    assert_received {:create_called, required}
+    assert "model:codex" in required
+    refute "model:claude-repl" in required
+  end
+
   test "create_labels error returns :error and shows gh fallback" do
     parent = self()
 

@@ -100,6 +100,7 @@ defmodule Aiur.Init.Resume do
 
     [agent["kind"] | routing_backends]
     |> Enum.reject(&(&1 in [nil, ""]))
+    |> Enum.filter(&(&1 in Questions.agent_kind_choices()))
     |> Questions.agent_kinds()
   end
 

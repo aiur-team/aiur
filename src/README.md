@@ -144,6 +144,10 @@ For GitHub trackers, `github.trusted_accounts` can name Executor accounts whose
 comments should reach agent event digests even when CODEOWNERS team expansion is
 unavailable. Keep it separate from `github.bot_account`: bot-account authors are
 filtered as self-loops, while trusted accounts are allowed human Executors.
+`github.human_mergers` is a separate, explicit human-only allowlist used for
+post-merge attribution. It never inherits CODEOWNERS, bot accounts, trusted
+accounts, or dispatch `allowed_users`; an absent list treats every merger as
+unallowlisted and raises a needs-attention alert without undoing terminal state.
 
 Build Order planning reads use finite `github.planning_root_limit`,
 `github.planning_page_budget`, and `github.planning_call_budget` safeguards.
@@ -340,15 +344,21 @@ require `observability.dashboard_writable: true`, an exact dashboard/loopback
 [OCC-7 supervisor Decision API contract](../docs/operator-control-center/06-occ-7-supervisor-decision-api-contract.md)
 for routes, payloads, retry semantics, and audit guarantees.
 
-## Debug run telemetry
+## Run telemetry
 
-`aiur --debug` (or config-level `debug: true`) starts daemon-owned run telemetry.
-The daemon continuously records resource samples for itself, locally attributable
-ticket process trees, and the Executor process when it can be identified. It also
-records sanitized ticket lifecycle boundaries such as dispatch, workspace setup,
-implementation, build/test, PR/review, pause/resume, and rework. Debug-off runs do
-not start the telemetry writer or sampler and do not scan procfs or create a
-telemetry file.
+Aiur records daemon-owned run telemetry by default. The daemon continuously
+records resource samples for itself, locally attributable ticket process trees,
+and the Executor process when it can be identified. It also records sanitized
+ticket lifecycle boundaries such as dispatch, workspace setup, implementation,
+build/test, PR/review, pause/resume, and rework. Prompt text, command text, and
+output are never included.
+
+To opt out, set `observability.telemetry_enabled: false` in your config; the
+telemetry writer and sampler will not start and no file will be created. The
+setting is read once at daemon startup — a restart is required to apply a change.
+
+`--debug` (or config-level `debug: true`) controls **log verbosity and evidence
+capture**, not whether telemetry is recorded.
 
 The append-only schema-versioned stream is written beside `aiur.log` as
 `telemetry.ndjson`. A default run therefore writes to:
@@ -366,8 +376,11 @@ Before a new writer starts, Aiur prunes old **whole boots** from the stream. The
 default retention window is 30 days and 64 MiB (`observability.telemetry_retention_max_age_days`
 and `observability.telemetry_retention_max_bytes`); these defaults retain useful
 cross-session Build Order history without allowing a long-running operator stream to
-grow indefinitely. Size is a whole-boot target: if one boot alone exceeds it, Aiur
-keeps that boot intact rather than truncating lifecycle intervals mid-session.
+grow indefinitely. During a long-running daemon boot, the writer closes a telemetry
+segment and prunes at `observability.telemetry_retention_prune_interval_bytes`; it
+defaults to `max(max_bytes / 8, 1 MiB)` (8 MiB with the default cap). Size is a
+whole-boot-segment target: if one segment alone exceeds it, Aiur keeps that segment
+intact rather than truncating lifecycle intervals mid-session.
 
 From the repository root, generate the canonical analytics artifact from one file,
 one session directory, or several session roots:

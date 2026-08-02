@@ -76,11 +76,15 @@ defmodule Aiur.ModelCatalogTest do
       # Reporting `{:ok, []}` here would read as "aiur is already current" and
       # silently stop offering new tags forever.
       assert ModelCatalog.discover("codex", probe({:ok, %{"unexpected" => true}})) ==
-               {:error, {:unexpected_model_list, "codex"}}
+               {:error, {:unexpected_model_list, :codex}}
     end
 
     test "an unknown backend has no CLI to ask" do
       assert ModelCatalog.discover("nope") == {:error, {:unknown_backend, "nope"}}
+    end
+
+    test "a registry backend without model discovery opts out explicitly" do
+      assert ModelCatalog.discover("fake") == {:error, {:model_catalog_unsupported, "fake"}}
     end
   end
 end

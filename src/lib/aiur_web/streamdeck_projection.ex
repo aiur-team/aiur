@@ -1,7 +1,7 @@
 defmodule AiurWeb.StreamdeckProjection do
   @moduledoc false
 
-  alias Aiur.{DecisionMetrics, Orchestrator, ProviderMeterProjection, ProviderMeterSnapshot}
+  alias Aiur.{CodingAgent, DecisionMetrics, Orchestrator, ProviderMeterProjection, ProviderMeterSnapshot}
   alias AiurWeb.Endpoint
 
   @version 1
@@ -65,8 +65,8 @@ defmodule AiurWeb.StreamdeckProjection do
 
   @doc false
   @spec merge_provider_meter(map(), ProviderMeterSnapshot.t()) :: map()
-  def merge_provider_meter(meters, %ProviderMeterSnapshot{provider: provider} = snapshot) when provider in [:codex, :claude] do
-    if newer_provider_observation?(snapshot, Map.get(meters, Atom.to_string(provider))) do
+  def merge_provider_meter(meters, %ProviderMeterSnapshot{provider: provider} = snapshot) do
+    if provider in CodingAgent.provider_families() and newer_provider_observation?(snapshot, Map.get(meters, Atom.to_string(provider))) do
       Map.put(meters, Atom.to_string(provider), provider_meter(snapshot))
     else
       meters

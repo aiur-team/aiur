@@ -1,10 +1,14 @@
 defmodule Aiur.ProviderMeters.Input do
   @moduledoc false
 
-  @providers [:codex, :claude]
+  # Registry-derived at compile time so a new metered backend needs no edit here.
+  @providers Aiur.CodingAgent.provider_families()
   @backends [:app_server]
   @auth_modes [:subscription, :api_key, :unknown]
-  @sources [:provider, :adapter, :codex_app_server, :claude_app_server, :synthetic]
+  # Per-provider app-server source atoms (`:codex_app_server`, …) derived from
+  # the same registry providers, plus the provider-independent sources.
+  @sources [:provider, :adapter, :synthetic, :usage_api] ++
+             Enum.map(Aiur.CodingAgent.provider_families(), &:"#{&1}_app_server")
   @window_kinds [:rate_limit, :credit, :spend_control]
   @window_names %{
     primary: "Primary",
