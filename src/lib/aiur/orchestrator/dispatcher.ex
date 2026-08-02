@@ -89,6 +89,10 @@ defmodule Aiur.Orchestrator.Dispatcher do
           |> IssueSync.sync_polled_issue_state(issues)
           |> IssueSync.sync_todo_capacity_alert(issues)
 
+        # The poll just refreshed `last_polled_issues`, so this generation can
+        # replace a retained snapshot from a prior same-name orchestrator.
+        state = %{state | snapshot_ready?: true}
+
         # The poll just refreshed `last_polled_issues`, so push a fresh
         # summary out to any open agent-list pane immediately.
         StatusReport.notify_dashboard(state)
@@ -461,7 +465,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     with {:ok, selected_issue} <- redispatch_backend(issue),
          :ok <- known_redispatch_backend(selected_issue),
          :ok <- redispatch_thrash_budget(state, selected_issue.id, now_ms),
-         :ok <- redispatch_worker_slot(state, selected_issue.id, preferred_worker_host) do
+         :ok <- redispatch_worker_slot(state, selected_issue, preferred_worker_host) do
       :ok
     else
       {:all_limited, candidates} -> {:error, {:all_limited, candidates}}
@@ -478,7 +482,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     with {:ok, selected_issue} <- redispatch_backend(issue),
          :ok <- known_redispatch_backend(selected_issue),
          {:ok, state} <- admit_redispatch_thrash_budget(state, selected_issue, now_ms, opts),
-         :ok <- redispatch_worker_slot(state, selected_issue.id, preferred_worker_host) do
+         :ok <- redispatch_worker_slot(state, selected_issue, preferred_worker_host) do
       {:ok, state}
     else
       {:all_limited, candidates} -> {:error, {:all_limited, candidates}, state}
@@ -530,10 +534,10 @@ defmodule Aiur.Orchestrator.Dispatcher do
   # A backend swap replaces the issue's existing host slot. Exclude that entry
   # from the capacity sample, but require an exact preferred-host match so the
   # workspace and on-disk rollout never migrate during the swap.
-  defp redispatch_worker_slot(state, issue_id, preferred_worker_host) do
-    capacity_state = %{state | running: Map.delete(state.running, issue_id)}
+  defp redispatch_worker_slot(state, issue, preferred_worker_host) do
+    capacity_state = %{state | running: Map.delete(state.running, issue.id)}
 
-    case Slots.select_worker_host(capacity_state, preferred_worker_host) do
+    case select_worker_host(capacity_state, issue, preferred_worker_host) do
       ^preferred_worker_host -> :ok
       :no_worker_capacity -> {:error, :no_worker_capacity}
       _other_host -> {:error, :preferred_worker_unavailable}
@@ -852,14 +856,27 @@ defmodule Aiur.Orchestrator.Dispatcher do
   defp dispatch_to_worker(%State{} = state, issue, attempt, preferred_worker_host, opts) do
     recipient = self()
 
-    case Slots.select_worker_host(state, preferred_worker_host) do
+    case select_worker_host(state, issue, preferred_worker_host) do
       :no_worker_capacity ->
         Logger.debug("No SSH worker slots available for #{State.issue_context(issue)} preferred_worker_host=#{inspect(preferred_worker_host)}")
 
         state
 
+      :preferred_worker_unavailable ->
+        Logger.warning("Backend cannot use the preferred SSH worker for #{State.issue_context(issue)} preferred_worker_host=#{inspect(preferred_worker_host)}")
+
+        state
+
       worker_host ->
         spawn_issue_on_worker_host(state, issue, attempt, recipient, worker_host, opts)
+    end
+  end
+
+  defp select_worker_host(state, issue, preferred_worker_host) do
+    if CodingAgent.remote_worker?(CodingAgent.backend_for(issue)) do
+      Slots.select_worker_host(state, preferred_worker_host)
+    else
+      if is_nil(preferred_worker_host), do: nil, else: :preferred_worker_unavailable
     end
   end
 

@@ -199,7 +199,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
     %{
       generation: Map.get(payload, :generated_at),
       health: health,
-      freshness: source_freshness(payload),
+      freshness: fleet_source_freshness(payload, fleet),
       running: safe_rows(fleet, :running),
       retrying: safe_rows(fleet, :retrying),
       idle: safe_rows(fleet, :idle)
@@ -250,6 +250,12 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
       _generated_at -> %{status: :unknown}
     end
   end
+
+  defp fleet_source_freshness(_payload, %{snapshot_freshness: %{status: status} = freshness}) when status in [:current, :stale] do
+    %{status: if(status == :current, do: :fresh, else: :stale), observed_at: Map.get(freshness, :observed_at), age_seconds: Map.get(freshness, :age_seconds)}
+  end
+
+  defp fleet_source_freshness(payload, _fleet), do: source_freshness(payload)
 
   defp safe_rows(fleet, bucket) when is_map(fleet) do
     case Map.get(fleet, bucket) do

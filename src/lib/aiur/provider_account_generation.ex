@@ -12,7 +12,7 @@ defmodule Aiur.ProviderAccountGeneration do
   @pubsub Aiur.PubSub
 
   @type provider :: atom()
-  @type backend :: :app_server
+  @type backend :: atom()
   @type binding :: reference()
   @type authority :: reference()
   @type lifecycle_binding :: %{binding: binding(), authority: authority(), topic: String.t()}

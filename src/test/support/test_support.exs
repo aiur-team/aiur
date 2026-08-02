@@ -95,6 +95,17 @@ defmodule Aiur.TestSupport do
         File.mkdir_p!(Path.join(workflow_root, "log"))
         Application.put_env(:aiur, :log_file, Path.join([workflow_root, "log", "aiur.log"]))
 
+        # Global pause is deliberately durable in production, but that makes a
+        # suite-wide test path hazardous: a case that pauses the daemon can
+        # make a later named Orchestrator boot paused. Give every TestSupport
+        # case its own store so persisted control state cannot cross test
+        # boundaries or depend on ExUnit's randomized file order.
+        Application.put_env(
+          :aiur,
+          :global_pause_store_path,
+          Path.join([workflow_root, "state", "global-pause.json"])
+        )
+
         # A prior test may have terminated the shared WorkflowStore singleton
         # (e.g. extensions_test / core_test tear it down) and, on a mid-test
         # failure, left it down. Bring it back up before this test reads config

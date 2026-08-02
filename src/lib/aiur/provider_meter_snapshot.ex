@@ -19,7 +19,7 @@ defmodule Aiur.ProviderMeterSnapshot do
   @type t :: %__MODULE__{
           schema_version: pos_integer(),
           provider: atom() | nil,
-          backend: :app_server | nil,
+          backend: atom() | nil,
           provider_account_generation: String.t() | nil,
           projection_generation: non_neg_integer(),
           auth_mode: :subscription | :api_key | :unknown,
@@ -54,7 +54,7 @@ defmodule Aiur.ProviderMeterSnapshot do
             health: %{state: :unavailable, failure: :no_observation, last_observed_at: nil, last_source_version: nil},
             windows: %{}
 
-  @spec empty(atom(), :app_server, String.t()) :: t()
+  @spec empty(atom(), atom(), String.t()) :: t()
   def empty(provider, backend, generation) do
     %__MODULE__{
       provider: provider,
@@ -64,7 +64,7 @@ defmodule Aiur.ProviderMeterSnapshot do
     }
   end
 
-  @spec unknown(atom(), :app_server) :: t()
+  @spec unknown(atom(), atom()) :: t()
   def unknown(provider, backend) do
     %__MODULE__{
       provider: provider,

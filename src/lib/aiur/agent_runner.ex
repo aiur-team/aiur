@@ -15,10 +15,13 @@ defmodule Aiur.AgentRunner do
 
   @type worker_host :: String.t() | nil
 
-  @spec run(map(), pid() | nil, keyword()) :: :ok | no_return()
+  @spec run(Issue.t(), pid() | nil, keyword()) :: :ok | no_return()
   def run(issue, codex_update_recipient \\ nil, opts \\ []) do
     # The orchestrator owns host retries so one worker lifetime never hops machines.
-    worker_host = selected_worker_host(Keyword.get(opts, :worker_host), Config.settings!().worker.ssh_hosts)
+    worker_host =
+      if CodingAgent.remote_worker?(CodingAgent.backend_for(issue)) do
+        selected_worker_host(Keyword.get(opts, :worker_host), Config.settings!().worker.ssh_hosts)
+      end
 
     # Make sure a per-issue file writer is running so this session's
     # transcript and alert events land in <repo>.<issue>.log alongside any
@@ -449,7 +452,8 @@ defmodule Aiur.AgentRunner do
 
   defp maybe_attach_issue_log(%Issue{tracker_identity: %Aiur.TrackerIdentity{} = identity}), do: IssueLog.attach(identity)
   defp maybe_attach_issue_log(%Issue{identifier: identifier}) when is_binary(identifier), do: IssueLog.attach(identifier)
-  defp maybe_attach_issue_log(%{identifier: identifier}) when is_binary(identifier), do: IssueLog.attach(identifier)
+  # No bare-map clause: `run/3` calls `CodingAgent.backend_for/1` first, which
+  # constrains the argument to `%Issue{}`, so a plain map never reaches here.
   defp maybe_attach_issue_log(_), do: :ok
 
   @doc false

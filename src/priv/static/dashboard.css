@@ -3418,12 +3418,8 @@ html[data-theme="light"] .toggle-icon .moon {
 /* ---- run summary / vendor usage strip (Units page top) ---- */
 .run-summary {
   display: grid;
-  grid-template-columns: minmax(170px, 0.92fr) 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.9rem;
-}
-
-.run-summary .rs-status {
-  order: -1;
 }
 
 .rs-block {
@@ -3513,8 +3509,14 @@ html[data-theme="light"] .toggle-icon .moon {
   height: 1.05rem;
   flex: none;
   object-fit: contain;
-  margin: 0 0.15rem 0 0;
+  margin: 0 0 0 0.15rem;
   vertical-align: -0.15em;
+}
+
+/* An unknown token count keeps only the provider's token glyph, top right at
+   logo size, so the card keeps its footprint without a "Tokens N/A" row. */
+.rs-token-na {
+  align-self: flex-start;
 }
 
 .rs-limits {
@@ -3565,6 +3567,12 @@ html[data-theme="light"] .toggle-icon .moon {
   background: var(--accent);
 }
 
+/* A meter that has reached 100% used is critical: the fill turns red so an
+   exhausted window is never mistaken for a healthy one. */
+.rs-meter > i.is-critical {
+  background: var(--blocking);
+}
+
 .rs-progress {
   margin-top: auto;
 }
@@ -3579,12 +3587,11 @@ html[data-theme="light"] .toggle-icon .moon {
   vertical-align: -2px;
 }
 
-/* Summary / Codex / Claude stay side by side down to phone widths: the three
-   are read as a set, and stacking them pushed the provider cards below the
-   fold on exactly the screens where headroom matters most. The cards carry a
-   name, one stat and a meter, so they survive a ~110px column; the head row
-   already wraps its stats. Only below 380px is there genuinely not enough
-   room, and they stack. */
+/* Provider cards stay side by side down to phone widths: the set is read
+   together, and stacking them pushed the cards below the fold on exactly the
+   screens where headroom matters most. The cards carry a name, one stat and a
+   meter, so they survive a ~110px column; the head row already wraps its
+   stats. Only below 380px is there genuinely not enough room, and they stack. */
 @media (max-width: 720px) {
   .run-summary {
     grid-template-columns: repeat(3, minmax(0, 1fr));

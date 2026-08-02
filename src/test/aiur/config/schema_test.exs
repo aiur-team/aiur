@@ -23,6 +23,33 @@ defmodule Aiur.Config.SchemaTest do
 
       assert settings.agent.backend_configs["fake"] == %{"command" => "fake-agent --serve", "region" => "test"}
     end
+
+    test "DeepSeek routing requires an explicit backend opt-in" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"agent" => %{"routing" => %{"5" => "deepseek"}}})
+
+      assert message =~ "disabled backend"
+
+      assert {:ok, settings} =
+               Schema.parse(%{
+                 "agent" => %{
+                   "backend_configs" => %{"deepseek" => %{"enabled" => true}},
+                   "routing" => %{"5" => "deepseek"}
+                 }
+               })
+
+      assert settings.agent.routing[5] == "deepseek"
+    end
+  end
+
+  describe "prior-work continuation" do
+    test "defaults on for cold backend handoff and remains configurable" do
+      assert {:ok, defaults} = Schema.parse(%{})
+      assert defaults.agent.prior_work_continuation == true
+
+      assert {:ok, disabled} = Schema.parse(%{"agent" => %{"prior_work_continuation" => false}})
+      assert disabled.agent.prior_work_continuation == false
+    end
   end
 
   describe "GitHub planning graph bounds" do
