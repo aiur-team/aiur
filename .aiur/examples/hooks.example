@@ -11,6 +11,7 @@
 #   $THIS_REPOSITORY_URL   the repo aiur is working on (for a cold git clone)
 #   $THIS_BASE_BRANCH      configured tracker base branch (defaults to main)
 #   $AIUR_TICKET_BRANCH    generated canonical branch for this ticket
+#   $AIUR_REPO_STATE_PATH  machine-local per-repository state node
 #
 # Tune these for your repo's toolchain (mix, pnpm, cargo, go, …).
 
@@ -29,6 +30,8 @@ after_create: |
   else
     git checkout -B "$AIUR_TICKET_BRANCH" "origin/$base_branch"
   fi
+  cache_root="${AIUR_REPO_STATE_PATH:?Aiur must provide a repository state path}"
+  mkdir -p "$cache_root/.aiur-hex" "$cache_root/.aiur-mix" "$cache_root/.aiur-npm-cache"
 
 # Aiur stages empty, logs-only, and partial workspaces before this hook. The
 # safeguard below prevents a direct invocation from overwriting live content.
@@ -37,6 +40,20 @@ after_create: |
 # turn so agents do not continue from stale runbooks or safety scripts.
 before_run: |
   base_branch="${THIS_BASE_BRANCH:-main}"
+  cache_root="${AIUR_REPO_STATE_PATH:?Aiur must provide a repository state path}"
+  mkdir -p "$cache_root/.aiur-hex" "$cache_root/.aiur-mix" "$cache_root/.aiur-npm-cache"
+  move_sidecars_to_state() {
+    for cache_dir in .aiur-hex .aiur-mix .aiur-npm-cache; do
+      if [ -e "$cache_dir" ]; then
+        if [ -e "$cache_root/$cache_dir" ]; then
+          cp -a "$cache_dir"/. "$cache_root/$cache_dir"/ && rm -rf "$cache_dir"
+        else
+          mv "$cache_dir" "$cache_root/$cache_dir"
+        fi
+      fi
+    done
+  }
+  move_sidecars_to_state
   if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1 ||
      ! git rev-parse --verify HEAD >/dev/null 2>&1 ||
      ! git status --porcelain >/dev/null 2>&1; then

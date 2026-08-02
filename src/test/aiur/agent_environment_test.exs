@@ -177,9 +177,17 @@ defmodule Aiur.AgentEnvironmentTest do
       assert prefix =~ "ELIXIR_ERL_OPTIONS='+S 4:4'"
       assert prefix =~ "AIUR_BASE_BRANCH='integration'"
       assert prefix =~ "HEX_HOME='~/.aiur/repo/owner/project/.aiur-hex'"
-      assert prefix =~ "HEX_HOME=\"$HOME/${HEX_HOME#~/}\""
+      assert prefix =~ "HEX_HOME=\"$HOME/${HEX_HOME#\\~/}\""
       refute prefix =~ Aiur.RepoBase.repo_path(repo_url)
       refute prefix =~ "elixir/mise.toml"
+
+      {paths, 0} =
+        System.cmd("sh", ["-lc", "#{prefix}; printf '%s|%s|%s' \"$HEX_HOME\" \"$MIX_HOME\" \"$npm_config_cache\""], env: [{"HOME", "/remote-home"}])
+
+      assert paths ==
+               "/remote-home/.aiur/repo/owner/project/.aiur-hex|" <>
+                 "/remote-home/.aiur/repo/owner/project/.aiur-mix|" <>
+                 "/remote-home/.aiur/repo/owner/project/.aiur-npm-cache"
     end
 
     test "returns an empty string for a non-binary path" do

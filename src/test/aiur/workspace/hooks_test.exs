@@ -156,7 +156,7 @@ defmodule Aiur.Workspace.HooksTest do
     command = Hooks.remote_hook_command("true", workspace, %{issue_id: 1, issue_identifier: "123"})
 
     assert command =~ "AIUR_REPO_STATE_PATH='~/.aiur/repo/owner/project'"
-    assert command =~ "AIUR_REPO_STATE_PATH=\"$HOME/${AIUR_REPO_STATE_PATH#~/}\""
+    assert command =~ "AIUR_REPO_STATE_PATH=\"$HOME/${AIUR_REPO_STATE_PATH#\\~/}\""
     refute command =~ Path.join([test_root, "daemon-state", "owner", "project"])
   end
 end

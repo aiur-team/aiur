@@ -1399,6 +1399,8 @@ defmodule Aiur.InitTest do
       assert template =~ "after_create:"
       assert template =~ "before_run:"
       assert template =~ "$THIS_REPOSITORY_URL"
+      assert template =~ "$AIUR_REPO_STATE_PATH"
+      assert template =~ "move_sidecars_to_state"
     end
 
     test "the global config omits the repo-specific prompt_file", %{dir: dir, target: target} do
