@@ -142,8 +142,11 @@ discovered ticket provenance as `plan_version` evolves.
 
 ## Write one canonical runtime pack
 
-The dashboard reads only the per-repository state node, never repository
-commits or planning branches:
+The per-repository state node remains the durable runtime authority. Successful
+publication also writes a repository-local discovery mirror at
+`.aiur/build_orders/<slug>.json`; the dashboard discovers both and reconciles
+copies by the precedence documented below. It never reads planning branches or
+arbitrary copies under `docs/`:
 
 ```text
 ~/.aiur/repo/<owner>/<repo>/builds/<slug>/

@@ -26,7 +26,6 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   alias Aiur.CurrentRunMembership
   alias Aiur.GitHub.Config
   alias Aiur.Orchestrator.StatusReport
-  alias Aiur.RepoBase
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.DataSource
 
@@ -546,44 +545,10 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
     end
   end
 
-  # Runtime packs are re-discovered from the configured repository's state node.
-  # Environment directories remain an explicit test/development override.
+  # Runtime packs are re-discovered through the same canonical source list the
+  # status poller uses, including publisher-created workspace mirrors.
   defp discovered_packs do
-    (tag_paths(workspace_pack_paths(), :workspace) ++ tag_paths(state_pack_paths(), :state) ++ tag_paths(override_pack_paths(), :override))
-    |> Enum.uniq()
-  end
-
-  defp tag_paths(paths, source), do: Enum.map(paths, &{source, &1})
-
-  defp workspace_pack_paths do
-    workspace_pack_directory()
-    |> Path.join("*.json")
-    |> Path.wildcard()
-  end
-
-  defp override_pack_paths do
-    case System.get_env("AIUR_BUILD_ORDER_DIRS") do
-      dirs when is_binary(dirs) and dirs != "" ->
-        dirs
-        |> String.split(":", trim: true)
-        |> Enum.flat_map(&Path.wildcard(Path.join(&1, "*.json")))
-
-      _missing ->
-        []
-    end
-  end
-
-  defp state_pack_paths do
-    case configured_repository() do
-      repository when is_binary(repository) and repository != "" ->
-        repository
-        |> then(&RepoBase.builds_path("https://github.com/#{&1}.git"))
-        |> Path.join("*/build-order.json")
-        |> Path.wildcard()
-
-      _missing ->
-        []
-    end
+    PackPaths.discovered_sources()
   end
 
   defp catalog_repository([pack | _packs]), do: pack.repository
@@ -601,36 +566,11 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
       nil ->
         case Application.get_env(:aiur, :build_order_planning_packs) do
           paths when is_list(paths) -> Enum.map(paths, &Path.dirname(absolute_path(&1)))
-          _missing -> discovery_directories()
+          _missing -> PackPaths.discovery_directories()
         end
 
       path ->
         [Path.dirname(absolute_path(path))]
-    end
-  end
-
-  defp discovery_directories do
-    [workspace_pack_directory(), state_pack_directory() | override_pack_directories()]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.uniq()
-  end
-
-  defp workspace_pack_directory, do: Path.join([File.cwd!(), ".aiur", "build_orders"])
-
-  defp state_pack_directory do
-    case configured_repository() do
-      repository when is_binary(repository) and repository != "" ->
-        RepoBase.builds_path("https://github.com/#{repository}.git")
-
-      _missing ->
-        nil
-    end
-  end
-
-  defp override_pack_directories do
-    case System.get_env("AIUR_BUILD_ORDER_DIRS") do
-      dirs when is_binary(dirs) and dirs != "" -> String.split(dirs, ":", trim: true)
-      _missing -> []
     end
   end
 
@@ -942,6 +882,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
       true -> left.title < right.title
     end
   end
+
   defp configured_repository do
     Config.repo()
   rescue

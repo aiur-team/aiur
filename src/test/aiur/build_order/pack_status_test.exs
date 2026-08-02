@@ -4,7 +4,7 @@ defmodule Aiur.BuildOrder.PackStatusTest do
   alias Aiur.BuildOrder.{PackPaths, PackStatus, ProviderHealth}
   alias Aiur.GitHub.Config
   alias Aiur.RepoBase
-  alias AiurWeb.BuildOrder.PlanningSource
+  alias AiurWeb.BuildOrder.{PlanningSource, RouteState}
   alias AiurWeb.BuildOrderPresenter
   alias AiurWeb.OperatorControlCenter.BuildOrderGridModel
 
@@ -541,6 +541,85 @@ defmodule Aiur.BuildOrder.PackStatusTest do
     refute File.exists?(PackPaths.status_path(foreign_path))
   end
 
+  test "default polling projects lifecycle for a workspace-published pack", _context do
+    suffix = System.unique_integer([:positive])
+    state_root = Path.join(System.tmp_dir!(), "pack-status-workspace-state-#{suffix}")
+    workspace_directory = Path.join([File.cwd!(), ".aiur", "build_orders"])
+    workspace_existed? = File.dir?(workspace_directory)
+    workspace_path = Path.join(workspace_directory, "pack-status-workspace-#{suffix}.json")
+    repository = Config.repo()
+    previous_root = Application.get_env(:aiur, :repo_base_root)
+    previous_pack = Application.get_env(:aiur, :build_order_planning_pack)
+    previous_packs = Application.get_env(:aiur, :build_order_planning_packs)
+    previous_dirs = System.get_env("AIUR_BUILD_ORDER_DIRS")
+
+    Application.put_env(:aiur, :repo_base_root, state_root)
+    Application.delete_env(:aiur, :build_order_planning_pack)
+    Application.delete_env(:aiur, :build_order_planning_packs)
+    System.delete_env("AIUR_BUILD_ORDER_DIRS")
+
+    File.mkdir_p!(workspace_directory)
+    File.write!(workspace_path, String.replace(@pack, "acme/widgets", repository))
+
+    on_exit(fn ->
+      if previous_root,
+        do: Application.put_env(:aiur, :repo_base_root, previous_root),
+        else: Application.delete_env(:aiur, :repo_base_root)
+
+      if previous_pack,
+        do: Application.put_env(:aiur, :build_order_planning_pack, previous_pack),
+        else: Application.delete_env(:aiur, :build_order_planning_pack)
+
+      if previous_packs,
+        do: Application.put_env(:aiur, :build_order_planning_packs, previous_packs),
+        else: Application.delete_env(:aiur, :build_order_planning_packs)
+
+      if previous_dirs,
+        do: System.put_env("AIUR_BUILD_ORDER_DIRS", previous_dirs),
+        else: System.delete_env("AIUR_BUILD_ORDER_DIRS")
+
+      File.rm(workspace_path)
+      File.rm(PackPaths.status_path(workspace_path))
+      File.rm_rf(state_root)
+      if not workspace_existed?, do: File.rmdir(workspace_directory)
+    end)
+
+    test = self()
+
+    poller =
+      start_supervised!(
+        {PackStatus,
+         name: nil,
+         poll_on_start: false,
+         token_fun: fn -> {:ok, "token"} end,
+         request_fun: fn %{body: %{"variables" => variables}} ->
+           send(test, {:workspace_repository_query, variables})
+
+           issues =
+             Map.new(4101..4103, fn number ->
+               {"i#{number}", %{"number" => number, "state" => "OPEN", "stateReason" => nil}}
+             end)
+
+           {:ok, %{status: 200, body: %{"data" => %{"repository" => issues}}}}
+         end}
+      )
+
+    assert {:ok, [^workspace_path]} = PackStatus.refresh_sync(poller)
+    assert_receive {:workspace_repository_query, %{"owner" => owner, "name" => name}}
+    assert String.downcase("#{owner}/#{name}") == String.downcase(repository)
+    assert File.exists?(PackPaths.status_path(workspace_path))
+
+    catalog = PlanningSource.catalog()
+    [root] = catalog.data.entries
+    assert root.identity.identifier == "9900"
+    assert root.progress == 0
+
+    {route, []} = RouteState.new("workspace-published") |> RouteState.navigate("9900")
+    {route, [{:activate, identity}]} = RouteState.put_catalog(route, catalog)
+    assert identity == root.identity
+    assert RouteState.status(route) == :selected_loading
+  end
+
   test "default polling surfaces malformed tracked manifests", _context do
     suffix = System.unique_integer([:positive])
     state_root = Path.join(System.tmp_dir!(), "pack-status-malformed-state-#{suffix}")
@@ -557,7 +636,7 @@ defmodule Aiur.BuildOrder.PackStatusTest do
 
     state_path = Path.join([RepoBase.builds_path("https://github.com/#{repository}.git"), "malformed", "build-order.json"])
     File.mkdir_p!(Path.dirname(state_path))
-    File.write!(state_path, "{")
+    File.write!(state_path, ~s({"repository":123,"tickets":[]}))
 
     on_exit(fn ->
       if previous_root, do: Application.put_env(:aiur, :repo_base_root, previous_root), else: Application.delete_env(:aiur, :repo_base_root)
@@ -568,13 +647,7 @@ defmodule Aiur.BuildOrder.PackStatusTest do
     end)
 
     poller =
-      start_supervised!(
-        {PackStatus,
-         name: nil,
-         poll_on_start: false,
-         token_fun: fn -> {:ok, "token"} end,
-         request_fun: fn _request -> flunk("must not query a malformed manifest") end}
-      )
+      start_supervised!({PackStatus, name: nil, poll_on_start: false, token_fun: fn -> {:ok, "token"} end, request_fun: fn _request -> flunk("must not query a malformed manifest") end})
 
     assert {:error, {:pack_refresh_failed, [{^state_path, {:error, :invalid_pack}}]}} = PackStatus.refresh_sync(poller)
   end

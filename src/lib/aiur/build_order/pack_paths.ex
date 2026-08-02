@@ -2,9 +2,10 @@ defmodule Aiur.BuildOrder.PackPaths do
   @moduledoc """
   Discovery of canonical Build Order packs on disk.
 
-  A pack lives in the repository's state node as `builds/<slug>/build-order.json`
-  with a sibling daemon-owned `status.json`. `AIUR_BUILD_ORDER_DIRS` remains an
-  explicit test/development override listing directories of pack JSON files.
+  A canonical pack lives in the repository's state node as
+  `builds/<slug>/build-order.json` with a sibling daemon-owned `status.json`.
+  Publisher-created discovery mirrors live in `.aiur/build_orders/*.json`, and
+  `AIUR_BUILD_ORDER_DIRS` remains an explicit test/development override.
 
   Both the read path (`AiurWeb.BuildOrder.PlanningSource`) and the write path
   (`Aiur.BuildOrder.PackStatus`) resolve packs here so they cannot drift. The
@@ -17,10 +18,27 @@ defmodule Aiur.BuildOrder.PackPaths do
   @status_basename "status.json"
 
   @doc """
-  Absolute paths of every discovered pack manifest, state node first.
+  Absolute paths of every discovered pack manifest in catalog precedence.
   """
   @spec discovered() :: [Path.t()]
-  def discovered, do: Enum.uniq(state_packs() ++ override_packs())
+  def discovered, do: discovered_sources() |> Enum.map(&elem(&1, 1))
+
+  @doc "Discovered pack manifests tagged with their catalog source."
+  @spec discovered_sources() :: [{:workspace | :state | :override, Path.t()}]
+  def discovered_sources do
+    (tag(workspace_packs(), :workspace) ++
+       tag(state_packs(), :state) ++
+       tag(override_packs(), :override))
+    |> Enum.uniq_by(&elem(&1, 1))
+  end
+
+  @doc "Directories searched during normal pack discovery."
+  @spec discovery_directories() :: [Path.t()]
+  def discovery_directories do
+    [workspace_directory(), state_directory() | override_directories()]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
 
   @doc "Effective pack paths after applying planning-source overrides."
   @spec planning() :: [Path.t()]
@@ -49,11 +67,17 @@ defmodule Aiur.BuildOrder.PackPaths do
   @spec status_basename() :: String.t()
   def status_basename, do: @status_basename
 
+  defp workspace_packs do
+    workspace_directory()
+    |> Path.join("*.json")
+    |> Path.wildcard()
+    |> Enum.reject(&(Path.basename(&1) == @status_basename))
+  end
+
   defp state_packs do
-    case configured_repository() do
-      repository when is_binary(repository) and repository != "" ->
-        repository
-        |> then(&RepoBase.builds_path("https://github.com/#{&1}.git"))
+    case state_directory() do
+      directory when is_binary(directory) ->
+        directory
         |> Path.join("*/build-order.json")
         |> Path.wildcard()
 
@@ -65,15 +89,29 @@ defmodule Aiur.BuildOrder.PackPaths do
   # The override glob deliberately excludes `status.json` so the daemon's own
   # projection is never mistaken for a pack manifest.
   defp override_packs do
-    case System.get_env("AIUR_BUILD_ORDER_DIRS") do
-      dirs when is_binary(dirs) and dirs != "" ->
-        dirs
-        |> String.split(":", trim: true)
-        |> Enum.flat_map(&Path.wildcard(Path.join(&1, "*.json")))
-        |> Enum.reject(&(Path.basename(&1) == @status_basename))
+    override_directories()
+    |> Enum.flat_map(&Path.wildcard(Path.join(&1, "*.json")))
+    |> Enum.reject(&(Path.basename(&1) == @status_basename))
+  end
+
+  defp tag(paths, source), do: Enum.map(paths, &{source, &1})
+
+  defp workspace_directory, do: Path.join([File.cwd!(), ".aiur", "build_orders"])
+
+  defp state_directory do
+    case configured_repository() do
+      repository when is_binary(repository) and repository != "" ->
+        RepoBase.builds_path("https://github.com/#{repository}.git")
 
       _missing ->
-        []
+        nil
+    end
+  end
+
+  defp override_directories do
+    case System.get_env("AIUR_BUILD_ORDER_DIRS") do
+      dirs when is_binary(dirs) and dirs != "" -> String.split(dirs, ":", trim: true)
+      _missing -> []
     end
   end
 
@@ -86,7 +124,7 @@ defmodule Aiur.BuildOrder.PackPaths do
   defp foreign_repository?(path) do
     with repository when is_binary(repository) and repository != "" <- configured_repository(),
          {:ok, body} <- File.read(path),
-         {:ok, %{"repository" => pack_repository}} <- Jason.decode(body),
+         {:ok, %{"repository" => pack_repository}} when is_binary(pack_repository) <- Jason.decode(body),
          [owner, repo] when owner != "" and repo != "" <- String.split(repository, "/", parts: 2),
          [pack_owner, pack_repo] when pack_owner != "" and pack_repo != "" <- String.split(pack_repository, "/", parts: 2) do
       String.downcase(owner) != String.downcase(pack_owner) or String.downcase(repo) != String.downcase(pack_repo)
