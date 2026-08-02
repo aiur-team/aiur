@@ -32,11 +32,12 @@ defmodule Aiur.Init.GitHub do
   @doc "Checks that the target repository can merge an Aiur-created PR."
   @spec check_ci_readiness(map()) :: {:ok, CiReadiness.result()} | {:error, term()}
   def check_ci_readiness(%{kind: "github", repo: repo} = tracker) when is_binary(repo) do
-    CiReadiness.check(
-      repo: repo,
-      base_branch: Map.get(tracker, :base_branch, "main"),
-      token: System.get_env(CiReadiness.operator_token_env())
-    )
+    opts = [repo: repo, base_branch: Map.get(tracker, :base_branch, "main")]
+
+    case System.get_env(CiReadiness.operator_token_env()) do
+      token when is_binary(token) and token != "" -> CiReadiness.check(Keyword.put(opts, :token, token))
+      _ -> CiReadiness.check(Keyword.put(opts, :workflow_presence_only, true))
+    end
   end
 
   def check_ci_readiness(%{kind: "github"}), do: {:error, :missing_github_repo}
@@ -71,6 +72,10 @@ defmodule Aiur.Init.GitHub do
   defp readiness_error_message({:github, :http, %{status: 403}}) do
     "Repository CI readiness could not be inspected: GitHub denied access to the readiness endpoints. " <>
       "Run init with an operator-only #{CiReadiness.operator_token_env()} that has Contents, Actions, and Administration: Read-only; do not grant those permissions to GITHUB_TOKEN."
+  end
+
+  defp readiness_error_message(:ci_readiness_operator_token_required) do
+    "Repository CI readiness found a pull-request workflow but needs an operator-only #{CiReadiness.operator_token_env()} to inspect workflow state, branch protection, and rulesets. Do not grant those permissions to GITHUB_TOKEN."
   end
 
   defp readiness_error_message(reason), do: "Repository CI readiness could not be inspected: #{inspect(reason)}"

@@ -250,6 +250,67 @@ defmodule Aiur.GitHub.CiReadinessTest do
              CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop")
 
     assert :no_pr_workflow in issues
+    assert {:required_check_not_produced, ["ci / required"]} in issues
+  end
+
+  test "finds active workflow state on a later Actions page" do
+    encoded = Base.encode64(@workflow)
+
+    request_fun = fn %{url: url} ->
+      cond do
+        String.ends_with?(url, "/branches/develop") ->
+          {:ok, %{status: 200, body: %{}}}
+
+        String.ends_with?(url, "/repos/owner/repo") ->
+          {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}
+
+        url =~ "/actions/workflows?per_page=100" ->
+          {:ok,
+           %{
+             status: 200,
+             body: %{"workflows" => [%{"path" => ".github/workflows/other.yml", "state" => "active"}]},
+             headers: %{"link" => "<https://api.github.com/repos/owner/repo/actions/workflows?page=2>; rel=\"next\""}
+           }}
+
+        String.ends_with?(url, "/actions/workflows?page=2") ->
+          {:ok, %{status: 200, body: %{"workflows" => [%{"path" => ".github/workflows/ci.yml", "state" => "active"}]}}}
+
+        url =~ "/contents/.github/workflows" ->
+          {:ok, %{status: 200, body: [%{"type" => "file", "path" => ".github/workflows/ci.yml", "url" => "workflow-url"}]}}
+
+        url == "workflow-url?ref=develop" ->
+          {:ok, %{status: 200, body: %{"content" => encoded}}}
+
+        url =~ "/protection" ->
+          {:ok, %{status: 200, body: %{"required_status_checks" => %{"contexts" => ["ci / required"]}}}}
+
+        url =~ "/rulesets" ->
+          {:ok, %{status: 200, body: []}}
+      end
+    end
+
+    assert {:ok, %{ready?: true}} = CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop")
+  end
+
+  test "presence-only inspection never uses Actions or Administration endpoints" do
+    request_fun = fn %{url: url} ->
+      cond do
+        String.ends_with?(url, "/branches/develop") ->
+          {:ok, %{status: 200, body: %{}}}
+
+        String.ends_with?(url, "/repos/owner/repo") ->
+          {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}
+
+        url =~ "/contents/.github/workflows" ->
+          {:ok, %{status: 200, body: [%{"type" => "file", "path" => ".github/workflows/ci.yml", "url" => "workflow-url"}]}}
+
+        true ->
+          flunk("unexpected privileged request: #{url}")
+      end
+    end
+
+    assert {:error, :ci_readiness_operator_token_required} =
+             CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop", workflow_presence_only: true)
   end
 
   test "combines branch protection and applicable ruleset checks" do

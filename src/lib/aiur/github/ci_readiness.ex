@@ -10,6 +10,7 @@ defmodule Aiur.GitHub.CiReadiness do
   alias Aiur.GitHub.{Errors, Transport}
 
   @ruleset_page_limit 20
+  @workflow_page_limit 20
   @cache_key {__MODULE__, :result}
   @operator_token_env "AIUR_CI_READINESS_TOKEN"
 
@@ -35,7 +36,7 @@ defmodule Aiur.GitHub.CiReadiness do
          {:ok, token} <- Transport.require_token(opts) do
       base_branch = Keyword.get(opts, :base_branch, "main")
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      inspect_repository(request_fun, token, owner, repo, base_branch)
+      inspect_repository(request_fun, token, owner, repo, base_branch, opts)
     end
   end
 
@@ -46,7 +47,16 @@ defmodule Aiur.GitHub.CiReadiness do
   @doc false
   @spec check_fun() :: (keyword() -> {:ok, result()} | {:error, term()})
   def check_fun do
-    Application.get_env(:aiur, :ci_readiness_check_fun, &check/1)
+    Application.get_env(:aiur, :ci_readiness_check_fun, &dispatch_check/1)
+  end
+
+  @doc false
+  @spec dispatch_check(keyword()) :: {:ok, result()} | {:error, term()}
+  def dispatch_check(opts) do
+    case System.get_env(@operator_token_env) do
+      token when is_binary(token) and token != "" -> check(Keyword.put(opts, :token, token))
+      _ -> check(Keyword.put(opts, :workflow_presence_only, true))
+    end
   end
 
   @doc false
@@ -81,20 +91,41 @@ defmodule Aiur.GitHub.CiReadiness do
 
   @spec inspect_repository(function(), String.t(), String.t(), String.t(), String.t()) ::
           {:ok, result()} | {:error, term()}
-  def inspect_repository(request_fun, token, owner, repo, base_branch)
+  def inspect_repository(request_fun, token, owner, repo, base_branch),
+    do: inspect_repository(request_fun, token, owner, repo, base_branch, [])
+
+  @spec inspect_repository(function(), String.t(), String.t(), String.t(), String.t(), keyword()) ::
+          {:ok, result()} | {:error, term()}
+  def inspect_repository(request_fun, token, owner, repo, base_branch, opts)
       when is_function(request_fun, 1) and is_binary(token) and is_binary(base_branch) do
     base_url = "#{Transport.base_url()}/repos/#{owner}/#{repo}"
 
     with :ok <- branch_exists?(request_fun, token, "#{base_url}/branches/#{encode_path_component(base_branch)}"),
          {:ok, default_branch} <- fetch_default_branch(request_fun, token, base_url),
-         {:ok, entries} <- fetch_list(request_fun, token, "#{base_url}/contents/.github/workflows?ref=#{encode_query_value(base_branch)}"),
-         {:ok, workflow_states} <- fetch_workflow_states(request_fun, token, base_url, entries),
-         {:ok, workflows} <- fetch_workflows(request_fun, token, entries, workflow_states, base_branch),
-         {:ok, required_checks} <- fetch_required_checks_for_workflows(workflows, request_fun, token, base_url, base_branch, default_branch) do
-      {:ok, evaluate(base_branch, workflows, required_checks)}
+         {:ok, entries} <- fetch_list(request_fun, token, "#{base_url}/contents/.github/workflows?ref=#{encode_query_value(base_branch)}") do
+      inspect_workflow_entries(request_fun, token, base_url, base_branch, default_branch, entries, opts)
     else
       {:error, :base_branch_missing} -> {:ok, result(base_branch, [], [], [], [:base_branch_missing])}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp inspect_workflow_entries(request_fun, token, base_url, base_branch, default_branch, entries, opts) when is_list(entries) do
+    if Keyword.get(opts, :workflow_presence_only, false) do
+      if workflow_entries?(entries), do: {:error, :ci_readiness_operator_token_required}, else: {:ok, evaluate(base_branch, [], [])}
+    else
+      inspect_full_workflow_entries(request_fun, token, base_url, base_branch, default_branch, entries)
+    end
+  end
+
+  defp inspect_workflow_entries(_request_fun, _token, _base_url, _base_branch, _default_branch, _entries, _opts),
+    do: {:error, :invalid_workflow_entries}
+
+  defp inspect_full_workflow_entries(request_fun, token, base_url, base_branch, default_branch, entries) do
+    with {:ok, workflow_states} <- fetch_workflow_states(request_fun, token, base_url, entries),
+         {:ok, workflows} <- fetch_workflows(request_fun, token, entries, workflow_states, base_branch),
+         {:ok, required_checks} <- fetch_required_checks_for_entries(entries, request_fun, token, base_url, base_branch, default_branch) do
+      {:ok, evaluate(base_branch, workflows, required_checks)}
     end
   end
 
@@ -173,17 +204,47 @@ defmodule Aiur.GitHub.CiReadiness do
     end
   end
 
-  defp fetch_workflow_states(_request_fun, _token, _base_url, entries) when entries == [], do: {:ok, %{}}
+  defp fetch_workflow_states(_request_fun, _token, _base_url, entries) when not is_list(entries), do: {:error, :invalid_workflow_entries}
 
   defp fetch_workflow_states(request_fun, token, base_url, entries) do
-    case request_fun.(%{method: :get, url: "#{base_url}/actions/workflows?per_page=100", token: token}) do
-      {:ok, %{status: 200, body: %{"workflows" => workflows}}} when is_list(workflows) ->
-        states =
-          Map.new(workflows, fn workflow ->
-            {Map.get(workflow, "path"), Map.get(workflow, "state") == "active"}
-          end)
+    if workflow_entries?(entries) do
+      fetch_workflow_state_pages(request_fun, token, base_url, "#{base_url}/actions/workflows?per_page=100")
+    else
+      {:ok, %{}}
+    end
+  end
 
-        {:ok, states}
+  defp fetch_workflow_state_pages(request_fun, token, base_url, url, pages_left \\ @workflow_page_limit, seen \\ [], states \\ %{})
+
+  defp fetch_workflow_state_pages(_request_fun, _token, _base_url, _url, 0, _seen, _states), do: {:error, :workflow_pagination_limit}
+
+  defp fetch_workflow_state_pages(request_fun, token, base_url, url, pages_left, seen, states) do
+    if url in seen do
+      {:error, :workflow_pagination_cycle}
+    else
+      fetch_workflow_state_page(request_fun, token, base_url, url, pages_left, seen, states)
+    end
+  end
+
+  defp fetch_workflow_state_page(request_fun, token, base_url, url, pages_left, seen, states) do
+    case request_fun.(%{method: :get, url: url, token: token}) do
+      {:ok, %{status: 200, body: %{"workflows" => workflows}} = response} when is_list(workflows) ->
+        states =
+          Map.merge(
+            states,
+            Map.new(workflows, fn workflow -> {Map.get(workflow, "path"), Map.get(workflow, "state") == "active"} end)
+          )
+
+        continue_workflow_state_pages(
+          Transport.parse_next_page_url(Map.get(response, :headers, %{})),
+          request_fun,
+          token,
+          base_url,
+          url,
+          pages_left,
+          seen,
+          states
+        )
 
       {:ok, %{status: _} = response} ->
         {:error, Errors.github_status_error(response)}
@@ -196,10 +257,23 @@ defmodule Aiur.GitHub.CiReadiness do
     end
   end
 
-  defp fetch_required_checks_for_workflows([], _request_fun, _token, _base_url, _base_branch, _default_branch), do: {:ok, []}
+  defp continue_workflow_state_pages(nil, _request_fun, _token, _base_url, _url, _pages_left, _seen, states), do: {:ok, states}
 
-  defp fetch_required_checks_for_workflows(_workflows, request_fun, token, base_url, base_branch, default_branch),
-    do: fetch_required_checks(request_fun, token, base_url, base_branch, default_branch)
+  defp continue_workflow_state_pages(next_url, request_fun, token, base_url, url, pages_left, seen, states) do
+    if String.starts_with?(next_url, base_url <> "/actions/workflows") do
+      fetch_workflow_state_pages(request_fun, token, base_url, next_url, pages_left - 1, [url | seen], states)
+    else
+      {:error, :invalid_workflow_pagination_url}
+    end
+  end
+
+  defp fetch_required_checks_for_entries(entries, request_fun, token, base_url, base_branch, default_branch) do
+    if Enum.any?(entries, &(Map.get(&1, "type") == "file" and workflow_path?(Map.get(&1, "path", "")))) do
+      fetch_required_checks(request_fun, token, base_url, base_branch, default_branch)
+    else
+      {:ok, []}
+    end
+  end
 
   defp fetch_workflows(request_fun, token, entries, workflow_states, base_branch) do
     entries
@@ -218,6 +292,8 @@ defmodule Aiur.GitHub.CiReadiness do
       error -> error
     end)
   end
+
+  defp workflow_entries?(entries), do: Enum.any?(entries, &(Map.get(&1, "type") == "file" and workflow_path?(Map.get(&1, "path", ""))))
 
   defp fetch_workflow(request_fun, token, entry, base_branch) do
     case request_fun.(%{method: :get, url: workflow_url(entry, base_branch), token: token}) do
