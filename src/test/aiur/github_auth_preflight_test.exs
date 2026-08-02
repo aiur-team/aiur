@@ -159,13 +159,15 @@ defmodule Aiur.GitHubAuthPreflightTest do
   end
 
   defp scripted_preflight(results) do
-    fn state ->
-      Agent.get_and_update(results, fn [result | rest] ->
-        case result do
-          :ok -> {{:ok, state}, rest}
-          {:error, reason} -> {{:error, reason, state}, rest}
-        end
-      end)
-    end
+    &next_preflight_result(results, &1)
   end
+
+  defp next_preflight_result(results, state) do
+    Agent.get_and_update(results, &pop_preflight_result(&1, state))
+  end
+
+  defp pop_preflight_result([:ok | rest], state), do: {{:ok, state}, rest}
+
+  defp pop_preflight_result([{:error, reason} | rest], state),
+    do: {{:error, reason, state}, rest}
 end

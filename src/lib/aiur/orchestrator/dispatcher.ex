@@ -7,6 +7,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   require Logger
 
   alias Aiur.{AgentRunner, Alerts, CodingAgent, Config, DispatchBudgetStore, Issue, RepoBase, Tracker}
+  alias Aiur.GitHub.AuthPreflight
   alias Aiur.Orchestrator
 
   alias Aiur.Orchestrator.{
@@ -18,6 +19,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     Lifecycle,
     PrAnchored,
     Reconciler,
+    RetryEngine,
     Slots,
     State,
     StatusReport,
@@ -25,8 +27,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
     TrackerHealth
   }
 
-  alias Aiur.Orchestrator.RetryEngine
-  alias Aiur.GitHub.AuthPreflight
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
 
   @spec run_poll_cycle(State.t()) :: {:noreply, State.t()}
