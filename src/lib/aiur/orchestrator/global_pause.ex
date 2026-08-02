@@ -53,12 +53,14 @@ defmodule Aiur.Orchestrator.GlobalPause do
   agents; `false` unpauses and resumes only the globally held agents. Idempotent.
   """
   @spec set_global_pause(boolean()) :: {:ok, map()} | {:error, term()}
-  def set_global_pause(on?) when is_boolean(on?), do: set_global_pause(Aiur.Orchestrator, on?, "CLI")
+  def set_global_pause(on?) when is_boolean(on?),
+    do: set_global_pause(Aiur.Orchestrator, on?, "CLI")
 
   @spec set_global_pause(GenServer.server(), boolean()) :: {:ok, map()} | {:error, term()}
   def set_global_pause(server, on?) when is_boolean(on?), do: set_global_pause(server, on?, "CLI")
 
-  @spec set_global_pause(GenServer.server(), boolean(), String.t()) :: {:ok, map()} | {:error, term()}
+  @spec set_global_pause(GenServer.server(), boolean(), String.t()) ::
+          {:ok, map()} | {:error, term()}
   def set_global_pause(server, on?, source) when is_boolean(on?) and is_binary(source) do
     if GenServer.whereis(server) do
       GenServer.call(server, {:set_global_pause, on?, source}, @call_timeout)
@@ -75,7 +77,13 @@ defmodule Aiur.Orchestrator.GlobalPause do
 
   @doc false
   @spec set_global_pause_call(State.t(), boolean()) :: {:reply, {:ok, map()}, State.t()}
-  def set_global_pause_call(%State{globally_paused: current} = state, on?, source \\ "CLI") when is_boolean(on?) do
+  def set_global_pause_call(state, on?) when is_boolean(on?),
+    do: set_global_pause_call(state, on?, "CLI")
+
+  @spec set_global_pause_call(State.t(), boolean(), String.t()) ::
+          {:reply, {:ok, map()}, State.t()}
+  def set_global_pause_call(%State{globally_paused: current} = state, on?, source)
+      when is_boolean(on?) do
     source = normalize_source(source)
 
     state =
@@ -104,10 +112,15 @@ defmodule Aiur.Orchestrator.GlobalPause do
   @doc false
   @spec global_pause_status_for_state(State.t()) :: map()
   defp global_pause_status_for_state(%State{globally_paused: paused, global_pause: metadata}) do
-    %{globally_paused: paused, paused_at: Map.get(metadata, :paused_at), source: Map.get(metadata, :source)}
+    %{
+      globally_paused: paused,
+      paused_at: Map.get(metadata, :paused_at),
+      source: Map.get(metadata, :source)
+    }
   end
 
-  defp global_pause_status_for_state(%State{globally_paused: paused}), do: %{globally_paused: paused, paused_at: nil, source: nil}
+  defp global_pause_status_for_state(%State{globally_paused: paused}),
+    do: %{globally_paused: paused, paused_at: nil, source: nil}
 
   defp normalize_source(source) when is_binary(source) and source != "", do: source
   defp normalize_source(source) when is_atom(source), do: Atom.to_string(source)
