@@ -108,12 +108,12 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
     test "re-pausing or re-unpausing is a no-op" do
       already_paused = base_state(globally_paused: true, running: %{})
 
-      assert {:reply, {:ok, %{globally_paused: true}}, ^already_paused} =
+      assert {:reply, {:ok, %{globally_paused: true} = _projection}, ^already_paused} =
                GlobalPause.set_global_pause_call(already_paused, true)
 
       already_running = base_state(globally_paused: false, running: %{})
 
-      assert {:reply, {:ok, %{globally_paused: false}}, ^already_running} =
+      assert {:reply, {:ok, %{globally_paused: false} = _projection}, ^already_running} =
                GlobalPause.set_global_pause_call(already_running, false)
     end
 
@@ -146,10 +146,12 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
       name = Module.concat(__MODULE__, :RestoredOrchestrator)
       {:ok, pid} = Orchestrator.start_link(name: name, initial_poll?: false)
       assert %{globally_paused: true, paused_at: ^paused_at, source: "dashboard"} = GlobalPause.global_pause_status(name)
-      :ok = GenServer.stop(pid)
+      ref = Process.monitor(pid)
+      Process.exit(pid, :kill)
+      assert_receive {:DOWN, ^ref, :process, ^pid, :killed}
 
       {:ok, restarted_pid} = Orchestrator.start_link(name: name, initial_poll?: false)
-      on_exit(fn -> if Process.alive?(restarted_pid), do: GenServer.stop(restarted_pid) end)
+      on_exit(fn -> if Process.alive?(restarted_pid), do: Process.exit(restarted_pid, :kill) end)
 
       assert %{globally_paused: true, paused_at: ^paused_at, source: "dashboard"} = GlobalPause.global_pause_status(name)
     end
