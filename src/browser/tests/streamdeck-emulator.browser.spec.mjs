@@ -231,11 +231,14 @@ test('dial drag + mode transition both work in the same session', async ({ page 
 
   await page.mouse.move(cx, cy - 30)
   await page.mouse.down()
-  await page.mouse.move(cx + 30, cy)
-  await page.mouse.move(cx, cy + 30)
+  for (let i = 1; i <= 20; i += 1) {
+    const angle = -90 + i * 2
+    const radians = (angle * Math.PI) / 180
+    await page.mouse.move(cx + Math.cos(radians) * 30, cy + Math.sin(radians) * 30)
+  }
   await page.mouse.up()
+  await expect.poll(async () => parseInt(await knob.getAttribute('aria-valuenow'), 10)).toBeGreaterThan(0)
   const dialValue = parseInt(await knob.getAttribute('aria-valuenow'), 10)
-  expect(dialValue).toBeGreaterThan(0)
 
   // Then click a key to enter cmd mode.
   const key = page.locator('.sd-key:not(.is-empty)').first()
@@ -268,6 +271,128 @@ test('dial and knob state survive a LiveView patch (regression for #1306)', asyn
 
   const valueAfterPatch = parseInt(await knob.getAttribute('aria-valuenow'), 10)
   expect(valueAfterPatch).toBe(valueBeforePatch)
+})
+
+test('dial D pages live fleet keys and pager dots', async ({ page }) => {
+  await openStreamdeck(page)
+
+  const keys = page.locator('#sd-keys')
+  await expect(keys).toHaveAttribute('data-grid-page-count', '3')
+  await expect(keys.locator('[data-streamdeck-identifier="1352"]')).toBeVisible()
+  await expect(keys.locator('[data-streamdeck-identifier="1376"]')).toHaveCount(0)
+
+  const dialD = page.locator('.sd-knob').nth(3)
+  await dialD.hover()
+  const dialBox = await dialD.boundingBox()
+  const cx = dialBox.x + dialBox.width / 2
+  const cy = dialBox.y + dialBox.height / 2
+  const radius = Math.min(dialBox.width, dialBox.height) / 3
+  const point = (degrees) => {
+    const radians = (degrees * Math.PI) / 180
+    return { x: cx + Math.cos(radians) * radius, y: cy + Math.sin(radians) * radius }
+  }
+
+  await page.mouse.move(...Object.values(point(-90)))
+  await page.mouse.down()
+  await page.mouse.move(...Object.values(point(0)))
+  await page.mouse.move(...Object.values(point(90)))
+  await page.mouse.move(...Object.values(point(126)))
+  await page.mouse.up()
+
+  await expect(keys).toHaveAttribute('data-grid-page', '1')
+  const dialValue = parseInt(await keys.getAttribute('data-grid-dial-value'), 10)
+  expect(dialValue).toBeGreaterThanOrEqual(75)
+  expect(dialValue).toBeLessThanOrEqual(85)
+  await expect(dialD).toHaveAttribute('aria-valuenow', String(dialValue))
+  await expect(keys.locator('.sd-key:not(.is-empty)')).toHaveCount(8)
+  await expect(keys.locator('[data-streamdeck-identifier="1352"]')).toHaveCount(0)
+  await expect(page.locator('#sd-pager-dots [aria-current="page"]')).toHaveAttribute('data-page', '1')
+
+  await dialD.click()
+  await expect(keys).toHaveAttribute('data-grid-page', '2')
+  await expect(keys).toHaveAttribute('data-grid-dial-value', '100')
+  await expect(dialD).toHaveAttribute('aria-valuenow', '100')
+
+  await dialD.click()
+  await expect(keys).toHaveAttribute('data-grid-page', '0')
+  await expect(keys).toHaveAttribute('data-grid-dial-value', '0')
+  await expect(dialD).toHaveAttribute('aria-valuenow', '0')
+})
+
+test('dial D drag, wheel, and keyboard preserve continuous fleet offsets', async ({ page }) => {
+  await openStreamdeck(page)
+
+  const keys = page.locator('#sd-keys')
+  const dialD = page.locator('.sd-knob').nth(3)
+  const box = await dialD.boundingBox()
+  const cx = box.x + box.width / 2
+  const cy = box.y + box.height / 2
+
+  await page.mouse.move(cx, cy - 30)
+  await page.mouse.down()
+  for (let i = 1; i <= 20; i += 1) {
+    const angle = -90 + i * 2
+    const radians = (angle * Math.PI) / 180
+    await page.mouse.move(cx + Math.cos(radians) * 30, cy + Math.sin(radians) * 30)
+  }
+  await page.mouse.up()
+  await expect.poll(async () => parseInt(await dialD.getAttribute('aria-valuenow'), 10)).toBeGreaterThan(0)
+  const afterDrag = parseInt(await dialD.getAttribute('aria-valuenow'), 10)
+  await expect(keys).toHaveAttribute('data-grid-dial-value', String(afterDrag))
+
+  await dialD.hover()
+  await page.mouse.wheel(0, -100)
+  await expect.poll(async () => parseInt(await dialD.getAttribute('aria-valuenow'), 10)).toBeGreaterThan(afterDrag)
+  const afterWheel = parseInt(await dialD.getAttribute('aria-valuenow'), 10)
+
+  await dialD.focus()
+  await page.keyboard.press('ArrowDown')
+  await expect.poll(async () => parseInt(await dialD.getAttribute('aria-valuenow'), 10)).toBeLessThan(afterWheel)
+  const afterKeyboard = parseInt(await dialD.getAttribute('aria-valuenow'), 10)
+  await expect(keys).toHaveAttribute('data-grid-dial-value', String(afterKeyboard))
+})
+
+test('logs mode scrolls event and transcript panes within real bounds', async ({ page }) => {
+  await openStreamdeck(page)
+
+  await page.locator('.sd-key:not(.is-empty)').first().click()
+  const dialD = page.locator('.sd-knob').nth(3)
+  await dialD.click()
+  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
+
+  await expect(page.locator('#sd-log-events')).toContainText('event-1')
+  await dialD.hover()
+  for (let i = 0; i < 12; i += 1) await page.mouse.wheel(0, -100)
+  await expect(page.locator('#sd-log-events')).toHaveAttribute('data-max-offset', '2')
+  await expect(page.locator('#sd-log-events')).toHaveAttribute('data-offset', '1')
+  await expect(page.locator('#sd-log-events')).toContainText('event-2')
+
+  await dialD.click()
+  await expect(page.locator('#sd-log-events')).toHaveAttribute('data-offset', '2')
+  await expect(dialD).toHaveAttribute('aria-valuenow', '100')
+
+  await dialD.click()
+  await expect(page.locator('#sd-log-events')).toHaveAttribute('data-offset', '0')
+  await expect(dialD).toHaveAttribute('aria-valuenow', '0')
+
+  const dialA = page.locator('.sd-knob').first()
+  await dialA.hover()
+  await page.mouse.wheel(0, -100)
+  await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '1')
+  await expect(page.locator('#sd-log-transcript')).toContainText('transcript-2')
+
+  await page.mouse.wheel(0, 1000)
+  await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '0')
+  await expect(page.locator('#sd-transcript-hint-up')).toHaveAttribute('aria-hidden', 'true')
+})
+
+test('touch strip exposes provider percentages, not only window counts', async ({ page }) => {
+  await openStreamdeck(page)
+
+  await expect(page.locator('.sd-screen-segment').filter({ hasText: 'Claude' })).toContainText('Daily 30%')
+  await expect(page.locator('.sd-screen-segment').filter({ hasText: 'Codex' })).toContainText('Daily 50%')
+  await expect(page.locator('.sd-screen-segment').filter({ hasText: 'Claude' }).locator('.sd-screen-value')).not.toContainText('windows')
+  await expect(page.locator('.sd-screen-segment').filter({ hasText: 'Codex' }).locator('.sd-screen-value')).not.toContainText('windows')
 })
 
 test('Stream Deck emulator passes automated accessibility checks', async ({ page }) => {
