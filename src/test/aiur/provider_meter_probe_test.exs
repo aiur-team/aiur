@@ -95,6 +95,15 @@ defmodule Aiur.ProviderMeterProbeTest do
     %{projection: projection, pid: pid}
   end
 
+  # BalanceBaseline persists beside the workflow file; these tests must never
+  # read or write a real one, so every probe opts a throwaway path.
+  defp baseline_path do
+    dir = Path.join(System.tmp_dir!(), "aiur-probe-baseline-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    on_exit(fn -> File.rm_rf(dir) end)
+    Path.join(dir, "balance-baseline.json")
+  end
+
   defp opts(ctx, extra \\ []) do
     Keyword.merge(
       [
@@ -191,6 +200,7 @@ defmodule Aiur.ProviderMeterProbeTest do
              ProviderMeterProbe.observe(:deepseek,
                observed_at: ~U[2026-08-01 12:00:00Z],
                deepseek_in_flight: 0,
+               path: baseline_path(),
                api_key_fetcher: fn env ->
                  send(parent, {:credential_requested, env})
                  "secret"
@@ -230,6 +240,7 @@ defmodule Aiur.ProviderMeterProbeTest do
                backend_configs: %{"deepseek" => %{"enabled" => true}},
                observed_at: ~U[2026-08-01 12:00:00Z],
                deepseek_in_flight: 5,
+               path: baseline_path(),
                api_key_fetcher: fn "DEEPSEEK_API_KEY" -> "secret" end,
                openai_compat_request_fun: request_fun
              )
@@ -246,6 +257,72 @@ defmodule Aiur.ProviderMeterProbeTest do
     assert snapshot.windows["local-concurrency"].remaining == 2_495
   end
 
+  # A prepaid balance renders an honest spend percentage only once a durable
+  # baseline exists. The observation that seeds the baseline has no consumption
+  # evidence yet, so it stays dollar-only; the next observation measures
+  # `used% = (baseline - remaining) / baseline` against the persisted baseline.
+  test "DeepSeek balance attaches a spend percentage once a baseline is seeded" do
+    :ok = Events.subscribe_observed()
+    path = baseline_path()
+
+    request_fun = fn _request ->
+      {:ok, %{status: 200, body: %{"balance_infos" => [%{"currency" => "USD", "total_balance" => "50.00"}]}}}
+    end
+
+    assert [%{observed?: true, reason: nil}] =
+             ProviderMeterProbe.observe(:deepseek,
+               backend_configs: %{},
+               observed_at: ~U[2026-08-01 12:00:00Z],
+               deepseek_in_flight: 0,
+               path: path,
+               api_key_fetcher: fn "DEEPSEEK_API_KEY" -> "secret" end,
+               openai_compat_request_fun: request_fun
+             )
+
+    assert_receive {:provider_meter_changed, seeding}
+    refute Map.has_key?(seeding.windows["prepaid-balance-usd"], :used_percent)
+
+    later_request_fun = fn _request ->
+      {:ok, %{status: 200, body: %{"balance_infos" => [%{"currency" => "USD", "total_balance" => "49.05"}]}}}
+    end
+
+    assert [%{observed?: true, reason: nil}] =
+             ProviderMeterProbe.observe(:deepseek,
+               backend_configs: %{},
+               observed_at: ~U[2026-08-01 12:05:00Z],
+               deepseek_in_flight: 0,
+               path: path,
+               api_key_fetcher: fn "DEEPSEEK_API_KEY" -> "secret" end,
+               openai_compat_request_fun: later_request_fun
+             )
+
+    assert_receive {:provider_meter_changed, measured}
+    assert_in_delta measured.windows["prepaid-balance-usd"].used_percent, 1.9, 0.01
+    assert measured.windows["prepaid-balance-usd"].credits.amount == 49.05
+  end
+
+  test "a configured initial deposit measures spend from the first observation" do
+    :ok = Events.subscribe_observed()
+    path = baseline_path()
+
+    request_fun = fn _request ->
+      {:ok, %{status: 200, body: %{"balance_infos" => [%{"currency" => "USD", "total_balance" => "80.00"}]}}}
+    end
+
+    assert [%{observed?: true, reason: nil}] =
+             ProviderMeterProbe.observe(:deepseek,
+               backend_configs: %{"deepseek" => %{"balance_baseline" => 100.0}},
+               observed_at: ~U[2026-08-01 12:00:00Z],
+               deepseek_in_flight: 0,
+               path: path,
+               api_key_fetcher: fn "DEEPSEEK_API_KEY" -> "secret" end,
+               openai_compat_request_fun: request_fun
+             )
+
+    assert_receive {:provider_meter_changed, snapshot}
+    assert_in_delta snapshot.windows["prepaid-balance-usd"].used_percent, 20.0, 0.01
+  end
+
   test "OpenRouter probe uses the management key and subtracts usage from credits" do
     :ok = Events.subscribe_observed()
     parent = self()
@@ -253,6 +330,7 @@ defmodule Aiur.ProviderMeterProbeTest do
     assert %{observed?: true} =
              OpenAICompatProbe.probe(:openrouter, "openrouter",
                observed_at: ~U[2026-08-01 12:00:00Z],
+               path: baseline_path(),
                api_key_fetcher: fn env ->
                  send(parent, {:key_env, env})
                  "management-secret"
@@ -273,10 +351,11 @@ defmodule Aiur.ProviderMeterProbeTest do
     :ok = Events.subscribe_observed()
 
     assert %{observed?: false, reason: :missing_api_key} =
-             OpenAICompatProbe.probe(:deepseek, "deepseek", api_key_fetcher: fn _ -> nil end)
+             OpenAICompatProbe.probe(:deepseek, "deepseek", path: baseline_path(), api_key_fetcher: fn _ -> nil end)
 
     assert %{observed?: false, reason: :malformed} =
              OpenAICompatProbe.probe(:openrouter, "openrouter",
+               path: baseline_path(),
                api_key_fetcher: fn _ -> "secret" end,
                openai_compat_request_fun: fn _ -> {:ok, %{status: 200, body: %{"data" => %{}}}} end
              )
