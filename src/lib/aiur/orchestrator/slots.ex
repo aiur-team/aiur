@@ -211,6 +211,7 @@ defmodule Aiur.Orchestrator.Slots do
       max: max,
       effective: effective_concurrent_agent_limit(state),
       available: available_slots(state),
+      queued_demand?: DispatchPolicy.queued_dispatch_demand?(Map.values(state.last_polled_issues), state),
       session_override?: is_integer(state.session_max_concurrent_agents),
       draining?: active > max
     }

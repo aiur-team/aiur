@@ -86,6 +86,10 @@ defmodule Aiur.AgentControlCLITest do
     }
   end
 
+  defp queued_issue(issue_id \\ "issue-queued") do
+    %Issue{id: issue_id, identifier: "repo##{issue_id}", state: "In Progress", title: "Queued"}
+  end
+
   # A running entry shaped for `watch` assertions: lets a test set the tracker
   # state, labels (for the complexity column), last activity timestamp (for age
   # / stuck detection) and last message (for the doing column).
@@ -375,7 +379,8 @@ defmodule Aiur.AgentControlCLITest do
           running: %{
             "issue-44" => running_entry("issue-44", "repo#44", :working),
             "issue-45" => running_entry("issue-45", "repo#45", :working)
-          }
+          },
+          last_polled_issues: %{"issue-queued" => queued_issue()}
       }
     end)
 
@@ -387,12 +392,31 @@ defmodule Aiur.AgentControlCLITest do
         state
         | max_concurrent_agents: 2,
           effective_concurrent_agents: 1,
-          running: %{"issue-44" => running_entry("issue-44", "repo#44", :working)}
+          running: %{"issue-44" => running_entry("issue-44", "repo#44", :working)},
+          last_polled_issues: %{"issue-queued" => queued_issue()}
       }
     end)
 
     envelope_output = capture_io(fn -> AgentControlCLI.status() end)
     assert envelope_output =~ "AGENTS 1/2 (binding: AIMD envelope, effective cap=1)"
+  end
+
+  test "status treats blocked tracker rows as ticket supply, not dispatch demand", %{orchestrator: pid} do
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | max_concurrent_agents: 2,
+          effective_concurrent_agents: 2,
+          last_polled_issues: %{
+            "issue-paused" => Map.put(queued_issue(), :paused, true),
+            "issue-unauthorized" => Map.put(queued_issue("issue-unauthorized"), :dispatch_authorized?, false)
+          }
+      }
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~ "AGENTS 0/2 (binding: ticket supply)"
   end
 
   test "status counts paused reservations as occupied capacity", %{orchestrator: pid} do
@@ -416,6 +440,29 @@ defmodule Aiur.AgentControlCLITest do
 
     assert output =~ "AGENTS 2/2 (binding: paused reservations=2)"
     refute output =~ "binding: ticket supply"
+  end
+
+  test "status does not blame paused reservations when the cap is already binding", %{orchestrator: pid} do
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | max_concurrent_agents: 3,
+          session_max_concurrent_agents: 1,
+          effective_concurrent_agents: 1,
+          running: %{
+            "issue-active" => running_entry("issue-active", "repo#active", :working),
+            "issue-paused" =>
+              running_entry("issue-paused", "repo#paused", :paused)
+              |> Map.put(:paused_reason, :operator_pause)
+          },
+          last_polled_issues: %{"issue-queued" => queued_issue()}
+      }
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~ "AGENTS 2/1 (binding: session max_concurrent_agents)"
+    refute output =~ "paused reservations"
   end
 
   test "status uses a source-neutral session cap label", %{orchestrator: pid} do
@@ -517,7 +564,7 @@ defmodule Aiur.AgentControlCLITest do
     end)
 
     output = capture_io(fn -> AgentControlCLI.status() end)
-    assert output =~ "AGENTS 0/10 (binding: provisioning, max_concurrent_builds=2)"
+    assert output =~ "AGENTS 0/10 (binding: none)"
     assert output =~ "BUILD GATE 1/2 active, 1 queued"
     File.touch!(release_path)
     assert_receive {^holder, {:exit_status, 0}}, 2_000

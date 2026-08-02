@@ -233,7 +233,7 @@ defmodule Aiur.CLI do
   end
 
   defp warn_if_max_agents_exceeds_config(opts, deps) do
-    with requested when is_integer(requested) <- Keyword.get(opts, :max_agents),
+    with requested when is_integer(requested) <- last_option_value(opts, :max_agents),
          configured_max_agents when is_function(configured_max_agents, 0) <- Map.get(deps, :configured_max_agents),
          ceiling when is_integer(ceiling) and ceiling > 0 <- configured_max_agents.(),
          true <- requested > ceiling do
@@ -244,6 +244,13 @@ defmodule Aiur.CLI do
       ])
     else
       _ -> :ok
+    end
+  end
+
+  defp last_option_value(opts, key) do
+    case Keyword.get_values(opts, key) do
+      [] -> nil
+      values -> List.last(values)
     end
   end
 

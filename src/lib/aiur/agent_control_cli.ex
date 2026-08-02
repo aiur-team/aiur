@@ -27,7 +27,7 @@ defmodule Aiur.AgentControlCLI do
         visible_statuses = Enum.filter(statuses, &visible_status_row?/1)
         visible_statuses |> print_status_table()
 
-        print_capacity_status(Orchestrator.max_concurrent_agents(), visible_statuses, BuildGate.status())
+        print_capacity_status(Orchestrator.max_concurrent_agents())
 
         print_build_gate_status()
 
@@ -618,35 +618,27 @@ defmodule Aiur.AgentControlCLI do
     end)
   end
 
-  defp print_capacity_status(
-         %{occupied: occupied, max: max, effective: effective, configured: configured} = capacity,
-         statuses,
-         build_gate
-       )
+  defp print_capacity_status(%{occupied: occupied, max: max, effective: effective, configured: configured} = capacity)
        when is_integer(occupied) and is_integer(max) and is_integer(effective) and is_integer(configured) do
-    IO.puts("AGENTS #{occupied}/#{max} (binding: #{capacity_binding_label(capacity_binding(capacity, statuses, build_gate))})")
+    IO.puts("AGENTS #{occupied}/#{max} (binding: #{capacity_binding_label(capacity_binding(capacity))})")
   end
 
-  defp print_capacity_status(_capacity, _statuses, _build_gate), do: :ok
+  defp print_capacity_status(_capacity), do: :ok
 
   defp capacity_binding_label({:config_cap, _detail}), do: "config max_concurrent_agents"
   defp capacity_binding_label({:envelope, detail}), do: "AIMD envelope, effective cap=#{detail}"
-  defp capacity_binding_label({:provisioning, detail}), do: "provisioning, max_concurrent_builds=#{detail}"
   defp capacity_binding_label({:paused_reservations, detail}), do: "paused reservations=#{detail}"
   defp capacity_binding_label({:ticket_supply, _detail}), do: "ticket supply"
   defp capacity_binding_label({:session_cap, _detail}), do: "session max_concurrent_agents"
   defp capacity_binding_label({:none, _detail}), do: "none"
 
-  defp capacity_binding(
-         %{max: max, effective: effective, configured: configured, occupied: occupied, reserved_paused: reserved_paused} = capacity,
-         statuses,
-         build_gate
-       ) do
-    idle_count = Enum.count(statuses, &(&1.state == :idle))
-
+  defp capacity_binding(%{max: max, effective: effective, configured: configured, occupied: occupied} = capacity) do
     cond do
-      reserved_paused > 0 and Map.get(capacity, :available, 1) == 0 ->
-        {:paused_reservations, reserved_paused}
+      capacity_binding_ticket_supply?(capacity) ->
+        {:ticket_supply, 0}
+
+      paused_reservation_binding?(capacity) ->
+        {:paused_reservations, capacity.reserved_paused}
 
       effective < max and occupied >= effective ->
         {:envelope, effective}
@@ -654,28 +646,25 @@ defmodule Aiur.AgentControlCLI do
       occupied >= max and max == configured and not Map.get(capacity, :session_override?, false) ->
         {:config_cap, configured}
 
-      build_gate_binding?(build_gate, idle_count) ->
-        {:provisioning, build_gate.capacity}
+      occupied >= max ->
+        {:session_cap, max}
 
       true ->
-        capacity_binding_without_admission(occupied, max, idle_count)
+        {:none, nil}
     end
   end
 
-  defp capacity_binding_without_admission(occupied, max, _idle_count)
-       when occupied >= max,
-       do: {:session_cap, max}
+  defp capacity_binding_ticket_supply?(%{available: available, queued_demand?: false})
+       when is_integer(available) and available > 0,
+       do: true
 
-  defp capacity_binding_without_admission(_occupied, _max, 0), do: {:ticket_supply, 0}
+  defp capacity_binding_ticket_supply?(_capacity), do: false
 
-  defp capacity_binding_without_admission(_occupied, _max, _idle_count), do: {:none, nil}
+  defp paused_reservation_binding?(%{active: active, effective: effective, available: 0, reserved_paused: reserved_paused})
+       when reserved_paused > 0 and effective > active,
+       do: true
 
-  defp build_gate_binding?(%{enabled?: true, capacity: capacity, active: active, queued: queued}, idle_count)
-       when is_integer(capacity) and is_integer(active) and is_integer(queued) and capacity > 0 do
-    idle_count > 0 and (active >= capacity or queued > 0)
-  end
-
-  defp build_gate_binding?(_build_gate, _idle_count), do: false
+  defp paused_reservation_binding?(_capacity), do: false
 
   @doc """
   Print Codex and Claude limit headroom from the daemon-owned meter projection.
@@ -818,11 +807,12 @@ defmodule Aiur.AgentControlCLI do
 
         IO.puts(
           "BUILD GATE DEGRADED #{active}/#{capacity} active, #{queued} queued; " <>
-            "reason=#{issue.reason} path=#{issue.path}#{suffix}; recovery=#{issue.recovery}"
+            "max_concurrent_builds=#{capacity}; reason=#{issue.reason} path=#{issue.path}#{suffix}; " <>
+            "recovery=#{issue.recovery}"
         )
 
       %{enabled?: true, capacity: capacity, active: active, queued: queued} when active > 0 or queued > 0 ->
-        IO.puts("BUILD GATE #{active}/#{capacity} active, #{queued} queued")
+        IO.puts("BUILD GATE #{active}/#{capacity} active, #{queued} queued (max_concurrent_builds=#{capacity})")
 
       _ ->
         :ok
