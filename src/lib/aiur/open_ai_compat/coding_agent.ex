@@ -63,25 +63,28 @@ defmodule Aiur.OpenAICompat.CodingAgent do
       state = Session.get(pid)
       state = %{state | messages: state.messages ++ [%{"role" => "user", "content" => prompt}]}
 
-      case run_loop(state, opts, 0) do
-        {:ok, state, completion} ->
-          Session.update(pid, fn _ -> state end)
-          {:ok, Map.merge(session, %{result: :turn_completed, completion: completion})}
-
-        {:paused, state, payload} ->
-          Session.update(pid, fn _ -> state end)
-          {:paused, Map.put(payload, :session_id, session.thread_id)}
-
-        {:error, state, reason} ->
-          Session.update(pid, fn _ -> state end)
-          {:error, reason}
-      end
+      state |> run_loop(opts, 0) |> commit_turn(pid, session)
     else
       {:error, :session_closed}
     end
   end
 
   def run_turn(_session, _prompt, _issue, _opts), do: {:error, :invalid_session}
+
+  defp commit_turn({:ok, state, completion}, pid, session) do
+    Session.update(pid, fn _ -> state end)
+    {:ok, Map.merge(session, %{result: :turn_completed, completion: completion})}
+  end
+
+  defp commit_turn({:paused, state, payload}, pid, session) do
+    Session.update(pid, fn _ -> state end)
+    {:paused, Map.put(payload, :session_id, session.thread_id)}
+  end
+
+  defp commit_turn({:error, state, reason}, pid, _session) do
+    Session.update(pid, fn _ -> state end)
+    {:error, reason}
+  end
 
   @impl true
   def stop_session(%{session_pid: pid}) when is_pid(pid) do
@@ -126,28 +129,38 @@ defmodule Aiur.OpenAICompat.CodingAgent do
       state = Conversation.append_assistant(state, completion)
 
       case completion.tool_calls do
-        [] ->
-          case Checkpoint.deliver(state, %{kind: :notification, method: "response/completed"}, opts) do
-            {:delivered, state} ->
-              run_loop(state, opts, rounds + 1)
-
-            {:noop, state} ->
-              emit(opts, %{event: :turn_completed, payload: %{id: completion.id}})
-              {:ok, state, completion}
-          end
-
-        calls ->
-          with {:ok, state} <- execute_tools(state, calls, opts),
-               :continue <- pause_state() do
-            run_loop(state, opts, rounds + 1)
-          else
-            {:paused, current, payload} -> {:paused, current, payload}
-            {:error, reason} -> {:error, state, reason}
-          end
+        [] -> finish_or_continue(state, completion, opts, rounds)
+        calls -> run_tool_round(state, calls, opts, rounds)
       end
     else
       {:paused, payload} -> {:paused, state, payload}
       {:error, reason} -> {:error, state, reason}
+    end
+  end
+
+  defp finish_or_continue(state, completion, opts, rounds) do
+    case Checkpoint.deliver(state, %{kind: :notification, method: "response/completed"}, opts) do
+      {:delivered, state} ->
+        run_loop(state, opts, rounds + 1)
+
+      {:noop, state} ->
+        emit(opts, %{event: :turn_completed, payload: %{id: completion.id}})
+        {:ok, state, completion}
+    end
+  end
+
+  defp run_tool_round(state, calls, opts, rounds) do
+    case execute_tools(state, calls, opts) do
+      {:ok, next} ->
+        # A pause landing between the last tool result and here must keep the
+        # state the tool results were appended to, or the round is replayed.
+        case pause_state() do
+          :continue -> run_loop(next, opts, rounds + 1)
+          {:paused, payload} -> {:paused, next, payload}
+        end
+
+      {:paused, current, payload} ->
+        {:paused, current, payload}
     end
   end
 
@@ -160,14 +173,15 @@ defmodule Aiur.OpenAICompat.CodingAgent do
       })
 
       result =
-        with {:ok, arguments} <- Tools.decode_and_validate(call.name, call.arguments) do
-          Tools.execute(
-            call.name,
-            arguments,
-            %{workspace: current.workspace, tool_executor: Keyword.get(opts, :tool_executor)},
-            opts
-          )
-        else
+        case Tools.decode_and_validate(call.name, call.arguments) do
+          {:ok, arguments} ->
+            Tools.execute(
+              call.name,
+              arguments,
+              %{workspace: current.workspace, tool_executor: Keyword.get(opts, :tool_executor)},
+              opts
+            )
+
           {:error, reason} ->
             %{
               "success" => false,

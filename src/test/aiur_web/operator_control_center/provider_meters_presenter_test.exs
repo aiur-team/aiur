@@ -198,6 +198,12 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
       assert by_kind[:credit].credits.label == "Exhausted"
       assert by_kind[:credit].credits.amount == 0
       assert by_kind[:spend_control].spend_control.label == "Enabled"
+
+      # A prepaid provider reports dollars, not a consumed fraction. A supported
+      # window carrying no used_percent must render as no meter at all: showing
+      # it as "0% used" reads as full headroom when the truth is unknown (#1436).
+      assert by_kind[:credit].meter == %{kind: :none}
+      assert by_kind[:spend_control].meter == %{kind: :none}
     end
 
     test "windows sort deterministically by kind then name" do

@@ -3,6 +3,7 @@ defmodule Aiur.ProviderMeterProbeTest do
 
   alias Aiur.{ProviderMeterProbe, ProviderMeterProjection, ProviderMeterSnapshot}
   alias Aiur.OpenAICompat.ProviderMeterProbe, as: OpenAICompatProbe
+  alias Aiur.ProviderMeters.Events
 
   defmodule FakeAgent do
     @moduledoc false
@@ -98,7 +99,10 @@ defmodule Aiur.ProviderMeterProbeTest do
         projection: ctx.projection,
         workspace: "/tmp/aiur-probe-test",
         observation_window_ms: 60,
-        probe_agent: FakeAgent
+        probe_agent: FakeAgent,
+        # Pinned so the probe's dispatch gate reads a fixture rather than the
+        # daemon's live config, which other suites mutate.
+        backend_configs: %{}
       ],
       extra
     )
@@ -180,7 +184,7 @@ defmodule Aiur.ProviderMeterProbeTest do
   end
 
   test "DeepSeek probe publishes USD prepaid balance and local concurrency" do
-    :ok = Aiur.ProviderMeters.Events.subscribe_observed()
+    :ok = Events.subscribe_observed()
     parent = self()
 
     request_fun = fn request ->
@@ -221,7 +225,7 @@ defmodule Aiur.ProviderMeterProbeTest do
   end
 
   test "OpenRouter probe uses the management key and subtracts usage from credits" do
-    :ok = Aiur.ProviderMeters.Events.subscribe_observed()
+    :ok = Events.subscribe_observed()
     parent = self()
 
     assert %{observed?: true} =
@@ -244,7 +248,7 @@ defmodule Aiur.ProviderMeterProbeTest do
   end
 
   test "absent or malformed balance values never fabricate zero credits" do
-    :ok = Aiur.ProviderMeters.Events.subscribe_observed()
+    :ok = Events.subscribe_observed()
 
     assert %{observed?: false, reason: :missing_api_key} =
              OpenAICompatProbe.probe(:deepseek, "deepseek", api_key_fetcher: fn _ -> nil end)
@@ -290,5 +294,4 @@ defmodule Aiur.ProviderMeterProbeTest do
     assert String.starts_with?(workspace, Aiur.Config.workspace_root())
     assert File.dir?(workspace)
   end
-
 end

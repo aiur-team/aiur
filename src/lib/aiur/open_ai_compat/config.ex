@@ -106,29 +106,20 @@ defmodule Aiur.OpenAICompat.Config do
     end)
   end
 
-  defp atomize(_), do: %{}
-
   defp atomize_value(value) when is_map(value), do: atomize(value)
   defp atomize_value("chat_completions"), do: :chat_completions
   defp atomize_value("responses"), do: :responses
   defp atomize_value(value), do: value
 
-  defp safe_key(key) do
-    case key do
-      "base_url" -> :base_url
-      "api_key_env" -> :api_key_env
-      "model" -> :model
-      "default_model" -> :default_model
-      "transport" -> :transport
-      "quirks" -> :quirks
-      "management_api_key_env" -> :management_api_key_env
-      "reasoning_content_replay" -> :reasoning_content_replay
-      "text_tool_fallback" -> :text_tool_fallback
-      "openrouter_metadata" -> :openrouter_metadata
-      "local_concurrency_limit" -> :local_concurrency_limit
-      _ -> key
-    end
-  end
+  # Only these string keys become atoms. Anything else stays a binary, so an
+  # attacker-supplied config key cannot exhaust the atom table.
+  @known_keys Map.new(
+                ~w(base_url api_key_env model default_model transport quirks management_api_key_env
+                   reasoning_content_replay text_tool_fallback openrouter_metadata local_concurrency_limit),
+                &{&1, String.to_atom(&1)}
+              )
+
+  defp safe_key(key), do: Map.get(@known_keys, key, key)
 
   defp request(%{url: url, headers: headers, json: json}) do
     case Req.post(url, headers: Map.to_list(headers), json: json, receive_timeout: 300_000, retry: false) do
@@ -137,13 +128,8 @@ defmodule Aiur.OpenAICompat.Config do
     end
   end
 
-  defp normalize_headers(headers) when is_map(headers) do
-    Map.new(headers, fn {key, value} -> {String.downcase(to_string(key)), List.wrap(value) |> List.first()} end)
+  # Req hands back a map, but a list of pairs normalizes identically.
+  defp normalize_headers(headers) do
+    Map.new(headers, fn {key, value} -> {String.downcase(to_string(key)), value |> List.wrap() |> List.first()} end)
   end
-
-  defp normalize_headers(headers) when is_list(headers) do
-    Map.new(headers, fn {key, value} -> {String.downcase(to_string(key)), List.wrap(value) |> List.first()} end)
-  end
-
-  defp normalize_headers(_), do: %{}
 end

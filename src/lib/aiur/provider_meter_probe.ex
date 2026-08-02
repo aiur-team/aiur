@@ -107,9 +107,13 @@ defmodule Aiur.ProviderMeterProbe do
 
     case open_probe_session(backend, opts) do
       {:ok, session, close} ->
-        wait_for_observation(provider, before, opts)
+        # The poll result is authoritative: once the window has seen the
+        # observation land, a later projection read that times out or finds the
+        # process momentarily gone must not downgrade it back to "not observed".
+        # The re-read only covers an observation that arrived during the close.
+        observed? = wait_for_observation(provider, before, opts) == :ok
         safe_close(close, session)
-        outcome(provider, observed_at(provider, opts) != before, nil)
+        outcome(provider, observed? or observed_at(provider, opts) != before, nil)
 
       {:error, reason} ->
         outcome(provider, false, reason)
