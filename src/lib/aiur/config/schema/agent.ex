@@ -84,7 +84,7 @@ defmodule Aiur.Config.Schema.Agent do
     # max_turns recycle or completed-entry replacement) whose codex thread could
     # not be resumed gets continuation guidance instead of the cold-start prompt,
     # so it does not re-run brainstorm/plan over work that already exists.
-    field(:prior_work_continuation, :boolean, default: false)
+    field(:prior_work_continuation, :boolean, default: true)
     # Lifetime cap on (re)dispatches for one ticket. The per-window thrash
     # breaker resets whenever its window lapses, so a slowly-churning ticket is
     # never circuit-broken. 0 disables the latch.
@@ -217,6 +217,7 @@ defmodule Aiur.Config.Schema.Agent do
     |> AgentValidation.validate_state_limits(:max_concurrent_agents_by_state)
     |> update_change(:routing, &AgentValidation.normalize_agent_routing/1)
     |> AgentValidation.validate_agent_routing(:routing)
+    |> validate_dispatch_selections()
     |> validate_change(:switch_model_on_ratelimit, fn :switch_model_on_ratelimit, backends ->
       known = Aiur.CodingAgent.known_backends()
 
@@ -240,6 +241,35 @@ defmodule Aiur.Config.Schema.Agent do
     |> AgentValidation.validate_max_turns_by_complexity(:max_turns_by_complexity)
     |> cast_embed(:claude, with: &Claude.changeset/2)
     |> cast_embed(:codex, with: &Codex.changeset/2)
+  end
+
+  defp validate_dispatch_selections(changeset) do
+    dispatchable = Aiur.CodingAgent.dispatchable_backends(Ecto.Changeset.get_field(changeset, :backend_configs) || %{})
+
+    changeset
+    |> reject_disabled_backend(:kind, Ecto.Changeset.get_field(changeset, :kind), dispatchable)
+    |> reject_disabled_backends(:switch_model_on_ratelimit, Ecto.Changeset.get_field(changeset, :switch_model_on_ratelimit), dispatchable)
+    |> reject_disabled_backend(:rate_limit_primary, Ecto.Changeset.get_field(changeset, :rate_limit_primary), dispatchable)
+    |> reject_disabled_backend(:rate_limit_fallback, Ecto.Changeset.get_field(changeset, :rate_limit_fallback), dispatchable)
+  end
+
+  defp reject_disabled_backends(changeset, field, values, dispatchable) when is_list(values) do
+    case Enum.find(values, &(&1 not in dispatchable)) do
+      nil -> changeset
+      backend -> Ecto.Changeset.add_error(changeset, field, "backend #{inspect(backend)} is disabled; dispatchable backends: #{inspect(dispatchable)}")
+    end
+  end
+
+  defp reject_disabled_backends(changeset, _field, _values, _dispatchable), do: changeset
+
+  defp reject_disabled_backend(changeset, _field, backend, _dispatchable) when backend in [nil, ""], do: changeset
+
+  defp reject_disabled_backend(changeset, field, backend, dispatchable) do
+    if backend in Aiur.CodingAgent.known_backends() and backend not in dispatchable do
+      Ecto.Changeset.add_error(changeset, field, "backend #{inspect(backend)} is disabled; set agent.backend_configs.#{backend}.enabled: true to opt in")
+    else
+      changeset
+    end
   end
 
   # The fallback names a registered backend distinct from the primary, or "" to

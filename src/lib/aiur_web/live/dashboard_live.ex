@@ -687,6 +687,7 @@ defmodule AiurWeb.DashboardLive do
       </:banner>
 
       <Overview.error error={@payload.fleet[:error]} />
+      <Overview.stale_snapshot freshness={@payload.fleet[:snapshot_freshness]} />
 
       <div :if={@live_action in [:decisions, :decision]} class="control-panel">
         <div :if={not is_nil(@selected_decision) and partial_detail?(@selected_decision_health)} class="readonly-banner" role="status" aria-live="polite">
@@ -735,6 +736,12 @@ defmodule AiurWeb.DashboardLive do
           <p id="units-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true">
             {@units_announcement}
           </p>
+          <RunSummaryStrip.run_summary_compact
+            run={@run_summary}
+            usage={@usage_summary}
+            meters={@provider_meters_view}
+            now={@now}
+          />
           <UnitsFilters.units_filters
             selection={@units_selection}
             counts={@units_view[:counts] || %{}}

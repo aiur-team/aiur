@@ -14,8 +14,8 @@ defmodule Aiur.UsageEnvelope do
   # Registry-derived at compile time: the provider families that meter, so a new
   # backend's envelopes validate without editing this list.
   @providers Aiur.CodingAgent.provider_families()
-  @backends [:app_server, :remote_control, :unknown]
-  @transports [:app_server, :otlp, :remote_control, :unknown]
+  @backends Enum.uniq(CodingAgent.usage_backends() ++ [:remote_control, :unknown])
+  @transports Enum.uniq(CodingAgent.usage_transports() ++ [:otlp, :remote_control, :unknown])
   @measurement_kinds [:delta, :absolute]
   @counter_scopes [:request, :turn, :thread, :session]
   @update_kinds [:full, :partial]

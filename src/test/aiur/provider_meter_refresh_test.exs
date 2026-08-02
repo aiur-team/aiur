@@ -43,6 +43,32 @@ defmodule Aiur.ProviderMeterRefreshTest do
     assert_receive {:observed, :all}, 1_000
   end
 
+  test "a slow probe never blocks the cadence server and overlapping requests coalesce" do
+    test = self()
+
+    pid =
+      start_refresh(
+        agents_running?: false,
+        baseline_delay_ms: :never,
+        interval_ms: 60_000,
+        observer: fn target ->
+          send(test, {:probe_started, target, self()})
+          receive do: (:release -> :ok)
+        end
+      )
+
+    ProviderMeterRefresh.refresh_now(pid)
+    assert_receive {:probe_started, :all, probe_pid}, 1_000
+
+    assert %{probe_ref: probe_ref} = :sys.get_state(pid, 500)
+    assert is_reference(probe_ref)
+
+    ProviderMeterRefresh.refresh_now(pid)
+    refute_receive {:probe_started, :all, _other_pid}, 100
+
+    send(probe_pid, :release)
+  end
+
   # A provider being unreachable is expected, not fatal: the retained
   # observation keeps displaying with its true age.
   test "an observer that raises never takes the scheduler down" do

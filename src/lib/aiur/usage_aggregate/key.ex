@@ -15,7 +15,7 @@ defmodule Aiur.UsageAggregate.Key do
   @money_basis :provider_reported_estimate
 
   @providers CodingAgent.provider_families()
-  @backends [:app_server, :remote_control, :unknown]
+  @backends Enum.uniq(CodingAgent.usage_backends() ++ [:remote_control, :unknown])
   @agent_families CodingAgent.provider_families()
   @auth_modes [:api_key, :chatgpt, :unknown]
   @context_tiers [:short_context, :long_context, :not_applicable]

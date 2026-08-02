@@ -26,6 +26,7 @@ defmodule AiurWeb.StreamdeckProjection do
   defp fleet_agents do
     case safe_call(snapshot_fun(), %{agents: []}) do
       %{agents: agents} when is_list(agents) -> fleet_agents(agents)
+      {_status, %{running: running, retrying: retrying, idle: idle}, _freshness} -> snapshot_agents(running, retrying, idle)
       %{running: running, retrying: retrying, idle: idle} -> snapshot_agents(running, retrying, idle)
       _ -> []
     end
@@ -126,7 +127,7 @@ defmodule AiurWeb.StreamdeckProjection do
   end
 
   defp snapshot_fun do
-    endpoint_config(:streamdeck_snapshot_fun) || fn -> Orchestrator.snapshot(orchestrator(), snapshot_timeout_ms()) end
+    endpoint_config(:streamdeck_snapshot_fun) || fn -> Orchestrator.dashboard_snapshot(orchestrator(), snapshot_timeout_ms()) end
   end
 
   defp provider_meters_fun do
