@@ -28,10 +28,18 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
           progress: 0..100,
           has_progress: boolean(),
           merged: boolean(),
-          state: :merged | :working | :ready | :blocked | :plain,
+          state: :merged | :working | :ready | :blocked | :plain | :planned,
           status_word: String.t(),
+          icon: String.t() | nil,
           blocks: non_neg_integer(),
           adhoc: boolean()
+        }
+
+  @type column :: %{
+          lane: String.t(),
+          label: String.t(),
+          count: non_neg_integer(),
+          pct: 0..100
         }
 
   @doc """
@@ -39,7 +47,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
   `adhoc` is the Ad Hoc overlay projection map (`%{rows: [...]}`) or nil.
   """
   @spec build(term(), term()) :: %{
-          columns: [map()],
+          columns: [column()],
           waves: [map()],
           cards: [card()],
           edges: [map()],
@@ -80,7 +88,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
   # --- cards ------------------------------------------------------------------
 
   defp core_cards(%AiurWeb.BuildOrderViewModel{nodes: nodes}, planning?) when is_list(nodes),
-    do: Enum.map(nodes, &core_card(&1, planning?))
+    do: Enum.map(nodes, &core_card(&1, planning? or Map.get(&1.card, :planned?) == true))
 
   defp core_cards(_model, _planning?), do: []
 
@@ -111,6 +119,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
       merged: merged,
       state: core_state(status_key),
       status_word: core_status_word(status_key, node.execution, Map.get(card, :status_text)),
+      icon: Map.get(card, :icon),
       adhoc: false
     }
   end
@@ -144,6 +153,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
       merged: merged,
       state: state,
       status_word: adhoc_status_word(state),
+      icon: nil,
       adhoc: true
     }
   end
@@ -233,13 +243,14 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
 
   defp edges(%AiurWeb.BuildOrderViewModel{edges: edges}, core_cards, planning?) when is_list(edges) do
     id_by_key = Map.new(core_cards, &{&1.key, &1.id})
+    planned_ids = core_cards |> Enum.filter(&(&1.state == :planned)) |> MapSet.new(& &1.id)
 
     edges
     |> Enum.flat_map(fn
       %Edge{source_key: source_key, target_key: target_key, state: state} ->
         with source when is_binary(source) <- Map.get(id_by_key, source_key),
              target when is_binary(target) <- Map.get(id_by_key, target_key) do
-          [%{source: source, target: target, state: edge_state(state, planning?)}]
+          [%{source: source, target: target, state: edge_state(state, planning? or MapSet.member?(planned_ids, source) or MapSet.member?(planned_ids, target))}]
         else
           _missing -> []
         end
