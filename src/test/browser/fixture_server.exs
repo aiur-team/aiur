@@ -1580,6 +1580,46 @@ defmodule Aiur.BrowserHarness.FixtureServer do
     Process.sleep(:infinity)
   end
 
+  def streamdeck_snapshot do
+    %{
+      running: [streamdeck_agent("1352", "Fixture running", "codex")],
+      retrying: [streamdeck_agent("1338", "Fixture stuck", "codex", work_state: :error)],
+      idle: [
+        streamdeck_agent("1345", "Fixture paused", "claude", work_state: :paused),
+        streamdeck_agent("1350", "Fixture queued", "codex", waiting_reason: :waiting_for_dependency),
+        streamdeck_agent("1331", "Fixture alert", "claude", open_decision_count: 1),
+        streamdeck_agent("1360", "Fixture extra 1", "codex"),
+        streamdeck_agent("1361", "Fixture extra 2", "codex"),
+        streamdeck_agent("1362", "Fixture extra 3", "codex"),
+        streamdeck_agent("1363", "Fixture extra 4", "codex"),
+        streamdeck_agent("1366", "Fixture extra 5", "codex"),
+        streamdeck_agent("1367", "Fixture extra 6", "codex"),
+        streamdeck_agent("1370", "Fixture extra 7", "codex"),
+        streamdeck_agent("1371", "Fixture extra 8", "codex"),
+        streamdeck_agent("1372", "Fixture extra 9", "codex"),
+        streamdeck_agent("1373", "Fixture extra 10", "codex"),
+        streamdeck_agent("1374", "Fixture extra 11", "codex"),
+        streamdeck_agent("1375", "Fixture extra 12", "codex"),
+        streamdeck_agent("1376", "Fixture extra 13", "codex"),
+        streamdeck_agent("1377", "Fixture extra 14", "codex")
+      ]
+    }
+  end
+
+  def streamdeck_provider_meters do
+    %{
+      "claude" => %{"state" => "observed", "windows" => %{"daily" => %{"name" => "Daily", "used_percent" => 30}}},
+      "codex" => %{"state" => "observed", "windows" => %{"daily" => %{"name" => "Daily", "used_percent" => 50}}}
+    }
+  end
+
+  def streamdeck_logs do
+    %{
+      events: Enum.map(1..10, &%{role: :system, body: "event-#{&1}"}),
+      transcript: Enum.map(1..10, &%{role: :assistant, body: "transcript-#{&1}"})
+    }
+  end
+
   defp configure_forwarded_dashboard do
     config =
       :aiur
@@ -1588,10 +1628,30 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         server: false,
         dashboard_writable: false,
         control_center_cache: false,
-        snapshot_timeout_ms: 100
+        snapshot_timeout_ms: 100,
+        streamdeck_snapshot_fun: &__MODULE__.streamdeck_snapshot/0,
+        streamdeck_provider_meters_fun: &__MODULE__.streamdeck_provider_meters/0,
+        streamdeck_logs_fun: &__MODULE__.streamdeck_logs/0
       )
 
     Application.put_env(:aiur, AiurWeb.Endpoint, config)
+  end
+
+  defp streamdeck_agent(identifier, title, backend, attrs \\ []) do
+    Map.merge(
+      %{
+        identifier: identifier,
+        title: title,
+        backend: backend,
+        work_state: :working,
+        open_decision_count: 0,
+        waiting_reason: :active,
+        tracker_paused: false,
+        progress_percent: 50,
+        priority: nil
+      },
+      Map.new(attrs)
+    )
   end
 end
 
