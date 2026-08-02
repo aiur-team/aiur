@@ -10,12 +10,13 @@ Aiur separates the repository's tracked code from daemon-owned state. The per-re
 | --- | --- |
 | `latest/` | Aiur-managed warm clone of the configured base branch. |
 | `builds/` | Runtime Build Order packs and their status projections. |
+| `meta/findings.ndjson` | Executor-written deferred-findings ledger. Create `meta/` when filing it. |
 | `base-record.json` | Provenance for the warm base checkout. |
 | `.aiur-hex/`, `.aiur-mix/`, `.aiur-npm-cache/` | Repository-scoped package, compiler, and build-cache sidecars used while preparing workspaces. |
 
 These paths are machine-local. Do not commit them, and do not expect copying a repository to copy its run state.
 
-The current release does **not** create `analytics/`, `meta/`, or `executor/` beneath this node. Analytics writes `telemetry.ndjson` beside the configured daemon log, and run-private metadata follows the configured log or state roots. In particular, `~/.aiur/repo/<owner>/<repo>/executor/handoff.md` is not a current storage contract. [#1495](https://github.com/aiur-team/aiur/issues/1495) tracks that proposed layout. Do not create those directories in automation in the expectation that Aiur will read them.
+The current release does not create `analytics/` or `executor/` beneath this node. Analytics writes `telemetry.ndjson` beside the configured daemon log. `meta/findings.ndjson` is the narrow exception: until [#1464](https://github.com/aiur-team/aiur/issues/1464) lands, the Executor writes that ledger directly and `aiur findings --unfiled` is unavailable. In particular, `~/.aiur/repo/<owner>/<repo>/executor/handoff.md` is not a current storage contract. [#1495](https://github.com/aiur-team/aiur/issues/1495) tracks that proposed layout.
 
 ## Build Orders
 
@@ -34,6 +35,6 @@ The daemon reads only the state-node copy. A pack left in `docs/`, or committed 
 
 ## Executor handoff and findings
 
-The `aiur-run` skill requires a durable handoff containing the accepted boundary, run identity, decisions, remaining evidence, and deferred findings ledger. The current skill uses the run's research or handoff branch for this material, not a state-node `executor/handoff.md` file. Do not treat Git history or a stale dashboard view as current state.
+The `aiur-run` skill requires a durable handoff containing the accepted boundary, run identity, decisions, and remaining evidence. It currently uses the run's research or handoff branch for that material, not a state-node `executor/handoff.md` file. Deferred findings are filed separately in `meta/findings.ndjson`. Do not treat Git history or a stale dashboard view as current state.
 
 At least hourly, the Executor records a retrospective filing step: name the largest current wall-clock bottleneck, classify repeated failure patterns, make at most the evidence-supported systemic follow-ups, and preserve non-blocking findings in the ledger. This is operational state, not a ticket replacement.

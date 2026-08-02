@@ -16,6 +16,18 @@ Run commands from the repository root, or from a subdirectory beneath a reposito
 <!-- cli-command: --version -->
 <!-- cli-command: init -->
 <!-- cli-command: --todo -->
+<!-- cli-flag: --bg -->
+<!-- cli-flag: --interactive -->
+<!-- cli-flag: --headless -->
+<!-- cli-flag: --no-dashboard -->
+<!-- cli-flag: --host -->
+<!-- cli-flag: --port -->
+<!-- cli-flag: --logs-root -->
+<!-- cli-flag: --max-agents -->
+<!-- cli-flag: --pause -->
+<!-- cli-flag: --debug -->
+<!-- cli-flag: --i-understand-that-this-will-be-running-without-the-usual-guardrails -->
+<!-- cli-flag: --version -->
 
 `aiur`, `aiur run`, and `aiur <config-path>` start a foreground run. The launcher loads `./.env` before starting, without replacing already-exported variables.
 
@@ -30,7 +42,7 @@ Run commands from the repository root, or from a subdirectory beneath a reposito
 | `--no-dashboard` | Disables the HTTP listener in foreground or background mode. It is rejected when Remote Control is configured or activated, because Remote Control needs the lifecycle-hook listener. | `aiur --bg --no-dashboard` |
 | `--host HOST` | Dashboard bind host. Without it, the launcher uses a Tailscale IPv4 address only when credentials are set, otherwise `127.0.0.1`. | `aiur --host 127.0.0.1` |
 | `--port N` | Dashboard port. `0`, the default, asks the OS for a free port. | `aiur --port 4000` |
-| `--logs-root PATH` | Stores this run's logs below an absolute expansion of `PATH`. | `aiur --logs-root ./logs` |
+| `--logs-root PATH` | Stores this run's logs below an absolute expansion of `PATH`. Without it, Aiur mints `~/.aiur/logs/<session-id>/` for the daemon log root. | `aiur --logs-root ./logs` |
 | `--max-agents N` | Positive launch-time concurrency override. It is an upper request, not a guarantee: configuration state caps can still lower effective capacity. | `aiur --max-agents 4` |
 | `--pause` | Starts globally paused, so no agents are provisioned until `aiur resume`. | `aiur --pause` |
 | `--debug` | Launcher convenience flag that enables durable debug logging and chat-pane recording. It is consumed by the launcher, not the release parser. | `aiur run --debug` |
@@ -43,6 +55,9 @@ Run commands from the repository root, or from a subdirectory beneath a reposito
 ## Initialize and queue
 
 <!-- cli-command: --only -->
+<!-- cli-flag: --force -->
+<!-- cli-flag: --todo -->
+<!-- cli-flag: --only -->
 
 | Command | Arguments and behavior | Runnable example |
 | --- | --- | --- |
@@ -58,8 +73,13 @@ Run commands from the repository root, or from a subdirectory beneath a reposito
 <!-- cli-command: agents -->
 <!-- cli-command: alerts -->
 <!-- cli-command: watch -->
+<!-- cli-flag: --needs-attention -->
+<!-- cli-flag: --full -->
+<!-- cli-flag: --changes -->
+<!-- cli-flag: --once -->
+<!-- cli-flag: --interval -->
 
-These commands contact the instance keyed for the current project. They do not rebuild an existing local release when invoked through `aiurdev`.
+These commands contact the instance keyed for the current project. Through `aiurdev`, `status`, `agents`, `alerts`, and the other pure-control commands use the existing release; `usage` and `watch` are not on that fast path and can rebuild a stale local release before they run.
 
 | Command | Default and interaction | Runnable example |
 | --- | --- | --- |
@@ -80,6 +100,7 @@ These commands contact the instance keyed for the current project. They do not r
 <!-- cli-command: pause -->
 <!-- cli-command: resume -->
 <!-- cli-command: message -->
+<!-- cli-flag: --all -->
 
 | Command | Arguments and interaction | Runnable example |
 | --- | --- | --- |
@@ -100,6 +121,8 @@ In the foreground board, `j`/`k` or arrows select rows, `Enter` opens the select
 <!-- cli-command: executor-subscribe -->
 <!-- cli-command: executor-unsubscribe -->
 <!-- cli-command: executor-subscriptions -->
+<!-- cli-flag: --topic -->
+<!-- cli-flag: --payload -->
 
 Executor event bindings are persistent topic-pattern subscriptions. Topic patterns use `*` for one segment and `#` for zero or more segments.
 
@@ -115,6 +138,12 @@ Executor event bindings are persistent topic-pattern subscriptions. Topic patter
 
 <!-- cli-command: cleanup-stale -->
 <!-- cli-command: stop -->
+<!-- cli-flag: --dry-run -->
+<!-- cli-flag: --deps -->
+<!-- cli-flag: --test -->
+<!-- cli-flag: --test3 -->
+<!-- cli-flag: --allow-remote -->
+<!-- cli-flag: --clear -->
 
 | Command | Default and interaction | Runnable example |
 | --- | --- | --- |
@@ -124,7 +153,16 @@ Executor event bindings are persistent topic-pattern subscriptions. Topic patter
 | `scripts/aiurdev build` | Development-only: force-rebuilds the local application and release while keeping dependency artifacts. | `scripts/aiurdev build` |
 | `scripts/aiurdev build --deps` | Development-only: additionally removes the development build artifacts before rebuilding. | `scripts/aiurdev build --deps` |
 
-`aiurdev` also has an Executor-root manual-test harness: `--test`, `--test3`, `--allow-remote`, and `--clear`. They are not installed-product commands. `--test` and `--test3` reset pinned GitHub sandbox tickets; `--clear` requires debug mode and clears prior debug logs. Agent workspaces deliberately reject the test flags, so do not use them for ordinary local verification.
+The following `aiurdev` harness flags are development-only. They are not part of installed `aiur`, and agent workspaces reject the reset paths.
+
+| Command or flag | Default and interaction | Runnable example |
+| --- | --- | --- |
+| `scripts/aiurdev --test` | Executor-root manual harness. Resets one pinned GitHub sandbox ticket, enables `--debug` and `--clear`, then starts a foreground run. | `scripts/aiurdev --test` |
+| `scripts/aiurdev --test3` | Executor-root manual harness. Resets the three-ticket blocker chain, enables `--debug`, `--clear`, and `--allow-remote`, then starts its completion timer and a foreground run. | `scripts/aiurdev --test3` |
+| `scripts/aiurdev --allow-remote` | Allows the reset harness to include its remote-agent path. It matters only with `--test` or `--test3`; alone it has no effect. `--test3` supplies it automatically. | `scripts/aiurdev --test --allow-remote` |
+| `scripts/aiurdev --clear` | Deletes prior debug logs before launch. It requires `--debug`; either test harness enables both automatically. | `scripts/aiurdev --debug --clear` |
+
+Aiur has no `findings` command yet. Until [#1464](https://github.com/aiur-team/aiur/issues/1464) ships its planned `aiur findings --unfiled` query, the Executor writes deferred findings directly to `~/.aiur/repo/<owner>/<repo>/meta/findings.ndjson`.
 
 ## Mechanical coverage audit
 
@@ -135,4 +173,4 @@ cd website/docs-app
 npm run check:cli-reference
 ```
 
-The check reads the shared launcher dispatch, checks every command marker above, and checks the release parser and launcher-only run flags. It fails when a current command or flag is missing from this reference. The release's `--help` is also an input, but not the sole authority: `usage` and `cleanup-stale` are dispatched by the current launcher even though the help banner has not yet listed them.
+The check derives commands from shared launcher dispatch and flags from the release parser, shared control parsers, and bounded dev-harness blocks. Its exact command and flag markers reject both missing and stale entries, and every derived item must have a complete table row with syntax, behavior, and a runnable example. The release's `--help` is also an input, but not the sole authority: `usage` and `cleanup-stale` are dispatched by the current launcher even though the help banner has not yet listed them.
