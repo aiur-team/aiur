@@ -631,42 +631,11 @@ defmodule Aiur.Orchestrator.IssueSync do
   @spec sync_capacity_starvation_alert(State.t(), list(), integer()) :: State.t()
   def sync_capacity_starvation_alert(%State{} = state, issues, now_ms)
       when is_list(issues) and is_integer(now_ms) do
-    configured = Slots.max_concurrent_agent_limit(state)
-    effective = Slots.effective_concurrent_agent_limit(state)
-    ready_issues = ready_dispatch_issues(state, issues)
-    ready_count = length(ready_issues)
+    constraint_entries = capacity_constraint_entries(state, issues)
 
-    constraints = capacity_constraints(state, issues)
-
-    if ready_count > 0 and constraints != [] do
-      starvation = state.capacity_starvation
-      changed? = starvation[:signature] != constraints
-      since_ms = if changed?, do: now_ms, else: starvation[:since_ms] || now_ms
-      alert_active? = not changed? and starvation[:alert_active] == true
-
-      if now_ms - since_ms >= @capacity_starvation_alert_after_ms and not alert_active? do
-        reason =
-          "Ready tickets=#{ready_count}, live agents=#{State.active_running_count(state.running)}, " <>
-            "effective cap=#{effective}, configured cap=#{configured}; " <>
-            "dispatch constraints=#{Enum.join(constraints, "; ")}."
-
-        case Alerts.emit_system("system.dispatch.capacity_starved",
-               reason: reason,
-               needs_attention: true,
-               severity: "warning"
-             ) do
-          :ok ->
-            %{state | capacity_starvation: %{since_ms: since_ms, alert_active: true, signature: constraints}}
-
-          {:error, _reason} ->
-            %{state | capacity_starvation: %{since_ms: since_ms, alert_active: false, signature: constraints}}
-        end
-      else
-        %{state | capacity_starvation: %{since_ms: since_ms, alert_active: alert_active?, signature: constraints}}
-      end
-    else
-      %{state | capacity_starvation: %{since_ms: nil, alert_active: false, signature: nil}}
-    end
+    state
+    |> capacity_starvation_context(issues, constraint_entries)
+    |> sync_capacity_starvation_state(now_ms)
   end
 
   def sync_capacity_starvation_alert(%State{} = state, _issues, _now_ms), do: state
@@ -676,6 +645,64 @@ defmodule Aiur.Orchestrator.IssueSync do
     do: sync_capacity_starvation_alert(state, issues, System.monotonic_time(:millisecond))
 
   def sync_capacity_starvation_alert(%State{} = state, _issues), do: state
+
+  defp capacity_starvation_context(state, issues, constraint_entries) do
+    %{
+      state: state,
+      configured: Slots.max_concurrent_agent_limit(state),
+      effective: Slots.effective_concurrent_agent_limit(state),
+      ready_count: state |> ready_dispatch_issues(issues) |> length(),
+      constraints: Enum.map(constraint_entries, & &1.detail),
+      signature: capacity_constraint_signature(constraint_entries)
+    }
+  end
+
+  defp sync_capacity_starvation_state(%{ready_count: 0} = context, _now_ms),
+    do: clear_capacity_starvation(context.state)
+
+  defp sync_capacity_starvation_state(%{constraints: []} = context, _now_ms),
+    do: clear_capacity_starvation(context.state)
+
+  defp sync_capacity_starvation_state(context, now_ms) do
+    starvation = Map.get(context.state, :capacity_starvation, %{})
+    changed? = starvation[:signature] != context.signature
+    since_ms = if changed?, do: now_ms, else: starvation[:since_ms] || now_ms
+    alert_active? = not changed? and starvation[:alert_active] == true
+
+    if capacity_starvation_alert_due?(since_ms, now_ms, alert_active?) do
+      emit_capacity_starvation_alert(context, since_ms)
+    else
+      put_capacity_starvation(context.state, since_ms, alert_active?, context.signature)
+    end
+  end
+
+  defp capacity_starvation_alert_due?(since_ms, now_ms, alert_active?) do
+    now_ms - since_ms >= @capacity_starvation_alert_after_ms and not alert_active?
+  end
+
+  defp emit_capacity_starvation_alert(context, since_ms) do
+    alert_active? =
+      Alerts.emit_system("system.dispatch.capacity_starved",
+        reason: capacity_starvation_reason(context),
+        needs_attention: true,
+        severity: "warning"
+      ) == :ok
+
+    put_capacity_starvation(context.state, since_ms, alert_active?, context.signature)
+  end
+
+  defp capacity_starvation_reason(context) do
+    "Ready tickets=#{context.ready_count}, live agents=#{State.active_running_count(context.state.running)}, " <>
+      "effective cap=#{context.effective}, configured cap=#{context.configured}; " <>
+      "dispatch constraints=#{Enum.join(context.constraints, "; ")}."
+  end
+
+  defp clear_capacity_starvation(state),
+    do: %{state | capacity_starvation: %{since_ms: nil, alert_active: false, signature: nil}}
+
+  defp put_capacity_starvation(state, since_ms, alert_active?, signature) do
+    %{state | capacity_starvation: %{since_ms: since_ms, alert_active: alert_active?, signature: signature}}
+  end
 
   defp routable_todo_issues(issues) when is_list(issues) do
     issues
@@ -707,15 +734,37 @@ defmodule Aiur.Orchestrator.IssueSync do
     end)
   end
 
-  defp capacity_constraints(%State{} = state, issues) do
+  defp capacity_constraint_entries(%State{} = state, issues) do
     state.dispatch_capacity_constraints
-    |> Enum.map(&render_capacity_constraint/1)
-    |> Enum.reject(&is_nil/1)
-    |> Kernel.++(per_state_capacity_constraints(state, issues))
-    |> Kernel.++(budget_capacity_constraints(state, issues))
+    |> Enum.flat_map(&dispatch_capacity_constraint_entry/1)
+    |> Kernel.++(per_state_capacity_constraint_entries(state, issues))
+    |> Kernel.++(budget_capacity_constraint_entries(state, issues))
+    |> Enum.uniq_by(& &1.identity)
+    |> Enum.sort_by(& &1.detail)
+  end
+
+  defp capacity_constraint_signature(constraint_entries) do
+    constraint_entries
+    |> Enum.map(& &1.identity)
     |> Enum.uniq()
     |> Enum.sort()
   end
+
+  defp dispatch_capacity_constraint_entry(%{kind: kind} = constraint) do
+    case render_capacity_constraint(constraint) do
+      detail when is_binary(detail) -> [%{identity: dispatch_constraint_identity(kind), detail: detail}]
+      nil -> []
+    end
+  end
+
+  defp dispatch_capacity_constraint_entry(_constraint), do: []
+
+  defp dispatch_constraint_identity(:build), do: "build"
+  defp dispatch_constraint_identity(:fd), do: "fd"
+  defp dispatch_constraint_identity(:load), do: "load"
+  defp dispatch_constraint_identity(:load_envelope), do: "load-envelope"
+  defp dispatch_constraint_identity(:memory), do: "memory"
+  defp dispatch_constraint_identity(kind), do: "dispatch:#{kind}"
 
   defp render_capacity_constraint(%{kind: :build, detail: detail}), do: "build gate (#{detail})"
   defp render_capacity_constraint(%{kind: :fd, detail: detail}), do: "FD gate (#{detail})"
@@ -727,48 +776,47 @@ defmodule Aiur.Orchestrator.IssueSync do
   defp render_capacity_constraint(%{kind: :memory, detail: detail}), do: "memory gate (#{detail})"
   defp render_capacity_constraint(_constraint), do: nil
 
-  defp per_state_capacity_constraints(%State{} = state, issues) do
+  defp per_state_capacity_constraint_entries(%State{} = state, issues) do
     configured_limits = Config.settings!().agent.max_concurrent_agents_by_state || %{}
 
     ready_dispatch_issues(state, issues)
     |> Enum.map(&DispatchPolicy.normalize_issue_state(&1.state))
     |> Enum.uniq()
-    |> Enum.flat_map(fn issue_state ->
-      case Map.fetch(configured_limits, issue_state) do
-        {:ok, limit} ->
-          used = DispatchPolicy.running_issue_count_for_state(state.running, issue_state)
-
-          if used >= limit, do: ["per-state limit (#{issue_state}=#{used}/#{limit})"], else: []
-
-        :error ->
-          []
-      end
-    end)
+    |> Enum.flat_map(&per_state_capacity_constraint_entry(state, configured_limits, &1))
   end
 
-  defp budget_capacity_constraints(%State{} = state, issues) do
+  defp per_state_capacity_constraint_entry(state, configured_limits, issue_state) do
+    with {:ok, limit} <- Map.fetch(configured_limits, issue_state),
+         used <- DispatchPolicy.running_issue_count_for_state(state.running, issue_state),
+         true <- used >= limit do
+      [%{identity: "per-state:#{issue_state}", detail: "per-state limit (#{issue_state}=#{used}/#{limit})"}]
+    else
+      _ -> []
+    end
+  end
+
+  defp budget_capacity_constraint_entries(%State{} = state, issues) do
     budget = get_in(state.dispatch_recovery, [:codex_thrash_budget]) || %{}
 
     ready_dispatch_issues(state, issues)
-    |> Enum.flat_map(fn issue ->
-      case Map.get(budget, issue.id, %{}) do
-        %{tripped: :lifetime} = entry ->
-          lifetime = Map.get(entry, :lifetime, 0)
-          ["budget latch (lifetime=#{lifetime})"]
-
-        %{tripped: :window} = entry ->
-          remaining_ms = budget_window_remaining_ms(entry, System.monotonic_time(:millisecond))
-
-          if remaining_ms > 0,
-            do: ["budget circuit (window, clears #{format_remaining_duration(remaining_ms)})"],
-            else: []
-
-        _ ->
-          []
-      end
-    end)
-    |> Enum.uniq()
+    |> Enum.flat_map(&budget_capacity_constraint_entry(&1.id, Map.get(budget, &1.id, %{})))
   end
+
+  defp budget_capacity_constraint_entry(issue_id, %{tripped: :lifetime} = entry) do
+    [%{identity: "budget:lifetime:#{issue_id}", detail: "budget latch (lifetime=#{Map.get(entry, :lifetime, 0)})"}]
+  end
+
+  defp budget_capacity_constraint_entry(issue_id, %{tripped: :window} = entry) do
+    case budget_window_remaining_ms(entry, System.monotonic_time(:millisecond)) do
+      remaining_ms when remaining_ms > 0 ->
+        [%{identity: "budget:window:#{issue_id}", detail: "budget circuit (window, clears #{format_remaining_duration(remaining_ms)})"}]
+
+      _ ->
+        []
+    end
+  end
+
+  defp budget_capacity_constraint_entry(_issue_id, _entry), do: []
 
   defp budget_window_remaining_ms(entry, now_ms) do
     window_ms = Config.codex_thrash_window_seconds() * 1_000

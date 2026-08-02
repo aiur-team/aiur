@@ -9,10 +9,10 @@ defmodule Aiur.Orchestrator.StatusReason do
           | {:paused, atom() | String.t() | nil}
 
   @spec for_idle(boolean(), term(), non_neg_integer(), non_neg_integer()) :: t()
-  def for_idle(true, _trip, _lifetime, _maximum), do: :prewarm_blocked
-
-  def for_idle(false, :lifetime, lifetime, maximum) when is_integer(lifetime) and is_integer(maximum),
+  def for_idle(_prewarm_blocked?, :lifetime, lifetime, maximum) when is_integer(lifetime) and is_integer(maximum),
     do: {:latched, lifetime, maximum}
+
+  def for_idle(true, _trip, _lifetime, _maximum), do: :prewarm_blocked
 
   def for_idle(false, _trip, _lifetime, _maximum), do: :awaiting_dispatch
 

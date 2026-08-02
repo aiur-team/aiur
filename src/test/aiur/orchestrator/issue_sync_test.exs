@@ -40,11 +40,11 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
              since_ms: 1_000,
              alert_active: false,
              signature: [
-               "FD gate (available=2 limit=1024)",
-               "build gate (prewarm=building)",
-               "load gate (load=24.0 threshold=1.0 schedulers=8)",
-               "load-envelope limit (effective_cap=4 configured_cap=4)",
-               "memory gate (available_mb=512 threshold_mb=2048)"
+               "build",
+               "fd",
+               "load",
+               "load-envelope",
+               "memory"
              ]
            }
 
@@ -168,6 +168,58 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     assert alerted.capacity_starvation.alert_active
     assert_receive {:event, %{topic: "system.dispatch.capacity_starved"} = event}, 500
     assert event["reason"] =~ "memory gate"
+  end
+
+  test "keeps the starvation timer through changing samples of one gate" do
+    Publisher.set_tracked_fn(fn _ -> true end)
+    :ok = Exchange.subscribe("system.dispatch.capacity_starved")
+
+    on_exit(fn ->
+      Publisher.set_tracked_fn(fn _ -> true end)
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+    end)
+
+    ready = issue("load-samples", "todo")
+
+    waiting =
+      IssueSync.sync_capacity_starvation_alert(
+        %State{dispatch_capacity_constraints: [%{kind: :load, detail: "load=8.1"}]},
+        [ready],
+        1_000
+      )
+
+    sampled = %{waiting | dispatch_capacity_constraints: [%{kind: :load, detail: "load=9.7"}]}
+    alerted = IssueSync.sync_capacity_starvation_alert(sampled, [ready], 61_000)
+
+    assert alerted.capacity_starvation.alert_active
+    assert alerted.capacity_starvation.signature == ["load"]
+    assert_receive {:event, %{topic: "system.dispatch.capacity_starved"} = event}, 500
+    assert event["reason"] =~ "load=9.7"
+  end
+
+  test "resets the starvation timer when a budget latch moves to another ticket" do
+    first = issue("budget-first", "todo")
+    second = issue("budget-second", "todo")
+
+    waiting =
+      IssueSync.sync_capacity_starvation_alert(
+        %State{dispatch_recovery: %{codex_thrash_budget: %{first.id => %{tripped: :lifetime, lifetime: 20}}}},
+        [first],
+        1_000
+      )
+
+    moved = %{
+      waiting
+      | dispatch_recovery: %{codex_thrash_budget: %{second.id => %{tripped: :lifetime, lifetime: 20}}}
+    }
+
+    reset = IssueSync.sync_capacity_starvation_alert(moved, [second], 61_000)
+
+    assert reset.capacity_starvation == %{
+             since_ms: 61_000,
+             alert_active: false,
+             signature: ["budget:lifetime:#{second.id}"]
+           }
   end
 
   test "includes budget constraints for ready work in every active state" do
