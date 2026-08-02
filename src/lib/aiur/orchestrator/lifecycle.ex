@@ -12,6 +12,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
     AgentTeardown,
     ControlLifecycleStore,
     DispatchPolicy,
+    GlobalPauseStore,
     PauseResume,
     RemoteControlMode,
     Slots,
@@ -70,6 +71,8 @@ defmodule Aiur.Orchestrator.Lifecycle do
     :ok = ControlLifecycleStore.save(control_lifecycle)
 
     snapshot_key = Keyword.get(opts, :name, Aiur.Orchestrator)
+    persisted_global_pause = GlobalPauseStore.load()
+    global_pause = initial_global_pause(persisted_global_pause)
 
     state = %State{
       snapshot_key: snapshot_key,
@@ -85,7 +88,8 @@ defmodule Aiur.Orchestrator.Lifecycle do
       session_max_concurrent_agents: Slots.launch_max_concurrent_agents_override(),
       # `--pause` at launch: cold-start globally paused so no agents provision
       # even with agent:todo tickets, until the operator unpauses.
-      globally_paused: Slots.launch_globally_paused?(),
+      globally_paused: global_pause.globally_paused,
+      global_pause: Map.drop(global_pause, [:globally_paused]),
       effective_concurrent_agents: DispatchPolicy.initial_load_envelope_limit(config.agent),
       load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil},
       next_poll_due_at_ms: now_ms,
@@ -113,6 +117,26 @@ defmodule Aiur.Orchestrator.Lifecycle do
     state = schedule_initial_tick(state, Keyword.get(opts, :initial_poll?, true))
 
     {:ok, state}
+  end
+
+  defp initial_global_pause({:ok, persisted}) do
+    if Slots.launch_globally_paused?() do
+      next = %{globally_paused: true, paused_at: DateTime.utc_now(), source: "CLI --pause"}
+      :ok = GlobalPauseStore.save(next)
+      next
+    else
+      persisted
+    end
+  end
+
+  defp initial_global_pause({:error, _reason}) do
+    if Slots.launch_globally_paused?() do
+      next = %{globally_paused: true, paused_at: DateTime.utc_now(), source: "CLI --pause"}
+      :ok = GlobalPauseStore.save(next)
+      next
+    else
+      %{globally_paused: true, paused_at: DateTime.utc_now(), source: "persistence recovery failed"}
+    end
   end
 
   # On whole-app shutdown the supervisor brutally kills the AgentRunner

@@ -4,7 +4,14 @@ defmodule Aiur.Orchestrator.StatusReport do
   All functions execute inside the orchestrator GenServer process.
   """
 
-  alias Aiur.{AgentEvents, AgentPubSub, AgentQueueStore, CodingAgent, Config, Issue, TicketActivity, TrackerIdentity}
+  alias Aiur.AgentEvents
+  alias Aiur.AgentPubSub
+  alias Aiur.AgentQueueStore
+  alias Aiur.CodingAgent
+  alias Aiur.Config
+  alias Aiur.Issue
+  alias Aiur.TicketActivity
+  alias Aiur.TrackerIdentity
   alias Aiur.Events.SubscriptionStore
   alias Aiur.Orchestrator.ControlLifecycle
   alias Aiur.Orchestrator.DispatchPolicy
@@ -100,6 +107,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       :agent_rate_limits,
       :agent_totals,
       :effective_concurrent_agents,
+      :global_pause,
       :globally_paused,
       :last_polled_issues,
       :load_envelope_state,
@@ -247,6 +255,11 @@ defmodule Aiur.Orchestrator.StatusReport do
       agent_totals: state.agent_totals,
       capacity: Slots.max_concurrent_agent_status(state),
       globally_paused: state.globally_paused == true,
+      global_pause: %{
+        globally_paused: state.globally_paused == true,
+        paused_at: Map.get(state.global_pause, :paused_at),
+        source: Map.get(state.global_pause, :source)
+      },
       rate_limits: Map.get(state, :agent_rate_limits),
       polling: %{
         checking?: state.poll_check_in_progress == true,

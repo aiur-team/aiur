@@ -60,6 +60,7 @@ defmodule Aiur.Orchestrator.State do
           github_connectivity: map(),
           github_poll_delays: map(),
           globally_paused: boolean(),
+          global_pause: %{paused_at: DateTime.t() | nil, source: String.t() | nil},
           control_lifecycle: ControlLifecycle.t()
         }
 
@@ -107,6 +108,7 @@ defmodule Aiur.Orchestrator.State do
     github_connectivity: %{},
     github_poll_delays: %{},
     globally_paused: false,
+    global_pause: %{paused_at: nil, source: nil},
     snapshot_ready?: false,
     control_lifecycle: %ControlLifecycle{}
   ]

@@ -389,7 +389,7 @@ defmodule AiurWeb.PresenterTest do
       |> Map.put(:paused_reason, :global_pause)
 
     :sys.replace_state(pid, fn state ->
-      %{state | running: %{"issue-held" => held_entry}, globally_paused: true}
+      %{state | running: %{"issue-held" => held_entry}, globally_paused: true, global_pause: %{paused_at: ~U[2026-08-01 12:00:00Z], source: "dashboard"}}
     end)
 
     publish_dashboard_snapshot(pid)
@@ -397,6 +397,7 @@ defmodule AiurWeb.PresenterTest do
     payload = Presenter.state_payload(orchestrator_name, 1_000)
 
     assert payload.globally_paused == true
+    assert payload.global_pause == %{globally_paused: true, paused_at: "2026-08-01T12:00:00Z", source: "dashboard"}
     assert [running_row] = payload.running
     assert running_row.waiting_reason == :run_paused
   end

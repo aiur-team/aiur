@@ -62,6 +62,38 @@ defmodule AiurWeb.DashboardLiveTest do
     end
   end
 
+  defmodule GlobalPauseFailureOrchestrator do
+    use GenServer
+
+    def start_link(opts) do
+      GenServer.start_link(__MODULE__, opts, name: Keyword.fetch!(opts, :name))
+    end
+
+    @impl true
+    def init(opts), do: {:ok, %{report: Keyword.fetch!(opts, :report)}}
+
+    @impl true
+    def handle_call(:snapshot, _from, state) do
+      {:reply,
+       %{
+         running: [],
+         retrying: [],
+         idle: [],
+         agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+         capacity: nil,
+         globally_paused: false,
+         global_pause: %{globally_paused: false, paused_at: nil, source: nil},
+         rate_limits: nil,
+         polling: %{checking?: false, next_poll_in_ms: nil, poll_interval_ms: nil}
+       }, state}
+    end
+
+    def handle_call({:set_global_pause, on?, source}, _from, state) do
+      send(state.report, {:global_pause_attempt, on?, source})
+      {:reply, {:error, {:global_pause_persistence_failed, :disk_full}}, state}
+    end
+  end
+
   defmodule ProviderMeterSourceStub do
     @moduledoc false
 
@@ -411,6 +443,7 @@ defmodule AiurWeb.DashboardLiveTest do
       drafts: %{},
       chat_errors: %{},
       decision_actions: %{},
+      global_pause_error: Keyword.get(opts, :global_pause_error),
       writable: Keyword.get(opts, :writable, false),
       live_action: Keyword.get(opts, :live_action, :index),
       decision_filter: :all,
@@ -457,6 +490,33 @@ defmodule AiurWeb.DashboardLiveTest do
       assert html =~ "global-pause-toggle is-paused"
       assert html =~ ~s(aria-pressed="true")
       assert html =~ "Resume all agents (globally paused)"
+      assert html =~ "Aiur is globally paused."
+    end
+
+    test "surfaces a persistence error without claiming the toggle changed" do
+      html =
+        render_payload(global_pause_fleet(false),
+          writable: true,
+          global_pause_error: "Global pause was not changed because its state could not be persisted."
+        )
+
+      assert html =~ ~s(class="readonly-banner global-pause-error")
+      assert html =~ "state could not be persisted"
+    end
+
+    test "surfaces a persistence failure returned by the real toggle event" do
+      orchestrator_name = Module.concat(__MODULE__, :GlobalPauseFailureOrchestrator)
+
+      start_supervised!({GlobalPauseFailureOrchestrator, name: orchestrator_name, report: self()})
+
+      start_test_endpoint(orchestrator: orchestrator_name, dashboard_writable: true)
+      {:ok, view, _html} = live(build_conn(), "/")
+
+      html = view |> element("#global-pause-toggle") |> render_click()
+
+      assert_receive {:global_pause_attempt, true, "dashboard"}
+      assert html =~ "state could not be persisted"
+      assert html =~ "The daemon remains in its previous state"
     end
 
     test "disables the toggle when the dashboard is read-only" do
