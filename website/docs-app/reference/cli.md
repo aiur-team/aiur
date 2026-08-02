@@ -1,4 +1,4 @@
-# CLI commands
+# CLI and control commands
 
 `aiur` is the installed command. `scripts/aiurdev` is its development wrapper: both dispatch to the same launcher engine and have the same command surface. `aiurdev` selects the local release and rebuilds it when necessary. Its only product-surface exception is `aiurdev build [--deps]`, which force-rebuilds the local release and does not exist in an installed `aiur`.
 
@@ -84,7 +84,7 @@ These commands contact the instance keyed for the current project. They do not r
 | Command | Arguments and interaction | Runnable example |
 | --- | --- | --- |
 | `aiur set max-agents N` | Sets a positive runtime concurrency cap without changing configuration. Existing work drains down when the cap is lowered. Configured per-state limits can still be lower. | `aiur set max-agents 6` |
-| `aiur pause` | Enables the global pause switch. It holds the whole daemon and prevents new provisioning. This switch persists across a restart, so always run `aiur resume` deliberately when bringing a paused run back. | `aiur pause` |
+| `aiur pause` | Enables the global pause switch for the current daemon. It holds the whole daemon and prevents new provisioning. A bare pause is not durable across restart; use `--pause` on the next launch when that behavior is needed. [#1479](https://github.com/aiur-team/aiur/issues/1479) tracks durable global-pause state. | `aiur pause` |
 | `aiur resume` | Disables the global pause switch. | `aiur resume` |
 | `aiur pause ID...` | Cooperatively pauses selected issue IDs at a safe boundary. IDs may be comma or space separated. | `aiur pause 142 143,144` |
 | `aiur resume ID...` | Resumes selected individually paused issues. It cannot override an active global pause. | `aiur resume 142` |

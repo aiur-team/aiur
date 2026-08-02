@@ -20,7 +20,7 @@ The dashboard and `aiur usage` show account-meter observations with their age. C
 
 ## Pause / resume
 
-Executors can pause and resume agents. Space toggles the selected ticket pause. Bare `aiur pause` and `aiur resume` operate a separate global switch that stops all provisioning and persists across restart. The concurrency cap can change at runtime with the arrow keys or `aiur set max-agents N`.
+Executors can pause and resume agents. Space toggles the selected ticket pause. Bare `aiur pause` and `aiur resume` operate a separate global switch that stops all provisioning for the current daemon. It does not persist across restart; launch with `--pause` to cold-start paused. [#1479](https://github.com/aiur-team/aiur/issues/1479) tracks durable global-pause state. The concurrency cap can change at runtime with the arrow keys or `aiur set max-agents N`.
 
 ## Remote control
 
