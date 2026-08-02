@@ -6,6 +6,7 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
   alias Aiur.BuildOrder.TicketDetailCache
 
   @configured {"owner", "repo"}
+  @workflow_configuration_topic "workflow_store:configuration"
 
   setup_all do
     {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
@@ -50,6 +51,41 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
 
     assert {:ok, %State{health: :healthy, generation: 1, detail: %Snapshot{title: "first"}}} =
              TicketDetailCache.current(cache, identity)
+  end
+
+  test "constant repository fixture ignores unrelated workflow configuration broadcasts" do
+    parent = self()
+    identity = identity(42, "I42")
+
+    {:ok, cache} =
+      start_cache(
+        reader: fn _identity ->
+          send(parent, {:reader_started, self()})
+
+          receive do
+            :finish -> {:ok, snapshot(identity, "first")}
+          end
+        end
+      )
+
+    assert :ok = TicketDetailCache.subscribe(cache, identity)
+    assert {:ok, %State{generation: 1}} = TicketDetailCache.request(cache, identity)
+    assert_receive {:reader_started, reader_pid}, 2_000
+
+    Phoenix.PubSub.broadcast(
+      Aiur.PubSub,
+      @workflow_configuration_topic,
+      {:workflow_config_updated, 2}
+    )
+
+    cache_barrier(cache)
+    send(reader_pid, :finish)
+
+    assert_receive {
+                     :ticket_detail_updated,
+                     %State{generation: 1, health: :healthy, detail: %Snapshot{title: "first"}}
+                   },
+                   2_000
   end
 
   test "rejects another repository before cache admission or reader invocation" do
@@ -1146,6 +1182,7 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
           name: nil,
           task_supervisor: task_supervisor,
           configured_repo: @configured,
+          configuration_subscriber: fn _pid -> :ok end,
           now: fn -> ~U[2026-07-14 09:00:00Z] end,
           clock_ms: fn -> 0 end
         ],
