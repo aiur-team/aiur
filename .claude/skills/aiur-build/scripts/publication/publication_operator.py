@@ -180,6 +180,7 @@ class Publisher:
 
     def dry_run(self) -> dict[str, Any]:
         self._validate_body_lengths()
+        self._persisted_mappings()
         self._check_authority()
         labels = self._pages(f"repos/{self.context.repository}/labels?per_page=100")
         missing = self._validate_label_inventory(labels)
@@ -206,7 +207,9 @@ class Publisher:
         # batch operation: report every oversized member before labels or
         # issues can leave the pack in a partial state.
         self._validate_body_lengths()
+        self._persisted_mappings()
         self._check_authority()
+        self._validate_persisted_ownership()
         labels = self._pages(f"repos/{self.context.repository}/labels?per_page=100")
         missing = self._validate_label_inventory(labels)
         scan = self._scan_all()
@@ -687,6 +690,10 @@ class Publisher:
             if isinstance(ticket, dict) and isinstance(ticket.get("id"), str):
                 add(ticket["id"], ticket.get("github"), "build-order")
         reconciliation = self.context.publication.get("github_reconciliation")
+        if reconciliation is not None and not isinstance(reconciliation, dict):
+            raise PublicationError(
+                "publication.github_reconciliation must be an object or null"
+            )
         issue_mappings = (
             reconciliation.get("issue_mappings")
             if isinstance(reconciliation, dict) else None
@@ -700,7 +707,26 @@ class Publisher:
                         f"persisted mapping names unknown logical identity {logical_id}"
                     )
                 add(logical_id, value, "publication")
+        numbers = [mapping["number"] for mapping in candidates.values()]
+        nodes = [mapping["node_id"] for mapping in candidates.values()]
+        if len(numbers) != len(set(numbers)) or len(nodes) != len(set(nodes)):
+            raise PublicationError(
+                "persisted mappings resolve to the same issue more than once"
+            )
         return candidates
+
+    def _validate_persisted_ownership(self) -> None:
+        """Validate every durable pointer before any repository mutation."""
+        for logical_id, mapping in sorted(self._persisted_mappings().items()):
+            raw = self._get(
+                f"repos/{self.context.repository}/issues/{mapping['number']}"
+            )
+            live_mapping = self._mapping(raw)
+            if self._receipt_mapping(live_mapping) != mapping:
+                raise PublicationError(
+                    f"{logical_id} persisted issue pointer does not own the resolved issue"
+                )
+            self._validate_live_issue_identity(raw, self.context.specs[logical_id])
 
     def _ensure_issue(
         self, spec: IssueSpec, mapping: dict[str, Any] | None,
@@ -717,10 +743,17 @@ class Publisher:
             # reconciliation can fail.  The marker scan remains the remote
             # duplicate guard, while this checkpoint preserves the local
             # authority pointer across a crashed publication process.
-            self._persist_mapping(spec.logical_id, self._mapping(created))
+            mapping = self._mapping(created)
+            self._persist_mapping(spec.logical_id, mapping)
+            number = mapping["number"]
         else:
             number = mapping["number"]
         raw = self._get(f"{base}/{number}")
+        live_mapping = self._mapping(raw)
+        if mapping is not None and self._receipt_mapping(live_mapping) != self._receipt_mapping(mapping):
+            raise PublicationError(
+                f"{spec.logical_id} persisted issue pointer does not own the resolved issue"
+            )
         self._validate_live_issue_identity(raw, spec)
         labels = self._labels(raw)
         routing = routing_subset(set(labels))
@@ -766,7 +799,14 @@ class Publisher:
         if self.context.skill_id is not None and logical_id in {
             self.context.root_id, self.context.skill_id,
         }:
-            reconciliation = publication.setdefault("github_reconciliation", {})
+            reconciliation = publication.get("github_reconciliation")
+            if reconciliation is None:
+                reconciliation = {}
+                publication["github_reconciliation"] = reconciliation
+            elif not isinstance(reconciliation, dict):
+                raise PublicationError(
+                    "publication.github_reconciliation must be an object or null"
+                )
             issue_mappings = reconciliation.setdefault("issue_mappings", {})
             issue_mappings[logical_id] = receipt_mapping
         files = {

@@ -19,9 +19,11 @@ from publication_body_limits import (  # noqa: E402
     format_body_limit_error,
 )
 from publication_operator import IssueSpec, PublicationError, Publisher  # noqa: E402
+from publication_common import validate_document as validate_publication_document  # noqa: E402
 from validation_common import Report  # noqa: E402
 from validation_documents import validate_document  # noqa: E402
-from validation_github_rendering import authority_preamble  # noqa: E402
+from validation_github_rendering import authority_preamble, inspect_issue_body  # noqa: E402
+from publication_rendering import inspect_issue_body as inspect_published_issue_body  # noqa: E402
 
 
 class NoRequestClient:
@@ -39,6 +41,20 @@ class CreateThenReadFailureClient:
                 "html_url": "https://github.com/example/repo/issues/104",
             }
         raise RuntimeError("simulated follow-up read failure")
+
+
+class PointerOwnershipClient:
+    def __init__(self) -> None:
+        self.methods = []
+
+    def request(self, method, path, payload=None, *, allow_404=False):
+        self.methods.append(method)
+        return {
+            "id": 104, "number": 104, "node_id": "NODE_OTHER",
+            "html_url": "https://github.com/example/repo/issues/104",
+            "state": "open", "locked": False, "title": "title",
+            "body": "body", "labels": [],
+        }
 
 
 class PublicationBodyLimitTests(unittest.TestCase):
@@ -128,6 +144,92 @@ class PublicationBodyLimitTests(unittest.TestCase):
             persisted = json.loads(build_path.read_text(encoding="utf-8"))
             self.assertEqual(104, persisted["tickets"][0]["github"]["number"])
 
+    def test_persisted_pointer_ownership_is_checked_before_reconciliation(self) -> None:
+        client = PointerOwnershipClient()
+        context = SimpleNamespace(repository="example/repo")
+        publisher = Publisher(client, context)
+        spec = IssueSpec("BO-001", "title", "body", (), "ticket")
+        mapping = {
+            "repository": "example/repo", "number": 104,
+            "node_id": "NODE_104",
+            "url": "https://github.com/example/repo/issues/104",
+        }
+        with self.assertRaisesRegex(PublicationError, "does not own"):
+            publisher._ensure_issue(spec, mapping)
+        self.assertEqual(["GET"], client.methods)
+
+    def test_all_persisted_pointers_are_preflighted_before_apply_mutations(self) -> None:
+        client = PointerOwnershipClient()
+        mapping = {
+            "repository": "example/repo", "number": 104,
+            "node_id": "NODE_104",
+            "url": "https://github.com/example/repo/issues/104",
+        }
+        spec = IssueSpec("BO-001", "title", "body", (), "ticket")
+        context = SimpleNamespace(
+            repository="example/repo", root_id="root", skill_id=None,
+            specs={"BO-001": spec},
+            build={"github_root": None, "tickets": [{"id": "BO-001", "github": mapping}]},
+            publication={},
+        )
+        publisher = Publisher(client, context)
+        with self.assertRaisesRegex(PublicationError, "does not own"):
+            publisher._validate_persisted_ownership()
+        self.assertEqual(["GET"], client.methods)
+
+    def test_duplicate_persisted_issue_numbers_fail_before_remote_reads(self) -> None:
+        mapping = {
+            "repository": "example/repo", "number": 104,
+            "node_id": "NODE_104",
+            "url": "https://github.com/example/repo/issues/104",
+        }
+        context = SimpleNamespace(
+            repository="example/repo", root_id="root", skill_id=None,
+            specs={
+                "root": IssueSpec("root", "root", "body", (), "root"),
+                "BO-001": IssueSpec("BO-001", "ticket", "body", (), "ticket"),
+            },
+            build={
+                "github_root": mapping,
+                "tickets": [{"id": "BO-001", "github": mapping}],
+            },
+            publication={},
+        )
+        publisher = Publisher(NoRequestClient(), context)
+        with self.assertRaisesRegex(PublicationError, "same issue"):
+            publisher._persisted_mappings()
+
+    def test_null_reconciliation_is_normalized_before_checkpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            build_path = root / "build-order.json"
+            publication_path = root / "publication.json"
+            build = {"github_root": None, "tickets": []}
+            publication = {"github_reconciliation": None}
+            build_path.write_text(json.dumps(build), encoding="utf-8")
+            publication_path.write_text(json.dumps(publication), encoding="utf-8")
+            context = SimpleNamespace(
+                root=root, root_id="root", skill_id="SKILL-DELIVERY-001",
+                build=build, publication=publication,
+                build_path=build_path, publication_path=publication_path,
+            )
+            publisher = Publisher(object(), context)
+            mapping = {
+                "repository": "example/repo", "number": 104,
+                "node_id": "NODE_104",
+                "url": "https://github.com/example/repo/issues/104",
+            }
+            publisher._persist_mapping("root", mapping)
+            persisted = json.loads(publication_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                mapping,
+                persisted["github_reconciliation"]["issue_mappings"]["root"],
+            )
+            context.publication = {"github_reconciliation": []}
+            publisher.context.publication = context.publication
+            with self.assertRaisesRegex(PublicationError, "must be an object or null"):
+                publisher._persist_mapping("root", mapping)
+
     def test_persisted_mapping_wins_when_marker_scan_is_incomplete(self) -> None:
         mapping = {
             "repository": "example/repo", "number": 104,
@@ -205,6 +307,53 @@ class PublicationBodyLimitTests(unittest.TestCase):
             )
             self.assertEqual([], report.errors)
             self.assertIn("renders to 65,537 characters", report.warnings[0])
+
+    def test_extended_publication_warning_measures_rendered_ticket_body(self) -> None:
+        approved = "a" * 40
+        repository = "example/repo"
+        preamble = authority_preamble(repository, "BO-001", 1, approved)
+        prefix = "# BO-001 — Oversized\n\n**Complexity:** 1\n"
+        source = prefix + "x" * (
+            MAX_ISSUE_BODY_CHARACTERS - len(preamble) - len(prefix) + 1
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "ticket.md"
+            path.write_text(source, encoding="utf-8")
+            report = Report()
+            validate_publication_document(
+                {"id": "BO-001", "title": "Oversized", "document": "ticket.md", "complexity_points": 1},
+                Path(directory), report,
+                repository=repository, plan_version=1, approved=approved,
+            )
+            self.assertIn("renders to 65,537 characters", report.warnings[0])
+
+    def test_rendered_issue_inspection_warns_for_extended_body_limit(self) -> None:
+        approved = "a" * 40
+        repository = "example/repo"
+        preamble = authority_preamble(repository, "SKILL-DELIVERY-001", 1, approved)
+        body = preamble + "x" * (MAX_ISSUE_BODY_CHARACTERS - len(preamble) + 1)
+        report = Report()
+        self.assertIsNotNone(
+            inspect_issue_body(
+                body, repository, "SKILL-DELIVERY-001", 1, approved,
+                report, "extended skill body",
+            )
+        )
+        self.assertIn("rendered issue body is 65,537 characters", report.warnings[0])
+
+    def test_extended_renderer_warns_for_rendered_body_limit(self) -> None:
+        approved = "a" * 40
+        repository = "example/repo"
+        preamble = authority_preamble(repository, "SKILL-DELIVERY-001", 1, approved)
+        body = preamble + "x" * (MAX_ISSUE_BODY_CHARACTERS - len(preamble) + 1)
+        report = Report()
+        self.assertIsNotNone(
+            inspect_published_issue_body(
+                body, repository, "SKILL-DELIVERY-001", 1, approved,
+                report, "extended skill body",
+            )
+        )
+        self.assertIn("rendered issue body is 65,537 characters", report.warnings[0])
 
 
 if __name__ == "__main__":
