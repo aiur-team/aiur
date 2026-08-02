@@ -1,8 +1,8 @@
 defmodule Aiur.Orchestrator.ReconcilerTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.Issue
   alias Aiur.Events.{Exchange, Publisher}
+  alias Aiur.Issue
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.Reconciler
   alias Aiur.Orchestrator.State

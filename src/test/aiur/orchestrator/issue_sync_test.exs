@@ -1,8 +1,8 @@
 defmodule Aiur.Orchestrator.IssueSyncTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.{Issue, TrackerIdentity}
   alias Aiur.Events.{Exchange, Publisher}
+  alias Aiur.{Issue, TrackerIdentity}
   alias Aiur.Orchestrator.{IssueSync, State}
 
   test "ignores a non-list poll result" do

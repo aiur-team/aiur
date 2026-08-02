@@ -598,7 +598,7 @@ defmodule Aiur.Orchestrator.IssueSync do
     ready_count = issues |> routable_todo_issues() |> length()
 
     if ready_count > 0 and effective < configured do
-      starvation = state.capacity_starvation || %{since_ms: nil, alert_active: false}
+      starvation = state.capacity_starvation
       since_ms = starvation[:since_ms] || now_ms
 
       if now_ms - since_ms >= @capacity_starvation_alert_after_ms and not starvation[:alert_active] do

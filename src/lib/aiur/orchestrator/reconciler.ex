@@ -216,20 +216,7 @@ defmodule Aiur.Orchestrator.Reconciler do
             clear_reported_divergence(state, issue.id, entry)
 
           reason ->
-            if Map.get(entry, :label_divergence_reported) == reason do
-              state
-            else
-              Alerts.emit_custom("ticket.#{identifier}.agent.attention.state_divergence", reason,
-                issue: identifier,
-                workspace: Map.get(entry, :workspace_path),
-                worker_host: Map.get(entry, :worker_host),
-                reason: reason,
-                needs_attention: true,
-                severity: "warning"
-              )
-
-              put_in(state.running[issue.id], Map.put(entry, :label_divergence_reported, reason))
-            end
+            report_label_divergence_once(state, issue, entry, identifier, reason)
         end
 
       _ ->
@@ -249,6 +236,23 @@ defmodule Aiur.Orchestrator.Reconciler do
   end
 
   defp label_divergence(_entry, _issue), do: nil
+
+  defp report_label_divergence_once(state, issue, entry, identifier, reason) do
+    if Map.get(entry, :label_divergence_reported) == reason do
+      state
+    else
+      Alerts.emit_custom("ticket.#{identifier}.agent.attention.state_divergence", reason,
+        issue: identifier,
+        workspace: Map.get(entry, :workspace_path),
+        worker_host: Map.get(entry, :worker_host),
+        reason: reason,
+        needs_attention: true,
+        severity: "warning"
+      )
+
+      put_in(state.running[issue.id], Map.put(entry, :label_divergence_reported, reason))
+    end
+  end
 
   defp clear_reported_divergence(state, issue_id, entry) do
     if Map.has_key?(entry, :label_divergence_reported) do
