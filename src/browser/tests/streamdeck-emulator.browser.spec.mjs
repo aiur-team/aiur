@@ -280,11 +280,70 @@ test('dial D pages live fleet keys and pager dots', async ({ page }) => {
 
   const dialD = page.locator('.sd-knob').nth(3)
   await dialD.hover()
-  await page.mouse.wheel(0, -100)
+  const dialBox = await dialD.boundingBox()
+  const cx = dialBox.x + dialBox.width / 2
+  const cy = dialBox.y + dialBox.height / 2
+  const radius = Math.min(dialBox.width, dialBox.height) / 3
+  const point = (degrees) => {
+    const radians = (degrees * Math.PI) / 180
+    return { x: cx + Math.cos(radians) * radius, y: cy + Math.sin(radians) * radius }
+  }
+
+  await page.mouse.move(...Object.values(point(-90)))
+  await page.mouse.down()
+  await page.mouse.move(...Object.values(point(0)))
+  await page.mouse.move(...Object.values(point(90)))
+  await page.mouse.move(...Object.values(point(126)))
+  await page.mouse.up()
 
   await expect(keys).toHaveAttribute('data-grid-page', '1')
-  await expect(keys.locator('[data-streamdeck-identifier="1367"]')).toBeVisible()
+  const dialValue = parseInt(await keys.getAttribute('data-grid-dial-value'), 10)
+  expect(dialValue).toBeGreaterThanOrEqual(75)
+  expect(dialValue).toBeLessThanOrEqual(85)
+  await expect(dialD).toHaveAttribute('aria-valuenow', String(dialValue))
+  await expect(keys.locator('.sd-key:not(.is-empty)')).toHaveCount(8)
+  await expect(keys.locator('[data-streamdeck-identifier="1352"]')).toHaveCount(0)
   await expect(page.locator('#sd-pager-dots [aria-current="page"]')).toHaveAttribute('data-page', '1')
+
+  await dialD.click()
+  await expect(keys).toHaveAttribute('data-grid-page', '2')
+  await expect(keys).toHaveAttribute('data-grid-dial-value', '100')
+  await expect(dialD).toHaveAttribute('aria-valuenow', '100')
+
+  await dialD.click()
+  await expect(keys).toHaveAttribute('data-grid-page', '0')
+  await expect(keys).toHaveAttribute('data-grid-dial-value', '0')
+  await expect(dialD).toHaveAttribute('aria-valuenow', '0')
+})
+
+test('dial D drag, wheel, and keyboard preserve continuous fleet offsets', async ({ page }) => {
+  await openStreamdeck(page)
+
+  const keys = page.locator('#sd-keys')
+  const dialD = page.locator('.sd-knob').nth(3)
+  const box = await dialD.boundingBox()
+  const cx = box.x + box.width / 2
+  const cy = box.y + box.height / 2
+
+  await page.mouse.move(cx, cy - 30)
+  await page.mouse.down()
+  await page.mouse.move(cx + 30, cy)
+  await page.mouse.move(cx, cy + 30)
+  await page.mouse.up()
+  const afterDrag = parseInt(await dialD.getAttribute('aria-valuenow'), 10)
+  expect(afterDrag).toBeGreaterThan(0)
+  const renderedAfterDrag = parseInt(await keys.getAttribute('data-grid-dial-value'), 10)
+  expect(Math.abs(renderedAfterDrag - afterDrag)).toBeLessThanOrEqual(1)
+
+  await dialD.hover()
+  await page.mouse.wheel(0, -100)
+  const afterWheel = parseInt(await dialD.getAttribute('aria-valuenow'), 10)
+  expect(afterWheel).toBeGreaterThan(afterDrag)
+
+  await dialD.focus()
+  await page.keyboard.press('ArrowDown')
+  const afterKeyboard = parseInt(await dialD.getAttribute('aria-valuenow'), 10)
+  expect(afterKeyboard).toBeLessThan(afterWheel)
 })
 
 test('logs mode scrolls event and transcript panes within real bounds', async ({ page }) => {
@@ -292,15 +351,22 @@ test('logs mode scrolls event and transcript panes within real bounds', async ({
 
   await page.locator('.sd-key:not(.is-empty)').first().click()
   const dialD = page.locator('.sd-knob').nth(3)
-  const box = await dialD.boundingBox()
-  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
+  await dialD.click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
 
   await expect(page.locator('#sd-log-events')).toContainText('event-1')
   await dialD.hover()
-  await page.mouse.wheel(0, -100)
+  for (let i = 0; i < 5; i += 1) await page.mouse.wheel(0, -100)
   await expect(page.locator('#sd-log-events')).toHaveAttribute('data-offset', '1')
   await expect(page.locator('#sd-log-events')).toContainText('event-2')
+
+  await dialD.click()
+  await expect(page.locator('#sd-log-events')).toHaveAttribute('data-offset', '6')
+  await expect(dialD).toHaveAttribute('aria-valuenow', '100')
+
+  await dialD.click()
+  await expect(page.locator('#sd-log-events')).toHaveAttribute('data-offset', '0')
+  await expect(dialD).toHaveAttribute('aria-valuenow', '0')
 
   const dialA = page.locator('.sd-knob').first()
   await dialA.hover()
