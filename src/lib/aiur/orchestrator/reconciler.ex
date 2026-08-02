@@ -213,7 +213,7 @@ defmodule Aiur.Orchestrator.Reconciler do
 
         case label_divergence(entry, issue) do
           nil ->
-            clear_reported_divergence(state, issue.id, entry)
+            clear_reported_divergence(state, issue, entry)
 
           reason ->
             report_label_divergence_once(state, issue, entry, identifier, reason)
@@ -260,11 +260,27 @@ defmodule Aiur.Orchestrator.Reconciler do
     end
   end
 
-  defp clear_reported_divergence(state, issue_id, entry) do
-    if Map.has_key?(entry, :label_divergence_reported) do
-      put_in(state.running[issue_id], Map.delete(entry, :label_divergence_reported))
-    else
-      state
+  defp clear_reported_divergence(state, issue, entry) do
+    case Map.fetch(entry, :label_divergence_reported) do
+      {:ok, previous_reason} ->
+        identifier = Map.get(entry, :identifier) || issue.identifier || issue.id
+
+        case Alerts.emit_custom(
+               "ticket.#{identifier}.agent.attention.state_divergence.resolved",
+               "Tracker/local state reconciliation recovered for ticket #{identifier}.",
+               issue: identifier,
+               workspace: Map.get(entry, :workspace_path),
+               worker_host: Map.get(entry, :worker_host),
+               reason: "Resolved: #{previous_reason}",
+               needs_attention: false,
+               severity: "info"
+             ) do
+          :ok -> put_in(state.running[issue.id], Map.delete(entry, :label_divergence_reported))
+          {:error, _reason} -> state
+        end
+
+      :error ->
+        state
     end
   end
 

@@ -20,6 +20,7 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
     test "emits an attention alert when the local label override disagrees with the tracker" do
       Publisher.set_tracked_fn(fn _ -> true end)
       :ok = Exchange.subscribe("ticket.I-divergence.agent.attention.state_divergence")
+      :ok = Exchange.subscribe("ticket.I-divergence.agent.attention.state_divergence.resolved")
 
       on_exit(fn ->
         Publisher.set_tracked_fn(fn _ -> true end)
@@ -46,6 +47,20 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
 
       assert Reconciler.report_label_divergence(state, issue) == state
       refute_receive {:event, %{topic: "ticket.I-divergence.agent.attention.state_divergence"}}, 100
+
+      recovered_issue = %{issue | paused: true}
+      recovered = Reconciler.report_label_divergence(state, recovered_issue)
+
+      assert_receive {:event, %{topic: "ticket.I-divergence.agent.attention.state_divergence.resolved"} = event},
+                     500
+
+      assert event["reason"] =~ "Resolved: State reconciliation detected divergence"
+      refute Map.has_key?(recovered.running[issue.id], :label_divergence_reported)
+
+      rearmed = Reconciler.report_label_divergence(recovered, issue)
+
+      assert_receive {:event, %{topic: "ticket.I-divergence.agent.attention.state_divergence"}}, 500
+      assert get_in(rearmed.running, [issue.id, :label_divergence_reported]) =~ "local=paused"
     end
 
     test "reports a tracker pause while the local worker remains active" do
