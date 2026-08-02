@@ -18,9 +18,7 @@ defmodule Aiur.RunTelemetry.WriterTest do
     {:ok, first} = Writer.start_link(name: nil, path: path, boot_id: "boot-1")
 
     assert :ok =
-             Writer.record(first, :lifecycle, %{ticket: "930", event: :dispatch},
-               timestamp: ~U[2026-07-11 12:00:00Z]
-             )
+             Writer.record(first, :lifecycle, %{ticket: "930", event: :dispatch}, timestamp: ~U[2026-07-11 12:00:00Z])
 
     assert :ok = Writer.flush(first)
     :ok = GenServer.stop(first)
@@ -242,9 +240,7 @@ defmodule Aiur.RunTelemetry.WriterTest do
     markers =
       path
       |> read_records()
-      |> Enum.filter(
-        &(&1["kind"] == "warning" and &1["attributes"]["reason"] == "admission_overflow")
-      )
+      |> Enum.filter(&(&1["kind"] == "warning" and &1["attributes"]["reason"] == "admission_overflow"))
 
     assert [%{"attributes" => %{"dropped_count" => 40}}] = markers
 
@@ -259,9 +255,7 @@ defmodule Aiur.RunTelemetry.WriterTest do
     dropped_counts =
       path
       |> read_records()
-      |> Enum.filter(
-        &(&1["kind"] == "warning" and &1["attributes"]["reason"] == "admission_overflow")
-      )
+      |> Enum.filter(&(&1["kind"] == "warning" and &1["attributes"]["reason"] == "admission_overflow"))
       |> Enum.map(& &1["attributes"]["dropped_count"])
 
     assert dropped_counts == [40, 3]
@@ -683,8 +677,7 @@ defmodule Aiur.RunTelemetry.WriterTest do
     assert {:ok, %{count: 0}} =
              GithubFirehose.poll(
                request_fun: fn _request ->
-                 {:ok,
-                  %{status: 200, headers: [{"ETag", ~s("writer-merge")}], body: [firehose_event]}}
+                 {:ok, %{status: 200, headers: [{"ETag", ~s("writer-merge")}], body: [firehose_event]}}
                end,
                recent_merge_fun: fn _merge -> {:ok, :stored} end,
                boot_time: ~U[2026-07-11 13:03:00Z] |> DateTime.to_unix(),

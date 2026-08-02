@@ -195,10 +195,8 @@ defmodule Aiur.Events.GithubFirehose do
 
         %{
           count: acc.count + if(match?({:ok, _, _}, publish_result), do: 1, else: 0),
-          persistence_errors:
-            maybe_add_persistence_error(acc.persistence_errors, persistence_result),
-          persistence_attempted?:
-            acc.persistence_attempted? or persistence_attempted?(persistence_result)
+          persistence_errors: maybe_add_persistence_error(acc.persistence_errors, persistence_result),
+          persistence_attempted?: acc.persistence_attempted? or persistence_attempted?(persistence_result)
         }
       end
     )

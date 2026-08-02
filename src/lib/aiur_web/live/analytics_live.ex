@@ -72,8 +72,7 @@ defmodule AiurWeb.AnalyticsLive do
   end
 
   def handle_event("range", %{"range" => range}, socket) do
-    {:noreply,
-     socket |> assign(:range, range_atom(range)) |> assign(:time_domain, nil) |> load_model()}
+    {:noreply, socket |> assign(:range, range_atom(range)) |> assign(:time_domain, nil) |> load_model()}
   end
 
   def handle_event("time-domain", params, %{assigns: %{model: model}} = socket)

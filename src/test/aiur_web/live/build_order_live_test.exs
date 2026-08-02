@@ -565,16 +565,14 @@ defmodule AiurWeb.BuildOrderLiveTest do
 
     send(
       view.pid,
-      {:graph_projection_generation,
-       selected_snapshot(second, "Wrong delayed root", 99, :healthy)}
+      {:graph_projection_generation, selected_snapshot(second, "Wrong delayed root", 99, :healthy)}
     )
 
     refute render(view) =~ "Wrong delayed root"
 
     send(
       view.pid,
-      {:graph_projection_generation,
-       selected_snapshot(first, "Root forty-two updated", 2, :healthy)}
+      {:graph_projection_generation, selected_snapshot(first, "Root forty-two updated", 2, :healthy)}
     )
 
     assert render(view) =~ "Root forty-two updated"
@@ -849,8 +847,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     RootSummary.new(%{
       identity: identity,
       title: title,
-      url:
-        "https://github.com/#{identity.owner}/#{identity.repository}/issues/#{identity.identifier}",
+      url: "https://github.com/#{identity.owner}/#{identity.repository}/issues/#{identity.identifier}",
       state: "OPEN"
     })
   end

@@ -103,8 +103,7 @@ defmodule Aiur.RunTelemetry.Dataset do
       restarts: Enum.filter(records, &daemon_restart?/1),
       actors: actors,
       tickets: scoped_tickets,
-      findings:
-        dataset |> Map.get(:findings, []) |> Enum.filter(&Map.has_key?(scoped_tickets, &1.ticket)),
+      findings: dataset |> Map.get(:findings, []) |> Enum.filter(&Map.has_key?(scoped_tickets, &1.ticket)),
       provenance: rescope_provenance(Map.get(dataset, :provenance, %{}), records)
     })
   end
@@ -545,9 +544,7 @@ defmodule Aiur.RunTelemetry.Dataset do
 
   defp dedupe_records(records) do
     records
-    |> Enum.reduce({[], MapSet.new(), MapSet.new(), []}, fn record,
-                                                            {kept, record_ids, event_keys,
-                                                             warnings} ->
+    |> Enum.reduce({[], MapSet.new(), MapSet.new(), []}, fn record, {kept, record_ids, event_keys, warnings} ->
       event_key = lifecycle_event_key(record)
 
       cond do
@@ -650,8 +647,7 @@ defmodule Aiur.RunTelemetry.Dataset do
         {actor,
          %{
            actor: actor,
-           actor_type:
-             actor_records |> List.first() |> then(&Map.get(&1.attributes, "actor_type")),
+           actor_type: actor_records |> List.first() |> then(&Map.get(&1.attributes, "actor_type")),
            samples: samples,
            profile: resource_profile(samples),
            gaps: resource_gaps(samples, opts),
