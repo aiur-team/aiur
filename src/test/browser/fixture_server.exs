@@ -795,6 +795,7 @@ end
 defmodule Aiur.BrowserHarness.UnitsLive do
   use Phoenix.LiveView, layout: {Aiur.BrowserHarness.FixtureLayout, :app}
 
+  alias Aiur.BrowserHarness.FixtureServer
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.TicketContextPresenter.{Capability, View}
 
@@ -887,7 +888,7 @@ defmodule Aiur.BrowserHarness.UnitsLive do
       |> Map.get(:rows, [])
       |> Enum.map(& &1.identity.identifier)
 
-    Aiur.BrowserHarness.FixtureServer.set_streamdeck_snapshot_identities(projected_ids)
+    FixtureServer.set_streamdeck_snapshot_identities(projected_ids)
     Phoenix.PubSub.broadcast(Aiur.PubSub, "streamdeck:fixture", :streamdeck_fixture_fleet_changed)
 
     {:noreply,
@@ -1011,7 +1012,22 @@ defmodule Aiur.BrowserHarness.UnitsLive do
         progress: %{status: :known, percent: 100, source: :phase, freshness: :stale},
         latest_evidence: %{status: :known, source: %{kind: :pull_request, name: "merged"}}
       })
-    ]
+    ] ++
+      Enum.map(1114..1116, fn number ->
+        row(identity("NODE-#{number}", to_string(number)), %{
+          title: "Queued integration #{number}",
+          lifecycle: :queued,
+          runtime: runtime(:retrying, :retrying, :backing_off, 0),
+          reasons: reasons(:backing_off, nil, nil, nil, :backing_off),
+          requested_model: nil,
+          resolved_model: nil,
+          effort: nil,
+          complexity: nil,
+          build_lane: nil,
+          progress: %{status: :unknown},
+          latest_evidence: %{status: :unknown}
+        })
+      end)
   end
 
   defp row(identity, overrides) do

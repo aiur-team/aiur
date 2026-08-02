@@ -314,12 +314,18 @@ test('emulator and Units stay in sync after a live fleet-size change', async ({ 
   const unitIdentifiers = await rows.evaluateAll((elements) =>
     elements.map((row) => row.querySelector('.ut-id-num').textContent.trim())
   )
-  const streamdeckIdentifiers = await page.locator('#sd-keys .sd-key:not(.is-empty)').evaluateAll((keys) =>
-    keys.map((key) => key.getAttribute('data-streamdeck-identifier'))
-  )
-
-  expect(streamdeckIdentifiers).toEqual(unitIdentifiers)
+  expect(unitIdentifiers).toHaveLength(5)
   await expect(page.locator('#sd-keys')).toHaveAttribute('data-grid-total', String(unitIdentifiers.length))
+
+  const streamdeckSlots = await page.locator('#sd-keys .sd-key').evaluateAll((keys) =>
+    keys.map((key) => key.classList.contains('is-empty') ? null : key.getAttribute('data-streamdeck-identifier'))
+  )
+  const expectedSlots = Array.from({ length: 8 }, (_, slot) => {
+    const index = (slot % 4) * 2 + Math.floor(slot / 4)
+    return unitIdentifiers[index] ?? null
+  })
+
+  expect(streamdeckSlots).toEqual(expectedSlots)
   await units.close()
 })
 

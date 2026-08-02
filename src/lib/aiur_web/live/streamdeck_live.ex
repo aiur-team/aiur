@@ -10,10 +10,14 @@ defmodule AiurWeb.StreamdeckLive do
 
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
-  alias Aiur.{AgentChat, AgentPubSub, Orchestrator}
+  alias Aiur.AgentChat
+  alias Aiur.AgentPubSub
+  alias Aiur.Orchestrator
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
+  alias AiurWeb.Endpoint
   alias AiurWeb.OperatorControlCenter.{DashboardShell, NavState, RouteRegistry}
-  alias AiurWeb.{Endpoint, StreamDeckGrid, StreamdeckProjection}
+  alias AiurWeb.StreamDeckGrid
+  alias AiurWeb.StreamdeckProjection
 
   @impl true
   def mount(_params, _session, socket) do

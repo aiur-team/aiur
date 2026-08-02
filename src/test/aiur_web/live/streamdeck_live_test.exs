@@ -4,6 +4,8 @@ defmodule AiurWeb.StreamdeckLiveTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
+  alias Aiur.AgentEvents
+  alias Aiur.AgentPubSub
   alias AiurWeb.Endpoint
 
   @endpoint Endpoint
@@ -104,14 +106,12 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
     Agent.update(snapshot_agent, fn _ -> fleet_snapshot(9) end)
     send(view.pid, {:running_changed, []})
-    Process.sleep(10)
     html = render(view)
     assert html =~ ~s(data-grid-dial-value="50")
     assert html =~ ~s(data-grid-column-offset="1")
 
     Agent.update(snapshot_agent, fn _ -> fleet_snapshot(25) end)
     send(view.pid, {:running_changed, []})
-    Process.sleep(10)
     html = render(view)
     assert html =~ ~s(data-grid-dial-value="50")
     assert html =~ ~s(data-grid-column-offset="5")
@@ -123,7 +123,6 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
     Agent.update(snapshot_agent, fn _ -> %{running: [], retrying: [], idle: [fixture_agent("1400", "Live replacement", "codex")]} end)
     send(view.pid, {:running_changed, []})
-    Process.sleep(10)
 
     html = render(view)
     assert html =~ "Live replacement"
@@ -142,6 +141,43 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ "Resume requested for #1345"
     assert html =~ ~s(data-grid-selected-identifier="1345")
     assert_receive {:streamdeck_resume, "1345"}
+  end
+
+  test "subscribes the initial focused agent exactly once" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+    event = AgentEvents.transcript_event(:assistant, "focused-agent-event")
+
+    assert :ok = AgentPubSub.broadcast_transcript("1352", event)
+
+    html = render_hook(view, "logs-scroll", %{"axis" => "transcript", "delta" => "99"})
+    assert html |> String.split("focused-agent-event") |> length() == 2
+  end
+
+  test "read-only focus swaps subscriptions and ignores the old agent topic" do
+    endpoint_config = Application.get_env(:aiur, Endpoint)
+    read_only_config = Keyword.put(endpoint_config, :dashboard_writable, false)
+    Endpoint.config_change(%{Endpoint => read_only_config}, [])
+
+    try do
+      {:ok, view, html} = live(build_conn(), "/streamdeck")
+      assert html =~ ~s(data-grid-selected-identifier="1352")
+
+      html = render_hook(view, "key-press", %{"identifier" => "1345"})
+      assert html =~ ~s(data-grid-selected-identifier="1345")
+      refute_receive {:streamdeck_pause, _identifier}
+      refute_receive {:streamdeck_resume, _identifier}
+
+      old_event = AgentEvents.transcript_event(:assistant, "old-agent-event")
+      new_event = AgentEvents.transcript_event(:assistant, "new-agent-event")
+      assert :ok = AgentPubSub.broadcast_transcript("1352", old_event)
+      assert :ok = AgentPubSub.broadcast_transcript("1345", new_event)
+
+      html = render_hook(view, "logs-scroll", %{"axis" => "transcript", "delta" => "99"})
+      refute html =~ "old-agent-event"
+      assert html |> String.split("new-agent-event") |> length() == 2
+    after
+      Endpoint.config_change(%{Endpoint => endpoint_config}, [])
+    end
   end
 
   test "pages the complete fleet and clamps the page at both ends" do
@@ -178,7 +214,6 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ ~s(id="sd-transcript-hint-down" class="sd-log-hint" aria-hidden="true")
 
     send(view.pid, {:transcript_event, %{role: :assistant, body: "live transcript", sequence: 99}})
-    Process.sleep(10)
     html = render_hook(view, "logs-scroll", %{"axis" => "transcript", "delta" => "99"})
     assert html =~ "live transcript"
   end
@@ -194,7 +229,6 @@ defmodule AiurWeb.StreamdeckLiveTest do
     end)
 
     send(view.pid, {:provider_meter_changed, %{}})
-    Process.sleep(10)
     assert render(view) =~ "daily 60%"
   end
 
