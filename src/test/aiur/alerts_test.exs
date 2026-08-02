@@ -167,6 +167,42 @@ defmodule Aiur.AlertsTest do
     assert central_log =~ "\"needs_attention\":true"
   end
 
+  test "central alerts with a local workspace are written to both feeds" do
+    workspace_root =
+      Path.join(System.tmp_dir!(), "aiur-alert-central-workspace-#{System.unique_integer([:positive])}")
+
+    workspace = Path.join([workspace_root, "project", "MT-CENTRAL-WORKSPACE"])
+    log_root = Path.join(workspace_root, "central")
+    original_log_file = Application.get_env(:aiur, :log_file)
+    File.mkdir_p!(workspace)
+    Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+    write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
+
+    on_exit(fn ->
+      if original_log_file do
+        Application.put_env(:aiur, :log_file, original_log_file)
+      else
+        Application.delete_env(:aiur, :log_file)
+      end
+
+      File.rm_rf!(workspace_root)
+    end)
+
+    topic = "ticket.MT-CENTRAL-WORKSPACE.agent.attention.state_divergence"
+
+    assert :ok =
+             Alerts.emit_system(topic,
+               issue: "MT-CENTRAL-WORKSPACE",
+               reason: "Persist recovery state centrally",
+               needs_attention: true,
+               severity: "warning",
+               central: true
+             )
+
+    assert File.read!(Path.join(workspace, "logs/agent.ndjson")) =~ "\"topic\":\"#{topic}\""
+    assert File.read!(Path.join(log_root, "alerts.ndjson")) =~ "\"topic\":\"#{topic}\""
+  end
+
   test "fleet dispatch alerts persist and appear in the Executor alert feed" do
     log_root =
       Path.join(System.tmp_dir!(), "aiur-alert-fleet-#{System.unique_integer([:positive])}")

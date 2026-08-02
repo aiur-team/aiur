@@ -246,7 +246,17 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   @spec pause_issue_for_label_override(State.t(), Issue.t()) :: State.t()
   def pause_issue_for_label_override(%State{} = state, %Issue{} = issue) do
-    case Map.get(state.running, issue.id) do
+    running_entry = Map.get(state.running, issue.id)
+
+    if pending_local_pause?(state, running_entry, issue.id) do
+      Reconciler.refresh_running_entry_issue(state, issue, running_entry)
+    else
+      apply_label_override(state, running_entry, issue)
+    end
+  end
+
+  defp apply_label_override(state, running_entry, issue) do
+    case running_entry do
       nil ->
         RetryEngine.release_issue_claim(state, issue.id)
 
@@ -271,6 +281,22 @@ defmodule Aiur.Orchestrator.PauseResume do
         state
     end
   end
+
+  defp pending_local_pause?(state, running_entry, issue_id) when is_map(running_entry) do
+    pending_reason = Map.get(running_entry, :pending_pause_reason)
+    pending_request = ControlLifecycle.current_pending(state.control_lifecycle, issue_id)
+
+    case {pending_reason, pending_request} do
+      {%{request_id: request_id, reason: reason}, %{action: :pause, request_id: request_id}}
+      when reason != :label_override ->
+        true
+
+      _ ->
+        false
+    end
+  end
+
+  defp pending_local_pause?(_state, _running_entry, _issue_id), do: false
 
   defp apply_label_override_to_paused_issue(state, running_entry, issue) do
     pause_reason = Map.get(running_entry, :paused_reason)

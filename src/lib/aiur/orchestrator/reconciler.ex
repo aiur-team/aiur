@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.Reconciler do
 
   require Logger
 
-  alias Aiur.{AlertFeed, Alerts, CurrentRunMembership, Issue, Tracker, TrackerIdentity}
+  alias Aiur.{Alerts, CurrentRunMembership, Issue, Tracker, TrackerIdentity}
   alias Aiur.Orchestrator
 
   alias Aiur.Orchestrator.{
@@ -240,13 +240,11 @@ defmodule Aiur.Orchestrator.Reconciler do
       end)
       |> MapSet.new()
 
-    [needs_attention: true]
-    |> AlertFeed.list()
+    state.active_attention_topics
     |> Enum.reduce(state, &resolve_orphaned_divergence_attention(&2, &1, running_identifiers))
   end
 
-  defp resolve_orphaned_divergence_attention(state, alert, running_identifiers) do
-    topic = Map.get(alert, "topic", "")
+  defp resolve_orphaned_divergence_attention(state, topic, running_identifiers) do
     identifier = divergence_identifier(topic)
 
     cond do
@@ -287,7 +285,7 @@ defmodule Aiur.Orchestrator.Reconciler do
     topic = "ticket.#{identifier}.agent.attention.state_divergence"
     entry = Map.delete(entry, :label_divergence_attention_checked)
 
-    if Map.get(entry, :label_divergence_reported) == reason or persisted_divergence_active?(topic) do
+    if Map.get(entry, :label_divergence_reported) == reason or active_attention?(state, topic) do
       put_in(state.running[issue.id], Map.put(entry, :label_divergence_reported, reason))
     else
       Alerts.emit_custom(topic, reason,
@@ -296,7 +294,8 @@ defmodule Aiur.Orchestrator.Reconciler do
         worker_host: Map.get(entry, :worker_host),
         reason: reason,
         needs_attention: true,
-        severity: "warning"
+        severity: "warning",
+        central: true
       )
 
       put_in(state.running[issue.id], Map.put(entry, :label_divergence_reported, reason))
@@ -319,7 +318,7 @@ defmodule Aiur.Orchestrator.Reconciler do
   defp clear_persisted_divergence(state, issue_id, identifier) do
     topic = "ticket.#{identifier}.agent.attention.state_divergence"
 
-    if persisted_divergence_active?(topic) do
+    if active_attention?(state, topic) do
       emit_divergence_resolution(state, issue_id, nil, identifier, topic)
     else
       state
@@ -330,22 +329,20 @@ defmodule Aiur.Orchestrator.Reconciler do
     identifier = Map.get(entry, :identifier) || issue_id
     topic = "ticket.#{identifier}.agent.attention.state_divergence"
 
-    if reported_divergence_active?(entry, topic) do
+    if reported_divergence_active?(state, entry, topic) do
       emit_divergence_resolution(state, issue_id, entry, identifier, topic)
     else
       mark_divergence_checked(state, issue_id, entry)
     end
   end
 
-  defp reported_divergence_active?(entry, topic) do
+  defp reported_divergence_active?(state, entry, topic) do
     Map.has_key?(entry, :label_divergence_reported) or
       (not Map.get(entry, :label_divergence_attention_checked, false) and
-         persisted_divergence_active?(topic))
+         active_attention?(state, topic))
   end
 
-  defp persisted_divergence_active?(topic) do
-    Enum.any?(AlertFeed.list(needs_attention: true), &(&1["topic"] == topic))
-  end
+  defp active_attention?(state, topic), do: MapSet.member?(state.active_attention_topics, topic)
 
   defp emit_divergence_resolution(state, issue_id, entry, identifier, topic) do
     metadata = entry || %{}
@@ -359,7 +356,8 @@ defmodule Aiur.Orchestrator.Reconciler do
            worker_host: Map.get(metadata, :worker_host),
            reason: "Resolved: #{previous_reason}",
            needs_attention: false,
-           severity: "info"
+           severity: "info",
+           central: true
          ) do
       :ok -> mark_divergence_checked(state, issue_id, entry)
       {:error, _reason} -> state

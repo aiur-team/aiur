@@ -5,6 +5,7 @@ defmodule Aiur.Orchestrator.IssueSync do
   """
 
   alias Aiur.{AgentQueue, AgentQueueStore, AlertFeed, Alerts, Config, CurrentRunMembership, DispatchBudgetStore, Issue, Tracker, TrackerIdentity}
+  alias Aiur.Config.Paths
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, MembershipLifecycle, OperatorMessages, Reconciler, Slots, State}
 
@@ -123,6 +124,7 @@ defmodule Aiur.Orchestrator.IssueSync do
       when is_list(issues) and is_function(fetch_issue_states_fun, 1) and is_function(observe_membership_fun, 2) and
              is_struct(terminal_states, MapSet) and is_function(mark_reconciled_fun, 1) and
              is_function(set_terminal_verification_pending_fun, 2) do
+    state = %{state | active_attention_topics: active_attention_topics()}
     state = Reconciler.resolve_orphaned_divergence_attentions(state)
     previous_issues = state.last_polled_issues
     current_issues = issues_by_id(issues)
@@ -157,6 +159,12 @@ defmodule Aiur.Orchestrator.IssueSync do
       %Issue{id: issue_id} = issue, acc when is_binary(issue_id) -> Map.put(acc, issue_id, issue)
       _issue, acc -> acc
     end)
+  end
+
+  defp active_attention_topics do
+    [roots: [], log_roots: [Paths.log_root_dir()], needs_attention: true]
+    |> AlertFeed.list()
+    |> MapSet.new(& &1["topic"])
   end
 
   defp record_disappearing_idle_terminals(
@@ -481,7 +489,7 @@ defmodule Aiur.Orchestrator.IssueSync do
     cause = observed_error_alert_cause(state, issue)
     topic = observed_error_alert_topic(issue, cause)
 
-    if MapSet.member?(state.observed_error_alerts, issue.id) or AlertFeed.active_ticket_attention?(topic) do
+    if MapSet.member?(state.observed_error_alerts, issue.id) or active_attention?(state, topic) do
       mark_observed_error_alert(state, issue.id, cause)
     else
       message = observed_error_alert_message(cause)
@@ -491,7 +499,8 @@ defmodule Aiur.Orchestrator.IssueSync do
              worker_host: Orchestrator.running_worker_host(state, issue.id),
              reason: message,
              needs_attention: true,
-             severity: "warning"
+             severity: "warning",
+             central: true
            ) do
         :ok -> mark_observed_error_alert(state, issue.id, cause)
         {:error, _reason} -> state
@@ -505,10 +514,10 @@ defmodule Aiur.Orchestrator.IssueSync do
 
     active? =
       MapSet.member?(state.observed_error_alerts, issue.id) or
-        AlertFeed.active_ticket_attention?(topic)
+        active_attention?(state, topic)
 
     cond do
-      cause == :lifetime_latch and lifetime_latch_active?(state, issue.id) ->
+      cause == :lifetime_latch and lifetime_latch_status(state, issue.id) != :inactive ->
         mark_observed_error_alert(state, issue.id, cause)
 
       active? ->
@@ -517,7 +526,8 @@ defmodule Aiur.Orchestrator.IssueSync do
                worker_host: Orchestrator.running_worker_host(state, issue.id),
                reason: "Tracker moved the ticket out of agent:error; the observed error condition is resolved.",
                needs_attention: false,
-               severity: "info"
+               severity: "info",
+               central: true
              ) do
           :ok -> clear_observed_error_alert(state, issue.id)
           {:error, _reason} -> state
@@ -532,18 +542,26 @@ defmodule Aiur.Orchestrator.IssueSync do
     cond do
       lifetime_latch_active?(state, issue.id) -> :lifetime_latch
       cause = Map.get(state.observed_error_alert_causes, issue.id) -> cause
-      cause = persisted_observed_error_alert_cause(issue) -> cause
+      cause = persisted_observed_error_alert_cause(state, issue) -> cause
       true -> :observed_tracker_error
     end
   end
 
-  defp persisted_observed_error_alert_cause(%Issue{} = issue) do
+  defp persisted_observed_error_alert_cause(%State{} = state, %Issue{} = issue) do
     Enum.find([:lifetime_latch, :retry_exhausted, :observed_tracker_error], fn cause ->
-      AlertFeed.active_ticket_attention?(observed_error_alert_topic(issue, cause))
+      active_attention?(state, observed_error_alert_topic(issue, cause))
     end)
   end
 
+  defp active_attention?(state, topic), do: MapSet.member?(state.active_attention_topics, topic)
+
   defp lifetime_latch_active?(%State{} = state, issue_id) when is_binary(issue_id) do
+    lifetime_latch_status(state, issue_id) == :active
+  end
+
+  defp lifetime_latch_active?(_state, _issue_id), do: false
+
+  defp lifetime_latch_status(%State{} = state, issue_id) when is_binary(issue_id) do
     maximum = Config.agent_max_dispatches_per_ticket()
     budget = get_in(state.dispatch_recovery, [:codex_thrash_budget, issue_id]) || %{}
 
@@ -553,14 +571,20 @@ defmodule Aiur.Orchestrator.IssueSync do
     # already-recorded latch through the current cap.
     memory_latched? = budget[:tripped] == :lifetime
 
-    persisted_latched? =
-      maximum > 0 and
-        match?({:ok, lifetime} when lifetime >= maximum, DispatchBudgetStore.lifetime(issue_id))
-
-    memory_latched? or persisted_latched?
+    if memory_latched?, do: :active, else: persisted_latch_status(maximum, issue_id)
   end
 
-  defp lifetime_latch_active?(_state, _issue_id), do: false
+  defp lifetime_latch_status(_state, _issue_id), do: :inactive
+
+  defp persisted_latch_status(maximum, issue_id) when maximum > 0 do
+    case DispatchBudgetStore.lifetime(issue_id) do
+      {:ok, lifetime} when lifetime >= maximum -> :active
+      {:ok, _lifetime} -> :inactive
+      {:error, _reason} -> :unknown
+    end
+  end
+
+  defp persisted_latch_status(_maximum, _issue_id), do: :inactive
 
   defp observed_error_alert_message(:lifetime_latch),
     do: "Agent remains in error because its lifetime dispatch latch is still active; Executor action is required."

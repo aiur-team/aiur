@@ -4,8 +4,7 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
   alias Aiur.{Alerts, Config, Issue}
   alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.Reconciler
-  alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.{PauseResume, Reconciler, State}
   alias Aiur.TrackerIdentity
   alias Aiur.Workspace.Layout
 
@@ -140,7 +139,7 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
 
       issue = %Issue{id: "issue-restart-divergence", identifier: "I-restart-divergence", state: "rework"}
 
-      recovered = %State{}
+      recovered = %State{active_attention_topics: MapSet.new([topic])}
 
       rearmed = Reconciler.report_label_divergence(recovered, issue)
 
@@ -149,7 +148,14 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
 
       paused = %{issue | paused: true}
       running = %{identifier: issue.identifier, issue: paused, control: %{status: :working}}
-      _ = Reconciler.report_label_divergence(%{rearmed | running: %{issue.id => running}}, paused)
+
+      rearmed = %{
+        rearmed
+        | running: %{issue.id => running},
+          active_attention_topics: MapSet.new()
+      }
+
+      _ = Reconciler.report_label_divergence(rearmed, paused)
 
       assert_receive {:event, %{topic: ^topic}}, 500
     end
@@ -234,6 +240,61 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
       end)
     end
 
+    test "tracker pause preserves pending local ownership through worker acknowledgement" do
+      Enum.each([:operator_pause, :global_pause, :agent_pause_request], fn pause_reason ->
+        suffix = Atom.to_string(pause_reason)
+
+        issue = %Issue{
+          id: "issue-pending-pause-#{suffix}",
+          identifier: "I-pending-pause-#{suffix}",
+          state: "rework",
+          paused: true,
+          tracker_identity: tracker_identity("I-pending-pause-#{suffix}")
+        }
+
+        entry = %{
+          pid: self(),
+          identifier: issue.identifier,
+          issue: %{issue | paused: false},
+          control: %{paused_control() | status: :working},
+          started_at: DateTime.utc_now()
+        }
+
+        {{:ok, request_id}, requested} =
+          PauseResume.pause_agent_reply(%State{running: %{issue.id => entry}}, issue.identifier)
+
+        assert_receive {:pause_agent, ^request_id, 1}
+
+        requested =
+          update_in(requested.running[issue.id], fn pending_entry ->
+            pending_entry
+            |> put_in([:pending_pause_reason, :reason], pause_reason)
+            |> Map.put(:completed_provenance, pause_reason == :agent_pause_request)
+          end)
+
+        tracker_paused =
+          Reconciler.reconcile_issue_state(
+            issue,
+            requested,
+            MapSet.new(["rework"]),
+            MapSet.new(["done"]),
+            fn _identity, _lifecycle -> :ok end
+          )
+
+        assert tracker_paused.running[issue.id].pending_pause_reason.reason == pause_reason
+        assert tracker_paused.running[issue.id].pending_pause_reason.request_id == request_id
+
+        assert {:noreply, acknowledged} =
+                 Orchestrator.handle_info(
+                   {:worker_control_state, issue.id, :paused, %{request_id: request_id, generation: 1}},
+                   tracker_paused
+                 )
+
+        assert acknowledged.running[issue.id].paused_reason == pause_reason
+        assert acknowledged.running[issue.id].control.status == :paused
+      end)
+    end
+
     test "resolves a persisted divergence for a terminal ticket without a running entry" do
       Publisher.set_tracked_fn(fn _ -> true end)
       topic = "ticket.I-terminal-restart.agent.attention.state_divergence"
@@ -263,7 +324,7 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
       result =
         Reconciler.reconcile_issue_state(
           issue,
-          %State{},
+          %State{active_attention_topics: MapSet.new([topic])},
           MapSet.new(["rework"]),
           MapSet.new(["done"]),
           fn _identity, _lifecycle -> :ok end
@@ -566,10 +627,12 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
                  workspace: workspace,
                  reason: "Persisted divergence",
                  needs_attention: true,
-                 severity: "warning"
+                 severity: "warning",
+                 central: true
                )
 
-      assert %State{} = Reconciler.resolve_orphaned_divergence_attentions(%State{})
+      state = %State{active_attention_topics: MapSet.new([topic])}
+      assert %State{} = Reconciler.resolve_orphaned_divergence_attentions(state)
       assert_receive {:event, %{topic: ^resolved_topic}}, 500
     end
 

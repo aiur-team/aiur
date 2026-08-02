@@ -42,6 +42,7 @@ defmodule Aiur.Orchestrator.State do
           tracker_preflight_alert_resolution_emitted: boolean(),
           capacity_starvation_resolution_emitted: boolean(),
           observed_error_alerts: MapSet.t(),
+          active_attention_topics: MapSet.t(),
           observed_error_alert_causes: %{optional(String.t()) => atom()},
           dispatch_capacity_constraints: [map()],
           capacity_starvation: %{
@@ -105,6 +106,7 @@ defmodule Aiur.Orchestrator.State do
     tracker_preflight_alert_resolution_emitted: false,
     capacity_starvation_resolution_emitted: false,
     observed_error_alerts: MapSet.new(),
+    active_attention_topics: MapSet.new(),
     observed_error_alert_causes: %{},
     dispatch_capacity_constraints: [],
     capacity_starvation: %{since_ms: %{}, alert_active: false, signature: [], alerted: []},

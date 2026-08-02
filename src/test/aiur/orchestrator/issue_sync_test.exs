@@ -295,6 +295,45 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     assert_receive {:event, %{topic: ^resolved_topic}}, 500
   end
 
+  test "retains a persisted lifetime latch attention when its budget store is unreadable" do
+    Publisher.set_tracked_fn(fn _ -> true end)
+    write_workflow_file_synced!(Workflow.workflow_file_path(), max_dispatches_per_ticket: 10)
+    issue = issue("latched-error-store-failure", "rework")
+    topic = "ticket.#{issue.identifier}.agent.attention.error-lifetime_latch"
+    resolved_topic = "#{topic}.resolved"
+    store_path = Path.join(System.tmp_dir!(), "dispatch-budget-invalid-#{System.unique_integer([:positive])}.json")
+    previous_store_path = Application.get_env(:aiur, :dispatch_budget_store_path)
+    Application.put_env(:aiur, :dispatch_budget_store_path, store_path)
+    File.write!(store_path, "not json")
+    :ok = Exchange.subscribe(resolved_topic)
+    write_central_attention!(topic)
+
+    on_exit(fn ->
+      if is_nil(previous_store_path),
+        do: Application.delete_env(:aiur, :dispatch_budget_store_path),
+        else: Application.put_env(:aiur, :dispatch_budget_store_path, previous_store_path)
+
+      File.rm(store_path)
+      Publisher.set_tracked_fn(fn _ -> true end)
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+    end)
+
+    recovered =
+      IssueSync.sync_polled_issue_state(
+        %State{},
+        [issue],
+        fn _ -> {:ok, []} end,
+        fn _identity, _lifecycle -> :ok end,
+        MapSet.new(["done"]),
+        fn _ -> :ok end,
+        fn _identity, _pending? -> :ok end
+      )
+
+    assert MapSet.member?(recovered.observed_error_alerts, issue.id)
+    assert recovered.observed_error_alert_causes[issue.id] == :lifetime_latch
+    refute_receive {:event, %{topic: ^resolved_topic}}, 100
+  end
+
   test "resolves and rearms a persisted observed error after restart" do
     Publisher.set_tracked_fn(fn _ -> true end)
     issue = issue("observed-error-restart", "rework")
