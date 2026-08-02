@@ -665,30 +665,64 @@ defmodule Aiur.Orchestrator.IssueSync do
 
   defp sync_capacity_starvation_state(context, now_ms) do
     starvation = Map.get(context.state, :capacity_starvation, %{})
-    changed? = starvation[:signature] != context.signature
-    since_ms = if changed?, do: now_ms, else: starvation[:since_ms] || now_ms
-    alert_active? = not changed? and starvation[:alert_active] == true
+    since_by_identity = capacity_starvation_ages(starvation, context.signature, now_ms)
+    alerted_identities = active_alerted_identities(starvation, context.signature)
+    due_identities = due_capacity_identities(since_by_identity, alerted_identities, now_ms)
 
-    if capacity_starvation_alert_due?(since_ms, now_ms, alert_active?) do
-      emit_capacity_starvation_alert(context, since_ms)
+    if due_identities == [] do
+      put_capacity_starvation(context.state, since_by_identity, alerted_identities, context.signature)
     else
-      put_capacity_starvation(context.state, since_ms, alert_active?, context.signature)
+      emit_capacity_starvation_alert(context, since_by_identity, alerted_identities, due_identities)
     end
   end
 
-  defp capacity_starvation_alert_due?(since_ms, now_ms, alert_active?) do
-    now_ms - since_ms >= @capacity_starvation_alert_after_ms and not alert_active?
+  defp capacity_starvation_ages(starvation, identities, now_ms) do
+    previous_ages = previous_capacity_starvation_ages(starvation, identities, now_ms)
+    Map.new(identities, &{&1, Map.get(previous_ages, &1, now_ms)})
   end
 
-  defp emit_capacity_starvation_alert(context, since_ms) do
-    alert_active? =
-      Alerts.emit_system("system.dispatch.capacity_starved",
-        reason: capacity_starvation_reason(context),
-        needs_attention: true,
-        severity: "warning"
-      ) == :ok
+  defp previous_capacity_starvation_ages(%{since_ms: ages}, _identities, _now_ms) when is_map(ages), do: ages
 
-    put_capacity_starvation(context.state, since_ms, alert_active?, context.signature)
+  defp previous_capacity_starvation_ages(%{since_ms: since_ms, signature: signature}, identities, _now_ms)
+       when is_integer(since_ms) do
+    Map.new(signature || identities, &{&1, since_ms})
+  end
+
+  defp previous_capacity_starvation_ages(_starvation, _identities, _now_ms), do: %{}
+
+  defp active_alerted_identities(starvation, identities) do
+    alerted =
+      case Map.get(starvation, :alerted) do
+        identities when is_list(identities) -> identities
+        _ when starvation[:alert_active] == true -> starvation[:signature] || identities
+        _ -> []
+      end
+
+    MapSet.intersection(MapSet.new(alerted), MapSet.new(identities))
+  end
+
+  defp due_capacity_identities(since_by_identity, alerted_identities, now_ms) do
+    since_by_identity
+    |> Enum.filter(fn {identity, since_ms} ->
+      now_ms - since_ms >= @capacity_starvation_alert_after_ms and not MapSet.member?(alerted_identities, identity)
+    end)
+    |> Enum.map(&elem(&1, 0))
+  end
+
+  defp emit_capacity_starvation_alert(context, since_by_identity, alerted_identities, due_identities) do
+    next_alerted_identities = MapSet.union(alerted_identities, MapSet.new(due_identities))
+
+    case Alerts.emit_system("system.dispatch.capacity_starved",
+           reason: capacity_starvation_reason(context),
+           needs_attention: true,
+           severity: "warning"
+         ) do
+      :ok ->
+        put_capacity_starvation(context.state, since_by_identity, next_alerted_identities, context.signature)
+
+      {:error, _reason} ->
+        put_capacity_starvation(context.state, since_by_identity, alerted_identities, context.signature)
+    end
   end
 
   defp capacity_starvation_reason(context) do
@@ -698,10 +732,18 @@ defmodule Aiur.Orchestrator.IssueSync do
   end
 
   defp clear_capacity_starvation(state),
-    do: %{state | capacity_starvation: %{since_ms: nil, alert_active: false, signature: nil}}
+    do: %{state | capacity_starvation: %{since_ms: %{}, alert_active: false, signature: [], alerted: []}}
 
-  defp put_capacity_starvation(state, since_ms, alert_active?, signature) do
-    %{state | capacity_starvation: %{since_ms: since_ms, alert_active: alert_active?, signature: signature}}
+  defp put_capacity_starvation(state, since_by_identity, alerted_identities, signature) do
+    %{
+      state
+      | capacity_starvation: %{
+          since_ms: since_by_identity,
+          alert_active: MapSet.size(alerted_identities) > 0,
+          signature: signature,
+          alerted: alerted_identities |> MapSet.to_list() |> Enum.sort()
+        }
+    }
   end
 
   defp routable_todo_issues(issues) when is_list(issues) do

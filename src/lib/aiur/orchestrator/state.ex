@@ -38,7 +38,12 @@ defmodule Aiur.Orchestrator.State do
           todo_over_capacity_alert_active: boolean(),
           prewarm_blocked_alert_active: boolean(),
           dispatch_capacity_constraints: [map()],
-          capacity_starvation: %{since_ms: integer() | nil, alert_active: boolean(), signature: [String.t()] | nil},
+          capacity_starvation: %{
+            since_ms: %{optional(String.t()) => integer()},
+            alert_active: boolean(),
+            signature: [String.t()],
+            alerted: [String.t()]
+          },
           running: map(),
           completed: MapSet.t(),
           claimed: MapSet.t(),
@@ -89,7 +94,7 @@ defmodule Aiur.Orchestrator.State do
     todo_over_capacity_alert_active: false,
     prewarm_blocked_alert_active: false,
     dispatch_capacity_constraints: [],
-    capacity_starvation: %{since_ms: nil, alert_active: false, signature: nil},
+    capacity_starvation: %{since_ms: %{}, alert_active: false, signature: [], alerted: []},
     running: %{},
     completed: MapSet.new(),
     claimed: MapSet.new(),

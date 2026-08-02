@@ -1,7 +1,9 @@
 defmodule Aiur.OrchestratorStatusTest do
   use Aiur.TestSupport
 
-  alias Aiur.{AgentPubSub, AgentQueueStore, Issue, TrackerIdentity}
+  import ExUnit.CaptureIO
+
+  alias Aiur.{AgentControlCLI, AgentPubSub, AgentQueueStore, Issue, TrackerIdentity}
   alias Aiur.AgentRunner.QueueDrain
   alias Aiur.Codex.CodingAgent, as: CodexCodingAgent
   alias Aiur.Events.SubscriptionStore
@@ -3254,7 +3256,7 @@ defmodule Aiur.OrchestratorStatusTest do
     assert next.queue_store.pending_ids_by_target[active_issue.identifier] == item_ids
   end
 
-  test "tracker unpause after completion replaces instead of resuming a dead runner" do
+  test "tracker poll unpause replaces a dead runner and reports running through the CLI" do
     active_issue = completed_rework_issue("paused-provenance")
     paused_issue = %{active_issue | paused: true}
     configure_completed_revalidation!([active_issue], max_concurrent_agents: 3)
@@ -3274,13 +3276,25 @@ defmodule Aiur.OrchestratorStatusTest do
 
     assert PauseResume.pause_issue_for_label_override(paused, paused_issue) == paused
 
-    next = Reconciler.maybe_reactivate_or_refresh(paused, active_issue)
+    orchestrator_pid = Process.whereis(Aiur.Orchestrator)
+    original_state = :sys.get_state(orchestrator_pid)
+
+    on_exit(fn ->
+      if Process.alive?(orchestrator_pid), do: :sys.replace_state(orchestrator_pid, fn _state -> original_state end)
+    end)
+
+    next = Reconciler.refresh_running_issue_states(paused)
     replacement = Map.fetch!(next.running, active_issue.id)
 
     assert replacement.control.status == :working
     assert is_pid(replacement.pid) and Process.alive?(replacement.pid)
     assert is_reference(replacement.ref)
     assert next.queue_store.pending_ids_by_target[active_issue.identifier] == item_ids
+
+    :sys.replace_state(orchestrator_pid, fn _state -> next end)
+
+    assert capture_io(fn -> AgentControlCLI.status() end) =~
+             "#{active_issue.identifier} running #{active_issue.title}"
   end
 
   test "Executor messages rearm multiple completed runners without returned workers holding slots" do

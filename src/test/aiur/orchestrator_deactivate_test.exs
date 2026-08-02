@@ -2009,7 +2009,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
       }
 
       Publisher.set_tracked_fn(fn _ -> true end)
-      :ok = Exchange.subscribe("ticket.#{identifier}.agent.attention.state_divergence")
+      divergence_topic = "ticket.#{identifier}.agent.attention.state_divergence"
+      :ok = Exchange.subscribe(divergence_topic)
 
       on_exit(fn ->
         Publisher.set_tracked_fn(fn _ -> true end)
@@ -2019,7 +2020,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       next = Reconciler.reconcile_running_issue_states([unpaused_issue], state)
 
-      assert_receive {:event, %{topic: "ticket.#{identifier}.agent.attention.state_divergence"} = event}
+      assert_receive {:event, %{topic: ^divergence_topic} = event}
       assert event["reason"] =~ "local=paused(label_override) tracker=agent:in-progress"
 
       assert_receive {:resume_agent, request_id, 101}
