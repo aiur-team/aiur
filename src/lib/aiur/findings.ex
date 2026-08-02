@@ -89,7 +89,7 @@ defmodule Aiur.Findings do
     case File.open(path, [:append, :binary]) do
       {:ok, device} ->
         try do
-          File.write(device, line)
+          IO.binwrite(device, line)
         after
           File.close(device)
         end
@@ -100,17 +100,10 @@ defmodule Aiur.Findings do
   end
 
   defp read_file(path) do
-    path
-    |> File.stream!([], :line)
-    |> Stream.with_index(1)
-    |> Enum.reduce_while({:ok, []}, fn {line, line_number}, {:ok, records} ->
-      case decode_line(line, path, line_number) do
-        {:ok, finding} -> {:cont, {:ok, records ++ [finding]}}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-  rescue
-    error in File.Error -> {:error, {:finding_read_failed, path, error.reason}}
+    case File.read(path) do
+      {:ok, contents} -> decode_records(contents, path)
+      {:error, reason} -> {:error, {:finding_read_failed, path, reason}}
+    end
   end
 
   defp read_all(scope) do
@@ -142,6 +135,18 @@ defmodule Aiur.Findings do
       _ ->
         {:error, {:invalid_finding_record, path, line_number, "invalid JSON"}}
     end
+  end
+
+  defp decode_records(contents, path) do
+    contents
+    |> String.split("\n", trim: true)
+    |> Enum.with_index(1)
+    |> Enum.reduce_while({:ok, []}, fn {line, line_number}, {:ok, records} ->
+      case decode_line(line, path, line_number) do
+        {:ok, finding} -> {:cont, {:ok, records ++ [finding]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
   end
 
   defp filter_scope(records, nil), do: records
