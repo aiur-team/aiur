@@ -83,6 +83,7 @@ defmodule Aiur.RepoBaseTest do
       File.write!(Path.join([node, "analytics", "runs", "legacy-boot", "run-summary.json"]), "legacy analytics\n")
       File.write!(Path.join([node, "meta", "findings.ndjson"]), "{\"slug\":\"legacy-finding\"}\n")
       File.write!(Path.join([node, "meta", "retros", "preexisting.md"]), "legacy retrospective\n")
+      File.write!(Path.join(node, "base-record.json"), "legacy base record\n")
       File.mkdir_p!(Path.join([source_root, "docs", "executor"]))
       File.write!(Path.join([source_root, "docs", "executor", "hourly-retrospectives.md"]), "legacy notes\n")
       Application.put_env(:aiur, :repo_base_root, Path.join(tmp, "repo"))
@@ -104,6 +105,8 @@ defmodule Aiur.RepoBaseTest do
       assert File.read!(Path.join(RepoBase.analytics_path(repo), "runs/legacy-boot/run-summary.json")) == "legacy analytics\n"
       assert File.read!(RepoBase.findings_path(repo)) == "{\"slug\":\"legacy-finding\"}\n"
       assert File.read!(Path.join(RepoBase.retros_path(repo), "preexisting.md")) == "legacy retrospective\n"
+      assert File.exists?(Path.join(RepoBase.repo_path(repo), "base-record.json"))
+      refute File.exists?(Path.join(base, "base-record.json"))
 
       for path <- ["builds", "analytics", "meta"] do
         refute File.exists?(Path.join(base, path)), "#{path} was stranded inside latest"

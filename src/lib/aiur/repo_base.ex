@@ -581,8 +581,8 @@ defmodule Aiur.RepoBase do
   # The old layout made the repository node itself the clone. Moving a directory
   # beneath itself is impossible, so temporarily rename it beside the node,
   # recreate the node, lift state out, and finally move the clone to latest.
-  # The legacy marker is intentionally discarded: no record means one correct
-  # rebuild after migration.
+  # Legacy build metadata is intentionally discarded: no record means one
+  # correct rebuild after migration writes the canonical node-level record.
   defp migrate_legacy_layout(base_path) do
     node = repo_node_path(base_path)
 
@@ -639,16 +639,19 @@ defmodule Aiur.RepoBase do
     with :ok <- File.mkdir_p(node),
          :ok <- move_sidecars(temporary, node),
          :ok <- move_state_entries(temporary, node),
-         :ok <- remove_legacy_marker(temporary) do
+         :ok <- discard_legacy_build_metadata(temporary) do
       File.rename(temporary, base_path)
     end
   end
 
-  defp remove_legacy_marker(path) do
-    case File.rm_rf(Path.join(path, @legacy_built_marker)) do
-      {:ok, _removed} -> :ok
-      {:error, reason, _path} -> {:error, reason}
-    end
+  defp discard_legacy_build_metadata(path) do
+    [@legacy_built_marker, @base_record]
+    |> Enum.reduce_while(:ok, fn name, :ok ->
+      case File.rm_rf(Path.join(path, name)) do
+        {:ok, _removed} -> {:cont, :ok}
+        {:error, reason, _path} -> {:halt, {:error, reason}}
+      end
+    end)
   end
 
   defp relocate_sidecars(base_path), do: move_sidecars(base_path, repo_node_path(base_path))
