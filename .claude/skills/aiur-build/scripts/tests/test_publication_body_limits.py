@@ -21,6 +21,7 @@ from publication_body_limits import (  # noqa: E402
 from publication_operator import IssueSpec, PublicationError, Publisher  # noqa: E402
 from validation_common import Report  # noqa: E402
 from validation_documents import validate_document  # noqa: E402
+from validation_github_rendering import authority_preamble  # noqa: E402
 
 
 class NoRequestClient:
@@ -127,6 +128,24 @@ class PublicationBodyLimitTests(unittest.TestCase):
             persisted = json.loads(build_path.read_text(encoding="utf-8"))
             self.assertEqual(104, persisted["tickets"][0]["github"]["number"])
 
+    def test_persisted_mapping_wins_when_marker_scan_is_incomplete(self) -> None:
+        mapping = {
+            "repository": "example/repo", "number": 104,
+            "node_id": "NODE_104",
+            "url": "https://github.com/example/repo/issues/104",
+        }
+        context = SimpleNamespace(
+            repository="example/repo", root_id="root", skill_id=None,
+            specs={"root": IssueSpec("root", "root", "body", (), "root")},
+            build={"github_root": mapping, "tickets": []},
+            publication={},
+        )
+        publisher = Publisher(object(), context)
+        self.assertEqual(
+            {"root": mapping},
+            publisher._canonical_mappings([{"number": 999, "_planning_markers": []}]),
+        )
+
     def test_planning_warns_when_ticket_document_exceeds_limit(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "ticket.md"
@@ -142,6 +161,50 @@ class PublicationBodyLimitTests(unittest.TestCase):
             )
             self.assertEqual([], report.errors)
             self.assertIn("exceeding GitHub's 65,536-character", report.warnings[0])
+
+    def test_planning_measures_rendered_body_preamble(self) -> None:
+        approved = "a" * 40
+        repository = "example/repo"
+        preamble = authority_preamble(repository, "BO-001", 1, approved)
+        prefix = "# BO-001 — Oversized\n\n**Kind:** umbrella\n"
+        source = prefix + "x" * (
+            MAX_ISSUE_BODY_CHARACTERS - len(preamble) - len(prefix) + 1
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "ticket.md"
+            path.write_text(source, encoding="utf-8")
+            report = Report()
+            validate_document(
+                "BO-001", "ticket.md", {"kind": "umbrella"},
+                {
+                    "repository": repository, "plan_version": 1,
+                    "researched_at_commit": approved,
+                }, Path(directory), report,
+            )
+            self.assertEqual([], report.errors)
+            self.assertIn("renders to 65,537 characters", report.warnings[0])
+
+    def test_planning_preserves_crlf_when_measuring_rendered_body(self) -> None:
+        approved = "a" * 40
+        repository = "example/repo"
+        preamble = authority_preamble(repository, "BO-001", 1, approved)
+        prefix = "# BO-001 — Oversized\r\n\r\n**Kind:** umbrella\r\n"
+        source = prefix + "x" * (
+            MAX_ISSUE_BODY_CHARACTERS - len(preamble) - len(prefix) + 1
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "ticket.md"
+            path.write_bytes(source.encode("utf-8"))
+            report = Report()
+            validate_document(
+                "BO-001", "ticket.md", {"kind": "umbrella"},
+                {
+                    "repository": repository, "plan_version": 1,
+                    "researched_at_commit": approved,
+                }, Path(directory), report,
+            )
+            self.assertEqual([], report.errors)
+            self.assertIn("renders to 65,537 characters", report.warnings[0])
 
 
 if __name__ == "__main__":

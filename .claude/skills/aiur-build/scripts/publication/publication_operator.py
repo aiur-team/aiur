@@ -55,6 +55,7 @@ MAX_PAGES = 100
 MAX_REQUESTS = 2_500
 MAX_ITEMS = 50_000
 AUTHORITY_CHECKPOINT_MUTATIONS = 16
+MATERIALIZATION_TRANSACTION = ".aiur-publication-transaction.json"
 CREATABLE_LABELS = {
     "build-order": ("5319e7", "Build Order planning root"),
     "build-lane:plan-graph": ("bfdadc", "Build Order lane: plan graph"),
@@ -586,6 +587,7 @@ class Publisher:
         return output
 
     def _canonical_mappings(self, scan: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+        persisted = self._persisted_mappings()
         found: dict[str, list[dict[str, Any]]] = {key: [] for key in self.context.specs}
         protected = {
             int(value.rsplit("#", 1)[-1].rsplit("/", 1)[-1])
@@ -614,6 +616,18 @@ class Publisher:
         for logical_id, matches in found.items():
             if len(matches) > 1:
                 raise PublicationError(f"logical identity {logical_id} has multiple issue matches")
+            if logical_id in persisted:
+                persisted_mapping = persisted[logical_id]
+                if matches and matches[0]["number"] != persisted_mapping["number"]:
+                    raise PublicationError(
+                        f"logical identity {logical_id} conflicts with its persisted issue"
+                    )
+                if persisted_mapping["number"] in protected:
+                    raise PublicationError(
+                        f"logical identity {logical_id} reuses protected issue #{persisted_mapping['number']}"
+                    )
+                mappings[logical_id] = persisted_mapping
+                continue
             if matches:
                 raw = matches[0]
                 if raw["number"] in protected:
@@ -626,6 +640,67 @@ class Publisher:
                 "multiple logical identities resolve to the same issue"
             )
         return mappings
+
+    def _persisted_mappings(self) -> dict[str, dict[str, Any]]:
+        """Load durable pointers before trusting a remote marker scan.
+
+        A scan can be stale or incomplete after a process crash.  A validated
+        local pointer is therefore authoritative for that logical identity;
+        the subsequent issue GET in ``_ensure_issue`` validates it against the
+        approved body before any reconciliation mutation occurs.
+        """
+        candidates: dict[str, dict[str, Any]] = {}
+
+        def add(logical_id: str, value: object, source: str) -> None:
+            if value is None:
+                return
+            if not isinstance(value, dict) or set(value) != {
+                "repository", "number", "node_id", "url",
+            }:
+                raise PublicationError(f"persisted mapping for {logical_id} is invalid ({source})")
+            repository = value.get("repository")
+            number = value.get("number")
+            node = value.get("node_id")
+            url = value.get("url")
+            expected_url = f"https://github.com/{self.context.repository}/issues/{number}"
+            if (
+                repository != self.context.repository
+                or type(number) is not int or number < 1
+                or not isinstance(node, str) or not node
+                or url != expected_url
+            ):
+                raise PublicationError(f"persisted mapping for {logical_id} is not canonical")
+            mapping = {
+                "repository": repository, "number": number,
+                "node_id": node, "url": url,
+            }
+            previous = candidates.get(logical_id)
+            if previous is not None and previous != mapping:
+                raise PublicationError(
+                    f"persisted mappings disagree for logical identity {logical_id}"
+                )
+            candidates[logical_id] = mapping
+
+        build = self.context.build
+        add(self.context.root_id, build.get("github_root"), "build-order")
+        for ticket in build.get("tickets", []):
+            if isinstance(ticket, dict) and isinstance(ticket.get("id"), str):
+                add(ticket["id"], ticket.get("github"), "build-order")
+        reconciliation = self.context.publication.get("github_reconciliation")
+        issue_mappings = (
+            reconciliation.get("issue_mappings")
+            if isinstance(reconciliation, dict) else None
+        )
+        if issue_mappings is not None:
+            if not isinstance(issue_mappings, dict):
+                raise PublicationError("persisted issue mappings are invalid")
+            for logical_id, value in issue_mappings.items():
+                if logical_id not in self.context.specs:
+                    raise PublicationError(
+                        f"persisted mapping names unknown logical identity {logical_id}"
+                    )
+                add(logical_id, value, "publication")
+        return candidates
 
     def _ensure_issue(
         self, spec: IssueSpec, mapping: dict[str, Any] | None,
@@ -694,19 +769,111 @@ class Publisher:
             reconciliation = publication.setdefault("github_reconciliation", {})
             issue_mappings = reconciliation.setdefault("issue_mappings", {})
             issue_mappings[logical_id] = receipt_mapping
-        self._atomic_write_json(
-            self.context.build_path, build, indent=1,
-        )
+        files = {
+            self.context.build_path: json.dumps(build, indent=1) + "\n",
+        }
+        if self.context.skill_id is not None:
+            files[self.context.publication_path] = json.dumps(publication, indent=2) + "\n"
+        self._atomic_write_bundle(files)
         self.context.build = build
         if self.context.skill_id is not None:
-            self._atomic_write_json(
-                self.context.publication_path, publication, indent=2,
-            )
             self.context.publication = publication
+
+    def _atomic_write_bundle(self, files: dict[Path, str]) -> None:
+        """Commit all related publication files through a recoverable journal."""
+        root = Path(getattr(self.context, "root", self.context.build_path.parent)).resolve()
+        entries = []
+        for path, content in files.items():
+            resolved = path.resolve()
+            try:
+                relative = resolved.relative_to(root).as_posix()
+            except ValueError:
+                raise PublicationError("publication output must remain inside the repository") from None
+            entries.append({"path": relative, "content": content})
+        journal = root / MATERIALIZATION_TRANSACTION
+        self._atomic_write_json(
+            journal, {"version": 1, "files": entries}, indent=2,
+        )
+        try:
+            self._fsync_directory(root)
+            self._replace_staged_files({Path(root / entry["path"]): entry["content"] for entry in entries})
+            self._fsync_directory(root)
+            journal.unlink()
+            self._fsync_directory(root)
+        except OSError:
+            # Leave the journal in place.  The next operator invocation
+            # replays the complete bundle before loading the manifests.
+            raise PublicationError("could not commit publication manifests safely") from None
+
+    @staticmethod
+    def _replace_staged_files(files: dict[Path, str]) -> None:
+        temporary: dict[Path, str] = {}
+        try:
+            for path, content in files.items():
+                descriptor, name = tempfile.mkstemp(
+                    dir=path.parent, prefix=f".{path.name}.", suffix=".tmp",
+                )
+                temporary[path] = name
+                with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                    stream.write(content)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+            for path, name in temporary.items():
+                os.replace(name, path)
+            temporary.clear()
+        except OSError:
+            raise
+        finally:
+            for name in temporary.values():
+                try:
+                    os.unlink(name)
+                except OSError:
+                    pass
+
+    @staticmethod
+    def _recover_materialization_transaction(root: Path) -> bool:
+        journal = root / MATERIALIZATION_TRANSACTION
+        if not journal.exists():
+            return False
+        try:
+            payload = json.loads(journal.read_text(encoding="utf-8"))
+            entries = payload.get("files") if isinstance(payload, dict) else None
+            if (
+                not isinstance(payload, dict) or payload.get("version") != 1
+                or not isinstance(entries, list)
+            ):
+                raise ValueError
+            files: dict[Path, str] = {}
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    raise ValueError
+                relative, content = entry.get("path"), entry.get("content")
+                if not isinstance(relative, str) or not isinstance(content, str):
+                    raise ValueError
+                path = (root / relative).resolve()
+                path.relative_to(root)
+                files[path] = content
+            if not files:
+                raise ValueError
+            Publisher._replace_staged_files(files)
+            Publisher._fsync_directory(root)
+            journal.unlink()
+            Publisher._fsync_directory(root)
+            return True
+        except (OSError, ValueError, json.JSONDecodeError):
+            raise PublicationError("publication transaction recovery failed safely") from None
+
+    @staticmethod
+    def _fsync_directory(path: Path) -> None:
+        descriptor = os.open(path, os.O_RDONLY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
 
     @staticmethod
     def _atomic_write_json(path: Path, value: dict[str, Any], *, indent: int) -> None:
-        """Replace one checkpoint manifest without exposing a truncated file."""
+        """Replace one internal journal without exposing truncated JSON."""
         temporary: str | None = None
         try:
             descriptor, temporary = tempfile.mkstemp(
@@ -1014,15 +1181,16 @@ class Publisher:
                 },
                 "root_reconciliation_comment_matches": [fresh["comment"]],
             }
-        self.context.build_path.write_text(json.dumps(build, indent=1) + "\n", encoding="utf-8")
-        self.context.publication_path.write_text(json.dumps(publication, indent=2) + "\n", encoding="utf-8")
-        self.context.root_document.write_text(
-            self.context.specs[self.context.root_id].body, encoding="utf-8",
-        )
+        files = {
+            self.context.build_path: json.dumps(build, indent=1) + "\n",
+            self.context.publication_path: json.dumps(publication, indent=2) + "\n",
+            self.context.root_document: self.context.specs[self.context.root_id].body,
+        }
         if self.context.additional_document is not None and self.context.skill_id:
-            self.context.additional_document.write_text(
-                self.context.specs[self.context.skill_id].body, encoding="utf-8",
-            )
+            files[self.context.additional_document] = self.context.specs[self.context.skill_id].body
+        self._atomic_write_bundle(files)
+        self.context.build = build
+        self.context.publication = publication
 
     def _run_validators(self) -> None:
         canonical_command = [
@@ -1162,6 +1330,11 @@ def build_context(
     publication = load_json(publication_path, "publication", report)
     if root is None or build is None or publication is None:
         raise PublicationError("; ".join(report.errors))
+    if Publisher._recover_materialization_transaction(root):
+        build = load_json(build_path, "build-order", report)
+        publication = load_json(publication_path, "publication", report)
+        if build is None or publication is None:
+            raise PublicationError("; ".join(report.errors))
     repository, plan_version, root_id = (
         build.get("repository"), build.get("plan_version"), build.get("build_order_id")
     )
