@@ -891,7 +891,7 @@ defmodule Aiur.ExtensionsTest do
              %{"error" => %{"code" => "method_not_allowed", "message" => "Method not allowed"}}
   end
 
-  test "phoenix observability api reports an explicit error before any snapshot is published" do
+  test "phoenix observability api preserves snapshot timeout behavior" do
     timeout_orchestrator = Module.concat(__MODULE__, :TimeoutOrchestrator)
     {:ok, _pid} = SlowOrchestrator.start_link(name: timeout_orchestrator)
     start_test_endpoint(orchestrator: timeout_orchestrator, snapshot_timeout_ms: 1)
@@ -902,7 +902,7 @@ defmodule Aiur.ExtensionsTest do
     assert without_occ_sections(timeout_payload) ==
              %{
                "generated_at" => timeout_payload["generated_at"],
-               "error" => %{"code" => "snapshot_unavailable", "message" => "Snapshot unavailable"}
+               "error" => %{"code" => "snapshot_timeout", "message" => "Snapshot timed out"}
              }
   end
 

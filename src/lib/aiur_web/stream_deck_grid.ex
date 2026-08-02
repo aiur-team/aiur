@@ -23,10 +23,13 @@ defmodule AiurWeb.StreamDeckGrid do
         snapshot |> project() |> Map.put(:snapshot_freshness, freshness)
 
       :snapshot_unavailable ->
-        %{error: %{code: "snapshot_unavailable", message: "No fleet snapshot has been published yet"}}
+        %{error: %{code: "snapshot_unavailable", message: "Snapshot unavailable"}}
+
+      :snapshot_timeout ->
+        %{error: %{code: "snapshot_timeout", message: "Snapshot timed out"}}
 
       :orchestrator_unavailable ->
-        %{error: %{code: "orchestrator_unavailable", message: "Orchestrator is unavailable"}}
+        %{error: %{code: "snapshot_unavailable", message: "Snapshot unavailable"}}
     end
   end
 

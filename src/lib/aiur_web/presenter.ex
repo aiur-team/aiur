@@ -29,6 +29,9 @@ defmodule AiurWeb.Presenter do
       :snapshot_unavailable ->
         %{error: %{code: "snapshot_unavailable", message: "Snapshot unavailable"}}
 
+      :snapshot_timeout ->
+        %{error: %{code: "snapshot_timeout", message: "Snapshot timed out"}}
+
       :orchestrator_unavailable ->
         %{error: %{code: "orchestrator_unavailable", message: "Orchestrator is unavailable"}}
     end

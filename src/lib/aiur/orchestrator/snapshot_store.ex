@@ -18,6 +18,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   @type result ::
           {:current, map(), map()}
           | {:stale, map(), map()}
+          | :snapshot_timeout
           | :snapshot_unavailable
           | :orchestrator_unavailable
 
@@ -52,7 +53,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   def read(orchestrator, timeout) do
     case cached_snapshot(orchestrator) do
       nil ->
-        if live_pid(orchestrator), do: :snapshot_unavailable, else: :orchestrator_unavailable
+        no_snapshot_result(orchestrator)
 
       %{snapshot: snapshot, observed_at: observed_at, observed_at_ms: observed_at_ms} ->
         metadata = metadata(orchestrator, observed_at, observed_at_ms, timeout)
@@ -143,6 +144,17 @@ defmodule Aiur.Orchestrator.SnapshotStore do
 
   defp cached_snapshot(orchestrator), do: :persistent_term.get({@cache_key, orchestrator}, nil)
 
+  defp no_snapshot_result(orchestrator) do
+    case live_pid(orchestrator) do
+      nil ->
+        :orchestrator_unavailable
+
+      pid ->
+        maybe_log_initial_timeout(orchestrator, mailbox_depth(pid))
+        :snapshot_timeout
+    end
+  end
+
   defp metadata(orchestrator, observed_at, observed_at_ms, timeout) do
     age_ms = max(System.monotonic_time(:millisecond) - observed_at_ms, 0)
     pid = live_pid(orchestrator)
@@ -184,6 +196,19 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   end
 
   defp maybe_log_timeout(_orchestrator, _metadata), do: :ok
+
+  defp maybe_log_initial_timeout(orchestrator, mailbox_depth) do
+    warning_key = {@cache_key, :last_timeout_log, orchestrator}
+
+    if :persistent_term.get(warning_key, nil) != :before_first_snapshot do
+      :persistent_term.put(warning_key, :before_first_snapshot)
+
+      Logger.warning(
+        "Dashboard snapshot timed out before the first snapshot was published " <>
+          "(orchestrator_mailbox_depth=#{mailbox_depth})"
+      )
+    end
+  end
 
   defp live_pid(orchestrator) do
     GenServer.whereis(orchestrator)
