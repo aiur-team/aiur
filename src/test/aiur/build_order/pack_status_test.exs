@@ -30,9 +30,12 @@ defmodule Aiur.BuildOrder.PackStatusTest do
   setup do
     directory = Path.join(System.tmp_dir!(), "pack-status-#{System.unique_integer([:positive])}")
     pack_path = Path.join([directory, "analytics-streamdeck", "build-order.json"])
+    workspace_directory = Path.join(directory, "workspace-build-orders")
+    previous_workspace_directory = Application.get_env(:aiur, :build_order_workspace_directory)
 
     File.mkdir_p!(Path.dirname(pack_path))
     File.write!(pack_path, @pack)
+    Application.put_env(:aiur, :build_order_workspace_directory, workspace_directory)
 
     Application.put_env(:aiur, :build_order_pack_status_health_snapshot, fn ->
       ProviderHealth.new(1, :healthy, true, observed_at: ~U[2026-08-02 12:00:00Z])
@@ -40,10 +43,15 @@ defmodule Aiur.BuildOrder.PackStatusTest do
 
     on_exit(fn ->
       Application.delete_env(:aiur, :build_order_pack_status_health_snapshot)
+
+      if previous_workspace_directory,
+        do: Application.put_env(:aiur, :build_order_workspace_directory, previous_workspace_directory),
+        else: Application.delete_env(:aiur, :build_order_workspace_directory)
+
       File.rm_rf(directory)
     end)
 
-    {:ok, pack_path: pack_path, status_path: PackPaths.status_path(pack_path)}
+    {:ok, pack_path: pack_path, status_path: PackPaths.status_path(pack_path), workspace_directory: workspace_directory}
   end
 
   defp start_poller(pack_path, request_fun, opts \\ []) do
@@ -541,23 +549,21 @@ defmodule Aiur.BuildOrder.PackStatusTest do
     refute File.exists?(PackPaths.status_path(foreign_path))
   end
 
-  test "default polling projects lifecycle for a workspace-published pack", _context do
+  test "default polling projects lifecycle for a workspace-published pack", context do
     suffix = System.unique_integer([:positive])
     state_root = Path.join(System.tmp_dir!(), "pack-status-workspace-state-#{suffix}")
-    workspace_directory = Path.join(System.tmp_dir!(), "pack-status-workspace-#{suffix}")
+    workspace_directory = context.workspace_directory
     workspace_path = Path.join(workspace_directory, "pack-status-workspace-#{suffix}.json")
     status_path = PackPaths.status_path(workspace_path)
     repository = Config.repo()
     previous_root = Application.get_env(:aiur, :repo_base_root)
     previous_pack = Application.get_env(:aiur, :build_order_planning_pack)
     previous_packs = Application.get_env(:aiur, :build_order_planning_packs)
-    previous_workspace_directory = Application.get_env(:aiur, :build_order_workspace_directory)
     previous_dirs = System.get_env("AIUR_BUILD_ORDER_DIRS")
 
     Application.put_env(:aiur, :repo_base_root, state_root)
     Application.delete_env(:aiur, :build_order_planning_pack)
     Application.delete_env(:aiur, :build_order_planning_packs)
-    Application.put_env(:aiur, :build_order_workspace_directory, workspace_directory)
     System.delete_env("AIUR_BUILD_ORDER_DIRS")
 
     File.mkdir_p!(workspace_directory)
@@ -577,15 +583,10 @@ defmodule Aiur.BuildOrder.PackStatusTest do
         do: Application.put_env(:aiur, :build_order_planning_packs, previous_packs),
         else: Application.delete_env(:aiur, :build_order_planning_packs)
 
-      if previous_workspace_directory,
-        do: Application.put_env(:aiur, :build_order_workspace_directory, previous_workspace_directory),
-        else: Application.delete_env(:aiur, :build_order_workspace_directory)
-
       if previous_dirs,
         do: System.put_env("AIUR_BUILD_ORDER_DIRS", previous_dirs),
         else: System.delete_env("AIUR_BUILD_ORDER_DIRS")
 
-      File.rm_rf(workspace_directory)
       File.rm_rf(state_root)
     end)
 

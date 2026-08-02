@@ -58,8 +58,11 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
 
   setup do
     path = Path.join(System.tmp_dir!(), "planning-source-test-#{System.unique_integer([:positive])}.json")
+    workspace_directory = Path.join(System.tmp_dir!(), "planning-source-workspace-#{System.unique_integer([:positive])}")
+    previous_workspace_directory = Application.get_env(:aiur, :build_order_workspace_directory)
     File.write!(path, @pack)
     Application.put_env(:aiur, :build_order_planning_pack, path)
+    Application.put_env(:aiur, :build_order_workspace_directory, workspace_directory)
     Application.put_env(:aiur, :build_order_planning_membership_snapshot, fn -> %{generation: 0, members: []} end)
 
     Application.put_env(:aiur, :build_order_pack_status_health_snapshot, fn ->
@@ -70,10 +73,16 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
       Application.delete_env(:aiur, :build_order_planning_pack)
       Application.delete_env(:aiur, :build_order_planning_membership_snapshot)
       Application.delete_env(:aiur, :build_order_pack_status_health_snapshot)
+
+      if previous_workspace_directory,
+        do: Application.put_env(:aiur, :build_order_workspace_directory, previous_workspace_directory),
+        else: Application.delete_env(:aiur, :build_order_workspace_directory)
+
       File.rm(path)
+      File.rm_rf(workspace_directory)
     end)
 
-    :ok
+    {:ok, workspace_directory: workspace_directory}
   end
 
   test "catalog exposes one selectable planning root" do
@@ -676,10 +685,9 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert Enum.map(roots, & &1.identity.identifier) |> Enum.sort() == ["9900", "9901"]
   end
 
-  test "retains the state status projection when a workspace mirror wins definition precedence" do
+  test "retains the state status projection when a workspace mirror wins definition precedence", context do
     suffix = System.unique_integer([:positive])
-    workspace_directory = Path.join([File.cwd!(), ".aiur", "build_orders"])
-    workspace_existed? = File.dir?(workspace_directory)
+    workspace_directory = context.workspace_directory
     workspace_path = Path.join(workspace_directory, "planning-source-duplicate-#{suffix}.json")
     state_root = Path.join(System.tmp_dir!(), "planning-source-duplicate-state-#{suffix}")
     previous_root = Application.get_env(:aiur, :repo_base_root)
@@ -709,9 +717,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     on_exit(fn ->
       if previous_root, do: Application.put_env(:aiur, :repo_base_root, previous_root), else: Application.delete_env(:aiur, :repo_base_root)
       if previous_dirs, do: System.put_env("AIUR_BUILD_ORDER_DIRS", previous_dirs), else: System.delete_env("AIUR_BUILD_ORDER_DIRS")
-      File.rm(workspace_path)
       File.rm_rf(state_root)
-      if not workspace_existed?, do: File.rmdir(workspace_directory)
     end)
 
     log = capture_log(fn -> send(self(), {:catalog, PlanningSource.catalog()}) end)
@@ -739,10 +745,9 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert identical_log =~ "discarded identical mirror"
   end
 
-  test "keeps distinct build orders that collide on an explicit root number" do
+  test "keeps distinct build orders that collide on an explicit root number", context do
     suffix = System.unique_integer([:positive])
-    workspace_directory = Path.join([File.cwd!(), ".aiur", "build_orders"])
-    workspace_existed? = File.dir?(workspace_directory)
+    workspace_directory = context.workspace_directory
     workspace_path = Path.join(workspace_directory, "planning-source-root-collision-#{suffix}.json")
     state_root = Path.join(System.tmp_dir!(), "planning-source-root-collision-state-#{suffix}")
     previous_root = Application.get_env(:aiur, :repo_base_root)
@@ -772,9 +777,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     on_exit(fn ->
       if previous_root, do: Application.put_env(:aiur, :repo_base_root, previous_root), else: Application.delete_env(:aiur, :repo_base_root)
       if previous_dirs, do: System.put_env("AIUR_BUILD_ORDER_DIRS", previous_dirs), else: System.delete_env("AIUR_BUILD_ORDER_DIRS")
-      File.rm(workspace_path)
       File.rm_rf(state_root)
-      if not workspace_existed?, do: File.rmdir(workspace_directory)
     end)
 
     snapshot = PlanningSource.catalog()
