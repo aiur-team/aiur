@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.IssueSync do
   All functions execute inside the orchestrator GenServer process.
   """
 
-  alias Aiur.{AgentQueue, AgentQueueStore, AlertFeed, Alerts, Config, CurrentRunMembership, Issue, Tracker, TrackerIdentity}
+  alias Aiur.{AgentQueue, AgentQueueStore, AlertFeed, Alerts, Config, CurrentRunMembership, DispatchBudgetStore, Issue, Tracker, TrackerIdentity}
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, MembershipLifecycle, OperatorMessages, Slots, State}
 
@@ -461,54 +461,123 @@ defmodule Aiur.Orchestrator.IssueSync do
           severity: task_state_alert_severity(current_state)
         )
 
-        %{state | observed_error_alerts: MapSet.delete(state.observed_error_alerts, issue.id)}
+        clear_observed_error_alert(state, issue.id)
     end
   end
 
   defp emit_task_state_transition_alert(%State{} = state, _previous_issue, _issue), do: state
 
   defp emit_observed_error_transition_alert(%State{} = state, %Issue{} = issue) do
-    topic = "ticket.#{issue.identifier}.agent.attention.error"
+    cause = observed_error_alert_cause(state, issue)
+    topic = observed_error_alert_topic(issue, cause)
 
     if MapSet.member?(state.observed_error_alerts, issue.id) or AlertFeed.active_ticket_attention?(topic) do
-      %{state | observed_error_alerts: MapSet.put(state.observed_error_alerts, issue.id)}
+      mark_observed_error_alert(state, issue.id, cause)
     else
-      message =
-        "Tracker observed agent:error without a specialized local cause; the ticket needs Executor review. " <>
-          "This condition will not clear on its own until the ticket is moved out of error."
+      message = observed_error_alert_message(cause)
 
-      case Alerts.emit_system("ticket.#{issue.identifier}.agent.attention.error",
+      case Alerts.emit_system(topic,
              issue: issue,
              worker_host: Orchestrator.running_worker_host(state, issue.id),
              reason: message,
              needs_attention: true,
              severity: "warning"
            ) do
-        :ok -> %{state | observed_error_alerts: MapSet.put(state.observed_error_alerts, issue.id)}
+        :ok -> mark_observed_error_alert(state, issue.id, cause)
         {:error, _reason} -> state
       end
     end
   end
 
   defp resolve_observed_error_transition_alert(%State{} = state, %Issue{} = issue) do
+    cause = observed_error_alert_cause(state, issue)
+    topic = observed_error_alert_topic(issue, cause)
+
     active? =
       MapSet.member?(state.observed_error_alerts, issue.id) or
-        AlertFeed.active_ticket_attention?("ticket.#{issue.identifier}.agent.attention.error")
+        AlertFeed.active_ticket_attention?(topic)
 
-    if active? do
-      case Alerts.emit_system("ticket.#{issue.identifier}.agent.attention.error.resolved",
-             issue: issue,
-             worker_host: Orchestrator.running_worker_host(state, issue.id),
-             reason: "Tracker moved the ticket out of agent:error; the observed error condition is resolved.",
-             needs_attention: false,
-             severity: "info"
-           ) do
-        :ok -> %{state | observed_error_alerts: MapSet.delete(state.observed_error_alerts, issue.id)}
-        {:error, _reason} -> state
-      end
-    else
-      state
+    cond do
+      cause == :lifetime_latch ->
+        mark_observed_error_alert(state, issue.id, cause)
+
+      active? ->
+        case Alerts.emit_system("#{topic}.resolved",
+               issue: issue,
+               worker_host: Orchestrator.running_worker_host(state, issue.id),
+               reason: "Tracker moved the ticket out of agent:error; the observed error condition is resolved.",
+               needs_attention: false,
+               severity: "info"
+             ) do
+          :ok -> clear_observed_error_alert(state, issue.id)
+          {:error, _reason} -> state
+        end
+
+      true ->
+        state
     end
+  end
+
+  defp observed_error_alert_cause(%State{} = state, %Issue{} = issue) do
+    cond do
+      lifetime_latch_active?(state, issue.id) -> :lifetime_latch
+      cause = Map.get(state.observed_error_alert_causes, issue.id) -> cause
+      cause = persisted_observed_error_alert_cause(issue) -> cause
+      true -> :observed_tracker_error
+    end
+  end
+
+  defp persisted_observed_error_alert_cause(%Issue{} = issue) do
+    Enum.find([:retry_exhausted, :observed_tracker_error], fn cause ->
+      AlertFeed.active_ticket_attention?(observed_error_alert_topic(issue, cause))
+    end)
+  end
+
+  defp lifetime_latch_active?(%State{} = state, issue_id) when is_binary(issue_id) do
+    maximum = Config.agent_max_dispatches_per_ticket()
+    budget = get_in(state.dispatch_recovery, [:codex_thrash_budget, issue_id]) || %{}
+
+    # A trip recorded in the live recovery state remains authoritative until
+    # the dispatch budget explicitly clears it. Configuration may be reloaded
+    # between the trip and this tracker observation, so do not reinterpret an
+    # already-recorded latch through the current cap.
+    memory_latched? = budget[:tripped] == :lifetime
+
+    persisted_latched? =
+      maximum > 0 and
+        match?({:ok, lifetime} when lifetime >= maximum, DispatchBudgetStore.lifetime(issue_id))
+
+    memory_latched? or persisted_latched?
+  end
+
+  defp lifetime_latch_active?(_state, _issue_id), do: false
+
+  defp observed_error_alert_message(:lifetime_latch),
+    do: "Agent remains in error because its lifetime dispatch latch is still active; Executor action is required."
+
+  defp observed_error_alert_message(_cause),
+    do:
+      "Tracker observed agent:error without a specialized local cause; the ticket needs Executor review. " <>
+        "This condition will not clear on its own until the ticket is moved out of error."
+
+  defp observed_error_alert_topic(%Issue{} = issue, cause) do
+    "ticket.#{issue.identifier}.agent.attention.error-#{cause}"
+  end
+
+  defp mark_observed_error_alert(state, issue_id, cause) do
+    %{
+      state
+      | observed_error_alerts: MapSet.put(state.observed_error_alerts, issue_id),
+        observed_error_alert_causes: Map.put(state.observed_error_alert_causes, issue_id, cause)
+    }
+  end
+
+  defp clear_observed_error_alert(state, issue_id) do
+    %{
+      state
+      | observed_error_alerts: MapSet.delete(state.observed_error_alerts, issue_id),
+        observed_error_alert_causes: Map.delete(state.observed_error_alert_causes, issue_id)
+    }
   end
 
   defp emit_tracker_pause_transition_alert(%State{} = state, nil, %Issue{} = issue) do

@@ -1,8 +1,8 @@
 defmodule Aiur.Orchestrator.ReconcilerTest do
-  use ExUnit.Case, async: false
+  use Aiur.TestSupport
 
-  alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.{Alerts, Issue}
+  alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.Reconciler
   alias Aiur.Orchestrator.State
@@ -462,6 +462,43 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
   end
 
   describe "reconcile_missing_running_issue_ids/3" do
+    test "resolves a divergence before removing an absent running ticket" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      topic = "ticket.I-missing-divergence.agent.attention.state_divergence"
+      resolved_topic = "#{topic}.resolved"
+      :ok = Exchange.subscribe(topic)
+      :ok = Exchange.subscribe(resolved_topic)
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      issue = %Issue{id: "issue-missing-divergence", identifier: "I-missing-divergence", state: "rework"}
+
+      state = %State{
+        running: %{
+          issue.id => %{
+            pid: nil,
+            ref: make_ref(),
+            identifier: issue.identifier,
+            issue: issue,
+            started_at: DateTime.utc_now(),
+            control: paused_control(),
+            paused_reason: :max_agent_duration
+          }
+        }
+      }
+
+      opened = Reconciler.report_label_divergence(state, issue)
+      assert_receive {:event, %{topic: ^topic}}, 500
+
+      removed = Reconciler.reconcile_missing_running_issue_ids(opened, [issue.id], [])
+
+      assert_receive {:event, %{topic: ^resolved_topic}}, 500
+      refute Map.has_key?(removed.running, issue.id)
+    end
+
     test "returns state unchanged when all requested ids are visible" do
       issue = %Issue{id: "issue-1", identifier: "repo#1", title: "t", state: "todo"}
 

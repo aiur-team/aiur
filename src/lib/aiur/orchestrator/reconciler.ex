@@ -268,47 +268,55 @@ defmodule Aiur.Orchestrator.Reconciler do
   defp clear_reported_divergence(state, issue_id) do
     case Map.get(state.running, issue_id) do
       %{} = entry ->
-        identifier = Map.get(entry, :identifier) || issue_id
-        topic = "ticket.#{identifier}.agent.attention.state_divergence"
-        reported? = Map.has_key?(entry, :label_divergence_reported)
-        should_probe? = reported? or not Map.get(entry, :label_divergence_attention_checked, false)
-
-        if reported? or (should_probe? and AlertFeed.active_ticket_attention?(topic)) do
-          previous_reason = Map.get(entry, :label_divergence_reported, "the prior divergence")
-
-          case Alerts.emit_custom(
-                 "#{topic}.resolved",
-                 "Tracker/local state reconciliation recovered for ticket #{identifier}.",
-                 issue: identifier,
-                 workspace: Map.get(entry, :workspace_path),
-                 worker_host: Map.get(entry, :worker_host),
-                 reason: "Resolved: #{previous_reason}",
-                 needs_attention: false,
-                 severity: "info"
-               ) do
-            :ok ->
-              resolved_entry =
-                entry
-                |> Map.delete(:label_divergence_reported)
-                |> Map.put(:label_divergence_attention_checked, true)
-
-              put_in(state.running[issue_id], resolved_entry)
-
-            {:error, _reason} ->
-              state
-          end
-        else
-          checked_entry =
-            entry
-            |> Map.delete(:label_divergence_reported)
-            |> Map.put(:label_divergence_attention_checked, true)
-
-          put_in(state.running[issue_id], checked_entry)
-        end
+        clear_entry_divergence(state, issue_id, entry)
 
       _ ->
         state
     end
+  end
+
+  defp clear_entry_divergence(state, issue_id, entry) do
+    identifier = Map.get(entry, :identifier) || issue_id
+    topic = "ticket.#{identifier}.agent.attention.state_divergence"
+
+    if reported_divergence_active?(entry, topic) do
+      emit_divergence_resolution(state, issue_id, entry, identifier, topic)
+    else
+      mark_divergence_checked(state, issue_id, entry)
+    end
+  end
+
+  defp reported_divergence_active?(entry, topic) do
+    Map.has_key?(entry, :label_divergence_reported) or
+      (not Map.get(entry, :label_divergence_attention_checked, false) and
+         AlertFeed.active_ticket_attention?(topic))
+  end
+
+  defp emit_divergence_resolution(state, issue_id, entry, identifier, topic) do
+    previous_reason = Map.get(entry, :label_divergence_reported, "the prior divergence")
+
+    case Alerts.emit_custom(
+           "#{topic}.resolved",
+           "Tracker/local state reconciliation recovered for ticket #{identifier}.",
+           issue: identifier,
+           workspace: Map.get(entry, :workspace_path),
+           worker_host: Map.get(entry, :worker_host),
+           reason: "Resolved: #{previous_reason}",
+           needs_attention: false,
+           severity: "info"
+         ) do
+      :ok -> mark_divergence_checked(state, issue_id, entry)
+      {:error, _reason} -> state
+    end
+  end
+
+  defp mark_divergence_checked(state, issue_id, entry) do
+    checked_entry =
+      entry
+      |> Map.delete(:label_divergence_reported)
+      |> Map.put(:label_divergence_attention_checked, true)
+
+    put_in(state.running[issue_id], checked_entry)
   end
 
   defp terminate_recorded_terminal_issue(state, issue, mark_reconciled_fun) do

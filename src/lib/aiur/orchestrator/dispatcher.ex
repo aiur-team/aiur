@@ -906,7 +906,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
           maximum = Config.agent_max_dispatches_per_ticket()
 
           Alerts.emit_custom(
-            "ticket.#{issue.identifier}.agent.attention.error",
+            "ticket.#{issue.identifier}.agent.attention.error-lifetime_latch",
             "Agent entered error because its lifetime dispatch latch is #{lifetime}/#{maximum}; this will not clear on its own.",
             issue: issue.identifier,
             reason: "Agent entered error because its lifetime dispatch latch is #{lifetime}/#{maximum}; this will not clear on its own.",
@@ -920,7 +920,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
           %{
             state
             | claimed: MapSet.delete(state.claimed, issue.id),
-              observed_error_alerts: MapSet.put(state.observed_error_alerts, issue.id)
+              observed_error_alerts: MapSet.put(state.observed_error_alerts, issue.id),
+              observed_error_alert_causes: Map.put(state.observed_error_alert_causes, issue.id, :lifetime_latch)
           }
 
         {:error, reason} ->

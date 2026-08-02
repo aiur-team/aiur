@@ -522,6 +522,7 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   defp apply_worker_control_state(state, issue_id, running_entry, status, pause_payload, request) do
     previous_status = get_in(running_entry, [:control, :status]) || :working
+    previous_pause_reason = Map.get(running_entry, :paused_reason)
     pause_reason = worker_pause_reason(running_entry, pause_payload, request)
     transition_cause = control_transition_cause(request, status, pause_reason)
 
@@ -535,7 +536,13 @@ defmodule Aiur.Orchestrator.PauseResume do
 
     maybe_log_worker_pause(status, updated_running_entry, pause_reason)
     record_control_transition(updated_running_entry, previous_status, status, transition_cause)
-    OperatorMessages.maybe_emit_agent_control_alert(previous_status, status, updated_running_entry)
+
+    OperatorMessages.maybe_emit_agent_control_alert(
+      previous_status,
+      status,
+      updated_running_entry,
+      if(status == :working, do: previous_pause_reason, else: pause_reason)
+    )
 
     state = %{state | running: Map.put(state.running, issue_id, updated_running_entry)}
     state = finalize_applied_resume(state, issue_id, request)
@@ -715,6 +722,7 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   @spec transition_control_status(State.t(), map(), atom(), String.t()) :: State.t()
   def transition_control_status(%State{} = state, running_entry, new_status, reason) do
+    previous_pause_reason = Map.get(running_entry, :paused_reason)
     running_entry = normalize_pause_context(running_entry, new_status)
     issue_id = get_in(running_entry, [:issue, Access.key(:id)])
     identifier = Map.get(running_entry, :identifier)
@@ -735,7 +743,7 @@ defmodule Aiur.Orchestrator.PauseResume do
 
       next_state = %{state | running: Map.put(state.running, issue_id, next_entry)}
       record_control_transition(next_entry, old_status, new_status, reason)
-      OperatorMessages.maybe_emit_agent_control_alert(old_status, new_status, next_entry)
+      OperatorMessages.maybe_emit_agent_control_alert(old_status, new_status, next_entry, previous_pause_reason)
       StatusReport.notify_dashboard(next_state)
       next_state
     end
@@ -1040,7 +1048,13 @@ defmodule Aiur.Orchestrator.PauseResume do
         updated_entry = Map.get(state.running, issue_id, running_entry)
         resume_cause = if operator?, do: :operator_resume, else: :automatic_resume
         record_control_transition(updated_entry, previous_status, :working, resume_cause)
-        OperatorMessages.maybe_emit_agent_control_alert(previous_status, :working, updated_entry)
+
+        OperatorMessages.maybe_emit_agent_control_alert(
+          previous_status,
+          :working,
+          updated_entry,
+          Map.get(running_entry, :paused_reason)
+        )
 
         {{:ok, :resumed}, state}
 

@@ -20,7 +20,7 @@ defmodule Aiur.Orchestrator.LifecycleFence do
 
   @type t :: %{
           generation: pos_integer(),
-          authoritative_state: String.t(),
+          authoritative_state: String.t() | nil,
           pending_item_ids: MapSet.t(integer()),
           opened_at: DateTime.t()
         }
@@ -68,6 +68,15 @@ defmodule Aiur.Orchestrator.LifecycleFence do
   @spec reconcile_observed_state(State.t(), Issue.t()) :: :admit | {:fenced, State.t()}
   def reconcile_observed_state(%State{} = state, %Issue{} = issue) do
     case running_fence(state, issue) do
+      {issue_id, %{authoritative_state: nil}} ->
+        case normalize_state(issue.state) do
+          observed_state when is_binary(observed_state) ->
+            {:fenced, adopt_observed_state(state, issue_id, issue, observed_state)}
+
+          _ ->
+            {:fenced, state}
+        end
+
       {issue_id, %{authoritative_state: authoritative_state}}
       when is_binary(authoritative_state) ->
         actual_state = normalize_state(issue.state)
@@ -77,7 +86,7 @@ defmodule Aiur.Orchestrator.LifecycleFence do
             {:fenced, state}
 
           actual_state == "rework" ->
-            {:fenced, adopt_authoritative_rework(state, issue_id, issue)}
+            {:fenced, adopt_observed_state(state, issue_id, issue, actual_state)}
 
           true ->
             {:fenced,
@@ -130,6 +139,7 @@ defmodule Aiur.Orchestrator.LifecycleFence do
     cond do
       comment_rework? -> "rework"
       is_map(existing_fence) -> existing_fence.authoritative_state
+      State.completed_provenance?(entry) -> nil
       true -> normalize_state(get_in(entry, [:issue, Access.key(:state)])) || "in-progress"
     end
   end
@@ -218,21 +228,21 @@ defmodule Aiur.Orchestrator.LifecycleFence do
     state
   end
 
-  defp adopt_authoritative_rework(state, issue_id, issue) do
+  defp adopt_observed_state(state, issue_id, issue, observed_state) do
     entry = Map.fetch!(state.running, issue_id)
     fence = Map.fetch!(entry, :lifecycle_fence)
 
     updated_fence = %{
       fence
-      | authoritative_state: "rework",
+      | authoritative_state: observed_state,
         generation: fence.generation + 1,
         opened_at: DateTime.utc_now()
     }
 
     cached_issue =
       case Map.get(entry, :issue) do
-        %Issue{} = existing -> %{existing | state: "rework"}
-        _other -> %{issue | state: "rework"}
+        %Issue{} = existing -> %{existing | state: observed_state}
+        _other -> %{issue | state: observed_state}
       end
 
     updated_entry =
@@ -241,7 +251,7 @@ defmodule Aiur.Orchestrator.LifecycleFence do
       |> Map.put(:lifecycle_fence, updated_fence)
 
     Logger.info(
-      "Lifecycle fence adopted newer authoritative rework: " <>
+      "Lifecycle fence adopted observed tracker state: " <>
         "#{State.issue_context(issue)} generation=#{updated_fence.generation}"
     )
 

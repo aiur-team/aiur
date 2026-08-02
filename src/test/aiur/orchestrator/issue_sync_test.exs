@@ -1,8 +1,8 @@
 defmodule Aiur.Orchestrator.IssueSyncTest do
   use Aiur.TestSupport
 
-  alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.{AlertFeed, Config.Paths, Issue, TrackerIdentity, Workflow}
+  alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.Orchestrator.{IssueSync, State}
 
   test "ignores a non-list poll result" do
@@ -140,8 +140,8 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
 
   test "persists a reason-carrying fallback when polling observes an ordinary error transition" do
     Publisher.set_tracked_fn(fn _ -> true end)
-    :ok = Exchange.subscribe("ticket.its-everdred/aiur#observed-error.agent.attention.error")
-    :ok = Exchange.subscribe("ticket.its-everdred/aiur#observed-error.agent.attention.error.resolved")
+    :ok = Exchange.subscribe("ticket.its-everdred/aiur#observed-error.agent.attention.error-observed_tracker_error")
+    :ok = Exchange.subscribe("ticket.its-everdred/aiur#observed-error.agent.attention.error-observed_tracker_error.resolved")
 
     on_exit(fn ->
       Publisher.set_tracked_fn(fn _ -> true end)
@@ -164,7 +164,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
 
     assert MapSet.member?(state.observed_error_alerts, previous.id)
 
-    assert_receive {:event, %{topic: "ticket.its-everdred/aiur#observed-error.agent.attention.error"} = event}, 500
+    assert_receive {:event, %{topic: "ticket.its-everdred/aiur#observed-error.agent.attention.error-observed_tracker_error"} = event}, 500
     assert event["reason"] =~ "without a specialized local cause"
     assert event["reason"] =~ "will not clear on its own"
     assert event["needs_attention"] == true
@@ -183,7 +183,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       )
 
     refute MapSet.member?(recovered_state.observed_error_alerts, previous.id)
-    assert_receive {:event, %{topic: "ticket.its-everdred/aiur#observed-error.agent.attention.error.resolved"}}, 500
+    assert_receive {:event, %{topic: "ticket.its-everdred/aiur#observed-error.agent.attention.error-observed_tracker_error.resolved"}}, 500
 
     _ =
       IssueSync.sync_polled_issue_state(
@@ -196,13 +196,48 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
         fn _identity, _pending? -> :ok end
       )
 
-    assert_receive {:event, %{topic: "ticket.its-everdred/aiur#observed-error.agent.attention.error"}}, 500
+    assert_receive {:event, %{topic: "ticket.its-everdred/aiur#observed-error.agent.attention.error-observed_tracker_error"}}, 500
+  end
+
+  test "does not resolve an observed error while its lifetime latch remains active" do
+    Publisher.set_tracked_fn(fn _ -> true end)
+    issue = issue("latched-error", "rework")
+    topic = "ticket.#{issue.identifier}.agent.attention.error-lifetime_latch"
+    resolved_topic = "#{topic}.resolved"
+    :ok = Exchange.subscribe(resolved_topic)
+    write_central_attention!(topic)
+
+    on_exit(fn ->
+      Publisher.set_tracked_fn(fn _ -> true end)
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+    end)
+
+    state = %State{
+      observed_error_alerts: MapSet.new([issue.id]),
+      observed_error_alert_causes: %{issue.id => :lifetime_latch},
+      dispatch_recovery: %{codex_thrash_budget: %{issue.id => %{tripped: :lifetime, lifetime: 2}}}
+    }
+
+    recovered =
+      IssueSync.sync_polled_issue_state(
+        state,
+        [issue],
+        fn _ -> {:ok, []} end,
+        fn _identity, _lifecycle -> :ok end,
+        MapSet.new(["done"]),
+        fn _ -> :ok end,
+        fn _identity, _pending? -> :ok end
+      )
+
+    assert MapSet.member?(recovered.observed_error_alerts, issue.id)
+    assert recovered.observed_error_alert_causes[issue.id] == :lifetime_latch
+    refute_receive {:event, %{topic: ^resolved_topic}}, 100
   end
 
   test "resolves and rearms a persisted observed error after restart" do
     Publisher.set_tracked_fn(fn _ -> true end)
     issue = issue("observed-error-restart", "rework")
-    topic = "ticket.#{issue.identifier}.agent.attention.error"
+    topic = "ticket.#{issue.identifier}.agent.attention.error-observed_tracker_error"
     resolved_topic = "#{topic}.resolved"
     :ok = Exchange.subscribe(topic)
     :ok = Exchange.subscribe(resolved_topic)
@@ -239,6 +274,33 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       )
 
     assert_receive {:event, %{topic: ^topic}}, 500
+  end
+
+  test "resolves a persisted retry-exhaustion error with its own cause after restart" do
+    Publisher.set_tracked_fn(fn _ -> true end)
+    issue = issue("retry-error-restart", "rework")
+    topic = "ticket.#{issue.identifier}.agent.attention.error-retry_exhausted"
+    resolved_topic = "#{topic}.resolved"
+    :ok = Exchange.subscribe(resolved_topic)
+    write_central_attention!(topic)
+
+    on_exit(fn ->
+      Publisher.set_tracked_fn(fn _ -> true end)
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+    end)
+
+    _ =
+      IssueSync.sync_polled_issue_state(
+        %State{},
+        [issue],
+        fn _ -> {:ok, []} end,
+        fn _identity, _lifecycle -> :ok end,
+        MapSet.new(["done"]),
+        fn _ -> :ok end,
+        fn _identity, _pending? -> :ok end
+      )
+
+    assert_receive {:event, %{topic: ^resolved_topic}}, 500
   end
 
   test "resolves and rearms a persisted tracker pause after restart" do
@@ -285,7 +347,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
 
   test "does not duplicate an error alert already emitted by a specialized producer" do
     Publisher.set_tracked_fn(fn _ -> true end)
-    :ok = Exchange.subscribe("ticket.its-everdred/aiur#specialized-error.agent.attention.error")
+    :ok = Exchange.subscribe("ticket.its-everdred/aiur#specialized-error.agent.attention.error-observed_tracker_error")
 
     on_exit(fn ->
       Publisher.set_tracked_fn(fn _ -> true end)
@@ -306,7 +368,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
         fn _identity, _pending? -> :ok end
       )
 
-    refute_receive {:event, %{topic: "ticket.its-everdred/aiur#specialized-error.agent.attention.error"}}, 100
+    refute_receive {:event, %{topic: "ticket.its-everdred/aiur#specialized-error.agent.attention.error-observed_tracker_error"}}, 100
   end
 
   test "does not count an issue claimed in the same dispatch cycle as ready work" do

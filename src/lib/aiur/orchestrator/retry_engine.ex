@@ -550,7 +550,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
           "Agent entered error after retry exhaustion; automatic retry is no longer scheduled." <>
             retry_exhausted_error_suffix(error)
 
-        Alerts.emit_custom("ticket.#{identifier}.agent.attention.error", message,
+        Alerts.emit_custom("ticket.#{identifier}.agent.attention.error-retry_exhausted", message,
           issue: identifier,
           reason: message,
           needs_attention: true,
@@ -568,7 +568,14 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
   defp move_exhausted_issue_to_error_state(_issue_id, _identifier, _error), do: :ok
 
-  defp maybe_mark_observed_error_alert(state, issue_id, true), do: %{state | observed_error_alerts: MapSet.put(state.observed_error_alerts, issue_id)}
+  defp maybe_mark_observed_error_alert(state, issue_id, true) do
+    %{
+      state
+      | observed_error_alerts: MapSet.put(state.observed_error_alerts, issue_id),
+        observed_error_alert_causes: Map.put(state.observed_error_alert_causes, issue_id, :retry_exhausted)
+    }
+  end
+
   defp maybe_mark_observed_error_alert(state, _issue_id, false), do: state
 
   defp retry_exhausted_error_suffix(error) when is_binary(error) and error != "", do: " Last error: #{error}"
