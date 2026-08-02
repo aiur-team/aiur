@@ -13,6 +13,7 @@ defmodule Aiur.Init.Runtime do
   alias Aiur.Init.Scaffold
   alias Aiur.Init.Templates
   alias Aiur.Prewarm.Detect
+  alias Aiur.Executor.Handoff
   alias Aiur.RepoBase
 
   @type io :: %{
@@ -141,7 +142,12 @@ defmodule Aiur.Init.Runtime do
 
   @spec setup_repo_state(map()) :: :ok | {:error, term()}
   def setup_repo_state(%{kind: "github", repo: repo}) when is_binary(repo) and repo != "" do
-    RepoBase.setup_state("https://github.com/#{repo}.git", Codeowners.repo_root(File.cwd!()))
+    repo_url = "https://github.com/#{repo}.git"
+    source_root = Codeowners.repo_root(File.cwd!())
+
+    with :ok <- RepoBase.setup_state(repo_url, source_root) do
+      Handoff.ensure(repo_url, source_root)
+    end
   end
 
   def setup_repo_state(_tracker), do: :ok

@@ -1,7 +1,9 @@
 defmodule Aiur.Init.RuntimeTest do
   use ExUnit.Case, async: false
 
+  alias Aiur.Init.Templates
   alias Aiur.Init.Runtime
+  alias Aiur.RepoBase
 
   setup do
     dir = Path.join(System.tmp_dir!(), "aiur-init-runtime-test-#{System.unique_integer([:positive])}")
@@ -34,7 +36,30 @@ defmodule Aiur.Init.RuntimeTest do
     assert Enum.all?(Map.values(deps), &is_function/1)
     assert Map.has_key?(deps, :config_target)
     assert Map.has_key?(deps, :load_config)
+    assert Map.has_key?(deps, :setup_repo_state)
     assert Map.has_key?(deps, :create_labels)
+  end
+
+  test "setup_repo_state seeds an Executor handoff during init", %{dir: dir} do
+    state_root = Path.join(dir, "state")
+    source_root = Path.join(dir, "source")
+    previous_root = Application.get_env(:aiur, :repo_base_root)
+    File.mkdir_p!(Path.join(source_root, ".git"))
+    Application.put_env(:aiur, :repo_base_root, state_root)
+
+    on_exit(fn ->
+      case previous_root do
+        nil -> Application.delete_env(:aiur, :repo_base_root)
+        root -> Application.put_env(:aiur, :repo_base_root, root)
+      end
+    end)
+
+    File.cd!(source_root, fn ->
+      assert :ok = Runtime.setup_repo_state(%{kind: "github", repo: "owner/repo"})
+    end)
+
+    handoff = RepoBase.handoff_path("https://github.com/owner/repo.git")
+    assert File.read!(handoff) == Templates.executor_handoff_template()
   end
 
   test "runtime_io builds the interactive IO map and puts writes output" do
