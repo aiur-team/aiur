@@ -4,13 +4,13 @@ defmodule Aiur.Orchestrator.StatusReport do
   All functions execute inside the orchestrator GenServer process.
   """
 
-  alias Aiur.{AgentEvents, AgentPubSub, CodingAgent, Config, Issue, TicketActivity, TrackerIdentity}
+  alias Aiur.{AgentEvents, AgentPubSub, AgentQueueStore, CodingAgent, Config, Issue, TicketActivity, TrackerIdentity}
   alias Aiur.Events.SubscriptionStore
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.Lifecycle
   alias Aiur.Orchestrator.OperatorMessages, as: OM
   alias Aiur.Orchestrator.RemoteControlMode, as: RC
-  alias Aiur.Orchestrator.{Slots, SnapshotStore}
+  alias Aiur.Orchestrator.{ControlLifecycle, Slots, SnapshotStore}
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.WaitingReason
 
@@ -97,8 +97,6 @@ defmodule Aiur.Orchestrator.StatusReport do
     |> Map.take([
       :agent_rate_limits,
       :agent_totals,
-      :ci_lifecycle,
-      :control_lifecycle,
       :effective_concurrent_agents,
       :globally_paused,
       :last_polled_issues,
@@ -112,6 +110,68 @@ defmodule Aiur.Orchestrator.StatusReport do
       :session_max_concurrent_agents
     ])
     |> then(&struct!(State, &1))
+    |> Map.put(:ci_lifecycle, snapshot_ci_lifecycle(state))
+    |> Map.put(:control_lifecycle, snapshot_control_lifecycle(state))
+    |> Map.put(:queue_store, snapshot_queue_store(state))
+  end
+
+  # The asynchronous projection needs only the cached result for rows it can
+  # render. Keeping the rest of this lifecycle map out of the cast prevents
+  # historical CI data from being copied along with every dashboard refresh.
+  defp snapshot_ci_lifecycle(%State{} = state) do
+    identifiers = snapshot_identifiers(state)
+    poll_cache = state.ci_lifecycle |> Map.get(:poll_cache, %{}) |> Map.take(identifiers)
+    %{poll_cache: poll_cache}
+  end
+
+  # A dashboard can show a pending control only for a running issue. Preserve
+  # those records, not the full bounded-but-fleet-wide control history.
+  defp snapshot_control_lifecycle(%State{} = state) do
+    Enum.reduce(state.running, %ControlLifecycle{}, fn {_issue_id, entry}, lifecycle ->
+      issue_id = entry |> Map.get(:issue, %{}) |> Map.get(:id)
+
+      case ControlLifecycle.current_pending(state.control_lifecycle, issue_id) do
+        %{request_id: request_id} = request ->
+          %{
+            lifecycle
+            | pending: Map.put(lifecycle.pending, issue_id, request_id),
+              records: Map.put(lifecycle.records, request_id, request)
+          }
+
+        nil ->
+          lifecycle
+      end
+    end)
+  end
+
+  # Queue depth and visible operator messages are dashboard contract fields.
+  # Copy only the queue entries for rows this snapshot can render so an
+  # unrelated queue backlog cannot inflate the projection cast.
+  defp snapshot_queue_store(%State{} = state) do
+    identifiers = snapshot_identifiers(state)
+
+    {items, pending_ids_by_target} =
+      Enum.reduce(identifiers, {%{}, %{}}, fn identifier, {items, pending_ids_by_target} ->
+        pending = AgentQueueStore.list_pending(state.queue_store, identifier)
+        visible = AgentQueueStore.list_visible_operator_messages(state.queue_store, identifier)
+        queue_items = pending ++ visible
+
+        {
+          Map.merge(items, Map.new(queue_items, &{&1.id, &1})),
+          Map.put(pending_ids_by_target, identifier, Enum.map(pending, & &1.id))
+        }
+      end)
+
+    %AgentQueueStore{items: items, pending_ids_by_target: pending_ids_by_target}
+  end
+
+  defp snapshot_identifiers(%State{} = state) do
+    state.running
+    |> Map.values()
+    |> Enum.map(&Map.get(&1, :identifier))
+    |> Kernel.++(Enum.map(state.last_polled_issues, fn {_issue_id, issue} -> issue.identifier || issue.id end))
+    |> Enum.filter(&is_binary/1)
+    |> Enum.uniq()
   end
 
   @spec poll_status(State.t()) :: {:reply, map(), State.t()}

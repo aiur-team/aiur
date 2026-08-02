@@ -88,8 +88,12 @@ defmodule Aiur.Orchestrator.SnapshotStore do
 
   @impl true
   def handle_cast({:publish_state, orchestrator, generation, snapshot_input}, store) do
-    pending = Map.put(store.pending, orchestrator, {generation, snapshot_input})
-    {:noreply, store |> Map.put(:pending, pending) |> schedule_projection()}
+    if generation == active_generation(orchestrator) do
+      pending = Map.put(store.pending, orchestrator, {generation, snapshot_input})
+      {:noreply, store |> Map.put(:pending, pending) |> schedule_projection()}
+    else
+      {:noreply, store}
+    end
   end
 
   @impl true

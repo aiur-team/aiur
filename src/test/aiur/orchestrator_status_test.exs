@@ -238,16 +238,46 @@ defmodule Aiur.OrchestratorStatusTest do
   end
 
   test "dashboard projection excludes unrelated orchestration state" do
+    {queue_store, _item} =
+      AgentQueueStore.enqueue(
+        AgentQueueStore.new(),
+        Aiur.AgentQueue.operator_message("MT-UNRELATED", String.duplicate("q", 64_000))
+      )
+
     state = %State{
       github_comment_issue_updated_at: Map.new(1..1_000, &{"issue-#{&1}", %{payload: String.duplicate("x", 64)}}),
-      queue_store: %{large: String.duplicate("q", 64_000)}
+      ci_lifecycle: %{poll_cache: Map.new(1..1_000, &{"MT-#{&1}", %{payload: String.duplicate("c", 64)}})},
+      control_lifecycle: %Aiur.Orchestrator.ControlLifecycle{
+        records: Map.new(1..1_000, &{"request-#{&1}", %{payload: String.duplicate("l", 64)}})
+      },
+      queue_store: queue_store
     }
 
     snapshot_input = StatusReport.snapshot_input(state)
 
     assert snapshot_input.github_comment_issue_updated_at == %{}
     assert snapshot_input.queue_store == AgentQueueStore.new()
-    assert :erts_debug.flat_size(snapshot_input) < :erts_debug.flat_size(state)
+    assert snapshot_input.ci_lifecycle == %{poll_cache: %{}}
+    assert snapshot_input.control_lifecycle == %Aiur.Orchestrator.ControlLifecycle{}
+    assert :erts_debug.size(snapshot_input) < 1_000
+    assert :erts_debug.size(snapshot_input) * 100 < :erts_debug.size(state)
+  end
+
+  test "dashboard projection retains queue facts for rendered issues" do
+    {queue_store, _item} =
+      AgentQueueStore.enqueue(
+        AgentQueueStore.new(),
+        Aiur.AgentQueue.operator_message("MT-QUEUED", "show this message")
+      )
+
+    state = %State{
+      running: %{"issue-queued" => running_entry("issue-queued", "MT-QUEUED", :working)},
+      queue_store: queue_store
+    }
+
+    snapshot = state |> StatusReport.snapshot_input() |> StatusReport.snapshot_payload()
+
+    assert [%{queue_depth: 1, pending_operator_messages: [%{text: "show this message"}]}] = snapshot.running
   end
 
   test "an old projector cannot replace a same-name orchestrator snapshot" do
@@ -270,6 +300,29 @@ defmodule Aiur.OrchestratorStatusTest do
              )
 
     assert {:current, ^fresh_snapshot, _freshness} = Orchestrator.dashboard_snapshot(orchestrator_name, 100)
+  end
+
+  test "an old generation cannot evict a newer pending projection" do
+    orchestrator = self()
+    current_generation = SnapshotStore.begin_generation(orchestrator)
+    stale_generation = make_ref()
+    snapshot_input = %State{agent_totals: %{total_tokens: 2}}
+    store = %{pending: %{}, task_ref: nil, monitor_ref: nil, timer_ref: nil}
+
+    assert {:noreply, store} =
+             SnapshotStore.handle_cast(
+               {:publish_state, orchestrator, current_generation, snapshot_input},
+               store
+             )
+
+    assert {:noreply, stale_store} =
+             SnapshotStore.handle_cast(
+               {:publish_state, orchestrator, stale_generation, %State{agent_totals: %{total_tokens: 1}}},
+               store
+             )
+
+    assert stale_store.pending == store.pending
+    Process.cancel_timer(store.timer_ref)
   end
 
   test "startup terminal cleanup skips Linear fetch when Linear token is missing" do

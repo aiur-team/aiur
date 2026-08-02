@@ -125,31 +125,32 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
   end
 
   test "publishes the retry engine's final state" do
+    issue = %Issue{id: "issue-final", identifier: "MT-FINAL", state: "rework"}
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "memory")
+    Application.put_env(:aiur, :memory_tracker_issues, [issue])
+
     generation = SnapshotStore.begin_generation(self())
+    retry_token = make_ref()
 
-    :ok =
-      SnapshotStore.publish(self(), %{
-        running: [],
-        retrying: [%{identifier: "MT-OLD"}],
-        idle: [],
-        agent_totals: %{},
-        capacity: %{}
-      })
-
-    final_state = %State{
+    state = %State{
       snapshot_key: self(),
       snapshot_generation: generation,
       snapshot_ready?: true,
+      globally_paused: true,
+      claimed: MapSet.new([issue.id]),
       retry_attempts: %{
-        "issue-final" => %{
+        issue.id => %{
           attempt: 2,
-          due_at_ms: System.monotonic_time(:millisecond) + 1_000,
-          identifier: "MT-FINAL"
+          identifier: issue.identifier,
+          retry_token: retry_token
         }
       }
     }
 
-    assert {:noreply, ^final_state} = RetryEngine.publish_final_retry_state({:noreply, final_state})
+    assert {:noreply, final_state} = RetryEngine.handle_retry_message(state, issue.id, retry_token)
+    assert %{identifier: "MT-FINAL", retry_token: final_retry_token} = final_state.retry_attempts[issue.id]
+    refute final_retry_token == retry_token
+    Process.cancel_timer(final_state.retry_attempts[issue.id].timer_ref)
 
     assert eventually(fn ->
              match?(
