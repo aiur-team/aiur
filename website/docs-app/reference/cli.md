@@ -61,10 +61,12 @@ Run commands from the repository root, or from a subdirectory beneath a reposito
 
 | Command | Arguments and behavior | Runnable example |
 | --- | --- | --- |
-| `aiur init` | Interactive setup. It discovers toolchains, writes `.aiur/config`, `.aiur/hooks`, and `.aiur/prompt.md`, can prepare prewarm state, and creates the repository state-node layout. | `aiur init` |
+| `aiur init` | Interactive setup. It asks for tracker and bot identity, agents, routing and fallback, permissions, workspace, concurrency and turn limits, polling, prompt path, prewarm, and alerts. | `aiur init` |
 | `aiur init --force` | Re-runs setup while preserving sibling scaffold files. | `aiur init --force` |
 | `aiur --todo ID...` | Marks one or more numeric GitHub issue IDs as queued. IDs can be space or comma separated. This is a one-shot operation and does not start the daemon. | `aiur --todo 142 143` |
 | `aiur --todo ID... --only` | Queues the requested issues and dequeues other pending tickets. It does not interrupt tickets already in another active lifecycle state. Treat it as a deliberate queue replacement. | `aiur --todo 142,143 --only` |
+
+On a fresh repository setup, `init` writes the config, prompt, hooks, alerts, and prewarm files; it can set up GitHub `.env`, offer a `.gitignore` entry, configure CODEOWNERS, detect agent CLIs, and create tracker labels. It runs the first base build and creates state-node build data only when prewarm is enabled and the tracker has a repository.
 
 ## Inspect a running daemon
 

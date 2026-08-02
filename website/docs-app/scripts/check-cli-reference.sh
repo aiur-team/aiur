@@ -28,9 +28,10 @@ source_flags="$(
       | tr '_' '-'
     sed -n 's/^  @acknowledgement_switch :\([a-z_][a-z_]*\)$/--\1/p' "$parser" | tr '_' '-'
 
-    # Launcher usage plus command parsers own shared-engine control flags.
+    # Every dispatched control handler is authoritative, including handlers
+    # absent from the usage banner such as cleanup-stale.
     sed -n '/^usage() {/,/^}/p' "$engine"
-    sed -n '/^cmd_alerts() {/,/^cmd_set() {/p' "$engine"
+    awk '/^cmd_[a-z_]+\(\)/ { in_command = 1 } in_command { print } in_command && /^}/ { in_command = 0 }' "$engine"
 
     # These two bounded blocks are the dev-only public surface, not mix-reset internals.
     sed -n '/if \[ "${1:-}" = "build" \]; then/,/^# --- dev test/p' "$dev_shim"
@@ -55,12 +56,20 @@ documented_flags="$(
 has_complete_table_row() {
   local token="$1"
 
+  case "$token" in
+    -h|-help|--h|--help) token="help" ;;
+  esac
+
   awk -F '|' -v token="$token" '
-    index($0, token) > 0 && NF >= 5 && $2 !~ /^[[:space:]-]*$/ &&
+    $2 ~ "(^|[^[:alnum:]-])" token "([^[:alnum:]-]|$)" && NF >= 5 && $2 !~ /^[[:space:]-]*$/ &&
       $3 !~ /^[[:space:]-]*$/ && $4 !~ /^[[:space:]-]*$/ { found = 1 }
     END { exit found ? 0 : 1 }
   ' "$page"
 }
+
+rendered_flags="$(awk -F '|' 'NF >= 5 { print $2 }' "$page" | rg -o -- '--[a-z][a-z0-9-]*' | sort -u)"
+source_word_commands="$(printf '%s\n' "$source_commands" | rg '^[a-z][a-z-]*$')"
+rendered_commands="$(awk -F '|' 'NF >= 5 { print $2 }' "$page" | rg -o -- 'aiur[[:space:]]+[a-z][a-z-]*' | sed 's/^aiur[[:space:]]*//' | sort -u)"
 
 compare_source_to_docs() {
   local kind="$1" source="$2" documented="$3" token
@@ -88,6 +97,8 @@ EOF
 
 compare_source_to_docs command "$source_commands" "$documented_commands"
 compare_source_to_docs flag "$source_flags" "$documented_flags"
+compare_source_to_docs rendered-command "$source_word_commands" "$rendered_commands"
+compare_source_to_docs rendered-flag "$source_flags" "$rendered_flags"
 
 while IFS= read -r command; do
   [ -n "$command" ] || continue
