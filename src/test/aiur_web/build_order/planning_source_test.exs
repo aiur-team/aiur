@@ -116,7 +116,32 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
 
   test "missing pack yields no catalog rather than crashing" do
     Application.put_env(:aiur, :build_order_planning_pack, "/does/not/exist.json")
-    assert PlanningSource.catalog() == nil
+    assert %Snapshot{data: %Catalog{entries: []}} = PlanningSource.catalog()
+  end
+
+  test "excludes configured packs for another repository and reports searched directories" do
+    directory = Path.join(System.tmp_dir!(), "planning-source-scope-#{System.unique_integer([:positive])}")
+    matching = Path.join(directory, "matching.json")
+    foreign = Path.join(directory, "foreign.json")
+    repository = Config.repo()
+
+    File.mkdir_p!(directory)
+    File.write!(matching, String.replace(@pack, "acme/widgets", repository))
+    File.write!(foreign, @pack)
+    Application.delete_env(:aiur, :build_order_planning_pack)
+    Application.put_env(:aiur, :build_order_planning_packs, [matching, foreign])
+
+    on_exit(fn ->
+      Application.delete_env(:aiur, :build_order_planning_packs)
+      File.rm_rf(directory)
+    end)
+
+    assert %Snapshot{data: %Catalog{entries: [entry]}} = PlanningSource.catalog()
+    assert entry.title == "Demo Plan"
+
+    Application.put_env(:aiur, :build_order_planning_packs, [foreign])
+    assert %Snapshot{data: %Catalog{entries: [], search_paths: search_paths}} = PlanningSource.catalog()
+    assert directory in search_paths
   end
 
   test "hydrates canonical ticket fields from membership without tracker reads" do
@@ -293,7 +318,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
       File.rm(outside_document)
     end)
 
-    assert PlanningSource.catalog() == nil
+    assert %Snapshot{data: %Catalog{entries: []}} = PlanningSource.catalog()
   end
 
   test "uses live labels for created tickets and pack labels for drafts" do
@@ -335,10 +360,10 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
 
     File.write!(path, String.replace(@pack, "\"ticket\": null", "\"ticket\": -1"))
     Application.put_env(:aiur, :build_order_planning_pack, path)
-    assert PlanningSource.catalog() == nil
+    assert %Snapshot{data: %Catalog{entries: []}} = PlanningSource.catalog()
 
     File.write!(path, String.replace(@pack, "\"doc\": \"tickets/T-1.md\"", "\"doc\": \"plan.md\""))
-    assert PlanningSource.catalog() == nil
+    assert %Snapshot{data: %Catalog{entries: []}} = PlanningSource.catalog()
   end
 
   test "marks membership recovery failures unavailable instead of trusted open state" do
@@ -368,12 +393,13 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
 
     File.mkdir_p!(Path.dirname(path))
     File.mkdir_p!(Path.dirname(second_path))
-    File.write!(path, @canonical_pack)
+    File.write!(path, String.replace(@canonical_pack, "acme/widgets", repository))
 
     File.write!(
       second_path,
       @canonical_pack
-      |> String.replace("acme/widgets:analytics-streamdeck", "acme/widgets:second-build")
+      |> String.replace("acme/widgets", repository)
+      |> String.replace("#{repository}:analytics-streamdeck", "#{repository}:second-build")
       |> String.replace("Analytics Stream Deck", "Second runtime build")
       |> String.replace("\"root_number\": 9900", "\"root_number\": 9901")
     )
@@ -390,7 +416,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
 
     roots = PlanningSource.catalog().data.entries
     root = Enum.find(roots, &(&1.identity.identifier == "9900"))
-    assert root.identity.provider_id == "BO_acme/widgets:analytics-streamdeck"
+    assert root.identity.provider_id == "BO_#{repository}:analytics-streamdeck"
     assert Enum.map(roots, & &1.identity.identifier) |> Enum.sort() == ["9900", "9901"]
   end
 
@@ -398,12 +424,14 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     first = Path.join(System.tmp_dir!(), "planning-source-first-#{System.unique_integer([:positive])}.json")
     second = Path.join(System.tmp_dir!(), "planning-source-second-#{System.unique_integer([:positive])}.json")
 
-    File.write!(first, @pack)
+    repository = Config.repo()
+    File.write!(first, String.replace(@pack, "acme/widgets", repository))
 
     File.write!(
       second,
       @pack
-      |> String.replace("acme/widgets:demo", "acme/widgets:second-demo")
+      |> String.replace("acme/widgets", repository)
+      |> String.replace("#{repository}:demo", "#{repository}:second-demo")
       |> String.replace("Demo Plan", "Second Demo Plan")
       |> String.replace("\"T-1\"", "\"S-1\"")
       |> String.replace("\"T-2\"", "\"S-2\"")
@@ -433,9 +461,12 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
 
     for path <- [active, recent, older], do: File.mkdir_p!(Path.dirname(path))
 
-    File.write!(active, @pack)
-    File.write!(recent, @pack |> String.replace("Demo Plan", "Recent completed") |> String.replace(":demo", ":recent"))
-    File.write!(older, @pack |> String.replace("Demo Plan", "Older completed") |> String.replace(":demo", ":older"))
+    repository = Config.repo()
+    pack = String.replace(@pack, "acme/widgets", repository)
+
+    File.write!(active, pack)
+    File.write!(recent, pack |> String.replace("Demo Plan", "Recent completed") |> String.replace(":demo", ":recent"))
+    File.write!(older, pack |> String.replace("Demo Plan", "Older completed") |> String.replace(":demo", ":older"))
     File.write!(Path.join(Path.dirname(recent), "status.json"), ~s({"state":"completed","completed_at":"2026-08-01T12:00:00Z"}))
     File.write!(Path.join(Path.dirname(older), "status.json"), ~s({"state":"completed","completed_at":"2026-07-31T12:00:00Z"}))
 

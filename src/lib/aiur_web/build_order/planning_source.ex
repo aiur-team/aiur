@@ -38,21 +38,16 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   @impl true
   def catalog do
     membership = membership_snapshot()
+    packs = load_packs()
 
-    case load_packs() do
-      [] ->
-        nil
-
-      packs ->
-        %Snapshot{
-          scope: :catalog,
-          repository: hd(packs).repository,
-          generation: generation(membership),
-          authority_epoch: @epoch,
-          data: Catalog.new(Enum.map(packs, &root_summary(&1, membership)), health(membership)),
-          health: health(membership)
-        }
-    end
+    %Snapshot{
+      scope: :catalog,
+      repository: catalog_repository(packs),
+      generation: generation(membership),
+      authority_epoch: @epoch,
+      data: Catalog.new(Enum.map(packs, &root_summary(&1, membership)), health(membership), search_paths: catalog_search_paths()),
+      health: health(membership)
+    }
   end
 
   # --- selected root ---------------------------------------------------------
@@ -415,10 +410,25 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
       {:ok, pack} -> [pack]
       :error -> []
     end)
+    |> filter_for_tracked_repository()
     |> Enum.sort(&pack_before?/2)
     |> assign_default_root_numbers()
     |> assign_default_icons()
   end
+
+  # A single explicit pack is a test/demo override. Every normal catalog source,
+  # including the environment directory override, remains scoped to the repo this
+  # daemon is tracking.
+  defp filter_for_tracked_repository(packs) do
+    if Application.get_env(:aiur, :build_order_planning_pack) do
+      packs
+    else
+      Enum.filter(packs, &tracked_repository?/1)
+    end
+  end
+
+  defp tracked_repository?(%{repository: repository}), do: repository == configured_repository_tuple()
+  defp tracked_repository?(_pack), do: false
 
   defp pack_paths do
     case Application.get_env(:aiur, :build_order_planning_pack) do
@@ -430,8 +440,14 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   # Runtime packs are re-discovered from the configured repository's state node.
   # Environment directories remain an explicit test/development override.
   defp discovered_packs do
-    (state_pack_paths() ++ override_pack_paths())
+    (workspace_pack_paths() ++ state_pack_paths() ++ override_pack_paths())
     |> Enum.uniq()
+  end
+
+  defp workspace_pack_paths do
+    workspace_pack_directory()
+    |> Path.join("*.json")
+    |> Path.wildcard()
   end
 
   defp override_pack_paths do
@@ -459,8 +475,56 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
     end
   end
 
+  defp catalog_repository([pack | _packs]), do: pack.repository
+  defp catalog_repository([]), do: configured_repository_tuple()
+
+  defp configured_repository_tuple do
+    case String.split(to_string(configured_repository() || ""), "/", parts: 2) do
+      [owner, repo] when owner != "" and repo != "" -> {owner, repo}
+      _other -> {"unknown", "unknown"}
+    end
+  end
+
+  defp catalog_search_paths do
+    case Application.get_env(:aiur, :build_order_planning_pack) do
+      nil ->
+        case Application.get_env(:aiur, :build_order_planning_packs) do
+          paths when is_list(paths) -> Enum.map(paths, &Path.dirname(absolute_path(&1)))
+          _missing -> discovery_directories()
+        end
+
+      path ->
+        [Path.dirname(absolute_path(path))]
+    end
+  end
+
+  defp discovery_directories do
+    [workspace_pack_directory(), state_pack_directory() | override_pack_directories()]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
+  defp workspace_pack_directory, do: Path.join([File.cwd!(), ".aiur", "build_orders"])
+
+  defp state_pack_directory do
+    case configured_repository() do
+      repository when is_binary(repository) and repository != "" ->
+        RepoBase.builds_path("https://github.com/#{repository}.git")
+
+      _missing ->
+        nil
+    end
+  end
+
+  defp override_pack_directories do
+    case System.get_env("AIUR_BUILD_ORDER_DIRS") do
+      dirs when is_binary(dirs) and dirs != "" -> String.split(dirs, ":", trim: true)
+      _missing -> []
+    end
+  end
+
   defp load_pack(path, include_drafts?) do
-    absolute = if Path.type(path) == :absolute, do: path, else: Application.app_dir(:aiur, path)
+    absolute = absolute_path(path)
 
     with {:ok, body} <- File.read(absolute),
          {:ok, json} <- Jason.decode(body),
@@ -695,4 +759,6 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   rescue
     _error -> nil
   end
+
+  defp absolute_path(path), do: if(Path.type(path) == :absolute, do: path, else: Application.app_dir(:aiur, path))
 end

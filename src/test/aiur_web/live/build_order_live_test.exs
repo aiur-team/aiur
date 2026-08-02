@@ -226,8 +226,19 @@ defmodule AiurWeb.BuildOrderLiveTest do
     empty = install_source(catalog: catalog_snapshot([], 2, :healthy))
     assert {:ok, _view, empty_html} = live(build_conn(), "/build-orders")
     assert empty_html =~ ~s(data-build-order-catalog-state="empty")
-    assert empty_html =~ "No Build Orders"
+    assert empty_html =~ "No Build Orders for this repository"
     assert Process.alive?(empty)
+  end
+
+  test "an empty catalog names the directories it searched" do
+    catalog = catalog_snapshot([], 1, :healthy)
+    catalog = put_in(catalog.data.search_paths, [".aiur/build_orders", "/var/lib/aiur/builds"])
+    _source = install_source(catalog: catalog)
+
+    assert {:ok, _view, html} = live(build_conn(), "/build-orders")
+    assert html =~ "Searched:"
+    assert html =~ ".aiur/build_orders"
+    assert html =~ "/var/lib/aiur/builds"
   end
 
   test "deep links resolve through the catalog and subscribe before one demand", %{source: source, first: first} do
