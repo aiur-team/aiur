@@ -246,7 +246,10 @@ defmodule Aiur.OrchestratorStatusTest do
 
     state = %State{
       github_comment_issue_updated_at: Map.new(1..1_000, &{"issue-#{&1}", %{payload: String.duplicate("x", 64)}}),
-      ci_lifecycle: %{poll_cache: Map.new(1..1_000, &{"MT-#{&1}", %{payload: String.duplicate("c", 64)}})},
+      ci_lifecycle: %{
+        %State{}.ci_lifecycle
+        | poll_cache: Map.new(1..1_000, &{"MT-#{&1}", %{payload: String.duplicate("c", 64)}})
+      },
       control_lifecycle: %Aiur.Orchestrator.ControlLifecycle{
         records: Map.new(1..1_000, &{"request-#{&1}", %{payload: String.duplicate("l", 64)}})
       },
@@ -257,7 +260,7 @@ defmodule Aiur.OrchestratorStatusTest do
 
     assert snapshot_input.github_comment_issue_updated_at == %{}
     assert snapshot_input.queue_store == AgentQueueStore.new()
-    assert snapshot_input.ci_lifecycle == %{poll_cache: %{}}
+    assert snapshot_input.ci_lifecycle == %State{}.ci_lifecycle
     assert snapshot_input.control_lifecycle == %Aiur.Orchestrator.ControlLifecycle{}
     assert :erts_debug.size(snapshot_input) < 1_000
     assert :erts_debug.size(snapshot_input) * 100 < :erts_debug.size(state)
@@ -289,7 +292,10 @@ defmodule Aiur.OrchestratorStatusTest do
           identifier: "MT-RETRY-CI"
         }
       },
-      ci_lifecycle: %{poll_cache: %{"MT-RETRY-CI" => %{decision: :pending, pr_number: 1501}}}
+      ci_lifecycle: %{
+        %State{}.ci_lifecycle
+        | poll_cache: %{"MT-RETRY-CI" => %{decision: :pending, pr_number: 1501}}
+      }
     }
 
     snapshot = state |> StatusReport.snapshot_input() |> StatusReport.snapshot_payload()

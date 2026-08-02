@@ -121,7 +121,14 @@ defmodule Aiur.Orchestrator.StatusReport do
   defp snapshot_ci_lifecycle(%State{} = state) do
     identifiers = snapshot_identifiers(state)
     poll_cache = state.ci_lifecycle |> Map.get(:poll_cache, %{}) |> Map.take(identifiers)
-    %{poll_cache: poll_cache}
+
+    %{
+      approved_heads: %{},
+      test_failure_heads: %{},
+      base_repair_invalidations: %{},
+      poll_cache: poll_cache,
+      rewakes: %{}
+    }
   end
 
   # A dashboard can show a pending control only for a running issue. Preserve
