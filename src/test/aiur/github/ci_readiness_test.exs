@@ -45,6 +45,10 @@ defmodule Aiur.GitHub.CiReadinessTest do
     assert readiness.required_checks == ["ci / required"]
   end
 
+  test "accepts the unconfigured pull request trigger emitted by the scaffold" do
+    assert CiReadiness.evaluate("main", [{".github/workflows/ci.yml", CiReadiness.scaffold()}], ["ci / required"]).ready?
+  end
+
   test "does not treat a workflow excluded from the base branch as a PR workflow" do
     workflow = """
     on:
@@ -105,7 +109,16 @@ defmodule Aiur.GitHub.CiReadinessTest do
   end
 
   test "recognizes an always condition wrapped in GitHub expression delimiters" do
-    workflow = String.replace(@workflow, "runs-on: ubuntu-latest", "if: ${{ always() }}\n      runs-on: ubuntu-latest")
+    workflow = """
+    on:
+      pull_request:
+        branches: [develop]
+    jobs:
+      test:
+        name: ci / required
+        if: ${{ always() }}
+        runs-on: ubuntu-latest
+    """
 
     assert CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", workflow}], ["ci / required"]).ready?
   end
@@ -118,6 +131,31 @@ defmodule Aiur.GitHub.CiReadinessTest do
 
     assert {:ok, %{ready?: false, issues: [:base_branch_missing]}} =
              CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop")
+  end
+
+  test "encodes configured branch names as path and query components" do
+    branch = "feature/#&gate"
+    parent = self()
+
+    request_fun = fn %{url: url} ->
+      send(parent, {:readiness_url, url})
+
+      cond do
+        url =~ "/branches/feature%2F%23%26gate" -> {:ok, %{status: 200, body: %{}}}
+        String.ends_with?(url, "/repos/owner/repo") -> {:ok, %{status: 200, body: %{"default_branch" => branch}}}
+        url =~ "/contents/.github/workflows?ref=feature%2F%23%26gate" -> {:ok, %{status: 200, body: []}}
+        url =~ "/protection" -> {:ok, %{status: 404, body: %{}}}
+        url =~ "/rulesets" -> {:ok, %{status: 200, body: []}}
+        true -> flunk("unexpected URL: #{url}")
+      end
+    end
+
+    assert {:ok, %{issues: [:no_pr_workflow, :no_required_check]}} =
+             CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", branch)
+
+    assert_receive {:readiness_url, branch_url} when branch_url =~ "/branches/feature%2F%23%26gate"
+    assert_receive {:readiness_url, _repo_url}
+    assert_receive {:readiness_url, workflow_url} when workflow_url =~ "?ref=feature%2F%23%26gate"
   end
 
   test "fetches workflow content and required checks through the GitHub transport" do

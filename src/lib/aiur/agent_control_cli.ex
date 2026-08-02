@@ -772,10 +772,20 @@ defmodule Aiur.AgentControlCLI do
 
   defp print_ci_readiness do
     if Config.tracker_kind() == "github" do
-      case CiReadiness.check_fun().(base_branch: Config.base_branch()) do
+      case bounded_ci_readiness_check() do
         {:ok, readiness} -> IO.puts(CiReadiness.format(readiness))
         {:error, reason} -> IO.puts("CI readiness: unavailable (#{inspect(reason)})")
       end
+    end
+  end
+
+  defp bounded_ci_readiness_check do
+    task = Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn -> CiReadiness.check_fun().(base_branch: Config.base_branch()) end)
+
+    case Task.yield(task, 2_000) || Task.shutdown(task, :brutal_kill) do
+      {:ok, result} -> result
+      {:exit, reason} -> {:error, reason}
+      nil -> {:error, :timeout}
     end
   end
 

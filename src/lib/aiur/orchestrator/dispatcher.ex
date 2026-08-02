@@ -108,7 +108,13 @@ defmodule Aiur.Orchestrator.Dispatcher do
         %{state | ci_readiness_checked: true}
 
       {:ok, readiness} ->
-        emit_fun.("system.ci_readiness.not_ready", reason: CiReadiness.format(readiness), needs_attention: true, severity: "warning")
+        emit_fun.("system.ci_readiness.not_ready",
+          message: "Repository CI readiness is incomplete",
+          reason: CiReadiness.format(readiness),
+          needs_attention: true,
+          severity: "warning"
+        )
+
         %{state | ci_readiness_checked: true}
 
       {:error, _reason} when state.ci_readiness_unavailable_alerted ->
@@ -116,6 +122,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
       {:error, reason} ->
         emit_fun.("system.ci_readiness.unavailable",
+          message: "Repository CI readiness could not be inspected",
           reason: "CI readiness inspection failed: #{inspect(reason)}",
           needs_attention: true,
           severity: "warning"

@@ -61,9 +61,9 @@ defmodule Aiur.GitHub.CiReadiness do
       when is_function(request_fun, 1) and is_binary(token) and is_binary(base_branch) do
     base_url = "#{Transport.base_url()}/repos/#{owner}/#{repo}"
 
-    with :ok <- branch_exists?(request_fun, token, "#{base_url}/branches/#{URI.encode(base_branch)}"),
+    with :ok <- branch_exists?(request_fun, token, "#{base_url}/branches/#{encode_path_component(base_branch)}"),
          {:ok, default_branch} <- fetch_default_branch(request_fun, token, base_url),
-         {:ok, entries} <- fetch_list(request_fun, token, "#{base_url}/contents/.github/workflows?ref=#{URI.encode(base_branch)}"),
+         {:ok, entries} <- fetch_list(request_fun, token, "#{base_url}/contents/.github/workflows?ref=#{encode_query_value(base_branch)}"),
          {:ok, workflows} <- fetch_workflows(request_fun, token, entries, base_branch),
          {:ok, required_checks} <- fetch_required_checks(request_fun, token, base_url, base_branch, default_branch) do
       {:ok, evaluate(base_branch, workflows, required_checks)}
@@ -189,11 +189,11 @@ defmodule Aiur.GitHub.CiReadiness do
   defp workflow_url(entry, base_branch) do
     url = Map.fetch!(entry, "url")
     separator = if String.contains?(url, "?"), do: "&", else: "?"
-    url <> separator <> "ref=#{URI.encode(base_branch)}"
+    url <> separator <> "ref=#{encode_query_value(base_branch)}"
   end
 
   defp fetch_required_checks(request_fun, token, base_url, base_branch, default_branch) do
-    protection_url = "#{base_url}/branches/#{URI.encode(base_branch)}/protection"
+    protection_url = "#{base_url}/branches/#{encode_path_component(base_branch)}/protection"
 
     with {:ok, protection_checks} <- fetch_protection_checks(request_fun, token, protection_url),
          {:ok, ruleset_checks} <- fetch_ruleset_checks(request_fun, token, base_url, base_branch, default_branch) do
@@ -239,17 +239,16 @@ defmodule Aiur.GitHub.CiReadiness do
   defp fetch_ruleset_page(request_fun, token, base_url, url, pages_left, seen, acc) do
     case request_fun.(%{method: :get, url: url, token: token}) do
       {:ok, %{status: 200, body: rulesets} = response} when is_list(rulesets) ->
-        case Transport.parse_next_page_url(Map.get(response, :headers, %{})) do
-          nil ->
-            {:ok, acc ++ rulesets}
-
-          next_url ->
-            if String.starts_with?(next_url, base_url <> "/rulesets") do
-              fetch_ruleset_summaries(request_fun, token, base_url, next_url, pages_left - 1, [url | seen], acc ++ rulesets)
-            else
-              {:error, :invalid_ruleset_pagination_url}
-            end
-        end
+        continue_ruleset_page(
+          Transport.parse_next_page_url(Map.get(response, :headers, %{})),
+          request_fun,
+          token,
+          base_url,
+          url,
+          pages_left,
+          seen,
+          acc ++ rulesets
+        )
 
       {:ok, %{status: _} = response} ->
         {:error, Errors.github_status_error(response)}
@@ -262,19 +261,21 @@ defmodule Aiur.GitHub.CiReadiness do
     end
   end
 
+  defp continue_ruleset_page(nil, _request_fun, _token, _base_url, _url, _pages_left, _seen, summaries), do: {:ok, summaries}
+
+  defp continue_ruleset_page(next_url, request_fun, token, base_url, url, pages_left, seen, summaries) do
+    if String.starts_with?(next_url, base_url <> "/rulesets") do
+      fetch_ruleset_summaries(request_fun, token, base_url, next_url, pages_left - 1, [url | seen], summaries)
+    else
+      {:error, :invalid_ruleset_pagination_url}
+    end
+  end
+
   defp fetch_ruleset_details(request_fun, token, base_url, summaries) do
     Enum.reduce_while(summaries, {:ok, []}, fn summary, {:ok, details} ->
-      case Map.get(summary, "id") do
-        id when is_integer(id) or is_binary(id) ->
-          case request_fun.(%{method: :get, url: "#{base_url}/rulesets/#{URI.encode(to_string(id))}", token: token}) do
-            {:ok, %{status: 200, body: detail}} when is_map(detail) -> {:cont, {:ok, [detail | details]}}
-            {:ok, %{status: _} = response} -> {:halt, {:error, Errors.github_status_error(response)}}
-            {:error, reason} -> {:halt, {:error, Errors.classify_error({:error, reason})}}
-            _ -> {:halt, {:error, :invalid_ruleset_response}}
-          end
-
-        _ ->
-          {:halt, {:error, :invalid_ruleset_summary}}
+      case fetch_ruleset_detail(request_fun, token, base_url, summary) do
+        {:ok, detail} -> {:cont, {:ok, [detail | details]}}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
     |> then(fn
@@ -282,6 +283,17 @@ defmodule Aiur.GitHub.CiReadiness do
       error -> error
     end)
   end
+
+  defp fetch_ruleset_detail(request_fun, token, base_url, %{"id" => id}) when is_integer(id) or is_binary(id) do
+    case request_fun.(%{method: :get, url: "#{base_url}/rulesets/#{URI.encode(to_string(id))}", token: token}) do
+      {:ok, %{status: 200, body: detail}} when is_map(detail) -> {:ok, detail}
+      {:ok, %{status: _} = response} -> {:error, Errors.github_status_error(response)}
+      {:error, reason} -> {:error, Errors.classify_error({:error, reason})}
+      _ -> {:error, :invalid_ruleset_response}
+    end
+  end
+
+  defp fetch_ruleset_detail(_request_fun, _token, _base_url, _summary), do: {:error, :invalid_ruleset_summary}
 
   defp required_checks_from(value) when is_map(value) do
     names =
@@ -325,15 +337,10 @@ defmodule Aiur.GitHub.CiReadiness do
   end
 
   defp pull_request_trigger?(trigger, base_branch) when is_map(trigger) do
-    case Map.get(trigger, "pull_request") do
-      nil ->
-        false
-
-      filters when is_map(filters) ->
-        universal_pull_request_filter?(filters, base_branch)
-
-      _ ->
-        true
+    case Map.fetch(trigger, "pull_request") do
+      :error -> false
+      {:ok, filters} when is_map(filters) -> universal_pull_request_filter?(filters, base_branch)
+      {:ok, _filters} -> true
     end
   end
 
@@ -441,6 +448,8 @@ defmodule Aiur.GitHub.CiReadiness do
   end
 
   defp workflow_path?(path), do: String.ends_with?(path, ".yml") or String.ends_with?(path, ".yaml")
+  defp encode_path_component(value), do: URI.encode(value, &URI.char_unreserved?/1)
+  defp encode_query_value(value), do: URI.encode(value, &URI.char_unreserved?/1)
   defp valid_name?(value), do: is_binary(value) and String.trim(value) != ""
   defp maybe_add(issues, true, issue), do: issues ++ [issue]
   defp maybe_add(issues, false, _issue), do: issues
