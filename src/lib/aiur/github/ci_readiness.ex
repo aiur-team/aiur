@@ -312,10 +312,14 @@ defmodule Aiur.GitHub.CiReadiness do
     with {:ok, workflow} <- YamlElixir.read_from_string(source), jobs when is_map(jobs) <- Map.get(workflow, "jobs") do
       jobs
       |> Enum.filter(fn {_id, job} -> job_runs_on_pull_request?(job) end)
-      |> Enum.map(fn {id, job} -> if(valid_name?(Map.get(job, "name")), do: Map.get(job, "name"), else: to_string(id)) end)
+      |> Enum.map(&workflow_check_name/1)
     else
       _ -> []
     end
+  end
+
+  defp workflow_check_name({id, job}) do
+    if valid_name?(Map.get(job, "name")), do: Map.get(job, "name"), else: to_string(id)
   end
 
   defp job_runs_on_pull_request?(job) when is_map(job) do

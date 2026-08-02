@@ -62,27 +62,26 @@ defmodule Aiur.Init.GitHub do
   defp maybe_scaffold_ci(io, deps, %{workflow_paths: []}) do
     if io.confirm.("No pull-request CI workflow found — scaffold .github/workflows/ci.yml?", true) do
       path = Path.join([deps.repo_root.(), ".github", "workflows", "ci.yml"])
-
-      if File.exists?(path) do
-        io.puts.("CI scaffold skipped: #{path} already exists.")
-      else
-        case write_scaffold(path) do
-          :ok ->
-            io.puts.("Created #{path}. Add required check `ci / required` to branch protection or a ruleset before rerunning init.")
-
-          {:error, reason} ->
-            io.puts.("CI scaffold could not be written: #{inspect(reason)}")
-        end
-      end
+      scaffold_ci(io, path)
     end
   end
 
   defp maybe_scaffold_ci(_io, _deps, _readiness), do: :ok
 
+  defp scaffold_ci(io, path) do
+    case File.exists?(path) do
+      true -> io.puts.("CI scaffold skipped: #{path} already exists.")
+      false -> report_scaffold_write(io, path, write_scaffold(path))
+    end
+  end
+
+  defp report_scaffold_write(io, path, :ok), do: io.puts.("Created #{path}. Add required check `ci / required` to branch protection or a ruleset before rerunning init.")
+  defp report_scaffold_write(io, _path, {:error, reason}), do: io.puts.("CI scaffold could not be written: #{inspect(reason)}")
+
   defp write_scaffold(path) do
-    with :ok <- File.mkdir_p(Path.dirname(path)),
-         :ok <- File.write(path, CiReadiness.scaffold()) do
-      :ok
+    case File.mkdir_p(Path.dirname(path)) do
+      :ok -> File.write(path, CiReadiness.scaffold())
+      {:error, reason} -> {:error, reason}
     end
   end
 
