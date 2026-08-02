@@ -19,12 +19,10 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   @behaviour AiurWeb.BuildOrder.DataSource
 
-  alias Aiur.BuildOrder.{Catalog, Dependency, Member, ProviderHealth, RootSummary, SelectedRoot}
+  alias Aiur.BuildOrder.{Catalog, Dependency, Member, PackPaths, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.CurrentRunMembership
-  alias Aiur.GitHub.Config
   alias Aiur.Orchestrator.StatusReport
-  alias Aiur.RepoBase
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.DataSource
 
@@ -422,40 +420,8 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   defp pack_paths do
     case Application.get_env(:aiur, :build_order_planning_pack) do
-      nil -> Application.get_env(:aiur, :build_order_planning_packs, discovered_packs())
+      nil -> Application.get_env(:aiur, :build_order_planning_packs, PackPaths.discovered())
       path -> [path]
-    end
-  end
-
-  # Runtime packs are re-discovered from the configured repository's state node.
-  # Environment directories remain an explicit test/development override.
-  defp discovered_packs do
-    (state_pack_paths() ++ override_pack_paths())
-    |> Enum.uniq()
-  end
-
-  defp override_pack_paths do
-    case System.get_env("AIUR_BUILD_ORDER_DIRS") do
-      dirs when is_binary(dirs) and dirs != "" ->
-        dirs
-        |> String.split(":", trim: true)
-        |> Enum.flat_map(&Path.wildcard(Path.join(&1, "*.json")))
-
-      _missing ->
-        []
-    end
-  end
-
-  defp state_pack_paths do
-    case configured_repository() do
-      repository when is_binary(repository) and repository != "" ->
-        repository
-        |> then(&RepoBase.builds_path("https://github.com/#{&1}.git"))
-        |> Path.join("*/build-order.json")
-        |> Path.wildcard()
-
-      _missing ->
-        []
     end
   end
 
@@ -602,8 +568,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   defp status(path) do
     path
-    |> Path.dirname()
-    |> Path.join("status.json")
+    |> PackPaths.status_path()
     |> File.read()
     |> case do
       {:ok, body} -> Jason.decode(body)
@@ -688,11 +653,5 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
       left.completed and left.completed_at != right.completed_at -> (left.completed_at || "") > (right.completed_at || "")
       true -> left.title < right.title
     end
-  end
-
-  defp configured_repository do
-    Config.repo()
-  rescue
-    _error -> nil
   end
 end
