@@ -97,7 +97,7 @@ defmodule Aiur.Events.GithubFirehoseTest do
       assert_receive {:event, %{topic: "system.main.branch.push"}}, 500
     end
 
-    test "PullRequestEvent action=closed merged=true publishes pr.merged" do
+    test "sparse PullRequestEvent action=merged publishes pr.merged" do
       :ok = Exchange.subscribe("ticket.7.pr.merged")
 
       stub = fn _ ->
@@ -108,11 +108,12 @@ defmodule Aiur.Events.GithubFirehoseTest do
            body: [
              %{
                "type" => "PullRequestEvent",
+               "created_at" => "2026-07-12T17:59:00Z",
                "actor" => %{"login" => "carol"},
                "payload" => %{
-                 "action" => "closed",
+                 "action" => "merged",
                  "pull_request" => %{
-                   "merged" => true,
+                   "number" => 7,
                    "head" => %{"ref" => "aiur/7"}
                  }
                }
@@ -121,7 +122,12 @@ defmodule Aiur.Events.GithubFirehoseTest do
          }}
       end
 
-      assert {:ok, %{count: 1}} = GithubFirehose.poll(request_fun: stub)
+      assert {:ok, %{count: 1}} =
+               GithubFirehose.poll(
+                 request_fun: stub,
+                 boot_time: ~U[2026-07-12 18:00:00Z] |> DateTime.to_unix()
+               )
+
       assert_receive {:event, %{topic: "ticket.7.pr.merged"}}, 500
     end
 
@@ -240,10 +246,9 @@ defmodule Aiur.Events.GithubFirehoseTest do
                "actor" => %{"login" => "carol"},
                "repo" => %{"name" => "owner/repo"},
                "payload" => %{
-                 "action" => "closed",
+                 "action" => "merged",
                  "pull_request" => %{
                    "number" => 559,
-                   "merged" => true,
                    "head" => %{"ref" => "aiur/7", "sha" => "merge-bypass-sha"}
                  }
                }
