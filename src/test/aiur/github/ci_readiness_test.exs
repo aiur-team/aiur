@@ -1,5 +1,5 @@
 defmodule Aiur.GitHub.CiReadinessTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Aiur.GitHub.CiReadiness
 
@@ -43,6 +43,79 @@ defmodule Aiur.GitHub.CiReadinessTest do
     assert readiness.ready?
     assert readiness.workflow_paths == [".github/workflows/ci.yml"]
     assert readiness.required_checks == ["ci / required"]
+  end
+
+  test "rejects a required check pinned to a different integration" do
+    readiness =
+      CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", @workflow}], [
+        %{"context" => "ci / required", "app_id" => 42}
+      ])
+
+    refute readiness.ready?
+    assert readiness.required_check_identities == [%{name: "ci / required", app_id: 42}]
+    assert {:required_check_integration_not_produced, ["ci / required (app_id: 42)"]} in readiness.issues
+  end
+
+  test "accepts a required check pinned to GitHub Actions" do
+    readiness =
+      CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", @workflow}], [
+        %{"context" => "ci / required", "app_id" => 15_368}
+      ])
+
+    assert readiness.ready?
+  end
+
+  test "uses an operator assessment only for its exact repository, base, and config fingerprint" do
+    path = Path.join(System.tmp_dir!(), "aiur-ci-readiness-#{System.unique_integer([:positive])}.json")
+    readiness = CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", @workflow}], ["ci / required"])
+    opts = [repo: "owner/repo", base_branch: "develop", config_fingerprint: "config-a", path: path]
+
+    on_exit(fn ->
+      File.rm(path)
+      CiReadiness.clear_cached_result()
+    end)
+
+    assert :ok = CiReadiness.persist_assessment(readiness, opts)
+    assert :ok = CiReadiness.clear_cached_result()
+    assert CiReadiness.cached_result(opts) == readiness
+    assert CiReadiness.cached_result(Keyword.put(opts, :repo, "owner/other")) == :unavailable
+    assert CiReadiness.cached_result(Keyword.put(opts, :base_branch, "main")) == :unavailable
+    assert CiReadiness.cached_result(Keyword.put(opts, :config_fingerprint, "config-b")) == :unavailable
+  end
+
+  test "dispatch consumes a persisted operator assessment without elevated daemon access" do
+    path = Path.join(System.tmp_dir!(), "aiur-ci-readiness-#{System.unique_integer([:positive])}.json")
+    readiness = CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", @workflow}], ["ci / required"])
+    opts = [repo: "owner/repo", base_branch: "develop", config_fingerprint: "config-a", path: path]
+    original_token = System.get_env(CiReadiness.operator_token_env())
+
+    on_exit(fn ->
+      File.rm(path)
+      CiReadiness.clear_cached_result()
+
+      if original_token do
+        System.put_env(CiReadiness.operator_token_env(), original_token)
+      else
+        System.delete_env(CiReadiness.operator_token_env())
+      end
+    end)
+
+    assert :ok = CiReadiness.persist_assessment(readiness, opts)
+    assert :ok = CiReadiness.clear_cached_result()
+    System.delete_env(CiReadiness.operator_token_env())
+
+    assert {:ok, ^readiness} =
+             CiReadiness.dispatch_check(Keyword.put(opts, :request_fun, fn _request -> flunk("unexpected daemon request") end))
+  end
+
+  test "bounds the complete inspection, including a blocked request" do
+    request_fun = fn _request ->
+      Process.sleep(50)
+      {:ok, %{status: 200, body: %{}}}
+    end
+
+    assert {:error, {:github, :timeout, _}} =
+             CiReadiness.check(repo: "owner/repo", base_branch: "develop", request_fun: request_fun, timeout_ms: 1)
   end
 
   test "accepts the unconfigured pull request trigger emitted by the scaffold" do

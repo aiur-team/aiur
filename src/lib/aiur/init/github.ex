@@ -5,7 +5,7 @@ defmodule Aiur.Init.GitHub do
   rest of the wizard stays pure and testable.
   """
 
-  alias Aiur.Codeowners.Edit
+  alias Aiur.{Codeowners.Edit, Workflow}
   alias Aiur.GitHub.BotIdentity
   alias Aiur.GitHub.CiReadiness
   alias Aiur.GitHub.Config, as: GitHubConfig
@@ -48,16 +48,29 @@ defmodule Aiur.Init.GitHub do
   def ensure_ci_readiness(io, deps, %{kind: "github"} = tracker) do
     readiness_check = Map.get(deps, :check_ci_readiness, &check_ci_readiness/1)
     tracker = resolve_repo_for_readiness(tracker, deps)
+    check_tracker = Map.drop(tracker, [:config_path])
 
-    case readiness_check.(tracker) do
+    case readiness_check.(check_tracker) do
       {:ok, %{ready?: true} = readiness} ->
-        io.puts.(CiReadiness.format(readiness))
-        :ok
+        case persist_operator_assessment(readiness, tracker) do
+          :ok ->
+            io.puts.(CiReadiness.format(readiness))
+            :ok
+
+          {:error, reason} ->
+            {:error, "Repository CI readiness was verified but could not be saved for the daemon: #{inspect(reason)}"}
+        end
 
       {:ok, readiness} ->
-        io.puts.("CI readiness setup error: " <> CiReadiness.format(readiness))
-        maybe_scaffold_ci(io, deps, readiness)
-        {:error, "Repository CI readiness is incomplete. Configure the reported gate, then run aiur init again."}
+        case persist_operator_assessment(readiness, tracker) do
+          :ok ->
+            io.puts.("CI readiness setup error: " <> CiReadiness.format(readiness))
+            maybe_scaffold_ci(io, deps, readiness)
+            {:error, "Repository CI readiness is incomplete. Configure the reported gate, then run aiur init again."}
+
+          {:error, reason} ->
+            {:error, "Repository CI readiness could not be saved for the daemon: #{inspect(reason)}"}
+        end
 
       {:error, reason} ->
         {:error, readiness_error_message(reason)}
@@ -68,6 +81,20 @@ defmodule Aiur.Init.GitHub do
 
   defp resolve_repo_for_readiness(%{repo: repo} = tracker, _deps) when is_binary(repo), do: tracker
   defp resolve_repo_for_readiness(tracker, deps), do: Map.put(tracker, :repo, deps.detect_repo.())
+
+  defp persist_operator_assessment(readiness, tracker) do
+    case System.get_env(CiReadiness.operator_token_env()) do
+      token when is_binary(token) and token != "" ->
+        CiReadiness.persist_assessment(readiness,
+          repo: tracker.repo,
+          base_branch: Map.get(tracker, :base_branch, "main"),
+          config_path: Map.get(tracker, :config_path, Workflow.workflow_file_path())
+        )
+
+      _ ->
+        :ok
+    end
+  end
 
   defp readiness_error_message({:github, :http, %{status: 403}}) do
     "Repository CI readiness could not be inspected: GitHub denied access to the readiness endpoints. " <>

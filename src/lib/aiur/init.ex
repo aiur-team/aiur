@@ -135,7 +135,15 @@ defmodule Aiur.Init do
         Scaffold.setup_env(io, deps, tracker)
         Scaffold.maybe_offer_gitignore(io, deps, location)
         Aiur.Init.Codeowners.setup_codeowners(io, deps, tracker)
-        provision(io, deps, Map.put(tracker, :base_branch, configured_base_branch(config_yaml)), agents)
+
+        provision(
+          io,
+          deps,
+          tracker
+          |> Map.put(:base_branch, configured_base_branch(config_yaml))
+          |> Map.put(:config_path, path),
+          agents
+        )
 
       {:error, reason} ->
         {:error, "Failed to write #{Path.basename(target)}: #{inspect(reason)}"}

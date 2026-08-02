@@ -92,9 +92,15 @@ defmodule Aiur.Orchestrator.Dispatcher do
   # tickets. A transient inspection failure retries on subsequent polls, but
   # only emits its needs-attention alert once.
   @doc false
-  def maybe_warn_ci_readiness(%State{ci_readiness_checked: true} = state), do: state
+  @spec maybe_warn_ci_readiness(State.t()) :: State.t()
+  def maybe_warn_ci_readiness(state) do
+    state = reset_ci_readiness_for_config_change(state)
+    do_maybe_warn_ci_readiness(state)
+  end
 
-  def maybe_warn_ci_readiness(%State{ci_readiness_retry_at_ms: retry_at_ms} = state) when is_integer(retry_at_ms) do
+  defp do_maybe_warn_ci_readiness(%State{ci_readiness_checked: true} = state), do: state
+
+  defp do_maybe_warn_ci_readiness(%State{ci_readiness_retry_at_ms: retry_at_ms} = state) when is_integer(retry_at_ms) do
     if retry_at_ms > System.monotonic_time(:millisecond) do
       state
     else
@@ -102,11 +108,33 @@ defmodule Aiur.Orchestrator.Dispatcher do
     end
   end
 
-  def maybe_warn_ci_readiness(%State{initial_dispatch_cycle: true} = state) do
+  defp do_maybe_warn_ci_readiness(%State{initial_dispatch_cycle: true} = state) do
     start_initial_ci_readiness_check(state, Config.tracker_kind(), Config.base_branch(), CiReadiness.check_fun())
   end
 
-  def maybe_warn_ci_readiness(state), do: state
+  defp do_maybe_warn_ci_readiness(state), do: state
+
+  defp reset_ci_readiness_for_config_change(state) do
+    scope = CiReadiness.readiness_scope(base_branch: Config.base_branch())
+
+    if state.ci_readiness_scope == scope do
+      state
+    else
+      if is_pid(state.ci_readiness_check_pid) and Process.alive?(state.ci_readiness_check_pid) do
+        Process.exit(state.ci_readiness_check_pid, :kill)
+      end
+
+      %{
+        state
+        | ci_readiness_checked: false,
+          ci_readiness_unavailable_alerted: false,
+          ci_readiness_check_pid: nil,
+          ci_readiness_check_token: nil,
+          ci_readiness_retry_at_ms: System.monotonic_time(:millisecond),
+          ci_readiness_scope: scope
+      }
+    end
+  end
 
   @doc false
   @spec start_initial_ci_readiness_check(State.t(), String.t() | nil, String.t(), function()) :: State.t()
@@ -120,7 +148,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     token = make_ref()
 
     case Task.Supervisor.start_child(Aiur.TaskSupervisor, fn ->
-           send(parent, {:ci_readiness_result, token, check_fun.(base_branch: base_branch)})
+           send(parent, {:ci_readiness_result, token, check_fun.(base_branch: base_branch, timeout_ms: @ci_readiness_timeout_ms)})
          end) do
       {:ok, pid} ->
         Process.send_after(parent, {:ci_readiness_timeout, token}, @ci_readiness_timeout_ms)

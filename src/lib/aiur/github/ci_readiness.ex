@@ -7,11 +7,16 @@ defmodule Aiur.GitHub.CiReadiness do
   init errors, dispatch warnings, and operator status output.
   """
 
+  alias Aiur.{Config, Workflow}
   alias Aiur.GitHub.{Errors, Transport}
+  alias Aiur.GitHub.Config, as: GitHubConfig
 
   @ruleset_page_limit 20
   @workflow_page_limit 20
-  @cache_key {__MODULE__, :result}
+  @cache_key {__MODULE__, :results}
+  @assessment_file_name "ci-readiness.json"
+  @default_timeout_ms 30_000
+  @github_actions_app_id 1_5368
   @operator_token_env "AIUR_CI_READINESS_TOKEN"
 
   @type issue ::
@@ -19,6 +24,7 @@ defmodule Aiur.GitHub.CiReadiness do
           | :no_pr_workflow
           | :no_required_check
           | {:required_check_not_produced, [String.t()]}
+          | {:required_check_integration_not_produced, [String.t()]}
           | {:unavailable, term()}
 
   @type result :: %{
@@ -27,6 +33,7 @@ defmodule Aiur.GitHub.CiReadiness do
           workflow_paths: [String.t()],
           workflow_check_names: [String.t()],
           required_checks: [String.t()],
+          required_check_identities: [%{name: String.t(), app_id: integer() | nil}],
           issues: [issue()]
         }
 
@@ -35,7 +42,12 @@ defmodule Aiur.GitHub.CiReadiness do
     with {:ok, {owner, repo}} <- resolve_repo(Keyword.get(opts, :repo)),
          {:ok, token} <- Transport.require_token(opts) do
       base_branch = Keyword.get(opts, :base_branch, "main")
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+
+      request_fun =
+        opts
+        |> Keyword.get(:request_fun, &Transport.default_request_fun/1)
+        |> bounded_request_fun(deadline_at_ms(opts))
+
       inspect_repository(request_fun, token, owner, repo, base_branch, opts)
     end
   end
@@ -53,17 +65,23 @@ defmodule Aiur.GitHub.CiReadiness do
   @doc false
   @spec dispatch_check(keyword()) :: {:ok, result()} | {:error, term()}
   def dispatch_check(opts) do
-    case System.get_env(@operator_token_env) do
-      token when is_binary(token) and token != "" ->
-        check(Keyword.put(opts, :token, token))
+    case cached_result(opts) do
+      %{} = result ->
+        {:ok, result}
 
-      _ ->
-        case check(Keyword.put(opts, :workflow_presence_only, true)) do
-          {:error, :ci_readiness_operator_token_required} ->
-            {:ok, unavailable(Keyword.get(opts, :base_branch, "main"), :ci_readiness_operator_token_required)}
+      :unavailable ->
+        case System.get_env(@operator_token_env) do
+          token when is_binary(token) and token != "" ->
+            check(Keyword.put(opts, :token, token))
 
-          result ->
-            result
+          _ ->
+            case check(Keyword.put(opts, :workflow_presence_only, true)) do
+              {:error, :ci_readiness_operator_token_required} ->
+                {:ok, unavailable(Keyword.get(opts, :base_branch, "main"), :ci_readiness_operator_token_required)}
+
+              result ->
+                result
+            end
         end
     end
   end
@@ -73,21 +91,220 @@ defmodule Aiur.GitHub.CiReadiness do
   def unavailable(base_branch, reason) when is_binary(base_branch), do: result(base_branch, [], [], [], [{:unavailable, reason}])
 
   @doc false
-  @spec cache_result(result()) :: :ok
-  def cache_result(%{} = result) do
-    :persistent_term.put(@cache_key, result)
+  @spec cache_result(result(), keyword()) :: :ok
+  def cache_result(%{} = result, opts \\ []) do
+    scope = cache_scope(result, opts)
+    cached = :persistent_term.get(@cache_key, %{})
+    :persistent_term.put(@cache_key, Map.put(cached, scope, result))
     :ok
   end
 
   @doc false
-  @spec cached_result() :: result() | :unavailable
-  def cached_result, do: :persistent_term.get(@cache_key, :unavailable)
+  @spec cached_result(keyword()) :: result() | :unavailable
+  def cached_result(opts \\ []) do
+    scope = cache_scope(nil, opts)
+
+    case :persistent_term.get(@cache_key, %{}) do
+      %{^scope => result} -> result
+      _ -> load_persisted_assessment(scope, opts)
+    end
+  end
+
+  @doc "Persists a non-secret, operator-verified assessment beside the workflow config."
+  @spec persist_assessment(result(), keyword()) :: :ok | {:error, term()}
+  def persist_assessment(%{} = result, opts \\ []) do
+    scope = cache_scope(result, opts)
+    cache_result(result, opts)
+
+    document = %{
+      "version" => 1,
+      "scope" => scope_to_map(scope),
+      "result" => encode_result(result)
+    }
+
+    path = Keyword.get(opts, :path, assessment_path(Keyword.get(opts, :config_path, Workflow.workflow_file_path())))
+
+    with :ok <- File.mkdir_p(Path.dirname(path)),
+         {:ok, json} <- Jason.encode(document),
+         :ok <- File.write(path, json) do
+      :ok
+    end
+  end
 
   @doc false
   @spec clear_cached_result() :: :ok
   def clear_cached_result do
     :persistent_term.erase(@cache_key)
     :ok
+  end
+
+  @doc false
+  @spec assessment_path() :: Path.t()
+  @spec assessment_path(Path.t()) :: Path.t()
+  def assessment_path(config_path \\ Workflow.workflow_file_path()), do: Path.join(Path.dirname(config_path), @assessment_file_name)
+
+  @doc false
+  @spec readiness_scope(keyword()) :: {String.t(), String.t(), String.t()}
+  def readiness_scope(opts \\ []), do: cache_scope(nil, opts)
+
+  defp cache_scope(result, opts) do
+    repo = Keyword.get(opts, :repo, GitHubConfig.repo()) || ""
+
+    base_branch =
+      Keyword.get(opts, :base_branch) ||
+        (is_map(result) && Map.get(result, :base_branch)) ||
+        Config.base_branch() || "main"
+
+    {repo, base_branch, config_fingerprint(opts)}
+  end
+
+  defp config_fingerprint(opts) do
+    case Keyword.get(opts, :config_fingerprint) do
+      value when is_binary(value) -> value
+      _ -> workflow_fingerprint(Keyword.get(opts, :config_path, Workflow.workflow_file_path()))
+    end
+  end
+
+  defp workflow_fingerprint(path) do
+    case File.read(path) do
+      {:ok, content} -> :crypto.hash(:sha256, content) |> Base.encode16(case: :lower)
+      {:error, _reason} -> "missing"
+    end
+  end
+
+  defp scope_to_map({repo, base_branch, fingerprint}) do
+    %{"repo" => repo, "base_branch" => base_branch, "config_fingerprint" => fingerprint}
+  end
+
+  defp load_persisted_assessment(scope, opts) do
+    path = Keyword.get(opts, :path, assessment_path(Keyword.get(opts, :config_path, Workflow.workflow_file_path())))
+
+    with {:ok, body} <- File.read(path),
+         {:ok, document} <- Jason.decode(body),
+         true <- Map.get(document, "version") == 1,
+         ^scope <- map_to_scope(Map.get(document, "scope")),
+         {:ok, result} <- decode_result(Map.get(document, "result")) do
+      cache_result(result, opts)
+      result
+    else
+      _ -> :unavailable
+    end
+  end
+
+  defp map_to_scope(%{"repo" => repo, "base_branch" => base_branch, "config_fingerprint" => fingerprint})
+       when is_binary(repo) and is_binary(base_branch) and is_binary(fingerprint),
+       do: {repo, base_branch, fingerprint}
+
+  defp map_to_scope(_scope), do: :invalid
+
+  defp encode_result(result) do
+    %{
+      "ready" => Map.get(result, :ready?),
+      "base_branch" => Map.get(result, :base_branch),
+      "workflow_paths" => Map.get(result, :workflow_paths, []),
+      "workflow_check_names" => Map.get(result, :workflow_check_names, []),
+      "required_checks" => Map.get(result, :required_checks, []),
+      "required_check_identities" => Map.get(result, :required_check_identities, []),
+      "issues" => Enum.map(Map.get(result, :issues, []), &encode_issue/1)
+    }
+  end
+
+  defp encode_issue(issue) when is_atom(issue), do: Atom.to_string(issue)
+  defp encode_issue({:required_check_not_produced, checks}), do: %{"type" => "required_check_not_produced", "checks" => checks}
+
+  defp encode_issue({:required_check_integration_not_produced, checks}),
+    do: %{"type" => "required_check_integration_not_produced", "checks" => checks}
+
+  defp encode_issue({:unavailable, reason}), do: %{"type" => "unavailable", "reason" => inspect(reason)}
+
+  defp decode_result(%{"ready" => ready?, "base_branch" => base_branch} = result)
+       when is_boolean(ready?) and is_binary(base_branch) do
+    with {:ok, issues} <- decode_issues(Map.get(result, "issues", [])) do
+      {:ok,
+       %{
+         ready?: ready?,
+         base_branch: base_branch,
+         workflow_paths: string_list(Map.get(result, "workflow_paths", [])),
+         workflow_check_names: string_list(Map.get(result, "workflow_check_names", [])),
+         required_checks: string_list(Map.get(result, "required_checks", [])),
+         required_check_identities: check_identities(Map.get(result, "required_check_identities", [])),
+         issues: issues
+       }}
+    end
+  end
+
+  defp decode_result(_result), do: :error
+
+  defp decode_issues(issues) when is_list(issues), do: Enum.reduce_while(issues, {:ok, []}, &decode_issue/2)
+  defp decode_issues(_issues), do: :error
+
+  defp decode_issue("base_branch_missing", {:ok, acc}), do: {:cont, {:ok, acc ++ [:base_branch_missing]}}
+  defp decode_issue("no_pr_workflow", {:ok, acc}), do: {:cont, {:ok, acc ++ [:no_pr_workflow]}}
+  defp decode_issue("no_required_check", {:ok, acc}), do: {:cont, {:ok, acc ++ [:no_required_check]}}
+
+  defp decode_issue(%{"type" => "required_check_not_produced", "checks" => checks}, {:ok, acc}) when is_list(checks),
+    do: {:cont, {:ok, acc ++ [{:required_check_not_produced, string_list(checks)}]}}
+
+  defp decode_issue(%{"type" => "required_check_integration_not_produced", "checks" => checks}, {:ok, acc}) when is_list(checks),
+    do: {:cont, {:ok, acc ++ [{:required_check_integration_not_produced, string_list(checks)}]}}
+
+  defp decode_issue(%{"type" => "unavailable", "reason" => reason}, {:ok, acc}) when is_binary(reason),
+    do: {:cont, {:ok, acc ++ [{:unavailable, reason}]}}
+
+  defp decode_issue(_issue, _acc), do: {:halt, :error}
+
+  defp string_list(values) when is_list(values), do: Enum.filter(values, &is_binary/1)
+  defp string_list(_values), do: []
+
+  defp check_identities(values) when is_list(values) do
+    Enum.flat_map(values, fn
+      %{"name" => name, "app_id" => app_id} when is_binary(name) and (is_integer(app_id) or is_nil(app_id)) ->
+        [%{name: name, app_id: app_id}]
+
+      %{name: name, app_id: app_id} when is_binary(name) and (is_integer(app_id) or is_nil(app_id)) ->
+        [%{name: name, app_id: app_id}]
+
+      _ ->
+        []
+    end)
+  end
+
+  defp check_identities(_values), do: []
+
+  defp deadline_at_ms(opts) do
+    Keyword.get(opts, :deadline_at_ms, System.monotonic_time(:millisecond) + Keyword.get(opts, :timeout_ms, @default_timeout_ms))
+  end
+
+  defp bounded_request_fun(request_fun, deadline_at_ms) do
+    fn request ->
+      remaining_ms = deadline_at_ms - System.monotonic_time(:millisecond)
+
+      if remaining_ms <= 0 do
+        {:error, :timeout}
+      else
+        parent = self()
+        result_ref = make_ref()
+
+        {pid, monitor_ref} =
+          spawn_monitor(fn ->
+            send(parent, {result_ref, request_fun.(Map.put(request, :timeout_ms, remaining_ms))})
+          end)
+
+        receive do
+          {^result_ref, result} ->
+            Process.demonitor(monitor_ref, [:flush])
+            result
+
+          {:DOWN, ^monitor_ref, :process, ^pid, _reason} ->
+            {:error, :transport}
+        after
+          remaining_ms ->
+            Process.exit(pid, :kill)
+            Process.demonitor(monitor_ref, [:flush])
+            {:error, :timeout}
+        end
+      end
+    end
   end
 
   defp resolve_repo(nil), do: Transport.parse_repo()
@@ -166,23 +383,31 @@ defmodule Aiur.GitHub.CiReadiness do
   end
 
   @doc "Pure readiness decision used by the HTTP adapter and tests."
-  @spec evaluate(String.t(), [{String.t(), String.t()}], [String.t()]) :: result()
+  @spec evaluate(String.t(), [{String.t(), String.t()}], [String.t() | map()]) :: result()
   def evaluate(base_branch, workflows, required_checks)
       when is_binary(base_branch) and is_list(workflows) and is_list(required_checks) do
     pr_workflows = Enum.filter(workflows, fn {_path, source} -> pull_request_workflow?(source, base_branch) end)
     workflow_check_names = pr_workflows |> Enum.flat_map(&workflow_check_names/1) |> Enum.uniq() |> Enum.sort()
-    required_checks = required_checks |> Enum.filter(&valid_name?/1) |> Enum.uniq() |> Enum.sort()
+    required_check_identities = required_checks |> Enum.map(&required_check_identity/1) |> Enum.reject(&is_nil/1) |> Enum.uniq() |> Enum.sort_by(& &1.name)
+    required_checks = required_check_identities |> Enum.map(& &1.name) |> Enum.uniq() |> Enum.sort()
+
+    missing_checks = required_checks -- workflow_check_names
+
+    integration_mismatches =
+      required_check_identities
+      |> Enum.filter(fn %{name: name, app_id: app_id} ->
+        name in workflow_check_names and app_id not in [nil, -1, @github_actions_app_id]
+      end)
+      |> Enum.map(&format_check_identity/1)
 
     issues =
       []
       |> maybe_add(pr_workflows == [], :no_pr_workflow)
       |> maybe_add(required_checks == [], :no_required_check)
-      |> maybe_add(
-        required_checks != [] and Enum.any?(required_checks, &(&1 not in workflow_check_names)),
-        {:required_check_not_produced, required_checks -- workflow_check_names}
-      )
+      |> maybe_add(missing_checks != [], {:required_check_not_produced, missing_checks})
+      |> maybe_add(integration_mismatches != [], {:required_check_integration_not_produced, integration_mismatches})
 
-    result(base_branch, Enum.map(pr_workflows, &elem(&1, 0)), workflow_check_names, required_checks, issues)
+    result(base_branch, Enum.map(pr_workflows, &elem(&1, 0)), workflow_check_names, required_checks, required_check_identities, issues)
   end
 
   @spec format(result() | term()) :: String.t()
@@ -453,10 +678,10 @@ defmodule Aiur.GitHub.CiReadiness do
   defp fetch_ruleset_detail(_request_fun, _token, _base_url, _summary), do: {:error, :invalid_ruleset_summary}
 
   defp required_checks_from(value) when is_map(value) do
-    names =
+    checks =
       value
       |> direct_required_checks()
-      |> Enum.map(&required_check_name/1)
+      |> Enum.map(&required_check_identity/1)
 
     nested =
       value
@@ -465,7 +690,7 @@ defmodule Aiur.GitHub.CiReadiness do
       |> Enum.filter(&(Map.get(&1, "type") == "required_status_checks"))
       |> Enum.flat_map(&required_checks_from/1)
 
-    (names ++ nested) |> Enum.filter(&valid_name?/1) |> Enum.uniq()
+    (checks ++ nested) |> Enum.reject(&is_nil/1) |> Enum.uniq()
   end
 
   defp required_checks_from(_), do: []
@@ -479,8 +704,18 @@ defmodule Aiur.GitHub.CiReadiness do
     |> Enum.flat_map(&List.wrap/1)
   end
 
-  defp required_check_name(item) when is_map(item), do: Map.get(item, "context")
-  defp required_check_name(item), do: item
+  defp required_check_identity(%{} = item) do
+    name = Map.get(item, "context") || Map.get(item, :context)
+    app_id = Map.get(item, "app_id") || Map.get(item, :app_id) || Map.get(item, "integration_id") || Map.get(item, :integration_id)
+
+    if valid_name?(name) and (is_integer(app_id) or is_nil(app_id)), do: %{name: name, app_id: app_id}
+  end
+
+  defp required_check_identity(name) when is_binary(name) do
+    if valid_name?(name), do: %{name: name, app_id: nil}
+  end
+
+  defp required_check_identity(_item), do: nil
 
   defp pull_request_workflow?(source, base_branch) do
     case YamlElixir.read_from_string(source) do
@@ -620,13 +855,17 @@ defmodule Aiur.GitHub.CiReadiness do
   defp maybe_add(issues, true, issue), do: issues ++ [issue]
   defp maybe_add(issues, false, _issue), do: issues
 
-  defp result(base_branch, workflow_paths, workflow_check_names, required_checks, issues) do
+  defp result(base_branch, workflow_paths, workflow_check_names, required_checks, issues),
+    do: result(base_branch, workflow_paths, workflow_check_names, required_checks, [], issues)
+
+  defp result(base_branch, workflow_paths, workflow_check_names, required_checks, required_check_identities, issues) do
     %{
       ready?: issues == [],
       base_branch: base_branch,
       workflow_paths: workflow_paths,
       workflow_check_names: workflow_check_names,
       required_checks: required_checks,
+      required_check_identities: required_check_identities,
       issues: issues
     }
   end
@@ -635,5 +874,8 @@ defmodule Aiur.GitHub.CiReadiness do
   defp format_issue(:no_pr_workflow), do: "no workflow triggers on pull_request"
   defp format_issue(:no_required_check), do: "no required status check is configured"
   defp format_issue({:required_check_not_produced, checks}), do: "required check is not produced: #{Enum.join(checks, ", ")}"
+  defp format_issue({:required_check_integration_not_produced, checks}), do: "required check is pinned to a different GitHub App: #{Enum.join(checks, ", ")}"
   defp format_issue({:unavailable, reason}), do: "inspection unavailable: #{inspect(reason)}"
+
+  defp format_check_identity(%{name: name, app_id: app_id}), do: "#{name} (app_id: #{app_id})"
 end
