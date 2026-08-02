@@ -10,6 +10,10 @@ defmodule Aiur.Orchestrator.StateTest do
     end
   end
 
+  test "load envelope bootstrap defaults pending" do
+    refute %State{}.load_envelope_state.bootstrap_complete?
+  end
+
   describe "running entry predicates" do
     test "classify entries by control status" do
       assert State.active_running_entry?(%{control: %{status: :working}})

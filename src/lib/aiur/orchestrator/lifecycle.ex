@@ -79,7 +79,6 @@ defmodule Aiur.Orchestrator.Lifecycle do
       # even with agent:todo tickets, until the operator unpauses.
       globally_paused: Slots.launch_globally_paused?(),
       effective_concurrent_agents: DispatchPolicy.initial_load_envelope_limit(config.agent),
-      load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil},
       next_poll_due_at_ms: now_ms,
       poll_check_in_progress: false,
       tick_timer_ref: nil,

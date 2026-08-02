@@ -148,7 +148,12 @@ defmodule Aiur.OrchestratorLoadGateTest do
     end
 
     test "re-ramps from backoff within two polls without dispatching more than three new slots per poll" do
-      options = envelope_options(static_limit: 8, cpu_headroom: %{idle_percent: 75.0, runnable: 3}, queued_work?: true)
+      options =
+        envelope_options(
+          static_limit: 8,
+          cpu_headroom: %{idle_percent: 62.5, runnable: 3},
+          queued_work?: true
+        )
 
       assert {4, 1_000} =
                Orchestrator.load_envelope(8, nil, 13.0, %{
@@ -159,6 +164,7 @@ defmodule Aiur.OrchestratorLoadGateTest do
 
       assert {7, 1_000} = Orchestrator.load_envelope(4, 1_000, 13.0, options)
       assert {8, nil} = Orchestrator.load_envelope(7, 1_000, 13.0, options)
+      assert {8, nil} = Orchestrator.load_envelope(8, nil, 10.0, options)
     end
 
     test "does not fast-ramp above target before a backoff records recovery state" do

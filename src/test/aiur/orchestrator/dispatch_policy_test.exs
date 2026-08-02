@@ -183,10 +183,12 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
       seeded = DispatchPolicy.update_load_envelope(state, 0.0, 1.0, 16, 1_000, baseline, true)
       assert seeded.effective_concurrent_agents == 2
       assert seeded.load_envelope_state.last_decrease_ms == nil
+      refute seeded.load_envelope_state.bootstrap_complete?
 
       ramped = DispatchPolicy.update_load_envelope(seeded, 0.0, 1.0, 16, 2_000, current, true)
       assert ramped.effective_concurrent_agents == 10
       assert ramped.load_envelope_state.last_decrease_ms == nil
+      assert ramped.load_envelope_state.bootstrap_complete?
     end
 
     test "cold seed adds idle slots to used and reserved capacity" do
@@ -210,6 +212,30 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
 
       assert seeded.effective_concurrent_agents == 14
       assert Slots.available_slots(seeded) == 12
+      assert seeded.load_envelope_state.bootstrap_complete?
+    end
+
+    test "cold seed never shrinks a warmed envelope on consecutive samples" do
+      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 20, target_load_average: 1.0)
+
+      previous = %{total: 1_000, idle: 800, runnable: 1}
+      current = %{total: 1_200, idle: 925, runnable: 1}
+      next = %{total: 1_400, idle: 1_050, runnable: 1}
+
+      state = %State{
+        max_concurrent_agents: 20,
+        effective_concurrent_agents: 20,
+        load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: previous},
+        running: %{"active" => %{control: %{status: :working}}}
+      }
+
+      seeded = DispatchPolicy.update_load_envelope(state, 0.0, 1.0, 16, 2_000, current, true)
+      steady = DispatchPolicy.update_load_envelope(seeded, 0.0, 1.0, 16, 3_000, next, true)
+
+      assert seeded.effective_concurrent_agents == 20
+      assert steady.effective_concurrent_agents == 20
+      assert seeded.load_envelope_state.bootstrap_complete?
+      assert steady.load_envelope_state.bootstrap_complete?
     end
 
     test "an unavailable sample clears the baseline before recovery can fast-ramp" do

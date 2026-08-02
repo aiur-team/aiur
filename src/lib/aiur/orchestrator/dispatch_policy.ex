@@ -104,6 +104,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   def fd_headroom_percent, do: @fd_headroom_percent
 
   @type envelope_options :: %{
+          optional(:bootstrap_complete?) => boolean(),
           target: number() | nil,
           schedulers: pos_integer(),
           static_limit: pos_integer(),
@@ -122,18 +123,32 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
           envelope_options()
         ) ::
           {pos_integer(), integer() | nil}
-  def load_envelope(_effective, _last_decrease_ms, _load, %{
-        target: nil,
-        static_limit: static_limit
-      }),
-      do: {static_limit, nil}
+  def load_envelope(effective, last_decrease_ms, load, options) do
+    {next, next_decrease_ms, _bootstrap_complete?} =
+      load_envelope_state(
+        effective,
+        last_decrease_ms,
+        load,
+        Map.put_new(options, :bootstrap_complete?, true)
+      )
 
-  def load_envelope(effective, last_decrease_ms, :unavailable, %{static_limit: static_limit}) do
-    {normalize_load_envelope_limit(effective, static_limit), last_decrease_ms}
+    {next, next_decrease_ms}
   end
 
-  def load_envelope(effective, last_decrease_ms, load, %{static_limit: static_limit} = options)
-      when is_number(load) do
+  defp load_envelope_state(_effective, _last_decrease_ms, _load, %{
+         target: nil,
+         static_limit: static_limit,
+         bootstrap_complete?: bootstrap_complete?
+       }),
+       do: {static_limit, nil, bootstrap_complete?}
+
+  defp load_envelope_state(effective, last_decrease_ms, :unavailable, options) do
+    next = normalize_load_envelope_limit(effective, options.static_limit)
+    {next, last_decrease_ms, options.bootstrap_complete?}
+  end
+
+  defp load_envelope_state(effective, last_decrease_ms, load, %{static_limit: static_limit} = options)
+       when is_number(load) do
     effective = normalize_load_envelope_limit(effective, static_limit)
     adjust_load_envelope(effective, last_decrease_ms, load, options)
   end
@@ -159,8 +174,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     envelope_state = state.load_envelope_state
     cpu_headroom = SystemCpu.headroom(envelope_state.cpu_snapshot, cpu_snapshot)
 
-    {effective, last_decrease_ms} =
-      load_envelope(
+    {effective, last_decrease_ms, bootstrap_complete?} =
+      load_envelope_state(
         state.effective_concurrent_agents,
         envelope_state.last_decrease_ms,
         load,
@@ -173,7 +188,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
           now_ms: now_ms,
           cpu_headroom: cpu_headroom,
           queued_work?: queued_work?,
-          used_slots: Slots.used_slots(state)
+          used_slots: Slots.used_slots(state),
+          bootstrap_complete?: Map.get(envelope_state, :bootstrap_complete?, false)
         }
       )
 
@@ -182,7 +198,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
       | effective_concurrent_agents: effective,
         load_envelope_state: %{
           last_decrease_ms: last_decrease_ms,
-          cpu_snapshot: next_cpu_snapshot(envelope_state.cpu_snapshot, cpu_snapshot)
+          cpu_snapshot: next_cpu_snapshot(envelope_state.cpu_snapshot, cpu_snapshot),
+          bootstrap_complete?: bootstrap_complete?
         }
     }
   end
@@ -194,20 +211,33 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
          %{schedulers: schedulers} = options
        ) do
     recovering? = is_integer(last_decrease_ms)
-    cold_start? = is_nil(last_decrease_ms)
+    cold_start? = not options.bootstrap_complete? and is_nil(last_decrease_ms)
     below_target? = load <= options.target * schedulers
 
     cond do
       cold_start? and below_target? and options.queued_work? and
           clear_cpu_headroom?(options.cpu_headroom, schedulers) ->
-        seed_cold_start(options.cpu_headroom, schedulers, options.used_slots, options.static_limit)
+        next =
+          seed_cold_start(
+            effective,
+            options.cpu_headroom,
+            schedulers,
+            options.used_slots,
+            options.static_limit
+          )
+
+        {next, last_decrease_ms, true}
 
       recovering? and options.queued_work? and
           clear_cpu_headroom?(options.cpu_headroom, schedulers) ->
-        fast_ramp(effective, last_decrease_ms, options.static_limit)
+        {next, next_decrease_ms} = fast_ramp(effective, last_decrease_ms, options.static_limit)
+        {next, next_decrease_ms, options.bootstrap_complete?}
 
       true ->
-        adjust_load_envelope_without_headroom(effective, last_decrease_ms, load, options)
+        {next, next_decrease_ms} =
+          adjust_load_envelope_without_headroom(effective, last_decrease_ms, load, options)
+
+        {next, next_decrease_ms, options.bootstrap_complete?}
     end
   end
 
@@ -248,9 +278,9 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
   defp clear_cpu_headroom?(_headroom, _schedulers), do: false
 
-  defp seed_cold_start(%{idle_percent: idle_percent}, schedulers, used_slots, static_limit) do
+  defp seed_cold_start(effective, %{idle_percent: idle_percent}, schedulers, used_slots, static_limit) do
     idle_slots = max(floor(idle_percent * schedulers / 100), 1)
-    {min(used_slots + idle_slots, static_limit), nil}
+    max(effective, min(used_slots + idle_slots, static_limit))
   end
 
   defp fast_ramp(effective, last_decrease_ms, static_limit) do
