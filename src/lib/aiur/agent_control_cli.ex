@@ -624,22 +624,17 @@ defmodule Aiur.AgentControlCLI do
          build_gate
        )
        when is_integer(active) and is_integer(max) and is_integer(effective) and is_integer(configured) do
-    binding = capacity_binding(capacity, statuses, build_gate)
-
-    suffix =
-      case binding do
-        {:config_cap, _detail} -> "config max_concurrent_agents"
-        {:envelope, detail} -> "AIMD envelope, effective cap=#{detail}"
-        {:provisioning, detail} -> "provisioning, max_concurrent_builds=#{detail}"
-        {:ticket_supply, _detail} -> "ticket supply"
-        {:requested_cap, _detail} -> "requested CLI cap"
-        {:none, _detail} -> "none"
-      end
-
-    IO.puts("AGENTS #{active}/#{max} (binding: #{suffix})")
+    IO.puts("AGENTS #{active}/#{max} (binding: #{capacity_binding_label(capacity_binding(capacity, statuses, build_gate))})")
   end
 
   defp print_capacity_status(_capacity, _statuses, _build_gate), do: :ok
+
+  defp capacity_binding_label({:config_cap, _detail}), do: "config max_concurrent_agents"
+  defp capacity_binding_label({:envelope, detail}), do: "AIMD envelope, effective cap=#{detail}"
+  defp capacity_binding_label({:provisioning, detail}), do: "provisioning, max_concurrent_builds=#{detail}"
+  defp capacity_binding_label({:ticket_supply, _detail}), do: "ticket supply"
+  defp capacity_binding_label({:requested_cap, _detail}), do: "requested CLI cap"
+  defp capacity_binding_label({:none, _detail}), do: "none"
 
   defp capacity_binding(%{active: active, max: max, effective: effective, configured: configured} = capacity, statuses, build_gate) do
     idle_count = Enum.count(statuses, &(&1.state == :idle))
@@ -654,16 +649,14 @@ defmodule Aiur.AgentControlCLI do
       build_gate_binding?(build_gate, idle_count) ->
         {:provisioning, build_gate.capacity}
 
-      idle_count == 0 ->
-        {:ticket_supply, 0}
-
-      active >= max ->
-        {:requested_cap, max}
-
       true ->
-        {:none, nil}
+        capacity_binding_without_admission(active, max, idle_count)
     end
   end
+
+  defp capacity_binding_without_admission(_active, _max, 0), do: {:ticket_supply, 0}
+  defp capacity_binding_without_admission(active, max, _idle_count) when active >= max, do: {:requested_cap, max}
+  defp capacity_binding_without_admission(_active, _max, _idle_count), do: {:none, nil}
 
   defp build_gate_binding?(%{enabled?: true, capacity: capacity, active: active, queued: queued}, idle_count)
        when is_integer(capacity) and is_integer(active) and is_integer(queued) and capacity > 0 do
