@@ -693,12 +693,15 @@ defmodule Aiur.Orchestrator.IssueSync do
   defp active_alerted_identities(starvation, identities) do
     alerted =
       case Map.get(starvation, :alerted) do
-        identities when is_list(identities) -> identities
-        _ when starvation[:alert_active] == true -> starvation[:signature] || identities
-        _ -> []
+        alerted when is_list(alerted) -> alerted
+        _ -> legacy_alerted_identities(starvation, identities)
       end
 
     MapSet.intersection(MapSet.new(alerted), MapSet.new(identities))
+  end
+
+  defp legacy_alerted_identities(starvation, identities) do
+    if Map.get(starvation, :alert_active) == true, do: starvation[:signature] || identities, else: []
   end
 
   defp due_capacity_identities(since_by_identity, alerted_identities, now_ms) do
