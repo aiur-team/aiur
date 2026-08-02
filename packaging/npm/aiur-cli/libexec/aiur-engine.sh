@@ -1610,15 +1610,14 @@ $root
 }
 
 print_global_config_control_hint() {
+  [ -n "${AIUR_CONTROL_HINT_ROOTS:-}" ] || return 0
   [ "${AIUR_CONTROL_CALLER_ROOT_SOURCE:-}" = "cwd" ] || return 0
   [ "${AIUR_CONTROL_CURRENT_NODE_STATE:-}" = "down" ] || return 0
 
   echo "aiur: global-config control identity is keyed by cwd ${AIUR_CONTROL_CALLER_ROOT:-${AIUR_PROJECT_ROOT:-unknown}}" >&2
   echo "aiur: run control commands from the launch directory, or from a subdirectory of that launch directory" >&2
-  if [ -n "${AIUR_CONTROL_HINT_ROOTS:-}" ]; then
-    echo "aiur: live launch directory candidate(s):" >&2
-    printf '%s' "$AIUR_CONTROL_HINT_ROOTS" | sed '/^$/d; s/^/  /' >&2
-  fi
+  echo "aiur: live launch directory candidate(s):" >&2
+  printf '%s' "$AIUR_CONTROL_HINT_ROOTS" | sed '/^$/d; s/^/  /' >&2
 }
 
 control_rpc_timeout_seconds() {

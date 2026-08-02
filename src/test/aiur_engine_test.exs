@@ -778,15 +778,10 @@ defmodule AiurEngineTest do
     resolve_release() { release_bin="$RPC"; release_dir=/tmp/nonexistent-aiur-release; }
     prepare_distribution() { aiur_resolve_identity; RELEASE_NODE="$AIUR_RELEASE_NODE"; }
     probe_node_liveness() { printf down; }
-    if run_control_rpc "Aiur.AgentControlCLI.status()"; then
-      code=0
-    else
-      code=$?
-    fi
-    echo "CODE=$code"
+    run_control_rpc "Aiur.AgentControlCLI.status()"
     """
 
-    {out, 0} =
+    {out, 1} =
       run_sourced_engine(script, [
         {"AIUR_BG_STATE_DIR", state},
         {"CALLER", caller},
@@ -796,10 +791,8 @@ defmodule AiurEngineTest do
         {"AIUR_REPO_ROOT", nil}
       ])
 
-    assert out =~ "CODE=1"
-    assert out =~ "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry."
-    assert out =~ "global-config control identity is keyed by cwd"
-    assert out =~ "run control commands from the launch directory"
+    assert out ==
+             "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry.\n"
   end
 
   test "down control RPC with crash marker reports orphaned-agent guidance" do
@@ -1484,7 +1477,7 @@ defmodule AiurEngineTest do
 
     assert out =~ "CODE=1"
     assert out =~ "nothing stopped"
-    assert out =~ "global-config control identity is keyed by cwd #{realpath(caller)}"
+    refute out =~ "global-config control identity is keyed by cwd"
     assert out =~ "NO_SENTINEL"
     refute out =~ "KILL_BEAM:"
     refute out =~ "CWD_REAP:"
