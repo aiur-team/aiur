@@ -68,6 +68,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
           state
           |> IssueSync.sync_polled_issue_state(issues)
           |> IssueSync.sync_todo_capacity_alert(issues)
+          |> IssueSync.sync_capacity_starvation_alert(issues)
 
         # The poll just refreshed `last_polled_issues`, so push a fresh
         # summary out to any open agent-list pane immediately.
@@ -93,12 +94,36 @@ defmodule Aiur.Orchestrator.Dispatcher do
     case DispatchPolicy.prewarm_gate(enabled?, phase) do
       :dispatch ->
         maybe_log_base_error(phase)
-        maybe_choose_under_load(state, issues)
+
+        state
+        |> clear_prewarm_blocked_alert()
+        |> maybe_choose_under_load(issues)
 
       :hold ->
-        state
+        emit_prewarm_blocked_alert(state, phase)
     end
   end
+
+  @doc false
+  @spec emit_prewarm_blocked_alert(State.t(), atom()) :: State.t()
+  def emit_prewarm_blocked_alert(%State{prewarm_blocked_alert_active: true} = state, _phase), do: state
+
+  def emit_prewarm_blocked_alert(%State{} = state, phase) do
+    reason =
+      "Prewarm is #{phase}; fleet dispatch is paused until the shared base becomes ready. " <>
+        "This condition is expected to clear automatically."
+
+    Alerts.emit_system("system.dispatch.prewarm_blocked",
+      reason: reason,
+      needs_attention: true,
+      severity: "warning"
+    )
+
+    %{state | prewarm_blocked_alert_active: true}
+  end
+
+  defp clear_prewarm_blocked_alert(%State{} = state),
+    do: %{state | prewarm_blocked_alert_active: false}
 
   # CPU load admission applies to NEW work only. Retries and reactivations bypass
   # this function so a capacity wait never burns their retry budget.
@@ -694,6 +719,18 @@ defmodule Aiur.Orchestrator.Dispatcher do
          is_binary(issue.identifier) do
       case update_state_fun.(issue.identifier, "error") do
         :ok ->
+          lifetime = Map.get(entry, :lifetime, 0)
+          maximum = Config.agent_max_dispatches_per_ticket()
+
+          Alerts.emit_custom(
+            "ticket.#{issue.identifier}.agent.attention.error",
+            "Agent entered error because its lifetime dispatch latch is #{lifetime}/#{maximum}; this will not clear on its own.",
+            issue: issue.identifier,
+            reason: "Agent entered error because its lifetime dispatch latch is #{lifetime}/#{maximum}; this will not clear on its own.",
+            needs_attention: true,
+            severity: "warning"
+          )
+
           updated_entry = Map.put(entry, :durable_latch_applied, true)
           state = put_thrash_budget(state, Map.put(thrash_budget(state), issue.id, updated_entry))
 

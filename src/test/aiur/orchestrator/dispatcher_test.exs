@@ -4,6 +4,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   import ExUnit.CaptureLog
 
   alias Aiur.AgentRunner.{SessionLifecycle, ToolExecutor}
+  alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, State}
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
 
@@ -33,6 +34,26 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   end
 
   defp thrash_budget(state), do: state.dispatch_recovery.codex_thrash_budget
+
+  describe "prewarm dispatch halt" do
+    test "emits once while prewarm keeps the fleet on hold and rearms after recovery" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe("system.dispatch.prewarm_blocked")
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      held = Dispatcher.emit_prewarm_blocked_alert(%State{}, :building)
+      assert held.prewarm_blocked_alert_active
+      assert_receive {:event, %{topic: "system.dispatch.prewarm_blocked"} = event}, 500
+      assert event["reason"] =~ "Prewarm is building"
+
+      assert Dispatcher.emit_prewarm_blocked_alert(held, :building) == held
+      refute_receive {:event, %{topic: "system.dispatch.prewarm_blocked"}}, 100
+    end
+  end
 
   describe "CPU headroom recovery integration" do
     test "a second CPU sample re-ramps and consumes restored slots in the same poll" do

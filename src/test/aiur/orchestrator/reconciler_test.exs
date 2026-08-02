@@ -2,6 +2,7 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
   use ExUnit.Case, async: false
 
   alias Aiur.Issue
+  alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.Reconciler
   alias Aiur.Orchestrator.State
@@ -14,6 +15,60 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
       terminal = MapSet.new(["done"])
 
       assert Reconciler.reconcile_running_issue_states([], state, active, terminal) == state
+    end
+
+    test "emits an attention alert when the local label override disagrees with the tracker" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe("ticket.I-divergence.agent.attention.state_divergence")
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      issue = %Issue{id: "issue-divergence", identifier: "I-divergence", state: "in-progress", paused: false}
+
+      state = %State{
+        running: %{
+          "issue-divergence" => %{
+            identifier: "I-divergence",
+            issue: issue,
+            control: %{status: :paused},
+            paused_reason: :label_override
+          }
+        }
+      }
+
+      state = Reconciler.report_label_divergence(state, issue)
+
+      assert_receive {:event, %{topic: "ticket.I-divergence.agent.attention.state_divergence"} = event}, 500
+      assert event["reason"] =~ "local=paused(label_override) tracker=agent:in-progress"
+
+      assert Reconciler.report_label_divergence(state, issue) == state
+      refute_receive {:event, %{topic: "ticket.I-divergence.agent.attention.state_divergence"}}, 100
+    end
+
+    test "reports a tracker pause while the local worker remains active" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe("ticket.I-paused.agent.attention.state_divergence")
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      issue = %Issue{id: "issue-paused", identifier: "I-paused", state: "in-progress", paused: true}
+
+      state = %State{
+        running: %{
+          issue.id => %{identifier: issue.identifier, issue: issue, control: %{status: :working}}
+        }
+      }
+
+      _state = Reconciler.report_label_divergence(state, issue)
+
+      assert_receive {:event, %{topic: "ticket.I-paused.agent.attention.state_divergence"} = event}, 500
+      assert event["reason"] =~ "local=working tracker=agent:paused"
     end
   end
 

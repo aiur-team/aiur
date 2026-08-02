@@ -1,13 +1,40 @@
 defmodule Aiur.Orchestrator.IssueSyncTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Aiur.{Issue, TrackerIdentity}
+  alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.Orchestrator.{IssueSync, State}
 
   test "ignores a non-list poll result" do
     state = %State{last_polled_issues: %{"42" => %{id: "42"}}}
 
     assert IssueSync.sync_polled_issue_state(state, :invalid) == state
+  end
+
+  test "alerts once after ready work stays below the configured cap" do
+    Publisher.set_tracked_fn(fn _ -> true end)
+    :ok = Exchange.subscribe("system.dispatch.capacity_starved")
+
+    on_exit(fn ->
+      Publisher.set_tracked_fn(fn _ -> true end)
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+    end)
+
+    ready = issue("capacity", "todo")
+    state = %State{max_concurrent_agents: 4, effective_concurrent_agents: 1}
+
+    waiting = IssueSync.sync_capacity_starvation_alert(state, [ready], 1_000)
+    assert waiting.capacity_starvation == %{since_ms: 1_000, alert_active: false}
+
+    alerted = IssueSync.sync_capacity_starvation_alert(waiting, [ready], 61_000)
+    assert alerted.capacity_starvation == %{since_ms: 1_000, alert_active: true}
+
+    assert_receive {:event, %{topic: "system.dispatch.capacity_starved"} = event}, 500
+    assert event["reason"] =~ "Ready tickets=1"
+    assert event["reason"] =~ "effective cap=1, configured cap=4"
+
+    assert IssueSync.sync_capacity_starvation_alert(alerted, [ready], 122_000) == alerted
+    refute_receive {:event, %{topic: "system.dispatch.capacity_starved"}}, 100
   end
 
   test "records an idle completed ticket before an active-only poll drops it" do

@@ -366,6 +366,50 @@ defmodule Aiur.AgentControlCLITest do
     assert populated_output =~ "__AIUR_CONTROL_EXIT__:0"
   end
 
+  test "status names awaiting dispatch and transient retry causes", %{orchestrator: pid} do
+    idle = %Issue{id: "issue-17", identifier: "repo#17", state: "todo", title: "Awaiting dispatch"}
+    retry = %Issue{id: "issue-18", identifier: "repo#18", state: "todo", title: "Retrying"}
+    due_at_ms = System.monotonic_time(:millisecond) + 240_000
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | last_polled_issues: %{idle.id => idle, retry.id => retry},
+          retry_attempts: %{
+            retry.id => %{
+              identifier: retry.identifier,
+              attempt: 1,
+              due_at_ms: due_at_ms,
+              error: "tracker 403"
+            }
+          }
+      }
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~ "#17    idle    Awaiting dispatch (awaiting-dispatch)"
+    assert output =~ "#18    paused  Retrying (transient: tracker 403, retry ~4m)"
+  end
+
+  test "status names a tracker pause as operator-paused", %{orchestrator: pid} do
+    paused = %Issue{
+      id: "issue-19",
+      identifier: "repo#19",
+      state: "todo",
+      title: "Operator pause",
+      labels: ["agent:todo", "agent:paused"],
+      paused: true
+    }
+
+    :sys.replace_state(pid, fn state ->
+      %{state | last_polled_issues: %{paused.id => paused}}
+    end)
+
+    assert capture_io(fn -> AgentControlCLI.status() end) =~
+             "#19    paused  Operator pause (operator)"
+  end
+
   test "status prints the resolved CODEOWNERS trust snapshot", %{orchestrator: pid} do
     path = Path.join(File.cwd!(), ".github/CODEOWNERS")
 

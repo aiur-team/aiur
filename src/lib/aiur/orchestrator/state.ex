@@ -36,6 +36,8 @@ defmodule Aiur.Orchestrator.State do
             rewakes: map()
           },
           todo_over_capacity_alert_active: boolean(),
+          prewarm_blocked_alert_active: boolean(),
+          capacity_starvation: %{since_ms: integer() | nil, alert_active: boolean()},
           running: map(),
           completed: MapSet.t(),
           claimed: MapSet.t(),
@@ -84,6 +86,8 @@ defmodule Aiur.Orchestrator.State do
       rewakes: %{}
     },
     todo_over_capacity_alert_active: false,
+    prewarm_blocked_alert_active: false,
+    capacity_starvation: %{since_ms: nil, alert_active: false},
     running: %{},
     completed: MapSet.new(),
     claimed: MapSet.new(),

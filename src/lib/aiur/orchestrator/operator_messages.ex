@@ -13,6 +13,8 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     State
   }
 
+  alias Aiur.Orchestrator.StatusReason
+
   alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy}
   @max_operator_message_chars 8_000
 
@@ -602,11 +604,14 @@ defmodule Aiur.Orchestrator.OperatorMessages do
 
   def maybe_emit_agent_control_alert(:working, :paused, running_entry)
       when is_map(running_entry) do
+    pause_reason = Map.get(running_entry, :paused_reason)
+    reason = StatusReason.render(StatusReason.for_pause(pause_reason))
+
     Alerts.emit_system("ticket.#{Map.get(running_entry, :identifier)}.agent.paused",
       issue: Map.get(running_entry, :identifier),
       workspace: Map.get(running_entry, :workspace_path),
       worker_host: Map.get(running_entry, :worker_host),
-      reason: "Agent paused and may need Executor input before continuing.",
+      reason: "Agent paused (#{reason}); expected to clear #{pause_clearance(pause_reason)}.",
       needs_attention: true,
       severity: "warning"
     )
@@ -625,6 +630,13 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   end
 
   def maybe_emit_agent_control_alert(_previous_status, _status, _running_entry), do: :ok
+
+  defp pause_clearance(reason) when reason in [:operator_pause, :label_override, :agent_pause_request, :input_required, :blocker_dependency],
+    do: "after Executor or agent action"
+
+  defp pause_clearance(reason) when reason in [:global_pause, :usage_limit_exhausted], do: "when the condition is lifted"
+  defp pause_clearance(:before_run_failure), do: "after preflight succeeds"
+  defp pause_clearance(_reason), do: "after the next control reconciliation"
 
   defp maybe_coalesce_events(
          queue_store,

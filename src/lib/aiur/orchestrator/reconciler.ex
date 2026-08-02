@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.Reconciler do
 
   require Logger
 
-  alias Aiur.{CurrentRunMembership, Issue, Tracker, TrackerIdentity}
+  alias Aiur.{Alerts, CurrentRunMembership, Issue, Tracker, TrackerIdentity}
   alias Aiur.Orchestrator
 
   alias Aiur.Orchestrator.{
@@ -147,6 +147,8 @@ defmodule Aiur.Orchestrator.Reconciler do
         mark_reconciled_fun
       )
       when is_function(observe_membership_fun, 2) and is_function(mark_reconciled_fun, 1) do
+    state = report_label_divergence(state, issue)
+
     if DispatchPolicy.terminal_issue_state?(issue.state, terminal_states) do
       case LifecycleFence.reconcile_observed_state(state, issue) do
         :admit ->
@@ -194,6 +196,65 @@ defmodule Aiur.Orchestrator.Reconciler do
 
       {:error, :membership_observation_failed} ->
         mark_membership_unavailable(state, mark_reconciled_fun, issue.tracker_identity)
+    end
+  end
+
+  # A label-override pause is authoritative only while the tracker still carries
+  # `agent:paused`. If it disappears while the in-memory entry remains paused,
+  # the Executor otherwise sees two incompatible fleet states until this poll
+  # happens to resume the worker. Emit before reconciliation repairs it so the
+  # discrepancy is visible in the alert feed.
+  @doc false
+  @spec report_label_divergence(State.t(), Issue.t()) :: State.t()
+  def report_label_divergence(%State{} = state, %Issue{} = issue) do
+    case Map.get(state.running, issue.id) do
+      %{} = entry ->
+        identifier = Map.get(entry, :identifier) || issue.identifier || issue.id
+
+        case label_divergence(entry, issue) do
+          nil ->
+            clear_reported_divergence(state, issue.id, entry)
+
+          reason ->
+            if Map.get(entry, :label_divergence_reported) == reason do
+              state
+            else
+              Alerts.emit_custom("ticket.#{identifier}.agent.attention.state_divergence", reason,
+                issue: identifier,
+                workspace: Map.get(entry, :workspace_path),
+                worker_host: Map.get(entry, :worker_host),
+                reason: reason,
+                needs_attention: true,
+                severity: "warning"
+              )
+
+              put_in(state.running[issue.id], Map.put(entry, :label_divergence_reported, reason))
+            end
+        end
+
+      _ ->
+        state
+    end
+  end
+
+  defp label_divergence(%{control: %{status: :paused}, paused_reason: :label_override}, %Issue{} = issue)
+       when not is_nil(issue) do
+    unless Issue.paused?(issue),
+      do: "State reconciliation detected divergence: local=paused(label_override) tracker=agent:#{issue.state}."
+  end
+
+  defp label_divergence(%{control: %{status: status}}, %Issue{} = issue) when status in [:working, :sleeping] do
+    if Issue.paused?(issue),
+      do: "State reconciliation detected divergence: local=#{status} tracker=agent:paused."
+  end
+
+  defp label_divergence(_entry, _issue), do: nil
+
+  defp clear_reported_divergence(state, issue_id, entry) do
+    if Map.has_key?(entry, :label_divergence_reported) do
+      put_in(state.running[issue_id], Map.delete(entry, :label_divergence_reported))
+    else
+      state
     end
   end
 

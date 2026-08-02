@@ -2,6 +2,7 @@ defmodule Aiur.AgentControlCLI do
   @moduledoc false
 
   alias Aiur.{AgentChat, AlertFeed, BuildGate, Config, ExecutorEvents, Orchestrator, PauseContainment, ProviderMeterProjection}
+  alias Aiur.Orchestrator.StatusReason
   alias Aiur.Codex.EventHumanizer, as: CodexEventHumanizer
   alias Aiur.GitHub.{CodeOwners, StatePolicy}
   alias Aiur.GitHub.Config, as: GitHubConfig
@@ -612,10 +613,14 @@ defmodule Aiur.AgentControlCLI do
         " ",
         String.pad_trailing(to_string(status.state), 7),
         " ",
-        to_string(status.title || "")
+        to_string(status.title || ""),
+        status_reason_suffix(status)
       ])
     end)
   end
+
+  defp status_reason_suffix(%{reason: reason}) when not is_nil(reason), do: " (#{StatusReason.render(reason)})"
+  defp status_reason_suffix(_status), do: ""
 
   @doc """
   Print Codex and Claude limit headroom from the daemon-owned meter projection.
@@ -961,6 +966,7 @@ defmodule Aiur.AgentControlCLI do
   defp watch_activity(%{tracker_paused: "true"}), do: "(paused: label override)"
   defp watch_activity(%{tracker_state: "ci-wait"}), do: "(waiting for CI)"
   defp watch_activity(%{state: "ci-wait"}), do: "(waiting for CI)"
+  defp watch_activity(%{state: :idle, reason: reason}) when not is_nil(reason), do: "(idle: #{StatusReason.render(reason)})"
   defp watch_activity(%{state: :idle}), do: "(idle)"
   defp watch_activity(status), do: agent_activity(status)
 

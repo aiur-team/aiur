@@ -9,6 +9,7 @@ defmodule Aiur.Orchestrator.IssueSync do
   alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, MembershipLifecycle, OperatorMessages, Slots, State}
 
   @idle_terminal_verification_batch_size 25
+  @capacity_starvation_alert_after_ms 60_000
 
   @spec sync_polled_issue_state(State.t(), list()) :: State.t()
   def sync_polled_issue_state(%State{} = state, issues) when is_list(issues) do
@@ -587,6 +588,47 @@ defmodule Aiur.Orchestrator.IssueSync do
   end
 
   def sync_todo_capacity_alert(%State{} = state, _issues), do: state
+
+  @doc false
+  @spec sync_capacity_starvation_alert(State.t(), list(), integer()) :: State.t()
+  def sync_capacity_starvation_alert(%State{} = state, issues, now_ms)
+      when is_list(issues) and is_integer(now_ms) do
+    configured = Slots.max_concurrent_agent_limit(state)
+    effective = Slots.effective_concurrent_agent_limit(state)
+    ready_count = issues |> routable_todo_issues() |> length()
+
+    if ready_count > 0 and effective < configured do
+      starvation = state.capacity_starvation || %{since_ms: nil, alert_active: false}
+      since_ms = starvation[:since_ms] || now_ms
+
+      if now_ms - since_ms >= @capacity_starvation_alert_after_ms and not starvation[:alert_active] do
+        reason =
+          "Ready tickets=#{ready_count}, live agents=#{State.active_running_count(state.running)}, " <>
+            "effective cap=#{effective}, configured cap=#{configured}; " <>
+            "effective cap is constrained by the load-envelope cold-start ramp."
+
+        Alerts.emit_system("system.dispatch.capacity_starved",
+          reason: reason,
+          needs_attention: true,
+          severity: "warning"
+        )
+
+        %{state | capacity_starvation: %{since_ms: since_ms, alert_active: true}}
+      else
+        %{state | capacity_starvation: %{since_ms: since_ms, alert_active: starvation[:alert_active] == true}}
+      end
+    else
+      %{state | capacity_starvation: %{since_ms: nil, alert_active: false}}
+    end
+  end
+
+  def sync_capacity_starvation_alert(%State{} = state, _issues, _now_ms), do: state
+
+  @spec sync_capacity_starvation_alert(State.t(), list()) :: State.t()
+  def sync_capacity_starvation_alert(%State{} = state, issues) when is_list(issues),
+    do: sync_capacity_starvation_alert(state, issues, System.monotonic_time(:millisecond))
+
+  def sync_capacity_starvation_alert(%State{} = state, _issues), do: state
 
   defp routable_todo_issues(issues) when is_list(issues) do
     issues
