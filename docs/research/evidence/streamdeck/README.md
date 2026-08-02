@@ -1,6 +1,6 @@
 # Stream Deck end-to-end proof evidence
 
-Evidence directory for [#1358](https://github.com/its-everdred/aiur/issues/1358).
+Evidence directory for [#1358](https://github.com/aiur-team/aiur/issues/1358).
 Each proof run gets its own subdirectory named by run ID (e.g. `2026-07-30-001/`).
 
 ## Run metadata (fill in before starting)

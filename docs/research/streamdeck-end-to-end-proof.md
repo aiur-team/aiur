@@ -1,6 +1,6 @@
 # Stream Deck end-to-end proof
 
-This is the operator runbook and evidence index for issue [#1358](https://github.com/its-everdred/aiur/issues/1358).
+This is the operator runbook and evidence index for issue [#1358](https://github.com/aiur-team/aiur/issues/1358).
 It is intentionally separate from the implementation tickets: a green unit or
 browser test does not prove that the emulator, dashboard, and live fleet agree
 while an operator drives the control surface.
@@ -102,7 +102,7 @@ rg -n -i 'streamdeck|stream deck|dial|pager|logs mode|pause|resume' \
   tests ../test/aiur_web
 ```
 
-**Known coverage state after #1352/#1353 merge:**
+**Known coverage state after the merged #1352/#1353 surface:**
 
 | Step | Headless coverage |
 |------|-------------------|
@@ -111,7 +111,7 @@ rg -n -i 'streamdeck|stream deck|dial|pager|logs mode|pause|resume' \
 | 3 | Pager dots / window cycling | Not yet covered — see #1395 |
 | 4 | Key → cmd mode; pause/resume agent | Not yet covered — see #1395 |
 | 5 | Logs mode scroll; hint arrow bounds | Not yet covered — see #1395 |
-| 6 | Back-navigation logs → cmd → grid | Not yet covered — see #1395 |
+| 6 | Back-navigation logs → cmd → grid | Sequence covered; focused-agent preservation is not asserted — see #1395 |
 
 If any of steps 2–6 still lacks a headless test when you run the proof, record
 each gap as a separate non-blocking issue and link it from #1358. Do not add
