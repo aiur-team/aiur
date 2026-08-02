@@ -131,9 +131,6 @@ npm test
 npm run build
 ```
 
-For the emulator and optional hardware acceptance flow, see the
-[Stream Deck end-to-end proof runbook](docs/research/streamdeck-end-to-end-proof.md).
-
 ## Running Aiur
 
 Aiur works best in codebases with clear setup instructions, automated validation, and workflow

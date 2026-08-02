@@ -795,6 +795,7 @@ end
 defmodule Aiur.BrowserHarness.UnitsLive do
   use Phoenix.LiveView, layout: {Aiur.BrowserHarness.FixtureLayout, :app}
 
+  alias Aiur.BrowserHarness.FixtureServer
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.TicketContextPresenter.{Capability, View}
 
@@ -880,6 +881,15 @@ defmodule Aiur.BrowserHarness.UnitsLive do
       update_catalog(socket.assigns.catalog, fn rows ->
         Enum.reject(rows, &same_identity?(Map.get(&1, :identity), selected && selected.identity))
       end)
+
+    projected_ids =
+      catalog
+      |> UnitsPresenter.project(socket.assigns.selection)
+      |> Map.get(:rows, [])
+      |> Enum.map(& &1.identity.identifier)
+
+    FixtureServer.set_streamdeck_snapshot_identities(projected_ids)
+    Phoenix.PubSub.broadcast(Aiur.PubSub, "streamdeck:fixture", :streamdeck_fixture_fleet_changed)
 
     {:noreply,
      socket
@@ -1002,7 +1012,22 @@ defmodule Aiur.BrowserHarness.UnitsLive do
         progress: %{status: :known, percent: 100, source: :phase, freshness: :stale},
         latest_evidence: %{status: :known, source: %{kind: :pull_request, name: "merged"}}
       })
-    ]
+    ] ++
+      Enum.map(1114..1116, fn number ->
+        row(identity("NODE-#{number}", to_string(number)), %{
+          title: "Queued integration #{number}",
+          lifecycle: :queued,
+          runtime: runtime(:retrying, :retrying, :backing_off, 0),
+          reasons: reasons(:backing_off, nil, nil, nil, :backing_off),
+          requested_model: nil,
+          resolved_model: nil,
+          effort: nil,
+          complexity: nil,
+          build_lane: nil,
+          progress: %{status: :unknown},
+          latest_evidence: %{status: :unknown}
+        })
+      end)
   end
 
   defp row(identity, overrides) do
@@ -1580,36 +1605,55 @@ defmodule Aiur.BrowserHarness.FixtureServer do
     Process.sleep(:infinity)
   end
 
+  def set_streamdeck_snapshot_identities(identifiers) when is_list(identifiers) do
+    :persistent_term.put({__MODULE__, :streamdeck_snapshot_identities}, Enum.map(identifiers, &to_string/1))
+  end
+
   def streamdeck_snapshot do
-    %{
-      running: [streamdeck_agent("1352", "Fixture running", "codex")],
-      retrying: [streamdeck_agent("1338", "Fixture stuck", "codex", work_state: :error)],
-      idle: [
-        streamdeck_agent("1345", "Fixture paused", "claude", work_state: :paused),
-        streamdeck_agent("1350", "Fixture queued", "codex", waiting_reason: :waiting_for_dependency),
-        streamdeck_agent("1331", "Fixture alert", "claude", open_decision_count: 1),
-        streamdeck_agent("1360", "Fixture extra 1", "codex"),
-        streamdeck_agent("1361", "Fixture extra 2", "codex"),
-        streamdeck_agent("1362", "Fixture extra 3", "codex"),
-        streamdeck_agent("1363", "Fixture extra 4", "codex"),
-        streamdeck_agent("1366", "Fixture extra 5", "codex"),
-        streamdeck_agent("1367", "Fixture extra 6", "codex"),
-        streamdeck_agent("1370", "Fixture extra 7", "codex"),
-        streamdeck_agent("1371", "Fixture extra 8", "codex"),
-        streamdeck_agent("1372", "Fixture extra 9", "codex"),
-        streamdeck_agent("1373", "Fixture extra 10", "codex"),
-        streamdeck_agent("1374", "Fixture extra 11", "codex"),
-        streamdeck_agent("1375", "Fixture extra 12", "codex"),
-        streamdeck_agent("1376", "Fixture extra 13", "codex"),
-        streamdeck_agent("1377", "Fixture extra 14", "codex")
-      ]
-    }
+    case :persistent_term.get({__MODULE__, :streamdeck_snapshot_identities}, nil) do
+      identifiers when is_list(identifiers) ->
+        streamdeck_snapshot(identifiers)
+
+      _ ->
+        %{
+          running: [streamdeck_agent("1352", "Fixture running", "codex")],
+          retrying: [streamdeck_agent("1338", "Fixture stuck", "codex", work_state: :error)],
+          idle: [
+            streamdeck_agent("1345", "Fixture paused", "claude", work_state: :paused),
+            streamdeck_agent("1350", "Fixture queued", "codex", waiting_reason: :waiting_for_dependency),
+            streamdeck_agent("1331", "Fixture alert", "claude", open_decision_count: 1),
+            streamdeck_agent("1360", "Fixture extra 1", "codex"),
+            streamdeck_agent("1361", "Fixture extra 2", "codex"),
+            streamdeck_agent("1362", "Fixture extra 3", "codex"),
+            streamdeck_agent("1363", "Fixture extra 4", "codex"),
+            streamdeck_agent("1366", "Fixture extra 5", "codex"),
+            streamdeck_agent("1367", "Fixture extra 6", "codex"),
+            streamdeck_agent("1370", "Fixture extra 7", "codex"),
+            streamdeck_agent("1371", "Fixture extra 8", "codex"),
+            streamdeck_agent("1372", "Fixture extra 9", "codex"),
+            streamdeck_agent("1373", "Fixture extra 10", "codex"),
+            streamdeck_agent("1374", "Fixture extra 11", "codex"),
+            streamdeck_agent("1375", "Fixture extra 12", "codex"),
+            streamdeck_agent("1376", "Fixture extra 13", "codex"),
+            streamdeck_agent("1377", "Fixture extra 14", "codex")
+          ]
+        }
+    end
+  end
+
+  defp streamdeck_snapshot(identifiers) when is_list(identifiers) do
+    agents =
+      Enum.map(identifiers, fn identifier ->
+        streamdeck_agent(identifier, "Unit #{identifier}", "codex")
+      end)
+
+    %{running: Enum.take(agents, 1), retrying: [], idle: Enum.drop(agents, 1)}
   end
 
   def streamdeck_provider_meters do
     %{
-      "claude" => %{"state" => "observed", "windows" => %{"daily" => %{"name" => "Daily", "used_percent" => 30}}},
-      "codex" => %{"state" => "observed", "windows" => %{"daily" => %{"name" => "Daily", "used_percent" => 50}}}
+      "claude" => %{"state" => "observed", "windows" => %{"daily" => %{"used_percent" => 30}}},
+      "codex" => %{"state" => "observed", "windows" => %{"daily" => %{"used_percent" => 50}}}
     }
   end
 
@@ -1629,6 +1673,7 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         dashboard_writable: false,
         control_center_cache: false,
         snapshot_timeout_ms: 100,
+        streamdeck_fixture_fleet: true,
         streamdeck_snapshot_fun: &__MODULE__.streamdeck_snapshot/0,
         streamdeck_provider_meters_fun: &__MODULE__.streamdeck_provider_meters/0,
         streamdeck_logs_fun: &__MODULE__.streamdeck_logs/0
