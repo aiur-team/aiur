@@ -242,9 +242,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
   defp ci_readiness_retry_delay_ms(_reason), do: @ci_readiness_retry_ms
 
   defp retry_delay_from_reset(reset_at) when is_binary(reset_at) do
-    with {:ok, reset_at, _offset} <- DateTime.from_iso8601(reset_at) do
-      max(DateTime.diff(reset_at, DateTime.utc_now(), :millisecond), 0)
-    else
+    case DateTime.from_iso8601(reset_at) do
+      {:ok, reset_at, _offset} -> max(DateTime.diff(reset_at, DateTime.utc_now(), :millisecond), 0)
       _ -> nil
     end
   end

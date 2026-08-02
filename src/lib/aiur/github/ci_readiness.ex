@@ -8,8 +8,8 @@ defmodule Aiur.GitHub.CiReadiness do
   """
 
   alias Aiur.{Config, Workflow}
-  alias Aiur.GitHub.{Errors, Transport}
   alias Aiur.GitHub.Config, as: GitHubConfig
+  alias Aiur.GitHub.{Errors, Transport}
 
   @ruleset_page_limit 20
   @workflow_page_limit 20
@@ -17,7 +17,7 @@ defmodule Aiur.GitHub.CiReadiness do
   @assessment_file_name "ci-readiness.json"
   @assessment_ttl_seconds 3_600
   @default_timeout_ms 30_000
-  @github_actions_app_id 1_5368
+  @github_actions_app_id 15_368
   @operator_token_env "AIUR_CI_READINESS_TOKEN"
 
   @type issue ::
@@ -67,23 +67,18 @@ defmodule Aiur.GitHub.CiReadiness do
   @spec dispatch_check(keyword()) :: {:ok, result()} | {:error, term()}
   def dispatch_check(opts) do
     case cached_result(opts) do
-      %{} = result ->
-        {:ok, result}
+      %{} = result -> {:ok, result}
+      :unavailable -> check_workflow_presence(opts)
+    end
+  end
 
-      :unavailable ->
-        case System.get_env(@operator_token_env) do
-          token when is_binary(token) and token != "" ->
-            check(Keyword.put(opts, :token, token))
+  defp check_workflow_presence(opts) do
+    case check(Keyword.put(opts, :workflow_presence_only, true)) do
+      {:error, :ci_readiness_operator_token_required} ->
+        {:ok, unavailable(Keyword.get(opts, :base_branch, "main"), :ci_readiness_operator_token_required)}
 
-          _ ->
-            case check(Keyword.put(opts, :workflow_presence_only, true)) do
-              {:error, :ci_readiness_operator_token_required} ->
-                {:ok, unavailable(Keyword.get(opts, :base_branch, "main"), :ci_readiness_operator_token_required)}
-
-              result ->
-                result
-            end
-        end
+      result ->
+        result
     end
   end
 
@@ -127,9 +122,8 @@ defmodule Aiur.GitHub.CiReadiness do
     path = Keyword.get(opts, :path, assessment_path(Keyword.get(opts, :config_path, Workflow.workflow_file_path())))
 
     with :ok <- File.mkdir_p(Path.dirname(path)),
-         {:ok, json} <- Jason.encode(document),
-         :ok <- File.write(path, json) do
-      :ok
+         {:ok, json} <- Jason.encode(document) do
+      File.write(path, json)
     end
   end
 
@@ -201,11 +195,13 @@ defmodule Aiur.GitHub.CiReadiness do
   defp map_to_scope(_scope), do: :invalid
 
   defp assessment_fresh?(assessed_at, opts) when is_binary(assessed_at) do
-    with {:ok, assessed_at, _offset} <- DateTime.from_iso8601(assessed_at) do
-      age_seconds = DateTime.diff(Keyword.get(opts, :now, DateTime.utc_now()), assessed_at, :second)
-      age_seconds in 0..@assessment_ttl_seconds
-    else
-      _ -> false
+    case DateTime.from_iso8601(assessed_at) do
+      {:ok, assessed_at, _offset} ->
+        age_seconds = DateTime.diff(Keyword.get(opts, :now, DateTime.utc_now()), assessed_at, :second)
+        age_seconds in 0..@assessment_ttl_seconds
+
+      _ ->
+        false
     end
   end
 
@@ -290,34 +286,40 @@ defmodule Aiur.GitHub.CiReadiness do
   end
 
   defp bounded_request_fun(request_fun, deadline_at_ms) do
-    fn request ->
-      remaining_ms = deadline_at_ms - System.monotonic_time(:millisecond)
+    fn request -> run_bounded_request(request_fun, request, deadline_at_ms) end
+  end
 
-      if remaining_ms <= 0 do
+  defp run_bounded_request(request_fun, request, deadline_at_ms) do
+    remaining_ms = deadline_at_ms - System.monotonic_time(:millisecond)
+
+    if remaining_ms <= 0 do
+      {:error, :timeout}
+    else
+      await_request_result(request_fun, request, remaining_ms)
+    end
+  end
+
+  defp await_request_result(request_fun, request, remaining_ms) do
+    parent = self()
+    result_ref = make_ref()
+
+    {pid, monitor_ref} =
+      spawn_monitor(fn ->
+        send(parent, {result_ref, request_fun.(Map.put(request, :timeout_ms, remaining_ms))})
+      end)
+
+    receive do
+      {^result_ref, result} ->
+        Process.demonitor(monitor_ref, [:flush])
+        result
+
+      {:DOWN, ^monitor_ref, :process, ^pid, _reason} ->
+        {:error, :transport}
+    after
+      remaining_ms ->
+        Process.exit(pid, :kill)
+        Process.demonitor(monitor_ref, [:flush])
         {:error, :timeout}
-      else
-        parent = self()
-        result_ref = make_ref()
-
-        {pid, monitor_ref} =
-          spawn_monitor(fn ->
-            send(parent, {result_ref, request_fun.(Map.put(request, :timeout_ms, remaining_ms))})
-          end)
-
-        receive do
-          {^result_ref, result} ->
-            Process.demonitor(monitor_ref, [:flush])
-            result
-
-          {:DOWN, ^monitor_ref, :process, ^pid, _reason} ->
-            {:error, :transport}
-        after
-          remaining_ms ->
-            Process.exit(pid, :kill)
-            Process.demonitor(monitor_ref, [:flush])
-            {:error, :timeout}
-        end
-      end
     end
   end
 
@@ -716,6 +718,10 @@ defmodule Aiur.GitHub.CiReadiness do
       get_in(value, ["parameters", "required_status_checks"])
     ]
     |> Enum.flat_map(&List.wrap/1)
+  end
+
+  defp required_check_identity(%{name: name, app_id: app_id}) when is_binary(name) and (is_integer(app_id) or is_nil(app_id)) do
+    if valid_name?(name), do: %{name: name, app_id: app_id}
   end
 
   defp required_check_identity(%{} = item) do

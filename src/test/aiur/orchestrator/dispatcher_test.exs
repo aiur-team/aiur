@@ -64,7 +64,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     state = Dispatcher.handle_ci_readiness_result(state, token, {:ok, readiness})
 
     assert state.ci_readiness_checked
-    assert CiReadiness.cached_result() == readiness
+    assert CiReadiness.cached_result(base_branch: "develop") == readiness
   end
 
   test "first dispatch retries an unavailable readiness check without duplicate alerts" do
@@ -83,7 +83,8 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   end
 
   test "does not launch another readiness scan before the transient retry deadline" do
-    state = %State{ci_readiness_retry_at_ms: System.monotonic_time(:millisecond) + 60_000}
+    scope = CiReadiness.readiness_scope()
+    state = %State{ci_readiness_retry_at_ms: System.monotonic_time(:millisecond) + 60_000, ci_readiness_scope: scope}
 
     assert Dispatcher.maybe_warn_ci_readiness(state) == state
   end
@@ -119,7 +120,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     state = Dispatcher.check_initial_ci_readiness(%State{}, "github", "develop", fn _ -> {:ok, readiness} end, emit)
 
     assert state.ci_readiness_checked
-    assert CiReadiness.cached_result() == readiness
+    assert CiReadiness.cached_result(base_branch: "develop") == readiness
     assert_receive {:ci_readiness_alert, "system.ci_readiness.not_ready", opts}
     assert opts[:needs_attention]
   end
