@@ -39,9 +39,10 @@ defmodule Aiur.AgentControlCLITest do
     fetch_active_result = Keyword.get(opts, :fetch_active_result, {:ok, active})
     add_result = Keyword.get(opts, :add_result, fn _id, _label -> :ok end)
     remove_result = Keyword.get(opts, :remove_result, fn _id, _label -> :ok end)
+    ensure_started_result = Keyword.get(opts, :ensure_started_result, :ok)
 
     %{
-      ensure_started: fn -> :ok end,
+      ensure_started: fn -> ensure_started_result end,
       load_config: fn -> {:ok, Keyword.get(opts, :config, todo_config())} end,
       fetch_issue: fn id ->
         send(parent, {:todo_fetch_issue, id})
@@ -117,6 +118,16 @@ defmodule Aiur.AgentControlCLITest do
   end
 
   describe "todo/2" do
+    test "reports a stopped application without a summary or stacktrace" do
+      {stdout, stderr, exit_code} =
+        capture_todo(["123"], deps: todo_deps(%{}, ensure_started_result: {:error, :application_not_started}))
+
+      assert exit_code == 1
+      assert stdout == ""
+      assert stderr == "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry.\n"
+      refute stderr =~ "GenServer"
+    end
+
     test "queues requested tickets with config-derived labels and streaming feedback" do
       issues =
         Map.new(~w(11 12 13), fn id ->

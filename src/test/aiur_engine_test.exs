@@ -456,22 +456,27 @@ defmodule AiurEngineTest do
     refute out =~ "--cookie"
   end
 
-  test "todo boots distribution-free without requiring a running node" do
+  test "todo routes through the control rpc" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\nrun_todo --todo 11 012,13 --only|,
+        []
+      )
+
+    assert out =~ "RPC:Aiur.AgentControlCLI.todo([\"11\", \"12\", \"13\"], only: true)"
+  end
+
+  test "streaming control rpc reports a stopped daemon" do
     rel = fake_release()
-    state = Path.join(System.tmp_dir!(), "aiur-st-#{System.unique_integer([:positive])}")
 
-    {out, _} =
-      run_engine(["--todo", "11", "12,13", "--only"], [
-        {"AIUR_RELEASE_DIR", rel},
-        {"AIUR_BG_STATE_DIR", state}
-      ])
+    {out, 1} =
+      run_sourced_engine(
+        ~S|resolve_release() { release_bin="/bin/false"; }; prepare_distribution() { :; }; resolve_control_identity_from_records() { :; }; probe_node_liveness() { printf down; }; run_control_stream 'Aiur.AgentControlCLI.executor_listen()'|,
+        [{"AIUR_RELEASE_DIR", rel}]
+      )
 
-    assert out =~ "ELIXIR_ARGS:"
-    assert out =~ "--eval"
-    assert out =~ "Aiur.CLI.main(Aiur.CLI.argv_from_file())"
-    refute out =~ "--name"
-    refute out =~ "--cookie"
-    refute out =~ "BIN:"
+    assert out =~ "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry."
+    refute out =~ "GenServer"
   end
 
   test "todo without IDs exits 64 before resolving a release" do
@@ -708,7 +713,7 @@ defmodule AiurEngineTest do
     refute out =~ "no running aiur node"
   end
 
-  test "down global-config control RPC prints a cwd-keyed hint" do
+  test "down global-config control RPC prints the stopped-daemon error" do
     state = tmp_state()
     caller = Path.join(System.tmp_dir!(), "aiur-control-miss-#{System.unique_integer([:positive])}")
     File.mkdir_p!(caller)
@@ -747,9 +752,9 @@ defmodule AiurEngineTest do
       ])
 
     assert out =~ "CODE=1"
-    assert out =~ "no running aiur node at aiur-"
-    assert out =~ "global-config control identity is keyed by cwd #{realpath(caller)}"
-    assert out =~ "run control commands from the launch directory"
+    assert out =~ "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry."
+    refute out =~ "global-config control identity is keyed by cwd"
+    refute out =~ "run control commands from the launch directory"
   end
 
   test "down control RPC with crash marker reports orphaned-agent guidance" do
