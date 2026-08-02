@@ -215,4 +215,35 @@ defmodule Aiur.Workspace.HooksTest do
 
     assert String.starts_with?(path, unrelated_path)
   end
+
+  test "remote hook command preserves unrelated values beside release-owned values", %{workspace: workspace} do
+    issue_context = %{issue_id: 1, issue_identifier: "test", issue_state: nil, issue_labels: [], pr_head_ref: nil}
+    release_root = Path.join(workspace, "release")
+    release_erts_bin = Path.join([release_root, "erts-16.4", "bin"])
+    user_bin = Path.join(workspace, "toolchain/bin")
+
+    command =
+      Hooks.remote_hook_command(
+        ~s(printf '%s\n%s\n%s\n%s\n%s' "$ROOTDIR" "$BINDIR" "$EMU" "$PROGNAME" "$PATH"),
+        workspace,
+        issue_context
+      )
+
+    assert {output, 0} =
+             System.cmd("bash", ["-lc", command],
+               stderr_to_stdout: true,
+               env: [
+                 {"AIUR_RELEASE_DIR", release_root},
+                 {"ROOTDIR", release_root},
+                 {"BINDIR", user_bin},
+                 {"EMU", "custom-beam"},
+                 {"PROGNAME", "custom-erl"},
+                 {"PATH", Enum.join([release_erts_bin, user_bin, System.fetch_env!("PATH")], ":")}
+               ]
+             )
+
+    assert ["", ^user_bin, "custom-beam", "custom-erl", path] = String.split(output, "\n")
+    refute path =~ release_erts_bin
+    assert path =~ user_bin
+  end
 end

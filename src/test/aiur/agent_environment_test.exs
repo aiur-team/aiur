@@ -116,6 +116,58 @@ defmodule Aiur.AgentEnvironmentTest do
     assert String.starts_with?(path, unrelated_path)
   end
 
+  test "scrub_shell_command tracks mixed launcher ownership independently" do
+    release_root = "/opt/aiur/release"
+    release_erts_bin = Path.join([release_root, "erts-16.4", "bin"])
+    user_bin = "/opt/user-otp/bin"
+
+    command =
+      AgentEnvironment.scrub_shell_command(~s(printf '%s\n%s\n%s\n%s\n%s' "$ROOTDIR" "$BINDIR" "$EMU" "$PROGNAME" "$PATH"))
+
+    {output, 0} =
+      System.cmd("bash", ["-lc", command],
+        env: [
+          {"AIUR_RELEASE_DIR", release_root},
+          {"ROOTDIR", release_root},
+          {"BINDIR", user_bin},
+          {"EMU", "custom-beam"},
+          {"PROGNAME", "custom-erl"},
+          {"PATH", Enum.join([release_erts_bin, user_bin, "/usr/bin"], ":")}
+        ]
+      )
+
+    assert ["", ^user_bin, "custom-beam", "custom-erl", path] = String.split(output, "\n")
+    refute path =~ release_erts_bin
+    assert path =~ user_bin
+  end
+
+  test "scrub_shell_command removes release PATH entries without owned root or bindir" do
+    release_root = "/opt/aiur/release"
+    release_erts_bin = Path.join([release_root, "erts-16.4", "bin"])
+    release_bin = Path.join(release_root, "bin")
+    user_root = "/opt/user-otp"
+    user_bin = Path.join(user_root, "bin")
+
+    command =
+      AgentEnvironment.scrub_shell_command(~s(printf '%s\n%s\n%s\n%s\n%s' "$ROOTDIR" "$BINDIR" "$EMU" "$PROGNAME" "$PATH"))
+
+    {output, 0} =
+      System.cmd("bash", ["-lc", command],
+        env: [
+          {"AIUR_RELEASE_DIR", release_root},
+          {"ROOTDIR", user_root},
+          {"BINDIR", user_bin},
+          {"EMU", "beam"},
+          {"PROGNAME", "erl"},
+          {"PATH", Enum.join([release_erts_bin, release_bin, user_bin, "/usr/bin"], ":")}
+        ]
+      )
+
+    assert [^user_root, ^user_bin, "", "", path] = String.split(output, "\n")
+    refute path =~ release_root
+    assert path =~ user_bin
+  end
+
   test "scrub_shell_command clears parent log environment before exec" do
     grep_pattern =
       "^(AIUR_LOGS_ROOT|AIUR_AGENT_IR_LOGS_PARENT|AIUR_AGENT_WORKSPACE|AIUR_DEBUG)="

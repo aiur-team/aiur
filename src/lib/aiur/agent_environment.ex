@@ -15,11 +15,6 @@ defmodule Aiur.AgentEnvironment do
   @erlang_distribution_env_names ~w(ERL_AFLAGS RELEASE_NODE RELEASE_COOKIE AIUR_RELEASE_NODE AIUR_INSTANCE_KEY AIUR_REPO_ROOT)
   @aiur_distribution_env_pattern ~r/\AAIUR(?:_.*)?_(?:NODE_NAME|COOKIE)\z/
   @parent_log_env_names ~w(AIUR_LOGS_ROOT AIUR_AGENT_IR_LOGS_PARENT)
-  # The release launcher exports these into the long-lived daemon. They must
-  # not cross the shell boundary into mise-managed OTP commands: ROOTDIR and
-  # BINDIR make the child use the release's ERTS, while EMU and PROGNAME alter
-  # how the launcher resolves that runtime.
-  @release_launcher_env_names ~w(ROOTDIR BINDIR EMU PROGNAME)
   @scheduler_option ~r/(^|\s)\+S\s+\d+(?::\d+)?/
 
   @spec erlang_distribution_env_name?(String.t()) :: boolean()
@@ -45,29 +40,33 @@ defmodule Aiur.AgentEnvironment do
   end
 
   defp release_launcher_scrub_prefix do
-    "aiur_release_root=${AIUR_RELEASE_DIR%/}; aiur_release_owned=; " <>
-      "if [ -n \"$aiur_release_root\" ]; then " <>
-      "[ \"${ROOTDIR:-}\" = \"$aiur_release_root\" ] && aiur_release_owned=1; " <>
-      "case \"${BINDIR:-}\" in \"$aiur_release_root\"/erts-*/bin) aiur_release_owned=1 ;; esac; " <>
-      "fi; " <>
-      "if [ -n \"$aiur_release_owned\" ]; then " <>
-      "aiur_remaining_path=${PATH-}; aiur_clean_path=; aiur_path_separator=; " <>
-      "while :; do " <>
-      "case \"$aiur_remaining_path\" in " <>
-      "*:*) aiur_path_entry=${aiur_remaining_path%%:*}; aiur_remaining_path=${aiur_remaining_path#*:}; aiur_path_more=1 ;; " <>
-      "*) aiur_path_entry=$aiur_remaining_path; aiur_path_more= ;; " <>
-      "esac; " <>
-      "case \"$aiur_path_entry\" in " <>
-      "\"$aiur_release_root/bin\"|\"$aiur_release_root\"/erts-*/bin) ;; " <>
-      "*) aiur_clean_path=\"${aiur_clean_path}${aiur_path_separator}${aiur_path_entry}\"; aiur_path_separator=: ;; " <>
-      "esac; " <>
-      "[ -n \"$aiur_path_more\" ] || break; " <>
-      "done; " <>
-      "PATH=$aiur_clean_path; export PATH; unset " <>
-      Enum.join(@release_launcher_env_names, " ") <>
-      "; fi; " <>
-      "unset aiur_release_root aiur_release_owned aiur_remaining_path aiur_clean_path " <>
-      "aiur_path_separator aiur_path_entry aiur_path_more"
+    String.trim(~S"""
+    aiur_release_root=${AIUR_RELEASE_DIR%/}
+    if [ -n "$aiur_release_root" ]; then
+      [ "${ROOTDIR:-}" = "$aiur_release_root" ] && unset ROOTDIR
+      case "${BINDIR:-}" in "$aiur_release_root"/erts-*/bin) unset BINDIR ;; esac
+      [ "${EMU:-}" = beam ] && unset EMU
+      [ "${PROGNAME:-}" = erl ] && unset PROGNAME
+
+      aiur_remaining_path=${PATH-}
+      aiur_clean_path=
+      aiur_path_separator=
+      while :; do
+        case "$aiur_remaining_path" in
+          *:*) aiur_path_entry=${aiur_remaining_path%%:*}; aiur_remaining_path=${aiur_remaining_path#*:}; aiur_path_more=1 ;;
+          *) aiur_path_entry=$aiur_remaining_path; aiur_path_more= ;;
+        esac
+        case "$aiur_path_entry" in
+          "$aiur_release_root/bin"|"$aiur_release_root"/erts-*/bin) ;;
+          *) aiur_clean_path="${aiur_clean_path}${aiur_path_separator}${aiur_path_entry}"; aiur_path_separator=: ;;
+        esac
+        [ -n "$aiur_path_more" ] || break
+      done
+      PATH=$aiur_clean_path
+      export PATH
+    fi
+    unset aiur_release_root aiur_remaining_path aiur_clean_path aiur_path_separator aiur_path_entry aiur_path_more
+    """)
   end
 
   @spec parent_log_env_name?(String.t()) :: boolean()
