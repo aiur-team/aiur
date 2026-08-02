@@ -313,6 +313,32 @@ defmodule Aiur.GitHub.CiReadinessTest do
              CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop", workflow_presence_only: true)
   end
 
+  test "presence-only inspection identifies a push-only workflow as missing a PR gate" do
+    push_workflow = "on:\n  push:\n"
+
+    request_fun = fn %{url: url} ->
+      cond do
+        String.ends_with?(url, "/branches/develop") ->
+          {:ok, %{status: 200, body: %{}}}
+
+        String.ends_with?(url, "/repos/owner/repo") ->
+          {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}
+
+        url =~ "/contents/.github/workflows" ->
+          {:ok, %{status: 200, body: [%{"type" => "file", "path" => ".github/workflows/push.yml", "url" => "push-workflow-url"}]}}
+
+        url == "push-workflow-url?ref=develop" ->
+          {:ok, %{status: 200, body: %{"content" => Base.encode64(push_workflow)}}}
+
+        true ->
+          flunk("unexpected privileged request: #{url}")
+      end
+    end
+
+    assert {:ok, %{workflow_paths: [], issues: [:no_pr_workflow, :no_required_check]}} =
+             CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop", workflow_presence_only: true)
+  end
+
   test "combines branch protection and applicable ruleset checks" do
     encoded = Base.encode64(@workflow)
 

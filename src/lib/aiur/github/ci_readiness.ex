@@ -112,7 +112,7 @@ defmodule Aiur.GitHub.CiReadiness do
 
   defp inspect_workflow_entries(request_fun, token, base_url, base_branch, default_branch, entries, opts) when is_list(entries) do
     if Keyword.get(opts, :workflow_presence_only, false) do
-      if workflow_entries?(entries), do: {:error, :ci_readiness_operator_token_required}, else: {:ok, evaluate(base_branch, [], [])}
+      inspect_workflow_presence(request_fun, token, base_branch, entries)
     else
       inspect_full_workflow_entries(request_fun, token, base_url, base_branch, default_branch, entries)
     end
@@ -126,6 +126,20 @@ defmodule Aiur.GitHub.CiReadiness do
          {:ok, workflows} <- fetch_workflows(request_fun, token, entries, workflow_states, base_branch),
          {:ok, required_checks} <- fetch_required_checks_for_entries(entries, request_fun, token, base_url, base_branch, default_branch) do
       {:ok, evaluate(base_branch, workflows, required_checks)}
+    end
+  end
+
+  defp inspect_workflow_presence(request_fun, token, base_branch, entries) do
+    workflow_states = Map.new(entries, fn entry -> {Map.get(entry, "path"), true} end)
+
+    with {:ok, workflows} <- fetch_workflows(request_fun, token, entries, workflow_states, base_branch) do
+      readiness = evaluate(base_branch, workflows, [])
+
+      if readiness.workflow_paths == [] do
+        {:ok, readiness}
+      else
+        {:error, :ci_readiness_operator_token_required}
+      end
     end
   end
 
