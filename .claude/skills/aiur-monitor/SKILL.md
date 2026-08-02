@@ -120,6 +120,13 @@ class crosses the threshold (3+ reproductions, or 2 with a shared root cause),
 recording the reproductions that justify it, under the normal issue-creation
 authority rules.
 
+Write the resulting evidence as host-local state, not a worktree document:
+append findings to `~/.aiur/repo/<owner>/<repo>/meta/findings.ndjson` and write
+the hourly retrospective to `meta/retros/<boot-id>.md`. Use `aiur findings
+--unfiled` to make unfinished promotion visible; a `ticket: null` finding is
+not complete. Raw state does not cross machines. The periodically regenerated,
+committed digest in `docs/executor/` is the only cross-machine channel.
+
 ## Report shape
 
 Lead with the outcome and urgent action, then include the Aiur board in a

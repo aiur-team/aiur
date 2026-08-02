@@ -7,7 +7,8 @@ defmodule Aiur.Claude.Repl.CommandTest do
   describe "build_command/7" do
     test "produces cd <ws> && exec claude shape" do
       cmd = Command.build_command("/ws/foo", nil, nil, false, "rc-name", nil, nil)
-      assert String.starts_with?(cmd, "cd '/ws/foo' && export ")
+      assert String.starts_with?(cmd, "cd '/ws/foo' && HEX_HOME=")
+      assert cmd =~ "${HEX_HOME#\\~/}"
       assert cmd =~ " && exec claude"
     end
 

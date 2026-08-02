@@ -74,6 +74,14 @@ defmodule Aiur.CLITest do
     assert :ok = CLI.evaluate([@ack_flag], deps)
   end
 
+  test "parses the findings command and its filters without starting the app" do
+    assert {:findings, %{unfiled: true, slugs: true, scope: "aiur"}} =
+             CLI.evaluate(["findings", "--unfiled", "--slugs", "--scope", "aiur"], deps())
+
+    assert {:error, usage} = CLI.evaluate(["findings", "--scope", "host"], deps())
+    assert usage =~ "aiur findings"
+  end
+
   test "uses an explicit workflow path override when provided" do
     parent = self()
     workflow_path = "tmp/custom/operator.config"

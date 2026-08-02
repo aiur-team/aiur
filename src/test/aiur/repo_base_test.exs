@@ -3,7 +3,7 @@ defmodule Aiur.RepoBaseTest do
   # the phase-event test must not race other tests emitting on the same topic.
   use ExUnit.Case, async: false
 
-  alias Aiur.RepoBase
+  alias Aiur.{Findings, RepoBase}
 
   setup do
     tmp = Path.join(System.tmp_dir!(), "aiur_rb_#{System.unique_integer([:positive])}")
@@ -64,18 +64,196 @@ defmodule Aiur.RepoBaseTest do
       assert File.exists?(Path.join(base, "rebuilt_after_migration"))
     end
 
-    test "recovers a clone parked by an interrupted migration", %{origin: origin, node: node, base: base} do
+    test "migrates a legacy clone before importing its retrospective into canonical meta", %{
+      origin: origin,
+      node: node,
+      base: base,
+      tmp: tmp
+    } do
+      previous_root = Application.get_env(:aiur, :repo_base_root)
+      source_root = Path.join(tmp, "legacy-source")
+      repo = "https://github.com/owner/project.git"
+
+      File.mkdir_p!(Path.dirname(node))
+      git!(["clone", "--quiet", origin, node])
+      File.mkdir_p!(Path.join([node, "builds", "legacy-pack"]))
+      File.mkdir_p!(Path.join([node, "analytics", "runs", "legacy-boot"]))
+      File.mkdir_p!(Path.join([node, "meta", "retros"]))
+      File.write!(Path.join([node, "builds", "legacy-pack", "pack.json"]), "legacy build\n")
+      File.write!(Path.join([node, "analytics", "runs", "legacy-boot", "run-summary.json"]), "legacy analytics\n")
+      File.write!(Path.join([node, "meta", "findings.ndjson"]), "{\"slug\":\"legacy-finding\"}\n")
+      File.write!(Path.join([node, "meta", "retros", "preexisting.md"]), "legacy retrospective\n")
+      File.write!(Path.join(node, "base-record.json"), "legacy base record\n")
+      File.mkdir_p!(Path.join([source_root, "docs", "executor"]))
+      File.write!(Path.join([source_root, "docs", "executor", "hourly-retrospectives.md"]), "legacy notes\n")
+      Application.put_env(:aiur, :repo_base_root, Path.join(tmp, "repo"))
+
+      on_exit(fn ->
+        case previous_root do
+          nil -> Application.delete_env(:aiur, :repo_base_root)
+          root -> Application.put_env(:aiur, :repo_base_root, root)
+        end
+      end)
+
+      assert :ok = RepoBase.setup_state(repo, source_root)
+      assert {:ok, ^base} = RepoBase.refresh(base, origin, "true")
+
+      assert File.dir?(base)
+      assert [imported] = Path.wildcard(Path.join(RepoBase.retros_path(repo), "legacy-*.md"))
+      assert File.read!(imported) == "legacy notes\n"
+      assert File.read!(Path.join(RepoBase.builds_path(repo), "legacy-pack/pack.json")) == "legacy build\n"
+      assert File.read!(Path.join(RepoBase.analytics_path(repo), "runs/legacy-boot/run-summary.json")) == "legacy analytics\n"
+      assert File.read!(RepoBase.findings_path(repo)) == "{\"slug\":\"legacy-finding\"}\n"
+      assert File.read!(Path.join(RepoBase.retros_path(repo), "preexisting.md")) == "legacy retrospective\n"
+      assert File.exists?(Path.join(RepoBase.repo_path(repo), "base-record.json"))
+      refute File.exists?(Path.join(base, "base-record.json"))
+
+      for path <- ["builds", "analytics", "meta"] do
+        refute File.exists?(Path.join(base, path)), "#{path} was stranded inside latest"
+      end
+    end
+
+    test "merges state left by an interrupted legacy migration", %{origin: origin, node: node, base: base, tmp: tmp} do
       parked = node <> ".migrating-interrupted"
+      previous_root = Application.get_env(:aiur, :repo_base_root)
+      current_finding = Jason.encode!(finding("current"))
+      legacy_finding = Jason.encode!(finding("legacy"))
+      File.mkdir_p!(Path.dirname(node))
+      git!(["clone", "--quiet", origin, parked])
+      File.mkdir_p!(Path.join([parked, "builds", "legacy-pack"]))
+      File.mkdir_p!(Path.join([parked, "analytics", "runs", "legacy"]))
+      File.mkdir_p!(Path.join([parked, "analytics", "runs", "current"]))
+      File.mkdir_p!(Path.join([parked, "meta", "retros"]))
+      File.write!(Path.join([parked, "builds", "legacy-pack", "pack.json"]), "legacy build\n")
+      File.write!(Path.join([parked, "analytics", "runs", "legacy", "summary.json"]), "legacy analytics\n")
+      File.write!(Path.join([parked, "analytics", "runs", "current", "summary.json"]), "legacy collision\n")
+      File.write!(Path.join([parked, "meta", "findings.ndjson"]), legacy_finding)
+      File.write!(Path.join([parked, "meta", "retros", "legacy.md"]), "legacy retrospective\n")
+
+      File.mkdir_p!(Path.join([node, "builds", "current-pack"]))
+      File.mkdir_p!(Path.join([node, "analytics", "runs", "current"]))
+      File.mkdir_p!(Path.join([node, "meta", "retros"]))
+      File.write!(Path.join([node, "builds", "current-pack", "pack.json"]), "current build\n")
+      File.write!(Path.join([node, "analytics", "runs", "current", "summary.json"]), "current analytics\n")
+      File.write!(Path.join([node, "meta", "findings.ndjson"]), current_finding)
+      File.write!(Path.join([node, "meta", "retros", "current.md"]), "current retrospective\n")
+      Application.put_env(:aiur, :repo_base_root, Path.join(tmp, "repo"))
+
+      on_exit(fn ->
+        case previous_root do
+          nil -> Application.delete_env(:aiur, :repo_base_root)
+          root -> Application.put_env(:aiur, :repo_base_root, root)
+        end
+      end)
+
+      assert {:ok, ^base} = RepoBase.refresh(base, origin, "true")
+
+      assert File.read!(Path.join([node, "builds", "legacy-pack", "pack.json"])) == "legacy build\n"
+      assert File.read!(Path.join([node, "builds", "current-pack", "pack.json"])) == "current build\n"
+      assert File.read!(Path.join([node, "analytics", "runs", "legacy", "summary.json"])) == "legacy analytics\n"
+      assert File.read!(Path.join([node, "analytics", "runs", "current", "summary.json"])) == "current analytics\n"
+      assert [collision] = Path.wildcard(Path.join([node, "analytics", "runs", "current", "summary.json.migrated-*"]))
+      assert File.read!(collision) == "legacy collision\n"
+      assert File.read!(Path.join([node, "meta", "retros", "legacy.md"])) == "legacy retrospective\n"
+      assert File.read!(Path.join([node, "meta", "retros", "current.md"])) == "current retrospective\n"
+
+      assert File.read!(Path.join([node, "meta", "findings.ndjson"])) == current_finding <> "\n" <> legacy_finding <> "\n"
+      assert {:ok, [current, legacy]} = Findings.all()
+      assert Enum.map([current, legacy], & &1["slug"]) == ["current", "legacy"]
+    end
+
+    test "leaves both ledgers intact when an interrupted migration has corrupt findings", %{origin: origin, node: node, base: base} do
+      parked = node <> ".migrating-interrupted"
+      File.mkdir_p!(Path.dirname(node))
+      git!(["clone", "--quiet", origin, parked])
+      File.mkdir_p!(Path.join(parked, "meta"))
+      File.write!(Path.join([parked, "meta", "findings.ndjson"]), "{not-json}")
+
+      File.mkdir_p!(Path.join(node, "meta"))
+      destination = Path.join([node, "meta", "findings.ndjson"])
+      File.write!(destination, Jason.encode!(finding("current")))
+
+      assert {:error, {:repo_base_migration_recovery_failed, {:invalid_findings_ledger, _, 1}}} =
+               RepoBase.refresh(base, origin, "true")
+
+      assert File.read!(destination) == Jason.encode!(finding("current"))
+      assert File.read!(Path.join([parked, "meta", "findings.ndjson"])) == "{not-json}"
+    end
+
+    test "leaves both ledgers intact when the canonical findings ledger is corrupt", %{origin: origin, node: node, base: base} do
+      parked = node <> ".migrating-interrupted"
+      File.mkdir_p!(Path.dirname(node))
+      git!(["clone", "--quiet", origin, parked])
+      File.mkdir_p!(Path.join(parked, "meta"))
+      source = Path.join([parked, "meta", "findings.ndjson"])
+      File.write!(source, Jason.encode!(finding("legacy")))
+
+      File.mkdir_p!(Path.join(node, "meta"))
+      destination = Path.join([node, "meta", "findings.ndjson"])
+      File.write!(destination, "{\"scope\":\"host\"}")
+
+      assert {:error, {:repo_base_migration_recovery_failed, {:invalid_findings_ledger, ^destination, 1}}} =
+               RepoBase.refresh(base, origin, "true")
+
+      assert File.read!(destination) == "{\"scope\":\"host\"}"
+      assert File.read!(source) == Jason.encode!(finding("legacy"))
+    end
+
+    test "one of concurrent callers claims a stale migration lock before recovery", %{origin: origin, node: node, base: base, tmp: tmp} do
+      parked = node <> ".migrating-interrupted"
+      lock = node <> ".migration-lock"
+      repo = "https://github.com/owner/project.git"
+      previous_root = Application.get_env(:aiur, :repo_base_root)
       File.mkdir_p!(Path.dirname(node))
       git!(["clone", "--quiet", origin, parked])
       File.mkdir_p!(node)
       File.mkdir_p!(Path.join(node, ".aiur-mix"))
+      File.mkdir!(lock)
+      File.write!(Path.join(lock, "owner"), "99999999")
+      Process.sleep(1_100)
+      Application.put_env(:aiur, :repo_base_root, Path.join(tmp, "repo"))
 
-      assert {:ok, ^base} = RepoBase.refresh(base, origin, "touch rebuilt_after_recovery")
+      on_exit(fn ->
+        case previous_root do
+          nil -> Application.delete_env(:aiur, :repo_base_root)
+          root -> Application.put_env(:aiur, :repo_base_root, root)
+        end
+      end)
 
+      results =
+        1..2
+        |> Task.async_stream(fn _ -> RepoBase.ensure_state_tree(repo) end, max_concurrency: 2, ordered: false)
+        |> Enum.map(fn {:ok, result} -> result end)
+
+      assert Enum.all?(results, &(&1 == :ok))
       assert File.dir?(Path.join(base, ".git"))
-      assert File.exists?(Path.join(base, "rebuilt_after_recovery"))
       refute File.exists?(parked)
+      refute File.exists?(lock)
+    end
+
+    test "serializes concurrent first finding appends through legacy migration", %{tmp: tmp, node: node} do
+      previous_root = Application.get_env(:aiur, :repo_base_root)
+      repo = "https://github.com/owner/project.git"
+      File.mkdir_p!(Path.join(node, ".git"))
+      Application.put_env(:aiur, :repo_base_root, Path.join(tmp, "repo"))
+
+      on_exit(fn ->
+        case previous_root do
+          nil -> Application.delete_env(:aiur, :repo_base_root)
+          root -> Application.put_env(:aiur, :repo_base_root, root)
+        end
+      end)
+
+      results =
+        [finding("first-migration-one"), finding("first-migration-two")]
+        |> Task.async_stream(&Findings.append(repo, &1), max_concurrency: 2, ordered: false)
+        |> Enum.map(fn {:ok, result} -> result end)
+
+      assert Enum.all?(results, &(&1 == :ok))
+      assert {:ok, ["first-migration-one", "first-migration-two"]} = Findings.slugs()
+      assert File.dir?(Path.join(RepoBase.base_path(repo), ".git"))
+      refute File.dir?(Path.join(RepoBase.repo_path(repo), ".git"))
+      refute File.exists?(RepoBase.repo_path(repo) <> ".migration-lock")
     end
 
     test "is idempotent when main has not advanced", %{origin: origin, base: base} do
@@ -210,6 +388,21 @@ defmodule Aiur.RepoBaseTest do
     end
   end
 
+  defp finding(slug) do
+    %{
+      "slug" => slug,
+      "observed_at" => "2026-08-02T04:30:00Z",
+      "scope" => "aiur",
+      "observed_in" => "owner/project",
+      "instance" => "boot-123",
+      "summary" => "a concise observation",
+      "evidence" => ["#1464"],
+      "cost" => "one hour",
+      "ticket" => nil,
+      "status" => "open"
+    }
+  end
+
   describe "base_path/1" do
     test "puts the base clone at <owner>/<name>/latest under the base root" do
       assert RepoBase.base_path("https://github.com/foo/bar.git") |> Path.split() |> Enum.take(-3) ==
@@ -222,6 +415,50 @@ defmodule Aiur.RepoBaseTest do
     test "keeps the build store beside latest in the repository state node" do
       assert RepoBase.builds_path("https://github.com/foo/bar.git") |> Path.split() |> Enum.take(-3) ==
                ["foo", "bar", "builds"]
+    end
+
+    test "exposes sibling meta and analytics state paths" do
+      repo = "https://github.com/foo/bar.git"
+
+      assert RepoBase.meta_path(repo) |> Path.split() |> Enum.take(-3) == ["foo", "bar", "meta"]
+      assert RepoBase.findings_path(repo) |> Path.split() |> Enum.take(-4) == ["foo", "bar", "meta", "findings.ndjson"]
+      assert RepoBase.retros_path(repo) |> Path.split() |> Enum.take(-4) == ["foo", "bar", "meta", "retros"]
+      assert RepoBase.analytics_path(repo) |> Path.split() |> Enum.take(-3) == ["foo", "bar", "analytics"]
+      assert RepoBase.repo_relative_path(repo) == ".aiur/repo/foo/bar"
+    end
+  end
+
+  describe "setup_state/2" do
+    test "creates the complete state tree and imports a legacy retrospective", %{tmp: tmp} do
+      previous_root = Application.get_env(:aiur, :repo_base_root)
+      state_root = Path.join(tmp, "state")
+      source_root = Path.join(tmp, "source")
+      File.mkdir_p!(Path.join([source_root, "docs", "executor"]))
+      File.write!(Path.join([source_root, "docs", "executor", "hourly-retrospectives.md"]), "legacy notes\n")
+      Application.put_env(:aiur, :repo_base_root, state_root)
+
+      on_exit(fn ->
+        case previous_root do
+          nil -> Application.delete_env(:aiur, :repo_base_root)
+          root -> Application.put_env(:aiur, :repo_base_root, root)
+        end
+      end)
+
+      repo = "https://github.com/foo/bar.git"
+      assert :ok = RepoBase.setup_state(repo, source_root)
+      assert :ok = RepoBase.setup_state(repo, source_root)
+
+      assert File.dir?(RepoBase.base_path(repo))
+      assert File.dir?(RepoBase.builds_path(repo))
+      assert File.dir?(RepoBase.analytics_path(repo))
+      assert File.dir?(RepoBase.retros_path(repo))
+
+      for sidecar <- [".aiur-hex", ".aiur-mix", ".aiur-npm-cache"] do
+        assert File.dir?(Path.join(RepoBase.repo_path(repo), sidecar))
+      end
+
+      assert [imported] = Path.wildcard(Path.join(RepoBase.retros_path(repo), "legacy-*.md"))
+      assert File.read!(imported) == "legacy notes\n"
     end
   end
 

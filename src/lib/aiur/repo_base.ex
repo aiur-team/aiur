@@ -23,10 +23,17 @@ defmodule Aiur.RepoBase do
   alias Aiur.AgentEnvironment
   alias Aiur.AgentPubSub
   alias Aiur.Config
+  alias Aiur.Findings
 
   @base_record "base-record.json"
   @legacy_built_marker ".aiur-base-built"
   @cache_sidecars [".aiur-hex", ".aiur-mix", ".aiur-npm-cache"]
+  @state_entries ["builds", "analytics", "meta"]
+  @migration_lock_suffix ".migration-lock"
+  @migration_lock_owner "owner"
+  @migration_lock_stale_after_s 1
+  @migration_lock_wait_ms 10
+  @migration_lock_timeout_ms 30_000
   @remote_probe_timeout_ms 30_000
 
   ## ---- Public API ----
@@ -46,10 +53,74 @@ defmodule Aiur.RepoBase do
   def repo_path(repo_url) when is_binary(repo_url),
     do: Path.join(base_root(), slug(repo_url))
 
+  @doc "Path of the per-repository state node relative to its owning home directory."
+  @spec repo_relative_path(String.t()) :: Path.t()
+  def repo_relative_path(repo_url) when is_binary(repo_url),
+    do: Path.join([".aiur", "repo", slug(repo_url)])
+
   @doc "Absolute path of the build-order store for `repo_url`."
   @spec builds_path(String.t()) :: Path.t()
   def builds_path(repo_url) when is_binary(repo_url),
     do: Path.join(repo_path(repo_url), "builds")
+
+  @doc "Absolute path of executor-authored repository metadata for `repo_url`."
+  @spec meta_path(String.t()) :: Path.t()
+  def meta_path(repo_url) when is_binary(repo_url),
+    do: Path.join(repo_path(repo_url), "meta")
+
+  @doc "Absolute path of the append-only executor findings file for `repo_url`."
+  @spec findings_path(String.t()) :: Path.t()
+  def findings_path(repo_url) when is_binary(repo_url),
+    do: Path.join(meta_path(repo_url), "findings.ndjson")
+
+  @doc "Absolute path of per-boot executor retrospectives for `repo_url`."
+  @spec retros_path(String.t()) :: Path.t()
+  def retros_path(repo_url) when is_binary(repo_url),
+    do: Path.join(meta_path(repo_url), "retros")
+
+  @doc "Absolute path of regenerable analytics outputs for `repo_url`."
+  @spec analytics_path(String.t()) :: Path.t()
+  def analytics_path(repo_url) when is_binary(repo_url),
+    do: Path.join(repo_path(repo_url), "analytics")
+
+  @doc "Creates the canonical repository state tree before any writer needs it."
+  @spec ensure_state_tree(String.t()) :: :ok | {:error, term()}
+  def ensure_state_tree(repo_url) when is_binary(repo_url) do
+    with :ok <- migrate_legacy_layout(base_path(repo_url)) do
+      ensure_state_tree_at(repo_path(repo_url))
+    end
+  end
+
+  defp ensure_state_tree_at(node) do
+    [
+      node,
+      Path.join(node, "latest"),
+      Path.join(node, "builds"),
+      Path.join(node, "analytics"),
+      Path.join(node, "meta"),
+      Path.join([node, "meta", "retros"])
+      | Enum.map(@cache_sidecars, &Path.join(node, &1))
+    ]
+    |> Enum.reduce_while(:ok, fn path, :ok ->
+      case File.mkdir_p(path) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, {:repo_state_tree_create_failed, path, reason}}}
+      end
+    end)
+  end
+
+  @doc """
+  Creates the canonical repository state tree and imports the previous worktree
+  retrospective once when it exists. The source remains untouched: it belongs to
+  an old branch and this import is a durable machine-local copy.
+  """
+  @spec setup_state(String.t(), Path.t() | nil) :: :ok | {:error, term()}
+  def setup_state(repo_url, source_root \\ nil) when is_binary(repo_url) do
+    case ensure_state_tree(repo_url) do
+      :ok -> import_legacy_retrospective(repo_url, source_root)
+      {:error, _reason} = error -> error
+    end
+  end
 
   @doc """
   Current base status as `{phase, base_path | nil}`. Fast and non-blocking —
@@ -103,6 +174,7 @@ defmodule Aiur.RepoBase do
   defp run_refresh_steps(base_path, repo_url, base_build) do
     with :ok <- remove_obsolete_aiur_node(repo_url),
          :ok <- migrate_legacy_layout(base_path),
+         :ok <- ensure_state_tree_at(repo_node_path(base_path)),
          :ok <- ensure_clone(base_path, repo_url),
          {:ok, changed?} <- fetch_and_reset(base_path) do
       maybe_build(base_path, base_build, changed? or not built?(base_path, base_build))
@@ -310,6 +382,7 @@ defmodule Aiur.RepoBase do
     result =
       with :ok <- remove_obsolete_aiur_node(repo_url),
            :ok <- migrate_legacy_layout(base),
+           :ok <- ensure_state_tree_at(repo_node_path(base)),
            :ok <- ensure_clone(base, repo_url),
            {:ok, changed?} <- fetch_and_reset(base) do
         head = head_of(base)
@@ -513,14 +586,149 @@ defmodule Aiur.RepoBase do
 
   # The old layout made the repository node itself the clone. Moving a directory
   # beneath itself is impossible, so temporarily rename it beside the node,
-  # recreate the node, lift sidecars out, and finally move the clone to latest.
-  # The legacy marker is intentionally discarded: no record means one correct
-  # rebuild after migration.
+  # recreate the node, lift state out, and finally move the clone to latest.
+  # Legacy build metadata is intentionally discarded: no record means one
+  # correct rebuild after migration writes the canonical node-level record.
   defp migrate_legacy_layout(base_path) do
     node = repo_node_path(base_path)
 
-    with :ok <- recover_interrupted_migration(base_path) do
-      if File.dir?(Path.join(node, ".git")), do: migrate_legacy_clone(node, base_path), else: :ok
+    if File.dir?(Path.join(base_path, ".git")) do
+      :ok
+    else
+      migrate_legacy_node(node, base_path)
+    end
+  end
+
+  defp migrate_legacy_node(node, base_path) do
+    if migration_required?(node) do
+      with_migration_lock(node, base_path, fn ->
+        with :ok <- recover_interrupted_migration(base_path) do
+          if File.dir?(Path.join(node, ".git")), do: migrate_legacy_clone(node, base_path), else: :ok
+        end
+      end)
+    else
+      :ok
+    end
+  end
+
+  # `File.mkdir/1` is atomic across BEAM instances on the same host. It makes
+  # the irreversible rename of a legacy clone a single-owner operation, so a
+  # concurrent first finding append waits for the completed layout instead of
+  # racing to rename a path that no longer exists.
+  defp with_migration_lock(node, base_path, migration) do
+    lock = migration_lock_path(node)
+
+    case File.mkdir(lock) do
+      :ok ->
+        case write_migration_lock_owner(lock, node) do
+          :ok ->
+            try do
+              migration.()
+            after
+              File.rm_rf(lock)
+            end
+
+          {:error, reason} ->
+            File.rm_rf(lock)
+            {:error, {:repo_base_migration_lock_owner_failed, lock, reason}}
+        end
+
+      {:error, :eexist} ->
+        stale? = stale_migration_lock?(lock)
+
+        if stale? do
+          reclaim_stale_migration_lock(lock, node, base_path, migration)
+        else
+          with :ok <- wait_for_migration_lock(lock, @migration_lock_timeout_ms) do
+            migrate_legacy_layout(base_path)
+          end
+        end
+
+      {:error, reason} ->
+        {:error, {:repo_base_migration_lock_failed, lock, reason}}
+    end
+  end
+
+  defp wait_for_migration_lock(lock, remaining_ms) when remaining_ms <= 0,
+    do: {:error, {:repo_base_migration_lock_timeout, lock}}
+
+  defp wait_for_migration_lock(lock, remaining_ms) do
+    if File.exists?(lock) do
+      Process.sleep(@migration_lock_wait_ms)
+      wait_for_migration_lock(lock, remaining_ms - @migration_lock_wait_ms)
+    else
+      :ok
+    end
+  end
+
+  defp migration_required?(node) do
+    File.dir?(Path.join(node, ".git")) or File.exists?(migration_lock_path(node)) or parked_migrations(node) != []
+  end
+
+  defp migration_lock_path(node), do: node <> @migration_lock_suffix
+
+  # Renaming is the ownership transfer: only the caller that moved the exact
+  # stale directory may remove it. Removing `lock` directly would let another
+  # reclaimer delete a fresh lock created between its stale check and removal.
+  defp reclaim_stale_migration_lock(lock, node, base_path, migration) do
+    quarantined = lock <> ".reclaiming-" <> unique_suffix()
+
+    case File.rename(lock, quarantined) do
+      :ok ->
+        with {:ok, _removed} <- File.rm_rf(quarantined) do
+          with_migration_lock(node, base_path, migration)
+        else
+          {:error, reason, _path} -> {:error, {:repo_base_migration_lock_reclaim_failed, lock, reason}}
+        end
+
+      # The original owner released the lock or another reclaimer claimed it.
+      # Either way, start acquisition again without touching the current lock.
+      {:error, :enoent} ->
+        with_migration_lock(node, base_path, migration)
+
+      {:error, reason} ->
+        {:error, {:repo_base_migration_lock_reclaim_failed, lock, reason}}
+    end
+  end
+
+  defp write_migration_lock_owner(lock, _node) do
+    owner = Jason.encode!(%{"node" => Atom.to_string(node()), "pid" => System.pid()})
+    File.write(Path.join(lock, @migration_lock_owner), owner)
+  end
+
+  defp stale_migration_lock?(lock) do
+    lock_old?(lock) and
+      case File.read(Path.join(lock, @migration_lock_owner)) do
+        {:ok, owner} -> not migration_lock_owner_alive?(owner)
+        {:error, _reason} -> true
+      end
+  end
+
+  defp lock_old?(lock) do
+    case File.stat(lock, time: :posix) do
+      {:ok, %{mtime: modified_at}} -> System.os_time(:second) - modified_at >= @migration_lock_stale_after_s
+      {:error, _reason} -> false
+    end
+  end
+
+  defp migration_lock_owner_alive?(owner) do
+    with {:ok, %{"pid" => owner_pid}} <- Jason.decode(owner) do
+      os_process_alive?(owner_pid)
+    else
+      _ -> false
+    end
+  end
+
+  defp os_process_alive?(owner_pid) do
+    case Integer.parse(owner_pid) do
+      {pid, ""} when pid > 0 ->
+        case System.cmd("sh", ["-c", "kill -0 \"$1\"", "--", owner_pid], stderr_to_stdout: true) do
+          {_output, 0} -> true
+          _ -> false
+        end
+
+      _ ->
+        false
     end
   end
 
@@ -542,11 +750,7 @@ defmodule Aiur.RepoBase do
   defp recover_interrupted_migration(base_path) do
     node = repo_node_path(base_path)
 
-    parked =
-      node
-      |> Kernel.<>(".migrating-*")
-      |> Path.wildcard()
-      |> Enum.filter(&File.dir?(Path.join(&1, ".git")))
+    parked = parked_migrations(node)
 
     cond do
       File.dir?(Path.join(base_path, ".git")) ->
@@ -571,19 +775,56 @@ defmodule Aiur.RepoBase do
   defp finish_migration(temporary, node, base_path) do
     with :ok <- File.mkdir_p(node),
          :ok <- move_sidecars(temporary, node),
-         :ok <- remove_legacy_marker(temporary) do
+         :ok <- move_state_entries(temporary, node),
+         :ok <- discard_legacy_build_metadata(temporary) do
       File.rename(temporary, base_path)
     end
   end
 
-  defp remove_legacy_marker(path) do
-    case File.rm_rf(Path.join(path, @legacy_built_marker)) do
-      {:ok, _removed} -> :ok
-      {:error, reason, _path} -> {:error, reason}
-    end
+  defp parked_migrations(node) do
+    node
+    |> Kernel.<>(".migrating-*")
+    |> Path.wildcard()
+    |> Enum.filter(&File.dir?(Path.join(&1, ".git")))
+  end
+
+  defp discard_legacy_build_metadata(path) do
+    [@legacy_built_marker, @base_record]
+    |> Enum.reduce_while(:ok, fn name, :ok ->
+      case File.rm_rf(Path.join(path, name)) do
+        {:ok, _removed} -> {:cont, :ok}
+        {:error, reason, _path} -> {:halt, {:error, reason}}
+      end
+    end)
   end
 
   defp relocate_sidecars(base_path), do: move_sidecars(base_path, repo_node_path(base_path))
+
+  defp import_legacy_retrospective(_repo_url, nil), do: :ok
+
+  defp import_legacy_retrospective(repo_url, source_root) when is_binary(source_root) do
+    source = Path.join([source_root, "docs", "executor", "hourly-retrospectives.md"])
+
+    if File.regular?(source) do
+      case File.read(source) do
+        {:ok, contents} -> copy_legacy_retrospective(repo_url, source, contents)
+        {:error, reason} -> {:error, {:legacy_retrospective_read_failed, source, reason}}
+      end
+    else
+      :ok
+    end
+  end
+
+  defp copy_legacy_retrospective(repo_url, source, contents) do
+    name = "legacy-" <> (:crypto.hash(:sha256, contents) |> Base.encode16(case: :lower) |> binary_part(0, 12)) <> ".md"
+    destination = Path.join(retros_path(repo_url), name)
+
+    case File.copy(source, destination) do
+      {:ok, _bytes} -> :ok
+      {:error, :eexist} -> :ok
+      {:error, reason} -> {:error, {:legacy_retrospective_import_failed, source, reason}}
+    end
+  end
 
   # aiur's org transfer left exactly one known predecessor node. It is not a
   # valid state node for the current tracker and can retain the old boolean
@@ -608,13 +849,133 @@ defmodule Aiur.RepoBase do
     end)
   end
 
+  # State directories can already exist in the destination after an interrupted
+  # migration or a concurrent initializer. Merge their contents rather than
+  # leaving the legacy copy beneath `latest`; findings retain both append-only
+  # ledgers, while any other file collision is preserved under a unique name.
+  defp move_state_entries(from, to) do
+    Enum.reduce_while(@state_entries, :ok, fn entry, :ok ->
+      case move_state_entry(Path.join(from, entry), Path.join(to, entry)) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp move_state_entry(source, destination) do
+    cond do
+      not File.exists?(source) ->
+        :ok
+
+      not File.exists?(destination) ->
+        File.rename(source, destination)
+
+      File.dir?(source) and File.dir?(destination) ->
+        merge_state_directory(source, destination)
+
+      Path.basename(source) == "findings.ndjson" and Path.basename(destination) == "findings.ndjson" ->
+        merge_findings(source, destination)
+
+      true ->
+        File.rename(source, destination <> ".migrated-" <> unique_suffix())
+    end
+  end
+
+  defp merge_state_directory(source, destination) do
+    with {:ok, entries} <- File.ls(source),
+         :ok <- move_state_directory_entries(entries, source, destination) do
+      File.rmdir(source)
+    end
+  end
+
+  defp move_state_directory_entries(entries, source, destination) do
+    Enum.reduce_while(entries, :ok, fn entry, :ok ->
+      case move_state_entry(Path.join(source, entry), Path.join(destination, entry)) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp merge_findings(source, destination) do
+    with {:ok, destination_contents} <- File.read(destination),
+         :ok <- validate_findings_ledger(destination_contents, destination),
+         {:ok, source_contents} <- File.read(source),
+         :ok <- validate_findings_ledger(source_contents, source),
+         :ok <- append_file(destination, merged_findings_suffix(destination_contents, source_contents)) do
+      File.rm(source)
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # A valid final NDJSON record need not end in a newline. Canonicalize both
+  # sides before joining so a later O_APPEND writer cannot join two JSON objects
+  # at a record boundary. Invalid input remains in place for manual repair.
+  defp merged_findings_suffix(destination_contents, source_contents) do
+    normalized_source = normalize_ndjson(source_contents)
+
+    if destination_contents == "" or String.ends_with?(destination_contents, "\n") do
+      normalized_source
+    else
+      "\n" <> normalized_source
+    end
+  end
+
+  defp normalize_ndjson(""), do: ""
+  defp normalize_ndjson(contents), do: if(String.ends_with?(contents, "\n"), do: contents, else: contents <> "\n")
+
+  defp validate_findings_ledger(contents, path) do
+    contents
+    |> String.split("\n", trim: true)
+    |> Enum.with_index(1)
+    |> Enum.reduce_while(:ok, fn {line, line_number}, :ok ->
+      case Jason.decode(line) do
+        {:ok, finding} when is_map(finding) -> validate_ledger_finding(finding, path, line_number)
+        _ -> {:halt, {:error, {:invalid_findings_ledger, path, line_number}}}
+      end
+    end)
+  end
+
+  defp validate_ledger_finding(finding, path, line_number) do
+    case Findings.validate(finding) do
+      :ok -> {:cont, :ok}
+      {:error, _reason} -> {:halt, {:error, {:invalid_findings_ledger, path, line_number}}}
+    end
+  end
+
+  defp append_file(path, contents) do
+    case File.open(path, [:append, :binary]) do
+      {:ok, device} ->
+        try do
+          IO.binwrite(device, contents)
+        after
+          File.close(device)
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   defp move_sidecar(from, to, sidecar) do
     source = Path.join(from, sidecar)
+    destination = Path.join(to, sidecar)
 
     cond do
       not File.exists?(source) -> :ok
-      File.exists?(Path.join(to, sidecar)) -> remove_sidecar(source)
-      true -> File.rename(source, Path.join(to, sidecar))
+      File.exists?(destination) -> merge_sidecar(source, destination)
+      true -> File.rename(source, destination)
+    end
+  end
+
+  defp merge_sidecar(source, destination) do
+    with {:ok, _copied} <- File.cp_r(source, destination),
+         :ok <- remove_sidecar(source) do
+      :ok
+    else
+      {:error, reason, _path} -> {:error, reason}
+      {:error, reason} -> {:error, reason}
     end
   end
 

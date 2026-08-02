@@ -327,6 +327,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--pause] [--max-agents <n>] [--log
        aiur pause <ids|--all> | resume <ids|--all>  per-agent pause/resume
        aiur message <id> <text>  send Executor text to a running agent
        aiur --todo <ids...> [--only]  queue tickets; optionally dequeue all other pending tickets
+       aiur findings [--unfiled] [--slugs] [--scope aiur|repo]  inspect host-local findings
        aiur cleanup-stale [--dry-run]  list/reap stale manual-smoke leftovers
        aiur --version
 EOF
@@ -366,6 +367,12 @@ run_todo() {
   fi
 
   load_dotenv
+  run_init "$@"
+}
+
+# --- one-shot: findings (distribution-free, no daemon/tmux) -------------------
+
+run_findings() {
   run_init "$@"
 }
 
@@ -2335,6 +2342,9 @@ aiur_engine_main() {
       ;;
     init)
       run_init "$@"
+      ;;
+    findings)
+      run_findings "$@"
       ;;
     --bg)
       dispatch_run "$@"

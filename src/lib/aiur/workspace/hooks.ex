@@ -118,12 +118,31 @@ defmodule Aiur.Workspace.Hooks do
   @doc false
   @spec remote_hook_command(String.t(), Path.t(), map()) :: String.t()
   def remote_hook_command(command, workspace, issue_context) do
-    exports =
-      hook_env(issue_context)
-      |> Enum.map_join(" ", fn {key, value} -> "#{key}=#{Aiur.Shell.escape(value)}" end)
+    {state_path, environment} =
+      hook_env(issue_context, remote?: true)
+      |> Enum.split_with(fn {key, _value} -> key == "AIUR_REPO_STATE_PATH" end)
 
-    prefix = if exports == "", do: "", else: "export #{exports}; "
-    "#{prefix}cd #{Aiur.Shell.escape(workspace)} && #{command}"
+    state_exports =
+      Enum.map_join(state_path, "\n", fn {key, value} ->
+        [Remote.remote_shell_assign(key, value), "export #{key}"]
+        |> Enum.join("\n")
+      end)
+
+    exports = Enum.map_join(environment, " ", fn {key, value} -> "#{key}=#{Aiur.Shell.escape(value)}" end)
+
+    prefix =
+      [
+        state_exports,
+        if(exports == "", do: "", else: "export #{exports};")
+      ]
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.join("\n")
+
+    if prefix == "" do
+      "cd #{Aiur.Shell.escape(workspace)} && #{command}"
+    else
+      "#{prefix}\ncd #{Aiur.Shell.escape(workspace)} && #{command}"
+    end
   end
 
   @doc false
@@ -183,11 +202,18 @@ defmodule Aiur.Workspace.Hooks do
   # `git clone "$THIS_REPOSITORY_URL" .` without hardcoding the URL.
   # `THIS_BASE_BRANCH` is resolved by RepoBase, keeping generated hooks on the
   # same configured branch as warm-base refresh and materialization.
-  defp hook_env(issue_context) do
+  defp hook_env(issue_context, opts \\ []) do
     repository_env =
       with "github" <- Config.settings!().tracker.kind,
            repo when is_binary(repo) and repo != "" <- Aiur.GitHub.Config.repo() do
-        [{"THIS_REPOSITORY_URL", "https://github.com/#{repo}.git"}, {"THIS_BASE_BRANCH", RepoBase.base_branch()}]
+        repo_url = "https://github.com/#{repo}.git"
+        :ok = RepoBase.ensure_state_tree(repo_url)
+
+        [
+          {"THIS_REPOSITORY_URL", repo_url},
+          {"THIS_BASE_BRANCH", RepoBase.base_branch()},
+          {"AIUR_REPO_STATE_PATH", repo_state_path(repo_url, Keyword.get(opts, :remote?, false))}
+        ]
       else
         _ -> []
       end
@@ -197,6 +223,9 @@ defmodule Aiur.Workspace.Hooks do
       _ -> repository_env
     end
   end
+
+  defp repo_state_path(repo_url, true), do: Path.join("~", RepoBase.repo_relative_path(repo_url))
+  defp repo_state_path(repo_url, false), do: RepoBase.repo_path(repo_url)
 
   defp sanitize_hook_output_for_log(output, max_bytes \\ 2_048) do
     binary_output = IO.iodata_to_binary(output)

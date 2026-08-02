@@ -135,4 +135,28 @@ defmodule Aiur.Workspace.HooksTest do
     assert command =~ "export AIUR_TICKET_BRANCH='aiur/123-add-new-test-cases';"
     assert command =~ "cd '#{workspace}' && git checkout \"$AIUR_TICKET_BRANCH\""
   end
+
+  test "remote hook command expands repository state under the worker home", %{workspace: workspace, test_root: test_root} do
+    previous_root = Application.get_env(:aiur, :repo_base_root)
+    Application.put_env(:aiur, :repo_base_root, Path.join(test_root, "daemon-state"))
+
+    on_exit(fn ->
+      case previous_root do
+        nil -> Application.delete_env(:aiur, :repo_base_root)
+        root -> Application.put_env(:aiur, :repo_base_root, root)
+      end
+    end)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      workspace_root: test_root,
+      tracker_kind: "github",
+      tracker_repo: "owner/project"
+    )
+
+    command = Hooks.remote_hook_command("true", workspace, %{issue_id: 1, issue_identifier: "123"})
+
+    assert command =~ "AIUR_REPO_STATE_PATH='~/.aiur/repo/owner/project'"
+    assert command =~ "AIUR_REPO_STATE_PATH=\"$HOME/${AIUR_REPO_STATE_PATH#\\~/}\""
+    refute command =~ Path.join([test_root, "daemon-state", "owner", "project"])
+  end
 end

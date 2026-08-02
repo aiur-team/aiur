@@ -3,7 +3,8 @@ defmodule Aiur.AgentEnvironment do
   Helpers for preparing child agent process environments.
   """
 
-  alias Aiur.{BuildGate, Config}
+  alias Aiur.{BuildGate, Config, RepoBase}
+  alias Aiur.Workspace.Remote
 
   # AIUR_RELEASE_NODE + AIUR_INSTANCE_KEY + AIUR_REPO_ROOT are the per-instance
   # identity inputs the engine exports (#431). They MUST be scrubbed too, or an agent
@@ -44,7 +45,7 @@ defmodule Aiur.AgentEnvironment do
 
   @doc """
   Return Port-compatible env tuples (`{charlist_name, charlist_value}`) for
-  per-workspace `HEX_HOME` / `MIX_HOME` / `MISE_TRUSTED_CONFIG_PATHS` plus the
+  repository-node `HEX_HOME` / `MIX_HOME` / `MISE_TRUSTED_CONFIG_PATHS` plus the
   workflow's authoritative `AIUR_BASE_BRANCH`. The agent inherits these so it
   does not redeclare them as inline prefixes on every
   `mix`/`mise` invocation (logs showed 48+ instances of agents inventing
@@ -58,8 +59,7 @@ defmodule Aiur.AgentEnvironment do
   def workspace_env(workspace, opts \\ [])
 
   def workspace_env(workspace, opts) when is_binary(workspace) do
-    hex = Path.join(workspace, ".aiur-hex")
-    mix = Path.join(workspace, ".aiur-mix")
+    {hex, mix, npm_cache} = sidecar_paths(opts)
     base_branch = configured_base_branch(opts)
 
     unset_parent_logs =
@@ -71,6 +71,7 @@ defmodule Aiur.AgentEnvironment do
       [
         {~c"HEX_HOME", String.to_charlist(hex)},
         {~c"MIX_HOME", String.to_charlist(mix)},
+        {~c"npm_config_cache", String.to_charlist(npm_cache)},
         # Trust the workspace ROOT so the repo's `mise.toml` is honored wherever it
         # lives (most repos — including aiur — keep it at the root, not under
         # `elixir/`). Mirrors `base_env/1` (#432); a hardcoded sub-path pointed at
@@ -115,8 +116,7 @@ defmodule Aiur.AgentEnvironment do
   def workspace_env_export_prefix(workspace, opts \\ [])
 
   def workspace_env_export_prefix(workspace, opts) when is_binary(workspace) do
-    hex = Path.join(workspace, ".aiur-hex")
-    mix = Path.join(workspace, ".aiur-mix")
+    {hex, mix, npm_cache} = remote_sidecar_paths(opts)
     base_branch = configured_base_branch(opts)
 
     # Trust the workspace ROOT (see `workspace_env/1`): the SSH-launch path needs
@@ -125,9 +125,24 @@ defmodule Aiur.AgentEnvironment do
       mix_scheduler_env()
       |> Enum.map_join(" ", fn {name, value} -> "#{name}=#{Aiur.Shell.escape(value)}" end)
 
-    "export HEX_HOME=#{Aiur.Shell.escape(hex)} MIX_HOME=#{Aiur.Shell.escape(mix)} " <>
-      "MISE_TRUSTED_CONFIG_PATHS=#{Aiur.Shell.escape(workspace)} " <>
-      "AIUR_BASE_BRANCH=#{Aiur.Shell.escape(base_branch)} #{scheduler_exports}"
+    sidecar_exports =
+      [HEX_HOME: hex, MIX_HOME: mix, npm_config_cache: npm_cache]
+      |> Enum.map_join("\n", fn {name, path} ->
+        variable = Atom.to_string(name)
+
+        [
+          Remote.remote_shell_assign(variable, path),
+          "export #{variable}"
+        ]
+        |> Enum.join("\n")
+      end)
+
+    [
+      sidecar_exports,
+      "export MISE_TRUSTED_CONFIG_PATHS=#{Aiur.Shell.escape(workspace)} " <>
+        "AIUR_BASE_BRANCH=#{Aiur.Shell.escape(base_branch)} #{scheduler_exports}"
+    ]
+    |> Enum.join("\n")
   end
 
   def workspace_env_export_prefix(_, _opts), do: ""
@@ -182,6 +197,34 @@ defmodule Aiur.AgentEnvironment do
     case Keyword.fetch(opts, :base_branch) do
       {:ok, branch} when is_binary(branch) and branch != "" -> branch
       _ -> Config.base_branch()
+    end
+  end
+
+  defp sidecar_paths(opts) do
+    root = repo_url(opts) |> RepoBase.repo_path()
+
+    {Path.join(root, ".aiur-hex"), Path.join(root, ".aiur-mix"), Path.join(root, ".aiur-npm-cache")}
+  end
+
+  # Remote workers have their own home directories, so shell launches must
+  # transmit a stable, home-relative state-node identity rather than the
+  # daemon host's absolute cache path.
+  defp remote_sidecar_paths(opts) do
+    root = Path.join("~", RepoBase.repo_relative_path(repo_url(opts)))
+
+    {Path.join(root, ".aiur-hex"), Path.join(root, ".aiur-mix"), Path.join(root, ".aiur-npm-cache")}
+  end
+
+  defp repo_url(opts) do
+    Keyword.get_lazy(opts, :repo_url, fn ->
+      case Aiur.GitHub.Config.repo() do
+        repo when is_binary(repo) and repo != "" -> "https://github.com/#{repo}.git"
+        _ -> "unknown/unknown"
+      end
+    end)
+    |> case do
+      url when is_binary(url) and url != "" -> url
+      _ -> "unknown/unknown"
     end
   end
 
