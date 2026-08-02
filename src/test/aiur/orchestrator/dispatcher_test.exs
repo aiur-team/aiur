@@ -15,6 +15,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     previous_fd_sample = Application.get_env(:aiur, :file_descriptor_sample_override)
     previous_proc_stat = Application.get_env(:aiur, :proc_stat_source_override)
     previous_lifecycle_recorder = Application.get_env(:aiur, :run_telemetry_lifecycle_recorder)
+    previous_ci_readiness_check_fun = Application.get_env(:aiur, :ci_readiness_check_fun)
 
     on_exit(fn ->
       restore_app_env(:meminfo_source_override, previous_meminfo)
@@ -22,6 +23,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       restore_app_env(:file_descriptor_sample_override, previous_fd_sample)
       restore_app_env(:proc_stat_source_override, previous_proc_stat)
       restore_app_env(:run_telemetry_lifecycle_recorder, previous_lifecycle_recorder)
+      restore_app_env(:ci_readiness_check_fun, previous_ci_readiness_check_fun)
       CiReadiness.clear_cached_result()
     end)
 
@@ -123,6 +125,67 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     assert CiReadiness.cached_result(base_branch: "develop") == readiness
     assert_receive {:ci_readiness_alert, "system.ci_readiness.not_ready", opts}
     assert opts[:needs_attention]
+  end
+
+  test "a completed readiness assessment is rescanned after its cache expires" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: "owner/repo",
+      tracker_base_branch: "develop"
+    )
+
+    parent = self()
+    old_readiness = %{ready?: true, base_branch: "develop", issues: []}
+    new_readiness = %{ready?: false, base_branch: "develop", issues: [:no_required_check]}
+    assessed_at = DateTime.add(DateTime.utc_now(), -3_601, :second)
+    opts = [base_branch: "develop", now: assessed_at]
+    scope = CiReadiness.readiness_scope(opts)
+
+    assert :ok = CiReadiness.persist_assessment(old_readiness, opts)
+
+    Application.put_env(:aiur, :ci_readiness_check_fun, fn check_opts ->
+      send(parent, {:readiness_rescan, check_opts})
+      {:ok, new_readiness}
+    end)
+
+    state = %State{
+      ci_readiness_checked: true,
+      ci_readiness_scope: scope,
+      ci_readiness_result: old_readiness
+    }
+
+    state = Dispatcher.maybe_warn_ci_readiness(state)
+
+    refute state.ci_readiness_checked
+    assert is_pid(state.ci_readiness_check_pid)
+    assert_receive {:readiness_rescan, check_opts}
+    assert check_opts[:base_branch] == "develop"
+  end
+
+  test "a newer operator assessment replaces the completed live result" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: "owner/repo",
+      tracker_base_branch: "develop"
+    )
+
+    now = DateTime.utc_now()
+    old_readiness = CiReadiness.unavailable("develop", :ci_readiness_operator_token_required)
+    new_readiness = %{ready?: true, base_branch: "develop", issues: []}
+    opts = [base_branch: "develop", now: DateTime.add(now, -2, :second)]
+    scope = CiReadiness.readiness_scope(opts)
+
+    assert :ok = CiReadiness.cache_result(old_readiness, opts)
+    assert :ok = CiReadiness.persist_assessment(new_readiness, Keyword.put(opts, :now, DateTime.add(now, -1, :second)))
+
+    state = %State{
+      ci_readiness_checked: true,
+      ci_readiness_scope: scope,
+      ci_readiness_result: old_readiness
+    }
+
+    assert %State{ci_readiness_checked: true, ci_readiness_result: ^new_readiness} =
+             Dispatcher.maybe_warn_ci_readiness(state)
   end
 
   defp thrash_budget(state), do: state.dispatch_recovery.codex_thrash_budget

@@ -90,9 +90,8 @@ defmodule Aiur.GitHub.CiReadiness do
   @spec cache_result(result(), keyword()) :: :ok
   def cache_result(%{} = result, opts \\ []) do
     scope = cache_scope(result, opts)
-    cached = :persistent_term.get(@cache_key, %{})
-    :persistent_term.put(@cache_key, Map.put(cached, scope, result))
-    :ok
+    assessed_at = Keyword.get(opts, :now, DateTime.utc_now())
+    cache_assessment(scope, %{result: result, assessed_at: assessed_at})
   end
 
   @doc false
@@ -100,9 +99,20 @@ defmodule Aiur.GitHub.CiReadiness do
   def cached_result(opts \\ []) do
     scope = cache_scope(nil, opts)
 
-    case :persistent_term.get(@cache_key, %{}) do
-      %{^scope => result} -> result
-      _ -> load_persisted_assessment(scope, opts)
+    memory_assessment =
+      case :persistent_term.get(@cache_key, %{}) do
+        %{^scope => assessment} -> fresh_assessment(assessment, opts)
+        _ -> nil
+      end
+
+    case newest_assessment(memory_assessment, load_persisted_assessment(scope, opts)) do
+      %{result: result} = assessment ->
+        if assessment != memory_assessment, do: cache_assessment(scope, assessment)
+        result
+
+      nil ->
+        delete_cached_scope(scope)
+        :unavailable
     end
   end
 
@@ -110,11 +120,11 @@ defmodule Aiur.GitHub.CiReadiness do
   @spec persist_assessment(result(), keyword()) :: :ok | {:error, term()}
   def persist_assessment(%{} = result, opts \\ []) do
     scope = cache_scope(result, opts)
-    cache_result(result, opts)
+    assessed_at = Keyword.get(opts, :now, DateTime.utc_now())
 
     document = %{
       "version" => 1,
-      "assessed_at" => DateTime.to_iso8601(Keyword.get(opts, :now, DateTime.utc_now())),
+      "assessed_at" => DateTime.to_iso8601(assessed_at),
       "scope" => scope_to_map(scope),
       "result" => encode_result(result)
     }
@@ -122,8 +132,9 @@ defmodule Aiur.GitHub.CiReadiness do
     path = Keyword.get(opts, :path, assessment_path(Keyword.get(opts, :config_path, Workflow.workflow_file_path())))
 
     with :ok <- File.mkdir_p(Path.dirname(path)),
-         {:ok, json} <- Jason.encode(document) do
-      File.write(path, json)
+         {:ok, json} <- Jason.encode(document),
+         :ok <- File.write(path, json) do
+      cache_assessment(scope, %{result: result, assessed_at: assessed_at})
     end
   end
 
@@ -179,12 +190,50 @@ defmodule Aiur.GitHub.CiReadiness do
          {:ok, document} <- Jason.decode(body),
          true <- Map.get(document, "version") == 1,
          ^scope <- map_to_scope(Map.get(document, "scope")),
-         true <- assessment_fresh?(Map.get(document, "assessed_at"), opts),
+         {:ok, assessed_at} <- decode_assessed_at(Map.get(document, "assessed_at")),
+         true <- assessment_fresh?(assessed_at, opts),
          {:ok, result} <- decode_result(Map.get(document, "result")) do
-      cache_result(result, opts)
-      result
+      %{result: result, assessed_at: assessed_at}
     else
-      _ -> :unavailable
+      _ -> nil
+    end
+  end
+
+  defp fresh_assessment(%{result: %{} = result, assessed_at: %DateTime{} = assessed_at}, opts) do
+    if assessment_fresh?(assessed_at, opts), do: %{result: result, assessed_at: assessed_at}
+  end
+
+  defp fresh_assessment(_assessment, _opts), do: nil
+
+  defp decode_assessed_at(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, assessed_at, _offset} -> {:ok, assessed_at}
+      _ -> :error
+    end
+  end
+
+  defp decode_assessed_at(_value), do: :error
+
+  defp newest_assessment(nil, assessment), do: assessment
+  defp newest_assessment(assessment, nil), do: assessment
+
+  defp newest_assessment(%{assessed_at: memory_at} = memory, %{assessed_at: persisted_at} = persisted) do
+    case DateTime.compare(persisted_at, memory_at) do
+      :gt -> persisted
+      _ -> memory
+    end
+  end
+
+  defp cache_assessment(scope, assessment) do
+    cached = :persistent_term.get(@cache_key, %{})
+    :persistent_term.put(@cache_key, Map.put(cached, scope, assessment))
+    :ok
+  end
+
+  defp delete_cached_scope(scope) do
+    case :persistent_term.get(@cache_key, %{}) do
+      %{^scope => _assessment} = cached -> :persistent_term.put(@cache_key, Map.delete(cached, scope))
+      _ -> :ok
     end
   end
 
@@ -194,15 +243,9 @@ defmodule Aiur.GitHub.CiReadiness do
 
   defp map_to_scope(_scope), do: :invalid
 
-  defp assessment_fresh?(assessed_at, opts) when is_binary(assessed_at) do
-    case DateTime.from_iso8601(assessed_at) do
-      {:ok, assessed_at, _offset} ->
-        age_seconds = DateTime.diff(Keyword.get(opts, :now, DateTime.utc_now()), assessed_at, :second)
-        age_seconds in 0..@assessment_ttl_seconds
-
-      _ ->
-        false
-    end
+  defp assessment_fresh?(%DateTime{} = assessed_at, opts) do
+    age_seconds = DateTime.diff(Keyword.get(opts, :now, DateTime.utc_now()), assessed_at, :second)
+    age_seconds in 0..@assessment_ttl_seconds
   end
 
   defp assessment_fresh?(_assessed_at, _opts), do: false

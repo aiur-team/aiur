@@ -120,7 +120,6 @@ defmodule Aiur.GitHub.CiReadinessTest do
     end)
 
     assert :ok = CiReadiness.persist_assessment(readiness, Keyword.put(opts, :now, DateTime.add(now, -3_601, :second)))
-    assert :ok = CiReadiness.clear_cached_result()
 
     request_fun = fn %{url: url} ->
       cond do
@@ -133,6 +132,40 @@ defmodule Aiur.GitHub.CiReadinessTest do
 
     assert {:ok, %{issues: [:no_pr_workflow, :no_required_check]}} =
              CiReadiness.dispatch_check(Keyword.put(opts, :request_fun, request_fun))
+  end
+
+  test "a newer persisted operator assessment replaces the live memory result" do
+    path = Path.join(System.tmp_dir!(), "aiur-ci-readiness-#{System.unique_integer([:positive])}.json")
+    now = DateTime.utc_now()
+    readiness = CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", @workflow}], ["ci / required"])
+    opts = [repo: "owner/repo", base_branch: "develop", config_fingerprint: "config-a", path: path, now: now]
+
+    on_exit(fn ->
+      File.rm(path)
+      CiReadiness.clear_cached_result()
+    end)
+
+    assert :ok = CiReadiness.cache_result(CiReadiness.unavailable("develop", :ci_readiness_operator_token_required), opts)
+
+    File.write!(
+      path,
+      Jason.encode!(%{
+        "version" => 1,
+        "assessed_at" => DateTime.to_iso8601(DateTime.add(now, 1, :second)),
+        "scope" => %{"repo" => "owner/repo", "base_branch" => "develop", "config_fingerprint" => "config-a"},
+        "result" => %{
+          "ready" => true,
+          "base_branch" => "develop",
+          "workflow_paths" => readiness.workflow_paths,
+          "workflow_check_names" => readiness.workflow_check_names,
+          "required_checks" => readiness.required_checks,
+          "required_check_identities" => readiness.required_check_identities,
+          "issues" => []
+        }
+      })
+    )
+
+    assert CiReadiness.cached_result(Keyword.put(opts, :now, DateTime.add(now, 1, :second))) == readiness
   end
 
   test "bounds the complete inspection, including a blocked request" do

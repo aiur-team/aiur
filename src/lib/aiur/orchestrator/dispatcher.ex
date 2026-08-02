@@ -98,7 +98,13 @@ defmodule Aiur.Orchestrator.Dispatcher do
     do_maybe_warn_ci_readiness(state)
   end
 
-  defp do_maybe_warn_ci_readiness(%State{ci_readiness_checked: true} = state), do: state
+  defp do_maybe_warn_ci_readiness(%State{ci_readiness_checked: true} = state) do
+    if Config.tracker_kind() == "github" do
+      reconcile_completed_ci_readiness(state)
+    else
+      state
+    end
+  end
 
   defp do_maybe_warn_ci_readiness(%State{ci_readiness_retry_at_ms: retry_at_ms} = state) when is_integer(retry_at_ms) do
     if retry_at_ms > System.monotonic_time(:millisecond) do
@@ -131,8 +137,23 @@ defmodule Aiur.Orchestrator.Dispatcher do
           ci_readiness_check_pid: nil,
           ci_readiness_check_token: nil,
           ci_readiness_retry_at_ms: System.monotonic_time(:millisecond),
-          ci_readiness_scope: scope
+          ci_readiness_scope: scope,
+          ci_readiness_result: nil
       }
+    end
+  end
+
+  defp reconcile_completed_ci_readiness(state) do
+    case CiReadiness.cached_result(base_branch: Config.base_branch()) do
+      :unavailable ->
+        state = %{state | ci_readiness_checked: false, ci_readiness_result: nil}
+        start_initial_ci_readiness_check(state, Config.tracker_kind(), Config.base_branch(), CiReadiness.check_fun())
+
+      result when result == state.ci_readiness_result ->
+        state
+
+      result ->
+        accept_cached_ci_readiness_result(state, result, &Alerts.emit_system/2)
     end
   end
 
@@ -197,7 +218,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   defp record_ci_readiness_result(state, {:ok, %{ready?: true} = readiness}, _emit_fun) do
     CiReadiness.cache_result(readiness)
-    %{state | ci_readiness_checked: true, ci_readiness_retry_at_ms: nil}
+    %{state | ci_readiness_checked: true, ci_readiness_retry_at_ms: nil, ci_readiness_result: readiness}
   end
 
   defp record_ci_readiness_result(state, {:ok, readiness}, emit_fun) do
@@ -210,7 +231,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
       severity: "warning"
     )
 
-    %{state | ci_readiness_checked: true, ci_readiness_retry_at_ms: nil}
+    %{state | ci_readiness_checked: true, ci_readiness_retry_at_ms: nil, ci_readiness_result: readiness}
   end
 
   defp record_ci_readiness_result(state, {:error, reason}, emit_fun) do
@@ -220,13 +241,30 @@ defmodule Aiur.Orchestrator.Dispatcher do
       %{
         state
         | ci_readiness_unavailable_alerted: true,
-          ci_readiness_retry_at_ms: System.monotonic_time(:millisecond) + ci_readiness_retry_delay_ms(reason)
+          ci_readiness_retry_at_ms: System.monotonic_time(:millisecond) + ci_readiness_retry_delay_ms(reason),
+          ci_readiness_result: nil
       }
     else
-      CiReadiness.cache_result(CiReadiness.unavailable(Config.base_branch(), reason))
+      readiness = CiReadiness.unavailable(Config.base_branch(), reason)
+      CiReadiness.cache_result(readiness)
       maybe_emit_ci_readiness_unavailable(state, reason, emit_fun)
-      %{state | ci_readiness_checked: true, ci_readiness_retry_at_ms: nil}
+      %{state | ci_readiness_checked: true, ci_readiness_retry_at_ms: nil, ci_readiness_result: readiness}
     end
+  end
+
+  defp accept_cached_ci_readiness_result(state, %{ready?: true} = readiness, _emit_fun) do
+    %{state | ci_readiness_checked: true, ci_readiness_retry_at_ms: nil, ci_readiness_result: readiness}
+  end
+
+  defp accept_cached_ci_readiness_result(state, readiness, emit_fun) do
+    emit_fun.("system.ci_readiness.not_ready",
+      message: "Repository CI readiness is incomplete",
+      reason: CiReadiness.format(readiness),
+      needs_attention: true,
+      severity: "warning"
+    )
+
+    %{state | ci_readiness_checked: true, ci_readiness_retry_at_ms: nil, ci_readiness_result: readiness}
   end
 
   defp retryable_ci_readiness_error?(:timeout), do: true
