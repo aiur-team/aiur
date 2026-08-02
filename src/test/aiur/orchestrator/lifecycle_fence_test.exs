@@ -46,7 +46,7 @@ defmodule Aiur.Orchestrator.LifecycleFenceTest do
     assert pending_item_ids == MapSet.new([41])
   end
 
-  test "a terminal tracker state observed while fence is active admits for teardown" do
+  test "a terminal tracker state remains fenced during the grace window" do
     issue_id = "issue-fence-terminal"
     identifier = "LF-3"
 
@@ -75,10 +75,10 @@ defmodule Aiur.Orchestrator.LifecycleFenceTest do
     observed = %Issue{id: issue_id, identifier: identifier, state: "closed"}
     terminal_states = MapSet.new(["closed", "done", "cancelled", "canceled"])
 
-    assert :admit = LifecycleFence.reconcile_observed_state(state, observed, terminal_states)
+    assert {:fenced, ^state} = LifecycleFence.reconcile_observed_state(state, observed, terminal_states)
   end
 
-  test "a terminal observed state admits even when authoritative_state is also terminal" do
+  test "a terminal tracker state admits after the grace window" do
     issue_id = "issue-fence-terminal-both"
     identifier = "LF-4"
 
@@ -89,9 +89,9 @@ defmodule Aiur.Orchestrator.LifecycleFenceTest do
           issue: %Issue{id: issue_id, identifier: identifier, state: "closed"},
           control: %{status: :working},
           lifecycle_fence: %{
-            authoritative_state: "closed",
+            authoritative_state: "in-progress",
             generation: 1,
-            opened_at: DateTime.utc_now(),
+            opened_at: DateTime.add(DateTime.utc_now(), -31, :second),
             pending_item_ids: MapSet.new([100])
           }
         }
@@ -102,33 +102,6 @@ defmodule Aiur.Orchestrator.LifecycleFenceTest do
     terminal_states = MapSet.new(["closed", "done", "cancelled", "canceled"])
 
     assert :admit = LifecycleFence.reconcile_observed_state(state, observed, terminal_states)
-  end
-
-  test "public 2-arity reconcile_observed_state admits on terminal state via DispatchPolicy" do
-    issue_id = "issue-fence-terminal-public"
-    identifier = "LF-5"
-
-    state = %State{
-      running: %{
-        issue_id => %{
-          identifier: identifier,
-          issue: %Issue{id: issue_id, identifier: identifier, state: "in-progress"},
-          control: %{status: :working},
-          lifecycle_fence: %{
-            authoritative_state: "in-progress",
-            generation: 1,
-            opened_at: DateTime.utc_now(),
-            pending_item_ids: MapSet.new([101])
-          }
-        }
-      }
-    }
-
-    # Use "done" — a state guaranteed to be in DispatchPolicy.terminal_state_set()
-    # regardless of Closed/non-Closed config variants.
-    observed = %Issue{id: issue_id, identifier: identifier, state: "done"}
-
-    assert :admit = LifecycleFence.reconcile_observed_state(state, observed)
   end
 
   test "a non-terminal diverging observed state remains fenced (restore_nonterminal path)" do

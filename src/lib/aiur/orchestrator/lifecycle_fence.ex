@@ -17,6 +17,7 @@ defmodule Aiur.Orchestrator.LifecycleFence do
   alias Aiur.Tracker
 
   @pr_anchored_state "pr-watch"
+  @terminal_fence_grace_seconds 30
 
   @type t :: %{
           generation: pos_integer(),
@@ -70,26 +71,31 @@ defmodule Aiur.Orchestrator.LifecycleFence do
     reconcile_observed_state(state, issue, DispatchPolicy.terminal_state_set())
   end
 
+  @doc false
   @spec reconcile_observed_state(State.t(), Issue.t(), MapSet.t()) :: :admit | {:fenced, State.t()}
   def reconcile_observed_state(%State{} = state, %Issue{} = issue, terminal_states) do
     case running_fence(state, issue) do
-      {issue_id, %{authoritative_state: authoritative_state}}
+      {issue_id, fence = %{authoritative_state: authoritative_state}}
       when is_binary(authoritative_state) ->
         actual_state = normalize_state(issue.state)
 
         cond do
           DispatchPolicy.terminal_issue_state?(actual_state, terminal_states) ->
-            # The tracker is reporting a terminal state (e.g. closed by the Executor after merge).
-            # This is authoritative: no queued item will arrive to release the fence because the
-            # issue is already done. Admit so the reconciler can tear down the entry normally.
-            # Checked first so a terminal observed state always wins, even if authoritative_state
-            # is also terminal (which would otherwise cause the matching-state branch to hold the fence).
-            Logger.info(
-              "Terminal tracker state observed while lifecycle fence is active; admitting for teardown: " <>
-                "#{State.issue_context(issue)} observed_state=#{actual_state} authoritative_state=#{authoritative_state}"
-            )
+            if terminal_fence_expired?(fence) do
+              Logger.info(
+                "Terminal tracker state observed after lifecycle fence grace; admitting for teardown: " <>
+                  "#{State.issue_context(issue)} observed_state=#{actual_state} authoritative_state=#{authoritative_state}"
+              )
 
-            :admit
+              :admit
+            else
+              Logger.info(
+                "Terminal tracker state observed while lifecycle fence grace is active; keeping runner: " <>
+                  "#{State.issue_context(issue)} observed_state=#{actual_state} authoritative_state=#{authoritative_state}"
+              )
+
+              {:fenced, state}
+            end
 
           actual_state == authoritative_state ->
             {:fenced, state}
@@ -314,4 +320,10 @@ defmodule Aiur.Orchestrator.LifecycleFence do
 
   defp normalize_state(state) when is_binary(state), do: DispatchPolicy.normalize_issue_state(state)
   defp normalize_state(_state), do: nil
+
+  defp terminal_fence_expired?(%{opened_at: %DateTime{} = opened_at}) do
+    DateTime.diff(DateTime.utc_now(), opened_at, :second) >= @terminal_fence_grace_seconds
+  end
+
+  defp terminal_fence_expired?(_fence), do: false
 end
