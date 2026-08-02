@@ -10,7 +10,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias Aiur.Orchestrator.Lifecycle
   alias Aiur.Orchestrator.OperatorMessages, as: OM
   alias Aiur.Orchestrator.RemoteControlMode, as: RC
-  alias Aiur.Orchestrator.Slots
+  alias Aiur.Orchestrator.{Slots, SnapshotStore}
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.WaitingReason
   alias AiurWeb.ObservabilityPubSub
@@ -64,6 +64,8 @@ defmodule Aiur.Orchestrator.StatusReport do
 
   @spec notify_dashboard(State.t()) :: :ok
   def notify_dashboard(state) do
+    :ok = publish_snapshot(state)
+
     state
     |> running_summaries()
     |> AgentPubSub.broadcast_running_change()
@@ -75,6 +77,13 @@ defmodule Aiur.Orchestrator.StatusReport do
     })
 
     ObservabilityPubSub.broadcast_update()
+  end
+
+  @spec publish_snapshot(State.t()) :: :ok
+  def publish_snapshot(%State{} = state) do
+    # Projection may call other stores, so run it in SnapshotStore rather than
+    # extending the Orchestrator's dispatch critical path.
+    SnapshotStore.publish_state(state.snapshot_key || self(), state)
   end
 
   @spec poll_status(State.t()) :: {:reply, map(), State.t()}
@@ -117,6 +126,13 @@ defmodule Aiur.Orchestrator.StatusReport do
   @spec snapshot(State.t()) :: {:reply, map(), State.t()}
   def snapshot(%State{} = state) do
     state = Lifecycle.refresh_runtime_config(state)
+
+    {:reply, snapshot_payload(state), state}
+  end
+
+  @doc false
+  @spec snapshot_payload(State.t()) :: map()
+  def snapshot_payload(%State{} = state) do
     now = DateTime.utc_now()
     now_ms = System.monotonic_time(:millisecond)
     stall_timeout_seconds = stall_timeout_seconds()
@@ -126,21 +142,20 @@ defmodule Aiur.Orchestrator.StatusReport do
     retrying = Enum.map(state.retry_attempts, &retry_snapshot(state, &1, now_ms, activity_by_identity))
     idle = idle_snapshot(state, activity_by_identity)
 
-    {:reply,
-     %{
-       running: running,
-       retrying: retrying,
-       idle: idle,
-       agent_totals: state.agent_totals,
-       capacity: Slots.max_concurrent_agent_status(state),
-       globally_paused: state.globally_paused == true,
-       rate_limits: Map.get(state, :agent_rate_limits),
-       polling: %{
-         checking?: state.poll_check_in_progress == true,
-         next_poll_in_ms: next_poll_in_ms(state.next_poll_due_at_ms, now_ms),
-         poll_interval_ms: state.poll_interval_ms
-       }
-     }, state}
+    %{
+      running: running,
+      retrying: retrying,
+      idle: idle,
+      agent_totals: state.agent_totals,
+      capacity: Slots.max_concurrent_agent_status(state),
+      globally_paused: state.globally_paused == true,
+      rate_limits: Map.get(state, :agent_rate_limits),
+      polling: %{
+        checking?: state.poll_check_in_progress == true,
+        next_poll_in_ms: next_poll_in_ms(state.next_poll_due_at_ms, now_ms),
+        poll_interval_ms: state.poll_interval_ms
+      }
+    }
   end
 
   defp running_snapshot(%State{} = state, {issue_id, metadata}, now, stall_timeout_seconds, activity_by_identity) do

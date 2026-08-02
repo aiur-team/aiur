@@ -42,12 +42,10 @@ defmodule AiurWeb.DashboardLiveTest do
 
     @impl true
     def init(opts) do
-      {:ok,
-       %{
-         snapshot: Keyword.fetch!(opts, :snapshot),
-         snapshot_count: 0,
-         report: Keyword.get(opts, :report)
-       }}
+      snapshot = Keyword.fetch!(opts, :snapshot)
+      :ok = Aiur.Orchestrator.SnapshotStore.publish(Keyword.fetch!(opts, :name), snapshot)
+
+      {:ok, %{snapshot: snapshot, snapshot_count: 0, report: Keyword.get(opts, :report)}}
     end
 
     @impl true
@@ -834,7 +832,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert payload.analytics.available?, inspect(payload.analytics)
     html = render_payload(payload)
 
-    assert html =~ "Snapshot unavailable"
+    assert html =~ "orchestrator_unavailable"
     refute html =~ "Merged this run"
     refute html =~ "from the current run"
     refute html =~ "Command history"
@@ -2875,7 +2873,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert initial_html =~ "Hold the cached rollout"
     assert initial_html =~ "Revision 1"
     refute initial_html =~ "Command latency"
-    assert_receive {:dashboard_payload_loaded, ^orchestrator, _count}, 2_000
+    refute_receive {:dashboard_payload_loaded, ^orchestrator, _count}
     drain_dashboard_payload_notifications(orchestrator)
     assert :ok = DecisionPubSub.subscribe()
 
@@ -2884,7 +2882,7 @@ defmodule AiurWeb.DashboardLiveTest do
       assert_receive :decision_metrics_changed, 2_000
     end
 
-    assert_receive {:dashboard_payload_loaded, ^orchestrator, _count}, 2_000
+    refute_receive {:dashboard_payload_loaded, ^orchestrator, _count}
     converged_html = render(view)
     refute converged_html =~ "Command latency"
   end
@@ -3096,7 +3094,7 @@ defmodule AiurWeb.DashboardLiveTest do
     orchestrator_name = Module.concat(__MODULE__, :UnitsURLOrchestrator)
     orchestrator = start_counting_orchestrator(orchestrator_name)
 
-    :sys.replace_state(orchestrator, &Map.put(&1, :snapshot, units_orchestrator_snapshot(identity)))
+    replace_counting_snapshot(orchestrator, units_orchestrator_snapshot(identity))
 
     start_test_endpoint(
       orchestrator: orchestrator_name,
@@ -3154,7 +3152,7 @@ defmodule AiurWeb.DashboardLiveTest do
     orchestrator_name = Module.concat(__MODULE__, :UnitsUpdateOrchestrator)
     orchestrator = start_counting_orchestrator(orchestrator_name)
 
-    :sys.replace_state(orchestrator, &Map.put(&1, :snapshot, units_orchestrator_snapshot(identity)))
+    replace_counting_snapshot(orchestrator, units_orchestrator_snapshot(identity))
 
     start_test_endpoint(
       orchestrator: orchestrator_name,
@@ -3206,7 +3204,7 @@ defmodule AiurWeb.DashboardLiveTest do
     test_pid = self()
     {:ok, subscription_attempts} = Agent.start_link(fn -> 0 end)
 
-    :sys.replace_state(orchestrator, &Map.put(&1, :snapshot, units_orchestrator_snapshot(identity)))
+    replace_counting_snapshot(orchestrator, units_orchestrator_snapshot(identity))
 
     start_test_endpoint(
       orchestrator: orchestrator_name,
@@ -3296,10 +3294,7 @@ defmodule AiurWeb.DashboardLiveTest do
     orchestrator = start_counting_orchestrator(orchestrator_name)
     test_pid = self()
 
-    :sys.replace_state(
-      orchestrator,
-      &Map.put(&1, :snapshot, units_conversation_snapshot(identity, handle))
-    )
+    replace_counting_snapshot(orchestrator, units_conversation_snapshot(identity, handle))
 
     start_test_endpoint(
       orchestrator: orchestrator_name,
@@ -3352,10 +3347,7 @@ defmodule AiurWeb.DashboardLiveTest do
     orchestrator = start_counting_orchestrator(orchestrator_name)
     test_pid = self()
 
-    :sys.replace_state(
-      orchestrator,
-      &Map.put(&1, :snapshot, units_conversation_snapshot(identity, handle))
-    )
+    replace_counting_snapshot(orchestrator, units_conversation_snapshot(identity, handle))
 
     start_test_endpoint(
       orchestrator: orchestrator_name,
@@ -3390,10 +3382,7 @@ defmodule AiurWeb.DashboardLiveTest do
     orchestrator_name = Module.concat(__MODULE__, :ConversationUpdateOrchestrator)
     orchestrator = start_counting_orchestrator(orchestrator_name)
 
-    :sys.replace_state(
-      orchestrator,
-      &Map.put(&1, :snapshot, units_conversation_snapshot(identity, handle))
-    )
+    replace_counting_snapshot(orchestrator, units_conversation_snapshot(identity, handle))
 
     start_test_endpoint(
       orchestrator: orchestrator_name,
@@ -3432,10 +3421,7 @@ defmodule AiurWeb.DashboardLiveTest do
     orchestrator_name = Module.concat(__MODULE__, :ConversationRestartOrchestrator)
     orchestrator = start_counting_orchestrator(orchestrator_name)
 
-    :sys.replace_state(
-      orchestrator,
-      &Map.put(&1, :snapshot, units_conversation_snapshot(identity, handle))
-    )
+    replace_counting_snapshot(orchestrator, units_conversation_snapshot(identity, handle))
 
     start_test_endpoint(
       orchestrator: orchestrator_name,
@@ -3462,7 +3448,7 @@ defmodule AiurWeb.DashboardLiveTest do
     orchestrator = start_counting_orchestrator(orchestrator_name)
     test_pid = self()
 
-    :sys.replace_state(orchestrator, &Map.put(&1, :snapshot, units_orchestrator_snapshot(identity)))
+    replace_counting_snapshot(orchestrator, units_orchestrator_snapshot(identity))
 
     start_test_endpoint(
       orchestrator: orchestrator_name,
@@ -3626,7 +3612,7 @@ defmodule AiurWeb.DashboardLiveTest do
       test_pid = self()
       {:ok, membership_agent} = Agent.start_link(fn -> units_membership(identity) end)
 
-      :sys.replace_state(orchestrator, &Map.put(&1, :snapshot, units_orchestrator_snapshot(identity)))
+      replace_counting_snapshot(orchestrator, units_orchestrator_snapshot(identity))
 
       start_test_endpoint(
         orchestrator: orchestrator_name,
@@ -3703,7 +3689,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
     alpha_row = units_orchestrator_snapshot(alpha).running |> hd()
     beta_row = units_orchestrator_snapshot(beta).running |> hd() |> Map.put(:issue_id, "issue-1111")
-    :sys.replace_state(orchestrator, &Map.put(&1, :snapshot, %{units_orchestrator_snapshot(alpha) | running: [alpha_row, beta_row]}))
+    replace_counting_snapshot(orchestrator, %{units_orchestrator_snapshot(alpha) | running: [alpha_row, beta_row]})
 
     start_test_endpoint(
       orchestrator: orchestrator_name,
@@ -3762,7 +3748,7 @@ defmodule AiurWeb.DashboardLiveTest do
     beta_row = units_orchestrator_snapshot(beta).running |> hd() |> Map.put(:issue_id, "issue-other-1110")
 
     snapshot = %{units_orchestrator_snapshot(alpha) | running: [alpha_row, beta_row]}
-    :sys.replace_state(orchestrator, &Map.put(&1, :snapshot, snapshot))
+    replace_counting_snapshot(orchestrator, snapshot)
 
     start_test_endpoint(
       orchestrator: orchestrator_name,
@@ -4049,7 +4035,7 @@ defmodule AiurWeb.DashboardLiveTest do
     test_pid = self()
 
     snapshot = unit_control_snapshot(identity, Keyword.get(opts, :work_state, :working))
-    :sys.replace_state(orchestrator, &Map.put(&1, :snapshot, snapshot))
+    replace_counting_snapshot(orchestrator, snapshot)
 
     start_test_endpoint(
       orchestrator: orchestrator_name,
@@ -4352,6 +4338,12 @@ defmodule AiurWeb.DashboardLiveTest do
          rate_limits: nil
        }}
     )
+  end
+
+  defp replace_counting_snapshot(orchestrator, snapshot) do
+    :sys.replace_state(orchestrator, &Map.put(&1, :snapshot, snapshot))
+    {:registered_name, name} = Process.info(orchestrator, :registered_name)
+    :ok = Aiur.Orchestrator.SnapshotStore.publish(name, snapshot)
   end
 
   defp configure_provider_meter_stub(config) do
@@ -4772,7 +4764,7 @@ defmodule AiurWeb.DashboardLiveTest do
     if expire?, do: expire_cached_payloads(cache)
     Enum.each(views, &reload_view/1)
 
-    assert CountingOrchestrator.snapshot_count(orchestrator) == baseline_count + 1
+    assert CountingOrchestrator.snapshot_count(orchestrator) == baseline_count
   end
 
   defp expire_cached_payloads(cache) do

@@ -15,6 +15,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
     PauseResume,
     RemoteControlMode,
     Slots,
+    SnapshotStore,
     State,
     StatusReport,
     TrackedSet,
@@ -69,6 +70,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
     :ok = ControlLifecycleStore.save(control_lifecycle)
 
     state = %State{
+      snapshot_key: Keyword.get(opts, :name, Aiur.Orchestrator),
       poll_interval_ms: config.polling.interval_seconds * 1_000,
       max_concurrent_agents: config.agent.max_concurrent_agents,
       # `--max-agents N` at launch: seed the session override (highest
@@ -102,7 +104,14 @@ defmodule Aiur.Orchestrator.Lifecycle do
     subscribe_to_orchestrator_topics()
     _ = LiveConversation.subscribe_restarts()
 
-    {:ok, schedule_initial_tick(state, Keyword.get(opts, :initial_poll?, true))}
+    state = schedule_initial_tick(state, Keyword.get(opts, :initial_poll?, true))
+
+    # The initial state is small and must be available before the first
+    # dashboard request. Subsequent projections are coalesced off this
+    # critical path by SnapshotStore.
+    :ok = SnapshotStore.publish(state.snapshot_key, StatusReport.snapshot_payload(state))
+
+    {:ok, state}
   end
 
   # On whole-app shutdown the supervisor brutally kills the AgentRunner

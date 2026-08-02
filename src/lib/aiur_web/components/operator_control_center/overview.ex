@@ -108,6 +108,18 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
     """
   end
 
+  attr(:freshness, :map, default: %{})
+
+  @spec stale_snapshot(map()) :: Phoenix.LiveView.Rendered.t()
+  def stale_snapshot(assigns) do
+    ~H"""
+    <div :if={@freshness[:status] == :stale} class="readonly-banner" role="status" aria-live="polite">
+      <span aria-hidden="true">◉</span>
+      <span><b>Fleet snapshot is stale.</b> Showing the last known-good fleet as of {@freshness[:age_seconds]}s ago.</span>
+    </div>
+    """
+  end
+
   defp banner_title(_blocking, 1), do: "1 unit awaiting commands"
   defp banner_title(_blocking, open), do: "#{open} units awaiting commands"
 

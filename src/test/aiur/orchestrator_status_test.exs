@@ -1,6 +1,8 @@
 defmodule Aiur.OrchestratorStatusTest do
   use Aiur.TestSupport
 
+  import ExUnit.CaptureLog
+
   alias Aiur.{AgentPubSub, AgentQueueStore, Issue, TrackerIdentity}
   alias Aiur.AgentRunner.QueueDrain
   alias Aiur.Codex.CodingAgent, as: CodexCodingAgent
@@ -14,6 +16,7 @@ defmodule Aiur.OrchestratorStatusTest do
     PauseResume,
     Reconciler,
     State,
+    SnapshotStore,
     StatusReport,
     WorkspaceCleanup
   }
@@ -171,6 +174,55 @@ defmodule Aiur.OrchestratorStatusTest do
     assert Orchestrator.snapshot(server_name, 10) == :timeout
 
     send(pid, :stop)
+  end
+
+  test "dashboard snapshot reads the cached fleet while the orchestrator mailbox is saturated" do
+    orchestrator_name = Module.concat(__MODULE__, :CachedSnapshotOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
+
+    on_exit(fn ->
+      try do
+        :sys.resume(pid)
+      catch
+        :exit, _reason -> :ok
+      end
+
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    :ok =
+      SnapshotStore.publish(
+        orchestrator_name,
+        pid |> :sys.get_state() |> StatusReport.snapshot_payload()
+      )
+
+    :sys.suspend(pid)
+    send(pid, :dispatch_backlog)
+    Process.sleep(110)
+
+    log =
+      capture_log([level: :warning], fn ->
+        task = Task.async(fn -> Orchestrator.dashboard_snapshot(orchestrator_name, 100) end)
+
+        assert {:ok, {:stale, %{running: [], retrying: [], idle: []}, %{status: :stale}}} =
+                 Task.yield(task, 25)
+      end)
+
+    assert log =~ "Dashboard snapshot timed out"
+    assert log =~ "orchestrator_mailbox_depth="
+  end
+
+  test "dashboard serves its last-known-good snapshot when the orchestrator is unavailable" do
+    orchestrator_name = Module.concat(__MODULE__, :RestartingSnapshotOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
+
+    assert :ok = GenServer.stop(pid, :normal)
+
+    assert {:stale, %{running: [], retrying: [], idle: []}, freshness} =
+             Orchestrator.dashboard_snapshot(orchestrator_name, 100)
+
+    assert freshness.status == :stale
+    assert freshness.reason == :orchestrator_unavailable
   end
 
   test "startup terminal cleanup skips Linear fetch when Linear token is missing" do

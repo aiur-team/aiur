@@ -19,16 +19,16 @@ defmodule AiurWeb.StreamDeckGridTest do
     assert StreamDeckGrid.project(%{}).agents == []
   end
 
-  test "projects unavailable and timed-out snapshots as API errors" do
+  test "projects unavailable snapshots as API errors" do
     assert StreamDeckGrid.payload(:missing_streamdeck_orchestrator, 1) == %{
-             error: %{code: "snapshot_unavailable", message: "Snapshot unavailable"}
+             error: %{code: "orchestrator_unavailable", message: "Orchestrator is unavailable"}
            }
 
     server = :streamdeck_grid_timeout_server
     start_supervised!({__MODULE__.TimeoutServer, name: server})
 
     assert StreamDeckGrid.payload(server, 0) == %{
-             error: %{code: "snapshot_timeout", message: "Snapshot timed out"}
+             error: %{code: "snapshot_unavailable", message: "No fleet snapshot has been published yet"}
            }
   end
 

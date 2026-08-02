@@ -14,6 +14,7 @@ defmodule Aiur.Orchestrator.State do
 
   @type t :: %__MODULE__{
           poll_interval_ms: integer() | nil,
+          snapshot_key: GenServer.server() | nil,
           max_concurrent_agents: integer() | nil,
           session_max_concurrent_agents: integer() | nil,
           effective_concurrent_agents: integer() | nil,
@@ -65,6 +66,7 @@ defmodule Aiur.Orchestrator.State do
   # credo:disable-for-next-line Credo.Check.Warning.StructFieldAmount
   defstruct [
     :poll_interval_ms,
+    :snapshot_key,
     :max_concurrent_agents,
     :session_max_concurrent_agents,
     :effective_concurrent_agents,
