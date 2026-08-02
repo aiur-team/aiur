@@ -497,11 +497,12 @@ defmodule AiurEngineTest do
 
   test "streaming control rpc reports a stopped daemon" do
     rel = fake_release()
+    state = tmp_state()
 
     {out, 1} =
       run_sourced_engine(
         ~S|resolve_release() { release_bin="/bin/false"; RELEASE_NODE="aiur-test@127.0.0.1"; }; prepare_distribution() { :; }; resolve_control_identity_from_records() { :; }; probe_node_liveness() { printf down; }; run_control_stream 'Aiur.AgentControlCLI.executor_listen()'|,
-        [{"AIUR_RELEASE_DIR", rel}]
+        [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", state}]
       )
 
     assert out =~ "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry."
