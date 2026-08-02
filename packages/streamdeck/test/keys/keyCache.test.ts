@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { KeyCache } from "../../src/keys/keyCache.js";
 import { type KeyContent } from "../../src/keys/keyContent.js";
+import { KeyWriteQueue } from "../../src/keys/writeQueue.js";
 
 const fill = (r: number, g: number, b: number): KeyContent => ({ kind: "fill", color: { r, g, b } });
 const image = (bytes: number[]): KeyContent => ({ kind: "image", jpeg: new Uint8Array(bytes) });
@@ -27,14 +28,14 @@ describe("KeyCache dirty tracking", () => {
     expect(cache.paint(0, fill(1, 2, 3))).toBeNull();
   });
 
-  it("leaves the key dirty when a paint is never committed (failed write)", () => {
+  it("retries identical content after the queue rejects its write", async () => {
     const cache = new KeyCache();
-    // Produce a paint but drop it, as the write queue does on a failed write.
-    cache.paint(0, fill(1, 2, 3));
-    // In-flight desired content is coalesced; recovery invalidates before
-    // retrying against the reopened device.
-    expect(cache.isDirty(0, fill(1, 2, 3))).toBe(false);
-    cache.invalidate(0);
+    const queue = new KeyWriteQueue(async () => {
+      throw new Error("device unavailable");
+    });
+    const first = cache.paint(0, fill(1, 2, 3));
+    await expect(queue.enqueue(first!)).rejects.toThrow("device unavailable");
+    // Queue failure discards the pending snapshot, so the retry is dirty.
     expect(cache.paint(0, fill(1, 2, 3))).not.toBeNull();
   });
 
@@ -51,6 +52,9 @@ describe("KeyCache dirty tracking", () => {
     // erase this desired A or make the final A paint disappear.
     const backToA = cache.paint(0, fill(1, 1, 1));
     expect(backToA).not.toBeNull();
+    // Cancelling B must not discard the newer pending A.
+    toB?.discard();
+    expect(cache.paint(0, fill(1, 1, 1))).toBeNull();
     toB?.commit();
     expect(cache.paint(0, fill(1, 1, 1))).toBeNull();
     backToA?.commit();

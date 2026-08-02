@@ -17,10 +17,16 @@ const report = (index: number, i: number): KeyReport => ({
   data: Buffer.from([index, i]),
 });
 
-const paint = (index: number, reportCount: number, onCommit: () => void = () => {}): KeyPaint => ({
+const paint = (
+  index: number,
+  reportCount: number,
+  onCommit: () => void = () => {},
+  onDiscard: () => void = () => {},
+): KeyPaint => ({
   index,
   reports: Array.from({ length: reportCount }, (_, i) => report(index, i)),
   commit: onCommit,
+  discard: onDiscard,
 });
 
 describe("KeyWriteQueue", () => {
@@ -54,7 +60,7 @@ describe("KeyWriteQueue", () => {
     const queue = new KeyWriteQueue(async (r) => {
       written.push(r);
     });
-    await queue.enqueue({ index: 0, reports: [], commit: () => (committed = true) });
+    await queue.enqueue({ index: 0, reports: [], commit: () => (committed = true), discard: () => {} });
     expect(written).toHaveLength(0);
     expect(committed).toBe(true);
   });
@@ -69,6 +75,7 @@ describe("KeyWriteQueue", () => {
   it("is all-or-nothing: clear() cannot truncate a paint already writing", async () => {
     const resolvers: Array<() => void> = [];
     const written: KeyReport[] = [];
+    const discarded: number[] = [];
     const write: ReportWriter = (report) =>
       new Promise<void>((resolve) => {
         written.push(report);
@@ -77,7 +84,7 @@ describe("KeyWriteQueue", () => {
 
     const queue = new KeyWriteQueue(write);
     const pA = queue.enqueue(paint(0, 2)); // 2 reports, will be mid-write
-    const pB = queue.enqueue(paint(1, 1)); // still pending, should be dropped
+    const pB = queue.enqueue(paint(1, 1, () => {}, () => discarded.push(1))); // still pending, should be dropped
 
     await flush(); // A's first report is now in flight
     expect(written).toHaveLength(1);
@@ -85,6 +92,7 @@ describe("KeyWriteQueue", () => {
 
     queue.clear(); // drop B; A untouched
     await expect(pB).rejects.toBeInstanceOf(KeyWriteCancelledError);
+    expect(discarded).toEqual([1]);
     expect(queue.size).toBe(0);
 
     // A completes both of its reports despite the clear.

@@ -28,14 +28,16 @@ import {
  * {@link commit} thunk. The cache is NOT updated when the paint is produced —
  * the key stays dirty until {@link commit} runs. The write path calls
  * {@link commit} only after every report has reached the device; a failed or
- * partial write leaves it uncalled, so the key is still dirty and repaints on
- * the next render rather than being wrongly cached as painted (which would blank
- * it until the process restarts).
+ * partial write leaves it uncalled and invokes {@link discard}, so the key is
+ * still dirty and repaints on the next render rather than being wrongly cached
+ * as painted (which would blank it until the process restarts).
  */
 export interface KeyPaint {
   readonly index: number;
   readonly reports: KeyReport[];
   readonly commit: () => void;
+  /** Drop this pending desired value after a failed or cancelled write. */
+  readonly discard: () => void;
 }
 
 export class KeyCache {
@@ -87,6 +89,14 @@ export class KeyCache {
         // the cache wrongly treat the key as clean.
         if (this.pending[keyIndex] === snapshot) {
           this.current[keyIndex] = snapshot;
+          this.pending[keyIndex] = undefined;
+        }
+      },
+      discard: () => {
+        // A newer paint may already have replaced this desired value. Only
+        // discard the same private snapshot so an older cancellation cannot
+        // erase newer state that is waiting to be written.
+        if (this.pending[keyIndex] === snapshot) {
           this.pending[keyIndex] = undefined;
         }
       },

@@ -113,6 +113,7 @@ export class KeyWriteQueue {
    */
   enqueue(paint: KeyPaint): Promise<void> {
     if (this.halted) {
+      paint.discard();
       return Promise.reject(
         new KeyWriteCancelledError("queue halted after a transport write failure; reconnect and reset with a fresh writer"),
       );
@@ -132,6 +133,7 @@ export class KeyWriteQueue {
   clear(): void {
     const dropped = this.pending.splice(0, this.pending.length);
     for (const job of dropped) {
+      job.paint.discard();
       job.reject(new KeyWriteCancelledError());
     }
   }
@@ -171,6 +173,7 @@ export class KeyWriteQueue {
           job.resolve();
         } catch (error) {
           this.halted = true;
+          paint.discard();
           if (written === 0) {
             // Nothing reached the wire, but the failed writer can still be a
             // zombie handle. Do not let pending paints commit while runtime
@@ -183,6 +186,7 @@ export class KeyWriteQueue {
           }
           const stranded = this.pending.splice(0, this.pending.length);
           for (const queued of stranded) {
+            queued.paint.discard();
             queued.reject(
               new KeyWriteCancelledError(
                 "queue halted after a transport write failure; reconnect and reset with a fresh writer",
