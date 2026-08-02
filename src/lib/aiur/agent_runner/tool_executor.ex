@@ -403,7 +403,6 @@ defmodule Aiur.AgentRunner.ToolExecutor do
       :ok
     else
       {:error, reason} -> {:error, {:operator_verification_mark_failed, reason}}
-      other -> {:error, {:operator_verification_mark_failed, other}}
     end
   end
 

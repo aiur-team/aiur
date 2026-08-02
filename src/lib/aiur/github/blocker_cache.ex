@@ -39,7 +39,7 @@ defmodule Aiur.GitHub.BlockerCache do
   end
 
   @doc false
-  @spec scheduled_refreshes([String.t()], non_neg_integer()) :: MapSet.t(String.t())
+  @spec scheduled_refreshes([String.t()], non_neg_integer()) :: MapSet.t()
   def scheduled_refreshes(issue_ids, limit) when is_list(issue_ids) and is_integer(limit) and limit >= 0 do
     candidates = Enum.uniq(issue_ids)
 
