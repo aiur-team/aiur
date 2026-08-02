@@ -68,13 +68,16 @@ defmodule Aiur.Orchestrator.Dispatcher do
           state
           |> IssueSync.sync_polled_issue_state(issues)
           |> IssueSync.sync_todo_capacity_alert(issues)
-          |> IssueSync.sync_capacity_starvation_alert(issues)
 
         # The poll just refreshed `last_polled_issues`, so push a fresh
         # summary out to any open agent-list pane immediately.
         StatusReport.notify_dashboard(state)
 
-        state = dispatch_or_hold(state, issues)
+        state =
+          state
+          |> dispatch_or_hold(issues)
+          |> IssueSync.sync_capacity_starvation_alert(issues)
+
         %{state | initial_dispatch_cycle: false}
 
       {:error, reason} ->
@@ -88,6 +91,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   # while an in-progress build holds this tick.
   @spec dispatch_or_hold(State.t(), [Issue.t()]) :: State.t()
   def dispatch_or_hold(%State{} = state, issues) when is_list(issues) do
+    state = %{state | dispatch_capacity_constraints: []}
     enabled? = Config.prewarm_enabled?()
     phase = if enabled?, do: trigger_and_status(), else: :ready
 
@@ -106,20 +110,24 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   @doc false
   @spec emit_prewarm_blocked_alert(State.t(), atom()) :: State.t()
-  def emit_prewarm_blocked_alert(%State{prewarm_blocked_alert_active: true} = state, _phase), do: state
+  def emit_prewarm_blocked_alert(%State{prewarm_blocked_alert_active: true} = state, phase),
+    do: record_capacity_constraint(state, :build, "prewarm=#{phase}")
 
   def emit_prewarm_blocked_alert(%State{} = state, phase) do
     reason =
       "Prewarm is #{phase}; fleet dispatch is paused until the shared base becomes ready. " <>
         "This condition is expected to clear automatically."
 
-    Alerts.emit_system("system.dispatch.prewarm_blocked",
-      reason: reason,
-      needs_attention: true,
-      severity: "warning"
-    )
+    state = record_capacity_constraint(state, :build, "prewarm=#{phase}")
 
-    %{state | prewarm_blocked_alert_active: true}
+    case Alerts.emit_system("system.dispatch.prewarm_blocked",
+           reason: reason,
+           needs_attention: true,
+           severity: "warning"
+         ) do
+      :ok -> %{state | prewarm_blocked_alert_active: true}
+      {:error, _reason} -> state
+    end
   end
 
   defp clear_prewarm_blocked_alert(%State{} = state),
@@ -155,11 +163,17 @@ defmodule Aiur.Orchestrator.Dispatcher do
         cpu_snapshot,
         DispatchPolicy.queued_dispatch_demand?(issues, state)
       )
+      |> maybe_record_load_envelope_constraint()
 
     case DispatchPolicy.memory_gate(available_memory_mb, memory_threshold_mb) do
       :hold ->
         log_memory_hold(available_memory_mb, memory_threshold_mb)
-        state
+
+        record_capacity_constraint(
+          state,
+          :memory,
+          "available_mb=#{available_memory_mb} threshold_mb=#{memory_threshold_mb}"
+        )
 
       :dispatch ->
         maybe_choose_with_fd_headroom(state, issues, fd_sample, load, hard_threshold, schedulers, choose_fun)
@@ -606,7 +620,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     case DispatchPolicy.fd_gate(fd_sample) do
       :hold ->
         log_fd_hold(fd_sample)
-        state
+        record_capacity_constraint(state, :fd, fd_constraint_detail(fd_sample))
 
       :dispatch ->
         maybe_choose_under_hard_load(state, issues, load, threshold, schedulers, choose_fun)
@@ -617,7 +631,12 @@ defmodule Aiur.Orchestrator.Dispatcher do
     case DispatchPolicy.load_gate(load, threshold, schedulers) do
       :hold ->
         log_load_hold(load, threshold, schedulers)
-        state
+
+        record_capacity_constraint(
+          state,
+          :load,
+          "load=#{inspect(load)} threshold=#{threshold} schedulers=#{schedulers}"
+        )
 
       :dispatch ->
         choose_fun.(state, issues)
@@ -631,6 +650,35 @@ defmodule Aiur.Orchestrator.Dispatcher do
   defp maybe_choose(state, issues) do
     if Slots.available_slots(state) > 0, do: choose_issues(state, issues), else: state
   end
+
+  defp maybe_record_load_envelope_constraint(%State{} = state) do
+    configured = Slots.max_concurrent_agent_limit(state)
+    effective = Slots.effective_concurrent_agent_limit(state)
+
+    if effective < configured do
+      record_capacity_constraint(state, :load_envelope, "effective_cap=#{effective} configured_cap=#{configured}")
+    else
+      state
+    end
+  end
+
+  defp record_capacity_constraint(%State{} = state, kind, detail) when is_atom(kind) and is_binary(detail) do
+    constraint = %{kind: kind, detail: detail}
+
+    if constraint in state.dispatch_capacity_constraints do
+      state
+    else
+      %{state | dispatch_capacity_constraints: [constraint | state.dispatch_capacity_constraints]}
+    end
+  end
+
+  defp fd_constraint_detail(:exhausted), do: "available=0 limit=unknown"
+
+  defp fd_constraint_detail(%{available: available, limit: limit}) do
+    "available=#{available} limit=#{limit}"
+  end
+
+  defp fd_constraint_detail(_sample), do: "sample=unknown"
 
   defp maybe_log_base_error({:error, reason}),
     do: Logger.warning("prewarm base unavailable (#{inspect(reason)}); dispatching via cold clone")

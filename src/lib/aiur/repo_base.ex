@@ -57,8 +57,8 @@ defmodule Aiur.RepoBase do
   `:cloning`, `:fetching`, `:building`, `:checking`, `:ready`, or
   `{:error, reason}`.
   """
-  @spec status() :: {atom() | {:error, term()}, Path.t() | nil}
-  def status, do: GenServer.call(__MODULE__, :status)
+  @spec status(timeout()) :: {atom() | {:error, term()}, Path.t() | nil}
+  def status(timeout \\ 5_000), do: GenServer.call(__MODULE__, :status, timeout)
 
   @doc """
   Trigger an asynchronous refresh of the warm base toward the latest remote base branch.

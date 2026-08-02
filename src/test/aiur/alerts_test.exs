@@ -104,6 +104,38 @@ defmodule Aiur.AlertsTest do
     assert log =~ "\"reason\":\"Agent marked the ticket ready for human review\""
   end
 
+  test "tracker pause transitions persist and appear in the Executor alert feed" do
+    workspace_root =
+      Path.join(System.tmp_dir!(), "aiur-alert-tracker-pause-#{System.unique_integer([:positive])}")
+
+    workspace = Path.join([workspace_root, "project", "MT-TRACKER-PAUSE"])
+    File.mkdir_p!(workspace)
+
+    on_exit(fn -> File.rm_rf!(workspace_root) end)
+
+    write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
+
+    previous = %Issue{id: "issue-tracker-pause", identifier: "MT-TRACKER-PAUSE", state: "In Progress", title: "Pause"}
+    paused = %{previous | paused: true}
+
+    _state =
+      IssueSync.sync_polled_issue_state(
+        %Orchestrator.State{last_polled_issues: %{previous.id => previous}},
+        [paused]
+      )
+
+    log_path = Path.join(workspace, "logs/agent.ndjson")
+    log = File.read!(log_path)
+
+    assert log =~ "\"name\":\"ticket.MT-TRACKER-PAUSE.agent.paused\""
+    assert log =~ "\"reason\":\"Tracker added agent:paused (tracker pause override)"
+
+    assert Enum.any?(AlertFeed.list(roots: [workspace_root]), fn alert ->
+             alert["topic"] == "ticket.MT-TRACKER-PAUSE.agent.paused" and
+               alert["needs_attention"] == true
+           end)
+  end
+
   test "alerts without a local workspace are written to the central alert feed" do
     log_root =
       Path.join(System.tmp_dir!(), "aiur-alert-central-#{System.unique_integer([:positive])}")

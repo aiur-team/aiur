@@ -1,8 +1,8 @@
 defmodule Aiur.Orchestrator.IssueSyncTest do
-  use ExUnit.Case, async: false
+  use Aiur.TestSupport
 
   alias Aiur.Events.{Exchange, Publisher}
-  alias Aiur.{Issue, TrackerIdentity}
+  alias Aiur.{Issue, TrackerIdentity, Workflow}
   alias Aiur.Orchestrator.{IssueSync, State}
 
   test "ignores a non-list poll result" do
@@ -11,7 +11,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     assert IssueSync.sync_polled_issue_state(state, :invalid) == state
   end
 
-  test "alerts once after ready work stays below the configured cap" do
+  test "alerts once with observed dispatch constraints while ready work is held" do
     Publisher.set_tracked_fn(fn _ -> true end)
     :ok = Exchange.subscribe("system.dispatch.capacity_starved")
 
@@ -21,20 +21,185 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     end)
 
     ready = issue("capacity", "todo")
-    state = %State{max_concurrent_agents: 4, effective_concurrent_agents: 1}
+
+    state = %State{
+      max_concurrent_agents: 4,
+      effective_concurrent_agents: 4,
+      dispatch_capacity_constraints: [
+        %{kind: :load_envelope, detail: "effective_cap=4 configured_cap=4"},
+        %{kind: :memory, detail: "available_mb=512 threshold_mb=2048"},
+        %{kind: :fd, detail: "available=2 limit=1024"},
+        %{kind: :load, detail: "load=24.0 threshold=1.0 schedulers=8"},
+        %{kind: :build, detail: "prewarm=building"}
+      ]
+    }
 
     waiting = IssueSync.sync_capacity_starvation_alert(state, [ready], 1_000)
-    assert waiting.capacity_starvation == %{since_ms: 1_000, alert_active: false}
+
+    assert waiting.capacity_starvation == %{
+             since_ms: 1_000,
+             alert_active: false,
+             signature: [
+               "FD gate (available=2 limit=1024)",
+               "build gate (prewarm=building)",
+               "load gate (load=24.0 threshold=1.0 schedulers=8)",
+               "load-envelope limit (effective_cap=4 configured_cap=4)",
+               "memory gate (available_mb=512 threshold_mb=2048)"
+             ]
+           }
 
     alerted = IssueSync.sync_capacity_starvation_alert(waiting, [ready], 61_000)
-    assert alerted.capacity_starvation == %{since_ms: 1_000, alert_active: true}
+
+    assert alerted.capacity_starvation == %{
+             since_ms: 1_000,
+             alert_active: true,
+             signature: waiting.capacity_starvation.signature
+           }
 
     assert_receive {:event, %{topic: "system.dispatch.capacity_starved"} = event}, 500
     assert event["reason"] =~ "Ready tickets=1"
-    assert event["reason"] =~ "effective cap=1, configured cap=4"
+    assert event["reason"] =~ "effective cap=4, configured cap=4"
+    assert event["reason"] =~ "load-envelope limit"
+    assert event["reason"] =~ "memory gate"
+    assert event["reason"] =~ "FD gate"
+    assert event["reason"] =~ "load gate"
+    assert event["reason"] =~ "build gate"
+    refute event["reason"] =~ "cold-start"
 
     assert IssueSync.sync_capacity_starvation_alert(alerted, [ready], 122_000) == alerted
     refute_receive {:event, %{topic: "system.dispatch.capacity_starved"}}, 100
+  end
+
+  test "alerts when the tracker adds or removes agent:paused" do
+    Publisher.set_tracked_fn(fn _ -> true end)
+    :ok = Exchange.subscribe("ticket.its-everdred/aiur#pause-transition.agent.paused")
+    :ok = Exchange.subscribe("ticket.its-everdred/aiur#pause-transition.agent.unpaused")
+
+    on_exit(fn ->
+      Publisher.set_tracked_fn(fn _ -> true end)
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+    end)
+
+    previous = issue("pause-transition", "in-progress")
+    paused = %{previous | paused: true}
+
+    state =
+      IssueSync.sync_polled_issue_state(
+        %State{last_polled_issues: %{previous.id => previous}},
+        [paused],
+        fn _ -> {:ok, []} end,
+        fn _identity, _lifecycle -> :ok end,
+        MapSet.new(["done"]),
+        fn _ -> :ok end,
+        fn _identity, _pending? -> :ok end
+      )
+
+    assert state.last_polled_issues == %{paused.id => paused}
+
+    assert_receive {:event, %{topic: "ticket.its-everdred/aiur#pause-transition.agent.paused"} = event}, 500
+
+    assert event["reason"] =~ "tracker pause override"
+    assert event["reason"] =~ "clears when the operator removes agent:paused"
+    assert event["needs_attention"] == true
+
+    _ =
+      IssueSync.sync_polled_issue_state(
+        state,
+        [previous],
+        fn _ -> {:ok, []} end,
+        fn _identity, _lifecycle -> :ok end,
+        MapSet.new(["done"]),
+        fn _ -> :ok end,
+        fn _identity, _pending? -> :ok end
+      )
+
+    assert_receive {:event, %{topic: "ticket.its-everdred/aiur#pause-transition.agent.unpaused"} = event}, 500
+
+    assert event["reason"] =~ "No operator action is needed"
+    assert event["needs_attention"] == false
+  end
+
+  test "does not count an issue claimed in the same dispatch cycle as ready work" do
+    ready = issue("claimed", "todo")
+
+    state = %State{
+      max_concurrent_agents: 4,
+      effective_concurrent_agents: 1,
+      claimed: MapSet.new([ready.id]),
+      dispatch_capacity_constraints: [%{kind: :load_envelope, detail: "effective_cap=1 configured_cap=4"}]
+    }
+
+    assert IssueSync.sync_capacity_starvation_alert(state, [ready], 61_000).capacity_starvation == %{
+             since_ms: nil,
+             alert_active: false,
+             signature: nil
+           }
+  end
+
+  test "resets the starvation timer when the dispatch constraint changes" do
+    Publisher.set_tracked_fn(fn _ -> true end)
+    :ok = Exchange.subscribe("system.dispatch.capacity_starved")
+
+    on_exit(fn ->
+      Publisher.set_tracked_fn(fn _ -> true end)
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+    end)
+
+    ready = issue("constraint-change", "todo")
+
+    waiting =
+      IssueSync.sync_capacity_starvation_alert(
+        %State{dispatch_capacity_constraints: [%{kind: :load, detail: "load=10"}]},
+        [ready],
+        1_000
+      )
+
+    changed = %{
+      waiting
+      | dispatch_capacity_constraints: [%{kind: :memory, detail: "available_mb=512 threshold_mb=2048"}]
+    }
+
+    reset = IssueSync.sync_capacity_starvation_alert(changed, [ready], 61_000)
+    assert reset.capacity_starvation.since_ms == 61_000
+    refute reset.capacity_starvation.alert_active
+    refute_receive {:event, %{topic: "system.dispatch.capacity_starved"}}, 100
+
+    alerted = IssueSync.sync_capacity_starvation_alert(reset, [ready], 121_000)
+    assert alerted.capacity_starvation.alert_active
+    assert_receive {:event, %{topic: "system.dispatch.capacity_starved"} = event}, 500
+    assert event["reason"] =~ "memory gate"
+  end
+
+  test "includes budget constraints for ready work in every active state" do
+    Publisher.set_tracked_fn(fn _ -> true end)
+    :ok = Exchange.subscribe("system.dispatch.capacity_starved")
+
+    on_exit(fn ->
+      Publisher.set_tracked_fn(fn _ -> true end)
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+    end)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_active_states: ["Todo", "In Progress", "Rework"]
+    )
+
+    ready = issue("budget-rework", "rework")
+
+    state = %State{
+      max_concurrent_agents: 4,
+      effective_concurrent_agents: 4,
+      dispatch_recovery: %{
+        workspace_ownership: %{waits: %{}, ready: %{}},
+        codex_thrash_budget: %{ready.id => %{tripped: :lifetime, lifetime: 20}}
+      }
+    }
+
+    waiting = IssueSync.sync_capacity_starvation_alert(state, [ready], 1_000)
+    alerted = IssueSync.sync_capacity_starvation_alert(waiting, [ready], 61_000)
+
+    assert alerted.capacity_starvation.alert_active
+    assert_receive {:event, %{topic: "system.dispatch.capacity_starved"} = event}, 500
+    assert event["reason"] =~ "budget latch (lifetime=20)"
   end
 
   test "records an idle completed ticket before an active-only poll drops it" do
@@ -233,6 +398,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     %Issue{
       id: id,
       identifier: "its-everdred/aiur##{id}",
+      title: "Issue #{id}",
       state: state,
       tracker_identity: %TrackerIdentity{
         version: 1,

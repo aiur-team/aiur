@@ -17,6 +17,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias AiurWeb.ObservabilityPubSub
 
   @activity_snapshot_timeout_ms 100
+  @repo_base_status_timeout_ms 100
 
   @spec snapshot_api() :: map() | :timeout | :unavailable
   def snapshot_api, do: snapshot_api(Aiur.Orchestrator, 15_000)
@@ -472,12 +473,20 @@ defmodule Aiur.Orchestrator.StatusReport do
 
   @spec agent_statuses(State.t()) :: [map()]
   def agent_statuses(%State{} = state) do
+    status_fun = if Config.prewarm_enabled?(), do: &RepoBase.status/1, else: fn _timeout -> {:unavailable, nil} end
+    agent_statuses(state, status_fun)
+  end
+
+  @doc false
+  @spec agent_statuses(State.t(), (timeout() -> term())) :: [map()]
+  def agent_statuses(%State{} = state, status_fun) when is_function(status_fun, 1) do
     now = DateTime.utc_now()
+    prewarm_phase = prewarm_phase(status_fun)
 
     running_by_identifier =
       Map.new(state.running, fn {_id, entry} -> {Map.get(entry, :identifier), entry} end)
 
-    (running_statuses(state, now) ++ retry_statuses(state) ++ idle_statuses(state, running_by_identifier))
+    (running_statuses(state, now) ++ retry_statuses(state) ++ idle_statuses(state, running_by_identifier, prewarm_phase))
     |> Enum.sort_by(fn status -> to_string(status.identifier || status.issue_id || "") end)
   end
 
@@ -552,16 +561,16 @@ defmodule Aiur.Orchestrator.StatusReport do
     end)
   end
 
-  defp idle_statuses(%State{} = state, _running_by_identifier) do
+  defp idle_statuses(%State{} = state, _running_by_identifier, prewarm_phase) do
     state.last_polled_issues
     |> Enum.reject(fn {issue_id, _issue} -> Map.has_key?(state.running, issue_id) or Map.has_key?(state.retry_attempts, issue_id) end)
-    |> Enum.map(fn {_issue_id, issue} -> idle_status(state, issue) end)
+    |> Enum.map(fn {_issue_id, issue} -> idle_status(state, issue, prewarm_phase) end)
   end
 
-  defp idle_status(%State{} = state, issue) do
+  defp idle_status(%State{} = state, issue, prewarm_phase) do
     identifier = Map.get(issue, :identifier) || Map.get(issue, :id)
     budget = get_in(state.dispatch_recovery, [:codex_thrash_budget, Map.get(issue, :id)]) || %{}
-    prewarm_blocked? = prewarm_blocked?()
+    prewarm_blocked? = prewarm_blocked?(prewarm_phase)
 
     work_state = idle_issue_work_state(issue)
     pause_reason = idle_issue_pause_reason(issue)
@@ -600,12 +609,22 @@ defmodule Aiur.Orchestrator.StatusReport do
     }
   end
 
-  defp prewarm_blocked? do
-    Config.prewarm_enabled?() and Process.whereis(RepoBase) != nil and
-      match?({phase, _} when phase in [:cloning, :fetching, :building, :checking], RepoBase.status())
-  rescue
-    _ -> false
+  @doc false
+  # A status projection must never wait behind a base build or crash while the
+  # RepoBase process is restarting. Treat a timeout or process exit as an
+  # unavailable snapshot; dispatch admission remains the authoritative gate.
+  @spec prewarm_phase((timeout() -> term())) :: atom() | :unavailable
+  def prewarm_phase(status_fun \\ &RepoBase.status/1) when is_function(status_fun, 1) do
+    case status_fun.(@repo_base_status_timeout_ms) do
+      {phase, _path} when is_atom(phase) -> phase
+      _ -> :unavailable
+    end
+  catch
+    :exit, _reason -> :unavailable
   end
+
+  defp prewarm_blocked?(phase) when phase in [:cloning, :fetching, :building, :checking], do: true
+  defp prewarm_blocked?(_phase), do: false
 
   defp idle_queue_depth(%State{} = state, identifier) when is_binary(identifier) do
     OM.queue_depth_for_issue(state, identifier)

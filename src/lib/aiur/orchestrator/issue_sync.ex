@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.IssueSync do
   All functions execute inside the orchestrator GenServer process.
   """
 
-  alias Aiur.{AgentQueue, AgentQueueStore, Alerts, CurrentRunMembership, Issue, Tracker, TrackerIdentity}
+  alias Aiur.{AgentQueue, AgentQueueStore, Alerts, Config, CurrentRunMembership, Issue, Tracker, TrackerIdentity}
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, MembershipLifecycle, OperatorMessages, Slots, State}
 
@@ -144,6 +144,7 @@ defmodule Aiur.Orchestrator.IssueSync do
 
         state_acc
         |> emit_task_state_transition_alert(previous_issue, issue)
+        |> emit_tracker_pause_transition_alert(previous_issue, issue)
         |> emit_dependency_transition_events(previous_issue, issue)
       end)
 
@@ -450,6 +451,43 @@ defmodule Aiur.Orchestrator.IssueSync do
 
   defp emit_task_state_transition_alert(%State{} = state, _previous_issue, _issue), do: state
 
+  defp emit_tracker_pause_transition_alert(%State{} = state, nil, %Issue{}), do: state
+
+  defp emit_tracker_pause_transition_alert(
+         %State{} = state,
+         %Issue{} = previous_issue,
+         %Issue{} = issue
+       ) do
+    case {Issue.paused?(previous_issue), Issue.paused?(issue)} do
+      {false, true} ->
+        Alerts.emit_system("ticket.#{issue.identifier}.agent.paused",
+          issue: issue,
+          worker_host: Orchestrator.running_worker_host(state, issue.id),
+          reason:
+            "Tracker added agent:paused (tracker pause override); tracker=agent:#{issue.state}. " <>
+              "This clears when the operator removes agent:paused.",
+          needs_attention: true,
+          severity: "warning"
+        )
+
+      {true, false} ->
+        Alerts.emit_system("ticket.#{issue.identifier}.agent.unpaused",
+          issue: issue,
+          worker_host: Orchestrator.running_worker_host(state, issue.id),
+          reason: "Tracker removed agent:paused; tracker=agent:#{issue.state}. No operator action is needed.",
+          needs_attention: false,
+          severity: "info"
+        )
+
+      _ ->
+        :ok
+    end
+
+    state
+  end
+
+  defp emit_tracker_pause_transition_alert(%State{} = state, _previous_issue, _issue), do: state
+
   defp task_state_alert_reason("human-review"),
     do: "Agent marked the ticket ready for human review"
 
@@ -595,30 +633,39 @@ defmodule Aiur.Orchestrator.IssueSync do
       when is_list(issues) and is_integer(now_ms) do
     configured = Slots.max_concurrent_agent_limit(state)
     effective = Slots.effective_concurrent_agent_limit(state)
-    ready_count = issues |> routable_todo_issues() |> length()
+    ready_issues = ready_dispatch_issues(state, issues)
+    ready_count = length(ready_issues)
 
-    if ready_count > 0 and effective < configured do
+    constraints = capacity_constraints(state, issues)
+
+    if ready_count > 0 and constraints != [] do
       starvation = state.capacity_starvation
-      since_ms = starvation[:since_ms] || now_ms
+      changed? = starvation[:signature] != constraints
+      since_ms = if changed?, do: now_ms, else: starvation[:since_ms] || now_ms
+      alert_active? = not changed? and starvation[:alert_active] == true
 
-      if now_ms - since_ms >= @capacity_starvation_alert_after_ms and not starvation[:alert_active] do
+      if now_ms - since_ms >= @capacity_starvation_alert_after_ms and not alert_active? do
         reason =
           "Ready tickets=#{ready_count}, live agents=#{State.active_running_count(state.running)}, " <>
             "effective cap=#{effective}, configured cap=#{configured}; " <>
-            "effective cap is constrained by the load-envelope cold-start ramp."
+            "dispatch constraints=#{Enum.join(constraints, "; ")}."
 
-        Alerts.emit_system("system.dispatch.capacity_starved",
-          reason: reason,
-          needs_attention: true,
-          severity: "warning"
-        )
+        case Alerts.emit_system("system.dispatch.capacity_starved",
+               reason: reason,
+               needs_attention: true,
+               severity: "warning"
+             ) do
+          :ok ->
+            %{state | capacity_starvation: %{since_ms: since_ms, alert_active: true, signature: constraints}}
 
-        %{state | capacity_starvation: %{since_ms: since_ms, alert_active: true}}
+          {:error, _reason} ->
+            %{state | capacity_starvation: %{since_ms: since_ms, alert_active: false, signature: constraints}}
+        end
       else
-        %{state | capacity_starvation: %{since_ms: since_ms, alert_active: starvation[:alert_active] == true}}
+        %{state | capacity_starvation: %{since_ms: since_ms, alert_active: alert_active?, signature: constraints}}
       end
     else
-      %{state | capacity_starvation: %{since_ms: nil, alert_active: false}}
+      %{state | capacity_starvation: %{since_ms: nil, alert_active: false, signature: nil}}
     end
   end
 
@@ -644,6 +691,92 @@ defmodule Aiur.Orchestrator.IssueSync do
     end)
     |> DispatchPolicy.sort_issues_for_dispatch()
   end
+
+  defp ready_dispatch_issues(%State{} = state, issues) do
+    active_states = DispatchPolicy.active_state_set()
+    terminal_states = DispatchPolicy.terminal_state_set()
+
+    issues
+    |> Enum.filter(fn issue ->
+      DispatchPolicy.candidate_issue?(issue, active_states, terminal_states) and
+        !DispatchPolicy.todo_issue_blocked_by_non_terminal?(issue, terminal_states)
+    end)
+    |> Enum.reject(fn issue ->
+      Map.has_key?(state.running, issue.id) or MapSet.member?(state.claimed, issue.id) or
+        Map.has_key?(state.retry_attempts, issue.id)
+    end)
+  end
+
+  defp capacity_constraints(%State{} = state, issues) do
+    state.dispatch_capacity_constraints
+    |> Enum.map(&render_capacity_constraint/1)
+    |> Enum.reject(&is_nil/1)
+    |> Kernel.++(per_state_capacity_constraints(state, issues))
+    |> Kernel.++(budget_capacity_constraints(state, issues))
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp render_capacity_constraint(%{kind: :build, detail: detail}), do: "build gate (#{detail})"
+  defp render_capacity_constraint(%{kind: :fd, detail: detail}), do: "FD gate (#{detail})"
+  defp render_capacity_constraint(%{kind: :load, detail: detail}), do: "load gate (#{detail})"
+
+  defp render_capacity_constraint(%{kind: :load_envelope, detail: detail}),
+    do: "load-envelope limit (#{detail})"
+
+  defp render_capacity_constraint(%{kind: :memory, detail: detail}), do: "memory gate (#{detail})"
+  defp render_capacity_constraint(_constraint), do: nil
+
+  defp per_state_capacity_constraints(%State{} = state, issues) do
+    configured_limits = Config.settings!().agent.max_concurrent_agents_by_state || %{}
+
+    ready_dispatch_issues(state, issues)
+    |> Enum.map(&DispatchPolicy.normalize_issue_state(&1.state))
+    |> Enum.uniq()
+    |> Enum.flat_map(fn issue_state ->
+      case Map.fetch(configured_limits, issue_state) do
+        {:ok, limit} ->
+          used = DispatchPolicy.running_issue_count_for_state(state.running, issue_state)
+
+          if used >= limit, do: ["per-state limit (#{issue_state}=#{used}/#{limit})"], else: []
+
+        :error ->
+          []
+      end
+    end)
+  end
+
+  defp budget_capacity_constraints(%State{} = state, issues) do
+    budget = get_in(state.dispatch_recovery, [:codex_thrash_budget]) || %{}
+
+    ready_dispatch_issues(state, issues)
+    |> Enum.flat_map(fn issue ->
+      case Map.get(budget, issue.id, %{}) do
+        %{tripped: :lifetime} = entry ->
+          lifetime = Map.get(entry, :lifetime, 0)
+          ["budget latch (lifetime=#{lifetime})"]
+
+        %{tripped: :window} = entry ->
+          remaining_ms = budget_window_remaining_ms(entry, System.monotonic_time(:millisecond))
+
+          if remaining_ms > 0,
+            do: ["budget circuit (window, clears #{format_remaining_duration(remaining_ms)})"],
+            else: []
+
+        _ ->
+          []
+      end
+    end)
+    |> Enum.uniq()
+  end
+
+  defp budget_window_remaining_ms(entry, now_ms) do
+    window_ms = Config.codex_thrash_window_seconds() * 1_000
+    max(0, Map.get(entry, :window_start_ms, now_ms) + window_ms - now_ms)
+  end
+
+  defp format_remaining_duration(milliseconds) when milliseconds < 60_000, do: "in <1m"
+  defp format_remaining_duration(milliseconds), do: "in ~#{div(milliseconds + 59_999, 60_000)}m"
 
   defp emit_todo_capacity_alert(%State{} = state, todo_issues) when is_list(todo_issues) do
     case List.first(todo_issues) do
