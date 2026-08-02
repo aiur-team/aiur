@@ -19,7 +19,15 @@ defmodule Aiur.OpenAICompat.CodingAgent do
     WorkspacePath
   }
 
-  @max_tool_rounds 32
+  # A full implementation turn — investigating the repo, planning, editing
+  # several files, running tests — routinely drives more than 32 tool rounds,
+  # which terminated turns with `:tool_round_limit_exceeded` mid-implementation.
+  # 256 keeps the loop bounded against runaway providers while giving a full
+  # implementation turn headroom comparable to backends with no per-turn cap.
+  @max_tool_rounds 256
+
+  @doc false
+  def max_tool_rounds, do: @max_tool_rounds
 
   @impl true
   def start_session(workspace, opts) when is_binary(workspace) and is_list(opts) do

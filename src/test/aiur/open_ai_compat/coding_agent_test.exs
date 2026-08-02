@@ -680,6 +680,94 @@ defmodule Aiur.OpenAICompat.CodingAgentTest do
              )
   end
 
+  test "continues past the legacy 32 tool rounds and completes at the raised bound", %{workspace: workspace} do
+    rounds = CodingAgent.max_tool_rounds()
+    assert rounds > 32
+
+    {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+    responses =
+      Enum.map(1..(rounds - 1), fn index -> tool_round_response(index) end) ++
+        [
+          response(%{
+            "id" => "req-final",
+            "choices" => [%{"finish_reason" => "stop", "message" => %{"role" => "assistant", "content" => "Done."}}]
+          })
+        ]
+
+    {:ok, queue} = Agent.start_link(fn -> responses end)
+
+    request_fun = fn _request ->
+      Agent.update(counter, &(&1 + 1))
+
+      Agent.get_and_update(queue, fn
+        [next | rest] -> {next, rest}
+        [] -> {{:error, :unexpected_request}, []}
+      end)
+    end
+
+    assert {:ok, session} =
+             CodingAgent.start_session(workspace,
+               backend: "kimi",
+               instance: instance([]),
+               api_key_fetcher: fn _ -> "secret" end,
+               request_fun: request_fun
+             )
+
+    assert {:ok, %{result: :turn_completed}} =
+             CodingAgent.run_turn(session, "Loop", issue(), [])
+
+    assert Agent.get(counter, & &1) == rounds
+    assert {:ok, :cleanup_proven} = CodingAgent.stop_session(session)
+  end
+
+  test "terminates with tool_round_limit_exceeded only at the raised bound", %{workspace: workspace} do
+    rounds = CodingAgent.max_tool_rounds()
+    responses = Enum.map(1..rounds, fn index -> tool_round_response(index) end)
+    {:ok, queue} = Agent.start_link(fn -> responses end)
+
+    request_fun = fn _request ->
+      Agent.get_and_update(queue, fn
+        [next | rest] -> {next, rest}
+        [] -> {{:error, :unexpected_request}, []}
+      end)
+    end
+
+    assert {:ok, session} =
+             CodingAgent.start_session(workspace,
+               backend: "kimi",
+               instance: instance([]),
+               api_key_fetcher: fn _ -> "secret" end,
+               request_fun: request_fun
+             )
+
+    assert {:error, :tool_round_limit_exceeded} =
+             CodingAgent.run_turn(session, "Loop", issue(), [])
+
+    assert {:ok, :cleanup_proven} = CodingAgent.stop_session(session)
+  end
+
+  defp tool_round_response(index) do
+    response(%{
+      "id" => "req-#{index}",
+      "choices" => [
+        %{
+          "finish_reason" => "tool_calls",
+          "message" => %{
+            "role" => "assistant",
+            "tool_calls" => [
+              %{
+                "id" => "call-#{index}",
+                "type" => "function",
+                "function" => %{"name" => "read_file", "arguments" => ~s({"path":"sample.txt"})}
+              }
+            ]
+          }
+        }
+      ]
+    })
+  end
+
   defp instance(extra) do
     %{
       base_url: "https://example.invalid/v1",
