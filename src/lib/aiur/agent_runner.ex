@@ -15,7 +15,7 @@ defmodule Aiur.AgentRunner do
 
   @type worker_host :: String.t() | nil
 
-  @spec run(map(), pid() | nil, keyword()) :: :ok | no_return()
+  @spec run(Issue.t(), pid() | nil, keyword()) :: :ok | no_return()
   def run(issue, codex_update_recipient \\ nil, opts \\ []) do
     # The orchestrator owns host retries so one worker lifetime never hops machines.
     worker_host =
@@ -452,7 +452,6 @@ defmodule Aiur.AgentRunner do
 
   defp maybe_attach_issue_log(%Issue{tracker_identity: %Aiur.TrackerIdentity{} = identity}), do: IssueLog.attach(identity)
   defp maybe_attach_issue_log(%Issue{identifier: identifier}) when is_binary(identifier), do: IssueLog.attach(identifier)
-  defp maybe_attach_issue_log(%{identifier: identifier}) when is_binary(identifier), do: IssueLog.attach(identifier)
   defp maybe_attach_issue_log(_), do: :ok
 
   @doc false

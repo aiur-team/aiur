@@ -4,6 +4,7 @@ defmodule Aiur.RunTelemetryTest do
   alias Aiur.Config
   alias Aiur.RunTelemetry
   alias Aiur.RunTelemetry.{Dashboard, Lifecycle, Writer}
+  alias Aiur.Workflow
 
   setup do
     original_log_file = Application.get_env(:aiur, :log_file)
@@ -231,17 +232,33 @@ defmodule Aiur.RunTelemetryTest do
     assert File.read!(output) =~ "<!doctype html>"
   end
 
-  test "Config.telemetry_enabled?/0 defaults to true when no config is loaded" do
+  test "Config.telemetry_enabled?/0 defaults to true when no config is loaded", %{root: root} do
     original_path = Application.get_env(:aiur, :workflow_file_path)
-    Application.put_env(:aiur, :workflow_file_path, "/nonexistent/path/that/does/not/exist.aiurconfig")
+    disabled_config = Path.join(root, "disabled-then-missing.aiurconfig")
+
+    File.mkdir_p!(root)
+
+    File.write!(disabled_config, """
+    tracker:
+      kind: github
+      github:
+        repo: test-org/test-repo
+        label_prefix: agent
+    observability:
+      telemetry_enabled: false
+    """)
 
     on_exit(fn ->
       case original_path do
-        nil -> Application.delete_env(:aiur, :workflow_file_path)
-        value -> Application.put_env(:aiur, :workflow_file_path, value)
+        nil -> Workflow.clear_workflow_file_path()
+        value -> Workflow.set_workflow_file_path(value)
       end
     end)
 
+    Workflow.set_workflow_file_path(disabled_config)
+    assert Config.telemetry_enabled?() == false
+
+    Workflow.set_workflow_file_path(Path.join(root, "missing.aiurconfig"))
     assert Config.telemetry_enabled?() == true
   end
 

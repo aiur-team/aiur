@@ -585,7 +585,7 @@ defmodule Aiur.Config do
   @doc "Whether run telemetry recording is active. True by default; set `observability.telemetry_enabled: false` to opt out."
   @spec telemetry_enabled?() :: boolean()
   def telemetry_enabled? do
-    case settings() do
+    case settings_uncached() do
       {:ok, %{observability: observability}} -> observability.telemetry_enabled
       _other -> true
     end

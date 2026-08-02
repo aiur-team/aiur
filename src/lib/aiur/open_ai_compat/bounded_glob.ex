@@ -60,14 +60,21 @@ defmodule Aiur.OpenAICompat.BoundedGlob do
   defp collect_paths(paths, workspace, matcher, limit, matches) do
     Enum.reduce_while(paths, {:cont, matches}, fn absolute, {:cont, current} ->
       relative = Path.relative_to(absolute, workspace)
-
-      if Regex.match?(matcher, relative) and inside_workspace?(workspace, relative) do
-        matches = [relative | current]
-        if length(matches) >= limit, do: {:halt, {:halt, matches}}, else: {:cont, {:cont, matches}}
-      else
-        {:cont, {:cont, current}}
-      end
+      collect_path(relative, workspace, matcher, limit, current)
     end)
+  end
+
+  defp collect_path(relative, workspace, matcher, limit, matches) do
+    if Regex.match?(matcher, relative) and inside_workspace?(workspace, relative) do
+      add_match(relative, matches, limit)
+    else
+      {:cont, {:cont, matches}}
+    end
+  end
+
+  defp add_match(relative, matches, limit) do
+    matches = [relative | matches]
+    if length(matches) >= limit, do: {:halt, {:halt, matches}}, else: {:cont, {:cont, matches}}
   end
 
   defp inside_workspace?(workspace, relative),

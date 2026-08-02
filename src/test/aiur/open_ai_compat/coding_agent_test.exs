@@ -560,11 +560,11 @@ defmodule Aiur.OpenAICompat.CodingAgentTest do
 
     checkpoint = fn
       %{kind: :tool_result} ->
-        unless Process.get(:batch_message_delivered) do
+        if Process.get(:batch_message_delivered) do
+          :noop
+        else
           Process.put(:batch_message_delivered, true)
           {:deliver_text, "After the batch", fn _metadata -> :ok end, fn _reason -> :ok end}
-        else
-          :noop
         end
 
       _ ->
