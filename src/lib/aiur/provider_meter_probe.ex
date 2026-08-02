@@ -2,8 +2,8 @@ defmodule Aiur.ProviderMeterProbe do
   @moduledoc """
   Observes provider usage without an agent ticket.
 
-  The two providers are observed differently, because they expose their
-  standing differently. Both were verified against the real thing.
+  Providers are observed according to the registry-declared probe for their
+  family, because each exposes a different honest standing.
 
   **Codex** pushes `account/rateLimits/updated` on app-server connect, with a
   consumed percentage. So its probe opens a session, lets the existing
@@ -17,6 +17,9 @@ defmodule Aiur.ProviderMeterProbe do
   and it is what the Claude Code TUI's own `/usage` reads. Going straight to it
   needs no agent, no turn, and no session-scoped binding, which is what lets
   Claude's meter work on an idle daemon. See `Aiur.Claude.UsageApi`.
+
+  OpenAI-compatible providers delegate their provider-specific balance and
+  credit probes to `Aiur.OpenAICompat.ProviderMeterProbe`.
 
   A probe that cannot observe is not an error: the retained observation keeps
   displaying with its true age, and the outcome names why.
@@ -35,6 +38,7 @@ defmodule Aiur.ProviderMeterProbe do
   @observation_window_ms 8_000
   @probe_identifier "usage-probe"
   @backend :app_server
+  @batch_timeout_ms 35_000
 
   @type target :: :all | atom()
   @type outcome :: %{provider: atom(), observed?: boolean(), reason: atom() | nil}
@@ -45,14 +49,55 @@ defmodule Aiur.ProviderMeterProbe do
   @spec observe(target(), keyword()) :: [outcome()]
   def observe(target \\ :all, opts \\ [])
 
-  def observe(:all, opts), do: Enum.map(CodingAgent.provider_families(), &observe_provider(&1, opts))
-  def observe(provider, opts) when is_atom(provider), do: [observe_provider(provider, opts)]
+  def observe(:all, opts) do
+    providers = CodingAgent.provider_families()
+    opts = Keyword.put(opts, :dispatchable_provider_set, dispatchable_provider_set(opts))
+
+    results =
+      Task.async_stream(providers, &observe_provider(&1, opts),
+        max_concurrency: max(length(providers), 1),
+        ordered: true,
+        timeout: Keyword.get(opts, :batch_timeout_ms, @batch_timeout_ms),
+        on_timeout: :kill_task
+      )
+
+    providers
+    |> Enum.zip(results)
+    |> Enum.map(fn
+      {_provider, {:ok, result}} -> result
+      {provider, {:exit, _reason}} -> outcome(provider, false, :probe_failed)
+    end)
+  end
+
+  def observe(provider, opts) when is_atom(provider) do
+    opts = Keyword.put(opts, :dispatchable_provider_set, dispatchable_provider_set(opts))
+    [observe_provider(provider, opts)]
+  end
 
   defp observe_provider(provider, opts) do
-    case CodingAgent.provider_meter_probe(provider) do
-      {backend, probe} when is_function(probe, 3) -> probe.(provider, backend, opts)
-      nil -> outcome(provider, false, :unsupported)
+    if provider_probe_enabled?(provider, opts) do
+      case CodingAgent.provider_meter_probe(provider) do
+        {backend, probe} when is_function(probe, 3) -> probe.(provider, backend, opts)
+        nil -> outcome(provider, false, :unsupported)
+      end
+    else
+      outcome(provider, false, :disabled)
     end
+  end
+
+  defp provider_probe_enabled?(provider, opts) do
+    provider |> Atom.to_string() |> then(&MapSet.member?(Keyword.fetch!(opts, :dispatchable_provider_set), &1))
+  end
+
+  defp dispatchable_provider_set(opts) do
+    opts
+    |> Keyword.get_lazy(:backend_configs, &Config.agent_backend_configs/0)
+    |> CodingAgent.dispatchable_backends()
+    |> MapSet.new()
+  rescue
+    _error -> MapSet.new(CodingAgent.dispatchable_backends())
+  catch
+    _kind, _reason -> MapSet.new(CodingAgent.dispatchable_backends())
   end
 
   @doc false
@@ -62,9 +107,13 @@ defmodule Aiur.ProviderMeterProbe do
 
     case open_probe_session(backend, opts) do
       {:ok, session, close} ->
-        wait_for_observation(provider, before, opts)
+        # The poll result is authoritative: once the window has seen the
+        # observation land, a later projection read that times out or finds the
+        # process momentarily gone must not downgrade it back to "not observed".
+        # The re-read only covers an observation that arrived during the close.
+        observed? = wait_for_observation(provider, before, opts) == :ok
         safe_close(close, session)
-        outcome(provider, observed_at(provider, opts) != before, nil)
+        outcome(provider, observed? or observed_at(provider, opts) != before, nil)
 
       {:error, reason} ->
         outcome(provider, false, reason)
