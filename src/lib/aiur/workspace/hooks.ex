@@ -112,12 +112,16 @@ defmodule Aiur.Workspace.Hooks do
     with {:ok, build_gate_env} <- local_build_gate_env(build_guard_root) do
       shell = if build_gate_env == [], do: "sh", else: "bash"
 
+      startup_env =
+        Aiur.AgentEnvironment.system_shell_startup_env()
+        |> Enum.reject(fn {name, _value} -> name == "BASH_ENV" and build_gate_env != [] end)
+
       task =
         Task.async(fn ->
-          System.cmd(shell, ["-lc", scrubbed_command],
+          System.cmd(shell, ["-c", scrubbed_command],
             cd: workspace,
             stderr_to_stdout: true,
-            env: build_gate_env ++ hook_env(issue_context)
+            env: startup_env ++ build_gate_env ++ hook_env(issue_context)
           )
         end)
 

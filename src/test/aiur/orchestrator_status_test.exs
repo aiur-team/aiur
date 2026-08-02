@@ -4388,6 +4388,7 @@ defmodule Aiur.OrchestratorStatusTest do
            } = state.retry_attempts[issue_id]
 
     assert is_integer(due_at_ms)
+    assert state.orphaned_agent_reap_count == 1
 
     # Attempt 1 schedules a fixed 10s base backoff (@failure_retry_base_ms).
     # `due_at_ms` was set to (monotonic_at_schedule + 10_000) at some instant

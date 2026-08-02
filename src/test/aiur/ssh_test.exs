@@ -19,7 +19,7 @@ defmodule Aiur.SSHTest do
              SSH.run("root@[::1]:2200", "printf ok", stderr_to_stdout: true)
 
     trace = File.read!(trace_file)
-    assert trace =~ "-T -p 2200 root@[::1] bash -lc"
+    assert trace =~ "-T -p 2200 root@[::1] env -u BASH_ENV -u ENV ZDOTDIR=/dev/null bash -c"
     assert trace =~ "printf ok"
   end
 
@@ -39,7 +39,7 @@ defmodule Aiur.SSHTest do
              SSH.run("::1:2200", "printf ok", stderr_to_stdout: true)
 
     trace = File.read!(trace_file)
-    assert trace =~ "-T ::1:2200 bash -lc"
+    assert trace =~ "-T ::1:2200 env -u BASH_ENV -u ENV ZDOTDIR=/dev/null bash -c"
     refute trace =~ "-p 2200"
   end
 
@@ -63,7 +63,7 @@ defmodule Aiur.SSHTest do
 
     trace = File.read!(trace_file)
     assert trace =~ "-F /tmp/aiur-test-ssh-config"
-    assert trace =~ "-T -p 2222 localhost bash -lc"
+    assert trace =~ "-T -p 2222 localhost env -u BASH_ENV -u ENV ZDOTDIR=/dev/null bash -c"
     assert trace =~ "echo ready"
   end
 
@@ -83,7 +83,7 @@ defmodule Aiur.SSHTest do
              SSH.run("root@127.0.0.1:2200", "printf ok", stderr_to_stdout: true)
 
     trace = File.read!(trace_file)
-    assert trace =~ "-T -p 2200 root@127.0.0.1 bash -lc"
+    assert trace =~ "-T -p 2200 root@127.0.0.1 env -u BASH_ENV -u ENV ZDOTDIR=/dev/null bash -c"
     assert trace =~ "printf ok"
   end
 
@@ -175,7 +175,7 @@ defmodule Aiur.SSHTest do
     wait_for_trace!(trace_file)
 
     trace = File.read!(trace_file)
-    assert trace =~ "-T localhost bash -lc"
+    assert trace =~ "-T localhost env -u BASH_ENV -u ENV ZDOTDIR=/dev/null bash -c"
     refute trace =~ " -F "
   end
 
@@ -201,12 +201,12 @@ defmodule Aiur.SSHTest do
     wait_for_trace!(trace_file)
 
     trace = File.read!(trace_file)
-    assert trace =~ "-T -p 2222 localhost bash -lc"
+    assert trace =~ "-T -p 2222 localhost env -u BASH_ENV -u ENV ZDOTDIR=/dev/null bash -c"
   end
 
   test "remote_shell_command/1 escapes embedded single quotes" do
     assert SSH.remote_shell_command("printf 'hello'") ==
-             "bash -lc 'printf '\"'\"'hello'\"'\"''"
+             "env -u BASH_ENV -u ENV ZDOTDIR=/dev/null bash -c 'printf '\"'\"'hello'\"'\"''"
   end
 
   defp install_fake_ssh!(test_root, trace_file, script \\ nil) do

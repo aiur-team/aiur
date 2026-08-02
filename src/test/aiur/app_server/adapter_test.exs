@@ -380,6 +380,18 @@ defmodule Aiur.AppServer.AdapterTest do
     assert_receive {^port, {:data, {:eol, "ready"}}}, 1_000
   end
 
+  test "start_port does not source a supplied BASH_ENV file" do
+    bash_env = Path.join(System.tmp_dir!(), "aiur-adapter-startup-#{System.unique_integer([:positive])}")
+    File.write!(bash_env, "printf 'profile-loaded\n'")
+    on_exit(fn -> File.rm(bash_env) end)
+
+    assert {:ok, port} =
+             Adapter.start_port(File.cwd!(), "printf 'ready\n'", fn _port -> :ok end, env: [{"BASH_ENV", bash_env}])
+
+    assert_receive {^port, {:data, {:eol, "ready"}}}, 1_000
+    refute_receive {^port, {:data, {:eol, "profile-loaded"}}}, 100
+  end
+
   test "start_port/4 accepts string-valued launch environment" do
     assert {:ok, port} =
              Adapter.start_port(

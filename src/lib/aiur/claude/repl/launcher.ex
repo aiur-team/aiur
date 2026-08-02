@@ -12,7 +12,7 @@ defmodule Aiur.Claude.Repl.Launcher do
   alias Aiur.Claude.Repl.Command
   alias Aiur.Claude.Repl.RcAttach
   alias Aiur.Claude.Repl.Reaper
-  alias Aiur.{ProcessReaper, Tmux}
+  alias Aiur.{AgentEnvironment, ProcessReaper, Tmux}
 
   @ready_prompt "❯"
   @ready_poll_ms 200
@@ -125,11 +125,20 @@ defmodule Aiur.Claude.Repl.Launcher do
     end
   end
 
-  defp new_hidden_window(%{telemetry_launch: %{env: env}} = ctx, command) when is_list(env) do
-    Tmux.new_hidden_window_with_env(ctx.tmux, ctx.window_name, command, env)
-  end
+  defp new_hidden_window(ctx, command) do
+    telemetry_env =
+      case ctx.telemetry_launch do
+        %{env: env} when is_list(env) -> env
+        _ -> []
+      end
 
-  defp new_hidden_window(ctx, command), do: Tmux.new_hidden_window(ctx.tmux, ctx.window_name, command)
+    Tmux.new_hidden_window_with_env(
+      ctx.tmux,
+      ctx.window_name,
+      command,
+      telemetry_env ++ AgentEnvironment.shell_startup_env()
+    )
+  end
 
   defp notify_provider_started(%{opts: opts}, os_pid, process_group_id) do
     callback = Keyword.get(opts, :on_provider_started, fn _provider -> :ok end)

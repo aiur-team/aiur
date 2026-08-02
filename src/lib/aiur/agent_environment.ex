@@ -30,6 +30,7 @@ defmodule Aiur.AgentEnvironment do
   @provider_credential_env_names ~w(DEEPSEEK_API_KEY MOONSHOT_API_KEY OPENROUTER_API_KEY OPENROUTER_MANAGEMENT_KEY)
   @provider_api_key_pattern ~r/_API_KEY\z/
   @scheduler_option ~r/(^|\s)\+S\s+\d+(?::\d+)?/
+  @neutral_zdotdir "/dev/null"
 
   @spec erlang_distribution_env_name?(String.t()) :: boolean()
   def erlang_distribution_env_name?(name) when is_binary(name) do
@@ -39,8 +40,40 @@ defmodule Aiur.AgentEnvironment do
   @spec scrub_shell_command(String.t(), keyword()) :: String.t()
   def scrub_shell_command(command, opts \\ []) when is_binary(command) do
     exec_prefix = if Keyword.get(opts, :exec, false), do: "exec ", else: ""
-    "#{scrub_shell_prefix()}; #{exec_prefix}#{command}"
+    "#{shell_startup_prefix()}; #{scrub_shell_prefix()}; #{exec_prefix}#{command}"
   end
+
+  @doc """
+  Startup-file suppression for every shell that Aiur starts on an agent's
+  behalf. These values are deliberately applied at the process boundary, before
+  the shell gets a chance to interpret an operator-controlled startup variable.
+  """
+  @spec shell_startup_env() :: [{String.t(), String.t() | false}]
+  def shell_startup_env, do: [{"BASH_ENV", false}, {"ENV", false}, {"ZDOTDIR", @neutral_zdotdir}]
+
+  @doc """
+  Same suppression as `shell_startup_env/0`, in the shape `System.cmd/3`
+  accepts. `System.cmd` spells "remove this variable" as `nil`; `Port.open`
+  and tmux spell it `false`.
+  """
+  @spec system_shell_startup_env() :: [{String.t(), String.t() | nil}]
+  def system_shell_startup_env do
+    Enum.map(shell_startup_env(), fn
+      {name, false} -> {name, nil}
+      {name, value} -> {name, value}
+    end)
+  end
+
+  @spec port_shell_startup_env() :: [{charlist(), charlist() | false}]
+  def port_shell_startup_env do
+    Enum.map(shell_startup_env(), fn
+      {name, false} -> {String.to_charlist(name), false}
+      {name, value} -> {String.to_charlist(name), String.to_charlist(value)}
+    end)
+  end
+
+  @spec shell_startup_prefix() :: String.t()
+  def shell_startup_prefix, do: "unset BASH_ENV ENV; export ZDOTDIR=#{Aiur.Shell.escape(@neutral_zdotdir)}"
 
   @spec scrub_shell_prefix() :: String.t()
   def scrub_shell_prefix do
@@ -162,6 +195,18 @@ defmodule Aiur.AgentEnvironment do
         fn name -> {String.to_charlist(name), false} end
       )
 
+    build_gate_env =
+      BuildGate.shell_env()
+      |> Enum.reject(fn {name, _value} -> name == "BASH_ENV" end)
+
+    shell_startup_env =
+      shell_startup_env()
+      |> Kernel.++(build_gate_env)
+      |> Enum.map(fn
+        {name, false} -> {String.to_charlist(name), false}
+        {name, value} -> {String.to_charlist(name), String.to_charlist(value)}
+      end)
+
     workspace_env =
       [
         {~c"HEX_HOME", String.to_charlist(hex)},
@@ -216,7 +261,8 @@ defmodule Aiur.AgentEnvironment do
         build_gate_bin_env(workspace, build_gate_env) ++
         Enum.map(build_gate_env, fn {name, value} ->
           {String.to_charlist(name), String.to_charlist(value)}
-        end)
+        end) ++
+        shell_startup_env
 
     unset_inherited_env ++ workspace_env
   end

@@ -149,7 +149,7 @@ defmodule Aiur.AppServer.Adapter do
             :binary,
             :exit_status,
             :stderr_to_stdout,
-            args: [~c"-lc", String.to_charlist(AgentEnvironment.scrub_shell_command(command))],
+            args: [~c"-c", String.to_charlist(AgentEnvironment.scrub_shell_command(command))],
             cd: String.to_charlist(workspace),
             env: AgentEnvironment.workspace_env(workspace) ++ port_env(Keyword.get(opts, :env, [])),
             line: @port_line_bytes
@@ -181,6 +181,12 @@ defmodule Aiur.AppServer.Adapter do
   # the owned process starts.
   defp port_env(env) when is_list(env) do
     Enum.flat_map(env, fn
+      {name, _value} when name in ["BASH_ENV", "ENV", "ZDOTDIR"] ->
+        []
+
+      {name, _value} when name in [~c"BASH_ENV", ~c"ENV", ~c"ZDOTDIR"] ->
+        []
+
       {name, value} when is_binary(name) and is_binary(value) ->
         [{String.to_charlist(name), String.to_charlist(value)}]
 

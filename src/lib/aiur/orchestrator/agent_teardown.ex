@@ -197,7 +197,7 @@ defmodule Aiur.Orchestrator.AgentTeardown do
     # orphan and keep working on a single-pid kill, so reap the subtree.
     RemoteControl.graceful_kill_tree(os_pid)
 
-    # The headless fallback has no pane; its `bash -lc` wrapper leaves
+    # The headless fallback has no pane; its `bash -c` wrapper leaves
     # claude/node grandchildren that reparent to init, so reap the subtree.
     RemoteControl.graceful_kill_tree(Map.get(running_entry, :headless_os_pid))
 

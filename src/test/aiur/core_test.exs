@@ -1983,8 +1983,8 @@ defmodule Aiur.CoreTest do
       end
 
       trace = File.read!(trace_file)
-      assert trace =~ "worker-a bash -lc"
-      refute trace =~ "worker-b bash -lc"
+      assert trace =~ "worker-a env -u BASH_ENV -u ENV ZDOTDIR=/dev/null bash -c"
+      refute trace =~ "worker-b env -u BASH_ENV -u ENV ZDOTDIR=/dev/null bash -c"
     after
       File.rm_rf(test_root)
     end

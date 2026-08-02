@@ -380,6 +380,28 @@ defmodule Aiur.AgentEnvironmentTest do
     refute remote_output =~ "elevenlabs-secret"
   end
 
+  test "shell startup suppression clears profile hooks" do
+    assert AgentEnvironment.shell_startup_env() == [{"BASH_ENV", false}, {"ENV", false}, {"ZDOTDIR", "/dev/null"}]
+    assert AgentEnvironment.shell_startup_prefix() == "unset BASH_ENV ENV; export ZDOTDIR='/dev/null'"
+  end
+
+  test "Aiur source never passes gh message bodies inline" do
+    repo_root = Path.expand("../../..", __DIR__)
+
+    offenders =
+      (Path.wildcard(Path.join(repo_root, "src/lib/**/*.ex")) ++
+         Path.wildcard(Path.join(repo_root, ".claude/skills/**/*")))
+      |> Enum.filter(&File.regular?/1)
+      |> Enum.filter(fn path ->
+        contents = File.read!(path)
+
+        String.contains?(contents, "gh") and
+          (String.contains?(contents, "--body ") or String.contains?(contents, "--body="))
+      end)
+
+    assert offenders == []
+  end
+
   test "scrub_shell_command preserves caller exec choice" do
     refute AgentEnvironment.scrub_shell_command("codex app-server") =~ "; exec codex"
     assert AgentEnvironment.scrub_shell_command("codex app-server", exec: true) =~ "; exec codex app-server"
@@ -491,8 +513,9 @@ defmodule Aiur.AgentEnvironmentTest do
       assert {~c"ELIXIR_ERL_OPTIONS", options} = List.keyfind(env, ~c"ELIXIR_ERL_OPTIONS", 0)
       assert to_string(options) =~ "+S 4:4"
 
-      assert {~c"BASH_ENV", hook_path} = List.keyfind(env, ~c"BASH_ENV", 0)
-      assert File.regular?(to_string(hook_path))
+      assert {~c"BASH_ENV", false} = List.keyfind(env, ~c"BASH_ENV", 0)
+      assert {~c"ENV", false} = List.keyfind(env, ~c"ENV", 0)
+      assert {~c"ZDOTDIR", ~c"/dev/null"} = List.keyfind(env, ~c"ZDOTDIR", 0)
 
       assert {~c"AIUR_BUILD_GATE_BIN", ~c"/work/aiur/440/.aiur-runtime/build-bin"} =
                List.keyfind(env, ~c"AIUR_BUILD_GATE_BIN", 0)

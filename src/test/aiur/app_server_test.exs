@@ -1384,7 +1384,8 @@ defmodule Aiur.AppServerTest do
         |> :binary.split(<<0>>, [:global, :trim_all])
 
       assert ["-T", "-p", "2200", "worker-01", remote_command] = ssh_argv
-      assert remote_command =~ "bash -lc "
+      assert remote_command =~ "env -u BASH_ENV -u ENV ZDOTDIR=/dev/null bash -c "
+      refute remote_command =~ "bash -lc "
       assert remote_command =~ "cd "
       assert remote_command =~ remote_workspace
       assert remote_command =~ "exec "

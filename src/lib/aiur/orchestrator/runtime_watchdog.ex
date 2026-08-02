@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
 
   require Logger
 
-  alias Aiur.{Config, Issue}
+  alias Aiur.{Alerts, Config, Issue}
   alias Aiur.Orchestrator.{AgentTeardown, PauseResume, RetryEngine, State}
 
   @spec apply_overrun_check(State.t(), non_neg_integer()) :: State.t()
@@ -203,6 +203,7 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
 
       state
       |> AgentTeardown.terminate_running_issue(issue_id, false)
+      |> record_orphan_reap(running_entry, elapsed_ms)
       |> RetryEngine.schedule_issue_retry(issue_id, next_attempt, %{
         identifier: identifier,
         tracker_identity: Issue.tracker_identity(Map.get(running_entry, :issue)),
@@ -214,6 +215,25 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
     else
       state
     end
+  end
+
+  defp record_orphan_reap(state, running_entry, elapsed_ms) do
+    issue = Map.get(running_entry, :issue)
+    identifier = Map.get(running_entry, :identifier)
+    count = Map.get(state, :orphaned_agent_reap_count, 0) + 1
+
+    _ =
+      Alerts.emit_custom(
+        "agent.orphan_reaped",
+        "Reaped unresponsive agent shell for #{identifier}; orphaned_agent_reap_count=#{count}",
+        issue: issue,
+        workspace: Map.get(running_entry, :workspace_path),
+        worker_host: Map.get(running_entry, :worker_host),
+        reason: "no agent progress for #{elapsed_ms}ms; terminated the agent process tree before retry",
+        needs_attention: true
+      )
+
+    %{state | orphaned_agent_reap_count: count}
   end
 
   defp stall_elapsed_ms(running_entry, now) do
