@@ -2,7 +2,7 @@
 date: 2026-05-24
 topic: Aiur — agent event publishing + subscription system (architecture-aware rewrite)
 branch: pubsub
-issue: https://github.com/its-everdred/aiur/issues/22
+issue: https://github.com/aiur-team/aiur/issues/22
 status: ready-for-planning
 supersedes: 2026-05-18-aiur-event-publishing-subscriptions-brainstorm.md (deleted in repo cleanup)
 ---
@@ -640,7 +640,7 @@ Symlink lets both runtimes load the same content. Shared agent instructions stay
 
 ### Setup
 
-Three persistent GitHub issues on `its-everdred/aiur`, labeled `test:event-flow:1` / `:2` / `:3`. The function chain lives in `elixir/lib/aiur/sandbox/event_flow_demo.ex`. Each ticket also asks for unrelated work on a sibling file in the same sandbox directory, so we can verify the agent — guided only by the shared prompt + the GitHub `blocked-by` graph — prioritizes the chain function (which unblocks others) over the unrelated work.
+Three persistent GitHub issues on `aiur-team/aiur`, labeled `test:event-flow:1` / `:2` / `:3`. The function chain lives in `elixir/lib/aiur/sandbox/event_flow_demo.ex`. Each ticket also asks for unrelated work on a sibling file in the same sandbox directory, so we can verify the agent — guided only by the shared prompt + the GitHub `blocked-by` graph — prioritizes the chain function (which unblocks others) over the unrelated work.
 
 **Ticket bodies must not contain any behavioral hints.** No mention of "blocking", "priority", "stub", "wait", "push only", or "no PR". The only signals reaching the agent are the GitHub `blocked-by` relation (auto-subscribes the agent to the upstream ticket's actionable events) and the shared prompt rules.
 
@@ -694,7 +694,7 @@ Manual verification observes: did #C declare `blocked_by` via the API, or did it
 Guards (all required by default; each has a targeted opt-out):
 1. **Pinned ticket IDs** — `.aiur-test-tickets.json` (committed to the repo) lists the three issue numbers. The reset refuses to act on any ticket whose ID is not in this file even if its label matches `test:event-flow:N`. Override: edit the file; there is no command-line bypass.
 2. **Clean working tree** — `git status --porcelain` must be empty; otherwise the reset aborts with the staged/unstaged file list. Override: `--force`.
-3. **Expected git remote** — `git remote get-url origin` must match the repo declared in the active WORKFLOW (e.g., `its-everdred/aiur`). Override: `--allow-remote`.
+3. **Expected git remote** — `git remote get-url origin` must match the repo declared in the active WORKFLOW (e.g., `aiur-team/aiur`). Override: `--allow-remote`.
 4. **Dry-run by default** — prints the destructive plan (branches to delete, PRs to close, labels to strip, workspace paths to remove, sandbox-file restore points). Requires `--confirm` to actually execute. Override: implicit — `--confirm` is the opt-in.
 
 Reset steps (executed only after all guards pass and `--confirm` is present):

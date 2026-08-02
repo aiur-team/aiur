@@ -240,6 +240,34 @@ are direct P0/P1 blockers.
 
 ## 5. Drive the run
 
+### A quiet fleet is usually blocked, not idle
+
+Four distinct faults present identically as "the fleet is quiet", and none of
+them log anything. Work this ladder before any per-agent triage:
+
+1. run bare `"$AIUR_CMD" resume`. The global pause switch survives daemon
+   restarts and machine reboots, and per-ticket `resume <id>` exits 0 silently
+   while it is on;
+2. check `agent.max_concurrent_agents` in `.aiur/config`; it silently floors the
+   `--max-agents` flag (a configured 16 beats a passed 32);
+3. check the prewarm gate: `~/.aiur/repo/<owner>/<repo>/base-record.json` must
+   match `latest`'s `HEAD` and the configured prewarm script hash. A failed
+   base build holds every dispatch tick (issue #1404); the repository node
+   carries the clone, cache sidecars, and record across an org rename;
+4. account for the adaptive dispatch envelope: it starts at **1 slot on every
+   daemon start** (`dispatch_policy.ex:48`) and widens by `load_ramp_step` per
+   below-target sample. With defaults (target 1.0, step 1, cooldown 60s) a
+   restarted fleet needs ~30 minutes to reach 32, which reads as idle rather
+   than ramping. Do not measure capacity within minutes of a restart.
+
+Review feedback does not wake agents into rework (issue #1389): tickets sit in
+`agent:human-review` with `CHANGES_REQUESTED` PRs and nothing picks them up.
+After posting reviews, relabel `agent:human-review` -> `agent:rework` by hand.
+
+Alerts persist across daemon restarts and tokens (full-history scan, #1231), so
+the `ACTIONABLE` list keeps naming long-merged tickets. Check timestamps before
+acting and trust the top state table over the alert list.
+
 On every observation:
 
 - act on the `ACTIONABLE` section before routine scheduling;
@@ -267,7 +295,14 @@ On every observation:
   CPU idle/run queue, available memory, FD and build pressure, and occupied
   agent slots. Distinguish current worker-owned browser/test processes from
   stale PID-1 daemons with no live owner; the latter are recoverable capacity,
-  not load to schedule around;
+  not load to schedule around. Measured on a 16-core/31 GB host, saturation is
+  ~19-20 concurrent agents (load ~14, memory 10/31 GB, GitHub budget
+  4668/5000): CPU is the real ceiling, memory and API budget are not close.
+  Note `max_load_average` is multiplied by the scheduler count, so `1.5` means
+  "hold at load ~18" on 16 cores — it is not a 1.5 load cap;
+- before dispatching a ticket, check whether its work already exists. Tickets
+  whose deliverables shipped months ago or sit in an open draft PR produce
+  busywork or agents that pause repeatedly with nothing to do;
 - do not inflate utilization by waking `ci-wait`, human-review, dependency-
   blocked, or conflict-bound tickets. Those are external gates, not idle worker
   lanes. Instead fill reviewer capacity and staff the unblocker/fan-out spine;
@@ -326,14 +361,61 @@ defer non-blocking nits, and record the evidence and reason for takeover. The
 purpose is fast, safe convergence—not making the Executor the default worker.
 
 Once the gate holds, reserve capacity for the required parallel review/rework
-loop defined in the Executor reference. Verify that review comments reach the
-owning worker through the event path. Merge only under the recorded policy and
-protect typed dependency/conflict ordering.
+loop defined in the Executor reference. The reviewer's first task is to diff the
+PR body's claims against the diff; any claim the diff does not support is a P1.
+Ask of every new test whether it would pass against a trivially wrong
+implementation. Verify that review comments reach the owning worker through the
+event path. Merge only under the recorded policy and protect typed
+dependency/conflict ordering.
 
 After every merge, dependency change, CI completion, review result, or material
 load change, recompute ready width and the safe concurrency ceiling immediately.
 Dispatch the newly ready batch in the same observation; never wait for the next
 reporting tick merely to restore utilization.
+
+### Hourly meta-analysis
+
+Alongside the wake/outcome retrospective above, run an hourly meta-analysis of
+the work itself (proven repeatedly in the 2026-07 analytics-streamdeck run):
+
+1. name THE single thing currently costing the most wall-clock, quantified —
+   minutes lost, CI cycles burned, agents idle. Breadth summaries are not the
+   deliverable; the organizing question is "what is the latest thing taking the
+   most time, and how do we shrink it?" There is always a next bottleneck; when
+   one falls, the next entry names its successor;
+2. classify recurring problems, not incidents — ask what CLASS of failure
+   recurred this hour (the reference lists the known classes);
+3. when a class recurs (rule of thumb: 3+ reproductions, or 2 with a shared
+   root cause), file ONE systemic ticket attacking the class instead of
+   patching more instances, recording the reproductions that justify it. At
+   most 1-2 evidence-backed systemic tickets per pattern, and never expand the
+   active feature boundary with them;
+4. write the entry — bottleneck, number, proposed reduction, filed vs deferred
+   — in a durable retrospective log (e.g.
+   `docs/executor/hourly-retrospectives.md` on the run's research/handoff
+   branch); a replacement Executor resumes from it;
+5. daily, review the accumulated notes and ask whether any Aiur skill should
+   change so the next run never rediscovers the lesson; land the concrete
+   skill-doc edit as a small PR.
+
+### Merge mechanics
+
+Branch protection measures the identity of the **pusher**, not the commit
+author, and `require_last_push_approval` uses it. An inline
+`git -c credential.helper=` override silently falls back to the cached `gh`
+credential, and a token-bearing remote URL does not repair a branch whose last
+push already carries the wrong identity. Push agent work with an explicit
+token-bearing URL from the start, and open agent PRs with the agent token —
+GitHub counts the PR **opener** for self-approval, not the commit author.
+
+The ruleset has no `required_status_checks` rule, so nothing blocks merging with
+failing CI; verify checks by hand before every merge. A solo operator also
+cannot merge `develop` -> `main` through the gate (issue #1437): with a
+two-owner CODEOWNERS plus `require_code_owner_review` and
+`require_last_push_approval`, `--admin` does not bypass it. The documented
+workaround is a ruleset window — back up the ruleset, disable, merge, restore,
+then **re-read the ruleset to verify restoration** instead of trusting the
+write.
 
 ## 6. Backstop and defects
 
@@ -355,6 +437,19 @@ broken controls, follow the reference's sanitization and consent policy:
   commenting.
 
 Always remove secrets and privacy-sensitive context, regardless of debug mode.
+
+### Environment hazards
+
+- Backgrounded shell commands containing heredocs can silently fail to apply
+  while reporting success; this has produced a duplicated config block and a
+  duplicated doc section. Prefer the Write/Edit tools for file content, and
+  verify the file after any heredoc write or append rather than trusting the
+  exit status.
+- A global rename is only safe where the value is a literal on both sides of an
+  assertion. A fixture that composes a value from parts (`owner: "x"` plus a
+  repo name) has its assertion renamed and its producer missed. Grep for the
+  unjoined components, not just the composed string; missing this broke three
+  of four coverage shards and the browser harness.
 
 When a reproducible Aiur defect is discovered, diagnose and file it first, then
 decide separately whether to dispatch it *now*. Free capacity is necessary but

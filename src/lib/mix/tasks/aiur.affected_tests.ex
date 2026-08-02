@@ -13,6 +13,16 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
   running the full `make ci` suite when the change cannot be scoped safely.
   `make ci` remains the authoritative gate; this only picks the scoped local
   run. Mapping lives in `Aiur.AffectedTests.select/2`.
+
+  ## Base branch resolution
+
+  When no `base_ref` argument is supplied, the base is resolved in order:
+
+  1. `AIUR_BASE_BRANCH` environment variable (set in agent processes)
+  2. `tracker.base_branch` from the `.aiur/config` file (`Aiur.Config.base_branch/0`)
+  3. Falls back to `"main"`
+
+  The resolved name is prefixed with `origin/` and used as the merge-base ref.
   """
 
   @impl Mix.Task
@@ -59,13 +69,19 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
     end
   end
 
+  @doc false
+  @spec xref_sinks([String.t()], String.t()) :: [String.t()]
+  def xref_sinks(changed, root) do
+    changed
+    |> Enum.filter(fn path ->
+      String.starts_with?(path, "src/lib/") and String.ends_with?(path, ".ex") and
+        File.exists?(Path.join(root, path))
+    end)
+    |> Enum.map(&String.replace_prefix(&1, "src/", ""))
+  end
+
   defp xref_dependents(root, changed) do
-    sinks =
-      changed
-      |> Enum.filter(fn path ->
-        String.starts_with?(path, "src/lib/") and String.ends_with?(path, ".ex")
-      end)
-      |> Enum.map(&String.replace_prefix(&1, "src/", ""))
+    sinks = xref_sinks(changed, root)
 
     if sinks == [] do
       {:ok, []}
@@ -108,10 +124,24 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
   defp requested_or_default_base(_root, [base | _]), do: {:ok, base}
 
   defp requested_or_default_base(root, []) do
-    case git(root, ["merge-base", "HEAD", "origin/main"]) do
+    origin = default_origin()
+
+    case git(root, ["merge-base", "HEAD", origin]) do
       {:ok, [sha]} -> {:ok, sha}
       {:ok, other} -> {:error, "git merge-base returned #{inspect(other)}"}
-      {:error, reason} -> {:error, reason}
+      {:error, reason} -> {:error, "#{reason}\nHint: base ref `#{origin}` not found locally; run `git fetch origin`"}
+    end
+  end
+
+  @doc false
+  @spec default_origin((-> String.t())) :: String.t()
+  def default_origin(config_fn \\ &Aiur.Config.base_branch/0) do
+    case System.get_env("AIUR_BASE_BRANCH") do
+      branch when is_binary(branch) and branch != "" ->
+        "origin/" <> String.trim_leading(branch, "origin/")
+
+      _ ->
+        "origin/" <> config_fn.()
     end
   end
 

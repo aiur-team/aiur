@@ -1,7 +1,11 @@
 # aiur warm-base build — referenced from .aiur/config via `prewarm.base_build_file: prewarm`.
-# Runs once in a checkout of the target branch at ~/.aiur/repo/<owner>/<name>; aiur then
+# Runs once in a checkout of the target branch at ~/.aiur/repo/<owner>/<name>/latest; aiur then
 # materializes each agent workspace from the result via copy-on-write.
-# HEX_HOME/MIX_HOME are scoped under the base so the warm caches copy into workspaces.
-mkdir -p ./.aiur-hex ./.aiur-mix
-HEX_HOME="$PWD/.aiur-hex" MIX_HOME="$PWD/.aiur-mix" \
-  bash -c 'cd src && mise exec -- mix local.hex --force --if-missing && mise exec -- mix local.rebar --force --if-missing && mise exec -- mix deps.get && mise exec -- mix compile && mise exec -- mix dialyzer --plt'
+# RepoBase supplies node-level cache homes; the defaults keep direct invocation
+# safe while ensuring no cache sidecar lands in the clone that workspaces copy.
+: "${HEX_HOME:=$PWD/../.aiur-hex}"
+: "${MIX_HOME:=$PWD/../.aiur-mix}"
+: "${npm_config_cache:=$PWD/../.aiur-npm-cache}"
+mkdir -p "$HEX_HOME" "$MIX_HOME" "$npm_config_cache"
+export HEX_HOME MIX_HOME npm_config_cache
+bash -c 'cd src && mise exec -- mix local.hex --force --if-missing && mise exec -- mix local.rebar --force --if-missing && mise exec -- mix deps.get && mise exec -- mix compile && mise exec -- mix dialyzer --plt'

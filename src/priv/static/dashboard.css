@@ -463,6 +463,14 @@ textarea:focus-visible,
   border-collapse: collapse;
 }
 
+.bo-catalog-table .bo-catalog-active {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.bo-catalog-table .bo-catalog-completed {
+  opacity: .78;
+}
+
 .bo-catalog-table th:first-child,
 .bo-catalog-table td:first-child {
   white-space: nowrap;
@@ -552,6 +560,15 @@ textarea:focus-visible,
   text-decoration: none;
   font-weight: 600;
   font-size: 0.88rem;
+}
+
+.bo-catalog-icon {
+  display: inline-flex;
+  width: 1.35rem;
+  justify-content: center;
+  margin-right: 0.35rem;
+  color: var(--accent);
+  font-size: 1rem;
 }
 
 .bo-catalog-link::after {
@@ -2262,14 +2279,9 @@ html[data-theme="light"] .toggle-icon .moon {
   border-color: var(--blocking-line);
 }
 
-.chip.cmd-agent.is-claude {
-  color: #f2a76b;
-  border-color: rgba(242, 167, 107, 0.4);
-}
-
-.chip.cmd-agent.is-codex {
-  color: #8fbcff;
-  border-color: rgba(143, 188, 255, 0.4);
+.chip.cmd-agent {
+  color: var(--provider-command-color, var(--fg));
+  border-color: var(--provider-command-border, var(--line-strong));
 }
 
 .chip.faint {
@@ -3143,16 +3155,10 @@ html[data-theme="light"] .toggle-icon .moon {
   color: var(--fg);
 }
 
-.u-agent.is-claude {
-  color: #f0a878;
-  border-color: rgba(240, 168, 120, 0.4);
-  background: rgba(240, 168, 120, 0.12);
-}
-
-.u-agent.is-codex {
-  color: #8fbcff;
-  border-color: rgba(143, 188, 255, 0.4);
-  background: rgba(143, 188, 255, 0.12);
+.u-agent {
+  color: var(--provider-unit-color, var(--fg));
+  border-color: var(--provider-unit-border, var(--line-strong));
+  background: var(--provider-unit-background, var(--pill-bg));
 }
 
 .u-cx {
@@ -5061,11 +5067,11 @@ html[data-theme="light"] .toggle-icon .moon {
     max-width: 26rem;
     margin-inline: auto;
     display: grid;
-    /* Four equal route cells plus one auto cell for the control cluster, so the
-       pause and theme toggles ride along in the nav instead of vanishing with
-       the hidden sidebar. `auto` keeps them at their natural icon width rather
-       than stealing a fifth of the row from the route labels. */
-    grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
+    /* Five equal route cells plus one auto cell for the control cluster, so the
+       pause toggle rides along in the nav instead of vanishing with the hidden
+       sidebar. `auto` keeps it at its natural icon width rather than stealing
+       space from the route labels. */
+    grid-template-columns: repeat(5, minmax(0, 1fr)) auto;
     gap: 0.2rem;
     padding: 0.3rem;
     border: 1px solid var(--line-strong);
@@ -7163,4 +7169,517 @@ html[data-theme="light"] .toggle-icon .moon {
 
 .bo-edge-dot.is-cleared {
   fill: var(--good);
+}
+
+/* Stream Deck emulator. The device stays physically dark in either dashboard
+   theme; all legible copy still uses the dashboard's themed ink tokens. */
+.sd-stage {
+  display: grid;
+  place-items: start center;
+  min-width: 0;
+  padding: 0.5rem 0 2rem;
+}
+
+.sd-device {
+  display: grid;
+  width: min(100%, 620px);
+  max-width: 620px;
+  gap: 1.15rem;
+  padding: 1.5rem 1.7rem 1.8rem;
+  border: 1px solid #3a3b40;
+  border-radius: 34px;
+  background: linear-gradient(180deg, #2a2b2e, #201f22 55%, #161517);
+  box-shadow: 0 28px 54px rgba(0, 0, 0, 0.42), inset 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.sd-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  color: var(--fg);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+}
+
+.sd-brand-mark {
+  display: grid;
+  grid-template-columns: repeat(2, 4px);
+  gap: 2px;
+}
+
+.sd-brand-mark i {
+  display: block;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent-ink);
+}
+
+.sd-keys {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  column-gap: 1.9rem;
+  row-gap: 1rem;
+}
+
+.sd-key {
+  --sd-accent: var(--accent);
+  --sd-glow: var(--accent-soft);
+  aspect-ratio: 1 / 1;
+  min-width: 0;
+  padding: 3px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--sd-accent) 54%, #07090b);
+  border-radius: 15px;
+  background: linear-gradient(145deg, var(--sd-glow), #0a0b0d 65%);
+  box-shadow: 0 0 14px var(--sd-glow), inset 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.sd-key-face {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  padding: 0.48rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: #0f151c;
+  color: var(--fg);
+}
+
+.sd-key-topline,
+.sd-key-footer {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 0.28rem;
+}
+
+.sd-key-topline {
+  justify-content: space-between;
+  color: var(--muted);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.52rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.sd-key-priority {
+  color: var(--attention-ink);
+  font-size: 0.62rem;
+}
+
+.sd-key-main {
+  display: grid;
+  align-content: center;
+  min-width: 0;
+  gap: 0.18rem;
+}
+
+.sd-key-ticket {
+  color: var(--sd-accent);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.58rem;
+  font-weight: 800;
+}
+
+.sd-key-title {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--fg);
+  font-size: clamp(0.58rem, 1.4vw, 0.72rem);
+  font-weight: 700;
+  line-height: 1.12;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.sd-key-footer {
+  color: var(--muted);
+  font-size: 0.5rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.sd-key-footer b {
+  margin-left: auto;
+  padding: 0.13rem 0.2rem;
+  border-radius: 999px;
+  background: var(--blocking-soft);
+  color: var(--blocking-ink);
+  font-size: 0.43rem;
+}
+
+.sd-status-dot {
+  width: 0.42rem;
+  height: 0.42rem;
+  flex: none;
+  border-radius: 50%;
+  background: var(--sd-accent);
+  box-shadow: 0 0 0.45rem var(--sd-accent);
+}
+
+.sd-progress {
+  display: block;
+  height: 0.22rem;
+  flex: 1;
+  min-width: 0.6rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.sd-progress i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--sd-accent);
+}
+
+.sd-key.st-running {
+  --sd-accent: #4fd6c4;
+  --sd-glow: rgba(79, 214, 196, 0.35);
+}
+
+.sd-key.st-running .sd-key-face {
+  background: linear-gradient(145deg, #112524, #0f151c 68%);
+}
+
+.sd-key.st-paused {
+  --sd-accent: #8fbcff;
+  --sd-glow: rgba(143, 188, 255, 0.32);
+}
+
+.sd-key.st-paused .sd-key-face {
+  background: linear-gradient(145deg, #142035, #0f151c 68%);
+}
+
+.sd-key.st-stuck {
+  --sd-accent: #e3b341;
+  --sd-glow: rgba(227, 179, 65, 0.38);
+  animation: sd-pulse 1.4s ease-in-out infinite;
+}
+
+.sd-key.st-stuck .sd-key-face {
+  background: linear-gradient(145deg, #2a2112, #0f151c 68%);
+}
+
+.sd-key.st-alert {
+  --sd-accent: #ff7b72;
+  --sd-glow: rgba(255, 123, 114, 0.4);
+  animation: sd-pulse 1.6s ease-in-out infinite;
+}
+
+.sd-key.st-alert .sd-key-face {
+  background: linear-gradient(145deg, #2d1718, #0f151c 68%);
+}
+
+.sd-key.st-queued {
+  --sd-accent: #c69bff;
+  --sd-glow: rgba(198, 155, 255, 0.32);
+}
+
+.sd-key.st-queued .sd-key-face {
+  background: linear-gradient(145deg, #20172f, #0f151c 68%);
+}
+
+.sd-key.is-empty {
+  border-color: #35373b;
+  background: repeating-linear-gradient(135deg, #15171a 0 5px, #202226 5px 10px);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.04);
+}
+
+.sd-key.is-empty .sd-key-face {
+  background: transparent;
+}
+
+.sd-key.is-flashing {
+  animation: sd-flash 0.45s ease-out;
+}
+
+.sd-screen {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  height: 88px;
+  gap: 4px;
+  padding: 6px;
+  overflow: hidden;
+  border: 1px solid #303236;
+  border-radius: 9px;
+  background: #060708;
+}
+
+.sd-screen-segment {
+  position: relative;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 0.18rem;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 5px;
+  background: linear-gradient(145deg, #161b21, #0e1115);
+  color: var(--muted);
+  font-size: 0.58rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.sd-screen-icon {
+  color: var(--accent-ink);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.sd-screen-segment.is-live {
+  border-color: var(--good-line);
+  color: var(--fg);
+}
+
+.sd-screen-segment.is-live::after {
+  position: absolute;
+  top: 0.34rem;
+  right: 0.34rem;
+  width: 0.32rem;
+  height: 0.32rem;
+  border-radius: 50%;
+  background: var(--good);
+  box-shadow: 0 0 0.45rem var(--good);
+  content: "";
+  animation: sd-live-pulse 1.2s ease-in-out infinite;
+}
+
+.sd-mic {
+  position: absolute;
+  top: 0.34rem;
+  left: 0.34rem;
+  width: 0.32rem;
+  height: 0.32rem;
+  border-radius: 50%;
+  background: var(--super);
+  box-shadow: 0 0 0.45rem var(--super);
+  animation: sd-mic-pulse 1s ease-in-out infinite;
+}
+
+.sd-well {
+  display: grid;
+  min-height: 148px;
+  padding: 1.7rem 1.3rem;
+  border: 1px solid #37393e;
+  border-radius: 20px;
+  background: linear-gradient(145deg, #151518, #0a0a0c);
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.65), 0 1px rgba(255, 255, 255, 0.05);
+}
+
+.sd-knobs {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.sd-knob-wrap {
+  display: grid;
+  justify-items: center;
+  gap: 0.5rem;
+  color: var(--muted);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.52rem;
+  font-weight: 700;
+}
+
+.sd-knob {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 68px;
+  height: 68px;
+  border: 1px solid #4a4c52;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 28%, #4b4d53, #232428 53%, #101114 72%);
+  box-shadow: 0 5px 9px rgba(0, 0, 0, 0.55), inset 0 1px rgba(255, 255, 255, 0.15);
+  touch-action: none;
+  cursor: grab;
+}
+
+.sd-knob:focus-visible {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: 3px;
+}
+
+.sd-knob.press {
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.55), inset 0 1px rgba(255, 255, 255, 0.15), 0 0 0 3px var(--accent-ink);
+  transition: box-shadow 80ms ease-in;
+}
+
+.sd-knob::before {
+  position: absolute;
+  inset: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 50%;
+  content: "";
+}
+
+.sd-knob-marker {
+  position: absolute;
+  top: 8px;
+  left: calc(50% - 1px);
+  width: 2px;
+  height: 18px;
+  border-radius: 999px;
+  transform: rotate(var(--a));
+  transform-origin: 1px 26px;
+  background: var(--accent-ink);
+  box-shadow: 0 0 0.3rem var(--accent-ink);
+}
+
+.sd-knob-inner {
+  position: relative;
+  color: var(--fg);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+@keyframes sd-pulse {
+  0%, 100% { box-shadow: 0 0 14px var(--sd-glow), inset 0 1px rgba(255, 255, 255, 0.12); }
+  50% { box-shadow: 0 0 25px var(--sd-glow), inset 0 1px rgba(255, 255, 255, 0.2); }
+}
+
+@keyframes sd-flash {
+  0% { filter: brightness(2.1); transform: scale(0.97); }
+  100% { filter: brightness(1); transform: scale(1); }
+}
+
+@keyframes sd-mic-pulse {
+  0%, 100% { opacity: 0.5; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.25); }
+}
+
+@keyframes sd-live-pulse {
+  0%, 100% { opacity: 0.55; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.25); }
+}
+
+/* The device chassis is physically dark regardless of the dashboard theme.
+   Override the ink tokens inside the device so text stays legible on the
+   dark surface when the operator switches to light mode.
+
+   Every token the chassis paints ink with must be pinned back to its dark
+   `:root` value here. A token left unpinned inherits the light-theme root
+   override and lands dark-on-near-black over the `#060708` key face — the
+   "Blocked" dependency chip (`.sd-key-footer b`) measured roughly 2:1 that
+   way. `dashboard_css_theme_test.exs` asserts this list stays complete and
+   byte-identical to `:root`. */
+html[data-theme="light"] .sd-device {
+  --fg: rgba(255, 255, 255, 0.87);
+  --muted: rgba(255, 255, 255, 0.45);
+  --accent: #2f86ff;
+  --accent-ink: #8fbcff;
+  --attention-ink: #f1cf6f;
+  --blocking-ink: #ffa39c;
+  --blocking-soft: rgba(255, 123, 114, 0.14);
+  --good: #3fb950;
+  --super: #c69bff;
+}
+
+@media (max-width: 560px) {
+  .sd-device {
+    padding: 1.1rem 1.1rem 1.3rem;
+    border-radius: 24px;
+  }
+
+  .sd-keys {
+    column-gap: 0.55rem;
+    row-gap: 0.55rem;
+  }
+
+  .sd-key-face {
+    padding: 0.32rem;
+  }
+
+  .sd-screen {
+    height: 82px;
+  }
+
+  .sd-knob {
+    width: 52px;
+    height: 52px;
+  }
+
+  .sd-knob-marker {
+    top: 6px;
+    height: 13px;
+    transform-origin: 1px 20px;
+  }
+}
+
+/* Mode-view visibility. The hook sets data-mode on .sd-device; each panel
+   carries data-mode-view matching one mode name. Hidden panels get
+   display:none so they take no space and are skipped by assistive tech. */
+.sd-cmd-view,
+.sd-logs-view {
+  display: none;
+}
+
+.sd-device[data-mode="cmd"] .sd-keys,
+.sd-device[data-mode="logs"] .sd-keys {
+  display: none;
+}
+
+.sd-device[data-mode="cmd"] .sd-cmd-view {
+  display: block;
+}
+
+.sd-device[data-mode="logs"] .sd-logs-view {
+  display: block;
+}
+
+.sd-mode-label {
+  margin: 0 0 0.5rem;
+  color: var(--muted);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.sd-cmd-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.sd-cmd-item {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: var(--fg);
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.sd-cmd-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.sd-log-body {
+  max-height: 6rem;
+  overflow-y: auto;
+}
+
+.sd-log-line {
+  margin: 0;
+  color: var(--muted);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.62rem;
+  line-height: 1.5;
 }

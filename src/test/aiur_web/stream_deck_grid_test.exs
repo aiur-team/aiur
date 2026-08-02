@@ -112,6 +112,13 @@ defmodule AiurWeb.StreamDeckGridTest do
     refute agent.priority
   end
 
+  test "projects a registry provider family without coercing it to codex" do
+    [agent] =
+      StreamDeckGrid.project(%{running: [agent("1439", backend: "fake")], retrying: [], idle: []}).agents
+
+    assert agent.vendor == "fake"
+  end
+
   test "only flags positive priority ranks" do
     [unprioritized, prioritized] = StreamDeckGrid.project(%{running: [agent("1", priority: 0), agent("2", priority: 1)], retrying: [], idle: []}).agents
 

@@ -1,6 +1,9 @@
 defmodule Aiur.TestSupport do
   import ExUnit.Assertions
 
+  alias Aiur.Events.Publisher, as: EventsPublisher
+  alias Aiur.Events.SubscriptionStore, as: EventsSubscriptionStore
+
   @workflow_prompt "You are an agent for this repository."
 
   defmacro __using__(_opts) do
@@ -25,6 +28,8 @@ defmodule Aiur.TestSupport do
 
       # Backend config aliases for tests
       alias Aiur.Codex.Config, as: CodexConfig
+      alias Aiur.Events.Publisher, as: EventsPublisher
+      alias Aiur.Events.SubscriptionStore, as: EventsSubscriptionStore
       alias Aiur.Linear.Config, as: LinearConfig
 
       import Aiur.TestSupport,
@@ -62,6 +67,14 @@ defmodule Aiur.TestSupport do
         previous_workflow_file_path = Application.get_env(:aiur, :workflow_file_path)
         previous_log_file = Application.get_env(:aiur, :log_file)
         previous_build_gate_dir = Application.get_env(:aiur, :build_gate_dir_override)
+
+        # These callbacks live in :persistent_term so they outlast the test
+        # process that installed them. Start every TestSupport case from the
+        # production-safe defaults and restore those defaults at teardown;
+        # otherwise a filtering/enqueue stub can silently affect an unrelated
+        # Exchange test that happens to run later in the VM.
+        EventsPublisher.set_tracked_fn(fn _ -> true end)
+        EventsSubscriptionStore.set_enqueue_fn(nil)
 
         File.mkdir_p!(workflow_root)
         Application.put_env(:aiur, :build_gate_dir_override, Path.join(workflow_root, "build-gate"))
@@ -109,6 +122,8 @@ defmodule Aiur.TestSupport do
           Application.delete_env(:aiur, :server_port_override)
           Application.delete_env(:aiur, :memory_tracker_issues)
           Application.delete_env(:aiur, :memory_tracker_recipient)
+          EventsPublisher.set_tracked_fn(fn _ -> true end)
+          EventsSubscriptionStore.set_enqueue_fn(nil)
           File.rm_rf(workflow_root)
 
           # Reload the store onto the restored baseline so the next test never
@@ -573,6 +588,9 @@ defmodule Aiur.TestSupport do
     observability_writable = Keyword.get(config, :observability_writable)
     observability_refresh_ms = Keyword.get(config, :observability_refresh_ms)
     observability_render_interval_ms = Keyword.get(config, :observability_render_interval_ms)
+    observability_retention_max_bytes = Keyword.get(config, :observability_retention_max_bytes)
+    observability_retention_max_age_days = Keyword.get(config, :observability_retention_max_age_days)
+    observability_retention_prune_interval_bytes = Keyword.get(config, :observability_retention_prune_interval_bytes)
     server_port = Keyword.get(config, :server_port)
     server_host = Keyword.get(config, :server_host)
     opencode_command = Keyword.get(config, :opencode_command)
@@ -653,7 +671,10 @@ defmodule Aiur.TestSupport do
           observability_enabled,
           observability_writable,
           observability_refresh_ms,
-          observability_render_interval_ms
+          observability_render_interval_ms,
+          observability_retention_max_bytes,
+          observability_retention_max_age_days,
+          observability_retention_prune_interval_bytes
         ),
         decisions_yaml(overrides),
         server_yaml(server_port, server_host),
@@ -869,13 +890,17 @@ defmodule Aiur.TestSupport do
     |> Enum.join("\n")
   end
 
-  defp observability_yaml(enabled, writable, refresh_ms, render_interval_ms) do
+  defp observability_yaml(enabled, writable, refresh_ms, render_interval_ms, retention_max_bytes, retention_max_age_days, retention_prune_interval_bytes) do
     [
       "observability:",
       "  dashboard_enabled: #{yaml_value(enabled)}",
       writable != nil && "  dashboard_writable: #{yaml_value(writable)}",
       "  refresh_ms: #{yaml_value(refresh_ms)}",
-      "  render_interval_ms: #{yaml_value(render_interval_ms)}"
+      "  render_interval_ms: #{yaml_value(render_interval_ms)}",
+      retention_max_bytes != nil && "  telemetry_retention_max_bytes: #{yaml_value(retention_max_bytes)}",
+      retention_max_age_days != nil && "  telemetry_retention_max_age_days: #{yaml_value(retention_max_age_days)}",
+      retention_prune_interval_bytes != nil &&
+        "  telemetry_retention_prune_interval_bytes: #{yaml_value(retention_prune_interval_bytes)}"
     ]
     |> Enum.reject(&(&1 == false))
     |> Enum.join("\n")

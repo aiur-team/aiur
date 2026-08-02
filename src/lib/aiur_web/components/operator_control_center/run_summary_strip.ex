@@ -3,6 +3,8 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
 
   use Phoenix.Component
 
+  alias Aiur.CodingAgent
+
   attr(:run, :map, required: true)
   attr(:usage, :map, required: true)
   attr(:meters, :map, required: true)
@@ -115,7 +117,8 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   end
 
   defp provider_cards(_usage, _meters) do
-    for provider <- [:codex, :claude], do: %{provider: provider, provider_label: provider_label(provider), status_label: "N/A", windows: []}
+    for provider <- CodingAgent.provider_families(),
+        do: %{provider: provider, provider_label: provider_label(provider), status_label: "N/A", windows: []}
   end
 
   defp provider_usage(%{usage: usage}), do: usage
@@ -273,13 +276,14 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
     "#{div(seconds, @seconds_per_day)}d #{div(rem(seconds, @seconds_per_day), @seconds_per_hour)}h #{div(rem(seconds, @seconds_per_hour), 60)}m"
   end
 
-  defp provider_logo(:codex), do: "/codex-color.svg"
-  defp provider_logo(:claude), do: "/claude-symbol.svg"
-  defp provider_logo(_provider), do: "/aiur-logo.png"
+  defp provider_logo(provider), do: descriptor_field(provider, :logo, "/aiur-logo.png")
+  defp provider_token_icon(provider), do: descriptor_field(provider, :token_icon, "/aiur-logo.png")
+  defp provider_label(provider), do: descriptor_field(provider, :label, to_string(provider))
 
-  defp provider_token_icon(:codex), do: "/codex-token.svg"
-  defp provider_token_icon(:claude), do: "/claude-token.svg"
-  defp provider_token_icon(_provider), do: "/aiur-logo.png"
-  defp provider_label(:codex), do: "Codex"
-  defp provider_label(:claude), do: "Claude"
+  defp descriptor_field(provider, field, fallback) do
+    case CodingAgent.provider_descriptor(provider) do
+      %{^field => value} -> value
+      _ -> fallback
+    end
+  end
 end

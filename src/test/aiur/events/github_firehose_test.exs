@@ -468,6 +468,50 @@ defmodule Aiur.Events.GithubFirehoseTest do
       refute_receive {:event, _}, 100
     end
 
+    test "publishes authoritative merge events performed by the bot account" do
+      :ok = Exchange.subscribe("ticket.7.pr.merged")
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "aiur",
+        tracker_bot_account: "aiur-bot"
+      )
+
+      stub = fn _ ->
+        {:ok,
+         %{
+           status: 200,
+           headers: [{"ETag", ~s("merge-by-bot")}],
+           body: [
+             %{
+               "type" => "PullRequestEvent",
+               "actor" => %{"login" => "aiur-bot"},
+               "repo" => %{"name" => "owner/repo"},
+               "payload" => %{
+                 "action" => "closed",
+                 "pull_request" => %{
+                   "number" => 771,
+                   "merged" => true,
+                   "merged_by" => %{"login" => "aiur-bot"},
+                   "head" => %{"ref" => "aiur/7", "sha" => "bot-merge-head"}
+                 }
+               }
+             }
+           ]
+         }}
+      end
+
+      assert {:ok, %{count: 1}} = GithubFirehose.poll(request_fun: stub)
+
+      assert_receive {:event,
+                      %{
+                        topic: "ticket.7.pr.merged",
+                        pr: %{"merged_by" => %{"login" => "aiur-bot"}}
+                      }},
+                     500
+    end
+
     test "transport error returns the classified taxonomy error and preserves caller etag" do
       stub = fn _ -> {:error, :timeout} end
 

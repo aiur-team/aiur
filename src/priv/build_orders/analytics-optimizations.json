@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "build_order_id": "its-everdred/aiur:analytics-optimizations",
+  "build_order_id": "aiur-team/aiur:analytics-optimizations",
   "title": "Analytics optimizations",
   "subtitle": "Unblock CI, land the fleet-leverage levers, and split analytics into live-session and build-order scopes",
-  "repository": "its-everdred/aiur",
+  "repository": "aiur-team/aiur",
   "root_number": 9001,
   "plan_version": 1,
   "permanent": false,
@@ -36,9 +36,9 @@
       "lane": "ci-health",
       "phase": 1,
       "complexity": 2,
-      "number": 1297,
       "depends_on": [],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1297"
+      "ticket": 1297,
+      "doc": "tickets/AO-001.md"
     },
     {
       "id": "AO-002",
@@ -46,9 +46,9 @@
       "lane": "fleet-leverage",
       "phase": 1,
       "complexity": 1,
-      "number": 1305,
       "depends_on": [],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1305"
+      "ticket": 1305,
+      "doc": "tickets/AO-002.md"
     },
     {
       "id": "AO-003",
@@ -56,9 +56,11 @@
       "lane": "ci-health",
       "phase": 2,
       "complexity": 2,
-      "number": 1298,
-      "depends_on": ["AO-001"],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1298"
+      "depends_on": [
+        "AO-001"
+      ],
+      "ticket": 1298,
+      "doc": "tickets/AO-003.md"
     },
     {
       "id": "AO-004",
@@ -66,9 +68,11 @@
       "lane": "dashboard-ui",
       "phase": 2,
       "complexity": 2,
-      "number": 1306,
-      "depends_on": ["AO-001"],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1306"
+      "depends_on": [
+        "AO-001"
+      ],
+      "ticket": 1306,
+      "doc": "tickets/AO-004.md"
     },
     {
       "id": "AO-005",
@@ -76,9 +80,11 @@
       "lane": "accounting",
       "phase": 2,
       "complexity": 3,
-      "number": 1277,
-      "depends_on": ["AO-001"],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1277"
+      "depends_on": [
+        "AO-001"
+      ],
+      "ticket": 1277,
+      "doc": "tickets/AO-005.md"
     },
     {
       "id": "AO-006",
@@ -86,9 +92,11 @@
       "lane": "fleet-leverage",
       "phase": 2,
       "complexity": 4,
-      "number": 1307,
-      "depends_on": ["AO-002"],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1307"
+      "depends_on": [
+        "AO-002"
+      ],
+      "ticket": 1307,
+      "doc": "tickets/AO-006.md"
     },
     {
       "id": "AO-007",
@@ -96,9 +104,11 @@
       "lane": "dashboard-ui",
       "phase": 3,
       "complexity": 3,
-      "number": 1303,
-      "depends_on": ["AO-004"],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1303"
+      "depends_on": [
+        "AO-004"
+      ],
+      "ticket": 1303,
+      "doc": "tickets/AO-007.md"
     },
     {
       "id": "AO-008",
@@ -106,9 +116,11 @@
       "lane": "analytics",
       "phase": 4,
       "complexity": 4,
-      "number": 1304,
-      "depends_on": ["AO-007"],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1304"
+      "depends_on": [
+        "AO-007"
+      ],
+      "ticket": 1304,
+      "doc": "tickets/AO-008.md"
     }
   ]
 }

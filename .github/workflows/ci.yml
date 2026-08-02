@@ -9,6 +9,19 @@ on:
       - v2
 
 jobs:
+  workflow-security:
+    name: workflow security
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Guard workflow triggers and action pins
+        run: bash scripts/test-workflow-security.sh
+      - name: Test human-only merge ruleset verifier
+        run: bash scripts/test-human-only-merge-ruleset.sh
+
   build:
     runs-on: ubuntu-latest
     defaults:
@@ -58,7 +71,7 @@ jobs:
           TEST_PARTITIONS: 4
         run: make coverage-partition
       - name: Upload partition coverage
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: coverage-${{ matrix.partition }}
           path: src/cover/${{ matrix.partition }}.coverdata
@@ -79,7 +92,7 @@ jobs:
       - name: Set up Elixir
         uses: ./.github/actions/setup-elixir
       - name: Download partition coverage
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: coverage-*
           path: src/cover
@@ -91,6 +104,30 @@ jobs:
           done
       - name: Aggregate coverage gate
         run: make coverage-report
+
+  quarantine:
+    name: quarantined tests (non-blocking)
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Set up Elixir
+        uses: ./.github/actions/setup-elixir
+      - name: Cache _build
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: src/_build
+          key: ${{ runner.os }}-quarantine-build-${{ hashFiles('src/mix.lock', 'src/mix.exs') }}
+          restore-keys: ${{ runner.os }}-quarantine-build-
+      - name: Run quarantined tests
+        # `--exclude test` narrows to the tag without failing while the queue
+        # is empty; unlike `--only`, that lets this non-blocking job stay green
+        # until the first confirmed flake is quarantined.
+        run: mix test --include quarantine --exclude test
 
   test:
     needs: coverage
@@ -163,7 +200,7 @@ jobs:
         run: npm run verify:failure-artifacts
       - name: Upload browser failure evidence
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: browser-harness-artifacts
           path: src/browser/.artifacts-run-*/

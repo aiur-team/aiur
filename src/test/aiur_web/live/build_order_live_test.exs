@@ -4,13 +4,14 @@ defmodule AiurWeb.BuildOrderLiveTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
+  alias Aiur.{AgentPubSub, TrackerIdentity}
+
   alias Aiur.BuildOrder.AdHocSource.Snapshot, as: AdHocSnapshot
   alias Aiur.BuildOrder.{Catalog, Lifecycle, Member, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.BuildOrder.TicketDetail.Snapshot, as: DetailSnapshot
   alias Aiur.BuildOrder.TicketDetail.State
   alias Aiur.BuildOrder.TicketHistory
-  alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.Runtime
   alias AiurWeb.Endpoint
 
@@ -30,7 +31,11 @@ defmodule AiurWeb.BuildOrderLiveTest do
     def subscribe_catalog(server), do: invoke(server, :subscribe_catalog, [])
     def unsubscribe_catalog(server, repository), do: invoke(server, :unsubscribe_catalog, [repository])
     def catalog(server), do: invoke(server, :catalog, [])
-    def subscribe_sources(server), do: invoke(server, :subscribe_sources, [])
+
+    def subscribe_sources(server) do
+      :ok = Aiur.AgentPubSub.subscribe_running()
+      invoke(server, :subscribe_sources, [])
+    end
 
     def load_sources(server) do
       loader = invoke(server, :load_sources, [])
@@ -155,7 +160,6 @@ defmodule AiurWeb.BuildOrderLiveTest do
   test "mounts the catalog without demanding any selected root", %{source: source} do
     assert {:ok, _view, html} = live(build_conn(), "/build-orders")
 
-    assert has_element?(_view, "#route-title", "Build Order")
     assert Floki.parse_document!(html) |> Floki.find("h1#route-title") |> Floki.text() =~ "Build Order"
     assert html =~ ~s(data-build-order-status="catalog")
     assert html =~ "bo-catalog-table"
@@ -317,6 +321,37 @@ defmodule AiurWeb.BuildOrderLiveTest do
 
     loads_after = Enum.count(FakeDataSource.calls(source), &match?({:load_sources, []}, &1))
     assert loads_after > loads_before
+  end
+
+  test "patches a member from the live agent projection without a page refresh", %{first: first} do
+    member = breakdown_member(7, phase: 1, lane: "plan-graph", complexity: 3)
+    selected = selected_snapshot(first, SelectedRoot.new(root(first, "Root forty-two"), [member], health(1, :healthy)), 1, :healthy)
+    sources = start_supervised!({Agent, fn -> sources_for_member(member.identity, :working, nil, 30) end})
+
+    install_source(
+      catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy),
+      selected: [selected],
+      sources_loader: fn -> Agent.get(sources, & &1) end
+    )
+
+    assert {:ok, view, _html} = live(build_conn(), "/build-orders/42")
+    render_async(view, 2_000)
+    assert has_element?(view, ~s([data-bo-card="7"][data-bo-state="working"]), "agent live")
+    assert has_element?(view, ~s([data-bo-card="7"]), "30%")
+
+    Agent.update(sources, fn _sources -> sources_for_member(member.identity, :paused, :operator_pause, 45) end)
+    :ok = AgentPubSub.broadcast_running_change([])
+
+    render_async(view, 2_000)
+    assert has_element?(view, ~s([data-bo-card="7"][data-bo-state="plain"]), "Paused")
+    assert has_element?(view, ~s([data-bo-card="7"]), "45%")
+
+    Agent.update(sources, fn _sources -> sources_for_ci_wait_member(member.identity, 60) end)
+    :ok = AgentPubSub.broadcast_running_change([])
+
+    render_async(view, 2_000)
+    assert has_element?(view, ~s([data-bo-card="7"][data-bo-state="plain"]), "CI waiting")
+    assert has_element?(view, ~s([data-bo-card="7"]), "60%")
   end
 
   test "projection reset rolls the catalog subscription to the replacement repository", %{source: source} do
@@ -713,6 +748,48 @@ defmodule AiurWeb.BuildOrderLiveTest do
 
   defp sources_with_adhoc(adhoc) do
     %{execution: %{running: [], retrying: [], idle: []}, activity: %{generation: 1, entries: []}, adhoc: adhoc}
+  end
+
+  defp sources_for_member(identity, work_state, pause_reason, progress) do
+    observed_at = ~U[2026-08-01 12:00:00Z]
+
+    %{
+      execution: %{
+        running: [
+          %{
+            tracker_identity: identity,
+            work_state: work_state,
+            pause_reason: pause_reason,
+            tracker_paused: work_state == :paused,
+            waiting_reason: :active,
+            started_at: observed_at
+          }
+        ],
+        retrying: [],
+        idle: []
+      },
+      activity: %{
+        generation: progress,
+        entries: [
+          %{
+            identity: identity,
+            status: :fresh,
+            active_stage: :work,
+            stage: %{status: :known, value: :work, freshness: :fresh, observed_at: observed_at, event_id: progress},
+            progress: %{status: :known, percent: progress, source: :checkin, freshness: :fresh, occurred_at: observed_at, observed_at: observed_at, event_id: progress},
+            observed_at: observed_at,
+            retention: :current
+          }
+        ]
+      },
+      adhoc: nil
+    }
+  end
+
+  defp sources_for_ci_wait_member(identity, progress) do
+    sources_for_member(identity, :idle, nil, progress)
+    |> put_in([:execution, :running], [])
+    |> put_in([:execution, :idle], [%{tracker_identity: identity, waiting_reason: :waiting_for_ci}])
   end
 
   defp adhoc_source_snapshot do

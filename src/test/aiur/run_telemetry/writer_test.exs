@@ -407,6 +407,161 @@ defmodule Aiur.RunTelemetry.WriterTest do
     assert dataset.warnings == []
   end
 
+  test "size retention keeps a contiguous newest suffix", %{path: path} do
+    {:ok, old} = Writer.start_link(name: nil, path: path, boot_id: "old")
+    assert :ok = Writer.record(old, :resource, %{actor: "_daemon", rss_bytes: 1})
+    assert :ok = Writer.flush(old)
+    :ok = GenServer.stop(old)
+
+    old_size = File.stat!(path).size
+
+    {:ok, middle} = Writer.start_link(name: nil, path: path, boot_id: "mid")
+
+    assert :ok =
+             Writer.record(middle, :resource, %{
+               actor: "_daemon",
+               detail: String.duplicate("x", 8_192),
+               rss_bytes: 1
+             })
+
+    assert :ok = Writer.flush(middle)
+    :ok = GenServer.stop(middle)
+
+    middle_size = File.stat!(path).size - old_size
+
+    {:ok, newest} = Writer.start_link(name: nil, path: path, boot_id: "new")
+    assert :ok = Writer.record(newest, :resource, %{actor: "_daemon", rss_bytes: 1})
+    assert :ok = Writer.flush(newest)
+    :ok = GenServer.stop(newest)
+
+    newest_size = File.stat!(path).size - old_size - middle_size
+    assert :ok = Retention.prune(path, max_bytes: old_size + newest_size)
+
+    assert {:ok, dataset} = Dataset.build(path)
+    assert Dataset.boot_ids(dataset) == ["new"]
+    assert dataset.warnings == []
+  end
+
+  test "periodic retention prunes accumulated old boots during a running session", %{path: path} do
+    {:ok, old} = Writer.start_link(name: nil, path: path, boot_id: "old-boot")
+    assert :ok = Writer.record(old, :resource, %{actor: "_daemon", rss_bytes: 1})
+    assert :ok = Writer.flush(old)
+    :ok = GenServer.stop(old)
+
+    old_size = File.stat!(path).size
+
+    # max_bytes equals old_size so the old boot fits at startup, but the restart
+    # marker appended during init pushes the total over the cap. With
+    # prune_interval_bytes: 1 the threshold is crossed immediately, triggering a
+    # segment roll + prune that removes the old boot.
+    retention = [max_bytes: old_size, prune_interval_bytes: 1]
+
+    {:ok, current} = Writer.start_link(name: nil, path: path, boot_id: "current", retention: retention)
+    assert :ok = Writer.flush(current)
+
+    assert {:ok, dataset} = Dataset.build(path)
+    assert Dataset.boot_ids(dataset) == ["current"]
+    assert dataset.warnings == []
+  end
+
+  test "periodic retention bounds a single boot that exceeds the cap three times over", %{path: path} do
+    # Measure one restart + one resource record so we can set a deterministic cap.
+    {:ok, probe} = Writer.start_link(name: nil, path: path, boot_id: "probe")
+    assert :ok = Writer.record(probe, :resource, %{actor: "_daemon", rss_bytes: 1})
+    assert :ok = Writer.flush(probe)
+    :ok = GenServer.stop(probe)
+
+    one_boot_size = File.stat!(path).size
+    File.rm!(path)
+
+    # Cap = one boot's worth; prune fires after every record.
+    # Writing 6 records (3x cap) in a single boot must leave the file bounded.
+    retention = [max_bytes: one_boot_size, prune_interval_bytes: 1]
+
+    {:ok, writer} = Writer.start_link(name: nil, path: path, boot_id: "big-boot", retention: retention)
+
+    for sample <- 1..6 do
+      assert :ok = Writer.record(writer, :resource, %{actor: "_daemon", rss_bytes: 1, sample: sample})
+    end
+
+    assert :ok = Writer.flush(writer)
+
+    # File stays bounded: at most one full boot + one segment boundary per prune cycle.
+    assert File.stat!(path).size < one_boot_size * 3
+    assert {:ok, dataset} = Dataset.build(path)
+    assert dataset.warnings == []
+    assert Dataset.boot_ids(dataset) == ["big-boot"]
+    assert Enum.map(Enum.filter(dataset.records, &(&1.kind == "resource")), & &1.attributes["sample"]) == [6]
+    assert dataset.restarts == []
+
+    assert {:ok, current_dataset} = Dataset.build(path, session: :current)
+    assert Enum.map(Enum.filter(current_dataset.records, &(&1.kind == "resource")), & &1.attributes["sample"]) == [6]
+  end
+
+  test "a failed segment boundary skips periodic pruning", %{path: path} do
+    writes = :atomics.new(1, signed: false)
+
+    write_fun = fn target, contents ->
+      if :atomics.add_get(writes, 1, 1) == 2 do
+        {:error, :eio}
+      else
+        File.write(target, contents, [:append])
+      end
+    end
+
+    {:ok, writer} =
+      Writer.start_link(
+        name: nil,
+        path: path,
+        boot_id: "boundary-failure",
+        retention: [max_bytes: 1, prune_interval_bytes: 1],
+        write_fun: write_fun
+      )
+
+    assert Process.alive?(writer)
+    assert {:ok, dataset} = Dataset.build(path)
+    assert dataset.warnings == []
+    assert Dataset.boot_ids(dataset) == ["boundary-failure"]
+  end
+
+  test "segment rolls preserve lifecycle interval pairing", %{path: path} do
+    retention = [max_bytes: 1, prune_interval_bytes: 1]
+    {:ok, writer} = Writer.start_link(name: nil, path: path, boot_id: "lifecycle-roll", retention: retention)
+
+    start = %{ticket: "1339", attempt_id: "attempt", event: "build_test", boundary: "start", operation_id: "build"}
+    finish = %{ticket: "1339", attempt_id: "attempt", event: "build_test", boundary: "end", operation_id: "build"}
+
+    assert :ok = Writer.record(writer, :lifecycle, start)
+    assert :ok = Writer.record(writer, :lifecycle, finish)
+    assert :ok = Writer.flush(writer)
+
+    assert {:ok, dataset} = Dataset.build(path)
+    assert [%{status: "closed"}] = dataset.tickets["1339"].intervals
+    assert dataset.warnings == []
+  end
+
+  test "periodic retention failure does not crash or stall the writer", %{path: path, root: root} do
+    import ExUnit.CaptureLog
+
+    # The path reported to Retention.prune must be a directory so File.stream! raises
+    # EISDIR. The write_fun redirects actual appends to a separate file so writes succeed.
+    actual_file = Path.join(root, "actual.ndjson")
+    dir_path = Path.join(root, "dir-as-path")
+    File.mkdir_p!(dir_path)
+    write_fun = fn _path, data -> File.write(actual_file, data, [:append]) end
+    retention = [max_bytes: 1, prune_interval_bytes: 1]
+
+    log =
+      capture_log(fn ->
+        {:ok, w} = Writer.start_link(name: nil, path: dir_path, boot_id: "err-boot", retention: retention, write_fun: write_fun)
+        assert :ok = Writer.record(w, :resource, %{actor: "_daemon", rss_bytes: 1})
+        assert :ok = Writer.flush(w)
+        assert Process.alive?(w)
+      end)
+
+    assert log =~ "retention_failed"
+  end
+
   test "retention treats absent or invalid targets as no-ops", %{path: path} do
     assert :ok = Retention.prune(path)
     assert :ok = Retention.prune(:not_a_path, :not_options)

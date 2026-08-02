@@ -337,6 +337,9 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
         capture_log(fn ->
           send(pid, {:worker_control_state, "l16", :paused, %{request_id: :containment}})
           assert_receive {:resume_agent, _}, 2_000
+          # A synchronous system call queues after the worker message, so the
+          # capture includes the log emitted by its handler under coverage load.
+          _ = :sys.get_state(pid)
         end)
 
       resumed = :sys.get_state(pid).running["l16"]

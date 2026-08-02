@@ -76,7 +76,7 @@ The root may carry the approved baseline pointer:
 
 ```html
 <!-- aiur-planning-issue
-{"schema":2,"logical_id":"its-everdred/aiur:build-order-dashboard","plan_version":1,"approved_planning_commit":"<40-char-sha>"}
+{"schema":2,"logical_id":"aiur-team/aiur:build-order-dashboard","plan_version":1,"approved_planning_commit":"<40-char-sha>"}
 -->
 ```
 

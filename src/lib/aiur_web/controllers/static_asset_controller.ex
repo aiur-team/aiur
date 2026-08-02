@@ -20,6 +20,9 @@ defmodule AiurWeb.StaticAssetController do
   @spec time_brush_hook(Conn.t(), map()) :: Conn.t()
   def time_brush_hook(conn, _params), do: serve(conn, "/time-brush-hook.js", revalidate?: true)
 
+  @spec streamdeck_emulator_hook(Conn.t(), map()) :: Conn.t()
+  def streamdeck_emulator_hook(conn, _params), do: serve(conn, "/streamdeck-emulator-hook.js", revalidate?: true)
+
   @spec dom_svg_layout_adapter(Conn.t(), map()) :: Conn.t()
   def dom_svg_layout_adapter(conn, _params), do: serve(conn, "/aiur-dom-svg-layout-adapter.js", revalidate?: true)
 
@@ -32,17 +35,12 @@ defmodule AiurWeb.StaticAssetController do
   @spec aiur_logo(Conn.t(), map()) :: Conn.t()
   def aiur_logo(conn, _params), do: serve(conn, "/aiur-logo.png")
 
-  @spec codex_color_svg(Conn.t(), map()) :: Conn.t()
-  def codex_color_svg(conn, _params), do: serve(conn, "/codex-color.svg", revalidate?: true)
+  @spec provider_asset(Conn.t(), map()) :: Conn.t()
+  def provider_asset(conn, %{"provider_asset" => asset}) when is_list(asset),
+    do: serve(conn, "/provider-assets/" <> Enum.join(asset, "/"), revalidate?: true)
 
-  @spec claude_symbol_svg(Conn.t(), map()) :: Conn.t()
-  def claude_symbol_svg(conn, _params), do: serve(conn, "/claude-symbol.svg", revalidate?: true)
-
-  @spec codex_token_svg(Conn.t(), map()) :: Conn.t()
-  def codex_token_svg(conn, _params), do: serve(conn, "/codex-token.svg", revalidate?: true)
-
-  @spec claude_token_svg(Conn.t(), map()) :: Conn.t()
-  def claude_token_svg(conn, _params), do: serve(conn, "/claude-token.svg", revalidate?: true)
+  def provider_asset(conn, %{"provider_asset" => asset}) when is_binary(asset),
+    do: serve(conn, "/provider-assets/" <> asset, revalidate?: true)
 
   @spec bungee_font(Conn.t(), map()) :: Conn.t()
   def bungee_font(conn, _params), do: serve(conn, "/bungee.woff2")
