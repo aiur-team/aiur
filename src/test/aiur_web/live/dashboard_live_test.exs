@@ -23,7 +23,7 @@ defmodule AiurWeb.DashboardLiveTest do
   alias Aiur.Events.{Exchange, SubscriptionStore}
 
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.OperatorMessages
+  alias Aiur.Orchestrator.{OperatorMessages, SnapshotStore}
   alias Aiur.RecentMerge
   alias Aiur.RecentMergeStore
   alias AiurWeb.{ControlCenterCache, ControlCenterPresenter, DashboardLive, Presenter}
@@ -34,6 +34,8 @@ defmodule AiurWeb.DashboardLiveTest do
   defmodule CountingOrchestrator do
     use GenServer
 
+    alias Aiur.Orchestrator.SnapshotStore
+
     def start_link(opts) do
       GenServer.start_link(__MODULE__, opts, name: Keyword.fetch!(opts, :name))
     end
@@ -43,7 +45,7 @@ defmodule AiurWeb.DashboardLiveTest do
     @impl true
     def init(opts) do
       snapshot = Keyword.fetch!(opts, :snapshot)
-      :ok = Aiur.Orchestrator.SnapshotStore.publish(Keyword.fetch!(opts, :name), snapshot)
+      :ok = SnapshotStore.publish(Keyword.fetch!(opts, :name), snapshot)
 
       {:ok, %{snapshot: snapshot, snapshot_count: 0, report: Keyword.get(opts, :report)}}
     end
@@ -4343,7 +4345,7 @@ defmodule AiurWeb.DashboardLiveTest do
   defp replace_counting_snapshot(orchestrator, snapshot) do
     :sys.replace_state(orchestrator, &Map.put(&1, :snapshot, snapshot))
     {:registered_name, name} = Process.info(orchestrator, :registered_name)
-    :ok = Aiur.Orchestrator.SnapshotStore.publish(name, snapshot)
+    :ok = SnapshotStore.publish(name, snapshot)
   end
 
   defp configure_provider_meter_stub(config) do

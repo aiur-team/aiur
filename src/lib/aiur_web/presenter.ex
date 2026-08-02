@@ -27,7 +27,7 @@ defmodule AiurWeb.Presenter do
         snapshot_payload(snapshot, freshness)
 
       :snapshot_unavailable ->
-        %{error: %{code: "snapshot_unavailable", message: "No fleet snapshot has been published yet"}}
+        %{error: %{code: "snapshot_unavailable", message: "Snapshot unavailable"}}
 
       :orchestrator_unavailable ->
         %{error: %{code: "orchestrator_unavailable", message: "Orchestrator is unavailable"}}
@@ -37,7 +37,7 @@ defmodule AiurWeb.Presenter do
   defp snapshot_payload(snapshot, freshness) do
     idle = Map.get(snapshot, :idle, [])
 
-    %{
+    payload = %{
       counts: %{
         running: length(snapshot.running),
         retrying: length(snapshot.retrying),
@@ -48,9 +48,10 @@ defmodule AiurWeb.Presenter do
       idle: Enum.map(idle, &idle_entry_payload/1),
       agent_totals: public_agent_totals(snapshot.agent_totals),
       capacity: capacity_payload(Map.get(snapshot, :capacity)),
-      globally_paused: Map.get(snapshot, :globally_paused, false) == true,
-      snapshot_freshness: freshness
+      globally_paused: Map.get(snapshot, :globally_paused, false) == true
     }
+
+    if freshness.status == :stale, do: Map.put(payload, :snapshot_freshness, freshness), else: payload
   end
 
   defp auxiliary_payload(opts) do

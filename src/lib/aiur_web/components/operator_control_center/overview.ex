@@ -102,7 +102,7 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
   def error(assigns) do
     ~H"""
     <section :if={@error} class="error-card" role="alert">
-      <h2>Fleet snapshot unavailable</h2>
+      <h2>Snapshot unavailable</h2>
       <p><strong>{@error.code}:</strong> {@error.message}</p>
     </section>
     """

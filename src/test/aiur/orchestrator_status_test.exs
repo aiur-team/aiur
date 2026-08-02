@@ -15,8 +15,8 @@ defmodule Aiur.OrchestratorStatusTest do
     OperatorMessages,
     PauseResume,
     Reconciler,
-    State,
     SnapshotStore,
+    State,
     StatusReport,
     WorkspaceCleanup
   }

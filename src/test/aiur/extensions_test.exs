@@ -6,6 +6,7 @@ defmodule Aiur.ExtensionsTest do
 
   alias Aiur.Linear.Tracker, as: LinearTracker
   alias Aiur.Memory.Tracker, as: Memory
+  alias Aiur.Orchestrator.SnapshotStore
   alias AiurWeb.OperatorControlCenter.UnitsPresenter
 
   @endpoint AiurWeb.Endpoint
@@ -69,7 +70,10 @@ defmodule Aiur.ExtensionsTest do
       GenServer.start_link(__MODULE__, opts, name: name)
     end
 
-    def init(opts), do: {:ok, opts}
+    def init(opts) do
+      :ok = SnapshotStore.publish(Keyword.fetch!(opts, :name), Keyword.fetch!(opts, :snapshot))
+      {:ok, opts}
+    end
 
     def handle_call(:snapshot, _from, state) do
       {:reply, Keyword.fetch!(state, :snapshot), state}
@@ -887,7 +891,7 @@ defmodule Aiur.ExtensionsTest do
              %{"error" => %{"code" => "method_not_allowed", "message" => "Method not allowed"}}
   end
 
-  test "phoenix observability api preserves snapshot timeout behavior" do
+  test "phoenix observability api reports an explicit error before any snapshot is published" do
     timeout_orchestrator = Module.concat(__MODULE__, :TimeoutOrchestrator)
     {:ok, _pid} = SlowOrchestrator.start_link(name: timeout_orchestrator)
     start_test_endpoint(orchestrator: timeout_orchestrator, snapshot_timeout_ms: 1)
@@ -898,7 +902,7 @@ defmodule Aiur.ExtensionsTest do
     assert without_occ_sections(timeout_payload) ==
              %{
                "generated_at" => timeout_payload["generated_at"],
-               "error" => %{"code" => "snapshot_timeout", "message" => "Snapshot timed out"}
+               "error" => %{"code" => "snapshot_unavailable", "message" => "Snapshot unavailable"}
              }
   end
 
@@ -1125,6 +1129,8 @@ defmodule Aiur.ExtensionsTest do
       Keyword.put(state, :snapshot, updated_snapshot)
     end)
 
+    :ok = SnapshotStore.publish(orchestrator_name, updated_snapshot)
+
     AiurWeb.ObservabilityPubSub.broadcast_update()
 
     assert_eventually(fn ->
@@ -1302,7 +1308,7 @@ defmodule Aiur.ExtensionsTest do
 
     {:ok, _view, html} = live(build_conn(), "/")
     assert html =~ "Snapshot unavailable"
-    assert html =~ "snapshot_unavailable"
+    assert html =~ "orchestrator_unavailable"
   end
 
   test "http server serves embedded assets, accepts form posts, and rejects invalid hosts" do
