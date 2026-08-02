@@ -79,9 +79,10 @@ defmodule Aiur.RunTelemetry.Dataset do
 
   Options:
 
-    * `:boot_id` — keep only records written by that daemon boot. Externally
-      anchored GitHub records survive regardless: they carry no boot of their own
-      and dropping them would silently erase merges from a session's view.
+    * `:boot_id` — keep only records written by that daemon boot. Live external
+      GitHub anchors survive regardless: they carry no boot of their own. Historical
+      reconciliation anchors are the exception; they remain in full-log reporting
+      but are excluded from a boot-scoped view so they cannot inflate this session.
     * `:tickets` — a `MapSet` of bare ticket-number strings. Non-ticket actors
       (the daemon and executor baselines) are always retained; they are shared
       orchestration overhead, not per-ticket cost.

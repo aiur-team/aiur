@@ -704,6 +704,52 @@ defmodule Aiur.RunTelemetry.WriterTest do
     assert current.tickets == %{}
   end
 
+  test "persists a live merged PR received through the firehose exchange", %{path: path} do
+    {:ok, writer} = Writer.start_link(name: nil, path: path, boot_id: "live-anchors")
+
+    firehose_event = %{
+      "id" => "live-merged-100",
+      "type" => "PullRequestEvent",
+      "created_at" => "2026-07-11T13:01:00Z",
+      "actor" => %{"login" => "merger"},
+      "repo" => %{"name" => "owner/repo"},
+      "payload" => %{
+        "action" => "closed",
+        "pull_request" => %{
+          "number" => 77,
+          "merged" => true,
+          "merged_at" => "2026-07-11T13:01:00Z",
+          "head" => %{"ref" => "aiur/930-analytics", "sha" => "live-head-77"}
+        }
+      }
+    }
+
+    assert {:ok, %{count: 1}} =
+             GithubFirehose.poll(
+               request_fun: fn _request ->
+                 {:ok, %{status: 200, headers: [{"ETag", ~s("live-writer-merge")}], body: [firehose_event]}}
+               end,
+               recent_merge_fun: fn _merge -> {:ok, :stored} end,
+               boot_time: ~U[2026-07-11 13:00:00Z] |> DateTime.to_unix()
+             )
+
+    assert :ok = Writer.flush(writer)
+
+    records = read_records(path)
+    [merged] = Enum.take(records, -1)
+
+    assert merged["kind"] == "lifecycle"
+    assert merged["timestamp"] == "2026-07-11T13:01:00Z"
+    assert merged["attributes"]["event"] == "pr_merged"
+    assert merged["attributes"]["pr_number"] == 77
+    assert merged["attributes"]["source"] == "github"
+
+    assert {:ok, dataset} = Dataset.build(path, session: :current, boot_id: "live-anchors")
+    current = Dataset.filter(dataset, boot_id: "live-anchors")
+    assert Enum.any?(current.records, &(&1.attributes["event"] == "pr_merged"))
+    assert Map.has_key?(current.tickets, "930")
+  end
+
   defp read_records(path) do
     path
     |> File.stream!([], :line)
