@@ -11,6 +11,9 @@ defmodule Aiur.TestSupportIsolationTest do
   `:log_file` at the per-test workflow root to close that leak; if that line is
   ever removed the full suite still passes, so this invariant needs its own
   assertion to catch the regression.
+
+  The pause-store assertion likewise protects cwd-changing tests from selecting
+  a different implicit production store during teardown.
   """
   use Aiur.TestSupport
 
