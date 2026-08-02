@@ -34,6 +34,14 @@ alerts:
     message: Todo queue exceeds capacity
     sound:
       - "/usr/share/sounds/freedesktop/stereo/dialog-warning.oga"
+  "system.dispatch.prewarm_blocked":
+    message: Shared prewarm is blocking dispatch
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/dialog-warning.oga"
+  "system.dispatch.capacity_starved":
+    message: Fleet dispatch capacity is constrained
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/dialog-warning.oga"
   "ticket.*.agent.error.tokens_exhausted":
     message: Agent ran out of tokens
     sound:

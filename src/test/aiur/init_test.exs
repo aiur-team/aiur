@@ -17,6 +17,8 @@ defmodule Aiur.InitTest do
     "ticket.*.pr.merged",
     "ticket.*.issue.state.changed",
     "system.dispatch.todo_capacity_exceeded",
+    "system.dispatch.prewarm_blocked",
+    "system.dispatch.capacity_starved",
     "ticket.*.agent.error.tokens_exhausted",
     "ticket.*.agent.retry_exhausted",
     "ticket.*.agent.review_feedback_delivery_deferred",

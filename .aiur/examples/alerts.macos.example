@@ -34,6 +34,14 @@ alerts:
     message: Todo queue exceeds capacity
     sound:
       - "/System/Library/Sounds/Basso.aiff"
+  "system.dispatch.prewarm_blocked":
+    message: Shared prewarm is blocking dispatch
+    sound:
+      - "/System/Library/Sounds/Basso.aiff"
+  "system.dispatch.capacity_starved":
+    message: Fleet dispatch capacity is constrained
+    sound:
+      - "/System/Library/Sounds/Basso.aiff"
   "ticket.*.agent.error.tokens_exhausted":
     message: Agent ran out of tokens
     sound:

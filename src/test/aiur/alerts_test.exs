@@ -1,7 +1,7 @@
 defmodule Aiur.AlertsTest do
   use Aiur.TestSupport
 
-  alias Aiur.{AgentLog, Alerts, Orchestrator, TrackerIdentity}
+  alias Aiur.{AgentLog, AlertFeed, Alerts, Orchestrator, TrackerIdentity}
   alias Aiur.Events.Exchange
   alias Aiur.Orchestrator.IssueSync
 
@@ -133,6 +133,44 @@ defmodule Aiur.AlertsTest do
     assert central_log =~ "\"name\":\"system.dispatch.todo_capacity_exceeded\""
     assert central_log =~ "\"reason\":\"Todo queue exceeds configured capacity\""
     assert central_log =~ "\"needs_attention\":true"
+  end
+
+  test "fleet dispatch alerts persist and appear in the Executor alert feed" do
+    log_root =
+      Path.join(System.tmp_dir!(), "aiur-alert-fleet-#{System.unique_integer([:positive])}")
+
+    original_log_file = Application.get_env(:aiur, :log_file)
+    Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+
+    on_exit(fn ->
+      if original_log_file do
+        Application.put_env(:aiur, :log_file, original_log_file)
+      else
+        Application.delete_env(:aiur, :log_file)
+      end
+
+      File.rm_rf!(log_root)
+    end)
+
+    alerts = [
+      {"system.dispatch.prewarm_blocked", "Prewarm is building; fleet dispatch is paused."},
+      {"system.dispatch.capacity_starved", "Ready tickets=8, effective cap=3, configured cap=16."}
+    ]
+
+    Enum.each(alerts, fn {topic, reason} ->
+      assert :ok = Alerts.emit_system(topic, reason: reason, needs_attention: true, severity: "warning")
+    end)
+
+    central_log = Path.join(log_root, "alerts.ndjson") |> File.read!()
+    visible_alerts = AlertFeed.list(log_roots: [log_root])
+
+    Enum.each(alerts, fn {topic, reason} ->
+      assert central_log =~ "\"name\":\"#{topic}\""
+
+      assert Enum.any?(visible_alerts, fn alert ->
+               alert["topic"] == topic and alert["reason"] == reason and alert["needs_attention"] == true
+             end)
+    end)
   end
 
   test "todo overload emits system.dispatch.todo_capacity_exceeded once per overload interval" do

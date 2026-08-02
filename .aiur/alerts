@@ -80,6 +80,14 @@ alerts:
     message: Todo queue exceeds capacity
     sound:
       - "~/alerts/advisor/advisor-additional-pylons.wav"
+  "system.dispatch.prewarm_blocked":
+    message: Shared prewarm is blocking dispatch
+    sound:
+      - "~/alerts/advisor/advisor-not-enough-minerals.wav"
+  "system.dispatch.capacity_starved":
+    message: Fleet dispatch capacity is constrained
+    sound:
+      - "~/alerts/advisor/advisor-additional-pylons.wav"
 
   # ---------- Agent state -------------------------------------------------
   "ticket.*.agent.error.tokens_exhausted":
