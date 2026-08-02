@@ -219,9 +219,9 @@ defmodule Aiur.Orchestrator.Dispatcher do
       labeler = Keyword.get(opts, :add_label, &Tracker.add_label/2)
       alerter = Keyword.get(opts, :emit_alert, &Alerts.emit_system/2)
 
-      with :ok <- ensure_marker(issue, required_label, labeler),
-           :ok <- notify_operator_once(issue, alerted_label, labeler, alerter) do
-        :ok
+      case ensure_marker(issue, required_label, labeler) do
+        :ok -> notify_operator_once(issue, alerted_label, labeler, alerter)
+        error -> error
       end
     else
       :ok
