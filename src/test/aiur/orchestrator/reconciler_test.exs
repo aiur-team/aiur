@@ -1,12 +1,13 @@
 defmodule Aiur.Orchestrator.ReconcilerTest do
   use Aiur.TestSupport
 
-  alias Aiur.{Alerts, Issue}
+  alias Aiur.{Alerts, Config, Issue}
   alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.Reconciler
   alias Aiur.Orchestrator.State
   alias Aiur.TrackerIdentity
+  alias Aiur.Workspace.Layout
 
   describe "reconcile_running_issue_states/4" do
     test "returns state unchanged for empty list" do
@@ -139,19 +140,16 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
 
       issue = %Issue{id: "issue-restart-divergence", identifier: "I-restart-divergence", state: "rework"}
 
-      recovered = %State{
-        running: %{
-          issue.id => %{identifier: issue.identifier, issue: issue, control: %{status: :working}}
-        }
-      }
+      recovered = %State{}
 
       rearmed = Reconciler.report_label_divergence(recovered, issue)
 
       assert_receive {:event, %{topic: ^resolved_topic}}, 500
-      refute Map.has_key?(rearmed.running[issue.id], :label_divergence_reported)
+      refute Map.has_key?(rearmed.running, issue.id)
 
       paused = %{issue | paused: true}
-      _ = Reconciler.report_label_divergence(rearmed, paused)
+      running = %{identifier: issue.identifier, issue: paused, control: %{status: :working}}
+      _ = Reconciler.report_label_divergence(%{rearmed | running: %{issue.id => running}}, paused)
 
       assert_receive {:event, %{topic: ^topic}}, 500
     end
@@ -186,6 +184,93 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
                )
 
       assert_received {^identity, :completed}
+    end
+
+    test "tracker pause does not take ownership from an existing local pause" do
+      Enum.each([:operator_pause, :global_pause, :max_agent_duration, :agent_pause_request, :blocker_dependency], fn pause_reason ->
+        suffix = Atom.to_string(pause_reason)
+
+        issue = %Issue{
+          id: "issue-owned-pause-#{suffix}",
+          identifier: "I-owned-pause-#{suffix}",
+          state: "rework",
+          paused: true,
+          tracker_identity: tracker_identity("I-owned-pause-#{suffix}")
+        }
+
+        entry = %{
+          pid: self(),
+          identifier: issue.identifier,
+          issue: %{issue | paused: false},
+          control: paused_control(),
+          paused_reason: pause_reason,
+          completed_provenance: pause_reason == :operator_pause
+        }
+
+        paused =
+          Reconciler.reconcile_issue_state(
+            issue,
+            %State{running: %{issue.id => entry}},
+            MapSet.new(["rework"]),
+            MapSet.new(["done"]),
+            fn _identity, _lifecycle -> :ok end
+          )
+
+        assert paused.running[issue.id].paused_reason == pause_reason
+        assert paused.running[issue.id].control.status == :paused
+
+        unpaused =
+          Reconciler.reconcile_issue_state(
+            %{issue | paused: false},
+            paused,
+            MapSet.new(["rework"]),
+            MapSet.new(["done"]),
+            fn _identity, _lifecycle -> :ok end
+          )
+
+        assert unpaused.running[issue.id].paused_reason == pause_reason
+        assert unpaused.running[issue.id].control.status == :paused
+        refute_receive {:resume_agent, _, _}, 10
+      end)
+    end
+
+    test "resolves a persisted divergence for a terminal ticket without a running entry" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      topic = "ticket.I-terminal-restart.agent.attention.state_divergence"
+      resolved_topic = "#{topic}.resolved"
+      :ok = Exchange.subscribe(resolved_topic)
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      assert :ok =
+               Alerts.emit_custom(topic, "Persisted divergence",
+                 issue: "I-terminal-restart",
+                 reason: "Persisted divergence",
+                 needs_attention: true,
+                 severity: "warning"
+               )
+
+      issue = %Issue{
+        id: "issue-terminal-restart",
+        identifier: "I-terminal-restart",
+        state: "done",
+        tracker_identity: tracker_identity("I-terminal-restart")
+      }
+
+      result =
+        Reconciler.reconcile_issue_state(
+          issue,
+          %State{},
+          MapSet.new(["rework"]),
+          MapSet.new(["done"]),
+          fn _identity, _lifecycle -> :ok end
+        )
+
+      assert_receive {:event, %{topic: ^resolved_topic}}, 500
+      refute Map.has_key?(result.running, issue.id)
     end
 
     test "resolves a divergence before removing a terminal ticket" do
@@ -462,6 +547,32 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
   end
 
   describe "reconcile_missing_running_issue_ids/3" do
+    test "resolves a persisted divergence when no running entry reconstructs" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      topic = "ticket.I-orphaned-divergence.agent.attention.state_divergence"
+      resolved_topic = "#{topic}.resolved"
+      workspace = Layout.issue_workspace_path(Config.workspace_root(), "I-orphaned-divergence")
+      File.mkdir_p!(workspace)
+      :ok = Exchange.subscribe(resolved_topic)
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      assert :ok =
+               Alerts.emit_custom(topic, "Persisted divergence",
+                 issue: "I-orphaned-divergence",
+                 workspace: workspace,
+                 reason: "Persisted divergence",
+                 needs_attention: true,
+                 severity: "warning"
+               )
+
+      assert %State{} = Reconciler.resolve_orphaned_divergence_attentions(%State{})
+      assert_receive {:event, %{topic: ^resolved_topic}}, 500
+    end
+
     test "resolves a divergence before removing an absent running ticket" do
       Publisher.set_tracked_fn(fn _ -> true end)
       topic = "ticket.I-missing-divergence.agent.attention.state_divergence"

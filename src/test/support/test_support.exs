@@ -67,6 +67,7 @@ defmodule Aiur.TestSupport do
         previous_workflow_file_path = Application.get_env(:aiur, :workflow_file_path)
         previous_log_file = Application.get_env(:aiur, :log_file)
         previous_build_gate_dir = Application.get_env(:aiur, :build_gate_dir_override)
+        previous_global_pause_store_path = Application.get_env(:aiur, :global_pause_store_path)
 
         # These callbacks live in :persistent_term so they outlast the test
         # process that installed them. Start every TestSupport case from the
@@ -78,6 +79,7 @@ defmodule Aiur.TestSupport do
 
         File.mkdir_p!(workflow_root)
         Application.put_env(:aiur, :build_gate_dir_override, Path.join(workflow_root, "build-gate"))
+        Application.put_env(:aiur, :global_pause_store_path, Path.join(workflow_root, "global-pause.json"))
         workflow_file = Path.join(workflow_root, ".aiurconfig")
         write_workflow_file!(workflow_file)
         Workflow.set_workflow_file_path(workflow_file)
@@ -117,6 +119,11 @@ defmodule Aiur.TestSupport do
           case previous_build_gate_dir do
             nil -> Application.delete_env(:aiur, :build_gate_dir_override)
             path -> Application.put_env(:aiur, :build_gate_dir_override, path)
+          end
+
+          case previous_global_pause_store_path do
+            nil -> Application.delete_env(:aiur, :global_pause_store_path)
+            path -> Application.put_env(:aiur, :global_pause_store_path, path)
           end
 
           Application.delete_env(:aiur, :server_port_override)

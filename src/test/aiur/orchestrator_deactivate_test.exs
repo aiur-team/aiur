@@ -5281,7 +5281,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       assert get_in(generic.running, [issue_id, :paused_reason]) == :agent_pause_request
     end
 
-    test "unrelated real pause transitions replace blocker context before final unblock", %{
+    test "real control transitions replace blocker context before final unblock", %{
       identifier: identifier,
       fake_pid: fake_pid
     } do
@@ -5309,8 +5309,12 @@ defmodule Aiur.OrchestratorDeactivateTest do
         max_concurrent_agents: 6
       }
 
+      tracker_paused = PauseResume.pause_issue_for_label_override(state, issue)
+      assert tracker_paused.running[issue_id].paused_reason == :blocker_dependency
+      assert Map.has_key?(tracker_paused.running[issue_id], :blocker_pause)
+      assert Map.has_key?(tracker_paused.running[issue_id], :pending_auto_resume)
+
       transitions = [
-        {:label_override, fn current -> PauseResume.pause_issue_for_label_override(current, issue) end},
         {:ci_wait, fn current -> CiLifecycle.pause_issue_for_ci_wait(current, issue) end},
         {:operator_pause, fn current -> elem(PauseResume.pause_agent_reply(current, identifier), 1) end},
         {:max_agent_duration,

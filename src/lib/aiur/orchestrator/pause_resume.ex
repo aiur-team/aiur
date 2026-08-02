@@ -259,6 +259,10 @@ defmodule Aiur.Orchestrator.PauseResume do
       %{control: %{status: :deactivated}} = running_entry ->
         Reconciler.refresh_running_entry_issue(state, issue, running_entry)
 
+      %{control: %{status: :paused}, paused_reason: pause_reason} = running_entry
+      when not is_nil(pause_reason) and pause_reason != :label_override ->
+        Reconciler.refresh_running_entry_issue(state, issue, running_entry)
+
       %{control: %{status: :paused}} = running_entry ->
         running_entry =
           running_entry
@@ -302,7 +306,7 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   defp pause_completed_issue_for_label_override(state, running_entry, issue) do
     if State.paused_running_entry?(running_entry) and
-         Map.get(running_entry, :paused_reason) == :label_override do
+         not is_nil(Map.get(running_entry, :paused_reason)) do
       Reconciler.refresh_running_entry_issue(state, issue, running_entry)
     else
       state = Reconciler.refresh_running_entry_issue(state, issue, running_entry)

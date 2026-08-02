@@ -234,6 +234,67 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     refute_receive {:event, %{topic: ^resolved_topic}}, 100
   end
 
+  test "re-evaluates a latched error after recovery while tracker state stays unchanged" do
+    Publisher.set_tracked_fn(fn _ -> true end)
+    issue = issue("latched-error-recovered", "rework")
+    topic = "ticket.#{issue.identifier}.agent.attention.error-lifetime_latch"
+    resolved_topic = "#{topic}.resolved"
+    :ok = Exchange.subscribe(resolved_topic)
+    write_central_attention!(topic)
+
+    on_exit(fn ->
+      Publisher.set_tracked_fn(fn _ -> true end)
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+    end)
+
+    recovered =
+      IssueSync.sync_polled_issue_state(
+        %State{
+          last_polled_issues: %{issue.id => issue},
+          observed_error_alerts: MapSet.new([issue.id]),
+          observed_error_alert_causes: %{issue.id => :lifetime_latch}
+        },
+        [issue],
+        fn _ -> {:ok, []} end,
+        fn _identity, _lifecycle -> :ok end,
+        MapSet.new(["done"]),
+        fn _ -> :ok end,
+        fn _identity, _pending? -> :ok end
+      )
+
+    refute MapSet.member?(recovered.observed_error_alerts, issue.id)
+    refute Map.has_key?(recovered.observed_error_alert_causes, issue.id)
+    assert_receive {:event, %{topic: ^resolved_topic}}, 500
+  end
+
+  test "rediscovers and resolves a persisted lifetime latch attention after restart" do
+    Publisher.set_tracked_fn(fn _ -> true end)
+    issue = issue("latched-error-restart", "rework")
+    topic = "ticket.#{issue.identifier}.agent.attention.error-lifetime_latch"
+    resolved_topic = "#{topic}.resolved"
+    :ok = Exchange.subscribe(resolved_topic)
+    write_central_attention!(topic)
+
+    on_exit(fn ->
+      Publisher.set_tracked_fn(fn _ -> true end)
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+    end)
+
+    recovered =
+      IssueSync.sync_polled_issue_state(
+        %State{},
+        [issue],
+        fn _ -> {:ok, []} end,
+        fn _identity, _lifecycle -> :ok end,
+        MapSet.new(["done"]),
+        fn _ -> :ok end,
+        fn _identity, _pending? -> :ok end
+      )
+
+    refute MapSet.member?(recovered.observed_error_alerts, issue.id)
+    assert_receive {:event, %{topic: ^resolved_topic}}, 500
+  end
+
   test "resolves and rearms a persisted observed error after restart" do
     Publisher.set_tracked_fn(fn _ -> true end)
     issue = issue("observed-error-restart", "rework")

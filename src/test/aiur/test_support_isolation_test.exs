@@ -15,6 +15,7 @@ defmodule Aiur.TestSupportIsolationTest do
   use Aiur.TestSupport
 
   alias Aiur.Config.Paths
+  alias Aiur.Orchestrator.GlobalPauseStore
 
   test "log_root_dir is isolated to the per-test workflow root, not <cwd>/log" do
     log_root = Paths.log_root_dir()
@@ -22,6 +23,10 @@ defmodule Aiur.TestSupportIsolationTest do
     refute log_root == Path.join(File.cwd!(), "log")
     assert String.ends_with?(log_root, "/log")
     assert String.contains?(log_root, "aiur-elixir-tests")
+  end
+
+  test "global pause state is isolated to the per-test workflow root" do
+    assert GlobalPauseStore.path_for() =~ "aiur-elixir-tests"
   end
 
   test "process lifecycle waits synchronize on DOWN instead of polling" do

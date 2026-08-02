@@ -236,7 +236,7 @@ defmodule Aiur.AlertsTest do
              2
   end
 
-  test "agent paused and unpaused alerts fire from control-state transitions" do
+  test "cause-scoped pause and unpaused alerts fire from control-state transitions" do
     workspace_root =
       Path.join(System.tmp_dir!(), "aiur-alert-pause-#{System.unique_integer([:positive])}")
 
@@ -283,7 +283,10 @@ defmodule Aiur.AlertsTest do
         if File.exists?(log_path) do
           log = File.read!(log_path)
 
-          String.contains?(log, "\"name\":\"ticket.MT-ALERT-5.agent.paused\"") and
+          String.contains?(
+            log,
+            "\"name\":\"ticket.MT-ALERT-5.agent.attention.paused-worker_pause_unknown\""
+          ) and
             String.contains?(log, "\"needs_attention\":true") and
             String.contains?(log, "\"severity\":\"warning\"") and
             String.contains?(log, "\"name\":\"ticket.MT-ALERT-5.agent.unpaused\"") and

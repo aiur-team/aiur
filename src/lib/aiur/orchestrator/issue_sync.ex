@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.IssueSync do
 
   alias Aiur.{AgentQueue, AgentQueueStore, AlertFeed, Alerts, Config, CurrentRunMembership, DispatchBudgetStore, Issue, Tracker, TrackerIdentity}
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, MembershipLifecycle, OperatorMessages, Slots, State}
+  alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, MembershipLifecycle, OperatorMessages, Reconciler, Slots, State}
 
   @idle_terminal_verification_batch_size 25
   @capacity_starvation_alert_after_ms 60_000
@@ -123,6 +123,7 @@ defmodule Aiur.Orchestrator.IssueSync do
       when is_list(issues) and is_function(fetch_issue_states_fun, 1) and is_function(observe_membership_fun, 2) and
              is_struct(terminal_states, MapSet) and is_function(mark_reconciled_fun, 1) and
              is_function(set_terminal_verification_pending_fun, 2) do
+    state = Reconciler.resolve_orphaned_divergence_attentions(state)
     previous_issues = state.last_polled_issues
     current_issues = issues_by_id(issues)
 
@@ -440,8 +441,11 @@ defmodule Aiur.Orchestrator.IssueSync do
     current_state = DispatchPolicy.state_slug(issue.state)
 
     cond do
-      previous_state == current_state or is_nil(current_state) ->
+      is_nil(current_state) ->
         state
+
+      previous_state == current_state ->
+        reconcile_observed_error_alert(state, issue, current_state)
 
       current_state == "error" ->
         emit_observed_error_transition_alert(state, issue)
@@ -466,6 +470,12 @@ defmodule Aiur.Orchestrator.IssueSync do
   end
 
   defp emit_task_state_transition_alert(%State{} = state, _previous_issue, _issue), do: state
+
+  defp reconcile_observed_error_alert(state, issue, "error"),
+    do: emit_observed_error_transition_alert(state, issue)
+
+  defp reconcile_observed_error_alert(state, issue, _state),
+    do: resolve_observed_error_transition_alert(state, issue)
 
   defp emit_observed_error_transition_alert(%State{} = state, %Issue{} = issue) do
     cause = observed_error_alert_cause(state, issue)
@@ -498,7 +508,7 @@ defmodule Aiur.Orchestrator.IssueSync do
         AlertFeed.active_ticket_attention?(topic)
 
     cond do
-      cause == :lifetime_latch ->
+      cause == :lifetime_latch and lifetime_latch_active?(state, issue.id) ->
         mark_observed_error_alert(state, issue.id, cause)
 
       active? ->
@@ -528,7 +538,7 @@ defmodule Aiur.Orchestrator.IssueSync do
   end
 
   defp persisted_observed_error_alert_cause(%Issue{} = issue) do
-    Enum.find([:retry_exhausted, :observed_tracker_error], fn cause ->
+    Enum.find([:lifetime_latch, :retry_exhausted, :observed_tracker_error], fn cause ->
       AlertFeed.active_ticket_attention?(observed_error_alert_topic(issue, cause))
     end)
   end

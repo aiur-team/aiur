@@ -148,7 +148,7 @@ defmodule Aiur.Orchestrator.Reconciler do
       )
       when is_function(observe_membership_fun, 2) and is_function(mark_reconciled_fun, 1) do
     if DispatchPolicy.terminal_issue_state?(issue.state, terminal_states) do
-      state = clear_reported_divergence(state, issue.id)
+      state = clear_reported_divergence(state, issue.id, issue.identifier)
 
       case LifecycleFence.reconcile_observed_state(state, issue) do
         :admit ->
@@ -222,9 +222,50 @@ defmodule Aiur.Orchestrator.Reconciler do
         end
 
       _ ->
-        state
+        clear_reported_divergence(state, issue.id, issue.identifier)
     end
   end
+
+  @doc false
+  @spec resolve_orphaned_divergence_attentions(State.t()) :: State.t()
+  def resolve_orphaned_divergence_attentions(%State{} = state) do
+    running_identifiers =
+      state.running
+      |> Map.values()
+      |> Enum.flat_map(fn entry ->
+        case Map.get(entry, :identifier) || get_in(entry, [:issue, Access.key(:identifier)]) do
+          identifier when is_binary(identifier) and identifier != "" -> [identifier]
+          _ -> []
+        end
+      end)
+      |> MapSet.new()
+
+    [needs_attention: true]
+    |> AlertFeed.list()
+    |> Enum.reduce(state, fn alert, state_acc ->
+      topic = Map.get(alert, "topic", "")
+
+      case divergence_identifier(topic) do
+        identifier when is_binary(identifier) ->
+          if MapSet.member?(running_identifiers, identifier) do
+            state_acc
+          else
+            emit_divergence_resolution(state_acc, identifier, nil, identifier, topic)
+          end
+
+        _ ->
+          state_acc
+      end
+    end)
+  end
+
+  defp divergence_identifier("ticket." <> rest) do
+    suffix = ".agent.attention.state_divergence"
+
+    if String.ends_with?(rest, suffix), do: String.trim_trailing(rest, suffix)
+  end
+
+  defp divergence_identifier(_topic), do: nil
 
   defp label_divergence(%{control: %{status: :paused}, paused_reason: :label_override}, %Issue{} = issue)
        when not is_nil(issue) do
@@ -249,7 +290,7 @@ defmodule Aiur.Orchestrator.Reconciler do
     topic = "ticket.#{identifier}.agent.attention.state_divergence"
     entry = Map.delete(entry, :label_divergence_attention_checked)
 
-    if Map.get(entry, :label_divergence_reported) == reason or AlertFeed.active_ticket_attention?(topic) do
+    if Map.get(entry, :label_divergence_reported) == reason or persisted_divergence_active?(topic) do
       put_in(state.running[issue.id], Map.put(entry, :label_divergence_reported, reason))
     else
       Alerts.emit_custom(topic, reason,
@@ -265,13 +306,26 @@ defmodule Aiur.Orchestrator.Reconciler do
     end
   end
 
-  defp clear_reported_divergence(state, issue_id) do
+  defp clear_reported_divergence(state, issue_id, fallback_identifier \\ nil) do
     case Map.get(state.running, issue_id) do
       %{} = entry ->
         clear_entry_divergence(state, issue_id, entry)
 
+      _ when is_binary(fallback_identifier) and fallback_identifier != "" ->
+        clear_persisted_divergence(state, issue_id, fallback_identifier)
+
       _ ->
         state
+    end
+  end
+
+  defp clear_persisted_divergence(state, issue_id, identifier) do
+    topic = "ticket.#{identifier}.agent.attention.state_divergence"
+
+    if persisted_divergence_active?(topic) do
+      emit_divergence_resolution(state, issue_id, nil, identifier, topic)
+    else
+      state
     end
   end
 
@@ -289,18 +343,23 @@ defmodule Aiur.Orchestrator.Reconciler do
   defp reported_divergence_active?(entry, topic) do
     Map.has_key?(entry, :label_divergence_reported) or
       (not Map.get(entry, :label_divergence_attention_checked, false) and
-         AlertFeed.active_ticket_attention?(topic))
+         persisted_divergence_active?(topic))
+  end
+
+  defp persisted_divergence_active?(topic) do
+    Enum.any?(AlertFeed.list(needs_attention: true), &(&1["topic"] == topic))
   end
 
   defp emit_divergence_resolution(state, issue_id, entry, identifier, topic) do
-    previous_reason = Map.get(entry, :label_divergence_reported, "the prior divergence")
+    metadata = entry || %{}
+    previous_reason = Map.get(metadata, :label_divergence_reported, "the prior divergence")
 
     case Alerts.emit_custom(
            "#{topic}.resolved",
            "Tracker/local state reconciliation recovered for ticket #{identifier}.",
            issue: identifier,
-           workspace: Map.get(entry, :workspace_path),
-           worker_host: Map.get(entry, :worker_host),
+           workspace: Map.get(metadata, :workspace_path),
+           worker_host: Map.get(metadata, :worker_host),
            reason: "Resolved: #{previous_reason}",
            needs_attention: false,
            severity: "info"
@@ -310,7 +369,7 @@ defmodule Aiur.Orchestrator.Reconciler do
     end
   end
 
-  defp mark_divergence_checked(state, issue_id, entry) do
+  defp mark_divergence_checked(state, issue_id, entry) when is_map(entry) do
     checked_entry =
       entry
       |> Map.delete(:label_divergence_reported)
@@ -318,6 +377,8 @@ defmodule Aiur.Orchestrator.Reconciler do
 
     put_in(state.running[issue_id], checked_entry)
   end
+
+  defp mark_divergence_checked(state, _issue_id, nil), do: state
 
   defp terminate_recorded_terminal_issue(state, issue, mark_reconciled_fun) do
     if safely_set_terminal_verification_pending(issue.tracker_identity, false) == :ok do
@@ -458,6 +519,10 @@ defmodule Aiur.Orchestrator.Reconciler do
   @spec maybe_reactivate_or_refresh(State.t(), Issue.t()) :: State.t()
   def maybe_reactivate_or_refresh(%State{} = state, %Issue{} = issue) do
     case Map.get(state.running, issue.id) do
+      %{control: %{status: :paused}, paused_reason: pause_reason} = running_entry
+      when pause_reason not in [:before_run_failure, :ci_wait, :label_override] ->
+        refresh_running_entry_issue(state, issue, running_entry)
+
       %{completed_provenance: true} = running_entry ->
         PauseResume.replace_completed_issue(state, running_entry, issue)
 
