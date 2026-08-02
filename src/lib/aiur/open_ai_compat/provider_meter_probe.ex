@@ -163,7 +163,10 @@ defmodule Aiur.OpenAICompat.ProviderMeterProbe do
   defp balance_used_percent(:deepseek, balance, opts) do
     case BalanceBaseline.resolve(:deepseek, balance, opts) do
       {baseline, false} when baseline > 0 ->
-        ((baseline - balance) / baseline * 100) |> max(0) |> min(100)
+        ((baseline - balance) / baseline * 100)
+        |> max(0)
+        |> min(100)
+        |> Float.round(1)
 
       _other ->
         nil

@@ -414,12 +414,19 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   defp compact_number(number) when is_integer(number) and number >= 1_000, do: "#{Float.round(number / 1_000, 1)}K"
   defp compact_number(number) when is_integer(number), do: Integer.to_string(number)
 
+  # A prepaid-balance window carries its spend percentage as `used_percent`
+  # (the probe attaches it only once a durable baseline exists); the bar renders
+  # that measured value rather than an empty 0%. Measured rate-limit windows
+  # carry the same percentage under `meter.now`. Credit percentages are rounded
+  # to one decimal so a float measurement never renders a noisy bar width.
+  defp meter_percent(%{kind: :credit, used_percent: percent}) when is_number(percent), do: Float.round(percent, 1)
   defp meter_percent(%{meter: %{kind: :exact, now: percent}}), do: percent
   defp meter_percent(_window), do: 0
 
   # A bar that is fully consumed reads as critical: the fill turns red so an
-  # exhausted window is never mistaken for a healthy one.
-  defp meter_class(percent) when is_integer(percent) and percent >= 100, do: "is-critical"
+  # exhausted window is never mistaken for a healthy one. Credit percentages
+  # arrive as floats (e.g. 100.0), so the guard accepts any number at/above 100.
+  defp meter_class(percent) when is_number(percent) and percent >= 100, do: "is-critical"
   defp meter_class(_percent), do: ""
 
   # A credit window is a dollar balance. When a durable baseline exists the

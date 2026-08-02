@@ -386,7 +386,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
                 name: :credits,
                 coverage_label: "Supported",
                 used_percent: 1.9,
-                meter: %{kind: :exact, now: 2, min: 0, max: 100},
                 credits: %{status: :available, label: "Available", amount: 49.05},
                 expires_at: DateTime.add(@now, 5, :minute)
               }
@@ -404,7 +403,10 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         })
 
       assert html =~ "$49.05 · 1.9% used"
-      assert html =~ ~s(<i class="" style="width:2%">)
+      # The bar renders the measured spend percentage itself (1.9% used), not an
+      # empty 0%: the probe attaches `used_percent` without a separate `meter`
+      # key, and the strip reads it directly.
+      assert html =~ ~s(<i class="" style="width:1.9%">)
     end)
   end
 
@@ -426,7 +428,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
                 name: :credits,
                 coverage_label: "Supported",
                 used_percent: 100.0,
-                meter: %{kind: :exact, now: 100, min: 0, max: 100},
                 credits: %{status: :exhausted, label: "Exhausted", amount: 0},
                 expires_at: DateTime.add(@now, 5, :minute)
               }
@@ -444,7 +445,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         })
 
       assert html =~ "$0 · 100% used"
-      assert html =~ ~s(class="is-critical" style="width:100%")
+      assert html =~ ~s(class="is-critical" style="width:100.0%")
     end)
   end
 

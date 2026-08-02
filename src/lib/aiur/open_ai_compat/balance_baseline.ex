@@ -146,17 +146,21 @@ defmodule Aiur.OpenAICompat.BalanceBaseline do
             "recorded_at" => DateTime.utc_now() |> DateTime.to_iso8601()
           }
 
-          with :ok <-
-                 write(
-                   path,
-                   Map.put(state, @baselines_key, Map.put(baselines, Atom.to_string(provider), entry))
-                 ) do
-            {:ok, observed_balance}
-          else
-            _ -> :error
-          end
+          state
+          |> Map.put(@baselines_key, Map.put(baselines, Atom.to_string(provider), entry))
+          |> persist_seed(path, observed_balance)
       end
     end)
+  end
+
+  # Persist a freshly-seeded baseline entry. Best-effort: a failed write
+  # returns `:error` so the meter degrades to dollar-only instead of raising
+  # through the probe.
+  defp persist_seed(state, path, observed_balance) do
+    case write(path, state) do
+      :ok -> {:ok, observed_balance}
+      :error -> :error
+    end
   end
 
   defp load(path) do
