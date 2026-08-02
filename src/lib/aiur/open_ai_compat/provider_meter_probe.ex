@@ -170,8 +170,6 @@ defmodule Aiur.OpenAICompat.ProviderMeterProbe do
     end
   end
 
-  defp balance_used_percent(_provider, _balance, _opts), do: nil
-
   defp credit_window(id, amount, source, observed_at, used_percent) do
     window = %{
       limit_id: id,

@@ -413,7 +413,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   defp compact_number(number) when is_integer(number) and number >= 1_000_000, do: "#{Float.round(number / 1_000_000, 2)}M"
   defp compact_number(number) when is_integer(number) and number >= 1_000, do: "#{Float.round(number / 1_000, 1)}K"
   defp compact_number(number) when is_integer(number), do: Integer.to_string(number)
-  defp compact_number(_number), do: nil
 
   defp meter_percent(%{meter: %{kind: :exact, now: percent}}), do: percent
   defp meter_percent(_window), do: 0
