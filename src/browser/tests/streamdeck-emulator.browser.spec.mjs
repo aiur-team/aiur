@@ -237,8 +237,8 @@ test('dial drag + mode transition both work in the same session', async ({ page 
     await page.mouse.move(cx + Math.cos(radians) * 30, cy + Math.sin(radians) * 30)
   }
   await page.mouse.up()
+  await expect.poll(async () => parseInt(await knob.getAttribute('aria-valuenow'), 10)).toBeGreaterThan(0)
   const dialValue = parseInt(await knob.getAttribute('aria-valuenow'), 10)
-  expect(dialValue).toBeGreaterThan(0)
 
   // Then click a key to enter cmd mode.
   const key = page.locator('.sd-key:not(.is-empty)').first()
@@ -330,23 +330,26 @@ test('dial D drag, wheel, and keyboard preserve continuous fleet offsets', async
 
   await page.mouse.move(cx, cy - 30)
   await page.mouse.down()
-  await page.mouse.move(cx + 30, cy)
-  await page.mouse.move(cx, cy + 30)
+  for (let i = 1; i <= 20; i += 1) {
+    const angle = -90 + i * 2
+    const radians = (angle * Math.PI) / 180
+    await page.mouse.move(cx + Math.cos(radians) * 30, cy + Math.sin(radians) * 30)
+  }
   await page.mouse.up()
+  await expect.poll(async () => parseInt(await dialD.getAttribute('aria-valuenow'), 10)).toBeGreaterThan(0)
   const afterDrag = parseInt(await dialD.getAttribute('aria-valuenow'), 10)
-  expect(afterDrag).toBeGreaterThan(0)
-  const renderedAfterDrag = parseInt(await keys.getAttribute('data-grid-dial-value'), 10)
-  expect(renderedAfterDrag).toBe(afterDrag)
+  await expect(keys).toHaveAttribute('data-grid-dial-value', String(afterDrag))
 
   await dialD.hover()
   await page.mouse.wheel(0, -100)
+  await expect.poll(async () => parseInt(await dialD.getAttribute('aria-valuenow'), 10)).toBeGreaterThan(afterDrag)
   const afterWheel = parseInt(await dialD.getAttribute('aria-valuenow'), 10)
-  expect(afterWheel).toBeGreaterThan(afterDrag)
 
   await dialD.focus()
   await page.keyboard.press('ArrowDown')
+  await expect.poll(async () => parseInt(await dialD.getAttribute('aria-valuenow'), 10)).toBeLessThan(afterWheel)
   const afterKeyboard = parseInt(await dialD.getAttribute('aria-valuenow'), 10)
-  expect(afterKeyboard).toBeLessThan(afterWheel)
+  await expect(keys).toHaveAttribute('data-grid-dial-value', String(afterKeyboard))
 })
 
 test('logs mode scrolls event and transcript panes within real bounds', async ({ page }) => {
