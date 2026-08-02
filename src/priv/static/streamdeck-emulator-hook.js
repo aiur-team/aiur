@@ -50,6 +50,7 @@
     this.index = index;
     this.hook = hook;
     this.value = parseInt(this.knobEl.dataset.value || "0", 10);
+    this.preciseValue = this.value;
     this.isDragging = false;
     this.dragAngle = 0;
     this.accumulatedDeg = 0;
@@ -141,7 +142,8 @@
   };
 
   Knob.prototype._step = function (delta, notify) {
-    this.value = clamp(Math.round(this.value + delta), 0, 100);
+    this.preciseValue = clamp(this.preciseValue + delta, 0, 100);
+    this.value = clamp(Math.round(this.preciseValue), 0, 100);
     this._render();
     // Angle: 0 → -135deg (min), 100 → +135deg (max), centred at top.
     var angle = (this.value / 100) * 270 - 135;
@@ -194,13 +196,16 @@
   };
 
   Knob.prototype.snapshotState = function () {
-    return { value: this.value };
+    return { value: this.value, preciseValue: this.preciseValue };
   };
 
   Knob.prototype.restoreState = function (state) {
     if (!state) return;
-    this.value = state.value;
-    this._step(0);
+    this.preciseValue = Number.isFinite(state.preciseValue) ? state.preciseValue : state.value;
+    this.value = clamp(Math.round(this.preciseValue), 0, 100);
+    this._render();
+    this.knobEl.setAttribute("aria-valuenow", String(this.value));
+    this.knobEl.style.setProperty("--a", (this.value / 100) * 270 - 135 + "deg");
   };
 
   window.AiurStreamdeckEmulatorHook = {
@@ -353,7 +358,10 @@
 
     _setDialValue(index, value) {
       var dial = this._knobs && this._knobs[index];
-      if (dial) dial._step(value - dial.value, false);
+      if (dial) {
+        dial.preciseValue = value;
+        dial._step(0, false);
+      }
     },
 
     _syncPageKnob() {
@@ -363,6 +371,7 @@
       var source = this._mode === "logs" ? this.el.querySelector("#sd-log-events") : keys;
       var value = parseInt(source.getAttribute(this._mode === "logs" ? "data-dial-value" : "data-grid-dial-value") || "0", 10);
       if (!Number.isFinite(value)) return;
+      knob.preciseValue = value;
       knob.value = value;
       knob._render();
       knob.knobEl.setAttribute("aria-valuenow", String(knob.value));

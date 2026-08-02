@@ -106,12 +106,12 @@ rg -n -i 'streamdeck|stream deck|dial|pager|logs mode|pause|resume' \
 
 | Step | Headless coverage |
 |------|-------------------|
-| 2 | Grid fleet display / bucketing | Covered by `streamdeck-emulator.browser.spec.mjs`; cross-route Units parity remains part of the live proof |
+| 2 | Grid fleet display / bucketing | The browser fixture covers live grid projection and paging; canonical bucketing/sort parity with Units is not asserted headlessly and remains part of the live proof |
 | 3 | Dial drag, wheel, keyboard input | Covered by `streamdeck-emulator.browser.spec.mjs` |
 | 3 | Pager dots / window cycling | Covered by `streamdeck-emulator.browser.spec.mjs` |
 | 4 | Key → cmd mode; pause/resume agent | Key → cmd is covered; writable pause/resume is verified by LiveView control-boundary tests and remains part of the live proof |
 | 5 | Logs mode scroll; hint arrow bounds | Covered by `streamdeck-emulator.browser.spec.mjs` |
-| 6 | Back-navigation logs → cmd → grid | Sequence is covered; focused-agent preservation is covered by the LiveView test and remains part of the live proof |
+| 6 | Back-navigation logs → cmd → grid | The browser spec covers the mode sequence; focused-agent preservation across back-navigation is not asserted headlessly and remains part of the live proof |
 
 If any of steps 2–6 still lacks a headless test when you run the proof, record
 each gap as a separate non-blocking issue and link it from #1358. Do not add

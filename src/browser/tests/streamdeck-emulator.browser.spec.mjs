@@ -231,8 +231,11 @@ test('dial drag + mode transition both work in the same session', async ({ page 
 
   await page.mouse.move(cx, cy - 30)
   await page.mouse.down()
-  await page.mouse.move(cx + 30, cy)
-  await page.mouse.move(cx, cy + 30)
+  for (let i = 1; i <= 20; i += 1) {
+    const angle = -90 + i * 2
+    const radians = (angle * Math.PI) / 180
+    await page.mouse.move(cx + Math.cos(radians) * 30, cy + Math.sin(radians) * 30)
+  }
   await page.mouse.up()
   const dialValue = parseInt(await knob.getAttribute('aria-valuenow'), 10)
   expect(dialValue).toBeGreaterThan(0)
@@ -333,7 +336,7 @@ test('dial D drag, wheel, and keyboard preserve continuous fleet offsets', async
   const afterDrag = parseInt(await dialD.getAttribute('aria-valuenow'), 10)
   expect(afterDrag).toBeGreaterThan(0)
   const renderedAfterDrag = parseInt(await keys.getAttribute('data-grid-dial-value'), 10)
-  expect(Math.abs(renderedAfterDrag - afterDrag)).toBeLessThanOrEqual(1)
+  expect(renderedAfterDrag).toBe(afterDrag)
 
   await dialD.hover()
   await page.mouse.wheel(0, -100)
@@ -356,12 +359,13 @@ test('logs mode scrolls event and transcript panes within real bounds', async ({
 
   await expect(page.locator('#sd-log-events')).toContainText('event-1')
   await dialD.hover()
-  for (let i = 0; i < 5; i += 1) await page.mouse.wheel(0, -100)
+  for (let i = 0; i < 12; i += 1) await page.mouse.wheel(0, -100)
+  await expect(page.locator('#sd-log-events')).toHaveAttribute('data-max-offset', '2')
   await expect(page.locator('#sd-log-events')).toHaveAttribute('data-offset', '1')
   await expect(page.locator('#sd-log-events')).toContainText('event-2')
 
   await dialD.click()
-  await expect(page.locator('#sd-log-events')).toHaveAttribute('data-offset', '6')
+  await expect(page.locator('#sd-log-events')).toHaveAttribute('data-offset', '2')
   await expect(dialD).toHaveAttribute('aria-valuenow', '100')
 
   await dialD.click()

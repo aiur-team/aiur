@@ -83,6 +83,21 @@ defmodule AiurWeb.StreamdeckLiveTest do
     refute html =~ "Build emulator"
   end
 
+  test "initial mount creates one real PubSub transcript subscription" do
+    {:ok, _view, _html} = live(build_conn(), "/streamdeck")
+
+    identifier =
+      Enum.find(~w(1352 1345 1338 1331 1350 1360 1361 1362 1363 1366 1367 1370 1371 1372 1373 1374 1375 1376 1377), fn id ->
+        match?([{_relay, _metadata}], Registry.lookup(Aiur.PubSub, AgentEvents.agent_topic(id)))
+      end)
+
+    assert is_binary(identifier)
+    topic = AgentEvents.agent_topic(identifier)
+
+    assert [{relay, _metadata}] = Registry.lookup(Aiur.PubSub, topic)
+    assert Process.alive?(relay)
+  end
+
   test "refreshes the grid when the fleet topic changes", %{snapshot_agent: snapshot_agent} do
     {:ok, view, html} = live(build_conn(), "/streamdeck")
     assert html =~ "Live running"
@@ -133,6 +148,11 @@ defmodule AiurWeb.StreamdeckLiveTest do
           ] do
         Phoenix.Config.put(Endpoint, :dashboard_writable, writable)
         render_hook(view, "key-press", %{"identifier" => focused_identifier})
+
+        assert [{_relay, _metadata}] =
+                 Registry.lookup(Aiur.PubSub, AgentEvents.agent_topic(focused_identifier))
+
+        assert Registry.lookup(Aiur.PubSub, AgentEvents.agent_topic(old_identifier)) == []
 
         AgentPubSub.broadcast_transcript(
           old_identifier,
@@ -220,6 +240,24 @@ defmodule AiurWeb.StreamdeckLiveTest do
     Process.sleep(20)
     html = render_hook(view, "logs-scroll", %{"axis" => "transcript", "delta" => "99"})
     assert html =~ "live transcript"
+  end
+
+  test "dial D preserves continuous values and uses the eight-event page bound" do
+    {:ok, view, html} = live(build_conn(), "/streamdeck")
+
+    assert html =~ ~r{id="sd-log-events"[^>]*data-max-offset="2"}
+
+    html = render_hook(view, "grid-page", %{"value" => "50"})
+    assert html =~ ~r{id="sd-keys"[^>]*data-grid-dial-value="50"}
+
+    html = render_hook(view, "logs-scroll", %{"axis" => "events", "value" => "50"})
+    assert html =~ ~r{id="sd-log-events"[^>]*data-offset="1"[^>]*data-max-offset="2"[^>]*data-dial-value="50"}
+
+    html = render_hook(view, "logs-scroll", %{"axis" => "events", "action" => "cycle"})
+    assert html =~ ~r{id="sd-log-events"[^>]*data-offset="2"[^>]*data-max-offset="2"[^>]*data-dial-value="100"}
+
+    html = render_hook(view, "logs-scroll", %{"axis" => "events", "action" => "cycle"})
+    assert html =~ ~r{id="sd-log-events"[^>]*data-offset="0"[^>]*data-max-offset="2"[^>]*data-dial-value="0"}
   end
 
   test "renders provider percentages from the shared presenter and refreshes from the event snapshot" do
