@@ -9,6 +9,8 @@ defmodule AiurWeb.StreamdeckLiveTest do
   @endpoint Endpoint
 
   setup do
+    test_pid = self()
+    {:ok, snapshot_agent} = Agent.start_link(fn -> fixture_snapshot() end)
     previous_endpoint = Application.get_env(:aiur, Endpoint)
 
     endpoint_config =
@@ -17,14 +19,29 @@ defmodule AiurWeb.StreamdeckLiveTest do
       |> Keyword.merge(
         server: false,
         secret_key_base: String.duplicate("s", 64),
-        dashboard_writable: false,
-        dashboard_auth_required: false
+        dashboard_writable: true,
+        dashboard_auth_required: false,
+        streamdeck_snapshot_fun: fn -> Agent.get(snapshot_agent, & &1) end,
+        streamdeck_provider_meters_fun: fn -> fixture_provider_meters() end,
+        agent_chat_pause_fun: fn identifier ->
+          send(test_pid, {:streamdeck_pause, identifier})
+          {:ok, 1}
+        end,
+        agent_chat_resume_fun: fn identifier ->
+          send(test_pid, {:streamdeck_resume, identifier})
+          {:ok, :resumed}
+        end
       )
 
     Application.put_env(:aiur, Endpoint, endpoint_config)
     start_supervised!({Endpoint, []})
-    on_exit(fn -> Application.put_env(:aiur, Endpoint, previous_endpoint) end)
-    :ok
+
+    on_exit(fn ->
+      Application.put_env(:aiur, Endpoint, previous_endpoint)
+      if Process.alive?(snapshot_agent), do: Agent.stop(snapshot_agent)
+    end)
+
+    {:ok, snapshot_agent: snapshot_agent}
   end
 
   test "renders the Stream Deck chassis, eight keys, strip, and knobs" do
@@ -50,6 +67,38 @@ defmodule AiurWeb.StreamdeckLiveTest do
     # Every non-queued, non-empty key renders the status dot + progress footer.
     assert html =~ ~s(class="sd-status-dot")
     assert html =~ ~s(class="sd-progress")
+  end
+
+  test "renders the live grid projection instead of preview descriptors" do
+    {:ok, _view, html} = live(build_conn(), "/streamdeck")
+
+    assert html =~ "Live running"
+    assert html =~ "Live paused"
+    assert html =~ ~s(data-streamdeck-identifier="1352")
+    refute html =~ "Build emulator"
+  end
+
+  test "refreshes the grid when the fleet topic changes", %{snapshot_agent: snapshot_agent} do
+    {:ok, view, html} = live(build_conn(), "/streamdeck")
+    assert html =~ "Live running"
+
+    Agent.update(snapshot_agent, fn _ -> %{running: [], retrying: [], idle: [fixture_agent("1400", "Live replacement", "codex")]} end)
+    send(view.pid, {:running_changed, []})
+    Process.sleep(10)
+
+    html = render(view)
+    assert html =~ "Live replacement"
+    refute html =~ "Live running"
+  end
+
+  test "key presses request pause for running and resume for paused agents" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+
+    assert render_hook(view, "key-press", %{"identifier" => "1352"}) =~ "Pause requested for #1352"
+    assert_receive {:streamdeck_pause, "1352"}
+
+    assert render_hook(view, "key-press", %{"identifier" => "1345"}) =~ "Resume requested for #1345"
+    assert_receive {:streamdeck_resume, "1345"}
   end
 
   test "renders the priority star, the mic indicator, and the live segment" do
@@ -87,5 +136,40 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
     assert render_click(view, "toggle-nav", %{}) =~ ~s(data-nav-collapsed="true")
     assert render_hook(view, "restore-nav", %{"collapsed" => false}) =~ ~s(data-nav-collapsed="false")
+  end
+
+  defp fixture_snapshot do
+    %{
+      running: [fixture_agent("1352", "Live running", "codex", priority: 1)],
+      retrying: [],
+      idle: [
+        fixture_agent("1345", "Live paused", "claude", work_state: :paused),
+        fixture_agent("1350", "Live queued", "codex", waiting_reason: :waiting_for_dependency)
+      ]
+    }
+  end
+
+  defp fixture_agent(identifier, title, backend, attrs \\ []) do
+    Map.merge(
+      %{
+        identifier: identifier,
+        title: title,
+        backend: backend,
+        work_state: :working,
+        open_decision_count: 0,
+        waiting_reason: :active,
+        tracker_paused: false,
+        progress_percent: 50,
+        priority: nil
+      },
+      Map.new(attrs)
+    )
+  end
+
+  defp fixture_provider_meters do
+    %{
+      "claude" => %{"state" => "observed", "windows" => %{"daily" => %{"used" => 3}}},
+      "codex" => %{"state" => "observed", "windows" => %{"daily" => %{"used" => 5}}}
+    }
   end
 end
