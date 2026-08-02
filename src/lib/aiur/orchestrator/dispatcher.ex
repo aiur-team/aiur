@@ -69,6 +69,10 @@ defmodule Aiur.Orchestrator.Dispatcher do
           |> IssueSync.sync_polled_issue_state(issues)
           |> IssueSync.sync_todo_capacity_alert(issues)
 
+        # The poll just refreshed `last_polled_issues`, so this generation can
+        # replace a retained snapshot from a prior same-name orchestrator.
+        state = %{state | snapshot_ready?: true}
+
         # The poll just refreshed `last_polled_issues`, so push a fresh
         # summary out to any open agent-list pane immediately.
         StatusReport.notify_dashboard(state)

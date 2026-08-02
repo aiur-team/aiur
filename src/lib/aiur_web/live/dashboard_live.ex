@@ -96,6 +96,7 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:drafts, %{})
       |> assign(:chat_errors, %{})
       |> assign(:decision_actions, %{})
+      |> assign(:global_pause_error, nil)
       |> assign(:payload_reload_scheduled?, false)
       |> assign(:payload_reload_mode, :cached)
       |> assign(:writable, dashboard_writable?())
@@ -500,10 +501,25 @@ defmodule AiurWeb.DashboardLive do
 
   defp toggle_global_pause(socket) do
     target = not global_paused?(socket.assigns.payload)
-    _ = GlobalPause.set_global_pause(capacity_orchestrator(), target)
-    # The orchestrator broadcasts an observability update on success; reload so
-    # the nav toggle reflects the new state even if the broadcast is missed.
-    reload_after_action(socket)
+
+    case GlobalPause.set_global_pause(capacity_orchestrator(), target, "dashboard") do
+      {:ok, _status} ->
+        # The orchestrator broadcasts an observability update on success; reload
+        # so the nav toggle reflects the new state even if the broadcast is missed.
+        socket
+        |> assign(:global_pause_error, nil)
+        |> reload_after_action()
+
+      {:error, {:global_pause_persistence_failed, _reason}} ->
+        assign(
+          socket,
+          :global_pause_error,
+          "Global pause was not changed because its state could not be persisted. The daemon remains in its previous state; check the daemon log and retry."
+        )
+
+      {:error, reason} ->
+        assign(socket, :global_pause_error, "Global pause could not be changed: #{inspect(reason)}")
+    end
   end
 
   defp global_paused?(payload) when is_map(payload) do
@@ -511,6 +527,19 @@ defmodule AiurWeb.DashboardLive do
   end
 
   defp global_paused?(_payload), do: false
+
+  defp global_pause_provenance(payload) do
+    case get_in(payload, [:fleet, :global_pause]) do
+      %{source: source, paused_at: paused_at} when is_binary(source) and is_binary(paused_at) ->
+        "Set by #{source} at #{paused_at}. "
+
+      %{source: source} when is_binary(source) ->
+        "Set by #{source}. "
+
+      _ ->
+        ""
+    end
+  end
 
   defp pause_agent_action(socket, modal) do
     key = agent_log_key(modal)
@@ -646,10 +675,19 @@ defmodule AiurWeb.DashboardLive do
       writable={@writable}
     >
       <:banner>
+        <div :if={@global_pause_error} class="readonly-banner global-pause-error" role="alert" aria-live="assertive">
+          <span aria-hidden="true">⚠</span>
+          <span>{@global_pause_error}</span>
+        </div>
+        <div :if={global_paused?(@payload)} class="readonly-banner global-pause-banner" role="alert" aria-live="polite">
+          <span aria-hidden="true">⏸</span>
+          <span><b>Aiur is globally paused.</b> {global_pause_provenance(@payload)}Run <code>aiurdev resume</code> with no ticket ID to lift the global pause.</span>
+        </div>
         <Overview.decisions_banner decisions={@payload.decisions} retained_counts={@retained_counts} />
       </:banner>
 
       <Overview.error error={@payload.fleet[:error]} />
+      <Overview.stale_snapshot freshness={@payload.fleet[:snapshot_freshness]} />
 
       <div :if={@live_action in [:decisions, :decision]} class="control-panel">
         <div :if={not is_nil(@selected_decision) and partial_detail?(@selected_decision_health)} class="readonly-banner" role="status" aria-live="polite">

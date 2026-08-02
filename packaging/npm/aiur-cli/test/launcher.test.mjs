@@ -668,9 +668,30 @@ test("control rpc keeps the friendly hint when the node is genuinely down", () =
   });
 
   expect(result.status).not.toBe(0);
-  expect(result.stderr).toContain("no running aiur node");
+  expect(result.stderr).toContain(
+    "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry.",
+  );
   // A down node gets the clean hint, not the cryptic transport error.
   expect(result.stderr).not.toContain(":noconnection");
+});
+
+test("todo reports a stopped daemon without leaking a GenServer stacktrace", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+  const result = runControl(
+    launcher,
+    releaseDir,
+    {
+      AIUR_FAKE_RPC_MODE: "noconnection",
+      AIUR_FAKE_EPMD_REGISTERED: "0",
+    },
+    ["--todo", "123"],
+  );
+
+  expect(result.status).not.toBe(0);
+  expect(result.stderr.trim()).toBe(
+    "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry.",
+  );
+  expect(result.stderr).not.toContain("GenServer");
 });
 
 test("control rpc propagates the control CLI exit code on a successful rpc", () => {

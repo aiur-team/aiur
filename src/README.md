@@ -154,6 +154,12 @@ Build Order planning reads use finite `github.planning_root_limit`,
 They default to `100`, `4`, and `4`; all values must be positive and may not
 exceed those hard limits, so a provider generation never silently truncates.
 
+For local planning packs, the supervised PackStatus poller writes tracker
+lifecycle facts to the sibling `status.json` projection in batches of 50
+tickets. The projection survives run boundaries; failed or incomplete tracker
+reads retain the last-known-good file and mark Build Order health stale or
+unavailable until a later refresh succeeds.
+
 The optional root-level `build_order` section configures three supervised,
 in-memory configured-repository stores. Ticket detail defaults to a 30-second
 freshness window, 32 retained identities, and 16,384 sanitized description
@@ -443,6 +449,10 @@ path parameter and is never browser-cacheable.
   unlabeled tickets continue to use `agent.max_turns`.
 - `agent.max_concurrent_agents` caps active workers only. Paused agents remain visible
   and can keep their panes open without consuming an active slot.
+- An explicit `aiur --max-agents N` launch value takes precedence over
+  `agent.max_concurrent_agents`, including when it is higher. Aiur warns when
+  the CLI value exceeds the configured value so the effective cap is visible; omit the flag or set it at
+  or below the configured value to silence the warning.
 - `agent.switch_model_on_ratelimit` is an opt-in ordered list of configured
   backends, for example `[claude, codex]`. It applies only when no explicit
   `model:` label or complexity-routing rule selected a backend, and only to new

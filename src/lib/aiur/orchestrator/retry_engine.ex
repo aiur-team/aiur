@@ -40,7 +40,13 @@ defmodule Aiur.Orchestrator.RetryEngine do
           {:noreply, state}
       end
 
-    StatusReport.notify_dashboard(state)
+    publish_final_retry_state(result)
+  end
+
+  @doc false
+  @spec publish_final_retry_state({:noreply, State.t()}) :: {:noreply, State.t()}
+  def publish_final_retry_state({:noreply, final_state} = result) do
+    StatusReport.notify_dashboard(final_state)
     result
   end
 

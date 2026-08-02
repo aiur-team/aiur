@@ -21,16 +21,22 @@ defmodule Aiur.AgentControlCLI do
   def status do
     case Orchestrator.status() do
       statuses when is_list(statuses) ->
-        print_global_pause_banner()
-        print_codeowners_trust()
+        case print_global_pause_banner() do
+          :ok ->
+            print_codeowners_trust()
 
-        statuses
-        |> Enum.filter(&visible_status_row?/1)
-        |> print_status_table()
+            statuses
+            |> Enum.filter(&visible_status_row?/1)
+            |> print_status_table()
 
-        print_build_gate_status()
+            print_capacity_status(Orchestrator.max_concurrent_agents())
 
-        exit_marker(0)
+            print_build_gate_status()
+            exit_marker(0)
+
+          {:error, :unavailable} ->
+            exit_marker(1)
+        end
 
       error ->
         print_orchestrator_status_error(error)
@@ -70,17 +76,23 @@ defmodule Aiur.AgentControlCLI do
   def watch(opts \\ []) do
     case Orchestrator.status() do
       statuses when is_list(statuses) ->
-        rows =
-          statuses
-          |> Enum.filter(&visible_status_row?/1)
-          |> Enum.map(&watch_row/1)
-          |> Enum.sort_by(& &1.sort_key)
+        case print_global_pause_banner() do
+          :ok ->
+            rows =
+              statuses
+              |> Enum.filter(&visible_status_row?/1)
+              |> Enum.map(&watch_row/1)
+              |> Enum.sort_by(& &1.sort_key)
 
-        alerts = latest_attention_alerts(opts)
-        mode = Keyword.get(opts, :mode, :changes)
-        {changed, removed} = update_watch_baseline(rows)
-        render_watch(rows, alerts, mode, changed, removed)
-        exit_marker(0)
+            alerts = latest_attention_alerts(opts)
+            mode = Keyword.get(opts, :mode, :changes)
+            {changed, removed} = update_watch_baseline(rows)
+            render_watch(rows, alerts, mode, changed, removed)
+            exit_marker(0)
+
+          {:error, :unavailable} ->
+            exit_marker(1)
+        end
 
       error ->
         print_orchestrator_status_error(error)
@@ -171,22 +183,39 @@ defmodule Aiur.AgentControlCLI do
   def todo(issue_ids, opts \\ []) when is_list(issue_ids) do
     deps = Keyword.get(opts, :deps, todo_runtime_deps())
     only? = Keyword.get(opts, :only, false)
+    emit_exit_marker? = Keyword.get(opts, :emit_exit_marker, false)
 
-    result =
-      with :ok <- deps.ensure_started.(),
-           {:ok, config} <- deps.load_config.() do
-        issue_ids
-        |> normalize_todo_ids()
-        |> queue_todo_issues(config, deps)
-        |> maybe_clear_other_todos(only?, config, deps)
-      else
+    exit_code =
+      case deps.ensure_started.() do
+        :ok ->
+          result =
+            case deps.load_config.() do
+              {:ok, config} ->
+                issue_ids
+                |> normalize_todo_ids()
+                |> queue_todo_issues(config, deps)
+                |> maybe_clear_other_todos(only?, config, deps)
+
+              {:error, reason} ->
+                IO.puts(:stderr, "aiur: unable to queue tickets (#{format_reason(reason)})")
+                todo_result(failures: 1)
+            end
+
+          IO.puts("queued #{result.queued} ticket(s); cleared #{result.cleared} other(s)")
+          if result.failures == 0, do: 0, else: 1
+
+        {:error, :application_not_started} ->
+          IO.puts(:stderr, not_running_message())
+          1
+
         {:error, reason} ->
           IO.puts(:stderr, "aiur: unable to queue tickets (#{format_reason(reason)})")
-          todo_result(failures: 1)
+          IO.puts("queued 0 ticket(s); cleared 0 other(s)")
+          1
       end
 
-    IO.puts("queued #{result.queued} ticket(s); cleared #{result.cleared} other(s)")
-    if result.failures == 0, do: 0, else: 1
+    if emit_exit_marker?, do: exit_marker(exit_code)
+    exit_code
   end
 
   defp normalize_todo_ids(issue_ids) do
@@ -367,8 +396,12 @@ defmodule Aiur.AgentControlCLI do
   defp ensure_todo_runtime_started do
     case Application.ensure_all_started(:req) do
       {:ok, _started} ->
-        _ = GitHubConfig.resolve_token()
-        :ok
+        if application_started?() do
+          _ = GitHubConfig.resolve_token()
+          :ok
+        else
+          {:error, :application_not_started}
+        end
 
       {:error, reason} ->
         {:error, {:http_client_start_failed, reason}}
@@ -424,7 +457,9 @@ defmodule Aiur.AgentControlCLI do
   def resume_global, do: set_global_pause(false)
 
   defp set_global_pause(on?) do
-    case Orchestrator.set_global_pause(on?) do
+    source = if(on?, do: "CLI `pause`", else: "CLI `resume`")
+
+    case Orchestrator.set_global_pause(on?, source) do
       {:ok, %{globally_paused: paused}} ->
         IO.puts("aiur: global pause #{if paused, do: "ON — no agents will be provisioned", else: "OFF — agents resuming"}")
         exit_marker(0)
@@ -485,9 +520,20 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp control_status(action, targets, statuses) when is_list(statuses) do
-    action
-    |> select_targets(targets, statuses)
-    |> control_selected(action, targets)
+    case Orchestrator.global_pause_status() do
+      {:ok, %{globally_paused: true}} ->
+        print_global_pause_control_error(action)
+        1
+
+      {:ok, _status} ->
+        action
+        |> select_targets(targets, statuses)
+        |> control_selected(action, targets)
+
+      {:error, :orchestrator_unavailable} ->
+        print_global_pause_status_unavailable()
+        1
+    end
   end
 
   # A targeted pause can still arm its locally-recorded containment group even
@@ -617,6 +663,59 @@ defmodule Aiur.AgentControlCLI do
     end)
   end
 
+  defp print_capacity_status(%{occupied: occupied, max: max, effective: effective, configured: configured} = capacity)
+       when is_integer(occupied) and is_integer(max) and is_integer(effective) and is_integer(configured) do
+    IO.puts("AGENTS #{occupied}/#{max} (binding: #{capacity_binding_label(capacity_binding(capacity))})")
+  end
+
+  defp print_capacity_status(_capacity), do: :ok
+
+  defp capacity_binding_label({:config_cap, _detail}), do: "config max_concurrent_agents"
+  defp capacity_binding_label({:envelope, detail}), do: "AIMD envelope, effective cap=#{detail}"
+  defp capacity_binding_label({:paused_reservations, detail}), do: "paused reservations=#{detail}"
+  defp capacity_binding_label({:ticket_supply, _detail}), do: "ticket supply"
+  defp capacity_binding_label({:session_cap, _detail}), do: "session max_concurrent_agents"
+  defp capacity_binding_label({:none, _detail}), do: "none"
+
+  defp capacity_binding(%{max: max, effective: effective, configured: configured, occupied: occupied} = capacity) do
+    if capacity_binding_ticket_supply?(capacity) do
+      {:ticket_supply, 0}
+    else
+      capacity_binding_with_capacity(capacity, max, effective, configured, occupied)
+    end
+  end
+
+  defp capacity_binding_with_capacity(capacity, max, effective, configured, occupied) do
+    cond do
+      paused_reservation_binding?(capacity) ->
+        {:paused_reservations, capacity.reserved_paused}
+
+      effective < max and occupied >= effective ->
+        {:envelope, effective}
+
+      occupied >= max and max == configured and not Map.get(capacity, :session_override?, false) ->
+        {:config_cap, configured}
+
+      occupied >= max ->
+        {:session_cap, max}
+
+      true ->
+        {:none, nil}
+    end
+  end
+
+  defp capacity_binding_ticket_supply?(%{available: available, queued_demand?: false})
+       when is_integer(available) and available > 0,
+       do: true
+
+  defp capacity_binding_ticket_supply?(_capacity), do: false
+
+  defp paused_reservation_binding?(%{active: active, effective: effective, available: 0, reserved_paused: reserved_paused})
+       when reserved_paused > 0 and effective > active,
+       do: true
+
+  defp paused_reservation_binding?(_capacity), do: false
+
   @doc """
   Print registry provider headroom from the daemon-owned meter projection.
 
@@ -724,12 +823,36 @@ defmodule Aiur.AgentControlCLI do
   # Surface the global pause switch above the status table so an operator sees
   # at a glance that the whole daemon is halted (silent otherwise).
   defp print_global_pause_banner do
-    if Orchestrator.globally_paused?() do
-      IO.puts("GLOBALLY PAUSED — no agents will be provisioned (run `aiur resume` to lift)")
-    end
+    case Orchestrator.global_pause_status() do
+      {:ok, %{globally_paused: true, paused_at: paused_at, source: source}} ->
+        provenance = [format_pause_source(source), format_pause_time(paused_at)] |> Enum.reject(&is_nil/1) |> Enum.join(", ")
+        suffix = if provenance == "", do: "", else: " (#{provenance})"
+        IO.puts("GLOBALLY PAUSED#{suffix} — no agents will be provisioned (run `aiur resume` to lift)")
 
-    :ok
+      {:ok, _} ->
+        :ok
+
+      {:error, :orchestrator_unavailable} ->
+        print_global_pause_status_unavailable()
+    end
   end
+
+  defp print_global_pause_status_unavailable do
+    IO.puts(:stderr, "GLOBAL PAUSE STATUS UNAVAILABLE — cannot determine whether aiur is paused")
+    {:error, :unavailable}
+  end
+
+  defp print_global_pause_control_error(action) do
+    noun = if action == :pause, do: "pause", else: "resume"
+    IO.puts(:stderr, "error: aiur is globally paused; per-ticket #{noun} has no effect.")
+    IO.puts(:stderr, "       Run `aiurdev resume` (no arguments) to lift the global pause.")
+  end
+
+  defp format_pause_source(source) when is_binary(source) and source != "", do: "set by #{source}"
+  defp format_pause_source(_), do: nil
+
+  defp format_pause_time(%DateTime{} = paused_at), do: "at #{DateTime.to_iso8601(paused_at)}"
+  defp format_pause_time(_), do: nil
 
   defp print_codeowners_trust do
     snapshot =
@@ -775,11 +898,12 @@ defmodule Aiur.AgentControlCLI do
 
         IO.puts(
           "BUILD GATE DEGRADED #{active}/#{capacity} active, #{queued} queued; " <>
-            "reason=#{issue.reason} path=#{issue.path}#{suffix}; recovery=#{issue.recovery}"
+            "max_concurrent_builds=#{capacity}; reason=#{issue.reason} path=#{issue.path}#{suffix}; " <>
+            "recovery=#{issue.recovery}"
         )
 
       %{enabled?: true, capacity: capacity, active: active, queued: queued} when active > 0 or queued > 0 ->
-        IO.puts("BUILD GATE #{active}/#{capacity} active, #{queued} queued")
+        IO.puts("BUILD GATE #{active}/#{capacity} active, #{queued} queued (max_concurrent_builds=#{capacity})")
 
       _ ->
         :ok
@@ -1130,6 +1254,14 @@ defmodule Aiur.AgentControlCLI do
 
   defp print_orchestrator_status_error(error) do
     IO.puts(:stderr, Map.fetch!(%{timeout: "aiur: timed out while reading agent status", unavailable: "aiur: orchestrator is not running"}, error))
+  end
+
+  defp application_started? do
+    Enum.any?(Application.started_applications(), fn {app, _description, _version} -> app == :aiur end)
+  end
+
+  defp not_running_message do
+    "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry."
   end
 
   defp print_failure(action, status, reason) do
