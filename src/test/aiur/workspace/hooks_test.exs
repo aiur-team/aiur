@@ -84,20 +84,34 @@ defmodule Aiur.Workspace.HooksTest do
     assert :ok = Hooks.run_github_preflight(workspace, issue_context, nil)
   end
 
-  test "run_hook/5 local applies env scrub (RELEASE_NODE stripped from hook env)", %{workspace: workspace} do
-    prev = System.get_env("RELEASE_NODE")
-    System.put_env("RELEASE_NODE", "hooks-test")
+  test "run_hook/5 local applies env scrub to release launcher variables", %{workspace: workspace} do
+    release_env = [
+      {"RELEASE_NODE", "hooks-test"},
+      {"ROOTDIR", "/outer/release"},
+      {"BINDIR", "/outer/release/erts/bin"},
+      {"EMU", "beam"},
+      {"PROGNAME", "erl"}
+    ]
+
+    previous_env =
+      Map.new(release_env, fn {name, _value} ->
+        {name, System.get_env(name)}
+      end)
+
+    Enum.each(release_env, fn {name, value} -> System.put_env(name, value) end)
 
     on_exit(fn ->
-      case prev do
-        nil -> System.delete_env("RELEASE_NODE")
-        v -> System.put_env("RELEASE_NODE", v)
-      end
+      Enum.each(previous_env, fn {name, value} ->
+        if value, do: System.put_env(name, value), else: System.delete_env(name)
+      end)
     end)
 
     issue_context = %{issue_id: 1, issue_identifier: "test", issue_state: nil, issue_labels: [], pr_head_ref: nil}
-    # If RELEASE_NODE is scrubbed, `test -z "$RELEASE_NODE"` exits 0 (:ok)
-    assert :ok = Hooks.run_hook("test -z \"$RELEASE_NODE\"", workspace, issue_context, "before_run", nil)
+
+    command =
+      "test -z \"$RELEASE_NODE\" -a -z \"$ROOTDIR\" -a -z \"$BINDIR\" -a -z \"$EMU\" -a -z \"$PROGNAME\""
+
+    assert :ok = Hooks.run_hook(command, workspace, issue_context, "before_run", nil)
   end
 
   test "run_hook/5 passes the generated ticket branch to local hooks", %{workspace: workspace} do
@@ -133,6 +147,41 @@ defmodule Aiur.Workspace.HooksTest do
     command = Hooks.remote_hook_command("git checkout \"$AIUR_TICKET_BRANCH\"", workspace, issue_context)
 
     assert command =~ "export AIUR_TICKET_BRANCH='aiur/123-add-new-test-cases';"
-    assert command =~ "cd '#{workspace}' && git checkout \"$AIUR_TICKET_BRANCH\""
+    assert command =~ "cd '#{workspace}' && unset "
+    assert command =~ "git checkout \"$AIUR_TICKET_BRANCH\""
+  end
+
+  test "remote hook command executes with release launcher variables scrubbed", %{workspace: workspace} do
+    release_env = [
+      {"RELEASE_NODE", "hooks-test"},
+      {"ROOTDIR", "/outer/release"},
+      {"BINDIR", "/outer/release/erts/bin"},
+      {"EMU", "beam"},
+      {"PROGNAME", "erl"}
+    ]
+
+    previous_env =
+      Map.new(release_env, fn {name, _value} ->
+        {name, System.get_env(name)}
+      end)
+
+    Enum.each(release_env, fn {name, value} -> System.put_env(name, value) end)
+
+    on_exit(fn ->
+      Enum.each(previous_env, fn {name, value} ->
+        if value, do: System.put_env(name, value), else: System.delete_env(name)
+      end)
+    end)
+
+    issue_context = %{issue_id: 1, issue_identifier: "test", issue_state: nil, issue_labels: [], pr_head_ref: nil}
+
+    command =
+      Hooks.remote_hook_command(
+        "test -z \"$RELEASE_NODE\" -a -z \"$ROOTDIR\" -a -z \"$BINDIR\" -a -z \"$EMU\" -a -z \"$PROGNAME\"",
+        workspace,
+        issue_context
+      )
+
+    assert {_, 0} = System.cmd("bash", ["-lc", command], stderr_to_stdout: true)
   end
 end

@@ -32,7 +32,7 @@ defmodule Aiur.AgentEnvironmentTest do
   test "scrub_shell_command clears Erlang distribution environment before exec" do
     command =
       AgentEnvironment.scrub_shell_command(
-        "env | grep -E '^(ERL_AFLAGS|RELEASE_NODE|RELEASE_COOKIE|AIUR_NODE_NAME|AIUR_AGENT_NODE_NAME|AIUR_COOKIE|AIUR_ERLANG_COOKIE|AIUR_RELEASE_NODE|AIUR_INSTANCE_KEY|AIUR_REPO_ROOT|OTHER_COOKIE)=' | sort"
+        "env | grep -E '^(ERL_AFLAGS|RELEASE_NODE|RELEASE_COOKIE|AIUR_NODE_NAME|AIUR_AGENT_NODE_NAME|AIUR_COOKIE|AIUR_ERLANG_COOKIE|AIUR_RELEASE_NODE|AIUR_INSTANCE_KEY|AIUR_REPO_ROOT|ROOTDIR|BINDIR|EMU|PROGNAME|OTHER_COOKIE)=' | sort"
       )
 
     {output, 0} =
@@ -49,11 +49,48 @@ defmodule Aiur.AgentEnvironmentTest do
           {"AIUR_RELEASE_NODE", "aiur-kevin-abc1230000@127.0.0.1"},
           {"AIUR_INSTANCE_KEY", "abc1230000"},
           {"AIUR_REPO_ROOT", "/outer/repo"},
+          {"ROOTDIR", "/outer/release"},
+          {"BINDIR", "/outer/release/erts/bin"},
+          {"EMU", "beam"},
+          {"PROGNAME", "erl"},
           {"OTHER_COOKIE", "keep"}
         ]
       )
 
     assert output == "OTHER_COOKIE=keep\n"
+  end
+
+  test "scrubbed toolchain probe resolves OTP from mise, not the release" do
+    {erlang_root, 0} = System.cmd("mise", ["where", "erlang"])
+    erlang_root = String.trim(erlang_root)
+    release_root = "/outer/release"
+
+    # The daemon's release launcher also prepends its own `erl` binary to PATH;
+    # keep this probe focused on the launcher variables under test while
+    # preserving the configured mise/tool paths.
+    clean_path =
+      System.fetch_env!("PATH")
+      |> String.split(":")
+      |> Enum.reject(&String.contains?(&1, "/_build/dev/rel/aiur"))
+      |> Enum.join(":")
+
+    command =
+      AgentEnvironment.scrub_shell_command("mise exec -- elixir -e 'IO.puts(:code.lib_dir(:inets)); IO.inspect(Application.ensure_all_started(:inets))'")
+
+    {output, 0} =
+      System.cmd("bash", ["-lc", command],
+        env: [
+          {"ROOTDIR", release_root},
+          {"BINDIR", Path.join(release_root, "erts/bin")},
+          {"EMU", "beam"},
+          {"PROGNAME", "erl"},
+          {"PATH", clean_path}
+        ]
+      )
+
+    assert output =~ Path.join(erlang_root, "lib/inets")
+    assert output =~ "{:ok, [:inets]}"
+    refute output =~ release_root
   end
 
   test "scrub_shell_command clears parent log environment before exec" do

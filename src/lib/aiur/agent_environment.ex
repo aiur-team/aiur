@@ -15,6 +15,11 @@ defmodule Aiur.AgentEnvironment do
   @erlang_distribution_env_names ~w(ERL_AFLAGS RELEASE_NODE RELEASE_COOKIE AIUR_RELEASE_NODE AIUR_INSTANCE_KEY AIUR_REPO_ROOT)
   @aiur_distribution_env_pattern ~r/\AAIUR(?:_.*)?_(?:NODE_NAME|COOKIE)\z/
   @parent_log_env_names ~w(AIUR_LOGS_ROOT AIUR_AGENT_IR_LOGS_PARENT)
+  # The release launcher exports these into the long-lived daemon. They must
+  # not cross the shell boundary into mise-managed OTP commands: ROOTDIR and
+  # BINDIR make the child use the release's ERTS, while EMU and PROGNAME alter
+  # how the launcher resolves that runtime.
+  @release_launcher_env_names ~w(ROOTDIR BINDIR EMU PROGNAME)
   @scheduler_option ~r/(^|\s)\+S\s+\d+(?::\d+)?/
 
   @spec erlang_distribution_env_name?(String.t()) :: boolean()
@@ -30,8 +35,10 @@ defmodule Aiur.AgentEnvironment do
 
   @spec scrub_shell_prefix() :: String.t()
   def scrub_shell_prefix do
-    "unset ERL_AFLAGS RELEASE_NODE RELEASE_COOKIE AIUR_RELEASE_NODE AIUR_INSTANCE_KEY AIUR_REPO_ROOT " <>
-      "AIUR_LOGS_ROOT AIUR_AGENT_IR_LOGS_PARENT; " <>
+    scrubbed_env_names =
+      @erlang_distribution_env_names ++ @parent_log_env_names ++ @release_launcher_env_names
+
+    ("unset " <> Enum.join(scrubbed_env_names, " ") <> "; ") <>
       "for aiur_env_name in $(env | sed 's/=.*//'); do " <>
       "case \"$aiur_env_name\" in " <>
       "AIUR_NODE_NAME|AIUR_*_NODE_NAME|AIUR_COOKIE|AIUR_*_COOKIE) unset \"$aiur_env_name\" ;; " <>

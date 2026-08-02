@@ -123,7 +123,8 @@ defmodule Aiur.Workspace.Hooks do
       |> Enum.map_join(" ", fn {key, value} -> "#{key}=#{Aiur.Shell.escape(value)}" end)
 
     prefix = if exports == "", do: "", else: "export #{exports}; "
-    "#{prefix}cd #{Aiur.Shell.escape(workspace)} && #{command}"
+    scrubbed_command = Aiur.AgentEnvironment.scrub_shell_command(command)
+    "#{prefix}cd #{Aiur.Shell.escape(workspace)} && #{scrubbed_command}"
   end
 
   @doc false

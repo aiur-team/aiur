@@ -156,6 +156,37 @@ defmodule Aiur.RepoBaseTest do
       assert File.read!(Path.join(base, "trust_path")) =~ base
     end
 
+    test "prewarm build succeeds with release launcher environment", %{origin: origin, base: base} do
+      release_env = [
+        {"ROOTDIR", "/outer/release"},
+        {"BINDIR", "/outer/release/erts/bin"},
+        {"EMU", "beam"},
+        {"PROGNAME", "erl"}
+      ]
+
+      previous_env =
+        Map.new(release_env, fn {name, _value} ->
+          {name, System.get_env(name)}
+        end)
+
+      Enum.each(release_env, fn {name, value} -> System.put_env(name, value) end)
+
+      on_exit(fn ->
+        Enum.each(previous_env, fn {name, value} ->
+          if value, do: System.put_env(name, value), else: System.delete_env(name)
+        end)
+      end)
+
+      assert {:ok, ^base} =
+               RepoBase.refresh(
+                 base,
+                 origin,
+                 ~s(test -z "$ROOTDIR" -a -z "$BINDIR" -a -z "$EMU" -a -z "$PROGNAME" && touch release_env_scrubbed)
+               )
+
+      assert File.exists?(Path.join(base, "release_env_scrubbed"))
+    end
+
     test "keeps package-manager caches beside latest rather than in the clone", %{origin: origin, node: node, base: base} do
       command = ~s(mkdir -p "$HEX_HOME" "$MIX_HOME" "$npm_config_cache"; touch "$HEX_HOME/hex" "$MIX_HOME/mix" "$npm_config_cache/npm")
 
