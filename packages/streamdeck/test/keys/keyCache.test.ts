@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { KeyCache } from "../../src/keys/keyCache.js";
 import { type KeyContent } from "../../src/keys/keyContent.js";
-import { KeyWriteQueue } from "../../src/keys/writeQueue.js";
+import { KeyWriteQueue, PartialKeyWriteError } from "../../src/keys/writeQueue.js";
 
 const fill = (r: number, g: number, b: number): KeyContent => ({ kind: "fill", color: { r, g, b } });
 const image = (bytes: number[]): KeyContent => ({ kind: "image", jpeg: new Uint8Array(bytes) });
@@ -59,6 +59,26 @@ describe("KeyCache dirty tracking", () => {
     expect(cache.paint(0, fill(1, 1, 1))).toBeNull();
     backToA?.commit();
     expect(cache.isDirty(0, fill(1, 1, 1))).toBe(false);
+  });
+
+  it("repaints after a partial transfer cancels a newer state reversal", async () => {
+    const cache = new KeyCache();
+    paintAndCommit(cache, 0, fill(1, 1, 1));
+    const toB = cache.paint(0, image(Array.from({ length: 1017 }, () => 2)));
+    const backToA = cache.paint(0, fill(1, 1, 1));
+    let writes = 0;
+    const queue = new KeyWriteQueue(async () => {
+      writes += 1;
+      if (writes === 2) throw new Error("mid-transfer");
+    });
+
+    const failed = queue.enqueue(toB!);
+    const cancelled = queue.enqueue(backToA!);
+    await expect(failed).rejects.toBeInstanceOf(PartialKeyWriteError);
+    await expect(cancelled).rejects.toThrow(/halted/);
+
+    // B reached the device before failing, so cached A is no longer trusted.
+    expect(cache.paint(0, fill(1, 1, 1))).not.toBeNull();
   });
 
   it("repaints only when content changes", () => {

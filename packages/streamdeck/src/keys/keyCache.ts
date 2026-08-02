@@ -38,6 +38,8 @@ export interface KeyPaint {
   readonly commit: () => void;
   /** Drop this pending desired value after a failed or cancelled write. */
   readonly discard: () => void;
+  /** Invalidate this key after a partial transfer corrupts its on-device state. */
+  readonly invalidate: () => void;
 }
 
 export class KeyCache {
@@ -99,6 +101,10 @@ export class KeyCache {
         if (this.pending[keyIndex] === snapshot) {
           this.pending[keyIndex] = undefined;
         }
+      },
+      invalidate: () => {
+        this.current[keyIndex] = undefined;
+        this.pending[keyIndex] = undefined;
       },
     };
   }

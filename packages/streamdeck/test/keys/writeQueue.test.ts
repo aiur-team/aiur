@@ -22,11 +22,13 @@ const paint = (
   reportCount: number,
   onCommit: () => void = () => {},
   onDiscard: () => void = () => {},
+  onInvalidate: () => void = () => {},
 ): KeyPaint => ({
   index,
   reports: Array.from({ length: reportCount }, (_, i) => report(index, i)),
   commit: onCommit,
   discard: onDiscard,
+  invalidate: onInvalidate,
 });
 
 describe("KeyWriteQueue", () => {
@@ -60,7 +62,7 @@ describe("KeyWriteQueue", () => {
     const queue = new KeyWriteQueue(async (r) => {
       written.push(r);
     });
-    await queue.enqueue({ index: 0, reports: [], commit: () => (committed = true), discard: () => {} });
+    await queue.enqueue({ index: 0, reports: [], commit: () => (committed = true), discard: () => {}, invalidate: () => {} });
     expect(written).toHaveLength(0);
     expect(committed).toBe(true);
   });
@@ -127,12 +129,13 @@ describe("KeyWriteQueue", () => {
 
   it("halts with PartialKeyWriteError when a write fails mid-sequence", async () => {
     const committed: number[] = [];
+    const invalidated: number[] = [];
     // Fail on the SECOND report of key 0 — a report is already on the wire.
     const write: ReportWriter = async ({ data }) => {
       if (data[0] === 0 && data[1] === 1) throw new Error("mid-transfer");
     };
     const queue = new KeyWriteQueue(write);
-    const pA = queue.enqueue(paint(0, 3, () => committed.push(0)));
+    const pA = queue.enqueue(paint(0, 3, () => committed.push(0), () => {}, () => invalidated.push(0)));
     const pB = queue.enqueue(paint(1, 1, () => committed.push(1)));
 
     const err = await pA.catch((e: unknown) => e);
@@ -144,6 +147,7 @@ describe("KeyWriteQueue", () => {
     // The queue halts: the pending paint is cancelled, nothing committed.
     await expect(pB).rejects.toBeInstanceOf(KeyWriteCancelledError);
     expect(committed).toEqual([]);
+    expect(invalidated).toEqual([0]);
     expect(queue.isHalted).toBe(true);
 
     // Existing argument-less reset calls are safe no-ops; recovery must provide

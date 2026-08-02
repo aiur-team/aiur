@@ -173,13 +173,17 @@ export class KeyWriteQueue {
           job.resolve();
         } catch (error) {
           this.halted = true;
-          paint.discard();
           if (written === 0) {
+            paint.discard();
             // Nothing reached the wire, but the failed writer can still be a
             // zombie handle. Do not let pending paints commit while runtime
             // recovery closes and replaces that backend.
             job.reject(error);
           } else {
+            // The key's on-device image is now unknown. Drop both committed
+            // and pending cache state so recovery repaints even if a queued
+            // newer desired value happens to equal the old committed value.
+            paint.invalidate();
             // A truncated transfer is on the wire. Explain that condition to
             // the active paint while applying the same queue halt below.
             job.reject(new PartialKeyWriteError(paint.index, written, paint.reports.length, error));
