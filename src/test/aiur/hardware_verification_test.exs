@@ -98,6 +98,20 @@ defmodule Aiur.HardwareVerificationTest do
              issue |> HardwareVerification.matched_criteria() |> Enum.map(& &1.signal)
   end
 
+  test "evaluates mixed and negated clauses independently" do
+    issue = %Issue{
+      description: """
+      ## Acceptance
+      - Mock /dev/hidraw0 and press the dial.
+      - Do not use sudo and press the dial.
+      - Remove sudo from docs and run unit tests.
+      """
+    }
+
+    assert [:physical_action, :physical_action] =
+             issue |> HardwareVerification.matched_criteria() |> Enum.map(& &1.signal)
+  end
+
   test "does not route a factual absence of privileged access" do
     issue = %Issue{description: "## Acceptance\n- Verify that sudo is not available in the sandbox."}
 

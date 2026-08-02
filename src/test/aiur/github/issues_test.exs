@@ -149,6 +149,125 @@ defmodule Aiur.GitHub.IssuesTest do
       refute_receive :dependency_request
     end
 
+    test "rechecks a cached passing blocker before authorizing a dependent" do
+      test_pid = self()
+      dependent = issue_body(42, "Dependent")
+      Process.put(:signoff_revoked, false)
+
+      request_fun = fn %{url: url} ->
+        cond do
+          String.contains?(url, "/dependencies/blocked_by") ->
+            send(test_pid, :dependency_request)
+            blockers = if Process.get(:signoff_revoked), do: [hardware_blocker_without_pass()], else: [passing_hardware_blocker()]
+            {:ok, %{status: 200, body: blockers}}
+
+          String.contains?(url, "/timeline?") ->
+            send(test_pid, :timeline_request)
+
+            events =
+              if Process.get(:signoff_revoked),
+                do: [labeled_event(1, "sym:operator-verified")],
+                else: [labeled_event(1, "sym:operator-verified"), labeled_event(2, "sym:operator-verification-passed")]
+
+            {:ok, %{status: 200, headers: [], body: events}}
+
+          true ->
+            {:ok, %{status: 200, body: dependent}}
+        end
+      end
+
+      opts =
+        [
+          request_fun: request_fun,
+          cache_blockers: true,
+          now_ms: 0,
+          operator_authorized?: &(&1 == "operator"),
+          allowed_users: ["operator"]
+        ]
+
+      assert {:ok, [%{blocked_by: [%{operator_signoff_valid?: true}]}]} = Issues.fetch_issue_states_by_ids(["42"], opts)
+      assert_received :dependency_request
+      assert_received :timeline_request
+
+      Process.put(:signoff_revoked, true)
+
+      assert {:ok, [%{blocked_by: [%{operator_signoff_valid?: false}]}]} =
+               Issues.fetch_issue_states_by_ids(["42"], Keyword.put(opts, :now_ms, 1))
+
+      assert_received :dependency_request
+      refute_receive :timeline_request
+    end
+
+    test "shares one authenticated timeline request for a common hardware blocker" do
+      test_pid = self()
+
+      request_fun = fn %{url: url} ->
+        cond do
+          String.contains?(url, "/dependencies/blocked_by") ->
+            send(test_pid, :dependency_request)
+            {:ok, %{status: 200, body: [passing_hardware_blocker()]}}
+
+          String.contains?(url, "/timeline?") ->
+            send(test_pid, :timeline_request)
+            {:ok, %{status: 200, headers: [], body: [labeled_event(1, "sym:operator-verified"), labeled_event(2, "sym:operator-verification-passed")]}}
+
+          String.ends_with?(url, "/issues/42") ->
+            {:ok, %{status: 200, body: issue_body(42, "First dependent")}}
+
+          true ->
+            {:ok, %{status: 200, body: issue_body(43, "Second dependent")}}
+        end
+      end
+
+      assert {:ok, issues} =
+               Issues.fetch_issue_states_by_ids(["42", "43"],
+                 request_fun: request_fun,
+                 cache_blockers: false,
+                 operator_authorized?: &(&1 == "operator"),
+                 allowed_users: ["operator"]
+               )
+
+      assert Enum.all?(issues, fn
+               %{blocked_by: [%{operator_signoff_valid?: true}]} -> true
+               _issue -> false
+             end)
+
+      assert receive_timeline_requests(0) == 1
+    end
+
+    test "stops dependency hydration after a timeline rate limit" do
+      test_pid = self()
+
+      request_fun = fn %{url: url} ->
+        cond do
+          String.contains?(url, "/dependencies/blocked_by") ->
+            send(test_pid, :dependency_request)
+            {:ok, %{status: 200, body: [passing_hardware_blocker()]}}
+
+          String.contains?(url, "/timeline?") ->
+            send(test_pid, :timeline_request)
+            {:error, :rate_limited}
+
+          String.ends_with?(url, "/issues/42") ->
+            {:ok, %{status: 200, body: issue_body(42, "First dependent")}}
+
+          true ->
+            {:ok, %{status: 200, body: issue_body(43, "Second dependent")}}
+        end
+      end
+
+      assert {:ok, [_first, _second]} =
+               Issues.fetch_issue_states_by_ids(["42", "43"],
+                 request_fun: request_fun,
+                 cache_blockers: false,
+                 operator_authorized?: &(&1 == "operator"),
+                 allowed_users: ["operator"]
+               )
+
+      assert_received :timeline_request
+      assert receive_dependency_requests(0) == 1
+    end
+
     test "keeps stale blockers and fails closed only for a dependency hydration error" do
       test_pid = self()
 
@@ -504,5 +623,49 @@ defmodule Aiur.GitHub.IssuesTest do
     after
       0 -> count
     end
+  end
+
+  defp receive_timeline_requests(count) do
+    receive do
+      :timeline_request -> receive_timeline_requests(count + 1)
+    after
+      0 -> count
+    end
+  end
+
+  defp issue_body(number, title) do
+    %{
+      "number" => number,
+      "title" => title,
+      "body" => "Work",
+      "labels" => [%{"name" => "sym:todo"}],
+      "state" => "open",
+      "user" => %{"login" => "operator"}
+    }
+  end
+
+  defp passing_hardware_blocker do
+    %{
+      "number" => 41,
+      "title" => "Passing hardware spike",
+      "body" => "## Acceptance\n- Verify /dev/hidraw0.",
+      "labels" => [%{"name" => "sym:operator-verified"}, %{"name" => "sym:operator-verification-passed"}],
+      "state" => "closed"
+    }
+  end
+
+  defp hardware_blocker_without_pass do
+    passing_hardware_blocker()
+    |> Map.put("labels", [%{"name" => "sym:operator-verified"}])
+  end
+
+  defp labeled_event(id, label) do
+    %{
+      "event" => "labeled",
+      "id" => id,
+      "created_at" => "2026-08-01T00:0#{id}:00Z",
+      "actor" => %{"id" => 7, "login" => "operator", "node_id" => "MDQ6VXNlcjc="},
+      "label" => %{"name" => label}
+    }
   end
 end
