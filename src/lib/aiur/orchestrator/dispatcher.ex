@@ -192,7 +192,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
       %{
         state
         | ci_readiness_unavailable_alerted: true,
-          ci_readiness_retry_at_ms: System.monotonic_time(:millisecond) + @ci_readiness_retry_ms
+          ci_readiness_retry_at_ms: System.monotonic_time(:millisecond) + ci_readiness_retry_delay_ms(reason)
       }
     else
       CiReadiness.cache_result(CiReadiness.unavailable(Config.base_branch(), reason))
@@ -203,6 +203,25 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   defp retryable_ci_readiness_error?(:timeout), do: true
   defp retryable_ci_readiness_error?(reason), do: Errors.retryable_github_error?(reason)
+
+  defp ci_readiness_retry_delay_ms({:github, :rate_limited, detail}) when is_map(detail) do
+    case Map.get(detail, :retry_after) do
+      seconds when is_integer(seconds) and seconds > 0 -> seconds * 1_000
+      _ -> retry_delay_from_reset(Map.get(detail, :reset_at)) || @ci_readiness_retry_ms
+    end
+  end
+
+  defp ci_readiness_retry_delay_ms(_reason), do: @ci_readiness_retry_ms
+
+  defp retry_delay_from_reset(reset_at) when is_binary(reset_at) do
+    with {:ok, reset_at, _offset} <- DateTime.from_iso8601(reset_at) do
+      max(DateTime.diff(reset_at, DateTime.utc_now(), :millisecond), 0)
+    else
+      _ -> nil
+    end
+  end
+
+  defp retry_delay_from_reset(_reset_at), do: nil
 
   defp maybe_emit_ci_readiness_unavailable(%State{ci_readiness_unavailable_alerted: true}, _reason, _emit_fun), do: :ok
 

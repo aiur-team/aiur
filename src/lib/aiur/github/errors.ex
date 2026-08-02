@@ -144,5 +144,7 @@ defmodule Aiur.GitHub.Errors do
       when kind in [:dns, :timeout, :tls, :transport, :rate_limited],
       do: true
 
+  def retryable_github_error?({:github, :http, %{status: status}}) when status in 500..599, do: true
+
   def retryable_github_error?(_reason), do: false
 end
