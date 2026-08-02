@@ -60,7 +60,14 @@ defmodule Aiur.RunTelemetry.Lifecycle do
   end
 
   @doc "Records one lifecycle start, end, or point without propagating failures."
-  @spec record(String.t(), String.t() | nil, atom() | String.t(), atom() | String.t(), map(), keyword()) :: :ok
+  @spec record(
+          String.t(),
+          String.t() | nil,
+          atom() | String.t(),
+          atom() | String.t(),
+          map(),
+          keyword()
+        ) :: :ok
   def record(ticket, attempt_id, event, boundary, metadata \\ %{}, opts \\ [])
 
   def record(ticket, attempt_id, event, boundary, metadata, opts)
@@ -117,10 +124,27 @@ defmodule Aiur.RunTelemetry.Lifecycle do
 
       case backend_operation(backend, message) do
         {:start, operation_id, command} ->
-          observe_operation_start(ticket, attempt_id, tracker, operation_id, command, timestamp, opts)
+          observe_operation_start(
+            ticket,
+            attempt_id,
+            tracker,
+            operation_id,
+            command,
+            timestamp,
+            opts
+          )
 
         {:complete, operation_id, command, outcome} ->
-          observe_operation_complete(ticket, attempt_id, tracker, operation_id, command, outcome, timestamp, opts)
+          observe_operation_complete(
+            ticket,
+            attempt_id,
+            tracker,
+            operation_id,
+            command,
+            outcome,
+            timestamp,
+            opts
+          )
 
         :skip ->
           :ok
@@ -143,7 +167,7 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     topic = value(event, :topic)
     source = value(event, :source)
 
-    with true <- source in [:github, "github"],
+    with true <- source in [:github, "github", :github_reconciliation, "github_reconciliation"],
          {:ok, ticket, kind} <- external_topic(topic),
          true <- eligible_external_event?(kind, event) do
       timestamp = external_timestamp(kind, event)
@@ -228,7 +252,15 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     |> binary_part(0, 22)
   end
 
-  defp observe_operation_start(ticket, attempt_id, tracker, operation_id, command, timestamp, opts) do
+  defp observe_operation_start(
+         ticket,
+         attempt_id,
+         tracker,
+         operation_id,
+         command,
+         timestamp,
+         opts
+       ) do
     case command_class(command) do
       nil ->
         :ok
@@ -247,7 +279,16 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     end
   end
 
-  defp observe_operation_complete(ticket, attempt_id, tracker, operation_id, command, outcome, timestamp, opts) do
+  defp observe_operation_complete(
+         ticket,
+         attempt_id,
+         tracker,
+         operation_id,
+         command,
+         outcome,
+         timestamp,
+         opts
+       ) do
     previous_class = Process.delete(operation_key(tracker, attempt_id, operation_id))
     command_class = previous_class || command_class(command)
 
@@ -261,7 +302,14 @@ defmodule Aiur.RunTelemetry.Lifecycle do
         duration_status: if(boundary == :point, do: :unavailable, else: :measured)
       }
 
-      record(ticket, attempt_id, :build_test, boundary, metadata, Keyword.put(opts, :timestamp, timestamp))
+      record(
+        ticket,
+        attempt_id,
+        :build_test,
+        boundary,
+        metadata,
+        Keyword.put(opts, :timestamp, timestamp)
+      )
     end
   end
 
@@ -276,7 +324,10 @@ defmodule Aiur.RunTelemetry.Lifecycle do
   end
 
   @doc false
-  @spec decode_codex_operation(map()) :: {:start, String.t(), String.t() | nil} | {:complete, String.t(), String.t() | nil, atom()} | :skip
+  @spec decode_codex_operation(map()) ::
+          {:start, String.t(), String.t() | nil}
+          | {:complete, String.t(), String.t() | nil, atom()}
+          | :skip
   def decode_codex_operation(message) do
     method = MapAccess.notification_method(message)
     item = MapAccess.notification_item(message)
@@ -297,7 +348,10 @@ defmodule Aiur.RunTelemetry.Lifecycle do
   end
 
   @doc false
-  @spec decode_claude_operation(map()) :: {:start, String.t(), String.t() | nil} | {:complete, String.t(), String.t() | nil, atom()} | :skip
+  @spec decode_claude_operation(map()) ::
+          {:start, String.t(), String.t() | nil}
+          | {:complete, String.t(), String.t() | nil, atom()}
+          | :skip
   def decode_claude_operation(message) do
     with "item/created" <- MapAccess.notification_method(message),
          item when is_map(item) <- MapAccess.notification_item(message) do
@@ -412,7 +466,10 @@ defmodule Aiur.RunTelemetry.Lifecycle do
   defp contains_any?(text, needles), do: Enum.any?(needles, &String.contains?(text, &1))
 
   defp external_topic(topic) when is_binary(topic) do
-    case Regex.run(~r/^ticket\.([^.]+)\.(pr\.opened|pr\.merged|issue\.commented|pr\.review_comment)$/, topic) do
+    case Regex.run(
+           ~r/^ticket\.([^.]+)\.(pr\.opened|pr\.merged|issue\.commented|pr\.review_comment)$/,
+           topic
+         ) do
       [_all, ticket, kind] -> {:ok, ticket, kind}
       _other -> :error
     end
@@ -448,7 +505,7 @@ defmodule Aiur.RunTelemetry.Lifecycle do
       end
 
     %{
-      source: :github,
+      source: value(event, :source) || :github,
       source_id: source_id,
       source_timestamp: timestamp,
       actor: external_actor(event, pr, comment),
