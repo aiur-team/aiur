@@ -3,7 +3,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
 
   import ExUnit.CaptureLog
 
-  alias Aiur.BuildOrder.{Catalog, SelectedRoot}
+  alias Aiur.BuildOrder.{Catalog, ProviderHealth, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.GitHub.Config
   alias Aiur.{RepoBase, TrackerIdentity}
@@ -62,9 +62,14 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     Application.put_env(:aiur, :build_order_planning_pack, path)
     Application.put_env(:aiur, :build_order_planning_membership_snapshot, fn -> %{generation: 0, members: []} end)
 
+    Application.put_env(:aiur, :build_order_pack_status_health_snapshot, fn ->
+      ProviderHealth.new(1, :healthy, true, observed_at: ~U[2026-08-02 12:00:00Z])
+    end)
+
     on_exit(fn ->
       Application.delete_env(:aiur, :build_order_planning_pack)
       Application.delete_env(:aiur, :build_order_planning_membership_snapshot)
+      Application.delete_env(:aiur, :build_order_pack_status_health_snapshot)
       File.rm(path)
     end)
 
@@ -216,25 +221,25 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert is_nil(hydrated_root.progress)
 
     {:ok, hydrated} = PlanningSource.demand(root.identity)
-    assert hydrated.generation == 8
+    assert hydrated.generation > 8
     refute hydrated.data.planning?
 
-    [closed, open] = hydrated.data.members
+    [closed, unknown] = hydrated.data.members
     assert closed.identity.identifier == "4101"
     assert closed.identity.provider_id == "I_live_4101"
     assert closed.lifecycle.state == :closed
-    assert open.identity.identifier == "4102"
-    assert open.lifecycle.state == :open
+    assert unknown.identity.identifier == "4102"
+    assert unknown.lifecycle.state == :unknown
 
     model = BuildOrderPresenter.present(hydrated, :unavailable, :unavailable)
     assert Map.keys(model.summary.lanes) |> Enum.sort() == ["dashboard-ui", "runtime"]
     assert Enum.map(model.phase_groups, & &1.key) == [2, 3]
 
     grid = BuildOrderGridModel.build(model, nil)
-    assert grid.overall_pct == 60
+    assert grid.overall_pct == nil
     assert Enum.find(grid.columns, &(&1.lane == "runtime")).pct == 100
     assert Enum.find(grid.waves, &(&1.phase == 2)).pct == 100
-    assert Enum.find(grid.waves, &(&1.phase == 3)).pct == 0
+    assert Enum.find(grid.waves, &(&1.phase == 3)).pct == nil
   end
 
   test "does not count cancelled members as completed progress" do
@@ -264,7 +269,9 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert cancelled.lifecycle.state_reason == :not_planned
 
     model = BuildOrderPresenter.present(snapshot, :unavailable, :unavailable)
-    assert BuildOrderGridModel.build(model, nil).overall_pct == 0
+    grid = BuildOrderGridModel.build(model, nil)
+    assert grid.overall_pct == nil
+    assert Enum.find(grid.columns, &(&1.lane == "runtime")).pct == 0
   end
 
   test "uses status.json for canonical members when no live membership exists" do
@@ -287,6 +294,209 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert draft.lifecycle.state == :open
   end
 
+  test "tracker completion outranks active current-run membership" do
+    directory = Path.join(System.tmp_dir!(), "planning-source-status-completed-#{System.unique_integer([:positive])}")
+    path = Path.join(directory, "build-order.json")
+
+    File.mkdir_p!(directory)
+    File.write!(path, @mixed_pack)
+    File.write!(Path.join(directory, "status.json"), ~s({"members":{"4101":"completed"}}))
+    Application.put_env(:aiur, :build_order_planning_pack, path)
+    put_membership(4101, :running)
+
+    on_exit(fn -> File.rm_rf(directory) end)
+
+    [root] = PlanningSource.catalog().data.entries
+    assert root.progress == 50
+
+    {:ok, snapshot} = PlanningSource.demand(root.identity)
+    [completed, _draft] = snapshot.data.members
+    assert completed.lifecycle.state == :closed
+    assert completed.lifecycle.state_reason == :completed
+
+    model = BuildOrderPresenter.present(snapshot, :unavailable, :unavailable)
+    card = model |> BuildOrderGridModel.build(nil) |> Map.fetch!(:cards) |> Enum.find(&(&1.id == "4101"))
+    assert card.state == :merged
+    assert card.progress == 100
+    assert card.status_word == "merged"
+  end
+
+  test "tracker reopen outranks terminal current-run membership" do
+    directory = Path.join(System.tmp_dir!(), "planning-source-status-open-#{System.unique_integer([:positive])}")
+    path = Path.join(directory, "build-order.json")
+
+    File.mkdir_p!(directory)
+    File.write!(path, @mixed_pack)
+    File.write!(Path.join(directory, "status.json"), ~s({"state":"completed","members":{"4101":"open"}}))
+    Application.put_env(:aiur, :build_order_planning_pack, path)
+    put_membership(4101, :completed)
+
+    on_exit(fn -> File.rm_rf(directory) end)
+
+    [root] = PlanningSource.catalog().data.entries
+    assert root.progress == 0
+
+    {:ok, snapshot} = PlanningSource.demand(root.identity)
+    [reopened, _draft] = snapshot.data.members
+    assert reopened.lifecycle.state == :open
+    assert reopened.lifecycle.state_reason == :none
+
+    model = BuildOrderPresenter.present(snapshot, :unavailable, :unavailable)
+    card = model |> BuildOrderGridModel.build(nil) |> Map.fetch!(:cards) |> Enum.find(&(&1.id == "4101"))
+    refute card.state == :merged
+    refute card.status_word == "merged"
+  end
+
+  test "marks a retained status projection stale when PackStatus is unavailable" do
+    directory = Path.join(System.tmp_dir!(), "planning-source-status-stale-#{System.unique_integer([:positive])}")
+    path = Path.join(directory, "build-order.json")
+
+    File.mkdir_p!(directory)
+    File.write!(path, @mixed_pack)
+    File.write!(Path.join(directory, "status.json"), ~s({"members":{"4101":"completed"}}))
+    Application.put_env(:aiur, :build_order_planning_pack, path)
+
+    Application.put_env(:aiur, :build_order_pack_status_health_snapshot, fn ->
+      ProviderHealth.new(:unknown, :unavailable, false, failure: :pack_status_unavailable)
+    end)
+
+    on_exit(fn -> File.rm_rf(directory) end)
+
+    snapshot = PlanningSource.catalog()
+    assert snapshot.health.state == :stale
+    refute snapshot.health.complete?
+    assert snapshot.health.failure == :pack_status_unavailable
+  end
+
+  test "marks missing status unavailable when PackStatus has no projection" do
+    directory = Path.join(System.tmp_dir!(), "planning-source-status-unavailable-#{System.unique_integer([:positive])}")
+    path = Path.join(directory, "build-order.json")
+
+    File.mkdir_p!(directory)
+    File.write!(path, @mixed_pack)
+    Application.put_env(:aiur, :build_order_planning_pack, path)
+
+    Application.put_env(:aiur, :build_order_pack_status_health_snapshot, fn ->
+      ProviderHealth.new(:unknown, :unavailable, false, failure: :pack_status_unavailable)
+    end)
+
+    on_exit(fn -> File.rm_rf(directory) end)
+
+    snapshot = PlanningSource.catalog()
+    assert snapshot.health.state == :unavailable
+    refute snapshot.health.complete?
+    assert snapshot.health.failure == :pack_status_unavailable
+
+    [root] = snapshot.data.entries
+    assert root.progress == nil
+    {:ok, selected} = PlanningSource.demand(root.identity)
+    [promoted, draft] = selected.data.members
+
+    assert promoted.lifecycle.state == :unknown
+    assert promoted.lifecycle.state_reason == :unknown
+    assert draft.lifecycle.state == :open
+
+    grid = selected |> BuildOrderPresenter.present(:unavailable, :unavailable) |> BuildOrderGridModel.build(nil)
+    assert grid.overall_pct == nil
+    refute Enum.find(grid.cards, &(&1.id == "4101")).has_progress
+  end
+
+  test "downgrades healthy PackStatus when a promoted member lacks a projection" do
+    directory = Path.join(System.tmp_dir!(), "planning-source-status-incomplete-#{System.unique_integer([:positive])}")
+    path = Path.join(directory, "build-order.json")
+
+    File.mkdir_p!(directory)
+    File.write!(path, @canonical_pack)
+    File.write!(Path.join(directory, "status.json"), ~s({"members":{"4101":"completed"}}))
+    Application.put_env(:aiur, :build_order_planning_pack, path)
+    put_membership(4102, :running)
+
+    on_exit(fn -> File.rm_rf(directory) end)
+
+    snapshot = PlanningSource.catalog()
+    assert snapshot.health.state == :stale
+    refute snapshot.health.complete?
+    assert snapshot.health.failure == :pack_status_incomplete
+
+    [root] = snapshot.data.entries
+    assert root.progress == nil
+    {:ok, selected} = PlanningSource.demand(root.identity)
+    [completed, missing] = selected.data.members
+
+    assert completed.lifecycle.state == :closed
+    assert missing.lifecycle.state == :unknown
+    assert missing.lifecycle.state_reason == :unknown
+
+    grid = selected |> BuildOrderPresenter.present(:unavailable, :unavailable) |> BuildOrderGridModel.build(nil)
+    assert grid.overall_pct == nil
+    assert Enum.find(grid.waves, &(&1.phase == 2)).pct == 100
+    assert Enum.find(grid.waves, &(&1.phase == 3)).pct == nil
+  end
+
+  test "preserves PackStatus budget exhaustion through an incomplete projection" do
+    directory = Path.join(System.tmp_dir!(), "planning-source-status-budget-#{System.unique_integer([:positive])}")
+    path = Path.join(directory, "build-order.json")
+
+    File.mkdir_p!(directory)
+    File.write!(path, @canonical_pack)
+    File.write!(Path.join(directory, "status.json"), ~s({"members":{"4101":"completed"}}))
+    Application.put_env(:aiur, :build_order_planning_pack, path)
+
+    Application.put_env(:aiur, :build_order_pack_status_health_snapshot, fn ->
+      ProviderHealth.new(2, :stale, false, failure: :planning_call_budget_exhausted)
+    end)
+
+    on_exit(fn -> File.rm_rf(directory) end)
+
+    snapshot = PlanningSource.catalog()
+    assert snapshot.health.state == :stale
+    assert snapshot.health.failure == :planning_call_budget_exhausted
+    refute snapshot.health.complete?
+  end
+
+  test "ignores a malformed status members shape" do
+    directory = Path.join(System.tmp_dir!(), "planning-source-status-malformed-#{System.unique_integer([:positive])}")
+    path = Path.join(directory, "build-order.json")
+
+    File.mkdir_p!(directory)
+    File.write!(path, @mixed_pack)
+    File.write!(Path.join(directory, "status.json"), ~s({"members":[]}))
+    Application.put_env(:aiur, :build_order_planning_pack, path)
+
+    on_exit(fn -> File.rm_rf(directory) end)
+
+    snapshot = PlanningSource.catalog()
+    assert snapshot.health.state == :unavailable
+    assert snapshot.health.failure == :pack_status_incomplete
+  end
+
+  test "membership recovery does not regress the PackStatus-backed generation" do
+    path = Path.join(System.tmp_dir!(), "planning-source-generation-#{System.unique_integer([:positive])}.json")
+    File.write!(path, @mixed_pack)
+    Application.put_env(:aiur, :build_order_planning_pack, path)
+
+    Application.put_env(:aiur, :build_order_pack_status_health_snapshot, fn ->
+      ProviderHealth.new(5, :healthy, true, observed_at: ~U[2026-08-02 12:00:00Z])
+    end)
+
+    on_exit(fn -> File.rm(path) end)
+
+    initial_generation = PlanningSource.catalog().generation
+
+    Application.put_env(:aiur, :build_order_planning_membership_snapshot, fn ->
+      {:ok, identity} =
+        TrackerIdentity.from_github(
+          %{"number" => 4101, "node_id" => "I_live_4101"},
+          {"acme", "widgets"},
+          {"acme", "widgets"}
+        )
+
+      %{generation: 1, health: :healthy, freshness: %{status: :fresh}, members: [%{identity: identity, lifecycle: :completed}]}
+    end)
+
+    assert PlanningSource.catalog().generation > initial_generation
+  end
+
   test "renders created members live and uncreated members as planned from one canonical pack" do
     directory = Path.join(System.tmp_dir!(), "planning-source-mixed-#{System.unique_integer([:positive])}")
     path = Path.join(directory, "build-order.json")
@@ -295,6 +505,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     File.mkdir_p!(Path.dirname(document))
     File.write!(document, "# Render deck\n\nDraft ticket body.")
     File.write!(path, @mixed_pack)
+    File.write!(Path.join(directory, "status.json"), ~s({"members":{"4101":"completed"}}))
     Application.put_env(:aiur, :build_order_planning_pack, path)
 
     on_exit(fn -> File.rm_rf(directory) end)
@@ -465,7 +676,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert Enum.map(roots, & &1.identity.identifier) |> Enum.sort() == ["9900", "9901"]
   end
 
-  test "reconciles divergent same-ID discovery mirrors with workspace precedence" do
+  test "retains the state status projection when a workspace mirror wins definition precedence" do
     suffix = System.unique_integer([:positive])
     workspace_directory = Path.join([File.cwd!(), ".aiur", "build_orders"])
     workspace_existed? = File.dir?(workspace_directory)
@@ -493,6 +704,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     File.mkdir_p!(Path.dirname(state_path))
     File.write!(workspace_path, workspace_pack)
     File.write!(state_path, state_pack)
+    File.write!(Path.join(Path.dirname(state_path), "status.json"), ~s({"members":{"4101":"completed","4102":"open"}}))
 
     on_exit(fn ->
       if previous_root, do: Application.put_env(:aiur, :repo_base_root, previous_root), else: Application.delete_env(:aiur, :repo_base_root)
@@ -507,6 +719,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
 
     assert %Snapshot{data: %Catalog{entries: [root]}} = snapshot
     assert root.title == "Workspace copy"
+    assert root.progress == 50
     assert log =~ "discarded divergent duplicate"
     assert log =~ "workspace > state > environment > configured > explicit"
     assert log =~ "selected workspace"
@@ -517,7 +730,8 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert identity == root.identity
     assert RouteState.status(route) == :selected_loading
 
-    assert {:ok, %Snapshot{data: %SelectedRoot{root: %{title: "Workspace copy"}}}} = PlanningSource.demand(root.identity)
+    assert {:ok, %Snapshot{data: %SelectedRoot{root: %{title: "Workspace copy"}, members: members}}} = PlanningSource.demand(root.identity)
+    assert Enum.find(members, &(&1.identity.identifier == "4101")).lifecycle.state == :closed
 
     File.write!(state_path, workspace_pack)
     identical_log = capture_log(fn -> PlanningSource.catalog() end)
@@ -670,5 +884,18 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     entries = PlanningSource.catalog().data.entries
     assert Enum.map(entries, & &1.title) == ["Demo Plan", "Recent completed", "Older completed"]
     assert Enum.map(entries, & &1.completed?) == [false, true, true]
+  end
+
+  defp put_membership(number, lifecycle) do
+    Application.put_env(:aiur, :build_order_planning_membership_snapshot, fn ->
+      {:ok, identity} =
+        TrackerIdentity.from_github(
+          %{"number" => number, "node_id" => "I_live_#{number}"},
+          {"acme", "widgets"},
+          {"acme", "widgets"}
+        )
+
+      %{generation: 9, health: :healthy, freshness: %{status: :fresh}, members: [%{identity: identity, lifecycle: lifecycle}]}
+    end)
   end
 end
