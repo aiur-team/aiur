@@ -6,11 +6,13 @@ defmodule Aiur.Orchestrator.StatusReport do
 
   alias Aiur.{AgentEvents, AgentPubSub, AgentQueueStore, CodingAgent, Config, Issue, TicketActivity, TrackerIdentity}
   alias Aiur.Events.SubscriptionStore
+  alias Aiur.Orchestrator.ControlLifecycle
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.Lifecycle
   alias Aiur.Orchestrator.OperatorMessages, as: OM
   alias Aiur.Orchestrator.RemoteControlMode, as: RC
-  alias Aiur.Orchestrator.{ControlLifecycle, Slots, SnapshotStore}
+  alias Aiur.Orchestrator.Slots
+  alias Aiur.Orchestrator.SnapshotStore
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.WaitingReason
 

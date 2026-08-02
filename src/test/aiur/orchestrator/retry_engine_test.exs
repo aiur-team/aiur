@@ -125,8 +125,13 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
   end
 
   test "publishes the retry engine's final state" do
-    issue = %Issue{id: "issue-final", identifier: "MT-FINAL", state: "rework"}
-    write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "memory")
+    issue = %Issue{id: "issue-final", identifier: "MT-FINAL", state: "In Progress", title: "Final retry"}
+
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(),
+      tracker_kind: "memory",
+      opencode_command: System.find_executable("true")
+    )
+
     Application.put_env(:aiur, :memory_tracker_issues, [issue])
 
     generation = SnapshotStore.begin_generation(self())
@@ -148,7 +153,10 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
     }
 
     assert {:noreply, final_state} = RetryEngine.handle_retry_message(state, issue.id, retry_token)
-    assert %{identifier: "MT-FINAL", retry_token: final_retry_token} = final_state.retry_attempts[issue.id]
+
+    assert %{error: "no available orchestrator slots", identifier: "MT-FINAL", retry_token: final_retry_token} =
+             final_state.retry_attempts[issue.id]
+
     refute final_retry_token == retry_token
     Process.cancel_timer(final_state.retry_attempts[issue.id].timer_ref)
 
