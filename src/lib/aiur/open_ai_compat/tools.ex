@@ -117,17 +117,19 @@ defmodule Aiur.OpenAICompat.Tools do
   end
 
   def execute("list_files", %{"glob" => glob}, context, _opts) do
-    with {:ok, pattern} <- workspace_path(context.workspace, glob) do
-      files =
-        pattern
-        |> Path.wildcard(match_dot: true)
-        |> Enum.filter(&match?({:ok, _path}, workspace_path(context.workspace, Path.relative_to(&1, context.workspace))))
-        |> Enum.take(2_000)
-        |> Enum.map(&Path.relative_to(&1, context.workspace))
+    case workspace_path(context.workspace, glob) do
+      {:ok, pattern} ->
+        files =
+          pattern
+          |> Path.wildcard(match_dot: true)
+          |> Enum.filter(&match?({:ok, _path}, workspace_path(context.workspace, Path.relative_to(&1, context.workspace))))
+          |> Enum.take(2_000)
+          |> Enum.map(&Path.relative_to(&1, context.workspace))
 
-      success(Enum.join(files, "\n"))
-    else
-      {:error, reason} -> failure(format_reason(reason))
+        success(Enum.join(files, "\n"))
+
+      {:error, reason} ->
+        failure(format_reason(reason))
     end
   end
 
@@ -168,7 +170,7 @@ defmodule Aiur.OpenAICompat.Tools do
     cond do
       missing != [] -> {:error, "missing required arguments: #{Enum.join(missing, ", ")}"}
       unexpected != [] -> {:error, "unexpected arguments: #{Enum.join(unexpected, ", ")}"}
-      invalid != [] -> {:error, "invalid arguments: #{invalid |> Enum.map(&elem(&1, 0)) |> Enum.join(", ")}"}
+      invalid != [] -> {:error, "invalid arguments: #{Enum.map_join(invalid, ", ", &elem(&1, 0))}"}
       true -> :ok
     end
   end
