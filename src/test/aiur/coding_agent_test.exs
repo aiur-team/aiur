@@ -333,6 +333,15 @@ defmodule Aiur.CodingAgentTest do
       assert CodingAgent.resolve_model("codex", nil) == nil
     end
 
+    test "a bare model:<backend> override resolves to that backend's registered default model" do
+      # A bare `model:deepseek` selects the backend without pinning a model; the
+      # routing table is codex/claude shaped and does not name it. The session
+      # must fall back to the backend's `openai_compat.default_model` rather
+      # than starting with `nil` (which surfaces as `unsupported_model`).
+      assert CodingAgent.resolve_model("deepseek", nil) == "deepseek-v4-flash"
+      assert CodingAgent.resolve_model("kimi", nil) == "kimi-k2.7-code"
+    end
+
     test "known_model?/2 covers both aliases and pinned versions, and nothing else" do
       assert CodingAgent.known_model?("codex", "sol")
       assert CodingAgent.known_model?("codex", "gpt-5.4")
