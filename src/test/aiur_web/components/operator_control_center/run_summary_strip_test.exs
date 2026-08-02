@@ -287,7 +287,9 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
 
       assert html =~ "$7.25"
       refute html =~ "0% consumed"
-      refute html =~ "local-concurrency"
+      # Only the credit row renders: the idle concurrency gauge is dropped, so
+      # exactly one limit row survives instead of two.
+      assert length(Regex.scan(~r/<div class="rs-limit">/, html)) == 1
       refute html =~ "concurrency"
     end)
   end
