@@ -142,6 +142,20 @@ defmodule Aiur.GitHub.CiReadinessTest do
              CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop")
   end
 
+  test "reports a missing workflow without needing Actions or Administration access" do
+    request_fun = fn %{url: url} ->
+      cond do
+        String.ends_with?(url, "/branches/develop") -> {:ok, %{status: 200, body: %{}}}
+        String.ends_with?(url, "/repos/owner/repo") -> {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}
+        url =~ "/contents/.github/workflows" -> {:ok, %{status: 200, body: []}}
+        true -> flunk("unexpected privileged request: #{url}")
+      end
+    end
+
+    assert {:ok, %{ready?: false, issues: [:no_pr_workflow, :no_required_check]}} =
+             CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop")
+  end
+
   test "encodes configured branch names as path and query components" do
     branch = "feature/#&gate"
     parent = self()

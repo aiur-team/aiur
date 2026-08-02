@@ -88,9 +88,9 @@ defmodule Aiur.GitHub.CiReadiness do
     with :ok <- branch_exists?(request_fun, token, "#{base_url}/branches/#{encode_path_component(base_branch)}"),
          {:ok, default_branch} <- fetch_default_branch(request_fun, token, base_url),
          {:ok, entries} <- fetch_list(request_fun, token, "#{base_url}/contents/.github/workflows?ref=#{encode_query_value(base_branch)}"),
-         {:ok, workflow_states} <- fetch_workflow_states(request_fun, token, base_url),
+         {:ok, workflow_states} <- fetch_workflow_states(request_fun, token, base_url, entries),
          {:ok, workflows} <- fetch_workflows(request_fun, token, entries, workflow_states, base_branch),
-         {:ok, required_checks} <- fetch_required_checks(request_fun, token, base_url, base_branch, default_branch) do
+         {:ok, required_checks} <- fetch_required_checks_for_workflows(workflows, request_fun, token, base_url, base_branch, default_branch) do
       {:ok, evaluate(base_branch, workflows, required_checks)}
     else
       {:error, :base_branch_missing} -> {:ok, result(base_branch, [], [], [], [:base_branch_missing])}
@@ -173,7 +173,9 @@ defmodule Aiur.GitHub.CiReadiness do
     end
   end
 
-  defp fetch_workflow_states(request_fun, token, base_url) do
+  defp fetch_workflow_states(_request_fun, _token, _base_url, entries) when entries == [], do: {:ok, %{}}
+
+  defp fetch_workflow_states(request_fun, token, base_url, entries) do
     case request_fun.(%{method: :get, url: "#{base_url}/actions/workflows?per_page=100", token: token}) do
       {:ok, %{status: 200, body: %{"workflows" => workflows}}} when is_list(workflows) ->
         states =
@@ -193,6 +195,11 @@ defmodule Aiur.GitHub.CiReadiness do
         {:error, :invalid_workflow_states_response}
     end
   end
+
+  defp fetch_required_checks_for_workflows([], _request_fun, _token, _base_url, _base_branch, _default_branch), do: {:ok, []}
+
+  defp fetch_required_checks_for_workflows(_workflows, request_fun, token, base_url, base_branch, default_branch),
+    do: fetch_required_checks(request_fun, token, base_url, base_branch, default_branch)
 
   defp fetch_workflows(request_fun, token, entries, workflow_states, base_branch) do
     entries
