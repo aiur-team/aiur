@@ -295,24 +295,26 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   defp membership_health(membership), do: ProviderHealth.new(generation(membership), :healthy, true, observed_at: DateTime.utc_now())
 
   defp pack_status_health(packs, snapshot) do
-    {required?, projection_present?, projection_complete?} = pack_status_facts(packs)
-
-    if required? do
-      cond do
-        not projection_complete? and projection_present? ->
-          %{snapshot | state: :stale, complete?: false, failure: snapshot.failure || :pack_status_incomplete}
-
-        not projection_complete? ->
-          %{snapshot | state: :unavailable, complete?: false, failure: snapshot.failure || :pack_status_incomplete}
-
-        snapshot.state == :unavailable and projection_present? ->
-          %{snapshot | state: :stale}
-
-        true ->
-          snapshot
-      end
-    end
+    packs
+    |> pack_status_facts()
+    |> project_pack_status_health(snapshot)
   end
+
+  defp project_pack_status_health({false, _present?, _complete?}, _snapshot), do: nil
+
+  defp project_pack_status_health({true, true, false}, snapshot) do
+    %{snapshot | state: :stale, complete?: false, failure: snapshot.failure || :pack_status_incomplete}
+  end
+
+  defp project_pack_status_health({true, false, false}, snapshot) do
+    %{snapshot | state: :unavailable, complete?: false, failure: snapshot.failure || :pack_status_incomplete}
+  end
+
+  defp project_pack_status_health({true, true, true}, %{state: :unavailable} = snapshot) do
+    %{snapshot | state: :stale}
+  end
+
+  defp project_pack_status_health({true, _present?, true}, snapshot), do: snapshot
 
   defp pack_status_facts(packs) do
     Enum.reduce(packs, {false, false, true}, fn pack, facts ->
