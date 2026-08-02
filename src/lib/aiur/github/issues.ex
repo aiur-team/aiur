@@ -4,10 +4,11 @@ defmodule Aiur.GitHub.Issues do
   """
 
   require Logger
-  alias Aiur.{Alerts, BuildOrder.Bounded, Config, GitHub, Issue, TrackerIdentity}
-  alias Aiur.GitHub.{BlockerCache, DependenciesApi, DispatchAuthorization, Errors, Labels, StatePolicy, Transport}
+  alias Aiur.{Alerts, BuildOrder.Bounded, Config, GitHub, HardwareVerification, Issue, TrackerIdentity}
+  alias Aiur.GitHub.{BlockerCache, DependenciesApi, DispatchAuthorization, Errors, HardwareVerificationGate, Labels, StatePolicy, Transport}
 
   @max_issue_response_bytes 65_536
+  @max_blocker_refreshes_per_poll 20
 
   @spec max_issue_response_bytes() :: pos_integer()
   def max_issue_response_bytes, do: @max_issue_response_bytes
@@ -137,7 +138,7 @@ defmodule Aiur.GitHub.Issues do
 
       with {:ok, issues} <-
              fetch_issues_for_each_label(labels, request_fun, token, owner, repo, prefix),
-           {:ok, issues} <- attach_blockers(issues, request_fun, owner, repo, prefix, opts) do
+           {:ok, issues} <- attach_blockers(issues, request_fun, token, owner, repo, prefix, opts) do
         {:ok, authorize_dispatches(issues, request_fun, token, owner, repo, prefix)}
       end
     end
@@ -153,7 +154,7 @@ defmodule Aiur.GitHub.Issues do
 
       with {:ok, issues} <-
              do_fetch_issues_by_id_list(issue_ids, request_fun, token, owner, repo, prefix),
-           {:ok, issues} <- attach_blockers(issues, request_fun, owner, repo, prefix, opts) do
+           {:ok, issues} <- attach_blockers(issues, request_fun, token, owner, repo, prefix, opts) do
         {:ok, authorize_dispatches(issues, request_fun, token, owner, repo, prefix)}
       end
     end
@@ -285,43 +286,68 @@ defmodule Aiur.GitHub.Issues do
     }
   end
 
-  defp attach_blockers(issues, request_fun, owner, repo, prefix, opts) do
+  defp attach_blockers(issues, request_fun, token, owner, repo, prefix, opts) do
     cache? = Keyword.get(opts, :cache_blockers, not Keyword.has_key?(opts, :request_fun))
 
-    enriched =
-      Enum.map(issues, fn issue ->
-        blockers = hydrate_blockers(issue, request_fun, cache?, opts)
-        %{issue | blocked_by: Enum.map(blockers, &normalize_blocker(&1, owner, repo, prefix))}
+    {enriched, _remaining_refreshes} =
+      Enum.map_reduce(issues, @max_blocker_refreshes_per_poll, fn issue, remaining_refreshes ->
+        {blockers, remaining_refreshes} =
+          hydrate_blockers(issue, request_fun, cache?, Keyword.put_new(opts, :token, token), remaining_refreshes, owner, repo, prefix)
+
+        normalized = Enum.map(blockers, &normalize_blocker(&1, owner, repo, prefix))
+        {%{issue | blocked_by: normalized}, remaining_refreshes}
       end)
 
     {:ok, enriched}
   end
 
-  defp hydrate_blockers(issue, request_fun, true, opts) do
-    fetcher = fn -> DependenciesApi.fetch_blocked_by(issue.id, request_fun: request_fun) end
+  defp hydrate_blockers(issue, request_fun, true, opts, remaining_refreshes, owner, repo, prefix) do
+    fetcher = fn ->
+      with {:ok, blockers} <- DependenciesApi.fetch_blocked_by(issue.id, request_fun: request_fun) do
+        {:ok, Enum.map(blockers, &annotate_blocker_signoff(&1, request_fun, token_for(opts), owner, repo, prefix, opts))}
+      end
+    end
 
-    case BlockerCache.fetch(issue.id, fetcher, Keyword.take(opts, [:now_ms])) do
-      {:ok, blockers} ->
-        blockers
+    cache_opts = Keyword.take(opts, [:now_ms, :ttl_ms])
 
-      {:stale, blockers, reason} ->
-        blocker_hydration_warning(issue, reason)
-        blockers
+    case BlockerCache.cached(issue.id, cache_opts) do
+      {:fresh, blockers} ->
+        {blockers, remaining_refreshes}
 
-      {:error, reason} ->
-        blocker_hydration_warning(issue, reason)
-        [unknown_blocker()]
+      {:stale, blockers} when remaining_refreshes == 0 ->
+        {[unknown_blocker() | blockers], remaining_refreshes}
+
+      :missing when remaining_refreshes == 0 ->
+        {[unknown_blocker()], remaining_refreshes}
+
+      _refreshable ->
+        hydrate_refreshable_blockers(issue, fetcher, cache_opts, remaining_refreshes)
     end
   end
 
-  defp hydrate_blockers(issue, request_fun, false, _opts) do
+  defp hydrate_blockers(issue, request_fun, false, _opts, remaining_refreshes, _owner, _repo, _prefix) do
     case DependenciesApi.fetch_blocked_by(issue.id, request_fun: request_fun) do
       {:ok, blockers} when is_list(blockers) ->
-        blockers
+        {blockers, remaining_refreshes}
 
       {:error, reason} ->
         blocker_hydration_warning(issue, reason)
-        [unknown_blocker()]
+        {[unknown_blocker()], remaining_refreshes}
+    end
+  end
+
+  defp hydrate_refreshable_blockers(issue, fetcher, cache_opts, remaining_refreshes) do
+    case BlockerCache.fetch(issue.id, fetcher, cache_opts) do
+      {:ok, blockers} ->
+        {blockers, remaining_refreshes - 1}
+
+      {:stale, blockers, reason} ->
+        blocker_hydration_warning(issue, reason)
+        {[unknown_blocker() | blockers], remaining_refreshes - 1}
+
+      {:error, reason} ->
+        blocker_hydration_warning(issue, reason)
+        {[unknown_blocker()], remaining_refreshes - 1}
     end
   end
 
@@ -330,12 +356,15 @@ defmodule Aiur.GitHub.Issues do
   defp blocker_hydration_warning(issue, reason) do
     Logger.warning("Failing closed after GitHub dependency hydration failure issue=#{issue.identifier} reason=#{inspect(reason)}")
 
-    Alerts.emit_system("ticket.#{issue.identifier}.operator.blocker_hydration_failed",
-      issue: issue.identifier,
-      reason: "GitHub dependency data could not be refreshed; dispatch is failing closed for this ticket.",
-      needs_attention: true,
-      severity: "warning"
-    )
+    case Alerts.emit_system("ticket.#{issue.identifier}.operator.blocker_hydration_failed",
+           issue: issue.identifier,
+           reason: "GitHub dependency data could not be refreshed; dispatch is failing closed for this ticket.",
+           needs_attention: true,
+           severity: "warning"
+         ) do
+      :ok -> :ok
+      {:error, alert_reason} -> Logger.error("Could not publish blocker hydration alert issue=#{issue.identifier} reason=#{inspect(alert_reason)}")
+    end
   end
 
   defp normalize_blocker(blocker, owner, repo, prefix) when is_map(blocker) do
@@ -347,11 +376,31 @@ defmodule Aiur.GitHub.Issues do
       title: normalized.title,
       description: normalized.description,
       state: normalized.state,
-      labels: normalized.labels
+      labels: normalized.labels,
+      operator_signoff_valid?: Map.get(blocker, :operator_signoff_valid?, false)
     }
   end
 
   defp normalize_blocker(_blocker, _owner, _repo, _prefix), do: %{}
+
+  defp annotate_blocker_signoff(blocker, request_fun, token, owner, repo, prefix, opts) when is_map(blocker) do
+    Map.put(blocker, :operator_signoff_valid?, passing_operator_signoff?(blocker, request_fun, token, owner, repo, prefix, opts))
+  end
+
+  defp annotate_blocker_signoff(blocker, _request_fun, _token, _owner, _repo, _prefix, _opts), do: blocker
+
+  defp passing_operator_signoff?(blocker, request_fun, token, owner, repo, prefix, opts) do
+    if HardwareVerification.outcome_label(blocker, prefix) == HardwareVerification.passed_label(prefix) do
+      HardwareVerificationGate.passing_operator_signoff?(
+        %{request_fun: request_fun, token: token, owner: owner, repo: repo, issue_number: blocker["number"], prefix: prefix, opts: opts},
+        blocker
+      )
+    else
+      false
+    end
+  end
+
+  defp token_for(opts), do: Keyword.get(opts, :token, "")
 
   @spec extract_state(map(), [String.t()], String.t()) :: String.t() | nil
   def extract_state(%{"state" => "closed"}, _label_names, _prefix), do: "Closed"

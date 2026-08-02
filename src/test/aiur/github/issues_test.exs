@@ -205,11 +205,7 @@ defmodule Aiur.GitHub.IssuesTest do
       end
 
       assert {:ok, [_]} =
-               Issues.fetch_issue_states_by_ids(["42"],
-                 request_fun: request_fun,
-                 cache_blockers: true,
-                 now_ms: 0
-               )
+               Issues.fetch_issue_states_by_ids(["42"], request_fun: request_fun, cache_blockers: true, now_ms: 0, ttl_ms: 30_000)
 
       assert_received {:dependency_request, "42"}
       Process.put(:stale_refresh, true)
@@ -218,13 +214,54 @@ defmodule Aiur.GitHub.IssuesTest do
                Issues.fetch_issue_states_by_ids(["42", "43"],
                  request_fun: request_fun,
                  cache_blockers: true,
-                 now_ms: 30_001
+                 now_ms: 30_001,
+                 ttl_ms: 30_000
                )
 
       assert_received {:dependency_request, "42"}
       assert_received {:dependency_request, "43"}
-      assert [%{identifier: "41"}] = stale_issue.blocked_by
+      assert [%{identifier: ""}, %{identifier: "41"}] = stale_issue.blocked_by
       assert [%{identifier: ""}] = failed_issue.blocked_by
+    end
+
+    test "keeps a fleet-sized dependency poll inside the cache refresh window" do
+      test_pid = self()
+      issues = Enum.map(1..100, &%{"number" => &1, "title" => "Issue #{&1}", "body" => "Work", "labels" => [%{"name" => "sym:todo"}], "state" => "open"})
+
+      request_fun = fn %{url: url} ->
+        cond do
+          String.contains?(url, "/dependencies/blocked_by") ->
+            send(test_pid, :dependency_request)
+            {:ok, %{status: 200, body: []}}
+
+          String.contains?(url, "/timeline?") ->
+            {:ok, %{status: 200, headers: [], body: []}}
+
+          true ->
+            [_, issue_id] = Regex.run(~r{/issues/(\d+)$}, url)
+            {:ok, %{status: 200, body: Enum.at(issues, String.to_integer(issue_id) - 1)}}
+        end
+      end
+
+      ids = Enum.map(issues, &Integer.to_string(&1["number"]))
+
+      assert {:ok, _} =
+               Issues.fetch_issue_states_by_ids(ids,
+                 request_fun: request_fun,
+                 cache_blockers: true,
+                 now_ms: 0
+               )
+
+      assert receive_dependency_requests(0) == 20
+
+      assert {:ok, _} =
+               Issues.fetch_issue_states_by_ids(ids,
+                 request_fun: request_fun,
+                 cache_blockers: true,
+                 now_ms: 30_000
+               )
+
+      assert receive_dependency_requests(0) == 20
     end
 
     test "normalizes native dependency blockers with their verification labels" do
@@ -458,6 +495,14 @@ defmodule Aiur.GitHub.IssuesTest do
 
     test "parses ISO 8601 strings" do
       assert %DateTime{year: 2026} = Issues.parse_datetime("2026-01-01T00:00:00Z")
+    end
+  end
+
+  defp receive_dependency_requests(count) do
+    receive do
+      :dependency_request -> receive_dependency_requests(count + 1)
+    after
+      0 -> count
     end
   end
 end

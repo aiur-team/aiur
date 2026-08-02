@@ -2,14 +2,14 @@ defmodule Aiur.GitHub.BlockerCache do
   @moduledoc false
 
   @table :aiur_github_blocker_cache
-  @ttl_ms 30_000
+  @ttl_ms 300_000
 
   @spec fetch(String.t(), (-> {:ok, [map()]} | {:error, term()}), keyword()) ::
           {:ok, [map()]} | {:stale, [map()], term()} | {:error, term()}
   def fetch(issue_id, fetcher, opts \\ []) when is_binary(issue_id) and is_function(fetcher, 0) do
-    now_ms = Keyword.get(opts, :now_ms, System.monotonic_time(:millisecond))
+    now_ms = now_ms(opts)
 
-    case lookup(issue_id, now_ms, Keyword.get(opts, :ttl_ms, @ttl_ms)) do
+    case cached(issue_id, opts) do
       {:fresh, blockers} ->
         {:ok, blockers}
 
@@ -19,6 +19,12 @@ defmodule Aiur.GitHub.BlockerCache do
       :missing ->
         refresh(issue_id, nil, fetcher, now_ms)
     end
+  end
+
+  @doc false
+  @spec cached(String.t(), keyword()) :: {:fresh | :stale, [map()]} | :missing
+  def cached(issue_id, opts \\ []) when is_binary(issue_id) do
+    lookup(issue_id, now_ms(opts), Keyword.get(opts, :ttl_ms, @ttl_ms))
   end
 
   @doc false
@@ -53,6 +59,8 @@ defmodule Aiur.GitHub.BlockerCache do
       [] -> :missing
     end
   end
+
+  defp now_ms(opts), do: Keyword.get(opts, :now_ms, System.monotonic_time(:millisecond))
 
   defp ensure_table do
     case :ets.whereis(@table) do

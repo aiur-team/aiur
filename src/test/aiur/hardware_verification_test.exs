@@ -27,6 +27,29 @@ defmodule Aiur.HardwareVerificationTest do
     refute HardwareVerification.required?(issue)
   end
 
+  test "keeps a physical step when a criterion also documents its result" do
+    issue = %Issue{description: "## Acceptance\n- Unplug the device and document the result in the runbook."}
+
+    assert [%{signal: :physical_action}] = HardwareVerification.matched_criteria(issue)
+    assert HardwareVerification.required?(issue)
+  end
+
+  test "does not route documentation that only describes a physical action" do
+    issue = %Issue{description: "## Acceptance\n- Document how to unplug the device in the runbook."}
+
+    assert [] = HardwareVerification.matched_criteria(issue)
+    refute HardwareVerification.required?(issue)
+  end
+
+  test "does not route negated, mock, emulator, or documentation criteria" do
+    issue = %Issue{
+      description: "## Acceptance\n- Do not use sudo.\n- Verify mock systemctl behavior.\n- Test /dev/hidraw0 with an emulator.\n- Update docs to remove sudo."
+    }
+
+    assert [] = HardwareVerification.matched_criteria(issue)
+    refute HardwareVerification.required?(issue)
+  end
+
   test "requires explicit operator sign-off before a detected ticket can finish" do
     issue = %{
       "body" => "## Acceptance\n- Run sudo udevadm trigger and verify the physical device.",
@@ -60,5 +83,35 @@ defmodule Aiur.HardwareVerificationTest do
     assert :ok = HardwareVerification.verify_terminal_transition(issue, "cancelled", "agent")
     assert {:error, {:operator_no_go_requires_cancellation, _}} = HardwareVerification.verify_terminal_transition(issue, "done", "agent")
     refute HardwareVerification.dependency_resolved?(issue, "agent")
+  end
+
+  test "fails closed when an operator leaves conflicting outcomes on a spike" do
+    issue = %{
+      "body" => "## Acceptance\n- Verify /dev/hidraw0.",
+      "labels" => [
+        %{"name" => "agent:operator-verified"},
+        %{"name" => "agent:operator-verification-passed"},
+        %{"name" => "agent:operator-verification-no-go"}
+      ]
+    }
+
+    assert nil == HardwareVerification.outcome_label(issue, "agent")
+    refute HardwareVerification.dependency_resolved?(issue, "agent")
+
+    assert {:error, {:operator_signoff_required, _detail}} =
+             HardwareVerification.verify_terminal_transition(issue, "cancelled", "agent")
+  end
+
+  test "requires authenticated evidence before a passing blocker releases dependents" do
+    issue = %{
+      "body" => "## Acceptance\n- Verify /dev/hidraw0.",
+      "labels" => [
+        %{"name" => "agent:operator-verified"},
+        %{"name" => "agent:operator-verification-passed"}
+      ]
+    }
+
+    refute HardwareVerification.dependency_resolved?(issue, "agent")
+    assert HardwareVerification.dependency_resolved?(Map.put(issue, :operator_signoff_valid?, true), "agent")
   end
 end

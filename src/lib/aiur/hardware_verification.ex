@@ -22,7 +22,9 @@ defmodule Aiur.HardwareVerification do
     {:physical_action, ~r{\b(?:press|turn|touch)\s+(?:the\s+)?(?:dial|button|key)\b}i}
   ]
 
-  @non_execution_context ~r/\b(?:mock|emulat(?:e|or|ion)|simulat(?:e|ion)|docs?|document(?:ation)?|remove|without|not\s+(?:run|use|access)|do\s+not|don't)\b/i
+  @non_execution_action ~r/^(?:add|build|create|document|remove|update)\b/i
+  @simulated_context ~r/\b(?:mock|emulat(?:e|or|ion)|simulat(?:e|ion))\b/i
+  @negated_operation ~r/\b(?:do\s+not|don't|not)\s+(?:run|use|access)\b/i
 
   @spec required_label(String.t()) :: String.t()
   def required_label(prefix) when is_binary(prefix), do: "#{prefix}:#{@required_suffix}"
@@ -90,7 +92,10 @@ defmodule Aiur.HardwareVerification do
   @doc "Whether a terminal hardware blocker has an explicit passing outcome."
   @spec dependency_resolved?(map(), String.t()) :: boolean()
   def dependency_resolved?(issue_body, prefix) when is_map(issue_body) and is_binary(prefix),
-    do: not signoff_required?(issue_body, prefix) or outcome_label(issue_body, prefix) == passed_label(prefix)
+    do:
+      not signoff_required?(issue_body, prefix) or
+        (outcome_label(issue_body, prefix) == passed_label(prefix) and
+           Map.get(issue_body, :operator_signoff_valid?, Map.get(issue_body, "operator_signoff_valid?", false)) == true)
 
   def dependency_resolved?(_issue_body, _prefix), do: false
 
@@ -131,10 +136,12 @@ defmodule Aiur.HardwareVerification do
   def outcome_label(issue_body, prefix) when is_map(issue_body) and is_binary(prefix) do
     labels = label_names(issue_body)
     verified? = String.downcase(verified_label(prefix)) in labels
+    passed? = String.downcase(passed_label(prefix)) in labels
+    no_go? = String.downcase(no_go_label(prefix)) in labels
 
     cond do
-      verified? and String.downcase(passed_label(prefix)) in labels -> passed_label(prefix)
-      verified? and String.downcase(no_go_label(prefix)) in labels -> no_go_label(prefix)
+      verified? and passed? and not no_go? -> passed_label(prefix)
+      verified? and no_go? and not passed? -> no_go_label(prefix)
       true -> nil
     end
   end
@@ -177,7 +184,7 @@ defmodule Aiur.HardwareVerification do
   end
 
   defp match_criterion(line) do
-    if Regex.match?(@non_execution_context, line) do
+    if non_execution_criterion?(line) do
       []
     else
       @signals
@@ -185,6 +192,14 @@ defmodule Aiur.HardwareVerification do
         if Regex.match?(pattern, line), do: [%{signal: signal, evidence: line, operator_action: "Verify this criterion on the physical device."}], else: []
       end)
     end
+  end
+
+  defp non_execution_criterion?(line) do
+    criterion = Regex.replace(~r/^(?:[-*+]\s+|\d+[.)]\s+|\[[ xX]\]\s+)/, line, "")
+
+    Regex.match?(@negated_operation, criterion) or
+      Regex.match?(@simulated_context, criterion) or
+      Regex.match?(@non_execution_action, criterion)
   end
 
   defp label_names(issue_body) do

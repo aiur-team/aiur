@@ -287,6 +287,8 @@ defmodule Aiur.GitHub.IssueStateTest do
           request.method == :post and String.contains?(request.url, "/issues/77/comments") ->
             assert request.body["body"] =~ "Hardware verification required"
             assert request.body["body"] =~ "sym:operator-verified"
+            assert request.body["body"] =~ "sym:operator-verification-passed"
+            assert request.body["body"] =~ "sym:operator-verification-no-go"
             {:ok, %{status: 201}}
 
           request.method in [:delete, :post] ->

@@ -31,6 +31,23 @@ defmodule Aiur.GitHub.HardwareVerificationGate do
     end
   end
 
+  @doc false
+  @spec passing_operator_signoff?(map(), map()) :: boolean()
+  def passing_operator_signoff?(context, issue_body) do
+    passed = HardwareVerification.passed_label(context.prefix)
+
+    HardwareVerification.outcome_label(issue_body, context.prefix) == passed and
+      with {:ok, events} <- fetch_timeline_events(context),
+           {:ok, verified_actor} <- latest_signoff_actor(events, HardwareVerification.verified_label(context.prefix)),
+           true <- operator_authorized?(verified_actor, context),
+           {:ok, passed_actor} <- latest_signoff_actor(events, passed),
+           true <- operator_authorized?(passed_actor, context) do
+        true
+      else
+        _ -> false
+      end
+  end
+
   @spec flag_ci_blind_spot(map(), map(), String.t()) :: :ok | {:error, term()}
   def flag_ci_blind_spot(context, issue_body, state_name) do
     if StatePolicy.human_review_target_state?(state_name) and HardwareVerification.signoff_required?(issue_body, context.prefix) do
@@ -64,7 +81,7 @@ defmodule Aiur.GitHub.HardwareVerificationGate do
     #{@notice_marker}
     ## Hardware verification required
 
-    CI cannot exercise this PR's hardware-dependent acceptance criteria. A configured human operator must perform the physical verification and apply `#{HardwareVerification.verified_label(prefix)}` before this ticket can reach `done`; Aiur records the authenticated label event as the sign-off.
+    CI cannot exercise this PR's hardware-dependent acceptance criteria. A configured human operator must perform the physical verification, apply `#{HardwareVerification.verified_label(prefix)}`, and then record exactly one outcome: `#{HardwareVerification.passed_label(prefix)}` for a passing go decision or `#{HardwareVerification.no_go_label(prefix)}` for a failed no-go decision. Aiur records authenticated label events for both steps; only a passing outcome can release dependent work.
     """
   end
 

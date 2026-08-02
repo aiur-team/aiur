@@ -1631,7 +1631,11 @@ defmodule Aiur.WorkspaceAndConfigTest do
     no_go_blocker = Map.put(unresolved_blocker, :labels, ["agent:operator-verification-required", "agent:operator-verified", "agent:operator-verification-no-go"])
     refute DispatchPolicy.should_dispatch_issue?(%{issue | blocked_by: [no_go_blocker]}, state)
 
-    resolved_blocker = Map.put(unresolved_blocker, :labels, ["agent:operator-verification-required", "agent:operator-verified", "agent:operator-verification-passed"])
+    resolved_blocker =
+      unresolved_blocker
+      |> Map.put(:labels, ["agent:operator-verification-required", "agent:operator-verified", "agent:operator-verification-passed"])
+      |> Map.put(:operator_signoff_valid?, true)
+
     assert DispatchPolicy.should_dispatch_issue?(%{issue | blocked_by: [resolved_blocker]}, state)
   end
 
