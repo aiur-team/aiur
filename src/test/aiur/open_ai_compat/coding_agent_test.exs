@@ -4,6 +4,10 @@ defmodule Aiur.OpenAICompat.CodingAgentTest do
   alias Aiur.Issue
   alias Aiur.OpenAICompat.CodingAgent
 
+  # Mirrors CodingAgent's per-turn tool-round budget; pinned so the
+  # round-count assertions below fail if the bound ever drifts back down.
+  @max_tool_rounds 256
+
   setup do
     workspace =
       Path.join(
@@ -680,6 +684,103 @@ defmodule Aiur.OpenAICompat.CodingAgentTest do
              )
   end
 
+  test "continues a long tool loop past the former 32-round cap and completes the turn", %{workspace: workspace} do
+    parent = self()
+
+    # Well above the old 32-round cap, comfortably below the 256-round budget.
+    rounds = 40
+
+    tool_responses =
+      for round <- 1..rounds do
+        response(%{
+          "id" => "req-long-#{round}",
+          "choices" => [
+            %{
+              "finish_reason" => "tool_calls",
+              "message" => %{
+                "role" => "assistant",
+                "tool_calls" => [
+                  %{
+                    "id" => "call-long-#{round}",
+                    "type" => "function",
+                    "function" => %{"name" => "read_file", "arguments" => ~s({"path":"sample.txt"})}
+                  }
+                ]
+              }
+            }
+          ]
+        })
+      end
+
+    final =
+      response(%{
+        "id" => "req-long-final",
+        "choices" => [
+          %{"finish_reason" => "stop", "message" => %{"role" => "assistant", "content" => "Done after many rounds."}}
+        ]
+      })
+
+    {:ok, queue} = Agent.start_link(fn -> tool_responses ++ [final] end)
+
+    assert {:ok, session} =
+             CodingAgent.start_session(workspace,
+               backend: "kimi",
+               instance: instance([]),
+               api_key_fetcher: fn _ -> "secret" end,
+               request_fun: queue_fun(queue, parent)
+             )
+
+    assert {:ok, %{result: :turn_completed}} =
+             CodingAgent.run_turn(session, "Work through many rounds", issue(), [])
+
+    assert length(collect_requests(rounds + 1)) == rounds + 1
+    assert {:ok, :cleanup_proven} = CodingAgent.stop_session(session)
+  end
+
+  test "ends an endless tool loop only at the raised round bound", %{workspace: workspace} do
+    parent = self()
+
+    responses =
+      for round <- 1..@max_tool_rounds do
+        response(%{
+          "id" => "req-bound-#{round}",
+          "choices" => [
+            %{
+              "finish_reason" => "tool_calls",
+              "message" => %{
+                "role" => "assistant",
+                "tool_calls" => [
+                  %{
+                    "id" => "call-bound-#{round}",
+                    "type" => "function",
+                    "function" => %{"name" => "read_file", "arguments" => ~s({"path":"sample.txt"})}
+                  }
+                ]
+              }
+            }
+          ]
+        })
+      end
+
+    {:ok, queue} = Agent.start_link(fn -> responses end)
+
+    assert {:ok, session} =
+             CodingAgent.start_session(workspace,
+               backend: "kimi",
+               instance: instance([]),
+               api_key_fetcher: fn _ -> "secret" end,
+               request_fun: queue_fun(queue, parent)
+             )
+
+    assert {:error, :tool_round_limit_exceeded} =
+             CodingAgent.run_turn(session, "Loop forever", issue(), [])
+
+    # Exactly one request per allowed round and none for the round that trips
+    # the guard — a regression back toward 32 would fail this count.
+    assert length(collect_requests(@max_tool_rounds)) == @max_tool_rounds
+    assert {:ok, :cleanup_proven} = CodingAgent.stop_session(session)
+  end
+
   defp instance(extra) do
     %{
       base_url: "https://example.invalid/v1",
@@ -701,6 +802,17 @@ defmodule Aiur.OpenAICompat.CodingAgentTest do
         [] -> {{:error, :unexpected_request}, []}
       end)
     end
+  end
+
+  defp collect_requests(count) do
+    Enum.reduce(1..count, [], fn _, acc ->
+      receive do
+        {:request, request} -> [request | acc]
+      after
+        1_000 -> flunk("expected #{count} requests, received #{length(acc)}")
+      end
+    end)
+    |> Enum.reverse()
   end
 
   defp issue, do: %Issue{id: "1440", identifier: "1440", title: "compat test", labels: []}
