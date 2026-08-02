@@ -18,8 +18,8 @@ defmodule AiurWeb.BuildOrder.Runtime do
       fallback
   end
 
-  @spec unavailable_sources() :: %{activity: :unavailable, execution: :unavailable, adhoc: :unavailable}
-  def unavailable_sources, do: %{execution: :unavailable, activity: :unavailable, adhoc: :unavailable}
+  @spec unavailable_sources() :: %{activity: :unavailable, execution: :unavailable}
+  def unavailable_sources, do: %{execution: :unavailable, activity: :unavailable}
 
   @spec display_now() :: DateTime.t()
   def display_now do

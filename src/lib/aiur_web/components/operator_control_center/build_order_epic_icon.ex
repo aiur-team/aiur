@@ -10,15 +10,13 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderEpicIcon do
 
   use Phoenix.Component
 
-  # Epic (build lane) -> Heroicons v2 outline icon name. "adhoc" is the runtime
-  # Ad Hoc overlay lane, tracked separately from the planning lanes.
+  # Epic (build lane) -> Heroicons v2 outline icon name.
   @lane_icons %{
     "plan-graph" => "share",
     "runtime" => "bolt",
     "dashboard-ui" => "rectangle-group",
     "accounting" => "banknotes",
     "platform" => "server-stack",
-    "adhoc" => "sparkles",
     # Additional lanes used by planning packs (e.g. the CropTracker demo).
     "core" => "cube",
     "web" => "window",
@@ -54,7 +52,6 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderEpicIcon do
     "dashboard-ui" => "#c9a6ff",
     "accounting" => "#6bd6a6",
     "platform" => "#8fbcff",
-    "adhoc" => "#f0a0c0",
     "core" => "#c9a6ff",
     "web" => "#6bd6a6",
     "data" => "#f2cd6b",
@@ -70,7 +67,6 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderEpicIcon do
     "dashboard-ui" => "Dashboard UI",
     "accounting" => "Accounting",
     "platform" => "Platform",
-    "adhoc" => "Ad Hoc",
     "core" => "Core",
     "web" => "Web",
     "data" => "Data",
@@ -110,7 +106,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderEpicIcon do
 
   def label(_lane), do: "Unassigned"
 
-  @doc "Ordered list of the planning epics (excludes the Ad Hoc overlay lane)."
+  @doc "Ordered list of the built-in planning epics."
   @spec planning_lanes() :: [String.t()]
   def planning_lanes, do: ["plan-graph", "runtime", "dashboard-ui", "accounting", "platform"]
 

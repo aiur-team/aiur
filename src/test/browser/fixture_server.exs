@@ -279,7 +279,6 @@ defmodule Aiur.BrowserHarness.FixtureLive do
             provider_generation={@graph_generation}
             dom_generation={@graph_generation}
             model={fixture_graph_model(@fixture)}
-            adhoc={nil}
           />
           <p :if={!@graph_mounted} id="graph-unmounted" role="status">Graph unmounted</p>
         </div>

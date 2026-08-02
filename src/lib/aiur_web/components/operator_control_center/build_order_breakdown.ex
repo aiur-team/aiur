@@ -13,9 +13,6 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdown do
 
   use Phoenix.Component
 
-  alias Aiur.BuildOrder.AdHocSource.Snapshot, as: AdHocSnapshot
-  alias Aiur.BuildOrder.{Bounded, Metadata}
-  alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrderViewModel
   alias AiurWeb.BuildOrderViewModel.{Group, Node}
   alias AiurWeb.OperatorControlCenter.BuildOrderEpicIcon
@@ -24,8 +21,6 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdown do
   @degraded_statuses [:provider_stale, :provider_unavailable, :structurally_invalid]
 
   attr(:model, :any, required: true)
-  attr(:adhoc, :any, default: nil)
-
   @spec build_order_breakdown(map()) :: Phoenix.LiveView.Rendered.t()
   def build_order_breakdown(assigns) do
     projection = projection(assigns.model)
@@ -47,6 +42,9 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdown do
         <.breakdown_list dimension="Waves" rows={@projection.phases} />
         <.breakdown_list dimension="Epics" rows={@projection.epics} icons />
       </div>
+      <p :if={@ready? and @projection.discovered_total > 0} class="bo-breakdown-drift">
+        {@projection.baseline_total} baseline members; {@projection.discovered_total} added after start.
+      </p>
     </section>
     """
   end
@@ -92,105 +90,21 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdown do
     nodes_by_key = Map.new(model.nodes, &{&1.key, &1})
     phases = rows(model.phase_groups, nodes_by_key)
     epics = rows(model.lane_groups, nodes_by_key)
+    {baseline_total, discovered_total} = provenance_totals(model.nodes)
 
     %{
       status: model.status,
       kpis: kpis(model),
       phases: phases,
       epics: epics,
+      baseline_total: baseline_total,
+      discovered_total: discovered_total,
       warnings: warnings(model.nodes)
     }
   end
 
-  def projection(_model), do: %{status: :provider_unavailable, kpis: empty_kpis(), phases: [], epics: [], warnings: []}
-
-  @doc """
-  Builds the derived Ad Hoc epic overlay: the `build-lane:adhoc` snapshot joined
-  with live execution/activity for progress and live-agent state.
-
-  This is a runtime overlay — its rows never fold into the core member, point,
-  critical-path, or ETA totals. Pickup phase is the frozen `phase:N` label read
-  live off each issue; members without a phase label render as TBD / not picked.
-  Completed and duplicate tickets remain visible; lifecycle is GitHub open/closed
-  and never inferred from free-form status text.
-  """
-  @spec adhoc_projection(term(), term(), term()) :: map()
-  def adhoc_projection(%AdHocSnapshot{} = snapshot, execution, activity) do
-    running = running_identity_set(execution)
-    progress = progress_by_identity(activity)
-
-    rows =
-      snapshot.members
-      |> Enum.map(&adhoc_row(&1, running, progress))
-      |> Enum.sort_by(&adhoc_row_sort_key/1)
-
-    %{status: snapshot.status, total: length(rows), rows: rows}
-  end
-
-  def adhoc_projection(_snapshot, _execution, _activity),
-    do: %{status: :unavailable, total: 0, rows: []}
-
-  defp adhoc_row(member, running, progress) do
-    meta = Metadata.parse(member.labels)
-    key = identity_key(member.identity)
-
-    %{
-      identifier: member.identifier,
-      title: member.title,
-      href: adhoc_href(member.url),
-      lifecycle: member.lifecycle,
-      phase: meta.phase,
-      complexity: meta.complexity,
-      running?: not is_nil(key) and MapSet.member?(running, key),
-      progress: key && Map.get(progress, key)
-    }
-  end
-
-  defp adhoc_row_sort_key(%{phase: phase, identifier: identifier}) do
-    case phase do
-      phase when is_integer(phase) -> {0, phase, adhoc_id_sort(identifier)}
-      _unphased -> {1, 0, adhoc_id_sort(identifier)}
-    end
-  end
-
-  defp adhoc_id_sort(identifier) do
-    case Integer.parse(to_string(identifier)) do
-      {number, _rest} -> number
-      :error -> 0
-    end
-  end
-
-  defp running_identity_set(%{running: running}) when is_list(running) do
-    running
-    |> Enum.map(&identity_key(Map.get(&1, :tracker_identity)))
-    |> Enum.reject(&is_nil/1)
-    |> MapSet.new()
-  end
-
-  defp running_identity_set(_execution), do: MapSet.new()
-
-  defp progress_by_identity(%{entries: entries}) when is_list(entries) do
-    Enum.reduce(entries, %{}, fn entry, acc ->
-      with key when not is_nil(key) <- identity_key(Map.get(entry, :identity)),
-           %{status: :known, percent: percent} when percent in 0..100 <- Map.get(entry, :progress) do
-        Map.put(acc, key, percent)
-      else
-        _other -> acc
-      end
-    end)
-  end
-
-  defp progress_by_identity(_activity), do: %{}
-
-  defp identity_key(%TrackerIdentity{} = identity), do: TrackerIdentity.github_key(identity)
-  defp identity_key(_identity), do: nil
-
-  defp adhoc_href(url) do
-    case Bounded.github_url(url) do
-      {:ok, safe} -> safe
-      :error -> nil
-    end
-  end
+  def projection(_model),
+    do: %{status: :provider_unavailable, kpis: empty_kpis(), phases: [], epics: [], baseline_total: 0, discovered_total: 0, warnings: []}
 
   defp kpis(model) do
     %{
@@ -202,6 +116,15 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdown do
   end
 
   defp empty_kpis, do: %{members: 0, points: 0, ready_at_start: 0, longest_chain: 0}
+
+  defp provenance_totals(nodes) do
+    Enum.reduce(nodes, {0, 0}, fn node, {baseline_total, discovered_total} ->
+      if discovered?(node), do: {baseline_total, discovered_total + 1}, else: {baseline_total + 1, discovered_total}
+    end)
+  end
+
+  defp discovered?(%Node{plan: %{provenance: :discovered}}), do: true
+  defp discovered?(_node), do: false
 
   defp rows(groups, nodes_by_key) do
     rows =

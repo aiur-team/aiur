@@ -1,8 +1,8 @@
 defmodule AiurWeb.BuildOrder.PlanningSource do
   @moduledoc """
-  A pre-ticket Build Order data source: renders a build order in the spatial
-  dashboard directly from a local planning pack (JSON), before any GitHub issue
-  exists for the tickets.
+  A pack-backed Build Order data source: renders running builds directly from
+  their state-node planning packs (JSON), including the pack-owned provenance
+  of every member.
 
   It implements the same `AiurWeb.BuildOrder.DataSource` behaviour as the live
   GitHub source and is selected via
@@ -13,8 +13,9 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   hydrated from the daemon's current-run membership projection; pre-ticket packs
   remain planning-only.
 
-  This is read-only demo/planning tooling — it never writes to GitHub. Point it
-  at a pack with `:build_order_planning_pack` (an app-relative priv path).
+  This is read-only pack tooling — it never writes to GitHub. The dashboard
+  selects it whenever state-node packs are present, or callers may point it at
+  explicit `:build_order_planning_pack` paths.
   """
 
   @behaviour AiurWeb.BuildOrder.DataSource
@@ -32,6 +33,21 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   @generation 1
   @default_root_number_base 100_000
   @default_root_number_range 800_000_000
+  @revision_generation_key {__MODULE__, :revision_generation}
+
+  @spec available?() :: boolean()
+  def available? do
+    load_packs() != []
+  end
+
+  @spec revision() :: [term()]
+  def revision do
+    pack_paths()
+    |> Enum.flat_map(&pack_revision_paths/1)
+    |> Enum.uniq()
+    |> Enum.sort()
+    |> Enum.map(&file_revision/1)
+  end
 
   # --- catalog ---------------------------------------------------------------
 
@@ -47,7 +63,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
         %Snapshot{
           scope: :catalog,
           repository: hd(packs).repository,
-          generation: generation(membership),
+          generation: snapshot_generation(membership),
           authority_epoch: @epoch,
           data: Catalog.new(Enum.map(packs, &root_summary(&1, membership)), health(membership)),
           health: health(membership)
@@ -71,7 +87,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
         %Snapshot{
           scope: {:selected, identity},
           repository: pack.repository,
-          generation: generation(membership),
+          generation: snapshot_generation(membership),
           authority_epoch: @epoch,
           data: SelectedRoot.new(root_summary(pack, membership), members(pack, membership), health(membership), planning?: not (pack.materialized? or pack.completed)),
           health: health(membership)
@@ -81,7 +97,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
         %Snapshot{
           scope: {:selected, identity},
           repository: {"unknown", "unknown"},
-          generation: generation(membership),
+          generation: snapshot_generation(membership),
           authority_epoch: @epoch,
           data: nil,
           health: health(membership)
@@ -178,6 +194,8 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
         document_path: ticket.document_path,
         draft_body: ticket.draft_body,
         icon: ticket.icon,
+        provenance: ticket.provenance,
+        added_at: ticket.added_at,
         draft?: is_nil(ticket.number),
         state: state,
         state_reason: reason,
@@ -277,6 +295,19 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   defp generation(%{generation: generation}) when is_integer(generation) and generation >= 0, do: @generation + generation
   defp generation(_membership), do: @generation
 
+  defp snapshot_generation(membership) do
+    revision = {generation(membership), revision()}
+    {known_revision, known_generation} = :persistent_term.get(@revision_generation_key, {nil, 0})
+
+    if known_revision == revision do
+      known_generation
+    else
+      next_generation = max(known_generation + 1, generation(membership))
+      :persistent_term.put(@revision_generation_key, {revision, next_generation})
+      next_generation
+    end
+  end
+
   defp lifecycle(%{number: nil}, _identity, _pack, _membership), do: {"OPEN", nil}
 
   defp lifecycle(_ticket, identity, pack, membership) do
@@ -306,19 +337,16 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
       end
   end
 
-  defp membership_member?(identity, %{members: members}) when is_list(members), do: not is_nil(membership_member(identity, members))
-  defp membership_member?(_identity, _membership), do: false
+  defp membership_member?(identity, membership), do: not is_nil(membership_member(identity, membership))
 
-  defp membership_lifecycle(identity, %{members: members}) when is_list(members) do
-    membership_member(identity, members)
+  defp membership_lifecycle(identity, membership) do
+    membership_member(identity, membership)
     |> then(&Map.get(&1 || %{}, :lifecycle))
   end
 
-  defp membership_lifecycle(_identity, _membership), do: nil
-
   defp live_labels(identity, membership) do
     labels =
-      membership_member(identity, Map.get(membership, :members, []))
+      membership_member(identity, membership)
       |> then(&Map.get(&1 || %{}, :labels, []))
       |> valid_labels()
 
@@ -333,19 +361,34 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   defp member_identity(pack, %{number: nil} = ticket, _membership), do: ticket_identity(pack, ticket)
 
-  defp member_identity(pack, ticket, %{members: members}) when is_list(members) do
+  defp member_identity(pack, ticket, membership) do
     identity = ticket_identity(pack, ticket)
 
-    case membership_member(identity, members) do
+    case membership_member(identity, membership) do
       %{identity: %TrackerIdentity{} = member_identity} -> member_identity
       _member -> identity
     end
   end
 
-  defp member_identity(pack, ticket, _membership), do: ticket_identity(pack, ticket)
+  defp membership_member(%TrackerIdentity{} = identity, %{members_by_identity: members_by_identity}) when is_map(members_by_identity) do
+    identity
+    |> membership_keys()
+    |> Enum.find_value(&Map.get(members_by_identity, &1))
+  end
 
-  defp membership_member(identity, members) when is_list(members), do: Enum.find(members, &same_issue?(&1, identity))
-  defp membership_member(_identity, _members), do: nil
+  defp membership_member(identity, %{members: members}) when is_list(members), do: Enum.find(members, &same_issue?(&1, identity))
+  defp membership_member(_identity, _membership), do: nil
+
+  defp membership_keys(%TrackerIdentity{} = identity) do
+    [TrackerIdentity.github_key(identity), repository_number_key(identity)]
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp repository_number_key(%TrackerIdentity{owner: owner, repository: repository, identifier: identifier})
+       when is_binary(owner) and is_binary(repository) and is_binary(identifier),
+       do: {:repository_number, String.downcase(owner), String.downcase(repository), identifier}
+
+  defp repository_number_key(_identity), do: nil
 
   # Canonical mappings normally contain the opaque GitHub node id, so the
   # primary match is an exact TrackerIdentity key. Older materialized packs
@@ -368,12 +411,29 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   defp membership_snapshot do
     snapshot = Application.get_env(:aiur, :build_order_planning_membership_snapshot, &CurrentRunMembership.snapshot/0).()
 
-    Map.put_new(snapshot, :labels_by_identity, current_poll_labels())
+    snapshot
+    |> Map.put_new(:labels_by_identity, current_poll_labels())
+    |> index_members()
   rescue
     _error -> %{health: :unavailable}
   catch
     _kind, _reason -> %{health: :unavailable}
   end
+
+  defp index_members(%{members: members} = snapshot) when is_list(members) do
+    members_by_identity =
+      Enum.reduce(members, %{}, fn
+        %{identity: %TrackerIdentity{} = identity} = member, index ->
+          Enum.reduce(membership_keys(identity), index, &Map.put_new(&2, &1, member))
+
+        _member, index ->
+          index
+      end)
+
+    Map.put(snapshot, :members_by_identity, members_by_identity)
+  end
+
+  defp index_members(snapshot), do: snapshot
 
   # `StatusReport` is the in-memory result of the orchestrator's normal
   # tracker poll. Reading it adds no GitHub traffic and lets ticket-backed
@@ -415,10 +475,34 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
       {:ok, pack} -> [pack]
       :error -> []
     end)
+    |> reject_conflicting_members()
     |> Enum.sort(&pack_before?/2)
     |> assign_default_root_numbers()
     |> assign_default_icons()
   end
+
+  # A materialized ticket is a member of exactly one running build. Reject every
+  # conflicting pack from the read model rather than rendering the same issue on
+  # two pages and silently corrupting each pack's denominator.
+  defp reject_conflicting_members(packs) do
+    conflicts =
+      packs
+      |> Enum.flat_map(fn pack ->
+        for %{number: number} <- pack.tickets, is_integer(number), do: materialized_ticket_key(pack.repository, number)
+      end)
+      |> Enum.frequencies()
+      |> Enum.filter(fn {_member, count} -> count > 1 end)
+      |> MapSet.new(fn {member, _count} -> member end)
+
+    Enum.reject(packs, fn pack ->
+      Enum.any?(pack.tickets, fn
+        %{number: number} when is_integer(number) -> MapSet.member?(conflicts, materialized_ticket_key(pack.repository, number))
+        _draft -> false
+      end)
+    end)
+  end
+
+  defp materialized_ticket_key({owner, repository}, number), do: {String.downcase(owner), String.downcase(repository), number}
 
   defp pack_paths do
     case Application.get_env(:aiur, :build_order_planning_pack) do
@@ -460,7 +544,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   end
 
   defp load_pack(path, include_drafts?) do
-    absolute = if Path.type(path) == :absolute, do: path, else: Application.app_dir(:aiur, path)
+    absolute = absolute_pack_path(path)
 
     with {:ok, body} <- File.read(absolute),
          {:ok, json} <- Jason.decode(body),
@@ -490,6 +574,22 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
     else
       _error -> :error
     end
+  end
+
+  defp pack_revision_paths(path) do
+    absolute = absolute_pack_path(path)
+    [absolute, Path.join(Path.dirname(absolute), "status.json")]
+  end
+
+  defp file_revision(path) do
+    case File.stat(path, time: :posix) do
+      {:ok, stat} -> {path, stat.size, stat.mtime}
+      _missing -> {path, :missing}
+    end
+  end
+
+  defp absolute_pack_path(path) when is_binary(path) do
+    if Path.type(path) == :absolute, do: path, else: Application.app_dir(:aiur, path)
   end
 
   defp ticket_numbers(tickets) do
@@ -550,6 +650,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   defp ticket(%{"id" => id} = attributes, pack_dir, include_drafts?) when is_binary(id) and id != "" do
     with {:ok, number} <- ticket_number(attributes),
+         {:ok, provenance, added_at} <- provenance(attributes),
          document_path <- Map.get(attributes, "doc"),
          true <- safe_document_path?(document_path) do
       {:ok,
@@ -565,7 +666,9 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
          document_url: nil,
          document_path: document_path,
          draft_body: if(include_drafts? and is_nil(number), do: draft_body(document_path, pack_dir)),
-         icon: Map.get(attributes, "icon")
+         icon: Map.get(attributes, "icon"),
+         provenance: provenance,
+         added_at: added_at
        }}
     else
       _invalid -> :error
@@ -647,6 +750,25 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   defp ticket_number(%{"ticket" => ticket}) when is_integer(ticket) and ticket > 0, do: {:ok, ticket}
   defp ticket_number(%{"ticket" => nil}), do: {:ok, nil}
   defp ticket_number(_attributes), do: :error
+
+  defp provenance(attributes) do
+    case Map.get(attributes, "provenance", "planned") do
+      "planned" ->
+        {:ok, :planned, nil}
+
+      "discovered" ->
+        discovered_provenance(Map.get(attributes, "added_at"))
+
+      _invalid ->
+        :error
+    end
+  end
+
+  defp discovered_provenance(added_at) when is_binary(added_at) do
+    with {:ok, datetime, _offset} <- DateTime.from_iso8601(added_at), do: {:ok, :discovered, datetime}
+  end
+
+  defp discovered_provenance(_added_at), do: :error
 
   @default_icons ["bolt", "cube", "sparkles", "server-stack", "rectangle-group"]
 

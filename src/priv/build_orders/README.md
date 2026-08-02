@@ -1,19 +1,13 @@
-# Planning packs (pre-ticket Build Orders)
+# Build Order packs
 
-JSON packs in this directory can be rendered in the Build Order spatial
-dashboard **before any GitHub issue exists**, via
-`AiurWeb.BuildOrder.PlanningSource`.
+JSON packs are the state-node membership and provenance source for the Build
+Order dashboard. When a running state node has `build-order.json` packs,
+`AiurWeb.BuildOrder.PlanningSource` is selected automatically. The GitHub graph
+projection remains the fallback when no state-node pack exists.
 
-Enable at build time and point the dashboard at a pack:
+For an explicit local pack (including a pre-ticket preview), configure:
 
-```
-AIUR_BUILD_ORDER_DEMO=1 aiurdev --bg --debug
-```
-
-That sets `config :aiur, :build_order_data_source, AiurWeb.BuildOrder.PlanningSource`
-(see `config/config.exs`). Override the pack with
 `config :aiur, :build_order_planning_pack, "priv/build_orders/<file>.json"`
-(defaults to `croptracker-demo.json`).
 
 ## Pack format
 
@@ -31,12 +25,19 @@ That sets `config :aiur, :build_order_data_source, AiurWeb.BuildOrder.PlanningSo
       "phase": 1,                  // execution wave (row)
       "complexity": 3,             // 1..5 (optional)
       "depends_on": ["CT-100"],   // dependency edges
-      "document_url": "https://…", // planning doc link (optional)
-      "github": null               // filled once materialized
+      "ticket": 1234,             // null before materialization
+      "doc": "tickets/CT-101.md",
+      "provenance": "planned"     // optional; omitted also means planned
     }
   ]
 }
 ```
+
+To add a ticket after a build begins, append it to exactly one pack's
+`tickets[]` with `"provenance": "discovered"` and an ISO-8601
+`"added_at"` value. It remains in its declared lane and phase, participates
+in its `depends_on` edges and current progress denominator, and is visually
+marked inline. No repository-wide label is involved.
 
 ## croptracker-demo.json (deletable demo data)
 
@@ -44,5 +45,4 @@ Generated from the sibling `../croptracker` repo's pre-ticket planning pack
 (`docs/build-order/build-order-phase-{1..9}.json` — the machine-readable phase
 membership, labels, and cross-phase edges — plus each ticket's markdown header
 for its title). This tracks plan v2: 116 tickets across 9 phases and 6 lanes.
-To delete the demo: remove this file and the `AIUR_BUILD_ORDER_DEMO` block in
-`config/config.exs`. `PlanningSource` itself is a general feature and can stay.
+It may be removed without changing the pack-backed runtime source.

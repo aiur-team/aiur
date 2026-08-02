@@ -5,49 +5,39 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModelTest do
   alias AiurWeb.BuildOrderViewModel.{Edge, Node}
   alias AiurWeb.OperatorControlCenter.BuildOrderGridModel
 
-  describe "build/2 columns" do
-    test "orders planning lanes by metadata order and appends Ad Hoc last" do
+  describe "build/1 columns" do
+    test "orders planning lanes by metadata order" do
       model = model([node(:a, "A", "platform", 1), node(:b, "B", "plan-graph", 1)])
-      adhoc = adhoc([adhoc_row("9", 1)])
 
-      lanes = Enum.map(BuildOrderGridModel.build(model, adhoc).columns, & &1.lane)
+      lanes = Enum.map(BuildOrderGridModel.build(model).columns, & &1.lane)
 
-      assert lanes == ["plan-graph", "platform", "adhoc"]
+      assert lanes == ["plan-graph", "platform"]
     end
 
     test "counts cards per column" do
       model = model([node(:a, "A", "plan-graph", 1), node(:b, "B", "plan-graph", 2)])
 
-      [%{lane: "plan-graph", count: count}] = BuildOrderGridModel.build(model, nil).columns
+      [%{lane: "plan-graph", count: count}] = BuildOrderGridModel.build(model).columns
 
       assert count == 2
     end
   end
 
-  describe "build/2 progress and merged" do
+  describe "build/1 progress and merged" do
     test "a merged (completed) card is forced to 100%" do
       model = model([node(:a, "A", "plan-graph", 1, status: :status_completed, progress: 10)])
 
-      [card] = BuildOrderGridModel.build(model, nil).cards
+      [card] = BuildOrderGridModel.build(model).cards
 
       assert card.merged
       assert card.progress == 100
       assert card.status_word == "merged"
     end
 
-    test "a closed ad hoc row is merged at 100%" do
-      adhoc = adhoc([%{adhoc_row("9", 1) | lifecycle: :closed, progress: nil}])
-
-      [card] = BuildOrderGridModel.build(model([]), adhoc).cards
-
-      assert card.merged
-      assert card.progress == 100
-    end
-
     test "unknown progress renders 0 without a bar" do
       model = model([node(:a, "A", "plan-graph", 1, status: :status_blocking, progress: :unknown)])
 
-      [card] = BuildOrderGridModel.build(model, nil).cards
+      [card] = BuildOrderGridModel.build(model).cards
 
       refute card.has_progress
       assert card.progress == 0
@@ -56,42 +46,47 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModelTest do
     test "renders a planned member alongside live members" do
       model = model([node(:live, "A", "plan-graph", 1, status: :status_completed), node(:draft, "B", "plan-graph", 1, planned?: true)])
 
-      cards = BuildOrderGridModel.build(model, nil).cards
+      cards = BuildOrderGridModel.build(model).cards
 
       assert Enum.find(cards, &(&1.id == "A")).state == :merged
       assert Enum.find(cards, &(&1.id == "B")).state == :planned
     end
   end
 
-  describe "build/2 wave completion" do
-    test "complexity-weights core completion per wave; merged counts full" do
+  describe "build/1 wave completion" do
+    test "complexity-weights member completion per wave; merged counts full" do
       model =
         model([
           node(:a, "A", "plan-graph", 1, status: :status_completed, complexity: 4),
           node(:b, "B", "plan-graph", 1, status: :status_working, complexity: 1, progress: 0)
         ])
 
-      [wave] = BuildOrderGridModel.build(model, nil).waves
+      [wave] = BuildOrderGridModel.build(model).waves
 
       # (4*1.0 + 1*0.0) / (4 + 1) = 80%
       assert wave.pct == 80
-      assert wave.core?
       assert wave.label == "W1"
     end
 
-    test "excludes Ad Hoc from wave completion" do
-      model = model([node(:a, "A", "plan-graph", 1, status: :status_completed, complexity: 2)])
-      adhoc = adhoc([%{adhoc_row("9", 1) | lifecycle: :open}])
+    test "includes discovered members in wave completion and totals" do
+      model =
+        model([
+          node(:a, "A", "plan-graph", 1, status: :status_completed, complexity: 2),
+          node(:b, "B", "runtime", 1, complexity: 3, provenance: :discovered, added_at: ~U[2026-08-01 12:00:00Z])
+        ])
 
-      waves = BuildOrderGridModel.build(model, adhoc).waves
+      grid = BuildOrderGridModel.build(model)
+      waves = grid.waves
       w1 = Enum.find(waves, &(&1.phase == 1))
 
-      # Only the core merged card counts → 100%, ad hoc ignored.
-      assert w1.pct == 100
+      assert w1.pct == 40
+      assert grid.overall_pct == 40
+      assert grid.totals == %{baseline_total: 1, discovered_total: 1, total: 2, completed: 1}
+      assert %{lane: "runtime", discovered?: true, added_at: ~U[2026-08-01 12:00:00Z]} = Enum.find(grid.cards, & &1.discovered?)
     end
   end
 
-  describe "build/2 edges" do
+  describe "build/1 edges" do
     test "maps edge keys to card identifiers and normalizes state" do
       model =
         model(
@@ -99,7 +94,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModelTest do
           [edge(:a, :b, :cleared), edge(:b, :a, :blocking)]
         )
 
-      edges = BuildOrderGridModel.build(model, nil).edges
+      edges = BuildOrderGridModel.build(model).edges
 
       assert %{source: "A", target: "B", state: "cleared"} in edges
       assert %{source: "B", target: "A", state: "blocking"} in edges
@@ -112,7 +107,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModelTest do
           [edge(:live, :draft, :blocking)]
         )
 
-      assert [%{source: "A", target: "B", state: "planned"}] = BuildOrderGridModel.build(model, nil).edges
+      assert [%{source: "A", target: "B", state: "planned"}] = BuildOrderGridModel.build(model).edges
     end
   end
 
@@ -147,7 +142,9 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModelTest do
         execution_state: :idle,
         agent_stage: nil,
         progress: Keyword.get(opts, :progress, :unknown),
-        planned?: Keyword.get(opts, :planned?, false)
+        planned?: Keyword.get(opts, :planned?, false),
+        provenance: Keyword.get(opts, :provenance, :planned),
+        added_at: Keyword.get(opts, :added_at)
       }
     }
   end
@@ -164,21 +161,6 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModelTest do
       source_connection: nil,
       text: nil,
       diagnostics: []
-    }
-  end
-
-  defp adhoc(rows), do: %{status: :ready, total: length(rows), rows: rows}
-
-  defp adhoc_row(id, phase) do
-    %{
-      identifier: id,
-      title: "Ad hoc #{id}",
-      href: nil,
-      lifecycle: :open,
-      phase: phase,
-      complexity: 3,
-      running?: false,
-      progress: nil
     }
   end
 end

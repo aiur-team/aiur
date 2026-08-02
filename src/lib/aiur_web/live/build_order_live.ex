@@ -18,6 +18,8 @@ defmodule AiurWeb.BuildOrderLive do
     UsageRuntime
   }
 
+  alias AiurWeb.BuildOrder.PlanningSource
+
   alias AiurWeb.FinancialData
   alias AiurWeb.Presenter
 
@@ -39,7 +41,7 @@ defmodule AiurWeb.BuildOrderLive do
   def mount(_params, _session, socket) do
     socket = NavState.assign_nav(socket)
     connected = connected?(socket)
-    source = Application.get_env(:aiur, :build_order_data_source, DataSource)
+    source = Application.get_env(:aiur, :build_order_data_source) || default_source()
     request_epoch = "build-order-live-#{System.unique_integer([:positive])}"
     route_state = RouteState.new(request_epoch)
 
@@ -54,6 +56,7 @@ defmodule AiurWeb.BuildOrderLive do
       |> assign(:now, Runtime.display_now())
       |> assign(:tracker_kind, Runtime.tracker_kind())
       |> assign(:agent_kind, Runtime.agent_kind())
+      |> assign(:pack_revision, pack_revision(source))
       |> assign(:current_route, RouteRegistry.current_route(Map.get(socket.assigns, :live_action)))
       |> assign(:analytics, Presenter.analytics_navigation())
 
@@ -62,6 +65,22 @@ defmodule AiurWeb.BuildOrderLive do
 
     {:ok, socket}
   end
+
+  defp default_source do
+    if PlanningSource.available?(), do: PlanningSource, else: DataSource
+  end
+
+  defp pack_revision(PlanningSource), do: PlanningSource.revision()
+  defp pack_revision(_source), do: nil
+
+  defp refresh_pack_if_changed(%{assigns: %{source: PlanningSource, pack_revision: revision}} = socket) do
+    case PlanningSource.revision() do
+      ^revision -> socket
+      revision -> socket |> assign(:pack_revision, revision) |> SourceRuntime.refresh_live_state()
+    end
+  end
+
+  defp refresh_pack_if_changed(socket), do: socket
 
   @impl true
   def handle_params(params, _uri, socket) do
@@ -106,16 +125,13 @@ defmodule AiurWeb.BuildOrderLive do
 
   def handle_info(:build_order_ui_tick, socket) do
     schedule_ui_tick()
-    {:noreply, socket |> assign(:now, Runtime.display_now()) |> AnalyticsRuntime.tick()}
+    {:noreply, socket |> refresh_pack_if_changed() |> assign(:now, Runtime.display_now()) |> AnalyticsRuntime.tick()}
   end
 
   def handle_info({:ticket_activity_changed, _payload}, socket),
     do: {:noreply, SourceRuntime.schedule_reload(socket)}
 
   def handle_info({:running_changed, _summaries}, socket),
-    do: {:noreply, SourceRuntime.schedule_reload(socket)}
-
-  def handle_info({:build_order_adhoc_updated, _snapshot}, socket),
     do: {:noreply, SourceRuntime.schedule_reload(socket)}
 
   def handle_info({event, _payload}, socket)
@@ -242,7 +258,6 @@ defmodule AiurWeb.BuildOrderLive do
           :if={RouteState.route(@route_state) == :selected}
           route_state={@route_state}
           model={@model}
-          adhoc={@adhoc_overlay}
           now={@now}
           analytics_scope={@bo_analytics_scope}
           analytics_model={@bo_analytics_model}

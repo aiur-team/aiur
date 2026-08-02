@@ -1,21 +1,18 @@
 defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
   @moduledoc """
-  Pure projection of a Build Order view model (plus the Ad Hoc overlay) into the
-  spatial grid the dashboard renders: epic **columns**, execution-wave **rows**,
+  Pure projection of a Build Order view model into the spatial grid the dashboard
+  renders: epic **columns**, execution-wave **rows**,
   small ticket **cards** placed in the (epic, wave) cells, and dependency
   **edges** between cards.
 
   All derivation is pure and total so it is unit-testable without a live
-  provider. The core planning lanes and the Ad Hoc overlay are unified into one
-  card shape; Ad Hoc is placed in its own column and never contributes to the
-  core complexity-weighted wave completion (it is tracked separately).
+  provider. Every pack member participates in its assigned lane, phase,
+  dependencies, and complexity-weighted completion.
   """
 
   alias Aiur.BuildOrder.Metadata
   alias AiurWeb.BuildOrderViewModel.{Edge, Node}
   alias AiurWeb.OperatorControlCenter.BuildOrderEpicIcon
-
-  @adhoc_lane "adhoc"
 
   @type card :: %{
           id: String.t(),
@@ -32,7 +29,8 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
           status_word: String.t(),
           icon: String.t() | nil,
           blocks: non_neg_integer(),
-          adhoc: boolean()
+          discovered?: boolean(),
+          added_at: DateTime.t() | nil
         }
 
   @type column :: %{
@@ -43,30 +41,30 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
         }
 
   @doc """
-  Builds the grid projection. `model` is a `BuildOrderViewModel` (or nil);
-  `adhoc` is the Ad Hoc overlay projection map (`%{rows: [...]}`) or nil.
+  Builds the grid projection. `model` is a `BuildOrderViewModel` (or nil).
   """
-  @spec build(term(), term()) :: %{
+  @spec build(term()) :: %{
           columns: [column()],
           waves: [map()],
           cards: [card()],
           edges: [map()],
           overall_pct: 0..100,
+          totals: %{baseline_total: non_neg_integer(), discovered_total: non_neg_integer(), total: non_neg_integer(), completed: non_neg_integer()},
           planning?: boolean()
         }
-  def build(model, adhoc) do
+  def build(model) do
     planning? = planning?(model)
-    core_cards = core_cards(model, planning?)
-    adhoc_cards = adhoc_cards(adhoc)
-    edges = edges(model, core_cards, planning?)
-    cards = annotate_blocks(core_cards ++ adhoc_cards, edges)
+    member_cards = member_cards(model, planning?)
+    edges = edges(model, member_cards, planning?)
+    cards = annotate_blocks(member_cards, edges)
 
     %{
-      columns: columns(cards, core_cards),
-      waves: waves(core_cards, cards),
+      columns: columns(cards),
+      waves: waves(cards),
       cards: cards,
       edges: edges,
-      overall_pct: completion_percent(core_cards),
+      overall_pct: completion_percent(cards),
+      totals: totals(cards),
       planning?: planning?
     }
   end
@@ -87,10 +85,10 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
 
   # --- cards ------------------------------------------------------------------
 
-  defp core_cards(%AiurWeb.BuildOrderViewModel{nodes: nodes}, planning?) when is_list(nodes),
+  defp member_cards(%AiurWeb.BuildOrderViewModel{nodes: nodes}, planning?) when is_list(nodes),
     do: Enum.map(nodes, &core_card(&1, planning? or Map.get(&1.card, :planned?) == true))
 
-  defp core_cards(_model, _planning?), do: []
+  defp member_cards(_model, _planning?), do: []
 
   # In planning (pre-ticket) mode a ticket is neither merged nor blocked — it is
   # simply planned, with no live progress; dependencies are drawn neutrally.
@@ -120,49 +118,16 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
       state: core_state(status_key),
       status_word: core_status_word(status_key, node.execution, Map.get(card, :status_text)),
       icon: Map.get(card, :icon),
-      adhoc: false
-    }
-  end
-
-  defp adhoc_cards(%{rows: rows}) when is_list(rows), do: Enum.map(rows, &adhoc_card/1)
-  defp adhoc_cards(_adhoc), do: []
-
-  defp adhoc_card(row) do
-    merged = Map.get(row, :lifecycle) == :closed
-    running = Map.get(row, :running?) == true
-    raw_progress = Map.get(row, :progress)
-    progress = progress(merged, raw_progress)
-
-    state =
-      cond do
-        merged -> :merged
-        running -> :working
-        true -> :plain
-      end
-
-    %{
-      id: to_string(Map.get(row, :identifier)),
-      key: {:adhoc, Map.get(row, :identifier)},
-      identity: nil,
-      lane: @adhoc_lane,
-      phase: phase(Map.get(row, :phase)),
-      complexity: positive_complexity(Map.get(row, :complexity)),
-      title: safe_title(Map.get(row, :title), to_string(Map.get(row, :identifier))),
-      progress: progress,
-      has_progress: merged or is_integer(raw_progress),
-      merged: merged,
-      state: state,
-      status_word: adhoc_status_word(state),
-      icon: nil,
-      adhoc: true
+      discovered?: Map.get(card, :provenance) == :discovered,
+      added_at: Map.get(card, :added_at)
     }
   end
 
   # --- columns (epics) --------------------------------------------------------
 
-  defp columns(cards, core_cards) do
+  defp columns(cards) do
     counts = Enum.frequencies_by(cards, & &1.lane)
-    completion = completion_by(core_cards, :lane)
+    completion = completion_by(cards, :lane)
     order = cards |> Enum.map(& &1.lane) |> Enum.uniq()
     appearance = order |> Enum.with_index() |> Map.new()
 
@@ -174,9 +139,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
   end
 
   # Built-in lanes keep their Metadata order; unknown lanes (e.g. a planning
-  # pack's own epics) follow first-appearance order; Ad Hoc is always last.
-  defp lane_order(@adhoc_lane, _appearance), do: {2, 0}
-
+  # pack's own epics) follow first-appearance order.
   defp lane_order(lane, appearance) do
     case Enum.find_index(Metadata.lanes(), &(&1 == lane)) do
       nil -> {1, Map.get(appearance, lane, 0)}
@@ -186,11 +149,11 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
 
   # --- waves (rows) -----------------------------------------------------------
 
-  defp waves(core_cards, all_cards) do
-    core_pct = wave_completion(core_cards)
-    counts = Enum.frequencies_by(all_cards, & &1.phase)
+  defp waves(cards) do
+    completion = wave_completion(cards)
+    counts = Enum.frequencies_by(cards, & &1.phase)
 
-    all_cards
+    cards
     |> Enum.map(& &1.phase)
     |> Enum.uniq()
     |> Enum.sort_by(&wave_order/1)
@@ -199,18 +162,17 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
         phase: phase,
         label: wave_label(phase),
         count: Map.get(counts, phase, 0),
-        pct: Map.get(core_pct, phase),
-        core?: Map.has_key?(core_pct, phase)
+        pct: Map.get(completion, phase)
       }
     end)
   end
 
-  # Complexity-weighted completion per wave, over CORE cards only. A merged card
+  # Complexity-weighted completion per wave, over all pack members. A merged card
   # contributes its full weight; an in-flight card contributes its progress
   # fraction; an unknown-progress card contributes nothing. Weight is the card's
   # complexity (points), defaulting to 1 when complexity is unknown.
-  defp wave_completion(core_cards) do
-    completion_by(core_cards, :phase)
+  defp wave_completion(cards) do
+    completion_by(cards, :phase)
   end
 
   defp completion_by(cards, field) do
@@ -288,19 +250,12 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
   defp core_status_word(_key, _execution, text) when is_binary(text) and text != "", do: text
   defp core_status_word(_key, _execution, _text), do: "status unavailable"
 
-  defp adhoc_status_word(:merged), do: "merged"
-  defp adhoc_status_word(:working), do: "agent live"
-  defp adhoc_status_word(_state), do: "ad hoc"
-
   defp progress(true, _raw), do: 100
   defp progress(false, raw) when is_integer(raw) and raw in 0..100, do: raw
   defp progress(false, _raw), do: 0
 
   defp complexity(%Node{plan: %{complexity: complexity}}) when complexity in 1..5, do: complexity
   defp complexity(_node), do: nil
-
-  defp positive_complexity(complexity) when complexity in 1..5, do: complexity
-  defp positive_complexity(_complexity), do: nil
 
   defp lane(lane) when is_binary(lane) and lane != "", do: lane
   defp lane(_lane), do: "unassigned"
@@ -317,6 +272,17 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
   defp title(%Node{card: %{identifier: identifier}}), do: to_string(identifier)
   defp title(_node), do: "Untitled ticket"
 
-  defp safe_title(title, _fallback) when is_binary(title) and title != "", do: title
-  defp safe_title(_title, fallback), do: fallback
+  defp totals(cards) do
+    {total, discovered_total, completed} =
+      Enum.reduce(cards, {0, 0, 0}, fn card, {total, discovered_total, completed} ->
+        {total + 1, discovered_total + if(card.discovered?, do: 1, else: 0), completed + if(card.merged, do: 1, else: 0)}
+      end)
+
+    %{
+      baseline_total: total - discovered_total,
+      discovered_total: discovered_total,
+      total: total,
+      completed: completed
+    }
+  end
 end

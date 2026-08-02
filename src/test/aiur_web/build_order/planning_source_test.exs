@@ -82,7 +82,8 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   end
 
   test "selected root builds a valid, planning-flagged view model" do
-    [root] = PlanningSource.catalog().data.entries
+    catalog = PlanningSource.catalog()
+    [root] = catalog.data.entries
     {:ok, snapshot} = PlanningSource.demand(root.identity)
 
     assert %Snapshot{scope: {:selected, _identity}} = snapshot
@@ -102,16 +103,64 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   end
 
   test "planning tickets render as planned with neutral dependency edges" do
-    [root] = PlanningSource.catalog().data.entries
+    catalog = PlanningSource.catalog()
+    [root] = catalog.data.entries
     {:ok, snapshot} = PlanningSource.demand(root.identity)
     model = BuildOrderPresenter.present(snapshot, :unavailable, :unavailable)
 
-    grid = BuildOrderGridModel.build(model, nil)
+    grid = BuildOrderGridModel.build(model)
 
     assert grid.planning?
     assert Enum.all?(grid.cards, &(&1.state == :planned))
     assert Enum.all?(grid.cards, &(&1.status_word == "planned"))
     assert Enum.all?(grid.edges, &(&1.state == "planned"))
+  end
+
+  test "defaults members without provenance to the approved planned baseline" do
+    [root] = PlanningSource.catalog().data.entries
+    {:ok, snapshot} = PlanningSource.demand(root.identity)
+    model = BuildOrderPresenter.present(snapshot, :unavailable, :unavailable)
+
+    assert Enum.all?(model.nodes, &(&1.plan.provenance == :planned))
+    assert Enum.all?(model.nodes, &is_nil(&1.plan.added_at))
+  end
+
+  test "keeps a discovered member in its lane and exposes baseline drift" do
+    path = Path.join(System.tmp_dir!(), "planning-source-discovered-#{System.unique_integer([:positive])}.json")
+
+    pack =
+      String.replace(
+        @canonical_pack,
+        ~s({"id": "AS-102", "title": "Render deck", "lane": "dashboard-ui", "phase": 3,),
+        ~s({"id": "AS-102", "title": "Render deck", "lane": "dashboard-ui", "phase": 3, "provenance": "discovered", "added_at": "2026-08-01T12:00:00Z",)
+      )
+
+    File.write!(path, pack)
+    Application.put_env(:aiur, :build_order_planning_pack, path)
+    on_exit(fn -> File.rm(path) end)
+
+    Application.put_env(:aiur, :build_order_planning_membership_snapshot, fn ->
+      {:ok, identity} =
+        TrackerIdentity.from_github(
+          %{"number" => 4101, "node_id" => "I_live_4101"},
+          {"acme", "widgets"},
+          {"acme", "widgets"}
+        )
+
+      %{generation: 1, health: :healthy, freshness: %{status: :fresh}, members: [%{identity: identity, lifecycle: :completed}]}
+    end)
+
+    [root] = PlanningSource.catalog().data.entries
+    {:ok, snapshot} = PlanningSource.demand(root.identity)
+    model = BuildOrderPresenter.present(snapshot, :unavailable, :unavailable)
+    grid = BuildOrderGridModel.build(model)
+
+    discovered = Enum.find(model.nodes, &(&1.plan.provenance == :discovered))
+    assert discovered.plan.added_at == ~U[2026-08-01 12:00:00Z]
+    assert %{lane: "dashboard-ui", phase: 3, discovered?: true} = Enum.find(grid.cards, & &1.discovered?)
+    assert %{baseline_total: 1, discovered_total: 1, total: 2} = grid.totals
+    assert grid.overall_pct == 60
+    assert %{source: "4101", target: "4102", state: "cleared"} in grid.edges
   end
 
   test "missing pack yields no catalog rather than crashing" do
@@ -126,7 +175,8 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
 
     on_exit(fn -> File.rm(path) end)
 
-    [root] = PlanningSource.catalog().data.entries
+    catalog = PlanningSource.catalog()
+    [root] = catalog.data.entries
     assert root.identity.identifier == "9900"
     assert root.identity.provider_id == "BO_acme/widgets:analytics-streamdeck"
     assert is_nil(root.progress)
@@ -146,7 +196,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert is_nil(hydrated_root.progress)
 
     {:ok, hydrated} = PlanningSource.demand(root.identity)
-    assert hydrated.generation == 8
+    assert hydrated.generation > catalog.generation
     refute hydrated.data.planning?
 
     [closed, open] = hydrated.data.members
@@ -160,7 +210,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert Map.keys(model.summary.lanes) |> Enum.sort() == ["dashboard-ui", "runtime"]
     assert Enum.map(model.phase_groups, & &1.key) == [2, 3]
 
-    grid = BuildOrderGridModel.build(model, nil)
+    grid = BuildOrderGridModel.build(model)
     assert grid.overall_pct == 60
     assert Enum.find(grid.columns, &(&1.lane == "runtime")).pct == 100
     assert Enum.find(grid.waves, &(&1.phase == 2)).pct == 100
@@ -194,7 +244,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert cancelled.lifecycle.state_reason == :not_planned
 
     model = BuildOrderPresenter.present(snapshot, :unavailable, :unavailable)
-    assert BuildOrderGridModel.build(model, nil).overall_pct == 0
+    assert BuildOrderGridModel.build(model).overall_pct == 0
   end
 
   test "uses status.json for canonical members when no live membership exists" do
@@ -271,7 +321,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert draft.draft_body == "# Render deck\n\nDraft ticket body."
 
     model = BuildOrderPresenter.present(snapshot, :unavailable, :unavailable)
-    grid = BuildOrderGridModel.build(model, nil)
+    grid = BuildOrderGridModel.build(model)
     assert Enum.find(grid.cards, &(&1.id == "4101")).state == :merged
     assert %{state: :planned, icon: "sparkles"} = Enum.find(grid.cards, &(&1.id == "102"))
     assert grid.overall_pct == 60
@@ -341,6 +391,23 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert PlanningSource.catalog() == nil
   end
 
+  test "rejects discovered members without a valid provenance timestamp" do
+    path = Path.join(System.tmp_dir!(), "planning-source-invalid-provenance-#{System.unique_integer([:positive])}.json")
+
+    on_exit(fn -> File.rm(path) end)
+
+    for replacement <- [
+          ~s("ticket": null, "provenance": "discovered", "doc": "tickets/T-1.md"),
+          ~s("ticket": null, "provenance": "discovered", "added_at": "not-a-date", "doc": "tickets/T-1.md"),
+          ~s("ticket": null, "provenance": "unknown", "doc": "tickets/T-1.md")
+        ] do
+      File.write!(path, String.replace(@pack, ~s("ticket": null, "doc": "tickets/T-1.md"), replacement, global: false))
+      Application.put_env(:aiur, :build_order_planning_pack, path)
+
+      assert PlanningSource.catalog() == nil
+    end
+  end
+
   test "marks membership recovery failures unavailable instead of trusted open state" do
     [root] = PlanningSource.catalog().data.entries
 
@@ -376,6 +443,8 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
       |> String.replace("acme/widgets:analytics-streamdeck", "acme/widgets:second-build")
       |> String.replace("Analytics Stream Deck", "Second runtime build")
       |> String.replace("\"root_number\": 9900", "\"root_number\": 9901")
+      |> String.replace("4101", "5101")
+      |> String.replace("4102", "5102")
     )
 
     Application.delete_env(:aiur, :build_order_planning_pack)
@@ -392,6 +461,38 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     root = Enum.find(roots, &(&1.identity.identifier == "9900"))
     assert root.identity.provider_id == "BO_acme/widgets:analytics-streamdeck"
     assert Enum.map(roots, & &1.identity.identifier) |> Enum.sort() == ["9900", "9901"]
+
+    [first, second] = roots
+    {:ok, first_snapshot} = PlanningSource.demand(first.identity)
+    {:ok, second_snapshot} = PlanningSource.demand(second.identity)
+
+    first_tickets = MapSet.new(first_snapshot.data.members, & &1.identity.identifier)
+    second_tickets = MapSet.new(second_snapshot.data.members, & &1.identity.identifier)
+    assert MapSet.disjoint?(first_tickets, second_tickets)
+  end
+
+  test "rejects every pack that claims the same materialized ticket regardless of repository casing" do
+    first = Path.join(System.tmp_dir!(), "planning-source-conflict-first-#{System.unique_integer([:positive])}.json")
+    second = Path.join(System.tmp_dir!(), "planning-source-conflict-second-#{System.unique_integer([:positive])}.json")
+    File.write!(first, @canonical_pack)
+
+    File.write!(
+      second,
+      @canonical_pack
+      |> String.replace("analytics-streamdeck", "duplicate-build")
+      |> String.replace("acme/widgets", "AcMe/WiDgEtS")
+    )
+
+    Application.delete_env(:aiur, :build_order_planning_pack)
+    Application.put_env(:aiur, :build_order_planning_packs, [first, second])
+
+    on_exit(fn ->
+      Application.delete_env(:aiur, :build_order_planning_packs)
+      File.rm(first)
+      File.rm(second)
+    end)
+
+    assert PlanningSource.catalog() == nil
   end
 
   test "assigns distinct deterministic catalog icons when packs omit one" do

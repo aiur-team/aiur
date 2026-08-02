@@ -17,11 +17,10 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
   attr(:provider_generation, :integer, required: true)
   attr(:dom_generation, :integer, required: true)
   attr(:model, :any, default: nil)
-  attr(:adhoc, :any, default: nil)
 
   @spec build_order_graph(map()) :: Phoenix.LiveView.Rendered.t()
   def build_order_graph(assigns) do
-    grid = BuildOrderGridModel.build(assigns.model, assigns.adhoc)
+    grid = BuildOrderGridModel.build(assigns.model)
 
     cells = Enum.group_by(grid.cards, &{&1.lane, &1.phase})
 
@@ -32,8 +31,9 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
       |> assign(:edges, grid.edges)
       |> assign(:cells, cells)
       |> assign(:columns_style, columns_style(grid.columns, cells))
-      |> assign(:core_waves, Enum.filter(grid.waves, & &1.core?))
+      |> assign(:member_waves, grid.waves)
       |> assign(:overall_pct, grid.overall_pct)
+      |> assign(:totals, grid.totals)
       |> assign(:planning?, grid.planning?)
 
     ~H"""
@@ -47,18 +47,19 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
     >
       <h3 id={"#{@id}-title"} class="sr-only">Build order graph</h3>
 
-      <div :if={@core_waves != [] and not @planning?} class="bo-waves-head" aria-label="Wave completion">
+      <div :if={@member_waves != [] and not @planning?} class="bo-waves-head" aria-label="Wave completion">
 
         <div class="bo-wave-seg">
           <div class="bo-wave-seg-top">
             <span class="bo-wave-seg-label">Overall</span>
             <span class="bo-wave-seg-pct">{@overall_pct}%</span>
           </div>
+          <span class="bo-wave-seg-note">{@totals.completed}/{@totals.total} complete<span :if={@totals.discovered_total > 0}> ({@totals.discovered_total} added after start)</span></span>
           <span class="bo-wave-seg-meter" aria-hidden="true"><i style={wave_meter_style(@overall_pct)}></i></span>
         </div>
 
         <div class="bo-waves-strip">
-          <div :for={wave <- @core_waves} class="bo-wave-seg">
+          <div :for={wave <- @member_waves} class="bo-wave-seg">
             <div class="bo-wave-seg-top">
               <span class="bo-wave-seg-label">{wave.label}</span>
               <span class="bo-wave-seg-pct">{wave.pct}%</span>
@@ -145,10 +146,12 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
 
     ~H"""
     <div
-      class={["bo-node", "is-#{@card.state}", @nav_value && "is-openable"]}
+      class={["bo-node", "is-#{@card.state}", @card.discovered? && "is-discovered", @nav_value && "is-openable"]}
       id={@origin_id}
       data-bo-card={@card.id}
       data-bo-state={@card.state}
+      data-bo-provenance={if(@card.discovered?, do: "discovered", else: "planned")}
+      data-bo-added-at={@card.discovered? && added_at_label(@card.added_at)}
       aria-label={card_aria(@card, @nav_value)}
       tabindex="0"
       role={@nav_value && "button"}
@@ -158,6 +161,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
       <div class="bo-node-top">
         <BuildOrderEpicIcon.build_order_epic_icon lane={@card.icon || @card.lane} class="bo-node-ic" />
         <span class="bo-node-id">{@card.id}</span>
+        <span :if={@card.discovered?} class="bo-node-discovered" title={"Added after start: #{added_at_label(@card.added_at)}"}>added after start</span>
         <span
           class="bo-node-blocks"
           data-bo-pin
@@ -246,8 +250,13 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
   defp card_aria(card, nav_value) do
     prefix = if nav_value, do: ["Open ticket context:"], else: []
 
-    (prefix ++ [card.id, card.title, "#{card.progress}%", card.status_word, blocks_title(card.blocks)])
+    provenance = if card.discovered?, do: ["added after start", added_at_label(card.added_at)], else: []
+
+    (prefix ++ [card.id, card.title, "#{card.progress}%", card.status_word, blocks_title(card.blocks)] ++ provenance)
     |> Enum.reject(&(&1 in [nil, ""]))
     |> Enum.join(" · ")
   end
+
+  defp added_at_label(%DateTime{} = added_at), do: DateTime.to_iso8601(added_at)
+  defp added_at_label(_added_at), do: "date unavailable"
 end

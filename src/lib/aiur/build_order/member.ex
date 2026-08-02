@@ -22,6 +22,8 @@ defmodule Aiur.BuildOrder.Member do
           draft_body: String.t() | nil,
           icon: String.t() | nil,
           draft?: boolean(),
+          provenance: :planned | :discovered,
+          added_at: DateTime.t() | nil,
           diagnostics: [Diagnostic.t()]
         }
 
@@ -33,6 +35,8 @@ defmodule Aiur.BuildOrder.Member do
             draft_body: nil,
             icon: nil,
             draft?: false,
+            provenance: :planned,
+            added_at: nil,
             metadata: %Metadata{},
             lifecycle: %Lifecycle{},
             activity: %Activity{},
@@ -78,6 +82,8 @@ defmodule Aiur.BuildOrder.Member do
       draft_body: draft_body(Map.get(attributes, :draft_body)),
       icon: icon(Map.get(attributes, :icon)),
       draft?: Map.get(attributes, :draft?) == true,
+      provenance: provenance(Map.get(attributes, :provenance)),
+      added_at: datetime(Map.get(attributes, :added_at)),
       diagnostics: diagnostics
     }
   end
@@ -95,6 +101,10 @@ defmodule Aiur.BuildOrder.Member do
 
   defp icon(value) when is_binary(value) and byte_size(value) in 1..80, do: value
   defp icon(_value), do: nil
+
+  defp provenance(:discovered), do: :discovered
+  defp provenance("discovered"), do: :discovered
+  defp provenance(_value), do: :planned
 
   @spec structurally_valid?(term()) :: boolean()
   def structurally_valid?(%__MODULE__{identity: identity, diagnostics: diagnostics})

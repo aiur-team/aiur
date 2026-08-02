@@ -30,7 +30,8 @@ Each `build-order.json` member has the following fields:
   "depends_on": [],
   "ticket": null,
   "doc": "tickets/AS-101.md",
-  "icon": "bolt"
+  "icon": "bolt",
+  "provenance": "planned"
 }
 ```
 
@@ -40,10 +41,42 @@ the draft body and the pack supplies the planned state. Once a ticket exists,
 its tracker state and labels are authoritative; `status.json` supplies only
 known runtime state where the tracker projection lacks it.
 
+`provenance` is `"planned"` or `"discovered"`; omitted provenance is read as
+`"planned"` for backward compatibility. A discovered member must carry an
+`added_at` ISO-8601 timestamp. It is a full member of this one pack: it keeps
+its authored lane, phase, dependencies, and complexity, and it contributes to
+the current completion denominator. The dashboard preserves the approved
+baseline separately so operators can see scope drift.
+
 An optional top-level `icon` chooses the Build Order icon. Without one, Aiur
 selects a deterministic generic icon that is distinct from the other Build
 Orders in that repository list. There is no converter: existing packs are
 hand-converted once by the Executor.
+
+## Executor-owned discovered members
+
+When a running build needs a newly discovered ticket, edit that build's exact
+`build-order.json` in the state node and append one complete member to
+`tickets[]`:
+
+```json
+{
+  "id": "AS-118",
+  "title": "Handle the newly found edge case",
+  "lane": "runtime",
+  "phase": 3,
+  "complexity": 2,
+  "depends_on": ["AS-104"],
+  "ticket": 1481,
+  "doc": "tickets/AS-118.md",
+  "provenance": "discovered",
+  "added_at": "2026-08-01T12:00:00Z"
+}
+```
+
+Choose the one pack that owns the work, use its real lane and phase, and keep
+the member's `depends_on` graph valid. Do not apply a repository-wide label:
+membership and provenance are owned by the pack, not by an issue category.
 
 ## Executor-owned promotion
 

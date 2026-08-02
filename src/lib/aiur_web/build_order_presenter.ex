@@ -407,7 +407,9 @@ defmodule AiurWeb.BuildOrderPresenter do
       lane: member.metadata.lane,
       parent_identity: member.parent_identity,
       created_at: member.created_at,
-      updated_at: member.updated_at
+      updated_at: member.updated_at,
+      provenance: member.provenance,
+      added_at: member.added_at
     }
 
     health = %{
@@ -470,7 +472,9 @@ defmodule AiurWeb.BuildOrderPresenter do
       status_icon: status_icon,
       status_text: status_icon.text,
       icon: member.icon,
-      planned?: member.draft?
+      planned?: member.draft?,
+      provenance: plan.provenance,
+      added_at: plan.added_at
     }
   end
 

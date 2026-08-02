@@ -75,38 +75,28 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert html =~ ~s(data-bo-zoom-level)
   end
 
-  test "places an Ad Hoc overlay column beside the planning lanes" do
-    adhoc = %{
-      status: :ready,
-      total: 1,
-      rows: [
-        %{
-          identifier: "1247",
-          title: "Runtime restart gate",
-          href: nil,
-          lifecycle: :closed,
-          phase: 3,
-          complexity: 4,
-          running?: false,
-          progress: nil
-        }
-      ]
-    }
+  test "renders a discovered member inline with its own lane and added-at affordance" do
+    discovered =
+      node(:discovered, "1247", "runtime", 3,
+        complexity: 4,
+        provenance: :discovered,
+        added_at: ~U[2026-08-01 12:00:00Z]
+      )
 
     html =
       render_component(&BuildOrderGraph.build_order_graph/1, %{
-        id: "adhoc-graph",
+        id: "discovered-graph",
         root_id: "root-1",
         provider_generation: 1,
         dom_generation: 1,
-        model: sample_view_model(),
-        adhoc: adhoc
+        model: %AiurWeb.BuildOrderViewModel{status: :ready, nodes: [discovered], edges: []}
       })
 
-    assert html =~ "Ad Hoc"
-    # Closed ad hoc ticket renders merged at 100%.
     assert html =~ ~s(data-bo-card="1247")
-    assert html =~ ~s(class="bo-epic-count">1<)
+    assert html =~ ~s(data-bo-provenance="discovered")
+    assert html =~ ~s(data-bo-added-at="2026-08-01T12:00:00Z")
+    assert html =~ "added after start"
+    assert html =~ "1 added after start"
   end
 
   test "renders every presenter-derived icon key through accessible local components" do
@@ -924,7 +914,11 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
       key: key,
       identity: nil,
       title: Keyword.get(opts, :title, "Node #{identifier}"),
-      plan: %{complexity: Keyword.get(opts, :complexity, :unknown)},
+      plan: %{
+        complexity: Keyword.get(opts, :complexity, :unknown),
+        provenance: Keyword.get(opts, :provenance, :planned),
+        added_at: Keyword.get(opts, :added_at)
+      },
       execution: %{},
       activity: %{},
       readiness: :ready,
@@ -942,7 +936,9 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
         lifecycle: %{state: :open, state_reason: :none},
         execution_state: :idle,
         agent_stage: nil,
-        progress: Keyword.get(opts, :progress, :unknown)
+        progress: Keyword.get(opts, :progress, :unknown),
+        provenance: Keyword.get(opts, :provenance, :planned),
+        added_at: Keyword.get(opts, :added_at)
       }
     }
   end

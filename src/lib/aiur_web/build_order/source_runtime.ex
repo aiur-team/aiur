@@ -8,7 +8,6 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.{ContextRuntime, RouteState, Runtime}
   alias AiurWeb.BuildOrderPresenter
-  alias AiurWeb.OperatorControlCenter.BuildOrderBreakdown
   alias Phoenix.LiveView.Socket
 
   @spec initialize(Socket.t(), module() | {module(), term()}) :: Socket.t()
@@ -20,7 +19,6 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
     |> assign(:source_reload_loading?, false)
     |> assign(:source_reload_queued?, false)
     |> assign(:model, nil)
-    |> assign(:adhoc_overlay, nil)
   end
 
   @spec connect(Socket.t()) :: Socket.t()
@@ -148,20 +146,7 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
 
     socket
     |> assign(:model, model)
-    |> assign(:adhoc_overlay, adhoc_overlay(socket, model))
     |> ContextRuntime.reconcile()
-  end
-
-  defp adhoc_overlay(_socket, nil), do: nil
-
-  defp adhoc_overlay(socket, _model) do
-    sources = socket.assigns.sources
-
-    BuildOrderBreakdown.adhoc_projection(
-      Map.get(sources, :adhoc),
-      Map.get(sources, :execution),
-      Map.get(sources, :activity)
-    )
   end
 
   @spec terminate(Socket.t()) :: :ok

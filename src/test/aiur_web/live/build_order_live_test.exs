@@ -6,7 +6,6 @@ defmodule AiurWeb.BuildOrderLiveTest do
 
   alias Aiur.{AgentPubSub, TrackerIdentity}
 
-  alias Aiur.BuildOrder.AdHocSource.Snapshot, as: AdHocSnapshot
   alias Aiur.BuildOrder.{Catalog, Lifecycle, Member, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.BuildOrder.TicketDetail.Snapshot, as: DetailSnapshot
@@ -172,6 +171,39 @@ defmodule AiurWeb.BuildOrderLiveTest do
     refute Enum.any?(calls, &match?({:demand, _}, &1))
   end
 
+  test "uses a state-node pack as the runtime source without demo configuration", %{source: source} do
+    path = Path.join(System.tmp_dir!(), "build-order-live-runtime-pack-#{System.unique_integer([:positive])}.json")
+    previous_source = Application.get_env(:aiur, :build_order_data_source)
+    previous_pack = Application.get_env(:aiur, :build_order_planning_pack)
+    previous_membership = Application.get_env(:aiur, :build_order_planning_membership_snapshot)
+
+    File.write!(
+      path,
+      ~s({"build_order_id":"acme/widgets:runtime-pack","title":"Runtime pack","repository":"acme/widgets","root_number":9900,"tickets":[{"id":"R-1","title":"Baseline","lane":"runtime","phase":1,"complexity":3,"depends_on":[],"ticket":4101,"doc":"tickets/R-1.md"},{"id":"R-2","title":"Added","lane":"dashboard-ui","phase":2,"complexity":2,"depends_on":["R-1"],"ticket":4102,"doc":"tickets/R-2.md","provenance":"discovered","added_at":"2026-08-01T12:00:00Z"}]})
+    )
+
+    Application.delete_env(:aiur, :build_order_data_source)
+    Application.put_env(:aiur, :build_order_planning_pack, path)
+    Application.put_env(:aiur, :build_order_planning_membership_snapshot, fn -> %{generation: 1, members: []} end)
+
+    on_exit(fn ->
+      restore_application_env(:build_order_data_source, previous_source)
+      restore_application_env(:build_order_planning_pack, previous_pack)
+      restore_application_env(:build_order_planning_membership_snapshot, previous_membership)
+      File.rm(path)
+    end)
+
+    assert {:ok, view, html} = live(build_conn(), "/build-orders/9900")
+    assert html =~ "Runtime pack"
+    assert html =~ ~s(data-bo-provenance="discovered")
+    assert html =~ "added after start"
+    refute {:catalog, []} in FakeDataSource.calls(source)
+
+    File.write!(path, String.replace(File.read!(path), "\"title\":\"Added\"", "\"title\":\"Added after edit\""))
+    send(view.pid, :build_order_ui_tick)
+    assert render(view) =~ "Added after edit"
+  end
+
   test "a UI-only tick re-derives from the display clock without polling providers" do
     observed_at = DateTime.utc_now() |> DateTime.truncate(:second)
     clock = start_supervised!({Agent, fn -> observed_at end})
@@ -291,36 +323,12 @@ defmodule AiurWeb.BuildOrderLiveTest do
     assert has_element?(view, ".bo-breakdown-row .bo-breakdown-row-ic")
     assert has_element?(view, ".bo-breakdown-row-bar")
 
-    # Plan-distribution stats, the phase block, and ad hoc are gone.
+    # Plan-distribution stats and the phase block are gone.
     refute has_element?(view, "#bo-phase-breakdown")
     refute has_element?(view, "dl.bo-kpis")
-    refute html =~ "Ad Hoc epic"
 
     # The graph surface remains present and unaffected alongside the breakdown.
     assert has_element?(view, "#selected-build-order-graph")
-  end
-
-  test "reloads sources when an ad hoc overlay update arrives", %{first: first} do
-    members = [breakdown_member(7, phase: 1, lane: "plan-graph", complexity: 3)]
-
-    selected =
-      selected_snapshot(first, SelectedRoot.new(root(first, "Root forty-two"), members, health(1, :healthy)), 1, :healthy)
-
-    source =
-      install_source(
-        catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy),
-        selected: [selected],
-        sources_loader: fn -> sources_with_adhoc(adhoc_source_snapshot()) end
-      )
-
-    assert {:ok, view, _html} = live(build_conn(), "/build-orders/42")
-    loads_before = Enum.count(FakeDataSource.calls(source), &match?({:load_sources, []}, &1))
-
-    send(view.pid, {:build_order_adhoc_updated, adhoc_source_snapshot()})
-    _ = render(view)
-
-    loads_after = Enum.count(FakeDataSource.calls(source), &match?({:load_sources, []}, &1))
-    assert loads_after > loads_before
   end
 
   test "patches a member from the live agent projection without a page refresh", %{first: first} do
@@ -746,10 +754,6 @@ defmodule AiurWeb.BuildOrderLiveTest do
     })
   end
 
-  defp sources_with_adhoc(adhoc) do
-    %{execution: %{running: [], retrying: [], idle: []}, activity: %{generation: 1, entries: []}, adhoc: adhoc}
-  end
-
   defp sources_for_member(identity, work_state, pause_reason, progress) do
     observed_at = ~U[2026-08-01 12:00:00Z]
 
@@ -781,8 +785,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
             retention: :current
           }
         ]
-      },
-      adhoc: nil
+      }
     }
   end
 
@@ -790,24 +793,6 @@ defmodule AiurWeb.BuildOrderLiveTest do
     sources_for_member(identity, :idle, nil, progress)
     |> put_in([:execution, :running], [])
     |> put_in([:execution, :idle], [%{tracker_identity: identity, waiting_reason: :waiting_for_ci}])
-  end
-
-  defp adhoc_source_snapshot do
-    %AdHocSnapshot{
-      status: :available,
-      generation: 1,
-      observed_at: ~U[2026-07-15 12:00:00Z],
-      members: [
-        %{
-          identity: identity(9001, "NODE-9001"),
-          identifier: "9001",
-          title: "Ad hoc fix",
-          url: "https://github.com/owner/repo/issues/9001",
-          lifecycle: :open,
-          labels: ["build-lane:adhoc", "phase:1"]
-        }
-      ]
-    }
   end
 
   defp health(generation, state, opts \\ []) do

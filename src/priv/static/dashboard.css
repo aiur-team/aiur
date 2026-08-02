@@ -724,17 +724,13 @@ textarea:focus-visible,
 .bo-selected-summary,
 .bo-breakdown,
 .bo-breakdown-body,
-.bo-breakdown-tables,
-.bo-adhoc,
-.bo-adhoc-body {
+.bo-breakdown-tables {
   min-width: 0;
 }
 
 .bo-selected-summary,
 .bo-breakdown,
-.bo-breakdown-body,
-.bo-adhoc,
-.bo-adhoc-body {
+.bo-breakdown-body {
   grid-template-columns: minmax(0, 1fr);
 }
 
@@ -837,6 +833,12 @@ textarea:focus-visible,
   background: var(--accent);
 }
 
+.bo-breakdown-drift {
+  margin: 0.75rem 0 0;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
 .bo-breakdown-table {
   width: 100%;
   table-layout: fixed;
@@ -926,58 +928,6 @@ textarea:focus-visible,
   padding-left: 1rem;
   display: grid;
   gap: 0.2rem;
-}
-
-.bo-adhoc {
-  display: grid;
-  gap: 0.75rem;
-  margin-top: 1.35rem;
-  padding-top: 1.35rem;
-  border-top: 1px solid var(--line);
-}
-
-.bo-adhoc-body {
-  display: grid;
-  gap: 0.75rem;
-}
-
-.bo-adhoc-total {
-  margin: 0;
-  font-size: 0.78rem;
-  color: var(--fg-muted);
-}
-
-.bo-adhoc-total .num {
-  font-weight: 800;
-  color: var(--fg);
-}
-
-.bo-adhoc-ticket {
-  font-weight: 600;
-}
-
-.bo-adhoc-ticket a {
-  color: var(--accent-ink);
-}
-
-.bo-adhoc-state {
-  display: inline-block;
-  padding: 0.05rem 0.45rem;
-  border-radius: 999px;
-  border: 1px solid var(--line-strong);
-  background: var(--pill-bg);
-  font-size: 0.68rem;
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.bo-adhoc-state-live {
-  border-color: var(--ok-ink, var(--accent-ink));
-  color: var(--ok-ink, var(--accent-ink));
-}
-
-.bo-adhoc-state-done {
-  color: var(--fg-muted);
 }
 
 .bo-icon {
@@ -5184,11 +5134,6 @@ html[data-theme="light"] .toggle-icon .moon {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .bo-adhoc-table {
-    display: block;
-    overflow-x: auto;
-  }
-
   .tool-btn {
     flex: 1 1 auto;
     justify-content: center;
@@ -6585,6 +6530,13 @@ html[data-theme="light"] .toggle-icon .moon {
   color: var(--muted);
 }
 
+.bo-wave-seg-note {
+  display: block;
+  margin: -0.05rem 0 0.3rem;
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+
 .bo-wave-seg-meter {
   display: block;
   height: 5px;
@@ -6913,6 +6865,12 @@ html[data-theme="light"] .toggle-icon .moon {
   color: var(--fg);
 }
 
+/* A discovered member keeps its real lane and phase, with a dashed edge that
+   distinguishes it from the approved baseline. */
+.bo-node.is-discovered {
+  border-left: 3px dashed var(--accent-line);
+}
+
 /* Dependency highlight (hover or pinned): a blue ring on the hovered card and
    every card its dependency lines connect to. Placed after the state rules so
    it overrides their border colours. */
@@ -6998,6 +6956,17 @@ html[data-theme="light"] .toggle-icon .moon {
   font-weight: 600;
   font-size: 0.76rem;
   color: var(--muted);
+}
+
+.bo-node-discovered {
+  max-width: 4.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.52rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
 }
 
 /* Top-right "blocks" tag (how many tickets depend on this one) — also the pin

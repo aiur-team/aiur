@@ -10,7 +10,6 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
 
   attr(:route_state, :any, required: true)
   attr(:model, :any, default: nil)
-  attr(:adhoc, :any, default: nil)
   attr(:now, :any, required: true)
   attr(:analytics_scope, :map, required: true)
   attr(:analytics_model, :any, default: nil)
@@ -62,10 +61,9 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
           provider_generation={positive_generation(@snapshot)}
           dom_generation={max(RouteState.dom_generation(@route_state), 1)}
           model={@model}
-          adhoc={@adhoc}
         />
 
-        <BuildOrderBreakdown.build_order_breakdown :if={@model.status != :empty} model={@model} adhoc={@adhoc} />
+        <BuildOrderBreakdown.build_order_breakdown :if={@model.status != :empty} model={@model} />
 
         <BuildOrderAnalytics.build_order_analytics
           :if={@model.status != :empty}
