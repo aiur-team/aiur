@@ -8,8 +8,63 @@ defmodule Aiur.CodingAgentTest do
   alias Aiur.Codex.NotificationPolicy
   alias Aiur.CodingAgent
   alias Aiur.Issue
+  alias Aiur.Usage.Headless.Catalog
+  alias Aiur.Usage.Pricing.Dimensions
 
   defp issue(labels), do: %Issue{labels: labels}
+
+  describe "provider presentation descriptors (registry-driven rendering)" do
+    test "provider_families/0 lists families in card order, deduped across a shared family" do
+      # claude and claude-repl share family :claude, so it appears once.
+      assert CodingAgent.provider_families() == [:codex, :claude, :fake]
+    end
+
+    test "default fallback is owned by the default backend registry entry" do
+      assert CodingAgent.default_backend() == "codex"
+      assert CodingAgent.default_rate_limit_fallback() == "claude"
+    end
+
+    test "provider_family_map/0 keys usage attribution by registered backend" do
+      assert CodingAgent.provider_family_map() == %{"codex" => :codex, "claude" => :claude, "fake" => :fake}
+    end
+
+    test "provider_descriptor/1 exposes the fields every provider surface renders from" do
+      codex = CodingAgent.provider_descriptor(:codex)
+      assert codex.label == "Codex"
+      assert codex.logo == "/provider-assets/codex-color.svg"
+      assert codex.token_icon == "/provider-assets/codex-token.svg"
+      assert codex.css_class == "is-codex"
+
+      claude = CodingAgent.provider_descriptor(:claude)
+      assert claude.label == "Claude"
+      assert claude.css_class == "is-claude"
+    end
+
+    test "provider_descriptor/1 is nil for an unknown provider (surfaces fall back generically)" do
+      assert CodingAgent.provider_descriptor(:nonesuch) == nil
+    end
+
+    test "provider_descriptors/0 carries the resolved provider family atom and is card-ordered" do
+      assert [%{provider: :codex, order: 0}, %{provider: :claude, order: 1}, %{provider: :fake, order: 2}] =
+               CodingAgent.provider_descriptors()
+    end
+
+    test "provider descriptor owns metering, pricing, and account-generation policies" do
+      assert %{dimensions: %{context_tier: %{required: true}}} = CodingAgent.provider_pricing(:codex)
+      assert %{dimensions: %{cache_write_duration: %{required: true}}} = CodingAgent.provider_pricing(:claude)
+
+      assert %{trusted_sources: [:codex_app_server]} = CodingAgent.provider_account_generation(:codex)
+      assert %{trusted_sources: [:claude_app_server]} = CodingAgent.provider_account_generation(:claude)
+
+      assert Dimensions.from_options(:codex, []) == %{context_tier: nil, cache_write_duration: :not_applicable}
+      assert Dimensions.from_options(:claude, []) == %{context_tier: :not_applicable, cache_write_duration: nil}
+
+      assert Catalog.adapters_for(:codex) == [Aiur.Usage.Headless.Codex.ThreadUsage, Aiur.Usage.Headless.Codex.TurnUsage]
+      assert Catalog.adapters_for(:claude) == [Aiur.Usage.Headless.Claude.RequestUsage]
+      assert Catalog.adapters_for(:fake) == [Aiur.Usage.Headless.Fake.RequestUsage]
+      assert Dimensions.validate(:fake, Dimensions.from_options(:fake, [])) == :ok
+    end
+  end
 
   describe "select_for_dispatch/2" do
     test "uses the first configured, available fallback from an ordered list" do
@@ -289,7 +344,7 @@ defmodule Aiur.CodingAgentTest do
 
   describe "registry dispatch" do
     test "known_backends comes from the registry" do
-      assert Enum.sort(CodingAgent.known_backends()) == ["claude", "claude-repl", "codex"]
+      assert Enum.sort(CodingAgent.known_backends()) == ["claude", "claude-repl", "codex", "fake"]
     end
 
     test "adapter and transcript_module resolve per backend" do

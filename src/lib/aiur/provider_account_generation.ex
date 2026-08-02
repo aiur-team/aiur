@@ -11,7 +11,7 @@ defmodule Aiur.ProviderAccountGeneration do
 
   @pubsub Aiur.PubSub
 
-  @type provider :: :codex | :claude
+  @type provider :: atom()
   @type backend :: :app_server
   @type binding :: reference()
   @type authority :: reference()

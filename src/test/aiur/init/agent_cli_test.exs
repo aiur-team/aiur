@@ -82,4 +82,19 @@ defmodule Aiur.Init.AgentCliTest do
       assert AgentCli.check_agent_auth("nope") == {:error, "no command configured for nope"}
     end
   end
+
+  test "does not check a non-configurable transport backend during init" do
+    parent = self()
+    io = %{puts: fn _message -> :ok end, confirm: fn _message, _default -> false end}
+
+    deps = %{
+      check_agent_auth: fn backend ->
+        send(parent, {:checked, backend})
+        :ok
+      end
+    }
+
+    assert :ok = AgentCli.check_agent_clis(io, deps, ["claude-repl"])
+    refute_received {:checked, "claude-repl"}
+  end
 end

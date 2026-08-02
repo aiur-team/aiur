@@ -1141,7 +1141,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
       # seeds its bundled agent skills (#689) so a dispatched agent can load them
       # without a filesystem search.
       assert {:ok, entries} = File.ls(workspace)
-      assert Enum.sort(entries) == [".claude", ".codex"]
+      assert Enum.sort(entries) == [".claude", ".codex", ".fake"]
       assert File.exists?(Path.join([workspace, ".claude", "skills", "using-aiur", "SKILL.md"]))
     after
       File.rm_rf(workspace_root)
@@ -1879,6 +1879,27 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert :ok = Config.validate!()
     assert Config.settings!().observability.dashboard_writable == true
     assert Config.dashboard_writable?()
+  end
+
+  test "telemetry retention derives and accepts its prune interval" do
+    write_workflow_file!(Workflow.workflow_file_path(), observability_retention_max_bytes: 8 * 1024 * 1024)
+
+    assert Config.telemetry_retention() == [
+             max_bytes: 8 * 1024 * 1024,
+             max_age_days: 30,
+             prune_interval_bytes: 1 * 1024 * 1024
+           ]
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      observability_retention_max_bytes: 8 * 1024 * 1024,
+      observability_retention_prune_interval_bytes: 256
+    )
+
+    assert Config.telemetry_retention() == [
+             max_bytes: 8 * 1024 * 1024,
+             max_age_days: 30,
+             prune_interval_bytes: 256
+           ]
   end
 
   test "decision supervisor policy round-trips through workflow configuration" do

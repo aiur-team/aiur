@@ -26,11 +26,13 @@ defmodule Aiur.ProviderMeterProjection do
   alias Aiur.ProviderMeters.Events
   alias Aiur.ProviderMeterSnapshot
 
-  @providers [:codex, :claude]
+  # Registry-derived at compile time (a literal list, so the `in @providers`
+  # guards below still inline) — a new metered backend projects with no edit.
+  @providers Aiur.CodingAgent.provider_families()
   @backend :app_server
   @call_timeout 5_000
 
-  @type provider :: :codex | :claude
+  @type provider :: atom()
 
   @type view :: %{
           provider: provider(),

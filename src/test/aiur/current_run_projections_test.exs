@@ -66,6 +66,32 @@ defmodule Aiur.CurrentRunProjectionsTest do
     assert Process.alive?(owner)
   end
 
+  # Live-run regression: a superseded (replaced) member never gets another
+  # status fact, and its permanently missing fact must not mark the whole
+  # run's weight facts stale — that degraded health/ETA to "unhealthy weight
+  # facts" on the dashboard while every live ticket's facts were current.
+  test "a replaced member without a status fact does not poison weight-fact health" do
+    replaced = identity(40)
+
+    {_source, owner, _pubsub} =
+      start_owner(fn sources ->
+        update_in(sources, [:membership, :members], fn members ->
+          members ++ [member(replaced, :replaced, false)]
+        end)
+      end)
+
+    assert :ok = CurrentRunProjections.refresh(owner)
+    summary = CurrentRunSummary.snapshot(server: owner)
+
+    assert summary.health.status == :healthy
+    refute :unhealthy_weight_facts in summary.health.reasons
+    # The replaced member's own weight is honestly unknown, so coverage is
+    # :partial — but never :stale, which would misreport a fault.
+    assert summary.freshness.status == :partial
+    assert summary.sources.weight_health == :healthy
+    assert summary.eta.reason != :unhealthy_weight_facts
+  end
+
   test "malformed activity degrades and a later timeout cannot crash the owner" do
     {source, owner, _pubsub} = start_owner()
     :ok = CurrentRunProjections.refresh(owner)

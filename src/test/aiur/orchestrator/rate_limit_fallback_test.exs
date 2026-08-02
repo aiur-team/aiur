@@ -12,7 +12,7 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
       entry = %{control: %{status: :paused}, paused_reason: :usage_limit_exhausted}
       issue = %Issue{id: "1", identifier: "repo#1", labels: []}
 
-      assert RateLimitFallback.decide(entry, issue, fallback_backend: "claude", current_backend: "codex") == :engage
+      assert RateLimitFallback.decide(entry, issue, primary_backend: "codex", fallback_backend: "claude", current_backend: "codex") == :engage
     end
 
     test "does not engage when the issue already carries an explicit override, even if it resolves to codex" do
@@ -24,35 +24,35 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
       entry = %{control: %{status: :paused}, paused_reason: :usage_limit_exhausted}
       issue = %Issue{id: "1", identifier: "repo#1", labels: ["model:codex"]}
 
-      assert RateLimitFallback.decide(entry, issue, fallback_backend: "claude", current_backend: "codex") == :noop
+      assert RateLimitFallback.decide(entry, issue, primary_backend: "codex", fallback_backend: "claude", current_backend: "codex") == :noop
     end
 
     test "does nothing when the fallback backend is disabled" do
       entry = %{control: %{status: :paused}, paused_reason: :usage_limit_exhausted}
       issue = %Issue{id: "1", identifier: "repo#1", labels: []}
 
-      assert RateLimitFallback.decide(entry, issue, fallback_backend: nil) == :noop
+      assert RateLimitFallback.decide(entry, issue, primary_backend: "codex", fallback_backend: nil) == :noop
     end
 
     test "does nothing when the issue already carries an unrelated model: override" do
       entry = %{control: %{status: :paused}, paused_reason: :usage_limit_exhausted}
       issue = %Issue{id: "1", identifier: "repo#1", labels: ["model:claude"]}
 
-      assert RateLimitFallback.decide(entry, issue, fallback_backend: "claude") == :noop
+      assert RateLimitFallback.decide(entry, issue, primary_backend: "codex", fallback_backend: "claude") == :noop
     end
 
     test "does nothing when the entry is not currently paused" do
       entry = %{control: %{status: :working}, paused_reason: :usage_limit_exhausted}
       issue = %Issue{id: "1", identifier: "repo#1", labels: []}
 
-      assert RateLimitFallback.decide(entry, issue, fallback_backend: "claude") == :noop
+      assert RateLimitFallback.decide(entry, issue, primary_backend: "codex", fallback_backend: "claude") == :noop
     end
 
     test "does nothing for a pause reason other than usage_limit_exhausted" do
       entry = %{control: %{status: :paused}, paused_reason: :operator_pause}
       issue = %Issue{id: "1", identifier: "repo#1", labels: []}
 
-      assert RateLimitFallback.decide(entry, issue, fallback_backend: "claude") == :noop
+      assert RateLimitFallback.decide(entry, issue, primary_backend: "codex", fallback_backend: "claude") == :noop
     end
 
     test "reverts an engaged fallback once codex is available again" do
@@ -60,6 +60,7 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
       issue = %Issue{id: "1", identifier: "repo#1", labels: ["model:claude", @marker_label]}
 
       assert RateLimitFallback.decide(entry, issue,
+               primary_backend: "codex",
                fallback_backend: "claude",
                state: recovered_state()
              ) == :revert
@@ -72,6 +73,7 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
       issue = %Issue{id: "1", identifier: "repo#1", labels: ["model:claude", @marker_label]}
 
       assert RateLimitFallback.decide(entry, issue,
+               primary_backend: "codex",
                fallback_backend: "claude",
                state: recovered_state()
              ) == :noop
@@ -84,6 +86,7 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
       future_reset_at = DateTime.utc_now() |> DateTime.add(3_600, :second) |> DateTime.to_iso8601()
 
       assert RateLimitFallback.decide(entry, issue,
+               primary_backend: "codex",
                fallback_backend: "claude",
                state: %{"backends" => %{"codex" => %{"limited" => true, "reset_at" => future_reset_at}}}
              ) == :noop
@@ -95,6 +98,7 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
       future_reset_at = DateTime.utc_now() |> DateTime.add(3_600, :second) |> DateTime.to_iso8601()
 
       assert RateLimitFallback.decide(entry, issue,
+               primary_backend: "codex",
                fallback_backend: "claude",
                current_backend: "codex",
                state: %{"backends" => %{"codex" => %{"limited" => true, "reset_at" => future_reset_at}}}
@@ -106,6 +110,7 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
       issue = %Issue{id: "1", identifier: "repo#1", labels: ["model:claude"]}
 
       assert RateLimitFallback.decide(entry, issue,
+               primary_backend: "codex",
                fallback_backend: "claude",
                state: recovered_state()
              ) == :noop
@@ -117,6 +122,7 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
       issue = %Issue{id: "1", identifier: "repo#1", labels: ["model:claude", @marker_label]}
 
       assert RateLimitFallback.decide(entry, issue,
+               primary_backend: "codex",
                fallback_backend: "claude",
                state: %{
                  "backends" => %{
@@ -132,6 +138,7 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
       issue = %Issue{id: "1", identifier: "repo#1", labels: ["model:claude", @marker_label]}
 
       assert RateLimitFallback.decide(entry, issue,
+               primary_backend: "codex",
                fallback_backend: "claude",
                state: recovered_state(),
                now: now,
@@ -144,11 +151,36 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
       issue = %Issue{id: "1", identifier: "repo#1", labels: ["model:claude", @marker_label]}
 
       assert RateLimitFallback.decide(entry, issue,
+               primary_backend: "codex",
                fallback_backend: "claude",
                state: recovered_state(),
                minimum_dwell_seconds: 0
              ) == :prepare_revert
     end
+  end
+
+  test "engages any configured registered backend pair, not just codex -> claude" do
+    # The pair is registry-driven: an already-running agent on the configured
+    # primary reroutes to the configured fallback, whatever they are.
+    entry = %{control: %{status: :paused}, paused_reason: :usage_limit_exhausted}
+    issue = %Issue{id: "1", identifier: "repo#1", labels: []}
+
+    assert RateLimitFallback.decide(entry, issue,
+             primary_backend: "claude",
+             fallback_backend: "codex",
+             current_backend: "claude"
+           ) == :engage
+  end
+
+  test "does not engage when the running backend is not the configured primary" do
+    entry = %{control: %{status: :paused}, paused_reason: :usage_limit_exhausted}
+    issue = %Issue{id: "1", identifier: "repo#1", labels: []}
+
+    assert RateLimitFallback.decide(entry, issue,
+             primary_backend: "claude",
+             fallback_backend: "codex",
+             current_backend: "codex"
+           ) == :noop
   end
 
   describe "fallback_engaged?/1" do
@@ -641,6 +673,7 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
     Keyword.merge(
       [
         fallback_backend: "claude",
+        primary_backend: "codex",
         marker_label: @marker_label,
         current_backend: "codex",
         state: recovered_state(),

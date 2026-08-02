@@ -9,7 +9,7 @@ defmodule Aiur.Usage.Headless.Context do
   never recovered from prose or paths, and never becomes a guessed identity.
   """
 
-  alias Aiur.{Boot, Issue, TrackerIdentity}
+  alias Aiur.{Boot, CodingAgent, Issue, TrackerIdentity}
   alias Aiur.ProviderAccountGeneration.Snapshot
 
   @enforce_keys [:run_id, :agent_family, :backend, :transport, :account_generation, :source_sequence]
@@ -36,7 +36,7 @@ defmodule Aiur.Usage.Headless.Context do
   ]
 
   @type account_generation :: %{
-          provider: :codex | :claude,
+          provider: atom(),
           backend: :app_server,
           generation: String.t() | nil,
           freshness: :current | :unknown,
@@ -46,17 +46,18 @@ defmodule Aiur.Usage.Headless.Context do
 
   @type t :: %__MODULE__{}
 
-  @agent_families %{"codex" => :codex, "claude" => :claude}
-
   @doc """
   Builds a context for one headless message at the MessageHandler seam.
 
   Returns `:unsupported` for any backend that is not a supported headless
   provider (for example Remote Control or REPL transports owned elsewhere).
+  The backend -> provider-family map is registry-derived
+  (`Aiur.CodingAgent.provider_family_map/0`), so a new metered backend attributes
+  automatically instead of silently falling through to `:unsupported`.
   """
   @spec build(Issue.t() | nil, String.t(), keyword()) :: {:ok, t()} | :unsupported
   def build(issue, backend, opts) when is_binary(backend) and is_list(opts) do
-    case Map.get(@agent_families, backend) do
+    case Map.get(CodingAgent.provider_family_map(), backend) do
       nil -> :unsupported
       agent_family -> {:ok, assemble(issue, agent_family, opts)}
     end
@@ -107,7 +108,7 @@ defmodule Aiur.Usage.Headless.Context do
   end
 
   @doc "Projects a DASH-018 account-generation snapshot into the envelope's account context."
-  @spec project_generation(map(), :codex | :claude) :: account_generation()
+  @spec project_generation(map(), atom()) :: account_generation()
   def project_generation(%{generation: generation, freshness: freshness, health: health, reason: reason}, agent_family) do
     %{
       provider: agent_family,

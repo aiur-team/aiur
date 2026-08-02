@@ -463,6 +463,14 @@ textarea:focus-visible,
   border-collapse: collapse;
 }
 
+.bo-catalog-table .bo-catalog-active {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.bo-catalog-table .bo-catalog-completed {
+  opacity: .78;
+}
+
 .bo-catalog-table th:first-child,
 .bo-catalog-table td:first-child {
   white-space: nowrap;
@@ -552,6 +560,15 @@ textarea:focus-visible,
   text-decoration: none;
   font-weight: 600;
   font-size: 0.88rem;
+}
+
+.bo-catalog-icon {
+  display: inline-flex;
+  width: 1.35rem;
+  justify-content: center;
+  margin-right: 0.35rem;
+  color: var(--accent);
+  font-size: 1rem;
 }
 
 .bo-catalog-link::after {
@@ -2262,14 +2279,9 @@ html[data-theme="light"] .toggle-icon .moon {
   border-color: var(--blocking-line);
 }
 
-.chip.cmd-agent.is-claude {
-  color: #f2a76b;
-  border-color: rgba(242, 167, 107, 0.4);
-}
-
-.chip.cmd-agent.is-codex {
-  color: #8fbcff;
-  border-color: rgba(143, 188, 255, 0.4);
+.chip.cmd-agent {
+  color: var(--provider-command-color, var(--fg));
+  border-color: var(--provider-command-border, var(--line-strong));
 }
 
 .chip.faint {
@@ -3143,16 +3155,10 @@ html[data-theme="light"] .toggle-icon .moon {
   color: var(--fg);
 }
 
-.u-agent.is-claude {
-  color: #f0a878;
-  border-color: rgba(240, 168, 120, 0.4);
-  background: rgba(240, 168, 120, 0.12);
-}
-
-.u-agent.is-codex {
-  color: #8fbcff;
-  border-color: rgba(143, 188, 255, 0.4);
-  background: rgba(143, 188, 255, 0.12);
+.u-agent {
+  color: var(--provider-unit-color, var(--fg));
+  border-color: var(--provider-unit-border, var(--line-strong));
+  background: var(--provider-unit-background, var(--pill-bg));
 }
 
 .u-cx {
@@ -7562,10 +7568,24 @@ html[data-theme="light"] .toggle-icon .moon {
 
 /* The device chassis is physically dark regardless of the dashboard theme.
    Override the ink tokens inside the device so text stays legible on the
-   dark surface when the operator switches to light mode. */
+   dark surface when the operator switches to light mode.
+
+   Every token the chassis paints ink with must be pinned back to its dark
+   `:root` value here. A token left unpinned inherits the light-theme root
+   override and lands dark-on-near-black over the `#060708` key face — the
+   "Blocked" dependency chip (`.sd-key-footer b`) measured roughly 2:1 that
+   way. `dashboard_css_theme_test.exs` asserts this list stays complete and
+   byte-identical to `:root`. */
 html[data-theme="light"] .sd-device {
   --fg: rgba(255, 255, 255, 0.87);
   --muted: rgba(255, 255, 255, 0.45);
+  --accent: #2f86ff;
+  --accent-ink: #8fbcff;
+  --attention-ink: #f1cf6f;
+  --blocking-ink: #ffa39c;
+  --blocking-soft: rgba(255, 123, 114, 0.14);
+  --good: #3fb950;
+  --super: #c69bff;
 }
 
 @media (max-width: 560px) {

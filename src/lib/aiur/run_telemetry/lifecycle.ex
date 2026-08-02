@@ -7,6 +7,7 @@ defmodule Aiur.RunTelemetry.Lifecycle do
   are deliberately excluded from the record contract.
   """
 
+  alias Aiur.CodingAgent
   alias Aiur.Orchestrator.CommentWake
   alias Aiur.Protocol.MapAccess
   alias Aiur.RunTelemetry
@@ -267,7 +268,16 @@ defmodule Aiur.RunTelemetry.Lifecycle do
   defp operation_key(tracker, attempt_id, operation_id),
     do: {__MODULE__, :operation, tracker, attempt_id, operation_id}
 
-  defp backend_operation("codex", message) do
+  defp backend_operation(backend, message) do
+    case get_in(CodingAgent.backends(), [backend, :run_telemetry]) do
+      decoder when is_function(decoder, 1) -> decoder.(message)
+      _ -> :skip
+    end
+  end
+
+  @doc false
+  @spec decode_codex_operation(map()) :: {:start, String.t(), String.t() | nil} | {:complete, String.t(), String.t() | nil, atom()} | :skip
+  def decode_codex_operation(message) do
     method = MapAccess.notification_method(message)
     item = MapAccess.notification_item(message)
 
@@ -286,11 +296,9 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     end
   end
 
-  defp backend_operation("claude", message), do: claude_operation(message)
-  defp backend_operation("claude-repl", message), do: claude_operation(message)
-  defp backend_operation(_backend, _message), do: :skip
-
-  defp claude_operation(message) do
+  @doc false
+  @spec decode_claude_operation(map()) :: {:start, String.t(), String.t() | nil} | {:complete, String.t(), String.t() | nil, atom()} | :skip
+  def decode_claude_operation(message) do
     with "item/created" <- MapAccess.notification_method(message),
          item when is_map(item) <- MapAccess.notification_item(message) do
       case value(item, :type) do

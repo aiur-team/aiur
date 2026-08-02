@@ -133,8 +133,12 @@ defmodule AiurWeb.StreamdeckLive do
     """
   end
 
-  # This complete fixture is intentionally descriptor-shaped. #1350 replaces
-  # its source with the shared pure key-content model once it is available.
+  # Follow-up (#1350): replace this fixture with the shared pure key-content
+  # model. It is intentionally descriptor-shaped so the swap is a source change,
+  # not a template change. #1394 has since landed, so the `layoutKeys` descriptor
+  # model is available and the follow-up can consume it here directly.
+  # (`credo --strict` fails the build on the conventional deferred-work tag, so
+  # this repo marks deferred work as `Follow-up (#NNNN)` — grep for that.)
   defp preview_key_descriptors do
     [
       key(1, "running", "Codex", 1352, "Build emulator", "Running", 62, priority?: true),

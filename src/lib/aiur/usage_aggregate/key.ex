@@ -7,16 +7,16 @@ defmodule Aiur.UsageAggregate.Key do
   # cell. Every downstream grouping/pricing dimension survives unchanged and no
   # two token-relationship revisions ever share a cell.
 
-  alias Aiur.{TrackerIdentity, UsageEnvelope}
+  alias Aiur.{CodingAgent, TrackerIdentity, UsageEnvelope}
   alias Aiur.UsageEnvelope.ExactMoney
 
   # DASH-024 only observes the raw provider-reported cost carried by the ledger
   # delta; occurrence-time API-equivalent pricing is DASH-011's separate basis.
   @money_basis :provider_reported_estimate
 
-  @providers [:codex, :claude]
+  @providers CodingAgent.provider_families()
   @backends [:app_server, :remote_control, :unknown]
-  @agent_families [:codex, :claude]
+  @agent_families CodingAgent.provider_families()
   @auth_modes [:api_key, :chatgpt, :unknown]
   @context_tiers [:short_context, :long_context, :not_applicable]
   @cache_write_durations [:five_minutes, :one_hour, :not_applicable]
@@ -26,7 +26,7 @@ defmodule Aiur.UsageAggregate.Key do
 
   @type ticket :: {:github, String.t(), String.t(), String.t()} | :unknown
   @type dims :: %{
-          provider: :codex | :claude,
+          provider: atom(),
           run_id: String.t() | nil,
           ticket: ticket(),
           attempt_id: String.t() | nil,

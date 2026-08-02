@@ -45,8 +45,8 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
       view = Presenter.present(authorized(), %{codex: healthy(:codex), claude: healthy(:claude)})
 
       assert view.state == :authorized
-      assert Enum.map(view.cards, & &1.provider) == [:codex, :claude]
-      assert Enum.map(view.cards, & &1.provider_label) == ["Codex", "Claude"]
+      assert Enum.map(view.cards, & &1.provider) == [:codex, :claude, :fake]
+      assert Enum.map(view.cards, & &1.provider_label) == ["Codex", "Claude", "Fake"]
     end
 
     test "a provider with no loaded snapshot renders loading without affecting the other card" do

@@ -18,6 +18,10 @@ defmodule Aiur.BuildOrder.Member do
           connection_counts: %{blocked_by: non_neg_integer(), blocking: non_neg_integer()},
           dependencies: [Dependency.t()],
           document_url: String.t() | nil,
+          document_path: String.t() | nil,
+          draft_body: String.t() | nil,
+          icon: String.t() | nil,
+          draft?: boolean(),
           diagnostics: [Diagnostic.t()]
         }
 
@@ -25,6 +29,10 @@ defmodule Aiur.BuildOrder.Member do
             title: "Untitled ticket",
             url: nil,
             document_url: nil,
+            document_path: nil,
+            draft_body: nil,
+            icon: nil,
+            draft?: false,
             metadata: %Metadata{},
             lifecycle: %Lifecycle{},
             activity: %Activity{},
@@ -66,6 +74,10 @@ defmodule Aiur.BuildOrder.Member do
       connection_counts: connection_counts(Map.get(attributes, :connection_counts)),
       dependencies: dependencies,
       document_url: document_url(Map.get(attributes, :document_url)),
+      document_path: document_path(Map.get(attributes, :document_path)),
+      draft_body: draft_body(Map.get(attributes, :draft_body)),
+      icon: icon(Map.get(attributes, :icon)),
+      draft?: Map.get(attributes, :draft?) == true,
       diagnostics: diagnostics
     }
   end
@@ -74,6 +86,15 @@ defmodule Aiur.BuildOrder.Member do
 
   defp document_url(value) when is_binary(value) and byte_size(value) in 1..512, do: value
   defp document_url(_value), do: nil
+
+  defp document_path(value) when is_binary(value) and byte_size(value) in 1..512, do: value
+  defp document_path(_value), do: nil
+
+  defp draft_body(value) when is_binary(value) and byte_size(value) in 1..64_000, do: value
+  defp draft_body(_value), do: nil
+
+  defp icon(value) when is_binary(value) and byte_size(value) in 1..80, do: value
+  defp icon(_value), do: nil
 
   @spec structurally_valid?(term()) :: boolean()
   def structurally_valid?(%__MODULE__{identity: identity, diagnostics: diagnostics})

@@ -39,7 +39,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeterSourceTest do
 
     snapshots = ProviderMeterSource.load(nil, snapshot_fun: sentinel)
 
-    assert snapshots == %{codex: nil, claude: nil}
+    assert snapshots == %{codex: nil, claude: nil, fake: nil}
     refute_receive {:protected_provider_invoked, _provider}, 0
   end
 
@@ -51,6 +51,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeterSourceTest do
 
     assert %ProviderMeterSnapshot{provider: :codex} = snapshots.codex
     assert %ProviderMeterSnapshot{provider: :claude} = snapshots.claude
+    assert %ProviderMeterSnapshot{provider: :fake} = snapshots.fake
   end
 
   test "one provider's read failure is isolated from the healthy provider" do
@@ -59,12 +60,14 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeterSourceTest do
     fun = fn
       :codex, _binding -> raise "codex boom"
       :claude, _binding -> snapshot(:claude)
+      :fake, _binding -> snapshot(:fake)
     end
 
     snapshots = ProviderMeterSource.load(context, snapshot_fun: fun)
 
     assert snapshots.codex == nil
     assert %ProviderMeterSnapshot{provider: :claude} = snapshots.claude
+    assert %ProviderMeterSnapshot{provider: :fake} = snapshots.fake
   end
 
   test "reload against a mismatched identity message reads nothing" do
@@ -78,7 +81,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeterSourceTest do
 
     snapshots = ProviderMeterSource.reload(context, {FinancialData, :updated, {"bogus", "identity"}}, snapshot_fun: sentinel)
 
-    assert snapshots == %{codex: nil, claude: nil}
+    assert snapshots == %{codex: nil, claude: nil, fake: nil}
     refute_receive {:protected_provider_invoked, _provider}, 0
   end
 
@@ -91,6 +94,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeterSourceTest do
 
     assert %ProviderMeterSnapshot{provider: :codex} = snapshots.codex
     assert %ProviderMeterSnapshot{provider: :claude} = snapshots.claude
+    assert %ProviderMeterSnapshot{provider: :fake} = snapshots.fake
   end
 
   defp snapshot(provider) do

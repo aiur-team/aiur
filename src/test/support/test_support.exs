@@ -588,6 +588,9 @@ defmodule Aiur.TestSupport do
     observability_writable = Keyword.get(config, :observability_writable)
     observability_refresh_ms = Keyword.get(config, :observability_refresh_ms)
     observability_render_interval_ms = Keyword.get(config, :observability_render_interval_ms)
+    observability_retention_max_bytes = Keyword.get(config, :observability_retention_max_bytes)
+    observability_retention_max_age_days = Keyword.get(config, :observability_retention_max_age_days)
+    observability_retention_prune_interval_bytes = Keyword.get(config, :observability_retention_prune_interval_bytes)
     server_port = Keyword.get(config, :server_port)
     server_host = Keyword.get(config, :server_host)
     opencode_command = Keyword.get(config, :opencode_command)
@@ -668,7 +671,10 @@ defmodule Aiur.TestSupport do
           observability_enabled,
           observability_writable,
           observability_refresh_ms,
-          observability_render_interval_ms
+          observability_render_interval_ms,
+          observability_retention_max_bytes,
+          observability_retention_max_age_days,
+          observability_retention_prune_interval_bytes
         ),
         decisions_yaml(overrides),
         server_yaml(server_port, server_host),
@@ -884,13 +890,17 @@ defmodule Aiur.TestSupport do
     |> Enum.join("\n")
   end
 
-  defp observability_yaml(enabled, writable, refresh_ms, render_interval_ms) do
+  defp observability_yaml(enabled, writable, refresh_ms, render_interval_ms, retention_max_bytes, retention_max_age_days, retention_prune_interval_bytes) do
     [
       "observability:",
       "  dashboard_enabled: #{yaml_value(enabled)}",
       writable != nil && "  dashboard_writable: #{yaml_value(writable)}",
       "  refresh_ms: #{yaml_value(refresh_ms)}",
-      "  render_interval_ms: #{yaml_value(render_interval_ms)}"
+      "  render_interval_ms: #{yaml_value(render_interval_ms)}",
+      retention_max_bytes != nil && "  telemetry_retention_max_bytes: #{yaml_value(retention_max_bytes)}",
+      retention_max_age_days != nil && "  telemetry_retention_max_age_days: #{yaml_value(retention_max_age_days)}",
+      retention_prune_interval_bytes != nil &&
+        "  telemetry_retention_prune_interval_bytes: #{yaml_value(retention_prune_interval_bytes)}"
     ]
     |> Enum.reject(&(&1 == false))
     |> Enum.join("\n")

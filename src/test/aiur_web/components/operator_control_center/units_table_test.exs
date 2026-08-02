@@ -79,6 +79,20 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     refute html =~ "Agent log"
   end
 
+  test "resolves string-backed registry families and backends" do
+    row = row() |> Map.put(:agent_family, "fake") |> Map.put(:backend, "fake")
+
+    html =
+      render_component(&UnitsTable.units_table/1, %{
+        view: view([row]),
+        now: ~U[2026-07-17 12:00:00Z]
+      })
+
+    assert html =~ ~s(class="u-pill u-agent is-fake")
+    assert html =~ ">Fake</span>"
+    assert html =~ "--provider-unit-color"
+  end
+
   test "distinguishes unavailable, healthy-empty, filtered-empty, and stale catalog states" do
     unavailable = render(%{status: :unavailable, message: "membership failed", rows: [], zero_result?: false})
     empty = render(%{status: :empty, message: "No units observed", rows: [], zero_result?: false})

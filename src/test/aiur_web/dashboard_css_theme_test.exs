@@ -20,14 +20,10 @@ defmodule AiurWeb.DashboardCssThemeTest do
     "#6bd6a6",
     "#7fd4e0",
     "#8fbcff",
-    "#8fbcff",
-    "#8fbcff",
     "#d98f5b",
     "#e3b341",
     "#e3b341",
     "#e3b341",
-    "#f0a878",
-    "#f2a76b",
     "#fff",
     "#fff"
   ]
@@ -59,6 +55,59 @@ defmodule AiurWeb.DashboardCssThemeTest do
     css = File.read!(@css)
     refute css =~ "#f5b8a8", "the dark-only salmon ink is back"
     refute css =~ ~r/color:\s*#f2836b/, "the dark-only salmon is back as a text colour"
+  end
+
+  # The Stream Deck chassis (#1352) is painted dark in both themes, so it opts
+  # out of the light palette for its interior. That opt-out is a manual list,
+  # and an omission is invisible to the literal-hex test above: the ink is a
+  # themed token, it just resolves to the wrong theme's value. The "Blocked"
+  # dependency chip shipped dark-red-on-near-black (~2:1) twice for exactly
+  # this reason. Every token the chassis paints with must be pinned here, and
+  # pinned to the dark `:root` value byte-for-byte.
+  # Pinned back to the dark `:root` value exactly — these are the accent inks
+  # the chassis paints text, dots and focus rings with.
+  @streamdeck_dark_root_pins ~w(
+    --accent
+    --accent-ink
+    --attention-ink
+    --blocking-ink
+    --blocking-soft
+    --good
+    --super
+  )
+
+  # Pinned to chassis-specific values rather than `:root` — the key face is
+  # darker than the dashboard surface, so body text is pushed brighter than
+  # `--fg`/`--muted` would be. Presence is the contract, not the value.
+  @streamdeck_chassis_pins ~w(--fg --muted)
+
+  test "the light-mode Stream Deck chassis pins every token it paints ink with" do
+    pinned = declarations(css_rule(~s(html[data-theme="light"] .sd-device)))
+    dark_root = declarations(css_rule(":root"))
+
+    for token <- @streamdeck_chassis_pins ++ @streamdeck_dark_root_pins do
+      assert Map.has_key?(pinned, token), """
+      html[data-theme="light"] .sd-device does not pin #{token}.
+
+      An unpinned token inherits the light-theme :root value and paints dark ink
+      on the near-black key face. Add
+      `#{token}: #{Map.get(dark_root, token, "<the dark :root value>")};`
+      to that block in dashboard.css.
+      """
+    end
+
+    for token <- @streamdeck_dark_root_pins do
+      assert Map.fetch!(pinned, token) == Map.fetch!(dark_root, token),
+             "html[data-theme=\"light\"] .sd-device pins #{token} to " <>
+               "#{inspect(Map.fetch!(pinned, token))}, but the dark :root value is " <>
+               "#{inspect(Map.fetch!(dark_root, token))}. The pin must match :root exactly."
+    end
+  end
+
+  defp declarations(rule) do
+    ~r/(--[a-z0-9-]+)\s*:\s*([^;]+);/
+    |> Regex.scan(rule)
+    |> Map.new(fn [_full, name, value] -> {name, String.trim(value)} end)
   end
 
   defp literal_text_colors do
