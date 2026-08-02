@@ -11,6 +11,9 @@ defmodule Aiur.TestSupportIsolationTest do
   `:log_file` at the per-test workflow root to close that leak; if that line is
   ever removed the full suite still passes, so this invariant needs its own
   assertion to catch the regression.
+
+  The pause-store assertion likewise protects cwd-changing tests from selecting
+  a different implicit production store during teardown.
   """
   use Aiur.TestSupport
 
@@ -25,8 +28,27 @@ defmodule Aiur.TestSupportIsolationTest do
     assert String.contains?(log_root, "aiur-elixir-tests")
   end
 
+<<<<<<< HEAD
   test "global pause state is isolated to the per-test workflow root" do
     assert GlobalPauseStore.path_for() =~ "aiur-elixir-tests"
+=======
+  test "global pause persistence is isolated to the per-test workflow root" do
+    path = GlobalPauseStore.path_for()
+
+    assert path == Application.fetch_env!(:aiur, :global_pause_store_path)
+    assert String.contains?(path, "aiur-elixir-tests")
+    assert String.ends_with?(path, "/state/global-pause.json")
+    assert {:ok, %{globally_paused: false}} = GlobalPauseStore.load()
+
+    assert :ok =
+             GlobalPauseStore.save(%{
+               globally_paused: true,
+               paused_at: DateTime.utc_now(),
+               source: "test"
+             })
+
+    assert {:ok, %{globally_paused: true, source: "test"}} = GlobalPauseStore.load()
+>>>>>>> origin/develop
   end
 
   test "process lifecycle waits synchronize on DOWN instead of polling" do
