@@ -19,6 +19,7 @@ defmodule Aiur.InitTest do
     "system.dispatch.todo_capacity_exceeded",
     "system.dispatch.prewarm_blocked",
     "system.dispatch.capacity_starved",
+    "system.tracker.auth_preflight_failed",
     "ticket.*.agent.error.tokens_exhausted",
     "ticket.*.agent.retry_exhausted",
     "ticket.*.agent.review_feedback_delivery_deferred",

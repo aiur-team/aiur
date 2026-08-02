@@ -41,15 +41,23 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   @spec maybe_dispatch(State.t()) :: State.t()
   def maybe_dispatch(%State{} = state) do
+    maybe_dispatch(state, &do_maybe_dispatch/1)
+  end
+
+  @doc false
+  @spec maybe_dispatch(State.t(), (State.t() -> State.t())) :: State.t()
+  def maybe_dispatch(%State{} = state, dispatch_fun) when is_function(dispatch_fun, 1) do
     state = Reconciler.reconcile_running_lifecycle(state)
 
     case TrackerHealth.ensure_tracker_preflight(state) do
       {:ok, state} ->
-        do_maybe_dispatch(state)
+        state
+        |> clear_tracker_preflight_alert()
+        |> dispatch_fun.()
 
       {:error, reason, state} ->
         TrackerHealth.log_tracker_preflight_error(reason)
-        state
+        emit_tracker_preflight_alert(state, reason)
     end
   end
 
@@ -133,6 +141,61 @@ defmodule Aiur.Orchestrator.Dispatcher do
   defp clear_prewarm_blocked_alert(%State{} = state),
     do: %{state | prewarm_blocked_alert_active: false}
 
+  @doc false
+  @spec emit_tracker_preflight_alert(State.t(), term()) :: State.t()
+  def emit_tracker_preflight_alert(%State{} = state, reason) do
+    case tracker_preflight_alert_context(reason) do
+      {:ok, signature, formatted_reason} ->
+        emit_tracker_preflight_alert(state, signature, formatted_reason)
+
+      :ignore ->
+        state
+    end
+  end
+
+  defp emit_tracker_preflight_alert(
+         %State{tracker_preflight_alert_signature: previous_signature} = state,
+         signature,
+         formatted_reason
+       ) do
+    if previous_signature == signature do
+      state
+    else
+      message =
+        "GitHub tracker authentication preflight failed; fleet dispatch is paused. Cause: " <>
+          "#{formatted_reason} This condition is expected to clear automatically once tracker authentication succeeds."
+
+      case Alerts.emit_system("system.tracker.auth_preflight_failed",
+             reason: message,
+             needs_attention: true,
+             severity: "warning"
+           ) do
+        :ok -> %{state | tracker_preflight_alert_signature: signature}
+        {:error, _reason} -> state
+      end
+    end
+  end
+
+  @doc false
+  @spec clear_tracker_preflight_alert(State.t()) :: State.t()
+  def clear_tracker_preflight_alert(%State{} = state),
+    do: %{state | tracker_preflight_alert_signature: nil}
+
+  defp tracker_preflight_alert_context({:github_auth_preflight_failed, diagnostic} = reason)
+       when is_map(diagnostic) do
+    formatted_reason = Aiur.GitHub.Client.format_auth_preflight_error(reason)
+    classification = Map.get(diagnostic, :reason) || Map.get(diagnostic, "reason") || :unknown
+    repo = Map.get(diagnostic, :repo) || Map.get(diagnostic, "repo") || "unknown"
+
+    {:ok, "github-auth:#{classification}:#{repo}", "#{formatted_reason} (classification=#{classification})"}
+  end
+
+  defp tracker_preflight_alert_context(:missing_github_token) do
+    {:ok, "github-auth:missing_github_token", ":missing_github_token (classification=missing_github_token)"}
+  end
+
+  defp tracker_preflight_alert_context(_reason), do: :ignore
+
   # CPU load admission applies to NEW work only. Retries and reactivations bypass
   # this function so a capacity wait never burns their retry budget.
   @spec maybe_choose_under_load(State.t(), [Issue.t()]) :: State.t()
@@ -165,18 +228,34 @@ defmodule Aiur.Orchestrator.Dispatcher do
       )
       |> maybe_record_load_envelope_constraint()
 
-    case DispatchPolicy.memory_gate(available_memory_mb, memory_threshold_mb) do
-      :hold ->
+    memory_gate = DispatchPolicy.memory_gate(available_memory_mb, memory_threshold_mb)
+    fd_gate = DispatchPolicy.fd_gate(fd_sample)
+    load_gate = DispatchPolicy.load_gate(load, hard_threshold, schedulers)
+
+    # Sample every failing gate before applying admission priority. A memory or
+    # FD hold must not erase the age of an independently persistent load hold;
+    # IssueSync tracks each recorded gate identity across poll cycles.
+    state =
+      state
+      |> maybe_record_memory_constraint(memory_gate, available_memory_mb, memory_threshold_mb)
+      |> maybe_record_fd_constraint(fd_gate, fd_sample)
+      |> maybe_record_load_constraint(load_gate, load, hard_threshold, schedulers)
+
+    cond do
+      memory_gate == :hold ->
         log_memory_hold(available_memory_mb, memory_threshold_mb)
+        state
 
-        record_capacity_constraint(
-          state,
-          :memory,
-          "available_mb=#{available_memory_mb} threshold_mb=#{memory_threshold_mb}"
-        )
+      fd_gate == :hold ->
+        log_fd_hold(fd_sample)
+        state
 
-      :dispatch ->
-        maybe_choose_with_fd_headroom(state, issues, fd_sample, load, hard_threshold, schedulers, choose_fun)
+      load_gate == :hold ->
+        log_load_hold(load, hard_threshold, schedulers)
+        state
+
+      true ->
+        choose_fun.(state, issues)
     end
   end
 
@@ -616,32 +695,30 @@ defmodule Aiur.Orchestrator.Dispatcher do
     )
   end
 
-  defp maybe_choose_with_fd_headroom(state, issues, fd_sample, load, threshold, schedulers, choose_fun) do
-    case DispatchPolicy.fd_gate(fd_sample) do
-      :hold ->
-        log_fd_hold(fd_sample)
-        record_capacity_constraint(state, :fd, fd_constraint_detail(fd_sample))
-
-      :dispatch ->
-        maybe_choose_under_hard_load(state, issues, load, threshold, schedulers, choose_fun)
-    end
+  defp maybe_record_memory_constraint(state, :hold, available_memory_mb, threshold_mb) do
+    record_capacity_constraint(
+      state,
+      :memory,
+      "available_mb=#{available_memory_mb} threshold_mb=#{threshold_mb}"
+    )
   end
 
-  defp maybe_choose_under_hard_load(state, issues, load, threshold, schedulers, choose_fun) do
-    case DispatchPolicy.load_gate(load, threshold, schedulers) do
-      :hold ->
-        log_load_hold(load, threshold, schedulers)
+  defp maybe_record_memory_constraint(state, _gate, _available_memory_mb, _threshold_mb), do: state
 
-        record_capacity_constraint(
-          state,
-          :load,
-          "load=#{inspect(load)} threshold=#{threshold} schedulers=#{schedulers}"
-        )
+  defp maybe_record_fd_constraint(state, :hold, sample),
+    do: record_capacity_constraint(state, :fd, fd_constraint_detail(sample))
 
-      :dispatch ->
-        choose_fun.(state, issues)
-    end
+  defp maybe_record_fd_constraint(state, _gate, _sample), do: state
+
+  defp maybe_record_load_constraint(state, :hold, load, threshold, schedulers) do
+    record_capacity_constraint(
+      state,
+      :load,
+      "load=#{inspect(load)} threshold=#{threshold} schedulers=#{schedulers}"
+    )
   end
+
+  defp maybe_record_load_constraint(state, _gate, _load, _threshold, _schedulers), do: state
 
   defp trigger_and_status do
     RepoBase.refresh_for_dispatch()

@@ -206,42 +206,6 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     assert event["reason"] =~ "load=9.7"
   end
 
-  test "keeps a persistent gate's timer while a secondary gate oscillates" do
-    Publisher.set_tracked_fn(fn _ -> true end)
-    :ok = Exchange.subscribe("system.dispatch.capacity_starved")
-
-    on_exit(fn ->
-      Publisher.set_tracked_fn(fn _ -> true end)
-      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
-    end)
-
-    ready = issue("oscillating-gates", "todo")
-
-    waiting =
-      IssueSync.sync_capacity_starvation_alert(
-        %State{dispatch_capacity_constraints: [%{kind: :load, detail: "load=8.1"}]},
-        [ready],
-        1_000
-      )
-
-    with_memory = %{
-      waiting
-      | dispatch_capacity_constraints: [
-          %{kind: :load, detail: "load=8.2"},
-          %{kind: :memory, detail: "available_mb=512 threshold_mb=2048"}
-        ]
-    }
-
-    oscillating = IssueSync.sync_capacity_starvation_alert(with_memory, [ready], 30_000)
-    load_only = %{oscillating | dispatch_capacity_constraints: [%{kind: :load, detail: "load=8.3"}]}
-    alerted = IssueSync.sync_capacity_starvation_alert(load_only, [ready], 61_000)
-
-    assert alerted.capacity_starvation.alerted == ["load"]
-    assert alerted.capacity_starvation.since_ms == %{"load" => 1_000}
-    assert_receive {:event, %{topic: "system.dispatch.capacity_starved"} = event}, 500
-    assert event["reason"] =~ "load=8.3"
-  end
-
   test "resets the starvation timer when a budget latch moves to another ticket" do
     first = issue("budget-first", "todo")
     second = issue("budget-second", "todo")

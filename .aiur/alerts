@@ -88,6 +88,10 @@ alerts:
     message: Fleet dispatch capacity is constrained
     sound:
       - "~/alerts/advisor/advisor-additional-pylons.wav"
+  "system.tracker.auth_preflight_failed":
+    message: Tracker authentication is blocking fleet dispatch
+    sound:
+      - "~/alerts/advisor/advisor-under-attack.wav"
 
   # ---------- Agent state -------------------------------------------------
   "ticket.*.agent.error.tokens_exhausted":

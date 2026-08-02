@@ -5,7 +5,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
   alias Aiur.AgentRunner.{SessionLifecycle, ToolExecutor}
   alias Aiur.Events.{Exchange, Publisher}
-  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, State}
+  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, IssueSync, State}
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
 
   setup do
@@ -161,6 +161,94 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
       assert log =~
                "aiur_perf fd_hold surface=dispatch status=exhausted used=unknown limit=unknown available=0 threshold=unknown threshold_pct=10"
+    end
+  end
+
+  describe "capacity constraint sampling" do
+    test "preserves a load gate age while memory and FD holds mask admission" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe("system.dispatch.capacity_starved")
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        max_load_average: 1.0,
+        min_free_memory_mb: 2_048
+      )
+
+      {:ok, memory_samples} =
+        Agent.start_link(fn ->
+          [
+            "MemAvailable: 4096000 kB\n",
+            "MemAvailable: 1048576 kB\n",
+            "MemAvailable: 4096000 kB\n",
+            "MemAvailable: 4096000 kB\n"
+          ]
+        end)
+
+      {:ok, fd_samples} =
+        Agent.start_link(fn ->
+          [
+            :unavailable,
+            :unavailable,
+            %{pid: "123", used: 91, limit: 100, available: 9, headroom_ratio: 0.09},
+            :unavailable
+          ]
+        end)
+
+      Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "10000.0 0.0 0.0 1/1 1\n"} end)
+
+      Application.put_env(:aiur, :meminfo_source_override, fn ->
+        Agent.get_and_update(memory_samples, fn [sample | rest] -> {{:ok, sample}, rest} end)
+      end)
+
+      Application.put_env(:aiur, :file_descriptor_sample_override, fn ->
+        Agent.get_and_update(fd_samples, fn [sample | rest] -> {sample, rest} end)
+      end)
+
+      ready = issue("persistent-load")
+
+      sample = fn state ->
+        state
+        |> Map.put(:dispatch_capacity_constraints, [])
+        |> Dispatcher.maybe_choose_under_load([ready], fn sampled, _issues -> sampled end)
+      end
+
+      waiting =
+        %State{max_concurrent_agents: 1, effective_concurrent_agents: 1}
+        |> sample.()
+        |> IssueSync.sync_capacity_starvation_alert([ready], 1_000)
+
+      assert Enum.any?(waiting.dispatch_capacity_constraints, &(&1.kind == :load))
+
+      memory_masked =
+        waiting
+        |> sample.()
+        |> IssueSync.sync_capacity_starvation_alert([ready], 30_000)
+
+      assert Enum.any?(memory_masked.dispatch_capacity_constraints, &(&1.kind == :load))
+      assert Enum.any?(memory_masked.dispatch_capacity_constraints, &(&1.kind == :memory))
+
+      fd_masked =
+        memory_masked
+        |> sample.()
+        |> IssueSync.sync_capacity_starvation_alert([ready], 45_000)
+
+      assert Enum.any?(fd_masked.dispatch_capacity_constraints, &(&1.kind == :load))
+      assert Enum.any?(fd_masked.dispatch_capacity_constraints, &(&1.kind == :fd))
+
+      alerted =
+        fd_masked
+        |> sample.()
+        |> IssueSync.sync_capacity_starvation_alert([ready], 61_000)
+
+      assert alerted.capacity_starvation.alerted == ["load"]
+      assert alerted.capacity_starvation.since_ms == %{"load" => 1_000}
+      assert_receive {:event, %{topic: "system.dispatch.capacity_starved"} = event}, 500
+      assert event["reason"] =~ "load gate"
     end
   end
 

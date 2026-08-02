@@ -42,6 +42,10 @@ alerts:
     message: Fleet dispatch capacity is constrained
     sound:
       - "/usr/share/sounds/freedesktop/stereo/dialog-warning.oga"
+  "system.tracker.auth_preflight_failed":
+    message: Tracker authentication is blocking fleet dispatch
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/dialog-error.oga"
   "ticket.*.agent.error.tokens_exhausted":
     message: Agent ran out of tokens
     sound:
