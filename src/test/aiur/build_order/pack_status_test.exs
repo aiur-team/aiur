@@ -544,22 +544,25 @@ defmodule Aiur.BuildOrder.PackStatusTest do
   test "default polling projects lifecycle for a workspace-published pack", _context do
     suffix = System.unique_integer([:positive])
     state_root = Path.join(System.tmp_dir!(), "pack-status-workspace-state-#{suffix}")
-    workspace_directory = Path.join([File.cwd!(), ".aiur", "build_orders"])
-    workspace_existed? = File.dir?(workspace_directory)
+    workspace_directory = Path.join(System.tmp_dir!(), "pack-status-workspace-#{suffix}")
     workspace_path = Path.join(workspace_directory, "pack-status-workspace-#{suffix}.json")
+    status_path = PackPaths.status_path(workspace_path)
     repository = Config.repo()
     previous_root = Application.get_env(:aiur, :repo_base_root)
     previous_pack = Application.get_env(:aiur, :build_order_planning_pack)
     previous_packs = Application.get_env(:aiur, :build_order_planning_packs)
+    previous_workspace_directory = Application.get_env(:aiur, :build_order_workspace_directory)
     previous_dirs = System.get_env("AIUR_BUILD_ORDER_DIRS")
 
     Application.put_env(:aiur, :repo_base_root, state_root)
     Application.delete_env(:aiur, :build_order_planning_pack)
     Application.delete_env(:aiur, :build_order_planning_packs)
+    Application.put_env(:aiur, :build_order_workspace_directory, workspace_directory)
     System.delete_env("AIUR_BUILD_ORDER_DIRS")
 
     File.mkdir_p!(workspace_directory)
     File.write!(workspace_path, String.replace(@pack, "acme/widgets", repository))
+    File.write!(status_path, ~s({"operator_annotation":"keep","members":{}}))
 
     on_exit(fn ->
       if previous_root,
@@ -574,14 +577,16 @@ defmodule Aiur.BuildOrder.PackStatusTest do
         do: Application.put_env(:aiur, :build_order_planning_packs, previous_packs),
         else: Application.delete_env(:aiur, :build_order_planning_packs)
 
+      if previous_workspace_directory,
+        do: Application.put_env(:aiur, :build_order_workspace_directory, previous_workspace_directory),
+        else: Application.delete_env(:aiur, :build_order_workspace_directory)
+
       if previous_dirs,
         do: System.put_env("AIUR_BUILD_ORDER_DIRS", previous_dirs),
         else: System.delete_env("AIUR_BUILD_ORDER_DIRS")
 
-      File.rm(workspace_path)
-      File.rm(PackPaths.status_path(workspace_path))
+      File.rm_rf(workspace_directory)
       File.rm_rf(state_root)
-      if not workspace_existed?, do: File.rmdir(workspace_directory)
     end)
 
     test = self()
@@ -607,7 +612,7 @@ defmodule Aiur.BuildOrder.PackStatusTest do
     assert {:ok, [^workspace_path]} = PackStatus.refresh_sync(poller)
     assert_receive {:workspace_repository_query, %{"owner" => owner, "name" => name}}
     assert String.downcase("#{owner}/#{name}") == String.downcase(repository)
-    assert File.exists?(PackPaths.status_path(workspace_path))
+    assert %{"operator_annotation" => "keep"} = status_path |> File.read!() |> Jason.decode!()
 
     catalog = PlanningSource.catalog()
     [root] = catalog.data.entries

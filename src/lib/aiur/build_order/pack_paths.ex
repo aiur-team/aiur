@@ -96,7 +96,13 @@ defmodule Aiur.BuildOrder.PackPaths do
 
   defp tag(paths, source), do: Enum.map(paths, &{source, &1})
 
-  defp workspace_directory, do: Path.join([File.cwd!(), ".aiur", "build_orders"])
+  # The override keeps discovery tests out of a real checkout's live sidecars.
+  defp workspace_directory do
+    case Application.get_env(:aiur, :build_order_workspace_directory) do
+      path when is_binary(path) and path != "" -> Path.expand(path)
+      _default -> Path.join([File.cwd!(), ".aiur", "build_orders"])
+    end
+  end
 
   defp state_directory do
     case configured_repository() do
