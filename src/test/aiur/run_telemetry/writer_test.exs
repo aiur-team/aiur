@@ -1,6 +1,7 @@
 defmodule Aiur.RunTelemetry.WriterTest do
   use ExUnit.Case, async: false
 
+  alias Aiur.Events.GithubFirehose
   alias Aiur.RunTelemetry
   alias Aiur.RunTelemetry.{Dataset, Retention, Writer}
 
@@ -580,15 +581,43 @@ defmodule Aiur.RunTelemetry.WriterTest do
       }
     })
 
+    firehose_event = %{
+      "id" => "merged-100",
+      "type" => "PullRequestEvent",
+      "created_at" => "2026-07-11T13:01:00Z",
+      "actor" => %{"login" => "merger"},
+      "repo" => %{"name" => "owner/repo"},
+      "payload" => %{
+        "action" => "closed",
+        "pull_request" => %{
+          "number" => 77,
+          "merged" => true,
+          "merged_at" => "2026-07-11T13:01:00Z",
+          "head" => %{"ref" => "aiur/930-analytics", "sha" => "head-77"}
+        }
+      }
+    }
+
+    assert {:ok, %{count: 1}} =
+             GithubFirehose.poll(
+               request_fun: fn _request -> {:ok, %{status: 200, headers: [{"ETag", ~s("writer-merge")}], body: [firehose_event]}} end,
+               recent_merge_fun: fn _merge -> {:ok, :stored} end,
+               boot_time: ~U[2026-07-11 13:00:00Z] |> DateTime.to_unix()
+             )
+
     assert :ok = Writer.flush(writer)
     records = read_records(path)
-    anchor = List.last(records)
+    [opened, merged] = Enum.take(records, -2)
 
-    assert anchor["kind"] == "lifecycle"
-    assert anchor["timestamp"] == "2026-07-11T13:00:00Z"
-    assert anchor["attributes"]["event"] == "pr_opened"
-    assert anchor["attributes"]["pr_number"] == 77
-    refute inspect(anchor) =~ "do not persist"
+    assert opened["kind"] == "lifecycle"
+    assert opened["timestamp"] == "2026-07-11T13:00:00Z"
+    assert opened["attributes"]["event"] == "pr_opened"
+    assert opened["attributes"]["pr_number"] == 77
+    assert merged["kind"] == "lifecycle"
+    assert merged["timestamp"] == "2026-07-11T13:01:00Z"
+    assert merged["attributes"]["event"] == "pr_merged"
+    assert merged["attributes"]["pr_number"] == 77
+    refute inspect(records) =~ "do not persist"
   end
 
   defp read_records(path) do

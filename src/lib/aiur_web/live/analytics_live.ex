@@ -90,7 +90,7 @@ defmodule AiurWeb.AnalyticsLive do
           <div>
             <span class="an-scope">Scope: <b>this session</b></span>
             <p class="an-scope-note">
-              The current live run only. For a whole Build Order's history across many sessions, open its Build Order page.
+              The current live run only. The Build Order page applies the same current-session boundary to selected members.
             </p>
           </div>
           <div class="an-seg" role="group" aria-label="Time range">

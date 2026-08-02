@@ -114,6 +114,64 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.PresenterTest do
     assert by_id["6"].status == :rework
   end
 
+  test "loads GitHub PR anchors when the durable stream missed them" do
+    enricher = fn repo, tickets, _opts ->
+      send(self(), {:enrich, repo, tickets})
+
+      %{
+        events: [
+          %{
+            id: "pr:77:merged",
+            topic: "ticket.930.pr.merged",
+            source: :github,
+            pr: %{"number" => 77, "merged_at" => "2026-07-11T00:01:03Z"}
+          }
+        ],
+        warnings: []
+      }
+    end
+
+    assert {:ok, model} =
+             Presenter.load(
+               telemetry_file: Path.expand("../../../fixtures/run_telemetry", __DIR__),
+               github_repo: "owner/repo",
+               github_enricher: enricher
+             )
+
+    assert_received {:enrich, "owner/repo", tickets}
+    assert "930" in tickets
+    assert model.kpis.merged == 1
+    assert Map.fetch!(Map.new(model.tickets, &{&1.id, &1}), "930").status == :merged
+  end
+
+  test "uses GitHub anchors supplied by the caller" do
+    event = %{
+      id: "pr:77:merged",
+      topic: "ticket.930.pr.merged",
+      source: :github,
+      pr: %{"number" => 77, "merged_at" => "2026-07-11T00:01:03Z"}
+    }
+
+    assert {:ok, model} =
+             Presenter.load(
+               telemetry_file: Path.expand("../../../fixtures/run_telemetry", __DIR__),
+               github_events: [event]
+             )
+
+    assert model.kpis.merged == 1
+  end
+
+  test "keeps local analytics available when enrichment fails" do
+    assert {:ok, model} =
+             Presenter.load(
+               telemetry_file: Path.expand("../../../fixtures/run_telemetry", __DIR__),
+               github_repo: "owner/repo",
+               github_enricher: fn _repo, _tickets, _opts -> raise "unavailable" end
+             )
+
+    assert model.available?
+  end
+
   test "groups dispatch-time complexity with average wall-clock and emdash-ready empty tiers" do
     breakdown = model().complexity_breakdown
 

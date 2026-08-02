@@ -927,7 +927,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     refute html =~ "CPU burned"
   end
 
-  test "a Build Order whose members have run aggregates their telemetry across sessions", %{first: first} do
+  test "a Build Order whose members have run renders bounded current-session telemetry", %{first: first} do
     put_telemetry_file(@telemetry_fixtures)
 
     # 930 and 931 are the tickets in the two-session telemetry fixture.
@@ -945,6 +945,8 @@ defmodule AiurWeb.BuildOrderLiveTest do
     assert html =~ "Sessions"
     assert html =~ "CPU burned"
     assert html =~ "Member lifecycle"
+    assert html =~ "Current session, scoped to members of this Build Order."
+    assert html =~ "Usage and cost"
     assert html =~ "<svg"
     refute html =~ "No telemetry for this Build Order yet"
   end

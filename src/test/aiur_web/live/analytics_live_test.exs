@@ -162,7 +162,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     {:ok, _view, html} = live(build_conn(), "/analytics")
 
     assert html =~ "this session"
-    assert html =~ "Build Order page"
+    assert html =~ "Build Order page applies the same current-session boundary"
   end
 
   test "charts only the current session, not every session in the durable stream" do

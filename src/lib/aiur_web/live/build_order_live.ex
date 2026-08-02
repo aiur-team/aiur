@@ -249,6 +249,11 @@ defmodule AiurWeb.BuildOrderLive do
           analytics_unavailable={@bo_analytics_unavailable}
           analytics_loading={@bo_analytics_loading?}
           time_domain={@time_domain}
+          usage_scope={@bo_usage_scope}
+          usage_view={@bo_usage_view}
+          usage_announcement={@bo_usage_announcement}
+          usage_drill_down={@bo_usage_drill}
+          usage_drill_trigger={@bo_usage_drill_trigger}
         />
       </section>
 
