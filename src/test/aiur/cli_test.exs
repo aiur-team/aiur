@@ -1,6 +1,8 @@
 defmodule Aiur.CLITest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureIO
+
   alias Aiur.CLI
 
   @ack_flag "--i-understand-that-this-will-be-running-without-the-usual-guardrails"
