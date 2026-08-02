@@ -102,15 +102,15 @@ rg -n -i 'streamdeck|stream deck|dial|pager|logs mode|pause|resume' \
   tests ../test/aiur_web
 ```
 
-**Known coverage state after the merged #1352/#1353 surface:**
+**Known coverage state on the current merged Stream Deck surface:**
 
 | Step | Headless coverage |
 |------|-------------------|
-| 2 | Grid fleet display / bucketing | The browser fixture covers live grid projection and paging; canonical bucketing/sort parity with Units is not asserted headlessly and remains part of the live proof |
-| 3 | Dial drag, wheel, keyboard input | Covered by `streamdeck-emulator.browser.spec.mjs` |
-| 3 | Pager dots / window cycling | Covered by `streamdeck-emulator.browser.spec.mjs` |
+| 2 | Grid fleet display / bucketing | The browser fixture covers live grid projection and paging, and a regression asserts the emulator's rendered key membership and column-major slot order match the Units page after a live fleet-size change. Bucket-class parity with Units is not compared headlessly and remains part of the live proof |
+| 3 | Dial D paging — wheel + pager dots | Covered by `streamdeck-emulator.browser.spec.mjs` (wheel pages the fleet, pager dots follow) |
+| 3 | Dial D paging — drag / keyboard; press D to cycle windows | Not asserted headlessly. The generic drag/wheel/keyboard tests drive dial A, not dial D paging. Tracked as a non-blocking gap on [#1513](https://github.com/aiur-team/aiur/issues/1513); the drag/press behavior itself remains part of the live proof |
 | 4 | Key → cmd mode; pause/resume agent | Key → cmd is covered; writable pause/resume is verified by LiveView control-boundary tests and remains part of the live proof |
-| 5 | Logs mode scroll; hint arrow bounds | Covered by `streamdeck-emulator.browser.spec.mjs` |
+| 5 | Logs mode scroll; hint arrow bounds | Covered by `streamdeck-emulator.browser.spec.mjs` (classified feed events + flattened transcript, both bounds) |
 | 6 | Back-navigation logs → cmd → grid | The browser spec covers the mode sequence; focused-agent preservation across back-navigation is not asserted headlessly and remains part of the live proof |
 
 If any of steps 2–6 still lacks a headless test when you run the proof, record
