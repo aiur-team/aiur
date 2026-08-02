@@ -90,6 +90,16 @@ defmodule Aiur.RecentMergeStoreTest do
     assert [%RecentMerge{ticket_id: nil, observed_run_id: nil}] = RecentMergeStore.list(pid)
   end
 
+  test "normalizes a sparse action=merged event from its top-level timestamp" do
+    event =
+      merged_event()
+      |> put_in(["payload", "action"], "merged")
+      |> update_in(["payload", "pull_request"], &Map.drop(&1, ["merged", "merged_at"]))
+
+    assert {:ok, %RecentMerge{merged_at: ~U[2026-07-12 17:59:00Z], ticket_id: "983"}} =
+             RecentMerge.from_github_event(event, live?: true, run_id: "run-live", now: @now)
+  end
+
   test "repeated rows dedupe while a later live observation appends one enriched snapshot", %{dir: dir} do
     event = merged_event()
 
