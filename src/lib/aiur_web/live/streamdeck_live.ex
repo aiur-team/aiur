@@ -239,7 +239,15 @@ defmodule AiurWeb.StreamdeckLive do
     grid = load_grid()
     usage = StreamdeckProjection.provider_meters()
     previous_identifier = socket.assigns[:selected_identifier]
-    socket = assign_grid(socket, grid, socket.assigns[:grid_column_offset] || 0, usage)
+
+    socket =
+      assign_grid(
+        socket,
+        grid,
+        socket.assigns[:grid_column_offset] || 0,
+        usage,
+        socket.assigns[:grid_dial_value]
+      )
 
     if connected?(socket) and is_binary(previous_identifier) and
          previous_identifier != socket.assigns.selected_identifier do
@@ -249,26 +257,34 @@ defmodule AiurWeb.StreamdeckLive do
     end
   end
 
-  defp assign_grid(socket, grid, column_offset, usage \\ nil) do
+  defp assign_grid(socket, grid, column_offset, usage \\ nil, dial_value \\ nil) do
+    requested_offset = column_offset
     column_offset = clamp_column_offset(column_offset, grid.total)
     page = current_window(column_offset, grid.total)
     usage = usage || StreamdeckProjection.provider_meters()
     visible_agents = Enum.slice(grid.agents, column_offset * grid.rows_per_column, grid.agents_per_page)
 
+    dial_value =
+      cond do
+        is_nil(dial_value) -> dial_value_from_offset(column_offset, grid.total)
+        column_offset != requested_offset -> dial_value_from_offset(column_offset, grid.total)
+        true -> clamp(dial_value, 0, 100)
+      end
+
     socket
     |> assign(:grid, grid)
     |> assign(:grid_page, page)
     |> assign(:grid_column_offset, column_offset)
-    |> assign(:grid_dial_value, dial_value_from_offset(column_offset, grid.total))
+    |> assign(:grid_dial_value, dial_value)
     |> assign(:selected_identifier, selected_identifier(socket, grid, visible_agents))
     |> assign(:keys, key_descriptors(visible_agents))
     |> assign(:screen, screen_descriptors(grid, usage))
-    |> assign(:knobs, knob_descriptors(dial_value_from_offset(column_offset, grid.total), grid.windows))
+    |> assign(:knobs, knob_descriptors(dial_value, grid.windows))
   end
 
   defp assign_grid_dial(socket, value) do
     column_offset = column_offset_from_dial(value, socket.assigns.grid.total)
-    assign_grid(socket, socket.assigns.grid, column_offset)
+    assign_grid(socket, socket.assigns.grid, column_offset, nil, clamp(value, 0, 100))
   end
 
   defp assign_grid_window(socket, page) do
@@ -436,7 +452,7 @@ defmodule AiurWeb.StreamdeckLive do
   defp assign_event_dial(socket, value) do
     logs = socket.assigns.logs
     value = clamp(value, 0, 100)
-    offset = round(value / 100 * logs.events_max_offset)
+    offset = event_offset_from_dial(value, logs.events)
 
     socket
     |> assign(:logs_dial_value, value)
@@ -446,8 +462,9 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp cycle_event_page(socket) do
     logs = socket.assigns.logs
-    offset = if logs.events_offset >= logs.events_max_offset, do: 0, else: min(logs.events_offset + 8, logs.events_max_offset)
-    dial_value = dial_value_from_offset(offset, logs.events_max_offset)
+    max_offset = event_max_offset(logs.events)
+    offset = if logs.events_offset >= max_offset, do: 0, else: min(logs.events_offset + 8, max_offset)
+    dial_value = event_dial_value_from_offset(offset, logs.events)
 
     socket
     |> assign(:logs_dial_value, dial_value)
@@ -465,13 +482,13 @@ defmodule AiurWeb.StreamdeckLive do
   defp append_log_event(logs, line) do
     logs
     |> Map.update!(:events, &(&1 ++ [line]))
-    |> Map.put(:events_max_offset, max(length(logs.events) + 1 - 4, 0))
+    |> Map.put(:events_max_offset, event_max_offset(logs.events ++ [line]))
     |> visible_logs()
   end
 
   defp visible_logs(logs) do
     logs
-    |> Map.put(:events_visible, Enum.slice(logs.events, logs.events_offset, 4))
+    |> Map.put(:events_visible, Enum.slice(logs.events, logs.events_offset, 8))
     |> Map.put(:transcript_visible, Enum.slice(logs.transcript, logs.transcript_offset, 4))
   end
 
@@ -489,7 +506,7 @@ defmodule AiurWeb.StreamdeckLive do
       events: events,
       transcript: transcript,
       events_offset: 0,
-      events_max_offset: max(length(events) - 4, 0),
+      events_max_offset: event_max_offset(events),
       transcript_offset: 0,
       transcript_max_offset: max(length(transcript) - 4, 0)
     }
@@ -521,6 +538,15 @@ defmodule AiurWeb.StreamdeckLive do
   defp clamp_column_offset(offset, agent_count), do: clamp(offset, 0, max_column_offset(agent_count))
 
   defp max_column_offset(agent_count), do: max(0, ceil(agent_count / 2) - 4)
+
+  defp event_max_offset(events), do: max(length(events) - 8, 0)
+
+  defp event_offset_from_dial(value, events), do: round(clamp(value, 0, 100) / 100 * event_max_offset(events))
+
+  defp event_dial_value_from_offset(offset, events) do
+    max_offset = event_max_offset(events)
+    if max_offset == 0, do: 0, else: clamp(round(offset / max_offset * 100), 0, 100)
+  end
 
   defp window_count(agent_count), do: max(1, ceil(agent_count / 8))
 
