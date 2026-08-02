@@ -107,13 +107,14 @@ defmodule Aiur.PromptBuilderTest do
 
   @tag config: @config
   test "routes hardware acceptance criteria to the operator in the agent prompt" do
-    hardware_issue = %Issue{identifier: "HID-1", title: "HID", description: "Read /dev/hidraw0 then press the dial."}
+    hardware_issue = %Issue{identifier: "HID-1", title: "HID", description: "## Acceptance\n- Read /dev/hidraw0 then press the dial."}
 
     prompt = PromptBuilder.build_prompt(hardware_issue)
 
     assert prompt =~ "Hardware-dependent acceptance criteria"
     assert prompt =~ "report_untestable"
     assert prompt =~ "agent:operator-verified"
+    assert prompt =~ "operator-verification-passed"
     assert prompt =~ "CI blind spot"
   end
 

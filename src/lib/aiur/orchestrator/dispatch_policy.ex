@@ -428,7 +428,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     blocker_state = Map.get(blocker, :state) || Map.get(blocker, "state")
 
     not terminal_issue_state?(blocker_state, terminal_states) or
-      HardwareVerification.unresolved?(blocker, Aiur.GitHub.Config.label_prefix())
+      not HardwareVerification.dependency_resolved?(blocker, Aiur.GitHub.Config.label_prefix())
   end
 
   defp blocker_unresolved?(_blocker, _terminal_states), do: true

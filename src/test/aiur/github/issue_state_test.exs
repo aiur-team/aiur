@@ -121,7 +121,7 @@ defmodule Aiur.GitHub.IssueStateTest do
            status: 200,
            body: %{
              "state" => "open",
-             "body" => "Run sudo systemctl restart and press the device button.",
+             "body" => "## Acceptance\n- Run sudo systemctl restart and press the device button.",
              "labels" => [%{"name" => "sym:in-progress"}, %{"name" => "sym:operator-verification-required"}]
            }
          }}
@@ -150,8 +150,8 @@ defmodule Aiur.GitHub.IssueStateTest do
                status: 200,
                body: %{
                  "state" => "open",
-                 "body" => "Verify /dev/hidraw0 works after a replug.",
-                 "labels" => [%{"name" => "sym:in-progress"}, %{"name" => "sym:operator-verified"}]
+                 "body" => "## Acceptance\n- Verify /dev/hidraw0 works after a replug.",
+                 "labels" => [%{"name" => "sym:in-progress"}, %{"name" => "sym:operator-verified"}, %{"name" => "sym:operator-verification-passed"}]
                }
              }}
 
@@ -166,7 +166,7 @@ defmodule Aiur.GitHub.IssueStateTest do
                    "id" => 1,
                    "created_at" => "2026-08-01T00:00:00Z",
                    "actor" => %{"login" => "operator"},
-                   "label" => %{"name" => "sym:operator-verified"}
+                   "label" => %{"name" => "sym:operator-verification-passed"}
                  }
                ]
              }}
@@ -203,7 +203,7 @@ defmodule Aiur.GitHub.IssueStateTest do
                    "id" => 1,
                    "created_at" => "2026-08-01T00:00:00Z",
                    "actor" => %{"login" => "agent-bot"},
-                   "label" => %{"name" => "sym:operator-verified"}
+                   "label" => %{"name" => "sym:operator-verification-passed"}
                  }
                ]
              }}
@@ -214,8 +214,8 @@ defmodule Aiur.GitHub.IssueStateTest do
                status: 200,
                body: %{
                  "state" => "open",
-                 "body" => "Verify /dev/hidraw0 works after a replug.",
-                 "labels" => [%{"name" => "sym:in-progress"}, %{"name" => "sym:operator-verified"}]
+                 "body" => "## Acceptance\n- Verify /dev/hidraw0 works after a replug.",
+                 "labels" => [%{"name" => "sym:in-progress"}, %{"name" => "sym:operator-verified"}, %{"name" => "sym:operator-verification-passed"}]
                }
              }}
         end

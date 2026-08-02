@@ -29,12 +29,15 @@ defmodule Aiur.GitHub.LabelsTest do
       assert "agent:rate-limit-fallback" in labels
       assert "agent:operator-verification-required" in labels
       assert "agent:operator-verified" in labels
+      assert "agent:operator-verification-passed" in labels
+      assert "agent:operator-verification-no-go" in labels
       assert "agent:operator-verification-alerted" in labels
       refute "agent:watch" in Labels.state_labels("agent")
       refute "agent:paused" in Labels.state_labels("agent")
       refute "agent:rate-limit-fallback" in Labels.state_labels("agent")
       assert Labels.marker_suffix?("rate-limit-fallback")
       assert Labels.marker_suffix?("operator-verified")
+      assert Labels.marker_suffix?("operator-verification-passed")
       assert Labels.marker_suffix?("operator-verification-alerted")
     end
 
@@ -120,6 +123,7 @@ defmodule Aiur.GitHub.LabelsTest do
       assert Labels.describe("agent:rate-limit-fallback") == "tracks automatic usage-limit fallback"
       assert Labels.describe("agent:operator-verification-required") == "hardware criteria require operator verification"
       assert Labels.describe("agent:operator-verified") == "operator signed off hardware criteria"
+      assert Labels.describe("agent:operator-verification-passed") == "operator recorded a passing hardware go decision"
       assert Labels.describe("agent:operator-verification-alerted") == "operator hardware-verification alert was delivered"
     end
   end

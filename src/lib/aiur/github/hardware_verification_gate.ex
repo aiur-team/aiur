@@ -15,7 +15,10 @@ defmodule Aiur.GitHub.HardwareVerificationGate do
          HardwareVerification.signoff_required?(issue_body, context.prefix) do
       with :ok <- HardwareVerification.verify_terminal_transition(issue_body, state_name, context.prefix),
            {:ok, events} <- fetch_timeline_events(context),
-           {:ok, actor} <- latest_signoff_actor(events, HardwareVerification.verified_label(context.prefix)),
+           {:ok, verified_actor} <- latest_signoff_actor(events, HardwareVerification.verified_label(context.prefix)),
+           true <- operator_authorized?(verified_actor, context),
+           outcome_label when is_binary(outcome_label) <- HardwareVerification.outcome_label(issue_body, context.prefix),
+           {:ok, actor} <- latest_signoff_actor(events, outcome_label),
            true <- operator_authorized?(actor, context) do
         :ok
       else

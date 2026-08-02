@@ -1,7 +1,7 @@
 defmodule Aiur.GitHub.IssuesTest do
   use Aiur.TestSupport
 
-  alias Aiur.GitHub.Issues
+  alias Aiur.GitHub.{BlockerCache, Issues}
 
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
 
@@ -25,6 +25,8 @@ defmodule Aiur.GitHub.IssuesTest do
       tracker_repo: "owner/repo",
       tracker_label_prefix: "sym"
     )
+
+    BlockerCache.clear()
 
     :ok
   end
@@ -124,6 +126,27 @@ defmodule Aiur.GitHub.IssuesTest do
 
       assert issue.id == "42"
       assert issue.assignee_id == "dev"
+    end
+
+    test "caches blocker hydration and fails closed per issue after a dependency error" do
+      test_pid = self()
+      issue = %{"number" => 42, "title" => "Dependent", "body" => "## Acceptance\n- Verify /dev/hidraw0.", "labels" => [%{"name" => "sym:todo"}], "state" => "open"}
+
+      request_fun = fn %{url: url} ->
+        cond do
+          String.contains?(url, "/dependencies/blocked_by") ->
+            send(test_pid, :dependency_request)
+            {:ok, %{status: 200, body: []}}
+
+          true ->
+            {:ok, %{status: 200, body: issue}}
+        end
+      end
+
+      assert {:ok, [_]} = Issues.fetch_issue_states_by_ids(["42"], request_fun: request_fun, cache_blockers: true, now_ms: 0)
+      assert_received :dependency_request
+      assert {:ok, [_]} = Issues.fetch_issue_states_by_ids(["42"], request_fun: request_fun, cache_blockers: true, now_ms: 1)
+      refute_receive :dependency_request
     end
 
     test "normalizes native dependency blockers with their verification labels" do

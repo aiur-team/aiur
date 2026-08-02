@@ -452,7 +452,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   describe "hardware-verification dispatch routing" do
     test "marks and alerts on a hardware-dependent ticket before dispatch" do
       test_pid = self()
-      issue = %Issue{id: "1483", identifier: "1483", title: "HID probe", description: "Read /dev/hidraw0 then press the dial."}
+      issue = %Issue{id: "1483", identifier: "1483", title: "HID probe", description: "## Acceptance\n- Read /dev/hidraw0 then press the dial."}
 
       assert :ok =
                Dispatcher.route_hardware_verification(issue,
@@ -483,7 +483,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
         id: "2",
         identifier: "2",
         title: "HID",
-        description: "Use /dev/hidraw1",
+        description: "## Acceptance\n- Use /dev/hidraw1",
         labels: ["agent:operator-verification-required", "agent:operator-verification-alerted"]
       }
 

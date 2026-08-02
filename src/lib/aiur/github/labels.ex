@@ -37,6 +37,8 @@ defmodule Aiur.GitHub.Labels do
     @rate_limit_fallback_suffix,
     "operator-verification-required",
     "operator-verified",
+    "operator-verification-passed",
+    "operator-verification-no-go",
     "operator-verification-alerted"
   ]
 
@@ -143,6 +145,8 @@ defmodule Aiur.GitHub.Labels do
   defp state_description("rate-limit-fallback"), do: "tracks automatic usage-limit fallback"
   defp state_description("operator-verification-required"), do: "hardware criteria require operator verification"
   defp state_description("operator-verified"), do: "operator signed off hardware criteria"
+  defp state_description("operator-verification-passed"), do: "operator recorded a passing hardware go decision"
+  defp state_description("operator-verification-no-go"), do: "operator recorded a hardware no-go decision"
   defp state_description("operator-verification-alerted"), do: "operator hardware-verification alert was delivered"
   defp state_description("todo"), do: "ready to be worked"
   defp state_description("in-progress"), do: "agent is working it"

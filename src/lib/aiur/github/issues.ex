@@ -4,8 +4,8 @@ defmodule Aiur.GitHub.Issues do
   """
 
   require Logger
-  alias Aiur.{BuildOrder.Bounded, Config, GitHub, Issue, TrackerIdentity}
-  alias Aiur.GitHub.{DependenciesApi, DispatchAuthorization, Errors, Labels, StatePolicy, Transport}
+  alias Aiur.{Alerts, BuildOrder.Bounded, Config, GitHub, Issue, TrackerIdentity}
+  alias Aiur.GitHub.{BlockerCache, DependenciesApi, DispatchAuthorization, Errors, Labels, StatePolicy, Transport}
 
   @max_issue_response_bytes 65_536
 
@@ -137,7 +137,7 @@ defmodule Aiur.GitHub.Issues do
 
       with {:ok, issues} <-
              fetch_issues_for_each_label(labels, request_fun, token, owner, repo, prefix),
-           {:ok, issues} <- attach_blockers(issues, request_fun, owner, repo, prefix) do
+           {:ok, issues} <- attach_blockers(issues, request_fun, owner, repo, prefix, opts) do
         {:ok, authorize_dispatches(issues, request_fun, token, owner, repo, prefix)}
       end
     end
@@ -153,7 +153,7 @@ defmodule Aiur.GitHub.Issues do
 
       with {:ok, issues} <-
              do_fetch_issues_by_id_list(issue_ids, request_fun, token, owner, repo, prefix),
-           {:ok, issues} <- attach_blockers(issues, request_fun, owner, repo, prefix) do
+           {:ok, issues} <- attach_blockers(issues, request_fun, owner, repo, prefix, opts) do
         {:ok, authorize_dispatches(issues, request_fun, token, owner, repo, prefix)}
       end
     end
@@ -285,20 +285,57 @@ defmodule Aiur.GitHub.Issues do
     }
   end
 
-  defp attach_blockers(issues, request_fun, owner, repo, prefix) do
-    Enum.reduce_while(issues, {:ok, []}, fn issue, {:ok, acc} ->
-      case DependenciesApi.fetch_blocked_by(issue.id, request_fun: request_fun) do
-        {:ok, blockers} when is_list(blockers) ->
-          {:cont, {:ok, [%{issue | blocked_by: Enum.map(blockers, &normalize_blocker(&1, owner, repo, prefix))} | acc]}}
+  defp attach_blockers(issues, request_fun, owner, repo, prefix, opts) do
+    cache? = Keyword.get(opts, :cache_blockers, not Keyword.has_key?(opts, :request_fun))
 
-        {:error, _reason} = error ->
-          {:halt, error}
-      end
-    end)
-    |> case do
-      {:ok, enriched} -> {:ok, Enum.reverse(enriched)}
-      error -> error
+    enriched =
+      Enum.map(issues, fn issue ->
+        blockers = hydrate_blockers(issue, request_fun, cache?, opts)
+        %{issue | blocked_by: Enum.map(blockers, &normalize_blocker(&1, owner, repo, prefix))}
+      end)
+
+    {:ok, enriched}
+  end
+
+  defp hydrate_blockers(issue, request_fun, true, opts) do
+    fetcher = fn -> DependenciesApi.fetch_blocked_by(issue.id, request_fun: request_fun) end
+
+    case BlockerCache.fetch(issue.id, fetcher, Keyword.take(opts, [:now_ms])) do
+      {:ok, blockers} ->
+        blockers
+
+      {:stale, blockers, reason} ->
+        blocker_hydration_warning(issue, reason)
+        blockers
+
+      {:error, reason} ->
+        blocker_hydration_warning(issue, reason)
+        [unknown_blocker()]
     end
+  end
+
+  defp hydrate_blockers(issue, request_fun, false, _opts) do
+    case DependenciesApi.fetch_blocked_by(issue.id, request_fun: request_fun) do
+      {:ok, blockers} when is_list(blockers) ->
+        blockers
+
+      {:error, reason} ->
+        blocker_hydration_warning(issue, reason)
+        [unknown_blocker()]
+    end
+  end
+
+  defp unknown_blocker, do: %{"state" => nil, "labels" => []}
+
+  defp blocker_hydration_warning(issue, reason) do
+    Logger.warning("Failing closed after GitHub dependency hydration failure issue=#{issue.identifier} reason=#{inspect(reason)}")
+
+    Alerts.emit_system("ticket.#{issue.identifier}.operator.blocker_hydration_failed",
+      issue: issue.identifier,
+      reason: "GitHub dependency data could not be refreshed; dispatch is failing closed for this ticket.",
+      needs_attention: true,
+      severity: "warning"
+    )
   end
 
   defp normalize_blocker(blocker, owner, repo, prefix) when is_map(blocker) do
