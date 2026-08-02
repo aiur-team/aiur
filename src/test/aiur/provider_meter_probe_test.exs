@@ -171,18 +171,38 @@ defmodule Aiur.ProviderMeterProbeTest do
            ]
   end
 
-  test "disabled providers are not probed even when their credentials exist" do
-    parent = self()
-
+  test "disabled providers without credentials are not probed" do
     assert [%{provider: :deepseek, observed?: false, reason: :disabled}] =
              ProviderMeterProbe.observe(:deepseek,
+               api_key_fetcher: fn _env -> nil end,
+               openai_compat_request_fun: fn _request ->
+                 flunk("a keyless disabled provider must not issue a balance request")
+               end
+             )
+  end
+
+  # A meter read is read-only observation, not dispatch: a backend the operator
+  # has not yet enabled must still render its balance so the enable decision is
+  # informed. A disabled provider with a configured API key is probed.
+  test "disabled providers with credentials are still probed for their meter" do
+    parent = self()
+
+    assert [%{provider: :deepseek, observed?: true, reason: nil}] =
+             ProviderMeterProbe.observe(:deepseek,
+               observed_at: ~U[2026-08-01 12:00:00Z],
+               deepseek_in_flight: 0,
                api_key_fetcher: fn env ->
                  send(parent, {:credential_requested, env})
                  "secret"
+               end,
+               openai_compat_request_fun: fn request ->
+                 send(parent, {:request, request})
+                 {:ok, %{status: 200, body: %{"balance_infos" => [%{"currency" => "USD", "total_balance" => "7.25"}]}}}
                end
              )
 
-    refute_receive {:credential_requested, _env}
+    assert_receive {:credential_requested, "DEEPSEEK_API_KEY"}
+    assert_receive {:request, %{url: "https://api.deepseek.com/user/balance"}}
   end
 
   test "DeepSeek probe publishes USD prepaid balance and local concurrency" do

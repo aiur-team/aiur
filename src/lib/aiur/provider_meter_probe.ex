@@ -85,8 +85,35 @@ defmodule Aiur.ProviderMeterProbe do
     end
   end
 
+  # A provider is observed when it can actually be observed, which is not the
+  # same as being dispatchable. A balance or credits read is a read-only HTTP
+  # GET: it provisions nothing, so a backend the operator has not yet enabled
+  # for dispatch must still render its meter — seeing the balance is exactly
+  # what a disabled backend's operator needs to decide whether to enable it.
+  # Probing stays bounded to providers that are either dispatchable or carry a
+  # configured API key, so a provider with no credentials is never touched.
   defp provider_probe_enabled?(provider, opts) do
+    dispatchable?(provider, opts) or keyed?(provider, opts)
+  end
+
+  defp dispatchable?(provider, opts) do
     provider |> Atom.to_string() |> then(&MapSet.member?(Keyword.fetch!(opts, :dispatchable_provider_set), &1))
+  end
+
+  # OpenAI-compatible providers resolve their credential env from the registry
+  # (`api_key_env` / `management_api_key_env`). A provider with either env set
+  # can be observed even while it is not dispatchable.
+  defp keyed?(provider, opts) do
+    with %{} = compat <- get_in(CodingAgent.backends(), [Atom.to_string(provider), :openai_compat]),
+         env when is_binary(env) and env != "" <-
+           Map.get(compat, :management_api_key_env) || Map.get(compat, :api_key_env) do
+      case Keyword.get(opts, :api_key_fetcher, &System.get_env/1).(env) do
+        value when is_binary(value) and value != "" -> true
+        _ -> false
+      end
+    else
+      _ -> false
+    end
   end
 
   defp dispatchable_provider_set(opts) do

@@ -158,6 +158,122 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     assert html =~ "88%"
   end
 
+  # A prepaid balance is a :credit window with no percentage. It must render as
+  # a dollar amount, never as a fabricated "0% consumed" bar, and stay visible
+  # next to any rate-limit window the provider also publishes.
+  test "renders a credit balance window as a dollar amount" do
+    meters = %{
+      state: :authorized,
+      cards: [
+        %{
+          provider: :deepseek,
+          provider_label: "DeepSeek",
+          state: :ready,
+          status_label: "Healthy",
+          auth_mode: %{value: :api_key},
+          windows: [
+            %{
+              kind: :credit,
+              name: :credits,
+              coverage_label: "Supported",
+              credits: %{status: :available, label: "Available", amount: 7.25},
+              expires_at: DateTime.add(@now, 5, :minute)
+            },
+            scoped_window("local-concurrency", 0)
+          ]
+        }
+      ]
+    }
+
+    html =
+      render_component(&RunSummaryStrip.run_summary_strip/1, %{
+        run: %{state: :loading},
+        usage: %{state: :ready, providers: %{}},
+        meters: meters,
+        now: @now
+      })
+
+    assert html =~ "$7.25"
+    refute html =~ "0% consumed"
+  end
+
+  # A provider that has never been observed this boot reads :unknown — a bare
+  # N/A — even when the durable dispatch-limits ledger holds its last standing.
+  # The strip must degrade to that durable record with an explicit staleness
+  # label instead of rendering an empty card.
+  test "renders the durable last-known standing with a staleness label" do
+    observed_at = ~U[2026-08-02 08:53:00Z]
+    dir = Path.join(System.tmp_dir!(), "aiur-strip-durable-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    workflow_path = Path.join(dir, ".aiurconfig")
+
+    previous_path = Application.get_env(:aiur, :workflow_file_path)
+
+    try do
+      Application.put_env(:aiur, :workflow_file_path, workflow_path)
+
+      :ok =
+        Aiur.ModelAvailability.observe(
+          "codex",
+          %{weekly: %{used: 100, limit: 100, reset_at: DateTime.add(@now, 86_400, :second) |> DateTime.to_iso8601()}},
+          now: observed_at
+        )
+
+      meters = %{
+        state: :authorized,
+        cards: [
+          %{
+            provider: :codex,
+            provider_label: "Codex",
+            state: :unknown,
+            status_label: "",
+            auth_mode: %{value: :subscription},
+            windows: []
+          }
+        ]
+      }
+
+      html =
+        render_component(&RunSummaryStrip.run_summary_strip/1, %{
+          run: %{state: :loading},
+          usage: %{state: :ready, providers: %{}},
+          meters: meters,
+          now: @now
+        })
+
+      assert html =~ "100% used · as of 08:53 UTC"
+    after
+      restore_app_env(:aiur, :workflow_file_path, previous_path)
+      File.rm_rf(dir)
+    end
+  end
+
+  test "keeps N/A for a provider with no durable record either" do
+    meters = %{
+      state: :authorized,
+      cards: [
+        %{
+          provider: :deepseek,
+          provider_label: "DeepSeek",
+          state: :unknown,
+          status_label: "",
+          auth_mode: %{value: :api_key},
+          windows: []
+        }
+      ]
+    }
+
+    html =
+      render_component(&RunSummaryStrip.run_summary_strip/1, %{
+        run: %{state: :loading},
+        usage: %{state: :ready, providers: %{}},
+        meters: meters,
+        now: @now
+      })
+
+    assert html =~ "N/A"
+  end
+
   test "hides spend for subscription accounts" do
     meters =
       update_in(meters_view(), [:cards], fn cards ->
@@ -273,5 +389,13 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
       meter: %{kind: :exact, now: percent},
       resets_at: DateTime.add(@now, 30, :minute)
     }
+  end
+
+  defp restore_app_env(app, key, previous) do
+    if is_nil(previous) do
+      Application.delete_env(app, key)
+    else
+      Application.put_env(app, key, previous)
+    end
   end
 end
