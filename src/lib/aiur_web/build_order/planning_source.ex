@@ -300,10 +300,10 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
     if required? do
       cond do
         not projection_complete? and projection_present? ->
-          %{snapshot | state: :stale, complete?: false, failure: :pack_status_incomplete}
+          %{snapshot | state: :stale, complete?: false, failure: snapshot.failure || :pack_status_incomplete}
 
         not projection_complete? ->
-          %{snapshot | state: :unavailable, complete?: false, failure: :pack_status_incomplete}
+          %{snapshot | state: :unavailable, complete?: false, failure: snapshot.failure || :pack_status_incomplete}
 
         snapshot.state == :unavailable and projection_present? ->
           %{snapshot | state: :stale}
@@ -385,7 +385,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
       {nil, :completed, _pack_completed?} -> {"CLOSED", "COMPLETED"}
       {nil, :cancelled, _pack_completed?} -> {"CLOSED", "NOT_PLANNED"}
       {nil, _membership, true} -> {"CLOSED", "COMPLETED"}
-      _other -> {"OPEN", nil}
+      _other -> {:unknown, :unknown}
     end
   end
 

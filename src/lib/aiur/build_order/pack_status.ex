@@ -12,11 +12,14 @@ defmodule Aiur.BuildOrder.PackStatus do
   boundary and rendered 0% for work that was already merged.
 
   Each cycle reads the promoted ticket numbers out of each pack manifest,
-  resolves their tracker state in one batched GraphQL call per 50 members, and
-  merges the result into `status.json`. Unrelated keys in that file (`state`,
-  `completed_at`, operator annotations) are preserved. A failed or partial
-  fetch leaves the previous projection untouched — a stale completion fact is
-  strictly better than silently reverting a merged ticket to 0%.
+  deduplicates them per repository, and resolves their tracker state in batches
+  of 50 within the configured cycle-wide planning-call budget. The result is
+  merged into `status.json`; unrelated keys in that file (`state`,
+  `completed_at`, operator annotations) are preserved. A failed, partial, or
+  budget-exhausted fetch leaves the affected projection untouched — a stale
+  completion fact is strictly better than silently reverting a merged ticket
+  to 0%. When demand exceeds one cycle's budget, later cycles rotate the first
+  repository and member chunk so later demand also receives capacity.
   """
 
   use GenServer
@@ -25,7 +28,7 @@ defmodule Aiur.BuildOrder.PackStatus do
 
   alias Aiur.BuildOrder.{Lifecycle, PackPaths, ProviderHealth}
   alias Aiur.Fs
-  alias Aiur.GitHub.Transport
+  alias Aiur.GitHub.{Config, Transport}
 
   @default_interval :timer.minutes(5)
   @chunk_size 50
@@ -70,6 +73,7 @@ defmodule Aiur.BuildOrder.PackStatus do
       request_fun: Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
       token_fun: Keyword.get(opts, :token_fun, &Transport.require_token/0),
       paths_fun: Keyword.get(opts, :paths_fun, &PackPaths.planning/0),
+      planning_call_budget: Keyword.get_lazy(opts, :planning_call_budget, &Config.planning_call_budget/0),
       now_fun: Keyword.get(opts, :now_fun, &DateTime.utc_now/0),
       health: unavailable_health(System.unique_integer([:positive, :monotonic]))
     }
@@ -130,11 +134,11 @@ defmodule Aiur.BuildOrder.PackStatus do
         {:ok, _paths, changed?} ->
           {successful_health(previous, attempted_at, changed?), changed? or previous.state != :healthy}
 
-        {:error, _reason, changed?} ->
-          {failed_health(previous, attempted_at, changed?), true}
+        {:error, reason, changed?} ->
+          {failed_health(previous, attempted_at, changed?, failure(reason)), true}
 
-        {:error, _reason} ->
-          {failed_health(previous, attempted_at, false), true}
+        {:error, reason} ->
+          {failed_health(previous, attempted_at, false, failure(reason)), true}
       end
 
     if publish?, do: broadcast_changed(health)
@@ -154,14 +158,14 @@ defmodule Aiur.BuildOrder.PackStatus do
     )
   end
 
-  defp failed_health(previous, attempted_at, changed?) do
+  defp failed_health(previous, attempted_at, changed?, failure) do
     generation = if changed?, do: next_generation(previous.generation), else: previous.generation
 
     ProviderHealth.new(generation, failed_state(previous), false,
       observed_at: previous.last_success_at,
       last_success_at: previous.last_success_at,
       last_attempt_at: attempted_at,
-      failure: :pack_status_refresh_failed,
+      failure: failure,
       retry_count: previous.retry_count + 1
     )
   end
@@ -174,6 +178,15 @@ defmodule Aiur.BuildOrder.PackStatus do
   defp unavailable_health(generation \\ :unknown) do
     ProviderHealth.new(generation, :unavailable, false, failure: :pack_status_unavailable)
   end
+
+  defp failure({:pack_refresh_failed, errors}) when is_list(errors) do
+    if :planning_call_budget_exhausted in errors,
+      do: :planning_call_budget_exhausted,
+      else: :pack_status_refresh_failed
+  end
+
+  defp failure(:planning_call_budget_exhausted), do: :planning_call_budget_exhausted
+  defp failure(_reason), do: :pack_status_refresh_failed
 
   defp broadcast_changed(health) do
     if Process.whereis(Aiur.PubSub) do
@@ -190,7 +203,7 @@ defmodule Aiur.BuildOrder.PackStatus do
     case state.token_fun.() do
       {:ok, token} ->
         state.paths_fun.()
-        |> Enum.map(&reconcile_pack(&1, token, state))
+        |> reconcile_packs(token, state)
         |> reconcile_result()
 
       {:error, reason} ->
@@ -205,20 +218,87 @@ defmodule Aiur.BuildOrder.PackStatus do
     kind, reason -> {:error, {kind, reason}, false}
   end
 
-  defp reconcile_pack(pack_path, token, state) do
-    case pack_facts(pack_path) do
-      {:ok, repository, numbers} -> reconcile_members(numbers, repository, pack_path, token, state)
-      error -> {:error, {pack_path, error}}
+  defp reconcile_packs(paths, token, state) do
+    facts =
+      Enum.map(paths, fn pack_path ->
+        case pack_facts(pack_path) do
+          {:ok, repository, numbers} -> {:ok, %{path: pack_path, repository: repository, numbers: numbers}}
+          error -> {:error, {pack_path, error}}
+        end
+      end)
+
+    fetched = fetch_repositories(facts, token, state)
+
+    Enum.map(facts, fn
+      {:ok, fact} -> reconcile_fact(fact, Map.fetch!(fetched, fact.repository), state)
+      {:error, _reason} = error -> error
+    end)
+  end
+
+  defp fetch_repositories(facts, token, state) do
+    facts
+    |> Enum.flat_map(fn
+      {:ok, fact} -> [fact]
+      {:error, _reason} -> []
+    end)
+    |> Enum.group_by(& &1.repository)
+    |> Enum.sort_by(fn {repository, _facts} -> repository end)
+    |> rotate(state.health.retry_count)
+    |> Enum.reduce({%{}, state.planning_call_budget}, fn
+      {repository, _repository_facts}, {fetched, 0} ->
+        {Map.put(fetched, repository, %{lifecycles: %{}, error: :planning_call_budget_exhausted}), 0}
+
+      {repository, repository_facts}, {fetched, budget} ->
+        numbers =
+          repository_facts
+          |> Enum.flat_map(& &1.numbers)
+          |> Enum.uniq()
+          |> Enum.sort()
+          |> rotate(state.health.retry_count * state.planning_call_budget * @chunk_size)
+
+        {result, remaining_budget} = fetch_repository(numbers, repository, token, state, budget)
+        {Map.put(fetched, repository, result), remaining_budget}
+    end)
+    |> elem(0)
+  end
+
+  defp fetch_repository(numbers, repository, token, state, budget) do
+    numbers
+    |> Stream.chunk_every(@chunk_size)
+    |> Enum.reduce_while({%{lifecycles: %{}, error: nil}, budget}, fn
+      _chunk, {result, 0} ->
+        {:halt, {%{result | error: :planning_call_budget_exhausted}, 0}}
+
+      chunk, {result, remaining_budget} ->
+        case fetch_chunk(chunk, repository, token, state) do
+          {:ok, lifecycles} ->
+            {:cont, {%{result | lifecycles: Map.merge(result.lifecycles, lifecycles)}, remaining_budget - 1}}
+
+          {:error, reason} ->
+            {:halt, {%{result | error: reason}, remaining_budget - 1}}
+        end
+    end)
+  end
+
+  defp reconcile_fact(%{numbers: []}, _fetched, _state), do: {:ok, nil, false}
+
+  defp reconcile_fact(fact, fetched, state) do
+    member_keys = Enum.map(fact.numbers, &Integer.to_string/1)
+
+    if Enum.all?(member_keys, &Map.has_key?(fetched.lifecycles, &1)) do
+      with {:ok, changed?} <- write_status(fact.path, Map.take(fetched.lifecycles, member_keys), state) do
+        {:ok, fact.path, changed?}
+      end
+    else
+      {:error, fetched.error || :incomplete_graphql_response}
     end
   end
 
-  defp reconcile_members([], _repository, _pack_path, _token, _state), do: {:ok, nil, false}
+  defp rotate([], _offset), do: []
 
-  defp reconcile_members(numbers, repository, pack_path, token, state) do
-    with {:ok, lifecycles} <- fetch_lifecycles(numbers, repository, token, state),
-         {:ok, changed?} <- write_status(pack_path, lifecycles, state) do
-      {:ok, pack_path, changed?}
-    end
+  defp rotate(items, offset) do
+    {before, after_offset} = Enum.split(items, rem(offset, length(items)))
+    after_offset ++ before
   end
 
   defp reconcile_result(results) do
@@ -256,17 +336,6 @@ defmodule Aiur.BuildOrder.PackStatus do
 
   defp ticket_number(%{"ticket" => number}) when is_integer(number) and number > 0, do: [number]
   defp ticket_number(_ticket), do: []
-
-  defp fetch_lifecycles(numbers, repository, token, state) do
-    numbers
-    |> Enum.chunk_every(@chunk_size)
-    |> Enum.reduce_while({:ok, %{}}, fn chunk, {:ok, acc} ->
-      case fetch_chunk(chunk, repository, token, state) do
-        {:ok, lifecycles} -> {:cont, {:ok, Map.merge(acc, lifecycles)}}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-  end
 
   defp fetch_chunk(numbers, {owner, repo}, token, state) do
     query = issue_state_query(numbers)

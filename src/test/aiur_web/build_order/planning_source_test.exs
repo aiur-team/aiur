@@ -154,22 +154,22 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert hydrated.generation > 8
     refute hydrated.data.planning?
 
-    [closed, open] = hydrated.data.members
+    [closed, unknown] = hydrated.data.members
     assert closed.identity.identifier == "4101"
     assert closed.identity.provider_id == "I_live_4101"
     assert closed.lifecycle.state == :closed
-    assert open.identity.identifier == "4102"
-    assert open.lifecycle.state == :open
+    assert unknown.identity.identifier == "4102"
+    assert unknown.lifecycle.state == :unknown
 
     model = BuildOrderPresenter.present(hydrated, :unavailable, :unavailable)
     assert Map.keys(model.summary.lanes) |> Enum.sort() == ["dashboard-ui", "runtime"]
     assert Enum.map(model.phase_groups, & &1.key) == [2, 3]
 
     grid = BuildOrderGridModel.build(model, nil)
-    assert grid.overall_pct == 60
+    assert grid.overall_pct == nil
     assert Enum.find(grid.columns, &(&1.lane == "runtime")).pct == 100
     assert Enum.find(grid.waves, &(&1.phase == 2)).pct == 100
-    assert Enum.find(grid.waves, &(&1.phase == 3)).pct == 0
+    assert Enum.find(grid.waves, &(&1.phase == 3)).pct == nil
   end
 
   test "does not count cancelled members as completed progress" do
@@ -199,7 +199,9 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert cancelled.lifecycle.state_reason == :not_planned
 
     model = BuildOrderPresenter.present(snapshot, :unavailable, :unavailable)
-    assert BuildOrderGridModel.build(model, nil).overall_pct == 0
+    grid = BuildOrderGridModel.build(model, nil)
+    assert grid.overall_pct == nil
+    assert Enum.find(grid.columns, &(&1.lane == "runtime")).pct == 0
   end
 
   test "uses status.json for canonical members when no live membership exists" do
@@ -313,7 +315,20 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     snapshot = PlanningSource.catalog()
     assert snapshot.health.state == :unavailable
     refute snapshot.health.complete?
-    assert snapshot.health.failure == :pack_status_incomplete
+    assert snapshot.health.failure == :pack_status_unavailable
+
+    [root] = snapshot.data.entries
+    assert root.progress == nil
+    {:ok, selected} = PlanningSource.demand(root.identity)
+    [promoted, draft] = selected.data.members
+
+    assert promoted.lifecycle.state == :unknown
+    assert promoted.lifecycle.state_reason == :unknown
+    assert draft.lifecycle.state == :open
+
+    grid = selected |> BuildOrderPresenter.present(:unavailable, :unavailable) |> BuildOrderGridModel.build(nil)
+    assert grid.overall_pct == nil
+    refute Enum.find(grid.cards, &(&1.id == "4101")).has_progress
   end
 
   test "downgrades healthy PackStatus when a promoted member lacks a projection" do
@@ -332,6 +347,41 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert snapshot.health.state == :stale
     refute snapshot.health.complete?
     assert snapshot.health.failure == :pack_status_incomplete
+
+    [root] = snapshot.data.entries
+    assert root.progress == nil
+    {:ok, selected} = PlanningSource.demand(root.identity)
+    [completed, missing] = selected.data.members
+
+    assert completed.lifecycle.state == :closed
+    assert missing.lifecycle.state == :unknown
+    assert missing.lifecycle.state_reason == :unknown
+
+    grid = selected |> BuildOrderPresenter.present(:unavailable, :unavailable) |> BuildOrderGridModel.build(nil)
+    assert grid.overall_pct == nil
+    assert Enum.find(grid.waves, &(&1.phase == 2)).pct == 100
+    assert Enum.find(grid.waves, &(&1.phase == 3)).pct == nil
+  end
+
+  test "preserves PackStatus budget exhaustion through an incomplete projection" do
+    directory = Path.join(System.tmp_dir!(), "planning-source-status-budget-#{System.unique_integer([:positive])}")
+    path = Path.join(directory, "build-order.json")
+
+    File.mkdir_p!(directory)
+    File.write!(path, @canonical_pack)
+    File.write!(Path.join(directory, "status.json"), ~s({"members":{"4101":"completed"}}))
+    Application.put_env(:aiur, :build_order_planning_pack, path)
+
+    Application.put_env(:aiur, :build_order_pack_status_health_snapshot, fn ->
+      ProviderHealth.new(2, :stale, false, failure: :planning_call_budget_exhausted)
+    end)
+
+    on_exit(fn -> File.rm_rf(directory) end)
+
+    snapshot = PlanningSource.catalog()
+    assert snapshot.health.state == :stale
+    assert snapshot.health.failure == :planning_call_budget_exhausted
+    refute snapshot.health.complete?
   end
 
   test "ignores a malformed status members shape" do

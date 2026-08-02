@@ -111,8 +111,8 @@ defmodule Aiur.BuildOrder.PackStatusTest do
         else: Application.delete_env(:aiur, :build_order_planning_membership_snapshot)
     end)
 
-    # Before the projection exists every merged member reads as 0%.
-    assert overall_percent() == 0
+    # Before the projection exists tracker completion is unknown, never 0%.
+    assert overall_percent() == nil
 
     poller =
       start_poller(
@@ -275,13 +275,7 @@ defmodule Aiur.BuildOrder.PackStatusTest do
     test = self()
 
     request_fun = fn %{method: :post, body: %{"query" => query}} ->
-      numbers =
-        ~r/i(\d+): issue\(number: (\d+)\)/
-        |> Regex.scan(query, capture: :all_but_first)
-        |> Enum.map(fn [alias_number, issue_number] ->
-          assert alias_number == issue_number
-          String.to_integer(issue_number)
-        end)
+      numbers = query_numbers(query)
 
       send(test, {:query_numbers, numbers})
 
@@ -305,6 +299,107 @@ defmodule Aiur.BuildOrder.PackStatusTest do
     assert map_size(members) == 51
   end
 
+  test "bounds a multi-pack refresh to the cycle-wide planning call budget", context do
+    paths =
+      Enum.map(0..2, fn pack_index ->
+        numbers = Enum.to_list((pack_index * 100 + 1)..(pack_index * 100 + 100))
+        pack_path = Path.join([Path.dirname(Path.dirname(context.pack_path)), "budget-#{pack_index}", "build-order.json"])
+        File.mkdir_p!(Path.dirname(pack_path))
+        File.write!(pack_path, Jason.encode!(%{"repository" => "acme/widgets", "tickets" => Enum.map(numbers, &%{"ticket" => &1})}))
+        pack_path
+      end)
+
+    retained_path = paths |> List.last() |> PackPaths.status_path()
+    retained = ~s({"members":{"201":"completed"}})
+    File.write!(retained_path, retained)
+    test = self()
+
+    request_fun = fn %{method: :post, body: %{"query" => query}} ->
+      numbers = query_numbers(query)
+
+      send(test, {:budget_query, numbers})
+
+      issues =
+        Map.new(numbers, fn number ->
+          {"i#{number}", %{"number" => number, "state" => "OPEN", "stateReason" => nil}}
+        end)
+
+      {:ok, %{status: 200, body: %{"data" => %{"repository" => issues}}}}
+    end
+
+    poller =
+      start_supervised!({PackStatus, name: nil, poll_on_start: false, paths_fun: fn -> paths end, planning_call_budget: 4, token_fun: fn -> {:ok, "token"} end, request_fun: request_fun})
+
+    assert {:error, {:pack_refresh_failed, errors}} = PackStatus.refresh_sync(poller)
+    assert :planning_call_budget_exhausted in errors
+
+    queries = for _ <- 1..4, do: receive(do: ({:budget_query, numbers} -> numbers))
+    assert Enum.map(queries, &length/1) == [50, 50, 50, 50]
+    refute_receive {:budget_query, _numbers}
+
+    assert File.exists?(PackPaths.status_path(Enum.at(paths, 0)))
+    assert File.exists?(PackPaths.status_path(Enum.at(paths, 1)))
+    assert File.read!(retained_path) == retained
+
+    assert %ProviderHealth{state: :unavailable, complete?: false, failure: :planning_call_budget_exhausted} =
+             PackStatus.health(poller)
+
+    assert {:error, {:pack_refresh_failed, _errors}} = PackStatus.refresh_sync(poller)
+    second_cycle = for _ <- 1..4, do: receive(do: ({:budget_query, numbers} -> numbers))
+    assert List.flatten(second_cycle) |> Enum.take(100) == Enum.to_list(201..300)
+    refute File.read!(retained_path) == retained
+  end
+
+  test "deduplicates overlapping members across packs in one repository", context do
+    base = Path.dirname(Path.dirname(context.pack_path))
+    first = write_pack(base, "dedupe-first", "acme/widgets", [1, 2])
+    second = write_pack(base, "dedupe-second", "acme/widgets", [2, 3])
+    test = self()
+
+    request_fun = fn %{body: %{"query" => query}} ->
+      numbers = query_numbers(query)
+      send(test, {:dedupe_query, numbers})
+      issues = Map.new(numbers, &{"i#{&1}", %{"number" => &1, "state" => "OPEN", "stateReason" => nil}})
+      {:ok, %{status: 200, body: %{"data" => %{"repository" => issues}}}}
+    end
+
+    poller = start_pack_poller([first, second], request_fun, planning_call_budget: 4)
+
+    assert {:ok, [^first, ^second]} = PackStatus.refresh_sync(poller)
+    assert_receive {:dedupe_query, [1, 2, 3]}
+    refute_receive {:dedupe_query, _numbers}
+    assert context_members(first) |> Map.keys() |> Enum.sort() == ["1", "2"]
+    assert context_members(second) |> Map.keys() |> Enum.sort() == ["2", "3"]
+  end
+
+  test "rotates exhausted budget across repositories on later cycles", context do
+    base = Path.dirname(Path.dirname(context.pack_path))
+    first = write_pack(base, "repo-first", "acme/widgets", [1])
+    second = write_pack(base, "repo-second", "other/project", [2])
+    retained_path = PackPaths.status_path(second)
+    retained = ~s({"members":{"2":"completed"}})
+    File.write!(retained_path, retained)
+    test = self()
+
+    request_fun = fn %{body: %{"query" => query, "variables" => variables}} ->
+      [number] = query_numbers(query)
+      send(test, {:repository_query, variables, number})
+      issues = %{"i#{number}" => %{"number" => number, "state" => "OPEN", "stateReason" => nil}}
+      {:ok, %{status: 200, body: %{"data" => %{"repository" => issues}}}}
+    end
+
+    poller = start_pack_poller([first, second], request_fun, planning_call_budget: 1)
+
+    assert {:error, _reason} = PackStatus.refresh_sync(poller)
+    assert_receive {:repository_query, %{"owner" => "acme", "name" => "widgets"}, 1}
+    assert File.read!(retained_path) == retained
+
+    assert {:error, _reason} = PackStatus.refresh_sync(poller)
+    assert_receive {:repository_query, %{"owner" => "other", "name" => "project"}, 2}
+    refute File.read!(retained_path) == retained
+    refute_receive {:repository_query, _variables, _number}
+  end
+
   test "an invalid lifecycle in the second chunk preserves the projection", context do
     tickets = Enum.map(1..51, &%{"ticket" => &1})
     File.write!(context.pack_path, Jason.encode!(%{"repository" => "acme/widgets", "tickets" => tickets}))
@@ -312,10 +407,7 @@ defmodule Aiur.BuildOrder.PackStatusTest do
     File.write!(context.status_path, previous)
 
     request_fun = fn %{method: :post, body: %{"query" => query}} ->
-      numbers =
-        ~r/i(\d+): issue\(number: (\d+)\)/
-        |> Regex.scan(query, capture: :all_but_first)
-        |> Enum.map(fn [_alias_number, issue_number] -> String.to_integer(issue_number) end)
+      numbers = query_numbers(query)
 
       issues =
         Map.new(numbers, fn number ->
@@ -330,6 +422,26 @@ defmodule Aiur.BuildOrder.PackStatusTest do
 
     assert {:error, {:pack_refresh_failed, [incomplete_graphql_response: ["51"]]}} = PackStatus.refresh_sync(poller)
     assert File.read!(context.status_path) == previous
+  end
+
+  test "a first-chunk failure halts later requests and preserves the projection", context do
+    tickets = Enum.map(1..51, &%{"ticket" => &1})
+    File.write!(context.pack_path, Jason.encode!(%{"repository" => "acme/widgets", "tickets" => tickets}))
+    previous = ~s({"members":{"1":"completed"}})
+    File.write!(context.status_path, previous)
+    test = self()
+
+    poller =
+      start_poller(context.pack_path, fn _request ->
+        send(test, :failed_chunk_request)
+        {:ok, %{status: 502, body: %{}}}
+      end)
+
+    assert {:error, _reason} = PackStatus.refresh_sync(poller)
+    assert_receive :failed_chunk_request
+    refute_receive :failed_chunk_request
+    assert File.read!(context.status_path) == previous
+    assert PackStatus.health(poller).state == :unavailable
   end
 
   test "an unknown closed reason preserves the projection", context do
@@ -577,6 +689,33 @@ defmodule Aiur.BuildOrder.PackStatusTest do
   end
 
   defp overall_percent, do: grid().overall_pct
+
+  defp query_numbers(query) do
+    ~r/i(\d+): issue\(number: (\d+)\)/
+    |> Regex.scan(query, capture: :all_but_first)
+    |> Enum.map(fn [alias_number, issue_number] ->
+      assert alias_number == issue_number
+      String.to_integer(issue_number)
+    end)
+  end
+
+  defp write_pack(base, name, repository, numbers) do
+    path = Path.join([base, name, "build-order.json"])
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, Jason.encode!(%{"repository" => repository, "tickets" => Enum.map(numbers, &%{"ticket" => &1})}))
+    path
+  end
+
+  defp start_pack_poller(paths, request_fun, opts) do
+    start_supervised!(
+      {PackStatus,
+       name: nil, poll_on_start: false, paths_fun: fn -> paths end, planning_call_budget: Keyword.fetch!(opts, :planning_call_budget), token_fun: fn -> {:ok, "token"} end, request_fun: request_fun}
+    )
+  end
+
+  defp context_members(pack_path) do
+    pack_path |> PackPaths.status_path() |> File.read!() |> Jason.decode!() |> Map.fetch!("members")
+  end
 
   defp await_task(task) do
     monitor = Process.monitor(task)
