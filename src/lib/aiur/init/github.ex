@@ -32,7 +32,11 @@ defmodule Aiur.Init.GitHub do
   @doc "Checks that the target repository can merge an Aiur-created PR."
   @spec check_ci_readiness(map()) :: {:ok, CiReadiness.result()} | {:error, term()}
   def check_ci_readiness(%{kind: "github", repo: repo} = tracker) when is_binary(repo) do
-    CiReadiness.check(repo: repo, base_branch: Map.get(tracker, :base_branch, "main"))
+    CiReadiness.check(
+      repo: repo,
+      base_branch: Map.get(tracker, :base_branch, "main"),
+      token: System.get_env(CiReadiness.operator_token_env())
+    )
   end
 
   def check_ci_readiness(%{kind: "github"}), do: {:error, :missing_github_repo}
@@ -65,8 +69,8 @@ defmodule Aiur.Init.GitHub do
   defp resolve_repo_for_readiness(tracker, deps), do: Map.put(tracker, :repo, deps.detect_repo.())
 
   defp readiness_error_message({:github, :http, %{status: 403}}) do
-    "Repository CI readiness could not be inspected: GitHub denied access to branch protection or rulesets. " <>
-      "Grant the token Administration: Read-only repository permission, then run aiur init again."
+    "Repository CI readiness could not be inspected: GitHub denied access to the readiness endpoints. " <>
+      "Run init with an operator-only #{CiReadiness.operator_token_env()} that has Contents, Actions, and Administration: Read-only; do not grant those permissions to GITHUB_TOKEN."
   end
 
   defp readiness_error_message(reason), do: "Repository CI readiness could not be inspected: #{inspect(reason)}"

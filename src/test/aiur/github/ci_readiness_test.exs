@@ -71,6 +71,15 @@ defmodule Aiur.GitHub.CiReadinessTest do
     assert CiReadiness.evaluate("release/2026", [{".github/workflows/ci.yml", workflow}], ["ci / required"]).ready?
   end
 
+  test "honors later negative branch patterns" do
+    workflow = String.replace(@workflow, "branches: [develop]", "branches: [\"**\", \"!develop\"]")
+
+    readiness = CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", workflow}], ["ci / required"])
+
+    refute readiness.ready?
+    assert :no_pr_workflow in readiness.issues
+  end
+
   test "rejects conditional pull request workflows as universal gates" do
     workflow =
       String.replace(
@@ -144,6 +153,7 @@ defmodule Aiur.GitHub.CiReadinessTest do
         url =~ "/branches/feature%2F%23%26gate" -> {:ok, %{status: 200, body: %{}}}
         String.ends_with?(url, "/repos/owner/repo") -> {:ok, %{status: 200, body: %{"default_branch" => branch}}}
         url =~ "/contents/.github/workflows?ref=feature%2F%23%26gate" -> {:ok, %{status: 200, body: []}}
+        url =~ "/actions/workflows?per_page=100" -> {:ok, %{status: 200, body: %{"workflows" => []}}}
         url =~ "/protection" -> {:ok, %{status: 404, body: %{}}}
         url =~ "/rulesets" -> {:ok, %{status: 200, body: []}}
         true -> flunk("unexpected URL: #{url}")
@@ -167,17 +177,65 @@ defmodule Aiur.GitHub.CiReadinessTest do
 
     request_fun = fn %{url: url} ->
       cond do
-        String.ends_with?(url, "/branches/develop") -> {:ok, %{status: 200, body: %{}}}
-        String.ends_with?(url, "/repos/owner/repo") -> {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}
-        url =~ "/contents/.github/workflows" -> {:ok, %{status: 200, body: [%{"type" => "file", "path" => ".github/workflows/ci.yml", "url" => "workflow-url"}]}}
-        url == "workflow-url?ref=develop" -> {:ok, %{status: 200, body: %{"content" => encoded}}}
-        url =~ "/protection" -> {:ok, %{status: 200, body: %{"required_status_checks" => %{"contexts" => ["ci / required"]}}}}
-        url =~ "/rulesets" -> {:ok, %{status: 200, body: []}}
+        String.ends_with?(url, "/branches/develop") ->
+          {:ok, %{status: 200, body: %{}}}
+
+        String.ends_with?(url, "/repos/owner/repo") ->
+          {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}
+
+        url =~ "/actions/workflows?per_page=100" ->
+          {:ok, %{status: 200, body: %{"workflows" => [%{"path" => ".github/workflows/ci.yml", "state" => "active"}]}}}
+
+        url =~ "/contents/.github/workflows" ->
+          {:ok, %{status: 200, body: [%{"type" => "file", "path" => ".github/workflows/ci.yml", "url" => "workflow-url"}]}}
+
+        url == "workflow-url?ref=develop" ->
+          {:ok, %{status: 200, body: %{"content" => encoded}}}
+
+        url =~ "/protection" ->
+          {:ok, %{status: 200, body: %{"required_status_checks" => %{"contexts" => ["ci / required"]}}}}
+
+        url =~ "/rulesets" ->
+          {:ok, %{status: 200, body: []}}
       end
     end
 
     assert {:ok, %{ready?: true, required_checks: ["ci / required"]}} =
              CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop")
+  end
+
+  test "does not count a manually disabled workflow as a CI gate" do
+    encoded = Base.encode64(@workflow)
+
+    request_fun = fn %{url: url} ->
+      cond do
+        String.ends_with?(url, "/branches/develop") ->
+          {:ok, %{status: 200, body: %{}}}
+
+        String.ends_with?(url, "/repos/owner/repo") ->
+          {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}
+
+        url =~ "/actions/workflows?per_page=100" ->
+          {:ok, %{status: 200, body: %{"workflows" => [%{"path" => ".github/workflows/ci.yml", "state" => "disabled_manually"}]}}}
+
+        url =~ "/contents/.github/workflows" ->
+          {:ok, %{status: 200, body: [%{"type" => "file", "path" => ".github/workflows/ci.yml", "url" => "workflow-url"}]}}
+
+        url == "workflow-url?ref=develop" ->
+          {:ok, %{status: 200, body: %{"content" => encoded}}}
+
+        url =~ "/protection" ->
+          {:ok, %{status: 200, body: %{"required_status_checks" => %{"contexts" => ["ci / required"]}}}}
+
+        url =~ "/rulesets" ->
+          {:ok, %{status: 200, body: []}}
+      end
+    end
+
+    assert {:ok, %{ready?: false, issues: issues}} =
+             CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop")
+
+    assert :no_pr_workflow in issues
   end
 
   test "combines branch protection and applicable ruleset checks" do
@@ -190,6 +248,9 @@ defmodule Aiur.GitHub.CiReadinessTest do
 
         String.ends_with?(url, "/repos/owner/repo") ->
           {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}
+
+        url =~ "/actions/workflows?per_page=100" ->
+          {:ok, %{status: 200, body: %{"workflows" => [%{"path" => ".github/workflows/ci.yml", "state" => "active"}]}}}
 
         url =~ "/contents/.github/workflows" ->
           {:ok, %{status: 200, body: [%{"type" => "file", "path" => ".github/workflows/ci.yml", "url" => "workflow-url"}]}}
@@ -255,6 +316,9 @@ defmodule Aiur.GitHub.CiReadinessTest do
         String.ends_with?(url, "/repos/owner/repo") ->
           {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}
 
+        url =~ "/actions/workflows?per_page=100" ->
+          {:ok, %{status: 200, body: %{"workflows" => [%{"path" => ".github/workflows/ci.yml", "state" => "active"}]}}}
+
         url =~ "/contents/.github/workflows" ->
           {:ok, %{status: 200, body: [%{"type" => "file", "path" => ".github/workflows/ci.yml", "url" => "workflow-url"}]}}
 
@@ -294,6 +358,9 @@ defmodule Aiur.GitHub.CiReadinessTest do
 
         String.ends_with?(url, "/repos/owner/repo") ->
           {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}
+
+        url =~ "/actions/workflows?per_page=100" ->
+          {:ok, %{status: 200, body: %{"workflows" => [%{"path" => ".github/workflows/ci.yml", "state" => "active"}]}}}
 
         url =~ "/contents/.github/workflows" ->
           {:ok, %{status: 200, body: [%{"type" => "file", "path" => ".github/workflows/ci.yml", "url" => "workflow-url"}]}}

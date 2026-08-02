@@ -38,12 +38,13 @@ defmodule Aiur.Init.GitHubTest do
   end
 
   describe "ensure_ci_readiness/3" do
-    test "explains the administration permission needed to inspect a CI gate" do
+    test "keeps CI-readiness administration access separate from the daemon token" do
       io = %{puts: fn _ -> :ok end, confirm: fn _, _ -> false end}
       deps = %{check_ci_readiness: fn _ -> {:error, {:github, :http, %{status: 403}}} end, detect_repo: fn -> "o/r" end}
 
       assert {:error, message} = GitHub.ensure_ci_readiness(io, deps, %{kind: "github", repo: "o/r"})
-      assert message =~ "Administration: Read-only"
+      assert message =~ "AIUR_CI_READINESS_TOKEN"
+      assert message =~ "do not grant"
     end
   end
 

@@ -4,6 +4,7 @@ defmodule Aiur.AgentControlCLITest do
   import ExUnit.CaptureIO
 
   alias Aiur.{AgentControlCLI, BuildGate}
+  alias Aiur.GitHub.CiReadiness
 
   defp capture_todo(ids, opts) do
     parent = self()
@@ -415,16 +416,21 @@ defmodule Aiur.AgentControlCLITest do
       {:ok, %{ready?: false, base_branch: "main", issues: [:no_pr_workflow]}}
     end)
 
-    on_exit(fn -> Application.delete_env(:aiur, :ci_readiness_check_fun) end)
+    CiReadiness.cache_result(%{ready?: false, base_branch: "main", issues: [:no_pr_workflow]})
+
+    on_exit(fn ->
+      Application.delete_env(:aiur, :ci_readiness_check_fun)
+      CiReadiness.clear_cached_result()
+    end)
 
     assert capture_io(fn -> AgentControlCLI.status() end) =~ "CI readiness: not ready for main"
-    assert_receive :ci_readiness_checked
+    refute_receive :ci_readiness_checked
   end
 
-  test "status reports an unavailable readiness check when its task crashes" do
+  test "status reports unavailable before the dispatcher has a readiness result" do
     write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
-    Application.put_env(:aiur, :ci_readiness_check_fun, fn _opts -> raise "request crashed" end)
-    on_exit(fn -> Application.delete_env(:aiur, :ci_readiness_check_fun) end)
+    CiReadiness.clear_cached_result()
+    on_exit(&CiReadiness.clear_cached_result/0)
 
     assert capture_io(fn -> AgentControlCLI.status() end) =~ "CI readiness: unavailable"
   end

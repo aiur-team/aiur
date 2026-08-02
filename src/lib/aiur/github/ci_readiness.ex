@@ -10,6 +10,8 @@ defmodule Aiur.GitHub.CiReadiness do
   alias Aiur.GitHub.{Errors, Transport}
 
   @ruleset_page_limit 20
+  @cache_key {__MODULE__, :result}
+  @operator_token_env "AIUR_CI_READINESS_TOKEN"
 
   @type issue ::
           :base_branch_missing
@@ -38,9 +40,31 @@ defmodule Aiur.GitHub.CiReadiness do
   end
 
   @doc false
+  @spec operator_token_env() :: String.t()
+  def operator_token_env, do: @operator_token_env
+
+  @doc false
   @spec check_fun() :: (keyword() -> {:ok, result()} | {:error, term()})
   def check_fun do
     Application.get_env(:aiur, :ci_readiness_check_fun, &check/1)
+  end
+
+  @doc false
+  @spec cache_result(result()) :: :ok
+  def cache_result(%{} = result) do
+    :persistent_term.put(@cache_key, result)
+    :ok
+  end
+
+  @doc false
+  @spec cached_result() :: result() | :unavailable
+  def cached_result, do: :persistent_term.get(@cache_key, :unavailable)
+
+  @doc false
+  @spec clear_cached_result() :: :ok
+  def clear_cached_result do
+    :persistent_term.erase(@cache_key)
+    :ok
   end
 
   defp resolve_repo(nil), do: Transport.parse_repo()
@@ -64,7 +88,8 @@ defmodule Aiur.GitHub.CiReadiness do
     with :ok <- branch_exists?(request_fun, token, "#{base_url}/branches/#{encode_path_component(base_branch)}"),
          {:ok, default_branch} <- fetch_default_branch(request_fun, token, base_url),
          {:ok, entries} <- fetch_list(request_fun, token, "#{base_url}/contents/.github/workflows?ref=#{encode_query_value(base_branch)}"),
-         {:ok, workflows} <- fetch_workflows(request_fun, token, entries, base_branch),
+         {:ok, workflow_states} <- fetch_workflow_states(request_fun, token, base_url),
+         {:ok, workflows} <- fetch_workflows(request_fun, token, entries, workflow_states, base_branch),
          {:ok, required_checks} <- fetch_required_checks(request_fun, token, base_url, base_branch, default_branch) do
       {:ok, evaluate(base_branch, workflows, required_checks)}
     else
@@ -148,9 +173,33 @@ defmodule Aiur.GitHub.CiReadiness do
     end
   end
 
-  defp fetch_workflows(request_fun, token, entries, base_branch) do
+  defp fetch_workflow_states(request_fun, token, base_url) do
+    case request_fun.(%{method: :get, url: "#{base_url}/actions/workflows?per_page=100", token: token}) do
+      {:ok, %{status: 200, body: %{"workflows" => workflows}}} when is_list(workflows) ->
+        states =
+          Map.new(workflows, fn workflow ->
+            {Map.get(workflow, "path"), Map.get(workflow, "state") == "active"}
+          end)
+
+        {:ok, states}
+
+      {:ok, %{status: _} = response} ->
+        {:error, Errors.github_status_error(response)}
+
+      {:error, reason} ->
+        {:error, Errors.classify_error({:error, reason})}
+
+      _ ->
+        {:error, :invalid_workflow_states_response}
+    end
+  end
+
+  defp fetch_workflows(request_fun, token, entries, workflow_states, base_branch) do
     entries
-    |> Enum.filter(&(Map.get(&1, "type") == "file" and workflow_path?(Map.get(&1, "path", ""))))
+    |> Enum.filter(fn entry ->
+      path = Map.get(entry, "path", "")
+      Map.get(entry, "type") == "file" and workflow_path?(path) and Map.get(workflow_states, path, false)
+    end)
     |> Enum.reduce_while({:ok, []}, fn entry, {:ok, acc} ->
       case fetch_workflow(request_fun, token, entry, base_branch) do
         {:ok, workflow} -> {:cont, {:ok, [workflow | acc]}}
@@ -362,7 +411,15 @@ defmodule Aiur.GitHub.CiReadiness do
   defp no_path_filters?(filters), do: Map.get(filters, "paths") in [nil, []] and Map.get(filters, "paths-ignore") in [nil, []]
 
   defp branch_matches?(nil, _base_branch), do: true
-  defp branch_matches?(branches, base_branch) when is_list(branches), do: Enum.any?(branches, &glob_matches?(&1, base_branch))
+
+  defp branch_matches?(branches, base_branch) when is_list(branches) do
+    branches
+    |> Enum.reduce(false, fn
+      "!" <> pattern, matched? -> if glob_matches?(pattern, base_branch), do: false, else: matched?
+      pattern, matched? -> if glob_matches?(pattern, base_branch), do: true, else: matched?
+    end)
+  end
+
   defp branch_matches?(branch, base_branch), do: glob_matches?(branch, base_branch)
 
   defp ignored_branch?(nil, _base_branch), do: false

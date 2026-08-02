@@ -49,6 +49,18 @@ defmodule Aiur.Orchestrator do
 
   def handle_info(:run_poll_cycle, state), do: Dispatcher.run_poll_cycle(state)
 
+  def handle_info({:ci_readiness_result, token, result}, state) when is_reference(token) do
+    state = Dispatcher.handle_ci_readiness_result(state, token, result)
+    StatusReport.notify_dashboard(state)
+    {:noreply, state}
+  end
+
+  def handle_info({:ci_readiness_timeout, token}, state) when is_reference(token) do
+    state = Dispatcher.handle_ci_readiness_timeout(state, token)
+    StatusReport.notify_dashboard(state)
+    {:noreply, state}
+  end
+
   def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
     RetryEngine.handle_agent_down(state, ref, reason)
   end

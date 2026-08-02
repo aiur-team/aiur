@@ -4,10 +4,12 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   import ExUnit.CaptureLog
 
   alias Aiur.AgentRunner.{SessionLifecycle, ToolExecutor}
+  alias Aiur.GitHub.CiReadiness
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, State}
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
 
   setup do
+    CiReadiness.clear_cached_result()
     previous_meminfo = Application.get_env(:aiur, :meminfo_source_override)
     previous_loadavg = Application.get_env(:aiur, :loadavg_source_override)
     previous_fd_sample = Application.get_env(:aiur, :file_descriptor_sample_override)
@@ -20,6 +22,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       restore_app_env(:file_descriptor_sample_override, previous_fd_sample)
       restore_app_env(:proc_stat_source_override, previous_proc_stat)
       restore_app_env(:run_telemetry_lifecycle_recorder, previous_lifecycle_recorder)
+      CiReadiness.clear_cached_result()
     end)
 
     :ok
@@ -42,6 +45,26 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     assert_receive {:ci_readiness_alert, "system.ci_readiness.not_ready", opts}
     assert opts[:needs_attention]
     assert opts[:reason] =~ "no workflow triggers on pull_request"
+  end
+
+  test "initial readiness scan runs outside the dispatcher mailbox and caches its result" do
+    parent = self()
+    readiness = %{ready?: true, base_branch: "develop", issues: []}
+
+    state =
+      Dispatcher.start_initial_ci_readiness_check(%State{}, "github", "develop", fn _opts ->
+        send(parent, :readiness_scan_started)
+        {:ok, readiness}
+      end)
+
+    assert is_pid(state.ci_readiness_check_pid)
+    assert_receive :readiness_scan_started
+    assert_receive {:ci_readiness_result, token, {:ok, ^readiness}}
+
+    state = Dispatcher.handle_ci_readiness_result(state, token, {:ok, readiness})
+
+    assert state.ci_readiness_checked
+    assert CiReadiness.cached_result() == readiness
   end
 
   test "first dispatch retries an unavailable readiness check without duplicate alerts" do

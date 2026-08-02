@@ -59,6 +59,8 @@ defmodule Aiur.Orchestrator.State do
           globally_paused: boolean(),
           ci_readiness_checked: boolean() | nil,
           ci_readiness_unavailable_alerted: boolean() | nil,
+          ci_readiness_check_pid: pid() | nil,
+          ci_readiness_check_token: reference() | nil,
           control_lifecycle: ControlLifecycle.t()
         }
 
@@ -77,6 +79,8 @@ defmodule Aiur.Orchestrator.State do
     :initial_dispatch_cycle,
     :ci_readiness_checked,
     :ci_readiness_unavailable_alerted,
+    :ci_readiness_check_pid,
+    :ci_readiness_check_token,
     load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil},
     queue_store: AgentQueueStore.new(),
     last_polled_issues: %{},

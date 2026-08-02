@@ -29,6 +29,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
   alias Aiur.Orchestrator.RetryEngine
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
 
+  @ci_readiness_timeout_ms 5_000
+
   @spec run_poll_cycle(State.t()) :: {:noreply, State.t()}
   def run_poll_cycle(%State{} = state) do
     state = Lifecycle.refresh_runtime_config(state)
@@ -89,50 +91,104 @@ defmodule Aiur.Orchestrator.Dispatcher do
   # tickets. A transient inspection failure retries on subsequent polls, but
   # only emits its needs-attention alert once.
   defp maybe_warn_ci_readiness(%State{initial_dispatch_cycle: true} = state) do
-    check_initial_ci_readiness(state, Config.tracker_kind(), Config.base_branch(), CiReadiness.check_fun(), &Alerts.emit_system/2)
+    start_initial_ci_readiness_check(state, Config.tracker_kind(), Config.base_branch(), CiReadiness.check_fun())
   end
 
   defp maybe_warn_ci_readiness(%State{ci_readiness_unavailable_alerted: true} = state) do
-    check_initial_ci_readiness(state, Config.tracker_kind(), Config.base_branch(), CiReadiness.check_fun(), &Alerts.emit_system/2)
+    start_initial_ci_readiness_check(state, Config.tracker_kind(), Config.base_branch(), CiReadiness.check_fun())
   end
 
   defp maybe_warn_ci_readiness(state), do: state
+
+  @doc false
+  @spec start_initial_ci_readiness_check(State.t(), String.t() | nil, String.t(), function()) :: State.t()
+  def start_initial_ci_readiness_check(%State{ci_readiness_checked: true} = state, _kind, _base_branch, _check_fun), do: state
+
+  def start_initial_ci_readiness_check(%State{ci_readiness_check_pid: pid} = state, _kind, _base_branch, _check_fun) when is_pid(pid),
+    do: state
+
+  def start_initial_ci_readiness_check(state, "github", base_branch, check_fun) do
+    parent = self()
+    token = make_ref()
+
+    case Task.Supervisor.start_child(Aiur.TaskSupervisor, fn ->
+           send(parent, {:ci_readiness_result, token, check_fun.(base_branch: base_branch)})
+         end) do
+      {:ok, pid} ->
+        Process.send_after(parent, {:ci_readiness_timeout, token}, @ci_readiness_timeout_ms)
+        %{state | ci_readiness_check_pid: pid, ci_readiness_check_token: token}
+
+      {:error, reason} ->
+        record_ci_readiness_result(state, {:error, reason}, &Alerts.emit_system/2)
+    end
+  end
+
+  def start_initial_ci_readiness_check(state, _kind, _base_branch, _check_fun), do: %{state | ci_readiness_checked: true}
+
+  @doc false
+  @spec handle_ci_readiness_result(State.t(), reference(), {:ok, CiReadiness.result()} | {:error, term()}) :: State.t()
+  def handle_ci_readiness_result(%State{ci_readiness_check_token: token} = state, token, result) do
+    state
+    |> clear_ci_readiness_check()
+    |> record_ci_readiness_result(result, &Alerts.emit_system/2)
+  end
+
+  def handle_ci_readiness_result(state, _token, _result), do: state
+
+  @doc false
+  @spec handle_ci_readiness_timeout(State.t(), reference()) :: State.t()
+  def handle_ci_readiness_timeout(%State{ci_readiness_check_token: token, ci_readiness_check_pid: pid} = state, token) do
+    if is_pid(pid) and Process.alive?(pid), do: Process.exit(pid, :kill)
+
+    state
+    |> clear_ci_readiness_check()
+    |> record_ci_readiness_result({:error, :timeout}, &Alerts.emit_system/2)
+  end
+
+  def handle_ci_readiness_timeout(state, _token), do: state
+
+  defp clear_ci_readiness_check(state), do: %{state | ci_readiness_check_pid: nil, ci_readiness_check_token: nil}
 
   @doc false
   @spec check_initial_ci_readiness(State.t(), String.t() | nil, String.t(), function(), function()) :: State.t()
   def check_initial_ci_readiness(%State{ci_readiness_checked: true} = state, _kind, _base_branch, _check_fun, _emit_fun), do: state
 
   def check_initial_ci_readiness(state, "github", base_branch, check_fun, emit_fun) do
-    case check_fun.(base_branch: base_branch) do
-      {:ok, %{ready?: true}} ->
-        %{state | ci_readiness_checked: true}
-
-      {:ok, readiness} ->
-        emit_fun.("system.ci_readiness.not_ready",
-          message: "Repository CI readiness is incomplete",
-          reason: CiReadiness.format(readiness),
-          needs_attention: true,
-          severity: "warning"
-        )
-
-        %{state | ci_readiness_checked: true}
-
-      {:error, _reason} when state.ci_readiness_unavailable_alerted ->
-        state
-
-      {:error, reason} ->
-        emit_fun.("system.ci_readiness.unavailable",
-          message: "Repository CI readiness could not be inspected",
-          reason: "CI readiness inspection failed: #{inspect(reason)}",
-          needs_attention: true,
-          severity: "warning"
-        )
-
-        %{state | ci_readiness_unavailable_alerted: true}
-    end
+    record_ci_readiness_result(state, check_fun.(base_branch: base_branch), emit_fun)
   end
 
   def check_initial_ci_readiness(state, _kind, _base_branch, _check_fun, _emit_fun), do: %{state | ci_readiness_checked: true}
+
+  defp record_ci_readiness_result(state, {:ok, %{ready?: true} = readiness}, _emit_fun) do
+    CiReadiness.cache_result(readiness)
+    %{state | ci_readiness_checked: true}
+  end
+
+  defp record_ci_readiness_result(state, {:ok, readiness}, emit_fun) do
+    CiReadiness.cache_result(readiness)
+
+    emit_fun.("system.ci_readiness.not_ready",
+      message: "Repository CI readiness is incomplete",
+      reason: CiReadiness.format(readiness),
+      needs_attention: true,
+      severity: "warning"
+    )
+
+    %{state | ci_readiness_checked: true}
+  end
+
+  defp record_ci_readiness_result(state, {:error, _reason}, _emit_fun) when state.ci_readiness_unavailable_alerted, do: state
+
+  defp record_ci_readiness_result(state, {:error, reason}, emit_fun) do
+    emit_fun.("system.ci_readiness.unavailable",
+      message: "Repository CI readiness could not be inspected",
+      reason: "CI readiness inspection failed: #{inspect(reason)}",
+      needs_attention: true,
+      severity: "warning"
+    )
+
+    %{state | ci_readiness_unavailable_alerted: true}
+  end
 
   # The base is readied before CPU admission so per-issue workspaces can use it
   # instead of cold-cloning. A failed build deliberately falls back to dispatch,
