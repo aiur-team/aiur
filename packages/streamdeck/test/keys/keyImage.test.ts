@@ -70,6 +70,13 @@ describe("key image chunking (0x07)", () => {
     expect(reassembled.equals(Buffer.from(jpeg))).toBe(true);
   });
 
+  it("encodes page numbers above 255 as little-endian uint16 values", () => {
+    const jpeg = new Uint8Array(KEY_MAX_PAYLOAD * 257);
+    const page256 = buffers(0, jpeg)[256];
+    expect(page256.readUInt16LE(6)).toBe(256);
+    expect([...page256.subarray(6, 8)]).toEqual([0, 1]);
+  });
+
   it("emits exactly one full-payload terminating report when size is a multiple of the max", () => {
     const jpeg = new Uint8Array(KEY_MAX_PAYLOAD);
     const reports = buffers(1, jpeg);

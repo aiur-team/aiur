@@ -46,12 +46,13 @@ describe("KeyRenderer", () => {
     expect(paints.map((p) => p.index)).toEqual([4]);
   });
 
-  it("does not commit until the write path commits the paint", () => {
+  it("coalesces identical descriptors while the first paint is in flight", () => {
     const renderer = new KeyRenderer(encoder);
-    // First render returns paints but we do NOT commit (a failed write): the
-    // cache stays dirty, so a re-render still asks to repaint every key.
+    // First render returns paints but we do NOT commit yet. The cache remembers
+    // the desired content, so an identical state tick does not queue another
+    // full panel while the USB queue is still draining.
     renderer.render(panel());
-    expect(renderer.render(panel()).map((p) => p.index)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+    expect(renderer.render(panel())).toEqual([]);
   });
 
   it("re-rendering identical descriptors produces no writes once committed", () => {

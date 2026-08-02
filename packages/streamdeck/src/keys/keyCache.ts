@@ -44,12 +44,22 @@ export class KeyCache {
     KEY_COUNT,
   ).fill(undefined);
 
+  /**
+   * Latest content already offered to the write queue for each key. This keeps
+   * a slow USB transfer from making every state tick look dirty, and lets a
+   * newer paint supersede an older queued/in-flight paint without an older
+   * commit erasing that newer desired state.
+   */
+  private readonly pending: (KeyContent | undefined)[] = new Array<KeyContent | undefined>(
+    KEY_COUNT,
+  ).fill(undefined);
+
   constructor(private readonly fillIndexBase: FillIndexBase = DEFAULT_FILL_INDEX_BASE) {}
 
   /** True when `content` differs from the key's cached content. */
   isDirty(keyIndex: number, content: KeyContent): boolean {
     assertKeyIndex(keyIndex);
-    const existing = this.current[keyIndex];
+    const existing = this.pending[keyIndex] ?? this.current[keyIndex];
     return existing === undefined || !contentEquals(existing, content);
   }
 
@@ -66,11 +76,19 @@ export class KeyCache {
     if (!this.isDirty(keyIndex, content)) return null;
     const reports = buildContentReports(keyIndex, content, this.fillIndexBase);
     const snapshot = cloneContent(content);
+    this.pending[keyIndex] = snapshot;
     return {
       index: keyIndex,
       reports,
       commit: () => {
-        this.current[keyIndex] = snapshot;
+        // A later state tick may have queued different content while this
+        // paint was on the USB wire. Keep that newer desired value pending so
+        // its eventual commit wins; otherwise an older completion could make
+        // the cache wrongly treat the key as clean.
+        if (this.pending[keyIndex] === snapshot) {
+          this.current[keyIndex] = snapshot;
+          this.pending[keyIndex] = undefined;
+        }
       },
     };
   }
@@ -99,9 +117,11 @@ export class KeyCache {
   invalidate(keyIndex?: number): void {
     if (keyIndex === undefined) {
       this.current.fill(undefined);
+      this.pending.fill(undefined);
       return;
     }
     assertKeyIndex(keyIndex);
     this.current[keyIndex] = undefined;
+    this.pending[keyIndex] = undefined;
   }
 }

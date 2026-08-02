@@ -18,8 +18,9 @@ describe("KeyCache dirty tracking", () => {
 
     const paint = cache.paint(0, fill(1, 2, 3));
     expect(paint).not.toBeNull();
-    // The cache is NOT updated until the paint commits.
-    expect(cache.isDirty(0, fill(1, 2, 3))).toBe(true);
+    // The committed cache is unchanged, but the pending write coalesces an
+    // identical state tick so slow USB cannot queue duplicate transfers.
+    expect(cache.isDirty(0, fill(1, 2, 3))).toBe(false);
 
     paint?.commit();
     expect(cache.isDirty(0, fill(1, 2, 3))).toBe(false);
@@ -30,9 +31,30 @@ describe("KeyCache dirty tracking", () => {
     const cache = new KeyCache();
     // Produce a paint but drop it, as the write queue does on a failed write.
     cache.paint(0, fill(1, 2, 3));
-    // The key must still be dirty so the next render repaints it.
-    expect(cache.isDirty(0, fill(1, 2, 3))).toBe(true);
+    // In-flight desired content is coalesced; recovery invalidates before
+    // retrying against the reopened device.
+    expect(cache.isDirty(0, fill(1, 2, 3))).toBe(false);
+    cache.invalidate(0);
     expect(cache.paint(0, fill(1, 2, 3))).not.toBeNull();
+  });
+
+  it("coalesces pending work and preserves a newer desired state", () => {
+    const cache = new KeyCache();
+    paintAndCommit(cache, 0, fill(1, 1, 1));
+
+    const toB = cache.paint(0, fill(2, 2, 2));
+    expect(toB).not.toBeNull();
+    // A repeated tick while B is waiting must not upload B again.
+    expect(cache.paint(0, fill(2, 2, 2))).toBeNull();
+
+    // A newer A supersedes queued/in-flight B. B completing first must not
+    // erase this desired A or make the final A paint disappear.
+    const backToA = cache.paint(0, fill(1, 1, 1));
+    expect(backToA).not.toBeNull();
+    toB?.commit();
+    expect(cache.paint(0, fill(1, 1, 1))).toBeNull();
+    backToA?.commit();
+    expect(cache.isDirty(0, fill(1, 1, 1))).toBe(false);
   });
 
   it("repaints only when content changes", () => {
