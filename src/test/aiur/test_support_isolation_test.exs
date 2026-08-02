@@ -15,6 +15,7 @@ defmodule Aiur.TestSupportIsolationTest do
   use Aiur.TestSupport
 
   alias Aiur.Config.Paths
+  alias Aiur.Orchestrator.GlobalPauseStore
 
   test "log_root_dir is isolated to the per-test workflow root, not <cwd>/log" do
     log_root = Paths.log_root_dir()
@@ -22,6 +23,24 @@ defmodule Aiur.TestSupportIsolationTest do
     refute log_root == Path.join(File.cwd!(), "log")
     assert String.ends_with?(log_root, "/log")
     assert String.contains?(log_root, "aiur-elixir-tests")
+  end
+
+  test "global pause persistence is isolated to the per-test workflow root" do
+    path = GlobalPauseStore.path_for()
+
+    assert path == Application.fetch_env!(:aiur, :global_pause_store_path)
+    assert String.contains?(path, "aiur-elixir-tests")
+    assert String.ends_with?(path, "/state/global-pause.json")
+    assert {:ok, %{globally_paused: false}} = GlobalPauseStore.load()
+
+    assert :ok =
+             GlobalPauseStore.save(%{
+               globally_paused: true,
+               paused_at: DateTime.utc_now(),
+               source: "test"
+             })
+
+    assert {:ok, %{globally_paused: true, source: "test"}} = GlobalPauseStore.load()
   end
 
   test "process lifecycle waits synchronize on DOWN instead of polling" do
