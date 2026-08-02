@@ -170,6 +170,7 @@ defmodule Aiur.Orchestrator.StatusReport do
     |> Map.values()
     |> Enum.map(&Map.get(&1, :identifier))
     |> Kernel.++(Enum.map(state.last_polled_issues, fn {_issue_id, issue} -> issue.identifier || issue.id end))
+    |> Kernel.++(Enum.map(state.retry_attempts, fn {_issue_id, retry} -> Map.get(retry, :identifier) end))
     |> Enum.filter(&is_binary/1)
     |> Enum.uniq()
   end

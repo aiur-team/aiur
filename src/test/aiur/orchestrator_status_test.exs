@@ -280,6 +280,23 @@ defmodule Aiur.OrchestratorStatusTest do
     assert [%{queue_depth: 1, pending_operator_messages: [%{text: "show this message"}]}] = snapshot.running
   end
 
+  test "dashboard projection retains CI facts for retries absent from the latest poll" do
+    state = %State{
+      retry_attempts: %{
+        "issue-retrying" => %{
+          attempt: 2,
+          due_at_ms: System.monotonic_time(:millisecond) + 1_000,
+          identifier: "MT-RETRY-CI"
+        }
+      },
+      ci_lifecycle: %{poll_cache: %{"MT-RETRY-CI" => %{decision: :pending, pr_number: 1501}}}
+    }
+
+    snapshot = state |> StatusReport.snapshot_input() |> StatusReport.snapshot_payload()
+
+    assert [%{identifier: "MT-RETRY-CI", ci_result: %{decision: :pending, pr_number: 1501}}] = snapshot.retrying
+  end
+
   test "an old projector cannot replace a same-name orchestrator snapshot" do
     orchestrator_name = Module.concat(__MODULE__, :GenerationFencedSnapshotOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
