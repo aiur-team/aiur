@@ -45,7 +45,7 @@ defmodule Aiur.GitHub.ClientTest do
       request_fun = fn %{method: :get, url: url} ->
         decoded_url = URI.decode(url)
 
-        if decoded_url =~ "/timeline" do
+        if decoded_url =~ "/timeline" or decoded_url =~ "/dependencies/blocked_by" do
           # Dispatch authorization checks trigger-label provenance after fetch.
           {:ok, %{status: 200, body: []}}
         else
@@ -115,7 +115,10 @@ defmodule Aiur.GitHub.ClientTest do
 
       # The same issue is returned under both queried labels; the client must
       # collapse it to a single candidate via id-based dedup.
-      request_fun = fn %{method: :get} -> {:ok, %{status: 200, body: [issue.()]}} end
+      request_fun = fn %{method: :get, url: url} ->
+        body = if String.contains?(url, "/dependencies/blocked_by"), do: [], else: [issue.()]
+        {:ok, %{status: 200, body: body}}
+      end
 
       assert {:ok, [deduped]} = Client.fetch_candidate_issues(request_fun: request_fun)
       assert deduped.id == "35"
@@ -128,6 +131,9 @@ defmodule Aiur.GitHub.ClientTest do
 
         cond do
           url =~ "/timeline" ->
+            {:ok, %{status: 200, body: []}}
+
+          url =~ "/dependencies/blocked_by" ->
             {:ok, %{status: 200, body: []}}
 
           # Each label is queried separately; return issue only for sym:todo
@@ -172,22 +178,29 @@ defmodule Aiur.GitHub.ClientTest do
     end
 
     test "deduplicates issues across labels" do
-      request_fun = fn %{method: :get} ->
+      request_fun = fn %{method: :get, url: url} ->
+        body =
+          if String.contains?(url, "/dependencies/blocked_by") do
+            []
+          else
+            [
+              %{
+                "number" => 42,
+                "title" => "Dup",
+                "body" => nil,
+                "html_url" => "https://github.com/owner/repo/issues/42",
+                "labels" => [%{"name" => "sym:todo"}],
+                "assignee" => nil,
+                "created_at" => "2025-01-01T00:00:00Z",
+                "updated_at" => "2025-01-01T00:00:00Z"
+              }
+            ]
+          end
+
         {:ok,
          %{
            status: 200,
-           body: [
-             %{
-               "number" => 42,
-               "title" => "Dup",
-               "body" => nil,
-               "html_url" => "https://github.com/owner/repo/issues/42",
-               "labels" => [%{"name" => "sym:todo"}],
-               "assignee" => nil,
-               "created_at" => "2025-01-01T00:00:00Z",
-               "updated_at" => "2025-01-01T00:00:00Z"
-             }
-           ]
+           body: body
          }}
       end
 
@@ -344,7 +357,7 @@ defmodule Aiur.GitHub.ClientTest do
 
     test "fetches issues by state labels" do
       request_fun = fn %{method: :get, url: url} ->
-        if url =~ "/timeline" do
+        if url =~ "/timeline" or url =~ "/dependencies/blocked_by" do
           {:ok, %{status: 200, body: []}}
         else
           assert url =~ "labels="
@@ -377,7 +390,7 @@ defmodule Aiur.GitHub.ClientTest do
 
     test "marks paused override without treating it as the issue state" do
       request_fun = fn %{method: :get, url: url} ->
-        if url =~ "/timeline" do
+        if url =~ "/timeline" or url =~ "/dependencies/blocked_by" do
           {:ok, %{status: 200, body: []}}
         else
           assert url =~ "sym:todo" or url =~ "sym%3Atodo"
@@ -419,22 +432,26 @@ defmodule Aiur.GitHub.ClientTest do
 
     test "fetches individual issues by number" do
       request_fun = fn %{method: :get, url: url} ->
-        assert url =~ "/repos/owner/repo/issues/42"
+        if String.contains?(url, "/dependencies/blocked_by") do
+          {:ok, %{status: 200, body: []}}
+        else
+          assert url =~ "/repos/owner/repo/issues/42"
 
-        {:ok,
-         %{
-           status: 200,
-           body: %{
-             "number" => 42,
-             "title" => "Issue",
-             "body" => "desc",
-             "html_url" => "https://github.com/owner/repo/issues/42",
-             "labels" => [%{"name" => "sym:in-progress"}],
-             "assignee" => nil,
-             "created_at" => "2025-01-01T00:00:00Z",
-             "updated_at" => "2025-01-01T00:00:00Z"
-           }
-         }}
+          {:ok,
+           %{
+             status: 200,
+             body: %{
+               "number" => 42,
+               "title" => "Issue",
+               "body" => "desc",
+               "html_url" => "https://github.com/owner/repo/issues/42",
+               "labels" => [%{"name" => "sym:in-progress"}],
+               "assignee" => nil,
+               "created_at" => "2025-01-01T00:00:00Z",
+               "updated_at" => "2025-01-01T00:00:00Z"
+             }
+           }}
+        end
       end
 
       assert {:ok, [issue]} =
@@ -446,23 +463,27 @@ defmodule Aiur.GitHub.ClientTest do
 
     test "closed issues ignore stale active labels" do
       request_fun = fn %{method: :get, url: url} ->
-        assert url =~ "/repos/owner/repo/issues/491"
+        if String.contains?(url, "/dependencies/blocked_by") do
+          {:ok, %{status: 200, body: []}}
+        else
+          assert url =~ "/repos/owner/repo/issues/491"
 
-        {:ok,
-         %{
-           status: 200,
-           body: %{
-             "number" => 491,
-             "state" => "closed",
-             "title" => "Merged issue",
-             "body" => "desc",
-             "html_url" => "https://github.com/owner/repo/issues/491",
-             "labels" => [%{"name" => "sym:rework"}],
-             "assignee" => nil,
-             "created_at" => "2025-01-01T00:00:00Z",
-             "updated_at" => "2025-01-01T00:00:00Z"
-           }
-         }}
+          {:ok,
+           %{
+             status: 200,
+             body: %{
+               "number" => 491,
+               "state" => "closed",
+               "title" => "Merged issue",
+               "body" => "desc",
+               "html_url" => "https://github.com/owner/repo/issues/491",
+               "labels" => [%{"name" => "sym:rework"}],
+               "assignee" => nil,
+               "created_at" => "2025-01-01T00:00:00Z",
+               "updated_at" => "2025-01-01T00:00:00Z"
+             }
+           }}
+        end
       end
 
       assert {:ok, [issue]} =

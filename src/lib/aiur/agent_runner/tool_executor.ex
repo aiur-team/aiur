@@ -25,7 +25,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
 
   alias Aiur.Codex.DynamicTool
   alias Aiur.Events.{Publisher, SubscriptionStore}
-  alias Aiur.GitHub.IssueDependencies
+  alias Aiur.GitHub.{Config, IssueDependencies}
   alias Aiur.Orchestrator
   alias Aiur.Protocol.MapAccess
   alias Aiur.SecretRedactor
@@ -370,7 +370,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   end
 
   defp report_untestable(%{issue: issue} = event_context, criterion, reason) do
-    required_label = HardwareVerification.required_label(Aiur.GitHub.Config.label_prefix())
+    required_label = HardwareVerification.required_label(Config.label_prefix())
     identifier = issue_identifier(issue)
     message = "Unverifiable criterion: #{criterion}"
 

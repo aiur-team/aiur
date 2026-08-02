@@ -128,34 +128,32 @@ defmodule Aiur.GitHub.IssuesTest do
 
     test "normalizes native dependency blockers with their verification labels" do
       request_fun = fn %{method: :get, url: url} ->
-        cond do
-          String.contains?(url, "/dependencies/blocked_by") ->
-            {:ok,
-             %{
-               status: 200,
-               body: [
-                 %{
-                   "number" => 41,
-                   "title" => "Hardware spike",
-                   "body" => "Verify /dev/hidraw0 after a replug.",
-                   "labels" => [%{"name" => "sym:operator-verification-required"}],
-                   "state" => "closed"
-                 }
-               ]
-             }}
-
-          true ->
-            {:ok,
-             %{
-               status: 200,
-               body: %{
-                 "number" => 42,
-                 "title" => "Dependent",
-                 "body" => "Implement the transport.",
-                 "labels" => [%{"name" => "sym:todo"}],
-                 "state" => "open"
+        if String.contains?(url, "/dependencies/blocked_by") do
+          {:ok,
+           %{
+             status: 200,
+             body: [
+               %{
+                 "number" => 41,
+                 "title" => "Hardware spike",
+                 "body" => "Verify /dev/hidraw0 after a replug.",
+                 "labels" => [%{"name" => "sym:operator-verification-required"}],
+                 "state" => "closed"
                }
-             }}
+             ]
+           }}
+        else
+          {:ok,
+           %{
+             status: 200,
+             body: %{
+               "number" => 42,
+               "title" => "Dependent",
+               "body" => "Implement the transport.",
+               "labels" => [%{"name" => "sym:todo"}],
+               "state" => "open"
+             }
+           }}
         end
       end
 

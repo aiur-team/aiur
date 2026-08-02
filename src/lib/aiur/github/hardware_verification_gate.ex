@@ -1,8 +1,8 @@
 defmodule Aiur.GitHub.HardwareVerificationGate do
   @moduledoc "Posts the CI blind-spot notice when hardware work reaches human review."
 
-  alias Aiur.HardwareVerification
   alias Aiur.GitHub.{Comments, Config, Errors, PullRequests, StatePolicy, Transport}
+  alias Aiur.HardwareVerification
 
   @notice_marker "<!-- aiur:hardware-verification-required -->"
   @timeline_page_limit 4
@@ -49,11 +49,8 @@ defmodule Aiur.GitHub.HardwareVerificationGate do
     end
   end
 
-  defp maybe_post_notice(pr_number, comments, context) when is_list(comments) do
-    if Enum.any?(comments, &notice_comment?/1), do: :ok, else: post_notice(pr_number, context)
-  end
-
-  defp maybe_post_notice(pr_number, _comments, context), do: post_notice(pr_number, context)
+  defp maybe_post_notice(pr_number, comments, context),
+    do: if(Enum.any?(comments, &notice_comment?/1), do: :ok, else: post_notice(pr_number, context))
 
   defp post_notice(pr_number, context) do
     Comments.create_comment(to_string(pr_number), notice(context.prefix), request_fun: context.request_fun, token: context.token)

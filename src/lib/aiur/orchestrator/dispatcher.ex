@@ -215,18 +215,16 @@ defmodule Aiur.Orchestrator.Dispatcher do
     required_label = HardwareVerification.required_label(prefix)
     alerted_label = HardwareVerification.alerted_label(prefix)
 
-    cond do
-      not HardwareVerification.required?(issue) ->
+    if HardwareVerification.required?(issue) do
+      labeler = Keyword.get(opts, :add_label, &Tracker.add_label/2)
+      alerter = Keyword.get(opts, :emit_alert, &Alerts.emit_system/2)
+
+      with :ok <- ensure_marker(issue, required_label, labeler),
+           :ok <- notify_operator_once(issue, alerted_label, labeler, alerter) do
         :ok
-
-      true ->
-        labeler = Keyword.get(opts, :add_label, &Tracker.add_label/2)
-        alerter = Keyword.get(opts, :emit_alert, &Alerts.emit_system/2)
-
-        with :ok <- ensure_marker(issue, required_label, labeler),
-             :ok <- notify_operator_once(issue, alerted_label, labeler, alerter) do
-          :ok
-        end
+      end
+    else
+      :ok
     end
   end
 

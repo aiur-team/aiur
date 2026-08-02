@@ -7,9 +7,9 @@ defmodule Aiur.Codex.DynamicTool do
   alias Aiur.Codex.DynamicTool.EmitAlert
   alias Aiur.Codex.DynamicTool.EmitEvent
   alias Aiur.Codex.DynamicTool.LinearGraphQL
+  alias Aiur.Codex.DynamicTool.ReportUntestable
   alias Aiur.Codex.DynamicTool.Response
   alias Aiur.Codex.DynamicTool.ReviewThreads
-  alias Aiur.Codex.DynamicTool.ReportUntestable
   alias Aiur.Codex.DynamicTool.Subscriptions
 
   @handlers [LinearGraphQL, ReviewThreads, EmitAlert, EmitEvent, ReportUntestable, Subscriptions, Blockers]

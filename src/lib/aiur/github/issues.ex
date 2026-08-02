@@ -291,9 +291,6 @@ defmodule Aiur.GitHub.Issues do
         {:ok, blockers} when is_list(blockers) ->
           {:cont, {:ok, [%{issue | blocked_by: Enum.map(blockers, &normalize_blocker(&1, owner, repo, prefix))} | acc]}}
 
-        {:ok, _unexpected} ->
-          {:halt, {:error, :invalid_github_dependency_response}}
-
         {:error, _reason} = error ->
           {:halt, error}
       end
