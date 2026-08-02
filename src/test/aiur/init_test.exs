@@ -1729,7 +1729,7 @@ defmodule Aiur.InitTest do
       assert joined =~ "Only select repositories"
       assert joined =~ "Read and write"
       assert joined =~ "Issues"
-      assert joined =~ "Contents"
+      assert joined =~ "Contents: Read and write"
       assert joined =~ "Pull requests"
       assert joined =~ "write access to this repo"
     end

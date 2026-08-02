@@ -243,7 +243,7 @@ defmodule Aiur.Init do
     io.puts.("       • Repository access → `Only select repositories` → choose this repo")
     io.puts.("       • Permissions → Repository permissions:")
     io.puts.("           – Issues: Read and write  (creating labels needs this)")
-    io.puts.("           – Contents: Read-only")
+    io.puts.("           – Contents: Read and write (agent branch pushes need this)")
     io.puts.("           – Pull requests: Read and write")
     io.puts.("           – Administration: Read-only (inspecting branch protection and rulesets)")
     io.puts.(IO.ANSI.format([:faint, "     The token's account must have write access to this repo (otherwise GitHub returns 404)."]))
