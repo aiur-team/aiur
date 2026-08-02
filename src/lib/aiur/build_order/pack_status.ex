@@ -187,13 +187,17 @@ defmodule Aiur.BuildOrder.PackStatus do
 
   @spec reconcile(map()) :: {:ok, [Path.t()], boolean()} | {:error, term(), boolean()}
   defp reconcile(state) do
-    with {:ok, token} <- state.token_fun.() do
-      state.paths_fun.()
-      |> Enum.map(&reconcile_pack(&1, token, state))
-      |> reconcile_result()
-    else
-      {:error, reason} -> {:error, reason, false}
-      _other -> {:error, :unavailable, false}
+    case state.token_fun.() do
+      {:ok, token} ->
+        state.paths_fun.()
+        |> Enum.map(&reconcile_pack(&1, token, state))
+        |> reconcile_result()
+
+      {:error, reason} ->
+        {:error, reason, false}
+
+      _other ->
+        {:error, :unavailable, false}
     end
   rescue
     error -> {:error, error, false}
@@ -202,19 +206,18 @@ defmodule Aiur.BuildOrder.PackStatus do
   end
 
   defp reconcile_pack(pack_path, token, state) do
-    with {:ok, repository, numbers} <- pack_facts(pack_path) do
-      case numbers do
-        [] ->
-          {:ok, nil, false}
-
-        [_ | _] ->
-          with {:ok, lifecycles} <- fetch_lifecycles(numbers, repository, token, state),
-               {:ok, changed?} <- write_status(pack_path, lifecycles, state) do
-            {:ok, pack_path, changed?}
-          end
-      end
-    else
+    case pack_facts(pack_path) do
+      {:ok, repository, numbers} -> reconcile_members(numbers, repository, pack_path, token, state)
       error -> {:error, {pack_path, error}}
+    end
+  end
+
+  defp reconcile_members([], _repository, _pack_path, _token, _state), do: {:ok, nil, false}
+
+  defp reconcile_members(numbers, repository, pack_path, token, state) do
+    with {:ok, lifecycles} <- fetch_lifecycles(numbers, repository, token, state),
+         {:ok, changed?} <- write_status(pack_path, lifecycles, state) do
+      {:ok, pack_path, changed?}
     end
   end
 
@@ -335,9 +338,10 @@ defmodule Aiur.BuildOrder.PackStatus do
     path = PackPaths.status_path(pack_path)
     observed_at = DateTime.to_iso8601(state.now_fun.())
 
-    with {:ok, existing} <- read_status(path) do
-      merge_status(path, existing, lifecycles, observed_at)
-    else
+    case read_status(path) do
+      {:ok, existing} ->
+        merge_status(path, existing, lifecycles, observed_at)
+
       {:error, reason} = error ->
         Logger.warning("aiur_build_order_pack_status phase=read_failed path=#{path} reason=#{inspect(reason)}")
         error
@@ -369,7 +373,6 @@ defmodule Aiur.BuildOrder.PackStatus do
 
   defp public_result({:ok, paths, _changed?}), do: {:ok, paths}
   defp public_result({:error, reason, _changed?}), do: {:error, reason}
-  defp public_result({:error, _reason} = error), do: error
 
   defp lifecycle_map(members), do: Map.new(members, fn {number, member} -> {number, member_lifecycle(member)} end)
 
