@@ -45,7 +45,10 @@ defmodule AiurWeb.DashboardLiveTest do
     @impl true
     def init(opts) do
       snapshot = Keyword.fetch!(opts, :snapshot)
-      :ok = SnapshotStore.publish(Keyword.fetch!(opts, :name), snapshot)
+
+      if Keyword.get(opts, :publish?, true) do
+        :ok = SnapshotStore.publish(Keyword.fetch!(opts, :name), snapshot)
+      end
 
       {:ok, %{snapshot: snapshot, snapshot_count: 0, report: Keyword.get(opts, :report)}}
     end
@@ -473,6 +476,47 @@ defmodule AiurWeb.DashboardLiveTest do
   end
 
   describe "global pause nav toggle" do
+    test "keeps a persisted global pause visible on a stale snapshot before the first restart poll" do
+      orchestrator_name = Module.concat(__MODULE__, :RestartedGlobalPauseOrchestrator)
+
+      snapshot = %{
+        running: [],
+        retrying: [],
+        idle: [],
+        agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        rate_limits: nil,
+        globally_paused: false
+      }
+
+      {:ok, original} = CountingOrchestrator.start_link(name: orchestrator_name, snapshot: snapshot)
+      assert :ok = GenServer.stop(original, :normal)
+
+      {:ok, restarted} =
+        CountingOrchestrator.start_link(name: orchestrator_name, snapshot: snapshot, publish?: false)
+
+      on_exit(fn ->
+        if Process.alive?(restarted), do: GenServer.stop(restarted, :normal)
+      end)
+
+      generation = SnapshotStore.begin_generation(orchestrator_name)
+
+      :ok =
+        SnapshotStore.publish_global_pause(orchestrator_name, generation, %{
+          globally_paused: true,
+          paused_at: ~U[2026-08-02 12:00:00Z],
+          source: "dashboard"
+        })
+
+      assert {:stale, %{globally_paused: true}, %{reason: :orchestrator_unavailable}} =
+               Orchestrator.dashboard_snapshot(orchestrator_name, 100)
+
+      start_test_endpoint(orchestrator: orchestrator_name, dashboard_writable: true)
+      {:ok, _view, html} = live(build_conn(), "/")
+
+      assert html =~ "Aiur is globally paused."
+      assert html =~ "Resume all agents (globally paused)"
+    end
+
     test "renders a pause affordance while the daemon is running and writable" do
       html = render_payload(global_pause_fleet(false), writable: true)
 

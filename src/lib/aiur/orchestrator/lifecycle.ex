@@ -106,6 +106,13 @@ defmodule Aiur.Orchestrator.Lifecycle do
       control_lifecycle: control_lifecycle
     }
 
+    :ok =
+      SnapshotStore.publish_global_pause(
+        snapshot_key,
+        state.snapshot_generation,
+        Map.put(state.global_pause, :globally_paused, state.globally_paused)
+      )
+
     state = WorkspaceCleanup.run_terminal_workspace_cleanup(state)
     state = WorkspaceCleanup.run_startup_todo_workspace_cleanup(state)
     RemoteControlMode.cleanup_stray_remote_control_servers()

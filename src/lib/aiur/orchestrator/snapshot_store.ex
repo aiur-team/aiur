@@ -14,6 +14,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   alias AiurWeb.ObservabilityPubSub
 
   @cache_key __MODULE__
+  @global_pause_key {__MODULE__, :global_pause}
   @projection_delay_ms 50
 
   @type result ::
@@ -35,7 +36,30 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   def begin_generation(orchestrator) do
     generation = make_ref()
     :persistent_term.put(generation_key(orchestrator), generation)
+    :persistent_term.erase(global_pause_key(orchestrator))
     generation
+  end
+
+  @doc """
+  Publishes authoritative global-pause metadata independently of fleet
+  projection.
+
+  This overlays a retained fleet snapshot during a same-name Orchestrator
+  restart without treating that retained fleet view as a fresh projection.
+  """
+  @spec publish_global_pause(GenServer.server(), reference() | nil, map()) :: :ok
+  def publish_global_pause(orchestrator, generation, %{globally_paused: paused} = global_pause)
+      when is_boolean(paused) do
+    if generation == active_generation(orchestrator) do
+      :persistent_term.put(
+        global_pause_key(orchestrator),
+        %{generation: generation, global_pause: global_pause}
+      )
+
+      :ok = ObservabilityPubSub.broadcast_update()
+    end
+
+    :ok
   end
 
   @doc """
@@ -44,7 +68,9 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   """
   @spec publish(GenServer.server(), map()) :: :ok
   def publish(orchestrator, snapshot) when is_map(snapshot) do
-    put_snapshot(orchestrator, active_generation(orchestrator), snapshot)
+    generation = active_generation(orchestrator)
+    put_snapshot(orchestrator, generation, snapshot)
+    cache_global_pause(orchestrator, generation, snapshot)
     :ok = ObservabilityPubSub.broadcast_update()
     :ok
   end
@@ -70,6 +96,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
         no_snapshot_result(orchestrator)
 
       %{snapshot: snapshot, observed_at: observed_at, observed_at_ms: observed_at_ms} = cached ->
+        snapshot = overlay_global_pause(orchestrator, snapshot)
         metadata = metadata(orchestrator, cached, observed_at, observed_at_ms, timeout)
 
         case metadata.status do
@@ -168,6 +195,34 @@ defmodule Aiur.Orchestrator.SnapshotStore do
 
   defp cached_snapshot(orchestrator), do: :persistent_term.get({@cache_key, orchestrator}, nil)
 
+  defp cache_global_pause(orchestrator, generation, %{globally_paused: paused} = snapshot)
+       when is_boolean(paused) do
+    global_pause =
+      snapshot
+      |> Map.get(:global_pause, %{})
+      |> Map.put(:globally_paused, paused)
+
+    :persistent_term.put(global_pause_key(orchestrator), %{generation: generation, global_pause: global_pause})
+  end
+
+  defp cache_global_pause(_orchestrator, _generation, _snapshot), do: :ok
+
+  defp overlay_global_pause(orchestrator, snapshot) do
+    case :persistent_term.get(global_pause_key(orchestrator), nil) do
+      %{generation: generation, global_pause: %{globally_paused: paused} = global_pause} ->
+        if generation == active_generation(orchestrator) and is_boolean(paused) do
+          snapshot
+          |> Map.put(:globally_paused, paused)
+          |> Map.put(:global_pause, global_pause)
+        else
+          snapshot
+        end
+
+      _ ->
+        snapshot
+    end
+  end
+
   defp no_snapshot_result(orchestrator) do
     case live_pid(orchestrator) do
       nil ->
@@ -251,5 +306,6 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   defp mailbox_depth(_pid), do: :unknown
 
   defp generation_key(orchestrator), do: {@cache_key, :generation, orchestrator}
+  defp global_pause_key(orchestrator), do: {@global_pause_key, orchestrator}
   defp active_generation(orchestrator), do: :persistent_term.get(generation_key(orchestrator), nil)
 end
