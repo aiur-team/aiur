@@ -102,6 +102,25 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
 
       refute_receive {:pause_agent, _rid, _gen}, 50
     end
+
+    test "does not acknowledge a pause when persistence fails" do
+      previous = Application.get_env(:aiur, :global_pause_store_path)
+      Application.put_env(:aiur, :global_pause_store_path, "/dev/null/global-pause.json")
+
+      on_exit(fn ->
+        if is_nil(previous),
+          do: Application.delete_env(:aiur, :global_pause_store_path),
+          else: Application.put_env(:aiur, :global_pause_store_path, previous)
+      end)
+
+      id = unique_id("gp-persistence")
+      state = base_state(running: %{id => running_entry(id)})
+
+      assert {:reply, {:error, {:global_pause_persistence_failed, {:write_failed, _, _}}}, ^state} =
+               GlobalPause.set_global_pause_call(state, true, "dashboard")
+
+      refute_receive {:pause_agent, _rid, _gen}, 50
+    end
   end
 
   describe "idempotency and projection" do

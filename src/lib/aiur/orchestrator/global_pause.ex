@@ -76,37 +76,48 @@ defmodule Aiur.Orchestrator.GlobalPause do
   def globally_paused_call(%State{globally_paused: paused} = state), do: {:reply, paused, state}
 
   @doc false
-  @spec set_global_pause_call(State.t(), boolean()) :: {:reply, {:ok, map()}, State.t()}
+  @spec set_global_pause_call(State.t(), boolean()) ::
+          {:reply, {:ok, map()} | {:error, term()}, State.t()}
   def set_global_pause_call(state, on?) when is_boolean(on?),
     do: set_global_pause_call(state, on?, "CLI")
 
   @spec set_global_pause_call(State.t(), boolean(), String.t()) ::
-          {:reply, {:ok, map()}, State.t()}
+          {:reply, {:ok, map()} | {:error, term()}, State.t()}
   def set_global_pause_call(%State{globally_paused: current} = state, on?, source)
       when is_boolean(on?) do
     source = normalize_source(source)
 
-    state =
+    next_state =
       cond do
         on? and not current ->
           state
           |> Map.put(:globally_paused, true)
           |> Map.put(:global_pause, %{paused_at: DateTime.utc_now(), source: source})
-          |> then(&PauseResume.pause_running_for_global/1)
 
         not on? and current ->
           state
           |> Map.put(:globally_paused, false)
           |> Map.put(:global_pause, %{paused_at: nil, source: nil})
-          |> then(&PauseResume.resume_running_from_global/1)
 
         true ->
           state
       end
 
-    :ok = GlobalPauseStore.save(global_pause_status_for_state(state))
-    StatusReport.notify_dashboard(state)
-    {:reply, {:ok, global_pause_status_for_state(state)}, state}
+    case GlobalPauseStore.save(global_pause_status_for_state(next_state)) do
+      :ok ->
+        state =
+          cond do
+            on? and not current -> PauseResume.pause_running_for_global(next_state)
+            not on? and current -> PauseResume.resume_running_from_global(next_state)
+            true -> next_state
+          end
+
+        StatusReport.notify_dashboard(state)
+        {:reply, {:ok, global_pause_status_for_state(state)}, state}
+
+      {:error, reason} ->
+        {:reply, {:error, {:global_pause_persistence_failed, reason}}, state}
+    end
   end
 
   @doc false

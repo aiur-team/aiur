@@ -25,18 +25,22 @@ defmodule Aiur.Orchestrator.GlobalPauseStore do
     end
   end
 
-  @spec save(map()) :: :ok
+  @spec save(map()) :: :ok | {:error, term()}
   def save(%{globally_paused: paused} = state) when is_boolean(paused) do
-    JsonStore.write!(path_for(), %{
+    payload = %{
       "version" => 1,
       "globally_paused" => paused,
       "paused_at" => encode_datetime(Map.get(state, :paused_at)),
       "source" => Map.get(state, :source)
-    })
+    }
+
+    JsonStore.write!(path_for(), payload)
+    :ok
   rescue
     error ->
+      reason = {:write_failed, error.__struct__, Exception.message(error)}
       Logger.warning("Global pause state could not be persisted at #{path_for()}: #{Exception.message(error)}")
-      :ok
+      {:error, reason}
   end
 
   @spec path_for() :: Path.t()
