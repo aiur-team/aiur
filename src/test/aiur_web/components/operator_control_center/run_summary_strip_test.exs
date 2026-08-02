@@ -668,9 +668,12 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     end)
   end
 
-  # Rule 4: the Codex and Claude logo pairing is swapped at the point the strip
-  # picks the logo.
-  test "swaps the Codex and Claude logo images" do
+  # Rule 4: each card renders its own registry logo. The ticket's "swap the
+  # Codex and Claude logos" premise was verified false on review — the asset
+  # files (`codex-color.svg` is the Codex mark, `claude-symbol.svg` is
+  # Anthropic's) and every other surface already pair codex→codex-color and
+  # claude→claude-symbol, so the strip keeps the truthful pairing.
+  test "renders each card's own registry logo" do
     html =
       render_component(&RunSummaryStrip.run_summary_strip/1, %{
         run: %{state: :loading},
@@ -680,11 +683,10 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
       })
 
     [_, codex_card, claude_card | _] = String.split(html, ~s(<div class="rs-block">))
-    # The Codex card renders Claude's mark; the Claude card renders Codex's.
-    assert codex_card =~ "/provider-assets/claude-symbol.svg"
-    refute codex_card =~ "/provider-assets/codex-color.svg"
-    assert claude_card =~ "/provider-assets/codex-color.svg"
-    refute claude_card =~ "/provider-assets/claude-symbol.svg"
+    assert codex_card =~ "/provider-assets/codex-color.svg"
+    refute codex_card =~ "/provider-assets/claude-symbol.svg"
+    assert claude_card =~ "/provider-assets/claude-symbol.svg"
+    refute claude_card =~ "/provider-assets/codex-color.svg"
   end
 
   # Rule 6: an unknown token count hides the label and the "N/A", leaving the

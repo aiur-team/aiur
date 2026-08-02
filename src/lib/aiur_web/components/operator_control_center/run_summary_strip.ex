@@ -495,12 +495,13 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
     "#{div(seconds, @seconds_per_day)}d #{div(rem(seconds, @seconds_per_day), @seconds_per_hour)}h #{div(rem(seconds, @seconds_per_hour), 60)}m"
   end
 
-  # The operator reported the Codex and Claude logo pairing is backwards: the
-  # Codex card shows Claude's mark and the Claude card shows Codex's. Swap the
-  # two at the point the strip picks the logo so the registry descriptors (and
-  # the other surfaces that read them) stay untouched.
-  defp provider_logo(:codex), do: descriptor_field(:claude, :logo, "/aiur-logo.png")
-  defp provider_logo(:claude), do: descriptor_field(:codex, :logo, "/aiur-logo.png")
+  # Each card renders its own registry logo. The ticket's "swap the Codex and
+  # Claude logos" premise was verified false on review: `codex-color.svg` is the
+  # Codex mark, `claude-symbol.svg` is Anthropic's, and the descriptor lookup
+  # below already paired every card with its own logo before this change.
+  # Swapping would have inverted a correct pairing, so the strip keeps the
+  # truthful mapping (consistent with every other surface that reads the
+  # registry).
   defp provider_logo(provider), do: descriptor_field(provider, :logo, "/aiur-logo.png")
 
   defp provider_token_icon(provider), do: descriptor_field(provider, :token_icon, "/aiur-logo.png")

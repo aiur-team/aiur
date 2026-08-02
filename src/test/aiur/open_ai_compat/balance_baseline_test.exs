@@ -1,5 +1,7 @@
 defmodule Aiur.OpenAICompat.BalanceBaselineTest do
-  use ExUnit.Case, async: true
+  # The module reads global app env (state-dir override, backend configs), so
+  # these tests must not run concurrently with each other.
+  use ExUnit.Case, async: false
 
   alias Aiur.OpenAICompat.BalanceBaseline
 
@@ -10,19 +12,23 @@ defmodule Aiur.OpenAICompat.BalanceBaselineTest do
     Path.join(dir, "balance-baseline.json")
   end
 
-  test "path sits beside the active workflow configuration" do
-    previous = Application.get_env(:aiur, :workflow_file_path)
+  test "path sits under the daemon-private state dir, not the workflow config" do
+    previous = Application.get_env(:aiur, :balance_baseline_state_dir)
 
     try do
-      Application.put_env(:aiur, :workflow_file_path, "/tmp/aiur-1532/.aiur/config")
-      assert BalanceBaseline.path() == "/tmp/aiur-1532/.aiur/balance-baseline.json"
+      Application.put_env(:aiur, :balance_baseline_state_dir, "/tmp/aiur-1532/state")
+      assert BalanceBaseline.path() == "/tmp/aiur-1532/state/balance-baseline.json"
     after
       if is_nil(previous) do
-        Application.delete_env(:aiur, :workflow_file_path)
+        Application.delete_env(:aiur, :balance_baseline_state_dir)
       else
-        Application.put_env(:aiur, :workflow_file_path, previous)
+        Application.put_env(:aiur, :balance_baseline_state_dir, previous)
       end
     end
+  end
+
+  test "resolve degrades to dollar-only when no durable path is available" do
+    assert BalanceBaseline.resolve(:deepseek, 50.0, path: nil, backend_configs: %{}) == nil
   end
 
   test "the first observed balance seeds and persists the baseline" do
@@ -72,5 +78,46 @@ defmodule Aiur.OpenAICompat.BalanceBaselineTest do
     assert {10.0, true} = BalanceBaseline.resolve(:deepseek, 10.0, opts)
     assert BalanceBaseline.persisted_baseline(:deepseek, path) == 10.0
     assert BalanceBaseline.persisted_baseline(:openrouter, path) == nil
+  end
+
+  test "a failed baseline write degrades to dollar-only and never raises" do
+    # The path is an existing directory, so the write raises EISDIR; the module
+    # must swallow it and report no baseline rather than propagating a raise.
+    dir = Path.join(System.tmp_dir!(), "aiur-baseline-writefail-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    on_exit(fn -> File.rm_rf(dir) end)
+
+    opts = [path: dir, backend_configs: %{}]
+
+    assert BalanceBaseline.resolve(:deepseek, 50.0, opts) == nil
+    assert BalanceBaseline.persisted_baseline(:deepseek, dir) == nil
+  end
+
+  test "concurrent resolve calls never raise and leave a valid single baseline" do
+    path = baseline_path()
+    opts = [path: path, backend_configs: %{}]
+
+    amounts = [50.0, 51.0, 52.0, 53.0]
+
+    results =
+      amounts
+      |> Enum.map(fn amount -> Task.async(fn -> BalanceBaseline.resolve(:deepseek, amount, opts) end) end)
+      |> Task.await_many(5_000)
+
+    # Every caller resolves to a positive baseline (never nil, never a raise),
+    # and the ledger stays a decodable JSON with a single positive baseline
+    # that is one of the observed amounts. Note: this exercises the file under
+    # cross-process contention, but strict seed-atomicity lives in the in-lock
+    # re-check, which only serializes on nodes where `:global.trans` holds
+    # (the daemon's distributed runtime); the refresh scheduler already
+    # serializes observations, so seeding is single-writer in practice.
+    persisted = BalanceBaseline.persisted_baseline(:deepseek, path)
+    assert persisted != nil
+    assert persisted in amounts
+
+    assert Enum.all?(results, fn
+             {amount, _freshly_seeded?} when is_number(amount) and amount > 0 -> true
+             nil -> false
+           end)
   end
 end
