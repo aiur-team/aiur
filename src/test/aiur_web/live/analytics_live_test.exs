@@ -4,7 +4,9 @@ defmodule AiurWeb.AnalyticsLiveTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
-  alias Aiur.RunTelemetry
+  alias Aiur.{RunTelemetry, TrackerIdentity}
+  alias Aiur.BuildOrder.{Catalog, Member, ProviderHealth, RootSummary, SelectedRoot}
+  alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.UsageAggregate.Projection
   alias AiurWeb.Endpoint
 
@@ -20,6 +22,19 @@ defmodule AiurWeb.AnalyticsLiveTest do
       do: Application.fetch_env!(:aiur, :analytics_usage_aggregate_source_snapshot)
 
     def snapshot, do: cells_snapshot().metadata
+  end
+
+  defmodule BuildOrderSourceStub do
+    @moduledoc false
+
+    def catalog(context), do: context.catalog
+
+    def demand(context, identity) do
+      case Map.fetch(context.selected, identity.identifier) do
+        {:ok, snapshot} -> {:ok, snapshot}
+        :error -> {:error, :unavailable}
+      end
+    end
   end
 
   setup do
@@ -116,6 +131,45 @@ defmodule AiurWeb.AnalyticsLiveTest do
     assert html =~ "Provider spend"
     assert html =~ "3.50 USD"
     assert html =~ "provider-reported estimate"
+  end
+
+  test "scopes analytics and provider spend to typed selected Build Order members" do
+    previous_username = System.get_env("AIUR_DASHBOARD_USERNAME")
+    previous_password = System.get_env("AIUR_DASHBOARD_PASSWORD")
+    previous_source = Application.get_env(:aiur, :build_order_data_source)
+    System.put_env("AIUR_DASHBOARD_USERNAME", "operator")
+    System.put_env("AIUR_DASHBOARD_PASSWORD", "analytics-spend-secret")
+
+    member = identity(941, "NODE-941")
+    non_member = identity(942, "NODE-942")
+    root = identity(77, "ROOT-77")
+
+    Application.put_env(:aiur, :analytics_telemetry_file, build_order_route_fixture!(RunTelemetry.boot_id()))
+    Application.put_env(:aiur, :analytics_usage_aggregate_source, UsageAggregateSourceStub)
+    Application.put_env(:aiur, :analytics_usage_aggregate_source_snapshot, provider_spend_snapshot(member, non_member))
+    Application.put_env(:aiur, :build_order_data_source, {BuildOrderSourceStub, build_order_context(root, member)})
+
+    on_exit(fn ->
+      restore_env("AIUR_DASHBOARD_USERNAME", previous_username)
+      restore_env("AIUR_DASHBOARD_PASSWORD", previous_password)
+      reset_env(:build_order_data_source, previous_source)
+      Application.delete_env(:aiur, :analytics_usage_aggregate_source)
+      Application.delete_env(:aiur, :analytics_usage_aggregate_source_snapshot)
+    end)
+
+    conn =
+      build_conn()
+      |> Plug.Conn.put_req_header("authorization", "Basic " <> Base.encode64("operator:analytics-spend-secret"))
+
+    {:ok, _view, html} = live(conn, "/analytics?build_order=77")
+
+    assert html =~ "Build Order #77, this session"
+    assert html =~ ">#941<"
+    refute html =~ ">#942<"
+    assert html =~ "PRs merged"
+    assert html =~ ~r/PRs merged<\/span>\s*<span class="an-kpi-val">1</
+    assert html =~ "3.50 USD"
+    refute html =~ "9.99 USD"
   end
 
   test "renders populated complexity tiers from dispatch telemetry" do
@@ -219,13 +273,13 @@ defmodule AiurWeb.AnalyticsLiveTest do
 
   defp reset_env(key, nil), do: Application.delete_env(:aiur, key)
 
-  test "names its scope so it cannot be confused with the Build Order pane" do
+  test "names its default session scope and Build Order selection" do
     Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
 
     {:ok, _view, html} = live(build_conn(), "/analytics")
 
     assert html =~ "this session"
-    assert html =~ "Build Order page applies the same current-session boundary"
+    assert html =~ "Add a Build Order selection to scope this page to its members"
   end
 
   test "charts only the current session, not every session in the durable stream" do
@@ -309,16 +363,22 @@ defmodule AiurWeb.AnalyticsLiveTest do
     }
   end
 
-  defp provider_spend_snapshot do
-    usage_envelope = envelope()
+  defp provider_spend_snapshot(member \\ nil, non_member \\ nil) do
+    member = member || identity(941, "NODE-941")
 
-    usage_envelope = %{
-      usage_envelope
-      | attribution: %{usage_envelope.attribution | run_id: RunTelemetry.boot_id()}
-    }
+    member_envelope =
+      envelope()
+      |> Map.put(:attribution, attribution(member))
+
+    projection = Projection.apply_record(Projection.new(), record(1, member_envelope, %{cost: "3.50"}))
 
     projection =
-      Projection.apply_record(Projection.new(), record(1, usage_envelope, %{cost: "3.50"}))
+      if non_member do
+        non_member_envelope = envelope() |> Map.put(:attribution, attribution(non_member))
+        Projection.apply_record(projection, record(2, non_member_envelope, %{cost: "9.99"}))
+      else
+        projection
+      end
 
     %{
       cells: projection.cells,
@@ -329,6 +389,93 @@ defmodule AiurWeb.AnalyticsLiveTest do
         retained_interval: %{earliest: 1, latest: 1, status: :retained}
       }
     }
+  end
+
+  defp attribution(identity) do
+    %{
+      run_id: RunTelemetry.boot_id(),
+      tracker_identity: identity,
+      attempt_id: "attempt-1",
+      session_id: "session-1",
+      thread_id: "thread-1",
+      turn_id: "turn-1",
+      request_id: "request-1"
+    }
+  end
+
+  defp build_order_context(root, member) do
+    health = ProviderHealth.new(1, :healthy, true)
+
+    root_summary =
+      RootSummary.new(%{
+        identity: root,
+        title: "Analytics Build",
+        url: "https://github.com/owner/repo/issues/#{root.identifier}"
+      })
+
+    selected =
+      %Snapshot{
+        scope: {:selected, root},
+        repository: {"owner", "repo"},
+        authority_epoch: 1,
+        generation: 1,
+        data:
+          SelectedRoot.new(
+            root_summary,
+            [
+              Member.new(%{
+                identity: member,
+                title: "Selected member",
+                url: "https://github.com/owner/repo/issues/#{member.identifier}"
+              })
+            ],
+            health
+          ),
+        health: health
+      }
+
+    %{
+      catalog: %Snapshot{
+        scope: :catalog,
+        repository: {"owner", "repo"},
+        authority_epoch: 1,
+        generation: 1,
+        data: Catalog.new([root_summary], health),
+        health: health
+      },
+      selected: %{root.identifier => selected}
+    }
+  end
+
+  defp identity(number, provider_id) do
+    {:ok, identity} =
+      TrackerIdentity.from_github(
+        %{"node_id" => provider_id, "database_id" => number, "number" => number},
+        {"owner", "repo"},
+        {"owner", "repo"}
+      )
+
+    identity
+  end
+
+  defp build_order_route_fixture!(current_boot_id) do
+    root = Path.join(System.tmp_dir!(), "aiur-analytics-build-order-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(root)
+    path = Path.join(root, "telemetry.ndjson")
+
+    records = [
+      route_record(current_boot_id, 1, "restart", ~U[2026-07-11 00:01:00Z], nil),
+      route_record(current_boot_id, 2, "dispatch", ~U[2026-07-11 00:01:01Z], "941"),
+      route_record(current_boot_id, 3, "pr_opened", ~U[2026-07-11 00:01:02Z], "941"),
+      route_record(current_boot_id, 4, "pr_merged", ~U[2026-07-11 00:01:03Z], "941"),
+      route_record(current_boot_id, 5, "dispatch", ~U[2026-07-11 00:01:04Z], "942"),
+      route_record(current_boot_id, 6, "pr_opened", ~U[2026-07-11 00:01:05Z], "942"),
+      route_record(current_boot_id, 7, "pr_merged", ~U[2026-07-11 00:01:06Z], "942")
+    ]
+
+    File.write!(path, Enum.map_join(records, "\n", &Jason.encode!/1) <> "\n")
+    on_exit(fn -> File.rm_rf!(root) end)
+    path
   end
 
   defp record(sequence, event, timestamp, extra) do

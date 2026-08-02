@@ -9,7 +9,9 @@ defmodule AiurWeb.AnalyticsLive do
 
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
-  alias Aiur.RunTelemetry
+  alias Aiur.{RunTelemetry, TrackerIdentity}
+  alias Aiur.BuildOrder.{Catalog, Member, RootSummary, SelectedRoot}
+  alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.Usage.GroupedScopes
   alias Aiur.Usage.GroupedScopes.Scope
   alias Aiur.UsageAggregate
@@ -22,6 +24,7 @@ defmodule AiurWeb.AnalyticsLive do
     UsageSummaryPresenter
   }
 
+  alias AiurWeb.BuildOrder.Runtime
   alias AiurWeb.{FinancialData, FinancialDataAccess}
 
   @usage_summary_max_age_ms 30_000
@@ -38,7 +41,13 @@ defmodule AiurWeb.AnalyticsLive do
      |> assign(:range, :run)
      |> assign(:sort, :cpu)
      |> assign(:time_domain, nil)
-     |> load_model()}
+     |> assign(:analytics_scope, :session)}
+  end
+
+  @impl true
+  def handle_params(params, _uri, socket) do
+    socket = socket |> assign(:analytics_scope, analytics_scope(Map.get(params, "build_order"))) |> load_model()
+    {:noreply, socket}
   end
 
   @impl true
@@ -107,9 +116,9 @@ defmodule AiurWeb.AnalyticsLive do
 
         <div :if={!@unavailable} class="an-controls">
           <div>
-            <span class="an-scope">Scope: <b>this session</b></span>
+            <span class="an-scope">Scope: <b>{scope_label(@analytics_scope)}</b></span>
             <p class="an-scope-note">
-              The current live run only. The Build Order page applies the same current-session boundary to selected members.
+              {scope_note(@analytics_scope)}
             </p>
           </div>
           <div class="an-seg" role="group" aria-label="Time range">
@@ -236,11 +245,12 @@ defmodule AiurWeb.AnalyticsLive do
   defp load_model(socket) do
     now = DateTime.utc_now()
 
-    opts = [
-      range: socket.assigns.range,
-      session: :current,
-      telemetry_file: Application.get_env(:aiur, :analytics_telemetry_file)
-    ]
+    opts =
+      [
+        range: socket.assigns.range,
+        session: :current,
+        telemetry_file: Application.get_env(:aiur, :analytics_telemetry_file)
+      ] ++ telemetry_scope_opts(socket.assigns.analytics_scope)
 
     socket = assign(socket, :provider_spend, provider_spend(socket))
 
@@ -328,7 +338,7 @@ defmodule AiurWeb.AnalyticsLive do
   # provider estimate, never aggregate cells or an unscoped raw total.
   defp provider_spend(socket) do
     case {connected?(socket), authorized_context(socket)} do
-      {true, {:ok, context}} -> load_provider_spend(context)
+      {true, {:ok, context}} -> load_provider_spend(context, socket.assigns.analytics_scope)
       {_connected, :locked} -> %{state: :locked}
       {false, {:ok, _context}} -> %{state: :loading}
     end
@@ -338,10 +348,10 @@ defmodule AiurWeb.AnalyticsLive do
     _kind, _reason -> %{state: :unavailable}
   end
 
-  defp load_provider_spend(context) do
+  defp load_provider_spend(context, analytics_scope) do
     usage_aggregate = usage_aggregate_source()
 
-    with {:ok, scope} <- Scope.this_run(RunTelemetry.boot_id()),
+    with {:ok, scope} <- usage_scope(analytics_scope),
          {:ok, snapshot} <-
            FinancialData.fetch_usage_grouping(
              FinancialData,
@@ -374,6 +384,57 @@ defmodule AiurWeb.AnalyticsLive do
   end
 
   defp provider_spend_view(_view), do: %{state: :unavailable}
+
+  defp analytics_scope(nil), do: :session
+
+  defp analytics_scope(root_number) when is_binary(root_number) do
+    source = Application.get_env(:aiur, :build_order_data_source, AiurWeb.BuildOrder.DataSource)
+
+    with %Snapshot{data: %Catalog{entries: entries}} <- Runtime.safe_source_call(source, :catalog, [], nil),
+         %RootSummary{identity: %TrackerIdentity{} = identity} <-
+           Enum.find(entries, &(TrackerIdentity.joinable?(&1.identity) and &1.identity.identifier == root_number)),
+         {:ok, %Snapshot{data: %SelectedRoot{members: members}}} <-
+           Runtime.safe_source_call(source, :demand, [identity], {:error, :unavailable}),
+         identities when identities != [] <- member_identities(members),
+         {:ok, usage_scope} <- Scope.explicit_ticket_set(identities) do
+      %{
+        kind: :build_order,
+        root_number: root_number,
+        tickets: MapSet.new(identities, & &1.identifier),
+        total: length(members),
+        usage_scope: usage_scope
+      }
+    else
+      _other -> :unavailable
+    end
+  end
+
+  defp analytics_scope(_root_number), do: :unavailable
+
+  defp member_identities(members) do
+    Enum.flat_map(members, fn
+      %Member{identity: %TrackerIdentity{} = identity} -> if(TrackerIdentity.joinable?(identity), do: [identity], else: [])
+      _other -> []
+    end)
+  end
+
+  defp telemetry_scope_opts(%{kind: :build_order, tickets: tickets, total: total}),
+    do: [tickets: MapSet.to_list(tickets), scope_total: total]
+
+  defp telemetry_scope_opts(:session), do: []
+  defp telemetry_scope_opts(:unavailable), do: [tickets: []]
+
+  defp usage_scope(%{kind: :build_order, usage_scope: scope}), do: {:ok, scope}
+  defp usage_scope(:session), do: Scope.this_run(RunTelemetry.boot_id())
+  defp usage_scope(:unavailable), do: {:error, :unavailable}
+
+  defp scope_label(%{kind: :build_order, root_number: root_number}), do: "Build Order ##{root_number}, this session"
+  defp scope_label(:session), do: "this session"
+  defp scope_label(:unavailable), do: "selected Build Order unavailable"
+
+  defp scope_note(%{kind: :build_order}), do: "Only the selected Build Order's typed members in this session."
+  defp scope_note(:session), do: "The current live run only. Add a Build Order selection to scope this page to its members."
+  defp scope_note(:unavailable), do: "The selected Build Order could not provide a valid member graph."
 
   # The live route defaults to the daemon-owned aggregate. The configurable
   # source exists only to keep the route's protected-query contract testable
