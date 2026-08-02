@@ -212,7 +212,7 @@ defmodule Aiur.Orchestrator.Slots do
       effective: effective_concurrent_agent_limit(state),
       available: available_slots(state),
       session_override?: is_integer(state.session_max_concurrent_agents),
-      draining?: active + reserved_paused > max
+      draining?: active > max
     }
   end
 

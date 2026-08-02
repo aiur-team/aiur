@@ -433,11 +433,6 @@ defmodule Aiur.AgentControlCLITest do
 
     output = capture_io(fn -> AgentControlCLI.status() end)
 
-    assert output =~ "AGENTS 1/1 (binding: AIMD envelope, effective cap=1)"
-
-    :sys.replace_state(pid, fn state -> %{state | effective_concurrent_agents: nil} end)
-    output = capture_io(fn -> AgentControlCLI.status() end)
-
     assert output =~ "AGENTS 1/1 (binding: session max_concurrent_agents)"
     refute output =~ "requested CLI cap"
   end

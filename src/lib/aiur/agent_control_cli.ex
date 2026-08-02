@@ -638,8 +638,7 @@ defmodule Aiur.AgentControlCLI do
   defp capacity_binding_label({:none, _detail}), do: "none"
 
   defp capacity_binding(
-         %{max: max, effective: effective, configured: configured, occupied: occupied,
-           reserved_paused: reserved_paused} = capacity,
+         %{max: max, effective: effective, configured: configured, occupied: occupied, reserved_paused: reserved_paused} = capacity,
          statuses,
          build_gate
        ) do
@@ -663,11 +662,11 @@ defmodule Aiur.AgentControlCLI do
     end
   end
 
-  defp capacity_binding_without_admission(_occupied, _max, 0), do: {:ticket_supply, 0}
-
   defp capacity_binding_without_admission(occupied, max, _idle_count)
        when occupied >= max,
        do: {:session_cap, max}
+
+  defp capacity_binding_without_admission(_occupied, _max, 0), do: {:ticket_supply, 0}
 
   defp capacity_binding_without_admission(_occupied, _max, _idle_count), do: {:none, nil}
 
