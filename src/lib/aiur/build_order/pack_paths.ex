@@ -7,7 +7,8 @@ defmodule Aiur.BuildOrder.PackPaths do
   explicit test/development override listing directories of pack JSON files.
 
   Both the read path (`AiurWeb.BuildOrder.PlanningSource`) and the write path
-  (`Aiur.BuildOrder.PackStatus`) resolve packs here so they cannot drift.
+  (`Aiur.BuildOrder.PackStatus`) resolve packs here so they cannot drift. The
+  planning-source application overrides remain authoritative when configured.
   """
 
   alias Aiur.GitHub.Config
@@ -20,6 +21,16 @@ defmodule Aiur.BuildOrder.PackPaths do
   """
   @spec discovered() :: [Path.t()]
   def discovered, do: Enum.uniq(state_packs() ++ override_packs())
+
+  @doc "Effective pack paths after applying planning-source overrides."
+  @spec planning() :: [Path.t()]
+  def planning do
+    case Application.get_env(:aiur, :build_order_planning_pack) do
+      nil -> Application.get_env(:aiur, :build_order_planning_packs, discovered())
+      path -> [path]
+    end
+    |> Enum.map(&absolute/1)
+  end
 
   @doc "The daemon-owned status projection path beside a pack manifest."
   @spec status_path(Path.t()) :: Path.t()
@@ -61,5 +72,9 @@ defmodule Aiur.BuildOrder.PackPaths do
     Config.repo()
   rescue
     _error -> nil
+  end
+
+  defp absolute(path) do
+    if Path.type(path) == :absolute, do: path, else: Application.app_dir(:aiur, path)
   end
 end

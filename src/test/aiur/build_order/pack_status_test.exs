@@ -1,7 +1,7 @@
 defmodule Aiur.BuildOrder.PackStatusTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.BuildOrder.{PackPaths, PackStatus}
+  alias Aiur.BuildOrder.{PackPaths, PackStatus, ProviderHealth}
   alias AiurWeb.BuildOrder.PlanningSource
   alias AiurWeb.BuildOrderPresenter
   alias AiurWeb.OperatorControlCenter.BuildOrderGridModel
@@ -32,12 +32,19 @@ defmodule Aiur.BuildOrder.PackStatusTest do
     File.mkdir_p!(Path.dirname(pack_path))
     File.write!(pack_path, @pack)
 
-    on_exit(fn -> File.rm_rf(directory) end)
+    Application.put_env(:aiur, :build_order_pack_status_health_snapshot, fn ->
+      ProviderHealth.new(1, :healthy, true, observed_at: ~U[2026-08-02 12:00:00Z])
+    end)
+
+    on_exit(fn ->
+      Application.delete_env(:aiur, :build_order_pack_status_health_snapshot)
+      File.rm_rf(directory)
+    end)
 
     {:ok, pack_path: pack_path, status_path: PackPaths.status_path(pack_path)}
   end
 
-  defp start_poller(pack_path, request_fun) do
+  defp start_poller(pack_path, request_fun, opts \\ []) do
     start_supervised!(
       {PackStatus,
        name: nil,
@@ -46,7 +53,7 @@ defmodule Aiur.BuildOrder.PackStatusTest do
        repo_fun: fn -> {:ok, {"acme", "widgets"}} end,
        token_fun: fn -> {:ok, "token"} end,
        request_fun: request_fun,
-       now_fun: fn -> ~U[2026-08-02 12:00:00Z] end}
+       now_fun: Keyword.get(opts, :now_fun, fn -> ~U[2026-08-02 12:00:00Z] end)}
     )
   end
 
@@ -126,37 +133,243 @@ defmodule Aiur.BuildOrder.PackStatusTest do
     assert Enum.find(grid.cards, &(&1.id == "4103")).state != :merged
   end
 
+  test "a failed refresh marks retained completion stale without discarding it", context do
+    {:ok, response} = Agent.start_link(fn -> :success end)
+    {:ok, clock} = Agent.start_link(fn -> ~U[2026-08-02 12:00:00Z] end)
+    test = self()
+
+    request_fun = fn _request ->
+      case Agent.get(response, & &1) do
+        :success ->
+          send(test, {:successful_request, self()})
+
+          {:ok,
+           %{
+             status: 200,
+             body: %{
+               "data" => %{
+                 "repository" => %{
+                   "i4101" => %{"number" => 4101, "state" => "CLOSED", "stateReason" => "COMPLETED"},
+                   "i4102" => %{"number" => 4102, "state" => "OPEN", "stateReason" => nil},
+                   "i4103" => %{"number" => 4103, "state" => "OPEN", "stateReason" => nil}
+                 }
+               }
+             }
+           }}
+
+        :failure ->
+          send(test, {:failed_request, self()})
+          {:ok, %{status: 502, body: %{}}}
+      end
+    end
+
+    poller = start_poller(context.pack_path, request_fun, now_fun: fn -> Agent.get(clock, & &1) end)
+
+    Application.put_env(:aiur, :build_order_planning_pack, context.pack_path)
+
+    Application.put_env(:aiur, :build_order_planning_membership_snapshot, fn ->
+      %{generation: 0, health: :healthy, freshness: %{status: :fresh}, members: []}
+    end)
+
+    Application.put_env(:aiur, :build_order_pack_status_health_snapshot, fn -> PackStatus.health(poller) end)
+    assert :ok = PackStatus.subscribe()
+
+    on_exit(fn ->
+      Application.delete_env(:aiur, :build_order_planning_pack)
+      Application.delete_env(:aiur, :build_order_planning_membership_snapshot)
+    end)
+
+    initial_generation = PlanningSource.catalog().generation
+
+    assert :ok = PackStatus.refresh(poller)
+    assert_receive {:successful_request, successful_task}
+    assert await_task(successful_task)
+    assert_receive {:build_order_pack_status_changed, %ProviderHealth{state: :healthy}}
+    assert %ProviderHealth{state: :healthy, complete?: true, last_success_at: ~U[2026-08-02 12:00:00Z]} = PackStatus.health(poller)
+    healthy_snapshot = PlanningSource.catalog()
+    assert healthy_snapshot.health.state == :healthy
+    assert healthy_snapshot.generation > initial_generation
+
+    Agent.update(response, fn _ -> :failure end)
+    Agent.update(clock, fn _ -> ~U[2026-08-02 12:05:00Z] end)
+
+    assert :ok = PackStatus.refresh(poller)
+    assert_receive {:failed_request, failed_task}
+    assert await_task(failed_task)
+    assert_receive {:build_order_pack_status_changed, %ProviderHealth{state: :stale}}
+
+    assert %ProviderHealth{
+             state: :stale,
+             complete?: false,
+             observed_at: ~U[2026-08-02 12:00:00Z],
+             last_success_at: ~U[2026-08-02 12:00:00Z],
+             last_attempt_at: ~U[2026-08-02 12:05:00Z]
+           } = PackStatus.health(poller)
+
+    snapshot = PlanningSource.catalog()
+    assert snapshot.health.state == :stale
+    assert snapshot.health.failure == :pack_status_refresh_failed
+    assert snapshot.generation == healthy_snapshot.generation
+
+    [root] = snapshot.data.entries
+    {:ok, selected} = PlanningSource.demand(root.identity)
+    grid = selected |> BuildOrderPresenter.present(:unavailable, :unavailable) |> BuildOrderGridModel.build(nil)
+
+    assert Enum.find(grid.cards, &(&1.id == "4101")).state == :merged
+    assert Enum.find(grid.cards, &(&1.id == "4101")).progress == 100
+  end
+
   test "preserves unrelated status keys and earlier members", context do
-    File.write!(context.status_path, ~s({"state":"active","members":{"4102":"completed"}}))
+    File.write!(context.status_path, ~s({"state":"active","members":{"4999":"completed"}}))
 
     poller =
       start_poller(
         context.pack_path,
-        issues_response(%{"i4101" => %{"number" => 4101, "state" => "CLOSED", "stateReason" => "COMPLETED"}})
+        issues_response(%{
+          "i4101" => %{"number" => 4101, "state" => "CLOSED", "stateReason" => "COMPLETED"},
+          "i4102" => %{"number" => 4102, "state" => "OPEN", "stateReason" => nil},
+          "i4103" => %{"number" => 4103, "state" => "OPEN", "stateReason" => nil}
+        })
       )
 
     assert {:ok, [_written]} = PackStatus.refresh_sync(poller)
 
     status = Jason.decode!(File.read!(context.status_path))
     assert status["state"] == "active"
-    assert status["members"]["4102"] == "completed"
+    assert status["members"]["4999"] == "completed"
     assert %{"lifecycle" => "completed"} = status["members"]["4101"]
   end
 
   test "does not rewrite an unchanged projection", context do
+    {:ok, clock} = Agent.start_link(fn -> ~U[2026-08-02 12:00:00Z] end)
+    assert :ok = PackStatus.subscribe()
+
     poller =
       start_poller(
         context.pack_path,
-        issues_response(%{"i4101" => %{"number" => 4101, "state" => "CLOSED", "stateReason" => "COMPLETED"}})
+        issues_response(%{
+          "i4101" => %{"number" => 4101, "state" => "CLOSED", "stateReason" => "COMPLETED"},
+          "i4102" => %{"number" => 4102, "state" => "OPEN", "stateReason" => nil},
+          "i4103" => %{"number" => 4103, "state" => "OPEN", "stateReason" => nil}
+        }),
+        now_fun: fn -> Agent.get(clock, & &1) end
       )
 
     assert {:ok, [_written]} = PackStatus.refresh_sync(poller)
-    written_at = File.stat!(context.status_path).mtime
+    assert_receive {:build_order_pack_status_changed, %ProviderHealth{generation: generation}}
     body = File.read!(context.status_path)
 
+    Agent.update(clock, fn _ -> ~U[2026-08-02 12:05:00Z] end)
     assert {:ok, [_written]} = PackStatus.refresh_sync(poller)
-    assert File.stat!(context.status_path).mtime == written_at
+
+    # If the second cycle wrote, its later observed_at would change the body.
     assert File.read!(context.status_path) == body
+    refute File.read!(context.status_path) =~ "2026-08-02T12:05:00Z"
+    assert PackStatus.health(poller).generation == generation
+    refute_receive {:build_order_pack_status_changed, _health}
+  end
+
+  test "chunks 51 promoted members into GraphQL requests of 50 and 1", context do
+    tickets = Enum.map(1..51, &%{"ticket" => &1})
+    File.write!(context.pack_path, Jason.encode!(%{"repository" => "acme/widgets", "tickets" => tickets}))
+    test = self()
+
+    request_fun = fn %{method: :post, body: %{"query" => query}} ->
+      numbers =
+        ~r/i(\d+): issue\(number: (\d+)\)/
+        |> Regex.scan(query, capture: :all_but_first)
+        |> Enum.map(fn [alias_number, issue_number] ->
+          assert alias_number == issue_number
+          String.to_integer(issue_number)
+        end)
+
+      send(test, {:query_numbers, numbers})
+
+      issues =
+        Map.new(numbers, fn number ->
+          {"i#{number}", %{"number" => number, "state" => "OPEN", "stateReason" => nil}}
+        end)
+
+      {:ok, %{status: 200, body: %{"data" => %{"repository" => issues}}}}
+    end
+
+    poller = start_poller(context.pack_path, request_fun)
+
+    assert {:ok, [_reconciled]} = PackStatus.refresh_sync(poller)
+    assert_receive {:query_numbers, first_chunk}
+    assert_receive {:query_numbers, second_chunk}
+    assert first_chunk == Enum.to_list(1..50)
+    assert second_chunk == [51]
+
+    assert %{"members" => members} = context.status_path |> File.read!() |> Jason.decode!()
+    assert map_size(members) == 51
+  end
+
+  test "an invalid lifecycle in the second chunk preserves the projection", context do
+    tickets = Enum.map(1..51, &%{"ticket" => &1})
+    File.write!(context.pack_path, Jason.encode!(%{"repository" => "acme/widgets", "tickets" => tickets}))
+    previous = ~s({"members":{"1":"completed"}})
+    File.write!(context.status_path, previous)
+
+    request_fun = fn %{method: :post, body: %{"query" => query}} ->
+      numbers =
+        ~r/i(\d+): issue\(number: (\d+)\)/
+        |> Regex.scan(query, capture: :all_but_first)
+        |> Enum.map(fn [_alias_number, issue_number] -> String.to_integer(issue_number) end)
+
+      issues =
+        Map.new(numbers, fn number ->
+          state = if number == 51, do: "MYSTERY", else: "OPEN"
+          {"i#{number}", %{"number" => number, "state" => state, "stateReason" => nil}}
+        end)
+
+      {:ok, %{status: 200, body: %{"data" => %{"repository" => issues}}}}
+    end
+
+    poller = start_poller(context.pack_path, request_fun)
+
+    assert {:error, {:pack_refresh_failed, [incomplete_graphql_response: ["51"]]}} = PackStatus.refresh_sync(poller)
+    assert File.read!(context.status_path) == previous
+  end
+
+  test "an unknown closed reason preserves the projection", context do
+    previous = ~s({"members":{"4101":"completed"}})
+    File.write!(context.status_path, previous)
+
+    poller =
+      start_poller(
+        context.pack_path,
+        issues_response(%{
+          "i4101" => %{"number" => 4101, "state" => "CLOSED", "stateReason" => nil},
+          "i4102" => %{"number" => 4102, "state" => "OPEN", "stateReason" => nil},
+          "i4103" => %{"number" => 4103, "state" => "OPEN", "stateReason" => nil}
+        })
+      )
+
+    assert {:error, {:pack_refresh_failed, [incomplete_graphql_response: ["4101"]]}} = PackStatus.refresh_sync(poller)
+    assert File.read!(context.status_path) == previous
+  end
+
+  test "queries the repository declared by the pack", context do
+    File.write!(context.pack_path, String.replace(@pack, "acme/widgets", "other/project"))
+    test = self()
+
+    request_fun = fn %{method: :post, body: %{"variables" => variables}} ->
+      send(test, {:variables, variables})
+
+      issues = %{
+        "i4101" => %{"number" => 4101, "state" => "OPEN", "stateReason" => nil},
+        "i4102" => %{"number" => 4102, "state" => "OPEN", "stateReason" => nil},
+        "i4103" => %{"number" => 4103, "state" => "OPEN", "stateReason" => nil}
+      }
+
+      {:ok, %{status: 200, body: %{"data" => %{"repository" => issues}}}}
+    end
+
+    poller = start_poller(context.pack_path, request_fun)
+
+    assert {:ok, [_written]} = PackStatus.refresh_sync(poller)
+    assert_receive {:variables, %{"owner" => "other", "name" => "project"}}
   end
 
   test "a failed tracker read leaves the previous projection intact", context do
@@ -167,8 +380,84 @@ defmodule Aiur.BuildOrder.PackStatusTest do
         {:ok, %{status: 502, body: %{}}}
       end)
 
-    assert {:ok, []} = PackStatus.refresh_sync(poller)
+    assert {:error, _reason} = PackStatus.refresh_sync(poller)
     assert Jason.decode!(File.read!(context.status_path)) == %{"members" => %{"4101" => "completed"}}
+  end
+
+  test "an incomplete tracker response leaves the previous projection intact", context do
+    previous = ~s({"members":{"4101":"completed","4102":"open","4103":"open"}})
+    File.write!(context.status_path, previous)
+
+    poller =
+      start_poller(
+        context.pack_path,
+        issues_response(%{"i4101" => %{"number" => 4101, "state" => "CLOSED", "stateReason" => "COMPLETED"}})
+      )
+
+    assert {:error, {:pack_refresh_failed, [incomplete]}} = PackStatus.refresh_sync(poller)
+    assert inspect(incomplete) =~ "incomplete_graphql_response"
+    assert File.read!(context.status_path) == previous
+    assert %ProviderHealth{state: :unavailable, complete?: false, failure: :pack_status_refresh_failed} = PackStatus.health(poller)
+  end
+
+  test "a synchronous refresh refuses to overlap an async reconcile", context do
+    test = self()
+    assert :ok = PackStatus.subscribe()
+
+    poller =
+      start_poller(context.pack_path, fn _request ->
+        send(test, {:refresh_started, self()})
+
+        receive do
+          :finish_refresh ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "data" => %{
+                   "repository" => %{
+                     "i4101" => %{"number" => 4101, "state" => "OPEN", "stateReason" => nil},
+                     "i4102" => %{"number" => 4102, "state" => "OPEN", "stateReason" => nil},
+                     "i4103" => %{"number" => 4103, "state" => "OPEN", "stateReason" => nil}
+                   }
+                 }
+               }
+             }}
+        end
+      end)
+
+    assert :ok = PackStatus.refresh(poller)
+    assert_receive {:refresh_started, task}
+    assert {:error, :refresh_in_progress} = PackStatus.refresh_sync(poller)
+
+    send(task, :finish_refresh)
+    assert await_task(task)
+    assert_receive {:build_order_pack_status_changed, %ProviderHealth{state: :healthy}}
+    assert PackStatus.health(poller).state == :healthy
+  end
+
+  test "default discovery reconciles the configured planning pack", context do
+    Application.put_env(:aiur, :build_order_planning_pack, context.pack_path)
+    on_exit(fn -> Application.delete_env(:aiur, :build_order_planning_pack) end)
+
+    poller =
+      start_supervised!(
+        {PackStatus,
+         name: nil,
+         poll_on_start: false,
+         repo_fun: fn -> {:ok, {"acme", "widgets"}} end,
+         token_fun: fn -> {:ok, "token"} end,
+         request_fun:
+           issues_response(%{
+             "i4101" => %{"number" => 4101, "state" => "OPEN", "stateReason" => nil},
+             "i4102" => %{"number" => 4102, "state" => "OPEN", "stateReason" => nil},
+             "i4103" => %{"number" => 4103, "state" => "OPEN", "stateReason" => nil}
+           })}
+      )
+
+    assert {:ok, [written]} = PackStatus.refresh_sync(poller)
+    assert written == context.pack_path
+    assert File.exists?(context.status_path)
   end
 
   test "reports unavailable without a token rather than clearing status", context do
@@ -185,6 +474,97 @@ defmodule Aiur.BuildOrder.PackStatusTest do
 
     assert {:error, :missing_token} = PackStatus.refresh_sync(poller)
     refute File.exists?(context.status_path)
+
+    assert %ProviderHealth{state: :unavailable, complete?: false, failure: :pack_status_refresh_failed} =
+             PackStatus.health(poller)
+  end
+
+  test "a restarted poller keeps health generations monotonic", context do
+    {:ok, response} = Agent.start_link(fn -> "COMPLETED" end)
+
+    request_fun = fn _request ->
+      reason = Agent.get(response, & &1)
+
+      issues = %{
+        "i4101" => %{"number" => 4101, "state" => "CLOSED", "stateReason" => reason},
+        "i4102" => %{"number" => 4102, "state" => "OPEN", "stateReason" => nil},
+        "i4103" => %{"number" => 4103, "state" => "OPEN", "stateReason" => nil}
+      }
+
+      {:ok, %{status: 200, body: %{"data" => %{"repository" => issues}}}}
+    end
+
+    opts = [
+      name: nil,
+      poll_on_start: false,
+      paths_fun: fn -> [context.pack_path] end,
+      token_fun: fn -> {:ok, "token"} end,
+      request_fun: request_fun
+    ]
+
+    {:ok, first} = PackStatus.start_link(opts)
+    assert {:ok, [_written]} = PackStatus.refresh_sync(first)
+    first_generation = PackStatus.health(first).generation
+
+    Agent.update(response, fn _ -> nil end)
+    assert {:error, _reason} = PackStatus.refresh_sync(first)
+    second_generation = PackStatus.health(first).generation
+    assert second_generation == first_generation
+
+    Agent.update(response, fn _ -> "NOT_PLANNED" end)
+    assert {:ok, [_written]} = PackStatus.refresh_sync(first)
+    last_generation = PackStatus.health(first).generation
+    assert last_generation > second_generation
+    GenServer.stop(first)
+
+    {:ok, second} = PackStatus.start_link(name: nil, poll_on_start: false)
+    on_exit(fn -> if Process.alive?(second), do: GenServer.stop(second) end)
+
+    assert PackStatus.health(second).generation > last_generation
+  end
+
+  test "a corrupt status projection remains intact", context do
+    previous = "{not-json"
+    File.write!(context.status_path, previous)
+
+    poller =
+      start_poller(
+        context.pack_path,
+        issues_response(%{
+          "i4101" => %{"number" => 4101, "state" => "CLOSED", "stateReason" => "COMPLETED"},
+          "i4102" => %{"number" => 4102, "state" => "OPEN", "stateReason" => nil},
+          "i4103" => %{"number" => 4103, "state" => "OPEN", "stateReason" => nil}
+        })
+      )
+
+    assert {:error, {:pack_refresh_failed, [:invalid_status]}} = PackStatus.refresh_sync(poller)
+    assert File.read!(context.status_path) == previous
+  end
+
+  test "a changed sibling advances generation when another pack fails", context do
+    invalid_pack = Path.join(Path.dirname(context.pack_path), "invalid.json")
+    File.write!(invalid_pack, "not-json")
+
+    poller =
+      start_supervised!(
+        {PackStatus,
+         name: nil,
+         poll_on_start: false,
+         paths_fun: fn -> [context.pack_path, invalid_pack] end,
+         token_fun: fn -> {:ok, "token"} end,
+         request_fun:
+           issues_response(%{
+             "i4101" => %{"number" => 4101, "state" => "CLOSED", "stateReason" => "COMPLETED"},
+             "i4102" => %{"number" => 4102, "state" => "OPEN", "stateReason" => nil},
+             "i4103" => %{"number" => 4103, "state" => "OPEN", "stateReason" => nil}
+           })}
+      )
+
+    initial_generation = PackStatus.health(poller).generation
+
+    assert {:error, {:pack_refresh_failed, [_invalid]}} = PackStatus.refresh_sync(poller)
+    assert PackStatus.health(poller).generation > initial_generation
+    assert %{"members" => %{"4101" => %{"lifecycle" => "completed"}}} = Jason.decode!(File.read!(context.status_path))
   end
 
   defp grid do
@@ -197,4 +577,10 @@ defmodule Aiur.BuildOrder.PackStatusTest do
   end
 
   defp overall_percent, do: grid().overall_pct
+
+  defp await_task(task) do
+    monitor = Process.monitor(task)
+    assert_receive {:DOWN, ^monitor, :process, ^task, reason}
+    reason in [:normal, :noproc]
+  end
 end
