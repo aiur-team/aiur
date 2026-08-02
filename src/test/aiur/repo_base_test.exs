@@ -64,6 +64,62 @@ defmodule Aiur.RepoBaseTest do
       assert File.exists?(Path.join(base, "rebuilt_after_migration"))
     end
 
+    test "keeps tracked state-shaped application paths in the migrated clone", %{origin: origin, node: node, base: base, tmp: tmp} do
+      repo = "https://github.com/owner/project.git"
+      previous_root = Application.get_env(:aiur, :repo_base_root)
+      File.mkdir_p!(Path.dirname(node))
+      git!(["clone", "--quiet", origin, node])
+
+      tracked_paths = [
+        {"builds/application.md", "tracked build source\n"},
+        {"analytics/application.md", "tracked analytics source\n"},
+        {"meta/findings.ndjson", "tracked application ledger\n"}
+      ]
+
+      Enum.each(tracked_paths, fn {path, contents} ->
+        destination = Path.join(node, path)
+        File.mkdir_p!(Path.dirname(destination))
+        File.write!(destination, contents)
+      end)
+
+      git!(["-C", node, "add", "builds", "analytics", "meta"])
+      git!(["-C", node, "commit", "--quiet", "-m", "application paths"])
+
+      untracked_paths = [
+        {"builds/packs/legacy.json", "state build\n"},
+        {"analytics/runs/legacy.json", "state analytics\n"},
+        {"meta/retros/legacy.md", "state retrospective\n"}
+      ]
+
+      Enum.each(untracked_paths, fn {path, contents} ->
+        destination = Path.join(node, path)
+        File.mkdir_p!(Path.dirname(destination))
+        File.write!(destination, contents)
+      end)
+
+      Application.put_env(:aiur, :repo_base_root, Path.join(tmp, "repo"))
+
+      on_exit(fn ->
+        case previous_root do
+          nil -> Application.delete_env(:aiur, :repo_base_root)
+          root -> Application.put_env(:aiur, :repo_base_root, root)
+        end
+      end)
+
+      assert :ok = RepoBase.ensure_state_tree(repo)
+      assert File.dir?(Path.join(base, ".git"))
+
+      for {path, contents} <- tracked_paths do
+        assert File.read!(Path.join(base, path)) == contents
+        refute File.exists?(Path.join(RepoBase.repo_path(repo), path))
+      end
+
+      for {path, contents} <- untracked_paths do
+        assert File.read!(Path.join(RepoBase.repo_path(repo), path)) == contents
+        refute File.exists?(Path.join(base, path))
+      end
+    end
+
     test "migrates a legacy clone before importing its retrospective into canonical meta", %{
       origin: origin,
       node: node,
@@ -199,21 +255,25 @@ defmodule Aiur.RepoBaseTest do
       assert File.read!(source) == Jason.encode!(finding("legacy"))
     end
 
-    test "serializes recovery of a parked clone for concurrent callers", %{origin: origin, node: node, base: base, tmp: tmp} do
+    test "serializes recovery of a parked clone without a flock executable", %{origin: origin, node: node, base: base, tmp: tmp} do
       parked = node <> ".migrating-interrupted"
       repo = "https://github.com/owner/project.git"
       previous_root = Application.get_env(:aiur, :repo_base_root)
+      previous_path = System.get_env("PATH")
       File.mkdir_p!(Path.dirname(node))
       git!(["clone", "--quiet", origin, parked])
       File.mkdir_p!(node)
       File.mkdir_p!(Path.join(node, ".aiur-mix"))
       Application.put_env(:aiur, :repo_base_root, Path.join(tmp, "repo"))
+      System.put_env("PATH", "")
 
       on_exit(fn ->
         case previous_root do
           nil -> Application.delete_env(:aiur, :repo_base_root)
           root -> Application.put_env(:aiur, :repo_base_root, root)
         end
+
+        if previous_path, do: System.put_env("PATH", previous_path), else: System.delete_env("PATH")
       end)
 
       results =

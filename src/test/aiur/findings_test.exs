@@ -46,6 +46,20 @@ defmodule Aiur.FindingsTest do
     assert slugs == ["first-failure", "second-failure"]
   end
 
+  test "uses the latest slug record to clear an unfiled finding without rewriting history", %{repo: repo} do
+    assert :ok = Findings.append(repo, finding("shared-failure", nil))
+
+    filed =
+      finding("shared-failure", 1464)
+      |> Map.put("observed_at", "2026-08-02T04:31:00Z")
+
+    assert :ok = Findings.append(repo, filed)
+    assert {:ok, []} = Findings.unfiled()
+    assert {:ok, [open, current]} = Findings.all()
+    assert open["status"] == "open"
+    assert current["status"] == "filed"
+  end
+
   test "rejects records over 4 KiB and invalid scopes before writing", %{repo: repo} do
     assert {:error, message} = Findings.append(repo, %{finding("too-large", nil) | "summary" => String.duplicate("x", 5_000)})
     assert message =~ "atomic append limit"

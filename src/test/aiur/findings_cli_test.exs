@@ -27,6 +27,10 @@ defmodule Aiur.FindingsCLITest do
     assert 1 == FindingsCLI.run(%{unfiled: true, slugs: false, scope: nil}, &send(self(), {:line, &1}))
     assert_received {:line, line}
     assert line =~ "unfiled"
+
+    filed = finding(1464, "filed") |> Map.put("observed_at", "2026-08-02T04:31:00Z")
+    assert :ok = Findings.append(repo, filed)
+    assert 0 == FindingsCLI.run(%{unfiled: true, slugs: false, scope: nil}, fn _ -> flunk("filed finding was still unfiled") end)
   end
 
   test "--slugs emits de-duplicated join keys", %{repo: repo} do

@@ -50,7 +50,7 @@ defmodule Aiur.Findings do
   @spec unfiled(keyword()) :: {:ok, [record()]} | {:error, term()}
   def unfiled(opts \\ []) do
     with {:ok, findings} <- all(opts) do
-      {:ok, Enum.filter(findings, &(Map.get(&1, "ticket") in [nil, ""]))}
+      {:ok, findings |> latest_by_slug() |> Enum.filter(&(Map.get(&1, "ticket") in [nil, ""]))}
     end
   end
 
@@ -151,6 +151,19 @@ defmodule Aiur.Findings do
 
   defp filter_scope(records, nil), do: records
   defp filter_scope(records, scope), do: Enum.filter(records, &(&1["scope"] == scope))
+
+  # Findings are append-only observations. A later record for the same reusable
+  # slug is its current state, so filing it must clear the unfiled gate without
+  # rewriting the original observation.
+  defp latest_by_slug(findings) do
+    findings
+    |> Enum.reduce(%{}, fn finding, latest ->
+      Map.update(latest, finding["slug"], finding, fn current ->
+        if finding["observed_at"] >= current["observed_at"], do: finding, else: current
+      end)
+    end)
+    |> Map.values()
+  end
 
   defp validate_scope_filter(nil), do: :ok
   defp validate_scope_filter(scope), do: validate_scope(scope)

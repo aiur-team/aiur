@@ -24,19 +24,14 @@ defmodule Aiur.RepoBase do
   alias Aiur.AgentPubSub
   alias Aiur.Config
   alias Aiur.Findings
+  alias Exqlite.Basic
 
   @base_record "base-record.json"
   @legacy_built_marker ".aiur-base-built"
   @cache_sidecars [".aiur-hex", ".aiur-mix", ".aiur-npm-cache"]
   @state_entries ["builds", "analytics", "meta"]
-  @migration_lease_suffix ".migration.lease"
+  @migration_lease_suffix ".migration-lock.sqlite3"
   @migration_lock_timeout_ms 30_000
-  @migration_lease_script ~S"""
-  exec 9>>"$1" || exit 74
-  "$2" -x 9 || exit 75
-  printf 'locked\n'
-  IFS= read -r _
-  """
   @remote_probe_timeout_ms 30_000
 
   ## ---- Public API ----
@@ -614,16 +609,30 @@ defmodule Aiur.RepoBase do
     end
   end
 
-  # The migration renames an existing clone, so an advisory OS lease is held
-  # across the whole operation. Unlike a hand-rolled directory lease, it is
-  # released when its holder dies and cannot suffer a stale-check ABA race.
+  # SQLite's exclusive transaction is a cross-process lock provided by an
+  # application dependency on every supported platform. The kernel releases it
+  # if the holding BEAM dies, avoiding both stale files and external flock.
   defp with_migration_lock(node, migration) do
-    with {:ok, lease} <- acquire_migration_lease(migration_lease_path(node)) do
-      try do
+    path = migration_lease_path(node)
+
+    case Basic.open(path) do
+      {:ok, connection} ->
+        with_migration_transaction(connection, path, migration)
+
+      {:error, error} ->
+        {:error, {:repo_base_migration_lock_open_failed, path, error}}
+    end
+  end
+
+  defp with_migration_transaction(connection, path, migration) do
+    try do
+      with :ok <- sqlite_exec(connection, "PRAGMA busy_timeout = #{@migration_lock_timeout_ms}", path),
+           :ok <- sqlite_exec(connection, "BEGIN EXCLUSIVE", path) do
         migration.()
-      after
-        release_migration_lease(lease)
       end
+    after
+      _ = Basic.exec(connection, "COMMIT")
+      Basic.close(connection)
     end
   end
 
@@ -633,41 +642,10 @@ defmodule Aiur.RepoBase do
 
   defp migration_lease_path(node), do: node <> @migration_lease_suffix
 
-  defp acquire_migration_lease(path) do
-    with flock when is_binary(flock) <- System.find_executable("flock"),
-         shell when is_binary(shell) <- System.find_executable("sh") do
-      port =
-        Port.open({:spawn_executable, shell}, [
-          :binary,
-          :exit_status,
-          :hide,
-          args: ["-c", @migration_lease_script, "aiur-repo-base-lease", path, flock]
-        ])
-
-      receive do
-        {^port, {:data, "locked\n"}} -> {:ok, port}
-        {^port, {:exit_status, status}} -> {:error, {:repo_base_migration_lock_failed, path, status}}
-      after
-        @migration_lock_timeout_ms ->
-          Port.close(port)
-          {:error, {:repo_base_migration_lock_timeout, path}}
-      end
-    else
-      nil -> {:error, {:repo_base_migration_lock_unavailable, path}}
-    end
-  end
-
-  defp release_migration_lease(port) do
-    try do
-      Port.command(port, "release\n")
-
-      receive do
-        {^port, {:exit_status, _status}} -> :ok
-      after
-        1_000 -> Port.close(port)
-      end
-    rescue
-      ArgumentError -> :ok
+  defp sqlite_exec(connection, sql, path) do
+    case Basic.exec(connection, sql) do
+      {:ok, _query, _result, _connection} -> :ok
+      {:error, error, _connection} -> {:error, {:repo_base_migration_lock_failed, path, error}}
     end
   end
 
@@ -792,25 +770,47 @@ defmodule Aiur.RepoBase do
   # migration or a concurrent initializer. Merge their contents rather than
   # leaving the legacy copy beneath `latest`; findings retain both append-only
   # ledgers, while any other file collision is preserved under a unique name.
+  # Only untracked entries are Aiur state: repositories may legitimately track
+  # top-level builds/, analytics/, or meta/ application directories.
   defp move_state_entries(from, to) do
     Enum.reduce_while(@state_entries, :ok, fn entry, :ok ->
-      case move_state_entry(Path.join(from, entry), Path.join(to, entry)) do
+      case move_state_entry(Path.join(from, entry), Path.join(to, entry), from) do
         :ok -> {:cont, :ok}
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
 
-  defp move_state_entry(source, destination) do
+  defp move_state_entry(source, destination, clone_root) do
     cond do
       not File.exists?(source) ->
         :ok
 
+      File.dir?(source) ->
+        merge_state_directory(source, destination, clone_root)
+
+      true ->
+        move_untracked_state_file(source, destination, clone_root)
+    end
+  end
+
+  defp move_untracked_state_file(source, destination, clone_root) do
+    case tracked_state_file?(clone_root, source) do
+      :tracked ->
+        :ok
+
+      :untracked ->
+        move_untracked_state_file(source, destination)
+
+      {:error, reason} ->
+        {:error, {:repo_base_migration_tracking_failed, source, reason}}
+    end
+  end
+
+  defp move_untracked_state_file(source, destination) do
+    cond do
       not File.exists?(destination) ->
         File.rename(source, destination)
-
-      File.dir?(source) and File.dir?(destination) ->
-        merge_state_directory(source, destination)
 
       Path.basename(source) == "findings.ndjson" and Path.basename(destination) == "findings.ndjson" ->
         merge_findings(source, destination)
@@ -820,20 +820,41 @@ defmodule Aiur.RepoBase do
     end
   end
 
-  defp merge_state_directory(source, destination) do
-    with {:ok, entries} <- File.ls(source),
-         :ok <- move_state_directory_entries(entries, source, destination) do
-      File.rmdir(source)
+  defp merge_state_directory(source, destination, clone_root) do
+    with :ok <- File.mkdir_p(destination),
+         {:ok, entries} <- File.ls(source),
+         :ok <- move_state_directory_entries(entries, source, destination, clone_root),
+         :ok <- remove_empty_directory(source) do
+      :ok
     end
   end
 
-  defp move_state_directory_entries(entries, source, destination) do
+  defp move_state_directory_entries(entries, source, destination, clone_root) do
     Enum.reduce_while(entries, :ok, fn entry, :ok ->
-      case move_state_entry(Path.join(source, entry), Path.join(destination, entry)) do
+      case move_state_entry(Path.join(source, entry), Path.join(destination, entry), clone_root) do
         :ok -> {:cont, :ok}
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
+  end
+
+  defp remove_empty_directory(path) do
+    case File.rmdir(path) do
+      :ok -> :ok
+      {:error, :enotempty} -> :ok
+      {:error, :eexist} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp tracked_state_file?(clone_root, path) do
+    relative_path = Path.relative_to(path, clone_root)
+
+    case git(["ls-files", "--error-unmatch", "--", relative_path], clone_root) do
+      {_output, 0} -> :tracked
+      {_output, 1} -> :untracked
+      {output, status} -> {:error, {status, output}}
+    end
   end
 
   defp merge_findings(source, destination) do
