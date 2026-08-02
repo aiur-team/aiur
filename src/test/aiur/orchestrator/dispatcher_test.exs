@@ -88,6 +88,18 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     assert Dispatcher.maybe_warn_ci_readiness(state) == state
   end
 
+  test "paces retryable GitHub readiness errors without caching them as permanent" do
+    emit = fn name, _opts -> send(self(), {:ci_readiness_alert, name}) end
+    error = {:github, :rate_limited, %{status: 429}}
+
+    state = Dispatcher.check_initial_ci_readiness(%State{}, "github", "develop", fn _ -> {:error, error} end, emit)
+
+    refute state.ci_readiness_checked
+    assert is_integer(state.ci_readiness_retry_at_ms)
+    assert CiReadiness.cached_result() == :unavailable
+    assert_receive {:ci_readiness_alert, "system.ci_readiness.unavailable"}
+  end
+
   test "caches an operator-token readiness gap as a completed assessment" do
     readiness = CiReadiness.unavailable("develop", :ci_readiness_operator_token_required)
     emit = fn name, opts -> send(self(), {:ci_readiness_alert, name, opts}) end

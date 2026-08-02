@@ -7,7 +7,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   require Logger
 
   alias Aiur.{AgentRunner, Alerts, CodingAgent, Config, DispatchBudgetStore, Issue, RepoBase, Tracker}
-  alias Aiur.GitHub.CiReadiness
+  alias Aiur.GitHub.{CiReadiness, Errors}
   alias Aiur.Orchestrator
 
   alias Aiur.Orchestrator.{
@@ -185,21 +185,24 @@ defmodule Aiur.Orchestrator.Dispatcher do
     %{state | ci_readiness_checked: true, ci_readiness_retry_at_ms: nil}
   end
 
-  defp record_ci_readiness_result(state, {:error, :timeout}, emit_fun) do
-    maybe_emit_ci_readiness_unavailable(state, :timeout, emit_fun)
-
-    %{
-      state
-      | ci_readiness_unavailable_alerted: true,
-        ci_readiness_retry_at_ms: System.monotonic_time(:millisecond) + @ci_readiness_retry_ms
-    }
-  end
-
   defp record_ci_readiness_result(state, {:error, reason}, emit_fun) do
-    CiReadiness.cache_result(CiReadiness.unavailable(Config.base_branch(), reason))
-    maybe_emit_ci_readiness_unavailable(state, reason, emit_fun)
-    %{state | ci_readiness_checked: true, ci_readiness_retry_at_ms: nil}
+    if retryable_ci_readiness_error?(reason) do
+      maybe_emit_ci_readiness_unavailable(state, reason, emit_fun)
+
+      %{
+        state
+        | ci_readiness_unavailable_alerted: true,
+          ci_readiness_retry_at_ms: System.monotonic_time(:millisecond) + @ci_readiness_retry_ms
+      }
+    else
+      CiReadiness.cache_result(CiReadiness.unavailable(Config.base_branch(), reason))
+      maybe_emit_ci_readiness_unavailable(state, reason, emit_fun)
+      %{state | ci_readiness_checked: true, ci_readiness_retry_at_ms: nil}
+    end
   end
+
+  defp retryable_ci_readiness_error?(:timeout), do: true
+  defp retryable_ci_readiness_error?(reason), do: Errors.retryable_github_error?(reason)
 
   defp maybe_emit_ci_readiness_unavailable(%State{ci_readiness_unavailable_alerted: true}, _reason, _emit_fun), do: :ok
 
