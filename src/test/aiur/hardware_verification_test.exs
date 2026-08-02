@@ -89,6 +89,21 @@ defmodule Aiur.HardwareVerificationTest do
     assert :system_service in HardwareVerification.detected_signals(issue)
   end
 
+  test "keeps physical work in a mixed mock-and-device criterion" do
+    issue = %Issue{
+      description: "## Acceptance\n- Exercise a mock /dev/hidraw0 while physically replugging the device.\n- Verify a mock systemctl path while physically pressing the dial."
+    }
+
+    assert [:physical_action, :physical_action] =
+             issue |> HardwareVerification.matched_criteria() |> Enum.map(& &1.signal)
+  end
+
+  test "does not route a factual absence of privileged access" do
+    issue = %Issue{description: "## Acceptance\n- Verify that sudo is not available in the sandbox."}
+
+    assert [] == HardwareVerification.matched_criteria(issue)
+  end
+
   test "requires explicit operator sign-off before a detected ticket can finish" do
     issue = %{
       "body" => "## Acceptance\n- Run sudo udevadm trigger and verify the physical device.",

@@ -129,8 +129,9 @@ defmodule Aiur.GitHub.HardwareVerificationGate do
 
   defp signoff_identity(events, outcome_label, context) do
     with {:ok, verified} <- latest_signoff_event(events, HardwareVerification.verified_label(context.prefix)),
-         {:ok, outcome} <- latest_signoff_event(events, outcome_label) do
-      {:ok, %{verified: verified, outcome: outcome}}
+         {:ok, outcome} <- latest_signoff_event(events, outcome_label),
+         :ok <- outcome_after_verification(verified, outcome) do
+      {:ok, %{verified: Map.delete(verified, :event_order), outcome: Map.delete(outcome, :event_order)}}
     end
   end
 
@@ -150,11 +151,17 @@ defmodule Aiur.GitHub.HardwareVerificationGate do
   defp signoff_identity_event(event) do
     with {timestamp, event_id} when is_integer(timestamp) and is_integer(event_id) <- event_sort_key(event),
          %{"login" => login} = actor when is_binary(login) <- Map.get(event, "actor") do
-      %{event_id: event_id, occurred_at: Map.get(event, "created_at"), actor: actor}
+      %{event_id: event_id, occurred_at: Map.get(event, "created_at"), actor: actor, event_order: {timestamp, event_id}}
     else
       _ -> nil
     end
   end
+
+  defp outcome_after_verification(%{event_order: verified}, %{event_order: outcome}) when outcome > verified,
+    do: :ok
+
+  defp outcome_after_verification(_verified, _outcome),
+    do: {:error, {:operator_signoff_event_required, :outcome_precedes_verification}}
 
   defp signoff_event?(event, label) when is_map(event) do
     (Map.get(event, "event") || Map.get(event, "type")) == "labeled" and

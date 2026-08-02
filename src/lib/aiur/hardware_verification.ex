@@ -18,8 +18,8 @@ defmodule Aiur.HardwareVerification do
     {:privileged_operation, ~r{\bsudo\b}i},
     {:udev, ~r{\budev(?:\s+(?:rule|rules|adm))?\b}i},
     {:system_service, ~r{\bsystemctl\b}i},
-    {:physical_action, ~r{\b(?:unplug|replug|power[ -]?cycle|suspend/resume)\b}i},
-    {:physical_action, ~r{\b(?:press|turn|touch)\s+(?:the\s+)?(?:dial|button|key)\b}i}
+    {:physical_action, ~r{\b(?:unplug(?:ged|ging)?|replug(?:ged|ging)?|power[ -]?cycle|suspend/resume)\b}i},
+    {:physical_action, ~r{\b(?:press(?:ed|ing)?|turn(?:ed|ing)?|touch(?:ed|ing)?)\s+(?:the\s+)?(?:dial|button|key)\b}i}
   ]
 
   @non_execution_action ~r/^(?:add|build|create|document|remove|update)\b/i
@@ -223,7 +223,7 @@ defmodule Aiur.HardwareVerification do
   defp criterion_clauses(line) do
     criterion = Regex.replace(~r/^(?:[-*+]\s+|\d+[.)]\s+|\[[ xX]\]\s+)/, line, "")
 
-    Regex.split(~r/(?:[;.!?]+|\b(?:but|however|then)\b)/i, criterion, trim: true)
+    Regex.split(~r/(?:[;.!?]+|\b(?:but|however|then|while)\b)/i, criterion, trim: true)
   end
 
   defp physical_execution?(clause) do
@@ -241,8 +241,9 @@ defmodule Aiur.HardwareVerification do
   end
 
   defp negated_execution?(clause) do
-    Regex.match?(@negated_operation, clause) and
-      not Regex.match?(~r/\b(?:not|never)\s+(?:available|working|responding)\b/i, clause)
+    Regex.match?(~r/\bsudo\s+is\s+not\s+available\b/i, clause) or
+      (Regex.match?(@negated_operation, clause) and
+         not Regex.match?(~r/\b(?:not|never)\s+(?:available|working|responding)\b/i, clause))
   end
 
   defp label_names(issue_body) do

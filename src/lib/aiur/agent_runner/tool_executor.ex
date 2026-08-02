@@ -25,7 +25,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
 
   alias Aiur.Codex.DynamicTool
   alias Aiur.Events.{Publisher, SubscriptionStore}
-  alias Aiur.GitHub.{Config, IssueDependencies}
+  alias Aiur.GitHub.{BlockerCache, Config, IssueDependencies}
   alias Aiur.Orchestrator
   alias Aiur.Protocol.MapAccess
   alias Aiur.SecretRedactor
@@ -377,6 +377,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
     message = "Unverifiable criterion: #{criterion}"
 
     with :ok <- HardwareVerification.invalidate_operator_signoff(issue_id, prefix),
+         :ok <- BlockerCache.invalidate_blocker(issue_id),
          :ok <- Tracker.add_label(issue_id, required_label),
          :ok <-
            Alerts.emit_custom("ticket.#{identifier}.agent.hardware.untestable", message,

@@ -64,6 +64,24 @@ defmodule Aiur.GitHub.BlockerCache do
     :ok
   end
 
+  @doc false
+  @spec invalidate_blocker(String.t()) :: :ok
+  def invalidate_blocker(blocker_id) when is_binary(blocker_id) do
+    ensure_table()
+    |> :ets.tab2list()
+    |> Enum.each(fn
+      {{:blockers, issue_id}, _fetched_ms, blockers} when is_list(blockers) ->
+        if Enum.any?(blockers, &(blocker_identifier(&1) == blocker_id)) do
+          :ets.delete(@table, {:blockers, issue_id})
+        end
+
+      _entry ->
+        :ok
+    end)
+
+    :ok
+  end
+
   defp refresh(issue_id, stale, fetcher, now_ms) do
     case fetcher.() do
       {:ok, blockers} when is_list(blockers) ->
@@ -94,6 +112,10 @@ defmodule Aiur.GitHub.BlockerCache do
       _ -> 0
     end
   end
+
+  defp blocker_identifier(%{"number" => number}), do: to_string(number)
+  defp blocker_identifier(%{number: number}), do: to_string(number)
+  defp blocker_identifier(_blocker), do: nil
 
   defp ensure_table do
     case :ets.whereis(@table) do
