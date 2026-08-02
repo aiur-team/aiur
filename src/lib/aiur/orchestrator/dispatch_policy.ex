@@ -192,15 +192,20 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
          %{schedulers: schedulers} = options
        ) do
     recovering? = is_integer(last_decrease_ms)
-    # Cold starts have no recovery timestamp. Limit their headroom shortcut to
-    # below-target load so the normal AIMD decrease still wins under pressure.
+    cold_start? = is_nil(last_decrease_ms)
     below_target? = load <= options.target * schedulers
 
-    if (recovering? or below_target?) and options.queued_work? and
-         clear_cpu_headroom?(options.cpu_headroom, schedulers) do
-      fast_ramp(effective, last_decrease_ms, options.static_limit)
-    else
-      adjust_load_envelope_without_headroom(effective, last_decrease_ms, load, options)
+    cond do
+      cold_start? and below_target? and options.queued_work? and
+          clear_cpu_headroom?(options.cpu_headroom, schedulers) ->
+        seed_cold_start(effective, options.cpu_headroom, schedulers, options.static_limit)
+
+      recovering? and options.queued_work? and
+          clear_cpu_headroom?(options.cpu_headroom, schedulers) ->
+        fast_ramp(effective, last_decrease_ms, options.static_limit)
+
+      true ->
+        adjust_load_envelope_without_headroom(effective, last_decrease_ms, load, options)
     end
   end
 
@@ -240,6 +245,11 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
        do: true
 
   defp clear_cpu_headroom?(_headroom, _schedulers), do: false
+
+  defp seed_cold_start(effective, %{idle_percent: idle_percent}, schedulers, static_limit) do
+    idle_slots = max(floor(idle_percent * schedulers / 100), 1)
+    {min(effective + idle_slots, static_limit), nil}
+  end
 
   defp fast_ramp(effective, last_decrease_ms, static_limit) do
     next = min(static_limit, min(effective * 2, effective + @cpu_headroom_ramp_max))
