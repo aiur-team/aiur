@@ -35,6 +35,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   @default_root_number_base 100_000
   @default_root_number_range 800_000_000
   @pack_source_precedence %{workspace: 0, state: 1, override: 2, configured: 3, explicit: 4}
+  @pack_source_precedence_description "workspace > state > environment > configured > explicit"
 
   # --- catalog ---------------------------------------------------------------
 
@@ -542,7 +543,8 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
          {:ok, json} <- Jason.decode(body),
          {:ok, repository} <- repository(json),
          {:ok, tickets} <- tickets(Map.get(json, "tickets", []), Path.dirname(absolute), include_drafts?) do
-      build_order_id = Map.get(json, "build_order_id", "planning")
+      raw_build_order_id = Map.get(json, "build_order_id")
+      build_order_id = normalized_build_order_id(raw_build_order_id)
       root_number = Map.get(json, "root_number") || get_in(json, ["github_root", "number"])
       status = status(absolute)
 
@@ -550,8 +552,10 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
        %{
          source: source,
          path: absolute,
+         content_hash: :crypto.hash(:sha256, body),
          repository: repository,
          build_order_id: build_order_id,
+         build_order_id_explicit?: is_binary(raw_build_order_id) and raw_build_order_id != "",
          title: Map.get(json, "title", "Planning build order"),
          icon: pack_icon(json),
          icon_explicit?: is_binary(Map.get(json, "icon")) and Map.get(json, "icon") != "",
@@ -571,10 +575,12 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   end
 
   # The publisher writes a workspace mirror while the repository state node
-  # retains its canonical copy. Reconcile those copies before sorting the
-  # catalog so the URL router receives one root identity. Source precedence is
-  # intentional and auditable in the warning: workspace, state, environment,
-  # configured list, then the singular explicit test/demo pack.
+  # retains its canonical copy. Reconcile only mirrors of the same logical
+  # build order before sorting so the URL router receives one root identity.
+  # Source precedence is intentional and auditable in the warning: workspace,
+  # state, environment, configured list, then the singular explicit test/demo
+  # pack. Distinct build orders retain their entries even when root locators
+  # collide, allowing RouteState to fail closed rather than hiding a pack.
   defp reconcile_duplicate_packs(packs) do
     packs
     |> Enum.sort_by(&pack_precedence/1)
@@ -585,8 +591,8 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
         chosen ->
           Logger.warning(
-            "build order catalog discarded duplicate #{inspect(pack.build_order_id)} from #{pack.source} (#{pack.path}); " <>
-              "using #{chosen.source} (#{chosen.path})"
+            "build order catalog discarded #{duplicate_kind(chosen, pack)} #{inspect(pack.build_order_id)} from #{pack.source} (#{pack.path}); " <>
+              "source precedence #{@pack_source_precedence_description} selected #{chosen.source} (#{chosen.path})"
           )
 
           selected
@@ -599,18 +605,21 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   defp same_catalog_pack?(left, right) do
     same_repository?(left.repository, right.repository) and
-      (left.build_order_id == right.build_order_id or same_explicit_root?(left, right))
+      left.build_order_id_explicit? and right.build_order_id_explicit? and
+      left.build_order_id == right.build_order_id
   end
 
-  defp same_explicit_root?(left, right) do
-    left.root_number_explicit? and right.root_number_explicit? and left.root_number == right.root_number
-  end
+  defp duplicate_kind(%{content_hash: hash}, %{content_hash: hash}), do: "identical mirror"
+  defp duplicate_kind(_chosen, _pack), do: "divergent duplicate"
 
   defp same_repository?({left_owner, left_repo}, {right_owner, right_repo}) do
     String.downcase(left_owner) == String.downcase(right_owner) and String.downcase(left_repo) == String.downcase(right_repo)
   end
 
   defp same_repository?(_left, _right), do: false
+
+  defp normalized_build_order_id(build_order_id) when is_binary(build_order_id) and build_order_id != "", do: build_order_id
+  defp normalized_build_order_id(_build_order_id), do: "planning"
 
   defp ticket_numbers(tickets) do
     for %{id: id, number: number} <- tickets, is_integer(number), into: %{}, do: {id, number}

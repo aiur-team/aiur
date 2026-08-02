@@ -1,6 +1,8 @@
 defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias Aiur.BuildOrder.{Catalog, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.GitHub.Config
@@ -463,7 +465,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert Enum.map(roots, & &1.identity.identifier) |> Enum.sort() == ["9900", "9901"]
   end
 
-  test "reconciles duplicate discovery packs with workspace precedence and a selectable deep link" do
+  test "reconciles divergent same-ID discovery mirrors with workspace precedence" do
     suffix = System.unique_integer([:positive])
     workspace_directory = Path.join([File.cwd!(), ".aiur", "build_orders"])
     workspace_existed? = File.dir?(workspace_directory)
@@ -479,7 +481,6 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
       @canonical_pack
       |> String.replace("acme/widgets", repository)
       |> String.replace("Analytics Stream Deck", "State copy")
-      |> String.replace("#{repository}:analytics-streamdeck", "#{repository}:state-copy")
 
     Application.put_env(:aiur, :repo_base_root, state_root)
     Application.delete_env(:aiur, :build_order_planning_pack)
@@ -501,10 +502,14 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
       if not workspace_existed?, do: File.rmdir(workspace_directory)
     end)
 
-    snapshot = PlanningSource.catalog()
+    log = capture_log(fn -> send(self(), {:catalog, PlanningSource.catalog()}) end)
+    assert_receive {:catalog, snapshot}
 
     assert %Snapshot{data: %Catalog{entries: [root]}} = snapshot
     assert root.title == "Workspace copy"
+    assert log =~ "discarded divergent duplicate"
+    assert log =~ "workspace > state > environment > configured > explicit"
+    assert log =~ "selected workspace"
 
     {route, []} = RouteState.new("duplicate-discovery") |> RouteState.navigate("9900")
     {route, [{:activate, identity}]} = RouteState.put_catalog(route, snapshot)
@@ -513,6 +518,95 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert RouteState.status(route) == :selected_loading
 
     assert {:ok, %Snapshot{data: %SelectedRoot{root: %{title: "Workspace copy"}}}} = PlanningSource.demand(root.identity)
+
+    File.write!(state_path, workspace_pack)
+    identical_log = capture_log(fn -> PlanningSource.catalog() end)
+
+    assert identical_log =~ "discarded identical mirror"
+  end
+
+  test "keeps distinct build orders that collide on an explicit root number" do
+    suffix = System.unique_integer([:positive])
+    workspace_directory = Path.join([File.cwd!(), ".aiur", "build_orders"])
+    workspace_existed? = File.dir?(workspace_directory)
+    workspace_path = Path.join(workspace_directory, "planning-source-root-collision-#{suffix}.json")
+    state_root = Path.join(System.tmp_dir!(), "planning-source-root-collision-state-#{suffix}")
+    previous_root = Application.get_env(:aiur, :repo_base_root)
+    previous_dirs = System.get_env("AIUR_BUILD_ORDER_DIRS")
+    repository = Config.repo()
+
+    workspace_pack = @canonical_pack |> String.replace("acme/widgets", repository) |> String.replace("Analytics Stream Deck", "Workspace copy")
+
+    state_pack =
+      @canonical_pack
+      |> String.replace("acme/widgets", repository)
+      |> String.replace("Analytics Stream Deck", "State copy")
+      |> String.replace("#{repository}:analytics-streamdeck", "#{repository}:state-copy")
+
+    Application.put_env(:aiur, :repo_base_root, state_root)
+    Application.delete_env(:aiur, :build_order_planning_pack)
+    Application.delete_env(:aiur, :build_order_planning_packs)
+    System.delete_env("AIUR_BUILD_ORDER_DIRS")
+
+    state_path = Path.join([RepoBase.builds_path("https://github.com/#{repository}.git"), "root-collision", "build-order.json"])
+
+    File.mkdir_p!(Path.dirname(workspace_path))
+    File.mkdir_p!(Path.dirname(state_path))
+    File.write!(workspace_path, workspace_pack)
+    File.write!(state_path, state_pack)
+
+    on_exit(fn ->
+      if previous_root, do: Application.put_env(:aiur, :repo_base_root, previous_root), else: Application.delete_env(:aiur, :repo_base_root)
+      if previous_dirs, do: System.put_env("AIUR_BUILD_ORDER_DIRS", previous_dirs), else: System.delete_env("AIUR_BUILD_ORDER_DIRS")
+      File.rm(workspace_path)
+      File.rm_rf(state_root)
+      if not workspace_existed?, do: File.rmdir(workspace_directory)
+    end)
+
+    snapshot = PlanningSource.catalog()
+
+    assert %Snapshot{data: %Catalog{entries: entries}} = snapshot
+    assert Enum.map(entries, & &1.title) |> Enum.sort() == ["State copy", "Workspace copy"]
+
+    {route, []} = RouteState.new("duplicate-root-number") |> RouteState.navigate("9900")
+    {route, []} = RouteState.put_catalog(route, snapshot)
+
+    assert RouteState.status(route) == :invalid_catalog
+    assert RouteState.selected_identity(route) == nil
+  end
+
+  test "does not reconcile discovery packs without explicit build order IDs" do
+    first = Path.join(System.tmp_dir!(), "planning-source-missing-id-first-#{System.unique_integer([:positive])}.json")
+    second = Path.join(System.tmp_dir!(), "planning-source-missing-id-second-#{System.unique_integer([:positive])}.json")
+    repository = Config.repo()
+
+    first_pack =
+      @canonical_pack
+      |> String.replace("acme/widgets", repository)
+      |> String.replace("Analytics Stream Deck", "First legacy pack")
+      |> String.replace(~s("build_order_id": "#{repository}:analytics-streamdeck",\n), "")
+
+    second_pack =
+      @canonical_pack
+      |> String.replace("acme/widgets", repository)
+      |> String.replace("Analytics Stream Deck", "Second legacy pack")
+      |> String.replace(~s("build_order_id": "#{repository}:analytics-streamdeck",\n), "")
+
+    File.write!(first, first_pack)
+    File.write!(second, second_pack)
+    Application.delete_env(:aiur, :build_order_planning_pack)
+    Application.put_env(:aiur, :build_order_planning_packs, [first, second])
+
+    on_exit(fn ->
+      Application.delete_env(:aiur, :build_order_planning_packs)
+      File.rm(first)
+      File.rm(second)
+    end)
+
+    log = capture_log(fn -> send(self(), {:catalog, PlanningSource.catalog()}) end)
+    assert_receive {:catalog, %Snapshot{data: %Catalog{entries: entries}}}
+    assert log == ""
+    assert Enum.map(entries, & &1.title) |> Enum.sort() == ["First legacy pack", "Second legacy pack"]
   end
 
   test "assigns distinct deterministic catalog icons when packs omit one" do

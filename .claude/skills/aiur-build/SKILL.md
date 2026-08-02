@@ -180,6 +180,12 @@ work after the reader lands. Canonical planning artifacts under `docs/` remain
 version-control evidence, not discovery inputs. After materialization, the
 publisher writes the matching live discovery mirror to
 `.aiur/build_orders/<slug>.json`; Aiur reads that materialized mirror.
+When the same repository-qualified `build_order_id` appears in more than one
+discovery source, Aiur keeps exactly one copy by source precedence: workspace
+mirror, repository state, `AIUR_BUILD_ORDER_DIRS`, configured list, then the
+singular test/demo override. It logs whether the discarded copy was identical
+or divergent. Different build-order IDs are never reconciled merely because
+their root numbers collide; the catalog keeps both so deep links fail closed.
 
 Verify before declaring planning complete: with the daemon running, open the
 Build Order page and confirm the pack title and members render. This is a
