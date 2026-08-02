@@ -9,12 +9,15 @@ defmodule Aiur.HardwareVerificationTest do
     assert [:physical_action] = HardwareVerification.detected_signals("## Acceptance\n- Unplug and replug the controller, then press the dial.")
   end
 
-  test "detects criteria from an issue title and description" do
+  test "returns structured evidence from acceptance criteria" do
     issue = %Issue{title: "HID transport", description: "## Acceptance\n- Verify /dev/bus/usb access after a replug."}
 
     assert HardwareVerification.required?(issue)
     assert :device_path in HardwareVerification.detected_signals(issue)
     assert :physical_action in HardwareVerification.detected_signals(issue)
+
+    assert [%{signal: :device_path, evidence: "- Verify /dev/bus/usb access after a replug.", operator_action: "Verify this criterion on the physical device."}, %{signal: :physical_action}] =
+             HardwareVerification.matched_criteria(issue)
   end
 
   test "does not route docs, mocks, or emulators as physical criteria" do
@@ -52,7 +55,7 @@ defmodule Aiur.HardwareVerificationTest do
   end
 
   test "allows an operator no-go only when cancelling the spike" do
-    issue = %{"body" => "## Acceptance\n- Verify /dev/hidraw0.", "labels" => [%{"name" => "agent:operator-verification-no-go"}]}
+    issue = %{"body" => "## Acceptance\n- Verify /dev/hidraw0.", "labels" => [%{"name" => "agent:operator-verified"}, %{"name" => "agent:operator-verification-no-go"}]}
 
     assert :ok = HardwareVerification.verify_terminal_transition(issue, "cancelled", "agent")
     assert {:error, {:operator_no_go_requires_cancellation, _}} = HardwareVerification.verify_terminal_transition(issue, "done", "agent")

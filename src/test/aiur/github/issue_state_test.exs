@@ -166,6 +166,13 @@ defmodule Aiur.GitHub.IssueStateTest do
                    "id" => 1,
                    "created_at" => "2026-08-01T00:00:00Z",
                    "actor" => %{"login" => "operator"},
+                   "label" => %{"name" => "sym:operator-verified"}
+                 },
+                 %{
+                   "event" => "labeled",
+                   "id" => 2,
+                   "created_at" => "2026-08-01T00:01:00Z",
+                   "actor" => %{"login" => "operator"},
                    "label" => %{"name" => "sym:operator-verification-passed"}
                  }
                ]
@@ -202,6 +209,13 @@ defmodule Aiur.GitHub.IssueStateTest do
                    "event" => "labeled",
                    "id" => 1,
                    "created_at" => "2026-08-01T00:00:00Z",
+                   "actor" => %{"login" => "operator"},
+                   "label" => %{"name" => "sym:operator-verified"}
+                 },
+                 %{
+                   "event" => "labeled",
+                   "id" => 2,
+                   "created_at" => "2026-08-01T00:01:00Z",
                    "actor" => %{"login" => "agent-bot"},
                    "label" => %{"name" => "sym:operator-verification-passed"}
                  }
@@ -241,7 +255,7 @@ defmodule Aiur.GitHub.IssueStateTest do
                status: 200,
                body: %{
                  "state" => "open",
-                 "body" => "Verify /dev/hidraw0 after pressing the dial.",
+                 "body" => "## Acceptance\n- Verify /dev/hidraw0 after pressing the dial.",
                  "labels" => [%{"name" => "sym:ci-wait"}, %{"name" => "sym:operator-verification-required"}]
                }
              }}

@@ -128,7 +128,7 @@ defmodule Aiur.GitHub.IssuesTest do
       assert issue.assignee_id == "dev"
     end
 
-    test "caches blocker hydration and fails closed per issue after a dependency error" do
+    test "caches blocker hydration across polls" do
       test_pid = self()
       issue = %{"number" => 42, "title" => "Dependent", "body" => "## Acceptance\n- Verify /dev/hidraw0.", "labels" => [%{"name" => "sym:todo"}], "state" => "open"}
 
@@ -147,6 +147,84 @@ defmodule Aiur.GitHub.IssuesTest do
       assert_received :dependency_request
       assert {:ok, [_]} = Issues.fetch_issue_states_by_ids(["42"], request_fun: request_fun, cache_blockers: true, now_ms: 1)
       refute_receive :dependency_request
+    end
+
+    test "keeps stale blockers and fails closed only for a dependency hydration error" do
+      test_pid = self()
+
+      issue = fn number ->
+        %{
+          "number" => number,
+          "title" => "Dependent #{number}",
+          "body" => "Implement the transport.",
+          "labels" => [%{"name" => "sym:todo"}],
+          "state" => "open"
+        }
+      end
+
+      request_fun = fn %{url: url} ->
+        cond do
+          String.contains?(url, "/dependencies/blocked_by") and String.contains?(url, "/42/") ->
+            send(test_pid, {:dependency_request, "42"})
+
+            if Process.get(:stale_refresh) do
+              {:error, :rate_limited}
+            else
+              {:ok,
+               %{
+                 status: 200,
+                 body: [
+                   %{
+                     "number" => 41,
+                     "title" => "Passing spike",
+                     "body" => "## Acceptance\n- Verify /dev/hidraw0.",
+                     "labels" => [
+                       %{"name" => "sym:operator-verification-required"},
+                       %{"name" => "sym:operator-verified"},
+                       %{"name" => "sym:operator-verification-passed"}
+                     ],
+                     "state" => "closed"
+                   }
+                 ]
+               }}
+            end
+
+          String.contains?(url, "/dependencies/blocked_by") and String.contains?(url, "/43/") ->
+            send(test_pid, {:dependency_request, "43"})
+            {:error, :rate_limited}
+
+          String.contains?(url, "/timeline?") ->
+            {:ok, %{status: 200, headers: [], body: []}}
+
+          String.ends_with?(url, "/issues/42") ->
+            {:ok, %{status: 200, body: issue.(42)}}
+
+          String.ends_with?(url, "/issues/43") ->
+            {:ok, %{status: 200, body: issue.(43)}}
+        end
+      end
+
+      assert {:ok, [_]} =
+               Issues.fetch_issue_states_by_ids(["42"],
+                 request_fun: request_fun,
+                 cache_blockers: true,
+                 now_ms: 0
+               )
+
+      assert_received {:dependency_request, "42"}
+      Process.put(:stale_refresh, true)
+
+      assert {:ok, [stale_issue, failed_issue]} =
+               Issues.fetch_issue_states_by_ids(["42", "43"],
+                 request_fun: request_fun,
+                 cache_blockers: true,
+                 now_ms: 30_001
+               )
+
+      assert_received {:dependency_request, "42"}
+      assert_received {:dependency_request, "43"}
+      assert [%{identifier: "41"}] = stale_issue.blocked_by
+      assert [%{identifier: ""}] = failed_issue.blocked_by
     end
 
     test "normalizes native dependency blockers with their verification labels" do

@@ -130,10 +130,11 @@ defmodule Aiur.HardwareVerification do
   @spec outcome_label(map(), String.t()) :: String.t() | nil
   def outcome_label(issue_body, prefix) when is_map(issue_body) and is_binary(prefix) do
     labels = label_names(issue_body)
+    verified? = String.downcase(verified_label(prefix)) in labels
 
     cond do
-      String.downcase(passed_label(prefix)) in labels -> passed_label(prefix)
-      String.downcase(no_go_label(prefix)) in labels -> no_go_label(prefix)
+      verified? and String.downcase(passed_label(prefix)) in labels -> passed_label(prefix)
+      verified? and String.downcase(no_go_label(prefix)) in labels -> no_go_label(prefix)
       true -> nil
     end
   end
