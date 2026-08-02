@@ -12,8 +12,8 @@ defmodule AiurWeb.StreamdeckLive do
 
   alias Aiur.{AgentChat, AgentPubSub, Orchestrator}
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
-  alias AiurWeb.OperatorControlCenter.{DashboardShell, NavState, RouteRegistry}
   alias AiurWeb.{Endpoint, StreamDeckGrid, StreamdeckProjection}
+  alias AiurWeb.OperatorControlCenter.{DashboardShell, NavState, RouteRegistry}
 
   @impl true
   def mount(_params, _session, socket) do
@@ -183,8 +183,6 @@ defmodule AiurWeb.StreamdeckLive do
     |> Enum.map(fn {agent, slot} -> agent_key(slot, agent) end)
     |> Kernel.++(empty_slots)
   end
-
-  defp key_descriptors(_grid), do: Enum.map(1..8, &empty_key/1)
 
   defp agent_key(slot, agent) do
     bucket = Map.fetch!(agent, :bucket)
