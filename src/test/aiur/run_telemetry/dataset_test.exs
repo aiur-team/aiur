@@ -82,6 +82,51 @@ defmodule Aiur.RunTelemetry.DatasetTest do
     assert Enum.any?(intervals, &(&1.phase == "review_pause" and &1.status == "point"))
   end
 
+  test "pairs lifecycle boundaries by durable file order across equal cross-boot clocks" do
+    path = temporary_stream!()
+
+    start =
+      lifecycle_record(2, "build_test", "start", ~U[2026-07-11 01:00:00Z], "cross-boot")
+      |> Map.put(:boot_id, "boot-z")
+      |> Map.put(:record_id, "boot-z:2")
+
+    finish =
+      lifecycle_record(1, "build_test", "end", ~U[2026-07-11 01:00:00Z], "cross-boot")
+      |> Map.put(:boot_id, "boot-a")
+      |> Map.put(:record_id, "boot-a:1")
+
+    File.write!(path, Enum.map_join([start, finish], "\n", &Jason.encode!/1) <> "\n")
+
+    assert {:ok, dataset} = Dataset.build(path)
+    assert [%{status: "closed", duration_ms: 0}] = dataset.tickets["940"].intervals
+  end
+
+  test "clamps reversed lifecycle endpoints without changing future endpoints" do
+    path = temporary_stream!()
+
+    start = lifecycle_record(1, "historical_end", "start", ~U[2026-07-11 01:00:00Z])
+
+    reversed =
+      lifecycle_record(2, "historical_end", "end", ~U[2020-01-01 00:00:00Z])
+
+    future_start = lifecycle_record(3, "future_end", "start", ~U[2026-07-11 01:00:00Z])
+
+    future_end =
+      lifecycle_record(4, "future_end", "end", ~U[2030-01-01 00:00:00Z])
+
+    File.write!(path, Enum.map_join([start, reversed, future_start, future_end], "\n", &Jason.encode!/1) <> "\n")
+
+    assert {:ok, dataset} = Dataset.build(path)
+
+    assert %{status: "closed", start_at: start_at, end_at: start_at, duration_ms: 0} =
+             Enum.find(dataset.tickets["940"].intervals, &(&1.phase == "historical_end"))
+
+    assert %{status: "closed", duration_ms: duration_ms, end_at: "2030-01-01T00:00:00Z"} =
+             Enum.find(dataset.tickets["940"].intervals, &(&1.phase == "future_end"))
+
+    assert duration_ms == DateTime.diff(~U[2030-01-01 00:00:00Z], ~U[2026-07-11 01:00:00Z], :millisecond)
+  end
+
   test "classifies review wakeups as broken, resolved, or pending from real transitions" do
     {:ok, complete} =
       Dataset.build(@fixtures,

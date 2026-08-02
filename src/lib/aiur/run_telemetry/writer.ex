@@ -166,14 +166,14 @@ defmodule Aiur.RunTelemetry.Writer do
   defp append_many(state, []), do: state
 
   defp append_many(state, records) do
-    {state, contents} = encode_records(state, records)
+    {state, contents, encoded_records} = encode_records(state, records)
 
     with :ok <- File.mkdir_p(Path.dirname(state.path)),
          :ok <- state.write_fun.(state.path, contents) do
       state = %{
         state
         | bytes_since_prune: state.bytes_since_prune + byte_size(contents),
-          open_lifecycles: track_lifecycles(state.open_lifecycles, records),
+          open_lifecycles: track_lifecycles(state.open_lifecycles, encoded_records),
           write_warning_emitted: false
       }
 
@@ -339,7 +339,7 @@ defmodule Aiur.RunTelemetry.Writer do
            }, timestamp}
         ] ++ reopening
 
-    {rolled, contents} = encode_records(state, records)
+    {rolled, contents, _encoded_records} = encode_records(state, records)
 
     case state.write_fun.(state.path, contents) do
       :ok ->
@@ -407,6 +407,23 @@ defmodule Aiur.RunTelemetry.Writer do
   defp normalize_kind(kind) when is_binary(kind), do: kind
   defp normalize_kind(kind), do: inspect(kind)
 
+  defp normalize_timestamp(kind, timestamp, fallback) when kind in [:lifecycle, "lifecycle"] do
+    normalize_lifecycle_timestamp(timestamp, fallback)
+  end
+
+  defp normalize_timestamp(_kind, timestamp, _fallback), do: normalize_timestamp(timestamp)
+
+  defp normalize_lifecycle_timestamp(%DateTime{} = timestamp, _fallback), do: DateTime.to_iso8601(timestamp)
+
+  defp normalize_lifecycle_timestamp(timestamp, fallback) when is_binary(timestamp) do
+    case DateTime.from_iso8601(timestamp) do
+      {:ok, parsed, _offset} -> DateTime.to_iso8601(parsed)
+      _other -> DateTime.to_iso8601(fallback)
+    end
+  end
+
+  defp normalize_lifecycle_timestamp(_timestamp, fallback), do: DateTime.to_iso8601(fallback)
+
   defp normalize_timestamp(%DateTime{} = timestamp), do: DateTime.to_iso8601(timestamp)
   defp normalize_timestamp(timestamp) when is_binary(timestamp), do: timestamp
   defp normalize_timestamp(_timestamp), do: DateTime.utc_now() |> DateTime.to_iso8601()
@@ -432,16 +449,18 @@ defmodule Aiur.RunTelemetry.Writer do
   end
 
   defp encode_records(state, records) do
-    {state, lines} =
-      Enum.reduce(records, {state, []}, fn {kind, attributes, timestamp}, {state, lines} ->
+    {state, lines, encoded_records} =
+      Enum.reduce(records, {state, [], []}, fn {kind, attributes, timestamp}, {state, lines, encoded_records} ->
         sequence = next_sequence(state)
         attributes = maybe_mark_writer_restart(state, kind, attributes, sequence)
+        recorded_at = clock_timestamp(state.clock)
+        normalized_timestamp = normalize_timestamp(kind, timestamp, recorded_at)
 
         envelope = %{
           schema_version: RunTelemetry.schema_version(),
           kind: normalize_kind(kind),
-          timestamp: normalize_timestamp(timestamp),
-          recorded_at: state.clock |> clock_timestamp() |> normalize_timestamp(),
+          timestamp: normalized_timestamp,
+          recorded_at: DateTime.to_iso8601(recorded_at),
           boot_id: state.boot_id,
           sequence: sequence,
           record_id: "#{state.boot_id}:#{sequence}",
@@ -449,10 +468,15 @@ defmodule Aiur.RunTelemetry.Writer do
         }
 
         {:ok, encoded} = Jason.encode(Aiur.JSONSafe.normalize(envelope))
-        {%{state | sequence: sequence}, [[encoded, "\n"] | lines]}
+
+        {
+          %{state | sequence: sequence},
+          [[encoded, "\n"] | lines],
+          [{kind, attributes, normalized_timestamp} | encoded_records]
+        }
       end)
 
-    {state, lines |> Enum.reverse() |> IO.iodata_to_binary()}
+    {state, lines |> Enum.reverse() |> IO.iodata_to_binary(), Enum.reverse(encoded_records)}
   end
 
   defp track_lifecycles(open_lifecycles, records) do
@@ -468,7 +492,9 @@ defmodule Aiur.RunTelemetry.Writer do
   defp segment_lifecycle_records(open_lifecycles, timestamp) do
     open_lifecycles
     |> Enum.sort_by(fn {key, _value} -> key end)
-    |> Enum.reduce({[], [], %{}}, fn {key, {attributes, _started_at}}, {closing, reopening, continued} ->
+    |> Enum.reduce({[], [], %{}}, fn {key, {attributes, started_at}}, {closing, reopening, continued} ->
+      timestamp = causal_timestamp(timestamp, started_at)
+
       closing_attributes =
         attributes
         |> put_attribute(:boundary, "end")
@@ -489,6 +515,29 @@ defmodule Aiur.RunTelemetry.Writer do
     end)
     |> then(fn {closing, reopening, continued} -> {Enum.reverse(closing), Enum.reverse(reopening), continued} end)
   end
+
+  defp causal_timestamp(timestamp, started_at) do
+    timestamp = validate_clock_timestamp(timestamp)
+
+    case validate_lifecycle_timestamp(started_at) do
+      {:ok, started_at} ->
+        if DateTime.compare(timestamp, started_at) == :lt, do: started_at, else: timestamp
+
+      _other ->
+        timestamp
+    end
+  end
+
+  defp validate_lifecycle_timestamp(%DateTime{} = timestamp), do: {:ok, timestamp}
+
+  defp validate_lifecycle_timestamp(timestamp) when is_binary(timestamp) do
+    case DateTime.from_iso8601(timestamp) do
+      {:ok, parsed, _offset} -> {:ok, parsed}
+      _other -> :error
+    end
+  end
+
+  defp validate_lifecycle_timestamp(_timestamp), do: :error
 
   defp lifecycle_key(kind, attributes) when kind in [:lifecycle, "lifecycle"] and is_map(attributes) do
     case attribute_value(attributes, :boundary) do

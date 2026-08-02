@@ -800,7 +800,9 @@ defmodule Aiur.RunTelemetry.Dataset do
           recorded_at_ms: recorded_at_ms(record),
           boot_id: record.boot_id,
           sequence: record.sequence,
-          record_id: record.record_id
+          record_id: record.record_id,
+          source_path: record.source_path,
+          source_line: record.source_line
         }
       ]
     else
@@ -816,7 +818,7 @@ defmodule Aiur.RunTelemetry.Dataset do
   end
 
   defp lifecycle_sort_key(event) do
-    {event.recorded_at_ms || event.timestamp_ms, event.boot_id, event.sequence}
+    {event.source_path, event.source_line, event.record_id}
   end
 
   defp normalize_complexity(value) when is_integer(value) and value in 1..5, do: value
@@ -879,14 +881,24 @@ defmodule Aiur.RunTelemetry.Dataset do
     do: {event.attempt_id, event.event, event.operation_id}
 
   defp closed_interval(started, finished) do
+    {end_at, end_ms} = causal_endpoints(started, finished)
+
     interval_base(started)
     |> Map.merge(%{
       status: "closed",
-      end_at: finished.timestamp,
-      end_ms: finished.timestamp_ms,
-      duration_ms: max(finished.timestamp_ms - started.timestamp_ms, 0),
+      end_at: end_at,
+      end_ms: end_ms,
+      duration_ms: end_ms - started.timestamp_ms,
       outcome: finished.outcome || started.outcome
     })
+  end
+
+  defp causal_endpoints(started, finished) do
+    if finished.timestamp_ms < started.timestamp_ms do
+      {started.timestamp, started.timestamp_ms}
+    else
+      {finished.timestamp, finished.timestamp_ms}
+    end
   end
 
   defp point_interval(event, status) do
@@ -1041,12 +1053,10 @@ defmodule Aiur.RunTelemetry.Dataset do
 
   defp record_sort_key(record) do
     {
-      record.timestamp_ms,
-      record.boot_id,
-      record.sequence,
-      record.record_id,
       record.source_path,
-      record.source_line
+      record.source_line,
+      record.record_id,
+      record.timestamp_ms
     }
   end
 
