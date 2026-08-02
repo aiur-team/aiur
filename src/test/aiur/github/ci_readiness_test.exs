@@ -293,6 +293,8 @@ defmodule Aiur.GitHub.CiReadinessTest do
   end
 
   test "presence-only inspection never uses Actions or Administration endpoints" do
+    encoded = Base.encode64(@workflow)
+
     request_fun = fn %{url: url} ->
       cond do
         String.ends_with?(url, "/branches/develop") ->
@@ -303,6 +305,9 @@ defmodule Aiur.GitHub.CiReadinessTest do
 
         url =~ "/contents/.github/workflows" ->
           {:ok, %{status: 200, body: [%{"type" => "file", "path" => ".github/workflows/ci.yml", "url" => "workflow-url"}]}}
+
+        url == "workflow-url?ref=develop" ->
+          {:ok, %{status: 200, body: %{"content" => encoded}}}
 
         true ->
           flunk("unexpected privileged request: #{url}")
