@@ -193,7 +193,7 @@ defmodule Aiur.Claude.CodingAgent do
   defp port_metadata(port) when is_port(port) do
     case :erlang.port_info(port, :os_pid) do
       {:os_pid, os_pid} ->
-        %{claude_app_server_pid: to_string(os_pid)}
+        %{provider_pid: to_string(os_pid), claude_app_server_pid: to_string(os_pid)}
 
       _ ->
         %{}

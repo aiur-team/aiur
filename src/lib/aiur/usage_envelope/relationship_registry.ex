@@ -7,13 +7,13 @@ defmodule Aiur.UsageEnvelope.RelationshipRegistry do
   how a retained envelope is interpreted.
   """
 
-  alias Aiur.UsageEnvelope
+  alias Aiur.{CodingAgent, UsageEnvelope}
 
   @version 1
   @dimensions [:input, :cached_input, :cache_creation_input, :output, :reasoning_output]
   @input_dimensions [:input, :cached_input, :cache_creation_input]
   @output_dimensions [:output, :reasoning_output]
-  @providers [:codex, :claude]
+  @providers CodingAgent.provider_families()
   @definition_fields [
     :provider,
     :source,
@@ -26,7 +26,7 @@ defmodule Aiur.UsageEnvelope.RelationshipRegistry do
   @type dimension :: :input | :cached_input | :cache_creation_input | :output | :reasoning_output
   @type relationship :: :additive | :unknown | {:subset_of, dimension()} | {:mutually_exclusive, String.t()}
   @type definition :: %{
-          provider: :codex | :claude,
+          provider: atom(),
           source: String.t(),
           source_version: String.t(),
           revision: String.t(),
@@ -105,7 +105,7 @@ defmodule Aiur.UsageEnvelope.RelationshipRegistry do
   on the edges; a revision no definition covers, or one whose definitions
   disagree, is an explicit error rather than a guessed structure.
   """
-  @spec subset_children(catalog(), :codex | :claude, String.t()) ::
+  @spec subset_children(catalog(), atom(), String.t()) ::
           {:ok, %{optional(dimension()) => [dimension()]}} | {:error, atom()}
   def subset_children(%{version: @version, entries: entries}, provider, revision)
       when is_map(entries) do

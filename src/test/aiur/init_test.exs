@@ -1554,7 +1554,7 @@ defmodule Aiur.InitTest do
       assert :ok = Init.run(%{force: false}, capturing, deps(parent, dir, target))
 
       assert_received {:multiselect_opts, "Which agents to support", opts}
-      assert opts == ["claude", "codex"]
+      assert opts == ["claude", "codex", "fake"]
     end
 
     test "the location options carry greyed config-path help", %{dir: dir, target: target} do
@@ -1862,7 +1862,9 @@ defmodule Aiur.InitTest do
       required = Labels.state_labels("agent") ++ Labels.required_rate_limit_fallback_labels("agent")
       assert Enum.sort(created) == Enum.sort(required)
       refute Enum.any?(created, &String.starts_with?(&1, "complexity:"))
-      refute Enum.any?(created, &(&1 != "model:claude" and String.starts_with?(&1, "model:")))
+      assert "model:claude" in created
+      refute "model:codex" in created
+      refute "model:claude-repl" in created
     end
 
     test "the remote-control stage only appears when claude is supported", %{dir: dir, target: target} do

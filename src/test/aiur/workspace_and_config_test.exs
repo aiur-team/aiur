@@ -1141,7 +1141,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
       # seeds its bundled agent skills (#689) so a dispatched agent can load them
       # without a filesystem search.
       assert {:ok, entries} = File.ls(workspace)
-      assert Enum.sort(entries) == [".claude", ".codex"]
+      assert Enum.sort(entries) == [".claude", ".codex", ".fake"]
       assert File.exists?(Path.join([workspace, ".claude", "skills", "using-aiur", "SKILL.md"]))
     after
       File.rm_rf(workspace_root)

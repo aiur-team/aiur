@@ -92,7 +92,14 @@ defmodule Aiur.Config do
 
   @spec agent_kind() :: String.t()
   def agent_kind do
-    settings!().agent.kind || "codex"
+    settings!().agent.kind || Aiur.CodingAgent.default_backend()
+  end
+
+  @doc "Raw settings for a registry-named backend, or an empty map when absent."
+  @spec backend_config(String.t()) :: map()
+  def backend_config(backend) when is_binary(backend) do
+    settings!().agent.backend_configs
+    |> Map.get(backend, %{})
   end
 
   @spec agent_routing() :: %{pos_integer() => String.t()}
@@ -104,14 +111,14 @@ defmodule Aiur.Config do
   def switch_model_on_ratelimit, do: settings!().agent.switch_model_on_ratelimit || []
 
   @doc """
-  The headless Claude backend used by the automatic codex usage-limit fallback
-  (`Aiur.Orchestrator.RateLimitFallback`) when an already-running codex agent
-  hits `usage_limit_exhausted`, or `nil` when disabled
-  (`agent.rate_limit_fallback: ""`). The only enabled value is `"claude"`.
-  Unlike
+  The registered backend the automatic usage-limit fallback reroutes *to*
+  (`Aiur.Orchestrator.RateLimitFallback`) when an already-running agent on
+  `rate_limit_primary_backend/0` hits `usage_limit_exhausted`, or `nil` when
+  disabled (`agent.rate_limit_fallback: ""`). Any registry-declared eligible
+  from the primary is accepted; the default is `"claude"`. Unlike
   `switch_model_on_ratelimit/0` (opt-in, only ever applies to a new claim),
   this is default-on and reroutes a running local agent, reverting at a safe
-  turn boundary once `Aiur.ModelAvailability` confirms codex recovery.
+  turn boundary once `Aiur.ModelAvailability` confirms the primary recovered.
   """
   @spec rate_limit_fallback_backend() :: String.t() | nil
   def rate_limit_fallback_backend do
@@ -120,6 +127,16 @@ defmodule Aiur.Config do
       _ -> nil
     end
   end
+
+  @doc """
+  The registered backend the usage-limit fallback reroutes *from* — the pair's
+  primary. Only an already-running agent on this backend that hits
+  `usage_limit_exhausted` is eligible for the reroute to
+  `rate_limit_fallback_backend/0`. Defaults to `"codex"`, preserving the
+  historical codex -> claude reroute.
+  """
+  @spec rate_limit_primary_backend() :: String.t()
+  def rate_limit_primary_backend, do: settings!().agent.rate_limit_primary
 
   @doc """
   Setting #2: whether dispatched agents attach a `claude remote-control`
@@ -772,7 +789,9 @@ defmodule Aiur.Config do
   end
 
   defp prepare_agent_config(config, agent) do
-    put_default_kind(agent, inferred_agent_kind(config))
+    agent
+    |> Map.put("backend_configs", backend_config_sections(config, agent))
+    |> put_default_kind(inferred_agent_kind(config))
   end
 
   defp put_default_kind(section, kind) do
@@ -792,11 +811,26 @@ defmodule Aiur.Config do
   end
 
   defp inferred_agent_kind(config) do
-    cond do
-      has_section?(config, "claude") -> "claude"
-      has_section?(config, "codex") -> "codex"
-      true -> "claude"
-    end
+    agent = map_section(config, "agent")
+
+    Enum.find(Aiur.CodingAgent.configurable_backends(), fn backend ->
+      has_section?(config, backend) or Map.has_key?(backend_config_sections(config, agent), backend)
+    end) || Aiur.CodingAgent.default_config_backend()
+  end
+
+  defp backend_config_sections(config, agent) do
+    explicit = map_section(agent, "backend_configs")
+
+    Aiur.CodingAgent.known_backends()
+    |> Enum.reduce(explicit, fn backend, sections ->
+      section =
+        config
+        |> map_section(backend)
+        |> Map.merge(map_section(agent, backend))
+        |> Map.merge(map_section(explicit, backend))
+
+      if map_size(section) > 0, do: Map.put(sections, backend, section), else: sections
+    end)
   end
 
   defp has_section?(config, name) do

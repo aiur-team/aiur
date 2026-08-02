@@ -85,7 +85,22 @@ defmodule Aiur.CodingAgent.Backend do
           required(:efforts) => [String.t()],
           optional(:immediate_delivery) => boolean(),
           optional(:remote_transport) => CodingAgent.backend(),
-          optional(:fallback_backend) => CodingAgent.backend()
+          optional(:fallback_backend) => CodingAgent.backend(),
+          optional(:model_catalog) => (map() -> term()),
+          optional(:model_catalog_backend) => CodingAgent.backend(),
+          optional(:meter_probe) => (atom(), CodingAgent.backend(), keyword() -> map()),
+          optional(:run_telemetry) => (map() -> term()),
+          optional(:presentation) => map(),
+          optional(:pricing) => map(),
+          optional(:usage) => map(),
+          optional(:account_generation) => map(),
+          optional(:default) => boolean(),
+          optional(:rate_limit_fallback) => CodingAgent.backend(),
+          optional(:configurable) => boolean(),
+          optional(:init_order) => non_neg_integer(),
+          optional(:default_command) => String.t(),
+          optional(:install_hint) => String.t(),
+          optional(atom()) => term()
         }
 
   @doc "Start a session in the workspace. See \"Resume contract\"."

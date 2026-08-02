@@ -1,30 +1,33 @@
 defmodule Aiur.Usage.PriceTable.ProviderDimensions do
   @moduledoc false
 
-  @spec validate(:codex | :claude, atom(), atom(), atom()) :: :ok | {:error, atom()}
-  def validate(:codex, _dimension, tier, :not_applicable)
-      when tier in [:short_context, :long_context],
-      do: :ok
+  alias Aiur.CodingAgent
 
-  def validate(:codex, _dimension, tier, _duration)
-      when tier not in [:short_context, :long_context],
-      do: {:error, :invalid_price_context_tier}
+  @spec validate(atom(), atom(), atom(), atom()) :: :ok | {:error, atom()}
+  def validate(provider, token_dimension, context_tier, cache_write_duration) do
+    case component_dimensions(provider, token_dimension) do
+      {:ok, dimensions} ->
+        with :ok <- validate_dimension(context_tier, dimensions.context_tier, :invalid_price_context_tier) do
+          validate_dimension(cache_write_duration, dimensions.cache_write_duration, :invalid_cache_write_duration)
+        end
 
-  def validate(:codex, _dimension, _tier, _duration),
-    do: {:error, :invalid_cache_write_duration}
+      error ->
+        error
+    end
+  end
 
-  def validate(:claude, :cache_creation_input, :not_applicable, duration)
-      when duration in [:five_minutes, :one_hour],
-      do: :ok
+  defp component_dimensions(provider, token_dimension) do
+    case CodingAgent.provider_pricing(provider) do
+      %{component_dimensions: component_dimensions} when is_map(component_dimensions) ->
+        case Map.get(component_dimensions, token_dimension, Map.get(component_dimensions, :default)) do
+          %{context_tier: _tiers, cache_write_duration: _durations} = dimensions -> {:ok, dimensions}
+          _ -> {:error, :invalid_price_context_tier}
+        end
 
-  def validate(:claude, dimension, :not_applicable, :not_applicable)
-      when dimension != :cache_creation_input,
-      do: :ok
+      _ ->
+        {:error, :invalid_price_context_tier}
+    end
+  end
 
-  def validate(:claude, _dimension, tier, _duration)
-      when tier != :not_applicable,
-      do: {:error, :invalid_price_context_tier}
-
-  def validate(:claude, _dimension, _tier, _duration),
-    do: {:error, :invalid_cache_write_duration}
+  defp validate_dimension(value, allowed, error), do: if(value in allowed, do: :ok, else: {:error, error})
 end

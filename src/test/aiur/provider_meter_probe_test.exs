@@ -6,10 +6,11 @@ defmodule Aiur.ProviderMeterProbeTest do
   defmodule FakeAgent do
     @moduledoc false
 
-    def start_session(_workspace, opts) do
+    def start_session(workspace, opts) do
       case Process.get(:probe_start_result, :ok) do
         :ok ->
           send(Process.get(:probe_test_pid), {:session_started, Keyword.get(opts, :identifier)})
+          send(Process.get(:probe_test_pid), {:session_workspace, workspace})
           {:ok, %{fake: true}}
 
         {:error, _reason} = error ->
@@ -59,8 +60,7 @@ defmodule Aiur.ProviderMeterProbeTest do
         projection: ctx.projection,
         workspace: "/tmp/aiur-probe-test",
         observation_window_ms: 60,
-        codex_agent: FakeAgent,
-        claude_agent: FakeAgent
+        probe_agent: FakeAgent
       ],
       extra
     )
@@ -109,32 +109,44 @@ defmodule Aiur.ProviderMeterProbeTest do
     assert [%{observed?: false, reason: :probe_failed}] = ProviderMeterProbe.observe(:codex, opts(ctx))
   end
 
-  test "probing :all covers both providers", ctx do
+  test "probing :all covers every registry provider", ctx do
     outcomes = ProviderMeterProbe.observe(:all, opts(ctx))
 
-    assert Enum.map(outcomes, & &1.provider) == [:codex, :claude]
+    assert Enum.map(outcomes, & &1.provider) == [:codex, :claude, :fake]
+    assert List.last(outcomes) == %{provider: :fake, observed?: false, reason: :unsupported}
   end
 
   # A close that blows up must not turn the probe into a crash — the session is
   # being abandoned either way.
   test "a failing session close is contained", ctx do
-    assert [%{observed?: false}] = ProviderMeterProbe.observe(:codex, opts(ctx, codex_agent: ExplodingCloseAgent))
+    assert [%{observed?: false}] = ProviderMeterProbe.observe(:codex, opts(ctx, probe_agent: ExplodingCloseAgent))
   end
 
   # An unexpected atom return is surfaced verbatim rather than flattened, so a
   # new failure shape from the agent is diagnosable from the outcome alone.
   test "an unexpected start_session return is reported, not read as success", ctx do
     assert [%{observed?: false, reason: :something_unexpected}] =
-             ProviderMeterProbe.observe(:codex, opts(ctx, codex_agent: OddReturnAgent))
+             ProviderMeterProbe.observe(:codex, opts(ctx, probe_agent: OddReturnAgent))
   end
 
   # Without an explicit workspace the probe derives one under the configured
   # workspace root; the app-server rejects any cwd outside it.
-  test "a probe with no explicit workspace derives one under the workspace root", ctx do
+  #
+  # The derived directory must also be created on demand: a path that nothing
+  # creates leaves the app-server unable to `cd` into it every probe cycle
+  # (#1406). Assert both the location (under the workspace root, via the same
+  # repo-namespaced layout real tickets use) and that it exists on disk.
+  test "a probe with no explicit workspace derives one under the workspace root and creates it", ctx do
     outcome = ctx |> opts() |> Keyword.delete(:workspace) |> then(&ProviderMeterProbe.observe(:codex, &1))
 
     assert [%{provider: :codex}] = outcome
     assert_received {:session_started, "usage-probe"}
+    assert_received {:session_workspace, workspace}
+
+    expected = Aiur.Workspace.workspace_path_under(Aiur.Config.workspace_root(), "usage-probe")
+    assert workspace == expected
+    assert String.starts_with?(workspace, Aiur.Config.workspace_root())
+    assert File.dir?(workspace)
   end
 
   defp snapshot(provider) do

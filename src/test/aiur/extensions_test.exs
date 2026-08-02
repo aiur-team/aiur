@@ -939,6 +939,10 @@ defmodule Aiur.ExtensionsTest do
     assert dashboard_css =~ ".live-button[data-live=\"false\"]"
     assert Plug.Conn.get_resp_header(dashboard_css_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
 
+    provider_asset_conn = get(build_conn(), "/provider-assets/codex-color.svg")
+    assert response(provider_asset_conn, 200) =~ "<svg"
+    assert Plug.Conn.get_resp_header(provider_asset_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
+
     dialog_hook_conn = get(build_conn(), "/ticket-context-dialog-hook.js")
     assert response(dialog_hook_conn, 200) =~ "AiurTicketContextDialogHook"
     assert Plug.Conn.get_resp_header(dialog_hook_conn, "cache-control") == ["private, max-age=0, must-revalidate"]

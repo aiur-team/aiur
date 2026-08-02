@@ -1,5 +1,5 @@
 export type BucketId = "running" | "paused" | "stuck" | "alert" | "queued";
-export type Vendor = "claude" | "codex";
+export type Vendor = string;
 export interface BucketStyle {
   readonly accent: string;
   readonly glow: string;

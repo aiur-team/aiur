@@ -6,9 +6,6 @@ defmodule Aiur.Init.Questions do
 
   @tracker_kinds ["github", "linear"]
   @permission_modes ["bypassPermissions", "default (coming soon)", "acceptEdits (coming soon)"]
-  # Low complexity routes to the first kind, high to the last.
-  @routing_order ["claude", "codex"]
-
   @spec workspace_default(map()) :: String.t()
   def workspace_default(%{kind: "github", repo: repo}) when is_binary(repo) and repo != "",
     do: "~/.aiur/workspaces/" <> repo
@@ -154,9 +151,7 @@ defmodule Aiur.Init.Questions do
   end
 
   @spec agent_kind_choices() :: [String.t()]
-  def agent_kind_choices do
-    Enum.filter(@routing_order, &(&1 in known_agent_kinds()))
-  end
+  def agent_kind_choices, do: CodingAgent.configurable_backends()
 
   @spec primary_kind([String.t()]) :: String.t()
   def primary_kind(agents), do: hd(agent_kinds(agents))
@@ -165,7 +160,7 @@ defmodule Aiur.Init.Questions do
   def agent_kinds(kinds) when is_list(kinds) do
     kinds
     |> Enum.uniq()
-    |> Enum.sort_by(&Enum.find_index(@routing_order, fn k -> k == &1 end))
+    |> Enum.sort_by(&(Enum.find_index(agent_kind_choices(), fn kind -> kind == &1 end) || 9_999))
   end
 
   @doc false
