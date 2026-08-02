@@ -110,6 +110,182 @@ defmodule Aiur.GitHub.IssueStateTest do
       assert :ok = IssueState.update_issue_state("42", "Done", request_fun: request_fun)
     end
 
+    test "rejects done for hardware criteria until the operator signs off" do
+      test_pid = self()
+
+      request_fun = fn request ->
+        send(test_pid, {:request, request})
+
+        {:ok,
+         %{
+           status: 200,
+           body: %{
+             "state" => "open",
+             "body" => "Run sudo systemctl restart and press the device button.",
+             "labels" => [%{"name" => "sym:in-progress"}, %{"name" => "sym:operator-verification-required"}]
+           }
+         }}
+      end
+
+      assert {:error, {:operator_signoff_required, detail}} =
+               IssueState.update_issue_state("42", "done", request_fun: request_fun)
+
+      assert detail.verified_label == "sym:operator-verified"
+      assert_received {:request, %{method: :get}}
+      refute_receive {:request, %{method: _method}}, 100
+    end
+
+    test "allows done after the operator applies the sign-off marker" do
+      calls = :ets.new(:calls, [:set, :public])
+      :ets.insert(calls, {:count, 0})
+
+      request_fun = fn request ->
+        [{:count, count}] = :ets.lookup(calls, :count)
+        :ets.insert(calls, {:count, count + 1})
+
+        case {request.method, count} do
+          {:get, 0} ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "state" => "open",
+                 "body" => "Verify /dev/hidraw0 works after a replug.",
+                 "labels" => [%{"name" => "sym:in-progress"}, %{"name" => "sym:operator-verified"}]
+               }
+             }}
+
+          {:get, 1} ->
+            {:ok,
+             %{
+               status: 200,
+               headers: [],
+               body: [
+                 %{
+                   "event" => "labeled",
+                   "id" => 1,
+                   "created_at" => "2026-08-01T00:00:00Z",
+                   "actor" => %{"login" => "operator"},
+                   "label" => %{"name" => "sym:operator-verified"}
+                 }
+               ]
+             }}
+
+          {:delete, _} ->
+            {:ok, %{status: 200}}
+
+          {:post, _} ->
+            {:ok, %{status: 200}}
+
+          {:patch, _} ->
+            {:ok, %{status: 200}}
+        end
+      end
+
+      assert :ok =
+               IssueState.update_issue_state("42", "done",
+                 request_fun: request_fun,
+                 operator_authorized?: &(&1 == "operator")
+               )
+    end
+
+    test "rejects a sign-off marker whose GitHub label event was not applied by an operator" do
+      request_fun = fn request ->
+        cond do
+          request.method == :get and String.contains?(request.url, "/timeline?") ->
+            {:ok,
+             %{
+               status: 200,
+               headers: [],
+               body: [
+                 %{
+                   "event" => "labeled",
+                   "id" => 1,
+                   "created_at" => "2026-08-01T00:00:00Z",
+                   "actor" => %{"login" => "agent-bot"},
+                   "label" => %{"name" => "sym:operator-verified"}
+                 }
+               ]
+             }}
+
+          request.method == :get ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "state" => "open",
+                 "body" => "Verify /dev/hidraw0 works after a replug.",
+                 "labels" => [%{"name" => "sym:in-progress"}, %{"name" => "sym:operator-verified"}]
+               }
+             }}
+        end
+      end
+
+      assert {:error, {:operator_signoff_event_required, :untrusted_actor}} =
+               IssueState.update_issue_state("42", "done",
+                 request_fun: request_fun,
+                 operator_authorized?: &(&1 == "operator")
+               )
+    end
+
+    test "posts one CI blind-spot notice when hardware work enters human review" do
+      test_pid = self()
+
+      request_fun = fn request ->
+        send(test_pid, {:request, request})
+
+        cond do
+          request.method == :get and String.contains?(request.url, "/issues/42") ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "state" => "open",
+                 "body" => "Verify /dev/hidraw0 after pressing the dial.",
+                 "labels" => [%{"name" => "sym:ci-wait"}, %{"name" => "sym:operator-verification-required"}]
+               }
+             }}
+
+          request.method == :get and String.contains?(request.url, "/pulls?") ->
+            {:ok, %{status: 200, body: [%{"number" => 77}], headers: []}}
+
+          request.method == :post and is_binary(request.body["query"]) and request.body["query"] =~ "AiurViewerLogin" ->
+            {:ok, %{status: 200, body: %{"data" => %{"viewer" => %{"login" => "aiur-bot"}}}}}
+
+          request.method == :post and is_binary(request.body["query"]) and request.body["query"] =~ "AiurUnaddressedReviewThreads" ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "data" => %{
+                   "repository" => %{
+                     "pullRequest" => %{
+                       "reviewThreads" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => []}
+                     }
+                   }
+                 }
+               }
+             }}
+
+          request.method == :get and String.contains?(request.url, "/issues/77/comments?") ->
+            {:ok, %{status: 200, body: []}}
+
+          request.method == :post and String.contains?(request.url, "/issues/77/comments") ->
+            assert request.body["body"] =~ "Hardware verification required"
+            assert request.body["body"] =~ "sym:operator-verified"
+            {:ok, %{status: 201}}
+
+          request.method in [:delete, :post] ->
+            {:ok, %{status: 200}}
+        end
+      end
+
+      assert :ok = IssueState.update_issue_state("42", "human-review", request_fun: request_fun)
+      assert_received {:request, %{method: :post, url: url, body: %{"body" => body}}}
+      assert url =~ "/issues/77/comments"
+      assert body =~ "aiur:hardware-verification-required"
+    end
+
     test "closed-issue active-target branch strips active labels without adding the new one" do
       test_pid = self()
 

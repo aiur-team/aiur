@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   require Logger
 
-  alias Aiur.{AgentRunner, Alerts, CodingAgent, Config, DispatchBudgetStore, Issue, RepoBase, Tracker}
+  alias Aiur.{AgentRunner, Alerts, CodingAgent, Config, DispatchBudgetStore, HardwareVerification, Issue, RepoBase, Tracker}
   alias Aiur.Orchestrator
 
   alias Aiur.Orchestrator.{
@@ -206,6 +206,32 @@ defmodule Aiur.Orchestrator.Dispatcher do
     end
   end
 
+  @doc false
+  @spec route_hardware_verification(Issue.t(), keyword()) :: :ok | {:error, term()}
+  def route_hardware_verification(issue, opts \\ [])
+
+  def route_hardware_verification(%Issue{} = issue, opts) do
+    prefix = Keyword.get(opts, :label_prefix, Aiur.GitHub.Config.label_prefix())
+    required_label = HardwareVerification.required_label(prefix)
+    alerted_label = HardwareVerification.alerted_label(prefix)
+
+    cond do
+      not HardwareVerification.required?(issue) ->
+        :ok
+
+      true ->
+        labeler = Keyword.get(opts, :add_label, &Tracker.add_label/2)
+        alerter = Keyword.get(opts, :emit_alert, &Alerts.emit_system/2)
+
+        with :ok <- ensure_marker(issue, required_label, labeler),
+             :ok <- notify_operator_once(issue, alerted_label, labeler, alerter) do
+          :ok
+        end
+    end
+  end
+
+  def route_hardware_verification(_issue, _opts), do: :ok
+
   @spec do_dispatch_issue(State.t(), term(), term(), term()) :: State.t()
   def do_dispatch_issue(%State{} = state, issue, attempt, preferred_worker_host) do
     do_dispatch_issue(state, issue, attempt, preferred_worker_host, [])
@@ -214,6 +240,21 @@ defmodule Aiur.Orchestrator.Dispatcher do
   @doc false
   @spec do_dispatch_issue(State.t(), term(), term(), term(), keyword()) :: State.t()
   def do_dispatch_issue(%State{} = state, issue, attempt, preferred_worker_host, opts) when is_list(opts) do
+    case route_hardware_verification(issue) do
+      :ok ->
+        do_dispatch_selected_issue(state, issue, attempt, preferred_worker_host, opts)
+
+      {:error, reason} ->
+        Logger.warning(
+          "Skipping hardware-dependent dispatch because operator verification could not be recorded: " <>
+            "#{State.issue_context(issue)} reason=#{inspect(reason)}"
+        )
+
+        state
+    end
+  end
+
+  defp do_dispatch_selected_issue(state, issue, attempt, preferred_worker_host, opts) do
     case CodingAgent.select_for_dispatch(issue) do
       {:all_limited, candidates} ->
         if MapSet.member?(state.model_fallback_waiting, issue.id) do
@@ -233,6 +274,28 @@ defmodule Aiur.Orchestrator.Dispatcher do
         state = %{state | model_fallback_waiting: MapSet.delete(state.model_fallback_waiting, selected_issue.id)}
 
         dispatch_after_workspace_wait_or_thrash_check(state, selected_issue, attempt, preferred_worker_host, opts)
+    end
+  end
+
+  defp ensure_marker(issue, label, labeler) do
+    if label in Issue.label_names(issue), do: :ok, else: labeler.(issue.id || issue.identifier, label)
+  end
+
+  defp notify_operator_once(issue, alerted_label, labeler, alerter) do
+    if alerted_label in Issue.label_names(issue) do
+      :ok
+    else
+      signals = HardwareVerification.detected_signals(issue) |> Enum.map_join(", ", &Atom.to_string/1)
+
+      with :ok <-
+             alerter.("ticket.#{issue.identifier}.operator.hardware_verification_required",
+               issue: issue.identifier,
+               reason: "Hardware-dependent acceptance criteria detected (#{signals}). Operator verification is required before completion.",
+               needs_attention: true,
+               severity: "warning"
+             ) do
+        labeler.(issue.id || issue.identifier, alerted_label)
+      end
     end
   end
 

@@ -5,7 +5,7 @@ defmodule Aiur.GitHub.Issues do
 
   require Logger
   alias Aiur.{BuildOrder.Bounded, Config, GitHub, Issue, TrackerIdentity}
-  alias Aiur.GitHub.{DispatchAuthorization, Errors, Labels, StatePolicy, Transport}
+  alias Aiur.GitHub.{DependenciesApi, DispatchAuthorization, Errors, Labels, StatePolicy, Transport}
 
   @max_issue_response_bytes 65_536
 
@@ -136,7 +136,8 @@ defmodule Aiur.GitHub.Issues do
       labels = Enum.map(state_names, &StatePolicy.state_label(prefix, &1))
 
       with {:ok, issues} <-
-             fetch_issues_for_each_label(labels, request_fun, token, owner, repo, prefix) do
+             fetch_issues_for_each_label(labels, request_fun, token, owner, repo, prefix),
+           {:ok, issues} <- attach_blockers(issues, request_fun, owner, repo, prefix) do
         {:ok, authorize_dispatches(issues, request_fun, token, owner, repo, prefix)}
       end
     end
@@ -151,7 +152,8 @@ defmodule Aiur.GitHub.Issues do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
 
       with {:ok, issues} <-
-             do_fetch_issues_by_id_list(issue_ids, request_fun, token, owner, repo, prefix) do
+             do_fetch_issues_by_id_list(issue_ids, request_fun, token, owner, repo, prefix),
+           {:ok, issues} <- attach_blockers(issues, request_fun, owner, repo, prefix) do
         {:ok, authorize_dispatches(issues, request_fun, token, owner, repo, prefix)}
       end
     end
@@ -282,6 +284,40 @@ defmodule Aiur.GitHub.Issues do
       updated_at: parse_datetime(gh_issue["updated_at"])
     }
   end
+
+  defp attach_blockers(issues, request_fun, owner, repo, prefix) do
+    Enum.reduce_while(issues, {:ok, []}, fn issue, {:ok, acc} ->
+      case DependenciesApi.fetch_blocked_by(issue.id, request_fun: request_fun) do
+        {:ok, blockers} when is_list(blockers) ->
+          {:cont, {:ok, [%{issue | blocked_by: Enum.map(blockers, &normalize_blocker(&1, owner, repo, prefix))} | acc]}}
+
+        {:ok, _unexpected} ->
+          {:halt, {:error, :invalid_github_dependency_response}}
+
+        {:error, _reason} = error ->
+          {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, enriched} -> {:ok, Enum.reverse(enriched)}
+      error -> error
+    end
+  end
+
+  defp normalize_blocker(blocker, owner, repo, prefix) when is_map(blocker) do
+    normalized = normalize_issue(blocker, owner, repo, prefix, nil)
+
+    %{
+      id: normalized.id,
+      identifier: normalized.identifier,
+      title: normalized.title,
+      description: normalized.description,
+      state: normalized.state,
+      labels: normalized.labels
+    }
+  end
+
+  defp normalize_blocker(_blocker, _owner, _repo, _prefix), do: %{}
 
   @spec extract_state(map(), [String.t()], String.t()) :: String.t() | nil
   def extract_state(%{"state" => "closed"}, _label_names, _prefix), do: "Closed"

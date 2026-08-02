@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   Pure dispatch, load-gate, and issue-candidate policy for the orchestrator.
   """
 
-  alias Aiur.{Config, Issue, SystemCpu, SystemFileDescriptors, SystemLoad, SystemMemory}
+  alias Aiur.{Config, HardwareVerification, Issue, SystemCpu, SystemFileDescriptors, SystemLoad, SystemMemory}
   alias Aiur.Orchestrator.{Slots, State}
 
   @cpu_headroom_ramp_max 3
@@ -419,16 +419,19 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
       )
       when is_binary(issue_state) and is_list(blockers) do
     normalize_issue_state(issue_state) == "todo" and
-      Enum.any?(blockers, fn
-        %{state: blocker_state} when is_binary(blocker_state) ->
-          !terminal_issue_state?(blocker_state, terminal_states)
-
-        _ ->
-          true
-      end)
+      Enum.any?(blockers, &blocker_unresolved?(&1, terminal_states))
   end
 
   def todo_issue_blocked_by_non_terminal?(_issue, _terminal_states), do: false
+
+  defp blocker_unresolved?(blocker, terminal_states) when is_map(blocker) do
+    blocker_state = Map.get(blocker, :state) || Map.get(blocker, "state")
+
+    not terminal_issue_state?(blocker_state, terminal_states) or
+      HardwareVerification.unresolved?(blocker, Aiur.GitHub.Config.label_prefix())
+  end
+
+  defp blocker_unresolved?(_blocker, _terminal_states), do: true
 
   @spec terminal_issue_state?(term(), MapSet.t()) :: boolean()
   def terminal_issue_state?(state_name, terminal_states) when is_binary(state_name) do

@@ -18,7 +18,9 @@ defmodule Aiur.AgentRunner.ToolExecutor do
     DecisionAttention,
     DecisionStore,
     EventPublicationLog,
-    Issue
+    HardwareVerification,
+    Issue,
+    Tracker
   }
 
   alias Aiur.Codex.DynamicTool
@@ -121,6 +123,9 @@ defmodule Aiur.AgentRunner.ToolExecutor do
         end,
         event_publisher: fn name, message, payload ->
           emit_agent_event(event_context, name, message, payload)
+        end,
+        untestable_reporter: fn criterion, reason ->
+          report_untestable(event_context, criterion, reason)
         end,
         subscriber: fn pattern -> subscribe_for_issue(issue, pattern) end,
         unsubscriber: fn pattern -> unsubscribe_for_issue(issue, pattern) end,
@@ -361,6 +366,43 @@ defmodule Aiur.AgentRunner.ToolExecutor do
       {:error, :decision_requires_durable_publish}
     else
       enqueue_agent_event(event_context, name, message, payload, identifier, topic)
+    end
+  end
+
+  defp report_untestable(%{issue: issue} = event_context, criterion, reason) do
+    required_label = HardwareVerification.required_label(Aiur.GitHub.Config.label_prefix())
+    identifier = issue_identifier(issue)
+    message = "Unverifiable criterion: #{criterion}"
+
+    alert_result =
+      Alerts.emit_custom("ticket.#{identifier}.agent.hardware.untestable", message,
+        issue: issue,
+        workspace: event_context.workspace,
+        worker_host: event_context.worker_host,
+        reason: reason,
+        needs_attention: true,
+        severity: "warning",
+        observation_identity: Issue.tracker_identity(issue),
+        observation_source: %{kind: :agent_hardware_untestable},
+        observation_provenance: observation_provenance(event_context.app_session, event_context.attempt_id),
+        occurred_at: DateTime.utc_now()
+      )
+
+    label_result = Tracker.add_label(to_string(Map.get(issue, :id) || identifier), required_label)
+
+    _ =
+      emit_agent_event(
+        event_context,
+        "custom.hardware-untestable",
+        message,
+        %{"criterion" => criterion, "reason" => reason, "required_label" => required_label}
+      )
+
+    case {alert_result, label_result} do
+      {:ok, :ok} -> :ok
+      {{:error, reason}, _label_result} -> {:error, {:untestable_alert_failed, reason}}
+      {_alert_result, {:error, reason}} -> {:error, {:operator_verification_mark_failed, reason}}
+      {_alert_result, other} -> {:error, {:operator_verification_mark_failed, other}}
     end
   end
 

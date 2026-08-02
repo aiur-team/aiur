@@ -9,7 +9,7 @@ defmodule Aiur.GitHub.IssueState do
   """
 
   alias Aiur.GitHub.Config
-  alias Aiur.GitHub.{Errors, HumanReviewGate, Issues, Labels, StatePolicy, Transport}
+  alias Aiur.GitHub.{Errors, HardwareVerificationGate, HumanReviewGate, Issues, Labels, StatePolicy, Transport}
 
   @spec update_issue_state(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
   def update_issue_state(issue_number, state_name, opts \\ [])
@@ -94,7 +94,9 @@ defmodule Aiur.GitHub.IssueState do
   def apply_issue_state_update(context, issue_body, state_name, new_label) do
     with :ok <- validate_expected_state(context, issue_body),
          :ok <- HumanReviewGate.verify_human_review_review_threads_clear(context, state_name),
-         {:ok, current_issue_body} <- revalidate_expected_state(context, issue_body) do
+         :ok <- HardwareVerificationGate.flag_ci_blind_spot(context, issue_body, state_name),
+         {:ok, current_issue_body} <- revalidate_expected_state(context, issue_body),
+         :ok <- HardwareVerificationGate.verify_operator_signoff(context, current_issue_body, state_name) do
       if closed_issue?(current_issue_body) and StatePolicy.active_target_state?(state_name) do
         remove_active_state_labels(
           context.request_fun,

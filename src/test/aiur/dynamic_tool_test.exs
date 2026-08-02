@@ -3,7 +3,7 @@ defmodule Aiur.Codex.DynamicToolTest do
 
   alias Aiur.Codex.DynamicTool
 
-  test "tool_specs advertises the linear_graphql, review thread, and emit_alert contracts" do
+  test "tool_specs advertises the linear_graphql, review thread, alert, and untestable-report contracts" do
     specs = DynamicTool.tool_specs()
 
     assert Enum.any?(specs, fn
@@ -17,6 +17,22 @@ defmodule Aiur.Codex.DynamicToolTest do
                "name" => "linear_graphql"
              } ->
                description =~ "Linear"
+
+             _ ->
+               false
+           end)
+
+    assert Enum.any?(specs, fn
+             %{
+               "description" => description,
+               "inputSchema" => %{
+                 "properties" => %{"criterion" => _, "reason" => _},
+                 "required" => ["criterion", "reason"],
+                 "type" => "object"
+               },
+               "name" => "report_untestable"
+             } ->
+               description =~ "cannot verify"
 
              _ ->
                false
@@ -90,6 +106,7 @@ defmodule Aiur.Codex.DynamicToolTest do
                  "aiur_resolve_review_thread",
                  "emit_alert",
                  "emit_event",
+                 "report_untestable",
                  "aiur_subscribe",
                  "aiur_unsubscribe",
                  "aiur_declare_blocker",

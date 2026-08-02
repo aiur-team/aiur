@@ -1607,6 +1607,31 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert DispatchPolicy.should_dispatch_issue?(issue, state)
   end
 
+  test "todo issue remains blocked when a terminal hardware spike lacks operator sign-off" do
+    state = %Orchestrator.State{
+      max_concurrent_agents: 3,
+      running: %{},
+      claimed: MapSet.new(),
+      codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+      retry_attempts: %{}
+    }
+
+    unresolved_blocker = %{
+      id: "blocker-hardware",
+      identifier: "MT-1005",
+      state: "Closed",
+      body: "Verify /dev/hidraw0 after a replug.",
+      labels: ["agent:operator-verification-required"]
+    }
+
+    issue = %Issue{id: "blocked-hardware", identifier: "MT-1006", title: "Dependent", state: "Todo", blocked_by: [unresolved_blocker]}
+
+    refute DispatchPolicy.should_dispatch_issue?(issue, state)
+
+    resolved_blocker = Map.put(unresolved_blocker, :labels, ["agent:operator-verification-required", "agent:operator-verified"])
+    assert DispatchPolicy.should_dispatch_issue?(%{issue | blocked_by: [resolved_blocker]}, state)
+  end
+
   test "polling does not auto-dispatch when a paused agent reserves the only slot" do
     paused_entry = %{
       pid: self(),

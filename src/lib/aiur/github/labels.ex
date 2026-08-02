@@ -31,7 +31,14 @@ defmodule Aiur.GitHub.Labels do
   @watch_suffix "watch"
   @paused_suffix "paused"
   @rate_limit_fallback_suffix "rate-limit-fallback"
-  @marker_suffixes [@watch_suffix, @paused_suffix, @rate_limit_fallback_suffix]
+  @marker_suffixes [
+    @watch_suffix,
+    @paused_suffix,
+    @rate_limit_fallback_suffix,
+    "operator-verification-required",
+    "operator-verified",
+    "operator-verification-alerted"
+  ]
 
   @type request :: %{
           method: :post,
@@ -134,6 +141,9 @@ defmodule Aiur.GitHub.Labels do
   defp state_description("watch"), do: "aiur watches this PR for comments"
   defp state_description("paused"), do: "suppress aiur work while preserving state"
   defp state_description("rate-limit-fallback"), do: "tracks automatic usage-limit fallback"
+  defp state_description("operator-verification-required"), do: "hardware criteria require operator verification"
+  defp state_description("operator-verified"), do: "operator signed off hardware criteria"
+  defp state_description("operator-verification-alerted"), do: "operator hardware-verification alert was delivered"
   defp state_description("todo"), do: "ready to be worked"
   defp state_description("in-progress"), do: "agent is working it"
   defp state_description("ci-wait"), do: "awaiting CI before human review"

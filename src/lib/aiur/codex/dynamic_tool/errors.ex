@@ -151,6 +151,26 @@ defmodule Aiur.Codex.DynamicTool.Errors do
     }
   end
 
+  def payload(:missing_untestable_criterion) do
+    %{"error" => %{"message" => "`report_untestable.criterion` is required."}}
+  end
+
+  def payload(:missing_untestable_reason) do
+    %{"error" => %{"message" => "`report_untestable.reason` is required."}}
+  end
+
+  def payload(:untestable_reporter_unavailable) do
+    %{"error" => %{"message" => "`report_untestable` is unavailable in the current runtime context."}}
+  end
+
+  def payload({:untestable_alert_failed, reason}) do
+    %{"error" => %{"message" => "The untestable-criterion alert could not be emitted.", "reason" => inspect(reason)}}
+  end
+
+  def payload({:operator_verification_mark_failed, reason}) do
+    %{"error" => %{"message" => "The operator-verification marker could not be recorded.", "reason" => inspect(reason)}}
+  end
+
   def payload({:decision_rejected, reason}) do
     %{
       "error" => %{

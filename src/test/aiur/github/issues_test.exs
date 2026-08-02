@@ -99,20 +99,24 @@ defmodule Aiur.GitHub.IssuesTest do
 
     test "fetches issues by numeric id via individual requests" do
       request_fun = fn %{method: :get, url: url} ->
-        assert url =~ "/issues/42"
+        if String.contains?(url, "/dependencies/blocked_by") do
+          {:ok, %{status: 200, body: []}}
+        else
+          assert url =~ "/issues/42"
 
-        body = %{
-          "number" => 42,
-          "title" => "Fix bug",
-          "body" => "desc",
-          "html_url" => "https://github.com/owner/repo/issues/42",
-          "labels" => [%{"name" => "sym:in-progress"}],
-          "assignee" => %{"login" => "dev"},
-          "created_at" => "2026-01-01T00:00:00Z",
-          "updated_at" => "2026-01-02T00:00:00Z"
-        }
+          body = %{
+            "number" => 42,
+            "title" => "Fix bug",
+            "body" => "desc",
+            "html_url" => "https://github.com/owner/repo/issues/42",
+            "labels" => [%{"name" => "sym:in-progress"}],
+            "assignee" => %{"login" => "dev"},
+            "created_at" => "2026-01-01T00:00:00Z",
+            "updated_at" => "2026-01-02T00:00:00Z"
+          }
 
-        {:ok, %{status: 200, body: body}}
+          {:ok, %{status: 200, body: body}}
+        end
       end
 
       assert {:ok, [issue]} =
@@ -120,6 +124,47 @@ defmodule Aiur.GitHub.IssuesTest do
 
       assert issue.id == "42"
       assert issue.assignee_id == "dev"
+    end
+
+    test "normalizes native dependency blockers with their verification labels" do
+      request_fun = fn %{method: :get, url: url} ->
+        cond do
+          String.contains?(url, "/dependencies/blocked_by") ->
+            {:ok,
+             %{
+               status: 200,
+               body: [
+                 %{
+                   "number" => 41,
+                   "title" => "Hardware spike",
+                   "body" => "Verify /dev/hidraw0 after a replug.",
+                   "labels" => [%{"name" => "sym:operator-verification-required"}],
+                   "state" => "closed"
+                 }
+               ]
+             }}
+
+          true ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "number" => 42,
+                 "title" => "Dependent",
+                 "body" => "Implement the transport.",
+                 "labels" => [%{"name" => "sym:todo"}],
+                 "state" => "open"
+               }
+             }}
+        end
+      end
+
+      assert {:ok, [%{blocked_by: [blocker]}]} =
+               Issues.fetch_issue_states_by_ids(["42"], request_fun: request_fun)
+
+      assert blocker.state == "Closed"
+      assert blocker.description =~ "/dev/hidraw0"
+      assert blocker.labels == ["sym:operator-verification-required"]
     end
   end
 

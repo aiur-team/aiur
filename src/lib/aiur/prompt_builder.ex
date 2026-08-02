@@ -5,7 +5,7 @@ defmodule Aiur.PromptBuilder do
 
   require Logger
 
-  alias Aiur.{CodingAgent, Config, Workflow}
+  alias Aiur.{CodingAgent, Config, HardwareVerification, Workflow}
 
   @render_opts [strict_filters: true, strict_variables: true]
   @shared_prompt_path Path.expand("../../prompts/shared-agent-instructions.md", __DIR__)
@@ -32,7 +32,7 @@ defmodule Aiur.PromptBuilder do
       |> ensure_utf8()
 
     shared_prompt_prefix() <>
-      integration_branch_prompt(issue) <> rendered_prompt <> complexity_suffix(issue)
+      integration_branch_prompt(issue) <> rendered_prompt <> complexity_suffix(issue) <> hardware_verification_suffix(issue)
   end
 
   defp integration_branch_prompt(issue) do
@@ -64,6 +64,27 @@ defmodule Aiur.PromptBuilder do
       "\n\n" <> trimmed
     else
       _ -> ""
+    end
+  end
+
+  defp hardware_verification_suffix(issue) do
+    if HardwareVerification.required?(issue) do
+      required = HardwareVerification.required_label(Aiur.GitHub.Config.label_prefix())
+      verified = HardwareVerification.verified_label(Aiur.GitHub.Config.label_prefix())
+
+      """
+
+      ## Hardware-dependent acceptance criteria
+
+      This ticket contains acceptance criteria the sandbox and CI cannot verify. Aiur has marked it `#{required}`.
+
+      - Do not self-certify device, privileged, udev, system-service, or physical-action criteria.
+      - For every criterion you cannot verify, call `report_untestable` with the exact criterion and reason. It raises an operator alert and preserves the completion block.
+      - State the CI blind spot prominently in the pull-request description so the operator knows human hardware verification is the remaining gate.
+      - The ticket cannot reach `done` until a configured human operator explicitly applies `#{verified}` after performing the required verification; Aiur verifies that GitHub sign-off event.
+      """
+    else
+      ""
     end
   end
 

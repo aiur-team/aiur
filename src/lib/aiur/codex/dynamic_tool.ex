@@ -9,9 +9,10 @@ defmodule Aiur.Codex.DynamicTool do
   alias Aiur.Codex.DynamicTool.LinearGraphQL
   alias Aiur.Codex.DynamicTool.Response
   alias Aiur.Codex.DynamicTool.ReviewThreads
+  alias Aiur.Codex.DynamicTool.ReportUntestable
   alias Aiur.Codex.DynamicTool.Subscriptions
 
-  @handlers [LinearGraphQL, ReviewThreads, EmitAlert, EmitEvent, Subscriptions, Blockers]
+  @handlers [LinearGraphQL, ReviewThreads, EmitAlert, EmitEvent, ReportUntestable, Subscriptions, Blockers]
 
   @spec execute(String.t() | nil, term(), keyword()) :: map()
   def execute(tool, arguments, opts \\ []) do

@@ -449,6 +449,52 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     end
   end
 
+  describe "hardware-verification dispatch routing" do
+    test "marks and alerts on a hardware-dependent ticket before dispatch" do
+      test_pid = self()
+      issue = %Issue{id: "1483", identifier: "1483", title: "HID probe", description: "Read /dev/hidraw0 then press the dial."}
+
+      assert :ok =
+               Dispatcher.route_hardware_verification(issue,
+                 label_prefix: "agent",
+                 add_label: fn id, label ->
+                   send(test_pid, {:marked, id, label})
+                   :ok
+                 end,
+                 emit_alert: fn topic, opts ->
+                   send(test_pid, {:alerted, topic, opts})
+                   :ok
+                 end
+               )
+
+      assert_received {:marked, "1483", "agent:operator-verification-required"}
+      assert_received {:marked, "1483", "agent:operator-verification-alerted"}
+      assert_received {:alerted, "ticket.1483.operator.hardware_verification_required", opts}
+      assert opts[:needs_attention] == true
+      assert opts[:reason] =~ "device_path"
+    end
+
+    test "does not route ordinary tickets and does not re-notify after a delivered marker" do
+      ordinary = %Issue{id: "1", identifier: "1", title: "Docs", description: "Clarify the README."}
+
+      assert :ok = Dispatcher.route_hardware_verification(ordinary, add_label: fn _, _ -> flunk("must not mark") end)
+
+      marked = %Issue{
+        id: "2",
+        identifier: "2",
+        title: "HID",
+        description: "Use /dev/hidraw1",
+        labels: ["agent:operator-verification-required", "agent:operator-verification-alerted"]
+      }
+
+      assert :ok =
+               Dispatcher.route_hardware_verification(marked,
+                 add_label: fn _, _ -> flunk("must not mark twice") end,
+                 emit_alert: fn _, _ -> flunk("must not alert twice") end
+               )
+    end
+  end
+
   defp restore_app_env(key, nil), do: Application.delete_env(:aiur, key)
   defp restore_app_env(key, value), do: Application.put_env(:aiur, key, value)
 
