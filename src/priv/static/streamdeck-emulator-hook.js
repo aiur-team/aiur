@@ -129,10 +129,12 @@
       this._press();
     } else {
       // Keep the gesture local until release, then commit its final value once.
-      // Press detection uses absolute travel. Dial A's transcript scroll needs
-      // signed net movement, while the other dials retain their absolute
-      // accumulation so back-and-forth travel still commits a gesture.
-      var commitDelta = this.index === 0 ? netDeltaDeg : accumulatedDeg;
+      // Press detection uses absolute travel. Log scrolling needs signed net
+      // movement for both transcript (A) and event (D) dials, while grid dial D
+      // retains absolute accumulation so back-and-forth travel still commits
+      // its final logical value.
+      var signedCommit = this.index === 0 || (this.index === 3 && this.hook._mode === "logs");
+      var commitDelta = signedCommit ? netDeltaDeg : accumulatedDeg;
       this.hook._handleDialStep(this.index, commitDelta);
     }
   };
@@ -316,9 +318,17 @@
         this._knobs.forEach(function (k, i) { k.restoreState(state[i]); });
         this._knobState = null;
       }
-      this._syncPageKnob();
+      var serverPageDialValue = this._syncPageKnob();
       if (this._pendingPageDialValue !== null) {
-        this._knobs[3]._setLogicalValue(this._pendingPageDialValue);
+        if (serverPageDialValue === this._pendingPageDialValue) {
+          // The authoritative patch acknowledged the optimistic page cycle.
+          // Retire it so a later fleet/status patch can move the dial again.
+          this._pendingPageDialValue = null;
+        } else if (this._knobs[3]) {
+          // An unrelated patch arrived first. Preserve the optimistic value
+          // until the matching page-cycle acknowledgement is rendered.
+          this._knobs[3]._setLogicalValue(this._pendingPageDialValue);
+        }
       }
       // Restore mode state only if it did not change during the patch window.
       // A mid-patch user action (e.g. a second back press) increments _modeVersion;
@@ -381,10 +391,11 @@
     _syncPageKnob() {
       var keys = this.el.querySelector("#sd-keys");
       var knob = this._knobs && this._knobs[3];
-      if (!keys || !knob) return;
+      if (!keys || !knob) return null;
       var value = parseInt(keys.getAttribute("data-grid-dial-value") || "0", 10);
-      if (!Number.isFinite(value)) return;
+      if (!Number.isFinite(value)) return null;
       knob._setLogicalValue(value);
+      return value;
     },
 
     _bindKeys() {
@@ -483,6 +494,7 @@
       } else if (action === "cycle-window") {
         if (this._mode === "grid") {
           this._requestGridWindowCycle();
+          return;
         }
         var idx = MODES.indexOf(this._mode);
         var next = MODES[(idx + 1) % MODES.length];

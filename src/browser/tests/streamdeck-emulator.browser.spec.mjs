@@ -18,6 +18,23 @@ async function openUnits(page) {
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
 }
 
+async function dragDialThroughAngles(page, dial, angles) {
+  const box = await dial.boundingBox()
+  const cx = box.x + box.width / 2
+  const cy = box.y + box.height / 2
+  const point = (degrees) => {
+    const radians = (degrees * Math.PI) / 180
+    return { x: cx + Math.cos(radians) * 30, y: cy + Math.sin(radians) * 30 }
+  }
+
+  await page.mouse.move(...Object.values(point(angles[0])))
+  await page.mouse.down()
+  for (const degrees of angles.slice(1)) {
+    await page.mouse.move(...Object.values(point(degrees)))
+  }
+  await page.mouse.up()
+}
+
 test('dial drag rotates the knob and updates aria-valuenow', async ({ page }) => {
   await openStreamdeck(page)
 
@@ -301,8 +318,9 @@ test('an active dial drag commits its final value after a LiveView patch', async
   await page.mouse.move(cx + 20, cy - 20)
 
   const navToggle = page.getByRole('button', { name: /navigation/i }).first()
+  const navWasCollapsed = await navToggle.getAttribute('aria-pressed') === 'true'
   await navToggle.dispatchEvent('click')
-  await page.waitForTimeout(100)
+  await expect(navToggle).toHaveAttribute('aria-pressed', String(!navWasCollapsed))
 
   await page.mouse.move(cx + 30, cy)
   await page.mouse.up()
@@ -415,6 +433,7 @@ test('dial D pages live fleet keys and pager dots', async ({ page }) => {
   await expect(keys).toHaveAttribute('data-grid-page', '2')
   await expect(keys).toHaveAttribute('data-grid-dial-value', '100')
   await expect(dialD).toHaveAttribute('aria-valuenow', '100')
+  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'grid')
   expect(await dialD.evaluate((element) => element.style.getPropertyValue('--a'))).toBe(angleBeforeCycle)
 
   await dialD.hover()
@@ -445,6 +464,26 @@ test('dial D pages live fleet keys and pager dots', async ({ page }) => {
   const angleAfterDrag = parseFloat(await dialD.evaluate((element) => element.style.getPropertyValue('--a')))
   expect(angleAfterDrag).toBeLessThan(angleAfterKey)
 
+})
+
+test('an acknowledged grid cycle cannot overwrite a later server page patch', async ({ page }) => {
+  await openStreamdeck(page)
+
+  const keys = page.locator('#sd-keys')
+  const dialD = page.locator('.sd-knob').nth(3)
+  await dialD.click()
+  await expect(keys).toHaveAttribute('data-grid-page', '1')
+  await expect.poll(() => page.evaluate(() =>
+    window.liveSocket.main.getHook(document.querySelector('#streamdeck-page'))._pendingPageDialValue
+  )).toBe(null)
+
+  await page.evaluate(() => {
+    window.liveSocket.main
+      .getHook(document.querySelector('#streamdeck-page'))
+      .pushEvent('grid-page', { value: 0 })
+  })
+  await expect(keys).toHaveAttribute('data-grid-dial-value', '0')
+  await expect(dialD).toHaveAttribute('aria-valuenow', '0')
 })
 
 test('emulator and Units stay in sync after a live fleet-size change', async ({ page, context }) => {
@@ -514,27 +553,26 @@ test('dial A pointer direction controls transcript scroll direction in logs mode
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
 
   const dialA = page.locator('.sd-knob').first()
-  const box = await dialA.boundingBox()
-  const cx = box.x + box.width / 2
-  const cy = box.y + box.height / 2
-  const point = (degrees) => {
-    const radians = (degrees * Math.PI) / 180
-    return { x: cx + Math.cos(radians) * 30, y: cy + Math.sin(radians) * 30 }
-  }
-
-  await page.mouse.move(...Object.values(point(-90)))
-  await page.mouse.down()
-  await page.mouse.move(...Object.values(point(0)))
-  await page.mouse.move(...Object.values(point(90)))
-  await page.mouse.up()
+  await dragDialThroughAngles(page, dialA, [-90, 0, 90])
   await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '1')
 
-  await page.mouse.move(...Object.values(point(90)))
-  await page.mouse.down()
-  await page.mouse.move(...Object.values(point(0)))
-  await page.mouse.move(...Object.values(point(-90)))
-  await page.mouse.up()
+  await dragDialThroughAngles(page, dialA, [90, 0, -90])
   await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '0')
+})
+
+test('dial D pointer direction controls event scroll direction in logs mode', async ({ page }) => {
+  await openStreamdeck(page)
+
+  await page.locator('.sd-key:not(.is-empty)').first().click()
+  const dialD = page.locator('.sd-knob').nth(3)
+  await dialD.click()
+  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
+
+  await dragDialThroughAngles(page, dialD, [-90, 0, 90])
+  await expect(page.locator('#sd-log-events')).toHaveAttribute('data-offset', '1')
+
+  await dragDialThroughAngles(page, dialD, [90, 0, -90])
+  await expect(page.locator('#sd-log-events')).toHaveAttribute('data-offset', '0')
 })
 
 test('touch strip exposes provider percentages, not only window counts', async ({ page }) => {
