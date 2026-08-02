@@ -130,7 +130,8 @@ defmodule Aiur.GitHub.HardwareVerificationGate do
   defp signoff_identity(events, outcome_label, context) do
     with {:ok, verified} <- latest_signoff_event(events, HardwareVerification.verified_label(context.prefix)),
          {:ok, outcome} <- latest_signoff_event(events, outcome_label),
-         :ok <- outcome_after_verification(verified, outcome) do
+         :ok <- outcome_after_verification(verified, outcome),
+         :ok <- outcome_after_acceptance_revision(events, outcome) do
       {:ok, %{verified: Map.delete(verified, :event_order), outcome: Map.delete(outcome, :event_order)}}
     end
   end
@@ -162,6 +163,22 @@ defmodule Aiur.GitHub.HardwareVerificationGate do
 
   defp outcome_after_verification(_verified, _outcome),
     do: {:error, {:operator_signoff_event_required, :outcome_precedes_verification}}
+
+  defp outcome_after_acceptance_revision(events, %{event_order: outcome}) do
+    case latest_acceptance_revision(events) do
+      nil -> :ok
+      revision when outcome > revision -> :ok
+      _revision -> {:error, {:operator_signoff_event_required, :outcome_precedes_acceptance_revision}}
+    end
+  end
+
+  defp latest_acceptance_revision(events) do
+    events
+    |> Enum.filter(fn event -> Map.get(event, "event") in ["opened", "edited"] end)
+    |> Enum.map(&event_sort_key/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.max(fn -> nil end)
+  end
 
   defp signoff_event?(event, label) when is_map(event) do
     (Map.get(event, "event") || Map.get(event, "type")) == "labeled" and
