@@ -357,16 +357,53 @@ run_init() {
   exec "${release_cmd[@]}"
 }
 
-# --- one-shot: --todo (distribution-free, no daemon/tmux) --------------------
+# --- one-shot: --todo (control RPC; requires a running daemon) ----------------
+
+parsed_todo_only=0
+
+parse_todo_args() {
+  parsed_targets=()
+  parsed_todo_only=0
+
+  local saw_todo=0 raw part parts
+  for raw in "$@"; do
+    case "$raw" in
+      --todo)
+        [ "$saw_todo" -eq 0 ] || return 1
+        saw_todo=1
+        ;;
+      --only)
+        parsed_todo_only=1
+        ;;
+      -*)
+        return 1
+        ;;
+      *)
+        IFS=',' read -ra parts <<<"$raw"
+        for part in "${parts[@]}"; do
+          part="$(trim "$part")"
+          if [ -z "$part" ] || [[ ! "$part" =~ ^[0-9]+$ ]]; then return 1; fi
+          while [ "${#part}" -gt 1 ] && [ "${part#0}" != "$part" ]; do
+            part="${part#0}"
+          done
+          parsed_targets+=("$part")
+        done
+        ;;
+    esac
+  done
+
+  [ "$saw_todo" -eq 1 ] && [ "${#parsed_targets[@]}" -gt 0 ]
+}
 
 run_todo() {
-  if ! validate_todo_args "$@"; then
+  if ! parse_todo_args "$@"; then
     echo "aiur: --todo expects one or more numeric issue IDs, optionally followed by --only" >&2
     exit 64
   fi
 
-  load_dotenv
-  run_init "$@"
+  local only_arg="false"
+  [ "$parsed_todo_only" -eq 1 ] && only_arg="true"
+  run_control_rpc "Aiur.AgentControlCLI.todo($(elixir_list_literal "${parsed_targets[@]}"), only: $only_arg, emit_exit_marker: true)"
 }
 
 # --- interactive / background run -------------------------------------------
@@ -1573,15 +1610,14 @@ $root
 }
 
 print_global_config_control_hint() {
+  [ -n "${AIUR_CONTROL_HINT_ROOTS:-}" ] || return 0
   [ "${AIUR_CONTROL_CALLER_ROOT_SOURCE:-}" = "cwd" ] || return 0
   [ "${AIUR_CONTROL_CURRENT_NODE_STATE:-}" = "down" ] || return 0
 
   echo "aiur: global-config control identity is keyed by cwd ${AIUR_CONTROL_CALLER_ROOT:-${AIUR_PROJECT_ROOT:-unknown}}" >&2
   echo "aiur: run control commands from the launch directory, or from a subdirectory of that launch directory" >&2
-  if [ -n "${AIUR_CONTROL_HINT_ROOTS:-}" ]; then
-    echo "aiur: live launch directory candidate(s):" >&2
-    printf '%s' "$AIUR_CONTROL_HINT_ROOTS" | sed '/^$/d; s/^/  /' >&2
-  fi
+  echo "aiur: live launch directory candidate(s):" >&2
+  printf '%s' "$AIUR_CONTROL_HINT_ROOTS" | sed '/^$/d; s/^/  /' >&2
 }
 
 control_rpc_timeout_seconds() {
@@ -1590,6 +1626,23 @@ control_rpc_timeout_seconds() {
     '' | *[!0-9]* | 0) seconds=10 ;;
   esac
   printf '%s' "$seconds"
+}
+
+print_not_running_message() {
+  echo "error: aiur is not running. Start it with \`aiurdev run\` (or \`aiurdev --bg\`), then retry." >&2
+}
+
+print_control_down_message() {
+  local crash_marker
+  crash_marker="$(aiur_crash_marker_path)"
+  if [ -f "$crash_marker" ]; then
+    echo "aiur: background daemon at ${RELEASE_NODE} is DOWN after an unexpected exit; agents may be orphaned" >&2
+    sed 's/^/  /' "$crash_marker" >&2 2>/dev/null || true
+    echo "aiur: run 'aiur stop' to reap any orphaned agents, then start aiur again" >&2
+  else
+    print_not_running_message
+    print_global_config_control_hint
+  fi
 }
 
 kill_control_rpc_process() {
@@ -1708,16 +1761,7 @@ run_control_rpc() {
     # down — in both of those cases surface the actual rpc output, never mask it.
     case "$(probe_node_liveness)" in
       down)
-        local crash_marker
-        crash_marker="$(aiur_crash_marker_path)"
-        if [ -f "$crash_marker" ]; then
-          echo "aiur: background daemon at ${RELEASE_NODE} is DOWN after an unexpected exit; agents may be orphaned" >&2
-          sed 's/^/  /' "$crash_marker" >&2 2>/dev/null || true
-          echo "aiur: run 'aiur stop' to reap any orphaned agents, then start aiur again" >&2
-        else
-          echo "aiur: no running aiur node at ${RELEASE_NODE}; start aiur and try again" >&2
-          print_global_config_control_hint
-        fi
+        print_control_down_message
         ;;
       up)
         [ -n "$output" ] && printf '%s\n' "$output" >&2
@@ -1760,6 +1804,10 @@ run_control_stream() {
   if [ "${AIUR_CONTROL_ADOPTED_RECORD:-0}" -eq 1 ]; then
     prepare_distribution || die "distribution setup failed; cannot contact aiur"
   fi
+  if [ "$(probe_node_liveness)" = "down" ]; then
+    print_control_down_message
+    return 1
+  fi
   exec "$release_bin" rpc "$expression"
 }
 
@@ -1799,31 +1847,6 @@ parse_issue_targets() {
   done
 
   [ "${#parsed_targets[@]}" -gt 0 ]
-}
-
-validate_todo_args() {
-  local saw_todo=0 raw part parts target_count=0
-
-  for raw in "$@"; do
-    case "$raw" in
-      --todo)
-        [ "$saw_todo" -eq 0 ] || return 1
-        saw_todo=1
-        ;;
-      --only) ;;
-      -*) return 1 ;;
-      *)
-        IFS=',' read -ra parts <<<"$raw"
-        for part in "${parts[@]}"; do
-          part="$(trim "$part")"
-          if [ -z "$part" ] || [[ ! "$part" =~ ^[0-9]+$ ]]; then return 1; fi
-          target_count=$((target_count + 1))
-        done
-        ;;
-    esac
-  done
-
-  [ "$saw_todo" -eq 1 ] && [ "$target_count" -gt 0 ]
 }
 
 cmd_status() {
