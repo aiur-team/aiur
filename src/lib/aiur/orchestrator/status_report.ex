@@ -11,8 +11,6 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias Aiur.Config
   alias Aiur.Events.SubscriptionStore
   alias Aiur.Issue
-  alias Aiur.TicketActivity
-  alias Aiur.TrackerIdentity
   alias Aiur.Orchestrator.ControlLifecycle
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.Lifecycle
@@ -22,6 +20,8 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias Aiur.Orchestrator.SnapshotStore
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.WaitingReason
+  alias Aiur.TicketActivity
+  alias Aiur.TrackerIdentity
 
   @activity_snapshot_timeout_ms 100
 
