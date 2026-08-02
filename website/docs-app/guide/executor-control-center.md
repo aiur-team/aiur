@@ -109,7 +109,7 @@ Recent outcomes come from the durable merge store, not a fresh GitHub poll on ev
 
 ## Analytics
 
-`/analytics` renders the durable telemetry stream for the current live session. It shows ticket lifecycle timing, per-unit CPU and memory, concurrency against the cap, CPU-second cost per ticket, and dispatch-time complexity breakdown. It is not a provider-billing report, and a missing telemetry stream renders an explicit empty state rather than invented zeros. Completion KPIs and burn-up remain flat because `pr_opened` and `pr_merged` facts are not yet recorded, and the selected Build Order pane is current-boot only, not cross-session. [#1458](https://github.com/aiur-team/aiur/issues/1458) and [#1459](https://github.com/aiur-team/aiur/issues/1459) track those gaps.
+`/analytics` renders the durable telemetry stream for the current live session. It shows ticket lifecycle timing, per-unit CPU and memory, concurrency against the cap, CPU-second cost per ticket, dispatch-time complexity breakdown, and completed-ticket counts. The writer records `pr_opened` and `pr_merged` anchors from the GitHub firehose, so completion KPIs and burn-up render for the current run. It is not a provider-billing report, and a missing telemetry stream renders an explicit empty state rather than invented zeros. The selected Build Order pane is current-boot only, not cross-session. [#1458](https://github.com/aiur-team/aiur/issues/1458) and [#1459](https://github.com/aiur-team/aiur/issues/1459) track the remaining gaps.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="/images/executor-control-center/analytics-link-dark.png">

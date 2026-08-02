@@ -39,3 +39,5 @@ Implementation backends plug in behind Aiur's app-server protocol. A `model:<bac
 - `codex`
 - `claude` (headless)
 - `claude-repl` (the persistent interactive REPL that backs remote control)
+- `kimi`, `openrouter` (generic OpenAI-compatible instances, configurable by default)
+- `deepseek` (generic OpenAI-compatible instance; ships disabled and needs `agent.backend_configs.deepseek.enabled: true` to dispatch)

@@ -70,7 +70,7 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 | `agent.build_start_stagger_seconds` | integer | 0 | Minimum spacing between local Mix build starts; 0 disables pacing. |
 | `agent.min_free_memory_mb` | integer or nil | nil | Linux `MemAvailable` floor shared by dispatch and the Mix build gate. |
 | `agent.max_concurrent_agents_by_state` | map | `%{}` | Per-state caps overriding the global cap. |
-| `agent.backend_configs` | map | `%{}` | Backend-named configuration blocks. The current registry has configurable Codex and Claude backends. |
+| `agent.backend_configs` | map | `%{}` | Backend-named configuration blocks. The registry exposes configurable Codex, Claude, Kimi, and OpenRouter backends; DeepSeek is registered but disabled by default and must opt in here with `enabled: true`. |
 | `agent.routing` | map | `%{}` | Maps complexity levels to backend/model/effort routing. |
 | `agent.switch_model_on_ratelimit` | array | `[]` | Opt-in backend order for a new claim when a model is rate-limited. |
 | `agent.rate_limit_fallback` | string | `claude` | Automatic recovery backend for an already-running Codex agent; `""` disables it. |
@@ -203,7 +203,24 @@ These bounds protect dashboard planning projections. Defaults are intentionally 
 
 ## Provider availability
 
-The checked-out backend registry currently exposes Codex and Claude. DeepSeek, Kimi, and OpenRouter are not selectable on this commit: their generic OpenAI-compatible transport remains open in [#1440](https://github.com/aiur-team/aiur/issues/1440). There is therefore no current instance declaration, routing target, or model-tag label to configure for them. Do not enable a provider from a design branch or copy an unmerged configuration example into a live workflow. [#1486](https://github.com/aiur-team/aiur/issues/1486) defines the proposed DeepSeek first-charge gate, but it is not a shipped enablement path.
+The backend registry exposes Codex and Claude, plus the generic OpenAI-compatible instances Kimi, DeepSeek, and OpenRouter. Kimi and OpenRouter are configurable and dispatch-enabled by default; DeepSeek ships disabled by default and requires an explicit operator action to enable:
+
+```yaml
+agent:
+  backend_configs:
+    deepseek:
+      enabled: true
+```
+
+Each OpenAI-compatible instance is declared under `agent.backend_configs.<name>` (or uses its registry defaults), with `base_url`, `api_key_env`, `model` or `default_model`, and `transport` (`chat_completions` or `responses`). The registered defaults are:
+
+| Backend | `base_url` | `api_key_env` | default model | `transport` |
+| --- | --- | --- | --- | --- |
+| `kimi` | `https://api.moonshot.ai/v1` | `MOONSHOT_API_KEY` | `kimi-k2.7-code` | `chat_completions` |
+| `deepseek` | `https://api.deepseek.com` | `DEEPSEEK_API_KEY` | `deepseek-v4-flash` | `responses` |
+| `openrouter` | `https://openrouter.ai/api/v1` | `OPENROUTER_API_KEY` | per-model routing | `chat_completions` |
+
+OpenRouter's credit meter uses the separate `OPENROUTER_MANAGEMENT_KEY`. Routing selects a backend through the `agent.routing` complexity table or the `model:<backend>` override labels (`model:kimi`, `model:deepseek`, `model:openrouter`, each with a `-<model>` variant). These are prepaid providers: they expose a dollar balance and (for DeepSeek) a concurrency cap, publish no remaining-quota headers, and draw no percentage bar. Kimi and OpenRouter are eligible rate-limit fallback targets; DeepSeek is not, and it is not offered by `aiur init` until enabled.
 
 ## decisions
 

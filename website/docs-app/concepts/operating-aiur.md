@@ -14,13 +14,13 @@ Alerts are defined in the checked-in `.aiur/alerts` file. Each entry is keyed by
 
 ## Usage and account meters
 
-Aiur retains token usage by ticket and resolves API-equivalent cost only when it has the provider, model, pricing date, and required pricing dimensions. The built-in price table currently covers the registered Codex and Claude provider families. Dashboard usage views keep unknown or partial pricing explicit instead of converting it to a zero-dollar total.
+Aiur retains token usage by ticket and resolves API-equivalent cost only when it has the provider, model, pricing date, and required pricing dimensions. The built-in price table covers the registered provider families. Dashboard usage views keep unknown or partial pricing explicit instead of converting it to a zero-dollar total.
 
-The dashboard and `aiur usage` show account-meter observations with their age. Codex reports percentage usage for its renewing windows. Claude can report a standing and reset time without a percentage, so Aiur shows that state rather than drawing an empty percentage bar. No prepaid provider is registered in the current build, so the UI does not claim a dollar balance, concurrency cap, or remaining-quota header for DeepSeek, Kimi, or OpenRouter.
+The dashboard shows provider meters with the age of each observation; `aiur usage` prints limit headroom observed from live agent sessions. Codex reports percentage usage for its renewing windows. Claude can report a standing and reset time without a percentage, so Aiur shows that state rather than drawing an empty percentage bar. DeepSeek, Kimi, and OpenRouter are prepaid OpenAI-compatible providers: they expose a dollar balance (and, for DeepSeek, a concurrency cap), publish no remaining-quota headers, and therefore do not get a percentage bar. DeepSeek derives a spend percentage only once a durable baseline exists; Kimi is session-observation only and reports no account balance.
 
 ## Pause / resume
 
-Executors can pause and resume agents. Space toggles the selected ticket pause. Bare `aiur pause` and `aiur resume` operate a separate global switch that stops all provisioning for the current daemon. It does not persist across restart; launch with `--pause` to cold-start paused. [#1479](https://github.com/aiur-team/aiur/issues/1479) tracks durable global-pause state. The concurrency cap can change at runtime with the arrow keys or `aiur set max-agents N`.
+Executors can pause and resume agents. Space toggles the selected ticket pause. Bare `aiur pause` and `aiur resume` operate a separate global switch that stops all provisioning and holds the daemon. The switch is durable: it survives a restart with recorded provenance, and a restart that cannot read the persisted state fails closed and starts paused rather than releasing a fleet an operator deliberately parked. Launch with `--pause` to cold-start paused. The concurrency cap can change at runtime with the arrow keys or `aiur set max-agents N`; `aiur status` prints which capacity bound is actually limiting the fleet.
 
 ## Remote control
 

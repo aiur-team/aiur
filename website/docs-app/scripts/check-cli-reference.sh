@@ -29,14 +29,28 @@ source_flags="$(
       | tr '_' '-'
     sed -n 's/^  @acknowledgement_switch :\([a-z_][a-z_]*\)$/--\1/p' "$parser" | tr '_' '-'
 
-    # Every dispatched control handler is authoritative, including handlers
-    # absent from the usage banner such as cleanup-stale.
-    sed -n '/^usage() {/,/^}/p' "$engine"
-    awk '/^cmd_[a-z_]+\(\)/ { in_command = 1 } in_command { print } in_command && /^}/ { in_command = 0 }' "$engine"
+    # Control-handler flags come from the real argument-parsing arms, not from
+    # the usage banner or function comments: a `--flag)` case arm, a
+    # `--flag=*)` case arm, or a `[ "$1" = "--flag" ]` comparison is proof the
+    # launcher parses that flag. Anything a comment or the help banner mentions
+    # without such a parse arm is not a shipped flag and must not be required.
+    awk '
+      /^[a-z_]+\(\)/ { in_command = 1; in_case = 0 }
+      in_command && /^[[:space:]]*case[[:space:]]/ { in_case = 1 }
+      in_command && in_case && /^[[:space:]]*--[a-z0-9-]*([=][*])?\)/ { print }
+      in_command && in_case && /^[[:space:]]*esac/ { in_case = 0 }
+      in_command && /= "--[a-z0-9-]*"/ { print }
+      in_command && /^}/ { in_command = 0; in_case = 0 }
+    ' "$engine"
 
-    # These two bounded blocks are the dev-only public surface, not mix-reset internals.
-    sed -n '/if \[ "${1:-}" = "build" \]; then/,/^# --- dev test/p' "$dev_shim"
-    sed -n '/^# --- dev test/,/^if \[ -n "\$agent_workspace_marker" \]; then/p' "$dev_shim"
+    # The dev-only surface is the shim's own flag parser: the force-rebuild
+    # arms and the bounded test-harness parser, never mix-reset internals.
+    sed -n '/^if \[ "${1:-}" = "build" \]; then/,/^# --- dev test/p' "$dev_shim" \
+      | awk '/= "--[a-z0-9-]*"/ { print }'
+    sed -n '/^# --- dev test/,/^if \[ -n "\$agent_workspace_marker" \]; then/p' "$dev_shim" \
+      | awk '/^[[:space:]]*case[[:space:]]/ { in_case = 1 }
+             in_case && /^[[:space:]]*--[a-z0-9-]*([=][*])?\)/ { print }
+             in_case && /^[[:space:]]*esac/ { in_case = 0 }'
   } \
     | rg -o -- '--[a-z][a-z0-9-]*' \
     | sort -u
