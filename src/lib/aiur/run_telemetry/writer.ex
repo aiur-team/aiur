@@ -168,6 +168,10 @@ defmodule Aiur.RunTelemetry.Writer do
   defp append_many(state, records) do
     {state, contents} = encode_records(state, records)
 
+    # Callers timestamp casts before enqueueing them. Reusing the triggering
+    # event time keeps a rolled continuation ahead of later queued events.
+    {_kind, _attributes, boundary_timestamp} = List.last(records)
+
     with :ok <- File.mkdir_p(Path.dirname(state.path)),
          :ok <- state.write_fun.(state.path, contents) do
       state = %{
@@ -177,7 +181,7 @@ defmodule Aiur.RunTelemetry.Writer do
           write_warning_emitted: false
       }
 
-      maybe_prune(state)
+      maybe_prune(state, boundary_timestamp)
     else
       {:error, reason} -> warn_write_failure(state, reason)
     end
@@ -263,12 +267,15 @@ defmodule Aiur.RunTelemetry.Writer do
 
   defp release_admission(counter), do: :atomics.sub(counter, @pending_index, 1)
 
-  defp maybe_prune(%{prune_interval_bytes: nil} = state), do: state
-  defp maybe_prune(%{bytes_since_prune: n, prune_interval_bytes: threshold} = state) when n < threshold, do: state
+  defp maybe_prune(%{prune_interval_bytes: nil} = state, _timestamp), do: state
 
-  defp maybe_prune(state) do
+  defp maybe_prune(%{bytes_since_prune: n, prune_interval_bytes: threshold} = state, _timestamp)
+       when n < threshold,
+       do: state
+
+  defp maybe_prune(state, timestamp) do
     if segment_roll_required?(state) do
-      roll_and_prune(state)
+      roll_and_prune(state, timestamp)
     else
       prune_historical_boots(state)
     end
@@ -278,14 +285,14 @@ defmodule Aiur.RunTelemetry.Writer do
       %{state | bytes_since_prune: 0}
   end
 
-  defp roll_and_prune(state) do
+  defp roll_and_prune(state, timestamp) do
     # Roll the current segment: append a restart marker to close the current
     # segment so any data before this point is pruneable as a completed group.
     # The fresh restart marker re-anchors the current boot in the file, so the
     # subsequent prune (which does not protect any boot) leaves it parseable.
     # If the boundary write fails (sequence unchanged), skip pruning to avoid
     # cutting mid-segment without a clean group boundary.
-    rolled = write_segment_boundary(state)
+    rolled = write_segment_boundary(state, timestamp)
 
     if rolled.sequence != state.sequence do
       opts = rolled.retention |> Keyword.put(:now, rolled.clock.())
@@ -321,8 +328,7 @@ defmodule Aiur.RunTelemetry.Writer do
     end
   end
 
-  defp write_segment_boundary(state) do
-    timestamp = state.clock.()
+  defp write_segment_boundary(state, timestamp) do
     {closing, reopening, open_lifecycles} = segment_lifecycle_records(state.open_lifecycles, timestamp)
 
     records =

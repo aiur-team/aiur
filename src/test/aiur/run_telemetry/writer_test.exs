@@ -526,13 +526,22 @@ defmodule Aiur.RunTelemetry.WriterTest do
 
   test "segment rolls preserve lifecycle interval pairing", %{path: path} do
     retention = [max_bytes: 1, prune_interval_bytes: 1]
-    {:ok, writer} = Writer.start_link(name: nil, path: path, boot_id: "lifecycle-roll", retention: retention)
+    boundary_clock = fn -> ~U[2026-08-02 12:00:02Z] end
+
+    {:ok, writer} =
+      Writer.start_link(
+        name: nil,
+        path: path,
+        boot_id: "lifecycle-roll",
+        retention: retention,
+        clock: boundary_clock
+      )
 
     start = %{ticket: "1339", attempt_id: "attempt", event: "build_test", boundary: "start", operation_id: "build"}
     finish = %{ticket: "1339", attempt_id: "attempt", event: "build_test", boundary: "end", operation_id: "build"}
 
-    assert :ok = Writer.record(writer, :lifecycle, start)
-    assert :ok = Writer.record(writer, :lifecycle, finish)
+    assert :ok = Writer.record(writer, :lifecycle, start, timestamp: ~U[2026-08-02 12:00:00Z])
+    assert :ok = Writer.record(writer, :lifecycle, finish, timestamp: ~U[2026-08-02 12:00:01Z])
     assert :ok = Writer.flush(writer)
 
     assert {:ok, dataset} = Dataset.build(path)
