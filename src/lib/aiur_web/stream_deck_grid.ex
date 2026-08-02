@@ -22,9 +22,6 @@ defmodule AiurWeb.StreamDeckGrid do
       {status, snapshot, freshness} when status in [:current, :stale] ->
         snapshot |> project() |> Map.put(:snapshot_freshness, freshness)
 
-      :snapshot_unavailable ->
-        %{error: %{code: "snapshot_unavailable", message: "Snapshot unavailable"}}
-
       :snapshot_timeout ->
         %{error: %{code: "snapshot_timeout", message: "Snapshot timed out"}}
 

@@ -26,9 +26,6 @@ defmodule AiurWeb.Presenter do
       {status, snapshot, freshness} when status in [:current, :stale] ->
         snapshot_payload(snapshot, freshness)
 
-      :snapshot_unavailable ->
-        %{error: %{code: "snapshot_unavailable", message: "Snapshot unavailable"}}
-
       :snapshot_timeout ->
         %{error: %{code: "snapshot_timeout", message: "Snapshot timed out"}}
 

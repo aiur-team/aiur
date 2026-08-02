@@ -13,7 +13,6 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias Aiur.Orchestrator.{Slots, SnapshotStore}
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.WaitingReason
-  alias AiurWeb.ObservabilityPubSub
 
   @activity_snapshot_timeout_ms 100
 
@@ -64,7 +63,7 @@ defmodule Aiur.Orchestrator.StatusReport do
 
   @spec notify_dashboard(State.t()) :: :ok
   def notify_dashboard(state) do
-    :ok = publish_snapshot(state)
+    if state.snapshot_ready? == true, do: :ok = publish_snapshot(state)
 
     state
     |> running_summaries()
@@ -76,14 +75,43 @@ defmodule Aiur.Orchestrator.StatusReport do
       max_concurrent_agents: Slots.max_concurrent_agent_limit(state)
     })
 
-    ObservabilityPubSub.broadcast_update()
+    :ok
   end
 
   @spec publish_snapshot(State.t()) :: :ok
   def publish_snapshot(%State{} = state) do
     # Projection may call other stores, so run it in SnapshotStore rather than
-    # extending the Orchestrator's dispatch critical path.
-    SnapshotStore.publish_state(state.snapshot_key || self(), state)
+    # extending the Orchestrator's dispatch critical path. Project only the
+    # bounded dashboard input, not the entire orchestration state.
+    SnapshotStore.publish_state(
+      state.snapshot_key || self(),
+      state.snapshot_generation,
+      snapshot_input(state)
+    )
+  end
+
+  @doc false
+  @spec snapshot_input(State.t()) :: State.t()
+  def snapshot_input(%State{} = state) do
+    state
+    |> Map.take([
+      :agent_rate_limits,
+      :agent_totals,
+      :ci_lifecycle,
+      :control_lifecycle,
+      :effective_concurrent_agents,
+      :globally_paused,
+      :last_polled_issues,
+      :load_envelope_state,
+      :max_concurrent_agents,
+      :next_poll_due_at_ms,
+      :poll_check_in_progress,
+      :poll_interval_ms,
+      :retry_attempts,
+      :running,
+      :session_max_concurrent_agents
+    ])
+    |> then(&struct!(State, &1))
   end
 
   @spec poll_status(State.t()) :: {:reply, map(), State.t()}

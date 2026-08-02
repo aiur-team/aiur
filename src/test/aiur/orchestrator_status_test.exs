@@ -216,13 +216,60 @@ defmodule Aiur.OrchestratorStatusTest do
     orchestrator_name = Module.concat(__MODULE__, :RestartingSnapshotOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
 
+    :ok =
+      SnapshotStore.publish(
+        orchestrator_name,
+        pid |> :sys.get_state() |> StatusReport.snapshot_payload()
+      )
+
     assert :ok = GenServer.stop(pid, :normal)
+
+    {:ok, restarted_pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
+
+    on_exit(fn ->
+      if Process.alive?(restarted_pid), do: Process.exit(restarted_pid, :normal)
+    end)
 
     assert {:stale, %{running: [], retrying: [], idle: []}, freshness} =
              Orchestrator.dashboard_snapshot(orchestrator_name, 100)
 
     assert freshness.status == :stale
     assert freshness.reason == :orchestrator_unavailable
+  end
+
+  test "dashboard projection excludes unrelated orchestration state" do
+    state = %State{
+      github_comment_issue_updated_at: Map.new(1..1_000, &{"issue-#{&1}", %{payload: String.duplicate("x", 64)}}),
+      queue_store: %{large: String.duplicate("q", 64_000)}
+    }
+
+    snapshot_input = StatusReport.snapshot_input(state)
+
+    assert snapshot_input.github_comment_issue_updated_at == %{}
+    assert snapshot_input.queue_store == AgentQueueStore.new()
+    assert :erts_debug.flat_size(snapshot_input) < :erts_debug.flat_size(state)
+  end
+
+  test "an old projector cannot replace a same-name orchestrator snapshot" do
+    orchestrator_name = Module.concat(__MODULE__, :GenerationFencedSnapshotOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    fresh_snapshot = %{running: [], retrying: [], idle: [], marker: :fresh}
+    :ok = SnapshotStore.publish(orchestrator_name, fresh_snapshot)
+
+    callback_ref = make_ref()
+
+    assert {:noreply, _store} =
+             SnapshotStore.handle_info(
+               {:snapshot_built, callback_ref, orchestrator_name, make_ref(), {:ok, %{marker: :stale}}},
+               %{pending: %{}, task_ref: callback_ref, monitor_ref: nil, timer_ref: nil}
+             )
+
+    assert {:current, ^fresh_snapshot, _freshness} = Orchestrator.dashboard_snapshot(orchestrator_name, 100)
   end
 
   test "startup terminal cleanup skips Linear fetch when Linear token is missing" do

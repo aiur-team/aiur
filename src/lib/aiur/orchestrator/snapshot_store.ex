@@ -11,6 +11,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   require Logger
 
   alias Aiur.Orchestrator.StatusReport
+  alias AiurWeb.ObservabilityPubSub
 
   @cache_key __MODULE__
   @projection_delay_ms 50
@@ -19,11 +20,23 @@ defmodule Aiur.Orchestrator.SnapshotStore do
           {:current, map(), map()}
           | {:stale, map(), map()}
           | :snapshot_timeout
-          | :snapshot_unavailable
           | :orchestrator_unavailable
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+
+  @doc """
+  Starts a new producer generation without replacing a retained snapshot.
+
+  The generation token fences completion messages from a stopped orchestrator
+  that shared this registered name.
+  """
+  @spec begin_generation(GenServer.server()) :: reference()
+  def begin_generation(orchestrator) do
+    generation = make_ref()
+    :persistent_term.put(generation_key(orchestrator), generation)
+    generation
+  end
 
   @doc """
   Stores an already-projected snapshot. This is chiefly useful to lightweight
@@ -31,16 +44,17 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   """
   @spec publish(GenServer.server(), map()) :: :ok
   def publish(orchestrator, snapshot) when is_map(snapshot) do
-    put_snapshot(orchestrator, snapshot)
+    put_snapshot(orchestrator, active_generation(orchestrator), snapshot)
+    :ok = ObservabilityPubSub.broadcast_update()
     :ok
   end
 
   @doc """
   Coalesces a state change for projection outside the Orchestrator process.
   """
-  @spec publish_state(GenServer.server(), Aiur.Orchestrator.State.t()) :: :ok
-  def publish_state(orchestrator, state) do
-    GenServer.cast(__MODULE__, {:publish_state, orchestrator, state})
+  @spec publish_state(GenServer.server(), reference() | nil, Aiur.Orchestrator.State.t()) :: :ok
+  def publish_state(orchestrator, generation, snapshot_input) do
+    GenServer.cast(__MODULE__, {:publish_state, orchestrator, generation, snapshot_input})
     :ok
   end
 
@@ -55,8 +69,8 @@ defmodule Aiur.Orchestrator.SnapshotStore do
       nil ->
         no_snapshot_result(orchestrator)
 
-      %{snapshot: snapshot, observed_at: observed_at, observed_at_ms: observed_at_ms} ->
-        metadata = metadata(orchestrator, observed_at, observed_at_ms, timeout)
+      %{snapshot: snapshot, observed_at: observed_at, observed_at_ms: observed_at_ms} = cached ->
+        metadata = metadata(orchestrator, cached, observed_at, observed_at_ms, timeout)
 
         case metadata.status do
           :stale ->
@@ -73,8 +87,9 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   def init(_opts), do: {:ok, %{pending: %{}, task_ref: nil, monitor_ref: nil, timer_ref: nil}}
 
   @impl true
-  def handle_cast({:publish_state, orchestrator, state}, store) do
-    {:noreply, store |> put_in([:pending, orchestrator], state) |> schedule_projection()}
+  def handle_cast({:publish_state, orchestrator, generation, snapshot_input}, store) do
+    pending = Map.put(store.pending, orchestrator, {generation, snapshot_input})
+    {:noreply, store |> Map.put(:pending, pending) |> schedule_projection()}
   end
 
   @impl true
@@ -83,12 +98,16 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   end
 
   @impl true
-  def handle_info({:snapshot_built, ref, orchestrator, {:ok, snapshot}}, %{task_ref: ref} = store) do
-    put_snapshot(orchestrator, snapshot)
+  def handle_info({:snapshot_built, ref, orchestrator, generation, {:ok, snapshot}}, %{task_ref: ref} = store) do
+    if generation == active_generation(orchestrator) do
+      put_snapshot(orchestrator, generation, snapshot)
+      :ok = ObservabilityPubSub.broadcast_update()
+    end
+
     {:noreply, store |> clear_task() |> schedule_projection()}
   end
 
-  def handle_info({:snapshot_built, ref, _orchestrator, {:error, error}}, %{task_ref: ref} = store) do
+  def handle_info({:snapshot_built, ref, _orchestrator, _generation, {:error, error}}, %{task_ref: ref} = store) do
     Logger.debug("Skipping incomplete dashboard snapshot: #{Exception.message(error)}")
     {:noreply, store |> clear_task() |> schedule_projection()}
   end
@@ -101,7 +120,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   def handle_info(_message, store), do: {:noreply, store}
 
   defp start_projection(%{task_ref: nil, pending: pending} = store) when map_size(pending) > 0 do
-    [{orchestrator, state}] = Enum.take(pending, 1)
+    [{orchestrator, {generation, snapshot_input}}] = Enum.take(pending, 1)
     pending = Map.delete(pending, orchestrator)
     store_pid = self()
     task_ref = make_ref()
@@ -110,12 +129,12 @@ defmodule Aiur.Orchestrator.SnapshotStore do
       spawn(fn ->
         result =
           try do
-            {:ok, StatusReport.snapshot_payload(state)}
+            {:ok, StatusReport.snapshot_payload(snapshot_input)}
           rescue
             error -> {:error, error}
           end
 
-        send(store_pid, {:snapshot_built, task_ref, orchestrator, result})
+        send(store_pid, {:snapshot_built, task_ref, orchestrator, generation, result})
       end)
 
     %{store | pending: pending, task_ref: task_ref, monitor_ref: Process.monitor(pid)}
@@ -131,10 +150,11 @@ defmodule Aiur.Orchestrator.SnapshotStore do
 
   defp schedule_projection(store), do: store
 
-  defp put_snapshot(orchestrator, snapshot) do
+  defp put_snapshot(orchestrator, generation, snapshot) do
     :persistent_term.put(
       {@cache_key, orchestrator},
       %{
+        generation: generation,
         snapshot: snapshot,
         observed_at: DateTime.utc_now(),
         observed_at_ms: System.monotonic_time(:millisecond)
@@ -155,7 +175,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
     end
   end
 
-  defp metadata(orchestrator, observed_at, observed_at_ms, timeout) do
+  defp metadata(orchestrator, cached, observed_at, observed_at_ms, timeout) do
     age_ms = max(System.monotonic_time(:millisecond) - observed_at_ms, 0)
     pid = live_pid(orchestrator)
     mailbox_depth = mailbox_depth(pid)
@@ -163,6 +183,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
     reason =
       cond do
         is_nil(pid) -> :orchestrator_unavailable
+        Map.get(cached, :generation) != active_generation(orchestrator) -> :orchestrator_unavailable
         timeout_elapsed_behind_backlog?(age_ms, timeout, mailbox_depth) -> :snapshot_timeout
         true -> nil
       end
@@ -224,4 +245,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   end
 
   defp mailbox_depth(_pid), do: :unknown
+
+  defp generation_key(orchestrator), do: {@cache_key, :generation, orchestrator}
+  defp active_generation(orchestrator), do: :persistent_term.get(generation_key(orchestrator), nil)
 end

@@ -115,10 +115,17 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
     ~H"""
     <div :if={@freshness[:status] == :stale} class="readonly-banner" role="status" aria-live="polite">
       <span aria-hidden="true">◉</span>
-      <span><b>Fleet snapshot is stale.</b> Showing the last known-good fleet as of {@freshness[:age_seconds]}s ago.</span>
+      <span>
+        <b>Fleet snapshot is stale.</b>
+        {stale_reason(@freshness[:reason])} Showing the last known-good fleet as of {@freshness[:age_seconds]}s ago.
+      </span>
     </div>
     """
   end
+
+  defp stale_reason(:snapshot_timeout), do: "The Orchestrator is busy."
+  defp stale_reason(:orchestrator_unavailable), do: "The Orchestrator is unavailable."
+  defp stale_reason(_reason), do: ""
 
   defp banner_title(_blocking, 1), do: "1 unit awaiting commands"
   defp banner_title(_blocking, open), do: "#{open} units awaiting commands"

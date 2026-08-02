@@ -3,8 +3,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
 
   alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.{Issue, TrackerIdentity}
-  alias Aiur.Orchestrator.RetryEngine
-  alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.{RetryEngine, SnapshotStore, State}
   alias Aiur.Workspace.Ownership
 
   describe "failure_retry?/1" do
@@ -123,6 +122,41 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
       state = %State{retry_attempts: %{}}
       assert RetryEngine.pop_retry_attempt_state(state, "issue-x", make_ref()) == :missing
     end
+  end
+
+  test "publishes the retry engine's final state" do
+    generation = SnapshotStore.begin_generation(self())
+
+    :ok =
+      SnapshotStore.publish(self(), %{
+        running: [],
+        retrying: [%{identifier: "MT-OLD"}],
+        idle: [],
+        agent_totals: %{},
+        capacity: %{}
+      })
+
+    final_state = %State{
+      snapshot_key: self(),
+      snapshot_generation: generation,
+      snapshot_ready?: true,
+      retry_attempts: %{
+        "issue-final" => %{
+          attempt: 2,
+          due_at_ms: System.monotonic_time(:millisecond) + 1_000,
+          identifier: "MT-FINAL"
+        }
+      }
+    }
+
+    assert {:noreply, ^final_state} = RetryEngine.publish_final_retry_state({:noreply, final_state})
+
+    assert eventually(fn ->
+             match?(
+               {:current, %{retrying: [%{identifier: "MT-FINAL"}]}, _freshness},
+               Aiur.Orchestrator.dashboard_snapshot(self(), 1_000)
+             )
+           end)
   end
 
   describe "schedule_issue_retry/4" do
@@ -678,4 +712,17 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
       refute RetryEngine.prior_work_for_retry?(%{prior_work: true, completed_turn_count: 1}, false)
     end
   end
+
+  defp eventually(fun, attempts \\ 30)
+
+  defp eventually(fun, attempts) when is_function(fun, 0) and attempts > 0 do
+    if fun.() do
+      true
+    else
+      Process.sleep(10)
+      eventually(fun, attempts - 1)
+    end
+  end
+
+  defp eventually(_fun, 0), do: false
 end

@@ -15,6 +15,8 @@ defmodule Aiur.Orchestrator.State do
   @type t :: %__MODULE__{
           poll_interval_ms: integer() | nil,
           snapshot_key: GenServer.server() | nil,
+          snapshot_generation: reference() | nil,
+          snapshot_ready?: boolean(),
           max_concurrent_agents: integer() | nil,
           session_max_concurrent_agents: integer() | nil,
           effective_concurrent_agents: integer() | nil,
@@ -67,6 +69,7 @@ defmodule Aiur.Orchestrator.State do
   defstruct [
     :poll_interval_ms,
     :snapshot_key,
+    :snapshot_generation,
     :max_concurrent_agents,
     :session_max_concurrent_agents,
     :effective_concurrent_agents,
@@ -104,6 +107,7 @@ defmodule Aiur.Orchestrator.State do
     github_connectivity: %{},
     github_poll_delays: %{},
     globally_paused: false,
+    snapshot_ready?: false,
     control_lifecycle: %ControlLifecycle{}
   ]
 

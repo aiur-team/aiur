@@ -69,8 +69,14 @@ defmodule Aiur.Orchestrator.Lifecycle do
 
     :ok = ControlLifecycleStore.save(control_lifecycle)
 
+    snapshot_key = Keyword.get(opts, :name, Aiur.Orchestrator)
+
     state = %State{
-      snapshot_key: Keyword.get(opts, :name, Aiur.Orchestrator),
+      snapshot_key: snapshot_key,
+      # A restarted server keeps its prior fleet view until this generation has
+      # completed a fresh poll and projection. Older projector tasks are fenced
+      # by this token before they can replace that retained view.
+      snapshot_generation: SnapshotStore.begin_generation(snapshot_key),
       poll_interval_ms: config.polling.interval_seconds * 1_000,
       max_concurrent_agents: config.agent.max_concurrent_agents,
       # `--max-agents N` at launch: seed the session override (highest
@@ -105,11 +111,6 @@ defmodule Aiur.Orchestrator.Lifecycle do
     _ = LiveConversation.subscribe_restarts()
 
     state = schedule_initial_tick(state, Keyword.get(opts, :initial_poll?, true))
-
-    # The initial state is small and must be available before the first
-    # dashboard request. Subsequent projections are coalesced off this
-    # critical path by SnapshotStore.
-    :ok = SnapshotStore.publish(state.snapshot_key, StatusReport.snapshot_payload(state))
 
     {:ok, state}
   end

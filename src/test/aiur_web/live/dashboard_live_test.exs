@@ -23,11 +23,11 @@ defmodule AiurWeb.DashboardLiveTest do
   alias Aiur.Events.{Exchange, SubscriptionStore}
 
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{OperatorMessages, SnapshotStore}
+  alias Aiur.Orchestrator.{OperatorMessages, SnapshotStore, StatusReport}
   alias Aiur.RecentMerge
   alias Aiur.RecentMergeStore
-  alias AiurWeb.{ControlCenterCache, ControlCenterPresenter, DashboardLive, Presenter}
-  alias AiurWeb.OperatorControlCenter.{FleetFilters, PayloadLoader, UnitsPresenter}
+  alias AiurWeb.{ControlCenterCache, ControlCenterPresenter, DashboardLive, ObservabilityPubSub, Presenter}
+  alias AiurWeb.OperatorControlCenter.{FleetFilters, Overview, PayloadLoader, UnitsPresenter}
 
   @endpoint AiurWeb.Endpoint
 
@@ -607,6 +607,42 @@ defmodule AiurWeb.DashboardLiveTest do
     assert html =~ "No active agents"
     refute html =~ "MT-900"
     refute html =~ "Idle review"
+  end
+
+  test "refreshes a dashboard only after an orchestrator projection completes" do
+    orchestrator_name = Module.concat(__MODULE__, :ProjectedDashboardOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 5, control_center_cache: false)
+    {:ok, view, initial_html} = live(build_conn(), "/")
+    assert initial_html =~ "Snapshot timed out"
+
+    :ok = ObservabilityPubSub.subscribe()
+    :sys.replace_state(pid, &%{&1 | snapshot_ready?: true})
+    :ok = StatusReport.notify_dashboard(:sys.get_state(pid))
+
+    refute_receive {:observability_updated, _event_id}, 20
+    assert_receive {:observability_updated, _event_id}, 1_000
+    assert eventually(fn -> not String.contains?(render(view), "Snapshot timed out") end, 100)
+  end
+
+  test "labels stale timeout and unavailable snapshots differently" do
+    timeout_html =
+      render_component(&Overview.stale_snapshot/1,
+        freshness: %{status: :stale, reason: :snapshot_timeout, age_seconds: 6}
+      )
+
+    unavailable_html =
+      render_component(&Overview.stale_snapshot/1,
+        freshness: %{status: :stale, reason: :orchestrator_unavailable, age_seconds: 6}
+      )
+
+    assert timeout_html =~ "Orchestrator is busy"
+    assert unavailable_html =~ "Orchestrator is unavailable"
   end
 
   test "renders payload-aware document navigation and owner-aware Build Order navigation" do
