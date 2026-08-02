@@ -210,13 +210,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
          load,
          %{schedulers: schedulers} = options
        ) do
-    recovering? = is_integer(last_decrease_ms)
-    cold_start? = not options.bootstrap_complete? and is_nil(last_decrease_ms)
-    below_target? = load <= options.target * schedulers
-
     cond do
-      cold_start? and below_target? and options.queued_work? and
-          clear_cpu_headroom?(options.cpu_headroom, schedulers) ->
+      cold_start_seed?(last_decrease_ms, load, schedulers, options) ->
         next =
           seed_cold_start(
             effective,
@@ -228,8 +223,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
         {next, last_decrease_ms, true}
 
-      recovering? and options.queued_work? and
-          clear_cpu_headroom?(options.cpu_headroom, schedulers) ->
+      fast_recovery?(last_decrease_ms, schedulers, options) ->
         {next, next_decrease_ms} = fast_ramp(effective, last_decrease_ms, options.static_limit)
         {next, next_decrease_ms, options.bootstrap_complete?}
 
@@ -239,6 +233,17 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
         {next, next_decrease_ms, options.bootstrap_complete?}
     end
+  end
+
+  defp cold_start_seed?(last_decrease_ms, load, schedulers, options) do
+    not options.bootstrap_complete? and is_nil(last_decrease_ms) and
+      load <= options.target * schedulers and options.queued_work? and
+      clear_cpu_headroom?(options.cpu_headroom, schedulers)
+  end
+
+  defp fast_recovery?(last_decrease_ms, schedulers, options) do
+    is_integer(last_decrease_ms) and options.queued_work? and
+      clear_cpu_headroom?(options.cpu_headroom, schedulers)
   end
 
   defp adjust_load_envelope_without_headroom(
