@@ -69,6 +69,8 @@ defmodule Aiur.RepoBaseTest do
       previous_root = Application.get_env(:aiur, :repo_base_root)
       File.mkdir_p!(Path.dirname(node))
       git!(["clone", "--quiet", origin, node])
+      git!(["-C", node, "config", "user.email", "test@example.com"])
+      git!(["-C", node, "config", "user.name", "Test"])
 
       tracked_paths = [
         {"builds/application.md", "tracked build source\n"},
@@ -120,6 +122,75 @@ defmodule Aiur.RepoBaseTest do
       end
     end
 
+    test "leaves untracked state symlinks in the migrated clone without traversing their targets", %{origin: origin, node: node, base: base, tmp: tmp} do
+      repo = "https://github.com/owner/project.git"
+      outside = Path.join(tmp, "outside")
+      previous_root = Application.get_env(:aiur, :repo_base_root)
+      File.mkdir_p!(Path.dirname(node))
+      git!(["clone", "--quiet", origin, node])
+      File.mkdir_p!(outside)
+      File.write!(Path.join(outside, "sentinel"), "outside state\n")
+      assert :ok = File.ln_s(outside, Path.join(node, "analytics"))
+      Application.put_env(:aiur, :repo_base_root, Path.join(tmp, "repo"))
+
+      on_exit(fn ->
+        case previous_root do
+          nil -> Application.delete_env(:aiur, :repo_base_root)
+          root -> Application.put_env(:aiur, :repo_base_root, root)
+        end
+      end)
+
+      assert :ok = RepoBase.ensure_state_tree(repo)
+      assert {:ok, %File.Stat{type: :symlink}} = File.lstat(Path.join(base, "analytics"))
+      assert File.read!(Path.join(outside, "sentinel")) == "outside state\n"
+      refute File.exists?(Path.join(RepoBase.analytics_path(repo), "sentinel"))
+    end
+
+    test "preserves an untracked nested state symlink without traversing its target", %{origin: origin, node: node, base: base, tmp: tmp} do
+      repo = "https://github.com/owner/project.git"
+      outside = Path.join(tmp, "outside")
+      previous_root = Application.get_env(:aiur, :repo_base_root)
+      File.mkdir_p!(Path.dirname(node))
+      git!(["clone", "--quiet", origin, node])
+      File.mkdir_p!(Path.join(node, "analytics/runs"))
+      File.mkdir_p!(outside)
+      File.write!(Path.join(outside, "sentinel"), "outside state\n")
+      assert :ok = File.ln_s(outside, Path.join(node, "analytics/runs/external"))
+      Application.put_env(:aiur, :repo_base_root, Path.join(tmp, "repo"))
+
+      on_exit(fn ->
+        case previous_root do
+          nil -> Application.delete_env(:aiur, :repo_base_root)
+          root -> Application.put_env(:aiur, :repo_base_root, root)
+        end
+      end)
+
+      assert :ok = RepoBase.ensure_state_tree(repo)
+      assert {:ok, %File.Stat{type: :symlink}} = File.lstat(Path.join(base, "analytics/runs/external"))
+      assert File.read!(Path.join(outside, "sentinel")) == "outside state\n"
+      assert File.dir?(RepoBase.analytics_path(repo))
+      refute File.exists?(Path.join(RepoBase.analytics_path(repo), "runs/external/sentinel"))
+    end
+
+    test "refuses a canonical state symlink during resumed migration", %{origin: origin, node: node, base: base, tmp: tmp} do
+      parked = node <> ".migrating-interrupted"
+      outside = Path.join(tmp, "outside")
+      File.mkdir_p!(Path.dirname(node))
+      git!(["clone", "--quiet", origin, parked])
+      File.mkdir_p!(Path.join(parked, "meta"))
+      File.write!(Path.join([parked, "meta", "findings.ndjson"]), Jason.encode!(finding("legacy")))
+      File.mkdir_p!(outside)
+      File.write!(Path.join(outside, "sentinel"), "outside state\n")
+      File.mkdir_p!(node)
+      assert :ok = File.ln_s(outside, Path.join(node, "meta"))
+
+      assert {:error, {:repo_base_migration_recovery_failed, {:repo_base_state_path_symlink, _}}} =
+               RepoBase.refresh(base, origin, "true")
+
+      assert File.read!(Path.join(outside, "sentinel")) == "outside state\n"
+      refute File.exists?(Path.join(outside, "findings.ndjson"))
+    end
+
     test "migrates a legacy clone before importing its retrospective into canonical meta", %{
       origin: origin,
       node: node,
@@ -137,7 +208,8 @@ defmodule Aiur.RepoBaseTest do
       File.mkdir_p!(Path.join([node, "meta", "retros"]))
       File.write!(Path.join([node, "builds", "legacy-pack", "pack.json"]), "legacy build\n")
       File.write!(Path.join([node, "analytics", "runs", "legacy-boot", "run-summary.json"]), "legacy analytics\n")
-      File.write!(Path.join([node, "meta", "findings.ndjson"]), "{\"slug\":\"legacy-finding\"}\n")
+      legacy_finding = Jason.encode!(finding("legacy-finding")) <> "\n"
+      File.write!(Path.join([node, "meta", "findings.ndjson"]), legacy_finding)
       File.write!(Path.join([node, "meta", "retros", "preexisting.md"]), "legacy retrospective\n")
       File.write!(Path.join(node, "base-record.json"), "legacy base record\n")
       File.mkdir_p!(Path.join([source_root, "docs", "executor"]))
@@ -159,7 +231,7 @@ defmodule Aiur.RepoBaseTest do
       assert File.read!(imported) == "legacy notes\n"
       assert File.read!(Path.join(RepoBase.builds_path(repo), "legacy-pack/pack.json")) == "legacy build\n"
       assert File.read!(Path.join(RepoBase.analytics_path(repo), "runs/legacy-boot/run-summary.json")) == "legacy analytics\n"
-      assert File.read!(RepoBase.findings_path(repo)) == "{\"slug\":\"legacy-finding\"}\n"
+      assert File.read!(RepoBase.findings_path(repo)) == legacy_finding
       assert File.read!(Path.join(RepoBase.retros_path(repo), "preexisting.md")) == "legacy retrospective\n"
       assert File.exists?(Path.join(RepoBase.repo_path(repo), "base-record.json"))
       refute File.exists?(Path.join(base, "base-record.json"))
@@ -216,6 +288,160 @@ defmodule Aiur.RepoBaseTest do
       assert File.read!(Path.join([node, "meta", "findings.ndjson"])) == current_finding <> "\n" <> legacy_finding <> "\n"
       assert {:ok, [current, legacy]} = Findings.all()
       assert Enum.map([current, legacy], & &1["slug"]) == ["current", "legacy"]
+    end
+
+    test "finishes a findings transfer once after a crash following its atomic replacement", %{origin: origin, node: node, base: base, tmp: tmp} do
+      parked = node <> ".migrating-interrupted"
+      previous_root = Application.get_env(:aiur, :repo_base_root)
+      current = Jason.encode!(finding("current")) <> "\n"
+      legacy = Jason.encode!(finding("legacy")) <> "\n"
+      destination = Path.join([node, "meta", "findings.ndjson"])
+      source = Path.join([parked, "meta", "findings.ndjson"])
+      marker = destination <> ".migration-transfer"
+      File.mkdir_p!(Path.dirname(node))
+      git!(["clone", "--quiet", origin, parked])
+      File.mkdir_p!(Path.dirname(source))
+      File.mkdir_p!(Path.dirname(destination))
+      File.write!(source, legacy)
+      File.write!(destination, current <> legacy)
+
+      File.write!(
+        marker,
+        Jason.encode!(%{
+          "source" => source,
+          "source_hash" => :crypto.hash(:sha256, legacy) |> Base.encode16(case: :lower),
+          "destination" => destination,
+          "destination_hash" => :crypto.hash(:sha256, current) |> Base.encode16(case: :lower),
+          "merged_hash" => :crypto.hash(:sha256, current <> legacy) |> Base.encode16(case: :lower)
+        })
+      )
+
+      Application.put_env(:aiur, :repo_base_root, Path.join(tmp, "repo"))
+
+      on_exit(fn ->
+        case previous_root do
+          nil -> Application.delete_env(:aiur, :repo_base_root)
+          root -> Application.put_env(:aiur, :repo_base_root, root)
+        end
+      end)
+
+      assert {:ok, ^base} = RepoBase.refresh(base, origin, "true")
+      assert File.read!(destination) == current <> legacy
+      refute File.exists?(marker)
+    end
+
+    test "retries a findings transfer when recovery finds its checkpoint before replacement", %{origin: origin, node: node, base: base, tmp: tmp} do
+      parked = node <> ".migrating-interrupted"
+      previous_root = Application.get_env(:aiur, :repo_base_root)
+      current = Jason.encode!(finding("current")) <> "\n"
+      legacy = Jason.encode!(finding("legacy")) <> "\n"
+      destination = Path.join([node, "meta", "findings.ndjson"])
+      source = Path.join([parked, "meta", "findings.ndjson"])
+      marker = destination <> ".migration-transfer"
+      File.mkdir_p!(Path.dirname(node))
+      git!(["clone", "--quiet", origin, parked])
+      File.mkdir_p!(Path.dirname(source))
+      File.mkdir_p!(Path.dirname(destination))
+      File.write!(source, legacy)
+      File.write!(destination, current)
+
+      File.write!(
+        marker,
+        Jason.encode!(%{
+          "source" => source,
+          "source_hash" => :crypto.hash(:sha256, legacy) |> Base.encode16(case: :lower),
+          "destination" => destination,
+          "destination_hash" => :crypto.hash(:sha256, current) |> Base.encode16(case: :lower),
+          "merged_hash" => :crypto.hash(:sha256, current <> legacy) |> Base.encode16(case: :lower)
+        })
+      )
+
+      Application.put_env(:aiur, :repo_base_root, Path.join(tmp, "repo"))
+
+      on_exit(fn ->
+        case previous_root do
+          nil -> Application.delete_env(:aiur, :repo_base_root)
+          root -> Application.put_env(:aiur, :repo_base_root, root)
+        end
+      end)
+
+      assert {:ok, ^base} = RepoBase.refresh(base, origin, "true")
+      assert File.read!(destination) == current <> legacy
+      refute File.exists?(source)
+      refute File.exists?(marker)
+    end
+
+    test "clears a findings checkpoint after source removal without another merge", %{origin: origin, node: node, base: base, tmp: tmp} do
+      parked = node <> ".migrating-interrupted"
+      previous_root = Application.get_env(:aiur, :repo_base_root)
+      current = Jason.encode!(finding("current")) <> "\n"
+      legacy = Jason.encode!(finding("legacy")) <> "\n"
+      destination = Path.join([node, "meta", "findings.ndjson"])
+      source = Path.join([parked, "meta", "findings.ndjson"])
+      marker = destination <> ".migration-transfer"
+      File.mkdir_p!(Path.dirname(node))
+      git!(["clone", "--quiet", origin, parked])
+      File.mkdir_p!(Path.dirname(source))
+      File.mkdir_p!(Path.dirname(destination))
+      File.write!(destination, current <> legacy)
+
+      File.write!(
+        marker,
+        Jason.encode!(%{
+          "source" => source,
+          "source_hash" => :crypto.hash(:sha256, legacy) |> Base.encode16(case: :lower),
+          "destination" => destination,
+          "destination_hash" => :crypto.hash(:sha256, current) |> Base.encode16(case: :lower),
+          "merged_hash" => :crypto.hash(:sha256, current <> legacy) |> Base.encode16(case: :lower)
+        })
+      )
+
+      Application.put_env(:aiur, :repo_base_root, Path.join(tmp, "repo"))
+
+      on_exit(fn ->
+        case previous_root do
+          nil -> Application.delete_env(:aiur, :repo_base_root)
+          root -> Application.put_env(:aiur, :repo_base_root, root)
+        end
+      end)
+
+      assert {:ok, ^base} = RepoBase.refresh(base, origin, "true")
+      assert File.read!(destination) == current <> legacy
+      refute File.exists?(marker)
+    end
+
+    test "preserves both ledgers when a source changes after findings replacement", %{origin: origin, node: node, base: base} do
+      parked = node <> ".migrating-interrupted"
+      current = Jason.encode!(finding("current")) <> "\n"
+      legacy = Jason.encode!(finding("legacy")) <> "\n"
+      changed_legacy = legacy <> Jason.encode!(finding("new-observation")) <> "\n"
+      destination = Path.join([node, "meta", "findings.ndjson"])
+      source = Path.join([parked, "meta", "findings.ndjson"])
+      marker = destination <> ".migration-transfer"
+      File.mkdir_p!(Path.dirname(node))
+      git!(["clone", "--quiet", origin, parked])
+      File.mkdir_p!(Path.dirname(source))
+      File.mkdir_p!(Path.dirname(destination))
+      File.write!(source, changed_legacy)
+      File.write!(destination, current <> legacy)
+
+      File.write!(
+        marker,
+        Jason.encode!(%{
+          "source" => source,
+          "source_hash" => :crypto.hash(:sha256, legacy) |> Base.encode16(case: :lower),
+          "destination" => destination,
+          "destination_hash" => :crypto.hash(:sha256, current) |> Base.encode16(case: :lower),
+          "merged_hash" => :crypto.hash(:sha256, current <> legacy) |> Base.encode16(case: :lower)
+        })
+      )
+
+      assert {:error, {:repo_base_migration_recovery_failed, {:findings_transfer_recovery_failed, ^destination, :source_changed}}} =
+               RepoBase.refresh(base, origin, "true")
+
+      assert File.read!(destination) == current <> legacy
+      assert File.read!(source) == changed_legacy
+      assert File.exists?(marker)
     end
 
     test "leaves both ledgers intact when an interrupted migration has corrupt findings", %{origin: origin, node: node, base: base} do
@@ -507,6 +733,7 @@ defmodule Aiur.RepoBaseTest do
       assert File.dir?(RepoBase.builds_path(repo))
       assert File.dir?(RepoBase.analytics_path(repo))
       assert File.dir?(RepoBase.retros_path(repo))
+      assert File.regular?(RepoBase.findings_path(repo))
 
       for sidecar <- [".aiur-hex", ".aiur-mix", ".aiur-npm-cache"] do
         assert File.dir?(Path.join(RepoBase.repo_path(repo), sidecar))
@@ -514,6 +741,27 @@ defmodule Aiur.RepoBaseTest do
 
       assert [imported] = Path.wildcard(Path.join(RepoBase.retros_path(repo), "legacy-*.md"))
       assert File.read!(imported) == "legacy notes\n"
+    end
+
+    test "refuses a state-tree symlink before creating a findings ledger", %{tmp: tmp} do
+      previous_root = Application.get_env(:aiur, :repo_base_root)
+      repo = "https://github.com/foo/bar.git"
+      node = Path.join([tmp, "state", "foo", "bar"])
+      outside = Path.join(tmp, "outside")
+      File.mkdir_p!(node)
+      File.mkdir_p!(outside)
+      assert :ok = File.ln_s(outside, Path.join(node, "meta"))
+      Application.put_env(:aiur, :repo_base_root, Path.join(tmp, "state"))
+
+      on_exit(fn ->
+        case previous_root do
+          nil -> Application.delete_env(:aiur, :repo_base_root)
+          root -> Application.put_env(:aiur, :repo_base_root, root)
+        end
+      end)
+
+      assert {:error, {:repo_base_state_path_symlink, _}} = RepoBase.ensure_state_tree(repo)
+      refute File.exists?(Path.join(outside, "findings.ndjson"))
     end
   end
 

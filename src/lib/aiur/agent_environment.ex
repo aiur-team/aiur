@@ -60,6 +60,7 @@ defmodule Aiur.AgentEnvironment do
 
   def workspace_env(workspace, opts) when is_binary(workspace) do
     {hex, mix, npm_cache} = sidecar_paths(opts)
+    state_path = repo_url(opts) |> RepoBase.repo_path()
     base_branch = configured_base_branch(opts)
 
     unset_parent_logs =
@@ -72,6 +73,7 @@ defmodule Aiur.AgentEnvironment do
         {~c"HEX_HOME", String.to_charlist(hex)},
         {~c"MIX_HOME", String.to_charlist(mix)},
         {~c"npm_config_cache", String.to_charlist(npm_cache)},
+        {~c"AIUR_REPO_STATE_PATH", String.to_charlist(state_path)},
         # Trust the workspace ROOT so the repo's `mise.toml` is honored wherever it
         # lives (most repos — including aiur — keep it at the root, not under
         # `elixir/`). Mirrors `base_env/1` (#432); a hardcoded sub-path pointed at
@@ -117,6 +119,7 @@ defmodule Aiur.AgentEnvironment do
 
   def workspace_env_export_prefix(workspace, opts) when is_binary(workspace) do
     {hex, mix, npm_cache} = remote_sidecar_paths(opts)
+    state_path = Path.join("~", RepoBase.repo_relative_path(repo_url(opts)))
     base_branch = configured_base_branch(opts)
 
     # Trust the workspace ROOT (see `workspace_env/1`): the SSH-launch path needs
@@ -126,7 +129,7 @@ defmodule Aiur.AgentEnvironment do
       |> Enum.map_join(" ", fn {name, value} -> "#{name}=#{Aiur.Shell.escape(value)}" end)
 
     sidecar_exports =
-      [HEX_HOME: hex, MIX_HOME: mix, npm_config_cache: npm_cache]
+      [HEX_HOME: hex, MIX_HOME: mix, npm_config_cache: npm_cache, AIUR_REPO_STATE_PATH: state_path]
       |> Enum.map_join("\n", fn {name, path} ->
         variable = Atom.to_string(name)
 

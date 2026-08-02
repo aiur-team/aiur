@@ -31,7 +31,8 @@ after_create: |
     git checkout -B "$AIUR_TICKET_BRANCH" "origin/$base_branch"
   fi
   cache_root="${AIUR_REPO_STATE_PATH:?Aiur must provide a repository state path}"
-  mkdir -p "$cache_root/.aiur-hex" "$cache_root/.aiur-mix" "$cache_root/.aiur-npm-cache"
+  mkdir -p "$cache_root/.aiur-hex" "$cache_root/.aiur-mix" "$cache_root/.aiur-npm-cache" "$cache_root/meta/retros"
+  touch "$cache_root/meta/findings.ndjson"
 
 # Aiur stages empty, logs-only, and partial workspaces before this hook. The
 # safeguard below prevents a direct invocation from overwriting live content.
@@ -41,7 +42,8 @@ after_create: |
 before_run: |
   base_branch="${THIS_BASE_BRANCH:-main}"
   cache_root="${AIUR_REPO_STATE_PATH:?Aiur must provide a repository state path}"
-  mkdir -p "$cache_root/.aiur-hex" "$cache_root/.aiur-mix" "$cache_root/.aiur-npm-cache"
+  mkdir -p "$cache_root/.aiur-hex" "$cache_root/.aiur-mix" "$cache_root/.aiur-npm-cache" "$cache_root/meta/retros"
+  touch "$cache_root/meta/findings.ndjson"
   move_sidecars_to_state() {
     for cache_dir in .aiur-hex .aiur-mix .aiur-npm-cache; do
       if [ -e "$cache_dir" ]; then

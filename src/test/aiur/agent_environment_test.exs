@@ -121,6 +121,11 @@ defmodule Aiur.AgentEnvironmentTest do
 
       assert to_string(mix) == Path.join(Aiur.RepoBase.repo_path(repo_url), ".aiur-mix")
 
+      assert {~c"AIUR_REPO_STATE_PATH", state_path} =
+               List.keyfind(env, ~c"AIUR_REPO_STATE_PATH", 0)
+
+      assert to_string(state_path) == Aiur.RepoBase.repo_path(repo_url)
+
       assert {~c"AIUR_AGENT_WORKSPACE", ~c"/work/aiur/440"} =
                List.keyfind(env, ~c"AIUR_AGENT_WORKSPACE", 0)
 
@@ -178,16 +183,19 @@ defmodule Aiur.AgentEnvironmentTest do
       assert prefix =~ "AIUR_BASE_BRANCH='integration'"
       assert prefix =~ "HEX_HOME='~/.aiur/repo/owner/project/.aiur-hex'"
       assert prefix =~ "HEX_HOME=\"$HOME/${HEX_HOME#\\~/}\""
+      assert prefix =~ "AIUR_REPO_STATE_PATH='~/.aiur/repo/owner/project'"
+      assert prefix =~ "AIUR_REPO_STATE_PATH=\"$HOME/${AIUR_REPO_STATE_PATH#\\~/}\""
       refute prefix =~ Aiur.RepoBase.repo_path(repo_url)
       refute prefix =~ "elixir/mise.toml"
 
       {paths, 0} =
-        System.cmd("sh", ["-lc", "#{prefix}; printf '%s|%s|%s' \"$HEX_HOME\" \"$MIX_HOME\" \"$npm_config_cache\""], env: [{"HOME", "/remote-home"}])
+        System.cmd("sh", ["-lc", "#{prefix}; printf '%s|%s|%s|%s' \"$HEX_HOME\" \"$MIX_HOME\" \"$npm_config_cache\" \"$AIUR_REPO_STATE_PATH\""], env: [{"HOME", "/remote-home"}])
 
       assert paths ==
                "/remote-home/.aiur/repo/owner/project/.aiur-hex|" <>
                  "/remote-home/.aiur/repo/owner/project/.aiur-mix|" <>
-                 "/remote-home/.aiur/repo/owner/project/.aiur-npm-cache"
+                 "/remote-home/.aiur/repo/owner/project/.aiur-npm-cache|" <>
+                 "/remote-home/.aiur/repo/owner/project"
     end
 
     test "returns an empty string for a non-binary path" do

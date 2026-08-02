@@ -24,6 +24,7 @@ defmodule Aiur.RepoBase do
   alias Aiur.AgentPubSub
   alias Aiur.Config
   alias Aiur.Findings
+  alias Aiur.Fs
   alias Exqlite.Basic
 
   @base_record "base-record.json"
@@ -31,6 +32,7 @@ defmodule Aiur.RepoBase do
   @cache_sidecars [".aiur-hex", ".aiur-mix", ".aiur-npm-cache"]
   @state_entries ["builds", "analytics", "meta"]
   @migration_lease_suffix ".migration-lock.sqlite3"
+  @findings_transfer_suffix ".migration-transfer"
   @migration_lock_timeout_ms 30_000
   @remote_probe_timeout_ms 30_000
 
@@ -90,8 +92,31 @@ defmodule Aiur.RepoBase do
   end
 
   defp ensure_state_tree_at(node) do
+    findings = Path.join([node, "meta", "findings.ndjson"])
+
+    with :ok <- ensure_state_node_safe(node),
+         :ok <- File.mkdir_p(node),
+         :ok <- create_state_directories(node),
+         :ok <- ensure_state_path_safe(node, findings),
+         :ok <- File.touch(findings) do
+      :ok
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp ensure_state_node_safe(node) do
+    case File.lstat(node) do
+      {:error, :enoent} -> :ok
+      {:ok, %File.Stat{type: :directory}} -> :ok
+      {:ok, %File.Stat{type: :symlink}} -> {:error, {:repo_base_state_path_symlink, node}}
+      {:ok, _stat} -> {:error, {:repo_base_state_path_invalid_root, node}}
+      {:error, reason} -> {:error, {:repo_base_state_path_invalid_root, node, reason}}
+    end
+  end
+
+  defp create_state_directories(node) do
     [
-      node,
       Path.join(node, "latest"),
       Path.join(node, "builds"),
       Path.join(node, "analytics"),
@@ -100,9 +125,15 @@ defmodule Aiur.RepoBase do
       | Enum.map(@cache_sidecars, &Path.join(node, &1))
     ]
     |> Enum.reduce_while(:ok, fn path, :ok ->
-      case File.mkdir_p(path) do
-        :ok -> {:cont, :ok}
-        {:error, reason} -> {:halt, {:error, {:repo_state_tree_create_failed, path, reason}}}
+      case ensure_state_path_safe(node, path) do
+        :ok ->
+          case File.mkdir_p(path) do
+            :ok -> {:cont, :ok}
+            {:error, reason} -> {:halt, {:error, {:repo_state_tree_create_failed, path, reason}}}
+          end
+
+        {:error, _reason} = error ->
+          {:halt, error}
       end
     end)
   end
@@ -599,14 +630,20 @@ defmodule Aiur.RepoBase do
 
   defp migrate_legacy_node(node, base_path) do
     if migration_required?(node) do
-      with_migration_lock(node, fn ->
-        with :ok <- recover_interrupted_migration(base_path) do
-          if File.dir?(Path.join(node, ".git")), do: migrate_legacy_clone(node, base_path), else: :ok
-        end
-      end)
+      with_migration_lock(node, fn -> migrate_legacy_clone_if_needed(node, base_path) end)
     else
       :ok
     end
+  end
+
+  defp migrate_legacy_clone_if_needed(node, base_path) do
+    with :ok <- recover_interrupted_migration(base_path) do
+      migrate_legacy_clone_if_present(node, base_path)
+    end
+  end
+
+  defp migrate_legacy_clone_if_present(node, base_path) do
+    if File.dir?(Path.join(node, ".git")), do: migrate_legacy_clone(node, base_path), else: :ok
   end
 
   # SQLite's exclusive transaction is a cross-process lock provided by an
@@ -625,6 +662,9 @@ defmodule Aiur.RepoBase do
   end
 
   defp with_migration_transaction(connection, path, migration) do
+    # `after` has no implicit-function form, so the explicit resource boundary
+    # is required to commit and close this cross-process lease on every exit.
+    # credo:disable-for-next-line Credo.Check.Readability.PreferImplicitTry
     try do
       with :ok <- sqlite_exec(connection, "PRAGMA busy_timeout = #{@migration_lock_timeout_ms}", path),
            :ok <- sqlite_exec(connection, "BEGIN EXCLUSIVE", path) do
@@ -690,8 +730,11 @@ defmodule Aiur.RepoBase do
   end
 
   defp finish_migration(temporary, node, base_path) do
+    findings = Path.join([node, "meta", "findings.ndjson"])
+
     with :ok <- File.mkdir_p(node),
          :ok <- move_sidecars(temporary, node),
+         :ok <- recover_findings_transfer(findings),
          :ok <- move_state_entries(temporary, node),
          :ok <- discard_legacy_build_metadata(temporary) do
       File.rename(temporary, base_path)
@@ -786,51 +829,95 @@ defmodule Aiur.RepoBase do
   end
 
   defp migrate_state_entry(source, destination, clone_root) do
-    case tracked_state_entry?(clone_root, source) do
-      :tracked -> :ok
-      :untracked -> move_state_entry(source, destination)
-      {:error, reason} -> {:error, {:repo_base_migration_tracking_failed, source, reason}}
+    node = Path.dirname(destination)
+
+    with :ok <- ensure_state_path_safe(node, destination) do
+      case migration_entry_disposition(source) do
+        :missing ->
+          :ok
+
+        :preserve ->
+          :ok
+
+        :migrate ->
+          case tracked_state_entry?(clone_root, source) do
+            :tracked -> :ok
+            :untracked -> move_state_entry(source, destination, node)
+            {:error, reason} -> {:error, {:repo_base_migration_tracking_failed, source, reason}}
+          end
+
+        {:error, reason} ->
+          {:error, {:repo_base_migration_entry_inspection_failed, source, reason}}
+      end
     end
   end
 
-  defp move_state_entry(source, destination) do
-    cond do
-      not File.exists?(source) ->
-        :ok
+  # A legacy clone can contain untracked application links beneath a path that
+  # happens to look like state. `File.dir?/1` follows those links, so migration
+  # would otherwise walk and move files outside the clone. Preserve an entire
+  # state-shaped entry if any boundary is a link; it remains application-owned
+  # in `latest`, while the canonical state tree is recreated beside it.
+  defp migration_entry_disposition(path) do
+    case File.lstat(path) do
+      {:error, :enoent} -> :missing
+      {:ok, %File.Stat{type: :symlink}} -> :preserve
+      {:ok, %File.Stat{type: :directory}} -> migration_directory_disposition(path)
+      {:ok, _stat} -> :migrate
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
-      File.dir?(source) ->
-        merge_state_directory(source, destination)
+  defp migration_directory_disposition(path) do
+    with {:ok, entries} <- File.ls(path) do
+      Enum.reduce_while(entries, :migrate, fn entry, :migrate ->
+        case migration_entry_disposition(Path.join(path, entry)) do
+          :missing -> {:cont, :migrate}
+          :migrate -> {:cont, :migrate}
+          :preserve -> {:halt, :preserve}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+      end)
+    end
+  end
 
-      true ->
-        move_untracked_state_file(source, destination)
+  defp move_state_entry(source, destination, node) do
+    with :ok <- ensure_state_path_safe(node, destination) do
+      case File.lstat(source) do
+        {:error, :enoent} -> :ok
+        {:ok, %File.Stat{type: :symlink}} -> :ok
+        {:ok, %File.Stat{type: :directory}} -> merge_state_directory(source, destination, node)
+        {:ok, _stat} -> move_untracked_state_file(source, destination)
+        {:error, reason} -> {:error, reason}
+      end
     end
   end
 
   defp move_untracked_state_file(source, destination) do
     cond do
-      not File.exists?(destination) ->
-        File.rename(source, destination)
-
-      Path.basename(source) == "findings.ndjson" and Path.basename(destination) == "findings.ndjson" ->
-        merge_findings(source, destination)
-
-      true ->
-        File.rename(source, destination <> ".migrated-" <> unique_suffix())
+      File.exists?(destination) -> move_existing_state_file(source, destination)
+      true -> File.rename(source, destination)
     end
   end
 
-  defp merge_state_directory(source, destination) do
+  defp move_existing_state_file(source, destination) do
+    if Path.basename(source) == "findings.ndjson" and Path.basename(destination) == "findings.ndjson" do
+      merge_findings(source, destination)
+    else
+      File.rename(source, destination <> ".migrated-" <> unique_suffix())
+    end
+  end
+
+  defp merge_state_directory(source, destination, node) do
     with :ok <- File.mkdir_p(destination),
          {:ok, entries} <- File.ls(source),
-         :ok <- move_state_directory_entries(entries, source, destination),
-         :ok <- remove_empty_directory(source) do
-      :ok
+         :ok <- move_state_directory_entries(entries, source, destination, node) do
+      remove_empty_directory(source)
     end
   end
 
-  defp move_state_directory_entries(entries, source, destination) do
+  defp move_state_directory_entries(entries, source, destination, node) do
     Enum.reduce_while(entries, :ok, fn entry, :ok ->
-      case move_state_entry(Path.join(source, entry), Path.join(destination, entry)) do
+      case move_state_entry(Path.join(source, entry), Path.join(destination, entry), node) do
         :ok -> {:cont, :ok}
         {:error, reason} -> {:halt, {:error, reason}}
       end
@@ -847,10 +934,10 @@ defmodule Aiur.RepoBase do
   end
 
   defp tracked_state_entry?(clone_root, path) do
-    if not File.exists?(path) do
-      :untracked
-    else
-      tracked_state_entry_at_path?(clone_root, path)
+    case File.lstat(path) do
+      {:error, :enoent} -> :untracked
+      {:ok, _stat} -> tracked_state_entry_at_path?(clone_root, path)
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -865,16 +952,186 @@ defmodule Aiur.RepoBase do
   end
 
   defp merge_findings(source, destination) do
-    with {:ok, destination_contents} <- File.read(destination),
+    with :ok <- ensure_findings_paths_safe(destination),
+         :ok <- recover_findings_transfer(destination) do
+      write_findings_transfer(source, destination)
+    end
+  end
+
+  # A source ledger must be transferred exactly once. Appending then deleting
+  # loses that property if a process dies between the two operations, so stage
+  # an explicit checksum checkpoint and atomically replace the destination.
+  # Recovery can then distinguish a completed replacement from an unstarted
+  # one without treating repeated, legitimate observations as duplicates.
+  defp write_findings_transfer(source, destination) do
+    with :ok <- ensure_regular_file(source),
+         {:ok, destination_contents} <- File.read(destination),
          :ok <- validate_findings_ledger(destination_contents, destination),
          {:ok, source_contents} <- File.read(source),
          :ok <- validate_findings_ledger(source_contents, source),
-         :ok <- append_file(destination, merged_findings_suffix(destination_contents, source_contents)) do
-      File.rm(source)
+         merged_contents <- destination_contents <> merged_findings_suffix(destination_contents, source_contents),
+         :ok <- write_findings_transfer_marker(source, destination, destination_contents, source_contents, merged_contents),
+         :ok <- replace_file(destination, merged_contents),
+         :ok <- File.rm(source),
+         :ok <- Fs.sync_filesystem(),
+         :ok <- File.rm(findings_transfer_marker(destination)) do
+      :ok
     else
       {:error, reason} -> {:error, reason}
     end
   end
+
+  defp recover_findings_transfer(destination) do
+    marker = findings_transfer_marker(destination)
+
+    with :ok <- ensure_findings_paths_safe(destination) do
+      case File.read(marker) do
+        {:error, :enoent} ->
+          :ok
+
+        {:ok, contents} ->
+          with {:ok, transfer} <- Jason.decode(contents),
+               :ok <- validate_findings_transfer(transfer, destination),
+               {:ok, destination_contents} <- File.read(destination) do
+            recover_findings_transfer_state(transfer, destination, destination_contents, marker)
+          else
+            {:error, reason} -> {:error, {:findings_transfer_recovery_failed, destination, reason}}
+            _ -> {:error, {:findings_transfer_recovery_failed, destination, :invalid_marker}}
+          end
+
+        {:error, reason} ->
+          {:error, {:findings_transfer_recovery_failed, destination, reason}}
+      end
+    end
+  end
+
+  defp recover_findings_transfer_state(transfer, destination, contents, marker) do
+    source = transfer["source"]
+
+    cond do
+      digest(contents) == transfer["merged_hash"] ->
+        with :ok <- remove_transfer_source(source, transfer["source_hash"]),
+             :ok <- File.rm(marker) do
+          :ok
+        end
+
+      digest(contents) == transfer["destination_hash"] and regular_file?(source) ->
+        File.rm(marker)
+
+      true ->
+        {:error, {:findings_transfer_inconsistent, destination}}
+    end
+  end
+
+  defp validate_findings_transfer(transfer, destination) when is_map(transfer) do
+    required = ["source", "source_hash", "destination", "destination_hash", "merged_hash"]
+
+    if transfer["destination"] == destination and Enum.all?(required, &(is_binary(transfer[&1]) and transfer[&1] != "")) do
+      :ok
+    else
+      {:error, :invalid_marker}
+    end
+  end
+
+  defp validate_findings_transfer(_transfer, _destination), do: {:error, :invalid_marker}
+
+  defp remove_transfer_source(source, source_hash) do
+    case File.lstat(source) do
+      {:error, :enoent} -> :ok
+      {:ok, %File.Stat{type: :regular}} -> remove_matching_transfer_source(source, source_hash)
+      {:ok, _stat} -> {:error, :source_changed}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp remove_matching_transfer_source(source, source_hash) do
+    with {:ok, contents} <- File.read(source) do
+      if digest(contents) == source_hash, do: File.rm(source), else: {:error, :source_changed}
+    end
+  end
+
+  defp regular_file?(path), do: match?({:ok, %File.Stat{type: :regular}}, File.lstat(path))
+
+  defp write_findings_transfer_marker(source, destination, destination_contents, source_contents, merged_contents) do
+    marker_contents =
+      Jason.encode!(%{
+        "source" => source,
+        "source_hash" => digest(source_contents),
+        "destination" => destination,
+        "destination_hash" => digest(destination_contents),
+        "merged_hash" => digest(merged_contents)
+      })
+
+    with :ok <- Fs.atomic_write(findings_transfer_marker(destination), marker_contents, fsync: true),
+         :ok <- Fs.sync_filesystem() do
+      :ok
+    end
+  end
+
+  defp findings_transfer_marker(destination), do: destination <> @findings_transfer_suffix
+
+  defp replace_file(destination, contents) do
+    with :ok <- Fs.atomic_write(destination, contents, fsync: true),
+         :ok <- Fs.sync_filesystem() do
+      :ok
+    end
+  end
+
+  defp ensure_findings_paths_safe(destination) do
+    node = destination |> Path.dirname() |> Path.dirname()
+
+    with :ok <- ensure_state_path_safe(node, destination),
+         :ok <- ensure_state_path_safe(node, findings_transfer_marker(destination)) do
+      :ok
+    end
+  end
+
+  defp ensure_state_path_safe(node, path) do
+    case File.lstat(node) do
+      {:ok, %File.Stat{type: :directory}} -> ensure_state_path_under_node(node, path)
+      {:ok, _stat} -> {:error, {:repo_base_state_path_invalid_root, node}}
+      {:error, reason} -> {:error, {:repo_base_state_path_invalid_root, node, reason}}
+    end
+  end
+
+  defp ensure_state_path_under_node(node, path) do
+    relative = Path.relative_to(path, node)
+
+    with :ok <- ensure_relative_state_path(relative) do
+      state_path_components_safe(node, Path.split(relative))
+    end
+  end
+
+  defp ensure_relative_state_path(relative) do
+    if relative == "." or relative == ".." or String.starts_with?(relative, "../") do
+      {:error, {:repo_base_state_path_outside_node, relative}}
+    else
+      :ok
+    end
+  end
+
+  defp state_path_components_safe(_path, []), do: :ok
+
+  defp state_path_components_safe(path, [component | rest]) do
+    next = Path.join(path, component)
+
+    case File.lstat(next) do
+      {:ok, %File.Stat{type: :symlink}} -> {:error, {:repo_base_state_path_symlink, next}}
+      {:ok, _stat} -> state_path_components_safe(next, rest)
+      {:error, :enoent} -> :ok
+      {:error, reason} -> {:error, {:repo_base_state_path_inspection_failed, next, reason}}
+    end
+  end
+
+  defp ensure_regular_file(path) do
+    case File.lstat(path) do
+      {:ok, %File.Stat{type: :regular}} -> :ok
+      {:ok, _stat} -> {:error, {:repo_base_findings_source_invalid, path}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp digest(contents), do: :crypto.hash(:sha256, contents) |> Base.encode16(case: :lower)
 
   # A valid final NDJSON record need not end in a newline. Canonicalize both
   # sides before joining so a later O_APPEND writer cannot join two JSON objects
@@ -908,20 +1165,6 @@ defmodule Aiur.RepoBase do
     case Findings.validate(finding) do
       :ok -> {:cont, :ok}
       {:error, _reason} -> {:halt, {:error, {:invalid_findings_ledger, path, line_number}}}
-    end
-  end
-
-  defp append_file(path, contents) do
-    case File.open(path, [:append, :binary]) do
-      {:ok, device} ->
-        try do
-          IO.binwrite(device, contents)
-        after
-          File.close(device)
-        end
-
-      {:error, reason} ->
-        {:error, reason}
     end
   end
 

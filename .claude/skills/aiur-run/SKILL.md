@@ -421,8 +421,8 @@ the work itself (proven repeatedly in the 2026-07 analytics-streamdeck run):
 The findings ledger is `~/.aiur/repo/<owner>/<repo>/meta/findings.ndjson`.
 `aiur init` creates it and its parent directories. It holds one JSON object per
 line, each hard-capped at 4 KiB so `O_APPEND` stays atomic when two Executor
-instances share a host. Cite evidence by reference — an issue number or a log
-path plus line — never a pasted log dump.
+instances share a host. Cite evidence by reference - an issue number or a log
+path plus line - never a pasted log dump.
 
 ```json
 {"slug":"vitest-glob-excludes-tests","observed_at":"2026-08-01T18:04:00Z","scope":"repo","observed_in":"aiur-team/aiur","instance":"executor-1","summary":"20 tests outside the configured vitest include glob never ran","evidence":["#1442","~/.aiur/logs/agent-1442.log:8812"],"cost":"5.8h","ticket":1451,"status":"filed"}

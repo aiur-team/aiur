@@ -408,7 +408,7 @@ where it repeatedly paid for itself):
 
    The ledger contains one JSON object per line, hard-capped at 4 KiB so
    `O_APPEND` remains atomic when two Executor instances share a host. Cite
-   evidence by reference — an issue number or a log path plus line — never a
+   evidence by reference - an issue number or a log path plus line - never a
    pasted log dump.
 
    ```json

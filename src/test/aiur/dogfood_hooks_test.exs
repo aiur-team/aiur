@@ -48,6 +48,8 @@ defmodule Aiur.DogfoodHooksTest do
   test "checked-in hooks use the repository state node for package-manager caches" do
     hooks = File.read!(@hooks_path)
     assert hooks =~ "AIUR_REPO_STATE_PATH"
+    assert hooks =~ "meta/retros"
+    assert hooks =~ "meta/findings.ndjson"
     refute hooks =~ "HEX_HOME=\"$PWD/.aiur-hex\""
   end
 
@@ -58,6 +60,8 @@ defmodule Aiur.DogfoodHooksTest do
     assert_hook_ok!("after_create", workspace, context.origin)
     assert current_branch!(workspace) == ticket_branch()
     assert File.read!(Path.join(workspace, "README.md")) == "stable one\n"
+    assert File.regular?(Path.join([cache_root(workspace), "meta", "findings.ndjson"]))
+    assert File.dir?(Path.join([cache_root(workspace), "meta", "retros"]))
 
     File.write!(Path.join(context.seed, "README.md"), "stable two\n")
     git!(["-C", context.seed, "commit", "-am", "advance stable"])

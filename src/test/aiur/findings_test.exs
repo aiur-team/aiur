@@ -73,6 +73,18 @@ defmodule Aiur.FindingsTest do
     assert {:error, "finding requires non-empty slug"} = Findings.append(repo, Map.delete(finding("missing", nil), "slug"))
   end
 
+  test "requires an ISO-8601 observation timestamp", %{repo: repo} do
+    finding = Map.put(finding("invalid-time", nil), "observed_at", "yesterday")
+    assert {:error, "finding observed_at must be an ISO-8601 timestamp"} = Findings.append(repo, finding)
+  end
+
+  test "requires a ticket when a finding is filed or resolved", %{repo: repo} do
+    finding = Map.put(finding("invalid-status", nil), "status", "resolved")
+
+    assert {:error, "open findings require ticket null; filed and resolved findings require a ticket"} =
+             Findings.append(repo, finding)
+  end
+
   defp finding(slug, ticket, scope \\ "aiur") do
     %{
       "slug" => slug,

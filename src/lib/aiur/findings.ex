@@ -16,14 +16,9 @@ defmodule Aiur.Findings do
   @doc "Appends one validated finding with `O_APPEND` semantics."
   @spec append(String.t(), record()) :: :ok | {:error, term()}
   def append(repo_url, finding) when is_binary(repo_url) and is_map(finding) do
-    case RepoBase.ensure_state_tree(repo_url) do
-      :ok ->
-        with {:ok, encoded} <- encode(finding) do
-          append_line(RepoBase.findings_path(repo_url), encoded <> "\n")
-        end
-
-      {:error, _reason} = error ->
-        error
+    with {:ok, encoded} <- encode(finding),
+         :ok <- RepoBase.ensure_state_tree(repo_url) do
+      append_line(RepoBase.findings_path(repo_url), encoded <> "\n")
     end
   end
 
@@ -59,6 +54,7 @@ defmodule Aiur.Findings do
   def validate(finding) when is_map(finding) do
     with :ok <- required_string(finding, "slug"),
          :ok <- required_string(finding, "observed_at"),
+         :ok <- validate_observed_at(finding["observed_at"]),
          :ok <- validate_scope(Map.get(finding, "scope")),
          :ok <- required_string(finding, "observed_in"),
          :ok <- required_string(finding, "instance"),
@@ -66,7 +62,7 @@ defmodule Aiur.Findings do
          :ok <- validate_evidence(Map.get(finding, "evidence")),
          :ok <- required_string(finding, "cost"),
          :ok <- validate_ticket(Map.get(finding, "ticket")) do
-      validate_status(Map.get(finding, "status"))
+      validate_status_ticket(Map.get(finding, "status"), Map.get(finding, "ticket"))
     end
   end
 
@@ -110,11 +106,15 @@ defmodule Aiur.Findings do
     finding_paths()
     |> Enum.reduce_while({:ok, []}, fn path, {:ok, findings} ->
       case read_file(path) do
-        {:ok, records} -> {:cont, {:ok, findings ++ filter_scope(records, scope)}}
+        {:ok, records} -> {:cont, {:ok, Enum.reverse(filter_scope(records, scope)) ++ findings}}
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
+    |> reverse_findings()
   end
+
+  defp reverse_findings({:ok, findings}), do: {:ok, Enum.reverse(findings)}
+  defp reverse_findings({:error, _reason} = error), do: error
 
   defp finding_paths do
     [RepoBase.repo_path("placeholder/placeholder"), "..", "..", "*", "*", "meta", "findings.ndjson"]
@@ -143,10 +143,11 @@ defmodule Aiur.Findings do
     |> Enum.with_index(1)
     |> Enum.reduce_while({:ok, []}, fn {line, line_number}, {:ok, records} ->
       case decode_line(line, path, line_number) do
-        {:ok, finding} -> {:cont, {:ok, records ++ [finding]}}
+        {:ok, finding} -> {:cont, {:ok, [finding | records]}}
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
+    |> reverse_findings()
   end
 
   defp filter_scope(records, nil), do: records
@@ -158,11 +159,21 @@ defmodule Aiur.Findings do
   defp latest_by_slug(findings) do
     findings
     |> Enum.reduce(%{}, fn finding, latest ->
-      Map.update(latest, finding["slug"], finding, fn current ->
-        if finding["observed_at"] >= current["observed_at"], do: finding, else: current
-      end)
+      Map.update(latest, finding["slug"], finding, &latest_finding(&1, finding))
     end)
     |> Map.values()
+  end
+
+  defp latest_finding(current, finding) do
+    case DateTime.compare(observed_at!(finding), observed_at!(current)) do
+      :lt -> current
+      _ -> finding
+    end
+  end
+
+  defp observed_at!(finding) do
+    {:ok, observed_at, _offset} = DateTime.from_iso8601(finding["observed_at"])
+    observed_at
   end
 
   defp validate_scope_filter(nil), do: :ok
@@ -175,6 +186,13 @@ defmodule Aiur.Findings do
 
       _ ->
         {:error, "finding requires non-empty #{key}"}
+    end
+  end
+
+  defp validate_observed_at(observed_at) do
+    case DateTime.from_iso8601(observed_at) do
+      {:ok, _datetime, _offset} -> :ok
+      _ -> {:error, "finding observed_at must be an ISO-8601 timestamp"}
     end
   end
 
@@ -193,4 +211,14 @@ defmodule Aiur.Findings do
 
   defp validate_status(status) when status in @statuses, do: :ok
   defp validate_status(_status), do: {:error, "finding status must be one of: #{Enum.join(@statuses, ", ")}"}
+
+  defp validate_status_ticket(status, ticket) do
+    with :ok <- validate_status(status) do
+      case {status, ticket} do
+        {"open", nil} -> :ok
+        {status, ticket} when status in ["filed", "resolved"] and is_integer(ticket) and ticket > 0 -> :ok
+        _ -> {:error, "open findings require ticket null; filed and resolved findings require a ticket"}
+      end
+    end
+  end
 end
