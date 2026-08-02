@@ -34,6 +34,9 @@ GitHub issue state is label-based:
 10. When implementation and draft-PR self-review are complete and only CI
     remains, move the issue to `agent:ci-wait` and end the turn. The daemon owns
     continuous CI polling. Do not loop on `gh pr checks` in a live agent turn.
+    A stub standing where an acceptance criterion should be means the work is
+    not complete — declare the missing dependency with `aiur_declare_blocker`
+    instead of advancing the label.
 11. On a delivered CI pass, recheck current-base ancestry. If the base moved,
     update and validate your branch and return to `agent:ci-wait`; otherwise
     mark the PR ready and move the issue to `Human Review`.
