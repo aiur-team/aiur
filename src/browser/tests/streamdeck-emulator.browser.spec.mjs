@@ -312,6 +312,67 @@ test('an active dial drag commits its final value after a LiveView patch', async
   expect(releaseEvents.at(-1)).toMatchObject({ name: 'grid-page', payload: { value: Number(finalValue) } })
 })
 
+test('a cancelled dial drag emits no release commit', async ({ page }) => {
+  await openStreamdeck(page)
+
+  const dialD = page.locator('.sd-knob').nth(3)
+  await page.evaluate(() => {
+    const hook = window.liveSocket.main.getHook(document.querySelector('#streamdeck-page'))
+    window.__streamdeckGridEvents = []
+    const pushEvent = hook.pushEvent.bind(hook)
+    hook.pushEvent = (name, payload) => {
+      if (name === 'grid-page') window.__streamdeckGridEvents.push({ name, payload })
+      return pushEvent(name, payload)
+    }
+  })
+
+  const box = await dialD.boundingBox()
+  const cx = box.x + box.width / 2
+  const cy = box.y + box.height / 2
+  await page.mouse.move(cx, cy - 30)
+  await page.mouse.down()
+  await page.mouse.move(cx + 30, cy)
+
+  const pointerId = await page.evaluate(
+    () => window.liveSocket.main.getHook(document.querySelector('#streamdeck-page'))._knobs[3]._activePid,
+  )
+  await page.evaluate((id) => {
+    document.dispatchEvent(new PointerEvent('pointercancel', { bubbles: true, pointerId: id }))
+  }, pointerId)
+  await page.mouse.up()
+
+  expect(await page.evaluate(() => window.__streamdeckGridEvents)).toHaveLength(0)
+  await expect.poll(async () => page.evaluate(() => window.liveSocket.main.getHook(document.querySelector('#streamdeck-page'))._knobs[3].isDragging)).toBe(false)
+})
+
+test('destroying a dial without drag preservation emits no release commit', async ({ page }) => {
+  await openStreamdeck(page)
+
+  const dialD = page.locator('.sd-knob').nth(3)
+  await page.evaluate(() => {
+    const hook = window.liveSocket.main.getHook(document.querySelector('#streamdeck-page'))
+    window.__streamdeckGridEvents = []
+    const pushEvent = hook.pushEvent.bind(hook)
+    hook.pushEvent = (name, payload) => {
+      if (name === 'grid-page') window.__streamdeckGridEvents.push({ name, payload })
+      return pushEvent(name, payload)
+    }
+  })
+
+  const box = await dialD.boundingBox()
+  const cx = box.x + box.width / 2
+  const cy = box.y + box.height / 2
+  await page.mouse.move(cx, cy - 30)
+  await page.mouse.down()
+  await page.mouse.move(cx + 30, cy)
+  await page.evaluate(() => {
+    window.liveSocket.main.getHook(document.querySelector('#streamdeck-page'))._destroyKnobs(false)
+  })
+  await page.mouse.up()
+
+  expect(await page.evaluate(() => window.__streamdeckGridEvents)).toHaveLength(0)
+})
+
 test('dial D pages live fleet keys and pager dots', async ({ page }) => {
   await openStreamdeck(page)
 
