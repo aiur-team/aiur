@@ -1642,6 +1642,7 @@ print_control_down_message() {
     echo "aiur: run 'aiur stop' to reap any orphaned agents, then start aiur again" >&2
   else
     print_not_running_message
+    print_global_config_control_hint
   fi
 }
 

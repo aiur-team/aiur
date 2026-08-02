@@ -797,8 +797,8 @@ defmodule AiurEngineTest do
 
     assert out =~ "CODE=1"
     assert out =~ "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry."
-    refute out =~ "global-config control identity is keyed by cwd"
-    refute out =~ "run control commands from the launch directory"
+    assert out =~ "global-config control identity is keyed by cwd"
+    assert out =~ "run control commands from the launch directory"
   end
 
   test "down control RPC with crash marker reports orphaned-agent guidance" do

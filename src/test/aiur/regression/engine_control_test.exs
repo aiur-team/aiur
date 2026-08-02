@@ -73,8 +73,10 @@ defmodule Aiur.Regression.EngineControlTest do
 
       assert out =~ "CODE=1"
       assert out =~ "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry."
-      refute out =~ "global-config control identity is keyed by cwd"
-      refute out =~ "run control commands from the launch directory"
+      assert out =~ "global-config control identity is keyed by cwd"
+      assert out =~ "run control commands from the launch directory"
+      assert out =~ "live launch directory candidate(s):"
+      assert out =~ launch_root
       refute File.read!(events) =~ "live592"
     end
   end
