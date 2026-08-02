@@ -248,8 +248,6 @@ defmodule Aiur.GitHub.CiReadiness do
     age_seconds in 0..@assessment_ttl_seconds
   end
 
-  defp assessment_fresh?(_assessed_at, _opts), do: false
-
   defp encode_result(result) do
     %{
       "ready" => Map.get(result, :ready?),

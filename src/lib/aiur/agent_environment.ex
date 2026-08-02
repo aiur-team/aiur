@@ -126,7 +126,7 @@ defmodule Aiur.AgentEnvironment do
       mix_scheduler_env()
       |> Enum.map_join(" ", fn {name, value} -> "#{name}=#{Aiur.Shell.escape(value)}" end)
 
-    "unset AIUR_CI_READINESS_TOKEN; " <>
+    "unset AIUR_CI_READINESS_TOKEN && " <>
       "export HEX_HOME=#{Aiur.Shell.escape(hex)} MIX_HOME=#{Aiur.Shell.escape(mix)} " <>
       "MISE_TRUSTED_CONFIG_PATHS=#{Aiur.Shell.escape(workspace)} " <>
       "AIUR_BASE_BRANCH=#{Aiur.Shell.escape(base_branch)} #{scheduler_exports}"
