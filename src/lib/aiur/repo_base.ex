@@ -770,40 +770,39 @@ defmodule Aiur.RepoBase do
   # migration or a concurrent initializer. Merge their contents rather than
   # leaving the legacy copy beneath `latest`; findings retain both append-only
   # ledgers, while any other file collision is preserved under a unique name.
-  # Only untracked entries are Aiur state: repositories may legitimately track
-  # top-level builds/, analytics/, or meta/ application directories.
+  # A state-shaped directory with any tracked descendant belongs to the
+  # application. Preserve the whole mixed directory in the clone: ignored and
+  # generated application files are not safe to reclassify as Aiur state.
   defp move_state_entries(from, to) do
     Enum.reduce_while(@state_entries, :ok, fn entry, :ok ->
-      case move_state_entry(Path.join(from, entry), Path.join(to, entry), from) do
+      source = Path.join(from, entry)
+      destination = Path.join(to, entry)
+
+      case migrate_state_entry(source, destination, from) do
         :ok -> {:cont, :ok}
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
 
-  defp move_state_entry(source, destination, clone_root) do
+  defp migrate_state_entry(source, destination, clone_root) do
+    case tracked_state_entry?(clone_root, source) do
+      :tracked -> :ok
+      :untracked -> move_state_entry(source, destination)
+      {:error, reason} -> {:error, {:repo_base_migration_tracking_failed, source, reason}}
+    end
+  end
+
+  defp move_state_entry(source, destination) do
     cond do
       not File.exists?(source) ->
         :ok
 
       File.dir?(source) ->
-        merge_state_directory(source, destination, clone_root)
+        merge_state_directory(source, destination)
 
       true ->
-        move_untracked_state_file(source, destination, clone_root)
-    end
-  end
-
-  defp move_untracked_state_file(source, destination, clone_root) do
-    case tracked_state_file?(clone_root, source) do
-      :tracked ->
-        :ok
-
-      :untracked ->
         move_untracked_state_file(source, destination)
-
-      {:error, reason} ->
-        {:error, {:repo_base_migration_tracking_failed, source, reason}}
     end
   end
 
@@ -820,18 +819,18 @@ defmodule Aiur.RepoBase do
     end
   end
 
-  defp merge_state_directory(source, destination, clone_root) do
+  defp merge_state_directory(source, destination) do
     with :ok <- File.mkdir_p(destination),
          {:ok, entries} <- File.ls(source),
-         :ok <- move_state_directory_entries(entries, source, destination, clone_root),
+         :ok <- move_state_directory_entries(entries, source, destination),
          :ok <- remove_empty_directory(source) do
       :ok
     end
   end
 
-  defp move_state_directory_entries(entries, source, destination, clone_root) do
+  defp move_state_directory_entries(entries, source, destination) do
     Enum.reduce_while(entries, :ok, fn entry, :ok ->
-      case move_state_entry(Path.join(source, entry), Path.join(destination, entry), clone_root) do
+      case move_state_entry(Path.join(source, entry), Path.join(destination, entry)) do
         :ok -> {:cont, :ok}
         {:error, reason} -> {:halt, {:error, reason}}
       end
@@ -847,12 +846,20 @@ defmodule Aiur.RepoBase do
     end
   end
 
-  defp tracked_state_file?(clone_root, path) do
+  defp tracked_state_entry?(clone_root, path) do
+    if not File.exists?(path) do
+      :untracked
+    else
+      tracked_state_entry_at_path?(clone_root, path)
+    end
+  end
+
+  defp tracked_state_entry_at_path?(clone_root, path) do
     relative_path = Path.relative_to(path, clone_root)
 
-    case git(["ls-files", "--error-unmatch", "--", relative_path], clone_root) do
+    case git(["ls-files", "--", relative_path], clone_root) do
+      {output, 0} when output in ["", "\n"] -> :untracked
       {_output, 0} -> :tracked
-      {_output, 1} -> :untracked
       {output, status} -> {:error, {status, output}}
     end
   end

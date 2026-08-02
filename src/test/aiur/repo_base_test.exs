@@ -64,7 +64,7 @@ defmodule Aiur.RepoBaseTest do
       assert File.exists?(Path.join(base, "rebuilt_after_migration"))
     end
 
-    test "keeps tracked state-shaped application paths in the migrated clone", %{origin: origin, node: node, base: base, tmp: tmp} do
+    test "keeps mixed tracked state-shaped application directories in the migrated clone", %{origin: origin, node: node, base: base, tmp: tmp} do
       repo = "https://github.com/owner/project.git"
       previous_root = Application.get_env(:aiur, :repo_base_root)
       File.mkdir_p!(Path.dirname(node))
@@ -115,8 +115,8 @@ defmodule Aiur.RepoBaseTest do
       end
 
       for {path, contents} <- untracked_paths do
-        assert File.read!(Path.join(RepoBase.repo_path(repo), path)) == contents
-        refute File.exists?(Path.join(base, path))
+        assert File.read!(Path.join(base, path)) == contents
+        refute File.exists?(Path.join(RepoBase.repo_path(repo), path))
       end
     end
 
