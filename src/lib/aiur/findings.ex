@@ -49,6 +49,18 @@ defmodule Aiur.Findings do
     end
   end
 
+  @doc "Returns the latest non-resolved finding for each reusable slug."
+  @spec open(keyword()) :: {:ok, [record()]} | {:error, term()}
+  def open(opts \\ []) do
+    with {:ok, findings} <- all(opts) do
+      {:ok,
+       findings
+       |> latest_by_slug()
+       |> Enum.reject(&(&1["status"] == "resolved"))
+       |> Enum.sort_by(& &1["slug"])}
+    end
+  end
+
   @doc false
   @spec validate(record()) :: :ok | {:error, String.t()}
   def validate(finding) when is_map(finding) do

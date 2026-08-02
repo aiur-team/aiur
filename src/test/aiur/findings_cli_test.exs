@@ -17,7 +17,61 @@ defmodule Aiur.FindingsCLITest do
       File.rm_rf!(root)
     end)
 
-    {:ok, repo: "https://github.com/owner/repo.git"}
+    {:ok, repo: "owner/repo"}
+  end
+
+  test "records through the validated production writer", %{repo: repo} do
+    record = finding(nil) |> Map.put("slug", "production-writer")
+    output = Agent.start_link(fn -> [] end) |> elem(1)
+    puts = fn line -> Agent.update(output, &[IO.iodata_to_binary(line) | &1]) end
+
+    assert 0 == FindingsCLI.run(%{record: Jason.encode!(record), repo: repo}, puts)
+    assert {:ok, [persisted]} = Findings.all()
+    assert persisted["slug"] == "production-writer"
+    assert Agent.get(output, &Enum.reverse/1) == []
+  end
+
+  test "rejects an invalid record through the CLI", %{repo: repo} do
+    output = Agent.start_link(fn -> [] end) |> elem(1)
+    puts = fn line -> Agent.update(output, &[IO.iodata_to_binary(line) | &1]) end
+
+    assert 2 == FindingsCLI.run(%{record: ~s({"scope":"host"}), repo: repo}, puts)
+    assert [message] = Agent.get(output, &Enum.reverse/1)
+    assert message =~ "finding requires non-empty slug"
+  end
+
+  test "rejects a repository slug that could escape the state root" do
+    output = Agent.start_link(fn -> [] end) |> elem(1)
+    puts = fn line -> Agent.update(output, &[IO.iodata_to_binary(line) | &1]) end
+
+    assert 2 == FindingsCLI.run(%{record: Jason.encode!(finding(nil)), repo: "../outside"}, puts)
+    assert [message] = Agent.get(output, &Enum.reverse/1)
+    assert message =~ "owner/repo slug"
+  end
+
+  test "renders a stable open-findings digest from latest slug state", %{repo: repo} do
+    assert :ok = Findings.append(repo, finding(nil) |> Map.put("slug", "open-one"))
+
+    assert :ok =
+             Findings.append(
+               repo,
+               finding(1464, "filed") |> Map.put("slug", "resolved")
+             )
+
+    later =
+      finding(1464, "resolved")
+      |> Map.put("slug", "resolved")
+      |> Map.put("observed_at", "2026-08-02T05:30:00Z")
+
+    assert :ok = Findings.append(repo, later)
+    output = Agent.start_link(fn -> [] end) |> elem(1)
+    puts = fn line -> Agent.update(output, &[IO.iodata_to_binary(line) | &1]) end
+
+    assert 0 == FindingsCLI.run(%{digest: true, scope: nil}, puts)
+    digest = output |> Agent.get(&Enum.reverse/1) |> Enum.join("\n")
+    assert digest =~ "# Open Aiur findings"
+    assert digest =~ "`open-one`"
+    refute digest =~ "`resolved`"
   end
 
   test "--unfiled returns non-zero only while an unfiled finding remains", %{repo: repo} do

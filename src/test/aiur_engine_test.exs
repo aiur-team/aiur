@@ -151,6 +151,8 @@ defmodule AiurEngineTest do
     assert out =~ ~r/aiur init \[--force\]\s+scaffold/
     assert out =~ "aiur --todo <ids...> [--only]"
     assert out =~ "aiur findings [--unfiled] [--slugs] [--scope aiur|repo]"
+    assert out =~ "aiur findings --record <json> --repo <owner/repo>"
+    assert out =~ "aiur findings --digest [--scope aiur|repo]"
     assert out =~ "aiur run [--bg] [--no-dashboard] [--debug]"
     assert out =~ "aiur --bg [--no-dashboard] [--debug]"
     refute out =~ "sweep"

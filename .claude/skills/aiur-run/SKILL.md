@@ -407,13 +407,16 @@ the work itself (proven repeatedly in the 2026-07 analytics-streamdeck run):
    active feature boundary with them;
 4. write and file the durable judgment in the repository state node: write the
    narrative retrospective to
-   `~/.aiur/repo/<owner>/<repo>/meta/retros/<boot-id>.md` and append each
-   actionable finding to `meta/findings.ndjson` with its reusable slug,
-   evidence references, status, and ticket number (or `ticket: null` until it
-   is filed). A finding without a ticket is not a completed retrospective:
+   `~/.aiur/repo/<owner>/<repo>/meta/retros/<boot-id>.md` and pass each
+   actionable JSON record through `aiurdev findings --record '<json>' --repo
+   <owner>/<repo>`. This validated writer enforces the schema and atomic 4 KiB
+   cap; never append the ledger directly. Include the reusable slug, evidence
+   references, status, and ticket number (or `ticket: null` until it is filed).
+   A finding without a ticket is not a completed retrospective:
    `aiurdev findings --unfiled` is the gate before treating the review as done.
-   Raw state remains host-local; periodically regenerate and commit an
-   open-findings digest under `docs/executor/` to share it between machines;
+   Raw state remains host-local; periodically run `mkdir -p docs/executor &&
+   aiurdev findings --digest > docs/executor/open-findings.md`, inspect the
+   regenerated file, and commit it to share the digest between machines;
 5. daily, review the accumulated notes and ask whether any Aiur skill should
    change so the next run never rediscovers the lesson; land the concrete
    skill-doc edit as a small PR.
@@ -423,6 +426,11 @@ The findings ledger is `~/.aiur/repo/<owner>/<repo>/meta/findings.ndjson`.
 line, each hard-capped at 4 KiB so `O_APPEND` stays atomic when two Executor
 instances share a host. Cite evidence by reference - an issue number or a log
 path plus line - never a pasted log dump.
+
+Always write through `aiurdev findings --record '<json>' --repo <owner>/<repo>`.
+Use `mkdir -p docs/executor && aiurdev findings --digest >
+docs/executor/open-findings.md` for the cross-machine Markdown projection; do
+not hand-edit that generated digest or write directly to the NDJSON ledger.
 
 ```json
 {"slug":"vitest-glob-excludes-tests","observed_at":"2026-08-01T18:04:00Z","scope":"repo","observed_in":"aiur-team/aiur","instance":"executor-1","summary":"20 tests outside the configured vitest include glob never ran","evidence":["#1442","~/.aiur/logs/agent-1442.log:8812"],"cost":"5.8h","ticket":1451,"status":"filed"}

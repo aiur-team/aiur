@@ -30,7 +30,10 @@ defmodule Aiur.CLI do
     only: :boolean,
     unfiled: :boolean,
     slugs: :boolean,
-    scope: :string
+    scope: :string,
+    record: :string,
+    repo: :string,
+    digest: :boolean
   ]
 
   @type ensure_started_result :: {:ok, [atom()]} | {:error, term()}
@@ -129,6 +132,8 @@ defmodule Aiur.CLI do
           | {:init, %{force: boolean()}}
           | {:todo, [String.t()], %{only: boolean()}}
           | {:findings, %{unfiled: boolean(), slugs: boolean(), scope: String.t() | nil}}
+          | {:findings, %{record: String.t(), repo: String.t()}}
+          | {:findings, %{digest: true, scope: String.t() | nil}}
           | {:error, String.t()}
   def evaluate(args, deps \\ runtime_deps()) do
     case OptionParser.parse(args, strict: @switches) do
@@ -178,13 +183,48 @@ defmodule Aiur.CLI do
   end
 
   defp todo_switch?(opts), do: Keyword.has_key?(opts, :todo) or Keyword.has_key?(opts, :only)
-  defp findings_switch?(opts), do: Enum.any?([:unfiled, :slugs, :scope], &Keyword.has_key?(opts, &1))
+
+  defp findings_switch?(opts),
+    do: Enum.any?([:unfiled, :slugs, :scope, :record, :repo, :digest], &Keyword.has_key?(opts, &1))
 
   defp evaluate_findings(opts, positional) do
-    with [] <- positional,
-         true <- Enum.all?(Keyword.keys(opts), &(&1 in [:unfiled, :slugs, :scope])),
-         {:ok, scope} <- parse_findings_scope(Keyword.get(opts, :scope)) do
-      {:findings, %{unfiled: Keyword.get(opts, :unfiled, false), slugs: Keyword.get(opts, :slugs, false), scope: scope}}
+    if positional == [] do
+      evaluate_findings_opts(opts)
+    else
+      {:error, usage_message()}
+    end
+  end
+
+  defp evaluate_findings_opts(opts) do
+    cond do
+      Keyword.has_key?(opts, :record) or Keyword.has_key?(opts, :repo) -> evaluate_findings_record(opts)
+      Keyword.has_key?(opts, :digest) -> evaluate_findings_digest(opts)
+      true -> evaluate_findings_read(opts)
+    end
+  end
+
+  defp evaluate_findings_record(opts) do
+    if Enum.sort(Keyword.keys(opts)) == [:record, :repo] do
+      {:findings, %{record: opts[:record], repo: opts[:repo]}}
+    else
+      {:error, usage_message()}
+    end
+  end
+
+  defp evaluate_findings_digest(opts) do
+    with true <- Enum.all?(Keyword.keys(opts), &(&1 in [:digest, :scope])),
+         true <- opts[:digest] == true,
+         {:ok, scope} <- parse_findings_scope(opts[:scope]) do
+      {:findings, %{digest: true, scope: scope}}
+    else
+      _ -> {:error, usage_message()}
+    end
+  end
+
+  defp evaluate_findings_read(opts) do
+    with true <- Enum.all?(Keyword.keys(opts), &(&1 in [:unfiled, :slugs, :scope])),
+         {:ok, scope} <- parse_findings_scope(opts[:scope]) do
+      {:findings, %{unfiled: opts[:unfiled] || false, slugs: opts[:slugs] || false, scope: scope}}
     else
       _ -> {:error, usage_message()}
     end
@@ -247,7 +287,7 @@ defmodule Aiur.CLI do
 
   @spec usage_message() :: String.t()
   defp usage_message do
-    "Usage: aiur [--interactive] [--headless] [--no-dashboard] [--pause] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [config-path]\n       aiur init [--force]\n       aiur --todo <id> [<id> ...] [--only]\n       aiur findings [--unfiled] [--slugs] [--scope aiur|repo]"
+    "Usage: aiur [--interactive] [--headless] [--no-dashboard] [--pause] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [config-path]\n       aiur init [--force]\n       aiur --todo <id> [<id> ...] [--only]\n       aiur findings [--unfiled] [--slugs] [--scope aiur|repo]\n       aiur findings --record <json> --repo <owner/repo>\n       aiur findings --digest [--scope aiur|repo]"
   end
 
   @spec runtime_deps() :: deps()

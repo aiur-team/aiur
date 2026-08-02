@@ -328,6 +328,8 @@ Usage: aiur [--interactive] [--no-dashboard] [--pause] [--max-agents <n>] [--log
        aiur message <id> <text>  send Executor text to a running agent
        aiur --todo <ids...> [--only]  queue tickets; optionally dequeue all other pending tickets
        aiur findings [--unfiled] [--slugs] [--scope aiur|repo]  inspect host-local findings
+       aiur findings --record <json> --repo <owner/repo>  append one validated finding
+       aiur findings --digest [--scope aiur|repo]  generate the promoted Markdown digest
        aiur cleanup-stale [--dry-run]  list/reap stale manual-smoke leftovers
        aiur --version
 EOF

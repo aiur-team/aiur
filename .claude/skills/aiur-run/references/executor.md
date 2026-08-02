@@ -400,11 +400,15 @@ where it repeatedly paid for itself):
    retrospective is `~/.aiur/repo/<owner>/<repo>/meta/retros/<boot-id>.md`;
    each actionable item is an append-only `meta/findings.ndjson` record with a
    reusable slug, evidence references, and its filed ticket (or `ticket: null`).
+   Write it only through `aiurdev findings --record '<json>' --repo
+   <owner>/<repo>` so schema validation and the atomic size cap cannot be
+   bypassed.
    `aiur init` creates the tree and `aiurdev findings --unfiled` makes a missing
    ticket visible before a retrospective can be treated as complete. Raw records
-   remain host-local; periodically promote a regenerated digest of open findings
-   into `docs/executor/` and commit it. That digest is the deliberate git
-   channel between machines, not a sync of host paths or boot IDs.
+   remain host-local; periodically run `mkdir -p docs/executor && aiurdev
+   findings --digest > docs/executor/open-findings.md`, inspect the regenerated
+   file, and commit it. That generated digest is the deliberate git channel
+   between machines, not a sync of host paths or boot IDs.
 
    The ledger contains one JSON object per line, hard-capped at 4 KiB so
    `O_APPEND` remains atomic when two Executor instances share a host. Cite

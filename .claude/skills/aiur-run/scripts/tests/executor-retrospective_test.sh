@@ -3,6 +3,7 @@ set -euo pipefail
 
 script="$(cd "$(dirname "$0")/.." && pwd)/executor-retrospective.sh"
 state_root="$(mktemp -d)"
+export AIUR_EXECUTOR_RETRO_FILE="$state_root/test-retros.md"
 trap 'rm -rf "$state_root"' EXIT
 
 fail() {
@@ -49,6 +50,20 @@ for invalid_run_id in . ..; do
 done
 [ ! -e "$state_root/retrospective-state.json" ] ||
   fail "invalid run ID escaped its state directory"
+
+default_home="$state_root/default-home"
+default_run="boot-default-$RANDOM"
+env -u AIUR_EXECUTOR_STATE_DIR -u AIUR_EXECUTOR_RETRO_FILE \
+  HOME="$default_home" AIUR_EXECUTOR_REPO=owner/repo \
+  AIUR_EXECUTOR_RUN_ID="$default_run" AIUR_EXECUTOR_RETROSPECTIVE_SECONDS=1 \
+  "$script" record "critical path waited on CI" "reduced admission" >/dev/null
+default_node="$default_home/.aiur/repo/owner/repo"
+[ -s "$default_node/executor/$default_run/retrospective-state.json" ] ||
+  fail "default retrospective state did not use the repository state node"
+default_retro="$default_node/meta/retros/$default_run.md"
+[ -s "$default_retro" ] || fail "record did not write the default narrative retrospective"
+grep -q 'critical path waited on CI' "$default_retro" || fail "narrative omitted the assessment"
+grep -q 'reduced admission' "$default_retro" || fail "narrative omitted the adjustment"
 
 run run-a 3600 arm >/dev/null
 run run-a 3600 observe action reviewed-pr >/dev/null

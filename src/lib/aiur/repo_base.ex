@@ -127,15 +127,19 @@ defmodule Aiur.RepoBase do
     |> Enum.reduce_while(:ok, fn path, :ok ->
       case ensure_state_path_safe(node, path) do
         :ok ->
-          case File.mkdir_p(path) do
-            :ok -> {:cont, :ok}
-            {:error, reason} -> {:halt, {:error, {:repo_state_tree_create_failed, path, reason}}}
-          end
+          create_state_directory(path)
 
         {:error, _reason} = error ->
           {:halt, error}
       end
     end)
+  end
+
+  defp create_state_directory(path) do
+    case File.mkdir_p(path) do
+      :ok -> {:cont, :ok}
+      {:error, reason} -> {:halt, {:error, {:repo_state_tree_create_failed, path, reason}}}
+    end
   end
 
   @doc """
@@ -621,10 +625,12 @@ defmodule Aiur.RepoBase do
   defp migrate_legacy_layout(base_path) do
     node = repo_node_path(base_path)
 
-    if File.dir?(Path.join(base_path, ".git")) do
-      :ok
-    else
-      migrate_legacy_node(node, base_path)
+    with :ok <- ensure_state_node_safe(node) do
+      if File.dir?(Path.join(base_path, ".git")) do
+        :ok
+      else
+        migrate_legacy_node(node, base_path)
+      end
     end
   end
 
@@ -731,10 +737,11 @@ defmodule Aiur.RepoBase do
 
   defp finish_migration(temporary, node, base_path) do
     findings = Path.join([node, "meta", "findings.ndjson"])
+    legacy_findings = Path.join([temporary, "meta", "findings.ndjson"])
 
     with :ok <- File.mkdir_p(node),
          :ok <- move_sidecars(temporary, node),
-         :ok <- recover_findings_transfer(findings),
+         :ok <- recover_findings_transfer(findings, legacy_findings),
          :ok <- move_state_entries(temporary, node),
          :ok <- discard_legacy_build_metadata(temporary) do
       File.rename(temporary, base_path)
@@ -840,15 +847,19 @@ defmodule Aiur.RepoBase do
           :ok
 
         :migrate ->
-          case tracked_state_entry?(clone_root, source) do
-            :tracked -> :ok
-            :untracked -> move_state_entry(source, destination, node)
-            {:error, reason} -> {:error, {:repo_base_migration_tracking_failed, source, reason}}
-          end
+          migrate_untracked_state_entry(source, destination, node, clone_root)
 
         {:error, reason} ->
           {:error, {:repo_base_migration_entry_inspection_failed, source, reason}}
       end
+    end
+  end
+
+  defp migrate_untracked_state_entry(source, destination, node, clone_root) do
+    case tracked_state_entry?(clone_root, source) do
+      :tracked -> :ok
+      :untracked -> move_state_entry(source, destination, node)
+      {:error, reason} -> {:error, {:repo_base_migration_tracking_failed, source, reason}}
     end
   end
 
@@ -869,14 +880,16 @@ defmodule Aiur.RepoBase do
 
   defp migration_directory_disposition(path) do
     with {:ok, entries} <- File.ls(path) do
-      Enum.reduce_while(entries, :migrate, fn entry, :migrate ->
-        case migration_entry_disposition(Path.join(path, entry)) do
-          :missing -> {:cont, :migrate}
-          :migrate -> {:cont, :migrate}
-          :preserve -> {:halt, :preserve}
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
-      end)
+      Enum.reduce_while(entries, :migrate, &reduce_migration_entry(&1, &2, path))
+    end
+  end
+
+  defp reduce_migration_entry(entry, :migrate, path) do
+    case migration_entry_disposition(Path.join(path, entry)) do
+      :missing -> {:cont, :migrate}
+      :migrate -> {:cont, :migrate}
+      :preserve -> {:halt, :preserve}
+      {:error, reason} -> {:halt, {:error, reason}}
     end
   end
 
@@ -893,10 +906,9 @@ defmodule Aiur.RepoBase do
   end
 
   defp move_untracked_state_file(source, destination) do
-    cond do
-      File.exists?(destination) -> move_existing_state_file(source, destination)
-      true -> File.rename(source, destination)
-    end
+    if File.exists?(destination),
+      do: move_existing_state_file(source, destination),
+      else: File.rename(source, destination)
   end
 
   defp move_existing_state_file(source, destination) do
@@ -953,7 +965,7 @@ defmodule Aiur.RepoBase do
 
   defp merge_findings(source, destination) do
     with :ok <- ensure_findings_paths_safe(destination),
-         :ok <- recover_findings_transfer(destination) do
+         :ok <- recover_findings_transfer(destination, source) do
       write_findings_transfer(source, destination)
     end
   end
@@ -981,27 +993,38 @@ defmodule Aiur.RepoBase do
     end
   end
 
-  defp recover_findings_transfer(destination) do
+  defp recover_findings_transfer(destination, expected_source) do
     marker = findings_transfer_marker(destination)
 
-    with :ok <- ensure_findings_paths_safe(destination) do
+    with :ok <- ensure_findings_paths_safe(destination),
+         :ok <- ensure_transfer_source_safe(expected_source) do
       case File.read(marker) do
         {:error, :enoent} ->
           :ok
 
         {:ok, contents} ->
-          with {:ok, transfer} <- Jason.decode(contents),
-               :ok <- validate_findings_transfer(transfer, destination),
-               {:ok, destination_contents} <- File.read(destination) do
-            recover_findings_transfer_state(transfer, destination, destination_contents, marker)
-          else
-            {:error, reason} -> {:error, {:findings_transfer_recovery_failed, destination, reason}}
-            _ -> {:error, {:findings_transfer_recovery_failed, destination, :invalid_marker}}
-          end
+          recover_findings_transfer_contents(contents, destination, expected_source, marker)
 
         {:error, reason} ->
           {:error, {:findings_transfer_recovery_failed, destination, reason}}
       end
+    end
+  end
+
+  defp ensure_transfer_source_safe(source) do
+    parked_clone = source |> Path.dirname() |> Path.dirname()
+    ensure_state_path_safe(parked_clone, source)
+  end
+
+  defp recover_findings_transfer_contents(contents, destination, expected_source, marker) do
+    with {:ok, transfer} <- Jason.decode(contents),
+         :ok <- validate_findings_transfer(transfer, destination, expected_source),
+         {:ok, destination_contents} <- File.read(destination) do
+      transfer
+      |> recover_findings_transfer_state(destination, destination_contents, marker)
+      |> wrap_findings_recovery_error(destination)
+    else
+      {:error, reason} -> {:error, {:findings_transfer_recovery_failed, destination, reason}}
     end
   end
 
@@ -1010,9 +1033,9 @@ defmodule Aiur.RepoBase do
 
     cond do
       digest(contents) == transfer["merged_hash"] ->
-        with :ok <- remove_transfer_source(source, transfer["source_hash"]),
-             :ok <- File.rm(marker) do
-          :ok
+        case remove_transfer_source(source, transfer["source_hash"]) do
+          :ok -> File.rm(marker)
+          {:error, _reason} = error -> error
         end
 
       digest(contents) == transfer["destination_hash"] and regular_file?(source) ->
@@ -1023,17 +1046,30 @@ defmodule Aiur.RepoBase do
     end
   end
 
-  defp validate_findings_transfer(transfer, destination) when is_map(transfer) do
+  defp wrap_findings_recovery_error(:ok, _destination), do: :ok
+
+  defp wrap_findings_recovery_error({:error, reason}, destination),
+    do: {:error, {:findings_transfer_recovery_failed, destination, reason}}
+
+  defp validate_findings_transfer(transfer, destination, expected_source) when is_map(transfer) do
     required = ["source", "source_hash", "destination", "destination_hash", "merged_hash"]
 
-    if transfer["destination"] == destination and Enum.all?(required, &(is_binary(transfer[&1]) and transfer[&1] != "")) do
-      :ok
-    else
-      {:error, :invalid_marker}
+    cond do
+      transfer["destination"] != destination ->
+        {:error, :invalid_marker}
+
+      not Enum.all?(required, &(is_binary(transfer[&1]) and transfer[&1] != "")) ->
+        {:error, :invalid_marker}
+
+      Path.expand(transfer["source"]) != Path.expand(expected_source) ->
+        {:error, :invalid_source}
+
+      true ->
+        :ok
     end
   end
 
-  defp validate_findings_transfer(_transfer, _destination), do: {:error, :invalid_marker}
+  defp validate_findings_transfer(_transfer, _destination, _expected_source), do: {:error, :invalid_marker}
 
   defp remove_transfer_source(source, source_hash) do
     case File.lstat(source) do
@@ -1062,27 +1098,27 @@ defmodule Aiur.RepoBase do
         "merged_hash" => digest(merged_contents)
       })
 
-    with :ok <- Fs.atomic_write(findings_transfer_marker(destination), marker_contents, fsync: true),
-         :ok <- Fs.sync_filesystem() do
-      :ok
+    case Fs.atomic_write(findings_transfer_marker(destination), marker_contents, fsync: true) do
+      :ok -> Fs.sync_filesystem()
+      {:error, _reason} = error -> error
     end
   end
 
   defp findings_transfer_marker(destination), do: destination <> @findings_transfer_suffix
 
   defp replace_file(destination, contents) do
-    with :ok <- Fs.atomic_write(destination, contents, fsync: true),
-         :ok <- Fs.sync_filesystem() do
-      :ok
+    case Fs.atomic_write(destination, contents, fsync: true) do
+      :ok -> Fs.sync_filesystem()
+      {:error, _reason} = error -> error
     end
   end
 
   defp ensure_findings_paths_safe(destination) do
     node = destination |> Path.dirname() |> Path.dirname()
 
-    with :ok <- ensure_state_path_safe(node, destination),
-         :ok <- ensure_state_path_safe(node, findings_transfer_marker(destination)) do
-      :ok
+    case ensure_state_path_safe(node, destination) do
+      :ok -> ensure_state_path_safe(node, findings_transfer_marker(destination))
+      {:error, _reason} = error -> error
     end
   end
 
