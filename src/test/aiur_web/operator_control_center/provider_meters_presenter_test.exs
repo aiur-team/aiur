@@ -150,6 +150,16 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
   end
 
   describe "meter windows: coverage, standing, resets, zero" do
+    test "compact values share labels, ordering, coverage, and clamping" do
+      windows = %{
+        "credits" => %{"kind" => "credit", "name" => "Credits", "coverage" => "supported", "used_percent" => 40},
+        "primary" => %{"kind" => "rate_limit", "name" => "Primary", "coverage" => "supported", "used_percent" => 101},
+        "hidden" => %{"kind" => "rate_limit", "name" => "Hidden", "coverage" => "unsupported", "used_percent" => 90}
+      }
+
+      assert Presenter.meter_window_values(windows) == [{"Primary", 100}, {"Credits", 40}]
+    end
+
     test "a supported window exposes an exact semantic meter value" do
       window = window(used_percent: 40, remaining_percent: 60, coverage: :supported, standing: :allowed, resets_at: @reset)
       codex = card(Presenter.present(authorized(), %{codex: with_windows(:codex, %{"primary" => window})}), :codex)

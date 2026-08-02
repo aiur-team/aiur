@@ -10,10 +10,10 @@ defmodule AiurWeb.StreamdeckLive do
 
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
-  alias Aiur.{AgentChat, AgentPubSub, Orchestrator}
+  alias Aiur.{AgentChat, AgentPubSub, Orchestrator, ProviderMeterSnapshot}
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
   alias AiurWeb.{Endpoint, StreamDeckGrid, StreamdeckProjection}
-  alias AiurWeb.OperatorControlCenter.{DashboardShell, NavState, RouteRegistry}
+  alias AiurWeb.OperatorControlCenter.{DashboardShell, NavState, ProviderMetersPresenter, RouteRegistry}
 
   @impl true
   def mount(_params, _session, socket) do
@@ -59,6 +59,8 @@ defmodule AiurWeb.StreamdeckLive do
   end
 
   def handle_event("key-press", params, socket) do
+    socket = focus_agent(socket, params)
+
     if dashboard_writable?() do
       handle_key_press(params, socket)
     else
@@ -81,6 +83,11 @@ defmodule AiurWeb.StreamdeckLive do
   def handle_info({:status_changed, %{identifier: identifier}}, socket) do
     socket = refresh_grid(socket)
     {:noreply, assign(socket, :logs, append_log_event(socket.assigns.logs, "Agent ##{identifier} status updated"))}
+  end
+
+  def handle_info({:provider_meter_changed, %ProviderMeterSnapshot{} = snapshot}, socket) do
+    socket = refresh_grid(socket, StreamdeckProjection.provider_meters(snapshot))
+    {:noreply, assign(socket, :logs, append_log_event(socket.assigns.logs, "Provider usage updated"))}
   end
 
   def handle_info({:provider_meter_changed, _snapshot}, socket) do
@@ -158,7 +165,7 @@ defmodule AiurWeb.StreamdeckLive do
             </ul>
           </div>
 
-          <div id="sd-logs-view" class="sd-logs-view" data-mode-view="logs" role="log" aria-label="Agent logs" aria-hidden="true">
+          <div id="sd-logs-view" class="sd-logs-view" data-mode-view="logs" data-focused-identifier={@selected_identifier} role="log" aria-label="Agent logs" aria-hidden="true">
             <p class="sd-mode-label">Logs</p>
             <div id="sd-log-events" class="sd-log-body" data-offset={@logs.events_offset} data-max-offset={@logs.events_max_offset}>
               <span id="sd-events-hint-up" class="sd-log-hint" aria-hidden={to_string(@logs.events_offset == 0)}>↑</span>
@@ -210,9 +217,9 @@ defmodule AiurWeb.StreamdeckLive do
     """
   end
 
-  defp refresh_grid(socket) do
+  defp refresh_grid(socket, usage \\ nil) do
     grid = load_grid()
-    usage = StreamdeckProjection.provider_meters()
+    usage = usage || StreamdeckProjection.provider_meters()
     previous_identifier = socket.assigns[:selected_identifier]
     socket = assign_grid(socket, grid, socket.assigns[:grid_page] || 0, usage)
 
@@ -305,17 +312,7 @@ defmodule AiurWeb.StreamdeckLive do
   end
 
   defp provider_value(%{} = meter) do
-    percentages =
-      case get_value(meter, "windows") do
-        windows when is_map(windows) ->
-          windows
-          |> Enum.map(fn {name, window} -> {name, window_percentage(window)} end)
-          |> Enum.filter(fn {_name, percentage} -> is_integer(percentage) end)
-          |> Enum.sort_by(fn {name, _percentage} -> to_string(name) end)
-
-        _ ->
-          []
-      end
+    percentages = ProviderMetersPresenter.meter_window_values(get_value(meter, "windows"))
 
     case percentages do
       [_ | _] ->
@@ -354,6 +351,19 @@ defmodule AiurWeb.StreamdeckLive do
       {:error, reason} -> assign(socket, :control_feedback, "Resume failed: #{inspect(reason)}")
     end
   end
+
+  defp focus_agent(socket, %{"identifier" => identifier}) when is_binary(identifier) do
+    if Enum.any?(socket.assigns.grid.agents, &(to_string(&1.identifier) == identifier)) do
+      previous_identifier = socket.assigns.selected_identifier
+      socket = assign(socket, :selected_identifier, identifier)
+      maybe_resubscribe_agent(previous_identifier, identifier)
+      socket
+    else
+      socket
+    end
+  end
+
+  defp focus_agent(socket, _params), do: socket
 
   defp handle_key_press(%{"identifier" => identifier}, socket) when is_binary(identifier) do
     case Enum.find(socket.assigns.grid.agents, &(to_string(&1.identifier) == identifier)) do
@@ -476,20 +486,6 @@ defmodule AiurWeb.StreamdeckLive do
   rescue
     _ -> Map.get(map, key, default)
   end
-
-  defp window_percentage(window) when is_map(window) do
-    used_percent = get_value(window, "used_percent")
-    used = get_value(window, "used")
-    limit = get_value(window, "limit")
-
-    cond do
-      is_number(used_percent) -> round(used_percent)
-      is_number(used) and is_number(limit) and limit > 0 -> round(used / limit * 100)
-      true -> nil
-    end
-  end
-
-  defp window_percentage(_window), do: nil
 
   defp pause_agent(identifier) do
     case endpoint_config(:agent_chat_pause_fun) do

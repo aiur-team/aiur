@@ -4,6 +4,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
+  alias Aiur.ProviderMeterSnapshot
   alias AiurWeb.Endpoint
 
   @endpoint Endpoint
@@ -104,6 +105,45 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert_receive {:streamdeck_resume, "1345"}
   end
 
+  test "key selection follows the focused agent even in read-only mode" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+    previous_writable = Endpoint.config(:dashboard_writable)
+    Phoenix.Config.put(Endpoint, :dashboard_writable, false)
+
+    try do
+      html = render_hook(view, "key-press", %{"identifier" => "1345"})
+
+      assert html =~ ~s(data-focused-identifier="1345")
+      refute html =~ "Resume requested"
+      refute_receive {:streamdeck_resume, "1345"}
+    after
+      Phoenix.Config.put(Endpoint, :dashboard_writable, previous_writable)
+    end
+  end
+
+  test "missing control injection uses the production AgentChat fallback" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+    previous_pause = Endpoint.config(:agent_chat_pause_fun)
+    previous_endpoint_config = Application.get_env(:aiur, Endpoint, [])
+    Phoenix.Config.put(Endpoint, :agent_chat_pause_fun, nil)
+
+    Application.put_env(
+      :aiur,
+      Endpoint,
+      Keyword.put(previous_endpoint_config, :agent_chat_pause_fun, nil)
+    )
+
+    try do
+      html = render_hook(view, "key-press", %{"identifier" => "1352"})
+
+      assert html =~ "Pause failed"
+      refute_receive {:streamdeck_pause, "1352"}
+    after
+      Application.put_env(:aiur, Endpoint, previous_endpoint_config)
+      Phoenix.Config.put(Endpoint, :agent_chat_pause_fun, previous_pause)
+    end
+  end
+
   test "pages the complete fleet and clamps the page at both ends" do
     {:ok, view, html} = live(build_conn(), "/streamdeck")
 
@@ -143,19 +183,23 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ "live transcript"
   end
 
-  test "renders provider percentages and refreshes them from the live meter event", %{meter_agent: meter_agent} do
+  test "renders provider percentages from the shared presenter and refreshes from the event snapshot" do
     {:ok, view, html} = live(build_conn(), "/streamdeck")
 
-    assert html =~ "daily 30%"
-    assert html =~ "daily 50%"
+    assert html =~ "Daily 30%"
+    assert html =~ "Daily 50%"
 
-    Agent.update(meter_agent, fn meters ->
-      put_in(meters["claude"]["windows"]["daily"]["used_percent"], 60)
-    end)
+    snapshot = %ProviderMeterSnapshot{
+      provider: :claude,
+      observed_at: DateTime.utc_now(),
+      freshness: :fresh,
+      health: %{state: :healthy},
+      windows: %{"daily" => %{name: "Daily", coverage: :supported, used_percent: 60}}
+    }
 
-    send(view.pid, {:provider_meter_changed, %{}})
+    send(view.pid, {:provider_meter_changed, snapshot})
     Process.sleep(10)
-    assert render(view) =~ "daily 60%"
+    assert render(view) =~ "Daily 60%"
   end
 
   test "renders the priority star, the mic indicator, and the live segment" do
@@ -239,8 +283,8 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
   defp fixture_provider_meters do
     %{
-      "claude" => %{"state" => "observed", "windows" => %{"daily" => %{"used_percent" => 30}}},
-      "codex" => %{"state" => "observed", "windows" => %{"daily" => %{"used_percent" => 50}}}
+      "claude" => %{"state" => "observed", "windows" => %{"daily" => %{"name" => "Daily", "used_percent" => 30}}},
+      "codex" => %{"state" => "observed", "windows" => %{"daily" => %{"name" => "Daily", "used_percent" => 50}}}
     }
   end
 

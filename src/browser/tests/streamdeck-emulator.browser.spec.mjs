@@ -316,8 +316,8 @@ test('logs mode scrolls event and transcript panes within real bounds', async ({
 test('touch strip exposes provider percentages, not only window counts', async ({ page }) => {
   await openStreamdeck(page)
 
-  await expect(page.locator('.sd-screen-segment').filter({ hasText: 'Claude' })).toContainText('30%')
-  await expect(page.locator('.sd-screen-segment').filter({ hasText: 'Codex' })).toContainText('50%')
+  await expect(page.locator('.sd-screen-segment').filter({ hasText: 'Claude' })).toContainText('Daily 30%')
+  await expect(page.locator('.sd-screen-segment').filter({ hasText: 'Codex' })).toContainText('Daily 50%')
   await expect(page.locator('.sd-screen-segment').filter({ hasText: 'Claude' }).locator('.sd-screen-value')).not.toContainText('windows')
   await expect(page.locator('.sd-screen-segment').filter({ hasText: 'Codex' }).locator('.sd-screen-value')).not.toContainText('windows')
 })

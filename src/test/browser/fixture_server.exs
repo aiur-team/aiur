@@ -1608,8 +1608,8 @@ defmodule Aiur.BrowserHarness.FixtureServer do
 
   def streamdeck_provider_meters do
     %{
-      "claude" => %{"state" => "observed", "windows" => %{"daily" => %{"used_percent" => 30}}},
-      "codex" => %{"state" => "observed", "windows" => %{"daily" => %{"used_percent" => 50}}}
+      "claude" => %{"state" => "observed", "windows" => %{"daily" => %{"name" => "Daily", "used_percent" => 30}}},
+      "codex" => %{"state" => "observed", "windows" => %{"daily" => %{"name" => "Daily", "used_percent" => 50}}}
     }
   end
 
