@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
   use Aiur.TestSupport
 
   alias Aiur.{Issue, TrackerIdentity}
-  alias Aiur.Orchestrator.{GlobalPause, PauseResume, State}
+  alias Aiur.Orchestrator.{GlobalPause, GlobalPauseStore, PauseResume, State}
 
   describe "set_global_pause_call/2 pause" do
     test "holds every working agent and tags them global_pause without overriding an individual pause" do
@@ -91,16 +91,16 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
       refute_receive {:resume_agent, _rid, _gen}, 50
     end
 
-    test "an individual pause still passes through while globally paused" do
+    test "an individual pause is rejected while globally paused" do
       id = unique_id("gp-guard-pause")
 
       state =
         base_state(globally_paused: true, running: %{id => running_entry(id)})
 
-      assert {:reply, {:ok, 8}, _state} =
+      assert {:reply, {:error, :globally_paused}, ^state} =
                PauseResume.request_control_call(state, id, :pause, 8)
 
-      assert_receive {:pause_agent, 8, 101}
+      refute_receive {:pause_agent, _rid, _gen}, 50
     end
   end
 
@@ -121,10 +121,37 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
       state = base_state(globally_paused: true, running: %{})
 
       assert {:reply, true, ^state} = GlobalPause.globally_paused_call(state)
-      assert GlobalPause.global_pause_status(state) == %{globally_paused: true}
+      assert GlobalPause.global_pause_status(state) == %{globally_paused: true, paused_at: nil, source: nil}
 
       assert GlobalPause.global_pause_status(%{state | globally_paused: false}) ==
-               %{globally_paused: false}
+               %{globally_paused: false, paused_at: nil, source: nil}
+    end
+
+    test "persists the global pause and provenance across orchestrator restart" do
+      path = Path.join(System.tmp_dir!(), "global-pause-#{System.unique_integer([:positive])}.json")
+      previous = Application.get_env(:aiur, :global_pause_store_path)
+      Application.put_env(:aiur, :global_pause_store_path, path)
+
+      on_exit(fn ->
+        File.rm(path)
+
+        if is_nil(previous),
+          do: Application.delete_env(:aiur, :global_pause_store_path),
+          else: Application.put_env(:aiur, :global_pause_store_path, previous)
+      end)
+
+      paused_at = ~U[2026-08-01 12:00:00Z]
+      assert :ok = GlobalPauseStore.save(%{globally_paused: true, paused_at: paused_at, source: "dashboard"})
+
+      name = Module.concat(__MODULE__, :RestoredOrchestrator)
+      {:ok, pid} = Orchestrator.start_link(name: name, initial_poll?: false)
+      assert %{globally_paused: true, paused_at: ^paused_at, source: "dashboard"} = GlobalPause.global_pause_status(name)
+      :ok = GenServer.stop(pid)
+
+      {:ok, restarted_pid} = Orchestrator.start_link(name: name, initial_poll?: false)
+      on_exit(fn -> if Process.alive?(restarted_pid), do: GenServer.stop(restarted_pid) end)
+
+      assert %{globally_paused: true, paused_at: ^paused_at, source: "dashboard"} = GlobalPause.global_pause_status(name)
     end
   end
 

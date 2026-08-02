@@ -500,7 +500,7 @@ defmodule AiurWeb.DashboardLive do
 
   defp toggle_global_pause(socket) do
     target = not global_paused?(socket.assigns.payload)
-    _ = GlobalPause.set_global_pause(capacity_orchestrator(), target)
+    _ = GlobalPause.set_global_pause(capacity_orchestrator(), target, "dashboard")
     # The orchestrator broadcasts an observability update on success; reload so
     # the nav toggle reflects the new state even if the broadcast is missed.
     reload_after_action(socket)
@@ -511,6 +511,19 @@ defmodule AiurWeb.DashboardLive do
   end
 
   defp global_paused?(_payload), do: false
+
+  defp global_pause_provenance(payload) do
+    case get_in(payload, [:fleet, :global_pause]) do
+      %{source: source, paused_at: paused_at} when is_binary(source) and is_binary(paused_at) ->
+        "Set by #{source} at #{paused_at}. "
+
+      %{source: source} when is_binary(source) ->
+        "Set by #{source}. "
+
+      _ ->
+        ""
+    end
+  end
 
   defp pause_agent_action(socket, modal) do
     key = agent_log_key(modal)
@@ -646,6 +659,10 @@ defmodule AiurWeb.DashboardLive do
       writable={@writable}
     >
       <:banner>
+        <div :if={global_paused?(@payload)} class="readonly-banner global-pause-banner" role="alert" aria-live="polite">
+          <span aria-hidden="true">⏸</span>
+          <span><b>Aiur is globally paused.</b> {global_pause_provenance(@payload)}Run <code>aiurdev resume</code> with no ticket ID to lift the global pause.</span>
+        </div>
         <Overview.decisions_banner decisions={@payload.decisions} retained_counts={@retained_counts} />
       </:banner>
 

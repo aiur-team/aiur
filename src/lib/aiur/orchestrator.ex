@@ -408,8 +408,14 @@ defmodule Aiur.Orchestrator do
   @spec globally_paused?() :: boolean()
   def globally_paused?, do: GlobalPause.globally_paused?()
 
+  @spec global_pause_status() :: map()
+  def global_pause_status, do: GlobalPause.global_pause_status()
+
   @spec set_global_pause(boolean()) :: {:ok, map()} | {:error, term()}
   def set_global_pause(on?) when is_boolean(on?), do: GlobalPause.set_global_pause(on?)
+
+  @spec set_global_pause(boolean(), String.t()) :: {:ok, map()} | {:error, term()}
+  def set_global_pause(on?, source) when is_boolean(on?) and is_binary(source), do: GlobalPause.set_global_pause(Aiur.Orchestrator, on?, source)
 
   @spec control_capabilities(String.t()) :: {:ok, map()} | {:error, term()}
   def control_capabilities(identifier), do: OM.control_capabilities(identifier)
@@ -618,9 +624,16 @@ defmodule Aiur.Orchestrator do
   def handle_call(:globally_paused?, _from, state),
     do: GlobalPause.globally_paused_call(state)
 
+  def handle_call(:global_pause_status, _from, state),
+    do: {:reply, GlobalPause.global_pause_status(state), state}
+
   def handle_call({:set_global_pause, on?}, _from, state)
       when is_boolean(on?),
       do: GlobalPause.set_global_pause_call(state, on?)
+
+  def handle_call({:set_global_pause, on?, source}, _from, state)
+      when is_boolean(on?) and is_binary(source),
+      do: GlobalPause.set_global_pause_call(state, on?, source)
 
   def handle_call({:claim_next_queue_item, issue_identifier}, _from, state)
       when is_binary(issue_identifier),

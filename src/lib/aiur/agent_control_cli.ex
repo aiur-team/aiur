@@ -70,6 +70,8 @@ defmodule Aiur.AgentControlCLI do
   def watch(opts \\ []) do
     case Orchestrator.status() do
       statuses when is_list(statuses) ->
+        print_global_pause_banner()
+
         rows =
           statuses
           |> Enum.filter(&visible_status_row?/1)
@@ -424,7 +426,9 @@ defmodule Aiur.AgentControlCLI do
   def resume_global, do: set_global_pause(false)
 
   defp set_global_pause(on?) do
-    case Orchestrator.set_global_pause(on?) do
+    source = if(on?, do: "CLI `pause`", else: "CLI `resume`")
+
+    case Orchestrator.set_global_pause(on?, source) do
       {:ok, %{globally_paused: paused}} ->
         IO.puts("aiur: global pause #{if paused, do: "ON — no agents will be provisioned", else: "OFF — agents resuming"}")
         exit_marker(0)
@@ -485,9 +489,14 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp control_status(action, targets, statuses) when is_list(statuses) do
-    action
-    |> select_targets(targets, statuses)
-    |> control_selected(action, targets)
+    if Orchestrator.global_pause_status().globally_paused do
+      print_global_pause_control_error(action)
+      1
+    else
+      action
+      |> select_targets(targets, statuses)
+      |> control_selected(action, targets)
+    end
   end
 
   # A targeted pause can still arm its locally-recorded containment group even
@@ -707,12 +716,30 @@ defmodule Aiur.AgentControlCLI do
   # Surface the global pause switch above the status table so an operator sees
   # at a glance that the whole daemon is halted (silent otherwise).
   defp print_global_pause_banner do
-    if Orchestrator.globally_paused?() do
-      IO.puts("GLOBALLY PAUSED — no agents will be provisioned (run `aiur resume` to lift)")
+    case Orchestrator.global_pause_status() do
+      %{globally_paused: true, paused_at: paused_at, source: source} ->
+        provenance = [format_pause_source(source), format_pause_time(paused_at)] |> Enum.reject(&is_nil/1) |> Enum.join(", ")
+        suffix = if provenance == "", do: "", else: " (#{provenance})"
+        IO.puts("GLOBALLY PAUSED#{suffix} — no agents will be provisioned (run `aiur resume` to lift)")
+
+      _ ->
+        :ok
     end
 
     :ok
   end
+
+  defp print_global_pause_control_error(action) do
+    noun = if action == :pause, do: "pause", else: "resume"
+    IO.puts(:stderr, "error: aiur is globally paused; per-ticket #{noun} has no effect.")
+    IO.puts(:stderr, "       Run `aiurdev resume` (no arguments) to lift the global pause.")
+  end
+
+  defp format_pause_source(source) when is_binary(source) and source != "", do: "set by #{source}"
+  defp format_pause_source(_), do: nil
+
+  defp format_pause_time(%DateTime{} = paused_at), do: "at #{DateTime.to_iso8601(paused_at)}"
+  defp format_pause_time(_), do: nil
 
   defp print_codeowners_trust do
     snapshot =

@@ -457,6 +457,7 @@ defmodule AiurWeb.DashboardLiveTest do
       assert html =~ "global-pause-toggle is-paused"
       assert html =~ ~s(aria-pressed="true")
       assert html =~ "Resume all agents (globally paused)"
+      assert html =~ "Aiur is globally paused."
     end
 
     test "disables the toggle when the dashboard is read-only" do
