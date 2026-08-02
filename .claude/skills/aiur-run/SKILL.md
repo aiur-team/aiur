@@ -15,8 +15,11 @@ their run requests as this workflow.
 
 ## 1. Establish the run contract
 
-Identify the working repository and read its `AGENTS.md`, `CONTRIBUTING.md`,
-Aiur config, and Executor handoff. Record the authority envelope from the
+Identify the working repository and first read its machine-local Executor
+handoff at `~/.aiur/repo/<owner>/<repo>/executor/handoff.md`, then read its
+`AGENTS.md`, `CONTRIBUTING.md`, and Aiur config. The handoff is the first
+source of truth for run-specific context, ahead of repository documentation;
+it does not replace GitHub or Aiur for live facts. Record the authority envelope from the
 Executor reference: scope, issue creation/comment, review, merge, self-fix,
 concurrency, cadence, debug mode, and terminal condition. Record external issue
 mutation authority separately from debug mode; one never implies the other.
@@ -24,6 +27,13 @@ mutation authority separately from debug mode; one never implies the other.
 The handoff must identify the finite feature boundary, critical path, required
 documentation/cleanup, required end-to-end proof, and deferred-findings ledger.
 If those are absent, establish them before launch.
+
+Keep `executor/handoff.md` current for the whole run. Write back whenever the
+operator supplies run-specific directions, request themes, non-derivable
+context, or a role/authority boundary. An operator directive that is not
+reflected in the handoff has not been recorded; chat transcripts are not a
+durable substitute. At an Executor handoff, rewrite the document wholesale for
+the incoming Executor. It is deliberately replaceable, not append-only.
 
 Ask only for a material permission that is neither stated nor safely
 discoverable. Never infer merge, destructive-change, or external issue-creation
