@@ -614,17 +614,17 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   defp ticket(%{"id" => id} = attributes, pack_dir, include_drafts?) when is_binary(id) and id != "" do
     with {:ok, number} <- ticket_number(attributes),
-         document_path <- Map.get(attributes, "doc") || Map.get(attributes, "document"),
+         document_path <- ticket_document_path(attributes),
          true <- safe_document_path?(document_path) do
       {:ok,
        %{
          id: id,
          title: Map.get(attributes, "title", id),
-         lane: to_string(Map.get(attributes, "lane") || Map.get(attributes, "workstream") || "unassigned"),
-         phase: Map.get(attributes, "phase") || Map.get(attributes, "phase_hint") || 0,
-         complexity: Map.get(attributes, "complexity") || Map.get(attributes, "complexity_points"),
+         lane: ticket_lane(attributes),
+         phase: ticket_phase(attributes),
+         complexity: ticket_complexity(attributes),
          number: number,
-         node_id: get_in(attributes, ["github", "node_id"]),
+         node_id: ticket_node_id(attributes),
          depends_on: List.wrap(Map.get(attributes, "depends_on", [])),
          document_url: nil,
          document_path: document_path,
@@ -637,6 +637,16 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   end
 
   defp ticket(_attributes, _pack_dir, _include_drafts?), do: :error
+
+  defp ticket_document_path(attributes), do: Map.get(attributes, "doc") || Map.get(attributes, "document")
+
+  defp ticket_lane(attributes), do: to_string(Map.get(attributes, "lane") || Map.get(attributes, "workstream") || "unassigned")
+
+  defp ticket_phase(attributes), do: Map.get(attributes, "phase") || Map.get(attributes, "phase_hint") || 0
+
+  defp ticket_complexity(attributes), do: Map.get(attributes, "complexity") || Map.get(attributes, "complexity_points")
+
+  defp ticket_node_id(attributes), do: get_in(attributes, ["github", "node_id"])
 
   defp safe_document_path?(path) when is_binary(path) and byte_size(path) in 1..512 do
     Path.type(path) == :relative and
