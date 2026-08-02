@@ -423,7 +423,13 @@ defmodule Aiur.Orchestrator.IssueSync do
 
   defp emit_dependency_transition_events(%State{} = state, _previous_issue, _issue), do: state
 
-  defp emit_task_state_transition_alert(%State{} = state, nil, %Issue{}), do: state
+  defp emit_task_state_transition_alert(%State{} = state, nil, %Issue{} = issue) do
+    if DispatchPolicy.state_slug(issue.state) == "error" do
+      emit_observed_error_transition_alert(state, issue)
+    else
+      resolve_observed_error_transition_alert(state, issue)
+    end
+  end
 
   defp emit_task_state_transition_alert(
          %State{} = state,
@@ -462,8 +468,10 @@ defmodule Aiur.Orchestrator.IssueSync do
   defp emit_task_state_transition_alert(%State{} = state, _previous_issue, _issue), do: state
 
   defp emit_observed_error_transition_alert(%State{} = state, %Issue{} = issue) do
-    if MapSet.member?(state.observed_error_alerts, issue.id) do
-      state
+    topic = "ticket.#{issue.identifier}.agent.attention.error"
+
+    if MapSet.member?(state.observed_error_alerts, issue.id) or AlertFeed.active_ticket_attention?(topic) do
+      %{state | observed_error_alerts: MapSet.put(state.observed_error_alerts, issue.id)}
     else
       message =
         "Tracker observed agent:error without a specialized local cause; the ticket needs Executor review. " <>
@@ -483,7 +491,11 @@ defmodule Aiur.Orchestrator.IssueSync do
   end
 
   defp resolve_observed_error_transition_alert(%State{} = state, %Issue{} = issue) do
-    if MapSet.member?(state.observed_error_alerts, issue.id) do
+    active? =
+      MapSet.member?(state.observed_error_alerts, issue.id) or
+        AlertFeed.active_ticket_attention?("ticket.#{issue.identifier}.agent.attention.error")
+
+    if active? do
       case Alerts.emit_system("ticket.#{issue.identifier}.agent.attention.error.resolved",
              issue: issue,
              worker_host: Orchestrator.running_worker_host(state, issue.id),
@@ -499,7 +511,15 @@ defmodule Aiur.Orchestrator.IssueSync do
     end
   end
 
-  defp emit_tracker_pause_transition_alert(%State{} = state, nil, %Issue{}), do: state
+  defp emit_tracker_pause_transition_alert(%State{} = state, nil, %Issue{} = issue) do
+    if Issue.paused?(issue) do
+      emit_tracker_pause_alert(state, issue)
+    else
+      resolve_tracker_pause_alert(state, issue)
+    end
+
+    state
+  end
 
   defp emit_tracker_pause_transition_alert(
          %State{} = state,
@@ -508,15 +528,7 @@ defmodule Aiur.Orchestrator.IssueSync do
        ) do
     case {Issue.paused?(previous_issue), Issue.paused?(issue)} do
       {false, true} ->
-        Alerts.emit_system("ticket.#{issue.identifier}.agent.paused",
-          issue: issue,
-          worker_host: Orchestrator.running_worker_host(state, issue.id),
-          reason:
-            "Tracker added agent:paused (tracker pause override); tracker=agent:#{issue.state}. " <>
-              "This clears when the operator removes agent:paused.",
-          needs_attention: true,
-          severity: "warning"
-        )
+        emit_tracker_pause_alert(state, issue)
 
       {true, false} ->
         Alerts.emit_system("ticket.#{issue.identifier}.agent.unpaused",
@@ -527,13 +539,7 @@ defmodule Aiur.Orchestrator.IssueSync do
           severity: "info"
         )
 
-        Alerts.emit_system("ticket.#{issue.identifier}.agent.paused.resolved",
-          issue: issue,
-          worker_host: Orchestrator.running_worker_host(state, issue.id),
-          reason: "Tracker removed agent:paused; the tracker pause override is resolved.",
-          needs_attention: false,
-          severity: "info"
-        )
+        resolve_tracker_pause_alert(state, issue, true)
 
       _ ->
         :ok
@@ -543,6 +549,40 @@ defmodule Aiur.Orchestrator.IssueSync do
   end
 
   defp emit_tracker_pause_transition_alert(%State{} = state, _previous_issue, _issue), do: state
+
+  defp emit_tracker_pause_alert(%State{} = state, %Issue{} = issue) do
+    topic = "ticket.#{issue.identifier}.agent.paused"
+
+    unless AlertFeed.active_ticket_attention?(topic) do
+      Alerts.emit_system(topic,
+        issue: issue,
+        worker_host: Orchestrator.running_worker_host(state, issue.id),
+        reason:
+          "Tracker added agent:paused (tracker pause override); tracker=agent:#{issue.state}. " <>
+            "This clears when the operator removes agent:paused.",
+        needs_attention: true,
+        severity: "warning"
+      )
+    end
+  end
+
+  defp resolve_tracker_pause_alert(state, issue), do: resolve_tracker_pause_alert(state, issue, false)
+
+  defp resolve_tracker_pause_alert(%State{} = state, %Issue{} = issue, force?) do
+    topic = "ticket.#{issue.identifier}.agent.paused"
+
+    if force? or AlertFeed.active_ticket_attention?(topic) do
+      Alerts.emit_system("#{topic}.resolved",
+        issue: issue,
+        worker_host: Orchestrator.running_worker_host(state, issue.id),
+        reason: "Tracker removed agent:paused; the tracker pause override is resolved.",
+        needs_attention: false,
+        severity: "info"
+      )
+    else
+      :ok
+    end
+  end
 
   defp task_state_alert_reason("human-review"),
     do: "Agent marked the ticket ready for human review"

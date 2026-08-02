@@ -94,6 +94,22 @@ defmodule Aiur.AlertFeedTest do
     refute AlertFeed.active_system_attention?("system.test.workspace_only", roots: [Path.join(root, "workspace")], log_roots: [central_root])
   end
 
+  test "ticket attention probes read only central alerts", %{root: root} do
+    workspace_log = Path.join(root, "workspace/repo/42/logs/agent.ndjson")
+    central_root = Path.join(root, "central")
+    File.mkdir_p!(Path.dirname(workspace_log))
+    File.mkdir_p!(central_root)
+
+    File.write!(workspace_log, """
+    {"event":"alert","timestamp":"2026-08-02T01:00:00Z","topic":"ticket.42.agent.attention.error","message":"workspace only","needs_attention":true}
+    """)
+
+    refute AlertFeed.active_ticket_attention?("ticket.42.agent.attention.error",
+             roots: [Path.join(root, "workspace")],
+             log_roots: [central_root]
+           )
+  end
+
   test "a resolved tracker pause leaves the Executor feed", %{root: root} do
     log_root = Path.join(root, "logs")
     File.mkdir_p!(log_root)

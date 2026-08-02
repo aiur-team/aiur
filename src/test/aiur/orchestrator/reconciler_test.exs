@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
   use ExUnit.Case, async: false
 
   alias Aiur.Events.{Exchange, Publisher}
-  alias Aiur.Issue
+  alias Aiur.{Alerts, Issue}
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.Reconciler
   alias Aiur.Orchestrator.State
@@ -114,6 +114,47 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
       assert event["reason"] =~ "local=paused(max_agent_duration) tracker=agent:rework"
       assert event["reason"] =~ "operator resume is required"
     end
+
+    test "resolves and rearms a persisted divergence after restart" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      topic = "ticket.I-restart-divergence.agent.attention.state_divergence"
+      resolved_topic = "#{topic}.resolved"
+      :ok = Exchange.subscribe(topic)
+      :ok = Exchange.subscribe(resolved_topic)
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      assert :ok =
+               Alerts.emit_custom(topic, "Persisted divergence",
+                 issue: "I-restart-divergence",
+                 reason: "Persisted divergence",
+                 needs_attention: true,
+                 severity: "warning"
+               )
+
+      assert_receive {:event, %{topic: ^topic}}, 500
+
+      issue = %Issue{id: "issue-restart-divergence", identifier: "I-restart-divergence", state: "rework"}
+
+      recovered = %State{
+        running: %{
+          issue.id => %{identifier: issue.identifier, issue: issue, control: %{status: :working}}
+        }
+      }
+
+      rearmed = Reconciler.report_label_divergence(recovered, issue)
+
+      assert_receive {:event, %{topic: ^resolved_topic}}, 500
+      refute Map.has_key?(rearmed.running[issue.id], :label_divergence_reported)
+
+      paused = %{issue | paused: true}
+      _ = Reconciler.report_label_divergence(rearmed, paused)
+
+      assert_receive {:event, %{topic: ^topic}}, 500
+    end
   end
 
   describe "reconcile_issue_state/4" do
@@ -145,6 +186,54 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
                )
 
       assert_received {^identity, :completed}
+    end
+
+    test "resolves a divergence before removing a terminal ticket" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe("ticket.I-terminal-divergence.agent.attention.state_divergence")
+      :ok = Exchange.subscribe("ticket.I-terminal-divergence.agent.attention.state_divergence.resolved")
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      issue = %Issue{
+        id: "issue-terminal-divergence",
+        identifier: "I-terminal-divergence",
+        state: "rework",
+        tracker_identity: tracker_identity("I-terminal-divergence")
+      }
+
+      state = %State{
+        running: %{
+          issue.id => %{
+            identifier: issue.identifier,
+            issue: issue,
+            control: paused_control(),
+            paused_reason: :max_agent_duration
+          }
+        }
+      }
+
+      opened = Reconciler.report_label_divergence(state, issue)
+      assert_receive {:event, %{topic: "ticket.I-terminal-divergence.agent.attention.state_divergence"}}, 500
+
+      terminal = %{issue | state: "done"}
+
+      result =
+        Reconciler.reconcile_issue_state(
+          terminal,
+          opened,
+          MapSet.new(["rework"]),
+          MapSet.new(["done"]),
+          fn _identity, _lifecycle -> :ok end
+        )
+
+      assert_receive {:event, %{topic: "ticket.I-terminal-divergence.agent.attention.state_divergence.resolved"}},
+                     500
+
+      assert %State{} = result
     end
 
     test "records cancellation and replacement lifecycle observations" do

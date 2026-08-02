@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
   use Aiur.TestSupport
 
   alias Aiur.Events.{Exchange, Publisher}
-  alias Aiur.{Issue, TrackerIdentity, Workflow}
+  alias Aiur.{AlertFeed, Config.Paths, Issue, TrackerIdentity, Workflow}
   alias Aiur.Orchestrator.{IssueSync, State}
 
   test "ignores a non-list poll result" do
@@ -197,6 +197,90 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       )
 
     assert_receive {:event, %{topic: "ticket.its-everdred/aiur#observed-error.agent.attention.error"}}, 500
+  end
+
+  test "resolves and rearms a persisted observed error after restart" do
+    Publisher.set_tracked_fn(fn _ -> true end)
+    issue = issue("observed-error-restart", "rework")
+    topic = "ticket.#{issue.identifier}.agent.attention.error"
+    resolved_topic = "#{topic}.resolved"
+    :ok = Exchange.subscribe(topic)
+    :ok = Exchange.subscribe(resolved_topic)
+    write_central_attention!(topic)
+
+    on_exit(fn ->
+      Publisher.set_tracked_fn(fn _ -> true end)
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+    end)
+
+    recovered =
+      IssueSync.sync_polled_issue_state(
+        %State{},
+        [issue],
+        fn _ -> {:ok, []} end,
+        fn _identity, _lifecycle -> :ok end,
+        MapSet.new(["done"]),
+        fn _ -> :ok end,
+        fn _identity, _pending? -> :ok end
+      )
+
+    assert_receive {:event, %{topic: ^resolved_topic}}, 500
+    assert AlertFeed.list(roots: [], log_roots: [Paths.log_root_dir()], needs_attention: true) == []
+
+    _ =
+      IssueSync.sync_polled_issue_state(
+        recovered,
+        [%{issue | state: "error"}],
+        fn _ -> {:ok, []} end,
+        fn _identity, _lifecycle -> :ok end,
+        MapSet.new(["done"]),
+        fn _ -> :ok end,
+        fn _identity, _pending? -> :ok end
+      )
+
+    assert_receive {:event, %{topic: ^topic}}, 500
+  end
+
+  test "resolves and rearms a persisted tracker pause after restart" do
+    Publisher.set_tracked_fn(fn _ -> true end)
+    issue = issue("pause-restart", "rework")
+    topic = "ticket.#{issue.identifier}.agent.paused"
+    resolved_topic = "#{topic}.resolved"
+    :ok = Exchange.subscribe(topic)
+    :ok = Exchange.subscribe(resolved_topic)
+    write_central_attention!(topic)
+
+    on_exit(fn ->
+      Publisher.set_tracked_fn(fn _ -> true end)
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+    end)
+
+    recovered =
+      IssueSync.sync_polled_issue_state(
+        %State{},
+        [issue],
+        fn _ -> {:ok, []} end,
+        fn _identity, _lifecycle -> :ok end,
+        MapSet.new(["done"]),
+        fn _ -> :ok end,
+        fn _identity, _pending? -> :ok end
+      )
+
+    assert_receive {:event, %{topic: ^resolved_topic}}, 500
+    assert AlertFeed.list(roots: [], log_roots: [Paths.log_root_dir()], needs_attention: true) == []
+
+    _ =
+      IssueSync.sync_polled_issue_state(
+        recovered,
+        [%{issue | paused: true}],
+        fn _ -> {:ok, []} end,
+        fn _identity, _lifecycle -> :ok end,
+        MapSet.new(["done"]),
+        fn _ -> :ok end,
+        fn _identity, _pending? -> :ok end
+      )
+
+    assert_receive {:event, %{topic: ^topic}}, 500
   end
 
   test "does not duplicate an error alert already emitted by a specialized producer" do
@@ -571,5 +655,15 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
         reason: nil
       }
     }
+  end
+
+  defp write_central_attention!(topic) do
+    log_path = Path.join(Paths.log_root_dir(), "alerts.ndjson")
+    File.mkdir_p!(Path.dirname(log_path))
+
+    File.write!(
+      log_path,
+      ~s({"event":"alert","timestamp":"2026-08-02T01:00:00Z","topic":"#{topic}","message":"persisted attention","needs_attention":true}\n)
+    )
   end
 end

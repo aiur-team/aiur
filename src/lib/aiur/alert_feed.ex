@@ -47,6 +47,14 @@ defmodule Aiur.AlertFeed do
     Enum.any?(list(Keyword.put(opts, :needs_attention, true)), &(&1["topic"] == topic))
   end
 
+  @doc false
+  @spec active_ticket_attention?(String.t(), keyword()) :: boolean()
+  def active_ticket_attention?(topic, opts \\ []) when is_binary(topic) and is_list(opts) do
+    opts = opts |> Keyword.put(:roots, []) |> Keyword.put_new(:log_roots, [Paths.log_root_dir()])
+
+    Enum.any?(list(Keyword.put(opts, :needs_attention, true)), &(&1["topic"] == topic))
+  end
+
   defp workspace_alert_log_paths(opts) do
     opts
     |> roots()
