@@ -64,6 +64,41 @@ defmodule Aiur.RepoBaseTest do
       assert File.exists?(Path.join(base, "rebuilt_after_migration"))
     end
 
+    test "migrates a legacy clone before importing its retrospective into canonical meta", %{
+      origin: origin,
+      node: node,
+      base: base,
+      tmp: tmp
+    } do
+      previous_root = Application.get_env(:aiur, :repo_base_root)
+      source_root = Path.join(tmp, "legacy-source")
+      repo = "https://github.com/owner/project.git"
+
+      File.mkdir_p!(Path.dirname(node))
+      git!(["clone", "--quiet", origin, node])
+      File.mkdir_p!(Path.join([source_root, "docs", "executor"]))
+      File.write!(Path.join([source_root, "docs", "executor", "hourly-retrospectives.md"]), "legacy notes\n")
+      Application.put_env(:aiur, :repo_base_root, Path.join(tmp, "repo"))
+
+      on_exit(fn ->
+        case previous_root do
+          nil -> Application.delete_env(:aiur, :repo_base_root)
+          root -> Application.put_env(:aiur, :repo_base_root, root)
+        end
+      end)
+
+      assert :ok = RepoBase.setup_state(repo, source_root)
+      assert {:ok, ^base} = RepoBase.refresh(base, origin, "true")
+
+      assert File.dir?(base)
+      assert [imported] = Path.wildcard(Path.join(RepoBase.retros_path(repo), "legacy-*.md"))
+      assert File.read!(imported) == "legacy notes\n"
+
+      for path <- ["builds", "analytics", "meta"] do
+        refute File.exists?(Path.join(base, path)), "#{path} was stranded inside latest"
+      end
+    end
+
     test "recovers a clone parked by an interrupted migration", %{origin: origin, node: node, base: base} do
       parked = node <> ".migrating-interrupted"
       File.mkdir_p!(Path.dirname(node))
@@ -231,6 +266,7 @@ defmodule Aiur.RepoBaseTest do
       assert RepoBase.findings_path(repo) |> Path.split() |> Enum.take(-4) == ["foo", "bar", "meta", "findings.ndjson"]
       assert RepoBase.retros_path(repo) |> Path.split() |> Enum.take(-4) == ["foo", "bar", "meta", "retros"]
       assert RepoBase.analytics_path(repo) |> Path.split() |> Enum.take(-3) == ["foo", "bar", "analytics"]
+      assert RepoBase.repo_relative_path(repo) == ".aiur/repo/foo/bar"
     end
   end
 

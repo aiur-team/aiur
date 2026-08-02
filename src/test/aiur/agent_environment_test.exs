@@ -164,17 +164,21 @@ defmodule Aiur.AgentEnvironmentTest do
 
   describe "workspace_env_export_prefix/1" do
     test "exports MISE_TRUSTED_CONFIG_PATHS pointed at the workspace root" do
+      repo_url = "https://github.com/owner/project.git"
+
       prefix =
         AgentEnvironment.workspace_env_export_prefix("/work/aiur/440",
           base_branch: "integration",
-          repo_url: "https://github.com/owner/project.git"
+          repo_url: repo_url
         )
 
       assert prefix =~ "MISE_TRUSTED_CONFIG_PATHS='/work/aiur/440'"
       assert prefix =~ "AIUR_AGENT_MIX_SCHEDULERS='4'"
       assert prefix =~ "ELIXIR_ERL_OPTIONS='+S 4:4'"
       assert prefix =~ "AIUR_BASE_BRANCH='integration'"
-      assert prefix =~ ".aiur-hex"
+      assert prefix =~ "HEX_HOME='~/.aiur/repo/owner/project/.aiur-hex'"
+      assert prefix =~ "HEX_HOME=\"$HOME/${HEX_HOME#~/}\""
+      refute prefix =~ Aiur.RepoBase.repo_path(repo_url)
       refute prefix =~ "elixir/mise.toml"
     end
 

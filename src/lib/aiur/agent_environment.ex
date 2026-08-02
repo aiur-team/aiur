@@ -115,7 +115,7 @@ defmodule Aiur.AgentEnvironment do
   def workspace_env_export_prefix(workspace, opts \\ [])
 
   def workspace_env_export_prefix(workspace, opts) when is_binary(workspace) do
-    {hex, mix, npm_cache} = sidecar_paths(opts)
+    {hex, mix, npm_cache} = remote_sidecar_paths(opts)
     base_branch = configured_base_branch(opts)
 
     # Trust the workspace ROOT (see `workspace_env/1`): the SSH-launch path needs
@@ -124,9 +124,24 @@ defmodule Aiur.AgentEnvironment do
       mix_scheduler_env()
       |> Enum.map_join(" ", fn {name, value} -> "#{name}=#{Aiur.Shell.escape(value)}" end)
 
-    "export HEX_HOME=#{Aiur.Shell.escape(hex)} MIX_HOME=#{Aiur.Shell.escape(mix)} npm_config_cache=#{Aiur.Shell.escape(npm_cache)} " <>
-      "MISE_TRUSTED_CONFIG_PATHS=#{Aiur.Shell.escape(workspace)} " <>
-      "AIUR_BASE_BRANCH=#{Aiur.Shell.escape(base_branch)} #{scheduler_exports}"
+    sidecar_exports =
+      [HEX_HOME: hex, MIX_HOME: mix, npm_config_cache: npm_cache]
+      |> Enum.map_join("\n", fn {name, path} ->
+        variable = Atom.to_string(name)
+
+        [
+          Aiur.Workspace.Remote.remote_shell_assign(variable, path),
+          "export #{variable}"
+        ]
+        |> Enum.join("\n")
+      end)
+
+    [
+      sidecar_exports,
+      "export MISE_TRUSTED_CONFIG_PATHS=#{Aiur.Shell.escape(workspace)} " <>
+        "AIUR_BASE_BRANCH=#{Aiur.Shell.escape(base_branch)} #{scheduler_exports}"
+    ]
+    |> Enum.join("\n")
   end
 
   def workspace_env_export_prefix(_, _opts), do: ""
@@ -185,21 +200,31 @@ defmodule Aiur.AgentEnvironment do
   end
 
   defp sidecar_paths(opts) do
-    repo_url =
-      Keyword.get_lazy(opts, :repo_url, fn ->
-        case Aiur.GitHub.Config.repo() do
-          repo when is_binary(repo) and repo != "" -> "https://github.com/#{repo}.git"
-          _ -> nil
-        end
-      end)
-
-    root =
-      case repo_url do
-        url when is_binary(url) and url != "" -> RepoBase.repo_path(url)
-        _ -> RepoBase.repo_path("unknown/unknown")
-      end
+    root = repo_url(opts) |> RepoBase.repo_path()
 
     {Path.join(root, ".aiur-hex"), Path.join(root, ".aiur-mix"), Path.join(root, ".aiur-npm-cache")}
+  end
+
+  # Remote workers have their own home directories, so shell launches must
+  # transmit a stable, home-relative state-node identity rather than the
+  # daemon host's absolute cache path.
+  defp remote_sidecar_paths(opts) do
+    root = Path.join("~", RepoBase.repo_relative_path(repo_url(opts)))
+
+    {Path.join(root, ".aiur-hex"), Path.join(root, ".aiur-mix"), Path.join(root, ".aiur-npm-cache")}
+  end
+
+  defp repo_url(opts) do
+    Keyword.get_lazy(opts, :repo_url, fn ->
+      case Aiur.GitHub.Config.repo() do
+        repo when is_binary(repo) and repo != "" -> "https://github.com/#{repo}.git"
+        _ -> "unknown/unknown"
+      end
+    end)
+    |> case do
+      url when is_binary(url) and url != "" -> url
+      _ -> "unknown/unknown"
+    end
   end
 
   defp scheduler_options(cap) do

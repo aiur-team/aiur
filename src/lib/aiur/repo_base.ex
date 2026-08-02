@@ -46,6 +46,11 @@ defmodule Aiur.RepoBase do
   def repo_path(repo_url) when is_binary(repo_url),
     do: Path.join(base_root(), slug(repo_url))
 
+  @doc "Path of the per-repository state node relative to its owning home directory."
+  @spec repo_relative_path(String.t()) :: Path.t()
+  def repo_relative_path(repo_url) when is_binary(repo_url),
+    do: Path.join([".aiur", "repo", slug(repo_url)])
+
   @doc "Absolute path of the build-order store for `repo_url`."
   @spec builds_path(String.t()) :: Path.t()
   def builds_path(repo_url) when is_binary(repo_url),
@@ -73,7 +78,11 @@ defmodule Aiur.RepoBase do
 
   @doc "Creates the canonical repository state tree before any writer needs it."
   @spec ensure_state_tree(String.t()) :: :ok | {:error, term()}
-  def ensure_state_tree(repo_url) when is_binary(repo_url), do: ensure_state_tree_at(repo_path(repo_url))
+  def ensure_state_tree(repo_url) when is_binary(repo_url) do
+    with :ok <- migrate_legacy_layout(base_path(repo_url)) do
+      ensure_state_tree_at(repo_path(repo_url))
+    end
+  end
 
   defp ensure_state_tree_at(node) do
     [

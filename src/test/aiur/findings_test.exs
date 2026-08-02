@@ -31,6 +31,21 @@ defmodule Aiur.FindingsTest do
     assert repo_finding["slug"] == "second-failure"
   end
 
+  test "retains prior findings when appending another record", %{repo: repo} do
+    assert :ok = Findings.append(repo, finding("first-failure", nil))
+    assert :ok = Findings.append(repo, finding("second-failure", 42))
+
+    slugs =
+      repo
+      |> RepoBase.findings_path()
+      |> File.read!()
+      |> String.split("\n", trim: true)
+      |> Enum.map(&Jason.decode!/1)
+      |> Enum.map(& &1["slug"])
+
+    assert slugs == ["first-failure", "second-failure"]
+  end
+
   test "rejects records over 4 KiB and invalid scopes before writing", %{repo: repo} do
     assert {:error, message} = Findings.append(repo, %{finding("too-large", nil) | "summary" => String.duplicate("x", 5_000)})
     assert message =~ "atomic append limit"
