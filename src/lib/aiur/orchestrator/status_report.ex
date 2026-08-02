@@ -9,10 +9,10 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias Aiur.AgentQueueStore
   alias Aiur.CodingAgent
   alias Aiur.Config
+  alias Aiur.Events.SubscriptionStore
   alias Aiur.Issue
   alias Aiur.TicketActivity
   alias Aiur.TrackerIdentity
-  alias Aiur.Events.SubscriptionStore
   alias Aiur.Orchestrator.ControlLifecycle
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.Lifecycle

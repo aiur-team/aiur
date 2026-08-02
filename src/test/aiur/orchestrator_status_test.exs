@@ -322,7 +322,10 @@ defmodule Aiur.OrchestratorStatusTest do
                %{pending: %{}, task_ref: callback_ref, monitor_ref: nil, timer_ref: nil}
              )
 
-    assert {:current, ^fresh_snapshot, _freshness} = Orchestrator.dashboard_snapshot(orchestrator_name, 100)
+    assert {:current, snapshot, _freshness} = Orchestrator.dashboard_snapshot(orchestrator_name, 100)
+    assert Map.take(snapshot, Map.keys(fresh_snapshot)) == fresh_snapshot
+    assert snapshot.globally_paused == false
+    assert snapshot.global_pause == %{globally_paused: false, paused_at: nil, source: nil}
   end
 
   test "an old generation cannot evict a newer pending projection" do
