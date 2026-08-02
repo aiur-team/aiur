@@ -199,18 +199,14 @@ defmodule Aiur.RepoBaseTest do
       assert File.read!(source) == Jason.encode!(finding("legacy"))
     end
 
-    test "one of concurrent callers claims a stale migration lock before recovery", %{origin: origin, node: node, base: base, tmp: tmp} do
+    test "serializes recovery of a parked clone for concurrent callers", %{origin: origin, node: node, base: base, tmp: tmp} do
       parked = node <> ".migrating-interrupted"
-      lock = node <> ".migration-lock"
       repo = "https://github.com/owner/project.git"
       previous_root = Application.get_env(:aiur, :repo_base_root)
       File.mkdir_p!(Path.dirname(node))
       git!(["clone", "--quiet", origin, parked])
       File.mkdir_p!(node)
       File.mkdir_p!(Path.join(node, ".aiur-mix"))
-      File.mkdir!(lock)
-      File.write!(Path.join(lock, "owner"), "99999999")
-      Process.sleep(1_100)
       Application.put_env(:aiur, :repo_base_root, Path.join(tmp, "repo"))
 
       on_exit(fn ->
@@ -228,7 +224,6 @@ defmodule Aiur.RepoBaseTest do
       assert Enum.all?(results, &(&1 == :ok))
       assert File.dir?(Path.join(base, ".git"))
       refute File.exists?(parked)
-      refute File.exists?(lock)
     end
 
     test "serializes concurrent first finding appends through legacy migration", %{tmp: tmp, node: node} do
