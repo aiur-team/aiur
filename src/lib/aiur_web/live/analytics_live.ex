@@ -9,8 +9,15 @@ defmodule AiurWeb.AnalyticsLive do
 
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
+  alias Aiur.RunTelemetry
+  alias Aiur.Usage.GroupedScopes
+  alias Aiur.Usage.GroupedScopes.Scope
+  alias Aiur.UsageAggregate
   alias AiurWeb.OperatorControlCenter.Analytics.{Charts, Presenter, Styles}
-  alias AiurWeb.OperatorControlCenter.{DashboardShell, NavState, RouteRegistry}
+  alias AiurWeb.OperatorControlCenter.{DashboardShell, NavState, RouteRegistry, UsageSummaryPresenter}
+  alias AiurWeb.{FinancialData, FinancialDataAccess}
+
+  @usage_summary_max_age_ms 30_000
 
   @impl true
   def mount(_params, _session, socket) do
@@ -223,6 +230,8 @@ defmodule AiurWeb.AnalyticsLive do
       telemetry_file: Application.get_env(:aiur, :analytics_telemetry_file)
     ]
 
+    socket = assign(socket, :provider_spend, provider_spend(socket))
+
     case Presenter.load(opts) do
       {:ok, model} ->
         domain = Charts.normalize_time_domain(model, socket.assigns.time_domain)
@@ -251,8 +260,74 @@ defmodule AiurWeb.AnalyticsLive do
       %{label: "Memory headroom", val: "#{k.mem_headroom_pct}%", sub: "#{gb(k.mem_now_bytes)} / #{gb(model.host_mem_bytes)}", tone: nil},
       %{label: "PRs merged", val: k.merged, sub: "this run", tone: nil},
       %{label: "Tickets done", val: "#{k.done} / #{k.total}", sub: "#{k.done_pct}% complete", tone: nil},
+      provider_spend_item(@provider_spend),
       %{label: "Wasted capacity", val: "#{k.wasted_slot_hours}h", sub: "idle unit-slots", tone: "block"}
     ]
+  end
+
+  defp provider_spend_item(%{state: :available, amount: amount, source: source}),
+    do: %{label: "Provider spend", val: amount, sub: source, tone: nil}
+
+  defp provider_spend_item(%{state: :locked}),
+    do: %{label: "Provider spend", val: "Locked", sub: "financial access required", tone: nil}
+
+  defp provider_spend_item(_other), do: %{label: "Provider spend", val: "—", sub: "not available", tone: nil}
+
+  # Financial data stays behind the same per-connection capability gate used by
+  # the Build Order usage summary. The analytics page receives a display-only
+  # provider estimate, never aggregate cells or an unscoped raw total.
+  defp provider_spend(socket) do
+    case {connected?(socket), authorized_context(socket)} do
+      {true, {:ok, context}} -> load_provider_spend(context)
+      {_connected, :locked} -> %{state: :locked}
+      {false, {:ok, _context}} -> %{state: :loading}
+    end
+  rescue
+    _error -> %{state: :unavailable}
+  catch
+    _kind, _reason -> %{state: :unavailable}
+  end
+
+  defp load_provider_spend(context) do
+    with {:ok, scope} <- Scope.this_run(RunTelemetry.boot_id()),
+         {:ok, snapshot} <-
+           FinancialData.fetch_usage_grouping(
+             FinancialData,
+             context,
+             {Scope.public(scope), usage_aggregate_generation()},
+             @usage_summary_max_age_ms,
+             fn -> UsageAggregate.cells_snapshot() |> GroupedScopes.project(scope, currency: "USD") end
+           ) do
+      snapshot |> UsageSummaryPresenter.present() |> provider_spend_view()
+    else
+      _other -> %{state: :unavailable}
+    end
+  end
+
+  defp provider_spend_view(%{state: state, provider_reported: %{by_currency: entries}}) when state in [:ready, :partial, :stale] do
+    case entries do
+      [] -> %{state: :unavailable}
+      _entries -> %{state: :available, amount: Enum.map_join(entries, ", ", &"#{&1.amount} #{&1.currency}"), source: "provider-reported estimate"}
+    end
+  end
+
+  defp provider_spend_view(_view), do: %{state: :unavailable}
+
+  defp usage_aggregate_generation do
+    UsageAggregate.snapshot().generation
+  rescue
+    _error -> :unknown
+  catch
+    _kind, _reason -> :unknown
+  end
+
+  defp authorized_context(socket) do
+    capability = Map.get(socket.assigns, :financial_data_capability, %{})
+
+    case {Map.get(capability, :state), FinancialDataAccess.context(socket)} do
+      {:authorized, %FinancialDataAccess.Context{} = context} -> {:ok, context}
+      _other -> :locked
+    end
   end
 
   defp toggle(set, key) do

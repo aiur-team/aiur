@@ -52,6 +52,8 @@ defmodule AiurWeb.AnalyticsLiveTest do
 
     assert html =~ "Peak concurrency"
     assert html =~ "Wasted capacity"
+    assert html =~ "Provider spend"
+    assert html =~ "Locked"
     assert html =~ "Per-unit CPU"
     assert html =~ "Cost per ticket"
     assert html =~ "Complexity breakdown"

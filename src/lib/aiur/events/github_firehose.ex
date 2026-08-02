@@ -33,9 +33,10 @@ defmodule Aiur.Events.GithubFirehose do
 
   require Logger
 
-  alias Aiur.{Boot, RecentMerge, RecentMergeStore}
+  alias Aiur.{Boot, RecentMerge, RecentMergeStore, RunTelemetry}
   alias Aiur.Events.{GithubKeys, Publisher, Sanitizer}
   alias Aiur.GitHub.Client
+  alias Aiur.RunTelemetry.Lifecycle
 
   @repo_events_per_page 30
   @max_event_pages 5
@@ -54,6 +55,8 @@ defmodule Aiur.Events.GithubFirehose do
     * `:request_fun` — passed through to `Client.fetch_repo_events/1`
       (test injection)
     * `:repo` — `"owner/repo"` string used for `dedup_key`
+    * `:telemetry_record_fun` — records pre-boot PR lifecycle anchors without
+      replaying them through Exchange (test injection)
   """
   @spec poll(keyword()) :: {:ok, map()} | {:error, term()}
   def poll(opts \\ []) do
@@ -248,9 +251,39 @@ defmodule Aiur.Events.GithubFirehose do
     # a small jitter window. Real-time events created after boot
     # always pass through. Tests inject `boot_time:` directly.
     if GithubKeys.pre_boot_event?(event, opts) do
+      record_pre_boot_lifecycle_anchor(event, opts)
       :pre_boot_drop
     else
       do_publish_one(event, opts)
+    end
+  end
+
+  # Startup reconciliation deliberately does not replay external events through
+  # Exchange: an old PR open must not wake agents again after an Executor
+  # restart. PR lifecycle facts are different, though. The dashboard's durable
+  # telemetry is the only source for its completion KPIs, and omitting a merge
+  # seen during that reconciliation makes a completed ticket indistinguishable
+  # from one that never opened a PR. Record just the body-free lifecycle anchor
+  # directly, leaving the Exchange replay boundary unchanged.
+  defp record_pre_boot_lifecycle_anchor(event, opts) do
+    with {topic, payload, _publish_opts} <- translate(event, opts),
+         true <- String.starts_with?(topic, "ticket."),
+         %{event: lifecycle_event, timestamp: timestamp} <- lifecycle_anchor(topic, payload) do
+      recorder = Keyword.get(opts, :telemetry_record_fun, &RunTelemetry.record/3)
+      _ = recorder.(:lifecycle, lifecycle_event, timestamp: timestamp)
+    else
+      _other -> :ok
+    end
+  rescue
+    _error -> :ok
+  catch
+    _kind, _reason -> :ok
+  end
+
+  defp lifecycle_anchor(topic, payload) do
+    case Lifecycle.external_anchor(Map.merge(payload, %{topic: topic, source: :github})) do
+      {:ok, attributes, timestamp} -> %{event: attributes, timestamp: timestamp}
+      :skip -> nil
     end
   end
 

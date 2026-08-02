@@ -1,7 +1,7 @@
 defmodule Aiur.RunTelemetry.WriterTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.Events.GithubFirehose
+  alias Aiur.Events.{Exchange, GithubFirehose}
   alias Aiur.RunTelemetry
   alias Aiur.RunTelemetry.{Dataset, Retention, Writer}
 
@@ -577,18 +577,9 @@ defmodule Aiur.RunTelemetry.WriterTest do
     assert :ok = Retention.prune(:not_a_path, :not_options)
   end
 
-  test "sanitizes subscribed GitHub anchors before appending", %{path: path} do
+  test "backfills a pre-boot merged PR as a telemetry lifecycle anchor", %{path: path} do
     {:ok, writer} = Writer.start_link(name: nil, path: path, boot_id: "anchors")
-
-    send(writer, {
-      :event,
-      %{
-        id: 99,
-        topic: "ticket.930.pr.opened",
-        source: :github,
-        pr: %{"number" => 77, "created_at" => "2026-07-11T13:00:00Z", "body" => "do not persist"}
-      }
-    })
+    :ok = Exchange.subscribe("ticket.930.pr.merged")
 
     firehose_event = %{
       "id" => "merged-100",
@@ -607,26 +598,24 @@ defmodule Aiur.RunTelemetry.WriterTest do
       }
     }
 
-    assert {:ok, %{count: 1}} =
+    assert {:ok, %{count: 0}} =
              GithubFirehose.poll(
                request_fun: fn _request -> {:ok, %{status: 200, headers: [{"ETag", ~s("writer-merge")}], body: [firehose_event]}} end,
                recent_merge_fun: fn _merge -> {:ok, :stored} end,
-               boot_time: ~U[2026-07-11 13:00:00Z] |> DateTime.to_unix()
+               boot_time: ~U[2026-07-11 13:03:00Z] |> DateTime.to_unix(),
+               telemetry_record_fun: fn :lifecycle, attributes, opts -> Writer.record(writer, :lifecycle, attributes, opts) end
              )
 
     assert :ok = Writer.flush(writer)
-    records = read_records(path)
-    [opened, merged] = Enum.take(records, -2)
+    refute_receive {:event, %{topic: "ticket.930.pr.merged"}}
 
-    assert opened["kind"] == "lifecycle"
-    assert opened["timestamp"] == "2026-07-11T13:00:00Z"
-    assert opened["attributes"]["event"] == "pr_opened"
-    assert opened["attributes"]["pr_number"] == 77
+    records = read_records(path)
+    [merged] = Enum.take(records, -1)
+
     assert merged["kind"] == "lifecycle"
     assert merged["timestamp"] == "2026-07-11T13:01:00Z"
     assert merged["attributes"]["event"] == "pr_merged"
     assert merged["attributes"]["pr_number"] == 77
-    refute inspect(records) =~ "do not persist"
   end
 
   defp read_records(path) do

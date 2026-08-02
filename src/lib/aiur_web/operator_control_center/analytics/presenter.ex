@@ -8,15 +8,15 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
 
   The same model serves two scopes. The live-session view passes
   `session: :current` and gets absolute timestamps over one daemon boot. The
-  Build Order view passes a member ticket set and `timeline: :active`, which
-  aggregates every session the build touched and reports elapsed *active* time
-  rather than calendar time — see `Aiur.RunTelemetry.Timeline` for why that
-  distinction is load-bearing. Both feed the same `Charts`, whose axis already
-  labels ticks as elapsed time.
+  Build Order view passes the selected member ticket set, `session: :current`,
+  and `timeline: :active`. That keeps its recurring refresh a bounded tail read;
+  cross-session reporting belongs to a materialized summary rather than a live
+  full-stream parse. Both feed the same `Charts`, whose axis already labels ticks
+  as elapsed time.
   """
 
   alias Aiur.RunTelemetry
-  alias Aiur.RunTelemetry.{Dataset, GitHubEnricher, Timeline}
+  alias Aiur.RunTelemetry.{Dataset, Timeline}
 
   @default_buckets 180
   @max_series_actors 8
@@ -59,10 +59,9 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
         :current -> [session: :current, boot_id: current_boot_id()]
         _other -> []
       end
-      |> Keyword.put(:github_events, Keyword.get(opts, :github_events, []))
 
     case Dataset.build(file, dataset_opts) do
-      {:ok, dataset} -> dataset |> enrich(file, dataset_opts, opts) |> scope(opts) |> analyzable(opts)
+      {:ok, dataset} -> dataset |> scope(opts) |> analyzable(opts)
       {:error, {:no_telemetry_files, _paths}} -> {:unavailable, :no_telemetry}
     end
   rescue
@@ -82,39 +81,6 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
 
   defp any_agent_actor?(dataset) do
     dataset |> Map.get(:actors, %{}) |> Enum.any?(fn {key, actor} -> actor_kind(key, actor) == :agent end)
-  end
-
-  # GitHub's events feed is finite and can miss a lifecycle transition while the
-  # daemon is down. When callers opt in with a configured repository, reconcile
-  # the readable PR facts into the same Dataset path as the live exchange
-  # anchors. The stream remains authoritative when it already contains the
-  # event; Dataset's record identity dedupe keeps the two sources compatible.
-  defp enrich(dataset, file, dataset_opts, opts) do
-    case Keyword.get(opts, :github_repo) do
-      repo when is_binary(repo) and repo != "" ->
-        enricher = Keyword.get(opts, :github_enricher, &GitHubEnricher.enrich/3)
-        enrichment = safe_enrichment(enricher, repo, Map.keys(dataset.tickets), opts)
-        github_events = Keyword.get(dataset_opts, :github_events, []) ++ Map.get(enrichment, :events, [])
-
-        case Dataset.build(file, Keyword.put(dataset_opts, :github_events, github_events)) do
-          {:ok, enriched} -> %{enriched | warnings: enriched.warnings ++ Map.get(enrichment, :warnings, [])}
-          {:error, _reason} -> dataset
-        end
-
-      _other ->
-        dataset
-    end
-  end
-
-  defp safe_enrichment(enricher, repo, tickets, opts) do
-    case enricher.(repo, tickets, opts) do
-      %{events: events, warnings: warnings} when is_list(events) and is_list(warnings) -> %{events: events, warnings: warnings}
-      _other -> %{events: [], warnings: []}
-    end
-  rescue
-    _error -> %{events: [], warnings: []}
-  catch
-    _kind, _reason -> %{events: [], warnings: []}
   end
 
   # ---- scope ----
