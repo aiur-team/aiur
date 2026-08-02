@@ -156,12 +156,22 @@ defmodule Aiur.RepoBaseTest do
       assert File.read!(Path.join(base, "trust_path")) =~ base
     end
 
-    test "prewarm build succeeds with release launcher environment", %{origin: origin, base: base} do
+    test "prewarm build succeeds with release launcher environment", %{tmp: tmp, origin: origin, base: base} do
+      release_root = Path.join(tmp, "release")
+      release_erts_bin = Path.join([release_root, "erts-16.4", "bin"])
+      release_bin = Path.join(release_root, "bin")
+      user_bin = Path.join(tmp, "toolchain/bin")
+      File.mkdir_p!(release_erts_bin)
+      File.mkdir_p!(release_bin)
+      File.mkdir_p!(user_bin)
+
       release_env = [
-        {"ROOTDIR", "/outer/release"},
-        {"BINDIR", "/outer/release/erts/bin"},
+        {"AIUR_RELEASE_DIR", release_root},
+        {"ROOTDIR", release_root},
+        {"BINDIR", release_erts_bin},
         {"EMU", "beam"},
-        {"PROGNAME", "erl"}
+        {"PROGNAME", "erl"},
+        {"PATH", Enum.join([release_erts_bin, release_bin, user_bin, System.fetch_env!("PATH")], ":")}
       ]
 
       previous_env =
@@ -181,7 +191,7 @@ defmodule Aiur.RepoBaseTest do
                RepoBase.refresh(
                  base,
                  origin,
-                 ~s(test -z "$ROOTDIR" -a -z "$BINDIR" -a -z "$EMU" -a -z "$PROGNAME" && touch release_env_scrubbed)
+                 ~s'test -z "$ROOTDIR" -a -z "$BINDIR" -a -z "$EMU" -a -z "$PROGNAME" && case ":$PATH:" in *:"#{release_erts_bin}":*|*:"#{release_bin}":*) exit 31 ;; esac && case ":$PATH:" in *:"#{user_bin}":*) touch release_env_scrubbed ;; *) exit 32 ;; esac'
                )
 
       assert File.exists?(Path.join(base, "release_env_scrubbed"))

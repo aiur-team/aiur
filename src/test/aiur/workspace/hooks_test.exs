@@ -85,12 +85,19 @@ defmodule Aiur.Workspace.HooksTest do
   end
 
   test "run_hook/5 local applies env scrub to release launcher variables", %{workspace: workspace} do
+    release_root = Path.join(workspace, "release")
+    release_erts_bin = Path.join([release_root, "erts-16.4", "bin"])
+    release_bin = Path.join(release_root, "bin")
+    user_bin = Path.join(workspace, "toolchain/bin")
+
     release_env = [
       {"RELEASE_NODE", "hooks-test"},
-      {"ROOTDIR", "/outer/release"},
-      {"BINDIR", "/outer/release/erts/bin"},
+      {"AIUR_RELEASE_DIR", release_root},
+      {"ROOTDIR", release_root},
+      {"BINDIR", release_erts_bin},
       {"EMU", "beam"},
-      {"PROGNAME", "erl"}
+      {"PROGNAME", "erl"},
+      {"PATH", Enum.join([release_erts_bin, release_bin, user_bin, System.fetch_env!("PATH")], ":")}
     ]
 
     previous_env =
@@ -109,7 +116,7 @@ defmodule Aiur.Workspace.HooksTest do
     issue_context = %{issue_id: 1, issue_identifier: "test", issue_state: nil, issue_labels: [], pr_head_ref: nil}
 
     command =
-      "test -z \"$RELEASE_NODE\" -a -z \"$ROOTDIR\" -a -z \"$BINDIR\" -a -z \"$EMU\" -a -z \"$PROGNAME\""
+      ~s'test -z "$RELEASE_NODE" -a -z "$ROOTDIR" -a -z "$BINDIR" -a -z "$EMU" -a -z "$PROGNAME" && case ":$PATH:" in *:"#{release_erts_bin}":*|*:"#{release_bin}":*) exit 31 ;; esac && case ":$PATH:" in *:"#{user_bin}":*) ;; *) exit 32 ;; esac'
 
     assert :ok = Hooks.run_hook(command, workspace, issue_context, "before_run", nil)
   end
@@ -151,37 +158,61 @@ defmodule Aiur.Workspace.HooksTest do
     assert command =~ "git checkout \"$AIUR_TICKET_BRANCH\""
   end
 
-  test "remote hook command executes with release launcher variables scrubbed", %{workspace: workspace} do
-    release_env = [
-      {"RELEASE_NODE", "hooks-test"},
-      {"ROOTDIR", "/outer/release"},
-      {"BINDIR", "/outer/release/erts/bin"},
-      {"EMU", "beam"},
-      {"PROGNAME", "erl"}
-    ]
-
-    previous_env =
-      Map.new(release_env, fn {name, _value} ->
-        {name, System.get_env(name)}
-      end)
-
-    Enum.each(release_env, fn {name, value} -> System.put_env(name, value) end)
-
-    on_exit(fn ->
-      Enum.each(previous_env, fn {name, value} ->
-        if value, do: System.put_env(name, value), else: System.delete_env(name)
-      end)
-    end)
-
+  test "remote hook command scrubs only launcher values owned by the remote Aiur release", %{workspace: workspace} do
     issue_context = %{issue_id: 1, issue_identifier: "test", issue_state: nil, issue_labels: [], pr_head_ref: nil}
+    release_root = Path.join(workspace, "release")
+    release_erts_bin = Path.join([release_root, "erts-16.4", "bin"])
+    user_bin = Path.join(workspace, "toolchain/bin")
 
     command =
       Hooks.remote_hook_command(
-        "test -z \"$RELEASE_NODE\" -a -z \"$ROOTDIR\" -a -z \"$BINDIR\" -a -z \"$EMU\" -a -z \"$PROGNAME\"",
+        ~s'test -z "$ROOTDIR" -a -z "$BINDIR" -a -z "$EMU" -a -z "$PROGNAME" && case ":$PATH:" in *:"#{release_erts_bin}":*) exit 31 ;; esac && case ":$PATH:" in *:"#{user_bin}":*) ;; *) exit 32 ;; esac',
         workspace,
         issue_context
       )
 
-    assert {_, 0} = System.cmd("bash", ["-lc", command], stderr_to_stdout: true)
+    assert {_, 0} =
+             System.cmd("bash", ["-lc", command],
+               stderr_to_stdout: true,
+               env: [
+                 {"AIUR_RELEASE_DIR", release_root},
+                 {"ROOTDIR", release_root},
+                 {"BINDIR", release_erts_bin},
+                 {"EMU", "beam"},
+                 {"PROGNAME", "erl"},
+                 {"PATH", Enum.join([release_erts_bin, user_bin, System.fetch_env!("PATH")], ":")}
+               ]
+             )
+  end
+
+  test "remote hook command preserves unrelated user launcher variables and PATH", %{workspace: workspace} do
+    issue_context = %{issue_id: 1, issue_identifier: "test", issue_state: nil, issue_labels: [], pr_head_ref: nil}
+
+    command =
+      Hooks.remote_hook_command(
+        ~s(printf '%s\n%s\n%s\n%s\n%s' "$ROOTDIR" "$BINDIR" "$EMU" "$PROGNAME" "$PATH"),
+        workspace,
+        issue_context
+      )
+
+    unrelated_path = "/opt/user-otp/bin:/usr/local/bin:/usr/bin"
+
+    assert {output, 0} =
+             System.cmd("bash", ["-lc", command],
+               stderr_to_stdout: true,
+               env: [
+                 {"AIUR_RELEASE_DIR", "/opt/aiur/release"},
+                 {"ROOTDIR", "/opt/user-otp"},
+                 {"BINDIR", "/opt/user-otp/bin"},
+                 {"EMU", "custom-beam"},
+                 {"PROGNAME", "custom-erl"},
+                 {"PATH", unrelated_path}
+               ]
+             )
+
+    assert ["/opt/user-otp", "/opt/user-otp/bin", "custom-beam", "custom-erl", path] =
+             String.split(output, "\n")
+
+    assert String.starts_with?(path, unrelated_path)
   end
 end

@@ -49,8 +49,9 @@ defmodule Aiur.AgentEnvironmentTest do
           {"AIUR_RELEASE_NODE", "aiur-kevin-abc1230000@127.0.0.1"},
           {"AIUR_INSTANCE_KEY", "abc1230000"},
           {"AIUR_REPO_ROOT", "/outer/repo"},
+          {"AIUR_RELEASE_DIR", "/outer/release"},
           {"ROOTDIR", "/outer/release"},
-          {"BINDIR", "/outer/release/erts/bin"},
+          {"BINDIR", "/outer/release/erts-16.4/bin"},
           {"EMU", "beam"},
           {"PROGNAME", "erl"},
           {"OTHER_COOKIE", "keep"}
@@ -61,18 +62,15 @@ defmodule Aiur.AgentEnvironmentTest do
   end
 
   test "scrubbed toolchain probe resolves OTP from mise, not the release" do
-    {erlang_root, 0} = System.cmd("mise", ["where", "erlang"])
-    erlang_root = String.trim(erlang_root)
-    release_root = "/outer/release"
-
-    # The daemon's release launcher also prepends its own `erl` binary to PATH;
-    # keep this probe focused on the launcher variables under test while
-    # preserving the configured mise/tool paths.
-    clean_path =
-      System.fetch_env!("PATH")
-      |> String.split(":")
-      |> Enum.reject(&String.contains?(&1, "/_build/dev/rel/aiur"))
-      |> Enum.join(":")
+    release_root = Path.join(System.tmp_dir!(), "aiur-release-#{System.unique_integer([:positive])}")
+    release_erts_bin = Path.join([release_root, "erts-16.4", "bin"])
+    release_bin = Path.join(release_root, "bin")
+    expected_inets = :inets |> :code.lib_dir() |> to_string()
+    File.mkdir_p!(release_erts_bin)
+    File.mkdir_p!(release_bin)
+    File.write!(Path.join(release_erts_bin, "erl"), "#!/bin/sh\necho poisoned-release-erl\nexit 86\n")
+    File.chmod!(Path.join(release_erts_bin, "erl"), 0o755)
+    on_exit(fn -> File.rm_rf!(release_root) end)
 
     command =
       AgentEnvironment.scrub_shell_command("mise exec -- elixir -e 'IO.puts(:code.lib_dir(:inets)); IO.inspect(Application.ensure_all_started(:inets))'")
@@ -80,17 +78,42 @@ defmodule Aiur.AgentEnvironmentTest do
     {output, 0} =
       System.cmd("bash", ["-lc", command],
         env: [
+          {"AIUR_RELEASE_DIR", release_root},
           {"ROOTDIR", release_root},
-          {"BINDIR", Path.join(release_root, "erts/bin")},
+          {"BINDIR", release_erts_bin},
           {"EMU", "beam"},
           {"PROGNAME", "erl"},
-          {"PATH", clean_path}
+          {"PATH", Enum.join([release_erts_bin, release_bin, System.fetch_env!("PATH")], ":")}
         ]
       )
 
-    assert output =~ Path.join(erlang_root, "lib/inets")
+    assert output =~ expected_inets
     assert output =~ "{:ok, [:inets]}"
     refute output =~ release_root
+  end
+
+  test "scrub_shell_command preserves unrelated launcher variables and PATH entries" do
+    command =
+      AgentEnvironment.scrub_shell_command(~s(printf '%s\n%s\n%s\n%s\n%s' "$ROOTDIR" "$BINDIR" "$EMU" "$PROGNAME" "$PATH"))
+
+    unrelated_path = "/opt/user-otp/bin:/usr/local/bin:/usr/bin"
+
+    {output, 0} =
+      System.cmd("bash", ["-lc", command],
+        env: [
+          {"AIUR_RELEASE_DIR", "/opt/aiur/release"},
+          {"ROOTDIR", "/opt/user-otp"},
+          {"BINDIR", "/opt/user-otp/bin"},
+          {"EMU", "custom-beam"},
+          {"PROGNAME", "custom-erl"},
+          {"PATH", unrelated_path}
+        ]
+      )
+
+    assert ["/opt/user-otp", "/opt/user-otp/bin", "custom-beam", "custom-erl", path] =
+             String.split(output, "\n")
+
+    assert String.starts_with?(path, unrelated_path)
   end
 
   test "scrub_shell_command clears parent log environment before exec" do

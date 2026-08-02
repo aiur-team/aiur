@@ -35,15 +35,39 @@ defmodule Aiur.AgentEnvironment do
 
   @spec scrub_shell_prefix() :: String.t()
   def scrub_shell_prefix do
-    scrubbed_env_names =
-      @erlang_distribution_env_names ++ @parent_log_env_names ++ @release_launcher_env_names
-
-    ("unset " <> Enum.join(scrubbed_env_names, " ") <> "; ") <>
+    ("unset " <> Enum.join(@erlang_distribution_env_names ++ @parent_log_env_names, " ") <> "; ") <>
       "for aiur_env_name in $(env | sed 's/=.*//'); do " <>
       "case \"$aiur_env_name\" in " <>
       "AIUR_NODE_NAME|AIUR_*_NODE_NAME|AIUR_COOKIE|AIUR_*_COOKIE) unset \"$aiur_env_name\" ;; " <>
       "esac; " <>
-      "done"
+      "done; " <>
+      release_launcher_scrub_prefix()
+  end
+
+  defp release_launcher_scrub_prefix do
+    "aiur_release_root=${AIUR_RELEASE_DIR%/}; aiur_release_owned=; " <>
+      "if [ -n \"$aiur_release_root\" ]; then " <>
+      "[ \"${ROOTDIR:-}\" = \"$aiur_release_root\" ] && aiur_release_owned=1; " <>
+      "case \"${BINDIR:-}\" in \"$aiur_release_root\"/erts-*/bin) aiur_release_owned=1 ;; esac; " <>
+      "fi; " <>
+      "if [ -n \"$aiur_release_owned\" ]; then " <>
+      "aiur_remaining_path=${PATH-}; aiur_clean_path=; aiur_path_separator=; " <>
+      "while :; do " <>
+      "case \"$aiur_remaining_path\" in " <>
+      "*:*) aiur_path_entry=${aiur_remaining_path%%:*}; aiur_remaining_path=${aiur_remaining_path#*:}; aiur_path_more=1 ;; " <>
+      "*) aiur_path_entry=$aiur_remaining_path; aiur_path_more= ;; " <>
+      "esac; " <>
+      "case \"$aiur_path_entry\" in " <>
+      "\"$aiur_release_root/bin\"|\"$aiur_release_root\"/erts-*/bin) ;; " <>
+      "*) aiur_clean_path=\"${aiur_clean_path}${aiur_path_separator}${aiur_path_entry}\"; aiur_path_separator=: ;; " <>
+      "esac; " <>
+      "[ -n \"$aiur_path_more\" ] || break; " <>
+      "done; " <>
+      "PATH=$aiur_clean_path; export PATH; unset " <>
+      Enum.join(@release_launcher_env_names, " ") <>
+      "; fi; " <>
+      "unset aiur_release_root aiur_release_owned aiur_remaining_path aiur_clean_path " <>
+      "aiur_path_separator aiur_path_entry aiur_path_more"
   end
 
   @spec parent_log_env_name?(String.t()) :: boolean()
