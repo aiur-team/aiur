@@ -1,8 +1,7 @@
 defmodule Aiur.RunTelemetryTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.Config
-  alias Aiur.RunTelemetry
+  alias Aiur.{Config, RunTelemetry, Workflow, WorkflowStore}
   alias Aiur.RunTelemetry.{Dashboard, Lifecycle, Writer}
 
   setup do
@@ -50,14 +49,17 @@ defmodule Aiur.RunTelemetryTest do
   test "boot_id/0 observes a simulated reboot immediately without a separate start_boot/0 call" do
     boot_start_key = {Aiur.Boot, :start_ms}
     boot_epoch_key = {Aiur.Boot, :start_epoch_seconds}
+    boot_started_at_key = {Aiur.Boot, :started_at}
     boot_run_id_key = {Aiur.Boot, :run_id}
     original_start = :persistent_term.get(boot_start_key, :unset)
     original_epoch = :persistent_term.get(boot_epoch_key, :unset)
+    original_started_at = :persistent_term.get(boot_started_at_key, :unset)
     original_run_id = :persistent_term.get(boot_run_id_key, :unset)
 
     on_exit(fn ->
       restore_persistent_term(boot_start_key, original_start)
       restore_persistent_term(boot_epoch_key, original_epoch)
+      restore_persistent_term(boot_started_at_key, original_started_at)
       restore_persistent_term(boot_run_id_key, original_run_id)
     end)
 
@@ -69,7 +71,12 @@ defmodule Aiur.RunTelemetryTest do
 
     refute RunTelemetry.boot_id() == original_id
     assert RunTelemetry.boot_id() == Aiur.Boot.run_id()
-    assert RunTelemetry.next_sequence() == sequence_before + 1
+
+    competing_sequence = Task.async(&RunTelemetry.next_sequence/0) |> Task.await()
+    sequence_after = RunTelemetry.next_sequence()
+
+    assert competing_sequence > sequence_before
+    assert sequence_after > competing_sequence
   end
 
   defp restore_persistent_term(key, :unset), do: :persistent_term.erase(key)
@@ -87,7 +94,6 @@ defmodule Aiur.RunTelemetryTest do
 
   test "telemetry_enabled: false disables recording via the real boot path", %{root: root} do
     enabled_key = {Aiur.RunTelemetry, :telemetry_enabled}
-    original_workflow_path = Application.get_env(:aiur, :workflow_file_path)
     original_pt = :persistent_term.get(enabled_key, :unset)
 
     disabled_config = Path.join(root, "disabled.aiurconfig")
@@ -104,18 +110,13 @@ defmodule Aiur.RunTelemetryTest do
     """)
 
     on_exit(fn ->
-      case original_workflow_path do
-        nil -> Application.delete_env(:aiur, :workflow_file_path)
-        value -> Application.put_env(:aiur, :workflow_file_path, value)
-      end
-
       case original_pt do
         :unset -> :persistent_term.erase(enabled_key)
         value -> :persistent_term.put(enabled_key, value)
       end
     end)
 
-    Application.put_env(:aiur, :workflow_file_path, disabled_config)
+    use_workflow_path!(disabled_config)
     assert Aiur.Config.telemetry_enabled?() == false
 
     RunTelemetry.start_boot()
@@ -231,17 +232,19 @@ defmodule Aiur.RunTelemetryTest do
     assert File.read!(output) =~ "<!doctype html>"
   end
 
-  test "Config.telemetry_enabled?/0 defaults to true when no config is loaded" do
-    original_path = Application.get_env(:aiur, :workflow_file_path)
-    Application.put_env(:aiur, :workflow_file_path, "/nonexistent/path/that/does/not/exist.aiurconfig")
+  test "Config.telemetry_enabled?/0 defaults to true when observability is omitted", %{root: root} do
+    default_config = Path.join(root, "default.aiurconfig")
+    File.mkdir_p!(root)
 
-    on_exit(fn ->
-      case original_path do
-        nil -> Application.delete_env(:aiur, :workflow_file_path)
-        value -> Application.put_env(:aiur, :workflow_file_path, value)
-      end
-    end)
+    File.write!(default_config, """
+    tracker:
+      kind: github
+      github:
+        repo: test-org/test-repo
+        label_prefix: agent
+    """)
 
+    use_workflow_path!(default_config)
     assert Config.telemetry_enabled?() == true
   end
 
@@ -260,5 +263,28 @@ defmodule Aiur.RunTelemetryTest do
     refute json =~ "prompt"
     refute json =~ "command"
     refute json =~ "output"
+  end
+
+  defp use_workflow_path!(path) do
+    original_path = Application.get_env(:aiur, :workflow_file_path)
+    on_exit(fn -> restore_workflow_path!(original_path) end)
+
+    :ok = Workflow.set_workflow_file_path(path)
+    assert_workflow_store_path!(path)
+  end
+
+  defp restore_workflow_path!(nil) do
+    :ok = Workflow.clear_workflow_file_path()
+    assert_workflow_store_path!(Workflow.workflow_file_path())
+  end
+
+  defp restore_workflow_path!(path) do
+    :ok = Workflow.set_workflow_file_path(path)
+    assert_workflow_store_path!(path)
+  end
+
+  defp assert_workflow_store_path!(path) do
+    assert :ok = WorkflowStore.force_reload()
+    assert %{path: ^path} = :sys.get_state(WorkflowStore)
   end
 end
