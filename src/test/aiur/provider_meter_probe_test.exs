@@ -2,6 +2,7 @@ defmodule Aiur.ProviderMeterProbeTest do
   use ExUnit.Case, async: true
 
   alias Aiur.{ProviderMeterProbe, ProviderMeterProjection, ProviderMeterSnapshot}
+  alias Aiur.OpenAICompat.ProviderMeterProbe, as: OpenAICompatProbe
 
   defmodule FakeAgent do
     @moduledoc false
@@ -9,8 +10,8 @@ defmodule Aiur.ProviderMeterProbeTest do
     def start_session(workspace, opts) do
       case Process.get(:probe_start_result, :ok) do
         :ok ->
-          send(Process.get(:probe_test_pid), {:session_started, Keyword.get(opts, :identifier)})
-          send(Process.get(:probe_test_pid), {:session_workspace, workspace})
+          notify({:session_started, Keyword.get(opts, :identifier)})
+          notify({:session_workspace, workspace})
           {:ok, %{fake: true}}
 
         {:error, _reason} = error ->
@@ -22,9 +23,45 @@ defmodule Aiur.ProviderMeterProbeTest do
     end
 
     def stop_session(session) do
-      send(Process.get(:probe_test_pid), {:session_stopped, session})
+      notify({:session_stopped, session})
       :ok
     end
+
+    defp notify(message) do
+      case Process.get(:probe_test_pid) do
+        pid when is_pid(pid) -> send(pid, message)
+        _ -> :ok
+      end
+    end
+  end
+
+  defmodule FakeUsageApi do
+    @moduledoc false
+    def fetch(_opts), do: {:error, :usage_unavailable}
+  end
+
+  defmodule ObservingFakeAgent do
+    @moduledoc false
+
+    def start_session(_workspace, _opts) do
+      observed_at = DateTime.utc_now()
+
+      snapshot = %ProviderMeterSnapshot{
+        provider: :codex,
+        backend: :app_server,
+        provider_account_generation: "gen-1",
+        observed_at: observed_at,
+        auth_mode: :subscription,
+        freshness: :fresh,
+        health: %{state: :healthy, failure: nil, last_observed_at: observed_at, last_source_version: 1},
+        windows: %{"session" => %{kind: :rate_limit, used_percent: 10}}
+      }
+
+      send(Process.get(:probe_projection), {:provider_meter_changed, snapshot})
+      {:ok, %{fake: true}}
+    end
+
+    def stop_session(_session), do: :ok
   end
 
   defmodule ExplodingCloseAgent do
@@ -50,6 +87,7 @@ defmodule Aiur.ProviderMeterProbeTest do
     {:ok, pid} = start_supervised({ProviderMeterProjection, [name: projection, subscribe?: false]})
 
     Process.put(:probe_test_pid, self())
+    Process.put(:probe_projection, pid)
 
     %{projection: projection, pid: pid}
   end
@@ -82,14 +120,11 @@ defmodule Aiur.ProviderMeterProbeTest do
   end
 
   test "an observation arriving during the window is reported as observed", ctx do
-    task =
-      Task.async(fn ->
-        Process.sleep(20)
-        send(ctx.pid, {:provider_meter_changed, snapshot(:codex)})
-      end)
-
-    [outcome] = ProviderMeterProbe.observe(:codex, opts(ctx, observation_window_ms: 2_000))
-    Task.await(task)
+    [outcome] =
+      ProviderMeterProbe.observe(
+        :codex,
+        opts(ctx, observation_window_ms: 2_000, probe_agent: ObservingFakeAgent)
+      )
 
     assert outcome.observed? == true
     assert outcome.reason == nil
@@ -110,10 +145,24 @@ defmodule Aiur.ProviderMeterProbeTest do
   end
 
   test "probing :all covers every registry provider", ctx do
-    outcomes = ProviderMeterProbe.observe(:all, opts(ctx))
+    outcomes =
+      ProviderMeterProbe.observe(
+        :all,
+        opts(ctx,
+          usage_api: FakeUsageApi,
+          api_key_fetcher: fn _name -> nil end,
+          openai_compat_request_fun: fn _request -> flunk("credential-free batch must not issue a balance request") end
+        )
+      )
 
-    assert Enum.map(outcomes, & &1.provider) == [:codex, :claude, :kimi, :deepseek, :openrouter, :fake]
-    assert List.last(outcomes) == %{provider: :fake, observed?: false, reason: :unsupported}
+    assert outcomes == [
+             %{provider: :codex, observed?: false, reason: nil},
+             %{provider: :claude, observed?: false, reason: :usage_unavailable},
+             %{provider: :kimi, observed?: false, reason: :session_observation_only},
+             %{provider: :deepseek, observed?: false, reason: :disabled},
+             %{provider: :openrouter, observed?: false, reason: :missing_api_key},
+             %{provider: :fake, observed?: false, reason: :unsupported}
+           ]
   end
 
   test "disabled providers are not probed even when their credentials exist" do
@@ -176,7 +225,7 @@ defmodule Aiur.ProviderMeterProbeTest do
     parent = self()
 
     assert %{observed?: true} =
-             ProviderMeterProbe.probe_openai_compat(:openrouter, "openrouter",
+             OpenAICompatProbe.probe(:openrouter, "openrouter",
                observed_at: ~U[2026-08-01 12:00:00Z],
                api_key_fetcher: fn env ->
                  send(parent, {:key_env, env})
@@ -198,10 +247,10 @@ defmodule Aiur.ProviderMeterProbeTest do
     :ok = Aiur.ProviderMeters.Events.subscribe_observed()
 
     assert %{observed?: false, reason: :missing_api_key} =
-             ProviderMeterProbe.probe_openai_compat(:deepseek, "deepseek", api_key_fetcher: fn _ -> nil end)
+             OpenAICompatProbe.probe(:deepseek, "deepseek", api_key_fetcher: fn _ -> nil end)
 
     assert %{observed?: false, reason: :malformed} =
-             ProviderMeterProbe.probe_openai_compat(:openrouter, "openrouter",
+             OpenAICompatProbe.probe(:openrouter, "openrouter",
                api_key_fetcher: fn _ -> "secret" end,
                openai_compat_request_fun: fn _ -> {:ok, %{status: 200, body: %{"data" => %{}}}} end
              )
@@ -242,18 +291,4 @@ defmodule Aiur.ProviderMeterProbeTest do
     assert File.dir?(workspace)
   end
 
-  defp snapshot(provider) do
-    observed_at = DateTime.utc_now()
-
-    %ProviderMeterSnapshot{
-      provider: provider,
-      backend: :app_server,
-      provider_account_generation: "gen-1",
-      observed_at: observed_at,
-      auth_mode: :subscription,
-      freshness: :fresh,
-      health: %{state: :healthy, failure: nil, last_observed_at: observed_at, last_source_version: 1},
-      windows: %{"session" => %{kind: :rate_limit, used_percent: 10}}
-    }
-  end
 end

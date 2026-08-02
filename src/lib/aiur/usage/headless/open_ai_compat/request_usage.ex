@@ -107,7 +107,10 @@ defmodule Aiur.Usage.Headless.OpenAICompat.RequestUsage do
   end
 
   defp measurement?(usage) do
-    Enum.any?(["prompt_tokens", "input_tokens", "completion_tokens", "output_tokens", "total_tokens"], &is_integer(usage[&1]))
+    Enum.any?(
+      ["prompt_tokens", :prompt_tokens, "input_tokens", :input_tokens, "completion_tokens", :completion_tokens, "output_tokens", :output_tokens, "total_tokens", :total_tokens],
+      &is_integer(usage[&1])
+    )
   end
 
   defp partial?(dimensions), do: is_nil(dimensions.input) or is_nil(dimensions.output)

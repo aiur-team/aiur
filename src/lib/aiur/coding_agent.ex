@@ -256,163 +256,10 @@ defmodule Aiur.CodingAgent do
         models: ["opus", "sonnet", "haiku", "opus-4-8", "sonnet-4-6", "haiku-4-5"],
         model_aliases: :native,
         efforts: ["low", "medium", "high", "xhigh", "max"]
-      },
-      "kimi" => %{
-        adapter: Aiur.OpenAICompat.CodingAgent,
-        transcript: Aiur.OpenAICompat.Transcript,
-        family: "kimi",
-        rate_limit_fallback_target: true,
-        configurable: true,
-        init_order: 2,
-        can_interrupt: false,
-        safe_checkpoints: [:notification, :tool_result],
-        control_application_confirmation: :request_only,
-        remote_control: false,
-        resumable: false,
-        models: ["kimi-k2.7-code", "kimi-k2.7-code-highspeed"],
-        model_aliases: :native,
-        efforts: [],
-        openai_compat: %{
-          base_url: "https://api.moonshot.ai/v1",
-          api_key_env: "MOONSHOT_API_KEY",
-          default_model: "kimi-k2.7-code",
-          transport: :chat_completions,
-          quirks: %{reasoning_content_replay: true}
-        },
-        presentation: %{
-          order: 2,
-          label: "Kimi",
-          logo: "/provider-assets/kimi.svg",
-          token_icon: "/provider-assets/kimi-token.svg",
-          css_class: "is-kimi",
-          command_color: "#74d9e8",
-          command_border: "rgba(116, 217, 232, 0.4)",
-          unit_color: "#74d9e8",
-          unit_border: "rgba(116, 217, 232, 0.4)",
-          unit_background: "rgba(116, 217, 232, 0.12)"
-        },
-        pricing: openai_compat_pricing(),
-        usage: %{adapters: [Aiur.Usage.Headless.Kimi.RequestUsage]},
-        meter_probe: &ProviderMeterProbe.probe_openai_compat/3,
-        usage_backend: :openai_compat,
-        usage_transport: :openai_compat,
-        account_generation: %{
-          backends: [:openai_compat],
-          trusted_sources: [:kimi_api_key, :kimi_api],
-          auth_modes: ["api_key"]
-        }
-      },
-      "deepseek" => %{
-        adapter: Aiur.OpenAICompat.CodingAgent,
-        transcript: Aiur.OpenAICompat.Transcript,
-        family: "deepseek",
-        rate_limit_fallback_target: false,
-        configurable: false,
-        dispatch_enabled_by_default: false,
-        init_order: 3,
-        can_interrupt: false,
-        safe_checkpoints: [:notification, :tool_result],
-        control_application_confirmation: :request_only,
-        remote_control: false,
-        resumable: false,
-        models: ["deepseek-v4-flash"],
-        model_aliases: :native,
-        efforts: [],
-        openai_compat: %{
-          base_url: "https://api.deepseek.com",
-          api_key_env: "DEEPSEEK_API_KEY",
-          default_model: "deepseek-v4-flash",
-          transport: :responses,
-          quirks: %{reasoning_content_replay: true, text_tool_fallback: true, local_concurrency_limit: true}
-        },
-        presentation: %{
-          order: 3,
-          label: "DeepSeek",
-          logo: "/provider-assets/deepseek.svg",
-          token_icon: "/provider-assets/deepseek-token.svg",
-          css_class: "is-deepseek",
-          command_color: "#6f9cff",
-          command_border: "rgba(111, 156, 255, 0.4)",
-          unit_color: "#6f9cff",
-          unit_border: "rgba(111, 156, 255, 0.4)",
-          unit_background: "rgba(111, 156, 255, 0.12)"
-        },
-        pricing: openai_compat_pricing(),
-        usage: %{adapters: [Aiur.Usage.Headless.DeepSeek.RequestUsage]},
-        meter_probe: &ProviderMeterProbe.probe_openai_compat/3,
-        usage_backend: :openai_compat,
-        usage_transport: :openai_compat,
-        account_generation: %{
-          backends: [:openai_compat],
-          trusted_sources: [:deepseek_api_key, :deepseek_api],
-          auth_modes: ["api_key"]
-        }
-      },
-      "openrouter" => %{
-        adapter: Aiur.OpenAICompat.CodingAgent,
-        transcript: Aiur.OpenAICompat.Transcript,
-        family: "openrouter",
-        rate_limit_fallback_target: true,
-        configurable: true,
-        init_order: 4,
-        can_interrupt: false,
-        safe_checkpoints: [:notification, :tool_result],
-        control_application_confirmation: :request_only,
-        remote_control: false,
-        resumable: false,
-        models: [
-          "deepseek/deepseek-v4-flash",
-          "moonshotai/kimi-k2.7-code",
-          "anthropic/claude-sonnet-5",
-          "anthropic/claude-opus-5"
-        ],
-        model_aliases: :native,
-        efforts: [],
-        openai_compat: %{
-          base_url: "https://openrouter.ai/api/v1",
-          api_key_env: "OPENROUTER_API_KEY",
-          management_api_key_env: "OPENROUTER_MANAGEMENT_KEY",
-          default_model: "deepseek/deepseek-v4-flash",
-          transport: :chat_completions,
-          quirks: %{openrouter_metadata: true}
-        },
-        presentation: %{
-          order: 4,
-          label: "OpenRouter",
-          logo: "/provider-assets/openrouter.svg",
-          token_icon: "/provider-assets/openrouter-token.svg",
-          css_class: "is-openrouter",
-          command_color: "#b59cff",
-          command_border: "rgba(181, 156, 255, 0.4)",
-          unit_color: "#b59cff",
-          unit_border: "rgba(181, 156, 255, 0.4)",
-          unit_background: "rgba(181, 156, 255, 0.12)"
-        },
-        pricing: openai_compat_pricing(),
-        usage: %{adapters: [Aiur.Usage.Headless.OpenRouter.RequestUsage]},
-        meter_probe: &ProviderMeterProbe.probe_openai_compat/3,
-        usage_backend: :openai_compat,
-        usage_transport: :openai_compat,
-        account_generation: %{
-          backends: [:openai_compat],
-          trusted_sources: [:openrouter_api_key, :openrouter_api],
-          auth_modes: ["api_key"]
-        }
       }
     }
+    |> Map.merge(Aiur.OpenAICompat.Registry.entries())
     |> maybe_add_test_backend()
-  end
-
-  defp openai_compat_pricing do
-    %{
-      dimensions: %{
-        context_tier: %{allowed: [:not_applicable], default: :not_applicable, required: false},
-        cache_write_duration: %{allowed: [:not_applicable], default: :not_applicable, required: false}
-      },
-      component_dimensions: %{
-        default: %{context_tier: [:not_applicable], cache_write_duration: [:not_applicable]}
-      }
-    }
   end
 
   # Acceptance fixture for registry consumers. It intentionally lives only in
@@ -1092,6 +939,15 @@ defmodule Aiur.CodingAgent do
   def remote_control?(backend) do
     case Map.fetch(backends(), backend) do
       {:ok, entry} -> Map.get(entry, :remote_control, false)
+      :error -> false
+    end
+  end
+
+  @doc "Whether the backend can execute its session and tools on an SSH worker."
+  @spec remote_worker?(backend()) :: boolean()
+  def remote_worker?(backend) do
+    case Map.fetch(backends(), backend) do
+      {:ok, entry} -> Map.get(entry, :remote_worker, true)
       :error -> false
     end
   end

@@ -3,7 +3,8 @@ defmodule Aiur.OpenAICompat.MeterAdapter do
 
   @backend :openai_compat
   @source_versions %{kimi: 144_001, deepseek: 144_002}
-  @deepseek_concurrency_limit 2_500
+
+  alias Aiur.OpenAICompat.MeterWindows
 
   @spec observe(map(), map(), keyword()) :: :ok
   def observe(completion, state, opts) when is_map(completion) and is_map(state) do
@@ -42,20 +43,7 @@ defmodule Aiur.OpenAICompat.MeterAdapter do
 
   defp windows(:deepseek, %{local_in_flight: in_flight}, observed_at)
        when is_integer(in_flight) and in_flight >= 0 do
-    [
-      %{
-        limit_id: "local-concurrency",
-        kind: :rate_limit,
-        name: :concurrency,
-        used_percent: in_flight / @deepseek_concurrency_limit * 100,
-        used: in_flight,
-        limit: @deepseek_concurrency_limit,
-        remaining: max(@deepseek_concurrency_limit - in_flight, 0),
-        source: :deepseek_api,
-        observed_at: observed_at,
-        coverage: :supported
-      }
-    ]
+    [MeterWindows.deepseek_concurrency(in_flight, observed_at)]
   end
 
   defp windows(_provider, _completion, _observed_at), do: []

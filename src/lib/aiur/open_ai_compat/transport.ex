@@ -11,7 +11,8 @@ defmodule Aiur.OpenAICompat.Transport do
 
     with {:ok, response} <- result,
          :ok <- status(response),
-         {:ok, completion} <- decode(config.transport, response) do
+         {:ok, completion} <- decode(config.transport, response),
+         :ok <- completion_status(config.transport, completion) do
       {:ok,
        completion
        |> Map.put(:headers, Map.get(response, :headers, %{}))
@@ -110,6 +111,26 @@ defmodule Aiur.OpenAICompat.Transport do
   end
 
   defp decode(_, _), do: {:error, :invalid_response_body}
+
+  defp completion_status(:responses, %{finish_reason: "completed"}), do: :ok
+
+  defp completion_status(:responses, %{finish_reason: status})
+       when status in ["cancelled", "failed", "incomplete", "in_progress", "queued"] do
+    {:error, {:incomplete_provider_response, status}}
+  end
+
+  defp completion_status(:responses, _completion), do: {:error, :invalid_response_status}
+
+  defp completion_status(:chat_completions, %{finish_reason: reason})
+       when reason in ["stop", "tool_calls", "function_call"],
+       do: :ok
+
+  defp completion_status(:chat_completions, %{finish_reason: reason})
+       when reason in ["content_filter", "length"] do
+    {:error, {:incomplete_provider_response, reason}}
+  end
+
+  defp completion_status(:chat_completions, _completion), do: {:error, :invalid_finish_reason}
 
   defp normalize_chat_tool_calls(calls) when is_list(calls) do
     Enum.map(calls, fn call ->

@@ -5,7 +5,12 @@ defmodule Aiur.OpenAICompat.CodingAgentTest do
   alias Aiur.OpenAICompat.CodingAgent
 
   setup do
-    workspace = Path.join(System.tmp_dir!(), "aiur-openai-compat-#{System.unique_integer([:positive])}")
+    workspace =
+      Path.join(
+        Aiur.Config.workspace_root(),
+        "aiur-openai-compat-#{System.unique_integer([:positive])}"
+      )
+
     File.mkdir_p!(workspace)
     File.write!(Path.join(workspace, "sample.txt"), "workspace evidence\n")
     on_exit(fn -> File.rm_rf!(workspace) end)
@@ -158,6 +163,79 @@ defmodule Aiur.OpenAICompat.CodingAgentTest do
 
     assert_receive {:event, %{event: :tool_result, payload: %{success: false, output: output}}}
     assert output =~ "invalid arguments"
+    assert {:ok, :cleanup_proven} = CodingAgent.stop_session(session)
+  end
+
+  test "executes a validated plain-text tool call when the provider omits tool_calls", %{workspace: workspace} do
+    parent = self()
+
+    fallback =
+      response(%{
+        "id" => "req-fallback",
+        "choices" => [
+          %{
+            "finish_reason" => "stop",
+            "message" => %{
+              "role" => "assistant",
+              "content" => ~s(<tool_call>{"name":"read_file","arguments":{"path":"sample.txt"}}</tool_call>)
+            }
+          }
+        ]
+      })
+
+    final = response(%{"id" => "req-fallback-final", "choices" => [%{"finish_reason" => "stop", "message" => %{"role" => "assistant", "content" => "Read it."}}]})
+    {:ok, queue} = Agent.start_link(fn -> [fallback, final] end)
+
+    assert {:ok, session} =
+             CodingAgent.start_session(workspace,
+               backend: "deepseek",
+               instance: instance(text_tool_fallback: true),
+               api_key_fetcher: fn _ -> "secret" end,
+               request_fun: queue_fun(queue, parent)
+             )
+
+    assert {:ok, _} = CodingAgent.run_turn(session, "Read it", issue(), on_message: fn event -> send(parent, {:event, event}) end)
+
+    assert_receive {:event, %{event: :tool_call, payload: %{name: "read_file"}}}
+    assert_receive {:event, %{event: :tool_result, payload: %{success: true, output: "workspace evidence\n"}}}
+    assert_receive {:request, _first}
+    assert_receive {:request, second}
+    assert Enum.any?(second.json["messages"], &(&1["role"] == "tool" and &1["content"] == "workspace evidence\n"))
+    assert {:ok, :cleanup_proven} = CodingAgent.stop_session(session)
+  end
+
+  test "does not execute plain-text tool syntax when the fallback quirk is disabled", %{workspace: workspace} do
+    parent = self()
+
+    fallback =
+      response(%{
+        "id" => "req-disabled-fallback",
+        "choices" => [
+          %{
+            "finish_reason" => "stop",
+            "message" => %{
+              "role" => "assistant",
+              "content" => ~s(<tool_call>{"name":"read_file","arguments":{"path":"sample.txt"}}</tool_call>)
+            }
+          }
+        ]
+      })
+
+    assert {:ok, session} =
+             CodingAgent.start_session(workspace,
+               backend: "kimi",
+               instance: instance([]),
+               api_key_fetcher: fn _ -> "secret" end,
+               request_fun: fn request ->
+                 send(parent, {:request, request})
+                 fallback
+               end
+             )
+
+    assert {:ok, _} = CodingAgent.run_turn(session, "Read it", issue(), on_message: fn event -> send(parent, {:event, event}) end)
+    assert_receive {:request, _request}
+    refute_receive {:event, %{event: :tool_call}}
+    refute_receive {:event, %{event: :tool_result}}
     assert {:ok, :cleanup_proven} = CodingAgent.stop_session(session)
   end
 
@@ -370,6 +448,236 @@ defmodule Aiur.OpenAICompat.CodingAgentTest do
 
     refute_receive {:unexpected_request, _request}
     assert {:ok, :cleanup_proven} = CodingAgent.stop_session(session)
+  end
+
+  test "a pause requested inside a tool batch waits until every advertised call has a result", %{
+    workspace: workspace
+  } do
+    parent = self()
+
+    first =
+      response(%{
+        "id" => "req-tool-batch",
+        "choices" => [
+          %{
+            "finish_reason" => "tool_calls",
+            "message" => %{
+              "role" => "assistant",
+              "tool_calls" =>
+                Enum.map(1..2, fn index ->
+                  %{
+                    "id" => "call-#{index}",
+                    "type" => "function",
+                    "function" => %{"name" => "read_file", "arguments" => ~s({"path":"sample.txt"})}
+                  }
+                end)
+            }
+          }
+        ]
+      })
+
+    assert {:ok, session} =
+             CodingAgent.start_session(workspace,
+               backend: "kimi",
+               instance: instance([]),
+               api_key_fetcher: fn _ -> "secret" end,
+               request_fun: fn _request -> first end
+             )
+
+    checkpoint = fn
+      %{kind: :tool_result} ->
+        unless Process.get(:pause_sent) do
+          Process.put(:pause_sent, true)
+          send(self(), {:pause_agent, 42, 3})
+        end
+
+        :noop
+
+      _ ->
+        :noop
+    end
+
+    assert {:paused, %{reason: :operator_pause, request_id: 42, generation: 3}} =
+             CodingAgent.run_turn(session, "Read twice", issue(),
+               on_safe_checkpoint: checkpoint,
+               on_message: fn event -> send(parent, {:event, event}) end
+             )
+
+    assert_receive {:event, %{event: :tool_result, payload: %{id: "call-1", success: true}}}
+    assert_receive {:event, %{event: :tool_result, payload: %{id: "call-2", success: true}}}
+    assert {:ok, :cleanup_proven} = CodingAgent.stop_session(session)
+  end
+
+  test "checkpoint messages follow every result in a multi-tool batch", %{
+    workspace: workspace
+  } do
+    parent = self()
+
+    first =
+      response(%{
+        "id" => "req-ordered-batch",
+        "choices" => [
+          %{
+            "finish_reason" => "tool_calls",
+            "message" => %{
+              "role" => "assistant",
+              "tool_calls" =>
+                Enum.map(1..2, fn index ->
+                  %{
+                    "id" => "ordered-#{index}",
+                    "type" => "function",
+                    "function" => %{
+                      "name" => "read_file",
+                      "arguments" => ~s({"path":"sample.txt"})
+                    }
+                  }
+                end)
+            }
+          }
+        ]
+      })
+
+    final =
+      response(%{
+        "id" => "req-ordered-final",
+        "choices" => [
+          %{
+            "finish_reason" => "stop",
+            "message" => %{"role" => "assistant", "content" => "Done."}
+          }
+        ]
+      })
+
+    {:ok, queue} = Agent.start_link(fn -> [first, final] end)
+
+    assert {:ok, session} =
+             CodingAgent.start_session(workspace,
+               backend: "kimi",
+               instance: instance([]),
+               api_key_fetcher: fn _ -> "secret" end,
+               request_fun: queue_fun(queue, parent)
+             )
+
+    checkpoint = fn
+      %{kind: :tool_result} ->
+        unless Process.get(:batch_message_delivered) do
+          Process.put(:batch_message_delivered, true)
+          {:deliver_text, "After the batch", fn _metadata -> :ok end, fn _reason -> :ok end}
+        else
+          :noop
+        end
+
+      _ ->
+        :noop
+    end
+
+    assert {:ok, _session} =
+             CodingAgent.run_turn(session, "Read twice", issue(), on_safe_checkpoint: checkpoint)
+
+    assert_receive {:request, _first_request}
+    assert_receive {:request, second_request}
+
+    assert Enum.map(Enum.take(second_request.json["messages"], -3), fn message ->
+             {message["role"], message["tool_call_id"], message["content"]}
+           end) == [
+             {"tool", "ordered-1", "workspace evidence\n"},
+             {"tool", "ordered-2", "workspace evidence\n"},
+             {"user", nil, "After the batch"}
+           ]
+
+    assert {:ok, :cleanup_proven} = CodingAgent.stop_session(session)
+  end
+
+  test "rejects incomplete Responses and token-limited chat completions", %{workspace: workspace} do
+    cases = [
+      {:responses,
+       %{
+         "id" => "resp-incomplete",
+         "status" => "incomplete",
+         "output" => [],
+         "incomplete_details" => %{"reason" => "max_output_tokens"}
+       }, {:incomplete_provider_response, "incomplete"}},
+      {:chat_completions,
+       %{
+         "id" => "chat-limited",
+         "choices" => [
+           %{
+             "finish_reason" => "length",
+             "message" => %{"role" => "assistant", "content" => "partial"}
+           }
+         ]
+       }, {:incomplete_provider_response, "length"}}
+    ]
+
+    for {transport, body, reason} <- cases do
+      assert {:ok, session} =
+               CodingAgent.start_session(workspace,
+                 backend: "deepseek",
+                 instance: %{instance([]) | transport: transport},
+                 api_key_fetcher: fn _ -> "secret" end,
+                 request_fun: fn _request -> response(body) end
+               )
+
+      assert {:error, ^reason} = CodingAgent.run_turn(session, "Finish fully", issue(), [])
+      assert {:ok, :cleanup_proven} = CodingAgent.stop_session(session)
+    end
+  end
+
+  test "OpenRouter requires an explicit underlying model", %{workspace: workspace} do
+    assert {:error, :missing_model} =
+             CodingAgent.start_session(workspace,
+               backend: "openrouter",
+               api_key_fetcher: fn _ -> "secret" end,
+               request_fun: fn _request -> flunk("request must not run") end
+             )
+  end
+
+  test "session startup rejects the workspace root, outside paths, and symlink escapes" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-openai-root-#{System.unique_integer([:positive])}"
+      )
+
+    outside =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-openai-outside-#{System.unique_integer([:positive])}"
+      )
+
+    File.mkdir_p!(root)
+    File.mkdir_p!(outside)
+    File.ln_s!(outside, Path.join(root, "escaped"))
+    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> File.rm_rf!(outside) end)
+
+    opts = [
+      backend: "kimi",
+      instance: instance([]),
+      workspace_root: root,
+      api_key_fetcher: fn _ -> "secret" end
+    ]
+
+    assert {:error, {:invalid_workspace_cwd, :workspace_root, _path}} =
+             CodingAgent.start_session(root, opts)
+
+    assert {:error, {:invalid_workspace_cwd, :outside_workspace_root, _path, _root}} =
+             CodingAgent.start_session(outside, opts)
+
+    assert {:error, {:invalid_workspace_cwd, :outside_workspace_root, _path, _root}} =
+             CodingAgent.start_session(Path.join(root, "escaped"), opts)
+  end
+
+  test "backend config failures remain visible", %{workspace: workspace} do
+    assert {:error, {:backend_config_unavailable, "configuration unavailable"}} =
+             CodingAgent.start_session(workspace,
+               backend: "kimi",
+               instance: instance([]),
+               backend_config_fetcher: fn _backend ->
+                 raise "configuration unavailable"
+               end,
+               api_key_fetcher: fn _ -> "secret" end
+             )
   end
 
   defp instance(extra) do

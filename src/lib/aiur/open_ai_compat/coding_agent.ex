@@ -6,15 +6,28 @@ defmodule Aiur.OpenAICompat.CodingAgent do
 
   @behaviour Aiur.CodingAgent.Backend
 
-  alias Aiur.OpenAICompat.{AccountGeneration, Config, MeterAdapter, Session, ToolCallParser, Tools, Transport}
+  alias Aiur.OpenAICompat.{
+    AccountGeneration,
+    Checkpoint,
+    Config,
+    Conversation,
+    MeterAdapter,
+    Session,
+    ToolCallParser,
+    Tools,
+    Transport,
+    WorkspacePath
+  }
 
   @max_tool_rounds 32
 
   @impl true
   def start_session(workspace, opts) when is_binary(workspace) and is_list(opts) do
-    expanded = Path.expand(workspace)
-
-    with true <- File.dir?(expanded) or {:error, {:invalid_workspace_cwd, expanded}},
+    with {:ok, expanded} <-
+           WorkspacePath.validate_workspace(
+             workspace,
+             Keyword.get(opts, :workspace_root, Aiur.Config.workspace_root())
+           ),
          {:ok, config} <- Config.resolve(opts),
          account_generation <-
            AccountGeneration.new_binding(
@@ -110,11 +123,11 @@ defmodule Aiur.OpenAICompat.CodingAgent do
       completion = maybe_parse_text_tool_calls(completion, state.config)
       MeterAdapter.observe(completion, state, opts)
       emit_completion(completion, state, opts)
-      state = append_assistant(state, completion)
+      state = Conversation.append_assistant(state, completion)
 
       case completion.tool_calls do
         [] ->
-          case deliver_checkpoint(state, %{kind: :notification, method: "response/completed"}, opts) do
+          case Checkpoint.deliver(state, %{kind: :notification, method: "response/completed"}, opts) do
             {:delivered, state} ->
               run_loop(state, opts, rounds + 1)
 
@@ -139,8 +152,12 @@ defmodule Aiur.OpenAICompat.CodingAgent do
   end
 
   defp execute_tools(state, calls, opts) do
-    Enum.reduce_while(calls, {:ok, state}, fn call, {:ok, current} ->
-      emit(opts, %{event: :tool_call, payload: %{id: call.id, name: call.name, arguments: display_arguments(call.arguments)}})
+    calls
+    |> Enum.reduce({state, nil, []}, fn call, {current, pending_pause, deliveries} ->
+      emit(opts, %{
+        event: :tool_call,
+        payload: %{id: call.id, name: call.name, arguments: display_arguments(call.arguments)}
+      })
 
       result =
         with {:ok, arguments} <- Tools.decode_and_validate(call.name, call.arguments) do
@@ -151,7 +168,11 @@ defmodule Aiur.OpenAICompat.CodingAgent do
             opts
           )
         else
-          {:error, reason} -> %{"success" => false, "output" => "invalid arguments: #{reason}"}
+          {:error, reason} ->
+            %{
+              "success" => false,
+              "output" => "invalid arguments: #{Tools.format_validation_error(reason)}"
+            }
         end
 
       output = stringify_output(result["output"])
@@ -161,103 +182,32 @@ defmodule Aiur.OpenAICompat.CodingAgent do
 
       current =
         current
-        |> append_tool_result(call, output)
+        |> Conversation.append_tool_result(call, output)
 
-      {_delivery, current} = deliver_checkpoint(current, %{kind: :tool_result, method: "tool/result"}, opts)
+      {current, deliveries} =
+        Checkpoint.defer(
+          current,
+          %{kind: :tool_result, method: "tool/result"},
+          deliveries,
+          opts
+        )
 
-      case pause_state() do
-        :continue -> {:cont, {:ok, current}}
-        {:paused, payload} -> {:halt, {:paused, current, payload}}
-      end
+      pending_pause =
+        case pause_state() do
+          :continue -> pending_pause
+          {:paused, payload} -> pending_pause || payload
+        end
+
+      {current, pending_pause, deliveries}
     end)
-  end
+    |> case do
+      {current, pending_pause, deliveries} ->
+        current = Checkpoint.flush(current, deliveries, opts)
 
-  defp append_assistant(%{config: %{transport: :responses}} = state, %{output: output})
-       when is_list(output) do
-    %{state | messages: state.messages ++ output}
-  end
-
-  defp append_assistant(state, completion) do
-    message =
-      completion.message
-      |> Map.put("role", "assistant")
-      |> maybe_put_reasoning(completion, state.config)
-      |> maybe_put_tool_calls(completion.tool_calls)
-
-    %{state | messages: state.messages ++ [message]}
-  end
-
-  defp maybe_put_reasoning(message, %{reasoning: reasoning}, %{quirks: %{reasoning_content_replay: true}})
-       when is_binary(reasoning) and reasoning != "",
-       do: Map.put(message, "reasoning_content", reasoning)
-
-  defp maybe_put_reasoning(message, _completion, _config), do: Map.delete(message, "reasoning_content")
-
-  defp maybe_put_tool_calls(message, []), do: Map.delete(message, "tool_calls")
-
-  defp maybe_put_tool_calls(message, calls) do
-    formatted =
-      Enum.map(calls, fn call ->
-        %{
-          "id" => call.id,
-          "type" => "function",
-          "function" => %{"name" => call.name, "arguments" => encode_arguments(call.arguments)}
-        }
-      end)
-
-    Map.put(message, "tool_calls", formatted)
-  end
-
-  defp append_tool_result(state, call, output) do
-    message =
-      case state.config.transport do
-        :responses -> %{"type" => "function_call_output", "call_id" => call.id, "output" => output}
-        :chat_completions -> %{"role" => "tool", "tool_call_id" => call.id, "content" => output}
-      end
-
-    %{state | messages: state.messages ++ [message]}
-  end
-
-  defp deliver_checkpoint(state, checkpoint, opts) do
-    callback = Keyword.get(opts, :on_safe_checkpoint, fn _ -> :noop end)
-
-    case callback.(checkpoint) do
-      :noop ->
-        {:noop, state}
-
-      {:deliver_text, text, on_success, _on_failure}
-      when is_binary(text) and is_function(on_success, 1) ->
-        request_id = state.next_request_id
-
-        on_success.(%{
-          backend: state.config.backend,
-          checkpoint: checkpoint.kind,
-          request_id: request_id,
-          turn_id: "openai-compat-#{request_id}"
-        })
-
-        {:delivered,
-         %{
-           state
-           | next_request_id: request_id + 1,
-             messages: state.messages ++ [%{"role" => "user", "content" => text}]
-         }}
-
-      {:deliver_text, _text, _on_success, on_failure} when is_function(on_failure, 1) ->
-        on_failure.(:invalid_operator_message)
-        {:noop, state}
-
-      _ ->
-        {:noop, state}
+        if is_nil(pending_pause),
+          do: {:ok, current},
+          else: {:paused, current, pending_pause}
     end
-  rescue
-    error ->
-      case Keyword.get(opts, :on_checkpoint_error) do
-        fun when is_function(fun, 1) -> fun.(error)
-        _ -> :ok
-      end
-
-      {:noop, state}
   end
 
   defp emit_completion(completion, state, opts) do
@@ -324,10 +274,6 @@ defmodule Aiur.OpenAICompat.CodingAgent do
   end
 
   defp display_arguments(_), do: %{}
-
-  defp encode_arguments(arguments) when is_binary(arguments), do: arguments
-  defp encode_arguments(arguments) when is_map(arguments), do: Jason.encode!(arguments)
-  defp encode_arguments(_), do: "{}"
 
   defp stringify_output(output) when is_binary(output), do: output
   defp stringify_output(output), do: Jason.encode!(output)

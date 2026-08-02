@@ -12,7 +12,8 @@ defmodule Aiur.OpenAICompat.Config do
 
     with true <- is_binary(backend) or {:error, :missing_backend},
          {:ok, instance} <- instance_config(backend, opts),
-         config <- merge_runtime_config(instance, backend_config(backend, opts)),
+         {:ok, runtime_config} <- backend_config(backend, opts),
+         config <- merge_runtime_config(instance, runtime_config),
          {:ok, config} <- validate(config),
          {:ok, api_key} <- fetch_api_key(config.api_key_env, opts),
          {:ok, model} <- resolve_model(config, opts) do
@@ -43,15 +44,27 @@ defmodule Aiur.OpenAICompat.Config do
   defp backend_config(backend, opts) do
     case Keyword.get(opts, :backend_config) do
       %{} = config ->
-        atomize(config)
+        {:ok, atomize(config)}
+
+      nil ->
+        fetch_backend_config(backend, opts)
 
       _ ->
-        backend
-        |> AiurConfig.backend_config()
-        |> atomize()
+        {:error, :invalid_backend_config}
+    end
+  end
+
+  defp fetch_backend_config(backend, opts) do
+    fetcher = Keyword.get(opts, :backend_config_fetcher, &AiurConfig.backend_config/1)
+
+    case fetcher.(backend) do
+      %{} = config -> {:ok, atomize(config)}
+      _ -> {:error, :invalid_backend_config}
     end
   rescue
-    _ -> %{}
+    error -> {:error, {:backend_config_unavailable, Exception.message(error)}}
+  catch
+    kind, reason -> {:error, {:backend_config_unavailable, {kind, reason}}}
   end
 
   defp merge_runtime_config(instance, runtime) do

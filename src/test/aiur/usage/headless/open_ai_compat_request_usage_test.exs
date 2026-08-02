@@ -63,6 +63,19 @@ defmodule Aiur.Usage.Headless.OpenAICompatRequestUsageTest do
     assert envelope.tokens.input == 50
   end
 
+  test "atom-keyed usage is recognized and measured" do
+    payload = %{
+      request_id: "req-atom-usage",
+      model: "kimi-k2.7-code",
+      usage: %{prompt_tokens: 12, completion_tokens: 3, total_tokens: 15}
+    }
+
+    assert [{:ok, envelope}] = Kimi.RequestUsage.extract(payload, nil, context(:kimi), @now)
+    assert envelope.tokens.input == 12
+    assert envelope.tokens.output == 3
+    assert envelope.tokens.provider_reported_total == 15
+  end
+
   defp context(provider) do
     %Context{
       run_id: "run-1",

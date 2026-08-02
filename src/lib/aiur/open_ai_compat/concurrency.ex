@@ -4,18 +4,20 @@ defmodule Aiur.OpenAICompat.Concurrency do
   @counter_key {__MODULE__, :counters}
   @slots 64
 
-  @spec with_slot(String.t(), (-> result)) :: {result, pos_integer()} when result: term()
+  @spec with_slot(String.t(), (-> result)) :: {result, non_neg_integer()} when result: term()
   def with_slot(backend, fun) when is_binary(backend) and is_function(fun, 0) do
     counters = counters()
     index = index(backend)
     :counters.add(counters, index, 1)
-    in_flight = :counters.get(counters, index)
 
-    try do
-      {fun.(), in_flight}
-    after
-      :counters.sub(counters, index, 1)
-    end
+    result =
+      try do
+        fun.()
+      after
+        :counters.sub(counters, index, 1)
+      end
+
+    {result, current(backend)}
   end
 
   @spec current(String.t()) :: non_neg_integer()

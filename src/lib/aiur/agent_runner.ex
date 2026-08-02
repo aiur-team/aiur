@@ -18,7 +18,10 @@ defmodule Aiur.AgentRunner do
   @spec run(map(), pid() | nil, keyword()) :: :ok | no_return()
   def run(issue, codex_update_recipient \\ nil, opts \\ []) do
     # The orchestrator owns host retries so one worker lifetime never hops machines.
-    worker_host = selected_worker_host(Keyword.get(opts, :worker_host), Config.settings!().worker.ssh_hosts)
+    worker_host =
+      if CodingAgent.remote_worker?(CodingAgent.backend_for(issue)) do
+        selected_worker_host(Keyword.get(opts, :worker_host), Config.settings!().worker.ssh_hosts)
+      end
 
     # Make sure a per-issue file writer is running so this session's
     # transcript and alert events land in <repo>.<issue>.log alongside any

@@ -59,6 +59,7 @@ defmodule Aiur.OpenAICompat.MeterAdapterTest do
     assert window.limit == 2_500
     assert window.remaining == 2_475
     assert window.used_percent == 1.0
+    assert window.expires_at == ~U[2026-08-01 12:01:00Z]
   end
 
   defp state(provider) do

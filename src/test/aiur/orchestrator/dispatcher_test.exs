@@ -203,6 +203,36 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   end
 
   describe "dispatch attempt provenance" do
+    test "keeps local-only provider transports off configured SSH workers" do
+      test_pid = self()
+      write_workflow_file!(Workflow.workflow_file_path(), worker_ssh_hosts: ["worker-a"])
+
+      issue = %Issue{
+        id: "local-provider",
+        identifier: "repo#local-provider",
+        state: "todo",
+        selected_backend: "kimi"
+      }
+
+      runner = fn dispatched_issue, recipient, opts ->
+        send(test_pid, {:agent_runner_run, dispatched_issue, recipient, opts})
+        :ok
+      end
+
+      next_state =
+        Dispatcher.do_dispatch_issue(
+          %State{max_concurrent_agents: 1, effective_concurrent_agents: 1},
+          issue,
+          nil,
+          nil,
+          runner: runner
+        )
+
+      assert_receive {:agent_runner_run, ^issue, _recipient, runner_opts}
+      assert Keyword.fetch!(runner_opts, :worker_host) == nil
+      assert get_in(next_state.running, [issue.id, :worker_host]) == nil
+    end
+
     test "records the dispatch-time complexity estimate" do
       test_pid = self()
 
