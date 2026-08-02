@@ -331,7 +331,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
         severity: "warning"
       )
 
-      move_exhausted_issue_to_error_state(issue_id, identifier, error)
+      error_alert_emitted? = move_exhausted_issue_to_error_state(issue_id, identifier, error) == :alert_emitted
 
       # Release the claim so a later label-driven re-dispatch (Executor moves the
       # ticket from `error` back to an active state) is picked up without a full
@@ -351,7 +351,10 @@ defmodule Aiur.Orchestrator.RetryEngine do
       # ticket recoverable without a restart rather than stranding it in
       # `claimed`, which is the behaviour #699 is fixing.
       released = release_issue_claim(state, issue_id)
-      %{released | retry_attempts: Map.delete(released.retry_attempts, issue_id)}
+
+      released
+      |> Map.put(:retry_attempts, Map.delete(released.retry_attempts, issue_id))
+      |> maybe_mark_observed_error_alert(issue_id, error_alert_emitted?)
     else
       delay_ms = retry_delay(next_attempt, metadata)
       retry_token = make_ref()
@@ -554,7 +557,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
           severity: "warning"
         )
 
-        :ok
+        :alert_emitted
 
       {:error, reason} ->
         Logger.warning("Failed moving exhausted issue identifier=#{identifier} to error state: #{inspect(reason)}")
@@ -564,6 +567,9 @@ defmodule Aiur.Orchestrator.RetryEngine do
   end
 
   defp move_exhausted_issue_to_error_state(_issue_id, _identifier, _error), do: :ok
+
+  defp maybe_mark_observed_error_alert(state, issue_id, true), do: %{state | observed_error_alerts: MapSet.put(state.observed_error_alerts, issue_id)}
+  defp maybe_mark_observed_error_alert(state, _issue_id, false), do: state
 
   defp retry_exhausted_error_suffix(error) when is_binary(error) and error != "", do: " Last error: #{error}"
   defp retry_exhausted_error_suffix(_error), do: ""

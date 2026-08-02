@@ -127,6 +127,63 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     assert event["needs_attention"] == false
   end
 
+  test "persists a reason-carrying fallback when polling observes an ordinary error transition" do
+    Publisher.set_tracked_fn(fn _ -> true end)
+    :ok = Exchange.subscribe("ticket.its-everdred/aiur#observed-error.agent.attention.error")
+
+    on_exit(fn ->
+      Publisher.set_tracked_fn(fn _ -> true end)
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+    end)
+
+    previous = issue("observed-error", "rework")
+    errored = %{previous | state: "error"}
+
+    state =
+      IssueSync.sync_polled_issue_state(
+        %State{last_polled_issues: %{previous.id => previous}},
+        [errored],
+        fn _ -> {:ok, []} end,
+        fn _identity, _lifecycle -> :ok end,
+        MapSet.new(["done"]),
+        fn _ -> :ok end,
+        fn _identity, _pending? -> :ok end
+      )
+
+    assert MapSet.member?(state.observed_error_alerts, previous.id)
+
+    assert_receive {:event, %{topic: "ticket.its-everdred/aiur#observed-error.agent.attention.error"} = event}, 500
+    assert event["reason"] =~ "without a specialized local cause"
+    assert event["reason"] =~ "will not clear on its own"
+    assert event["needs_attention"] == true
+  end
+
+  test "does not duplicate an error alert already emitted by a specialized producer" do
+    Publisher.set_tracked_fn(fn _ -> true end)
+    :ok = Exchange.subscribe("ticket.its-everdred/aiur#specialized-error.agent.attention.error")
+
+    on_exit(fn ->
+      Publisher.set_tracked_fn(fn _ -> true end)
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+    end)
+
+    previous = issue("specialized-error", "rework")
+    errored = %{previous | state: "error"}
+
+    _ =
+      IssueSync.sync_polled_issue_state(
+        %State{last_polled_issues: %{previous.id => previous}, observed_error_alerts: MapSet.new([previous.id])},
+        [errored],
+        fn _ -> {:ok, []} end,
+        fn _identity, _lifecycle -> :ok end,
+        MapSet.new(["done"]),
+        fn _ -> :ok end,
+        fn _identity, _pending? -> :ok end
+      )
+
+    refute_receive {:event, %{topic: "ticket.its-everdred/aiur#specialized-error.agent.attention.error"}}, 100
+  end
+
   test "does not count an issue claimed in the same dispatch cycle as ready work" do
     ready = issue("claimed", "todo")
 

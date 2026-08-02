@@ -38,6 +38,8 @@ defmodule Aiur.Orchestrator.State do
           todo_over_capacity_alert_active: boolean(),
           prewarm_blocked_alert_active: boolean(),
           tracker_preflight_alert_signature: String.t() | nil,
+          tracker_preflight_alert_resolution_emitted: boolean(),
+          observed_error_alerts: MapSet.t(),
           dispatch_capacity_constraints: [map()],
           capacity_starvation: %{
             since_ms: %{optional(String.t()) => integer()},
@@ -95,6 +97,8 @@ defmodule Aiur.Orchestrator.State do
     todo_over_capacity_alert_active: false,
     prewarm_blocked_alert_active: false,
     tracker_preflight_alert_signature: nil,
+    tracker_preflight_alert_resolution_emitted: false,
+    observed_error_alerts: MapSet.new(),
     dispatch_capacity_constraints: [],
     capacity_starvation: %{since_ms: %{}, alert_active: false, signature: [], alerted: []},
     running: %{},

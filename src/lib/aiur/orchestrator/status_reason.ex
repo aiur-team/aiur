@@ -7,6 +7,7 @@ defmodule Aiur.Orchestrator.StatusReason do
           | {:latched, non_neg_integer(), non_neg_integer()}
           | {:transient, String.t() | nil, non_neg_integer() | nil}
           | {:paused, atom() | String.t() | nil}
+          | {:paused, atom() | String.t() | nil, t()}
 
   @spec for_idle(boolean(), term(), non_neg_integer(), non_neg_integer()) :: t()
   def for_idle(_prewarm_blocked?, :lifetime, lifetime, maximum) when is_integer(lifetime) and is_integer(maximum),
@@ -21,6 +22,9 @@ defmodule Aiur.Orchestrator.StatusReason do
 
   @spec for_pause(atom() | String.t() | nil) :: t()
   def for_pause(reason), do: {:paused, reason}
+
+  @spec for_paused_retry(atom() | String.t() | nil, String.t() | nil, non_neg_integer() | nil) :: t()
+  def for_paused_retry(reason, error, due_in_ms), do: {:paused, reason, for_retry(error, due_in_ms)}
 
   @spec render(t()) :: String.t()
   def render(:awaiting_dispatch), do: "awaiting-dispatch"
@@ -44,6 +48,8 @@ defmodule Aiur.Orchestrator.StatusReason do
       other -> humanize(other)
     end
   end
+
+  def render({:paused, reason, retry_reason}), do: "#{render({:paused, reason})}; #{render(retry_reason)}"
 
   defp format_duration(milliseconds) when milliseconds < 60_000, do: "<1m"
   defp format_duration(milliseconds), do: "~#{div(milliseconds + 59_999, 60_000)}m"

@@ -22,6 +22,23 @@ defmodule Aiur.Orchestrator.StatusReportTest do
     assert [%{identifier: "repo#20", state: :paused, title: nil, reason: {:transient, _, _}}] = statuses
   end
 
+  test "gives tracker pause precedence while retaining retry metadata" do
+    due_at_ms = System.monotonic_time(:millisecond) + 240_000
+    paused = %{id: "paused-retry", identifier: "repo#21", state: "todo", paused: true}
+
+    assert [status] =
+             StatusReport.agent_statuses(%State{
+               last_polled_issues: %{paused.id => paused},
+               retry_attempts: %{
+                 paused.id => %{identifier: paused.identifier, attempt: 1, due_at_ms: due_at_ms, error: "tracker 403"}
+               }
+             })
+
+    assert status.tracker_paused
+    assert {:paused, :label_override, {:transient, "tracker 403", _}} = status.reason
+    assert {:transient, "tracker 403", _} = status.retry_reason
+  end
+
   test "takes a bounded prewarm snapshot and handles an exited base server" do
     assert :building =
              StatusReport.prewarm_phase(fn timeout ->

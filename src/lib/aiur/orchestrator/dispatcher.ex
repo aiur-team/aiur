@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   require Logger
 
-  alias Aiur.{AgentRunner, Alerts, CodingAgent, Config, DispatchBudgetStore, Issue, RepoBase, Tracker}
+  alias Aiur.{AgentRunner, AlertFeed, Alerts, CodingAgent, Config, DispatchBudgetStore, Issue, RepoBase, Tracker}
   alias Aiur.GitHub.AuthPreflight
   alias Aiur.Orchestrator
 
@@ -182,16 +182,38 @@ defmodule Aiur.Orchestrator.Dispatcher do
              needs_attention: true,
              severity: "warning"
            ) do
-        :ok -> %{state | tracker_preflight_alert_signature: signature}
-        {:error, _reason} -> state
+        :ok ->
+          %{state | tracker_preflight_alert_signature: signature, tracker_preflight_alert_resolution_emitted: false}
+
+        {:error, _reason} ->
+          state
       end
     end
   end
 
   @doc false
   @spec clear_tracker_preflight_alert(State.t()) :: State.t()
-  def clear_tracker_preflight_alert(%State{} = state),
+  def clear_tracker_preflight_alert(%State{tracker_preflight_alert_resolution_emitted: true} = state),
     do: %{state | tracker_preflight_alert_signature: nil}
+
+  def clear_tracker_preflight_alert(%State{} = state) do
+    active? =
+      not is_nil(state.tracker_preflight_alert_signature) or
+        AlertFeed.active_system_attention?("system.tracker.auth_preflight_failed")
+
+    if active? do
+      case Alerts.emit_system("system.tracker.auth_preflight_failed.resolved",
+             reason: "GitHub tracker authentication preflight recovered; fleet dispatch may resume.",
+             needs_attention: false,
+             severity: "info"
+           ) do
+        :ok -> %{state | tracker_preflight_alert_signature: nil, tracker_preflight_alert_resolution_emitted: true}
+        {:error, _reason} -> state
+      end
+    else
+      %{state | tracker_preflight_alert_signature: nil, tracker_preflight_alert_resolution_emitted: true}
+    end
+  end
 
   defp tracker_preflight_alert_context({:github_auth_preflight_failed, diagnostic} = reason)
        when is_map(diagnostic) do
@@ -871,7 +893,11 @@ defmodule Aiur.Orchestrator.Dispatcher do
           updated_entry = Map.put(entry, :durable_latch_applied, true)
           state = put_thrash_budget(state, Map.put(thrash_budget(state), issue.id, updated_entry))
 
-          %{state | claimed: MapSet.delete(state.claimed, issue.id)}
+          %{
+            state
+            | claimed: MapSet.delete(state.claimed, issue.id),
+              observed_error_alerts: MapSet.put(state.observed_error_alerts, issue.id)
+          }
 
         {:error, reason} ->
           Logger.error("Unable to persist lifetime dispatch latch: issue_id=#{issue.id} issue_identifier=#{issue.identifier} reason=#{inspect(reason)}")

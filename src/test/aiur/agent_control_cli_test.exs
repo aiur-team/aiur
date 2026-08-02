@@ -408,7 +408,7 @@ defmodule Aiur.AgentControlCLITest do
 
   test "status names awaiting dispatch and transient retry causes", %{orchestrator: pid} do
     idle = %Issue{id: "issue-17", identifier: "repo#17", state: "todo", title: "Awaiting dispatch"}
-    retry = %Issue{id: "issue-18", identifier: "repo#18", state: "todo", title: "Retrying"}
+    retry = %Issue{id: "issue-18", identifier: "repo#18", state: "todo", title: "Retrying", labels: ["agent:todo", "agent:paused"], paused: true}
     due_at_ms = System.monotonic_time(:millisecond) + 240_000
 
     :sys.replace_state(pid, fn state ->
@@ -429,7 +429,7 @@ defmodule Aiur.AgentControlCLITest do
     output = capture_io(fn -> AgentControlCLI.status() end)
 
     assert output =~ "#17    idle    Awaiting dispatch (awaiting-dispatch)"
-    assert output =~ "#18    paused  Retrying (transient: tracker 403, retry ~4m)"
+    assert output =~ "#18    paused  Retrying (operator; transient: tracker 403, retry ~4m)"
   end
 
   test "status names a tracker pause as operator-paused", %{orchestrator: pid} do
@@ -1263,7 +1263,41 @@ defmodule Aiur.AgentControlCLITest do
       output = capture_io(fn -> AgentControlCLI.watch(mode: :full, roots: [root], log_roots: [root]) end)
 
       assert output =~ ~r/#46\s+paused\s+2\s/
-      assert output =~ "(paused: label override)"
+      assert output =~ "(paused: operator)"
+    end
+
+    test "watch shows paused retry causes and reports a reason-only change", %{orchestrator: pid, watch_root: root} do
+      retry = %Issue{
+        id: "issue-47",
+        identifier: "repo#47",
+        state: "todo",
+        title: "Retrying",
+        paused: true,
+        labels: ["agent:todo", "agent:paused"]
+      }
+
+      due_at_ms = System.monotonic_time(:millisecond) + 240_000
+
+      set_retry = fn error ->
+        :sys.replace_state(pid, fn state ->
+          %{
+            state
+            | last_polled_issues: %{retry.id => retry},
+              retry_attempts: %{
+                retry.id => %{identifier: retry.identifier, attempt: 1, due_at_ms: due_at_ms, error: error}
+              }
+          }
+        end)
+      end
+
+      set_retry.("tracker 403")
+      first = capture_io(fn -> AgentControlCLI.watch(mode: :changes, roots: [root], log_roots: [root]) end)
+      assert first =~ "(paused: operator; transient: tracker 403, retry ~4m)"
+
+      set_retry.("provider unavailable")
+      changed = capture_io(fn -> AgentControlCLI.watch(mode: :changes, roots: [root], log_roots: [root]) end)
+      assert changed =~ "#47"
+      assert changed =~ "(paused: operator; transient: provider unavailable, retry ~4m)"
     end
 
     test "changes mode prints a row once, then only when its state shifts", %{orchestrator: pid, watch_root: root} do

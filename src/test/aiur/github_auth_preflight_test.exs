@@ -1,6 +1,7 @@
 defmodule Aiur.GitHubAuthPreflightTest do
   use Aiur.TestSupport
 
+  alias Aiur.{AlertFeed, Config.Paths}
   alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.GitHub.Client
   alias Aiur.Orchestrator.{Dispatcher, State}
@@ -92,6 +93,7 @@ defmodule Aiur.GitHubAuthPreflightTest do
   test "tracker auth fleet alert is deduplicated by stable cause and rearms after recovery" do
     Publisher.set_tracked_fn(fn _ -> true end)
     :ok = Exchange.subscribe("system.tracker.auth_preflight_failed")
+    :ok = Exchange.subscribe("system.tracker.auth_preflight_failed.resolved")
 
     on_exit(fn ->
       Publisher.set_tracked_fn(fn _ -> true end)
@@ -125,14 +127,27 @@ defmodule Aiur.GitHubAuthPreflightTest do
     assert same_outage.tracker_preflight_alert_signature == first.tracker_preflight_alert_signature
     refute_receive {:event, %{topic: "system.tracker.auth_preflight_failed"}}, 100
 
-    recovered = Dispatcher.maybe_dispatch(same_outage, & &1, preflight_fun)
+    # A restarted orchestrator has no in-memory signature, but must still close
+    # the persisted fleet attention when the first preflight succeeds.
+    recovered = Dispatcher.maybe_dispatch(%State{}, & &1, preflight_fun)
     assert recovered.tracker_preflight_alert_signature == nil
+    assert recovered.tracker_preflight_alert_resolution_emitted
+
+    assert_receive {:event, %{topic: "system.tracker.auth_preflight_failed.resolved"}}, 500
+
+    refute Enum.any?(AlertFeed.list(log_roots: [Paths.log_root_dir()], needs_attention: true), fn alert ->
+             alert["topic"] == "system.tracker.auth_preflight_failed"
+           end)
 
     rearmed = Dispatcher.maybe_dispatch(recovered, & &1, preflight_fun)
     assert rearmed.tracker_preflight_alert_signature == first.tracker_preflight_alert_signature
 
     assert_receive {:event, %{topic: "system.tracker.auth_preflight_failed"} = second_event}, 500
     assert second_event["reason"] =~ "latest probe failed at a different endpoint"
+
+    assert Enum.any?(AlertFeed.list(log_roots: [Paths.log_root_dir()], needs_attention: true), fn alert ->
+             alert["topic"] == "system.tracker.auth_preflight_failed"
+           end)
   end
 
   test "missing GitHub token emits a fleet auth alert before polling" do

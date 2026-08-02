@@ -433,23 +433,51 @@ defmodule Aiur.Orchestrator.IssueSync do
     previous_state = DispatchPolicy.state_slug(previous_issue.state)
     current_state = DispatchPolicy.state_slug(issue.state)
 
-    if previous_state != current_state and current_state != nil do
-      # Ticket B: label-flip alerts route through the new topic shape so
-      # the alerts file can glob-match per state without one entry per state.
-      Alerts.emit_system(
-        "ticket.#{issue.identifier}.issue.label.added.agent.#{current_state}",
-        issue: issue,
-        worker_host: Orchestrator.running_worker_host(state, issue.id),
-        reason: task_state_alert_reason(current_state),
-        needs_attention: task_state_needs_attention?(current_state),
-        severity: task_state_alert_severity(current_state)
-      )
-    end
+    cond do
+      previous_state == current_state or is_nil(current_state) ->
+        state
 
-    state
+      current_state == "error" ->
+        emit_observed_error_transition_alert(state, issue)
+
+      true ->
+        # Ticket B: label-flip alerts route through the new topic shape so
+        # the alerts file can glob-match per state without one entry per state.
+        Alerts.emit_system(
+          "ticket.#{issue.identifier}.issue.label.added.agent.#{current_state}",
+          issue: issue,
+          worker_host: Orchestrator.running_worker_host(state, issue.id),
+          reason: task_state_alert_reason(current_state),
+          needs_attention: task_state_needs_attention?(current_state),
+          severity: task_state_alert_severity(current_state)
+        )
+
+        %{state | observed_error_alerts: MapSet.delete(state.observed_error_alerts, issue.id)}
+    end
   end
 
   defp emit_task_state_transition_alert(%State{} = state, _previous_issue, _issue), do: state
+
+  defp emit_observed_error_transition_alert(%State{} = state, %Issue{} = issue) do
+    if MapSet.member?(state.observed_error_alerts, issue.id) do
+      state
+    else
+      message =
+        "Tracker observed agent:error without a specialized local cause; the ticket needs Executor review. " <>
+          "This condition will not clear on its own until the ticket is moved out of error."
+
+      case Alerts.emit_system("ticket.#{issue.identifier}.agent.attention.error",
+             issue: issue,
+             worker_host: Orchestrator.running_worker_host(state, issue.id),
+             reason: message,
+             needs_attention: true,
+             severity: "warning"
+           ) do
+        :ok -> %{state | observed_error_alerts: MapSet.put(state.observed_error_alerts, issue.id)}
+        {:error, _reason} -> state
+      end
+    end
+  end
 
   defp emit_tracker_pause_transition_alert(%State{} = state, nil, %Issue{}), do: state
 

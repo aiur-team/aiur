@@ -533,6 +533,8 @@ defmodule Aiur.Orchestrator.StatusReport do
       issue = Map.get(state.last_polled_issues, issue_id)
       identifier = Map.get(retry, :identifier) || Map.get(issue || %{}, :identifier) || issue_id
       due_in_ms = max(0, Map.get(retry, :due_at_ms, now_ms) - now_ms)
+      retry_reason = StatusReason.for_retry(Map.get(retry, :error), due_in_ms)
+      tracker_paused = tracker_paused?(issue)
 
       %{
         issue_id: issue_id,
@@ -541,7 +543,7 @@ defmodule Aiur.Orchestrator.StatusReport do
         state: :paused,
         work_state: :paused,
         tracker_state: Map.get(issue || %{}, :state),
-        tracker_paused: false,
+        tracker_paused: tracker_paused,
         tag: State.issue_tag(issue),
         title: Map.get(issue || %{}, :title),
         url: Map.get(issue || %{}, :url),
@@ -556,10 +558,15 @@ defmodule Aiur.Orchestrator.StatusReport do
         last_codex_message: nil,
         last_codex_event: nil,
         retry_attempt: Map.get(retry, :attempt),
-        reason: StatusReason.for_retry(Map.get(retry, :error), due_in_ms)
+        retry_reason: retry_reason,
+        reason: if(tracker_paused, do: StatusReason.for_paused_retry(:label_override, Map.get(retry, :error), due_in_ms), else: retry_reason)
       }
     end)
   end
+
+  defp tracker_paused?(%Issue{} = issue), do: Issue.paused?(issue)
+  defp tracker_paused?(issue) when is_map(issue), do: Map.get(issue, :paused) == true
+  defp tracker_paused?(_issue), do: false
 
   defp idle_statuses(%State{} = state, _running_by_identifier, prewarm_phase) do
     state.last_polled_issues

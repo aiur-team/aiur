@@ -39,6 +39,12 @@ defmodule Aiur.AlertFeed do
     |> Enum.sort_by(&{&1.identifier, &1.slug})
   end
 
+  @doc false
+  @spec active_system_attention?(String.t()) :: boolean()
+  def active_system_attention?(topic) when is_binary(topic) do
+    Enum.any?(list(log_roots: [Paths.log_root_dir()], needs_attention: true), &(&1["topic"] == topic))
+  end
+
   defp workspace_alert_log_paths(opts) do
     opts
     |> roots()
@@ -208,6 +214,13 @@ defmodule Aiur.AlertFeed do
     end
   end
 
+  defp resolved_attention_key(%{"topic" => "system." <> rest, "needs_attention" => false}) do
+    case String.trim_trailing(rest, ".resolved") do
+      ^rest -> nil
+      topic -> {:system, topic}
+    end
+  end
+
   defp resolved_attention_key(_alert), do: nil
 
   defp attention_alert_key(%{"topic" => "ticket." <> rest}) do
@@ -216,6 +229,8 @@ defmodule Aiur.AlertFeed do
       _ -> nil
     end
   end
+
+  defp attention_alert_key(%{"topic" => "system." <> rest}), do: {:system, rest}
 
   defp attention_alert_key(_alert), do: nil
 

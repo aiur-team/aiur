@@ -67,6 +67,20 @@ defmodule Aiur.AlertFeedTest do
            ] = AlertFeed.list(roots: [root], log_roots: [log_root], needs_attention: true)
   end
 
+  test "a resolved system attention leaves the Executor feed", %{root: root} do
+    log_root = Path.join(root, "logs")
+    File.mkdir_p!(log_root)
+
+    File.write!(Path.join(log_root, "alerts.ndjson"), """
+    {"event":"alert","timestamp":"2026-08-02T01:00:00Z","topic":"system.tracker.auth_preflight_failed","message":"Tracker auth failed","reason":"GitHub auth failed","severity":"warning","needs_attention":true,"source_ticket_id":null}
+    {"event":"alert","timestamp":"2026-08-02T01:01:00Z","topic":"system.tracker.auth_preflight_failed.resolved","message":"Tracker auth recovered","reason":"GitHub auth recovered","severity":"info","needs_attention":false,"source_ticket_id":null}
+    """)
+
+    refute Enum.any?(AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true), fn alert ->
+             alert["topic"] == "system.tracker.auth_preflight_failed"
+           end)
+  end
+
   test "projects only active legacy decision attentions", %{root: root} do
     project_root = Path.join(root, "its-everdred/aiur")
     log = Path.join(project_root, "42/logs/agent.ndjson")
