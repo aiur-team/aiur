@@ -222,6 +222,59 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert draft.lifecycle.state == :open
   end
 
+  test "tracker completion outranks active current-run membership" do
+    directory = Path.join(System.tmp_dir!(), "planning-source-status-completed-#{System.unique_integer([:positive])}")
+    path = Path.join(directory, "build-order.json")
+
+    File.mkdir_p!(directory)
+    File.write!(path, @mixed_pack)
+    File.write!(Path.join(directory, "status.json"), ~s({"members":{"4101":"completed"}}))
+    Application.put_env(:aiur, :build_order_planning_pack, path)
+    put_membership(4101, :running)
+
+    on_exit(fn -> File.rm_rf(directory) end)
+
+    [root] = PlanningSource.catalog().data.entries
+    assert root.progress == 50
+
+    {:ok, snapshot} = PlanningSource.demand(root.identity)
+    [completed, _draft] = snapshot.data.members
+    assert completed.lifecycle.state == :closed
+    assert completed.lifecycle.state_reason == :completed
+
+    model = BuildOrderPresenter.present(snapshot, :unavailable, :unavailable)
+    card = model |> BuildOrderGridModel.build(nil) |> Map.fetch!(:cards) |> Enum.find(&(&1.id == "4101"))
+    assert card.state == :merged
+    assert card.progress == 100
+    assert card.status_word == "merged"
+  end
+
+  test "tracker reopen outranks terminal current-run membership" do
+    directory = Path.join(System.tmp_dir!(), "planning-source-status-open-#{System.unique_integer([:positive])}")
+    path = Path.join(directory, "build-order.json")
+
+    File.mkdir_p!(directory)
+    File.write!(path, @mixed_pack)
+    File.write!(Path.join(directory, "status.json"), ~s({"state":"completed","members":{"4101":"open"}}))
+    Application.put_env(:aiur, :build_order_planning_pack, path)
+    put_membership(4101, :completed)
+
+    on_exit(fn -> File.rm_rf(directory) end)
+
+    [root] = PlanningSource.catalog().data.entries
+    assert root.progress == 0
+
+    {:ok, snapshot} = PlanningSource.demand(root.identity)
+    [reopened, _draft] = snapshot.data.members
+    assert reopened.lifecycle.state == :open
+    assert reopened.lifecycle.state_reason == :none
+
+    model = BuildOrderPresenter.present(snapshot, :unavailable, :unavailable)
+    card = model |> BuildOrderGridModel.build(nil) |> Map.fetch!(:cards) |> Enum.find(&(&1.id == "4101"))
+    refute card.state == :merged
+    refute card.status_word == "merged"
+  end
+
   test "marks a retained status projection stale when PackStatus is unavailable" do
     directory = Path.join(System.tmp_dir!(), "planning-source-status-stale-#{System.unique_integer([:positive])}")
     path = Path.join(directory, "build-order.json")
@@ -271,6 +324,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     File.write!(path, @canonical_pack)
     File.write!(Path.join(directory, "status.json"), ~s({"members":{"4101":"completed"}}))
     Application.put_env(:aiur, :build_order_planning_pack, path)
+    put_membership(4102, :running)
 
     on_exit(fn -> File.rm_rf(directory) end)
 
@@ -331,6 +385,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     File.mkdir_p!(Path.dirname(document))
     File.write!(document, "# Render deck\n\nDraft ticket body.")
     File.write!(path, @mixed_pack)
+    File.write!(Path.join(directory, "status.json"), ~s({"members":{"4101":"completed"}}))
     Application.put_env(:aiur, :build_order_planning_pack, path)
 
     on_exit(fn -> File.rm_rf(directory) end)
@@ -556,5 +611,18 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     entries = PlanningSource.catalog().data.entries
     assert Enum.map(entries, & &1.title) == ["Demo Plan", "Recent completed", "Older completed"]
     assert Enum.map(entries, & &1.completed?) == [false, true, true]
+  end
+
+  defp put_membership(number, lifecycle) do
+    Application.put_env(:aiur, :build_order_planning_membership_snapshot, fn ->
+      {:ok, identity} =
+        TrackerIdentity.from_github(
+          %{"number" => number, "node_id" => "I_live_#{number}"},
+          {"acme", "widgets"},
+          {"acme", "widgets"}
+        )
+
+      %{generation: 9, health: :healthy, freshness: %{status: :fresh}, members: [%{identity: identity, lifecycle: lifecycle}]}
+    end)
   end
 end

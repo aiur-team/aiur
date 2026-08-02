@@ -246,7 +246,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   defp provider(membership, packs) do
     pack_status_snapshot = pack_status_health_snapshot()
-    pack_status = pack_status_health(packs, membership, pack_status_snapshot)
+    pack_status = pack_status_health(packs, pack_status_snapshot)
     source_generation = source_generation(membership, pack_status_snapshot)
 
     health =
@@ -294,8 +294,8 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   defp membership_health(membership), do: ProviderHealth.new(generation(membership), :healthy, true, observed_at: DateTime.utc_now())
 
-  defp pack_status_health(packs, membership, snapshot) do
-    {required?, projection_present?, projection_complete?} = pack_status_facts(packs, membership)
+  defp pack_status_health(packs, snapshot) do
+    {required?, projection_present?, projection_complete?} = pack_status_facts(packs)
 
     if required? do
       cond do
@@ -314,11 +314,11 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
     end
   end
 
-  defp pack_status_facts(packs, membership) do
+  defp pack_status_facts(packs) do
     Enum.reduce(packs, {false, false, true}, fn pack, facts ->
       Enum.reduce(pack.tickets, facts, fn ticket, {required?, projection_present?, projection_complete?} ->
         identity = ticket_identity(pack, ticket)
-        requires_projection? = is_integer(ticket.number) and not membership_member?(identity, membership)
+        requires_projection? = is_integer(ticket.number)
         known? = status_lifecycle(identity, pack) in [:completed, :cancelled, :open]
 
         {
@@ -378,10 +378,13 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   defp lifecycle(%{number: nil}, _identity, _pack, _membership), do: {"OPEN", nil}
 
   defp lifecycle(_ticket, identity, pack, membership) do
-    case membership_lifecycle(identity, membership) || status_lifecycle(identity, pack) do
-      :completed -> {"CLOSED", "COMPLETED"}
-      :cancelled -> {"CLOSED", "NOT_PLANNED"}
-      _other when pack.completed -> {"CLOSED", "COMPLETED"}
+    case {status_lifecycle(identity, pack), membership_lifecycle(identity, membership), pack.completed} do
+      {:completed, _membership, _pack_completed?} -> {"CLOSED", "COMPLETED"}
+      {:cancelled, _membership, _pack_completed?} -> {"CLOSED", "NOT_PLANNED"}
+      {:open, _membership, _pack_completed?} -> {"OPEN", nil}
+      {nil, :completed, _pack_completed?} -> {"CLOSED", "COMPLETED"}
+      {nil, :cancelled, _pack_completed?} -> {"CLOSED", "NOT_PLANNED"}
+      {nil, _membership, true} -> {"CLOSED", "COMPLETED"}
       _other -> {"OPEN", nil}
     end
   end
@@ -397,15 +400,8 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   defp completion_known?(_ticket, %{completed: true}, _membership), do: true
 
   defp completion_known?(ticket, pack, membership) do
-    membership_member?(member_identity(pack, ticket, membership), membership) or
-      case status_lifecycle(member_identity(pack, ticket, membership), pack) do
-        state when state in [:completed, :cancelled, :open] -> true
-        _unknown -> false
-      end
+    status_lifecycle(member_identity(pack, ticket, membership), pack) in [:completed, :cancelled, :open]
   end
-
-  defp membership_member?(identity, %{members: members}) when is_list(members), do: not is_nil(membership_member(identity, members))
-  defp membership_member?(_identity, _membership), do: false
 
   defp membership_lifecycle(identity, %{members: members}) when is_list(members) do
     membership_member(identity, members)
