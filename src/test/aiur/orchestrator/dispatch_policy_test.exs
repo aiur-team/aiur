@@ -169,6 +169,27 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
   end
 
   describe "CPU sample continuity" do
+    test "cold start fast-ramps after the CPU baseline observes clear headroom" do
+      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 4, target_load_average: 1.0)
+
+      baseline = %{total: 1_000, idle: 800, runnable: 1}
+      current = %{total: 1_200, idle: 960, runnable: 1}
+
+      state = %State{
+        max_concurrent_agents: 4,
+        effective_concurrent_agents: 1,
+        load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil}
+      }
+
+      seeded = DispatchPolicy.update_load_envelope(state, 0.0, 1.0, 4, 1_000, baseline, true)
+      assert seeded.effective_concurrent_agents == 2
+      assert seeded.load_envelope_state.last_decrease_ms == nil
+
+      ramped = DispatchPolicy.update_load_envelope(seeded, 0.0, 1.0, 4, 2_000, current, true)
+      assert ramped.effective_concurrent_agents == 4
+      assert ramped.load_envelope_state.last_decrease_ms == nil
+    end
+
     test "an unavailable sample clears the baseline before recovery can fast-ramp" do
       write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 8, target_load_average: 1.0)
 

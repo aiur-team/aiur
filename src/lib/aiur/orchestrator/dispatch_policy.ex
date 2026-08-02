@@ -192,8 +192,11 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
          %{schedulers: schedulers} = options
        ) do
     recovering? = is_integer(last_decrease_ms)
+    # Cold starts have no recovery timestamp. Limit their headroom shortcut to
+    # below-target load so the normal AIMD decrease still wins under pressure.
+    below_target? = load <= options.target * schedulers
 
-    if recovering? and options.queued_work? and
+    if (recovering? or below_target?) and options.queued_work? and
          clear_cpu_headroom?(options.cpu_headroom, schedulers) do
       fast_ramp(effective, last_decrease_ms, options.static_limit)
     else
