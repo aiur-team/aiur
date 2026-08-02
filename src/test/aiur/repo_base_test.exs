@@ -116,9 +116,11 @@ defmodule Aiur.RepoBaseTest do
       git!(["clone", "--quiet", origin, parked])
       File.mkdir_p!(Path.join([parked, "builds", "legacy-pack"]))
       File.mkdir_p!(Path.join([parked, "analytics", "runs", "legacy"]))
+      File.mkdir_p!(Path.join([parked, "analytics", "runs", "current"]))
       File.mkdir_p!(Path.join([parked, "meta", "retros"]))
       File.write!(Path.join([parked, "builds", "legacy-pack", "pack.json"]), "legacy build\n")
       File.write!(Path.join([parked, "analytics", "runs", "legacy", "summary.json"]), "legacy analytics\n")
+      File.write!(Path.join([parked, "analytics", "runs", "current", "summary.json"]), "legacy collision\n")
       File.write!(Path.join([parked, "meta", "findings.ndjson"]), "{\"slug\":\"legacy\"}\n")
       File.write!(Path.join([parked, "meta", "retros", "legacy.md"]), "legacy retrospective\n")
 
@@ -136,6 +138,8 @@ defmodule Aiur.RepoBaseTest do
       assert File.read!(Path.join([node, "builds", "current-pack", "pack.json"])) == "current build\n"
       assert File.read!(Path.join([node, "analytics", "runs", "legacy", "summary.json"])) == "legacy analytics\n"
       assert File.read!(Path.join([node, "analytics", "runs", "current", "summary.json"])) == "current analytics\n"
+      assert [collision] = Path.wildcard(Path.join([node, "analytics", "runs", "current", "summary.json.migrated-*"]))
+      assert File.read!(collision) == "legacy collision\n"
       assert File.read!(Path.join([node, "meta", "retros", "legacy.md"])) == "legacy retrospective\n"
       assert File.read!(Path.join([node, "meta", "retros", "current.md"])) == "current retrospective\n"
 
