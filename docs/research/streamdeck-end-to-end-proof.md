@@ -121,7 +121,7 @@ the table above.
 
 ## Hardware applicability
 
-Hardware steps are conditional on the result of [#1342](https://github.com/its-everdred/aiur/issues/1342).
+Hardware steps are conditional on the result of [#1342](https://github.com/aiur-team/aiur/issues/1342).
 The current #1342 spike record is a provisional architecture go but an
 implementation/device-I/O no-go in
 the agent sandbox: enumeration succeeded, while opening `/dev/hidraw10` did
