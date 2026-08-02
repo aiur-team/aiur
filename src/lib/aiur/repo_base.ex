@@ -100,9 +100,9 @@ defmodule Aiur.RepoBase do
   """
   @spec setup_state(String.t(), Path.t() | nil) :: :ok | {:error, term()}
   def setup_state(repo_url, source_root \\ nil) when is_binary(repo_url) do
-    with :ok <- ensure_state_tree(repo_url),
-         :ok <- import_legacy_retrospective(repo_url, source_root) do
-      :ok
+    case ensure_state_tree(repo_url) do
+      :ok -> import_legacy_retrospective(repo_url, source_root)
+      {:error, _reason} = error -> error
     end
   end
 
@@ -648,20 +648,23 @@ defmodule Aiur.RepoBase do
     source = Path.join([source_root, "docs", "executor", "hourly-retrospectives.md"])
 
     if File.regular?(source) do
-      with {:ok, contents} <- File.read(source) do
-        name = "legacy-" <> (:crypto.hash(:sha256, contents) |> Base.encode16(case: :lower) |> binary_part(0, 12)) <> ".md"
-        destination = Path.join(retros_path(repo_url), name)
-
-        case File.copy(source, destination) do
-          {:ok, _bytes} -> :ok
-          {:error, :eexist} -> :ok
-          {:error, reason} -> {:error, {:legacy_retrospective_import_failed, source, reason}}
-        end
-      else
+      case File.read(source) do
+        {:ok, contents} -> copy_legacy_retrospective(repo_url, source, contents)
         {:error, reason} -> {:error, {:legacy_retrospective_read_failed, source, reason}}
       end
     else
       :ok
+    end
+  end
+
+  defp copy_legacy_retrospective(repo_url, source, contents) do
+    name = "legacy-" <> (:crypto.hash(:sha256, contents) |> Base.encode16(case: :lower) |> binary_part(0, 12)) <> ".md"
+    destination = Path.join(retros_path(repo_url), name)
+
+    case File.copy(source, destination) do
+      {:ok, _bytes} -> :ok
+      {:error, :eexist} -> :ok
+      {:error, reason} -> {:error, {:legacy_retrospective_import_failed, source, reason}}
     end
   end
 

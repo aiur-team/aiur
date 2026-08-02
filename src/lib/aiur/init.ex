@@ -76,13 +76,15 @@ defmodule Aiur.Init do
         effective_target = Resume.maybe_migrate_layout(io, deps, kind, location, target)
         tracker = Resume.tracker_from_config(deps, config)
 
-        with :ok <- deps.setup_repo_state.(tracker) do
-          Resume.backfill_missing_sections(io, deps, location, tracker, config, effective_target)
-          Prewarm.maybe_resume_prewarm(io, deps, tracker, config)
-          Aiur.Init.Codeowners.setup_codeowners(io, deps, tracker)
-          provision(io, deps, tracker, Resume.agents_from_config(config), rate_limit_pair(config))
-        else
-          {:error, reason} -> {:error, "Failed to create repository state: #{inspect(reason)}"}
+        case deps.setup_repo_state.(tracker) do
+          :ok ->
+            Resume.backfill_missing_sections(io, deps, location, tracker, config, effective_target)
+            Prewarm.maybe_resume_prewarm(io, deps, tracker, config)
+            Aiur.Init.Codeowners.setup_codeowners(io, deps, tracker)
+            provision(io, deps, tracker, Resume.agents_from_config(config), rate_limit_pair(config))
+
+          {:error, reason} ->
+            {:error, "Failed to create repository state: #{inspect(reason)}"}
         end
 
       {:error, reason} ->
@@ -96,59 +98,61 @@ defmodule Aiur.Init do
     tracker = Questions.prompt_tracker(io, deps, location)
     tracker = Aiur.Init.BotAccount.maybe_prompt(io, deps, tracker)
 
-    with :ok <- deps.setup_repo_state.(tracker) do
-      agents = Questions.prompt_agents(io)
-      routing = Questions.prompt_routing(io, agents)
-      rate_limit_fallback = Questions.prompt_rate_limit_fallback(io, agents)
-      permission_mode = Questions.prompt_permission_mode(io)
-      workspace_root = io.input.("Where should agents work?", Questions.workspace_default(tracker), nil)
-      max_agents = Questions.prompt_int(io, "Max concurrent agents", 10, 1)
-      max_turns = Questions.prompt_max_turns(io)
-      max_duration = Questions.prompt_max_duration(io)
-      pre_warmed = Questions.prompt_int(io, "How many opencode sessions would you like to pre-warm?", 3, 0)
-      polling = Questions.prompt_int(io, "How often should aiur check the tracker for new work? (seconds)", 30, 1)
-      prompt_file = if location == :global, do: "", else: io.input.("Per-repo agent prompt file", @prompt_basename, nil)
-      prewarm = Prewarm.prompt_prewarm(io, deps, location)
-      Prewarm.maybe_first_prewarm(io, deps, tracker, prewarm)
-      alerts = Alerts.prompt_alerts(io, deps, target)
+    case deps.setup_repo_state.(tracker) do
+      :ok ->
+        agents = Questions.prompt_agents(io)
+        routing = Questions.prompt_routing(io, agents)
+        rate_limit_fallback = Questions.prompt_rate_limit_fallback(io, agents)
+        permission_mode = Questions.prompt_permission_mode(io)
+        workspace_root = io.input.("Where should agents work?", Questions.workspace_default(tracker), nil)
+        max_agents = Questions.prompt_int(io, "Max concurrent agents", 10, 1)
+        max_turns = Questions.prompt_max_turns(io)
+        max_duration = Questions.prompt_max_duration(io)
+        pre_warmed = Questions.prompt_int(io, "How many opencode sessions would you like to pre-warm?", 3, 0)
+        polling = Questions.prompt_int(io, "How often should aiur check the tracker for new work? (seconds)", 30, 1)
+        prompt_file = if location == :global, do: "", else: io.input.("Per-repo agent prompt file", @prompt_basename, nil)
+        prewarm = Prewarm.prompt_prewarm(io, deps, location)
+        Prewarm.maybe_first_prewarm(io, deps, tracker, prewarm)
+        alerts = Alerts.prompt_alerts(io, deps, target)
 
-      fills =
-        Templates.build_fills(%{
-          tracker: tracker,
-          agents: agents,
-          routing: routing,
-          rate_limit_fallback: rate_limit_fallback,
-          permission_mode: permission_mode,
-          workspace_root: workspace_root,
-          max_agents: max_agents,
-          max_turns: max_turns,
-          max_duration: max_duration,
-          pre_warmed: pre_warmed,
-          polling: polling,
-          prompt_file: prompt_file,
-          prewarm: prewarm,
-          alerts: alerts
-        })
+        fills =
+          Templates.build_fills(%{
+            tracker: tracker,
+            agents: agents,
+            routing: routing,
+            rate_limit_fallback: rate_limit_fallback,
+            permission_mode: permission_mode,
+            workspace_root: workspace_root,
+            max_agents: max_agents,
+            max_turns: max_turns,
+            max_duration: max_duration,
+            pre_warmed: pre_warmed,
+            polling: polling,
+            prompt_file: prompt_file,
+            prewarm: prewarm,
+            alerts: alerts
+          })
 
-      config_yaml = Templates.fill_template(deps.read_example.(), fills)
+        config_yaml = Templates.fill_template(deps.read_example.(), fills)
 
-      case deps.write_config.(target, config_yaml) do
-        {:ok, path} ->
-          io.puts.(["Created: ", Format.dim(path)])
-          Scaffold.ensure_prompt_file(io, deps, path, prompt_file, Map.get(tracker, :repo))
-          Scaffold.ensure_aiurhooks(io, deps, path)
-          Alerts.ensure_alerts(io, deps, path, alerts)
-          Prewarm.ensure_prewarm_file(io, deps, path, prewarm)
-          Scaffold.setup_env(io, deps, tracker)
-          Scaffold.maybe_offer_gitignore(io, deps, location)
-          Aiur.Init.Codeowners.setup_codeowners(io, deps, tracker)
-          provision(io, deps, tracker, agents)
+        case deps.write_config.(target, config_yaml) do
+          {:ok, path} ->
+            io.puts.(["Created: ", Format.dim(path)])
+            Scaffold.ensure_prompt_file(io, deps, path, prompt_file, Map.get(tracker, :repo))
+            Scaffold.ensure_aiurhooks(io, deps, path)
+            Alerts.ensure_alerts(io, deps, path, alerts)
+            Prewarm.ensure_prewarm_file(io, deps, path, prewarm)
+            Scaffold.setup_env(io, deps, tracker)
+            Scaffold.maybe_offer_gitignore(io, deps, location)
+            Aiur.Init.Codeowners.setup_codeowners(io, deps, tracker)
+            provision(io, deps, tracker, agents)
 
-        {:error, reason} ->
-          {:error, "Failed to write #{Path.basename(target)}: #{inspect(reason)}"}
-      end
-    else
-      {:error, reason} -> {:error, "Failed to create repository state: #{inspect(reason)}"}
+          {:error, reason} ->
+            {:error, "Failed to write #{Path.basename(target)}: #{inspect(reason)}"}
+        end
+
+      {:error, reason} ->
+        {:error, "Failed to create repository state: #{inspect(reason)}"}
     end
   end
 

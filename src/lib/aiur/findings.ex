@@ -16,10 +16,14 @@ defmodule Aiur.Findings do
   @doc "Appends one validated finding with `O_APPEND` semantics."
   @spec append(String.t(), record()) :: :ok | {:error, term()}
   def append(repo_url, finding) when is_binary(repo_url) and is_map(finding) do
-    with :ok <- RepoBase.ensure_state_tree(repo_url),
-         {:ok, encoded} <- encode(finding),
-         :ok <- append_line(RepoBase.findings_path(repo_url), encoded <> "\n") do
-      :ok
+    case RepoBase.ensure_state_tree(repo_url) do
+      :ok ->
+        with {:ok, encoded} <- encode(finding) do
+          append_line(RepoBase.findings_path(repo_url), encoded <> "\n")
+        end
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -28,18 +32,9 @@ defmodule Aiur.Findings do
   def all(opts \\ []) do
     scope = Keyword.get(opts, :scope)
 
-    with :ok <- validate_scope_filter(scope) do
-      [RepoBase.repo_path("placeholder/placeholder"), "..", "..", "*", "*", "meta", "findings.ndjson"]
-      |> Path.join()
-      |> Path.expand()
-      |> Path.wildcard()
-      |> Enum.sort()
-      |> Enum.reduce_while({:ok, []}, fn path, {:ok, findings} ->
-        case read_file(path) do
-          {:ok, records} -> {:cont, {:ok, findings ++ filter_scope(records, scope)}}
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
-      end)
+    case validate_scope_filter(scope) do
+      :ok -> read_all(scope)
+      {:error, _reason} = error -> error
     end
   end
 
@@ -70,9 +65,8 @@ defmodule Aiur.Findings do
          :ok <- required_string(finding, "summary"),
          :ok <- validate_evidence(Map.get(finding, "evidence")),
          :ok <- required_string(finding, "cost"),
-         :ok <- validate_ticket(Map.get(finding, "ticket")),
-         :ok <- validate_status(Map.get(finding, "status")) do
-      :ok
+         :ok <- validate_ticket(Map.get(finding, "ticket")) do
+      validate_status(Map.get(finding, "status"))
     end
   end
 
@@ -110,19 +104,44 @@ defmodule Aiur.Findings do
     |> File.stream!([], :line)
     |> Stream.with_index(1)
     |> Enum.reduce_while({:ok, []}, fn {line, line_number}, {:ok, records} ->
-      case Jason.decode(String.trim_trailing(line, "\n")) do
-        {:ok, finding} when is_map(finding) ->
-          case validate(finding) do
-            :ok -> {:cont, {:ok, records ++ [finding]}}
-            {:error, reason} -> {:halt, {:error, {:invalid_finding_record, path, line_number, reason}}}
-          end
-
-        _ ->
-          {:halt, {:error, {:invalid_finding_record, path, line_number, "invalid JSON"}}}
+      case decode_line(line, path, line_number) do
+        {:ok, finding} -> {:cont, {:ok, records ++ [finding]}}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   rescue
     error in File.Error -> {:error, {:finding_read_failed, path, error.reason}}
+  end
+
+  defp read_all(scope) do
+    finding_paths()
+    |> Enum.reduce_while({:ok, []}, fn path, {:ok, findings} ->
+      case read_file(path) do
+        {:ok, records} -> {:cont, {:ok, findings ++ filter_scope(records, scope)}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp finding_paths do
+    [RepoBase.repo_path("placeholder/placeholder"), "..", "..", "*", "*", "meta", "findings.ndjson"]
+    |> Path.join()
+    |> Path.expand()
+    |> Path.wildcard()
+    |> Enum.sort()
+  end
+
+  defp decode_line(line, path, line_number) do
+    case Jason.decode(String.trim_trailing(line, "\n")) do
+      {:ok, finding} when is_map(finding) ->
+        case validate(finding) do
+          :ok -> {:ok, finding}
+          {:error, reason} -> {:error, {:invalid_finding_record, path, line_number, reason}}
+        end
+
+      _ ->
+        {:error, {:invalid_finding_record, path, line_number, "invalid JSON"}}
+    end
   end
 
   defp filter_scope(records, nil), do: records
